@@ -1,0 +1,9 @@
+row	source	advisor_MB	head_MB	us	advisor_GBs	head_GBs	advisor_pct_peak	head_pct_peak	verdict
+M4 census T2c gate+up	gpu-timer	368.1	347.60	1569.80	234.5	221.4	87.9	83.0	possible
+M4 injection T2c gate+up	duplicate-inject	368.1	347.60	1183.81	310.9	293.6	116.5	110.1	IMPOSSIBLE
+M4 census T2d down+shared	gpu-timer	184.0	195.53	898.80	204.7	217.5	76.7	81.5	possible
+M4 injection T2d	duplicate-inject	184.0	195.53	554.89	331.6	352.4	124.3	132.1	IMPOSSIBLE
+M4 census T0b QKV	gpu-timer	411.3	411.30	1722.30	238.8	238.8	89.5	89.5	possible
+M4 injection T0b QKV	duplicate-inject	411.3	411.30	1276.01	322.3	322.3	120.8	120.8	IMPOSSIBLE
+M5 receipt R3-R2 routed	receipt-diff	552.1	521.40	1010.67	546.3	515.9	89.5	84.5	possible
+M5 receipt R2-R1 qkvo	receipt-diff	802.2	735.78	1230.70	651.8	597.9	106.8	97.9	possible
