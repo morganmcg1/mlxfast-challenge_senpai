@@ -99,6 +99,159 @@ func routerBF16CompanionFusedAdversarialDifferentialWhenRuntimeTestsAreEnabled()
     }
 }
 
+@Test
+func routerBF16CompanionMicrobenchmarkWhenRuntimeTestsAreEnabled() {
+    guard ProcessInfo.processInfo.environment["MLXFAST_RUN_MLX_RUNTIME_TESTS"] == "1" else {
+        return
+    }
+
+    let data = makeRouterBF16FusedData()
+    let logits = MLXArray(
+        (0..<256).map { index in Float((index * 73) % 257 - 128) / 16 },
+        [1, 1, 256]
+    ).asType(.bfloat16)
+    let correctionBias = MLXArray(
+        (0..<256).map { index in Float((index * 37) % 101 - 50) / 512 },
+        [256]
+    )
+
+    let baseline = routerFusedBaselineOutput(
+        data: data, logits: logits, correctionBias: correctionBias)
+    let candidate = routerFusedCandidateOutput(
+        data: data, logits: logits, correctionBias: correctionBias)
+    eval(baseline, candidate)
+    #expect(
+        view(baseline, dtype: .uint16).asArray(UInt16.self)
+            == view(candidate, dtype: .uint16).asArray(UInt16.self)
+    )
+
+    for _ in 0..<6 {
+        eval(routerFusedBaselineOutput(data: data, logits: logits, correctionBias: correctionBias))
+        eval(routerFusedCandidateOutput(data: data, logits: logits, correctionBias: correctionBias))
+    }
+
+    let repetitions = 6
+    let blockCount = 17
+    let orders: [(String, [Bool])] = [
+        ("ABBA", [false, true, true, false]),
+        ("BAAB", [true, false, false, true]),
+    ]
+
+    for (orderName, order) in orders {
+        var speedups = [Double]()
+        speedups.reserveCapacity(blockCount)
+        for block in 0..<blockCount {
+            var baselineSeconds = 0.0
+            var candidateSeconds = 0.0
+            for isCandidate in order {
+                let seconds: Double
+                if isCandidate {
+                    seconds = measureRouterFusedBatch(repetitions: repetitions) {
+                        routerFusedCandidateOutput(
+                            data: data, logits: logits, correctionBias: correctionBias)
+                    }
+                    candidateSeconds += seconds
+                } else {
+                    seconds = measureRouterFusedBatch(repetitions: repetitions) {
+                        routerFusedBaselineOutput(
+                            data: data, logits: logits, correctionBias: correctionBias)
+                    }
+                    baselineSeconds += seconds
+                }
+            }
+            let speedup = baselineSeconds / candidateSeconds
+            speedups.append(speedup)
+            print(String(
+                format: "ROUTER_BF16_MICROBENCH order=%@ block=%02d baseline_s=%.9f candidate_s=%.9f speedup=%.6f",
+                orderName, block, baselineSeconds / 2, candidateSeconds / 2, speedup
+            ))
+        }
+
+        let medianSpeedup = median(speedups)
+        let mad = median(speedups.map { abs($0 - medianSpeedup) })
+        let gain = medianSpeedup - 1
+        let samples = speedups.map { String(format: "%.6f", $0) }.joined(separator: ",")
+        print(String(
+            format: "ROUTER_BF16_MICROBENCH_SUMMARY order=%@ blocks=%d repetitions=%d median_speedup=%.6f mad=%.6f gain=%.6f samples=[%@]",
+            orderName, blockCount, repetitions, medianSpeedup, mad, gain, samples
+        ))
+        #expect(
+            medianSpeedup >= 1.003,
+            Comment(rawValue: "\(orderName) median speedup \(medianSpeedup) is below 1.003")
+        )
+        #expect(
+            gain > 2 * mad,
+            Comment(rawValue: "\(orderName) gain \(gain) is not greater than 2x MAD \(mad)")
+        )
+    }
+}
+
+private func routerFusedBaselineOutput(
+    data: RouterBF16FusedData,
+    logits: MLXArray,
+    correctionBias: MLXArray
+) -> MLXArray {
+    let router = lagunaDecodeRouterTop8OrdinalScoreTableForTesting(
+        logits: logits,
+        correctionBias: correctionBias,
+        normalizing: true
+    )
+    return lagunaRoutedSharedDownResidual(
+        routedActivated: data.routedActivated,
+        routedDownWeight: data.routedDownWeight,
+        routedDownScales: data.routedDownScales,
+        indices: router.0,
+        routerWeights: router.1,
+        sharedActivated: data.sharedActivated,
+        sharedDownWeight: data.sharedDownWeight,
+        sharedDownScales: data.sharedDownScales,
+        residual: data.residual
+    )
+}
+
+private func routerFusedCandidateOutput(
+    data: RouterBF16FusedData,
+    logits: MLXArray,
+    correctionBias: MLXArray
+) -> MLXArray {
+    let router = lagunaDecodeRouterTop8OrdinalScoreTableBF16ForTesting(
+        logits: logits,
+        correctionBias: correctionBias
+    )
+    return lagunaRoutedSharedDownResidual(
+        routedActivated: data.routedActivated,
+        routedDownWeight: data.routedDownWeight,
+        routedDownScales: data.routedDownScales,
+        indices: router.0,
+        routerWeights: router.2,
+        sharedActivated: data.sharedActivated,
+        sharedDownWeight: data.sharedDownWeight,
+        sharedDownScales: data.sharedDownScales,
+        residual: data.residual
+    )
+}
+
+private func measureRouterFusedBatch(
+    repetitions: Int,
+    makeOutput: () -> MLXArray
+) -> Double {
+    let start = DispatchTime.now().uptimeNanoseconds
+    for _ in 0..<repetitions {
+        eval(makeOutput())
+    }
+    let elapsed = DispatchTime.now().uptimeNanoseconds - start
+    return Double(elapsed) / 1_000_000_000 / Double(repetitions)
+}
+
+private func median(_ values: [Double]) -> Double {
+    let sorted = values.sorted()
+    let middle = sorted.count / 2
+    if sorted.count.isMultiple(of: 2) {
+        return (sorted[middle - 1] + sorted[middle]) / 2
+    }
+    return sorted[middle]
+}
+
 private struct RouterBF16FusedData {
     let routedActivated: MLXArray
     let routedDownWeight: MLXArray
