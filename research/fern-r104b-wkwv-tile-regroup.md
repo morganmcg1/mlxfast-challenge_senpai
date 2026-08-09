@@ -23,6 +23,7 @@ All `matmul.cpp` line numbers in this report are on the **clean base**
 | new physical evidence | **the packing mechanism is real and worth 1.4613× on the incumbent geometry**, measured directly (§7) |
 | my own prior model | **refuted by my own measurement** (§7.4) |
 | local-timing hygiene | an identical-code local pair showed **+0.9 % "score"** on a lever that cannot execute here — quantified and disowned (§4.4) |
+| advisor feedback fb1/fb2/fb3 | each answered explicitly, including **one disagreement with the assignment's own edit site** that I want arbitrated (§12) |
 
 Net: I did not spend a receipt (budget was zero). I produced (a) two
 corrections to the assignment's premises, (b) a shape census that kills one
@@ -830,7 +831,101 @@ reason the receipt cannot be replaced by arithmetic.
 
 ---
 
-## 12. Reproduction
+## 12. Advisor feedback — disposition
+
+Three feedback comments landed on #585 before I wrote this. Each is answered
+here explicitly rather than absorbed silently.
+
+### 12.1 fb1 — independent derivation, and surface disagreements loudly
+
+`r104-b-fb1-tanjiro-census-covers-your-N-C`. I did **not** read any 104-C /
+PR #586 output; §1 and §2 are derived from `matmul.cpp` and the kernel headers
+at base `9527bb72` by me. The disagreements I am obliged to surface rather than
+reconcile quietly:
+
+1. 🔴 **With the assignment itself.** The assignment locates
+   `darkbloom_steel_prefill_tile`'s tile block at `matmul.cpp:664-684` and asks
+   me to widen its `K > 4096` clause. That block is **inside
+   `steel_gemm_splitk_axpby_nax` (:645)** — the split-K path. wk/wv provably
+   does **not** enter split-K (§1.2: the `2·max(M,N) > K` predicate is an exact
+   tie and fails), so widening that clause by any amount cannot reach wk/wv.
+   The lever has to live in `steel_matmul_regular_axpby_nax` (:186-221), and
+   that is where I put it. §1.4. This is the disagreement I most want
+   arbitrated, because the assignment's proposed edit site is unreachable for
+   the target shape.
+2. **With the archive, twice.** `research/routing-verification.md:22-24` and
+   `research/maple-tanjiro-nax-skinny-tile.md:149-151` both state that M = 1
+   decode reaches regular-NAX. It does not — the `min(M, N) == 1` gemv shortcut
+   at `matmul.cpp:1252` diverts it first, and the independent decode kernel
+   census (`maple-tanjiro-pr73-decode-kernel-census.md:341-366`) contains no
+   `steel_gemm_*` at all. And `nax-skinny-tile.md:147` gives `g_proj` as
+   N = 128; it is N = 64/48. §2.1.
+3. **With myself.** §7.4 — my own static occupancy model predicted this lever
+   buys nothing, and my own measurement refuted it.
+
+If 104-C's census contradicts §2, take §2 as the thing to attack: it is a
+complete enumeration against one predicate, so a single counterexample shape
+kills it.
+
+### 12.2 fb2 — no wk/wv millisecond figure the census has not paid for
+
+`r104-b-fb2-do-not-quote-a-wkwv-millisecond-figure-yet`. Honoured, and the
+constraint is what §2 exists to satisfy. The ≈5.6–5.8 ms in §8.5 is **not** a
+share of the 3–6 ms tail-wide envelope and is **not** a roofline subtraction:
+it is 167.50 GFLOP measured over the 78 dispatches of *this exact shape*, taken
+as a fraction of the 1502.77 GFLOP dense-prefill census I built in §2, and
+cross-checked against the implied ≈29 TFLOP/s. It is traceable to a measurement
+of that shape, which is the bar fb2 set. It remains an upper bound on what the
+lever can pay: the lever recovers packing loss inside those 5.6–5.8 ms, not the
+whole slice, which is why §8.5's central case is 1.26 ms and not 5.8.
+
+On the concentrated-vs-diffuse question (104-C's N-B): §2 is evidence **for**
+concentration *within the capturable set*, but in the narrowest possible sense —
+of 237 dense prefill dispatches, exactly **one class (78 dispatches, 11.1 % of
+dense prefill FLOP)** can be captured at all. If 104-C returns "diffuse", my
+sizing does not merely shrink, it is void: a diffuse deficit means the wk/wv
+slice carries no special packing loss, §8.5's transfer fractions all go to zero,
+and the correct action is to close the branch rather than spend the receipt.
+I am stating that dependency as a preregistered kill condition, not a caveat.
+
+### 12.3 fb3 — the kill switch, and why it does not survive contact with the M5
+
+`r104-b-fb3-gate-your-tile-change-so-the-binary-is-byte-identical`. Implemented
+exactly as suggested: `darkbloom_nax_skinny_tile()` is a sibling of
+`darkbloom_steel_prefill_tile()` with the same frozen-`static` `getenv` shape
+(§3, §3.5). Local A/B is therefore one binary and one environment variable.
+
+🔴 **But the trick does not extend to the ranked receipt**, and this is worth
+saying plainly because fb3's motivation was to reduce receipt-adjacent noise.
+The official runner takes a *source snapshot*; there is no way to set
+`DARKBLOOM_NAX_SKINNY_TILE` on the M5. So a receipt arm requires flipping the
+default in source (§8.1) — a different snapshot, not a different environment.
+The kill switch buys clean local A/B and safe merge-inert-ness; it buys nothing
+on the instrument that actually decides this lever.
+
+Two consequences I did honour:
+
+- **One process per arm.** The `static` freezes at first touch, so §4.3 and
+  §4.4 are two separate processes, not one process toggled.
+- **No σ_launch assumption in any arithmetic.** I ran no local timing arm for
+  the lever, so nothing here is sized against 48 µs/step or against frieren's
+  forthcoming #571 number. §8's power arithmetic is sized entirely against the
+  *receipt* channel's own `sd(cand_pre) = 0.5802 µs/tok`.
+
+One incidental datum for #571, offered with its limitations attached: §4.3 and
+§4.4 are two relaunches whose only source difference is a markdown file, and
+run 2 emitted **zero** `Compiling` lines (`grep -c Compiling` = 0), so no
+translation unit was rebuilt between them. They differed by **1.3 % on both
+prefill and decode s/tok**. That is a cross-process, same-build swing on
+`--local-iterate` — the quantity #571 is after — but it is **n = 2**, on M4,
+on the whole-benchmark wall rather than per-step, and I did **not** capture a
+rule-75 sha256 of the worker product before leg 1, so I cannot claim byte
+identity, only that nothing recompiled. Treat it as a hint that the local
+channel is wide, not as a measurement of σ_launch.
+
+---
+
+## 13. Reproduction
 
 ```bash
 # occupancy / grouping probe (Parts 1-4)
