@@ -362,6 +362,31 @@ def v10_extra_barrier_before_load(sliding):
     return rotate_loop(s)
 
 
+def _pre_barrier_dose(sliding, cond, rest_cond):
+    """Pre-barrier load issued only by simdgroups matching `cond`."""
+    s = hoist_pointers(sliding)
+    early = PRE_DEVICE_LOAD.replace(
+        "if (!pre_sub) {", "if (!pre_sub && %s) {" % cond, 1)
+    late = PRE_TG_LOAD.rstrip("\n") + " else if (%s) {\n" % rest_cond + \
+        PRE_DEVICE_LOAD.split("{", 1)[1]
+    s = sub1(s, "\n" + BARRIER + "\nif ((head0 % gqa) == 0",
+             "\n" + PRE_DECL + early + BARRIER + late
+             + "\nif ((head0 % gqa) == 0", "prologue insertion point")
+    return rotate_loop(s)
+
+
+@variant
+def v11_pre_barrier_8_simdgroups(sliding):
+    """Dose-response point: 8 of the 28 idle simdgroups load early."""
+    return _pre_barrier_dose(sliding, "sg >= 24", "sg < 24")
+
+
+@variant
+def v12_pre_barrier_1_simdgroup(sliding):
+    """Dose-response point: a single idle simdgroup loads early."""
+    return _pre_barrier_dose(sliding, "sg == 31", "sg != 31")
+
+
 def main():
     base = pathlib.Path(sys.argv[1]).read_text()
     outdir = pathlib.Path(sys.argv[2])
