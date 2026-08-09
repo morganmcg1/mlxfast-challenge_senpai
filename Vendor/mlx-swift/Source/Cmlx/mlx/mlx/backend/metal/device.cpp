@@ -1,5 +1,6 @@
 // Copyright © 2023-2024 Apple Inc.
 
+#include <cstdio>
 #include <cstdlib>
 #include <sstream>
 
@@ -27,6 +28,43 @@ struct hash<NS::SharedPtr<T>> {
 };
 
 } // namespace std
+
+namespace {
+
+// LOCAL-ONLY research instrumentation. device.cpp/.h are outside
+// benchmark.json editablePaths, so none of this can reach a submitted
+// candidate. Emits one `GPUPROF <gpu_start_s> <gpu_end_s> <nops>
+// <input_bytes> <name|name|...>` line per command buffer on stderr, which is
+// the format research/prefill_probe.py parses.
+bool darkbloom_gpu_profile() {
+  static const bool enabled = [] {
+    const char* s = std::getenv("DARKBLOOM_GPU_PROFILE");
+    return s != nullptr && s[0] == '1';
+  }();
+  return enabled;
+}
+
+// One command buffer per dispatch, so every kernel gets its own GPU timestamp
+// instead of a fused range shared by up to max_ops_per_buffer primitives.
+bool darkbloom_gpu_profile_split() {
+  static const bool enabled = [] {
+    const char* s = std::getenv("DARKBLOOM_GPU_PROFILE_SPLIT");
+    return s != nullptr && s[0] == '1';
+  }();
+  return enabled;
+}
+
+std::mutex& darkbloom_name_mtx() {
+  static std::mutex m;
+  return m;
+}
+
+std::unordered_map<const void*, std::string>& darkbloom_kernel_names() {
+  static std::unordered_map<const void*, std::string> m;
+  return m;
+}
+
+} // namespace
 
 namespace mlx::core::metal {
 
@@ -481,12 +519,48 @@ void CommandEncoder::wait_event(
   wait_events_.push_back(std::move(event));
 }
 
+void CommandEncoder::prof_note_kernel(MTL::ComputePipelineState* kernel) {
+  if (!darkbloom_gpu_profile()) {
+    return;
+  }
+  std::lock_guard lk(darkbloom_name_mtx());
+  auto& names = darkbloom_kernel_names();
+  auto it = names.find(kernel);
+  prof_names_.push_back(it == names.end() ? std::string("unknown") : it->second);
+}
+
 bool CommandEncoder::needs_commit() const {
+  if (darkbloom_gpu_profile_split()) {
+    return buffer_ops_ > 0;
+  }
   auto [max_ops, max_mb] = device_.get_max_ops_mb_per_buffer();
   return (buffer_ops_ > max_ops) || ((buffer_sizes_ >> 20) > max_mb);
 }
 
 void CommandEncoder::commit(std::function<void()> completion) {
+  if (darkbloom_gpu_profile()) {
+    buffer_->addCompletedHandler([names = std::move(prof_names_),
+                                  nops = buffer_ops_,
+                                  nbytes = buffer_sizes_](
+                                     MTL::CommandBuffer* cbuf) {
+      std::string joined;
+      for (size_t i = 0; i < names.size(); ++i) {
+        if (i != 0) {
+          joined += "|";
+        }
+        joined += names[i];
+      }
+      fprintf(
+          stderr,
+          "GPUPROF %.9f %.9f %d %zu %s\n",
+          cbuf->GPUStartTime(),
+          cbuf->GPUEndTime(),
+          nops,
+          nbytes,
+          joined.c_str());
+    });
+    prof_names_.clear();
+  }
   buffer_->addCompletedHandler(
       [&error_ = error_,
        wait_events = std::move(wait_events_),
@@ -836,6 +910,11 @@ MTL::ComputePipelineState* Device::get_kernel_(
 
   // Add kernel to cache
   kernel_map_.insert({hash_name, kernel});
+
+  if (darkbloom_gpu_profile()) {
+    std::lock_guard lk(darkbloom_name_mtx());
+    darkbloom_kernel_names()[kernel.get()] = hash_name;
+  }
 
   return kernel.get();
 }
