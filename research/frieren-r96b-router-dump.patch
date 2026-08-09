@@ -1,0 +1,71 @@
+diff --git a/Sources/MLXFastModel/LagunaRuntimeLayers.swift b/Sources/MLXFastModel/LagunaRuntimeLayers.swift
+index 24f61cd..395622b 100644
+--- a/Sources/MLXFastModel/LagunaRuntimeLayers.swift
++++ b/Sources/MLXFastModel/LagunaRuntimeLayers.swift
+@@ -2295,6 +2295,41 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
+     }
+ }
+ 
++// MARK: - r96-b research instrumentation (reverted before any timing work)
++
++private let r96DumpDir = ProcessInfo.processInfo.environment["DARKBLOOM_R96B_DUMP_DIR"]
++private let r96DumpMaxCalls = 512
++
++/// BF16 -> FP32 is exact, so the FP32 payload below recovers the BF16 bit
++/// pattern as the high 16 bits of each word.
++private func r96F32Data(_ a: MLXArray) -> Data {
++    a.asType(.float32).asArray(Float.self).withUnsafeBufferPointer { Data(buffer: $0) }
++}
++
++func r96DumpRouterDecode(
++    layer: Int, call: inout Int,
++    normalized: MLXArray, logits: MLXArray,
++    routerWeight: MLXArray, correctionBias: MLXArray
++) {
++    guard let dir = r96DumpDir, call < r96DumpMaxCalls else { return }
++    let tag = String(format: "%02d", layer)
++    let actPath = "\(dir)/act_L\(tag).bin"
++    if call == 0 {
++        var w = r96F32Data(routerWeight)
++        w.append(r96F32Data(correctionBias))
++        try? w.write(to: URL(fileURLWithPath: "\(dir)/w_L\(tag).bin"))
++        FileManager.default.createFile(atPath: actPath, contents: nil)
++    }
++    var rec = r96F32Data(normalized)
++    rec.append(r96F32Data(logits))
++    if let fh = FileHandle(forWritingAtPath: actPath) {
++        fh.seekToEndOfFile()
++        fh.write(rec)
++        try? fh.close()
++    }
++    call += 1
++}
++
+ // MARK: - Decoder Layer
+ 
+ final class LagunaRuntimeDecoderLayer: Module {
+@@ -2305,7 +2340,12 @@ final class LagunaRuntimeDecoderLayer: Module {
+ 
+     let attentionType: LagunaLayerType
+ 
++    /// RESEARCH ONLY (r96-b Stage 1). Reverted before any timing work.
++    let r96LayerIdx: Int
++    var r96DumpCalls: Int = 0
++
+     init(_ config: LagunaConfig, layerIdx: Int) {
++        self.r96LayerIdx = layerIdx
+         self._selfAttn.wrappedValue = LagunaRuntimeAttention(config, layerIdx: layerIdx)
+ 
+         if config.isSparse(layer: layerIdx) {
+@@ -2360,6 +2400,11 @@ final class LagunaRuntimeDecoderLayer: Module {
+             normalized = fused.normalized
+             routerLogits = fused.routerLogits
+             routerKeys = fused.routerKeys
++            r96DumpRouterDecode(
++                layer: r96LayerIdx, call: &r96DumpCalls,
++                normalized: fused.normalized, logits: fused.routerLogits,
++                routerWeight: sparse.gate.weight,
++                correctionBias: sparse.gate.eScoreCorrectionBias)
+         } else if lagunaFusedResidualRMSNormEnabled,
+             x.dtype == .bfloat16, r.dtype == .bfloat16,
+             postAttentionLayerNorm.weight.dtype == .bfloat16,
