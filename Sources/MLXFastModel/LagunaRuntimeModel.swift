@@ -1528,10 +1528,10 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
                 attended + head0 * head_dim + sg * v_per_thread;
             device bfloat* pair_out1 =
                 attended + head1 * head_dim + sg * v_per_thread;
-            for (int p = 0; p < pair_planes; ++p) {
-                pair_out0[p] = static_cast<bfloat>(pair_o0[p]);
-                pair_out1[p] = static_cast<bfloat>(pair_o1[p]);
-            }
+            pair_out0[0] = static_cast<bfloat>(pair_o0[0]);
+            pair_out1[0] = static_cast<bfloat>(pair_o1[0]);
+            pair_out0[1] = static_cast<bfloat>(pair_o0[1]);
+            pair_out1[1] = static_cast<bfloat>(pair_o1[1]);
         }
 
         threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -1562,12 +1562,10 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
                 attended + head0 * head_dim + sg * v_per_thread;
             device bfloat* pair_out1 =
                 attended + head1 * head_dim + sg * v_per_thread;
-            for (int p = 0; p < pair_planes; ++p) {
-                pair_out0[pair_planes + p] =
-                    static_cast<bfloat>(pair_o0[pair_planes + p]);
-                pair_out1[pair_planes + p] =
-                    static_cast<bfloat>(pair_o1[pair_planes + p]);
-            }
+            pair_out0[2] = static_cast<bfloat>(pair_o0[2]);
+            pair_out1[2] = static_cast<bfloat>(pair_o1[2]);
+            pair_out0[3] = static_cast<bfloat>(pair_o0[3]);
+            pair_out1[3] = static_cast<bfloat>(pair_o1[3]);
         }
         """,
     header: """
@@ -2066,10 +2064,10 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
                 attended + head0 * head_dim + sg * v_per_thread;
             device bfloat* pair_out1 =
                 attended + head1 * head_dim + sg * v_per_thread;
-            for (int p = 0; p < pair_planes; ++p) {
-                pair_out0[p] = static_cast<bfloat>(pair_o0[p]);
-                pair_out1[p] = static_cast<bfloat>(pair_o1[p]);
-            }
+            pair_out0[0] = static_cast<bfloat>(pair_o0[0]);
+            pair_out1[0] = static_cast<bfloat>(pair_o1[0]);
+            pair_out0[1] = static_cast<bfloat>(pair_o0[1]);
+            pair_out1[1] = static_cast<bfloat>(pair_o1[1]);
         }
 
         threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -2100,12 +2098,10 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
                 attended + head0 * head_dim + sg * v_per_thread;
             device bfloat* pair_out1 =
                 attended + head1 * head_dim + sg * v_per_thread;
-            for (int p = 0; p < pair_planes; ++p) {
-                pair_out0[pair_planes + p] =
-                    static_cast<bfloat>(pair_o0[pair_planes + p]);
-                pair_out1[pair_planes + p] =
-                    static_cast<bfloat>(pair_o1[pair_planes + p]);
-            }
+            pair_out0[2] = static_cast<bfloat>(pair_o0[2]);
+            pair_out1[2] = static_cast<bfloat>(pair_o1[2]);
+            pair_out0[3] = static_cast<bfloat>(pair_o0[3]);
+            pair_out1[3] = static_cast<bfloat>(pair_o1[3]);
         }
         """,
     header: """
