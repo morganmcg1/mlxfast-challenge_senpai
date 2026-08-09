@@ -6,10 +6,14 @@ Written in response to the advisor HOLD on PR #543
 measurements taken against the old base be committed to a `research/*.md` file
 before work stops.
 
-**Base these numbers belong to:** `450953e5c8287bfa1f409addf568d7851458cf94`,
-i.e. `e510bb3d` plus one research-only document (zero submitted bytes; the
-advisor previously confirmed that move scientifically inert). **They do not
-transfer to `4f3108c4`.** `LagunaRuntimeLayers.swift` no longer exists on the
+**Base these numbers belong to:** the branch is rooted on
+`e510bb3d094a59ae2d4285d6da4d1ba5361a2b23` (verified: `git merge-base HEAD
+450953e5` = `e510bb3d`). The advisor confirmed the later `450953e5` move was
+scientifically inert — one research document, zero submitted bytes — and said no
+rebase was required, so I never took it. The submitted-surface comparisons I ran
+against `450953e5` are therefore valid for both, but the literal base of every
+measurement here is **`e510bb3d`**, which is exactly the base the HOLD names.
+**They do not transfer to `4f3108c4`.** `LagunaRuntimeLayers.swift` no longer exists on the
 new base and `LagunaRuntimeModel.swift` was rewritten by ±9716 and then +2928
 lines, so every line anchor and every kernel-identity claim below must be
 re-derived before reuse.
@@ -172,7 +176,7 @@ it is likely to transfer.
 - No further GPU spend on this tree. Nothing was mid-flight when the HOLD
   landed, so nothing had to be left to drain.
 - **I have not rebased**, per the explicit instruction. The branch still sits on
-  `450953e5`.
+  `e510bb3d`.
 - `research/fern-r98d-submission-note.md` is retained as a drafting artifact
   only and is marked at the top as never submitted.
 - Byte budget on the old base was `current=2899396/3000000 headroom=100604
