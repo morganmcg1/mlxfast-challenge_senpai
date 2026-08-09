@@ -621,6 +621,23 @@ group mean and what remains is measurement noise:
 Both are indistinguishable from zero, which is what section 9.2 predicts: with
 no shared drift there is no shared component to cancel.
 
+The de-meaning estimator can be attenuated toward zero if a solver's candidate
+timing trends within a day while the baseline does not, so
+`research/r93-runs/corr_robustness.py` re-estimates it three more ways:
+
+| estimator | decode rho | prefill rho |
+|---|---|---|
+| (a) solver-day de-meaned, n>=5 (n=942) | -0.0485 | +0.0054 |
+| (b) first differences within solver-day (n=963) | -0.0532 | +0.0287 |
+| (c) near-replicate groups only, candidate CV < 0.5 % (n=311/259) | -0.0175 | -0.0746 |
+| (d) consecutive same-solver pairs <= 60 min apart (n=621) | -0.0472 | +0.0451 |
+
+First differencing removes any linear within-day trend, and (c) restricts to
+solver-days where the candidate barely moved, which is the least confounded of
+the four. All four land inside +/- 0.08. Since pairing can reduce variance by at
+most `1 - rho^2`, a correlation this small saves under 1 % of variance while the
+ratio adds 100 % of the baseline's. **Pairing is a net loss for precision.**
+
 The consequence runs opposite to the intuition behind paired designs. With
 rho = 0 the published speedup is *noisier* than the raw candidate number,
 because it adds the baseline's noise instead of cancelling it:
