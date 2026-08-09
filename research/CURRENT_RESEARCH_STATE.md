@@ -243,9 +243,17 @@
   | #558 | nezuko | `maple-r100-c-router-weight-prefetch-restoration` / `r100-c-rev1` | ✅ **merged** → base `82b6a89b`; R3 restored, +4,186 B, free rider |
   | #566 | frieren | `maple-r102-a-splitk-decode-attention` / `r102-a-rev1` | ✅ **merged** → base `10005c80`; split-K NO-GO on both arms, **zero bytes submitted**, research-only |
 
-  **⚠️ As of this commit there are ZERO open maple PRs — all four students
-  (nezuko, tanjiro, frieren, fern) are idle.** That is the most expensive state
-  the campaign can be in; the round-103 slate below must be issued immediately.
+  **✅ All four students are now staffed** (was: zero open maple PRs, the most
+  expensive state the campaign can be in). Live round-103 board, all at base
+  `0f6862d0`:
+
+  | PR | student | assignment / revision | state |
+  |---|---|---|---|
+  | [#571](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/571) | frieren | `maple-r103-a-missing-microseconds-localize` / `r103-a-rev1` | wip |
+  | [#572](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/572) | tanjiro | `maple-r103-b-kernel-text-differential` / `r103-b-rev1` | wip |
+  | [#575](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/575) | nezuko | `maple-r103-c-lrm-comment-pool-rung2` / `r103-c-rev1` | wip, **merge-held** |
+  | [#576](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/576) | fern | `maple-r103-d-residual-provenance-and-power` / `r103-d-rev1` | wip |
+
   (PRs #563/#568/#569 belong to the **cedar** campaign and are not ours — do not
   act on them.)
 
@@ -259,37 +267,94 @@
   tree to diff against, so #548 rung 2 should be issued at the *end* of round
   103, not alongside it.
 
-- 🎯 **Round-103 slate (four arms, issued at base `10005c80`).** Priority is set
-  by the headline: 16–19 µs/step of decode is missing and unnamed, and that is
-  ~5× the next-largest quantified lever.
+- 🎯 **Round-103 slate — ALL FOUR ARMS ISSUED at base
+  `0f6862d099252d40a807df30abfbbd7c9cd596ae`.** #571 frieren, #572 tanjiro,
+  #575 nezuko, #576 fern. Priority is set by the headline: 16–19 µs/step of
+  decode is missing and unnamed, and that is ~5× the next-largest quantified
+  lever — **but #576 exists to test whether that headline survives contact with
+  the full receipt corpus.**
 
-  Arms A–C are the three disjoint halves of the missing-microseconds hunt:
-  **A measures where it went, B reads what changed in our code, C tests whether
-  the vendored carve did it.** D is the largest never-attacked pool.
+  Arms A, B and D are the three disjoint attacks on the missing microseconds:
+  **A measures where it went, B reads what changed in our code, D asks whether
+  the number is real at all.** C is the capacity release valve.
 
-  | arm | student | question | why now |
-  |---|---|---|---|
-  | **A** | frieren | **Is the 19 µs/step reproducible on M4, and which kernel owns it?** Build `30f752df` (Arm R tree) and `7861ceaa`; paired e2e ABBA decode first (does the gap exist off-M5 at all?); then an in-situ **per-kernel census at both revisions** on nezuko's ±0.43 µs/step position-matched rig, producing a per-kernel attribution table. | The headline is inferred from official receipts across different code. Nobody has ever put the two trees side by side on a GPU. Localisation to a kernel converts an unbounded diff-read into a bounded one. |
-  | **B** | tanjiro | **What changed in *our* code between Arm R and today?** Static differential on the **Sources/JIT side**: dump the exact MSL text of every decode-dispatched kernel + a `DARKBLOOM_TRACE_FUSION=1` dispatch trace (order, counts, TG sizes, buffer shapes) at both revisions and diff **kernel-by-kernel**. Rider: resolve the QKV `_idx_v1` / `_ns1` dormancy question from the same traced step. | #558 proved a top-level-*declaration* diff is too coarse — it found only R3, worth 0.012 %. Kernel text and dispatch order are the two surfaces nobody has diffed. Consumes A's table when it lands; does not block on it. |
-  | **C** | nezuko | **Is `f720e9e7` emitted-code-neutral?** Restore the 176,468 B of vendored comment content verbatim, then check compiled-Metal / AGX-ISA identity against current. If the ISA differs, price it by ABBA. | `sdpa_vector.h`, `quantized.cpp`, `jit_kernels.cpp` and `matmul.cpp` embed Metal source **verbatim** into JIT text (rule 74), so "comment-only" is a hypothesis, not a fact. `f720e9e7` is in the composed receipt's tree but **not** in the control `c6c66344`, so the +12.14 µs/step recovery is net of this carve. Cheapest decisive probe on the board. |
-  | **D** | fern | **Decode-step gap taxonomy (H_E / archive §11.1).** Zero-receipt M4 timeline capture separating (a) inter-dispatch gaps inside a command buffer, (b) the step-boundary bubble, (c) exposed small-kernel duration. Kill criterion: boundary gap < 30 µs **and** gap sum < 300 µs. | 249 µs/step of wall-minus-busy is the largest never-attacked pool on the board; the archive prices recovery of two thirds of a 150–400 µs bubble at **+1.8–4.8 % score**, honest floor ≈0.2 %. Every closure so far killed remedies for (a) only. fern already owns `research/fern_gap_*.{py,sh}`. |
+  | arm | student | PR | question | why now |
+  |---|---|---|---|---|
+  | **A** | frieren | [#571](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/571) | **Is the 19 µs/step reproducible on M4, and which kernel owns it?** Build `30f752df` (Arm R tree) and this base; paired e2e ABBA decode first (does the gap exist off-M5 at all?); then an in-situ **per-kernel census at both revisions** on nezuko's ±0.43 µs/step position-matched rig, producing a per-kernel attribution table. | The headline is inferred from official receipts across different code. Nobody has ever put the two trees side by side on a GPU. Localisation to a kernel converts an unbounded diff-read into a bounded one. |
+  | **B** | tanjiro | [#572](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/572) | **What changed in *our* code between Arm R and today?** Static differential on the **Sources/JIT side**: dump the exact MSL text of every decode-dispatched kernel + a `DARKBLOOM_TRACE_FUSION=1` dispatch trace (order, counts, TG sizes, buffer shapes) at both revisions and diff **kernel-by-kernel**. Riders: the QKV `_idx_v1` / `_ns1` dormancy question, and (optional, marginal-cost) a third-revision corpus dump testing `f720e9e7` on the **JIT** path. | #558 proved a top-level-*declaration* diff is too coarse — it found only R3, worth 0.012 %. Kernel text and dispatch order are the two surfaces nobody has diffed. Consumes A's table when it lands; does not block on it. |
+  | **C** | nezuko | [#575](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/575) | **Execute #548 rung 2** — the LRM literal-aware comment pool — with an **emitted-MSL-identity + metallib-identity** proof rather than a timing null. | Worth **0 % of score**; buys capacity. LRM is at **519,236 / 524,288 B ⇒ 5,052 B**, the binding constraint on round 104. Split-K's rung 2 was the only competing claimant and #566 killed it. nezuko authored the tool (rule 58). |
+  | **D** | fern | [#576](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/576) | **Is the 19 µs/step residual real?** Rung 0: verify our local `30f752df` really is the tree behind receipt `7ce1262d`, and our base the tree behind `e08d759f` — neither has ever been checked. Rung 1: re-estimate the residual from all 1,204 receipts with session/day structure and a **95 % CI**, instead of six hand-picked rows. | The whole round rests on one point estimate whose significance argument uses **n = 4 receipts of four different trees** as a noise proxy. Against corpus-wide σ(cand_dec) = 0.2939 % the residual is only **1.3 σ**. If the CI includes 0, A and B stand down. |
 
-  ❌ **Dropped from this slate by a rule-83 grep, before it was assigned:
-  "deepen the sliding-attention pipeline 4 → 6/8".** The archive
-  (`RESEARCH_ARCHIVE_through-round-91.md:4896` and `:6135`, PR #103) already
-  measured the depth ladder: **depth 4 = −1.039 %, depth 8 = +0.485 %**, against
-  a byte-identical-`Sources/` noise floor of +0.73 %. Depth 8 was *slower*. The
-  same archive block diagnoses both kernels as **issue/latency-bound at ≈90 % of
-  their issue-rate floor with ~84 of ~104 FP slot-equivalents pinned by
-  bit-exactness** — so the binding term is instruction issue, not memory-level
-  parallelism, and adding pipeline stages adds instructions. This is the first
-  arm rule 83 has killed, and it cost one grep instead of one student-round.
+  🛑 **Merge hold on #575.** It is review-ready-then-stop: it does not merge
+  until #571 and #572 report, so their source-level reference frame stays still.
+  This preserves the "#548 rung 2 at the *end* of round 103" ordering decision
+  while still using an otherwise-idle student. The work is the long pole; the
+  merge is not.
 
-  Queued alternates, in order: **#548 rung 2** (bytes, 0 % score); dependent-stage
-  folding / emission reordering (archive slate item C, **gated** on fern's arm D
-  showing drain-domination); splitting `LagunaRuntimeModel.swift` into multiple
-  files to dissolve the per-file cap permanently. **`lm_head` int3 is dead** —
-  the harness requires an exact token match.
+  ❌❌ **THREE arms were dropped by rule-83 greps before assignment this round.**
+  Rule 83 has now paid for itself many times over; a grep costs minutes, a
+  student-round costs a day.
+
+  1. **"Deepen the sliding-attention pipeline 4 → 6/8".** The archive
+     (`RESEARCH_ARCHIVE_through-round-91.md:4896` and `:6135`, PR #103) already
+     measured the depth ladder: **depth 4 = −1.039 %, depth 8 = +0.485 %**,
+     against a byte-identical-`Sources/` noise floor of +0.73 %. Depth 8 was
+     *slower*. The same block diagnoses both kernels as **issue/latency-bound at
+     ≈90 % of their issue-rate floor with ~84 of ~104 FP slot-equivalents pinned
+     by bit-exactness** — the binding term is instruction issue, not
+     memory-level parallelism, and pipeline stages add instructions.
+  2. **"Is `f720e9e7` emitted-code-neutral?" (the original arm C).** ~70 %
+     already answered by **#548 itself**: AOT `mlx.metallib` **bit-identical**
+     (sha256 `8e8b18af…`, 158,502,072 B, verified twice, holding even though
+     `rms_norm.metal` lost 37 lines and `arg_reduce.metal` 26), canonical digest
+     identical on **99/99 in-scope files**, `max_abs_diff = 0`, upstream
+     equivalence byte-for-byte identical to unchanged BASE. The residual is
+     narrow — the metallib check does not cover **runtime-JIT** kernels — so it
+     became an optional marginal-cost rider on #572, which is already building
+     an MSL corpus dumper. ⚠️ #548's *timing* neutrality claim is worthless at
+     this round's resolution: its control-vs-control decode spread was **0.565 %
+     ≈ 73 µs/step**, four times the effect we are hunting.
+  3. **"Decode-step gap taxonomy" (the original arm D, archive §11.1 / H_E).**
+     Dead on three counts. (i) **PR #158 already measured the step-boundary gap
+     at ~265 ± 20 µs (≈3.01 %) and showed it scales WITH busy time** —
+     slope **+0.059 ± 0.019**, rejecting the absolute-cost model at 3.1 σ, with
+     the **per-dispatch coefficient NULL at −0.12 ± 0.22 µs**. A gap that scales
+     with busy and has no per-dispatch term is *not* CPU serial overhead, so
+     **H_E is already falsified**. (ii) The archive **already revised its own
+     "+1.8–4.8 %" headline down** — I nearly shipped a retracted price in a
+     brief. (iii) Per-kernel **exposed** durations are **infeasible** with our
+     tooling: both GPUPROF patches are per-command-buffer and spans average ~9
+     dispatches, so `sum == union` is vacuous; obtaining them needs
+     `sampleBufferAttachments` counter sampling or `kernelStartTime` /
+     `kernelEndTime`, none of which appears anywhere in the tree.
+
+  ⚠️ **The "249 µs/step wall−busy gap" is a retracted framing — stop quoting
+  it.** nezuko's r93-C census
+  (`research/maple-nezuko-r93-c-stall-structure-census.md:578,605-627`) measured
+  the `off@nosplit` control at **wall 8242 vs busy 7940 = 302 µs/step**, against
+  1261 µs/step under `SPLIT=1`. **≈960 µs/step of the apparent gap is
+  serialization the profiler itself imposes**, and any arm sized against the
+  SPLIT=1 number over-promises by ≈4×. Combined with #158's ~265 µs boundary
+  term, the *inter-dispatch* component in production is only ≈37 µs/step.
+  nezuko's standing negative: any proposal for the decode trio that does not
+  reduce **bytes moved**, reduce **dispatch count**, or overlap the **wall−busy
+  gap** has a ceiling near zero.
+
+  Queued alternates, in order: dependent-stage folding / emission reordering
+  (archive slate item C — **its gate can no longer be satisfied by a gap-taxonomy
+  arm**; needs a new justification before it is assigned); splitting
+  `LagunaRuntimeModel.swift` into multiple files (**superseded by #575** unless
+  rung 2 under-delivers — `editablePaths` lists directories, so new files under
+  `Sources/MLXFastModel/` dissolve the per-file cap, bounded by the 188,987 B of
+  total free budget). **`lm_head` int3 is dead** — the harness requires an exact
+  token match.
+
+  🔎 **Open inconsistency in our own constants, handed to #576.** We carry
+  σ(cs) ≤ **0.228 %** and σ(cand_dec) = **0.2939 %**, yet
+  `ln cs = X − 0.75 ln cand_dec − 0.25 ln cand_pre`. A 0.75-weighted function of
+  a 0.2939 % term cannot have a *smaller* relative spread than 0.228 % unless
+  `cand_dec` and `cand_pre` are anticorrelated. Either that anticorrelation is
+  real and interesting, or one constant is wrong. Nobody has checked.
 
   ⚠️ **Cadence policy.** `a-github-name` draws 19 receipts/day (peak 39) against
   our 12/day, and has converted a *worse* best-`cs` (2.588362 vs our 2.590559)
@@ -2289,6 +2354,34 @@ instrumentation (#496), not more hyperparameter-tier tweaking.
 ---
 
 ## 7. Closed list — do not re-assign
+
+❌ **Decode-step "gap taxonomy" / H_E ("≥100 µs/step of the decode wall is
+CPU/step-boundary serial overhead") — closed by rule-83 grep, round 103.**
+**PR #158** already measured the step-boundary gap at **~265 ± 20 µs (≈3.01 %)**
+and showed it **scales with busy time**: slope **+0.059 ± 0.019**, rejecting the
+absolute-cost model at **3.1 σ**, with the **per-dispatch coefficient NULL at
+−0.12 ± 0.22 µs**. A gap that scales with busy and has no per-dispatch term is
+not CPU serial overhead. The archive's own "+1.8–4.8 % score" price for this
+family is **retracted by the archive itself**. Feasibility is also blocked:
+per-kernel **exposed** durations cannot be obtained from either GPUPROF patch
+(both per-command-buffer, spans average ~9 dispatches ⇒ `sum == union` is
+vacuous); they need `sampleBufferAttachments` counter sampling or
+`kernelStartTime`/`kernelEndTime`, absent from the tree. Reopen only with a
+working per-dispatch timing instrument **and** a mechanism that explains the
++0.059 busy-slope.
+
+❌ **The "249 µs/step wall−busy gap" as a target — retracted framing.** The
+production figure is **302 µs/step** (`off@nosplit`: wall 8242 vs busy 7940,
+`research/maple-nezuko-r93-c-stall-structure-census.md:578`), not the
+1261 µs/step seen under `DARKBLOOM_GPU_PROFILE_SPLIT=1`; **≈960 µs/step of the
+apparent gap is profiler-imposed serialization**, so anything sized against the
+SPLIT=1 number over-promises by ≈4×. Net of #158's ~265 µs boundary term, the
+production *inter-dispatch* component is only ≈37 µs/step. Standing negative:
+any proposal for the decode trio that does not reduce **bytes moved**, reduce
+**dispatch count**, or overlap the wall−busy gap has a ceiling near zero —
+including unrolling, register tuning, instruction selection, math-mode changes
+and cheaper dequantization arithmetic (the arithmetic they would remove is
+83.5–96.5 % free).
 
 ❌❌ **Split-K / flash-decoding / KV-split-across-threadgroups of either decode
 attention kernel, at every `S`, on every host — closed TWICE** (PR #196 §4.12.8
