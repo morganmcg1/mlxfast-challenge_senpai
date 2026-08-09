@@ -424,7 +424,74 @@ the submitted surface of both arms and break the clean OLD/NEW contrast.
 
 ## § 3 Rung 0 — build and parity
 
-_Pending._
+Driver `research/maple-frieren-r103a-build-arms.sh`, run as job
+`52c9ddb2-4658-4d33-b80b-632279af2f6c`, exit 0, 165 s wall. Full log kept at
+`/tmp/maple-r103a/rung0-provenance.txt`; the load-bearing lines are reproduced
+below verbatim.
+
+### 3.1 Gate results
+
+| gate | what it asserts | result |
+| --- | --- | --- |
+| G0.1 | both arms build the scored worker product | **PASS** — NEW 83.33 s, OLD 68.98 s, both `Build ... complete!` |
+| G0.2 | teacher-forced greedy tokens identical across every slot | deferred to rung 1 (checked on all 104 slots, § 4.1) |
+| G0.3 | the two arms are genuinely different binaries | **PASS** |
+| G0.4 | rule-75 digest round-trip: the tree returns to HEAD | **PASS** |
+| G0.5 | AOT `mlx.metallib` identical across arms | **PASS** |
+
+```text
+digest_head           = c3fafd30b4fdba6d3058746e79a715a53a072c5d5c77b0716a3a73dbd385f492
+digest_at_new_build   = c3fafd30b4fdba6d3058746e79a715a53a072c5d5c77b0716a3a73dbd385f492
+digest_at_old         = 82f0f5a86ed1426d5339933975181904319d84ca6013bc353f688e4bd9b38db8
+digest_after_restore  = c3fafd30b4fdba6d3058746e79a715a53a072c5d5c77b0716a3a73dbd385f492
+```
+
+The digest is `find Sources Vendor -type f -print0 | sort -z | xargs -0
+shasum -a 256 | shasum -a 256`. It is taken before the NEW build, after the
+`git checkout 30f752df -- Sources Vendor`, and after the restore. The first and
+last agree, so the checkout of OLD over the submitted surface left nothing
+behind: **the branch's submitted bytes are unchanged by this experiment**, which
+is the non-negotiable the assignment is strictest about.
+
+### 3.2 Snapshots
+
+```text
+32d0a3d4ce245a2d70ea55852f549cd9461f1e21c334b069913691b597881ddb  new/mlxfast-runtime-worker   49,190,344 B
+d36a981fc38ec0576f809aec4fd2021f67006b803a94270d0eb0cfa4a41a911e  old/mlxfast-runtime-worker   49,094,856 B
+d36a981fc38ec0576f809aec4fd2021f67006b803a94270d0eb0cfa4a41a911e  oldA/mlxfast-runtime-worker
+d36a981fc38ec0576f809aec4fd2021f67006b803a94270d0eb0cfa4a41a911e  oldB/mlxfast-runtime-worker
+8e8b18afaee1ed5a0190403f79a4cc74b9bebcb52b50c4b67d0ed91dc73097ec  {new,old,oldA,oldB}/mlx.metallib
+```
+
+`oldA` and `oldB` are `cp` copies of `old`, not rebuilds: the § 1.4 null arm has
+to be byte-identical code, and rebuilding it would let build nondeterminism
+leak into the very quantity the null is supposed to bound.
+
+### 3.3 What G0.5 buys
+
+`mlx.metallib` is the ahead-of-time compiled Metal library — RoPE, RMSNorm, SDPA
+vector, `arg_reduce`, and the rest of the AOT surface. It is **byte-identical**
+across the two arms. Together with § 2.1 (every changed `.metal`/`.h` file is
+comment-only) and § 2.2 (the transform emits nothing for Laguna, so the ~20 GB
+`weights/` tree is bit-identical), this narrows the causal surface hard:
+
+> Whatever the ~20 µs/step is, it is produced by **Swift host code and the Metal
+> shader sources embedded as Swift string literals in
+> `Sources/MLXFastModel/LagunaRuntimeModel.swift`, JIT-compiled at runtime** —
+> not by the AOT kernels, not by the weights, and not by the vendored runtime.
+
+The 95,488-byte difference in executable size is consistent with that: the
+NEW binary carries the longer embedded shader sources and the wider variant
+table of § 2.3.
+
+### 3.4 A caveat G0.5 does *not* remove
+
+Identical AOT metallibs do not imply identical *JIT* products. The embedded
+shader strings differ, so the runtime-compiled pipelines differ by
+construction; that is the intended contrast, not a confound. It does mean the
+first-touch JIT compile cost differs between arms, which is exactly why § 1.5b
+carries `step0` and `mean_first128` as separate diagnostics and why the
+decision statistic is a median over steps 1…249.
 
 ## § 4 Rung 1 — paired ABBA e2e decode on M4
 
