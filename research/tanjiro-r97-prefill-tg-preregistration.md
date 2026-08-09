@@ -839,3 +839,94 @@ Receipt budget after R2: 4 remaining, and §13.6's expectation stands — if R2 
 null I will recommend moving to the decode axis rather than inventing a fourth
 prefill mechanism.
 
+
+---
+
+## 15. Amendment 6 — control-population audit, corrected R1 statistics
+
+Registered before the R2 run. An independent frontier review criticised the
+`+4.6 σ` headline of §14 as an overstatement and asked for three specific
+audits of the control population. All three are now done in
+`research/tanjiro_r97_control_audit.py`. The R2 bars of §14.6 are **unchanged**;
+this amendment only corrects how R1 is reported.
+
+### 15.1 The `4.6 σ` headline was wrong and is withdrawn
+
+`+0.639 / 0.139 = 4.6` treats the population sd as if it were the sd of the
+R1 estimate. R1 is a *single new observation*, so the correct denominator is the
+prediction standard error `s·sqrt(1 + 1/n) = 0.1441`, giving:
+
+- prediction-`t` = **4.43** on 12 dof (not 4.6 σ),
+- effect **+0.639 ms**, 95 % CI **[+0.325, +0.953] ms**,
+- 95 % prediction interval for one healthy new receipt **[95.844, 96.472] ms**;
+  R1 at 96.797 is outside it.
+
+A distribution-free reading that assumes nothing about the shape of the
+population — R1 being the largest of 14 exchangeable draws — bounds the p-value
+only at `1/14 = 0.071`. I therefore report the effect as **+0.64 ms
+[+0.33, +0.95], prediction-t 4.43, distribution-free p ≤ 0.07**. The §11.3
+consequence (`> +0.3 ms` ⇒ revert, report negative) is triggered under both the
+parametric and the distribution-free reading, so the decision does not depend
+on the choice.
+
+### 15.2 Chronological drift is not the explanation
+
+R1 ran 10.43 h after the first control and 4.2 h after the last, so a drifting
+host was a live confound. OLS of candidate prefill on time gives slope
+**−0.0059 ms/h** (se 0.0218, `t = −0.27`, 11 dof): no drift, and what little
+there is points the *wrong way*. Extrapolating the fitted line to R1's timestamp
+predicts 96.117 ms, i.e. drift accounts for **−0.041 ms** of a **+0.639 ms**
+effect. Re-testing R1 against the regression line with its wider prediction
+error still gives **t = +3.18**. Drift is excluded.
+
+### 15.3 Do the controls really share unmodified prefill code?
+
+I cannot read other students' branches, so this is tested by an internal
+signature instead. Four of the 13 controls have visibly broken decode
+(5.08–6.78 ms/token versus a 4.914 ms/token frontier). If their edits had
+touched prefill, their prefill would scatter. It does not:
+
+| subgroup | n | mean candidate prefill | distance below R1 |
+|---|---|---|---|
+| decode-damaged (> 5.0 ms/tok) | 4 | 96.087 ms | 0.710 ms |
+| decode-healthy (≤ 5.0 ms/tok) | 9 | 96.189 ms | 0.608 ms |
+
+Both subgroups are tight and both sit far below R1. Arms that demonstrably
+changed decode left prefill in the same narrow cluster, which is the signature
+expected when the prefill path is untouched. This does not prove byte-identical
+prefill code, and it remains the weakest link in the inference.
+
+### 15.4 Bookkeeping reconciliation
+
+15 scored receipts exist on this account between the promoted frontier and R1.
+They decompose as **13 controls + `25b0b722` + R1**. `25b0b722` (2026-08-08T19:38,
+candidate prefill 97.782 ms) is excluded because it predates the promoted
+frontier `3e165fa` and sits 1.6 ms — 11 sd — off the cluster, i.e. it is a
+different prefill code base, not an outlier draw. The 15-value baseline list of
+§14.2 is the same 15 receipts read on the baseline axis. No receipt is
+double-counted or silently dropped.
+
+### 15.5 Scope: why R2 is still P4 and not a decode candidate
+
+The review's strongest recommendation was to spend R2 on a decode candidate,
+since decode carries 75 % of the weight and closing the 1.05 % gap to the leader
+needs either **−4.0 ms** of prefill or **−0.069 ms/token** of decode, whereas
+P4's registered −0.4 ms is worth only about **+0.10 %**. I accept the arithmetic
+and I am *not* acting on the recommendation, because this assignment
+(`maple-r97-b-prefill-tg-count`) is the prefill arm and no decode candidate is
+implemented on this branch. Inventing one here would be a different experiment.
+The recommendation is recorded as the arm's primary follow-up for the advisor.
+
+Two further review points are accepted and recorded rather than acted on:
+
+- The confound that R2 cannot separate "revert restored base" from "P4 exactly
+  cancels a revert error" is real but not practical: the revert is a literal
+  `git checkout` of the base file and `git diff` against the base now shows
+  **only** the 6 lines of `matmul.cpp`, so base behaviour is restored by
+  construction, not by measurement.
+- P4's ceiling is capped by arithmetic intensity. The Wq GEMM is compute-bound
+  (AI ≈ 221 FLOP/B against a machine balance of 55–125), so halving B traffic
+  mostly hides under compute and −0.4 ms can only arrive through second-order
+  cache/DVFS effects. This is why null was, and remains, the registered most
+  likely outcome.
+
