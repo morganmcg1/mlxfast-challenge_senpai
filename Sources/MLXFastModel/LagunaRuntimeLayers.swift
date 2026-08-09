@@ -41,6 +41,15 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
     /// one of the two banks is ever non-nil on a given instance.
     var _fusedDenseGateUpWeight: MLXArray?
 
+    /// Block-exponent compacted twins of the dense layer-0 planes, built once
+    /// after `_fusedDenseGateUpWeight` and retained alongside it: the stock
+    /// BF16 planes stay resident so a rung switch is only a branch. The
+    /// gate/up bank compacts the fused `[2*intermediate, hidden]` bank at
+    /// `B=128, d=4` with escapes; the down bank compacts
+    /// `[hidden, intermediate]` at whole-row blocks, `d=6`, no escapes.
+    var _denseGateUpBank: LagunaDenseBlockExponentBank?
+    var _denseDownBank: LagunaDenseBlockExponentBank?
+
     init(dimensions: Int, hiddenDimensions: Int) {
         self._gateProj.wrappedValue = Linear(dimensions, hiddenDimensions, bias: false)
         self._upProj.wrappedValue = Linear(dimensions, hiddenDimensions, bias: false)
@@ -136,6 +145,47 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
         let fusedWeight = concatenated([gateProj.weight, upProj.weight], axis: 0)
         _fusedDenseGateUpWeight = fusedWeight
         return fusedWeight
+    }
+
+    /// Builds and retains the block-exponent compacted twins of the dense
+    /// layer-0 planes. Called once after `prepareFusedDenseGateUp()` has
+    /// installed the fused BF16 bank; returns the new arrays so the caller can
+    /// batch a single eval. Each bank is installed only after its own
+    /// bit-exactness certificate passes, so a declined bank leaves the stock
+    /// plane as the sole dispatch target.
+    func prepareDenseBlockExponent() -> [MLXArray] {
+        let hidden = LagunaConstants.hiddenSize
+        let intermediate = LagunaConstants.denseIntermediateSize
+        var prepared: [MLXArray] = []
+
+        if lagunaDenseBlockExponentGateUpEnabled, _denseGateUpBank == nil,
+            let fusedWeight = _fusedDenseGateUpWeight,
+            fusedWeight.dtype == .bfloat16,
+            fusedWeight.dims(2 * intermediate, hidden),
+            let bank = lagunaDenseBlockExponentBank(
+                fusedWeight, blockWidth: 128, deltaBits: 4,
+                blockMajorBases: true, allowEscapes: true,
+                site: "dense gate/up")
+        {
+            _denseGateUpBank = bank
+            prepared.append(contentsOf: bank.arrays)
+        }
+
+        if lagunaDenseBlockExponentDownEnabled, _denseDownBank == nil,
+            type(of: downProj) == Linear.self,
+            downProj.bias == nil,
+            downProj.weight.dtype == .bfloat16,
+            downProj.weight.dims(hidden, intermediate),
+            let bank = lagunaDenseBlockExponentBank(
+                downProj.weight, blockWidth: intermediate, deltaBits: 6,
+                blockMajorBases: false, allowEscapes: false,
+                site: "dense down")
+        {
+            _denseDownBank = bank
+            prepared.append(contentsOf: bank.arrays)
+        }
+
+        return prepared
     }
 
     /// The shared expert's fused gate/up bank and its down bank, when every
@@ -284,6 +334,11 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
 
         let activated: MLXArray
         if lagunaFusedDenseGateUpSwiGLUEnabled,
+            let bank = _denseGateUpBank, lagunaDenseBlockExponentGateUpActive()
+        {
+            lagunaTrace("dense gate/up GEMV + SwiGLU (block exponent)")
+            activated = lagunaDenseGateUpSwiGLUBlockExponent(x, bank: bank)
+        } else if lagunaFusedDenseGateUpSwiGLUEnabled,
             let fusedWeight = _fusedDenseGateUpWeight,
             fusedWeight.dtype == .bfloat16,
             fusedWeight.dims(2 * intermediate, hidden)
@@ -295,6 +350,11 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
         }
 
         if lagunaFusedDenseDownResidualEnabled {
+            if let bank = _denseDownBank, lagunaDenseBlockExponentDownActive() {
+                lagunaTrace("dense down GEMV + residual (block exponent)")
+                return lagunaDenseDownResidualBlockExponent(
+                    activated, bank: bank, residual: residual)
+            }
             lagunaTrace("dense down GEMV + residual")
             return lagunaDenseDownResidual(
                 activated, downWeight: downProj.weight, residual: residual)

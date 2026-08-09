@@ -648,6 +648,37 @@ let lagunaFusedDenseGateUpSwiGLUEnabled =
 let lagunaFusedDenseDownResidualEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_DENSE_DOWN_RESIDUAL"] != "0"
 
+/// `DARKBLOOM_DENSE_BEXP_GATE_UP` (default on; set "0" to read the stock BF16
+/// plane): serve layer 0's fused dense gate/up projection from the
+/// `blockWidth = 128`, 4-bit-residue block-exponent bank rather than the BF16
+/// `[gate; up]` plane. Lossless -- the bank's init-time certificate rebuilds
+/// every BF16 pattern bit-for-bit or the bank is discarded -- so this trades
+/// per-weight integer work for 12.5 bits per weight instead of 16.
+let lagunaDenseBlockExponentGateUpEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_DENSE_BEXP_GATE_UP"] != "0"
+
+/// `DARKBLOOM_DENSE_BEXP_DOWN` (default on; set "0" to read the stock BF16
+/// plane): same transform for layer 0's dense down projection, at
+/// `blockWidth = 8192` (a whole row) and a 6-bit residue, which measures zero
+/// escapes and hoists the base load out of the block loop entirely.
+let lagunaDenseBlockExponentDownEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_DENSE_BEXP_DOWN"] != "0"
+
+/// Per-decode selection of the compacted dense planes. Separate from the
+/// build-time flags above because the stock and compacted planes are both
+/// resident once a bank is installed, so the choice is a branch rather than a
+/// residency decision; the research rung ladder replaces these two bodies with
+/// a live read and leaves every other line of the dispatch identical.
+@inline(__always)
+func lagunaDenseBlockExponentGateUpActive() -> Bool {
+    lagunaDenseBlockExponentGateUpEnabled
+}
+
+@inline(__always)
+func lagunaDenseBlockExponentDownActive() -> Bool {
+    lagunaDenseBlockExponentDownEnabled
+}
+
 /// `DARKBLOOM_ROUTER_ROWS_PER_GROUP` (default `8`; set `64` to restore the
 /// pre-widening shape, `32`/`16` for intermediate points, `4`/`2`/`1` for the
 /// sub-8 shapes): router output rows owned by one threadgroup in
@@ -8836,6 +8867,257 @@ func lagunaDenseDownResidual(
     )[0]
 }
 
+//
+// Block-exponent twins of the two kernels above. The loop nest, the
+// accumulation order, the `simd_shuffle_down` tree, and both epilogues are
+// copied verbatim; the only change is where the four BF16 weights of a
+// (row, block) tile come from. Instead of one 8-byte `vec<bfloat, 4>` load
+// they are rebuilt from a 4-byte payload load, a 2-byte residue load, and a
+// base exponent shared by the whole block -- 12.5 bits per weight for gate/up,
+// 14 bits for `_bexp_row_d6` down. `LagunaDenseBlockExponentBank`'s init-time
+// certificate has already proved the rebuild is bit-exact, so the float work
+// downstream sees the same patterns the stock plane holds.
+//
+// A gate/up block whose exponent span exceeds 4 bits carries base `0xFF`; its
+// residue bytes then hold a replicated escape-row index, so the ushort the
+// lane already loaded doubles as the slot and the fallback is one 8-byte load
+// from a small verbatim BF16 plane. The branch is simdgroup-uniform because
+// the base is per (row, block) and a simdgroup spans one block of four rows.
+private let lagunaDenseGateUpSwiGLUBlockExponentKernel = MLXFast.metalKernel(
+    name: "laguna_dense_gate_up_swiglu_bexp128d4_v1",
+    inputNames: ["input", "payload", "deltas", "bases", "escapes"],
+    outputNames: ["activated"],
+    source: """
+constexpr uint in_vec_size = 2048;
+constexpr uint output_width = 8192;
+constexpr uint rows_per_thread = 4;
+constexpr uint values_per_thread = 4;
+constexpr uint block_width = 128;
+constexpr uint blocks = in_vec_size / block_width;
+constexpr uint rows_per_group = 64;
+constexpr uint delta_stride = in_vec_size / 2;
+constexpr uint base_stride = 2 * output_width;
+
+uint tile = threadgroup_position_in_grid.x;
+uint simd_group = simdgroup_index_in_threadgroup;
+uint lane = thread_index_in_simdgroup;
+
+uint row_base = tile * rows_per_group + simd_group * rows_per_thread;
+
+thread float gate_result[rows_per_thread] = {0.0f, 0.0f, 0.0f, 0.0f};
+thread float up_result[rows_per_thread] = {0.0f, 0.0f, 0.0f, 0.0f};
+thread float coefficients[values_per_thread];
+
+uint column = lane * values_per_thread;
+for (uint block = 0; block < blocks; ++block) {
+    const vec<bfloat, 4> c4 =
+        *((const device vec<bfloat, 4>*)(input + column));
+    for (uint i = 0; i < values_per_thread; ++i) {
+        coefficients[i] = float(c4[i]);
+    }
+    const device uchar* base_block = bases + block * base_stride + row_base;
+    const uchar4 gate_bases = *((const device uchar4*)(base_block));
+    const uchar4 up_bases = *((const device uchar4*)(base_block + output_width));
+    const uint escape_column = column & (block_width - 1);
+    for (uint row = 0; row < rows_per_thread; ++row) {
+        const uint gate_row = row_base + row;
+        const ushort gd = *((const device ushort*)(
+            deltas + gate_row * delta_stride + (column >> 1)));
+        vec<bfloat, 4> gw;
+        if (gate_bases[row] == 0xFF) {
+            gw = *((const device vec<bfloat, 4>*)(
+                escapes + uint(gd) * block_width + escape_column));
+        } else {
+            const uchar4 gp = *((const device uchar4*)(
+                payload + gate_row * in_vec_size + column));
+            const ushort gb = ushort(ushort(gate_bases[row]) << 8);
+            const ushort g0 = ushort(gb + ushort((gd << 8) & 0x0F00) + ushort(gp[0]));
+            const ushort g1 = ushort(gb + ushort((gd << 4) & 0x0F00) + ushort(gp[1]));
+            const ushort g2 = ushort(gb + ushort(gd & 0x0F00) + ushort(gp[2]));
+            const ushort g3 = ushort(gb + ushort((gd >> 4) & 0x0F00) + ushort(gp[3]));
+            gw[0] = as_type<bfloat>(ushort((g0 >> 1) | (g0 << 15)));
+            gw[1] = as_type<bfloat>(ushort((g1 >> 1) | (g1 << 15)));
+            gw[2] = as_type<bfloat>(ushort((g2 >> 1) | (g2 << 15)));
+            gw[3] = as_type<bfloat>(ushort((g3 >> 1) | (g3 << 15)));
+        }
+        const uint up_row = output_width + gate_row;
+        const ushort ud = *((const device ushort*)(
+            deltas + up_row * delta_stride + (column >> 1)));
+        vec<bfloat, 4> uw;
+        if (up_bases[row] == 0xFF) {
+            uw = *((const device vec<bfloat, 4>*)(
+                escapes + uint(ud) * block_width + escape_column));
+        } else {
+            const uchar4 pp = *((const device uchar4*)(
+                payload + up_row * in_vec_size + column));
+            const ushort ub = ushort(ushort(up_bases[row]) << 8);
+            const ushort u0 = ushort(ub + ushort((ud << 8) & 0x0F00) + ushort(pp[0]));
+            const ushort u1 = ushort(ub + ushort((ud << 4) & 0x0F00) + ushort(pp[1]));
+            const ushort u2 = ushort(ub + ushort(ud & 0x0F00) + ushort(pp[2]));
+            const ushort u3 = ushort(ub + ushort((ud >> 4) & 0x0F00) + ushort(pp[3]));
+            uw[0] = as_type<bfloat>(ushort((u0 >> 1) | (u0 << 15)));
+            uw[1] = as_type<bfloat>(ushort((u1 >> 1) | (u1 << 15)));
+            uw[2] = as_type<bfloat>(ushort((u2 >> 1) | (u2 << 15)));
+            uw[3] = as_type<bfloat>(ushort((u3 >> 1) | (u3 << 15)));
+        }
+        for (uint i = 0; i < values_per_thread; ++i) {
+            gate_result[row] += float(gw[i]) * coefficients[i];
+            up_result[row] += float(uw[i]) * coefficients[i];
+        }
+    }
+    column += block_width;
+}
+
+for (uint row = 0; row < rows_per_thread; ++row) {
+    for (ushort delta = 16; delta >= 1; delta >>= 1) {
+        gate_result[row] +=
+            metal::simd_shuffle_down(gate_result[row], delta);
+        up_result[row] +=
+            metal::simd_shuffle_down(up_result[row], delta);
+    }
+}
+if (lane == 0) {
+    for (uint row = 0; row < rows_per_thread; ++row) {
+        bfloat gate = bfloat(gate_result[row]);
+        bfloat up = bfloat(up_result[row]);
+        bfloat exp_abs = metal::exp(metal::abs(gate));
+        bfloat denominator = bfloat(1) + exp_abs;
+        bfloat y = bfloat(1) / denominator;
+        bfloat sigmoid = gate < bfloat(0) ? y : bfloat(1) - y;
+        bfloat silu = bfloat(gate * sigmoid);
+        activated[row_base + row] = bfloat(silu * up);
+    }
+}
+""",
+    ensureRowContiguous: true
+)
+
+func lagunaDenseGateUpSwiGLUBlockExponent(
+    _ input: MLXArray,
+    bank: LagunaDenseBlockExponentBank
+) -> MLXArray {
+    precondition(input.dtype == .bfloat16)
+    precondition(input.dims(1, 1, LagunaConstants.hiddenSize))
+    precondition(bank.rows == 2 * LagunaConstants.denseIntermediateSize)
+    precondition(bank.cols == LagunaConstants.hiddenSize)
+    precondition(bank.blockWidth == 128)
+    precondition(bank.deltaBits == 4)
+    precondition(bank.blockMajor)
+
+    return lagunaDenseGateUpSwiGLUBlockExponentKernel(
+        [input, bank.payload, bank.deltaLo, bank.bases, bank.escapes],
+        grid: ((LagunaConstants.denseIntermediateSize / 64) * 512, 1, 1),
+        threadGroup: (512, 1, 1),
+        outputShapes: [[1, 1, LagunaConstants.denseIntermediateSize]],
+        outputDTypes: [.bfloat16]
+    )[0]
+}
+
+private let lagunaDenseDownResidualBlockExponentKernel = MLXFast.metalKernel(
+    name: "laguna_dense_down_residual_bexp_row_d6_v1",
+    inputNames: ["activated", "payload", "delta_lo", "delta_hi", "bases", "residual"],
+    outputNames: ["output"],
+    source: """
+constexpr uint in_vec_size = 8192;
+constexpr uint rows_per_thread = 4;
+constexpr uint values_per_thread = 4;
+constexpr uint block_width = 128;
+constexpr uint blocks = in_vec_size / block_width;
+constexpr uint rows_per_group = 16;
+constexpr uint lo_stride = in_vec_size / 2;
+constexpr uint hi_stride = in_vec_size / 4;
+
+uint tile = threadgroup_position_in_grid.x;
+uint simd_group = simdgroup_index_in_threadgroup;
+uint lane = thread_index_in_simdgroup;
+
+uint row_base = tile * rows_per_group + simd_group * rows_per_thread;
+
+thread float result[rows_per_thread] = {0.0f, 0.0f, 0.0f, 0.0f};
+thread float coefficients[values_per_thread];
+
+// One block spans the whole row, so the base exponent is loop-invariant.
+const uchar4 row_bases = *((const device uchar4*)(bases + row_base));
+thread ushort shifted_bases[rows_per_thread];
+for (uint row = 0; row < rows_per_thread; ++row) {
+    shifted_bases[row] = ushort(ushort(row_bases[row]) << 8);
+}
+
+uint column = lane * values_per_thread;
+for (uint block = 0; block < blocks; ++block) {
+    const vec<bfloat, 4> c4 =
+        *((const device vec<bfloat, 4>*)(activated + column));
+    for (uint i = 0; i < values_per_thread; ++i) {
+        coefficients[i] = float(c4[i]);
+    }
+    for (uint row = 0; row < rows_per_thread; ++row) {
+        const uint weight_row = row_base + row;
+        const ushort dl = *((const device ushort*)(
+            delta_lo + weight_row * lo_stride + (column >> 1)));
+        const ushort dh = ushort(*(delta_hi + weight_row * hi_stride + (column >> 2)));
+        const uchar4 wp = *((const device uchar4*)(
+            payload + weight_row * in_vec_size + column));
+        const ushort bs = shifted_bases[row];
+        const ushort r0 = ushort(
+            bs + ushort((dl << 8) & 0x0F00) + ushort((dh << 12) & 0x3000) + ushort(wp[0]));
+        const ushort r1 = ushort(
+            bs + ushort((dl << 4) & 0x0F00) + ushort((dh << 10) & 0x3000) + ushort(wp[1]));
+        const ushort r2 = ushort(
+            bs + ushort(dl & 0x0F00) + ushort((dh << 8) & 0x3000) + ushort(wp[2]));
+        const ushort r3 = ushort(
+            bs + ushort((dl >> 4) & 0x0F00) + ushort((dh << 6) & 0x3000) + ushort(wp[3]));
+        vec<bfloat, 4> w;
+        w[0] = as_type<bfloat>(ushort((r0 >> 1) | (r0 << 15)));
+        w[1] = as_type<bfloat>(ushort((r1 >> 1) | (r1 << 15)));
+        w[2] = as_type<bfloat>(ushort((r2 >> 1) | (r2 << 15)));
+        w[3] = as_type<bfloat>(ushort((r3 >> 1) | (r3 << 15)));
+        for (uint i = 0; i < values_per_thread; ++i) {
+            result[row] += float(w[i]) * coefficients[i];
+        }
+    }
+    column += block_width;
+}
+
+for (uint row = 0; row < rows_per_thread; ++row) {
+    for (ushort delta = 16; delta >= 1; delta >>= 1) {
+        result[row] += metal::simd_shuffle_down(result[row], delta);
+    }
+}
+if (lane == 0) {
+    for (uint row = 0; row < rows_per_thread; ++row) {
+        bfloat down = bfloat(result[row]);
+        output[row_base + row] =
+            bfloat(residual[row_base + row] + down);
+    }
+}
+""",
+    ensureRowContiguous: true
+)
+
+func lagunaDenseDownResidualBlockExponent(
+    _ activated: MLXArray,
+    bank: LagunaDenseBlockExponentBank,
+    residual: MLXArray
+) -> MLXArray {
+    precondition(activated.dtype == .bfloat16)
+    precondition(activated.dims(1, 1, LagunaConstants.denseIntermediateSize))
+    precondition(bank.rows == LagunaConstants.hiddenSize)
+    precondition(bank.cols == LagunaConstants.denseIntermediateSize)
+    precondition(bank.blockWidth == bank.cols)
+    precondition(bank.deltaBits == 6)
+    precondition(bank.escaped == 0)
+    precondition(residual.dtype == .bfloat16)
+    precondition(residual.dims(1, 1, LagunaConstants.hiddenSize))
+
+    return lagunaDenseDownResidualBlockExponentKernel(
+        [activated, bank.payload, bank.deltaLo, bank.deltaHi, bank.bases, residual],
+        grid: ((LagunaConstants.hiddenSize / 16) * 128, 1, 1),
+        threadGroup: (128, 1, 1),
+        outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
+        outputDTypes: [.bfloat16]
+    )[0]
+}
+
 /// The Laguna text tower: unscaled embedding and 40 decoder layers. The final
 /// RMSNorm remains a child of this module for checkpoint compatibility, but
 /// the scored wrapper applies it after selecting the only consumed row.
@@ -9272,6 +9554,7 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
                 {
                     fusedArrays.append(fused)
                 }
+                fusedArrays.append(contentsOf: dense.prepareDenseBlockExponent())
             }
         }
         if !fusedArrays.isEmpty {

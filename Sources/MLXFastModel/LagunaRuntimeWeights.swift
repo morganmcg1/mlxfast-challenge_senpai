@@ -978,6 +978,217 @@ func lagunaLaneMajorScaleBankReproducesScales(
     return mismatches == 0
 }
 
+/// Lossless block-exponent form of a BF16 weight plane. A BF16 pattern is
+/// `s | e[8] | m[7]`; rotating it left by one gives `e[8] | m[7] | s`, so the
+/// exponent becomes the high byte and the sign joins the mantissa in a low
+/// "payload" byte. Neighbouring weights in a row share almost all of their
+/// exponent range, so each `blockWidth`-wide block stores one uint8 base
+/// exponent plus a `deltaBits`-wide residue per weight: 8 + `deltaBits` bits
+/// against BF16's 16, with the rotation making the split a pure bit shuffle
+/// rather than a requantization. A block whose exponent span exceeds the
+/// residue width carries base `0xFF` and is read from a small escape plane.
+struct LagunaDenseBlockExponentBank {
+    /// Rotated low byte, `[rows, cols]`, addressed `row * cols + column`.
+    let payload: MLXArray
+    /// Low 4 residue bits, `[rows, cols / 2]`; column `c` occupies bits
+    /// `4 * (c & 1)` of byte `c / 2`.
+    let deltaLo: MLXArray
+    /// Residue bits 4-5 when `deltaBits > 4`, `[rows, cols / 4]`; column `c`
+    /// occupies bits `2 * (c & 3)` of byte `c / 4`. A one-element placeholder
+    /// otherwise, so the dispatch always binds five buffers.
+    let deltaHi: MLXArray
+    /// One base exponent per block. Block-major `block * rows + row` when
+    /// `blockMajor`, else row-major `row * blocks + block`.
+    let bases: MLXArray
+    /// `[escaped, blockWidth]` BF16 rows, verbatim copies of the blocks whose
+    /// span did not fit. A one-row placeholder when nothing escaped.
+    let escapes: MLXArray
+    let rows: Int
+    let cols: Int
+    let blockWidth: Int
+    let deltaBits: Int
+    let blockMajor: Bool
+    /// Flat block indices carrying base `0xFF`, in escape-row order.
+    let escapeIndices: [Int32]
+
+    var blocks: Int { cols / blockWidth }
+    var escaped: Int { escapeIndices.count }
+    var arrays: [MLXArray] { [payload, deltaLo, deltaHi, bases, escapes] }
+
+    /// Bytes a decode step reads from this bank, against `2 * rows * cols`
+    /// for the stock BF16 plane. The escape rows are counted because an
+    /// escaped block is read from them instead of the payload/delta pair.
+    var resident: Int {
+        rows * cols + rows * cols / 2 + (deltaBits > 4 ? rows * cols / 4 : 0)
+            + blocks * rows + 2 * escaped * blockWidth
+    }
+}
+
+/// Packs a BF16 plane into `LagunaDenseBlockExponentBank`. `allowEscapes`
+/// requires `deltaBits <= 4`, because the escape slot index is smuggled
+/// through the 4-bit delta bytes of the escaped block itself -- every ushort
+/// in that block's delta run holds the same slot, so the ushort a lane has
+/// already loaded *is* the slot and the escape costs no extra plane. Returns
+/// `nil` -- decline to the stock plane -- whenever the shape, the escape
+/// budget, or the exactness certificate is not satisfied.
+func lagunaDenseBlockExponentBank(
+    _ weight: MLXArray, blockWidth: Int, deltaBits: Int,
+    blockMajorBases: Bool, allowEscapes: Bool, site: String
+) -> LagunaDenseBlockExponentBank? {
+    guard weight.dtype == .bfloat16, weight.ndim == 2,
+        blockWidth >= 4, blockWidth.isMultiple(of: 4),
+        deltaBits >= 1, deltaBits <= 6,
+        !(allowEscapes && deltaBits > 4)
+    else {
+        return nil
+    }
+    let rows = weight.dim(0)
+    let cols = weight.dim(1)
+    guard cols.isMultiple(of: blockWidth) else { return nil }
+    let nBlocks = cols / blockWidth
+    let plane = contiguous(weight)
+    let bits = plane.view(dtype: .uint16).asType(.int32)
+    let exponent = (bits >> 7) & 0xFF
+    // rot(bits) = (bits << 1) | (bits >> 15): exponent to the high byte, sign
+    // to bit 0. The kernel undoes it with (r >> 1) | (r << 15).
+    let payload = (((bits << 1) & 0xFE) | (bits >> 15)).asType(.uint8)
+
+    let grouped = exponent.reshaped([rows, nBlocks, blockWidth])
+    let blockMin = grouped.min(axis: 2, keepDims: true)
+    let span = grouped.max(axis: 2, keepDims: true) - blockMin
+    // `blockMin < 0xFF` keeps the escape sentinel unambiguous; only an
+    // all-inf/NaN block could reach it, and such a block escapes instead.
+    let fits = (span .<= MLXArray(Int32((1 << deltaBits) - 1))) .&& (blockMin .< 0xFF)
+    let delta = which(fits, grouped - which(fits, blockMin, MLXArray(Int32(0))), MLXArray(Int32(0)))
+
+    let fitsHost = fits.reshaped([rows * nBlocks]).asType(.uint8).asArray(UInt8.self)
+    var escapeIndices: [Int32] = []
+    var slots = [UInt16](repeating: 0, count: rows * nBlocks)
+    for index in 0 ..< fitsHost.count where fitsHost[index] == 0 {
+        slots[index] = UInt16(truncatingIfNeeded: escapeIndices.count)
+        escapeIndices.append(Int32(index))
+    }
+    guard allowEscapes ? escapeIndices.count < 0xFFFF : escapeIndices.isEmpty else {
+        lagunaNarrowScaleLog.note(
+            "declined (\(escapeIndices.count) escapes over \(rows * nBlocks) blocks)", site)
+        return nil
+    }
+
+    let loU16 = contiguous((delta & 0xF).asType(.uint8).reshaped([rows, cols])).view(
+        dtype: .uint16)
+    var nibbles = ((loU16 & 0x000F) | ((loU16 >> 4) & 0x00F0)).asType(.uint8)
+    if !escapeIndices.isEmpty {
+        let replicated = contiguous(
+            broadcast(
+                MLXArray(slots).reshaped([rows * nBlocks, 1]),
+                to: [rows * nBlocks, blockWidth / 4])
+        ).view(dtype: .uint8)
+        nibbles = which(
+            fits.reshaped([rows * nBlocks, 1]),
+            nibbles.reshaped([rows * nBlocks, blockWidth / 2]), replicated)
+    }
+    let deltaLo = contiguous(nibbles.reshaped([rows, cols / 2]))
+
+    var deltaHi = MLXArray.zeros([1], dtype: .uint8)
+    if deltaBits > 4 {
+        let hiU32 = contiguous(((delta >> 4) & 0x3).asType(.uint8).reshaped([rows, cols])).view(
+            dtype: .uint32)
+        deltaHi = contiguous(
+            ((hiU32 & 0x3) | ((hiU32 >> 6) & 0xC) | ((hiU32 >> 12) & 0x30)
+                | ((hiU32 >> 18) & 0xC0)).asType(.uint8))
+    }
+
+    let baseGrid = which(fits, blockMin, MLXArray(Int32(0xFF))).reshaped([rows, nBlocks])
+        .asType(.uint8)
+    let bases = contiguous(blockMajorBases ? baseGrid.transposed(1, 0) : baseGrid)
+        .reshaped([rows * nBlocks])
+
+    let escapes =
+        escapeIndices.isEmpty
+        ? MLXArray.zeros([1, blockWidth], dtype: .bfloat16)
+        : contiguous(plane.reshaped([rows * nBlocks, blockWidth])[MLXArray(escapeIndices)])
+
+    let bank = LagunaDenseBlockExponentBank(
+        payload: payload, deltaLo: deltaLo, deltaHi: deltaHi, bases: bases, escapes: escapes,
+        rows: rows, cols: cols, blockWidth: blockWidth, deltaBits: deltaBits,
+        blockMajor: blockMajorBases, escapeIndices: escapeIndices)
+    guard lagunaDenseBlockExponentBankReproducesWeight(bank, weight) else {
+        lagunaNarrowScaleLog.note("declined (block-exponent mismatch)", site)
+        return nil
+    }
+    lagunaNarrowScaleLog.noteDispatch(
+        "block-exponent B\(blockWidth) d\(deltaBits) escaped \(bank.escaped)/\(rows * nBlocks)",
+        site)
+    lagunaNarrowScaleLog.note("built block-exponent", site)
+    return bank
+}
+
+/// Init-time certificate: rebuild every BF16 pattern from the bank with MLX
+/// and require bit-for-bit equality with the plane the stock kernel reads,
+/// then re-read each escaped block through the same slot path the kernel uses
+/// and require that to match too. A bank that fails is discarded.
+func lagunaDenseBlockExponentBankReproducesWeight(
+    _ bank: LagunaDenseBlockExponentBank, _ weight: MLXArray
+) -> Bool {
+    let rows = bank.rows
+    let cols = bank.cols
+    let blockWidth = bank.blockWidth
+    let nBlocks = bank.blocks
+    guard weight.dtype == .bfloat16, weight.dims(rows, cols),
+        bank.payload.dtype == .uint8, bank.payload.dims(rows, cols),
+        bank.deltaLo.dtype == .uint8, bank.deltaLo.dims(rows, cols / 2),
+        bank.bases.dtype == .uint8, bank.bases.dims(rows * nBlocks),
+        bank.escapes.dtype == .bfloat16, bank.escapes.dims(max(bank.escaped, 1), blockWidth)
+    else {
+        return false
+    }
+
+    let plane = contiguous(weight)
+    let bits = plane.view(dtype: .uint16).asType(.int32).reshaped([rows, nBlocks, blockWidth])
+    let nib = bank.deltaLo.asType(.int32).reshaped([rows, cols / 2, 1])
+    var deltas = concatenated([nib & 0xF, (nib >> 4) & 0xF], axis: 2).reshaped([rows, cols])
+    if bank.deltaBits > 4 {
+        guard bank.deltaHi.dtype == .uint8, bank.deltaHi.dims(rows, cols / 4) else { return false }
+        let hi = bank.deltaHi.asType(.int32).reshaped([rows, cols / 4, 1])
+        deltas =
+            deltas
+            + (concatenated([hi & 0x3, (hi >> 2) & 0x3, (hi >> 4) & 0x3, (hi >> 6) & 0x3], axis: 2)
+                .reshaped([rows, cols]) << 4)
+    }
+
+    let baseFlat = bank.bases.asType(.int32)
+    let baseGrid =
+        bank.blockMajor
+        ? baseFlat.reshaped([nBlocks, rows]).transposed(1, 0) : baseFlat.reshaped([rows, nBlocks])
+    let rotated =
+        ((baseGrid.reshaped([rows, nBlocks, 1]) + deltas.reshaped([rows, nBlocks, blockWidth]))
+        << 8) | bank.payload.asType(.int32).reshaped([rows, nBlocks, blockWidth])
+    let decoded = ((rotated >> 1) | (rotated << 15)) & 0xFFFF
+    let fits = (baseGrid .!= 0xFF).reshaped([rows, nBlocks, 1])
+    guard (which(fits, decoded, bits) .!= bits).asType(.int32).sum().item(Int32.self) == 0 else {
+        return false
+    }
+
+    let fitsFlags = (baseGrid .!= 0xFF).reshaped([rows * nBlocks]).asType(.int32)
+    guard rows * nBlocks - Int(fitsFlags.sum().item(Int32.self)) == bank.escaped else {
+        return false
+    }
+    guard !bank.escapeIndices.isEmpty else { return true }
+
+    // Read the slot exactly as the kernel does: one ushort out of the escaped
+    // block's delta run. Every ushort in the run must agree, or a lane at a
+    // different column would land on a different escape row.
+    let index = MLXArray(bank.escapeIndices)
+    guard Int(fitsFlags[index].sum().item(Int32.self)) == 0 else { return false }
+    let slots = contiguous(bank.deltaLo.reshaped([rows * nBlocks, blockWidth / 2])).view(
+        dtype: .uint16)[index].asType(.int32)
+    let slot = slots[0, axis: 1].reshaped([bank.escaped, 1])
+    guard (slots .!= slot).asType(.int32).sum().item(Int32.self) == 0 else { return false }
+    let want = contiguous(plane.reshaped([rows * nBlocks, blockWidth])[index]).view(dtype: .uint16)
+    let got = contiguous(bank.escapes[slot.reshaped([bank.escaped])]).view(dtype: .uint16)
+    return (got .!= want).asType(.int32).sum().item(Int32.self) == 0
+}
+
 /// Size of the patch header that `lagunaHalvedGroup32ScalePlane` puts in
 /// front of a group-32 halved scale plane. One byte per allowed exception
 /// pair is used; the rest is padding that keeps the plane itself aligned to a
