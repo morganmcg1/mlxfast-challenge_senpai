@@ -1,0 +1,39 @@
+worker up in 33.7s ok=True
+diagnostics after load: worker_rss_gb=20.71 peak_ram_gb=20.714202880859375 mlx_active_gb=33.02 mlx_cache_gb=0.00 mlx_peak_gb=35.33
+decode_begin seed forward: 571.57 ms
+DECODE_PHASE_START
+DECODE_PHASE_END
+teacher-forced greedy tokens: 0 divergences (all match)
+first 8 steps (ms): 11.748 9.914 9.792 9.903 9.841 9.828 9.821 9.813
+decode steps=200 mean=9.837 ms median=9.807 ms p10=9.757 ms p90=9.930 ms min=9.708 ms max=11.748 ms total=1.967 s
+diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.717758178710938 mlx_active_gb=33.10 mlx_cache_gb=0.14 mlx_peak_gb=35.33
+worker stderr -> research/r87a-runs/ladder/p06-PF2.err
+
+profile: 89160 command buffers total, 80794 inside 199 steady steps
+per steady step: wall=9.827 ms gpu_busy_sum=8.603 ms gpu_busy_union=8.602 ms gap=1.225 ms (12.5% of wall) cbs=406.0 dispatches=406.0
+
+  us/step   share  n/step  us/call  kernel
+   1527.7  17.76%   39.00    39.17  routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2_pfin2
+   1338.4  15.56%   30.00    44.61  decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1
+   1120.5  13.03%   30.00    37.35  oproj_act_h64_v1_lm1_pw1_sc1_se1
+    864.6  10.05%   39.00    22.17  routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6
+    636.4   7.40%   30.00    21.21  sliding_fused_attn_ring_v1
+    422.1   4.91%    1.00   422.10  lmhead_int5_base_coarse_delta_bf16_v1
+    364.4   4.24%   10.00    36.44  decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1
+    320.6   3.73%   39.00     8.22  residual_rms_router_bf16_2048_rpg8_keys_v1
+    304.1   3.54%   10.00    30.41  oproj_act_h48_v1_lm1_pw1_sc1_se1
+    286.5   3.33%   39.00     7.35  shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1
+    269.5   3.13%    1.00   269.55  dense_gate_up_swiglu_bf16_v1
+    251.9   2.93%   30.00     8.40  gate_sp_h64_v1
+    248.2   2.89%   10.00    24.82  full_fused_attn_grow_v1
+    187.0   2.17%   39.00     4.79  prefill_router_tournament_ordinal_norm_active64_v2
+    142.6   1.66%   41.00     3.48  rmsbfloat16
+    134.3   1.56%    1.00   134.33  dense_down_residual_bf16_v1
+     79.5   0.92%   10.00     7.95  gate_sp_h48_v1
+     75.9   0.88%    1.00    75.86  lmhead_exact_fused_int5_sparse_refine_v1
+      9.5   0.11%    1.00     9.52  argmax_bfloat16
+      4.8   0.06%    1.00     4.81  lmhead_exact_winner_bf16_midpoint_threshold_v1
+      3.9   0.05%    1.00     3.92  lmhead_coarse_argmax_stage1_v5
+      3.6   0.04%    1.00     3.61  gather_frontbfloat16_int32_int_2
+      3.6   0.04%    1.00     3.56  decode_embedding_rope_atlas_bf16_2048_v2
+      3.0   0.03%    1.00     2.96  residual_rms_bf16_2048_v1
