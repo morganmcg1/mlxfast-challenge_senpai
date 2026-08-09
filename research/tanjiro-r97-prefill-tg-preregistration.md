@@ -476,3 +476,92 @@ available instrument for the serialisation question — not because I expect it
 to move the ranking. If it lands as expected, the correct outcome of this arm
 is a **negative result that closes a family**, and I will report it as such.
 
+## 12. Amendment 3 — P3 (skinny-N retile) is dead by construction once P2 is live
+
+Registered 2026-08-09, after R1 (`b3b6457f-25b6-40f8-8ebf-a417ba11b1a0`) was
+dispatched and **before** its receipt returned, so nothing below is fitted to a
+ranked number.
+
+### 12.1 The arithmetic
+
+P3 as specified in the assignment retiles the regular-`_nax` GEMM from
+`bn=128, wn=4` to `bn=64, wn=2` under the guard
+
+```
+bn == 128 && wn == 4 && N % 64 == 0 && tiles_m >= 4 && tiles_m * tiles_n <= 96
+```
+
+Its entire target population is the 78 `wk`/`wv` prefill projections at
+`M=512, N=1024, K=2048`, which give `tiles_m * tiles_n = 8 * 8 = 64` and are the
+only prefill class under the 96-tile ceiling.
+
+P2 deletes that population. `LagunaRuntimeModel.swift:6143-6182` replaces the
+three projections with one GEMM over the row-concatenated bank, so the shape
+becomes `M=512, N = queryDim + 2*kvDim = 10240, K=2048`. There is no layer
+exclusion: the gate is `if let fusedQKVWeight = _fusedQKVWeight, L > 1`.
+`tiles_m * tiles_n` is then `8 * 80 = 640`, six and a half times the ceiling.
+
+Every other prefill class was already excluded, and remains so:
+
+| class after P2 | M | N | K | route | tiles | P3 guard |
+|---|---:|---:|---:|---|---:|---|
+| fused `[Wq;Wk;Wv]` bank | 512 | 10240 | 2048 | regular-`_nax` | 640 | exclude |
+| dense `gate`/`up` | 512 | 8192 | 2048 | regular-`_nax` | 512 | exclude |
+| layer-39 `[K;V]` bank | 512 | 2048 | 2048 | regular-`_nax` | 128 | exclude |
+| `wo`, `down`, router, `g_proj` | 512 | <=2048 | >=6144 | `_nax` split-K | — | never reached |
+| every decode projection | 1 | — | 2048 | regular-`_nax` | — | `tiles_m < 4` |
+
+Both banked shapes stay on the regular path: the `_nax` split-K admission at
+`matmul.cpp:1015-1017` needs `K >= 3*max(M,N)` or
+`max(M,N) <= 1024 && K > 2*max(M,N)`, and `N=10240` fails both.
+
+**P3 stacked on P2 is a literal no-op on the scored window and on every
+off-window prefill.** Submitting it would spend a receipt re-measuring R1.
+
+### 12.2 Why this is not merely a scheduling accident
+
+P3's premise was an occupancy deficit: 64 threadgroups on a 40-core M5 Max is
+1.6 waves, with no second wave to hide the tail. P2 fixes that deficit by a
+different and strictly better route — it folds those 64 threadgroups into a
+640-threadgroup launch (16 waves) instead of splitting them into 128
+threadgroups (3.2 waves), and it does so without the +33% A re-read that P3
+would have paid.
+
+This makes R1 a joint test of both arms, and the outcome is decisive either way:
+
+- If R1 shows a material prefill gain, the occupancy/serialisation premise is
+  real **and P2 has already captured it**; P3 is redundant.
+- If R1 shows a null, the premise is false; P3 has nothing left to exploit.
+
+So R1's receipt closes P3 in both branches. **P3 will not be submitted.**
+
+### 12.3 Consequence for §11.2's predicted magnitude
+
+Amendment 2 predicted `-0.16 ms` for R1 from dispatch-launch overhead alone
+(78 dispatches x ~2.0 us). Section 12.2 identifies a second mechanism inside
+the same change that Amendment 2 did not price: the wk/wv class was the one
+prefill class running at 1.6 waves per core, and P2 removes it. If the original
+occupancy argument for this class was worth anything, that value now accrues to
+R1 rather than to P3.
+
+I am **not** revising the registered `-0.16 ms` point prediction or the §11.3
+read-out thresholds — they were registered first and R1 must be scored against
+them. I am registering that a result in the first row (`<= -1.0 ms`) is now
+explainable by occupancy rather than by dispatch serialisation, and that in
+that case the correct follow-up is **not** P3 but a mechanism that improves
+the fused bank's own tiling.
+
+### 12.4 Replacement for the third receipt
+
+P3's slot is released. The successor under evaluation is a *tall-M* retile in
+the opposite direction (`bm 64 -> 128`, `wm 2 -> 4`), which holds
+`SM = bm/wm = 32` and `SN = bn/wn = 32` and therefore the same `gemm_loop`
+instantiation, but halves `tiles_m` and hence halves the number of times the
+weight matrix is streamed. For the fused bank that is `8 * 10240 * 2048` down to
+`4 * 10240 * 2048` BF16 elements per layer, i.e. 335 MB -> 168 MB of B traffic
+per layer against a 42 MB per-layer weight that cannot be cache-resident.
+
+That candidate is under independent review at the time of writing and is not
+yet registered with a prediction. It will get its own amendment with its own
+bars before any receipt is spent on it, or it will be dropped.
+
