@@ -462,6 +462,25 @@ in the g17s−g16s gap; a positive `ΔvsBase` means the ablation made the gap
   `window * head_dim` = 65536 with `kv_head` < 8 → 524288 max; full-attention
   `seq` ≤ 640 → 655360.)
 
+## Stage 4 — NOT RUN
+
+`DARKBLOOM_NVFP4_NIBBLE_SPLIT=2` was **not** retired. Stage 1′ was unplanned and
+consumed the round: the Stage-2 census had to be redone from scratch once the
+oracle vehicle was found to dispatch a different kernel set, which required
+building a second dump vehicle through the scored worker's stderr forwarder. The
+assignment permits skipping Stage 4 in that case.
+
+Nothing about Stage 4 is blocked. It remains a byte-negative, behaviour-neutral
+cleanup, and the verification the assignment asks for is unchanged: census the
+actual in-tree variant-0 and variant-2 reconstruct bodies
+(`Sources/MLXFastModel/LagunaRuntimeModel.swift:6596-6692`, parser `:6472-6478`,
+docstring `:6429-6471`), confirm byte-identity on both arches, keep the shipping
+default `1` untouched, and gate the removal on
+`research/run_upstream_equivalence.sh` clean plus
+`env -u MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT ./benchmark.sh --local-iterate` with
+`max_abs_diff = 0`. The `s4a`/`s4b` rows already in the extended TSV are #481's
+probe arms, not the in-tree bodies, so they do not discharge the check.
+
 ## Limits
 
 1. **Static bytes are not time.** Nothing in this report is a timing
@@ -538,6 +557,46 @@ those four TUs to see whether their excess is also parked in a once-per-launch
 Note that Stage 3 already falsified both concrete rewrites it generated, so this
 arm should be budgeted as diagnosis, not as an expected win.
 
+## Artifacts
+
+`research/maple-frieren-pr481-census.tsv` was **extended, not forked**, and the
+schema is **unchanged** at `study\tarch\tfn\tcompute_bytes` — no new columns, so
+nothing downstream of #481 breaks. It is now 306 data rows. Study labels, with
+`cal`, `encoding`, `router_real`, `s4a` and `s4b` inherited from #481:
+
+| study | rows | what it is |
+| --- | --- | --- |
+| `cal` | 12 | #481 floor/marginal calibration |
+| `encoding` | 26 | #481 per-class encoding table |
+| `router_real` | 2 | #481 hand-reconstructed router TU |
+| `s4a`, `s4b` | 50 | #481 NVFP4 nibble-split arms |
+| `r92_decode` | 24 | Stage 2, oracle-path dumped decode TUs |
+| `r92_encoding` | 26 | Control 1 re-run in this session |
+| `r92_floor` | 10 | Control 2, arch floor bracket |
+| `r92_bisect` | 66 | Stage 3 ablation arms |
+| `r92_scored` | 54 | **Stage 1′, scored-path dumped decode TUs** |
+| `r92_scored_encoding` | 26 | Control 1 re-run against the scored census |
+| `r92_scored_floor` | 10 | Control 2 re-run against the scored census |
+
+Per-stage working copies, each a strict subset or reshaping of the above:
+
+| file | contents |
+| --- | --- |
+| `research/r92-artifacts/r92-census.tsv` | Stage 2 census (60 rows) |
+| `research/r92-artifacts/r92-census-scored.tsv` | Stage 1′ census (90 rows) |
+| `research/r92-artifacts/r92-bisect.tsv` | Stage 3, `kernel\tablation\tg16s\tg17s\tdelta` |
+| `research/r92-artifacts/r92-census-stage2.txt` | Stage 2 rendered table |
+| `research/r92-artifacts/r92-census-stage1prime.txt` | Stage 1′ weighted table (source of every aggregate) |
+| `research/r92-artifacts/r92-delta-scored-all.txt` | `delta_table.py` verdicts, scored census |
+| `research/r92-artifacts/r92-kernel-dispatch-trace.txt` | oracle dispatch order, 1717 emissions |
+| `research/r92-artifacts/r92-dispatch-segmentation.txt` | oracle prefill/step decomposition |
+| `research/r92-artifacts/r92-scored-step-segmentation.txt` | scored step decomposition, 363/step derivation |
+| `research/r92-artifacts/r92-kernel-manifest.tsv` | oracle manifest (provenance only) |
+| `research/r92-artifacts/r92-kernel-manifest-scored.tsv` | scored manifest (provenance only, budget-truncated) |
+
+Raw dumps (`research/r92-runs/`, 62 MB of generated MSL, split TUs and ablation
+arms) are git-excluded and regenerable from the pipeline below.
+
 ## Reproduction
 
 ```bash
@@ -596,5 +655,32 @@ All four are `finished`. Run 1′ carries 295 summary keys and supersedes run 2'
 `stage2/weighted_*` aggregates; run 2 sets `stage2_weights_retracted=1` in run
 1′'s summary rather than being deleted, so the retraction is auditable.
 
-All instrumentation is reverted in the final commit; the submitted editable
-surface for this experiment is **zero bytes changed**.
+## Gate
+
+Stages 1–3 change no shipped behaviour, so the assignment requires only a clean
+build. All instrumentation is reverted in the final commit and the submitted
+editable surface is **zero bytes changed**:
+
+```
+$ git diff 8486638578a283de40369172f68c3a4d2d6a5365 -- Sources/ Vendor/ | wc -c
+0
+$ swift build -c release --force-resolved-versions
+exit 0, 22.3 s
+```
+
+`Package.resolved` is unmodified. Budget is unchanged from the base
+(`current=2895390/3000000 headroom=104610 growth=0/262144 files=141`) because
+every file this arm adds lives under `research/` or
+`senpai/tools/agx-census-probe/`, neither of which is in `editablePaths`.
+
+Two incidental correctness observations, both from runs whose purpose was the
+dump rather than the gate:
+
+- the Stage 1′ scored run passed the local correctness check with
+  `max_abs_diff = 0` and golden hash
+  `b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63`, i.e. 48
+  `verbose:` flags and a stdout→stderr redirect do not perturb numerics, as
+  expected for a debug-print bit;
+- its est score of 0.455 against a 0.796 local baseline is **the cost of
+  writing 21 MB of MSL to a pipe**, not a candidate regression. No timing in
+  this report is admissible as a speedup claim.
