@@ -7033,14 +7033,14 @@ private let lagunaRoutedDownReduceKernel = MLXFast.metalKernel(
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        // `weightedExpertSum` first multiplies BF16 expert outputs by router
-        // weights cast from FP32 to BF16. Its small strided BF16 reduction
-        // initializes with zero, then visits expert slots 0 through 7 in
+        // `weightedExpertSum` first multiplies BF16 expert outputs by BF16
+        // router weights. Its small strided BF16 reduction initializes with
+        // zero, then visits expert slots 0 through 7 in
         // order. The scalar 2.5 is constructed in the BF16 result dtype.
         if (expert_slot == 0 && lane < outputs_per_simd) {
             bfloat total = bfloat(0);
             for (uint slot = 0; slot < experts_per_token; ++slot) {
-                bfloat route_weight = bfloat(router_weights[slot]);
+                bfloat route_weight = router_weights[slot];
                 bfloat product = bfloat(
                     expert_outputs[slot * outputs_per_simd + lane] *
                     route_weight);
@@ -7082,7 +7082,7 @@ func lagunaRoutedDownReduce(
         ])
     precondition(indices.dtype == .uint32)
     precondition(indices.shape == [1, 1, LagunaConstants.numExpertsPerTok])
-    precondition(routerWeights.dtype == .float32)
+    precondition(routerWeights.dtype == .bfloat16)
     precondition(routerWeights.shape == [1, 1, LagunaConstants.numExpertsPerTok])
 
     return lagunaRoutedDownReduceKernel(
@@ -7203,8 +7203,7 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
             for (uint routed_slot = 0;
                  routed_slot < routed_experts;
                  ++routed_slot) {
-                bfloat route_weight =
-                    bfloat(router_weights[routed_slot]);
+                bfloat route_weight = router_weights[routed_slot];
                 bfloat product = bfloat(
                     down_outputs[
                         routed_slot * outputs_per_simd + lane
@@ -7257,7 +7256,7 @@ func lagunaRoutedSharedDownResidual(
         ])
     precondition(indices.dtype == .uint32)
     precondition(indices.shape == [1, 1, LagunaConstants.numExpertsPerTok])
-    precondition(routerWeights.dtype == .float32)
+    precondition(routerWeights.dtype == .bfloat16)
     precondition(routerWeights.shape == [1, 1, LagunaConstants.numExpertsPerTok])
     precondition(sharedActivated.dtype == .bfloat16)
     precondition(
@@ -7819,7 +7818,7 @@ private func lagunaDecodeRouterTop8KernelSource(normalizing: Bool) -> String {
         }
         if (lane < 8) {
             router_indices[lane] = my_index;
-            router_scores[lane] = my_score / total;
+            router_scores[lane] = bfloat(my_score / total);
         }
         """
         : """
@@ -7942,7 +7941,7 @@ private let lagunaDecodeRouterTop8Kernel = MLXFast.metalKernel(
 )
 
 private let lagunaDecodeRouterTop8NormalizingKernel = MLXFast.metalKernel(
-    name: "laguna_decode_router_top8_norm_v2",
+    name: "laguna_decode_router_top8_norm_bf16_v3",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
     source: lagunaDecodeRouterTop8KernelSource(normalizing: true),
@@ -7995,7 +7994,7 @@ private func lagunaDecodeRouterOrdinalKernelSource(
         }
         if (lane < 8) {
             router_indices[lane] = my_index;
-            router_scores[lane] = my_score / total;
+            router_scores[lane] = bfloat(my_score / total);
         }
         """
         : """
@@ -8098,7 +8097,7 @@ private let lagunaDecodeRouterOrdinalKernel = MLXFast.metalKernel(
 )
 
 private let lagunaDecodeRouterOrdinalNormalizingKernel = MLXFast.metalKernel(
-    name: "laguna_decode_router_top8_ordinal_norm_v1",
+    name: "laguna_decode_router_top8_ordinal_norm_bf16_v2",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
     source: lagunaDecodeRouterOrdinalKernelSource(normalizing: true),
@@ -8116,7 +8115,7 @@ private let lagunaDecodeRouterOrdinalScoreTableKernel = MLXFast.metalKernel(
 )
 
 private let lagunaDecodeRouterOrdinalScoreTableNormalizingKernel = MLXFast.metalKernel(
-    name: "laguna_decode_router_top8_ordinal_table_norm_v1",
+    name: "laguna_decode_router_top8_ordinal_table_norm_bf16_v2",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
     source: lagunaDecodeRouterOrdinalKernelSource(normalizing: true, scoreTable: true),
@@ -8148,7 +8147,7 @@ func lagunaDecodeRouterTop8AcceptedForTesting(
         grid: (256, 1, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, 1, 8], [1, 1, 8]],
-        outputDTypes: [.uint32, .float32]
+        outputDTypes: [.uint32, normalizing ? .bfloat16 : .float32]
     )
     return (outputs[0], outputs[1])
 }
@@ -8169,7 +8168,7 @@ func lagunaDecodeRouterTop8OrdinalForTesting(
         grid: (256, 1, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, 1, 8], [1, 1, 8]],
-        outputDTypes: [.uint32, .float32]
+        outputDTypes: [.uint32, normalizing ? .bfloat16 : .float32]
     )
     return (outputs[0], outputs[1])
 }
@@ -8191,7 +8190,7 @@ func lagunaDecodeRouterTop8OrdinalScoreTableForTesting(
         grid: (256, 1, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, 1, 8], [1, 1, 8]],
-        outputDTypes: [.uint32, .float32]
+        outputDTypes: [.uint32, normalizing ? .bfloat16 : .float32]
     )
     return (outputs[0], outputs[1])
 }
@@ -8298,7 +8297,7 @@ private func lagunaPrefillRouterTop8KernelSource(normalizing: Bool) -> String {
                 for (uint i = 0; i < 8; ++i) {
                     total = selected_scores[i] + total;
                 }
-                router_scores[row * 8 + lane] = selected_scores[lane] / total;
+                router_scores[row * 8 + lane] = bfloat(selected_scores[lane] / total);
         """
         : """
                 router_scores[row * 8 + lane] = selected_scores[lane];
@@ -8349,7 +8348,7 @@ private let lagunaPrefillRouterTop8Kernel = MLXFast.metalKernel(
 )
 
 private let lagunaPrefillRouterTop8NormalizingKernel = MLXFast.metalKernel(
-    name: "laguna_prefill_router_top8_norm_v1",
+    name: "laguna_prefill_router_top8_norm_bf16_v2",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
     source: lagunaPrefillRouterTop8KernelSource(normalizing: true),
@@ -8373,7 +8372,7 @@ private func lagunaPrefillRouterTop8(
         grid: (256, rows, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, rows, 8], [1, rows, 8]],
-        outputDTypes: [.uint32, .float32]
+        outputDTypes: [.uint32, normalizing ? .bfloat16 : .float32]
     )
     return (outputs[0], outputs[1])
 }
@@ -8448,7 +8447,7 @@ private func lagunaPrefillRouterTournamentKernelSource(normalizing: Bool) -> Str
         }
         if (lane < 8) {
             router_indices[row * 8 + lane] = my_index2;
-            router_scores[row * 8 + lane] = my_score2 / total;
+            router_scores[row * 8 + lane] = bfloat(my_score2 / total);
         }
         """
         : """
@@ -8609,7 +8608,7 @@ private func lagunaPrefillRouterTournamentOrdinalKernelSource(normalizing: Bool)
         }
         if (lane < 8) {
             router_indices[row * 8 + lane] = my_index2;
-            router_scores[row * 8 + lane] = my_score2 / total;
+            router_scores[row * 8 + lane] = bfloat(my_score2 / total);
         }
         """
         : """
@@ -8716,7 +8715,7 @@ private let lagunaPrefillRouterTournamentKernel = MLXFast.metalKernel(
 )
 
 private let lagunaPrefillRouterTournamentNormalizingKernel = MLXFast.metalKernel(
-    name: "laguna_prefill_router_tournament_norm_v1",
+    name: "laguna_prefill_router_tournament_norm_bf16_v2",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
     source: lagunaPrefillRouterTournamentKernelSource(normalizing: true),
@@ -8734,7 +8733,7 @@ private let lagunaPrefillRouterTournamentOrdinalKernel = MLXFast.metalKernel(
 )
 
 private let lagunaPrefillRouterTournamentOrdinalNormalizingKernel = MLXFast.metalKernel(
-    name: "laguna_prefill_router_tournament_ordinal_norm_v1",
+    name: "laguna_prefill_router_tournament_ordinal_norm_bf16_v2",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
     source: lagunaPrefillRouterTournamentOrdinalKernelSource(normalizing: true),
@@ -8758,7 +8757,7 @@ func lagunaPrefillRouterTournamentAcceptedForTesting(
         grid: (256, rows, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, rows, 8], [1, rows, 8]],
-        outputDTypes: [.uint32, .float32]
+        outputDTypes: [.uint32, normalizing ? .bfloat16 : .float32]
     )
     return (outputs[0], outputs[1])
 }
@@ -8780,7 +8779,7 @@ func lagunaPrefillRouterTournamentOrdinalForTesting(
         grid: (256, rows, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, rows, 8], [1, rows, 8]],
-        outputDTypes: [.uint32, .float32]
+        outputDTypes: [.uint32, normalizing ? .bfloat16 : .float32]
     )
     return (outputs[0], outputs[1])
 }
@@ -8924,8 +8923,7 @@ final class LagunaRuntimeMoEGate: Module {
 /// Exactness, op for op against the stock chain (`weightedExpertSum`, the
 /// scalar multiply, and the two adds), whose arithmetic the promoted decode
 /// down-reduce kernel already reproduces bit-exactly one row at a time:
-///  * `weights.asType(y.dtype)` is the FP32→BF16 convert of each router
-///    weight, done here per weight before any product.
+///  * Router weights are already rounded once to BF16 before this kernel.
 ///  * The multiply materializes `bfloat(y * w)` per element — the same
 ///    single-rounding BF16 product the compiled elementwise kernel writes.
 ///  * The `.sum(axis: -2)` over eight expert slots takes MLX's
@@ -8952,11 +8950,11 @@ private let lagunaPrefillMoETailKernel = MLXFast.metalKernel(
 
         const device bfloat* expert_row =
             expert_outputs + (row * experts) * hidden + col;
-        const device float* weight_row = router_weights + row * experts;
+        const device bfloat* weight_row = router_weights + row * experts;
 
         bfloat expert_weights[experts];
         for (uint e = 0; e < experts; ++e) {
-            expert_weights[e] = bfloat(weight_row[e]);
+            expert_weights[e] = weight_row[e];
         }
 
         for (uint i = 0; i < n_cols; ++i) {
@@ -8995,12 +8993,12 @@ private let lagunaPrefillSortedMoETailKernel = MLXFast.metalKernel(
 
         uint row = thread_position_in_grid.y;
         uint col = thread_position_in_grid.x * n_cols;
-        const device float* weight_row = router_weights + row * experts;
+        const device bfloat* weight_row = router_weights + row * experts;
 
         bfloat expert_weights[experts];
         uint sorted_rows[experts];
         for (uint e = 0; e < experts; ++e) {
-            expert_weights[e] = bfloat(weight_row[e]);
+            expert_weights[e] = weight_row[e];
             sorted_rows[e] = inverse_order[row * experts + e];
         }
 
@@ -9033,7 +9031,7 @@ private func lagunaPrefillMoETail(
         expertOutputs.shape == [
             1, rows, LagunaConstants.numExpertsPerTok, LagunaConstants.hiddenSize,
         ])
-    precondition(routerWeights.dtype == .float32)
+    precondition(routerWeights.dtype == .bfloat16)
     precondition(routerWeights.shape == [1, rows, LagunaConstants.numExpertsPerTok])
     precondition(sharedOutput.dtype == .bfloat16)
     precondition(sharedOutput.shape == [1, rows, LagunaConstants.hiddenSize])
@@ -9063,7 +9061,7 @@ private func lagunaPrefillSortedMoETail(
             == rows * LagunaConstants.numExpertsPerTok * LagunaConstants.hiddenSize)
     precondition(inverseOrder.dtype == .uint32)
     precondition(inverseOrder.size == rows * LagunaConstants.numExpertsPerTok)
-    precondition(routerWeights.dtype == .float32)
+    precondition(routerWeights.dtype == .bfloat16)
     precondition(routerWeights.shape == [1, rows, LagunaConstants.numExpertsPerTok])
     precondition(sharedOutput.dtype == .bfloat16)
     precondition(sharedOutput.shape == [1, rows, LagunaConstants.hiddenSize])
@@ -9486,7 +9484,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                     LagunaConstants.hiddenSize,
                     LagunaConstants.moeIntermediateSize / 16,
                 ],
-                weights.dtype == .float32,
+                weights.dtype == .bfloat16,
                 weights.shape == [1, 1, LagunaConstants.numExpertsPerTok],
                 routedScalingFactor == Float(LagunaConstants.moeRoutedScalingFactor),
                 residual.dtype == .bfloat16,
@@ -9523,7 +9521,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                     LagunaConstants.hiddenSize,
                     LagunaConstants.moeIntermediateSize / 16,
                 ],
-                weights.dtype == .float32,
+                weights.dtype == .bfloat16,
                 weights.shape == [1, 1, LagunaConstants.numExpertsPerTok],
                 routedScalingFactor == Float(LagunaConstants.moeRoutedScalingFactor)
             {
@@ -9591,7 +9589,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                         * LagunaConstants.hiddenSize,
                 inverseOrder.dtype == .uint32,
                 inverseOrder.size == x.dim(1) * LagunaConstants.numExpertsPerTok,
-                weights.dtype == .float32,
+                weights.dtype == .bfloat16,
                 weights.shape == [1, x.dim(1), LagunaConstants.numExpertsPerTok],
                 routedScalingFactor == Float(LagunaConstants.moeRoutedScalingFactor),
                 residual.dtype == .bfloat16,
@@ -9636,7 +9634,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 y.dim(1) == x.dim(1),
                 y.dim(2) == LagunaConstants.numExpertsPerTok,
                 y.dim(3) == LagunaConstants.hiddenSize,
-                weights.dtype == .float32,
+                weights.dtype == .bfloat16,
                 weights.shape == [1, x.dim(1), LagunaConstants.numExpertsPerTok],
                 routedScalingFactor == Float(LagunaConstants.moeRoutedScalingFactor),
                 residual.dtype == .bfloat16,
