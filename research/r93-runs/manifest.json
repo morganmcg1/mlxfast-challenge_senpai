@@ -19,12 +19,9 @@
     "4fec8e2d"
   ],
   "tg": 8,
-  "wandb": {
-    "ladder-K240": "fpi2ynyl",
-    "null-1": "3szqrztf",
-    "null-2": "0doaq0w0",
-    "null-3": "fvm3v67i",
-    "ladder-K800": "qaempae6"
+  "probe": {
+    "ecd89cac": "routed:fma:24",
+    "ab3a2433": "routed:fma:64"
   },
   "wandb_runs": {
     "null-1": "3szqrztf",
@@ -34,6 +31,7 @@
     "ladder-K800": "qaempae6",
     "null-4": "0ecng8mc",
     "ladder-K60": "xlaup9j4",
-    "null-5": "92snii58"
+    "null-5": "92snii58",
+    "probe-routed-fma-24": "59o0mk6y"
   }
 }
