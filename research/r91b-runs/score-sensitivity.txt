@@ -1,0 +1,68 @@
+scored submissions with a baseline: n=1176
+window: 2026-07-24T07:24:49Z .. 2026-08-09T01:07:57Z
+
+baseline_decode: mean=0.013855009542 sd=0.000034063080 cv=0.246 %
+  min=0.013780735352  max=0.014047242508  spread=1.934 %
+
+baseline_prefill: mean=0.000372473193 sd=0.000007243722 cv=1.945 %
+  min=0.000362341797  max=0.000396640869  spread=9.466 %
+
+=== where the two receipts of interest sit in the baseline distribution ===
+leaderboard best  score=2.6165035438 bl_dec pctile= 99.7  bl_pre pctile= 95.3
+Arm R             score=2.5804768841 bl_dec pctile= 48.3  bl_pre pctile= 46.9
+
+=== Arm R's OWN candidate timings re-scored against every observed baseline draw ===
+n=1176 mean=2.5892315388 sd=0.0139746241 (0.540 %)
+min=2.5643543829 max=2.6440457073
+actual Arm R score      = 2.5804768841
+leaderboard best        = 2.6165035438
+draws where Arm R's UNCHANGED candidate would have scored >= the best: 32/1176 = 2.7 %
+Arm R scored against the BEST receipt's baseline draw = 2.6314704051
+BEST candidate scored against Arm R's baseline draw   = 2.5658000558
+
+=== leaderboard re-ranked at a common (mean) baseline ===
+rank  id        as-published        at common baseline   solver
+1     fefaed88  2.6011605580        2.5918677866         MyatKaung
+2     7ce1262d  2.5804768841        2.5893213001         morganmcg1  <== ARM R
+3     deaf96b6  2.5725691939        2.5883619715         a-github-name
+4     1d06e96f  2.5892853973        2.5882569950         a-github-name
+5     288e26de  2.5741215089        2.5880394097         a-github-name
+6     b223139e  2.5809860889        2.5878570438         a-github-name
+7     7e9d94dd  2.5697198144        2.5873272509         a-github-name
+8     91954d84  2.5771901783        2.5869972249         MyatKaung
+9     6d563931  2.5949487244        2.5869559435         a-github-name
+10    a5063d2e  2.5827581728        2.5866895934         a-github-name
+11    93d2113e  2.5751491558        2.5865160287         yudduy
+12    05e48bbd  2.5720194140        2.5864016050         MyatKaung
+
+Arm R common-baseline rank = 2/1176; published-best common-baseline rank = 47/1176
+
+=== robustness 1: is the published score actually driven by the baseline draw? ===
+corr(published score, baseline_decode)  = +0.1304
+corr(published score, baseline_prefill) = +0.1325
+corr(baseline_decode, baseline_prefill) = +0.1262
+corr(baseline_decode, candidate_decode) = -0.1010   (a strong positive value would mean session slowness is common-mode and partly cancels in the ratio)
+corr(baseline_prefill, candidate_prefill) = -0.1035
+
+=== robustness 2: is the pinned baseline stationary over the window? ===
+day         n     mean bl_dec       mean bl_pre       sd score-equiv %
+2026-07-24  28    0.013840390114    0.000370250982    0.394
+2026-07-25  52    0.013850305620    0.000370268717    0.483
+2026-07-26  51    0.013863578439    0.000375530575    0.511
+2026-07-27  7     0.013864762883    0.000369783726    0.423
+2026-07-28  36    0.013847213903    0.000370284715    0.512
+2026-07-29  121   0.013850291476    0.000371289691    0.463
+2026-07-30  28    0.013847974889    0.000370387983    0.502
+2026-07-31  146   0.013846342856    0.000372018884    0.507
+2026-08-01  145   0.013851292138    0.000371525275    0.495
+2026-08-02  137   0.013857517687    0.000373055463    0.562
+2026-08-03  116   0.013866273342    0.000373016477    0.556
+2026-08-04  111   0.013866173181    0.000374415127    0.582
+2026-08-05  66    0.013854756284    0.000373520815    0.564
+2026-08-06  47    0.013861122382    0.000372960233    0.549
+2026-08-07  48    0.013856178696    0.000373037520    0.557
+2026-08-08  36    0.013849271195    0.000373886104    0.650
+
+=== robustness 3: restrict to the most recent 3 days ===
+n=132 mean=2.5906330711 sd=0.0149094682 (0.576 %) draws >= best: 6/132 = 4.5 %
+gap to best in units of this sd: 2.42 sigma
