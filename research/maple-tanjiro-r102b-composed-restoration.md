@@ -196,7 +196,121 @@ Dispatched per the preregistered policy — unconditionally on P1 passing, and
 
 ## 8. Receipt decomposition (P4)
 
-_Pending the receipt._
+### 8.1 The receipt
+
+Pulled with `python3 research/r93-runs/pull_receipts.py /tmp/r102b-receipts.json`
+(n = 1203, `2026-07-24T07:24:49Z .. 2026-08-09T18:36:41Z`).
+
+| field | value |
+| --- | --- |
+| submission id | `e08d759f-8e52-46e7-8b29-2c8647cfaae8` |
+| official commit | `bd33883e` |
+| timestamp | `2026-08-09T18:36:41Z` |
+| status | `rejected` — i.e. *did not beat the current best*, as preregistered |
+| `score` (paired) | 2.58189090485267 |
+| `cs` (pinned) | 2.582286297407117 |
+| `cand_dec` / `cand_pre` | 0.004913116859375 / 0.000187856689453125 |
+| `bl_dec` / `bl_pre` | 0.01384402571875 / 0.0003731318359375 |
+| `dec_su` / `pre_su` | 2.8177684583938647 / 1.9862579130066373 |
+
+Both published statistics were reverse-engineered exactly from the corpus
+(`research/artifacts/tanjiro-r102b/r102b_receipt.py`), which matters because
+the two are *not* interchangeable:
+
+- `score = dec_su^0.75 * pre_su^0.25` — max relative residual **4.7e-15** over
+  all 1203 receipts. This is the *paired* statistic; it inherits the noise of
+  the same-session baseline legs.
+- `cs = (MB_D/cand_dec)^0.75 * (MB_P/cand_pre)^0.25` with pinned constants. The
+  combination `K = 0.75 ln MB_D + 0.25 ln MB_P = -5.183167681` is constant to
+  **1.8e-15** across all 1203 receipts. `cs` depends on the candidate legs
+  **only**, so it is the lower-noise statistic and the right one to compare
+  against the control receipt.
+
+Empirically confirmed on the 133 near-frontier receipts of the last 150:
+scatter of `cs` **1.389 %** vs scatter of `score` **1.503 %**. A regression of
+`ln cand_dec` on `ln bl_dec` gives slope **+0.495 ± 0.523 (t = +0.95)** and on
+the prefill legs **+0.041 ± 0.097 (t = +0.42)** — the session factor is *not*
+measurably shared, so pairing against the session baseline adds noise rather
+than removing it. **Use `cs`, not `score`, for candidate-to-candidate
+comparison.**
+
+### 8.2 Noise model — and one trap that had already been documented
+
+My first pass used the byte-identical pinned baseline arm as an n=1203 null and
+got σ(`cs`) ≈ 0.54 %, of which 87 % was the prefill leg. **That estimate is
+wrong, and the reason was already on file.**
+`research/advisor-r93-m5-receipt-channel-and-promotion-model.md` §5 established
+that the baseline runs *first* in each session and absorbs JIT, first-touch
+page faults and clock ramp, so `bl_pre`'s 1.9–2.4 % scatter is a cold-start
+artifact and "must never be used as a proxy for candidate measurement noise".
+I re-derived their adjacent-near-duplicate estimator on the current corpus and
+reproduce their published numbers to 3–4 decimals on a window one day longer
+(1203 vs 1104 receipts):
+
+| quantity | r93 (n=1104) | this pull (n=1203) |
+| --- | --- | --- |
+| `cand_dec` σ_single ≤ | 0.2924 % | **0.2920 %** |
+| `cand_pre` σ_single ≤ | 0.2573 % | **0.2577 %** |
+| `bl_dec` σ_single ≤ | 0.1535 % | **0.1534 %** |
+| `bl_pre` σ_single ≤ | 2.3821 % | **2.4096 %** |
+
+(83 adjacent same-solver pairs < 20 min apart; med|d| → σ via
+`1/(0.6745·√2)`. These are *upper* bounds: each pair still contains whatever
+real code change was made between the two submissions.)
+
+Carried into `cs`-percent units: decode leg 0.75 × 0.2920 = **0.219 %**,
+prefill leg 0.25 × 0.2577 = **0.064 %**, total **σ(cs) ≤ 0.228 %**.
+
+### 8.3 Additivity
+
+Control receipt `59bd72a3` (`2026-08-09T14:56:31Z`, same day, same host),
+cs = 2.575633, `cand_dec` = 0.0049252545546875, `cand_pre` = 0.000188405435546875.
+
+Log-split of the measured move, in `cs`-percent units:
+
+| leg | value | note |
+| --- | --- | --- |
+| decode | **+0.1851 %** | 0.004925254555 → 0.004913116859 |
+| prefill | +0.0729 % | 0.000188405436 → 0.000187856689; neither restoration touches prefill, so this is a pure noise draw |
+| total | **+0.2580 %** | matches `cs` ratio +0.2583 % to rounding |
+
+| quantity | full `cs` | decode leg only |
+| --- | --- | --- |
+| measured | +0.2580 % ± 0.3228 | +0.1851 % ± 0.3097 |
+| additive prediction | +0.3658 % ± 0.0729 | +0.3658 % ± 0.0729 |
+| **implied interaction I** | **−0.108 % ± 0.331** | **−0.181 % ± 0.318** |
+| 95 % band on I | [−0.757, +0.541] | [−0.804, +0.443] |
+| excludes I = 0 ? | **NO** | **NO** |
+| excludes full cancellation (I = −0.366) ? | **NO** | **NO** |
+
+(± on the measured figure is √2 σ because the control and the candidate are two
+independent single draws; the prediction's ± is the quadrature of R1's
+published band, σ ≈ 0.052 %, with the same assumed for R2.)
+
+### 8.4 Verdict on the receipt: structurally underpowered
+
+The single receipt resolves I only to **±0.65 %** while the effect under test
+is **0.366 %** — **1.8× too coarse**. It cannot distinguish perfect additivity
+from total mutual cancellation. The point estimate leans very slightly negative
+and is worth exactly nothing on its own.
+
+Solving for what a decisive receipt-only test needs (95 % confidence, 80 %
+power, paired arms):
+
+| statistic | σ | receipts per arm | total |
+| --- | --- | --- | --- |
+| full `cs` | 0.228 % | 7 | **14** |
+| decode leg only | 0.219 % | 6 | **12** |
+
+The round's budget was **one**. **A receipt-based decomposition of a ~0.37 %
+two-factor interaction was never achievable within one round**, and this is a
+property of the design, not of the outcome. The M4 2×2 in §6 is therefore the
+load-bearing evidence, and the receipt's real value is (a) an M5 correctness
+pass for the composed tree and (b) one honest draw of its absolute standing.
+
+This is the reusable lesson: **before spending a round's receipt on a
+difference, check the difference against σ(cs) ≤ 0.228 %.** Any single-receipt
+question about an effect smaller than roughly 0.64 % is unanswerable.
 
 ## 9. Implied M5 interaction term
 
@@ -204,7 +318,204 @@ _Pending._
 
 ## 10. Updated record probability
 
-_Pending._
+### 10.1 A category error in the campaign's own bookkeeping
+
+The number `2.61650354381456` is quoted across our research notes as "the
+record", and several of them place it in a direct "gap" against one of our
+**`cs`** values. `2.61650354381456` is a **`score`**, not a `cs`, so that
+subtraction is only meaningful once the session multiplier between the two
+statistics is written down explicitly.
+
+Searching the 1,203-receipt corpus, it matches exactly one receipt, and matches
+it on the `score` field to the last digit:
+
+| field | value |
+| --- | --- |
+| submission id | `cc6ddc12-ecbd-4c07-beec-445060a21a62` |
+| commit | `c5b0a13c` |
+| solver | `a-github-name` |
+| ts | 2026-08-08T09:17:33Z |
+| **`score`** | **2.61650354381456** ← the "record" |
+| `cs` | 2.5745941683956177 |
+
+It is the corpus maximum by `score` (rank 1/1203). It is **not** the corpus
+maximum by `cs`; that is `ebcd3ca3` (MyatKaung) at `cs` = 2.59186778715710,
+whose own `score` is 2.601161.
+
+This is not pedantry. The two statistics rank differently because they measure
+different things:
+
+- `cs = (MB_D/cand_dec)^0.75 · (MB_P/cand_pre)^0.25` uses **pinned** calibration
+  constants (§8.2, `K = 0.75 ln MB_D + 0.25 ln MB_P = −5.183167681`, constant to
+  1.8e-15 across all 1,203 receipts). It depends only on the candidate legs, so
+  it is a clean measure of **candidate quality**.
+- `score = (bl_dec/cand_dec)^0.75 · (bl_pre/cand_pre)^0.25` is the
+  **same-session paired** statistic. It additionally multiplies in whatever the
+  baseline happened to measure in that session.
+
+The leaderboard ranks on `score`. So the ranked quantity factors exactly:
+
+```
+score  =  cs  ×  L
+L      =  (bl_dec/MB_D)^0.75 · (bl_pre/MB_P)^0.25
+```
+
+`L` is the **baseline lottery**: pure session draw, statistically independent of
+anything the solver did to the candidate.
+
+### 10.2 The record is a baseline-lottery outlier, not a faster candidate
+
+Decomposing the record receipt and ours side by side:
+
+| | record `c5b0a13c` | ours `bd33883e` | ours vs record |
+| --- | --- | --- | --- |
+| `cand_dec` (s/tok) | 0.004930056640625 | 0.004913116859375 | **−0.344 %** (we are faster) |
+| `cand_pre` (s/tok) | 0.000188158853515625 | 0.000187856689453125 | **−0.161 %** (we are faster) |
+| `bl_dec` (s/tok) | 0.014005887046875 | 0.01384402571875 | +1.169 % slower baseline for them |
+| `bl_pre` (s/tok) | 0.00038462174609375 | 0.0003731318359375 | +3.079 % slower baseline for them |
+| **`cs`** | 2.574594 | **2.582286** | **+0.2988 %** |
+| `L` | **1.016278** (+1.628 %) | 0.999847 (−0.015 %) | |
+| **`score`** | **2.616504** | 2.581891 | −1.323 % |
+
+**Our candidate is faster than the record holder's on both scored legs.** They
+hold the record because their session drew a baseline in the top ~1 % of the `L`
+distribution (+1.63 %, above the p99 of +1.27 %) while ours drew the median
+(−0.015 % against a median of −0.143 %).
+
+Our ranks: **31/1203 by `cs`**, 40/1203 by `score`.
+
+### 10.3 The empirical distribution of the baseline lottery
+
+Because `L` is directly computable per receipt, no distributional assumption is
+needed. Over all n = 1,203:
+
+| statistic | value |
+| --- | --- |
+| mean `L` | 0.999927 |
+| median `L` | 0.998572 |
+| sd(ln L) | 0.5359 % |
+| MAD-derived sd(ln L) | 0.6067 % |
+
+| percentile | `L` | vs 1 |
+| --- | --- | --- |
+| p1 | 0.992228 | −0.777 % |
+| p5 | 0.993165 | −0.683 % |
+| p25 | 0.995292 | −0.471 % |
+| p50 | 0.998572 | −0.143 % |
+| p75 | 1.004210 | +0.421 % |
+| p90 | 1.007517 | +0.752 % |
+| p95 | 1.009229 | +0.923 % |
+| p99 | 1.012723 | +1.272 % |
+| max | 1.021135 | +2.113 % |
+
+**Cross-validation against r93.** The r93 adjacent-pair σ's (§8.4, reproduced
+independently on this 1,203-receipt pull) predict
+sd(ln L) = √((0.75 × 0.1534 %)² + (0.25 × 2.4096 %)²) = **0.611 %**. The measured
+MAD-derived sd(ln L) is **0.607 %**. Two completely different estimators — a
+same-solver adjacent-pair difference estimator and a direct per-receipt ratio —
+agree to 0.7 % relative. This is the strongest available confirmation that
+`research/advisor-r93-m5-receipt-channel-and-promotion-model.md` §5 got the
+baseline channel right, and that ~96 % of the lottery variance is the `bl_pre`
+cold-start term.
+
+`L` is mildly non-stationary: daily means drift over ±0.23 % across the campaign
+(corr(time, ln L) = +0.101, t = +3.52), while the within-day sd is stable at
+0.39–0.64 %. The apparent corr(ln `cs`, ln `L`) = +0.123 (t = +4.29) is
+essentially this temporal confound — `cs` rises over the campaign as solvers
+improve — not a real coupling between candidate and baseline legs. Treating `L`
+as i.i.d. is therefore a mild approximation, adequate at the accuracy needed
+below.
+
+### 10.4 Corrected record probability
+
+For a candidate of fixed quality `cs`, one official receipt sets a record iff it
+draws `L ≥ 2.61650354381456 / cs`. With our measured `cs` = 2.582286 that
+threshold is `L ≥ 1.013251` (+1.3251 %), i.e. between the p99 and the max of the
+observed lottery.
+
+| estimator | P(one receipt of our candidate takes the record) |
+| --- | --- |
+| empirical (9 of 1,203 draws qualify) | **0.748 %** (1 in 134) |
+| lognormal fit (z = 2.472) | 0.671 % (1 in 149) |
+
+Receipts needed for a 50 % chance of at least one record: **92** (empirical) /
+103 (lognormal). For 90 %: 307 / 342.
+
+**This confirms the round-100 repricing and retires two older numbers.**
+
+| source | P per draw at our candidate | status |
+| --- | --- | --- |
+| `maple-r99-score-gap-and-receipt-economics.md` §3 | ≈ 1.2e-4 | **retired** |
+| `CURRENT_RESEARCH_STATE.md` round-100 repricing, row "+ epilogue only" | ≈ 0.675 % at `cs` ≈ 2.5824 | **confirmed** |
+| this note, empirical `L` at measured `cs` = 2.582286 | **0.748 %** | |
+
+The round-100 repricing predicted 0.675 % for a `cs` ≈ 2.5824 candidate before
+any such receipt existed. We then measured `cs` = 2.582286 and get 0.748 %
+empirically / 0.671 % under the same Gaussian assumption it used. That is a
+clean out-of-sample confirmation of the round-100 session-factor model, and its
+σ = 0.5393 % matches my sd(ln L) = 0.5359 % to 0.6 % relative.
+
+The r99 figure was ~60× too pessimistic because it used the sd of twelve
+*different candidates'* scores (0.452 %) as session noise and anchored on their
+heterogeneous mean rather than on a specific candidate's `cs`.
+
+**My own first-pass estimate this round was worse and is withdrawn.** It
+compared our `cs` to the record `score` and used σ(`cs`) = 0.228 % — the
+*candidate-only* noise term from §8.4 — as the spread. That gave z = 4.10 and
+P ≈ 2.03e-05. Both halves were wrong in the same direction: the ranked statistic
+carries the baseline's variance too, and σ(`cs`) is the wrong scale for it by
+2.6×. The correct answer is **~370× larger** than that first pass.
+
+The residual disagreement between empirical (0.748 %) and lognormal (0.671 %)
+at our `cs` is real and grows in the tail: at the un-restored frontier
+`cs` = 2.575633 the empirical estimate is 0.416 % against 0.157 % lognormal, a
+factor of 2.6. The `L` distribution is platykurtic (MAD-derived sd 0.6067 %
+exceeds sd 0.5359 %), so a Gaussian fit understates the far right tail. Use the
+empirical column when the required draw is beyond p95.
+
+### 10.5 Where the leverage is
+
+The record threshold sits deep in the right tail of `L`, so P(record) is
+extremely convex in candidate quality:
+
+| `cs` | vs ours | required `L` | P empirical | P lognormal | 1 in |
+| --- | --- | --- | --- | --- | --- |
+| 2.575633 (control `59bd72a3`) | −0.258 % | 1.015868 | 0.416 % | 0.157 % | 241 |
+| **2.582286 (ours, `bd33883e`)** | — | 1.013251 | **0.748 %** | 0.671 % | 134 |
+| 2.585060 (preregistered additive prediction) | +0.107 % | 1.012164 | 1.164 % | 1.154 % | 86 |
+| 2.591868 (corpus max `cs`, `ebcd3ca3`) | +0.371 % | 1.009505 | 4.156 % | 3.743 % | 24 |
+| 2.600000 | +0.686 % | 1.006348 | 14.30 % | 11.57 % | 7 |
+| 2.620246 | +1.468 % | 0.998589 | 49.96 % | 59.76 % | 2 |
+
+("1 in" is `1/p_empirical`.) The banner's own figure for the additive
+prediction — "≈1.2 % per draw (E ≈ 82 draws)" at `cs` ≈ 2.58506 — is reproduced
+here as 1.164 % / E ≈ 86 from a completely independent empirical estimator. The
+banner's *model* was right; only its *input* was a prediction. Substituting the
+measured `cs` = 2.582286 moves the round's true position from 1.16 % per draw to
+**0.75 %**, i.e. the un-measured additivity assumption was worth a claimed 1.6×
+in record odds that we did not actually have.
+
+Two consequences for round planning:
+
+1. **A +0.37 % `cs` gain multiplies record probability by 5.6×** (0.748 % →
+   4.16 %). In this regime a tenth of a percent of candidate quality is worth
+   far more than an extra receipt: going from `cs` 2.582286 to 2.585658 (the
+   *additive* R1∘R2 prediction, had it held) roughly **doubles** the per-receipt
+   record odds, whereas a second receipt at unchanged quality only adds another
+   0.748 %.
+2. **`cs` ≥ 2.6202 (+1.47 % over ours) makes the record a coin flip at the
+   median draw.** That is the honest size of the remaining engineering gap, and
+   it is ~4× the entire additive R1∘R2 prediction (+0.366 %) and ~11× what R1∘R2
+   actually delivered (§8.5). Composed micro-restorations do not close it.
+
+### 10.6 Note on what a `rejected` receipt means here
+
+Our receipt returned `status rejected`. Per `AGENTS.md`, that can mean only that
+the score did not beat the current best. Both floors passed with enormous margin
+(`dec_su` 2.8178 and `pre_su` 1.9863 against a 0.95 floor) and correctness was
+clean, so `rejected` here carries **no** correctness or floor information — it is
+purely the ranking comparison, and §10.2 shows that comparison was lost to the
+baseline draw rather than to candidate speed.
 
 ## 11. Replacement block for `CURRENT_RESEARCH_STATE.md`
 
