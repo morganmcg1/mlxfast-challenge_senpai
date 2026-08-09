@@ -56,7 +56,7 @@ def load(paths, drop_steps, keep_warmup_runs):
         for h in doc.get("token_stream_hashes", []):
             hashes.add(h)
         by_run = {}
-        for rec in doc["steps"]:
+        for rec in doc["records"]:
             if not keep_warmup_runs and rec.get("warmup_run"):
                 continue
             if rec["step"] < drop_steps:
