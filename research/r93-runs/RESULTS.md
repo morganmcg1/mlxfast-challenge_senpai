@@ -360,9 +360,77 @@ Two related facts worth recording for whoever acts on this:
   branches fire is `DARKBLOOM_TRACE_FUSION=1`, which prints one stderr line the
   first time each fused site is taken (it is a set, not a counter).
 
+### 4.3 The M4 to M5 dispatch-cost transfer rule
+
+Both hosts were driven with the identical instrument (the same source constant,
+the same empty TG=8 kernel), so the two ladders are directly comparable and
+yield a transfer rule specific to dispatch-count changes. It is not the same
+quantity as the section 6 `#137` transfer factor, which is about one particular
+kernel restructure.
+
+| host | K=0 | marginal us/dispatch, low K | marginal us/dispatch, saturated |
+| --- | --- | --- | --- |
+| M4 Pro (local, 48 GB) | 8223 us | **~0** (K=0 to 480 is flat, even slightly negative) | 1.81 (K 800 to 2400), 2.29 (K 1200 to 2400) |
+| M5 Max (ranked) | 4913 us | **2.49** (K=0 to 240) | 2.28 (K=240 to 800) |
+
+The saturated marginal costs agree to within about 20 % (1.8-2.3 us on M4 Pro
+versus 2.3-2.5 us on M5 Max), which is unsurprising: both are per-dispatch
+driver and encoder work, and neither host is doing any arithmetic in the
+injected kernel. What does **not** transfer is the *offset*:
+
+> M4 Pro absorbs its first ~480 injected dispatches for free. M5 Max charges
+> from the first one.
+
+The mechanism is visible in the K=0 column. The M4 Pro step is 8.2 ms against
+the M5's 4.9 ms, and the local hazard test (section 1.2, job `528661f0`) showed
+the free region is not a command-buffer-granularity effect - raising
+`MLX_MAX_OPS_PER_BUFFER` and `MLX_MAX_MB_PER_BUFFER` to 10^6 changed nothing.
+What survives is a CPU shadow: MLX spends roughly 1 ms per step building the
+graph on the CPU, and on the slower M4 GPU that CPU work is fully hidden behind
+GPU execution, so a hazard-free injected chain slots into slack that already
+exists. The M5 GPU finishes its real work sooner, the slack is gone, and every
+injected dispatch is on the critical path.
+
+The operational rule for the campaign:
+
+- **A dispatch-count reduction measured on M4 Pro will read as approximately
+  zero and must not be discarded on that basis.** For the two live candidates
+  in section 8.3 (B and C, -78 dispatches per token), M4 Pro predicts ~0 us and
+  M5 predicts ~180-195 us, or 3.7-4.0 % of decode. This is the single largest
+  M4-to-M5 sign/magnitude trap we found.
+- The converse also holds and is the more dangerous direction: a change that
+  *adds* dispatches, for example splitting a fused kernel to simplify code, is
+  free on the local host and is charged in full on the ranked host.
+- Any local A/B whose only mechanism is dispatch count should be run with the
+  `DARKBLOOM_INJECT_DECODE_EMPTY` ladder as a calibrated yardstick, or moved
+  straight to the official channel, where section 5 says a >= 2 % effect
+  confirms in one receipt.
+
+
 ## 5. Submission cadence policy
 
-Written up in full in [`cadence-policy.md`](cadence-policy.md).
+Written up in full in [`cadence-policy.md`](cadence-policy.md) as twelve rules
+(P1-P12) plus a worked budget. The quantitative core is the table below:
+how many official receipts a decode hypothesis of a given size needs, at 95 %
+two-sided confidence and 80 % power, computed by
+[`channel_noise.py`](channel_noise.py) from sigma(raw candidate decode) =
+0.4041 % and sigma(published decode speedup) = 0.4728 %.
+
+| true decode delta | est. ref, raw us | est. ref, published | fresh ref, raw us | fresh ref, published |
+| --- | --- | --- | --- | --- |
+| 0.5 % | 6 | 8 | 11 | 15 |
+| 1.0 % | 2 | 2 | 3 | 4 |
+| 2.0 % | 1 | 1 | 1 | 1 |
+| 4.0 % | 1 | 1 | 1 | 1 |
+
+"Estimated reference" assumes a well-characterised control already exists from
+earlier receipts; "fresh reference" assumes the control must also be paid for
+inside this experiment. At ~21 minutes of exclusive channel time per receipt,
+a 2 % decode win is a 21-minute confirmation and a 0.5 % decode win is a
+2-4 hour commitment. The three rules that follow from this and that most change
+day-to-day behaviour are P2 (read raw candidate timings, never cross-session
+scores), P4 (interleaving is optional because the channel has no drift, section
+9.2) and P10 (mine the receipt corpus before spending a slot, section 9).
 
 ## 6. Re-derived #137 M4 to M5 transfer factor
 
