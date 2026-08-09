@@ -487,6 +487,113 @@ body doubles in size and live state, and which side wins depends on the core's
 register budget and memory-latency-to-issue ratio. § 4 measures it on M4 Pro;
 § 6 states plainly what that does and does not license about M5.)*
 
+### 2.6 Mechanism shortlist and the magnitude frame (static; written before unblinding)
+
+Everything in § 2.6 was written while the rung-1 job was still running and
+before any paired statistic had been computed. It exists so that § 6 cannot be
+accused of inventing a mechanism to fit whichever sign came back. Claims are
+tagged **[V]** verified in this checkout, **[D]** documented by a public
+primary source, **[I]** inference.
+
+#### 2.6.1 The 4-deep loop is unroll-and-jam, not a rotating pipeline
+
+**[V]** In NEW `LagunaRuntimeModel.swift:1650-1674` all four K rows and all
+four V rows are loaded at the top of the iteration (`T_LOAD_K` / `T_LOAD_V`
+expansions), and the four softmax stages then run **serially** below them,
+chained through `pair_max` / `pair_sum` / `pair_o`. That chain is a
+loop-carried dependency: stage *k+1* cannot rescale its accumulator until
+stage *k* has published its running max and sum.
+
+**[I]** Deepening therefore cannot shorten the critical path. Its only
+possible benefit is issuing the loads earlier — a pure latency-hiding play. Its
+only possible cost is holding more live state across a longer body.
+
+#### 2.6.2 What the deeper body actually costs
+
+**[V]** NEW carries `pipe_kc[4]` + `pipe_kd[4]` (8 × float) and
+`pipe_vc0..3` / `pipe_vd0..3` (8 × bfloat-pair) that OLD does not
+(`:1651-1662`), i.e. of order **+64 B of live state per thread**.
+
+**[V]** Threadgroup memory is unchanged between the arms (`:1600-1607`), so
+this is a register-file question, not a shared-memory-occupancy question.
+
+**[I]** +64 B/thread ≈ +32 16-bit register units ≈ **+66 KB per 1024-thread
+threadgroup**. Combined with § 2.5's finding that the threadgroup size is
+hard-coded to 1024, the compiler's only ways to pay for it are spare register
+file or spilling to thread-private device memory.
+
+#### 2.6.3 Router prefetch peel
+
+**[V]** rpg = 8 gives the same kernel and the same dispatch count in both arms
+(32 threadgroups × 512 threads, NEW `:1219-1233`). The `pf1` variant
+(NEW `:686-703`) hoists one group of four `vec<bfloat,4>` loads — 32 B/thread
+on 8 of 16 simdgroups — above the norm-reduction ladder and its three barriers
+(NEW `:838-855`). The main accumulate loop is re-blocked but visits the same
+elements in the same order (OLD `30f752df:921-942` vs NEW `:968-1006`).
+
+**[I]** This is a placement change worth at most the latency of one 32 B load
+per participating thread, and the shipped `pf5` slot map is a built-in
+placement control, so it is the *second* candidate, not the first.
+
+#### 2.6.4 Magnitude frame — how small the target really is
+
+**[V]** 30 of 40 layers are sliding; the router runs on 39 of 40.
+
+**[I]** +20.1 µs/step spread over 30 sliding dispatches is **+0.67 µs per
+dispatch**; over 39 router dispatches it is **+0.52 µs per dispatch**. Against
+individual kernels in the 3–14 µs range that is a **5–20 % per-kernel**
+regression. One occupancy tier, or a handful of spill instructions in the inner
+loop, is enough. Loop-control overhead cannot be the cause in the other
+direction either — NEW *halves* the loop-control count.
+
+#### 2.6.5 Ranked mechanisms, if the effect reproduces on M4
+
+1. **Register-tier / residency cliff.** The +66 KB/threadgroup crosses a tier
+   and the compiler spills. **[I]**
+2. **No latency left to hide.** 32 resident simdgroups per core already cover
+   the load latency, and § 2.6.1's serial softmax chain means the earlier loads
+   buy nothing, so only the register cost lands. **[I]**
+3. **Load-queue / MSHR saturation.** Depth 4 puts ~4 KB per simdgroup in
+   flight at once. **[I]**
+4. **Full unroll at a `constexpr` trip count of 4** amplifying (1). **[I]**
+
+Explicitly *not* in play, from § 2.5: peel/remainder cost, extra arithmetic,
+trip-count starvation.
+
+#### 2.6.6 Why a *sign flip* on M4 is a predicted outcome, not a refutation
+
+**[D]** M5 Max is a ~610 GB/s part; this M4 Pro is a ~273 GB/s part.
+**[D]** Apple documents Dynamic Caching from M3/A17 onward ("Explore GPU
+advancements in M3 and A17 Pro", WWDC23) and describes M5 as having a
+"next-generation shader core" (Apple Newsroom, Oct 2025), but publishes no
+register-file capacity for either generation; the only numbers in circulation
+come from reverse engineering of *older* parts (dougallj/applegpu,
+philipturner/metal-benchmarks) and **nothing public covers Apple GPU generation
+16 or 17**.
+
+**[I]** Prefetch depth hides latency, not bandwidth. A wider-bandwidth part has
+less queuing delay to hide, so the depth-4 benefit tends to zero there while the
+register cost stands — net negative. A narrower part sits closer to the wall, so
+the same depth can still pay for itself. That is a coherent account in which
+**NEW is genuinely slower on M5 and neutral-or-faster on M4**. If rung 1 returns
+outcome 3 (sign flip), that is *consistent with* the M5 receipt delta, not
+evidence against it, and § 6 must say so rather than declaring the delta noise.
+
+**[I]** The countervailing consideration: 32 threadgroups underfill a large M5
+Max GPU, so per-core register and scheduling effects should transfer between
+the parts roughly 1:1 — which is why the experiment is worth running at all.
+
+#### 2.6.7 Cheapest sharp static evidence available on a gen-16 host
+
+Recorded here so the option is on the table for § 6 regardless of outcome:
+extract both sliding-kernel source strings, wrap them in MLX's `[[kernel]]`
+signature, compile with `xcrun -sdk macosx metal`, load via
+`MTLDevice.makeLibrary`, build a `MTLComputePipelineState` for each, and
+compare `maxTotalThreadsPerThreadgroup`. A drop from 1024 on the NEW variant
+would be a direct, timing-free confirmation of § 2.6.2 — though only for the
+gen-16 compiler backend, which is exactly the caveat that makes it evidence
+about *this* host and not about M5.
+
 ---
 
 ## § 3 Rung 0 — build and parity
