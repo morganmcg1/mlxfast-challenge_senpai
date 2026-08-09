@@ -220,6 +220,114 @@ func lagunaSlidingInterleavedKVMatchesCanonical() throws {
     #expect(fullState.1.dim(2) == window + 1)
 }
 
+@Test
+func lagunaSlidingInterleavedKVMicrobenchmark() throws {
+    let window = LagunaConstants.slidingWindow
+    let headDim = LagunaConstants.headDim
+    let kvHeads = LagunaConstants.numKeyValueHeads
+    let heads = LagunaConstants.slidingAttentionHeads
+    let chainLength = 64
+    let samples = 12
+
+    let seed = lagunaSlidingKVSeed(length: window, phase: 0.0)
+    eval(seed.keys, seed.values)
+    let cache = lagunaSlidingRing(keys: seed.keys, values: seed.values)
+    let ring = try #require(cache.fusedRingPrepare())
+
+    let queryAxis = MLXArray(0..<(heads * headDim))
+        .asType(.float32).reshaped([1, 1, heads * headDim])
+    let keyValueAxis = MLXArray(0..<(kvHeads * headDim))
+        .asType(.float32).reshaped([1, 1, kvHeads * headDim])
+    let weightAxis = MLXArray(0..<headDim).asType(.float32)
+    let rawQueries = (sin(queryAxis * 0.013 + 0.375) * 0.25).asType(.bfloat16)
+    let rawKeys = (cos(keyValueAxis * 0.023 + 0.1875) * 0.25).asType(.bfloat16)
+    let rawValues = (sin(keyValueAxis * 0.029 + 0.5625) * 0.5).asType(.bfloat16)
+    let queryWeight = (cos(weightAxis * 0.007) * 0.125 + 1.0).asType(.bfloat16)
+    let keyWeight = (sin(weightAxis * 0.011) * 0.125 + 1.0).asType(.bfloat16)
+    let halfAxis = MLXArray(0..<(headDim / 2)).asType(.float32)
+    let angles = concatenated(
+        [cos(halfAxis * 0.019), sin(halfAxis * 0.019)]
+    ).reshaped([1, 1, 1, headDim])
+    let scale = MLXArray([Float(1.0 / sqrt(Float(headDim)))])
+    eval(rawQueries, rawKeys, rawValues, queryWeight, keyWeight, angles, scale)
+
+    let makeChain: (Bool) -> MLXArray = { interleavedKV in
+        var queries = rawQueries
+        for _ in 0..<chainLength {
+            queries = lagunaSlidingFusedAttention(
+                rawQueries: queries,
+                rawKeys: rawKeys,
+                rawValues: rawValues,
+                queryWeight: queryWeight,
+                keyWeight: keyWeight,
+                angles: angles,
+                cacheKeys: ring.keys,
+                cacheValues: ring.values,
+                cacheInterleavedKV: ring.interleavedKV,
+                writeIdx: ring.writeIdx,
+                scale: scale,
+                interleavedKV: interleavedKV
+            ).transposed(0, 2, 1, 3).reshaped([1, 1, heads * headDim])
+        }
+        return queries
+    }
+
+    let warmReference = makeChain(false)
+    let warmCandidate = makeChain(true)
+    eval(warmReference)
+    eval(warmCandidate)
+    #expect(lagunaBitwiseEqual(warmReference, warmCandidate))
+
+    func elapsedPerKernel(_ output: MLXArray) -> Double {
+        let start = ProcessInfo.processInfo.systemUptime
+        eval(output)
+        return (ProcessInfo.processInfo.systemUptime - start) / Double(chainLength)
+    }
+
+    func run(referenceFirst: Bool) -> (reference: [Double], candidate: [Double]) {
+        var referenceTimes: [Double] = []
+        var candidateTimes: [Double] = []
+        for _ in 0..<samples {
+            let first = makeChain(!referenceFirst)
+            let second = makeChain(referenceFirst)
+            let firstTime = elapsedPerKernel(first)
+            let secondTime = elapsedPerKernel(second)
+            if referenceFirst {
+                referenceTimes.append(firstTime)
+                candidateTimes.append(secondTime)
+            } else {
+                candidateTimes.append(firstTime)
+                referenceTimes.append(secondTime)
+            }
+        }
+        return (referenceTimes, candidateTimes)
+    }
+
+    func geometricMean(_ values: [Double]) -> Double {
+        Foundation.exp(
+            values.reduce(0.0) { $0 + Foundation.log($1) } / Double(values.count))
+    }
+
+    func report(_ label: String, _ timing: (reference: [Double], candidate: [Double])) {
+        let speedups = zip(timing.reference, timing.candidate).map { $0 / $1 }
+        let referenceMean = geometricMean(timing.reference)
+        let candidateMean = geometricMean(timing.candidate)
+        let projectedSaving = (referenceMean - candidateMean) * 1_000_000.0 * 30.0
+        let referenceText = timing.reference
+            .map { String(format: "%.3f", $0 * 1_000_000.0) }.joined(separator: ",")
+        let candidateText = timing.candidate
+            .map { String(format: "%.3f", $0 * 1_000_000.0) }.joined(separator: ",")
+        print("LAGUNA_KV_MICROBENCH_\(label)_REFERENCE_US=[\(referenceText)]")
+        print("LAGUNA_KV_MICROBENCH_\(label)_CANDIDATE_US=[\(candidateText)]")
+        print(String(
+            format: "LAGUNA_KV_MICROBENCH_%@_SPEEDUP=%.6f PROJECTED_US_PER_TOKEN=%.3f",
+            label, geometricMean(speedups), projectedSaving))
+    }
+
+    report("AB", run(referenceFirst: true))
+    report("BA", run(referenceFirst: false))
+}
+
 private func lagunaSlidingKVSeed(
     length: Int, phase: Float
 ) -> (keys: MLXArray, values: MLXArray) {
