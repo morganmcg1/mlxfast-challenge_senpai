@@ -212,12 +212,6 @@ let lagunaSwiGLUQMVRows1Enabled =
 let lagunaSharedSwiGLUQMVRows1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_QMV_R1"] != "0"
 
-/// Folds the per-head softplus gate into the output projection's GEMV (see
-/// `lagunaGatedOutputProjectionSource`), with one kernel variant per attention
-/// family. Set `DARKBLOOM_FUSED_GATED_OUTPUT=0` to ablate.
-let lagunaFusedGatedOutputProjectionEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_GATED_OUTPUT"] != "0"
-
 /// Issues Q, K and V as one dispatch over the three stock weights (see
 /// `lagunaFusedQKVProjectionSource`). Unlike `DARKBLOOM_FUSED_QKV` this keeps
 /// no concatenated bank, so prefill is untouched. Set
@@ -3381,52 +3375,9 @@ func lagunaFusedNormQKVProjection(
 /// regroup the FP32 chain into a tree and forfeit bit-exactness while passing
 /// every local check. `blocks == heads` is 64 or 48, both even, so no tail.
 private func lagunaGatedOutputProjectionSource(
-    heads: Int, unroll: Int, compact: Bool = false
+    heads: Int, compact: Bool = false
 ) -> String {
-    let singleWeightLoad =
-        compact
-        ? """
-                            size_t value_index =
-                                size_t(out_row + row) * in_vec_size + column;
-                            size_t palette_block = value_index / 1024;
-                            vec<bfloat, 4> w;
-                            if (weight_modes[palette_block] != 0) {
-                                const device vec<bfloat, 4>* row_values =
-                                    (const device vec<bfloat, 4>*)(
-                                        weight + value_index);
-                                w = row_values[0];
-                            } else {
-                                uint8_t packed0 =
-                                    weight_codes[value_index / 2];
-                                uint8_t packed1 =
-                                    weight_codes[value_index / 2 + 1];
-                                size_t palette_base = palette_block * 16;
-                                ushort bits0 = ushort(weight_low[value_index])
-                                    | (ushort(weight_palettes[
-                                        palette_base + (packed0 & 0x0fu)]) << 8);
-                                ushort bits1 = ushort(weight_low[value_index + 1])
-                                    | (ushort(weight_palettes[
-                                        palette_base + (packed0 >> 4)]) << 8);
-                                ushort bits2 = ushort(weight_low[value_index + 2])
-                                    | (ushort(weight_palettes[
-                                        palette_base + (packed1 & 0x0fu)]) << 8);
-                                ushort bits3 = ushort(weight_low[value_index + 3])
-                                    | (ushort(weight_palettes[
-                                        palette_base + (packed1 >> 4)]) << 8);
-                                w[0] = as_type<bfloat>(bits0);
-                                w[1] = as_type<bfloat>(bits1);
-                                w[2] = as_type<bfloat>(bits2);
-                                w[3] = as_type<bfloat>(bits3);
-                            }
-        """
-        : """
-                            const device vec<bfloat, 4>* row_values =
-                                (const device vec<bfloat, 4>*)(
-                                    weight + (out_row + row) * in_vec_size + column);
-                            const vec<bfloat, 4> w = row_values[0];
-        """
-
-    let unrolledWeightLoad =
+    let weightLoad =
         compact
         ? """
                                 size_t value_index =
@@ -3473,70 +3424,44 @@ private func lagunaGatedOutputProjectionSource(
                                 weight_values[u][row] = row_values[0];
         """
 
-    let body: String
-    if unroll == 1 {
-        body = """
-                    uint column = lane * values_per_thread;
-                    for (uint block = 0; block < blocks; ++block) {
-                        // Column `4 * lane + 128 * block` sits in head `block`.
-                        float gate = float(gate_values[block]);
+    let body = """
+                uint column = lane * values_per_thread;
+                for (uint block = 0; block < blocks; block += unroll) {
+                    vec<bfloat, 4> gated_values[unroll];
+                    vec<bfloat, 4> weight_values[unroll][rows_per_thread];
+                    for (uint u = 0; u < unroll; ++u) {
+                        uint column_u = column + u * block_width;
                         const device vec<bfloat, 4>* gated =
-                            (const device vec<bfloat, 4>*)(attention_output + column);
-                        const vec<bfloat, 4> values = gated[0];
-                        for (uint i = 0; i < values_per_thread; ++i) {
-                            coefficients[i] = float(bfloat(float(values[i]) * gate));
-                        }
-
+                            (const device vec<bfloat, 4>*)(
+                                attention_output + column_u);
+                        gated_values[u] = gated[0];
                         for (uint row = 0; row < rows_per_thread; ++row) {
-                            \(singleWeightLoad)
-                            for (uint i = 0; i < values_per_thread; ++i) {
-                                result[row] += float(w[i]) * coefficients[i];
-                            }
+                            \(weightLoad)
                         }
-
-                        column += block_width;
                     }
-            """
-    } else {
-        body = """
-                    uint column = lane * values_per_thread;
-                    for (uint block = 0; block < blocks; block += unroll) {
-                        vec<bfloat, 4> gated_values[unroll];
-                        vec<bfloat, 4> weight_values[unroll][rows_per_thread];
-                        for (uint u = 0; u < unroll; ++u) {
-                            uint column_u = column + u * block_width;
-                            const device vec<bfloat, 4>* gated =
-                                (const device vec<bfloat, 4>*)(
-                                    attention_output + column_u);
-                            gated_values[u] = gated[0];
-                            for (uint row = 0; row < rows_per_thread; ++row) {
-                                \(unrolledWeightLoad)
-                            }
-                        }
 
-                        for (uint u = 0; u < unroll; ++u) {
-                            // Column `4 * lane + 128 * (block + u)` is in head
-                            // `block + u`.
-                            float gate = float(gate_values[block + u]);
+                    for (uint u = 0; u < unroll; ++u) {
+                        // Column `4 * lane + 128 * (block + u)` is in head
+                        // `block + u`.
+                        float gate = float(gate_values[block + u]);
+                        for (uint i = 0; i < values_per_thread; ++i) {
+                            coefficients[i] =
+                                float(bfloat(float(gated_values[u][i]) * gate));
+                        }
+                        for (uint row = 0; row < rows_per_thread; ++row) {
                             for (uint i = 0; i < values_per_thread; ++i) {
-                                coefficients[i] =
-                                    float(bfloat(float(gated_values[u][i]) * gate));
-                            }
-                            for (uint row = 0; row < rows_per_thread; ++row) {
-                                for (uint i = 0; i < values_per_thread; ++i) {
-                                    result[row] +=
-                                        float(weight_values[u][row][i]) *
-                                            coefficients[i];
-                                }
+                                result[row] +=
+                                    float(weight_values[u][row][i]) *
+                                        coefficients[i];
                             }
                         }
-
-                        column += unroll * block_width;
                     }
-            """
-    }
+
+                    column += unroll * block_width;
+                }
+        """
     return """
-        constexpr uint unroll = \(unroll);
+        constexpr uint unroll = 2;
         constexpr uint in_vec_size = \(heads * LagunaConstants.headDim);
         constexpr uint heads = \(heads);
         constexpr uint head_dim = 128;
@@ -3569,45 +3494,16 @@ private func lagunaGatedOutputProjectionSource(
         """
 }
 
-/// `DARKBLOOM_L5_UNROLL` (default `2`; `1` restores the pre-unroll loop
-/// verbatim, `4`/`8` deepen it): block-loop unroll depth for the gated output
-/// projection. Every depth divides both block counts — 64 heads and 48 — so no
-/// tail loop is ever needed, and depth `1` emits the pre-patch loop, which
-/// makes it a true ablation control rather than an approximation of one.
-///
-/// The depth sweep {1, 2, 4} on this kernel is the highest-information
-/// measurement left on this box. It decides whether outstanding loads per
-/// thread — rather than bandwidth or occupancy — is what limits this whole
-/// kernel family. A monotone rise toward 596 GB/s would mean the 462.9 µs /
-/// 4.52% ceiling that L1+L5 have been sized against is itself too low.
-let lagunaGatedOutputUnroll: Int = {
-    guard let raw = ProcessInfo.processInfo.environment["DARKBLOOM_L5_UNROLL"],
-        let value = Int(raw), [1, 2, 4, 8].contains(value)
-    else {
-        return 2
-    }
-    return value
-}()
-
-/// Every head count x every unroll depth, built eagerly so that one binary
-/// serves every arm of an ablation (`notes/00`'s one-binary rule) and so MLX's
-/// name-keyed JIT library cache never sees two sources under one name.
-private let lagunaGatedOutputProjectionKernels:
-    [Int: [Int: MLXFast.MLXFastKernel]] = {
-    var kernels: [Int: [Int: MLXFast.MLXFastKernel]] = [:]
+private let lagunaGatedOutputProjectionKernels: [Int: MLXFast.MLXFastKernel] = {
+    var kernels: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
-        var byDepth: [Int: MLXFast.MLXFastKernel] = [:]
-        for depth in [1, 2, 4, 8] {
-            byDepth[depth] = MLXFast.metalKernel(
-                name: "laguna_gated_output_projection_bf16_h\(heads)_u\(depth)_v3",
-                inputNames: ["attention_output", "gate_values", "weight"],
-                outputNames: ["projected"],
-                source: lagunaGatedOutputProjectionSource(
-                    heads: heads, unroll: depth),
-                ensureRowContiguous: true
-            )
-        }
-        kernels[heads] = byDepth
+        kernels[heads] = MLXFast.metalKernel(
+            name: "laguna_gated_output_projection_bf16_h\(heads)_u2_v3",
+            inputNames: ["attention_output", "gate_values", "weight"],
+            outputNames: ["projected"],
+            source: lagunaGatedOutputProjectionSource(heads: heads),
+            ensureRowContiguous: true
+        )
     }
     return kernels
 }()
@@ -3615,8 +3511,7 @@ private let lagunaGatedOutputProjectionKernels:
 func lagunaGatedOutputProjection(
     attentionOutput: MLXArray, gateValues: MLXArray, weight: MLXArray, heads: Int
 ) -> MLXArray? {
-    guard let kernel = lagunaGatedOutputProjectionKernels[heads]?[lagunaGatedOutputUnroll]
-    else { return nil }
+    guard let kernel = lagunaGatedOutputProjectionKernels[heads] else { return nil }
     let inVec = heads * LagunaConstants.headDim
     precondition(attentionOutput.dtype == .bfloat16)
     precondition(attentionOutput.shape == [1, 1, inVec])
@@ -5888,8 +5783,7 @@ final class LagunaRuntimeAttention: Module {
                     mode: affineWO.mode
                 )
             }
-            if lagunaFusedGatedOutputProjectionEnabled,
-                gateIsActivated, gatePerHead, L == 1, B == 1, wo.bias == nil,
+            if gateIsActivated, gatePerHead, L == 1, B == 1, wo.bias == nil,
                 headDim == LagunaConstants.headDim,
                 output.dtype == .bfloat16, projectedGate.dtype == .bfloat16,
                 wo.weight.dtype == .bfloat16,
@@ -6026,8 +5920,7 @@ final class LagunaRuntimeAttention: Module {
                 gatePerHead && projectedGate.dtype == output.dtype
                 ? lagunaCompiledSoftplusGate(projectedGate)
                 : softplus(projectedGate.asType(.float32)).asType(output.dtype)
-            if lagunaFusedGatedOutputProjectionEnabled,
-                gatePerHead, B == 1, wo.bias == nil,
+            if gatePerHead, B == 1, wo.bias == nil,
                 headDim == LagunaConstants.headDim,
                 output.dtype == .bfloat16, gate.dtype == .bfloat16,
                 wo.weight.dtype == .bfloat16,
