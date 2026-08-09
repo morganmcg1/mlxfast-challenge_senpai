@@ -5,7 +5,9 @@
 
 **Verdict: NO-GO on both arms.** The primary (full-attention) arm measures
 `f/τ₀ = 33.6 %` resident / `28.8 %` SLC-defeat against a `9.4 %` bar, and the
-secondary (sliding) arm measures `20.3–52.2 %` against a `1.6 %` bar.
+secondary (sliding) arm measures `20.3–52.2 %` against a `1.6 %` bar. This
+retires ≈70.6–75.9 µs/step ≈ **1.08–1.16 % of score** of modelled headroom
+(§7.1) rather than deferring it.
 
 **Submitted-surface delta: 0 bytes.**
 `git diff --name-only 51e36805030a982daecda80535281f4540a1cde1 HEAD -- Sources/ Vendor/ benchmark.json`
@@ -23,7 +25,7 @@ and is labelled as such.
 
 ## 0. What changed relative to the PR body
 
-Two advisor comments supersede §2–§4 of the assignment and I followed them
+Four advisor comments supersede §2–§4 of the assignment and I followed them
 exactly:
 
 - `r102-a-fb-window-knob-defect-and-slice-granularity`
@@ -38,6 +40,14 @@ exactly:
   row bound is genuinely dynamic (`int N = int(params[1])`, `:1964`) and needs no
   source edit. Gate `f/τ₀ < 9.4 %` decided at C = 40. S = 5 retracted entirely;
   the sliding arm demotes to secondary with bar `1.6 %`.
+- `r102-a-fb-3-reprice-from-561-measured-pool-table`
+  (PR #566 comment, 2026-08-09T20:00:23Z) and
+  `r102-a-fb-4-same-kernel-r-measurement`
+  (PR #566 comment, 2026-08-09T20:05:43Z) arrived after the measurement jobs were
+  queued. They reprice the pool from #561, ask for the latency-regime
+  corroboration to be addressed, ask for the ratio-invariance argument to be
+  stated explicitly, and supply an archival `r ∈ [1.022, 1.041]`. All four are
+  answered in **§7**.
 
 ### Preregistration deviations (rule 72 honesty)
 
@@ -103,7 +113,7 @@ closed it. Two specific corrections are required:
   is **false**: `:6289-6299` shows idle slots below `C` are free, so there is no
   ragged-occupancy pool for split-K to recover.
 
-A drop-in closure block for the state file is in §9.
+A drop-in closure block for the state file is in §10.
 
 ---
 
@@ -522,7 +532,158 @@ is nonetheless consistent with the #539 prior of `r ≈ 1.03`.
 
 ---
 
-## 7. Verdicts
+## 7. Repricing against #561, and why a NO-GO is the right answer
+
+Two further advisor comments landed after the measurement jobs were queued and
+before this report was written. Both are answered here.
+
+### 7.1 Updated pool figures — the retired prize is larger than the brief said
+
+`r102-a-fb-3-reprice-from-561-measured-pool-table` (2026-08-09T20:00:23Z)
+replaces the brief's ≈290 / ≈100 µs/step estimates with #561's measured rows
+(PR #561, W&B `hvrzplnm`, artifact `research/artifacts/fern-r101/m5-pool-table.csv`).
+All M5 figures are **modelled**: *M4 ×0.4369 bandwidth-pool / ×0.5 latency-pool
+two-pool map, residual −6.63 % vs measured M5 steady-state decode, #561*.
+
+| family | calls | M4 µs/step | M5 µs/step (modelled) | regime | % of M5 peak BW |
+|:--|--:|--:|--:|:--|--:|
+| `T3a` sliding fused attn | 30 | 636.0 | 318.0 → **≈309.5** | latency | 32.4 % |
+| `T3a'` full fused attn | 10 | 229.7 | **114.85** | latency | 33.6 % |
+
+The ≈309.5 correction is the advisor's own, from
+`r102-a-fb-4-same-kernel-r-measurement` §1: #561's `T3a` row was taken at base
+`3567695b`, i.e. **before** #539 landed the 4-deep ring, so 636.0 M4 is a 2-deep
+number and the current pool is ≈619 M4 / ≈309.5 M5 (−2.7 %). I use ≈309.5.
+
+Prize now being retired, at the advisor's own ideal gains (S = 8 full ⇒ 37.5 %
+of the pool; sliding ⇒ 8.9–10.6 % of the pool):
+
+| arm | ideal gain | µs/step (modelled M5) | % of score @ 0.015228 %/µs-step | status |
+|:--|--:|--:|--:|:--|
+| full, S = 8 | 37.5 % of 114.85 | **43.1** | 0.66 % | **retired** |
+| sliding, S = 8 | 8.9–10.6 % of 309.5 | 27.5–32.8 | 0.42–0.50 % | **retired** |
+| both | — | **70.6–75.9** | **1.08–1.16 %** | **retired** |
+
+None of the verdicts below depend on these figures: they price the lever, they
+do not decide it. The decision is the measured ratio in §4.3.
+
+### 7.2 The latency-regime corroboration is correct — and it is *compatible* with NO-GO
+
+The advisor is right that #561's classification is independent support for the
+premise, and right that a NO-GO therefore needs an explanation rather than a
+shrug. Here it is, and the two facts are not in tension.
+
+**The under-occupancy is real.** I confirmed it directly rather than assuming it:
+one resident threadgroup per core (§2, tgMem 18 432 B against a 32 768 B cap at
+1024 threads/TG), and a K-ladder that is flat to ±0.06 µs from K = 1 to K = 20
+and then steps +6.48 µs at K = 21. Cores 1–19 really are free capacity, exactly
+as `Fill(24, 40) = 0.60` claims.
+
+**Low achieved bandwidth is a statement about the threadgroup, not about
+divisibility.** 33.6 % of peak means each threadgroup is latency-bound
+*internally*. Split-K does not attack that; it replicates the threadgroup. And
+the replicated part is expensive: `f = 4.63 µs` against a `τ₀ = 13.76 µs`
+main loop, i.e. **34 % of the dispatch is work that a split duplicates rather
+than divides.** Structurally, the `if (sg < 3)` prologue (`LRM:1973`, null N-E)
+plus the epilogue is head-serial work that every slice must redo — the very
+asymmetry that leaves 29 of 32 simdgroups idle in the prologue and depresses the
+achieved bandwidth is *also* what makes the split unprofitable. Split-K divides
+the 66 % that is main loop and multiplies the 34 % that is not.
+
+Put the numbers through §4.5's own (merge-free, deliberately optimistic) model
+at C = 40: S = 8 costs **13.99 µs** against S = 1's **9.83 µs**, i.e. 1.42×
+*worse*, and the best split factor anywhere in the scan (S = 3) gains +0.61 µs,
+which is below the strict merge floor `a = 1.26 µs`. The single split point this
+host can execute for real (§4.6) comes in 5–6 % worse than even that model.
+
+**One-line reconciliation:** the latency-regime signature says the *cores* are
+idle; it does not say the *work* is divisible. On this kernel it is not.
+
+Two further reasons the NO-GO is not a surprise once you look for prior art:
+PR #196 closed the same question four rounds earlier at every S and measured
+`f/τ₀ = 34.3 %` against my 33.6 % (§1) — this is an independent replication, not
+a new claim; and `CURRENT_RESEARCH_STATE.md` never cites #196, which is why the
+premise survived into a fresh assignment.
+
+### 7.3 Ratio-invariance: why an M4 measurement may decide an M5 question
+
+Stated explicitly as requested. `f/τ₀` is a ratio of two times measured on the
+**same host, same session, same shared pipeline, same interleaved round**, from
+the **verbatim shipped kernel source** — `laguna_full_fused_attn_grow_v1` is a
+hand-written Metal kernel in `LagunaRuntimeModel.swift`, not an MLX kernel with
+an `_nax` variant, so the M5 executes the identical source and the gen-16 /
+pre-NAX caveat that limits #561's pool map does not apply to the kernel body
+here.
+
+I do not claim the ratio is exactly invariant, and I do not need to:
+
+1. **Core count.** The measured C = 20 value is a *lower bound* on C = 40,
+   because `a ≠ 0` makes the ratio rise as waves fall (§4.4): 33.6 % → 42.8 %.
+2. **Clocks.** A uniform clock change cancels in the ratio.
+3. **Any M5 speed-up that favours the main loop** (wider ALUs, better
+   scheduling) shrinks `τ₀` relative to a launch/prologue-bound `f` and makes
+   `f/τ₀` **larger**, not smaller.
+
+Every transfer error I can name moves the ratio further above the bar, and the
+margin is 3.6× at C = 20 and 4.6× at C = 40. A transfer artefact would have to
+be a 3.6× error to flip the verdict.
+
+### 7.4 `r`: adopting the archival estimate, and why the sliding verdict is `r`-invariant
+
+`r102-a-fb-4-same-kernel-r-measurement` supersedes §5 of the second comment and
+supplies `r ∈ [1.022, 1.041]` from #539's receipt against #561's pre-#539 `T3a`
+row. **I adopt that as the primary `r`** and demote my cross-kernel ratio (§6,
+`r ≈ 1.03–1.09`) to a corroborating check, as instructed.
+
+*Flagging the comparison because the advisor asked to be told about a ±0.02
+disagreement:* the two overlap at the low end (my 1.03 against the archival
+upper 1.041) but my upper end 1.09 sits 0.049 above it. My estimator is
+confounded by `gqa` 8 vs 6 and `rotary_pairs` 64 vs 32, both of which make the
+sliding kernel do more per-position work for reasons unrelated to unroll depth,
+so the bias is **upward by construction**. I read this as no actionable
+disagreement — neither #539's receipt nor #561's `T3a` row needs re-examining on
+my evidence — but it is a confounded estimator agreeing at one end, not a
+confirmation.
+
+**The direct 2-deep source substitution (comment 4 §2) cannot change the
+verdict, so I did not spend host time on it.** Here is the arithmetic, so that
+this reads as a reasoned deferral and not an omission. The sliding S = 8
+condition at C = 40 is `7f + 14ru < f + 16u`, i.e.
+
+```
+f/τ₀ < (16 − 14r) / 96
+```
+
+| `r` | bar | measured sliding `f/τ₀` | exceeds bar by |
+|:--|--:|--:|--:|
+| **1.000** (theoretical floor) | **2.08 %** | 17.8 % resident | **8.6×** |
+| 1.000 | 2.08 % | 15.0 % defeat | 7.2× |
+| 1.022 (archival low) | 1.76 % | 17.8 % | 10.1× |
+| 1.041 (archival high) | 1.49 % | 17.8 % | 11.9× |
+
+Even at the physically impossible `r = 1` — a 2-deep body costing exactly what
+the 4-deep body costs per position — the sliding arm misses by 8.6×. No value of
+`r` in or outside the archival box moves the verdict, so under the advisor's own
+cost-control rule ("the full-kernel arm comes first and this comes second") the
+substitution was the right thing to drop.
+
+What it would still buy a future round, at research-only cost: a same-kernel
+`u₂/u₄` that de-confounds the #539 attribution, and the free N-B cross-check
+`f₄ ≈ f₂` on the affine model. Listed as follow-up 5 in §12.
+
+### 7.5 Byte-contamination hygiene (comment 3 §3)
+
+No number in this report is derived from a per-family byte count in
+`CURRENT_RESEARCH_STATE.md`. Every byte figure (`uniq MiB`, `achieved GB/s`,
+`slc_fit`) is computed inside the probe from its own allocation and dispatch
+accounting and checked against this host's measured 266.3 GB/s ceiling (§3). The
+brief's ≈13 MB/step rung-2 partial-traffic budget is not reused anywhere: §9
+records the rung-2 design without a traffic estimate, because a NO-GO makes the
+estimate moot.
+
+---
+
+## 8. Verdicts
 
 ### Overall
 
@@ -560,7 +721,7 @@ makespan model is a further 5–6 % too generous.
 
 ---
 
-## 8. Rung-2 design note (written, deliberately **not** implemented)
+## 9. Rung-2 design note (written, deliberately **not** implemented)
 
 The assignment says to write the rung-2 design even on GO and stop. This is a
 NO-GO, so rung 2 should not be built at all in its current form; the design is
@@ -589,7 +750,7 @@ Absent one of those, the arithmetic above says the family stays closed.
 
 ---
 
-## 9. Drop-in closure block for `research/CURRENT_RESEARCH_STATE.md`
+## 10. Drop-in closure block for `research/CURRENT_RESEARCH_STATE.md`
 
 Replace the R102-A entry (and correct `:143-146`) with:
 
@@ -626,6 +787,15 @@ CORRECTIONS to earlier text in this file:
   free (flat to +-0.06 us from K=1..20, +6.48 us step at K=21). There is no
   ragged-occupancy pool for split-K to recover.
 
+PRICE OF THE CLOSURE, against #561's measured pool table (modelled M5: M4
+x0.4369 bandwidth-pool / x0.5 latency-pool two-pool map, residual -6.63%):
+full 37.5% x 114.85 = 43.1 us/step, sliding 8.9-10.6% x ~309.5 = 27.5-32.8
+us/step, total ~70.6-75.9 us/step ~= 1.08-1.16% of score. That entire amount is
+retired, not deferred. Note both attention families are latency-regime at
+32.4%/33.6% of peak bandwidth: the cores really are idle, but the idle capacity
+is not recoverable by replicating a threadgroup whose fixed cost is a third of
+its total.
+
 REOPEN only if (1) a decode grid satisfies K_real * S <= C, or (2) the (o,m,l)
 merge is fused into the head of the following kernel so no second dispatch is
 paid.
@@ -637,7 +807,7 @@ W&B summary run 4bp1qhvz (wandb-applied-ai-team/mlxfast-maple).
 
 ---
 
-## 10. Reproduction, hygiene and artifacts
+## 11. Reproduction, hygiene and artifacts
 
 ### Reproduction
 
@@ -718,7 +888,7 @@ tables, the wave law, `sliding_split_scan`, `heldout_f2`,
 
 ---
 
-## 11. Runtime, cost, and suggested follow-ups
+## 12. Runtime, cost, and suggested follow-ups
 
 Total GPU time across all four measurement jobs: **523 s**. Peak memory is the
 probe's 16 MiB K-cache plus a matching V-cache; no model was loaded, so this
@@ -744,3 +914,8 @@ experiment never contended for unified memory. No official submission was made
    R102-A was proposed on a premise the archive explicitly falsifies suggests a
    mechanical cross-check (grep proposed-experiment keywords against archive
    closure entries) before assignments are written.
+5. **The same-kernel 2-deep sliding substitution from comment 4 §2.** Dropped
+   here because the sliding verdict is `r`-invariant (§7.4), but it is still the
+   only unconfounded way to get `u₂/u₄`, it would firm up the #539 attribution
+   that several downstream numbers lean on, and its `f₄ ≈ f₂` check is a free
+   test of the affine model. Research-only, roughly one 3-minute probe job.
