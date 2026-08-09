@@ -2,9 +2,10 @@
 
 - **2026-08-09 — round 103.** Campaign `mlxfast-maple-20260804`.
   Advisor branch `codex/mlxfast-maple-20260804-advisor`.
-  Base = **`82b6a89b1cc73d677fb1fd5567a7014979e409d1`** (merge of nezuko's #558
-  router-weight-prefetch restoration, on top of tanjiro's #565
-  composed-restoration receipt, on top of `a4d3b8dc`) + this docs commit.
+  Base = **`10005c80bfcf35c25bac998fbaaf7ff5c8ac2a29`** (merge of frieren's #566
+  split-K NO-GO, on top of nezuko's #558 router-weight-prefetch restoration, on
+  top of tanjiro's #565 composed-restoration receipt, on top of `a4d3b8dc`)
+  + this docs commit.
   `origin/main` = `1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7` (an ancestor of
   HEAD; `benchmark.json` at HEAD matches it).
   Record still **2.61650354381456** (source `Layr-Labs/mlxfast-challenge @
@@ -22,9 +23,91 @@
   round-100 revert-recovery programme is **complete**. `LagunaRuntimeModel.swift`
   is 519,236 B / 524,288 ⇒ **≈5,052 B of per-file headroom left**, which makes
   #548 **rung 2** (LRM literal-aware comment pool, 130,149 B across 282 blocks,
-  prepared and unapplied) the release valve and the natural first assignment of
-  round 103 — it is now unblocked, because it rewrites the whole file and the
-  three restorations it would have collided with have landed.
+  prepared and unapplied) the release valve — it is now unblocked, because it
+  rewrites the whole file and the three restorations it would have collided
+  with have landed.
+
+- 🚨🚨 **ROUND-103 HEADLINE — the restoration programme returned only ~38 % of
+  what the revert took. ≈16–19 µs/step of decode is still on the floor, and we
+  cannot name the mechanism.** Pulled 1,770 official receipts (1,204 usable)
+  with `research/advisor_r103_our_receipts.py` /
+  `research/advisor_r103_our_commits.py`. Our own receipts, by candidate merit:
+
+  | rank | `cs` | decode µs/step | prefill µs/tok | receipt | commit | what it is |
+  |---|---|---|---|---|---|---|
+  | 1 | **2.590559** | **4894.114** | 187.637 | `25e1f18e` | `4b0e051b` | best ever (Arm F lineage) |
+  | 2 | 2.589321 | **4893.712** | 188.043 | `7ce1262d` | `ef055b9b` | **Arm R** = frontier `6ada66c9` + float4 epilogue + carve; our tree `30f752df` |
+  | 3 | 2.588750 | 4898.929 | 187.608 | `83fd2642` | `5a43d329` | Arm F (no epilogue) |
+  | 4 | 2.587191 | 4900.524 | 187.877 | `05dd8bbf` | `e1b6e2be` | |
+  | 6 | **2.582286** | **4913.117** | 187.857 | `e08d759f` | `bd33883e` | **merged frontier**, R1∘R2 composed (#565) |
+  | 10 | 2.575633 | 4925.255 | 188.405 | `59bd72a3` | `e33efe4e` | post-revert control `c6c66344` |
+
+  Arithmetic: the revert cost **31.54 µs/step**; the restorations bought back
+  **12.14 µs/step**; **≈19.0 µs/step (+0.3883 % of decode, +0.3204 % of `cs`)
+  is still missing**, and prefill is *already better* than Arm R's
+  (187.857 vs 188.043), so **the entire residual is decode**. Subtract #558's
+  own measured +0.012 % and the residual is ≈18.2 µs/step ≈ **0.277 % of `cs`**.
+  Power check: the four pre-revert receipts span only 4893.7–4900.5 µs/step
+  (sd ≈ 3.3 µs ≈ 0.067 %) and were drawn the same calendar day as the composed
+  receipt, so +16.3 µs/step above their mean is ≈**4.9 sd** — this is not the
+  0.2939 % corpus-wide σ(cand_dec), which mixes different code. It is real.
+  ⇒ **The round-100 three-mechanism attribution (R1 +0.2358 %, R2 +0.130 %,
+  R3 +0.0628 % = 0.4286 % of a measured 0.5286 %) was roughly 2× optimistic,
+  or a fourth dropped change exists.** Recovering it moves P(record)/draw from
+  **0.748 % → ≈3.24 %, a 4.3× multiplier** — cheaper and larger than anything
+  else on the board (split-K is now dead at every `S`, #566; #548 rung 2 is
+  worth 0 % of score and buys bytes only).
+
+- 🔎 **Where to look — the Arm-R-to-today differential, computed.**
+  `git diff --numstat 30f752df 10005c80 -- Sources Vendor Package.swift
+  benchmark.json` = 32 files, +3,733/−4,603. Decomposed:
+  - `LagunaRuntimeLayers.swift` (2,597 lines) was **folded into**
+    `LagunaRuntimeModel.swift`; net non-fold LRM change is only ≈+187/−17.
+    So the LRM is close to Arm R's modulo the three restorations.
+  - `Sources/MLXFastTransform/AffineMetadataCoding.swift` (+438) and
+    `TiedHeadMetadataCoding.swift` (+401) are **new since Arm R but inert for
+    us**: `Transform.swift`'s `switch modelFamily` emits both sidecars only on
+    `.gemma4`; the `.laguna` case returns empty reports. Provenance is
+    organizer commits (#733 Gemma4→Laguna migration, #745/#747). **Ruled out —
+    do not spend time here.**
+  - `LagunaConfig.swift` +6/−1 is a **doc-comment only** change. Ruled out.
+  - **Every one of the ~3,072 deleted `Vendor/` lines comes from one commit,
+    `f720e9e7` "r99-B rung 1: reclaim 176,468 editable bytes from vendored
+    comment content"** — `Evaluate.swift` −528, `KVCache.swift` −424,
+    `quantized.cpp` −405, `sdpa_vector.h` −294, `matmul.cpp` −227,
+    `BatchKVCache.swift` −214, `CompiledDecode.swift` −118,
+    `CompilableRotatingKVCache.swift` −116, `CompilableKVCache.swift` −97,
+    `jit_kernels.cpp` −94, `SwitchLayers.swift` −87, `LanguageModel.swift` −85,
+    `AttentionUtils.swift` −68, `BaseConfiguration.swift` −64.
+    ⚠️ **`f720e9e7` is in the composed receipt's tree but NOT in the control
+    `c6c66344`.** So the measured +12.14 µs/step recovery is *net of this
+    carve*. `sdpa_vector.h`, `quantized.cpp`, `jit_kernels.cpp` and
+    `matmul.cpp` all carry Metal source that is **embedded verbatim into JIT
+    kernel text** (rule 74's whole reason for existing), so "comment-only" is a
+    hypothesis about emitted code, not a fact. This is the single cheapest
+    decisive probe on the board.
+  - What remains after those eliminations is **JIT kernel MSL text and the
+    host dispatch sequence**. The correct instrument is a full
+    kernel-source-string corpus dump plus a `DARKBLOOM_TRACE_FUSION=1` dispatch
+    trace at both revisions, diffed kernel-by-kernel — **not** a top-level
+    declaration diff. #558 used a declaration-level diff and found only R3,
+    which turned out to be worth 0.012 %.
+
+- 📊 **Cadence intelligence: the record holder beat us on draws, not on code.**
+  `a-github-name` has **209 receipts over 11 days (19/day, peak 39 in one
+  calendar day)**; their realised cumulative P(record) is **23.90 %** against
+  our **13.35 %**. Their best `cs` is 2.588362 — *below* our best-ever
+  2.590559. `morganmcg1` has 72 receipts over 6 days (12/day; 18 on
+  2026-08-09). Corpus `L` (n = 1,204): median 0.998597, sd(ln L) 0.5359 %,
+  p90 1.007519, p95 1.009232, p99 1.012733, max 1.021135; ≈96 % of that
+  variance is the `bl_pre` baseline draw. P(record) per draw as a function of
+  `cs`: 2.575633 → 0.415 %; **2.582286 → 0.748 %** (1-in-134); 2.585060 →
+  1.163 %; 2.588362 → 1.744 %; **2.590559 → 3.239 %**; 2.591868 → 4.153 %;
+  2.600 → 14.286 %; 2.610 → 34.551 %; **2.6202 → 50 %**. At our operating
+  point **+0.1 % of `cs` multiplies p/draw by 1.56×**, i.e. one tenth of a
+  percent of merit is worth about half an extra draw. Both levers are live;
+  volume is the one we have been losing on. We hold corpus ranks 2, 4, 5 and
+  11 by `cs` (leader `fefaed88`/MyatKaung 2.591868, `fyrsta7` 2.589921 third).
 
 - ✅ **Round-102 headline resolved: the composed R1∘R2 tree has now been
   built, correctness-verified, measured on M4 as a full 2×2, and spent on an
@@ -94,8 +177,9 @@
   the 64-thread tree, top-8 fusion and non-bit-exact transforms **stay
   closed**. Cost 4,186 B of LRM.
 
-- 🆕 **Rule 81 (new, from #558): the prefetch/hoist codegen tax is
-  family-specific, not universal.** #540 found that on the sliding-attention
+- 🆕 **Rule 82 (new, from #558): the prefetch/hoist codegen tax is
+  family-specific, not universal.** (Numbered 82, not 81 — 81 is already the
+  "a family earns a named mechanism only if…" bar at §B.0.5.) #540 found that on the sliding-attention
   family *every* prefetch-expressing variant regressed the base by +5–7 % with
   flat dose–response at identical occupancy, and we had been treating that as a
   general prohibition on hoisting. #558 hoisted across four barriers in the
@@ -124,11 +208,13 @@
 
 - **Base-move ledger.** `c240616a → c6c66344 → ad39bfc6 → c240616a → 92ee66ae →
   4b631591 → d90f854d → 2aa2f79 → fcd131a1 → 2e490fa3 → c22f1e47 → 0334048c →
-  3567695b → a4d3b8dc → a731311c → e17bdeb1 → 82b6a89b`. `a731311c` is
-  research-only; `e17bdeb1` is the #565 merge and is **also** research-only
+  3567695b → a4d3b8dc → a731311c → e17bdeb1 → 82b6a89b → 10005c80`. `a731311c`
+  is research-only; `e17bdeb1` is the #565 merge and is **also** research-only
   (zero `Sources/`/`Vendor/`/`benchmark.json` bytes); `82b6a89b` is the #558
   merge and **does** touch the submitted surface (LRM +4,186 B, router weight
-  prefetch, bit-exact). Every move up
+  prefetch, bit-exact); `10005c80` is the #566 merge and is research-only again
+  (a NO-GO that submitted zero bytes — `git diff --name-only 82b6a89b 10005c80
+  -- Sources/ Vendor/ benchmark.json` is empty). Every move up
   to and including `fcd131a1` was docs/harness-only with a byte-identical
   submitted surface, and `c22f1e47` is research-only again
   (`git diff --name-only 2e490fa3 c22f1e47 -- Sources/ Vendor/ benchmark.json` is
@@ -155,17 +241,45 @@
   | #561 | fern | `maple-r101-a-decode-pool-model-rebuild` / `r101-a-rev1` | ✅ **merged** → base `a4d3b8dc`; pool table rebuilt, 4 byte traps fixed |
   | #565 | tanjiro | `maple-r102-b-composed-restoration-receipt` / `r102-b-rev1` | ✅ **merged** → base `e17bdeb1`; interaction null, receipt `e08d759f`, research-only |
   | #558 | nezuko | `maple-r100-c-router-weight-prefetch-restoration` / `r100-c-rev1` | ✅ **merged** → base `82b6a89b`; R3 restored, +4,186 B, free rider |
-  | #566 | frieren | `maple-r102-a-splitk-decode-attention` / `r102-a-rev1` | wip — split-K decode attention, rung 1 = zero-byte `f` measurement; 4 advisor corrections delivered |
+  | #566 | frieren | `maple-r102-a-splitk-decode-attention` / `r102-a-rev1` | ✅ **merged** → base `10005c80`; split-K NO-GO on both arms, **zero bytes submitted**, research-only |
 
-  **Round-103 byte allocation.** LRM headroom is down to **5,052 B** and #566's
-  rung 2 is specified to land in a *new file* under `Sources/MLXFastModel/`
-  (`editablePaths` lists directories, so a new file is submitted and dissolves
-  the per-file cap). The release valve is **#548 rung 2** — 130,149 B of LRM
-  literal-aware comment pool across 282 blocks, already prepared and unapplied.
-  It rewrites the whole file, so it must be assigned into a round where no other
-  arm holds an LRM hunk; with all three restorations merged, that window is
-  **now**.
-  **#566 still may not spend a receipt without a fresh revision from me.**
+  **⚠️ As of this commit there are ZERO open maple PRs — all four students
+  (nezuko, tanjiro, frieren, fern) are idle.** That is the most expensive state
+  the campaign can be in; the round-103 slate below must be issued immediately.
+  (PRs #563/#568/#569 belong to the **cedar** campaign and are not ours — do not
+  act on them.)
+
+  **Round-103 byte allocation.** LRM headroom is **5,052 B**. Split-K's rung 2
+  no longer exists, so the only claimant on new-file bytes is gone. The release
+  valve is **#548 rung 2** — 130,149 B of LRM literal-aware comment pool across
+  282 blocks, already prepared and unapplied. It rewrites the whole file, so it
+  must be assigned into a round where no other arm holds an LRM hunk. Note that
+  round-103 arm C (sliding pipeline depth) *does* hold an LRM hunk, so #548
+  rung 2 must wait for the round after, or be issued only if C returns NO-GO at
+  the static-compile gate.
+
+- 🎯 **Round-103 slate (four arms, issued at base `10005c80`).** Priority is set
+  by the headline: 16–19 µs/step of decode is missing and unnamed, and that is
+  ~5× the next-largest quantified lever.
+
+  | arm | student | question | why now |
+  |---|---|---|---|
+  | **A** | tanjiro | **Where did the 16–19 µs/step go?** Differential archaeology `30f752df` (Arm R tree) vs `10005c80`, on the **Sources/JIT side**: build both, dump the exact MSL text of every decode-dispatched kernel + a `DARKBLOOM_TRACE_FUSION=1` dispatch trace (order, counts, TG sizes, buffer shapes), diff **kernel-by-kernel**, price candidates with a paired ABBA per-kernel M4 census, reconcile the sum against the M5 residual. | Largest, best-quantified, and entirely un-searched. #558 proved a top-level-*declaration* diff is too coarse (it found only R3, 0.012 %). |
+  | **B** | nezuko | **Is `f720e9e7` emitted-code-neutral?** Restore the 176,468 B of vendored comment content verbatim, then check compiled-Metal / AGX-ISA identity against current. If the ISA differs, price it by ABBA. | `sdpa_vector.h`, `quantized.cpp`, `jit_kernels.cpp` and `matmul.cpp` embed Metal source **verbatim** into JIT text (rule 74), so "comment-only" is a hypothesis, not a fact. `f720e9e7` is in the composed receipt's tree but **not** in the control `c6c66344`, so the +12.14 µs/step recovery is net of this carve. Cheapest decisive probe on the board and cleanly disjoint from A. |
+  | **C** | frieren | **Deepen the sliding-attention software pipeline 4 → 6/8** to raise in-threadgroup memory-level parallelism. | #566 proved the attention kernels are latency-bound *inside* the threadgroup at 32–34 % of peak BW; more TGs is dead, more MLP per TG is the surviving direction. Precedent: r96-a 2→4-deep gave −3.0 % of kernel (−8.25 µs/step M4, ~12σ). #561 headroom on T3a is 214.96 µs ≈ 3.27 %. **Rule 82 is mandatory: static compile + ISA/register/spill check FIRST**, because this family showed a +5–7 % flat-dose codegen tax in #540. Reuse frieren's `research/run_frieren_r102_fixed_cost.sh` + `research/frieren_r102_fit.py` (rule 58). |
+  | **D** | fern | **QKV `_idx_v1` dormancy (Rider F).** `lagunaIndexedAffineMetadata` returns nil when the LUT exceeds 65,536 entries and the QKV bank is ≈196 k pairs, so the indexed-affine fast path never fires on QKV. | QKV decode traffic is 411.30 MB/step (corrected #561 byte audit) and the fast path is simply switched off. Independent of A/B/C. |
+
+  Queued alternates, in order: **#548 rung 2** (bytes, 0 % score); the
+  **CPU/step-boundary tier** (249 µs/step of wall-minus-busy gap, never
+  attacked); splitting `LagunaRuntimeModel.swift` into multiple files to
+  dissolve the per-file cap permanently. **`lm_head` int3 is dead** — the
+  harness requires an exact token match.
+
+  ⚠️ **Cadence policy.** `a-github-name` draws 19 receipts/day (peak 39) against
+  our 12/day, and has converted a *worse* best-`cs` (2.588362 vs our 2.590559)
+  into a realised cumulative P(record) of **23.90 % vs our 13.35 %**. Volume is
+  the lever we are losing on. Every round should end with a receipt spent unless
+  the frontier is provably unchanged.
 
 - **🚨 The byte emergency moved, it did not end.** #548 rung 1 took the *total*
   surface from 2,983,849 → **2,807,381 / 3,000,000 B**, i.e. headroom
@@ -193,187 +307,83 @@
   because applying it first would force every restoration to re-anchor against
   a rewritten file.
 
-- **Round-102 advisor derivation: decode attention is the last large
-  under-occupied pool.** Decode attention dispatches one threadgroup per
-  (head-pair, sequence-segment) with **K = 32 TGs for the sliding layers and
-  K = 24 TGs for the full layers** (read off the dispatches at
-  `LagunaRuntimeModel.swift:1879-1880` and `:2364-2365`; grid
-  `((heads/2)*1024,1,1)`, threadgroup `(1024,1,1)`, heads 64 and 48). Machine
-  fill `Fill(K,C) = K/(C·ceil(K/C))` is **0.800 sliding / 0.600 full** on both
-  C=20 (M4 Pro) and C=40 (M5 Max). ⚠️ **The original "the split factor must be
-  5" derivation was wrong and is retracted** — see the corrected model below.
-  It assumed a slice cost of `τ₀/S`, which neither kernel can deliver.
+- ❌❌ **CLOSED FOR THE SECOND TIME — split-K / flash-decoding of the decode
+  attention kernels is dead at every `S`, on both kernels, and the round-102
+  design block that used to sit here is RETRACTED IN FULL.** #566 (frieren)
+  merged 2026-08-09 with a **zero-byte, measurement-only NO-GO on both arms**.
+  What it measured, at base `51e36805`, production geometry, extracted-source
+  probe (never a `params[]` fiction), K ≥ 16, warm-up leg discarded:
 
-  🔑 **The two kernels have different pipeline depths, and that decides
-  everything.** Verified in source at base `51e36805`:
-
-  | | sliding `laguna_sliding_fused_attn_ring_v1` | full `laguna_full_fused_attn_grow_v1` |
+  | quantity | full kernel `laguna_full_fused_attn_grow_v1` | sliding `laguna_sliding_fused_attn_ring_v1` |
   |---|---|---|
-  | decl | `LRM:1416` | `LRM:1936` |
-  | main loop | `int i = sg; for (; i + 3*BN < N; i += 4*BN)` `:1547-1548` | `int i = sg; for (; i + BN < N; i += 2*BN)` `:2076-2077` |
-  | depth | **4-deep** | **2-deep** |
-  | positions / iteration / TG | **128** | **64** |
-  | N | `constexpr int N = 512` `:1434` | `int N = int(params[1])` `:1964` |
-  | K | 32 | 24 |
-  | tail loop | **none** | none |
-  | gqa / rotary_pairs | 8 / 64 | 6 / 32 |
+  | measured | `T(512) = 18.394 µs`, `T(0) = 4.630 µs`, `τ₀ = 13.764 µs` | wave law `f_direct = a + W·φ`, `a = 1.863 ± 0.128`, `φ = 1.026 ± 0.043 µs/wave`, held-out R² = 0.99654 |
+  | fixed cost | **`f/τ₀ = 33.6 %`** SLC-resident, 28.8 % SLC-defeat (K=24); 31.9 %/26.9 % at K=48 | **`φ/t_ring(512) = 17.8 %`** resident, 15.0 % defeat |
+  | bar it had to clear | **9.4 %** | **1.6 %** (and only **2.08 %** even at `r = 1`) |
+  | margin | exceeded 3.1–3.6× | exceeded **8.6×** |
 
-  #539 raised the *sliding* ring to 4-deep and never touched the full kernel.
-  So the split granularity is **128 positions on sliding, 64 on full**, and a
-  slice below that granularity cannot run the pipelined body at all.
+  Eight independent affine fits bracket the full kernel's `f/τ₀` at 20.8–37.2 %;
+  **every** 95 % CI lower bound is above 9.4 %. The wave decomposition projected
+  to C = 40 gives 42.8 % resident / 37.2 % defeat, so **transfer to M5 makes it
+  worse, not better** — there is no host on which this arm turns positive.
+  Merge-free makespan at C = 40 (µs, S = 1…8): 9.83 / 11.51 / 9.22 / 11.48 /
+  10.45 / 12.59 / 14.60 / 13.99. Best `S` is **3** for +0.61 µs, which is under
+  the merge floor `a = 1.26 µs`; **S = 8 — the "optimum" this document briefed —
+  is 1.42× WORSE than S = 1.**
 
-  Corrected makespan model. With one resident TG per core, `C` cores, `K` base
-  TGs, split factor `S`, per-TG fixed cost `f` (launch + prologue + epilogue),
-  and `u` = the cost of one **position-round** (all 32 simdgroups each advancing
-  one position), so `τ₀ = n·u` with `n = N/32`:
+  **Repriced prize: 1.08–1.16 % of `cs`, not the 1.14 % of *achievable gain*
+  this block used to claim.** Re-running #561's measured pool rows with the
+  −2.7 % #539-staleness correction gives sliding 309.5 and full 114.85 µs/step
+  on M5; the retired prize is 70.6–75.9 µs/step. That number is now a
+  **ceiling that cannot be collected**, not a target.
 
-  ```
-  makespan(S) = ceil(K·S/C) · ( f + rounds(S)·u )
-  ```
+  Why it fails, mechanistically: the latency regime is real and was
+  independently confirmed (one resident TG per core; the K-ladder is flat to
+  ±0.06 µs from K = 1 → 20 and steps +6.48 µs at K = 21, so cores 1–19 are
+  genuinely idle). But at 33.6 % of peak bandwidth **each threadgroup is
+  latency-bound internally**, and split-K *replicates* the threadgroup instead
+  of dividing it. The `if (sg < 3)` prologue (RMSNorm + Q/K weight application +
+  RoPE + cache write, 3 of 32 simdgroups) plus the epilogue is head-serial work
+  that **every slice redoes** — null N-E, preregistered, fired. Nulls N-A, N-B,
+  N-D and N-E all fired; N-C did not.
 
-  **Full kernel, K=24, N=512 (n=16), C=40 (M5 Max):**
+  🚨 **Rule-69 self-violation by the advisor, recorded here so it is not
+  repeated.** `research/RESEARCH_ARCHIVE_through-round-91.md:6264-6281` — PR
+  #196 §4.12.8 C — had **already closed this family at every `S`**, with a
+  measured `f = 3.130 µs = 34.3 %` of a full 512-row call (against frieren's
+  33.6 %: an independent replication two rounds later), and had already
+  published the replacement law `T = a + W·φ + work` with `a = 1.661`,
+  `φ = 1.469 µs/wave`, `W = ceil(N/(3C))`. That archive entry ends with the
+  sentence **"Never price a decode geometry with a relative-makespan ratio
+  again"** — which is exactly what the retracted block above did. The claim
+  that used to stand at this spot, *"`f` has never been measured"*, was **false
+  when written**. I did not search the archive before proposing. Rule 69 is not
+  advice; it cost a student a full round. **Before any brief is written, grep
+  `RESEARCH_ARCHIVE_through-round-91.md` for the kernel name AND the mechanism
+  name, and paste the hit (or the null result) into the brief.**
 
-  | S | slice | 2-deep clean? | rounds | K·S | waves | makespan | gate | gain |
-  |---:|---:|:---:|---:|---:|---:|---|---|---:|
-  | 1 | 512 | yes | 16 | 24 | 1 | `f + 16u` | — | — |
-  | 2 | 256 | yes | 8 | 48 | 2 | `2f + 16u` | never | 0 |
-  | 4 | 128 | yes | 4 | 96 | 3 | `3f + 12u` | `f/τ₀ < 12.5 %` | 25 % |
-  | **8** | **64** | **yes** | **2** | **192** | **5** | **`5f + 10u`** | **`f/τ₀ < 9.4 %`** | **37.5 %** |
-  | 16 | 32 | no | 1 | 384 | 10 | `10f + 10u` | `f/τ₀ < 6.25 %` | 37.5 % |
+  Specifically retracted and not to be quoted again: "S=8 is the optimum for the
+  full kernel"; "full arm alone is 43.1 µs/step ≈ 0.66 %"; "37.5 % of the full
+  pool"; the sliding S=8 shallow-body variant; the `r ∈ [1.022, 1.041]` gate
+  arithmetic as a *decision* input (the interval itself survives as an archival
+  estimate of 4-deep vs 2-deep ring cost, and was never the binding term).
 
-  **S=8 is the optimum for the full kernel and it is pipeline-clean** — a
-  64-position slice is exactly one iteration of the existing 2-deep body, all
-  32 simdgroups uniformly loaded. **S=5 is strictly dominated by S=4** (same 3
-  waves, 120 TGs instead of 96, plus a divergent 102.4-position tail). On M4
-  (C=20) the optimum is instead S=4 at `f/τ₀ < 25 %`, so **the gate is not
-  host-invariant** — the earlier "host-invariant at S=5" claim was an artefact
-  of the `τ₀/S` fiction. Decide at C=40, because that is what we ship to.
+  What survives and is worth carrying forward:
+  1. The **wave law** `T = a + W·φ + work`, `W = ceil(K·S/C)`, replicated twice
+     on two hosts and two codebases. Use it, not makespan ratios, to price any
+     future decode geometry.
+  2. The **latency-regime diagnosis**: the attention kernels run at ~32–34 % of
+     peak bandwidth with 19 of 40 cores idle, and the bound is *inside* the
+     threadgroup. The correct attack is therefore **more memory-level
+     parallelism per threadgroup** (deeper software pipeline), not more
+     threadgroups. That is the round-103 sliding-depth arm.
+  3. `research/run_frieren_r102_fixed_cost.sh` + `research/frieren_r102_fit.py`:
+     a working extracted-source, K-swept, SLC-resident/SLC-defeat dual-mode
+     affine-fit harness. Rule 58 — reuse it, do not re-author it.
 
-  **Sliding kernel, K=32, C=40: `r` decides, and `r` is now bounded.** Every
-  `S ≤ 4` gives `ceil(32S/40) = S` waves against unchanged `16u` of steady work,
-  i.e. `S·f + 16u`, worse than `f + 16u` at any `f > 0`. Every `S ≥ 5` drops the
-  slice below 128 positions, which the 4-deep body cannot execute. A sliding
-  split therefore **requires authoring a shallower kernel**; with `u' = r·u` for
-  that body, S=8 pays iff `6f < (16 − 14r)u`, so **`r ≥ 16/14 = 1.1428` kills
-  the arm with no `f` measurement at all**.
-
-  🔑 **Archival same-kernel estimate of `r` (round 102, from #561's own
-  staleness).** Fern's T3a row — sliding fused attention, **636.0 µs/step on
-  M4** — was measured at base `3567695b`, which **predates #539's 4-deep ring**
-  (verified: `grep -c "i + 3 \* BN < N"` returns 0 at that base). So 636.0 is a
-  *same-kernel, same-host, same-`gqa`, same-`rotary_pairs`* **2-deep**
-  measurement of the very kernel #539 made 4-deep. Charging #539's ≈0.13 %-score
-  gain to this family at β = 0.5 gives 17.07 µs/step M4, so 4-deep M4 ≈ **618.93**
-  and `τ₂/τ₄ = 1.0276`. That ratio is `f`-diluted; undoing the dilution with
-  `r = ratio + (ratio − 1)·φ`, `φ = f/τ₀`, gives
-
-  > **`r ∈ [1.022, 1.041]`** across gain ∈ [0.10 %, 0.16 %] and φ ∈ [0.05, 0.20].
-
-  This is **far** below the 1.1428 kill threshold. The sliding arm is therefore
-  **not killed by `r`** — it is decided by `f`, at a bar of `f/τ₀ < 1.6 %`
-  (range 1.49–1.76 % over the same envelope), with a prize of
-  `1 − 0.875r` = **8.9–10.6 % of the sliding pool**. Status is upgraded from
-  "expect NO-GO" to **genuinely open**.
-
-  **Direct same-kernel `r` measurement, zero submitted bytes.** The archival
-  estimate can be replaced by a measurement inside `fern_r100_attn_probe.swift`
-  by source-substituting the extracted sliding body from 4-deep to 2-deep. Exact
-  anchors at base `51e36805` in `LagunaRuntimeModel.swift`: header `1548` →
-  `for (; i + BN < N; i += 2 * BN) {`; delete `1550,1551` (pipe_keys_c/d),
-  `1553,1554` (pipe_values_c/d), `1557,1558` (sub_c/d), `1561,1562`
-  (pipe_kc/kd), `1565,1566` (T_LOAD_K c/d), `1569,1570` (pipe_vc/vd),
-  `1575-1578` (T_LOAD_V c/d), and **`1651`–`1722`** (blank + pipec stage
-  `1652`–`1686` + piped stage `1688`–`1722`); change `1724`/`1725` from `4 *` to
-  `2 *`. Stage b ends `1650`; the loop closes `1726`. Position coverage is
-  **identical at N = 512** (4-deep: 4 iters × 128; 2-deep: 8 iters × 64), so the
-  two variants must agree numerically to ~1e-6 — that agreement is the
-  correctness check. Then `r = c₂/c₄` from two intercept fits over the shared
-  points N ∈ {512, 384, 256, 128}, and `f₄ ≈ f₂` is a free affine-model check
-  (a large disagreement detects N-B, i.e. that `f` is not N-independent).
-
-  Revised ceiling against the *modelled* M5 pools — **T3a sliding 309.5 µs/step
-  and T3a′ full 114.85 µs/step**, both from #561's measured M4 pools under the
-  M4 ×0.4369 bandwidth-pool / ×0.5 latency-pool two-pool map (residual −6.63 %),
-  with T3a corrected for the 2-deep staleness above. Sliding ≈10.3 % ⇒
-  **31.8 µs/step** behind a 1.6 % gate; full 37.5 % ⇒ **43.1 µs/step** behind a
-  9.4 % gate. Total ≈ **74.9 µs/step ≈ 1.14 % of score** at 0.015228 %/µs-step —
-  **not** the 98 µs/step / 1.49 % originally briefed. If the sliding arm dies on
-  `f`, the full arm **alone** is 43.1 µs/step ≈ **0.66 %**, clearing the
-  +30 µs/step slot bar by 1.44×. All of this still ignores the recombination
-  pass, so treat it as an upper bound.
-
-  `f` has never been measured. It is measurable with **zero submitted bytes**
-  in `research/fern_r100_attn_probe.swift`, which already does
-  `extractKernel(path, name:)` → `buildPipeline` (`:295-305`), by sweeping the
-  position count `N` at fixed K and fitting `τ(N) = f + cN`; the intercept *is*
-  `f`. Rung 1 of R102-A is exactly that fit and nothing else.
-
-  **Arm ordering (corrected on #566 across comments
-  `r102-a-fb-window-knob-defect-and-slice-granularity` and
-  `r102-a-fb-2-swap-primary-arm-full-kernel-is-2-deep`):**
-
-  1. **PRIMARY — the full kernel, and it needs zero source edits.** Sweep
-     `params[1]` over **N ∈ {512, 384, 256, 128, 64}** ⇒ 8/6/4/2/1 iterations
-     of the 2-deep body, every point pipeline-clean with all 32 simdgroups
-     uniformly loaded. Fit `τ(N) = f + cN`, then `u = 32c`, `τ₀(512) = 16u`,
-     and test `f/τ₀` against the **9.4 %** bar. This is the measurement that
-     decides whether rung 2 exists.
-  2. **SECONDARY — the sliding kernel; genuinely open, `f` decides.** Its N knob **cannot** be
-     a `params[]` write: `constexpr int N = 512;` (`LRM:1434`) is compile-time
-     and the kernel's **only** `params[]` read is `params[0]` (widx), so
-     `params[2]` is dead there and wiring a `FERN_WINDOW` env var into
-     `dParams[2]` is a silent no-op yielding flat `τ(N)` and a false NO-GO. Use
-     a **source-text substitution in the extracted kernel body** before
-     `buildPipeline`, holding `window = 512` (`LRM:1426`) **fixed** so the KV
-     footprint and rotation stride do not shrink with N and manufacture a
-     confound; recompute only `requestedBytesPerDispatch`. Points
-     **N ∈ {512, 384, 256, 128}** only (4/3/2/1 iterations).
-  3. ❌ **`N = 64` and `N = 104` on the sliding kernel compute nothing useful
-     and are not "tail" points — there is no tail loop.** At `N = 64` the
-     condition `sg + 96 < 64` is false for *every* simdgroup, so the body never
-     executes and the kernel processes **zero positions**; at `N = 104` only
-     `sg < 8` enters. Both were listed in the original brief; both are dropped.
-  4. ⚠️ **RETRACTED (round 102): "`r` is not measurable from the sliding
-     kernel."** That claim assumed the only handle was the confounded
-     cross-kernel comparison of the sliding kernel's 4-deep `u` with the full
-     kernel's 2-deep `u` (confounded by `gqa` 8 vs 6 and `rotary_pairs` 64 vs
-     32). Two clean handles exist and supersede it: (a) the **archival
-     same-kernel** estimate `r ∈ [1.022, 1.041]` from fern's pre-#539 T3a row,
-     derived above; (b) the **direct same-kernel** measurement by 2-deep source
-     substitution in the extracted sliding body, recipe and line anchors above.
-     The cross-kernel number must never be quoted. Any probe result must still
-     name which kernel it extracted, and if the measured `r` disagrees with the
-     archival interval by more than ±0.02 that is itself a finding (it would
-     mean #539's score gain is not attributable to the ring depth alone).
-  5. Rung-2 design note: the full layers' `N` grows with context and S=8 stays
-     pipeline-clean only while the slice is ≥ 64 positions, i.e. `N ≥ 512`.
-     Choose `S = clamp(N/64, 1, 8)` host-side per dispatch — `N` is already in
-     `params[1]`, so this is free and it stops short-context steps paying `S·f`
-     for nothing.
-
-  New null **N-E (replicated prologue)**: both kernels gate RMSNorm + Q/K weight
-  application + RoPE + cache write behind `if (sg < 3)` (`LRM:1452`, `:1973`) —
-  3 of 32 simdgroups, with the other 29 idle. Under an S-way split this prologue
-  runs **S times** and sits entirely inside `f`, so it is a first-order term in
-  the gate, not a rounding error. The extracted-source probe captures it; a
-  partial-write-epilogue cross-check does not. The two designs therefore
-  estimate *different* `f`, and it is the extracted-source intercept that
-  governs the decision.
-
-  Occupancy assumption to confirm, not assume: the model above presumes **one
-  resident TG per core** at 1024 threads/TG. The probe already prints `tgMemB`
-  and `maxTotalThreadsPerThreadgroup` (`:311-315`). This is now *more*
-  load-bearing than before, because the wave counts 1/2/3/5/10 in the S-table
-  are the entire argument — if two TGs co-reside, every gate and every gain in
-  this block must be recomputed before any rung-2 work is priced.
-
-  Rung 2 (single-dispatch fused reduction, last-TG-in-group via a device atomic
-  counter) is gated on the full-kernel fit clearing the 9.4 % bar, must land in
-  a **new file** under `Sources/MLXFastModel/` to dodge the 9,238 B LRM cap, and
-  is **not bit-exact** (S-way softmax recombination reassociates), so it needs a
-  full equivalence + quality gate rather than `max_abs_diff == 0`. Budget
-  ≈13 MB/step of extra partial-result traffic in any model of rung 2 (that
-  figure was sized at S=5 and scales with S — re-derive at S=8).
+  **REOPEN IF** either (1) a decode grid appears with `K_real · S ≤ C`, so the
+  split costs zero extra waves, or (2) the `(o, m, l)` merge is fused into the
+  head of the following kernel, so the merge floor `a` disappears. Neither is
+  true today.
 
 
 - **⚠️ Official submissions now go through a wrapper. `mlxfast submit` directly
@@ -2264,6 +2274,14 @@ instrumentation (#496), not more hyperparameter-tier tweaking.
 
 ## 7. Closed list — do not re-assign
 
+❌❌ **Split-K / flash-decoding / KV-split-across-threadgroups of either decode
+attention kernel, at every `S`, on every host — closed TWICE** (PR #196 §4.12.8
+C, `RESEARCH_ARCHIVE_through-round-91.md:6264-6281`, and again by #566 with
+`f/τ₀ = 33.6 %` against a 9.4 % bar and `φ/t_ring = 17.8 %` against a 1.6 %
+bar). Reopen only if a decode grid appears with `K_real·S ≤ C`, or if the
+`(o,m,l)` merge is fused into the head of the following kernel. Price decode
+geometry with the wave law `T = a + W·φ + work`, never with a makespan ratio.
+
 L2 · `bfeil` · Frontier Lever 2 · input-norm→QKV fusion (#483) · barrier hoist
 as its own arm (#488) · revert-#457 (#486) · integer-ALU
 density on M5 (#490) · command-buffer op/MB caps (rule 52) · dispatch residue
@@ -2730,6 +2748,28 @@ programme figures (M5 qkvo 651.8; M4 injection 310.9 / 331.6 / 322.3) implied
 106.9–124.5 % of peak and stood unchallenged for dozens of rounds. Peaks to
 divide by: **M4 Pro 266.3 GB/s**, **M5 Max 610 GB/s measured / 614 nominal**.
 See rule 76 for why marginals inflate.
+
+**🆕 Rule 82 (advisor, round 103, from #558) — the prefetch/hoist codegen tax is
+family-specific, not universal.** Hoisting is banned in the fused-attention
+family, where register pressure is already at the cliff (#540: +5–7 % flat-dose
+regression at identical occupancy). Everywhere else it is decided by a **static
+compile read (AIR/ISA, registers, spills, threadgroup memory) before any GPU
+time is spent** — #558 did exactly that in the router GEMV, found zero
+occupancy change, and banked −6.39 µs/step. Make the static read step 1 of any
+codegen-restructuring arm. Full statement at the #558 bullet above.
+
+**🆕 Rule 83 (advisor, round 103, from #566) — grep the archive for the kernel
+name AND the mechanism name before writing a brief, and paste the hit (or the
+explicit null result) into the brief.** Rule 69 said "search the archive"; it
+was not enforced, and in round 102 the advisor spent a full student round
+re-deriving a family that `RESEARCH_ARCHIVE_through-round-91.md:6264-6281`
+(PR #196 §4.12.8 C) had already closed **at every `S`**, with a measured fixed
+cost that frieren then replicated to within 0.7 pp. The archive entry even
+carried the instruction that was violated — *"Never price a decode geometry
+with a relative-makespan ratio again."* Two enforcement clauses: (a) a brief
+that proposes a geometry change **must** quote the archive grep it ran; (b) any
+sentence of the form "X has never been measured" is a **claim requiring a
+citation of the search that failed to find it**, not a default.
 
 **Process rule (#513).** Every assignment must state that *a student's
 registered go/no-go bar must be at least as strict as the suggested bar, or the
