@@ -10,31 +10,43 @@ byte-identical to the assignment base (0 bytes changed).**
 
 ## 0. Answer
 
-**All three kernels are DRAM-bandwidth-bound, each with four agreeing probes.**
+**All three kernels are memory-bandwidth-bound.** Three independent instruments
+agree on each of them (byte-accounting roofline, free-ALU ladder, extra-load
+ladder), which meets the assignment's ≥ 2-probe stopping rule. I say
+*memory-bandwidth* rather than *DRAM-bandwidth* deliberately: nothing here
+separates DRAM from the fabric or system-level cache, only "the memory path is
+the binding resource".
 
 They run at 238–250 GB/s net of the SPLIT=1 dispatch tax, which is 91–95 % of
 this host's best measured sequential rate (262.5 GB/s) and 99–106 % of the
 access-pattern ceilings measured for their own patterns. Inserting float
 arithmetic into their inner loops costs 3.6 % (qkv), 14.7 % (oproj) and 19.0 %
 (routed) of its issue-limited price — they have idle issue slots. Inserting
-*bytes* costs full DRAM rate: 225–239 GB/s marginal. And at equal bytes,
-doubling the number of load instructions changes cost by only −0.6 % to +4.4 %,
-so cost tracks bytes and is blind to instruction count. That last measurement is
-the one that excludes memory-latency-bound and issue-bound simultaneously.
+*bytes* costs the **full** streaming rate, 225–239 GB/s marginal: that is the
+measurement that excludes memory-latency-bound, because a latency-starved
+kernel would absorb extra independent loads at *below* full rate. Separately, at
+equal bytes, doubling the number of load *instructions* changes cost by only
+−0.6 % to +4.4 %, which excludes memory-issue-bound.
 
 **Consequence for the programme:** the 54 % of the busy pool these kernels hold
-is *not* 54 % of addressable time. At fixed bytes and fixed dispatch count the
-honest in-trio ceiling is ≈ 550 µs/step, ≈ 12 % of the trio and ≈ 6.4 % of the
-local busy pool (§8). Any future proposal for these kernels that does not reduce
-**bytes moved**, reduce **dispatch count**, or overlap the **wall−busy gap** has
-a ceiling near zero — including unrolling, register tuning, instruction
-selection, and cheaper dequantization math.
+is *not* 54 % of addressable time. At fixed bytes the in-trio serialized
+per-dispatch pool is ≈ 472 µs/step gross and realistically ≲ 240 µs/step
+recoverable; the most optimistic possible byte reduction adds ≤ 180 µs/step.
+The honest optimistic in-trio ceiling is therefore **≈ 420 µs/step, ≈ 9 % of the
+trio and ≈ 4.9 % of the local busy pool** (§8). Any future proposal for these
+kernels that does not reduce **bytes moved**, reduce **dispatch count**, or
+overlap the **wall−busy gap** has a ceiling near zero — including unrolling,
+register tuning, instruction selection, and cheaper dequantization math.
 
 **Not measured:** a controlled grid-scaling sweep (probe 2) could not be run —
 no env knob reaches these kernels' geometry and geometry is forbidden to ship —
 so occupancy-limited is excluded by inference rather than by a dedicated probe
-(§4, §10). A contention co-run is the sharpest missing test and should lead any
-follow-up.
+(§4, §10). Everything here was timed under `DARKBLOOM_GPU_PROFILE_SPLIT=1`,
+which serializes dispatches; production runs unsplit at 7918 µs/step busy versus
+8538 µs/step split, so the per-dispatch overhead figures are **serialized-mode
+quantities and are an upper bound on what fusion could recover in production**
+(§8, §10). The single most valuable follow-up is therefore an unsplit
+dispatch-overhead A/B rather than another kernel-internal probe.
 
 ---
 
