@@ -48,6 +48,35 @@ func gpuCoreCount() -> Int {
 }
 let cores = gpuCoreCount()
 
+func intList(_ name: String, _ fallback: [Int]) -> [Int] {
+    guard let raw = ProcessInfo.processInfo.environment[name] else { return fallback }
+    let v = raw.split(separator: ",").compactMap { Int($0) }
+    return v.isEmpty ? fallback : v
+}
+func intVal(_ name: String, _ fallback: Int) -> Int {
+    Int(ProcessInfo.processInfo.environment[name] ?? "") ?? fallback
+}
+
+// MARK: - regime instrumentation (round-100 P1.1 / P1.2)
+//
+// The r99 ladder re-dispatched an identical binding `reps` times inside one
+// command buffer, so every dispatch after the first re-read the same ~8.5 MiB
+// working set.  That fits an M4-Pro-class system level cache, which means the
+// number the probe reported was a cache-resident cost, not the DRAM-fed cost the
+// kernel pays inside a real decode step.  Defeat mode advances the weight and
+// scale binding offsets per dispatch so the round's distinct footprint is large
+// enough that the cache cannot hold it.
+//
+// `FERN_DEFEAT_SLOTS <= 1` reproduces the r99 resident binding exactly.
+let defeatSlots = max(intVal("FERN_DEFEAT_SLOTS", 1), 1)
+
+/// Measured sequential-read peak for this host (rule 55 / PR #498:
+/// `t = 3.97 us + bytes / 266.3 GB/s`).  Apple's spec sheet says 273 GB/s.
+let dramPeakGBs = 266.3
+/// Published estimate for an M4-Pro-class system level cache.  Only used to
+/// label a regime; every byte count is printed so a reader can re-derive it.
+let slcEstimateBytes = 24 * 1024 * 1024
+
 // MARK: - buffers
 
 /// Deterministic filler so every arm sees the same weight codes, the same
@@ -81,17 +110,29 @@ do {
         p[i] = UInt16(0x3F00 | (s >> 24)) ^ UInt16((s >> 16) & 0x8000)
     }
 }
+let fusedExpertBytes = 1024 * 1024
+/// One slot step per buffer.  A slot advances the weight base by exactly one
+/// expert stride, so slot `s` of expert `e` occupies the byte range expert
+/// `e + s` would have used: the addresses are fresh but the access pattern,
+/// alignment, and instruction count are bit-for-bit the resident pattern.
+let weightSlotStride = fusedExpertBytes
+let scaleSlotStride = packedExpertBytes
+
 // 256 experts x 1 MiB, plus a MiB of slack so ladder points above the shipped
-// 2048 threadgroups stay in bounds.
-let dWeight = filled(257 * 1024 * 1024, seed: 11)
-let dScales = filled(scalePatchBytes + 256 * packedExpertBytes + 4096, seed: 23)
+// 2048 threadgroups stay in bounds, plus one stride per defeat slot.
+let dWeight = filled(257 * 1024 * 1024 + (defeatSlots - 1) * weightSlotStride, seed: 11)
+let dScales = filled(
+    scalePatchBytes + 256 * packedExpertBytes + 4096 + (defeatSlots - 1) * scaleSlotStride,
+    seed: 23)
 let dKeys = filled(256 * 4, seed: 37)
 let dActivated = device.makeBuffer(length: routedExperts * 4096 * 2, options: .storageModeShared)!
 
-func bind(_ enc: MTLComputeCommandEncoder) {
-    for (i, b) in [dInput, dWeight, dScales, dKeys, dActivated].enumerated() {
-        enc.setBuffer(b, offset: 0, index: i)
-    }
+func bind(_ enc: MTLComputeCommandEncoder, slot: Int = 0) {
+    enc.setBuffer(dInput, offset: 0, index: 0)
+    enc.setBuffer(dWeight, offset: slot * weightSlotStride, index: 1)
+    enc.setBuffer(dScales, offset: slot * scaleSlotStride, index: 2)
+    enc.setBuffer(dKeys, offset: 0, index: 3)
+    enc.setBuffer(dActivated, offset: 0, index: 4)
 }
 
 // MARK: - pipelines
@@ -140,6 +181,130 @@ for a in [reference] + variants {
             format: "  %-26@   %5d   %6d   %15d   %9d",
             a.label as NSString, a.lines, a.pipe.staticThreadgroupMemoryLength,
             a.pipe.maxTotalThreadsPerThreadgroup, a.pipe.threadExecutionWidth))
+}
+
+// MARK: - byte model, parsed from the kernel source being timed
+//
+// Nothing here is hand-typed: every stride comes out of the `constexpr uint`
+// declarations of the reference MSL, so if a variant changes a layout constant
+// the byte model changes with it (or the parse fails loudly).
+
+func parseConstexprUInts(_ msl: String) -> [String: Int] {
+    var table: [String: Int] = [:]
+    for rawLine in msl.split(separator: "\n") {
+        let line = rawLine.trimmingCharacters(in: .whitespaces)
+        guard line.hasPrefix("constexpr uint "), line.hasSuffix(";") else { continue }
+        let body = line.dropFirst("constexpr uint ".count).dropLast()
+        let halves = body.split(separator: "=", maxSplits: 1)
+        guard halves.count == 2 else { continue }
+        let name = halves[0].trimmingCharacters(in: .whitespaces)
+        var product = 1
+        var ok = true
+        for term in halves[1].split(separator: "*") {
+            let t = term.trimmingCharacters(in: .whitespaces)
+            if let n = Int(t) {
+                product *= n
+            } else if let n = table[t] {
+                product *= n
+            } else {
+                ok = false
+            }
+        }
+        if ok { table[name] = product }
+    }
+    return table
+}
+
+let refMSL = try! String(contentsOfFile: paths[0], encoding: .utf8)
+let K = parseConstexprUInts(refMSL)
+func need(_ name: String) -> Int {
+    guard let v = K[name] else {
+        fatalError("byte model: could not parse `constexpr uint \(name)` from \(paths[0])")
+    }
+    return v
+}
+let kInputWidth = need("input_width")
+let kOutputWidth = need("output_width")
+let kRoutedExperts = need("routed_experts")
+let kFusedRowBytes = need("fused_row_bytes")
+let kFusedExpertBytes = need("fused_expert_bytes")
+let kScalePatchBytes = need("scale_patch_bytes")
+let kScaleTileBytes = need("scale_tile_bytes")
+let kPackedExpertBytes = need("packed_expert_bytes")
+precondition(
+    kInputWidth == inputWidth && kRoutedExperts == routedExperts
+        && kPackedExpertBytes == packedExpertBytes && kScalePatchBytes == scalePatchBytes
+        && kFusedExpertBytes == fusedExpertBytes,
+    "byte model: parsed kernel constants disagree with the host buffer layout")
+
+/// Replicates the kernel's top-8 extraction on the host so the byte model names
+/// the exact eight expert regions the GPU will touch.
+///
+/// Lane `L` holds candidate `e = L + 32*j` with ordinal `router_keys[e]`, and the
+/// per-lane mask bit that a round sets is only set by the lane that owns the
+/// winner.  Masking group `j` for that one lane therefore removes exactly the one
+/// expert just chosen, so the eight rounds return the global eight smallest
+/// experts under `(router_keys[e], e)`.
+func routedWinners() -> [Int] {
+    let keys = dKeys.contents().bindMemory(to: UInt32.self, capacity: 256)
+    return (0..<256)
+        .sorted { keys[$0] == keys[$1] ? $0 < $1 : keys[$0] < keys[$1] }
+        .prefix(routedExperts)
+        .sorted()
+}
+
+/// Distinct logical output rows a `tg`-threadgroup dispatch covers.
+func rowsCovered(_ tg: Int) -> Int {
+    precondition(tg % routedExperts == 0, "ladder points must be multiples of routed_experts")
+    return (tg / routedExperts) * 2
+}
+
+struct Interval { var lo: Int; var hi: Int }
+func unionBytes(_ raw: [Interval]) -> Int {
+    let sorted = raw.sorted { $0.lo < $1.lo }
+    var total = 0
+    var cur: Interval? = nil
+    for iv in sorted {
+        if var c = cur, iv.lo <= c.hi {
+            c.hi = max(c.hi, iv.hi)
+            cur = c
+        } else {
+            if let c = cur { total += c.hi - c.lo }
+            cur = iv
+        }
+    }
+    if let c = cur { total += c.hi - c.lo }
+    return total
+}
+
+let winners = routedWinners()
+
+/// Bytes a single dispatch asks the memory system for.
+func requestedBytesPerDispatch(_ tg: Int) -> Int {
+    let rows = rowsCovered(tg)
+    let weight = routedExperts * rows * 2 * kFusedRowBytes
+    let scales = routedExperts * ((rows + 3) / 4) * kScaleTileBytes + kScalePatchBytes
+    let writes = routedExperts * rows * 2
+    return weight + scales + inputWidth * 2 + 256 * 4 + writes
+}
+
+/// Distinct bytes a whole round of `reps` dispatches touches, honouring the
+/// defeat-mode slot rotation and any overlap it creates.
+func uniqueBytesPerRound(_ tg: Int, reps: Int) -> Int {
+    let rows = rowsCovered(tg)
+    let slots = min(defeatSlots, reps)
+    var wIvs: [Interval] = []
+    var sIvs: [Interval] = []
+    for s in 0..<slots {
+        for e in winners {
+            let wBase = s * weightSlotStride + e * kFusedExpertBytes
+            wIvs.append(Interval(lo: wBase, hi: wBase + rows * 2 * kFusedRowBytes))
+            let sBase = s * scaleSlotStride + kScalePatchBytes + e * kPackedExpertBytes
+            sIvs.append(Interval(lo: sBase, hi: sBase + ((rows + 3) / 4) * kScaleTileBytes))
+        }
+    }
+    let small = inputWidth * 2 + 256 * 4 + routedExperts * rows * 2 + kScalePatchBytes
+    return unionBytes(wIvs) + unionBytes(sIvs) + small
 }
 
 // MARK: - output equivalence gate
@@ -203,8 +368,9 @@ func perCallMicros(_ pipe: MTLComputePipelineState, tg: Int, reps: Int) -> Doubl
     let cb = queue.makeCommandBuffer()!
     let enc = cb.makeComputeCommandEncoder()!
     enc.setComputePipelineState(pipe)
-    bind(enc)
-    for _ in 0..<reps {
+    if defeatSlots == 1 { bind(enc) }
+    for i in 0..<reps {
+        if defeatSlots > 1 { bind(enc, slot: i % defeatSlots) }
         enc.dispatchThreadgroups(
             MTLSize(width: tg, height: 1, depth: 1),
             threadsPerThreadgroup: MTLSize(width: 64, height: 1, depth: 1))
@@ -215,21 +381,53 @@ func perCallMicros(_ pipe: MTLComputePipelineState, tg: Int, reps: Int) -> Doubl
     return (cb.gpuEndTime - cb.gpuStartTime) * 1e6 / Double(reps)
 }
 
-func intList(_ name: String, _ fallback: [Int]) -> [Int] {
-    guard let raw = ProcessInfo.processInfo.environment[name] else { return fallback }
-    let v = raw.split(separator: ",").compactMap { Int($0) }
-    return v.isEmpty ? fallback : v
-}
-func intVal(_ name: String, _ fallback: Int) -> Int {
-    Int(ProcessInfo.processInfo.environment[name] ?? "") ?? fallback
-}
-
 // The shipped dispatch is 2048 threadgroups of 64 threads. On the ranked M5 Max
 // (40 cores) that is 51.2 TG/core; the occupancy-matched point on a 20-core M4
 // Pro is 1024 threadgroups. The ladder brackets it by 8x either way.
 let ladder = intList("FERN_LADDER", [128, 256, 512, 1024, 2048])
 let rounds = intVal("FERN_ROUNDS", 21)
 let reps = intVal("FERN_REPS", 100)
+
+// MARK: - regime block
+//
+// Printed before any A/B number so a reader can see which side of the roofline
+// the measurement lives on before being shown a delta.  `achieved_GB_s` above
+// `dram_peak_GB_s` is direct proof that the round was served from cache.
+
+print("\n=== memory regime (P1.1) ===")
+print("  defeat slots          \(defeatSlots)\(defeatSlots == 1 ? "  (r99 resident binding)" : "")")
+print("  weight buffer         \(dWeight.length) B")
+print("  scale buffer          \(dScales.length) B")
+print("  routed winners        \(winners)")
+print("  output_width          \(kOutputWidth)")
+print("  dram_peak_GB_s        \(dramPeakGBs)  (measured, rule 55)")
+print("  slc_estimate_B        \(slcEstimateBytes)  (M4-Pro-class, label only)")
+print(
+    "    TG   rows   uniq_MiB   req_MiB/round   amplif   ref_us   achieved_GB_s   unique_GB_s   regime"
+)
+for tg in ladder {
+    let uniq = uniqueBytesPerRound(tg, reps: reps)
+    let req = requestedBytesPerDispatch(tg) * reps
+    let t = perCallMicros(reference.pipe, tg: tg, reps: reps)
+    let roundSeconds = t * Double(reps) * 1e-6
+    let achieved = Double(req) / roundSeconds / 1e9
+    let unique = Double(uniq) / roundSeconds / 1e9
+    let regime: String
+    if achieved > dramPeakGBs {
+        regime = "CACHE_SERVED(>peak)"
+    } else if uniq <= slcEstimateBytes {
+        regime = "FITS_SLC"
+    } else if achieved > 0.5 * dramPeakGBs {
+        regime = "DRAM_BOUND"
+    } else {
+        regime = "COMPUTE_BOUND"
+    }
+    print(
+        String(
+            format: "  %4d   %4d   %8.2f   %13.2f   %6.1f   %6.2f   %13.1f   %11.1f   %@",
+            tg, rowsCovered(tg), Double(uniq) / 1048576.0, Double(req) / 1048576.0,
+            Double(req) / Double(uniq), t, achieved, unique, regime as NSString))
+}
 
 for a in [reference] + variants { _ = perCallMicros(a.pipe, tg: 512, reps: 20) }
 
