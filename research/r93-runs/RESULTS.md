@@ -714,13 +714,16 @@ worth; the honest headline is `|T| < 0.5` rather than `T = -0.48`.
 | 8 | null-5 | `4fec8e2d-3fa1-4a99-a9a5-e6883aee7497` | 0 | 160 | rejected (score did not improve best) | green | [`92snii58`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/92snii58) |
 | 9 | probe-routed-fma-24 | `ecd89cac-b21e-4948-b619-5ac106c8fe48` | `routed:fma:24` | — | rejected (score did not improve best) | green | [`59o0mk6y`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/59o0mk6y) |
 | 10 | probe-routed-fma-64 | `ab3a2433-2553-4946-8502-d04814565e17` | `routed:fma:64` | — | rejected (score did not improve best) | green | [`fotwz1v2`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/fotwz1v2) |
+| 11 | probe-routed-fma-0 | `a000a397-68cc-4514-8cfe-b2a9837d49e7` | `routed:fma:0` | — | rejected (score did not improve best) | green | [`8mhdbz67`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/8mhdbz67) |
 
 Per-receipt metrics for rows 1-8 are in section 2.3 (nulls) and section 4
-(ladder rungs); row 9 is in section 10.5 and row 10 in section 10.8.
+(ladder rungs); rows 9, 10 and 11 are in sections 10.5, 10.8 and 10.9.
 
 "all gates green" means `passed_correctness`, both speedup floor verdicts,
-GPQA TTFT 9/9 and semantic GPQA 9/9, with `max_abs_diff = 0` over 1344 checked
-steps. A `rejected` status with the reason "score did not improve current best"
+GPQA TTFT 9/9 and semantic GPQA passed, with `max_abs_diff = 0` over 1344
+checked steps. Semantic GPQA was 9/9 on rows 1-10 and 8/9 (still passing) on
+row 11; see the footnote at the end of section 10.9 for why that is judge noise
+and not drift. A `rejected` status with the reason "score did not improve current best"
 is the expected and correct outcome for a null or a deliberately slowed ladder
 rung; it is a ranking statement, not a correctness statement.
 
@@ -1793,7 +1796,12 @@ both real:
   added work serializes on the same occupied subset, or that the added issue
   rate is clock- rather than core-limited. **This is flagged, not claimed.**
 
-#### Operative licensing statement (replaces 10.6)
+#### Licensing statement (replaces 10.6; itself refined by 10.9)
+
+> **Read 10.9 first.** The C0' control has since measured the placement term at
+> +0.10 % (not significant), which selects reading (A). Everything below is
+> correct *for the 24 -> 64 segment*, but the sweeping form "M5 does not have a
+> wider free-ALU allowance than M4 Pro" is wrong: below n ~ 24 it does.
 
 **Validated, and this is the useful half.** ALU cost transfers from M4 to M5 *in
 absolute microseconds* at the margin: 8.07 us/op [6.65, 9.49] against M4's 8.54.
@@ -1815,6 +1823,167 @@ covers their addition is precisely what C0' decides.
 Section 8.0 and rule 53 showed on the dispatch axis that addition and removal
 are wildly asymmetric — 2.34 us/dispatch to add, approximately nothing recovered
 on removal. Nothing here predicts that removing bytes pays back proportionally.
+
+---
+
+### 10.9 C0' placement control: the knee is real
+
+Receipt `a000a397-68cc-4514-8cfe-b2a9837d49e7`, spec `routed:fma:0`, server
+commit `edfd81e9249ab539359d1c062f8b0006f19addce`, timestamp
+2026-08-09T07:24:20Z, W&B
+[`8mhdbz67`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/8mhdbz67).
+All gates green: `passed_correctness = true`, `max_abs_diff = 0` over 1344
+checked steps across 11 cases, both 0.95 floors true, GPQA TTFT 9/9. Status
+`rejected`, reason "score did not improve current best" — the expected outcome
+for a deliberately slowed candidate.
+
+| metric | value |
+|---|---|
+| candidate decode | **4915.6689 us** |
+| candidate prefill | 187.9609 us |
+| baseline decode | 13863.5046 us |
+| baseline prefill | 367.3737 us |
+| decode speedup | 2.820268 |
+| prefill speedup | 1.954522 |
+
+#### The pre-registered decision, resolved
+
+Section 10.8 left two readings alive and gave each a numerical prediction for
+this receipt. The predictions were 160.9 us apart, which is 11.2 null sd, so
+one receipt was always going to settle it.
+
+| reading | predicted decode | observed | miss | miss / se |
+|---|---|---|---|---|
+| **(A) knee** — placement is nil, the low segment is genuinely cheap | 4910.93 us | 4915.67 | **+4.74 us** | **0.30** |
+| (B) placement — response is linear at 8.07 us/op from n = 0 | 4749.98 us | 4915.67 | +165.69 us | 10.48 |
+
+**Reading (A) wins, and it is not close.** Reading (B) is off by ten and a half
+standard errors.
+
+Equivalently, and this is the cleaner way to say it: probe `n = 0` is
+name-matched and residency-matched to the loaded rungs — same `_pzfma0`
+pipeline shape, same 128 MiB pool binding — but executes zero injected ops, so
+**(n = 0 minus null) is a direct measurement of the placement term**:
+
+```
+placement = 4915.6689 - 4910.9253 = +4.744 us = +0.0966 %
+t = +0.300 on 4 df (crit 2.776)   95 % CI [-0.797 %, +0.990 %]
+```
+
+Placement is nil. The M4 anchor's unexplained -0.88 % placement term (section
+10.4) does not reproduce on the official channel, and section 10.5's estimator
+1 was therefore not materially confounded after all — it was simply reading a
+genuinely cheap segment.
+
+#### The response is convex, and that is now a measurement
+
+With placement pinned at zero, all three probe points are on one curve and the
+two segment slopes can be compared directly. They share the `n = 24` receipt,
+so the standard error carries that covariance:
+
+| segment | delta decode | slope | 95 % CI | t (4 df) |
+|---|---|---|---|---|
+| 0 -> 24 (24 ops) | +27.978 us = +0.569 % | **1.1657 us/op** | [-1.195, +3.526] | +1.371, ns |
+| 24 -> 64 (40 ops) | +322.783 us = +6.529 % | **8.0696 us/op** | [+6.653, +9.486] | +15.816 |
+| 0 -> 64 (64 ops), for reference | +350.761 us = +7.136 % | 5.4806 us/op | [+4.595, +6.366] | +17.187 |
+
+```
+convexity = slope(24->64) - slope(0->24) = +6.9038 us/op
+se 1.1905 us/op   t = +5.799 on 4 df (crit 2.776)
+95 % CI [+3.599, +10.209] us/op        ratio high/low = 6.92 x
+```
+
+The two segment intervals are **disjoint**. Convexity is established at
+p < 0.005 with three receipts.
+
+Prefill moves by -0.29 % over the same 0 -> 64 change (t = -2.02, ns) while
+decode moves +7.14 % — a 24x separation. Prefill is only a *partial* control
+here, because the MoE also runs during prefill; its near-immobility is
+consistent with the probed kernel instance being the decode-shaped
+(batch-1 gather) one.
+
+#### Synthesis: sections 10.5 and 10.8 were each half right
+
+- Section 10.5 said injected ALU is nearly free on M5. **True, but only below
+  n ~ 24.**
+- Section 10.8 said M5 pays M4's price. **True, but only above n ~ 24.**
+
+The M5 routed gather-GEMM has a **bounded free-ALU region that M4 Pro does not
+appear to have**, and above it pays a marginal price statistically
+indistinguishable from M4's:
+
+| | M4 Pro, 0 -> 24 | M5, 0 -> 24 | M5, 24 -> 64 |
+|---|---|---|---|
+| slope | 8.5417 us/op | **1.1657 us/op** | 8.0696 us/op |
+| as % of that machine's step | 0.1048 %/op | **0.0237 %/op** | 0.1643 %/op |
+
+M4's price and M5's *above-knee* price agree; M5's *below-knee* price is 7.3x
+lower. The 1.57x fractional penalty flagged in section 10.8 survives, but it
+applies only once the free region is exhausted.
+
+#### The number a byte-for-ALU transform actually needs
+
+One unit of `n` is **4 `fma` per K iteration per thread**
+(`nezukoR93LoopBody`, four independent accumulator chains). Converting:
+
+| regime | per unit of `n` | per single fma per K-iter per thread |
+|---|---|---|
+| below the knee (n <= 24) | 1.17 us = 0.024 % of decode | 0.29 us = **0.0059 %** |
+| above the knee (n > 24) | 8.07 us = 0.164 % of decode | 2.02 us = **0.041 %** |
+
+**Operative budget.** A transform may add up to roughly **96 fma per K
+iteration per thread** to the routed gather-GEMM for a point cost of 0.57 % of
+decode, 95 % upper bound 1.72 % (the whole 0 -> 24 block, CI [-28.7, +84.6] us).
+Beyond that the marginal rate is 7x higher. Most dequantization and
+block-exponent unpack schemes add far fewer than 96 fma per K iteration, so
+**#512 and #513 are very likely inside the free region** — but they should now
+be quoted with their added instruction count per K iteration so this can be
+checked rather than assumed.
+
+#### What this does and does not license
+
+**Licensed.** ALU-for-bytes trades in the M5 routed gather-GEMM have a real,
+non-trivial, *measured* free budget, and a measured marginal price once it is
+exhausted. Rule 55's M4-only provenance is no longer a reason to distrust
+ALU-side pricing on the ranked host: M4's number is the correct *above-knee*
+price for M5 too, and is conservative below the knee.
+
+**Not licensed — three points cannot resolve the shape.** "Free to 24, then
+linear at 8.07" and "smoothly convex" fit these three points equally well; a
+quadratic through them is exact and therefore untestable. What is established
+is convexity itself and that the knee lies in (24, 64]. Quoting a sharp knee
+location would be over-reading.
+
+**Not licensed — this is one kernel at batch 1.** The probe was injected at the
+single runtime-built routed gather-GEMM site, which has no `_nax` variant, so
+M5 compiles the same source as M4. Nothing here measures `qkv`, `oproj`, the
+layer-0 dense block, or any multi-row prefill shape.
+
+**Not licensed — addition is not removal.** Unchanged from 10.6 and 10.8.
+Section 8.0 and rule 53 showed the two directions are wildly asymmetric on the
+dispatch axis. This arm prices *adding* ALU only.
+
+#### Two ranked follow-ups, deliberately not run
+
+1. **`routed:fma:40`** — one receipt, brackets the knee to (24, 40] or (40, 64]
+   and gives a fourth point that makes the piecewise model testable. Not run
+   because the free budget is already an order of magnitude larger than any
+   realistic unpack scheme needs, so the refinement is unlikely to change a
+   decision.
+2. **`oproj:fma:24`** — one receipt, tests whether the free region is a property
+   of this kernel or of the M5 decode step generally. This is the one that would
+   most change the programme's beliefs, and it is the natural first receipt of
+   any follow-up assignment.
+
+#### Footnote: a judge-noise observation, not a gate failure
+
+This receipt reports `semantic_gpqa_pass_count = 8` of 9 with
+`semantic_gpqa_passed = true`, where the previous ten reported 9 of 9. Since
+`max_abs_diff = 0` over 1344 checked steps, the emitted tokens are bit-exact
+against the golden, so this is variation in the `claude-opus-4-8` semantic judge
+on the free runs, not a behavioural change in the candidate. Recorded because a
+future reader comparing pass counts across receipts should not treat 8/9 as
+evidence of drift.
 
 ---
 
