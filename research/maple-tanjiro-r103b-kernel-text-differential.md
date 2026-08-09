@@ -27,9 +27,20 @@ runtime. **The whole on-GPU regression must come from A, B, or their
 interaction.** Dispatch overhead contributes **0.00 us/step**. Preregistered
 nulls N-A, N-B, N-C and N-D are all refuted.
 
-The cheapest decisive follow-up is one paired M5 measurement with
+Both survivors are the *same class* of change - extra live registers bought for
+instruction-level parallelism - and both dispatch exactly **32 threadgroups**,
+so on a >= 32-core ranked host they run one wave at <= 1 threadgroup per core
+while on this 20-core M4 Pro they run two. Section 7.2 works this out from the
+kernel text and concludes that the M4 probe cannot rank A against B even in
+principle. Neither mechanism changes the amount of work: I verified the 4-way
+unroll covers exactly the same 16 key slots per simdgroup as the 2-way loop and
+leaves **no tail loop**, for every simdgroup index.
+
+The cheapest decisive follow-up is therefore one paired **M5** measurement with
 `DARKBLOOM_ROUTER_WEIGHT_PREFETCH=0`, which restores A's kernel **bit-exactly**
-with no code edit (proved in [rung 1](#5-rung-1-msl-text-differential)).
+with no code edit (proved in [rung 1](#5-rung-1-msl-text-differential)); if that
+recovers the +20.149, A is convicted and B is exonerated, and if it does not,
+B is convicted by elimination.
 
 ---
 
@@ -379,6 +390,92 @@ be applied. Both survivors are named with enough precision that R103-A can
 filter them later: A merged as PR #558 (`9453d7b5`), B as PR #565 (`9d9da08e`,
 `39b74028`).
 
+### 7.2 Both survivors are the same class of change - and this host is in the wrong occupancy regime to rank them
+
+Reading the two kernels statically settles three things that matter more than
+the M4 timing probe in section 8.
+
+**Neither mechanism changes the amount of arithmetic.** For B I checked the
+loop bounds exhaustively rather than assuming. In the sliding kernel
+`BN = 32`, `BD = 32`, `N = 512`, `head_dim = 128`, `gqa = 8`, `U = float`,
+`qk_per_thread = v_per_thread = 4`, `sg = simdgroup_index_in_threadgroup` and
+`lane = thread_index_in_simdgroup`, so a 1024-thread threadgroup is exactly
+`BN = 32` simdgroups of 32 lanes and the loop `int i = sg` strides by `BN`, one
+key position per simdgroup per stage.
+
+| variant | loop | iterations, `sg = 0` | iterations, `sg = 31` | key slots covered | tail loop |
+|---------|------|----------------------|-----------------------|-------------------|-----------|
+| OLD 2-way | `i + BN < N; i += 2*BN` | `i = 0,64,...,448` = 8 | `i = 31,95,...,479` = 8 | `sg + 32m`, `m = 0..15` = **16** | **none** |
+| NEW 4-way | `i + 3*BN < N; i += 4*BN` | `i = 0,128,256,384` = 4 | `i = 31,159,287,415` = 4 | `sg + 32m`, `m = 0..15` = **16** | **none** |
+
+`32 simdgroups x 16 keys = 512 = N` in both cases, and in both cases the loop
+is followed immediately by `if (lane == 0) { max_scores[sg] = ... }` with no
+remainder loop at all - I read the post-loop text to confirm this, because a
+4-way unroll that left a scalar tail would have been a far more interesting
+finding. It does not. B is a *pure* unroll-depth change: identical loads,
+identical FLOPs, identical output, only the instruction schedule and the live
+register set differ.
+
+**Both mechanisms buy instruction-level parallelism with registers, and both
+are paid for by lanes that do not use them.**
+
+| | mechanism A (router) | mechanism B (sliding attn) |
+|---|---|---|
+| extra live state per lane | `thread vec<bfloat,4> laguna_pf[4]` = 16 bfloat = **32 B = 8 GPRs** | `pipe_kc[4]`+`pipe_kd[4]` (8 float) + `pipe_vc0..3`,`pipe_vd0..3` (8 bfloat) = **48 B = 12 GPRs** |
+| held across | a **threadgroup barrier** and the whole RMS reduction | straight-line code inside one iteration |
+| declared for | all 16 simdgroups | all 32 simdgroups |
+| actually filled for | `simd_group < active_simd_groups` = **8 of 16** | all 32 |
+| threadgroup | 512 threads | 1024 threads |
+
+A's asymmetry is worth naming explicitly: `laguna_pf[4]` is declared outside
+the `if (simd_group < active_simd_groups)` guard, so every one of the 16
+simdgroups pays the allocation while only 8 ever populate it, and the value
+must survive a `threadgroup_barrier` where the compiler cannot rematerialise
+it. That is the most expensive place in the kernel to hold 8 registers.
+
+**Both dispatches are exactly 32 threadgroups, which is the crux.** Read
+straight off `dispatch.tsv`:
+
+| kernel | grid (threads) | threadgroup | threadgroups/dispatch | calls/step |
+|--------|----------------|-------------|-----------------------|------------|
+| A `residual_rms_router` | `16384x1x1` | `512x1x1` | **32** | 39 |
+| B `sliding_fused_attn_ring_v1` | `32768x1x1` | `1024x1x1` | **32** | 30 |
+
+For B the 32 is structural: the output is `bfloat16[1,64,1,128]`, the kernel
+computes `head0 = pair_tg * 2` so each threadgroup owns a *pair* of query
+heads, and 64 heads / 2 = 32 threadgroups.
+
+Now compare the two machines:
+
+| host | GPU cores | 32 TGs maps to |
+|------|-----------|----------------|
+| this **M4 Pro** | **20**, measured (`system_profiler SPDisplaysDataType` -> `Total Number of Cores: 20`) | **two waves, 20 then 12** |
+| ranked **M5 Max** | not measured here; the Max tier has been >= 32 for several generations | **one wave, <= 1 TG/core**, with idle cores if the count exceeds 32 |
+
+I deliberately do not assert an exact M5 Max core count, because I have no
+access to that host and the argument does not need one. It needs only
+`cores >= 32`, which holds for every Max-tier part, and that is enough to put
+the two machines in different regimes.
+
+This is not a power problem, it is a validity problem. The only thing either
+mechanism changes is register pressure and instruction scheduling, and the cost
+of register pressure is a function of how many threadgroups a core is trying to
+keep resident. On a >= 32-core ranked host each core hosts at most one
+threadgroup of this dispatch, so spare registers are nearly free and extra
+in-flight loads are close to pure win - unless the allocator spills. On this
+20-core M4 Pro the same dispatch runs two waves with cores contending, so the
+same register delta is penalised differently and can plausibly change sign.
+This is exactly the failure mode `AGENTS.md` warns about ("threadgroup geometry
+can also change sign across core counts"), and it applies to *both* survivors
+rather than to one of them.
+
+The consequence for the advisor is concrete: **the M4 probe in section 8 is not
+merely underpowered, it is structurally uninformative for ranking A against B
+on the M5.** A single paired M5 receipt with
+`DARKBLOOM_ROUTER_WEIGHT_PREFETCH=0` would settle A completely, because rung 1
+proved that flag restores OLD's router kernel bit-exactly; nothing short of an
+M5 measurement will settle B.
+
 ## 8. Optional causal probe - paired A/B of mechanism A on M4
 
 Design, fixed in advance: alternate
@@ -522,7 +619,16 @@ Ordered by cost:
    `_c`/`_d` temporaries). Worth pairing with the observation that PR #565 left
    the sibling `full_fused_attn_grow_v1` at 2-way, so a 2-way sliding kernel is
    not an exotic configuration.
-3. **Structural lesson.** Both A and B merged on individually positive receipts
+3. **A cheaper repair for A than switching it off, if A is convicted.**
+   `thread vec<bfloat,4> laguna_pf[4]` is declared *outside* the
+   `if (simd_group < active_simd_groups)` guard, so all 16 simdgroups of the
+   512-thread threadgroup pay the 8-register allocation while only 8 of them
+   ever populate it, and the value has to survive a `threadgroup_barrier`.
+   Sinking the declaration into the guarded scope, or prefetching 2 blocks
+   instead of 4, keeps most of the latency hiding at half the register cost.
+   I did **not** measure this - it is a hypothesis generated by reading the MSL,
+   and it only becomes worth trying after an M5 receipt convicts A.
+4. **Structural lesson.** Both A and B merged on individually positive receipts
    and together net to a regression. Since rung 1 proves nothing else on the
    scored surface changed across ~250 commits, at least one of those two receipts
    was inside the noise floor. A restore flag - the thing A has and B does not -
