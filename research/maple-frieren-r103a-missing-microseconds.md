@@ -295,6 +295,107 @@ for a single kernel is now **> 5.04 µs/step**; the ">50 % unexplained residual"
 trigger is now **> 10.1 µs/step**. Both are against 20.15, and both apply only
 if rung 2 runs.
 
+### 1.5d Independent methodological critique (received pre-unblinding) — what it changes and what it deliberately does not
+
+I put the full inference chain to an independent frontier reviewer while rung 1
+was still running and before any contrast was computed. Its report is
+adversarial and largely correct. **The decision rule below is unchanged**: the
+bar stays at +32.4 µs/step and the four outcomes keep their preregistered form.
+Moving a threshold after glimpsing data — even to a defensible value — is
+exactly the failure mode § 1.5c's disclosure exists to prevent. Everything
+adopted here is *additive reporting* or an *interpretation guard*, never a
+change to what counts as which outcome.
+
+**Adopted 1 — the bar is reported as a band, but decided as a point.** The
+reviewer's strongest objection is that a single scalar transfer factor is only
+meaningful when the effect is a fixed quantum of one resource *and* both parts
+are in the same bottleneck regime for it. Mechanisms (a) and (b) are
+register-pressure and latency-hiding effects, which are the classes where a
+scalar is magnitude- **and sign-**unstable. Four defensible bars exist:
+
+| scaling | factor | bar (µs/step) | valid if the mechanism is… |
+|---|---|---|---|
+| none (fixed overhead) | 1.00 | 20.1 | pure host/launch/barrier overhead |
+| R1 transfer (**decisional**) | 0.622 | **32.4** | the R1 mechanism class |
+| proportional to step time | 1.98 | 39.9 | blended, workload-matched |
+| memory-bandwidth ratio | 610/266 | 46.2 | pure added DRAM traffic |
+
+That the R1 factor 0.622 sits *between* the bandwidth prediction (0.436) and
+the fixed-overhead prediction (1.0) is itself evidence that transfer is a
+mechanism-dependent blend rather than a constant. § 4 therefore reports the
+rung-1 CI against **all four** bars as a sensitivity row. Only the 32.4 row
+carries the verdict.
+
+**Adopted 2 — N-1 gets an explicit noise model.** `ΔT` is a difference of two
+single receipts, so `SD(ΔT) ≈ s · 4141.5 · √2` for per-receipt step noise `s`:
+17.6 µs at `s` = 0.3 %, 29.3 µs at `s` = 0.5 %. The observed +20.149 is then
+only **1.15 σ** to **0.69 σ** — two-sided *p* ≈ 0.25 to 0.49. The honest
+statement of the target is not "20.1 µs" but "one paired receipt shows +20.1 µs;
+under 0.3–0.5 % receipt noise the true change plausibly lies anywhere in
+[−14, +55] to [−37, +78]". (Approximate: it treats `D` and `P` as independent
+within a receipt, which they are not, and `T = D − 4P` carries 16× the `P`
+variance — small, ≈2.3 µs SD at 0.3 % `P` noise.) A mild mitigation is that `P`
+moved only −0.099 % across the same two receipts, hinting `s` may be under
+0.3 %; but prefill noise is not decode noise. This sharpens N-1 considerably and
+it cuts against the target being solid.
+
+**Adopted 3 — the null is a conservative gate, not a calibration.** The real
+pair sits at adjacent positions {2,3} (separation 1); the null pair sits at
+{1,4} (separation 3). Under roughly linear within-repetition drift the null
+carries about **3× the drift SD** of the real contrast. Reversal cancels the
+*means* over balanced repetitions but not the variances. So a clean null is
+strong evidence the session was quiet, but the null's CI width must **not** be
+used to calibrate expected drift noise in the real contrast, and it must never
+be subtracted. The reviewer also correctly notes § 1.8's N-2 attached no
+explicit decision rule; I fix that reading here: **null CI excluding 0 with
+magnitude comparable to the real contrast ⇒ the real contrast is not
+trustworthy and the outcome is downgraded to 4**, regardless of what the real
+CI says.
+
+**Adopted 4 — median-blindness is tested, not assumed away.** The official
+metric averages 128 steps; my per-slot statistic is a median over 249. A single
+one-time cost of 20.149 × 128 ≈ **2.58 ms**, or ~5 scattered steps of +500 µs
+inside the official window, would reproduce the M5 receipt exactly while being
+invisible to a median. § 1.5b already retained `step0` and `mean_first128` for
+this reason; § 4 will additionally report a **tail/spike diagnostic** so that
+"the effect lives where the median cannot see it" is an answered question
+rather than an unexamined hole.
+
+**Adopted 5 — the central anti-over-claim: sum-masking.** Rung 1 measures only
+the *sum* of mechanisms (a) + (b) + (c). A null or a sign flip on M4 is
+therefore consistent with large, opposite-signed per-mechanism effects — for
+instance (a) = −30 and (b) = +15 on M4 giving a net −15, while on M5 (a) = +12
+and (b) = +8 give +20. Nothing in that picture is contradictory, and **no
+mechanism is exonerated by an aggregate null.** This is now the governing
+sentence for § 6's verdicts.
+
+**Noted, not adopted — two acknowledged defects in the outcome taxonomy.**
+Outcome 2 as written does not require `lo > 0`, so a CI such as [−5, +25] —
+compatible with zero *and* with the no-scaling bar — would be labelled
+"M5-specific". And a tight, well-measured CI of [25, 39] would fall through to
+outcome 4 "inconclusive-underpowered" when it is in fact precisely measured and
+sitting on the bar. Both are real. I am **not** repairing them now, because
+rewriting the taxonomy after seeing partial data is worse than living with a
+known defect; instead § 4 states explicitly which defect, if any, the observed
+CI actually triggers, and § 6 reasons from the CI rather than from the label.
+
+**Confirmed, not merely assumed — regime match (reviewer's 4.3).** The probe
+seeds via `decode_begin` with the full 512-token `prompt_tokens` of
+`correctness_prompts/public_longcopy_gate_english_512_256.json`
+(`research/decode_probe.py:154`), so the `RotatingKVCache(maxSize:512)` is
+**window-saturated from step 0** and the sliding ring runs at its full 16
+blocks/simdgroup — the same regime as the official metric, not a short-context
+degenerate one. Each `decode_step` supplies exactly one token
+(`decode_probe.py:167`), advancing exactly one position, and teacher forcing
+holds for all 250 steps (256 expected tokens available).
+
+**Also confirmed — the instrument measures `T` directly.** The advisor asked
+that rung 1's contrast be in `T`, and that I say so explicitly if the instrument
+times decode steps post-prefill. It does: `D = 4P + T` is the harness's
+*composite*, whereas the probe times each one-token `decode_step` on its own
+after the seed forward. The per-slot median is therefore already the `T`
+analogue and **no `4P` subtraction is applied or needed on M4**.
+
 ### 1.6 Rung 0 gates (a failure here stops everything)
 
 * **G0.1 build** — both revisions build a `mlxfast-runtime-worker`.

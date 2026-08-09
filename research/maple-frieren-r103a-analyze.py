@@ -49,10 +49,18 @@ def slot_stats(path: Path) -> dict[str, float]:
     """Per-step milliseconds, one per line. Returns microseconds."""
     steps = [float(x) * 1e3 for x in path.read_text().split()]
     steady = steps[1:]
+    med = statistics.median(steady)
+    # The official metric is a mean over 128 steps; the primary statistic here
+    # is a median. Anything living in the tail is therefore scored officially
+    # but invisible to the median, so quantify the tail explicitly.
+    spikes = [s for s in steady if s > 1.05 * med]
     return {
-        "median": statistics.median(steady),
+        "median": med,
         "trimmed": trimmed_mean(steady),
         "mean": statistics.mean(steady),
+        "tail_excess": statistics.mean(steady) - med,
+        "spike_count": float(len(spikes)),
+        "spike_mass": sum(s - med for s in spikes) / len(steady),
         # Mirrors the official metric's window: the harness times 128 steps
         # from the first one, so any one-time in-window cost is inside it.
         "mean_first128": statistics.mean(steps[:128]),
@@ -130,7 +138,8 @@ def main() -> None:
                                  ("null", "oldB", "oldA")):
         for scope, sel in (("warmup_reps", [r for r in by_rep if r < warmup]),
                            ("all_reps", sorted(by_rep))):
-            for stat in ("median", "step0", "mean_first128"):
+            for stat in ("median", "step0", "mean_first128",
+                         "tail_excess", "spike_count", "spike_mass"):
                 d = [by_rep[r][hi_arm][stat] - by_rep[r][lo_arm][stat]
                      for r in sel
                      if hi_arm in by_rep[r] and lo_arm in by_rep[r]]
@@ -179,6 +188,19 @@ def main() -> None:
         "target_us": PRECISION_TARGET_HW_US,
         "met": bool(prim["half_width"] < PRECISION_TARGET_HW_US),
     }
+    # A scalar M5->M4 transfer factor is only meaningful within one mechanism
+    # class, and the class here is unknown (§ 1.5d). Report the CI against every
+    # defensible bar; only R1_transfer decides.
+    result["bar_sensitivity"] = [
+        {"scaling": name, "bar_us": bar,
+         "reaches_bar": bool(prim["mean"] >= bar),
+         "ci_covers_bar": bool(prim["lo"] <= bar <= prim["hi"]),
+         "ci_excludes_bar_below": bool(prim["hi"] < bar)}
+        for name, bar in (("none_fixed_overhead", 20.1),
+                          ("R1_transfer_DECISIONAL", BAR_US),
+                          ("proportional_step_time", 39.9),
+                          ("memory_bandwidth_ratio", 46.2))
+    ]
     (out / "analysis.json").write_text(json.dumps(result, indent=2))
 
     print(f"reps analysed: {reps}  (warm-up discarded: {warmup})")
@@ -217,6 +239,16 @@ def main() -> None:
     print(f"  precision  half-width            : {prec['half_width_us']:6.2f} "
           f"us  target < {prec['target_us']:.1f} us  -> "
           f"{'met' if prec['met'] else 'NOT met'}")
+
+    print("\n--- bar sensitivity (only R1_transfer decides; § 1.5d) ---")
+    for row in result["bar_sensitivity"]:
+        if row["ci_excludes_bar_below"]:
+            rel = "CI entirely BELOW bar"
+        elif row["ci_covers_bar"]:
+            rel = "CI COVERS bar"
+        else:
+            rel = "CI entirely ABOVE bar"
+        print(f"  {row['scaling']:26s} bar={row['bar_us']:5.1f} us  {rel}")
 
     print(f"\nmagnitude bar (preregistered, § 1.5c): +{BAR_US} us/step")
     print(f"PREREGISTERED OUTCOME {result['verdict_code']}: "
