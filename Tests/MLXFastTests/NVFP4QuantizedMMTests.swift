@@ -360,19 +360,33 @@ struct NVFP4QuantizedMMTests {
         guard nvfp4RuntimeTestsEnabled else { return }
         defer { Memory.clearCache() }
 
-        let sourceRows = 8
+        let sourceRows = 16
         let topK = 8
         let n = LagunaConstants.moeIntermediateSize
         let k = LagunaConstants.hiddenSize
-        let routePattern: [UInt32] = [0, 0, 1, 1, 2, 2, 255, 255]
-        let routeValues: [UInt32] = (0..<sourceRows).reduce(into: []) { values, _ in
-            values.append(contentsOf: routePattern)
+        let routePattern: [UInt32] = [1, 1, 2, 2, 255, 255, 255, 255]
+        let routeValues: [UInt32] = (0..<sourceRows).reduce(into: []) { values, row in
+            values.append(contentsOf:
+                row < 10 ? Array(repeating: UInt32(0), count: topK) : routePattern)
         }
         let routes = MLXArray(routeValues, [sourceRows, topK])
         let sorted = gatherSortIndices(routes)
         let packedIndices =
             (sorted.sortedKeys.asType(.uint32) << 24)
             | sorted.rowOrder.asType(.uint32)
+        let sortedKeys = sorted.sortedKeys.asArray(UInt32.self)
+        let sortedRows = sorted.rowOrder.asArray(UInt32.self)
+        let packedValues = packedIndices.asArray(UInt32.self)
+        let expectedZeroRows = (0..<10).flatMap { row in
+            Array(repeating: UInt32(row), count: topK)
+        }
+        #expect(Array(sortedKeys.prefix(80)) == Array(repeating: UInt32(0), count: 80))
+        #expect(Array(sortedRows.prefix(80)) == expectedZeroRows)
+        #expect(Set(sortedKeys) == Set([UInt32(0), 1, 2, 255]))
+        #expect(packedValues.map { $0 >> 24 } == sortedKeys)
+        #expect(packedValues.map { $0 & 0x00ff_ffff } == sortedRows)
+        #expect(sortedRows.contains(0))
+        #expect(sortedRows.contains(UInt32(sourceRows - 1)))
 
         let expertWords = (0..<256).map { expert -> UInt32 in
             let code = UInt32(expert % 15 + 1)
@@ -421,7 +435,7 @@ struct NVFP4QuantizedMMTests {
         let materializedValues = materialized.asArray(Float.self)
         #expect(packed.asArray(Float.self) == materializedValues)
 
-        var corruptedIndices = packedIndices.asArray(UInt32.self)
+        var corruptedIndices = packedValues
         #expect(corruptedIndices[0] & 0x00ff_ffff == 0)
         corruptedIndices[0] = (corruptedIndices[0] & 0xff00_0000) | 1
         let corrupted = gatherQuantizedMM(
@@ -437,6 +451,33 @@ struct NVFP4QuantizedMMTests {
             sortedIndices: true
         )
         #expect(corrupted.asArray(Float.self) != materializedValues)
+
+        let scoredRows = 512
+        let scoredRouteValues: [UInt32] = (0..<scoredRows).reduce(into: []) { values, row in
+            values.append(contentsOf: [255, 0, 2, 2, 1, 255, 0, UInt32(row % 4)])
+        }
+        let scored = gatherSortIndices(MLXArray(scoredRouteValues, [scoredRows, topK]))
+        let expectedScoredOrder = scoredRouteValues.indices.sorted { lhs, rhs in
+            scoredRouteValues[lhs] == scoredRouteValues[rhs]
+                ? lhs < rhs
+                : scoredRouteValues[lhs] < scoredRouteValues[rhs]
+        }
+        let expectedScoredKeys = expectedScoredOrder.map { scoredRouteValues[$0] }
+        let expectedScoredRows = expectedScoredOrder.map { UInt32($0 / topK) }
+        var expectedScoredInverse = [UInt32](repeating: 0, count: scoredRouteValues.count)
+        for (rank, index) in expectedScoredOrder.enumerated() {
+            expectedScoredInverse[index] = UInt32(rank)
+        }
+        let scoredPacked = (
+            (scored.sortedKeys.asType(.uint32) << 24)
+                | scored.rowOrder.asType(.uint32)
+        ).asArray(UInt32.self)
+        #expect(scored.sortedKeys.asArray(UInt32.self) == expectedScoredKeys)
+        #expect(scored.rowOrder.asArray(UInt32.self) == expectedScoredRows)
+        #expect(scored.inverseOrder.asArray(UInt32.self) == expectedScoredInverse)
+        #expect(scoredPacked.map { $0 >> 24 } == expectedScoredKeys)
+        #expect(scoredPacked.map { $0 & 0x00ff_ffff } == expectedScoredRows)
+        #expect(expectedScoredRows.contains(UInt32(scoredRows - 1)))
 
         let fallbackValues: [UInt32] = (0..<15).reduce(into: []) { values, row in
             values.append(contentsOf: [255, 0, 2, 2, 1, 255, 0, UInt32(row % 4)])
