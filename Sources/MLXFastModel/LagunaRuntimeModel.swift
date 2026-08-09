@@ -7808,55 +7808,61 @@ thread float gate_result = 0.0f;
 thread float up_result = 0.0f;
 thread float input_values[values_per_lane];
 
-// All four K-blocks of weight codes and scale bytes are issued before any
-// math, so 64 B of codes per lane are in flight instead of the 16 B a
-// depth-1 pipeline holds. Same addresses, same bytes, same qdot order.
+// Fully unrolling the four compile-time K blocks drops the trip count test and
+// the rolling prefetch's `next_block < input_width` guard. Same addresses, same
+// bytes, same qdot order. `stage_depth` is 1 so the inner loops run once; this
+// is left as the exact measured text because a cosmetically identical rewrite
+// of this body reproducibly cost 1.3 us/dispatch at matched occupancy.
 constexpr uint k_blocks = input_width / block_width;
-uint2 gate_codes[k_blocks];
-uint2 up_codes[k_blocks];
-uint8_t gate_sb[k_blocks];
-uint8_t up_sb[k_blocks];
-{
-    const device uint8_t* gate_base =
-        expert_weight + gate_row * fused_row_bytes + lane * 8;
-    const device uint8_t* up_base =
-        expert_weight + up_row * fused_row_bytes + lane * 8;
-    const device uint8_t* scale_base =
-        row_scales + sub * 2 * scale_row_bytes + (lane >> 1);
-    bool patch_lane = expert == 0 && logical_row == 0 && lane == 1;
+constexpr uint stage_depth = 1;
+constexpr uint chunks = k_blocks / stage_depth;
+uint2 gate_codes[stage_depth];
+uint2 up_codes[stage_depth];
+uint8_t gate_sb[stage_depth];
+uint8_t up_sb[stage_depth];
+const device uint8_t* gate_base =
+    expert_weight + gate_row * fused_row_bytes + lane * 8;
+const device uint8_t* up_base =
+    expert_weight + up_row * fused_row_bytes + lane * 8;
+const device uint8_t* scale_base =
+    row_scales + sub * 2 * scale_row_bytes + (lane >> 1);
+bool patch_lane = expert == 0 && logical_row == 0 && lane == 1;
+
 #pragma clang loop unroll(full)
-    for (uint k = 0; k < k_blocks; ++k) {
-        const device uint8_t* k_scales =
-            scale_base + k * scale_kblock_bytes;
+for (uint c = 0; c < chunks; ++c) {
+#pragma clang loop unroll(full)
+    for (uint s = 0; s < stage_depth; ++s) {
+        const uint k = c * stage_depth + s;
+        const device uint8_t* k_scales = scale_base + k * scale_kblock_bytes;
         bool patch = patch_lane && k == 0;
-        gate_sb[k] = patch ? packed_scales[0] : k_scales[0];
-        up_sb[k] = patch ? packed_scales[1] : k_scales[scale_row_bytes];
-        gate_codes[k] = *(const device uint2*)(
+        gate_sb[s] = patch ? packed_scales[0] : k_scales[0];
+        up_sb[s] = patch ? packed_scales[1] : k_scales[scale_row_bytes];
+        gate_codes[s] = *(const device uint2*)(
             gate_base + k * (block_width / 2));
-        up_codes[k] = *(const device uint2*)(
+        up_codes[s] = *(const device uint2*)(
             up_base + k * (block_width / 2));
     }
-}
-
 #pragma clang loop unroll(full)
-for (uint k = 0; k < k_blocks; ++k) {
-    const device vec<bfloat, 4>* input_vectors =
-        (const device vec<bfloat, 4>*) (
-            input + k * block_width + lane * values_per_lane);
-    for (uint i = 0; i < values_per_lane / 4; ++i) {
-        const vec<bfloat, 4> values = input_vectors[i];
-        input_values[4 * i] = values[0];
-        input_values[4 * i + 1] = values[1];
-        input_values[4 * i + 2] = values[2];
-        input_values[4 * i + 3] = values[3];
-    }
+    for (uint s = 0; s < stage_depth; ++s) {
+        const uint k = c * stage_depth + s;
+        const device vec<bfloat, 4>* input_vectors =
+            (const device vec<bfloat, 4>*) (
+                input + k * block_width + lane * values_per_lane);
+        for (uint i = 0; i < values_per_lane / 4; ++i) {
+            const vec<bfloat, 4> values = input_vectors[i];
+            input_values[4 * i] = values[0];
+            input_values[4 * i + 1] = values[1];
+            input_values[4 * i + 2] = values[2];
+            input_values[4 * i + 3] = values[3];
+        }
 
-    gate_result += laguna_nvfp4_qdot_codes_16(
-        gate_codes[k], input_values,
-        laguna_nvfp4_scale(gate_sb[k]));
-    up_result += laguna_nvfp4_qdot_codes_16(
-        up_codes[k], input_values,
-        laguna_nvfp4_scale(up_sb[k]));
+        gate_result += laguna_nvfp4_qdot_codes_16(
+            gate_codes[s], input_values,
+            laguna_nvfp4_scale(gate_sb[s]));
+        up_result += laguna_nvfp4_qdot_codes_16(
+            up_codes[s], input_values,
+            laguna_nvfp4_scale(up_sb[s]));
+    }
 }
 
 gate_result = simd_sum(gate_result);
