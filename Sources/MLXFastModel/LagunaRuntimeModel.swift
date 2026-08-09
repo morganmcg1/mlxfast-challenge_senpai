@@ -9286,7 +9286,7 @@ private let lagunaInjectPrefillMatmuls = lagunaInjectEnvInt(
     "DARKBLOOM_INJECT_PREFILL_MATMULS", 0)
 /// Empty dispatches injected per single-token decode step.
 private let lagunaInjectDecodeEmpty = lagunaInjectEnvInt(
-    "DARKBLOOM_INJECT_DECODE_EMPTY", 800)
+    "DARKBLOOM_INJECT_DECODE_EMPTY", 0)
 /// Empty dispatches injected per multi-token forward.
 private let lagunaInjectPrefillEmpty = lagunaInjectEnvInt(
     "DARKBLOOM_INJECT_PREFILL_EMPTY", 0)
@@ -9298,7 +9298,7 @@ private let lagunaInjectEmptySpread = lagunaInjectEnvInt(
 /// Threadgroups per empty dispatch (256 threads each). Set 8 to reproduce
 /// `0411779d`'s geometry, on which n=0/100/400 lie on one M5 curve.
 private let lagunaInjectEmptyThreadgroups = lagunaInjectEnvInt(
-    "DARKBLOOM_INJECT_EMPTY_TG", 8)
+    "DARKBLOOM_INJECT_EMPTY_TG", 160)
 /// 0 unchains the empties: each binds a never-written control array, so no
 /// `memoryBarrier` is emitted (`device.cpp:325`). Unchained outputs all stay in
 /// `pending` so a recycled buffer cannot re-trip it as a WAW (`:331`).
@@ -9471,4 +9471,4 @@ func lagunaInjectLayerWork(layer: Int, isSingleTokenDecode: Bool) {
 // END M5 HARDWARE-CONSTANT INSTRUMENT
 // ============================================================================
 
-// senpai-r93-ladder-K800
+// senpai-r93-null-4
