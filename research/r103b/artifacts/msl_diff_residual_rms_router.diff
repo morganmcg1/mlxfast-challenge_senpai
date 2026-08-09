@@ -1,0 +1,49 @@
+--- dump/old/lib_0080_custom_kernel_laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_bfloat16_t_uint32_t.msl	2026-08-09 21:48:01
++++ dump/new/lib_0080_custom_kernel_laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_bfloat16_t_uint32_t.msl	2026-08-09 21:48:40
+@@ -1114,7 +1114,7 @@
+         return false;
+     }
+     return a_index < b_index;
+-}[[kernel]] void custom_kernel_laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_bfloat16_t_uint32_t(
++}[[kernel]] void custom_kernel_laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_bfloat16_t_uint32_t(
+   const device bfloat16_t* residual [[buffer(0)]],
+   const device bfloat16_t* branch [[buffer(1)]],
+   const device bfloat16_t* weight [[buffer(2)]],
+@@ -1160,6 +1160,18 @@
+ }
+ 
+ acc = simd_sum(acc);
++thread vec<bfloat, 4> laguna_pf[4];
++if (simd_group < active_simd_groups) {
++    uint laguna_pf_row = tile * rows_per_group + simd_group * rows_per_thread;
++    uint laguna_pf_column = simd_lane * n_reads;
++    for (uint k = 0; k < 4; ++k) {
++        const device vec<bfloat, 4>* pf_values =
++            (const device vec<bfloat, 4>*)(
++                router_weight + laguna_pf_row * axis_size +
++                    laguna_pf_column + k * block_width);
++        laguna_pf[k] = pf_values[0];
++    }
++}
+ if (simd_group == 0) {
+             local_sums[simd_lane] = 0.0f;
+         }
+@@ -1192,7 +1204,17 @@
+ uint router_row = tile * rows_per_group + simd_group * rows_per_thread;
+ thread float router_result[rows_per_thread] = {0.0f};
+         uint column = simd_lane * n_reads;
+-        for (uint block = 0; block < router_blocks; block += 4) {
++        for (uint g = 0; g < 1; ++g) {
++            for (uint u = 0; u < 4; ++u) {
++                uint column_u = column + u * block_width;
++                for (uint i = 0; i < n_reads; ++i) {
++                    router_result[0] += float(laguna_pf[g * 4 + u][i]) *
++                        float(normalized_row[column_u + i]);
++                }
++            }
++            column += 4 * block_width;
++        }
++        for (uint block = 4; block < router_blocks; block += 4) {
+             vec<bfloat, 4> rw[4];
+             for (uint u = 0; u < 4; ++u) {
+                 const device vec<bfloat, 4>* row_values =

@@ -1,0 +1,16 @@
+[old] rows=11247 malformed_skipped=0 prefill_dispatches=7334 decode_steps=6 per_step=[1759, 528, 408, 408, 408, 402]
+[new] rows=11243 malformed_skipped=0 prefill_dispatches=7334 decode_steps=6 per_step=[1759, 528, 408, 408, 408, 398]
+
+prefill delta = 0
+decode step 0: old=1759 new=1759 delta=0
+decode step 1: old=528 new=528 delta=0
+decode step 2: old=408 new=408 delta=0
+decode step 3: old=408 new=408 delta=0
+decode step 4: old=408 new=408 delta=0
+decode step 5: old=402 new=398 delta=-4
+
+tail rows in old beyond aligned prefix:
+    11244 custom_kernel_laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6_bfloat16_t_uint32
+    11245 rmsbfloat16
+    11246 custom_kernel_laguna_lmhead_int5_base_coarse_delta_bf16_v1_bfloat16_t_uint8_t_uint8_t_floa
+    11247 custom_kernel_laguna_lmhead_coarse_argmax_stage1_v5_float_float_uint32_t
