@@ -2750,6 +2750,154 @@ private func lagunaIndexedAffineMetadata(
     )
 }
 
+private let lagunaOProjQuartetSixBitEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_OPROJ_QUARTET_SIXBIT"] != "0"
+private let lagunaOProjQuartetSixBitValidationEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_OPROJ_QUARTET_SIXBIT_VALIDATE"] == "1"
+
+private func lagunaOProjQuartetDiagnostic(_ message: String) {
+    guard lagunaOProjQuartetSixBitValidationEnabled else { return }
+    FileHandle.standardError.write(Data("mlxfast: oproj-sixbit \(message)\n".utf8))
+}
+
+private final class LagunaOProjQuartetLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var layers: Set<Int> = []
+    private var validatedHeads: Set<Int> = []
+    private var originalBytes = 0
+    private var packedBytes = 0
+    private var decodeHeads: [Int: Int] = [:]
+    private var decodeCount = 0
+    private var packedCount = 0
+    private var activatedCount = 0
+    private var fallbackCount = 0
+
+    func bank(layer: Int, heads: Int, minimum: UInt8, maximum: UInt8, original: Int, packed: Int) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard layers.insert(layer).inserted else { return }
+        originalBytes += original
+        packedBytes += packed
+        lagunaOProjQuartetDiagnostic(
+            "bank layer=\(layer) heads=\(heads) min=\(minimum) max=\(maximum) "
+                + "originalBytes=\(original) packedBytes=\(packed) exactRoundTrip=true")
+        if layers.count == LagunaConstants.numHiddenLayers {
+            lagunaOProjQuartetDiagnostic(
+                "bankCensus banks=\(layers.count) originalBytes=\(originalBytes) "
+                    + "packedBytes=\(packedBytes) savedBytes=\(originalBytes - packedBytes) "
+                    + "allQualified=\(originalBytes == 39_321_600 && packedBytes == 29_491_200)")
+        }
+    }
+
+    func beginValidation(heads: Int) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return validatedHeads.insert(heads).inserted
+    }
+
+    func dispatch(heads: Int, activated: Bool, packed: Bool) {
+        guard lagunaOProjQuartetSixBitValidationEnabled else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        guard decodeCount < LagunaConstants.numHiddenLayers else { return }
+        decodeCount += 1
+        decodeHeads[heads, default: 0] += 1
+        packedCount += packed ? 1 : 0
+        activatedCount += activated ? 1 : 0
+        fallbackCount += packed ? 0 : 1
+        if decodeCount == LagunaConstants.numHiddenLayers {
+            lagunaOProjQuartetDiagnostic(
+                "decodeCensus total=\(decodeCount) h48=\(decodeHeads[48, default: 0]) "
+                    + "h64=\(decodeHeads[64, default: 0]) prefillHits=0 "
+                    + "packed=\(packedCount) activated=\(activatedCount) "
+                    + "fallbackHits=\(fallbackCount)")
+        }
+    }
+}
+
+private let lagunaOProjQuartetLog = LagunaOProjQuartetLog()
+
+private func lagunaPackOProjQuartets(
+    _ values: [UInt8], rows: Int, groups: Int
+) -> [UInt8]? {
+    guard rows.isMultiple(of: 4), values.count == rows * groups else { return nil }
+    var packed: [UInt8] = []
+    packed.reserveCapacity(rows / 4 * groups * 3)
+    for quartet in 0 ..< rows / 4 {
+        for group in 0 ..< groups {
+            var word: UInt32 = 0
+            for row in 0 ..< 4 {
+                let value = values[(quartet * 4 + row) * groups + group]
+                guard value < 64 else { return nil }
+                word |= UInt32(value) << (row * 6)
+            }
+            packed.append(UInt8(truncatingIfNeeded: word))
+            packed.append(UInt8(truncatingIfNeeded: word >> 8))
+            packed.append(UInt8(truncatingIfNeeded: word >> 16))
+        }
+    }
+    return packed
+}
+
+private func lagunaUnpackOProjQuartets(
+    _ packed: [UInt8], rows: Int, groups: Int
+) -> [UInt8]? {
+    guard rows.isMultiple(of: 4), packed.count == rows / 4 * groups * 3 else { return nil }
+    var values = [UInt8](repeating: 0, count: rows * groups)
+    for quartet in 0 ..< rows / 4 {
+        for group in 0 ..< groups {
+            let base = (quartet * groups + group) * 3
+            let word = UInt32(packed[base]) | (UInt32(packed[base + 1]) << 8)
+                | (UInt32(packed[base + 2]) << 16)
+            for row in 0 ..< 4 {
+                values[(quartet * 4 + row) * groups + group] =
+                    UInt8((word >> (row * 6)) & 0x3f)
+            }
+        }
+    }
+    return values
+}
+
+private let lagunaOProjQuartetPackingSelfTest: Bool = {
+    let groups = 4 * 64 + 2
+    var values = [UInt8](repeating: 0, count: 4 * groups)
+    for row in 0 ..< 4 {
+        for code in 0 ..< 64 {
+            values[row * groups + row * 64 + code] = UInt8(code)
+        }
+    }
+    for (row, value) in [UInt8(0), 1, 31, 41].enumerated() {
+        values[row * groups + groups - 2] = value
+    }
+    for (row, value) in [UInt8(62), 63, 0, 1].enumerated() {
+        values[row * groups + groups - 1] = value
+    }
+    guard let packed = lagunaPackOProjQuartets(values, rows: 4, groups: groups),
+        lagunaUnpackOProjQuartets(packed, rows: 4, groups: groups) == values
+    else { return false }
+    return lagunaPackOProjQuartets([64, 0, 0, 0], rows: 4, groups: 1) == nil
+}()
+
+private func lagunaPackOProjQuartetScales(
+    _ scales: MLXArray, layer: Int, heads: Int
+) -> MLXArray? {
+    let rows = LagunaConstants.hiddenSize
+    let groups = heads * LagunaConstants.headDim / 16
+    guard lagunaOProjQuartetPackingSelfTest,
+        scales.dtype == .uint8, scales.shape == [rows, groups]
+    else { return nil }
+    let values = scales.asArray(UInt8.self)
+    guard let minimum = values.min(), let maximum = values.max(), maximum < 64,
+        let packed = lagunaPackOProjQuartets(values, rows: rows, groups: groups),
+        packed.count == rows / 4 * groups * 3,
+        lagunaUnpackOProjQuartets(packed, rows: rows, groups: groups) == values
+    else { return nil }
+    lagunaOProjQuartetLog.bank(
+        layer: layer, heads: heads, minimum: minimum, maximum: maximum,
+        original: values.count, packed: packed.count)
+    return MLXArray(packed, [rows / 4, groups * 3])
+}
+
 struct LagunaNativeAffineWeight {
     let packedCodes: MLXArray
     let scales: MLXArray
@@ -2760,11 +2908,13 @@ struct LagunaNativeAffineWeight {
     var bits: Int = 8
     var mode: QuantizationMode = .affine
     var indexedMetadata: LagunaIndexedAffineMetadata? = nil
+    var quartetSixBitScales: MLXArray? = nil
 
     var arrays: [MLXArray] {
         [packedCodes, scales]
             + (biases.map { [$0] } ?? [])
             + (indexedMetadata?.arrays ?? [])
+            + (quartetSixBitScales.map { [$0] } ?? [])
     }
 }
 
@@ -3886,7 +4036,8 @@ func lagunaGatedAffineOProjNVFP4Source(
     heads: Int,
     signCarry: Bool = lagunaNvfp4QmvSignCarryEnabled,
     seedElide: Bool = lagunaNvfp4QmvSeedElisionEnabled,
-    preActivatedGate: Bool = false
+    preActivatedGate: Bool = false,
+    quartetScales: Bool = false
 ) -> String {
     let scaleFold = lagunaNvfp4ScaleFoldEnabled
     let weightScale = scaleFold ? "" : " * 16384.0f"
@@ -3961,6 +4112,25 @@ func lagunaGatedAffineOProjNVFP4Source(
         for(uint i=0;i<values_per_thread;++i)
             x_thread[i]=float(bfloat(float(xp[i])*g));
         """
+    let scalePointer = quartetScales
+        ? """
+        const device packed_uchar3* sc =
+            (const device packed_uchar3*)weight_scales +
+            (out_row / results_per_simdgroup) * in_vec_size_g + simd_lid;
+        """
+        : """
+        const device uint8_t* sc = weight_scales +
+            out_row * in_vec_size_g + simd_lid;
+        """
+    let scaleLoad = quartetScales
+        ? """
+        const packed_uchar3 scale_triplet = sc[0];
+        const uint scale_word = uint(scale_triplet.x) |
+            (uint(scale_triplet.y) << 8) | (uint(scale_triplet.z) << 16);
+        """ : ""
+    let scaleBits = quartetScales
+        ? "uint8_t sbits = uint8_t((scale_word >> (row * 6)) & 0x3fu);"
+        : "uint8_t sbits = sc[row * in_vec_size_g];"
     return """
     constexpr uint in_vec_size = \(heads * LagunaConstants.headDim);
     constexpr uint out_vec_size = \(LagunaConstants.hiddenSize);
@@ -3986,8 +4156,7 @@ func lagunaGatedAffineOProjNVFP4Source(
     const device uint32_t* ws =
         (const device uint32_t*)weight_codes +
         out_row * (in_vec_size / 8) + simd_lid * codes_per_thread;
-    const device uint8_t* sc = weight_scales +
-        out_row * in_vec_size_g + simd_lid;
+    \(scalePointer)
     const device bfloat* xp = attention_output + simd_lid * values_per_thread;
 
     thread float x_thread[values_per_thread];
@@ -3996,13 +4165,14 @@ func lagunaGatedAffineOProjNVFP4Source(
     uint column = simd_lid * values_per_thread;
     for (uint k = 0; k < in_vec_size; k += block_size) {
         \(loadInput)
+        \(scaleLoad)
 
         for (uint row = 0; row < results_per_simdgroup; ++row) {
             const device uint32_t* wl = ws + row * (in_vec_size / 8);
             // Defer the exact E4M3 2^22 renormalization to the per-row
             // epilogue. Every partial remains the exact 2^-22 rescaling of
             // the control until the multiply before the existing BF16 round.
-            uint8_t sbits = sc[row * in_vec_size_g];
+            \(scaleBits)
             \(scaleDecode)
             \(accumDecl)
             #pragma unroll
@@ -4038,24 +4208,36 @@ func lagunaGatedAffineOProjNVFP4Source(
     """
 }
 
-private let lagunaGatedAffineOProjNVFP4Kernels: [Int: MLXFast.MLXFastKernel] = {
+private func lagunaOProjNVFP4Kernels(
+    preActivatedGate: Bool, quartetScales: Bool
+) -> [Int: MLXFast.MLXFastKernel] {
     var kernels: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
+        let baseName = preActivatedGate
+            ? "laguna_oproj_act_h\(heads)_v1"
+            : "laguna_gated_affine_oproj_nvfp4_qmv_h\(heads)_v1"
         kernels[heads] = MLXFast.metalKernel(
-            name: "laguna_gated_affine_oproj_nvfp4_qmv_h\(heads)_v1"
+            name: baseName
                 + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
-                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
+                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : "")
+                + (quartetScales ? "_s6q1" : ""),
             inputNames: [
-                "attention_output", "gate_logits", "weight_codes",
-                "weight_scales",
+                "attention_output", preActivatedGate ? "gate_values" : "gate_logits",
+                "weight_codes", "weight_scales",
             ],
             outputNames: ["projected"],
-            source: lagunaGatedAffineOProjNVFP4Source(heads: heads),
-            ensureRowContiguous: true
-        )
+            source: lagunaGatedAffineOProjNVFP4Source(
+                heads: heads, preActivatedGate: preActivatedGate,
+                quartetScales: quartetScales),
+            ensureRowContiguous: true)
     }
     return kernels
-}()
+}
+
+private let lagunaGatedAffineOProjNVFP4Kernels = lagunaOProjNVFP4Kernels(
+    preActivatedGate: false, quartetScales: false)
+private let lagunaGatedAffineOProjNVFP4QuartetKernels = lagunaOProjNVFP4Kernels(
+    preActivatedGate: false, quartetScales: true)
 
 private let lagunaGateSoftplusEnabled = ProcessInfo.processInfo.environment[
     "DARKBLOOM_AFFINE_GATE_SOFTPLUS"] != "0"
@@ -4140,36 +4322,29 @@ private func lagunaGateSoftplus(
         outputDTypes: [.bfloat16])[0]
 }
 
-private let lagunaActivatedOProjKernels: [Int: MLXFast.MLXFastKernel] = {
-    var result: [Int: MLXFast.MLXFastKernel] = [:]
-    for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
-        result[heads] = MLXFast.metalKernel(
-            name: "laguna_oproj_act_h\(heads)_v1"
-                + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
-                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
-            inputNames: [
-                "attention_output", "gate_values", "weight_codes",
-                "weight_scales",
-            ],
-            outputNames: ["projected"],
-            source: lagunaGatedAffineOProjNVFP4Source(heads: heads, preActivatedGate: true),
-            ensureRowContiguous: true)
-    }
-    return result
-}()
+private let lagunaActivatedOProjKernels = lagunaOProjNVFP4Kernels(
+    preActivatedGate: true, quartetScales: false)
+private let lagunaActivatedOProjQuartetKernels = lagunaOProjNVFP4Kernels(
+    preActivatedGate: true, quartetScales: true)
 
 func lagunaGatedAffineOProjNVFP4(
     attentionOutput: MLXArray,
     gateLogits: MLXArray,
     codes: MLXArray,
     scales: MLXArray,
+    quartetScales: MLXArray? = nil,
     heads: Int,
-    gateIsActivated: Bool = false
+    gateIsActivated: Bool = false,
+    recordDispatch: Bool = true
 ) -> MLXArray? {
-    let selected = gateIsActivated
-        ? (lagunaGateSoftplusEnabled ? lagunaActivatedOProjKernels[heads] : nil)
-        : lagunaGatedAffineOProjNVFP4Kernels[heads]
-    guard let kernel = selected else { return nil }
+    let usesQuartets = lagunaOProjQuartetSixBitEnabled && quartetScales != nil
+    let kernels = gateIsActivated
+        ? (usesQuartets ? lagunaActivatedOProjQuartetKernels : lagunaActivatedOProjKernels)
+        : (usesQuartets
+            ? lagunaGatedAffineOProjNVFP4QuartetKernels : lagunaGatedAffineOProjNVFP4Kernels)
+    guard !gateIsActivated || lagunaGateSoftplusEnabled,
+        let kernel = kernels[heads]
+    else { return nil }
     let inVec = heads * LagunaConstants.headDim
     let outVec = LagunaConstants.hiddenSize
     guard attentionOutput.dtype == .bfloat16,
@@ -4177,20 +4352,65 @@ func lagunaGatedAffineOProjNVFP4(
         gateLogits.dtype == .bfloat16,
         gateLogits.shape == [1, 1, heads],
         codes.dtype == .uint32,
-        codes.shape == [outVec, inVec / 8],
-        scales.dtype == .uint8,
-        scales.shape == [outVec, inVec / 16]
-    else {
-        return nil
+        codes.shape == [outVec, inVec / 8]
+    else { return nil }
+
+    let selectedScales: MLXArray
+    if usesQuartets {
+        guard let quartetScales,
+            quartetScales.dtype == .uint8,
+            quartetScales.shape == [outVec / 4, inVec / 16 * 3]
+        else { return nil }
+        selectedScales = quartetScales
+    } else {
+        guard scales.dtype == .uint8,
+            scales.shape == [outVec, inVec / 16]
+        else { return nil }
+        selectedScales = scales
     }
 
-    return kernel(
-        [attentionOutput, gateLogits, codes, scales],
+    let output = kernel(
+        [attentionOutput, gateLogits, codes, selectedScales],
         grid: ((outVec / 8) * 64, 1, 1),
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, outVec]],
         outputDTypes: [.bfloat16]
     )[0]
+    if recordDispatch {
+        lagunaOProjQuartetLog.dispatch(
+            heads: heads, activated: gateIsActivated, packed: usesQuartets)
+    }
+    return output
+}
+
+private func lagunaValidateOProjQuartetKernel(
+    bank: LagunaNativeAffineWeight, heads: Int
+) -> Bool {
+    guard lagunaOProjQuartetLog.beginValidation(heads: heads) else { return true }
+    let inVec = heads * LagunaConstants.headDim
+    let attention = MLXArray((0 ..< inVec).map { Float($0 % 29 - 14) / 16 })
+        .asType(.bfloat16).reshaped(1, 1, inVec)
+    let gate = MLXArray((0 ..< heads).map { Float($0 % 13 + 1) / 16 })
+        .asType(.bfloat16).reshaped(1, 1, heads)
+    guard let quartetScales = bank.quartetSixBitScales,
+        let reference = lagunaGatedAffineOProjNVFP4(
+            attentionOutput: attention, gateLogits: gate,
+            codes: bank.packedCodes, scales: bank.scales,
+            heads: heads, gateIsActivated: true, recordDispatch: false),
+        let packed = lagunaGatedAffineOProjNVFP4(
+            attentionOutput: attention, gateLogits: gate,
+            codes: bank.packedCodes, scales: bank.scales,
+            quartetScales: quartetScales, heads: heads,
+            gateIsActivated: true, recordDispatch: false)
+    else {
+        lagunaOProjQuartetDiagnostic("kernelValidation heads=\(heads) bitwise=false")
+        return false
+    }
+    eval(reference, packed)
+    let identical = reference.view(dtype: .uint16).asArray(UInt16.self)
+        == packed.view(dtype: .uint16).asArray(UInt16.self)
+    lagunaOProjQuartetDiagnostic("kernelValidation heads=\(heads) bitwise=\(identical)")
+    return identical
 }
 
 
@@ -5051,6 +5271,19 @@ final class LagunaRuntimeAttention: Module {
             preparedWO.indexedMetadata = lagunaIndexedAffineMetadata(
                 scales: preparedWO.scales, biases: biases)
         }
+        if preparedWO.mode == .nvfp4, preparedWO.bits == 4,
+            preparedWO.groupSize == 16
+        {
+            preparedWO.quartetSixBitScales = lagunaPackOProjQuartetScales(
+                preparedWO.scales, layer: layerIdx, heads: nHeads)
+            if lagunaOProjQuartetSixBitValidationEnabled {
+                guard preparedWO.quartetSixBitScales != nil,
+                    lagunaValidateOProjQuartetKernel(bank: preparedWO, heads: nHeads)
+                else {
+                    fatalError("Laguna OProj quartet six-bit validation failed")
+                }
+            }
+        }
         _nativeAffineOProj = preparedWO
         return preparedWO.arrays
     }
@@ -5731,6 +5964,7 @@ final class LagunaRuntimeAttention: Module {
                         gateLogits: projectedGate,
                         codes: affineWO.packedCodes,
                         scales: affineWO.scales,
+                        quartetScales: affineWO.quartetSixBitScales,
                         heads: nHeads,
                         gateIsActivated: true)
                 {
@@ -5746,6 +5980,7 @@ final class LagunaRuntimeAttention: Module {
                         gateLogits: projectedGate,
                         codes: affineWO.packedCodes,
                         scales: affineWO.scales,
+                        quartetScales: affineWO.quartetSixBitScales,
                         heads: nHeads)
                 {
                     return fusedProjection
