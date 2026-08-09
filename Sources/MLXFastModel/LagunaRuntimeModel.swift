@@ -8178,15 +8178,35 @@ private func lagunaDecodeRouterOrdinalKernelSource(
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        if (simd_group < 4u) {
-            if (simd_lane < 16u) {
-                uint source = (simd_group * 2u + (simd_lane >> 3u)) * 8u
-                    + (simd_lane & 7u);
-                my_ordinal = xchg_ordinals[source];
-                my_index = xchg_indices[source];
-            }
+        if (simd_group < 2u) {
+            uint source = (simd_group * 4u + (simd_lane >> 3u)) * 8u
+                + (simd_lane & 7u);
+            my_ordinal = xchg_ordinals[source];
+            my_index = xchg_indices[source];
+
             other_ordinal = simd_shuffle_xor(my_ordinal, ushort(15));
             other_index = simd_shuffle_xor(my_index, ushort(15));
+            if ((simd_lane & 15u) < 8u && laguna_router_ordinal_before(
+                    other_ordinal, other_index, my_ordinal, my_index)) {
+                my_ordinal = other_ordinal;
+                my_index = other_index;
+            }
+            for (uint stride = 4u; stride > 0u; stride >>= 1u) {
+                other_ordinal = simd_shuffle_xor(my_ordinal, ushort(stride));
+                other_index = simd_shuffle_xor(my_index, ushort(stride));
+                if ((simd_lane & 15u) < 8u) {
+                    bool is_lower = (simd_lane & stride) == 0u;
+                    bool other_before_my = laguna_router_ordinal_before(
+                        other_ordinal, other_index, my_ordinal, my_index);
+                    if (is_lower ? other_before_my : !other_before_my) {
+                        my_ordinal = other_ordinal;
+                        my_index = other_index;
+                    }
+                }
+            }
+
+            other_ordinal = simd_shuffle_xor(my_ordinal, ushort(23));
+            other_index = simd_shuffle_xor(my_index, ushort(23));
             if (simd_lane < 8u && laguna_router_ordinal_before(
                     other_ordinal, other_index, my_ordinal, my_index)) {
                 my_ordinal = other_ordinal;
@@ -8213,45 +8233,9 @@ private func lagunaDecodeRouterOrdinalKernelSource(
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        if (simd_group < 2u) {
-            if (simd_lane < 16u) {
-                uint source = 64u
-                    + (simd_group * 2u + (simd_lane >> 3u)) * 8u
-                    + (simd_lane & 7u);
-                my_ordinal = xchg_ordinals[source];
-                my_index = xchg_indices[source];
-            }
-            other_ordinal = simd_shuffle_xor(my_ordinal, ushort(15));
-            other_index = simd_shuffle_xor(my_index, ushort(15));
-            if (simd_lane < 8u && laguna_router_ordinal_before(
-                    other_ordinal, other_index, my_ordinal, my_index)) {
-                my_ordinal = other_ordinal;
-                my_index = other_index;
-            }
-            for (uint stride = 4u; stride > 0u; stride >>= 1u) {
-                other_ordinal = simd_shuffle_xor(my_ordinal, ushort(stride));
-                other_index = simd_shuffle_xor(my_index, ushort(stride));
-                if (simd_lane < 8u) {
-                    bool is_lower = (simd_lane & stride) == 0u;
-                    bool other_before_my = laguna_router_ordinal_before(
-                        other_ordinal, other_index, my_ordinal, my_index);
-                    if (is_lower ? other_before_my : !other_before_my) {
-                        my_ordinal = other_ordinal;
-                        my_index = other_index;
-                    }
-                }
-            }
-            if (simd_lane < 8u) {
-                uint slot = simd_group * 8u + simd_lane;
-                xchg_ordinals[slot] = my_ordinal;
-                xchg_indices[slot] = my_index;
-            }
-        }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-
         if (simd_group == 0u) {
             if (simd_lane < 16u) {
-                uint source = (simd_lane >> 3u) * 8u + (simd_lane & 7u);
+                uint source = 64u + simd_lane;
                 my_ordinal = xchg_ordinals[source];
                 my_index = xchg_indices[source];
             }
@@ -8275,9 +8259,9 @@ private func lagunaDecodeRouterOrdinalKernelSource(
                     }
                 }
             }
-        }
 
         \(epilogue)
+        }
         """
 }
 
