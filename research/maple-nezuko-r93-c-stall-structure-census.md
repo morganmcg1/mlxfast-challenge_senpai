@@ -243,15 +243,118 @@ offered as corroboration, never as a load-bearing measurement.
 
 ## 5. Probe 3 — free-ALU ladder
 
-TBD
+### 5.1 The level-0 placement controls (Rule 44)
+
+Each kind emits a *distinct* kernel name at `n = 0` with an *identical* body,
+so the spread across level-0 arms is a direct measurement of the name-only /
+residency effect, with no ladder present at all:
+
+| kernel | `off` | `fma:0` | `imad:0` | `ld8:0` | spread |
+|---|---|---|---|---|---|
+| qkv | 1704.0 | 1692.7 | 1693.8 | 1694.1 | 1.4 µs |
+| oproj | 1421.2 | 1425.5 | 1424.9 | 1416.1 | 9.4 µs |
+| routed | 1498.6 | 1505.3 | 1503.9 | 1513.7 | 9.8 µs |
+
+The name-only spread (1.4 – 9.8 µs) is comparable to σ ≈ 4.7 µs for a
+difference of two single censuses, so it is consistent with noise — but it is
+**not negligible relative to the ALU slopes below**, which is precisely why
+every ladder is differenced against *its own* level 0 rather than against
+`off`.
+
+### 5.2 Slopes
+
+| kernel | kind | levels (µs/step) | slope µs/n | 95 % CI ± | work/n | issue-limited µs/n | **% of issue-limited** |
+|---|---|---|---|---|---|---|---|
+| oproj | fma | 0:1426 4:1439 8:1440 16:1454 | 1.6 | 1.3 | 39.3 Mop | 11.0 | **14.7 %** |
+| oproj | imad | 0:1425 8:1465 16:1489 | 4.0 | 7.6 | 39.3 Mop | 11.0 | 36.4 % |
+| qkv | fma | 0:1693 1:1693 2:1701 4:1700 | 2.0 | 5.4 | 199.2 Mop | 55.7 | **3.6 %** |
+| qkv | imad | 0:1694 2:1698 4:1707 | 3.3 | 10.6 | 199.2 Mop | 55.7 | 5.9 % |
+| routed | fma | 0:1505 2:1509 4:1509 8:1540 | 4.3 | 5.8 | 81.8 Mop | 22.8 | **19.0 %** |
+| routed | imad | 0:1504 4:1533 8:1596 | 11.5 | 31.5 | 81.8 Mop | 22.8 | 50.2 % |
+
+Inserted arithmetic costs **3.6 – 19 % of its issue-limited price** on the
+float ladder. The kernels have large spare issue capacity: work added *inside
+the main loop* is largely absorbed into existing memory stalls.
+
+**Honest caveat on the integer ladder.** `imad` normalizes higher (36 – 50 %)
+than `fma`. That is very likely an artefact of the denominator, not less
+headroom: the 3.58e12 op/s figure is the *float* FMA peak, and 32-bit integer
+multiply is commonly quarter-rate or worse on Apple GPUs. The `imad` rows are
+therefore reported but the **float ladder is the load-bearing issue-headroom
+evidence**; `imad` is included because it uses a different functional unit and
+so guards against the float ladder being absorbed by an idle FP pipe alone.
+Both ladders agree on direction (sub-unity), which is the claim being made.
+
+CIs are wide — this probe can say "far below 100 %", not "exactly 3.6 %".
 
 ## 6. Probe 4 — extra-load ladder
 
-TBD
+### 6.1 Marginal cost of a byte
+
+| kernel | kind | levels (µs/step) | slope µs/n | 95 % CI ± | MB/n | **marginal GB/s** |
+|---|---|---|---|---|---|---|
+| qkv | ld8 | 0:1694 1:2172 2:2577 | 441.2 | 265.2 | 99.6 | 225.8 |
+| qkv | ld16 | 0:1694 1:2572 | 878.1 | 3.7 | 199.2 | 226.9 |
+| oproj | ld8 | 0:1416 4:1516 8:1598 | 22.7 | 16.9 | 5.2 | 231.0 |
+| oproj | ld16 | 0:1422 4:1599 | 44.2 | 6.5 | 10.5 | 237.1 |
+| routed | ld8 | 0:1514 1:1703 2:1855 | 170.8 | 135.0 | 40.9 | 239.4 |
+| routed | ld16 | 0:1508 1:1870 | 362.7 | 26.3 | 81.8 | 225.5 |
+
+Every marginal rate lands in **225.5 – 239.4 GB/s**, i.e. essentially the same
+rate the kernels already achieve. An added byte costs full DRAM time in all
+three kernels: **there is no spare bandwidth anywhere in the trio.**
+
+### 6.2 The decisive discriminator: bytes, not loads
+
+This is the sharpest result of the round. `ld8:2k` and `ld16:k` move **exactly
+the same bytes** but issue **twice as many load instructions**. If the kernels
+were limited by memory *latency*, by outstanding-request slots, or by
+instruction *issue*, doubling the request count at constant bytes would cost
+substantially more. If they are limited by *bandwidth*, it should cost the
+same.
+
+| kernel | 2× loads, same bytes | 1× loads, same bytes | ratio |
+|---|---|---|---|
+| qkv | `ld8:2` +882.5 µs/step | `ld16:1` +877.5 µs/step | **0.994** |
+| oproj | `ld8:8` +181.6 µs/step | `ld16:4` +183.0 µs/step | **1.008** |
+| routed | `ld8:2` +341.6 µs/step | `ld16:1` +356.6 µs/step | **1.044** |
+
+All three ratios are within 4.4 % of 1.000, and two are within 1 %. **Cost
+tracks bytes moved and is indifferent to the number of memory instructions
+that move them.** That is the signature of a bandwidth-saturated pipe, and it
+directly excludes memory-latency-bound and issue-bound as the binding
+constraint.
 
 ## 7. Classification
 
-TBD
+| kernel | classification | probe 1 roofline | probe 3 free-ALU | probe 4 marginal byte | probe 4 byte-vs-load | agreeing probes |
+|---|---|---|---|---|---|---|
+| **qkv** | **bandwidth-bound** | 250.2 GB/s = 95.3 % of seq peak; per-dispatch model ratio 0.971 / 0.955 | ALU at 3.6 % of issue price | 225.8 / 226.9 GB/s marginal | ratio 0.994 | **4** |
+| **oproj** | **bandwidth-bound** | 238.3 GB/s = 90.8 % of seq peak; model ratio 0.986 / 1.013 | ALU at 14.7 % | 231.0 / 237.1 GB/s | ratio 1.008 | **4** |
+| **routed** | **bandwidth-bound** | 241.1 GB/s = 91.9 % of seq peak; model ratio 0.989 | ALU at 19.0 % | 239.4 / 225.5 GB/s | ratio 1.044 | **4** |
+
+The assignment's stopping rule asked for ≥ 2 independent probes agreeing per
+kernel. All three kernels have **four**.
+
+**Ruling out the other three categories, explicitly.**
+
+* **Issue/ALU-bound — excluded.** Probe 3: inserted float arithmetic inside the
+  main loop costs 3.6 – 19 % of its issue-limited price. An issue-bound kernel
+  would pay ≈ 100 %.
+* **Memory-latency-bound — excluded.** Probe 4's byte-vs-load discriminator:
+  doubling the load *count* at constant bytes changes cost by −0.6 % to +4.4 %.
+  A latency- or outstanding-request-limited kernel would pay roughly double.
+* **Occupancy-bound — excluded indirectly.** No direct geometry sweep was run
+  (§4), so this rests on an inference rather than a dedicated probe, and is
+  labelled as such. The argument: an occupancy-limited kernel has too few
+  resident threads to cover its own memory latency, so it *cannot* be running
+  at 91 – 95 % of the machine's best measured streaming rate — the two are
+  mutually exclusive. Independently, an occupancy-limited kernel would show
+  added ALU work as *nearly free* (true here) **and** added bytes as *cheaper
+  than full DRAM rate*, because it was not saturating the pipe to begin with.
+  The observed combination — nearly-free ALU **together with** full-price bytes
+  at 225 – 239 GB/s — is logically incompatible with occupancy-limited and is
+  the exact signature of bandwidth-saturated.
 
 ## 8. Ranked candidate mechanisms with ceilings
 
