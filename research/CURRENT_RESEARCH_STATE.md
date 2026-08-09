@@ -38,6 +38,9 @@ consecutive M5 failures. Relaying this needs a verified human message ID and no
 | decode price | **0.015280 % score per µs/step** |
 | byte price, realised (PR #110 ledger) | **0.015224 % score per MB/step** |
 | our decode | 4893.7 µs/step on M5 (1.00 % = 48.94 µs/step) |
+| — of which amortised seed prefill (`4P`, rule 58) | **752.2 µs/step = 15.4 %** |
+| — true steady-state per-step time `T` (rule 58) | **≈ 4141.5 µs/step** |
+| effective score weight of prefill (rule 58) | **0.365**, not 0.25 |
 | M4 decode busy pool (`nat`, #473) | 7993.1 µs/step |
 
 **Standing lesson #1: re-check the promoted frontier EVERY round.** Verified
@@ -67,7 +70,8 @@ common-baseline score is only 2.574594).
   extra ALU with no time cost. Latency-bound is *excluded*.
 - ⛔ **ALU levers were already closed on M5** by #490's encoding census (both
   rewrites falsified).
-- ✅ **BYTES and ATTENTION RESTRUCTURING are the only live classes.**
+- ✅ **BYTES and ATTENTION RESTRUCTURING are the only live decode classes** —
+  and, newly, **PREFILL** (rule 58) because a prefill gain is paid twice.
 
 ### 3b. The regime mismatch is the central open problem
 
@@ -108,6 +112,38 @@ compaction for the dense MLP, a certified-exact screen for the router.
 And decode attention has an unmeasured **4×/3× read amplification**: 84–89 MB
 unique vs **315–331 MB requested** (~396 GB/s requested on a ~260 GB/s part),
 absorbed by L2/SLC. No prior brief modelled this.
+
+### 3d. Prefill is worth 0.365, not 0.25 (rule 58, verified round 96)
+
+The reported `decode_seconds_per_token` is **not** a steady-state per-step time.
+The trusted harness starts the decode timer *before* the 512-token seed forward
+pass and divides the whole interval by **128**, so
+
+```text
+decode_seconds_per_token = 4 · prefill_seconds_per_token + T
+```
+
+with `T` the true steady-state per-step time. At our numbers `4P = 752.2 µs`,
+i.e. **15.4 % of the decode figure we optimise is seed prefill**, and
+`T ≈ 4141.5 µs/step`.
+
+**Consequence: a prefill gain is paid twice** — once at 25 % weight through
+`prefill_speedup`, and again at 75 % weight through the `4P` term inside
+`decode_seconds_per_token`. Effective weight
+`0.25 + 0.75 × (752.2 / 4893.7) = 0.365`.
+
+This **downgrades but does not delete** the old "prefill is dead" conclusion.
+Prefill is still dead as a *published-speedup* lever: the fastest rival prefill
+in the 1176-receipt corpus is only **−0.280 %** vs ours, so the whole visible
+prefill frontier is worth ~0.07 % of score at 25 % weight. What re-opens is the
+`4P` channel: **1 % off prefill now buys ≈0.365 % of score, a 46 % uplift on the
+old price.** Re-price every shelved prefill lever (L4 async-ladder stride, L7
+`_nax` A-fragment N-tile reuse, L5 full-attn SDPA constexpr, the prefill router
+tournament) against that number before the next idea round.
+
+⚠️ Also note this is the same identity as #486's `D = S/128 + T` elasticity
+model, and the code documents it itself at `LRM:9217–9231`. It is the code's own
+model, not an enforced invariant — no runtime assertion checks it.
 
 ---
 
@@ -222,23 +258,42 @@ retune (20–80 µs); a `DARKBLOOM_QMV_WIDE_CODES` gate-flip audit (dead code an
 - #497's `G = 9.70 [7.05, 12.42] µs/step` design offset: mechanism (a) dead zone
   vs (b) reference inflation at run scale — equally supported, not separable.
 
+**Resolved in round 96 — promoted out of this list:**
+
+- The **NVFP4-vs-INT8 envelope question** → **rule 59**. Verdict: the default
+  attention path is *genuinely outside* `TASK.md:78–96`'s written envelope. The
+  checkpoint ships q/k/v/o as BF16 (`LagunaCheckpointValidation.swift:355–359`),
+  so `LRM:3005–3045` is a real runtime re-quantization to group-16 NVFP4, not a
+  pass-through, and `LRM:2954–2959`'s "envelope option (1)" comment is
+  contradicted. No test enforces it. It is **inherited from the promoted
+  organizer frontier `c5b0a13c`** and 55 of our receipts passed correctness with
+  `max_abs_diff 0`. Treat as an enforcement gap and a recorded residual risk —
+  see §14. Do **not** unilaterally revert.
+- **`includes_seed_prefill` / the `D = 4P + T` identity** → **rule 58** and §3d.
+  Verdict: **confirmed.** The still-live practical consequence is unchanged: a
+  **full INT8-g32 attention conversion would raise step bytes 1.69 → 2.47 GB**,
+  pushing the M5 byte floor above today's ≈4.14 ms steady state ⇒ **predicted
+  NEGATIVE. Do not assign before the M5 regime ladder reads out.**
+
+**New direction opened by rule 58:**
+
+- **Re-price the whole prefill lever family at effective weight 0.365.** Every
+  shelved prefill lever was scored against a 0.25 weight and against a rival
+  frontier only 0.280 % faster than us. Both denominators were wrong: a prefill
+  saving is paid twice, once in `prefill_speedup` and again in the 752.2 µs/step
+  `4P` term inside `decode_seconds_per_token`. Re-derive the value of L4
+  (prefill async-ladder stride/placement, `LRM:733`), L7 (`_nax` A-fragment
+  N-tile reuse), L5 (full-attention SDPA N/capacity constexpr) and the prefill
+  router tournament under the corrected weight before proposing arms. Note the
+  `_nax` caveat: M4 Pro is generation 16 and cannot select those kernels, so an
+  `_nax` arm is M5-receipt-only.
+
 **Unverified claims that should be checked before they become doctrine:**
 
-- The **NVFP4-vs-INT8 envelope question.** `TASK.md:80–88` permits re-quantizing
-  q/k/v/o/g_proj to **group-32 affine INT8**; the default runtime instead uses
-  **group-16 NVFP4** (`LRM:3005–3045`, flag default ON `:2960–2967`), justified
-  only by an in-source comment at `LRM:2957–2959`. Smallest resolving read:
-  `Sources/MLXFastTransform/LagunaCheckpointValidation.swift` dtype
-  expectations, or a `Tests/` round-trip assertion.
-- **`includes_seed_prefill`** in the trusted harness
-  (`LagunaRuntimeBenchmark.swift:966–1013`) and the `D = 4P + T` identity. If
-  true, the M5 sits at 63–75 % of achievable rather than 89 % ALU. Its practical
-  consequence is already applied: a **full INT8-g32 attention conversion would
-  raise step bytes 1.69 → 2.47 GB**, pushing the M5 byte floor to 4.0–4.5 ms
-  above today's ~4.14 ms ⇒ **predicted NEGATIVE. Do not assign before the M5
-  regime ladder reads out.**
 - Why is the baseline's prefill 6–8× noisier than the candidate's? (cold-start
-  hypothesis, unverified.) Is the 4.45 %/draw promotion probability stationary?
+  hypothesis, unverified.) Under rule 58 this now matters twice over, because
+  `bl_pre` already supplies 78.2 % of published-score variance.
+- Is the 4.45 %/draw promotion probability stationary?
 
 **Plateau protocol note.** We are not on a plateau of ideas — we are on a
 plateau of *measurable* ideas on the wrong machine. The escalation is therefore
@@ -249,7 +304,7 @@ instrumentation (#496), not more hyperparameter-tier tweaking.
 ## 7. Closed list — do not re-assign
 
 L2 · `bfeil` · Frontier Lever 2 · input-norm→QKV fusion (#483) · barrier hoist
-as its own arm (#488) · revert-#457 (#486) · PREFILL as a lever · integer-ALU
+as its own arm (#488) · revert-#457 (#486) · integer-ALU
 density on M5 (#490) · command-buffer op/MB caps (rule 52) · dispatch residue
 (#502 / rule 53) · the launch-ramp overhead pool (#502) · router mega-kernel ·
 LM-head grid-concat fusion · ALU-side levers on M4 (#498 / rule 55) · a second
@@ -260,6 +315,13 @@ RMSNorm+RoPE (+40 dispatches ⇒ net negative) · LM-head bounded-exact argmax
 · NVFP4 code-plane compaction · KV-cache dtype reduction · seed/warmup tricks ·
 deletion probes as pricing (rule 45) · `_nax` M = 1 qmv · the M5 Neural
 Accelerator for decode.
+
+⚠️ **"PREFILL as a lever" was removed from this list in round 96 by rule 58.**
+It stays closed only as a *published-speedup* lever — the fastest rival prefill
+in the 1176-receipt corpus is just 0.280 % faster than ours, so the entire
+visible prefill frontier is worth ≈0.07 % of score at a 0.25 weight. The `4P`
+channel inside `decode_seconds_per_token` is **live**: prefill's effective
+weight is **0.365**. Re-price before assigning (§3d, §6).
 
 **L3 — do not assign yet.** `research/tanjiro_packing_default_flip.patch`
 applies clean and reachability is confirmed; #308 measured −36.9 µs/step
@@ -355,6 +417,39 @@ drift is +0.263 µs/step, positive in 55/60 runs.
 **57** M4 per-dispatch glue cost is **1.2382 [1.2237, 1.2518] µs/dispatch
 saturated** (secant 1.1855–1.2310; linearity FAILS, hinge `Δ = c·K − G`).
 **#483's 0.751 µs/dispatch is RETIRED.**
+
+**58** ⭐⭐⭐ **THE 512-TOKEN SEED PREFILL IS INSIDE THE DECODE TIMER.**
+`decode_seconds_per_token = (seed prefill + 128 steps) / 128 = 4·P + T`. The
+official worker captures `decodePhaseStart` **before** `beginDecode(seedTokens:)`
+runs the 512-token seed forward and then divides by 128, not 640
+(`Sources/MLXFastTrustedHarness/LagunaRuntimeBenchmark.swift:966–968, 981–1008,
+1010, 1013`; in-process mirror `:877, :880–896, :939`). `prefill_seconds_per_token`
+is measured independently around `worker.prefill(promptTokens:)` and contains no
+decode steps (`:809–811, :836–837`). `includes_seed_prefill` is a hardcoded log
+string, not a `Bool` field. The score consumes both unadjusted
+(`Sources/MLXFastCore/Score.swift:4–15, 18–47`), and the identity is the code's
+own documented model at `LRM:9217–9231` (same as #486's `D = S/128 + T`) with no
+runtime assertion enforcing it. **Consequence: 4P = 752.2 µs/step = 15.4 % of
+reported decode; true steady-state T ≈ 4141.5 µs/step; effective prefill weight
+= 0.365, not 0.25. Prefill is re-opened as a lever class and must be re-priced.**
+
+**59** ⭐⭐ **THE DEFAULT NVFP4 ATTENTION PATH IS OUTSIDE THE WRITTEN ENVELOPE.**
+`TASK.md:78–96` permits only group-32 affine INT8 for q/k/v/o/`g_proj` and
+explicitly forbids inferring permission for anything else. The checkpoint ships
+q/k/v/o as **BF16** (`LagunaCheckpointValidation.swift:355–359`;
+`Transform.swift:70–76`), and the trusted runtime validates BF16 on disk
+(`LagunaRuntimeWeights.swift:117–134, 242–256, 263`), so
+`lagunaNativeAffineWeight` (`LRM:3005–3045`, guard `weight.dtype == .bfloat16`
+at `:3007`, default ON `:2960–2967`) is a **real runtime re-quantization to
+group-16 NVFP4**, not a pass-through — `LRM:2954–2959`'s "envelope option (1)"
+comment is contradicted. No test enforces it (`grep -rl "NativeAffine" Tests/`
+→ none): an **enforcement gap, not permission**. It is inherited from the
+promoted organizer frontier `c5b0a13c` and 55 of our receipts passed correctness
+with `max_abs_diff 0`. **Do NOT unilaterally revert** (reverting costs far more
+bytes than the risk it retires). Record as a residual risk (§14); raise with the
+human team if a `human_issue` arrives. It also **strengthens** the requirement
+that #512 and #513 stay lossless — `TASK.md` names routers and the layer-0 dense
+MLP as forbidden re-quantization targets.
 
 **Doctrine.** A revision request specifies a verifiable end state, not a git
 incantation. Declare a mechanism class for every decode lever. Geometry
@@ -522,3 +617,14 @@ heads per threadgroup**.
   omitted from #502's declared submitted paths, which killed two candidate
   pools. Any assignment touching router, prefill, attention, or layer-0 call
   sites must declare it.
+- ⚠️ **Named residual compliance risk (rule 59).** The default decode attention
+  path re-quantizes BF16 q/k/v/o to **group-16 NVFP4**, which is outside
+  `TASK.md:78–96`'s written envelope (group-32 affine INT8 only). It is
+  **inherited** from the promoted organizer frontier `c5b0a13c` — not something
+  this campaign introduced — and 55 of our official receipts passed correctness
+  with `max_abs_diff 0`, so no gate currently enforces the written rule. Policy:
+  **do not unilaterally revert** (a revert costs far more bytes than the risk it
+  retires, and would regress every downstream lever), keep it recorded here, and
+  put it to the human team as a written question if a `human_issue` arrives.
+  Meanwhile every new quantization-adjacent assignment must be lossless by
+  construction rather than leaning on this precedent.
