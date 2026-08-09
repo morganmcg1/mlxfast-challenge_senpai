@@ -353,6 +353,23 @@ hour of the host. `mlxfast submit` packages editable paths from the git
 worktree and does not consume a local-submit artifact, so nothing about the
 upload depended on it.
 
+Static-review headroom at the submitted commit, measured against the same base:
+
+```
+$ senpai/check-editable-budget.sh c6c66344d9848d95158edc31f31943aabe4de079
+editable budget OK: current=2983849/3000000 bytes headroom=16151
+  growth=0/262144 files=142 (file count is diagnostic only; base=142)
+```
+
+`growth=0` and `files=142 (base=142)` are the budget-side confirmation that the
+submitted surface is byte-identical to the base: this receipt measures the
+promoted frontier itself, not a candidate. Note that the *promoted frontier*
+already sits 16,151 bytes under the 3,000,000-byte cap, which is a real
+constraint on any future re-port arm — the r85-C float4 epilogue and the router
+prefetch path both add source.
+
+Receipt budget: 6 before dispatch, 5 after. Arm D spends exactly one.
+
 ---
 
 ## Reply
