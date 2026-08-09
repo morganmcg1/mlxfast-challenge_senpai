@@ -6026,6 +6026,25 @@ final class LagunaRuntimeAttention: Module {
                 gatePerHead && projectedGate.dtype == output.dtype
                 ? lagunaCompiledSoftplusGate(projectedGate)
                 : softplus(projectedGate.asType(.float32)).asType(output.dtype)
+            if lagunaFusedGatedOutputProjectionEnabled,
+                gatePerHead, B == 1, wo.bias == nil,
+                headDim == LagunaConstants.headDim,
+                output.dtype == .bfloat16, gate.dtype == .bfloat16,
+                wo.weight.dtype == .bfloat16,
+                output.shape == [1, 1, nHeads * headDim],
+                gate.shape == [1, 1, nHeads],
+                wo.weight.shape == [LagunaConstants.hiddenSize, nHeads * headDim]
+            {
+                let projection = lagunaGatedOutputProjection(
+                    attentionOutput: output,
+                    gateValues: gate,
+                    weight: wo.weight,
+                    heads: nHeads
+                )
+                if let projection {
+                    return projection
+                }
+            }
             if gatePerHead {
                 output =
                     (output.reshaped(B, 1, nHeads, headDim) * gate[.ellipsis, .newAxis])
