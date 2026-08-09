@@ -1606,11 +1606,6 @@ template <
           threadgroup_barrier(mem_flags::mem_threadgroup);
 
           if (sg_active) {
-            // PRAGMA-VARIANT 01: SK-step staging+MMA loop, 2 iterations
-            // (BK=64/SK=32). Full unroll lets the second step's 6 fragment
-            // loads issue during the first step's MMA chain. Scheduling
-            // only: tile_matmad_nax order and Dtile accumulation sequence
-            // are unchanged. Volatile stays, gated by stage_novol (fc 207).
             STEEL_PRAGMA_UNROLL
             for (int kk1 = 0; kk1 < BK; kk1 += SK) {
               NAXTile<T, TM, TK> Atile;
@@ -1660,7 +1655,6 @@ template <
           threadgroup_barrier(mem_flags::mem_threadgroup);
 
           if (sg_active) {
-            // PRAGMA-VARIANT 01: same unroll for the K-remainder loop.
             STEEL_PRAGMA_UNROLL
             for (int kk1 = 0; kk1 < BK; kk1 += SK) {
               NAXTile<T, TM, TK> Atile;
@@ -1730,15 +1724,6 @@ template <
   }
 }
 
-template <bool indexed_rhs>
-METAL_FUNC uint32_t laguna_route_expert(const uint32_t route) {
-  if constexpr (indexed_rhs) {
-    return route >> 24;
-  }
-  return route;
-}
-
-template <bool indexed_rhs>
 METAL_FUNC int laguna_sorted_lower_bound(
     const device uint32_t* indices,
     const int count,
@@ -1747,58 +1732,13 @@ METAL_FUNC int laguna_sorted_lower_bound(
   int hi = count;
   while (lo < hi) {
     const int mid = lo + (hi - lo) / 2;
-    if (laguna_route_expert<indexed_rhs>(indices[mid]) < value) {
+    if (indices[mid] < value) {
       lo = mid + 1;
     } else {
       hi = mid;
     }
   }
   return lo;
-}
-
-template <typename T, short TM, short TK, bool indexed_rhs>
-METAL_FUNC void laguna_load_a(
-    thread NAXTile<T, TM, TK>& tile,
-    const device T* x,
-    const device uint32_t* indices,
-    int sorted_row,
-    int k_col,
-    int K,
-    short valid_rows) {
-  if constexpr (!indexed_rhs) {
-    const device T* xn = x + size_t(sorted_row) * K + k_col;
-    if (valid_rows == TM * 16) {
-      tile.load(xn, K);
-    } else {
-      tile.load_rows(xn, K, valid_rows);
-    }
-  } else {
-    const short2 sc = BaseNAXFrag::get_coord();
-    STEEL_PRAGMA_UNROLL
-    for (short i = 0; i < TM; ++i) {
-      STEEL_PRAGMA_UNROLL
-      for (short j = 0; j < TK; ++j) {
-        STEEL_PRAGMA_UNROLL
-        for (short ii = 0; ii < 2; ++ii) {
-          const short row = i * 16 + sc.y + ii * 8;
-          if (row < valid_rows) {
-            const size_t source_row =
-                size_t(indices[sorted_row + row] & 0x00ffffff);
-            STEEL_PRAGMA_UNROLL
-            for (short jj = 0; jj < 4; ++jj) {
-              tile.frag_at(i, j)[ii * 4 + jj] =
-                  x[source_row * K + k_col + j * 16 + sc.x + jj];
-            }
-          } else {
-            STEEL_PRAGMA_UNROLL
-            for (short jj = 0; jj < 4; ++jj) {
-              tile.frag_at(i, j)[ii * 4 + jj] = T(0);
-            }
-          }
-        }
-      }
-    }
-  }
 }
 
 // Laguna prefill sorts the M routed rows by expert before this QMM. The stock
@@ -1826,8 +1766,7 @@ template <
     typename Wtype = bfloat,
     int tg_expert_groups = 64,
     bool wide_store = false,
-    bool wide_load = false,
-    bool indexed_rhs = false>
+    bool wide_load = false>
 [[kernel]] void fp_gather_qmm_rhs_expert_nax(
     const device T* x,
     const device uint32_t* w,
@@ -1948,7 +1887,7 @@ template <
   // as the per-slot lid==0 searches), one barrier instead of two per slot.
   for (int b = int(lid); b <= experts / expert_groups;
        b += WM * WN * SIMD_SIZE) {
-    bounds[b] = laguna_sorted_lower_bound<indexed_rhs>(
+    bounds[b] = laguna_sorted_lower_bound(
         indices,
         M,
         static_cast<uint32_t>(tid.y * (experts / expert_groups) + b));
@@ -1970,9 +1909,8 @@ template <
 #else
     threadgroup_barrier(mem_flags::mem_threadgroup);
     if (lid == 0) {
-      bounds[0] = laguna_sorted_lower_bound<indexed_rhs>(indices, M, expert);
-      bounds[1] =
-          laguna_sorted_lower_bound<indexed_rhs>(indices, M, expert + 1);
+      bounds[0] = laguna_sorted_lower_bound(indices, M, expert);
+      bounds[1] = laguna_sorted_lower_bound(indices, M, expert + 1);
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
@@ -2015,6 +1953,9 @@ template <
         Dtile[ct].clear();
       }
 
+      const device T* xn =
+          x + size_t(chunk_start + tm) * kernel_K;
+
       // Per-k-tile advances of the loader's walk, spelled with the same
       // expressions QuantizedBlockLoader uses (reduction_dim == 1 here):
       // tile_stride = BCOLS_PACKED * bytes_per_pack, scales += n_groups.
@@ -2026,14 +1967,12 @@ template <
         if (sg_active) {
           STEEL_PRAGMA_UNROLL
           for (int kk1 = 0; kk1 < BK; kk1 += SK) {
-            laguna_load_a<T, TM, TK, indexed_rhs>(
-                Atile[kk1 / SK],
-                x,
-                indices,
-                chunk_start + tm,
-                k * BK + kk1,
-                kernel_K,
-                sgp_sm);
+            if (sgp_sm == SM) {
+              Atile[kk1 / SK].load(xn + kk1, kernel_K);
+            } else {
+              Atile[kk1 / SK].load_safe(
+                  xn + kk1, kernel_K, short2(SK, sgp_sm));
+            }
           }
         }
 
@@ -2077,6 +2016,8 @@ template <
             }
           }
         }
+
+        xn += BK;
       }
 
       threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -2189,6 +2130,8 @@ template <
       NAXTile<float, TM, TN> Dtile;
       Dtile.clear();
 
+      const device T* xn =
+          x + size_t(chunk_start + tm) * kernel_K;
 #ifndef DARKBLOOM_STAGE2_GATHER
       thread loader_w_t loader_w(
           wl + size_t(expert) * stride_w,
@@ -2216,14 +2159,11 @@ template <
         if (sg_active) {
           STEEL_PRAGMA_UNROLL
           for (int kk1 = 0; kk1 < BK; kk1 += SK) {
-            laguna_load_a<T, TM, TK, indexed_rhs>(
-                Atile[kk1 / SK],
-                x,
-                indices,
-                chunk_start + tm,
-                k * BK + kk1,
-                kernel_K,
-                sgp_sm);
+            if (sgp_sm == SM) {
+              Atile[kk1 / SK].load(xn + kk1, kernel_K);
+            } else {
+              Atile[kk1 / SK].load_rows(xn + kk1, kernel_K, sgp_sm);
+            }
           }
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -2243,14 +2183,6 @@ template <
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
         if (sg_active) {
-          // PRAGMA-VARIANT 01: SK-step staging+MMA loop, 2 iterations
-          // (BK=64/SK=32): Atile TMxTK=1x2 device frags + Btile TNxTK=2x2
-          // threadgroup frags per step, serially-dependent Dtile MMA chain.
-          // Full unroll + volatile removal let the second step's 6 fragment
-          // loads hoist ahead of the first step's MMAs. This kernel is built
-          // WITHOUT function constants (static expert shape path), so the
-          // stage_novol lever never reaches it -- the volatile must go here.
-          // Scheduling only: no arithmetic, order, or rounding change.
           STEEL_PRAGMA_UNROLL
           for (int kk1 = 0; kk1 < BK; kk1 += SK) {
             NAXTile<Wtype, TN, TK> Btile;
@@ -2268,6 +2200,7 @@ template <
           }
         }
 
+        xn += BK;
         loader_w.next();
       }
 #else
@@ -2339,14 +2272,12 @@ template <
             NAXTile<T, TM, TK> Atile;
             NAXTile<Wtype, TN, TK> Btile;
 
-            laguna_load_a<T, TM, TK, indexed_rhs>(
-                Atile,
-                x,
-                indices,
-                chunk_start + tm,
-                k * BK + kk1,
-                kernel_K,
-                sgp_sm);
+            if (sgp_sm == SM) {
+              Atile.load(xn + kk1, kernel_K);
+            } else {
+              Atile.load_safe(
+                  xn + kk1, kernel_K, short2(SK, sgp_sm));
+            }
             Btile.template load<Wtype, BK_padded, 1>(
                 Wsk + tn * BK_padded + kk1);
 
@@ -2372,6 +2303,7 @@ template <
           }
         }
 
+        xn += BK;
         // Joint barrier: publishes tile k+1 for the next iteration's MMAs
         // (RAW) and retires this iteration's reads of tile k before that
         // buffer is overwritten (WAR).

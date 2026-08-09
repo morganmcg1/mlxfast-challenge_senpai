@@ -167,9 +167,12 @@ func lagunaExpertAlignedStageEnabled(_ value: String?) -> Bool {
     ["", "4", "5"].contains(value ?? "")
 }
 
-let lagunaNAXRuntimeAvailable = {
-    guard #available(macOS 26.2, *) else { return false }
+let lagunaExpertAlignedGatherEnabled = {
     let environment = ProcessInfo.processInfo.environment
+    guard environment["DARKBLOOM_EXPERT_ALIGNED_GATHER"] != "0",
+        lagunaExpertAlignedStageEnabled(environment["DARKBLOOM_STAGE_BM128"]),
+        #available(macOS 26.2, *)
+    else { return false }
     let configured = environment["MLX_METAL_GPU_ARCH"]
     return lagunaNAXAvailable(
         architecture: configured.flatMap { $0.isEmpty ? nil : $0 }
@@ -177,19 +180,6 @@ let lagunaNAXRuntimeAvailable = {
         osSupportsNAX: true
     )
 }()
-
-let lagunaExpertAlignedGatherEnabled = {
-    let environment = ProcessInfo.processInfo.environment
-    return lagunaNAXRuntimeAvailable
-        && environment["DARKBLOOM_EXPERT_ALIGNED_GATHER"] != "0"
-        && lagunaExpertAlignedStageEnabled(environment["DARKBLOOM_STAGE_BM128"])
-}()
-
-let lagunaPackedRoutedRHSAvailable =
-    !lagunaNAXRuntimeAvailable || lagunaExpertAlignedGatherEnabled
-
-let lagunaPackedRoutedRHSEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_PACKED_ROUTED_RHS"] != "0"
 
 /// Decode post-attention residual + RMSNorm fusion. The kernel emits
 /// both the rounded BF16 residual (needed by the following skip connection)
@@ -9220,26 +9210,20 @@ private func lagunaFusedSortedRoutedGateUp(
     downProj: SwitchLinear,
     deferUnsort: Bool
 ) -> (output: MLXArray, inverseOrder: MLXArray?) {
-    let expandedX = MLX.expandedDimensions(x, axes: [-2, -3])
+    // SwitchGLU: `var x = MLX.expandedDimensions(x, axes: [-2, -3])`
+    var sortedX = MLX.expandedDimensions(x, axes: [-2, -3])
+    // SwitchGLU: `let doSort = indices.size >= 64`. The call site already
+    // guards `indices.size >= 64` before calling in, so this is always true
+    // here; recomputed anyway so this function mirrors SwitchGLU verbatim
+    // and stays correct if that guard is ever loosened.
     let doSort = indices.size >= 64
-    let usePackedRHS = lagunaPackedRoutedRHSEnabled
-        && indices.size >= 4 * LagunaConstants.numExperts
-    var gateUpX = expandedX
+    // SwitchGLU: `var idx = indices` / `var inverseOrder = MLXArray()`
     var idx = indices
-    var gateUpIndices = indices
     var inverseOrder = MLXArray()
+    // SwitchGLU: `if doSort { (x, idx, inverseOrder) = gatherSort(x: x, indices: indices) }`
+    //
     if doSort {
-        let sorted = gatherSortIndices(indices)
-        idx = sorted.sortedKeys
-        inverseOrder = sorted.inverseOrder
-        if usePackedRHS {
-            gateUpIndices = (
-                (idx.asType(.uint32) << 24) | sorted.rowOrder.asType(.uint32)
-            ).reshaped(indices.shape)
-        } else {
-            gateUpX = expandedX.flattened(start: 0, end: -3)[sorted.rowOrder]
-            gateUpIndices = idx
-        }
+        (sortedX, idx, inverseOrder) = gatherSort(x: sortedX, indices: indices)
     }
     // Fused counterpart of SwitchGLU's separate-bank branch:
     //   xUp = upProj(x, idx, sortedIndices: doSort)
@@ -9252,21 +9236,18 @@ private func lagunaFusedSortedRoutedGateUp(
     // tile-interleaved `fusedWeight`/`fusedScales` bank instead of twice over
     // the separate banks is the fusion; every other argument matches the
     // stock call exactly (group 16, 4-bit, NVFP4, transpose, doSort).
-    let rawGateUp = MLX.gatherQuantizedMM(
-        gateUpX,
+    let gateUp = MLX.gatherQuantizedMM(
+        sortedX,
         fusedWeight,
         scales: fusedScales,
         biases: nil,
-        rhsIndices: gateUpIndices,
+        rhsIndices: idx,
         transpose: true,
         groupSize: 16,
         bits: 4,
         mode: .nvfp4,
         sortedIndices: doSort
     )
-    let gateUp = usePackedRHS
-        ? rawGateUp.reshaped([-1, 1, rawGateUp.dim(-1)])
-        : rawGateUp
     let activated: MLXArray
     if lagunaExpertAlignedGatherEnabled {
         // The expert kernel writes rows with a physical stride of `split`
@@ -9662,29 +9643,13 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
             // `lagunaPrefillMoETailEnabled` tail fusion) is unaffected by
             // which branch ran.
             if lagunaPrefillFusedRoutedGateUpEnabled,
-                lagunaPackedRoutedRHSAvailable,
                 let fusedWeight = _fusedRoutedGateUpWeight,
                 let fusedScales = _fusedRoutedGateUpScales,
                 let downProj = _routedDownProj,
-                x.ndim == 3,
-                x.shape == [1, x.dim(1), LagunaConstants.hiddenSize],
                 x.dim(1) > 1,
-                x.dim(1) < 0x0100_0000,
-                inds.dtype == .uint32,
-                inds.shape == [1, x.dim(1), LagunaConstants.numExpertsPerTok],
                 inds.size >= 64,
                 fusedWeight.dtype == .uint32,
-                fusedWeight.shape == [
-                    LagunaConstants.numExperts,
-                    2 * LagunaConstants.moeIntermediateSize,
-                    LagunaConstants.hiddenSize / 8,
-                ],
                 fusedScales.dtype == .uint8,
-                fusedScales.shape == [
-                    LagunaConstants.numExperts,
-                    2 * LagunaConstants.moeIntermediateSize,
-                    LagunaConstants.hiddenSize / LagunaConstants.quantizationGroupSize,
-                ],
                 _fusedRoutedGateUpSplit == LagunaConstants.moeIntermediateSize
             {
                 let routed = lagunaFusedSortedRoutedGateUp(

@@ -235,21 +235,26 @@ inline U qdot(const device uint8_t* w, const thread U* x_thread, U scale) {
     // same half bit pattern (magnitude (n & 7) << 9 with sign (n & 8) in
     // the half sign bit) and the same exact half -> float conversion as the
     // generic bits == 4 path below. Two further bit-exact ALU eliminations
-    // are applied on top of the split-nibble decode (see the JIT twin
-    // mlx-generated/fp_quantized.cpp for the full argument):
+    // are applied on top of the split-nibble decode:
     //
-    // (a) 2^14 renormalization fold: power-of-two scaling is exact at every
-    //     step, so moving the 2^14 from the eight decoded float2s onto the
-    //     one scale multiply -- (scale * 16384.0f) * accum -- leaves every
-    //     partial sum exactly 2^-14 times its old value and the single
-    //     final rounding lands on the identical result (the e4m3 scale
-    //     cannot overflow: |s| <= 448, so scale * 16384.0f <= 7.3e6).
+    // (a) 2^14 renormalization fold. The old form multiplied each of the
+    //     eight decoded float2s by 16384.0f (16 multiplies per group). A
+    //     power-of-two scaling is exact at every step, so moving the 2^14
+    //     onto the one scale multiply -- (scale * 16384.0f) * accum --
+    //     leaves every partial sum exactly 2^-14 times its old value and
+    //     the single final rounding lands on the identical result. The
+    //     scale is e4m3 (|s| <= 448), so scale * 16384.0f <= 7.3e6 cannot
+    //     overflow FP32.
     //
-    // (b) Dead +0.0f accumulator-seed elision: +0.0f + t == t bitwise
-    //     except t == -0.0f, and that case leaves only a sign-of-zero
-    //     difference that every caller's +0.0f-seeded result cell absorbs
-    //     (+0.0f + -0.0f == +0.0f). The two packed-word bodies are emitted
-    //     textually, as the compiler was already fully unrolling them.
+    // (b) Dead +0.0f accumulator-seed elision. The old form seeded
+    //     `U accum = 0;` and paid one fadd per group computing fl(+0.0f +
+    //     t). +0.0f + t == t bitwise except t == -0.0f; that case leaves a
+    //     sign-of-zero difference only, and every caller accumulates the
+    //     return into a +0.0f-seeded result cell, which absorbs it
+    //     (+0.0f + -0.0f == +0.0f). Seeding the accumulator with the first
+    //     four-term product group directly is therefore bit-exact. The two
+    //     packed-word bodies are emitted textually, which is what the
+    //     compiler was already unrolling.
     const device uint2* wq = (const device uint2*)w;
     const uint2 codes = wq[0];
     U accum;
@@ -429,6 +434,9 @@ inline void dequantize(uint8_t w, U scale, threadgroup U* w_local) {
 
 // Per-group NVFP4 scale with fp4's 2^14 renormalization folded in (Change 1).
 static inline float fp4nv_scale_x16384(uint8_t s) {
+  // E4M3 bytes 0...15 are exactly s * 2^-9; after the 2^14 fold this is
+  // the integer s * 32, so avoid the generic fp8 conversion in the common
+  // positive range.  All exceptional bytes retain the stock expression.
   if (s < 16u) {
     return float(uint(s) << 5);
   }
@@ -2132,111 +2140,6 @@ template <
 
 template <
     typename T,
-    short BROWS,
-    short BCOLS,
-    short dst_ld,
-    short tgp_size,
-    bool indexed_rhs,
-    short n_reads = (BCOLS * BROWS) / tgp_size,
-    short TCOLS = BCOLS / n_reads,
-    short TROWS = tgp_size / TCOLS>
-struct GatherBlockLoader {
-  STEEL_CONST short n_rows = (BROWS + TROWS - 1) / TROWS;
-  STEEL_CONST short vec_size = n_reads;
-
-  const device T* src;
-  const device uint32_t* indices;
-  const int src_ld;
-  const int row_base;
-  const short bi;
-  const short bj;
-  threadgroup T* dst;
-  int src_col;
-
-  struct ReadVector {
-    uint8_t v[sizeof(T) * vec_size];
-  };
-
-  METAL_FUNC GatherBlockLoader(
-      const device T* src_,
-      const device uint32_t* indices_,
-      const int src_ld_,
-      const int row_base_,
-      threadgroup T* dst_,
-      ushort simd_group_id [[simdgroup_index_in_threadgroup]],
-      ushort simd_lane_id [[thread_index_in_simdgroup]])
-      : src(src_),
-        indices(indices_),
-        src_ld(src_ld_),
-        row_base(row_base_),
-        bi((simd_group_id * SIMD_SIZE + simd_lane_id) / TCOLS),
-        bj(vec_size * ((simd_group_id * SIMD_SIZE + simd_lane_id) % TCOLS)),
-        dst(dst_ + bi * dst_ld + bj),
-        src_col(bj) {}
-
-  METAL_FUNC int source_row(const int sorted_row) const {
-    if constexpr (indexed_rhs) {
-      return int(indices[sorted_row] & 0x00ffffff);
-    }
-    return sorted_row;
-  }
-
-  METAL_FUNC void load_unsafe() const {
-    STEEL_PRAGMA_UNROLL
-    for (short i = 0; i < BROWS; i += TROWS) {
-      const int row = source_row(row_base + bi + i);
-      *((threadgroup ReadVector*)(&dst[i * dst_ld])) =
-          *((const device ReadVector*)(
-              &src[size_t(row) * src_ld + src_col]));
-    }
-  }
-
-  METAL_FUNC void load_safe(short2 src_tile_dim) const {
-    src_tile_dim -= short2(bj, bi);
-    if (src_tile_dim.x <= 0 || src_tile_dim.y <= 0) {
-      STEEL_PRAGMA_UNROLL
-      for (short i = 0; i < BROWS; i += TROWS) {
-        STEEL_PRAGMA_UNROLL
-        for (short j = 0; j < vec_size; ++j) {
-          dst[i * dst_ld + j] = T(0);
-        }
-      }
-      return;
-    }
-
-    bool valid[vec_size];
-    T values[vec_size];
-    STEEL_PRAGMA_UNROLL
-    for (short i = 0; i < BROWS; i += TROWS) {
-      const bool valid_row = i < src_tile_dim.y;
-      const int row = valid_row ? source_row(row_base + bi + i) : 0;
-      STEEL_PRAGMA_UNROLL
-      for (short j = 0; j < vec_size; ++j) {
-        valid[j] = valid_row && j < src_tile_dim.x;
-        values[j] = src[valid[j] ? size_t(row) * src_ld + src_col + j : 0];
-      }
-      STEEL_PRAGMA_UNROLL
-      for (short j = 0; j < vec_size; ++j) {
-        dst[i * dst_ld + j] = valid[j] ? values[j] : T(0);
-      }
-    }
-  }
-
-  METAL_FUNC void next() {
-    src_col += BCOLS;
-  }
-};
-
-template <bool indexed_rhs>
-METAL_FUNC uint32_t fp_route_expert(const uint32_t route) {
-  if constexpr (indexed_rhs) {
-    return route >> 24;
-  }
-  return route;
-}
-
-template <
-    typename T,
     int group_size,
     int bits,
     int BM,
@@ -2244,8 +2147,7 @@ template <
     int BK,
     int WM,
     int WN,
-    bool transpose,
-    bool indexed_rhs = false>
+    bool transpose>
 [[kernel]] void fp_gather_qmm_rhs(
     const device T* x,
     const device uint32_t* w,
@@ -2275,8 +2177,8 @@ template <
       transpose,
       BK_padded,
       transpose ? BK_padded : BN_padded>;
-  using loader_x_t = GatherBlockLoader<
-      T, BM, BK, BK_padded, WM * WN * SIMD_SIZE, indexed_rhs>;
+  using loader_x_t =
+      mlx::steel::BlockLoader<T, BM, BK, BK_padded, 1, WM * WN * SIMD_SIZE>;
   using loader_w_t = QuantizedBlockLoader<
       T,
       transpose ? BN : BK,
@@ -2313,8 +2215,9 @@ template <
   const short2 tile_w =
       transpose ? short2(k_remain, tgp_bn) : short2(tgp_bn, k_remain);
 
-  // Move output to the correct block
+  // Move x and output to the correct block
   auto wl = (const device uint8_t*)w;
+  x += y_row_long * K;
   y += y_row_long * N + y_col_long;
   wl += transpose ? y_col_long * K_w : y_col * bytes_per_pack / pack_factor;
   scales += transpose ? y_col_long * K_g : y_col / group_size;
@@ -2322,7 +2225,7 @@ template <
   // Do as many matmuls as necessary
   uint32_t index;
   short offset;
-  uint32_t index_next = fp_route_expert<indexed_rhs>(indices[y_row]);
+  uint32_t index_next = indices[y_row];
   short offset_next = 0;
   int n = 0;
   while (n < tgp_bm) {
@@ -2331,11 +2234,9 @@ template <
     index = index_next;
     offset_next = tgp_bm;
     for (; n < tgp_bm; n++) {
-      const uint32_t candidate =
-          fp_route_expert<indexed_rhs>(indices[y_row + n]);
-      if (candidate != index) {
+      if (indices[y_row + n] != index) {
         offset_next = n;
-        index_next = candidate;
+        index_next = indices[y_row + n];
         break;
       }
     }
@@ -2345,8 +2246,7 @@ template <
     thread mma_t mma_op(simd_group_id, simd_lane_id);
 
     // Prepare threadgroup loading operations
-    thread loader_x_t loader_x(
-        x, indices, K, y_row, Xs, simd_group_id, simd_lane_id);
+    thread loader_x_t loader_x(x, K, Xs, simd_group_id, simd_lane_id);
     thread loader_w_t loader_w(
         wl + index * stride_w,
         scales + index * stride_s,
