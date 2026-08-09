@@ -294,7 +294,7 @@ MTL::Library* load_library(
 
 bool bfs_trace_enabled() {
   static bool enabled = [] {
-    const char* value = std::getenv("MLXFAST_BFS_TRACE");
+    const char* value = std::getenv("MLX_BFS_TRACE");
     return value != nullptr && std::string(value) != "0";
   }();
   return enabled;
