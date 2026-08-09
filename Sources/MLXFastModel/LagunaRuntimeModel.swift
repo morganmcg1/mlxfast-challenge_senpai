@@ -1781,7 +1781,8 @@ private let lagunaSlidingFusedAttentionHeader = """
 private func makeLagunaSlidingFusedAttentionKernel(
     _ name: String, _ physicalSimdgroups: Int
 ) -> MLXFast.MLXFastKernel {
-    MLXFast.metalKernel(
+    precondition(physicalSimdgroups == 16 || physicalSimdgroups == 32)
+    return MLXFast.metalKernel(
         name: name,
         inputNames: [
             "raw_queries", "raw_keys", "raw_values",
