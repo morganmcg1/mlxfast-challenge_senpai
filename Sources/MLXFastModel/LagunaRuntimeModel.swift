@@ -4067,7 +4067,11 @@ private func lagunaGateSoftplusSource(heads: Int) -> String {
     uint tile=threadgroup_position_in_grid.x;
     uint sg=simdgroup_index_in_threadgroup;
     uint lane=thread_index_in_simdgroup;
+    uint tid=thread_index_in_threadgroup;
     uint orow=tile*(NS*R)+sg*R;
+    threadgroup bfloat staged_input[K];
+    for(uint k=tid;k<K;k+=64) staged_input[k]=input[k];
+    threadgroup_barrier(mem_flags::mem_threadgroup);
     const device uint8_t* ws=(const device uint8_t*)packed_codes+orow*K+lane*V;
     const device bfloat* sc=scales+orow*KG+lane/SS;
     const device bfloat* bs=biases+orow*KG+lane/SS;
@@ -4077,7 +4081,7 @@ private func lagunaGateSoftplusSource(heads: Int) -> String {
     for(uint k=0;k<K;k+=BK){
         float sum=0.0f;
         for(uint i=0;i<V;++i){
-            x[i]=float(input[col+i]);
+            x[i]=float(staged_input[col+i]);
             sum+=x[i];
         }
         for(uint row=0;row<R;++row){
@@ -4109,7 +4113,7 @@ private let lagunaGateSoftplusKernels: [Int: MLXFast.MLXFastKernel] = {
     var result: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
         result[heads] = MLXFast.metalKernel(
-            name: "laguna_gate_sp_h\(heads)_v1",
+            name: "laguna_gate_sp_h\(heads)_v2_tginput",
             inputNames: ["input", "packed_codes", "scales", "biases"],
             outputNames: ["gate_values"],
             source: lagunaGateSoftplusSource(heads: heads),
