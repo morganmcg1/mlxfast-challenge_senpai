@@ -442,27 +442,34 @@ decode clock).
 
 | # | mechanism | ceiling (local µs/step) | basis | confidence |
 |---|---|---|---|---|
-| 1 | shave real bytes off the weight stream | **≈ 145** in-trio | codes are already 4-bit; only the 32 B/row nibble plane and 1 B base remain above a pure-code floor: (412.2 + 325.2 + 348.1) MB → 1057→1024, 4225→4096, 1 114 112→1 048 576 B ⇒ 1085.5 → 1041.6 MB/step at 240 GB/s ⇒ 183 µs; realistically ≈ 145 after the parts that cannot be removed | high that the *rate* holds; low that the bytes are removable |
+| 1 | shave real bytes off the weight stream | **≈ 180** in-trio, if the scale planes could vanish entirely | codes are already 4-bit, so the only removable bytes above a pure-code floor are the scale planes and bases: qkv 1057→1024 B/row (−12.84 MB), oproj 4225→4096 and 3169→3072 (−9.91 MB), routed 1 114 112→1 048 576 B/expert (−20.44 MB) ⇒ 1085.5 → 1042.3 MB/step, −43.2 MB at 240 GB/s = **180 µs/step**. This is an upper bound assuming scales become free, which they cannot; a realistic packing win is a fraction of it | high that the *rate* holds; low that the bytes are removable |
 | 2 | fixed per-dispatch cost, pool-wide | **≈ 1610** gross, ≲ 800 recoverable | 3.97 µs model intercept × 406 dispatches/step; an empty serialized dispatch measures 0.87 µs (1×32) to 2.46 µs (160×256), so ≈ half is launch overhead that fusion cannot remove | medium |
 | 2a | — of which inside the trio | **472** gross, ≲ 240 recoverable | 3.97 µs × 119 trio dispatches = 5.5 % of the busy pool | medium |
-| 3 | close the achieved→sequential-peak gap | **≈ 331** | trio at 241.4 GB/s aggregate vs 262.5 GB/s sequential ⇒ 1085.5 MB at 262.5 = 4135 µs vs 4620 measured | low — the pattern ceilings (236.6 / 243.0 GB/s) say most of this gap is the access pattern, not slack |
+| 3 | close the achieved→sequential-peak gap | **≈ 321** | trio at 243.6 GB/s aggregate net of the SPLIT tax vs 262.5 GB/s sequential ⇒ 1085.5 MB at 262.5 = 4135 µs vs 4456 net measured | low — the pattern ceilings (236.6 / 243.0 GB/s) say most of this gap is the access pattern, not slack |
 | 4 | the 1266 µs/step wall−busy gap | **≈ 1266** gross | wall 9804 µs vs busy 8538 µs per step; GPU idle between dispatches | medium-low — overlaps (2) and is partly host-side |
 | 5 | anything that trades bytes for ALU | **≈ 0**, likely negative | probe 3 says ALU is 81–96 % free, but probe 4 says every added byte costs full DRAM rate; a transform that spends ALU to *save* bytes is the only version of this with positive expected value, and it is mechanism (1) | high |
 | 6 | expert-locality / routing-affinity tricks | **≈ 0** | routed already runs at 99.2 % of its own measured gather pattern ceiling and 91.9 % of sequential peak; there is no locality left to exploit | high |
 | 7 | reducing write traffic | **≈ 0** | writes are ≈ 0.5–0.9 MB/step against 1085 MB of reads | high |
 
-**Double-counting warning.** (2), (3) and (4) overlap heavily. The 3.97 µs
-model intercept is *inside* the busy pool, so it is part of what makes the trio
-achieve 241 GB/s instead of 262 GB/s — i.e. mechanism (2a) and mechanism (3) are
-largely the same 300–470 µs seen two ways, and adding them would double-count.
-Mechanism (4) is measured *outside* the busy pool and is additive to (2a) but
-overlaps (2) pool-wide.
+**Double-counting warning.** (2), (3) and (4) overlap heavily and must not be
+added. The 3.97 µs model intercept is *inside* the busy pool, so it is exactly
+part of what makes the trio achieve 243.6 GB/s instead of 262.5 GB/s: mechanism
+(2a)'s 472 µs and mechanism (3)'s 321 µs are largely the same slack counted two
+ways. Their union is bounded by ≈ 500–550 µs/step, not by 793. Mechanism (4) is
+measured *outside* the busy pool, so it is additive to (2a) within the trio but
+overlaps (2) pool-wide, and part of it is host-side rather than GPU-addressable.
+Mechanism (1) is the one genuinely orthogonal item: it removes bytes rather than
+overhead.
 
-**Honest in-trio ceiling.** At fixed bytes and fixed dispatch count, the trio
-has **≈ 550 µs/step** of theoretically addressable time (max of (2a)+(3)-style
-accounting, not the sum), i.e. ≈ 12 % of the trio's 4620 µs/step and ≈ 6.4 % of
-the local busy pool. That is the number a follow-up should be sized against; it
-is not 54 %.
+**Honest in-trio ceiling.** At **fixed bytes and fixed dispatch count**, the trio
+has **≈ 550 µs/step** of theoretically addressable time — the union of (2a) and
+(3), not their sum — i.e. ≈ 12 % of the trio's 4620 µs/step and ≈ 6.4 % of the
+local busy pool. Allowing the most optimistic byte reduction (mechanism 1, an
+upper bound that assumes scale planes become free) adds at most another
+180 µs/step, for an absolute optimistic total of **≈ 730 µs/step ≈ 16 % of the
+trio**. Those are the numbers a follow-up should be sized against. The trio's
+54 % share of the busy pool is *not* a 54 % opportunity, and treating it as one
+has been the recurring error this census was meant to settle.
 
 **What this rules out for future rounds.** Any proposal for these three kernels
 that does not reduce bytes moved, reduce dispatch count, or overlap the
