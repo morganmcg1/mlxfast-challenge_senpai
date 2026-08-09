@@ -6042,6 +6042,126 @@ final class LagunaRuntimeAttention: Module {
                     heads: nHeads
                 )
                 if let projection {
+                    if ProcessInfo.processInfo.environment["DARKBLOOM_TERMINAL_OPROJ_DIAGNOSTIC"] == "1" {
+                        func writeDiagnostic(_ message: String) {
+                            FileHandle.standardError.write(
+                                Data("terminal-oproj-diagnostic \(message)\n".utf8)
+                            )
+                        }
+                        func stockProjection(_ attention: MLXArray, _ gates: MLXArray) -> MLXArray {
+                            wo(
+                                (attention.reshaped(1, 1, nHeads, headDim)
+                                    * gates[.ellipsis, .newAxis])
+                                    .reshaped(1, 1, -1)
+                            )
+                        }
+                        func fusedProjection(_ attention: MLXArray, _ gates: MLXArray) -> MLXArray {
+                            lagunaGatedOutputProjection(
+                                attentionOutput: attention,
+                                gateValues: gates,
+                                weight: wo.weight,
+                                heads: nHeads
+                            )!
+                        }
+                        func compare(_ name: String, _ attention: MLXArray, _ gates: MLXArray) {
+                            let stock = stockProjection(attention, gates)
+                            let fused = fusedProjection(attention, gates)
+                            eval(stock, fused)
+                            let stockBits = stock.view(dtype: .uint16).asArray(UInt16.self)
+                            let fusedBits = fused.view(dtype: .uint16).asArray(UInt16.self)
+                            let mismatches = zip(stockBits, fusedBits).reduce(into: 0) {
+                                $0 += $1.0 == $1.1 ? 0 : 1
+                            }
+                            writeDiagnostic(
+                                "exactness case=\(name) elements=\(stockBits.count) mismatches=\(mismatches)"
+                            )
+                        }
+                        func median(_ values: [Double]) -> Double {
+                            let sorted = values.sorted()
+                            return sorted[sorted.count / 2]
+                        }
+                        func summarize(
+                            _ order: String,
+                            baseline: [Double],
+                            candidate: [Double]
+                        ) {
+                            let baselineMedian = median(baseline)
+                            let candidateMedian = median(candidate)
+                            let deltas = zip(baseline, candidate).map { $0.0 - $0.1 }
+                            let deltaMedian = median(deltas)
+                            let deltaMAD = median(deltas.map { abs($0 - deltaMedian) })
+                            writeDiagnostic(
+                                "micro order=\(order) samples=\(baseline.count) baseline_ms=\(baselineMedian) candidate_ms=\(candidateMedian) speedup=\(baselineMedian / candidateMedian) delta_ms=\(deltaMedian) delta_mad_ms=\(deltaMAD) above_2mad=\(deltaMedian > 2 * deltaMAD)"
+                            )
+                        }
+                        func measure(_ body: () -> MLXArray) -> Double {
+                            let start = DispatchTime.now().uptimeNanoseconds
+                            for _ in 0..<10 {
+                                eval(body())
+                            }
+                            return Double(DispatchTime.now().uptimeNanoseconds - start) / 10_000_000.0
+                        }
+
+                        eval(output, gate, wo.weight)
+                        writeDiagnostic(
+                            "reachable=true B=\(B) L=\(L) heads=\(nHeads) head_dim=\(headDim) fallback_preserved=true decode_excluded=true"
+                        )
+                        compare("real-h64", output, gate)
+
+                        let randomAttentionValues = (0..<(nHeads * headDim)).map {
+                            Float((($0 * 11_035 + 12_345) & 0xffff) - 32_768) / 4096
+                        }
+                        let randomGateValues = (0..<nHeads).map {
+                            Float((($0 * 25_173 + 13_849) & 0xffff) - 32_768) / 8192
+                        }
+                        let randomAttention = MLXArray(
+                            randomAttentionValues, [1, 1, nHeads * headDim]
+                        ).asType(.bfloat16)
+                        let randomGate = MLXArray(
+                            randomGateValues, [1, 1, nHeads]
+                        ).asType(.bfloat16)
+                        compare("random-finite", randomAttention, randomGate)
+
+                        let edges: [Float] = [
+                            0, -0.0, 1, -1, 0.5, -0.5,
+                            Float.leastNormalMagnitude, -Float.leastNormalMagnitude,
+                            9.18355e-41, -9.18355e-41, 3.0e38, -3.0e38,
+                        ]
+                        var edgeAttentionValues = Array(
+                            repeating: Float(0.25), count: nHeads * headDim
+                        )
+                        var edgeGateValues = Array(repeating: Float(1), count: nHeads)
+                        for (index, value) in edges.enumerated() {
+                            edgeAttentionValues[index * headDim] = value
+                            edgeGateValues[index] = value
+                        }
+                        let edgeAttention = MLXArray(
+                            edgeAttentionValues, [1, 1, nHeads * headDim]
+                        ).asType(.bfloat16)
+                        let edgeGate = MLXArray(
+                            edgeGateValues, [1, 1, nHeads]
+                        ).asType(.bfloat16)
+                        compare("finite-edges", edgeAttention, edgeGate)
+
+                        for _ in 0..<8 {
+                            eval(stockProjection(output, gate))
+                            eval(fusedProjection(output, gate))
+                        }
+                        var abBaseline: [Double] = []
+                        var abCandidate: [Double] = []
+                        var baBaseline: [Double] = []
+                        var baCandidate: [Double] = []
+                        for _ in 0..<25 {
+                            abBaseline.append(measure { stockProjection(output, gate) })
+                            abCandidate.append(measure { fusedProjection(output, gate) })
+                        }
+                        for _ in 0..<25 {
+                            baCandidate.append(measure { fusedProjection(output, gate) })
+                            baBaseline.append(measure { stockProjection(output, gate) })
+                        }
+                        summarize("AB", baseline: abBaseline, candidate: abCandidate)
+                        summarize("BA", baseline: baBaseline, candidate: baCandidate)
+                    }
                     return projection
                 }
             }
