@@ -399,6 +399,115 @@ prefetch path both add source.
 
 Receipt budget: 6 before dispatch, 5 after. Arm D spends exactly one.
 
+#### Receipt `59bd72a3-546c-466c-b65a-565fa1c8b865`
+
+Submitted commit `e33efe4e2f381f59d7b7dfb81944f02e11072ced`, dispatched
+14:49:36Z, terminal 15:08:59Z, M5 timestamp 14:56:31Z. Raw JSON:
+`research/r99d-logs/r99d-receipt.json`; fetcher `research/tanjiro-r99d-receipt.py`.
+
+**Correctness — PASSED, cleanly.**
+
+| gate | value |
+|---|---|
+| `passed_correctness` | `True` |
+| `error` | `''` (empty) |
+| `max_abs_diff` | `0` |
+| `checked_steps` / `case_count` / `num_layers` | 1344 / 11 / 40 |
+| `first_failing_case` / `_layer` / `_step` | all `None` |
+| `gpqa_ttft_passed` | `True`, 9/9, p50 0.08 s, observed 0.41 s, max 2.3 s |
+| `semantic_gpqa_passed` | `True`, 9/9 (judge `claude-opus-4-8`) |
+| `partial_result` | `False` |
+
+**Both floors — PASSED.**
+
+| axis | speedup | floor | verdict |
+|---|---|---|---|
+| decode | 2.8152245599 | 0.95 | `passed_decode_speedup_floor = True` |
+| prefill | 1.9728230912 | 0.95 | `passed_prefill_speedup_floor = True` |
+
+**Ranking — rejected on rank only.** `status = 'rejected'`,
+`rejectionReason = 'score did not improve current best'`, `improved = False`,
+`promotionStatus = null`. That is the *expected* outcome for a zero-delta
+anchor and it is orthogonal to the two gate blocks above.
+
+**Score identity re-derived from the receipt's own numbers**, not trusted:
+
+```
+decode_speedup  = 0.0138656975859375 / 0.0049252545546875  = 2.81522455986384  ✓
+prefill_speedup = 0.00037169059375   / 0.000188405435546875 = 1.97282309117628  ✓
+score = 2.81522455986384^0.75 * 1.97282309117628^0.25 = 2.57576843972168
+officialScore                                          = 2.57576843972168
+                                                  delta = +3.1e-15
+```
+
+`f = 4 · prefill_sec/tok ÷ decode_sec/tok`: candidate **0.153012**, baseline
+**0.107226**. Diagnostics behaved as documented: `bandwidth_gb_per_token = 0`
+with `bandwidth_source = 'ram_resident_model'`, all six expert-cache counters
+zero, `peak_ram_gb = 21` against `weights_byte_count = 21,568,891,382` over 9
+files. Session hashes: golden `be7738fc…`, harness `f9b5f986…`, weights
+`aff99430…`.
+
+### 4.8 What the anchor actually says — the frontier gave back our merit lead
+
+Raw `officialScore` is paired against a *same-session* baseline that drifts, so
+it cannot be differenced across sessions. The campaign's common-baseline
+re-score `cs` removes that. Its identity is a single constant:
+
+```
+ln cs = X - 0.75 ln cand_dec - 0.25 ln cand_pre
+X = -5.1831677111
+```
+
+I refitted `X` from five rows of the r93 table (spread 2.0e-7) and then
+**validated it against all 1185 receipts in `research/r93-runs/receipts-latest.json`:
+1185/1185 reconstruct, worst relative error 3.0e-08.** The conversion is exact,
+not approximate.
+
+| lineage | receipt | `cs` | frontier vs it |
+|---|---|---|---|
+| corpus merit leader (MyatKaung) | `fefaed88` | 2.591868 | **−0.6264 %** |
+| our best ever | `25e1f18e` | 2.590559 | **−0.5762 %** |
+| Arm R, the 4-deep lineage | `7ce1262d` | 2.589321 | **−0.5286 %** |
+| **frontier `c6c66344`, unmodified** | **`59bd72a3`** | **2.575633** | — |
+| ranked record holder (raw 2.616504) | `cc6ddc12` | 2.574594 | **+0.0404 %** |
+
+The last row is the result that should change what we do next. **The promoted
+frontier retains only +0.04 % of merit over the record holder's own snapshot.
+Arm R held +0.57 %.** Adopting the frontier did not cost us a fraction of our
+advantage over the record — it cost us essentially all of it. Our 1.0498 %
+raw-score deficit was never 1.05 % of engineering we had to invent; roughly
+half of it is code we already wrote, already proved correct on the M5, and then
+adopted away.
+
+Split of the −0.5286 % against Arm R, in the receipt's own units:
+
+| axis | Arm R | frontier | delta | weighted |
+|---|---|---|---|---|
+| decode s/tok | 0.004893711914 | 0.004925254555 | **+31.54 µs/step** (+0.6446 %) | ×0.75 = 0.4835 % |
+| prefill s/tok | 0.000188042725 | 0.000188405436 | +0.186 ms per 512 (+0.1929 %) | ×0.25 = 0.0482 % |
+| | | | | Σ 0.5317 % ≈ 0.5286 % |
+
+So the M5 confirms the M4 census's structural claim independently: the loss is
+**decode**, prefill is flat to within a fifth of a percent. Scale for future
+pricing: **1 % of `cs` = 65.67 µs/step of decode** at this operating point.
+
+**Cross-machine consistency.** The M4 census measured a net common-mode-corrected
+excess of **+20.17 µs/step**; the M5 shows **+31.54 µs/step**. Same sign, same
+order, M5 larger by 1.56×. For a per-kernel decode regression compared across
+two Apple GPU generations with different core counts, that is a good agreement —
+and it is the first time in this campaign that an M4 census delta has been
+checked against a paired M5 receipt at all.
+
+**Attribution closes to 81 %.** The three losses identified in §4.4 price at
+0.2358 % (r85-C float4 epilogue) + ≈0.13 % (r96-a 4-deep sliding) + 0.0628 %
+(router weight prefetch) = **0.4286 %**, against a measured **0.5286 %**. The
+residual ≈0.10 % is unattributed; it is within reach of the two prefill-side
+mechanisms the M4 cannot see, or of a fourth dropped change.
+
+Note that the note `research/CURRENT_RESEARCH_STATE.md` lists only **two** lost
+mechanisms. The float4 merge epilogue is a **third**, and it is the largest of
+the three. It was found by the census, not by reading the diff.
+
 ---
 
 ## Reply
@@ -450,8 +559,46 @@ Host-side scheduling and command-buffer overhead are excluded as explanations.
 Rule 68's two surviving hypotheses (SLC capacity, lost read-after-read
 overlap) now only need to explain **≈0.6–0.7 %**, not 1.05 % (§4.6).
 
-**Part 3:** receipt spent on the unmodified surface; verdicts reported
-separately (correctness, both floors, ranking status) as required.
+**Part 3:** receipt `59bd72a3-546c-466c-b65a-565fa1c8b865` spent on the
+unmodified `c6c66344` surface (§4.7). Verdicts, reported separately as
+required:
+
+- **Correctness PASSED.** `max_abs_diff = 0` over `checked_steps = 1344`,
+  11 cases, 40 layers, no `first_failing_*`, `partial_result = False`.
+  GPQA TTFT 9/9, semantic GPQA judge 9/9.
+- **Decode floor PASSED**, speedup **2.8152245599** (floor 0.95).
+- **Prefill floor PASSED**, speedup **1.9728230912** (floor 0.95).
+- **Ranking `rejected`**, reason `score did not improve current best`,
+  `improved = False`. This is a *rank-only* rejection: nothing failed.
+- `officialScore` **2.5757684397**, which reproduces
+  `decode^0.75 · prefill^0.25` to 3.1e-15.
+
+**And that receipt is the real headline (§4.8).** Putting every receipt on the
+common-baseline scale `cs` — refit on 5 r93 rows and then **validated against
+all 1185 receipts in the r93 corpus, 1185/1185, worst relative error
+3.0e-08** — gives:
+
+| lineage | receipt | `cs` | frontier vs it |
+|---|---|---|---|
+| corpus merit leader (MyatKaung) | `fefaed88` | 2.591868 | −0.6264 % |
+| our best ever | `25e1f18e` | 2.590559 | −0.5762 % |
+| Arm R (4-deep) | `7ce1262d` | 2.589321 | −0.5286 % |
+| **frontier `c6c66344`** | **`59bd72a3`** | **2.575633** | — |
+| ranked record holder | `cc6ddc12` | 2.574594 | **+0.0404 %** |
+
+**The promoted frontier retains only +0.04 % merit over the record holder's
+own snapshot. Arm R held +0.57 %. Adopting the frontier gave back essentially
+our entire merit lead**, and the three regressions above account for **81 %**
+of it (0.4286 of 0.5286 % vs Arm R; residual ≈0.10 %). The M5 split is decode
++31.54 µs/step (+0.6446 %, ×0.75 → 0.4835 %) and prefill +0.186 ms
+(+0.1929 %, ×0.25 → 0.0482 %), summing to 0.5317 % against 0.5286 % measured.
+My M4 census saw +20.17 µs/step where M5 sees +31.54 (ratio 1.56, same sign
+and order) — cross-machine agreement in direction, not magnitude.
+
+Useful conversion for future arms: **1 % of `cs` = 65.67 µs/step of decode**
+on M5. Also note the prefill price list needs revising — the old
+`0.3794 %/ms` assumed a 65.9 ms prefill total that no longer holds; the
+receipt gives **0.2592 %/ms** (and decode **0.015228 %/µs·step**).
 
 **Follow-ups I did not implement** (not in scope for arm D, which must not
 touch the submitted surface):
