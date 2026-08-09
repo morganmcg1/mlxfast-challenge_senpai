@@ -7200,24 +7200,59 @@ func lagunaRoutedDownReduce(
 /// signatures by name).
 let lagunaSharedFirstDownOrderEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_FIRST_DOWN"] == "1"
+let lagunaProducerRouteWeightingEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_PRODUCER_ROUTE_WEIGHTING"] != "0"
 
-private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
-    name: lagunaSharedFirstDownOrderEnabled
+private func makeLagunaRoutedSharedDownResidualKernel(
+    producerRouteWeighting: Bool
+) -> MLXFast.MLXFastKernel {
+    let baseName = lagunaSharedFirstDownOrderEnabled
         ? "laguna_routed_shared_nvfp4_down_residual_bf16_r3ceil_v1sf_bf4"
-        : "laguna_routed_shared_nvfp4_down_residual_bf16_r3ceil_v1_bf4",
-    inputNames: lagunaSharedFirstDownOrderEnabled
-        ? [
-            "shared_activated", "shared_down_weight", "shared_down_scales",
-            "routed_activated", "routed_down_weight", "routed_down_scales",
-            "indices", "router_weights", "residual",
-        ]
-        : [
-            "routed_activated", "routed_down_weight", "routed_down_scales",
-            "indices", "router_weights", "shared_activated",
-            "shared_down_weight", "shared_down_scales", "residual",
-        ],
-    outputNames: ["output"],
-    source: """
+        : "laguna_routed_shared_nvfp4_down_residual_bf16_r3ceil_v1_bf4"
+    let storeSource = producerRouteWeighting
+        ? """
+                    bfloat down_output =
+                        bfloat(result[row]\(lagunaNvfp4RowScaleSuffix));
+                    if (!is_shared) {
+                        down_output = bfloat(
+                            down_output * bfloat(router_weights[slot]));
+                    }
+                    down_outputs[slot * outputs_per_simd + row] = down_output;
+            """
+        : """
+                    down_outputs[slot * outputs_per_simd + row] =
+                        bfloat(result[row]\(lagunaNvfp4RowScaleSuffix));
+            """
+    let productSource = producerRouteWeighting
+        ? """
+                bfloat product = down_outputs[
+                    routed_slot * outputs_per_simd + lane
+                ];
+            """
+        : """
+                bfloat route_weight =
+                    bfloat(router_weights[routed_slot]);
+                bfloat product = bfloat(
+                    down_outputs[
+                        routed_slot * outputs_per_simd + lane
+                    ] * route_weight);
+            """
+
+    return MLXFast.metalKernel(
+        name: producerRouteWeighting ? "\(baseName)_producer_route_v1" : baseName,
+        inputNames: lagunaSharedFirstDownOrderEnabled
+            ? [
+                "shared_activated", "shared_down_weight", "shared_down_scales",
+                "routed_activated", "routed_down_weight", "routed_down_scales",
+                "indices", "router_weights", "residual",
+            ]
+            : [
+                "routed_activated", "routed_down_weight", "routed_down_scales",
+                "indices", "router_weights", "shared_activated",
+                "shared_down_weight", "shared_down_scales", "residual",
+            ],
+        outputNames: ["output"],
+        source: """
         constexpr uint input_width = 512;
         constexpr uint output_width = 2048;
         constexpr uint routed_experts = 8;
@@ -7279,8 +7314,7 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
         ];
         if (lane == 0) {
             for (uint row = 0; row < outputs_per_simd; ++row) {
-                down_outputs[slot * outputs_per_simd + row] =
-                    bfloat(result[row]\(lagunaNvfp4RowScaleSuffix));
+\(storeSource)
             }
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -7291,12 +7325,7 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
             for (uint routed_slot = 0;
                  routed_slot < routed_experts;
                  ++routed_slot) {
-                bfloat route_weight =
-                    bfloat(router_weights[routed_slot]);
-                bfloat product = bfloat(
-                    down_outputs[
-                        routed_slot * outputs_per_simd + lane
-                    ] * route_weight);
+\(productSource)
                 routed_total = bfloat(product + routed_total);
             }
             bfloat routed = bfloat(
@@ -7308,9 +7337,15 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
                 bfloat(residual[first_row + lane] + r2);
         }
         """,
-    header: lagunaSharedSwiGLUQMVHeader,
-    ensureRowContiguous: true
-)
+        header: lagunaSharedSwiGLUQMVHeader,
+        ensureRowContiguous: true
+    )
+}
+
+private let lagunaRoutedSharedDownResidualControlKernel =
+    makeLagunaRoutedSharedDownResidualKernel(producerRouteWeighting: false)
+private let lagunaRoutedSharedDownResidualProducerKernel =
+    makeLagunaRoutedSharedDownResidualKernel(producerRouteWeighting: true)
 
 func lagunaRoutedSharedDownResidual(
     routedActivated: MLXArray,
@@ -7321,7 +7356,8 @@ func lagunaRoutedSharedDownResidual(
     sharedActivated: MLXArray,
     sharedDownWeight: MLXArray,
     sharedDownScales: MLXArray,
-    residual: MLXArray
+    residual: MLXArray,
+    producerRouteWeighting: Bool = lagunaProducerRouteWeightingEnabled
 ) -> MLXArray {
     precondition(routedActivated.dtype == .bfloat16)
     precondition(
@@ -7379,8 +7415,11 @@ func lagunaRoutedSharedDownResidual(
             sharedDownWeight, sharedDownScales, residual,
         ]
 
+    let kernel = producerRouteWeighting
+        ? lagunaRoutedSharedDownResidualProducerKernel
+        : lagunaRoutedSharedDownResidualControlKernel
     let groups = (LagunaConstants.hiddenSize + 2) / 3
-    return lagunaRoutedSharedDownResidualKernel(
+    return kernel(
         inputs,
         grid: (groups * 288, 1, 1),
         threadGroup: (288, 1, 1),
