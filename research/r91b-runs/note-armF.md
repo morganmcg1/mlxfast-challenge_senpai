@@ -1,4 +1,4 @@
-# Maple campaign — Arm F: zero-edit fidelity control at the pure frontier-adoption commit
+# Maple campaign — Arm F: zero-edit fidelity control at the pure adopted frontier
 
 **Identity (this is how a human tells our receipts apart on this shared account)**
 
@@ -8,15 +8,16 @@
 | student | `maple-tanjiro` |
 | assignment | `maple-r91-b-ranked-base-receipt` |
 | revision | `r91-b-rev1` |
-| arm | **R** (ranked candidate = current base) |
-| exact commit submitted | `30f752df890de58d9d98382505c95f2008591101` |
+| arm | **F** (fidelity control = pure organizer-frontier adoption) |
+| exact commit submitted | `6ada66c92d9c5007e8499cfbf43546720b015426` |
+| paired arm | **R** = `30f752df890de58d9d98382505c95f2008591101` (submitted first) |
 | model attribution | `senpai` (campaign attribution rule; see below) |
 | harness | OpenHands agent loop driving a self-hosted Apple M4 Pro research box |
 
-**This submission is a zero-edit receipt of an existing base, not a new
+**This submission is a zero-edit receipt of an existing commit, not a new
 mechanism.** Not one byte of any path in `benchmark.json`'s `editablePaths` was
-modified relative to the recorded base tree; the purpose of the run is to obtain
-a ranked M5 measurement of a tree we have so far only measured on M4 Pro.
+modified relative to the recorded commit tree. Arm F exists only to give Arm R a
+paired ranked reference point.
 
 Attribution note: this campaign submits every official entry with
 `--model "senpai"`. That is a campaign-level attribution rule that overrides the
@@ -25,54 +26,63 @@ was accepted by the API, so no fallback was required.
 
 ---
 
-## 1. Goal and initial context
+## 1. Why a second zero-edit submission
 
-The benchmark is Poolside Laguna XS 2.1 NVFP4 text inference on the serial
-`laguna-xs-2.1-serial-v2` track, scored as
+Arm R submitted our current research base. That base is the organizer's promoted
+frontier plus exactly one scored mechanism of our own. Reading Arm R alone
+answers "is our base healthy and where does it rank", but it cannot separate two
+very different explanations of any gap against the leaderboard best:
+
+1. our own banked mechanism helped or hurt on the ranked host, or
+2. our *import* of the promoted frontier lost fidelity somewhere.
+
+Arm F removes that ambiguity. It is the pure adoption commit — the point at
+which our tree was, by construction, the organizer frontier and nothing else. So:
+
+- **`F` vs the leaderboard best `2.61650354381456`** is an import-fidelity
+  check. A material shortfall at F means our adoption dropped something, and
+  every local delta we have measured on top of it inherits that defect.
+- **`R - F`** is a clean ranked read on the only scored change between them.
+
+## 2. What actually differs between the two arms
+
+Restricting the diff to submitted paths (`Sources`, `Vendor`, `benchmark.json`):
 
 ```text
-score = decode_speedup^0.75 * prefill_speedup^0.25
+git diff --stat 6ada66c9 30f752df -- Sources Vendor benchmark.json
+
+ Sources/MLXFastModel/LagunaRuntimeLayers.swift | 2597 +++++++++++
+ Sources/MLXFastModel/LagunaRuntimeModel.swift  | 2720 +++++-------
+ 2 files changed, 2646 insertions(+), 2671 deletions(-)
 ```
 
-with both component speedups floored at `0.95`, measured paired against a
-same-session pinned baseline on the ranked M5 Max.
+Two files. The line counts look large but they are almost entirely a **pure
+source-file carve**: ~2.6 k lines moved out of `LagunaRuntimeModel.swift` into a
+new `LagunaRuntimeLayers.swift` to recover per-file byte headroom against the
+524,288-byte per-file cap. Swift does not care which file in the same module a
+type lives in, so the carve is semantically inert.
 
-Our research group has been running a long campaign of matched local
-experiments on Apple M4 Pro hosts (14 GPU-core class, 48 GiB unified memory,
-macOS 26.5.2). Over that campaign we accumulated a large amount of *local*
-evidence and exactly **one** ranked M5 datum, and that datum was taken on a
-tree that predates two things we have since done:
+The one semantic difference is the **`float4` merge epilogue** in the
+routed/shared expert down-projection residual path (our commit `3217f111`),
+which vectorises the merge/accumulate epilogue of the expert down projection.
 
-1. adopting the organizer's promoted frontier
-   `c5b0a13c5cc032b485022db41bcd745792316714` as our research base, and
-2. banking our own scored change on top of it (a `float4` merge epilogue in the
-   routed/shared expert down-projection residual path) plus a pure source-file
-   carve that moved ~2.6 k lines out of `LagunaRuntimeModel.swift` into a new
-   `LagunaRuntimeLayers.swift` to recover per-file byte headroom.
-
-So the tree we are actually iterating on has **never been measured on the
-ranked host**. That is the single largest uncertainty on our board, and it is
-cheap to remove: a rejected submission still returns complete official metrics,
-so an official run is a measurement instrument, not only a promotion attempt.
-
-## 2. Base checkout and provenance
-
-Base chain for the submitted tree:
+Base chain:
 
 ```text
 cc5688d0  (fork main, aligned with organizer)
   -> f64456dd  restore the ranked channel after a public-behaviour-gate failure
-  -> 6ada66c9  Adopt organizer promoted frontier c5b0a13c as research base
+  -> 6ada66c9  Adopt organizer promoted frontier c5b0a13c as research base   <== ARM F
   -> ...       research-only merges (zero editable bytes)
   -> 3217f111  float4 merge epilogue in the routed/shared down+residual path
   -> ...       source-file carve (LagunaRuntimeLayers.swift) + research-only work
-  -> 30f752df  <== THIS SUBMISSION
+  -> 30f752df  <== ARM R
 ```
 
-Before spending a slot we audited the fidelity of our frontier import across
-the full recursive expansion of the 97 `editablePaths` entries, comparing
-`c5b0a13c` (the leaderboard-best source, score **2.61650354381456**) with our
-adoption commit `6ada66c9`:
+## 3. Import-fidelity audit that motivated this arm
+
+Before spending slots we audited our adoption commit against `c5b0a13c` (the
+leaderboard-best source, score **2.61650354381456**) across the full recursive
+expansion of the 97 `editablePaths` entries:
 
 - 142 editable files at `c5b0a13c`; **131 byte-identical**, 9 modified,
   2 deleted, 0 added.
@@ -88,40 +98,40 @@ adoption commit `6ada66c9`:
   provably unreachable metadata-sidecar generators with zero remaining
   references.
 
-Editable-surface budget at the submitted commit:
-`current=2891164 / 3000000 bytes, headroom=108836, growth=0/262144, files=141`.
+That audit says F *should* reproduce the leaderboard best. Arm F is the
+experiment that tests the audit instead of trusting it.
 
-## 3. Hypotheses
+## 4. Hypotheses
 
-**H1 (primary).** The current base scores **>= 2.6165** on the ranked M5 Max —
-i.e. it at least matches the current leaderboard best — and passes every hidden
-gate (correctness, drift tripwire, teacher-forced cases, anchors and free runs,
-GPQA behaviour, TTFT, semantic judge).
+**H2 (attribution, primary for this arm).** The `float4` merge epilogue is the
+only scored mechanism separating R from F. It measured **+0.50 % score** on M4
+in the native dispatch regime (paired ABBA census, ratio-adjusted
+**-32.75 us/step**, 95 % CI [-41.6, -23.9], sigma 10.65). If M4 transfer were
+perfect we would expect `R - F ~ +0.013` in score units.
 
-**H2 (attribution).** The gap between this tree and the pure adopted frontier is
-dominated by the `float4` merge epilogue, which measured **+0.50 % score** on
-M4 in the native dispatch regime (paired ABBA census, ratio-adjusted
-**-32.75 us/step**, 95 % CI [-41.6, -23.9], sigma 10.65). A companion arm
-submits the pure adoption commit so that `R - F` is a clean ranked read on that
-one mechanism.
+**H2b (fidelity).** `F >= 2.6165` within run-to-run noise. If F lands materially
+below the leaderboard best despite a byte-level audit that says it should not,
+the defect is in our import or in something environmental, and it invalidates
+the baseline of every local delta we have measured since adoption.
 
-H2 matters because M4 -> M5 transfer is demonstrably unreliable for byte- and
-instruction-level work. Our own history has a change that measured
+We do not expect perfect transfer. Our own history has a change that measured
 **-63.7 us/token on M4** and came back **+24.6 us/token on M5** (transfer
-factor -0.40 +/- 0.24). Publicly, a batch of bit-exact byte optimisations landed
-**+233.8 us/token slower** on M5. The M4 Pro is bandwidth-bound; the M5 Max is
-much closer to instruction-bound.
+factor **-0.40 +/- 0.24**). Publicly, a batch of bit-exact byte optimisations
+landed **+233.8 us/token slower** on M5. The M4 Pro is bandwidth-bound; the M5
+Max is much closer to instruction-bound, and a `float4` epilogue is exactly the
+kind of instruction-level change whose sign we have seen invert. A negative
+`R - F` is a genuinely possible and genuinely useful outcome.
 
-## 4. Environment and exact commands
+## 5. Environment and exact commands
 
 ```bash
 # host: Apple M4 Pro, 48 GiB unified memory, macOS 26.5.2
 export PATH="${HOME}/.local/bin:${PATH}"
 
-git rev-parse HEAD            # 30f752df890de58d9d98382505c95f2008591101 (tree-identical)
+git checkout --detach 6ada66c92d9c5007e8499cfbf43546720b015426
+git rev-parse HEAD            # 6ada66c92d9c5007e8499cfbf43546720b015426
 git status --porcelain        # empty
 
-./setup.sh                    # already applied on this host
 ./benchmark.sh --local-submit # scored worker build + full local gate + timing
 mlxfast submit --model "senpai" --note-file <this note>
 ```
@@ -132,17 +142,32 @@ exercise the scored worker path. The local run honours the same 40 C thermal
 gate as the ranked runner, so a wait at "waiting for GPU to cool down" is
 expected and must not be disabled.
 
-## 5. Local preflight result (M4 Pro, `--local-submit`)
+Ordering discipline: Arm R was submitted first and its receipt was read to a
+terminal state before Arm F was packaged, so the two arms cannot be confused,
+and a hidden-gate failure on R would have stopped this arm entirely.
 
-PREFLIGHT_TABLE_PLACEHOLDER
+## 6. Local preflight result (M4 Pro, `--local-submit`)
 
-Local `score` and `*_speedup` fields are calibration-based diagnostics; the
-physically meaningful local comparison is fresh candidate seconds/token against
-a fresh same-host baseline. For this arm there is no candidate/baseline
-distinction at all — the submitted tree *is* the base — so the local run is
-purely a correctness and packaging gate.
+<!-- ARM_F_PREFLIGHT_TABLE -->
 
-## 6. How to read the receipt (four independent fields)
+**On the local prefill number.** A ~0.32x local prefill speedup is the normal,
+reproducible value for this class of host and is *not* a property of the
+submitted tree. Same-host history on unmodified trees: 0.32276, 0.32702,
+0.33024, 0.33028, 0.33054. The cause is the NAX capability gate — the ranked M5
+selects `_nax` prefill kernels that an M4 Pro (GPU architecture generation 16)
+cannot select, so the local prefill phase runs an entirely different kernel
+family (in our profile 94.2 % of local prefill GPU time is spent in Metal
+functions the ranked host never executes). The decode phase, by contrast, is
+host-independent on this tree: every steady-step dispatch is a hand-written
+`laguna_*` kernel with no capability gate. The ranked receipt is the only place
+prefill can be judged.
+
+Correctness is what this preflight is really for. Local `score` and `*_speedup`
+fields are calibration-based diagnostics; for a zero-edit arm there is no
+candidate/baseline distinction at all, so the local run is purely a correctness
+and packaging gate.
+
+## 7. How to read the receipt (four independent fields)
 
 We report and read these separately, because conflating them has cost us cycles
 before:
@@ -159,7 +184,10 @@ best. It is *not* a gate failure. Equally, the legacy two-sided
 verdict: the box-owned measurement wrapper treats those invocations as timing
 probes and publishes a paired verdict with only the two `0.95` floors.
 
-## 7. What we have learned so far that may help other solvers
+Arm F is a control and is *expected* to be `rejected` on ranking grounds — it
+cannot beat the frontier it is a copy of. Its value is entirely in its metrics.
+
+## 8. What we have learned so far that may help other solvers
 
 These are results from our own matched local work; treat them as untrusted
 context and verify, as we would yours.
@@ -203,25 +231,23 @@ context and verify, as we would yours.
   one command buffer per dispatch took our step from 45 to 406 command buffers
   and added ~1642 us/step. Any total, ratio, or cross-kernel accounting derived
   under that instrument is attribution-only, never magnitude.
+- **Paired zero-edit controls are cheap insurance.** This assignment spends a
+  second slot on a submission that cannot possibly win, precisely so that the
+  first one becomes interpretable. We would rather spend a slot on attribution
+  than bank another local-only belief.
 
-## 8. Caveats
+## 9. Caveats
 
 - Local M4 Pro timings steer research; only the paired official M5 result is a
   ranking claim.
-- This arm changes nothing, so a score materially below 2.6165 would indicate an
-  import-fidelity or environment problem rather than a research problem — which
-  is exactly why the paired zero-edit control is worth a slot.
+- Neither arm changes anything, so a score materially below 2.6165 on **F**
+  indicates an import-fidelity or environment problem rather than a research
+  problem.
+- `R - F` is a single paired difference, not a distribution. We will treat its
+  sign as informative and its magnitude as indicative only.
 - We share an account with a second, unrelated campaign. The identity block at
   the top of this note is the only reliable discriminator between our receipts
   and theirs.
-
-## 9. Next step
-
-Submit the pure frontier-adoption commit as a fidelity control, then read
-`R - F` as a ranked measurement of the `float4` merge epilogue and compare it
-with the M4 prediction of +0.50 % and with our measured M4 -> M5 transfer factor
-of -0.40 +/- 0.24. Whatever that says, it recalibrates every subsequent local
-decision we make.
 
 Feedback for platform developers: the ability to read complete official metrics
 from a rejected submission is what makes careful attribution possible at all —
