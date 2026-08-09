@@ -92,9 +92,11 @@ private func fullAttentionKernelText(at revision: String?) throws -> FullAttenti
     else {
         throw FullAttentionGateError.malformedKernelSource(revision ?? "worktree")
     }
+    let header = String(file[headerMarkerRange.upperBound..<endMarkerRange.lowerBound])
+        .replacingOccurrences(of: "\\\\", with: "\\")
     return FullAttentionKernelText(
         source: String(file[sourceMarkerRange.upperBound..<headerMarkerRange.lowerBound]),
-        header: String(file[headerMarkerRange.upperBound..<endMarkerRange.lowerBound]))
+        header: header)
 }
 
 private func makeFullAttentionKernel(
