@@ -134,7 +134,41 @@ expected and must not be disabled.
 
 ## 5. Local preflight result (M4 Pro, `--local-submit`)
 
-PREFLIGHT_TABLE_PLACEHOLDER
+`./benchmark.sh --local-submit`, `runtime = swift-local-submit`,
+`checked_tokens = 1025`, `decode_steps = 1023`, one repeat, 40 C thermal gate
+active, wall 145.2 s of which 9.7 s is measured:
+
+| field | value |
+| --- | --- |
+| `passed` | **true** |
+| `passed_correctness` | **true** |
+| `checked_steps` | 1025 |
+| `max_abs_diff` | **0** |
+| `first_failing_step` | `null` |
+| `golden_hash` | `f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2` |
+| `harness_hash` | `95134dc013da71009bf32130d7e86cfa412e0897b13728038015a5b2d656801c` |
+| `weights_hash` | `aff994300573c5e8589563fc9ff57cdcfb1ef9b49e14898be290a75a6b294b3d` (9 files, 21,568,891,382 B) |
+| `decode_seconds_per_token` | 0.0089094636686217 |
+| `decode_speedup` (local, calibration constants) | 1.5552240488904552 — floor **passed** |
+| `prefill_seconds_per_token` | 0.001139123126953125 |
+| `prefill_speedup` (local, calibration constants) | 0.32263359461692304 — floor **not** met *locally* |
+| local est. score | 1.0495958845108804 |
+| `peak_ram_gb` | 21 |
+
+**On the local prefill number.** A ~0.32x local prefill speedup is the normal,
+reproducible value for this class of host and is *not* a property of the
+submitted tree. Same-host history on unmodified trees: 0.32276, 0.32702,
+0.33024, 0.33028, 0.33054. The cause is the NAX capability gate — the ranked M5
+selects `_nax` prefill kernels that an M4 Pro (GPU architecture generation 16)
+cannot select, so the local prefill phase runs an entirely different kernel
+family (in our profile 94.2 % of local prefill GPU time is spent in Metal
+functions the ranked host never executes). The decode phase, by contrast, is
+host-independent on this tree: every steady-step dispatch is a hand-written
+`laguna_*` kernel with no capability gate. The ranked receipt is the only place
+prefill can be judged.
+
+Correctness is what this preflight is really for, and it is unambiguous:
+`max_abs_diff = 0` over all 1025 checked steps with `passed_correctness = true`.
 
 Local `score` and `*_speedup` fields are calibration-based diagnostics; the
 physically meaningful local comparison is fresh candidate seconds/token against
