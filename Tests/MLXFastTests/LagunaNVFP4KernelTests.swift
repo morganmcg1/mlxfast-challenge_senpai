@@ -229,69 +229,15 @@ func routedSharedDownRouterWeightBroadcastMatchesBaselineBitsWhenRuntimeTestsAre
         return
     }
 
-    let candidateEpilogue = """
-        if (slot == 0) {
-            bfloat routed_total = bfloat(0);
-            for (uint routed_slot = 0;
-                 routed_slot < routed_experts;
-                 ++routed_slot) {
-                ushort route_weight_bits = lane == 0
-                    ? as_type<ushort>(bfloat(router_weights[routed_slot]))
-                    : ushort(0);
-                route_weight_bits =
-                    simd_broadcast(route_weight_bits, ushort(0));
-                if (lane < outputs_per_simd) {
-                    bfloat route_weight =
-                        as_type<bfloat>(route_weight_bits);
-                    bfloat product = bfloat(
-                        down_outputs[
-                            routed_slot * outputs_per_simd + lane
-                        ] * route_weight);
-                    routed_total = bfloat(product + routed_total);
-                }
-            }
-            if (lane < outputs_per_simd) {
-                bfloat routed = bfloat(
-                    routed_total * bfloat(2.5f));
-                bfloat shared =
-                    down_outputs[shared_slot * outputs_per_simd + lane];
-                bfloat r2 = bfloat(routed + shared);
-                output[first_row + lane] =
-                    bfloat(residual[first_row + lane] + r2);
-            }
-        }
-        """
-    let baselineEpilogue = """
-        if (slot == 0 && lane < outputs_per_simd) {
-            bfloat routed_total = bfloat(0);
-            for (uint routed_slot = 0;
-                 routed_slot < routed_experts;
-                 ++routed_slot) {
-                bfloat route_weight =
-                    bfloat(router_weights[routed_slot]);
-                bfloat product = bfloat(
-                    down_outputs[
-                        routed_slot * outputs_per_simd + lane
-                    ] * route_weight);
-                routed_total = bfloat(product + routed_total);
-            }
-            bfloat routed = bfloat(
-                routed_total * bfloat(2.5f));
-            bfloat shared =
-                down_outputs[shared_slot * outputs_per_simd + lane];
-            bfloat r2 = bfloat(routed + shared);
-            output[first_row + lane] =
-                bfloat(residual[first_row + lane] + r2);
-        }
-        """
     let candidateSource = lagunaRoutedSharedDownResidualSource(
         sharedHalved: true,
-        staged: true
+        staged: true,
+        routerWeightBroadcast: true
     )
-    try #require(candidateSource.components(separatedBy: candidateEpilogue).count == 2)
-    let baselineSource = candidateSource.replacingOccurrences(
-        of: candidateEpilogue,
-        with: baselineEpilogue
+    let baselineSource = lagunaRoutedSharedDownResidualSource(
+        sharedHalved: true,
+        staged: true,
+        routerWeightBroadcast: false
     )
 
     let inputNames = [
