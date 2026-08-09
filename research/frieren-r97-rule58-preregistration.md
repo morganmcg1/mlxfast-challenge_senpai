@@ -258,6 +258,44 @@ or the ~4 h budget is exhausted, and report which.
 - I will not delete the injection block.
 - One model-holding process at a time; 40 C thermal gate honoured on every run.
 
+## 6b. Stage-0-informed amendment (registered before any Stage 1 run)
+
+Stage 0 is complete and both terminal gates pass
+(`research/r97-runs/stage0/`, `gates.json`). Three design changes follow from
+it, registered here before the primary measurement starts:
+
+1. **Rungs become `{0, 10, 20, 40}`** (was `{0, 8, 16, 32}`). Calibration came
+   in at 2.392 ms per injected matmul, so rung 40 injects 95.7 ms, a predicted
+   +747 us/step on decode and +187 us/token on prefill. That is a ~6% move on
+   `decode_seconds_per_token` and a ~17% move on `prefill_seconds_per_token`
+   against a between-run scatter of order 0.1%, and it widens the lever arm of
+   the slope without lengthening the ladder.
+2. **Three estimators are reported, not one.** Stage 0 found a small
+   (~-25 us/step) offset in the steady single-token step time that appears at
+   *any* non-zero rung and does *not* scale with the rung (-25.2 us at rung 8
+   versus -26.2 us at rung 32, where a leak would predict a 4x ratio). It is
+   also *negative*, so it cannot be injected work leaking into decode steps.
+   To make the headline number immune to it, I report (a) slope through the
+   origin, (b) **OLS with a free intercept — the primary estimator**, and
+   (c) the slope restricted to non-zero rungs. Any fixed rung-0-vs-rung>0
+   offset is absorbed by (b) and differenced out by (c).
+3. **The within-run identity is promoted to the primary result.** Each
+   `--local-iterate` run logs both `decode seed prefill complete seconds=` and
+   the final `mean_step_seconds=`, so per run I can form
+   `implied_seed = 128*D - 128*T_bar` and compare it to the independently
+   measured 512-token prefill window `512*P`. Under H58 that ratio is ~1;
+   under H0 it is ~0. This needs no injection at all, is measured inside a
+   single run (so it cannot be confounded by drift between runs), and at rung 0
+   the Stage 0 numbers already predict D = 12.52 ms/step under H58 versus
+   8.25 ms/step under H0 — a 52% split that no timing noise can bridge. The
+   injection ladder is retained as the *causal* confirmation: the identity says
+   the seed time is inside D, the ladder proves D *responds* to prefill-only
+   work at exactly the predicted gain.
+
+Gate 0a is re-run inside Stage 1 for free: `mean_step_seconds` is logged per
+run, so the same "does prefill-only work leak into single-token steps?" test is
+repeated at four rungs through the trusted harness itself.
+
 ## 7. W&B
 
 Project `mlxfast-maple`, entity `wandb-applied-ai-team`. One run per rung plus a

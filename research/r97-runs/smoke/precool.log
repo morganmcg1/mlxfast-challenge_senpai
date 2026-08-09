@@ -1,0 +1,1 @@
+benchmark.sh: GPU cool-down gate passed (current 39.7C, target <=40C, waited 0s)

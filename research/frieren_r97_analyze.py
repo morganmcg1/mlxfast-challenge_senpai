@@ -131,16 +131,71 @@ def slope_through_origin(pairs):
     return num / den if den else float("nan")
 
 
-def block_bootstrap(pairs, reps=4000, seed=93):
-    blocks = sorted({b for b, _, _, _ in pairs})
-    by_block = {b: [p for p in pairs if p[0] == b] for b in blocks}
+def est_origin(runs):
+    """(a) slope through the origin on within-block deltas against rung 0."""
+    return slope_through_origin(paired_deltas(runs))
+
+
+def est_free_intercept(runs):
+    """(b) PRIMARY. OLS of D on P with a free intercept.
+
+    Any fixed offset that appears at every non-zero rung but does not scale
+    with the rung -- Stage 0 found one worth about -25 us/step -- lands in the
+    intercept instead of biasing the slope.
+    """
+    n = len(runs)
+    if n < 2:
+        return float("nan")
+    mp = statistics.mean(r["P"] for r in runs)
+    md = statistics.mean(r["D"] for r in runs)
+    den = sum((r["P"] - mp) ** 2 for r in runs)
+    if not den:
+        return float("nan")
+    return sum((r["P"] - mp) * (r["D"] - md) for r in runs) / den
+
+
+def est_nonzero_only(runs):
+    """(c) slope among non-zero rungs only, differenced against the lowest."""
+    sel = [r for r in runs if r["rung"] > 0]
+    if not sel:
+        return float("nan")
+    lo = min(r["rung"] for r in sel)
+    ref = {}
+    for r in sel:
+        if r["rung"] == lo:
+            ref.setdefault(r["block"], []).append(r)
+    pairs = []
+    for r in sel:
+        if r["rung"] == lo or r["block"] not in ref:
+            continue
+        b = ref[r["block"]]
+        pairs.append((r["block"], r["rung"],
+                      r["P"] - statistics.mean(x["P"] for x in b),
+                      r["D"] - statistics.mean(x["D"] for x in b)))
+    return slope_through_origin(pairs) if pairs else float("nan")
+
+
+ESTIMATORS = {
+    "free_intercept_ols": est_free_intercept,
+    "through_origin": est_origin,
+    "nonzero_rungs_only": est_nonzero_only,
+}
+PRIMARY = "free_intercept_ols"
+
+
+def block_bootstrap(runs, estimator, reps=4000, seed=93):
+    """Resample whole blocks with replacement; a block is the unit of drift."""
+    blocks = sorted({r["block"] for r in runs})
+    by_block = {b: [r for r in runs if r["block"] == b] for b in blocks}
     rng = random.Random(seed)
     draws = []
     for _ in range(reps):
         sample = []
-        for _ in blocks:
-            sample += by_block[rng.choice(blocks)]
-        s = slope_through_origin(sample)
+        for k, b in enumerate(blocks):
+            # Relabel so paired differencing still works after resampling.
+            for r in by_block[rng.choice(blocks)]:
+                sample.append({**r, "block": k})
+        s = estimator(sample)
         if s == s:
             draws.append(s)
     draws.sort()
@@ -211,12 +266,18 @@ def main():
         print(f"{rung:5d} {len(sel):3d} {dm:10.1f} {pm:10.2f} "
               f"{dm-d0:9.1f} {pm-p0:8.2f} {ratio:7.3f}")
 
-    pairs = paired_deltas(runs)
-    R = slope_through_origin(pairs)
-    lo, hi = block_bootstrap(pairs, reps=args.reps, seed=args.seed)
+    estimates = {}
+    print(f"\n{'estimator':>20} {'R':>8} {'CI low':>9} {'CI high':>9} {'half-width':>11}")
+    for name, fn in ESTIMATORS.items():
+        r = fn(runs)
+        l, h = block_bootstrap(runs, fn, reps=args.reps, seed=args.seed)
+        estimates[name] = {"R": r, "ci_low": l, "ci_high": h}
+        print(f"{name:>20} {r:8.3f} {l:9.3f} {h:9.3f} {(h-l)/2:11.3f}"
+              + ("   <- PRIMARY" if name == PRIMARY else ""))
+
+    R = estimates[PRIMARY]["R"]
+    lo, hi = estimates[PRIMARY]["ci_low"], estimates[PRIMARY]["ci_high"]
     half = (hi - lo) / 2
-    print(f"\nprimary: R = {R:.3f}  95% block-bootstrap CI [{lo:.3f}, {hi:.3f}]"
-          f"  half-width {half/R*100 if R else float('nan'):.1f}% of R")
 
     verdict = {
         "contains_prediction": lo <= predicted <= hi,
@@ -237,6 +298,9 @@ def main():
                 "runs": runs, "predicted_R": predicted,
                 "per_rung": {str(k): v for k, v in per_rung.items()},
                 "R": R, "ci_low": lo, "ci_high": hi,
+                "primary_estimator": PRIMARY, "estimators": estimates,
+                "within_run_implied_over_window": (
+                    statistics.mean(rat) if decomp else None),
                 "verdict": verdict, "pass": passed,
             }, fh, indent=2)
     return 0
