@@ -308,7 +308,84 @@ ship is ~13 % of the gap.
 
 ---
 
-## 5. Full-attention drain — designed, order-preserving, not shipped here
+### 4.6 An independent frontier review disagreed, and was measured against
+
+Before the screen was read, an independent frontier-model review of the R2
+design was commissioned with no access to this conversation. It recommended
+**deprioritising** R2: `P(≥5 % kernel win) ≈ 10 %`, expected `+0.5–2 %`,
+`P(regression) ≈ 20–25 %`, on the grounds that an issue-slot census of the KV
+loop shows ~95–100 % issue saturation, so there is little stall to hide.
+
+The measurement came in **at or above the optimistic end of that prior**
+(−3.0 % in the single-wave regime), so the prior is superseded rather than
+confirmed — but two of its points survive and are worth recording:
+
+* It independently derived the same M5 transfer argument from first principles:
+  *"conclusions transfer to the ranked M5 Max (32 TGs / 40 cores = single-wave
+  K=20 regime)."* That agreement was reached without seeing §4.4.
+* Its highest-EV alternative — a simdgroup-uniform branch skipping the ~18
+  always-executed rescale multiplies per trip — is a genuinely separate
+  mechanism and is listed as a follow-up in §7, not folded into this arm.
+
+One premise in that review is **wrong** and should not be propagated: it assumed
+the eight V loads are scalar. `T_LOAD_V` already issues a single vectorized
+`vec<bfloat,4>` load, as does `T_LOAD_K`.
+
+---
+
+## 5. Correctness gates
+
+### 5.1 Kernel-level bit-exactness
+
+§4.1: 20 configurations, every lane bitwise-equal, `maxUlpDiff = 0`.
+
+### 5.2 Upstream-equivalence oracle, with a base control
+
+Run through `research/run_upstream_equivalence.sh` (bare test filter,
+`--no-parallel`, zero tolerance).
+
+The candidate reports `EQUIVALENCE_EXIT=1`, `EQUIVALENCE_EXACT_STEPS=8`:
+
+| step | `maximumAbsoluteLogitError` | runtime token | upstream token |
+|---|---|---|---|
+| prefill | **0.125** (mean 0.011933609) | 5991 | 5991 ✓ |
+| decode-0 … decode-7 | **0** (all eight) | — | all ✓ |
+
+Every greedy token matches upstream, including prefill. The only failure is the
+zero-tolerance *logit* check on prefill.
+
+**This is pre-existing M4 host drift, not R2.** Following the AGENTS.md rule
+("if a non-M5 host disagrees with a public golden, test the unchanged base"),
+the identical gate was run on a scratch branch holding the **unchanged base**
+Swift file. The two oracle reports are **byte-identical**:
+
+```
+diff /tmp/eq_base.json /tmp/eq_cand.json   # no output; 69 lines each
+```
+
+Same prefill `0.125` / `0.011933609`, same eight exact decode steps, same tokens
+throughout. The report is archived at
+`research/nezuko-r96a-equivalence-report.json`.
+
+**Mechanically, R2 cannot touch prefill.** The kernel is dispatched only under
+
+```swift
+values.dims(1, 1, nKVHeads * headDim)   // L == 1
+```
+
+— a single-token guard, and the wrapper is documented "Fused **decode**
+attention for a sliding layer in the steady ring regime." Prefill runs at
+L = 512 and never reaches the modified source string. The 4-deep change is
+therefore invisible to prefill by construction, which is exactly what the
+byte-identical control shows.
+
+Net: **the candidate is numerically indistinguishable from the base on the
+oracle**, and no new drift is introduced. `MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT`
+was *not* used; the control was run instead.
+
+---
+
+## 6. Full-attention drain — designed, order-preserving, not shipped here
 
 `laguna_full_fused_attn_grow_v1` has a character-identical main loop plus a tail
 (`if (i < N)`, one leftover row) because its `N` is dynamic. The 4-deep drain is:
@@ -326,7 +403,30 @@ mechanism at one call site under measurement; it is a clean follow-up.
 
 ---
 
-## 6. Scope discipline
+## 7. Follow-ups I did not implement
+
+Ordered by expected value; none folded into this arm, per one-mechanism-per-arm.
+
+1. **Full-attention 4-deep drain** (§6). ≈ −2.9 µs/step, ≈ +0.04 % score.
+   Design is proven order-preserving; needs the generator extended to the second
+   loop (scope edits by line range — the two loops are character-identical) and
+   a bit-exactness screen for the dynamic-`N` tail.
+2. **Simdgroup-uniform rescale skip.** The frontier review's estimate: ~18
+   always-executed rescale multiplies per trip, ~12 % of loop instructions.
+   Must preserve exact FMA contraction, so it is *not* obviously bit-exact and
+   needs the oracle plus goldens, not just an ABBA screen.
+3. **Deeper pipelines.** `maxTotalThreadsPerThreadgroup` stayed at 1024 at
+   depth 4, so depth 8 is not obviously register-illegal. Reflection is free —
+   check before timing.
+4. **Full-attention params memoisation.** Full attention still allocates a fresh
+   3-element `MLXArray` per call (10 host allocs/step) where sliding uses
+   `LagunaRingIdxAtlasStore`. Backlog-tier, explicitly out of scope here.
+5. **Trio-kernel pipeline census** — the Stage 0 rider that did not generalise
+   (§1.2).
+
+---
+
+## 8. Scope discipline
 
 Out-of-scope items named in the assignment were not touched: second `float4`
 plane, cross-threadgroup dedup of phase-1 K RMSNorm+RoPE, standalone prefetch
@@ -335,7 +435,30 @@ arm, RoPE restructuring. The merged float4 AoS epilogue
 (`research/maple-r85-c-epilogue-result.md`, −20.98 µs/step) is preserved intact —
 §1.3 in fact shows why halving that plane would have bought nothing.
 
-## 7. Reproduction
+## 9. W&B runs
+
+Project `wandb-applied-ai-team/mlxfast-maple`, group
+`r96-a-decode-attention-pipeline`, all tagged `r96-a` + `student:maple-nezuko`.
+
+| run | id | arm tag | URL |
+|---|---|---|---|
+| `r96a-stage0-occupancy-census` | `zvycfimy` | `arm:stage0` | https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/zvycfimy |
+| `r96a-R2-base-2deep` | `uajdq8yu` | `arm:R2`, `slot:A-base` | https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/uajdq8yu |
+| `r96a-R2-cand-4deep` | `ehbvlnva` | `arm:R2`, `slot:B-cand` | https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/ehbvlnva |
+| `r96a-null-control-base-A` | `pe8zt12k` | `arm:null` | https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/pe8zt12k |
+| `r96a-null-control-base-B` | `skkt1pyq` | `arm:null` | https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/skkt1pyq |
+
+`attn_us_per_step_sliding` (primary, minimise) is 30 sliding calls/step × the
+K=20 single-TG-per-core proxy that §4.4 argues is the M5-faithful regime: base
+268.20, candidate 259.95, **Δ −8.25 µs/step**. `attn_us_per_step_full` is logged
+with `attn_us_per_step_full_measured=False` and `full_kernel_modified=False`
+(the full kernel is untouched, so its Δ is exactly 0 by construction).
+`step_us_total` is deliberately **omitted rather than NaN-filled**
+(`step_us_total_measured=False`): §4.5 explains that the predicted end-to-end
+effect is ~7× below this host's single-receipt detection bar, so no honest
+end-to-end number exists from an M4 receipt.
+
+## 10. Reproduction
 
 ```bash
 # Stage 0 census
