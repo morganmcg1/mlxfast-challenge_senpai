@@ -2141,6 +2141,9 @@ template <
     short TCOLS = BCOLS / n_reads,
     short TROWS = tgp_size / TCOLS>
 struct GatherBlockLoader {
+  using StockLoader =
+      mlx::steel::BlockLoader<T, BROWS, BCOLS, dst_ld, 1, tgp_size>;
+
   STEEL_CONST short n_rows = (BROWS + TROWS - 1) / TROWS;
   STEEL_CONST short vec_size = n_reads;
 
@@ -2152,8 +2155,9 @@ struct GatherBlockLoader {
   const short bj;
   threadgroup T* dst;
   int src_col;
+  StockLoader stock;
 
-  struct ReadVector {
+  struct alignas(sizeof(T)) ReadVector {
     uint8_t v[sizeof(T) * vec_size];
   };
 
@@ -2172,7 +2176,13 @@ struct GatherBlockLoader {
         bi((simd_group_id * SIMD_SIZE + simd_lane_id) / TCOLS),
         bj(vec_size * ((simd_group_id * SIMD_SIZE + simd_lane_id) % TCOLS)),
         dst(dst_ + bi * dst_ld + bj),
-        src_col(bj) {}
+        src_col(bj),
+        stock(
+            src_ + size_t(row_base_) * src_ld_,
+            src_ld_,
+            dst_,
+            simd_group_id,
+            simd_lane_id) {}
 
   METAL_FUNC int source_row(const int sorted_row) const {
     if constexpr (indexed_rhs) {
@@ -2182,6 +2192,11 @@ struct GatherBlockLoader {
   }
 
   METAL_FUNC void load_unsafe() const {
+    if constexpr (!indexed_rhs) {
+      stock.load_unsafe();
+      return;
+    }
+
     STEEL_PRAGMA_UNROLL
     for (short i = 0; i < BROWS; i += TROWS) {
       const int row = source_row(row_base + bi + i);
@@ -2192,6 +2207,11 @@ struct GatherBlockLoader {
   }
 
   METAL_FUNC void load_safe(short2 src_tile_dim) const {
+    if constexpr (!indexed_rhs) {
+      stock.load_safe(src_tile_dim);
+      return;
+    }
+
     src_tile_dim -= short2(bj, bi);
     if (src_tile_dim.x <= 0 || src_tile_dim.y <= 0) {
       STEEL_PRAGMA_UNROLL
@@ -2223,7 +2243,11 @@ struct GatherBlockLoader {
   }
 
   METAL_FUNC void next() {
-    src_col += BCOLS;
+    if constexpr (indexed_rhs) {
+      src_col += BCOLS;
+    } else {
+      stock.next();
+    }
   }
 };
 
@@ -2245,7 +2269,7 @@ template <
     int WM,
     int WN,
     bool transpose,
-    bool indexed_rhs>
+    bool indexed_rhs = false>
 [[kernel]] void fp_gather_qmm_rhs(
     const device T* x,
     const device uint32_t* w,

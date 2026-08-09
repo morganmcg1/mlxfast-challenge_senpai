@@ -167,12 +167,9 @@ func lagunaExpertAlignedStageEnabled(_ value: String?) -> Bool {
     ["", "4", "5"].contains(value ?? "")
 }
 
-let lagunaExpertAlignedGatherEnabled = {
+let lagunaNAXRuntimeAvailable = {
+    guard #available(macOS 26.2, *) else { return false }
     let environment = ProcessInfo.processInfo.environment
-    guard environment["DARKBLOOM_EXPERT_ALIGNED_GATHER"] != "0",
-        lagunaExpertAlignedStageEnabled(environment["DARKBLOOM_STAGE_BM128"]),
-        #available(macOS 26.2, *)
-    else { return false }
     let configured = environment["MLX_METAL_GPU_ARCH"]
     return lagunaNAXAvailable(
         architecture: configured.flatMap { $0.isEmpty ? nil : $0 }
@@ -180,6 +177,16 @@ let lagunaExpertAlignedGatherEnabled = {
         osSupportsNAX: true
     )
 }()
+
+let lagunaExpertAlignedGatherEnabled = {
+    let environment = ProcessInfo.processInfo.environment
+    return lagunaNAXRuntimeAvailable
+        && environment["DARKBLOOM_EXPERT_ALIGNED_GATHER"] != "0"
+        && lagunaExpertAlignedStageEnabled(environment["DARKBLOOM_STAGE_BM128"])
+}()
+
+let lagunaPackedRoutedRHSAvailable =
+    !lagunaNAXRuntimeAvailable || lagunaExpertAlignedGatherEnabled
 
 /// Decode post-attention residual + RMSNorm fusion. The kernel emits
 /// both the rounded BF16 residual (needed by the following skip connection)
@@ -9640,13 +9647,29 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
             // `lagunaPrefillMoETailEnabled` tail fusion) is unaffected by
             // which branch ran.
             if lagunaPrefillFusedRoutedGateUpEnabled,
+                lagunaPackedRoutedRHSAvailable,
                 let fusedWeight = _fusedRoutedGateUpWeight,
                 let fusedScales = _fusedRoutedGateUpScales,
                 let downProj = _routedDownProj,
+                x.ndim == 3,
+                x.shape == [1, x.dim(1), LagunaConstants.hiddenSize],
                 x.dim(1) > 1,
+                x.dim(1) < 0x0100_0000,
+                inds.dtype == .uint32,
+                inds.shape == [1, x.dim(1), LagunaConstants.numExpertsPerTok],
                 inds.size >= 64,
                 fusedWeight.dtype == .uint32,
+                fusedWeight.shape == [
+                    LagunaConstants.numExperts,
+                    2 * LagunaConstants.moeIntermediateSize,
+                    LagunaConstants.hiddenSize / 8,
+                ],
                 fusedScales.dtype == .uint8,
+                fusedScales.shape == [
+                    LagunaConstants.numExperts,
+                    2 * LagunaConstants.moeIntermediateSize,
+                    LagunaConstants.hiddenSize / LagunaConstants.quantizationGroupSize,
+                ],
                 _fusedRoutedGateUpSplit == LagunaConstants.moeIntermediateSize
             {
                 let routed = lagunaFusedSortedRoutedGateUp(

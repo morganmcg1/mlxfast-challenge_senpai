@@ -956,6 +956,7 @@ MTL::ComputePipelineState* get_gather_qmm_kernel(
     concatenate(
         kernel_source, metal::utils(), metal::quantized_utils(), metal::gemm());
     bool is_affine = mode == "affine";
+    bool indexed_rhs = mode == "nvfp4_indexed";
     auto template_def = is_affine
         ? get_template_definition(
               lib_name,
@@ -981,7 +982,7 @@ MTL::ComputePipelineState* get_gather_qmm_kernel(
               wm,
               wn,
               transpose,
-              kernel_name.find("_indexed_") != std::string::npos);
+              indexed_rhs);
     concatenate(
         kernel_source,
         is_affine ? metal::quantized() : metal::fp_quantized(),

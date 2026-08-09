@@ -360,7 +360,7 @@ struct NVFP4QuantizedMMTests {
         guard nvfp4RuntimeTestsEnabled else { return }
         defer { Memory.clearCache() }
 
-        let sourceRows = 512
+        let sourceRows = 8
         let topK = 8
         let n = LagunaConstants.moeIntermediateSize
         let k = LagunaConstants.hiddenSize

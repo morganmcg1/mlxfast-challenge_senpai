@@ -1668,10 +1668,9 @@ void gather_qmm_rhs_nax(
   // measured -4.0..-4.2% gate/up, -3.0..-5.8% down at kernel level
   // (notes/exp-gatherx.md). Default bm128=4 keeps wn==2: stock unchanged.
   const bool expert_aligned =
-      (darkbloom_expert_aligned_gather() || indexed_rhs) &&
-      mode != "affine" && transpose && group_size == 16 && bits == 4 &&
-      laguna_moe_shape && M >= 64 && align_N && align_K && bm == 64 &&
-      wm == 4 && (wn == 2 || wn == 1);
+      darkbloom_expert_aligned_gather() && mode != "affine" && transpose &&
+      group_size == 16 && bits == 4 && laguna_moe_shape && M >= 64 &&
+      align_N && align_K && bm == 64 && wm == 4 && (wn == 2 || wn == 1);
   std::string type_string = get_type_string(x.dtype());
   static const bool static_laguna_shapes =
       env::get_var("DARKBLOOM_STATIC_NVFP4_SHAPES", "") != "0";
@@ -1976,7 +1975,12 @@ void gather_qmm_rhs(
       indices_.dtype() == uint32 && indices_.size() == M &&
       w_.ndim() == 3 && w_.shape(0) == 256 && x_.shape(-1) == K &&
       (x_.size() / K) * 8 == M;
-  if (metal::is_nax_available() && transpose &&
+  const int indexed_stage = darkbloom_stage_bm128_variant();
+  const bool indexed_nax_supported =
+      !indexed_rhs ||
+      (darkbloom_expert_aligned_gather() &&
+       (indexed_stage == 4 || indexed_stage == 5));
+  if (metal::is_nax_available() && indexed_nax_supported && transpose &&
       (env::enable_tf32() || x_.dtype() != float32)) {
     return gather_qmm_rhs_nax(
         /* const array& x_ = */ x_,
@@ -2084,7 +2088,7 @@ void gather_qmm_rhs(
       x,
       group_size,
       bits,
-      mode,
+      indexed_rhs ? "nvfp4_indexed" : mode,
       bm,
       bn,
       bk,
