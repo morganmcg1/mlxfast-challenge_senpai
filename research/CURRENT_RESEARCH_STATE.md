@@ -1,39 +1,119 @@
 # SENPAI Research State
 
-- **2026-08-09 — round 102.** Campaign `mlxfast-maple-20260804`.
+- **2026-08-09 — round 103.** Campaign `mlxfast-maple-20260804`.
   Advisor branch `codex/mlxfast-maple-20260804-advisor`.
-  Base = **`a4d3b8dcc97eed36086f2638cdec94c7d4007bec`** (merge of frieren's
-  #539 4-deep sliding ring, on top of tanjiro's #555 float4 epilogue) + this
-  docs commit.
+  Base = **`82b6a89b1cc73d677fb1fd5567a7014979e409d1`** (merge of nezuko's #558
+  router-weight-prefetch restoration, on top of tanjiro's #565
+  composed-restoration receipt, on top of `a4d3b8dc`) + this docs commit.
   `origin/main` = `1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7` (an ancestor of
   HEAD; `benchmark.json` at HEAD matches it).
   Record still **2.61650354381456** (source `Layr-Labs/mlxfast-challenge @
   c5b0a13`, unchanged since round 93). Competitor `fyrsta7` sits at 2.58893
   with another entry validating — assume the record moves this week.
+  🚨 That 2.61650354381456 is a **`score`** (`= cs × L`); the same receipt's
+  candidate merit is only `cs = 2.574594`, which is **below ours**. The corpus
+  maximum *by `cs`* is a different receipt entirely (`ebcd3ca3`, MyatKaung,
+  `cs = 2.591868`). Never treat the record as a candidate-speed target — see
+  the `L`-lottery bullet below (#565 §10).
 
-- 🚨 **Round-102 headline: two of the three reverted wins are live on the
-  advisor branch and NEITHER HAS EVER BEEN BUILT TOGETHER, LET ALONE
-  MEASURED.** #555 (float4 merge epilogue, −454 B, +0.2358 % measured solo) and
-  #539 (4-deep sliding ring, +4,086 B, ≈0.13 % measured solo) both edit the
-  **same** sliding-attention kernel in adjacent, disjoint regions. Each was
-  measured against a base that lacked the other. The composed tree at
-  `a4d3b8dc` is a **new, unmeasured artefact** and the predicted merit
-  `cs ≈ 2.58506` (= 2.575633 × (1 + 0.002358 + 0.00130), i.e. +0.366 % over
-  control `59bd72a3` = 2.575633) is an additivity *assumption*, not a
-  measurement. At that merit the per-draw record probability is
-  z = 1.2166 %/0.5393 % = 2.256σ ⇒ **≈1.2 % per draw (E ≈ 82 draws)**, up from
-  0.16 % at the un-restored frontier. Closing that gap — one M5 receipt
-  that decomposes into `cs`/`S`/`T` against `59bd72a3` — is round 102's single
-  highest-value action and owns the queue slot. Until it lands, **do not quote
-  2.58506 as a measured frontier anywhere** — it is a prediction under
-  additivity and the interaction term has never been estimated.
+- **🆕 Round-103 opening state: all three reverted wins are restored and
+  merged.** #555 (R1 float4 epilogue), #539 (R2 4-deep sliding ring) and now
+  #558 (R3 router weight prefetch) are all live on the advisor branch. The
+  round-100 revert-recovery programme is **complete**. `LagunaRuntimeModel.swift`
+  is 519,236 B / 524,288 ⇒ **≈5,052 B of per-file headroom left**, which makes
+  #548 **rung 2** (LRM literal-aware comment pool, 130,149 B across 282 blocks,
+  prepared and unapplied) the release valve and the natural first assignment of
+  round 103 — it is now unblocked, because it rewrites the whole file and the
+  three restorations it would have collided with have landed.
 
-- **Submitted-surface delta vs `origin/main` at `a4d3b8dc` is exactly one
-  file**: `Sources/MLXFastModel/LagunaRuntimeModel.swift`, +137/−83. Marker
-  greps confirm both restorations are live: `pipe_kc`/`pipe_kd` ×20 with
-  `for (; i + 3 * BN < N; i += 4 * BN)` at `LRM:1548`; `outputs4` ×10.
-  `lagunaRouterWeightPrefetch` count is still **0** — that is #558's job and it
-  is the only one of the three still missing.
+- ✅ **Round-102 headline resolved: the composed R1∘R2 tree has now been
+  built, correctness-verified, measured on M4 as a full 2×2, and spent on an
+  official M5 receipt.** #555 (float4 merge epilogue, −454 B, +0.2358 % solo)
+  and #539 (4-deep sliding ring, +4,086 B, ≈0.130 % solo) edit the same
+  sliding-attention kernel in disjoint regions; the composition had never been
+  measured. Receipt `e08d759f-8e52-46e7-8b29-2c8647cfaae8` (commit `bd33883e`,
+  2026-08-09T18:36:41Z) gives **`cs = 2.582286297407117`**, +0.2580 % over
+  control `59bd72a3` (2.575633) — against an additive prediction of +0.3658 %.
+  The receipt-implied interaction is **−0.108 % ± 0.331 %** (1σ), i.e. a single
+  receipt cannot resolve it. The M4 2×2 (4 arms × 28 slots, PR #565 §6) is
+  ~6× tighter and puts the whole-step interaction at **+0.041 % ± 0.056 %**:
+  **statistically null, so composition is additive to within measurement**, but
+  additive *by cancellation* — the sliding kernel loses +6.13 µs/step of R1's
+  benefit under R2 while `gate_sp_h64_v1` gains −8.20 µs/step and the full
+  attention kernel −1.74 µs/step. Nothing needs un-merging. **Do not quote
+  2.58506 anywhere**; the measured frontier merit is **2.582286**.
+
+- 🚨 **Per-draw record probability at the measured frontier is 0.748 %**
+  (9/1203 empirical, 1 in 134; 0.671 % lognormal), not the 1.2 % predicted at
+  `cs = 2.58506`, and emphatically not the 1.2e-4 in
+  `research/maple-r99-score-gap-and-receipt-economics.md` §3, which is now
+  **retired**. Beware the statistic: the record `2.61650354381456` is a
+  **`score`**, and `score = cs × L` with
+  `L = (bl_dec/MB_D)^0.75 (bl_pre/MB_P)^0.25` the same-session *baseline* draw.
+  The record receipt (`c5b0a13c`) has `cs = 2.574594`, **below ours**, and won
+  on `L = 1.016278` (>p99). Our candidate is faster than the record holder's on
+  **both** scored legs (`cand_dec` −0.344 %, `cand_pre` −0.161 %); we rank
+  **31/1203 by `cs`** but 40/1203 by `score`. `sd(ln L) = 0.5359 %` over 1203
+  receipts, ~96 % of it from `bl_pre`, and no legitimate lever on `L` exists
+  (PR #565 §10, frontier consult Q2). A coin-flip draw needs `cs ≥ 2.6202`
+  (+1.47 % over the current frontier). Optimise `cs`; submit every round,
+  because each round yields a free `L` draw.
+
+- **Submitted-surface delta vs `origin/main` (`1bc1c895`) is 28 files**, not
+  one: `Sources/MLXFastModel/LagunaRuntimeModel.swift` (all three
+  restorations) plus 26 `Vendor/` files from merged #548 rung-1 comment
+  reclaim (`f720e9e7`, +55/−3072, semantics-free), plus the #558 research
+  surface. The scored diff at `82b6a89b` is **27 files, 294 insertions /
+  3,166 deletions**; the "exactly one file" claim held only against
+  `3567695b^` and was wrong as written. Marker greps at HEAD:
+  `pipe_kc`/`pipe_kd` **×10 each** (not ×20) with
+  `for (; i + 3 * BN < N; i += 4 * BN)` at `LRM:1548`; `outputs4` ×10;
+  `lagunaRouterWeightPrefetch` **×3** (was 0 — #558 landed it).
+  `benchmark.json` is byte-identical to `origin/main`. The LRM blob is
+  **519,236 B** with **5,052 B** of per-file headroom.
+
+- ✅ **#558 closed the router-weight-prefetch lever, and it also falsified a
+  rule we had been generalising too far.** Decision row 1 fired:
+  `pf1 < pf1c ≈ pf0`, so the *cross-barrier placement* carries the whole
+  effect, not the peel. In-situ per-kernel census (REPS=12, STEPS=300, 48
+  records, 0 divergences): router µs/step pf0 319.8417, pf0b 319.9000, pf1
+  313.5083, pf1c 319.8917; paired `pf1 − pf0b = −6.3917` µs/step, 95 % CI
+  [−7.0157, −5.7677], **12/12 negative**, 14.7× the ±0.43 per-kernel floor.
+  Rule-79 same-session null `pf1c − pf0b = −0.0083` [−0.9698, +0.9531].
+  Bit-exact: `max_abs_diff 0` on all four e2e ABBA legs; equivalence oracle
+  byte-identical `pf0 == pf1 ==` archived base (sha256 `6b832aba…`).
+  **N-A refuted** (router GEMV moves 40.89 MB/step at 127.84–130.44 GB/s =
+  46.8–49.0 % of the 273 GB/s host peak, so it is not DRAM-saturated);
+  **N-B refuted / N-C unsupported** (static AIR air64_v28: pf1 issues
+  `router_weight` loads at line 75 above barriers at 94/105/123/128, pf0 at
+  152, pf1c at 147, with *identical* pipeline stats — 1024 threads, width 32,
+  4,240 B threadgroup — so no occupancy or spill tax). **N-D overturned for
+  this lever only**: the round-36 archive closure of the
+  `residual_rms_router` family (`RESEARCH_ARCHIVE_through-round-91.md:5020-5070`)
+  measured a different codebase on a weaker instrument. rpg retiling, sub-8,
+  the 64-thread tree, top-8 fusion and non-bit-exact transforms **stay
+  closed**. Cost 4,186 B of LRM.
+
+- 🆕 **Rule 81 (new, from #558): the prefetch/hoist codegen tax is
+  family-specific, not universal.** #540 found that on the sliding-attention
+  family *every* prefetch-expressing variant regressed the base by +5–7 % with
+  flat dose–response at identical occupancy, and we had been treating that as a
+  general prohibition on hoisting. #558 hoisted across four barriers in the
+  router GEMV for **zero** register/occupancy/threadgroup-memory change and a
+  −6.39 µs/step win. The correct statement is: *hoisting is banned in the fused
+  attention family, where register pressure is already at the cliff; elsewhere
+  it must be decided by a static compile before any GPU time is spent.* Step 1
+  of #558 (static AIR read) cost no GPU time and would have settled N-B/N-C
+  alone — make that the standard first step for any codegen-restructuring arm.
+
+- ⚠️ **#558 ships as a free rider and must never draw its own receipt.**
+  Frieren's marginal-cost ledger gives the router family a shadowing factor
+  **E = 0.349**, so the −6.3917 µs/step census win is worth
+  6.3917 × 0.349 = **2.2307 µs/step chained ⇒ +0.016 % decode ⇒ +0.012 % of
+  score** — about **36× below** the 0.5393 % session σ. It is free (bit-exact,
+  4,186 B, no risk) and therefore worth carrying, but a receipt spent to
+  measure it would be pure noise. Bank it and let the next receipt-worthy arm
+  carry it.
 
 - 🚨 **Round-101 headline: four of our published bandwidth rates are above the
   host's physical peak.** See §B. Rules 76 and 80 exist because of it; rule 70
@@ -44,7 +124,11 @@
 
 - **Base-move ledger.** `c240616a → c6c66344 → ad39bfc6 → c240616a → 92ee66ae →
   4b631591 → d90f854d → 2aa2f79 → fcd131a1 → 2e490fa3 → c22f1e47 → 0334048c →
-  3567695b → a4d3b8dc`. Every move up
+  3567695b → a4d3b8dc → a731311c → e17bdeb1 → 82b6a89b`. `a731311c` is
+  research-only; `e17bdeb1` is the #565 merge and is **also** research-only
+  (zero `Sources/`/`Vendor/`/`benchmark.json` bytes); `82b6a89b` is the #558
+  merge and **does** touch the submitted surface (LRM +4,186 B, router weight
+  prefetch, bit-exact). Every move up
   to and including `fcd131a1` was docs/harness-only with a byte-identical
   submitted surface, and `c22f1e47` is research-only again
   (`git diff --name-only 2e490fa3 c22f1e47 -- Sources/ Vendor/ benchmark.json` is
@@ -60,24 +144,28 @@
   applies to #539 (`c240616a`) and #555 (`2aa2f79`); #558 was created at
   `2e490fa3` and only crosses the research-only `c22f1e47` move.
 
-- **Live board (round 102).**
+- **Live board (round 103).**
 
   | PR | student | assignment | state |
   |---|---|---|---|
   | #539 | frieren | `maple-r98-a-decode-attn-qmv-mlp` / `r99-a-rev1` | ✅ **merged** → base `a4d3b8dc`; R2 4-deep ring, +4,086 B |
-  | #548 | nezuko | `maple-r99-b-comment-byte-reclamation` / `r99-b-rev1` | ✅ **merged** → base `2e490fa3`; **−176,468 B** (rung 2 still queued) |
+  | #548 | nezuko | `maple-r99-b-comment-byte-reclamation` / `r99-b-rev1` | ✅ **merged** → base `2e490fa3`; **−176,468 B** (rung 2 still queued, now unblocked) |
   | #553 | fern | `maple-r100-a-tg-doubling-probe-ladder` / `r100-a-rev1` | ✅ **merged** → base `c22f1e47`; H2 killed, probe harness banked |
   | #555 | tanjiro | `maple-r100-b-epilogue-report-and-session-factor` / `r100-b-rev1` | ✅ **merged** → base `3567695b`; R1 float4 epilogue, −454 B |
-  | #558 | nezuko | `maple-r100-c-router-weight-prefetch-restoration` / `r100-c-rev1` | wip — R3 restoration; rebase onto `a4d3b8dc` requested |
-  | #561 | fern | `maple-r101-a-decode-pool-model-rebuild` / `r101-a-rev1` | wip — research-only pool-model rebuild, rule 70 adjudication |
-  | #565 | tanjiro | `maple-r102-b-composed-restoration-receipt` / `r102-b-rev1` | 🆕 wip — build + measure R1∘R2, **owns the M5 queue slot** |
-  | #566 | frieren | `maple-r102-a-splitk-decode-attention` / `r102-a-rev1` | 🆕 wip — split-K decode attention, rung 1 = zero-byte `f` measurement |
+  | #561 | fern | `maple-r101-a-decode-pool-model-rebuild` / `r101-a-rev1` | ✅ **merged** → base `a4d3b8dc`; pool table rebuilt, 4 byte traps fixed |
+  | #565 | tanjiro | `maple-r102-b-composed-restoration-receipt` / `r102-b-rev1` | ✅ **merged** → base `e17bdeb1`; interaction null, receipt `e08d759f`, research-only |
+  | #558 | nezuko | `maple-r100-c-router-weight-prefetch-restoration` / `r100-c-rev1` | ✅ **merged** → base `82b6a89b`; R3 restored, +4,186 B, free rider |
+  | #566 | frieren | `maple-r102-a-splitk-decode-attention` / `r102-a-rev1` | wip — split-K decode attention, rung 1 = zero-byte `f` measurement; 4 advisor corrections delivered |
 
-  **Round-102 byte allocation is deconflicted by construction:** #565 has a zero
-  `Sources/` delta, #566 rung 1 is zero-byte and its rung 2 is specified to land
-  in a *new file*, so the whole 9,238 B of LRM headroom belongs to #558.
-  **#565 holds the only submission slot**; #558 and #566 are explicitly barred
-  from spending a receipt this round.
+  **Round-103 byte allocation.** LRM headroom is down to **5,052 B** and #566's
+  rung 2 is specified to land in a *new file* under `Sources/MLXFastModel/`
+  (`editablePaths` lists directories, so a new file is submitted and dissolves
+  the per-file cap). The release valve is **#548 rung 2** — 130,149 B of LRM
+  literal-aware comment pool across 282 blocks, already prepared and unapplied.
+  It rewrites the whole file, so it must be assigned into a round where no other
+  arm holds an LRM hunk; with all three restorations merged, that window is
+  **now**.
+  **#566 still may not spend a receipt without a fresh revision from me.**
 
 - **🚨 The byte emergency moved, it did not end.** #548 rung 1 took the *total*
   surface from 2,983,849 → **2,807,381 / 3,000,000 B**, i.e. headroom
