@@ -259,6 +259,73 @@ def v5_rotated_post_barrier(sliding):
     return rotate_loop(s)
 
 
+PRE_DEVICE_LOAD_IDLE = PRE_DEVICE_LOAD.replace(
+    "if (!pre_sub) {", "if (!pre_sub && sg >= 4) {", 1)
+PRE_FIXUP_IDLE = PRE_TG_LOAD.rstrip("\n") + """ else if (sg < 4) {
+    const vec<bfloat, 4> pre_kv_ =
+        *reinterpret_cast<const device vec<bfloat, 4>*>(pair_keys);
+    pre_k[0] = pre_kv_.x;
+    pre_k[1] = pre_kv_.y;
+    pre_k[2] = pre_kv_.z;
+    pre_k[3] = pre_kv_.w;
+    const vec<bfloat, 4> pre_vv_ =
+        *reinterpret_cast<const device vec<bfloat, 4>*>(pair_values);
+    pre_v0 = pre_vv_.x;
+    pre_v1 = pre_vv_.y;
+    pre_v2 = pre_vv_.z;
+    pre_v3 = pre_vv_.w;
+}
+"""
+
+PRE_DEVICE_LOAD_K = """if (!pre_sub) {
+    const vec<bfloat, 4> pre_kv_ =
+        *reinterpret_cast<const device vec<bfloat, 4>*>(pair_keys);
+    pre_k[0] = pre_kv_.x;
+    pre_k[1] = pre_kv_.y;
+    pre_k[2] = pre_kv_.z;
+    pre_k[3] = pre_kv_.w;
+}
+"""
+PRE_TG_LOAD_K = """if (pre_sub) {
+    pre_k[0] = tg_k[lane * qk_per_thread + 0];
+    pre_k[1] = tg_k[lane * qk_per_thread + 1];
+    pre_k[2] = tg_k[lane * qk_per_thread + 2];
+    pre_k[3] = tg_k[lane * qk_per_thread + 3];
+}
+T_LOAD_V(pre_v0, pre_v1, pre_v2, pre_v3, pre_sub, pair_values);
+"""
+
+
+@variant
+def v6_rotated_pre_barrier_idle_only(sliding):
+    """v4, but only the 28 simdgroups with no phase-1 work load early.
+
+    Simdgroups 0-3 run the phase-1 RMSNorm/RoPE stage and are on the critical
+    path to the barrier; they keep the post-barrier load. If the v4 regression
+    is memory-pipeline contention with phase-1 rather than the early issue
+    itself, this variant recovers it.
+    """
+    s = hoist_pointers(sliding)
+    s = sub1(s, "\n" + BARRIER + "\nif ((head0 % gqa) == 0",
+             "\n" + PRE_DECL + PRE_DEVICE_LOAD_IDLE + BARRIER + PRE_FIXUP_IDLE
+             + "\nif ((head0 % gqa) == 0", "prologue insertion point")
+    return rotate_loop(s)
+
+
+@variant
+def v7_rotated_pre_barrier_k_only(sliding):
+    """v4 with only K hoisted before the barrier; V stays after it.
+
+    Halves both the pre-barrier traffic and the register live range across the
+    barrier, so it separates register pressure from early issue.
+    """
+    s = hoist_pointers(sliding)
+    s = sub1(s, "\n" + BARRIER + "\nif ((head0 % gqa) == 0",
+             "\n" + PRE_DECL + PRE_DEVICE_LOAD_K + BARRIER + PRE_TG_LOAD_K
+             + "\nif ((head0 % gqa) == 0", "prologue insertion point")
+    return rotate_loop(s)
+
+
 def main():
     base = pathlib.Path(sys.argv[1]).read_text()
     outdir = pathlib.Path(sys.argv[2])
