@@ -340,6 +340,211 @@ func routedSharedDownRouterWeightBroadcastMatchesBaselineBitsWhenRuntimeTestsAre
     #expect(Array(candidateBits[2_044..<2_048]) == Array(baselineBits[2_044..<2_048]))
 }
 
+@Test
+func routedSharedDownRouterWeightBroadcastIsolatedTimingWhenEnabled() {
+    guard ProcessInfo.processInfo.environment["MLXFAST_RUN_ROUTER_BROADCAST_TIMING"] == "1" else {
+        return
+    }
+
+    let inputNames = [
+        "routed_activated", "routed_down_weight", "routed_down_scales",
+        "indices", "router_weights", "shared_activated",
+        "shared_down_weight", "shared_down_scales", "residual",
+    ]
+    let candidateKernel = MLXFast.metalKernel(
+        name: "timing_laguna_routed_shared_down_router_broadcast",
+        inputNames: inputNames,
+        outputNames: ["output"],
+        source: lagunaRoutedSharedDownResidualSource(
+            sharedHalved: true,
+            staged: true,
+            routerWeightBroadcast: true
+        ),
+        header: lagunaSharedSwiGLUQMVHeader,
+        ensureRowContiguous: true
+    )
+    let baselineKernel = MLXFast.metalKernel(
+        name: "timing_laguna_routed_shared_down_router_per_lane",
+        inputNames: inputNames,
+        outputNames: ["output"],
+        source: lagunaRoutedSharedDownResidualSource(
+            sharedHalved: true,
+            staged: true,
+            routerWeightBroadcast: false
+        ),
+        header: lagunaSharedSwiGLUQMVHeader,
+        ensureRowContiguous: true
+    )
+
+    let routedActivated = MLXArray(
+        (0..<(8 * 512)).map { index in Float((index % 31) - 15) / 32 },
+        [1, 1, 8, 1, 512]
+    ).asType(.bfloat16)
+    let routedPackedSeed = MLXArray(
+        (0..<256).map { expert in
+            UInt32((expert % 7) + 1) &* UInt32(0x1111_1111)
+        },
+        [256, 1, 1]
+    )
+    let routedDownWeight = contiguous(
+        broadcast(routedPackedSeed, to: [256, 2_048, 64])
+    )
+    let routedDownScales = MLXArray.full(
+        [128 + 256 * 2_048 * 16],
+        values: MLXArray(UInt8(0x38)),
+        dtype: .uint8
+    )
+    let indices = MLXArray(
+        [UInt32(0), 7, 42, 255, 3, 128, 17, 99],
+        [1, 1, 8]
+    )
+    let routerWeights = MLXArray(
+        [
+            UInt32(0x3f80_7fff), 0x3f80_8000,
+            0x3f80_8001, 0x3f81_7fff,
+            0xbf80_7fff, 0xbf80_8000,
+            0xbf80_8001, 0xbf81_8001,
+        ].map(Float.init(bitPattern:)),
+        [1, 1, 8]
+    )
+    let sharedActivated = MLXArray(
+        (0..<512).map { index in Float((index % 23) - 11) / 32 },
+        [1, 1, 512]
+    ).asType(.bfloat16)
+    let sharedDownWeight = contiguous(
+        broadcast(MLXArray(UInt32(0x2222_2222)), to: [2_048, 64])
+    )
+    let sharedDownScales = MLXArray.full(
+        [128 + 2_048 * 16],
+        values: MLXArray(UInt8(0x38)),
+        dtype: .uint8
+    )
+    let residual = MLXArray(
+        (0..<2_048).map { index in Float((index % 19) - 9) / 16 },
+        [1, 1, 2_048]
+    ).asType(.bfloat16)
+    let inputs = [
+        routedActivated, routedDownWeight, routedDownScales,
+        indices, routerWeights, sharedActivated,
+        sharedDownWeight, sharedDownScales, residual,
+    ]
+
+    let dispatchesPerSample = 39
+    let samplesPerOrder = 40
+
+    func runBatch(_ kernel: MLXFast.MLXFastKernel) -> [MLXArray] {
+        (0..<dispatchesPerSample).map { _ in
+            kernel(
+                inputs,
+                grid: (2_048 / 4 * 288, 1, 1),
+                threadGroup: (288, 1, 1),
+                outputShapes: [[1, 1, 2_048]],
+                outputDTypes: [.bfloat16]
+            )[0]
+        }
+    }
+
+    func measure(_ kernel: MLXFast.MLXFastKernel) -> Double {
+        let outputs = runBatch(kernel)
+        let start = DispatchTime.now().uptimeNanoseconds
+        eval(outputs)
+        let elapsed = DispatchTime.now().uptimeNanoseconds - start
+        return Double(elapsed) / Double(dispatchesPerSample)
+    }
+
+    func median(_ values: [Double]) -> Double {
+        let sorted = values.sorted()
+        let middle = sorted.count / 2
+        if sorted.count.isMultiple(of: 2) {
+            return (sorted[middle - 1] + sorted[middle]) / 2
+        }
+        return sorted[middle]
+    }
+
+    func percentile(_ values: [Double], _ fraction: Double) -> Double {
+        let sorted = values.sorted()
+        let position = Double(sorted.count - 1) * fraction
+        let lower = Int(position.rounded(.down))
+        let upper = Int(position.rounded(.up))
+        if lower == upper {
+            return sorted[lower]
+        }
+        let weight = position - Double(lower)
+        return sorted[lower] * (1 - weight) + sorted[upper] * weight
+    }
+
+    func mad(_ values: [Double]) -> Double {
+        let center = median(values)
+        return median(values.map { abs($0 - center) })
+    }
+
+    func describe(order: String, baseline: [Double], candidate: [Double]) -> Double {
+        let baselineMedian = median(baseline)
+        let candidateMedian = median(candidate)
+        let speedup = baselineMedian / candidateMedian
+        let baselineIQR = percentile(baseline, 0.75) - percentile(baseline, 0.25)
+        let candidateIQR = percentile(candidate, 0.75) - percentile(candidate, 0.25)
+        print(
+            "ROUTER_BROADCAST_ISOLATED order=\(order) samples=\(baseline.count) "
+                + "dispatches_per_sample=\(dispatchesPerSample) "
+                + "baseline_median_ns=\(baselineMedian) candidate_median_ns=\(candidateMedian) "
+                + "speedup=\(speedup) baseline_mad_ns=\(mad(baseline)) "
+                + "candidate_mad_ns=\(mad(candidate)) baseline_iqr_ns=\(baselineIQR) "
+                + "candidate_iqr_ns=\(candidateIQR)"
+        )
+        print(
+            "ROUTER_BROADCAST_ISOLATED_RAW order=\(order) baseline_ns=["
+                + baseline.map(String.init).joined(separator: ",") + "] candidate_ns=["
+                + candidate.map(String.init).joined(separator: ",") + "]"
+        )
+        return speedup
+    }
+
+    for iteration in 0..<8 {
+        if iteration.isMultiple(of: 2) {
+            eval(runBatch(baselineKernel))
+            eval(runBatch(candidateKernel))
+        } else {
+            eval(runBatch(candidateKernel))
+            eval(runBatch(baselineKernel))
+        }
+    }
+
+    var baselineAB: [Double] = []
+    var candidateAB: [Double] = []
+    var baselineBA: [Double] = []
+    var candidateBA: [Double] = []
+    baselineAB.reserveCapacity(samplesPerOrder)
+    candidateAB.reserveCapacity(samplesPerOrder)
+    baselineBA.reserveCapacity(samplesPerOrder)
+    candidateBA.reserveCapacity(samplesPerOrder)
+
+    func recordAB() {
+        baselineAB.append(measure(baselineKernel))
+        candidateAB.append(measure(candidateKernel))
+    }
+
+    func recordBA() {
+        candidateBA.append(measure(candidateKernel))
+        baselineBA.append(measure(baselineKernel))
+    }
+
+    for sample in 0..<samplesPerOrder {
+        if sample.isMultiple(of: 2) {
+            recordAB()
+            recordBA()
+        } else {
+            recordBA()
+            recordAB()
+        }
+    }
+
+    let speedupAB = describe(order: "AB", baseline: baselineAB, candidate: candidateAB)
+    let speedupBA = describe(order: "BA", baseline: baselineBA, candidate: candidateBA)
+    #expect(speedupAB >= 1.002)
+    #expect(speedupBA >= 1.002)
+}
+
 private func verifyActualRoutedGather(
     label: String,
     outputFeatures: Int,
