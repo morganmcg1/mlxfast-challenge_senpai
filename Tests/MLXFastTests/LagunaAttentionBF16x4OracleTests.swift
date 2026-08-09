@@ -1936,8 +1936,8 @@ final class LagunaAttentionBF16x4TimingTests: XCTestCase {
     private func benchmarkFamily(
         family: String,
         params: [MLXArray],
-        scalar: (MLXArray) -> MLXArray,
-        vector: (MLXArray) -> MLXArray,
+        scalar: @escaping (MLXArray) -> MLXArray,
+        vector: @escaping (MLXArray) -> MLXArray,
         rows: inout [String]
     ) {
         for _ in 0..<2 {
