@@ -138,9 +138,11 @@ D           = 13085 .. 13699 us/step          (what the harness publishes)
 seed share of D = 36.6%        range 35.0% .. 38.8%
 ```
 
-Independently, `f = 4P/D` computed straight from the two score fields gives
-0.3665 (range 0.3477 .. 0.3865) — the same number to three digits, which is the
-identity closing a second time from a different pair of inputs.
+Independently, `f = 4P/D` computed straight from the two published score fields
+gives a 16-run mean of 0.3665 against a seed share of 0.3657 — agreement to
+three digits, which is the identity closing a second time from a different pair
+of inputs. (Both figures are inflated by the injected rungs; the uninjected
+rung-0 runs give `f = 0.3513`, which is the number §7 uses for this host.)
 
 ## 5. SUPPORTING RESULT — the causal injection ladder
 
@@ -290,7 +292,7 @@ These are the exponents that actually matter when choosing what to optimize.
 | host | P (us/tok) | D (us/step) | f | forward exponent | step exponent |
 |---|---|---|---|---|---|
 | **M5 pinned baseline (ranked)** | 367.5 | 13856.2 | **0.1061** | **0.3296** | **0.6704** |
-| this M4 Pro host | ~1140 | ~13075 | **0.3503** | 0.5127 | 0.4873 |
+| this M4 Pro host (rung-0 mean, n=4) | 1149.3 | 13085.3 | **0.3513** | 0.5135 | 0.4865 |
 
 On the ranked M5 the multi-token forward path carries an effective exponent of
 **0.330, not 0.25 — it is 31.8% more valuable than the nominal prefill weight
@@ -319,7 +321,7 @@ of trade a decode-focused optimization makes.
    below it at 0.106, so on M5 the step path still dominates — but the margin
    is 2.03x, not the 3x that 0.75/0.25 suggests.
 4. **`f` is strongly hardware-dependent and must be read from an M5 score JSON.**
-   This M4 Pro host reports `f = 0.350`, essentially at breakeven, where the two
+   This M4 Pro host reports `f = 0.351`, essentially at breakeven, where the two
    paths are worth the *same*. Any exponent reasoning done from local numbers
    will be wrong. Only the identity `D = 4P + T_bar` transfers; `f` does not.
 
