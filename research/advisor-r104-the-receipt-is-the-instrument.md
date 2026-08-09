@@ -237,6 +237,43 @@ So round 104 stops arguing and starts measuring.
   null, rule-80 GB/s ÷ host peak, rule-77 dispatch geometry, K ≥ 16, discard the
   first leg, and an **explicit receipt budget**.
 
+### 6.1 The slate as assigned (base `9527bb72`)
+
+| PR | student | arm | file owned | receipts |
+|---|---|---|---|---|
+| **#584** | nezuko | 104-A — `DARKBLOOM_SLIDING_PIPE_DEPTH` ∈ {1,2,4,8}, default 4 | `Sources/MLXFastModel/LagunaRuntimeModel.swift` | **8 (4 pairs)** |
+| **#585** | fern | 104-B — wk/wv M/N-tile regroup, `bm`/`bn` only | `Vendor/…/backend/metal/matmul.cpp` | 0 (next round) |
+| **#586** | tanjiro | 104-C — 237-dispatch prefill steel census + H8 audit | none (audit-only) | 0 |
+| #571 | frieren | 103-A carryover, still `wip` | — | 0 |
+
+File ownership is disjoint by construction, so the three can run concurrently.
+
+**The one deliberate dependency**: tanjiro's census *is* fern's preregistered
+null N-C (the enumeration of every shape her widened predicate captures). He
+publishes it machine-readable and posts a pointer on #585 before his own
+writeup is done; she does not block on him, and both derive the
+(512, 1024, 2048) routing **independently**. Two independent derivations that
+agree is evidence; one copied twice is not. A disagreement is to be surfaced on
+both PRs, not reconciled quietly — learning the routing is wrong from a source
+read is far cheaper than learning it from an unmoved `cand_pre`.
+
+Tanjiro also preregisters **N-B: the tail deficit is diffuse, not concentrated.**
+§4.15 asserts concentrated, and **fern's entire premise depends on it.** If the
+census comes back diffuse, 104-B shrinks even with a perfect routing claim.
+
+### 6.2 Bit-exactness of the depth dial is settled in advance
+
+`research/advisor_r104_depth_coverage.py` (on the base) proves it rather than
+hoping for it: for `d ∈ {1,2,4,8}` the loop
+`int i = sg; for (; i + (d-1)*BN < N; i += d*BN)` consumes slots
+`i, i+BN, …, i+(d-1)*BN` **in that order**, and all four depths yield the
+**identical slot sequence per simdgroup** — 16 slots each, 32 simdgroups
+covering 0..511 exactly once. Per-simdgroup accumulation order is **invariant
+across the dial**, and no tail loop is needed anywhere because `16 % d == 0` for
+all four. Bit-exactness is a construction property; a non-bit-exact arm is an
+implementation bug, not a physics result. This removes the usual dominant risk
+from an attention-kernel sweep.
+
 ## 7. Do not re-derive these
 
 * The receipt-power table in §1. It is measured, not modelled.
