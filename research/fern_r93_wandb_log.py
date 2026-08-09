@@ -30,7 +30,13 @@ def main() -> int:
     for pat in args.records:
         files.extend(sorted(glob.glob(pat)))
 
+    # Keep wandb's scratch tree out of the checkout: run_job refuses to start
+    # while the assignment worktree is dirty, and ./wandb would dirty it.
+    wandb_dir = os.environ.get("WANDB_DIR", "/tmp/r93/wandb")
+    os.makedirs(wandb_dir, exist_ok=True)
+
     run = wandb.init(
+        dir=wandb_dir,
         entity=ENTITY, project=PROJECT, name=args.name, notes=args.notes,
         job_type="rig-calibration",
         tags=["maple", "student:maple-fern", "pr497", "r93-b", args.stage],
