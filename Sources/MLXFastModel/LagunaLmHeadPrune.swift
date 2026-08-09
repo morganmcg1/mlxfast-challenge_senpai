@@ -943,14 +943,16 @@ final class LagunaLmHeadPruner {
                 grid: (vocab / 16 * 512, 1, 1),
                 threadGroup: (512, 1, 1),
                 outputShapes: [[vocab], [vocab]],
-                outputDTypes: [.float32, .bfloat16]
+                outputDTypes: [.float32, .bfloat16],
+                verbose: true
             )
             : lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel(
                 [x, int5CodesLo, int5CodesHi, int5Scales],
                 grid: (vocab / 16 * 512, 1, 1),
                 threadGroup: (512, 1, 1),
                 outputShapes: [[vocab], [vocab]],
-                outputDTypes: [.float32, .bfloat16]
+                outputDTypes: [.float32, .bfloat16],
+                verbose: true
             )
         let coarse = coarseOut[0]
         let delta = coarseOut[1]
@@ -959,14 +961,16 @@ final class LagunaLmHeadPruner {
             grid: (224, 128, 1),
             threadGroup: (224, 1, 1),
             outputShapes: [[128], [128]],
-            outputDTypes: [.float32, .uint32]
+            outputDTypes: [.float32, .uint32],
+            verbose: true
         )
         let thr = lagunaLmHeadExactWinnerBF16PredecessorThresholdKernel(
             [argmaxPartials[0], argmaxPartials[1], lmHeadWeight, x],
             grid: (32, 1, 1),
             threadGroup: (32, 1, 1),
             outputShapes: [[1]],
-            outputDTypes: [.float32]
+            outputDTypes: [.float32],
+            verbose: true
         )[0]
         let assembled =
             refine
@@ -975,14 +979,16 @@ final class LagunaLmHeadPruner {
                 grid: (vocab / 32 * 256, 1, 1),
                 threadGroup: (256, 1, 1),
                 outputShapes: [[vocab]],
-                outputDTypes: [.bfloat16]
+                outputDTypes: [.bfloat16],
+                verbose: true
             )[0]
             : lagunaLmHeadInlineExactDeltaBF16Kernel(
                 [coarse, delta, thr, lmHeadWeight, x],
                 grid: (vocab / 32 * 256, 1, 1),
                 threadGroup: (256, 1, 1),
                 outputShapes: [[vocab]],
-                outputDTypes: [.bfloat16]
+                outputDTypes: [.bfloat16],
+                verbose: true
             )[0]
         return assembled.reshaped([1, 1, vocab])
     }

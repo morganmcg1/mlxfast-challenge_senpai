@@ -719,7 +719,8 @@ func lagunaDecodeRouterTop8AcceptedForTesting(
         grid: (256, 1, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, 1, 8], [1, 1, 8]],
-        outputDTypes: [.uint32, .float32]
+        outputDTypes: [.uint32, .float32],
+        verbose: true
     )
     return (outputs[0], outputs[1])
 }
@@ -740,7 +741,8 @@ func lagunaDecodeRouterTop8OrdinalForTesting(
         grid: (256, 1, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, 1, 8], [1, 1, 8]],
-        outputDTypes: [.uint32, .float32]
+        outputDTypes: [.uint32, .float32],
+        verbose: true
     )
     return (outputs[0], outputs[1])
 }
@@ -762,7 +764,8 @@ func lagunaDecodeRouterTop8OrdinalScoreTableForTesting(
         grid: (256, 1, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, 1, 8], [1, 1, 8]],
-        outputDTypes: [.uint32, .float32]
+        outputDTypes: [.uint32, .float32],
+        verbose: true
     )
     return (outputs[0], outputs[1])
 }
@@ -948,7 +951,8 @@ private func lagunaPrefillRouterTop8(
         grid: (256, rows, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, rows, 8], [1, rows, 8]],
-        outputDTypes: [.uint32, .float32]
+        outputDTypes: [.uint32, .float32],
+        verbose: true
     )
     return (outputs[0], outputs[1])
 }
@@ -1334,7 +1338,8 @@ func lagunaPrefillRouterTournamentAcceptedForTesting(
         grid: (256, rows, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, rows, 8], [1, rows, 8]],
-        outputDTypes: [.uint32, .float32]
+        outputDTypes: [.uint32, .float32],
+        verbose: true
     )
     return (outputs[0], outputs[1])
 }
@@ -1356,7 +1361,8 @@ func lagunaPrefillRouterTournamentOrdinalForTesting(
         grid: (256, rows, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, rows, 8], [1, rows, 8]],
-        outputDTypes: [.uint32, .float32]
+        outputDTypes: [.uint32, .float32],
+        verbose: true
     )
     return (outputs[0], outputs[1])
 }
@@ -1626,7 +1632,8 @@ private func lagunaPrefillMoETail(
         grid: (LagunaConstants.hiddenSize / 4, rows, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, rows, LagunaConstants.hiddenSize]],
-        outputDTypes: [.bfloat16]
+        outputDTypes: [.bfloat16],
+        verbose: true
     )[0]
 }
 
@@ -1659,7 +1666,8 @@ private func lagunaPrefillSortedMoETail(
         grid: (LagunaConstants.hiddenSize / 4, rows, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, rows, LagunaConstants.hiddenSize]],
-        outputDTypes: [.bfloat16]
+        outputDTypes: [.bfloat16],
+        verbose: true
     )[0]
 }
 
@@ -2590,7 +2598,8 @@ func lagunaDecodeEmbeddingRoPEAtlas(
             [1, 1, 1, LagunaConstants.headDim / 2],
             [1, 1, 1, LagunaConstants.headDim],
         ],
-        outputDTypes: [.bfloat16, .float32, .float32]
+        outputDTypes: [.bfloat16, .float32, .float32],
+        verbose: true
     )
     lagunaTrace("decode embedding+rope atlas")
     return (outputs[0], outputs[1], outputs[2])

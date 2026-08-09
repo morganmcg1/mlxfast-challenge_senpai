@@ -1,21 +1,25 @@
 # r92-b Stage 1 research-only instrumentation: MLX generated-MSL verbose dump
 #
 # Base:      8486638578a283de40369172f68c3a4d2d6a5365 (codex/mlxfast-maple-20260804-advisor)
+# Applied on assignment marker 09b19bf46f4b48be9d80c4b9a56bb2a5f2a0612, which
+#            touches no editable path, so editable content equals the base.
 # Generated: senpai/tools/agx-census-probe/add_verbose_dump.py
-# Sites:     33 MLXFastKernel.callAsFunction invocations in
-#            Sources/MLXFastModel/LagunaRuntimeModel.swift (every `outputDTypes:`
-#            argument; the file uses neither `initValue:` nor `stream:`, so
-#            `outputDTypes:` is always the last labelled argument and
-#            `verbose:` goes immediately after it).
+# Sites:     48 MLXFastKernel.callAsFunction invocations across three files -- every
+#            `outputDTypes:` argument. None of these files uses `initValue:` or
+#            `stream:`, so `outputDTypes:` is always the last labelled argument
+#            and `verbose:` goes immediately after it.
+#              Sources/MLXFastModel/LagunaRuntimeModel.swift   33
+#              Sources/MLXFastModel/LagunaRuntimeLayers.swift   9
+#              Sources/MLXFastModel/LagunaLmHeadPrune.swift     6
 #
 # Re-apply from a clean checkout at that base:
 #   python3 senpai/tools/agx-census-probe/add_verbose_dump.py
 # or
 #   git apply research/maple-frieren-r92-verbose-dump.patch
 #
-# RELOCATION WARNING: this diff carries absolute line numbers into a 10k-line
-# file that every experiment edits. If `git apply` rejects, do NOT hand-fix the
-# hunks -- rerun add_verbose_dump.py, which is line-number independent.
+# RELOCATION WARNING: this diff carries absolute line numbers into files that
+# every experiment edits. If `git apply` rejects, do NOT hand-fix the hunks --
+# rerun add_verbose_dump.py, which is line-number independent.
 #
 # NOT A SUBMISSION CANDIDATE. `verbose: true` makes MLX print the fully
 # generated MSL to std::cout at every kernel op construction
@@ -23,6 +27,161 @@
 # which is pure host-side I/O on the scored hot path. It is reverted later in
 # this branch's history and contributes zero editable bytes to the submitted
 # surface.
+diff --git a/Sources/MLXFastModel/LagunaLmHeadPrune.swift b/Sources/MLXFastModel/LagunaLmHeadPrune.swift
+index 4bf57d5..4f1a704 100644
+--- a/Sources/MLXFastModel/LagunaLmHeadPrune.swift
++++ b/Sources/MLXFastModel/LagunaLmHeadPrune.swift
+@@ -943,14 +943,16 @@ final class LagunaLmHeadPruner {
+                 grid: (vocab / 16 * 512, 1, 1),
+                 threadGroup: (512, 1, 1),
+                 outputShapes: [[vocab], [vocab]],
+-                outputDTypes: [.float32, .bfloat16]
++                outputDTypes: [.float32, .bfloat16],
++                verbose: true
+             )
+             : lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel(
+                 [x, int5CodesLo, int5CodesHi, int5Scales],
+                 grid: (vocab / 16 * 512, 1, 1),
+                 threadGroup: (512, 1, 1),
+                 outputShapes: [[vocab], [vocab]],
+-                outputDTypes: [.float32, .bfloat16]
++                outputDTypes: [.float32, .bfloat16],
++                verbose: true
+             )
+         let coarse = coarseOut[0]
+         let delta = coarseOut[1]
+@@ -959,14 +961,16 @@ final class LagunaLmHeadPruner {
+             grid: (224, 128, 1),
+             threadGroup: (224, 1, 1),
+             outputShapes: [[128], [128]],
+-            outputDTypes: [.float32, .uint32]
++            outputDTypes: [.float32, .uint32],
++            verbose: true
+         )
+         let thr = lagunaLmHeadExactWinnerBF16PredecessorThresholdKernel(
+             [argmaxPartials[0], argmaxPartials[1], lmHeadWeight, x],
+             grid: (32, 1, 1),
+             threadGroup: (32, 1, 1),
+             outputShapes: [[1]],
+-            outputDTypes: [.float32]
++            outputDTypes: [.float32],
++            verbose: true
+         )[0]
+         let assembled =
+             refine
+@@ -975,14 +979,16 @@ final class LagunaLmHeadPruner {
+                 grid: (vocab / 32 * 256, 1, 1),
+                 threadGroup: (256, 1, 1),
+                 outputShapes: [[vocab]],
+-                outputDTypes: [.bfloat16]
++                outputDTypes: [.bfloat16],
++                verbose: true
+             )[0]
+             : lagunaLmHeadInlineExactDeltaBF16Kernel(
+                 [coarse, delta, thr, lmHeadWeight, x],
+                 grid: (vocab / 32 * 256, 1, 1),
+                 threadGroup: (256, 1, 1),
+                 outputShapes: [[vocab]],
+-                outputDTypes: [.bfloat16]
++                outputDTypes: [.bfloat16],
++                verbose: true
+             )[0]
+         return assembled.reshaped([1, 1, vocab])
+     }
+diff --git a/Sources/MLXFastModel/LagunaRuntimeLayers.swift b/Sources/MLXFastModel/LagunaRuntimeLayers.swift
+index 24f61cd..d568105 100644
+--- a/Sources/MLXFastModel/LagunaRuntimeLayers.swift
++++ b/Sources/MLXFastModel/LagunaRuntimeLayers.swift
+@@ -719,7 +719,8 @@ func lagunaDecodeRouterTop8AcceptedForTesting(
+         grid: (256, 1, 1),
+         threadGroup: (256, 1, 1),
+         outputShapes: [[1, 1, 8], [1, 1, 8]],
+-        outputDTypes: [.uint32, .float32]
++        outputDTypes: [.uint32, .float32],
++        verbose: true
+     )
+     return (outputs[0], outputs[1])
+ }
+@@ -740,7 +741,8 @@ func lagunaDecodeRouterTop8OrdinalForTesting(
+         grid: (256, 1, 1),
+         threadGroup: (256, 1, 1),
+         outputShapes: [[1, 1, 8], [1, 1, 8]],
+-        outputDTypes: [.uint32, .float32]
++        outputDTypes: [.uint32, .float32],
++        verbose: true
+     )
+     return (outputs[0], outputs[1])
+ }
+@@ -762,7 +764,8 @@ func lagunaDecodeRouterTop8OrdinalScoreTableForTesting(
+         grid: (256, 1, 1),
+         threadGroup: (256, 1, 1),
+         outputShapes: [[1, 1, 8], [1, 1, 8]],
+-        outputDTypes: [.uint32, .float32]
++        outputDTypes: [.uint32, .float32],
++        verbose: true
+     )
+     return (outputs[0], outputs[1])
+ }
+@@ -948,7 +951,8 @@ private func lagunaPrefillRouterTop8(
+         grid: (256, rows, 1),
+         threadGroup: (256, 1, 1),
+         outputShapes: [[1, rows, 8], [1, rows, 8]],
+-        outputDTypes: [.uint32, .float32]
++        outputDTypes: [.uint32, .float32],
++        verbose: true
+     )
+     return (outputs[0], outputs[1])
+ }
+@@ -1334,7 +1338,8 @@ func lagunaPrefillRouterTournamentAcceptedForTesting(
+         grid: (256, rows, 1),
+         threadGroup: (256, 1, 1),
+         outputShapes: [[1, rows, 8], [1, rows, 8]],
+-        outputDTypes: [.uint32, .float32]
++        outputDTypes: [.uint32, .float32],
++        verbose: true
+     )
+     return (outputs[0], outputs[1])
+ }
+@@ -1356,7 +1361,8 @@ func lagunaPrefillRouterTournamentOrdinalForTesting(
+         grid: (256, rows, 1),
+         threadGroup: (256, 1, 1),
+         outputShapes: [[1, rows, 8], [1, rows, 8]],
+-        outputDTypes: [.uint32, .float32]
++        outputDTypes: [.uint32, .float32],
++        verbose: true
+     )
+     return (outputs[0], outputs[1])
+ }
+@@ -1626,7 +1632,8 @@ private func lagunaPrefillMoETail(
+         grid: (LagunaConstants.hiddenSize / 4, rows, 1),
+         threadGroup: (256, 1, 1),
+         outputShapes: [[1, rows, LagunaConstants.hiddenSize]],
+-        outputDTypes: [.bfloat16]
++        outputDTypes: [.bfloat16],
++        verbose: true
+     )[0]
+ }
+ 
+@@ -1659,7 +1666,8 @@ private func lagunaPrefillSortedMoETail(
+         grid: (LagunaConstants.hiddenSize / 4, rows, 1),
+         threadGroup: (256, 1, 1),
+         outputShapes: [[1, rows, LagunaConstants.hiddenSize]],
+-        outputDTypes: [.bfloat16]
++        outputDTypes: [.bfloat16],
++        verbose: true
+     )[0]
+ }
+ 
+@@ -2590,7 +2598,8 @@ func lagunaDecodeEmbeddingRoPEAtlas(
+             [1, 1, 1, LagunaConstants.headDim / 2],
+             [1, 1, 1, LagunaConstants.headDim],
+         ],
+-        outputDTypes: [.bfloat16, .float32, .float32]
++        outputDTypes: [.bfloat16, .float32, .float32],
++        verbose: true
+     )
+     lagunaTrace("decode embedding+rope atlas")
+     return (outputs[0], outputs[1], outputs[2])
 diff --git a/Sources/MLXFastModel/LagunaRuntimeModel.swift b/Sources/MLXFastModel/LagunaRuntimeModel.swift
 index fdaff41..143ba21 100644
 --- a/Sources/MLXFastModel/LagunaRuntimeModel.swift
