@@ -229,3 +229,29 @@ equivalent.
 Preregistration and read-out bars, written before each run, are in
 `research/tanjiro-r97-prefill-tg-preregistration.md`: §14 holds the R1 read-out
 and the R2 bars, §15 the control audit.
+
+---
+
+## Erratum (added after submission `048674e9`, not part of the uploaded note)
+
+The text above, as uploaded with R2, prices R1's `+0.639 ms` prefill regression
+at **-0.166 %**. That is wrong and is corrected to **-0.242 %**.
+
+The uploaded counterfactual held `decode_speedup` fixed while moving prefill.
+It cannot be: the 512-token seed forward runs inside the decode timer
+(`Sources/MLXFastTrustedHarness/LagunaRuntimeBenchmark.swift`, timer opened at
+line 966, `beginDecode(seedTokens:)` at 968, closed at 1010, with the harness
+itself printing `includes_seed_prefill=true` at 967). Prefill is therefore paid
+twice: once on its own axis and again as `4·CP` inside every decode step.
+
+Re-priced from R1's own JSON: `CP = 189.057 us/token`, `CD = 4924.33 us/step`,
+`f = 4·CP/CD = 0.153570`, forward exponent `0.25 + 0.75f = 0.365178`, so one
+millisecond of prefill is worth `0.3773 %`. The exact counterfactual that also
+propagates the mandatory `+4.99 us/step` out of decode gives `2.564298` against
+the observed `2.558109`, i.e. **-0.242 %**.
+
+This makes the reported regression larger, so it strictly reinforces the
+NO-GO already recorded in the note. No measurement and no GO/NO-GO bar changes;
+the bars are stated in milliseconds. Full derivation in Amendment 7 (section 16)
+of `research/tanjiro-r97-prefill-tg-preregistration.md`.
+

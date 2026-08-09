@@ -795,6 +795,12 @@ The remaining gap to our promoted best `2.58883` is baseline-draw noise, not
 candidate regression. R1 is a **−0.17 % regression**, not the `−1.19 %` that a
 naive score-to-score comparison suggested.
 
+> **Superseded by Amendment 7 (§16).** The `−0.166 %` above is wrong: it holds
+> `decode_speedup` fixed while moving prefill, but the decode timer contains the
+> 512-token seed forward, so a prefill change is charged twice. The corrected
+> cost of R1's `+0.639 ms` is **`−0.242 %`**. The sign, the magnitude class and
+> the revert decision are unchanged.
+
 ### 14.5 Why the registered −0.16 ms did not appear
 
 The registered model said fusion removes 78 kernel dispatches at ≈2.0 µs and
@@ -911,7 +917,8 @@ double-counted or silently dropped.
 The review's strongest recommendation was to spend R2 on a decode candidate,
 since decode carries 75 % of the weight and closing the 1.05 % gap to the leader
 needs either **−4.0 ms** of prefill or **−0.069 ms/token** of decode, whereas
-P4's registered −0.4 ms is worth only about **+0.10 %**. I accept the arithmetic
+P4's registered −0.4 ms is worth only about **+0.10 %** (Amendment 7 corrects
+this to **+0.151 %**; the conclusion is unchanged). I accept the arithmetic
 and I am *not* acting on the recommendation, because this assignment
 (`maple-r97-b-prefill-tg-count`) is the prefill arm and no decode candidate is
 implemented on this branch. Inventing one here would be a different experiment.
@@ -929,4 +936,116 @@ Two further review points are accepted and recorded rather than acted on:
   mostly hides under compute and −0.4 ms can only arrive through second-order
   cache/DVFS effects. This is why null was, and remains, the registered most
   likely outcome.
+
+
+---
+
+## 16. Amendment 7 — prefill is priced twice; every score figure restated
+
+Registered while R2 was in flight, in response to advisor feedback
+`r97-b-fb1-prefill-price-confirmed` (PR #527 comment `5231447437`,
+2026-08-09T12:11:02Z), which reports that merged PR #531 established that the
+512-token seed forward runs **inside** the decode timer. I accept the
+correction. Every prefill-to-score conversion earlier in this document is wrong
+in the same direction and is restated here. **No measurement changes; only the
+exchange rate does.**
+
+### 16.1 Independent source confirmation
+
+I did not take this on assertion. In
+`Sources/MLXFastTrustedHarness/LagunaRuntimeBenchmark.swift` the serial decode
+phase is:
+
+| line | statement |
+|---|---|
+| 966 | `let decodePhaseStart = DispatchTime.now().uptimeNanoseconds` |
+| 967 | prints the literal `includes_seed_prefill=true` |
+| 968 | `try worker.beginDecode(seedTokens:)` — the 512-token seed forward |
+| 1010 | `secondsSince(decodePhaseStart)` — the timer closes *after* the seed |
+
+The parallel region repeats the pattern at lines 877/878/932. The seed forward
+is unambiguously inside the decode clock. **Confirmed.**
+
+### 16.2 The corrected model
+
+Let `CP` be candidate prefill seconds per *token* and `CD` candidate decode
+seconds per *step*. Because the seed is 512 tokens and the timed decode is 128
+steps, the seed contributes `512·CP/128 = 4·CP` to every reported decode step:
+
+```
+CD = 4·CP + Tbar          (Tbar = the true per-step decode cost)
+f  = 4·CP / CD            (the share of the decode metric that is prefill)
+d log score = -(0.25 + 0.75·f)·u - 0.75·(1-f)·w
+```
+
+where `u` is fractional prefill change and `w` fractional change in `Tbar`. The
+forward-pass exponent is therefore `0.25 + 0.75·f`, **not** `0.25`.
+
+**Standing rule, adopted from the advisor and applied from here on: `f` is
+recomputed from the candidate's own score JSON every time. A stored `f` is never
+carried across receipts.** In particular the `0.330` exponent in
+`research/frieren-r97-rule58-result.md` must not be reused — it is derived from
+the pinned-baseline `f`, not a candidate `f`.
+
+### 16.3 R1 re-priced from its own JSON
+
+| quantity | value | source |
+|---|---|---|
+| candidate prefill wall | 96.797 ms | R1 `officialMetrics` |
+| `CP` | 189.057 µs/token | 96.797 / 512 |
+| `CD` | 4924.33 µs/step | R1 `officialMetrics` |
+| `f` | **0.153570** | `4·CP/CD` |
+| forward exponent `0.25 + 0.75f` | **0.365178** | — |
+| price of 1 ms of prefill | **0.3773 %** | `0.365178 / 96.797` |
+
+Exact counterfactual, moving prefill to the control mean 96.158 ms **and**
+propagating the mandatory `4·ΔCP = +4.99 µs/step` out of decode
+(`CD → 4919.34 µs/step`):
+
+```
+score(counterfactual) = 2.564298      score(observed) = 2.558109
+cost of the +0.639 ms regression = -0.242 %
+```
+
+The linear price agrees: `0.639 × 0.3773 = 0.241 %`. The earlier naive
+counterfactual, which held `decode_speedup` fixed, gives `2.562349` and the
+wrong answer `−0.166 %`.
+
+### 16.4 Everything restated
+
+| figure | old (wrong) | corrected |
+|---|---|---|
+| cost of R1's `+0.639 ms` | −0.166 % | **−0.242 %** |
+| value of P4's registered −0.4 ms | +0.10 % | **+0.151 %** |
+| prefill needed to close the 1.05 % leader gap | ≈ −4.0 ms | **≈ −2.8 ms** |
+
+The revert decision (§11.3, `> +0.3 ms`) is stated in **milliseconds**, so no
+GO/NO-GO bar in this document moves. Only the reported score consequences do.
+The correction makes the regression *worse*, so it strictly reinforces the
+NO-GO.
+
+### 16.5 What this does to the decode read-out — and its honest limits
+
+A `+0.639 ms` prefill regression **necessarily** injects
+`0.639 ms / 128 steps = +4.99 µs/step` into the decode metric. R1's decode
+sat `+10.3 µs/step` above the healthy control mean, with a prediction se of
+about `18.5 µs`. The injected term is therefore fully consistent with the
+observation, and §14.4's claim that "decode is unchanged, so P2 stayed
+prefill-only" is *weaker* than stated: part of the observed decode excess is
+mechanically the prefill regression, not evidence of gating.
+
+I am explicit that **this arm has no power to test rule 58.** The injected
+signal is 0.27 of the decode prediction sd, and the healthy controls span only
+0.26 ms of prefill wall (≈ 2.0 µs/step of induced decode), so no regression of
+decode on prefill within this population could resolve a slope of 4 with any
+useful error bar. I report the relationship as *consistent with, and unable to
+test*, and I accept the advisor's M4 measurement as the evidence.
+
+### 16.6 Direction of travel
+
+The advisor also notes that `f` grows as decode improves: at `CD = 4000 µs/step`
+the forward exponent rises to about `0.391`. Prefill work therefore
+**appreciates** as the decode axis is optimised. This does not rescue P2 — P2 is
+a measured regression, not a small win — but it does mean a future prefill win
+should be re-priced at the `f` of the receipt that carries it, not at today's.
 
