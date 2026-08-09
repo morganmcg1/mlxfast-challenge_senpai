@@ -2261,6 +2261,25 @@ if (lane == 0) {
     ensureRowContiguous: true
 )
 
+struct LagunaFullAttentionParams {
+    private var writeIdx = -1
+    private var capacity = -1
+    private var params: MLXArray?
+
+    mutating func get(writeIdx: Int, capacity: Int) -> MLXArray {
+        if self.writeIdx == writeIdx, self.capacity == capacity, let params {
+            return params
+        }
+        let params = MLXArray([
+            UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity),
+        ])
+        self.writeIdx = writeIdx
+        self.capacity = capacity
+        self.params = params
+        return params
+    }
+}
+
 /// Fused decode attention for a full-attention layer with spare backing
 /// capacity. Returns `[1, heads, 1, headDim]`; the caller advances the
 /// cache clock via `KVCacheSimple.fusedAppendAdvance()`.
@@ -2274,11 +2293,12 @@ func lagunaFullFusedAttention(
     cacheKeys: MLXArray,
     cacheValues: MLXArray,
     writeIdx: Int,
+    capacity: Int,
+    params: MLXArray,
     scale: MLXArray
 ) -> MLXArray {
     let heads = LagunaConstants.fullAttentionHeads
     let kvHeads = LagunaConstants.numKeyValueHeads
-    let capacity = cacheKeys.dim(2)
     precondition(rawQueries.dtype == .bfloat16)
     precondition(rawKeys.dtype == .bfloat16)
     precondition(rawValues.dtype == .bfloat16)
@@ -2298,9 +2318,6 @@ func lagunaFullFusedAttention(
     precondition(scale.dtype == .float32 && scale.size == 1)
 
     lagunaTrace("full fused attention")
-    let params = MLXArray([
-        UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity),
-    ])
     return lagunaFullFusedAttentionKernel(
         [
             rawQueries, rawKeys, rawValues,
@@ -2347,6 +2364,8 @@ func lagunaWarmFullFusedAttentionKernel() {
         cacheKeys: cacheKeys,
         cacheValues: cacheValues,
         writeIdx: 1,
+        capacity: 2,
+        params: MLXArray([UInt32(1), UInt32(2), UInt32(2)]),
         scale: scale
     ))
 }
@@ -5735,6 +5754,7 @@ final class LagunaRuntimeAttention: Module {
         inputNorm: RMSNorm,
         mask: MLXFast.ScaledDotProductAttentionMaskMode,
         cache: KVCache?,
+        fullAttentionParams: inout LagunaFullAttentionParams,
         qkRoPEAngles: MLXArray? = nil,
         qkRoPEOffsets: MLXArray? = nil
     ) -> MLXArray {
@@ -6042,6 +6062,7 @@ final class LagunaRuntimeAttention: Module {
             // the second decode step (the first step's growth concat stays
             // stock). The clock advance mirrors the stock single-token
             // update.
+            let capacity = append.keys.dim(2)
             fusedAttended = lagunaFullFusedAttention(
                 rawQueries: queries,
                 rawKeys: keys,
@@ -6052,6 +6073,9 @@ final class LagunaRuntimeAttention: Module {
                 cacheKeys: append.keys,
                 cacheValues: append.values,
                 writeIdx: append.writeIdx,
+                capacity: capacity,
+                params: fullAttentionParams.get(
+                    writeIdx: append.writeIdx, capacity: capacity),
                 scale: _fusedAttnScale
             )
             simple.fusedAppendAdvance()
@@ -11009,6 +11033,7 @@ final class LagunaRuntimeDecoderLayer: Module {
         _ x: MLXArray,
         mask: MLXFast.ScaledDotProductAttentionMaskMode,
         cache: KVCache?,
+        fullAttentionParams: inout LagunaFullAttentionParams,
         qkRoPEAngles: MLXArray? = nil,
         qkRoPEOffsets: MLXArray? = nil
     ) -> MLXArray {
@@ -11017,6 +11042,7 @@ final class LagunaRuntimeDecoderLayer: Module {
             inputNorm: inputLayerNorm,
             mask: mask,
             cache: cache,
+            fullAttentionParams: &fullAttentionParams,
             qkRoPEAngles: qkRoPEAngles,
             qkRoPEOffsets: qkRoPEOffsets
         )
@@ -11524,6 +11550,7 @@ final class LagunaRuntimeModelInner: Module {
             h: h, cache: cache?[slidingAttentionIdx], windowSize: slidingWindow)
 
         let isSingleTokenDecode = inputs.dims(1, 1)
+        var fullAttentionParams = LagunaFullAttentionParams()
 
         // One cos/sin table per attention family per decode step, shared by
         // every layer of that family (their caches advance in lockstep). Each
@@ -11543,6 +11570,7 @@ final class LagunaRuntimeModelInner: Module {
                         h,
                         mask: mask,
                         cache: cache?[i],
+                        fullAttentionParams: &fullAttentionParams,
                         qkRoPEAngles: qkRoPEAngles,
                         qkRoPEOffsets: qkRoPEOffsets
                     )
@@ -11555,6 +11583,7 @@ final class LagunaRuntimeModelInner: Module {
                     h,
                     mask: mask,
                     cache: cache?[i],
+                    fullAttentionParams: &fullAttentionParams,
                     qkRoPEAngles: qkRoPEAngles,
                     qkRoPEOffsets: qkRoPEOffsets
                 )
