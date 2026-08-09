@@ -8994,6 +8994,7 @@ final class LagunaRuntimeModelInner: Module {
             h: h, cache: cache?[slidingAttentionIdx], windowSize: slidingWindow)
 
         let isSingleTokenDecode = inputs.dims(1, 1)
+        let r93Glue = isSingleTokenDecode ? lagunaR93GlueDepth() : 0
 
         // One cos/sin table per attention family per decode step, shared by
         // every layer of that family (their caches advance in lockstep). Each
@@ -9038,8 +9039,8 @@ final class LagunaRuntimeModelInner: Module {
                 }
             }
             lagunaInjectLayerWork(layer: i, isSingleTokenDecode: isSingleTokenDecode)
-            if isSingleTokenDecode, lagunaR93MaxGluePerLayer > 0 {
-                for _ in 0..<lagunaR93MaxGluePerLayer {
+            if isSingleTokenDecode, r93Glue > 0 {
+                for _ in 0..<r93Glue {
                     h = maximum(h, h)
                 }
             }
@@ -9306,6 +9307,37 @@ private let lagunaInjectDecodeEmpty = lagunaInjectEnvInt(
 /// donation-preserving unary and must not be quoted as a per-dispatch floor.
 private let lagunaR93MaxGluePerLayer = lagunaInjectEnvInt(
     "DARKBLOOM_R93_MAX_GLUE_PER_LAYER", 0)
+
+/// Shared 4-byte control word that lets the driver retarget the R93 ladder
+/// between individual decode steps of one worker process.
+///
+/// `DARKBLOOM_R93_MAX_GLUE_PER_LAYER` is a process global, so an arm contrast
+/// built on it alone is unavoidably a cross-process contrast and inherits the
+/// largest variance component the rig has. Mapping one `Int32` shared with the
+/// driver moves the same contrast inside a single run, where it can be paired
+/// step by step. The read is one load from a resident page per decode forward,
+/// which is far below the resolution being calibrated.
+private let lagunaR93GlueControl: UnsafeMutablePointer<Int32>? = {
+    guard
+        let path = ProcessInfo.processInfo.environment["DARKBLOOM_R93_GLUE_MAP"],
+        !path.isEmpty
+    else { return nil }
+    let fd = open(path, O_RDWR)
+    guard fd >= 0 else { return nil }
+    let mapped = mmap(
+        nil, MemoryLayout<Int32>.size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0)
+    close(fd)
+    guard let mapped, mapped != MAP_FAILED else { return nil }
+    return mapped.assumingMemoryBound(to: Int32.self)
+}()
+
+@inline(__always)
+private func lagunaR93GlueDepth() -> Int {
+    if let control = lagunaR93GlueControl {
+        return Int(control.pointee)
+    }
+    return lagunaR93MaxGluePerLayer
+}
 /// Empty dispatches injected per multi-token forward.
 private let lagunaInjectPrefillEmpty = lagunaInjectEnvInt(
     "DARKBLOOM_INJECT_PREFILL_EMPTY", 0)
