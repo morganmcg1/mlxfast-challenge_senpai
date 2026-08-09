@@ -395,8 +395,17 @@ struct NVFP4QuantizedMMTests {
                 return word | (code << (offset * 4))
             }
         }
+        let expertWords = (0..<256).map { expert -> UInt32 in
+            let code = UInt32(expert % 15 + 1)
+            return (0..<8).reduce(UInt32(0)) { word, offset in
+                word | (code << (offset * 4))
+            }
+        }
         let packedWeight = broadcast(
             MLXArray(weightWords, [1, n, k / 8]),
+            to: [256, n, k / 8]
+        ) ^ broadcast(
+            MLXArray(expertWords, [256, 1, 1]),
             to: [256, n, k / 8]
         )
         let scaleValues = (0..<(n * k / 16)).map { index in
