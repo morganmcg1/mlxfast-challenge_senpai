@@ -1,0 +1,237 @@
+# MSL corpus old vs mid
+libraries old=103 mid=103
+common=103 byte_identical=102 differing=1
+only_old=0 only_mid=0
+
+## differing (name, bytes_a, bytes_b, sha_a, sha_b)
+  custom_kernel_laguna_sliding_fused_attn_ring_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_uint32_tc_floatc_bfloat16_t  60780 -> 64866  39412f51db8d4eb3 -> 4d12c05ab71ab44e
+
+### unified diff: custom_kernel_laguna_sliding_fused_attn_ring_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_uint32_tc_floatc_bfloat16_t
+--- old/custom_kernel_laguna_sliding_fused_attn_ring_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_uint32_tc_floatc_bfloat16_t
++++ mid/custom_kernel_laguna_sliding_fused_attn_ring_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_uint32_tc_floatc_bfloat16_t
+@@ -1277,21 +1277,37 @@
+ U pair_sum1 = 0;
+ 
+ int i = sg;
+-for (; i + BN < N; i += 2 * BN) {
++for (; i + 3 * BN < N; i += 4 * BN) {
+     const device bfloat* pipe_keys_b = pair_keys + inner_k_stride;
++    const device bfloat* pipe_keys_c = pair_keys + 2 * inner_k_stride;
++    const device bfloat* pipe_keys_d = pair_keys + 3 * inner_k_stride;
+     const device bfloat* pipe_values_b = pair_values + inner_v_stride;
++    const device bfloat* pipe_values_c = pair_values + 2 * inner_v_stride;
++    const device bfloat* pipe_values_d = pair_values + 3 * inner_v_stride;
+     const bool sub_a = uint(i) == widx;
+     const bool sub_b = uint(i + BN) == widx;
++    const bool sub_c = uint(i + 2 * BN) == widx;
++    const bool sub_d = uint(i + 3 * BN) == widx;
+     U pipe_ka[4];
+     U pipe_kb[4];
++    U pipe_kc[4];
++    U pipe_kd[4];
+     T_LOAD_K(pipe_ka, sub_a, pair_keys);
+     T_LOAD_K(pipe_kb, sub_b, pipe_keys_b);
++    T_LOAD_K(pipe_kc, sub_c, pipe_keys_c);
++    T_LOAD_K(pipe_kd, sub_d, pipe_keys_d);
+     bfloat pipe_va0, pipe_va1, pipe_va2, pipe_va3;
+     bfloat pipe_vb0, pipe_vb1, pipe_vb2, pipe_vb3;
++    bfloat pipe_vc0, pipe_vc1, pipe_vc2, pipe_vc3;
++    bfloat pipe_vd0, pipe_vd1, pipe_vd2, pipe_vd3;
+     T_LOAD_V(pipe_va0, pipe_va1, pipe_va2, pipe_va3, sub_a,
+         pair_values);
+     T_LOAD_V(pipe_vb0, pipe_vb1, pipe_vb2, pipe_vb3, sub_b,
+         pipe_values_b);
++    T_LOAD_V(pipe_vc0, pipe_vc1, pipe_vc2, pipe_vc3, sub_c,
++        pipe_values_c);
++    T_LOAD_V(pipe_vd0, pipe_vd1, pipe_vd2, pipe_vd3, sub_d,
++        pipe_values_d);
+ 
+     U pair_score0 = 0;
+     U pair_score1 = 0;
+@@ -1365,8 +1381,80 @@
+     pair_o0[3] = pair_o0[3] * pipeb_factor0 + pipeb_exp0 * pipe_vb3;
+     pair_o1[3] = pair_o1[3] * pipeb_factor1 + pipeb_exp1 * pipe_vb3;
+ 
+-    pair_keys += 2 * inner_k_stride;
+-    pair_values += 2 * inner_v_stride;
++    U pipec_score0 = 0;
++    U pipec_score1 = 0;
++    pipec_score0 += pair_q0[0] * pipe_kc[0];
++    pipec_score1 += pair_q1[0] * pipe_kc[0];
++    pipec_score0 += pair_q0[1] * pipe_kc[1];
++    pipec_score1 += pair_q1[1] * pipe_kc[1];
++    pipec_score0 += pair_q0[2] * pipe_kc[2];
++    pipec_score1 += pair_q1[2] * pipe_kc[2];
++    pipec_score0 += pair_q0[3] * pipe_kc[3];
++    pipec_score1 += pair_q1[3] * pipe_kc[3];
++    pipec_score0 = simd_sum(pipec_score0);
++    pipec_score1 = simd_sum(pipec_score1);
++
++    U pipec_new_max0 = metal::max(pair_max0, pipec_score0);
++    U pipec_new_max1 = metal::max(pair_max1, pipec_score1);
++    U pipec_factor0;
++    U pipec_factor1;
++    LAGUNA_RESCALE(pipec_factor0, pair_max0 - pipec_new_max0);
++    LAGUNA_RESCALE(pipec_factor1, pair_max1 - pipec_new_max1);
++    U pipec_exp0 = metal::fast::exp(pipec_score0 - pipec_new_max0);
++    U pipec_exp1 = metal::fast::exp(pipec_score1 - pipec_new_max1);
++
++    pair_max0 = pipec_new_max0;
++    pair_max1 = pipec_new_max1;
++    pair_sum0 = pair_sum0 * pipec_factor0 + pipec_exp0;
++    pair_sum1 = pair_sum1 * pipec_factor1 + pipec_exp1;
++
++    pair_o0[0] = pair_o0[0] * pipec_factor0 + pipec_exp0 * pipe_vc0;
++    pair_o1[0] = pair_o1[0] * pipec_factor1 + pipec_exp1 * pipe_vc0;
++    pair_o0[1] = pair_o0[1] * pipec_factor0 + pipec_exp0 * pipe_vc1;
++    pair_o1[1] = pair_o1[1] * pipec_factor1 + pipec_exp1 * pipe_vc1;
++    pair_o0[2] = pair_o0[2] * pipec_factor0 + pipec_exp0 * pipe_vc2;
++    pair_o1[2] = pair_o1[2] * pipec_factor1 + pipec_exp1 * pipe_vc2;
++    pair_o0[3] = pair_o0[3] * pipec_factor0 + pipec_exp0 * pipe_vc3;
++    pair_o1[3] = pair_o1[3] * pipec_factor1 + pipec_exp1 * pipe_vc3;
++
++    U piped_score0 = 0;
++    U piped_score1 = 0;
++    piped_score0 += pair_q0[0] * pipe_kd[0];
++    piped_score1 += pair_q1[0] * pipe_kd[0];
++    piped_score0 += pair_q0[1] * pipe_kd[1];
++    piped_score1 += pair_q1[1] * pipe_kd[1];
++    piped_score0 += pair_q0[2] * pipe_kd[2];
++    piped_score1 += pair_q1[2] * pipe_kd[2];
++    piped_score0 += pair_q0[3] * pipe_kd[3];
++    piped_score1 += pair_q1[3] * pipe_kd[3];
++    piped_score0 = simd_sum(piped_score0);
++    piped_score1 = simd_sum(piped_score1);
++
++    U piped_new_max0 = metal::max(pair_max0, piped_score0);
++    U piped_new_max1 = metal::max(pair_max1, piped_score1);
++    U piped_factor0;
++    U piped_factor1;
++    LAGUNA_RESCALE(piped_factor0, pair_max0 - piped_new_max0);
++    LAGUNA_RESCALE(piped_factor1, pair_max1 - piped_new_max1);
++    U piped_exp0 = metal::fast::exp(piped_score0 - piped_new_max0);
++    U piped_exp1 = metal::fast::exp(piped_score1 - piped_new_max1);
++
++    pair_max0 = piped_new_max0;
++    pair_max1 = piped_new_max1;
++    pair_sum0 = pair_sum0 * piped_factor0 + piped_exp0;
++    pair_sum1 = pair_sum1 * piped_factor1 + piped_exp1;
++
++    pair_o0[0] = pair_o0[0] * piped_factor0 + piped_exp0 * pipe_vd0;
++    pair_o1[0] = pair_o1[0] * piped_factor1 + piped_exp1 * pipe_vd0;
++    pair_o0[1] = pair_o0[1] * piped_factor0 + piped_exp0 * pipe_vd1;
++    pair_o1[1] = pair_o1[1] * piped_factor1 + piped_exp1 * pipe_vd1;
++    pair_o0[2] = pair_o0[2] * piped_factor0 + piped_exp0 * pipe_vd2;
++    pair_o1[2] = pair_o1[2] * piped_factor1 + piped_exp1 * pipe_vd2;
++    pair_o0[3] = pair_o0[3] * piped_factor0 + piped_exp0 * pipe_vd3;
++    pair_o1[3] = pair_o1[3] * piped_factor1 + piped_exp1 * pipe_vd3;
++
++    pair_keys += 4 * inner_k_stride;
++    pair_values += 4 * inner_v_stride;
+ }
+ 
+ if (lane == 0) {
+
+## byte-identical library names
+  Absfloat32float32  72028B  2b0fbca6d4bd72eb
+  Addbfloat16  63962B  4fd26a54b658b57d
+  Addfloat32  63584B  b6cbb30c415e5849
+  Addint32  63692B  fcbaceac565c6dc7
+  BitwiseAndint32  64070B  1e3117495929b8e4
+  BitwiseAnduint16  64160B  2bd5388d77e21ae5
+  BitwiseAnduint32  64160B  f0413e54a1cbe189
+  BitwiseOruint16  64106B  ff875c4e58233dcf
+  BitwiseOruint32  64106B  c8723798cddf0b0b
+  CV2ISigmoidADV2IBroadcastACEV2IBroadcastCAFV2IMultiplyDEGV2IBroadcastFBHV2IBroadcastBFIV2OMultiplyGH_VV_V2V2_11160318154034397263  104577B  192a9a83384d706c
+  Cf4IAsTypeADf4IBroadcastCBEf4IBroadcastBCFf4ILogAddExpDEGV2OAsTypeF_VC_V2_10408321403207385874  98371B  1496e9a0ed4a6293
+  Dividefloat32  63746B  980e1350bdc4c726
+  Equalint32  63692B  af3c48c585d298b1
+  Equaluint8  63692B  b51201f085744690
+  GreaterEqualuint32  64124B  fca9218c30cc9b4b
+  LeftShiftuint32  64106B  faed945e5028d4b7
+  LessEqualint32  63908B  a8f0c1d9f3967fe6
+  LogicalAndbool_  63854B  6fe10bf90e1dbb0b
+  Maximumfloat32  63800B  7b8bcd0776bbd5a4
+  Maximumint32  63908B  4a1fe69ba09570d5
+  Minimumfloat32  63800B  d207f0943422cb03
+  Minimumint32  63908B  0e63c762285aa449
+  Multiplybfloat16  64232B  031c3915b96ce4cd
+  Multiplyfloat32  63854B  fe2be012d8601851
+  NotEqualuint8  63854B  d62fb82dd033a968
+  Powerfloat32  63692B  6120ba2efbed6fd0
+  RightShiftint32  64070B  d217259e7e228305
+  RightShiftuint16  64160B  77578f7b509bf41c
+  RightShiftuint32  64160B  0709507eb8b5ede3
+  RightShiftuint8  64070B  c464c485fcbcc003
+  Roundfloat32float32  72058B  3988431fc814cbfa
+  Selectfloat32  55280B  29b7410ab2f609f2
+  Selectint32  55314B  f6c6b33f13fa53e6
+  Selectuint8  55314B  9e689d633de98f05
+  Subtractfloat32  63854B  12124ec20d82f449
+  Subtractint32  63962B  035e0d12fe2a15c9
+  affine_quantize_bfloat16_t_gs_32_b_8  188626B  a0336b9ba819b3e0
+  all_reduce_maxfloat32  94254B  6b4ad29a23890a54
+  all_reduce_sumint32  94264B  140a548c5e00ad32
+  arangeuint32  48192B  b2100fe96249ace4
+  copybfloat16bfloat16  60882B  9d19bf6145f3d431
+  copybfloat16float32  60640B  47c06ca756ddbfcc
+  copybool_int32  60354B  bfbadfeba64f62a9
+  copyfloat32float32  60398B  784206c4b674faf1
+  copyfloat32uint8  60442B  03220978f82148ae
+  copyint32float32  60442B  a4f9b373232ae892
+  copyint32int32  60486B  73b8ab75710858fe
+  copyint32uint32  60552B  a5f9d6453f31ff17
+  copyint32uint8  60486B  f7b24e28dcaac35c
+  copyuint16uint8  60552B  4885d84a780ad1e9
+  copyuint32int32  60552B  f2cc5cba3f7eb80b
+  copyuint32uint32  60618B  4a399e25f854a359
+  copyuint32uint8  60552B  21ee618afe231b37
+  copyuint8int32  60486B  1f50395b5c57b312
+  copyuint8uint8  60486B  1581de157e952e2a
+  custom_kernel_laguna_decode_embedding_rope_atlas_bf16_2048_v2_int32_tc_bfloat16_t_float_float_int32_ts_bfloat16_t_float_float  49085B  ca96900cd3d87ac6
+  custom_kernel_laguna_decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t  51978B  7d6446cb874ed7fa
+  custom_kernel_laguna_decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t  51978B  f6b8e98360be8d30
+  custom_kernel_laguna_dense_down_residual_bf16_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t  49581B  c0d50782a66c8036
+  custom_kernel_laguna_dense_gate_up_swiglu_bf16_v1_bfloat16_t_bfloat16_t_bfloat16_t  50343B  700810efbd5811da
+  custom_kernel_laguna_full_fused_attn_grow_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_uint32_tc_floatc_bfloat16_t  62957B  4dbef9d0ec5abcbe
+  custom_kernel_laguna_full_qk_norm_yarn_bf16_128_v4_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t  49839B  a120b24b6f3d98cb
+  custom_kernel_laguna_gate_sp_h48_v1_bfloat16_t_uint32_t_bfloat16_t_bfloat16_t_bfloat16_t  49253B  765e3a60e23d0d8a
+  custom_kernel_laguna_gate_sp_h64_v1_bfloat16_t_uint32_t_bfloat16_t_bfloat16_t_bfloat16_t  49253B  2e60f34bd72cf6ef
+  custom_kernel_laguna_lmhead_coarse_argmax_stage1_v5_float_float_uint32_t  49649B  8ccbc862f27470fe
+  custom_kernel_laguna_lmhead_exact_fused_int5_sparse_refine_v1_float_bfloat16_t_floatc_bfloat16_t_bfloat16_t_uint8_t_uint8_t_bfloat16_t  53179B  cb4797aff20d1896
+  custom_kernel_laguna_lmhead_exact_inline_mask_block_delta_bf16_lane0_mask_v1_float_bfloat16_t_floatc_bfloat16_t_bfloat16_t_bfloat16_t  50480B  b25a3d7a455fbb18
+  custom_kernel_laguna_lmhead_exact_winner_bf16_midpoint_threshold_v1_float_uint32_t_bfloat16_t_bfloat16_t_float  50523B  ad6da634ef8a3a89
+  custom_kernel_laguna_lmhead_int5_base_coarse_delta_bf16_v1_bfloat16_t_uint8_t_uint8_t_float_bfloat16_t  50092B  042b7c715c9ed34f
+  custom_kernel_laguna_lmhead_int5_inline_coarse_ratio_bound_delta_bf16_v6_bfloat16_t_uint8_t_uint8_t_uint8_t_float_bfloat16_t  50983B  8f09d2a52e713c39
+  custom_kernel_laguna_oproj_act_h48_v1_lm1_pw1_sc1_se1_bfloat16_t_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t  52183B  d647aa66ddcea42a
+  custom_kernel_laguna_oproj_act_h64_v1_lm1_pw1_sc1_se1_bfloat16_t_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t  52183B  02ba7e1829d7a312
+  custom_kernel_laguna_prefill_full_qk_norm_yarn_bf16_128_h1_v2_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_int32_tc_bfloat16_t_bfloat16_t  50369B  700c5c2cb9d5caed
+  custom_kernel_laguna_prefill_router_tournament_ordinal_norm_active64_v2_bfloat16_t_float_uint32_t_float  52926B  162199249dcaca0f
+  custom_kernel_laguna_prefill_sliding_qk_norm_rope_bf16_128_h1_v2_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_int32_tc_bfloat16_t_bfloat16_t  50041B  55ac89598fc8f9b6
+  custom_kernel_laguna_prefill_sorted_moe_tail_bf16_v1_bfloat16_t_uint32_t_float_bfloat16_t_bfloat16_t_bfloat16_t  48870B  1eed4cd79faf99d4
+  custom_kernel_laguna_residual_rms_bf16_2048_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t  49494B  6a0b212d45c1e1ae
+  custom_kernel_laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_bfloat16_t_uint32_t  52359B  19d8e9fadbfafafa
+  custom_kernel_laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2_bfloat16_t_uint32_t_uint8_t_uint32_t_bfloat16_t  56600B  2bceaa1cdf331a5c
+  custom_kernel_laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6_bfloat16_t_uint32_t_uint8_t_uint32_t_float_bfloat16_t_uint32_t_uint8_t_bfloat16_t_bfloat16_t  54596B  66e59b8070d53e87
+  custom_kernel_laguna_shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1_bfloat16_t_uint32_t_uint8_t_bfloat16_t  52927B  0287bf36d979384e
+  custom_kernel_mlx_lm_route_csort_scatter_fused_m8_u32_v4_uint32_t_uint32_t_uint32_t_uint32_t  50144B  cbfee47f9054744d
+  gather_frontbfloat16_int32_int_2  49473B  76f84ddf97dee665
+  gather_frontbfloat16_uint32_int_2  49476B  ad8f79d3b4aea19a
+  gather_frontint32_int32_int_1  49464B  ea827cbafcb66a07
+  gatheruint8int32_1_0_int  51380B  9287b6f98aafd714
+  gatheruint8int32_1_1_int  51380B  94cda6ec702450a9
+  gemv_al_bfloat16_bm4_bn1_sm1_sn32_tm4_tn4_nc0_axpby0  79677B  836f337d28cfba72
+  gemv_al_bfloat16_bm8_bn1_sm1_sn32_tm4_tn4_nc0_axpby0  79677B  9206a96735150380
+  nvfp4_gather_qmm_rhs_nt_bfloat16_t_gs_16_b_4_bm_16_bn_32_bk_32_wm_1_wn_2  184041B  22d223f574685f2a
+  nvfp4_qmm_t_bfloat16_t_gs_16_b_4_alN_true_batch_0  183970B  690ce0a8a2dd35bc
+  nvfp4_qmm_t_splitk_fused_bfloat16_t_gs_16_b_4_alN_true  183995B  0f67d1e61d8e7433
+  nvfp4_quantize_bfloat16_t_gs_16_b_4  183950B  8c0905e61c8a07bd
+  row_reduce_simple_maxuint8  94283B  e9ed4d7b1b572b98
+  row_reduce_simple_minuint8  94283B  7d790997430c16b4
+  row_reduce_small_1_reduce_andbool_  94271B  cb0832689dee4ca0
+  row_reduce_small_1_reduce_maxfloat32  94279B  9cc184273063536a
+  steel_attention_bfloat16_bq32_bk16_bd128_wm4_wn1_maskbfloat16  111643B  5fc6463613114263
+  steel_gemm_fused_nt_bfloat16_bfloat16_bm64_bn64_bk16_wm2_wn2  114923B  c1fe481e45e1c16f
+  steel_gemm_splitk_accum_bfloat16_float32  111220B  65e056e5a4c1378e
+  steel_gemm_splitk_nt_bfloat16_float32_bm32_bn32_bk16_wm2_wn2_MN_naligned_K_taligned  111311B  adf0ab9e339bb406
+  steel_gemm_splitk_nt_bfloat16_float32_bm32_bn32_bk16_wm2_wn2_MN_taligned_K_taligned  111311B  27119daaaf22616d

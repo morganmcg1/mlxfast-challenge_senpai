@@ -1,0 +1,5 @@
+### alignment (geom=False) old vs mid: len 11247 vs 11247, non-equal opcodes = 0
+
+### alignment (geom=True) old vs mid: len 11247 vs 11247, non-equal opcodes = 0
+
+### kernels whose (kind,grid,group,args) multiset differs: 0

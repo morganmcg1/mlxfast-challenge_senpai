@@ -1,0 +1,6 @@
+leg01_pf1 rc=0 pf=1 decode_spt=0.013023054359375 prefill_spt=0.0011111346015625 correct=True
+leg02_pf0 rc=0 pf=0 decode_spt=0.012982226234375 prefill_spt=0.001138935626953125 correct=True
+leg03_pf1 rc=0 pf=1 decode_spt=0.012892779625 prefill_spt=0.0011115599765625 correct=True
+leg04_pf0 rc=0 pf=0 decode_spt=0.012967225265625 prefill_spt=0.001137508544921875 correct=True
+leg05_pf1 rc=0 pf=1 decode_spt=0.0128992197265625 prefill_spt=0.00113901358984375 correct=True
+leg06_pf0 rc=0 pf=0 decode_spt=0.0130233303984375 prefill_spt=0.00111229288671875 correct=True

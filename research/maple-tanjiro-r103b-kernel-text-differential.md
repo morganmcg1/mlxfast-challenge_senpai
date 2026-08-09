@@ -1,46 +1,82 @@
-# R103-B: kernel-text differential, `30f752df` (OLD) -> `0f6862d0` (NEW)
+# R103-B: what actually changed in the emitted and dispatched code across three revisions
 
 Assignment `maple-r103-b-kernel-text-differential`, revision `r103-b-rev1`,
 PR #572. Research-only: **zero submitted-surface bytes changed**.
 
+> **Scope note after advisor feedback `r103-b-fb3` (2026-08-09T22:22Z).** The
+> advisor withdrew the 20.149 us/step target: receipt-to-receipt noise on
+> *byte-identical code* is sd(`T`) = 12.079-14.272 us/step, so the frontier-ArmR
+> gap is z ~ 1.0-1.2 and no contrast in the receipt corpus survives its own
+> 95 % CI. **Rung 3's absolute us attribution is withdrawn accordingly.** This
+> document is a **mechanism inventory**, not a cost model. Where an ordering of
+> the survivors by plausible cost is still useful it is kept and labelled as an
+> ordering only; every "explains X % of the hole" figure has been struck.
+> Section 7.0/7.1 are retained, struck through, purely so the arithmetic is
+> auditable and nobody re-derives it.
+
 ## 0. Verdict in one paragraph
 
-Between arm-R's receipt commit `30f752df` (`cs` 2.589321, 4893.712 us/step) and
-the current advisor base `0f6862d0` (`cs` 2.582286, 4913.117 us/step) the
-reported decode metric gained +19.405 us/step, and the **true steady-state
-per-step regression is `T` = +20.149 us/step** once the frontier's better
-prefill is removed from the `D = 4P + T` identity (section 7.0). Over that range the
-runtime compiles and dispatches **exactly the same 103 Metal libraries in the
-same order with the same grids, threadgroups and buffer shapes**; the
-per-decode-step dispatch count is **408 at both revisions** and the two traces
-are positionally identical for all 11,243 compared dispatches. Only **two**
-kernels change their final MSL text:
+Three revisions were dumped and diffed:
 
-| # | kernel | family | calls/step | M5 us/step | change |
-|---|--------|--------|-----------:|-----------:|--------|
-| **A** | `custom_kernel_laguna_residual_rms_router_bf16_2048_rpg8_keys_v1` | T1a | 39 | 156.4 | router-weight prefetch hoisted across the RMSNorm reduction (PR #558) |
-| **B** | `custom_kernel_laguna_sliding_fused_attn_ring_v1` | T3a | 30 | 318.0 | K/V software pipelining widened 2-way -> 4-way (PR #565) |
+| tag | commit | what it is |
+|---|---|---|
+| **OLD** | `30f752df` | arm-R receipt `7ce1262d`'s tree |
+| **MID** | `e17bdeb1` | frontier receipt `e08d759f`'s tree (`Sources/` == `a4d3b8dc`) |
+| **NEW** | `0f6862d0` | the advisor base = **MID + R3** (#558, LRM `+102/-11`), never submitted |
 
-Everything else in the 32-file source diff is comment/whitespace-only byte
-reclamation or offline transform code that provably does not touch the scored
-runtime. **The whole on-GPU regression must come from A, B, or their
-interaction.** Dispatch overhead contributes **0.00 us/step**. Preregistered
-nulls N-A, N-B, N-C and N-D are all refuted.
+Across the whole OLD -> NEW range the runtime compiles and dispatches **exactly
+the same 103 Metal libraries in the same order with the same grids,
+threadgroups and buffer shapes**; the per-decode-step dispatch count is **408 at
+every revision** and the traces are positionally identical for all 11,243
+compared dispatches. Only **two** kernels change their final MSL text, and the
+three-way dump separates them cleanly onto the two receipt intervals:
+
+| # | kernel | introduced by | interval | change |
+|---|--------|---------------|----------|--------|
+| **A** | `custom_kernel_laguna_residual_rms_router_bf16_2048_rpg8_keys_v1` | R3 / PR #558 | **MID -> NEW** | router-weight prefetch hoisted across the RMSNorm reduction; kernel gains a `_pf1` suffix |
+| **B** | `custom_kernel_laguna_sliding_fused_attn_ring_v1` | PR #565 | **OLD -> MID** | K/V software pipelining widened 2-way -> 4-way |
+
+The separation is clean in both directions and was measured, not inferred:
+
+| comparison | libraries | byte-identical | differing | only-A | only-B | verdict |
+|---|---|---|---|---|---|---|
+| **OLD vs MID** | 103 / 103 | **102** | **1** (B) | 0 | 0 | mechanism **B** alone |
+| **MID vs NEW** | 103 / 103 | 102 | 0 | **1** (A, old name) | **1** (A, `_pf1`) | mechanism **A** alone |
+| **MID vs `new_pf0`** | 103 / 103 | **103** | 0 | 0 | 0 | **bit-identical** |
+| **NEW vs NEW (A/A)** | 103 / 103 | **103** | 0 | 0 | 0 | control passes |
+
+That separation matters for frieren: the **OLD<->MID** interval - the receipt
+pair everyone has been arguing about - contains **exactly one** emitted-code
+change, mechanism B. Mechanism A is **not** in that interval at all; it is R3 in
+isolation, which has never been submitted post-rebase. And the third row is the
+sharpest single fact in this report: **R3's entire effect on the emitted code is
+gated behind one environment variable** - at `DARKBLOOM_ROUTER_WEIGHT_PREFETCH=0`
+the NEW binary compiles a corpus that is byte-identical to MID's across all 103
+libraries.
+
+Everything else in the 32-file OLD->NEW source diff is comment/whitespace-only
+byte reclamation or offline transform code that provably does not touch the
+scored runtime. Preregistered nulls N-A, N-B, N-C and N-D are all refuted.
 
 Both survivors are the *same class* of change - extra live registers bought for
 instruction-level parallelism - and both dispatch exactly **32 threadgroups**,
 so on a >= 32-core ranked host they run one wave at <= 1 threadgroup per core
 while on this 20-core M4 Pro they run two. Section 7.2 works this out from the
-kernel text and concludes that the M4 probe cannot rank A against B even in
+kernel text and concludes that an M4 probe cannot rank A against B even in
 principle. Neither mechanism changes the amount of work: I verified the 4-way
 unroll covers exactly the same 16 key slots per simdgroup as the 2-way loop and
 leaves **no tail loop**, for every simdgroup index.
 
-The cheapest decisive follow-up is therefore one paired **M5** measurement with
-`DARKBLOOM_ROUTER_WEIGHT_PREFETCH=0`, which restores A's kernel **bit-exactly**
-with no code edit (proved in [rung 1](#5-rung-1-msl-text-differential)); if that
-recovers the +20.149, A is convicted and B is exonerated, and if it does not,
-B is convicted by elimination.
+Mechanism A is **bit-exactly restorable with no code edit**:
+`DARKBLOOM_ROUTER_WEIGHT_PREFETCH=0` at NEW reproduces MID's whole 103-library
+corpus byte for byte, and its 11,247-row dispatch trace matches OLD's with zero
+non-equal alignment opcodes. So if a rig is ever pointed at this, A costs one
+environment variable and B costs a one-line source revert at
+`LagunaRuntimeModel.swift:1639`.
+
+**Zero official receipts were consumed.** Everything here is static text plus a
+local instrumented `correctness-trace`, and every arm reproduced the public
+golden token-for-token.
 
 ---
 
@@ -67,20 +103,46 @@ dispatch differential.
 
 | arm | commit | router prefetch | purpose |
 |-----|--------|-----------------|---------|
-| `old` | `30f752df` | n/a (flag does not exist) | arm-R receipt revision |
-| `new` | `0f6862d0` | `1` (shipped default) | current advisor base |
+| `old` | `30f752df` | n/a (flag does not exist) | arm-R receipt `7ce1262d`'s revision |
+| `mid` | `e17bdeb1` | n/a (flag does not exist) | frontier receipt `e08d759f`'s revision |
+| `new` | `0f6862d0` | `1` (shipped default) | current advisor base = MID + R3 |
 | `new_pf0` | `0f6862d0` | `0` | isolates mechanism A inside one binary |
+| `new_aa` | `0f6862d0` | `1` | **A/A control** - `new` dumped a second time |
 
-Two detached `git worktree`s under the gitignored `.mlxfast-private/` hold OLD
-and NEW simultaneously. One trusted CLI drives both workers (the CLI sources are
-byte-identical across the range). The full recipe, including three harness traps
-that cost an hour, is written up for reuse in
+Three detached `git worktree`s under the gitignored `.mlxfast-private/` hold
+OLD, MID and NEW simultaneously. One trusted CLI drives all three workers (the
+CLI sources are byte-identical across the range). The full recipe, including
+three harness traps that cost an hour, is written up for reuse in
 [`research/r103-armr-build-notes.md`](r103-armr-build-notes.md).
 
-**Metallib control.** The same `mlx.metallib` (158,502,072 B) is placed in both
-worktrees. This is sound and is itself part of the result: every AOT
+**MID is the right third point, and MID -> NEW is R3 in isolation.**
+`e17bdeb1` is the merge of PR #565; it is an ancestor of `0f6862d0`, and
+`git diff --numstat e17bdeb1 0f6862d0 -- Sources Vendor Package.swift
+Package.resolved benchmark.json` returns **exactly one file**,
+`Sources/MLXFastModel/LagunaRuntimeModel.swift` at `+102/-11`, which is R3
+(PR #558). So the three-way dump is a genuine interval decomposition of the
+OLD -> NEW range, not a re-slicing of the same diff.
+
+**Staleness guard.** The advisor warned (rule 58, from nezuko #575) that a naive
+incremental rebuild silently reuses a stale object and produces a false PASS.
+Each worker was built in its own `--scratch-path .build-worker`, and the build
+script then asserted a positive detector before any dump: the literal
+`DARKBLOOM_ROUTER_WEIGHT_PREFETCH` exists in the R3 source and in **neither**
+older revision, so `strings -a <worker> | grep -c` must be zero at OLD and MID
+and non-zero at NEW. Observed:
+
+```
+r103b-old: DARKBLOOM_ROUTER_WEIGHT_PREFETCH strings=0  sha256=9fce9f4c4cd3963e  bytes=49145848
+r103b-mid: DARKBLOOM_ROUTER_WEIGHT_PREFETCH strings=0  sha256=725cc9ca676d3b0e  bytes=49240232
+r103b-new: DARKBLOOM_ROUTER_WEIGHT_PREFETCH strings=1  sha256=26c6dc830d0f1907  bytes=49257896
+```
+
+Three distinct binaries, three distinct sizes, detector correct at all three.
+
+**Metallib control.** The same `mlx.metallib` (158,502,072 B) is placed in all
+three worktrees. This is sound and is itself part of the result: every AOT
 `.metal`/`.h` source that differs across the range differs by comments and
-whitespace only (section 4), so the two revisions would compile the same
+whitespace only (section 4), so the three revisions would compile the same
 metallib. It also means the AOT-only families invisible to the MSL hook -
 `arg_reduce`, `layer_norm`, `random`, `rms_norm`, `rope`,
 `scaled_dot_product_attention` (+`sdpa_vector.h`), `conv`, `fence` - are held
@@ -97,11 +159,11 @@ reverted before commit; the patch is kept as a research artifact, not applied.
 
 Workload: `mlxfast-swift correctness-trace --step 5 --top-k 5` against the
 public golden - one 512-token prefill plus 6 teacher-forced decode steps,
-identical for all three arms.
+identical for all five arms.
 
-## 3. Rung 0 - both trees build and agree, PASS
+## 3. Rung 0 - all three trees build and all five arms agree, PASS
 
-All three arms are **token-identical and top-5-logit-identical**:
+All five dumps are **token-identical and top-5-logit-identical**:
 
 ```
 case longcopy-gate-english-512   step 5   matched_prefix_steps 6
@@ -112,9 +174,14 @@ top_logit_margin 5.875   golden_hash b9509697c08a2cf3...
 
 ```
 [old]     rc=0  msl=103  dispatch=11247
+[mid]     rc=0  msl=103  dispatch=11247
 [new]     rc=0  msl=103  dispatch=11243
 [new_pf0] rc=0  msl=103  dispatch=11247
+[new_aa]  rc=0  msl=103  dispatch=11243
 ```
+
+The `11247` vs `11243` split is **not** a behavioural difference; it is a
+byte-quota truncation artifact, resolved quantitatively in section 6.
 
 Working-set digests: `research/r103b/artifacts/working-set-manifest.tsv`
 (82 rows). Git index-tree digest over the scored surface:
@@ -124,7 +191,7 @@ Working-set digests: `research/r103b/artifacts/working-set-manifest.tsv`
 | tree sha256 | `fe3d95764c6fdf92114267d589e8018e4f515133495fbbf2d980732048fcdcdb` | `f65b09e66f716ee14f3048b018401c2d37669d3f09b2c9e784339436b7f54a25` |
 | `LagunaRuntimeModel.swift` | `119a17bc...` 398,661 B | `1e0c7d43...` 519,236 B |
 | `LagunaRuntimeLayers.swift` | `b088a675...` 112,578 B | *(deleted)* |
-| worker binary | 49,145,848 B | 49,257,896 B |
+| worker binary | 49,145,848 B | 49,257,896 B (MID: 49,240,232 B) |
 | metallib | shared, 158,502,072 B | shared |
 | weights | shared, byte-identical | shared |
 
@@ -157,8 +224,127 @@ narrowing on six symbols.
 ## 5. Rung 1 - MSL text differential
 
 Every JIT library's *final* MSL text was captured at the point MLX hands it to
-the Metal compiler, for all three arms
-(`research/r103b/artifacts/msl_sha256_{old,new,new_pf0}.tsv`).
+the Metal compiler, for all arms
+(`research/r103b/artifacts/msl_sha256_{old,mid,new,new_pf0}.tsv`).
+
+### 5.0 Method, and why this dumper produced a corpus where nezuko's did not
+
+Rule 58: nezuko's #575 reports that **instrumenting `Device::get_library`
+produced an empty corpus after two full benchmark runs**, and she abandoned the
+approach. I hit no such wall, and the reason is the hook site.
+
+`get_library` is a *cache lookup*. On the paths Laguna actually uses it is
+either not the function that receives the source text, or it returns an
+already-cached `MTL::Library` without ever seeing MSL. The text only exists as a
+string inside **`Device::build_library_`**
+(`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp:622`), which is
+where `MTL::CompileOptions` is configured (`setFastMathEnabled(false)`,
+`setLanguageVersion(get_metal_version())`) and where `newLibrary` is called.
+That is where I hooked, and it yields all 103 libraries on the first run.
+The dispatch hook is in the same translation unit, on the encoder path.
+
+The instrumentation is `research/r103b/scripts/trace.patch` (+148/-4) and it
+touches **only** `device.cpp` / `device.h`, which are **outside**
+`benchmark.json`'s `editablePaths`. It is applied in throwaway detached
+worktrees under gitignored `.mlxfast-private/` and never in the assignment tree,
+so it cannot reach the merged diff (verified: `git diff 0f6862d0 -- Sources
+Vendor Package.swift Package.resolved benchmark.json` is empty).
+
+**Scope limits I am claiming explicitly, per fb3:**
+
+- **Device.** Every dump in this document was taken on an **Apple M4 Pro,
+  20 GPU cores, 48 GiB** (`system_profiler SPDisplaysDataType`). MLX selects
+  kernel variants by Apple GPU generation; an M4 Pro reports generation 16 and
+  **does not select the `_nax` variants the ranked M5 uses**. Therefore: *this
+  corpus is silent about `_nax` kernels.* A change confined to an `_nax`
+  variant would be invisible here and this document must not be read as "no
+  change" for that family. What I can say is that the *non-`_nax`* corpus is
+  103 libraries at every revision and that the two differences found are in
+  custom Laguna kernels emitted from `LagunaRuntimeModel.swift`, which are
+  generation-independent string interpolations.
+- **Aliasing.** Libraries are keyed by MLX's own library name, which for the
+  Laguna custom kernels already encodes the specialisation constants (e.g.
+  `..._h64_r1_v1_lm1_pw1_se1_sd1`). A name that appears in one revision and not
+  the other is reported as `only_old` / `only_new` rather than being silently
+  paired, which is exactly how mechanism A's `_pf1` rename surfaced.
+- **Host-side selection.** A text diff alone cannot see a change in *which*
+  kernel is chosen. That is why rung 2 (section 6) is a full dispatch trace and
+  is treated as co-equal evidence, not a rider: it compares the ordered
+  sequence, the counts, the grid and threadgroup geometry, and the bound buffer
+  shapes and dtypes, position by position.
+
+### 5.1 A/A control - the same revision dumped twice is byte-identical
+
+Before reporting any A/B difference, the NEW tree was dumped **twice** from the
+same binary in two separate worker processes (`new` and `new_aa`). If library
+filenames, instantiation order, or the emitted text were nondeterministic, this
+control would show it.
+
+```
+# MSL corpus new vs new_aa
+libraries new=103 new_aa=103
+common=103  byte_identical=103  differing=0
+only_new=0  only_new_aa=0
+
+# dispatch trace new vs new_aa
+total dispatches: new=11244  new_aa=11244  delta=0
+alignment (geom=False): len 11243 vs 11243, non-equal opcodes = 0
+alignment (geom=True):  len 11243 vs 11243, non-equal opcodes = 0
+kernels whose (kind,grid,group,args) multiset differs: 0
+```
+
+**The A/A control is clean on both axes.** 103/103 libraries byte-identical,
+and 11,243/11,243 dispatch rows identical in name, kind, grid, threadgroup and
+bound-buffer shape/dtype, in order. Both dumps also produced the *same*
+truncation point, which is what section 6 uses to close out the `-4` rows.
+
+So the measurement floor for this instrument is exact equality: **any**
+difference reported below is a real difference in the emitted or dispatched
+code, not dumper noise. This is the control fb3 asked for, and it is the reason
+I am willing to state the rung-1 and rung-2 results without an error bar - they
+are not sample statistics.
+
+Artifacts: `research/r103b/artifacts/msl_new_vs_new_aa.txt`,
+`disp_new_vs_new_aa.txt`, `seq_new_vs_new_aa.txt`, `msl_sha256_new_aa.tsv`.
+
+### 5.2 The interval decomposition: B is OLD -> MID, A is MID -> NEW
+
+This is the part fb3 asked for. Both intervals are reported.
+
+```
+# MSL corpus old vs mid                 # MSL corpus mid vs new
+libraries old=103 mid=103               libraries mid=103 new=103
+common=103                              common=102
+byte_identical=102  differing=1         byte_identical=102  differing=0
+only_old=0  only_mid=0                  only_mid=1  only_new=1
+```
+
+| interval | what differs | mechanism |
+|---|---|---|
+| **OLD -> MID** (arm-R receipt -> frontier receipt) | one library differs in text: `custom_kernel_laguna_sliding_fused_attn_ring_v1` 60,780 B `39412f51db8d4eb3` -> 64,866 B `4d12c05ab71ab44e` | **B alone** |
+| **MID -> NEW** (frontier receipt -> advisor base, = R3) | one library is renamed and rewritten: `..._rpg8_keys_v1` 52,359 B `19d8e9fadbfafafa` -> `..._rpg8_keys_v1_pf1` 53,264 B `dd7a9210c57f86f7`; the other 102 are byte-identical | **A alone** |
+
+Both intervals are *single-mechanism*. Nothing else in either interval reaches
+the emitted code. In particular the PR #548 byte-reclamation pass, which lives
+entirely in the OLD -> MID interval and touches 27 files, contributes **zero**
+bytes of difference to any of the 103 compiled libraries - which is the
+independent confirmation of section 4's comment-stripper argument.
+
+**And R3's emitted-code effect is entirely flag-gated:**
+
+```
+# MSL corpus mid vs new_pf0
+libraries mid=103 new_pf0=103
+common=103  byte_identical=103  differing=0
+only_mid=0  only_new_pf0=0
+```
+
+At `DARKBLOOM_ROUTER_WEIGHT_PREFETCH=0` the NEW binary - a different executable,
+built from different sources, 17,664 bytes larger - compiles a corpus that is
+byte-identical to MID's across **all 103 libraries**. So R3 (`+102/-11` lines of
+Swift) changes the GPU program in exactly one place, behind exactly one switch.
+
+Artifacts: `msl_old_vs_mid.txt`, `msl_mid_vs_new.txt`, `msl_mid_vs_new_pf0.txt`.
 
 ### OLD vs NEW
 
@@ -260,36 +446,61 @@ Traces were segmented on the per-step marker
 `custom_kernel_laguna_decode_embedding_rope_atlas`
 (`research/r103b/artifacts/steps_old_vs_new.txt`):
 
-| segment | old | new | new_pf0 | delta (new-old) |
-|---------|----:|----:|--------:|----------------:|
-| prefill | 7334 | 7334 | 7334 | **0** |
-| decode step 0 | 1759 | 1759 | 1759 | **0** |
-| decode step 1 | 528 | 528 | 528 | **0** |
-| decode steps 2-4 | 408 | 408 | 408 | **0** |
-| decode step 5 (truncated) | 402 | 398 | 402 | -4 |
+| segment | old | mid | new | new_pf0 | new_aa | delta |
+|---------|----:|----:|----:|--------:|-------:|------:|
+| prefill | 7334 | 7334 | 7334 | 7334 | 7334 | **0** |
+| decode step 0 | 1759 | 1759 | 1759 | 1759 | 1759 | **0** |
+| decode step 1 | 528 | 528 | 528 | 528 | 528 | **0** |
+| decode steps 2-4 | 408 | 408 | 408 | 408 | 408 | **0** |
+| decode step 5 (truncated) | 402 | 402 | 398 | 402 | 398 | -4 |
 
-The step-5 `-4` is a **trace-teardown artifact, not a workload difference**:
-both `dispatch.tsv` files end mid-line with no trailing newline (verified with
-`od -c`), i.e. the tracer's last buffered writes are lost when the worker exits.
+**The step-5 `-4` is fully explained and is not a workload difference.** The
+three-revision plus A/A run pins it down exactly:
+
+- every `dispatch.tsv`, at every arm, is **exactly 1,671,168 bytes**
+  (= 0x198000, a hard tracer buffer/quota boundary) and every one ends
+  **mid-line** with no trailing newline (`od -c`);
+- the two independent NEW dumps truncate at the *identical* row, so it is
+  deterministic per binary, not random;
+- the arithmetic closes: the `_pf1` rename adds 4 characters to each of the
+  **236** router dispatch rows in the trace = **944 bytes**, and the 4 rows NEW
+  loses occupy **978 bytes** in OLD's file. Spending 944 bytes on longer kernel
+  names inside a fixed 1,671,168-byte quota costs you the last ~4 rows. There is
+  no other candidate explanation left.
 
 Whole-sequence `difflib` alignment (with the `_pf1` rename canonicalised), run
-both with and without grid/threadgroup geometry in the key, gives **exactly one
-non-equal opcode: `delete a[11243:11247]`** - that same truncated tail. The
-first 11,243 dispatches match exactly, *including* `gridWxHxD` and
-`groupWxHxD` (`research/r103b/artifacts/seq_old_vs_new.txt`).
+both with and without grid/threadgroup geometry in the key:
+
+| comparison | lengths | non-equal opcodes | differing `(kind,grid,group,args)` signatures |
+|---|---|---|---|
+| **OLD vs MID** | 11247 / 11247 | **0** | **0** |
+| **MID vs NEW** | 11247 / 11243 | 1 (`delete a[11243:11247]`, the quota tail) | 0 |
+| **OLD vs NEW** | 11247 / 11243 | 1 (same quota tail) | 0 |
+| **OLD vs `new_pf0`** | 11247 / 11247 | **0** | **0** |
+| **NEW vs NEW (A/A)** | 11243 / 11243 | **0** | **0** |
+
+The OLD vs MID row is worth pausing on: mechanism B rewrites 4,086 bytes of one
+kernel's MSL and **does not move a single dispatch row**, because it does not
+change the kernel's name, its grid, its threadgroup, or any bound buffer. It is
+invisible to dispatch-level instrumentation and only a text dump can see it.
+Mechanism A is the opposite: it is visible in the trace, but *only* as a name.
 
 Taking the last complete decode step (408 dispatches) and comparing
 `(kernel, kind, grid, threadgroup, buffer shapes+dtypes)` row by row:
 
-- **OLD vs NEW**: positionally aligned, **39 of 408 rows differ, and only in the
-  kernel *name*** (`_rpg8_keys_v1` -> `_rpg8_keys_v1_pf1`). Every geometry and
-  every buffer shape/dtype is identical. After canonicalising the rename the
+- **OLD vs MID**: 408 vs 408, positionally aligned, **0 of 408 rows differ**.
+- **OLD/MID vs NEW**: positionally aligned, **39 of 408 rows differ, and only in
+  the kernel *name*** (`_rpg8_keys_v1` -> `_rpg8_keys_v1_pf1`). Every geometry
+  and every buffer shape/dtype is identical. After canonicalising the rename the
   two 408-row blocks are **equal**.
 - **OLD vs `new_pf0`**: 11,247 vs 11,247 dispatches, **zero** non-equal
   opcodes, **zero** differing `(kind, grid, group, args)` signatures.
 
-**Priced at the rule 53/68 rate of +0.3 us/dispatch, the per-decode-step
-dispatch delta is 0 -> +0.00 us/step, i.e. 0 % of the +19.405 us regression.**
+**So the per-decode-step dispatch delta is exactly 0, on every interval.** At
+the rule 53/68 rate of +0.3 us/dispatch that is `0 x 0.3 = +0.00 us/step`. This
+is the one quantitative statement in the report that survives fb3's retraction,
+because its input is an exact integer count and its output is zero: whatever
+separates these revisions, **it is not command-buffer or encoder overhead**.
 
 Steady-state decode block composition (408 dispatches/step), which matches the
 fern-r101 pool-table call counts exactly:
@@ -311,9 +522,22 @@ fern-r101 pool-table call counts exactly:
 Across the whole trace, the only kernel-count differences are the router rename
 (-236 / +236) and four `-1`s on the truncated tail.
 
-## 7. Rung 3 - ranking and pricing the two survivors
+## 7. Rung 3 - ranking the two survivors (pricing WITHDRAWN)
 
-### 7.0 The target is `T` = 20.149 us/step, not 19.405
+> **Withdrawn by `r103-b-fb3`.** Sections 7.0 and 7.1 priced the survivors
+> against a 20.149 us/step target. The advisor has since measured
+> sd(`T`) = 12.079 us/step (trimmed pooled, dof 14) on **byte-identical code**,
+> which makes the frontier-ArmR contrast z ~ 1.0-1.2 - not significant - and
+> fern (#576) reached the same verdict independently. **There is no established
+> hole to apportion, so no us figure below should be used.** I have left 7.0 and
+> 7.1 in place rather than deleting them so the arithmetic stays auditable and
+> nobody re-derives it, but every conclusion drawn from them is void. What
+> survives rung 3 is: the **restorability** table, the **ordering** below it
+> (which is a qualitative exposure/testability ranking, not a cost estimate),
+> and section 7.2's static occupancy analysis - none of which depend on a
+> measured delta.
+
+### 7.0 ~~The target is `T` = 20.149 us/step, not 19.405~~ (withdrawn; retained for audit)
 
 Per the advisor's 2026-08-09T21:47Z correction, rule 58's `D = 4P + T` is exact
 harness arithmetic, not a fit: `decode_seconds_per_token = (S + 128*T)/128` with
@@ -333,7 +557,7 @@ is compared to 20.149 as well. `research/advisor_r103_T_decomposition.py` is not
 present at this base sha (`0f6862d0`); the arithmetic above is reproduced
 independently from the two receipt pairs.
 
-### 7.1 Pool-table budgets
+### 7.1 ~~Pool-table budgets~~ (withdrawn; retained for audit)
 
 From `research/artifacts/fern-r101/m5-pool-table.csv`:
 
@@ -352,9 +576,20 @@ Budget arithmetic against the **+20.149 us/step** `T` regression:
 - **dispatch overhead**: measured per-step dispatch delta is 0, so rule 53's
   +0.3 us/dispatch gives `0 x 0.3` = **0.00 us = 0.00 % of 20.149**.
 
-The 19.405 -> 20.149 correction moves each of these by about +3.8 % relative;
-it does not change any qualitative conclusion, because both survivors have an
-order of magnitude more budget than the hole.
+**All six bullets above are void under `r103-b-fb3`.** The only one that
+survives is the last, and only because its value is zero and its premise is a
+count, not a timing: the per-step dispatch delta is exactly 0, so dispatch
+overhead is 0 us regardless of what the true regression is or whether one
+exists.
+
+The one *non-timing* fact worth keeping from the pool table is the **regime
+classification**, which is a property of the kernels rather than of the
+contested contrast:
+
+| id | family | calls/step | bytes/call | M5 GB/s | % M5 peak | regime |
+|----|--------|-----------:|-----------:|--------:|----------:|--------|
+| **T1a** | residual rms router (**A**) | 39 | 1 MiB | 261.5 | 42.8 | latency |
+| **T3a** | sliding fused attn (**B**) | 30 | 2 MiB | 197.8 | 32.4 | latency |
 
 Both families are **latency-regime** at 32-43 % of M5 peak bandwidth, which is
 precisely the regime where kernel-text changes that alter occupancy or ILP move
@@ -369,10 +604,16 @@ magnitude grounds.
 | **A** | `DARKBLOOM_ROUTER_WEIGHT_PREFETCH=0` (env only, no code edit) | **yes** - name and MSL text | `msl_old_vs_newpf0.txt`: 103 common, 102 byte-identical, 0 only-old, 0 only-new |
 | **B** | source edit at `LagunaRuntimeModel.swift:1639` (MSL line 1280) reverting `i += 4*BN` -> `i += 2*BN` and dropping the `_c`/`_d` pipeline temporaries | not verified | no flag exists; **B has never been independently A/B'd since it landed** |
 
-### Ranking
+### Ranking (ordering only - no cost is attached to either rank)
+
+This is the part of rung 3 the advisor asked me to keep. It orders the two
+survivors by *how much of the decode step each kernel family occupies* and by
+*how cheaply each can be tested*. It does **not** claim either one costs
+anything, and it is not evidence that a regression exists.
 
 1. **B (sliding fused attention)** ranks first on exposure and on risk of an
-   un-retested change: 2x the M5 budget of A (318 vs 156 us), the largest
+   un-retested change: 2x the M5 pool residency of A (318 vs 156 us/step of
+   occupied step time - a property of the *family*, not of the change), the largest
    register-pressure delta of the two (4 in-flight K/V rows at the 1024-thread
    threadgroup maximum), and no restore flag, so nothing has re-measured it
    since PR #565 merged.
@@ -476,7 +717,15 @@ on the M5.** A single paired M5 receipt with
 proved that flag restores OLD's router kernel bit-exactly; nothing short of an
 M5 measurement will settle B.
 
-## 8. Optional causal probe - paired A/B of mechanism A on M4
+## 8. Optional causal probe - paired A/B of mechanism A on M4: LAUNCHED, THEN CANCELLED
+
+> **Outcome: cancelled at 6 legs (K = 3 pairs). No timing claim is made from
+> it.** The machine time was redirected into building the MID tree that fb3
+> asked for, which I judged strictly more valuable: the three-revision
+> decomposition is a result, whereas an M4 A/B at K = 3 would not have been one
+> even if it had run to completion. Section 7.2 independently argues the probe
+> was structurally uninformative for ranking A against B, so cancelling it cost
+> nothing that section 7.2 had not already written off.
 
 Design, fixed in advance: alternate
 `DARKBLOOM_ROUTER_WEIGHT_PREFETCH=1` (shipped NEW default) and `=0` legs of
@@ -485,23 +734,51 @@ one metallib, one host session, cool gate enabled, first leg discarded as
 warm-up, arms alternating so thermal drift is first-order cancelled
 (`research/r103b/scripts/ab_router_prefetch.sh`).
 
-Expected effect size sets the power ceiling in advance. The pool table's
-`m4_us_split1` column is exactly 2x `m5_us` for both families, so if A carried
-the entire +20.15 us M5 `T` regression it would show as roughly **+40.3 us out
-of ~12,957 us/token on this host - 0.31 %**. This is a genuinely underpowered test
-on an M4 Pro and is reported as directional evidence only. Kernel *reachability*
-is not in doubt: this host does compile and dispatch both
-`..._rpg8_keys_v1_pf1_...` and the 4-way sliding kernel, so unlike an `_nax`
-prefill question the M4 is at least executing the same kernel family as the
-ranked M5.
+What actually ran, before cancellation at 1567 s
+(`research/r103b/artifacts/ab_router_prefetch_cancelled_summary.tsv`, all six
+legs `rc=0 correct=True`):
+
+| leg | arm | decode s/token | prefill s/token |
+|---|---|---:|---:|
+| 01 | `pf1` | 0.0130230544 | 0.0011111346 |
+| 02 | `pf0` | 0.0129822262 | 0.0011389356 |
+| 03 | `pf1` | 0.0128927796 | 0.0011115600 |
+| 04 | `pf0` | 0.0129672253 | 0.0011375085 |
+| 05 | `pf1` | 0.0128992197 | 0.0011139014 |
+| 06 | `pf0` | 0.0130233304 | 0.0011122929 |
+
+Discarding leg 01 as warm-up leaves **K = 2 usable `pf1` legs and 3 `pf0`
+legs**. My own preregistration (section 1) requires K >= 16 before any timing
+sentence is written, so **no arm mean, no sign, and no delta is reported from
+this table**; it is published only so the machine time is on the record and so a
+future run can extend rather than restart it. The spread within the `pf1` arm
+alone (0.0128928 to 0.0130231, 1.01 %) is already several times any effect this
+probe could have resolved.
+
+That power ceiling was known in advance and is the reason cancelling was cheap.
+The pool table's `m4_us_split1` column is exactly 2x `m5_us` for both families,
+so if A carried the entire (now-withdrawn) +20.15 us M5 `T` gap it would show as
+roughly **+40.3 us out of ~12,957 us/token on this host - 0.31 %**, against a
+per-leg spread an order of magnitude larger. Section 7.2 then removed the last
+reason to want the number: both survivors dispatch exactly 32 threadgroups, and
+this 20-core host runs them in two waves where the ranked M5 runs them in one,
+so an M4 A/B could not have ranked A against B even at K = 16.
+
+Kernel *reachability* is not in doubt, and that part of the probe is a real
+result: this host does compile and dispatch both `..._rpg8_keys_v1_pf1_...` and
+the 4-way sliding kernel, so unlike an `_nax` prefill question the M4 is at
+least executing the same kernel family as the ranked M5. Correctness is also on
+the record - all six legs passed the harness's own token check with the flag at
+both settings, which is independent confirmation of the section 5 finding that
+`DARKBLOOM_ROUTER_WEIGHT_PREFETCH=0` is a behaviour-preserving restore.
 
 ## 9. Riders
 
 ### 9.1 QKV `_idx_v1` / `_ns1` dormancy - RESOLVED
 
-Scanning `library_index.tsv` and `dispatch.tsv` across all three arms:
+Scanning `library_index.tsv` and `dispatch.tsv` across all five arms:
 **zero `_idx_v1` and zero `_ns1` kernels are ever compiled or dispatched** at
-either revision. The only QKV and O-projection kernels that appear are
+any of the three revisions. The only QKV and O-projection kernels that appear are
 
 ```
 custom_kernel_laguna_decode_nvfp4_qkv_h{48,64}_r1_v1_lm1_pw1_se1_sd1
@@ -573,18 +850,45 @@ and also cannot cost scored time.
 
 | null | verdict | evidence |
 |------|---------|----------|
-| **N-A** no textual/dispatch difference | **REFUTED** | 2 of 103 kernels differ in final MSL text (rung 1) |
-| **N-B** difference is only the file fold | **REFUTED** | the fold carries two real MSL payloads; 27 of 32 changed files are comment-only, but `LagunaRuntimeModel.swift` is not |
-| **N-C** dispatch-only | **REFUTED** | per-step dispatch delta 0; 408 vs 408 rows identical in kind/grid/threadgroup/buffer shapes, differing only in a kernel name |
-| **N-D** diffuse (>8 kernels) | **REFUTED** | exactly 2 kernels differ |
+| **N-A** no textual/dispatch difference | **REFUTED** | 2 of 103 kernels differ in final MSL text OLD->NEW (rung 1), and each interval carries exactly one of them: OLD->MID = B alone, MID->NEW = A alone |
+| **N-B** difference is only the file fold | **REFUTED** | the fold carries two real MSL payloads; 27 of 32 changed files are comment-only, but `LagunaRuntimeModel.swift` is not. MID->NEW is a single-file `+102/-11` on that file and yields mechanism A on its own |
+| **N-C** dispatch-only | **REFUTED** | per-step dispatch delta 0 on *every* interval; OLD vs MID aligns 11247/11247 with 0 non-equal opcodes, MID vs NEW and OLD vs NEW differ only by the shared 4-row trace truncation, and every aligned row matches in kind/grid/threadgroup/buffer shapes, differing only in a kernel name |
+| **N-D** diffuse (>8 kernels) | **REFUTED** | exactly 2 kernels differ across the whole OLD->NEW range, 1 per interval, out of 103 |
+
+All four nulls are refuted on three-revision evidence rather than on the single
+OLD->NEW comparison, and the A/A control (section 5.1) establishes that the
+dumper's zero-difference verdict is a real zero and not an artefact of the
+method.
 
 ## 11. Threats to validity
 
-- **Host.** Everything here is measured on an M4 Pro / 48 GiB, but rungs 0-2 are
-  *textual and structural*, not timing: the MSL corpus and the dispatch trace are
-  properties of the code the runtime emits, and the M5 emits the same text from
-  the same sources for these JIT kernels. Only section 8's A/B is a timing claim,
-  and it is labelled directional.
+- **Device scope - this is an M4 Pro corpus, and it is not the M5 corpus.**
+  Every dump in this report was taken on **Apple M4 Pro, 20 GPU cores, 48 GiB,
+  Darwin 25.5.0, Metal `LanguageVersion4_0`, Apple GPU generation 16**. Rungs 0-2
+  are textual and structural rather than timing, and the M5 emits the same text
+  from the same Swift sources for these JIT kernels, so the *identity* of
+  mechanisms A and B transfers. What does **not** transfer is any claim of
+  *completeness*: the M5 selects `_nax` kernel variants that generation 16 never
+  requests, so an `_nax` kernel that changed across these revisions would be
+  absent from all five of my corpora and my "exactly 2 of 103 differ" count would
+  silently miss it. The two mechanisms I did find are both dispatched on this
+  host and are not `_nax`-gated, but "2" is a lower bound on M5, not a proven
+  total. Resolving that needs one corpus dump on the ranked M5, which I did not
+  run.
+- **Corpus-diff blindness, in general (nezuko, #575, rule 58).** nezuko's warning
+  applies to my method too, and I only mitigated part of it. A corpus diff cannot
+  see (i) M5-only variants, as above; (ii) two libraries that alias to the same
+  cache key so only one is ever compiled; or (iii) host-side *selection* changes
+  that pick a different already-present kernel without altering any kernel's
+  text. Mitigations actually taken: the dispatch trace (rung 2) is reported
+  **co-equally** with the corpus rather than as a footnote, and it is exactly
+  what would catch (iii) - a selection change would move dispatch rows even with
+  a byte-identical corpus, and there are zero such rows per decode step on every
+  interval. Case (ii) is bounded by the fact that all five arms compile the same
+  103 libraries with the same names. Case (i) is not mitigated and is stated
+  above as an open limit.
+- **Host, for timing.** Only section 8 is a timing statement, it was cancelled at
+  K = 3 pairs, and no number is claimed from it.
 - **Residual channel not excluded.** Rungs 1-2 bound the *GPU* difference to A
   and B and the *dispatch* difference to zero. They do not bound host-side CPU
   and encode work: the fold also narrowed six symbols from `internal` to
@@ -608,12 +912,15 @@ and also cannot cost scored time.
 Ordered by cost:
 
 1. **One paired M5 measurement with `DARKBLOOM_ROUTER_WEIGHT_PREFETCH=0`.** Zero
-   code change, bit-exact OLD router, everything else at NEW. If it recovers
-   ~19 us, mechanism A is convicted and the fix is a one-line default change
-   (`lagunaRouterWeightPrefetch` default `1` -> `0`) - which costs **negative**
-   editable bytes and clears `LagunaRuntimeModel.swift`'s 5,052-byte headroom
-   problem rather than adding to it. If it recovers ~0, A is exonerated and B is
-   convicted by elimination.
+   code change, bit-exact OLD router, everything else at NEW. This is the only
+   probe here that could carry a cost claim at all, and per fb3 it needs enough
+   replicates to clear the receipt noise floor (`sd(T)` ~ 12-14 us/step on
+   byte-identical code) before a single-receipt difference means anything. If a
+   properly replicated pair shows A recovering time, the fix is a one-line
+   default change (`lagunaRouterWeightPrefetch` default `1` -> `0`) - which costs
+   **negative** editable bytes and clears `LagunaRuntimeModel.swift`'s
+   5,052-byte headroom problem rather than adding to it. If it recovers nothing,
+   A is exonerated and B is the remaining suspect.
 2. **If B is implicated**, revert the sliding-attention loop stride at
    `LagunaRuntimeModel.swift:1639` (`i += 4 * BN` -> `i += 2 * BN` plus the
    `_c`/`_d` temporaries). Worth pairing with the observation that PR #565 left
@@ -639,22 +946,42 @@ Ordered by cost:
 ## 13. Reproduction
 
 ```bash
-# 0. two trees (see research/r103-armr-build-notes.md for the full recipe)
-git worktree add --detach .mlxfast-private/r103b-old 30f752df
-git worktree add --detach .mlxfast-private/r103b-new 0f6862d0
-git -C .mlxfast-private/r103b-old apply research/r103b/scripts/trace.patch
-git -C .mlxfast-private/r103b-new apply research/r103b/scripts/trace.patch
+# 0. three trees (see research/r103-armr-build-notes.md for the full recipe)
+for r in old:30f752df mid:e17bdeb1 new:0f6862d0; do
+  git worktree add --detach ".mlxfast-private/r103b-${r%%:*}" "${r##*:}"
+  git -C ".mlxfast-private/r103b-${r%%:*}" apply research/r103b/scripts/trace.patch
+done
 # build mlxfast-runtime-worker with --scratch-path .build-worker in each tree,
-# copy mlx.metallib + .fingerprint next to each worker
+# copy mlx.metallib + .fingerprint next to each worker.
+# build_mid_and_aa.sh does exactly this for MID and then takes the A/A dump:
+research/r103b/scripts/build_mid_and_aa.sh
 
-# 1. capture MSL corpora and dispatch traces for all three arms
-ARMS="old new new_pf0" STEP=5 research/r103b/scripts/run_all_traces.sh
+# 0b. STALENESS GUARD - run before trusting any comparison.
+#     A naive incremental rebuild silently keeps a stale object file and yields
+#     a false PASS. Force a clean build per tree, then prove the three workers
+#     are genuinely different binaries and that the R3 marker tracks revision:
+for a in old mid new; do
+  w=".mlxfast-private/r103b-$a/.build-worker/release/mlxfast-runtime-worker"
+  printf 'r103b-%s: DARKBLOOM_ROUTER_WEIGHT_PREFETCH strings=%s sha256=%.16s bytes=%s\n' \
+    "$a" "$(strings -a "$w" | grep -c DARKBLOOM_ROUTER_WEIGHT_PREFETCH)" \
+    "$(shasum -a 256 "$w" | cut -d' ' -f1)" "$(stat -f%z "$w")"
+done
+# expected: old/mid strings=0, new strings=1; three distinct sha256 and sizes.
 
-# 2. differentials
-python3 research/r103b/scripts/compare_msl.py      old new
-python3 research/r103b/scripts/compare_dispatch.py old new
-python3 research/r103b/scripts/seqalign.py         old new
-python3 research/r103b/scripts/steps.py            old new
+# 1. capture MSL corpora and dispatch traces for all five arms
+ARMS="old mid new new_pf0 new_aa" STEP=5 research/r103b/scripts/run_all_traces.sh
+
+# 2. differentials - both intervals, plus the two controls.
+#    These scripts take ARM NAMES, not paths (they prefix /tmp/r103b/dump).
+for pair in "old mid" "mid new" "old new" "mid new_pf0" "new new_aa"; do
+  python3 research/r103b/scripts/compare_msl.py      $pair
+  python3 research/r103b/scripts/compare_dispatch.py $pair
+  python3 research/r103b/scripts/seqalign.py         $pair
+done
+python3 research/r103b/scripts/steps.py old mid new new_pf0 new_aa
+# expected: old|mid -> 1 differing library (B); mid|new -> A only, as a rename;
+#           mid|new_pf0 -> 103/103 byte-identical; new|new_aa -> 103/103
+#           byte-identical AND 11243/11243 dispatch rows equal (the A/A control).
 
 # 3. static classification of the 32-file diff
 python3 research/r103b/scripts/comment_strip_diff.py 30f752df 0f6862d0
@@ -665,8 +992,9 @@ research/r103b/scripts/working_set_manifest.sh 30f752df 0f6862d0
 # 5. rule-74 rider: is f720e9e7 emitted-code-neutral on the JIT path?
 python3 research/r103b/scripts/rule74_check.py "$PWD"
 
-# 6. optional M4 A/B of mechanism A
-LEGS=20 research/r103b/scripts/ab_router_prefetch.sh
+# 6. optional M4 A/B of mechanism A (cancelled here at 6 legs; needs LEGS >= 33
+#    for K >= 16 usable pairs after discarding leg 01)
+LEGS=33 research/r103b/scripts/ab_router_prefetch.sh
 python3 research/r103b/scripts/ab_summarize.py /tmp/r103b/ab/summary.tsv
 ```
 
@@ -674,92 +1002,135 @@ python3 research/r103b/scripts/ab_summarize.py /tmp/r103b/ab/summary.tsv
 
 ## § Reply
 
-**Rungs 0, 1, 2 and 3 are complete, and the differential is unusually clean:
-across ~250 commits only two kernels change their final MSL text, and the
-per-decode-step dispatch delta is exactly zero.**
+**Headline, per fb3: what actually changed in the emitted/dispatched code
+across the three revisions is two Metal kernels, one per interval, and nothing
+else. `OLD -> MID` changes exactly one kernel (mechanism B, sliding fused
+attention). `MID -> NEW` changes exactly one kernel (mechanism A, router weight
+prefetch). Per-decode-step dispatch delta is zero on both intervals. No
+microsecond figure is attached to either.**
 
-- **Rung 0 PASS.** OLD `30f752df` and NEW `0f6862d0` both build and produce
-  token-identical, top-5-logit-identical output (`golden_hash
-  b9509697c08a2cf3...`). Working-set digests are in
-  `research/r103b/artifacts/working-set-manifest.tsv`; the reusable recipe -
-  including the three harness traps (worker stderr is discarded, the worker env
-  is a `DARKBLOOM_*`/`MLX_*` allowlist, and a nested `weights` symlink produces a
-  misleading `exit_status=15`) - is in `research/r103-armr-build-notes.md` for
-  frieren and anybody else standing up an arm-R tree.
-- **Rung 1.** 103 JIT libraries at both revisions; **101 byte-identical, 2
-  changed**: (A) `residual_rms_router_..._rpg8_keys_v1` gains a `_pf1` suffix and
-  a router-weight prefetch hoisted across the RMSNorm reduction (PR #558), and
-  (B) `sliding_fused_attn_ring_v1` widens K/V pipelining 2-way -> 4-way at MSL
-  line 1280 (PR #565). Unified diffs are committed. 27 of the 32 changed source
-  files are comment/whitespace-only byte reclamation (PR #548), including **all**
-  AOT `.metal`/`.h` and vendored MLX C++ - so no metallib change is involved.
-- **Rung 2.** 408 dispatches per decode step at both revisions. Positional
-  comparison of a complete step over `(kernel, kind, grid, threadgroup, buffer
-  shapes+dtypes)`: 39 of 408 rows differ **and only in the kernel name**; after
-  canonicalising the `_pf1` rename the blocks are equal. Whole-trace alignment
-  has exactly one non-equal opcode, a 4-row tail lost to an unflushed trace write
-  at worker exit (confirmed with `od -c`). **Priced at +0.3 us/dispatch this is
-  `0 x 0.3` = +0.00 us/step - dispatch contributes 0.00 % of the 20.149 us hole,
-  so N-C is dead.** N-A, N-B and N-D are dead too.
-- **Rung 3, repriced against `T` = 20.149 per your 21:47Z note.** Both survivors
-  are latency-regime with room to hide the delta: T3a sliding attn 318.0 us/step
-  (30 calls, 32.4 % of M5 peak) and T1a router 156.4 us/step (39 calls, 42.8 % of
-  peak); +20.149 us is **+4.25 %** of their combined 474.4 us, which is **11.45 %**
-  of arm R's `T` = 4141.540. A-alone would be **+12.88 %** on T1a, B-alone
-  **+6.34 %** on T3a. **Mechanism A is bit-exactly restorable with no code
-  change**: `DARKBLOOM_ROUTER_WEIGHT_PREFETCH=0` reproduces the OLD router
-  kernel's name and MSL text exactly, and its dispatch trace is identical to OLD
-  in all 11,247 rows. Mechanism B has no flag and has never been re-measured
-  since it landed.
-- **Neither mechanism changes work; both are occupancy bets (§7.2).** I walked
-  B's loop bounds exhaustively: with `i = sg` striding by `BN = 32`, the OLD
-  2-way loop runs 8 iterations and the NEW 4-way loop runs 4, and both cover
-  exactly the same 16 key slots `sg + 32m`, m = 0..15, for all 32 simdgroups
-  (32 x 16 = 512 = `N`). There is **no tail or remainder loop in either
-  variant** - the loop is followed immediately by the `max_scores[sg]` write.
-  So B is a pure unroll-depth change and A is a pure prefetch: the only thing
-  either can buy or lose is latency hiding versus register pressure. Per lane,
-  A costs **+32 B (8 GPRs)** held across a threadgroup barrier in a 512-thread
-  TG, and B costs **+48 B (12 GPRs)** straight-line in a 1024-thread TG. Both
-  dispatch **exactly 32 threadgroups** (A: 16384/512; B: 32768/1024, structural
-  because `head0 = pair_tg * 2` and 64/2 = 32).
-- **That 32-threadgroup number is why I want the M5 leg and not a local
-  verdict.** This host is a 20-GPU-core M4 Pro, so 32 threadgroups is two waves
-  (20 then 12); any >= 32-core Max-tier ranked host runs one wave at <= 1 TG per
-  core. Register pressure that costs nothing at one TG per core can cost a
-  second resident TG in the two-wave regime and vice versa, so the local A/B in
-  §8 is **structurally uninformative** for ranking A against B, not merely
-  underpowered - exactly the "threadgroup geometry can change sign across core
-  counts" case in `AGENTS.md`. I am labelling it directional only.
-- **Rider 1 resolved.** Neither `_idx_v1` nor `_ns1` QKV kernels are compiled or
-  dispatched at either revision - dormant on reachability evidence, not just on
-  reading the source.
-- **Rider 2 (`f720e9e7`, your 21:28Z note): answered without a third tree, and
-  the answer is your first branch - byte-identical.** I did not need to build
-  one, because `f720e9e7` is an ancestor of NEW and *not* of OLD, and for all
-  four rule-74 files the OLD->NEW range delta equals `f720e9e7`'s delta exactly
-  (`sdpa_vector.h` -294, `quantized.cpp` +10/-405, `jit_kernels.cpp` +6/-94,
-  `matmul.cpp` +19/-227). My OLD arm *is* the comments-restored tree, and rung 1
-  already diffs it over all 103 libraries rather than just those four files.
-  Taking your 5-minute reachability check first: `sdpa_vector.h` compiles **zero**
-  JIT libraries in the scored window (AOT only, so *not applicable*), while
-  `quantized.cpp`, `matmul.cpp` and `jit_kernels.cpp` feed **12** of the 103
-  (5 nvfp4/affine-quant, 6 steel-gemm/gemv, 1 steel-attention). **All 12 have
-  identical MSL sha256 between OLD and NEW.** Those 12 are dispatched 586 times
-  in prefill and 415 times in decode step 0, and **zero times in every
-  steady-state decode step**. So `f720e9e7` is emitted-code-neutral on the JIT
-  path for prefill as well as decode; the only channel it can still act through
-  is host binary layout, which #548 explicitly declined to claim. Artifact:
-  `research/r103b/artifacts/rule74_f720e9e7_jit_neutrality.txt`.
+### The three-revision inventory you asked for
 
-**My recommendation, which is one measurement and zero code:** run a paired M5
-leg with `DARKBLOOM_ROUTER_WEIGHT_PREFETCH=0`. It convicts or exonerates A
-outright, and by elimination it does the same for B. If A is the culprit, the
-fix is flipping one default - which *removes* editable bytes rather than adding
-to `LagunaRuntimeModel.swift`'s 5,052-byte headroom. If A is clean, B's 4-way
-loop at `LagunaRuntimeModel.swift:1639` is the remaining suspect and belongs to
-whoever owns the attention path next.
+MID = `e17bdeb1` is built, dumped and diffed. It is the merge of PR #565, an
+ancestor of NEW, and `git diff --numstat e17bdeb1 0f6862d0` over the submitted
+surface is **exactly one file** - `LagunaRuntimeModel.swift`, `+102/-11` - so
+`MID -> NEW` really is R3 (PR #558) in isolation, not R3 plus stragglers.
 
-I did **not** implement either revert - the assignment asked for the mechanism,
-not the fix - and I took **zero official receipts**. The merged diff is
-research-only: no submitted-surface byte changed.
+| comparison | libs | byte-identical | differing | only-A | only-B | verdict |
+|---|---:|---:|---:|---:|---:|---|
+| OLD `30f752df` vs MID `e17bdeb1` | 103/103 | 102 | **1** | 0 | 0 | **B alone** |
+| MID `e17bdeb1` vs NEW `0f6862d0` | 103/103 | 102 | 0 | **1** | **1** | **A alone** (a rename, `_pf1`) |
+| MID vs NEW+`PREFETCH=0` | 103/103 | **103** | 0 | 0 | 0 | **bit-identical** |
+| NEW vs NEW (A/A control) | 103/103 | **103** | 0 | 0 | 0 | **control passes** |
+
+- **B** (`sliding_fused_attn_ring_v1`, PR #565, 60,780 -> 64,866 B): the sole
+  semantic change is MSL line 1280, `for (; i + BN < N; i += 2*BN)` ->
+  `for (; i + 3*BN < N; i += 4*BN)`, plus `pipe_keys_c/d`, `pipe_values_c/d`,
+  `pipe_kc[4]`, `pipe_kd[4]` and the doubled pair-pointer stride. No env guard;
+  never re-measured since it landed. The sibling `full_fused_attn_grow_v1` was
+  left at 2-way.
+- **A** (`residual_rms_router_..._rpg8_keys_v1` -> `..._pf1_...`, PR #558,
+  52,359 -> 53,264 B): `thread vec<bfloat,4> laguna_pf[4]` declared *outside*
+  the `if (simd_group < active_simd_groups)` guard between `simd_sum` and the
+  threadgroup reduction, so it survives a barrier; the block loop is peeled
+  `0..` -> `4..` with a 1-trip prologue.
+- **The third row is the useful one for you.** Running NEW's own binary with
+  `DARKBLOOM_ROUTER_WEIGHT_PREFETCH=0` reproduces **MID's entire 103-library
+  corpus bit-for-bit**. So the difference between the two newest revisions is
+  gated behind one environment variable, and reverting R3's emitted code costs
+  zero source bytes and zero rebuild.
+
+### Pricing: retracted, ordering kept
+
+I accept the retraction in full. Every absolute-microsecond attribution in
+section 7 is struck through and marked "withdrawn; retained for audit" - the
+`T` = 20.149 us/step target, the 11.45 %-of-`T` pool share, the +4.25 % combined
+figure and the A-alone/B-alone splits. Given `sd(T)` of 12.1-14.3 us/step on
+byte-identical code, that gap is z ~ 1.0-1.2 and I should not have priced
+against it. Section 0 and section 12 no longer quote it either.
+
+What survives is **ordering, not cost**: B first on exposure (2x the pool
+residency, 1024-thread threadgroup, no restore flag, never re-measured), A first
+on testability (env flag, bit-exact restore, one measurement). And one
+quantitative claim that is *not* receipt-derived: **per-decode-step dispatch
+delta = 0 on every interval, so `0 x 0.3 us` = +0.00 us/step from dispatch
+count**. That number comes from counting rows in a trace, not from timing.
+
+### Dumper warnings (nezuko, #575, rule 58) - what I did about each
+
+- **Why my corpus was non-empty where nezuko's was.** nezuko hooked
+  `Device::get_library`. Custom-kernel MSL text only exists inside
+  `Device::build_library_` (`Vendor/mlx-swift/.../metal/device.cpp:622`), which is
+  where I hooked; `get_library` sees a cache handle, not source. That is a
+  hook-site difference, not a difference in what the two of us were looking for.
+- **Dispatch trace is co-equal, not a footnote.** Section 6 is reported at the
+  same weight as section 5 precisely because a corpus diff cannot see host-side
+  *selection* changes. Alignment: OLD vs MID **11247/11247 rows, 0 non-equal
+  opcodes**; MID vs NEW and OLD vs NEW differ by exactly one deletion of 4 tail
+  rows, and every aligned row matches on `(kind, grid, threadgroup, buffer
+  shapes+dtypes)`.
+- **The 4-row tail is now explained, not hand-waved.** Every `dispatch.tsv` at
+  every arm is exactly **1,671,168 B (0x198000)** - a hard tracer buffer quota -
+  and every one ends mid-line. `_pf1` adds 4 characters to each of 236 router
+  rows = 944 B, and the 4 rows NEW loses occupy 978 B in OLD's file. Two
+  independent NEW dumps truncate at the identical row.
+- **A/A control, which I did not have before.** NEW dumped twice from the same
+  binary: 103/103 libraries byte-identical and 11243/11243 dispatch rows equal,
+  0 non-equal opcodes. The method's zero is a real zero.
+- **Device stated.** All dumps: Apple **M4 Pro, 20 GPU cores, 48 GiB, Darwin
+  25.5.0, Metal LanguageVersion4_0, Apple GPU generation 16**.
+- **Scope limit I cannot close from here.** Generation 16 never requests the
+  `_nax` variants the ranked M5 selects, so those kernels are absent from all
+  five of my corpora. "Exactly 2 of 103 differ" is therefore a **lower bound on
+  M5**, not a proven total. Closing it needs one corpus dump on the ranked host.
+- **Staleness guard, per your rebuild warning.** Each tree was built clean into
+  its own `--scratch-path .build-worker`, and I verified three genuinely distinct
+  binaries before trusting any comparison:
+
+  ```
+  r103b-old: DARKBLOOM_ROUTER_WEIGHT_PREFETCH strings=0  sha256=9fce9f4c4cd3963e  bytes=49145848
+  r103b-mid: DARKBLOOM_ROUTER_WEIGHT_PREFETCH strings=0  sha256=725cc9ca676d3b0e  bytes=49240232
+  r103b-new: DARKBLOOM_ROUTER_WEIGHT_PREFETCH strings=1  sha256=26c6dc830d0f1907  bytes=49257896
+  ```
+
+  Distinct sha256 and distinct sizes at all three, and the R3 marker appears only
+  at NEW.
+
+### Rung 0 and the riders
+
+- **Rung 0 PASS at all five arms.** old / mid / new / new+`PREFETCH=0` / new_aa
+  all produce token-identical, top-5-logit-identical output, `golden_hash
+  b9509697c08a2cf3...`, `matched_prefix_steps 6`. Reusable tree recipe and the
+  three harness traps are in `research/r103-armr-build-notes.md`.
+- **Rider 1 resolved.** Zero `_idx_v1` and zero `_ns1` QKV kernels are compiled
+  or dispatched at any revision - dormant on reachability evidence, not on
+  source reading.
+- **Rider 2 (`f720e9e7`, rule 74) answered without a third tree, and the answer
+  is your first branch - byte-identical.** `f720e9e7` is an ancestor of NEW and
+  not of OLD, and for all four files the OLD->NEW range delta equals its own
+  delta exactly, so **my OLD arm already is the comments-restored tree**.
+  `sdpa_vector.h` compiles zero JIT libraries in the scored window (AOT only, so
+  not applicable); `quantized.cpp`, `matmul.cpp` and `jit_kernels.cpp` feed 12 of
+  the 103, **all 12 byte-identical**, dispatched 586x in prefill and 415x in
+  decode step 0 and **zero times in every steady-state decode step**. The only
+  channel left for it is host binary layout, which #548 declined to claim.
+
+### Also on the record
+
+- **Neither survivor changes work (section 7.2).** I walked B's loop bounds
+  exhaustively: with `i = sg` striding by `BN = 32`, OLD runs 8 iterations and
+  NEW runs 4, and both cover the same 16 slots `sg + 32m`, m = 0..15, for all 32
+  simdgroups (32 x 16 = 512 = `N`), with **no tail loop in either**. So B is pure
+  unroll depth and A is pure prefetch - latency hiding versus register pressure,
+  +48 B/lane for B and +32 B/lane for A. Both dispatch **exactly 32
+  threadgroups**, which on this 20-core host is two waves and on a >= 32-core
+  ranked host is one. That makes a local A/B **structurally uninformative** for
+  ranking A against B, not merely underpowered.
+- **The M4 A/B was launched and then cancelled at 6 legs (K = 3 pairs).** All six
+  passed correctness at both flag settings. My own preregistration needs K >= 16,
+  so I report the legs and claim nothing from them; the machine time went into
+  the MID tree instead, which I judged the better trade given the point above.
+- **Zero official receipts taken**, and the merged diff touches **zero submitted
+  bytes** - `git diff --stat 0f6862d0 -- Sources Vendor Package.swift
+  Package.resolved benchmark.json` is empty. I did not implement either revert;
+  the assignment asked for the mechanism, not the fix.
