@@ -111,6 +111,92 @@ M4 Pro reports Apple GPU generation 16 and does not select the `_nax` prefill
 kernels the ranked M5 uses; threadgroup geometry can also change sign across
 core counts. No M4 result will be presented as an M5 verdict.
 
+## Amended decision rule — recorded before any timing number exists
+
+The research host is an **Apple M4 Pro, 20-core GPU, 48 GiB** — the same family
+as the original R89 measurement. **This box cannot produce M5 evidence**, which
+is precisely what the assignment asks the decision to rest on.
+
+Re-running the M4 measurement as a *reproduction* would therefore add nothing:
+it would restate the prior in the prior's own terms. So the M4 legs are
+explicitly repurposed as a **survival test**. The original measurement was taken
+on a much older lineage, many merged optimizations ago; the question that M4 can
+still answer is whether the lever *survived the frontier*, not how big it is on
+M5.
+
+| M4 outcome | Verdict |
+| --- | --- |
+| Lever is **dead on M4 now** | **Close it.** The lever's entire evidential basis was a single M4 measurement. If it no longer pays on the very machine that once showed it, no surviving evidence from any machine supports it, and spending an official M5 slot is unjustified. |
+| Lever is **alive on M4 now** | Hand the advisor a **live candidate**, reported as "alive on M4, M5 unknown". Only an official M5 run decides. No win is claimed from M4 data. |
+
+This asymmetry is deliberate: M4 can *falsify* the lever outright but cannot
+*confirm* it for the ranked machine.
+
+## Step 1 results — static codegen, no GPU time
+
+Generator dumped verbatim from the working tree via
+`research/maple-nezuko-r100c-dump-msl.sh`; wrapped in MLX's exact kernel
+signature and compiled by `research/maple-nezuko-r100c-isa.sh`.
+
+**Control.** Arm `pf0` is **character-identical** to the generator on
+`BASE_SHA`, so A0 is a valid control and later numbers are interpretable.
+`pf1` and `pf1c` are both 4,391 B / 123 lines — the moved block is byte-identical,
+so they differ *only* in placement.
+
+**Emitted MSL** (rpg8, the default; 4 `threadgroup_barrier`s in every arm):
+
+| Arm | Device `router_weight` load vs. the four barriers |
+| --- | --- |
+| `pf0` | body line 42-equivalent load sits **after** all four barriers |
+| `pf1` | peel at body line 42, **before** all four barriers (48/52/59/71) |
+| `pf1c` | peel at body line 70, **after** all four barriers (36/40/47/59) |
+
+**Compiled AIR** (`-O3`, `air64_v28`), position of `load <4 x bfloat>
+addrspace(1)` against `air.wg.barrier`:
+
+| Arm | Barriers at IR line | Device vec4 loads at IR line | Hoisted? |
+| --- | --- | --- | --- |
+| `pf0` | 62, 73, 91, 96 | 152 | **no** |
+| `pf1` | 94, 105, 123, 128 | **75**, 218 | **yes** |
+| `pf1c` | 63, 74, 92, 97 | 147, 206 | **no** |
+
+### N-B is refuted
+
+The Metal compiler does **not** hoist these loads on its own. In `pf0` the load
+remains behind all four barriers after full `-O3` optimization; in `pf1` it
+moves to IR line 75, ahead of every barrier. The three arms are genuinely
+different code, so the stopping rule for N-B does not fire and timing is
+required.
+
+This finding is **more than M4-local**: AIR is target-independent LLVM IR
+produced by the Metal frontend, so "the compiler declines to hoist" holds for
+any Apple GPU built by this toolchain. The caveat is that the per-generation AGX
+backend scheduler is not visible here; it could in principle reorder further on
+M5. That is unlikely for a load that in `pf0` sits *inside a loop* behind
+barriers, but it is not proven, and I do not claim it as proven.
+
+### N-C is not supported at the granularity available
+
+Per-arm pipeline reflection (`research/maple_nezuko_r100c_pipeline_stats.swift`,
+pipelines created only — no kernel run, no timing) on Apple M4 Pro:
+
+| Arm | maxTotalThreadsPerThreadgroup | threadExecutionWidth | static threadgroup memory | launchable @512 |
+| --- | --- | --- | --- | --- |
+| `pf0` | 1024 | 32 | 4240 B | yes |
+| `pf1` | 1024 | 32 | 4240 B | yes |
+| `pf1c` | 1024 | 32 | 4240 B | yes |
+
+All three arms are identical and sit at the **maximum** threadgroup size, so
+register pressure does not limit occupancy in any arm and no codegen tax is
+visible at this granularity. AIR instruction-proxy line counts are 369 / 438 /
+426.
+
+**Tooling limit, stated honestly:** exact register counts and spill bytes are
+*not* obtainable. `metal-objdump --disassemble` on the `.metallib` returns AIR
+(LLVM IR), not AGX ISA — the ISA is generated at pipeline-creation time on
+device and no public tool dumps it. So N-C is *unsupported*, not *excluded*;
+occupancy is a coarse proxy and these numbers are M4 backend numbers.
+
 ## Correctness gates
 
 `--local-submit` (`max_abs_diff: 0`), `research/run_upstream_equivalence.sh`
