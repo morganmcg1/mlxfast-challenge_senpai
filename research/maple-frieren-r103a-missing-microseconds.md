@@ -1,0 +1,326 @@
+# R103-A — reproduce the missing ~19 µs/step off-M5 and localise it to a kernel
+
+Student: maple-frieren · PR #571 · branch `maple-frieren/r103-missing-microseconds-localize`
+Assignment `maple-r103-a-missing-microseconds-localize`, revision `r103-a-rev1`
+Base `0f6862d099252d40a807df30abfbbd7c9cd596ae`
+
+Measurement host: **Apple M4 Pro**, 14 CPU, 48 GiB unified memory, peak memory
+bandwidth **266.3 GB/s** (M5 Max reference: 610 GB/s measured / 614 GB/s
+nominal). The ranked host is M5 Max; every number below is off-M5 evidence and
+is labelled as such.
+
+---
+
+## § 1 Preregistration
+
+**Written and committed before any timed run.** Commit history is the proof:
+this section is committed in isolation, ahead of the build and timing commits.
+
+### 1.1 The quantity under test
+
+Two official receipts bracket the round-100 frontier adoption plus the three
+restorations that followed it:
+
+| | revision | receipt | decode µs/step | prefill µs/token |
+|---|---|---|---|---|
+| OLD | `30f752df` (merge of PR #481) | `7ce1262d` | 4893.712 | 188.043 |
+| NEW | `0f6862d0` (this assignment's base) | `e08d759f` | 4913.117 | 187.857 |
+
+The published decode metric is not the marginal step. The teacher-forced decode
+axis is a 512-token seed prefill `S` followed by 128 one-token steps `T`, and
+the reported figure is `(S + 128·T)/128 = S/128 + T`. Using the prefill axis to
+price `S = 512 × prefill_µs_per_token`:
+
+```
+S_old  = 512 × 188.043 = 96,278.0 µs      S_old/128  =  752.172 µs
+S_new  = 512 × 187.857 = 96,182.8 µs      S_new/128  =  751.428 µs
+
+T_old  = 4893.712 − 752.172 = 4141.540 µs/step
+T_new  = 4913.117 − 751.428 = 4161.689 µs/step
+
+ΔT     = T_new − T_old      = +20.149 µs/step
+ΔT/T_old                    = +0.4865 %
+```
+
+The reported decode delta is +19.405 µs/step, and prefill actually *improved*
+(ΔS = −95.2 µs, worth −0.744 µs/step on the decode axis). Removing that prefill
+credit shows the regression concentrated in the marginal step is **larger** than
+the headline: **+20.149 µs/step, +0.4865 % of the OLD steady step**. This is the
+quantity R103-A must reproduce. Prefill is explicitly *not* under test — the
+frontier is already ahead of Arm R there.
+
+### 1.2 Revisions
+
+* **OLD** `30f752df` — confirmed present in this checkout, `git cat-file -e` OK.
+* **NEW** `0f6862d0` — the assignment base; the branch head `657e9ba5` carries an
+  empty diff against it (assignment metadata only), so the working tree already
+  *is* NEW.
+* 318 commits separate them. Fallback anchors if OLD refuses to build, in
+  order: `74e89d71` → `e510bb3d` → `6ada66c9`. `74e89d71` and `6ada66c9` are
+  ancestors of OLD; `e510bb3d` is not, and using it would change the contrast's
+  meaning, so it is a last resort and would be reported as such.
+
+### 1.3 Instrument and why not `--local-iterate`
+
+`./benchmark.sh --local-iterate` reports `S/128 + T`, so it dilutes the effect
+under test with a prefill axis that moved the other way, and it costs a thermal
+gate per measurement. The instrument is instead
+`research/decode_probe.py` steady-step wall time against snapshotted worker
+binaries: it measures `T` directly, drops step 0, and is teacher-forced against
+`correctness_prompts/public_longcopy_gate_english_512_256.json` (512 prompt
+tokens, 256 expected tokens). At `--steps 250` every step is teacher-forced
+(the probe free-runs only past index 254), so the token stream is fixed by the
+fixture and identical across arms by construction.
+
+Both arms run the **shipped** runtime end to end. Consequences:
+
+* **Rule 77** (reproduce shipped dispatch geometry and name it) is satisfied by
+  construction — the geometry is whatever `LagunaRuntimeModel.swift` dispatches
+  in each revision, not a re-authored harness. Rung 2 names the geometry per
+  kernel from the in-situ census.
+* **Rule 71** (SLC-resident *and* SLC-defeat modes) is satisfied by
+  construction for an in-situ measurement: the working set is the real
+  21.6 GB resident text tower, which is neither an artificially SLC-resident
+  microbenchmark footprint nor an artificial SLC-defeating one. No synthetic
+  footprint is introduced at either rung, so there is no second mode to run.
+* **Rule 80** (bandwidth always divided by host peak in the same sentence) —
+  rungs 1 and 2 report wall time, not bandwidth. If any GB/s figure appears it
+  will carry `÷ 266.3 GB/s` in the same sentence.
+
+### 1.4 Design: 4-slot position-matched ABBA with an embedded null
+
+Four snapshotted binaries per repetition:
+
+```
+SLOTS = [oldA, old, new, oldB]
+order = SLOTS  if rep is even  else  reversed(SLOTS)
+```
+
+`oldA` and `oldB` are **byte-identical copies of the OLD binary**. Over any even
+number of repetitions:
+
+| arm | positions occupied | mean position |
+|---|---|---|
+| `old` | {2, 3} | 2.5 |
+| `new` | {3, 2} | 2.5 |
+| `oldA` | {1, 4} | 2.5 |
+| `oldB` | {4, 1} | 2.5 |
+
+So the **real contrast** `new − old` is position-matched on the two *interior*
+slots, and the **rule-79 identical-code null** `oldB − oldA` is position-matched
+on the two *exterior* slots, in the same session, sharing the same drift.
+
+The asymmetry is deliberate and is declared here: exterior slots absorb more
+session drift than interior ones, so the null is a **conservative upper bound**
+on the noise floor that applies to the real contrast. A null that is tight
+therefore certifies the real contrast; a null that is wide does not by itself
+condemn it, and that case will be reported rather than spun.
+
+`REPS = 26`. The **first two repetitions are discarded** (one full even/odd
+cycle, so the discard cannot unbalance position matching), leaving
+**K = 24 paired observations** for each of the real contrast and the null —
+above the K ≥ 16 floor. `--steps 250` per slot.
+
+### 1.5 Preregistered thresholds — fixed now, not after seeing data
+
+**Precision target.** Paired 95 % CI half-width on the real contrast
+**< 8 µs/step**. The achieved half-width is reported whatever it is; if it lands
+≥ 8 µs/step that is stated as a power failure and the verdict is downgraded
+accordingly, not quietly widened.
+
+**Decision rule** on `ΔT_M4 = mean(T_new − T_old)`, 95 % CI from the paired
+t-distribution on K = 24 pairs:
+
+| # | condition | verdict | action |
+|---|---|---|---|
+| 1 | point estimate ≥ **+20.0 µs/step** *and* CI lower bound > 0 | reproduced off-M5 | proceed to rung 2 |
+| 2 | CI **upper** bound < **+20.0 µs/step** and CI upper bound > 0 | does not transfer at M5 magnitude → M5-specific | **report and stop** |
+| 3 | CI upper bound < 0 | sign flip, NEW faster on M4 | **report and stop** |
+| 4 | CI contains +20.0 but point estimate < +20.0, or CI contains 0 while spanning +20.0 | underpowered | report as **inconclusive-underpowered**; no rung 2 |
+
+Outcome 4 exists so that an ambiguous CI cannot be argued into outcome 1 after
+the fact.
+
+**Secondary read (relative transfer).** The M5 effect is +0.4865 % of the steady
+step. `T_old` on M4 is not yet known, so the relative equivalent of the 20 µs
+bar cannot be fixed in absolute terms in advance; the *relative* effect
+`ΔT_M4 / T_old_M4` and its CI are reported alongside, and compared with
+0.4865 %. This is a descriptive companion, **not** a second chance at outcome 1:
+the primary decision uses the absolute +20.0 µs/step bar from the assignment
+exactly as written. If the two disagree — e.g. the absolute bar is missed but
+the relative effect matches M5 — that disagreement is reported as the finding.
+
+### 1.6 Rung 0 gates (a failure here stops everything)
+
+* **G0.1 build** — both revisions build a `mlxfast-runtime-worker`.
+* **G0.2 token parity** — `--dump-tokens` output byte-identical between OLD and
+  NEW over 250 teacher-forced steps, and zero teacher-forcing divergences
+  reported by either arm. A parity failure means the two trees are not
+  computing the same thing and the timing contrast is meaningless.
+* **G0.3 distinct binaries** — the OLD and NEW worker binaries must not be
+  byte-identical (that would mean the swap silently failed).
+* **G0.4 rule 75 working-set digests** — sha256 over the full `Sources/` +
+  `Vendor/` tree published before and after every timed run, and the digest must
+  round-trip to its NEW value after the OLD checkout is restored.
+* **G0.5 metallib** — the AOT metallib is rebuilt at OLD into a scratch path and
+  its sha256 compared with NEW's. If identical, one metallib serves both arms
+  and that fact is published; if different, each arm carries its own.
+
+### 1.7 Rung 2 (only if outcome 1)
+
+Reuse `research/maple-nezuko-r100c-census.sh` /
+`research/maple_r89_insitu.py` — the PR #558 position-matched in-situ per-kernel
+census, resolution ±0.43 µs/step/kernel. Not re-authored. Deliverable: one table
+of µs/step at OLD and NEW, paired diff, 95 % CI, sign counts, sorted by |diff|,
+followed by the **reconciliation residual** `ΔT_e2e − Σ(per-kernel diffs)`.
+
+### 1.8 Preregistered nulls
+
+* **N-1 receipt noise.** The +19.405 µs/step M5 headline is a difference of two
+  single receipts. Verdict from the rung-1 null and from the known receipt
+  spread; if the M5 delta is inside receipt noise the whole target is a ghost.
+* **N-2 thermal / session drift.** Verdict from the rule-79 identical-code null
+  CI. If the null CI excludes 0 with magnitude comparable to the real contrast,
+  drift contaminates and the real contrast is not trustworthy.
+* **N-3 diffuse.** If the rung-2 reconciliation residual exceeds 50 % of the
+  rung-1 e2e delta, the cause is diffuse rather than one kernel → hand to
+  fern R103-D.
+* **N-4 the vendored comment carve** `f720e9e7` (176,468 B, nezuko's R103-C).
+  Confirmed **inside** the OLD→NEW range (`f720e9e7` is an ancestor of NEW and
+  not of OLD), so rung 1 measures it bundled with everything else. A static
+  pre-read is in § 2 below and constrains what N-4 can possibly explain.
+
+### 1.9 Non-negotiables carried from the assignment
+
+* **Zero submitted bytes.** Nothing under `Sources/`, `Vendor/`, or
+  `benchmark.json` on the merged branch. Probe scaffolding lives in `research/`
+  and any patch applied to build an arm is reverted before timing, with the
+  rule-75 digest proving it.
+* **Zero official receipts consumed.**
+* First leg discarded (here: the first two repetitions).
+* K ≥ 16 dispatch replicates.
+* Do **not** design or land a fix. R103-A localises; it does not repair.
+
+### 1.10 Stopping rule
+
+Stop at the first of: (1) rung-1 outcome 2, 3, or 4; (2) rung-2 table published
+with its reconciliation residual; (3) rung 0 blocked after exhausting the
+fallback anchors.
+
+---
+
+## § 2 Static pre-read of the OLD→NEW delta (no timing)
+
+This was completed before any build and it materially narrows N-4. Method: for
+every file differing between `30f752df` and `0f6862d0`, strip comment lines and
+re-diff, counting only non-comment changed lines.
+
+### 2.1 The vendored surface is comment-only
+
+| surface | files | non-comment changed lines |
+|---|---|---|
+| `Vendor/mlx-swift/.../backend/metal/kernels/*.metal`, `*.h` (`arg_reduce`, `binary`, `gemv`, `rms_norm`, `rope`, `scaled_dot_product_attention`, `sdpa_vector.h`) | 7 | **0** |
+| `Vendor/mlx-swift/.../{jit_kernels.cpp, kernels.h, quantized.cpp, matmul.cpp}` | 4 | 68 lines, **all** trailing/inline comment removals |
+| `Vendor/mlx-swift-lm/.../MLXLMCommon/*`, `MLXLLM/Models/Laguna.swift` | 12 | **0** semantic |
+| `Sources/MLXFastModel/LagunaConfig.swift` | 1 | **0** semantic |
+
+The 68 "non-comment" lines in the four C++ files are an artefact of line-based
+comment stripping, not real edits — each is a comment amputated from a code
+line: `} // namespace` → `}`, `int ndim /* = -1 */,` → `int ndim ,`, the
+`case 1..5` bm/wm annotations in `quantized.cpp`, and
+`int swizzle_log = 0; // tm >= 6 ? …` → `int swizzle_log = 0;`.
+
+**Consequence for N-4.** The carve cannot change AOT codegen (the `.metal`/`.h`
+sources are unchanged after comment stripping, so the metallib is a
+byte-for-byte question settled by gate G0.5) and cannot change host dispatch
+semantics. Its only possible timing channels are (a) JIT source-string bytes
+and therefore JIT cache keys, and (b) binary/code layout. Both are diffuse
+mechanisms, which points N-4 at N-3 rather than at a single kernel.
+
+### 2.2 `Sources/MLXFastTransform` does not touch the weights
+
+`AffineMetadataCoding.swift` and `TiedHeadMetadataCoding.swift` are new, and
+`Transform.swift` gains 55 lines, but the new sidecar generation is gated to
+`case .gemma4`; `case .laguna` emits nothing. The 20 GB `weights/` tree is
+therefore identical across the two arms and needs no rebuild — only code layout
+can differ.
+
+### 2.3 The one substantive surface is `Sources/MLXFastModel`
+
+```
+Sources/MLXFastModel/LagunaConfig.swift            +6    −1
+Sources/MLXFastModel/LagunaRuntimeLayers.swift      0 −2597
+Sources/MLXFastModel/LagunaRuntimeModel.swift   +2784   −17
+```
+
+OLD carries `LagunaRuntimeLayers.swift` (2597 lines) beside
+`LagunaRuntimeModel.swift`; NEW merges them into one file. To separate the
+merge from real edits, both sides were reduced to sorted multisets of
+comment-stripped, whitespace-normalised code lines: OLD 9205 lines, NEW 9354,
+with 197 differing (173 NEW-only, 24 OLD-only).
+
+**The 24 "OLD-only" lines are re-wrapping artefacts, not removals.** Every
+symbol they mention has an identical occurrence count in both revisions:
+
+| symbol | OLD | NEW |
+|---|---|---|
+| `lagunaDecodeEmbeddingRoPEAtlas` | 4 | 4 |
+| `lagunaRoPEAngleAtlasLength` | 13 | 13 |
+| `lagunaTerminalPrefillFusionEnabled` | 2 | 2 |
+| `lagunaResidualRMSNormRouterSource` | 2 | 2 |
+| `lagunaResidualRMSNormRouterKernels` | 2 | 2 |
+| `lagunaRouterPrecomputedKeysEnabled` | 10 | 10 |
+
+So **nothing that OLD had was dropped**. This kills the most attractive naive
+hypothesis — that frontier adoption deleted an Arm R optimisation and nobody
+restored it.
+
+**What NEW adds** (0 occurrences in OLD):
+
+| symbol | NEW | what it is |
+|---|---|---|
+| `pipe_kc`, `pipe_kd`, `piped_score0`, `pipec_*` | 10 / 8 | embedded-MSL 4-way pipelined attention inner loop |
+| `prefetchGroups`, `prefetchEarly`, `prefetchLate` | 7 / 2 / 2 | router weight-prefetch splice points |
+| `armSuffix` | 2 | JIT kernel-name arm suffix |
+
+and correspondingly the SDPA-vector inner loop goes from
+`for (; i + BN < N; i += 2 * BN)` in OLD to
+`for (; i + 3 * BN < N; i += 4 * BN)` in NEW, with a
+`[0, 1, 5].map { prefetch -> (Int, MLXFast.MLXFastKernel) in` slot map building
+three prefetch arms.
+
+**This inverts the framing of the task.** The missing ~19 µs/step is not
+subtraction — NEW contains *more* machinery than OLD in exactly the decode
+attention and router paths. Candidate mechanisms therefore become: the 4-way
+pipelined attention loop being slower than OLD's 2-way loop at the decode
+shape (one query row, sliding window ≤ 512); a prefetch arm default selecting a
+worse variant; or extra JIT variants inflating specialisation/dispatch cost.
+Rung 2's per-kernel census is the right instrument to choose among these, and
+rung 1 must first establish that the effect exists off-M5 at all.
+
+Caveat recorded before timing: the `[0, 1, 5]` prefetch slot map and `armSuffix`
+originate in #558's env-var arm scaffolding, so some of this NEW-only content is
+research selection machinery rather than a changed default. Rung 2 must not
+attribute cost to an arm that the shipped default never selects.
+
+---
+
+## § 3 Rung 0 — build and parity
+
+_Pending._
+
+## § 4 Rung 1 — paired ABBA e2e decode on M4
+
+_Pending._
+
+## § 5 Rung 2 — position-matched per-kernel census
+
+_Pending (gated on rung-1 outcome 1)._
+
+## § 6 Verdicts on N-1 … N-4
+
+_Pending._
+
+## § Reply
+
+_Pending._
