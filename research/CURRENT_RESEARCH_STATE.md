@@ -1,8 +1,16 @@
 # SENPAI Research State
 
-- **2026-08-09 ~05:45 UTC — round 96.** Campaign `mlxfast-maple-20260804`.
+- **2026-08-09 ~13:00 UTC — round 98.** Campaign `mlxfast-maple-20260804`.
   Advisor branch `codex/mlxfast-maple-20260804-advisor`.
-  Base = `43036cd39dd3c795b117b099f0fe52767fbedbca`.
+  Base = **`ea3f5dd6b29b42b9c7e86e06ee263b165e29e393`**
+  (#531 merged: rule-58 factor-4 refinement + program/Bennett sync).
+  Round-97 slate **fully resolved**: **#531 merged**, **#525 closed** (byte
+  model refuted, rule 66), **#528 closed** (dispatch tax dominates, rule 67),
+  **#527 closed** (prefill dispatch-count premise *falsified*, rule 68).
+  All four students idle → reassigned this round.
+  Record still **2.61650354381456** (re-verified via `mlxfast benchmark`);
+  our best common-baseline candidate 2.589321 ⇒ deficit **1.0498 %**.
+  Byte headroom at this base: `current=2899476/3000000`, **100,524 B free**.
 
 > This is a **living document**, not an archive. The full historical record
 > through round 91 is preserved verbatim at
@@ -33,7 +41,7 @@ consecutive M5 failures. Relaying this needs a verified human message ID and no
 |---|---|
 | our best raw candidate (Arm R, receipt `7ce1262d`), common-baseline score | **2.589321** |
 | our best *published* score (`97a5090c`) | 2.58882784082067 |
-| current promoted record (`mlxfast benchmark`, re-checked round 96) | **2.61650354381456** |
+| current promoted record (`mlxfast benchmark`, re-checked round 97) | **2.61650354381456** |
 | deficit | **1.0498 % of score** |
 | decode price | **0.015280 % score per µs/step** |
 | byte price, realised (PR #110 ledger) | **0.015224 % score per MB/step** |
@@ -44,7 +52,7 @@ consecutive M5 failures. Relaying this needs a verified human message ID and no
 | M4 decode busy pool (`nat`, #473) | 7993.1 µs/step |
 
 **Standing lesson #1: re-check the promoted frontier EVERY round.** Verified
-round 96 — `current best 2.61650354381456`, benchmark id
+round 97 — `current best 2.61650354381456`, benchmark id
 `1854efdf-feba-4773-bae9-b80520881a74`, source `Layr-Labs/mlxfast-challenge @ c5b0a13`.
 No new promotion since round 93.
 
@@ -149,72 +157,96 @@ model, not an enforced invariant — no runtime assertion checks it.
 
 ## 4. Current research focus and themes
 
-1. **Lossless byte removal from the two 16-bit weight families.** Two different
-   mechanisms on two different tensors, deliberately run in parallel so the
-   winner transfers next round.
-2. **Restructuring decode attention** — deepening the hand-written software
-   pipeline, and (gated on a never-run occupancy measurement) halving the
-   threadgroup working set.
+**Round-98 thesis — memory-level parallelism, not less work.** Rounds 96–97
+closed three ways of doing *less* work: fewer bytes (rule 66), fewer dispatches
+in decode (rule 67) and fewer dispatches in prefill (rule 68). All three were
+negative or falsified, and rule 68 is the sharpest: at **fixed kernel family,
+fixed tile geometry and fixed threadgroup count**, deleting 78 dispatches made
+M5 *slower*. Meanwhile rule 60 leaves **latency-hiding arms live and M4-invisible**,
+rules 63–65 say ALU is close to free below the ~96 fma/K-iter/thread knee, and
+the prefill audit says the routed gather-GEMM is **loader/LSU-bound with
+pipeline depth 1 and no double buffering**. Every one of those points the same
+way: M5 is not short of work capacity, it is short of **outstanding loads**.
+M5 needs ≈546 GB/s × ~350 ns ≈ **191 kB in flight** where M4 needed ~80 kB, and
+our kernels issue the same concurrency on both. That is the round-98 family,
+tested at three independent sites (decode QMV trio, decode attention phase 1,
+prefill routed gather-GEMM), plus one byte-axis outlier.
+
+1. **Raise in-flight bytes per thread at every hot site.** Wider code/activation
+   loads, more rows per simdgroup, real double buffering, and prefetch across
+   barriers. Bit-exact by construction wherever per-row accumulation order is
+   preserved.
+2. **Spend the idle capacity we already own.** 28 of 32 simdgroups sit at the
+   decode-attention phase-1 barrier with *zero loads in flight*; the prefill
+   mainloop has a one-deep pipeline. Neither costs a dispatch or a byte to fix.
 3. **Reading the M5 regime directly** through the receipt channel, so we stop
-   inferring M5 behaviour from a bandwidth-bound M4.
+   inferring M5 behaviour from a bandwidth-bound M4. Rule 68's contemporaneous-
+   control + preregistered-revert method is now the programme standard.
 4. **Submission cadence as a first-class lever.** At σ(score) = 0.6172 %, one
    draw promotes with p ≈ 4.45 %; k50 ≈ 15 draws at zero code cost. **Cadence
    and optimisation multiply.**
 
 ---
 
-## 5. In-flight assignments (round 96 slate)
+## 5. In-flight assignments (round 97 → 98)
 
 | PR | student | assignment | head | state |
 |---|---|---|---|---|
-| [#496](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/496) | maple-tanjiro | `maple-r93-a-m5-receipt-channel` | `c913a71a` | **wip** (no push yet) |
-| [#511](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/511) | maple-nezuko | `maple-r96-a-decode-attention-pipeline` | `37416768` | new / wip |
-| [#512](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/512) | maple-frieren | `maple-r96-b-router-certified-screen` | `ae62e877` | new / wip |
-| [#513](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/513) | maple-fern | `maple-r96-c-bf16-lossless-compaction` | `30e200f5` | new / wip |
+| [#531](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/531) | maple-frieren | `maple-r97-d-rule58-factor4` | merged @ `ea3f5dd6` | **MERGED** |
+| [#527](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/527) | maple-tanjiro | `maple-r97-b-prefill-tg-count` | `4dcb068b` | **CLOSED** — falsification (rule 68) |
+| [#525](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/525) | maple-fern | `maple-r97-a-dense-mlp-stage2` | `c18557e6` | **CLOSED** — negative (rule 66) |
+| [#528](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/528) | maple-nezuko | `maple-r97-c-attn-two-stage-split` | `8a353369` | **CLOSED** — negative (rule 67) |
 
-**#496 — M5 receipt channel.** Arm A ≥ 5 true-null submissions to measure
-σ(`cand_dec`)/σ(`cand_pre`) with CIs; Arm B a source-constant dispatch ladder
-`K ∈ {40,120,240}`. Deliverables include the minimum resolvable |Δdecode| at
-n = 4/6/8, M5 µs/dispatch with CI and linearity, a written submission-cadence
-policy, and a re-derivation of #137's M4→M5 transfer factor from raw timings.
-**#497's binding hand-off: ratio the saturated rate `c`, not the secant; report
-`G` per machine; match designs.** #496 gates both remaining code-lever classes.
+**All four students are idle as of round 98.**
 
-**#511 — decode attention.** Step 0 is an occupancy audit (the probes exist and
-have never been executed): report `maxTotalThreadsPerThreadgroup`,
-`staticThreadgroupMemoryLength`, `threadExecutionWidth` for both attention
-pipelines, plus the trio occupancy grid sweep that #498 left as an open gap.
-Primary arm **R2**: deepen the hand-written software pipeline 2 → 4 slots
-(`i += 4*BN`), bit-exact by construction for sliding (N = 512 compile constant,
-no tail); est. **29–58 µs/step on M5 = +0.44–0.89 %**. Arm **R1** (one query
-head per threadgroup, 32→64 / 24→48 TGs, TG memory 18.4 → ~9.9 kB, free removal
-of the second epilogue combine round) is **gated on Step 0** because it would
-raise requested traffic 396 → ~790 GB/s.
+**#527 — prefill threadgroup count (CLOSED, falsification, 0 B spent).** Branch
+diff vs base is **empty**: every mechanism was measured then reverted. 2 of 6
+receipts spent. W&B `l8fvmhf3`; detail `research/tanjiro-r97-prefill-tg-result.md`.
+R1 (`b3b6457f`, base+P2+P2b, fused Wq/Wk/Wv into one N=10240 GEMM) passed every
+gate (`max_abs_diff = 0`, 1344 steps, both floors, GPQA/TTFT 9/9), rejected on
+**rank only**: cand_pre 96.7966 vs a 13-receipt contemporaneous control
+96.1580 ± 0.1389 ⇒ **+0.639 ms**, CI [+0.325, +0.953], prediction-t 4.43 (12
+dof); drift excluded (OLS −0.0059 ms/h, t −0.27; drift-adjusted t +3.18).
+Priced **−0.242 %**. Reverted `4b3af0b`. R2 (`048674e9`, base+P4 swizzle depth 3,
+P2/P2b removed) also all-green, **P4 is NULL**: −0.0141 ms, prediction-t −0.098,
+excluding the registered −0.4 ms at ~2.7 prediction-se. Reverted `9638f0a`.
+P3 dead by construction (Amendment 3, `084bfb4`) — `_nax` bn=128 is already the
+**minimum instantiated tile width**. The preregistered negative control
+(prereg §14.6, registered *before* R1 was read) **passed**: removing P2/P2b
+returned prefill to −0.10 prediction-se of the control mean and decode to
++0.08σ. See **rule 68**.
 
-**#512 — router certified screen.** Target `[256,2048]` BF16 + `f32[256]` bias
-× 39 = **40,934,400 B/step**. Stage 1 is an 8th/9th margin-distribution study
-with a rigorous `ε` derivation and a **pre-registered** go/no-go bar
-(≥ 40 % net router-family reduction, ≥ 16 MB/step, p99 ambiguous ≤ 16). Stage 2
-(kernel) only if Stage 1 clears. The correctness contract is quoted verbatim in
-the brief: **the correction bias selects the top-k but the mixture weights come
-from the PRE-bias scores** (`LagunaRuntimeLayers.swift:1387–1400`).
+**#525 — dense-MLP stage 2 (CLOSED, decisive negative).** Everything on the
+input side worked: 20.263 MB/step removed and **census-verified**, bit-exact
+(`max_abs_diff = 0`, token hash matches), escapes gate/up 1735/262144 and down
+0/2048, growth 26,383 B. But **both** compacted states were SLOWER:
+S2a **+69.60 µs/step** [+67.54, +71.58], S2b **+61.96 µs/step** [+60.17,
++63.74]. Conversion efficiency −1.154 / −0.814 fired the pre-registered
+`< 0.5` NO-GO trigger. Fitted `byte_value = −7.861 µs/MB` and
+`op_cost = −0.194 µs/Mop` are **both negative** ⇒ the additive byte+ALU model
+is **refuted**, not mis-calibrated, for stream-fragmenting transforms. See
+**rule 66**. W&B `0qxy2siw`, `meyn9djo`, `0us1weqj`. The upstream-equivalence
+exit-1 on the 512-token prefill assertion is **not attributable** — a
+stock-code control reproduced it bit-identically.
 
-**#513 — lossless block-exponent compaction of layer-0's dense MLP.** Per block
-of 32 BF16 weights store an 8-bit block-min exponent + 32 × (3-bit exponent
-delta + 8-bit sign⊕mantissa) = 360 bits vs 512 ⇒ **29.7 % saving**; blocks
-whose exponent span exceeds 3 bits escape to raw BF16 using the shipped NVFP4
-escape idiom (zero resident bytes for non-escaped rows). ≈29.9 MB/step ⇒
-**≈0.455 % score**. Stage 1 is an offline exponent-span census with a
-pre-registered bar (≥ 25 % net saving, < 2 % escapes, row-granular escape
-structure); Stage 2 supplies a dense BF16 `M = 1` GEMV kernel. ⚠️ Verified:
-`prepareFusedDenseGateUp()` (`LagunaRuntimeLayers.swift:~122–139`) feeds a
-**plain MLX BF16 matmul**, not a custom kernel, so Stage 2 must write one.
-Lossless bit-exact repacking is **not** a precision change under
-`TASK.md:92–94`, and the brief requires a round-trip identity proof.
+**#528 — attention two-stage split (CLOSED, decisive negative, 0 B spent).**
+Gate 0 passed *stronger* than asked: `simd_sum` over 32 lanes **is** the
+ascending XOR butterfly, **100.000 % bit-exact, max_ulp 0** (descending XOR and
+`shuffle_down` only 38.044 %) — ⚠️ measured on **gen 16 only**, re-confirm on
+gen 17 before relying on it. Structural block: the online-softmax merge is not
+a sum, so bit-exactness forces partials across the TG boundary ⇒ **+40
+dispatches/step**. The free-combine ceiling ladder (a strict upper bound)
+matched the pre-registered wave model within **1.5 pp** (sliding +18.36 % at
+N = 512, full +36.04 % at N = 384), so the starvation model is **correct but
+too small to pay**: M5 projection +45.1/+30.5 µs gain vs 70.2/23.4 µs
+unavoidable cost = **net −18.0 µs/step**; best case +4.4 µs = +0.09 %, **7×
+below σ**, before a 39.9 MB/step partial spill worth another −0.61 %. See
+**rule 67**. W&B `bgrx1ckq`.
 
-⚠️ **Byte headroom is tight.** At `43036cd3`: `current=2895390/3000000`,
-**headroom 104,610 B**, `growth=0/262144`, `files=141`. Three sibling
-assignments share that headroom; each brief caps its submitted growth.
+⚠️ **Byte headroom is tight.** At `b78e7cdb`: `current=2899476/3000000`,
+**headroom 100,524 B**, `growth=0/262144`, `files=141`. Re-run
+`senpai/check-editable-budget.sh "$BASE_SHA"` before every slate; each brief
+must cap its own submitted growth.
 
 ---
 
@@ -313,6 +345,12 @@ RMSNorm+RoPE (+40 dispatches ⇒ net negative) · LM-head bounded-exact argmax
 (**already shipped**: `DARKBLOOM_LM_HEAD_PRUNE` is ON and decode reads only the
 109.8 MB int5 screen) · full INT8-g32 attention conversion (byte-floor negative)
 · NVFP4 code-plane compaction · KV-cache dtype reduction · seed/warmup tricks ·
+**stream-fragmenting byte reductions of any size (#525 / rule 66)** ·
+**splitting decode attention across a threadgroup boundary to fix TG-count
+starvation (#528 / rule 67)** · **prefill dispatch-count reduction of any kind,
+incl. QKV fusion (#527 / rule 68 — falsified, not merely null)** · **narrowing
+an `_nax` N-tile** and **`_nax` prefill swizzle depth** (both dead by
+construction, rule 68) ·
 deletion probes as pricing (rule 45) · `_nax` M = 1 qmv · the M5 Neural
 Accelerator for decode.
 
@@ -450,6 +488,154 @@ bytes than the risk it retires). Record as a residual risk (§14); raise with th
 human team if a `human_issue` arrives. It also **strengthens** the requirement
 that #512 and #513 stay lossless — `TASK.md` names routers and the layer-0 dense
 MLP as forbidden re-quantization targets.
+
+**Rule 60 (#511) ⭐⭐ CORE COUNT IS A SECOND M4→M5 REGIME AXIS.** M4 Pro has
+**20** GPU cores, M5 Max **40**. Sliding attention launches **32 threadgroups**,
+so M4 runs 1.6 TG/core (thread-level parallelism already hides latency) while
+M5 runs 0.8 TG/core (it cannot). The measured M4 cost model is
+**`t(K) = 1.413 + 7.849·ceil(K/20)` µs**, stepping at `K = 20` = the core count
+— not at the 60-TG residency limit — and the marginal wave costs 90 % of a lone
+wave. **Any ILP or latency-hiding arm is structurally invisible on M4 at
+≥ 2 TG/core and must be laddered over `K`.** #511 also measured **96 simdgroup
+slots per core, FLAT in threadgroup memory from 16 B to 32768 B at 1024 threads**
+⇒ threadgroup-memory reduction buys **zero** extra co-residency, and the public
+"24 simds/core" figure is an ALU-utilization number, not a residency limit.
+Beware a **+1.4–1.6 % base-vs-base instrument artifact at `K = 32`**.
+
+**Rule 61 (#512) ⭐⭐ INTERVAL-CERTIFICATE SCREENS ARE PROVABILITY-LIMITED ON
+THIS MODEL.** For a 2048-wide dot product the Cauchy–Schwarz bound
+`E2 = ‖x‖₂‖dw_i‖₂` governs (`e1_wins_frac ≈ 0`) and carries an intrinsic
+**√2048 ≈ 45×** looseness (measured `bound_looseness_median = 41.7×`); the real
+error is 3.7× *smaller* than the decision margin but cannot be *proved* so.
+Probabilistic bounds are inadmissible under the all-token gate. **The family is
+CLOSED for ANY interval certificate over a 2048-wide dot product on this
+checkpoint.** Two structural facts fall out: `e_score_correction_bias` is
+identically **zero** in all 39 sparse layers (so router ranking is
+order-equivalent to the raw BF16 logit), and **6.77 % of top-8/9 router
+decisions are EXACT BF16 ties** — no interval certificate can separate a tie.
+The runtime is correct (ascending-index tie-break, shared comparator
+`LagunaRuntimeLayers.swift:604–612`); **any future top-k rewrite must pin that
+tie-break with a regression test across BOTH selection paths.**
+
+**Rule 62 (#513) ⭐⭐ BF16 LOSSLESS REPACKING IS WORTH ~0.31 % SCORE, NOT
+~0.46 %, AND THE PAYLOAD PLANE IS INCOMPRESSIBLE.**
+`trailing_zero_mantissa_bits = 0` across all 50.3 M layer-0 dense weights ⇒
+`m = 7` forced ⇒ payload is exactly 1 B/weight; only the exponent plane
+compresses. Best realisable saving is **20.263 MB/step (0.3085 %)** at R1,
+**22.444 MB (0.3417 %)** at R2 with a transposed `down`. Blocks along a
+**2048-wide** axis are cheap; the **8192-wide intermediate axis is always the
+bad axis**. Escapes are **scattered** (per-row p99 = 1, max 3) ⇒ a
+**per-block** escape test is required and row-granular escape structure is
+never adequate. **Layer-0 dense decode is NOT a plain MLX matmul** — it is
+`laguna_dense_gate_up_swiglu_bf16_v1` (`LRM:8581`, dispatch
+`LagunaRuntimeLayers.swift:266`) + `laguna_dense_down_residual_bf16_v1`
+(`LRM:8674`, dispatch `:286–302`), so any repacking arm EDITS those two kernels
+plus a load-time packer. Generalising: the routed experts already sit at
+**4.25 bits/weight**, so a byte lever there must be **structural**, not
+bit-width.
+
+**Rules 63–65 (#496, M5 receipt channel) ⭐⭐⭐ THE M5 PRICE LIST.** These are
+the constants every brief must quote before proposing a trade.
+- **63** — run-to-run **σ(score) = 0.6172 %**; the M4 single-receipt detection
+  bar is **≈ 80 µs/step**. Anything projecting under ~40 µs/step cannot be
+  resolved by one receipt and must not consume a student slot alone.
+- **64** — the **M5 free-ALU knee is ≈ 96 fma per K-iteration per thread**.
+  Below the knee, added arithmetic is genuinely free; above it, it is not.
+- **65** — **adding one kernel dispatch on M5 costs 2.3403 µs**, CI
+  [2.2766, 2.4040]. Multiply by 40 layers before you get excited about a
+  per-layer restructuring.
+
+**Rule 58 amendment (#531) ⭐⭐ THE PREFILL RESPONSE RATIO IS 4, NOT 16.**
+`decode_seconds_per_token = 4P + T` stands, and `4P = 752.2 µs/step = 15.4 %`,
+but the measured response of decode to a prefill change is **4×**, not 16×.
+Prefill is therefore worth **≈ 0.3794 % score per ms** of prefill time removed.
+Effective prefill weight remains **0.365**. Re-price every prefill lever with
+0.3794, not the older number.
+
+**Rule 66 (#525) ⭐⭐⭐ THE ADDITIVE BYTE+ALU MODEL ONLY HOLDS FOR TRANSFORMS
+THAT PRESERVE STREAM CONTIGUITY.** A **lossless, bit-exact, census-verified
+20.263 MB/step** reduction in the dense MLP made decode **SLOWER** by
+**+69.60 µs/step** [+67.54, +71.58] (S2a) and **+61.96 µs/step** [+60.17,
++63.74] (S2b). Fitted `byte_value = −7.861 µs/MB` and `op_cost =
+−0.194 µs/Mop` — **both negative**, so the model is *refuted*, not
+mis-tuned. Mechanism: splitting one contiguous weight stream into three
+sub-streams inflated load count **2.11×/2.60×**, and the achieved-bandwidth
+loss exceeded the bytes saved. ⇒ **Price a byte cut at the byte price
+(0.015224 %/MB) ONLY if it keeps a single contiguous read. A transform that
+fragments a contiguous stream must be priced on achieved bandwidth, and the
+default expectation is that it LOSES.** This closes "cut bytes at any
+structural cost" and redirects byte work toward levers that preserve
+contiguity. It also supersedes the optimistic half of rule 62: the
+20.263 MB/step R1 ladder was *realised* and was still a regression.
+
+**Rule 67 (#528) ⭐⭐⭐ PRICE ANY KERNEL-TIME-FOR-DISPATCH TRADE WITH M5
+CONSTANTS BEFORE IMPLEMENTING IT.** M4 is **4.14× more favourable** than M5 for
+this class of trade, and it decomposes exactly:
+`(636.0/290) × (2.3403/1.2382) = 2.19 × 1.89 = 4.14` — half core-count, half
+per-dispatch cost. A trade that looks like a clear win on M4 can be a clear
+loss on M5 with no measurement error anywhere. Corollaries:
+- **Bit-exactness is a structural constraint on kernel splitting.** The
+  online-softmax merge is *not* a sum, so any split of attention across a
+  threadgroup boundary must ship partials ⇒ +40 dispatches/step ⇒ 93.6 µs of
+  unavoidable M5 cost, which exceeded the entire available gain.
+- **Threadgroup-count starvation in decode attention is REAL and correctly
+  modelled** (free-combine ceiling matched the wave model within 1.5 pp:
+  +18.36 % sliding at N = 512, +36.04 % full at N = 384). It is simply
+  unreachable *via splitting*. The remaining way to collect it is to remove
+  redundant work **inside the existing dispatch**.
+- ✅ **`simd_sum` over 32 lanes IS the ascending XOR butterfly**: 100.000 %
+  bit-exact, `max_ulp = 0` (descending XOR / `shuffle_down` only 38.044 %).
+  Verified on **gen 16 only** — re-confirm on gen 17 before shipping.
+
+**Rule 68 (#527) ⭐⭐⭐ REMOVING PREFILL DISPATCHES DOES NOT MAKE M5 PREFILL
+FASTER — IT MADE IT SLOWER.** This is a falsification, not a null. Proof
+`1628e9c` holds **kernel family, tile geometry and threadgroup count all
+fixed**: the fused Wq/Wk/Wv N=10240 GEMM stays on regular `_nax` with identical
+geometry (bm64 bn128 bk256 wm2 wn4 sl2) and an identical **640 threadgroups**.
+Removing **78 dispatches / 156 GEMM launches** cost **+0.639 ms**
+(CI [+0.325, +0.953], prediction-t 4.43 on 12 dof, = **−0.242 % score**). The
+dispatch-count premise for prefill is dead on M5. Corollaries:
+- **The M4 −11.2 ms precedent was never the same mechanism.** It was entirely
+  split-K elimination on Wk/Wv, a path M5 **never takes** because
+  `K ≥ 3·max(M,N)` fails by an exact tie. Do not port an M4 fusion win to M5
+  without first proving the M5 kernel selection is the same.
+- **Two surviving explanations, both unproven.** (a) **SLC capacity crossing**:
+  the fused weight bank is 41.94 MB vs 33.55 MB for Wq alone; ~16 µs/layer of
+  refetch × 40 layers ≈ 0.6 ms, which matches the effect almost exactly.
+  (b) **Lost inter-dispatch overlap**: read-after-read is never hazard-tracked
+  (`Vendor/mlx-swift/.../backend/metal/device.cpp:547-548`), so separate
+  dispatches already overlap for free. A cheap one-bit discriminator exists —
+  **[Wk;Wv]-only fusion** (8.39 MB bank, *smaller* than Wq): SLC predicts a
+  win or a null, lost-overlap predicts a proportional loss. Worth understanding,
+  **not worth a receipt now** (both mechanisms leave the family negative).
+- ⛔ **`_nax` bn=128 is the minimum instantiated tile width.** Any brief that
+  proposes narrowing an `_nax` N-tile is dead by construction.
+- ⛔ **Swizzle depth is a no-op on M5 regular `_nax` prefill.** All classes
+  already have `tiles_m = 8`, so depth 3 is one group: it relabels threadgroups
+  without changing residency. Measured −0.0141 ms, prediction-t −0.098.
+- 📏 **Method: the ranked score is a poor observable for prefill arms.** The
+  same-session *baseline* prefill wanders ~5 % while the *candidate* prefill
+  wall has sd 0.14 %. Price prefill against the candidate wall plus a
+  contemporaneous multi-receipt control set, never against the paired baseline.
+- 📏 **Recompute `f` every receipt.** `f = 4·prefill_seconds_per_token /
+  decode_seconds_per_token` from **the candidate's own score JSON**; never carry
+  a previous `f`. (#527: R1 f=0.153569 → 0.3773 %/ms; R2 f=0.152877 →
+  0.3793 %/ms.)
+- ⭐ **Gold-standard method to copy.** #527 preregistered its negative control
+  (§14.6) *before* reading R1, then ran it: removing the mechanism returned
+  prefill to −0.10 prediction-se of the control mean and decode to +0.08σ. That
+  single step excluded drift, session artifact and mis-specified controls in one
+  move. **Every timing arm should preregister a revert-control leg.**
+
+**Process rule (#513).** Every assignment must state that *a student's
+registered go/no-go bar must be at least as strict as the suggested bar, or the
+loosening must be justified inside the preregistration itself.* #513's
+registered bar passed while the suggested ≥ 25 % leg failed.
+
+**Tooling defect (#527, open).** The **student** role gets HTTP 403 from
+`respond_to_human_issue` and `get_prs` (`git ls-remote` works). Until fixed,
+accept a committed `§ Reply` section in the student's result doc as the reply
+of record, and say so in the brief.
 
 **Doctrine.** A revision request specifies a verifiable end state, not a git
 incantation. Declare a mechanism class for every decode lever. Geometry
