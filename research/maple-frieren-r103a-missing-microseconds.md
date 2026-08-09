@@ -150,6 +150,25 @@ the primary decision uses the absolute +20.0 µs/step bar from the assignment
 exactly as written. If the two disagree — e.g. the absolute bar is missed but
 the relative effect matches M5 — that disagreement is reported as the finding.
 
+### 1.5a Addendum — per-slot statistic (declared before any timed run)
+
+§ 1.3 said only "drops step 0". Fixing the rest of the estimator now, before
+any timing data exists, so it cannot be chosen to suit the answer:
+
+* **Primary per-slot statistic: the median of steps 1 … 249** (0-indexed;
+  step 0 is the first decode after the seed prefill and is not a steady step).
+  The median is used because a decode slot is occasionally interrupted by the
+  OS, and a single 50 ms outlier moves a 250-sample mean by 200 µs — two orders
+  of magnitude above the effect under test.
+* **Declared secondaries, reported alongside whatever they say:** the 10 %
+  trimmed mean and the raw mean over the same window.
+* The preregistered outcome in § 1.5 is decided on the **median** contrast. The
+  secondaries are reported for transparency and any disagreement between them
+  is reported as a finding, not resolved by picking a favourite.
+
+This addendum is committed after the rung-0 build and before the rung-1 timing
+job starts; the commit order is verifiable from history.
+
 ### 1.6 Rung 0 gates (a failure here stops everything)
 
 * **G0.1 build** — both revisions build a `mlxfast-runtime-worker`.
