@@ -18,28 +18,31 @@ set -u
 
 SWEEPS=${1:-1}
 P=Sources/MLXFastModel/LagunaRuntimeModel.swift
+BASE_SHA=c6c66344d9848d95158edc31f31943aabe4de079
 SLIDING=laguna_sliding_fused_attn_ring_v1
 FULL=laguna_full_fused_attn_grow_v1
 PROBE=/tmp/nezab
 
-git checkout -- "$P"
+# The candidate is committed, so `git checkout -- "$P"` no longer yields the
+# base text; every variant is regenerated from the pinned base blob instead.
+git checkout "$BASE_SHA" -- "$P"
 cp "$P" /tmp/v_base.swift
 
 python3 research/nezuko_r96_gen4deep.py 4
 cp "$P" /tmp/v_d4.swift
 python3 research/frieren_r99_epilogue.py float4 "$SLIDING"
 cp "$P" /tmp/v_d4epi.swift
-git checkout -- "$P"
+git checkout "$BASE_SHA" -- "$P"
 
 python3 research/nezuko_r96_gen4deep.py 8
 cp "$P" /tmp/v_d8.swift
-git checkout -- "$P"
+git checkout "$BASE_SHA" -- "$P"
 
 python3 research/frieren_r99_epilogue.py float4 "$SLIDING"
 cp "$P" /tmp/v_epi.swift
 python3 research/frieren_r99_epilogue.py float4 "$FULL"
 cp "$P" /tmp/v_epiboth.swift
-git checkout -- "$P"
+git checkout "$BASE_SHA" -- "$P"
 
 echo "worktree after variant generation:"
 git status --porcelain
@@ -67,5 +70,6 @@ for s in $(seq 1 "$SWEEPS"); do
   run null  REV base  base
 done
 
+git checkout HEAD -- "$P"
 echo "final worktree:"
 git status --porcelain
