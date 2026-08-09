@@ -1,233 +1,371 @@
 #!/usr/bin/env python3
-"""R102-A rung 1: fit the split-invariant fixed cost of decode attention.
+"""R102-A rung 1: fit the split-invariant fixed cost of the decode attention
+kernel from the interleaved row sweep produced by
+research/run_frieren_r102_fixed_cost.sh.
 
-Reads the probe logs written by research/run_frieren_r102_fixed_cost.sh and
-emits the gate quantity f/tau0 with a 95% interval, the linearity evidence,
-the direct M=0 measurement, and the work-conserving split emulation table.
+Reads the `SWEEP k=.. idx=.. N=.. M=..` machine lines from each artifact log
+and emits Markdown tables on stdout plus a tidy CSV.
 
-The ring loop is `i = sg; i + 3*BN < N; i += 4*BN` with BN=32 over 32
-simdgroups, so every simdgroup runs exactly M = floor(N/128) iterations for
-N in {128m, 128m+32, 128m+64, 128m+96}. M, not N, is the work axis.
+Cost model under test (per *call*, C = GPU cores, W = ceil(K/C) waves):
+
+    T(K, M) = a + W*phi + W*g*M          f_direct(K) := T(K, 0) = a + W*phi
+
+`a`   is paid once per dispatch and is NOT re-paid by a KV split.
+`phi` is paid once per wave of threadgroups and IS re-paid whenever the split
+      pushes the threadgroup count into another wave.
+`g*M` is the ring-loop work, which a split divides by S.
 """
 
 import csv
 import math
+import os
 import re
+import statistics
 import sys
-from pathlib import Path
 
-OUT = Path("research/artifacts/frieren-r102")
-T95 = {1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 10: 2.228, 20: 2.086}
+ART = os.path.join("research", "artifacts", "frieren-r102")
+CORES = 20  # measured C for this host (staircase steps at K=21 and K=41)
 
-E1 = re.compile(r"^\s+(\d+)\s+[\d.]+\s+([\d.]+)\s+([\d.]+)\s+\S+\s*$")
-PAIR = re.compile(
-    r"^\s+(\d+)\s+[\d.]+\s+([\d.]+)\s+([\d.]+)\s+([+-][\d.]+)\s+([\d.]+)"
-    r"\s+([\d.]+)\s+([+-][\d.]+)\s+([+-][\d.]+)\s*$"
-)
-REGIME = re.compile(
-    r"^\s+(\d+)\s+[\d.]+\s+(\d+)\s+(\d+)\s+([\d.]+)\s+[\d.]+\s+[\d.]+\s+([\d.]+)"
-    r"\s+([\d.]+)\s+([\d.]+)\s+(yes|no)\s+(\S+)\s*$"
+SWEEP_RE = re.compile(
+    r"SWEEP k=(\d+) idx=(\d+) N=(\d+) M=(\d+) slots=(\d+) n=(\d+) "
+    r"min=([\d.]+) med=([\d.]+) mean=([\d.]+) sd=([\d.]+)"
 )
 
-
-def parse(path):
-    """Returns rows, N, and per-K E1/paired/regime records for one probe log."""
-    text = path.read_text()
-    n = int(re.search(r"attn rows N\s+(\d+)", text).group(1))
-    sections = {"regime": {}, "e1": {}, "pair": {}}
-    which = None
-    for line in text.splitlines():
-        if "memory regime" in line:
-            which = "regime"
-        elif "absolute cost ladder" in line:
-            which = "e1"
-        elif "paired per-call cost" in line:
-            which = "pair"
-        if which == "regime" and (m := REGIME.match(line)):
-            sections["regime"][int(m.group(1))] = {
-                "kvheads": int(m.group(2)), "slots": int(m.group(3)),
-                "uniq_MiB": float(m.group(4)), "achieved_GB_s": float(m.group(6)),
-                "slc_fit": m.group(8), "regime": m.group(9),
-            }
-        elif which == "e1" and (m := E1.match(line)):
-            sections["e1"][int(m.group(1))] = float(m.group(2))
-        elif which == "pair" and (m := PAIR.match(line)):
-            sections["pair"][int(m.group(1))] = {
-                "base_min": float(m.group(2)), "d_mean": float(m.group(4)),
-                "d_sd": float(m.group(5)), "pct": float(m.group(8)),
-            }
-    return n, sections
+# two-sided 95% t quantiles by degrees of freedom
+T95 = {1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447,
+       7: 2.365, 8: 2.306, 9: 2.262, 10: 2.228}
 
 
-def ols(xs, ys):
-    """Intercept, slope, R^2 and the intercept/slope covariance for y = a + b x."""
+def waves(k):
+    return -(-k // CORES)
+
+
+def load(tag):
+    path = os.path.join(ART, tag + ".log")
+    rows = []
+    with open(path) as fh:
+        for line in fh:
+            m = SWEEP_RE.search(line)
+            if m:
+                rows.append({
+                    "block": tag,
+                    "K": int(m.group(1)), "idx": int(m.group(2)),
+                    "N": int(m.group(3)), "M": int(m.group(4)),
+                    "slots": int(m.group(5)), "rounds": int(m.group(6)),
+                    "min": float(m.group(7)), "med": float(m.group(8)),
+                    "mean": float(m.group(9)), "sd": float(m.group(10)),
+                })
+    if not rows:
+        sys.exit("no SWEEP lines in " + path)
+    return rows
+
+
+def ks(rows):
+    return sorted({r["K"] for r in rows})
+
+
+def by_m(rows, k, stat="med"):
+    """Average duplicate row-count columns for one K -> {M: value}."""
+    acc = {}
+    for r in rows:
+        if r["K"] == k:
+            acc.setdefault(r["M"], []).append(r[stat])
+    return {m: statistics.fmean(v) for m, v in acc.items()}
+
+
+def linfit(xs, ys):
     n = len(xs)
-    mx, my = sum(xs) / n, sum(ys) / n
+    mx, my = statistics.fmean(xs), statistics.fmean(ys)
     sxx = sum((x - mx) ** 2 for x in xs)
-    b = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / sxx
-    a = my - b * mx
-    resid = [y - (a + b * x) for x, y in zip(xs, ys)]
+    sxy = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
+    slope = sxy / sxx
+    icpt = my - slope * mx
+    pred = [icpt + slope * x for x in xs]
+    resid = [y - p for y, p in zip(ys, pred)]
     sse = sum(r * r for r in resid)
     sst = sum((y - my) ** 2 for y in ys)
     df = n - 2
-    s2 = sse / df
-    var_b = s2 / sxx
-    var_a = s2 * (1.0 / n + mx * mx / sxx)
-    cov_ab = -s2 * mx / sxx
-    return {
-        "a": a, "b": b, "r2": 1 - sse / sst if sst else float("nan"),
-        "var_a": var_a, "var_b": var_b, "cov_ab": cov_ab, "df": df,
-        "resid": resid, "rmse": math.sqrt(s2),
-    }
+    s2 = sse / df if df > 0 else 0.0
+    se_slope = math.sqrt(s2 / sxx) if sxx else 0.0
+    se_icpt = math.sqrt(s2 * (1.0 / n + mx * mx / sxx)) if sxx else 0.0
+    r2 = 1.0 - sse / sst if sst else 1.0
+    return {"slope": slope, "icpt": icpt, "r2": r2, "df": df,
+            "se_slope": se_slope, "se_icpt": se_icpt,
+            "rmse": math.sqrt(sse / n), "resid": resid, "pred": pred}
 
 
-def ratio_ci(fit, mmax):
-    """f/tau0 with a delta-method 95% interval; tau0 = mmax * slope."""
-    a, b = fit["a"], fit["b"]
-    tau0 = mmax * b
-    r = a / tau0
-    d_a = 1.0 / tau0
-    d_b = -a / (mmax * b * b)
-    var = (d_a ** 2 * fit["var_a"] + d_b ** 2 * fit["var_b"]
-           + 2 * d_a * d_b * fit["cov_ab"])
-    half = T95[fit["df"]] * math.sqrt(max(var, 0.0))
-    return tau0, r, r - half, r + half
+def ratio_ci(f, sf, tau, stau, tq):
+    """Delta-method 95% CI for f/tau treating f and tau as independent."""
+    r = f / tau
+    if r == 0:
+        return (0.0, 0.0)
+    var = (sf / tau) ** 2 + (f * stau / tau ** 2) ** 2
+    h = tq * math.sqrt(var)
+    return (r - h, r + h)
 
 
-def block(tag, ks, label):
-    """Fits tau(M) for each K in one block and prints the gate table."""
-    pts = {}
-    for path in sorted(OUT.glob(f"{tag}_n*.log")):
-        n, sec = parse(path)
-        pts[n] = sec
-    if not pts:
-        print(f"  (no logs for {tag})")
-        return {}
-    print(f"\n### {label}")
-    print("\n| K | N | M | t_us (E1 min) | uniq_MiB | slc_fit | regime | "
-          "null d_mean_us | null d_sd | null % |")
-    print("|--:|--:|--:|--:|--:|:--|:--|--:|--:|--:|")
-    for n in sorted(pts, reverse=True):
-        for k in ks:
-            e1 = pts[n]["e1"].get(k)
-            if e1 is None:
+def verdict(x):
+    if x < 0.0667:
+        return "GO"
+    if x < 0.20:
+        return "PARTIAL"
+    return "NO-GO"
+
+
+def dup_null(rows, stat="med"):
+    """Within-round null: same N visited twice in the same interleaved round."""
+    out = []
+    for k in ks(rows):
+        cols = {}
+        for r in rows:
+            if r["K"] == k:
+                cols.setdefault(r["N"], []).append(r)
+        for n, group in sorted(cols.items()):
+            if len(group) < 2:
                 continue
-            rg = pts[n]["regime"].get(k, {})
-            pr = pts[n]["pair"].get(k, {})
-            print(f"| {k} | {n} | {n // 128} | {e1:.3f} | "
-                  f"{rg.get('uniq_MiB', float('nan')):.2f} | {rg.get('slc_fit','?')} | "
-                  f"{rg.get('regime','?')} | {pr.get('d_mean',float('nan')):+.3f} | "
-                  f"{pr.get('d_sd',float('nan')):.3f} | {pr.get('pct',float('nan')):+.3f} |")
+            vals = [g[stat] for g in group]
+            lo, hi = min(vals), max(vals)
+            out.append((k, n, len(group), lo, hi, 100.0 * (hi - lo) / lo))
+    return out
 
-    fits = {}
-    print("\n| K | f_us (intercept) | c_us/iter | tau0_us | f/tau0 | 95% CI | "
-          "R^2 | rmse_us | f_direct(M=0) | verdict |")
-    print("|--:|--:|--:|--:|--:|:--|--:|--:|--:|:--|")
-    for k in ks:
-        xs, ys = [], []
-        for n in sorted(pts):
-            m = n // 128
-            if m >= 1 and k in pts[n]["e1"]:
-                xs.append(m)
-                ys.append(pts[n]["e1"][k])
-        if len(xs) < 3:
+
+def point_table(rows):
+    print("| K | W | idx | N | M | slots | min us | med us | sd us | rel sd % |")
+    print("|--:|--:|----:|--:|--:|------:|-------:|-------:|------:|---------:|")
+    for r in rows:
+        print("| %d | %d | %d | %d | %d | %d | %.3f | %.3f | %.4f | %.3f |" % (
+            r["K"], waves(r["K"]), r["idx"], r["N"], r["M"], r["slots"],
+            r["min"], r["med"], r["sd"], 100.0 * r["sd"] / r["med"]))
+
+
+def fit_table(rows, stat="med"):
+    print()
+    print("| K | W | f_fit us | +-95% | g us/iter | tau0=4g us | f/tau0 | "
+          "95% CI | R^2 | rmse us | f_direct(M=0) us | fit-direct % | verdict |")
+    print("|--:|--:|---------:|------:|----------:|-----------:|-------:|"
+          "-------:|----:|--------:|-----------------:|-------------:|:--------|")
+    res = {}
+    for k in ks(rows):
+        d = by_m(rows, k, stat)
+        pts = sorted(m for m in d if m >= 1)
+        fit = linfit([float(m) for m in pts], [d[m] for m in pts])
+        tq = T95.get(fit["df"], 2.0)
+        tau0 = 4.0 * fit["slope"]
+        stau = 4.0 * fit["se_slope"]
+        ratio = fit["icpt"] / tau0
+        lo, hi = ratio_ci(fit["icpt"], fit["se_icpt"], tau0, stau, tq)
+        direct = d.get(0)
+        dd = 100.0 * (fit["icpt"] - direct) / direct if direct else float("nan")
+        print("| %d | %d | %.3f | %.3f | %.4f | %.3f | %.1f%% | "
+              "[%.1f%%, %.1f%%] | %.5f | %.4f | %.3f | %+.1f%% | %s |" % (
+                  k, waves(k), fit["icpt"], tq * fit["se_icpt"], fit["slope"],
+                  tau0, 100 * ratio, 100 * lo, 100 * hi, fit["r2"],
+                  fit["rmse"], direct if direct else float("nan"), dd,
+                  verdict(ratio)))
+        res[k] = (fit, tau0, direct, d)
+    return res
+
+
+def direct_ratio_table(rows, stat="med"):
+    """Gate arithmetic that uses only measured points (no extrapolation)."""
+    print()
+    print("| K | W | T(N=512) us | f_direct(M=0) us | tau0=T-f us | f/tau0 | "
+          "verdict |")
+    print("|--:|--:|------------:|-----------------:|------------:|-------:|"
+          ":--------|")
+    for k in ks(rows):
+        d = by_m(rows, k, stat)
+        if 4 not in d or 0 not in d:
             continue
-        fit = ols(xs, ys)
-        tau0, r, lo, hi = ratio_ci(fit, max(xs))
-        direct = pts.get(96, {}).get("e1", {}).get(k)
-        v = "GO" if hi < 0.0667 else ("PARTIAL" if r < 0.20 else "NO-GO")
-        fits[k] = dict(fit=fit, tau0=tau0, r=r, lo=lo, hi=hi, direct=direct,
-                       verdict=v, xs=xs, ys=ys)
-        print(f"| {k} | {fit['a']:.3f} | {fit['b']:.3f} | {tau0:.3f} | "
-              f"{100*r:.1f}% | [{100*lo:.1f}%, {100*hi:.1f}%] | {fit['r2']:.5f} | "
-              f"{fit['rmse']:.3f} | "
-              f"{'%.3f' % direct if direct is not None else '-'} | {v} |")
-        print(f"|   | residuals M={xs}: "
-              f"{['%+.3f' % q for q in fit['resid']]} | | | | | | | | |")
-    return fits
+        tau0 = d[4] - d[0]
+        r = d[0] / tau0
+        print("| %d | %d | %.3f | %.3f | %.3f | %.1f%% | %s |" % (
+            k, waves(k), d[4], d[0], tau0, 100 * r, verdict(r)))
+
+
+def wave_model(blocks, stat="med"):
+    """Split f_direct(K) into a (per call) and phi (per wave of C TGs)."""
+    print()
+    print("### Wave decomposition of the direct fixed cost "
+          "(`f_direct(K) = a + W*phi`, W = ceil(K/%d))" % CORES)
+    print()
+    print("| block | K | W | f_direct us |")
+    print("|:------|--:|--:|------------:|")
+    xs, ys = [], []
+    for tag, rows in blocks:
+        for k in ks(rows):
+            d = by_m(rows, k, stat)
+            if 0 not in d:
+                continue
+            print("| %s | %d | %d | %.3f |" % (tag, k, waves(k), d[0]))
+            xs.append(float(waves(k)))
+            ys.append(d[0])
+    fit = linfit(xs, ys)
+    tq = T95.get(fit["df"], 2.0)
+    print()
+    print("a   = %.3f +- %.3f us  (per call, NOT re-paid by a split)"
+          % (fit["icpt"], tq * fit["se_icpt"]))
+    print("phi = %.3f +- %.3f us  (per wave of %d threadgroups, re-paid)"
+          % (fit["slope"], tq * fit["se_slope"], CORES))
+    print("R^2 = %.5f, rmse = %.4f us, n = %d" % (fit["r2"], fit["rmse"],
+                                                  len(xs)))
+    return fit
+
+
+def m3_table(rows, stat="med"):
+    print()
+    print("### M3 direct split emulation (byte-matched diagonal, "
+          "merge pass omitted -> generous to the split)")
+    print()
+    print("| S | K=32*S | W | N=512/S | M | T us | vs S=1 |")
+    print("|--:|-------:|--:|--------:|--:|-----:|-------:|")
+    base = None
+    for k, n, s in ((32, 512, 1), (64, 256, 2), (128, 128, 4)):
+        hits = [r for r in rows if r["K"] == k and r["N"] == n]
+        if not hits:
+            continue
+        v = statistics.fmean(h[stat] for h in hits)
+        if base is None:
+            base = v
+        print("| %d | %d | %d | %d | %d | %.3f | %.3fx |" % (
+            s, k, waves(k), n, hits[0]["M"], v, v / base))
+
+
+def f2_table(blocks, a, phi, t_ring512, stat="med"):
+    """Out-of-sample test of the wave law on the one split the law says wins.
+
+    Full attention ships K=24 threadgroups, so on a 20-core host a 2-way KV
+    split goes W=2 -> W=3: one extra wave bought in exchange for halving the
+    ring.  The law predicts a real 12% win there.  F2 measures the same
+    byte-matched diagonal used for M3D, (24,512) vs (48,256), and none of its
+    points were used to fit a or phi.
+    """
+    print()
+    print("### F2 out-of-sample test: the split the wave law says SHOULD win")
+    print()
+    print("| block | S | K | W | N | M | measured us | predicted us | err % | "
+          "measured vs S=1 | predicted vs S=1 |")
+    print("|:------|--:|--:|--:|--:|--:|------------:|-------------:|------:|"
+          "----------------:|-----------------:|")
+    for tag, rows in blocks:
+        base_m = base_p = None
+        for s, k, n in ((1, 24, 512), (2, 48, 256)):
+            d = by_m(rows, k, stat)
+            hits = [r for r in rows if r["K"] == k and r["N"] == n]
+            if not hits or 0 not in d:
+                continue
+            m = statistics.fmean(h[stat] for h in hits)
+            w = waves(k)
+            pred = a + w * (phi + t_ring512 * hits[0]["M"] / 4.0)
+            if base_m is None:
+                base_m, base_p = m, pred
+            print("| %s | %d | %d | %d | %d | %d | %.3f | %.3f | %+.1f%% | "
+                  "%.3fx | %.3fx |"
+                  % (tag, s, k, w, n, hits[0]["M"], m, pred,
+                     100 * (pred - m) / m, m / base_m, pred / base_p))
+
+
+def split_scan(a, phi, t_ring512):
+    """Price an S-way KV split of the shipped decode grids with the measured
+    wave law.  Shipped grids are heads/2 threadgroups of 1024 threads:
+    32 for sliding (64 query heads), 24 for full attention (48 query heads).
+
+        T(S) = a + ceil(K*S/C) * (phi + t_ring/S)
+
+    The ring work per shard is t_ring/S; the cross-shard merge that a real
+    split needs is NOT priced here, so every number below is optimistic.
+    """
+    for cores, label in ((40, "ranked M5 (C=40)"), (CORES, "this host (C=20)")):
+        for k, kind, keys in ((32, "sliding", 512), (24, "full", 576)):
+            t_ring = t_ring512 * keys / 512.0
+            print()
+            print("**%s, %s decode attention (K=%d threadgroups, "
+                  "%d keys, t_ring=%.3f us)**" % (label, kind, k, keys, t_ring))
+            print()
+            print("| S | K*S | W | phi cost us | ring us | T us | vs S=1 |")
+            print("|--:|----:|--:|------------:|--------:|-----:|-------:|")
+            base = None
+            for s in (1, 2, 3, 4, 5, 6, 8, 10):
+                w = -(-k * s // cores)
+                tphi, tring = w * phi, w * t_ring / s
+                t = a + tphi + tring
+                if base is None:
+                    base = t
+                print("| %d | %d | %d | %.3f | %.3f | %.3f | %+.3f us (%.3fx) |"
+                      % (s, k * s, w, tphi, tring, t, t - base, t / base))
+
+
+def write_csv(blocks):
+    path = os.path.join(ART, "sweep.csv")
+    with open(path, "w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["block", "K", "waves", "idx", "N", "M", "slots", "rounds",
+                    "min_us", "med_us", "mean_us", "sd_us"])
+        for _, rows in blocks:
+            for r in rows:
+                w.writerow([r["block"], r["K"], waves(r["K"]), r["idx"],
+                            r["N"], r["M"], r["slots"], r["rounds"],
+                            "%.4f" % r["min"], "%.4f" % r["med"],
+                            "%.4f" % r["mean"], "%.4f" % r["sd"]])
+    print()
+    print("wrote " + path)
 
 
 def main():
-    print("# R102-A rung 1 — split-invariant fixed cost of decode attention\n")
-    print("Work axis is M = floor(N/128) ring iterations per simdgroup.")
-    print("tau(M) = f + c*M fitted over M in {1,2,3,4}; M=0 (N=96) is an")
-    print("independent check, never an input to the fit.")
-    print("Gate: GO if f/tau0 and its upper 95% bound < 6.67%; "
-          "PARTIAL if < 20%; else NO-GO.")
+    calib_tags = ("R_sweep", "D_sweep", "M3D")
+    f2_tags = ("F2", "F2D")
+    calib = [(t, load(t)) for t in calib_tags]
+    f2 = [(t, load(t)) for t in f2_tags]
+    blocks = calib + f2
+    labels = {
+        "R_sweep": "resident KV (1 slot, r98 binding)",
+        "D_sweep": "SLC-defeat, byte-matched across N (slots scale as 512/N)",
+        "M3D": "SLC-defeat, fixed 48 slots, split-emulation diagonal",
+        "F2": "resident KV, full-attention split diagonal (out of sample)",
+        "F2D": "SLC-defeat, full-attention split diagonal (out of sample)",
+    }
+    for tag, rows in blocks:
+        print()
+        print("## %s -- %s" % (tag, labels[tag]))
+        print()
+        point_table(rows)
+        print()
+        print("Within-round duplicate-N null (same N twice per round):")
+        print()
+        print("| K | N | copies | lo us | hi us | spread % |")
+        print("|--:|--:|-------:|------:|------:|---------:|")
+        for k, n, c, lo, hi, pct in dup_null(rows):
+            print("| %d | %d | %d | %.3f | %.3f | %.2f%% |"
+                  % (k, n, c, lo, hi, pct))
+        print()
+        print("Least-squares fit over M in {1,2,3,4}; M=0 is an independent "
+              "check, never a fit input.")
+        fit_table(rows)
+        print()
+        print("Gate arithmetic from measured points only:")
+        direct_ratio_table(rows)
 
-    res = block("R", [20, 32, 40, 64, 128], "Block R — resident (SLC-served)")
-    ded = block("D", [20, 32, 40], "Block D — SLC-defeat, DRAM working set held constant")
-
-    # a (per call) vs phi (per wave): T(40,M) - T(20,M) crosses one wave boundary
-    # on a 20-core host, so its intercept is phi and its slope is the extra
-    # row-work of the second wave.
-    for tag, name in (("R", "resident"), ("D", "defeat")):
-        pts = {}
-        for path in sorted(OUT.glob(f"{tag}_n*.log")):
-            n, sec = parse(path)
-            pts[n] = sec
-        xs, ys = [], []
-        for n in sorted(pts):
-            m = n // 128
-            e = pts[n]["e1"]
-            if m >= 1 and 20 in e and 40 in e:
-                xs.append(m)
-                ys.append(e[40] - e[20])
-        if len(xs) >= 3:
-            fit = ols(xs, ys)
-            base = pts.get(512, {}).get("e1", {}).get(32)
-            print(f"\n### a-vs-phi separation ({name})")
-            print("T(K=40) - T(K=20) isolates the second wave: intercept = phi "
-                  "(paid once per extra wave), slope = its row work.")
-            print(f"\n| quantity | value |\n|:--|--:|")
-            print(f"| phi (per-wave fixed cost) | {fit['a']:.3f} us |")
-            print(f"| second-wave slope | {fit['b']:.3f} us/iter |")
-            print(f"| R^2 | {fit['r2']:.5f} |")
-            if base:
-                print(f"| T(K=32, N=512) | {base:.3f} us |")
-
-    # M3: work- and byte-conserving split emulation.
-    rows = []
-    for path in sorted(OUT.glob("M3D_k*.log")):
-        k = int(re.search(r"M3D_k(\d+)", path.name).group(1))
-        n, sec = parse(path)
-        rows.append((k, n, sec["e1"].get(k), sec["regime"].get(k, {}),
-                     sec["pair"].get(k, {})))
-    if rows:
-        rows.sort()
-        base = rows[0][2]
-        print("\n### Block M3D — direct split emulation under SLC defeat")
-        print("Each row does the same total threadgroup-rows and reads the same")
-        print("kv-head-rows from the same address spread. Only the threadgroup")
-        print("count and rows-per-threadgroup change. This is a LOWER BOUND on a")
-        print("real split: it omits the partial (o,m,l) write and the combine pass.")
-        print("\n| split S | K | N | M | t_us | uniq_MiB | regime | vs S=1 | "
-              "null d_sd |")
-        print("|--:|--:|--:|--:|--:|--:|:--|--:|--:|")
-        for k, n, t, rg, pr in rows:
-            s = k // rows[0][0]
-            print(f"| {s} | {k} | {n} | {n // 128} | {t:.3f} | "
-                  f"{rg.get('uniq_MiB', float('nan')):.2f} | {rg.get('regime','?')} | "
-                  f"{t/base:.4f}x | {pr.get('d_sd', float('nan')):.3f} |")
-
-    with (OUT / "sweep.csv").open("w", newline="") as fh:
-        w = csv.writer(fh)
-        w.writerow(["block", "K", "N", "M", "t_us", "uniq_MiB", "slc_fit",
-                    "regime", "achieved_GB_s", "null_d_mean_us", "null_d_sd_us",
-                    "null_pct"])
-        for path in sorted(OUT.glob("*.log")):
-            n, sec = parse(path)
-            for k, t in sorted(sec["e1"].items()):
-                rg = sec["regime"].get(k, {})
-                pr = sec["pair"].get(k, {})
-                w.writerow([path.stem, k, n, n // 128, f"{t:.4f}",
-                            rg.get("uniq_MiB", ""), rg.get("slc_fit", ""),
-                            rg.get("regime", ""), rg.get("achieved_GB_s", ""),
-                            pr.get("d_mean", ""), pr.get("d_sd", ""),
-                            pr.get("pct", "")])
-    print(f"\nwrote {OUT/'sweep.csv'}")
-    return res, ded
+    print()
+    print("Wave law fitted on the calibration blocks only; F2/F2D are held "
+          "out so their comparison is a genuine prediction.")
+    wm = wave_model(calib)
+    m3_table([r for t, rows in blocks if t == "M3D" for r in rows])
+    rows20 = [r for t, rows in blocks if t == "R_sweep" for r in rows]
+    d20 = by_m(rows20, 20)
+    t_ring512 = d20[4] - d20[0]
+    print()
+    print("### Projected split cost from the measured wave law")
+    print()
+    print("t_ring(512 keys) = T(K=20, M=4) - f_direct(K=20) = %.3f us "
+          "(wave-matched, W=1)" % t_ring512)
+    split_scan(wm["icpt"], wm["slope"], t_ring512)
+    f2_table(f2, wm["icpt"], wm["slope"], t_ring512)
+    print()
+    print("Refit including the held-out F2/F2D points (adds W=3, absent from "
+          "the calibration set):")
+    wave_model(blocks)
+    write_csv(blocks)
 
 
 if __name__ == "__main__":
-    sys.exit(0 if main() else 0)
+    main()

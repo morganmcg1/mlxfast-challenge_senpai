@@ -47,9 +47,14 @@ echo "(empty pgrep list above means no competing model-holding process)" \
 
 xcrun swiftc -O research/fern_r100_attn_probe.swift -o "$PROBE" || exit 1
 
+# BLOCKS selects which measurement blocks run; the default is all of them.
+# Re-running a subset never clobbers the logs of a block that is not selected.
+BLOCKS=${BLOCKS:-R_sweep,D_sweep,M3D,F2,F2D}
+
 run() { # run <tag> <sweep-rows> <ladder> [extra env assignments...]
   local tag=$1 sweep=$2 ladder=$3
   shift 3
+  case ",$BLOCKS," in *",$tag,"*) ;; *) echo "--- $tag skipped"; return ;; esac
   echo ">>> $tag  sweep=$sweep ladder=$ladder $*"
   env FERN_ROWS_SWEEP="$sweep" FERN_LADDER="$ladder" "$@" \
     "$PROBE" "$SRC" >"$OUT/$tag.log" 2>&1 \
@@ -73,6 +78,19 @@ run D_sweep 512,384,256,128,96,512 20,32,40 \
 # the same bytes from the same address spread. Only the threadgroup count
 # differs. Byte matching is off here precisely so the diagonal stays matched.
 run M3D 512,256,128,512 32,64,128 \
+  FERN_STRIDE_KV=32 FERN_CACHE_COPIES=12 FERN_DEFEAT_SLOTS=48
+
+# ---- Block F2/F2D: falsify the model's own predicted win -------------------
+# The wave model predicts that full attention (K_real = 24 threadgroups) DOES
+# win from a 2-way split on a 20-core host, because (24,W=2) -> (48,W=3) adds
+# one wave while halving the ring. The byte-matched diagonal is
+# (K=24,N=512) = 6 kv-heads x 512 rows vs (K=48,N=256) = 12 x 256. N=96 gives
+# the M=0 fixed-cost anchor for both K, and the trailing 512 is the drift check.
+# A confirmed win makes the model predictive rather than merely descriptive;
+# a loss closes the split-K family harder than the sliding arm alone can.
+run F2  512,256,96,512 24,48 \
+  FERN_DEFEAT_SLOTS=1 FERN_CACHE_COPIES=1
+run F2D 512,256,96,512 24,48 \
   FERN_STRIDE_KV=32 FERN_CACHE_COPIES=12 FERN_DEFEAT_SLOTS=48
 
 echo "=== rule 75 surface digest (post-timing) ===" | tee -a "$OUT/surface_digest.txt"
