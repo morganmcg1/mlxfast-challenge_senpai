@@ -1,8 +1,8 @@
 # SENPAI Research State
 
-- **2026-08-09 — round 99 (second revision).** Campaign `mlxfast-maple-20260804`.
+- **2026-08-09 — round 100 prep.** Campaign `mlxfast-maple-20260804`.
   Advisor branch `codex/mlxfast-maple-20260804-advisor`.
-  Base = **`ad39bfc6c36c0a8257ee0de1916edafdbf52278e`** + this docs commit.
+  Base = **`4b6315910b155464d1219482ba90ed94ee101984`** + this docs commit.
   `origin/main` = `1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7`.
   Record still **2.61650354381456** (re-verified via `mlxfast benchmark`;
   source `Layr-Labs/mlxfast-challenge @ c5b0a13`, unchanged since round 93).
@@ -244,9 +244,349 @@ are revisions, not necessarily closes.
 
 ---
 
+## 🟢 ROUND-100 PREP: the decode roofline map — where the headroom actually is
+
+Three zero-cost desk investigations closed on 2026-08-09. Two of them killed a
+planned arm outright, and together they produce the first **quantitative map of
+which decode pools still have headroom**. This section supersedes the pool
+prioritisation in §4 and §6 wherever they disagree.
+
+### A. Routed-expert byte traffic, derived exactly from config
+
+From `Sources/MLXFastModel/LagunaConfig.swift`: `numExperts=256` (:30),
+`numExpertsPerTok=8` (:31), `moeIntermediateSize=512` (:32), `hiddenSize=2048`
+(:17), NVFP4 group 16 with uint8 scales. `mlp_only_layers` defaults to `[0]`
+and `decoder_sparse_step` is pinned to 1 (`LagunaConfig.swift:547-548, 857-866`)
+⇒ **layer 0 dense, layers 1–39 sparse = 39 MoE layers**.
+
+Per expert per layer:
+
+| plane | codes | scales |
+|---|---|---|
+| gate+up (2 × 512 rows × 2048) | 1,048,576 B | 131,072 B |
+| down (2048 rows × 512) | 524,288 B | 65,536 B |
+| **total** | | **1,769,472 B = 1.769 MB** |
+
+**Routed traffic per decode step = 39 layers × 8 experts × 1.769 MB =
+552.1 MB/step.** Scales are 11.11 % of that (61.3 MB/step).
+
+### B. 🎯 The routed gather-QMV pool is bandwidth-saturated. Attention is not.
+
+Whatever the true M5 pool time `T` is, achieved bandwidth is `552.1 MB / T`:
+
+| assumed M5 routed pool | achieved bandwidth |
+|---|---|
+| 600 µs/step (our old ×0.456 M4-scaled estimate) | **920 GB/s** |
+| 800 µs/step | 690 GB/s |
+| 1010 µs/step | 547 GB/s |
+| 1184 µs/step (= the raw M4 T2c number) | 466 GB/s |
+
+An M5 Max cannot plausibly exceed ~1 TB/s of unified bandwidth. So **under
+every internally consistent assignment of the unknown peak, the routed
+gather-QMV kernel is already running at ≳85 % of achievable DRAM bandwidth** —
+and if our 600 µs estimate is right, it is at ~100 % of a bandwidth higher than
+we assumed. This conclusion needs no M4→M5 scaling factor: you cannot run below
+your own byte floor.
+
+Contrast attention. Unique K+V traffic is 62.9 MB (sliding) + 26.2 MB (full) =
+**89.1 MB/step** against a combined pool of ≈390 µs ⇒ 228 GB/s, i.e. a DRAM
+floor of ~163 µs and **227 µs/step of slack = 3.47 % of score**. Rule 67's
+free-combine starvation ceiling (89.2 µs, 1.36 %) is a *conservative subset* of
+that same slack, derived independently. Two unrelated derivations agreeing that
+attention is latency/occupancy-bound and not byte-bound is the strongest
+structural signal on the board.
+
+**Consequence — the pool ranking is now:**
+
+| pool | M5 µs/step | position vs its own byte floor | headroom |
+|---|---|---|---|
+| routed gather-QMV | 600–1184 | **≈100 % (saturated)** | **only byte reduction** |
+| both attention kernels | ≈390 | ~2.4× floor | **≈227 µs = 3.47 %** |
+| QKV projection | ≈650 | not yet computed — **do this next** | unknown |
+| wall−busy gap | 249 | n/a | provenance unresolved (#541 Part 2) |
+
+Routed byte reduction is mostly harvested already: the lossless group-32 scale
+halving (`lagunaHalvedGroup32ScalePlane`, `LagunaRuntimeWeights.swift:1152`) is
+applied to the packed gate/up bank. Remaining scale bytes are 61.3 MB/step;
+even halving *all* of them is 30.7 MB ⇒ ~56 µs ⇒ 0.86 %, and group-32 on MoE
+experts is **outside the accepted quantization envelope** (attention Q/K/V/O and
+per-head `g_proj` only). Treat the routed pool as closed to instruction-level
+work.
+
+### C. ❌ H1 (offline sub-row interleave of the routed gate/up bank) is DEAD
+
+Four independent reasons, any one of which is disqualifying:
+
+1. **There is no offline surface.** The fused bank is materialised *in-process*
+   at load time — `LagunaRuntimeModel.swift:10587-10589`,
+   `concatenated([gateWeightTiles, upWeightTiles], axis: 2).reshaped(...)`
+   inside `prepareFusedRoutedGateUp()` (`LRM:10523-10627`), driven from
+   `LagunaRuntimeWeights.swift:643`. `Sources/MLXFastTransform/` never emits a
+   fused tensor: `LagunaCheckpointValidation.swift:94-96, 163-170, 388-393`
+   require `gate_proj` and `up_proj` **separately**. The "transform-stage
+   repack" framing was void from the start.
+2. **Row contiguity is load-bearing for prefill.** Today's interleave is a
+   *whole-row permutation* — every physical row is still a complete contiguous
+   NVFP4 row, so the bank stays a valid row-major (1024, 256) quantized matrix
+   and generic consumers need only an output-column fix-up
+   (`lagunaInterleavedSwiGLU`, `LRM:10351-10369`). An 8-byte interleave is not a
+   row permutation; it destroys row contiguity and breaks
+   `MLX.gatherQuantizedMM` (`LRM:10419-10430`), both `_nax` SwiGLU epilogues
+   (`fp_quantized_nax.h:1769-1783, 1945-1982, 1985-2005`), their runtime-compiled
+   twin (`mlx-generated/fp_quantized_nax.cpp:1911-1925, 2079-2142`), the generic
+   non-`_nax` gather-QMM, and `set_pairwise_packed`'s walk-order decode
+   (`fp_quantized_nax.h:290, 312`). That is 13 lockstep sites including vendor
+   Metal, against a hard prefill 0.95 floor at 25 % weight.
+3. **The decode-only-bank escape costs +11.78 GB resident** (39 layers × 256
+   experts × 1.179 MB of gate/up codes+scales), taking the tower from 21.6 GB to
+   ~33.4 GB and past the ~36 GiB practical local-host floor.
+4. **The pool is saturated anyway** (§B). A repack moves zero bytes.
+
+The census also corrected two anchors: `lagunaRoutedSwiGLUQMVPackedKernel`
+`inputNames` is `LRM:7464` (not `:7463`), and the **unpacked** routed QMV pair
+(`LRM:7220-7222`, `:7318-7322`) was missing from our consumer list. A second,
+independent copy of the interleave arithmetic lives at
+`LagunaRuntimeWeights.swift:1133-1136`.
+
+### D. ❌ H3 (post-rebase flag-default audit) is FALSIFIED — and that is a win
+
+A complete enumeration of every `ProcessInfo.processInfo.environment[...]` read
+in `Sources/` and `Vendor/` at both `e510bb3d` (pre-rebase tip) and `4b631591`
+(current base) — 133 names vs 132 — found **all 132 shared names byte-identical
+in their read expressions. Zero defaults changed.** C++ `getenv` sites are
+unchanged too (`git diff` on `matmul.cpp` + `quantized.cpp` is empty):
+`DARKBLOOM_STEEL_PREFILL_TILE` ON (`matmul.cpp:89`), `DARKBLOOM_STEEL_TRACE` OFF
+(`:101`), `DARKBLOOM_QMM_SPLITK_FUSED` ON (`quantized.cpp:859`).
+
+Our "prior 2-of-2 on rebase-lost defaults" prior **does not generalise to this
+rebase**. H3 does not earn a student slot; the audit itself was the deliverable
+and it is now complete at zero cost. Byproducts worth keeping:
+
+- **Exactly one flag is GONE**: `DARKBLOOM_ROUTER_WEIGHT_PREFETCH` (see §E).
+- **Nothing is NEW.**
+- `Sources/MLXFastModel/LagunaRuntimeLayers.swift` was **deleted** at HEAD and
+  folded into `LagunaRuntimeModel.swift`, relocating 10 flags. This is part of
+  why LRM is at 511,418 / 524,288 B and is direct input to the #548 file-split
+  rung.
+- **Audit trap for the next agent:** 10 flags are spelled
+  `environment[\n  "NAME"]` across a line break and are invisible to
+  `grep -n 'environment\["'`. Named:
+  `DARKBLOOM_AFFINE_GATE_SOFTPLUS` (`LRM:4319`, ON),
+  `DARKBLOOM_FUSED_DOWN_ROW_STAGING` (`:8082`, ON),
+  `DARKBLOOM_FUSED_FULL_ATTN_KERNEL_WARMUP` (`:1862`, ON),
+  `DARKBLOOM_FUSED_FULL_ATTN_WHOLE_MODEL_WARMUP` (`:1855`, **OFF**),
+  `DARKBLOOM_FUSED_ROUTED_SHARED_DOWN_RESIDUAL` (`:143`, ON),
+  `DARKBLOOM_LAST_PREFILL_PROJECTION_BANKS` (`:564`, ON),
+  `DARKBLOOM_LMHEAD_FUSED_REFINEMENT` (`LagunaLmHeadPrune.swift:95`, ON),
+  `DARKBLOOM_LM_HEAD_PRUNE_PREFILL` (`LagunaLmHeadPrune.swift:86`, ON),
+  `DARKBLOOM_NATIVE_AFFINE_PROBE_FORMAT_FROM` (`:2923`, 0), `MLXFAST_WEIGHTS_PATH`.
+- **Two doc-vs-code lies**, pre-existing at both commits, not rebase-induced:
+  `DARKBLOOM_NVFP4_QMV_SIGN_CARRY` (`LRM:3984-3986`) and
+  `DARKBLOOM_NVFP4_QMV_SEED_ELIDE` (`:4004-4014`) both document "(default OFF)"
+  while the code is `!= "0"` ⇒ **both are actually ON**.
+- **Compound-gate trap:** `DARKBLOOM_QMV_WIDE_CODES` (`LRM:325`, OFF) is inert
+  unless `DARKBLOOM_SHARED_SCALE_HALVED` (`:312`, ON) is also set. A/B-ing wide
+  codes alone measures a guaranteed null and would wrongly retire the mechanism.
+- **Our dormant-variant list was wrong in three places.** `top8keys_r1_bf16_v2`
+  is the **default** (`lagunaRoutedGateUpR1Enabled` `LRM:7767-7768`, selection
+  `:7899-7900`) and `_v1` is the dormant twin; o_proj `_idx_v1` is the
+  **preferred** arm (dict built unconditionally `:3940-3954`, call site prefers
+  it `:6199-6212`); QKV `pf4` is the **active default**
+  (`lagunaNormAffineQKVPrefetchDepth` `:5080-5085` defaults `"4"`). Genuinely
+  dormant: QKV `_tg_v1` staged (`DARKBLOOM_NORM_AFFINE_QKV_STAGE=tg`), QKV
+  `pf1/pf2/pf3`/`_inl_v1`, `top8keys_bf16_v1`, `_down_residual_bf16_r1_v5sf`
+  (`:8085-8087`, `DARKBLOOM_SHARED_FIRST_DOWN` OFF), the shared halved-wide QMV
+  (`:6954`), and `laguna_prefill_router_top8_v1/_norm_v1` (`:9600/:9609`,
+  documented as ~10× the ALU of what it replaces — dormant by design).
+
+### E. `DARKBLOOM_ROUTER_WEIGHT_PREFETCH` — provenance resolved: casualty
+
+Count of the flag in `LagunaRuntimeModel.swift` along the lineage:
+`e510bb3d` 2 → `450953e5` (Maple parent) 2 → **`c3a85acb` (PR #545, sync to
+frontier `cc6ddc1`) 0** → `4f3108c4` 0; and independently `876c60c8` (r98-B
+tip) 2 → **`c6c66344` (PR #540 merge) 0** → base `4b631591` 0.
+
+The organizer's promoted snapshot never carried it and **both merges resolved to
+the frontier side**. There is no authored revert and no measurement against it.
+Further, HEAD's `rowsPerThread == 1` accumulate is character-for-character
+`e510bb3d`'s `prefetch == 0` arm (`e510bb3d:LRM:971-1005` vs base `:922-945`);
+the surviving 4-way `vec<bfloat,4> rw[4]` unroll is the *in-loop* batching arm 0
+always had, **not** the cross-barrier hoist. The pre-rebase doc
+(`e510bb3d:LRM:686-698`) states default `1` and claims every arm is bit-exact
+with arm 0; `lagunaRouterPrefetchGroups` (`:875-880`) only peels when
+`rowsPerThread == 1`, and `DARKBLOOM_ROUTER_ROWS_PER_GROUP` still defaults to 8,
+so **the peel was live in the ranked default configuration**. Relayed to #539.
+
+### F. ⚠️ Open, cheap, and possibly expensive: is QKV `_idx_v1` silently dormant?
+
+`lagunaIndexedAffineMetadata` (`LRM:2829-2866`) returns `nil` when the distinct
+`(scale, bias)` pair LUT exceeds 65,536 (`guard lut.count < 65_536`, ~`:2856`).
+The dictionary guard at `:5304-5305` passes at defaults, but dispatch
+(`:5368-5382`) additionally requires non-nil `indexedMetadata`. A QKV bank of
+rows × 2048/32 pairs is on the order of 196 k candidate pairs, so it may
+overflow the cap and fall through to the non-indexed arm **with no trace and no
+flag to explain it**. This is inference, not read evidence. Resolution is one
+traced decode step checking whether `lagunaTrace("… indexed")` at `:5370-5372`
+ever fires — a rider for whoever is next on the box, **not** a slot. The same
+traced step resolves whether the `_ns1` narrow-scale arm (`:4755`, built only
+when `lagunaLaneMajorNVFP4ScaleBank` returns nil at `:5616`) is ever taken, via
+`lagunaNarrowScaleLog.noteDispatch` (`:4885` / `:4624`).
+
+### G. What this does to the round-100 slate
+
+- **H1 — killed** (§C). Do not re-derive.
+- **H3 — falsified and complete** (§D). No slot.
+- **H2 (merge-free TG doubling in attention) is promoted to the flagship decode
+  arm.** It is now the *only* structural decode direction with a quantified,
+  independently corroborated headroom (227 µs = 3.47 %, of which rule 67's
+  89.2 µs = 1.36 % is the conservative floor).
+- **New second priority: compute the QKV projection's byte floor** the same way
+  §A/§B did for the routed pool. QKV is ≈650 µs/step on M5 and we have never
+  asked whether it is byte-bound. Per layer QKV reads 2048×10240×0.5 = 10.5 MB
+  of codes; × 40 layers = 420 MB/step ⇒ a 546 GB/s floor of ~769 µs — which is
+  **larger than the measured pool**, so either the pool figure or the byte model
+  is wrong. Resolving that contradiction is a desk task worth doing before any
+  QKV arm is assigned.
+- **H5 folds into §F** as a traced-step rider.
+- **H4/H6 unchanged.**
+
+### H. ⚠️ H2 CORRECTION — TG-doubling is probe-first, and my byte arithmetic was 8× wrong
+
+A frontier design review (2026-08-09) corrected three things in my H2 brief.
+All three make the arm *harder*, and none of them kills it.
+
+1. **Traffic.** Unique K per step across the 30 sliding layers is
+   30 × 8 kv-heads × 512 × 128 × 2 B = **31.46 MB**. My "+31.5 MB/step" was the
+   *unique* figure, not the *duplication* figure. Route A (one q-head per
+   threadgroup, 64 TGs) duplicates **both K and V** ⇒ **+251.7 MB/step
+   requested**, 503.4 MB total, an 8× amplification over unique. Route B
+   (split-D) duplicates K only ⇒ **+125.8 MB/step**, 377.5 total. Unique bytes
+   delta is **0** in both routes — this is a cache/issue question, not a DRAM
+   question, *provided* the duplicated stream stays resident.
+2. **The +18.36 % / +36.04 % "free-combine" ceiling does not apply.** That was
+   measured on **N-split** geometry (`research/nezuko_kv_split_probe.swift` P4:
+   K = 32·S threadgroups each walking 512/S rows; per-TG stream *shrinks* by S,
+   total traffic unchanged). Routes A/B are the **opposite** geometry: per-TG
+   stream stays the full 512 rows (A: 256 kB/TG, B: 192 kB/TG) and total
+   requested traffic *doubles*. Do not quote that ceiling as an upper bound for
+   these routes.
+3. **Rule 60 already measured the relevant null on M4.**
+   t(K) = 1.413 + 7.849 · ceil(K/20) µs (PR #511) ⇒ a marginal wave costs ~90 %
+   of a lone wave ⇒ co-resident threadgroups nearly fully serialize, and
+   occupancy is flat in TG memory from 16 B to 32,768 B at 1024 threads. That
+   implies **φ = t(64)/t(32) ≈ 1.8–1.9 on M4**.
+
+**Decision arithmetic.** Net for Route A ≈ 290 µs × [1 − φ(1−α)], where α is
+the fraction of per-TG duration removed by dropping from 2 q-heads to 1. To
+clear the median-ties-record bar (+68.7 µs/step) we need φ(1−α) ≤ 0.763; even at
+*perfect* wave absorption (φ = 1.0) that demands **α ≥ 0.237**. At the M4-implied
+φ = 1.85 no achievable α works. **So the arm is dead unless M5 absorbs the extra
+wave far better than M4 does, and that is a measurable question.**
+
+**Zero-receipt discriminator ladder** (runs on
+`research/nezuko_r98_ab_kernel_probe.swift`; its buffers are oversized —
+cKV = 128, cHeads = 512 — so K ≤ 256 is safe):
+
+- **E1 — grid-only ladder.** *Identical unmodified kernel source in both arms*;
+  vary only K ∈ {16,24,32,40,48,64,80,96}. Byte-identical binary ⇒ measures
+  pure scheduler/memory behaviour with zero codegen confound. Readout is
+  **φ = t(64)/t(32)**. φ ≤ 1.05 ⇒ the extra wave is absorbed, proceed.
+  φ ≥ 1.5 ⇒ **both routes are dead**, zero receipts spent. Also re-baselines
+  the known +1.4–1.6 % base-vs-base artifact at K = 32 for free.
+- **E2 — uniqueness fold.** At K = 64, base vs `kv_head = (head0/gqa) % 8`. At
+  K = 32 this expression is the **identity**, giving a built-in null that must
+  time as zero. At K = 64 it folds 16 apparent kv-heads to 8 (2.1 MB vs 4.2 MB
+  per probe-layer) at an identical request count, isolating *residency* from
+  *request count*. Extend %16/%32/%64/%128 up to 33.6 MB unique to defeat SLC
+  residency. Benign ring-write race at K = 64 (two TGs share
+  `(head0 % gqa) == 0`); gate with `pair_tg < 32` if it matters.
+- **E3 — Route-A text at K = 32.** Real one-head-per-TG source vs base at the
+  *shipped* grid. Codegen exposure is the point. Measures the removable-ALU
+  share **α** directly. If t(routeA@32) ≥ t(base@32) there is no upside at any
+  φ ⇒ route dead, zero receipts.
+- **E4 — routeA@64 vs base@32**, only if E1 shows absorption *and* α ≥ ~10 %.
+
+**Route ranking: probes ≫ Route A ≫ Route B.** Route A is bit-exact by
+construction (each head keeps today's op chain; the position→simdgroup map, the
+32-partial combine tree and the epilogue are unchanged; fast-math is OFF in the
+MLX JIT at `Vendor/mlx-swift/.../metal/device.cpp:631`; the ring-write condition
+`(head0 % gqa) == 0` at `LRM:1500-1511` still selects exactly one writer per
+kv-head) and is **byte-negative**. Route B has strictly smaller upside (it
+duplicates the full softmax score work), requires rewriting the transposed
+two-round combine and epilogue (`outputs[4·BN·BDP]`, 4 barriers, planes
+p = 0..3), and costs +4–8 kB — highest implementation-error risk on the board.
+
+**No third way survives** the same review: persistent/grid-stride at K = 40 buys
+≈0 (the critical path is the 2-head TGs); 512 threads/TG is not bit-exact
+(partial count 32→16 changes the combine tree); N-split is closed by rule 67
+(+40 dispatches × 2.3403 µs = 93.6 µs swallows the 89 µs pool); sliding+full
+merge is impossible (layers are exclusively sliding(30)/full(10) per
+`LagunaConfig.swift:14-49`, sequentially dependent, different N and gqa);
+loop-dimension remap is not bit-exact; TG-memory reduction measured flat.
+
+Open audit items the review flagged as inference rather than receipt: the
+provenance and S-factor of the +18.36 % figure against the #528 / W&B `bgrx1ckq`
+receipt; `simd_sum` bit-exactness on Apple GPU generation 17 (verified only on
+gen 16); and M5 SLC size/behaviour.
+
+### I. #543 (fern, MoE-side QMV unrolling) — CLOSED, and it changed the rules
+
+fern's H_F predicted routed gate/up QMV would show nezuko's +5..+7 % codegen tax.
+It did not. All four variants ran **~14 % faster** than shipped at the
+occupancy-matched TG = 1024 row (−1.80..−3.16 µs/dispatch against a 1.80 µs bar
+preregistered in `d1d65c0` *before* any dose run). Three consequences:
+
+1. **The #540 codegen tax is family-specific to sliding attention.** It does not
+   generalise to the MoE QMV family.
+2. **fern's own stated mechanism was falsified by its own dose curve.** 16→64 B
+   staging moves the number ≤0.08 µs. The real mechanism is *full unrolling of a
+   constexpr trip count* replacing the shipped runtime-trip-count 4-iteration K
+   loop with guarded prefetch. AIR diff: `tmpl_s1` drops 8 phi / 2 br / 5 gep /
+   4 load, with **`fmul`/`fadd` identical across all five arms**.
+3. **It does not transfer to the scored path.** In-situ ABBA decode
+   13034.5 → 13009.0 µs/tok = **−25.5 µs/tok (−0.196 %)** against a same-arm base
+   control spread of **137.2 µs/tok** — the error bar is 5.4× the effect. Naive
+   40-layer transfer of the probe delta predicted ~−130 µs/tok. **fern predicted
+   this null in advance** (§7.10, committed `d173248` before reading numbers):
+   the probe's 4/8 MiB footprint over 8 fixed experts re-read 500×/round is
+   SLC-resident and issue-bound at 196–247 GB/s, below the M4 Pro DRAM roofline,
+   whereas scored decode gathers 8 of 256 experts per token from 21.6 GB with no
+   cross-token reuse.
+
+Correctness was clean throughout (equivalence oracle byte-identical, probe
+bitwise gate 0/65536 differing bytes, all in-situ `max_abs_diff = 0`). The
+shipped unrolled edit is **+378 B**, not the −80 B measured on `stage4_cand`.
+
+**Banked, not discarded:** revive the unroll as a stacked-bundle candidate if a
+SLC-defeated re-run (synthetic experts exceeding cache, expert base rotated per
+dispatch, identical null control) shows it pays in a cold-gather regime.
+
+**Unclaimed but sharp:** `tmpl_s4` and `stage4_cand` have **identical AIR opcode
+counts yet differ ~1.3 µs**, so ~40 % of the probe effect is scheduling/regalloc
+that is invisible at AIR level. Treat AIR-diff mechanism attribution with
+matching caution everywhere.
+
+---
+
 ## 1. Most recent human/operator direction
 
-**No human message has arrived in the current window.** The campaign runs on
+**Operator nudge 2026-08-09T15:16:59Z — submit-path provenance for #539.**
+Frieren's eight-arm job on #539 has completed, but the live experiment branch
+**predates `senpai/submit-official.sh`**. Standing requirement, operational not
+scientific:
+
+1. **Do not alter #539's branch while Frieren is collecting and committing the
+   terminal result.**
+2. Before authorizing any official dispatch from that branch, use a **clean
+   checkpoint** to absorb the current advisor harness-only submission guard (or
+   its exact guard commit).
+3. **Verify the submitted surface remains byte-identical to the recorded base**
+   after that absorption.
+4. Run the wrapper with the recorded **full 40-char BASE_SHA**.
+
+This does not change the scientific go/no-go for the arm.
+
+No other human message has arrived in the current window. The campaign runs on
 standing instructions.
 
 One item remains **blocked on a human channel**: the Birch relay escalation.
@@ -420,17 +760,18 @@ prefill routed gather-GEMM), plus one byte-axis outlier.
 
 ---
 
-## 5. In-flight assignments (round 99)
-
-Four arms, all live, all students occupied. Bases differ but are equivalent on
-the submitted surface (see header).
+## 5. In-flight assignments (round 99 → 100)
 
 | PR | student | assignment / revision | base | head | arm |
 |---|---|---|---|---|---|
-| [#539](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/539) | maple-frieren | `maple-r98-a-decode-attn-qmv-mlp` / `r99-a-rev1` | `c240616a` | `14071c9b` | **A** — restore the two mechanisms the rebase dropped |
+| [#539](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/539) | maple-frieren | `maple-r98-a-decode-attn-qmv-mlp` / `r99-a-rev1` | `c240616a` | `14071c9b` | **A** — restore the two mechanisms the rebase dropped. Eight-arm job COMPLETE; collecting the terminal result. **Do not alter the branch.** |
 | [#541](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/541) | maple-tanjiro | `maple-r98-c-prefill-loader-pipeline` / `r99-d-rev1` | `c6c66344` | `83da91e7` | **D** — re-anchor the instrument on the new base + one base receipt |
-| [#543](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/543) | maple-fern | `maple-r98-d-moe-qmv-mlp` / `r99-e-rev1` | `c6c66344` | `09bbf60f` | **H_F** — is nezuko's codegen tax family-specific? |
+| [#543](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/543) | maple-fern | `maple-r98-d-moe-qmv-mlp` / `r99-e-rev1` | `c6c66344` | `531a30e3` | **H_F** — ✅ **CLOSED** 2026-08-09, zero receipts spent. See §I; produced rules 70/71/72. |
 | [#548](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/548) | maple-nezuko | `maple-r99-b-comment-byte-reclamation` / `r99-b-rev1` | `ad39bfc6` | `3d7052c4` | **B** — reclaim editable bytes from comment-only content |
+
+**fern is free** and is the next student to assign; the round-100 arm for fern
+is the combined rule-71 instrument validation + H2 E1/E2/E3 discriminator ladder
+(§H), which submits zero bytes because `research/` is not in `editablePaths`.
 
 **Merge sequencing is a live dependency.** #548 rung 1 → #539 / #543 → #548
 rung 2. #539 rung 1 costs **+3,859 B** in `LagunaRuntimeModel.swift`, which has
@@ -1176,6 +1517,29 @@ and the deletion re-authorised. Operational form of the rule:
   must survive for `TransformTests.swift:129/143/162`.
 - Prior art beats fresh inference: PR #288 already merged this exact deletion.
   Search `research/RESEARCH_ARCHIVE_*.md` before contradicting a merged result.
+
+**Rule 70 — the routed-expert MoE decode pool is DRAM-bandwidth-saturated and
+CLOSED to instruction-level work** (#543, #525). 552.1 MB/step against a ≈600 µs
+pool. Unrolling, staging depth, wider code loads and scheduling changes in
+routed gate/up and in down+residual do not earn a slot. The only remaining lever
+is **bytes**, and the 61.3 MB/step of uint8 scales are already halved
+(`lagunaHalvedGroup32ScalePlane`, `LagunaRuntimeWeights.swift:1152`); the
+remaining halving is ≤0.86 % and group-32 on MoE experts is outside the accepted
+quantization envelope. Do not assign another MoE-QMV codegen arm.
+
+**Rule 71 — the zero-receipt A/B probe measures an SLC-resident, issue-bound
+regime; its working set must be validated against the scored path's before its
+verdict is trusted** (#543). fern's probe overstated the scored effect by ~70×
+(−14 % on the probe → −0.196 % in situ). Every future use of the probe must
+state: the probe's per-round unique footprint, the scored path's per-step unique
+footprint, the achieved GB/s of each, and an argument that both sit on the same
+side of the roofline. fern's §7.10 is the template. A probe result that cannot
+make that argument is a codegen measurement, not a performance prediction.
+
+**Rule 72 (method) — preregister the *explanation* for a possible null, not just
+the threshold.** fern wrote the SLC-residency explanation of a possible null
+before reading any in-situ number, which is why the null is informative rather
+than merely disappointing. Put this requirement in every subsequent brief.
 
 **Process rule (#513).** Every assignment must state that *a student's
 registered go/no-go bar must be at least as strict as the suggested bar, or the

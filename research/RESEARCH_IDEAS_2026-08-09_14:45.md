@@ -321,12 +321,41 @@ weight and H1/H2/H3 all target decode. Queue behind them.
 
 ## 6. Advisor's assignment order for round 100
 
+> **SUPERSEDED 2026-08-09 by three desk investigations. Read this block before
+> the table below.** See `research/CURRENT_RESEARCH_STATE.md` §§ ROUND-100 PREP
+> A–I for the working.
+>
+> - **H1 — DEAD.** There is no offline surface. The fused routed gate/up bank is
+>   built in-process (`LRM:10587-10589` in `prepareFusedRoutedGateUp()`
+>   `LRM:10523-10627`, driven from `LagunaRuntimeWeights.swift:643`); the
+>   transform never emits fused tensors (`LagunaCheckpointValidation.swift:94-96,
+>   163-170, 388-393`). Row contiguity is load-bearing across 13 lockstep sites
+>   including vendor Metal, and a decode-only bank costs +11.78 GB resident
+>   (21.6 → 33.4 GB, past the ~36 GiB host floor). Doubly dead under **rule 70**:
+>   the pool is DRAM-saturated anyway.
+> - **H3 — FALSIFIED, complete, earns no slot.** 133 env names at `e510bb3d` vs
+>   132 at `4b631591`; all 132 shared names byte-identical; C++ getenv defaults
+>   unchanged. Exactly one flag went missing
+>   (`DARKBLOOM_ROUTER_WEIGHT_PREFETCH`, already relayed to #539) and none is new.
+> - **H2 — flagship, but PROBE-FIRST.** My "+31.5 MB/step" was the *unique*
+>   figure; Route A actually re-requests **+251.7 MB/step** (8× amplification)
+>   and Route B **+125.8 MB/step**. The +18.36 %/+36.04 % free-combine ceiling was
+>   measured on N-split geometry and **does not bound these routes**. Rule 60's
+>   M4 wave model implies φ = t(64)/t(32) ≈ 1.8–1.9, and clearing +68.7 µs/step
+>   needs φ(1−α) ≤ 0.763 — impossible at that φ. Assign the zero-receipt
+>   **E1/E2/E3 discriminator ladder** first; Route-A implementation is deferred
+>   behind its verdict.
+> - **New desk task before any QKV arm:** resolve the QKV byte-floor
+>   contradiction (420 MB/step of codes ⇒ a 769 µs floor at 546 GB/s, larger than
+>   the ≈650 µs measured pool). One of the two numbers is wrong.
+
 | # | arm | student slot | gate |
 | --- | --- | --- | --- |
-| 1 | **H3** flag-default + dormant-variant audit | first student to free up | none — zero bytes, zero receipts for phase 1 |
-| 2 | **H1** routed gate/up offline interleave | fern, after #543 | requires the `fused_weight` **reader census incl. prefill** first |
-| 3 | **H2 rung 1** one-q-head-per-TG (merge-free TG doubling) | frieren, after #539 | zero-receipt probe of the +31.5 MB/step K re-request first |
-| 4 | H6 prefill non-GEMM census | tanjiro, after #541 | — |
+| 1 | ~~**H3** flag-default + dormant-variant audit~~ | — | **done, falsified** |
+| 2 | ~~**H1** routed gate/up offline interleave~~ | — | **dead: no offline surface, +11.78 GB, rule 70** |
+| 3 | **H2 probes E1/E2/E3** (grid-only ladder, uniqueness fold, Route-A text at K=32) | fern, now | rule-71 instrument validation in the same arm |
+| 4 | **H2 Route A** one-q-head-per-TG | frieren, after #539 | gated on E1 absorption *and* α ≥ ~10 % from E3 |
+| 5 | H6 prefill non-GEMM census | tanjiro, after #541 | — |
 | — | H4 codegen autopsy | rider on frieren | — |
 | — | H5 `_idx_v1` | folded into H3 | independent of #548 — see the correction in H5 |
 
