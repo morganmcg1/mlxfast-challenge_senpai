@@ -26,9 +26,9 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Kernel families the census is about; matched as substrings of the shortened
 # name that `decode_probe.py` prints.
 TRACKED = {
-    "qkv": "laguna_decode_nvfp4_qkv_",
-    "oproj": "laguna_oproj_act_",
-    "routed": "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
+    "qkv": "decode_nvfp4_qkv_h",
+    "oproj": "oproj_act_h",
+    "routed": "routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
 }
 
 ROW = re.compile(
@@ -87,10 +87,14 @@ def main() -> int:
     for i, arm in enumerate(arms):
         env = dict(os.environ)
         env["DARKBLOOM_GPU_PROFILE"] = "1"
-        env["DARKBLOOM_GPU_PROFILE_SPLIT"] = "1"
+        # `<arm>@nosplit` keeps every kernel in its shared command buffer, so
+        # the same arm can be timed with and without the SPLIT=1 attribution
+        # tax; per-kernel rows are then meaningless but total busy is not.
+        probe, _, mode = arm.partition("@")
+        env["DARKBLOOM_GPU_PROFILE_SPLIT"] = "0" if mode == "nosplit" else "1"
         env.pop("NEZUKO_R93_PROBE", None)
-        if arm != "off":
-            env["NEZUKO_R93_PROBE"] = arm
+        if probe != "off":
+            env["NEZUKO_R93_PROBE"] = probe
         t0 = time.time()
         proc = subprocess.run(
             [sys.executable, os.path.join(REPO, "research/decode_probe.py"),
