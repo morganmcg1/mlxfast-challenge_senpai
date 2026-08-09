@@ -69,6 +69,53 @@ with `SCHEDULE="const:0;const:1;const:2"` and dispatch logging on:
 The control word is therefore read live, each rung selects exactly the intended
 kernel set, and all three rungs produce the identical token stream.
 
+## 3c. Unpack-ALU audit: added integer ops per byte removed
+
+The preregistration priced a removed byte at ~266 GB/s **assuming zero ALU
+cost**, and flagged that assumption as the optimistic bound. Counting the
+integer ops actually emitted by the two shipped kernels turns that assumption
+into a number that can be checked before a change is built.
+
+Counted from the kernel bodies in `LagunaRuntimeModel.swift`, per 4 elements
+handled by one thread for one weight row:
+
+| term | gate/up (`bexp128d4`) | down (`bexp_row_d6`) |
+|---|---|---|
+| delta load addressing | 3 | 4 (two delta streams) |
+| escape-base compare | 1 | 0 (no escapes) |
+| payload load addressing | 2 | 2 |
+| base shift | 1 | 0 (hoisted, row-invariant) |
+| delta extract + assemble, 4 elem | 16 | 32 |
+| rotate back to BF16, 4 elem | 12 | 12 |
+| **total per 4 elements** | **35** | **50** |
+| **per element** | **8.75** | **12.5** |
+
+Cross-check against the preregistered per-thread figures: gate/up handles
+`4 rows x 2 planes x 4 elements = 32` elements per K-iteration, giving 280 ops
+against the preregistered "≈240"; down handles `4 rows x 4 elements = 16`,
+giving 200 against "≈160". The audit is 15-25% **higher** than the
+preregistered estimate in both cases, i.e. the preregistration understated the
+ALU cost. That is recorded as a deviation in §8.
+
+Converting to the quantity that generalises:
+
+| plane | elements | added int ops | bytes removed | **ops per byte removed** |
+|---|---|---|---|---|
+| gate/up (S2a) | 33,554,432 | 293.6 M | 16,070,912 | **18.3** |
+| down (S2b − S2a, marginal) | 16,777,216 | 209.7 M | 4,192,256 | **50.0** |
+| S2b combined | — | 503.3 M | 20,263,168 | **24.8** |
+
+The host balance to compare against is the machine's integer-throughput to
+DRAM-bandwidth ratio. On this M4 Pro, ~20 cores x 128 lanes x ~1.5 GHz gives
+roughly 3.8-4.0 T simple-int-ops/s against a measured 260.2 GB/s ceiling, i.e.
+a break-even of **~15 added integer ops per byte removed** — and that is the
+ceiling for perfectly-overlapped, perfectly-issued integer work, so the usable
+budget is lower still.
+
+Both planes are above that break-even before a single measurement: gate/up at
+18.3 has no margin, and the down plane at 50.0 ops/byte is roughly 3x over.
+This is the pre-screening statement §9 turns into a standing rule.
+
 ## 4. Equivalence and correctness
 
 <!-- CORRECTNESS -->
