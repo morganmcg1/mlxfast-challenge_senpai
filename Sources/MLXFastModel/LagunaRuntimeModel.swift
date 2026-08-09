@@ -5736,9 +5736,19 @@ final class LagunaRuntimeAttention: Module {
         mask: MLXFast.ScaledDotProductAttentionMaskMode,
         cache: KVCache?,
         qkRoPEAngles: MLXArray? = nil,
-        qkRoPEOffsets: MLXArray? = nil
+        qkRoPEOffsets: MLXArray? = nil,
+        preNormalizedInput: MLXArray? = nil
     ) -> MLXArray {
         let (B, L) = (input.dim(0), input.dim(1))
+        let suppliedNormalized: MLXArray?
+        if let preNormalizedInput,
+            preNormalizedInput.dtype == .bfloat16,
+            preNormalizedInput.sameDims(input)
+        {
+            suppliedNormalized = preNormalizedInput
+        } else {
+            suppliedNormalized = nil
+        }
 
         // One dispatch for the input RMSNorm and all three projections when
         // the decode preconditions hold; otherwise normalize separately and
@@ -5802,12 +5812,15 @@ final class LagunaRuntimeAttention: Module {
                 let fusedTailGateLogits: MLXArray? = nil
                 // Only materialized when the fused kernel declined; the gate
                 // branches below that read it are unreachable when it fired.
-                let normalized = fusedQKV ?? inputNorm(input)
+                var normalized = fusedQKV ?? suppliedNormalized ?? inputNorm(input)
                 let decodeNVFP4QKVR1 =
                     fusedQKV == nil
                     ? lagunaDecodeNVFP4QKVR1(
                         normalized: normalized, bank: fusedAffine, heads: nHeads)
                     : nil
+                if fusedQKV == nil, decodeNVFP4QKVR1 == nil, suppliedNormalized != nil {
+                    normalized = inputNorm(input)
+                }
                 let qkv =
                     fusedQKV
                     ?? decodeNVFP4QKVR1
@@ -11010,7 +11023,8 @@ final class LagunaRuntimeDecoderLayer: Module {
         mask: MLXFast.ScaledDotProductAttentionMaskMode,
         cache: KVCache?,
         qkRoPEAngles: MLXArray? = nil,
-        qkRoPEOffsets: MLXArray? = nil
+        qkRoPEOffsets: MLXArray? = nil,
+        preNormalizedInput: MLXArray? = nil
     ) -> MLXArray {
         let r = selfAttn(
             x,
@@ -11018,7 +11032,8 @@ final class LagunaRuntimeDecoderLayer: Module {
             mask: mask,
             cache: cache,
             qkRoPEAngles: qkRoPEAngles,
-            qkRoPEOffsets: qkRoPEOffsets
+            qkRoPEOffsets: qkRoPEOffsets,
+            preNormalizedInput: preNormalizedInput
         )
         let h: MLXArray
         let normalized: MLXArray
@@ -11188,17 +11203,16 @@ final class LagunaRuntimeDecoderLayer: Module {
 
 // MARK: - Model
 
-/// Single-token embedding gather plus position-atlas row selection. The
-/// embedding row is copied as BF16 bits; the angle rows are copied as FP32
-/// bits. The stock embedding and the two stock probe RoPE calls produce the
-/// same three output buffers separately.
+/// Single-token raw and normalized embedding gathers plus position-atlas row
+/// selection. Both embedding rows are copied as BF16 bits; the angle rows are
+/// copied as FP32 bits.
 private let lagunaDecodeEmbeddingRoPEAtlasKernel = MLXFast.metalKernel(
-    name: "laguna_decode_embedding_rope_atlas_bf16_2048_v2",
+    name: "laguna_decode_embedding_rope_atlas_bf16_2048_v3",
     inputNames: [
-        "tokens", "embedding_weight", "full_atlas", "sliding_atlas",
-        "atlas_position",
+        "tokens", "embedding_weight", "normalized_embedding_weight",
+        "full_atlas", "sliding_atlas", "atlas_position",
     ],
-    outputNames: ["hidden", "full_angles", "sliding_angles"],
+    outputNames: ["hidden", "normalized_hidden", "full_angles", "sliding_angles"],
     source: """
 constexpr uint hidden_size = 2048;
 constexpr uint hidden_vectors = hidden_size / 4;
@@ -11212,10 +11226,13 @@ uint position = uint(atlas_position);
 const device vec<bfloat, 4>* embedding_vectors =
     (const device vec<bfloat, 4>*)(
         embedding_weight + token * hidden_size);
-device vec<bfloat, 4>* hidden_vectors_out =
-    (device vec<bfloat, 4>*)(hidden);
+const device vec<bfloat, 4>* normalized_embedding_vectors =
+    (const device vec<bfloat, 4>*)(
+        normalized_embedding_weight + token * hidden_size);
 if (lane < hidden_vectors) {
-    hidden_vectors_out[lane] = embedding_vectors[lane];
+    ((device vec<bfloat, 4>*)(hidden))[lane] = embedding_vectors[lane];
+    ((device vec<bfloat, 4>*)(normalized_hidden))[lane] =
+        normalized_embedding_vectors[lane];
 }
 
 if (lane < full_width / 4) {
@@ -11239,14 +11256,20 @@ if (lane < sliding_width / 4) {
 private func lagunaDecodeEmbeddingRoPEAtlas(
     tokens: MLXArray,
     embeddingWeight: MLXArray,
+    normalizedEmbeddingWeight: MLXArray,
     fullAtlas: MLXArray,
     slidingAtlas: MLXArray,
     position: Int
-) -> (hidden: MLXArray, fullAngles: MLXArray, slidingAngles: MLXArray)? {
+) -> (
+    hidden: MLXArray, normalizedHidden: MLXArray,
+    fullAngles: MLXArray, slidingAngles: MLXArray
+)? {
     guard tokens.dtype == .int32,
         tokens.dims(1, 1),
         embeddingWeight.dtype == .bfloat16,
         embeddingWeight.dims(LagunaConstants.vocabSize, LagunaConstants.hiddenSize),
+        normalizedEmbeddingWeight.dtype == .bfloat16,
+        normalizedEmbeddingWeight.sameDims(embeddingWeight),
         fullAtlas.dtype == .float32,
         fullAtlas.dims(1, 1, lagunaRoPEAngleAtlasLength, LagunaConstants.headDim / 2),
         slidingAtlas.dtype == .float32,
@@ -11259,6 +11282,7 @@ private func lagunaDecodeEmbeddingRoPEAtlas(
     let kernelInputs: [any ScalarOrArray] = [
         tokens,
         embeddingWeight,
+        normalizedEmbeddingWeight,
         fullAtlas,
         slidingAtlas,
         Int32(position),
@@ -11269,13 +11293,14 @@ private func lagunaDecodeEmbeddingRoPEAtlas(
         threadGroup: (512, 1, 1),
         outputShapes: [
             [1, 1, LagunaConstants.hiddenSize],
+            [1, 1, LagunaConstants.hiddenSize],
             [1, 1, 1, LagunaConstants.headDim / 2],
             [1, 1, 1, LagunaConstants.headDim],
         ],
-        outputDTypes: [.bfloat16, .float32, .float32]
+        outputDTypes: [.bfloat16, .bfloat16, .float32, .float32]
     )
-    lagunaTrace("decode embedding+rope atlas")
-    return (outputs[0], outputs[1], outputs[2])
+    lagunaTrace("decode embedding+normalized+rope atlas")
+    return (outputs[0], outputs[1], outputs[2], outputs[3])
 }
 
 /// The Laguna text tower: unscaled embedding and 40 decoder layers. The final
@@ -11294,6 +11319,7 @@ final class LagunaRuntimeModelInner: Module {
     let _slidingRoPEAngleSeed: MLXArray
     var _fullRoPEAngleAtlas: MLXArray?
     var _slidingRoPEAngleAtlas: MLXArray?
+    var _layer0NormalizedEmbedding: MLXArray?
     /// Which layers fire `asyncEval` during single-token decode. Derived from
     /// the process-wide async-stage flag and the fixed layer count.
     let decodeFireMask: UInt64
@@ -11384,6 +11410,27 @@ final class LagunaRuntimeModelInner: Module {
         return [fullAtlas, slidingAtlas]
     }
 
+    func prepareLayer0NormalizedEmbedding() -> MLXArray? {
+        guard lagunaRoPEAngleAtlasEnabled,
+            let layer0 = layers.first,
+            embedTokens.weight.dtype == .bfloat16,
+            embedTokens.weight.dims(
+                LagunaConstants.vocabSize, LagunaConstants.hiddenSize),
+            layer0.inputLayerNorm.weight.dtype == .bfloat16,
+            layer0.inputLayerNorm.weight.dims(LagunaConstants.hiddenSize),
+            layer0.inputLayerNorm.eps == Float(LagunaConstants.rmsNormEpsilon)
+        else {
+            return nil
+        }
+        if let normalizedEmbedding = _layer0NormalizedEmbedding {
+            return normalizedEmbedding
+        }
+
+        let normalizedEmbedding = layer0.inputLayerNorm(embedTokens.weight)
+        _layer0NormalizedEmbedding = normalizedEmbedding
+        return normalizedEmbedding
+    }
+
     /// Return a host position only for the exact direct-decode cache pair.
     /// Exact runtime type checks deliberately exclude compilable subclasses,
     /// whose compatibility `offset` getter may synchronize a graph value.
@@ -11440,18 +11487,22 @@ final class LagunaRuntimeModelInner: Module {
         var fullRoPEAngles: MLXArray?
         var slidingRoPEAngles: MLXArray?
         var qkRoPEOffsets: MLXArray?
+        var layer0NormalizedInput: MLXArray?
         if lagunaRoPEAngleAtlasEnabled,
             let position = decodeRoPEAtlasPosition(inputs: inputs, cache: cache),
+            let normalizedEmbedding = _layer0NormalizedEmbedding,
             let fullAtlas = _fullRoPEAngleAtlas,
             let slidingAtlas = _slidingRoPEAngleAtlas,
             let atlasOutputs = lagunaDecodeEmbeddingRoPEAtlas(
                 tokens: inputs,
                 embeddingWeight: embedTokens.weight,
+                normalizedEmbeddingWeight: normalizedEmbedding,
                 fullAtlas: fullAtlas,
                 slidingAtlas: slidingAtlas,
                 position: position)
         {
             h = atlasOutputs.hidden
+            layer0NormalizedInput = atlasOutputs.normalizedHidden
             fullRoPEAngles = atlasOutputs.fullAngles
             slidingRoPEAngles = atlasOutputs.slidingAngles
         } else if lagunaRoPEAtlasViewsEnabled,
@@ -11535,6 +11586,7 @@ final class LagunaRuntimeModelInner: Module {
             let isFull = layerTypes[i] == .full
             let mask = isFull ? fullMask : slidingMask
             let qkRoPEAngles = isFull ? fullRoPEAngles : slidingRoPEAngles
+            let preNormalizedInput = i == 0 ? layer0NormalizedInput : nil
             if i == layers.count - 1, h.dim(1) > 1 {
                 if case .causal = mask {
                     h = layer.callLastPrefillRow(h, cache: cache?[i])
@@ -11544,7 +11596,8 @@ final class LagunaRuntimeModelInner: Module {
                         mask: mask,
                         cache: cache?[i],
                         qkRoPEAngles: qkRoPEAngles,
-                        qkRoPEOffsets: qkRoPEOffsets
+                        qkRoPEOffsets: qkRoPEOffsets,
+                        preNormalizedInput: preNormalizedInput
                     )
                     if isSingleTokenDecode, (decodeFireMask >> UInt64(i)) & 1 == 1 {
                         asyncEval(h)
@@ -11556,7 +11609,8 @@ final class LagunaRuntimeModelInner: Module {
                     mask: mask,
                     cache: cache?[i],
                     qkRoPEAngles: qkRoPEAngles,
-                    qkRoPEOffsets: qkRoPEOffsets
+                    qkRoPEOffsets: qkRoPEOffsets,
+                    preNormalizedInput: preNormalizedInput
                 )
                 if isSingleTokenDecode, (decodeFireMask >> UInt64(i)) & 1 == 1 {
                     asyncEval(h)
@@ -11687,6 +11741,9 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
     /// derived side copy.
     func prepareFusedRuntimeWeights() {
         var fusedArrays = model.prepareRoPEAngleAtlases()
+        if let normalizedEmbedding = model.prepareLayer0NormalizedEmbedding() {
+            fusedArrays.append(normalizedEmbedding)
+        }
         for layer in model.layers {
             if lagunaUseNativeAffineQKV(layer: layer.selfAttn.layerIdx) {
                 fusedArrays.append(
