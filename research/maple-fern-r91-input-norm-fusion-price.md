@@ -82,11 +82,12 @@ from the correctness gate because they never ship: the probe is delivered as a
 research patch and the submitted `Sources/` tree is byte-identical to the base.
 That exemption is stated here explicitly, as the assignment requires.
 
-A bit-exact "inject a redundant extra rmsNorm" ladder was considered and
-rejected: MLX is lazy, so a discarded duplicate node is never evaluated, and
-forcing it into the graph costs extra glue dispatches (`maximum`, `(y0+y1)*0.5`)
-or extra unused kernel buffer inputs — i.e. it contaminates exactly the
-quantity being measured.
+A bit-exact "inject a redundant extra rmsNorm" arm was considered up front and
+initially rejected, because MLX is lazy — a discarded duplicate node is never
+evaluated — and forcing it into the graph costs an extra glue dispatch. Stage
+1a's `skipc` result overturned that judgement: the glue dispatch can be
+*matched* across both arms and cancelled, whereas the value perturbation the
+deletion arms carry cannot be. See stage 1b below.
 
 ### Design
 
@@ -114,9 +115,86 @@ kernels it does not touch, which invalidates a control denominator. The
 in-session null (`--offset 1`, `base/base`) is reported next to each contrast
 as the estimator's own zero check.
 
-### Results
+### Stage 1a results — deletion arms
 
-_(to be filled in from `/tmp/maple-r91a/nat`)_
+Run on `3f430f6f17ac4bfbac5f47767ca78cb89d84a760` (the assignment's `BASE_SHA`;
+the advisor bumped the base twice mid-measurement and instructed no rebase).
+`env OUT=/tmp/maple-r91a REPS=4 STEPS=200 REGIMES=nat`, 32 timed slots, 200
+steps each, first step dropped ⇒ 199 steady steps per slot.
+
+Per-arm means (µs/step): `base` wall 8222.3 / busy 7966.4; `skipr` wall 8075.7 /
+busy 7823.5; `skipc` wall 9054.2 / busy 8757.9.
+
+| contrast | offset | n | metric | Δ µs/step | 95 % CI | SD | score % |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `skipr − base` | 0 | 8 | wall | **−135.93** | [−154.67, −117.14] | 22.82 | −2.0770 |
+| | | | busy_sum | **−137.13** | [−143.57, −130.68] | 7.84 | **−2.0953** |
+| | | | busy_union | −137.13 | [−143.57, −130.68] | 7.84 | −2.0953 |
+| | | | gap | +1.49 | [−21.39, +26.64] | 28.51 | — |
+| `skipc − base` | 0 | 8 | wall | +821.27 | [+757.13, +885.86] | 70.00 | +12.5490 |
+| | | | busy_sum | +785.62 | [+738.32, +833.18] | 51.64 | +12.0043 |
+| | | | gap | +46.70 | [+6.25, +93.29] | 43.99 | — |
+| `skipc − skipr` | 1 | 8 | wall | +978.37 | [+930.66, +1026.34] | 51.03 | +14.9496 |
+| | | | busy_sum | +934.30 | [+900.46, +968.28] | 36.23 | +14.2762 |
+| `base − base` (null) | 1 | 7 | wall | +1.92 | [−44.01, +48.11] | 49.79 | +0.0293 |
+| | | | busy_sum | +16.08 | [−19.15, +51.47] | 38.10 | +0.2457 |
+
+Three findings.
+
+**1. The naive ceiling is 137 µs/step, not the assignment's modelled 193.**
+`skipr` removes 40 dispatches and saves 137.13 µs/step of busy time
+(≈ 2.10 % of score at 0.015280 %/µs/step). The in-session null is +16.08
+[−19.15, +51.47], so the contrast is ~7σ clear of the estimator's own zero.
+
+**2. The 56 µs/step dispatch-boundary term does not materialise.**
+Rule 41 prices a decode dispatch boundary at 1.4064 µs, so deleting 40
+boundaries should have shown ≈ 56 µs/step of *wall* saving on top of the kernel
+work, i.e. `gap` should have fallen. It did not: `gap` moved **+1.49 µs/step
+[−21.39, +26.64]** — statistically zero — and the wall saving (135.93) equals
+the busy saving (137.13) inside noise. Removing 9.9 % of the dispatch stream
+(406.0 → 366.0 per step) bought no boundary time at all. The whole prize is the
+kernel's own busy time, 137.13 / 40 ≈ **3.43 µs per input-norm dispatch**.
+Rule 41's per-boundary price evidently applies to *added* boundaries that break
+an existing pipeline, not to these already-pipelined ones.
+
+**3. A value-content confound of ~7× the prize exists, so the deletion arms
+cannot be read as a clean price.** `skipr` and `skipc` run at *identical*
+366.0 dispatches/step and 45.0 CBs/step, yet `skipc` is **+934.30 µs/step**
+busier. Nothing structural distinguishes them — only the values flowing
+through. The most plausible mechanism is the MoE router: garbage hidden states
+change top-k expert selection, and therefore the expert-gather DRAM access
+pattern (denormal handling is an alternative). Either way, on this model an
+E0-style "delete the dispatch" probe is **not sound in isolation**: any deletion
+arm silently carries a value perturbation whose contribution is unbounded by
+the design. `skipc` is *not* a usable upper bracket — it is a slower arm, not a
+bounding one.
+
+Finding 3 is why stage 1 is not finished at 137 µs/step.
+
+### Stage 1b — the bit-exact confound-free arm
+
+Two additional arms on the same binary, both **numerically identical to
+shipped** (`maximum(x, x) == x` bit-for-bit, so every route, every gather and
+every downstream value is unchanged):
+
+| arm | mode | graph |
+| --- | --- | --- |
+| `max1` | 3 | `y = inputNorm(input)`; `normalized = maximum(y, y)`. One norm + one glue dispatch per layer. |
+| `dupn` | 2 | `normalized = maximum(inputNorm(input), inputNorm(input))`. **Two** norms + the same one glue dispatch per layer. |
+
+`dupn − max1` therefore differs by exactly one input-RMSNorm dispatch per layer
+and by nothing else — same values, same dispatch classes, same command-buffer
+structure. By symmetry it is the confound-free price of the norm edge, and it
+brackets the deletion estimate from the other side. `max1 − base` is a free
+by-product: the price of inserting 40 near-zero-work dispatches into the decode
+chain, an independent test of finding 2.
+
+`ORDER="base max1 max1 base dupn max1 max1 dupn"`, `REPS=4`, `STEPS=200`
+⇒ n = 8 for `base|max1` at offset 0, n = 8 for `max1|dupn` at offset 0, n = 8
+sign-balanced for `base|dupn` at offset 1, and n = 8 `max1|max1` nulls at
+offset 1.
+
+_(results to be filled in from `/tmp/maple-r91b/nat`)_
 
 ### Stopping rule
 
