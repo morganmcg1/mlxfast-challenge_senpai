@@ -5347,9 +5347,10 @@ func lagunaNormAffineQKV(
     scales: MLXArray,
     biases: MLXArray,
     indexedMetadata: LagunaIndexedAffineMetadata? = nil,
+    kernel: MLXFast.MLXFastKernel?,
     rows: Int
 ) -> MLXArray? {
-    guard let kernel = lagunaNormAffineQKVKernels[rows] else { return nil }
+    guard let kernel else { return nil }
     let hidden = LagunaConstants.hiddenSize
     guard residual.dtype == .bfloat16,
         residual.dims(1, 1, hidden),
@@ -5489,6 +5490,7 @@ final class LagunaRuntimeAttention: Module {
     /// Q/K/V batch. The original BF16 parameters remain authoritative and
     /// continue to serve prefill.
     var _nativeAffineQKV: LagunaNativeAffineWeight?
+    var _nativeAffineQKVKernel: MLXFast.MLXFastKernel?
 
     /// Derived native group-32 affine layout for the attention output
     /// projection, used only by the serial decode call. `wo.weight` remains the
@@ -5618,6 +5620,7 @@ final class LagunaRuntimeAttention: Module {
                     fused.scales, site: "qkv", layer: layerIdx)
             }
         }
+        _nativeAffineQKVKernel = lagunaNormAffineQKVKernels[fused.originalShape[0]]
         _nativeAffineQKV = fused
         return fused.arrays + (_nativeAffineGProj?.arrays ?? [])
     }
@@ -5792,6 +5795,7 @@ final class LagunaRuntimeAttention: Module {
                         scales: fusedAffine.scales,
                         biases: affineBiases,
                         indexedMetadata: fusedAffine.indexedMetadata,
+                        kernel: _nativeAffineQKVKernel,
                         rows: fusedAffine.originalShape[0])
                 }
 
