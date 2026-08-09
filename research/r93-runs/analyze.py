@@ -16,6 +16,7 @@ manifest.json: {"nulls": ["<id>", ...], "ladder": {"<id>": K, ...},
 """
 import json
 import math
+import pathlib
 import sys
 
 # two-sided 95% t quantiles by degrees of freedom
@@ -49,10 +50,33 @@ def sigma_ci(sd, n):
     return (sd * math.sqrt(df / CHI2_HI[df]), sd * math.sqrt(df / CHI2_LO[df]))
 
 
+def load_local(by):
+    """Merge directly fetched receipts/<marker>.json over the corpus listing.
+
+    The corpus is a snapshot, so a submission made after the last pull is
+    absent from it; the per-submission fetch is always current.
+    """
+    d = pathlib.Path(__file__).parent / "receipts"
+    for p in sorted(d.glob("*.json")):
+        s = json.load(open(p))["submission"]
+        m = s["officialMetrics"]
+        by[s["id"][:8]] = {
+            "id": s["id"][:8],
+            "ts": m.get("timestamp") or s.get("createdAt"),
+            "score": s.get("officialScore"),
+            "bl_dec": m.get("baseline_decode_seconds_per_token"),
+            "bl_pre": m.get("baseline_prefill_seconds_per_token"),
+            "cand_dec": m.get("decode_seconds_per_token"),
+            "cand_pre": m.get("prefill_seconds_per_token"),
+            "marker": p.stem,
+        }
+
+
 def main():
     receipts = json.load(open(sys.argv[1]))
     man = json.load(open(sys.argv[2]))
     by = {r["id"]: r for r in receipts}
+    load_local(by)
 
     print("=" * 78)
     print("ARM A - candidate-side channel sigma from machine-code-identical nulls")
