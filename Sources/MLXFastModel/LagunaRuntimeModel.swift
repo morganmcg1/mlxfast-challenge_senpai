@@ -4802,6 +4802,41 @@ private func lagunaNormAffineQKVPrefetchSource(
     """
 }
 
+func lagunaNormAffineQKVResearchSource(
+    rows: Int, depth: Int, indexed: Bool, resultsPerSIMDGroup: Int
+) -> String {
+    precondition(resultsPerSIMDGroup == 4 || resultsPerSIMDGroup == 5)
+    var source = lagunaNormAffineQKVPrefetchSource(
+        rows: rows, depth: depth, indexed: indexed)
+    guard resultsPerSIMDGroup == 4 else { return source }
+
+    let tailSetup = """
+    uint valid_rows = out_row < out_vec_size
+        ? min(results_per_simdgroup, out_vec_size - out_row) : 0;
+    uint safe_out_row = out_row < out_vec_size ? out_row : 0;
+    """
+    let fiveRowInitializer = """
+    thread float result[results_per_simdgroup] = {
+        0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+    """
+    let fourRowInitializer = """
+    thread float result[results_per_simdgroup] = {
+        0.0f, 0.0f, 0.0f, 0.0f};
+    """
+
+    source = source
+        .replacingOccurrences(
+            of: "constexpr uint results_per_simdgroup = 5;",
+            with: "constexpr uint results_per_simdgroup = 4;")
+        .replacingOccurrences(of: tailSetup, with: "")
+        .replacingOccurrences(of: "safe_out_row", with: "out_row")
+        .replacingOccurrences(of: "valid_rows", with: "results_per_simdgroup")
+        .replacingOccurrences(of: fiveRowInitializer, with: fourRowInitializer)
+    precondition(!source.contains("valid_rows") && !source.contains("safe_out_row"))
+    precondition(source.contains(fourRowInitializer))
+    return source
+}
+
 /// One kernel per reachable `[Q; K; V; (G)]` row count: both head families,
 /// gate rows folded in or not. The five-row prefetch variant covers ten rows
 /// per threadgroup and bounds-checks its final partial tile.
