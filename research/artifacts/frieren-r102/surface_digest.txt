@@ -1,0 +1,8 @@
+=== rule 75 surface digest (pre-build) ===
+ce9c6b1646b35a6d547848c07e8610656b3fbead947ad14560746025f52794d4  -
+=== host state (pre) ===
+2026-08-09T20:07:32Z
+(empty pgrep list above means no competing model-holding process)
+=== rule 75 surface digest (post-timing) ===
+ce9c6b1646b35a6d547848c07e8610656b3fbead947ad14560746025f52794d4  -
+2026-08-09T20:10:35Z
