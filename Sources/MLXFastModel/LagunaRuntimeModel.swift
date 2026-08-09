@@ -5304,11 +5304,14 @@ let lagunaFusedNormAffineQKVEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_NORM_AFFINE_QKV"] != "0"
 
 /// `DARKBLOOM_R91_INPUT_NORM_PROBE` — NON-SHIPPING research instrument for the
-/// stage-1 ceiling of the input-RMSNorm -> QKV fusion (PR #483). Non-zero
-/// settings DELETE the per-layer input RMSNorm dispatch on the NVFP4 decode
-/// path and are numerically WRONG by construction; they exist only to price
-/// the whole prize end to end before any fusion is written. Never set on a
-/// scored, golden, or equivalence run.
+/// stage-1 ceiling of the input-RMSNorm -> QKV fusion (PR #483). It exists only
+/// to price the whole prize end to end before any fusion is written. Never set
+/// on a scored, golden, or equivalence run.
+///
+/// The negative settings DELETE the per-layer input RMSNorm dispatch and are
+/// numerically WRONG by construction. The positive settings ADD dispatches and
+/// stay bit-exact, which prices the same edge without changing a single value
+/// downstream:
 ///
 ///   0   shipped behaviour (`inputNorm(input)`).
 ///  -1   `skipr`: QKV/gate consume the raw residual. Deletes exactly one
@@ -5318,6 +5321,17 @@ let lagunaFusedNormAffineQKVEnabled =
 ///       Bounded values, but the layer's QKV no longer depends on the previous
 ///       layer's residual, so the projection subchain may overlap. Diagnostic
 ///       upper bracket only.
+///   2   `dupn`: two independent input norms per layer reduced by an
+///       element-wise `maximum`. `max(x, x) == x` bit-for-bit, so every routed
+///       expert, every gather and every value downstream is unchanged; the arm
+///       differs from `max1` by exactly one extra norm dispatch per layer.
+///   3   `max1`: one input norm, same element-wise `maximum` reduction against
+///       itself. The matched control for `dupn`: identical values, identical
+///       dispatch classes, one fewer norm.
+///
+/// `dupn - max1` is therefore the value-confound-free price of a single input
+/// RMSNorm dispatch, and `max1 - base` independently prices 40 near-zero-work
+/// dispatches inserted into the decode chain.
 let lagunaR91InputNormProbe =
     Int(ProcessInfo.processInfo.environment["DARKBLOOM_R91_INPUT_NORM_PROBE"] ?? "0") ?? 0
 
@@ -5791,6 +5805,11 @@ final class LagunaRuntimeAttention: Module {
                     normalized = fusedQKV
                 } else if lagunaR91InputNormProbe == 0 {
                     normalized = inputNorm(input)
+                } else if lagunaR91InputNormProbe == 2 {
+                    normalized = maximum(inputNorm(input), inputNorm(input))
+                } else if lagunaR91InputNormProbe == 3 {
+                    let once = inputNorm(input)
+                    normalized = maximum(once, once)
                 } else {
                     normalized =
                         lagunaR91InputNormProbe == -2

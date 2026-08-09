@@ -14,6 +14,11 @@
 #   skipc -2   QKV/gate consume the norm weight broadcast to the row shape.
 #              Bounded values, but the projection subchain no longer depends on
 #              the previous layer, so it may overlap. Diagnostic bracket only.
+#   dupn   2   two independent input norms per layer reduced by an element-wise
+#              `maximum`. Bit-exact (`max(x,x) == x`), so no downstream value,
+#              route or gather moves. PRIMARY, confound-free.
+#   max1   3   one input norm, same `maximum` reduction against itself: the
+#              matched control for `dupn`. `dupn - max1` = one norm dispatch.
 #
 # Rule 33 does not bite: no kernel SOURCE differs between arms, only how many
 # times the unchanged `rms_single_row` AOT kernel is dispatched, so there is no
@@ -26,10 +31,15 @@
 #        command buffer. ATTRIBUTION ONLY (rule 43): no s1 total, ratio or
 #        cross-kernel sum may enter a conclusion.
 #
-# ORDER is an 8-slot palindrome giving, per rep, 2 base/skipr duplexes,
-# 2 base/skipc duplexes, 2 skipr/skipc duplexes and 1 base/base null duplex.
+# The default ORDER is an 8-slot palindrome giving, per rep, 2 base/skipr
+# duplexes, 2 base/skipc duplexes, 2 skipr/skipc duplexes and 1 base/base null.
 #
 #   OUT=/tmp/maple-r91a REPS=4 REGIMES=nat bash research/maple_r91a_input_norm_ab.sh
+#
+# The bit-exact stage-1b ORDER is "base max1 max1 base dupn max1 max1 dupn",
+# which at REPS=4 yields n=8 for base|max1 at offset 0, n=8 for max1|dupn at
+# offset 0, n=8 sign-balanced for base|dupn at offset 1 (its duplexes straddle
+# the rep boundary) and n=8 max1|max1 nulls at offset 1.
 set -uo pipefail
 
 OUT="${OUT:-/tmp/maple-r91a}"
@@ -47,6 +57,8 @@ arm_mode() {
     base) echo 0 ;;
     skipr) echo -1 ;;
     skipc) echo -2 ;;
+    dupn) echo 2 ;;
+    max1) echo 3 ;;
     *) echo "unknown arm $1" >&2; return 1 ;;
   esac
 }
@@ -109,7 +121,8 @@ run_slot() {
 
 echo "########## reachability pre-check (rule 39): dispatches/step per arm ##########"
 mkdir -p "${OUT}/precheck"
-for arm in base skipr skipc; do
+PRECHECK_ARMS="${PRECHECK_ARMS:-$(printf '%s\n' ${ORDER} | sort -u | tr '\n' ' ')}"
+for arm in ${PRECHECK_ARMS}; do
   run_slot "${OUT}/precheck" "00-rep0-${arm}" "${arm}" nat 24
   printf '%-6s ' "${arm}"
   grep -E "^per steady step:" "${OUT}/precheck/00-rep0-${arm}.log" \
