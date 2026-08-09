@@ -1792,7 +1792,7 @@ private func makeLagunaSlidingFusedAttentionKernel(
         outputNames: ["attended"],
         source: lagunaSlidingFusedAttentionSource,
         header: "#define LAGUNA_PHYSICAL_SIMDGROUPS \(physicalSimdgroups)\n"
-            + lagunaSlidingFusedAttentionHeader,
+            + lagunaSlidingFusedAttentionHeader + "\n",
         ensureRowContiguous: true)
 }
 
