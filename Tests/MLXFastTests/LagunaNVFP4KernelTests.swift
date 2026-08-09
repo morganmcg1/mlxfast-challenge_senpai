@@ -430,26 +430,46 @@ func routedSharedDownRouterWeightBroadcastIsolatedTimingWhenEnabled() {
     ]
 
     let dispatchesPerSample = 39
-    let samplesPerOrder = 40
+    let samplesPerOrder = 128
+
+    func run(_ kernel: MLXFast.MLXFastKernel) -> MLXArray {
+        kernel(
+            inputs,
+            grid: (2_048 / 4 * 288, 1, 1),
+            threadGroup: (288, 1, 1),
+            outputShapes: [[1, 1, 2_048]],
+            outputDTypes: [.bfloat16]
+        )[0]
+    }
 
     func runBatch(_ kernel: MLXFast.MLXFastKernel) -> [MLXArray] {
-        (0..<dispatchesPerSample).map { _ in
-            kernel(
-                inputs,
-                grid: (2_048 / 4 * 288, 1, 1),
-                threadGroup: (288, 1, 1),
-                outputShapes: [[1, 1, 2_048]],
-                outputDTypes: [.bfloat16]
-            )[0]
-        }
+        (0..<dispatchesPerSample).map { _ in run(kernel) }
+    }
+
+    func execute(_ kernel: MLXFast.MLXFastKernel) {
+        eval(runBatch(kernel))
+        Stream.gpu.synchronize()
     }
 
     func measure(_ kernel: MLXFast.MLXFastKernel) -> Double {
         let outputs = runBatch(kernel)
+        Stream.gpu.synchronize()
         let start = DispatchTime.now().uptimeNanoseconds
         eval(outputs)
+        Stream.gpu.synchronize()
         let elapsed = DispatchTime.now().uptimeNanoseconds - start
         return Double(elapsed) / Double(dispatchesPerSample)
+    }
+
+    func expectBitsMatch() {
+        let candidate = run(candidateKernel)
+        let baseline = run(baselineKernel)
+        eval(candidate, baseline)
+        Stream.gpu.synchronize()
+        let candidateBits = candidate.view(dtype: .uint16).asArray(UInt16.self)
+        let baselineBits = baseline.view(dtype: .uint16).asArray(UInt16.self)
+        #expect(candidateBits == baselineBits)
+        #expect(Array(candidateBits[2_044..<2_048]) == Array(baselineBits[2_044..<2_048]))
     }
 
     func median(_ values: [Double]) -> Double {
@@ -478,36 +498,85 @@ func routedSharedDownRouterWeightBroadcastIsolatedTimingWhenEnabled() {
         return median(values.map { abs($0 - center) })
     }
 
-    func describe(order: String, baseline: [Double], candidate: [Double]) -> Double {
-        let baselineMedian = median(baseline)
-        let candidateMedian = median(candidate)
-        let speedup = baselineMedian / candidateMedian
-        let baselineIQR = percentile(baseline, 0.75) - percentile(baseline, 0.25)
-        let candidateIQR = percentile(candidate, 0.75) - percentile(candidate, 0.25)
-        print(
-            "ROUTER_BROADCAST_ISOLATED order=\(order) samples=\(baseline.count) "
-                + "dispatches_per_sample=\(dispatchesPerSample) "
-                + "baseline_median_ns=\(baselineMedian) candidate_median_ns=\(candidateMedian) "
-                + "speedup=\(speedup) baseline_mad_ns=\(mad(baseline)) "
-                + "candidate_mad_ns=\(mad(candidate)) baseline_iqr_ns=\(baselineIQR) "
-                + "candidate_iqr_ns=\(candidateIQR)"
-        )
-        let baselineRaw = baseline.map { String($0) }.joined(separator: ",")
-        let candidateRaw = candidate.map { String($0) }.joined(separator: ",")
-        print(
-            "ROUTER_BROADCAST_ISOLATED_RAW order=\(order) "
-                + "baseline_ns=[\(baselineRaw)] candidate_ns=[\(candidateRaw)]"
-        )
-        return speedup
+    func iqr(_ values: [Double]) -> Double {
+        percentile(values, 0.75) - percentile(values, 0.25)
     }
 
-    for iteration in 0..<8 {
-        if iteration.isMultiple(of: 2) {
-            eval(runBatch(baselineKernel))
-            eval(runBatch(candidateKernel))
+    func bootstrapLowerBound(_ ratios: [Double], seed: UInt64) -> Double {
+        var state = seed
+        var medians: [Double] = []
+        var resample = Array(repeating: 0.0, count: ratios.count)
+        medians.reserveCapacity(10_000)
+        for _ in 0..<10_000 {
+            for index in resample.indices {
+                state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+                resample[index] = ratios[Int(state % UInt64(ratios.count))]
+            }
+            medians.append(median(resample))
+        }
+        return percentile(medians, 0.05)
+    }
+
+    func describe(
+        order: String,
+        baseline: [Double],
+        candidate: [Double],
+        bootstrapSeed: UInt64
+    ) -> (speedup: Double, baselineMedian: Double, candidateMedian: Double) {
+        let baselineMedian = median(baseline)
+        let candidateMedian = median(candidate)
+        let ratios = zip(baseline, candidate).map { $0 / $1 }
+        let logRatios = ratios.map { log($0) }
+        let speedup = median(ratios)
+        let fields = [
+            "ROUTER_BROADCAST_ISOLATED",
+            "order=\(order)",
+            "samples=\(baseline.count)",
+            "dispatches_per_sample=\(dispatchesPerSample)",
+            "baseline_median_ns=\(baselineMedian)",
+            "candidate_median_ns=\(candidateMedian)",
+            "candidate_median_lower=\(candidateMedian < baselineMedian)",
+            "paired_speedup_median=\(speedup)",
+            "paired_speedup_bootstrap_p05=\(bootstrapLowerBound(ratios, seed: bootstrapSeed))",
+            "baseline_mad_ns=\(mad(baseline))",
+            "candidate_mad_ns=\(mad(candidate))",
+            "baseline_iqr_ns=\(iqr(baseline))",
+            "candidate_iqr_ns=\(iqr(candidate))",
+            "paired_log_ratio_mad=\(mad(logRatios))",
+            "paired_log_ratio_iqr=\(iqr(logRatios))",
+        ]
+        print(fields.joined(separator: " "))
+        let baselineRaw = baseline.map { String($0) }.joined(separator: ",")
+        let candidateRaw = candidate.map { String($0) }.joined(separator: ",")
+        let ratioRaw = ratios.map { String($0) }.joined(separator: ",")
+        print(
+            [
+                "ROUTER_BROADCAST_ISOLATED_RAW",
+                "order=\(order)",
+                "baseline_ns=[\(baselineRaw)]",
+                "candidate_ns=[\(candidateRaw)]",
+                "paired_speedup=[\(ratioRaw)]",
+            ].joined(separator: " ")
+        )
+        return (speedup, baselineMedian, candidateMedian)
+    }
+
+    expectBitsMatch()
+    execute(baselineKernel)
+    execute(candidateKernel)
+    execute(candidateKernel)
+    execute(baselineKernel)
+    for block in 0..<8 {
+        if block.isMultiple(of: 2) {
+            execute(baselineKernel)
+            execute(candidateKernel)
+            execute(candidateKernel)
+            execute(baselineKernel)
         } else {
-            eval(runBatch(candidateKernel))
-            eval(runBatch(baselineKernel))
+            execute(candidateKernel)
+            execute(baselineKernel)
+            execute(baselineKernel)
+            execute(candidateKernel)
         }
     }
 
@@ -539,11 +608,32 @@ func routedSharedDownRouterWeightBroadcastIsolatedTimingWhenEnabled() {
             recordAB()
         }
     }
+    expectBitsMatch()
 
-    let speedupAB = describe(order: "AB", baseline: baselineAB, candidate: candidateAB)
-    let speedupBA = describe(order: "BA", baseline: baselineBA, candidate: candidateBA)
-    #expect(speedupAB >= 1.002)
-    #expect(speedupBA >= 1.002)
+    let summaryAB = describe(
+        order: "AB",
+        baseline: baselineAB,
+        candidate: candidateAB,
+        bootstrapSeed: 0xA11CE
+    )
+    let summaryBA = describe(
+        order: "BA",
+        baseline: baselineBA,
+        candidate: candidateBA,
+        bootstrapSeed: 0xBA5E
+    )
+    let orderSpeedupRatio = summaryAB.speedup / summaryBA.speedup
+    print(
+        [
+            "ROUTER_BROADCAST_ISOLATED_ORDER_EFFECT",
+            "speedup_ratio=\(orderSpeedupRatio)",
+            "abs_log_speedup_ratio=\(abs(log(orderSpeedupRatio)))",
+        ].joined(separator: " ")
+    )
+    #expect(summaryAB.speedup >= 1.002)
+    #expect(summaryBA.speedup >= 1.002)
+    #expect(summaryAB.candidateMedian < summaryAB.baselineMedian)
+    #expect(summaryBA.candidateMedian < summaryBA.baselineMedian)
 }
 
 private func verifyActualRoutedGather(
