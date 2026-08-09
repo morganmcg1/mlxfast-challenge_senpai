@@ -156,6 +156,11 @@ private let lagunaLmHeadCoarseV5Enabled =
     // DARKBLOOM_LMHEAD_COARSE_V5=0 restores the int6 v4 arm byte-for-byte.
     ProcessInfo.processInfo.environment["DARKBLOOM_LMHEAD_COARSE_V5"] != "0"
 
+/// Fold the v5 coarse argmax into its two-row producer. DEFAULT ON; set to
+/// "0" to restore the retained 128-threadgroup argmax stage in the same binary.
+private let lagunaLmHeadPairMaxEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_LMHEAD_PAIR_MAX"] != "0"
+
 /// Debug instrumentation for the v5 arm: per-step candidate count on stderr
 /// (forces a GPU sync per decode step; NEVER set on a timing run). Used once
 /// to confirm the offline candidate percentiles transfer to the device.
@@ -178,6 +183,54 @@ private let lagunaLmHeadBF16PredecessorThresholdEnabled =
 private let lagunaLmHeadBF16MidpointThresholdEnabled =
     ProcessInfo.processInfo.environment[
         "DARKBLOOM_LMHEAD_BF16_MIDPOINT_THRESHOLD"] != "0"
+
+private let lagunaLmHeadPairMaxProducerStore = lagunaLmHeadPairMaxEnabled
+    ? "pair_max[row0 >> 1] = c_acc1 > c_acc0 ? c_acc1 : c_acc0;"
+    : ""
+
+private let lagunaLmHeadPairMaxThresholdKernelName =
+    lagunaLmHeadBF16PredecessorThresholdEnabled
+    ? (lagunaLmHeadBF16MidpointThresholdEnabled
+        ? "laguna_lmhead_pair_max_bf16_midpoint_threshold_v1"
+        : "laguna_lmhead_pair_max_bf16_predecessor_threshold_v1")
+    : "laguna_lmhead_pair_max_exact_winner_threshold_v1"
+
+private let lagunaLmHeadPairMaxThresholdEpilogue: String = {
+    if !lagunaLmHeadBF16PredecessorThresholdEnabled {
+        return """
+            if (simd_group == 0 && simd_lane == 0) {
+                rounded_beta[0] = metal::abs(result) * 0x1p-6f;
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            if (lid == 0) {
+                threshold[0] = result - rounded_beta[0];
+            }
+            """
+    }
+    return """
+        if (simd_group == 0 && simd_lane == 0) {
+            bfloat rounded = bfloat(result);
+            ushort bits = ushort(as_type<uint>(float(rounded)) >> 16);
+            ushort magnitude = bits & 0x7FFFu;
+            ushort predecessor_bits;
+            if (magnitude == 0u) {
+                predecessor_bits = 0x8001u;
+            } else if ((bits & 0x8000u) == 0u) {
+                predecessor_bits = bits - 1u;
+            } else {
+                predecessor_bits = bits + 1u;
+            }
+            float predecessor = as_type<float>(uint(predecessor_bits) << 16);
+            if (\(lagunaLmHeadBF16MidpointThresholdEnabled ? "true" : "false")) {
+                float rounded_value = as_type<float>(uint(bits) << 16);
+                threshold[0] = predecessor +
+                    (rounded_value - predecessor) * 0.5f;
+            } else {
+                threshold[0] = predecessor;
+            }
+        }
+        """
+}()
 
 /// One-line stderr trace hooks (DARKBLOOM_TRACE_FUSION=1) so a silently
 /// declining v4 guard is visible in run logs.
@@ -891,9 +944,13 @@ private let lagunaLmHeadAbsGroupSumsKernel = MLXFast.metalKernel(
 /// float: exact. Accumulation depth is ~45 roundings/element-path, under
 /// the depth <= 96 budget assumed by gamma = 2^-15.
 let lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel = MLXFast.metalKernel(
-    name: "laguna_lmhead_int5_inline_coarse_ratio_bound_delta_bf16_v5_two_row",
+    name: lagunaLmHeadPairMaxEnabled
+        ? "laguna_lmhead_int5_inline_coarse_ratio_bound_delta_bf16_v5_pair_max"
+        : "laguna_lmhead_int5_inline_coarse_ratio_bound_delta_bf16_v5_two_row",
     inputNames: ["x", "codes_lo", "codes_hi", "scales"],
-    outputNames: ["coarse", "delta"],
+    outputNames: lagunaLmHeadPairMaxEnabled
+        ? ["coarse", "delta", "pair_max"]
+        : ["coarse", "delta"],
     source: """
         constexpr float GAMMA = 0x1p-15f;
 
@@ -992,6 +1049,7 @@ let lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel = MLXFast.metalKernel(
                 dtrunc1 += 0x00010000u;
             }
             delta[row1] = as_type<bfloat>(ushort(dtrunc1 >> 16));
+            \(lagunaLmHeadPairMaxProducerStore)
         }
         """,
     header: lagunaLmHeadPruneHeader,
@@ -1479,6 +1537,114 @@ private let lagunaLmHeadExactWinnerBF16PredecessorThresholdKernel = MLXFast.meta
     ensureRowContiguous: true
 )
 
+/// Pair-max v5 threshold: one 224-thread group consumes 50176 pair maxima,
+/// selects the low pair on ties, resolves its two rows from `coarse`, and lets
+/// only SIMDgroup zero run the exact single-row GEMV.
+private let lagunaLmHeadPairMaxThresholdKernel = MLXFast.metalKernel(
+    name: lagunaLmHeadPairMaxThresholdKernelName,
+    inputNames: ["pair_max", "coarse", "lm_head", "x"],
+    outputNames: ["threshold"],
+    source: """
+        constexpr uint PAIRS = 50176;
+        constexpr uint K = 2048;
+        constexpr uint THREADS = 224;
+        constexpr uint READS = 224;
+        constexpr uint SIMD_GROUPS = 7;
+        uint lid = thread_position_in_threadgroup.x;
+        uint simd_lane = thread_index_in_simdgroup;
+        uint simd_group = simdgroup_index_in_threadgroup;
+        threadgroup float shared_max[SIMD_GROUPS];
+        threadgroup uint shared_idx[SIMD_GROUPS];
+        threadgroup uint winner_row[1];
+        threadgroup float rounded_beta[1];
+
+        float best = -metal::numeric_limits<float>::infinity();
+        uint best_idx = 0xFFFFFFFFu;
+        #pragma clang loop unroll(disable)
+        for (uint i = 0; i < READS; ++i) {
+            uint idx = lid + THREADS * i;
+            float value = pair_max[idx];
+            if (value > best || (value == best && idx < best_idx)) {
+                best = value;
+                best_idx = idx;
+            }
+        }
+        #pragma clang loop unroll(full)
+        for (ushort sn = 16; sn >= 1; sn >>= 1) {
+            float other = simd_shuffle_down(best, sn);
+            uint other_idx = simd_shuffle_down(best_idx, sn);
+            if (other > best || (other == best && other_idx < best_idx)) {
+                best = other;
+                best_idx = other_idx;
+            }
+        }
+        if (simd_lane == 0) {
+            shared_max[simd_group] = best;
+            shared_idx[simd_group] = best_idx;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        if (simd_group == 0) {
+            best = simd_lane < SIMD_GROUPS
+                ? shared_max[simd_lane]
+                : -metal::numeric_limits<float>::infinity();
+            best_idx = simd_lane < SIMD_GROUPS
+                ? shared_idx[simd_lane]
+                : 0xFFFFFFFFu;
+            #pragma clang loop unroll(full)
+            for (ushort sn = 16; sn >= 1; sn >>= 1) {
+                float other = simd_shuffle_down(best, sn);
+                uint other_idx = simd_shuffle_down(best_idx, sn);
+                if (other > best || (other == best && other_idx < best_idx)) {
+                    best = other;
+                    best_idx = other_idx;
+                }
+            }
+            if (simd_lane == 0) {
+                uint pair = metal::min(best_idx, uint(PAIRS - 1));
+                uint row0 = pair << 1;
+                uint row1 = row0 + 1;
+                winner_row[0] = coarse[row1] > coarse[row0] ? row1 : row0;
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        float result = 0.0f;
+        if (simd_group == 0) {
+            uint r = winner_row[0];
+            thread bfloat inter[4];
+            thread float v_coeff[4];
+            uint bn = simd_lane * 4;
+            const device bfloat* mrow = lm_head + size_t(r) * K;
+            for (uint i = 0; i < 16; ++i) {
+                vec<bfloat, 4> xv =
+                    *((const device vec<bfloat, 4>*)(x + bn));
+                v_coeff[0] = float(xv.x);
+                v_coeff[1] = float(xv.y);
+                v_coeff[2] = float(xv.z);
+                v_coeff[3] = float(xv.w);
+                vec<bfloat, 4> mv =
+                    *((const device vec<bfloat, 4>*)(mrow + bn));
+                inter[0] = mv.x;
+                inter[1] = mv.y;
+                inter[2] = mv.z;
+                inter[3] = mv.w;
+                result += inter[0] * v_coeff[0];
+                result += inter[1] * v_coeff[1];
+                result += inter[2] * v_coeff[2];
+                result += inter[3] * v_coeff[3];
+                bn += 128;
+            }
+            #pragma unroll
+            for (ushort sn = 16; sn >= 1; sn >>= 1) {
+                result += simd_shuffle_down(result, sn);
+            }
+        }
+        \(lagunaLmHeadPairMaxThresholdEpilogue)
+        """,
+    ensureRowContiguous: true
+)
+
 /// GPU candidate marking: one byte per vocabulary row, set when the row's
 /// certified upper bound reaches the threshold. A dense mask rather than a
 /// compacted index list, because the exact pass below owns a FIXED output
@@ -1940,10 +2106,9 @@ final class LagunaLmHeadPruner {
         let vocab = lagunaLmHeadPruneVocab
         let x = hidden.reshaped([lagunaLmHeadPruneHidden])
         // v5 arm: int5 coarse pass + exact-winner threshold. Early return so
-        // everything below stays byte-for-byte the shipped v4/MXFP8 flow.
-        // Same four dispatches as v4 -- coarse, stage one, threshold, exact --
-        // with stage one an ARGMAX over `coarse` alone (no `delta` read) and
-        // the threshold kernel absorbing the winner row's 4 KB GEMV.
+        // everything below stays byte-for-byte the shipped v4/MXFP8 flow. The
+        // pair-max arm folds the 128-threadgroup stage into the producer and
+        // reduces the chain from four dispatches to three.
         if let lo5 = int5CodesLo, let hi5 = int5CodesHi, let s5 = int5Scales {
             // (The default-OFF preabs twin was deleted for byte budget: it
             // measured +40 us/step on this arm; notes/exp-v5preabs.md.)
@@ -1951,29 +2116,44 @@ final class LagunaLmHeadPruner {
                 [x, lo5, hi5, s5],
                 grid: (vocab / 16 * 256, 1, 1),
                 threadGroup: (256, 1, 1),
-                outputShapes: [[vocab], [vocab]],
-                outputDTypes: [.float32, .bfloat16]
+                outputShapes: lagunaLmHeadPairMaxEnabled
+                    ? [[vocab], [vocab], [vocab / 2]]
+                    : [[vocab], [vocab]],
+                outputDTypes: lagunaLmHeadPairMaxEnabled
+                    ? [.float32, .bfloat16, .float32]
+                    : [.float32, .bfloat16]
             )
             let coarse5 = coarseOut5[0]
             let delta5 = coarseOut5[1]
-            let argmaxPartials = lagunaLmHeadCoarseArgmaxStage1Kernel(
-                [coarse5],
-                grid: (224, 128, 1),
-                threadGroup: (224, 1, 1),
-                outputShapes: [[128], [128]],
-                outputDTypes: [.float32, .uint32]
-            )
-            let thresholdKernel =
-                lagunaLmHeadBF16PredecessorThresholdEnabled
-                ? lagunaLmHeadExactWinnerBF16PredecessorThresholdKernel
-                : lagunaLmHeadExactWinnerThresholdKernel
-            let thr5 = thresholdKernel(
-                [argmaxPartials[0], argmaxPartials[1], lmHeadWeight, x],
-                grid: (32, 1, 1),
-                threadGroup: (32, 1, 1),
-                outputShapes: [[1]],
-                outputDTypes: [.float32]
-            )[0]
+            let thr5: MLXArray
+            if lagunaLmHeadPairMaxEnabled {
+                thr5 = lagunaLmHeadPairMaxThresholdKernel(
+                    [coarseOut5[2], coarse5, lmHeadWeight, x],
+                    grid: (224, 1, 1),
+                    threadGroup: (224, 1, 1),
+                    outputShapes: [[1]],
+                    outputDTypes: [.float32]
+                )[0]
+            } else {
+                let argmaxPartials = lagunaLmHeadCoarseArgmaxStage1Kernel(
+                    [coarse5],
+                    grid: (224, 128, 1),
+                    threadGroup: (224, 1, 1),
+                    outputShapes: [[128], [128]],
+                    outputDTypes: [.float32, .uint32]
+                )
+                let thresholdKernel =
+                    lagunaLmHeadBF16PredecessorThresholdEnabled
+                    ? lagunaLmHeadExactWinnerBF16PredecessorThresholdKernel
+                    : lagunaLmHeadExactWinnerThresholdKernel
+                thr5 = thresholdKernel(
+                    [argmaxPartials[0], argmaxPartials[1], lmHeadWeight, x],
+                    grid: (32, 1, 1),
+                    threadGroup: (32, 1, 1),
+                    outputShapes: [[1]],
+                    outputDTypes: [.float32]
+                )[0]
+            }
             if lagunaLmHeadV5StatsEnabled {
                 // Debug-only: forces a per-step GPU sync; never on timing runs.
                 let count = (coarse5 + delta5.asType(.float32) .>= thr5)
