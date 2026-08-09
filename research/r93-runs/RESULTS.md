@@ -214,7 +214,28 @@ current-tree M5 response is linear and will tighten the slope CI.
 Prefill control across the three receipts so far: 187.637 / 187.734 /
 187.888 us, a total spread of 0.13 %. The ladder moves decode only, as designed.
 
-*(K=800 and K=1600 rungs, OLS slope with CI, and the formal linearity check are
+### 4.1 Second design change: third rung moved from K=1600 down to K=60
+
+The rungs were originally re-planned to {240, 800, 1600} because on M4 anything
+below ~480 was free and would have carried no information (section 1.4). The
+K=240 receipt destroys that premise for the ranked machine: M5 is linear from
+K=0, so a low rung is informative again.
+
+K=1600 is therefore dropped and replaced by **K=60**. Reasoning:
+
+- Nobody will ever remove 1600 dispatches from the decode path. The number this
+  experiment produces will be applied at the scale of tens of dispatches, so the
+  slope needs to be validated *there*, not extrapolated down to it from 1600.
+- {60, 240, 800} still spans a 13x range in K, which is ample lever arm for the
+  slope and for a linearity test, and combines with the K=0 null anchor to give
+  four points.
+- Predicted step at K=60 is +148 us (+3.0 %) against a null-to-null spread of
+  37 us, i.e. roughly 5 sigma. Comfortably resolvable without being a waste of
+  a slot on an already-obvious effect.
+
+Final rung set: **K = 60, 240, 800** (plus K=0 from the nulls).
+
+*(K=800 and K=60 rungs, OLS slope with CI, and the formal linearity check are
 still pending.)*
 
 ## 5. Submission cadence policy
