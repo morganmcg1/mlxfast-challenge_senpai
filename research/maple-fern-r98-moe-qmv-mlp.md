@@ -1,0 +1,166 @@
+# r98-D — memory-level parallelism in the MoE-side decode QMV kernels
+
+Student: maple-fern. PR #543. Assignment `maple-r98-d-moe-qmv-mlp`, revision `r98-d-rev1`.
+Base `e510bb3d094a59ae2d4285d6da4d1ba5361a2b23`, branch `maple-fern/r98-moe-qmv-mlp`.
+Host for all local numbers: Apple **M4 Pro**, 48 GiB, macOS 26.5.2. The ranked host is M5 Max.
+
+## 1. Hypothesis
+
+**H-D.** The MoE-side decode QMV kernels are memory-*latency*-bound rather than
+bandwidth-bound. Increasing the number of outstanding weight loads per thread —
+with identical bytes read, identical arithmetic, and identical accumulation
+order — reduces decode seconds/token.
+
+Round-98 context: rules 66 (#525, mine), 67 (#528) and 68 (#527) each falsified a
+"do less work" mechanism. The surviving explanation for the M5/M4 divergence is a
+latency-bound hot path on M5 that needs roughly 191 kB in flight to saturate,
+against roughly 80 kB on M4. H-D is the direct test of that survivor.
+
+## 2. Rung 0 — where the decode MoE bytes actually are
+
+All line numbers are `Sources/MLXFastModel/LagunaRuntimeModel.swift` at
+`61c8763` unless noted. Exposure numbers are from
+`research/nezuko-pr-decode-exposure-audit.md`.
+
+### 2.1 The assignment's "Site 1" is dormant and not submittable
+
+`laguna_shared_nvfp4_swiglu_qmv_rows1_halved_wide_bf16_v1` (`:7099`/`:7100`) is
+gated on `DARKBLOOM_QMV_WIDE_CODES == "1"`, which is **default OFF** (`:314-325`).
+`research/RESEARCH_ARCHIVE_through-round-91.md:267` further records the wide-codes
+variant as *explicitly not bit-exact* (it reassociates lane→group sums). So it is
+both off the scored path and outside the correctness envelope. It cannot be the
+experiment.
+
+### 2.2 The live shared gate/up kernel is the un-pipelined analogue — but it is shadowed
+
+The kernel actually selected is
+`laguna_shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1` (`:7084`/`:7085`), generated
+by `lagunaSharedSwiGLUQMVRows1Source(halved:)` at `:6996-7074`. With
+`input_width=2048`, `block_width=512`, `values_per_lane=16` it runs **4 fully
+serial K iterations**, each calling the pointer form `laguna_nvfp4_qdot_16(...)`
+which issues its own code loads inside the dot product. There is no prefetch of
+any depth. It is textbook depth-0.
+
+It is also almost entirely shadowed. The audit measures
+`shared_nvfp4_swiglu_qmv_rows1` at 39 calls/step × 6.09 µs = **237.6 µs/step
+isolated** but with **exposure E ≈ 0.10** (audit `:97-105`, `:380-420`,
+`:470-530`) — it overlaps the routed work. A generous 30 % kernel-level win is
+therefore worth ≈ 7 µs/step ≈ **0.107 % score**, well under the M4 detection bar
+(≈ 80 µs/step) and inside submission noise. Every other MoE decode kernel has
+E ≈ 1.0.
+
+**Decision: Rung 1 is redirected** from the shadowed shared gate/up kernel to the
+largest *exposed* MoE kernel. The mechanism under test (bytes in flight per lane)
+is unchanged; only the site changes, so H-D is still what gets tested — and it
+gets tested where a win is measurable.
+
+### 2.3 The exposed sites
+
+| kernel | line | µs/step | exposure | GB/s | % M4 roofline | prefetch depth today |
+|---|---|---|---|---|---|---|
+| `laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2` | `:7916`, src `:7920-8025` | **1497.3** | ≈1.0 | 248.3 | 91.0 % | **1** |
+| `laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6` (generated) | src `:8278-8421` | **812.8** | ≈1.0 | 243.7 | 89.3 % | 4 (already fully staged) |
+| `laguna_shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1` | `:7084`, src `:6996-7074` | 237.6 | ≈0.10 | — | — | 0 |
+
+The routed gate/up R1 kernel is the shipped default: the enabling env flags
+`DARKBLOOM_FUSED_ROUTED_SWIGLU_QMV` (`:149-150`), `DARKBLOOM_PACKED_SCALES`
+(`:165-166`), `DARKBLOOM_ROUTER_PRECOMPUTED_KEYS` (`:171-172`) and
+`DARKBLOOM_ROUTED_GATEUP_R1` (`:7913-7914`) all default ON; the arm switch is at
+`:8044-8056`; the call site is `Sources/MLXFastModel/LagunaRuntimeLayers.swift:2029`
+behind the decode gate `x.dim(1)==1 && inds.size<64` (`:1984-1985`). Grid
+`(8*256*64,1,1)`, threadgroup `(64,1,1)`.
+
+The down path's default is the **generated** `..._sh_stage4_v6` from
+`lagunaRoutedSharedDownResidualSource(sharedHalved: true, staged: true)`
+(`:8278-8421`, staged qdot fragment `:8296-8317`); the literal `stage4_v6` at
+`:8444-8548` only runs when the halved plane is absent, and
+`laguna_routed_nvfp4_down_reduce_bf16_v2` (`:8067-8170`) is a fallback that never
+runs on the scored path. The live down kernel has **no K loop at all**: it already
+stages four `uint2` code words plus four scale bytes and then issues four qdots.
+There is no MLP headroom left there, which is consistent with its 89.3 % of M4
+roofline. It is therefore not a rung.
+
+`mergedSharedActivated` (`LagunaRuntimeLayers.swift:2005`, read at `:2080`) is
+never assigned, so the "fold the shared expert into the routed dispatch" hook is
+dead code and not a lever.
+
+### 2.4 What the numbers say about M5 headroom
+
+M4 baseline for this branch (unchanged base, commit `61c8763`, job
+`dda5bd02-2577-46ca-b862-ca471b5bf357`, `research/artifacts/fern-r98d-base-A.json`):
+
+```
+decode_seconds_per_token  = 0.0130002975234375
+prefill_seconds_per_token = 0.00113808170703125
+max_abs_diff = 0, passed_correctness = true
+```
+
+Steady step T ≈ 8.45 ms on M4 after removing the 512-token seed amortisation
+(S = 512·P = 582.7 ms, S/128 = 4.553 ms). M4 is already at ~91 % of its roofline
+on the routed gate/up kernel, so **M4 cannot show a win here — it can only show a
+regression.** That still makes the local run a useful safety screen (bit-exactness
+plus "did not get worse"), and the M5 receipt is the actual ranking test: M5's
+steady step is ≈ 4.36 ms for the same ~1794 MB, i.e. ≈ 411 GB/s, leaving a 25-32 %
+gap that the MLP hypothesis is the credible mechanism for.
+
+## 3. Rung 1 — the edit
+
+`lagunaRoutedSwiGLUQMVPackedTop8R1Kernel` source (`:7955-8010`) currently runs a
+4-iteration K loop with **depth-1** software pipelining: it holds one block's
+`gate_codes`/`up_codes` (16 B) plus its two scale bytes while computing the
+previous block. Rung 1 hoists **all four** blocks' codes and scale bytes into
+registers before the math loop:
+
+- in flight per lane: **16 B → 64 B** of codes, 2 → 8 scale bytes;
+- bytes read: unchanged;
+- arithmetic: unchanged;
+- accumulation order: unchanged (`gate_result += block0; += block1; += block2; += block3`, then the same `simd_sum` tail at `:8012-8013`);
+- dispatch count: unchanged (an added dispatch costs 2.3403 µs = 0.0358 % score, so zero is the requirement).
+
+If register pressure forces a spill, that is an **implementation defect, not a
+falsification of H-D**, and I will report it as such and fall back to a depth-2
+variant (32 B in flight) before drawing any conclusion.
+
+## 4. Preregistration
+
+Written and committed **before** any candidate receipt is read.
+
+**Primary metric.** Decode µs/step, derived from each candidate's own score JSON,
+never mixed across sessions. Cost model: decode 0.015280 % score per µs/step;
+σ(score) = 0.6172 %; M4 detection bar ≈ 80 µs/step.
+
+**Legs, in this order:**
+
+1. **Rung 1 candidate** (depth-4 staging).
+2. **Revert control** — the identical binary rebuilt from the unchanged base in the
+   same session as leg 1's receipt. This is the leg that makes leg 1 interpretable;
+   it is not optional and it is not skipped if leg 1 looks good.
+
+**Advance rule.** Advance to a further rung only if *all* of:
+
+- decode improves by **≥ 15 µs/step** versus the contemporaneous control;
+- the revert-control leg lands within **1 prediction standard error** of the
+  baseline it is meant to reproduce;
+- prefill moves by less than **0.5σ**;
+- `max_abs_diff == 0` and correctness passes.
+
+**Stop rule.** Two consecutive clean non-positive rungs (bit-exact, no spill, no
+dispatch change) ⇒ stop and write H-D up as **falsified**, with proposed rule text
+for the research archive. A spill or a dispatch-count change makes a rung *not
+clean* and it does not count toward the stop rule.
+
+**Receipt budget.** 6. Planned spend: 1 candidate + 1 control per rung, ≤ 2 rungs,
+leaving 2 in reserve. A queued receipt is watched with
+`python3 senpai/watch-submission.py --submission <id>`; an HTTP 403 from receipt
+fetch is the known open defect from #527 and is recorded rather than retried.
+
+**Falsification is a publishable result here.** Rules 66-68 already killed three
+"less work" mechanisms; killing the latency mechanism at the two largest exposed
+MoE sites would leave the M5/M4 divergence needing a genuinely different
+explanation, which is worth more than another inconclusive tweak.
+
+## 5. Log
+
+| when (UTC) | leg | receipt | decode s/tok | prefill s/tok | max_abs_diff | note |
+|---|---|---|---|---|---|---|
+| 2026-08-09T13:21:12Z | baseline A (M4, local) | — | 0.0130002975234375 | 0.00113808170703125 | 0 | unchanged base @ `61c8763` |
