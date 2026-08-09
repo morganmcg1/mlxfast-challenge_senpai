@@ -214,6 +214,41 @@ def quadratic(deltas, rungs):
     return (s22 * t1 - s12 * t2) / det, (s11 * t2 - s12 * t1) / det
 
 
+def hinge(deltas, rungs):
+    """EXPLORATORY, not preregistered. delta ~ max(0, c*K - G).
+
+    Motivated by the Stage-3 smoke run, whose three rungs are badly fitted by
+    both a line through the origin (residuals to -13.5 us) and a quadratic
+    (-6.9 us at K=40) but are fitted to +2.5 us out of sample by this model.
+    The reading is that a decode step carries a fixed slack budget `G`: the
+    first injected dispatches land in existing idle windows and cost nothing,
+    and only past that does each one cost the saturated marginal price `c`.
+
+    Every observed rung sits on the linear branch, so this is an affine fit
+    and `G` is just the negated intercept. `G` is the interesting number: it
+    is a floor on what an end-to-end wall-time contrast can see, independent
+    of how long we sample.
+    """
+    base = rungs[0]
+    n = sxx = sx = sy = sxy = 0.0
+    for d in deltas:
+        for k, v in d.items():
+            if k == base:
+                continue
+            x = float(k - base)
+            n += 1
+            sx += x
+            sy += v
+            sxx += x * x
+            sxy += x * v
+    det = n * sxx - sx * sx
+    if abs(det) < 1e-12:
+        return float("nan"), float("nan")
+    c = (n * sxy - sx * sy) / det
+    intercept = (sy - c * sx) / n
+    return c, -intercept
+
+
 def hodges_lehmann(xs, rng):
     if len(xs) > 400:
         xs = [xs[rng.randrange(len(xs))] for _ in range(400)]
@@ -369,6 +404,20 @@ def main():
           f"[{qlo:+.3e}, {qhi:+.3e}]  (curvature contribution at K="
           f"{max(rungs)} = {b2 * span * span:+.2f} us)")
 
+    hc, hg = hinge(deltas, rungs)
+    hb = [hinge(x, rungs) for x in boots]
+    hclo, hchi = ci([x[0] for x in hb])
+    hglo, hghi = ci([x[1] for x in hb])
+    print("\nEXPLORATORY hinge delta ~ max(0, c*K - G) "
+          "(not preregistered; motivated by the smoke run):")
+    print(f"  c={hc:+.4f} us/dispatch  95% CI [{hclo:+.4f}, {hchi:+.4f}]"
+          f"   saturated marginal cost")
+    print(f"  G={hg:+.2f} us/step      95% CI [{hglo:+.2f}, {hghi:+.2f}]"
+          f"   slack absorbed before any cost appears")
+    if hc > 0:
+        print(f"  dead zone = {hg / hc:.1f} dispatches "
+              f"({hg:.1f} us/step of added work is invisible to this rig)")
+
     c1, c2, cr = carryover(procs, rungs)
     cb = [carryover(nested_resample(procs, rng), rungs)
           for _ in range(min(args.bootstrap, 400))]
@@ -396,6 +445,9 @@ def main():
                 "per_rung_us_per_dispatch": {str(k): v
                                              for k, v in ratios.items()},
                 "quadratic_b2": b2, "quadratic_b2_ci": [qlo, qhi],
+                "hinge_c_us_per_dispatch": hc, "hinge_c_ci": [hclo, hchi],
+                "hinge_c_bootstrap": [x[0] for x in hb],
+                "hinge_slack_us": hg, "hinge_slack_ci": [hglo, hghi],
                 "carryover_own": c1, "carryover_own_ci": [c1lo, c1hi],
                 "carryover_prev": c2, "carryover_prev_ci": [c2lo, c2hi],
                 "design_corr_k_kprev": cr,
