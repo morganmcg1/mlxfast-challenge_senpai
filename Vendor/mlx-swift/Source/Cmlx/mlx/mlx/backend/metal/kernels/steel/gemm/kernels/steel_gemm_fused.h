@@ -14,7 +14,6 @@ constant bool do_axpby [[function_constant(110)]];
 constant bool align_M [[function_constant(200)]];
 constant bool align_N [[function_constant(201)]];
 constant bool align_K [[function_constant(202)]];
-constant bool output_major_qkv [[function_constant(203)]];
 
 // clang-format off
 template <
@@ -111,24 +110,7 @@ template <
 
   A += transpose_a ? c_row_long : c_row_long * params->lda;
   B += transpose_b ? c_col_long * params->ldb : c_col_long;
-
-  int output_ldd = params->ldd;
-  if (output_major_qkv) {
-    const int query_dim = params->N - 2048;
-    const int output_block =
-        c_col < query_dim ? 0 : 1 + (c_col - query_dim) / 1024;
-    const int output_col = output_block == 0
-        ? c_col
-        : c_col - query_dim - (output_block - 1) * 1024;
-    const size_t output_offset = output_block == 0
-        ? 0
-        : size_t(params->M) *
-            size_t(query_dim + (output_block - 1) * 1024);
-    output_ldd = output_block == 0 ? query_dim : 1024;
-    D += output_offset + c_row_long * size_t(output_ldd) + size_t(output_col);
-  } else {
-    D += c_row_long * params->ldd + c_col_long;
-  }
+  D += c_row_long * params->ldd + c_col_long;
 
   if (use_out_source) {
     C += c_row_long * addmm_params->ldc + c_col_long * addmm_params->fdc;
@@ -219,7 +201,7 @@ template <
     }
 
     // Store results to device memory
-    return mma_op.store_result(D, output_ldd);
+    return mma_op.store_result(D, params->ldd);
 
   }
   ///////////////////////////////////////////////////////////////////////////////
@@ -253,7 +235,7 @@ template <
       }
 
       // Store results to device memory
-      return mma_op.store_result(D, output_ldd);
+      return mma_op.store_result(D, params->ldd);
 
     } else if (align_N || tgp_bn == BN) {
       gemm_kernel::gemm_loop(
@@ -288,7 +270,7 @@ template <
       }
 
       // Store results to device memory
-      return mma_op.store_result_safe(D, output_ldd, short2(tgp_bn, tgp_bm));
+      return mma_op.store_result_safe(D, params->ldd, short2(tgp_bn, tgp_bm));
 
     } else if (align_M || tgp_bm == BM) {
       gemm_kernel::gemm_loop(
@@ -323,7 +305,7 @@ template <
       }
 
       // Store results to device memory
-      return mma_op.store_result_safe(D, output_ldd, short2(tgp_bn, tgp_bm));
+      return mma_op.store_result_safe(D, params->ldd, short2(tgp_bn, tgp_bm));
 
     } else {
       gemm_kernel::gemm_loop(
@@ -358,7 +340,7 @@ template <
       }
 
       // Store results to device memory
-      return mma_op.store_result_safe(D, output_ldd, short2(tgp_bn, tgp_bm));
+      return mma_op.store_result_safe(D, params->ldd, short2(tgp_bn, tgp_bm));
     }
   }
 }
