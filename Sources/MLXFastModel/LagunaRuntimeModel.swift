@@ -1426,6 +1426,8 @@ constexpr int BD = 32;
 constexpr int BDP = BD + 1;
 constexpr int qk_per_thread = 4;
 constexpr int v_per_thread = 4;
+constexpr int pair_planes = 2;
+constexpr int pair_plane_size = BN * BDP;
 constexpr uint rotary_pairs = 64;
 constexpr int N = 512;
 
@@ -1639,8 +1641,6 @@ for (int owner = 0; owner < owners; ++owner) {
     pair_values += 2 * inner_v_stride;
 }
 
-constexpr int pair_planes = 2;
-constexpr int pair_plane_size = BN * BDP;
 if (lane == 0) {
     max_scores[logical_sg] = pair_max0;
     max_scores[BN + logical_sg] = pair_max1;
