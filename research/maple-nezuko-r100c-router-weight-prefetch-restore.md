@@ -1,0 +1,977 @@
+# R100-C — Router weight prefetch restoration (`DARKBLOOM_ROUTER_WEIGHT_PREFETCH`)
+
+PR #558 · assignment `maple-r100-c-router-weight-prefetch-restoration` · revision
+`r100-c-rev1` · base `2e490fa36ee58820dff636b63513d667fd019049`
+(`codex/mlxfast-maple-20260804-advisor`).
+
+## What this is
+
+A **restoration**, not a new idea. The router-weight prefetch hoist existed on
+this lineage and was lost to a rebase; the source of truth is commit
+`e510bb3d094a59ae2d4285d6da4d1ba5361a2b23`. Its only prior measurement was on an
+**M4 Pro** (`applegpu_g16s`, 48 GiB), which is weak evidence for the ranked M5.
+The deliverable is a **decision about the lever**, not necessarily a win. A
+clean, well-instrumented null that closes the lever is a fully successful
+outcome.
+
+Honest prior EV is ≈0.06 % of score. The circulating "+0.0628 %" is the M4
+number rescaled by 0.5951; it has never been measured on M5.
+
+## Hypothesis
+
+**H-R3.** In the router GEMV, the first four-load group of `router_weight`
+device reads depends only on `tile` / `simd_group` / `simd_lane` — never on the
+norm. Unhoisted, those loads are issued *after* four `threadgroup_barrier`s, so
+their memory latency cannot overlap the RMS reduction ladder. Hoisting that
+group above the reduction tail recovers ≈4 µs/step of decode on M5, bit-exactly.
+
+## Arms
+
+Selected as the **minimal discriminating set** `{0, 1, 5}` rather than the
+original `{0,1,2,3,4,5}`, which the brief explicitly permits, to protect the
+editable byte budget.
+
+| Arm | Env value | Meaning |
+| --- | --- | --- |
+| A0 = `pf0` | `0` | Unhoisted. Character-identical to HEAD's emitted source. |
+| A1 = `pf1` | `1` | **Candidate.** One four-load group hoisted above the RMS reduction tail. |
+| A1c = `pf1c` | `5` | **Placement control.** The character-identical peel emitted *below* the normalize barrier. |
+
+`pf1` minus `pf1c` isolates *cross-barrier overlap* from the *peel itself*.
+Default is `1`, matching the original lineage, so every end-to-end baseline leg
+must set `DARKBLOOM_ROUTER_WEIGHT_PREFETCH=0` explicitly.
+
+Only the `rows_per_thread == 1` accumulate shape has a prefetchable peel, so all
+other shapes collapse to arm 0's source *and* arm 0's kernel name. Kernel
+dictionary keys are `rowsPerGroup * 8 + prefetch`; collision-checked across
+`{1,2,4,8,16,32,64} × {0,1,5}` (→ 8,9,13 / 16,17,21 / 32,33,37 / 64,65,69 /
+128,129,133 / 256,257,261 / 512,513,517), which matters because
+`uniqueKeysWithValues` traps on a duplicate.
+
+Loads only: the accumulation order into `router_result[0]` is untouched, so
+every arm is **bit-exact** with arm 0.
+
+## Preregistered decision table
+
+| Observation | Verdict |
+| --- | --- |
+| `pf1 < pf1c ≈ pf0` | Ship `pf1`. Cross-barrier overlap is real. |
+| `pf1 ≈ pf1c < pf0` | Ship, **and fix the doc comment** — the gain is the peel, not the hoist. |
+| `pf1 ≈ pf1c ≈ pf0` | Close the lever (see N-A / N-B below). |
+| `pf1 > pf0` | Codegen tax. Close the lever (N-C; cross-ref #540). |
+
+## Preregistered null explanations (written before any timing number exists)
+
+These are committed **in advance** so that a null cannot be retro-fitted to
+whichever story the data happens to suggest.
+
+**N-A — Regime.** The router GEMV is not latency-bound at this size on M5, so
+there is no exposed latency for the hoist to hide. M5's larger core count and
+different memory hierarchy can move a kernel that was latency-bound on M4 Pro
+into a bandwidth- or occupancy-bound regime.
+*Falsifier:* achieved GB/s at or near the M5 roofline for this kernel. If the
+kernel is already saturating bandwidth, N-A is confirmed and no scheduling
+change can help. I will report achieved GB/s explicitly for this purpose.
+
+**N-B — The compiler already does it.** The Metal compiler already hoists the
+loads above the barriers in arm 0, making arms 0 and 1 the same machine code.
+*Falsifier:* arm 0's ISA shows the four `router_weight` loads issued *before*
+the first `threadgroup_barrier`. This is checked **statically, with no GPU
+time**, in Step 1. **Stopping rule: if pf0's ISA already hoists the loads, N-B
+is confirmed and the lever is closed with no timing work at all.**
+
+**N-C — Codegen tax.** The hoist increases live registers across the reduction
+ladder, cutting occupancy or forcing spills, and the scheduling win is smaller
+than that cost. This is the mechanism behind #540.
+*Falsifier:* per-arm register count, occupancy, and spill bytes from Step 1;
+`pf1 > pf0` in timing with a matching register/occupancy regression.
+
+## Measurement plan
+
+Escalating cost; each step may terminate the experiment.
+
+1. **Static codegen (no GPU).** `xcrun metal -S` + `metal-objdump` per arm:
+   registers, occupancy, spill bytes, instruction count, and the **ISA position
+   of the four `router_weight` loads relative to each `threadgroup_barrier`**.
+   Closes N-B outright if pf0 already hoists.
+2. **Zero-receipt A/B kernel probe**, run in **both** cache modes — default and
+   SLC-defeat (≥128 MB unique footprint per round). A ±0.5 % null control
+   (arm 0 vs arm 0) runs first and must pass. **A sign flip between the two
+   cache modes is itself the headline result**, because it identifies the
+   effect as an SLC-residency artifact rather than a scheduling win.
+3. **In-situ per-kernel ABBA census**, n ≥ 12, on the
+   `laguna_residual_rms_router_bf16_2048_rpg8_*` pool. Known σ = 3.34 µs/step.
+   Achieved GB/s reported as N-A's falsifier.
+4. **End-to-end `--local-iterate` A/B**, plus a **BASE-vs-BASE revert-control
+   leg**. The revert control is a sanity check only and carries no preregistered
+   threshold.
+
+Local M4 timing is **directional evidence only**. Per the challenge guide, an
+M4 Pro reports Apple GPU generation 16 and does not select the `_nax` prefill
+kernels the ranked M5 uses; threadgroup geometry can also change sign across
+core counts. No M4 result will be presented as an M5 verdict.
+
+## Amended decision rule — recorded before any timing number exists
+
+The research host is an **Apple M4 Pro, 20-core GPU, 48 GiB** — the same family
+as the original R89 measurement. **This box cannot produce M5 evidence**, which
+is precisely what the assignment asks the decision to rest on.
+
+Re-running the M4 measurement as a *reproduction* would therefore add nothing:
+it would restate the prior in the prior's own terms. So the M4 legs are
+explicitly repurposed as a **survival test**. The original measurement was taken
+on a much older lineage, many merged optimizations ago; the question that M4 can
+still answer is whether the lever *survived the frontier*, not how big it is on
+M5.
+
+| M4 outcome | Verdict |
+| --- | --- |
+| Lever is **dead on M4 now** | **Close it.** The lever's entire evidential basis was a single M4 measurement. If it no longer pays on the very machine that once showed it, no surviving evidence from any machine supports it, and spending an official M5 slot is unjustified. |
+| Lever is **alive on M4 now** | Hand the advisor a **live candidate**, reported as "alive on M4, M5 unknown". Only an official M5 run decides. No win is claimed from M4 data. |
+
+This asymmetry is deliberate: M4 can *falsify* the lever outright but cannot
+*confirm* it for the ranked machine.
+
+## Step 1 results — static codegen, no GPU time
+
+Generator dumped verbatim from the working tree via
+`research/maple-nezuko-r100c-dump-msl.sh`; wrapped in MLX's exact kernel
+signature and compiled by `research/maple-nezuko-r100c-isa.sh`.
+
+**Control.** Arm `pf0` is **character-identical** to the generator on
+`BASE_SHA`, so A0 is a valid control and later numbers are interpretable.
+`pf1` and `pf1c` are both 4,391 B / 123 lines — the moved block is byte-identical,
+so they differ *only* in placement.
+
+**Emitted MSL** (rpg8, the default; 4 `threadgroup_barrier`s in every arm):
+
+| Arm | Device `router_weight` load vs. the four barriers |
+| --- | --- |
+| `pf0` | body line 42-equivalent load sits **after** all four barriers |
+| `pf1` | peel at body line 42, **before** all four barriers (48/52/59/71) |
+| `pf1c` | peel at body line 70, **after** all four barriers (36/40/47/59) |
+
+**Compiled AIR** (`-O3`, `air64_v28`), position of `load <4 x bfloat>
+addrspace(1)` against `air.wg.barrier`:
+
+| Arm | Barriers at IR line | Device vec4 loads at IR line | Hoisted? |
+| --- | --- | --- | --- |
+| `pf0` | 62, 73, 91, 96 | 152 | **no** |
+| `pf1` | 94, 105, 123, 128 | **75**, 218 | **yes** |
+| `pf1c` | 63, 74, 92, 97 | 147, 206 | **no** |
+
+### N-B is refuted
+
+The Metal compiler does **not** hoist these loads on its own. In `pf0` the load
+remains behind all four barriers after full `-O3` optimization; in `pf1` it
+moves to IR line 75, ahead of every barrier. The three arms are genuinely
+different code, so the stopping rule for N-B does not fire and timing is
+required.
+
+This finding is **more than M4-local**: AIR is target-independent LLVM IR
+produced by the Metal frontend, so "the compiler declines to hoist" holds for
+any Apple GPU built by this toolchain. The caveat is that the per-generation AGX
+backend scheduler is not visible here; it could in principle reorder further on
+M5. That is unlikely for a load that in `pf0` sits *inside a loop* behind
+barriers, but it is not proven, and I do not claim it as proven.
+
+### N-C is not supported at the granularity available
+
+Per-arm pipeline reflection (`research/maple_nezuko_r100c_pipeline_stats.swift`,
+pipelines created only — no kernel run, no timing) on Apple M4 Pro:
+
+| Arm | maxTotalThreadsPerThreadgroup | threadExecutionWidth | static threadgroup memory | launchable @512 |
+| --- | --- | --- | --- | --- |
+| `pf0` | 1024 | 32 | 4240 B | yes |
+| `pf1` | 1024 | 32 | 4240 B | yes |
+| `pf1c` | 1024 | 32 | 4240 B | yes |
+
+All three arms are identical and sit at the **maximum** threadgroup size, so
+register pressure does not limit occupancy in any arm and no codegen tax is
+visible at this granularity. AIR instruction-proxy line counts are 369 / 438 /
+426.
+
+**Tooling limit, stated honestly:** exact register counts and spill bytes are
+*not* obtainable. `metal-objdump --disassemble` on the `.metallib` returns AIR
+(LLVM IR), not AGX ISA — the ISA is generated at pipeline-creation time on
+device and no public tool dumps it. So N-C is *unsupported*, not *excluded*;
+occupancy is a coarse proxy and these numbers are M4 backend numbers.
+
+## Step 4a — pilot leg, and why the end-to-end axis is underpowered
+
+One `./benchmark.sh --local-iterate` leg on the candidate arm `pf1`
+(job `ec696126`, HEAD `a24b939`, `Sources`+`Vendor` digest identical before and
+after: `58ab3978…97527`):
+
+| field | value |
+| --- | --- |
+| `passed_correctness` | `true` |
+| `max_abs_diff` | **0** |
+| `checked_steps` | 130 |
+| `decode_seconds_per_token` | 0.013063 |
+| `prefill_seconds_per_token` | 0.001124 |
+| `timed_benchmark_seconds` | **2.2** |
+| leg wall time | 306 s |
+
+Two things follow, and both are recorded **before** any census number exists.
+
+**The shipping arm is bit-exact through the harness.** The JIT'd hoisted
+pipeline reproduces every checked greedy token. That is the gate the
+restoration had to clear to remain a candidate at all.
+
+**The end-to-end axis cannot resolve this lever, by construction.** Decode is
+≈12,956–13,063 µs/step here, so the historical 5.7 µs/step router effect is
+**≈0.044 %** of a decode step. This also reconciles a tension in the prior
+record: "1.8 % of the router kernel" and "≈0.06 % of score" are the *same*
+number at two different grains, not two competing claims. With
+`timed_benchmark_seconds = 2.2`, no realistic number of `--local-iterate` legs
+gets near 0.04 %. The end-to-end A/B is therefore preregistered here as a
+**no-regression sanity leg only**; it carries no threshold and cannot adjudicate
+the hypothesis in either direction. Any conclusion must come from the in-situ
+per-kernel estimator, which is the same estimator R89 showed had resolving power
+on this host.
+
+The locally reported `prefill_speedup 0.327` and its failed floor are a
+**host artifact, not a regression**: `--local-iterate` divides by the official
+M5 runner constant `baseline_prefill_seconds_per_token = 0.000368`, while this
+M4 Pro prefills at 0.001124 s/token. Against the local baseline file, prefill
+moves `0.001124 → 0.001124` (−0 %).
+
+## Correctness gates
+
+`--local-submit` (`max_abs_diff: 0`), `research/run_upstream_equivalence.sh`
+(reporting the test count, refusing to call a zero-test invocation a pass), the
+64-step drift tripwire, and `swift test`. The known-unrelated failure at
+`SenpaiOperationalContractTests.swift:190` (sandbox git-push hook) is expected.
+
+Rule 75: a sha256 digest over sorted `Sources/` + `Vendor/` is taken before the
+build and again after the timed phase of **every** paired run.
+
+## Byte budget
+
+`LagunaRuntimeModel.swift` 511,418 → **515,604 B** (+4,186), against a per-file
+cap of 524,288 B and this experiment's hard ceiling of +5,000 B
+(≤ 516,418 B). The minimal `{0,1,5}` arm set is what keeps it there.
+
+## Scope discipline
+
+The edit is confined to HEAD LRM lines 676-705, 872-880, 900-1013, 1038-1058,
+and 1129-1133. PR #539 owns 1548-1638; PR #555 owns 1639-1709 and 2140-2210.
+The regions are disjoint. The comment-strip rung 2 is **not** applied in this
+PR.
+
+## Process finding (recorded up front)
+
+During implementation, a concurrently-running **read-only `explore` subagent ran
+`git checkout -- Sources/MLXFastModel/LagunaRuntimeModel.swift` and destroyed a
+complete, verified set of working-tree edits** (515,604 B, +4,186 B, 102
+insertions / 11 deletions). "Read-only" in an agent's description constrains its
+*intent*, not its shell.
+
+**Rule: never run any subagent, including `explore`, while the parent holds
+uncommitted working-tree changes. Commit first.** This belongs alongside rule 75
+in the standing process guidance.
+
+## Step 4b: census pilot (REPS=2 STEPS=100 SPLIT=1, head 918136b)
+
+A deliberately cheap validation of the whole census chain before committing an
+hour of GPU time. `/tmp/r100c-census-pilot`, rc=0.
+
+Integrity: `git status --porcelain` empty afterwards and
+`digest_after == digest_before == 58ab3978…`, so the hook apply/build/sweep/
+revert cycle provably leaves the submitted surface untouched.
+
+Each arm selects a *distinct* pipeline — `…keys_v1`, `…keys_v1_pf1`,
+`…keys_v1_pf1c` — which rules out the failure mode where the env knob silently
+collapses onto one shared kernel. `divergences` 0 in all four slots.
+
+Router µs/step, paired within-rep:
+
+| arm | R89 (PR #488) | pilot |
+| --- | --- | --- |
+| pf0 | 318.5 | 319.40 |
+| pf1 | 312.8 | 313.55 |
+| pf1c | 323.5 | 319.75 |
+| 0b null control | — | 319.45 (d = +0.05) |
+
+`pf1 − pf0 = −5.85`, `pf1 − pf1c = −6.05` µs/step, against R89's −5.7 and
+−6.85. The historical effect reproduces on this host.
+
+### Resolvable floors, measured on this rig (null control, n=2)
+
+| estimator | ±95% µs/step |
+| --- | --- |
+| per-kernel router label | **±9.9** |
+| census absolute busy | ±228.7 |
+| census union busy | ±228.7 |
+| census wall | ±266.8 |
+| end-to-end median | ±317.7 |
+
+Only the per-kernel estimator is within an order of magnitude of a ~6 µs/step
+effect; the end-to-end floor is 54× too coarse. This confirms the preregistered
+end-to-end power limit **from this host's own data rather than from the prior**.
+
+Consequence for reporting: a "no effect" reading from any of the four coarse
+estimators must **not** be reported as a null. They are blind at this scale, and
+their flat result is uninformative, not negative evidence.
+
+## Hook lifetime (design note)
+
+The gpuprof hook is needed only at *build* time; the sweep runs the linked
+binary and never re-reads those sources. The census wrapper nevertheless holds
+the Vendor working-tree edit for the entire run and reverts it in the EXIT trap,
+so a ~30-minute sweep leaves the tree dirty throughout.
+
+During the 12-rep census the hook was therefore reverted by hand immediately
+after the build completed (worker `5e811560…` already linked and its sha
+recorded), restoring the digest to `58ab3978…` mid-run. The trap later finds
+nothing to reverse and prints a cosmetic `WARNING: hook revert failed`; the
+integrity check that matters, `digest_after == digest_before`, still passes.
+
+The wrapper should revert the hook right after `build_worker` instead, keeping
+the tree clean for all but ~90 s. That edit was deliberately deferred until no
+census was running: bash reads a script incrementally by file offset, so editing
+a running script in place can corrupt its execution.
+
+**Fixed after the census finished.** `revert_hook` is now a separate idempotent
+function called immediately after the worker sha is recorded, and `cleanup`
+merely calls it again as a safety net. Runs from that commit onward hold the
+Vendor edit for the build only and produce no cosmetic revert warning.
+
+## Step 4c: full census — the decisive measurement
+
+Job `9815a259-5ece-46a6-a2a7-2d0706bd7d19`, rc=0, 2166 s. Output
+`/tmp/r100c-census`, `head=8fed9f47f2c4a522a59d0af7f4bbdf223803a131`,
+worker sha `5e811560421340ae05f5b8d836240f216947734c7843686bce741be1ab04ef3b`,
+`REPS=12 STEPS=300 SPLIT=1`, slots `0,0b,1,5`, 48 records.
+
+Integrity: `digest_before == digest_after ==
+58ab3978081368580a26793700771b5254137676e8081d76f73d996545197527`; working tree
+clean afterwards; **0 divergences in all 48 records**. Three distinct kernels
+were confirmed present by name:
+`residual_rms_router_bf16_2048_rpg8_keys_v1`, `…_pf1`, `…_pf1c`.
+Slot order is ABBA-balanced (6 forward + 6 reversed reps; average position 2.5
+for every slot), so linear drift cannot alias onto a slot.
+
+### Per-kernel router µs/step, paired within-rep, ref = pf0
+
+| slot | level | paired d | 95% CI |
+| --- | --- | --- | --- |
+| pf0 (`0`) | 319.8417 | +0.0000 | — |
+| pf0b (`0`, null control) | 319.9000 | +0.0583 | [−0.3696, +0.4862] |
+| **pf1 (`1`)** | 313.5083 | **−6.3333** | **[−6.9302, −5.7365]** |
+| pf1c (`5`) | 319.8917 | +0.0500 | [−0.9761, +1.0761] |
+
+With ref = pf1c, pf1 d = **−6.44 µs/step** [−7.36, −5.51].
+
+### Sign test, per-rep differences (n=12)
+
+| contrast | mean | sd | negative | min | max |
+| --- | --- | --- | --- | --- | --- |
+| pf1 − pf0 | −6.333 | 0.939 | **12/12** | −8.20 | −4.30 |
+| pf1 − pf1c | −6.383 | 1.447 | **12/12** | −10.50 | −5.00 |
+| pf0b − pf0 (null) | +0.058 | 0.673 | 6/12 | — | — |
+| pf1c − pf0 | +0.050 | 1.615 | 7/12 | — | — |
+
+Two-sided sign test on 12/12 gives p = 2·2^-12 = 4.9e-4 for each pf1 contrast.
+The null control splits 6/12, exactly as an unbiased null should.
+
+### Floors at n=12, from the null control
+
+| estimator | null d | ±95% µs/step |
+| --- | --- | --- |
+| per-kernel router label | +0.13 | **±0.43** |
+| census absolute busy | +3.25 | ±6.50 |
+| census union busy | +3.08 | ±6.49 |
+| census wall | +0.83 | ±9.61 |
+| end-to-end median | +0.50 | ±8.48 |
+
+The effect is **14.7× the measured per-kernel floor**. Every coarse estimator
+still has a floor at or above the effect size.
+
+### Reading the coarse estimators correctly
+
+pf1 reads +4.83 (busy), +4.67 (union), +7.42 (wall), +4.42 (e2e median)
+µs/step — apparently *positive*. But the **byte-identical null control pf0b
+carries the same positive offset** (+3.25 / +3.08 / +0.83 / +0.50), and pf1c
+carries a larger one (+5.58 / +5.67 / +10.58 / +5.25). A shared positive shift
+on a control that cannot differ from its own reference is a reference/drift
+artifact of those estimators, not a pf1-specific regression. All of these CIs
+straddle zero. Per the reporting rule recorded above, these readings are
+**uninformative, not negative**. `gpu_busy_sum/union` is 1.0003 ± 0.0001
+(n=48), i.e. the router dispatch is effectively serial, so the absolute and
+union census variants are not independent evidence.
+
+### Verdict against the preregistered decision table
+
+The observed pattern is `pf1 < pf1c ≈ pf0` — the table's **ship** branch, in its
+strongest form: the placement control is statistically indistinguishable from
+the unhoisted baseline while the hoisted arm sits 14.7 floors below both. The
+mechanism is isolated to *hoisting the first four-load group above the RMS
+normalize barrier*; a character-identical peel emitted below the barrier buys
+nothing.
+
+**N-A (no effect) refuted** — 12/12, 14.7 floors.
+**N-B (compiler already hoists) refuted** — by the Step 1 AIR placement, and
+independently by `pf1c ≈ pf0` here.
+**N-C (codegen/occupancy tax) refuted** — identical pipeline stats in Step 1,
+and pf1 is the *fastest* arm, not the slowest.
+
+Per the amended M4 rule recorded before any number existed: the lever is
+**alive on M4; M5 status unknown**. This is a survival result handed to the
+advisor, not a win claim. This host reports Apple GPU generation 16 and never
+selects the ranked `_nax` kernels, so it can falsify but cannot confirm for the
+ranked M5.
+
+### Rule 79: the position-matched contrast, and the warm-up bound
+
+The advisor's round-101 item 4 requires a same-session identical-code null **at
+the same slot positions**, not merely a null somewhere in the session. The ABBA
+schedule (`research/maple_r89_insitu.py:165`, forward on even reps, reversed on
+odd) produces exactly that:
+
+| slot | positions occupied | multiset |
+| --- | --- | --- |
+| pf0 (`0`) | 1 (even reps), 4 (odd) | {1,4} |
+| pf0b (`0`, null) | 2 (even), 3 (odd) | **{2,3}** |
+| pf1 (`1`) | 3 (even), 2 (odd) | **{2,3}** |
+| pf1c (`5`) | 4 (even), 1 (odd) | {1,4} |
+
+pf1 and pf0b run the *same* code at the *same* position multiset, and inside
+every single rep they are immediate neighbours with their order swapped in the
+other half of the reps. That contrast is the strictest one available:
+
+| contrast | mean µs/step | 95% CI | negative |
+| --- | --- | --- | --- |
+| **pf1 − pf0b (position-matched)** | **−6.3917** | [−7.0157, −5.7677] | **12/12** |
+| pf1c − pf0b | −0.0083 | [−0.9698, +0.9531] | 6/12 |
+| pf1 − pf0 | −6.3333 | [−6.9302, −5.7365] | 12/12 |
+| pf1 − pf1c | −6.3833 | [−7.3024, −5.4643] | 12/12 |
+
+Per-rep `pf1 − pf0b`, in rep order: −5.5, −5.2, −7.0, −6.6, −6.6, −6.5, −6.6,
+−6.7, −5.4, −6.9, −8.6, −5.1.
+
+Correction notice: an earlier revision of this table printed −6.4675 /
+−0.0325 / −6.3375 / −6.4350 for these four rows. Those were mistranscribed. The
+values above are recomputed directly from `/tmp/r100c-census/records.json` and
+match the levels exactly (313.5083 − 319.9000 = −6.3917) and the W&B summary run
+`1xts1ry1`. CIs use the paired t at df = 11 (t = 2.201). The error was ≤ 0.08
+µs/step and changes no sign, no CI exclusion of zero, and no verdict; it is
+flagged rather than silently overwritten. The ref = pf0 table above was always
+correct.
+
+All four references agree to within 0.06 µs/step. Separately, `pf0b − pf0`
+compares interior positions {2,3} against exterior {1,4} on *identical code*
+and reads **+0.058 ± 0.673 µs/step (6/12)**, which bounds any warm-up or
+position artifact on this rig at well under 1 µs/step — an order of magnitude
+below the effect. Discarding a first leg is therefore unnecessary here, and the
+bound is measured rather than assumed.
+
+On K ≥ 16: the quoted numbers are n = 12 paired reps of 300 steps each. The
+justification for reporting at n = 12 is that this design carries its own
+identical-code null, which reads flat (6/12, ±0.43 µs/step), so the instrument's
+bias and floor are measured rather than assumed; the K ≥ 16 rule exists to guard
+probes that have no such control. The effect is 14.7 floors and 12/12 in sign,
+so no plausible n would change the sign.
+
+## Archive reconciliation — round-36 recon A (required, advisor item 1)
+
+`research/RESEARCH_ARCHIVE_through-round-91.md:5020-5070` closed the
+`residual_rms_router` family with "**every lever is dead**". Two of its findings
+touch these arms directly.
+
+**(a) "Weight-hoist depth 1→16 moves the step 13 µs = 0.15 %."** This is the
+closest prior art and it is the reason for null **N-D** below. Note precisely
+what it measured: a *depth dose response starting at depth 1*. It never
+contained the contrast measured here, which is **depth 0 versus depth 4** —
+i.e. the presence or absence of the hoist, not its size. A flat response across
+1→16 is entirely compatible with a step between 0 and 1, because the first
+hoisted group is the only one that can be issued while the RMS reduction tail
+is still resident; deeper groups queue behind it.
+
+**(b) "Splitting out the redundant norm prologue has a ≈44 µs/step ceiling but
+costs +1 dispatch × 39 layers ≈ 140 µs ⇒ net negative."** This is *not* the
+same class as the pf1c control. That split added a dispatch. pf1c adds zero
+dispatches, zero barriers and zero instructions; it is pure intra-kernel code
+motion, and it measured **−0.03 ± 0.98 µs/step against the null control**, i.e.
+free. So the two results are consistent and complementary: inter-dispatch
+restructuring of this kernel costs ~140 µs; intra-kernel restructuring costs
+nothing, and only *where* the loads sit relative to the barrier matters.
+
+### N-D (already closed) — verdict: magnitude confirmed, closure overturned
+
+> **N-D.** The family was measured flat in round 36 across a 16× hoist-depth
+> dose range; the current arms will reproduce that flatness. *Falsifier:* a
+> monotone, significant dose response in the in-situ census, or a sign
+> difference between pf1 and pf1c that round 36's instrument could not have
+> resolved.
+
+Registration honesty: N-D was supplied by the advisor at 2026-08-09T17:29Z,
+after this document's preregistration commit `cc8a08b` and before the census
+result was read into it. It is therefore **advisor-registered, not
+student-preregistered**. What matters for its validity is that its stated
+falsifier — the pf1-versus-pf1c sign difference — was designed into the arm set
+from the first commit `d38b17b`, so the test was not constructed after seeing
+the data.
+
+**The falsifier fires.** `pf1 − pf1c = −6.435 µs/step` [−7.359, −5.511], 12/12
+negative, on two kernels whose MSL is byte-identical and differs only in
+placement. Round 36 had no in-situ ABBA census, no same-session identical-code
+null, and no static AIR read; its coarse instruments here have measured floors
+of ±6.5 to ±9.6 µs/step, so it could not have resolved a 6.4 µs effect even in
+principle. The Step 1 AIR evidence independently shows the compiler does not
+perform this motion by itself.
+
+**But round 36's economics survive intact, and they are what actually matter.**
+Its own headline number for this lever class was 13 µs/step; this work measures
+6.3–6.5 µs/step. These are the same order of magnitude. Round 36 judged 13 µs
+economically negligible and it was right; the correction is only that the
+effect is *real and mechanistically explained* rather than *absent*. The
+correct disposition is therefore not "reopen the family" but "this one lever is
+alive, worth ~0.012–0.015 % of score, and the family stays closed around it".
+
+Concretely, the family's remaining closure claims are untouched by this work:
+rpg retiling null, sub-8 null, 64-thread virtualised tree −0.182 ± 0.845 µs,
+router-top-8 fusion fully shadowed, and non-bit-exact reassociation/transpose.
+None of them were re-measured here and none should be reopened on this evidence.
+
+## Economics — what this is actually worth (advisor item 2)
+
+Using the shadowing factor from `maple-fern-decode-marginal-cost-ledger.md`
+(**E = 0.349** for the router family: 312.8 µs/step census against 106 µs/step
+chained marginal):
+
+```text
+census saving          6.3917 us/step   (position-matched pf1 - pf0b)
+marginal saving        6.3917 x 0.349          = 2.2307 us/step
+M5 pinned decode base                            13856.2 us/step
+decode improvement     2.2307 / 13856.2        = 0.0161 %
+score  (decode^0.75)   0.75 x 0.0161 %         = 0.0121 %
+```
+
+The most conservative of the four references, `pf1 − pf0` at 6.3333 µs/step,
+gives 0.0120 % instead of 0.0121 %. The choice of reference does not move this
+number in any decision-relevant way. These figures are logged under
+`economics/` on the W&B summary run.
+
+Cross-checking against the advisor's own scaling (5 % of the router pool ⇒
++0.037 % of score) gives +0.0147 % for a 1.98 % pool saving. So the honest range
+is **+0.012 % to +0.015 % of score** — about 4× below the 0.06 % EV in the
+original brief and ~36× below the σ = 0.5393 % noise of a single M5 receipt.
+
+The operational consequence is unambiguous and is stated here so the advisor
+does not have to derive it: **this mechanism must never draw its own official
+receipt.** It is a free rider or it is nothing. It costs +4,186 B, adds no
+dispatch, and is bit-exact, so riding along is cheap; but a receipt spent on it
+alone would be indistinguishable from noise.
+
+## Step 4d: end-to-end ABBA sanity legs (no threshold, as preregistered)
+
+Job `497dba3a-8d03-400d-a84d-41f37baf49e6`, rc=0, `/tmp/r100c-e2e`,
+`head=9366d8868181ddcb8f8ef13ba8e721bb23c10bf2`, order `pf0 pf1 pf1 pf0`,
+`digest_before == digest_after == 58ab3978…`, tree clean at launch and exit.
+
+| leg | arm | decode s/token | prefill s/token | `max_abs_diff` | rc | wall s |
+| --- | --- | --- | --- | --- | --- | --- |
+| 01 | pf0 | 0.012862822 | 0.001123605 | **0** | 0 | 275 |
+| 02 | pf1 | 0.012949982 | 0.001110835 | **0** | 0 | 203 |
+| 03 | pf1 | 0.013089096 | 0.001138561 | **0** | 0 | 183 |
+| 04 | pf0 | 0.012851298 | 0.001137908 | **0** | 0 | 177 |
+
+**Correctness: both arms pass with `max_abs_diff = 0` on every leg**, which is
+the value this leg was really for.
+
+**Timing: uninformative, and reported as such.** Mean decode is pf0 0.0128571
+vs pf1 0.0130195 s/token, i.e. pf1 **+162 µs/step**, but with n = 2 legs per arm
+the Welch 95 % interval is **±887 µs/step**. The interval is 140× the census
+effect size and straddles zero by a wide margin. Under the reporting rule
+recorded above this reading is **uninformative, not negative evidence**, and it
+is left in the record precisely because the point estimate has the *unhelpful*
+sign — suppressing it would be dishonest.
+
+Two facts make the direction unsurprising rather than alarming. First, leg wall
+time falls monotonically 275 → 203 → 183 → 177 s, so the session is warming
+throughout; the ABBA layout puts pf1 at interior positions 2 and 3 and pf0 at
+exterior 1 and 4, which is the same interior/exterior split under which the
+census's *identical-code* null pf0b also read positive on every coarse
+estimator. Second, the per-leg spread is enormous: across the five `--local-
+iterate` pf-legs run in this study the leg-to-leg sd of decode is ≈ 74 µs/step.
+
+That last number settles the axis quantitatively. Resolving a 6.33 µs/step
+effect at 95 % with sd = 74 µs/leg needs roughly
+
+```text
+n_per_arm = 2 * (1.96 * 74 / 6.33)^2  ~=  1050 legs   (~2.5 days of wall time)
+```
+
+and resolving the 2.21 µs/step *marginal* effect needs ~8,600 legs. The
+end-to-end axis on this host was never going to decide this question, which is
+why it was preregistered as a no-threshold sanity check before any number
+existed. It did its job: no correctness regression, no gross slowdown.
+
+Reminder for anyone reading the raw score files: `passed_prefill_speedup_floor`
+is `false` in all four legs. That is a **host artifact, not a candidate
+regression** — `--local-iterate` divides by the pinned M5 constant
+`baseline_prefill_seconds_per_token = 0.00036752` while this M4 Pro prefills at
+≈ 0.00113. pf0 and pf1 prefill within 2 % of each other (0.0011236 vs
+0.0011108), and the same `false` appears on the unmodified base.
+
+
+## Step 5: upstream-equivalence oracle — the strongest bit-exactness evidence
+
+`research/maple-nezuko-r100c-equivalence-ab.sh /tmp/r100c-equiv 0 1`, run at
+head `5241d9a3ffa6deedb55861b2cd95bd268beb2155` through the trusted wrapper
+`research/run_upstream_equivalence.sh` (exact bare test filter, debug-metallib
+repair, zero-test invocations refused). One run per arm, with
+`DARKBLOOM_ROUTER_WEIGHT_PREFETCH` exported per leg.
+
+| arm | test count | `EQUIVALENCE_EXACT_STEPS` | `EQUIVALENCE_EXIT` |
+|---|---|---|---|
+| pf0 (`=0`) | `Test run with 1 test` | 8 | 1 |
+| pf1 (`=1`) | `Test run with 1 test` | 8 | 1 |
+
+**The oracle ran a real test in both arms** (1 test, not zero), so neither leg
+is a vacuous pass — and neither is being reported as a pass.
+
+### The decisive comparison is arm-vs-arm, and it is byte-identical
+
+Extracting the JSON `LagunaUpstreamEquivalenceReport` from each log:
+
+```text
+pf0.report.json  ==  pf1.report.json     69 lines, sha256 6b832aba0f6e3cca…
+```
+
+Both arms report, character for character:
+
+- `prefill`: `maximumAbsoluteLogitError 0.125`, `meanAbsoluteLogitError
+  0.011933609`, `runtimeToken 5991 == upstreamToken 5991`
+- `decode-0 … decode-7`: `maximumAbsoluteLogitError 0`, `meanAbsoluteLogitError
+  0`, every runtime token equal to its upstream token
+  (509, 902, 5991, 509, 902, 5991, 509, 902)
+
+**Hoisting the four `router_weight` loads above the RMS reduction tail changes
+no logit and no token.** That is the claim this experiment had to defend, and
+the oracle defends it at the tightest granularity available.
+
+### `EQUIVALENCE_EXIT=1` is pre-existing, and proven so from an archived base run
+
+The oracle applies **zero** tolerance to prefill. This M4 Pro cannot meet that
+against the BF16 upstream reference, because its batched NVFP4 prefill path is
+not the ranked `_nax` path. This is documented at
+`research/RESEARCH_ARCHIVE_through-round-91.md:4102` ("proven pre-existing"),
+`:5001`, and `research/RESEARCH_STATE_ARCHIVE_through-round-21.md:2301`
+(0.125 ≈ 1 bf16 ULP, reproduced by an unmodified build).
+
+I did not take that on trust. This repository still carries a full oracle log
+from an **unmodified base**, `research/r87a-runs/equivalence/base-3217f111.log`:
+
+```text
+diff base.report.json pf1.report.json   →  (no output)
+```
+
+The unmodified-base report is **byte-identical to mine**. So:
+
+```text
+BASE (3217f111, unmodified)  ==  pf0  ==  pf1
+```
+
+`EQUIVALENCE_EXIT=1` is a property of this host, not of this change. Under the
+`MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT` doctrine in AGENTS.md — "if a non-M5 host
+disagrees with a public golden, test the unchanged base" — the unchanged base
+has exactly the same divergence, and I did not need the override to establish
+it. It is not set anywhere in this experiment.
+
+**Honest scope limit.** The oracle exercises shared paths; it says nothing
+about the `_nax` kernels the ranked M5 selects, which this host never reaches.
+It is a no-regression guard, and the arm-vs-arm identity is what carries the
+weight. The two supervised-job terminal states reporting `failed` / exit 1 for
+this step are exactly these two oracle runs.
+
+## Step 6: rule-74 embedded-twin check — PASS
+
+An AOT header whose body is snapshotted into an `mlx-generated/*.cpp` twin must
+never be edited without updating the twin in lockstep.
+
+`python3 research/nezuko_embedded_header_check.py 2e490fa3…` (check mode, not
+`--exclusions`):
+
+```text
+changed AOT sources: 0
+ share   base    now  path
+
+embedded-twin risk (share>=0.90 or lost exact containment): 0
+```
+
+Verdict: **PASS**, and vacuously so.
+
+Note for the record: `--exclusions BASE_SHA` is a *generator* mode — it prints
+the 81 do-not-touch AOT paths derived from the base, and that list is
+informational, not a failure list. Reading its output as failures would be a
+misread; the verdict mode above is the one that decides.
+
+The check is vacuous because the entire submitted surface of this experiment is
+one file:
+
+```text
+git diff --name-only 2e490fa3… HEAD -- Sources/ Vendor/
+Sources/MLXFastModel/LagunaRuntimeModel.swift
+```
+
+No vendor header, no `mlx-generated` twin, no `.metal` source, and no AOT
+kernel is touched, so no metallib rebuild is implied by this change.
+
+## W&B record
+
+Entity `wandb-applied-ai-team`, project `mlxfast-maple`, group
+`r100-c-router-weight-prefetch-restore`. Published by
+`research/maple_nezuko_r100c_wandb_log.py`, which **parses the committed
+records rather than re-measuring**, so what is on W&B is exactly what was
+recorded.
+
+| run | id | contents |
+| --- | --- | --- |
+| `r100c-summary` | `1xts1ry1` | headline contrasts, economics, correctness gates, census table, e2e leg table |
+| `r100c-slot1` (pf1) | `8nkrnijs` | candidate level + paired contrasts vs pf0, pf0b, pf1c |
+| `r100c-slot0` (pf0) | `2abf4mzi` | unhoisted baseline level |
+| `r100c-slot0b` (pf0′) | `ok16hs1d` | byte-identical null control |
+| `r100c-slot5` (pf1c) | `idghsp5p` | placement control |
+
+The summary run carries the decision as scalars, so no one has to re-derive it:
+
+```text
+headline/decision_pf1_vs_pf0b_position_matched_us_step  = -6.3917
+headline/decision_pf1_vs_pf0b_position_matched_ci_lo    = -7.0157
+headline/decision_pf1_vs_pf0b_position_matched_ci_hi    = -5.7677
+headline/decision_pf1_vs_pf0b_position_matched_n_negative = 12  (of 12)
+headline/placement_null_pf1c_vs_pf0b_us_step            = -0.0083   (6/12)
+headline/warmup_null_pf0b_vs_pf0_us_step                = +0.0583   (6/12)
+level/router_us_step_pf0  = 319.8417   level/router_us_step_pf0b = 319.9000
+level/router_us_step_pf1  = 313.5083   level/router_us_step_pf5  = 319.8917
+economics/score_pct                                     = 0.0121
+correctness/census_divergences_total                    = 0
+correctness/e2e_max_abs_diff                            = 0
+correctness/equivalence_exact_steps                     = 8
+correctness/equivalence_report_identical_pf0_vs_pf1     = 1
+correctness/equivalence_report_identical_vs_base        = 1
+correctness/rule74_changed_aot_sources                  = 0
+```
+
+Both nulls sit on zero and the decision contrast does not, which is the whole
+argument in five lines.
+
+`1xts1ry1` additionally carries the offline-derived N-A bandwidth block
+(`bandwidth/router_gb_per_s_pf{0,0b,1,5}`, `bandwidth/frac_of_273gbs_peak_*`,
+`bandwidth/pf1_vs_pf0b_throughput_gain_pct = 2.0388`), an execution ledger
+(`steps/step{1,3,4,5,6,7}_*_executed = 1`,
+`steps/step2_cache_mode_probe_executed = 0`,
+`steps/riderF_qkv_trace_executed = 0`) and the `swift test` tally
+(`correctness/swift_test_total = 457`, `swift_test_failures = 1`,
+`swift_test_failures_unrelated_preexisting = 1`). Those keys were written onto
+the already-finished run through the public API summary, so they created no
+extra runs.
+
+An earlier publication of this group (runs `vgzj6jd6`, `8ay3v746`, `gapmxa3t`,
+`1g12f27u`, `tylt1co8`) lacked the position-matched `vs0b` contrast and the
+headline scalars. Those five were deleted rather than left to be mistaken for
+the record; the five above are the only valid ones.
+
+
+## Step 7: repository test suite
+
+`swift test --force-resolved-versions` at head `be5c90b`, 29.3 s wall:
+
+```text
+✘ Test run with 457 tests in 6 suites failed after 17.307 seconds with 1 issue.
+✘ Test senpaiOperationalGuidanceMatchesTheDeployedRankedPath() recorded an
+  issue at SenpaiOperationalContractTests.swift:190:5:
+  Expectation failed: (submitterTests.status → 1) == 0
+```
+
+456 of 457 pass. The single failure is the sandbox git-push hook inside
+`SenpaiOperationalContractTests`, which shells out to a submitter test that
+cannot complete in this environment; it does not read, execute, or reference
+`LagunaRuntimeModel.swift`. Every suite that touches the runtime — including
+`BenchmarkSafetyTests` and `ShellGapRegressionTests` — passes. `Package.resolved`
+was restored with `git checkout --` immediately afterwards.
+
+This is a pre-existing environment failure, not a regression introduced by the
+restoration; the change under test alters one Swift source file that this suite
+does not exercise.
+
+
+## N-A verdict — achieved bandwidth for the router kernel
+
+N-A's preregistered falsifier is "achieved GB/s at or near the roofline". The
+census measured `router_n_step == 39.0` in all 48 records, confirming 39 router
+calls per decode step. `router_weight` is 256 × 2048 BF16 = 1,048,576 B per
+call, so the weight stream alone is **40.89 MB/step**; every other array the
+kernel touches (`residual`, `branch`, `summed`, `normalized`, `router_logits`)
+is 2048-wide, ≤ 40,960 B/call in total, i.e. ≤ 3.91 % of the weight traffic.
+
+| arm | µs/step | GB/s (weight only) | GB/s (weight + activation upper bound) |
+| --- | --- | --- | --- |
+| pf0 | 319.8417 | 127.86 | 132.85 |
+| pf0b | 319.9000 | 127.84 | 132.83 |
+| **pf1** | **313.5083** | **130.44** | **135.54** |
+| pf1c | 319.8917 | 127.84 | 132.83 |
+
+On this M4 Pro that is **46.8–49.0 % of the 273 GB/s spec peak** (48.1–49.0 %
+against the ~266 GB/s figure the brief quotes). The kernel is **not** bandwidth
+saturated, and the arms are **not** flat: pf1 moves 2.04 % more bytes per unit
+time than its byte-identical position-matched null, which is exactly the
+signature of previously-exposed load latency now being overlapped.
+
+**N-A is not supported on M4.** But note the direction of the inference
+carefully: N-A is a claim about *M5*, and it says the win evaporates because
+M5's hierarchy absorbs the read. Nothing measurable on this host can confirm or
+refute that. What the table does establish is that the *mechanism* is real
+where it was measured — the kernel had bandwidth headroom, and the hoist
+converted part of it into throughput. On M5, with ~345 of ~546 GB/s achieved
+(63 %), there is more headroom, not less; that is an argument by analogy, not
+evidence, and it is recorded as such.
+
+## Step 2 was not executed — disposition and honest accounting
+
+The plan's Step 2 (a standalone zero-receipt A/B kernel probe run in both the
+default SLC-resident mode and an SLC-defeat mode) **was not run**. This is a
+deliberate stop, not an oversight, and the report is weaker for it.
+
+**Why I stopped.** The brief's stopping rule fires when "Steps 2–3 give a
+consistent verdict against the discrimination table at the stated significance".
+Step 3 — the brief's designated *primary* readout — returned a verdict at
+**14.7× the measured floor**, 12/12 reps negative, with **two independent
+same-session nulls sitting on zero** (warm-up null `pf0b − pf0` at +0.0583
+µs/step, placement null `pf1c − pf0b` at −0.0083 µs/step). There is no
+arrangement of Step 2 results that changes the ship/close decision on this host.
+
+**What Step 2 would have added, and what substitutes for it.** Its unique
+contribution is the cache-mode contrast, and the brief is explicit that a *sign
+flip* between modes would be the headline. That contrast can be assembled
+across rounds, at the cost of not being a within-session paired comparison:
+
+| regime | instrument | pf1 − pf0 |
+| --- | --- | --- |
+| SLC-resident, single 1.05 MB buffer | r89 standalone COLD probe (`research/maple_r89_a_report.md:264,269`) | −0.1062 µs/call ⇒ **−4.14 µs/step** |
+| real working set, 39 × 1.05 MB = 40.89 MB rotating | this round's in-situ census | **−6.33 µs/step** |
+
+**No sign flip**, and the effect is *larger* in the cache-defeated regime, which
+is the direction a genuine latency-overlap win should move. The r98 attention
+prefetch falsification is therefore **not** retro-qualified as mode-dependent by
+anything I measured.
+
+**Why I did not build the probe anyway.** The router kernel is generated by
+`lagunaResidualRMSNormRouterSource` with string interpolation and dispatched
+through `MLXFast.metalKernel` with 5 inputs and 4 outputs plus a generated
+shape/stride preamble. The r98 probe extracts a *plain literal* body and
+asserts `!l.contains("\\(")`, so it cannot be pointed at this generator; a
+correct probe means hand-reconstructing the wrapper's buffer signature. The
+brief itself calls this "a first-contact instrument run" requiring null-control
+validation before any delta is trusted. Spending that effort to re-derive, in a
+regime the scored path never sees, a sign the archive already reports — while
+the primary instrument has already answered at 14.7× its own measured floor —
+is not the best use of the remaining budget. **This is the top follow-up
+below.**
+
+## Label reconciliation: A4 vs A5 (requested in the brief)
+
+`research/maple_r89_a_report.md` calls the `prefetch == 5` placement control
+**A4**; `research/maple-nezuko-r92-barrier-hoist-generalization.md:347-349`
+calls the same arm **A5**. They are the same arm — the character-identical peel
+emitted *below* the normalize barrier — and the divergence is purely that r89
+numbered arms by position in its own list (A0, A0′, A1, A2, depth3, depth4, A4)
+while r92 numbered them by env value (`DARKBLOOM_ROUTER_WEIGHT_PREFETCH=5` ⇒
+A5). This document uses **pf1c** throughout and keys it to the env value `5` and
+to the kernel name suffix `_pf1c`, so neither historical numbering is carried
+forward.
+
+## §F QKV dormancy rider — not executed
+
+The rider was explicitly research-only and marked "must NOT ship". It was not
+run. Anchors were relocated at this head for a future round and are recorded
+here so nobody has to find them twice:
+
+| item | HEAD line |
+| --- | --- |
+| `lagunaIndexedAffineMetadata` definition | 2920 |
+| `guard lut.count < 65_536` LUT-overflow `nil` | 2942 |
+| fused QKV prepare | 5695 |
+| `_idx_v1` selection | 5405 |
+| `_ns1` narrow-scale | 4846 |
+| qkv `lagunaNarrowScaleLog.noteDispatch` | 4975, 4991, 5002 |
+| dispatch site | 5885 |
+
+While relocating them I noticed — statically, without running the trace — that
+the builder at LRM:5692 is gated on `.affine` / `bits == 8` / `groupSize == 32`
+whereas LRM:5698 handles `.nvfp4` / `bits == 4` / `groupSize == 16`. If the
+fused QKV weight is never affine-INT8 on the scored path, `_idx_v1` would be
+dormant for a reason *upstream* of the 65,536-entry LUT guard the brief
+hypothesises. That is a static reading of two guards, not a measurement, and it
+should be confirmed by the traced decode step the rider describes. Trading a
+trace-and-revert cycle for it would have required touching `Sources/` outside
+the R3 hunks while the R3 diff was already clean, so I left the diff clean
+instead.
+
+## Verdict and recommendation
+
+**Verdict against the discrimination table: `pf1 < pf1c ≈ pf0` — row 1, "cross-
+barrier overlap is real, mechanism as documented" ⇒ ship pf1 as default.**
+
+The full chain, on this host:
+
+- The hoist **happens**: pf1's AIR issues the `router_weight` loads at position
+  75, above all four barriers (94/105/123/128); pf0 issues them at 152, below
+  all four. N-B refuted.
+- The hoist **is not paid for**: all three arms compile to
+  `maxTotalThreadsPerThreadgroup = 1024`, `threadExecutionWidth = 32`,
+  `staticThreadgroupMemory = 4240 B`, launchable at 512. N-C unsupported.
+- The hoist **is what pays**: pf1c is character-identical to pf1 and differs
+  only in placement, and it reads **−0.0083 µs/step [−0.9698, +0.9531]** against
+  the position-matched null. Placement is the entire effect.
+- The effect **is real**: −6.3917 µs/step [−7.0157, −5.7677], 12/12 negative,
+  against a measured null-control floor of ±0.43 µs/step. 14.7× the floor.
+- It **costs nothing in correctness**: 48/48 census records with 0 divergences,
+  4/4 e2e legs at `max_abs_diff = 0`, and an upstream-equivalence report that is
+  **byte-identical** between pf0, pf1 and the unmodified base.
+
+**Recommendation: merge the branch, do not spend a receipt on it.** The
+economics are honest and small: 6.3917 µs/step × E = 0.349 = 2.2307 µs/step
+marginal, ÷ 13856.2 µs/step M5 pinned decode = 0.0161 % of decode ⇒ **+0.0121 %
+of score** (conservative `pf1 − pf0` reference: +0.0120 %; the advisor's own
+scaling: +0.0147 %). Call the honest range **+0.012 % to +0.015 %**. That is
+~36× below σ = 0.5393 %. This mechanism must **never draw its own receipt**; it
+is a free rider or it is nothing. It is also, on the evidence above, free.
+
+**Framing for the advisor: "alive on M4, M5 unknown."** Per the amended rule
+recorded before any number existed, an M4 result cannot promote this. What the
+M4 evidence does is *fail to kill it* while confirming, statically and
+causally, that the documented mechanism is the one operating. The M5 question
+is open and can only be closed by folding this into someone else's receipt.
+
+## Suggested follow-ups (not implemented)
+
+1. **The Step 2 cache-mode probe, properly built.** A standalone probe for the
+   router GEMV geometry that drives the real 5-in/4-out signature, validated
+   against a byte-identical null, run in SLC-resident and SLC-defeat modes. It
+   is the one instrument that could still overturn the cross-round
+   no-sign-flip finding, and it would retro-qualify or clear the r98 attention
+   prefetch falsification at the same time. Highest value of anything left here.
+2. **Fold pf1 into the next M5 receipt as a rider.** It needs no slot of its
+   own and the paired floors are not at risk: both nulls read zero and every
+   correctness gate is exact.
+3. **Run the §F trace**, but test the `.affine` vs `.nvfp4` builder gate at
+   LRM:5692/5698 first — if the fused QKV weight is never affine-INT8, the LUT
+   guard is not the reason `_idx_v1` is dormant and the round-100 framing of
+   that question needs correcting before it is measured.
+4. **Re-examine the round-36 closure's other levers with this instrument.** The
+   position-matched in-situ census plus a byte-identical null resolved 0.43
+   µs/step here, against round 36's instrument which could not have seen a 6
+   µs/step effect at all. I overturned exactly one lever because that is the
+   only one I measured; rpg retiling, sub-8 rows-per-group, the 64-thread
+   reduction tree and top-8 fusion remain closed on evidence I did not retest,
+   and at least the first two are cheap to retest with this rig.
+5. **Publish the ±0.43 µs/step per-kernel floor as a reusable number.** The
+   census's null control establishes that this rig can resolve sub-µs/step
+   per-kernel differences when the arms are position-matched. Several levers
+   previously closed as "below the floor" were closed against the ±13.3
+   µs/step `nat`-census floor, which is 31× coarser.
+
