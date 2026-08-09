@@ -443,6 +443,23 @@ the score-based estimate of -0.40 +/- 0.24. The brief's suggested pairing of
 "+0.803 % vs `7ce1262d`" is invalid because those two receipts are 49 hours
 apart.
 
+**How much of this is real, given section 9.3.** The M5 side of that ratio is a
+single receipt against a single receipt. Section 9.3's candidate-side decode CV
+of 0.3386 % makes the 95 % resolution of a one-versus-one comparison
+`1.96 * 0.3386 * sqrt(2) = +/- 0.94 %`, or about +/- 46 us per step. The measured
+M5 effect is **+0.34 % = +16.6 us, comfortably inside that interval**, so the
+*sign* of the M5 effect is not established by these two receipts and neither is
+the precise value of T.
+
+What the data does support is the weaker but still decisive claim: a change that
+the M4 census says is worth **-0.79 %** produced an M5 effect that is
+statistically indistinguishable from zero and certainly not -0.79 %. Whether T
+is -0.48, 0, or +0.2, the operational conclusion is the same and is the one the
+campaign needs — **M4 census gains do not transfer to the ranked machine at
+anything like face value**. Establishing the sign of T would take roughly n=4
+per arm on both sides, which at 8 slots is more than this transfer factor is
+worth; the honest headline is `|T| < 0.5` rather than `T = -0.48`.
+
 ---
 
 ## 7. Submission ledger

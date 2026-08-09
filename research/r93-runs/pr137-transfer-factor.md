@@ -66,11 +66,22 @@ drift-corrected form: +0.3795 % / −0.785 % = −0.483
 
 **`T ≈ −0.48`, with a plausible range of −0.43 to −0.49.**
 
-The sign is the important content and it survives both forms: for this class of
-change, *an M4 improvement predicted an M5 regression of roughly half the
-magnitude*. The old estimate had the same sign but a magnitude whose stated
-uncertainty (`±0.24`) spanned nearly the entire plausible range, which made it
-useless as a decision rule.
+That range is the spread between the two *forms of the arithmetic*, not a
+confidence interval, and it must not be read as one.
+
+**The M5 sign is not established.** R93 section 9.3 measures the candidate-side
+decode CV at 0.3386 % from machine-code-identical nulls. The M5 side of this
+ratio is one receipt against one receipt, so its 95 % resolution is
+`1.96 × 0.3386 × √2 = ±0.94 %`, about ±46 µs per step. The measured M5 effect,
+`+0.34 % = +16.6 µs`, sits well inside that band. A candidate true value of
+`0.00 %` — and hence `T = 0` — is entirely consistent with these two receipts,
+as is a modest true improvement.
+
+What *is* established is the asymmetry that matters: the M4 census predicted
+`−0.79 %` and the M5 delivered something indistinguishable from zero. The
+defensible headline is therefore **`|T| < 0.5`**, not `T = −0.48`. Pinning the
+sign would need roughly n=4 receipts per arm on the M5 side, which is more
+official budget than this one transfer factor justifies.
 
 ## How to use it, and how not to
 
