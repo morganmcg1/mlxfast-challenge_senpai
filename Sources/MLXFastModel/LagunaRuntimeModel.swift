@@ -9317,27 +9317,29 @@ private let lagunaR93MaxGluePerLayer = lagunaInjectEnvInt(
 /// driver moves the same contrast inside a single run, where it can be paired
 /// step by step. The read is one load from a resident page per decode forward,
 /// which is far below the resolution being calibrated.
-private let lagunaR93GlueControl: UnsafeMutablePointer<Int32>? = {
+private let lagunaR93GlueControlAddress: UInt = {
     guard
         let path = ProcessInfo.processInfo.environment["DARKBLOOM_R93_GLUE_MAP"],
         !path.isEmpty
-    else { return nil }
+    else { return 0 }
     let fd = open(path, O_RDWR)
-    guard fd >= 0 else { return nil }
+    guard fd >= 0 else { return 0 }
     let mapped = mmap(
         nil, MemoryLayout<Int32>.size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0)
     close(fd)
-    guard let mapped, mapped != MAP_FAILED else { return nil }
-    return mapped.assumingMemoryBound(to: Int32.self)
+    guard let mapped, mapped != MAP_FAILED else { return 0 }
+    return UInt(bitPattern: mapped)
 }()
 
 @inline(__always)
 private func lagunaR93GlueDepth() -> Int {
-    if let control = lagunaR93GlueControl {
-        return Int(control.pointee)
-    }
-    return lagunaR93MaxGluePerLayer
+    guard
+        let control = UnsafeMutablePointer<Int32>(
+            bitPattern: lagunaR93GlueControlAddress)
+    else { return lagunaR93MaxGluePerLayer }
+    return Int(control.pointee)
 }
+
 /// Empty dispatches injected per multi-token forward.
 private let lagunaInjectPrefillEmpty = lagunaInjectEnvInt(
     "DARKBLOOM_INJECT_PREFILL_EMPTY", 0)
