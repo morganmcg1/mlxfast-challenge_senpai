@@ -4438,12 +4438,39 @@ private let lagunaActivatedOProjLaneMajorKernels: [Int: MLXFast.MLXFastKernel] =
     return result
 }()
 
+struct LagunaOProjPlan {
+    let nibbles: MLXArray
+    let bases: MLXArray
+    let raw: MLXFast.MLXFastKernel
+    let activated: MLXFast.MLXFastKernel?
+}
+
+private func lagunaOProjPlan(
+    _ codes: MLXArray, _ scales: MLXArray, _ lane: LagunaLaneMajorScaleBank?, _ heads: Int
+) -> LagunaOProjPlan? {
+    let inVec = heads * LagunaConstants.headDim
+    let outVec = LagunaConstants.hiddenSize
+    let activated = lagunaGateSoftplusEnabled
+        ? lagunaActivatedOProjLaneMajorKernels[heads] : nil
+    guard codes.dtype == .uint32, codes.dims(outVec, inVec / 8),
+        scales.dtype == .uint8, scales.dims(outVec, inVec / 16),
+        let lane, lane.pairwise == lagunaAttnScalePairwiseOProjEnabled,
+        lane.nibbles.dtype == .uint8, lane.nibbles.dims(outVec, lane.nibbleBytes),
+        lane.bases.dtype == .uint8, lane.bases.dims(outVec),
+        lane.groups == inVec / 16,
+        let raw = lagunaGatedAffineOProjNVFP4LaneMajorKernels[heads],
+        !lagunaGateSoftplusEnabled || activated != nil
+    else { return nil }
+    return .init(nibbles: lane.nibbles, bases: lane.bases,
+        raw: raw, activated: activated)
+}
+
 func lagunaGatedAffineOProjNVFP4(
     attentionOutput: MLXArray,
     gateLogits: MLXArray,
     codes: MLXArray,
     scales: MLXArray,
-    laneMajorScales: LagunaLaneMajorScaleBank? = nil,
+    plan: LagunaOProjPlan? = nil,
     heads: Int,
     gateIsActivated: Bool = false
 ) -> MLXArray? {
@@ -4452,31 +4479,16 @@ func lagunaGatedAffineOProjNVFP4(
     guard attentionOutput.dtype == .bfloat16,
         attentionOutput.dims(1, 1, inVec),
         gateLogits.dtype == .bfloat16,
-        gateLogits.dims(1, 1, heads),
-        codes.dtype == .uint32,
-        codes.dims(outVec, inVec / 8),
-        scales.dtype == .uint8,
-        scales.dims(outVec, inVec / 16)
-    else {
-        return nil
-    }
+        gateLogits.dims(1, 1, heads)
+    else { return nil }
 
-    if let lane = laneMajorScales,
-        lane.pairwise == lagunaAttnScalePairwiseOProjEnabled,
-        lane.nibbles.dtype == .uint8, lane.nibbles.dims(outVec, lane.nibbleBytes),
-        lane.bases.dtype == .uint8, lane.bases.dims(outVec),
-        lane.groups == inVec / 16,
-        let kernel = gateIsActivated
-            ? (lagunaGateSoftplusEnabled ? lagunaActivatedOProjLaneMajorKernels[heads] : nil)
-            : lagunaGatedAffineOProjNVFP4LaneMajorKernels[heads]
-    {
+    if let lane = plan {
+        guard let kernel = gateIsActivated ? lane.activated : lane.raw
+        else { return nil }
         lagunaTrace("gated affine oproj nvfp4 qmv h\(heads) lane-major")
         lagunaNarrowScaleLog.noteDispatch("lane-major", "oproj h\(heads)")
         return kernel(
-            [
-                attentionOutput, gateLogits, codes, lane.nibbles, lane.bases,
-                scales,
-            ],
+            [attentionOutput, gateLogits, codes, lane.nibbles, lane.bases, scales],
             grid: ((outVec / 8) * 64, 1, 1),
             threadGroup: (64, 1, 1),
             outputShapes: [[1, 1, outVec]],
@@ -4484,6 +4496,9 @@ func lagunaGatedAffineOProjNVFP4(
         )[0]
     }
 
+    guard codes.dtype == .uint32, codes.dims(outVec, inVec / 8),
+        scales.dtype == .uint8, scales.dims(outVec, inVec / 16)
+    else { return nil }
     let selected = gateIsActivated
         ? (lagunaGateSoftplusEnabled ? lagunaActivatedOProjKernels[heads] : nil)
         : lagunaGatedAffineOProjNVFP4Kernels[heads]
@@ -5495,6 +5510,7 @@ final class LagunaRuntimeAttention: Module {
     /// authoritative parameter and continues to serve prefill, the last-row
     /// prefill path, and every decode fallback.
     var _nativeAffineOProj: LagunaNativeAffineWeight?
+    var _oprojPlan: LagunaOProjPlan?
 
     /// Derived native group-32 affine INT8 layout for the attention per-head
     /// gate projection, used only by the serial decode call. Retained
@@ -5534,6 +5550,8 @@ final class LagunaRuntimeAttention: Module {
                 preparedWO.scales, site: "oproj", layer: layerIdx,
                 pairwise: lagunaAttnScalePairwiseOProjEnabled)
         }
+        _oprojPlan = lagunaOProjPlan(
+            preparedWO.packedCodes, preparedWO.scales, preparedWO.laneMajorScales, nHeads)
         _nativeAffineOProj = preparedWO
         return preparedWO.arrays
     }
@@ -6235,7 +6253,7 @@ final class LagunaRuntimeAttention: Module {
                         gateLogits: projectedGate,
                         codes: affineWO.packedCodes,
                         scales: affineWO.scales,
-                        laneMajorScales: affineWO.laneMajorScales,
+                        plan: _oprojPlan,
                         heads: nHeads,
                         gateIsActivated: true)
                 {
@@ -6251,7 +6269,7 @@ final class LagunaRuntimeAttention: Module {
                         gateLogits: projectedGate,
                         codes: affineWO.packedCodes,
                         scales: affineWO.scales,
-                        laneMajorScales: affineWO.laneMajorScales,
+                        plan: _oprojPlan,
                         heads: nHeads)
                 {
                     return fusedProjection
