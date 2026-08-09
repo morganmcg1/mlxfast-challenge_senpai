@@ -5470,14 +5470,13 @@ final class LagunaRuntimeAttention: Module {
 
     let rope: RoPELayer
 
-    /// Retained fused `[Wq; Wk; Wv; Wg?]` weight (output rows concatenated,
-    /// query rows first), built once after checkpoint load when
-    /// `DARKBLOOM_FUSED_QKV` is enabled. Plain stored properties with leading
-    /// underscores so Module reflection never treats this derived layout as a
-    /// checkpoint parameter; the projection modules keep the original arrays
-    /// for parameter integrity.
+    /// Retained fused `[Wq; Wk; Wv]` weight (output rows concatenated, query
+    /// rows first), built once after checkpoint load when
+    /// `DARKBLOOM_FUSED_QKV` is enabled. Plain stored property with a leading
+    /// underscore so Module reflection never treats this derived layout as a
+    /// checkpoint parameter; the q/k/v `Linear` modules keep the original
+    /// arrays for parameter integrity.
     var _fusedQKVWeight: MLXArray?
-    var _fusedQKVGateRows = 0
 
     /// Terminal-prefill-only BF16 side banks. Q and the per-head gate share
     /// the singleton final normalized row; K and V share every normalized
@@ -5626,10 +5625,10 @@ final class LagunaRuntimeAttention: Module {
     /// Builds and retains the fused QKV weight from the loaded q/k/v
     /// projection weights. Called once after weights are installed and
     /// evaluated (before warmup); returns the new array so the caller can
-    /// batch a single eval. Fuses only the exact stock configuration: plain
-    /// bias-free `Linear` projections of one dtype over the same input width,
-    /// so the fused matmul is `matmul(x, w.T)` with every original output row
-    /// unchanged. Ordinary BF16 prefill layers also append the per-head gate.
+    /// batch a single eval. Fuses only the exact stock configuration: three
+    /// plain bias-free `Linear` projections of one dtype over the same input
+    /// width, so the fused matmul is `matmul(x, w.T)` with every original
+    /// output row unchanged.
     func prepareFusedQKVWeight() -> MLXArray? {
         guard _fusedQKVWeight == nil,
             type(of: wq) == Linear.self,
@@ -5647,23 +5646,7 @@ final class LagunaRuntimeAttention: Module {
         else {
             return nil
         }
-        var weights = [wq.weight, wk.weight, wv.weight]
-        if layerIdx != LagunaConstants.numHiddenLayers - 1,
-            gatingEnabled, gatePerHead,
-            let gProj,
-            type(of: gProj) == Linear.self,
-            gProj.bias == nil,
-            wq.weight.dtype == .bfloat16,
-            wq.weight.dims(nHeads * headDim, LagunaConstants.hiddenSize),
-            wk.weight.dims(nKVHeads * headDim, LagunaConstants.hiddenSize),
-            wv.weight.dims(nKVHeads * headDim, LagunaConstants.hiddenSize),
-            gProj.weight.dtype == .bfloat16,
-            gProj.weight.dims(nHeads, LagunaConstants.hiddenSize)
-        {
-            weights.append(gProj.weight)
-            _fusedQKVGateRows = nHeads
-        }
-        let fused = concatenated(weights, axis: 0)
+        let fused = concatenated([wq.weight, wk.weight, wv.weight], axis: 0)
         _fusedQKVWeight = fused
         return fused
     }
@@ -5933,31 +5916,26 @@ final class LagunaRuntimeAttention: Module {
         var queries: MLXArray
         var keys: MLXArray
         var values: MLXArray
-        var bankedGate: MLXArray? = nil
-        // The retained BF16 [Wq; Wk; Wv; Wg?] bank is PREFILL-ONLY: at decode
-        // it would override the INT8 fused norm+QKV path (measured +1.4 ms/step
-        // when force-enabled), while at L > 1 it collapses the projection
-        // GEMMs into one.
+        // The retained BF16 [Wq; Wk; Wv] bank is PREFILL-ONLY: at decode it
+        // would override the INT8 fused norm+QKV path (measured +1.4 ms/step
+        // when force-enabled), while at L > 1 it collapses three steel GEMMs
+        // into one.
         if let fusedQKVWeight = _fusedQKVWeight, L > 1 {
             guard let normalizedInput else {
                 preconditionFailure("retained fused QKV requires normalized input")
             }
-            // One dispatch over row-concatenated projection weights, identical
-            // math to the bias-free `Linear` calls (`matmul(x, w.T)`). Each
-            // output row's K-loop is independent of which rows share the
-            // dispatch, so every element is bit-exact; the slices are views
-            // and the reshapes below may copy, which does not change values.
+            // One dispatch over the row-concatenated [Wq; Wk; Wv] weight,
+            // identical math to the three bias-free `Linear` calls
+            // (`matmul(x, w.T)`). Each output row's K-loop is independent of
+            // which rows share the dispatch, so every Q/K/V element is
+            // bit-exact; the slices are views and the reshapes below may
+            // copy, which does not change values.
             let qkv = matmul(normalizedInput, fusedQKVWeight.T)
             let queryDim = nHeads * headDim
             let kvDim = nKVHeads * headDim
-            let gateStart = queryDim + 2 * kvDim
             queries = qkv[.ellipsis, 0 ..< queryDim]
             keys = qkv[.ellipsis, queryDim ..< (queryDim + kvDim)]
-            values = qkv[.ellipsis, (queryDim + kvDim) ..< gateStart]
-            bankedGate =
-                _fusedQKVGateRows == nHeads
-                ? qkv[.ellipsis, gateStart ..< (gateStart + nHeads)]
-                : nil
+            values = qkv[.ellipsis, (queryDim + kvDim) ..< (queryDim + 2 * kvDim)]
         } else if let fused = fusedNormQKV {
             queries = fused.queries
             keys = fused.keys
@@ -6176,9 +6154,6 @@ final class LagunaRuntimeAttention: Module {
             if let fusedNormQKV {
                 projectedGate = fusedNormQKV.gateValues
                 gateIsActivated = fusedNormQKV.gateActivated
-            } else if let bankedGate {
-                projectedGate = bankedGate
-                gateIsActivated = false
             } else {
                 guard let normalizedInput else {
                     preconditionFailure("attention gate requires normalized input")
