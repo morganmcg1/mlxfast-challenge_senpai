@@ -1,8 +1,10 @@
 # R87-A result — routed gate/up QMV head latency
 
-Assignment `maple-r87-a-routed-qmv-head-latency`, revision `r87-a-rev1`, PR #469.
+Assignment `maple-r87-a-routed-qmv-head-latency`, revision `r87-a-rev2`, PR #469.
 Branch `maple-tanjiro/r87-routed-qmv-head-latency`, base
-`3217f111142346e004f41fae611a8bede172a659`.
+`3f430f6f17ac4bfbac5f47767ca78cb89d84a760`. The measurement campaign in §1–§13
+was run against the earlier base `3217f111142346e004f41fae611a8bede172a659`;
+see §14 for what rev2 changed and why no number moved.
 
 Pre-registration: [`research/tanjiro-r87a-prereg.md`](tanjiro-r87a-prereg.md),
 committed at `7e93b50` / amended at `502756c`, **both before any timing run**.
@@ -13,10 +15,10 @@ Every prediction in §6 of that file is scored HIT/MISS in §9 below.
 | | |
 | --- | --- |
 | A1 (submittable input-prefetch ladder) | **HARMFUL.** Best arm +26.47 µs/step kernel-local, worst +105.80. All three arms are regressions at 3–30× the rig floor. |
-| Shipped default | `DARKBLOOM_ROUTED_GATEUP_INPUT_PF=0`, verified byte-identical MSL to stock. **Nothing in this PR changes scored behaviour.** |
+| Shipped surface | **Zero bytes of `Sources/` change** as of rev2. The three probe knobs are reverted and preserved as `research/tanjiro_r87a_probes.patch`; `git diff` against the base over the submitted surface is empty (§14a). |
 | A2 (deliberately incorrect ceiling probe) | **−83.64 ± 2.96 µs/step** kernel-local, quoted at face value per rule 43. The SPLIT=1 census total was −69.71 ± 36.21 µs/step; the two bracket **≈+1.07% to +1.28% score**. No give-back discount is applied. **Confounded** — the probe also cuts ~22% of DRAM bytes, so this is a *loose* upper bound, not a target. See §5a. |
 | Correctness | **Clean.** `--local-iterate` at default: `passed=true`, `passed_correctness=true`, `max_abs_diff=0`, 130/130 checked steps, `golden_hash b9509697…` matching this host's known-good value, with `MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT` unset (§7b). Upstream-equivalence oracle byte-identical across candidate-default, candidate-`PF=1`, and a base-`3217f111` control (§7a). |
-| Merge recommendation | **Do not merge as a speedup.** Merge or close on the value of the negative result and the A2 bound; the knob itself is dead weight unless the advisor wants it retained for follow-up work. |
+| Merge recommendation | **Do not merge as a speedup.** With a zero-byte submitted surface, a merge carries only `research/` documentation and costs nothing in editable budget; close instead if the advisor prefers. Decide on the value of the negative result, the barrier-cost scope limit, the A2 bound, and §13a. |
 
 Three things in this PR are worth more than the failed hypothesis:
 
@@ -473,8 +475,12 @@ measurement. The A1 verdict rests on the paired ladder in §4, not on this line.
 
 ## 8. Byte accounting
 
-`Sources/MLXFastModel/LagunaRuntimeModel.swift`, the only submitted file
-changed:
+**As shipped in rev2 the submitted spend is zero** — see §14a. The table below
+records what the rev1 measurement build cost, because that is the number a
+follow-up needs when it re-applies `research/tanjiro_r87a_probes.patch`.
+
+`Sources/MLXFastModel/LagunaRuntimeModel.swift`, the only submitted file changed
+in rev1:
 
 | | bytes |
 | --- | --- |
@@ -540,6 +546,16 @@ are answered as follows:
   use of it was outside its scope. See §3a.
 
 ## 10. Reproduction
+
+The arm knobs no longer exist on this branch (§14a). Re-create them first:
+
+```bash
+git checkout -b r87a-replay 3217f111142346e004f41fae611a8bede172a659
+git checkout maple-tanjiro/r87-routed-qmv-head-latency -- research/
+git apply research/tanjiro_r87a_probes.patch
+```
+
+Then:
 
 ```bash
 # one campaign block (position 0 is a discarded warm-up)
@@ -775,4 +791,144 @@ fb3 asked:
    behind §5 reading the ceiling as latency removed. It does **not** rescue the
    `expert=0` DRAM-byte confound of §5a, which remains the reason the ceiling is
    an upper bound and never a candidate.
+
+
+### 13a. The `gate_sp_h64_v1` coupling is a dose-response, and it corroborates PR #473's H6 from an independent direction
+
+§13 flagged the coupling as an observation. This section claims it, because the
+six arms I already ran form a **dose ladder** and the neighbour tracks the dose.
+This was measured in the rev1 campaign; nothing here is a new run.
+
+| arm | touched Δ (µs/step) | `gate_sp_h64_v1` Δ (µs/step) | neighbour / touched |
+| --- | ---: | ---: | ---: |
+| PF1 | +98.62 ± 3.33 | −7.83 ± 0.84 | −7.94% |
+| PF2 | +26.47 ± 4.02 | +0.22 ± 0.90 | +0.82% |
+| PF3 | +105.80 ± 2.85 | −6.98 ± 1.09 | −6.60% |
+| B2 | +9.13 ± 4.65 | −0.90 ± 1.18 | −9.85% |
+| B4 | +8.52 ± 4.20 | −0.53 ± 1.10 | −6.26% |
+| E0 | −83.64 ± 2.96 | +0.46 ± 0.98 | −0.55% |
+
+Weighted least squares of the neighbour delta on the touched delta, weights
+`1/ci95²` on the neighbour:
+
+- **all six arms: slope −0.0477 ± 0.0063**, 95% CI [−0.0600, −0.0354],
+  intercept −1.374. The slope is 7.6σ from zero.
+- **five slowdown arms only: slope −0.0814 ± 0.0104**, 95% CI
+  [−0.1019, −0.0610], intercept +0.910.
+
+So `gate_sp_h64_v1` moves at roughly **7–8% of the touched kernel's magnitude,
+opposite in sign, in proportion to the dose** — not as a fixed offset that
+appears whenever the kernel is edited. A dose-response is what separates an
+instrument artefact from a coincidence, and it is why I am now willing to name
+this rather than leave it as a lead.
+
+**Why this bears on PR #473's H6.** #473 concluded that the 0.5816 give-back
+"law" was an artefact of `DARKBLOOM_GPU_PROFILE_SPLIT=1` itself — the split
+profiler redistributes time between neighbouring dispatches rather than
+measuring a real whole-model compensation. My campaign never set out to test
+that; it perturbed one MoE kernel six ways for an unrelated hypothesis. The
+prediction H6 makes for such a campaign is exactly what §13 found: a specific
+untouched neighbour absorbing a signed fraction of the touched kernel's change.
+Two independent campaigns, different hypotheses, same kernel pair, opposite
+signs, and now a slope. `gate_sp_h64_v1` also carried **73% of PR #457's
+give-back** (+8.14 µs/step there, against a touched −26.53), which puts #457's
+ratio in the same 7–8%-per-unit-dose neighbourhood as the slope above.
+
+**The caveat that keeps this honest: the coupling is rectified.** E0 is the only
+arm that makes the touched kernel *faster*, and it is the arm where the
+neighbour does not respond. The five-arm fit predicts **+7.72** for E0; the
+observed value is **+0.46 ± 0.98**, a ~7σ miss. A pure bookkeeping
+redistribution — profiler time being moved from one row to the next — would be
+symmetric, and this is not. Whatever couples these two kernels shows up when the
+neighbour's predecessor is *slowed* and vanishes when it is sped up. That is
+consistent with a scheduling or duty-cycle mechanism rather than an accounting
+one, and it means §13a corroborates H6's *conclusion* (SPLIT=1 totals are not
+trustworthy) without confirming any particular linear-redistribution model of
+it. I am not proposing the mechanism; the asymmetry is the reason.
+
+PF2 is the second wrinkle: it sits on the slowdown side of the ladder but its
+neighbour barely moves (+0.22 ± 0.90 against a five-arm prediction of −1.24,
+~1.6σ). Within noise, but worth recording alongside the next paragraph, since
+PF2 is anomalous in both untouched rows.
+
+### 13b. Honesty note — part of PF2's SPLIT=1 total is instrument, not mechanism
+
+Under PF2, the untouched **`sliding_fused_attn_ring_v1` (7.33% of decode)**
+moved **+8.80 ± 1.24 µs/step**, ~7σ. That kernel is attention. Nothing in the
+routed gate/up prefetch ladder touches it, shares a buffer with it, or changes
+its dispatch. It cannot be a mechanism of my patch.
+
+The consequence is that **PF2's +40.17 ± 16.69 µs/step SPLIT=1 total should not
+be read as 40 µs of harm caused by input prefetch.** At least the 8.80 in that
+attention row, and plausibly more of the +12.88 untouched subtotal, is the same
+instrument behaviour §13a characterises. The same caution applies to PF1 (+3.25)
+and PF3 (+2.42) on that row, though those are within ~1.4σ.
+
+**This does not change the verdict, and I want to be explicit about why.** The
+NO-GO on A1 never rested on a SPLIT=1 total (§"Rule 43 compliance"). It rests on
+the touched kernel row, which is the one row the patch demonstrably controls:
+**+26.47 ± 4.02 (PF2, 6.6σ), +98.62 ± 3.33 (PF1, 30σ), +105.80 ± 2.85 (PF3,
+37σ)** against a per-kernel σ of 3.51. Every submittable arm regresses there, by
+7–30× the rig floor, and no instrument artefact on an untouched attention kernel
+makes a 6.6σ regression on the touched kernel disappear. What §13b removes is
+the right to quote PF2's *total* as the size of the damage — which this document
+does not do anywhere a decision depends on it.
+
+Coverage for both subsections: the §13 census resolves **16 of 16 kernels above
+1%, 97.86% of decode busy time**, so a large untouched mover could not have hid
+below the reporting bar.
+
+**Reproduce §13a:** `python3 research/tanjiro-r87a-kernel-table.py` prints the
+full per-kernel table, the arm totals, the coupling table above, and both
+weighted fits including the E0 hold-out.
+
+---
+
+## 14. Revision `r87-a-rev2` changelog
+
+No re-runs, no new arms. Every number in this document is from the rev1
+measurement campaign; rev2 changes what ships and what is claimed, not what was
+measured.
+
+**(a) The `Sources/` diff is now zero bytes.** All three env knobs
+(`DARKBLOOM_ROUTED_GATEUP_INPUT_PF`, `DARKBLOOM_PROBE_ROUTED_GATEUP_BARRIERS`,
+`DARKBLOOM_PROBE_ROUTED_EXPERT0_PF`) are removed from
+`Sources/MLXFastModel/LagunaRuntimeModel.swift`. They are dead code on a refuted
+hypothesis, and the third is *deliberately numerically incorrect* — it hardcodes
+`expert = 0` (§5) — so it has no business sitting in the scored forward pass
+behind an environment check.
+
+The mechanism is preserved verbatim in
+[`research/tanjiro_r87a_probes.patch`](tanjiro_r87a_probes.patch) (11,545
+bytes), following the existing `research/tanjiro_packing_*.patch` convention.
+Its header names the base it applies against
+(`3217f111142346e004f41fae611a8bede172a659`, this branch's fork point, before PR
+#456 relocated the region), gives the one-line re-apply command, documents each
+knob's semantics, range, and default, and flags that the **source-generator
+refactor** (`lagunaRoutedGateUpR1KernelName` + `lagunaRoutedGateUpR1Source()`)
+is inside it, so nobody rebuilds that scaffolding from scratch.
+`git apply --check` against `3217f111` is clean.
+
+**(b) Base reconciled to `3f430f6f17ac4bfbac5f47767ca78cb89d84a760` by merge,
+not rebase — a deliberate deviation from the revision request.** The advisor
+asked for a rebase. This branch forked at `3217f111`, and roughly 20 intermediate
+commits on it edit `LagunaRuntimeModel.swift` inside precisely the region PR #456
+moved out into the new `Sources/MLXFastModel/LagunaRuntimeLayers.swift`
+(2,591 lines relocated). A `git rebase --onto` would have replayed every one of
+those commits into conflicts against code that no longer lives in that file, for
+zero benefit: with `Sources/` already reverted in (a), there is nothing of mine
+left to replay. Merging takes the new base's files wholesale and preserves the
+history the advisor already reviewed. The outcome the request actually specifies
+is verified directly:
+
+- `git diff --stat 3f430f6f17ac4bfbac5f47767ca78cb89d84a760 HEAD -- ':!research/'`
+  → **empty**.
+- `senpai/check-editable-budget.sh 3f430f6f17ac4bfbac5f47767ca78cb89d84a760` →
+  `editable budget OK: current=2891164/3000000 bytes headroom=108836
+  growth=0/262144 files=141 (base=141)`.
+
+**(c) The neighbour-coupling result is claimed** in §13a, with the dose-response
+fit, the E0 rectification caveat, and the §13b honesty note on PF2's untouched
+attention row. `research/tanjiro-r87a-kernel-table.py` is retained and extended
+to print the coupling table and both fits.
 

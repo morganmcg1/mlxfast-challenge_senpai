@@ -9,6 +9,7 @@ Applies against: 3217f111142346e004f41fae611a8bede172a659
 
 Re-apply:
   git checkout -b <branch> 3217f111142346e004f41fae611a8bede172a659
+  git checkout maple-tanjiro/r87-routed-qmv-head-latency -- research/
   git apply research/tanjiro_r87a_probes.patch
 
 Why this is a patch and not code: the R87-A hypothesis was refuted. Every
