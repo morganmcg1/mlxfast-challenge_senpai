@@ -77,16 +77,23 @@ def paired(diffs: list[float]) -> dict[str, float]:
             "neg": sum(1 for d in diffs if d < 0)}
 
 
+# The official contrast is in T = D - 4P (rule 58), not D: dT = +20.149 us/step
+# on M5. Dividing by the 0.622 R1 M5->M4 transfer factor gives the M4-equivalent
+# magnitude bar the outcome rule is preregistered against (§ 1.5c).
+BAR_US = 32.4
+PRECISION_TARGET_HW_US = 8.0
+
+
 def verdict(real: dict[str, float]) -> tuple[str, str]:
-    """The four preregistered rung-1 outcomes (§ 1.5), applied in order."""
+    """The four preregistered rung-1 outcomes (§ 1.5c), applied in order."""
     m, lo, hi = real["mean"], real["lo"], real["hi"]
     if hi < 0:
         return ("3", "sign flip: NEW faster than OLD on M4 -> report and stop")
-    if m >= 20.0 and lo > 0:
+    if m >= BAR_US and lo > 0:
         return ("1", "reproduced off-M5 -> proceed to rung 2")
-    if hi < 20.0 and hi > 0:
-        return ("2", "does not transfer at M5 magnitude -> M5-specific, "
-                     "report and stop")
+    if 0 < hi < BAR_US:
+        return ("2", f"CI hi below the +{BAR_US} us/step bar -> does not "
+                     "transfer at M5 magnitude, report and stop")
     return ("4", "inconclusive-underpowered -> report, no rung 2")
 
 
@@ -153,6 +160,25 @@ def main() -> None:
 
     result["verdict_code"], result["verdict_text"] = verdict(
         result["median"]["real"])
+
+    # Two declared secondaries (§ 1.5c). Neither can change the verdict above.
+    prim = result["median"]["real"]
+    result["bar_us"] = BAR_US
+    result["secondary_proportional"] = {
+        "m5_relative_pct": 0.4865,
+        "m4_equivalent_us": 0.004865 * result["median"]["old_level_us"],
+        "observed_relative_pct": result["median"]["real_relative_pct"],
+    }
+    result["secondary_any_regression"] = {
+        "flag": bool(prim["lo"] > 0),
+        "note": "CI excludes zero with positive sign; magnitude verdict is "
+                "reported separately and is not implied by this flag.",
+    }
+    result["precision"] = {
+        "half_width_us": prim["half_width"],
+        "target_us": PRECISION_TARGET_HW_US,
+        "met": bool(prim["half_width"] < PRECISION_TARGET_HW_US),
+    }
     (out / "analysis.json").write_text(json.dumps(result, indent=2))
 
     print(f"reps analysed: {reps}  (warm-up discarded: {warmup})")
@@ -178,7 +204,22 @@ def main() -> None:
         print(f"  {key:34s} k={p['k']:2d}  mean={p['mean']:+9.2f} us  "
               f"95% CI [{p['lo']:+9.2f}, {p['hi']:+9.2f}]")
 
-    print(f"\nPREREGISTERED OUTCOME {result['verdict_code']}: "
+    sec = result["secondary_proportional"]
+    prec = result["precision"]
+    print("\n--- declared secondaries (cannot change the verdict) ---")
+    print(f"  proportional-scaling equivalent  : "
+          f"{sec['m4_equivalent_us']:+8.2f} us/step "
+          f"(M5 {sec['m5_relative_pct']:.4f} % of the OLD step); "
+          f"observed {sec['observed_relative_pct']:+.4f} %")
+    print(f"  any-regression flag              : "
+          f"{'SET' if result['secondary_any_regression']['flag'] else 'not set'}"
+          "  (CI excludes zero, positive sign)")
+    print(f"  precision  half-width            : {prec['half_width_us']:6.2f} "
+          f"us  target < {prec['target_us']:.1f} us  -> "
+          f"{'met' if prec['met'] else 'NOT met'}")
+
+    print(f"\nmagnitude bar (preregistered, § 1.5c): +{BAR_US} us/step")
+    print(f"PREREGISTERED OUTCOME {result['verdict_code']}: "
           f"{result['verdict_text']}")
 
 
