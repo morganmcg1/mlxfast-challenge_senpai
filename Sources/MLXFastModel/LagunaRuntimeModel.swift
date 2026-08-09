@@ -2750,6 +2750,132 @@ private func lagunaIndexedAffineMetadata(
     )
 }
 
+private let lagunaQKVSevenBitScalesEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_QKV_SEVEN_BIT_SCALES"] != "0"
+private let lagunaQKVSevenBitValidationEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_QKV_SEVEN_BIT_VALIDATE"] == "1"
+private let lagunaQKVScalesPerRow = LagunaConstants.hiddenSize / 16
+private let lagunaQKVPackedScalesPerRow = lagunaQKVScalesPerRow * 7 / 8
+
+private final class LagunaQKVSevenBitLog: @unchecked Sendable {
+    private var sites: Set<String> = []
+    private var layers: Set<Int> = []
+    private var validatedHeads: Set<Int> = []
+    private var originalBytes = 0
+    private var packedBytes = 0
+    private let lock = NSLock()
+
+    func note(_ message: String, site: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard sites.insert(site).inserted else { return }
+        print("qkv-seven-bit \(message)")
+    }
+
+    func bank(layer: Int, heads: Int, rows: Int, minimum: UInt8, maximum: UInt8) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard layers.insert(layer).inserted else { return }
+        let original = rows * lagunaQKVScalesPerRow
+        let packed = rows * lagunaQKVPackedScalesPerRow
+        originalBytes += original
+        packedBytes += packed
+        print(
+            "qkv-seven-bit bank layer=\(layer) heads=\(heads) rows=\(rows) "
+                + "min=\(minimum) max=\(maximum) originalDecodeBytes=\(original) "
+                + "packedDecodeBytes=\(packed) decodeSource=packed "
+                + "timedMaterialization=false u8Fallback=false")
+        if layers.count == 40 {
+            print(
+                "qkv-seven-bit census banks=40 originalDecodeBytes=\(originalBytes) "
+                    + "packedDecodeBytes=\(packedBytes) "
+                    + "decodeBytesSaved=\(originalBytes - packedBytes)")
+        }
+    }
+
+    func beginValidation(heads: Int) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return validatedHeads.insert(heads).inserted
+    }
+}
+
+private let lagunaQKVSevenBitLog = LagunaQKVSevenBitLog()
+
+private func lagunaPackSevenBitValues(_ values: [UInt8]) -> [UInt8]? {
+    guard values.count.isMultiple(of: 8) else { return nil }
+    var packed: [UInt8] = []
+    packed.reserveCapacity(values.count * 7 / 8)
+    for base in stride(from: 0, to: values.count, by: 8) {
+        var word: UInt64 = 0
+        for i in 0 ..< 8 {
+            let value = values[base + i]
+            guard value < 128 else { return nil }
+            word |= UInt64(value) << (i * 7)
+        }
+        for i in 0 ..< 7 {
+            packed.append(UInt8(truncatingIfNeeded: word >> (i * 8)))
+        }
+    }
+    return packed
+}
+
+private func lagunaUnpackSevenBitValues(_ packed: [UInt8]) -> [UInt8]? {
+    guard packed.count.isMultiple(of: 7) else { return nil }
+    var values: [UInt8] = []
+    values.reserveCapacity(packed.count * 8 / 7)
+    for base in stride(from: 0, to: packed.count, by: 7) {
+        var word: UInt64 = 0
+        for i in 0 ..< 7 {
+            word |= UInt64(packed[base + i]) << (i * 8)
+        }
+        for i in 0 ..< 8 {
+            values.append(UInt8(truncatingIfNeeded: word >> (i * 7)) & 0x7f)
+        }
+    }
+    return values
+}
+
+private let lagunaQKVSevenBitPackingSelfTest: Bool = {
+    var values: [UInt8] = []
+    values.reserveCapacity(128 * 8 * 8)
+    for position in 0 ..< 8 {
+        for value in 0 ..< 128 {
+            var group = [UInt8](repeating: 0, count: 8)
+            group[position] = UInt8(value)
+            values.append(contentsOf: group)
+        }
+    }
+    guard let packed = lagunaPackSevenBitValues(values),
+        let unpacked = lagunaUnpackSevenBitValues(packed)
+    else { return false }
+    return unpacked == values
+}()
+
+private func lagunaPackQKVSevenBitScales(
+    _ scales: MLXArray, layer: Int, heads: Int
+) -> MLXArray? {
+    let rows = (heads + 2 * LagunaConstants.numKeyValueHeads) * LagunaConstants.headDim
+    guard scales.dtype == .uint8,
+        scales.shape == [rows, lagunaQKVScalesPerRow]
+    else { return nil }
+    let values = scales.asArray(UInt8.self)
+    guard values.count == rows * lagunaQKVScalesPerRow,
+        let minimum = values.min(), let maximum = values.max(),
+        maximum < 128,
+        let packed = lagunaPackSevenBitValues(values),
+        packed.count == rows * lagunaQKVPackedScalesPerRow
+    else { return nil }
+    if lagunaQKVSevenBitValidationEnabled {
+        guard lagunaQKVSevenBitPackingSelfTest,
+            lagunaUnpackSevenBitValues(packed) == values
+        else { return nil }
+    }
+    lagunaQKVSevenBitLog.bank(
+        layer: layer, heads: heads, rows: rows, minimum: minimum, maximum: maximum)
+    return MLXArray(packed, [rows, lagunaQKVPackedScalesPerRow])
+}
+
 struct LagunaNativeAffineWeight {
     let packedCodes: MLXArray
     let scales: MLXArray
@@ -2760,11 +2886,13 @@ struct LagunaNativeAffineWeight {
     var bits: Int = 8
     var mode: QuantizationMode = .affine
     var indexedMetadata: LagunaIndexedAffineMetadata? = nil
+    var sevenBitScales: MLXArray? = nil
 
     var arrays: [MLXArray] {
         [packedCodes, scales]
             + (biases.map { [$0] } ?? [])
             + (indexedMetadata?.arrays ?? [])
+            + (sevenBitScales.map { [$0] } ?? [])
     }
 }
 
@@ -4356,7 +4484,7 @@ private let lagunaTailNVFP4QMVHeader = """
 private let lagunaDecodeNVFP4QKVR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_NVFP4_QKV_R1"] != "0"
 
-private let lagunaDecodeNVFP4QKVR1Source = """
+private let lagunaDecodeNVFP4QKVR1U8Source = """
     constexpr uint axis_size = 2048;
     constexpr uint num_simdgroups = 2;
     constexpr uint values_per_thread = 16;
@@ -4395,7 +4523,7 @@ private let lagunaDecodeNVFP4QKVR1Source = """
     }
     """
 
-private let lagunaDecodeNVFP4QKVR1Kernels: [Int: MLXFast.MLXFastKernel] = {
+private let lagunaDecodeNVFP4QKVR1U8Kernels: [Int: MLXFast.MLXFastKernel] = {
     var kernels: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
         kernels[heads] = MLXFast.metalKernel(
@@ -4404,14 +4532,87 @@ private let lagunaDecodeNVFP4QKVR1Kernels: [Int: MLXFast.MLXFastKernel] = {
                 + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : ""),
             inputNames: ["normalized", "weight_codes", "weight_scales"],
             outputNames: ["projected"],
-            source: lagunaDecodeNVFP4QKVR1Source,
+            source: lagunaDecodeNVFP4QKVR1U8Source,
             header: lagunaTailNVFP4QMVHeader,
             ensureRowContiguous: true)
     }
     return kernels
 }()
 
-private func lagunaDecodeNVFP4QKVR1(
+private let lagunaDecodeNVFP4QKVR1SevenBitSource = """
+    constexpr uint axis_size = 2048;
+    constexpr uint num_simdgroups = 2;
+    constexpr uint values_per_thread = 16;
+    constexpr uint block_size = 512;
+    constexpr uint in_vec_size_w = axis_size / 2;
+    constexpr uint packed_scales_per_row = 112;
+    constexpr uint packed_scales_per_block = 28;
+
+    uint tile = threadgroup_position_in_grid.x;
+    uint simd_gid = simdgroup_index_in_threadgroup;
+    uint simd_lid = thread_index_in_simdgroup;
+    uint out_row = tile * num_simdgroups + simd_gid;
+
+    const device uint8_t* ws = (const device uint8_t*)weight_codes +
+        out_row * in_vec_size_w + simd_lid * 8;
+    const device uint8_t* packed_scale_row = weight_scales +
+        out_row * packed_scales_per_row;
+
+    thread float x_thread[values_per_thread];
+    thread float result = 0.0f;
+
+    uint column = simd_lid * values_per_thread;
+    for (uint k = 0, scale_block = 0; k < axis_size;
+         k += block_size, ++scale_block) {
+        for (uint i = 0; i < values_per_thread; ++i) {
+            x_thread[i] = float(normalized[column + i]);
+        }
+        uint sub_lane = simd_lid & 7u;
+        uint sub_base = simd_lid - sub_lane;
+        const device uint8_t* packed_group = packed_scale_row +
+            scale_block * packed_scales_per_block + (simd_lid >> 3) * 7;
+        uint loaded = 0;
+        if (sub_lane < 7u) {
+            loaded = uint(packed_group[sub_lane]);
+        }
+        uint bit = sub_lane * 7u;
+        uint byte_index = bit >> 3;
+        uint shift = bit & 7u;
+        uint pair = simd_shuffle(loaded, ushort(sub_base + byte_index));
+        if (shift > 1u) {
+            pair |= simd_shuffle(
+                loaded, ushort(sub_base + byte_index + 1u)) << 8;
+        }
+        uint8_t scale_bits = uint8_t((pair >> shift) & 0x7fu);
+        result += laguna_tail_nvfp4_qdot(
+            ws, x_thread, laguna_tail_nvfp4_scale(scale_bits));
+        ws += block_size / 2;
+        column += block_size;
+    }
+
+    result = simd_sum(result\(lagunaTailNVFP4RowScaleSuffixSource(scaleDefer: lagunaTailNVFP4QKVScaleDeferEnabled)));
+    if (simd_lid == 0) {
+        projected[out_row] = bfloat(result);
+    }
+    """
+
+private let lagunaDecodeNVFP4QKVR1SevenBitKernels: [Int: MLXFast.MLXFastKernel] = {
+    var kernels: [Int: MLXFast.MLXFastKernel] = [:]
+    for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
+        kernels[heads] = MLXFast.metalKernel(
+            name: "laguna_decode_nvfp4_qkv_h\(heads)_r1_s7_v1"
+                + (lagunaTailNVFP4QKVSeedElisionEnabled ? "_se1" : "")
+                + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : ""),
+            inputNames: ["normalized", "weight_codes", "weight_scales"],
+            outputNames: ["projected"],
+            source: lagunaDecodeNVFP4QKVR1SevenBitSource,
+            header: lagunaTailNVFP4QMVHeader,
+            ensureRowContiguous: true)
+    }
+    return kernels
+}()
+
+private func lagunaDecodeNVFP4QKVR1U8(
     normalized: MLXArray,
     bank: LagunaNativeAffineWeight,
     heads: Int
@@ -4427,9 +4628,9 @@ private func lagunaDecodeNVFP4QKVR1(
         bank.packedCodes.dtype == .uint32,
         bank.packedCodes.shape == [rows, hidden / 8],
         bank.scales.dtype == .uint8,
-        bank.scales.shape == [rows, hidden / 16],
+        bank.scales.shape == [rows, lagunaQKVScalesPerRow],
         rows % 2 == 0,
-        let kernel = lagunaDecodeNVFP4QKVR1Kernels[heads]
+        let kernel = lagunaDecodeNVFP4QKVR1U8Kernels[heads]
     else { return nil }
     return kernel(
         [normalized, bank.packedCodes, bank.scales],
@@ -4438,6 +4639,82 @@ private func lagunaDecodeNVFP4QKVR1(
         outputShapes: [[1, 1, rows]],
         outputDTypes: [.bfloat16]
     )[0]
+}
+
+private func lagunaDecodeNVFP4QKVR1SevenBit(
+    normalized: MLXArray,
+    bank: LagunaNativeAffineWeight,
+    heads: Int
+) -> MLXArray? {
+    guard lagunaDecodeNVFP4QKVR1Enabled else { return nil }
+    let rows = (heads + 2 * LagunaConstants.numKeyValueHeads) * LagunaConstants.headDim
+    let hidden = LagunaConstants.hiddenSize
+    guard normalized.dtype == .bfloat16,
+        normalized.shape == [1, 1, hidden],
+        bank.mode == .nvfp4, bank.bits == 4, bank.groupSize == 16,
+        bank.biases == nil,
+        bank.originalShape == [rows, hidden],
+        bank.packedCodes.dtype == .uint32,
+        bank.packedCodes.shape == [rows, hidden / 8],
+        let sevenBitScales = bank.sevenBitScales,
+        sevenBitScales.dtype == .uint8,
+        sevenBitScales.shape == [rows, lagunaQKVPackedScalesPerRow],
+        rows % 2 == 0,
+        let kernel = lagunaDecodeNVFP4QKVR1SevenBitKernels[heads]
+    else { return nil }
+    return kernel(
+        [normalized, bank.packedCodes, sevenBitScales],
+        grid: ((rows / 2) * 64, 1, 1),
+        threadGroup: (64, 1, 1),
+        outputShapes: [[1, 1, rows]],
+        outputDTypes: [.bfloat16]
+    )[0]
+}
+
+private func lagunaValidateQKVSevenBitKernel(
+    bank: LagunaNativeAffineWeight, heads: Int
+) -> Bool {
+    guard lagunaQKVSevenBitLog.beginValidation(heads: heads) else { return true }
+    let hidden = LagunaConstants.hiddenSize
+    let rows = (heads + 2 * LagunaConstants.numKeyValueHeads) * LagunaConstants.headDim
+    let values = (0 ..< hidden).map { index in
+        Float((index * 37) % 257 - 128) / 128
+    }
+    let input = MLXArray(values, [1, 1, hidden]).asType(.bfloat16)
+    guard let u8 = lagunaDecodeNVFP4QKVR1U8(
+        normalized: input, bank: bank, heads: heads),
+        let sevenBit = lagunaDecodeNVFP4QKVR1SevenBit(
+            normalized: input, bank: bank, heads: heads)
+    else { return false }
+    eval(u8, sevenBit)
+    let passed =
+        u8.view(dtype: .uint16).asArray(UInt16.self)
+        == sevenBit.view(dtype: .uint16).asArray(UInt16.self)
+    lagunaQKVSevenBitLog.note(
+        "validation heads=\(heads) rows=\(rows) boundaries=0,\(rows - 1) "
+            + "bitwise=\(passed)",
+        site: "validation-\(heads)")
+    return passed
+}
+
+private func lagunaDecodeNVFP4QKVR1(
+    normalized: MLXArray,
+    bank: LagunaNativeAffineWeight,
+    heads: Int,
+    layer: Int
+) -> MLXArray? {
+    if lagunaQKVSevenBitScalesEnabled {
+        if let output = lagunaDecodeNVFP4QKVR1SevenBit(
+            normalized: normalized, bank: bank, heads: heads)
+        {
+            return output
+        }
+        if lagunaQKVSevenBitValidationEnabled {
+            fatalError("QKV seven-bit scale dispatch rejected layer \(layer)")
+        }
+    }
+    return lagunaDecodeNVFP4QKVR1U8(
+        normalized: normalized, bank: bank, heads: heads)
 }
 
 
@@ -5121,6 +5398,19 @@ final class LagunaRuntimeAttention: Module {
             fused.indexedMetadata = lagunaIndexedAffineMetadata(
                 scales: fused.scales, biases: biases)
         }
+        if lagunaQKVSevenBitScalesEnabled, lagunaDecodeNVFP4QKVR1Enabled,
+            fused.mode == .nvfp4, fused.bits == 4, fused.groupSize == 16
+        {
+            fused.sevenBitScales = lagunaPackQKVSevenBitScales(
+                fused.scales, layer: layerIdx, heads: nHeads)
+            if lagunaQKVSevenBitValidationEnabled {
+                guard fused.sevenBitScales != nil,
+                    lagunaValidateQKVSevenBitKernel(bank: fused, heads: nHeads)
+                else {
+                    fatalError("QKV seven-bit validation failed at layer \(layerIdx)")
+                }
+            }
+        }
         _nativeAffineQKV = fused
         return fused.arrays + (_nativeAffineGProj?.arrays ?? [])
     }
@@ -5309,7 +5599,8 @@ final class LagunaRuntimeAttention: Module {
                 let decodeNVFP4QKVR1 =
                     fusedQKV == nil
                     ? lagunaDecodeNVFP4QKVR1(
-                        normalized: normalized, bank: fusedAffine, heads: nHeads)
+                        normalized: normalized, bank: fusedAffine, heads: nHeads,
+                        layer: layerIdx)
                     : nil
                 let qkv =
                     fusedQKV
