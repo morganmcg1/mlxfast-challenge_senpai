@@ -33,10 +33,8 @@ template <typename T, int N_READS = RMS_N_READS>
   // those threadgroups as a 262144-thread grid. The fixed row has sixteen
   // simdgroup partials. Write those to slots 0...15 while lanes 16...31 of
   // simdgroup zero initialize the disjoint unused slots, then rendezvous once.
-  // This produces the exact 32-lane second-reduction input of the generic
-  // path while removing its preceding zero-fill barrier. The square order,
-  // simd reductions, precise rsqrt, BF16 cast point, and weight multiply are
-  // unchanged.
+  // Each simdgroup then repeats the same final reduction and broadcasts its
+  // precise inverse mean locally, avoiding a second threadgroup rendezvous.
   if constexpr (metal::is_same_v<T, bfloat16_t> && N_READS == 4) {
     if (axis_size == 2048 && grid_size == 512 && w_stride == 1) {
       constexpr uint laguna_simdgroups = 16;
@@ -63,17 +61,14 @@ template <typename T, int N_READS = RMS_N_READS>
       }
       threadgroup_barrier(mem_flags::mem_threadgroup);
 
-      if (simd_group_id == 0) {
-        acc = simd_sum(local_sums[simd_lane_id]);
-        if (simd_lane_id == 0) {
-          local_inv_mean[0] = metal::precise::rsqrt(acc / axis_size + eps);
-        }
-      }
-      threadgroup_barrier(mem_flags::mem_threadgroup);
+      acc = simd_sum(local_sums[simd_lane_id]);
+      float inv_mean = simd_lane_id == 0
+          ? metal::precise::rsqrt(acc / axis_size + eps)
+          : 0.0f;
+      inv_mean = simd_broadcast(inv_mean, 0);
 
       for (int i = 0; i < N_READS; i++) {
-        row_out[i] =
-            row_w[i] * static_cast<T>(xcache[i] * local_inv_mean[0]);
+        row_out[i] = row_w[i] * static_cast<T>(xcache[i] * inv_mean);
       }
       return;
     }
