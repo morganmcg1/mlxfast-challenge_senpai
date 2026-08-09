@@ -144,3 +144,45 @@ Greedy teacher-forced decode matched the public golden with **zero divergences
 at every point in the table**, including `K` = 2400. The injected work reads no
 model state and writes nothing that is consumed, so this is expected; we ran it
 anyway because "expected" is not evidence.
+
+## Hazard / command-buffer-split control (job `528661f0`, 2026-08-09T03:34Z)
+
+Hypothesis under test: the sub-linear "free region" at low K is an artefact of
+MLX splitting the decode step into several Metal command buffers, so injected
+kernels ride along inside an already-paid buffer until a split boundary is
+crossed.
+
+Control: rerun K in {0, 240, 800} with the buffer-split limits effectively
+disabled (`MLX_MAX_OPS_PER_BUFFER=1000000`, `MLX_MAX_MB_PER_BUFFER=1000000`)
+and compare against the default-limit arm in the same job, same host, same
+120 teacher-forced steps, TG=8.
+
+| K | default mean ms | bigbuf mean ms | delta | default median | bigbuf median |
+|---|---|---|---|---|---|
+| 0   | 8.219 | 8.260 | +0.50 % | 8.203 | 8.227 |
+| 240 | 8.134 | 8.137 | +0.04 % | 8.122 | 8.121 |
+| 800 | 8.285 | 8.283 | -0.02 % | 8.255 | 8.254 |
+
+All six points: 0 token divergences.
+
+**Verdict: hypothesis rejected.** Removing the command-buffer split limits does
+not move any rung by more than the ~0.5 % run-to-run noise, and it does not
+flatten or steepen the 0 -> 240 -> 800 shape. Command-buffer granularity is not
+what makes the first few hundred injected dispatches free.
+
+The surviving explanation is the CPU/GPU overlap one: on this M4 Pro a
+single-token decode step spends on the order of a millisecond building and
+encoding the MLX graph on the CPU, and the injected chain is hazard-free (it
+binds only its own control/prev/sink buffers, never a model tensor, so MLX
+inserts no `MTLFence` wait), so a few hundred extra GPU dispatches complete
+inside that CPU shadow and cost nothing. Past roughly K~800 the injected GPU
+chain is longer than the CPU shadow and each further dispatch starts showing up
+at ~2 us.
+
+Consequence for the ladder, restated: the empty-kernel ladder prices a
+*hazard-free* dispatch. That is a lower bound on the value of deleting a real,
+serialising dispatch from the scored path, and on a machine whose CPU shadow is
+shorter (or whose GPU is faster) the same K can be entirely visible instead of
+entirely free. The historical M5 receipts show exactly that: linear from K=0
+with no free region.
+

@@ -1,0 +1,19 @@
+=== default-K0 rc=0
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=120 mean=8.219 ms median=8.203 ms p10=8.178 ms p90=8.250 ms min=8.150 ms max=9.391 ms total=0.986 s
+=== default-K240 rc=0
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=120 mean=8.134 ms median=8.122 ms p10=8.090 ms p90=8.172 ms min=8.067 ms max=9.311 ms total=0.976 s
+=== default-K800 rc=0
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=120 mean=8.285 ms median=8.255 ms p10=8.219 ms p90=8.376 ms min=8.191 ms max=9.879 ms total=0.994 s
+=== bigbuf-K0 rc=0
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=120 mean=8.260 ms median=8.227 ms p10=8.176 ms p90=8.373 ms min=8.107 ms max=9.456 ms total=0.991 s
+=== bigbuf-K240 rc=0
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=120 mean=8.137 ms median=8.121 ms p10=8.080 ms p90=8.176 ms min=8.053 ms max=9.397 ms total=0.976 s
+=== bigbuf-K800 rc=0
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=120 mean=8.283 ms median=8.254 ms p10=8.219 ms p90=8.322 ms min=8.193 ms max=9.939 ms total=0.994 s
+done 03:34:14Z
