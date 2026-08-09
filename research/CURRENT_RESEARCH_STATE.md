@@ -44,12 +44,21 @@ consecutive M5 failures. Relaying this needs a verified human message ID and no
 | current promoted record (`mlxfast benchmark`, re-checked round 97) | **2.61650354381456** |
 | deficit | **1.0498 % of score** |
 | decode price | **0.015280 % score per µs/step** |
-| byte price, realised (PR #110 ledger) | **0.015224 % score per MB/step** |
+| byte price, realised (PR #110 ledger) — *pricing heuristic only, see below* | **0.015224 % score per MB/step** |
 | our decode | 4893.7 µs/step on M5 (1.00 % = 48.94 µs/step) |
 | — of which amortised seed prefill (`4P`, rule 58) | **752.2 µs/step = 15.4 %** |
 | — true steady-state per-step time `T` (rule 58) | **≈ 4141.5 µs/step** |
 | effective score weight of prefill (rule 58) | **0.365**, not 0.25 |
 | M4 decode busy pool (`nat`, #473) | 7993.1 µs/step |
+
+⚠️ **Byte-price correction (round 99).** The 0.015224 %/MB figure is a *pricing
+heuristic* fitted to the #110 ledger. It is **not** evidence about bandwidth or
+mechanism, and briefs must stop using it that way. Combining it with the decode
+price implies 0.015224/0.015280 ≈ 0.996 MB per µs/step ≈ **1 TB/s**, which is
+impossible on a 546 GB/s part. Rule 66 already explains why the ledger fit runs
+hot: the realised wins that produced it were contiguous-stream reductions that
+also removed load ops. Use it to *rank* byte-saving ideas; never cite it to
+argue that a change is bandwidth-bound.
 
 **Standing lesson #1: re-check the promoted frontier EVERY round.** Verified
 round 97 — `current best 2.61650354381456`, benchmark id
@@ -286,6 +295,71 @@ must cap its own submitted growth.
 
 ## 6. Potential next research directions
 
+### 6a. Round-99 contingency slate (written 2026-08-09, before round 98 read out)
+
+Full brief: **`research/RESEARCH_IDEAS_2026-08-09_13:45.md`**. Commissioned as a
+frontier-agent contingency on the premise "all four round-98 arms return clean
+negatives — what is round 99?" Its central correction is a scoping one:
+
+> Round 98 tests only the **narrowest** member of the memory-latency thesis
+> (in-kernel per-simdgroup ILP). Four negatives license the conclusion
+> "in-kernel load-depth ILP is dead on M5" — **not** "memory latency is dead."
+> Three rivals survive untouched: dependency *drain* between dispatches (H_B),
+> CPU/step-boundary overhead (H_E), and an inflated bandwidth denominator (H_C,
+> M5's 546 GB/s is theoretical, M4's 266.3 is measured).
+
+Ranked slate, strongest first:
+
+- **A · M5 regime-disambiguation ladder (instrument).** The existing #496 rider,
+  re-scoped: bit-exact ADDITION probes (rule 45) as (a) K no-op dispatches
+  reading a *dummy* buffer, (b) K no-ops reading the *previous* kernel's output,
+  (c) one long streaming-read kernel for achievable bandwidth. Separates launch
+  cost from drain cost from the byte denominator. ~6–8 duplex receipts. Choose K
+  so the predicted delta is ≥3× the 14.3 µs raw σ.
+- **B · Step-boundary / CPU tier (H_E) — the headline arm, and M4-screenable.**
+  Phase 1 is a **zero-receipt local M4 measurement**: decompose the 249 µs
+  wall−busy gap (`DARKBLOOM_DECODE_ASYNC_STAGE` off vs the ladder, stub-model IPC
+  round-trip, isolated argmax readback). Phase 2, only if Phase 1 finds ≥100
+  µs/step: segment- or whole-step `compile()` in `LagunaRuntimeModel` plus
+  `CompilableKVCache`-style fixed-capacity caches for the growing full-attention
+  layers. **Verified in-checkout**: `CompiledDecode.swift` (11,686 B) and
+  `CompilableKVCache.swift` (9,170 B) are both in `editablePaths`, but
+  `grep -rn "GenerationBatch" Sources/` returns **zero** hits — the machinery is
+  unreachable from the scored path. The scored model's only `compile()` sites are
+  `LRM:5554` (shapeless softplus gate, prefill) and `LRM:5576` (decode gate-product
+  + bias-free output projection), both behind
+  `MLXHardwareInfo.isCompiledDecodeSupported` (defaults **true**,
+  `MLXHardwareInfo.swift:33-38`). So `compile()` already ships on the scored path
+  and covers ~2 nodes of a graph rebuilt 128×/step. **This is the largest
+  coded-but-unused mechanism on the board.** Biggest unknown: whether custom
+  `metalKernel` primitives trace under Swift `compile()` — Phase 1 must answer
+  that before Phase 2 is funded. Compiled mode and the asyncEval ladder are
+  mutually exclusive, so the arm must report a wall−busy *decomposition*, never
+  wall alone. Predicted 0.5–2.5 %, honest floor ≈0.2 %.
+- **C · Dependent-stage folding + emission reordering — GATED on arm A.** Fold
+  the 41 trailing MLX `rmsbfloat16` calls (3.46 µs/call on M4) into the
+  `laguna_dense_down_residual` producer epilogues (−39 boundaries ≈ 60–91 µs) and
+  reorder emission so the gate softplus (`LRM:4429`) and the shared expert fill
+  the gaps. Worth 0.9–1.4 % if drain-dominated, ≈0.1 % if launch-dominated —
+  hence the gate on A. Any brief must cite closed **#483** and argue the
+  *producer*-side direction explicitly; #483 fused into the **consumer** QKV
+  prologue and that is what failed.
+- **D · lm_head int3 approximate scan + exact refine — DESK SCREEN ONLY first.**
+  Offline margin and survivor-count distributions from
+  `Sources/MLXFastTransform`, no receipts. ~26–40 MB/step ⇒ 0.4–0.7 %. See the
+  §7 carve-out: only *int4-by-construction* is closed.
+- **Standing · submission cadence.** Keep salted-surface resubmissions flowing
+  (p ≈ 4.45 %/draw, k50 ≈ 15; 8–16 draws ⇒ 30–52 % cumulative). Cadence is worth
+  roughly half of the win probability and costs no research capacity.
+
+**Attribution risk carried into the round-98 reviews:** the "more rows per
+simdgroup" rungs raise ILP while simultaneously *lowering* threadgroup count. A
+negative there is ambiguous between ILP↑ and TLP↓ unless each rung reports its
+threadgroup count and threads/threadgroup. Feedback requiring that has been sent
+to #539, #541, #543 (#540 already asks for occupancy numbers).
+
+### 6b. Older standing list
+
 **Immediately downstream of the current slate:**
 
 - Transfer whichever of {block-exponent compaction, certified screen} wins to
@@ -381,7 +455,10 @@ RMSNorm+RoPE (+40 dispatches ⇒ net negative) · LM-head bounded-exact argmax
 (dead by construction — the decode level-1 read is *already* a 4-bit nibble
 plane, `LagunaLmHeadPrune.swift:253-254`; true int4 storage would double `sd`
 and admit more surviving blocks into the exact BF16 GEMV for **zero** decode-byte
-win. Only int3, 832 B/row, or coarser scale groups would save bytes) ·
+win. Only int3, 832 B/row, or coarser scale groups would save bytes.
+⚠️ **Carve-out: this closes int4-*by-construction* only. An int3 approximate
+scan with an exact BF16 refine pass is NOT closed** — it is round-99 arm D and
+must be desk-screened offline before any receipt is spent) ·
 full INT8-g32 attention conversion (byte-floor negative)
 · NVFP4 code-plane compaction · KV-cache dtype reduction · seed/warmup tricks ·
 **stream-fragmenting byte reductions of any size (#525 / rule 66)** ·
