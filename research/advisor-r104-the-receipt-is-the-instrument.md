@@ -332,3 +332,129 @@ adding it, and now nobody should.
 * §8 of `advisor-r103-what-winning-costs.md` is retracted (§3a). Do not revive
   the threadgroup-memory cliff.
 * `DARKBLOOM_FUSED_QKV` (§3b) and the H7 rescale skip (§3c) are dead.
+* The record-watch arithmetic in §8. Re-run `research/advisor_r104_record_watch.py`
+  to *refresh* it; do not re-derive the pricing model by hand.
+
+## 8. 🔴 The record is not winnable by luck — it is winnable only by ~1.4 % of `cs`
+
+Refreshed live from the MLXFast API at 2026-08-09T23:20Z with
+`research/advisor_r104_record_watch.py` (read-only; canonical field names per
+rule 58, taken from `research/advisor_r103_freeze_corpus.py`).
+Corpus: **1,775 raw records, 1,206 metric-bearing, 147 accepted.**
+
+### 8.1 The standing record has not moved in 38 hours
+
+```
+2026-08-08T09:17:33Z   a-github-name   score 2.616504   cs 2.574594   L 1.016278
+                       decode 4930.057 us/step          prefill 188.1589 us/tok
+```
+
+* **40 metric-bearing receipts have landed since that record. Zero were accepted.**
+  That is not a surprise and it is not evidence of anything new: at the
+  round-103 acceptance rate for a Δcs = 0 tree (0.095 % per receipt),
+  P(0 accepts in 40) = **96.3 %**.
+* **65 of 1,206 receipts in the whole corpus have a *better* `cs` than the
+  record's `cs`.** The record is not the fastest tree ever measured. It is a
+  mid-pack tree that drew an extraordinary `L`.
+* Record `L = 1.016278`. Against the corpus median `L = 0.998572` and
+  `sd(ln L) = 0.5363 %`, that is **+3.28 σ ⇒ a p99.95 draw**.
+
+⇒ **`L`, not `cs`, is what makes the record unreachable.** This is §3 of
+`advisor-r103-what-winning-costs.md` restated on 38 hours of fresh data.
+
+### 8.2 What it now costs to take the record
+
+To beat `score = 2.616504` at the *median* draw `L = 0.998572` you need
+
+```
+cs >= 2.616504 / 0.998572 = 2.620246
+   = +1.438 % over our honest tree cs 2.583111
+   = 94.4 us/step of decode   (1 % of cs = 65.67 us/step)
+```
+
+Live-reproduced pricing (P(record) per receipt as a function of how much real
+`cs` we bring, and the receipt count `n` at which P(≥1 record) = 50 %):
+
+| Δcs vs our honest tree | P(record) / receipt | n @ 50 % |
+|---|---|---|
+| +0.00 % | 0.095 % | 731.4 |
+| +0.25 % | 0.519 % | 133.2 |
+| +0.50 % | 2.165 % | 31.7 |
+| +0.75 % | 6.941 % | 9.6 |
+| +1.00 % | 17.340 % | 3.6 |
+| +1.25 % | 34.354 % | 1.6 |
+| +1.50 % | 55.325 % | 0.9 |
+| +2.00 % | 88.557 % | 0.3 |
+
+Nezuko's round-104 budget is 8 receipts. P(≥1 record) across those 8:
+
+| Δcs | P(≥1 record in 8) |
+|---|---|
+| +0.00 % | **0.76 %** |
+| +0.50 % | 16.06 % |
+| +1.00 % | 78.20 % |
+| +1.50 % | 99.84 % |
+
+**Operational consequence:** at Δcs = 0 an eight-receipt round buys a **0.76 %**
+chance of a record — and, spent as 4 paired contrasts, a **±16.7 µs/step**
+measurement of a real dial (§1). One of those two outcomes is nearly certain and
+the other is nearly impossible, so the allocation decision is not close: **spend
+receipts as an instrument, not as a lottery ticket.** Nobody on this team should
+tune a submission to avoid rejection, or spend a spare receipt hoping for a
+draw. Rejected receipts carry full `cand_dec` / `cand_pre` (§2) — a rejection is
+a free measurement.
+
+### 8.3 The record is sticky, so the bar is not about to move under us
+
+The field is producing roughly **25 metric-bearing receipts/day**. If the field
+sits near our own `cs`, the expected wait for *anyone* to reproduce a p99.95
+draw is `1 / 0.00095 ≈ 1,050 receipts ≈ 42 days`. The 38-hour, 40-receipt
+drought is exactly what that model predicts.
+
+⇒ **This record will not fall to luck, ours or anyone's. It falls to a real
+`cs` improvement of order 1.4 %.** That is the number round 104's levers have
+to be sized against:
+
+| round-104 lever | modelled ceiling | vs the 1.438 % bar |
+|---|---|---|
+| 104-A sliding-attention pipe depth (§5) | ≈ +0.77 % of score for a 10 % k-loop win | **short on its own** |
+| 104-B wk/wv steel tile regroup | 6.5–10.3 ms prefill @ 0.3781 %/ms = **+2.46 % … +3.89 %** | **clears it alone** |
+| 104-C prefill steel shape census (→ §11.8 H8, audit-only this round) | ~6 ms ⇒ +1.6 % *if* dense projections are below 52 TFLOP/s | clears it alone |
+
+This is the honest reason 104-B and 104-C are prefill work and 104-A is a
+measurement-grade dial: **the decode side does not have 1.4 % lying around, and
+the prefill side might.**
+
+### 8.4 🔴 Competitive intelligence: our `cs` lead is over the record holder, not over the field
+
+A new entrant, **`fyrsta7`**, first appeared 2026-08-09T14:43:45Z and produced
+5 receipts in ~3 hours:
+
+```
+cs: 2.574051, 2.582983, 2.585463, 2.589921, 2.580958
+geometric mean cs = 2.582670  =  -0.017 % vs our honest cs 2.583111
+z = -0.21   95 % CI on the difference: [-0.180 %, +0.146 %]   => PARITY
+```
+
+Their own spread across those 5 receipts, `sd(ln cs) = 0.2273 %`, is
+statistically indistinguishable from our *identical-code* noise floor of
+0.1860 % (χ² = 5.97 on 4 dof, p ≈ 0.20) — i.e. **their five receipts are
+consistent with one fixed tree measured five times.** They did not climb to
+parity; they arrived at it.
+
+`yudduy` is also active: best-3 geometric-mean `cs = 2.578718` = −0.170 % vs
+ours, 95 % CI `[-0.381 %, +0.040 %]` — **also parity**, not measurably behind.
+`metaspartan` and `MyatKaung` are producing receipts as well.
+Reproduce with `research/advisor_r104_field_parity.py`.
+
+**Read this honestly.** Round 103 recorded that our honest tree is +0.331 %
+ahead of *the record's* `cs`. That statement is still true and it is now also
+misleading: the record holder's tree is not the frontier of the field. At least
+one solver reached our `cs` from a standing start in three hours, and a second
+is statistically level with us. We do not have a defensible `cs` moat — we are
+one of at least three trees inside a ±0.2 % band. What we have is §1 —
+a calibrated receipt channel and a two-mechanism inventory (§4) that tells us
+*which* bytes moved. Nobody else is publishing that they have one.
+
+Do not respond to this by spending receipts faster. Respond to it by making
+§8.2's 1.4 % real.
