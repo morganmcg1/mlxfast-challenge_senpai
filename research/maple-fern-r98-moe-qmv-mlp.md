@@ -254,3 +254,46 @@ session behind the same 40 C thermal gate — so it does not inherit the
 cross-session drift that just swamped the local screen. Risk is bounded: the
 change is bit-exact and shows no regression, so the downside is one receipt, not a
 broken submission. Receipts spent so far: 0 of 6.
+
+### 5.5 `./benchmark.sh --local-submit` preflight (candidate, commit `30dbb4c`)
+
+Artifact: `research/artifacts/fern-r98d-rung1-localsubmit.json`
+(job `3ba63234`, exit 0, `timestamp 2026-08-09T13:44:12Z`).
+
+```
+passed                        true
+score (pinned-calibration)    1.0527428318869918
+passed_correctness            true
+max_abs_diff                  0
+checked_steps                 1025
+error                         ""
+first_failing_case/step/layer null / null / null
+decode_seconds_per_token      0.008946454056695993
+decode_speedup                1.5487937536308634   passed_decode_speedup_floor true
+prefill_seconds_per_token     0.00111165966796875
+prefill_speedup               0.3306042305480922   passed_prefill_speedup_floor false
+golden_hash                   f49e4c2c...
+weights_hash                  aff99430...
+```
+
+Two readings that must not be confused:
+
+1. **Correctness is clean and it is the strong claim here.** 1025 checked steps,
+   `max_abs_diff = 0`, empty `error`, no failing case/step/layer. Combined with the
+   byte-identical upstream-equivalence oracle (§5.2) the candidate is bit-exact
+   against its own base on this host.
+2. **The speedups in this file are *not* the ranked verdict.** Local
+   `--local-submit` divides by *pinned calibration* constants
+   (`baseline_decode_seconds_per_token = 0.01385621216015625`,
+   `baseline_prefill_seconds_per_token = 0.00036751938916015626`) that are M5
+   numbers, not a same-session M4 baseline. That is why `decode_speedup` reads a
+   fictitious 1.549 and `prefill_speedup` a fictitious 0.331 on an M4 Pro: this
+   host's prefill is roughly 3x the pinned M5 prefill because it never selects the
+   `_nax` prefill kernels. `passed_prefill_speedup_floor = false` here is a
+   statement about M4-vs-pinned-M5, not about the candidate; the unchanged base
+   produces the same failure. The paired ranked verdict comes only from the M5
+   receipt.
+
+So the local gate delivers exactly what §5.3 left it: bit-exactness plus "no
+regression", and no timing signal. Proceeding to receipt 1.
+
