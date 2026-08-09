@@ -26,10 +26,20 @@ Three results here outlive this assignment:
    *different token stream*, so they re-route to different experts. Its
    −137 µs/step "ceiling" was routing contamination, not dispatch cost.
    (Findings 3, 4)
-3. **Rule 41's 1.4064 µs/dispatch does not hold on this stream.** It
-   over-predicts the cost of 80 added dispatches by ~13×, and `gap` never
-   moves. Any NET arithmetic whose prize is "removed boundaries" is affected.
-   (Finding 6)
+3. **The assignment used rule 41's WIDE constant where TINY applies.** A
+   decode input-RMSNorm is a 4 KB dispatch, so the boundary term is
+   40 × 0.7258 = 29.0 µs/step, not 40 × 1.4064 = 56.3. That independently lands
+   under the bar too. Separately, `gap` never moves in any contrast, so the
+   76.3 % serialization share of a boundary is hidden on this GPU-bound stream
+   and is not recoverable here. (Finding 6)
+
+W&B: [`ubjfsywa`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/ubjfsywa)
+(group `r91-a-input-norm-fusion-price`).
+
+Mechanism class (`research/DATASET_ANALYSIS.md` §5): this lever is "remove a
+dispatch boundary" plus "issue fewer instructions", both of which are expected
+to transfer *positively* from M4 Pro to the ranked M5. The problem is not
+transfer risk — it is that the prize is too small on either machine.
 
 ## Why this is a pricing experiment and not an implementation
 
@@ -308,23 +318,45 @@ a way that could inflate it — and any donation penalty in `dupn`'s glue
 dispatch makes the +8.61 an **over**-estimate of the norm cost, so the bound
 holds a fortiori.
 
-#### Finding 6 — rule 41's 1.4064 µs/dispatch does not apply to this stream
+#### Finding 6 — the assignment used rule 41's WIDE constant where TINY applies
 
-Stage 1a finding 2 observed that the modelled ~56 µs/step boundary term did not
-appear. Stage 1b refutes the constant far more directly, on bit-exact arms:
+Rule 41 is calibrated in two regimes: **WIDE 1.4064 µs** and **TINY 0.7258 µs**
+per dispatch, a 1.94× ratio (`research/DATASET_ANALYSIS.md` §6). The assignment
+priced the boundary term at ~56 µs/step, which is 40 × WIDE. An input-RMSNorm
+in decode is one row of 2,048 elements — 4 KB in, 4 KB out. That is a TINY
+dispatch, so the applicable term is 40 × 0.7258 = **29.0 µs/step**, not 56.3.
 
-| prediction | rule 41 | measured (busy) | measured (gap) |
-| --- | --- | --- | --- |
-| +40 dispatches (`max1 − base`) | +56.3 µs/step | +30.03 [+7.04, +53.09] | +14.37 [−30.81, +68.97] |
-| +80 dispatches (`dupn − base`) | +112.5 µs/step | +8.61 [−17.71, +35.02] | +7.14 [−10.31, +25.86] |
+Stage 1b corroborates the TINY constant directly. `max1 − base` inserts 40
+near-zero-work elementwise dispatches for **+30.03 µs/step busy = 0.751
+µs/dispatch**, within noise of 0.7258.
 
-Rule 41 over-predicts by ~2× at 40 dispatches and by ~13× at 80, and `gap` —
-the axis a CPU-side encode cost would have to move — is statistically zero in
-every contrast. On a GPU-bound decode stream the encode of an extra dispatch is
-hidden behind GPU execution, so 1.4064 µs/dispatch should not be used in NET
-arithmetic for this workload without re-deriving it in the regime of interest.
-This is flagged for the advisor as a standing-rule problem; it affects any NET
-estimate whose prize is "removed boundaries".
+So two independent routes now converge on the same answer:
+
+| route | prize for removing the 40 norm dispatches |
+| --- | --- |
+| rule 41 TINY × 40 | 29.0 µs/step ≈ 0.44 % score |
+| this experiment, `dupn − base` 95 % UB | ≤ 35.02 µs/step ≈ 0.535 % score |
+
+Both are well under the ~80 µs/step bar. The stop decision does not depend on
+which one is preferred, which is the strongest form this conclusion could take.
+
+Two caveats are recorded honestly rather than smoothed over:
+
+1. The two stage-1b arms disagree with each other. 80 added dispatches
+   (`dupn − base`, +8.61) cost *less* than 40 added dispatches (`max1 − base`,
+   +30.03). Under the donation reading of finding 5, `max1 − base` is inflated
+   by allocator churn and its agreement with TINY is partly coincidental. The
+   end-to-end bound is unaffected either way.
+2. Rule 41 attributes 76.3 % of a boundary (1.073 µs) to serialization and
+   ordering, which must land in `gap`. **`gap` is statistically zero in all
+   four contrasts** (+14.37, +9.66, +7.14, +16.45 µs/step, every CI spanning
+   zero). On this GPU-bound decode stream that component is hidden behind GPU
+   execution, so the fraction of a boundary that is actually *recoverable* here
+   is nearer the 22.4 % fixed cost than the full constant.
+
+Point 2 is flagged for the advisor: it affects any NET estimate whose prize is
+"removed boundaries", and it argues that the recoverable-per-dispatch figure
+should be re-derived on the `nat` decode stream rather than inherited.
 
 ### Stopping rule
 
