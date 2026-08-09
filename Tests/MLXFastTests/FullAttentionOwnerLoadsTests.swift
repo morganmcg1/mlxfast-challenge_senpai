@@ -210,11 +210,14 @@ private func verifyParity(inputs: FullAttentionInputs) {
         let outputMismatch = firstExactMismatch(control, candidate)
         let keyMismatch = firstExactMismatch(controlKeys, candidateKeys)
         let valueMismatch = firstExactMismatch(controlValues, candidateValues)
+        let outputMismatchText = outputMismatch.map(String.init) ?? "null"
+        let keyMismatchText = keyMismatch.map(String.init) ?? "null"
+        let valueMismatchText = valueMismatch.map(String.init) ?? "null"
         #expect(outputMismatch == nil)
         #expect(keyMismatch == nil)
         #expect(valueMismatch == nil)
         print(
-            "FULL_OWNER_PARITY {\"write_idx\":\(writeIdx),\"output_mismatch\":\(outputMismatch.map { String($0) } ?? "null"),\"key_cache_mismatch\":\(keyMismatch.map { String($0) } ?? "null"),\"value_cache_mismatch\":\(valueMismatch.map { String($0) } ?? "null")}"
+            "FULL_OWNER_PARITY {\"write_idx\":\(writeIdx),\"output_mismatch\":\(outputMismatchText),\"key_cache_mismatch\":\(keyMismatchText),\"value_cache_mismatch\":\(valueMismatchText)}"
         )
     }
 }
