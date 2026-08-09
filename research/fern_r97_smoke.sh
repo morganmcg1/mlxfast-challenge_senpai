@@ -19,12 +19,13 @@ run_state() {
   local name="$1" gate="$2" down="$3"
   echo "=== state $name (BEXP_GATE_UP=$gate BEXP_DOWN=$down) $(date -u +%H:%M:%S) ==="
   DECODE_PROBE_WORKER="$WORKER" \
+  DARKBLOOM_ATTN_SCALE_NARROW_LOG=1 \
   DARKBLOOM_DENSE_BEXP_GATE_UP="$gate" DARKBLOOM_DENSE_BEXP_DOWN="$down" \
     python3 research/fern_r93_nested_probe.py \
       --runs 1 --steps "$STEPS" --warmup-runs 0 --no-thermals \
       --label "smoke-$name" --schedule const:0 \
       --stderr "$OUT/$name.err" --out "$OUT/$name.json" || return 1
-  grep -iE "block exponent|bexp|decline|certificate" "$OUT/$name.err" | sort | uniq -c
+  grep -iE "block.exponent|bexp|decline|certificate" "$OUT/$name.err" | sort | uniq -c
   return 0
 }
 
