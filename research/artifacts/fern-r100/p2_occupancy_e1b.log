@@ -1,0 +1,63 @@
+=== device ===
+name                  Apple M4 Pro
+architecture          applegpu_g16s
+gpu cores (assumed)   20
+max tg memory / core  32768 B
+iters per thread      800
+K scan                1..200, best of 3 rounds of 30 dispatches
+riser threshold       t(K)/t(K-1) > 1.18
+
+=== pipeline admission ===
+  threads   tgmem_req_B   tgmem_static_B   maxTotalThreads   execWidth   admitted
+     1024           256              256              1024          32   yes
+      512           256              256              1024          32   yes
+      256           256              256              1024          32   yes
+      128           256              256              1024          32   yes
+     1024          8192             8192              1024          32   yes
+      512          8192             8192              1024          32   yes
+      256          8192             8192              1024          32   yes
+      128          8192             8192              1024          32   yes
+     1024         16384            16384              1024          32   yes
+      512         16384            16384              1024          32   yes
+      256         16384            16384              1024          32   yes
+      128         16384            16384              1024          32   yes
+     1024         18432            18432              1024          32   yes
+      512         18432            18432              1024          32   yes
+      256         18432            18432              1024          32   yes
+      128         18432            18432              1024          32   yes
+     1024         32768            32768              1024          32   yes
+      512         32768            32768              1024          32   yes
+      256         32768            32768              1024          32   yes
+      128         32768            32768              1024          32   yes
+
+=== occupancy ladder ===
+C = first riser K - 1 = threadgroups resident concurrently across the device.
+tg/core = C / 20.  tgmem/core implied by tg/core * tgmem_static.
+
+  threads   tgmem_B   t(1)_us   risers(K)                         C   tg/core   implied_tgmem/core_B   limiter
+     1024       256    143.90   21,41,61,81                         20      1.00                    256   threads
+      512       256     20.84   21,41,61                            20      1.00                    256   tgmem
+      256       256     15.99   21                                  20      1.00                    256   tgmem
+      128       256     16.95   81                                  80      4.00                   1024   tgmem
+     1024      8192     32.06   21,41,61,81                         20      1.00                   8192   threads
+      512      8192     19.88   21,41,61                            20      1.00                   8192   tgmem
+      256      8192     16.40   21,41                               20      1.00                   8192   tgmem
+      128      8192     17.45   61,81                               60      3.00                  24576   tgmem
+     1024     16384     31.76   21,41,61,81                         20      1.00                  16384   threads
+      512     16384     19.16   21,41,61                            20      1.00                  16384   tgmem
+      256     16384     17.00   41                                  40      2.00                  32768   tgmem
+      128     16384     17.30   81                                  80      4.00                  65536   tgmem
+     1024     18432     31.68   21,41,61,81                         20      1.00                  18432   tgmem-or-threads
+      512     18432     18.03   21,41,61                            20      1.00                  18432   tgmem
+      256     18432     16.81   41                                  40      2.00                  36864   tgmem
+      128     18432     17.65   none<=200                          200     10.00                 184320   tgmem-or-threads
+     1024     32768     31.66   21,41,61,81                         20      1.00                  32768   tgmem-or-threads
+      512     32768     20.71   21,41,61                            20      1.00                  32768   tgmem
+      256     32768     17.92   21,41                               20      1.00                  32768   tgmem
+      128     32768     17.98   32,41,81,121                        31      1.55                  50790   tgmem
+
+Read: if the 1024-thread rows report tg/core = 1.00 at every tgmem
+setting including the smallest, then the concurrent-thread budget is the
+binding constraint and no threadgroup-memory reduction can raise
+occupancy.  If tg/core rises as tgmem falls, threadgroup memory is the
+binding constraint and a smaller threadgroup allocation buys occupancy.
