@@ -96,6 +96,15 @@ func lagunaTrace(_ site: @autoclosure () -> String) {
     lagunaTracedFusions.note(site())
 }
 
+private let lagunaPackedQKVGate0Trace =
+    ProcessInfo.processInfo.environment["DARKBLOOM_PACKED_QKV_GATE0_TRACE"] == "1"
+
+@inline(__always)
+func lagunaPackedQKVGate0Note(_ site: StaticString) {
+    guard lagunaPackedQKVGate0Trace else { return }
+    FileHandle.standardError.write(Data("mlxfast: packed-qkv-gate0: \(site)\n".utf8))
+}
+
 // MARK: - Runtime fusion feature flags
 
 // Each fusion below concatenates the OUTPUT ROWS of same-dtype projections
@@ -5821,6 +5830,7 @@ final class LagunaRuntimeAttention: Module {
                         bits: fusedAffine.bits,
                         mode: fusedAffine.mode
                     )
+                lagunaPackedQKVGate0Note("producer")
                 let queryDim = nHeads * headDim
                 let kvDim = nKVHeads * headDim
                 let gateStart = queryDim + 2 * kvDim
@@ -6016,6 +6026,7 @@ final class LagunaRuntimeAttention: Module {
             // One dispatch replaces the QK-norm+RoPE kernel, both cache
             // slice-assign dispatches, and sdpa_vector; see the kernel doc.
             // The clock advance below mirrors updateInPlace(tokenCount: 1).
+            lagunaPackedQKVGate0Note("sliding")
             fusedAttended = lagunaSlidingFusedAttention(
                 rawQueries: queries,
                 rawKeys: keys,
@@ -6042,6 +6053,7 @@ final class LagunaRuntimeAttention: Module {
             // the second decode step (the first step's growth concat stays
             // stock). The clock advance mirrors the stock single-token
             // update.
+            lagunaPackedQKVGate0Note("full")
             fusedAttended = lagunaFullFusedAttention(
                 rawQueries: queries,
                 rawKeys: keys,
