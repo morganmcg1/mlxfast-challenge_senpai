@@ -150,7 +150,108 @@ so it cannot select the `_nax` prefill kernels the ranked M5 uses.
 | note size | 13.4 KiB (13,658 B) |
 | `--model` | `senpai` (accepted) |
 
-<!-- ARM_R_RECEIPT -->
+### 2.2.1 Arm R ranked receipt (terminal)
+
+Receipt reached terminal state 2026-08-09T01:21:37Z (service `updatedAt`
+2026-08-09T01:19:42.155Z, official run `timestamp` 2026-08-09T01:07:57Z).
+Raw receipt: `research/r91b-runs/receipt-armR.json`.
+W&B: <https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/44wc7ag4> (`44wc7ag4`).
+
+The assignment requires the four verdict axes to be read **independently**.
+For Arm R they disagree, which is exactly why they are separated:
+
+**(1) Correctness / hidden-gate verdict — PASSED.**
+
+| gate | value |
+| --- | --- |
+| `passed_correctness` | `true` |
+| `max_abs_diff` | `0` |
+| `checked_steps` | `1344` |
+| `case_count` | `11` |
+| `first_failing_step` / `first_failing_case` / `first_failing_layer` | `null` / `null` / `null` |
+| `gpqa_ttft_passed` | `true` (9/9 cases, `gpqa_ttft_seconds` 0.41, p50 0.078, max 2.4) |
+| `semantic_gpqa_passed` | `true` (9/9, judge `claude-opus-4-8`) |
+| `partial_result` | `false` |
+| `golden_hash` | `be7738fccd6a28807ae7d18c038cbbc9e1b05dab26b99b2f247358fdc67fcf71` |
+| `harness_hash` | `788888bd664c4cf9583a40f9742cc36ce688c5818d07e0e7859a02a45ac99508` |
+| `weights_hash` | `aff994300573c5e8589563fc9ff57cdcfb1ef9b49e14898be290a75a6b294b3d` |
+
+`rejectionReason`, verbatim: `score did not improve current best`
+
+That string carries **no** correctness content. Every hidden gate the receipt
+exposes — teacher-forced token match, GPQA behaviour, TTFT, and the semantic
+GPQA judge — passed.
+
+**(2) `error` field, verbatim:** `` (empty string).
+
+**(3) Floor verdicts — both PASSED, with wide margin.**
+
+| axis | speedup | floor | verdict |
+| --- | --- | --- | --- |
+| decode | `2.8295538028013865` | `0.95` | `passed_decode_speedup_floor: true` |
+| prefill | `1.9572487448440257` | `0.95` | `passed_prefill_speedup_floor: true` |
+
+Same-session paired baseline: `baseline_decode_seconds_per_token`
+0.01384702115625, `baseline_prefill_seconds_per_token` 0.00036804638671875.
+Candidate: `decode_seconds_per_token` 0.0048937119140625,
+`prefill_seconds_per_token` 0.000188042724609375. `peak_ram_gb` 21.
+
+The local M4 prefill floor miss (0.3226) did **not** reproduce on the ranked M5,
+which returned 1.957. This is the fifth independent confirmation that the local
+prefill floor failure is an M4 NAX-gate artifact and not a property of the tree.
+
+**(4) Ranking status — REJECTED on ranking only.**
+
+| field | value |
+| --- | --- |
+| `status` | `rejected` |
+| `improved` | `false` |
+| `officialScore` | `2.5804768841155` |
+| leaderboard best (`c5b0a13`) | `2.61650354381456` |
+| absolute diff | `-0.03602665969906` |
+| relative diff | **-1.377 %** |
+
+Score identity checks out: `2.8295538^0.75 x 1.9572487^0.25 = 2.58048`.
+
+Note on the CLI display: `mlxfast submissions` prints this row as
+`-0.036027 (-3.59%)`. That parenthesised figure is the **absolute** score delta
+multiplied by 100, not a relative percentage — confirmed against two other rows
+(`25b0b72`: -0.064919 shown as -6.47%; `27b9c7c`: -0.041963 shown as -4.18%).
+The honest relative figure is **-1.377 %**. I report both to avoid the
+deliverable and the CLI appearing to disagree.
+
+**Service-recorded commit:** `ef055b9b1956e8056267972308fd7deddd89649d`. This is
+the service's own commit for the uploaded editable surface, **not** our source
+commit `30f752df890de58d9d98382505c95f2008591101`. The two are expected to
+differ; `mlxfast submit` repackages only `editablePaths` and commits them into
+the service's own history. I record both so the mapping is auditable.
+
+### 2.2.2 What Arm R does to H1
+
+**H1 is falsified.** The hypothesis was that the research base scores at or
+above 2.61650354381456 and passes all hidden gates. It passes every gate, but it
+scores **1.377 % below** the leaderboard best rather than at or above it.
+
+This is a materially more useful result than a confirmation would have been,
+and it sharpens the remaining arms rather than invalidating them. The base is
+correct and rankable — it is simply not competitive. The open question is
+whether that -1.377 % is:
+
+- **(a)** a real regression contributed by the two deltas that separate our base
+  from the organizer frontier (#457 `float4` epilogue and #456 carve), or
+- **(b)** a session-level effect — a different pinned baseline, thermal state,
+  or harness revision in this M5 session versus the session that set 2.61650354381456.
+
+Arm F is precisely the control that separates (a) from (b), because it is the
+pure organizer-frontier tree measured in the same session window. Arm F was
+already the highest-priority remaining arm; this receipt makes it the decisive
+one. The same-session `baseline_*_seconds_per_token` fields recorded above give
+a direct handle on (b): if Arm F's session baseline matches Arm R's, the paired
+comparison is clean and any score gap is attributable to the two deltas.
+
+Because the rejection is ranking-only and no hidden gate failed, the
+assignment's stop rule ("if Arm R fails a hidden gate, stop and report; do not
+fix, do not run F/C") is **not** triggered. Arms F and C proceed.
 
 ### 2.3 Arm F official submission
 

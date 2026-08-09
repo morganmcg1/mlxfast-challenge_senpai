@@ -27,13 +27,16 @@ def num(value):
 def main():
     arm, path = sys.argv[1], sys.argv[2]
     blob = json.load(open(path))
+    blob = blob.get("submission", blob)
 
     metrics = blob.get("officialMetrics") or blob.get("metrics") or blob
-    score = num(blob.get("score") or metrics.get("score"))
+    score = num(blob.get("officialScore") or blob.get("score") or metrics.get("score"))
     dsu = num(metrics.get("decode_speedup"))
     psu = num(metrics.get("prefill_speedup"))
     dspt = num(metrics.get("decode_seconds_per_token"))
     pspt = num(metrics.get("prefill_seconds_per_token"))
+    base_dspt = num(metrics.get("baseline_decode_seconds_per_token"))
+    base_pspt = num(metrics.get("baseline_prefill_seconds_per_token"))
 
     summary = {
         "score": score,
@@ -41,9 +44,26 @@ def main():
         "prefill_speedup": psu,
         "decode_seconds_per_token": dspt,
         "prefill_seconds_per_token": pspt,
+        "baseline_decode_seconds_per_token": base_dspt,
+        "baseline_prefill_seconds_per_token": base_pspt,
         "passed_decode_speedup_floor": metrics.get("passed_decode_speedup_floor"),
         "passed_prefill_speedup_floor": metrics.get("passed_prefill_speedup_floor"),
+        "decode_speedup_floor": num(metrics.get("decode_speedup_floor")),
+        "prefill_speedup_floor": num(metrics.get("prefill_speedup_floor")),
+        "passed_correctness": metrics.get("passed_correctness"),
+        "checked_steps": metrics.get("checked_steps"),
+        "case_count": metrics.get("case_count"),
+        "max_abs_diff": metrics.get("max_abs_diff"),
+        "first_failing_step": metrics.get("first_failing_step"),
+        "gpqa_ttft_passed": metrics.get("gpqa_ttft_passed"),
+        "gpqa_ttft_seconds": num(metrics.get("gpqa_ttft_seconds")),
+        "semantic_gpqa_passed": metrics.get("semantic_gpqa_passed"),
+        "semantic_gpqa_pass_count": metrics.get("semantic_gpqa_pass_count"),
+        "partial_result": metrics.get("partial_result"),
+        "peak_ram_gb": num(metrics.get("peak_ram_gb")),
         "status": blob.get("status"),
+        "improved": blob.get("improved"),
+        "submission_commit_sha": blob.get("submissionCommitSha"),
         "rejection_reason": blob.get("rejectionReason") or "",
         "error": metrics.get("error", blob.get("error", "")),
         "leaderboard_best": LEADERBOARD_BEST,
@@ -73,7 +93,8 @@ def main():
             "assignment": "maple-r91-b-ranked-base-receipt",
             "revision": "r91-b-rev1",
             "student": "maple-tanjiro",
-            "commit": blob.get("commit") or metrics.get("commit"),
+            "arm_source_commit": sys.argv[3] if len(sys.argv) > 3 else None,
+            "service_commit": metrics.get("commit") or blob.get("submissionCommitSha"),
             "submission_id": blob.get("id") or blob.get("submission_id"),
             "host": "official M5 Max (ranked)",
             "zero_edit": True,
