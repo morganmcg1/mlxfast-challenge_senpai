@@ -113,6 +113,8 @@ let lagunaPackedScalesTraceEnabled =
 /// One-shot stderr visibility used only by explicit trace and validation runs.
 final class LagunaPackedScalesLog: @unchecked Sendable {
     private var seen: Set<String> = []
+    private var compactDispatches = 0
+    private var fallbackDispatches = 0
     private let lock = NSLock()
 
     func note(_ state: String, _ site: String) {
@@ -122,6 +124,25 @@ final class LagunaPackedScalesLog: @unchecked Sendable {
         if isNew {
             FileHandle.standardError.write(
                 Data("mlxfast: packed-scales \(state): \(site)\n".utf8))
+        }
+    }
+
+    func recordDispatch(sixBit: Bool) {
+        lock.lock()
+        if sixBit {
+            compactDispatches += 1
+        } else {
+            fallbackDispatches += 1
+        }
+        let complete = compactDispatches == fallbackDispatches * 38
+            && (fallbackDispatches == 1 || fallbackDispatches == 129)
+        let totals = complete
+            ? "tokens=\(fallbackDispatches) compact=\(compactDispatches) fallback=\(fallbackDispatches)"
+            : nil
+        lock.unlock()
+        if let totals {
+            FileHandle.standardError.write(
+                Data("mlxfast: packed-scales dispatch-count: \(totals)\n".utf8))
         }
     }
 }
@@ -9619,6 +9640,8 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                         lagunaPackedScalesLog.note(
                             "active",
                             "layer \(layerIdx) routed swiglu qmv \(format)")
+                        lagunaPackedScalesLog.recordDispatch(
+                            sixBit: _packedRoutedGateUpSixBit)
                     }
                     activated = lagunaRoutedSwiGLUQMVPackedTop8(
                         x,
