@@ -18,11 +18,15 @@
   **same** sliding-attention kernel in adjacent, disjoint regions. Each was
   measured against a base that lacked the other. The composed tree at
   `a4d3b8dc` is a **new, unmeasured artefact** and the predicted merit
-  `cs ≈ 2.5858` (+0.37 % over control `59bd72a3` = 2.575633) is an
-  additivity *assumption*, not a measurement. Closing that gap — one M5 receipt
+  `cs ≈ 2.58506` (= 2.575633 × (1 + 0.002358 + 0.00130), i.e. +0.366 % over
+  control `59bd72a3` = 2.575633) is an additivity *assumption*, not a
+  measurement. At that merit the per-draw record probability is
+  z = 1.2166 %/0.5393 % = 2.256σ ⇒ **≈1.2 % per draw (E ≈ 82 draws)**, up from
+  0.16 % at the un-restored frontier. Closing that gap — one M5 receipt
   that decomposes into `cs`/`S`/`T` against `59bd72a3` — is round 102's single
   highest-value action and owns the queue slot. Until it lands, **do not quote
-  2.5858 as a measured frontier anywhere.**
+  2.58506 as a measured frontier anywhere** — it is a prediction under
+  additivity and the interaction term has never been estimated.
 
 - **Submitted-surface delta vs `origin/main` at `a4d3b8dc` is exactly one
   file**: `Sources/MLXFastModel/LagunaRuntimeModel.swift`, +137/−83. Marker
