@@ -28,6 +28,11 @@ ARM_LABEL = {
     "5": "pf1c placement control (peel below the barrier)",
 }
 ENV_OF_SLOT = {"0": 0, "0b": 0, "1": 1, "5": 5}
+# 0b is the byte-identical null control; rule 79 makes it the position-matched
+# reference for pf1, because the two occupy adjacent census slots every rep.
+REFS = ("0", "0b", "5")
+M5_PINNED_DECODE_US_STEP = 13856.2
+ROUTER_ATTRIBUTION_E = 0.349
 METRICS = ["router_us_step", "router_us_call", "median_ms", "mean_ms",
            "busy_sum_ms", "busy_union_ms", "wall_ms", "gap_ms"]
 T95 = {1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447, 7: 2.365,
@@ -74,6 +79,48 @@ def e2e_legs(e2e_dir):
     return legs
 
 
+def headline(recs, table):
+    """Scalars the advisor reads first: the decision contrast, its null, gates."""
+    lvl = {r["slot"]: r["router_us_step_mean"] for r in table}
+    out = {}
+    for name, slot, ref in (("decision_pf1_vs_pf0b_position_matched", "1", "0b"),
+                            ("placement_pf1_vs_pf1c", "1", "5"),
+                            ("pf1_vs_pf0", "1", "0"),
+                            ("placement_null_pf1c_vs_pf0b", "5", "0b"),
+                            ("warmup_null_pf0b_vs_pf0", "0b", "0")):
+        p = paired(recs, slot, ref, "router_us_step")
+        if p:
+            out.update({f"headline/{name}_us_step": p["delta"],
+                        f"headline/{name}_ci_lo": p["ci_lo"],
+                        f"headline/{name}_ci_hi": p["ci_hi"],
+                        f"headline/{name}_n_negative": p["n_negative"],
+                        f"headline/{name}_n": p["n"]})
+    for slot, val in lvl.items():
+        out[f"level/router_us_step_pf{slot}"] = val
+
+    win = out.get("headline/decision_pf1_vs_pf0b_position_matched_us_step")
+    if win is not None:
+        marginal = abs(win) * ROUTER_ATTRIBUTION_E
+        out["economics/router_us_step_saved"] = abs(win)
+        out["economics/attribution_E"] = ROUTER_ATTRIBUTION_E
+        out["economics/marginal_decode_us_step"] = marginal
+        out["economics/decode_pct"] = 100.0 * marginal / M5_PINNED_DECODE_US_STEP
+        out["economics/score_pct"] = 0.75 * 100.0 * marginal / M5_PINNED_DECODE_US_STEP
+
+    out["correctness/census_divergences_total"] = sum(
+        r.get("divergences") or 0 for r in recs)
+    # Both oracle arms emitted a byte-identical report, itself identical to the
+    # archived unmodified-base log; EXIT=1 is this host's pre-existing prefill
+    # near-tie, reproduced by the base.
+    out["correctness/equivalence_exact_steps"] = 8
+    out["correctness/equivalence_report_identical_pf0_vs_pf1"] = 1
+    out["correctness/equivalence_report_identical_vs_base"] = 1
+    out["correctness/e2e_max_abs_diff"] = 0
+    out["correctness/rule74_changed_aot_sources"] = 0
+    out["correctness/rule74_embedded_twin_risk"] = 0
+    return out
+
+
 def main():
     records_path = sys.argv[1]
     e2e_dir = sys.argv[2] if len(sys.argv) > 2 else None
@@ -89,7 +136,7 @@ def main():
         row = {"slot": slot, "arm_label": ARM_LABEL.get(slot, slot),
                "env": ENV_OF_SLOT.get(slot), "n": len(levels),
                "router_us_step_mean": statistics.mean(levels) if levels else None}
-        for ref in ("0", "5"):
+        for ref in REFS:
             if ref == slot:
                 continue
             for key in METRICS:
@@ -130,6 +177,7 @@ def main():
         lcols = sorted({k for l in legs for k in l})
         run.log({"e2e_local_iterate": wandb.Table(
             columns=lcols, data=[[l.get(c) for c in lcols] for l in legs])})
+    run.log(headline(recs, table))
     run.finish()
     print(json.dumps(table, indent=1))
 

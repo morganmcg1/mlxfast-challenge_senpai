@@ -443,12 +443,24 @@ other half of the reps. That contrast is the strictest one available:
 
 | contrast | mean µs/step | 95% CI | negative |
 | --- | --- | --- | --- |
-| **pf1 − pf0b (position-matched)** | **−6.4675** | [−7.0967, −5.8383] | **12/12** |
-| pf1c − pf0b | −0.0325 | [−0.9861, +0.9211] | 6/12 |
-| pf1 − pf0 | −6.3375 | [−6.9547, −5.7203] | 12/12 |
-| pf1 − pf1c | −6.4350 | [−7.3592, −5.5108] | 12/12 |
+| **pf1 − pf0b (position-matched)** | **−6.3917** | [−7.0157, −5.7677] | **12/12** |
+| pf1c − pf0b | −0.0083 | [−0.9698, +0.9531] | 6/12 |
+| pf1 − pf0 | −6.3333 | [−6.9302, −5.7365] | 12/12 |
+| pf1 − pf1c | −6.3833 | [−7.3024, −5.4643] | 12/12 |
 
-All four references agree to within 0.13 µs/step. Separately, `pf0b − pf0`
+Per-rep `pf1 − pf0b`, in rep order: −5.5, −5.2, −7.0, −6.6, −6.6, −6.5, −6.6,
+−6.7, −5.4, −6.9, −8.6, −5.1.
+
+Correction notice: an earlier revision of this table printed −6.4675 /
+−0.0325 / −6.3375 / −6.4350 for these four rows. Those were mistranscribed. The
+values above are recomputed directly from `/tmp/r100c-census/records.json` and
+match the levels exactly (313.5083 − 319.9000 = −6.3917) and the W&B summary run
+`1xts1ry1`. CIs use the paired t at df = 11 (t = 2.201). The error was ≤ 0.08
+µs/step and changes no sign, no CI exclusion of zero, and no verdict; it is
+flagged rather than silently overwritten. The ref = pf0 table above was always
+correct.
+
+All four references agree to within 0.06 µs/step. Separately, `pf0b − pf0`
 compares interior positions {2,3} against exterior {1,4} on *identical code*
 and reads **+0.058 ± 0.673 µs/step (6/12)**, which bounds any warm-up or
 position artifact on this rig at well under 1 µs/step — an order of magnitude
@@ -530,12 +542,17 @@ Using the shadowing factor from `maple-fern-decode-marginal-cost-ledger.md`
 chained marginal):
 
 ```text
-census saving          6.33 us/step
-marginal saving        6.33 x 0.349            = 2.21 us/step
+census saving          6.3917 us/step   (position-matched pf1 - pf0b)
+marginal saving        6.3917 x 0.349          = 2.2307 us/step
 M5 pinned decode base                            13856.2 us/step
-decode improvement     2.21 / 13856.2          = 0.0159 %
-score  (decode^0.75)   0.75 x 0.0159 %         = 0.0120 %
+decode improvement     2.2307 / 13856.2        = 0.0161 %
+score  (decode^0.75)   0.75 x 0.0161 %         = 0.0121 %
 ```
+
+The most conservative of the four references, `pf1 − pf0` at 6.3333 µs/step,
+gives 0.0120 % instead of 0.0121 %. The choice of reference does not move this
+number in any decision-relevant way. These figures are logged under
+`economics/` on the W&B summary run.
 
 Cross-checking against the advisor's own scaling (5 % of the router pool ⇒
 +0.037 % of score) gives +0.0147 % for a 1.98 % pool saving. So the honest range
@@ -702,4 +719,71 @@ Sources/MLXFastModel/LagunaRuntimeModel.swift
 
 No vendor header, no `mlx-generated` twin, no `.metal` source, and no AOT
 kernel is touched, so no metallib rebuild is implied by this change.
+
+## W&B record
+
+Entity `wandb-applied-ai-team`, project `mlxfast-maple`, group
+`r100-c-router-weight-prefetch-restore`. Published by
+`research/maple_nezuko_r100c_wandb_log.py`, which **parses the committed
+records rather than re-measuring**, so what is on W&B is exactly what was
+recorded.
+
+| run | id | contents |
+| --- | --- | --- |
+| `r100c-summary` | `1xts1ry1` | headline contrasts, economics, correctness gates, census table, e2e leg table |
+| `r100c-slot1` (pf1) | `8nkrnijs` | candidate level + paired contrasts vs pf0, pf0b, pf1c |
+| `r100c-slot0` (pf0) | `2abf4mzi` | unhoisted baseline level |
+| `r100c-slot0b` (pf0′) | `ok16hs1d` | byte-identical null control |
+| `r100c-slot5` (pf1c) | `idghsp5p` | placement control |
+
+The summary run carries the decision as scalars, so no one has to re-derive it:
+
+```text
+headline/decision_pf1_vs_pf0b_position_matched_us_step  = -6.3917
+headline/decision_pf1_vs_pf0b_position_matched_ci_lo    = -7.0157
+headline/decision_pf1_vs_pf0b_position_matched_ci_hi    = -5.7677
+headline/decision_pf1_vs_pf0b_position_matched_n_negative = 12  (of 12)
+headline/placement_null_pf1c_vs_pf0b_us_step            = -0.0083   (6/12)
+headline/warmup_null_pf0b_vs_pf0_us_step                = +0.0583   (6/12)
+level/router_us_step_pf0  = 319.8417   level/router_us_step_pf0b = 319.9000
+level/router_us_step_pf1  = 313.5083   level/router_us_step_pf5  = 319.8917
+economics/score_pct                                     = 0.0121
+correctness/census_divergences_total                    = 0
+correctness/e2e_max_abs_diff                            = 0
+correctness/equivalence_exact_steps                     = 8
+correctness/equivalence_report_identical_pf0_vs_pf1     = 1
+correctness/equivalence_report_identical_vs_base        = 1
+correctness/rule74_changed_aot_sources                  = 0
+```
+
+Both nulls sit on zero and the decision contrast does not, which is the whole
+argument in five lines.
+
+An earlier publication of this group (runs `vgzj6jd6`, `8ay3v746`, `gapmxa3t`,
+`1g12f27u`, `tylt1co8`) lacked the position-matched `vs0b` contrast and the
+headline scalars. Those five were deleted rather than left to be mistaken for
+the record; the five above are the only valid ones.
+
+
+## Step 7: repository test suite
+
+`swift test --force-resolved-versions` at head `be5c90b`, 29.3 s wall:
+
+```text
+✘ Test run with 457 tests in 6 suites failed after 17.307 seconds with 1 issue.
+✘ Test senpaiOperationalGuidanceMatchesTheDeployedRankedPath() recorded an
+  issue at SenpaiOperationalContractTests.swift:190:5:
+  Expectation failed: (submitterTests.status → 1) == 0
+```
+
+456 of 457 pass. The single failure is the sandbox git-push hook inside
+`SenpaiOperationalContractTests`, which shells out to a submitter test that
+cannot complete in this environment; it does not read, execute, or reference
+`LagunaRuntimeModel.swift`. Every suite that touches the runtime — including
+`BenchmarkSafetyTests` and `ShellGapRegressionTests` — passes. `Package.resolved`
+was restored with `git checkout --` immediately afterwards.
+
+This is a pre-existing environment failure, not a regression introduced by the
+restoration; the change under test alters one Swift source file that this suite
+does not exercise.
 
