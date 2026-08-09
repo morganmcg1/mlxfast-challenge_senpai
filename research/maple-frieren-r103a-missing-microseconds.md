@@ -169,6 +169,38 @@ any timing data exists, so it cannot be chosen to suit the answer:
 This addendum is committed after the rung-0 build and before the rung-1 timing
 job starts; the commit order is verifiable from history.
 
+### 1.5b Addendum — retained one-time-cost diagnostics (declared before any timed run)
+
+An independent design critique pointed out a real blind spot in § 1.3: a
+fresh worker process per slot plus a steady-state estimator plus discarded
+warm-up repetitions is a design that *cannot see* a one-time in-window cost.
+That matters, because one of the candidate mechanisms for the M5 regression is
+exactly that: `ΔT × 128 = 2.58 ms`, which is the order of a handful of extra
+Metal pipeline creations or a JIT compile inside the timed window. Under the
+§ 1.5 estimator such a mechanism reads as a clean null, and a clean null would
+then be over-interpreted.
+
+The design is not changed — the outcome rule still runs off the steady median,
+and the warm-up repetitions are still excluded from the verdict. What is added
+is that the discarded data is **kept and reported**:
+
+* **`step0`** — the first decode step of each slot, paired the same way.
+* **`mean_first128`** — the mean of steps 0 … 127, which mirrors the window the
+  official harness actually times, so a one-time cost that the official metric
+  amortises over 128 steps appears here at the same dilution.
+* Both contrasts are additionally reported over the **discarded warm-up
+  repetitions** and over **all repetitions**, not only the analysed ones.
+
+These are diagnostics, not decision variables: they do not enter § 1.5 and
+cannot change the outcome code. Their purpose is to stop a null on the steady
+median from being written up as "there is nothing here" when the instrument was
+never able to see a one-time cost in the first place. The corresponding
+analyser change is committed before the rung-1 timing job starts.
+
+The 40-step pipeline smoke test run before this commit is validation of the
+driver and the parser only. Its numbers back no verdict and are not used
+anywhere in §§ 3–6.
+
 ### 1.6 Rung 0 gates (a failure here stops everything)
 
 * **G0.1 build** — both revisions build a `mlxfast-runtime-worker`.

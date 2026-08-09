@@ -53,6 +53,10 @@ def slot_stats(path: Path) -> dict[str, float]:
         "median": statistics.median(steady),
         "trimmed": trimmed_mean(steady),
         "mean": statistics.mean(steady),
+        # Mirrors the official metric's window: the harness times 128 steps
+        # from the first one, so any one-time in-window cost is inside it.
+        "mean_first128": statistics.mean(steps[:128]),
+        "step0": steps[0],
         "n": len(steady),
         "sd": statistics.stdev(steady),
     }
@@ -111,7 +115,22 @@ def main() -> None:
                     "position_multiset": {a: sorted(p)
                                           for a, p in positions.items()}}
 
-    for stat in ("median", "trimmed", "mean"):
+    # Warm-up repetitions are excluded from the verdict but retained here: a
+    # one-time JIT or pipeline-cache cost would live in the discarded reps and
+    # in step 0, exactly where the steady-state estimator cannot see it.
+    warm = {}
+    for name, hi_arm, lo_arm in (("real", "new", "old"),
+                                 ("null", "oldB", "oldA")):
+        for scope, sel in (("warmup_reps", [r for r in by_rep if r < warmup]),
+                           ("all_reps", sorted(by_rep))):
+            for stat in ("median", "step0", "mean_first128"):
+                d = [by_rep[r][hi_arm][stat] - by_rep[r][lo_arm][stat]
+                     for r in sel
+                     if hi_arm in by_rep[r] and lo_arm in by_rep[r]]
+                warm[f"{name}.{scope}.{stat}"] = paired(d)
+    result["diagnostics"] = warm
+
+    for stat in ("median", "trimmed", "mean", "mean_first128"):
         block = {}
         for name, hi_arm, lo_arm in (("real", "new", "old"),
                                      ("null", "oldB", "oldA")):
@@ -139,9 +158,11 @@ def main() -> None:
     print(f"reps analysed: {reps}  (warm-up discarded: {warmup})")
     print("position multiset per arm:",
           {a: sorted(p) for a, p in positions.items()})
-    for stat in ("median", "trimmed", "mean"):
+    windows = {"median": "steps 1..N-1", "trimmed": "steps 1..N-1",
+               "mean": "steps 1..N-1", "mean_first128": "steps 0..127"}
+    for stat in ("median", "trimmed", "mean", "mean_first128"):
         b = result[stat]
-        print(f"\n--- per-slot statistic: {stat} of steps 1..N-1 ---")
+        print(f"\n--- per-slot statistic: {stat} of {windows[stat]} ---")
         print(f"  OLD steady step level      : {b['old_level_us']:9.1f} us")
         for name in ("real", "null"):
             p = b[name]
@@ -151,6 +172,12 @@ def main() -> None:
                   f"hw={p['half_width']:6.2f}  +/-={p['pos']}/{p['neg']}")
         print(f"  real as % of OLD step      : "
               f"{b['real_relative_pct']:+.4f} %   (M5 target +0.4865 %)")
+    print("\n--- diagnostics (not part of the outcome rule) ---")
+    for key in sorted(warm):
+        p = warm[key]
+        print(f"  {key:34s} k={p['k']:2d}  mean={p['mean']:+9.2f} us  "
+              f"95% CI [{p['lo']:+9.2f}, {p['hi']:+9.2f}]")
+
     print(f"\nPREREGISTERED OUTCOME {result['verdict_code']}: "
           f"{result['verdict_text']}")
 
