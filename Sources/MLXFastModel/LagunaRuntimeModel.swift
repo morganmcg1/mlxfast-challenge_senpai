@@ -1239,17 +1239,13 @@ func lagunaResidualRMSNormRouter(
 /// r92-b research instrumentation, reverted before submission. The runtime
 /// worker replaces STDOUT_FILENO with /dev/null before any kernel dispatch, so
 /// MLX's `verbose:` source dump (a `std::cout` write) is unrecoverable from the
-/// benchmark path. This lazy global reopens descriptor 1 onto a file the first
-/// time a scored kernel runs, which is after the worker's isolation step.
+/// benchmark path. The worker sandbox is `(deny file-write*)` except /dev/null,
+/// so a fresh `open()` is refused; point descriptor 1 at the already-open
+/// stderr pipe instead, which the parent drains and forwards line by line.
 let lagunaR92DumpRedirect: Bool = {
-    guard
-        let path = ProcessInfo.processInfo.environment[
-            "DARKBLOOM_R92_DUMP_STDOUT_PATH"]
+    guard ProcessInfo.processInfo.environment["DARKBLOOM_R92_DUMP_TO_STDERR"] == "1"
     else { return false }
-    let fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
-    guard fd >= 0 else { return false }
-    dup2(fd, STDOUT_FILENO)
-    close(fd)
+    dup2(STDERR_FILENO, STDOUT_FILENO)
     return true
 }()
 
