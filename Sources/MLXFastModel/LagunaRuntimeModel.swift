@@ -1035,8 +1035,10 @@ if (simd_lane == 0) {
 /// rule). MLX keys its JIT library cache by name and clears it when a name's
 /// source changes (`custom_kernel.cpp:58-68`), so the variant MUST be in the
 /// name or four sources would thrash one cache entry.
-private let lagunaResidualRMSNormRouterKernels: [Int: MLXFast.MLXFastKernel] =
-    Dictionary(
+private let lagunaResidualRMSNormRouterKernels: (
+    all: [Int: MLXFast.MLXFastKernel], selected: MLXFast.MLXFastKernel
+) = {
+    let all = Dictionary(
         uniqueKeysWithValues: [1, 2, 4, 8, 16, 32, 64].map { rowsPerGroup in
             (
                 rowsPerGroup,
@@ -1056,6 +1058,8 @@ private let lagunaResidualRMSNormRouterKernels: [Int: MLXFast.MLXFastKernel] =
                 )
             )
         })
+    return (all, all[lagunaRouterRowsPerGroup]!)
+}()
 
 /// Residual add + RMSNorm for the layers whose MLP is not a sparse block
 /// (layer 0) and for any shape the router fusion above declines.
@@ -1130,7 +1134,7 @@ func lagunaResidualRMSNormRouter(
     let inputs = lagunaRouterPrecomputedKeysEnabled
         ? [residual, branch, weight, routerWeight, correctionBias]
         : [residual, branch, weight, routerWeight]
-    let outputs = lagunaResidualRMSNormRouterKernels[rowsPerGroup]!(
+    let outputs = lagunaResidualRMSNormRouterKernels.selected(
         inputs,
         grid: (tiles * 512, 1, 1),
         threadGroup: (512, 1, 1),
