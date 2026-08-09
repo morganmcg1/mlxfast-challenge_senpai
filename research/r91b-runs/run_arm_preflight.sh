@@ -9,7 +9,9 @@ set -u
 ARM="$1"
 SHA="$2"
 BRANCH="maple-tanjiro/r91-ranked-base-receipt"
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+# cwd, not $0: this script is copied to /tmp before running, because the
+# detached arm commits do not contain research/ and would delete it mid-read.
+ROOT="$(pwd)"
 OUT="/tmp/r91b"
 
 mkdir -p "$OUT"
