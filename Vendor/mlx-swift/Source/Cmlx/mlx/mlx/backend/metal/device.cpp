@@ -1,8 +1,6 @@
 // Copyright © 2023-2024 Apple Inc.
 
-#include <algorithm>
 #include <cstdlib>
-#include <iostream>
 #include <sstream>
 
 #include <fmt/format.h>
@@ -33,21 +31,6 @@ struct hash<NS::SharedPtr<T>> {
 namespace mlx::core::metal {
 
 namespace {
-
-struct BFSTraceState {
-  bool active{false};
-  BFSTraceMetadata metadata{};
-  uint64_t dispatches{0};
-  uint64_t serial_barriers{0};
-  uint64_t barrier_free_dispatches{0};
-  uint64_t serial_depth{0};
-  uint64_t critical_serial_depth{0};
-  uint64_t temporary_bytes{0};
-  bool pending_explicit_barrier{false};
-  std::vector<uint64_t> command_buffer_boundaries;
-};
-
-thread_local BFSTraceState bfs_trace;
 
 constexpr const char* default_mtllib_path = METAL_PATH;
 
@@ -292,59 +275,6 @@ MTL::Library* load_library(
 
 } // namespace
 
-bool bfs_trace_enabled() {
-  static bool enabled = [] {
-    const char* value = std::getenv("MLX_BFS_TRACE");
-    return value != nullptr && std::string(value) != "0";
-  }();
-  return enabled;
-}
-
-void bfs_trace_begin(BFSTraceMetadata metadata) {
-  if (!bfs_trace_enabled()) {
-    return;
-  }
-  bfs_trace = {};
-  bfs_trace.active = true;
-  bfs_trace.metadata = metadata;
-}
-
-void bfs_trace_end() {
-  if (!bfs_trace.active) {
-    return;
-  }
-
-  const auto& metadata = bfs_trace.metadata;
-  std::cerr << "MLXFAST_BFS_TRACE {\"width\":" << metadata.width
-            << ",\"tape_ops\":" << metadata.tape_ops
-            << ",\"requested_output_bytes\":"
-            << metadata.requested_output_bytes << ",\"tape_hash\":"
-            << metadata.tape_hash << ",\"fused_ops\":" << metadata.fused_ops
-            << ",\"fused_read_bytes\":" << metadata.fused_read_bytes
-            << ",\"fused_intermediate_bytes\":"
-            << metadata.fused_intermediate_bytes
-            << ",\"fused_write_bytes\":" << metadata.fused_write_bytes
-            << ",\"fused_hash\":" << metadata.fused_hash
-            << ",\"dispatches\":" << bfs_trace.dispatches
-            << ",\"serial_barriers\":" << bfs_trace.serial_barriers
-            << ",\"critical_serial_depth\":"
-            << bfs_trace.critical_serial_depth
-            << ",\"barrier_free_dispatches\":"
-            << bfs_trace.barrier_free_dispatches
-            << ",\"temporary_bytes\":" << bfs_trace.temporary_bytes
-            << ",\"command_buffer_count\":"
-            << bfs_trace.command_buffer_boundaries.size()
-            << ",\"command_buffer_boundaries\":[";
-  for (size_t i = 0; i < bfs_trace.command_buffer_boundaries.size(); ++i) {
-    if (i != 0) {
-      std::cerr << ',';
-    }
-    std::cerr << bfs_trace.command_buffer_boundaries[i];
-  }
-  std::cerr << "]}\n";
-  bfs_trace.active = false;
-}
-
 CommandEncoder::CommandEncoder(
     Device& d,
     int index,
@@ -420,18 +350,10 @@ void CommandEncoder::register_output_array(const array& a) {
 }
 
 void CommandEncoder::add_temporary(array arr) {
-  if (bfs_trace.active) {
-    bfs_trace.temporary_bytes += arr.nbytes();
-  }
   temporaries_.push_back(std::move(arr));
 }
 
 void CommandEncoder::add_temporaries(std::vector<array> arrays) {
-  if (bfs_trace.active) {
-    for (const auto& arr : arrays) {
-      bfs_trace.temporary_bytes += arr.nbytes();
-    }
-  }
   temporaries_.insert(
       temporaries_.end(),
       std::make_move_iterator(arrays.begin()),
@@ -439,7 +361,6 @@ void CommandEncoder::add_temporaries(std::vector<array> arrays) {
 }
 
 void CommandEncoder::maybeInsertBarrier() {
-  bool inserted_barrier = needs_barrier_;
   if (needs_barrier_) {
     get_command_encoder()->memoryBarrier(MTL::BarrierScopeBuffers);
     needs_barrier_ = false;
@@ -451,20 +372,6 @@ void CommandEncoder::maybeInsertBarrier() {
   }
   next_inputs_.clear();
   next_outputs_.clear();
-
-  if (bfs_trace.active) {
-    bfs_trace.dispatches++;
-    if (inserted_barrier) {
-      bfs_trace.serial_barriers++;
-      bfs_trace.serial_depth++;
-    }
-    if (!inserted_barrier && !bfs_trace.pending_explicit_barrier) {
-      bfs_trace.barrier_free_dispatches++;
-    }
-    bfs_trace.critical_serial_depth = std::max(
-        bfs_trace.critical_serial_depth, bfs_trace.serial_depth + 1);
-    bfs_trace.pending_explicit_barrier = false;
-  }
 }
 
 void CommandEncoder::dispatch_threadgroups(
@@ -484,13 +391,6 @@ void CommandEncoder::dispatch_threads(
 }
 
 void CommandEncoder::barrier() {
-  if (bfs_trace.active) {
-    bfs_trace.serial_barriers++;
-    bfs_trace.serial_depth++;
-    bfs_trace.critical_serial_depth = std::max(
-        bfs_trace.critical_serial_depth, bfs_trace.serial_depth + 1);
-    bfs_trace.pending_explicit_barrier = true;
-  }
   get_command_encoder()->memoryBarrier(MTL::BarrierScopeBuffers);
 }
 
@@ -587,11 +487,6 @@ bool CommandEncoder::needs_commit() const {
 }
 
 void CommandEncoder::commit(std::function<void()> completion) {
-  if (bfs_trace.active) {
-    bfs_trace.command_buffer_boundaries.push_back(bfs_trace.dispatches);
-    bfs_trace.serial_depth = 0;
-    bfs_trace.pending_explicit_barrier = false;
-  }
   buffer_->addCompletedHandler(
       [&error_ = error_,
        wait_events = std::move(wait_events_),

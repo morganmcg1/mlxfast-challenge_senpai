@@ -659,16 +659,6 @@ class MLX_API Compiled : public Primitive {
     return kernel_lib_;
   }
 
-  const std::vector<array>& trace_inputs() const {
-    return inputs_;
-  }
-  const std::vector<array>& trace_outputs() const {
-    return outputs_;
-  }
-  const std::vector<array>& trace_tape() const {
-    return tape_;
-  }
-
  private:
   const std::vector<array> inputs_;
   const std::vector<array> outputs_;

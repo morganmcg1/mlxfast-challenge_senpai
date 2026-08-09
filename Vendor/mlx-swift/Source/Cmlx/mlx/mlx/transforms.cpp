@@ -11,7 +11,6 @@
 
 #include "mlx/backend/cpu/eval.h"
 #include "mlx/backend/gpu/eval.h"
-#include "mlx/backend/metal/device.h"
 #include "mlx/fence.h"
 #include "mlx/memory.h"
 #include "mlx/ops.h"
@@ -43,88 +42,6 @@ array make_tracer(const array& p) {
   auto out = copy(source, s);
   out.set_tracer(true);
   return out;
-}
-
-constexpr uint64_t fnv_offset = 14695981039346656037ULL;
-constexpr uint64_t fnv_prime = 1099511628211ULL;
-
-void hash_value(uint64_t& hash, uint64_t value) {
-  for (int i = 0; i < 8; ++i) {
-    hash ^= value & 0xff;
-    hash *= fnv_prime;
-    value >>= 8;
-  }
-}
-
-void hash_string(uint64_t& hash, const std::string& value) {
-  for (auto c : value) {
-    hash ^= static_cast<uint8_t>(c);
-    hash *= fnv_prime;
-  }
-}
-
-metal::BFSTraceMetadata make_bfs_trace_metadata(
-    int width,
-    const std::deque<array>& tape,
-    const array& synchronizer) {
-  metal::BFSTraceMetadata metadata{
-      width, tape.size(), 0, 0, 0, 0, 0, fnv_offset, fnv_offset};
-  for (const auto& output : synchronizer.inputs()) {
-    metadata.requested_output_bytes += output.nbytes();
-  }
-
-  std::vector<uint64_t> fused_groups;
-  for (auto it = tape.rbegin(); it != tape.rend(); ++it) {
-    const auto& arr = *it;
-    hash_value(metadata.tape_hash, arr.id());
-    hash_string(metadata.tape_hash, arr.primitive().name());
-    hash_value(metadata.tape_hash, arr.nbytes());
-    for (const auto& input : arr.inputs()) {
-      hash_value(metadata.tape_hash, input.id());
-      hash_value(metadata.tape_hash, input.nbytes());
-    }
-    for (const auto& sibling : arr.siblings()) {
-      hash_value(metadata.tape_hash, sibling.id());
-      hash_value(metadata.tape_hash, sibling.nbytes());
-    }
-
-    const auto* compiled = dynamic_cast<const Compiled*>(&arr.primitive());
-    if (compiled == nullptr) {
-      continue;
-    }
-
-    metadata.fused_ops++;
-    uint64_t group_hash = fnv_offset;
-    hash_string(group_hash, compiled->name());
-    hash_string(group_hash, compiled->lib_name());
-
-    for (const auto& input : compiled->trace_inputs()) {
-      metadata.fused_read_bytes += input.nbytes();
-      hash_value(group_hash, input.nbytes());
-    }
-
-    std::unordered_set<uintptr_t> output_ids;
-    for (const auto& output : compiled->trace_outputs()) {
-      output_ids.insert(output.id());
-      metadata.fused_write_bytes += output.nbytes();
-      hash_value(group_hash, output.nbytes());
-    }
-
-    for (const auto& inner : compiled->trace_tape()) {
-      hash_string(group_hash, inner.primitive().name());
-      hash_value(group_hash, inner.nbytes());
-      if (output_ids.find(inner.id()) == output_ids.end()) {
-        metadata.fused_intermediate_bytes += inner.nbytes();
-      }
-    }
-    fused_groups.push_back(group_hash);
-  }
-
-  std::sort(fused_groups.begin(), fused_groups.end());
-  for (auto group_hash : fused_groups) {
-    hash_value(metadata.fused_hash, group_hash);
-  }
-  return metadata;
 }
 
 } // namespace
@@ -162,7 +79,6 @@ thread_local int detail::RetainGraph::tracing_counter{0};
 
 array eval_impl(std::vector<array> outputs, bool async) {
   std::deque<array> tape;
-  int max_width = env::bfs_max_width();
 
   // Make an effort to choose a good output stream
   Stream stream = default_stream(default_device());
@@ -262,6 +178,7 @@ array eval_impl(std::vector<array> outputs, bool async) {
     }
 
     // Build the tape in BFS order with a width limit
+    int max_width = env::bfs_max_width();
     dfs = std::stack<std::pair<std::reference_wrapper<array>, int>>();
     tape.push_back(synchronizer);
     for (int i = 0; !cache.empty() && (i < tape.size() || !dfs.empty());) {
@@ -305,11 +222,6 @@ array eval_impl(std::vector<array> outputs, bool async) {
         tape.push_back(in);
       }
     }
-  }
-
-  if (metal::bfs_trace_enabled()) {
-    metal::bfs_trace_begin(
-        make_bfs_trace_metadata(max_width, tape, synchronizer));
   }
 
   std::set<Stream> open_streams;
@@ -404,7 +316,6 @@ array eval_impl(std::vector<array> outputs, bool async) {
     }
   }
 
-  metal::bfs_trace_end();
   return synchronizer;
 }
 
