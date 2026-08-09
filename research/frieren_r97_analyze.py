@@ -175,12 +175,32 @@ def est_nonzero_only(runs):
     return slope_through_origin(pairs) if pairs else float("nan")
 
 
+def est_step_drift_adjusted(runs):
+    """(d) EXPLORATORY, not preregistered. Free-intercept OLS after removing
+    each run's own single-token step-time deviation from D.
+
+    D = 4*P_seed + T_bar, so between-run drift in T_bar passes into D
+    one-for-one and is the dominant noise term in the ladder -- a run whose
+    steps happen to be 100 us/step quick moves D by -100 us/step for reasons
+    that have nothing to do with the injected work. T_bar is logged per run, so
+    it can be differenced away without any cross-run assumption.
+    """
+    sel = [r for r in runs if r.get("D_if_steps_only")]
+    if len(sel) < 2:
+        return float("nan")
+    mt = statistics.mean(r["D_if_steps_only"] for r in sel)
+    adj = [dict(r, D=r["D"] - (r["D_if_steps_only"] - mt)) for r in sel]
+    return est_free_intercept(adj)
+
+
 ESTIMATORS = {
     "free_intercept_ols": est_free_intercept,
     "through_origin": est_origin,
     "nonzero_rungs_only": est_nonzero_only,
+    "step_drift_adjusted": est_step_drift_adjusted,
 }
 PRIMARY = "free_intercept_ols"
+EXPLORATORY = {"step_drift_adjusted"}
 
 
 def block_bootstrap(runs, estimator, reps=4000, seed=93):
@@ -271,9 +291,11 @@ def main():
     for name, fn in ESTIMATORS.items():
         r = fn(runs)
         l, h = block_bootstrap(runs, fn, reps=args.reps, seed=args.seed)
-        estimates[name] = {"R": r, "ci_low": l, "ci_high": h}
-        print(f"{name:>20} {r:8.3f} {l:9.3f} {h:9.3f} {(h-l)/2:11.3f}"
-              + ("   <- PRIMARY" if name == PRIMARY else ""))
+        estimates[name] = {"R": r, "ci_low": l, "ci_high": h,
+                           "exploratory": name in EXPLORATORY}
+        tag = "   <- PRIMARY" if name == PRIMARY else (
+            "   (exploratory)" if name in EXPLORATORY else "")
+        print(f"{name:>20} {r:8.3f} {l:9.3f} {h:9.3f} {(h-l)/2:11.3f}{tag}")
 
     R = estimates[PRIMARY]["R"]
     lo, hi = estimates[PRIMARY]["ci_low"], estimates[PRIMARY]["ci_high"]
