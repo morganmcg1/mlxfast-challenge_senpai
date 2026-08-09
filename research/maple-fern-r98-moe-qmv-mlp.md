@@ -591,9 +591,117 @@ the ≈80 µs/step detection bar established in §5.3. The honest ceiling on wha
 this rung can establish locally is therefore: **the mechanism is real and
 correctly signed, the end-to-end magnitude is unmeasurable here.**
 
-### 7.8 In-situ leg and correctness
+### 7.8 AIR structural diff — the mechanism confirmed at IR level, and one claim retracted
 
-_(pending)_
+The timing probe says *what* changed; the compiler says *why*. Each variant was
+compiled standalone with `xcrun -sdk macosx metal -O3 -c` and disassembled with
+`xcrun metal-objdump --disassemble`, then instruction classes were counted
+(`research/artifacts/fern-r99/air_structural_diff.txt`):
+
+| variant | total IR | load | br | phi | getelementptr | **fmul** | **fadd** |
+|---|---|---|---|---|---|---|---|
+| `depth1_shipped` | 460 | 27 | 18 | **22** | 47 | **38** | **33** |
+| `tmpl_s1` | **442** | 23 | 16 | **14** | 42 | **38** | **33** |
+| `tmpl_s2` | 491 | 27 | 20 | 19 | 52 | **38** | **33** |
+| `tmpl_s4` | 481 | 27 | 18 | 15 | 52 | **38** | **33** |
+| `stage4_cand` | 481 | 27 | 18 | 15 | 52 | **38** | **33** |
+
+Three things fall out.
+
+**1. `fmul` = 38 and `fadd` = 33 for all five variants.** The floating-point work
+is bit-for-bit the same shape in every arm. This is independent structural
+corroboration of the bit-exactness argument — the transformation touches control
+flow and addressing only, never arithmetic — and it is stronger than the runtime
+byte comparison because it holds for *all* inputs, not just the probe's.
+
+**2. `tmpl_s1` removes 8 `phi` nodes, 2 branches, 5 GEPs and 4 loads.** Those phis
+are exactly the loop-carried plumbing of the rolling prefetch: the staged code
+pair, the two staged scale bytes, the next-block address and the guard predicate.
+This is the claimed mechanism, visible in the IR rather than inferred from a
+stopwatch.
+
+**3. It also refutes a naive reading of my own result.** `tmpl_s2` emits *more*
+IR than the shipped kernel (491 vs 460) and still measured faster, so "fewer
+instructions" is not the explanation and IR count is not a proxy for this
+kernel's time. What separates the fast arms from the shipped one is specifically
+the **loop-carried** structure (`phi` count), not total work.
+
+`tmpl_s4` and `stage4_cand` have *identical* counts in every column yet differ by
+~1.3 µs/dispatch. That could have meant my probe has a position-dependent bias
+rather than a real codegen effect, which would have been a serious instrument
+defect — so I checked, and their disassembly is **not** identical: basic-block
+ordering and instruction placement differ (`diff` of the two `.ll` files is
+non-empty). The ~1.3 µs is therefore a plausible back-end scheduling effect, not
+a probe artifact, and the decision to ship the exact measured text stands. It
+remains below my threshold and is still reported as an observation, not a claim.
+
+The register-pressure question the occupancy table could not answer is answered
+here too, at the granularity the API exposes: every arm reports
+`maxTotalThreadsPerThreadgroup = 1024`, which on Apple GPUs bounds the per-thread
+register allocation to the smallest bucket. No arm spills or loses residency at
+this geometry on this host.
+
+### 7.9 In-situ ABBA leg
+
+Per §5.3 a single `base → cand → base` bracket has no resolving power here: the
+identical-code control spread (−49.9 µs/token) exceeded the candidate delta,
+because both legs drift monotonically with wall clock. So this leg uses an
+**ABBA** sequence (`base, cand, cand, base`) repeated twice —
+`research/fern_r99_insitu_pair.sh`. Under any linear drift, the ABBA contrast
+`mean(cand) − mean(base)` cancels the trend exactly, and the block-to-block
+spread of that contrast is an honest error bar that the earlier design could not
+produce.
+
+Expected effect size, stated before the runs: the model has 40 layers and the
+probe measured −3.2 to −3.6 µs/dispatch at the production geometry (2048 TGs), so
+if the probe delta transferred intact the end-to-end effect would be ≈ −130
+µs/token on a 13,000 µs/token decode (≈ −1 %). That is just above §5.3's ≈ 80
+µs/token detection floor, which is why the leg is worth running at all — but see
+the regime caveat in §7.10.
+
+_(results pending)_
+
+### 7.10 Regime caveat — the probe is cache-resident and production is not
+
+The probe's speedup is measured in a memory regime the scored decode path does
+not have, and this bounds how much of it can transfer. The kernel's own
+constants make the footprint exact rather than a guess:
+
+- `fused_row_bytes = 1024`, and a threadgroup is 64 threads = 2 simdgroups with
+  `logical_row = tile * 2 + simdgroup_index`, so each threadgroup reads 2 logical
+  rows, each of which touches a gate row and an up row: 4096 B of weights per
+  threadgroup.
+- `expert_slot = group % 8` with a fixed key buffer, so exactly **8 distinct
+  experts** are addressed, the same 8 on every dispatch.
+- At TG=1024 the row map covers rows 0–511 of each expert → 512 KiB × 8 = **4
+  MiB distinct**. At TG=2048 it covers all 1024 rows → 1 MiB × 8 = **8 MiB
+  distinct**.
+
+That footprint is re-read 500 times per round for 21 rounds. 4–8 MiB sits well
+inside the M4 Pro system-level cache, so after the first dispatch of a round the
+weights are cache-resident. The apparent bandwidths — 4 MiB / 21.38 µs = **196
+GB/s** at TG=1024 and 8 MiB / 33.99 µs = **247 GB/s** at TG=2048 — are therefore
+cache bandwidth, not DRAM bandwidth, and the kernel in this probe is
+issue-bound: the thing my edit removes (loop-carried control and address
+arithmetic, §7.8) is exactly the resource that is scarce here.
+
+Production decode is the opposite case. The router picks 8 of 256 experts *per
+token*, from a 21.6 GB resident model, and consecutive tokens do not reuse the
+same experts, so each scored dispatch is a genuinely cold read. As the kernel
+moves toward memory-bound, saved control instructions are increasingly hidden
+under load latency that does not shrink.
+
+So **−14 % is an upper bound on this mechanism, not a prediction.** I am
+recording this before reading the in-situ numbers, so that a small or null
+in-situ result is a confirmed prediction of this caveat rather than a surprise,
+and a large one is the claim that would need extra scrutiny. This is also why
+the probe alone does not license a receipt: §7.9 is the leg that decides.
+
+The clean way to separate the two regimes on this host would be to re-run the
+same paired probe with the SLC defeated — enough synthetic experts to exceed
+cache and a rotating expert base per dispatch — with the null control re-run
+under the identical configuration. I did not run that; it is the first
+follow-up I would take.
 
 ## Reply (r98-d rung — retained for the record, superseded by the Reply below)
 

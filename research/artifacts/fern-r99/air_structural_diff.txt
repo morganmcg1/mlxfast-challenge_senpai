@@ -1,0 +1,6 @@
+variant         total  load   br  phi   gep  fmul  fadd
+ship              460    27   18   22    47    38    33
+s1                442    23   16   14    42    38    33
+tmpl_s2           491    27   20   19    52    38    33
+tmpl_s4           481    27   18   15    52    38    33
+stage4_cand       481    27   18   15    52    38    33
