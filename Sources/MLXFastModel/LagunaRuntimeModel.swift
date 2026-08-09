@@ -6883,18 +6883,14 @@ private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
 
         thread float gate_result = 0.0f;
         thread float up_result = 0.0f;
-        thread float input_values[values_per_lane];
+        thread vec<bfloat, 4> input_values[values_per_lane / 4];
 
         for (uint block = 0; block < input_width; block += block_width) {
             const device vec<bfloat, 4>* input_vectors =
                 (const device vec<bfloat, 4>*) (
                     input + block + lane * values_per_lane);
             for (uint i = 0; i < values_per_lane / 4; ++i) {
-                const vec<bfloat, 4> values = input_vectors[i];
-                input_values[4 * i] = values[0];
-                input_values[4 * i + 1] = values[1];
-                input_values[4 * i + 2] = values[2];
-                input_values[4 * i + 3] = values[3];
+                input_values[i] = input_vectors[i];
             }
 
             const device uint8_t* block_scales =
@@ -6909,10 +6905,10 @@ private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
                 expert_weight + up_row * fused_row_bytes
                 + block / 2 + lane * 8;
 
-            gate_result += laguna_nvfp4_qdot_16(
+            gate_result += laguna_nvfp4_qdot_bf16_16(
                 gate_weight, input_values,
                 laguna_nvfp4_scale(gate_scale[0]));
-            up_result += laguna_nvfp4_qdot_16(
+            up_result += laguna_nvfp4_qdot_bf16_16(
                 up_weight, input_values,
                 laguna_nvfp4_scale(up_scale[0]));
         }
