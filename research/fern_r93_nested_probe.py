@@ -100,6 +100,9 @@ def parse_schedule(spec: str, steps: int):
                          each (default 1), which cancels a linear within-run
                          drift over each duplex.
     `ladder:a,b,c,...`   round-robin over the listed depths, one step each
+    `mirror:a,b,c,...`   the same depths forward then reversed, so every depth
+                         has the same mean position inside the block and a
+                         linear within-run drift cancels exactly for all arms
     """
     kind, _, rest = spec.partition(":")
     if kind == "const":
@@ -113,6 +116,10 @@ def parse_schedule(spec: str, steps: int):
     if kind == "ladder":
         depths = [int(x) for x in rest.split(",")]
         return [depths[i % len(depths)] for i in range(steps)]
+    if kind == "mirror":
+        depths = [int(x) for x in rest.split(",")]
+        pattern = depths + depths[::-1]
+        return [pattern[i % len(pattern)] for i in range(steps)]
     raise SystemExit(f"unknown schedule {spec!r}")
 
 
