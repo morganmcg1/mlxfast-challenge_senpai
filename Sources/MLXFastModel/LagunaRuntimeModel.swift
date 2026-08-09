@@ -2858,14 +2858,30 @@ private func lagunaPackQKVSevenBitScales(
     let rows = (heads + 2 * LagunaConstants.numKeyValueHeads) * LagunaConstants.headDim
     guard scales.dtype == .uint8,
         scales.shape == [rows, lagunaQKVScalesPerRow]
-    else { return nil }
+    else {
+        print(
+            "qkv-seven-bit packing rejected layer=\(layer) dtype=\(scales.dtype) "
+                + "shape=\(scales.shape) expectedRows=\(rows)")
+        return nil
+    }
     let values = scales.asArray(UInt8.self)
     guard values.count == rows * lagunaQKVScalesPerRow,
-        let minimum = values.min(), let maximum = values.max(),
-        maximum < 128,
-        let packed = lagunaPackSevenBitValues(values),
+        let minimum = values.min(), let maximum = values.max()
+    else {
+        print("qkv-seven-bit packing rejected layer=\(layer) values=\(values.count)")
+        return nil
+    }
+    guard maximum < 128 else {
+        print(
+            "qkv-seven-bit packing rejected layer=\(layer) min=\(minimum) max=\(maximum)")
+        return nil
+    }
+    guard let packed = lagunaPackSevenBitValues(values),
         packed.count == rows * lagunaQKVPackedScalesPerRow
-    else { return nil }
+    else {
+        print("qkv-seven-bit packing rejected layer=\(layer) packed-size")
+        return nil
+    }
     if lagunaQKVSevenBitValidationEnabled {
         guard lagunaQKVSevenBitPackingSelfTest,
             lagunaUnpackSevenBitValues(packed) == values
@@ -4704,14 +4720,12 @@ private func lagunaDecodeNVFP4QKVR1(
     layer: Int
 ) -> MLXArray? {
     if lagunaQKVSevenBitScalesEnabled {
-        if let output = lagunaDecodeNVFP4QKVR1SevenBit(
+        guard let output = lagunaDecodeNVFP4QKVR1SevenBit(
             normalized: normalized, bank: bank, heads: heads)
-        {
-            return output
-        }
-        if lagunaQKVSevenBitValidationEnabled {
+        else {
             fatalError("QKV seven-bit scale dispatch rejected layer \(layer)")
         }
+        return output
     }
     return lagunaDecodeNVFP4QKVR1U8(
         normalized: normalized, bank: bank, heads: heads)
@@ -5398,17 +5412,22 @@ final class LagunaRuntimeAttention: Module {
             fused.indexedMetadata = lagunaIndexedAffineMetadata(
                 scales: fused.scales, biases: biases)
         }
-        if lagunaQKVSevenBitScalesEnabled, lagunaDecodeNVFP4QKVR1Enabled,
-            fused.mode == .nvfp4, fused.bits == 4, fused.groupSize == 16
-        {
-            fused.sevenBitScales = lagunaPackQKVSevenBitScales(
+        if lagunaQKVSevenBitScalesEnabled {
+            guard lagunaDecodeNVFP4QKVR1Enabled,
+                fused.mode == .nvfp4, fused.bits == 4, fused.groupSize == 16
+            else {
+                fatalError("QKV seven-bit preparation rejected layer \(layerIdx)")
+            }
+            guard let sevenBitScales = lagunaPackQKVSevenBitScales(
                 fused.scales, layer: layerIdx, heads: nHeads)
-            if lagunaQKVSevenBitValidationEnabled {
-                guard fused.sevenBitScales != nil,
-                    lagunaValidateQKVSevenBitKernel(bank: fused, heads: nHeads)
-                else {
-                    fatalError("QKV seven-bit validation failed at layer \(layerIdx)")
-                }
+            else {
+                fatalError("QKV seven-bit scale packing failed at layer \(layerIdx)")
+            }
+            fused.sevenBitScales = sevenBitScales
+            if lagunaQKVSevenBitValidationEnabled,
+                !lagunaValidateQKVSevenBitKernel(bank: fused, heads: nHeads)
+            {
+                fatalError("QKV seven-bit validation failed at layer \(layerIdx)")
             }
         }
         _nativeAffineQKV = fused
