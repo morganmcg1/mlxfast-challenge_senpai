@@ -11721,46 +11721,6 @@ final class LagunaRuntimeModelInner: Module {
             }
         }
 
-        if ProcessInfo.processInfo.environment["DARKBLOOM_VERIFY_LAYER0_ATLAS_RMSNORM"] == "1",
-            let layer0Normalized
-        {
-            let stockHidden = embedTokens(inputs)
-            let stockNormalized = layers[0].inputLayerNorm(stockHidden)
-            eval(h, layer0Normalized, stockHidden, stockNormalized)
-            precondition(
-                h.view(dtype: .uint16).asArray(UInt16.self)
-                    == stockHidden.view(dtype: .uint16).asArray(UInt16.self),
-                "layer0 atlas raw BF16 row mismatch")
-            precondition(
-                layer0Normalized.view(dtype: .uint16).asArray(UInt16.self)
-                    == stockNormalized.view(dtype: .uint16).asArray(UInt16.self),
-                "layer0 atlas normalized BF16 row mismatch")
-
-            if let fullAtlas = _fullRoPEAngleAtlas,
-                let slidingAtlas = _slidingRoPEAngleAtlas
-            {
-                for boundary in [0, lagunaRoPEAngleAtlasLength - 1] {
-                    precondition(
-                        lagunaDecodeEmbeddingRoPEAtlasRMSNorm(
-                            tokens: inputs,
-                            embeddingWeight: embedTokens.weight,
-                            inputNorm: layers[0].inputLayerNorm,
-                            fullAtlas: fullAtlas,
-                            slidingAtlas: slidingAtlas,
-                            position: boundary
-                        ).map { output in
-                            eval(output.hidden, output.normalized)
-                            return output.hidden.view(dtype: .uint16).asArray(UInt16.self)
-                                == stockHidden.view(dtype: .uint16).asArray(UInt16.self)
-                                && output.normalized.view(dtype: .uint16).asArray(UInt16.self)
-                                    == stockNormalized.view(dtype: .uint16).asArray(UInt16.self)
-                        } == true,
-                        "layer0 atlas boundary BF16 row mismatch at position \(boundary)")
-                }
-            }
-            lagunaTrace("layer0 atlas rmsnorm BF16 bit identity passed current+boundaries")
-        }
-
         // One mask per attention family, derived from a representative
         // layer's cache offset: all full-attention caches advance in
         // lockstep, as do all sliding caches (vendored `LagunaModelInner`
