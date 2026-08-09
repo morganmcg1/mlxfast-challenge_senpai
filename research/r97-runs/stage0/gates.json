@@ -6,6 +6,14 @@
   "worst_steady_z": 2.993503067299272,
   "ms_per_matmul": 2.3920312500000023,
   "distinct_token_hashes": 1,
+  "charge_ratio": {
+    "32": 1.2798027085771635,
+    "8": 4.4211822660099225
+  },
+  "charge_ratio_warm_only": {
+    "32": 1.0565256401407985,
+    "8": 1.0748727163821574
+  },
   "per_rung": {
     "0": {
       "n": 2,
@@ -13,7 +21,8 @@
       "d_prefill_ms": 0.0,
       "ms_per_matmul": 0.0,
       "d_steady_us": 0.0,
-      "leak_fraction": 0.0
+      "leak_fraction": 0.0,
+      "charge_ratio": null
     },
     "8": {
       "n": 2,
@@ -22,6 +31,7 @@
       "ms_per_matmul": 2.2437500000000057,
       "d_steady_us": -25.21720866141841,
       "leak_fraction": -0.0014048584212489332,
+      "charge_ratio": 4.4211822660099225,
       "steady_se_us": 8.761929289883334,
       "steady_z": -2.878042931770131
     },
@@ -32,6 +42,7 @@
       "ms_per_matmul": 2.3920312500000023,
       "d_steady_us": -26.22886220472509,
       "leak_fraction": -0.00034265937951172596,
+      "charge_ratio": 1.2798027085771635,
       "steady_se_us": 8.761929289883334,
       "steady_z": -2.993503067299272
     }

@@ -51,6 +51,26 @@ def parse(outdir):
     return runs
 
 
+def charge_table(runs):
+    """Per rung, how much of the injected cost lands in the decode-timed seed
+    forward relative to the standalone prefill window. Diagnostic only."""
+    by = {}
+    for r in runs:
+        by.setdefault(r["rung"], []).append(r)
+    if 0 not in by:
+        return {}
+    b_seed = statistics.mean(r["seed_ms"] for r in by[0])
+    b_prefill = statistics.mean(r["prefill_ms"] for r in by[0])
+    out = {}
+    for rung, sel in by.items():
+        if not rung:
+            continue
+        d_prefill = statistics.mean(r["prefill_ms"] for r in sel) - b_prefill
+        if d_prefill:
+            out[rung] = (statistics.mean(r["seed_ms"] for r in sel) - b_seed) / d_prefill
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("outdir")
@@ -89,9 +109,19 @@ def main():
         worst_leak = max(worst_leak, abs(leak))
         per_rung[rung] = {"n": len(sel), "d_seed_ms": d_seed, "d_prefill_ms": d_prefill,
                           "ms_per_matmul": d_seed / rung if rung else 0.0,
-                          "d_steady_us": d_steady_us, "leak_fraction": leak}
+                          "d_steady_us": d_steady_us, "leak_fraction": leak,
+                          "charge_ratio": (d_seed / d_prefill) if rung and d_prefill else None}
         print(f"{rung:5d} {len(sel):3d} {d_seed:10.2f} {d_prefill:13.2f} "
               f"{(d_seed/rung if rung else 0):16.3f} {d_steady_us:12.1f} {leak:10.5f}")
+
+    charge = charge_table(runs)
+    charge_warm = charge_table([r for r in runs if r["idx"] != min(x["idx"] for x in runs)])
+    print("\ncharge ratio d_seed / d_prefill (H58 predicts ~1: the seed forward "
+          "inside the decode timer absorbs the same injected cost as the "
+          "standalone prefill window)")
+    print(f"{'rung':>5} {'all runs':>10} {'warm only':>10}")
+    for rung in sorted(charge):
+        print(f"{rung:5d} {charge[rung]:10.3f} {charge_warm.get(rung, float('nan')):10.3f}")
 
     # The steady-step deltas compare DIFFERENT runs, so the relevant error is
     # the run-to-run scatter of the per-run steady mean, not the within-run SE
@@ -137,6 +167,8 @@ def main():
            "worst_leak_fraction": worst_leak, "between_run_steady_sd_us": between_sd_us, "worst_steady_z": worst_z,
            "ms_per_matmul": per_rung[top]["d_seed_ms"] / top if top else 0.0,
            "distinct_token_hashes": len(hashes),
+           "charge_ratio": {str(k): v for k, v in charge.items()},
+           "charge_ratio_warm_only": {str(k): v for k, v in charge_warm.items()},
            "per_rung": {str(k): v for k, v in per_rung.items()},
            "runs": runs}
     if args.json:
