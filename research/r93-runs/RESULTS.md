@@ -238,6 +238,99 @@ Final rung set: **K = 60, 240, 800** (plus K=0 from the nulls).
 *(K=800 and K=60 rungs, OLS slope with CI, and the formal linearity check are
 still pending.)*
 
+### 4.2 What the slope is worth: the decode dispatch census
+
+A microseconds-per-dispatch number is only actionable if we know how many
+dispatches the scored decode step actually issues. That count was derived
+statically from the runtime source at BASE_SHA `17a4bad4`, evaluating every
+branch at its *default* configuration (no environment overrides), because the
+ranked M5 run sets no `DARKBLOOM_*` or `laguna*` variables.
+
+**Result: about 404 GPU dispatches per decoded token** (range 395-440 once the
+optional paths below are admitted).
+
+| Site | Per layer | Layers | Dispatches |
+|---|---|---|---|
+| input RMSNorm | 1 | 40 | 40 |
+| `lagunaDecodeNVFP4QKVR1` (fused Q/K/V) | 1 | 40 | 40 |
+| `lagunaGateSoftplus` | 1 | 40 | 40 |
+| `lagunaSliding/FullFusedAttention` | 1 | 40 | 40 |
+| `lagunaGatedAffineOProjNVFP4` | 1 | 40 | 40 |
+| dense MLP (layer 0 only) | 3 | 1 | 3 |
+| `lagunaResidualRMSNormRouter` | 1 | 39 | 39 |
+| `lagunaDecodeRouterTop8` | 1 | 39 | 39 |
+| `lagunaRoutedSwiGLUQMVPackedTop8` | 1 | 39 | 39 |
+| `lagunaSharedSwiGLUQMV` | 1 | 39 | 39 |
+| `lagunaRoutedSharedDownResidual` | 1 | 39 | 39 |
+| embed + both RoPE angle rows (fused) | - | - | 1 |
+| decode mask | - | - | 0 |
+| final norm | - | - | 1 |
+| lm head (3-level screen + refinement) | - | - | 4 |
+| argmax | - | - | 0 |
+| **total** | | | **404** |
+
+Structural facts behind the table (`LagunaConfig.swift:15`,
+`LagunaRuntimeModel.swift`, `LagunaLmHeadPrune.swift:924`):
+
+- 40 hidden layers; layer 0 dense, layers 1-39 sparse MoE, so attention costs
+  5 dispatches per layer and the sparse tail costs 5 more (10 per layer, 8 for
+  layer 0).
+- `i % 4 == 0` selects full attention (10 layers, 48 heads); the other 30 are
+  sliding-window (64 heads, window 512). Both are single fused dispatches, so
+  the split does not change the count.
+- `lagunaNativeAffineNVFP4From` defaults to `"0"`, so **all 40 layers** take the
+  NVFP4 g16 QKV + o_proj path. The group-32-only fused norm+QKV kernel declines
+  everywhere, which is why the input RMSNorm survives as its own dispatch on
+  every layer.
+- `lagunaRoPEAngleAtlasEnabled` defaults ON, which is what folds embedding and
+  both RoPE angle rows into a single dispatch.
+- `makeMask` returns `.none` at n == 1, so decode issues no mask kernel.
+- MoE always takes 8 of 256 routed experts plus the shared expert, and
+  `normTopkProb` is always true.
+
+Honest bounding caveats, all of which move the number *up*:
+
+- A KV-growth reallocation step fires roughly once every 128 positions and adds
+  an estimated 20-30 dispatches on that step only.
+- If the sliding-window `fusedRingPrepare()` fast path ever declines, the 30
+  sliding layers fall back to a 2-3 dispatch sequence: +60 to +90.
+- A non-fp32 `eScoreCorrectionBias` would add one cast per sparse layer: +39.
+- `compile(...)` call sites exist in the runtime but are unreachable at
+  defaults, so none of them collapse the count.
+
+**Consequence.** At the K=240 slope of 2.474 us per hazard-free dispatch,
+404 x 2.474 us = **1.00 ms**, against a candidate decode of 4913 us per step:
+
+> roughly **20 % of ranked M5 decode time is per-dispatch fixed overhead**, not
+> arithmetic.
+
+Two qualifications that keep this from being oversold:
+
+1. 2.474 us prices a *hazard-free* dispatch (section 1.2's hazard test: the
+   injected kernels bind only their own control/prev/sink buffers, so MLX
+   inserts no `MTLFence` between them). A real dispatch that participates in the
+   dependency graph costs at least this much, so 1.00 ms is a **lower bound** on
+   the fixed overhead, and removing one real dispatch should save **at least**
+   2.474 us.
+2. The slope is currently from a single rung pair. The K=800 and K=60 receipts
+   will give it a confidence interval; the 20 % figure should be restated with
+   that CI once they land.
+
+Two related facts worth recording for whoever acts on this:
+
+- MLX caps a command buffer at `max_ops_per_buffer_ = 50` on M5 Max
+  (architecture name ending in `'s'`), so 404 dispatches is **8-9 command
+  buffers per decoded token**. `lagunaDecodeAsyncStage` defaults to
+  `"at:0,1,7,15,23,31,39"`, forcing at least 7 `asyncEval` sync points per step
+  on top of that.
+- An exact dispatch counter already exists in the vendored MLX
+  (`CommandEncoder::buffer_ops_`, `Vendor/mlx-swift/.../backend/metal/device.h:113`,
+  incremented only at `device.cpp:381` and `:389`), but `device.cpp/.h` are
+  **not** in `editablePaths`, so it can be used for local research only and
+  never shipped. On the ranked M5 the cheapest legitimate confirmation of which
+  branches fire is `DARKBLOOM_TRACE_FUSION=1`, which prints one stderr line the
+  first time each fused site is taken (it is a set, not a counter).
+
 ## 5. Submission cadence policy
 
 Written up in full in [`cadence-policy.md`](cadence-policy.md).
