@@ -24,6 +24,7 @@ import hashlib
 import json
 import mmap
 import os
+import random
 import struct
 import subprocess
 import sys
@@ -92,10 +93,18 @@ def open_glue_map(path: str):
     return mm
 
 
-def parse_schedule(spec: str, steps: int):
-    """Expand an arm schedule into one glue depth per step.
+def parse_schedule(spec: str, steps: int, run_index: int = 0,
+                   rng: random.Random | None = None, placebo_every: int = 0):
+    """Expand an arm schedule into one (depth, slot, block, placebo) per step.
+
+    `slot` is the rung a step was *assigned* to; on a placebo block every step
+    runs at the reference depth but keeps its intended slot, so the identical
+    contrast can be formed on data whose true delta is exactly zero.
 
     `const:N`            every step at depth N
+    `perrun:A,B,...`     one constant depth for the whole run, cycling over the
+                         listed depths by run index: a switching-free control
+                         for any per-step ordering artefact
     `abba:A,B[,period]`  counterbalanced A/B in ABBA blocks of `period` steps
                          each (default 1), which cancels a linear within-run
                          drift over each duplex.
@@ -103,23 +112,62 @@ def parse_schedule(spec: str, steps: int):
     `mirror:a,b,c,...`   the same depths forward then reversed, so every depth
                          has the same mean position inside the block and a
                          linear within-run drift cancels exactly for all arms
+    `rand:a,b,c,...`     each depth twice per block of 2*len(depths) steps,
+                         freshly permuted per block from `rng`. Unlike `mirror`
+                         this leaves the own-depth/previous-depth correlation
+                         near zero, so a carryover term is identifiable, and it
+                         breaks the fixed token-position/rung pairing that no
+                         amount of extra data would average away.
     """
     kind, _, rest = spec.partition(":")
+
+    def plain(depths):
+        return [(d, None, i // max(len(depths), 1), False)
+                for i, d in enumerate(depths)]
+
     if kind == "const":
-        return [int(rest)] * steps
+        return plain([int(rest)] * steps)
+    if kind == "perrun":
+        depths = [int(x) for x in rest.split(",")]
+        d = depths[run_index % len(depths)]
+        return plain([d] * steps)
     if kind == "abba":
         parts = [int(x) for x in rest.split(",")]
         a, b = parts[0], parts[1]
         period = parts[2] if len(parts) > 2 else 1
         pattern = [a] * period + [b] * period + [b] * period + [a] * period
-        return [pattern[i % len(pattern)] for i in range(steps)]
+        return plain([pattern[i % len(pattern)] for i in range(steps)])
     if kind == "ladder":
         depths = [int(x) for x in rest.split(",")]
-        return [depths[i % len(depths)] for i in range(steps)]
+        return plain([depths[i % len(depths)] for i in range(steps)])
     if kind == "mirror":
         depths = [int(x) for x in rest.split(",")]
         pattern = depths + depths[::-1]
-        return [pattern[i % len(pattern)] for i in range(steps)]
+        out = []
+        for i in range(steps):
+            out.append((pattern[i % len(pattern)], i % len(pattern) if
+                        i % len(pattern) < len(depths)
+                        else len(pattern) - 1 - i % len(pattern),
+                        i // len(pattern), False))
+        return out
+    if kind == "rand":
+        if rng is None:
+            raise SystemExit("rand schedule needs a seeded rng")
+        depths = [int(x) for x in rest.split(",")]
+        block_len = 2 * len(depths)
+        out = []
+        # Which block inside each placebo window is the null is itself drawn,
+        # so a placebo never samples one fixed phase of a block-periodic cycle.
+        offset = rng.randrange(placebo_every) if placebo_every > 0 else -1
+        while len(out) < steps:
+            block = len(out) // block_len
+            slots = [s for s in range(len(depths)) for _ in range(2)]
+            rng.shuffle(slots)
+            placebo = placebo_every > 0 and block % placebo_every == offset
+            for s in slots:
+                out.append((depths[0] if placebo else depths[s], s,
+                            block, placebo))
+        return out[:steps]
     raise SystemExit(f"unknown schedule {spec!r}")
 
 
@@ -141,6 +189,13 @@ def main() -> int:
     ap.add_argument("--warmup-runs", type=int, default=1,
                     help="leading runs recorded but flagged as warmup")
     ap.add_argument("--no-thermals", action="store_true")
+    ap.add_argument("--seed", type=int, default=93,
+                    help="base seed for randomised schedules; the per-run "
+                         "seed is recorded so any block order is replayable")
+    ap.add_argument("--placebo-every", type=int, default=0,
+                    help="every Nth block runs entirely at the reference "
+                         "depth while keeping its assigned slots, giving an "
+                         "in-session null whose true delta is exactly 0")
     args = ap.parse_args()
 
     with open(GOLDEN) as fh:
@@ -152,7 +207,9 @@ def main() -> int:
             f"--steps {args.steps} exceeds the golden's {len(expected)-1} "
             "teacher-forced steps; a longer run would leave the checked stream")
 
-    schedule = parse_schedule(args.schedule, args.steps)
+    # One stream per (seed, process) so every run gets a different permutation
+    # while the whole session stays reproducible from the logged seed.
+    run_seed = args.seed + 1_000_003 * args.process_index
     glue = open_glue_map(args.glue_map)
     if glue is not None:
         glue[:4] = struct.pack("<i", 0)
@@ -201,6 +258,9 @@ def main() -> int:
     for r in range(args.runs):
         if glue is not None:
             glue[:4] = struct.pack("<i", 0)
+        seed_r = run_seed + 7919 * r
+        schedule = parse_schedule(args.schedule, args.steps, r,
+                                  random.Random(seed_r), args.placebo_every)
         t0 = mach_now()
         req_id += 1
         send({"id": req_id, "kind": "decode_begin", "seed_tokens": prompt})
@@ -209,7 +269,7 @@ def main() -> int:
         generated = []
         token = expected[0]
         for s in range(args.steps):
-            depth = schedule[s]
+            depth, slot, block, placebo = schedule[s]
             if glue is not None:
                 glue[:4] = struct.pack("<i", depth)
             elif depth:
@@ -232,6 +292,10 @@ def main() -> int:
                 "t": t_start,
                 "warmup_run": r < args.warmup_runs,
             }
+            if slot is not None:
+                rec["slot"] = slot
+                rec["block"] = block
+                rec["placebo"] = placebo
             if therm is not None and (s % 8 == 0):
                 rec.update(therm.sample())
             records.append(rec)
@@ -239,7 +303,8 @@ def main() -> int:
         digest = hashlib.sha256(
             ",".join(str(t) for t in generated).encode()).hexdigest()[:16]
         stream_hashes.add(digest)
-        runs_meta.append({"run": r, "seed_ms": seed_ms, "token_hash": digest})
+        runs_meta.append({"run": r, "seed_ms": seed_ms, "token_hash": digest,
+                          "schedule_seed": seed_r})
         print(f"run {r}: seed={seed_ms:.1f}ms hash={digest} "
               f"median_us={sorted(x['us'] for x in records[-args.steps:])[args.steps//2]:.1f}",
               flush=True)
@@ -257,6 +322,8 @@ def main() -> int:
         "process": args.process_index,
         "label": args.label,
         "schedule": args.schedule,
+        "seed": args.seed,
+        "placebo_every": args.placebo_every,
         "runs": args.runs,
         "steps": args.steps,
         "warmup_runs": args.warmup_runs,

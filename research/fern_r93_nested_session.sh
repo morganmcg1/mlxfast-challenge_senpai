@@ -25,6 +25,8 @@ GATE_C="${GATE_C:-40}"
 GATE_MAX_WAIT="${GATE_MAX_WAIT:-600}"
 GLUE_MAP="${GLUE_MAP:-$OUT/glue.bin}"
 WORKERS="${WORKERS:-.build-worker/release/mlxfast-runtime-worker}"
+SEED="${SEED:-93}"
+PLACEBO_EVERY="${PLACEBO_EVERY:-0}"
 
 mkdir -p "$OUT"
 IFS=';' read -r -a SCHED_ARR <<< "$SCHEDULES"
@@ -68,6 +70,7 @@ for ((p = 0; p < P; p++)); do
     --process-index "$p" \
     --label "$sched|$(basename "$(dirname "$worker")")/$(basename "$worker")" \
     --schedule "$sched" \
+    --seed "$SEED" --placebo-every "$PLACEBO_EVERY" \
     --glue-map "$GLUE_MAP" \
     --stderr "$OUT/p$(printf '%02d' "$p").err" \
     --out "$OUT/p$(printf '%02d' "$p").json" || exit 1

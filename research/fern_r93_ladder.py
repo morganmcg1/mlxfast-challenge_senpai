@@ -48,7 +48,7 @@ def mad(xs):
     return statistics.median([abs(x - m) for x in xs])
 
 
-def load(files, drop_steps, keep_warmup_runs, block_len):
+def load(files, drop_steps, keep_warmup_runs, block_len, want_placebo=False):
     """-> (processes, hashes, mismatches) where processes is
     list[process] of list[run] of list[block]; a block is a list of step dicts
     with keys slot, k, us, k_prev."""
@@ -77,12 +77,34 @@ def load(files, drop_steps, keep_warmup_runs, block_len):
                     b = r["step"] // block_len
                 groups.setdefault(b, []).append(r)
             blocks = [v for _, v in sorted(groups.items())
-                      if len(v) == block_len]
+                      if len(v) == block_len
+                      and all(bool(x.get("placebo")) == want_placebo
+                              for x in v)]
             if blocks:
                 runs.append(blocks)
         if runs:
             procs.append(runs)
     return procs, hashes, mism
+
+
+def assign_slots(procs, block_len, rng):
+    """Overwrite slot/k/k_prev with the randomised within-block order Stage 3
+    will emit: each of the 4 rungs twice per 8-step block, freshly permuted.
+    Applied to null data this preregisters sigma for the exact estimator,
+    including the k_prev carryover term, without any real dispatch delta."""
+    nrung = 4
+    reps = block_len // nrung
+    for runs in procs:
+        for blocks in runs:
+            carry = None
+            for blk in blocks:
+                order = [s for s in range(nrung) for _ in range(reps)]
+                rng.shuffle(order)
+                for rec, slot in zip(blk, order):
+                    rec["slot"] = slot
+                    rec["k"] = slot
+                    rec["k_prev"] = carry
+                    carry = slot
 
 
 def slot_of(rec, rungs):
@@ -243,6 +265,9 @@ def main():
     ap.add_argument("--no-censor", action="store_true")
     ap.add_argument("--bootstrap", type=int, default=4000)
     ap.add_argument("--seed", type=int, default=93)
+    ap.add_argument("--placebo-assign", action="store_true",
+                    help="impose the randomised Stage-3 slot order on null "
+                         "K=0 data to preregister sigma for this estimator")
     ap.add_argument("--placebo", action="store_true",
                     help="input is null data; the truth for every delta is 0")
     ap.add_argument("--json-out", default=None)
@@ -251,10 +276,16 @@ def main():
     files = []
     for f in args.files:
         files.extend(glob.glob(f))
-    procs, hashes, mism = load(files, args.drop_steps,
-                               args.keep_warmup_runs, args.block)
+    procs, hashes, mism = load(files, args.drop_steps, args.keep_warmup_runs,
+                               args.block,
+                               want_placebo=args.placebo
+                               and not args.placebo_assign)
     if not procs:
         raise SystemExit("no complete blocks found")
+
+    if args.placebo_assign:
+        assign_slots(procs, args.block, random.Random(args.seed))
+        args.placebo = True
 
     seen = {r["k"] for runs in procs for blocks in runs
             for blk in blocks for r in blk}
