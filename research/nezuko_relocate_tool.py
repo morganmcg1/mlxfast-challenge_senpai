@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Relocate comment prose out of a submitted file into a research sidecar.
 
-Rung 2 of maple-r99-b-comment-byte-reclamation removes comment content from
-Sources/ files that count against the per-file editable cap. The assignment
-requires that DARKBLOOM_* flag documentation and receipt provenance survive the
-edit verbatim rather than being deleted, so this tool writes every removed
-comment block, in source order and byte-for-byte, to a Markdown sidecar under
-research/ before the strip runs.
+Used by maple-r99-b-comment-byte-reclamation rung 2 (Vendor/) and by
+maple-r103-c-lrm-comment-pool-rung2 (Sources/MLXFastModel/LagunaRuntimeModel.swift)
+to remove comment content from files that count against the per-file editable
+cap. Both assignments require that DARKBLOOM_* flag documentation and receipt
+provenance survive the edit verbatim rather than being deleted, so this tool
+writes every removed comment block, in source order and byte-for-byte, to a
+Markdown sidecar under research/ before the strip runs.
 
     nezuko_relocate_tool.py plan  FILE SIDECAR    # write sidecar, do not edit
     nezuko_relocate_tool.py apply FILE SIDECAR    # write sidecar, then strip
@@ -53,7 +54,16 @@ def blocks(text, mode):
             out[-1] = (out[-1][0], b)
         else:
             out.append((a, b))
-    return out
+    # Widen each block over the blanks that separate it from the line start or
+    # from preceding code.  A merged block already carries the indentation of
+    # its later lines, so this is what makes the record exactly reversible.
+    widened = []
+    for a, b in out:
+        start = a
+        while start > 0 and text[start - 1] in " \t":
+            start -= 1
+        widened.append((start, b))
+    return widened
 
 
 def write_sidecar(path, sidecar, text, mode):
@@ -66,8 +76,9 @@ def write_sidecar(path, sidecar, text, mode):
         f"# Relocated comment prose from `{path}`",
         "",
         "Every comment block removed from the submitted file, verbatim and in",
-        "source order. Line numbers are those of the pre-strip file. Restore the",
-        "file itself with `research/nezuko-r99b/restore-comments.sh`.",
+        "source order. The strip preserves line numbering, so these labels are",
+        "line numbers in both the pre-strip and the post-strip file. Verify and",
+        "reverse the edit with `research/nezuko_r103c_relocation_verify.py`.",
         "",
         f"Blocks: {len(spans)}.",
         "",
@@ -106,13 +117,17 @@ def main():
     print(f"  sidecar: {sidecar} ({os.path.getsize(sidecar)} bytes)")
     if cmd == "plan":
         return 0
-    new, freed, skipped = strip_text(text, mode)
+    new, freed, skipped = strip_text(text, mode, keep_lines=True)
     if digest(text, mode) != digest(new, mode):
         print(f"REFUSED (canonical mismatch): {path}", file=sys.stderr)
+        return 1
+    if new.count("\n") != text.count("\n"):
+        print(f"REFUSED (line count changed): {path}", file=sys.stderr)
         return 1
     open(path, "w", encoding="utf-8").write(new)
     print(f"  stripped: freed={freed} bytes, preserved={skipped} comments")
     print(f"  size: {len(text.encode())} -> {len(new.encode())} bytes")
+    print(f"  lines: {text.count(chr(10))} (unchanged)")
     return 0
 
 
