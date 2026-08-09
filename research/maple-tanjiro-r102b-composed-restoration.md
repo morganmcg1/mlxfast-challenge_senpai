@@ -4,8 +4,19 @@ Student: maple-tanjiro. PR #565. Assignment
 `maple-r102-b-composed-restoration-receipt`, revision `r102-b-rev1`.
 Base `aba31ba9e461c8a4f7a0ba7086b417f0868fcad9`.
 
-> **Status: in progress.** Sections 1–4 and 7 are final. Sections 5, 6, and
-> 8–11 are placeholders pending the M4 dynamic 2×2 and the official receipt.
+> **Status: complete.** All eleven sections are final. Three M4 duplex sessions
+> (A, B, C) and one official M5 receipt
+> (`e08d759f-8e52-46e7-8b29-2c8647cfaae8`) are analysed.
+>
+> **Headline:** the composed tree is **additive**. `I = +0.037 % ± 0.056 %` of
+> M5 score (§9), consistent with zero — but additive **by cancellation of three
+> significant per-kernel interactions**, not by independence (§6.4). Nothing
+> needs un-merging. Two corrections to campaign bookkeeping are in §10 and §11.
+>
+> **This experiment changes no scored code.** `git diff --name-only
+> aba31ba9e461c8a4f7a0ba7086b417f0868fcad9 HEAD -- Sources/ Vendor/
+> benchmark.json` is empty; every arm was built from a temporary snapshot
+> outside the worktree (§6.2).
 
 ## 1. What was composed, and why it had never been measured
 
@@ -296,9 +307,9 @@ gone (−0.88, not significant). Reading the arm levels directly:
 
 | kernel, µs/step | arm00 | arm10 | arm01 | arm11 |
 | --- | --- | --- | --- | --- |
-| `sliding_fused_attn_ring_v1` | 648.4 | 627.5 | 648.7 | 633.4 |
-| `full_fused_attn_grow_v1` | 255.2 | 249.3 | 255.1 | 247.1 |
-| `gate_sp_h64_v1` | 243.0 | **250.6** | 244.3 | 243.6 |
+| `sliding_fused_attn_ring_v1` | 648.50 | 627.70 | 648.60 | 633.71 |
+| `full_fused_attn_grow_v1` | 255.20 | 249.42 | 255.10 | 247.49 |
+| `gate_sp_h64_v1` | 243.00 | **250.64** | 244.20 | 243.54 |
 
 arm10 is the outlier; arm00, arm01 and arm11 agree to ~1 µs/step. The natural
 explanation is occupancy: R1's epilogue changes the sliding kernel's register
@@ -308,14 +319,16 @@ register-allocator tier boundary can cost a co-resident kernel a SIMD slot.
 arm10 appears to land badly and arm11 does not. This is a hypothesis: the AGX
 allocator tier is exactly the layer §5 flagged as not publicly inspectable, and
 nothing here proves the mechanism. What is not in doubt is the measurement —
-the effect is 7.32 µs/step against nulls under 1 µs/step (§6.6).
+the effect is 7.32 µs/step against nulls under 1 µs/step (§6.6). §6.8 narrows
+the hypothesis further: `tg_bytes` is identical in all four arms, so the
+threadgroup-memory form of the occupancy story is excluded outright.
 
 **Context-dependence of byte-identical code (`full`, −1.74).** From §5, R2
 changes **zero bytes** of `full_fused_attn_grow_v1`: arm00 and arm01 hash to
 `946fa24a22ebdf8d`, arm10 and arm11 to `cb63a94f8a78d350`. Sessions A and B
 therefore contrast *the same two kernel binaries*. They disagree by
 −1.74 µs/step with non-overlapping CIs, and the arm levels confirm it
-(249.3 vs 247.1). R1's full-kernel gain is **29 % larger** when the neighbouring
+(249.42 vs 247.49). R1's full-kernel gain is **29 % larger** when the neighbouring
 sliding kernel carries R2's deeper ring.
 
 This is the most transferable finding in the section: **on this GPU, a kernel's
@@ -351,7 +364,143 @@ additive −23 to −24, and the backed-out `t01 − t00` should be near zero.
 
 ### 6.8 Session C: the composed total
 
-_Pending._
+**Integrity.** arm00 (base) → arm11 (cand), job
+`e7da2e2c-47c5-4196-ba7e-feb5a5c81889`, exit −15. Session C hit the **identical
+reproducible supervisor failure as Session B**: SIGTERM at ~1240 s during slot
+28's startup, slots 01–27 byte-complete at 89,308 `.err` lines each, slot 28
+truncated to 2 lines. Restricted to slots 01–27 by explicit glob → **13
+duplexes**, the same as B. All 27 slots report `0 divergences`. Rule-75 digests
+in the log header: base `f270d6ce…` = arm00, cand `c6f10af6…` = arm11, metallib
+`8e8b18af…` on both sides. `cbs=406.0 dispatches=406.0`; 80,794 command buffers
+over 199 steady steps. That the failure reproduced at the same wall-clock point
+in two independent sessions makes it a harness deadline artifact, not a
+property of any arm.
+
+**What Session C can and cannot add.** Three contrasts (A, B, C) span a 2×2 with
+four cells, so the design is exactly saturated — there is **no spare degree of
+freedom**. Concretely, with `tXY` the arm levels:
+
+```
+A = t10 − t00 ,  B = t11 − t01 ,  C = t11 − t00
+R2|R1=0  =  t01 − t00  =  C − B
+R2|R1=1  =  t11 − t10  =  C − A
+residual =  C − (A + (C − B))  =  B − A  =  I
+```
+
+The "residual vs additive prediction" row is therefore **algebraically identical
+to `I`** and is *not* independent confirmation; the script prints it labelled as
+such. The genuinely new information in Session C is (i) the composed total
+measured in one session rather than summed across two, and (ii) the per-kernel
+`R2|R1=0` column, which is the first direct measurement of R2 in isolation
+anywhere in this campaign.
+
+**Per-kernel.**
+
+| kernel | C: t11 − t00 | R2 \| R1=0 (= C − B) | R2 \| R1=1 (= C − A) |
+| --- | --- | --- | --- |
+| `sliding_fused_attn_ring_v1` | **−15.39 [−15.89, −14.89]** | +0.08 [−0.87, +1.03] | **+6.21 [+5.47, +6.95]** |
+| `full_fused_attn_grow_v1` | **−7.94 [−8.58, −7.30]** | −0.11 [−0.83, +0.61] | **−1.85 [−2.63, −1.07]** |
+| `gate_sp_h64_v1` | −0.20 [−0.71, +0.30] | +0.68 [−0.36, +1.72] | **−7.52 [−8.47, −6.57]** |
+| `oproj_act_h64_v1…` | **−7.13 [−7.96, −6.30]** | **−4.12 [−5.62, −2.62]** | **−4.94 [−6.18, −3.70]** |
+| `oproj_act_h48_v1…` | −0.81 [−1.95, +0.32] | −1.11 [−2.67, +0.45] | +0.20 [−1.42, +1.82] |
+
+**Totals.**
+
+| quantity | µs/step | M5 score % |
+| --- | --- | --- |
+| **C total, t11 − t00 (the composed tree)** | **−31.60 [−35.80, −27.40]** | **+0.4828 %** |
+| C total, unadjusted | −26.10 [−32.60, −19.60] | +0.3988 % |
+| R2 \| R1=0 (= C − B) | −4.10 [−11.38, +3.18] | +0.0626 % |
+| R2 \| R1=1 (= C − A) | −6.80 [−12.78, −0.82] | +0.1039 % |
+| additive prediction, A + (R2\|R1=0) | −28.90 [−37.33, −20.47] | +0.4416 % |
+| residual C − additive (≡ I) | −2.70 [−12.12, +6.72] | +0.0413 % |
+
+**Finding 1 — the composed tree is real and is the largest of the three.**
+−31.60 µs/step, band excluding zero by a factor of 7.5, ≈ **+0.483 %** of M5
+score if M4 transferred one-for-one (§9 says it does not). Against the
+preregistered additive prediction of +0.3660 % this is if anything *super*-additive,
+but only by `I`, which is not significant.
+
+**Finding 2 — R2 alone buys nothing on M4, on the kernels it edits.** This was
+preregistered in §6.7 before Session C was analysed, and it holds precisely
+where it was predicted: `R2|R1=0` is **+0.08** µs/step on `sliding` — the only
+kernel R2 changes — and **−0.11** on `full`. Both bands straddle zero and both
+are inside the ±1 µs/step null scale of §6.6. R2's official M5 gain is +0.130 %,
+i.e. ≈ 8.5 µs/step-equivalent. **M4 cannot see R2 at all.** §5 predicted this
+statically for `full` (R2 changes zero bytes of it, identical hashes) and
+Session C confirms it dynamically for `sliding` too.
+
+**Finding 3 — the total's R2\|R1=0 is not R2.** The total reads −4.10 µs/step,
+but the sum of R2's own two kernels is −0.03. The entire −4.10 sits on
+`oproj_act_h64_v1` (−4.12), a kernel **neither restoration touches** and whose
+machine code is byte-identical across arm00 and arm01. This is the one number in
+Session C that should not be believed as a treatment effect, and the nulls say
+so directly (below). Reading −4.10 as "R2 is worth 0.06 % on M4" would be
+reading `oproj` drift.
+
+**Nulls (session C).** Same protocol as §6.6.
+
+| kernel | C: arm11−arm11 | C: arm00−arm00 |
+| --- | --- | --- |
+| `sliding_fused_attn_ring_v1` | −0.57 | −0.06 |
+| `full_fused_attn_grow_v1` | +0.10 | −0.29 |
+| `gate_sp_h64_v1` | −0.63 | +0.03 |
+| `oproj_act_h64_v1…` | +0.15 | **−1.52 [−2.58, −0.45]** |
+| total steady GPU busy | −2.9 [−10.1, +4.3] | −1.6 [−10.2, +7.1] |
+
+Both totals contain zero. Every per-kernel null in the entire three-session
+study is under 1 µs/step **except one**: `oproj_act_h64_v1` in the arm00−arm00
+null, −1.52 with a band excluding zero. That is the only null failure in twelve
+kernel-arm null cells, and it lands on exactly the kernel carrying Finding 3.
+`oproj_act_h64_v1` is also the largest kernel in the step (≈1120 µs/step), so a
+0.13 % within-session level drift produces it. **Discount every `oproj` row in
+this report; trust the rest.**
+
+**Cross-session level agreement — why the significant effects are not session
+artefacts.** arm00 was measured as the base of both A and C; arm11 as the
+candidate of both B and C. Their levels therefore bound any per-session
+additive offset directly:
+
+| kernel, µs/step | arm00 in A | arm00 in C | A−C | arm11 in B | arm11 in C | B−C |
+| --- | --- | --- | --- | --- | --- | --- |
+| `sliding_fused_attn_ring_v1` | 648.50 | 647.70 | +0.80 | 633.71 | 632.72 | +0.99 |
+| `full_fused_attn_grow_v1` | 255.20 | 254.80 | +0.40 | 247.49 | 247.02 | +0.47 |
+| `gate_sp_h64_v1` | 243.00 | 242.70 | +0.30 | 243.54 | 242.65 | +0.89 |
+| `oproj_act_h48_v1…` | 303.00 | 302.50 | +0.50 | 303.17 | 301.89 | +1.28 |
+| `oproj_act_h64_v1…` | 1121.50 | 1119.80 | +1.70 | 1116.10 | 1113.39 | **+2.71** |
+
+Session offsets are **≤ 0.99 µs/step** on every kernel except `oproj`. The two
+headline cross-session effects — `gate_sp` at ±7.3–8.2 and `sliding` at +6.13 —
+are **7–8× larger than the worst offset that could confound them**, so they
+survive the fact that `I` is assembled from two different sessions. `oproj`'s
+offsets are 1.7–2.7 against a −4.12 claimed effect, which is the same verdict as
+the nulls: **not usable**.
+
+**Arm levels, all four cells** (base column of each arm's own session; candidate
+levels are `base + absolute d`, so they are the unadjusted arm means):
+
+| kernel, µs/step | arm00 | arm10 (R1) | arm01 (R2) | arm11 (R1∘R2) |
+| --- | --- | --- | --- | --- |
+| `sliding_fused_attn_ring_v1` | 648.50 | 627.70 | 648.60 | 633.71 |
+| `full_fused_attn_grow_v1` | 255.20 | 249.42 | 255.10 | 247.49 |
+| `gate_sp_h64_v1` | 243.00 | **250.64** | 244.20 | 243.54 |
+| `oproj_act_h48_v1…` | 303.00 | 302.38 | 302.60 | 303.17 |
+| `oproj_act_h64_v1…` | 1121.50 | 1120.74 | 1118.10 | 1116.10 |
+
+`arm01 ≈ arm00` on every row — the cleanest possible statement of Finding 2.
+The `gate_sp` anomaly is confirmed **arm10-only**: 250.64 against 243.0 / 244.2 /
+243.5. §6.5 offered occupancy as a hypothesis; §5 partially refutes the usual
+version of it, because `tg_bytes` is 18,432 and `allocas` is 6 in **all four
+arms**, so threadgroup-memory pressure cannot be the mechanism. The remaining
+candidate is register pressure — arm10 has the *lowest* sliding
+`max_live_regs32` (99, versus 107/135/143) — but the relationship is not
+monotone across the four arms, so no mechanism is claimed. It is recorded as an
+M4-specific scheduling effect requiring M5 replication before anyone acts on it.
+
+**Caveat.** arm10 appears only in Session A and arm01 only in Session B; each is
+measured once. The offset table above is what licenses treating their contrasts
+as arm effects rather than session effects, and it licenses that only down to
+~1 µs/step.
 
 ## 7. Official submission (P3)
 
@@ -488,7 +637,97 @@ question about an effect smaller than roughly 0.64 % is unanswerable.
 
 ## 9. Implied M5 interaction term
 
-_Pending._
+Two independent estimates of `I` now exist: the M4 2×2 (§6) and the receipt
+(§8). This section combines them, and first establishes how far an M4 number may
+be pushed towards M5 at all.
+
+### 9.1 M4→M5 transfer is not a scalar
+
+The round has three calibration points, one of which is out of sample:
+
+| mechanism | M4, this round | official M5 | implied factor |
+| --- | --- | --- | --- |
+| R1 (#555) | +0.3789 % (session A) | **+0.2358 %** | **0.622** |
+| R2 (#539) | ≈ 0 (+0.08 / −0.11 µs/step on its own kernels) | **+0.130 %** | undefined (M4 sees nothing) |
+| R1∘R2 composed | +0.4828 % (session C) | **+0.2580 %** (§8) | **0.534** |
+
+The R1 factor is legitimately fitted: session A is this round's fresh M4
+measurement of exactly the change #555 submitted. The composed factor is
+**out of sample** — session C and the receipt were produced independently, and
+the receipt was dispatched before any dynamic data existed (§7).
+
+The two fitted factors agree (0.622 vs 0.534) but that agreement is worth very
+little: the composed factor inherits the receipt's ±0.32 % noise, giving
+`0.2580/0.4828 = 0.534 ± 0.669`, a band that contains 0 and 1 alike.
+
+What is solid is the **failure mode**: transfer is *not* a single scalar.
+- M4 **over**-predicts R1 by 1.6×.
+- M4 **completely misses** R2. R2's M5 gain is +0.130 % ≈ 8.5 µs/step-equivalent
+  and M4 measures 0.08 µs/step on the only kernel R2 edits, with a null-scale
+  band. No scalar maps 0 to 8.5.
+
+The mechanistic reading is consistent with §5 and the harness rules: R2 deepens
+a load ring, which pays where the memory system stalls differently, and this M4
+Pro is Apple GPU generation 16 with 20 GPU cores against the ranked M5 Max. The
+`AGENTS.md` warning that "threadgroup geometry can change sign across core
+counts" is exactly what a load-ring depth change is exposed to.
+
+**Consequence for `I`.** `I` is itself a cross-term between R1 and R2. Since the
+two factors' individual transfer behaviour differs by more than an order of
+magnitude, scalar-transferring their interaction is not justified by anything
+measured here. Both scalings below are therefore reported, and neither is
+preferred.
+
+### 9.2 Combining the two estimates
+
+The M4 total-busy interaction is `I = −2.70 [−10.01, +4.61]` µs/step, half-width
+7.31, i.e. ±0.1117 % of M5 score at 0.01528 %/µs, so 1σ = **0.0570 %** on the
+score scale (sign flipped: a negative time delta is a positive score gain, so
+M4 says `I = +0.0413 %`).
+
+The receipt gives `I = −0.108 % ± 0.331 %` on full `cs` (§8.3), 1σ = 0.331 %.
+
+Inverse-variance combination:
+
+| basis | M4 term | receipt term | **combined `I`** |
+| --- | --- | --- | --- |
+| M4 unscaled | +0.0413 % ± 0.0570 % | −0.108 % ± 0.331 % | **+0.037 % ± 0.056 %** |
+| M4 × 0.622 (the fitted R1 factor) | +0.0257 % ± 0.0355 % | −0.108 % ± 0.331 % | **+0.024 % ± 0.035 %** |
+
+Both are consistent with zero and both are **M4-dominated**: the receipt carries
+weight `1/0.331² = 9.1` against M4's `1/0.057² = 308`, i.e. **3 %** of the total.
+The receipt does not move the answer. This is §8.4's conclusion arriving from
+the other direction — the single receipt was structurally incapable of resolving
+a term this size, and it did not.
+
+### 9.3 Verdict
+
+**The composed R1∘R2 tree is additive on M5 to within ±0.06 % of score, and
+almost certainly within ±0.04 %.** The upper end of the combined band is
++0.09 %, the lower end −0.02 %. There is no evidence of the sub-additive
+collapse that the assignment's N-B hypothesis contemplated, and no evidence of a
+super-additive bonus worth chasing.
+
+Two operational consequences, both negative in the useful sense:
+
+1. **Nothing needs un-merging.** #555 and #539 are both merged into the frontier.
+   Had `I` been strongly negative, one of them would have been paying rent it no
+   longer earned. It is not; the frontier's accounting for these two rungs is
+   correct as it stands.
+2. **Additive bookkeeping is validated for this pair, and only for this pair.**
+   §6.4 shows the step-level null is produced by **cancellation of three
+   significant per-kernel interactions** (+6.13, −8.20, −1.74), not by
+   independence. That cancellation is a coincidence of this particular pair on
+   this particular machine. The campaign should keep summing rung gains, but
+   should stop treating additivity as a property of the method rather than a
+   lucky property of the specific pairs measured so far.
+
+The one durable, transferable claim from the whole 2×2 is in §6.5 and is not
+about `I` at all: **a kernel's timing is not a property of that kernel's code.**
+R2 changes zero bytes of `full_fused_attn_grow_v1` and still re-prices R1's gain
+there by 29 %; R1 changes zero bytes of `gate_sp_h64_v1` and costs it
+7.32 µs/step. Any future per-kernel microbenchmark in this campaign should be
+read with that in mind.
 
 ## 10. Updated record probability
 
