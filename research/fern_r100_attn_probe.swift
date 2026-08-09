@@ -66,6 +66,17 @@ let reps = intVal("FERN_REPS", 200)
 let defeatSlots = max(intVal("FERN_DEFEAT_SLOTS", 1), 1)
 let cacheCopies = max(intVal("FERN_CACHE_COPIES", 1), 1)
 
+/// R102-A rung 1. Rewrites the kernel's KV row-loop bound so one threadgroup
+/// attends a sub-range of the 512-row window, which is what a split-K
+/// threadgroup does. The cache addressing constant `window` is deliberately
+/// left at 512 so the address stride per kv-head is identical at every point.
+/// The ring is `i = sg; i + 3*BN < N; i += 4*BN` with BN=32 over 32 simdgroups,
+/// so N = 128*M runs exactly M iterations and N = 96 runs zero.
+let attnRows = intVal("FERN_ROWS", 512)
+/// Pins the defeat rotation stride to a fixed kv-head count so a K sweep does
+/// not silently change the address spread. 0 keeps the per-K default.
+let strideKVOverride = intVal("FERN_STRIDE_KV", 0)
+
 /// Measured M4-Pro DRAM read ceiling (rule 55): t = 3.97us + bytes/266.3GB/s.
 let dramPeakGBs = 266.3
 /// M4-Pro-class system level cache estimate. Used only as a printed label.
@@ -134,9 +145,21 @@ func extractKernel(_ path: String, name: String) -> ExtractedKernel {
     precondition(decl >= 0, "kernel declaration `\(name)` not found in \(path)")
     let src = extractLiteral(lines, label: "source", from: decl)
     let hdr = extractLiteral(lines, label: "header", from: src.closeIndex)
-    let count = src.text.split(separator: "\n", omittingEmptySubsequences: false).count
+    let body = rewriteRowBound(src.text)
+    let count = body.split(separator: "\n", omittingEmptySubsequences: false).count
     return ExtractedKernel(
-        name: name, header: hdr.text, body: src.text, sourceLines: count)
+        name: name, header: hdr.text, body: body, sourceLines: count)
+}
+
+/// Substitutes the KV row-loop bound and nothing else. Fails loudly rather than
+/// silently timing an unmodified kernel if the declaration ever moves.
+func rewriteRowBound(_ body: String) -> String {
+    guard attnRows != 512 else { return body }
+    let needle = "constexpr int N = 512;"
+    let hits = body.components(separatedBy: needle).count - 1
+    precondition(hits == 1, "expected exactly one `\(needle)`, found \(hits)")
+    return body.replacingOccurrences(
+        of: needle, with: "constexpr int N = \(attnRows);")
 }
 
 func mlxSignature(_ name: String) -> String {
@@ -231,8 +254,11 @@ do {
 let dScale = device.makeBuffer(length: 4, options: .storageModeShared)!
 dScale.contents().bindMemory(to: Float.self, capacity: 1)[0] = 0.088_388_35
 
-/// Bytes of one kv-head's contiguous K (or V) window.
+/// Bytes of one kv-head's contiguous K (or V) window. Addressing stride is
+/// always the full window; only `kvHeadReadBytes` follows `attnRows`.
 let kvHeadBytes = cWindow * cDim * 2
+/// Bytes of one kv-head the row loop actually reads at this `attnRows`.
+let kvHeadReadBytes = min(attnRows, cWindow) * cDim * 2
 
 /// `kv_head = head0 / gqa` and `head0 = 2 * tgpig.x`, so a K-threadgroup
 /// dispatch touches kv-heads `0 ..< ceil(2K/gqa)`.
@@ -241,8 +267,10 @@ func distinctKVHeads(_ k: Int) -> Int {
 }
 
 /// Rotation stride is the whole K/V footprint of one dispatch, so consecutive
-/// slots share no cache line.
-func cacheSlotStride(_ k: Int) -> Int { distinctKVHeads(k) * kvHeadBytes }
+/// slots share no cache line. `FERN_STRIDE_KV` pins it across a K sweep.
+func cacheSlotStride(_ k: Int) -> Int {
+    max(strideKVOverride, distinctKVHeads(k)) * kvHeadBytes
+}
 
 /// Slots that actually fit the allocated cache buffer at this K.
 func effectiveSlots(_ k: Int) -> Int {
@@ -267,7 +295,7 @@ func bind(_ enc: MTLComputeCommandEncoder, k: Int, slot: Int) {
 /// Device bytes one dispatch of `k` threadgroups asks for.
 func requestedBytesPerDispatch(_ k: Int) -> Int {
     let kv = distinctKVHeads(k)
-    let cacheReads = 2 * kv * kvHeadBytes
+    let cacheReads = 2 * kv * kvHeadReadBytes
     let rawQ = 2 * k * cDim * 2
     let rawKV = 2 * kv * cDim * 2
     let weights = 2 * cDim * 2
@@ -279,11 +307,10 @@ func requestedBytesPerDispatch(_ k: Int) -> Int {
 /// Distinct bytes one round of `reps` dispatches touches, honouring rotation.
 func uniqueBytesPerRound(_ k: Int, reps: Int) -> Int {
     let slots = min(effectiveSlots(k), reps)
-    let stride = cacheSlotStride(k)
+    let perSlot = 2 * distinctKVHeads(k) * kvHeadReadBytes
     // Rotation only moves the two caches; every other binding is fixed.
-    let rotating = 2 * (stride + (slots - 1) * stride)
-    let fixed = requestedBytesPerDispatch(k) - 2 * distinctKVHeads(k) * kvHeadBytes
-    return rotating + fixed
+    let fixed = requestedBytesPerDispatch(k) - perSlot
+    return slots * perSlot + fixed
 }
 
 // MARK: - pipelines
@@ -312,6 +339,8 @@ print("name                  \(device.name)")
 print("architecture          \(device.architecture.name)")
 print("gpu cores             \(cores)")
 print("kernel                \(kernelName)")
+print("attn rows N           \(attnRows)  (ring iters M = \(attnRows / 128))")
+print("stride kvheads        \(strideKVOverride == 0 ? "auto" : String(strideKVOverride))")
 print("mode                  \(isNull ? "NULL CONTROL (base vs itself)" : "A/B")")
 
 print("\n=== pipeline properties (register/occupancy gate) ===")
