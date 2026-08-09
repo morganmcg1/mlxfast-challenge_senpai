@@ -105,16 +105,21 @@ Converting to the quantity that generalises:
 | down (S2b − S2a, marginal) | 16,777,216 | 209.7 M | 4,192,256 | **50.0** |
 | S2b combined | — | 503.3 M | 20,263,168 | **24.8** |
 
-The host balance to compare against is the machine's integer-throughput to
+The obvious quantity to compare against is the machine's integer-throughput to
 DRAM-bandwidth ratio. On this M4 Pro, ~20 cores x 128 lanes x ~1.5 GHz gives
 roughly 3.8-4.0 T simple-int-ops/s against a measured 260.2 GB/s ceiling, i.e.
-a break-even of **~15 added integer ops per byte removed** — and that is the
-ceiling for perfectly-overlapped, perfectly-issued integer work, so the usable
-budget is lower still.
+a nominal break-even near **15 added integer ops per byte removed**. Before any
+timing this audit therefore predicted that both planes were unprofitable, with
+gate/up (18.3) marginal and down (50.0) roughly 3x over.
 
-Both planes are above that break-even before a single measurement: gate/up at
-18.3 has no margin, and the down plane at 50.0 ops/byte is roughly 3x over.
-This is the pre-screening statement §9 turns into a standing rule.
+**The measurement in §2 refutes that ordering, and I am recording the refutation
+rather than the rule.** The plane the audit called 3x-hopeless (down, 50.0
+ops/byte) is the one that converted, and the plane the audit called marginal
+(gate/up, 18.3 ops/byte) is the one that lost far more time than its bytes could
+ever have been worth. A scalar ops-per-byte screen does not rank these two
+kernels, so §9 does not promote it to a standing rule. §2 develops what does
+separate them; the audit survives only as an accounting of what the unpack
+actually costs, not as a predictor.
 
 ## 4. Equivalence and correctness
 
