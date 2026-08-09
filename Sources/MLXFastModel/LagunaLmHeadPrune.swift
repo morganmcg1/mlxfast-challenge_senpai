@@ -161,9 +161,6 @@ private let lagunaLmHeadCoarseV5Enabled =
 private let lagunaLmHeadPairMaxEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_LMHEAD_PAIR_MAX"] != "0"
 
-private let lagunaLmHeadPairMaxOracleEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_LMHEAD_PAIR_MAX_ORACLE"] == "1"
-
 /// Debug instrumentation for the v5 arm: per-step candidate count on stderr
 /// (forces a GPU sync per decode step; NEVER set on a timing run). Used once
 /// to confirm the offline candidate percentiles transfer to the device.
@@ -192,16 +189,11 @@ private let lagunaLmHeadPairMaxProducerStore = lagunaLmHeadPairMaxEnabled
     : ""
 
 private let lagunaLmHeadPairMaxThresholdKernelName =
-    (lagunaLmHeadBF16PredecessorThresholdEnabled
-        ? (lagunaLmHeadBF16MidpointThresholdEnabled
-            ? "laguna_lmhead_pair_max_bf16_midpoint_threshold_v1"
-            : "laguna_lmhead_pair_max_bf16_predecessor_threshold_v1")
-        : "laguna_lmhead_pair_max_exact_winner_threshold_v1")
-    + (lagunaLmHeadPairMaxOracleEnabled ? "_oracle" : "")
-
-private let lagunaLmHeadPairMaxOracleWinnerStore = lagunaLmHeadPairMaxOracleEnabled
-    ? "if (lid == 0) { selected_row[0] = winner_row[0]; }"
-    : ""
+    lagunaLmHeadBF16PredecessorThresholdEnabled
+    ? (lagunaLmHeadBF16MidpointThresholdEnabled
+        ? "laguna_lmhead_pair_max_bf16_midpoint_threshold_v1"
+        : "laguna_lmhead_pair_max_bf16_predecessor_threshold_v1")
+    : "laguna_lmhead_pair_max_exact_winner_threshold_v1"
 
 private let lagunaLmHeadPairMaxThresholdEpilogue: String = {
     if !lagunaLmHeadBF16PredecessorThresholdEnabled {
@@ -951,7 +943,15 @@ private let lagunaLmHeadAbsGroupSumsKernel = MLXFast.metalKernel(
 /// exact; sd*q multiplies a power of two by a <=4-bit-magnitude integer
 /// float: exact. Accumulation depth is ~45 roundings/element-path, under
 /// the depth <= 96 budget assumed by gamma = 2^-15.
-private let lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Source = """
+let lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel = MLXFast.metalKernel(
+    name: lagunaLmHeadPairMaxEnabled
+        ? "laguna_lmhead_int5_inline_coarse_ratio_bound_delta_bf16_v5_pair_max"
+        : "laguna_lmhead_int5_inline_coarse_ratio_bound_delta_bf16_v5_two_row",
+    inputNames: ["x", "codes_lo", "codes_hi", "scales"],
+    outputNames: lagunaLmHeadPairMaxEnabled
+        ? ["coarse", "delta", "pair_max"]
+        : ["coarse", "delta"],
+    source: """
         constexpr float GAMMA = 0x1p-15f;
 
         uint row0 = threadgroup_position_in_grid.x * 16 +
@@ -1049,30 +1049,9 @@ private let lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Source = """
                 dtrunc1 += 0x00010000u;
             }
             delta[row1] = as_type<bfloat>(ushort(dtrunc1 >> 16));
-            __PAIR_MAX_STORE__
+            \(lagunaLmHeadPairMaxProducerStore)
         }
-        """
-
-let lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel = MLXFast.metalKernel(
-    name: lagunaLmHeadPairMaxEnabled
-        ? "laguna_lmhead_int5_inline_coarse_ratio_bound_delta_bf16_v5_pair_max"
-        : "laguna_lmhead_int5_inline_coarse_ratio_bound_delta_bf16_v5_two_row",
-    inputNames: ["x", "codes_lo", "codes_hi", "scales"],
-    outputNames: lagunaLmHeadPairMaxEnabled
-        ? ["coarse", "delta", "pair_max"]
-        : ["coarse", "delta"],
-    source: lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Source.replacingOccurrences(
-        of: "__PAIR_MAX_STORE__", with: lagunaLmHeadPairMaxProducerStore),
-    header: lagunaLmHeadPruneHeader,
-    ensureRowContiguous: true
-)
-
-private let lagunaLmHeadInt5OracleControlKernel = MLXFast.metalKernel(
-    name: "laguna_lmhead_int5_inline_coarse_ratio_bound_delta_bf16_v5_oracle_control",
-    inputNames: ["x", "codes_lo", "codes_hi", "scales"],
-    outputNames: ["coarse", "delta"],
-    source: lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Source.replacingOccurrences(
-        of: "__PAIR_MAX_STORE__", with: ""),
+        """,
     header: lagunaLmHeadPruneHeader,
     ensureRowContiguous: true
 )
@@ -1564,9 +1543,7 @@ private let lagunaLmHeadExactWinnerBF16PredecessorThresholdKernel = MLXFast.meta
 private let lagunaLmHeadPairMaxThresholdKernel = MLXFast.metalKernel(
     name: lagunaLmHeadPairMaxThresholdKernelName,
     inputNames: ["pair_max", "coarse", "lm_head", "x"],
-    outputNames: lagunaLmHeadPairMaxOracleEnabled
-        ? ["threshold", "selected_row"]
-        : ["threshold"],
+    outputNames: ["threshold"],
     source: """
         constexpr uint PAIRS = 50176;
         constexpr uint K = 2048;
@@ -1631,7 +1608,6 @@ private let lagunaLmHeadPairMaxThresholdKernel = MLXFast.metalKernel(
             }
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
-        \(lagunaLmHeadPairMaxOracleWinnerStore)
 
         float result = 0.0f;
         if (simd_group == 0) {
@@ -2001,8 +1977,6 @@ final class LagunaLmHeadPruner {
     let int5CodesLo: MLXArray?
     let int5CodesHi: MLXArray?
     let int5Scales: MLXArray?
-    private var pairMaxOracleInvocation = 0
-    private var pairMaxOracleAdditionalStateChecked = false
 
     /// The resident coarse-copy arrays of the ACTIVE arm, for the untimed
     /// init-time eval in `prepareFusedRuntimeWeights` (the shipped call named
@@ -2124,166 +2098,6 @@ final class LagunaLmHeadPruner {
         return (lo, hi, sdByte.asType(.uint8))
     }
 
-    private static func mismatchCount<T: Equatable>(_ lhs: [T], _ rhs: [T]) -> Int {
-        precondition(lhs.count == rhs.count)
-        return zip(lhs, rhs).reduce(into: 0) { count, pair in
-            if pair.0 != pair.1 {
-                count += 1
-            }
-        }
-    }
-
-    private static func bf16Argmax(_ bits: [UInt16]) -> Int {
-        var best = -Float.infinity
-        var bestIndex = 0
-        for (index, bitPattern) in bits.enumerated() {
-            let value = Float(bitPattern: UInt32(bitPattern) << 16)
-            if value > best {
-                best = value
-                bestIndex = index
-            }
-        }
-        return bestIndex
-    }
-
-    private func runPairMaxOracle(
-        x: MLXArray,
-        lmHeadWeight: MLXArray,
-        lo: MLXArray,
-        hi: MLXArray,
-        scales: MLXArray,
-        label: String,
-        positiveControl: Bool
-    ) -> MLXArray {
-        precondition(lagunaLmHeadPairMaxEnabled && lagunaLmHeadPairMaxOracleEnabled)
-        let vocab = lagunaLmHeadPruneVocab
-        let candidate = lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel(
-            [x, lo, hi, scales],
-            grid: (vocab / 16 * 256, 1, 1),
-            threadGroup: (256, 1, 1),
-            outputShapes: [[vocab], [vocab], [vocab / 2]],
-            outputDTypes: [.float32, .bfloat16, .float32]
-        )
-        let control = lagunaLmHeadInt5OracleControlKernel(
-            [x, lo, hi, scales],
-            grid: (vocab / 16 * 256, 1, 1),
-            threadGroup: (256, 1, 1),
-            outputShapes: [[vocab], [vocab]],
-            outputDTypes: [.float32, .bfloat16]
-        )
-        let controlPartials = lagunaLmHeadCoarseArgmaxStage1Kernel(
-            [control[0]],
-            grid: (224, 128, 1),
-            threadGroup: (224, 1, 1),
-            outputShapes: [[128], [128]],
-            outputDTypes: [.float32, .uint32]
-        )
-        let controlThresholdKernel =
-            lagunaLmHeadBF16PredecessorThresholdEnabled
-            ? lagunaLmHeadExactWinnerBF16PredecessorThresholdKernel
-            : lagunaLmHeadExactWinnerThresholdKernel
-        let controlThreshold = controlThresholdKernel(
-            [controlPartials[0], controlPartials[1], lmHeadWeight, x],
-            grid: (32, 1, 1),
-            threadGroup: (32, 1, 1),
-            outputShapes: [[1]],
-            outputDTypes: [.float32]
-        )[0]
-        let candidateThreshold = lagunaLmHeadPairMaxThresholdKernel(
-            [candidate[2], candidate[0], lmHeadWeight, x],
-            grid: (224, 1, 1),
-            threadGroup: (224, 1, 1),
-            outputShapes: [[1], [1]],
-            outputDTypes: [.float32, .uint32]
-        )
-        let candidateAssembled = lagunaLmHeadInlineExactDeltaBF16Kernel(
-            [candidate[0], candidate[1], candidateThreshold[0], lmHeadWeight, x],
-            grid: (vocab / 32 * 256, 1, 1),
-            threadGroup: (256, 1, 1),
-            outputShapes: [[vocab]],
-            outputDTypes: [.bfloat16]
-        )[0]
-        let controlAssembled = lagunaLmHeadInlineExactDeltaBF16Kernel(
-            [control[0], control[1], controlThreshold, lmHeadWeight, x],
-            grid: (vocab / 32 * 256, 1, 1),
-            threadGroup: (256, 1, 1),
-            outputShapes: [[vocab]],
-            outputDTypes: [.bfloat16]
-        )[0]
-        eval(
-            candidate + control + controlPartials + candidateThreshold
-                + [controlThreshold, candidateAssembled, controlAssembled])
-
-        let candidateCoarse = candidate[0].view(dtype: .uint32).asArray(UInt32.self)
-        let controlCoarse = control[0].view(dtype: .uint32).asArray(UInt32.self)
-        let candidateDelta = candidate[1].view(dtype: .uint16).asArray(UInt16.self)
-        let controlDelta = control[1].view(dtype: .uint16).asArray(UInt16.self)
-        let candidatePairs = candidate[2].view(dtype: .uint32).asArray(UInt32.self)
-        let partialValues = controlPartials[0].asArray(Float.self)
-        let partialIndices = controlPartials[1].asArray(UInt32.self)
-        let selectedRow = candidateThreshold[1].asArray(UInt32.self)[0]
-        let candidateThresholdBits =
-            candidateThreshold[0].view(dtype: .uint32).asArray(UInt32.self)
-        let controlThresholdBits =
-            controlThreshold.view(dtype: .uint32).asArray(UInt32.self)
-        let candidateLogits =
-            candidateAssembled.view(dtype: .uint16).asArray(UInt16.self)
-        let controlLogits = controlAssembled.view(dtype: .uint16).asArray(UInt16.self)
-
-        var expectedPairs = [UInt32]()
-        expectedPairs.reserveCapacity(vocab / 2)
-        for row0 in stride(from: 0, to: vocab, by: 2) {
-            let row1 = row0 + 1
-            let first = Float(bitPattern: controlCoarse[row0])
-            let second = Float(bitPattern: controlCoarse[row1])
-            expectedPairs.append(second > first ? controlCoarse[row1] : controlCoarse[row0])
-        }
-        var controlBest = -Float.infinity
-        var controlRow = UInt32.max
-        for index in partialValues.indices {
-            let value = partialValues[index]
-            let row = partialIndices[index]
-            if value > controlBest || (value == controlBest && row < controlRow) {
-                controlBest = value
-                controlRow = row
-            }
-        }
-        controlRow = min(controlRow, UInt32(vocab - 1))
-
-        let coarseMismatch = Self.mismatchCount(candidateCoarse, controlCoarse)
-        let deltaMismatch = Self.mismatchCount(candidateDelta, controlDelta)
-        let pairMismatch = Self.mismatchCount(candidatePairs, expectedPairs)
-        let rowMismatch = selectedRow == controlRow ? 0 : 1
-        let thresholdMismatch =
-            Self.mismatchCount(candidateThresholdBits, controlThresholdBits)
-        let logitsMismatch = Self.mismatchCount(candidateLogits, controlLogits)
-        let tokenMismatch =
-            Self.bf16Argmax(candidateLogits) == Self.bf16Argmax(controlLogits) ? 0 : 1
-        var positiveMismatch = 0
-        if positiveControl {
-            var corruptedPairs = candidatePairs
-            corruptedPairs[0] ^= 1
-            positiveMismatch = Self.mismatchCount(corruptedPairs, expectedPairs)
-        }
-        FileHandle.standardError.write(
-            Data(
-                (
-                    "lmhead-pair-oracle invocation=\(pairMaxOracleInvocation) label=\(label) "
-                        + "coarse=\(coarseMismatch) delta=\(deltaMismatch) "
-                        + "pair=\(pairMismatch) row=\(rowMismatch) "
-                        + "threshold=\(thresholdMismatch) logits=\(logitsMismatch) "
-                        + "token=\(tokenMismatch) positive=\(positiveMismatch)\n"
-                ).utf8))
-        pairMaxOracleInvocation += 1
-        precondition(
-            coarseMismatch == 0 && deltaMismatch == 0 && pairMismatch == 0
-                && rowMismatch == 0 && thresholdMismatch == 0
-                && logitsMismatch == 0 && tokenMismatch == 0
-                && positiveMismatch == (positiveControl ? 1 : 0),
-            "LM-head pair-max oracle mismatch")
-        return candidateAssembled
-    }
-
     /// Pruned final-row lm_head: full [vocab] BF16 logits row, bit-identical to
     /// the stock pass in every candidate slot and certified-below elsewhere,
     /// so the downstream argmax emits the stock token.
@@ -2296,33 +2110,6 @@ final class LagunaLmHeadPruner {
         // pair-max arm folds the 128-threadgroup stage into the producer and
         // reduces the chain from four dispatches to three.
         if let lo5 = int5CodesLo, let hi5 = int5CodesHi, let s5 = int5Scales {
-            if lagunaLmHeadPairMaxOracleEnabled {
-                let assembled = runPairMaxOracle(
-                    x: x,
-                    lmHeadWeight: lmHeadWeight,
-                    lo: lo5,
-                    hi: hi5,
-                    scales: s5,
-                    label: "public-\(pairMaxOracleInvocation)",
-                    positiveControl: pairMaxOracleInvocation == 0)
-                if !pairMaxOracleAdditionalStateChecked {
-                    pairMaxOracleAdditionalStateChecked = true
-                    let deterministicHidden = MLXArray(
-                        (0..<lagunaLmHeadPruneHidden).map {
-                            Float(Int($0 % 31) - 15) / 32
-                        }
-                    ).asType(.bfloat16)
-                    _ = runPairMaxOracle(
-                        x: deterministicHidden,
-                        lmHeadWeight: lmHeadWeight,
-                        lo: lo5,
-                        hi: hi5,
-                        scales: s5,
-                        label: "deterministic-hidden",
-                        positiveControl: false)
-                }
-                return assembled.reshaped([1, 1, vocab])
-            }
             // (The default-OFF preabs twin was deleted for byte budget: it
             // measured +40 us/step on this arm; notes/exp-v5preabs.md.)
             let coarseOut5 = lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel(
