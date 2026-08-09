@@ -15,7 +15,11 @@ before the receipt they could have been fitted to).
 | **P2** — `DARKBLOOM_FUSED_QKV` row-concatenated `[Wq;Wk;Wv]` BF16 prefill bank | submitted (R1), **measured M5 regression `+0.639 ms`, REVERTED** | §3, §4, §5, §7.0 |
 | **P2b** — `int32[4]` layout descriptor removing the 78 strided copies P2 introduces | submitted (R1) inside the same binary, **reverted with P2** | §3, §4, §5, §7.0 |
 | **P3** — skinny-N NAX retile (`bn` 128→64, `wn` 4→2) | **dead by construction, never submitted** (no receipt spent) | §6 |
-| **P4** — swizzle depth 2→3 for `tiles_m % 8 == 0` in `steel_matmul_regular_axpby_nax` | sole surviving code change; **submitted (R2)** | §3, §7 |
+| **P4** — swizzle depth 2→3 for `tiles_m % 8 == 0` in `steel_matmul_regular_axpby_nax` | submitted (R2), **measured null `−0.014 ms` (`t = −0.10`), REVERTED** per Amendment 8 | §3, §7.0c |
+
+**The branch's `git diff` against the base is now empty across `Sources/`,
+`Vendor/` and `Package.swift`.** All three submitted mechanisms are reverted and
+all of the value is in `research/`. That is the honest shape of this result.
 
 **Headline: the arm's primary hypothesis is refuted on M5.** Reducing the BF16
 GEMM dispatch count by 20 % (392 → 236 `steel_gemm_bf16` dispatches, and 1222 →
@@ -24,6 +28,13 @@ GEMM dispatch count by 20 % (392 → 236 `steel_gemm_bf16` dispatches, and 1222 
 The M5 prefill `steel_gemm_bf16` pool is **not** dispatch-count-bound. The same
 change is worth **−11.2 ms** on M4 Pro, which is why cross-machine directional
 evidence was not sufficient here.
+
+**Second headline: R2 is a preregistered negative control and it passed.** With
+P2/P2b reverted, candidate prefill returned to the control-population mean
+(`−0.014 ms`, `t = −0.10`) and candidate decode to its mean (`+0.08 σ`). The
+R1 regression was therefore caused by the code, not by drift, session artifact
+or a mis-specified control population — the single most important check on the
+verdict above, and it was registered in §14.6 before R1 was even read.
 
 ## 2. Hypothesis
 
@@ -207,10 +218,14 @@ did not beat the current best.
 | # | submission id | commit | arms | correctness | decode floor | prefill floor | `bl_dec` ms/step | `bl_pre` ms | `cand_dec` ms/step | `cand_pre` ms | decode speedup | prefill speedup | ranked score | ranking status |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | R1 | `b3b6457f-25b6-40f8-8ebf-a417ba11b1a0` | `723e628` | base + P2 + P2b | **pass** (`max_abs_diff 0`, 1344 checked steps, GPQA 9/9, TTFT 9/9) | **pass** | **pass** | 13.8089 | 187.976 | 4.92433 | **96.797** | 2.804213 | 1.941974 | 2.55810946477023 | rejected — *"score did not improve current best"* (ranking only; `error: ""`) |
-| R2 | `048674e9-cff4-449f-90e2-97811149cf97` | `2dddec8` | base + P4 (P2/P2b reverted) | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
+| R2 | `048674e9-cff4-449f-90e2-97811149cf97` | `2dddec8` | base + P4 (P2/P2b reverted) | **pass** (`max_abs_diff 0`, 1344 checked steps, GPQA/TTFT 9/9, semantic GPQA 8/9 pass) | **pass** | **pass** | 13.8270 | 188.712 | 4.91326 | **96.144** | 2.81422492674266 | 1.9628057429555446 | 2.5718073554706 | rejected — *"score did not improve current best"* (ranking only; `error: ""`) |
 
 Note files: `research/tanjiro-r97-r1-note.md`, `research/tanjiro-r97-r2-note.md`.
-`peak_ram_gb` was 21 on R1 — no memory pressure.
+Raw receipts: `research/r97-logs/receipt.r1.json`, `research/r97-logs/receipt.r2.json`.
+`peak_ram_gb` was 21 on both receipts — no memory pressure. R2 landed
+2026-08-09T12:19:52Z (`createdAt 2026-08-09T12:11:05.855Z`), `golden_hash
+be7738fc…`, `harness_hash 8ee45419…`, `num_layers 40`,
+`weights_byte_count 21568891382`, `benchmark_wall_seconds 52`.
 
 ### 7.0 R1 verdict: P2 + P2b are a measured M5 regression
 
@@ -235,7 +250,8 @@ between the promoted frontier and R1 give candidate prefill
 The preregistered `> +0.3 ms` row means *unmodelled regression ⇒ revert, report
 negative*, and the advisor's own registered NO-GO for this arm was "if the
 receipt shows prefill regressed". Both fire. **P2 and P2b are reverted**
-(`4b3af0b`); `git diff` against the base now shows only the six lines of P4.
+(`4b3af0b`). After the Amendment-8 P4 revert (`9638f0a`) the branch's `git diff`
+against the base is empty across `Sources/`, `Vendor/` and `Package.swift`.
 
 An earlier "+4.6 σ" headline was withdrawn as arithmetically wrong (it divided
 by the population sd rather than the prediction sd). See Amendment 6 (§15) of
@@ -269,6 +285,54 @@ it does for the unfused `wq`). The regression is therefore **not** the trap, and
 that is itself the reportable finding: identical kernel family, identical tile
 geometry (`bm=64 bn=128 bk=256 wm=2 wn=4 swizzle_log=2`), identical total
 threadgroup count (640 either way) — and still 0.64 ms slower.
+
+### 7.0c R2 verdict: P4 is null, and the negative control passed
+
+R2 is `base + P4` with P2/P2b reverted, so it does two jobs at once. Both
+read-outs were registered before R1 was read (§14.6) or before R2 returned
+(Amendment 8, §17).
+
+**(a) P4 is null.** Registered point prediction was **−0.4 ms**; registered
+bands were `≤ −0.30 ms` keep, `−0.30 … −0.10 ms` inconclusive/repeat,
+`−0.10 … +0.10 ms` null ⇒ revert, `≥ +0.30 ms` regression ⇒ revert.
+
+| statistic | value |
+|---|---|
+| R2 `cand_pre` | **96.1439 ms** |
+| control mean ± sd (n = 13) | 96.1580 ± 0.1389 ms |
+| effect | **−0.0141 ms** |
+| prediction-`t` (12 dof, se = 0.1442) | **−0.098** |
+| preregistered null band | 96.02 … 96.30 ms — R2 is inside |
+| registered −0.4 ms prediction | excluded at ≈ **2.7** prediction-se |
+
+Widening the `steel_matmul_regular_axpby_nax` swizzle from 2 to 3 for
+`tiles_m % 8 == 0` shapes changes nothing measurable on M5. The plausible
+reason is that all M5 regular-`_nax` prefill classes already have `tiles_m = 8`,
+i.e. exactly one swizzle group at depth 3 — the reorder relabels threadgroups
+without changing how many are resident, and the M5 dispatcher was evidently
+already scheduling them well. Per Amendment 8 the null band mandates a revert,
+which was taken at `9638f0a`.
+
+**(b) The negative control passed.** R2's only relationship to R1 is that it
+removes P2/P2b. If R1's `+0.639 ms` had come from drift, a bad session, or a
+mis-specified control population, R2 would have inherited it. It did not:
+
+| axis | R2 | control population | deviation |
+|---|---|---|---|
+| candidate prefill | 96.1439 ms | 96.1580 ± 0.1389 (n = 13) | **−0.10** prediction-se |
+| candidate decode | 4.91326 ms/step | 4.91182 ± 0.01716 (n = 9 healthy) | **+0.08 σ** |
+
+Both axes returned to their population means in the same receipt. That is a
+clean instrument check: the control population is correctly specified, the
+session was healthy, and **R1's regression was caused by the P2/P2b code**.
+Registering this control in §14.6 before R1 was read is what makes it evidence
+rather than a post-hoc rescue.
+
+**(c) Pricing, recomputed from R2's own JSON** as the standing rule requires:
+`CP = 187.781 µs/tok`, `CD = 4913.26 µs/step` ⇒ `f = 0.152877`, forward
+exponent `0.25 + 0.75f = 0.364658`, so one millisecond of prefill is worth
+**0.3793 %** of score here. The registered `−0.4 ms` P4 prediction would have
+been worth **+0.151 %**; the measured null is worth `+0.005 %`, i.e. nothing.
 
 ### 7.1 Read-out thresholds registered before R1 (Amendment 2, §11.3)
 
@@ -318,8 +382,23 @@ research/run_upstream_equivalence.sh
 Evidence under `research/r97-logs/` is force-added (`git add -f`); that
 directory's `.gitignore` is `*` / `!.gitignore`.
 
-Editable-surface budget at `723e628`:
-`current=2903610/3000000, headroom=96390, growth=4134/262144, files=141` — PASS.
+Editable-surface budget, `senpai/check-editable-budget.sh b78e7cdb`:
+
+| commit | current | headroom | growth | files |
+|---|---|---|---|---|
+| `723e628` (R1: base + P2 + P2b) | 2903610 | 96390 | 4134 / 262144 | 141 |
+| `2dddec8` (R2: base + P4) | 2899882 | 100118 | 406 / 262144 | 141 |
+| `9638f0a` (final: everything reverted) | 2899476 | 100524 | **0** / 262144 | 141 |
+
+All PASS. The final `growth=0` is an independent confirmation that the branch
+carries no submitted-surface change.
+
+**Caveat for anyone reproducing the GPU dispatch census:** the local
+`DARKBLOOM_GPU_PROFILE` hooks in the vendored MLX device were deliberately
+reverted at `131ebfa` to keep the editable surface clean, so
+`research/tanjiro-r97-census.sh` on the current tree produces no per-pool
+records. Re-apply the hooks locally (research-only, never submitted) before
+running a census. The census numbers in §5.1 were taken with the hooks present.
 
 ## 9. Conclusion
 
@@ -349,22 +428,36 @@ Editable-surface budget at `723e628`:
    Amendment 3 *before* R1 returned: the `_nax` kernel's `bn = 128` is already the
    minimum instantiated tile width, so there is no skinnier N to retile to. It was
    never submitted and consumed no receipt.
-5. **P4 (swizzle depth 2 → 3 for `tiles_m % 8 == 0`) is the only surviving code
-   change** and is unmeasurable on this M4 Pro host, which reports Apple GPU
-   generation 16 and never selects `_nax` at all. It was submitted as R2 purely to
-   buy an M5 read-out; its outcome is recorded in §7.
-6. **A methodological result worth carrying forward:** the published ranked score
+5. **P4 (swizzle depth 2 → 3 for `tiles_m % 8 == 0`) measured null on M5** —
+   `−0.014 ms`, prediction-`t` = −0.098, squarely inside the preregistered
+   `−0.10 … +0.10 ms` null band, with the registered `−0.4 ms` point prediction
+   excluded at ≈2.7 prediction-se. Amendment 8 (registered while R2 was still
+   `validating`) mandates a revert for that band, taken at `9638f0a`. All M5
+   regular-`_nax` prefill classes already have `tiles_m = 8`, so depth 3 yields
+   exactly one swizzle group: it relabels threadgroups without changing residency.
+   It was unmeasurable on this M4 Pro host, which reports Apple GPU generation 16
+   and never selects `_nax` at all, so R2 was the only way to read it. §7.0c.
+6. **The preregistered negative control passed, and that is what makes point 1
+   safe.** R2 differs from R1 only by removing P2/P2b, and in the same receipt
+   candidate prefill returned to `−0.10` prediction-se of the control mean and
+   candidate decode to `+0.08 σ` of its mean. Drift, session artifact, and
+   mis-specified controls are therefore all excluded as explanations of R1's
+   `+0.639 ms`; the code caused it. This control was registered in §14.6 before
+   R1 was read. **The branch's code diff against the base is now empty** —
+   every submitted mechanism is reverted and all surviving value is in
+   `research/`.
+7. **A methodological result worth carrying forward:** the published ranked score
    is a poor observable for a prefill arm because the same-session *baseline*
    prefill wanders ≈5 % while the candidate prefill wall has sd 0.139 ms
    (0.14 %). Reading the candidate wall against a contemporaneous control
    population turned an apparently ambiguous `rejected` receipt into a
    4.4-sigma-equivalent regression call. Any future prefill arm should be read
    this way.
-7. **The pricing correction is accepted and fully propagated.** Prefill is
+8. **The pricing correction is accepted and fully propagated.** Prefill is
    charged twice, `f` must be recomputed from each candidate's own JSON, and the
-   score conversion for this arm is 0.3773 %/ms rather than the stored 0.330
-   exponent. Every figure in this document has been restated; no GO/NO-GO bar
-   moved because all bars are expressed in milliseconds.
+   score conversion is 0.3773 %/ms on R1 and 0.3793 %/ms on R2, rather than the
+   stored 0.330 exponent. Every figure in this document has been restated; no
+   GO/NO-GO bar moved because all bars are expressed in milliseconds.
 
 **Recommendation to the advisor: stop spending receipts on the prefill
 dispatch-count family and move the next arm to the decode axis.** The remaining
@@ -442,7 +535,12 @@ section is the reply of record. Advisor comment id `5231447437`,
 5. **P3 is dead by construction**, registered before R1 returned. §6. The
    advisor's stopping rule "P2 terminal AND P3 terminal or shown not to fit" is
    satisfied on both limbs.
-6. **R2 in flight** against bars registered before submission. §7.
+6. **R2 has landed and is a null for P4** (`−0.014 ms`, `t = −0.098`), read
+   against bars registered before submission; Amendment 8's null band mandates
+   the revert, taken at `9638f0a`. R2 also **passed as the preregistered
+   negative control**: with P2/P2b removed, candidate prefill and decode both
+   returned to their control-population means, which is what licenses the causal
+   claim in item 3. The branch's code diff against the base is now empty. §7.0c.
 7. **Recommendation: move the next arm to decode.** §9. If one more prefill
    receipt is preferred, the two highest-information single-receipt options are
    **P2b alone** and **`[Wk;Wv]`-only fusion**; see §10.
