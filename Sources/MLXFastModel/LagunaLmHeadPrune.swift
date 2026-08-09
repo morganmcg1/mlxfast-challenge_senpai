@@ -943,15 +943,7 @@ private let lagunaLmHeadAbsGroupSumsKernel = MLXFast.metalKernel(
 /// exact; sd*q multiplies a power of two by a <=4-bit-magnitude integer
 /// float: exact. Accumulation depth is ~45 roundings/element-path, under
 /// the depth <= 96 budget assumed by gamma = 2^-15.
-let lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel = MLXFast.metalKernel(
-    name: lagunaLmHeadPairMaxEnabled
-        ? "laguna_lmhead_int5_inline_coarse_ratio_bound_delta_bf16_v5_pair_max"
-        : "laguna_lmhead_int5_inline_coarse_ratio_bound_delta_bf16_v5_two_row",
-    inputNames: ["x", "codes_lo", "codes_hi", "scales"],
-    outputNames: lagunaLmHeadPairMaxEnabled
-        ? ["coarse", "delta", "pair_max"]
-        : ["coarse", "delta"],
-    source: """
+private let lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Source = """
         constexpr float GAMMA = 0x1p-15f;
 
         uint row0 = threadgroup_position_in_grid.x * 16 +
@@ -1049,9 +1041,30 @@ let lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel = MLXFast.metalKernel(
                 dtrunc1 += 0x00010000u;
             }
             delta[row1] = as_type<bfloat>(ushort(dtrunc1 >> 16));
-            \(lagunaLmHeadPairMaxProducerStore)
+            __PAIR_MAX_STORE__
         }
-        """,
+        """
+
+let lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel = MLXFast.metalKernel(
+    name: lagunaLmHeadPairMaxEnabled
+        ? "laguna_lmhead_int5_inline_coarse_ratio_bound_delta_bf16_v5_pair_max"
+        : "laguna_lmhead_int5_inline_coarse_ratio_bound_delta_bf16_v5_two_row",
+    inputNames: ["x", "codes_lo", "codes_hi", "scales"],
+    outputNames: lagunaLmHeadPairMaxEnabled
+        ? ["coarse", "delta", "pair_max"]
+        : ["coarse", "delta"],
+    source: lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Source.replacingOccurrences(
+        of: "__PAIR_MAX_STORE__", with: lagunaLmHeadPairMaxProducerStore),
+    header: lagunaLmHeadPruneHeader,
+    ensureRowContiguous: true
+)
+
+private let lagunaLmHeadPairMaxProbeControlProducer = MLXFast.metalKernel(
+    name: "laguna_lmhead_int5_inline_coarse_ratio_bound_delta_bf16_v5_pair_probe_control",
+    inputNames: ["x", "codes_lo", "codes_hi", "scales"],
+    outputNames: ["coarse", "delta"],
+    source: lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Source.replacingOccurrences(
+        of: "__PAIR_MAX_STORE__", with: ""),
     header: lagunaLmHeadPruneHeader,
     ensureRowContiguous: true
 )
@@ -1959,6 +1972,18 @@ private let lagunaLmHeadInlineExactDeltaBF16Kernel = MLXFast.metalKernel(
         """,
     ensureRowContiguous: true
 )
+
+struct LagunaLmHeadPairMaxProbeKernels {
+    static let controlProducer = lagunaLmHeadPairMaxProbeControlProducer
+    static let candidateProducer = lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel
+    static let controlStage1 = lagunaLmHeadCoarseArgmaxStage1Kernel
+    static let controlThreshold: MLXFast.MLXFastKernel =
+        lagunaLmHeadBF16PredecessorThresholdEnabled
+        ? lagunaLmHeadExactWinnerBF16PredecessorThresholdKernel
+        : lagunaLmHeadExactWinnerThresholdKernel
+    static let candidateThreshold = lagunaLmHeadPairMaxThresholdKernel
+    static let assembly = lagunaLmHeadInlineExactDeltaBF16Kernel
+}
 
 /// Retained init-time MXFP8 coarse copy of lm_head plus the pruned final-row
 /// forward. Built once (untimed init) by
