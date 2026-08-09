@@ -321,8 +321,9 @@ Two related facts worth recording for whoever acts on this:
 - MLX caps a command buffer at `max_ops_per_buffer_ = 50` on M5 Max
   (architecture name ending in `'s'`), so 404 dispatches is **8-9 command
   buffers per decoded token**. `lagunaDecodeAsyncStage` defaults to
-  `"at:0,1,7,15,23,31,39"`, forcing at least 7 `asyncEval` sync points per step
-  on top of that.
+  `"at:0,1,7,15,23,31,39"`, giving 7 `asyncEval` fire points per step. **Those
+  are not overhead and must not be attacked** - see section 8.2, rejection 3:
+  they add zero dispatches and are a measured 0.9 ms *win*.
 - An exact dispatch counter already exists in the vendored MLX
   (`CommandEncoder::buffer_ops_`, `Vendor/mlx-swift/.../backend/metal/device.h:113`,
   incremented only at `device.cpp:381` and `:389`), but `device.cpp/.h` are
@@ -363,3 +364,158 @@ GPQA TTFT 9/9 and semantic GPQA 9/9, with `max_abs_diff = 0` over 1344 checked
 steps. A `rejected` status with the reason "score did not improve current best"
 is the expected and correct outcome for a null or a deliberately slowed ladder
 rung; it is a ranking statement, not a correctness statement.
+
+## 8. Follow-up: what the 2.474 us actually buys, and what it does not
+
+Sections 4 and 4.2 establish a price and a count. This section audits what can
+actually be *removed*, done independently against the source at BASE_SHA. It is
+deliberately separated from the measurement above because none of it is measured
+by this experiment - it is the shortlist R93 exists to enable, not a result of
+R93.
+
+The most important thing here is the rejection list. The naive reading of
+"404 dispatches x 2.474 us = 1.00 ms" is that any fusion is free money. That
+reading is wrong, and the code already contains the counter-example.
+
+### 8.1 Independent confirmation of the census
+
+The audit reproduced 404 exactly from source, by the same decomposition: 200
+attention + 195 MoE + 3 layer-0 dense + 6 non-layer. It also confirmed the three
+structural claims carrying the most weight: decode fused attention really does
+absorb QK-norm, RoPE, KV-append and SDPA into one dispatch
+(`LagunaRuntimeModel.swift:6077`, `:6103`); decode masks really are 0-dispatch
+at L == 1; and the router correction-bias cast is already sunk into the top-8
+kernel (`LagunaRuntimeLayers.swift:805-809`), so the "+39 if non-fp32" caveat in
+section 4.2 does not fire.
+
+One documentation defect found: `LagunaRuntimeModel.swift:610-611` describes the
+fused embed+angle-atlas kernel as "default OFF (-0.23 %)", but `:596-605` shows
+it default **ON** since the 2026-08-02 r=1 re-sweep. Doc rot, not a census error
+- the census read the code, not the comment.
+
+### 8.2 Rejected, with reasons (the valuable half)
+
+1. **Fuse the 40 input RMSNorms into the NVFP4 QKV kernel.** This is the obvious
+   40-dispatch, ~99 us idea, and it has **already been implemented and then
+   removed after re-measuring at +2.7 %**
+   (`LagunaRuntimeModel.swift:5856-5860`). Every threadgroup in the fused kernel
+   must re-read the 2048-wide row and recompute the RMS reduction, so the
+   redundant arithmetic costs more than the launch it saves. The surviving fused
+   norm+QKV path is guarded to INT8 g32 (`:5839-5845`), which never fires at the
+   default `lagunaNativeAffineNVFP4From=0`.
+
+   **This is the discipline the 2.474 us number needs.** Dispatch count is one
+   axis; a fusion that duplicates work across threadgroups can lose on the other
+   axis by more than it wins on this one. The price tag says how much a removed
+   dispatch is *worth*, not that removing it is *cheap*.
+
+2. **Switch QKV to INT8 g32 to reach that fused path.** Permitted by the
+   quantization envelope, but it roughly doubles QKV weight bytes (~+10 MB per
+   layer, ~+20-25 us of bandwidth) to save ~5 us of dispatch. Net loser, and it
+   explains why NVFP4-everywhere is the default.
+
+3. **Reduce the `asyncEval` sync points.** I had flagged the 7 fire points as a
+   possible cost in section 4.2. That was wrong and is corrected there.
+   `asyncEval` adds **zero** GPU dispatches, cache rows, dtype boundaries or
+   tokens - it only enqueues already-constructed work earlier, so every schedule
+   is bit-exact and the choice is purely a measurement. Verified directly at
+   `LagunaRuntimeModel.swift:722-745` (`notes/52`, two Latin squares, 66 runs,
+   66/66 `passed_correctness`): `off` is **10.3735 ms** against **9.4533 ms**
+   for the older `ladder8` 5-fire schedule, so overlap alone was worth +9.7 %,
+   and the current default is a further ~1.7 % on top of `ladder8`. Fewer fires
+   is strictly worse, and a *lone* fire at layer 1 is the worst schedule tested
+   (0.9476). Keep `at:0,1,7,15,23,31,39`. Do not attack.
+
+4. **Collapse the 4-dispatch lm-head screen back to one dispatch.** The stock
+   single dispatch reads the full 411 MB BF16 `[100352, 2048]` row set (~800 us);
+   the 3-level screen reads ~110 MB. Break-even is +3 dispatches = 7.4 us against
+   500-600 us of bandwidth saved. Overwhelmingly keep the 4 dispatches. This is
+   the cleanest illustration that minimising dispatch count is not the objective.
+
+5. **A whole-step or whole-MoE megakernel.** router -> QMV -> down needs
+   device-wide ordering and Metal offers no intra-dispatch global sync.
+
+6. **Further cross-layer hoisting.** Exhausted. Embedding and both RoPE angle
+   rows are already one fused dispatch (`:8913-8926`), angle tables are shared
+   across all 40 layers, masks are free, and all fused banks and atlases are
+   built at load in `prepareFusedRuntimeWeights` (`:9152+`). Every remaining
+   per-layer dispatch consumes layer-specific weights or state.
+
+### 8.3 Surviving candidates, ranked
+
+Nominal us uses 2.474 us/dispatch and is an **average**, not a critical-path
+marginal cost - see 8.4.
+
+| # | Idea | Saved | Nominal us | Risk | Size |
+|---|---|---|---|---|---|
+| A | Fold the per-head INT8-g32 gate QMV into the NVFP4 QKV dispatch, deferring softplus to the o_proj kernel | **40** | 99 (-2.0 %) | med (see caveat) | M |
+| B | Delete `lagunaDecodeRouterTop8`: the packed QMV already re-derives top-8 in-dispatch, so have it also emit (inds, weights) | **39** | 96 (-2.0 %) | med | S/M |
+| C | Merge the shared-expert gate/up QMV into the routed packed top-8 QMV | **39** | 96 (-2.0 %) | med | M |
+| D | Fold lm-head argmax stage-1 into the coarse kernel | 1 | 2.5 | low | S |
+| E | Fold the final RMSNorm into layer-39 down-residual or lm-head coarse | 1 | 2.5 | high | M |
+
+**A is the recommended first experiment.** Crucially it is *not* rejection 1 in
+disguise: it does not fuse the norm, because the gate consumes the same
+`normalized` tensor the QKV kernel already reads, so no reduction is duplicated.
+The added rows are 64 of 10304, about 0.6 % more work in a dispatch that already
+exists. Both endpoints already exist in tree: the INT8 path's gate rows already
+ride the fused bank's single dispatch (`:5892-5896`), and o_proj already has a
+`!gateIsActivated` NVFP4 variant that applies softplus in-kernel (`:6302-6316`).
+The open risk is replicating the softplus rounding boundary bit-exactly.
+
+**Attribution caveat on A, which I want on the record.** The removed kernel of
+rejection 1 was norm+QKV **+ gate** - all three were bundled into the one
+dispatch (`LagunaRuntimeModel.swift:5856-5860`). The +2.7 % that killed it was
+therefore measured against the *bundle*, and cannot be cleanly attributed to the
+norm term. The argument above - "the norm was the expensive part, so a gate-only
+fold will win" - is an **inference from the mechanism, not a measurement**. It is
+a plausible inference: folding the norm forces the QKV dispatch to redo a
+whole-row reduction per threadgroup, whereas the gate rows consume the
+`normalized` tensor the QKV kernel already reads and duplicate no reduction. But
+Idea A is precisely the *untested residual* of a bundle that lost, so it should
+be sized as a genuine unknown rather than as a de-risked variant of a known
+result. If the next slot is spent on A, the honest prior is roughly even odds,
+and the run is worth doing mostly because it also *resolves the attribution*: a
+win says the norm carried the +2.7 %, a loss says the gate fold itself is the
+loser and rejection 1 was correct for a second reason.
+
+**B** has the smallest new-math surface: the selection is already derived inside
+the packed QMV (`:7812`, `:7938`), and only the fp32 weight formula needs
+replicating, against two existing tested references
+(`LagunaRuntimeLayers.swift:727-746`, `:748-768`). `lagunaDecodeRouterTop8` is a
+single 256-thread threadgroup whose outputs are consumed *only* by the
+down-residual kernel.
+
+**C** is designed-but-absent rather than new: `mergedSharedActivated`
+(`LagunaRuntimeLayers.swift:2001-2005`) is documented as "set when the routed and
+shared gate/up QMVs were issued as one dispatch below" but is never assigned, and
+the helper `fusedSharedBanks` (`:144-154`) is never called. That plumbing arrived
+through a frontier sync, so it is either unfinished **or** a quietly defused
+loser. Unlike the norm+QKV fusion it carries no negative note, but the frontier
+notes should be checked for a defusion receipt before anyone spends a slot on it.
+
+B and C together take the MoE tail from 5 dispatches to 3: -78 per token,
+~193 us, ~3.9 % nominal.
+
+### 8.4 The caveat that governs all of the above
+
+2.474 us is the **average** cost of a hazard-free injected dispatch. A real
+dispatch's marginal cost depends on where it sits in the schedule, and the tree
+contains precedent in both directions: two removed RoPE-probe dispatches were
+worth approximately zero in the old regime because they were off the critical
+path (`LagunaRuntimeModel.swift:614-626`), while the same family re-measured at
+about -0.6 %, i.e. roughly 13 us per dispatch, under the current r=1 regime.
+
+So the honest statement of what R93 delivers is:
+
+> 2.474 us/dispatch is a **calibrated floor** for what a removed decode dispatch
+> is worth on the ranked M5, and 404 is the count it applies to. Realised gains
+> should be expected anywhere from ~0.5x to ~2x nominal, and every candidate
+> above still needs its own fresh-baseline paired measurement.
+
+What R93 changes is not that these ideas become free - it is that they stop
+being unmeasurable. Before this experiment a 40-dispatch reduction was
+indistinguishable from noise on the M4 iteration host (section 1.2: the first
+~480 injected dispatches are literally free there), so no local result could have
+justified the work. It is now a predicted -2.0 % on the machine that scores,
+which is well above the minimum resolvable decode difference in section 3.
