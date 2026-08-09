@@ -108,6 +108,81 @@ a strided row descriptor costs essentially nothing.
 
 The full-attention twin behaves the same way: 7.250 -> 7.750 MB/call, 89.6 -> 89.6 us.
 
+## Registered NO-GO check discharged: the fused shape cannot leave `_nax`
+
+The preregistration listed "the fused shape leaves `_nax` on generation >= 17" as a NO-GO.
+Reading `Vendor/mlx-swift/.../metal/matmul.cpp` settles this structurally rather than
+empirically.
+
+At line 957 the selector is
+
+```cpp
+bool use_nax = metal::is_nax_available() &&
+    !issubdtype(a.dtype(), complexfloating) &&
+    (env::enable_tf32() || a.dtype() != float32);
+```
+
+`use_nax` is a function of the device and the dtype only. It does not read `M`, `N`, or
+`K`. For bf16 on an M5 it is unconditionally true, so widening `N` from 8192 to 10240
+cannot demote the dispatch off the `_nax` family. **The NO-GO is not merely unobserved; it
+is unreachable.**
+
+The two remaining branch points are also safe:
+
+- Case 1 (the non-`_nax` SIMD split-K at line 965) is guarded by `!use_nax`, so the M5
+  never enters it. This is exactly why M4 and M5 disagree about `wk`/`wv`: on this gen-16
+  host `use_nax` is false, `_tm*_tn = 32*64 = 2048 <= min_tmn_threshold`, and the pair goes
+  to split-K; on M5 that branch is closed.
+- Case 2 (`_nax` split-K, line 988) needs `K >= 3*max(M,N)` or
+  `(max(M,N) <= 1024 && K > 2*max(M,N))`. For `wk`/`wv` (M=512, N=1024, K=2048) the first
+  fails (2048 < 3072) and the second is the exact tie `2048 > 2048` = false. For the fused
+  bank (N=10240) both fail trivially. So the shapes involved are regular `_nax` both before
+  and after fusion, and P2 on M5 is a clean 3-dispatches-into-1 merge of regular `_nax`
+  GEMMs.
+
+The router (N=256) and `g_proj` (N=64/48) do satisfy `K >= 3*max(M,N)` and remain `_nax`
+split-K on M5. They are untouched by this arm.
+
+### Tile geometry and the alignment fast path
+
+`steel_matmul_regular_axpby_nax` (line 200) starts from `bm=128, bn=128, bk=512, wm=4,
+wn=4`, then for large devices (`devc` in `{'s','c','d'}`, which covers this Max-class part)
+sets `bm=64, wm=2` and `bk = (K >= 8192 && K > M+N) ? 64 : 256`. With `K=2048` that gives
+the M5 regular tile **bm=64, bn=128, bk=256, wm=2, wn=4**.
+
+Three function constants gate the fast path:
+
+```cpp
+const bool align_M = (M % bm) == 0;   // 512 % 64  == 0   ok
+const bool align_N = (N % bn) == 0;   // 10240 % 128 == 0 ok, 8192 % 128 == 0 ok
+const bool align_K = (K % bk) == 0;   // 2048 % 256 == 0  ok
+```
+
+The fused widths were chosen so all three stay true; a misaligned `N` would silently select
+the bounds-checked variant and could easily eat the whole gain. This also independently
+confirms the earlier decision to **not** fold `g_proj` into the bank: that would give
+`N = 10240 + 64 = 10304`, and `10304 % 128 = 64`, so `align_N` would flip to false.
+
+Threadgroup counts follow as `tm = ceil(512/64) = 8`, `tn = ceil(N/128)`:
+
+| dispatch | N | tn | threadgroups |
+| --- | ---: | ---: | ---: |
+| `wk` (unfused) | 1024 | 8 | 64 |
+| `wv` (unfused) | 1024 | 8 | 64 |
+| `wq` sliding (unfused) | 8192 | 64 | 512 |
+| `wq` full (unfused) | 6144 | 48 | 384 |
+| fused sliding | 10240 | 80 | **640** |
+| fused full | 8192 | 64 | **512** |
+
+These are the counts the preregistration's occupancy argument was built on, and they hold
+under the geometry actually selected by the code. A 64-threadgroup dispatch on 40 cores
+needs two scheduling rounds to retire 1.6 rounds of work; folding it into the `wq` launch
+is what recovers that tail.
+
+Note that this same geometry is the premise of P3: `bn=128, wn=4` is exactly the pair the
+skinny-N tile design proposes to halve, and its guard `bn==128 && wn==4` matches the
+selected values rather than the `bm=128` defaults.
+
 ## Wall clock on this host (directional only)
 
 | | OFF | ON | Δ |
