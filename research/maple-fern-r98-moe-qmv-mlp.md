@@ -297,3 +297,79 @@ Two readings that must not be confused:
 So the local gate delivers exactly what §5.3 left it: bit-exactness plus "no
 regression", and no timing signal. Proceeding to receipt 1.
 
+
+## 6. Terminal state: cancelled by advisor HOLD
+
+The arm was halted at 13:46:53Z by the advisor HOLD, which replaced the research
+base with the promoted organizer frontier. I am reporting **cancelled**, not a
+result: no timing claim is made, and the candidate is not merge-eligible because
+the base it was written against no longer exists in the form it assumed.
+
+Full HOLD compliance and the requested occupancy numbers are in
+`research/maple-fern-r98d-occupancy-and-m4-record.md`.
+
+## Reply
+
+**1. Your occupancy request is answered, and it dissolves the confound for this
+rung.** The table (six kernels, grid / threads-per-TG / TG count / simds-per-TG)
+is in the record file. The key line: my rung changes only the kernel body, and
+`git diff <base> HEAD -- Sources/` contains **no `grid:` or `threadGroup:` hunk
+at all**. Both legs dispatch 2048 TGs × 64 threads. So this rung raises ILP at
+**fixed** TLP — it is not one of the "more rows per simdgroup" rungs your warning
+targets, and a negative here would be attributable to ILP or register pressure
+alone. The residual risk is *residency* loss from register pressure at fixed
+geometry, which the table cannot show; the prepared fallback was a depth-2 (32 B)
+variant.
+
+**2. Correction to my own earlier statement: the branch is rooted on
+`e510bb3d`, not `450953e5`.** Verified by `git merge-base`. Since you confirmed
+`450953e5` was inert on the submitted surface and said no rebase was needed, I
+never took it. So every measurement here is on **exactly** the base your HOLD
+names as unpushable. That reinforces, not weakens, the decision to claim nothing.
+
+**3. No receipt was spent and no submission exists.** A `mlxfast submit` had been
+dispatched minutes before your HOLD; it failed *client-side* note-length
+validation in 0.6 s, before any network call. I verified against the server
+rather than assuming: `mlxfast submissions` returns 141 rows, none carrying any
+commit from this branch. **Budget intact at 6 of 6.** I did not retry, per the
+standing rule that a non-explicit-rejection failure must not be retried.
+
+**4. Three findings from rung 0 that may shorten your audit.** All were measured
+on the old tree and all need re-derivation, but the *questions* they answer are
+base-independent and worth carrying into whatever replaces this brief:
+
+- **The brief's nominated Site 1 was dead code**, on two independent grounds:
+  `laguna_shared_nvfp4_swiglu_qmv_rows1_halved_wide_bf16_v1` requires
+  `DARKBLOOM_QMV_WIDE_CODES=1`, which defaults OFF, *and*
+  `RESEARCH_ARCHIVE_through-round-91.md:267` records that variant as **not
+  bit-exact**. Any successor brief should re-check the flag default before
+  re-nominating it.
+- **You asked which routed-QMV arm ships by default: the pipelined R1 arm did.**
+  So the "free win" hypothesis in the brief was not available — but the arm was
+  only depth-1 over a 4-block K loop, which is what made deepening it the real
+  lever rather than introducing pipelining from scratch.
+- **The down/residual family had no staging headroom**: the shipped default was
+  a *generated* `..._sh_stage4_v6` with no K loop, already fully staged, at
+  89.3 % of this host's roofline; `down_reduce` was a never-taken fallback. This
+  is the finding most at risk from your swap, since it is exactly the family you
+  say was rewritten — but if the frontier's version is similarly staged, rung 2
+  as written has no target and the successor brief should say so up front.
+
+**5. The methodological result is the durable one, and it is a negative about my
+own instrument.** I preregistered a 15 µs/step advance bar and a mandatory revert
+leg. The candidate cleared the bar at −15.7 µs/token — and the revert leg showed
+the identical-code control spread was **−49.9 µs/token**, three times larger,
+with prefill drifting −2.2 % when it must be exactly 0 by construction. The bar
+was set below the host's own drift. I am not claiming the number. Had I skipped
+the revert leg I would have reported a false positive, which is precisely the
+rule-68 failure mode you built the protocol to catch. Suggest the successor brief
+require the control leg's *measured* spread to be reported **before** any
+threshold is fixed, rather than fixing the threshold from the price list.
+
+**6. What I want escalated.** If the frontier's MoE gate/up kernel is still
+shallow-pipelined, H-D remains open and cheap to test, and the transformation is
+byte-negative (−80 B), so it survives the collapsed 16,151 B headroom where new
+kernel variants would not. If the frontier already stages it deeply, that is
+itself evidence for H-D from the organizer's own solver, and the round-98 thesis
+should be updated on that basis rather than on a fresh receipt.
+
