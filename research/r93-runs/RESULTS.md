@@ -1348,17 +1348,25 @@ what I used.
 |---|---|---|
 | C0 | `""` | base; the section 2 nulls already supply it at n = 5 |
 | C2 | `routed:fma:24` | super-knee free-ALU load |
-| C0' | `routed:fma:0` | name- and residency-matched placement control, run only if C2 lands close to the M4 prediction |
+| C0' | `routed:fma:0` | name- and residency-matched placement control; promoted to a planned second receipt once section 10.4 measured the M4 placement term at 0.88 % |
 
 Predicted M5 decode deltas against the 4910.9 us null mean of section 2.3. The
 M4 row is not extrapolated from #498 — it is the effect **measured directly on
 this host** in section 10.4, expressed as a fraction of the decode step so it can
 be carried across machines with different absolute step times:
 
-| hypothesis | basis | delta at n = 24, % of decode step |
-|---|---|---|
-| M5 behaves like M4 (rule 55 transfers) | section 10.4 local anchor: +205 us on an 8151 us step | **~+2.5 %** |
-| M5 is issue- or latency-bound (rule 55 does **not** transfer) | same ALU at full issue price, i.e. the local anchor divided by rule 55's routed-fma headroom of 16.50 % | **>= +11 %** |
+| hypothesis | basis | vs `n = 0` | vs probe-off |
+|---|---|---|---|
+| M5 behaves like M4 (rule 55 transfers) | section 10.4 local anchor: +205 us on an 8151 us step | **~+2.5 %** | **~+1.6 %** |
+| M5 is issue- or latency-bound (rule 55 does **not** transfer) | same ALU at full issue price, i.e. the local anchor divided by rule 55's routed-fma headroom of 16.50 % | **>= +11 %** | **>= +10 %** |
+
+The two reference columns differ because section 10.4 measured a real placement
+term: on M4, `n = 0` is 0.88 % faster than probe-off, so the same injected load
+reads +2.51 % against the matched control and +1.62 % against the base. The
+first receipt (C2) can only be read against the null mean, i.e. the probe-off
+column; C0' converts it to the matched-control column. The gap between the two
+hypotheses is 6-7x either way, so the placement term cannot flip the verdict --
+it only sets how precisely the low branch can be quantified.
 
 The issue-bound row deserves its inequality. Dividing the local anchor by the
 16.50 % headroom gives 1242 us of full-price ALU on M4. Charged unchanged against
@@ -1371,8 +1379,8 @@ Read-out rule, fixed before the receipt:
 - **delta <= ~3 %** - M5 absorbs free ALU like M4 does. Rule 55 transfers, #512
   and #513 are not exposed to a regime change, and the ALU-for-bytes trade is
   live on the ranked host. The `routed:fma:0` control is then worth one more
-  receipt, because at that size the ~0.4 % placement cost of the pipeline object
-  and the pool binding is a fifth of the signal.
+  receipt, because at that size the measured 0.88 % placement term of section
+  10.4 is more than half the signal.
 - **delta >= ~6 %** - M5 charges arithmetic much closer to issue price. Rule 55
   is an M4-only statement, ALU-for-bytes is **not** free on the ranked host, and
   #512 / #513 need their ALU cost re-priced on M5 before either is trusted. The
