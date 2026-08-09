@@ -1,0 +1,11 @@
+contrast                 inst  n      est      sd       two-sided 95% CI    1s-UP   floor  verdict
+EFFECT  cand-base        abs   8    +4.56   53.92 [  -40.43,  +49.79]   +40.69   53.21  bounded <= +40.69
+EFFECT  cand-base        adj   8    +3.40    8.97 [   -4.10,  +10.90]    +9.41    8.85  bounded <= +9.41
+LOTTERY cand2-cand       abs   8    -5.83   54.90 [  -51.58,  +40.17]   +30.96   54.17  bounded <= +30.96
+LOTTERY cand2-cand       adj   8    +2.54   13.24 [   -8.52,  +13.62]   +11.41   13.06  bounded <= +11.41
+NULL    cand2-cand2      abs   4   -10.01   49.31 [  -88.01,  +68.70]   +48.00   82.12  bounded <= +48.00
+NULL    cand2-cand2      adj   4    -3.90    2.54 [   -7.93,   +0.14]    -0.91    4.23  NON-INFERIOR
+NULL    base-base        abs   3    -4.44   66.46 [ -167.87, +162.18]  +107.60  152.74  bounded <= +107.60
+NULL    base-base        adj   3    +6.12    7.08 [  -11.46,  +23.73]   +18.04   16.26  bounded <= +18.04
+
+base GPU-busy level: 8562.2 us/step

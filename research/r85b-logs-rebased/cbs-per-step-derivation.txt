@@ -1,0 +1,11 @@
+01-rep1-base.err: records=89160 steps=202
+  terminator-gap mode 406 (x199), other gaps [506, 1066]
+  smallest exact tail period 406   -> OK
+02-rep1-cand.err: records=89160 steps=202
+  terminator-gap mode 406 (x199), other gaps [506, 1066]
+  smallest exact tail period 406   -> OK
+03-rep1-cand2.err: records=89160 steps=202
+  terminator-gap mode 406 (x199), other gaps [506, 1066]
+  smallest exact tail period 406   -> OK
+
+cbs-per-step: [406]
