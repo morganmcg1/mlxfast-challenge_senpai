@@ -1,4 +1,5 @@
 import Foundation
+import Dispatch
 import CryptoKit
 import MLX
 import MLXFastCore
@@ -47,9 +48,20 @@ private func h48ModerateBits(count: Int, seed: UInt32) -> [UInt16] {
     }
 }
 
+private typealias H48PacketInputs = (
+    rawQueries: MLXArray,
+    rawKeys: MLXArray,
+    rawValues: MLXArray,
+    rawValueBits: [UInt16],
+    queryWeight: MLXArray,
+    keyWeight: MLXArray,
+    angles: MLXArray,
+    scale: MLXArray
+)
+
 private func h48PacketInputs(
     pattern: H48PacketPattern, seed: UInt32
-) -> (MLXArray, MLXArray, MLXArray, [UInt16], MLXArray, MLXArray, MLXArray, MLXArray) {
+) -> H48PacketInputs {
     let headDim = LagunaConstants.headDim
     let heads = LagunaConstants.fullAttentionHeads
     let kvHeads = LagunaConstants.numKeyValueHeads
@@ -247,6 +259,213 @@ func lagunaFullAttentionTriplePacketMatchesPairPacketBitExactlyWhenRuntimeTestsA
     let valueRowIndex = clean.backingOffset + clean.writeIdx * LagunaConstants.headDim
     corruptedValueRow.valueBits[valueRowIndex] ^= 1
     #expect(clean != corruptedValueRow)
+}
+
+private struct H48TimingBank {
+    let keys: [MLXArray]
+    let values: [MLXArray]
+}
+
+private func h48TimingBank(seed: UInt32) -> H48TimingBank {
+    let layers = 10
+    let capacity = 768
+    let shape = [
+        1, LagunaConstants.numKeyValueHeads, capacity, LagunaConstants.headDim,
+    ]
+    let count = shape.reduce(1, *)
+    let keyBits = h48ModerateBits(count: count, seed: seed)
+    let valueBits = h48ModerateBits(count: count, seed: seed &+ 1)
+    let keys = (0..<layers).map { _ in
+        MLXArray(keyBits, shape).view(dtype: .bfloat16)
+    }
+    let values = (0..<layers).map { _ in
+        MLXArray(valueBits, shape).view(dtype: .bfloat16)
+    }
+    eval(keys + values)
+    return H48TimingBank(keys: keys, values: values)
+}
+
+private func h48TimingOutputs(
+    inputs: H48PacketInputs,
+    bank: H48TimingBank,
+    writeIdx: Int,
+    packetHeads: Int
+) -> [MLXArray] {
+    (0..<bank.keys.count).map { layer in
+        lagunaFullFusedAttention(
+            rawQueries: inputs.rawQueries,
+            rawKeys: inputs.rawKeys,
+            rawValues: inputs.rawValues,
+            queryWeight: inputs.queryWeight,
+            keyWeight: inputs.keyWeight,
+            angles: inputs.angles,
+            cacheKeys: bank.keys[layer],
+            cacheValues: bank.values[layer],
+            writeIdx: writeIdx,
+            scale: inputs.scale,
+            packetHeads: packetHeads
+        )
+    }
+}
+
+private func h48WarmTimingBank(
+    inputs: H48PacketInputs, bank: H48TimingBank, packetHeads: Int
+) {
+    eval(h48TimingOutputs(
+        inputs: inputs, bank: bank, writeIdx: 511, packetHeads: packetHeads))
+}
+
+private func h48TimePacketChain(
+    inputs: H48PacketInputs, bank: H48TimingBank, packetHeads: Int
+) -> Double {
+    let start = DispatchTime.now().uptimeNanoseconds
+    for writeIdx in 512..<640 {
+        eval(h48TimingOutputs(
+            inputs: inputs,
+            bank: bank,
+            writeIdx: writeIdx,
+            packetHeads: packetHeads
+        ))
+    }
+    let end = DispatchTime.now().uptimeNanoseconds
+    return Double(end - start) / 1_000_000_000
+}
+
+private func h48Median(_ values: [Double]) -> Double {
+    let sorted = values.sorted()
+    let middle = sorted.count / 2
+    if sorted.count.isMultiple(of: 2) {
+        return (sorted[middle - 1] + sorted[middle]) / 2
+    }
+    return sorted[middle]
+}
+
+private func h48MAD(_ values: [Double], center: Double) -> Double {
+    h48Median(values.map { abs($0 - center) })
+}
+
+private func h48TimingComparison(
+    pair: [Double], triple: [Double]
+) -> [String: Any] {
+    let pairMedian = h48Median(pair)
+    let tripleMedian = h48Median(triple)
+    let pairMAD = h48MAD(pair, center: pairMedian)
+    let tripleMAD = h48MAD(triple, center: tripleMedian)
+    let pooledMAD = sqrt((pairMAD * pairMAD + tripleMAD * tripleMAD) / 2)
+    let improvement = pairMedian - tripleMedian
+    let matchedDeltas = zip(pair, triple).map { $0.0 - $0.1 }
+    let matchedDeltaMedian = h48Median(matchedDeltas)
+    return [
+        "pair_seconds": pair,
+        "triple_seconds": triple,
+        "pair_median_seconds": pairMedian,
+        "triple_median_seconds": tripleMedian,
+        "pair_mad_seconds": pairMAD,
+        "triple_mad_seconds": tripleMAD,
+        "pooled_mad_seconds": pooledMAD,
+        "improvement_seconds": improvement,
+        "improvement_over_pooled_mad": pooledMAD == 0
+            ? Double.greatestFiniteMagnitude : improvement / pooledMAD,
+        "speedup": pairMedian / tripleMedian,
+        "matched_delta_seconds": matchedDeltas,
+        "matched_delta_median_seconds": matchedDeltaMedian,
+        "matched_delta_mad_seconds": h48MAD(matchedDeltas, center: matchedDeltaMedian),
+    ]
+}
+
+private func h48ThermalState() -> String {
+    switch ProcessInfo.processInfo.thermalState {
+    case .nominal:
+        return "nominal"
+    case .fair:
+        return "fair"
+    case .serious:
+        return "serious"
+    case .critical:
+        return "critical"
+    @unknown default:
+        return "unknown"
+    }
+}
+
+@Test
+func lagunaFullAttentionPacketMirroredTimingWhenEnabled() throws {
+    guard ProcessInfo.processInfo.environment["MLXFAST_RUN_H48_PACKET_TIMING"] == "1" else {
+        return
+    }
+
+    let inputs = h48PacketInputs(pattern: .random, seed: 0x4848_6006)
+    eval([
+        inputs.rawQueries, inputs.rawKeys, inputs.rawValues,
+        inputs.queryWeight, inputs.keyWeight, inputs.angles, inputs.scale,
+    ])
+    let repetitions = 9
+    let callsPerSweep = 10 * 128
+    var pairAB: [Double] = []
+    var tripleAB: [Double] = []
+    var tripleBA: [Double] = []
+    var pairBA: [Double] = []
+    var sweepLabels: [String] = []
+    var thermalStates: [String] = [h48ThermalState()]
+
+    for repetition in 0..<repetitions {
+        autoreleasepool {
+            let seed = UInt32(0x4848_7000 + repetition)
+            let abPairBank = h48TimingBank(seed: seed)
+            let abTripleBank = h48TimingBank(seed: seed)
+            let baTripleBank = h48TimingBank(seed: seed)
+            let baPairBank = h48TimingBank(seed: seed)
+            h48WarmTimingBank(inputs: inputs, bank: abPairBank, packetHeads: 2)
+            h48WarmTimingBank(inputs: inputs, bank: abTripleBank, packetHeads: 3)
+            h48WarmTimingBank(inputs: inputs, bank: baTripleBank, packetHeads: 3)
+            h48WarmTimingBank(inputs: inputs, bank: baPairBank, packetHeads: 2)
+
+            for (label, body) in [
+                ("r\(repetition)-ab-pair", {
+                    pairAB.append(h48TimePacketChain(
+                        inputs: inputs, bank: abPairBank, packetHeads: 2))
+                }),
+                ("r\(repetition)-ab-triple", {
+                    tripleAB.append(h48TimePacketChain(
+                        inputs: inputs, bank: abTripleBank, packetHeads: 3))
+                }),
+                ("r\(repetition)-ba-triple", {
+                    tripleBA.append(h48TimePacketChain(
+                        inputs: inputs, bank: baTripleBank, packetHeads: 3))
+                }),
+                ("r\(repetition)-ba-pair", {
+                    pairBA.append(h48TimePacketChain(
+                        inputs: inputs, bank: baPairBank, packetHeads: 2))
+                }),
+            ] {
+                sweepLabels.append(label)
+                thermalStates.append(h48ThermalState())
+                body()
+            }
+        }
+    }
+    thermalStates.append(h48ThermalState())
+
+    let pairHitCount = repetitions * 2 * callsPerSweep
+    let tripleHitCount = repetitions * 2 * callsPerSweep
+    let result: [String: Any] = [
+        "architecture": GPU.deviceInfo().architecture,
+        "repetitions_per_order": repetitions,
+        "decode_lengths_inclusive": [513, 640],
+        "full_attention_layers_per_step": 10,
+        "calls_per_sweep": callsPerSweep,
+        "pair_hit_count": pairHitCount,
+        "triple_hit_count": tripleHitCount,
+        "sweep_labels": sweepLabels,
+        "thermal_states": thermalStates,
+        "all_thermal_states_nominal": thermalStates.allSatisfy { $0 == "nominal" },
+        "ab": h48TimingComparison(pair: pairAB, triple: tripleAB),
+        "ba": h48TimingComparison(pair: pairBA, triple: tripleBA),
+    ]
+    let data = try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys])
+    print("H48_PACKET_TIMING \(String(decoding: data, as: UTF8.self))")
+    #expect(pairHitCount == 23_040)
+    #expect(tripleHitCount == 23_040)
 }
 
 @Test
