@@ -1718,32 +1718,71 @@ should not paper over: the *existence* of a regression is established at
 p ≈ 10⁻⁷ by the sign test, while the *magnitude* is only pinned to ±9 µs/step.
 Those are different claims with different strengths.
 
-### 4.4 What this does and does not say about fb2's retracted target
+### 4.4 What this does and does not say about fb2's retracted target — with two claims withdrawn
 
-fb2 retracted the +20.149 µs/step figure as possibly pure noise: an
-identical-code M5 replicate gave sd(T) = 14.272, implying a two-receipt σ of
-17.1–20.2 and z = 1.00–1.18 for the observed delta. The advisor's point was
-that a single receipt pair cannot distinguish +20.149 from zero.
+I submitted the § 4.3 result to an independent adversarial review before
+writing this section (frontier reviewer, task `f8b9cbd4`, given the design and
+numbers but no context and no ability to run anything). It broke two of the
+three claims I had drafted. I am recording the original claims and the
+withdrawals rather than quietly writing the corrected version, because the
+errors are instructive and because fb2 asked for exactly this kind of
+discipline.
 
-Rung 1 is an *independent* test of the same hypothesis on different silicon
-with K = 24 pairings and a matched null, and it finds a same-signed effect of
-compatible magnitude. That is meaningful triangulation:
+**Withdrawn claim 1 — "two independent hosts agreeing is strong combined
+evidence."** I had written that the probability of both M5 and M4 showing a
+same-signed regression by chance is much smaller than either alone. That is
+**arithmetically false and structurally a selection error.** The M4 experiment
+was commissioned *because* the M5 delta had a positive sign; conditioning on
+that, sign agreement is close to a coin flip under the M5-noise hypothesis and
+carries almost no information. And the M5 receipt is a z ≈ 1.1 datum, one-sided
+p ≈ 0.14, which can contribute at most about a factor of two to any honest
+combination — nowhere near "much smaller". **fb2's retraction of +20.149
+stands, and nothing in rung 1 rehabilitates it.**
 
-- It is **not** a confirmation of the number 20.149. I measured a different
-  host, and my own CI is ±9.
-- It **is** evidence against "the M5 receipt delta was pure noise", because the
-  probability that two independent hosts both show a same-signed A→C regression
-  of compatible size by chance is much smaller than either alone. My M4 sign
-  test alone is 2⁻²³.
-- The most defensible joint statement: **the A→C interval contains a real
-  regression on M4 of +27.84 [+18.69, +36.99] µs/step, and the M5 receipt pair
-  is consistent with the same regression transferred at ×0.505–0.622.**
+**Withdrawn claim 2 — "the transfer models bracket +20.149."** I had written
+that ×1.000 and ×0.622 map my +27.84 back to +17.3…+27.8 on M5, bracketing the
+observed +20.149. This is circular twice over. First, the transfer menu was
+selected post hoc: § 1.5c lists four factors and I quoted the two that land on
+the target while omitting ×0.436, which would miss. Second, I bracketed with
+*point estimates*; propagating my own CI through the same menu gives roughly
+[+8, +37] on M5, an interval so wide it brackets essentially any plausible
+value including zero. The bracketing was not a test. There is also a deeper
+objection: M4 Pro reports Apple GPU generation 16 and does not select the
+`_nax` kernel family the ranked M5 uses, so a scalar transfer factor between
+two hosts running *different kernel variants* may be a category error rather
+than a mis-estimated constant.
 
-Standing qualifiers (§ 1.12 A7) attach: M4 Pro reports Apple GPU generation 16
-and does not select `_nax`; the ranked M5 does. Nothing here is a prefill
-claim. And per § 1.14.3, this composed A→C figure does **not** license ranking
-the two constituent mechanisms — that needs rung 2, and even then the A↔B leg
-carries the two-wave caveat.
+**What survives, stated at its correct scope.** The reviewer accepted the sign
+test itself: the 2⁻²³ arithmetic is right, using the same data for the CI and
+the sign test does not invalidate the latter, and the palindrome makes the sign
+test *conservative* against the +17 µs/step position artefact rather than
+inflated by it. But it accepted it only at this scope:
+
+> **These two particular binaries differ, on this particular M4 host, in this
+> particular session, by +27.84 µs/step [+18.69, +36.99], at provably identical
+> output.**
+
+The gap between that and "the two source changes cost 27.84 µs/step" is one
+session and one build pair. My ±9 half-width is a *within-session* interval; it
+contains no rebuild variance and no day-to-day variance, and § 1.13.3's σ_L = 0
+result covers only comment-only edits that produce a byte-identical object
+file, which is not this case. So the honest headline is a statement about two
+binaries, not yet about two source changes.
+
+**The sentence I will actually stand behind, replacing the withdrawn claim:**
+
+> An independent M4 Pro host, with K = 24 palindrome-paired repetitions and a
+> quiet identical-code null, separates the A and C *binaries* by +27.84
+> [+18.69, +36.99] µs/step at identical output. This neither confirms nor
+> rehabilitates the retracted +20.149 µs/step M5 figure — the M4 run was
+> selected on the M5 sign, so agreement in sign is nearly uninformative — but
+> it does establish that a difference of this order exists between the two
+> binaries on at least one Apple Silicon host, which the single M5 receipt pair
+> could not establish anywhere.
+
+Standing qualifiers (§ 1.12 A7) attach: no `_nax` here, nothing is a prefill
+claim, and per § 1.14.3 this composed figure does not license ranking the two
+constituent mechanisms.
 
 ### 4.4a Instrument characterisation, for whoever runs the next block
 
@@ -1778,6 +1817,96 @@ precision is a longer decode window — except the public fixture caps at 256
 expected tokens, so 250 is already at the ceiling. Precision therefore has to
 come from more reps or from averaging repeated slots of the same arm, which is
 exactly what the rung-2 rotation does.
+
+### 4.4b The strongest alternative explanation: host binary layout, not the source changes
+
+The reviewer's top-ranked non-semantic explanation is one I had not written
+down, and it is a good one. The two binaries differ in size by **95,488 bytes**
+(49,190,344 vs 49,094,856). Changing a binary's size displaces code and data
+placement, changing instruction-cache set mapping, branch-predictor aliasing,
+and page boundaries. This is the classic measurement-bias failure mode
+documented by Mytkowicz et al., *Producing Wrong Data Without Doing Anything
+Obviously Wrong!*, and by Curtsinger & Berger's Stabilizer work; the reported
+effect sizes there routinely exceed the effect the experimenter was trying to
+measure.
+
+The arithmetic is uncomfortably easy to satisfy. There are **408 GPU dispatches
+per decode step** (§ 1.14.1). A layout-induced slowdown of **68 ns per
+dispatch** in the host-side encode path reproduces my entire +27.84 µs/step. 68
+ns is a handful of cache misses.
+
+Two things narrow it but neither closes it:
+
+- The confound can only act **host-side (CPU)**. G0.5 proved the AOT
+  `mlx.metallib` is byte-identical across arms, and § 1.14.1 reports 101 of 103
+  JIT libraries byte-identical. The GPU code is essentially the same code at
+  the same addresses. So this hypothesis requires the decode step to be
+  sensitive to CPU-side encode cost, which is an open question I have not
+  measured.
+- § 2.3 found the NEW binary's growth is dominated by **longer embedded shader
+  source strings and a wider variant table** — i.e. mostly *data*, not
+  executable text. If the growth is confined to `__cstring`/`__const` and the
+  pre-existing hot functions retain their addresses, the displacement for the
+  hot path is zero and the hypothesis largely evaporates.
+
+**Cheapest decisive discriminator, and it is static.** Compare the two
+binaries' Mach-O section maps and then the *addresses* of the hot decode
+symbols: `nm -n` on both and diff the addresses of the pre-existing functions.
+If the hot host functions sit at identical addresses in both binaries, layout
+displacement for those functions is exactly zero and the hypothesis is dead for
+the code that matters. This costs one command and no GPU time. It is deferred
+only until the rung-2 block finishes, so as not to perturb a live timing
+session; it is the first thing I run afterwards, recorded as § 5.4.
+
+**The structurally important consequence for rung 2.** The three arms are *not*
+equally exposed to this confound, and the asymmetry is exactly the useful kind:
+
+| leg | binaries | layout confound |
+|---|---|---|
+| A→B | `old` vs `new` | **fully exposed** (the whole 95,488-byte delta) |
+| A→C | `old` vs `new` | **fully exposed** (same binary pair) |
+| **B→C** | `new` vs `new` | **immune** — same binary, same size, same addresses, differing only in one `ProcessInfo` read verified by G2.1 |
+
+So B→C is a **layout-clean** measurement, and it was already designed that way
+(§ 1.14.2) for a different reason. That gives rung 2 a real decision structure
+that I am fixing in advance of seeing its data:
+
+- If **B→C is large and A→B is small**, the router-prefetch peel carries the
+  regression, and that conclusion is safe: it is layout-immune on its own, and
+  a small A→B simultaneously *bounds* the layout effect near zero.
+- If **A→B is large and B→C is small**, the result is **ambiguous between the
+  #565 pipeline edit and pure layout displacement**, and I must say so rather
+  than attribute it to #565. Resolving it would need the § 5.4 symbol-address
+  check and, if that were inconclusive, a size-matched placebo build of
+  revision A — which I would propose to the advisor rather than run, since it
+  is a new experiment.
+
+### 4.4c Three further weaknesses the reviewer flagged, and their disposition
+
+1. **My rung-1 null is in the wrong place.** The identical-code null
+   (`oldA`/`oldB`) lives at the two *exterior* positions, whose per-cell sd is
+   2.53 and 5.37, while the contrast lives at the two *interior* positions,
+   whose per-cell sd is 31.84 and 32.89 (§ 4.4a). So "the null is quiet,
+   therefore the instrument is sound" compares a quiet regime against a noisy
+   one and is weaker than it reads. **Rung 2 fixes this by construction**: its
+   rotation puts each arm at positions (p, 7−p), so the separation-1 null is
+   the pair (pos 3, pos 4) — an identical-code null measured at exactly the two
+   interior positions the critique says rung 1 failed to probe. This was
+   designed for the position artefact and turns out to answer the null-placement
+   objection too.
+2. **Window mismatch.** My slots are a 512-token seed plus 250 decode steps
+   with the statistic taken over steps 1…249; the official axis is 512 prefill
+   plus 128 decode steps. `mean_first128` (§ 4.3) is the closest analog I have
+   and agrees in sign, but it is 128 steps of a 250-step run, not a 128-step
+   run, and the fixture's 256-token cap prevents a longer window. Recorded as a
+   known scope limit, not fixed.
+3. **The decisive cheap experiment is not mine to run.** The reviewer's
+   observation is correct and worth stating plainly to the advisor: the
+   question "did A→C regress the ranked host" is answered directly and cheaply
+   by *paired A/C measurements on M5 itself*, replicated. Everything I can do
+   on M4 is a proxy for that. Since my arm is preregistered as zero-receipt and
+   this host is not M5, I flag it in § 6 as the highest-value follow-up rather
+   than attempting a substitute for it.
 
 ### 4.5 Rung 2 design — three arms, rotated palindrome, preregistered n
 
