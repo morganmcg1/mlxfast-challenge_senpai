@@ -2247,7 +2247,7 @@ void GatherQMM::eval_gpu(const std::vector<array>& inputs, array& out) {
         transpose_,
         group_size_,
         bits_,
-        x.size() / K,
+        B,
         N,
         K,
         d,

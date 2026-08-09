@@ -360,9 +360,9 @@ struct NVFP4QuantizedMMTests {
         guard nvfp4RuntimeTestsEnabled else { return }
         defer { Memory.clearCache() }
 
-        let sourceRows = 16
+        let sourceRows = 512
         let topK = 8
-        let n = LagunaConstants.moeIntermediateSize
+        let n = LagunaConstants.moeIntermediateSize * 2
         let k = LagunaConstants.hiddenSize
         let routePattern: [UInt32] = [1, 1, 2, 2, 255, 255, 255, 255]
         let routeValues: [UInt32] = (0..<sourceRows).reduce(into: []) { values, row in
