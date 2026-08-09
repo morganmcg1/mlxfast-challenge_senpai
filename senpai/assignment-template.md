@@ -49,6 +49,8 @@ zero tests is not a pass.
 - An authorized campaign role may dispatch from a provisioned AWS host, but
   must never print or commit its submission credentials.
 - Every official Senpai submission must first use
+  `senpai/submit-official.sh "$BASE_SHA"`. It refreshes `origin/main`, requires
+  the recorded base's submitted snapshot to match it, and invokes
   `mlxfast submit --model "senpai"`. Only if the API explicitly rejects
   `senpai` as an invalid or unsupported model value may the same candidate be
   retried once with the exact underlying provider/model name. Never fall back

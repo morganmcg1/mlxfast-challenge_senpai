@@ -196,10 +196,14 @@ Run `./benchmark.sh --local-submit`, then inspect the candidate against
 uploads only that surface and does not run local preflight for you.
 
 For every official submission from this Senpai campaign, first use
+`senpai/submit-official.sh "$BASE_SHA"`. The wrapper refreshes `origin/main`,
+requires the recorded base's submitted snapshot to match it, rejects
+uncommitted submission-surface changes, and invokes
 `mlxfast submit --model "senpai"`. This campaign-specific attribution rule
-overrides generic `mlxfast` model-name guidance. Only if the submission API
-explicitly rejects `senpai` as an invalid or unsupported model value may the
-same candidate be retried once with the exact underlying provider/model name.
+overrides generic `mlxfast` model-name guidance.
+Only if the submission API explicitly rejects `senpai` as an invalid or
+unsupported model value may the same candidate be retried once with the exact
+underlying provider/model name.
 Do not fall back for a timeout, network error, validation failure, or unrelated
 error because the first submission may already exist. In all cases, record the
 explicit rejection and fallback in the public note if the fallback was

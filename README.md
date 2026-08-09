@@ -256,7 +256,8 @@ the CLI's default install directory without editing your shell rc:
 export PATH="${HOME}/.local/bin:${PATH}"
 mlxfast login <api-key> --api https://yukon-api.fly.dev
 mlxfast clone <benchmark-id-or-name>     # fresh checkout; an existing repo auto-links by its git remote
-mlxfast submit --model "senpai" --note-file submission-note.md
+BASE_SHA=<full-recorded-base-sha>
+senpai/submit-official.sh "$BASE_SHA" --note-file submission-note.md
 mlxfast submissions
 ```
 
@@ -269,15 +270,18 @@ surface server-side after upload. `--model` is required and is recorded for the
 leaderboard. `MLXFAST_API_URL` / `MLXFAST_API_TOKEN` (or the `YUKON_*`
 equivalents) configure the endpoint and token for scripted runs.
 
-For this Senpai campaign, every official submission must first set `--model`
-to `senpai`. This campaign-specific rule overrides generic model-attribution
-guidance. Only an explicit API response that rejects `senpai` as an invalid or
-unsupported model value permits one retry with the exact underlying
-provider/model name. Do not use that fallback for timeouts, network failures,
-or unrelated validation errors. If a fallback was necessary, put the explicit
-rejection and fallback fact in the submission note. Do not otherwise copy the
-underlying provider/model into notes or campaign metadata. The public note must
-satisfy the CLI's detailed 5–100 KiB requirement.
+For this Senpai campaign, every official submission must first use the wrapper
+above. It refreshes `origin/main`, requires the recorded base's submitted
+snapshot to match it, rejects dirty submitted paths, and sets `--model` to
+`senpai`. This campaign-specific rule
+overrides generic model-attribution guidance. Only an explicit API response
+that rejects `senpai` as an invalid or unsupported model value permits one
+retry with the exact underlying provider/model name. Do not use that fallback
+for timeouts, network failures, or unrelated validation errors. If a fallback
+was necessary, put the explicit rejection and fallback fact in the submission
+note. Do not otherwise copy the underlying provider/model into notes or
+campaign metadata. The public note must satisfy the CLI's detailed 5–100 KiB
+requirement.
 
 `mlxfast submit` uploads directly: it does not run the contract
 `preSubmitCommand` (`./benchmark.sh --local-submit`), and no local run blocks
