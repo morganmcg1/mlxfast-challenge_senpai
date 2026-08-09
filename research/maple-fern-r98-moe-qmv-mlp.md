@@ -187,3 +187,28 @@ What the screen does establish, which is what it was for: `max_abs_diff = 0`,
 correctness passed over 130 checked steps, identical `golden_hash`, and **no
 regression** — so the depth-4 staging did not spill badly enough to cost time on a
 host that is already at 91 % of its roofline at this site.
+
+### 5.2 The upstream-equivalence oracle fails identically on the unchanged base
+
+`research/run_upstream_equivalence.sh` fails on the candidate — but only on the
+**prefill** step, and the failure is *byte-identical* to the unchanged base run:
+
+| step | candidate `0ff6d26` | base `61c8763` |
+|---|---|---|
+| prefill max abs logit error | 0.125 | 0.125 |
+| prefill mean abs logit error | 0.011933609 | 0.011933609 |
+| prefill argmax token | 5991 == 5991 | 5991 == 5991 |
+| decode-0 … decode-7 max abs error | 0.0 (all eight) | 0.0 (all eight) |
+| `EQUIVALENCE_EXACT_STEPS` | 8 | 8 |
+
+Logs: `research/artifacts/fern-r98d-rung1-oracle.log` and
+`research/artifacts/fern-r98d-control-oracle.log`.
+
+So the divergence is **pre-existing on this M4 Pro host and my change contributes
+exactly zero of it**, which is what the mechanism predicts: the edited kernel is
+decode-gated, and every decode step is bit-identical. AGENTS.md documents the
+cause — M4 Pro reports Apple GPU generation 16 and does not select the `_nax`
+prefill kernels the ranked M5 uses — and the oracle is named
+`lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled`. The argmax still matches,
+so no token changes. This is the "test the unchanged base" case from AGENTS.md,
+resolved by measurement rather than by assumption, and it did not cost a receipt.
