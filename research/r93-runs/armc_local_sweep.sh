@@ -11,9 +11,12 @@ cd "$(dirname "$0")/../.."
 OUT=/tmp/r93/armc
 mkdir -p "$OUT"
 STEPS="${1:-200}"
+shift || true
+SPECS=("$@")
+if [ "${#SPECS[@]}" -eq 0 ]; then SPECS=("" routed:fma:0 routed:fma:24); fi
 
-echo "start=$(date -u +%Y-%m-%dT%H:%M:%SZ) steps=${STEPS}"
-for spec in "" routed:fma:0 routed:fma:24; do
+echo "start=$(date -u +%Y-%m-%dT%H:%M:%SZ) steps=${STEPS} specs=${SPECS[*]:-none}"
+for spec in "${SPECS[@]}"; do
   tag="${spec//:/-}"
   tag="${tag:-off}"
   bash research/r93-runs/set_probe.sh "$spec" > "${OUT}/build-${tag}.log" 2>&1
