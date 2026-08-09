@@ -149,14 +149,18 @@ def main():
     steps = int(sys.argv[3]) if len(sys.argv) > 3 else 200
     split = int(sys.argv[4]) if len(sys.argv) > 4 else 1
     os.makedirs(out, exist_ok=True)
-    print(f"R89-A in-situ sweep  reps={reps} steps={steps} split={split}",
-          flush=True)
 
     recs = []
     if os.environ.get("R89_REPORT_ONLY") == "1":
+        # The CLI reps/steps/split args describe a sweep, not a stored one, so
+        # re-analysis must read the run shape back out of the records.
         with open(os.path.join(out, "records.json")) as fh:
             recs = json.load(fh)
+        print(f"R89-A in-situ re-analysis  {out}  records={len(recs)} "
+              f"reps={max(r['rep'] for r in recs) + 1}", flush=True)
         return report(recs)
+    print(f"R89-A in-situ sweep  reps={reps} steps={steps} split={split}",
+          flush=True)
     for rep in range(reps):
         order = SLOTS if rep % 2 == 0 else list(reversed(SLOTS))
         for slot, env in order:
