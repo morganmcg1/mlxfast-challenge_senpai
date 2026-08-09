@@ -1837,14 +1837,13 @@ let lagunaParamsAtlasEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_PARAMS_ATLAS"] != "0"
 
 /// `DARKBLOOM_FUSED_FULL_ATTN` (default on; set "0" to disable): decode
-/// fused attention for the ten full-attention layers once the cache backing
-/// has spare capacity (from the second decode step on; the first step's
-/// stock growth concat is kept). Same design as the sliding twin above —
-/// ONE dispatch replaces [QK-norm+YaRN kernel] -> [K slice-assign] ->
-/// [V slice-assign] -> [sdpa_vector] — with the full-attention phase-1 text
-/// (textual replica of `laguna_full_qk_norm_yarn_bf16_128_v4`: 64-dim
-/// partial rotary, folded mscale roundings, passthrough tail) and the
-/// pair path's runtime-length loop + single-row tail at gqa_factor 6.
+/// Fused attention for the ten full-attention layers once the cache backing
+/// has spare capacity. Same design as the sliding twin above — ONE dispatch
+/// replaces [QK-norm+YaRN kernel] -> [K slice-assign] -> [V slice-assign] ->
+/// [sdpa_vector] — with the full-attention phase-1 text (textual replica of
+/// `laguna_full_qk_norm_yarn_bf16_128_v4`: 64-dim partial rotary, folded
+/// mscale roundings, passthrough tail) and the pair path's runtime-length loop
+/// plus single-row tail at gqa_factor 6.
 let lagunaFusedFullAttentionEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_FULL_ATTN"] != "0"
 
@@ -1885,9 +1884,10 @@ if (seq < 512) {
   *out_k = *reinterpret_cast<const device vec<bfloat, 4>*>(old_keys + k_idx);
   *out_v = *reinterpret_cast<const device vec<bfloat, 4>*>(old_values + v_idx);
 } else if (seq == 512) {
-  uint row_idx = head * 128 + d;
-  *out_k = *reinterpret_cast<const device vec<bfloat, 4>*>(new_keys + row_idx);
-  *out_v = *reinterpret_cast<const device vec<bfloat, 4>*>(new_values + row_idx);
+  ulong k_idx = head * new_keys_strides[1] + d;
+  ulong v_idx = head * new_values_strides[1] + d;
+  *out_k = *reinterpret_cast<const device vec<bfloat, 4>*>(new_keys + k_idx);
+  *out_v = *reinterpret_cast<const device vec<bfloat, 4>*>(new_values + v_idx);
 } else {
   *out_k = vec<bfloat, 4>(0);
   *out_v = vec<bfloat, 4>(0);
@@ -1896,7 +1896,7 @@ if (seq < 512) {
     ensureRowContiguous: false
 )
 
-private func lagunaFullFirstGrowth(
+func lagunaFullFirstGrowth(
     oldKeys: MLXArray, oldValues: MLXArray,
     newKeys: MLXArray, newValues: MLXArray
 ) -> (MLXArray, MLXArray) {
