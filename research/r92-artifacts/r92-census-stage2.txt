@@ -1,0 +1,56 @@
+==============================================================================
+CONTROL 1 -- encoding.metal marginal bytes per operation
+==============================================================================
+op                                    arch             B/op 32->64  B/op 64->128  expect
+float add                             applegpu_g16s            4.0           4.0     4.0
+float add                             applegpu_g17s            4.0           4.0     4.0
+float FMA                             applegpu_g16s            6.0           6.0     6.0
+float FMA                             applegpu_g17s            6.0           6.0     6.0
+float FMA, loop-varying immediate     applegpu_g16s           11.0          11.0    11.0
+float FMA, loop-varying immediate     applegpu_g17s           11.0          11.0    11.0
+uint MAD (integer ALU, touches no memory)applegpu_g16s           12.0          12.0    12.0
+uint MAD (integer ALU, touches no memory)applegpu_g17s           14.0          14.0    14.0
+
+integer-ALU g17s penalty: 12.0 -> 14.0 B/op = +16.7%   (H1's entire physical basis)
+CONTROL 1: PASS
+
+==============================================================================
+CONTROL 2 -- per-arch __compute floor by declared signature shape
+==============================================================================
+probe                       g16s    g17s   floor delta
+floor_buf1                  1520    1504           -16
+floor_buf2                  1520    1504           -16
+floor_buf4                  1600    1584           -16
+floor_buf4_bf16             1616    1600           -16
+floor_buf4_bf16_simd        1664    1664            +0
+
+plain signatures: floor delta [-16]
+simdgroup/lane attribute signatures: floor delta [0]
+=> the floor delta is NOT a universal constant; it collapses to 0 once
+   simdgroup/lane attributes are declared, which every scored Laguna
+   decode kernel does. Deltas below are therefore bracketed over the
+   observed floor-delta range -16..0.
+
+==============================================================================
+STAGE 2 -- scored decode-path kernel census (only -arch varies)
+==============================================================================
+kernel                                               /step   sig   g16s   g17s    raw    corrected      %  verdict
+laguna_sliding_fused_attn_ring_v1                       30  simd   7168   7296   +128   +128..+144   +1.8  POSITIVE g17s excess
+laguna_full_fused_attn_grow_v1                          10  simd   8000   8144   +144   +144..+160   +1.8  POSITIVE g17s excess
+laguna_full_qk_norm_yarn_bf16_128_v4                     0  simd   2912   2912     +0      +0..+16   +0.0  within noise band
+laguna_prefill_moe_tail_bf16_v1                          0 plain   2624   2624     +0      +0..+16   +0.0  within noise band
+laguna_residual_rms_bf16_2048_v1                         1  simd   2288   2272    -16      -16..+0   -0.7  within noise band
+laguna_dense_down_residual_bf16_v1                       1  simd   2944   2752   -192   -192..-176   -6.5  g17s cheaper
+laguna_prefill_router_tournament_ordinal_norm_active64_v2    39 plain   4720   4688    -32     -32..-16   -0.7  within noise band
+laguna_gated_output_projection_bf16_h48_u2_v3           10  simd   2976   2784   -192   -192..-176   -6.5  g17s cheaper
+laguna_fused_norm_qkv_projection_bf16_h48_v3            10  simd   8048   7632   -416   -416..-400   -5.2  g17s cheaper
+laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1    39  simd   4128   4016   -112    -112..-96   -2.7  g17s cheaper
+laguna_gated_output_projection_bf16_h64_u2_v3           30  simd   2976   2784   -192   -192..-176   -6.5  g17s cheaper
+laguna_fused_norm_qkv_projection_bf16_h64_v3            30  simd   8064   7648   -416   -416..-400   -5.2  g17s cheaper
+
+==============================================================================
+Weighted g17s excess per steady-state decode step (static bytes only)
+==============================================================================
+  laguna_sliding_fused_attn_ring_v1                     30 x  +128 B =   +3840 B
+  laguna_full_fused_attn_grow_v1                        10 x  +144 B =   +1440 B
+  TOTAL positive static g17s excess                                    +5280 B

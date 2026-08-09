@@ -1,0 +1,234 @@
+total dispatches: 1717
+decode steps found: 8   prefill dispatches: 115
+steady-state step length: 200   dense-epilogue offset: 4
+step 0 dense-epilogue offset: 6 (extra seeding dispatches)
+
+per-decode-step dispatch counts:
+  step 0: 202 dispatches
+  step 1: 200 dispatches
+  step 2: 200 dispatches
+  step 3: 200 dispatches
+  step 4: 200 dispatches
+  step 5: 200 dispatches
+  step 6: 200 dispatches
+  step 7: 200 dispatches
+
+kernel                                                        s0   s1   s2   s3   s4   s5   s6   s7
+laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1          40   39   39   39   39   39   39   39
+laguna_prefill_router_tournament_ordinal_norm_active64_v2      40   39   39   39   39   39   39   39
+laguna_fused_norm_qkv_projection_bf16_h64_v3                   30   30   30   30   30   30   30   30
+laguna_sliding_fused_attn_ring_v1                              30   30   30   30   30   30   30   30
+laguna_gated_output_projection_bf16_h64_u2_v3                  30   30   30   30   30   30   30   30
+laguna_full_fused_attn_grow_v1                                  0   10   10   10   10   10   10   10
+laguna_gated_output_projection_bf16_h48_u2_v3                  10   10   10   10   10   10   10   10
+laguna_fused_norm_qkv_projection_bf16_h48_v3                   10   10   10   10   10   10   10   10
+laguna_dense_down_residual_bf16_v1                              1    1    1    1    1    1    1    1
+laguna_residual_rms_bf16_2048_v1                                1    1    1    1    1    1    1    1
+laguna_full_qk_norm_yarn_bf16_128_v4                           10    0    0    0    0    0    0    0
+
+steady-state (last step) decode call order, compressed:
+  x1    laguna_fused_norm_qkv_projection_bf16_h48_v3
+  x1    laguna_full_fused_attn_grow_v1
+  x1    laguna_gated_output_projection_bf16_h48_u2_v3
+  x1    laguna_residual_rms_bf16_2048_v1
+  x1    laguna_dense_down_residual_bf16_v1
+  x1    laguna_fused_norm_qkv_projection_bf16_h64_v3
+  x1    laguna_sliding_fused_attn_ring_v1
+  x1    laguna_gated_output_projection_bf16_h64_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h64_v3
+  x1    laguna_sliding_fused_attn_ring_v1
+  x1    laguna_gated_output_projection_bf16_h64_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h64_v3
+  x1    laguna_sliding_fused_attn_ring_v1
+  x1    laguna_gated_output_projection_bf16_h64_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h48_v3
+  x1    laguna_full_fused_attn_grow_v1
+  x1    laguna_gated_output_projection_bf16_h48_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h64_v3
+  x1    laguna_sliding_fused_attn_ring_v1
+  x1    laguna_gated_output_projection_bf16_h64_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h64_v3
+  x1    laguna_sliding_fused_attn_ring_v1
+  x1    laguna_gated_output_projection_bf16_h64_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h64_v3
+  x1    laguna_sliding_fused_attn_ring_v1
+  x1    laguna_gated_output_projection_bf16_h64_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h48_v3
+  x1    laguna_full_fused_attn_grow_v1
+  x1    laguna_gated_output_projection_bf16_h48_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h64_v3
+  x1    laguna_sliding_fused_attn_ring_v1
+  x1    laguna_gated_output_projection_bf16_h64_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h64_v3
+  x1    laguna_sliding_fused_attn_ring_v1
+  x1    laguna_gated_output_projection_bf16_h64_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h64_v3
+  x1    laguna_sliding_fused_attn_ring_v1
+  x1    laguna_gated_output_projection_bf16_h64_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h48_v3
+  x1    laguna_full_fused_attn_grow_v1
+  x1    laguna_gated_output_projection_bf16_h48_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h64_v3
+  x1    laguna_sliding_fused_attn_ring_v1
+  x1    laguna_gated_output_projection_bf16_h64_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h64_v3
+  x1    laguna_sliding_fused_attn_ring_v1
+  x1    laguna_gated_output_projection_bf16_h64_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h64_v3
+  x1    laguna_sliding_fused_attn_ring_v1
+  x1    laguna_gated_output_projection_bf16_h64_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h48_v3
+  x1    laguna_full_fused_attn_grow_v1
+  x1    laguna_gated_output_projection_bf16_h48_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h64_v3
+  x1    laguna_sliding_fused_attn_ring_v1
+  x1    laguna_gated_output_projection_bf16_h64_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h64_v3
+  x1    laguna_sliding_fused_attn_ring_v1
+  x1    laguna_gated_output_projection_bf16_h64_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h64_v3
+  x1    laguna_sliding_fused_attn_ring_v1
+  x1    laguna_gated_output_projection_bf16_h64_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h48_v3
+  x1    laguna_full_fused_attn_grow_v1
+  x1    laguna_gated_output_projection_bf16_h48_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h64_v3
+  x1    laguna_sliding_fused_attn_ring_v1
+  x1    laguna_gated_output_projection_bf16_h64_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h64_v3
+  x1    laguna_sliding_fused_attn_ring_v1
+  x1    laguna_gated_output_projection_bf16_h64_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h64_v3
+  x1    laguna_sliding_fused_attn_ring_v1
+  x1    laguna_gated_output_projection_bf16_h64_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h48_v3
+  x1    laguna_full_fused_attn_grow_v1
+  x1    laguna_gated_output_projection_bf16_h48_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h64_v3
+  x1    laguna_sliding_fused_attn_ring_v1
+  x1    laguna_gated_output_projection_bf16_h64_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h64_v3
+  x1    laguna_sliding_fused_attn_ring_v1
+  x1    laguna_gated_output_projection_bf16_h64_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h64_v3
+  x1    laguna_sliding_fused_attn_ring_v1
+  x1    laguna_gated_output_projection_bf16_h64_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h48_v3
+  x1    laguna_full_fused_attn_grow_v1
+  x1    laguna_gated_output_projection_bf16_h48_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h64_v3
+  x1    laguna_sliding_fused_attn_ring_v1
+  x1    laguna_gated_output_projection_bf16_h64_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h64_v3
+  x1    laguna_sliding_fused_attn_ring_v1
+  x1    laguna_gated_output_projection_bf16_h64_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h64_v3
+  x1    laguna_sliding_fused_attn_ring_v1
+  x1    laguna_gated_output_projection_bf16_h64_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h48_v3
+  x1    laguna_full_fused_attn_grow_v1
+  x1    laguna_gated_output_projection_bf16_h48_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h64_v3
+  x1    laguna_sliding_fused_attn_ring_v1
+  x1    laguna_gated_output_projection_bf16_h64_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h64_v3
+  x1    laguna_sliding_fused_attn_ring_v1
+  x1    laguna_gated_output_projection_bf16_h64_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h64_v3
+  x1    laguna_sliding_fused_attn_ring_v1
+  x1    laguna_gated_output_projection_bf16_h64_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h48_v3
+  x1    laguna_full_fused_attn_grow_v1
+  x1    laguna_gated_output_projection_bf16_h48_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h64_v3
+  x1    laguna_sliding_fused_attn_ring_v1
+  x1    laguna_gated_output_projection_bf16_h64_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h64_v3
+  x1    laguna_sliding_fused_attn_ring_v1
+  x1    laguna_gated_output_projection_bf16_h64_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+  x1    laguna_fused_norm_qkv_projection_bf16_h64_v3
+  x1    laguna_sliding_fused_attn_ring_v1
+  x1    laguna_gated_output_projection_bf16_h64_u2_v3
+  x1    laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+  x1    laguna_prefill_router_tournament_ordinal_norm_active64_v2
+
+prefill histogram (descending):
+     39  laguna_residual_rms_bf16_2048_v1
+     38  laguna_prefill_router_tournament_ordinal_norm_active64_v2
+     38  laguna_prefill_moe_tail_bf16_v1

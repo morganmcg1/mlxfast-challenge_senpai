@@ -1,0 +1,29 @@
+# r92-b Stage 1 research-only instrumentation: MLX generated-MSL verbose dump
+#
+# Base:      8486638578a283de40369172f68c3a4d2d6a5365 (codex/mlxfast-maple-20260804-advisor)
+# Applied on assignment marker 09b19bf46f4b48be9d80c4b9a56bb2a5f2a0612, which
+#            touches no editable path, so editable content equals the base.
+# Generated: senpai/tools/agx-census-probe/add_verbose_dump.py
+# Sites:     48 MLXFastKernel.callAsFunction invocations across three files -- every
+#            `outputDTypes:` argument. None of these files uses `initValue:` or
+#            `stream:`, so `outputDTypes:` is always the last labelled argument
+#            and `verbose:` goes immediately after it.
+#              Sources/MLXFastModel/LagunaRuntimeModel.swift   33
+#              Sources/MLXFastModel/LagunaRuntimeLayers.swift   9
+#              Sources/MLXFastModel/LagunaLmHeadPrune.swift     6
+#
+# Re-apply from a clean checkout at that base:
+#   python3 senpai/tools/agx-census-probe/add_verbose_dump.py
+# or
+#   git apply research/maple-frieren-r92-verbose-dump.patch
+#
+# RELOCATION WARNING: this diff carries absolute line numbers into files that
+# every experiment edits. If `git apply` rejects, do NOT hand-fix the hunks --
+# rerun add_verbose_dump.py, which is line-number independent.
+#
+# NOT A SUBMISSION CANDIDATE. `verbose: true` makes MLX print the fully
+# generated MSL to std::cout at every kernel op construction
+# (Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/common/metal_kernel.cpp:342-347),
+# which is pure host-side I/O on the scored hot path. It is reverted later in
+# this branch's history and contributes zero editable bytes to the submitted
+# surface.
