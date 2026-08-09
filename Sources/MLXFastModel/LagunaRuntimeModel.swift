@@ -6408,10 +6408,9 @@ private let lagunaSharedSwiGLUQMVKernel = MLXFast.metalKernel(
     ensureRowContiguous: true
 )
 
-/// One-output-row scheduling twin of `lagunaSharedSwiGLUQMVKernel`.
-/// Arithmetic is textually identical per row; only row ownership changes.
+/// Routed-only atlas attribution control: shared Rows1 retains inline sigmoid.
 private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
-    name: "laguna_shared_nvfp4_swiglu_qmv_rows1_bf16_v2",
+    name: "laguna_shared_nvfp4_swiglu_qmv_rows1_bf16_routed_only_control_v1",
     inputNames: ["input", "fused_weight", "fused_scales", "sigmoid_atlas"],
     outputNames: ["activated"],
     source: """
@@ -6469,7 +6468,10 @@ private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
         if (lane == 0) {
             bfloat gate = bfloat(gate_result\(lagunaNvfp4RowScaleSuffix));
             bfloat up = bfloat(up_result\(lagunaNvfp4RowScaleSuffix));
-            bfloat sigmoid = sigmoid_atlas[uint(as_type<ushort>(gate))];
+            bfloat exp_abs = metal::exp(metal::abs(gate));
+            bfloat denominator = bfloat(1) + exp_abs;
+            bfloat y = bfloat(1) / denominator;
+            bfloat sigmoid = gate < bfloat(0) ? y : bfloat(1) - y;
             bfloat silu = bfloat(gate * sigmoid);
             activated[row] = bfloat(silu * up);
         }
