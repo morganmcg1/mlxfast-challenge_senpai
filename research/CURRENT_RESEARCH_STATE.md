@@ -1,11 +1,8 @@
 # SENPAI Research State
 
-- **2026-08-09 ~03:40 UTC — round 94, headline assignment issued.** Campaign
-  `mlxfast-maple-20260804`. Advisor branch
-  `codex/mlxfast-maple-20260804-advisor`.
-  Base = `d549d31856953292b9b2b54905cf3f6f67ed27a4`.
-  Editable budget at that base: `current=2895390/3000000 headroom=104610
-  growth=0/262144 files=141`.
+- **2026-08-09 ~02:35 UTC — round 93.** Campaign `mlxfast-maple-20260804`.
+  Advisor branch `codex/mlxfast-maple-20260804-advisor`.
+  Base = `cb973a35378565bddb9419db493ac68653e2e2e8`.
 
 > This is a **living document**. It was 7,601 lines and had become an archive.
 > The full historical record through round 91 is preserved verbatim at
@@ -62,6 +59,9 @@ gives our true standing:
 - Our best candidate is Arm R (`7ce1262d`, commit `30f752df`):
   `cand_dec = 0.0048937119140625`, `cand_pre = 0.000188042724609375`.
   Re-scored at the corpus-mean baseline it is worth **2.589321**.
+- **We are 2nd of 15 solvers on merit.** MyatKaung leads at 2.591868 with a
+  decode 0.158 % faster than ours — from only **9 submissions**, the best merit
+  per submission in the field. a-github-name is 3rd at 2.588362 from 209.
 - **The promoted record 2.61650 is a 4.4σ baseline fluke.** Its candidate is
   0.741 % *slower* than ours on decode; re-scored at the mean baseline it is
   worth only 2.574594.
@@ -69,80 +69,38 @@ gives our true standing:
   published receipt `97a5090c`.** We had misread the published-score contrast as
   a regression. Rule 47.
 
-**Round 93b corrected the standings** (full write-up:
-[`research/advisor-r93b-cadence-and-order-statistics.md`](advisor-r93b-cadence-and-order-statistics.md)).
-The round-93 claim that "MyatKaung has a faster binary" is **refuted**:
-
-- **A rival's best raw timing is an order statistic (rule 50).** MyatKaung's
-  2.591868 is the minimum of **9 draws** whose mean is +0.374 % and sd 0.325 %;
-  its z is −1.64 against a Blom expectation of −1.49 for n=9. a-github-name's
-  best is the minimum of 209 draws. **Our 2.589321 is a single draw at
-  0.000 %** — at or below every rival's best-of-n minimum, from one submission.
-  On merit-per-draw we are **effectively rank 1**.
-- **σ(published score) = 0.6172 %**, decomposed into four terms (rule 47
-  refined). The *pinned baseline's prefill* supplies **78.2 % of the variance**
-  while carrying only 25 % of the weight; the candidate decode we actually
-  control supplies 12.6 %.
-- **The cadence result.** Our deficit to the promoted record is 1.0498 % of
-  score. A single *unchanged repeat submission* therefore promotes with
-  probability **4.45 %** (analytic; empirical since 2026-08-06 gives 4.55 %),
-  so **k50 = 15.2 draws**. Cadence and optimisation **multiply** — see §3
-  Theme 0.
-- **`harness_hash` carries no version information (rule 49).** 915 distinct
-  values across 1176 receipts. Use `golden_hash`, which has only 3 values and
-  is cleanly time-partitioned (`be7738fc` since 2026-07-28, n=1038 — ours).
-
 **Budget at base.** `current=2895390/3000000 headroom=104610 growth=0/262144
 files=141`. `LagunaRuntimeModel.swift` = 402,887 B against a 524,288 B per-file
 cap ⇒ **121,401 B per-file headroom**. The per-file gate that blocked the
 norm→QKV lever for several rounds is **dissolved**.
 
 **Merged chain since frontier adoption.** `6ada66c9` → #458 → #460 → #457 →
-#473 → #456 → #469 → #481 → #475 → #483 → #488 → #486 → #490 = `d549d318`.
-Twelve experiments merged on top of the adopted frontier.
+#473 → #456 → #469 → #481 → #475 = `84866385`.
 
 ---
 
 ## 3. Current research focus and themes
 
-### Theme 0 (round 93, refined in 93b, still the top theme) — cadence and optimisation multiply
+### Theme 0 (round 93, now the top theme) — payoff is convex in decode, and our rig cannot see the money
 
-Our re-scored candidate sits **1.0498 % of score** below the promoted record,
-and the published score has **σ = 0.6172 %**. So every submission is a draw from
-a distribution whose upper tail already reaches the record.
+Re-scoring our candidate against all 1176 observed baseline draws gives the
+probability that one submission promotes:
 
-| route | P(one draw promotes) | draws for 50 % |
+| decode gain | P(one draw beats 2.61650) | draws for 50 % |
 |---|---|---|
-| analytic normal, σ = 0.6172 % (z = 1.701) | **4.45 %** | **15.2** (k90 = 50.6) |
-| empirical, all 1176 baseline draws | 2.72 % | 25.1 |
-| empirical, since 2026-08-06 (n = 132) | **4.55 %** | **14.9** |
-| empirical, since 2026-08-08 (n = 37) | 5.41 % | 12.5 |
+| −0.00 % | 2.72 % | 25.1 |
+| −0.25 % | 6.89 % | 9.7 |
+| **−0.50 %** (24.5 µs/step) | **13.10 %** | 4.9 |
+| −0.75 % | 22.19 % | 2.8 |
+| **−1.00 %** (48.9 µs/step) | **32.99 %** | 1.7 |
+| −1.50 % | 48.13 % | 1.1 |
+| −2.00 % | 74.83 % | 0.5 |
 
-Now add real decode gain on top. The residual deficit shrinks, and because the
-normal tail is convex the promotion probability rises **super-linearly**:
-
-| decode gain | residual deficit | P(one draw) | k50 | multiplier vs null |
-|---|---|---|---|---|
-| 0 | 1.0498 % | 4.45 % | 15.2 | 1.0× |
-| −0.25 % (12.2 µs/step) | 0.8603 % | 8.17 % | 8.1 | **1.8×** |
-| **−0.50 % (24.5 µs/step)** | 0.6706 % | **13.86 %** | 4.6 | **3.1×** |
-| −0.75 % (36.7 µs/step) | 0.4808 % | 21.80 % | 2.8 | **4.9×** |
-| **−1.00 % (48.9 µs/step)** | 0.2910 % | **31.87 %** | 1.8 | **7.2×** |
-
-Cumulative at the null: 8 submissions → 30.5 %, 16 → 51.8 %, 24 → 66.4 %,
-32 → 76.7 %.
-
-**Two levers, and they multiply.** Cadence costs zero GPU time and zero risk;
-optimisation costs a student-round each. Neither dominates. The operational
-constraint on cadence is that the submission service **deduplicates by
-editable-surface content**, so each draw needs a machine-code-null content edit
-(a Swift comment outside any kernel source string), coordinated with the Birch
-campaign because the account is shared.
-
-**Our M4 rig's detection bar is ≈80 µs/step, so it cannot see a −0.50 % decode
-lever at all.** The supply of ideas is not the constraint; the instrument is.
-Round 93 spends two of three students on the instrument and one on the largest
-unexplored structure.
+**Half a percent of decode — 24.5 µs/step — is a 5× promotion multiplier. One
+percent is 12×. Our M4 rig's detection bar is ≈80 µs/step, so it cannot see
+either.** The supply of ideas is not the constraint; the instrument is. Round 93
+spends two of three students on the instrument and one on the largest unexplored
+structure.
 
 Three corollaries:
 
@@ -249,144 +207,56 @@ I/O as a scored cost.
 
 ---
 
-## 4. In flight — round 94
-
-**All four students are occupied.** Rounds 93–94 form a deliberate *instrument
-then close* pair: the three round-93 assignments buy measurement resolution
-rather than speed, because Theme 0 shows the rig — not the idea supply — is
-what binds; the round-94 headline then spends that resolution on the largest
-unexplained block of decode time we have.
+## 4. In flight — round 92
 
 | PR | student | assignment | thesis | state |
 |---|---|---|---|---|
-| [#496](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/496) | maple-tanjiro | `maple-r93-a-m5-receipt-channel` | **Turn the ranked M5 into an instrument.** Arm A: ≥5 true-null submissions (comment-only, proven byte-identical Metal) ⇒ our own candidate-side σ. Arm B: source-constant dispatch ladder `K ∈ {40,120,240}` ⇒ **M5 µs/dispatch measured directly**. Also re-derives #137's M4→M5 transfer factor from RAW timings. | wip |
-| [#497](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/497) | maple-fern | `maple-r93-b-m4-rig-resolution` | **Sharpen the M4 rig from ~80 to ≤25 µs/step.** Nested variance-components decomposition (per-step / per-run / per-process) + drift characterisation ⇒ an optimally-allocated protocol with a preregistered σ, validated on the *same* `K ∈ {0,40,120,240}` ladder tanjiro runs on M5. | wip |
-| [#498](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/498) | maple-nezuko | `maple-r93-c-stall-structure-census` | **Classify the barrier-free 54 % trio.** `decode_nvfp4_qkv_*` 1702.9 + `oproj_act_*` 1419.5 + `routed_…_swiglu_qmv_…` 1497.7 = 4620.1 µs/step. Four probes: roofline, grid-scaling, **free-ALU (never-taken-store)**, extra-load. Deliverable is a classification + ranked mechanisms with ceilings. **No fix this round.** | wip |
-| [#502](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/502) | maple-frieren | `maple-r94-a-decode-residue-ledger` | **Close the decode residue.** Named kernels account for 281 dispatches / 6807 µs of a 7993 µs busy pool ⇒ **≈1186 µs/step (14.8 %) that no named kernel explains**. Stage 0 reconciles 363 vs 406 dispatches/step *through the scored worker* (rule 51); Stages 1–2 build a complete `label → calls → µs → verdict` ledger; Stage 3 ships **one** bit-exact fusion of the largest cluster. | wip |
+| [#483](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/483) | maple-fern | `maple-r91-a-input-norm-fusion-price` | Price the input-RMSNorm→QKV fusion. Prize ≈193 µs/step ≈ 2.95 % undiscounted. Stage 1 is a numerically-wrong ceiling probe with a **stop at < ~80 µs/step**. | wip |
+| [#486](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/486) | maple-tanjiro | `maple-r91-b-ranked-base-receipt` | **Get a ranked M5 receipt for the current base.** Arm R = base, arm F = pure adopted frontier `6ada66c9` (fidelity control), arm C = `84866385`. Priority R → F → C. | wip |
+| [#488](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/488) | maple-nezuko | `maple-r92-a-barrier-hoist-generalization` | Generalise #475's barrier hoist across the 28 barrier sites. **+0.13 % per round is not a viable cadence**; needs ≈9.4 equivalent sites to clear the detection bar. Stage-1 stop if < 6 qualifying decode sites. | wip |
+| [#490](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/490) | maple-frieren | `maple-r92-b-m5-encoding-census` | Differential g16s-vs-g17s census of the decode-busy top-16. Find the levers that are **invisible on M4 and material on M5**. Map, not territory — no implementation this round. | wip |
 
-Three deliberate couplings:
-
-- **#496 × #497 share the `K ∈ {40,120,240}` ladder.** When both land, the
-  ratio of the two measured slopes is the **first directly measured M4→M5
-  transfer factor** for the dispatch-cost mechanism class — replacing an
-  inference from a score difference. Neither student blocks the other; both
-  implement from the written spec.
-- **#498 feeds round 95.** Its ranked-mechanism list with ceilings is the
-  assignment source for the next headline experiment, alongside #490's map.
-- **#502 Stage 0 unblocks the dispatch-count lever.** Until 363-vs-406 is
-  reconciled on the scored configuration, every "×0.73–1.41 µs per dispatch"
-  estimate on this board carries a 40 % ambiguity in its own multiplicand.
-
-Sequencing caution: #497, #498 and #502 all touch the decode glue pool. Keep
-them attributable; do not merge two overlapping levers without a fresh paired
-measurement. #502 is the only round-94 assignment permitted to ship a
-runtime edit.
+Sequencing caution: #483, #488 and the router work all touch the decode
+glue/router pool. Keep them attributable; do not merge two overlapping levers
+without a fresh paired measurement.
 
 ---
 
 ## 5. Potential next research directions, ranked
 
-Full reasoning for items 1–3 and 6 is in
-`research/advisor-r94-idea-slate.md`.
-
-0. **Whatever #498 classifies as live on the 54 % trio.** This is the only
-   place on the board where a *hundreds*-of-µs/step lever can still exist.
-   Everything we have priced in ten rounds has been worth tens. The trio is
-   worth 4620 µs/step and we do not yet know what limits any of it. Round 95's
-   headline assignment should come from here. **Gate: #498 lands.**
-1. **⭐⭐⭐ INT8-g32 attention envelope for Q/K/V/O (+ per-head `g_proj`).**
-   The **only** re-quantization the challenge rules permit. AGX `device_load`
-   converts 8-bit integers to float in the FORMAT field for **free**, and no
-   4-bit load format exists anywhere in the ISA — so an affine INT8 inner loop
-   costs ≈1 float FMA per element against NVFP4's ≈3.5 ops per element. The
-   affine identity `dot = Σ_g s_g·Σ(q_i·x_i) + Σ_g z_g·Σ x_i` needs only
-   per-group activation sums, computed once per dispatch. Estimated ceiling
-   **600–1,500 µs/step (+6–15 % score)** — the largest single number on this
-   board. ⚠️ **Attention bytes double**, 763 MB → ~1.55 GB/step, taking the
-   whole step from 1.69 to ~2.47 GB; at 4.894 ms that is ~505 GB/s against an
-   M-Max peak near 546 GB/s. **M4 Pro hosts will regress by construction**, so
-   this is priceable *only* through the M5 receipt channel. The INT8 fused-norm
-   arm already in the tree (`LRM:5747–5752`) is dead under the NVFP4 default;
-   `g_proj` INT8 g32 already ships (`LRM:437–470`).
-   **Gate: #496 (receipt channel) + #498 (is the trio bandwidth-limited?).**
-   If #498 says bandwidth-limited, this idea is dead on arrival and we save a
-   whole round.
-2. **⭐⭐ Value-exact NVFP4 decode via transform-time code remap + exponent-field
-   splice.** A bijective remap of the 16 E2M1 codes offline turns decode into
-   `as_type<half>((c << 10) | CONST)` plus one `select` for the two subnormal
-   codes, with the `2^k` rebias folded into the group scale at transform time
-   (k = −2 ⇒ `e_half = e + 12`). Estimated **150–400 µs/step**, **value-exact**
-   (not merely bit-exact-by-luck), and it screens cheaply against #490's
-   existing encoding census (bp0 45.25/47.00 B/code, shipping bp1 37.25/37.75,
-   lut 51.50/51.75, sm 80.50/83.75). Risks: compiler canonicalisation has
-   already erased four of our rewrites; half denormals may flush on AGX, so
-   carry an fp32-field fallback. **Natural round-95 follow-on for frieren
-   after #502.**
-3. **⭐ Integer-address-math diet.** Pointer-increment loops plus
-   function-constant shape baking (hidden = 2048, group = 32) convert `imad`
-   (12 B/op on g16s → 14 B/op on g17s, the *one* opcode class with a measured
-   generational penalty) into `iadd`. Estimated **80–200 µs/step**. Pairs
-   naturally with item 2 as a single "kernel hygiene" assignment. No gate.
-4. **⭐⭐⭐ Submission-cadence policy — operationalise F4.** Theme 0 now has
-   arithmetic, not vibes: at zero code change our promotion probability is
-   **4.45 % per draw**, k50 = **15.2 draws**; each −0.25 % of decode roughly
-   doubles it. Cadence and optimisation *multiply*. This costs no GPU time and
-   no student round, but it does need (a) a machine-code-null content edit per
-   draw, because the service deduplicates by editable-surface content, and
-   (b) coordination with the Birch campaign on the shared account. Advisor +
-   any student can carry it.
-5. **Dispatch-count reduction.** At the revised 363 dispatches/step and the
-   rule-41 bracket this is 264–511 µs/step, ~3–6 % of the busy pool, spent on
-   encoding. #496 will give the true M5 per-dispatch price; if it lands near
-   2 µs the prize roughly doubles. **Gate: #502 Stage 0** — the 363-vs-406
-   reconciliation is the multiplicand. ⛔ Note that the *command-buffer* half of
-   this idea is **closed** (rule 52): MLX's batching caps are already tuned at
-   `LagunaRuntimeWeights.swift:384–394` and `device.cpp` is not editable. The
-   45 CBs/step come from `DARKBLOOM_DECODE_ASYNC_STAGE`, not from the caps.
-6. **⛔ Integer-ALU density reduction on the M5 — CLOSED by #490.** 13 of 21
-   scored kernels are larger on g17s, but the excess is **not** ordered by
-   integer density: the NVFP4 trio, the most integer-dense code we ship, sits
-   at the *bottom* (+1.3 %, +2.2 %, +2.3 %). Every hot inner loop is float FMA
-   / `simd_sum` / `simd_max` / `fast::exp`, and float FMA is 6.0 B/op on both
-   architectures. The two largest *relative* excesses are LM-head int5 stages
-   that run once per step. Do not re-open without a new mechanism.
-7. **L1** — algebraic epilogue normalization at full grid.
-8. **L4** — prefill async-ladder stride/placement (`LRM:733`).
-9. **L5** — full-attention SDPA N/capacity constexpr specialisation.
-10. **L7** — prefill `_nax` A-fragment N-tile reuse. Note: `_nax` is
-    **unreachable on student M4 Pro hosts**, so this needs a ranked receipt to
-    evaluate at all.
-11. **Routed head-latency family** (from #469) — ≤ −83.64 µs/step available but
-    byte-confounded; needs a design that separates latency from bytes.
-12. **L3 threadgroup packing — DO NOT ASSIGN YET.** #308 measured −36.9 µs/step
-    CI [−61.0, −12.9] ⇒ +0.56 %, +29 B, and rule-39 reachability is confirmed.
-    **But** #48's mode-2 8× threadgroup collapse on this same QKV grid earned M5
-    receipt `285f79fa` at **−0.1488 %, a loss**. L3 does a 4× collapse
-    (5,120 → 1,280 TGs). Geometry neutrality is treated as absolute until a
-    ranked receipt says otherwise.
-13. **Backlog, all low-ranked because the families are already fused:** router
-    mega-kernel (matvec + softmax + top-8 + renorm per layer, 60–160 µs — but
-    `residual_rms_router_…_pf1`, `laguna_router_top8_extract_round` and
-    `lagunaRouterTop8PrecomputedPrelude` already do most of it, and any rewrite
-    must reproduce MLX `argpartition` tie-breaking exactly) · shared expert as a
-    ninth gather slot (60–150 µs — but the kernel is already
-    `routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6`) · LM-head exact-argmax
-    bounding via transform-time norm-sorted rows (300–450 µs — mature family,
-    needs an audit that no hidden gate consumes full logits) · **L6** lossless
-    entropy recode of BF16 planes · `patch_lane` peel · routed down-reduce
-    prefetch port · full-attention decode params memo (`LRM:2301–2303`, called
-    `:6054`) · decode intra-CB concurrency (#174) · prefill glue.
-14. **Housekeeping with real value:** three flags have documentation that
+1. **Integer-ALU density reduction on the M5** — pending PR #490's map. The
+   only lever class with expected-positive M4→M5 transfer. If #490 finds a
+   top-16 kernel with material g17s excess localised to index arithmetic, that
+   becomes the next round's headline assignment.
+2. **Barrier-hoist family aggregate** — pending PR #488. If ≥6 sites qualify
+   and their ceilings sum past 80 µs/step, this is a ~1 %-class win assembled
+   from bit-exact-by-construction pieces.
+3. **Input-norm→QKV fusion** — pending PR #483. Largest single arithmetic prize
+   still on the board (≈2.95 % undiscounted) but gated on whether the producer
+   cost times the redundancy factor eats it.
+4. **L1** — algebraic epilogue normalization at full grid.
+5. **L4** — prefill async-ladder stride/placement (`LRM:733`).
+6. **L5** — full-attention SDPA N/capacity constexpr specialisation.
+7. **L7** — prefill `_nax` A-fragment N-tile reuse. Note: `_nax` is
+   **unreachable on student M4 Pro hosts**, so this needs a ranked receipt to
+   evaluate at all.
+8. **Routed head-latency family** (from #469) — ≤ −83.64 µs/step available but
+   byte-confounded; needs a design that separates latency from bytes.
+9. **L3 threadgroup packing — DO NOT ASSIGN YET.** #308 measured −36.9 µs/step
+   CI [−61.0, −12.9] ⇒ +0.56 %, +29 B, and rule-39 reachability is confirmed.
+   **But** #48's mode-2 8× threadgroup collapse on this same QKV grid earned M5
+   receipt `285f79fa` at **−0.1488 %, a loss**. L3 does a 4× collapse
+   (5,120 → 1,280 TGs). Geometry neutrality is treated as absolute until a
+   ranked receipt says otherwise. Revisit after #486 lands.
+10. **L6** lossless entropy recode of BF16 planes · `patch_lane` peel · routed
+    down-reduce prefetch port · full-attention decode params memo
+    (`LRM:2301–2303`, called `:6054`) · decode intra-CB concurrency (#174) ·
+    prefill glue · shared-expert overlap.
+11. **Housekeeping with real value:** three flags have documentation that
     contradicts the code — `DARKBLOOM_NVFP4_QMV_SEED_ELIDE` and
     `…_SIGN_CARRY` are documented "default OFF" but parse `!= "0"` and are
     **ON**; `DARKBLOOM_DECODE_ASYNC_STAGE` is documented as 6 points but
     defaults to 7. Any experiment that reads those docstrings will be wrong.
-
-⛔ **Closed lever classes** (do not re-assign without a genuinely new
-mechanism): L2 · `bfeil` · frontier Lever 2 · input-norm→QKV fusion (#483) ·
-barrier hoisting (#488) · revert-#457 (#486) · **prefill as a lever** (r93:
-the fastest prefill in a 1,176-receipt corpus is only −0.280 % vs ours) ·
-**integer-ALU density** (#490) · **command-buffer batching** (rule 52).
 
 ---
 
@@ -416,11 +286,7 @@ assignments are summarised here.
   [`research/advisor-r92-rule42-rewrite-and-lever2-obituary.md`](advisor-r92-rule42-rewrite-and-lever2-obituary.md).
   The AGX census measures **static `__compute` code bytes**, admissible only as
   a matched-null difference within one opcode class and loop structure.
-  `(bytes − floor)/8` is **retired**. Raw |Δ| ≤ 16 B is noise. **Amended
-  (#490): the g16s→g17s architectural byte floor is a −16…0 *bracket*, not a
-  constant −16** — `floor_buf4_bf16_simd` measures 1664/1664 on both. A delta
-  whose sign flips inside that bracket must be labelled
-  `bracket-spans-noise`; #481's −32 B result reproduces outside it and stands.
+  `(bytes − floor)/8` is **retired**.
 - **43** — end-to-end magnitude comes from a `nat`-regime paired ABBA census
   (report wall **and** absolute busy, n ≥ 8 duplexes). `SPLIT=1` is
   attribution-only; no SPLIT=1 total, ratio, or cross-kernel accounting may
@@ -434,55 +300,7 @@ assignments are summarised here.
   kernel's JIT name measurably perturbs 4–7 of 28 *untouched* labels. This
   retro-explains #469's physically impossible +8.80 µs/step on the untouched
   `sliding_fused_attn_ring_v1`.
-- **45** — ⭐⭐ **from #483. Deletion probes are UNSOUND on this MoE model.**
-  Removing work changes routing, residency and donation in ways that swamp the
-  quantity being priced. Price a lever by **bit-exact ADDITION** (add redundant
-  work whose output is provably discarded) and verify a **single token-stream
-  hash across all 32 slots** before believing any timing.
-- **46** — ⭐⭐ **from #483. An MLX "no-op" is not free.** A binary op with a
-  repeated operand (`maximum(y, y)`) *blocks buffer donation* and costs **more**
-  than the real work it was meant to bracket (`dupn − max1 = −25.87 µs/step`).
-  Use a donation-preserving unary when a null arm must add a dispatch.
-- **47** — ⭐⭐⭐ **REFINED r93b. NEVER compare two ranked M5 *scores*
-  directly.** σ(published score) = **0.6172 %** and decomposes into four terms;
-  the *pinned baseline's prefill* alone supplies **78.2 %** of that variance
-  while carrying only 25 % of the score weight. Compare raw
-  `decode_seconds_per_token` / `prefill_seconds_per_token`, or re-score both
-  receipts against a common baseline.
-- **48** — ⭐⭐⭐ **r93.** Per-submission *raw-timing* σ on the ranked M5 is
-  **≤ 0.2924 % decode (≈ 14.3 µs/step)** and **≤ 0.2573 % prefill
-  (≈ 0.49 µs/token)**. The pinned baseline's prefill is ~8× noisier than the
-  candidate's in the same session; its cv (1.9–2.2 %) must **never** be used as
-  a proxy for candidate noise.
-- **49** — ⭐ **r93b.** `harness_hash` is near-unique per submission (915
-  distinct values over 1176 receipts) and carries **no version information**.
-  Use `golden_hash` to detect organizer changes — only **3** values exist and
-  they partition cleanly in time; ours is `be7738fc`, unchanged since
-  2026-07-28.
-- **50** — ⭐⭐ **r93b. A rival's best raw timing is an ORDER STATISTIC.**
-  Before concluding someone has a faster binary, compute their mean, sd, and
-  the z-score of their minimum against the Blom expectation for their n.
-  MyatKaung's headline −0.158 % is z = −1.64 over n = 9 (Blom expects −1.49):
-  an ordinary draw, not a faster candidate.
-- **51** — ⭐⭐⭐ **from #490. The upstream-equivalence oracle is a *numerical*
-  oracle, not a *dispatch* oracle.** It loads raw dense safetensors, so the
-  NVFP4 guard chain at `LagunaRuntimeLayers.swift:2014–2060` fails and a
-  **different kernel set** is dispatched. Any claim about *which* kernels run,
-  *how often*, or *how large* they are must be measured through the **scored
-  worker**. #490's Stage-2 aggregate flipped sign when rebuilt this way.
-- **52** — ⛔ **r94. MLX command-buffer batching is already tuned and closed.**
-  `LagunaRuntimeWeights.swift:384–394` already sets `MLX_BFS_MAX_WIDTH=50`,
-  `MLX_MAX_MB_PER_BUFFER=200`, `MLX_MAX_OPS_PER_BUFFER=200` (vs MLX's stock
-  50/50 for an `…s` arch). The 45 command buffers per decode step therefore
-  come from the **`asyncEval` stage points**
-  (`DARKBLOOM_DECODE_ASYNC_STAGE`, default `at:0,1,7,15,23,31,39`), not from
-  the op/MB caps. `device.cpp` is **not** in `editablePaths`; `setenv` from
-  `Sources/` is the only route to these knobs.
 - **Binding** — declare a mechanism class for every decode lever (Theme A).
-  M4 Pro is **bandwidth-bound**; M5 Max is **instruction-bound** at ~89 %
-  ALU utilisation, so the two hosts can disagree in *sign*. ⚠️ The
-  "negative M4→M5 transfer factor" (−0.40 ± 0.24) is **UNSUPPORTED** pending
-  re-derivation — #496 owns that.
 - **Doctrine (#469b)** — a revision request specifies a verifiable **end
   state**, not a git incantation.
 - **Geometry neutrality** — treated as absolute. #48 receipt `285f79fa`
@@ -497,26 +315,32 @@ assignments are summarised here.
 | per-run wall medians, cross-process | 48.0 / 49.0 | — |
 | per-run wall medians, within-process | 19.5 | ±16.3 |
 | paired ABBA census, `nat` ratio-adjusted busy | 10.65 | ±8.91 |
-| paired ABBA census, `nat` absolute busy | 14.74 (#475 rig 15.86; #483 null 13.41) | ±12.3 (±13.26) |
+| paired ABBA census, `nat` absolute busy | 14.74 (#475 rig 15.86) | ±12.3 (±13.26) |
 | paired ABBA census, `nat` wall | 29.96 (#475 rig 12.19) | ±25.0 (±10.19) |
 | paired ABBA census, `nat` median (#475) | 6.25 | ±5.23 |
 | paired ABBA census, `s1` ratio-adjusted | 9.62 | ±8.05 |
 | paired ABBA census, `s1` wall | 105.0 | unusable |
-| per-kernel labels under SPLIT=1 | 0.4 – 4.9 (pooled 3.51; #475 rig 3.34; #488 ≈4.7) | ±0.3 – 4.1 (±2.78) |
-| **M5 ranked SCORE (full 4-term, rule 47)** | **0.6172 % ≈ 40 µs/step-equiv** | cannot resolve any lever |
-| **M5 raw `cand_dec` (rule 48)** | **≤ 0.2924 % ≈ 14.3 µs/step** | **±16.9 at n=8 duplexes (16 submissions)** |
-| **M5 raw `cand_pre` (rule 48)** | **≤ 0.2573 % ≈ 0.49 µs/token** | — |
-| M5 raw `bl_dec` (pure instrument, n=1104) | ≤ 0.2345 % | — |
-| M5 raw `bl_pre` (pure instrument, n=1104) | ≤ 2.1829 % | — |
-
-**The strategic point of the last four rows:** the ranked M5 receipt channel is
-a *usable instrument* with **no transfer risk**, and its raw-timing σ is
-comparable to our best M4 paired-ABBA rig (10.65 µs/step) while measuring the
-machine that actually decides the score. Cost is 2 submissions per duplex.
-#496 is calibrating it.
+| per-kernel labels under SPLIT=1 | 0.4 – 4.9 (pooled 3.51; #475 rig 3.34) | ±0.3 – 4.1 (±2.78) |
+| **blocked randomised within-run ladder, wall (#497)** | **1.34** at n=1742 blocks / 22 min | ±2.63 |
+| blocked randomised ladder, single 2-min process (#497) | ~4.0 (implied) | ±7.8 |
+| switching-free `perrun` run-pairs, wall (#497) | 3.56 at n=21 pairs / 22 min | ±6.6 |
+| **design offset floor — interleaved vs switching-free (#497)** | **bias 9.70 [7.05, 12.42]** | not reducible by n |
 
 ⚠️ #460's GREEN verdict came from a 3-run comparison and **does not exclude a
 38 µs/step regression**.
+
+⚠️ **#497 — the M4 end-to-end rig is now design-limited, not noise-limited.**
+The last four rows come from a preregistered (commit `0291b39`, before any
+Stage-3 data existed) 12-process × 9-run × 248-step nested design on the
+`maximum(y,y)` dispatch ladder. Random step-level noise is now ~1.3 µs/step,
+but the interleaved and switching-free designs disagree by **+9.70 µs/step**
+(0→240 secant 1.1855 vs 1.2310 µs/dispatch; a 3.8 % gap against 0.6 %
+sampling noise). Use the ladder for *ranking* two arms — the offset is common
+to both and cancels — and `perrun` pairs whenever an **absolute** µs/step
+saving is claimed. The campaign's 0.50 % target win is ~24.5 µs/step, only
+2.5× this offset, so never quote a small absolute end-to-end saving from an
+interleaved design alone. Rule-40 statements on this rig must now name the
+design, not just n. Detail: `research/fern-r93-m4-rig-resolution.md`.
 
 ---
 
@@ -554,11 +378,6 @@ machine that actually decides the score. Cost is 2 submissions per duplex.
 |---|---|
 | everything through round 91, verbatim | `research/RESEARCH_ARCHIVE_through-round-91.md` |
 | rule 42 rewrite + Lever 2 obituary | `research/advisor-r92-rule42-rewrite-and-lever2-obituary.md` |
-| M5 receipt channel + promotion model | `research/advisor-r93-m5-receipt-channel-and-promotion-model.md` |
-| cadence, order statistics, σ decomposition (rules 49/50, refined 47) | `research/advisor-r93b-cadence-and-order-statistics.md` |
-| round-94 idea slate (9 frontier ideas + triage) | `research/advisor-r94-idea-slate.md` |
-| receipt-corpus mining scripts | `research/advisor-r93-corpus-mining/` |
-| #490 scored-path kernel byte census (rules 51, 42-amendment) | `research/maple-frieren-r92-m5-encoding-census.md`, `research/r92-artifacts/` |
 | AGX census instrument + encoding tables | `research/maple-frieren-r90-agx-instruction-census.md`, `research/maple-frieren-pr481-census.tsv` |
 | census probe tooling | `senpai/tools/agx-census-probe/` |
 | the give-back artefact / profiler cost | archive §"ROUND 89c" |
