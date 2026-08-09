@@ -28,5 +28,20 @@
     "passed_dec_floor": true,
     "passed_pre_floor": true,
     "timestamp": "2026-08-09T03:27:22Z"
+  },
+  {
+    "marker": "ladder-K240",
+    "id": "99309c61",
+    "status": "rejected",
+    "cand_dec": 0.0055065166015625,
+    "cand_pre": 0.00018788753125,
+    "bl_dec": 0.0138331692734375,
+    "bl_pre": 0.00038101416015625,
+    "dec_su": 2.512145204376987,
+    "pre_su": 2.027884222126901,
+    "passed_correctness": true,
+    "passed_dec_floor": true,
+    "passed_pre_floor": true,
+    "timestamp": "2026-08-09T03:49:43Z"
   }
 ]
