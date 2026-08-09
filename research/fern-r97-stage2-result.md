@@ -33,7 +33,81 @@ plane that fails the certificate is declined and the stock path runs.
 | S2a | block-exponent `B=128, d=4`, escapes allowed | stock BF16 |
 | S2b | block-exponent `B=128, d=4`, escapes allowed | block-exponent `B=row(8192), d=6`, no escapes |
 
-<!-- RESULTS -->
+### 2.1 Headline
+
+**Both compacted states are slower than base. The experiment is a NO-GO, and it
+is the "conversion efficiency below 0.5" branch of the go/no-go bar, i.e. the
+branch the assignment names as a publishable bandwidth finding.**
+
+One blocked randomised ladder, 12 processes x 8 timed runs x 248 steps,
+`rand:0,1,2` with a placebo every 8 blocks, 40 C gate, seed 97. All three states
+are one binary and one process image selected per step through a shared `mmap`
+control word (§3b). 3,112 complete blocks; the assigned estimator censors 13
+(0.4%) at median + 8*MAD and reports 3,099.
+
+Every one of the 12 process files carries the single token-stream hash
+`082682744836a553` and 0 teacher-forced mismatches.
+
+| contrast | measured us/step | 95% CI | preregistered prediction | conversion efficiency |
+|---|---|---|---|---|
+| S2a − base (gate/up compaction) | **+69.60 slower** | [+67.54, +71.58] | −60.3 (faster) | **−1.154** |
+| S2b − base (both planes) | **+61.96 slower** | [+60.17, +63.74] | −76.1 (faster) | **−0.814** |
+| S2b − S2a (down plane, marginal) | **−7.66 faster** | [−9.84, −5.39] | −15.8 (faster) | **+0.485** |
+
+Unpaired medians over the same records agree: base 8226.6 us/step, S2a 8296.9
+(+70.3), S2b 8288.9 (+62.3). S2b is 0.757% slower per decode step, which at the
+0.75 decode weight is about **−0.57% on score** against a preregistered
+**+0.31%** gain.
+
+### 2.2 Validity of the instrument
+
+Four checks, all passing, so the sign above is a property of the change and not
+of the rig:
+
+- **Placebo.** 440 placebo blocks execute rung 0 on every step while carrying
+  the assigned rung labels. Their contrasts are `d1 = +0.61 us`
+  CI `[−3.54, +4.95]` and `d2 = +0.66 us` CI `[−2.57, +4.03]`; both include 0.
+- **No carryover.** Regressing step time on own rung and previous rung with
+  block fixed effects gives a previous-rung coefficient of `+0.0101 us/dispatch`
+  CI `[−0.0161, +0.0375]`, which includes 0 (design correlation −0.174, VIF
+  1.03). Rung switching inside a process does not contaminate the contrast.
+- **A second, switch-free design agrees.** The §3b rung-control session assigned
+  one fixed rung per process (`const:0;const:1;const:2`, no switching at all)
+  and produced +64.1 us for S2a and +67.1 us for S2b against base — same sign,
+  same order of magnitude, from between-process rather than within-process
+  contrasts.
+- **The 48-step smoke run agrees** in sign (+38.8 / +40.5) with no thermal
+  control.
+
+### 2.3 The byte claim was met; the conversion was not
+
+The bytes really were removed, and exactly as preregistered — the load-time
+census in §3 reproduces the predicted escape counts to the block, and the two
+banks are installed only after a bit-exactness certificate. S2b removes
+**20,263,168 B = 20.263 MB per step**, clearing the bar's ≥19.0 MB requirement.
+
+So this experiment does not fail because the compaction failed. It fails because
+**a removed byte on this path is not worth the bandwidth-model price**, and on
+one of the two planes it is worth a large negative amount. The preregistration
+priced a byte at ~266 GB/s assuming zero ALU cost and flagged that as the
+optimistic bound; the outcome is far outside even a pessimistic reading of that
+bound, because the mechanism is not ALU cost (§3c, §3d).
+
+### 2.4 The additive model is refuted, informatively
+
+Solving the two planes' design points for a byte value (us/MB) and an op cost
+(us/Mop) returns `byte_value = −7.861 us/MB` CI `[−8.294, −7.406]` and
+`op_cost = −0.1937 us/Mop` CI `[−0.2126, −0.1739]`. **Both coefficients are
+negative, which is physically impossible**: it would require that moving bytes
+and issuing integer ops each *save* time. An additive bytes-plus-ALU model
+cannot describe these two kernels.
+
+The refutation has a direction worth recording. The two planes' added-op counts
+differ by only 1.4x (293.6 vs 209.7 Mop) while their non-bandwidth penalties
+differ by roughly 15x. No scalar cost model in bytes and ops can fit that, which
+is why §3d goes looking at the loop structure instead.
+
+<!-- PERRUN -->
 
 ## 3. Escape census, confirmed at load time
 
