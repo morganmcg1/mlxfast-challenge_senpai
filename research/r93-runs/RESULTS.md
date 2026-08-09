@@ -1658,9 +1658,119 @@ replaces it:
   128 MiB pool binding, so the slope between them is placement-free by
   construction.** That is precisely what C0' was for, obtained without spending
   a receipt on it.
-- The n = 64 point is predicted at 5.5 null sd, comfortably above the 0.8 %
+- The n = 64 point is predicted at 5.5 null sd, comfortably above the 0.89 %
   single-receipt floor, whereas C0's expected ~0.9 % placement term sits *at*
   that floor and would have been unmeasurable in one receipt anyway.
 
 Arm C therefore spends 2 of its 6 permitted receipts, not 3.
+
+---
+
+## 11. Wrap-up
+
+### 11.1 Deliverables
+
+| # | Assignment deliverable | Where | Status |
+|---|---|---|---|
+| 1 | Arm A: >= 5 machine-code-identical candidates through the official channel | section 2, ledger rows 1/2/4/6/8 | done, n = 5 |
+| 2 | Arm B: >= 3 rungs of a monotone cost ladder, prefill as internal control | section 4, ledger rows 3/5/7 (+ 5 nulls as the K = 0 rung, n = 8 fit) | done |
+| 3 | Minimum resolvable decode delta at n = 4, 6, 8 | section 3 | done |
+| 4 | Written submission-cadence policy | section 5 and `cadence-policy.md` | done |
+| 5 | Re-derived PR #137 M4 -> M5 transfer factor | section 6 and `pr137-transfer-factor.md` | done |
+| 6 | Every submission logged to W&B | section 11.3 | done, 10 runs |
+
+Arm C (M5 regime ladder) was added by advisor revision and is reported in
+section 10. Its stopping rule did not fire (section 10.1), so it ran.
+
+### 11.2 Headline numbers
+
+| quantity | value | evidence |
+|---|---|---|
+| **True-null decode CV of the official channel** | **0.2939 %** (95 % CI [0.176 %, 0.844 %], n = 5, exact chi-square) | section 2.2 |
+| True-null prefill CV | 0.1027 % (95 % CI [0.062 %, 0.295 %]) | section 2.2 |
+| Baseline decode CV (same 5 receipts) | 0.1470 % | section 2.2 |
+| Baseline prefill CV (same 5 receipts) | 2.2036 % | section 2.2 |
+| **Min resolvable decode delta, n = 4 / 6 / 8** | **0.508 % / 0.378 % / 0.315 %** | section 3 |
+| Min resolvable decode delta, single receipt vs the n = 5 null | 0.89 % | section 3 |
+| **M5 price of one extra decode dispatch** | **2.3403 us** (95 % CI [2.277, 2.404], n = 8, R^2 > 0.999) | section 4 |
+| Whole-token dispatch census priced at that slope | 945.5 us = **19.2 %** of decode | section 8.1 |
+| PR #137 M4 -> M5 transfer factor | **\|T\| < 0.5**, sign not resolved | section 6 |
+| **M5 price of one injected fma in the routed gather-GEMM** | **1.36 us** (95 % CI [-0.46, +3.19]) | section 10.5 |
+
+### 11.3 W&B runs
+
+Project `wandb-applied-ai-team/mlxfast-maple`. One run per official submission,
+each carrying the receipt's candidate and baseline decode/prefill seconds per
+token, both speedups, the official score, the correctness gate fields, and the
+delta against the n = 5 null reference.
+
+| # | marker | W&B run | submission id |
+|---|---|---|---|
+| 1 | null-1 | [`3szqrztf`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/3szqrztf) | `25e1f18e-ef83-491f-8a65-8944765bfe46` |
+| 2 | null-2 | [`0doaq0w0`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/0doaq0w0) | `d11026c9-25c5-498c-936f-ed3db3335c30` |
+| 3 | ladder-K240 | [`fpi2ynyl`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/fpi2ynyl) | `99309c61-2b7e-4ce8-bb74-52bd3da8a03c` |
+| 4 | null-3 | [`fvm3v67i`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/fvm3v67i) | `05dd8bbf-c436-447c-99a8-8024d0fc023f` |
+| 5 | ladder-K800 | [`qaempae6`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/qaempae6) | `f8719c48-8df6-4570-abf1-1c9a369c64e0` |
+| 6 | null-4 | [`0ecng8mc`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/0ecng8mc) | `ab6a15a1-4d79-4c51-ac46-bd97fde2e1bf` |
+| 7 | ladder-K60 | [`xlaup9j4`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/xlaup9j4) | `b835a980-9c6a-48f3-a9d0-c5961ed1aac4` |
+| 8 | null-5 | [`92snii58`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/92snii58) | `4fec8e2d-3fa1-4a99-a9a5-e6883aee7497` |
+| 9 | probe-routed-fma-24 | [`59o0mk6y`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/59o0mk6y) | `ecd89cac-b21e-4948-b619-5ac106c8fe48` |
+| 10 | probe-routed-fma-64 | *(see section 10.8)* | `ab3a2433-2553-4946-8502-d04814565e17` |
+
+All ten receipts passed every correctness gate: `passed_correctness = true`,
+`max_abs_diff = 0`, 1344 checked steps over 11 cases, both 0.95 floors true,
+GPQA TTFT 9/9, semantic GPQA 9/9. Every one is `rejected` for ranking, which for
+this arm is the intended outcome: `rejected` here means only "did not beat the
+current best", and section 8.2 records that separation explicitly.
+
+### 11.4 Responses to advisor feedback
+
+**"The PR looks unstarted."** It was not. Every commit on
+`maple-tanjiro/r93-m5-receipt-channel` was local until this submission, because
+the student role pushes only through `submit_experiment_result`. Ten official
+receipts had already been collected when that comment was written. Nothing was
+blocked; only the advisor's view was stale.
+
+**Budget raised to 14-18, Arm C <= 6.** 10 slots used: 5 Arm A, 3 Arm B, 2
+Arm C. Arm C stopped at 2 of its 6 because section 10.7's n = 64 point does the
+job the third receipt (the C0' placement control) was going to do, for free.
+
+**Rule 53 (#502): no decode dispatch residue.** Reconciled in section 8.0. The
+2.3403 us/dispatch slope is the price of *adding* a dispatch; #502 shows
+*removing* one recovers approximately nothing. Both are true and the asymmetry
+is the finding. Section 8.3 retires the three follow-up candidates that rested
+on dispatch-count reduction and keeps only the two that rest on bytes.
+
+**Rule 55 (#498): three dominant decode kernels bandwidth-bound on M4 Pro.**
+Section 10 tests whether that transfers to M5, which is the question the rule's
+M4-only provenance leaves open. It does, in the direction that matters for
+#512/#513: injected ALU is nearly free on M5 too. Section 10.5 also records the
+uncomfortable detail that M5 absorbs *more* free ALU than M4 despite having
+more spare bandwidth, which points at a latency bound rather than a throughput
+bound, and section 10.6 keeps that as a caveat rather than a claim.
+
+**Arm C as "the single largest unpriced risk in the programme".** Priced, at
+2 receipts. See section 10.8 for the verdict.
+
+### 11.5 Reproduction
+
+Every number in this document regenerates from committed receipts with no
+network access and no GPU:
+
+```bash
+python3 research/r93-runs/null_stats.py      # section 2 (Arm A)
+python3 research/r93-runs/ladder_fit.py      # sections 4, 6, 8.1 (Arm B)
+python3 research/r93-runs/probe_slope.py     # section 10 (Arm C)
+python3 research/r93-runs/channel_noise.py research/r93-runs/receipts-latest.json
+python3 research/r93-runs/critique_checks.py research/r93-runs/receipts-latest.json
+```
+
+`receipts/*.json` holds the ten official receipts;
+`receipts-latest.json` is the 1185-point programme corpus used in section 9.
+`manifest.json` maps every marker to its submission id, source commit, probe
+spec, and W&B run.
+
+The scored file `Sources/MLXFastModel/LagunaRuntimeModel.swift` is restored to
+the assignment base in the final commit: this arm measures the channel, and
+merges no runtime change.
 
