@@ -1937,35 +1937,45 @@ if (sg < 3) {
                 float(bfloat(bfloat(paired[i]) * rounded_mscale));
             float cosine = angles[pair];
             float sine = angles[pair + rotary_pairs];
-            outrow[pair] = bfloat(first * cosine - second * sine);
-            outrow[pair + rotary_pairs] =
+            bfloat rotated_first =
+                bfloat(first * cosine - second * sine);
+            bfloat rotated_second =
                 bfloat(first * sine + second * cosine);
+            outrow[pair] = rotated_first;
+            outrow[pair + rotary_pairs] = rotated_second;
+            if (sg == 2 && (head0 % gqa) == 0) {
+                device bfloat* kc = (device bfloat*)k_cache +
+                    (size_t)kv_head * (capacity * head_dim) +
+                    (size_t)widx * head_dim;
+                kc[pair] = rotated_first;
+                kc[pair + rotary_pairs] = rotated_second;
+            }
         }
     } else if (lane >= 16) {
         for (uint i = 0; i < 4; ++i) {
             outrow[base + i] = normalized[i];
+            if (sg == 2 && (head0 % gqa) == 0) {
+                device bfloat* kc = (device bfloat*)k_cache +
+                    (size_t)kv_head * (capacity * head_dim) +
+                    (size_t)widx * head_dim;
+                kc[base + i] = normalized[i];
+            }
         }
     }
 } else if (sg == 3) {
     const device bfloat* vin = raw_values + kv_head * head_dim;
     for (uint i = lane; i < head_dim; i += 32) {
-        tg_v[i] = vin[i];
+        bfloat value = vin[i];
+        tg_v[i] = value;
+        if ((head0 % gqa) == 0) {
+            device bfloat* vc = (device bfloat*)v_cache +
+                (size_t)kv_head * (capacity * head_dim) +
+                (size_t)widx * head_dim;
+            vc[i] = value;
+        }
     }
 }
 threadgroup_barrier(mem_flags::mem_threadgroup);
-
-if ((head0 % gqa) == 0 && sg == 0) {
-    device bfloat* kc = (device bfloat*)k_cache +
-        (size_t)kv_head * (capacity * head_dim) +
-        (size_t)widx * head_dim;
-    device bfloat* vc = (device bfloat*)v_cache +
-        (size_t)kv_head * (capacity * head_dim) +
-        (size_t)widx * head_dim;
-    for (uint i = lane; i < head_dim; i += 32) {
-        kc[i] = tg_k[i];
-        vc[i] = tg_v[i];
-    }
-}
 
 threadgroup U outputs[4 * BN * BDP];
 threadgroup U max_scores[2 * BN];
