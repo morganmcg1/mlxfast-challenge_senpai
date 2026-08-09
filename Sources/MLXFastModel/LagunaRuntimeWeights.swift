@@ -1182,7 +1182,7 @@ func lagunaDenseBlockExponentBankReproducesWeight(
     guard Int(fitsFlags[index].sum().item(Int32.self)) == 0 else { return false }
     let slots = contiguous(bank.deltaLo.reshaped([rows * nBlocks, blockWidth / 2])).view(
         dtype: .uint16)[index].asType(.int32)
-    let slot = slots[0, axis: 1].reshaped([bank.escaped, 1])
+    let slot = slots[.ellipsis, 0].reshaped([bank.escaped, 1])
     guard (slots .!= slot).asType(.int32).sum().item(Int32.self) == 0 else { return false }
     let want = contiguous(plane.reshaped([rows * nBlocks, blockWidth])[index]).view(dtype: .uint16)
     let got = contiguous(bank.escapes[slot.reshaped([bank.escaped])]).view(dtype: .uint16)
