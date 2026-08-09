@@ -8,6 +8,10 @@ Host: Apple **M4 Pro**, `applegpu_g16s`, 20 GPU cores, 48 GiB. Ranked host is
 Pre-registration: [`nezuko-r97-attn-split-preregistration.md`](nezuko-r97-attn-split-preregistration.md),
 committed in `ed4d4c7` before any timing data existed.
 
+W&B: <https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/bgrx1ckq>
+(`bgrx1ckq`) — both ladders as a table, Gate 0 per-variant results, the M5
+projection, and the verdicts.
+
 ## Verdict
 
 | state | pre-registered bar | outcome |
