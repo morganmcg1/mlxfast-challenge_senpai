@@ -255,6 +255,68 @@ fix, do not run F/C") is **not** triggered. Arms F and C proceed.
 
 ### 2.3 Arm F official submission
 
+#### 2.3.1 Arm F local preflight (M4 Pro)
+
+Detached at `6ada66c92d9c5007e8499cfbf43546720b015426`, `git status --porcelain`
+empty, run 2026-08-09T01:29:51Z. Artifacts: `research/r91b-runs/armF-local-submit.log`,
+`research/r91b-runs/armF-local-submit.metrics.json`.
+
+| field | Arm R | Arm F |
+| --- | --- | --- |
+| `passed` / `passed_correctness` | `true` / `true` | `true` / `true` |
+| `checked_steps` | 1025 | 1025 |
+| `max_abs_diff` | 0 | 0 |
+| `golden_hash` | `f49e4c2c…03b03d2` | `f49e4c2c…03b03d2` (identical) |
+| `harness_hash` | `95134dc0…656801c` | `38f6fd16…8a77d312` (**differs**) |
+| `weights_hash` | `aff99430…b294b3d` | `aff99430…b294b3d` (identical) |
+| `decode_seconds_per_token` | 0.0089094636686217 | 0.00895267090224829 |
+| `decode_speedup` | 1.5552240488904552 | 1.5477182520667137 |
+| `prefill_seconds_per_token` | 0.001139123126953125 | 0.00113898348046875 |
+| `prefill_speedup` | 0.32263359461692304 | 0.3226731515095401 |
+| local est. score | 1.0495958845108804 | 1.045826484872677 |
+
+**M4 `R − F`: +0.360 %** on local est. score (decode −43.2 µs/token, i.e. R
+faster by 0.483 %; prefill indistinguishable at +0.14 ns/token). That is close
+to the +0.50 % M4 figure that motivated H2, so the M4 side replicates.
+
+Caveat: the local `harness_hash` differs between the two arms because the two
+commits carry different trusted-harness revisions, so this M4 delta is **not** a
+strictly matched measurement. `golden_hash` and `weights_hash` are identical, so
+correctness is comparable. The ranked M5 comparison does not inherit the problem
+— the service supplies its own harness (Arm R ran under `788888bd…5ac99508`) and
+uploads only `editablePaths`.
+
+#### 2.3.2 Arm F submission
+
+| field | value |
+| --- | --- |
+| benchmark | `eigenlabs/mlxfast-challenge` |
+| submission id | `83fd2642-78f6-4e86-a9bf-5ed78fd72d9a` |
+| source commit | `6ada66c92d9c5007e8499cfbf43546720b015426` |
+| submitted at (UTC) | 2026-08-09T01:33 |
+| status at submit | `validating` |
+| note size | 15.8 KiB (16,150 B) |
+| `--model` | `senpai` (accepted, no fallback) |
+| surface diff vs Arm R | 2 files changed, 2671 insertions(+), 2646 deletions(-) |
+
+**Operational finding worth recording.** The first Arm F submit attempt returned
+`Submission already exists` and reused Arm R's id `7ce1262d`, reporting
+`note not stored (existing submission reused; its original note is kept)`. Cause:
+the detached checkout does not survive a turn boundary — HEAD had been restored
+to the branch tip, so the packaged editable surface was byte-identical to Arm R's
+and the service deduplicated it. Two consequences for anyone repeating this:
+
+1. The service deduplicates submissions by editable-surface content, not by
+   note, model, or timestamp. A zero-edit arm therefore cannot be double-billed,
+   and a repeated surface silently returns the earlier receipt.
+2. Checkout and `mlxfast submit` must happen inside a single command. The
+   corrected attempt asserted `HEAD`, an empty `git status --porcelain`, and a
+   non-empty surface diff versus Arm R *before* submitting.
+
+No note was overwritten and no spurious submission was created, so this cost
+nothing but one command. It was not a rejection of `senpai` as a model value, so
+no fallback was triggered.
+
 <!-- ARM_F_SECTION -->
 
 ## 3. Conclusion

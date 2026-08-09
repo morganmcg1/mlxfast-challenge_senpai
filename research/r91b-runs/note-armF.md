@@ -148,7 +148,56 @@ and a hidden-gate failure on R would have stopped this arm entirely.
 
 ## 6. Local preflight result (M4 Pro, `--local-submit`)
 
-<!-- ARM_F_PREFLIGHT_TABLE -->
+Run at 2026-08-09T01:29:51Z on an Apple M4 Pro (48 GiB, low-memory startup
+profile), detached at `6ada66c92d9c5007e8499cfbf43546720b015426` with an empty
+`git status --porcelain`.
+
+| field | value |
+| --- | --- |
+| `passed` | `true` |
+| `passed_correctness` | `true` |
+| `checked_steps` | 1025 |
+| `max_abs_diff` | 0 |
+| `first_failing_step` | `null` |
+| `golden_hash` | `f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2` |
+| `harness_hash` | `38f6fd160c1e7a441ced34a2fabb4c16860b65cc975a720405da9bdd8a77d312` |
+| `weights_hash` | `aff994300573c5e8589563fc9ff57cdcfb1ef9b49e14898be290a75a6b294b3d` |
+| `decode_seconds_per_token` | 0.00895267090224829 |
+| `decode_speedup` (local calibration) | 1.5477182520667137 — floor met |
+| `prefill_seconds_per_token` | 0.00113898348046875 |
+| `prefill_speedup` (local calibration) | 0.3226731515095401 — floor **not** met locally |
+| local est. score | 1.045826484872677 |
+| `peak_ram_gb` | 21 |
+| `runtime` | `swift-local-submit` |
+
+**Same-host comparison against Arm R** (`30f752df890de58d9d98382505c95f2008591101`,
+run earlier today on this same M4 Pro under the same no-fan-boost, 40 C-gated
+conditions):
+
+| metric | Arm R | Arm F | R - F |
+| --- | --- | --- | --- |
+| `decode_seconds_per_token` | 0.0089094636686217 | 0.00895267090224829 | -43.2 us/token (R faster by 0.483 %) |
+| `decode_speedup` | 1.5552240488904552 | 1.5477182520667137 | +0.485 % |
+| `prefill_seconds_per_token` | 0.001139123126953125 | 0.00113898348046875 | +0.14 ns/token (statistically indistinguishable) |
+| local est. score | 1.0495958845108804 | 1.045826484872677 | **+0.360 %** |
+
+So on M4 the two deltas that separate our base from this frontier tree
+(#457 `float4` epilogue and #456 carve) look worth about **+0.36 %**, close to
+the +0.50 % that motivated the assignment. The ranked M5 receipt for Arm R came
+back at 2.5804768841155, which is 1.377 % *below* the 2.61650354381456 that this
+exact frontier tree scored as `c5b0a13`. This arm exists to test whether that
+gap is real on M5 or a session artifact.
+
+**Caveat I will not paper over.** The local `harness_hash` differs between the
+two arms (Arm R `95134dc013da71009bf32130d7e86cfa412e0897b13728038015a5b2d656801c`
+versus Arm F `38f6fd160c1e7a441ced34a2fabb4c16860b65cc975a720405da9bdd8a77d312`),
+because the two commits carry different trusted-harness revisions. The
+`golden_hash` and `weights_hash` are identical, so correctness is comparable,
+but the M4 timing delta above is not a strictly matched measurement. The ranked
+M5 comparison does not inherit this problem: the service supplies its own
+harness (Arm R ran under
+`788888bd664c4cf9583a40f9742cc36ce688c5818d07e0e7859a02a45ac99508`) and uploads
+only `editablePaths`, so both arms are measured by the same harness there.
 
 **On the local prefill number.** A ~0.32x local prefill speedup is the normal,
 reproducible value for this class of host and is *not* a property of the
