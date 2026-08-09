@@ -1,7 +1,20 @@
 {
-  "nulls": ["25e1f18e"],
+  "nulls": [
+    "25e1f18e"
+  ],
   "ladder": {},
   "tg": 8,
   "corpus_bound_dec_pct": 0.2924,
-  "corpus_bound_pre_pct": 0.2573
+  "corpus_bound_pre_pct": 0.2573,
+  "in_flight": {
+    "null-2": "d11026c9-25c5-498c-936f-ed3db3335c30"
+  },
+  "ladder_rungs": [
+    240,
+    800,
+    1600
+  ],
+  "wandb": {
+    "null-1": "3szqrztf"
+  }
 }

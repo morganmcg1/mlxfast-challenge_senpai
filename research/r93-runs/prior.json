@@ -1,0 +1,17 @@
+[
+  {
+    "marker": "null-1",
+    "id": "25e1f18e",
+    "status": "rejected",
+    "cand_dec": 0.0048941142578125,
+    "cand_pre": 0.0001876372890625,
+    "bl_dec": 0.0138193649140625,
+    "bl_pre": 0.000366640380859375,
+    "dec_su": 2.8236702671995397,
+    "pre_su": 1.9539846407461736,
+    "passed_correctness": true,
+    "passed_dec_floor": true,
+    "passed_pre_floor": true,
+    "timestamp": "2026-08-09T03:05:07Z"
+  }
+]

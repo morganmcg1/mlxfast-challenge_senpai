@@ -1,0 +1,25 @@
+=== K=0 rc=0 03:15:26Z
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=120 mean=8.223 ms median=8.209 ms p10=8.180 ms p90=8.247 ms min=8.163 ms max=9.384 ms total=0.987 s
+=== K=240 rc=0 03:16:04Z
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=120 mean=8.131 ms median=8.105 ms p10=8.062 ms p90=8.211 ms min=8.040 ms max=9.339 ms total=0.976 s
+=== K=480 rc=0 03:16:43Z
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=120 mean=8.125 ms median=8.098 ms p10=8.069 ms p90=8.180 ms min=8.025 ms max=9.587 ms total=0.975 s
+=== K=800 rc=0 03:17:21Z
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=120 mean=8.456 ms median=8.283 ms p10=8.239 ms p90=8.742 ms min=8.198 ms max=19.372 ms total=1.015 s
+=== K=1200 rc=0 03:17:59Z
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=120 mean=8.597 ms median=8.576 ms p10=8.518 ms p90=8.645 ms min=8.464 ms max=10.544 ms total=1.032 s
+=== K=1600 rc=0 03:18:37Z
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=120 mean=9.409 ms median=9.368 ms p10=9.232 ms p90=9.575 ms min=9.138 ms max=11.365 ms total=1.129 s
+=== K=2400 rc=0 03:19:17Z
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=120 mean=11.344 ms median=11.259 ms p10=11.156 ms p90=11.509 ms min=10.875 ms max=13.769 ms total=1.361 s
+=== K=0 rc=0 03:19:55Z
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=120 mean=8.218 ms median=8.207 ms p10=8.167 ms p90=8.242 ms min=8.144 ms max=9.325 ms total=0.986 s
+done 03:19:55Z
