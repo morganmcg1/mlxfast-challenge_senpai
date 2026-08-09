@@ -2045,4 +2045,161 @@ _Pending._
 
 ## § Reply
 
-_Pending._
+_Headline (R0) is written last, after § 5. R1 – R7 below are the parts of the
+reply that do not depend on any rung-2 number, and were written while job
+`e5822dad` was still executing._
+
+### R0 Headline
+
+_Pending § 5._
+
+### R1 I withdraw two claims I made about rung 1
+
+fb2 retracted +20.149 as a target. I then went further than the evidence
+allowed in the other direction, and an adversarial re-read of my own § 4.3
+caught it. Both withdrawals are recorded in § 4.4; restating them here so they
+are in the reply and not only in the body.
+
+**Withdrawn (i): "two hosts agreeing is strong combined evidence."** This is a
+selection error, not a combination of evidence. I ran the M4 experiment
+*because* the M5 delta looked interesting and had the sign it had. Conditioned
+on that selection, "M4 agrees in sign" is close to a coin flip under the
+hypothesis that the M5 receipt is noise, so sign agreement carries almost no
+information about whether the M5 receipt was noise. The M5 side remains a single
+z ≈ 1.0–1.2 datum, one-sided p ≈ 0.14; it can contribute at most a factor of
+about two to any honest combination, not the "much smaller than either alone"
+I wrote. **fb2's retraction stands, and nothing in rung 1 or rung 2 rehabilitates
++20.149 as a target.**
+
+**Withdrawn (ii): "the transfer models bracket 20.149."** Circular. I picked
+×1.000 and ×0.622 from a four-entry menu that also contains ×0.436, which would
+have missed, and I bracketed with point estimates while suppressing my own
+±9 µs/step. Propagating the interval gives roughly [8, 37] µs/step on M5, which
+brackets essentially any hypothesis in play and therefore discriminates nothing.
+Worse, fb4 § 3 shows the two hosts may not even run the same kernel family, so a
+scalar transfer factor may be a category error rather than merely imprecise.
+
+What survives is narrower and I will state only this: **the 24/24 sign split is
+a sound statement that these two binaries differ on this M4 in this session.**
+It is not yet a statement that the two source changes regress performance — see
+R2.
+
+### R2 The alternative explanation I cannot yet exclude: binary layout
+
+The two arms are separately-built 49,190,344 B and 49,094,856 B workers. They
+differ by 95,488 bytes of machine code, which displaces symbol addresses, page
+boundaries and cache-line alignment throughout the image. The measurement
+literature on this is unambiguous that such displacement alone can produce
+effects of the size I measured — Mytkowicz et al., *Producing Wrong Data Without
+Doing Anything Obviously Wrong!* (ASPLOS 2009), and Curtsinger & Berger's
+Stabilizer (ASPLOS 2013), both report layout-induced swings that exceed the
+speedups the papers under study were claiming.
+
+The arithmetic is uncomfortable: fb4 established **408 dispatches per decode
+step at every revision**. 68 ns of extra per-dispatch cost — well under one page
+fault, comfortably within an alignment-driven i-cache or branch-predictor
+change — reproduces my entire A→C effect without any semantic difference
+existing at all.
+
+This is why rung 2 is not just a finer version of rung 1, and it produces an
+asymmetry the advisor should hold me to:
+
+| Leg | Binaries | Exposed to layout confound? |
+| --- | --- | --- |
+| A→B | `old` vs `new` | **Yes, fully** |
+| A→C | `old` vs `new` | **Yes, fully** |
+| B→C | `new` vs `new`, env flag only | **No — same bytes, same image, same addresses** |
+
+So **B→C is the clean leg** and A→B is the contaminated one, which is the
+opposite of the ordering my original assignment assumed. The pre-committed
+reading (§ 4.4b, fixed before rung-2 data existed): if B→C is large and A→B
+small, the router peel carries the effect and the conclusion is safe; if A→B is
+large and B→C small, the result is **ambiguous between #565 and layout
+displacement** and I will say exactly that rather than attribute it to #565.
+
+§ 5.4 reports a static Mach-O section-map and `nm -n` symbol-address comparison
+between the two workers, which is free and bounds how much displacement actually
+occurred. A size-matched placebo build of revision A would settle it properly
+and is listed in § 6 as a follow-up, not run.
+
+### R3 On fb3's decision-relevance reframing — I accept it, and it changes the ask
+
+fb3's acceptance table is the most useful thing I was sent, because it makes the
+round's target legible in a way the µs/step framing did not: **P(accept) rises
+from 0.095 % at Δcs = 0 to 0.520 % at +0.25 % and 2.179 % at +0.50 %**, so
+effort only pays at **≳ +0.5 % cs ≈ ≳ 33 µs/step on T**, and "a ±20 µs/step
+contrast is decision-irrelevant."
+
+I accept this without reservation, and I have not tried to argue my way around
+it by pointing out that my M4 point estimate happens to exceed 33 µs/step in
+M4-equivalent units. That would be exactly the reasoning error fb3 was warning
+against: the bar is on M5, on the ranked score, and R1 explains why I no longer
+believe I can transfer an M4 number onto M5 at all.
+
+Concretely this changed what I did, not just what I wrote. I stopped at the
+preregistered K = 21 rather than extending, I did not pursue the sub-8 µs/step
+half-width, and I dropped the `pf5` placement control (§ 4.5) even though it is
+genuinely informative, because it would have cost ≈ 141 min to sub-divide a leg
+that is already below the decision bar. **N-5 — "this contrast cannot be
+resolved on M4 at a cost proportional to its decision value" — was the outcome I
+expected going in**, and § 6 states which of N-1…N-5 actually fired.
+
+### R4 On fb4 § 3, the two-wave argument — accepted, and it is the load-bearing caveat
+
+tanjiro's finding that both fused-attention kernels dispatch exactly **32
+threadgroups** is, I think, the single most important structural fact anyone has
+produced about this round. A 20-core M4 runs that as **two waves**; a ≥ 32-core
+ranked host runs it as **one**. A software-pipeline depth change interacts with
+occupancy and latency hiding precisely through wave structure, so the M4 is not
+a scale model of the ranked host for this edit — it is a qualitatively different
+regime. tanjiro cancelled his own M4 A/B at six legs on this basis.
+
+I did not cancel, for one reason: my assignment's A→C contrast composes the
+pipeline edit with the router peel, and the **router peel leg is not subject to
+the wave argument** (same binary, same kernel, an env-selected variant), so
+rung 2 still buys a clean B↔C answer that transfers better than the A↔B leg
+does. But I am treating the A↔B leg as **structurally uninformative for ranking
+mechanisms on the ranked host**, and § 5 and § 6 carry that caveat attached to
+every A↔B number rather than in a footnote.
+
+### R5 On fb4 § 4, the sign contradiction — I did not resolve it and I do not think I can
+
+The archive (`RESEARCH_ARCHIVE_through-round-91.md:4894-4896`, PR #103) has
+pipeline depth 4 at **−1.039 % (faster) on M4** with noise ±0.73 %, and depth 8
+at +0.485 %. The M5 receipts put depth 4 at +20.15 µs/step (+0.30 %), i.e.
+**worse**. And, decisively, **no depth has ever been measured on M5** — the M5
+side of that contradiction is two archived receipts at different revisions, not
+a depth sweep.
+
+So the contradiction is between an M4 measurement and an M5 revision-pair
+difference, which R1 and R4 together say is not a like-for-like comparison in
+the first place. Rung 2's A→B leg is a third M4 measurement of (in effect) the
+same edit, and § 5 reports where it lands relative to the archive's −1.039 %,
+but I want to be explicit that **a third M4 number cannot adjudicate an M4-vs-M5
+disagreement**, and that the honest resolution is a depth sweep on M5, which is
+a receipt-spending experiment I was not authorised to run and which § 6 lists as
+the highest-value follow-up.
+
+### R6 What I would spend the next receipts on
+
+Not on M4. The decisive cheap experiment for the original question is **a paired
+A/C receipt pair on M5 itself**, which is the only instrument that can turn a
+z ≈ 1.1 single-receipt delta into a real measurement, and which fb2's own
+replicate study already calibrated (σ of a two-receipt difference ≈ 17–20
+µs/step, so distinguishing 20 from 0 needs several pairs, not one). Whether
+that is worth its receipt cost is fb3's call and fb3's table already suggests
+the answer is no. I am recording it as the right experiment, not requesting it.
+
+### R7 Protocol compliance
+
+- **No rebase, no merge** (fb3, fb4 § 6). Arms stay pinned to `30f752df` /
+  `e17bdeb1` / `0f6862d0`; my base is still `0f6862d0` although the advisor
+  branch has since moved to `449d6744`. Nothing in this branch's history
+  touches the advisor branch.
+- **Zero submitted bytes.** Every file I added is under `research/`.
+- **Zero receipts consumed.**
+- **Blinding log** is in § 4.1 and § 1.14.7 and lists every interim number I saw
+  before the corresponding rule was frozen, including the ones that make me look
+  worse.
+- I have not written "neutral", "null", or "unchanged" anywhere without an
+  attached exclusion bound X (fb2).
