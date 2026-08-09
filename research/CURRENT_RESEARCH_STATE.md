@@ -321,9 +321,26 @@ assignments are summarised here.
 | paired ABBA census, `s1` ratio-adjusted | 9.62 | ±8.05 |
 | paired ABBA census, `s1` wall | 105.0 | unusable |
 | per-kernel labels under SPLIT=1 | 0.4 – 4.9 (pooled 3.51; #475 rig 3.34) | ±0.3 – 4.1 (±2.78) |
+| **blocked randomised within-run ladder, wall (#497)** | **1.34** at n=1742 blocks / 22 min | ±2.63 |
+| blocked randomised ladder, single 2-min process (#497) | ~4.0 (implied) | ±7.8 |
+| switching-free `perrun` run-pairs, wall (#497) | 3.56 at n=21 pairs / 22 min | ±6.6 |
+| **design offset floor — interleaved vs switching-free (#497)** | **bias 9.70 [7.05, 12.42]** | not reducible by n |
 
 ⚠️ #460's GREEN verdict came from a 3-run comparison and **does not exclude a
 38 µs/step regression**.
+
+⚠️ **#497 — the M4 end-to-end rig is now design-limited, not noise-limited.**
+The last four rows come from a preregistered (commit `0291b39`, before any
+Stage-3 data existed) 12-process × 9-run × 248-step nested design on the
+`maximum(y,y)` dispatch ladder. Random step-level noise is now ~1.3 µs/step,
+but the interleaved and switching-free designs disagree by **+9.70 µs/step**
+(0→240 secant 1.1855 vs 1.2310 µs/dispatch; a 3.8 % gap against 0.6 %
+sampling noise). Use the ladder for *ranking* two arms — the offset is common
+to both and cancels — and `perrun` pairs whenever an **absolute** µs/step
+saving is claimed. The campaign's 0.50 % target win is ~24.5 µs/step, only
+2.5× this offset, so never quote a small absolute end-to-end saving from an
+interleaved design alone. Rule-40 statements on this rig must now name the
+design, not just n. Detail: `research/fern-r93-m4-rig-resolution.md`.
 
 ---
 

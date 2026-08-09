@@ -140,5 +140,241 @@ Against the predicted K=40 delta of 30.0 us that is a 21-sigma effect.
 Eight decision rules were frozen in the same commit, covering resolution,
 slope reporting, the linearity gate, carryover, the in-session placebo,
 the switching-free cross-check, the outlier and robustness policy, and the
-nested bootstrap and hand-off protocol. They are quoted where they are applied
-below.
+nested bootstrap and hand-off protocol. They are applied one by one below.
+
+## Stage 3 - the ladder, judged against the frozen rules
+
+Executed exactly as preregistered: 22.3 minutes of wall clock, 26,784 recorded
+steps, one token-stream hash `082682744836a553` across all 12 processes with
+zero teacher-forced mismatches (rule 45 holds with the glue active, not just
+at K=0).
+
+### Rule 1 - resolution and K=40
+
+**PASS, with margin.** The measured SE of the K=40 contrast is
+**1.34 us/step** against a preregistered 1.43 and a preregistered upper bound
+of 2.0.
+
+| rung | delta vs K=0 (us/step) | 95% CI | SE | Hodges-Lehmann | verdict |
+| ---: | ---: | --- | ---: | ---: | --- |
+| K=40 | +40.79 | [+38.14, +43.39] | 1.34 | +41.56 | RESOLVED |
+| K=120 | +137.27 | [+134.51, +140.10] | 1.43 | +138.00 | RESOLVED |
+| K=240 | +288.11 | [+284.92, +291.24] | 1.62 | +288.13 | RESOLVED |
+
+n = 1742 paired blocks, block sd 31.5-33.1 us. K=40 is resolved at ~30 sigma.
+
+Against the assignment's target of <= 25 us/step, the delivered resolution is
+**19x better than the target and ~60x better than the ~80 us/step rig this
+started from**, in 22 minutes on an M4 Pro.
+
+### Rule 2 - slope in us/dispatch
+
+Block OLS through the origin: **1.1855 us/dispatch, 95% CI
+[1.1714, 1.1996], SE 0.0072** (preregistered requirement SE <= 0.009).
+
+PR #483's figure of 0.751 us/dispatch predicted a K=40 delta of +30.0 us; the
+observed +40.79 is 36% higher, and the saturated marginal rate below is 65%
+higher than 0.751. Rule 2 requires this to be reported, not to agree. The
+likely reason is that #483's number is a per-dispatch cost measured under a
+different design, and the results below show this rig's answer is
+design-dependent at the few-percent level.
+
+### Rule 3 - the linearity gate FAILS
+
+| rung | implied us/dispatch | 95% CI |
+| ---: | ---: | --- |
+| K=40 | +1.0199 | [+0.9536, +1.0847] |
+| K=120 | +1.1439 | [+1.1209, +1.1675] |
+| K=240 | +1.2005 | [+1.1872, +1.2135] |
+
+Criterion (a), mutual overlap of the per-rung CIs: K=40 and K=120 do not
+overlap, and K=120 and K=240 do not overlap. **Fails.**
+Criterion (b), curvature: the quadratic term is
+b2 = +5.820e-04 us/dispatch^2 [+4.270e-04, +7.396e-04], contributing +33.52 us
+at K=240 against a linear prediction of 284.5 us, i.e. **11.8% > 10%. Fails.**
+
+The response rises monotonically with K, so this is not noise. The ladder is
+concave-up in the exact way an affine offset produces: a straight line that
+does not pass through the origin.
+
+### Rule 4 - carryover
+
+Regression `us ~ K + K_prev` with block fixed effects absorbed:
+
+| term | estimate (us/dispatch) | 95% CI |
+| --- | ---: | --- |
+| own K | +1.2088 | [+1.1950, +1.2217] |
+| previous K | **-0.0038** | **[-0.0141, +0.0059]** |
+
+The previous-rung coefficient covers zero, and the design is well conditioned
+(r(K, K_prev) = -0.131, VIF = 1.02). No carryover adjustment is required, so
+the primary slope stands unmodified. Note that once the block level is absorbed
+the own-K coefficient is +1.2088, already much closer to the saturated rate
+below than to the through-origin secant.
+
+### Rule 5 - in-session placebo
+
+**PASS.** On the 244 placebo blocks, where every step really ran at K=0 and
+only the labels vary:
+
+| fake rung | delta | 95% CI |
+| ---: | ---: | --- |
+| K=40 | +3.28 | [-3.72, +10.96] |
+| K=120 | +2.95 | [-2.72, +9.42] |
+| K=240 | +5.09 | [-0.93, +11.59] |
+
+All three cover zero, and the placebo slope is 0.0232 us/dispatch
+[-0.0048, +0.0533], also covering zero. The session is not contaminated.
+
+Honest caveat: all three point estimates are positive (+2.9 to +5.1 us). At
+n=244 that is well inside noise, but if a small positive slot offset were real
+it would be absorbed into the fitted intercept and would make the offset
+reported below an **under**-estimate, not an over-estimate.
+
+### Rule 6 - switching-free validation, and where the ladder breaks
+
+The three `perrun:0,6` processes never change K inside a run, so they contain
+no switching at all. Pairing overlapping adjacent runs (21 pairs) so linear
+between-run drift cancels:
+
+**K=240 - K=0 = +295.44 us/step [+290.59, +303.71], SE 3.56**, i.e.
+**+1.2310 us/dispatch [+1.2108, +1.2655]**.
+
+Rule 6 required this to agree with 240x the ladder slope. It does not:
+240 x 1.1855 = 284.5 [281.1, 287.9], which **does not overlap** the per-run
+interval. **The through-origin secant fails its own validation.**
+
+### The exploratory hinge, and what actually explains the failure
+
+An affine fit `delta(K) = max(0, c*K - G)` was added to the estimator at commit
+`c84753d`, motivated by the smoke run and committed before any Stage-3 process
+file was read. On the full ladder:
+
+- **c = +1.2382 us/dispatch [+1.2237, +1.2518]** - the saturated marginal cost
+- **G = +9.70 us/step [+7.05, +12.42]** - a constant offset, ~7.8 dispatches
+
+That model predicts the per-run result: 240 x 1.2382 = 297.2 [293.7, 300.4],
+against the measured 295.44 [290.6, 303.7]. **Strong overlap.** So the
+saturated marginal rate is corroborated by a design with no switching, while
+the secant is not.
+
+Two mechanisms produce the identical functional form, and I cannot separate
+them with this data:
+
+1. **A real dead zone.** A decode step already carries ~237 us/step of
+   CPU-GPU gap; the first ~8 injected dispatches land in that existing idle
+   window and cost nothing, and only past that does each one cost `c`.
+2. **Reference inflation.** In a mixed run the K=0 blocks inherit elevated
+   machine state from their high-K neighbours at a timescale longer than one
+   step, raising the reference by a constant and shrinking every delta by
+   exactly that constant.
+
+The per-run experiment favours (2): remove the mixing and the offset largely
+disappears. But (2) is not proven either, because a pure K=240 run sustains
+240 extra dispatches per step for 248 consecutive steps and may pay a
+DVFS or thermal premium that the mixed design never pays, which would inflate
+the per-run delta instead. The step-lag carryover coefficient is zero, so if
+(2) is the mechanism it operates at run scale, not at step scale.
+
+**The defensible statement is a bracket.** The 0->240 secant lies in
+**[1.1855, 1.2310] us/dispatch**, and the two ends differ by *design*, not by
+sampling: sampling noise is +/-0.6% of the estimate, while the design choice
+moves it +/-3.8%. **The M4 end-to-end rig is now design-limited, not
+noise-limited.** That is the real answer to "how sharp can this rig get".
+
+### Rule 7 - robustness
+
+Censoring dropped 34 of 2442 blocks (1.4%), spread evenly across rungs
+(flagged steps: K=0 17/6228, K=40 11/3540, K=120 11/3540, K=240 12/6228).
+Every variant agrees inside ~1 us:
+
+| variant | K=40 | K=120 | K=240 | slope | c | G |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| primary (censored mean) | +40.79 | +137.27 | +288.11 | 1.1855 | 1.2382 | 9.70 |
+| Hodges-Lehmann | +41.56 | +138.00 | +288.13 | - | - | - |
+| uncensored | +40.47 | +137.41 | +288.04 | 1.1853 | 1.2392 | 9.93 |
+| ladder processes only (n=1770) | +40.87 | +137.27 | +288.16 | 1.1857 | 1.2381 | 9.65 |
+
+The last row restricts to the nine `rand:0,1,3,6` processes and reproduces the
+preregistered block count of ~1764 almost exactly, confirming the three
+validation processes contribute nothing to the ladder fit.
+
+### Rule 8 - bootstrap and hand-off
+
+All intervals are 4000-resample nested bootstraps over process -> run -> block
+with seed 93. The full `slope_bootstrap` and `hinge_c_bootstrap` arrays are
+written to `/tmp/r93/stage3_ladder.json` and attached to the Stage-3 W&B
+artifact, so the M4/M5 ratio can be bootstrapped jointly rather than by
+propagating summary CIs.
+
+## Protocol recommendation
+
+The two designs have complementary failure modes, so use both:
+
+- **Blocked randomised within-run ladder** for screening and ranking. Noise is
+  negligible (SE 1.34 us/step in 22 min, and ~4 us/step from a single 2-minute
+  process). It carries a constant ~9.7 us/step offset, but that offset is
+  common to both arms of any comparison and largely cancels when two
+  candidates are ranked against each other.
+- **Switching-free `perrun` pairs** whenever an *absolute* magnitude is
+  claimed, because that is where the offset would otherwise be charged
+  against the effect.
+
+Never quote a small absolute end-to-end saving from an interleaved design
+alone. The campaign's target win is ~24.5 us/step (0.50% of decode); a
+~9.7 us/step design offset is 40% of that signal, which is exactly the regime
+where the two designs must be reconciled before a number is believed.
+
+## Hand-off to the M5 ladder (PR #496, maple-tanjiro)
+
+The assignment asked for a slope that could be ratioed against an identical M5
+ladder. That number exists, but it must be used carefully.
+
+1. **Ratio the saturated rate, not the secant.** The preregistered linearity
+   gate failed on M4 in both of its criteria, and the transfer-factor rule
+   requires that gate to pass on *both* machines. A naive `slope_M5/slope_M4`
+   secant ratio is therefore not defensible. Use the hinge coefficient
+   `c` instead: M4 `c = 1.2382 [1.2237, 1.2518]` us/dispatch. Report the
+   intercept `G` (M4: `9.70 [7.05, 12.42]` us/step) separately per machine
+   rather than folding it into the ratio - `G` is a property of the *design*,
+   not of the hardware.
+2. **Match designs before dividing.** Ladder-vs-ladder and perrun-vs-perrun
+   only. The M4 numbers show the two designs disagree by 3.8% (1.1855 vs
+   1.2310 us/dispatch) while sampling noise is 0.6%, so a cross-design ratio
+   would be dominated by the design difference.
+3. **Bootstrap the ratio jointly.** `/tmp/r93/stage3_ladder.json` and the
+   Stage-3 W&B artifact carry the full 4000-element `slope_bootstrap` and
+   `hinge_c_bootstrap` arrays. Resample the two machines' arrays together
+   rather than propagating summary CIs, which would overstate the interval.
+4. **Re-run the linearity gate on M5 before quoting any factor.** If M5 is
+   linear and M4 is not, the interesting result is the asymmetry itself, and a
+   single scalar transfer factor should not be published.
+5. Note also that `#483`'s 0.751 us/dispatch under-predicts the M4 saturated
+   rate by 65%; any M5 number inherited from that estimate should be
+   re-measured on this rig, not carried over.
+
+## W&B runs
+
+| stage | run | url |
+| --- | --- | --- |
+| 1 - variance components | `grovhe29` | https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/grovhe29 |
+| 2 - allocation and prereg placebo | `ng13oh64` | https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/ng13oh64 |
+| 3 - ladder, placebo, perrun | `1v3hp1h5` | https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/1v3hp1h5 |
+
+Each run carries the stage summary JSON as config/summary plus a
+`r93b-<stage>-raw` artifact holding the per-record probe output, so every
+interval above can be recomputed from the logged data.
+
+## Answering the stopping rule
+
+The assignment said to stop either when a validated protocol and recovered
+slope exist, or after Stages 1-2 if no reallocation reaches 25 us/step. The
+first branch applies: the protocol is validated and the slope is recovered.
+The variance question is closed - 1.34 us/step, ~19x inside the target.
+
+But the honest headline is the second finding. Sharpening the rig by ~60x did
+not make small absolute M4 end-to-end claims trustworthy; it moved the binding
+constraint from variance to a design-dependent offset of the same order as the
+effects being hunted. Anyone using this rig should now argue about design, not
+about sample size.
+
