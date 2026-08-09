@@ -165,6 +165,7 @@ explanation, which is worth more than another inconclusive tweak.
 |---|---|---|---|---|---|---|
 | 2026-08-09T13:21:12Z | baseline A (M4, local) | — | 0.0130002975234375 | 0.00113808170703125 | 0 | unchanged base @ `61c8763` |
 | 2026-08-09T13:31:20Z | rung 1 candidate (M4, local) | — | 0.0129596627578125 | 0.001121568765625 | 0 | depth-4 staging @ `0ff6d26` |
+| 2026-08-09T13:39:40Z | revert control B (M4, local) | — | 0.01295040690625 | 0.001112815509765625 | 0 | base kernel again, bracketing the candidate |
 
 ### 5.1 Reading the M4 rung-1 screen
 
@@ -212,3 +213,44 @@ prefill kernels the ranked M5 uses — and the oracle is named
 `lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled`. The argmax still matches,
 so no token changes. This is the "test the unchanged base" case from AGENTS.md,
 resolved by measurement rather than by assumption, and it did not cost a receipt.
+
+### 5.3 The revert control kills the local M4 reading outright
+
+`research/fern-r98d-compare.py` over the three bracketing runs:
+
+```
+base A  13:21:12  61c8763  decode 0.0130002975  prefill 0.001138082
+cand    13:31:20  0ff6d26  decode 0.0129596628  prefill 0.001121569
+base B  13:39:40  a78c43c  decode 0.0129504069  prefill 0.001112816   (base kernel again)
+
+cand - base mean  = -15.7 us/token (-0.121 %)
+base B - base A   = -49.9 us/token (-0.384 %)   <- identical code, both legs
+prefill B - A     = -2.22 %                     <- must be exactly 0 by construction
+```
+
+**The control-only spread between two runs of identical code is −49.9 µs/token,
+three times the candidate's apparent −15.7 µs/token effect**, and both decode and
+prefill drift monotonically downward with wall-clock across all three runs. That
+is a warm-up/thermal trend, not code.
+
+My preregistered advance threshold was "≥ 15 µs/step versus the contemporaneous
+control". The candidate nominally clears it at −15.7 µs — and I am **not** going to
+claim that, because the control leg proves the threshold was set below this host's
+own drift. The honest statement is that **the M4 screen has no resolving power for
+this effect**; the threshold was mis-set, and the control is what revealed it. This
+is precisely why the revert leg was preregistered as non-optional.
+
+The screen's remaining value is unchanged and is the value it was designed for:
+bit-exact (`max_abs_diff = 0`, all decode oracle steps exactly 0), correctness
+passing, and **no regression** — a badly spilling kernel would have shown up well
+outside a 50 µs/token band.
+
+### 5.4 Decision: spend receipt 1 on M5
+
+Local evidence cannot settle H-D and, per §2.4, was never going to: M4 is already
+at 91 % of its roofline at this site. The M5 receipt is the right instrument
+because it is **self-paired** — candidate and baseline run back to back in one
+session behind the same 40 C thermal gate — so it does not inherit the
+cross-session drift that just swamped the local screen. Risk is bounded: the
+change is bit-exact and shows no regression, so the downside is one receipt, not a
+broken submission. Receipts spent so far: 0 of 6.
