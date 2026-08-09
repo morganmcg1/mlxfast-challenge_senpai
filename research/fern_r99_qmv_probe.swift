@@ -393,6 +393,13 @@ let reps = intVal("FERN_REPS", 100)
 // Printed before any A/B number so a reader can see which side of the roofline
 // the measurement lives on before being shown a delta.  `achieved_GB_s` above
 // `dram_peak_GB_s` is direct proof that the round was served from cache.
+//
+// `slc_fit` (capacity) and `regime` (bandwidth saturation) are deliberately
+// separate columns: a working set can fit the SLC and still be served at DRAM
+// rate, and the two facts license different conclusions.
+
+for a in [reference] + variants { _ = perCallMicros(a.pipe, tg: 512, reps: 20) }
+for tg in ladder { _ = perCallMicros(reference.pipe, tg: tg, reps: reps) }
 
 print("\n=== memory regime (P1.1) ===")
 print("  defeat slots          \(defeatSlots)\(defeatSlots == 1 ? "  (r99 resident binding)" : "")")
@@ -403,33 +410,35 @@ print("  output_width          \(kOutputWidth)")
 print("  dram_peak_GB_s        \(dramPeakGBs)  (measured, rule 55)")
 print("  slc_estimate_B        \(slcEstimateBytes)  (M4-Pro-class, label only)")
 print(
-    "    TG   rows   uniq_MiB   req_MiB/round   amplif   ref_us   achieved_GB_s   unique_GB_s   regime"
+    "    TG   rows   uniq_MiB   req_MiB/round   amplif   ref_us   achieved_GB_s   pct_peak   unique_GB_s   slc_fit   regime"
 )
 for tg in ladder {
     let uniq = uniqueBytesPerRound(tg, reps: reps)
     let req = requestedBytesPerDispatch(tg) * reps
-    let t = perCallMicros(reference.pipe, tg: tg, reps: reps)
+    var t = Double.greatestFiniteMagnitude
+    for _ in 0..<3 { t = min(t, perCallMicros(reference.pipe, tg: tg, reps: reps)) }
     let roundSeconds = t * Double(reps) * 1e-6
     let achieved = Double(req) / roundSeconds / 1e9
     let unique = Double(uniq) / roundSeconds / 1e9
+    let pctPeak = 100.0 * achieved / dramPeakGBs
     let regime: String
     if achieved > dramPeakGBs {
-        regime = "CACHE_SERVED(>peak)"
-    } else if uniq <= slcEstimateBytes {
-        regime = "FITS_SLC"
-    } else if achieved > 0.5 * dramPeakGBs {
-        regime = "DRAM_BOUND"
+        regime = "CACHE_SERVED"
+    } else if pctPeak >= 80.0 {
+        regime = "SATURATED"
+    } else if pctPeak >= 40.0 {
+        regime = "PARTIAL"
     } else {
-        regime = "COMPUTE_BOUND"
+        regime = "UNSATURATED"
     }
     print(
         String(
-            format: "  %4d   %4d   %8.2f   %13.2f   %6.1f   %6.2f   %13.1f   %11.1f   %@",
+            format:
+                "  %4d   %4d   %8.2f   %13.2f   %6.1f   %6.2f   %13.1f   %8.1f   %11.1f   %7@   %@",
             tg, rowsCovered(tg), Double(uniq) / 1048576.0, Double(req) / 1048576.0,
-            Double(req) / Double(uniq), t, achieved, unique, regime as NSString))
+            Double(req) / Double(uniq), t, achieved, pctPeak, unique,
+            (uniq <= slcEstimateBytes ? "yes" : "no") as NSString, regime as NSString))
 }
-
-for a in [reference] + variants { _ = perCallMicros(a.pipe, tg: 512, reps: 20) }
 
 print(
     "\n=== paired per-call cost, \(rounds) alternating rounds of \(reps) dispatches ==="
@@ -440,7 +449,7 @@ print("spread = max-min of the per-round deltas.")
 for v in variants {
     print("\n--- \(v.label)  vs reference \(reference.label) ---")
     print(
-        "    TG  TG/core    ref_min    var_min    d_mean     d_sd    d_min    d_max   spread    d%_ref"
+        "    TG  TG/core    ref_min    var_min    d_mean     d_sd    d_min    d_max   spread    d%_ref    t_paired"
     )
     var perRound: [Int: [Double]] = [:]
     for tg in ladder {
@@ -468,12 +477,13 @@ for v in variants {
             .squareRoot()
         let lo = deltas.min()!
         let hi = deltas.max()!
+        let tPaired = sd > 0 ? mean / (sd / n.squareRoot()) : 0
         print(
             String(
                 format:
-                    "  %4d   %6.2f   %8.2f   %8.2f   %+7.3f   %6.3f   %+6.2f   %+6.2f   %6.2f   %+7.3f",
+                    "  %4d   %6.2f   %8.2f   %8.2f   %+7.3f   %6.3f   %+6.2f   %+6.2f   %6.2f   %+7.3f   %+9.2f",
                 tg, Double(tg) / Double(max(cores, 1)), refMin, varMin, mean, sd, lo,
-                hi, hi - lo, 100.0 * mean / (refMin > 0 ? refMin : 1)))
+                hi, hi - lo, 100.0 * mean / (refMin > 0 ? refMin : 1), tPaired))
     }
     for tg in ladder {
         let s = perRound[tg]!.map { String(format: "%+.2f", $0) }.joined(separator: " ")
