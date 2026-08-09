@@ -977,6 +977,176 @@ standing qualifiers from § 1.12 A7 (M4 ≠ M5 architecture, `_nax` unreachable
 here, sum-masking) attach to every X I report.
 
 
+## § 1.14 Amendment `r103-a-fb4-tanjiro-572-merged` — one mechanism per leg, B↔C needs no rebuild, and A↔B is two-wave on M4
+
+Advisor comment 5234299936 (2026-08-09T23:02:27Z) arrived after rung 1 had
+finished executing and before rung 2 was launched. It reports that
+maple-tanjiro's PR #572 was merged at `ff87caf8` as
+`research/maple-tanjiro-r103b-kernel-text-differential.md`. That is a *static*
+kernel-text differential over the same OLD→NEW interval I am timing, so it is
+the strongest possible complement to this arm: it tells me what changed, and I
+am measuring whether it costs anything. Six things it establishes, and what
+each one does to my design.
+
+### 1.14.1 Each leg is exactly one mechanism — the factorisation is now verified, not assumed
+
+Tanjiro dumped every JIT Metal library at all three revisions. **101 of 103 are
+byte-identical OLD vs NEW.** The two that differ are exactly the two mechanisms
+I split on:
+
+- **OLD→MID (#565)** is *one* semantic MSL edit, at line 1280 of the fused
+  sliding-attention kernel:
+  `for (; i + BN < N; i += 2*BN)` → `for (; i + 3*BN < N; i += 4*BN)`,
+  with `pipe_c`/`pipe_d` added in strict `a→b→c→d` order. Bit-exact. **No env
+  guard**, which is why arm A has to be a separate binary.
+- **MID→NEW (#558)** is the router weight prefetch hoisted outside the
+  active-simdgroup guard.
+
+Dispatch count is **408 per decode step at every revision**, and there are
+**zero non-equal opcodes across 11,247 compared rows**. So neither leg adds or
+removes a dispatch; both are strictly *intra-kernel* edits.
+
+This is a direct, independent confirmation of my § 2.3/§ 2.5 static read, and
+it upgrades my three-arm split from "I believe A→B and B→C are separable" to
+"the compiled corpus says they are." It also kills the whole family of
+alternative explanations that would have required a dispatch-count or
+scheduling change: with 408 dispatches everywhere, any real ΔT has to be
+*inside* one of those two kernels.
+
+It also means my rung-1 A→C measurement is the *sum of exactly two* mechanisms,
+not of an unknown number. That makes the additivity check in rung 2
+(`A→B` + `B→C` ≈ `A→C`) a genuine consistency test rather than a formality.
+
+### 1.14.2 🔴 B↔C needs no rebuild, and the advisor wants it interleaved
+
+`DARKBLOOM_ROUTER_WEIGHT_PREFETCH=0` on the NEW binary reproduces MID's whole
+103-library corpus bit-for-bit. So B and C are the *same binary* under two env
+values, and B↔C can be run as an interleaved paired contrast inside one
+matched block. The advisor's stated reason: the archive's within-process σ is
+≈ 19.5 against ≈ 48 cross-process, i.e. roughly a **2.5× tightening**.
+
+I have to be precise about what I can and cannot take from that. § 2.6.7 of
+this document already established, from `LagunaRuntimeModel.swift:686-704`,
+that `lagunaRouterWeightPrefetch` is a **process-once `let`** read from
+`ProcessInfo`. There is no way to toggle it *within* a process, so I cannot
+collect the within-process σ ≈ 19.5 that the advisor is quoting; that figure
+comes from designs where both arms live in one process. What I *can* do — and
+what rung 2 does — is put B and C in the **same matched block, adjacent in the
+rotation, running the identical binary**, so the contrast is free of every
+build-side and metallib-side nuisance term and differs only in one `ProcessInfo`
+read. That is the strongest form available to me without editing the runtime,
+and editing the runtime is out of scope for a zero-submitted-bytes arm.
+
+Concretely: rung 2 keeps `A` on the `old` snapshot and puts `B` and `C` on the
+**same** `new` snapshot binary with `DARKBLOOM_ROUTER_WEIGHT_PREFETCH=0` and
+`=1` respectively. G2.1 (§ 3.5) verifies by trace that the two env values
+really do select `pf0` and `pf1`.
+
+### 1.14.3 ⚠️ A↔B is structurally uninformative on M4 — two waves versus one
+
+Both fused-attention kernels dispatch exactly **32 threadgroups**. On this
+20-GPU-core M4 Pro that is **two waves**; on a ≥32-core ranked host it is
+**one**. A software-pipeline depth change alters how much latency each
+threadgroup can hide, and a second wave changes what there is to hide it
+behind. So an M4 A↔B number measures the mechanism *on a two-wave occupancy*,
+which is not the ranked host's regime.
+
+Tanjiro cancelled his own preregistered M4 A/B at 6 legs (K = 3 of 16) for
+exactly this reason and claimed nothing from it. The advisor gives me two
+options: cancel the A↔B leg, or **re-scope it as a mechanism measurement** with
+a mandatory wave caveat stated either way.
+
+**Decision: re-scope, do not cancel.** Reasons, in order of weight.
+
+1. The A↔B slots are **already paid for**. Rung 2's rotation needs three arms
+   to give me B↔C with a per-arm null and full position balance; dropping A
+   would not save the block, it would just shrink it to a 2-arm design whose
+   nulls are weaker. The marginal cost of keeping A is one slot per rep.
+2. Rung 1 has already measured **A→C = +27.84 µs/step [+18.69, +36.99]** on
+   this host with a quiet null. That composite number is *already* published
+   evidence in this document. Refusing to decompose it would leave a measured
+   regression attributed to "one of two mechanisms, unknown which", which is
+   strictly worse for the advisor than a decomposition with a caveat.
+3. The caveat is cheap and I can state it exactly: **any A↔B number I report
+   describes the depth-4 pipeline at 2-wave occupancy on 20 cores and is not
+   transferable to the 1-wave ranked host, in magnitude or in sign.** That
+   sentence attaches to every A↔B figure below, including a null one.
+
+What I will *not* do is use an M4 A↔B result to rank the two mechanisms for
+the ranked host, or to recommend reverting #565. Those are exactly the claims
+the wave argument forbids.
+
+### 1.14.4 The sign contradiction — PR #103 says depth 4 was *faster* on M4
+
+`research/RESEARCH_ARCHIVE_through-round-91.md:4894-4896` (PR #103) reports, on
+M4, attention pipeline **depth 4 = −1.039 % (faster)**, depth 8 = +0.485 %,
+against a ±0.73 % noise floor. The M5 receipt pair puts the depth-4 tree at
+**+20.15 µs/step (+0.30 %) worse**. And **no depth has ever been measured on
+M5.** Round 104 is making that the flagship, going to another student.
+
+This is the single most important thing in fb4 for how I write up my result,
+because it is a *pre-registered prediction of the sign* of my A↔B leg:
+
+> If my M4 A↔B leg says the 4-deep pipeline is **faster**, that is consistent
+> with PR #103 and is **not** evidence about the ranked host.
+
+My own § 2.6.6 independently predicted a possible sign flip between M4 and M5
+from occupancy. Two independent routes to the same prediction means that if I
+observe A faster than B on M4, the *only* honest reading is "M4 and M5 disagree
+about this mechanism, as they have before" — not "#565 was fine" and not "#565
+was a regression that M4 confirms". I am writing that sentence into § 6 now, in
+advance, so it cannot be retro-fitted to whichever sign comes out.
+
+Note the arithmetic tension this creates with rung 1. Rung 1 measured
+A→C = **+27.84** (C slower). If A→B is *negative* on M4 (per PR #103), then by
+additivity B→C must be *more* positive than +27.84 — i.e. the router-prefetch
+peel would carry the whole regression and then some. If instead A→B is
+positive, the two mechanisms share it. Rung 2 resolves which, on this host.
+That is a real, decidable question, and it is the reason to run the block.
+
+### 1.14.5 Tooling available for a rung-3 census, and its one gotcha
+
+Tanjiro left reusable scripts in `research/r103b/scripts/`: an MSL dumper,
+`trace.patch`, `compare_msl.py`, `compare_dispatch.py`, `seqalign.py`. The
+gotcha he flags: his dumper hooks `Device::build_library_`, not
+`Device::get_library`, so it sees libraries at build time rather than at
+fetch time. Tracer output quota is 1,671,168 B.
+
+Under fb3's "do not grind" rule I am **not** launching a per-kernel census
+speculatively. If rung 2 lands a leg above the ≥ 33 µs/step decision-relevance
+bar, these scripts are the first thing I would reach for, and § 1.7a's rule-58
+reuse assessment should be re-done against them rather than against the older
+census scripts, because Tanjiro's are newer and already validated on this
+exact OLD/NEW pair.
+
+### 1.14.6 What fb4 does not change
+
+The advisor is explicit: *"Nothing here changes your base or your deliverable.
+fb3 still stands: do not rebase. Keep going."* So:
+
+- arms stay pinned at `30f752df` / `e17bdeb1`-equivalent / `0f6862d0`;
+- no rebase, no merge of the advisor branch;
+- zero submitted bytes, zero receipts;
+- fb3's stopping rule stands — n is preregistered, and I do not extend a block
+  to chase a half-width below ~8 µs/step;
+- fb3's decision-relevance scale stands — ≥ +0.5 % cs ≈ ≥ 33 µs/step on `T` is
+  where effort pays, and a ±20 µs/step contrast is decision-irrelevant *as a
+  chase target*.
+
+### 1.14.7 Blinding disclosure (e)
+
+Running the G2.1 reachability gate (§ 3.5) required executing each arm for 4
+decode steps, and `decode_probe.py` prints a summary line. I therefore saw four
+throwaway medians: A/unset 8.281 ms, A/`pf0` 8.305 ms, B/`pf0` 8.294 ms,
+C/`pf1` 8.381 ms. These are n = 1, 4 steps, unwarmed, and are not the
+instrument; the 4-step window is dominated by first-call effects that the
+250-step blocks discard. I record them because the disclosure rule is
+"everything I saw", not "everything I found persuasive". They were seen
+**after** every rung-2 threshold in § 1.5/§ 1.5c and the rung-2 design in
+§ 4.5 were already committed to git, so they cannot have shaped the design.
+
+
+
 ## § 2 Static pre-read of the OLD→NEW delta (no timing)
 
 This was completed before any build and it materially narrows N-4. Method: for
@@ -1401,6 +1571,40 @@ first-touch JIT compile cost differs between arms, which is exactly why § 1.5b
 carries `step0` and `mean_first128` as separate diagnostics and why the
 decision statistic is a median over steps 1…249.
 
+### 3.5 Gate G2.1 — the three arms really are three arms (reachability, rule 77)
+
+Before spending a 106-minute three-arm block I verified that each arm's control
+actually reaches the scored decode path, and that the two env-selected arms
+select different code. `DARKBLOOM_TRACE_FUSION=1` makes
+`LagunaRuntimeModel.swift:75-97` print each fusion site once; line 1219 prints
+the router variant as `residual+rmsnorm+router rpg<N> pf<P>`. Four probes at
+`--steps 4`, supervised job `17689829-eae6-4bd6-8d02-4bc95927ce21` (exit 0,
+170 s), outputs under `/tmp/maple-r103a/g21/`:
+
+| probe | binary | env | decode router trace | tokens |
+|---|---|---|---|---|
+| A / unset | `old` | — | `residual+rmsnorm+router rpg8` | 0 divergences |
+| A / pf0 | `old` | `…PREFETCH=0` | `residual+rmsnorm+router rpg8` | 0 divergences |
+| B | `new` | `…PREFETCH=0` | `residual+rmsnorm+router rpg8 pf0` | 0 divergences |
+| C | `new` | `…PREFETCH=1` | `residual+rmsnorm+router rpg8 pf1` | 0 divergences |
+
+**G2.1 PASS**, and it buys three separate things.
+
+1. **The env control reaches the scored path.** `pf0` and `pf1` are printed by
+   the decode-time router site, not by a prefill or fallback site, so the toggle
+   is a real dispatch difference on the timed path — the assignment's "a knob on
+   an unused fallback is not a timing experiment" requirement is met.
+2. **Arm A is inert to the flag.** `old` prints `rpg8` with *no* `pf` suffix
+   under both env states. That is the factorisation made visible: A predates the
+   prefetch mechanism entirely, so A's router is *definitionally* B's router,
+   and the A↔B leg cannot be contaminated by a router difference. This is the
+   runtime-side confirmation of § 1.14.1's static claim that OLD→MID is one
+   sliding-attention edit and nothing else.
+3. **Correctness holds on every arm.** All four probes teacher-force clean
+   against `correctness_prompts/public_longcopy_gate_english_512_256.json`.
+
+The throwaway 4-step medians these probes printed are disclosed in § 1.14.7.
+
 ## § 4 Rung 1 — paired ABBA e2e decode on M4
 
 ### 4.1 What was actually executed (provenance, recorded before unblinding)
@@ -1436,11 +1640,205 @@ Arm mapping to § 1.11's three-point frame: `old` = **A** (`30f752df`), `new` =
 which is exactly the "missing microseconds" question as originally posed. The
 A↔B / B↔C decomposition requires arm B and is deferred to rung 1B (§ 4.4).
 
-## § 5 Rung 2 — position-matched per-kernel census
+### 4.2 Gates first
 
-_Pending (gated on rung-1 outcome 1)._
+Job exit 0 after ≈ 4,600 s. All post-hoc integrity gates pass before any number
+below is allowed to mean anything.
 
-## § 6 Verdicts on N-1 … N-4
+| gate | result |
+|---|---|
+| **G0.2** correctness | **PASS** — 1 distinct token checksum across all 104 slots (`229303103`). Every arm produced byte-identical greedy output for all 250 steps. |
+| **rule 75** tree stability | **PASS** — `digest_before` = `digest_after` = `c3fafd30…d385f492`. |
+| **QC** (`p99/median ≤ 1.30`) | **PASS** — 0 of 104 slots rejected. |
+| **G0.5** metallib parity | **PASS** (§ 3.3), carried forward. |
+
+G0.2 is the load-bearing one. A speed difference between arms that also changed
+outputs would be worthless; 104 slots agreeing on a single checksum means the
++27.84 µs/step below is a pure cost difference at fixed behaviour.
+
+### 4.3 Result — the composed A→C regression reproduces on independent M4 hardware
+
+Decision statistic: per-slot **median of decode steps 1…249**, contrasts formed
+per repetition and then aggregated over K = 24 (§ 1.5, § 1.5a). OLD steady level
+is **8242.7 µs/step**.
+
+| contrast | K | mean Δ (µs/step) | 95 % CI | sign +/− |
+|---|---|---|---|---|
+| **`new − old` (A→C)** | 24 | **+27.84** | **[+18.69, +36.99]** | **24/24** |
+| `oldB − oldA` (null, sep 3) | 24 | −1.45 | [−5.62, +2.72] | 11/12 |
+| `oldA − old` | 24 | −2.10 | [−13.17, +8.96] | 14/10 |
+| `oldB − old` | 24 | −3.55 | [−13.16, +6.05] | 13/11 |
+
+**The CI excludes zero, and the sign is 24/24 — every single repetition put
+`new` slower than `old`.** Under the null of no effect a 24/24 sign split has
+probability 2⁻²³ ≈ 1.2 × 10⁻⁷. The identical-code null over the same 24 reps is
+quiet at −1.45 [−5.62, +2.72], i.e. the instrument is not manufacturing
+differences: it separates two copies of the *same* binary by −1.45 ± 4.17 and
+two *different* binaries by +27.84 ± 9.15.
+
+As a fraction of the OLD step this is **+0.3378 %**. The M5 receipt pair's
++20.149 µs/step on `T` is **+0.4865 %** of its own step.
+
+The result is stable across every statistic in the preregistered set:
+
+| statistic | Δ `new − old` | 95 % CI |
+|---|---|---|
+| median (decision) | +27.84 | [+18.69, +36.99] |
+| trimmed | +28.22 | [+17.99, +38.44] |
+| mean | +25.51 | [+13.45, +37.56] |
+| `mean_first128` (official-window analog) | +26.63 | [+9.81, +43.45] |
+| `step0` (diagnostic only) | −428 | ± 734 |
+
+`mean_first128` matters because the official decode axis is 128 steps, not 250.
+It agrees in sign and magnitude with a wider interval, as expected from a
+quarter of the data. `step0` is uninformative at this K, which is the
+preregistered expectation from § 1.5b — the one-time JIT/warm cost is large
+(≈ 1.3 ms) and its variance swamps a 28 µs effect.
+
+**Against the preregistered bars** (§ 1.5c, all in M4-equivalent µs/step):
+
+| bar | value | verdict |
+|---|---|---|
+| fixed-overhead transfer (×1.000) | 20.1 | CI **covers** |
+| **R1 decisional (÷0.622)** | **32.4** | **CI covers** |
+| proportional (÷0.505) | 39.9 | CI **entirely below** |
+| bandwidth-ratio (÷0.436) | 46.2 | CI **entirely below** |
+
+So the measured M4 effect is consistent with the M5 receipt delta under the
+fixed-overhead and R1 transfer models, and inconsistent with the two models
+that would require the effect to scale with M4's lower bandwidth. Transferring
+*back* to M5: ×0.622 gives **+17.3 µs/step**, proportional gives **+14.0**;
+both bracket the observed +20.149.
+
+**Preregistered verdict: OUTCOME 4, inconclusive-underpowered.** The half-width
+is 9.15 µs/step against fb2's < 8.0 target, so I am not entitled to call the
+localisation *precise*, and N-2 does not fire (the null is quiet) and N-5 does
+not fire (a contrast excludes zero). Note the asymmetry this creates and I
+should not paper over: the *existence* of a regression is established at
+p ≈ 10⁻⁷ by the sign test, while the *magnitude* is only pinned to ±9 µs/step.
+Those are different claims with different strengths.
+
+### 4.4 What this does and does not say about fb2's retracted target
+
+fb2 retracted the +20.149 µs/step figure as possibly pure noise: an
+identical-code M5 replicate gave sd(T) = 14.272, implying a two-receipt σ of
+17.1–20.2 and z = 1.00–1.18 for the observed delta. The advisor's point was
+that a single receipt pair cannot distinguish +20.149 from zero.
+
+Rung 1 is an *independent* test of the same hypothesis on different silicon
+with K = 24 pairings and a matched null, and it finds a same-signed effect of
+compatible magnitude. That is meaningful triangulation:
+
+- It is **not** a confirmation of the number 20.149. I measured a different
+  host, and my own CI is ±9.
+- It **is** evidence against "the M5 receipt delta was pure noise", because the
+  probability that two independent hosts both show a same-signed A→C regression
+  of compatible size by chance is much smaller than either alone. My M4 sign
+  test alone is 2⁻²³.
+- The most defensible joint statement: **the A→C interval contains a real
+  regression on M4 of +27.84 [+18.69, +36.99] µs/step, and the M5 receipt pair
+  is consistent with the same regression transferred at ×0.505–0.622.**
+
+Standing qualifiers (§ 1.12 A7) attach: M4 Pro reports Apple GPU generation 16
+and does not select `_nax`; the ranked M5 does. Nothing here is a prefill
+claim. And per § 1.14.3, this composed A→C figure does **not** license ranking
+the two constituent mechanisms — that needs rung 2, and even then the A↔B leg
+carries the two-wave caveat.
+
+### 4.4a Instrument characterisation, for whoever runs the next block
+
+These are the numbers a future arm should budget against, not results.
+
+**Per-arm slot-to-slot sd (median over reps):** `new` 26.71, `old` 24.93,
+`oldA` 6.29, `oldB` 6.02 µs/step. The *exterior* positions are four times
+quieter than the interior ones. That is a position effect, not an arm effect —
+see below.
+
+**Position diagnostic** (`/tmp/maple-r103a/posdiag.py`), mean level by slot
+position: pos1 8240.6, pos2 8258.2, pos3 8258.8, pos4 8242.9 µs/step. **The two
+interior slots run ≈ +17 µs/step hotter than the two exterior slots.** The
+palindrome is what saves the design: `old` and `new` each occupy {2,3} equally
+often and `oldA`/`oldB` each occupy {1,4} equally often, so the position effect
+cancels exactly in both the contrast and the null. Had I used a fixed
+(non-reversed) order, +17 µs/step of pure position artefact would have loaded
+directly onto a +28 µs/step effect. Per-cell sd confirms the interior slots are
+also the *noisy* ones: (pos2,`old`) 31.84 and (pos3,`new`) 32.89 versus
+(pos1,`oldA`) 2.53 and (pos1,`oldB`) 5.37.
+
+**Half-block stability:** reps 2–13 give +21.80 (sd 14.31), reps 14–25 give
++33.88 (sd 26.40); the difference is t ≈ 1.39, not significant. Pooled
+**s = 21.66** for the contrast against **s = 9.87** for the null.
+
+**Cost model.** ≈ 44.2 s per slot, of which ≈ 42.5 s is *model load*: 250 decode
+steps is ≈ 2.06 s and the 512-token seed forward is ≈ 0.55 s. Load dominates by
+20×. Two consequences: (i) per-slot cost is essentially irreducible without
+in-process arm switching, which § 2.6.7 shows is impossible for this control;
+(ii) **more steps per slot are nearly free**, so the natural way to buy
+precision is a longer decode window — except the public fixture caps at 256
+expected tokens, so 250 is already at the ceiling. Precision therefore has to
+come from more reps or from averaging repeated slots of the same arm, which is
+exactly what the rung-2 rotation does.
+
+### 4.5 Rung 2 design — three arms, rotated palindrome, preregistered n
+
+Committed to git before launch (commit `ea0286d`) and executed as supervised
+job `e5822dad-1107-408e-ac01-044e04ec4b29`:
+
+```
+SNAP=/tmp/maple-r103a-snap OUT=/tmp/maple-r103a/rung2 \
+DESIGN=rotate REPS=24 STEPS=250 WARMUP_REPS=3 \
+ARMS="A:old B:new:DARKBLOOM_ROUTER_WEIGHT_PREFETCH=0 C:new:DARKBLOOM_ROUTER_WEIGHT_PREFETCH=1" \
+ASSERT_DIFFER="old:new" ASSERT_SAME="" \
+  bash research/maple-frieren-r103a-abba.sh
+```
+
+Six slots per repetition. The order is a rotation-by-rep followed by its own
+mirror, so rep 0 is `A B C C B A`, rep 1 is `B C A A C B`, rep 2 is `C A B B A C`,
+cycling with period 3. Verified independently by `/tmp/maple-r103a/order-check.sh`
+before launch.
+
+Why this shape:
+
+- **All three legs in one matched block.** `A→B`, `B→C` and `A→C` come from the
+  same thermal state, the same session, the same rotation. Additivity
+  (`A→B` + `B→C` = `A→C`) then holds *exactly* by construction, so any deviation
+  is a bug in my arithmetic rather than a physical claim — and the A→C leg is
+  an internal replication of rung 1 at no extra cost.
+- **Every arm visits every position** over a 3-rep cycle, which kills the +17
+  µs/step interior/exterior artefact of § 4.4a for all three arms symmetrically
+  rather than only for the pair that happens to share positions.
+- **Each arm appears twice per rep**, so each contributes a rule-79
+  identical-code null at position separation 5, 3, or 1 depending on the
+  rotation phase — for free, and the analyzer now keys nulls on
+  `(arm, separation)` and never pools across lags (§ 1.12 A2). Rung 1 had a
+  single null at one lag; rung 2 has nine.
+- **Averaging the two slots of an arm** is the only precision lever available
+  given § 4.4a's cost model.
+- **B and C are the same binary**, per § 1.14.2, differing only in one
+  `ProcessInfo` read verified by G2.1.
+
+**Preregistered n: 24 reps, first 3 (one full rotation cycle) discarded as
+warm-up, K = 21 analysed** — a multiple of 3 so the rotation is balanced.
+≈ 6,365 s ≈ 106 min. Power: if two-slot averaging drops the contrast s from
+21.66 to ≈ 17, the half-width at n = 21 is ≈ 7.7 and meets fb2's < 8 target;
+if s stays at 21.66 it is ≈ 9.9 and misses. **Either way I stop at 21.** fb3 is
+explicit that I must not extend a block to chase a half-width, and § 1.13.4's
+table says a ±20–30 µs/step contrast is decision-irrelevant as a chase target,
+so buying the last 2 µs of half-width has no decision value.
+
+**Deliberately excluded: the `pf5` placement control.** § 2.6.7 established that
+`DARKBLOOM_ROUTER_WEIGHT_PREFETCH=5` is a documented placement variant whose
+difference from `1` isolates cross-barrier overlap from the peel itself, and it
+is bit-exact with arm 0. It would be a genuinely informative fourth arm. It
+would also make the block 8 slots per rep, ≈ 141 min, for a sub-mechanism split
+of a leg that is itself below the decision-relevance bar. That is grinding, and
+fb3 forbids it. Recorded as a follow-up in § 6 instead.
+
+## § 5 Rung 2 — three-arm rotated block, decomposing A→C into A→B and B→C
+
+_Executing. Design and preregistered n in § 4.5; results here._
+
+## § 6 Verdicts on N-1 … N-5
 
 _Pending._
 
