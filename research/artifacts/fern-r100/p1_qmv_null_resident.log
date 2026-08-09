@@ -1,0 +1,50 @@
+=== device ===
+name                  Apple M4 Pro
+architecture          applegpu_g16s
+gpu cores             20
+kernel                laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2
+mode                  NULL CONTROL
+
+=== pipeline reflection (register/occupancy gate) ===
+  arm                          lines   tgMemB   maxTotalThreads   execWidth
+  depth1_shipped     256        0              1024          32
+  NULL(depth1_shipped)     256        0              1024          32
+
+=== output equivalence gate (bitwise, vs reference) ===
+  TG=1024  reference re-run  diff      0 /  65536 bytes   (reference wrote   4096)
+  TG=1024  NULL(depth1_shipped)  diff      0 /  65536 bytes
+  TG=2048  reference re-run  diff      0 /  65536 bytes   (reference wrote   8192)
+  TG=2048  NULL(depth1_shipped)  diff      0 /  65536 bytes
+  VERDICT: all arms bitwise identical to the reference.
+
+=== memory regime (P1.1) ===
+  defeat slots          1  (r99 resident binding)
+  weight buffer         269484032 B
+  scale buffer          16781440 B
+  routed winners        [39, 88, 99, 110, 114, 184, 216, 239]
+  output_width          512
+  dram_peak_GB_s        266.3  (measured, rule 55)
+  slc_estimate_B        25165824  (M4-Pro-class, label only)
+    TG   rows   uniq_MiB   req_MiB/round   amplif   ref_us   achieved_GB_s   pct_peak   unique_GB_s   slc_fit   regime
+   128     32       0.54          268.37    500.0     4.58           122.8       46.1           0.2   yes   PARTIAL
+   256     64       1.07          534.24    500.0     6.82           164.4       61.7           0.3   yes   PARTIAL
+   512    128       2.13         1065.98    500.0    10.66           209.7       78.7           0.4   yes   PARTIAL
+  1024    256       4.26         2129.46    500.0    19.90           224.4       84.3           0.4   yes   SATURATED
+  2048    512       8.51         4256.41    500.0    36.18           246.7       92.7           0.5   yes   SATURATED
+
+=== paired per-call cost, 21 alternating rounds of 500 dispatches ===
+delta = variant - reference within a round, so drift cancels. neg = faster.
+spread = max-min of the per-round deltas.
+
+--- NULL(depth1_shipped)  vs reference depth1_shipped ---
+    TG  TG/core    ref_min    var_min    d_mean     d_sd    d_min    d_max   spread    d%_ref    t_paired
+   128     6.40       4.46       4.46    -0.021    0.014    -0.04    +0.02     0.06    -0.470       -6.73
+   256    12.80       6.73       6.79    -0.005    0.028    -0.05    +0.09     0.14    -0.076       -0.84
+   512    25.60      10.58      10.55    -0.039    0.023    -0.07    +0.01     0.08    -0.370       -7.89
+  1024    51.20      18.41      18.37    -0.036    0.024    -0.08    +0.00     0.08    -0.196       -6.92
+  2048   102.40      34.06      33.98    -0.182    0.447    -2.11    +0.03     2.14    -0.534       -1.86
+  per-round delta TG=128: -0.02 -0.02 -0.02 -0.02 -0.01 -0.03 -0.02 -0.01 -0.02 -0.01 -0.02 -0.00 -0.03 -0.03 +0.02 -0.04 -0.01 -0.04 -0.01 -0.04 -0.03
+  per-round delta TG=256: +0.09 +0.00 -0.01 -0.02 +0.01 -0.02 -0.05 +0.03 -0.00 -0.02 -0.01 -0.03 -0.03 -0.01 -0.02 +0.01 -0.01 -0.01 +0.01 -0.02 -0.01
+  per-round delta TG=512: -0.04 -0.07 -0.05 -0.06 -0.01 -0.03 -0.04 -0.07 -0.07 -0.04 +0.00 -0.02 -0.04 -0.05 -0.03 -0.03 +0.01 -0.04 -0.03 -0.04 -0.07
+  per-round delta TG=1024: -0.02 -0.07 -0.05 -0.01 -0.04 -0.05 -0.01 -0.02 -0.08 -0.04 +0.00 -0.02 -0.04 -0.03 -0.08 -0.07 -0.04 -0.00 -0.03 -0.02 -0.04
+  per-round delta TG=2048: -0.10 -0.17 -0.06 -0.09 -0.09 -2.11 -0.11 -0.01 +0.01 -0.16 -0.23 -0.08 -0.07 -0.11 -0.14 -0.11 -0.03 -0.02 -0.12 -0.04 +0.03

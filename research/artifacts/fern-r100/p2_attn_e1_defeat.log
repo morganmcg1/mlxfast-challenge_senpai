@@ -1,0 +1,74 @@
+=== device ===
+name                  Apple M4 Pro
+architecture          applegpu_g16s
+gpu cores             20
+kernel                laguna_sliding_fused_attn_ring_v1
+mode                  NULL CONTROL (base vs itself)
+
+=== pipeline properties (register/occupancy gate) ===
+  arm            srcLines   tgMemB   maxTotalThreads   execWidth   source
+  BASE       285    18432              1024          32   Sources/MLXFastModel/LagunaRuntimeModel.swift
+  NULL(BASE)       285    18432              1024          32   Sources/MLXFastModel/LagunaRuntimeModel.swift
+
+=== memory regime (P1.1) ===
+  defeat slots          64
+  cache copies          12
+  k_cache buffer        201326592 B
+  dram_peak_GB_s        266.3  (measured, rule 55)
+  slc_estimate_B        25165824  (M4-Pro-class, label only)
+     K  TG/core   kvheads   slots   uniq_MiB   req_MiB/round   amplif   base_us   achieved_GB_s   pct_peak   slc_fit   regime
+     8     0.40         2      64      32.01          102.15      3.2      9.34            57.4       21.5   no   UNSATURATED
+    16     0.80         4      64      64.02          204.10      3.2      9.62           111.2       41.8   no   PARTIAL
+    20     1.00         5      64      80.03          255.08      3.2      9.91           134.9       50.7   no   PARTIAL
+    21     1.05         6      64      96.03          305.47      3.2     20.00            80.1       30.1   no   UNSATURATED
+    24     1.20         6      64      96.03          306.05      3.2     19.61            81.8       30.7   no   UNSATURATED
+    32     1.60         8      64     128.04          408.01      3.2     19.57           109.3       41.0   no   PARTIAL
+    40     2.00        10      64     160.05          509.96      3.2     20.28           131.8       49.5   no   PARTIAL
+    41     2.05        11      64     176.05          560.35      3.2     28.00           104.9       39.4   no   UNSATURATED
+    48     2.40        12      64     192.06          611.91      3.2     27.56           116.4       43.7   no   PARTIAL
+    56     2.80        14      64     224.07          713.87      3.2     28.00           133.7       50.2   no   PARTIAL
+    60     3.00        15      64     240.07          764.84      3.2     28.38           141.3       53.1   no   PARTIAL
+    61     3.05        16      64     256.08          815.23      3.2     36.05           118.6       44.5   no   PARTIAL
+    64     3.20        16      64     256.08          815.82      3.2     34.47           124.1       46.6   no   PARTIAL
+    80     4.00        20      64     320.10         1019.73      3.2     36.29           147.3       55.3   no   PARTIAL
+    96     4.80        24      64     384.12         1223.63      3.2     43.72           146.7       55.1   no   PARTIAL
+
+=== absolute cost ladder, best of 21 rounds of 200 dispatches (E1) ===
+phi(K) = t(2K)/t(K).  A threadgroup-doubling change pays only if phi < 2.
+t/K is the per-threadgroup cost: flat means work-limited, falling means
+the added threadgroups are absorbed by idle cores.
+     K  TG/core   base_us     t/K_us   phi(K)=t(2K)/t(K)
+     8     0.40      9.33     1.1663   1.0274
+    16     0.80      9.59     0.5991   1.9942
+    20     1.00      9.90     0.4948   2.0429
+    21     1.05     20.02     0.9535   -
+    24     1.20     19.07     0.7945   1.4353
+    32     1.60     19.12     0.5973   1.8040
+    40     2.00     20.21     0.5054   1.7555
+    41     2.05     28.08     0.6849   -
+    48     2.40     27.37     0.5702   1.5794
+    56     2.80     27.80     0.4963   -
+    60     3.00     28.03     0.4671   -
+    61     3.05     35.40     0.5804   -
+    64     3.20     34.48     0.5388   -
+    80     4.00     35.49     0.4436   -
+    96     4.80     43.22     0.4503   -
+
+=== paired per-call cost, 21 alternating rounds of 200 dispatches ===
+delta = second arm - base within a round, so drift cancels. neg = faster.
+     K  TG/core   base_min   cand_min    d_mean    d_sd   spread   t_paired        %
+     8     0.40       9.31       9.32    -0.008   0.026     0.10      -1.33    -0.082
+    16     0.80       9.56       9.57    +0.014   0.033     0.13      +1.92    +0.143
+    20     1.00       9.92       9.92    +0.016   0.040     0.19      +1.81    +0.159
+    21     1.05      19.81      20.05    +0.136   0.227     0.74      +2.75    +0.685
+    24     1.20      19.53      19.39    -0.108   0.086     0.39      -5.78    -0.555
+    32     1.60      19.48      19.72    +0.116   0.127     0.57      +4.19    +0.598
+    40     2.00      20.10      20.08    -0.034   0.149     0.60      -1.03    -0.167
+    41     2.05      26.13      26.85    +0.071   0.352     1.47      +0.92    +0.270
+    48     2.40      26.13      26.17    +0.033   0.470     1.78      +0.32    +0.126
+    56     2.80      27.70      27.40    +0.011   0.263     1.02      +0.20    +0.041
+    60     3.00      28.25      28.26    +0.019   0.149     0.59      +0.57    +0.066
+    61     3.05      35.91      36.03    +0.059   0.203     0.81      +1.32    +0.163
+    64     3.20      35.38      35.39    +0.010   0.157     0.58      +0.29    +0.028
+    80     4.00      36.37      36.43    +0.019   0.096     0.38      +0.91    +0.052
+    96     4.80      43.89      43.79    -0.021   0.096     0.30      -1.02    -0.049

@@ -1,0 +1,28 @@
+=== device ===
+name                  Apple M4 Pro
+architecture          applegpu_g16s
+gpu cores             20
+kernel                laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2
+mode                  NULL CONTROL
+
+=== pipeline reflection (register/occupancy gate) ===
+  arm                          lines   tgMemB   maxTotalThreads   execWidth
+  depth1_shipped     256        0              1024          32
+  NULL(depth1_shipped)     256        0              1024          32
+
+=== paired per-call cost, 21 alternating rounds of 500 dispatches ===
+delta = variant - reference within a round, so drift cancels. neg = faster.
+spread = max-min of the per-round deltas.
+
+--- NULL(depth1_shipped)  vs reference depth1_shipped ---
+    TG  TG/core    ref_min    var_min    d_mean     d_sd    d_min    d_max   spread    d%_ref
+   128     6.40       4.57       4.56    -0.396    1.567    -7.07    +0.31     7.37    -8.655
+   256    12.80       6.81       6.81    +0.028    0.125    -0.03    +0.40     0.44    +0.405
+   512    25.60      10.69      10.63    -0.069    0.064    -0.19    +0.04     0.24    -0.644
+  1024    51.20      21.38      21.35    -0.030    0.141    -0.33    +0.19     0.52    -0.138
+  2048   102.40      33.99      36.51    +0.131    0.592    -0.19    +2.54     2.72    +0.386
+  per-round delta TG=128: -7.07 +0.30 -1.41 -0.05 +0.03 +0.06 +0.02 -0.00 -0.23 -0.04 -0.02 +0.10 -0.00 -0.08 +0.31 -0.04 -0.15 -0.36 -0.05 +0.08 +0.30
+  per-round delta TG=256: +0.04 +0.40 -0.03 +0.40 -0.01 +0.01 -0.02 -0.03 -0.02 +0.00 -0.03 -0.02 -0.02 +0.00 +0.00 -0.03 -0.02 -0.02 +0.01 -0.02 -0.03
+  per-round delta TG=512: -0.04 -0.02 -0.14 -0.12 -0.03 +0.01 +0.04 -0.01 -0.07 -0.12 -0.11 -0.02 -0.16 -0.06 -0.14 -0.02 -0.09 -0.07 -0.19 +0.02 -0.10
+  per-round delta TG=1024: -0.08 -0.02 +0.00 -0.09 -0.11 -0.17 +0.10 +0.08 -0.04 -0.14 -0.33 +0.04 +0.17 +0.00 -0.18 -0.16 +0.06 +0.13 +0.19 +0.13 -0.22
+  per-round delta TG=2048: -0.07 -0.11 -0.02 +0.05 -0.07 +0.01 -0.07 +0.05 +0.01 -0.19 -0.12 -0.01 +0.07 +0.10 -0.09 +0.91 +2.54 -0.03 -0.06 -0.08 -0.04
