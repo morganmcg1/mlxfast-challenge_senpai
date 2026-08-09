@@ -2854,6 +2854,143 @@ func lagunaNativeAffineWeight(
     )
 }
 
+private let lagunaQKVScalePaletteAuditEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_QKV_SCALE_PALETTE_AUDIT"] == "1"
+
+private final class LagunaQKVScalePaletteAudit: @unchecked Sendable {
+    private let lock = NSLock()
+    private var histogram = [Int](repeating: 0, count: 17)
+    private var totalRows = 0
+    private var reachedLayers: Set<Int> = []
+
+    func census(
+        scales: MLXArray,
+        layer: Int,
+        heads: Int,
+        qRows: Int,
+        kRows: Int,
+        vRows: Int
+    ) {
+        let rows = qRows + kRows + vRows
+        precondition(scales.dtype == .uint8 && scales.shape == [rows, 128])
+        eval(scales)
+        let bytes = scales.asArray(UInt8.self)
+        precondition(bytes.count == rows * 128)
+
+        var localHistogram = [Int](repeating: 0, count: 17)
+        var bankMaxima = [Int](repeating: 0, count: 3)
+        var codeToIndex = [Int](repeating: -1, count: 256)
+        var palette = [UInt8](repeating: 0, count: 16)
+        var laneWords = [UInt16](repeating: 0, count: 32)
+        var usedCodes: [UInt8] = []
+        usedCodes.reserveCapacity(16)
+
+        for row in 0..<rows {
+            for code in usedCodes {
+                codeToIndex[Int(code)] = -1
+            }
+            usedCodes.removeAll(keepingCapacity: true)
+            for lane in laneWords.indices {
+                laneWords[lane] = 0
+            }
+
+            let base = row * 128
+            for position in 0..<128 {
+                let code = bytes[base + position]
+                var index = codeToIndex[Int(code)]
+                if index < 0 {
+                    guard usedCodes.count < 16 else {
+                        fatalError(
+                            "QKV scale palette premise failed: layer=\(layer) row=\(row) codes>16")
+                    }
+                    index = usedCodes.count
+                    usedCodes.append(code)
+                    palette[index] = code
+                    codeToIndex[Int(code)] = index
+                }
+                let lane = position & 31
+                let shift = (position >> 5) * 4
+                laneWords[lane] |= UInt16(index) << shift
+            }
+
+            for position in 0..<128 {
+                let lane = position & 31
+                let shift = (position >> 5) * 4
+                let index = Int((laneWords[lane] >> shift) & 0xf)
+                precondition(
+                    palette[index] == bytes[base + position],
+                    "QKV scale palette round-trip failed: layer=\(layer) row=\(row) position=\(position)")
+            }
+
+            let cardinality = usedCodes.count
+            localHistogram[cardinality] += 1
+            let bank = row < qRows ? 0 : (row < qRows + kRows ? 1 : 2)
+            bankMaxima[bank] = max(bankMaxima[bank], cardinality)
+        }
+
+        lock.lock()
+        totalRows += rows
+        for cardinality in histogram.indices {
+            histogram[cardinality] += localHistogram[cardinality]
+        }
+        let cumulativeRows = totalRows
+        let cumulativeHistogram = histogram
+        lock.unlock()
+
+        FileHandle.standardError.write(
+            Data(
+                ("mlxfast: QKV_SCALE_PALETTE_AUDIT census layer=\(layer) heads=\(heads) "
+                    + "rows=\(rows) qMax=\(bankMaxima[0]) kMax=\(bankMaxima[1]) "
+                    + "vMax=\(bankMaxima[2]) roundtrip=exact\n").utf8))
+
+        if layer == LagunaConstants.numHiddenLayers - 1 {
+            let threshold = (cumulativeRows * 95 + 99) / 100
+            var cumulative = 0
+            var p95 = 0
+            for cardinality in cumulativeHistogram.indices {
+                cumulative += cumulativeHistogram[cardinality]
+                if cumulative >= threshold {
+                    p95 = cardinality
+                    break
+                }
+            }
+            let histogramText = cumulativeHistogram.enumerated()
+                .filter { $0.element > 0 }
+                .map { "\($0.offset):\($0.element)" }
+                .joined(separator: ",")
+            let originalBytes = cumulativeRows * 128
+            let paletteBytes = cumulativeRows * 16
+            let indexBytes = cumulativeRows * 64
+            FileHandle.standardError.write(
+                Data(
+                    ("mlxfast: QKV_SCALE_PALETTE_AUDIT summary rows=\(cumulativeRows) "
+                        + "globalMax=\(cumulativeHistogram.lastIndex(where: { $0 > 0 }) ?? 0) "
+                        + "p95=\(p95) histogram=\(histogramText) originalBytes=\(originalBytes) "
+                        + "paletteBytes=\(paletteBytes) indexBytes=\(indexBytes) paddingBytes=0 "
+                        + "deletedBytes=\(originalBytes - paletteBytes - indexBytes) "
+                        + "roundtrip=exact\n").utf8))
+        }
+    }
+
+    func noteDispatch(layer: Int, heads: Int, kernel: String) {
+        lock.lock()
+        let isNew = reachedLayers.insert(layer).inserted
+        let count = reachedLayers.count
+        lock.unlock()
+        guard isNew else { return }
+        FileHandle.standardError.write(
+            Data(
+                ("mlxfast: QKV_SCALE_PALETTE_AUDIT dispatch layer=\(layer) heads=\(heads) "
+                    + "kernel=\(kernel) palette=false u8Fallback=true\n").utf8))
+        if count == LagunaConstants.numHiddenLayers {
+            FileHandle.standardError.write(
+                Data("mlxfast: QKV_SCALE_PALETTE_AUDIT dispatchSummary layers=40 family=generic-r1\n".utf8))
+        }
+    }
+}
+
+private let lagunaQKVScalePaletteAudit = LagunaQKVScalePaletteAudit()
+
 /// Decode-only, exact fused input RMSNorm plus Q/K/V/gate projections.
 private func lagunaFusedQKVProjectionSource(
     heads: Int, compact: Bool = false, mxfp8: Bool = false
@@ -4395,13 +4532,17 @@ private let lagunaDecodeNVFP4QKVR1Source = """
     }
     """
 
+private func lagunaDecodeNVFP4QKVR1KernelName(heads: Int) -> String {
+    "laguna_decode_nvfp4_qkv_h\(heads)_r1_v1"
+        + (lagunaTailNVFP4QKVSeedElisionEnabled ? "_se1" : "")
+        + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : "")
+}
+
 private let lagunaDecodeNVFP4QKVR1Kernels: [Int: MLXFast.MLXFastKernel] = {
     var kernels: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
         kernels[heads] = MLXFast.metalKernel(
-            name: "laguna_decode_nvfp4_qkv_h\(heads)_r1_v1"
-                + (lagunaTailNVFP4QKVSeedElisionEnabled ? "_se1" : "")
-                + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : ""),
+            name: lagunaDecodeNVFP4QKVR1KernelName(heads: heads),
             inputNames: ["normalized", "weight_codes", "weight_scales"],
             outputNames: ["projected"],
             source: lagunaDecodeNVFP4QKVR1Source,
@@ -4414,7 +4555,8 @@ private let lagunaDecodeNVFP4QKVR1Kernels: [Int: MLXFast.MLXFastKernel] = {
 private func lagunaDecodeNVFP4QKVR1(
     normalized: MLXArray,
     bank: LagunaNativeAffineWeight,
-    heads: Int
+    heads: Int,
+    layer: Int
 ) -> MLXArray? {
     guard lagunaDecodeNVFP4QKVR1Enabled else { return nil }
     let rows = (heads + 2 * LagunaConstants.numKeyValueHeads) * LagunaConstants.headDim
@@ -4431,6 +4573,12 @@ private func lagunaDecodeNVFP4QKVR1(
         rows % 2 == 0,
         let kernel = lagunaDecodeNVFP4QKVR1Kernels[heads]
     else { return nil }
+    if lagunaQKVScalePaletteAuditEnabled {
+        lagunaQKVScalePaletteAudit.noteDispatch(
+            layer: layer,
+            heads: heads,
+            kernel: lagunaDecodeNVFP4QKVR1KernelName(heads: heads))
+    }
     return kernel(
         [normalized, bank.packedCodes, bank.scales],
         grid: ((rows / 2) * 64, 1, 1),
@@ -5121,6 +5269,15 @@ final class LagunaRuntimeAttention: Module {
             fused.indexedMetadata = lagunaIndexedAffineMetadata(
                 scales: fused.scales, biases: biases)
         }
+        if lagunaQKVScalePaletteAuditEnabled, fused.mode == .nvfp4 {
+            lagunaQKVScalePaletteAudit.census(
+                scales: fused.scales,
+                layer: layerIdx,
+                heads: nHeads,
+                qRows: wq.weight.dim(0),
+                kRows: wk.weight.dim(0),
+                vRows: wv.weight.dim(0))
+        }
         _nativeAffineQKV = fused
         return fused.arrays + (_nativeAffineGProj?.arrays ?? [])
     }
@@ -5309,7 +5466,10 @@ final class LagunaRuntimeAttention: Module {
                 let decodeNVFP4QKVR1 =
                     fusedQKV == nil
                     ? lagunaDecodeNVFP4QKVR1(
-                        normalized: normalized, bank: fusedAffine, heads: nHeads)
+                        normalized: normalized,
+                        bank: fusedAffine,
+                        heads: nHeads,
+                        layer: layerIdx)
                     : nil
                 let qkv =
                     fusedQKV
