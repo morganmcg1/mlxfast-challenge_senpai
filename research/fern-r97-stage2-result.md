@@ -371,4 +371,113 @@ has not been edited. Everything below is recorded here instead.
 
 ## 9. Verdict against the go/no-go bar
 
-<!-- VERDICT -->
+### 9.1 Bar by bar
+
+The assignment's GO bar had five conjunctive clauses. Three pass, two fail, and
+one of the two explicit NO-GO triggers fired.
+
+| # | Bar clause | Required | Measured | Verdict |
+|---|---|---|---|---|
+| 1 | S2b removes census-verified traffic | ≥ 19.0 MB/step | 20.263 MB/step (§2.3) | **PASS** |
+| 2 | Ladder shows S2b faster than base | ≥ 55 µs/step faster, 95 % CI excludes 0 | **+61.96 µs/step slower**, CI [+60.17, +63.74] | **FAIL** |
+| 3 | Conversion efficiency (measured ÷ 76.1 µs) | ≥ 0.72 | **−0.814** | **FAIL** |
+| 4 | Bit-exactness | `max_abs_diff = 0`, identical token-stream hash | all 12 ladder processes hash `082682744836a553`, 0 teacher-forced mismatches (§2.2) | **PASS** |
+| 5 | Submitted-surface growth | ≤ 60,000 B | 26,383 B (§5) | **PASS** |
+
+NO-GO triggers:
+
+| Trigger | Fired? | Evidence |
+|---|---|---|
+| Ladder CI cannot exclude 0 | no | CI excludes 0 decisively, but on the wrong side |
+| Conversion efficiency < 0.5 | **yes** | S2a −1.154, S2b −0.814, both far below 0.5 |
+
+### 9.2 Verdict
+
+**NO-GO.** Do not promote this branch to the frontier and do not spend an
+official M5 submission on it. Both timed states are slower than base, the
+regression is resolved to well outside its confidence interval, and the sign is
+the opposite of the one the bar required.
+
+The result is not a null. It is a resolved negative with a mechanism, and the
+NO-GO branch of the preregistration explicitly anticipated it as "a publishable
+bandwidth finding". The publishable content is §2.4 and §3d:
+
+1. **The byte claim was met.** The census (§3) confirms the preregistered
+   footprint exactly — 1735/262144 gate/up escapes, 0/2048 down escapes — so
+   20.263 MB/step really does leave the memory system. The failure is entirely
+   in conversion, not in the compaction.
+2. **The additive byte + ALU model is refuted.** Fitting the two timed contrasts
+   to `bytes` and `ops` yields `byte_value = −7.861 µs/MB`
+   (CI [−8.294, −7.406]) and `op_cost = −0.1937 µs/Mop`
+   (CI [−0.2126, −0.1739]). Both coefficients are negative. A negative byte
+   value is physically impossible under the model, so the model — not the
+   measurement — is what broke. Removing bytes from this kernel at this
+   arithmetic intensity does not buy time on this host.
+3. **The two planes disagree in the informative direction.** Gate/up costs
+   +69.47 µs (CI [67.67, 71.14]) while the *marginal* down plane returns
+   −7.66 µs (CI [−9.84, −5.39]) — the only positive conversion in the
+   experiment, 0.485. Neither bytes removed (16.07 vs 4.19 MB), added integer
+   ops (293.6 vs 209.7 Mop, only 1.4× apart), nor load count (2.11× vs 2.60×,
+   *worse* for the plane that won) orders the two planes correctly (§3c).
+4. **The surviving discriminator is structural, not volumetric.** §3d isolates
+   the `if (base == 0xFF)` escape branch in gate/up as the only audited axis
+   that orders the planes. Its cost is not warp divergence — 1735 escapes in
+   262144 blocks is near-uniformly rare — but loss of memory-level parallelism:
+   the payload load's address depends on the just-loaded delta word, so the
+   two streams serialise instead of overlapping. Down's 12 loads are
+   unconditional with statically computable addresses, and down is the plane
+   that converted.
+
+### 9.3 Confidence and transfer
+
+The instrument is sound (§2.2): 3112 blocks with 0.4 % censoring, carryover
+coefficient +0.0101 µs/dispatch with CI [−0.0161, +0.0375] spanning zero, and
+both placebo arms centred on zero (d1 +0.61 CI [−3.54, +4.95]; d2 +0.66
+CI [−2.57, +4.03]). The rung-control run (§3b) proves the mmap control word is
+read live and that each rung dispatches exactly the intended kernels.
+
+This host is an M4 Pro (Apple GPU generation 16), not the ranked M5 Max, so
+per `agents.md` the *magnitude* does not transfer. But the failure here is not a
+marginal timing call that a faster host might flip: the regression is roughly
+0.76 %/step, and the byte-per-second price implied by the fit is negative.
+Bandwidth-per-core differences between M4 Pro and M5 Max are on the order of
+10 %, which is nowhere near enough to move a −0.814 conversion efficiency above
++0.72. I would not spend M5 time on this candidate.
+
+### 9.4 Suggested follow-ups (not implemented)
+
+Listed in decreasing information-per-GPU-hour. None of these is in scope for
+this assignment.
+
+1. **A `d=8` branchless gate/up rung — the decisive control.** Widen the gate/up
+   delta field to a full byte at `B=128`. That removes escapes by construction
+   (any 8-bit delta covers the full exponent range within a block), so the
+   `if (base == 0xFF)` branch and its dependent-address stall disappear, while
+   the byte saving collapses to approximately zero — the payload plus a
+   full-byte delta is the same width as the original bf16. It keeps the same
+   three-stream split, the same trip count, and the same register pressure. It
+   is bit-exact and inside the existing legal envelope, so it costs one rung and
+   no new correctness argument. Reading: if `d=8` is roughly *neutral* versus
+   base, the escape branch was the whole story and a branchless narrow-`d`
+   variant is worth building. If `d=8` is still ~+60 µs slower with no bytes
+   saved, the cost is stream-splitting and load-issue inflation itself, and the
+   entire block-exponent family is dead on this kernel — a much stronger and
+   more general negative than the present one.
+2. **A load-time census sweep over `d ∈ {5,6,7}` at `B=128`** to find the
+   smallest escape-free `d` for the gate/up plane. This is nearly free: the
+   census already runs at load time and needs no timed run. Note the arithmetic
+   is discouraging before it starts — at `d=6` the gate/up saving falls to
+   ~8.4 MB, and even at the down plane's *best observed* conversion of 0.485
+   that is ≈ +15 µs/step of benefit against a +69.6 µs/step observed cost. Run
+   it only to parameterise follow-up 1, not as a candidate in its own right.
+3. **Metal GPU counters for per-plane mechanism isolation.** The present
+   argument in §3d is source-level and leaves three confounds live: threadgroup
+   512 vs 128, trip count 64 vs 16, and 12 vs 8 live accumulators. Counter data
+   on occupancy, memory-stall cycles, and issued-load counts would collapse
+   those three and confirm or kill the memory-level-parallelism explanation
+   directly, rather than by elimination.
+4. **Retarget the technique at a plane with the down plane's shape.** Down was
+   the only plane that converted (+0.485). If block-exponent compaction is worth
+   revisiting anywhere, it is on unconditional, escape-free, low-trip-count,
+   low-accumulator kernels — not on wide fused gate/up projections. This is a
+   redirection of the idea rather than a repair of this candidate.
