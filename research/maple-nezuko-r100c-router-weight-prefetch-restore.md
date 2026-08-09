@@ -197,6 +197,46 @@ visible at this granularity. AIR instruction-proxy line counts are 369 / 438 /
 device and no public tool dumps it. So N-C is *unsupported*, not *excluded*;
 occupancy is a coarse proxy and these numbers are M4 backend numbers.
 
+## Step 4a — pilot leg, and why the end-to-end axis is underpowered
+
+One `./benchmark.sh --local-iterate` leg on the candidate arm `pf1`
+(job `ec696126`, HEAD `a24b939`, `Sources`+`Vendor` digest identical before and
+after: `58ab3978…97527`):
+
+| field | value |
+| --- | --- |
+| `passed_correctness` | `true` |
+| `max_abs_diff` | **0** |
+| `checked_steps` | 130 |
+| `decode_seconds_per_token` | 0.013063 |
+| `prefill_seconds_per_token` | 0.001124 |
+| `timed_benchmark_seconds` | **2.2** |
+| leg wall time | 306 s |
+
+Two things follow, and both are recorded **before** any census number exists.
+
+**The shipping arm is bit-exact through the harness.** The JIT'd hoisted
+pipeline reproduces every checked greedy token. That is the gate the
+restoration had to clear to remain a candidate at all.
+
+**The end-to-end axis cannot resolve this lever, by construction.** Decode is
+≈12,956–13,063 µs/step here, so the historical 5.7 µs/step router effect is
+**≈0.044 %** of a decode step. This also reconciles a tension in the prior
+record: "1.8 % of the router kernel" and "≈0.06 % of score" are the *same*
+number at two different grains, not two competing claims. With
+`timed_benchmark_seconds = 2.2`, no realistic number of `--local-iterate` legs
+gets near 0.04 %. The end-to-end A/B is therefore preregistered here as a
+**no-regression sanity leg only**; it carries no threshold and cannot adjudicate
+the hypothesis in either direction. Any conclusion must come from the in-situ
+per-kernel estimator, which is the same estimator R89 showed had resolving power
+on this host.
+
+The locally reported `prefill_speedup 0.327` and its failed floor are a
+**host artifact, not a regression**: `--local-iterate` divides by the official
+M5 runner constant `baseline_prefill_seconds_per_token = 0.000368`, while this
+M4 Pro prefills at 0.001124 s/token. Against the local baseline file, prefill
+moves `0.001124 → 0.001124` (−0 %).
+
 ## Correctness gates
 
 `--local-submit` (`max_abs_diff: 0`), `research/run_upstream_equivalence.sh`
