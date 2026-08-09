@@ -1,0 +1,1292 @@
+editablePaths entries: 97
+
+official ef055b9b  msg='Validate submission 7ce1262d-fbaa-4331-a8b9-489d832413cb'
+  author=yukon-autoresearch[bot] date=2026-08-09T00:58:56Z tree=fbc768b6240f parents=['c5b0a13c']
+  editable files in tree: 141 (of 2395 total blobs)
+
+official bd33883e  msg='Validate submission e08d759f-8e52-46e7-8b29-2c8647cfaae8'
+  author=yukon-autoresearch[bot] date=2026-08-09T18:27:14Z tree=e1d1b2ae70db parents=['c5b0a13c']
+  editable files in tree: 142 (of 2396 total blobs)
+
+official 4b0e051b  msg='Validate submission 25e1f18e-ef83-491f-8a65-8944765bfe46'
+  author=yukon-autoresearch[bot] date=2026-08-09T02:56:23Z tree=d8c655f77503 parents=['c5b0a13c']
+  editable files in tree: 141 (of 2395 total blobs)
+
+official 5a43d329  msg='Validate submission 83fd2642-78f6-4e86-a9bf-5ed78fd72d9a'
+  author=yukon-autoresearch[bot] date=2026-08-09T01:32:54Z tree=c8fd4885bfb0 parents=['c5b0a13c']
+  editable files in tree: 140 (of 2394 total blobs)
+
+official e1b6e2be  msg='Validate submission 05dd8bbf-c436-447c-99a8-8024d0fc023f'
+  author=yukon-autoresearch[bot] date=2026-08-09T04:06:36Z tree=4571404e9a43 parents=['c5b0a13c']
+  editable files in tree: 141 (of 2395 total blobs)
+
+official e33efe4e  msg='Validate submission 59bd72a3-546c-466c-b65a-565fa1c8b865'
+  author=yukon-autoresearch[bot] date=2026-08-09T14:49:43Z tree=48037ad5eca1 parents=['c5b0a13c']
+  editable files in tree: 142 (of 2396 total blobs)
+
+official e6671092  msg='Validate submission 048674e9-cff4-449f-90e2-97811149cf97'
+  author=yukon-autoresearch[bot] date=2026-08-09T12:11:25Z tree=ad78ae906fa0 parents=['c5b0a13c']
+  editable files in tree: 141 (of 2395 total blobs)
+local 30f752df: editable files 141
+local 6ada66c9: editable files 140
+local e17bdeb: editable files 142
+local 0f6862d0: editable files 142
+local c6c66344: editable files 142
+
+
+########## pairwise identity matrix (0 = byte-identical surface)
+                        OFF:ef055b9b      OFF:bd33883e      OFF:4b0e051b      OFF:5a43d329      OFF:e1b6e2be      OFF:e33efe4e      OFF:e6671092      LOC:30f752df      LOC:6ada66c9       LOC:e17bdeb      LOC:0f6862d0      LOC:c6c66344
+OFF:ef055b9b                       0                32                 1                 2                 1                13                 2                 0                 2                32                32                13
+OFF:bd33883e                      32                 0                32                31                32                27                32                32                31                 0                 1                27
+OFF:4b0e051b                       1                32                 0                 2                 1                13                 2                 1                 2                32                32                13
+OFF:5a43d329                       2                31                 2                 0                 2                11                 3                 2                 0                31                31                11
+OFF:e1b6e2be                       1                32                 1                 2                 0                13                 2                 1                 2                32                32                13
+OFF:e33efe4e                      13                27                13                11                13                 0                14                13                11                27                27                 0
+OFF:e6671092                       2                32                 2                 3                 2                14                 0                 2                 3                32                32                14
+LOC:30f752df                       0                32                 1                 2                 1                13                 2                 0                 2                32                32                13
+LOC:6ada66c9                       2                31                 2                 0                 2                11                 3                 2                 0                31                31                11
+LOC:e17bdeb                       32                 0                32                31                32                27                32                32                31                 0                 1                27
+LOC:0f6862d0                      32                 1                32                31                32                27                32                32                31                 1                 0                27
+LOC:c6c66344                      13                27                13                11                13                 0                14                13                11                27                27                 0
+
+
+########## detailed diffs
+
+=== OFF:ef055b9b  vs  OFF:bd33883e
+  files: 141 vs 142 | identical 111 | differing 29 | only-A 1 | only-B 2
+    DIFF  Sources/MLXFastModel/LagunaConfig.swift
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Sources/MLXFastTransform/Transform.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/Laguna.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/AttentionUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/DynamicSlice.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/JSONDecodingTypes.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/LanguageModel.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEApplication.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/arg_reduce.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/binary.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/gemv.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rms_norm.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rope.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/scaled_dot_product_attention.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/sdpa_vector.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+    A-ONLY Sources/MLXFastModel/LagunaRuntimeLayers.swift
+    B-ONLY Sources/MLXFastTransform/AffineMetadataCoding.swift
+    B-ONLY Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+
+=== OFF:ef055b9b  vs  OFF:4b0e051b
+  files: 141 vs 141 | identical 140 | differing 1 | only-A 0 | only-B 0
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+
+=== OFF:ef055b9b  vs  OFF:5a43d329
+  files: 141 vs 140 | identical 139 | differing 1 | only-A 1 | only-B 0
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    A-ONLY Sources/MLXFastModel/LagunaRuntimeLayers.swift
+
+=== OFF:ef055b9b  vs  OFF:e1b6e2be
+  files: 141 vs 141 | identical 140 | differing 1 | only-A 0 | only-B 0
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+
+=== OFF:ef055b9b  vs  OFF:e33efe4e
+  files: 141 vs 142 | identical 130 | differing 10 | only-A 1 | only-B 2
+    DIFF  Sources/MLXFastModel/LagunaConfig.swift
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Sources/MLXFastTransform/Transform.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    A-ONLY Sources/MLXFastModel/LagunaRuntimeLayers.swift
+    B-ONLY Sources/MLXFastTransform/AffineMetadataCoding.swift
+    B-ONLY Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+
+=== OFF:ef055b9b  vs  OFF:e6671092
+  files: 141 vs 141 | identical 139 | differing 2 | only-A 0 | only-B 0
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+
+=== OFF:ef055b9b  vs  LOC:30f752df
+  files: 141 vs 141 | identical 141 | differing 0 | only-A 0 | only-B 0
+
+=== OFF:ef055b9b  vs  LOC:6ada66c9
+  files: 141 vs 140 | identical 139 | differing 1 | only-A 1 | only-B 0
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    A-ONLY Sources/MLXFastModel/LagunaRuntimeLayers.swift
+
+=== OFF:ef055b9b  vs  LOC:e17bdeb
+  files: 141 vs 142 | identical 111 | differing 29 | only-A 1 | only-B 2
+    DIFF  Sources/MLXFastModel/LagunaConfig.swift
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Sources/MLXFastTransform/Transform.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/Laguna.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/AttentionUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/DynamicSlice.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/JSONDecodingTypes.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/LanguageModel.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEApplication.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/arg_reduce.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/binary.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/gemv.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rms_norm.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rope.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/scaled_dot_product_attention.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/sdpa_vector.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+    A-ONLY Sources/MLXFastModel/LagunaRuntimeLayers.swift
+    B-ONLY Sources/MLXFastTransform/AffineMetadataCoding.swift
+    B-ONLY Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+
+=== OFF:ef055b9b  vs  LOC:0f6862d0
+  files: 141 vs 142 | identical 111 | differing 29 | only-A 1 | only-B 2
+    DIFF  Sources/MLXFastModel/LagunaConfig.swift
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Sources/MLXFastTransform/Transform.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/Laguna.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/AttentionUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/DynamicSlice.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/JSONDecodingTypes.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/LanguageModel.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEApplication.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/arg_reduce.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/binary.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/gemv.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rms_norm.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rope.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/scaled_dot_product_attention.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/sdpa_vector.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+    A-ONLY Sources/MLXFastModel/LagunaRuntimeLayers.swift
+    B-ONLY Sources/MLXFastTransform/AffineMetadataCoding.swift
+    B-ONLY Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+
+=== OFF:ef055b9b  vs  LOC:c6c66344
+  files: 141 vs 142 | identical 130 | differing 10 | only-A 1 | only-B 2
+    DIFF  Sources/MLXFastModel/LagunaConfig.swift
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Sources/MLXFastTransform/Transform.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    A-ONLY Sources/MLXFastModel/LagunaRuntimeLayers.swift
+    B-ONLY Sources/MLXFastTransform/AffineMetadataCoding.swift
+    B-ONLY Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+
+=== OFF:bd33883e  vs  OFF:4b0e051b
+  files: 142 vs 141 | identical 111 | differing 29 | only-A 2 | only-B 1
+    DIFF  Sources/MLXFastModel/LagunaConfig.swift
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Sources/MLXFastTransform/Transform.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/Laguna.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/AttentionUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/DynamicSlice.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/JSONDecodingTypes.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/LanguageModel.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEApplication.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/arg_reduce.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/binary.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/gemv.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rms_norm.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rope.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/scaled_dot_product_attention.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/sdpa_vector.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+    A-ONLY Sources/MLXFastTransform/AffineMetadataCoding.swift
+    A-ONLY Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+    B-ONLY Sources/MLXFastModel/LagunaRuntimeLayers.swift
+
+=== OFF:bd33883e  vs  OFF:5a43d329
+  files: 142 vs 140 | identical 111 | differing 29 | only-A 2 | only-B 0
+    DIFF  Sources/MLXFastModel/LagunaConfig.swift
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Sources/MLXFastTransform/Transform.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/Laguna.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/AttentionUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/DynamicSlice.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/JSONDecodingTypes.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/LanguageModel.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEApplication.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/arg_reduce.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/binary.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/gemv.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rms_norm.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rope.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/scaled_dot_product_attention.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/sdpa_vector.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+    A-ONLY Sources/MLXFastTransform/AffineMetadataCoding.swift
+    A-ONLY Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+
+=== OFF:bd33883e  vs  OFF:e1b6e2be
+  files: 142 vs 141 | identical 111 | differing 29 | only-A 2 | only-B 1
+    DIFF  Sources/MLXFastModel/LagunaConfig.swift
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Sources/MLXFastTransform/Transform.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/Laguna.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/AttentionUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/DynamicSlice.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/JSONDecodingTypes.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/LanguageModel.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEApplication.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/arg_reduce.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/binary.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/gemv.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rms_norm.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rope.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/scaled_dot_product_attention.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/sdpa_vector.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+    A-ONLY Sources/MLXFastTransform/AffineMetadataCoding.swift
+    A-ONLY Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+    B-ONLY Sources/MLXFastModel/LagunaRuntimeLayers.swift
+
+=== OFF:bd33883e  vs  OFF:e33efe4e
+  files: 142 vs 142 | identical 115 | differing 27 | only-A 0 | only-B 0
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/Laguna.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/AttentionUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/DynamicSlice.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/JSONDecodingTypes.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/LanguageModel.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEApplication.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/arg_reduce.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/binary.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/gemv.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rms_norm.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rope.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/scaled_dot_product_attention.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/sdpa_vector.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+
+=== OFF:bd33883e  vs  OFF:e6671092
+  files: 142 vs 141 | identical 111 | differing 29 | only-A 2 | only-B 1
+    DIFF  Sources/MLXFastModel/LagunaConfig.swift
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Sources/MLXFastTransform/Transform.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/Laguna.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/AttentionUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/DynamicSlice.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/JSONDecodingTypes.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/LanguageModel.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEApplication.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/arg_reduce.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/binary.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/gemv.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rms_norm.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rope.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/scaled_dot_product_attention.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/sdpa_vector.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+    A-ONLY Sources/MLXFastTransform/AffineMetadataCoding.swift
+    A-ONLY Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+    B-ONLY Sources/MLXFastModel/LagunaRuntimeLayers.swift
+
+=== OFF:bd33883e  vs  LOC:30f752df
+  files: 142 vs 141 | identical 111 | differing 29 | only-A 2 | only-B 1
+    DIFF  Sources/MLXFastModel/LagunaConfig.swift
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Sources/MLXFastTransform/Transform.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/Laguna.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/AttentionUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/DynamicSlice.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/JSONDecodingTypes.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/LanguageModel.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEApplication.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/arg_reduce.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/binary.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/gemv.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rms_norm.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rope.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/scaled_dot_product_attention.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/sdpa_vector.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+    A-ONLY Sources/MLXFastTransform/AffineMetadataCoding.swift
+    A-ONLY Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+    B-ONLY Sources/MLXFastModel/LagunaRuntimeLayers.swift
+
+=== OFF:bd33883e  vs  LOC:6ada66c9
+  files: 142 vs 140 | identical 111 | differing 29 | only-A 2 | only-B 0
+    DIFF  Sources/MLXFastModel/LagunaConfig.swift
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Sources/MLXFastTransform/Transform.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/Laguna.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/AttentionUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/DynamicSlice.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/JSONDecodingTypes.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/LanguageModel.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEApplication.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/arg_reduce.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/binary.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/gemv.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rms_norm.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rope.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/scaled_dot_product_attention.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/sdpa_vector.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+    A-ONLY Sources/MLXFastTransform/AffineMetadataCoding.swift
+    A-ONLY Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+
+=== OFF:bd33883e  vs  LOC:e17bdeb
+  files: 142 vs 142 | identical 142 | differing 0 | only-A 0 | only-B 0
+
+=== OFF:bd33883e  vs  LOC:0f6862d0
+  files: 142 vs 142 | identical 141 | differing 1 | only-A 0 | only-B 0
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+
+=== OFF:bd33883e  vs  LOC:c6c66344
+  files: 142 vs 142 | identical 115 | differing 27 | only-A 0 | only-B 0
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/Laguna.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/AttentionUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/DynamicSlice.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/JSONDecodingTypes.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/LanguageModel.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEApplication.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/arg_reduce.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/binary.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/gemv.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rms_norm.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rope.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/scaled_dot_product_attention.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/sdpa_vector.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+
+=== OFF:4b0e051b  vs  OFF:5a43d329
+  files: 141 vs 140 | identical 139 | differing 1 | only-A 1 | only-B 0
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    A-ONLY Sources/MLXFastModel/LagunaRuntimeLayers.swift
+
+=== OFF:4b0e051b  vs  OFF:e1b6e2be
+  files: 141 vs 141 | identical 140 | differing 1 | only-A 0 | only-B 0
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+
+=== OFF:4b0e051b  vs  OFF:e33efe4e
+  files: 141 vs 142 | identical 130 | differing 10 | only-A 1 | only-B 2
+    DIFF  Sources/MLXFastModel/LagunaConfig.swift
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Sources/MLXFastTransform/Transform.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    A-ONLY Sources/MLXFastModel/LagunaRuntimeLayers.swift
+    B-ONLY Sources/MLXFastTransform/AffineMetadataCoding.swift
+    B-ONLY Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+
+=== OFF:4b0e051b  vs  OFF:e6671092
+  files: 141 vs 141 | identical 139 | differing 2 | only-A 0 | only-B 0
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+
+=== OFF:4b0e051b  vs  LOC:30f752df
+  files: 141 vs 141 | identical 140 | differing 1 | only-A 0 | only-B 0
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+
+=== OFF:4b0e051b  vs  LOC:6ada66c9
+  files: 141 vs 140 | identical 139 | differing 1 | only-A 1 | only-B 0
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    A-ONLY Sources/MLXFastModel/LagunaRuntimeLayers.swift
+
+=== OFF:4b0e051b  vs  LOC:e17bdeb
+  files: 141 vs 142 | identical 111 | differing 29 | only-A 1 | only-B 2
+    DIFF  Sources/MLXFastModel/LagunaConfig.swift
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Sources/MLXFastTransform/Transform.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/Laguna.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/AttentionUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/DynamicSlice.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/JSONDecodingTypes.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/LanguageModel.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEApplication.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/arg_reduce.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/binary.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/gemv.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rms_norm.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rope.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/scaled_dot_product_attention.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/sdpa_vector.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+    A-ONLY Sources/MLXFastModel/LagunaRuntimeLayers.swift
+    B-ONLY Sources/MLXFastTransform/AffineMetadataCoding.swift
+    B-ONLY Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+
+=== OFF:4b0e051b  vs  LOC:0f6862d0
+  files: 141 vs 142 | identical 111 | differing 29 | only-A 1 | only-B 2
+    DIFF  Sources/MLXFastModel/LagunaConfig.swift
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Sources/MLXFastTransform/Transform.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/Laguna.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/AttentionUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/DynamicSlice.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/JSONDecodingTypes.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/LanguageModel.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEApplication.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/arg_reduce.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/binary.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/gemv.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rms_norm.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rope.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/scaled_dot_product_attention.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/sdpa_vector.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+    A-ONLY Sources/MLXFastModel/LagunaRuntimeLayers.swift
+    B-ONLY Sources/MLXFastTransform/AffineMetadataCoding.swift
+    B-ONLY Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+
+=== OFF:4b0e051b  vs  LOC:c6c66344
+  files: 141 vs 142 | identical 130 | differing 10 | only-A 1 | only-B 2
+    DIFF  Sources/MLXFastModel/LagunaConfig.swift
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Sources/MLXFastTransform/Transform.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    A-ONLY Sources/MLXFastModel/LagunaRuntimeLayers.swift
+    B-ONLY Sources/MLXFastTransform/AffineMetadataCoding.swift
+    B-ONLY Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+
+=== OFF:5a43d329  vs  OFF:e1b6e2be
+  files: 140 vs 141 | identical 139 | differing 1 | only-A 0 | only-B 1
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    B-ONLY Sources/MLXFastModel/LagunaRuntimeLayers.swift
+
+=== OFF:5a43d329  vs  OFF:e33efe4e
+  files: 140 vs 142 | identical 131 | differing 9 | only-A 0 | only-B 2
+    DIFF  Sources/MLXFastModel/LagunaConfig.swift
+    DIFF  Sources/MLXFastTransform/Transform.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    B-ONLY Sources/MLXFastTransform/AffineMetadataCoding.swift
+    B-ONLY Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+
+=== OFF:5a43d329  vs  OFF:e6671092
+  files: 140 vs 141 | identical 138 | differing 2 | only-A 0 | only-B 1
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+    B-ONLY Sources/MLXFastModel/LagunaRuntimeLayers.swift
+
+=== OFF:5a43d329  vs  LOC:30f752df
+  files: 140 vs 141 | identical 139 | differing 1 | only-A 0 | only-B 1
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    B-ONLY Sources/MLXFastModel/LagunaRuntimeLayers.swift
+
+=== OFF:5a43d329  vs  LOC:6ada66c9
+  files: 140 vs 140 | identical 140 | differing 0 | only-A 0 | only-B 0
+
+=== OFF:5a43d329  vs  LOC:e17bdeb
+  files: 140 vs 142 | identical 111 | differing 29 | only-A 0 | only-B 2
+    DIFF  Sources/MLXFastModel/LagunaConfig.swift
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Sources/MLXFastTransform/Transform.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/Laguna.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/AttentionUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/DynamicSlice.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/JSONDecodingTypes.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/LanguageModel.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEApplication.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/arg_reduce.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/binary.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/gemv.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rms_norm.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rope.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/scaled_dot_product_attention.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/sdpa_vector.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+    B-ONLY Sources/MLXFastTransform/AffineMetadataCoding.swift
+    B-ONLY Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+
+=== OFF:5a43d329  vs  LOC:0f6862d0
+  files: 140 vs 142 | identical 111 | differing 29 | only-A 0 | only-B 2
+    DIFF  Sources/MLXFastModel/LagunaConfig.swift
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Sources/MLXFastTransform/Transform.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/Laguna.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/AttentionUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/DynamicSlice.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/JSONDecodingTypes.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/LanguageModel.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEApplication.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/arg_reduce.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/binary.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/gemv.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rms_norm.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rope.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/scaled_dot_product_attention.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/sdpa_vector.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+    B-ONLY Sources/MLXFastTransform/AffineMetadataCoding.swift
+    B-ONLY Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+
+=== OFF:5a43d329  vs  LOC:c6c66344
+  files: 140 vs 142 | identical 131 | differing 9 | only-A 0 | only-B 2
+    DIFF  Sources/MLXFastModel/LagunaConfig.swift
+    DIFF  Sources/MLXFastTransform/Transform.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    B-ONLY Sources/MLXFastTransform/AffineMetadataCoding.swift
+    B-ONLY Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+
+=== OFF:e1b6e2be  vs  OFF:e33efe4e
+  files: 141 vs 142 | identical 130 | differing 10 | only-A 1 | only-B 2
+    DIFF  Sources/MLXFastModel/LagunaConfig.swift
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Sources/MLXFastTransform/Transform.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    A-ONLY Sources/MLXFastModel/LagunaRuntimeLayers.swift
+    B-ONLY Sources/MLXFastTransform/AffineMetadataCoding.swift
+    B-ONLY Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+
+=== OFF:e1b6e2be  vs  OFF:e6671092
+  files: 141 vs 141 | identical 139 | differing 2 | only-A 0 | only-B 0
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+
+=== OFF:e1b6e2be  vs  LOC:30f752df
+  files: 141 vs 141 | identical 140 | differing 1 | only-A 0 | only-B 0
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+
+=== OFF:e1b6e2be  vs  LOC:6ada66c9
+  files: 141 vs 140 | identical 139 | differing 1 | only-A 1 | only-B 0
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    A-ONLY Sources/MLXFastModel/LagunaRuntimeLayers.swift
+
+=== OFF:e1b6e2be  vs  LOC:e17bdeb
+  files: 141 vs 142 | identical 111 | differing 29 | only-A 1 | only-B 2
+    DIFF  Sources/MLXFastModel/LagunaConfig.swift
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Sources/MLXFastTransform/Transform.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/Laguna.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/AttentionUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/DynamicSlice.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/JSONDecodingTypes.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/LanguageModel.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEApplication.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/arg_reduce.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/binary.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/gemv.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rms_norm.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rope.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/scaled_dot_product_attention.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/sdpa_vector.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+    A-ONLY Sources/MLXFastModel/LagunaRuntimeLayers.swift
+    B-ONLY Sources/MLXFastTransform/AffineMetadataCoding.swift
+    B-ONLY Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+
+=== OFF:e1b6e2be  vs  LOC:0f6862d0
+  files: 141 vs 142 | identical 111 | differing 29 | only-A 1 | only-B 2
+    DIFF  Sources/MLXFastModel/LagunaConfig.swift
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Sources/MLXFastTransform/Transform.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/Laguna.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/AttentionUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/DynamicSlice.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/JSONDecodingTypes.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/LanguageModel.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEApplication.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/arg_reduce.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/binary.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/gemv.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rms_norm.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rope.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/scaled_dot_product_attention.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/sdpa_vector.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+    A-ONLY Sources/MLXFastModel/LagunaRuntimeLayers.swift
+    B-ONLY Sources/MLXFastTransform/AffineMetadataCoding.swift
+    B-ONLY Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+
+=== OFF:e1b6e2be  vs  LOC:c6c66344
+  files: 141 vs 142 | identical 130 | differing 10 | only-A 1 | only-B 2
+    DIFF  Sources/MLXFastModel/LagunaConfig.swift
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Sources/MLXFastTransform/Transform.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    A-ONLY Sources/MLXFastModel/LagunaRuntimeLayers.swift
+    B-ONLY Sources/MLXFastTransform/AffineMetadataCoding.swift
+    B-ONLY Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+
+=== OFF:e33efe4e  vs  OFF:e6671092
+  files: 142 vs 141 | identical 129 | differing 11 | only-A 2 | only-B 1
+    DIFF  Sources/MLXFastModel/LagunaConfig.swift
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Sources/MLXFastTransform/Transform.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+    A-ONLY Sources/MLXFastTransform/AffineMetadataCoding.swift
+    A-ONLY Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+    B-ONLY Sources/MLXFastModel/LagunaRuntimeLayers.swift
+
+=== OFF:e33efe4e  vs  LOC:30f752df
+  files: 142 vs 141 | identical 130 | differing 10 | only-A 2 | only-B 1
+    DIFF  Sources/MLXFastModel/LagunaConfig.swift
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Sources/MLXFastTransform/Transform.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    A-ONLY Sources/MLXFastTransform/AffineMetadataCoding.swift
+    A-ONLY Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+    B-ONLY Sources/MLXFastModel/LagunaRuntimeLayers.swift
+
+=== OFF:e33efe4e  vs  LOC:6ada66c9
+  files: 142 vs 140 | identical 131 | differing 9 | only-A 2 | only-B 0
+    DIFF  Sources/MLXFastModel/LagunaConfig.swift
+    DIFF  Sources/MLXFastTransform/Transform.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    A-ONLY Sources/MLXFastTransform/AffineMetadataCoding.swift
+    A-ONLY Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+
+=== OFF:e33efe4e  vs  LOC:e17bdeb
+  files: 142 vs 142 | identical 115 | differing 27 | only-A 0 | only-B 0
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/Laguna.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/AttentionUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/DynamicSlice.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/JSONDecodingTypes.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/LanguageModel.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEApplication.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/arg_reduce.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/binary.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/gemv.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rms_norm.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rope.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/scaled_dot_product_attention.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/sdpa_vector.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+
+=== OFF:e33efe4e  vs  LOC:0f6862d0
+  files: 142 vs 142 | identical 115 | differing 27 | only-A 0 | only-B 0
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/Laguna.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/AttentionUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/DynamicSlice.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/JSONDecodingTypes.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/LanguageModel.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEApplication.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/arg_reduce.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/binary.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/gemv.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rms_norm.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rope.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/scaled_dot_product_attention.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/sdpa_vector.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+
+=== OFF:e33efe4e  vs  LOC:c6c66344
+  files: 142 vs 142 | identical 142 | differing 0 | only-A 0 | only-B 0
+
+=== OFF:e6671092  vs  LOC:30f752df
+  files: 141 vs 141 | identical 139 | differing 2 | only-A 0 | only-B 0
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+
+=== OFF:e6671092  vs  LOC:6ada66c9
+  files: 141 vs 140 | identical 138 | differing 2 | only-A 1 | only-B 0
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+    A-ONLY Sources/MLXFastModel/LagunaRuntimeLayers.swift
+
+=== OFF:e6671092  vs  LOC:e17bdeb
+  files: 141 vs 142 | identical 111 | differing 29 | only-A 1 | only-B 2
+    DIFF  Sources/MLXFastModel/LagunaConfig.swift
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Sources/MLXFastTransform/Transform.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/Laguna.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/AttentionUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/DynamicSlice.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/JSONDecodingTypes.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/LanguageModel.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEApplication.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/arg_reduce.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/binary.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/gemv.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rms_norm.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rope.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/scaled_dot_product_attention.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/sdpa_vector.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+    A-ONLY Sources/MLXFastModel/LagunaRuntimeLayers.swift
+    B-ONLY Sources/MLXFastTransform/AffineMetadataCoding.swift
+    B-ONLY Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+
+=== OFF:e6671092  vs  LOC:0f6862d0
+  files: 141 vs 142 | identical 111 | differing 29 | only-A 1 | only-B 2
+    DIFF  Sources/MLXFastModel/LagunaConfig.swift
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Sources/MLXFastTransform/Transform.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/Laguna.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/AttentionUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/DynamicSlice.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/JSONDecodingTypes.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/LanguageModel.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEApplication.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/arg_reduce.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/binary.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/gemv.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rms_norm.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rope.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/scaled_dot_product_attention.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/sdpa_vector.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+    A-ONLY Sources/MLXFastModel/LagunaRuntimeLayers.swift
+    B-ONLY Sources/MLXFastTransform/AffineMetadataCoding.swift
+    B-ONLY Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+
+=== OFF:e6671092  vs  LOC:c6c66344
+  files: 141 vs 142 | identical 129 | differing 11 | only-A 1 | only-B 2
+    DIFF  Sources/MLXFastModel/LagunaConfig.swift
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Sources/MLXFastTransform/Transform.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+    A-ONLY Sources/MLXFastModel/LagunaRuntimeLayers.swift
+    B-ONLY Sources/MLXFastTransform/AffineMetadataCoding.swift
+    B-ONLY Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+
+=== LOC:30f752df  vs  LOC:6ada66c9
+  files: 141 vs 140 | identical 139 | differing 1 | only-A 1 | only-B 0
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    A-ONLY Sources/MLXFastModel/LagunaRuntimeLayers.swift
+
+=== LOC:30f752df  vs  LOC:e17bdeb
+  files: 141 vs 142 | identical 111 | differing 29 | only-A 1 | only-B 2
+    DIFF  Sources/MLXFastModel/LagunaConfig.swift
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Sources/MLXFastTransform/Transform.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/Laguna.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/AttentionUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/DynamicSlice.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/JSONDecodingTypes.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/LanguageModel.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEApplication.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/arg_reduce.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/binary.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/gemv.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rms_norm.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rope.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/scaled_dot_product_attention.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/sdpa_vector.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+    A-ONLY Sources/MLXFastModel/LagunaRuntimeLayers.swift
+    B-ONLY Sources/MLXFastTransform/AffineMetadataCoding.swift
+    B-ONLY Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+
+=== LOC:30f752df  vs  LOC:0f6862d0
+  files: 141 vs 142 | identical 111 | differing 29 | only-A 1 | only-B 2
+    DIFF  Sources/MLXFastModel/LagunaConfig.swift
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Sources/MLXFastTransform/Transform.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/Laguna.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/AttentionUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/DynamicSlice.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/JSONDecodingTypes.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/LanguageModel.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEApplication.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/arg_reduce.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/binary.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/gemv.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rms_norm.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rope.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/scaled_dot_product_attention.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/sdpa_vector.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+    A-ONLY Sources/MLXFastModel/LagunaRuntimeLayers.swift
+    B-ONLY Sources/MLXFastTransform/AffineMetadataCoding.swift
+    B-ONLY Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+
+=== LOC:30f752df  vs  LOC:c6c66344
+  files: 141 vs 142 | identical 130 | differing 10 | only-A 1 | only-B 2
+    DIFF  Sources/MLXFastModel/LagunaConfig.swift
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Sources/MLXFastTransform/Transform.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    A-ONLY Sources/MLXFastModel/LagunaRuntimeLayers.swift
+    B-ONLY Sources/MLXFastTransform/AffineMetadataCoding.swift
+    B-ONLY Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+
+=== LOC:6ada66c9  vs  LOC:e17bdeb
+  files: 140 vs 142 | identical 111 | differing 29 | only-A 0 | only-B 2
+    DIFF  Sources/MLXFastModel/LagunaConfig.swift
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Sources/MLXFastTransform/Transform.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/Laguna.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/AttentionUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/DynamicSlice.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/JSONDecodingTypes.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/LanguageModel.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEApplication.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/arg_reduce.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/binary.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/gemv.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rms_norm.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rope.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/scaled_dot_product_attention.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/sdpa_vector.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+    B-ONLY Sources/MLXFastTransform/AffineMetadataCoding.swift
+    B-ONLY Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+
+=== LOC:6ada66c9  vs  LOC:0f6862d0
+  files: 140 vs 142 | identical 111 | differing 29 | only-A 0 | only-B 2
+    DIFF  Sources/MLXFastModel/LagunaConfig.swift
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Sources/MLXFastTransform/Transform.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/Laguna.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/AttentionUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/DynamicSlice.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/JSONDecodingTypes.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/LanguageModel.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEApplication.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/arg_reduce.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/binary.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/gemv.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rms_norm.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rope.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/scaled_dot_product_attention.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/sdpa_vector.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+    B-ONLY Sources/MLXFastTransform/AffineMetadataCoding.swift
+    B-ONLY Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+
+=== LOC:6ada66c9  vs  LOC:c6c66344
+  files: 140 vs 142 | identical 131 | differing 9 | only-A 0 | only-B 2
+    DIFF  Sources/MLXFastModel/LagunaConfig.swift
+    DIFF  Sources/MLXFastTransform/Transform.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    B-ONLY Sources/MLXFastTransform/AffineMetadataCoding.swift
+    B-ONLY Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+
+=== LOC:e17bdeb  vs  LOC:0f6862d0
+  files: 142 vs 142 | identical 141 | differing 1 | only-A 0 | only-B 0
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+
+=== LOC:e17bdeb  vs  LOC:c6c66344
+  files: 142 vs 142 | identical 115 | differing 27 | only-A 0 | only-B 0
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/Laguna.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/AttentionUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/DynamicSlice.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/JSONDecodingTypes.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/LanguageModel.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEApplication.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/arg_reduce.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/binary.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/gemv.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rms_norm.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rope.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/scaled_dot_product_attention.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/sdpa_vector.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+
+=== LOC:0f6862d0  vs  LOC:c6c66344
+  files: 142 vs 142 | identical 115 | differing 27 | only-A 0 | only-B 0
+    DIFF  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/Laguna.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/AttentionUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/DynamicSlice.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/JSONDecodingTypes.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/LanguageModel.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEApplication.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEUtils.swift
+    DIFF  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/arg_reduce.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/binary.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/gemv.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rms_norm.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rope.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/scaled_dot_product_attention.metal
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/sdpa_vector.h
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+    DIFF  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
