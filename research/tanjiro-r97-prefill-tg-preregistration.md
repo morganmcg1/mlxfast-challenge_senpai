@@ -565,3 +565,138 @@ That candidate is under independent review at the time of writing and is not
 yet registered with a prediction. It will get its own amendment with its own
 bars before any receipt is spent on it, or it will be dropped.
 
+## 13. Amendment 4 — P4, swizzle depth for tall-tile prefill GEMMs
+
+Registered 2026-08-09, still **before** the R1 receipt returned. P3's released
+slot goes to P4, not to the tall-M retile of §12.4. Reasons for the swap are in
+§13.5.
+
+### 13.1 Mechanism
+
+`steel_matmul_regular_axpby_nax` (`matmul.cpp:200-360`) launches the grid
+
+```
+tile = 1 << swizzle_log
+grid = ( tiles_n * tile , ceil(tiles_m / tile) , batch )
+```
+
+and the kernel un-swizzles with (`steel_gemm_fused_nax.h:98-101`)
+
+```
+tid_y = (tid.y << swizzle_log) + (tid.x & ((1 << swizzle_log) - 1));
+tid_x =  tid.x >> swizzle_log;
+```
+
+so `2^swizzle_log` threadgroups that share one B column slab are **adjacent in
+dispatch order**. `matmul.cpp:303-305` pins `swizzle_log = 2` on the M5 device
+class, so only 4 of them are co-scheduled.
+
+Every surviving regular-`_nax` prefill class has `tiles_m = 512 / 64 = 8`:
+
+| class | M | N | K | count | tiles_m x tiles_n |
+|---|---:|---:|---:|---:|---|
+| fused `[Wq;Wk;Wv]` bank (sliding) | 512 | 10240 | 2048 | 29 | 8 x 80 |
+| fused `[Wq;Wk;Wv]` bank (full) | 512 | 8320 | 2048 | 10 | 8 x 65 |
+| layer-39 `[K;V]` bank | 512 | 2048 | 2048 | 1 | 8 x 16 |
+| dense-0 `gate`/`up` | 512 | 8192 | 2048 | 2 | 8 x 64 |
+
+With `swizzle_log = 2` the eight row-tiles sharing a B slab are split across two
+grid-row passes. The second pass arrives only after all `tiles_n * 4`
+threadgroups of the first pass, by which time that layer's ~42 MB of B has
+cycled out of cache, so **B is fetched from DRAM twice per layer**. With
+`swizzle_log = 3` all eight become adjacent and B is fetched once.
+
+P4 is therefore a pure **scheduling** change: same kernel, same geometry, same
+thread count, same dispatch count. It is orthogonal to P2/P2b, which changed
+dispatch count and left scheduling alone.
+
+### 13.2 Bit-exactness (proof, not heuristic)
+
+For `tiles_m = 8` and `2^swizzle_log = 8`, the map
+`(tid.x, tid.y) -> (tid_x, tid_y)` is a bijection onto
+`[0, tiles_n) x [0, tiles_m)`, exactly as it is for `swizzle_log = 2`. Each
+output tile is still computed by exactly one threadgroup. `swizzle_log` enters
+**only** the tile-to-threadgroup assignment: `c_row = tid_y * BM`,
+`c_col = tid_x * BN` (`steel_gemm_fused_nax.h:137-138`), after which every
+threadgroup runs the identical `gemm_loop<T, SM=32, SN=32, SK=32, BK=256, ...>`
+(`steel_gemm_fused_nax.h:150-155, 183-195`) over the same A and B pointers.
+
+`gemm_k_iterations_aligned = K / bk` (`matmul.cpp:320`) and the `align_M` /
+`align_N` / `align_K` function constants are all untouched, because `bm`, `bn`
+and `bk` are untouched. The kernel's out-of-range guard
+(`steel_gemm_fused_nax.h:103-105`) is unchanged and still correct.
+
+Consequently P4 changes **no output bit**, on any shape, and carries no
+correctness or floor risk. Its only possible effect is wall time.
+
+### 13.3 Guard
+
+Inside the existing `devc == 's' || devc == 'c' || devc == 'd'` branch:
+
+```cpp
+swizzle_log = (tm >= 8 && (tm % 8) == 0) ? 3 : 2;
+```
+
+`tm % 8 == 0` keeps the mapping an exact bijection and avoids launching dead
+threadgroups. Every decode projection has `tm = 1` and is excluded, so decode —
+which carries 75 % of the score — is provably untouched. The guard is expressed
+purely in terms of GEMM shape, contains no prompt, token, layer or fixture
+constant, and would apply to any model with these shapes.
+
+### 13.4 Prediction and read-out bars
+
+B traffic saved is about 42 MB per layer for the fused bank, roughly 1.6 GB per
+prefill over 39 layers. At ~500 GB/s that is ~3.3 ms **if fully exposed**.
+It is almost certainly not fully exposed: the fused-bank GEMM has arithmetic
+intensity `2*512*10240*2048 FLOP / 84 MB ~= 256 FLOP/byte`, so it is strongly
+compute-bound and most DRAM latency is already overlapped with compute.
+
+Registered point prediction: **-0.4 ms prefill (~ +0.15 % score)**, 80 %
+interval `[-1.5, +0.2] ms`. A null is the single most likely outcome.
+
+| observed M5 prefill delta (R2 minus R1) | reading | consequence |
+|---|---|---|
+| <= -1.0 ms | B re-fetch was a real exposed cost | promote; consider `swizzle_log = 4` and revisit §12.4 tall-M |
+| -0.3 to -1.0 ms | partially exposed | promote, but the family is nearly exhausted |
+| -0.3 to +0.2 ms | GEMM is compute-bound as modelled | close the prefill memory-traffic family; report negative |
+| > +0.2 ms | scheduling regression (A-side thrash) | revert, report negative |
+
+Because P4 is bit-exact, R2 = P2 + P2b + P4 and `R2 - R1` isolates P4 exactly.
+No receipt is spent on P4 until R1 has returned.
+
+### 13.5 Why P4 rather than the §12.4 tall-M retile
+
+Independent review corrected §12.4's traffic model. The `_nax` kernel stages
+**nothing** in threadgroup memory: each simdgroup loads its own A and B
+fragments straight from device memory (`gemm_nax.h:56-93`), and the
+simdgroup-to-tile map is `tm = SM * (simd_group_id / WN)`,
+`tn = SN * (simd_group_id % WN)` (`steel_gemm_fused_nax.h:157-158`). Issue-level
+traffic is therefore geometry-invariant, and §12.4's "335 MB -> 168 MB per
+layer" overstated the effect: the only real win from `bm = 128` is the same
+DRAM de-duplication of the second swizzle pass that P4 obtains directly.
+
+`bm=128, bn=128, bk=256, wm=4, wn=4` was separately confirmed to be
+dispatchable — it is in the AOT instantiation list
+(`steel_gemm_fused_nax.metal:28`), and `max_total_threads_per_threadgroup` is
+`WM*WN*32 = 512` (`steel_gemm_fused_nax.h:86`) — and bit-exact for the same
+`SM/SN/SK` reason as §13.2. It is not wrong; it is simply a more invasive way
+(512-thread threadgroups, 16 simdgroups, doubled register-file pressure per
+threadgroup) to buy the same de-duplication that a one-line scheduling change
+buys. It also contradicts Apple's own deliberate `s/c/d` override to `bm = 64`,
+which is a prior against it that P4 does not have to argue with.
+
+The two are substitutes, not complements. They will not be stacked in one
+receipt. If P4 lands in the top row of §13.4, the tall-M retile is redundant;
+if P4 lands in the third row, the tall-M retile has nothing left to buy either.
+
+### 13.6 Honest scope statement
+
+P4's registered point value is `+0.15 %` against a deficit to the leader of
+`1.0498 %`. It cannot close that gap, and neither could P3 or the tall-M
+retile. The prefill axis carries 25 % of the score weight and this arm has now
+enumerated its remaining mechanisms: dispatch count (P2/P2b, spent on R1),
+tile geometry (P3 dead, tall-M a substitute for P4), and scheduling (P4). After
+R2 I expect the honest recommendation to be that further ranked progress has to
+come from the decode axis, and I will say so in the result rather than
+manufacturing a fourth prefill mechanism.
+
