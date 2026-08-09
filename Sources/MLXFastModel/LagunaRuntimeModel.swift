@@ -404,16 +404,16 @@ private let lagunaPrefillQKNormRoPEEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_QK_NORM_ROPE"] != "0"
 
 /// Heads-per-threadgroup repartition for the prefill QK-norm+RoPE kernels.
-/// The standard prefill kernels pack four heads (four SIMDs) per threadgroup.
-/// The H1 twin remains available as a same-commit research control and for the
-/// terminal-prefill shape, where only one query row is supplied. Both variants
-/// keep each head on one SIMD, so per-head arithmetic is unchanged.
-/// Default `4` selects H4; `DARKBLOOM_PREFILL_QK_HEADS=1` restores the control.
+/// The shipped kernels pack four heads (four SIMDs) per threadgroup; this
+/// selects a one-head-per-threadgroup twin (one SIMD) instead -- the proven
+/// DECODE shape. Bit-exact in the EG256 class: each head is one SIMD and all
+/// per-head arithmetic is SIMD-local, so only threadgroup composition changes.
+/// Default `1` selects H1; `DARKBLOOM_PREFILL_QK_HEADS=4` restores the control.
 let lagunaPrefillQKHeadsPerGroup: Int = {
     let raw =
         ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_QK_HEADS"]
-        ?? "4"
-    return raw == "1" ? 1 : 4
+        ?? "1"
+    return raw == "4" ? 4 : 1
 }()
 
 /// Terminal-prefill projection banking. The last decoder layer consumes Q and
@@ -620,7 +620,7 @@ private let lagunaPrefillAsyncLadderStride: Int = {
     return n
 }()
 
-let lagunaRoPEAngleAtlasLength = 4096
+private let lagunaRoPEAngleAtlasLength = 4096
 
 /// The shared 512-thread RMSNorm prologue emitted by three decode kernels.
 ///
@@ -2608,15 +2608,14 @@ private let lagunaPrefillFullQKNormYaRNH1Kernel = MLXFast.metalKernel(
     ensureRowContiguous: true
 )
 
-func lagunaPrefillSlidingQKNormRoPE(
+private func lagunaPrefillSlidingQKNormRoPE(
     rawQueries: MLXArray,
     rawKeys: MLXArray,
     queryWeight: MLXArray,
     keyWeight: MLXArray,
     angles: MLXArray,
     offsets: MLXArray,
-    length: Int,
-    headsPerGroupOverride: Int? = nil
+    length: Int
 ) -> (MLXArray, MLXArray) {
     let heads = LagunaConstants.slidingAttentionHeads
     let kvHeads = LagunaConstants.numKeyValueHeads
@@ -2633,12 +2632,10 @@ func lagunaPrefillSlidingQKNormRoPE(
     precondition(
         angles.shape == [1, 1, lagunaRoPEAngleAtlasLength, LagunaConstants.headDim])
     precondition(offsets.dtype == .int32 && offsets.size == 1)
-    if let headsPerGroupOverride {
-        precondition(headsPerGroupOverride == 1 || headsPerGroupOverride == 4)
-    }
 
-    let useH1 = terminal || (headsPerGroupOverride ?? lagunaPrefillQKHeadsPerGroup) == 1
+    let useH1 = lagunaPrefillQKHeadsPerGroup == 1
     precondition(useH1 || (heads + kvHeads) % 4 == 0)
+    precondition(!terminal || useH1)
     let headsPerGroup = useH1 ? 1 : 4
     let threadGroupSize = headsPerGroup * 32
     let kernel = useH1
@@ -2658,15 +2655,14 @@ func lagunaPrefillSlidingQKNormRoPE(
     return (outputs[0], outputs[1])
 }
 
-func lagunaPrefillFullQKNormYaRN(
+private func lagunaPrefillFullQKNormYaRN(
     rawQueries: MLXArray,
     rawKeys: MLXArray,
     queryWeight: MLXArray,
     keyWeight: MLXArray,
     angles: MLXArray,
     offsets: MLXArray,
-    length: Int,
-    headsPerGroupOverride: Int? = nil
+    length: Int
 ) -> (MLXArray, MLXArray) {
     let heads = LagunaConstants.fullAttentionHeads
     let kvHeads = LagunaConstants.numKeyValueHeads
@@ -2683,11 +2679,8 @@ func lagunaPrefillFullQKNormYaRN(
         angles.shape == [1, 1, lagunaRoPEAngleAtlasLength, LagunaConstants.headDim / 2])
     precondition(offsets.dtype == .int32 && offsets.size == 1)
     precondition((heads + kvHeads) % 4 == 0)
-    if let headsPerGroupOverride {
-        precondition(headsPerGroupOverride == 1 || headsPerGroupOverride == 4)
-    }
 
-    let useH1 = (headsPerGroupOverride ?? lagunaPrefillQKHeadsPerGroup) == 1
+    let useH1 = lagunaPrefillQKHeadsPerGroup == 1
     let headsPerGroup = useH1 ? 1 : 4
     let threadGroupSize = headsPerGroup * 32
     let kernel = useH1
@@ -5874,7 +5867,8 @@ final class LagunaRuntimeAttention: Module {
         }
 
         let useFusedQK =
-            lagunaPrefillQKNormRoPEEnabled && B == 1 && isSliding &&
+            lagunaPrefillQKNormRoPEEnabled && lagunaPrefillQKHeadsPerGroup == 1 &&
+            B == 1 && isSliding &&
             nHeads == LagunaConstants.slidingAttentionHeads &&
             nKVHeads == LagunaConstants.numKeyValueHeads &&
             headDim == LagunaConstants.headDim &&
