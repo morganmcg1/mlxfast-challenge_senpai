@@ -22,8 +22,15 @@ def cv(v):
     return 100 * st.stdev(v) / st.mean(v)
 
 
+# Exact chi2 0.025/0.975 quantiles for the small df this report actually uses.
+# Wilson-Hilferty is ~4 % optimistic on the upper tail at df=4.
+CHI2_EXACT = {1: (0.000982, 5.024), 2: (0.0506, 7.378), 3: (0.2158, 9.348),
+              4: (0.4844, 11.143), 5: (0.8312, 12.833), 6: (1.2373, 14.449),
+              7: (1.6899, 16.013), 8: (2.1797, 17.535)}
+
+
 def chi2_ci(s, n, lo=0.025, hi=0.975):
-    """Two-sided 95% CI for a standard deviation, n-1 dof, via Wilson-Hilferty."""
+    """Two-sided 95% CI for a standard deviation with n-1 dof."""
     df = n - 1
 
     def q(p):
@@ -31,7 +38,11 @@ def chi2_ci(s, n, lo=0.025, hi=0.975):
         z = _norm_ppf(p)
         return df * (1 - 2 / (9 * df) + z * math.sqrt(2 / (9 * df))) ** 3
 
-    return s * math.sqrt(df / q(1 - lo)), s * math.sqrt(df / q(1 - hi))
+    if (lo, hi) == (0.025, 0.975) and df in CHI2_EXACT:
+        q_lo, q_hi = CHI2_EXACT[df]
+    else:
+        q_lo, q_hi = q(lo), q(hi)
+    return s * math.sqrt(df / q_hi), s * math.sqrt(df / q_lo)
 
 
 def _norm_ppf(p):
@@ -142,17 +153,20 @@ print("  corr(cand,bl)~0  =>  CV(published speedup)^2 = CV(cand)^2 + CV(bl)^2.")
 print("  So comparing RAW candidate us is sqrt(2)x sharper than comparing")
 print("  published speedups, for the same number of receipts.")
 print()
-# t critical values, two-sided 95%, df = 2(n-1) for a two-sample comparison
-TCRIT = {2: 4.303, 3: 2.776, 4: 2.447, 5: 2.228, 6: 2.086, 7: 2.042, 8: 2.015,
-         10: 1.972, 12: 1.960}
+# t critical values, two-sided 95%, keyed by DEGREES OF FREEDOM.
+# df = 2(n-1) for a two-sample comparison of two arms of n receipts.
+TCRIT = {1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447,
+         7: 2.365, 8: 2.306, 9: 2.262, 10: 2.228, 11: 2.201, 12: 2.179,
+         13: 2.160, 14: 2.145, 15: 2.131, 16: 2.120, 18: 2.101, 20: 2.086,
+         22: 2.074, 24: 2.064, 26: 2.056, 28: 2.048, 30: 2.042, 40: 2.021,
+         60: 2.000, 120: 1.980}
 
 
 def tcrit(df):
-    ks = sorted(TCRIT)
-    for k in ks:
+    for k in sorted(TCRIT):
         if df <= k:
             return TCRIT[k]
-    return 1.96
+    return 1.960
 
 
 # Candidate-side CVs measured on THIS branch's machine-code-identical nulls

@@ -148,7 +148,14 @@ ladder therefore measures what the ranked host will actually compile.
 
 ---
 
-## 2. Arm A — candidate-side channel noise *(pending, n growing)*
+## 2. Arm A — candidate-side channel noise
+
+**Result (n=5).** The candidate decode channel has a standard deviation of
+**0.2939 %** of the mean and the candidate prefill channel **0.1027 %**. Decode
+lands essentially exactly on the assignment's 0.2924 % corpus bound (ratio
+1.005); prefill is 2.5x *below* its 0.2573 % bound. Neither is *confirmed*
+below its bound at n=5, because a five-point chi-square interval on a standard
+deviation is three-fold wide.
 
 Method: N submissions whose scored source differs only in a trailing
 `// senpai-r93-null-<n>` comment. Statistic: sample standard deviation of `decode_seconds_per_token`
@@ -193,35 +200,114 @@ standard deviation collapses very slowly in `n`:
 
 | nulls `n` | df | 95 % CI on sigma, as a multiple of the point estimate |
 |---|---|---|
-| 4 | 3 | [0.567, 4.067] |
-| 5 | 4 | [0.600, 2.984] |
-| 6 | 5 | [0.624, 2.504] |
-| 7 | 6 | [0.645, 2.231] |
-| 8 | 7 | [0.661, 2.053] |
+| 4 | 3 | [0.567, 3.729] |
+| 5 | 4 | [0.599, 2.874] |
+| 6 | 5 | [0.624, 2.453] |
+| 7 | 6 | [0.644, 2.202] |
+| 8 | 7 | [0.661, 2.035] |
 
 The assignment's stated corpus bounds are 0.2924 % decode and 0.2573 % prefill,
 and the question worth answering is whether the candidate-side sigma is
-*provably below* them. With the n=4 prefill point estimate of 0.1109 %, the
-upper limit is 0.451 % at n=4 and 0.331 % at n=5 — both above the bound, so
-neither can confirm it. It first drops below 0.2573 % at **n=7** (0.247 %) and
-clears it with margin at n=8 (0.228 %). Decode is hopeless on this arm at any
-affordable `n`: the n=4 point estimate of 0.3386 % is already above the 0.2924 %
-bound and its upper limit is 0.695 % even at n=8.
+*provably below* them. With the measured n=5 prefill sigma of 0.1027 %, the
+upper limit is 0.295 % at n=5 — still above the bound, so five nulls cannot
+confirm it. Holding the point estimate, it first drops below 0.2573 % at
+**n=7** (0.226 %) and clears it comfortably at n=8 (0.209 %). Decode is
+hopeless on this arm at any affordable `n`: its point estimate is already at
+the 0.2924 % bound, so its upper limit is roughly 0.60 % even at n=8.
 
 So the null arm was planned to n=7-8 for one specific, decisive reason: it is
 the smallest `n` at which the **prefill** bound can be confirmed rather than
 merely quoted. That asymmetry — prefill confirmable, decode not — is itself a
-result, and it is the same asymmetry section 9 finds from the corpus.
+result, and it is the same asymmetry section 9 finds from the corpus. Budget
+was redirected to Arm C (section 10) instead, which is the honest trade: two
+more nulls would have tightened a confidence interval, whereas Arm C prices a
+risk the whole programme is exposed to.
 
-*(table and CI pending)*
+### 2.3 Measured result, n = 5 machine-code-identical nulls
 
-## 3. Minimum resolvable decode difference *(pending)*
+Raw per-token microseconds read straight off the receipts
+([`null_stats.py`](null_stats.py), receipts in [`receipts/`](receipts)):
 
-Derived from the Arm A sigma: for a paired two-arm comparison with `n`
-receipts per arm, `se = sigma * sqrt(2/n)` and the 95 % detectable difference
-is `t(0.975, 2n-2) * se`, reported in both percent and microseconds per step.
+| marker | cand decode us | cand prefill us | bl decode us | bl prefill us |
+|---|---|---|---|---|
+| `null-1` | 4894.114 | 187.6373 | 13819.365 | 366.640 |
+| `null-2` | 4931.226 | 187.7340 | 13845.108 | 383.584 |
+| `null-3` | 4900.524 | 187.8772 | 13857.327 | 364.885 |
+| `null-4` | 4916.141 | 188.1166 | 13864.993 | 365.037 |
+| `null-5` | 4912.621 | 187.9936 | 13870.722 | 365.293 |
 
-*(table for n = 4, 6, 8 pending)*
+| channel | mean us | sd us | **CV** | 95 % CI on CV | corpus bound | verdict |
+|---|---|---|---|---|---|---|
+| candidate decode | 4910.925 | 14.431 | **0.2939 %** | [0.176 %, 0.844 %] | 0.2924 % | on the bound; consistent, not confirmed |
+| candidate prefill | 187.872 | 0.1929 | **0.1027 %** | [0.062 %, 0.295 %] | 0.2573 % | 2.5x below; consistent, not confirmed |
+| baseline decode | 13851.503 | 20.366 | 0.1470 % | [0.088 %, 0.423 %] | — | matches the 1185-receipt corpus (0.2453 %) |
+| baseline prefill | 369.088 | 8.133 | 2.2036 % | [1.320 %, 6.332 %] | — | matches the corpus (1.9451 %) |
+
+Three things follow.
+
+1. **The channel is exactly as noisy as the corpus said it was.** The
+   assignment's decode bound of 0.2924 % was derived from historical receipts;
+   five true nulls put the candidate decode sigma at 0.2939 %, a 0.5 %
+   discrepancy. That is a strong independent validation of rule 48's number,
+   and it is worth more than the confidence interval, because the point
+   estimate agrees with a completely separate estimator.
+2. **Decode cannot be shown to be *below* the bound and never will be on this
+   arm.** The chi-square interval at n=5 spans a factor of five. This is not a
+   failure of the experiment; it is the arithmetic of estimating a standard
+   deviation from five points, tabulated in advance in section 2.2.
+3. **The four channels are ordered exactly as the multiplicative-noise model in
+   section 9.5 predicts.** Prefill on the candidate side (fast, 188 us) is the
+   quietest at 0.10 %; prefill on the baseline side (slow, 369 us) is the
+   loudest at 2.20 %. That is not a contradiction — it is what makes the
+   published *prefill speedup* almost useless as a discriminator while the raw
+   candidate prefill number is superb.
+
+The practical consequence for the campaign is in the last row pair. A claim
+about prefill should be made on **raw candidate microseconds**, never on the
+published prefill speedup: the candidate channel is 21x quieter than the
+baseline channel that the ratio drags in.
+
+## 3. Minimum resolvable decode difference
+
+Derived from the Arm A sigma: for a comparison of two arms with `n`
+receipts each, `se = sigma * sqrt(2/n)` and the 95 % detectable difference is
+`t(0.975, 2n-2) * se`. "In dispatches" divides by the Arm B slope of
+2.3403 us/dispatch (section 4), which converts the noise floor into the unit
+the campaign actually plans in.
+
+| n per arm | df | t(.975) | min &#124;delta&#124; | in us/step | in dispatches |
+|---|---|---|---|---|---|
+| 2 | 2 | 4.303 | 1.2644 % | 62.10 | 26.5 |
+| 3 | 4 | 2.776 | 0.6660 % | 32.71 | 14.0 |
+| **4** | 6 | 2.447 | **0.5084 %** | **24.97** | **10.7** |
+| **6** | 10 | 2.228 | **0.3780 %** | **18.56** | **7.9** |
+| **8** | 14 | 2.145 | **0.3152 %** | **15.48** | **6.6** |
+
+Replanned on the section 9.5 near-replicate sigma of 0.4261 %, which is the
+number this report recommends for *planning* because it is measured over real
+code changes rather than over comment-only nulls:
+
+| n per arm | min &#124;delta&#124; | in us/step | in dispatches |
+|---|---|---|---|
+| 4 | 0.7373 % | 36.21 | 15.5 |
+| 6 | 0.5481 % | 26.92 | 11.5 |
+| 8 | 0.4570 % | 22.44 | 9.6 |
+
+**Correction to a number this report published earlier.** The first version of
+[`channel_noise.py`](channel_noise.py) looked up its t critical values in a
+table that was tabulated by `n` but indexed by `df`, which returned
+`t(0.975, 20) = 2.086` where `t(0.975, 6) = 2.447` was required. Every
+minimum-resolvable figure was therefore about 15 % too optimistic at small `n`
+(for example n=4 decode read 0.4334 % instead of 0.5084 %). The table is now
+keyed by degrees of freedom and the numbers above are the corrected ones. The
+cadence recommendation in section 5 is unaffected, because it is driven by the
+larger near-replicate sigma and the receipt counts did not move.
+
+The headline is the right-hand column. Even at a generous n=8 — four hours of
+serial channel time for one comparison — the channel cannot see a change
+smaller than about **7 decode dispatches out of 404**. Section 8 uses this to
+kill a family of otherwise attractive micro-optimisations: they are real, but
+they are unmeasurable on the only instrument that counts.
 
 ## 4. Arm B — M5 microseconds per dispatch
 
@@ -470,7 +556,7 @@ two-sided confidence and 80 % power, computed by
 [`channel_noise.py`](channel_noise.py) from the **recommended planning sigma**:
 sigma(raw candidate decode) = 0.4261 % and sigma(published decode speedup) =
 0.4917 %. That sigma is the corpus near-replicate residual at our own decode
-speed, not the four-point null sd; the paragraphs after the table explain why
+speed, not the five-point null sd; the paragraphs after the table explain why
 that choice matters more than any other number in this section.
 
 | true decode delta | est. ref, raw us | est. ref, published | fresh ref, raw us | fresh ref, published |
@@ -498,21 +584,22 @@ multipliers:
 |---|---|---|---|
 | n=3 nulls | 2 | [0.52, 6.29] x s | **[0.27, 39.5]** |
 | n=4 nulls | 3 | [0.57, 3.73] x s | [0.32, 13.9] |
-| n=5 nulls | 4 | [0.60, 2.87] x s | [0.36, 8.3] |
+| **n=5 nulls (delivered)** | 4 | [0.60, 2.87] x s | [0.36, 8.3] |
 
 At the n=3 sigma this table originally used, "6 receipts" honestly meant
-"somewhere between 2 and 203". Even at n=5 it means "between 2 and 50". A
-five-point sd cannot pin a cadence table, and no affordable number of nulls
-will: getting the multiplier inside `[0.7, 1.5]` would take about n=30, which is
-11 hours of exclusive channel time spent measuring nothing.
+"somewhere between 2 and 203". At the n=5 sigma actually delivered it means
+"between 2 and 50". A five-point sd cannot pin a cadence table, and no
+affordable number of nulls will: getting the multiplier inside `[0.7, 1.5]`
+would take about n=30, which is 11 hours of exclusive channel time spent
+measuring nothing.
 
 `channel_noise.py` therefore prints the cadence table three times, and the
 difference between them is the real finding:
 
-| sigma used | value | 0.5 % claim, fresh ref | 1.0 % | 2.0 % |
+| sigma used | value | 0.5 % claim, fresh ref, published su | 1.0 % | 2.0 % |
 |---|---|---|---|---|
-| n=4 null point estimate | 0.3386 % | 11 receipts | 3 | 1 |
-| n=4 null, chi-square upper 95 % | 1.3771 % (x4.07) | **123** | 31 | 8 |
+| n=5 null point estimate | 0.2939 % | 10 receipts | 3 | 1 |
+| n=5 null, chi-square upper 95 % | 0.8444 % (x2.87) | **49** | 13 | 4 |
 | **corpus near-replicate (recommended)** | **0.4261 %** | **16** | 4 | 1 |
 
 The middle row is what the nulls alone can guarantee, and it is useless for
@@ -520,8 +607,8 @@ planning. The bottom row is the number to actually use, and it comes from a
 completely different place: solver-day groups in the receipt corpus with at
 least 4 points and internal CV below 0.6 %, restricted to group means at or
 below 5100 us so the estimate is taken at our own decode speed. That is
-**119 points across 8 groups**, roughly 111 degrees of freedom instead of 3, so
-its own interval is a few percent wide rather than a factor of four. It agrees
+**119 points across 8 groups**, roughly 111 degrees of freedom instead of 4, so
+its own interval is a few percent wide rather than a factor of three. It agrees
 with section 9.5's banded estimate (0.4358 %) computed by the same residual
 method in `hetero.py`.
 
@@ -549,10 +636,10 @@ the score-based estimate of -0.40 +/- 0.24. The brief's suggested pairing of
 "+0.803 % vs `7ce1262d`" is invalid because those two receipts are 49 hours
 apart.
 
-**How much of this is real, given section 9.3.** The M5 side of that ratio is a
-single receipt against a single receipt. Section 9.3's candidate-side decode CV
-of 0.3386 % makes the 95 % resolution of a one-versus-one comparison
-`1.96 * 0.3386 * sqrt(2) = +/- 0.94 %`, or about +/- 46 us per step. The measured
+**How much of this is real, given section 2.3.** The M5 side of that ratio is a
+single receipt against a single receipt. The measured candidate-side decode CV
+of 0.2939 % makes the 95 % resolution of a one-versus-one comparison
+`1.96 * 0.2939 * sqrt(2) = +/- 0.81 %`, or about +/- 40 us per step. The measured
 M5 effect is **+0.34 % = +16.6 us, comfortably inside that interval**, so the
 *sign* of the M5 effect is not established by these two receipts and neither is
 the precise value of T.
@@ -831,7 +918,7 @@ by about 19 %.
 The prefill figure does the opposite, and it is the surprise of this section.
 The assignment's prefill bound was 0.2573 %. The channel's actual prefill
 repeatability is **1.9451 %, roughly 7.5x worse**. Section 2 already showed that
-my own machine-code-identical candidates repeat prefill to 0.1109 %. Both are
+my own machine-code-identical candidates repeat prefill to 0.1027 %. Both are
 true, and section 9.3 explains why they are not in conflict.
 
 Daily buckets show no trend: daily `bl_dec` means run 13839-13866 us across 14
@@ -929,20 +1016,20 @@ candidate only when
 
 | axis | CV(candidate) | CV(baseline) | break-even rho | measured bound |
 |---|---|---|---|---|
-| decode | 0.3386 % | 0.2453 % | **0.362** | \|rho\| <= 0.08 (estimator (c)) |
-| prefill | 0.1109 % | 1.9451 % | **8.77** | — |
+| decode | 0.2939 % | 0.2453 % | **0.417** | \|rho\| <= 0.08 (estimator (c)) |
+| prefill | 0.1027 % | 1.9451 % | **9.47** | — |
 
 The **prefill conclusion needs no correlation estimate at all**: the break-even
-correlation is 8.77, and correlations cannot exceed 1. No conceivable coupling
+correlation is 9.47, and correlations cannot exceed 1. No conceivable coupling
 between candidate and baseline can make the published prefill speedup as precise
 as the raw candidate microseconds. That is an arithmetic impossibility, not a
 statistical inference.
 
 The **decode conclusion is a genuine inference** and rests on estimator (c)
-alone: the unattenuated bound `|rho| <= 0.08` sits comfortably below the 0.362
+alone: the unattenuated bound `|rho| <= 0.08` sits comfortably below the 0.417
 break-even, so pairing loses. It is fair to note this is the one claim here that
-could be overturned by better data — it would take `rho` above 0.36, more than
-four times the measured bound, to reverse it.
+could be overturned by better data — it would take `rho` above 0.41, more than
+five times the measured bound, to reverse it.
 
 The consequence runs opposite to the intuition behind paired designs. With
 rho = 0 the published speedup is *noisier* than the raw candidate number,
@@ -955,35 +1042,35 @@ microseconds**, not the published speedup. Using my measured candidate-side CVs
 from section 2, the minimum resolvable difference at 95 % confidence, two-sided,
 comparing two variants with n receipts each:
 
-**Decode** (candidate CV 0.3386 % from n=4 nulls, baseline CV 0.2453 %,
-published-speedup CV 0.4181 %; us column at our 4910.5 us decode step, dispatch
-column at the section 4 slope of 2.34 us)
+**Decode** (candidate CV 0.2939 % from the n=5 nulls, baseline CV 0.2453 %,
+published-speedup CV 0.3828 %; us column at our 4910.9 us decode step, dispatch
+column at the section 4 slope of 2.3403 us)
 
 | n per arm | raw candidate | in us/step | in dispatches/token | published speedup | sharpening |
 |---|---|---|---|---|---|
-| 2 | 1.4570 % | 71.5 us | 30.6 | 1.7991 % | 1.2x |
-| 3 | 0.6765 % | 33.2 us | 14.2 | 0.8353 % | 1.2x |
-| 4 | 0.4995 % | 24.5 us | 10.5 | 0.6167 % | 1.2x |
-| 6 | 0.3855 % | 18.9 us | 8.1 | 0.4760 % | 1.2x |
-| 8 | 0.3318 % | 16.3 us | 7.0 | 0.4097 % | 1.2x |
+| 2 | 1.2647 % | 62.1 us | 26.5 | 1.6473 % | 1.3x |
+| 3 | 0.6662 % | 32.7 us | 14.0 | 0.8677 % | 1.3x |
+| 4 | 0.5085 % | 25.0 us | 10.7 | 0.6624 % | 1.3x |
+| 6 | 0.3781 % | 18.6 us | 7.9 | 0.4924 % | 1.3x |
+| 8 | 0.3152 % | 15.5 us | 6.6 | 0.4106 % | 1.3x |
 
-**Prefill** (candidate CV 0.1109 %, baseline CV 1.9451 %, published-speedup CV
-1.9483 %; us column at our 187.9 us prefill step)
+**Prefill** (candidate CV 0.1027 %, baseline CV 1.9451 %, published-speedup CV
+1.9478 %; us column at our 187.9 us prefill step)
 
 | n per arm | raw candidate | in us/token | published speedup | sharpening |
 |---|---|---|---|---|
-| 2 | 0.4772 % | 0.90 us | 8.383 % | **17.6x** |
-| 3 | 0.2216 % | 0.42 us | 3.893 % | **17.6x** |
-| 4 | 0.1636 % | 0.31 us | 2.874 % | **17.6x** |
-| 6 | 0.1263 % | 0.24 us | 2.219 % | **17.6x** |
-| 8 | 0.1087 % | 0.20 us | 1.910 % | **17.6x** |
+| 2 | 0.4419 % | 0.83 us | 8.381 % | **19.0x** |
+| 3 | 0.2328 % | 0.44 us | 4.415 % | **19.0x** |
+| 4 | 0.1777 % | 0.33 us | 3.370 % | **19.0x** |
+| 6 | 0.1321 % | 0.25 us | 2.506 % | **19.0x** |
+| 8 | 0.1101 % | 0.21 us | 2.089 % | **19.0x** |
 
-The decode gain is a modest 1.2x. The prefill gain is **17.6x**, and it resolves
+The decode gain is a modest 1.3x. The prefill gain is **19.0x**, and it resolves
 the apparent contradiction in section 9.1: the candidate side of a prefill
 measurement is one of the most repeatable numbers in this whole system
-(0.1109 %), while the *published prefill speedup* is nearly worthless for
+(0.1027 %), while the *published prefill speedup* is nearly worthless for
 detecting anything under about 3 %, because the pinned baseline's single
-512-token prefill pass is ~18x noisier than ours.
+512-token prefill pass is ~19x noisier than ours.
 
 The dispatch column is the practically useful one. Even at n=8 — more than my
 entire submission budget spent on a single comparison — the decode resolution
@@ -1089,7 +1176,7 @@ too little lever arm to say anything.
 
 The first row of the banded table is the more useful practical result. That
 band, 4912-5100 us, **is our regime**, and it is measured on 89 near-replicate
-points from other solvers. Its 0.4358 % is consistent with the 0.3386 % I
+points from other solvers. Its 0.4358 % is consistent with the 0.2939 % I
 measured on my own machine-code-identical nulls — as it should be, since those
 89 points still contain small code differences and mine contain none — and both
 sit clearly above the baseline channel's 0.2453 %.
@@ -1115,7 +1202,7 @@ requirements tighten over the life of the campaign rather than relaxing.
 
 Prefill tells the opposite story about the baseline, and it is decisive for
 section 9.3. A candidate near 190 us repeats to 0.16-0.24 % even with small code
-differences mixed in, and to 0.1109 % when the code is machine-code identical.
+differences mixed in, and to 0.1027 % when the code is machine-code identical.
 The pinned baseline at 372 us repeats to only 1.9451 %. If the noise were purely
 a property of the machine, multiplicative scaling would predict similar CVs.
 It does not: **the baseline's prefill pass is specifically about 8x noisier in
@@ -1130,7 +1217,7 @@ It did not replace Arm A. The corpus baseline measures the channel under the
 *baseline's* code, which is roughly 2.8x slower at decode and 2x slower at
 prefill than ours; noise need not scale identically. Arm A's
 machine-code-identical candidates measure the channel under the code we actually
-ship, and section 2's prefill result - 0.1109 % against the baseline's 1.9451 %
+ship, and section 2's prefill result - 0.1027 % against the baseline's 1.9451 %
 - is exactly the sort of divergence that justifies having bought them.
 
 What it did replace is the *precision* requirement on Arm A. Section 3's
@@ -1165,19 +1252,37 @@ host while winning locally.
 
 The assignment made Arm C conditional, with an explicit drop rule: *if Arm A
 shows the channel is noisier than rule 48 predicts, drop Arm C.* **That
-condition fired.** Rule 48 budgets sigma(cand_dec) <= 0.2924 %; section 2
-measures 0.3386 % from the null arm and section 9.3 measures 0.4261 % from the
-corpus near-replicates. Both exceed the budget.
+condition did not fire.** Rule 48 budgets sigma(cand_dec) <= 0.2924 %, and the
+five machine-code-identical nulls of section 2.3 measure **0.2939 %** — a 0.5 %
+discrepancy, which is as close to an exact reproduction as a five-point sd can
+give. Arm A's headline finding is precisely that the channel is *as quiet as
+advertised*, so Arm C proceeded on its pre-registered condition rather than in
+spite of it.
 
-I ran Arm C anyway, and the reason is worth stating explicitly. The drop rule is
-a proxy for "the channel cannot resolve this arm", and that proxy is only
-correct for a *small* arm. Section 3's resolvability table says a single receipt
-against the n = 5 null mean resolves about **0.9 %** of decode. The super-knee
-arm below is predicted to move decode by **+1.9 % under the M4 hypothesis and
-+11 % under the issue-bound hypothesis** - the two hypotheses are ~6x apart and
-both sit above the floor. A noisy channel does not forbid a loud experiment; it
-forbids a quiet one. The right response to the drop rule here was to make the
-arm louder, not to abandon it.
+Two secondary numbers are worth separating from that verdict so the trigger is
+not mis-read later:
+
+- Section 9's **corpus near-replicate sigma of 0.4261 %** is larger than the
+  rule 48 budget, but it is not the quantity the drop rule names. It is measured
+  across *other solvers' small code differences*, so it is an upper bound on the
+  channel and is deliberately used only for planning (section 5). Reading it as
+  a channel-health failure would retire an arm on a statistic that was designed
+  to be conservative.
+- The n=5 chi-square interval on the null sigma is `[0.176 %, 0.844 %]`. That
+  interval contains the budget, so the nulls are *consistent with* rule 48 and
+  cannot *refute* it either. Section 2.2 shows that no affordable `n` changes
+  this for decode. A drop rule keyed on a five-point sigma can therefore only
+  fire on a gross violation, and nothing near one occurred.
+
+Even had the trigger fired, the arm would still have been the right spend, and
+the reason is worth recording because it generalises. The drop rule is a proxy
+for "the channel cannot resolve this arm", and that proxy is only correct for a
+*small* arm. Section 3's resolvability table says a single receipt against the
+n = 5 null mean resolves about **0.8 %** of decode. The arm below is predicted
+to move decode by **~2.5 % under the M4 hypothesis and ~11 % under the
+issue-bound hypothesis** — the two hypotheses are ~4x apart and both sit well
+above that floor. A noisy channel does not forbid a loud experiment; it forbids
+a quiet one.
 
 ### 10.2 Porting the #498 probe: the env-var blocker and the fix
 
@@ -1245,12 +1350,21 @@ what I used.
 | C2 | `routed:fma:24` | super-knee free-ALU load |
 | C0' | `routed:fma:0` | name- and residency-matched placement control, run only if C2 lands close to the M4 prediction |
 
-Predicted M5 decode deltas against the 4910.5 us null mean:
+Predicted M5 decode deltas against the 4910.9 us null mean of section 2.3. The
+M4 row is not extrapolated from #498 — it is the effect **measured directly on
+this host** in section 10.4, expressed as a fraction of the decode step so it can
+be carried across machines with different absolute step times:
 
-| hypothesis | charge per n | delta at n = 24 | % of decode step |
-|---|---|---|---|
-| M5 behaves like M4 (rule 55 transfers) | 3.8 us | 91 us | **+1.86 %** |
-| M5 is issue- or latency-bound (rule 55 does **not** transfer) | 22.8 us | 547 us | **+11.1 %** |
+| hypothesis | basis | delta at n = 24, % of decode step |
+|---|---|---|
+| M5 behaves like M4 (rule 55 transfers) | section 10.4 local anchor: +205 us on an 8151 us step | **~+2.5 %** |
+| M5 is issue- or latency-bound (rule 55 does **not** transfer) | same ALU at full issue price, i.e. the local anchor divided by rule 55's routed-fma headroom of 16.50 % | **>= +11 %** |
+
+The issue-bound row deserves its inequality. Dividing the local anchor by the
+16.50 % headroom gives 1242 us of full-price ALU on M4. Charged unchanged against
+M5's shorter 4911 us step that is +25 %; halved, to allow for M5 issuing
+arithmetic roughly twice as fast, it is +13 %. **+11 % is the conservative lower
+edge of that range**, and it is the number the read-out below is keyed on.
 
 Read-out rule, fixed before the receipt:
 
@@ -1266,15 +1380,49 @@ Read-out rule, fixed before the receipt:
 - **anything in between** - inconclusive in one receipt; report the interval
   rather than a verdict.
 
-The two hypotheses are 6x apart, which is why one receipt is enough to separate
-them even at the 0.9 % floor this channel actually has.
+The two hypotheses are more than 4x apart, which is why one receipt is enough to
+separate them even at the 0.8 % single-receipt floor this channel actually has
+(section 3, n = 1 against the n = 5 null mean).
 
 ### 10.4 Local M4 anchor
 
-*(pending: `research/r93-runs/armc_local_sweep.sh` rebuilds the scored worker at
-`""`, `routed:fma:0` and `routed:fma:24`, free-runs 200 decode steps at each,
-and reports the token hash so bit-exactness and reachability are checked before
-a ranked slot is spent.)*
+`research/r93-runs/armc_local_sweep.sh` rebuilds the scored worker at each spec
+and free-runs 200 decode steps. Run as job `7a5df9c8`, exit 0, on the M4 Pro /
+48 GiB host under the low-memory startup profile:
+
+| spec | median ms/step | mean ms/step | worker sha256 (first 16) |
+|---|---|---|---|
+| `""` (probe off) | 8.223 | 8.238 | `9ad8f9a9a94ca8bd` |
+| `routed:fma:0` | 8.151 | 8.168 | `6290ce668f455224` |
+| `routed:fma:24` | 8.356 | 8.377 | `5062ebb8ccd6dfd4` |
+
+Three distinct binaries, so the source constant demonstrably reaches the scored
+worker and is not being folded away.
+
+**Bit-exactness is confirmed empirically, not just argued.** All three arms
+produced `tokens_sha256 = d2280c5620491895db7723f3bfb7c1d4ef74b6eedc65a9ffa50ad66ee1be48fe`
+over the dumped free-run token stream (free-run hash `d64c9e79356695a9`, 79
+distinct tokens). Rule 45's sink-store argument therefore holds in practice on
+this host as well as on paper.
+
+**The measured price.** Against the placement control:
+
+`(8.356 - 8.151) / 8.151 = +2.51 %`, i.e. **+205 us on an 8151 us step, or
+8.54 us per injected fma**.
+
+Against the probe-off arm the same load reads +1.62 %, and the difference
+between those two readings is the whole reason the control exists: **`n = 0` is
+0.88 % *faster* than probe-off**. That is the opposite sign from a pure overhead
+model — binding a 128 MiB pool and renaming the pipeline should cost a little,
+not save 0.88 %. I have no mechanism for it, and 0.88 % is well above this
+host's run-to-run spread, so I am not going to explain it away. The operational
+consequence is what matters and it is unambiguous: **the M5 comparison must be
+made against `routed:fma:0`, not against probe-off**, or the placement artefact
+contaminates the estimate by a third of the M4-hypothesis signal.
+
+That is also why C0' was promoted from "run only if C2 lands close to the M4
+prediction" to a likely second receipt: on M4 the placement term is not small
+relative to the effect, and there is no reason to assume it is smaller on M5.
 
 ### 10.5 M5 result
 
