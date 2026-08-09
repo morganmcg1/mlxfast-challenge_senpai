@@ -96,14 +96,6 @@ func lagunaTrace(_ site: @autoclosure () -> String) {
     lagunaTracedFusions.note(site())
 }
 
-private let lagunaRouterBroadcastReachability =
-    ProcessInfo.processInfo.environment["MLXFAST_ROUTER_BROADCAST_REACHABILITY"] == "1"
-
-private func lagunaTraceRouterBroadcastReachability(_ message: String) {
-    guard lagunaRouterBroadcastReachability else { return }
-    FileHandle.standardError.write(Data("mlxfast: router broadcast reachability: \(message)\n".utf8))
-}
-
 // MARK: - Runtime fusion feature flags
 
 // Each fusion below concatenates the OUTPUT ROWS of same-dtype projections
@@ -8137,9 +8129,8 @@ private let lagunaRoutedSharedDownResidualSharedHalvedKernel =
         ensureRowContiguous: true
     )
 
-func lagunaRoutedSharedDownResidualSource(
-    sharedHalved: Bool, staged: Bool = false,
-    routerWeightBroadcast: Bool = true
+private func lagunaRoutedSharedDownResidualSource(
+    sharedHalved: Bool, staged: Bool = false
 ) -> String {
     let sharedRowBytes = sharedHalved ? 16 : 32
     let sharedBase =
@@ -8194,63 +8185,6 @@ func lagunaRoutedSharedDownResidualSource(
                 input_values,
                 laguna_nvfp4_scale(sb));
             result[row] = simd_sum(result[row]);
-        }
-        """
-    let epilogue =
-        routerWeightBroadcast
-        ? """
-        if (slot == 0) {
-            bfloat routed_total = bfloat(0);
-            for (uint routed_slot = 0;
-                 routed_slot < routed_experts;
-                 ++routed_slot) {
-                ushort route_weight_bits = lane == 0
-                    ? as_type<ushort>(bfloat(router_weights[routed_slot]))
-                    : ushort(0);
-                route_weight_bits =
-                    simd_broadcast(route_weight_bits, ushort(0));
-                if (lane < outputs_per_simd) {
-                    bfloat route_weight =
-                        as_type<bfloat>(route_weight_bits);
-                    bfloat product = bfloat(
-                        down_outputs[
-                            routed_slot * outputs_per_simd + lane
-                        ] * route_weight);
-                    routed_total = bfloat(product + routed_total);
-                }
-            }
-            if (lane < outputs_per_simd) {
-                bfloat routed = bfloat(
-                    routed_total * bfloat(2.5f));
-                bfloat shared =
-                    down_outputs[shared_slot * outputs_per_simd + lane];
-                bfloat r2 = bfloat(routed + shared);
-                output[first_row + lane] =
-                    bfloat(residual[first_row + lane] + r2);
-            }
-        }
-        """
-        : """
-        if (slot == 0 && lane < outputs_per_simd) {
-            bfloat routed_total = bfloat(0);
-            for (uint routed_slot = 0;
-                 routed_slot < routed_experts;
-                 ++routed_slot) {
-                bfloat route_weight =
-                    bfloat(router_weights[routed_slot]);
-                bfloat product = bfloat(
-                    down_outputs[
-                        routed_slot * outputs_per_simd + lane
-                    ] * route_weight);
-                routed_total = bfloat(product + routed_total);
-            }
-            bfloat routed = bfloat(
-                routed_total * bfloat(2.5f));
-            bfloat shared =
-                down_outputs[shared_slot * outputs_per_simd + lane];
-            bfloat r2 = bfloat(routed + shared);
-            output[first_row + lane] =
-                bfloat(residual[first_row + lane] + r2);
         }
         """
     return """
@@ -8316,7 +8250,27 @@ if (lane == 0) {
 }
 threadgroup_barrier(mem_flags::mem_threadgroup);
 
-\(epilogue)
+if (slot == 0 && lane < outputs_per_simd) {
+    bfloat routed_total = bfloat(0);
+    for (uint routed_slot = 0;
+         routed_slot < routed_experts;
+         ++routed_slot) {
+        bfloat route_weight =
+            bfloat(router_weights[routed_slot]);
+        bfloat product = bfloat(
+            down_outputs[
+                routed_slot * outputs_per_simd + lane
+            ] * route_weight);
+        routed_total = bfloat(product + routed_total);
+    }
+    bfloat routed = bfloat(
+        routed_total * bfloat(2.5f));
+    bfloat shared =
+        down_outputs[shared_slot * outputs_per_simd + lane];
+    bfloat r2 = bfloat(routed + shared);
+    output[first_row + lane] =
+        bfloat(residual[first_row + lane] + r2);
+}
 """
 }
 
@@ -8476,30 +8430,6 @@ private let lagunaRoutedSharedDownResidualStagedSharedHalvedKernel =
         ensureRowContiguous: true
     )
 
-private let lagunaRoutedSharedDownResidualStagedSharedHalvedPerLaneKernel =
-    MLXFast.metalKernel(
-        name: lagunaSharedFirstDownOrderEnabled
-            ? "laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_per_lane_v6sf"
-            : "laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_per_lane_v6",
-        inputNames: lagunaSharedFirstDownOrderEnabled
-            ? [
-                "shared_activated", "shared_down_weight", "shared_down_scales",
-                "routed_activated", "routed_down_weight", "routed_down_scales",
-                "indices", "router_weights", "residual",
-            ]
-            : [
-                "routed_activated", "routed_down_weight", "routed_down_scales",
-                "indices", "router_weights", "shared_activated",
-                "shared_down_weight", "shared_down_scales", "residual",
-            ],
-        outputNames: ["output"],
-        source: lagunaRoutedSharedDownResidualSource(
-            sharedHalved: true, staged: true,
-            routerWeightBroadcast: false),
-        header: lagunaSharedSwiGLUQMVHeader,
-        ensureRowContiguous: true
-    )
-
 func lagunaRoutedSharedDownResidual(
     routedActivated: MLXArray,
     routedDownWeight: MLXArray,
@@ -8510,7 +8440,6 @@ func lagunaRoutedSharedDownResidual(
     sharedDownWeight: MLXArray,
     sharedDownScales: MLXArray,
     residual: MLXArray,
-    routerWeightBroadcast: Bool = true,
     staged: Bool = lagunaFusedDownRowStagingEnabled
 ) -> MLXArray {
     precondition(routedActivated.dtype == .bfloat16)
@@ -8552,9 +8481,7 @@ func lagunaRoutedSharedDownResidual(
     let fusedKernel =
         sharedHalved
         ? (staged
-            ? (routerWeightBroadcast
-                ? lagunaRoutedSharedDownResidualStagedSharedHalvedKernel
-                : lagunaRoutedSharedDownResidualStagedSharedHalvedPerLaneKernel)
+            ? lagunaRoutedSharedDownResidualStagedSharedHalvedKernel
             : lagunaRoutedSharedDownResidualSharedHalvedKernel)
         : (staged
             ? lagunaRoutedSharedDownResidualStagedKernel
@@ -10721,22 +10648,16 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
 
     func callAsFunction(
         _ x: MLXArray, residual: MLXArray, routerLogits: MLXArray? = nil,
-        routerKeys: MLXArray? = nil, routerWeightBroadcast: Bool = true
+        routerKeys: MLXArray? = nil
     ) -> MLXArray {
-        forward(
-            x, residual: residual, routerLogits: routerLogits,
-            routerKeys: routerKeys, routerWeightBroadcast: routerWeightBroadcast)
+        forward(x, residual: residual, routerLogits: routerLogits, routerKeys: routerKeys)
     }
 
     private func forward(
         _ x: MLXArray, residual: MLXArray?, routerLogits: MLXArray?,
-        routerKeys: MLXArray? = nil, routerWeightBroadcast: Bool = true
+        routerKeys: MLXArray? = nil
     ) -> MLXArray {
         let (inds, weights) = gate(x, logits: routerLogits)
-        if x.dim(1) > 1 {
-            lagunaTraceRouterBroadcastReachability(
-                "phase=prefill selected=0 symbol=none")
-        }
         var y: MLXArray
         var routedAlreadyReduced = false
         var sortedTailInverseOrder: MLXArray?
@@ -10854,10 +10775,6 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 residual.dims(1, 1, LagunaConstants.hiddenSize)
             {
                 lagunaTrace("routed+shared down residual")
-                lagunaTraceRouterBroadcastReachability(
-                    routerWeightBroadcast
-                        ? "phase=decode selected=1 symbol=laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6"
-                        : "phase=prefill selected=0 symbol=laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_per_lane_v6")
                 return lagunaRoutedSharedDownResidual(
                     routedActivated: activated,
                     routedDownWeight: downWeight,
@@ -10867,8 +10784,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                     sharedActivated: sharedInputs.activated,
                     sharedDownWeight: sharedInputs.downWeight,
                     sharedDownScales: sharedInputs.downScales,
-                    residual: residual,
-                    routerWeightBroadcast: routerWeightBroadcast
+                    residual: residual
                 )
             } else if lagunaFusedRoutedDownReduceEnabled,
                 let downWeight = _routedDownWeight,
@@ -11250,8 +11166,7 @@ final class LagunaRuntimeDecoderLayer: Module {
             {
                 return sparse(
                     normalizedAfterAttention, residual: h,
-                    routerLogits: routerLogits, routerKeys: routerKeys,
-                    routerWeightBroadcast: false)
+                    routerLogits: routerLogits, routerKeys: routerKeys)
             }
             if let dense = mlp as? LagunaRuntimeMLP,
                 let fused = dense.fusedDenseDownResidual(
