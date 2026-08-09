@@ -1,9 +1,6 @@
 {
   "corpus_bound_dec_pct": 0.2924,
   "corpus_bound_pre_pct": 0.2573,
-  "in_flight": {
-    "null-3": "05dd8bbf-c436-447c-99a8-8024d0fc023f"
-  },
   "ladder": {
     "99309c61": 240
   },
@@ -14,12 +11,14 @@
   ],
   "nulls": [
     "25e1f18e",
-    "d11026c9"
+    "d11026c9",
+    "05dd8bbf"
   ],
   "tg": 8,
   "wandb": {
     "ladder-K240": "fpi2ynyl",
     "null-1": "3szqrztf",
-    "null-2": "0doaq0w0"
+    "null-2": "0doaq0w0",
+    "null-3": "fvm3v67i"
   }
 }

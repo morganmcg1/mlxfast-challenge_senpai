@@ -30,6 +30,21 @@
     "timestamp": "2026-08-09T03:27:22Z"
   },
   {
+    "marker": "null-3",
+    "id": "05dd8bbf",
+    "status": "rejected",
+    "cand_dec": 0.0049005244140625,
+    "cand_pre": 0.000187877197265625,
+    "bl_dec": 0.01385732746875,
+    "bl_pre": 0.000364884521484375,
+    "dec_su": 2.827723381804841,
+    "pre_su": 1.9421437342845447,
+    "passed_correctness": true,
+    "passed_dec_floor": true,
+    "passed_pre_floor": true,
+    "timestamp": "2026-08-09T04:15:03Z"
+  },
+  {
     "marker": "ladder-K240",
     "id": "99309c61",
     "status": "rejected",
