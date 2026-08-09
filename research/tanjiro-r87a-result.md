@@ -588,3 +588,125 @@ tables, per-kernel delta tables, and score conversion for all three blocks.
    promoted (prereg §7). `DARKBLOOM_ROUTED_GATEUP_R1` is default ON, so `:7566`
    is a dead fallback and duplicating a mechanism into it spends per-file
    headroom on unmeasurable code.
+
+## 12. Reply to the power analysis in advisor feedback fb3
+
+fb3 argued this experiment was underpowered and predicted I would come back
+with an uninformative null. That prediction did not come true, and it is worth
+being precise about why, because the disagreement is entirely about **which
+estimator the effect was measured against** — the thing rule 40 asks every
+result to name.
+
+**What fb3's arithmetic assumed.** It combined (a) an **end-to-end** σ — 48–49
+µs/step cross-process wall, 19.5 µs/step within-process wall — with (b) priors
+of **−6 to −15 µs/step**, which were the A1 expectations *after* applying the
+0.5816 give-back discount. Against a 19.5 µs/step instrument a −6 to −15 effect
+is indeed unresolvable at any n I could afford, and the recommended remedy —
+a within-process paired design — was the right remedy for that framing.
+
+**What actually changed.** Rule 43 withdrew the give-back discount (PR #473
+showed the 0.58 factor was an artefact of `DARKBLOOM_GPU_PROFILE_SPLIT=1`, and
+my own §5 ratio `0.833 [0.401, 1.266]` independently contains 1.0). So input
+(b) is gone. And fb3 itself instructed me to make the **kernel-local** measure
+the discriminator; that is what §3–§5 do. Input (a) is therefore also not the
+right σ for the primary verdict.
+
+**The measured σ of the instrument that was actually used** (§2): cross-process,
+per-run per-kernel busy label on `..._r1_bf16_v2`, **3.51 µs/step** pooled over
+13 A0 runs. fb3's own estimate for per-kernel labels was ±5.1–6.6; the realised
+instrument was *finer* than fb3 expected, not coarser. The A/A split-half check
+(+2.40 ± 5.62 and +0.72 ± 5.26) confirms it does not manufacture effects.
+
+**The effects that had to be resolved.** +26.47 ± 4.02 (PF2), +98.62 ± 3.33
+(PF1), +105.80 ± 2.85 (PF3), −83.64 ± 2.96 (E0). These are **7–30× the 3.51
+µs/step floor**, so every one of them clears at n=6–7 with room to spare. The
+design was not underpowered for the verdict it actually reached: an inability to
+resolve −15 µs/step does not imply an inability to resolve +98.
+
+**Where fb3 is still right, and I concede it.** The end-to-end columns in §13
+are genuinely uninformative here: cross-process wall half-widths are ±76 to
+±117 µs/step, so the PF2 arm's +26 µs/step *cannot* be confirmed end-to-end at
+any n I can afford on this rig. Everything in this document that depends on
+end-to-end wall is reported as non-significant and no conclusion rests on it.
+If a future assignment needs an end-to-end confirmation of a ~26 µs/step
+effect, fb3's within-process paired ABBA design (or the `nat`-regime census of
+rule 43) is the only affordable route, and the σ to plan against is 19.5, not
+3.51. The two numbers are not competing estimates of one quantity; they belong
+to two different instruments and I have labelled which is which everywhere.
+
+## 13. Appendix — full per-kernel delta table (advisor deliverable)
+
+fb3 asked for the per-kernel deltas for **every kernel above 1% of decode**,
+side by side with the end-to-end net, so the untouched-pool rows can be aligned
+against nezuko's #462 census. Regenerate with
+`python3 research/tanjiro-r87a-kernel-table.py`.
+
+All values are µs/step, candidate minus A0 baseline, with the 95% half-width
+from the pooled cross-process per-kernel σ of §2. `T` marks the touched kernel.
+Arms: **PF1** = steady-state preload, **PF2** = preamble preload, **PF3** =
+both, **B2**/**B4** = 2/4 injected in-kernel barriers (§3 positive control),
+**E0** = the `expert=0` ceiling probe of §5 (deliberately incorrect, timing
+only).
+
+| kernel | share | T | PF1 steady | PF2 preamble | PF3 both | B2 | B4 | E0 ceiling |
+| --- | ---: | :-: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2` | 17.54% | **T** | +98.62 ± 3.33 | +26.47 ± 4.02 | +105.80 ± 2.85 | +9.13 ± 4.65 | +8.52 ± 4.20 | -83.64 ± 2.96 |
+| `decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1` | 15.66% |  | +3.52 ± 9.05 | -1.15 ± 2.99 | -0.08 ± 4.72 | -2.53 ± 5.38 | -2.85 ± 5.10 | +3.53 ± 7.87 |
+| `oproj_act_h64_v1_lm1_pw1_sc1_se1` | 13.08% |  | +3.88 ± 4.35 | +2.08 ± 2.20 | +2.62 ± 3.97 | +0.00 ± 4.66 | -2.28 ± 4.57 | +3.63 ± 6.34 |
+| `routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6` | 10.06% |  | +1.92 ± 3.97 | +2.13 ± 1.95 | +1.52 ± 3.08 | -0.78 ± 3.53 | -1.58 ± 3.06 | +1.23 ± 4.21 |
+| `sliding_fused_attn_ring_v1` | 7.33% |  | +3.25 ± 2.40 | +8.80 ± 1.24 | +2.42 ± 1.90 | -0.47 ± 1.97 | -1.00 ± 1.97 | +1.33 ± 2.05 |
+| `lmhead_int5_base_coarse_delta_bf16_v1` | 4.93% |  | +1.42 ± 2.76 | +0.37 ± 0.65 | +0.37 ± 0.83 | -0.40 ± 0.97 | -0.42 ± 0.80 | +0.19 ± 2.24 |
+| `decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1` | 4.25% |  | +1.30 ± 2.36 | +0.58 ± 1.08 | +0.60 ± 1.50 | -0.45 ± 1.40 | -0.87 ± 1.33 | +1.00 ± 2.38 |
+| `residual_rms_router_bf16_2048_rpg8_keys_v1` | 3.74% |  | +1.10 ± 1.85 | +0.63 ± 1.12 | +0.67 ± 1.69 | -0.80 ± 1.66 | -0.90 ± 1.53 | +0.71 ± 1.59 |
+| `oproj_act_h48_v1_lm1_pw1_sc1_se1` | 3.54% |  | -0.32 ± 1.48 | +0.17 ± 1.66 | +0.02 ± 1.25 | -0.73 ± 1.64 | -0.93 ± 1.46 | +0.04 ± 2.35 |
+| `shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1` | 3.33% |  | -1.37 ± 2.43 | -1.17 ± 1.96 | -0.97 ± 2.31 | +0.53 ± 1.82 | -0.17 ± 1.72 | +0.99 ± 2.17 |
+| `dense_gate_up_swiglu_bf16_v1` | 3.15% |  | +0.58 ± 0.97 | +0.27 ± 1.11 | +0.07 ± 0.77 | -0.03 ± 1.25 | -0.27 ± 1.10 | +0.71 ± 1.63 |
+| `gate_sp_h64_v1` | 2.93% |  | -7.83 ± 0.84 | +0.22 ± 0.90 | -6.98 ± 1.09 | -0.90 ± 1.18 | -0.53 ± 1.10 | +0.46 ± 0.98 |
+| `full_fused_attn_grow_v1` | 2.92% |  | -1.35 ± 0.74 | -0.30 ± 0.78 | -1.42 ± 0.89 | +0.10 ± 0.77 | -0.52 ± 0.56 | -0.27 ± 0.87 |
+| `prefill_router_tournament_ordinal_norm_active64_v2` | 2.18% |  | +0.57 ± 0.92 | +0.28 ± 0.83 | -0.10 ± 0.80 | -0.57 ± 0.57 | -0.47 ± 0.57 | +0.33 ± 0.65 |
+| `rmsbfloat16` | 1.66% |  | +0.42 ± 0.91 | +0.10 ± 0.61 | +0.38 ± 0.68 | -0.32 ± 0.49 | -0.27 ± 0.39 | -0.03 ± 0.46 |
+| `dense_down_residual_bf16_v1` | 1.57% |  | +0.17 ± 0.67 | -0.13 ± 0.70 | -0.05 ± 0.67 | -0.28 ± 1.27 | -0.95 ± 1.33 | +0.29 ± 0.85 |
+
+**Coverage: 16 of 16 kernels clear the 1% bar, together 97.86% of decode busy
+time.** The residual 2.14% is a long tail of sub-1% kernels, individually below
+the σ of even the finest label.
+
+**Arm totals**, so the per-kernel rows can be reconciled against the net:
+
+| arm | touched subtotal | untouched subtotal | TOTAL `busy_sum` (SPLIT=1) | end-to-end wall |
+| --- | ---: | ---: | ---: | ---: |
+| PF1 | +98.62 | +7.25 | +108.50 ± 36.09 | +74.33 ± 80.00 |
+| PF2 | +26.47 | +12.88 | +40.17 ± 16.69 | +26.00 ± 105.03 |
+| PF3 | +105.80 | -0.95 | +107.33 ± 22.82 | +91.50 ± 102.85 |
+| B2 | +9.13 | -7.63 | +1.67 ± 26.29 | -12.83 ± 83.25 |
+| B4 | +8.52 | -14.00 | -5.50 ± 24.63 | -32.50 ± 75.79 |
+| E0 | -83.64 | +14.13 | -69.71 ± 36.21 | -64.71 ± 116.43 |
+
+The wall column is shown for completeness and is **non-significant in every
+arm** (§12); the SPLIT=1 TOTAL carries the σ = 17.11 estimator, ~5× the
+per-kernel labels, which is why no verdict rests on either column.
+
+**Two untouched rows I am flagging rather than folding into a subtotal**, as
+fb3 asked:
+
+1. **`gate_sp_h64_v1` (2.93% of decode)** is the same kernel that moved
+   **+8.14 µs/step in PR #457**, i.e. 73% of that campaign's give-back. Here it
+   moves **−7.83 (PF1) and −6.98 (PF3)** at ±0.84–1.09, far outside noise. In
+   both campaigns it moves **opposite in sign to the touched kernel** (#457
+   touched −26.53 / `gate_sp` +8.14; here touched +98.62 / `gate_sp` −7.83).
+   That is a reproducible coupling between two specific kernels, not a
+   proportional whole-model give-back, and it is exactly the kind of
+   **per-kernel attribution rule 43 preserves** — the retraction removes the
+   0.5816 *law*, not the observation that these two rows anti-correlate. I am
+   not proposing a mechanism for it here; it is offered as a lead for whoever
+   picks up rule 43's `nat`-regime census.
+
+2. **`residual_rms_router_bf16_2048_rpg8_keys_v1` (3.74%)** moved only
+   **+0.71 ± 1.59** under E0. The router is precisely where displaced routing
+   work would have to land if the ceiling's −83.64 were *migrated* rather than
+   *removed*. It did not land there, and no other untouched row absorbs it
+   (untouched subtotal +14.13 against a touched −83.64). That is the evidence
+   behind §5 reading the ceiling as latency removed. It does **not** rescue the
+   `expert=0` DRAM-byte confound of §5a, which remains the reason the ceiling is
+   an upper bound and never a candidate.
+
