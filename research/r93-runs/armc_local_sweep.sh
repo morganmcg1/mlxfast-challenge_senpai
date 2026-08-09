@@ -16,9 +16,11 @@ SPECS=("$@")
 if [ "${#SPECS[@]}" -eq 0 ]; then SPECS=("" routed:fma:0 routed:fma:24); fi
 
 echo "start=$(date -u +%Y-%m-%dT%H:%M:%SZ) steps=${STEPS} specs=${SPECS[*]:-none}"
+idx=0
 for spec in "${SPECS[@]}"; do
+  idx=$((idx + 1))
   tag="${spec//:/-}"
-  tag="${tag:-off}"
+  tag="$(printf '%02d-%s' "$idx" "${tag:-off}")"
   bash research/r93-runs/set_probe.sh "$spec" > "${OUT}/build-${tag}.log" 2>&1
   rc=$?
   echo "--- spec='${spec}' build_rc=${rc} $(date -u +%H:%M:%SZ)"

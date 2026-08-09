@@ -21,7 +21,8 @@
   "tg": 8,
   "probe": {
     "ecd89cac": "routed:fma:24",
-    "ab3a2433": "routed:fma:64"
+    "ab3a2433": "routed:fma:64",
+    "a000a397": "routed:fma:0"
   },
   "wandb_runs": {
     "null-1": "3szqrztf",
@@ -32,6 +33,8 @@
     "null-4": "0ecng8mc",
     "ladder-K60": "xlaup9j4",
     "null-5": "92snii58",
-    "probe-routed-fma-24": "59o0mk6y"
+    "probe-routed-fma-24": "59o0mk6y",
+    "probe-routed-fma-64": "fotwz1v2",
+    "probe-routed-fma-0": "8mhdbz67"
   }
 }

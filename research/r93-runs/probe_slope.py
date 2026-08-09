@@ -147,6 +147,47 @@ else:
                      / probes[a][2]["pre"]))
 print()
 
+if 0 in probes:
+    print("=" * 78)
+    print("C0' PLACEMENT CONTROL (section 10.9)")
+    print("=" * 78)
+    y0 = probes[0][2]["dec"]
+    d0 = y0 - mu_dec
+    print("  probe n=0 is name- and residency-matched to the loaded rungs but")
+    print("  executes zero injected ops, so (n=0 minus null) IS the placement term.")
+    print("  measured placement %+8.3f us = %+7.4f %%  (t=%+.3f, ns at 4 df)"
+          % (d0, 100.0 * d0 / mu_dec, d0 / se1))
+    # the two competing readings pre-registered in section 10.8
+    if 24 in probes and 64 in probes:
+        y24, y64 = probes[24][2]["dec"], probes[64][2]["dec"]
+        slope_hi = (y64 - y24) / 40.0
+        predB = y64 - 64.0 * slope_hi          # linear through both loaded rungs
+        predA = mu_dec                          # knee: placement is nil
+        print("  reading (A) knee      predicted %9.3f us  ->  miss %+8.3f us"
+              % (predA, y0 - predA))
+        print("  reading (B) placement predicted %9.3f us  ->  miss %+8.3f us"
+              % (predB, y0 - predB))
+        print("  |miss| in units of the single-receipt se (%.3f us): A %.2f, B %.2f"
+              % (se1, abs(y0 - predA) / se1, abs(y0 - predB) / se1))
+        print("  verdict: %s"
+              % ("(A) KNEE - placement is nil, the low segment is genuinely cheap"
+                 if abs(y0 - predA) < abs(y0 - predB)
+                 else "(B) PLACEMENT - the response is linear from n=0"))
+        print()
+        # convexity: slope(24->64) - slope(0->24), sharing the n=24 receipt
+        s_lo = (y24 - y0) / 24.0
+        var = s_dec ** 2 * (2.0 / 40.0 ** 2 + 2.0 / 24.0 ** 2
+                            + 2.0 / (24.0 * 40.0))
+        se_c = math.sqrt(var)
+        dc = slope_hi - s_lo
+        print("  CONVEXITY  slope(24->64) - slope(0->24) = %+8.4f us/op" % dc)
+        print("             se %.4f (shares the n=24 receipt), t=%+.3f on %d df"
+              % (se_c, dc / se_c, df))
+        print("             95%% CI [%+8.4f, %+8.4f] us/op"
+              % (dc - tcrit * se_c, dc + tcrit * se_c))
+        print("             ratio high/low = %.2f x" % (slope_hi / s_lo))
+    print()
+
 print("=" * 78)
 print("PRE-REGISTERED READ-OUT (section 10.7)")
 print("=" * 78)
