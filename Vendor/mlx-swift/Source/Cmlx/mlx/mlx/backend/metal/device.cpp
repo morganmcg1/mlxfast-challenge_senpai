@@ -1,10 +1,7 @@
 // Copyright © 2023-2024 Apple Inc.
 
-#include <cctype>
 #include <cstdlib>
-#include <fstream>
 #include <sstream>
-#include <unistd.h>
 
 #include <fmt/format.h>
 
@@ -785,25 +782,7 @@ MTL::Library* Device::get_library(
     return it->second.get();
   }
 
-  auto source_string = builder();
-  if (const char* dump_dir = std::getenv("MLX_NEZUKO_MSL_DUMP")) {
-    std::string safe;
-    safe.reserve(name.size());
-    for (char c : name) {
-      const bool keep =
-          std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '-';
-      safe.push_back(keep ? c : '_');
-    }
-    const std::string final_path = std::string(dump_dir) + "/" + safe + ".metal";
-    const std::string temp_path =
-        final_path + "." + std::to_string(getpid()) + ".tmp";
-    {
-      std::ofstream out(temp_path, std::ios::binary | std::ios::trunc);
-      out << source_string;
-    }
-    std::rename(temp_path.c_str(), final_path.c_str());
-  }
-  auto mtl_lib = build_library_(source_string);
+  auto mtl_lib = build_library_(builder());
   library_map_.insert({name, mtl_lib});
   return mtl_lib.get();
 }
