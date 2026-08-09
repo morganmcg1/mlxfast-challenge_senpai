@@ -3805,6 +3805,52 @@ func lagunaGateProductSoftplus(
     )[0]
 }
 
+private func lagunaPrefillTransposeGateSource(heads: Int) -> String {
+    """
+constexpr uint HEADS = \(heads);
+constexpr uint HEAD_DIM = \(LagunaConstants.headDim);
+uint3 gid = thread_position_in_grid;
+uint length = threads_per_grid.z;
+uint source_index = (gid.y * length + gid.z) * HEAD_DIM + gid.x;
+uint gate_index = gid.z * HEADS + gid.y;
+uint output_index = gate_index * HEAD_DIM + gid.x;
+gated[output_index] = bfloat(float(attended[source_index]) * float(gate_values[gate_index]));
+"""
+}
+
+private let lagunaPrefillTransposeGateKernels: [Int: MLXFast.MLXFastKernel] = {
+    var kernels: [Int: MLXFast.MLXFastKernel] = [:]
+    for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
+        kernels[heads] = MLXFast.metalKernel(
+            name: "laguna_prefill_transpose_gate_bf16_h\(heads)_v1",
+            inputNames: ["attended", "gate_values"],
+            outputNames: ["gated"],
+            source: lagunaPrefillTransposeGateSource(heads: heads),
+            ensureRowContiguous: true
+        )
+    }
+    return kernels
+}()
+
+private func lagunaPrefillTransposeGate(
+    attended: MLXArray, gate: MLXArray, heads: Int, length: Int
+) -> MLXArray? {
+    guard length > 1,
+        let kernel = lagunaPrefillTransposeGateKernels[heads],
+        attended.dtype == .bfloat16, attended.dims(1, heads, length, LagunaConstants.headDim),
+        gate.dtype == .bfloat16, gate.dims(1, length, heads)
+    else { return nil }
+
+    lagunaTrace("prefill transpose gate materializer h\(heads) l\(length)")
+    return kernel(
+        [attended, gate],
+        grid: (LagunaConstants.headDim, heads, length),
+        threadGroup: (LagunaConstants.headDim, 1, 1),
+        outputShapes: [[1, length, heads * LagunaConstants.headDim]],
+        outputDTypes: [.bfloat16]
+    )[0]
+}
+
 // MARK: - Gated native-affine INT8 output projection (one dispatch)
 
 /// Exact per-head softplus gate plus group-32 affine INT8 output GEMV.
@@ -6322,14 +6368,12 @@ final class LagunaRuntimeAttention: Module {
                 ? lagunaCompiledSoftplusGate(projectedGate)
                 : softplus(projectedGate.asType(.float32)).asType(output.dtype)
             if fusedAttended == nil, B == 1, L > 1, gatePerHead,
-                headDim == LagunaConstants.headDim, nHeads == 48 || nHeads == 64
+                headDim == LagunaConstants.headDim,
+                let fusedOutput = lagunaPrefillTransposeGate(
+                    attended: attended, gate: gate, heads: nHeads, length: L)
             {
-                lagunaTrace(
-                    "ordinary prefill gate tail h\(nHeads) l\(L) attended=\(attended.dtype) "
-                        + "projected=\(projectedGate.dtype) gate=\(gate.dtype) activated=\(gateIsActivated)"
-                )
-            }
-            if gatePerHead {
+                output = fusedOutput
+            } else if gatePerHead {
                 output =
                     (output.reshaped(B, L, nHeads, headDim) * gate[.ellipsis, .newAxis])
                     .reshaped(B, L, -1)
