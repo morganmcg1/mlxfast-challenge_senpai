@@ -68,6 +68,20 @@ def nvfp4_row_bytes(in_dim: int, scale_group: int = NVFP4_GROUP) -> int:
     return in_dim // 2 + in_dim // scale_group
 
 
+def lane_major_row_bytes(in_dim: int, escape_rate: float = 0.0) -> int:
+    """Bytes one output row costs from `LagunaLaneMajorScaleBank`, pairwise arm.
+
+    `LagunaRuntimeWeights.swift:866-887` packs the group-16 uint8 scale plane
+    into `groups / 4` nibble bytes plus one base byte per row. A row whose
+    32-element halves disagree, or whose span exceeds 15 codes, carries base
+    `0xFF` and re-reads the stock `groups`-byte plane instead.
+    """
+    groups = in_dim // NVFP4_GROUP
+    assert groups % 64 == 0
+    narrow = groups // 4 + 1
+    return round(in_dim // 2 + narrow + escape_rate * groups)
+
+
 def bf16_row_bytes(in_dim: int) -> int:
     return in_dim * 2
 
@@ -104,23 +118,36 @@ def checkpoint_summary(tensors):
 # --- part 2: decode-step footprint at the live representation ------------
 
 
-def families(routed_scale_group: int, shared_scale_group: int, lmhead_mb: float):
+def families(
+    routed_scale_group: int,
+    shared_scale_group: int,
+    lmhead_mb: float,
+    attn_lane_major: bool = True,
+    escape_rate: float = 0.0,
+):
     """Per-decode-step bytes for every r94 census family.
 
     `routed_scale_group` / `shared_scale_group` are 16 for the stock plane and
     32 for the halved plane; `lmhead_mb` is the screening cluster's actual
     traffic, which is not derivable from the nominal plane size.
+    `attn_lane_major` selects the pairwise lane-major scale bank the QKV and
+    o_proj decode kernels actually dispatch against at HEAD.
     """
     q_full = FULL_HEADS * HEAD_DIM
     q_slid = SLIDING_HEADS * HEAD_DIM
     kv = KV_HEADS * HEAD_DIM
 
+    def attn_row(in_dim: int) -> int:
+        if attn_lane_major:
+            return lane_major_row_bytes(in_dim, escape_rate)
+        return nvfp4_row_bytes(in_dim)
+
     # QKV: one NVFP4 bank whose output rows are q rows + k rows + v rows.
-    qkv_h64 = SLIDING_LAYERS * (q_slid + 2 * kv) * nvfp4_row_bytes(HIDDEN)
-    qkv_h48 = FULL_LAYERS * (q_full + 2 * kv) * nvfp4_row_bytes(HIDDEN)
+    qkv_h64 = SLIDING_LAYERS * (q_slid + 2 * kv) * attn_row(HIDDEN)
+    qkv_h48 = FULL_LAYERS * (q_full + 2 * kv) * attn_row(HIDDEN)
     # o_proj: HIDDEN output rows, input = concatenated heads.
-    op_h64 = SLIDING_LAYERS * HIDDEN * nvfp4_row_bytes(q_slid)
-    op_h48 = FULL_LAYERS * HIDDEN * nvfp4_row_bytes(q_full)
+    op_h64 = SLIDING_LAYERS * HIDDEN * attn_row(q_slid)
+    op_h48 = FULL_LAYERS * HIDDEN * attn_row(q_full)
 
     rgu = (
         SPARSE_LAYERS
@@ -193,6 +220,29 @@ R94 = {
 }
 
 
+# The two layout epochs. `census` is the representation the r94 ledger priced:
+# stock group-16 NVFP4 scale planes, stock (non lane-major) attention banks, and
+# a codes-only lmhead estimate. `head` is what the frontier actually dispatches:
+# halved group-32 planes (#72), the pairwise lane-major attention scale bank, and
+# the fused-refinement lmhead nibble plane.
+CENSUS_EPOCH = dict(
+    routed_scale_group=16,
+    shared_scale_group=16,
+    lmhead_mb=128.5,
+    attn_lane_major=False,
+)
+HEAD_EPOCH = dict(
+    routed_scale_group=32,
+    shared_scale_group=32,
+    lmhead_mb=109.182976,
+    attn_lane_major=True,
+)
+
+
+def family_bytes(**epoch):
+    return {name: (byts, calls) for name, byts, calls in families(**epoch)}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--weights", default="weights")
@@ -210,9 +260,6 @@ def main() -> int:
         help="GB/s; grid-stride streaming ceiling on this host",
     )
     ap.add_argument("--ceiling-theoretical", type=float, default=273.0)
-    ap.add_argument("--routed-scale-group", type=int, default=16, choices=(16, 32))
-    ap.add_argument("--shared-scale-group", type=int, default=16, choices=(16, 32))
-    ap.add_argument("--lmhead-mb", type=float, default=128.5)
     args = ap.parse_args()
 
     wp = pathlib.Path(args.weights)
@@ -225,64 +272,74 @@ def main() -> int:
     else:
         print(f"# checkpoint: {wp} absent, skipping ground-truth cross-check")
 
-    rows = families(args.routed_scale_group, args.shared_scale_group, args.lmhead_mb)
-    print(
-        f"# routed_scale_group={args.routed_scale_group} "
-        f"shared_scale_group={args.shared_scale_group} lmhead_mb={args.lmhead_mb}"
-    )
+    census = family_bytes(**CENSUS_EPOCH)
+    head = family_bytes(**HEAD_EPOCH)
+    print(f"# census epoch: {CENSUS_EPOCH}")
+    print(f"# head epoch:   {HEAD_EPOCH}")
     print(
         "\t".join(
             [
                 "family",
                 "calls",
-                "audit_MB",
+                "census_MB",
                 "r94_MB",
-                "byte_d%",
+                "repro_d%",
+                "head_MB",
+                "epoch_d%",
                 "us_split1",
                 "us_nat",
-                "GBs_split1",
-                "GBs_nat",
+                "head_GBs_split1",
                 "pct_meas_split1",
                 "pct_meas_nat",
-                "pct_theor_nat",
-                "verdict_nat",
+                "verdict_split1",
             ]
         )
     )
-    tot_audit = 0
-    tot_nat = 0.0
-    for name, byts, calls in rows:
+    tot = {"census": 0, "head": 0}
+    tot_s1 = tot_nat = 0.0
+    for name, _b, calls in families(**HEAD_EPOCH):
         s1, nat, r94mb = R94[name]
-        mb = byts / 1e6
-        bd = (mb - r94mb) / r94mb * 100 if r94mb else float("nan")
-        g1 = byts / (s1 * 1e-6) / 1e9
-        gn = byts / (nat * 1e-6) / 1e9
+        cmb = census[name][0] / 1e6
+        hmb = head[name][0] / 1e6
+        repro = (cmb - r94mb) / r94mb * 100
+        epoch_d = (hmb - cmb) / cmb * 100
+        g1 = head[name][0] / (s1 * 1e-6) / 1e9
+        gn = head[name][0] / (nat * 1e-6) / 1e9
         p1 = g1 / args.ceiling_measured * 100
         pn = gn / args.ceiling_measured * 100
-        pt = gn / args.ceiling_theoretical * 100
         verdict = (
             "IMPOSSIBLE"
-            if pn > 100.0
-            else ("at-ceiling" if pn >= 90 else ("mid" if pn >= 50 else "overhead"))
+            if p1 > 100.0
+            else ("bytes-bound" if p1 >= 70 else ("mid" if p1 >= 40 else "latency"))
         )
-        tot_audit += byts
+        tot["census"] += census[name][0]
+        tot["head"] += head[name][0]
+        tot_s1 += s1
         tot_nat += nat
         print(
-            f"{name}\t{calls}\t{mb:.1f}\t{r94mb:.1f}\t{bd:+.2f}\t{s1:.1f}\t{nat:.1f}\t"
-            f"{g1:.1f}\t{gn:.1f}\t{p1:.1f}\t{pn:.1f}\t{pt:.1f}\t{verdict}"
+            f"{name}\t{calls}\t{cmb:.1f}\t{r94mb:.1f}\t{repro:+.2f}\t{hmb:.1f}\t"
+            f"{epoch_d:+.2f}\t{s1:.1f}\t{nat:.1f}\t{g1:.1f}\t{p1:.1f}\t{pn:.1f}\t{verdict}"
         )
-    print(
-        f"# audited families: {tot_audit/1e6:.1f} MB/step over {tot_nat:.1f} us/step "
-        f"-> {tot_audit/(tot_nat*1e-6)/1e9:.1f} GB/s aggregate "
-        f"({tot_audit/(tot_nat*1e-6)/1e9/args.ceiling_measured*100:.1f}% of measured)"
-    )
+    for epoch in ("census", "head"):
+        for base, us in (("split1", tot_s1), ("nat", tot_nat)):
+            gbs = tot[epoch] / (us * 1e-6) / 1e9
+            print(
+                f"# {epoch}-epoch bytes over {base} time: {tot[epoch]/1e6:.1f} MB/step "
+                f"/ {us:.1f} us/step -> {gbs:.1f} GB/s "
+                f"({gbs/args.ceiling_measured*100:.1f}% of measured ceiling)"
+            )
 
     if args.tsv:
         with open(args.tsv, "w") as fh:
-            fh.write("family\tcalls\taudit_bytes\tr94_MB\tus_split1\tus_nat\n")
-            for name, byts, calls in rows:
+            fh.write(
+                "family\tcalls\tcensus_bytes\thead_bytes\tr94_MB\tus_split1\tus_nat\n"
+            )
+            for name, _b, calls in families(**HEAD_EPOCH):
                 s1, nat, r94mb = R94[name]
-                fh.write(f"{name}\t{calls}\t{byts}\t{r94mb}\t{s1}\t{nat}\n")
+                fh.write(
+                    f"{name}\t{calls}\t{census[name][0]}\t{head[name][0]}\t"
+                    f"{r94mb}\t{s1}\t{nat}\n"
+                )
         print(f"# wrote {args.tsv}")
     return 0
 
