@@ -4477,12 +4477,12 @@ func lagunaGatedAffineOProjNVFP4(
         gateLogits.dims(1, 1, heads)
     else { return nil }
 
-    if let lane = plan {
-        let kernel = lane.kernel
+    if plan != nil {
+        let kernel = plan!.kernel
         lagunaTrace("gated affine oproj nvfp4 qmv h\(heads) lane-major")
         lagunaNarrowScaleLog.noteDispatch("lane-major", "oproj h\(heads)")
         return kernel(
-            [attentionOutput, gateLogits, codes, lane.nibbles, lane.bases, scales],
+            [attentionOutput, gateLogits, codes, plan!.nibbles, plan!.bases, scales],
             grid: ((outVec / 8) * 64, 1, 1),
             threadGroup: (64, 1, 1),
             outputShapes: [[1, 1, outVec]],
