@@ -250,8 +250,14 @@ def _unsafe_continuation(text, a, b):
 MARK = "\x00"
 
 
-def strip_text(text, mode):
-    """Remove comment content.  Returns (new_text, removed_bytes, skipped)."""
+def strip_text(text, mode, keep_lines=False):
+    """Remove comment content.  Returns (new_text, removed_bytes, skipped).
+
+    With keep_lines, a line left empty by the strip is retained as an empty
+    line instead of being deleted.  Swift bakes __FILE__/#line into every
+    precondition and fatalError, so preserving the line numbering is what lets
+    the compiled object file stay byte-identical across the edit.
+    """
     if MARK in text:
         raise SystemExit("source contains NUL; refusing to strip")
     kill, skipped = [], 0
@@ -284,6 +290,8 @@ def strip_text(text, mode):
         line = line.replace(MARK, "").rstrip()
         if line.strip():
             lines.append(line)  # code survived; keep the tidied line
+        elif keep_lines:
+            lines.append("")
     new = "\n".join(lines)
     return new, len(text.encode()) - len(new.encode()), skipped
 

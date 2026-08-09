@@ -53,7 +53,16 @@ def blocks(text, mode):
             out[-1] = (out[-1][0], b)
         else:
             out.append((a, b))
-    return out
+    # Widen each block over the blanks that separate it from the line start or
+    # from preceding code.  A merged block already carries the indentation of
+    # its later lines, so this is what makes the record exactly reversible.
+    widened = []
+    for a, b in out:
+        start = a
+        while start > 0 and text[start - 1] in " \t":
+            start -= 1
+        widened.append((start, b))
+    return widened
 
 
 def write_sidecar(path, sidecar, text, mode):
@@ -66,8 +75,9 @@ def write_sidecar(path, sidecar, text, mode):
         f"# Relocated comment prose from `{path}`",
         "",
         "Every comment block removed from the submitted file, verbatim and in",
-        "source order. Line numbers are those of the pre-strip file. Restore the",
-        "file itself with `research/nezuko-r99b/restore-comments.sh`.",
+        "source order. The strip preserves line numbering, so these labels are",
+        "line numbers in both the pre-strip and the post-strip file. Verify and",
+        "reverse the edit with `research/nezuko_r103c_relocation_verify.py`.",
         "",
         f"Blocks: {len(spans)}.",
         "",
@@ -106,13 +116,17 @@ def main():
     print(f"  sidecar: {sidecar} ({os.path.getsize(sidecar)} bytes)")
     if cmd == "plan":
         return 0
-    new, freed, skipped = strip_text(text, mode)
+    new, freed, skipped = strip_text(text, mode, keep_lines=True)
     if digest(text, mode) != digest(new, mode):
         print(f"REFUSED (canonical mismatch): {path}", file=sys.stderr)
+        return 1
+    if new.count("\n") != text.count("\n"):
+        print(f"REFUSED (line count changed): {path}", file=sys.stderr)
         return 1
     open(path, "w", encoding="utf-8").write(new)
     print(f"  stripped: freed={freed} bytes, preserved={skipped} comments")
     print(f"  size: {len(text.encode())} -> {len(new.encode())} bytes")
+    print(f"  lines: {text.count(chr(10))} (unchanged)")
     return 0
 
 
