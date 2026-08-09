@@ -6259,9 +6259,55 @@ let lagunaSharedSwiGLUQMVHeader: String = {
                 }
             """
     }
+
+    func pairedPackedWordBody(_ word: Int) -> String {
+        let gateCodeWord = word == 0 ? "gate_codes.x" : "gate_codes.y"
+        let upCodeWord = word == 0 ? "up_codes.x" : "up_codes.y"
+        let base = 8 * word
+        let seedOperator =
+            (word == 0 && lagunaNvfp4QdotSeedElisionEnabled)
+            ? "=" : "+="
+        let inputLoads = (0..<8).map { offset in
+            "        const float x\(offset) = input[\(base + offset)];"
+        }.joined(separator: "\n")
+        func projection(_ name: String, codeWord: String) -> String {
+            """
+                {
+                    const uint c = \(codeWord);
+            \(extract)
+                    const float2 v04 = float2(as_type<half2>(p0))\(weightScale);
+                    const float2 v15 = float2(as_type<half2>(p1))\(weightScale);
+                    const float2 v26 = float2(as_type<half2>(p2))\(weightScale);
+                    const float2 v37 = float2(as_type<half2>(p3))\(weightScale);
+                    \(name)_accum \(seedOperator)
+                        (x0 * v04.x +
+                         x1 * v15.x +
+                         x2 * v26.x +
+                         x3 * v37.x);
+                    \(name)_accum +=
+                        (x4 * v04.y +
+                         x5 * v15.y +
+                         x6 * v26.y +
+                         x7 * v37.y);
+                }
+            """
+        }
+        return """
+            {
+        \(inputLoads)
+        \(projection("gate", codeWord: gateCodeWord))
+        \(projection("up", codeWord: upCodeWord))
+            }
+        """
+    }
+
     let accumDeclaration =
         lagunaNvfp4QdotSeedElisionEnabled
         ? "float accum;" : "float accum = 0.0f;"
+    let pairedAccumDeclarations =
+        lagunaNvfp4QdotSeedElisionEnabled
+        ? "float gate_accum;\n    float up_accum;"
+        : "float gate_accum = 0.0f;\n    float up_accum = 0.0f;"
     return """
     static inline float laguna_nvfp4_scale(uint8_t bits) {
     \(lowScaleFastPath)
@@ -6289,6 +6335,24 @@ let lagunaSharedSwiGLUQMVHeader: String = {
     ) {
         const device uint2* packed = (const device uint2*)weight;
         return laguna_nvfp4_qdot_codes_16(packed[0], input, scale);
+    }
+
+    static inline void laguna_nvfp4_qdot_pair_16(
+        const device uint8_t* gate_weight,
+        const device uint8_t* up_weight,
+        const thread float* input,
+        float gate_scale,
+        float up_scale,
+        thread float& gate_result,
+        thread float& up_result
+    ) {
+        const uint2 gate_codes = ((const device uint2*)gate_weight)[0];
+        const uint2 up_codes = ((const device uint2*)up_weight)[0];
+        \(pairedAccumDeclarations)
+    \(pairedPackedWordBody(0))
+    \(pairedPackedWordBody(1))
+        gate_result = gate_scale * gate_accum;
+        up_result = up_scale * up_accum;
     }
 
     static inline float laguna_nvfp4_qdot_bf16_16(
@@ -6909,12 +6973,15 @@ private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
                 expert_weight + up_row * fused_row_bytes
                 + block / 2 + lane * 8;
 
-            gate_result += laguna_nvfp4_qdot_16(
-                gate_weight, input_values,
-                laguna_nvfp4_scale(gate_scale[0]));
-            up_result += laguna_nvfp4_qdot_16(
-                up_weight, input_values,
-                laguna_nvfp4_scale(up_scale[0]));
+            float gate_block;
+            float up_block;
+            laguna_nvfp4_qdot_pair_16(
+                gate_weight, up_weight, input_values,
+                laguna_nvfp4_scale(gate_scale[0]),
+                laguna_nvfp4_scale(up_scale[0]),
+                gate_block, up_block);
+            gate_result += gate_block;
+            up_result += up_block;
         }
 
         gate_result = simd_sum(gate_result);
