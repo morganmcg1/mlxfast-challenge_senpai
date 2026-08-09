@@ -123,6 +123,15 @@ above the K ≥ 16 floor. `--steps 250` per slot.
 
 ### 1.5 Preregistered thresholds — fixed now, not after seeing data
 
+> **Superseded in one place by § 1.5c.** The `+20.0 µs/step` magnitude bar in the
+> table below is raised to `+32.4 µs/step` on advisor instruction
+> ([feedback `r103-a-fb1-reconcile-against-T-not-D`][fb1], 2026-08-09T21:45:56Z).
+> Everything else in § 1.5 — the precision target, the four outcome codes, the
+> secondary relative read — stands exactly as written. The original text is left
+> untouched so the amendment is auditable.
+>
+> [fb1]: https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/571#issuecomment-5234001934
+
 **Precision target.** Paired 95 % CI half-width on the real contrast
 **< 8 µs/step**. The achieved half-width is reported whatever it is; if it lands
 ≥ 8 µs/step that is stated as a power failure and the verdict is downgraded
@@ -200,6 +209,82 @@ analyser change is committed before the rung-1 timing job starts.
 The 40-step pipeline smoke test run before this commit is validation of the
 driver and the parser only. Its numbers back no verdict and are not used
 anywhere in §§ 3–6.
+
+### 1.5c Addendum — advisor correction: the contrast is in `T`, and the bar rises to 32.4 µs/step (declared before unblinding)
+
+Advisor feedback `r103-a-fb1-reconcile-against-T-not-D` arrived at
+2026-08-09T21:45:56Z, after the rung-1 job started and before any aggregate
+statistic had been computed. It makes three changes, all adopted.
+
+**(a) The target quantity is `T`, not `D`.** This experiment was already
+specified in `T`: § 1.1 derived `D = 4P + T` from the harness definition
+`decode_s_per_token = (S + 128·T)/128` with `S = 512·P`, computed
+`T_old = 4141.540`, `T_new = 4161.689` and **`ΔT = +20.149 µs/step`**
+independently of the advisor, and § 1.3 rejected `./benchmark.sh
+--local-iterate` precisely because it reports `D` and dilutes the effect. So
+there is nothing to repair in the design — but the number in the arm's title
+(“~19 µs/step”) is the `D`-delta and the reconciliation target is **20.15**.
+Every § 4/§ 5 figure is against 20.15.
+
+**(b) The M4 instrument measures `T` directly; no `D → T` conversion is
+applied.** `research/decode_probe.py` runs the 512-token seed prefill, then
+times **each** subsequent single-token decode step individually and prints the
+per-step distribution. The per-slot statistic (§ 1.5a) is the median of steps
+1 … 249, i.e. steady post-prefill steps with the first one dropped. Seed
+prefill is outside the measured window entirely, so the M4 numbers in § 4 are
+`T` and are directly comparable with the M5 `T` figures — the failure mode the
+advisor names, silently comparing an M4 `T` against an M5 `D`, cannot occur
+here.
+
+*Limitation, stated rather than papered over:* the probe does not print a
+prefill time, so this report cannot publish an M4 `P` or a synthetic M4 `D`.
+Adding that would mean discarding the running rung-1 session, which is not a
+trade worth making for a quantity the primary contrast does not use. It is
+recorded as a follow-up in § 6.
+
+**(c) The magnitude bar rises from +20.0 to +32.4 µs/step M4-equivalent.**
+`ΔT_M5 = 20.149` at the R1 M4→M5 transfer factor 0.622 gives
+`20.149 / 0.622 = 32.39 µs/step` on M4. The § 1.5 table's `+20.0 µs/step` is
+replaced by **`+32.4 µs/step`** everywhere it appears; the four outcome codes,
+the < 8 µs/step precision target and the relative secondary are unchanged.
+
+| # | condition (amended) | verdict | action |
+|---|---|---|---|
+| 1 | point estimate ≥ **+32.4 µs/step** *and* CI lower bound > 0 | reproduced off-M5 at M5 magnitude | proceed to rung 2 |
+| 2 | CI **upper** bound < **+32.4 µs/step** and CI upper bound > 0 | does not transfer at M5 magnitude → M5-specific | **report and stop** |
+| 3 | CI upper bound < 0 | sign flip, NEW faster on M4 | **report and stop** |
+| 4 | CI contains +32.4 but point estimate < +32.4, or CI contains 0 while spanning +32.4 | underpowered | **inconclusive-underpowered**; no rung 2 |
+
+**Disclosure (required, and it cuts against me).** Before this amendment I had
+seen the interim per-slot medians of **rep00 only**, scrolled from the running
+job's log: oldA 8239, old 8234, new 8261, oldB 8242 µs, i.e. a single-rep real
+contrast of about +27 µs and a single-rep null of about +3 µs. One repetition
+out of 24 has no decision value and no CI, but I am not blind and the record
+should say so. Two things bound the damage: the amendment is **mandated by the
+advisor**, not chosen by me, and it moves the bar **strictly upward** — from
++20.0 to +32.4 — which can only make outcome 1 *harder* to reach. A glimpse of
+a +27 µs single rep cannot have been used to manufacture a positive by raising
+the threshold above it. Had the correction moved the bar downward I would have
+had to say the preregistration was compromised.
+
+**Two declared secondary reads, neither a decision variable.**
+
+1. *Proportional scaling.* The M5 effect is 0.4865 % of the M5 steady step. If
+   the effect scales with the step time rather than by the R1 factor, the M4
+   equivalent is `0.004865 × T_old_M4`, which at the observed M4 step of about
+   8 200 µs is roughly **40 µs/step** — meaningfully above the 32.4 bar. The
+   relative contrast `ΔT_M4 / T_old_M4` and its CI are reported against
+   0.4865 % alongside the absolute result. A disagreement between the R1-factor
+   bar and the proportional bar is reported as a finding.
+2. *Any-regression flag.* Whether the CI excludes zero with a positive sign is
+   reported explicitly, separately from the magnitude verdict. Outcome 2 means
+   "does not reproduce at M5 magnitude"; it does **not** by itself mean "no
+   regression on M4", and the two must not be conflated in the write-up.
+
+**(d) N-3's thresholds move with the target.** ">25 % of the e2e difference"
+for a single kernel is now **> 5.04 µs/step**; the ">50 % unexplained residual"
+trigger is now **> 10.1 µs/step**. Both are against 20.15, and both apply only
+if rung 2 runs.
 
 ### 1.6 Rung 0 gates (a failure here stops everything)
 
