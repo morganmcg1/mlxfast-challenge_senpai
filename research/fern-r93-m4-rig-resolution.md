@@ -8,22 +8,58 @@ macOS 26.5.2, `applegpu_g16s` (Apple GPU generation 16, so `_nax` prefill
 kernels are unreachable locally). Every session ran behind the 40 C thermal
 gate with one model-holding process at a time.
 
+## Result bookkeeping
+
+- **Decision**: green (instrument delivered), with a first-class negative
+  attached (the rig's binding constraint is now design bias, not variance).
+- **Submitted candidate files**: **none**. `Sources/MLXFastModel/LagunaRuntimeModel.swift`
+  is byte-identical to base `17a4bad4`; the branch diff touches only `research/`.
+- **Supporting files**: `research/fern_r93_*.{py,sh}`,
+  `research/fern-r93-maxglue-ladder.patch` (the research-only instrument,
+  118 lines, `git apply --check` clean at this base),
+  `research/fern-r93-stage3-preregistration.md`, this document, and the
+  rule-40 table update in `research/CURRENT_RESEARCH_STATE.md`.
+- **Assignment-scope preflight**: `senpai/validate-assignment-scope.sh 17a4bad4
+  Sources/MLXFastModel/LagunaRuntimeModel.swift` -> `assignment scope OK:
+  1 submitted path(s)`.
+- **Editable budget**: `current=2895390/3000000 headroom=104610
+  growth=0/262144 files=141 (base=141)` - zero growth.
+- **Scored-path reachability**: the instrument's glue is injected into the
+  single-token decode layer loop at `LagunaRuntimeModel.swift:8995-9047`, which
+  is plain eager MLX dispatch (`asyncEval(h)` at :9020/:9032/:9036 proves it is
+  not a compiled trace), so varying K cannot retrace. Depth->K mapping is
+  `k = depth * 40`, driven by an mmap control word.
+- **Correctness**: rule 45 satisfied. Stage 1 produced a single token-stream
+  hash `656277ae85779147` across all 24 slots; Stage 3 produced a single hash
+  `082682744836a553` across all 26,784 records. Zero teacher-forced mismatches
+  in both. No official submission was made or is warranted - there is no
+  candidate to time.
+- **Official submission `--model` value**: n/a (no submission; a candidate
+  would use `senpai`).
+
 ## Question and answer in one paragraph
 
 The assignment asked whether the M4 end-to-end rig can be sharpened from
 ~80 us/step to <= 25 us/step, and to validate the answer against a known
 injected magnitude. **The variance question is answered decisively yes: a
-blocked, randomised, within-run design reaches sigma ~ 1.4-1.8 us/step, which
-is 40x better than the starting rig and 6-12x inside the target.** But the
-validation ladder then exposed a second, larger problem that no amount of
-sampling fixes: **the M4 end-to-end wall response to injected dispatches is a
-hinge, not a line.** The first ~14 injected dispatches per decode step are
-absorbed into existing idle time and cost approximately nothing; only beyond
-that does each dispatch cost the saturated marginal rate. That dead zone is a
-~17 us/step *bias* floor on any small end-to-end effect, and the win the
-campaign is chasing is ~24.5 us/step. So the binding constraint on the M4 rig
-was never variance. It is bias, and it sits at the same order of magnitude as
-the target effect.
+preregistered, blocked, randomised, within-run design reaches SE = 1.34
+us/step on the K=40 rung in 22 minutes of wall clock** - ~60x better than the
+starting rig, ~19x inside the target, with no SPLIT=1 instrument and no
+transfer factor. But the validation ladder then exposed a second problem that
+no amount of sampling fixes. The response to injected dispatches is **not a
+line through the origin**: the preregistered linearity gate failed on both of
+its criteria, and the same ladder fits `delta = c*K - G` with
+`c = 1.2382 [1.2237, 1.2518]` us/dispatch and an offset
+`G = 9.70 [7.05, 12.42]` us/step. A switching-free per-run design measures the
+0->240 secant at 1.2310 us/dispatch against the interleaved ladder's 1.1855 -
+the two designs disagree by 3.8 % while sampling noise is 0.6 %. **The rig is
+now design-limited, not noise-limited**, and that ~9.7 us/step design offset is
+40 % of the ~24.5 us/step win the campaign is chasing. Two mechanisms explain
+`G` equally well (a real dead zone in the ~237 us/step idle gap, or inflation
+of the interleaved K=0 reference by its high-K neighbours) and this experiment
+cannot separate them; the defensible statement is that the true secant lies in
+`[1.1855, 1.2310]` us/dispatch and its position inside that range is set by
+design choice, not by sample size.
 
 ## Stage 1 - nested variance components on the unchanged base
 
