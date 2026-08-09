@@ -5303,6 +5303,24 @@ private let lagunaNormAffineQKVIndexedKernels: [Int: MLXFast.MLXFastKernel] = {
 let lagunaFusedNormAffineQKVEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_NORM_AFFINE_QKV"] != "0"
 
+/// `DARKBLOOM_R91_INPUT_NORM_PROBE` — NON-SHIPPING research instrument for the
+/// stage-1 ceiling of the input-RMSNorm -> QKV fusion (PR #483). Non-zero
+/// settings DELETE the per-layer input RMSNorm dispatch on the NVFP4 decode
+/// path and are numerically WRONG by construction; they exist only to price
+/// the whole prize end to end before any fusion is written. Never set on a
+/// scored, golden, or equivalence run.
+///
+///   0   shipped behaviour (`inputNorm(input)`).
+///  -1   `skipr`: QKV/gate consume the raw residual. Deletes exactly one
+///       dispatch per layer and preserves every producer/consumer edge, so the
+///       dispatch stream stays serialized exactly as shipped.
+///  -2   `skipc`: QKV/gate consume the norm weight broadcast to the row shape.
+///       Bounded values, but the layer's QKV no longer depends on the previous
+///       layer's residual, so the projection subchain may overlap. Diagnostic
+///       upper bracket only.
+let lagunaR91InputNormProbe =
+    Int(ProcessInfo.processInfo.environment["DARKBLOOM_R91_INPUT_NORM_PROBE"] ?? "0") ?? 0
+
 /// Input RMSNorm + native-affine INT8 `[Q; K; V; (G)]` projection in one
 /// dispatch, or `nil` when any shape, dtype or wire-format guard declines
 /// (caller then runs the exact two-dispatch chain).
@@ -5768,7 +5786,17 @@ final class LagunaRuntimeAttention: Module {
                 let fusedTailGateLogits: MLXArray? = nil
                 // Only materialized when the fused kernel declined; the gate
                 // branches below that read it are unreachable when it fired.
-                let normalized = fusedQKV ?? inputNorm(input)
+                let normalized: MLXArray
+                if let fusedQKV {
+                    normalized = fusedQKV
+                } else if lagunaR91InputNormProbe == 0 {
+                    normalized = inputNorm(input)
+                } else {
+                    normalized =
+                        lagunaR91InputNormProbe == -2
+                        ? inputNorm.weight.reshaped(1, 1, LagunaConstants.hiddenSize)
+                        : input
+                }
                 let decodeNVFP4QKVR1 =
                     fusedQKV == nil
                     ? lagunaDecodeNVFP4QKVR1(
