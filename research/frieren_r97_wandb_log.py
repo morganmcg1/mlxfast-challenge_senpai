@@ -38,6 +38,8 @@ def main() -> int:
     ap.add_argument("--summary", required=True, help="frieren_r97_analyze.py --json output")
     ap.add_argument("--stage0", help="stage 0 gate json")
     ap.add_argument("--prefix", default="r97d")
+    ap.add_argument("--summary-only", action="store_true",
+                    help="publish only the summary run (per-rung runs already logged)")
     args = ap.parse_args()
 
     with open(args.summary) as fh:
@@ -56,7 +58,7 @@ def main() -> int:
         "predicted_R": a["predicted_R"],
     }
 
-    for r in sorted(a["runs"], key=lambda x: x["idx"]):
+    for r in [] if args.summary_only else sorted(a["runs"], key=lambda x: x["idx"]):
         run = init(f"{args.prefix}-run{r['idx']:02d}-n{r['rung']}", "ladder-run",
                    {**common, "rung": r["rung"], "block": r["block"],
                     "order_index": r["idx"]})
@@ -83,10 +85,14 @@ def main() -> int:
         "rule58_prediction_h58": a["predicted_R"],
         "rule58_prediction_h0": 0,
         "rule58_prediction_brief": 16,
+        "rule58_within_run_implied_over_window": a["within_run_implied_over_window"],
         "verdict_pass": a["pass"],
         **{f"verdict_{k}": v for k, v in a["verdict"].items()},
         "per_rung": a["per_rung"],
+        **{f"estimator_{k}": v for k, v in a["estimators"].items()},
         **{f"gate0_{k}": v for k, v in stage0.items()},
+        "gate0_prefill_only": stage0.get("gate0a_prefill_only"),
+        "gate0_bitexact": stage0.get("gate0b_bitexact"),
     })
     for rung, m in sorted(a["per_rung"].items(), key=lambda kv: int(kv[0])):
         run.log({

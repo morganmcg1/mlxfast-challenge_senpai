@@ -70,18 +70,36 @@ and `+15.6 us/step`. Competing hypotheses:
 
 ## 3. Harness topology (source of truth)
 
-| what | official ranked harness | `--local-iterate` |
-|---|---|---|
-| file | `Sources/MLXFastTrustedHarness/LagunaRuntimeBenchmark.swift` | `.../LagunaRuntimeLocalIterate.swift` |
-| decode timer start | `decodePhaseStart` :966 | `decodePhaseStart` :583 |
-| seed forward | `worker.beginDecode` :968 (**after**) | :587 (**after**) |
-| decode divisor | 128 :1013 | `decodeSteps * timingRepeats` :674 |
-| prefill window | :809-811, divisor 512 :837 | :549-558, divisor :672 |
+There are **three** timing paths in this repository, not two. Naming which pair
+produced each number matters, so all three are laid out here.
 
-The timer start strictly precedes the seed forward in **both** entry points, so
-`--local-iterate` reproduces the ranked timer topology on this axis. This is
-pure harness arithmetic: it is a property of where two `DispatchTime.now()`
-calls sit relative to a function call, and it does not depend on the GPU.
+| what | (1) official ranked worker pair | (2) non-official in-process pair | (3) `--local-iterate` |
+|---|---|---|---|
+| file | `Sources/MLXFastTrustedHarness/LagunaRuntimeBenchmark.swift` | same file, `#if !MLXFAST_TRUSTED_HARNESS` | `Sources/MLXFastTrustedHarness/LagunaRuntimeLocalIterate.swift` |
+| prefill window | `:809` start, `:811` elapsed | `measurePrefillSecondsPerToken` `:712`–`:776` | `prefillStart :548`, `eval(prefillLogits)`, `prefillElapsed` |
+| prefill divisor | 512 (`:837`) | `promptTokens.count` (`:772`) = 512 | `:672` (512 × repeats) |
+| decode timer start | `decodePhaseStart :966` | `decodePhaseStart :877` | `decodePhaseStart :583` |
+| seed forward | `worker.beginDecode :968` (**after** the timer) | `lagunaLogits(inputIDs: seedTokens…)` `:882`–`:888` (**after**) | `lagunaLogits(inputIDs:model:cache:positionOffset:)` `:587` (**after**) |
+| decode elapsed / divisor | `:1013`, divisor 128 | `:932` elapsed, divisor `timingPlan.decodeSteps` `:939` = 128 | `:674`, divisor `decodeSteps * timingRepeats` |
+| crosses the worker IPC boundary | yes | no | no |
+
+**Which pair produced the numbers in this document.** Every timed number in
+sections 4, 5, 6 and 7 comes from path (3), the in-process `--local-iterate`
+path, which is the path `AGENTS.md` designates for matched research timing.
+That is the path all 22 timed runs of this experiment used. Paths (1) and (2)
+were verified by reading the source at the line numbers above; neither was
+executed here, and no claim in this document depends on having run them.
+
+The property this experiment tests is identical in all three: the decode clock
+starts **strictly before** the 512-token seed forward, the decode divisor is
+128 single-token steps, and the prefill divisor is 512 prompt tokens. That is
+pure harness arithmetic — where two `DispatchTime.now()` calls sit relative to
+a function call — so it is invariant to GPU, kernel family, and to whether the
+forward runs in-process or behind the worker IPC boundary. Path (3) therefore
+reproduces the ranked timer topology on the axis this experiment measures. What
+path (3) does *not* reproduce is the worker IPC boundary and the absolute
+seconds, which is why section 7 recomputes the exponents from the pinned M5
+baseline constants rather than from this host's seconds.
 
 ## 4. PRIMARY RESULT — the within-run identity (needs no injection)
 
@@ -304,6 +322,19 @@ These are the exponents that actually matter when choosing what to optimize.
 | **M5 pinned baseline (ranked)** | 367.5 | 13856.2 | **0.1061** | **0.3296** | **0.6704** |
 | this M4 Pro host (rung-0 mean, n=4) | 1149.3 | 13085.3 | **0.3513** | 0.5135 | 0.4865 |
 
+**Reconciling with the 15.4% quoted in the brief.** The brief states the seed
+share on M5 is 15.4%; I compute 10.6%. Both are right about their own inputs —
+they are different M5 baselines. The brief's figure implies
+`D = 4893.7 us/step` and `4P = 752.2 us/step`, i.e. `P = 188.05 us/tok`; the
+constants I used are the pinned-baseline pair `P = 367.5`, `D = 13856.2`. `f`
+is a ratio of two absolute timings and so moves with any baseline refresh,
+harness change, or checkpoint change. The value to use for any given decision
+must be read from the score JSON of the baseline that decision will be scored
+against; neither number should be treated as a constant of the challenge.
+The qualitative conclusion is identical under both: the multi-token forward
+carries an effective exponent of **0.33 (mine) to 0.37 (the brief's inputs)**,
+never 0.25, and the single-token step carries 0.63–0.67, never 0.75.
+
 On the ranked M5 the multi-token forward path carries an effective exponent of
 **0.330, not 0.25 — it is 31.8% more valuable than the nominal prefill weight
 suggests**, and the single-token step path carries **0.670, not 0.75 — 10.6%
@@ -335,23 +366,49 @@ of trade a decode-focused optimization makes.
    paths are worth the *same*. Any exponent reasoning done from local numbers
    will be wrong. Only the identity `D = 4P + T_bar` transfers; `f` does not.
 
+### 7c. Relation to the standing programme rules
+
+**Rule 58 (`D = 4P + T_bar`) is confirmed, with the constant corrected to 4.**
+Rule 58 should be recorded as `R = 4`, not 16, and the numeric example should
+read *+15.6 us/step per 2 ms of injected multi-token work*, not +62.5.
+
+**Rule 64 (free-ALU budget) is not contradicted and is not tested here.** The
+injected operation is a single MLX bf16 GEMM, `512x8192 @ 8192x2048`, i.e.
+8.59e9 fma per injected matmul — about eight orders of magnitude above the
+~96-fma-per-thread-per-K-iteration budget that rule 64 describes. Rule 64's
+framing is *per K iteration per thread inside our own K-loop kernels*; it does
+not apply to an MLX GEMM dispatched as a whole op, so this experiment neither
+supports nor undermines it. The injection was chosen precisely because it is
+far outside that budget: an instrument must produce a cost that cannot be
+absorbed.
+
+**Rule 66 (`T`) should be quoted as a bound, not a point estimate.** The
+supportable statement from this work is `|T| < 0.5`; the older point estimate
+of `-0.40 +/- 0.24` is not reproduced here and should not be quoted. The
+factor-4 conclusion does not depend on `T` at all: it is harness arithmetic
+(two divisors, 512 and 128, and one statement order) and is therefore
+architecture-independent.
+
 ## 8. Honest limits
 
 1. **Host.** All measurements are from one AWS M4 Pro (48 GiB, low-memory
    startup profile, Apple GPU generation 16, no `_nax` kernel selection). The
    *timer topology* result is harness arithmetic and transfers to M5 — it is a
-   property of statement order in Swift source, confirmed by reading both entry
-   points (§3). The *magnitude* `f` does not transfer and the M5 value in §7a is
-   computed from the pinned baseline constants, not measured by me.
-2. **`--local-iterate`, not the ranked binary.** I verified by source reading
-   that both entry points start the decode clock before the seed forward, and
-   that both use divisors 512 and 128. I did not run the ranked harness.
+   property of statement order in Swift source, confirmed by reading all three
+   entry points (§3). The *magnitude* `f` does not transfer and the M5 value in
+   §7a is computed from the pinned baseline constants, not measured by me.
+2. **Path (3) only: in-process `--local-iterate`.** Every timed number here was
+   produced by the in-process `--local-iterate` path. The official ranked worker
+   pair and the non-official in-process pair (§3, paths 1 and 2) were verified by
+   source reading only — I did not execute either. All three place the decode
+   clock start strictly before the seed forward and use divisors 512 and 128, so
+   the tested property is shared; the worker IPC boundary and absolute seconds
+   are not reproduced.
 3. **The injection is an instrument, not a cost model.** Each injected matmul is
-   512x8192 @ 8192x2048 bf16 = 8.59 G fma. That is roughly eight orders of
-   magnitude above the free-ALU budget of about 96 fma per weight byte. This
-   experiment deliberately measures *where a large, unambiguous, output-neutral
-   cost is charged*; it says nothing about the price of cheap ALU work, and the
-   calibration constant (2.392 ms per matmul) is a property of this host.
+   512x8192 @ 8192x2048 bf16 = 8.59e9 fma. This experiment deliberately measures
+   *where a large, unambiguous, output-neutral cost is charged*; it says nothing
+   about the price of cheap ALU work (see §7c on rule 64), and the calibration
+   constant (2.392 ms per matmul) is a property of this host.
 4. **Bound only, on the intercept.** The free-intercept estimator absorbs
    run-to-run drift into an intercept term; I quote that intercept only as a
    bound consistent with zero rather than as a measured offset.
@@ -405,3 +462,49 @@ worker environment sanitiser (`LagunaRuntimeWorker.swift:1928-1958`).
 | `research/frieren_r97_analyze.py` | decomposition, ladder, three estimators, block bootstrap |
 | `research/frieren_r97_score_weights.py` | effective-exponent calculator (§7a) |
 | `research/frieren_r97_wandb_log.py` | W&B logging |
+
+## 10. W&B runs
+
+Project `wandb-applied-ai-team/mlxfast-maple`. All 17 runs terminated
+`finished`. URL form:
+`https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/<id>`.
+
+| run name | rung | run id |
+|---|---|---|
+| `r97d-run01-n0` | 0 | `zofnlv7o` |
+| `r97d-run02-n10` | 10 | `ufcsiacg` |
+| `r97d-run03-n20` | 20 | `xqj59k19` |
+| `r97d-run04-n40` | 40 | `7tt0pnpj` |
+| `r97d-run05-n20` | 20 | `ui0z1a8c` |
+| `r97d-run06-n10` | 10 | `mcjgodao` |
+| `r97d-run07-n40` | 40 | `buxra18n` |
+| `r97d-run08-n0` | 0 | `q3dyio55` |
+| `r97d-run09-n20` | 20 | `35umbzm7` |
+| `r97d-run10-n40` | 40 | `i3wti0t5` |
+| `r97d-run11-n0` | 0 | `wenk0pz0` |
+| `r97d-run12-n10` | 10 | `vfo0bgmd` |
+| `r97d-run13-n10` | 10 | `4hhyh5d6` |
+| `r97d-run14-n20` | 20 | `rm3oo2yz` |
+| `r97d-run15-n40` | 40 | `mpr86e4x` |
+| `r97d-run16-n0` | 0 | `m72cumn6` |
+| **`r97d-summary`** | — | **`6lki1ni0`** |
+
+The summary run `6lki1ni0` carries the terminal keys:
+`rule58_response_ratio` = 3.8461, `rule58_response_ratio_ci_low` = 3.1858,
+`rule58_response_ratio_ci_high` = 4.4914, `verdict_pass` = true,
+`rule58_within_run_implied_over_window` = 0.9978, `gate0_prefill_only` = true,
+`gate0_bitexact` = true, the three predictions
+(`rule58_prediction_h58` = 4, `..._h0` = 0, `..._brief` = 16), and one
+`estimator_<name>` JSON blob per estimator. Each per-rung run logs
+`rule58_delta_decode_us_per_step` and `rule58_delta_prefill_us_per_token`.
+
+Re-log with:
+
+```bash
+python3 research/frieren_r97_wandb_log.py \
+  --summary research/r97-runs/stage1/analysis.json \
+  --stage0 research/r97-runs/stage0/gates.json
+```
+
+Add `--summary-only` to refresh just the summary run without re-creating the
+16 per-run records.
