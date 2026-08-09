@@ -40,30 +40,22 @@ def table(path: pathlib.Path, delim: str = "\t") -> wandb.Table:
 
 
 def ladder_tables(path: pathlib.Path) -> dict[str, wandb.Table]:
-    """Split the probe log into its four labelled arms."""
-    arms: dict[str, list[list[str]]] = {}
-    headers: dict[str, list[str]] = {}
-    arm = None
-    for line in path.read_text().splitlines():
-        line = line.rstrip()
-        if not line:
+    """Split the probe log into its blank-line-separated labelled blocks."""
+    out: dict[str, wandb.Table] = {}
+    for block in path.read_text().split("\n\n"):
+        comments = [l for l in block.splitlines() if l.startswith("#")]
+        data = [l.split("\t") for l in block.splitlines() if l and not l.startswith("#")]
+        if len(data) < 2:
             continue
-        if line.startswith("#"):
-            m = re.search(r"arm=(\S+)", line)
-            if m:
-                arm = m.group(1)
-                if arm in arms:
-                    arm = f"{arm}_rule71"
-                arms.setdefault(arm, [])
-            continue
-        if arm is None:
-            continue
-        cells = line.split("\t")
-        if arm not in headers:
-            headers[arm] = cells
-        else:
-            arms[arm].append([numeric(c) for c in cells])
-    return {a: wandb.Table(columns=headers[a], data=rows) for a, rows in arms.items() if rows}
+        m = re.search(r"arm=(\S+)", " ".join(comments))
+        name = m.group(1) if m else "meta"
+        if m and "rule-71" in " ".join(comments):
+            name += "_rule71"
+        name = name if name not in out else f"{name}_2"
+        out[name] = wandb.Table(
+            columns=data[0], data=[[numeric(c) for c in r] for r in data[1:] if len(r) == len(data[0])]
+        )
+    return out
 
 
 def main() -> None:
