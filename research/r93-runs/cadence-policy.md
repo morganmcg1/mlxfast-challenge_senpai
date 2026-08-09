@@ -188,9 +188,13 @@ five-point sd carries a 95 % χ² interval of [0.60, 2.87]× the point estimate,
 the "12 receipts" cell honestly spans 4 to 99. The number above instead comes
 from the receipt corpus — solver-day groups with ≥ 4 receipts and internal CV
 < 0.6 %, restricted to group means ≤ 5100 µs so it is measured at our own decode
-speed. That is 119 points in 8 groups, ~111 df, and its own interval is a few
-percent wide. It sits 1.45× above the null point estimate, which is the safe
-direction, because it is measured under small code differences rather than none.
+speed. That is 119 points in 8 groups, ~111 df, so its own χ² interval is
+[0.884, 1.151]× — **about ±13 %**, not "a few percent". It sits 1.45× above the
+null point estimate, which is the safe direction, because it is measured under
+small code differences rather than none. Note the opposing bias: the cells are
+*selected* on internal CV < 0.6 %, a truncation on the statistic being
+estimated, which pushes it back down by an unquantified amount. Treat 0.4261 %
+as a plausible central value, not a guaranteed upper bound.
 **Plan with the corpus σ; use the nulls to check the channel is well-behaved,
 not to size it.**
 

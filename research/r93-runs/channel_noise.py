@@ -3,8 +3,10 @@
 The same-session baseline is identical code on every receipt, so bl_dec/bl_pre
 form an n>1000 null sample of the measurement channel itself.
 """
+import glob
 import json
 import math
+import os
 import random
 import statistics as st
 import sys
@@ -169,25 +171,25 @@ def tcrit(df):
     return 1.960
 
 
-# Candidate-side CVs measured on THIS branch's machine-code-identical nulls
-# (research/r93-runs/receipts/null-*.json). Overridden by measure_nulls() below
-# when enough replicates have landed.
-CAND_CV = {"decode": 0.4041, "prefill": 0.0643}
-N_NULLS = 0
-try:
-    import glob
-    nd, npre = [], []
-    for f in sorted(glob.glob("research/r93-runs/receipts/null-*.json")):
-        m = json.load(open(f))["submission"]["officialMetrics"]
-        nd.append(m["decode_seconds_per_token"] * 1e6)
-        npre.append(m["prefill_seconds_per_token"] * 1e6)
-    if len(nd) >= 3:
-        N_NULLS = len(nd)
-        CAND_CV = {"decode": cv(nd), "prefill": cv(npre)}
-        print("  candidate-side CV from %d machine-code-identical nulls:"
-              " decode %.4f%%  prefill %.4f%%" % (len(nd), CAND_CV["decode"], CAND_CV["prefill"]))
-except Exception as e:  # receipts not yet fetched
-    print("  (using recorded candidate CVs; %s)" % e)
+# Candidate-side CVs are measured on THIS branch's machine-code-identical nulls.
+# The null receipts live next to this script, so resolve them relative to the
+# script rather than the caller's cwd: a repo-root-relative glob silently missed
+# and fell back to stale hardcoded numbers, which is worse than not running.
+NULL_GLOB = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         "receipts", "null-*.json")
+nd, npre = [], []
+for f in sorted(glob.glob(NULL_GLOB)):
+    m = json.load(open(f))["submission"]["officialMetrics"]
+    nd.append(m["decode_seconds_per_token"] * 1e6)
+    npre.append(m["prefill_seconds_per_token"] * 1e6)
+if len(nd) < 3:
+    sys.exit("FATAL: found %d null receipts under %s; need >= 3. "
+             "Fetch them with research/r91b-runs/fetch_receipt.py before "
+             "running this analysis." % (len(nd), NULL_GLOB))
+N_NULLS = len(nd)
+CAND_CV = {"decode": cv(nd), "prefill": cv(npre)}
+print("  candidate-side CV from %d machine-code-identical nulls:"
+      " decode %.4f%%  prefill %.4f%%" % (N_NULLS, CAND_CV["decode"], CAND_CV["prefill"]))
 print()
 
 for lab, kb in [("decode", "bl_dec"), ("prefill", "bl_pre")]:

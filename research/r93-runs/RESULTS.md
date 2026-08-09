@@ -211,13 +211,14 @@ and the question worth answering is whether the candidate-side sigma is
 *provably below* them. With the measured n=5 prefill sigma of 0.1027 %, the
 upper limit is 0.295 % at n=5 — still above the bound, so five nulls cannot
 confirm it. Holding the point estimate, it first drops below 0.2573 % at
-**n=7** (0.226 %) and clears it comfortably at n=8 (0.209 %). Decode is
-hopeless on this arm at any affordable `n`: its point estimate is already at
-the 0.2924 % bound, so its upper limit is roughly 0.60 % even at n=8.
+**n=6** (0.252 %) and clears it comfortably at n=7 (0.226 %) and n=8 (0.209 %).
+Decode is hopeless on this arm at any affordable `n`: its point estimate is
+already at the 0.2924 % bound, so its upper limit is roughly 0.60 % even at n=8.
 
-So the null arm was planned to n=7-8 for one specific, decisive reason: it is
+So the null arm was planned to n=6-8 for one specific, decisive reason: n=6 is
 the smallest `n` at which the **prefill** bound can be confirmed rather than
-merely quoted. That asymmetry — prefill confirmable, decode not — is itself a
+merely quoted, and n=7-8 buys margin against the point estimate drifting up.
+That asymmetry — prefill confirmable, decode not — is itself a
 result, and it is the same asymmetry section 9 finds from the corpus. Budget
 was redirected to Arm C (section 10) instead, which is the honest trade: two
 more nulls would have tightened a confidence interval, whereas Arm C prices a
@@ -248,9 +249,12 @@ Three things follow.
 1. **The channel is exactly as noisy as the corpus said it was.** The
    assignment's decode bound of 0.2924 % was derived from historical receipts;
    five true nulls put the candidate decode sigma at 0.2939 %, a 0.5 %
-   discrepancy. That is a strong independent validation of rule 48's number,
-   and it is worth more than the confidence interval, because the point
-   estimate agrees with a completely separate estimator.
+   discrepancy. That is an independent corroboration of rule 48's number from a
+   completely separate estimator. It should not be over-read: with a n=5 sigma
+   whose interval spans [0.176 %, 0.844 %], agreement to 0.5 % is partly luck,
+   and the same design would have "agreed" with anything from 0.18 % to 0.84 %
+   had that been the corpus figure. The corroboration is real but the *tightness*
+   of it is not evidence.
 2. **Decode cannot be shown to be *below* the bound and never will be on this
    arm.** The chi-square interval at n=5 spans a factor of five. This is not a
    failure of the experiment; it is the arithmetic of estimating a standard
@@ -311,42 +315,50 @@ they are unmeasurable on the only instrument that counts.
 
 ## 4. Arm B — M5 microseconds per dispatch
 
-**The M4 free region does not exist on M5.** Seven receipts — four
+> **Direction warning (added after section 8.0).** Everything in this section
+> is measured by *adding* hazard-free dispatches. PR #502 (rule 53) later showed
+> that *removing* real decode dispatches recovers approximately nothing. Read
+> section 4 as the price of dispatches a candidate would add, and section 8.0
+> before acting on any subtraction-direction sentence below.
+
+**The M4 free region does not exist on M5.** Eight receipts — five
 machine-code-identical K=0 nulls plus rungs at K=60, 240 and 800 — put the cost
 of one extra hazard-free decode dispatch on the ranked M5 at
 
-> **2.339 us/dispatch, 95 % CI [2.264, 2.413]** (OLS, df=5, intercept
-> 4919.13 us, residual s = 20.98 us).
+> **2.3403 us/dispatch, 95 % CI [2.2766, 2.4040]** (OLS, df=6, intercept
+> 4918.09 us, residual s = 19.31 us).
 
 | K | n | mean candidate decode (us) | marginal vs previous rung |
 |---|---|---|---|
-| 0 | 4 | 4910.501 (sd 16.627) | — |
-| 60 | 1 | 5077.024 | 2.775 us/disp |
+| 0 | 5 | 4910.925 (sd 14.431) | — |
+| 60 | 1 | 5077.024 | 2.768 us/disp |
 | 240 | 1 | 5506.517 | 2.386 us/disp |
 | 800 | 1 | 6780.945 | 2.276 us/disp |
 
 Three independent checks say the slope is real and is not an artifact of the fit:
 
-1. **It is not driven by the long rung.** K=800 carries leverage h = 0.925, so
+1. **It is not driven by the long rung.** K=800 carries leverage h = 0.923, so
    the single-fit CI above is largely that one point's noise. Dropping it
-   entirely and refitting on K <= 240 gives **2.487 us/dispatch, CI [2.275,
-   2.700]** — which *contains* the full-range slope. The high-leverage point is
+   entirely and refitting on K <= 240 gives **2.488 us/dispatch, CI [2.316,
+   2.660]** — which *contains* the full-range slope. The high-leverage point is
    confirming the low rungs, not creating them.
 2. **Weighting is not load-bearing.** WLS with 1/mu^2 weights (the
-   multiplicative-noise model of section 9.5) gives 2.346, a +0.33 % shift.
-3. **The injection really is decode-only.** Prefill across the same seven
-   receipts moves by -0.083 us (-0.044 %), t = -0.325 on 5 df. This is an
+   multiplicative-noise model of section 9.5) gives 2.348, a +0.32 % shift.
+3. **The injection really is decode-only.** Prefill across the same eight
+   receipts moves by -0.113 us (-0.060 %), t = -0.501 on 6 df. This is an
    internal control, not an assumption: the same receipts that show a 38 %
    decode swing show no prefill effect.
 
-**Is it linear?** The segment marginals fall monotonically — 2.775, 2.386,
+**Is it linear?** The segment marginals fall monotonically — 2.768, 2.386,
 2.276 — which hints that the *first* dispatches cost slightly more than later
-ones. The formal lack-of-fit test cannot resolve it (F(2,3) = 2.48 against a
-9.55 critical value), and with one replicated level it never will at this
-budget. So do not claim linearity. But note the direction: **the low-K marginal
-is the highest one**, and low-K is exactly where real work happens — a candidate
-removes tens of dispatches, not hundreds. Quoting the pooled 2.339 for a
-small-K change is therefore conservative.
+ones. The formal lack-of-fit test cannot resolve it (F(2,4) = 3.37 against a
+6.94 critical value), and with one replicated level it never will at this
+budget. So do not claim linearity — and note that each rung is a *single*
+receipt, so the first marginal step sits only ~1.4 standard errors above the
+pooled slope. The direction is worth recording rather than believing: **the
+low-K marginal is the highest one**, and low-K is exactly where real work
+happens — a candidate removes tens of dispatches, not hundreds. Quoting the
+pooled 2.3403 for a small-K change is therefore conservative.
 
 So the two machines disagree qualitatively, exactly as section 1.3 warned:
 
@@ -360,15 +372,21 @@ CPU-side MLX graph building per decode step. The ranked M5 is a faster GPU
 behind a faster CPU, and on that machine the shadow is not long enough to hide
 even 240 dispatches.
 
-**Practical consequence for the campaign:** on the ranked machine a saved GPU
+> **SUPERSEDED by section 8.0 (rule 53, PR #502).** The paragraph below was the
+> original practical read-out. It assumed the addition price reverses in sign.
+> PR #502 removed real decode dispatches and recovered ~0 us, so **do not** plan
+> work against "234 us per 100 dispatches removed". The surviving statement is
+> the addition-direction one: adding 100 hazard-free dispatches costs ~234 us.
+
+~~**Practical consequence for the campaign:** on the ranked machine a saved GPU
 dispatch is worth ~2.34 us of decode time, and that is a *lower bound* because
 the injected kernels are hazard-free while a real removed dispatch usually also
-removes a fence wait. At a candidate decode of ~4919 us, removing 100 real
-dispatches per token is worth 234 us [226, 241], i.e. **4.8 % of candidate
+removes a fence wait. At a candidate decode of ~4918 us, removing 100 real
+dispatches per token is worth 234 us [228, 240], i.e. **4.8 % of candidate
 decode**. Dispatch-count reduction is therefore a first-class optimisation
-target on M5 even though local M4 iteration will report it as worthless.
+target on M5 even though local M4 iteration will report it as worthless.~~
 
-The 2.339 us/dispatch measured here is ~18 % above the 1.9823 us/dispatch OLS
+The 2.3403 us/dispatch measured here is ~18 % above the 1.9823 us/dispatch OLS
 slope from the 2026-08-05 historical receipts (section 1.3). Both are the same
 order and both exclude a free region. The gap is not surprising — the historical
 fit used three points from a different tree with no replicated level — but it is
@@ -463,22 +481,25 @@ Honest bounding caveats, all of which move the number *up*:
 - `compile(...)` call sites exist in the runtime but are unreachable at
   defaults, so none of them collapse the count.
 
-**Consequence.** At the fitted slope of 2.339 us per hazard-free dispatch
-(95 % CI [2.264, 2.413], section 4), 404 x 2.339 us = **945 us [915, 975]**,
-against a candidate decode of 4919 us per step:
+**Consequence.** At the fitted slope of 2.3403 us per hazard-free dispatch
+(95 % CI [2.2766, 2.4040], section 4), 404 x 2.3403 us = **945.5 us [919.7,
+971.2]**, against a candidate decode of 4918 us per step:
 
-> **19.2 % of ranked M5 decode time [18.6 %, 19.8 %] is per-dispatch fixed
-> overhead**, not arithmetic.
+> **19.2 % of ranked M5 decode time [18.7 %, 19.7 %] is per-dispatch cost that
+> is hidden, not arithmetic.** Section 8.0 shows it is *not* recoverable by
+> removing dispatches, so read "hidden" rather than "recoverable overhead".
 
 Two qualifications that keep this from being oversold:
 
-1. 2.339 us prices a *hazard-free* dispatch (section 1.2's hazard test: the
+1. 2.3403 us prices a *hazard-free* dispatch (section 1.2's hazard test: the
    injected kernels bind only their own control/prev/sink buffers, so MLX
    inserts no `MTLFence` between them). A real dispatch that participates in the
-   dependency graph costs at least this much, so 945 us is a **lower bound** on
-   the fixed overhead, and removing one real dispatch should save **at least**
-   2.34 us.
-2. The CI above is the formal interval from seven receipts in one tree. The
+   dependency graph costs at least this much, so 945.5 us is a **lower bound**
+   on the fixed cost of the dispatches present. ~~and removing one real dispatch
+   should save **at least** 2.34 us.~~ **SUPERSEDED by section 8.0**: PR #502
+   removed real decode dispatches and recovered ~0 us. The addition price does
+   not run backwards.
+2. The CI above is the formal interval from eight receipts in one tree. The
    2026-08-05 historical ladder gave 1.98 us/dispatch (section 1.3), so the
    honest cross-tree range is nearer 2.0-2.5 us, i.e. **17-20 % of decode**. The
    qualitative claim — that a fifth of M5 decode is dispatch overhead — survives
@@ -534,10 +555,13 @@ injected dispatch is on the critical path.
 The operational rule for the campaign:
 
 - **A dispatch-count reduction measured on M4 Pro will read as approximately
-  zero and must not be discarded on that basis.** For the two live candidates
+  zero and must not be discarded on that basis.** ~~For the two live candidates
   in section 8.3 (B and C, -78 dispatches per token), M4 Pro predicts ~0 us and
-  M5 predicts ~180-195 us, or 3.7-4.0 % of decode. This is the single largest
-  M4-to-M5 sign/magnitude trap we found.
+  M5 predicts ~180-195 us, or 3.7-4.0 % of decode.~~ **SUPERSEDED by section
+  8.0**: PR #502 ran that experiment on M5 and the removal recovered ~0 us, so
+  the M4-reads-zero rule is correct but the M5 prediction attached to it was
+  not. What survives is the *addition* trap: a change that adds dispatches will
+  read free on M4 and be charged on M5.
 - The converse also holds and is the more dangerous direction: a change that
   *adds* dispatches, for example splitting a fused kernel to simplify code, is
   free on the local host and is charged in full on the ranked host.
@@ -608,16 +632,37 @@ completely different place: solver-day groups in the receipt corpus with at
 least 4 points and internal CV below 0.6 %, restricted to group means at or
 below 5100 us so the estimate is taken at our own decode speed. That is
 **119 points across 8 groups**, roughly 111 degrees of freedom instead of 4, so
-its own interval is a few percent wide rather than a factor of three. It agrees
-with section 9.5's banded estimate (0.4358 %) computed by the same residual
-method in `hetero.py`.
+its own chi-square interval is **[0.884x, 1.151x], i.e. about +/-13 %**, rather
+than the factor of nearly three the nulls carry. (An earlier draft said "a few
+percent wide"; that understated it and is corrected here.) It agrees with
+section 9.5's banded estimate (0.4358 %) computed by the same residual method in
+`hetero.py`.
 
-Two caveats on the recommended sigma, both pointing the safe way. It is measured
-under small code differences rather than none, so it is an **upper bound** on the
-pure channel sigma. And it is measured on other solvers' submissions, so it
-assumes the channel treats their receipts and mine alike — which section 9.1's
-pinned-baseline analysis supports, since every receipt in the corpus times the
-same baseline code and still spreads by 0.2453 %.
+Three caveats on the recommended sigma, and — contrary to an earlier draft —
+**they do not all point the same way**:
+
+1. *Upward bias.* It is measured under small code differences rather than none,
+   so on that account alone it is an **upper bound** on the pure channel sigma.
+2. *Downward bias.* The cells are selected by requiring internal CV below 0.6 %,
+   which is a truncation on the very statistic being estimated. Any solver-day
+   that happened to draw a noisy set of receipts is excluded, so this selection
+   pushes the estimate **down**. The two biases oppose each other and we cannot
+   claim to know which dominates; the honest reading is that 0.4261 % is a
+   plausible central value with roughly +/-13 % sampling error on top of an
+   unquantified selection term, not a conservative bound.
+3. *Transferability.* It is measured on other solvers' submissions, so it assumes
+   the channel treats their receipts and mine alike — which section 9.1's
+   pinned-baseline analysis supports, since every receipt in the corpus times the
+   same baseline code and still spreads by 0.2453 %.
+
+One further point of comparability. Section 3's minimum-resolvable table is a
+**least significant difference**: the effect size that would land exactly on the
+significance threshold, which is 50 % power by construction. This section's
+cadence table sizes for **80 % power**, which is why its receipt counts are
+larger for a nominally similar effect. `channel_noise.py`'s `need()` also uses
+normal z-quantiles rather than t; that is justified here only because the corpus
+sigma carries ~111 degrees of freedom, and it would be wrong if the same routine
+were fed the n=5 null sigma.
 
 The honest summary is that **the nulls verify the channel is well-behaved but
 cannot size it; the corpus sizes it.** Read the recommended row as "this order
@@ -665,6 +710,12 @@ worth; the honest headline is `|T| < 0.5` rather than `T = -0.48`.
 | 4 | null-3 | `05dd8bbf-c436-447c-99a8-8024d0fc023f` | 0 | 160 | rejected (score did not improve best) | green | [`fvm3v67i`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/fvm3v67i) |
 | 5 | ladder-K800 | `f8719c48-8df6-4570-abf1-1c9a369c64e0` | 800 | 8 | rejected (score did not improve best) | green | [`qaempae6`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/qaempae6) |
 | 6 | null-4 | `ab6a15a1-4d79-4c51-ac46-bd97fde2e1bf` | 0 | 160 | rejected (score did not improve best) | green | [`0ecng8mc`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/0ecng8mc) |
+| 7 | ladder-K60 | `b835a980-9c6a-48f3-a9d0-c5961ed1aac4` | 60 | 8 | rejected (score did not improve best) | green | [`xlaup9j4`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/xlaup9j4) |
+| 8 | null-5 | `4fec8e2d-3fa1-4a99-a9a5-e6883aee7497` | 0 | 160 | rejected (score did not improve best) | green | [`92snii58`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/92snii58) |
+| 9 | probe-routed-fma-24 | `ecd89cac-b21e-4948-b619-5ac106c8fe48` | `routed:fma:24` | — | rejected (score did not improve best) | green | [`59o0mk6y`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/59o0mk6y) |
+
+Per-receipt metrics for rows 1-8 are in section 2.3 (nulls) and section 4
+(ladder rungs); row 9 is in section 10.5.
 
 "all gates green" means `passed_correctness`, both speedup floor verdicts,
 GPQA TTFT 9/9 and semantic GPQA 9/9, with `max_abs_diff = 0` over 1344 checked
@@ -691,6 +742,15 @@ dispatch residue.** A 24-label ledger closes to +0.3 us across all 406 decode
 dispatches, so removing a dispatch on the ranked M5 recovers approximately
 nothing. That is the exact opposite sign of the naive reading of section 4.2,
 and it has to be addressed head-on rather than left as a footnote.
+
+> **On 404 versus 406.** Section 4.2's source audit reproduces **404** dispatches
+> per decoded token; #502's instrumented ledger counts **406**. The two are not
+> the same census: #502 labels every dispatch the profiler emits, including two
+> that our static decomposition folds into their neighbours. A 0.5 % discrepancy
+> is immaterial to every number here (404 x 2.3403 = 945.5 us versus
+> 406 x 2.3403 = 950.2 us, well inside the slope's own CI), so we keep each
+> section's own count rather than silently harmonising them. Nothing in either
+> conclusion turns on the difference.
 
 Both results are correct, and they are not in conflict, because they measure
 two different quantities:
@@ -992,19 +1052,28 @@ noise, the observable correlation is the true noise correlation multiplied by
 `a = sd_noise / sd_total`. `research/r93-runs/critique_checks.py` computes `a`
 for each estimator:
 
-| estimator | sd(candidate residual) | sd(noise) | attenuation `a` | what \|r\| <= 0.08 actually bounds |
-|---|---|---|---|---|
-| (a) solver-day de-meaned | 328.4 us | ~23.2 us | **0.071** | \|rho\| <= 1.00 — **uninformative** |
-| (c) near-replicate, cand CV < 0.5 % (36 groups, 335 pts) | 18.13 us | ~23.2 us | **1.00** | \|rho\| <= 0.08 |
-| (c) near-replicate, cand CV < 0.6 % (41 groups, 384 pts) | 22.08 us | ~23.2 us | **1.00** | \|rho\| <= 0.08 |
+A measured `r` bounds the true noise correlation only through its **Fisher 95 %
+upper limit** divided by `a` — using the point estimate would ignore the
+sampling error in `r` itself. `sd(noise)` is the null CV (0.2939 %) times the
+mean decode time *of the cell being analysed*, per the multiplicative model of
+section 9.5, not a single global microsecond figure.
+
+| estimator | mean decode | sd(cand resid) | sd(noise) | attenuation `a` | measured `r` | Fisher 95 % upper | bound on \|rho\| |
+|---|---|---|---|---|---|---|---|
+| (a) solver-day de-meaned (77 groups, 943 pts) | 6783 us | 328.38 us | 19.93 us | **0.061** | -0.0492 | +0.0147 | **<= 0.24** (model-dependent) |
+| (c) near-replicate, cand CV < 0.5 % (36 groups, 335 pts) | 5767 us | 18.13 us | 16.95 us | **0.935** | -0.0160 | +0.0913 | **<= 0.10** |
+| (c) near-replicate, cand CV < 0.6 % (41 groups, 384 pts) | 5992 us | 22.08 us | 17.61 us | **0.797** | +0.0160 | +0.1159 | **<= 0.15** |
 
 Estimators (a), (b) and (d) pool solver-days in which the candidate code
-genuinely changed. Their residual spread is ~330 us — roughly 14x the ~23 us of
-channel noise — so they are attenuated by a factor of 14 and would report
-`r ~ 0.07` even if the underlying noise correlation were a perfect `rho = 1`.
-Their agreement with (c) is reassuring but carries almost no information. Only
-estimator (c), which restricts to solver-days whose candidate barely moved so
-that `sd_total ~ sd_noise`, is unattenuated and can bound `rho`.
+genuinely changed. Their residual spread is ~328 us — roughly 16x the ~20 us of
+channel noise — so they are attenuated by a factor of 16 and would report
+`r ~ 0.06` even if the underlying noise correlation were a perfect `rho = 1`.
+Their large `n` still yields a numerically small bound (0.24), but that number
+is only as good as the attenuation model itself, which assumes the code-driven
+variance is uncorrelated with baseline noise. We do not rest anything on it.
+Only estimator (c), which restricts to solver-days whose candidate barely moved
+so that `sd_total ~ sd_noise`, is close to unattenuated and can bound `rho`
+without leaning on that assumption.
 
 **The bound that matters is not zero, it is the break-even.** Pairing does not
 need `rho = 0` to lose; it needs `rho` below the point where the cancelled
@@ -1016,7 +1085,7 @@ candidate only when
 
 | axis | CV(candidate) | CV(baseline) | break-even rho | measured bound |
 |---|---|---|---|---|
-| decode | 0.2939 % | 0.2453 % | **0.417** | \|rho\| <= 0.08 (estimator (c)) |
+| decode | 0.2939 % | 0.2453 % | **0.417** | \|rho\| <= 0.15 (estimator (c), CV < 0.6 % cell) |
 | prefill | 0.1027 % | 1.9451 % | **9.47** | — |
 
 The **prefill conclusion needs no correlation estimate at all**: the break-even
@@ -1026,10 +1095,14 @@ as the raw candidate microseconds. That is an arithmetic impossibility, not a
 statistical inference.
 
 The **decode conclusion is a genuine inference** and rests on estimator (c)
-alone: the unattenuated bound `|rho| <= 0.08` sits comfortably below the 0.417
-break-even, so pairing loses. It is fair to note this is the one claim here that
-could be overturned by better data — it would take `rho` above 0.41, more than
-five times the measured bound, to reverse it.
+alone: its near-unattenuated Fisher bound `|rho| <= 0.15` sits below the 0.417
+break-even, so pairing loses. The honest margin is **about 2.8x** using the more
+inclusive CV < 0.6 % cell, or 4.2x using the tighter CV < 0.5 % cell; we quote
+the former because the tighter cell is more exposed to the truncation bias of
+section 9.4. This is the one claim in section 9 that better data could overturn:
+it would take a true `rho` above 0.417 — roughly three times our bound — to
+reverse it, which is not a comfortable margin so much as a defensible one. The
+prefill conclusion, by contrast, cannot be overturned at all.
 
 The consequence runs opposite to the intuition behind paired designs. With
 rho = 0 the published speedup is *noisier* than the raw candidate number,
@@ -1278,11 +1351,11 @@ Even had the trigger fired, the arm would still have been the right spend, and
 the reason is worth recording because it generalises. The drop rule is a proxy
 for "the channel cannot resolve this arm", and that proxy is only correct for a
 *small* arm. Section 3's resolvability table says a single receipt against the
-n = 5 null mean resolves about **0.8 %** of decode. The arm below is predicted
-to move decode by **~2.5 % under the M4 hypothesis and ~11 % under the
-issue-bound hypothesis** — the two hypotheses are ~4x apart and both sit well
-above that floor. A noisy channel does not forbid a loud experiment; it forbids
-a quiet one.
+n = 5 null mean resolves about **0.89 %** of decode. The arm below is predicted
+to move decode by **~1.6 % under the M4 hypothesis and ~5.6-11 % under the
+issue-bound hypothesis** (section 10.3 derives both) — the two hypotheses are
+2.4-3.5x apart and both sit above that floor. A noisy channel does not forbid a
+loud experiment; it forbids a quiet one.
 
 ### 10.2 Porting the #498 probe: the env-var blocker and the fix
 
@@ -1359,21 +1432,38 @@ be carried across machines with different absolute step times:
 | hypothesis | basis | vs `n = 0` | vs probe-off |
 |---|---|---|---|
 | M5 behaves like M4 (rule 55 transfers) | section 10.4 local anchor: +205 us on an 8151 us step | **~+2.5 %** | **~+1.6 %** |
-| M5 is issue- or latency-bound (rule 55 does **not** transfer) | same ALU at full issue price, i.e. the local anchor divided by rule 55's routed-fma headroom of 16.50 % | **>= +11 %** | **>= +10 %** |
+| M5 is issue- or latency-bound (rule 55 does **not** transfer) | same ALU at PR #498's sub-knee issue price of 22.8 us per `n`, i.e. 24 x 22.8 = 547 us | **~+6 % to +12 %** | **~+5.6 % to +11.1 %** |
 
 The two reference columns differ because section 10.4 measured a real placement
 term: on M4, `n = 0` is 0.88 % faster than probe-off, so the same injected load
 reads +2.51 % against the matched control and +1.62 % against the base. The
 first receipt (C2) can only be read against the null mean, i.e. the probe-off
 column; C0' converts it to the matched-control column. The gap between the two
-hypotheses is 6-7x either way, so the placement term cannot flip the verdict --
-it only sets how precisely the low branch can be quantified.
+hypotheses is 2.4-3.5x either way, so the placement term cannot flip the verdict
+-- it only sets how precisely the low branch can be quantified.
 
-The issue-bound row deserves its inequality. Dividing the local anchor by the
-16.50 % headroom gives 1242 us of full-price ALU on M4. Charged unchanged against
-M5's shorter 4911 us step that is +25 %; halved, to allow for M5 issuing
-arithmetic roughly twice as fast, it is +13 %. **+11 % is the conservative lower
-edge of that range**, and it is the number the read-out below is keyed on.
+The issue-bound row is a band, not a point, and it is worth being explicit about
+how it is built because the first version of this section got it wrong.
+
+The clean way to price "the ALU is not free" is to use a *measured* issue price
+rather than to divide a measured absorbed cost by a headroom ratio. PR #498
+measured both on M4 Pro at the same nominal `routed`/`fma` condition: the
+absorbed slope was 3.8 us per `n` (+/- 1.8) below the knee, while the
+issue-limited price of the same instructions was 22.8 us per `n`. At `n = 24`
+the issue-limited load is therefore 24 x 22.8 = **547 us**. Charged unchanged
+against M5's 4911 us step that is **+11.1 %**; halved, to allow for M5 issuing
+arithmetic roughly twice as fast, it is **+5.6 %**. The band is therefore
+[+5.6 %, +11.1 %] against probe-off, and the read-out below is keyed on its
+lower edge.
+
+(The earlier derivation divided the section 10.4 anchor of 8.54 us per `n` by
+rule 55's 16.50 % headroom ratio to get 1242 us. That mixes regimes: 8.54 us is
+already a *super-knee* absorbed price, and dividing it by a *sub-knee* headroom
+ratio implies 51.8 us per `n`, 2.3x the measured issue price. The number was
+too large and the "+11 % conservative lower edge" quoted from it was, awkwardly,
+outside its own stated [13 %, 25 %] range. The corrected band is smaller, which
+makes the pre-registered separation weaker, not stronger — see the note after
+the read-out rule.)
 
 Read-out rule, fixed before the receipt:
 
@@ -1389,9 +1479,17 @@ Read-out rule, fixed before the receipt:
 - **anything in between** - inconclusive in one receipt; report the interval
   rather than a verdict.
 
-The two hypotheses are more than 4x apart, which is why one receipt is enough to
-separate them even at the 0.8 % single-receipt floor this channel actually has
-(section 3, n = 1 against the n = 5 null mean).
+**How decisive was this design, honestly?** Under the corrected issue-bound band
+the two hypotheses are 2.4-3.5x apart, not 4x, and the low edge (+5.6 %) sits
+only just above the 6 % high trigger. The single-receipt resolution of this
+channel is 0.89 % (section 3: `2.776 * 0.2939 % * sqrt(1 + 1/5)`, n = 1 against
+the n = 5 null mean), so a single receipt separates +1.6 % from +5.6 % only if
+the truth is near one edge or the other; a result at +4 % would have landed in
+the declared inconclusive zone. The design was adequate rather than comfortable.
+As it happened the measured value (section 10.5) is +0.67 % with a 95 % upper
+limit of +1.56 %, which is 3.6x below even the low edge of the corrected band,
+so the verdict is robust — but it is robust because the effect was tiny, not
+because the pre-registered thresholds were far apart.
 
 ### 10.4 Local M4 anchor
 
@@ -1433,6 +1531,21 @@ That is also why C0' was promoted from "run only if C2 lands close to the M4
 prediction" to a likely second receipt: on M4 the placement term is not small
 relative to the effect, and there is no reason to assume it is smaller on M5.
 
+**How stable is this anchor?** Not very, and that is worth saying before it is
+used as a transfer prediction. PR #498 measured the *same* `routed`/`fma` probe
+on the same M4 Pro at levels `n = 0, 2, 4, 8` and fitted **3.8 us per `n`
+(+/- 1.8)**; this sweep, at `n = 0` and `n = 24`, reads **8.54 us per `n`**.
+Those differ by 2.2x and the smaller estimate's own interval does not reach the
+larger. Two mechanisms could explain it and we cannot separate them with the
+data in hand: (i) #498's levels are all at or below its measured knee of `n >= 8`,
+so it may be pricing a partly-absorbed region while `n = 24` is past it, which
+would make the price genuinely superlinear; or (ii) one or both slopes are
+simply noisy two-to-four point fits on a shared host. The consequence is that
+the "M4 hypothesis" band in section 10.3 should be read as an order of
+magnitude, not a calibrated prediction — which is exactly how the pre-registered
+read-out in section 10.3 treats it, and why the decisive test is whether the M5
+result is *near zero* rather than whether it matches a specific M4 number.
+
 ### 10.5 M5 result at n = 24
 
 Receipt `ecd89cac-b21e-4948-b619-5ac106c8fe48`, marker `senpai-r93-probe-routed-fma-24`,
@@ -1456,25 +1569,33 @@ section 10.4 already showed on M4.
 | 95 % CI on delta | [-11.2, +76.6] us = **[-0.23 %, +1.56 %]** |
 | candidate prefill | 187.8604 us/token (**-0.006 %** vs the null mean) |
 
-**The verdict is the low branch, and it is not close.** The pre-registered
-issue-bound floor was >= +10 % against probe-off, i.e. **>= +491 us**. The
-measured effect is +32.7 us. The *upper* end of the 95 % interval, +76.6 us, is
-still 6.4x below that floor. The read-out rule fires unambiguously:
+**The verdict is the low branch, and it is not close.** The corrected
+issue-bound band of section 10.3 is +5.6 % to +11.1 % against probe-off, i.e.
+**+275 us to +547 us**. The measured effect is +32.7 us. The *upper* end of the
+95 % interval, +76.6 us, is still 3.6x below even the **low** edge of that band
+and 7.1x below its high edge. The read-out rule fires unambiguously:
 
 > **M5 absorbs free ALU. Rule 55 transfers to the ranked host. #512 and #513 are
 > not exposed to a regime change, and the ALU-for-bytes trade is live on M5.**
 
-Three details worth stating plainly:
+Four details worth stating plainly:
 
 1. **The injected load is not a token amount.** The ladder sits *inside* the kernel's
    main K loop (`nezukoR93LoopBody`, line 4207), so `n = 24` is 24 x 4 = **96
    fma per K iteration**, not 96 fma per dispatch. M5 swallowed that for an
    effect it cannot distinguish from zero.
 2. **The effect is not individually significant** (t = 2.07 < 2.776). I am not
-   claiming M5 charges +0.67 %; I am claiming it charges far less than +10 %.
-   That is the question the arm was built to answer, and a one-sided bound is
-   all the read-out needed.
-3. **The prefill control behaved.** -0.006 % against the null mean, versus the
+   claiming M5 charges +0.67 %; I am claiming it charges far less than +5.6 %,
+   the low edge of the issue-bound band. That is the question the arm was built
+   to answer, and a one-sided bound is all the read-out needed.
+3. **The M4 hypothesis was transferred as a fraction, not as microseconds.**
+   +205 us on M4's 8151 us step is +2.51 %; carried across as a *fraction* that
+   is +2.5 % of M5's 4911 us step, or +123 us. Carried across as *absolute
+   microseconds* it would be +205 us = +4.2 %, which straddles the 3 % low
+   trigger. The measured +0.67 % is below both conventions, so the choice did
+   not decide the verdict here — but the pre-registration should have said which
+   convention it was using, and it did not.
+4. **The prefill control behaved.** -0.006 % against the null mean, versus the
    0.103 % prefill sigma of section 2.3 — a decode-only injection produced a
    decode-only effect, which is the same internal control that validated Arm B.
 

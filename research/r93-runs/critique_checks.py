@@ -66,41 +66,49 @@ def main():
     print('=' * 78)
     print('   Var(cand) = Var(code) + Var(noise). A sample correlation between')
     print('   candidate and baseline can only see the noise part, so it is')
-    print('   attenuated by  a = sd_noise / sd_total.  An observed |r| <= 0.08')
-    print('   therefore only bounds the true noise correlation by |rho| <= 0.08/a.')
+    print('   attenuated by  a = sd_noise / sd_total.  A measured |r| bounds the')
+    print('   true noise correlation only by |rho| <= r_upper / a, where r_upper')
+    print('   is the Fisher 95 % upper limit, not the point estimate.')
+    print('   sd_noise uses the multiplicative model of section 9.5: the null CV')
+    print('   times the mean decode *of the cell being analysed*.')
 
-    # (a) solver-day de-meaned
     groups = {}
     for r in rows:
         day = (r['ts'] or '')[:10]
         groups.setdefault((r['solver'], day), []).append(r)
-    resid = [x for g in groups.values() if len(g) >= 5
-             for x in [(r['dec'] - st.mean([q['dec'] for q in g])) for r in g]]
-    sd_tot_a = st.pstdev(resid)
-    sd_noise_dec = cv_noise_dec / 100 * st.mean([r['dec'] for r in rows])
-    print()
-    print('   (a) solver-day de-meaned: sd(cand resid) = %.1f us' % sd_tot_a)
-    print('       sd(noise) ~ %.1f us  =>  attenuation a = %.3f' %
-          (sd_noise_dec, sd_noise_dec / sd_tot_a))
-    print('       |r|<=0.08 only implies |rho| <= %.2f  -> UNINFORMATIVE'
-          % min(1.0, 0.08 / (sd_noise_dec / sd_tot_a)))
 
-    # (c) near-replicate groups, cand CV < 0.5 %
-    for thresh in (0.5, 0.6):
-        sub = [g for g in groups.values() if len(g) >= 3 and
-               cv([r['dec'] for r in g]) < thresh]
-        pts = [x for g in sub for x in
-               [(r['dec'] - st.mean([q['dec'] for q in g])) for r in g]]
-        if not pts:
-            continue
-        sd_c = st.pstdev(pts)
-        a = min(1.0, sd_noise_dec / sd_c)
+    def cell(sub, label):
+        if not sub:
+            return
+        dx, dy = [], []
+        for g in sub:
+            md = st.mean([q['dec'] for q in g])
+            mb = st.mean([q['bl_dec'] for q in g])
+            for q in g:
+                dx.append(q['dec'] - md)
+                dy.append(q['bl_dec'] - mb)
+        n = len(dx)
+        sd_c = st.pstdev(dx)
+        mean_dec = st.mean([q['dec'] for g in sub for q in g])
+        sd_noise = cv_noise_dec / 100 * mean_dec
+        a = min(1.0, sd_noise / sd_c)
+        r = st.correlation(dx, dy) if n > 2 else float('nan')
+        z = 0.5 * math.log((1 + r) / (1 - r))
+        hw = 1.96 / math.sqrt(max(n - 3, 1))
+        r_up = math.tanh(z + hw)
         print()
-        print('   (c) near-replicate groups, cand CV < %.1f%%: %d groups, %d pts'
-              % (thresh, len(sub), len(pts)))
-        print('       sd(cand resid) = %.2f us  =>  attenuation a = %.3f'
-              % (sd_c, a))
-        print('       observed r ~ -0.018  =>  |rho| <= %.2f' % (0.08 / a))
+        print('   %s: %d groups, %d pts, mean decode %.0f us' %
+              (label, len(sub), n, mean_dec))
+        print('       sd(cand resid) = %.2f us, sd(noise) = %.2f us'
+              ' =>  attenuation a = %.3f' % (sd_c, sd_noise, a))
+        print('       r = %+.4f, Fisher 95%% upper %+.4f  =>  |rho| <= %.2f'
+              % (r, r_up, min(1.0, abs(r_up) / a)))
+
+    cell([g for g in groups.values() if len(g) >= 5], '(a) solver-day de-meaned')
+    for thresh in (0.5, 0.6):
+        cell([g for g in groups.values() if len(g) >= 3 and
+              cv([r['dec'] for r in g]) < thresh],
+             '(c) near-replicate groups, cand CV < %.1f%%' % thresh)
 
     print()
     print('=' * 78)
