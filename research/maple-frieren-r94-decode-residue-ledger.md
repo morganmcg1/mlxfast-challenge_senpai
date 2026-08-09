@@ -226,7 +226,7 @@ levers are (a) reducing the *bytes* those nine kernels read, (b) attacking the
 
 | candidate | µs/step (nat) | dispatches removable | boundary floor at 1.4064 µs | verdict |
 | --- | ---: | ---: | ---: | --- |
-| `gate_sp_h64` + `gate_sp_h48` | **275.5** | **40** | 56.3 | largest never-attacked fusable item; see Stage 3 |
+| `gate_sp_h64` + `gate_sp_h48` | **275.5** | **40** | 56.3 | largest fusable item — but closed prior art, see Stage 3 |
 | `prefill_router_tournament_…` into `residual_rms_router_…_pf1` | 134.1 | 39 | 54.9 | second choice; same 39-layer cadence, one is a 40 KB read |
 | `rmsbfloat16` (input norms) into QKV | 87.9 | 40 | 56.3 | **closed** — PR #483 measured ≤ 35.0 µs/step actual recovery |
 | 4 small lm-head stages | 89.6 | 4 | 5.6 | serially dependent screening cascade; not independently fusable |
@@ -256,9 +256,176 @@ safetensors and fails the NVFP4 guards at
 different kernel set. But the numbering should be fixed before it propagates
 into another assignment as if it were indexed.
 
-## Stage 3
+## Stage 3 — no fusion is shipped, and the reason closes the pool
 
-See the "Stage 3" section appended below.
+**Verdict: the largest fusable cluster is not an unexplored win. It is
+already-measured prior art with a negative M4 result and a negative ranked-M5
+result, and the one cell that remains genuinely untested is bounded below this
+host's detection floor. Nothing is shipped. The submitted surface of this PR is
+byte-identical to the base commit `d549d31`.**
+
+### 3.1 What Stage 2 nominated
+
+Stage 2 leaves exactly one attackable pool: launch/ramp overhead, 592.9 µs/step,
+7.4 % of the step, 11 labels. Inside it the ranking is unambiguous:
+
+| candidate | nat µs | dispatches removable | status after Stage 3 |
+|---|---:|---:|---|
+| `gate_sp_h64` + `gate_sp_h48` | 275.5 | 40 | **closed — measured twice, both negative** |
+| `prefill_router_tournament` → `residual_rms_router` | 134.1 | 39 | **closed — unsound, and out of file scope** |
+| `rmsbfloat16` → QKV | 87.9 | 41 | **closed — capped ≤ 35.0 µs by #483** |
+| 4 small lm-head stages | 89.6 | 3 | serially dependent cascade |
+| embedding / gather / layer-0 norm | 5.9 | 3 | below any bar |
+
+I built the top candidate, then found the prior art. Reporting both, in that
+order, because the sequence is the finding.
+
+### 3.2 The mechanism I implemented
+
+Grid-concatenation of the standalone `laguna_gate_sp_h{64,48}_v1` gate dispatch
+into `laguna_decode_nvfp4_qkv_h{64,48}_r1_v1_lm1_pw1_se1_sd1`: one kernel,
+`grid = ((heads/8 + rows/2) * 64, 1, 1)`, threadgroup `(64,1,1)`,
+`constexpr uint gate_tiles = heads/8`, body selected by
+`if (tile < gate_tiles) { <gate body> return; } tile -= gate_tiles;`, two
+outputs (`projected`, `gate_values`), 8 inputs, new name suffix `_gsp1` for
+rule 33 and the name-keyed MLX JIT cache. The gate body was emitted through a
+parametrised `lagunaGateSoftplusSource(heads:names:)` whose defaults reproduce
+byte-identical MSL, preserving `V=8`, `BK=256`, the `simd_sum` tree, the
+`float(bfloat(r))` bf16 round-trip and the NaN/Inf softplus branch.
+
+I placed the gate tiles **first** on the reasoning that Metal issues
+threadgroups roughly in index order, so trailing gate tiles would run with 8
+threadgroups resident after the 5,120 QKV tiles retire — an exposed tail with
+near-zero saving — whereas leading tiles enter during the QKV ramp and hide
+behind saturated work.
+
+**Every element of that paragraph, including the prepend reasoning, is a
+re-derivation of `research/nezuko-pr9-dispatch-fusion.md`.** That arm shipped
+`laguna_decode_nvfp4_qkv_gate_h<64|48>_r1_v1[_se1][_sd1]`, described at
+`:31-38` as "one kernel whose grid concatenates the two tile spaces,
+`((rows/2) + heads/8) * 64` threads at threadGroup 64…  the gate owns the
+leading `heads/8` threadgroups **so it is scheduled first**", with "both Metal
+bodies copied verbatim… the only edit is renaming the gate kernel's input
+`input` -> `normalized`". That is my implementation, down to the rename.
+
+### 3.3 The two measurements that close it
+
+**(a) M4, this host class, better instrument than I have.** PR #9's
+`research/sweep_qkv_gate_fuse.sh`, four arms, fresh worker each, 120
+teacher-forced steps, step 0 discarded, GPU timestamps windowed to the steady
+decode span (`nezuko-pr9-dispatch-fusion.md:44-52`):
+
+| arm | cb/step | dispatch/step | wall/step | gpu_busy_union |
+|---|---:|---:|---:|---:|
+| FUSE=1 SPLIT=0 | 45 | 366 | 8.773 ms | 8.487 ms |
+| FUSE=0 SPLIT=0 | 45 | **406** | **8.545 ms** | 8.345 ms |
+
+Fusion is **+228 µs/step (+2.7 %)** at shipped batching on the median and
+**+144 µs (+1.7 %)** on the per-arm minimum, with the arm order *favouring*
+FUSE=1. Under `SPLIT=1` the same change reads **−506 µs/step** — opposite sign.
+Correctness was green in all four arms (`max_abs_diff=0`), so this is a pure
+timing rejection. Full `--local-iterate` was null: 13.604 ms/token for the
+candidate against two identical-code baselines at 13.569 and 13.647, a 0.58 %
+noise floor.
+
+That −506 vs +228 sign flip is the origin of rule 43, and it is worth restating
+in this ledger's own terms: **my Stage-1 attribution of 275.5 µs to `gate_sp` is
+a `SPLIT=1` quantity, and `SPLIT=1` is exactly the regime that mispredicted this
+fusion's sign.** The 1.317 µs/dispatch deflator I derived in Stage 0 converts
+magnitude, not sign.
+
+**(b) Ranked M5, superset of the mechanism.** PR #48 mode 2 (RMSNorm fold +
+gate ride-along, −80 dispatches, 406 → 326) reached the official M5 as receipt
+`285f79fa-089f-4184-b1ec-0647cb51e61b`, commit `3234ece1`, correctness fully
+green (`checked_steps 1344`, `max_abs_diff 0`, GPQA 9/9 both gates), and scored
+`ns 2.540575` against control `c3ce66ec` `2.544360` — **Δ = −0.1488 %, a
+regression** (`RESEARCH_ARCHIVE_through-round-91.md:5900-5945`). It also
+pre-registered the dispatch-count reading (80 × 2.1828 µs ⇒ +2.595 %) against a
++0.44 % alternative at 10.2 σ separation; the M5 came in below both. Reading A
+was refuted outright. The archive's conclusion — "**ease of implementation was
+never the constraint; the mechanism simply is not worth anything**".
+
+Removing 80 dispatches bought −0.1488 %. My arm removes 40.
+
+### 3.4 The residual cell, and why it cannot be adjudicated here
+
+The archive is precise about what is left: "**the one genuinely untested cell**
+is a *dispatch-only* gate merge (no norm fold) at the shipped
+`num_simdgroups=2` geometry with gate tiles scheduled first — PR #48's mode 2
+bundled the norm fold and its `QKV_R1_SIMDGROUPS=16` re-tiling, so the gate fold
+was never isolated **on M5**." It then bounds it: "Expect **sub-0.5 %** … Frame
+it only as a narrow pre-registered discriminator, never as an unexplored win."
+
+Two things follow.
+
+1. **The untested axis is the M5 measurement, not the mechanism.** PR #9 already
+   isolated the dispatch-only merge and measured it on M4. My host is M4 Pro.
+   There is no M4 information left to buy.
+2. **Sub-0.5 % is below this host's floor.** 0.5 % of 8230.3 µs/step is 41 µs.
+   The paired-ABBA `nat` ratio-adjusted busy σ is 10.65 µs/step, ±95 % ≈ ±8.91
+   at n = 8 — but `--local-iterate`, the only instrument I have without the
+   patch-only `DARKBLOOM_GPU_PROFILE` hook, resolves ±50 µs/step at n = 8
+   (`nezuko-attention-merge-epilogue.md:1128-1140`), and its practical decode
+   detection bar is ≈ 80 µs/step. A 41 µs upper bound sits at half the floor.
+   PR #9's own `--local-iterate` null is the empirical demonstration.
+
+So the honest costing of a Stage 3 timing arm on this host is: ~2 h of thermally
+gated wall clock to reproduce a null that PR #9 already published, using a
+strictly worse instrument, against a mechanism with a measured M4 regression and
+a measured M5 regression. **I did not run it.** Spending the allocation would
+have produced a wide null and no verdict, and I would rather report the closure.
+
+### 3.5 What was done with the code
+
+The implementation is complete but **not shipped, and not left in the tree**.
+Reverting is the right call on four counts: it was default-ON
+(`DARKBLOOM_DECODE_QKV_GATE_FUSED != "0"`), which would have put an unmeasured
+kernel on the scored path; its call site was never wired, so it was dead code
+and could not be evidence of anything; it consumed ~4.5 KB of a 104,610 B
+editable headroom for zero value; and the mechanism is closed. The full diff is
+preserved as research-only material at
+`research/r94-artifacts/r94-qkv-gate-grid-concat-NOT-SHIPPED.patch`
+(186 lines, `Sources/MLXFastModel/LagunaRuntimeModel.swift` only) so that a
+future ranked-M5 discriminator slot can regenerate it without redoing the work.
+If it ever is revisited, note that it already satisfies the archive's three
+stated bit-exactness preconditions (`V`/`BK` preserved, byte-identical gate MSL
+via the PR #48 `lagunaGateSoftplusBody` extraction pattern, verbatim bf16
+boundary and softplus round-trip), and that the archive demands a **positive
+reachability trace** because the upstream-equivalence oracle provably cannot
+distinguish the fusion modes.
+
+### 3.6 The pool is closed
+
+With `gate_sp` closed by prior art, the other four entries fall to constraints
+already established:
+
+- **`prefill_router_tournament` → `residual_rms_router` (134.1 µs, 39
+  dispatches)** is *unsound*, not merely unprofitable: the tournament consumes
+  all 256 routed logits, which are produced across 32 sibling threadgroups, and
+  Metal offers no cross-threadgroup barrier. Collapsing to a single threadgroup
+  at `rpg256` would be 3-4× slower. It is also out of scope for this PR — every
+  call site is in `Sources/MLXFastModel/LagunaRuntimeLayers.swift`
+  (`lagunaResidualRMSNormRouter` at `:2353`/`:2450`, routed QMV/top-8 at
+  `:2020-2034`), which is not in this assignment's submitted surface. The same
+  file constraint kills the whole 497.1 µs partly-bytes-bound pool.
+- **`rmsbfloat16` → QKV (87.9 µs, 41 dispatches)** is capped at ≤ 35.0 µs/step
+  by #483, and Stage 1 of this ledger separately disproved the "second pass over
+  the same 2048 floats" premise: 41 + 39 + 1 = 81 = 40×2 + 1 exactly, so there
+  is no duplicate norm to delete.
+- **The four lm-head stages (89.6 µs, 3 removable dispatches)** are a serially
+  dependent cascade — coarse argmax → midpoint threshold → sparse refine — where
+  each stage's grid depends on the previous stage's result. Grid concatenation
+  cannot fuse a dependency chain.
+- **Embedding / gather / layer-0 norm (5.9 µs)** is below any detection bar on
+  any instrument in this campaign.
+
+**Therefore the 592.9 µs launch/ramp pool contains no reachable win, and the
+ledger's terminal conclusion is stronger than "the residue does not exist": the
+decode step has no recoverable dispatch overhead at all.** 76.2 % of it runs at
+90-100 % of M4 Pro peak bandwidth, 10.2 % is latency-bound attention, 6.2 % is
+partly bytes-bound and out of file scope, and the 7.4 % that is overhead is now
+individually closed, label by label. The next decode gain must come from
+**removing bytes or restructuring attention**, not from removing dispatches.
 
 ## Suggested follow-ups (not implemented here)
 
