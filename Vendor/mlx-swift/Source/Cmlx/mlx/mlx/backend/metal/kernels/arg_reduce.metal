@@ -114,17 +114,15 @@ METAL_FUNC IndexValPair<bfloat16_t> argmax_bfloat16_100352(
   for (uint32_t r = 0; r < full_waves; r++) {
     uint32_t offset = r * wave_size + lid * reads;
     const device bfloat16_t* current_in = in + in_idx + offset;
-    vec<bfloat16_t, 4> loaded =
-        *reinterpret_cast<const device vec<bfloat16_t, 4>*>(current_in);
-    bfloat16_t vals[reads] = {loaded.x, loaded.y, loaded.z, loaded.w};
+    bfloat16_t vals[reads] = {
+        current_in[0], current_in[1], current_in[2], current_in[3]};
     best = op.template reduce_many<reads>(best, vals, offset);
   }
   if (lid < 512) {
     uint32_t offset = 98304 + lid * 4;
     const device bfloat16_t* current_in = in + in_idx + offset;
-    vec<bfloat16_t, 4> loaded =
-        *reinterpret_cast<const device vec<bfloat16_t, 4>*>(current_in);
-    bfloat16_t vals[reads] = {loaded.x, loaded.y, loaded.z, loaded.w};
+    bfloat16_t vals[reads] = {
+        current_in[0], current_in[1], current_in[2], current_in[3]};
     best = op.template reduce_many<reads>(best, vals, offset);
   }
   return best;
