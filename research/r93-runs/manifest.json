@@ -1,11 +1,9 @@
 {
   "corpus_bound_dec_pct": 0.2924,
   "corpus_bound_pre_pct": 0.2573,
-  "in_flight": {
-    "ladder-K800": "f8719c48-8df6-4570-abf1-1c9a369c64e0"
-  },
   "ladder": {
-    "99309c61": 240
+    "99309c61": 240,
+    "f8719c48": 800
   },
   "ladder_rungs": [
     60,
@@ -22,6 +20,7 @@
     "ladder-K240": "fpi2ynyl",
     "null-1": "3szqrztf",
     "null-2": "0doaq0w0",
-    "null-3": "fvm3v67i"
+    "null-3": "fvm3v67i",
+    "ladder-K800": "qaempae6"
   }
 }
