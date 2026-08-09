@@ -5669,10 +5669,10 @@ final class LagunaRuntimeAttention: Module {
     var _fusedQKVWeight: MLXArray?
 
     /// Cached `[q_row_stride, q_column_offset, k_row_stride, k_column_offset]`
-    /// descriptor for the prefill QK-norm+RoPE kernels. Derived from the
-    /// module's head geometry and from whether the fused bank exists, so it is
-    /// constant for the life of the module.
-    var _prefillQKLayout: MLXArray?
+    /// descriptors for the prefill QK-norm+RoPE kernels, one per buffer form.
+    /// Both are constant for the life of the module.
+    var _prefillQKLayoutBanked: MLXArray?
+    var _prefillQKLayoutPlain: MLXArray?
 
     /// Terminal-prefill-only BF16 side banks. Q and the per-head gate share
     /// the singleton final normalized row; K and V share every normalized
@@ -5851,18 +5851,26 @@ final class LagunaRuntimeAttention: Module {
     /// start. With the bank, both live in one `[1, L, qDim + 2 * kvDim]` row;
     /// without it they are two separate tightly packed buffers.
     func prefillQKLayout(bank: MLXArray?) -> MLXArray {
-        if let cached = _prefillQKLayout { return cached }
         let queryDim = nHeads * headDim
-        let kvDim = nKVHeads * headDim
-        let width = bank?.dim(2) ?? queryDim
+        // Cached per bank-presence, not once: a layer that produced the bank in
+        // prefill can still reach the same kernel without it, and reusing the
+        // banked column offset against a narrow buffer would read out of range.
+        guard let bank else {
+            if let cached = _prefillQKLayoutPlain { return cached }
+            let layout = lagunaQKLayout(
+                qWidth: queryDim, qOffset: 0,
+                kWidth: nKVHeads * headDim, kOffset: 0,
+                heads: nHeads, kvHeads: nKVHeads)
+            _prefillQKLayoutPlain = layout
+            return layout
+        }
+        if let cached = _prefillQKLayoutBanked { return cached }
+        let width = bank.dim(2)
         let layout = lagunaQKLayout(
-            qWidth: width,
-            qOffset: 0,
-            kWidth: bank == nil ? kvDim : width,
-            kOffset: bank == nil ? 0 : queryDim,
-            heads: nHeads,
-            kvHeads: nKVHeads)
-        _prefillQKLayout = layout
+            qWidth: width, qOffset: 0,
+            kWidth: width, kOffset: queryDim,
+            heads: nHeads, kvHeads: nKVHeads)
+        _prefillQKLayoutBanked = layout
         return layout
     }
 
