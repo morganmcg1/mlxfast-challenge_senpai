@@ -267,6 +267,15 @@ a +27 µs single rep cannot have been used to manufacture a positive by raising
 the threshold above it. Had the correction moved the bar downward I would have
 had to say the preregistration was compromised.
 
+*Second, smaller disclosure, for completeness.* While polling the running job
+for progress I also saw one further single-slot summary line in passing
+(`rep10-pos2-old`, median 8.237 ms). It is one arm of one repetition, not a
+contrast, and it was seen **after** the +32.4 bar was already committed to git
+(`97f5ae1`), so it cannot have influenced the threshold. From that point on I
+polled with `grep -c` on the slot-completion and divergence lines only, so no
+further timing values entered my view before the analyser ran. The audit trail
+is the commit order: bar first, data second.
+
 **Two declared secondary reads, neither a decision variable.**
 
 1. *Proportional scaling.* The M5 effect is 0.4865 % of the M5 steady step. If
