@@ -6306,6 +6306,28 @@ let lagunaSharedSwiGLUQMVHeader: String = {
     """
 }()
 
+private let lagunaBF16SigmoidAtlasKernel = MLXFast.metalKernel(
+    name: "laguna_bf16_sigmoid_atlas_v1",
+    inputNames: [],
+    outputNames: ["atlas"],
+    source: """
+        uint raw = thread_position_in_grid.x;
+        bfloat gate = as_type<bfloat>(ushort(raw));
+        bfloat exp_abs = metal::exp(metal::abs(gate));
+        bfloat denominator = bfloat(1) + exp_abs;
+        bfloat y = bfloat(1) / denominator;
+        atlas[raw] = gate < bfloat(0) ? y : bfloat(1) - y;
+        """
+)
+
+nonisolated(unsafe) let lagunaBF16SigmoidAtlas = lagunaBF16SigmoidAtlasKernel(
+    [],
+    grid: (65_536, 1, 1),
+    threadGroup: (256, 1, 1),
+    outputShapes: [[65_536]],
+    outputDTypes: [.bfloat16]
+)[0]
+
 private let lagunaSharedSwiGLUQMVKernel = MLXFast.metalKernel(
     name: "laguna_shared_nvfp4_swiglu_qmv_bf16_v1",
     inputNames: ["input", "fused_weight", "fused_scales"],
@@ -6389,8 +6411,8 @@ private let lagunaSharedSwiGLUQMVKernel = MLXFast.metalKernel(
 /// One-output-row scheduling twin of `lagunaSharedSwiGLUQMVKernel`.
 /// Arithmetic is textually identical per row; only row ownership changes.
 private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
-    name: "laguna_shared_nvfp4_swiglu_qmv_rows1_bf16_v1",
-    inputNames: ["input", "fused_weight", "fused_scales"],
+    name: "laguna_shared_nvfp4_swiglu_qmv_rows1_bf16_v2",
+    inputNames: ["input", "fused_weight", "fused_scales", "sigmoid_atlas"],
     outputNames: ["activated"],
     source: """
         constexpr uint input_width = 2048;
@@ -6447,10 +6469,7 @@ private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
         if (lane == 0) {
             bfloat gate = bfloat(gate_result\(lagunaNvfp4RowScaleSuffix));
             bfloat up = bfloat(up_result\(lagunaNvfp4RowScaleSuffix));
-            bfloat exp_abs = metal::exp(metal::abs(gate));
-            bfloat denominator = bfloat(1) + exp_abs;
-            bfloat y = bfloat(1) / denominator;
-            bfloat sigmoid = gate < bfloat(0) ? y : bfloat(1) - y;
+            bfloat sigmoid = sigmoid_atlas[uint(as_type<ushort>(gate))];
             bfloat silu = bfloat(gate * sigmoid);
             activated[row] = bfloat(silu * up);
         }
@@ -6462,7 +6481,8 @@ private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
 func lagunaSharedSwiGLUQMV(
     _ input: MLXArray,
     fusedWeight: MLXArray,
-    fusedScales: MLXArray
+    fusedScales: MLXArray,
+    sigmoidAtlas: MLXArray
 ) -> MLXArray {
     precondition(input.dtype == .bfloat16)
     precondition(input.shape == [1, 1, LagunaConstants.hiddenSize])
@@ -6478,14 +6498,20 @@ func lagunaSharedSwiGLUQMV(
             2 * LagunaConstants.sharedExpertIntermediateSize,
             LagunaConstants.hiddenSize / 16,
         ])
+    precondition(sigmoidAtlas.dtype == .bfloat16)
+    precondition(sigmoidAtlas.shape == [65_536])
 
     let kernel =
         lagunaSharedSwiGLUQMVRows1Enabled
         ? lagunaSharedSwiGLUQMVRows1Kernel
         : lagunaSharedSwiGLUQMVKernel
     let tiles = lagunaSharedSwiGLUQMVRows1Enabled ? 256 : 128
+    let inputs =
+        lagunaSharedSwiGLUQMVRows1Enabled
+        ? [input, fusedWeight, fusedScales, sigmoidAtlas]
+        : [input, fusedWeight, fusedScales]
     return kernel(
-        [input, fusedWeight, fusedScales],
+        inputs,
         grid: (tiles * 64, 1, 1),
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.sharedExpertIntermediateSize]],
@@ -6847,8 +6873,10 @@ func lagunaRoutedSwiGLUQMV(
 /// identical dequant/accumulate/SwiGLU chain — only scale address computation
 /// differs.
 private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
-    name: "laguna_routed_nvfp4_swiglu_qmv_packed_indices_r1_bf16_v1",
-    inputNames: ["input", "fused_weight", "packed_scales", "indices"],
+    name: "laguna_routed_nvfp4_swiglu_qmv_packed_indices_r1_bf16_v2",
+    inputNames: [
+        "input", "fused_weight", "packed_scales", "indices", "sigmoid_atlas",
+    ],
     outputNames: ["activated"],
     source: """
         constexpr uint input_width = 2048;
@@ -6922,10 +6950,7 @@ private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
         if (lane == 0) {
             bfloat gate = bfloat(gate_result\(lagunaNvfp4RowScaleSuffix));
             bfloat up = bfloat(up_result\(lagunaNvfp4RowScaleSuffix));
-            bfloat exp_abs = metal::exp(metal::abs(gate));
-            bfloat denominator = bfloat(1) + exp_abs;
-            bfloat y = bfloat(1) / denominator;
-            bfloat sigmoid = gate < bfloat(0) ? y : bfloat(1) - y;
+            bfloat sigmoid = sigmoid_atlas[uint(as_type<ushort>(gate))];
             bfloat silu = bfloat(gate * sigmoid);
             activated[expert_slot * output_width + logical_row] =
                 bfloat(silu * up);
@@ -6939,7 +6964,8 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
     _ input: MLXArray,
     fusedWeight: MLXArray,
     packedScales: MLXArray,
-    indices: MLXArray
+    indices: MLXArray,
+    sigmoidAtlas: MLXArray
 ) -> MLXArray {
     precondition(input.dtype == .bfloat16)
     precondition(input.shape == [1, 1, LagunaConstants.hiddenSize])
@@ -6947,9 +6973,11 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
     precondition(packedScales.dtype == .uint8)
     precondition(indices.dtype == .uint32)
     precondition(indices.shape == [1, 1, LagunaConstants.numExpertsPerTok])
+    precondition(sigmoidAtlas.dtype == .bfloat16)
+    precondition(sigmoidAtlas.shape == [65_536])
 
     return lagunaRoutedSwiGLUQMVPackedTop8Kernel(
-        [input, fusedWeight, packedScales, indices],
+        [input, fusedWeight, packedScales, indices, sigmoidAtlas],
         grid: (LagunaConstants.numExpertsPerTok * 256 * 64, 1, 1),
         threadGroup: (64, 1, 1),
         outputShapes: [[
@@ -7510,6 +7538,7 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
     var _fusedGateUpWeight: MLXArray?
     var _fusedGateUpScales: MLXArray?
     var _fusedGateUpSplit: Int = 0
+    var _sigmoidAtlas: MLXArray?
 
     /// Retained fused BF16 `[gate; up]` bank for the dense (non-quantized)
     /// layer-0 MLP, built once after checkpoint load when
@@ -7602,7 +7631,12 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
         downScales: MLXArray
     )? {
         guard let banks = fusedSharedBankGuard(x) else { return nil }
-        return banks
+        return (
+            gateUpWeight: banks.gateUpWeight,
+            gateUpScales: banks.gateUpScales,
+            downWeight: banks.downWeight,
+            downScales: banks.downScales
+        )
     }
 
     /// `sharedActivation` is the shared expert's gate/up result when the
@@ -7624,7 +7658,8 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
             ?? lagunaSharedSwiGLUQMV(
                 x,
                 fusedWeight: banks.gateUpWeight,
-                fusedScales: banks.gateUpScales
+                fusedScales: banks.gateUpScales,
+                sigmoidAtlas: banks.sigmoidAtlas
             )
         return (activated, banks.downWeight, banks.downScales)
     }
@@ -7635,11 +7670,13 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
         gateUpWeight: MLXArray,
         gateUpScales: MLXArray,
         downWeight: MLXArray,
-        downScales: MLXArray
+        downScales: MLXArray,
+        sigmoidAtlas: MLXArray
     )? {
         guard lagunaFusedSharedSwiGLUQMVEnabled,
             let fusedWeight = _fusedGateUpWeight,
             let fusedScales = _fusedGateUpScales,
+            let sigmoidAtlas = _sigmoidAtlas,
             let down = downProj as? QuantizedLinear,
             type(of: down) == QuantizedLinear.self,
             down.mode == .nvfp4,
@@ -7651,6 +7688,8 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
             x.shape == [1, 1, LagunaConstants.hiddenSize],
             fusedWeight.dtype == .uint32,
             fusedScales.dtype == .uint8,
+            sigmoidAtlas.dtype == .bfloat16,
+            sigmoidAtlas.shape == [65_536],
             _fusedGateUpSplit == LagunaConstants.sharedExpertIntermediateSize,
             down.weight.dtype == .uint32,
             down.weight.shape == [
@@ -7666,7 +7705,7 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
             return nil
         }
 
-        return (fusedWeight, fusedScales, down.weight, down.scales)
+        return (fusedWeight, fusedScales, down.weight, down.scales, sigmoidAtlas)
     }
 
     func fusedSharedDownResidual(
@@ -7750,20 +7789,25 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
         if x.dim(1) == 1,
-            let fusedWeight = _fusedGateUpWeight, let fusedScales = _fusedGateUpScales
+            let fusedWeight = _fusedGateUpWeight,
+            let fusedScales = _fusedGateUpScales,
+            let sigmoidAtlas = _sigmoidAtlas
         {
             if lagunaFusedSharedSwiGLUQMVEnabled,
                 x.dtype == .bfloat16,
                 x.shape == [1, 1, LagunaConstants.hiddenSize],
                 fusedWeight.dtype == .uint32,
                 fusedScales.dtype == .uint8,
+                sigmoidAtlas.dtype == .bfloat16,
+                sigmoidAtlas.shape == [65_536],
                 _fusedGateUpSplit == LagunaConstants.sharedExpertIntermediateSize
             {
                 return downProj(
                     lagunaSharedSwiGLUQMV(
                         x,
                         fusedWeight: fusedWeight,
-                        fusedScales: fusedScales
+                        fusedScales: fusedScales,
+                        sigmoidAtlas: sigmoidAtlas
                     )
                 )
             }
@@ -9211,6 +9255,14 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
     /// `lagunaRoutedSwiGLUQMVPackedTop8Kernel` for the layout contract. Nil
     /// when the flag is set to zero (default ON).
     var _packedRoutedGateUpBank: MLXArray?
+    var _sigmoidAtlas: MLXArray?
+
+    func installSigmoidAtlas(_ sigmoidAtlas: MLXArray) {
+        precondition(sigmoidAtlas.dtype == .bfloat16)
+        precondition(sigmoidAtlas.shape == [65_536])
+        _sigmoidAtlas = sigmoidAtlas
+        sharedExpert._sigmoidAtlas = sigmoidAtlas
+    }
 
     /// Builds and retains the fused routed gate/up NVFP4 banks from the
     /// loaded stock `SwitchGLU` submodules (reached through the public
@@ -9423,7 +9475,8 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 _fusedRoutedGateUpSplit == LagunaConstants.moeIntermediateSize
             {
                 if lagunaPackedScalesEnabled,
-                    let packedBank = _packedRoutedGateUpBank
+                    let packedBank = _packedRoutedGateUpBank,
+                    let sigmoidAtlas = _sigmoidAtlas
                 {
                     lagunaPackedScalesLog.note(
                         "active", "routed swiglu qmv packed dispatch")
@@ -9431,7 +9484,8 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                         x,
                         fusedWeight: fusedWeight,
                         packedScales: packedBank,
-                        indices: inds
+                        indices: inds,
+                        sigmoidAtlas: sigmoidAtlas
                     )
                 } else {
                     if lagunaPackedScalesEnabled {
@@ -10357,7 +10411,9 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
     /// checkpoint parameters are never restructured; every fused layout is a
     /// derived side copy.
     func prepareFusedRuntimeWeights() {
+        let sigmoidAtlas = lagunaBF16SigmoidAtlas
         var fusedArrays = model.prepareRoPEAngleAtlases()
+        fusedArrays.append(sigmoidAtlas)
         for layer in model.layers {
             if lagunaUseNativeAffineQKV(layer: layer.selfAttn.layerIdx) {
                 fusedArrays.append(
@@ -10373,6 +10429,7 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
             fusedArrays.append(
                 contentsOf: layer.selfAttn.prepareLastPrefillProjectionWeights())
             if let sparse = layer.mlp as? LagunaRuntimeSparseMoEBlock {
+                sparse.installSigmoidAtlas(sigmoidAtlas)
                 if lagunaFusedSharedGateUpEnabled {
                     fusedArrays.append(contentsOf: sparse.sharedExpert.prepareFusedSharedGateUp())
                 }

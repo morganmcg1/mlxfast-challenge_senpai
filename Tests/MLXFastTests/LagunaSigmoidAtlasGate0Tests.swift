@@ -1,19 +1,27 @@
 import Foundation
 import MLX
 import MLXFast
+@testable import MLXFastModel
 import Testing
 
-private let gate0AtlasKernel = MLXFast.metalKernel(
-    name: "laguna_gate0_bf16_sigmoid_atlas",
-    inputNames: [],
-    outputNames: ["atlas"],
+private let sigmoidAtlasVerifierKernel = MLXFast.metalKernel(
+    name: "laguna_bf16_sigmoid_atlas_verify_v1",
+    inputNames: ["atlas"],
+    outputNames: ["mismatch", "category"],
     source: """
         uint raw = thread_position_in_grid.x;
         bfloat gate = as_type<bfloat>(ushort(raw));
         bfloat exp_abs = metal::exp(metal::abs(gate));
         bfloat denominator = bfloat(1) + exp_abs;
         bfloat y = bfloat(1) / denominator;
-        atlas[raw] = gate < bfloat(0) ? y : bfloat(1) - y;
+        bfloat expected = gate < bfloat(0) ? y : bfloat(1) - y;
+        uint magnitude = raw & 0x7fffu;
+        uint exponent = raw & 0x7f80u;
+        mismatch[raw] =
+            as_type<ushort>(atlas[raw]) == as_type<ushort>(expected) ? 0u : 1u;
+        category[raw] = magnitude == 0u ? 1u
+            : exponent != 0x7f80u ? 0u
+            : (raw & 0x7fu) == 0u ? 2u : 3u;
         """
 )
 
@@ -98,18 +106,41 @@ private let gate0RoutedAtlasKernel = MLXFast.metalKernel(
 )
 
 @Test
+func bf16SigmoidAtlasMatchesEveryRawPatternWhenRuntimeTestsAreEnabled() {
+    guard ProcessInfo.processInfo.environment["MLXFAST_RUN_MLX_RUNTIME_TESTS"] == "1" else {
+        return
+    }
+
+    let outputs = sigmoidAtlasVerifierKernel(
+        [lagunaBF16SigmoidAtlas],
+        grid: (65_536, 1, 1),
+        threadGroup: (256, 1, 1),
+        outputShapes: [[65_536], [65_536]],
+        outputDTypes: [.uint32, .uint32]
+    )
+    eval(outputs)
+
+    let mismatches = outputs[0].asArray(UInt32.self)
+    let categories = outputs[1].asArray(UInt32.self)
+    var categoryCounts = [UInt32](repeating: 0, count: 4)
+    var mismatchCounts = [UInt32](repeating: 0, count: 4)
+    for raw in 0..<65_536 {
+        let category = Int(categories[raw])
+        categoryCounts[category] += 1
+        mismatchCounts[category] += mismatches[raw]
+    }
+
+    #expect(categoryCounts == [65_278, 2, 2, 254])
+    #expect(mismatchCounts == [0, 0, 0, 0])
+}
+
+@Test
 func bf16SigmoidAtlasGate0BoundWhenRuntimeTestsAreEnabled() {
     guard ProcessInfo.processInfo.environment["MLXFAST_RUN_MLX_RUNTIME_TESTS"] == "1" else {
         return
     }
 
-    let atlas = gate0AtlasKernel(
-        [],
-        grid: (65_536, 1, 1),
-        threadGroup: (256, 1, 1),
-        outputShapes: [[65_536]],
-        outputDTypes: [.bfloat16]
-    )[0]
+    let atlas = lagunaBF16SigmoidAtlas
     eval(atlas)
 
     func outputs(useAtlas: Bool) -> [MLXArray] {
