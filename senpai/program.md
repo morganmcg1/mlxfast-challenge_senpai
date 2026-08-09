@@ -382,6 +382,23 @@ creative synthesis. Give the frontier agent a compact evidence packet rather
 than an entire history, and treat its suggestions as hypotheses to verify
 against the live code and local measurements.
 
+### Weakest sufficient hypotheses
+
+When constructing a causal hypothesis, read Bennett's
+[*The Optimal Choice of Hypothesis Is the Weakest, Not the Shortest*](https://arxiv.org/pdf/2301.12987v4)
+and use its weakest-sufficient-hypothesis idea as a heuristic when several
+explanations fit the same source, profile, or timing evidence.
+
+Here weakness means breadth of extension—not short wording, a small patch, or
+vagueness—so prefer the sufficient explanation that makes the fewest unsupported
+commitments and applies across the largest relevant set of implementations and
+hardware conditions.
+
+This can reveal more transferable mechanisms and follow-up experiments, but
+keep every constraint needed for correctness and falsifiability and validate the
+hypothesis on the live scored path, since the theorem assumes its own formal
+task model and a uniform task distribution.
+
 A research loop for inspiration, feel free to deviate if you can move faster and more creatively in the research space:
 
 1. State the causal question and inherited validity boundary.
