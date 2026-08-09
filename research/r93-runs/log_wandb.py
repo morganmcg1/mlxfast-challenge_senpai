@@ -4,7 +4,7 @@
 Usage:
     python3 research/r93-runs/log_wandb.py <marker> <receipt.json> [source_commit]
 
-`marker` is `null-<n>` or `ladder-K<k>`; the arm and the ladder rung are derived
+`marker` is `null-<n>`, `ladder-K<k>` or `probe-<target>-<kind>-<n>`; the arm is derived
 from it so a mislabelled run is hard to produce.
 """
 import json
@@ -19,6 +19,11 @@ import wandb
 NORM_DECODE = 0.013890
 NORM_PREFILL = 0.0003845
 
+# Arm A reference, section 2.3 of RESULTS.md: mean and sd of the five
+# machine-code-identical null receipts, in microseconds per token.
+NULL_DECODE_US, NULL_DECODE_SD_US, NULL_N = 4910.9253, 14.4308, 5
+NULL_PREFILL_US = 187.8717
+
 
 def num(value):
     try:
@@ -30,16 +35,27 @@ def num(value):
 def parse_marker(marker: str):
     m = re.fullmatch(r"null-(\d+)", marker)
     if m:
-        return "A", 0, int(m.group(1))
+        return "A", 0, int(m.group(1)), {}
     m = re.fullmatch(r"ladder-K(\d+)", marker)
     if m:
-        return "B", int(m.group(1)), None
-    raise SystemExit("marker must be null-<n> or ladder-K<k>, got %r" % marker)
+        return "B", int(m.group(1)), None, {}
+    m = re.fullmatch(r"probe-(qkv|oproj|routed)-(fma|imad|ld8|ld16)-(\d+)", marker)
+    if m:
+        probe = {
+            "probe_spec": "%s:%s:%s" % m.groups(),
+            "probe_target": m.group(1),
+            "probe_kind": m.group(2),
+            "probe_n": int(m.group(3)),
+        }
+        return "C", 0, None, probe
+    raise SystemExit(
+        "marker must be null-<n>, ladder-K<k> or probe-<target>-<kind>-<n>, got %r" % marker
+    )
 
 
 def main():
     marker, path = sys.argv[1], sys.argv[2]
-    arm, extra_dispatches, replicate = parse_marker(marker)
+    arm, extra_dispatches, replicate, probe = parse_marker(marker)
     blob = json.load(open(path))
     blob = blob.get("submission", blob)
     metrics = blob.get("officialMetrics") or blob.get("metrics") or blob
@@ -84,6 +100,20 @@ def main():
         summary["norm_prefill_su"] = NORM_PREFILL / pspt
     if "norm_decode_su" in summary and "norm_prefill_su" in summary:
         summary["ns"] = summary["norm_decode_su"] ** 0.75 * summary["norm_prefill_su"] ** 0.25
+    if probe and dspt:
+        delta = 1e6 * dspt - NULL_DECODE_US
+        # A single new draw against a mean of NULL_N, so the variance carries
+        # both the draw and the reference mean.
+        se = NULL_DECODE_SD_US * (1.0 + 1.0 / NULL_N) ** 0.5
+        summary.update(
+            probe,
+            delta_decode_us_vs_null=delta,
+            delta_decode_pct_vs_null=100.0 * delta / NULL_DECODE_US,
+            delta_decode_t_vs_null=delta / se,
+            delta_prefill_pct_vs_null=100.0 * (1e6 * pspt - NULL_PREFILL_US) / NULL_PREFILL_US,
+        )
+        if probe["probe_n"]:
+            summary["delta_decode_us_per_injected_op"] = delta / probe["probe_n"]
 
     run = wandb.init(
         entity="wandb-applied-ai-team",
@@ -95,8 +125,9 @@ def main():
             "arm": arm,
             "marker": "senpai-r93-%s" % marker,
             "extra_decode_dispatches": extra_dispatches,
-            "empty_threadgroup": 8,
+            "empty_threadgroup": 8 if extra_dispatches else None,
             "replicate": replicate,
+            **probe,
             "assignment": "maple-r93-a-m5-receipt-channel",
             "revision": "r93-a-rev1",
             "student": "maple-tanjiro",

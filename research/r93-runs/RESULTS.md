@@ -1348,7 +1348,8 @@ what I used.
 |---|---|---|
 | C0 | `""` | base; the section 2 nulls already supply it at n = 5 |
 | C2 | `routed:fma:24` | super-knee free-ALU load |
-| C0' | `routed:fma:0` | name- and residency-matched placement control; promoted to a planned second receipt once section 10.4 measured the M4 placement term at 0.88 % |
+| C0' | `routed:fma:0` | name- and residency-matched placement control; promoted after section 10.4, then **superseded by C3 — see section 10.7**, which obtains a placement-free slope without spending this receipt |
+| C3 | `routed:fma:64` | probe maximum; liveness test and placement-free slope against C2 |
 
 Predicted M5 decode deltas against the 4910.9 us null mean of section 2.3. The
 M4 row is not extrapolated from #498 — it is the effect **measured directly on
@@ -1432,7 +1433,113 @@ That is also why C0' was promoted from "run only if C2 lands close to the M4
 prediction" to a likely second receipt: on M4 the placement term is not small
 relative to the effect, and there is no reason to assume it is smaller on M5.
 
-### 10.5 M5 result
+### 10.5 M5 result at n = 24
 
-*(pending)*
+Receipt `ecd89cac-b21e-4948-b619-5ac106c8fe48`, marker `senpai-r93-probe-routed-fma-24`,
+spec `routed:fma:24`, W&B [`59o0mk6y`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/59o0mk6y),
+official timestamp 2026-08-09T06:24:07Z.
+
+**Gates first, because a correctness failure here would mean a broken instrument
+rather than a fact about M5.** `passed_correctness = true`, `max_abs_diff = 0`
+over `checked_steps = 1344` in 11 cases, `error = ""`, both speedup floors
+passed, `gpqa_ttft_passed` 9/9, `semantic_gpqa_passed` 9/9. The probe is
+bit-exact on the ranked host, as rule 45's sink-store argument requires and as
+section 10.4 already showed on M4.
+
+| quantity | value |
+|---|---|
+| candidate decode | **4943.6468 us/token** |
+| section 2.3 null mean (n = 5) | 4910.9253 us/token |
+| **delta** | **+32.72 us = +0.6663 %** |
+| se of one draw against a mean of 5, `sd*sqrt(1+1/5)` | 15.81 us |
+| t, df = 4 | 2.07 (two-sided crit 2.776) |
+| 95 % CI on delta | [-11.2, +76.6] us = **[-0.23 %, +1.56 %]** |
+| candidate prefill | 187.8604 us/token (**-0.006 %** vs the null mean) |
+
+**The verdict is the low branch, and it is not close.** The pre-registered
+issue-bound floor was >= +10 % against probe-off, i.e. **>= +491 us**. The
+measured effect is +32.7 us. The *upper* end of the 95 % interval, +76.6 us, is
+still 6.4x below that floor. The read-out rule fires unambiguously:
+
+> **M5 absorbs free ALU. Rule 55 transfers to the ranked host. #512 and #513 are
+> not exposed to a regime change, and the ALU-for-bytes trade is live on M5.**
+
+Three details worth stating plainly:
+
+1. **The injected load is not a token amount.** The ladder sits *inside* the kernel's
+   main K loop (`nezukoR93LoopBody`, line 4207), so `n = 24` is 24 x 4 = **96
+   fma per K iteration**, not 96 fma per dispatch. M5 swallowed that for an
+   effect it cannot distinguish from zero.
+2. **The effect is not individually significant** (t = 2.07 < 2.776). I am not
+   claiming M5 charges +0.67 %; I am claiming it charges far less than +10 %.
+   That is the question the arm was built to answer, and a one-sided bound is
+   all the read-out needed.
+3. **The prefill control behaved.** -0.006 % against the null mean, versus the
+   0.103 % prefill sigma of section 2.3 — a decode-only injection produced a
+   decode-only effect, which is the same internal control that validated Arm B.
+
+**M5 absorbs more than M4 does, not less.** Per injected fma the M4 anchor is
+8.54 us (section 10.4) against 1.36 us here — and M4 is the machine at 92.2 % of
+sequential-read peak while the advisor's figure for M5 is ~63 %. A machine with
+*more* spare bandwidth absorbing free arithmetic *better* is the wrong way round
+for a pure bandwidth story. The consistent reading is that the M5 decode step is
+**latency-bound** rather than throughput-bound: dependent-load latency, not
+bandwidth or ALU issue, sets the step time, and free arithmetic hides in the
+same stalls. That distinction matters for how #512 and #513 should be read, and
+section 10.6 states it as a caveat rather than a result, because this arm was
+not designed to measure it.
+
+### 10.6 What this does and does not license
+
+**Licensed.** Spending ALU to avoid DRAM traffic is not charged on M5 at the
+scale these experiments contemplate. #512's top-8 router screen and #513's
+layer-0 block-exponent compaction both trade arithmetic for bytes; neither is
+exposed to the regime change this arm was built to detect.
+
+**Not licensed.** This arm shows that *adding* arithmetic is nearly free. It
+says nothing about whether *removing* bytes pays back proportionally. If the
+decode step is latency-bound rather than bandwidth-bound, byte reductions that
+do not also shorten the dependent-load chain may return less than their
+byte-count suggests. That is exactly the asymmetry section 8.0 found on the
+dispatch axis, where addition cost 2.34 us/dispatch but rule 53 showed removal
+recovering approximately nothing. **The symmetric mistake would be to read this
+receipt as a prediction that #512 and #513 will win.** It is a statement that
+they will not *lose* on the ALU they spend.
+
+**The open question this arm leaves.** One receipt at one load cannot separate
+"M5 absorbs free ALU" from "the probe did not execute on M5", because both
+predict a near-zero delta. Two things bear on it. The argument: `routed` is
+injected at a single runtime-built kernel site (lines 7977-8112) with no
+architecture-conditional variant, so M5 compiles the same source M4 does; the
+`_nax` selection AGENTS.md warns about applies to MLX's built-in prefill
+kernels, not to this custom decode gather-GEMM. The evidence: section 10.7.
+
+### 10.7 Liveness and slope at n = 64 (pre-registered before submission)
+
+Written before the receipt was requested, for the same reason section 10.3 was.
+
+The n = 24 result is a bound, not a measurement, and it shares its signature
+with a dead instrument. `routed:fma:64` — the probe's maximum, 2.67x the load —
+resolves both:
+
+| outcome at n = 64 | reading |
+|---|---|
+| **~+1.8 %** (+87 us, 5.5 null sd) | probe live and scaling linearly; the n = 24 bound is real and the M5 per-fma price is ~1.4 us |
+| **~+6.7 %** | M5 charges at the M4 per-fma price after all; the n = 24 point was a low draw |
+| **~0 %** | probe inert on M5; section 10.5 must be withdrawn |
+
+This is a strictly better use of the slot than the C0' placement control, and it
+replaces it:
+
+- C0' cannot detect a dead probe — `n = 0` and `n = 24` read identically under
+  both "absorbed" and "inert".
+- **n = 24 and n = 64 carry the identical pipeline object and the identical
+  128 MiB pool binding, so the slope between them is placement-free by
+  construction.** That is precisely what C0' was for, obtained without spending
+  a receipt on it.
+- The n = 64 point is predicted at 5.5 null sd, comfortably above the 0.8 %
+  single-receipt floor, whereas C0's expected ~0.9 % placement term sits *at*
+  that floor and would have been unmeasurable in one receipt anyway.
+
+Arm C therefore spends 2 of its 6 permitted receipts, not 3.
 
