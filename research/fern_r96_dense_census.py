@@ -159,78 +159,88 @@ def roundtrip(u: np.ndarray, block: int, d: int, m: int, zero_code: bool, stride
     return recon, stats
 
 
+def census_tensor(u: np.ndarray, strided: bool, pooled_hist: dict | None) -> dict:
+    exp, mant, sign = fields(u)
+    is_zero = (u & 0x7FFF) == 0
+    subnormal = (exp == 0) & (mant != 0)
+    infnan = exp == 255
+    live = ~is_zero & (exp != 0)
+    or_mant = int(np.bitwise_or.reduce(mant[live]))
+    tz = 7 if or_mant == 0 else int((or_mant & -or_mant).bit_length() - 1)
+    cnt16 = np.bincount(u.ravel(), minlength=65536)
+    p = cnt16[cnt16 > 0] / u.size
+    expc = np.bincount(exp[live].ravel().astype(np.int64), minlength=256)
+    pe = expc[expc > 0] / expc.sum()
+    rec = dict(
+        shape=list(u.shape),
+        n=int(u.size),
+        zeros=int(is_zero.sum()),
+        subnormals=int(subnormal.sum()),
+        infnan=int(infnan.sum()),
+        distinct16=int((cnt16 > 0).sum()),
+        entropy16_bits=round(float(-(p * np.log2(p)).sum()), 4),
+        exp_entropy_bits=round(float(-(pe * np.log2(pe)).sum()), 4),
+        exp_distinct=int((expc > 0).sum()),
+        exp_span_global=int(exp[live].max() - exp[live].min()),
+        trailing_zero_mantissa_bits=tz,
+        spans={},
+    )
+    for block in (32, 64, 128, u.shape[1]):
+        span, has, bpr = block_spans(exp, live, block)
+        hist = np.bincount(np.clip(span.ravel(), 0, 255), minlength=256)
+        rec["spans"][str(block)] = dict(
+            blocks=int(span.size),
+            blocks_per_row=int(bpr),
+            hist=[int(x) for x in hist[:33]],
+            hist_full=[int(x) for x in hist],
+            over32=int(hist[33:].sum()),
+            max=int(span.max()),
+            mean=round(float(span.mean()), 3),
+            subnormal_blocks=int(subnormal.reshape(u.shape[0], bpr, block).any(axis=2).sum()),
+        )
+        key = str(block)
+        if pooled_hist is not None:
+            pooled_hist.setdefault(key, np.zeros(256, dtype=np.int64))
+            pooled_hist[key] += hist
+        # D3: per-row escaped-block count distribution, for each d
+        for d in (2, 3, 4, 5, 6):
+            usable = (1 << d) - 1 - (1 if int(is_zero.sum()) > 0 else 0)
+            esc = (span > usable) | subnormal.reshape(u.shape[0], bpr, block).any(axis=2)
+            per_row = esc.sum(axis=1)
+            rec["spans"][key][f"esc_d{d}"] = dict(
+                blocks=int(esc.sum()),
+                frac=round(float(esc.mean()), 6),
+                line_bytes=escape_line_bytes(esc, block, strided),
+                rows_with_esc=int((per_row > 0).sum()),
+                rows=int(esc.shape[0]),
+                row_p50=int(np.percentile(per_row, 50)),
+                row_p90=int(np.percentile(per_row, 90)),
+                row_p99=int(np.percentile(per_row, 99)),
+                row_max=int(per_row.max()),
+            )
+    return rec
+
+
 def main() -> int:
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     weights = Path(args[0]) if args else Path("weights")
     use_wandb = "--wandb" in sys.argv
     axis0 = "--axis0" in sys.argv
-    tag = "axis0" if axis0 else "axis1"
+    mixed = "--mixed" in sys.argv
+    tag = "mixed" if mixed else ("axis0" if axis0 else "axis1")
 
     per_tensor = {}
+    alt_tensor = {}
     pooled_hist = {}
     for name in TENSORS:
-        u = load_bf16(weights, name)
-        if axis0:
-            u = np.ascontiguousarray(u.T)
-        exp, mant, sign = fields(u)
-        is_zero = (u & 0x7FFF) == 0
-        subnormal = (exp == 0) & (mant != 0)
-        infnan = exp == 255
-        live = ~is_zero & (exp != 0)
-        or_mant = int(np.bitwise_or.reduce(mant[live]))
-        tz = 7 if or_mant == 0 else int((or_mant & -or_mant).bit_length() - 1)
-        cnt16 = np.bincount(u.ravel(), minlength=65536)
-        p = cnt16[cnt16 > 0] / u.size
-        expc = np.bincount(exp[live].ravel().astype(np.int64), minlength=256)
-        pe = expc[expc > 0] / expc.sum()
-        rec = dict(
-            shape=list(u.shape),
-            n=int(u.size),
-            zeros=int(is_zero.sum()),
-            subnormals=int(subnormal.sum()),
-            infnan=int(infnan.sum()),
-            distinct16=int((cnt16 > 0).sum()),
-            entropy16_bits=round(float(-(p * np.log2(p)).sum()), 4),
-            exp_entropy_bits=round(float(-(pe * np.log2(pe)).sum()), 4),
-            exp_distinct=int((expc > 0).sum()),
-            exp_span_global=int(exp[live].max() - exp[live].min()),
-            trailing_zero_mantissa_bits=tz,
-            spans={},
-        )
-        for block in (32, 64, 128, u.shape[1]):
-            span, has, bpr = block_spans(exp, live, block)
-            hist = np.bincount(np.clip(span.ravel(), 0, 255), minlength=256)
-            rec["spans"][str(block)] = dict(
-                blocks=int(span.size),
-                blocks_per_row=int(bpr),
-                hist=[int(x) for x in hist[:33]],
-                hist_full=[int(x) for x in hist],
-                over32=int(hist[33:].sum()),
-                max=int(span.max()),
-                mean=round(float(span.mean()), 3),
-                subnormal_blocks=int(subnormal.reshape(u.shape[0], bpr, block).any(axis=2).sum()),
-            )
-            key = str(block)
-            pooled_hist.setdefault(key, np.zeros(256, dtype=np.int64))
-            pooled_hist[key] += hist
-            # D3: per-row escaped-block count distribution, for each d
-            for d in (2, 3, 4, 5, 6):
-                usable = (1 << d) - 1 - (1 if int(is_zero.sum()) > 0 else 0)
-                esc = (span > usable) | subnormal.reshape(u.shape[0], bpr, block).any(axis=2)
-                per_row = esc.sum(axis=1)
-                rec["spans"][key][f"esc_d{d}"] = dict(
-                    blocks=int(esc.sum()),
-                    frac=round(float(esc.mean()), 6),
-                    line_bytes=escape_line_bytes(esc, block, axis0),
-                    rows_with_esc=int((per_row > 0).sum()),
-                    rows=int(esc.shape[0]),
-                    row_p50=int(np.percentile(per_row, 50)),
-                    row_p90=int(np.percentile(per_row, 90)),
-                    row_p99=int(np.percentile(per_row, 99)),
-                    row_max=int(per_row.max()),
-                )
-        per_tensor[name] = rec
-        del u, exp, mant, sign
+        raw = load_bf16(weights, name)
+        u = np.ascontiguousarray(raw.T) if axis0 else raw
+        per_tensor[name] = census_tensor(u, axis0, pooled_hist)
+        if mixed:
+            v = raw if axis0 else np.ascontiguousarray(raw.T)
+            alt_tensor[name] = census_tensor(v, not axis0, None)
+            del v
+        del raw, u
 
     # D2 net-bytes grid
     any_zero = any(per_tensor[n]["zeros"] > 0 for n in TENSORS)
@@ -347,29 +357,36 @@ def main() -> int:
     print("=" * 100)
     pick = {}
     for name in TENSORS:
-        t = per_tensor[name]
+        variants = [(per_tensor[name], axis0)]
+        if mixed:
+            variants.append((alt_tensor[name], not axis0))
         opts = []
-        for block_key in ("32", "64", "128", "row"):
-            bk = str(t["shape"][1]) if block_key == "row" else block_key
-            s = t["spans"][bk]
-            b, n, nb = int(bk), t["n"], s["blocks"]
-            for d in (2, 3, 4, 5, 6):
-                e = s[f"esc_d{d}"]
-                for m in sorted({7, 7 - min_tz}):
-                    if m < 1 or not (m == 7 or min_tz >= 7 - m):
-                        continue
-                    p_bits = 1 + d + m
-                    core = n * p_bits // 8 + nb
-                    for design, net in (("l", core + e["line_bytes"]),
-                                        ("b", core + e["rows_with_esc"] * t["shape"][1] * esc_unit)):
-                        opts.append(dict(block=block_key, B=b, d=d, m=m, bits=p_bits, design=design,
-                                         net=int(net), saved=int(n * 2 - net),
-                                         esc_blocks=int(e["blocks"]), esc_frac=round(e["blocks"] / nb, 6)))
+        for t, t_axis0 in variants:
+            row_unit = 64 if t_axis0 else 2
+            for block_key in ("32", "64", "128", "row"):
+                bk = str(t["shape"][1]) if block_key == "row" else block_key
+                s = t["spans"][bk]
+                b, n, nb = int(bk), t["n"], s["blocks"]
+                for d in (2, 3, 4, 5, 6):
+                    e = s[f"esc_d{d}"]
+                    for m in sorted({7, 7 - min_tz}):
+                        if m < 1 or not (m == 7 or min_tz >= 7 - m):
+                            continue
+                        p_bits = 1 + d + m
+                        core = n * p_bits // 8 + nb
+                        for design, net in (("l", core + e["line_bytes"]),
+                                            ("b", core + e["rows_with_esc"] * t["shape"][1] * row_unit)):
+                            opts.append(dict(block=block_key, B=b, d=d, m=m, bits=p_bits, design=design,
+                                             axis0=bool(t_axis0), shape=list(t["shape"]),
+                                             net=int(net), saved=int(n * 2 - net),
+                                             esc_blocks=int(e["blocks"]),
+                                             esc_frac=round(e["blocks"] / nb, 6)))
         opts.sort(key=lambda o: -o["saved"])
         pick[name] = opts[0]
         print(f"\n{name}:")
         for o in opts[:6]:
-            print(f"   B={o['block']:>4} d={o['d']} m={o['m']} bits={o['bits']:2d} design={o['design']} "
+            print(f"   axis={'output' if o['axis0'] else 'reduction'} shape={o['shape']} "
+                  f"B={o['block']:>4} d={o['d']} m={o['m']} bits={o['bits']:2d} design={o['design']} "
                   f"esc={o['esc_frac']*100:8.4f}%  net={o['net']:9d}  saved={o['saved']/1e6:7.3f} MB")
     e2_net = sum(pick[n]["net"] for n in TENSORS)
     e2_saved = BASE_BYTES - e2_net
@@ -387,11 +404,11 @@ def main() -> int:
     rt = {}
     for name in TENSORS:
         u = load_bf16(weights, name)
-        if axis0:
-            u = np.ascontiguousarray(u.T)
         p = pick[name]
+        if p["axis0"]:
+            u = np.ascontiguousarray(u.T)
         block = u.shape[1] if p["block"] == "row" else int(p["block"])
-        recon, st = roundtrip(u, block, p["d"], p["m"], any_zero, strided=axis0)
+        recon, st = roundtrip(u, block, p["d"], p["m"], any_zero, strided=p["axis0"])
         bad = int((recon != u).sum())
         mismatch_total += bad
         h0 = hashlib.sha256(np.ascontiguousarray(u, dtype="<u2").tobytes()).hexdigest()
@@ -399,7 +416,8 @@ def main() -> int:
         measured = st["plane_bytes_line"] if p["design"] == "l" else st["plane_bytes_row"]
         rt[name] = dict(mismatched=bad, sha_orig=h0, sha_recon=h1, hash_equal=h0 == h1,
                         picked=p, measured_bytes=measured, **st)
-        print(f"  {name}: B={p['block']} d={p['d']} m={p['m']} design={p['design']}  mismatched={bad}  "
+        print(f"  {name}: axis={'output' if p['axis0'] else 'reduction'} B={p['block']} d={p['d']} "
+              f"m={p['m']} design={p['design']}  mismatched={bad}  "
               f"hash_equal={h0 == h1}  measured_bytes={measured}  (analytic {p['net']})  "
               f"escaped_blocks={st['escaped_blocks']}/{st['total_blocks']}")
         del u, recon
@@ -410,9 +428,10 @@ def main() -> int:
           f"= {(BASE_BYTES - measured_net)/1e6*BYTE_PRICE_PCT_PER_MB:.4f}% score")
 
     out = dict(
-        base_axis="output" if axis0 else "reduction", tag=tag,
+        base_axis="output" if axis0 else "reduction", tag=tag, mixed=mixed,
         base_bytes=BASE_BYTES, any_zero=any_zero, min_trailing_zero_mantissa=min_tz,
-        per_tensor=per_tensor, grid=grid, best=dict(best, design=best_design),
+        per_tensor=per_tensor, alt_tensor=alt_tensor, grid=grid,
+        best=dict(best, design=best_design),
         bar_pass=bool(bar_pass), per_tensor_pick=pick,
         e2_net_bytes=int(e2_net), e2_saved_bytes=int(e2_saved), e2_bar_pass=bool(e2_bar),
         roundtrip=rt, measured_net_bytes=int(measured_net),
@@ -432,6 +451,7 @@ def main() -> int:
                          config=dict(assignment="maple-r96-c-bf16-lossless-compaction",
                                      revision="r96-c-rev1", stage=1,
                                      base_axis="output" if axis0 else "reduction",
+                                     mixed_axis=mixed,
                                      base_sha="43036cd39dd3c795b117b099f0fe52767fbedbca",
                                      prereg_sha="4aaed2e", host="M4 Pro"))
         run.log({
@@ -444,12 +464,16 @@ def main() -> int:
             "stage1_predicted_us_per_step_M4": float((BASE_BYTES - measured_net) / M4_BYTES_PER_S * 1e6),
             "roundtrip_mismatched_weights": int(mismatch_total),
             "stage1_bar_pass": int(e2_bar),
+            "stage1_e2_net_bytes": int(e2_net),
+            "stage1_e2_saved_bytes": int(e2_saved),
             "stage1_global_bar_pass": int(bar_pass),
             "stage1_global_saved_bytes": int(BASE_BYTES - best[f"net_{best_design}"]),
             "stage1_global_block": best["block"], "stage1_global_delta_bits": best["d"],
             "stage1_global_mantissa_bits": best["m"], "stage1_global_escape_design": best_design,
             **{f"stage1_pick_{n.split('.')[-2]}_{k}": pick[n][k]
                for n in TENSORS for k in ("block", "d", "m", "design", "saved")},
+            **{f"stage1_pick_{n.split('.')[-2]}_axis":
+               "output" if pick[n]["axis0"] else "reduction" for n in TENSORS},
         })
         art = wandb.Artifact(f"fern_r96_dense_census_{tag}", type="census")
         art.add_file(str(dest))
