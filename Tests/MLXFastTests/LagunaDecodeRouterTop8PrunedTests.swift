@@ -27,12 +27,32 @@ struct LagunaDecodeRouterTop8PrunedTests {
     }
 
     @Test
+    func zeroOneTopologyIsExhaustiveForLeafAndMerge() {
+        for mask in 0..<256 {
+            var values = (0..<8).map { (mask >> $0) & 1 }
+            sortEightBits(&values)
+            #expect(values == values.sorted())
+        }
+
+        for leftZeros in 0...8 {
+            for rightZeros in 0...8 {
+                let left = Array(repeating: 0, count: leftZeros)
+                    + Array(repeating: 1, count: 8 - leftZeros)
+                let right = Array(repeating: 0, count: rightZeros)
+                    + Array(repeating: 1, count: 8 - rightZeros)
+                let expected = Array((left + right).sorted().prefix(8))
+                #expect(mergeTopEightBits(left, right) == expected)
+            }
+        }
+    }
+
+    @Test
     func hierarchicalMergeMatchesFullSortWithTies() {
-        let items = (0..<256).map {
-            RankedItem(
-                key: UInt32(($0 * 73 + ($0 / 8) * 19) % 23),
-                index: UInt32($0)
-            )
+        var items: [RankedItem] = []
+        items.reserveCapacity(256)
+        for index in 0..<256 {
+            let key = UInt32((index * 73 + (index / 8) * 19) % 23)
+            items.append(RankedItem(key: key, index: UInt32(index)))
         }
         var level = stride(from: 0, to: items.count, by: 8).map {
             Array(items[$0..<($0 + 8)]).sorted(by: rankedBefore)
@@ -44,8 +64,10 @@ struct LagunaDecodeRouterTop8PrunedTests {
             }
         }
 
-        #expect(level[0] == Array(items.sorted(by: rankedBefore).prefix(8)))
-        #expect(32 * 24 + 16 * 20 + 8 * 20 + (4 + 2 + 1) * 20 == 1_388)
+        let expected = Array(items.sorted(by: rankedBefore).prefix(8))
+        let comparatorCount = 32 * 24 + 31 * 20
+        #expect(level[0] == expected)
+        #expect(comparatorCount == 1_388)
     }
 
     @Test
@@ -82,6 +104,15 @@ struct LagunaDecodeRouterTop8PrunedTests {
                     )
 
                     if !checkedCorruptionControls {
+                        var droppedWinner = candidateResult
+                        droppedWinner.indices[0] = droppedWinner.indices[1]
+                        #expect(!resultsMatch(acceptedResult, droppedWinner))
+
+                        var swappedRanks = candidateResult
+                        swappedRanks.indices.swapAt(0, 1)
+                        swappedRanks.scoreBits.swapAt(0, 1)
+                        #expect(!resultsMatch(acceptedResult, swappedRanks))
+
                         var corruptedIndex = candidateResult
                         corruptedIndex.indices[0] ^= 1
                         #expect(!resultsMatch(acceptedResult, corruptedIndex))
@@ -115,6 +146,40 @@ private struct RouterResult {
     var scoreBits: [UInt32]
 }
 
+private func sortEightBits(_ values: inout [Int]) {
+    for sequence in [2, 4, 8] {
+        var stride = sequence / 2
+        while stride > 0 {
+            let prior = values
+            for lane in 0..<8 {
+                let other = prior[lane ^ stride]
+                let isLower = lane & stride == 0
+                let lowerWantsBetter = lane & sequence == 0
+                let wantBetter = lowerWantsBetter == isLower
+                if wantBetter ? other < prior[lane] : other > prior[lane] {
+                    values[lane] = other
+                }
+            }
+            stride /= 2
+        }
+    }
+}
+
+private func mergeTopEightBits(_ left: [Int], _ right: [Int]) -> [Int] {
+    var winners = (0..<8).map { min(left[$0], right[7 - $0]) }
+    for stride in [4, 2, 1] {
+        let prior = winners
+        for lane in 0..<8 {
+            let other = prior[lane ^ stride]
+            let isLower = lane & stride == 0
+            if isLower ? other < prior[lane] : other > prior[lane] {
+                winners[lane] = other
+            }
+        }
+    }
+    return winners
+}
+
 private func rankedBefore(_ lhs: RankedItem, _ rhs: RankedItem) -> Bool {
     lhs.key < rhs.key || (lhs.key == rhs.key && lhs.index < rhs.index)
 }
@@ -141,26 +206,36 @@ private func mergeTopEight(_ left: [RankedItem], _ right: [RankedItem]) -> [Rank
 }
 
 private func routerCases() -> [RouterCase] {
+    var pseudorandomLogits: [Float] = []
+    var pseudorandomBias: [Float] = []
+    var tiedLogits: [Float] = []
+    var tiedBias: [Float] = []
+    var distributedLogits: [Float] = []
+    var specialLogits: [Float] = []
+    var specialBias: [Float] = []
+    for index in 0..<256 {
+        let randomLogit = ((index * 73 + index * index * 17) % 401) - 200
+        let randomBias = ((index * 43 + 11) % 97) - 48
+        pseudorandomLogits.append(Float(randomLogit) / 17.0)
+        pseudorandomBias.append(Float(randomBias) / 37.0)
+        tiedLogits.append(Float((index % 7) - 3) / 2.0)
+        tiedBias.append(Float(((index / 8) % 5) - 2) / 4.0)
+        distributedLogits.append(-8.0 + Float(index % 13) / 100.0)
+        specialLogits.append(Float((index % 19) - 9) / 4.0)
+        specialBias.append(Float((index % 11) - 5) / 8.0)
+    }
+
     let pseudorandom = RouterCase(
         name: "pseudorandom",
-        logits: (0..<256).map {
-            Float((($0 * 73 + $0 * $0 * 17) % 401) - 200) / 17
-        },
-        bias: (0..<256).map {
-            Float((($0 * 43 + 11) % 97) - 48) / 37
-        }
+        logits: pseudorandomLogits,
+        bias: pseudorandomBias
     )
-    let tied = RouterCase(
-        name: "tie-heavy",
-        logits: (0..<256).map { Float(($0 % 7) - 3) / 2 },
-        bias: (0..<256).map { Float((($0 / 8) % 5) - 2) / 4 }
-    )
+    let tied = RouterCase(name: "tie-heavy", logits: tiedLogits, bias: tiedBias)
 
-    var distributedLogits = (0..<256).map { -8 + Float($0 % 13) / 100 }
     var distributedBias = Array(repeating: Float(-3), count: 256)
     for (rank, index) in [3, 36, 69, 102, 135, 168, 201, 234].enumerated() {
-        distributedLogits[index] = 2 - Float(rank) / 10
-        distributedBias[index] = 3
+        distributedLogits[index] = 2.0 - Float(rank) / 10.0
+        distributedBias[index] = 3.0
     }
     let distributed = RouterCase(
         name: "all-simdgroups",
@@ -168,20 +243,20 @@ private func routerCases() -> [RouterCase] {
         bias: distributedBias
     )
 
-    var specialLogits = (0..<256).map { Float(($0 % 19) - 9) / 4 }
-    var specialBias = (0..<256).map { Float(($0 % 11) - 5) / 8 }
     specialLogits[0] = .infinity
     specialLogits[1] = -.infinity
-    specialLogits[2] = 0
+    specialLogits[2] = 0.0
     specialLogits[3] = -0.0
-    specialLogits[4] = .nan
-    specialLogits[5] = 8
-    specialLogits[6] = -8
-    specialBias[2] = 10
-    specialBias[3] = 10
-    specialBias[7] = .nan
+    specialLogits[4] = Float(bitPattern: 0x7FC0_0001)
+    specialLogits[5] = Float(bitPattern: 0xFFC1_2345)
+    specialLogits[6] = 8.0
+    specialLogits[7] = -8.0
+    specialBias[2] = 10.0
+    specialBias[3] = 10.0
+    specialBias[8] = Float(bitPattern: 0x7FC0_1111)
+    specialBias[9] = Float(bitPattern: 0xFFC0_2222)
     let special = RouterCase(
-        name: "nan-infinity-signed-zero",
+        name: "nan-payload-infinity-signed-zero",
         logits: specialLogits,
         bias: specialBias
     )
