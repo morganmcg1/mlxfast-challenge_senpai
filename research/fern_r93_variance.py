@@ -157,6 +157,8 @@ def main() -> int:
                     help="keep only steps at this glue depth")
     ap.add_argument("--trim", type=float, default=0.0,
                     help="two-sided trim fraction applied inside each run")
+    ap.add_argument("--label-contains", default=None,
+                    help="keep only processes whose label contains this")
     ap.add_argument("--bootstrap", type=int, default=1000)
     ap.add_argument("--seed", type=int, default=93)
     ap.add_argument("--json-out", default=None)
@@ -169,6 +171,8 @@ def main() -> int:
     for path in sorted(args.files):
         with open(path) as fh:
             doc = json.load(fh)
+        if args.label_contains and args.label_contains not in (doc.get("label") or ""):
+            continue
         hashes.update(doc["token_stream_hashes"])
         mism += doc.get("teacher_forced_mismatches", 0)
         by_run = {}

@@ -24,10 +24,13 @@ SCHEDULES="${SCHEDULES:-${SCHEDULE:-const:0}}"
 GATE_C="${GATE_C:-40}"
 GATE_MAX_WAIT="${GATE_MAX_WAIT:-600}"
 GLUE_MAP="${GLUE_MAP:-$OUT/glue.bin}"
+WORKERS="${WORKERS:-.build-worker/release/mlxfast-runtime-worker}"
 
 mkdir -p "$OUT"
 IFS=';' read -r -a SCHED_ARR <<< "$SCHEDULES"
 NSCHED=${#SCHED_ARR[@]}
+IFS=';' read -r -a WORKER_ARR <<< "$WORKERS"
+NWORKER=${#WORKER_ARR[@]}
 
 gpu_temp() {
   macmon pipe -s 1 2>/dev/null | head -1 \
@@ -57,11 +60,12 @@ cool_down() {
 echo "session P=$P R=$R S=$S schedules=[$SCHEDULES] out=$OUT"
 for ((p = 0; p < P; p++)); do
   sched="${SCHED_ARR[$((p % NSCHED))]}"
+  worker="${WORKER_ARR[$((p % NWORKER))]}"
   cool_down
-  echo "=== process $p schedule=$sched $(date -u +%H:%M:%S) ==="
-  python3 research/fern_r93_nested_probe.py \
+  echo "=== process $p schedule=$sched worker=$worker $(date -u +%H:%M:%S) ==="
+  DECODE_PROBE_WORKER="$worker" python3 research/fern_r93_nested_probe.py \
     --runs "$R" --steps "$S" --warmup-runs "$WARMUP_RUNS" \
-    --process-index "$p" --label "$sched" --schedule "$sched" \
+    --process-index "$p" --label "$sched|$(basename "$worker")" --schedule "$sched" \
     --glue-map "$GLUE_MAP" \
     --stderr "$OUT/p$(printf '%02d' "$p").err" \
     --out "$OUT/p$(printf '%02d' "$p").json" || exit 1
