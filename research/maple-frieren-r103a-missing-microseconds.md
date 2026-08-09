@@ -792,6 +792,190 @@ compile lottery of that size, which is decision-relevant context for promotion
 strategy. I will report the number to the advisor. Re-rolling marker builds to
 harvest it would be against the spirit of the rules and I will not do it.
 
+*(Superseded — see § 1.13.3. A8 and D6 are withdrawn: σ_L is zero for this
+toolchain, so there is no layout lottery to gate on or to report.)*
+
+
+## § 1.13 Amendment `r103-a-fb3-base-moved-do-not-rebase-and-new-objective`
+
+Third advisor comment, received after rung 1 had launched and while it was
+still executing. Read in full before any further build, run, or analysis
+decision. It changes four things and confirms a fifth. Nothing here alters the
+already-running rung 1: its arms, statistic, and thresholds were fixed before
+launch and stay fixed.
+
+### 1.13.1 The advisor branch moved; the arms do not
+
+`codex/mlxfast-maple-20260804-advisor` advanced
+`0f6862d0 → 2be9f8a1 → de0fa89e → f3fb5cba → 449d6744` while this experiment
+was in flight. The instruction is explicit: **do not rebase and do not merge.**
+
+The reason is that this experiment's whole content is a *pinned* three-point
+contrast. Its arms are
+
+| arm | commit | what it is |
+|---|---|---|
+| A | `30f752df` | Arm R receipt tree (OLD) |
+| B | `e17bdeb1` | frontier receipt tree (`Sources` byte-identical to `a4d3b8dc`) |
+| C | `0f6862d0` | assignment base = B + R3 (#558), `+102/−11` in `LagunaRuntimeModel.swift` |
+
+Rebasing would silently move C off the commit whose receipt is the reason for
+the question, and the A↔B and B↔C decompositions would stop meaning what § 1.11
+says they mean. `f3fb5cba` and `449d6744` are explicitly **not** a fourth arm
+and I do not measure them. My branch stays on its recorded base
+`0f6862d0`; `git diff --numstat 0f6862d0 HEAD -- Sources Vendor` is empty, so
+arm C is exactly my own checkout's submitted surface and the rung-0 `new`
+binary is a legitimate C.
+
+Consequence for the deliverable: this PR will merge with a stale base by
+design. That is the advisor's stated intent, not an oversight on my part.
+
+### 1.13.2 The submitted surface is still untouched
+
+Confirmed again: zero receipts spent, zero submitted bytes changed. Everything
+in this branch is under `research/`. The advisor reports LRM per-file headroom
+is now 140,043 B; this experiment consumes none of it.
+
+### 1.13.3 #575 collapses A8 and D6: σ_L = 0 for this toolchain
+
+nezuko's #575 result is the single most useful thing in fb3 for this design.
+A **comment-only** strip of `LagunaRuntimeModel.swift` was compiled four times
+in a forced-clean interleaved order (orig, cand, orig, cand). All four produced
+a byte-identical `MLXFastModel.o`:
+
+```
+sha256 = a241e0f9ab439dbe934c000d3db4758d9f4df6a3ea95364cd5e37554a2a5068d
+size   = 2,211,568 B
+```
+
+with the recorded pitfall that an *incremental* rebuild silently reuses the
+stale object and reports a false PASS, so the clean is mandatory.
+
+Two consequences, and they run in opposite directions from what § 1.12 assumed.
+
+**(a) A8 is withdrawn.** § 1.12 A8 proposed a conditional two-marker layout
+family (`A B C D1 D2 C B A`) whose D arms differ from C only by a marker
+comment, to estimate a code-layout noise term σ_L. #575 shows that construction
+cannot work: a comment-only delta produces the *same object file*, therefore
+the same binary, therefore two arms that are the identical executable. D1 and
+D2 would be extra null slots wearing a different label, not a layout estimate.
+I am dropping A8 and returning rung 1B to a 6-slot three-arm rotated
+palindrome. This is a strict improvement — it buys back two slots per rep, i.e.
+about 90 s per rep, which is real statistical power rather than a wasted
+measurement.
+
+I will still spend ~85 s confirming the premise locally rather than importing
+it: the rung-1B build step rebuilds C a second time under the name `Cbis` from
+a forced-clean tree and asserts `digest(Cbis) == digest(new)`. If that assert
+fails, σ_L is not zero on *this* host's toolchain and I will say so; the check
+is cheap enough that assuming is worse than testing.
+
+**(b) It removes the frontier reviewer's largest confound, and it strengthens
+the retraction.** The frontier critique's central worry (§ 1.12 A8's
+motivation) was that an arm-to-arm difference could be a compile-layout
+artifact rather than a code-behaviour effect. With σ_L = 0 that worry is gone
+for free: any A↔B or B↔C difference I measure is attributable to the source
+delta and the run, never to the linker.
+
+It also re-reads fb2's own evidence. The advisor's five identical-code
+receipts, `sd(T) = 14.272` (trimmed pooled `12.079`, dof 14), were previously
+decomposable into *layout* plus *session* variance. With the layout component
+pinned at zero, the whole 12–14 µs is session/run noise. That makes the
+retraction of the 20.149 µs target *stronger*, not weaker: there is no
+lower-variance sub-population of receipts to appeal to, and a two-receipt
+difference genuinely carries σ ≈ 17–20 µs, which is exactly where 20.149 sits
+at z ≈ 1.0–1.2.
+
+**D6 falls with A8.** There is no per-submission compile lottery to report and
+none to decline exploiting. I record the null finding instead.
+
+### 1.13.4 The objective function changed, and it re-scales what counts as a result
+
+fb3 supplies an empirical acceptance rule derived from the receipt corpus:
+
+> `accepted ⟺ receipt score exceeds the global running maximum across all
+> solvers`
+
+with 146 of 147 accepted receipts satisfying it, exactly one rejected receipt
+ever exceeding it, and **368 receipts that beat their own previous personal
+best and were rejected anyway**. Acceptance is a global-record event, not a
+self-improvement event.
+
+The advisor's probability table, from σ(ln score) = 0.4595 %, median
+L = 0.998572, honest tree cs = 2.583111 against record 2.616504:
+
+| Δcs vs honest tree | P(record) | receipts for a 50 % chance |
+|---|---|---|
+| 0.00 % | 0.095 % | 732 |
+| 0.25 % | 0.520 % | — |
+| 0.50 % | 2.179 % | — |
+| 1.00 % | 17.62 % | — |
+| 1.50 % | 56.28 % | — |
+
+The operative sentence for me is: **"a ±20 µs/step contrast is
+decision-irrelevant."** Effort begins to pay at ≥ +0.5 % cs, and the target
+worth aiming at is +1.0 %.
+
+Converting to the units this experiment actually reports, using the § 1.5c
+identity `D = 4P + T` and the § 1.5d decisional sensitivity `R1 = 0.622`
+(M5 µs/step of `T` per M4 µs/step measured here):
+
+| threshold | Δcs | M5 µs/step on `T` | M4-equivalent µs/step |
+|---|---|---|---|
+| "starts paying" | +0.50 % | ≈ 33 | ≈ 53 |
+| "worth aiming at" | +1.00 % | ≈ 66 | ≈ 106 |
+| retracted fb1 target | — | 20.149 | 32.4 |
+
+So the retracted 20.149 µs/step target was already **below** the level at which
+work has positive expected value under the new objective — by a factor of about
+1.6 — quite apart from being statistically indistinguishable from zero. This is
+the deeper reason the fb1 target was retracted, and it is the frame I will use
+in § 6.
+
+I preregistered a half-width goal of < 8 µs/step on M4. Under the new objective
+that is **≈ 6.6× finer than the decision requires**: a half-width of 20 µs/step
+on M4 (12.4 on M5 `T`) already excludes the 33 µs/step "starts paying" line
+comfortably. I therefore report *both* bounds in § 6 — the achieved half-width
+in M4 µs/step, and the decision-relevant statement "this contrast is bounded
+below the +0.5 % cs line" — and I do not grind for 8 if σ is unkind. See
+§ 1.13.5.
+
+### 1.13.5 Do not grind; N-5 is the expected and welcome outcome
+
+fb3 is unusually direct about stopping:
+
+- "If rung 1 says A ≈ B ≈ C at a half-width you can defend, that is the whole
+  deliverable."
+- "Do not extend the run to shrink X below ~8 µs/step."
+- N-5 (the composed A→C contrast does not reproduce at the claimed magnitude,
+  bounded by X) is "the outcome the advisor expects and is happiest to
+  receive."
+- No follow-on rung is worth buying.
+
+This overrides the ambition in § 1.12's power table. Concretely, my stopping
+rule for rung 1B is now: size REPS from rung 1's *measured* per-rep σ aiming at
+hw < 8 µs/step, cap the run at roughly 2 h of wall clock, and **stop at
+whichever comes first**. If the achieved half-width lands at, say, 14 µs/step,
+that is a reportable, decision-sufficient bound and I will report it as such
+rather than launching a second block. § 1.10's stopping rule is amended
+accordingly: "extend until hw < 8" is replaced by "run the preregistered block
+once, report the achieved hw".
+
+Likewise § 1.11's decision rule keeps its five branches, but outcome 5 (all
+three contrasts contain 0 ⇒ N-5) is now the *expected* branch, and outcomes 2
+and 3 no longer authorise a rung 2 automatically — fb3 says no follow-on rung
+is worth buying, so if a contrast does exclude 0 I report it with its interval
+and hand the rung-2 decision to the advisor instead of spending the time
+myself.
+
+### 1.13.6 What does not change
+
+The reporting discipline from fb2 is unchanged and is if anything more
+important here: **no "neutral", "null", or "unchanged" without an attached
+numeric X.** A bound is a result; an unqualified null is not. The three
+standing qualifiers from § 1.12 A7 (M4 ≠ M5 architecture, `_nax` unreachable
+here, sum-masking) attach to every X I report.
+
 
 ## § 2 Static pre-read of the OLD→NEW delta (no timing)
 
