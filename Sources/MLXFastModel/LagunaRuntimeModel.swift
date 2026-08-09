@@ -4144,17 +4144,29 @@ if(lid<gate_heads){
 }
 threadgroup_barrier(mem_flags::mem_threadgroup);
 """
+    let inputSetup = preActivatedGate
+        ? "threadgroup bfloat activated_input[block_size];"
+        : "const device bfloat* xp = attention_output + simd_lid * values_per_thread;"
     let loadInput = preActivatedGate
         ? """
-float g=float(gate_values[column>>head_shift]);
-for(uint i=0;i<values_per_thread;++i)
-    x_thread[i]=float(bfloat(float(xp[i])*g));
+constexpr uint staged_values_per_thread = block_size / (num_simdgroups * 32);
+uint staged_index = lid * staged_values_per_thread;
+uint staged_column = k + staged_index;
+float g = float(gate_values[staged_column >> head_shift]);
+for (uint i = 0; i < staged_values_per_thread; ++i)
+    activated_input[staged_index + i] = bfloat(float(attention_output[staged_column + i]) * g);
+threadgroup_barrier(mem_flags::mem_threadgroup);
+for (uint i = 0; i < values_per_thread; ++i)
+    x_thread[i] = float(activated_input[simd_lid * values_per_thread + i]);
 """
         : """
 float g=gt[column>>head_shift];
 for(uint i=0;i<values_per_thread;++i)
     x_thread[i]=float(bfloat(float(xp[i])*g));
 """
+    let inputAdvance = preActivatedGate
+        ? "threadgroup_barrier(mem_flags::mem_threadgroup);"
+        : "xp += block_size;"
     // Lane-major arm: one row-wide base plus a 4-bit offset per group, stored
     // so that lane `simd_lid` -- or pair-lane `simd_lid >> 1`, whose two lanes
     // provably share a scale byte -- owns a contiguous nibble run. A block's
@@ -4225,7 +4237,7 @@ const device uint32_t* ws =
     (const device uint32_t*)weight_codes +
     out_row * (in_vec_size / 8) + simd_lid * codes_per_thread;
 \(scaleSetup)
-const device bfloat* xp = attention_output + simd_lid * values_per_thread;
+\(inputSetup)
 
 thread float x_thread[values_per_thread];
 thread float result[results_per_simdgroup] = {0.0f, 0.0f, 0.0f, 0.0f};
@@ -4259,7 +4271,7 @@ for (uint k = 0; k < in_vec_size; k += block_size) {
 
     ws += block_size / 8;
     \(scaleAdvance)
-    xp += block_size;
+    \(inputAdvance)
     column += block_size;
 }
 
@@ -4403,7 +4415,7 @@ private let lagunaActivatedOProjKernels: [Int: MLXFast.MLXFastKernel] = {
     var result: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
         result[heads] = MLXFast.metalKernel(
-            name: "laguna_oproj_act_h\(heads)_v1"
+            name: "laguna_oproj_act_h\(heads)_v1_tgm1"
                 + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
                 + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
             inputNames: [
@@ -4421,7 +4433,7 @@ private let lagunaActivatedOProjLaneMajorKernels: [Int: MLXFast.MLXFastKernel] =
     var result: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
         result[heads] = MLXFast.metalKernel(
-            name: "laguna_oproj_act_h\(heads)_v1_lm1"
+            name: "laguna_oproj_act_h\(heads)_v1_lm1_tgm1"
                 + (lagunaAttnScalePairwiseOProjEnabled ? "_pw1" : "")
                 + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
                 + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
