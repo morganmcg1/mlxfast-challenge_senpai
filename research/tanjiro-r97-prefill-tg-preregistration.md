@@ -700,3 +700,142 @@ R2 I expect the honest recommendation to be that further ranked progress has to
 come from the decode axis, and I will say so in the result rather than
 manufacturing a fourth prefill mechanism.
 
+## 14. Amendment 5 — R1 read-out, and a correction to the measuring instrument
+
+Registered **after** the R1 receipt returned and **before** any R2 run. It
+records what R1 said, retracts the instrument §11.4 assumed, and re-registers
+the R2 bars against the corrected instrument.
+
+### 14.1 R1 receipt
+
+Submission `b3b6457f-25b6-40f8-8ebf-a417ba11b1a0`, commit `a4d7450`,
+2026-08-09T11:24Z. Full official metrics recovered with
+`research/tanjiro_r97_fetch_submission.py`; the `mlxfast submissions` table
+truncates the metrics column at ~75 characters and hides every per-axis number.
+
+| field | value |
+|---|---|
+| `passed_correctness` | `true` |
+| `max_abs_diff` | `0` |
+| `checked_steps` | `1344` |
+| `passed_decode_speedup_floor` | `true` |
+| `passed_prefill_speedup_floor` | `true` |
+| `semantic_gpqa_pass_count` | `9 / 9` |
+| `gpqa_ttft_pass_count` | `9 / 9` |
+| `rejectionReason` | `score did not improve current best` |
+| `officialScore` | `2.55810946477023` |
+| baseline prefill | `187.976 ms` (`0.0003671414 s/tok`) |
+| candidate prefill | `96.797 ms` (`0.00018905583 s/tok`) |
+| `prefill_speedup` | `1.941974` |
+| baseline decode | `13.8089 ms/tok` |
+| candidate decode | `4.92433 ms/tok` |
+| `decode_speedup` | `2.804213` |
+
+No gate failed. The rejection is purely ranking.
+
+### 14.2 The instrument §11.4 assumed is not usable
+
+§11.4 registered its bars against "observed M5 prefill delta", implicitly to be
+read off the published score or the paired speedup. Both are unusable, for a
+reason that is visible only now that the per-axis metrics have been recovered.
+
+Across the 15 scored receipts on this track from 2026-08-08T19:38 to
+2026-08-09T11:24, the **same-session baseline** prefill ranges over
+
+```
+186.821  186.899  187.030  187.720  187.926  187.976  188.095  188.440
+190.001  190.434  190.970  192.850  195.079  195.886  196.395     (ms)
+```
+
+a spread of `9.6 ms`, about `5 %`. The **candidate** prefill over the same
+receipts is stable to `0.14 ms`. So `prefill_speedup`, and therefore the
+published score, is dominated by which baseline draw the session happened to
+get, not by the candidate. A score difference of `0.03` between two sessions
+carries almost no information about a prefill change of a few tenths of a
+millisecond.
+
+The low-noise observable is the **candidate prefill milliseconds** itself.
+
+### 14.3 The control population
+
+Candidate prefill (ms) for the 13 contemporaneous scored receipts on this
+account and track, excluding R1 and excluding `25b0b722` (an older frontier at
+`97.782 ms`):
+
+```
+96.278  96.055  96.070  96.120  96.198  96.193  96.328
+96.316  95.870  96.253  96.184  95.953  96.236
+```
+
+`mean 96.158`, `sd 0.139`, `n = 13`.
+
+These are different candidates by different students, not byte-identical
+replicates. That is a real weakness and it is stated rather than hidden. It is
+nevertheless usable here because (a) they branch from the same or an adjacent
+promoted frontier, (b) most were decode-directed so their prefill is the
+unmodified frontier prefill, and (c) the observed dispersion of `0.139 ms` is
+an *upper* bound on pure session noise, since it also contains whatever real
+prefill differences those candidates carried. Using an upper bound on the noise
+makes the test conservative.
+
+### 14.4 R1 read-out
+
+- Candidate prefill `96.797` vs `96.158 ± 0.139` ⇒ **`+0.639 ms`, `+4.6 σ`.**
+- Candidate decode `4.9243` vs `4.9140 ± 0.0176` (n = 10 healthy) ⇒ `+0.59 σ`,
+  **unchanged**, which confirms P2 stayed prefill-only exactly as designed.
+
+`+0.639 ms` is in the fourth row of the §11.3 table: `> +0.3 ms` ⇒ *unmodelled
+regression ⇒ revert, report negative*. **P2 + P2b are reverted.**
+
+Score attribution, so the size of the finding is not overstated: at the
+population prefill the same session would have scored
+`2.804213^0.75 · (187.976/96.158)^0.25 = 2.56238`, against the observed
+`2.55811`. The prefill regression cost `0.00427` score points, i.e. `−0.166 %`.
+The remaining gap to our promoted best `2.58883` is baseline-draw noise, not
+candidate regression. R1 is a **−0.17 % regression**, not the `−1.19 %` that a
+naive score-to-score comparison suggested.
+
+### 14.5 Why the registered −0.16 ms did not appear
+
+The registered model said fusion removes 78 kernel dispatches at ≈2.0 µs and
+changes nothing else, because the tile geometry is provably identical
+(640 threadgroups fused, `512 + 64 + 64 = 640` unfused). That part of the model
+is not contradicted; something else costs ≈0.8 ms and was not modelled. The
+leading candidate is the one the §11.2 hazard audit already established and
+§11.4 failed to carry through: `device.cpp:547-548` uses one encoder per
+command buffer with `MTL::DispatchTypeConcurrent`, and read-after-read is never
+hazard-tracked, so the three baseline `Wq`/`Wk`/`Wv` GEMMs are free to overlap
+each other and to overlap their neighbours. Fusing them into a single dispatch
+removes overlap opportunity at the dispatch boundary rather than removing
+serial work. On M4 this was invisible because M4 routes `Wk`/`Wv` to split-K,
+so P2 there deletes real dispatches and a reduction, which is the whole of the
+`−11.2 ms` M4 result. This is recorded as the most plausible explanation, not
+as a demonstrated one; no receipt will be spent to confirm it.
+
+### 14.6 R2 and its re-registered bars
+
+R2 carries **base + P4 only**. `LagunaRuntimeModel.swift` is restored to the
+exact base revision `b78e7cdb`, so the whole diff against base is the six lines
+of `matmul.cpp`. The receipt therefore does double duty: it measures P4, and it
+confirms the revert by returning candidate prefill to the population mean.
+
+Read-out, registered now, against **candidate prefill ms** and the
+`96.158 ± 0.139` population — not against the score:
+
+| candidate prefill | reading | consequence |
+|---|---|---|
+| ≤ 95.75 ms (≤ −0.4 ms, ≥ 3 σ) | B-slab reuse real | promote; test swizzle_log 4 on R3 |
+| 95.75 – 96.02 ms (−0.4 to −0.14 ms) | weak effect | keep, but the family is nearly exhausted |
+| 96.02 – 96.30 ms (within ±1 σ) | null; also confirms the P2 revert | close the prefill arm, report negative, recommend decode |
+| ≥ 96.30 ms (> +1 σ) | P4 harmful, or revert incomplete | revert P4, report negative |
+
+Registered point prediction for P4 is unchanged from §13.4: **−0.4 ms**, 80 %
+interval `[−1.5, +0.2]`, **null called as the single most likely outcome**. The
+one thing that improved is the power of the test: against `sd = 0.139 ms` a
+`−0.4 ms` effect is a `3 σ` signal, so R2 can actually resolve the registered
+prediction, which the score-based instrument of §11.4 could not have done.
+
+Receipt budget after R2: 4 remaining, and §13.6's expectation stands — if R2 is
+null I will recommend moving to the decode axis rather than inventing a fourth
+prefill mechanism.
+
