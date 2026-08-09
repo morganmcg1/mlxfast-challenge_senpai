@@ -33,6 +33,9 @@ ENV_OF_SLOT = {"0": 0, "0b": 0, "1": 1, "5": 5}
 REFS = ("0", "0b", "5")
 M5_PINNED_DECODE_US_STEP = 13856.2
 ROUTER_ATTRIBUTION_E = 0.349
+ROUTER_WEIGHT_BYTES = 256 * 2048 * 2  # router_weight, BF16, per call
+ROUTER_ACT_BYTES = 2048 * 4 * 5  # generous bound on every 2048-wide array
+HOST_PEAK_GB_PER_S = 273.0  # M4 Pro spec peak; N-A's falsifier is measured here
 METRICS = ["router_us_step", "router_us_call", "median_ms", "mean_ms",
            "busy_sum_ms", "busy_union_ms", "wall_ms", "gap_ms"]
 T95 = {1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447, 7: 2.365,
@@ -106,6 +109,22 @@ def headline(recs, table):
         out["economics/marginal_decode_us_step"] = marginal
         out["economics/decode_pct"] = 100.0 * marginal / M5_PINNED_DECODE_US_STEP
         out["economics/score_pct"] = 0.75 * 100.0 * marginal / M5_PINNED_DECODE_US_STEP
+
+    calls = recs[0]["router_n_step"]
+    out["bandwidth/router_calls_per_step"] = calls
+    out["bandwidth/router_weight_bytes_per_call"] = ROUTER_WEIGHT_BYTES
+    out["bandwidth/router_weight_mb_per_step"] = calls * ROUTER_WEIGHT_BYTES / 1e6
+    out["bandwidth/activation_bytes_per_call_upper_bound"] = ROUTER_ACT_BYTES
+    for slot, val in lvl.items():
+        gb = calls * ROUTER_WEIGHT_BYTES / (val * 1e-6) / 1e9
+        out[f"bandwidth/router_gb_per_s_pf{slot}"] = gb
+        out[f"bandwidth/router_gb_per_s_with_act_pf{slot}"] = (
+            calls * (ROUTER_WEIGHT_BYTES + ROUTER_ACT_BYTES) / (val * 1e-6) / 1e9)
+        out[f"bandwidth/frac_of_{int(HOST_PEAK_GB_PER_S)}gbs_peak_pf{slot}"] = (
+            gb / HOST_PEAK_GB_PER_S)
+    if "0b" in lvl and "1" in lvl:
+        out["bandwidth/pf1_vs_pf0b_throughput_gain_pct"] = 100.0 * (
+            lvl["0b"] / lvl["1"] - 1.0)
 
     out["correctness/census_divergences_total"] = sum(
         r.get("divergences") or 0 for r in recs)
