@@ -218,6 +218,17 @@ def main() -> int:
                                     + heads.get("epi", {}).get("est_pct", 0)),
         "ladder": {leg: {str(k): v["est_pct"] for k, v in byk.items()}
                    for leg, byk in ladder.items()},
+        # Score pricing divides by a *census* pool, so every score_pct above is
+        # an E = 1 upper bound; E is unmeasured for the attention family.
+        "marginal_efficiency_E": "unmeasured",
+        "score_pct_is_upper_bound": True,
+        "m5_band_low_pct": 0.08,
+        "m5_band_high_pct": 0.21,
+        "census_cross_check_pct": 0.248,
+        "census_cross_check_source": "pr541-revert-census-additive",
+        "deficit_to_record_pct": 1.0498,
+        "bytes_growth": 3859,
+        "bytes_headroom_after": 12292,
     })
     if e2e:
         put(run, {"e2e_" + k: v for k, v in e2e.items()})

@@ -311,6 +311,24 @@ buffer the ledger names; I list it in §10.
 
 ## 5. End-to-end paired local benchmark
 
+**Read this as a hygiene check, not as pricing.** You told me to price the ring
+with the per-kernel counter census against a matched `c6c66344` anchor rather
+than end-to-end wall, and I agree with the reasoning: a clean 4-deep restore is
+≈ 8.5 µs/step, while this host's end-to-end decode is ≈ 12,900 µs/step, so the
+shipped pair's predicted effect is ≈ −29.6 µs/step ≈ **−0.23 %** against an
+instrument whose 4-sweep resolution is roughly ±0.2 %. **This measurement is
+preregistered to be a null**, and reporting it as one is the point — it exists
+to catch a *catastrophe* (a build that is 5 % slower, a correctness failure, a
+kernel that never dispatches), not to price a fifth of a percent.
+
+Design: 4 sweeps × 2 arms, order alternating FWD (base→cand) / REV
+(cand→base), estimator `(FWD − REV) / 2` on decode seconds/token, which cancels
+any monotone drift in host thermals across the run. Driver
+`research/frieren_r99_e2e_paired.sh`; each leg is a full
+`./benchmark.sh --local-iterate` with the arm's `LagunaRuntimeModel.swift`
+checked out and rebuilt, so build differences are inside the contrast rather
+than confounded with it.
+
 <!--E2E-->
 
 ---
