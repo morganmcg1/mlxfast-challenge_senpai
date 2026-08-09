@@ -620,7 +620,7 @@ private let lagunaPrefillAsyncLadderStride: Int = {
     return n
 }()
 
-private let lagunaRoPEAngleAtlasLength = 4096
+let lagunaRoPEAngleAtlasLength = 4096
 
 /// The shared 512-thread RMSNorm prologue emitted by three decode kernels.
 ///
