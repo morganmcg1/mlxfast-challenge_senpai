@@ -1229,7 +1229,8 @@ func lagunaResidualRMSNormRouter(
         outputShapes: [[1, 1, hidden], [1, 1, hidden], [1, 1, experts]]
             + (lagunaRouterPrecomputedKeysEnabled ? [[1, 1, experts]] : []),
         outputDTypes: [.bfloat16, .bfloat16, .bfloat16]
-            + (lagunaRouterPrecomputedKeysEnabled ? [.uint32] : [])
+            + (lagunaRouterPrecomputedKeysEnabled ? [.uint32] : []),
+        verbose: true
     )
     return (outputs[0], outputs[1], outputs[2], outputs.count > 3 ? outputs[3] : nil)
 }
@@ -1250,7 +1251,8 @@ func lagunaResidualRMSNorm(
         grid: (rows * 512, 1, 1),
         threadGroup: (512, 1, 1),
         outputShapes: [residual.shape, residual.shape],
-        outputDTypes: [.bfloat16, .bfloat16]
+        outputDTypes: [.bfloat16, .bfloat16],
+        verbose: true
     )
     return (outputs[0], outputs[1])
 }
@@ -1357,7 +1359,8 @@ func lagunaFullQKNormYaRN(
             [1, 48, 1, LagunaConstants.headDim],
             [1, 8, 1, LagunaConstants.headDim],
         ],
-        outputDTypes: [.bfloat16, .bfloat16]
+        outputDTypes: [.bfloat16, .bfloat16],
+        verbose: true
     )
     return (outputs[0], outputs[1])
 }
@@ -1476,7 +1479,8 @@ func lagunaSlidingQKNormRoPE(
             [1, heads, 1, LagunaConstants.headDim],
             [1, kvHeads, 1, LagunaConstants.headDim],
         ],
-        outputDTypes: [.bfloat16, .bfloat16]
+        outputDTypes: [.bfloat16, .bfloat16],
+        verbose: true
     )
     return (outputs[0], outputs[1])
 }
@@ -1883,7 +1887,8 @@ func lagunaSlidingFusedAttention(
         grid: ((heads / 2) * 1024, 1, 1),
         threadGroup: (1024, 1, 1),
         outputShapes: [[1, heads, 1, LagunaConstants.headDim]],
-        outputDTypes: [.bfloat16]
+        outputDTypes: [.bfloat16],
+        verbose: true
     )[0]
 }
 
@@ -2368,7 +2373,8 @@ func lagunaFullFusedAttention(
         grid: ((heads / 2) * 1024, 1, 1),
         threadGroup: (1024, 1, 1),
         outputShapes: [[1, heads, 1, LagunaConstants.headDim]],
-        outputDTypes: [.bfloat16]
+        outputDTypes: [.bfloat16],
+        verbose: true
     )[0]
 }
 
@@ -2823,7 +2829,8 @@ private func lagunaPrefillSlidingQKNormRoPE(
             [1, heads, length, LagunaConstants.headDim],
             [1, kvHeads, length, LagunaConstants.headDim],
         ],
-        outputDTypes: [.bfloat16, .bfloat16]
+        outputDTypes: [.bfloat16, .bfloat16],
+        verbose: true
     )
     return (outputs[0], outputs[1])
 }
@@ -2868,7 +2875,8 @@ private func lagunaPrefillFullQKNormYaRN(
             [1, heads, length, LagunaConstants.headDim],
             [1, kvHeads, length, LagunaConstants.headDim],
         ],
-        outputDTypes: [.bfloat16, .bfloat16]
+        outputDTypes: [.bfloat16, .bfloat16],
+        verbose: true
     )
     return (outputs[0], outputs[1])
 }
@@ -3487,7 +3495,8 @@ func lagunaFusedNormQKVProjection(
         outputShapes: [
             [1, 1, queryRows], [1, 1, kvRows], [1, 1, kvRows], [1, 1, heads],
         ],
-        outputDTypes: [.bfloat16, .bfloat16, .bfloat16, .bfloat16]
+        outputDTypes: [.bfloat16, .bfloat16, .bfloat16, .bfloat16],
+        verbose: true
     )
     return (outputs[0], outputs[1], outputs[2], outputs[3], true)
 }
@@ -3774,7 +3783,8 @@ func lagunaGatedOutputProjection(
         grid: ((LagunaConstants.hiddenSize / 16) * 128, 1, 1),
         threadGroup: (128, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
-        outputDTypes: [.bfloat16]
+        outputDTypes: [.bfloat16],
+        verbose: true
     )[0]
 }
 
@@ -3859,7 +3869,8 @@ func lagunaGateProductSoftplus(
         grid: (inVec, 1, 1),
         threadGroup: (128, 1, 1),
         outputShapes: [[1, 1, inVec]],
-        outputDTypes: [.bfloat16]
+        outputDTypes: [.bfloat16],
+        verbose: true
     )[0]
 }
 
@@ -4112,7 +4123,8 @@ func lagunaGatedAffineOProj(
             [attentionOutput, gateLogits, codes, metadata.indices, metadata.lut],
             grid: ((outVec / 8) * 64, 1, 1),
             threadGroup: (64, 1, 1),
-            outputShapes: [[1, 1, outVec]], outputDTypes: [.bfloat16]
+            outputShapes: [[1, 1, outVec]], outputDTypes: [.bfloat16],
+            verbose: true
         )[0]
     }
     guard let kernel = lagunaGatedAffineOProjKernels[heads] else { return nil }
@@ -4122,7 +4134,8 @@ func lagunaGatedAffineOProj(
         grid: ((outVec / 8) * 64, 1, 1),
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, outVec]],
-        outputDTypes: [.bfloat16]
+        outputDTypes: [.bfloat16],
+        verbose: true
     )[0]
 }
 
@@ -4454,7 +4467,7 @@ private func lagunaGateSoftplus(
         grid: ((heads / 8) * 64, 1, 1),
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, heads]],
-        outputDTypes: [.bfloat16])[0]
+        outputDTypes: [.bfloat16], verbose: true)[0]
 }
 
 private let lagunaActivatedOProjKernels: [Int: MLXFast.MLXFastKernel] = {
@@ -4538,7 +4551,8 @@ func lagunaGatedAffineOProjNVFP4(
             grid: ((outVec / 8) * 64, 1, 1),
             threadGroup: (64, 1, 1),
             outputShapes: [[1, 1, outVec]],
-            outputDTypes: [.bfloat16]
+            outputDTypes: [.bfloat16],
+            verbose: true
         )[0]
     }
 
@@ -4553,7 +4567,8 @@ func lagunaGatedAffineOProjNVFP4(
         grid: ((outVec / 8) * 64, 1, 1),
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, outVec]],
-        outputDTypes: [.bfloat16]
+        outputDTypes: [.bfloat16],
+        verbose: true
     )[0]
 }
 
@@ -4945,7 +4960,8 @@ private func lagunaDecodeNVFP4QKVR1(
             grid: ((rows / 2) * 64, 1, 1),
             threadGroup: (64, 1, 1),
             outputShapes: [[1, 1, rows]],
-            outputDTypes: [.bfloat16]
+            outputDTypes: [.bfloat16],
+            verbose: true
         )[0]
     }
     if let narrow = bank.narrowScales,
@@ -4961,7 +4977,8 @@ private func lagunaDecodeNVFP4QKVR1(
             grid: ((rows / 2) * 64, 1, 1),
             threadGroup: (64, 1, 1),
             outputShapes: [[1, 1, rows]],
-            outputDTypes: [.bfloat16]
+            outputDTypes: [.bfloat16],
+            verbose: true
         )[0]
     }
     guard let kernel = lagunaDecodeNVFP4QKVR1Kernels[heads] else { return nil }
@@ -4972,7 +4989,8 @@ private func lagunaDecodeNVFP4QKVR1(
         grid: ((rows / 2) * 64, 1, 1),
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, rows]],
-        outputDTypes: [.bfloat16]
+        outputDTypes: [.bfloat16],
+        verbose: true
     )[0]
 }
 
@@ -5439,7 +5457,8 @@ func lagunaNormAffineQKV(
             grid: ((rows / 8) * 64, 1, 1),
             threadGroup: (64, 1, 1),
             outputShapes: [[1, 1, rows]],
-            outputDTypes: [.bfloat16]
+            outputDTypes: [.bfloat16],
+            verbose: true
         )[0]
     }
 
@@ -5452,7 +5471,8 @@ func lagunaNormAffineQKV(
         grid: ((rows / 8) * 64, 1, 1),
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, rows]],
-        outputDTypes: [.bfloat16]
+        outputDTypes: [.bfloat16],
+        verbose: true
     )[0]
 }
 
@@ -7137,7 +7157,8 @@ func lagunaSharedSwiGLUQMV(
         grid: (tiles * 64, 1, 1),
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.sharedExpertIntermediateSize]],
-        outputDTypes: [.bfloat16]
+        outputDTypes: [.bfloat16],
+        verbose: true
     )[0]
 }
 
@@ -7271,7 +7292,8 @@ func lagunaSharedDownResidual(
         grid: ((LagunaConstants.hiddenSize / 8) * 64, 1, 1),
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
-        outputDTypes: [.bfloat16]
+        outputDTypes: [.bfloat16],
+        verbose: true
     )[0]
 }
 
@@ -7503,7 +7525,8 @@ func lagunaRoutedSwiGLUQMV(
             1, 1, LagunaConstants.numExpertsPerTok, 1,
             LagunaConstants.moeIntermediateSize,
         ]],
-        outputDTypes: [.bfloat16]
+        outputDTypes: [.bfloat16],
+        verbose: true
     )[0]
 }
 
@@ -7648,7 +7671,8 @@ func lagunaRoutedSwiGLUQMVPacked(
             1, 1, LagunaConstants.numExpertsPerTok, 1,
             LagunaConstants.moeIntermediateSize,
         ]],
-        outputDTypes: [.bfloat16]
+        outputDTypes: [.bfloat16],
+        verbose: true
     )[0]
 }
 
@@ -7963,7 +7987,8 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
                 1, 1, LagunaConstants.numExpertsPerTok, 1,
                 LagunaConstants.moeIntermediateSize,
             ]],
-            outputDTypes: [.bfloat16]
+            outputDTypes: [.bfloat16],
+            verbose: true
         )[0]
     }
     return lagunaRoutedSwiGLUQMVPackedTop8Kernel(
@@ -7974,7 +7999,8 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
             1, 1, LagunaConstants.numExpertsPerTok, 1,
             LagunaConstants.moeIntermediateSize,
         ]],
-        outputDTypes: [.bfloat16]
+        outputDTypes: [.bfloat16],
+        verbose: true
     )[0]
 }
 
@@ -8108,7 +8134,8 @@ func lagunaRoutedDownReduce(
         grid: ((LagunaConstants.hiddenSize / 4) * 256, 1, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
-        outputDTypes: [.bfloat16]
+        outputDTypes: [.bfloat16],
+        verbose: true
     )[0]
 }
 
@@ -8559,7 +8586,8 @@ func lagunaRoutedSharedDownResidual(
         grid: (LagunaConstants.hiddenSize / 4 * 288, 1, 1),
         threadGroup: (288, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
-        outputDTypes: [.bfloat16]
+        outputDTypes: [.bfloat16],
+        verbose: true
     )[0]
 }
 
@@ -8666,7 +8694,8 @@ func lagunaDenseGateUpSwiGLU(
         grid: ((LagunaConstants.denseIntermediateSize / 64) * 512, 1, 1),
         threadGroup: (512, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.denseIntermediateSize]],
-        outputDTypes: [.bfloat16]
+        outputDTypes: [.bfloat16],
+        verbose: true
     )[0]
 }
 
@@ -8744,7 +8773,8 @@ func lagunaDenseDownResidual(
         grid: ((LagunaConstants.hiddenSize / 16) * 128, 1, 1),
         threadGroup: (128, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
-        outputDTypes: [.bfloat16]
+        outputDTypes: [.bfloat16],
+        verbose: true
     )[0]
 }
 
@@ -9440,7 +9470,8 @@ func lagunaInjectLayerWork(layer: Int, isSingleTokenDecode: Bool) {
                 grid: (lagunaInjectSweepThreads, 1, 1),
                 threadGroup: (256, 1, 1),
                 outputShapes: [[256]],
-                outputDTypes: [.uint32]
+                outputDTypes: [.uint32],
+                verbose: true
             )[0])
     }
     for _ in 0..<matmuls {
@@ -9457,7 +9488,8 @@ func lagunaInjectLayerWork(layer: Int, isSingleTokenDecode: Bool) {
                 grid: (lagunaInjectEmptyThreadgroups * 256, 1, 1),
                 threadGroup: (256, 1, 1),
                 outputShapes: [[256]],
-                outputDTypes: [.uint32]
+                outputDTypes: [.uint32],
+                verbose: true
             )[0]
             if !lagunaInjectEmptyChain { pending.append(tail) }
         }
