@@ -659,7 +659,55 @@ if the probe delta transferred intact the end-to-end effect would be ≈ −130
 µs/token detection floor, which is why the leg is worth running at all — but see
 the regime caveat in §7.10.
 
-_(results pending)_
+**Results — one complete ABBA block (runs 1–4).** All four runs pass correctness
+with `max_abs_diff = 0`, so bit-exactness holds end to end, not just in the
+standalone probe.
+
+| idx | arm | decode µs/tok | prefill µs/tok | ok | diff |
+|---|---|---|---|---|---|
+| 1 | base | 13103.1 | 1111.0 | True | 0 |
+| 2 | cand | 13029.3 | 1097.4 | True | 0 |
+| 3 | cand | 12988.8 | 1122.4 | True | 0 |
+| 4 | base | 12965.9 | 1123.1 | True | 0 |
+
+Decode: base 13034.5, cand 13009.0 → **ABBA delta −25.5 µs/tok (−0.196 %)**.
+Prefill: base 1117.0, cand 1109.9 → −7.2 µs/tok (−0.642 %).
+
+Same-arm control spread, which is the honest error bar here: **base 137.2
+µs/tok** (12965.9–13103.1) and cand 40.5 µs/tok. The base control spread alone is
+**5.4× larger than the measured contrast**, and it also exceeds §5.3's ≈80
+µs/tok detection floor. Prefill is the same story: −7.2 µs against control
+spreads of 12.1 and 25.0 µs.
+
+**Verdict: no detectable in-situ effect.** The leg was stopped after block 1
+(see the note below), so I have no block-to-block ABBA spread. That does not
+change the reading. §7.9's own pre-stated transfer prediction was ≈ −130 µs/tok
+if the probe's −3.4 µs/dispatch carried intact across 40 layers; the observed
+−25.5 µs/tok is **≈5× smaller than that prediction and well inside the noise**.
+Even granting that the ABBA contrast cancels drift and so deserves a tighter
+error bar than the same-arm spread, −25.5 µs would need the true error bar to be
+several times tighter still before it counted as signal.
+
+This is exactly the outcome §7.10 predicted before the numbers were read.
+
+**Why this ends the rung rather than motivating a bigger sample.** Suppose the
+−0.196 % decode delta is real rather than noise. It is still smaller than
+σ(cand_dec) ≈ 0.2939 %, so it would be indistinguishable from run-to-run
+variation on the ranked M5 too. Its score contribution would be
+0.75 × 0.196 % ≈ **0.15 %**, against σ(score) ≈ 0.617 % and a **1.05 %** deficit
+to the leaderboard. So even the optimistic reading of this measurement cannot
+produce a promotable candidate, and a receipt spent here would be spent on a
+quantity too small to resolve. **Zero receipts, per the preregistered rule.**
+
+**Run-count disclosure.** I planned 2 ABBA blocks (8 runs) and completed 1 (4
+runs). The harness swaps a tracked file in the checkout, so while it ran the
+worktree could not be left clean, and one such window had already caused a
+subagent to commit transient base content as if it were the implementation
+(stray commit `9bb39a5`). I stopped the job at a block boundary rather than keep
+a mutating job in flight. The proper fix is to run the A/B out of tree; the
+blocker is that `weights/` is 20 GB and gitignored, so a linked worktree would
+force a full re-transform. I did not attempt that, because as argued above a
+second block cannot change the conclusion.
 
 ### 7.10 Regime caveat — the probe is cache-resident and production is not
 
@@ -767,4 +815,124 @@ byte-negative (−80 B), so it survives the collapsed 16,151 B headroom where ne
 kernel variants would not. If the frontier already stages it deeply, that is
 itself evidence for H-D from the organizer's own solver, and the round-98 thesis
 should be updated on that basis rather than on a fresh receipt.
+
+
+## Reply (r99-e-rev1)
+
+**Verdict up front: H_F is not supported, and I spent zero receipts.** The
+probe's −14 % does not survive contact with the scored path. Details below,
+including two places where I was wrong.
+
+**Merge instruction: close this branch, do not merge it.** HEAD still carries the
+runtime edit at `Sources/MLXFastModel/LagunaRuntimeModel.swift` because
+`research/fern_r99_insitu_pair.sh` reconstructs the candidate arm from
+`HEAD:<file>`, so reverting it would break reproduction of §7.9. That edit is
+**+378 B against 15,773 B of remaining headroom** and buys nothing measurable, so
+merging it would spend scarce budget on a null result. Everything of value on
+this branch is under `research/`.
+
+**1. Ordering honoured.** Null control ran first and its numbers were written
+down before any candidate existed (§7.3); the threshold was committed in
+`d1d65c0` before the first dose run (§7.4); occupancy was matched at TG=1024
+(2048×20/40, M5 = 51.2 TG/core, §7.2); the dose ladder ran with pipeline
+reflection captured per arm (§7.5). No receipt was spent because the probe never
+earned one.
+
+**2. H_F, literally read, is contradicted.** nezuko's codegen-tax finding does
+not generalise to this kernel family — the sign is *opposite*. All four
+restructured variants were ~14 % **faster** than the shipped kernel at TG=1024,
+clearing the preregistered 1.80 µs bar with the correct sign.
+
+**3. But my own proposed mechanism is falsified.** The dose is **flat**: 16→64 B
+of staging moves the result ≤0.08 µs. Staging depth is not what pays. The actual
+difference is that the shipped kernel runs a runtime-trip-count 4-iteration K
+loop with an `if (next_block < input_width)` prefetch guard, while every variant
+fully unrolls a `constexpr` trip count. **The win is unrolling, not staging.**
+The AIR diff confirms this at IR level (§7.8): `fmul`/`fadd` counts are identical
+across all five arms — so arithmetic is unchanged for *all* inputs, which is
+stronger than any runtime byte check — while `tmpl_s1` drops 8 `phi`, 2 `br`, 5
+`gep`, 4 `load`, exactly the loop-carried prefetch plumbing. `tmpl_s2` emits
+*more* IR and is still faster, so IR volume is not the explanation; loop-carried
+structure is.
+
+**4. And the −14 % does not transfer.** The end-to-end ABBA leg (§7.9) gives
+**−25.5 µs/tok decode (−0.196 %)** against a same-arm base control spread of
+**137.2 µs/tok** — the error bar is 5.4× the effect. Naive transfer of the probe
+result predicted ≈ −130 µs/tok, so the observed effect is ~5× below prediction
+and inside the noise. §7.10, written **before** I read these numbers, predicted
+exactly this: the probe's distinct footprint is 4 MiB (TG=1024) / 8 MiB
+(TG=2048) over 8 fixed experts, re-read 500×/round, which is SLC-resident and
+therefore issue-bound — precisely the regime where deleting control and address
+arithmetic pays. Scored decode gathers 8 of 256 experts per token from a 21.6 GB
+model with no cross-token reuse, so the standalone −14 % is an **upper bound on
+a regime that does not occur in the benchmark**, not a prediction. I should have
+derived that footprint before running the ladder, not after.
+
+**5. Why I am not asking for more samples.** Even taking −0.196 % at face value,
+it is below σ(cand_dec) ≈ 0.2939 %, contributes ≈0.15 % to score against
+σ(score) ≈ 0.617 %, and the leaderboard deficit is 1.05 %. No sample size fixes
+a quantity that small. Receipts stay at **6/6**.
+
+**5b. Disclosure — the ABBA leg was stopped early, at a block boundary.** I
+planned 8 runs (two ABBA blocks) and completed 4 (one block), so the
+block-to-block spread is not computable and my error bar is the *within-block*
+same-arm spread only. The harness swaps a tracked file, so the worktree cannot
+be clean while it runs; the fail-closed stop hook fired repeatedly, and one such
+window is how a subagent came to commit transient base content as the
+implementation (`9bb39a5`, since removed by `git reset --mixed`). I stopped at
+the block boundary rather than keep that hazard open. This does not change the
+verdict — with a 137.2 µs/tok control spread against a 25.5 µs/tok effect, a
+second block cannot rescue it — but the leg is weaker than designed and I am
+labelling it as such rather than quoting it as a clean 8-run result.
+
+**6. Disclosure — the rebase.** This branch was rebased onto `c6c66344` *before*
+your "do not rebase" note, and `senpai/submit-official.sh` requires `BASE_SHA` to
+be an ancestor of HEAD, so the rebase is load-bearing for submission. I confirmed
+your `c6c66344 → ad39bfc6` range is **harness-only**: the diff over `Sources/`,
+`Vendor/`, and `benchmark.json` is empty, and `required_base_sha` is unchanged.
+So no editable content differs and I did not rebase onto `ad39bfc6`.
+
+**7. Disclosure — bytes, where I broke an earlier promise.** I previously said
+this transformation was byte-negative (−80 B). That was true of the stage-4
+candidate; the shipped edit is the **fully unrolled** form and is **+378 B**, not
+−80 B. Validation on the full 40-char base: scope OK, 1 submitted path; budget
+OK, current 2984227/3000000, headroom 15773, growth 378/262144, files 142 (base
+142). Per-file 511,796 B against the 524,288 B cap. Since the change is not
+promotable I am not consuming that headroom, so nezuko's #548 comment-reclamation
+arm is unaffected either way.
+
+**8. Submission wrapper.** Acknowledged: `senpai/submit-official.sh "$BASE_SHA"
+--note-file submission-note.md`, no `--model` (it is rejected outright;
+attribution is fixed to `senpai`), full 40-char ancestor SHA, base snapshot
+matching `origin/main`, clean worktree. Not exercised this rung, since there is
+nothing worth submitting. If it ever refuses I will report its exact message
+rather than work around it — `senpai/` is not editable.
+
+**9. Correctness is clean and is not the reason this failed.** Every in-situ run
+reported `max_abs_diff = 0` and `passed_correctness: true`. The standalone probe
+had a bitwise output gate: 0/65536 differing bytes at both TG=1024 and TG=2048.
+I ran the upstream-equivalence oracle on **both** the candidate (`d33d261`) and
+the unchanged base (`c6c66344`) and the two reports are byte-identical: prefill
+max abs logit error 0.125, argmax 5991==5991, decode-0…7 exactly 0.0,
+`EQUIVALENCE_EXACT_STEPS=8`. The prefill failure is the known M4-Pro `_nax`
+divergence, present on the unchanged base; the candidate contributes exactly
+zero. (`passed_prefill_speedup_floor: false` locally is the same M4 artifact.)
+
+**10. What I would do next, and what I would not.** Not this: more ABBA blocks,
+more kernels in this family, or an M5 receipt. Worth doing: re-run the standalone
+probe with the SLC defeated — synthetic expert weights exceeding cache, rotating
+the expert base per dispatch, null control re-run identically. That would settle
+whether unrolling pays *at all* in a cold-gather regime, and it is the cheap
+experiment that should have preceded this one. Separately, the in-situ harness
+should run out of tree; the blocker is the 20 GB gitignored `weights/`, which a
+`git worktree` would force a full re-transform of.
+
+**11. One observation I am not claiming as a result.** `tmpl_s4` and
+`stage4_cand` have identical AIR opcode counts yet differ ~1.3 µs reproducibly,
+with non-identical disassembly. That is ~40 % of the measured probe effect
+sitting in scheduling or register allocation, which means the probe was partly
+reading the compiler's mood. I am recording it as a reason to distrust
+near-tie orderings within this family, not as evidence. Only the family-level
+unrolled-vs-rolled conclusion transfers, and even that does not reach the scored
+path.
 
