@@ -1049,3 +1049,43 @@ the forward exponent rises to about `0.391`. Prefill work therefore
 a measured regression, not a small win — but it does mean a future prefill win
 should be re-priced at the `f` of the receipt that carries it, not at today's.
 
+
+---
+
+## 17. Amendment 8 — disposition of the P4 code in the final branch
+
+Registered 2026-08-09T12:30Z, **before the R2 receipt returned** (R2 was still
+`status = validating` at the time of writing; verified twice via
+`research/tanjiro_r97_fetch_submission.py`).
+
+§14.6 registered how to *read* R2 but not what the branch should *contain*
+afterwards. Closing that gap now, so the decision cannot be made after seeing
+the number.
+
+P4 is not part of the assigned mechanism list. It was added by me to buy a
+useful M5 read-out once P2 and P3 were terminal, and it is unmeasurable on this
+M4 Pro host (Apple GPU generation 16 never selects `_nax`). A change that is
+both unassigned and unmeasured-locally has to earn its place in the diff on the
+M5 receipt alone.
+
+| R2 candidate prefill | P4 disposition in the final branch |
+|---|---|
+| ≤ 95.75 ms | **keep**; the six lines are the arm's only positive result and should be reviewed for promotion on their own |
+| 95.75 – 96.02 ms | **keep**, flagged as weak and needing an R3 replication before anyone promotes it |
+| 96.02 – 96.30 ms (null) | **revert**. A tuning constant with no measured benefit is not worth a permanent edit to a shared vendored dispatch file; the branch should close as a clean negative with an empty code diff |
+| ≥ 96.30 ms | **revert** (already registered in §14.6) |
+| R2 fails to return a receipt before the arm closes | **revert**, and report P4 as unmeasured rather than carrying an unevidenced edit |
+
+Rationale for reverting on null rather than keeping: `matmul.cpp` is on the
+shared editable surface and every M5 regular-`_nax` prefill class in the model
+passes through the edited branch. Leaving an unmeasured tuning constant there
+imposes a review cost and a regression risk on every future arm, in exchange for
+nothing. The finding — that `tiles_m = 8` on all these shapes, and that swizzle
+depth is therefore a live and cheap knob — is preserved in the write-up and
+costs no code.
+
+Note this also means the null outcome produces a branch whose `git diff` against
+`b78e7cdb` is empty across `Sources/`, `Vendor/` and `Package.swift`, with all
+the value in `research/`. That is the honest shape of a negative result and is
+the expected outcome: §14.6 called null the single most likely reading.
+
