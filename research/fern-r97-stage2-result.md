@@ -121,6 +121,65 @@ kernels, so §9 does not promote it to a standing rule. §2 develops what does
 separate them; the audit survives only as an accounting of what the unpack
 actually costs, not as a predictor.
 
+## 3d. What actually separates the two planes
+
+The two planes disagree so sharply (§2) that the first thing to rule out is that
+I simply wrote a worse GEMM for one of them. I did not: **each compacted kernel
+is geometry-matched to the stock kernel it replaces.**
+
+| | stock gate/up (8700) | bexp gate/up (8887) | stock down (8793) | bexp down (9018) |
+|---|---|---|---|---|
+| `rows_per_thread` | 4 | 4 | 4 | 4 |
+| `values_per_thread` | 4 | 4 | 4 | 4 |
+| `rows_per_group` | 64 | 64 | 16 | 16 |
+| threadgroup | 512 | 512 | 128 | 128 |
+
+Accumulator layout, the simd-shuffle reduction, and the epilogue are unchanged
+in both pairs. The only thing that differs inside each pair is how a row's four
+BF16 weights are obtained. So `d1` and `d2` are clean contrasts on the weight
+load, not on the matmul.
+
+Counting the inner loop of each kernel, per K-iteration per thread:
+
+| | loads | weight bytes | data-dependent branches |
+|---|---|---|---|
+| stock gate/up | 9 | 72 | 0 |
+| bexp gate/up | 19 (**2.11x**) | 64 (**0.89x**) | **8** |
+| stock down | 5 | 40 | 0 |
+| bexp down | 13 (**2.60x**) | 36 (**0.90x**) | **0** |
+
+This table is the useful result of the whole experiment, because it kills three
+plausible explanations at once. The byte multiplier is the same for both planes
+(0.89 vs 0.90). The added-op counts are within 1.4x of each other (293.6 vs
+209.7 Mop, §3c). The load-instruction multiplier is actually **worse** for the
+plane that won (2.60x for down against 2.11x for gate/up). None of bytes, ops,
+or load count orders these two planes the way the measurement does.
+
+Exactly one structural axis does: the eight data-dependent branches. The
+compacted gate/up guards every payload load with `if (base == 0xFF)`, once per
+row per plane, because `d=4` cannot represent every block's exponent range and
+0.66% of blocks escape (§3). The compacted down plane is escape-free by
+construction, so all twelve of its loads are unconditional with addresses known
+before the loop body starts.
+
+The cost is very unlikely to be divergence — at 1735/262144 the branch is
+essentially uniform across any simdgroup. The cost is **memory-level
+parallelism**. In the down kernel every load in an iteration is independent and
+can be issued back to back. In the gate/up kernel each payload load sits behind
+a branch whose condition is a register value, and the not-taken side's address
+depends on `gd`, a value loaded in that same iteration — so the eight payload
+loads serialise behind eight delta loads instead of overlapping them. A kernel
+that was comfortably bandwidth-bound becomes latency-bound, and once it is
+latency-bound the bytes it saved are worth nothing.
+
+This is a source-level argument, not a counter measurement, and it is stated as
+the leading hypothesis rather than a demonstrated fact. Three confounds survive
+it: gate/up uses 512-thread groups against down's 128, runs 16 loop trips
+against down's 64, and keeps 12 live accumulators against down's 8. §9 gives
+the experiment that would separate them, and it is cheap: the hypothesis
+predicts that an **escape-free** gate/up plane converts at roughly the down
+plane's efficiency, while the confounds predict it stays negative.
+
 ## 4. Equivalence and correctness
 
 <!-- CORRECTNESS -->
