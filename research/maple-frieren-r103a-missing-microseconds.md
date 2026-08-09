@@ -583,16 +583,33 @@ evidence against it, and § 6 must say so rather than declaring the delta noise.
 Max GPU, so per-core register and scheduling effects should transfer between
 the parts roughly 1:1 — which is why the experiment is worth running at all.
 
-#### 2.6.7 Cheapest sharp static evidence available on a gen-16 host
+#### 2.6.7 A free pipeline-state result: no hard occupancy cliff on gen 16
 
-Recorded here so the option is on the table for § 6 regardless of outcome:
-extract both sliding-kernel source strings, wrap them in MLX's `[[kernel]]`
-signature, compile with `xcrun -sdk macosx metal`, load via
-`MTLDevice.makeLibrary`, build a `MTLComputePipelineState` for each, and
-compare `maxTotalThreadsPerThreadgroup`. A drop from 1024 on the NEW variant
-would be a direct, timing-free confirmation of § 2.6.2 — though only for the
-gen-16 compiler backend, which is exactly the caveat that makes it evidence
-about *this* host and not about M5.
+The obvious sharp static probe is to compile both sliding-kernel variants and
+compare `MTLComputePipelineState.maxTotalThreadsPerThreadgroup`; a drop below
+1024 on the NEW variant would confirm § 2.6.2 directly. **That probe does not
+need to be run, because MLX already performs it on every dispatch and every
+NEW-arm run on this host has passed it.**
+
+**[V]** `Vendor/mlx-swift/…/backend/metal/custom_kernel.cpp:103-111` reads
+`kernel->maxTotalThreadsPerThreadgroup()` and *throws* `invalid_argument` when
+the requested threadgroup size exceeds it. § 2.5 established that this kernel
+is dispatched with a hard-coded `threadGroup: (1024, 1, 1)`, and § 2.4
+established that it is reached on this host at shipped defaults.
+
+**[V]** The NEW worker completed 250-step teacher-forced decodes with zero
+divergences and no exception on every NEW slot of rung 1 (§ 4.1). Therefore, on
+Apple GPU generation 16, **`maxTotalThreadsPerThreadgroup` for the NEW 4-deep
+kernel is ≥ 1024, i.e. exactly the device maximum** — the same as OLD.
+
+**[I]** So no *hard* occupancy cliff is crossed on this host: the gen-16
+register allocator fits the deeper body inside a full 1024-thread threadgroup.
+That does not exclude mechanism 2.6.5(1) — Metal caps the reported value at the
+device maximum, so it cannot distinguish "fits with room to spare" from "fits
+only by spilling" — and it says nothing about the gen-17 backend, which is
+where § 2.6.6 locates the most likely M5-only behaviour. It does mean that if
+rung 1 reproduces the regression on M4, the mechanism is a *soft* cost
+(spill traffic or scheduling) rather than a residency-tier collapse.
 
 ---
 
