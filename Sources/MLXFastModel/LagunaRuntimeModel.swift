@@ -9003,6 +9003,7 @@ func lagunaDenseGateUpSwiGLUBlockExponent(
     precondition(bank.blockWidth == 128)
     precondition(bank.deltaBits == 4)
     precondition(bank.blockMajor)
+    lagunaNarrowScaleLog.noteDispatch("block-exponent kernel", "dense gate/up")
 
     return lagunaDenseGateUpSwiGLUBlockExponentKernel(
         [input, bank.payload, bank.deltaLo, bank.bases, bank.escapes],
@@ -9108,6 +9109,7 @@ func lagunaDenseDownResidualBlockExponent(
     precondition(bank.escaped == 0)
     precondition(residual.dtype == .bfloat16)
     precondition(residual.dims(1, 1, LagunaConstants.hiddenSize))
+    lagunaNarrowScaleLog.noteDispatch("block-exponent kernel", "dense down")
 
     return lagunaDenseDownResidualBlockExponentKernel(
         [activated, bank.payload, bank.deltaLo, bank.deltaHi, bank.bases, residual],
