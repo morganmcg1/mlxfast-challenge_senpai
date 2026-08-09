@@ -548,3 +548,54 @@ receipt.** It is a free rider or it is nothing. It costs +4,186 B, adds no
 dispatch, and is bit-exact, so riding along is cheap; but a receipt spent on it
 alone would be indistinguishable from noise.
 
+## Step 4d: end-to-end ABBA sanity legs (no threshold, as preregistered)
+
+Job `497dba3a-8d03-400d-a84d-41f37baf49e6`, rc=0, `/tmp/r100c-e2e`,
+`head=9366d8868181ddcb8f8ef13ba8e721bb23c10bf2`, order `pf0 pf1 pf1 pf0`,
+`digest_before == digest_after == 58ab3978…`, tree clean at launch and exit.
+
+| leg | arm | decode s/token | prefill s/token | `max_abs_diff` | rc | wall s |
+| --- | --- | --- | --- | --- | --- | --- |
+| 01 | pf0 | 0.012862822 | 0.001123605 | **0** | 0 | 275 |
+| 02 | pf1 | 0.012949982 | 0.001110835 | **0** | 0 | 203 |
+| 03 | pf1 | 0.013089096 | 0.001138561 | **0** | 0 | 183 |
+| 04 | pf0 | 0.012851298 | 0.001137908 | **0** | 0 | 177 |
+
+**Correctness: both arms pass with `max_abs_diff = 0` on every leg**, which is
+the value this leg was really for.
+
+**Timing: uninformative, and reported as such.** Mean decode is pf0 0.0128571
+vs pf1 0.0130195 s/token, i.e. pf1 **+162 µs/step**, but with n = 2 legs per arm
+the Welch 95 % interval is **±887 µs/step**. The interval is 140× the census
+effect size and straddles zero by a wide margin. Under the reporting rule
+recorded above this reading is **uninformative, not negative evidence**, and it
+is left in the record precisely because the point estimate has the *unhelpful*
+sign — suppressing it would be dishonest.
+
+Two facts make the direction unsurprising rather than alarming. First, leg wall
+time falls monotonically 275 → 203 → 183 → 177 s, so the session is warming
+throughout; the ABBA layout puts pf1 at interior positions 2 and 3 and pf0 at
+exterior 1 and 4, which is the same interior/exterior split under which the
+census's *identical-code* null pf0b also read positive on every coarse
+estimator. Second, the per-leg spread is enormous: across the five `--local-
+iterate` pf-legs run in this study the leg-to-leg sd of decode is ≈ 74 µs/step.
+
+That last number settles the axis quantitatively. Resolving a 6.33 µs/step
+effect at 95 % with sd = 74 µs/leg needs roughly
+
+```text
+n_per_arm = 2 * (1.96 * 74 / 6.33)^2  ~=  1050 legs   (~2.5 days of wall time)
+```
+
+and resolving the 2.21 µs/step *marginal* effect needs ~8,600 legs. The
+end-to-end axis on this host was never going to decide this question, which is
+why it was preregistered as a no-threshold sanity check before any number
+existed. It did its job: no correctness regression, no gross slowdown.
+
+Reminder for anyone reading the raw score files: `passed_prefill_speedup_floor`
+is `false` in all four legs. That is a **host artifact, not a candidate
+regression** — `--local-iterate` divides by the pinned M5 constant
+`baseline_prefill_seconds_per_token = 0.00036752` while this M4 Pro prefills at
+≈ 0.00113. pf0 and pf1 prefill within 2 % of each other (0.0011236 vs
+0.0011108), and the same `false` appears on the unmodified base.
+
