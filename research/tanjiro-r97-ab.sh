@@ -13,8 +13,12 @@ REPEATS="${1:-3}"
 OUT=research/r97-logs
 mkdir -p "${OUT}"
 
+# ABBA ordering: odd reps run off,on and even reps run on,off, so a monotone
+# thermal or clock drift over the session cancels in the paired mean instead of
+# loading entirely onto the second arm.
 for i in $(seq 1 "${REPEATS}"); do
-  for TAG in off on; do
+  if [ $((i % 2)) -eq 1 ]; then ORDER="off on"; else ORDER="on off"; fi
+  for TAG in ${ORDER}; do
     if [ "${TAG}" = "on" ]; then
       export DARKBLOOM_FUSED_QKV=1
     else
