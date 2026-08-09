@@ -8,6 +8,35 @@ Preregistration: [`research/tanjiro-r97-prefill-tg-preregistration.md`](tanjiro-
 (registered at `afb7034`, before any timed run; Amendments 1–3 each registered
 before the receipt they could have been fitted to).
 
+## 0. Commit-SHA note (branch rebased at the end of the arm)
+
+The branch was rebased onto `9e14b2f` ("Teach agents to construct weaker
+hypotheses", a `senpai/program.md` update pushed to this branch after the arm
+started), which rewrote every commit SHA. The SHAs cited throughout this
+document and in the two submission notes are the **pre-rebase** ones, because
+those are what the official submissions and the preregistration amendments were
+made against. Mapping for the ones that carry evidential weight:
+
+| meaning | pre-rebase | post-rebase |
+|---|---|---|
+| preregistration | `afb7034` | `76e0df2` |
+| P2 fused QKV bank | `64fa273` | `158fd67` |
+| P2b layout descriptor | `84a5c4b` | `6a657fe` |
+| `_nax` selection proof | `1628e9c` | `4ce5b28` |
+| **R1 submitted commit** | **`723e628`** | `714f320` |
+| Amendment 3 (P3 dead) | `084bfb4` | `cadaa1e` |
+| P4 swizzle change | `f0ed1d7` | `981991c` |
+| P2/P2b revert | `4b3af0b` | `0a322b4` |
+| **R2 submitted commit** | **`2dddec8`** | `9de456d` |
+| Amendment 7 (pricing) | `b243ec8` | `630d005` |
+| §11 reply of record | `1812f39` | `c18efbc` |
+| Amendment 8 (P4 disposition) | `b4a06a8` | `214ed30` |
+| P4 revert | `9638f0a` | `ed4d631` |
+
+The official receipts record their own server-side commit hashes
+(`a4d74504…` for R1, `e6671092…` for R2), which are independent of both
+columns.
+
 ## 1. Three-state summary
 
 | mechanism | final state | evidence |
@@ -572,3 +601,46 @@ pricing rule is auditable per receipt rather than inherited:
 
 The M4 ABBA and census series are logged as directional-only context and are
 labelled as such; nothing in the verdict rests on them.
+
+## 13. Weakest sufficient hypothesis for the residual
+
+Applying the `senpai/program.md` guidance added at `9e14b2f` (Bennett, *The
+Optimal Choice of Hypothesis Is the Weakest, Not the Shortest*), where weakness
+means breadth of extension and fewest unsupported commitments — not brevity.
+
+Three hypotheses fit the R1 evidence equally well. Ordered from strongest
+(narrowest) to weakest (broadest):
+
+| # | hypothesis | unsupported commitments | extension |
+|---|---|---|---|
+| `H_a` | SLC capacity crossing: the fused 41.94 MB bank exceeds a capacity the 33.55 MB `Wq` bank did not, forcing a band-2 refetch | a specific cache level, a specific threshold in (33.55, 41.94] MB, a specific ≈16 µs/layer refetch cost | only fusions that cross that threshold, only on M5 |
+| `H_b` | Lost inter-dispatch overlap: three independent same-input GEMMs overlapped, one large GEMM cannot | that these dispatches did in fact overlap, and by roughly this much | any fusion of independent dispatches, any Apple GPU |
+| `H_w` | **M5 prefill GEMM wall time is set by memory traffic and achievable concurrency, not by dispatch count. A transformation holding FLOPs fixed that either enlarges the resident working set or reduces the number of independently schedulable units will not gain time and may lose it.** | none beyond the measurement | every kernel family, every fusion or split, both Apple generations measured here |
+
+`H_w` is implied by either `H_a` or `H_b`, so it is strictly weaker, and it is
+sufficient: it predicts the observed sign at fixed kernel family, fixed tile
+geometry and fixed 640 threadgroups, which is exactly the configuration where
+the dispatch-count model predicted a gain.
+
+It also removes the special case this arm otherwise needs for M4. The M4 win
+(−11.2 ms) was not a dispatch-count win either: fusing `Wk`/`Wv` into the bank
+pushed those shapes off split-K, deleting an entire accumulation pass and its
+traffic. Under `H_w` both machines obey one rule — traffic and concurrency —
+and the apparent M4/M5 contradiction disappears without either machine needing
+its own mechanism.
+
+Falsifiability is preserved and the discriminator is unchanged and cheap. The
+`[Wk;Wv]`-only fusion (§10) has a bank of **8.39 MB**, *smaller* than `Wq`, and
+still removes dispatches. The three hypotheses separate on it:
+
+| hypothesis | prediction for `[Wk;Wv]`-only fusion |
+|---|---|
+| `H_a` | no regression — the working set shrinks |
+| `H_b` | the same per-dispatch penalty as R1 |
+| `H_w` | no *gain* from the dispatch reduction; sign follows the traffic change |
+
+Practical consequence for the next arm, which is the transferable part: score a
+proposed M5 change by **Δbytes resident** and **Δindependently-schedulable
+units**, not by Δdispatches. Under `H_w` the entire "fewer launches" family is
+closed on M5 a priori, and the decode axis should be screened the same way
+before a receipt is spent on it.
