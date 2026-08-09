@@ -1,0 +1,83 @@
+########## SESSION C NULL: cand-cand (offset 1) ##########
+NULL: cand minus cand   offset=1   n_duplex=7
+window: last 80794 command buffers = 406/step x 199 steady steps
+  duplex r102b-sessC slots  2(cand) ->  3(cand)  sign +1
+  duplex r102b-sessC slots  6(cand) ->  7(cand)  sign -1
+  duplex r102b-sessC slots 10(cand) -> 11(cand)  sign +1
+  duplex r102b-sessC slots 14(cand) -> 15(cand)  sign -1
+  duplex r102b-sessC slots 18(cand) -> 19(cand)  sign +1
+  duplex r102b-sessC slots 22(cand) -> 23(cand)  sign -1
+  duplex r102b-sessC slots 26(cand) -> 27(cand)  sign +1
+
+  us/step    adj d           adj CI    abs d           abs CI   absSD  sig  kernel
+   1499.5    +0.00 [  +0.00,  +0.00]    +1.82 [  -0.36,  +4.01]    2.36       routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2
+   1339.6    -0.24 [  -2.31,  +1.82]    +1.38 [  -1.40,  +4.17]    3.01       decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1
+   1113.2    +0.15 [  -1.65,  +1.95]    +1.50 [  -0.70,  +3.71]    2.38       oproj_act_h64_v1_lm1_pw1_sc1_se1
+    860.2    +0.33 [  -0.74,  +1.39]    +1.37 [  -0.32,  +3.07]    1.83       routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6
+    632.7    -0.57 [  -1.23,  +0.10]    +0.20 [  -0.54,  +0.95]    0.80       sliding_fused_attn_ring_v1
+    422.2    -0.25 [  -0.65,  +0.15]    +0.26 [  -0.23,  +0.75]    0.53       lmhead_int5_base_coarse_delta_bf16_v1
+    363.2    +0.00 [  -0.50,  +0.51]    +0.45 [  -0.32,  +1.21]    0.82       decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1
+    319.5    +0.07 [  -0.44,  +0.58]    +0.46 [  -0.22,  +1.13]    0.73       residual_rms_router_bf16_2048_rpg8_keys_v1
+    301.4    -0.57 [  -2.63,  +1.50]    -0.20 [  -2.40,  +2.00]    2.38       oproj_act_h48_v1_lm1_pw1_sc1_se1
+    285.6    +0.72 [  -1.31,  +2.76]    +1.07 [  -1.10,  +3.26]    2.35       shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1
+    269.5    +0.06 [  -0.63,  +0.76]    +0.39 [  -0.28,  +1.06]    0.72       dense_gate_up_swiglu_bf16_v1
+    247.2    +0.10 [  -0.35,  +0.54]    +0.40 [  -0.27,  +1.07]    0.72       full_fused_attn_grow_v1
+    242.6    -0.63 [  -1.63,  +0.37]    -0.34 [  -1.22,  +0.54]    0.96       gate_sp_h64_v1
+    186.3    -0.79 [  -1.52,  -0.05]    -0.56 [  -1.35,  +0.23]    0.86       prefill_router_tournament_ordinal_norm_active64_v2
+    142.1    -0.56 [  -0.88,  -0.23]    -0.39 [  -0.78,  +0.01]    0.43       rmsbfloat16
+    134.7    -0.32 [  -1.33,  +0.69]    -0.16 [  -1.02,  +0.72]    0.94       dense_down_residual_bf16_v1
+     79.3    -0.19 [  -0.47,  +0.09]    -0.09 [  -0.35,  +0.16]    0.28       gate_sp_h48_v1
+     75.9    -0.15 [  -0.50,  +0.21]    -0.05 [  -0.44,  +0.34]    0.42       lmhead_exact_fused_int5_sparse_refine_v1
+      9.0    +0.03 [  -0.23,  +0.29]    +0.04 [  -0.22,  +0.31]    0.29       argmax_bfloat16
+
+labels shown cover 8524 of 8542 us/step (99.8%)
+sum of shown per-label deltas: adj -2.8 [-19.0, +13.4]  abs +7.5 [-13.5, +28.7] us/step (CI sums are indicative)
+
+total steady GPU busy, ratio-adjusted vs control: -2.9 us/step [-10.1, +4.3]  (-0.034%)
+  score: -0.0450% [-0.1550, +0.0651]
+  per-duplex SD 7.79 us/step; n=7 -> +-7.21 us/step
+
+total steady GPU busy, unadjusted (absolute): +7.4 us/step [-6.0, +20.9]  (+0.087%)
+  score: +0.1138% [-0.0910, +0.3188]
+  per-duplex SD 14.49 us/step; n=7 -> +-13.40 us/step
+########## SESSION C NULL: base-base (offset 1) ##########
+NULL: base minus base   offset=1   n_duplex=6
+window: last 80794 command buffers = 406/step x 199 steady steps
+  duplex r102b-sessC slots  4(base) ->  5(base)  sign +1
+  duplex r102b-sessC slots  8(base) ->  9(base)  sign -1
+  duplex r102b-sessC slots 12(base) -> 13(base)  sign +1
+  duplex r102b-sessC slots 16(base) -> 17(base)  sign -1
+  duplex r102b-sessC slots 20(base) -> 21(base)  sign +1
+  duplex r102b-sessC slots 24(base) -> 25(base)  sign -1
+
+  us/step    adj d           adj CI    abs d           abs CI   absSD  sig  kernel
+   1498.4    +0.00 [  +0.00,  +0.00]    -0.57 [  -1.74,  +0.59]    1.11       routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2
+   1338.8    +0.01 [  -2.17,  +2.19]    -0.50 [  -1.87,  +0.87]    1.31       decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1
+   1119.5    -1.52 [  -2.58,  -0.45]    -1.95 [  -2.91,  -0.98]    0.92  ***  oproj_act_h64_v1_lm1_pw1_sc1_se1
+    859.5    +0.04 [  -0.76,  +0.84]    -0.29 [  -1.05,  +0.48]    0.73       routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6
+    647.8    -0.06 [  -0.93,  +0.81]    -0.31 [  -1.08,  +0.47]    0.74       sliding_fused_attn_ring_v1
+    421.5    +0.20 [  -0.37,  +0.77]    +0.04 [  -0.72,  +0.79]    0.72       lmhead_int5_base_coarse_delta_bf16_v1
+    363.0    +0.04 [  -0.44,  +0.51]    -0.10 [  -0.32,  +0.11]    0.21       decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1
+    319.5    +0.47 [  -0.35,  +1.28]    +0.34 [  -0.44,  +1.12]    0.74       residual_rms_router_bf16_2048_rpg8_keys_v1
+    302.4    -0.87 [  -1.90,  +0.17]    -0.98 [  -2.01,  +0.04]    0.98       oproj_act_h48_v1_lm1_pw1_sc1_se1
+    285.9    -0.29 [  -2.80,  +2.24]    -0.40 [  -2.93,  +2.14]    2.42       shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1
+    269.9    +0.12 [  -1.12,  +1.36]    +0.01 [  -1.04,  +1.07]    1.00       dense_gate_up_swiglu_bf16_v1
+    255.0    -0.29 [  -1.70,  +1.13]    -0.39 [  -1.63,  +0.86]    1.19       full_fused_attn_grow_v1
+    242.6    +0.03 [  -1.05,  +1.12]    -0.06 [  -1.01,  +0.89]    0.90       gate_sp_h64_v1
+    186.3    -0.06 [  -0.98,  +0.86]    -0.13 [  -1.03,  +0.77]    0.86       prefill_router_tournament_ordinal_norm_active64_v2
+    142.0    -0.02 [  -0.42,  +0.38]    -0.08 [  -0.42,  +0.26]    0.32       rmsbfloat16
+    133.9    +0.27 [  -0.97,  +1.52]    +0.22 [  -1.12,  +1.57]    1.28       dense_down_residual_bf16_v1
+     79.2    +0.07 [  -0.27,  +0.40]    +0.04 [  -0.27,  +0.34]    0.29       gate_sp_h48_v1
+     76.3    +0.07 [  -0.45,  +0.60]    +0.04 [  -0.44,  +0.53]    0.46       lmhead_exact_fused_int5_sparse_refine_v1
+      9.5    +0.08 [  -0.27,  +0.44]    +0.07 [  -0.27,  +0.43]    0.33       argmax_bfloat16
+
+labels shown cover 8551 of 8570 us/step (99.8%)
+sum of shown per-label deltas: adj -1.7 [-19.5, +16.2]  abs -5.0 [-22.3, +12.4] us/step (CI sums are indicative)
+
+total steady GPU busy, ratio-adjusted vs control: -1.6 us/step [-10.2, +7.1]  (-0.018%)
+  score: -0.0237% [-0.1556, +0.1083]
+  per-duplex SD 8.23 us/step; n=6 -> +-8.64 us/step
+
+total steady GPU busy, unadjusted (absolute): -4.8 us/step [-9.7, -0.0]  (-0.056%)
+  score: -0.0740% [-0.1478, -0.0001]
+  per-duplex SD 4.61 us/step; n=6 -> +-4.84 us/step
