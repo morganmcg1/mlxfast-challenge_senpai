@@ -846,7 +846,7 @@ public class RotatingKVCache: BaseKVCache, CustomDebugStringConvertible {
         let new = RotatingKVCache(maxSize: maxCacheSize, keep: keep, step: step)
         let s = self.state
         if !s.isEmpty {
-            new.state = s.map { $0[.ellipsis] }
+            new.state = s.map { $0 + MLXArray.zeros($0.shape, dtype: $0.dtype) }
         }
         new.metaState = self.metaState
         return new
