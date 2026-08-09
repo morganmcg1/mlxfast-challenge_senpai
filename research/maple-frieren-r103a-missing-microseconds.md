@@ -420,6 +420,73 @@ runtime trace. The `--profile` hook (`research/nezuko-pr158-gpuprof-hook.patch`)
 is deliberately not applied to these snapshots, because applying it would edit
 the submitted surface of both arms and break the clean OLD/NEW contrast.
 
+### 2.5 Exact geometry of the 2-deep → 4-deep change (static, verified)
+
+§ 2.3 identified the pipelined sliding-attention inner loop as the largest
+NEW-only mechanism on the decode path. Before any timing it is worth pinning
+down exactly what changed, because several plausible-sounding explanations turn
+out to be excluded by the code itself.
+
+**Verified in source.** Kernel `laguna_sliding_fused_attn_ring_v1`
+(`LagunaRuntimeModel.swift:1507`, source string from `:1516`):
+
+```text
+constexpr int BD = 32;          // lanes per simdgroup
+constexpr int BN = 32;          // simdgroups per threadgroup
+constexpr uint head_dim = 128;
+constexpr uint window   = 512;  // == N during steady decode
+constexpr int qk_per_thread = 4;
+constexpr int v_per_thread  = 4;
+typedef float U;
+```
+
+Dispatch (`:1964-1972`): `threadGroup: (1024, 1, 1)`,
+`grid: ((heads / 2) * 1024, 1, 1)`. With `heads == 64` that is **32
+threadgroups of 1024 threads**, one per query-head pair; each threadgroup holds
+`BN == 32` simdgroups and must be resident in its entirety on a single GPU core.
+
+The loops:
+
+| | main loop | at | remainder / peel |
+| --- | --- | --- | --- |
+| OLD sliding | `int i = sg; for (; i + BN < N; i += 2 * BN)` | `30f752df:1547-1548` | **none** |
+| NEW sliding | `int i = sg; for (; i + 3 * BN < N; i += 4 * BN)` | `:1638-1639` | **none** (loop closes `:1817`, next statement is the `if (lane == 0)` reduction at `:1819`) |
+| OLD full-attn | `for (; i + BN < N; i += 2 * BN)` | `30f752df:1989` | — |
+| NEW full-attn | `for (; i + BN < N; i += 2 * BN)` | `:2168` | **unchanged** |
+
+**Trip counts at `N == 512`**, for every simdgroup `sg ∈ [0, 31]`:
+
+- OLD: `i = sg, sg+64, …, sg+448` → **8 iterations × 2 key-blocks = 16 blocks**.
+- NEW: `i = sg, sg+128, sg+256, sg+384` → **4 iterations × 4 key-blocks = 16 blocks**.
+
+Both tile the 512-key window exactly: 32 simdgroups × 16 blocks = 512 keys, with
+no peel iteration, no remainder loop and no masked lanes. The two arms issue
+**identical** total loads and identical total arithmetic.
+
+**Extra live per-thread state in NEW's body** (`:1651-1662`): `pipe_kc[4]` and
+`pipe_kd[4]` add 8 `float`, and `pipe_vc0..3`/`pipe_vd0..3` add 8 `bfloat` —
+about 48 bytes per thread, on the order of a dozen extra 32-bit registers.
+
+#### What this rules out before measuring
+
+- **Peel / remainder penalty is not available as an explanation.** A deeper
+  pipeline usually pays a tail cost when the trip count is not a multiple of the
+  unroll factor. Here `512` is a multiple of both `2·BN` and `4·BN`, so neither
+  arm executes a single wasted block.
+- **Neither is extra work.** Loads, multiplies and the online-softmax rescales
+  are one-for-one identical between the arms; only their *scheduling* and their
+  *live-range overlap* differ.
+- **Occupancy cannot absorb the register increase.** The threadgroup size is a
+  hard-coded 1024. Extra register demand cannot be paid by shrinking the
+  threadgroup; it is paid either out of spare register file or by spilling.
+
+*(Inference, not verified: that leaves instruction scheduling, register
+pressure and spilling as the mechanism if this loop is the cause. It also means
+the sign is genuinely a hardware question — trip count drops 8 → 4 while each
+body doubles in size and live state, and which side wins depends on the core's
+register budget and memory-latency-to-issue ratio. § 4 measures it on M4 Pro;
+§ 6 states plainly what that does and does not license about M5.)*
+
 ---
 
 ## § 3 Rung 0 — build and parity
