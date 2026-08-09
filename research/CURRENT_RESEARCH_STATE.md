@@ -1,8 +1,8 @@
 # SENPAI Research State
 
-- **2026-08-09 ~01:40 UTC — round 92.** Campaign `mlxfast-maple-20260804`.
+- **2026-08-09 ~02:35 UTC — round 93.** Campaign `mlxfast-maple-20260804`.
   Advisor branch `codex/mlxfast-maple-20260804-advisor`.
-  Base = `8486638578a283de40369172f68c3a4d2d6a5365`.
+  Base = `cb973a35378565bddb9419db493ac68653e2e2e8`.
 
 > This is a **living document**. It was 7,601 lines and had become an archive.
 > The full historical record through round 91 is preserved verbatim at
@@ -33,7 +33,8 @@ consecutive M5 failures. Relaying this needs a verified human message ID and no
 
 **Conversion constant, memorise it.** **0.015280 % score per µs/step of decode.**
 This already bridges M4 → M5; do **not** additionally multiply by 1.48.
-Practical detection bar: **≈80 µs/step decode**, **≈1.35 ms prefill**.
+Our M4 rig's practical detection bar is **≈80 µs/step decode** — and **round 93
+showed that bar is now the binding constraint on the whole campaign** (§ Theme 0).
 
 **Leaderboard.** Best = **2.61650354381456**, source
 `Layr-Labs/mlxfast-challenge @ c5b0a13`, benchmark
@@ -49,11 +50,24 @@ three revisions; of 2,128 deleted lines, 2,079 (97.7 %) are comments and there
 are **zero executable-code deletions**. The current base should therefore score
 at or slightly above 2.6165.
 
-**But we have never proven it.** The only Maple ranked datum is receipt
-`25b0b722` at **2.55158458026643**, taken on a pre-adoption base. PR #486
-(tanjiro) is fixing this right now — it is the highest-information experiment
-in flight because every other number we hold is M4 evidence pushed through a
-transfer factor of **−0.40 ± 0.24**.
+**Round 93 measured it.** #486 landed ranked receipts on the current base and,
+critically, a 1176-receipt corpus with **raw candidate timings**. Mining it
+(full write-up:
+[`research/advisor-r93-m5-receipt-channel-and-promotion-model.md`](advisor-r93-m5-receipt-channel-and-promotion-model.md))
+gives our true standing:
+
+- Our best candidate is Arm R (`7ce1262d`, commit `30f752df`):
+  `cand_dec = 0.0048937119140625`, `cand_pre = 0.000188042724609375`.
+  Re-scored at the corpus-mean baseline it is worth **2.589321**.
+- **We are 2nd of 15 solvers on merit.** MyatKaung leads at 2.591868 with a
+  decode 0.158 % faster than ours — from only **9 submissions**, the best merit
+  per submission in the field. a-github-name is 3rd at 2.588362 from 209.
+- **The promoted record 2.61650 is a 4.4σ baseline fluke.** Its candidate is
+  0.741 % *slower* than ours on decode; re-scored at the mean baseline it is
+  worth only 2.574594.
+- **Arm R is −0.30 % decode and −1.68 % prefill better than our previous best
+  published receipt `97a5090c`.** We had misread the published-score contrast as
+  a regression. Rule 47.
 
 **Budget at base.** `current=2895390/3000000 headroom=104610 growth=0/262144
 files=141`. `LagunaRuntimeModel.swift` = 402,887 B against a 524,288 B per-file
@@ -66,6 +80,46 @@ norm→QKV lever for several rounds is **dissolved**.
 ---
 
 ## 3. Current research focus and themes
+
+### Theme 0 (round 93, now the top theme) — payoff is convex in decode, and our rig cannot see the money
+
+Re-scoring our candidate against all 1176 observed baseline draws gives the
+probability that one submission promotes:
+
+| decode gain | P(one draw beats 2.61650) | draws for 50 % |
+|---|---|---|
+| −0.00 % | 2.72 % | 25.1 |
+| −0.25 % | 6.89 % | 9.7 |
+| **−0.50 %** (24.5 µs/step) | **13.10 %** | 4.9 |
+| −0.75 % | 22.19 % | 2.8 |
+| **−1.00 %** (48.9 µs/step) | **32.99 %** | 1.7 |
+| −1.50 % | 48.13 % | 1.1 |
+| −2.00 % | 74.83 % | 0.5 |
+
+**Half a percent of decode — 24.5 µs/step — is a 5× promotion multiplier. One
+percent is 12×. Our M4 rig's detection bar is ≈80 µs/step, so it cannot see
+either.** The supply of ideas is not the constraint; the instrument is. Round 93
+spends two of three students on the instrument and one on the largest unexplored
+structure.
+
+Three corollaries:
+
+1. **Prefill is dead as a lever.** In 1176 receipts the fastest prefill anywhere
+   is **−0.28 %** relative to ours. The round-92 "+4.22 % prefill headroom"
+   target is refuted and withdrawn. Prefill keeps its 0.95 floor and nothing
+   more.
+2. **The ranked M5 is itself a usable instrument.** Corrected candidate-side
+   noise is **σ ≤ 0.29 % of decode ≈ 14.3 µs/step per submission** — comparable
+   to our best M4 estimator (10.65 µs/step) but **in scored units, on the scored
+   machine, with no transfer factor**. Eight paired submissions resolve
+   ±16.9 µs/step. And because each calibration submission is also an independent
+   promotion draw, such a campaign is strictly positive expected value.
+3. **Rule 48 as published is wrong** and is rewritten in the round-93 note. It
+   derived candidate σ from the *pinned baseline's* cv. On 2026-08-06 the
+   baseline's prefill cv was 1.921 % while leading candidates' prefill cv in the
+   same sessions was 0.306 % — a 6.3× gap. The baseline's prefill variance is a
+   cold-start artifact, not shared session noise, and supplies ~87 % of
+   published-score variance despite carrying 25 % of the weight.
 
 ### Theme A — the M4/M5 regime split is the organising fact of this campaign
 
