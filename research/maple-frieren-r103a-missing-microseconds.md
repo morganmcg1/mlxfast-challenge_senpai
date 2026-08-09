@@ -618,6 +618,181 @@ assumption is named in the same sentence.
 
 ---
 
+## § 1.12 Second adversarial design review (frontier), and what it changes
+
+After § 1.11 was written I put the rung-1B design to an independent frontier
+reviewer with no access to this conversation. It was given the palindrome
+proposal, the arm-D question, the budget, and the § 1.11 decision rule, and
+asked seven numbered questions. Its verdict is recorded here *before* any
+rung-1 number is unblinded, so the changes below are design changes, not
+post-hoc rationalisation.
+
+The review's bottom line: the palindrome is close to optimal for the stated
+estimand, but it has two defects, the median is blind to the effect class this
+change most plausibly produces, and the 8 µs/step target may be arithmetically
+out of reach on this host.
+
+### 1.12.1 Adopted
+
+**A1 — rotate the arm→position assignment across repetitions.** A fixed
+`A B C C B A` locks A to positions {1,6} for the whole session. Mirrored
+positions cancel *linear* drift exactly, but any stable position effect or
+*quadratic* within-rep curvature does not cancel: with centred positions the
+mean squared position is 6.25 (outer), 2.25 (mid), 0.25 (inner), so a curvature
+term `q·x²` biases A−C by `6q` and A−B by `4q` — and the paired t reports a
+*tight* interval around the biased value, which is the worst possible failure
+mode. Rung 1B will cycle the three palindromic assignments
+`A B C C B A`, `B C A A C B`, `C A B B A C` across reps. This costs nothing,
+converts a bias into noise, and makes the position effect estimable.
+
+**A2 — report the within-arm nulls per separation, not pooled.** In a
+palindrome the three nulls sit at lags 5, 3 and 1. Under any positive
+autocorrelation their variances differ (`2s²(1−ρ_lag)`), so they are not
+exchangeable and pooling them is wrong. They are bias/drift *diagnostics*; the
+primary error estimate stays the empirical SD of the per-rep contrasts.
+
+**A3 — rung 1 *is* the pilot the review asks for.** The review's central
+practical warning is that nobody has measured `s`, the between-rep SD of a
+single slot median on this host, and that if it matches the relative noise of
+the M5 receipt quintuplet (0.29–0.34 % of 4,141 µs) then `s ≈ 24–28 µs` and the
+8 µs/step target is infeasible in *any* design that fits the budget. Rung 1 is
+already 24 analysed reps of exactly that quantity, on this host, at this slot
+length, with these binaries. I will therefore take `s` from rung 1 rather than
+spend a second pilot, and size rung 1B from it.
+
+**A4 — a pre-registered secondary statistic vector, recovered for free.** The
+median over 249 steps is blind to precisely the effects a 102-line decode change
+is most likely to introduce. Three matter here:
+
+- *Step 0.* The official `T` includes the first decode step at weight 1/128; my
+  primary statistic discards it. In `rung1/rep00-pos2-old` step 0 is 9.387 ms
+  against a median of 8.234 ms, i.e. **+1.153 ms**, which at the official 1/128
+  weight is **+9.0 µs/step** — the same order of magnitude as the entire
+  question. A first-use cost (lazy table build, pipeline-state creation, first
+  cache allocation) is exactly the kind of thing a prefetch peel or a variant
+  dictionary could move, and it would be invisible to the median.
+- *Sub-majority tails.* Anything in fewer than 50 % of steps — periodic
+  reallocation as KV grows, command-buffer flush cadence, allocator episodes.
+  A +300 µs spike every 32 steps moves the mean by +9.4 µs and the median by ~0.
+- *Shape trades.* A change that speeds the mode and fattens the tail scores as
+  a win on the median and a loss on the official mean.
+
+The `--dump-steps` files already contain all 250 per-step times **including
+step 0** (`decode_probe.py:192-195` writes every span; the step-0 drop at
+`:243` is in the *profile* path only). So this costs no re-run. From every
+slot, rung 1 included, I will additionally compute: step 0 alone;
+`mean(0..127)` as the **official analog**; `mean(1..249)`; p90; p99; and spike
+mass `Σ(step − median)₊ / N`. The median stays the primary statistic — it is
+the right choice on a non-cleanroom host — but **if the median and the
+official analog disagree in sign, the official analog governs the decision**,
+because it is the statistic the score is actually made of.
+
+**A5 — always publish the signed interval; derive `X` only when it covers 0.**
+The `X = max(|lo|,|hi|)` contract silently presumes a null: for an estimate of
++25 with CI [20, 30] it reports "excludes effects larger than 30", which is
+true and absurd. Alongside `X` I will publish the 80 %-power MDE (≈2.9·SE,
+against the CI's 2.06·SE, because a half-width overstates what the experiment
+could reliably *detect*), the one-sided reading where it is the
+decision-relevant one, and a TOST against the pre-registered 32.4 µs/step
+margin.
+
+**A6 — multiplicity.** Three arms give three pairwise intervals; at per-pair
+95 % a joint "no pair differs by more than X" claim has roughly 86 % coverage.
+Per-pair claims stay at 95 %; any *joint* claim uses Bonferroni (t at 0.9917,
+≈ +9 % width) and says so.
+
+**A7 — three standing qualifiers on every `X`.** (a) the M5 mapping is a
+*range* over transfer factor ∈ [0.436, 1.000], not a point; (b) attribution to
+source *semantics* is limited by unquantified per-binary layout noise until
+A8's gate runs; (c) an M4 Pro bound covers M4-visible mechanisms only — gen 16
+selects no `_nax` kernel, threadgroup geometry can flip sign across core
+counts, and a 48 GiB host runs the low-memory startup profile.
+
+**A8 — the layout arm, restructured and made conditional.** With one binary per
+arm, per-binary compilation/layout noise is *confounded with the treatment*,
+and once the measurement half-width is below 8 µs it becomes the dominant error
+for any source-level attribution. But a single duplicate arm D gives one draw
+and 1 df: if σ_L were 12 µs there is a ~28 % chance `|Δ_CD| < 6 µs` and the
+gate returns false comfort. The better shape for the same wall clock is a
+**two-marker family**, `A B C D1 D2 C B A`, with D1 and D2 two *distinct*
+marker-comment builds of C. The D-family mean stays at the position midpoint so
+every drift cancellation survives, D1−D2 is a lag-1 cross-binary null, and it
+yields two layout draws instead of one. Even so, 2 df can only run the
+qualitative gate "is |C−D| comparable to |C−B|?" — it cannot *estimate* σ_L
+(a 2-df SD interval spans roughly [0.5σ, 3.7σ]). Adopted **conditionally**: run
+it only if rung 1 gives `s ≤ 15 µs`, since at 8 slots/rep the feasible `s`
+drops from 19.8 to 16.6 µs at a 2 h budget. If `s > 15`, rung 1B stays at 6
+slots and the layout gate is deferred to a short dedicated session, which I
+will recommend rather than run.
+
+**A9 — QC fixed now, before unblinding.** A slot is discarded iff it reports
+≥ 1 teacher-forcing divergence, or its p99/median exceeds 1.30. The discard
+count is reported. No other exclusion, and no post-hoc rule.
+
+**A10 — join every slot to its binary digest.** The failure that created this
+whole assignment was a receipt attributed to the wrong tree. Each arm's
+snapshot SHA-256 is already recorded by rung 0 (G0.3) and re-checked in each
+run's `provenance.txt`; the analysis will join on it and drop any slot whose
+arm digest is absent from that table.
+
+### 1.12.2 Declined, with reasons
+
+**D1 — do not relax the 8 µs/step half-width target.** The review is
+arithmetically right that 12 µs/step would still resolve a 32.4 µs/step
+M4-equivalent at ≥ 2.3σ and would free about half the budget. But the advisor
+set 8 explicitly and called it "the number that decides the round". I keep 8 as
+the design target and additionally report what the achieved interval says at 12
+and under TOST-32.4, so the advisor can see what a relaxation would have bought
+without my having taken it.
+
+**D2 — do not drop arm A.** The review suggests falling back to a 4-slot
+`B C C B` if `s` pilots high, on the grounds that B↔C (R3) is the
+decision-relevant contrast and the M4 cannot settle A↔B anyway. A↔B is the
+exact receipt pair the retracted +20.149 came from; deleting it would leave the
+retraction untested on my own rig, which is the one thing this experiment can
+cheaply contribute. If `s` makes 8 µs unreachable I will report the achieved
+half-width for all three contrasts under N-5 rather than quietly answer a
+different question.
+
+**D3 — a longer fixture is not available.** The review's cheapest
+variance-reduction suggestion, 250 → 1000 steps for about +14 % wall clock, is
+blocked on correctness, not cost: `public_longcopy_gate_english_512_256.json`
+supplies 256 expected tokens, so teacher forcing caps at my preregistered 250
+steps. Going further requires free-running, which changes the trajectory and
+voids the token-identity gate that makes these slots comparable at all.
+
+**D4 — the per-step sync concern is checked and dismissed.**
+`research/decode_probe.py:165-168` times a driver-side IPC round-trip per
+`decode_step`. The worker must return the sampled token, so a full evaluation
+barrier per step is inherent to one-token decoding — and it is exactly what the
+serial non-speculative track *mandates*, so no legitimate dispatch-overlap
+mechanism is being suppressed by the instrument. The IPC cost is a fixed
+additive constant common to both arms: it slightly dilutes *relative* (%)
+effects and leaves *absolute* µs/step differences unbiased. Every claim in this
+report is in absolute µs/step, so this is not a threat to validity. Sanity
+check: the M4 median of 8.234 ms/step against the M5 baseline `T` of
+4.142 ms/step is a ratio of 1.99, against a memory-bandwidth ratio of 2.29 —
+IPC is not a dominant term.
+
+**D5 — the strategic-retreat recommendation is the advisor's call, not mine.**
+The review's strongest claim is that the honest M5 statement is already
+available: with σ_receipt = 12.1 µs (df 14), a two-receipt difference of
+20.149 µs is z ∈ [0.75, 1.61], single-receipt-pair resolution is ±25–40 µs, and
+20 µs is below the instrument's least significant bit; resolving B−A to ±8 µs
+*on M5* would need ≈ 19 receipts per arm. Its recommendation is to declare
+20 µs below the official noise floor, stop localising it, and redirect the
+programme at changes with expected M5 wins of ≥ 30–40 µs, which a single paired
+official run can confirm. This agrees with the advisor's own retraction and
+with fern's #576 interval. I record it verbatim and surface it in the reply; I
+do not act on it.
+
+**D6 — the layout lottery is reported, not exploited.** If the A8 gate ever
+finds σ_L ≳ 10 µs, that implies official ranking itself carries a per-submission
+compile lottery of that size, which is decision-relevant context for promotion
+strategy. I will report the number to the advisor. Re-rolling marker builds to
+harvest it would be against the spirit of the rules and I will not do it.
+
+
 ## § 2 Static pre-read of the OLD→NEW delta (no timing)
 
 This was completed before any build and it materially narrows N-4. Method: for
