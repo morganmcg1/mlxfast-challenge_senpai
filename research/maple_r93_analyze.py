@@ -29,16 +29,27 @@ GEOM = {
     "qkv": {
         "threads": 327680 * 30 + 262144 * 10,
         "alu_ops_per_n": (327680 * 30 * 4 + 262144 * 10 * 4) * 4,
+        "dispatches": 40,
     },
     "oproj": {
         "threads": 16384 * 40,
         "alu_ops_per_n": (16384 * 30 * 16 + 16384 * 10 * 12) * 4,
+        "dispatches": 40,
     },
     "routed": {
         "threads": 131072 * 39,
         "alu_ops_per_n": 131072 * 39 * 4 * 4,
+        "dispatches": 39,
     },
 }
+
+# Rule 41: each SPLIT=1 dispatch boundary adds 1.4064 us inside the measured
+# per-kernel GPU interval. `off` vs `off@nosplit` busy_sum reproduces it here.
+SPLIT_TAX_US = 1.4064
+
+# M4 Pro, 20 GPU cores x 128 lanes x 1.398 GHz: 3.58e12 scalar FMA/s. Used only
+# to express an ALU ladder slope as a fraction of its issue-limited cost.
+ALU_OPS_PER_S = 3.58e12
 
 # Weight-plane bytes actually read per decode step (codes + packed 4-bit scale
 # nibbles + per-row scale base), plus activations. See the report for the
@@ -52,6 +63,8 @@ BYTES_PER_STEP = {
 # Same-host measured achievable read bandwidth for each kernel's access pattern
 # (senpai/tools/bandwidth-pattern-probe, M4 Pro, 2026-08-04).
 PATTERN_CEILING_GBPS = {"qkv": 236.6, "oproj": 236.6, "routed": 243.0}
+# Best read rate any pattern reached on this host: 64 MB sequential.
+SEQ_PEAK_GBPS = 262.5
 
 T95 = {1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447,
        7: 2.365, 8: 2.306, 9: 2.262, 10: 2.228, 11: 2.201, 12: 2.179,
@@ -107,8 +120,11 @@ def main() -> int:
 
     # ---- Roofline -------------------------------------------------------
     base = by_arm.get("off", [])
-    print(f"{'kernel':>8} {'us/step':>9} {'MB/step':>9} {'GB/s':>8} "
-          f"{'ceil GB/s':>10} {'% ceil':>8}")
+    print("roofline (raw = profiled interval; net = minus the SPLIT=1 "
+          f"dispatch tax of {SPLIT_TAX_US} us x dispatches/step)")
+    print(f"{'kernel':>8} {'raw us':>8} {'net us':>8} {'MB/step':>9} "
+          f"{'raw GB/s':>9} {'net GB/s':>9} {'ceil':>7} {'% ceil':>7} "
+          f"{'% seq':>7}")
     base_us = {}
     for tag in GEOM:
         vals = [r["rows"][tag]["us_per_step"] for r in base if tag in r["rows"]]
@@ -116,11 +132,14 @@ def main() -> int:
             continue
         us = sum(vals) / len(vals)
         base_us[tag] = us
+        net = us - SPLIT_TAX_US * GEOM[tag]["dispatches"]
         mb = BYTES_PER_STEP[tag] / 1e6
         gbps = BYTES_PER_STEP[tag] / (us * 1e-6) / 1e9
+        ngbps = BYTES_PER_STEP[tag] / (net * 1e-6) / 1e9
         ceil = PATTERN_CEILING_GBPS[tag]
-        print(f"{tag:>8} {us:9.1f} {mb:9.1f} {gbps:8.1f} {ceil:10.1f} "
-              f"{gbps/ceil*100:7.1f}%")
+        print(f"{tag:>8} {us:8.1f} {net:8.1f} {mb:9.1f} {gbps:9.1f} "
+              f"{ngbps:9.1f} {ceil:7.1f} {ngbps/ceil*100:6.1f}% "
+              f"{ngbps/SEQ_PEAK_GBPS*100:6.1f}%")
     print()
 
     # ---- Ladder fits ----------------------------------------------------
@@ -133,10 +152,33 @@ def main() -> int:
             if tgt in r["rows"]:
                 ladders[(tgt, kind)][int(n)].append(r["rows"][tgt]["us_per_step"])
 
+    # Every kind emits a distinct kernel name at level 0 with an identical
+    # body, so the spread across level-0 arms measures the name-only /
+    # placement effect that Rule 44 warns about, independent of any ladder.
+    print("level-0 placement controls (identical body, distinct kernel name):")
+    for tgt in GEOM:
+        zeros = {k[1]: sum(v[0]) / len(v[0])
+                 for k, v in ladders.items() if k[0] == tgt and 0 in v}
+        offv = [r["rows"][tgt]["us_per_step"] for r in base if tgt in r["rows"]]
+        if not zeros:
+            continue
+        spread = max(zeros.values()) - min(zeros.values())
+        shown = "  ".join(f"{k}:{v:.1f}" for k, v in sorted(zeros.items()))
+        offm = sum(offv) / len(offv) if offv else float("nan")
+        print(f"  {tgt:>8}  off:{offm:.1f}   {shown}   spread {spread:.1f} us")
+    print()
+
     print(f"{'kernel':>8} {'kind':>5} {'levels':>28} "
           f"{'us/step per n':>26} {'unit cost':>26}")
     for (tgt, kind) in sorted(ladders):
-        lv = ladders[(tgt, kind)]
+        lv = dict(ladders[(tgt, kind)])
+        if 0 not in lv:
+            # ld16 has no level-0 arm of its own; borrow the pooled level-0
+            # controls on the same kernel (identical body, different name).
+            pooled = [v for k, vv in ladders.items() if k[0] == tgt and 0 in vv
+                      for v in vv[0]]
+            if pooled:
+                lv[0] = pooled
         xs, ys = [], []
         for n, vals in sorted(lv.items()):
             for v in vals:
@@ -147,14 +189,15 @@ def main() -> int:
             f"{n}:{sum(v)/len(v):.0f}" for n, v in sorted(lv.items()))
         if kind in ("fma", "imad"):
             ops = GEOM[tgt]["alu_ops_per_n"]
-            # picoseconds of kernel time per added ALU op
-            unit = f"{slope*1e-6/ops*1e12:.3f} ps/op" if slope == slope else "n/a"
-            eff = f" ({ops/1e6:.1f} Mop/n)"
+            nominal = ops / ALU_OPS_PER_S * 1e6  # us/step if issue-limited
+            unit = (f"{slope/nominal*100:6.1f}% of issue-limited"
+                    if slope == slope else "n/a")
+            eff = f" ({ops/1e6:.1f} Mop/n, {nominal:.1f} us/n at peak)"
         else:
             w = 8 if kind == "ld8" else 16
             thr = GEOM[tgt]["threads"]
-            unit = (f"{slope*1e-6/(thr*w)*1e9*1e9:.3f} ps/B"
-                    if slope == slope else "n/a")
+            unit = (f"{thr*w/(slope*1e-6)/1e9:6.1f} GB/s marginal"
+                    if slope == slope and slope > 0 else "n/a")
             eff = f" ({thr*w/1e6:.1f} MB/n, {thr/1e6:.2f} Mld/n)"
         print(f"{tgt:>8} {kind:>5} {shown:>28} "
               f"{slope:9.1f} +/- {half:7.1f}  {unit:>14}{eff}")
