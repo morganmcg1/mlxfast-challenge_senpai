@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Relocate comment prose out of a submitted file into a research sidecar.
 
-Rung 2 of maple-r99-b-comment-byte-reclamation removes comment content from
-Sources/ files that count against the per-file editable cap. The assignment
-requires that DARKBLOOM_* flag documentation and receipt provenance survive the
-edit verbatim rather than being deleted, so this tool writes every removed
-comment block, in source order and byte-for-byte, to a Markdown sidecar under
-research/ before the strip runs.
+Used by maple-r99-b-comment-byte-reclamation rung 2 (Vendor/) and by
+maple-r103-c-lrm-comment-pool-rung2 (Sources/MLXFastModel/LagunaRuntimeModel.swift)
+to remove comment content from files that count against the per-file editable
+cap. Both assignments require that DARKBLOOM_* flag documentation and receipt
+provenance survive the edit verbatim rather than being deleted, so this tool
+writes every removed comment block, in source order and byte-for-byte, to a
+Markdown sidecar under research/ before the strip runs.
 
     nezuko_relocate_tool.py plan  FILE SIDECAR    # write sidecar, do not edit
     nezuko_relocate_tool.py apply FILE SIDECAR    # write sidecar, then strip
