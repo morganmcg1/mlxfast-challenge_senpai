@@ -167,9 +167,55 @@ is `t(0.975, 2n-2) * se`, reported in both percent and microseconds per step.
 
 *(table for n = 4, 6, 8 pending)*
 
-## 4. Arm B — M5 microseconds per dispatch *(pending)*
+## 4. Arm B — M5 microseconds per dispatch *(first rung landed)*
 
-*(OLS slope, CI, per-segment linearity check, prefill control pending)*
+**The M4 free region does not exist on M5. The discriminator fired cleanly.**
+
+| quantity | value |
+|---|---|
+| null mean candidate decode (n=2) | 4912.670 us |
+| ladder-K240 candidate decode | 5506.517 us |
+| difference | **+593.85 us (+12.09 %)** |
+| implied cost | **2.474 us per dispatch** |
+| predicted by M4 shape | ~0 us (K=240 sits inside the M4 free region) |
+| predicted by historical M5 OLS (1.9823 us/disp) | +475.8 us |
+| null-to-null spread, same quantity | 37.1 us |
+
+The observed step is **16x the entire null-to-null spread** and about 23 sigma
+on the n=2 sigma estimate. There is no reading of this data in which K=240 is
+free on M5.
+
+So the two machines disagree qualitatively, exactly as section 1.3 warned:
+
+- M4 Pro absorbs the first ~480 hazard-free dispatches at zero cost and only
+  reaches ~2 us/dispatch beyond K~1600.
+- M5 charges ~2.5 us/dispatch from K=0 with no free region at all.
+
+This is the mechanism from section 1.2 seen from the other side. The free
+region on M4 is CPU shadow: the injected GPU chain hides under the ~1 ms of
+CPU-side MLX graph building per decode step. The ranked M5 is a faster GPU
+behind a faster CPU, and on that machine the shadow is not long enough to hide
+even 240 dispatches.
+
+**Practical consequence for the campaign:** on the ranked machine a saved GPU
+dispatch is worth ~2.5 us of decode time, and that is a *lower bound* because
+the injected kernels are hazard-free while a real removed dispatch usually also
+removes a fence wait. At a session baseline of ~13 830 us and a candidate of
+~4913 us, removing 100 real dispatches per token is worth roughly 0.25 ms/token,
+i.e. about 5 % of candidate decode. Dispatch-count reduction is therefore a
+first-class optimisation target on M5 even though local M4 iteration will
+report it as worthless.
+
+Our measured 2.474 us/dispatch is ~25 % above the 1.9823 us/dispatch OLS slope
+from the 2026-08-05 historical receipts. Both are the same order and both
+exclude a free region; the remaining rungs (K=800, K=1600) will say whether the
+current-tree M5 response is linear and will tighten the slope CI.
+
+Prefill control across the three receipts so far: 187.637 / 187.734 /
+187.888 us, a total spread of 0.13 %. The ladder moves decode only, as designed.
+
+*(K=800 and K=1600 rungs, OLS slope with CI, and the formal linearity check are
+still pending.)*
 
 ## 5. Submission cadence policy
 
@@ -194,7 +240,8 @@ apart.
 |---|---|---|---|---|---|---|---|
 | 1 | null-1 | `25e1f18e-ef83-491f-8a65-8944765bfe46` | 0 | 160 | rejected (score did not improve best) | green | [`3szqrztf`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/3szqrztf) |
 | 2 | null-2 | `d11026c9-25c5-498c-936f-ed3db3335c30` | 0 | 160 | rejected (score did not improve best) | green | [`0doaq0w0`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/0doaq0w0) |
-| 3 | ladder-K240 | `99309c61-2b7e-4ce8-bb74-52bd3da8a03c` | 240 | 8 | in flight | | |
+| 3 | ladder-K240 | `99309c61-2b7e-4ce8-bb74-52bd3da8a03c` | 240 | 8 | rejected (score did not improve best) | green | [`fpi2ynyl`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/fpi2ynyl) |
+| 4 | null-3 | `05dd8bbf-c436-447c-99a8-8024d0fc023f` | 0 | 160 | in flight | | |
 
 "all gates green" means `passed_correctness`, both speedup floor verdicts,
 GPQA TTFT 9/9 and semantic GPQA 9/9, with `max_abs_diff = 0` over 1344 checked
