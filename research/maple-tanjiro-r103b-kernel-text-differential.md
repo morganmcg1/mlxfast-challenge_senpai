@@ -711,6 +711,26 @@ per-decode-step dispatch delta is exactly zero.**
   kernel's name and MSL text exactly, and its dispatch trace is identical to OLD
   in all 11,247 rows. Mechanism B has no flag and has never been re-measured
   since it landed.
+- **Neither mechanism changes work; both are occupancy bets (§7.2).** I walked
+  B's loop bounds exhaustively: with `i = sg` striding by `BN = 32`, the OLD
+  2-way loop runs 8 iterations and the NEW 4-way loop runs 4, and both cover
+  exactly the same 16 key slots `sg + 32m`, m = 0..15, for all 32 simdgroups
+  (32 x 16 = 512 = `N`). There is **no tail or remainder loop in either
+  variant** - the loop is followed immediately by the `max_scores[sg]` write.
+  So B is a pure unroll-depth change and A is a pure prefetch: the only thing
+  either can buy or lose is latency hiding versus register pressure. Per lane,
+  A costs **+32 B (8 GPRs)** held across a threadgroup barrier in a 512-thread
+  TG, and B costs **+48 B (12 GPRs)** straight-line in a 1024-thread TG. Both
+  dispatch **exactly 32 threadgroups** (A: 16384/512; B: 32768/1024, structural
+  because `head0 = pair_tg * 2` and 64/2 = 32).
+- **That 32-threadgroup number is why I want the M5 leg and not a local
+  verdict.** This host is a 20-GPU-core M4 Pro, so 32 threadgroups is two waves
+  (20 then 12); any >= 32-core Max-tier ranked host runs one wave at <= 1 TG per
+  core. Register pressure that costs nothing at one TG per core can cost a
+  second resident TG in the two-wave regime and vice versa, so the local A/B in
+  §8 is **structurally uninformative** for ranking A against B, not merely
+  underpowered - exactly the "threadgroup geometry can change sign across core
+  counts" case in `AGENTS.md`. I am labelling it directional only.
 - **Rider 1 resolved.** Neither `_idx_v1` nor `_ns1` QKV kernels are compiled or
   dispatched at either revision - dormant on reachability evidence, not just on
   reading the source.
