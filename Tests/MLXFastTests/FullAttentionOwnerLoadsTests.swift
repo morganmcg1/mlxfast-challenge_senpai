@@ -73,7 +73,7 @@ private func makeFullAttentionInputs() -> FullAttentionInputs {
         ),
         angles: (MLXArray(0..<(headDim / 2)).asType(.float32) * 0.001 + 0.02)
             .reshaped([1, 1, 1, headDim / 2]),
-        scale: MLXArray(Float(1.0 / Foundation.sqrt(Double(headDim))))
+        scale: MLXArray([Float(1.0 / Foundation.sqrt(Double(headDim)))])
     )
 }
 
