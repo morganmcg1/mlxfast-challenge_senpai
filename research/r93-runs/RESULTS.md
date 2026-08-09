@@ -151,11 +151,39 @@ ladder therefore measures what the ranked host will actually compile.
 ## 2. Arm A — candidate-side channel noise *(pending, n growing)*
 
 Method: N submissions whose scored source differs only in a trailing
-`// senpai-r93-null-<n>` comment. Machine-code identity was verified for the
-first pair. Statistic: sample standard deviation of `decode_seconds_per_token`
+`// senpai-r93-null-<n>` comment. Statistic: sample standard deviation of `decode_seconds_per_token`
 and `prefill_seconds_per_token` across the N candidate receipts, expressed as a
 percentage of the mean, with a chi-square confidence interval, compared against
 the corpus-derived upper bounds of **0.2924 % decode** and **0.2573 % prefill**.
+
+### 2.1 The nulls really are machine-code identical
+
+The whole arm rests on the claim that a trailing comment changes nothing that
+executes, so this was verified rather than assumed
+([`identity_check.sh`](identity_check.sh)). Four consecutive release builds of
+`mlxfast-runtime-worker` from the same scratch directory:
+
+| build | source state | sha256 |
+|---|---|---|
+| A | as submitted (`// senpai-r93-null-4`) | `d2efb5f4a7fd…` |
+| B | untouched, `touch`ed to force a rebuild | `d2efb5f4a7fd…` |
+| C | marker rewritten to `// senpai-r93-identity-probe` | `d2efb5f4a7fd…` |
+| D | marker restored | `d2efb5f4a7fd…` |
+
+All four are byte-identical. B==A establishes that the build itself is
+deterministic, which is what makes C==A meaningful: the comment edit is not
+merely *tolerated*, it leaves no trace in the binary at all. The ranked host
+compiles from the submitted source, so the same argument transfers.
+
+Two honest limits on that. First, this is the M4 toolchain; the ranked host
+compiles independently and the determinism control cannot be run there. Second,
+the K=0/TG=160 hash recorded in section 1 during the knee sweep (`53fae224…`)
+does *not* equal today's `d2efb5f4…`, even though `git diff` against `BASE_SHA`
+confirms the source is identical apart from the two trailing marker lines.
+Cross-*session* build hashes are therefore not comparable — most likely a
+clean-versus-incremental scratch-directory artifact. Section 1's comparison is
+unaffected because those three builds were made back to back in one session,
+but no cross-session hash equality should be read from this report.
 
 *(table and CI pending)*
 
