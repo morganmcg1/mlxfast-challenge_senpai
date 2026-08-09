@@ -1,0 +1,33 @@
+# PR #541 rung-2 Step 0: pipeline stats, fp_gather_qmm_rhs_expert_nax
+# control = base twin (HEAD:mlx-generated/fp_quantized_nax.cpp), arm = working tree
+# built by research/nax_msl_compile_check.sh EMIT_LIB=1 DARKBLOOM_SWIGLU_REGLOCAL DARKBLOOM_BSEARCH_HOIST
+# host: Apple M4 Pro (gen 16). _nax is compiled but never selected here.
+# captured 2026-08-09T13:44:47Z
+
+## CONTROL
+device: Apple M4 Pro
+  maxThreadgroupMemoryLength = 32768 B
+
+function  tgMem_B  maxThreads  width  regs_bound
+fp_gather_qmm_rhs_expert_nax_check_2048x1024_bk64       9232         1024     32  <=32*
+fp_gather_qmm_rhs_expert_nax_check_512x2048_bk64       9232         1024     32  <=32*
+
+* maxThreads is at the 1024 Metal API ceiling, so the register bound is saturated:
+  it cannot distinguish 8 from 32 registers/thread and cannot resolve the 104/128/160
+  half-register occupancy cliffs. Threadgroup-memory residency IS settled by tgMem_B.
+  Register-driven residency on the ranked GPU generation is NOT establishable from this
+  host's offline pipeline build; treat it as an open confound.
+
+## ARM (kWsStages=2)
+device: Apple M4 Pro
+  maxThreadgroupMemoryLength = 32768 B
+
+function  tgMem_B  maxThreads  width  regs_bound
+fp_gather_qmm_rhs_expert_nax_check_2048x1024_bk64      18448         1024     32  <=32*
+fp_gather_qmm_rhs_expert_nax_check_512x2048_bk64      18448         1024     32  <=32*
+
+* maxThreads is at the 1024 Metal API ceiling, so the register bound is saturated:
+  it cannot distinguish 8 from 32 registers/thread and cannot resolve the 104/128/160
+  half-register occupancy cliffs. Threadgroup-memory residency IS settled by tgMem_B.
+  Register-driven residency on the ranked GPU generation is NOT establishable from this
+  host's offline pipeline build; treat it as an open confound.

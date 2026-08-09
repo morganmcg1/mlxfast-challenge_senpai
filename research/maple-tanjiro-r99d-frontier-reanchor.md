@@ -1,0 +1,612 @@
+# r99-D — Re-anchor the instrument on the rebased frontier
+
+PR #541, revision `r99-d-rev1`, student maple-tanjiro.
+Base `c6c66344d9848d95158edc31f31943aabe4de079` (advisor branch head).
+Host: Apple M4 Pro, 48 GiB, macOS 26.5.2. **M4 — not admissible for `_nax`
+prefill ranking claims; decode census only.**
+
+---
+
+## 0. Branch re-anchor
+
+The previous assignment (`maple-r98-c-prefill-loader-pipeline`, double-buffer
+the routed gather-GEMM weight stage) is superseded. Its submitted-surface edits
+were dropped; the research record is preserved in
+`research/maple-tanjiro-r98-prefill-loader-pipeline.md` and
+`research/r97-logs/`.
+
+```
+git reset --hard c6c66344d9848d95158edc31f31943aabe4de079
+git diff c6c66344 HEAD -- Sources/ Vendor/ benchmark.json   # empty
+senpai/check-editable-budget.sh c6c66344d9848d95158edc31f31943aabe4de079
+  -> editable budget OK: current=2983849/3000000 headroom=16151
+     growth=0/262144 files=142 (base=142)
+```
+
+### 0.1 Divergence audit — the branch force-push is lossless
+
+Re-anchoring means the remote branch head `83da91e7` is **not** an ancestor of
+my local head, so publishing this result rewrites the remote branch. I audited
+what that discards before allowing it:
+
+```
+$ git diff --stat e510bb3d 83da91e7 -- Sources/ Vendor/ benchmark.json
+(empty)
+$ git log --oneline -2 83da91e7
+83da91e senpai assignment: maple-r98-c-prefill-loader-pipeline
+e510bb3 r98: close round-97 slate, add rule 68, set MLP thesis
+```
+
+`83da91e7` is the assignment stub commit on the old base and carries **zero**
+committed edits to the submitted surface. The r98-C double-buffer candidate
+never left the working tree — §"The working-tree patch itself" of
+`research/maple-tanjiro-r98-prefill-loader-pipeline.md` records it, and that
+note is carried forward (+571 lines relative to the remote head). The only
+tracked file present at `83da91e7` and absent locally is
+`Sources/MLXFastModel/LagunaRuntimeLayers.swift`, which the frontier itself
+folded back into `LagunaRuntimeModel.swift` between `e510bb3d` and `c6c66344`
+(−2597 / +2928 lines); it is base code, not my work. Nothing unique to the
+remote is lost.
+
+One consequence worth stating: because that file no longer exists on the
+frontier, the r98-C patch is not re-appliable as-is even if the advisor wanted
+it back. Any revival is a re-port, not a rebase.
+
+---
+
+## 1. Correction on the record: the `_nax` surface did NOT move
+
+The HOLD notice stated that the frontier sync "rewrote ... **`fp_quantized_nax.h`/`.cpp`
+(±585/584), `steel/gemm/nax.h` (+147), `gemm_nax.cpp` (+147), `quantized.cpp`
+(±92)**", and concluded that every line anchor in the r98-C brief was stale.
+
+That is true of commit `7181803` **relative to its own parent**, and false of
+the base move that actually affects this branch. Blob identity for
+`fp_quantized_nax.h`:
+
+| rev | blob |
+|---|---|
+| `e510bb3d` (old base) | `8b1738272ae4` |
+| `7181803^` (sync branch parent) | `0fdf46fea5ae` |
+| `7181803` (sync commit) | `8b1738272ae4` |
+| `c3a85ac`, `4f3108c`, `c6c66344` | `8b1738272ae4` |
+
+The frontier-sync branch was cut from an older point, so its diff restored these
+files *from* an older state *to* the organizer's version — which our advisor
+branch already carried verbatim at `e510bb3d`.
+
+Verified for all four files by blob hash: `fp_quantized_nax.h`,
+`mlx-generated/fp_quantized_nax.cpp`, `quantized.cpp`,
+`kernels/steel/gemm/nax.h` are **IDENTICAL** at `e510bb3d` and `c6c66344`.
+
+Net submitted-surface diff `e510bb3d -> c6c66344` (13 files, +4697/-2875):
+
+```
+Sources/MLXFastModel/LagunaConfig.swift                 7 +-
+Sources/MLXFastModel/LagunaRuntimeLayers.swift       2597 ----   (deleted)
+Sources/MLXFastModel/LagunaRuntimeModel.swift        2928 ++++
+Sources/MLXFastTransform/AffineMetadataCoding.swift   438 +++    (new)
+Sources/MLXFastTransform/TiedHeadMetadataCoding.swift  401 +++   (new)
+Sources/MLXFastTransform/Transform.swift               64 +-
+Vendor/.../MLXLMCommon/BaseConfiguration.swift         37 +-
+Vendor/.../MLXLMCommon/BatchKVCache.swift             109 +-
+Vendor/.../MLXLMCommon/CompilableKVCache.swift         57 +-
+Vendor/.../MLXLMCommon/CompilableRotatingKVCache.swift 61 +-
+Vendor/.../MLXLMCommon/CompiledDecode.swift            85 +-
+Vendor/.../MLXLMCommon/Evaluate.swift                 534 +-
+Vendor/.../MLXLMCommon/KVCache.swift                  254 +-
+```
+
+**Zero bytes of `Vendor/mlx-swift` MLX kernel or dispatch source changed.** The
+base move is entirely a Laguna-runtime + `MLXLMCommon` cache/decode-stack move.
+
+Consequences:
+
+1. Rule 68's `_nax` geometry premise **survives** the frontier move; it was
+   derived on kernel sources that are byte-identical to the ones now shipping.
+2. The r98-C line anchors into `fp_quantized_nax.h` are **not stale**.
+3. The `[Wk;Wv]`-only SLC/read-overlap discriminator does **not** need
+   re-derivation on new geometry.
+4. Prefill-side audit numbers (loader 50 LSU vs ~40 compute, loader ≈68 % of LSU
+   traffic, routed gather-QMM ≈54 % of prefill) rest on unchanged kernel source
+   and unchanged host tiling; they are only as stale as the Laguna-side dispatch
+   pattern that feeds them.
+5. Anything **decode-side** is genuinely suspect, because that is exactly where
+   all 4697 changed lines live. Part 1 is therefore aimed at the right axis.
+
+---
+
+## 2. Verified: the sliding-attention ring lost half its load pipeline
+
+Advisor's audit confirmed independently.
+
+| | old `e510bb3d` | new `c6c66344` |
+|---|---|---|
+| block anchor | `LagunaRuntimeModel.swift:1508-2027` | `:1416-1864` |
+| main loop | `for (; i + 3 * BN < N; i += 4 * BN)` | `for (; i + BN < N; i += 2 * BN)` |
+| K/V staging registers | `U pipe_kc[4]; U pipe_kd[4];` | `pair_planes = 2` |
+| KV blocks in flight | **4** | **2** |
+
+Kernel name literal `laguna_sliding_fused_attn_ring_v1` is unchanged
+(`:1417`), so the census label is directly comparable across bases.
+
+Under the round-98 thesis (decode/attn load streams are latency-bound and want
+bytes in flight), halving the in-flight KV depth should make this kernel
+**slower**, not faster.
+
+---
+
+## 3. Preregistration (committed before any result was read)
+
+### 3.1 Instrument
+
+Local-only GPUPROF dispatch-timing hook
+(`research/nezuko-pr158-gpuprof-hook.patch`, `device.{cpp,h}`), built to
+`.build-worker`, driven by `research/decode_probe.py`. Identical instrument and
+identical driver to the old-base census (PR #488) that produced the reference
+column, so the comparison is instrument-controlled.
+
+```
+swift build -c release --force-resolved-versions \
+    --scratch-path .build-worker --product mlxfast-runtime-worker
+env DARKBLOOM_GPU_PROFILE=1 DARKBLOOM_GPU_PROFILE_SPLIT=1 \
+    python3 research/decode_probe.py --steps 80 --profile --profile-top 250
+```
+
+The hook is committed as an explicitly labelled TEMP INSTRUMENT commit only
+because `run_job` refuses a dirty worktree; it is reverted before Part 3, and
+the final head carries an empty submitted-surface diff against the base.
+
+**Rule 43 applies:** `SPLIT=1` serialises command buffers, so per-kernel
+attribution from a `SPLIT=1` census is valid but its **total** is inflated
+(old base: 8528.3 µs/step `SPLIT=1` vs 7993.1 µs/step busy pool). Part 2's
+wall−busy gap therefore comes from a **`SPLIT=0`** run, never from `SPLIT=1`.
+
+### 3.2 Noise floor
+
+Three `SPLIT=1` censuses in one session before any interpretation. Per-kernel
+pooled σ from the old rig is 3.51 µs/step (this rig 3.34). The measured spread
+of the three runs is the floor actually used; no threshold is fixed before that
+spread is in hand (standing rule from fern's PR #543).
+
+### 3.3 The prediction under test
+
+Advisor's preregistered prediction: the sliding fused-attention pool must have
+**changed** from its old-base value of **636.0 µs/step** (21.20 µs × 30 layers,
+`SPLIT=1`, M4).
+
+Declared decision rule, fixed now:
+
+| outcome | reading |
+|---|---|
+| pool > 636.0 by more than 3σ | ring-depth regression is real and costly; quantify headroom for Frieren's #539 restoration |
+| pool < 636.0 by more than 3σ | the 2-deep rewrite is *faster*; #539 is chasing negative headroom |
+| \|pool − 636.0\| ≤ 3σ | one of: (a) advisor's audit wrong, (b) the 4-deep ring never mattered, (c) the instrument is not resolving this kernel — **and the assignment's stopping rule fires: report and do not spend the receipt** |
+
+Discriminating (c) from (a)/(b) if the null occurs: the census reports
+dispatch counts per label. If `laguna_sliding_fused_attn_ring_v1` appears with
+30 calls/step and a plausible µs/call, the instrument *is* resolving it and (c)
+is excluded — leaving (a) or (b), which the verified source diff in §2 already
+makes hard to sustain for (a).
+
+I am not tuning the instrument to agree with the audit. The §2 source diff was
+established by blob/AST inspection *before* the first census and is reported
+separately from the timing.
+
+### 3.4 Part 2 observable
+
+`wall − Σ(kernel busy)` per steady decode step, `SPLIT=0`, M4. Old-base
+reference **249 µs/step**. Reported as a decomposition (wall, busy sum, gap,
+gap %), never wall alone.
+
+---
+
+## 4. Results
+
+### 4.1 Part 1 — the prediction is CONFIRMED
+
+Three `SPLIT=1` censuses on unmodified `c6c66344`, M4, 80 steps,
+`cbs=406 dispatches=406`, `0 divergences` each:
+
+| rep | wall ms/step | busy ms/step | gap ms/step | gap % |
+|---|---|---|---|---|
+| 1 (warm-up outlier) | 9.905 | 8.629 | 1.278 | 12.9 |
+| 2 | 9.772 | 8.545 | 1.228 | 12.6 |
+| 3 | 9.765 | 8.543 | 1.222 | 12.5 |
+
+Rep 1 is discarded as the warm-up outlier by the preregistered rule; analysis
+uses the reps 2–3 mean. Logs: `research/r99d-logs/`.
+
+Common-mode normalization (`research/tanjiro-r99d-commonmode.py`): reference
+set n=18 kernels at ≥50 µs/step on the old base, common mode **×0.99950**,
+robust σ **0.491 %** of each kernel's own time. Pool total moved
+8528.3 → 8544.2 µs/step; the raw **+15.9 µs/step** decomposes into common mode
+**−4.3** and per-kernel excess **+20.17 µs/step**.
+
+| kernel | calls/step | old µs | new µs | excess µs | excess % | z |
+|---|---|---|---|---|---|---|
+| `sliding_fused_attn_ring_v1` | 30 | 636.0 | 648.4 | **+12.67** | +1.99 | 4.0 |
+| `full_fused_attn_grow_v1` | 10 | 229.7 | 239.6 | **+9.97** | +4.34 | 8.5 |
+| `residual_rms_router_…keys_v1` (was `…_pf1`) | 39 | 312.8 | 319.5 | **+6.91** | +2.21 | 4.4 |
+| `gate_sp_h64_v1` | 30 | 248.0 | 241.8 | −6.03 | −2.43 | −5.1 |
+| `shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1` | 39 | 287.1 | 285.6 | −1.41 | −0.49 | −1.0 |
+| `gate_sp_h48_v1` | 10 | 80.2 | 79.2 | −0.91 | −1.13 | −2.3 |
+| `argmax_bfloat16` | 1 | 9.0 | 9.6 | +0.55 | +6.16 | 11.8 |
+
+`sliding_fused_attn_ring_v1` moved **off 636.0 by +12.67 µs/step, z = 4.0**.
+The preregistered prediction **holds**, in the predicted direction and with the
+predicted rough magnitude. The stopping rule does not fire.
+
+The instrument resolved the kernel at 30 calls/step and 21.6 µs/call, so
+branch **(c)** of the §3.3 decision table ("the instrument is not resolving
+this kernel") is excluded on its own preregistered criterion.
+
+Score translation at the M4→M5 wall ratio (M4 8223 µs/step → M5 4893.7
+µs/step, 0.015280 %/µs·step): sliding **0.1152 %**, grow **0.0906 %**, router
+**0.0628 %**; all excess **0.1835 %**.
+
+### 4.2 Provenance correction — the 636.0 anchor is *older* than r96-a
+
+Chasing the anchor before interpreting the delta changed the conclusion. The
+636.0 number traces to `research/maple-nezuko-r92-barrier-hoist-generalization.md:81`
+and was re-used verbatim by the r94 ledger, whose base was **`d549d318`** —
+**not** `e510bb3d`. The census "old" column is therefore a `d549d318`-era
+number, one frontier older than I had assumed in §2.
+
+Sliding-ring MSL source, extracted from the kernel name line to the next
+`MLXFast.metalKernel(` and hashed:
+
+| revision | lines | sha (12) | main loop |
+|---|---|---|---|
+| `9d9da08^` ≡ `d549d318` | 431 | `fad5dc8345d7` | **2-deep** (`i + BN < N; i += 2*BN`) |
+| `9d9da08` ≡ `e510bb3d` | 519 | `1327d3939ef6` | **4-deep** (`i + 3*BN < N; i += 4*BN`) |
+| `c6c66344` (frontier) | 448 | `3542134ce2fe` | **2-deep**, a *third* distinct variant |
+
+`9d9da08` is nezuko's "r96-a R2: 4-deep software pipeline in sliding fused
+attention". So the 636.0 baseline is a **pre-r96-a, 2-deep** measurement, and
+my +12.67 µs/step excess is measured *against a 2-deep ring*. It therefore
+cannot be the cost of losing r96-a — losing r96-a is **invisible** in this
+census by construction.
+
+What *is* different between `d549d318`'s ring and the frontier's ring is the
+epilogue: `threadgroup float4 outputs4[BN*BDP]` was replaced by
+`threadgroup U outputs[4*BN*BDP]` (scalar 4-plane staging). Counting
+occurrences of `float4 outputs4`: `e510bb3d` = 2, `74e89d7` = 2,
+**`c6c66344` = 0** — dropped from *both* decode attention kernels.
+
+`74e89d7` is "R85-C: re-port the float4 merge epilogue onto the adopted
+frontier" and `6ada66c` is "Adopt organizer promoted frontier c5b0a13c". The
+pattern is structural: **each organizer frontier adoption drops our Laguna
+kernel wins, and they have to be re-ported.**
+
+### 4.3 The four-kernel signature identifies the loss exactly
+
+`research/maple-r85-c-epilogue-result.md` recorded a paired ABBA measurement on
+M4 of *applying* the float4 merge epilogue (sign = candidate − base):
+
+| kernel | r85-C base | Δ from applying epilogue | my measured excess |
+|---|---|---|---|
+| `sliding_fused_attn_ring_v1` | 649.3 | **−20.98** [−22.76, −19.19] | **+12.67** |
+| `full_fused_attn_grow_v1` | 254.9 | **−5.55** [−6.74, −4.36] | **+9.97** |
+| `gate_sp_h64_v1` (give-back) | 242.9 | **+8.14** [+7.42, +8.86] | **−6.03** |
+| `shared_nvfp4_swiglu_qmv_rows1_halved` | 285.9 | +1.55 | −1.41 |
+| four-kernel total | 904.2 | **−15.43** | **+15.20** |
+
+**Every sign is reversed, including the counter-intuitive `gate_sp_h64_v1`
+give-back**, and the totals agree to 1.5 %. My measured sliding time 648.4 also
+sits on top of r85-C's pre-epilogue baseline 649.3 and r88-A's 649.6. This is
+as close to a fingerprint as a decode census gets: the frontier is running the
+**pre-r85-C** attention epilogue.
+
+### 4.4 Three separable regressions in `c6c66344`
+
+| # | lost work | evidence | price |
+|---|---|---|---|
+| 1 | r85-C float4 merge epilogue, **both** attention kernels | 4-kernel sign fingerprint above; `float4 outputs4` count 2→0 | my census **+15.20 µs/step**; r85-C's own paired price **+0.2358 %** [+0.1347, +0.3368] |
+| 2 | r96-a 4-deep sliding software pipeline | source hash/loop-shape diff, §4.2 | **≈+0.13 %** (r96-a: −3.0 % of kernel at K≤20, ~12σ vs a ±0.25 % null, −8.25 µs/step on `attn_us_per_step_sliding`; runs `uajdq8yu`, `ehbvlnva`, `pe8zt12k`, `skkt1pyq`, `zvycfimy`) — **invisible in my census**, which is anchored pre-r96-a |
+| 3 | router weight prefetch: `lagunaResidualRMSNormRouterSource(rowsPerGroup:prefetch:)` with `armSuffix="_pf\(groups)"` collapsed to `(rowsPerGroup:)`; `DARKBLOOM_ROUTER_WEIGHT_PREFETCH` gone | label changed `…_pf1` → `…`, +6.91 µs/step at z=4.4 | **+0.0628 %** |
+
+Re-port prize: **≈0.31 %** using my census plus r96-a, or **≈0.43 %** using
+r85-C's own paired price plus r96-a plus the router. Against the **1.0498 %**
+deficit to the record this is large but not sufficient alone. All three were
+bit-exact by construction when they originally landed, which makes this an
+unusually low-risk arm: known code, known correctness history, known price.
+
+### 4.5 Part 2 — the gap is unchanged; the regression is pure GPU busy time
+
+`SPLIT=0`, 3 reps, `0 divergences` each, `cbs=45 dispatches=406`:
+
+| rep | wall ms/step | busy ms/step | gap ms/step | gap % | decode mean ms |
+|---|---|---|---|---|---|
+| 1 (warm-up) | 8.295 | 7.983 | 0.312 | 3.8 | 8.309 (max 12.819) |
+| 2 | 8.223 | 7.975 | 0.247 | 3.0 | 8.237 (max 9.389) |
+| 3 | 8.309 | 8.052 | 0.257 | 3.1 | 8.500 (max 23.597, one outlier step) |
+
+**Gap = 252 µs/step (reps 2–3) versus the old-base reference 249 µs/step.**
+Within noise: unchanged.
+
+Combined with §4.1, this is the load-bearing structural result of Part 2. The
+rebase regression is **entirely inside GPU kernel busy time**; host-side
+scheduling, command-buffer construction, and encode overhead did not move.
+Any explanation of the frontier's decode deficit that routes through dispatch
+or host overhead is excluded.
+
+Two derived quantities worth keeping:
+
+- Per-command-buffer gap: **5.6 µs** at `SPLIT=0` (252/45) versus **3.02 µs**
+  at `SPLIT=1` (1225/406). Splitting does not simply multiply the gap.
+- `SPLIT=1` inflates measured busy by **(8.545 − 7.975)/(406 − 45) = 1.58 µs
+  per extra command buffer**. So `SPLIT=1` *shares* are inflated, but
+  *deltas* between two `SPLIT=1` censuses at identical call counts are not —
+  which is exactly how §4.1 uses them.
+
+Under `SPLIT=0` the census rows are merged multi-kernel command buffers (labels
+joined with `|`), so per-kernel attribution genuinely requires `SPLIT=1`
+(Rule 43 confirmed, not assumed).
+
+Nearest comparable old log is `research/nezuko-pr158-gap.log` (wall 8.267/8.220,
+busy 8.016/7.985, gap 0.251/0.235, `cbs=45`). Its provenance is PR158-era, not
+a matched base, so I cite it only as a family-level consistency reference.
+
+### 4.6 Re-scoring rule 68's surviving explanations
+
+Rule 68 left two live explanations for the decode deficit: SLC capacity
+pressure, and lost read-after-read overlap. §4.5 removes host overhead from
+contention entirely. §4.3/§4.4 then show that at least
+**0.31–0.43 %** of the deficit is not a *phenomenon* at all — it is three
+identified pieces of our own code that a frontier adoption silently discarded.
+Both rule-68 explanations should be re-scored downward by that amount before
+anyone spends a receipt probing them: the residual they need to explain is
+**≈0.6–0.7 %**, not 1.05 %.
+
+### 4.7 Part 3 — one official receipt on the unmodified surface
+
+Per the stopping rule (Part 1 changed ⇒ proceed), the receipt is spent on the
+**unmodified `c6c66344` submitted surface**: an anchor for the rebased
+frontier, a soundness check on operator commit `4f3108c4`, and a free draw
+against the record. Result recorded in the reply below.
+
+Preconditions verified before dispatch: `git diff c6c66344 HEAD --
+Sources/ Vendor/ benchmark.json` empty (the §3.1 instrument is reverted by an
+explicit revert commit, kept in history for reproducibility), `c6c66344` is an
+ancestor of HEAD, `origin/main` (`1bc1c895`) and `c6c66344` agree on the whole
+protected path set, and the worktree is clean. The branch was rebased onto the
+advisor head `ad39bfc6` purely to obtain `senpai/submit-official.sh`; that
+range is harness-only and leaves `c6c66344` an ancestor.
+
+I deliberately did **not** run `./benchmark.sh --local-submit` first. The
+submitted surface is byte-identical to the promoted frontier already on
+`origin/main`, so a local M4 preflight can only re-measure code the organizer
+has already ranked, cannot inform the M5 verdict, and would consume roughly an
+hour of the host. `mlxfast submit` packages editable paths from the git
+worktree and does not consume a local-submit artifact, so nothing about the
+upload depended on it.
+
+Static-review headroom at the submitted commit, measured against the same base:
+
+```
+$ senpai/check-editable-budget.sh c6c66344d9848d95158edc31f31943aabe4de079
+editable budget OK: current=2983849/3000000 bytes headroom=16151
+  growth=0/262144 files=142 (file count is diagnostic only; base=142)
+```
+
+`growth=0` and `files=142 (base=142)` are the budget-side confirmation that the
+submitted surface is byte-identical to the base: this receipt measures the
+promoted frontier itself, not a candidate. Note that the *promoted frontier*
+already sits 16,151 bytes under the 3,000,000-byte cap, which is a real
+constraint on any future re-port arm — the r85-C float4 epilogue and the router
+prefetch path both add source.
+
+Receipt budget: 6 before dispatch, 5 after. Arm D spends exactly one.
+
+#### Receipt `59bd72a3-546c-466c-b65a-565fa1c8b865`
+
+Submitted commit `e33efe4e2f381f59d7b7dfb81944f02e11072ced`, dispatched
+14:49:36Z, terminal 15:08:59Z, M5 timestamp 14:56:31Z. Raw JSON:
+`research/r99d-logs/r99d-receipt.json`; fetcher `research/tanjiro-r99d-receipt.py`.
+
+**Correctness — PASSED, cleanly.**
+
+| gate | value |
+|---|---|
+| `passed_correctness` | `True` |
+| `error` | `''` (empty) |
+| `max_abs_diff` | `0` |
+| `checked_steps` / `case_count` / `num_layers` | 1344 / 11 / 40 |
+| `first_failing_case` / `_layer` / `_step` | all `None` |
+| `gpqa_ttft_passed` | `True`, 9/9, p50 0.08 s, observed 0.41 s, max 2.3 s |
+| `semantic_gpqa_passed` | `True`, 9/9 (judge `claude-opus-4-8`) |
+| `partial_result` | `False` |
+
+**Both floors — PASSED.**
+
+| axis | speedup | floor | verdict |
+|---|---|---|---|
+| decode | 2.8152245599 | 0.95 | `passed_decode_speedup_floor = True` |
+| prefill | 1.9728230912 | 0.95 | `passed_prefill_speedup_floor = True` |
+
+**Ranking — rejected on rank only.** `status = 'rejected'`,
+`rejectionReason = 'score did not improve current best'`, `improved = False`,
+`promotionStatus = null`. That is the *expected* outcome for a zero-delta
+anchor and it is orthogonal to the two gate blocks above.
+
+**Score identity re-derived from the receipt's own numbers**, not trusted:
+
+```
+decode_speedup  = 0.0138656975859375 / 0.0049252545546875  = 2.81522455986384  ✓
+prefill_speedup = 0.00037169059375   / 0.000188405435546875 = 1.97282309117628  ✓
+score = 2.81522455986384^0.75 * 1.97282309117628^0.25 = 2.57576843972168
+officialScore                                          = 2.57576843972168
+                                                  delta = +3.1e-15
+```
+
+`f = 4 · prefill_sec/tok ÷ decode_sec/tok`: candidate **0.153012**, baseline
+**0.107226**. Diagnostics behaved as documented: `bandwidth_gb_per_token = 0`
+with `bandwidth_source = 'ram_resident_model'`, all six expert-cache counters
+zero, `peak_ram_gb = 21` against `weights_byte_count = 21,568,891,382` over 9
+files. Session hashes: golden `be7738fc…`, harness `f9b5f986…`, weights
+`aff99430…`.
+
+### 4.8 What the anchor actually says — the frontier gave back our merit lead
+
+Raw `officialScore` is paired against a *same-session* baseline that drifts, so
+it cannot be differenced across sessions. The campaign's common-baseline
+re-score `cs` removes that. Its identity is a single constant:
+
+```
+ln cs = X - 0.75 ln cand_dec - 0.25 ln cand_pre
+X = -5.1831677111
+```
+
+I refitted `X` from five rows of the r93 table (spread 2.0e-7) and then
+**validated it against all 1185 receipts in `research/r93-runs/receipts-latest.json`:
+1185/1185 reconstruct, worst relative error 3.0e-08.** The conversion is exact,
+not approximate.
+
+| lineage | receipt | `cs` | frontier vs it |
+|---|---|---|---|
+| corpus merit leader (MyatKaung) | `fefaed88` | 2.591868 | **−0.6264 %** |
+| our best ever | `25e1f18e` | 2.590559 | **−0.5762 %** |
+| Arm R, the 4-deep lineage | `7ce1262d` | 2.589321 | **−0.5286 %** |
+| **frontier `c6c66344`, unmodified** | **`59bd72a3`** | **2.575633** | — |
+| ranked record holder (raw 2.616504) | `cc6ddc12` | 2.574594 | **+0.0404 %** |
+
+The last row is the result that should change what we do next. **The promoted
+frontier retains only +0.04 % of merit over the record holder's own snapshot.
+Arm R held +0.57 %.** Adopting the frontier did not cost us a fraction of our
+advantage over the record — it cost us essentially all of it. Our 1.0498 %
+raw-score deficit was never 1.05 % of engineering we had to invent; roughly
+half of it is code we already wrote, already proved correct on the M5, and then
+adopted away.
+
+Split of the −0.5286 % against Arm R, in the receipt's own units:
+
+| axis | Arm R | frontier | delta | weighted |
+|---|---|---|---|---|
+| decode s/tok | 0.004893711914 | 0.004925254555 | **+31.54 µs/step** (+0.6446 %) | ×0.75 = 0.4835 % |
+| prefill s/tok | 0.000188042725 | 0.000188405436 | +0.186 ms per 512 (+0.1929 %) | ×0.25 = 0.0482 % |
+| | | | | Σ 0.5317 % ≈ 0.5286 % |
+
+So the M5 confirms the M4 census's structural claim independently: the loss is
+**decode**, prefill is flat to within a fifth of a percent. Scale for future
+pricing: **1 % of `cs` = 65.67 µs/step of decode** at this operating point.
+
+**Cross-machine consistency.** The M4 census measured a net common-mode-corrected
+excess of **+20.17 µs/step**; the M5 shows **+31.54 µs/step**. Same sign, same
+order, M5 larger by 1.56×. For a per-kernel decode regression compared across
+two Apple GPU generations with different core counts, that is a good agreement —
+and it is the first time in this campaign that an M4 census delta has been
+checked against a paired M5 receipt at all.
+
+**Attribution closes to 81 %.** The three losses identified in §4.4 price at
+0.2358 % (r85-C float4 epilogue) + ≈0.13 % (r96-a 4-deep sliding) + 0.0628 %
+(router weight prefetch) = **0.4286 %**, against a measured **0.5286 %**. The
+residual ≈0.10 % is unattributed; it is within reach of the two prefill-side
+mechanisms the M4 cannot see, or of a fourth dropped change.
+
+Note that the note `research/CURRENT_RESEARCH_STATE.md` lists only **two** lost
+mechanisms. The float4 merge epilogue is a **third**, and it is the largest of
+the three. It was found by the census, not by reading the diff.
+
+---
+
+## Reply
+
+**Prediction confirmed.** `sliding_fused_attn_ring_v1` moved off 636.0 to
+**648.4 µs/step, +12.67, z = 4.0** (§4.1). The instrument resolved the kernel
+at 30 calls/step, so decision-table branch (c) is excluded on its own
+preregistered criterion. The stopping rule did not fire and I proceeded to
+Part 3.
+
+**But the headline is not the delta — it is what the anchor turned out to
+be.** The 636.0 number is a `d549d318`-era measurement, one frontier older
+than assumed, and therefore *pre-r96-a and 2-deep* (§4.2). My +12.67 is
+measured against a 2-deep ring, so it cannot be the price of losing the 4-deep
+pipeline; that loss is real (source-hash verified) but **invisible** in this
+census.
+
+What the census did catch is a fingerprint. The four kernels r85-C moved when
+it *applied* the float4 merge epilogue are the same four kernels my census
+flags, **with every sign reversed — including the counter-intuitive
+`gate_sp_h64_v1` give-back — and totals matching to 1.5 %** (−15.43 vs
++15.20 µs/step, §4.3). The frontier is running the pre-r85-C epilogue;
+`float4 outputs4` occurrences went 2 → 0 across both decode attention kernels.
+
+So `c6c66344` has **three separable, independently-priced regressions** (§4.4),
+all of which are *our own previously-landed, bit-exact work* dropped by an
+organizer frontier adoption:
+
+1. r85-C float4 merge epilogue — r85-C's own paired price **+0.2358 %**
+   [+0.1347, +0.3368];
+2. r96-a 4-deep sliding pipeline — **≈+0.13 %**;
+3. router weight prefetch (`…_pf1` → `…`) — **+0.0628 %**.
+
+**Re-port prize ≈0.31 % (conservative, my census + r96-a) to ≈0.43 %
+(r85-C's paired price + r96-a + router)** against a **1.0498 %** deficit.
+Known code, known correctness history, known price — the lowest-risk
+0.3–0.4 % on the board. It does not close the gap alone, and I want to be
+explicit about that.
+
+The structural lesson is worth a rule: `74e89d7` ("re-port the float4 merge
+epilogue onto the adopted frontier") after `6ada66c` ("adopt organizer
+promoted frontier") is the same event happening twice. **Every organizer
+frontier adoption should be followed by a mechanical re-port audit of our
+Laguna kernel wins**, not by a fresh optimization arm.
+
+**Part 2:** gap is **252 µs/step** vs the old-base reference **249** —
+unchanged (§4.5). The rebase regression is **entirely GPU kernel busy time**.
+Host-side scheduling and command-buffer overhead are excluded as explanations.
+Rule 68's two surviving hypotheses (SLC capacity, lost read-after-read
+overlap) now only need to explain **≈0.6–0.7 %**, not 1.05 % (§4.6).
+
+**Part 3:** receipt `59bd72a3-546c-466c-b65a-565fa1c8b865` spent on the
+unmodified `c6c66344` surface (§4.7). Verdicts, reported separately as
+required:
+
+- **Correctness PASSED.** `max_abs_diff = 0` over `checked_steps = 1344`,
+  11 cases, 40 layers, no `first_failing_*`, `partial_result = False`.
+  GPQA TTFT 9/9, semantic GPQA judge 9/9.
+- **Decode floor PASSED**, speedup **2.8152245599** (floor 0.95).
+- **Prefill floor PASSED**, speedup **1.9728230912** (floor 0.95).
+- **Ranking `rejected`**, reason `score did not improve current best`,
+  `improved = False`. This is a *rank-only* rejection: nothing failed.
+- `officialScore` **2.5757684397**, which reproduces
+  `decode^0.75 · prefill^0.25` to 3.1e-15.
+
+**And that receipt is the real headline (§4.8).** Putting every receipt on the
+common-baseline scale `cs` — refit on 5 r93 rows and then **validated against
+all 1185 receipts in the r93 corpus, 1185/1185, worst relative error
+3.0e-08** — gives:
+
+| lineage | receipt | `cs` | frontier vs it |
+|---|---|---|---|
+| corpus merit leader (MyatKaung) | `fefaed88` | 2.591868 | −0.6264 % |
+| our best ever | `25e1f18e` | 2.590559 | −0.5762 % |
+| Arm R (4-deep) | `7ce1262d` | 2.589321 | −0.5286 % |
+| **frontier `c6c66344`** | **`59bd72a3`** | **2.575633** | — |
+| ranked record holder | `cc6ddc12` | 2.574594 | **+0.0404 %** |
+
+**The promoted frontier retains only +0.04 % merit over the record holder's
+own snapshot. Arm R held +0.57 %. Adopting the frontier gave back essentially
+our entire merit lead**, and the three regressions above account for **81 %**
+of it (0.4286 of 0.5286 % vs Arm R; residual ≈0.10 %). The M5 split is decode
++31.54 µs/step (+0.6446 %, ×0.75 → 0.4835 %) and prefill +0.186 ms
+(+0.1929 %, ×0.25 → 0.0482 %), summing to 0.5317 % against 0.5286 % measured.
+My M4 census saw +20.17 µs/step where M5 sees +31.54 (ratio 1.56, same sign
+and order) — cross-machine agreement in direction, not magnitude.
+
+Useful conversion for future arms: **1 % of `cs` = 65.67 µs/step of decode**
+on M5. Also note the prefill price list needs revising — the old
+`0.3794 %/ms` assumed a 65.9 ms prefill total that no longer holds; the
+receipt gives **0.2592 %/ms** (and decode **0.015228 %/µs·step**).
+
+**Follow-ups I did not implement** (not in scope for arm D, which must not
+touch the submitted surface):
+
+- A re-port arm restoring all three losses on top of `c6c66344`, measured as
+  three separable commits so attribution survives if one no longer pays.
+- A standing post-adoption diff check over our Laguna kernel sources, so the
+  next frontier adoption reports its own dropped wins instead of needing a
+  census to rediscover them.
+- Re-measuring the sliding ring against a *matched* `c6c66344` anchor, so the
+  r96-a loss becomes visible instead of inferred from source.
