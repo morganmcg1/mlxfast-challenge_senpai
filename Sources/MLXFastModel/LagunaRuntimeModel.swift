@@ -2731,48 +2731,6 @@ private func lagunaPrefillFullQKNormYaRN(
     return (outputs[0], outputs[1])
 }
 
-func lagunaPrefillQKGeometryProbe(
-    sliding: Bool,
-    headsPerGroup: Int,
-    rawQueries: MLXArray,
-    rawKeys: MLXArray,
-    queryWeight: MLXArray,
-    keyWeight: MLXArray,
-    angles: MLXArray,
-    offsets: MLXArray,
-    length: Int
-) -> (MLXArray, MLXArray) {
-    precondition(headsPerGroup == 1 || headsPerGroup == 2 || headsPerGroup == 4)
-    let heads =
-        sliding ? LagunaConstants.slidingAttentionHeads : LagunaConstants.fullAttentionHeads
-    let kvHeads = LagunaConstants.numKeyValueHeads
-    precondition((heads + kvHeads) % headsPerGroup == 0)
-    let threadGroupSize = headsPerGroup * 32
-    let kernel =
-        sliding
-        ? (headsPerGroup == 1
-            ? lagunaPrefillSlidingQKNormRoPEH1Kernel
-            : headsPerGroup == 2
-                ? lagunaPrefillSlidingQKNormRoPEH2Kernel
-                : lagunaPrefillSlidingQKNormRoPEKernel)
-        : (headsPerGroup == 1
-            ? lagunaPrefillFullQKNormYaRNH1Kernel
-            : headsPerGroup == 2
-                ? lagunaPrefillFullQKNormYaRNH2Kernel
-                : lagunaPrefillFullQKNormYaRNKernel)
-    let outputs = kernel(
-        [rawQueries, rawKeys, queryWeight, keyWeight, angles, offsets],
-        grid: ((heads + kvHeads) / headsPerGroup * threadGroupSize, length, 1),
-        threadGroup: (threadGroupSize, 1, 1),
-        outputShapes: [
-            [1, heads, length, LagunaConstants.headDim],
-            [1, kvHeads, length, LagunaConstants.headDim],
-        ],
-        outputDTypes: [.bfloat16, .bfloat16]
-    )
-    return (outputs[0], outputs[1])
-}
-
 struct LagunaIndexedAffineMetadata {
     let indices: MLXArray
     let lut: MLXArray
