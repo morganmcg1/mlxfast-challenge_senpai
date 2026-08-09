@@ -32,6 +32,12 @@ DESCRIPTION = {
 }
 
 
+# The shared R93 probe records the schedule depth as `k = 40 * depth`, one unit
+# per decoder layer. Here a depth is a rung, so rung r appears as k = 40 * r in
+# both the raw records and the analyser JSON keys.
+K_PER_RUNG = 40
+
+
 def load_records(patterns):
     files = []
     for pat in patterns:
@@ -45,9 +51,10 @@ def load_records(patterns):
         hashes.update(doc.get("token_stream_hashes", []))
         mismatches += int(doc.get("teacher_forced_mismatches", 0))
         for rec in doc["records"]:
-            if rec.get("warmup_run"):
+            if rec.get("warmup_run") or rec.get("placebo"):
                 continue
-            per_rung.setdefault(int(rec["k"]), []).append(float(rec["us"]))
+            per_rung.setdefault(int(rec["k"]) // K_PER_RUNG, []).append(
+                float(rec["us"]))
     return files, per_rung, sorted(hashes), mismatches
 
 
@@ -79,7 +86,7 @@ def main() -> int:
         # `dense_mlp_us_per_step` is the whole single-token decode step for that
         # state; the ladder delta is the paired contrast between states.
         median_us = statistics.median(samples) if samples else float("nan")
-        delta = ladder["delta"].get(str(k), {})
+        delta = ladder["delta"].get(str(k * K_PER_RUNG), {})
         delta_us = float(delta.get("delta", 0.0))
         ci = delta.get("ci", [0.0, 0.0])
         saved_us = -delta_us  # ladder deltas are candidate-minus-base
@@ -117,7 +124,7 @@ def main() -> int:
         run.summary["token_stream_hashes"] = json.dumps(hashes)
         run.summary["teacher_forced_mismatches"] = mismatches
         for doc in perrun:
-            if int(doc["hi_k"]) != k:
+            if int(doc["hi_k"]) != k * K_PER_RUNG:
                 continue
             run.summary["perrun_delta_us"] = doc["delta_us_per_step"]
             run.summary["perrun_delta_ci_lo"] = doc["delta_ci"][0]
