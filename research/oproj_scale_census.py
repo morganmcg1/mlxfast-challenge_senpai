@@ -556,9 +556,8 @@ def build_report(raw_dir, config_path):
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
     gate_7 = formats["7"]["fallback_layers"] == 0 and formats["7"]["gpu_bytes_saved_per_token"] >= 4 * 1024 * 1024
     gate_6 = formats["6"]["fallback_layers"] == 0 and formats["6"]["gpu_bytes_saved_per_token"] >= 8 * 1024 * 1024
-    recommendation = (
-        "prioritize_6bit_prototype" if gate_6 else "prioritize_7bit_prototype" if gate_7 else "no_prototype"
-    )
+    preferred_format = "6bit" if gate_6 else "7bit" if gate_7 else None
+    recommendation = "defer_implementation_pending_pr514" if preferred_format else "no_prototype"
     report = {
         "schema_version": 1,
         "assignment": {
@@ -607,6 +606,8 @@ def build_report(raw_dir, config_path):
             "seven_bit_gate": gate_7,
             "six_bit_gate": gate_6,
             "recommendation": recommendation,
+            "preferred_format_if_pr514_positive": preferred_format,
+            "negative_transfer_action": "close OProj packing if PR #514 loses because unpack overhead exceeds its byte deletion",
             "qkv_assignment_provided_deletion_bytes": QKV_DELETION_BYTES,
             "qkv_evidence_source": "assignment-provided PR #514 deletion only; no cross-branch inspection",
         },
@@ -617,6 +618,7 @@ def build_report(raw_dir, config_path):
                 "decode": "one U8 load, left shift by 7, half bitcast, float conversion",
                 "coalescing": "32 lanes read 32 adjacent row-major scale bytes per 512-K block",
             },
+            "bounded_read_strategy": "load row[byte_index], then load row[byte_index + 1] only when bit_start + bits exceeds 8; the fixed row widths end on byte boundaries, so the conditional second index is strictly inside the payload; forbid unconditional wide tail loads",
             "7bit": {
                 "unique_scale_bytes_per_32_groups": 28,
                 "naive_conditional_byte_loads_per_32_groups": 56,
@@ -624,6 +626,7 @@ def build_report(raw_dir, config_path):
                 "extra_integer_work": "bit offset, byte address, one variable shift, one mask, conditional second byte",
                 "register_risk": "approximately 2-3 additional integer temporaries per lane",
                 "coalescing_risk": "overlapping loads cover 28 contiguous bytes; H48 rows require 16 bytes of 32-byte alignment padding",
+                "cross_boundary_values_per_32_groups": 24,
             },
             "6bit": {
                 "unique_scale_bytes_per_32_groups": 24,
@@ -632,8 +635,10 @@ def build_report(raw_dir, config_path):
                 "extra_integer_work": "bit offset, byte address, one variable shift, one mask, conditional second byte",
                 "register_risk": "approximately 2-3 additional integer temporaries per lane",
                 "coalescing_risk": "overlapping loads cover 24 contiguous bytes; all row strides remain 32-byte aligned",
+                "cross_boundary_values_per_32_groups": 16,
             },
-            "transfer_conclusion": "OProj bit-packing trades scale traffic for per-scale extraction on the hot contraction; assignment-provided QKV deletion removes 6,225,920 bytes without this row-local unpack path, so measured transfer is uncertain.",
+            "topology_comparison": "OProj is verified as a row-major one-scale-per-group access inside the hot contraction. PR #514 access topology is unavailable under the no-cross-branch constraint, so its result can support shared unpack-cost transfer only, not direct coalescing or geometry equivalence.",
+            "transfer_conclusion": "OProj packing reduces physical scale bytes but adds extraction on the hot contraction. Defer implementation until PR #514 reports positive shared unpack evidence; if it loses specifically to unpack overhead despite deleting 6,225,920 bytes, close OProj packing.",
         },
     }
     return report
@@ -686,7 +691,7 @@ def render_markdown(report):
             "",
             "## Packing audit",
             "",
-            "Row-local values are serialized LSB-first and each row starts on a 32-byte boundary. A one-byte CPU format tag per layer selects packed versus whole-layer U8 fallback; no GPU metadata is fetched. The decoder never reads beyond a row.",
+            "Row-local values are serialized LSB-first and each row starts on a 32-byte boundary. A one-byte CPU format tag per layer selects packed versus whole-layer U8 fallback; no GPU metadata is fetched. Safe decoding loads the first byte, loads the next byte only when `bit_start + bits > 8`, and forbids unconditional wide tail loads. Because every payload ends on a byte boundary, the conditional second byte is always inside the same row.",
             "",
             "| Bits | Packed / fallback layers | Ideal bytes | Ideal saved | Real GPU bytes | Padding | Fallback bytes | Real saved | MiB saved | Metadata | Exhaustive cases | Mismatches | Hash match |",
             "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
@@ -703,16 +708,19 @@ def render_markdown(report):
             "## Static execution risk",
             "",
             "- Current path: one U8 scale load per lane and 32 adjacent scale bytes per 32 groups, followed by the existing left-shift/half decode.",
-            "- 7-bit: 28 unique bytes but 56 naive conditional byte-load instructions per 32 groups, all eight bit starts, variable shift/mask, and 16 bytes H48 row padding for 32-byte alignment.",
-            "- 6-bit: 24 unique bytes but 48 naive conditional byte-load instructions per 32 groups, bit-start cycle 0/6/4/2, variable shift/mask, and aligned H48/H64 row strides.",
+            "- 7-bit: 28 unique bytes but 56 naive conditional byte-load instructions per 32 groups; 24 of 32 values cross a byte boundary, all eight bit starts occur, and H48 rows add 16 alignment bytes.",
+            "- 6-bit: 24 unique bytes but 48 naive conditional byte-load instructions per 32 groups; 16 of 32 values cross a byte boundary, bit starts cycle 0/6/4/2, and H48/H64 row strides remain aligned.",
             "- Both add roughly 2-3 integer temporaries per lane; physical bandwidth may fall while load-instruction and register pressure rise.",
-            f"- Assignment-provided QKV scale-bank deletion is {report['decision']['qkv_assignment_provided_deletion_bytes']:,} bytes; no PR #514 branch or code was inspected.",
+            "- OProj topology is verified as row-major one-scale-per-group access inside the hot contraction. PR #514 topology is unavailable under the no-cross-branch constraint, so it can establish shared unpack-cost transfer but not direct coalescing or geometry equivalence.",
+            f"- Assignment-provided QKV scale-bank deletion is {report['decision']['qkv_assignment_provided_deletion_bytes']:,} bytes (5.938 MiB); no PR #514 branch or code was inspected.",
             "",
             "## Decision",
             "",
-            f"- 7-bit gate: **{report['decision']['seven_bit_gate']}**",
-            f"- 6-bit gate: **{report['decision']['six_bit_gate']}**",
-            f"- Recommendation: **{report['decision']['recommendation']}**",
+            f"- 7-bit gate: **{report['decision']['seven_bit_gate']}**; real deletion 4,587,520 bytes (4.375 MiB), smaller than the assignment-provided QKV deletion.",
+            f"- 6-bit gate: **{report['decision']['six_bit_gate']}**; real deletion 9,830,400 bytes (9.375 MiB), larger than the assignment-provided QKV deletion.",
+            f"- Immediate recommendation: **{report['decision']['recommendation']}**. This audit does not authorize an implementation.",
+            f"- If PR #514 provides positive shared unpack evidence, prefer **{report['decision']['preferred_format_if_pr514_positive']}** for a later one-file prototype because it clears the 8 MiB gate with no row padding.",
+            "- If PR #514 loses specifically because unpack overhead outweighs its 6,225,920-byte deletion, close OProj packing rather than prototype either format.",
             "",
             "## Reproduction",
             "",

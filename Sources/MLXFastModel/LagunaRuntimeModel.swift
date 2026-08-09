@@ -127,110 +127,6 @@ final class LagunaPackedScalesLog: @unchecked Sendable {
 
 let lagunaPackedScalesLog = LagunaPackedScalesLog()
 
-final class LagunaOProjScaleCensus: @unchecked Sendable {
-    private static let maximumPayloadLength = 60_000
-
-    private let enabled: Bool
-    private let processID: Int32
-    private let lock = NSLock()
-
-    init() {
-        enabled = ProcessInfo.processInfo.environment["DARKBLOOM_OPROJ_CENSUS"] == "1"
-        processID = ProcessInfo.processInfo.processIdentifier
-        guard enabled else { return }
-
-        let architecture = GPU.deviceInfo().architecture
-        let generation = Int(architecture.suffix(3).prefix(2)) ?? -1
-        let runtime: [String: Any] = [
-            "pid": processID,
-            "gpu_architecture": architecture,
-            "gpu_generation": generation,
-        ]
-        guard let data = try? JSONSerialization.data(
-            withJSONObject: runtime, options: [.sortedKeys])
-        else {
-            fatalError("failed to serialize OProj census runtime metadata")
-        }
-        emit(kind: "runtime", fields: "pid=\(processID)", data: data)
-    }
-
-    private func safePayload(_ payload: Substring) -> String {
-        var safe = String(payload)
-        for forbidden in ["actual", "expected"] {
-            while let range = safe.range(of: forbidden, options: .caseInsensitive) {
-                safe.insert("-", at: safe.index(range.lowerBound, offsetBy: 3))
-            }
-        }
-        return safe
-    }
-
-    private func emit(kind: String, fields: String, data: Data) {
-        let payload = data.base64EncodedString()
-        let chunkCount = max(
-            1, (payload.utf8.count + Self.maximumPayloadLength - 1)
-                / Self.maximumPayloadLength)
-        var start = payload.startIndex
-        for chunkIndex in 0..<chunkCount {
-            let end = payload.index(
-                start,
-                offsetBy: Self.maximumPayloadLength,
-                limitedBy: payload.endIndex) ?? payload.endIndex
-            let chunk = safePayload(payload[start..<end])
-            let line = "OPROJ_CENSUS \(kind) \(fields) chunk=\(chunkIndex)/\(chunkCount) payload=\(chunk)\n"
-            FileHandle.standardError.write(Data(line.utf8))
-            start = end
-        }
-    }
-
-    func recordScaleBank(layer: Int, scales: MLXArray) {
-        guard enabled else { return }
-        let data = Data(scales.asArray(UInt8.self))
-        lock.lock()
-        defer { lock.unlock() }
-        emit(kind: "scale", fields: "pid=\(processID) layer=\(layer)", data: data)
-    }
-
-    func recordDispatch(
-        layer: Int,
-        heads: Int,
-        codes: MLXArray,
-        scales: MLXArray,
-        attentionOutput: MLXArray,
-        gate: MLXArray,
-        gateIsActivated: Bool
-    ) {
-        guard enabled else { return }
-        let prefix = gateIsActivated
-            ? "laguna_oproj_act_h\(heads)_v1"
-            : "laguna_gated_affine_oproj_nvfp4_qmv_h\(heads)_v1"
-        let kernelLabel = prefix
-            + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
-            + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : "")
-        let record: [String: Any] = [
-            "layer": layer,
-            "heads": heads,
-            "codes_shape": codes.shape,
-            "scales_shape": scales.shape,
-            "attention_output_shape": attentionOutput.shape,
-            "gate_shape": gate.shape,
-            "codes_dtype": "uint32",
-            "scales_dtype": "uint8",
-            "kernel_label": kernelLabel,
-            "gate_is_activated": gateIsActivated,
-        ]
-        guard let data = try? JSONSerialization.data(
-            withJSONObject: record, options: [.sortedKeys])
-        else {
-            fatalError("failed to serialize OProj census dispatch metadata")
-        }
-        lock.lock()
-        defer { lock.unlock() }
-        emit(kind: "dispatch", fields: "pid=\(processID)", data: data)
-    }
-}
-
-let lagunaOProjScaleCensus = LagunaOProjScaleCensus()
-
 /// Decode-only routed NVFP4 down-QMV plus BF16 router weighting, fixed-order
 /// expert reduction, and the Laguna 2.5 routed scale. The custom kernel emits
 /// one 2048-wide branch instead of materializing eight expert rows.
@@ -5156,12 +5052,6 @@ final class LagunaRuntimeAttention: Module {
                 scales: preparedWO.scales, biases: biases)
         }
         _nativeAffineOProj = preparedWO
-        if preparedWO.mode == .nvfp4, preparedWO.bits == 4,
-            preparedWO.groupSize == 16, preparedWO.scales.dtype == .uint8
-        {
-            lagunaOProjScaleCensus.recordScaleBank(
-                layer: layerIdx, scales: preparedWO.scales)
-        }
         return preparedWO.arrays
     }
 
@@ -5844,14 +5734,6 @@ final class LagunaRuntimeAttention: Module {
                         heads: nHeads,
                         gateIsActivated: true)
                 {
-                    lagunaOProjScaleCensus.recordDispatch(
-                        layer: layerIdx,
-                        heads: nHeads,
-                        codes: affineWO.packedCodes,
-                        scales: affineWO.scales,
-                        attentionOutput: output,
-                        gate: projectedGate,
-                        gateIsActivated: true)
                     return fusedProjection
                 }
                 if lagunaFusedGatedAffineOProjEnabled,
@@ -5866,14 +5748,6 @@ final class LagunaRuntimeAttention: Module {
                         scales: affineWO.scales,
                         heads: nHeads)
                 {
-                    lagunaOProjScaleCensus.recordDispatch(
-                        layer: layerIdx,
-                        heads: nHeads,
-                        codes: affineWO.packedCodes,
-                        scales: affineWO.scales,
-                        attentionOutput: output,
-                        gate: projectedGate,
-                        gateIsActivated: false)
                     return fusedProjection
                 }
                 // Raw logits + fused kernel: one dispatch reproduces the
