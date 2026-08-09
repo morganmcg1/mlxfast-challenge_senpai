@@ -32,11 +32,14 @@ Two independent lines of evidence:
    1.5 % regression at the occupancy the ranked part actually runs at.
 
 **But it is not worth a receipt, and I am not asking for one.** The full
-restoration (ring + epilogue) is worth **+0.206 % of score** on the ranked M5.
-That is 0.33 σ(score) and one fifth of our 1.0498 % deficit. My preregistered
-GO bar was +0.61 % of score and the result misses it by a factor of three.
-**Receipts declined: 0 of 6 spent.** Recommendation is *merge on merit*, not
-*submit*.
+restoration (ring + epilogue) is worth **at most +0.206 % of score** on the
+ranked M5 — at most, because the 636 µs/step pool is a *census* figure and this
+kernel's marginal efficiency has never been measured (§4.4); every family in the
+programme that has been measured discounts by 0.35–0.75. Even the undiscounted
+top of that interval is 0.33 σ(score) and one fifth of our 1.0498 % deficit. My
+preregistered GO bar was +0.61 % of score and the result misses it by a factor
+of three. **Receipts declined: 0 of 6 spent.** Recommendation is *merge on
+merit*, not *submit*.
 
 ---
 
@@ -230,6 +233,46 @@ diamond and regressed; `gen4deep.py` emits the diamond in each of its four
 slots and improves. The distinction the brief asked for — mechanism vs codegen
 quality — resolves in favour of mechanism.
 
+### 4.4 The +0.206 % is an **upper** bound: the pool is a census figure
+
+I want to be explicit about a discount I cannot measure, because it cuts
+against my own number and you should see it before you read §9.
+
+The 636.0 µs/step I price against is a **census** cost:
+`research/r94-artifacts/r94-dispatch-ledger.tsv:6` records 30 calls × 21.20
+µs/call, i.e. the sum of per-dispatch GPU time. The probe likewise measures the
+kernel in isolation, 200 back-to-back dispatches with nothing to overlap. What
+the score actually pays for is the **marginal** contribution to the step, and in
+this codebase those two differ a lot:
+
+| family | E = marginal ÷ census | source |
+|---|---|---|
+| router GEMV | **0.349** | `RESEARCH_ARCHIVE_through-round-91.md:5044` |
+| `T2d_down_residual` | 0.617 | ledger `:665` |
+| `T0b` KV stream | 0.741 | ledger `:665` |
+| `T2c` routed QMV | 0.754 | ledger `:665` |
+| `T1c` lm_head | 1.111 | ledger `:667` |
+
+**E for this kernel is unmeasured.** The decode marginal-cost ledger excludes
+the attention family on purpose: "attention and o-proj
+(`sliding_fused_attn_ring_v1`, `full_fused_attn_grow_v1`, `oproj_act_h64/h48`)
+carry ~27 % of the census between them and are **deliberately unwired** here
+because their kernels mutate KV in place and advance the cache clock, so a
+duplicate is not side-effect-free" (`maple-fern-decode-marginal-cost-ledger.md:630-636`).
+Pricing them needs a copy-on-write KV scratch buffer, which nobody has built.
+
+So `+0.206 %` is what this rung is worth **if E = 1**. Every measured E on a
+weight- or KV-streaming family in this programme is below 1, between 0.617 and
+0.754. If the sliding kernel sits in that band the rung is worth **+0.13 to
++0.15 %**; if it behaves like the router's 0.349 it is worth **+0.07 %**. I
+have no evidence for any particular value and I am not going to invent one.
+
+This does not change the sign or the decision — it makes the decision easier,
+because the honest interval is `(0, +0.206 %]` and its top end is already
+0.33 σ(score). It does mean nobody should later quote +0.206 % as a realized
+gain. The cheapest way to close this hole is the copy-on-write KV scratch
+buffer the ledger names; I list it in §10.
+
 ---
 
 ## 5. End-to-end paired local benchmark
@@ -370,6 +413,16 @@ asserted.
 5. **Re-audit the rebase for a fourth casualty.** The 349-line divergence is now
    fully accounted for on `LagunaRuntimeModel.swift` — but I only audited that
    one file. The same reconciliation touched other editable paths.
+6. **A copy-on-write KV scratch buffer, to price the attention family at all.**
+   Per §4.4 this is the single largest hole in decode pricing: the attention and
+   o-proj kernels are ~27 % of the census and their marginal efficiency `E` has
+   never been measured, because the duplicate-injection probe cannot duplicate a
+   kernel that mutates KV in place and advances the cache clock
+   (`maple-fern-decode-marginal-cost-ledger.md:630-636`). Every attention-side
+   µs/step this programme has quoted — mine included — is a census figure being
+   used as if it were marginal. The ledger already calls this "the single
+   highest-value extension"; I agree, and it now blocks honest pricing on the
+   biggest pool we have.
 
 ---
 
