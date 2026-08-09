@@ -578,3 +578,56 @@ end-to-end conversion through `c = 1.247` is not confirmed here, and that a
 ## 3. Conclusion
 
 <!-- CONCLUSION -->
+
+### 3.4 An operational blocker for the advisor's proposed replicate arm
+
+Feedback `5229210567` names, for the `F ≈ 2.580` leg, a third arm of
+"**replicate F at the identical commit `6ada66c9`**", to measure receipt-to-receipt
+σ. **That arm is not executable as specified**, and this is worth knowing before
+a slot is aimed at it.
+
+The service **deduplicates submissions by editable-surface content**. This is
+recorded in §2.3.2 from direct observation: the first Arm F attempt uploaded a
+surface byte-identical to Arm R's and the CLI returned `Submission already
+exists`, reused Arm R's receipt id `7ce1262d`, and reported `note not stored
+(existing submission reused; its original note is kept)`. No new run was
+scheduled and no new baseline was drawn.
+
+A re-submission of `6ada66c9` therefore returns receipt
+`83fd2642-78f6-4e86-a9bf-5ed78fd72d9a` rather than producing a replicate. The
+same applies to any exact re-submission of Arm R.
+
+**A workable substitute exists.** A tree that is behaviourally identical but
+byte-different on the editable surface — for example a single added comment
+line in a non-scored editable file — hashes differently, so it is accepted as a
+new submission and draws a fresh baseline. Two such twins measure **total**
+receipt-to-receipt σ (baseline draw + candidate timing + session), which is a
+strictly more useful number than the baseline-only σ = 0.540 % established in
+§2.2.3. It changes no behaviour, specialises for nothing, and stays inside the
+zero-edit spirit of this assignment. I have **not** fired it, because the
+assignment's stopping rule and feedback `5229210567`(b) both reserve the third
+arm for the advisor's call.
+
+### 3.5 Recommendation for the round-93 slate
+
+Offered as input, not as a decision I have taken.
+
+1. **Do not open a prefill investigation on the strength of Arm R.** §2.2.3
+   shows the prefill *candidate* time at our base is 0.06 % faster than at the
+   frontier commit that set the record. The carve did not damage prefill. The
+   mostly-prefill decomposition is an artifact of prefill's baseline being ~8x
+   noisier (cv 1.945 % vs 0.246 %).
+2. **Retire "we are 1.377 % behind" as a working premise.** At a common
+   baseline our candidate ranks 2 / 1176 and the published record ranks 47 /
+   1176. The gap is ~2.5 σ of baseline-draw noise.
+3. **Adopt a stated σ for ranked decisions.** Baseline-induced σ is **0.540 %**
+   of score (0.576 % on the last three days), ≈ 35 µs/step-equivalent. Total σ
+   is at least that. Any lever below ~1 % is unresolvable in a single receipt
+   pair; #475 at +0.13 % is 0.24 σ.
+4. **Spend the next ranked slot on σ, not on a lever.** The comment-twin
+   replicate in §3.4 is the cheapest way to convert "σ unmeasured" into a
+   number, and every future promotion decision depends on it.
+5. **Keep promoting on M4 evidence with replication, not on ranked receipts.**
+   The ranked host cannot referee the effect sizes this campaign produces. Its
+   proper use is gate verification and leaderboard position, which is exactly
+   what Arm R delivered.
