@@ -1239,7 +1239,7 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
         "query_weight", "key_weight", "angles",
         "k_cache", "v_cache", "params", "scale_arr",
     ],
-    outputNames: ["attended", "branch_counts"],
+    outputNames: ["attended"],
     source: """
         constexpr uint head_dim = 128;
         constexpr uint window = 512;
@@ -1252,43 +1252,6 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
         constexpr int N = 512;
 
         typedef float U;
-
-        #define LAGUNA_ONLINE_UPDATE(maximum, sum, output, score, new_max, \\
-                                     v0, v1, v2, v3, count_index)       \\
-          do {                                                          \\
-            const bool laguna_same_max_ = (new_max) == (maximum);       \\
-            if (count_branches) {                                       \\
-              if (laguna_same_max_) {                                   \\
-                laguna_unchanged[count_index] += 1;                     \\
-              } else {                                                   \\
-                laguna_growth[count_index] += 1;                        \\
-              }                                                          \\
-            }                                                            \\
-            if (skip_identity && laguna_same_max_) {                    \\
-              U laguna_exp_ = metal::fast::exp((score) - (new_max));    \\
-              (maximum) = (new_max);                                    \\
-              (sum) = (sum) + laguna_exp_;                              \\
-              (output)[0] = (output)[0] + laguna_exp_ * (v0);           \\
-              (output)[1] = (output)[1] + laguna_exp_ * (v1);           \\
-              (output)[2] = (output)[2] + laguna_exp_ * (v2);           \\
-              (output)[3] = (output)[3] + laguna_exp_ * (v3);           \\
-            } else {                                                     \\
-              U laguna_factor_;                                         \\
-              LAGUNA_RESCALE(                                           \\
-                  laguna_factor_, (maximum) - (new_max));               \\
-              U laguna_exp_ = metal::fast::exp((score) - (new_max));    \\
-              (maximum) = (new_max);                                    \\
-              (sum) = (sum) * laguna_factor_ + laguna_exp_;             \\
-              (output)[0] =                                             \\
-                  (output)[0] * laguna_factor_ + laguna_exp_ * (v0);    \\
-              (output)[1] =                                             \\
-                  (output)[1] * laguna_factor_ + laguna_exp_ * (v1);    \\
-              (output)[2] =                                             \\
-                  (output)[2] * laguna_factor_ + laguna_exp_ * (v2);    \\
-              (output)[3] =                                             \\
-                  (output)[3] * laguna_factor_ + laguna_exp_ * (v3);    \\
-            }                                                            \\
-          } while (false)
 
         uint pair_tg = threadgroup_position_in_grid.x;
         uint head0 = pair_tg * 2;
@@ -1411,8 +1374,6 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
         U pair_max1 = metal::numeric_limits<U>::lowest();
         U pair_sum0 = 0;
         U pair_sum1 = 0;
-        uint laguna_unchanged[2] = {0, 0};
-        uint laguna_growth[2] = {0, 0};
 
         const bool owns_write_slot = uint(sg) == (widx & 31u);
         int i = sg;
@@ -1456,12 +1417,26 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
 
             U pair_new_max0 = metal::max(pair_max0, pair_score0);
             U pair_new_max1 = metal::max(pair_max1, pair_score1);
-            LAGUNA_ONLINE_UPDATE(
-                pair_max0, pair_sum0, pair_o0, pair_score0, pair_new_max0,
-                pipe_va0, pipe_va1, pipe_va2, pipe_va3, 0);
-            LAGUNA_ONLINE_UPDATE(
-                pair_max1, pair_sum1, pair_o1, pair_score1, pair_new_max1,
-                pipe_va0, pipe_va1, pipe_va2, pipe_va3, 1);
+            U pair_factor0;
+            U pair_factor1;
+            LAGUNA_RESCALE(pair_factor0, pair_max0 - pair_new_max0);
+            LAGUNA_RESCALE(pair_factor1, pair_max1 - pair_new_max1);
+            U pair_exp0 = metal::fast::exp(pair_score0 - pair_new_max0);
+            U pair_exp1 = metal::fast::exp(pair_score1 - pair_new_max1);
+
+            pair_max0 = pair_new_max0;
+            pair_max1 = pair_new_max1;
+            pair_sum0 = pair_sum0 * pair_factor0 + pair_exp0;
+            pair_sum1 = pair_sum1 * pair_factor1 + pair_exp1;
+
+            pair_o0[0] = pair_o0[0] * pair_factor0 + pair_exp0 * pipe_va0;
+            pair_o1[0] = pair_o1[0] * pair_factor1 + pair_exp1 * pipe_va0;
+            pair_o0[1] = pair_o0[1] * pair_factor0 + pair_exp0 * pipe_va1;
+            pair_o1[1] = pair_o1[1] * pair_factor1 + pair_exp1 * pipe_va1;
+            pair_o0[2] = pair_o0[2] * pair_factor0 + pair_exp0 * pipe_va2;
+            pair_o1[2] = pair_o1[2] * pair_factor1 + pair_exp1 * pipe_va2;
+            pair_o0[3] = pair_o0[3] * pair_factor0 + pair_exp0 * pipe_va3;
+            pair_o1[3] = pair_o1[3] * pair_factor1 + pair_exp1 * pipe_va3;
 
             U pipeb_score0 = 0;
             U pipeb_score1 = 0;
@@ -1478,24 +1453,29 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
 
             U pipeb_new_max0 = metal::max(pair_max0, pipeb_score0);
             U pipeb_new_max1 = metal::max(pair_max1, pipeb_score1);
-            LAGUNA_ONLINE_UPDATE(
-                pair_max0, pair_sum0, pair_o0, pipeb_score0, pipeb_new_max0,
-                pipe_vb0, pipe_vb1, pipe_vb2, pipe_vb3, 0);
-            LAGUNA_ONLINE_UPDATE(
-                pair_max1, pair_sum1, pair_o1, pipeb_score1, pipeb_new_max1,
-                pipe_vb0, pipe_vb1, pipe_vb2, pipe_vb3, 1);
+            U pipeb_factor0;
+            U pipeb_factor1;
+            LAGUNA_RESCALE(pipeb_factor0, pair_max0 - pipeb_new_max0);
+            LAGUNA_RESCALE(pipeb_factor1, pair_max1 - pipeb_new_max1);
+            U pipeb_exp0 = metal::fast::exp(pipeb_score0 - pipeb_new_max0);
+            U pipeb_exp1 = metal::fast::exp(pipeb_score1 - pipeb_new_max1);
+
+            pair_max0 = pipeb_new_max0;
+            pair_max1 = pipeb_new_max1;
+            pair_sum0 = pair_sum0 * pipeb_factor0 + pipeb_exp0;
+            pair_sum1 = pair_sum1 * pipeb_factor1 + pipeb_exp1;
+
+            pair_o0[0] = pair_o0[0] * pipeb_factor0 + pipeb_exp0 * pipe_vb0;
+            pair_o1[0] = pair_o1[0] * pipeb_factor1 + pipeb_exp1 * pipe_vb0;
+            pair_o0[1] = pair_o0[1] * pipeb_factor0 + pipeb_exp0 * pipe_vb1;
+            pair_o1[1] = pair_o1[1] * pipeb_factor1 + pipeb_exp1 * pipe_vb1;
+            pair_o0[2] = pair_o0[2] * pipeb_factor0 + pipeb_exp0 * pipe_vb2;
+            pair_o1[2] = pair_o1[2] * pipeb_factor1 + pipeb_exp1 * pipe_vb2;
+            pair_o0[3] = pair_o0[3] * pipeb_factor0 + pipeb_exp0 * pipe_vb3;
+            pair_o1[3] = pair_o1[3] * pipeb_factor1 + pipeb_exp1 * pipe_vb3;
 
             pair_keys += 2 * inner_k_stride;
             pair_values += 2 * inner_v_stride;
-        }
-
-        if (count_branches && lane == 0) {
-            size_t count_base0 = ((size_t)head0 * BN + sg) * 2;
-            size_t count_base1 = ((size_t)head1 * BN + sg) * 2;
-            branch_counts[count_base0] = laguna_unchanged[0];
-            branch_counts[count_base0 + 1] = laguna_growth[0];
-            branch_counts[count_base1] = laguna_unchanged[1];
-            branch_counts[count_base1 + 1] = laguna_growth[1];
         }
 
         // Combine: promoted two-plane exchange, textual replica of the
@@ -1676,38 +1656,6 @@ func lagunaSlidingFusedAttention(
     precondition(writeIdx >= 0 && writeIdx < window)
     precondition(scale.dtype == .float32 && scale.size == 1)
 
-    return lagunaSlidingFusedAttentionGate0(
-        rawQueries: rawQueries,
-        rawKeys: rawKeys,
-        rawValues: rawValues,
-        queryWeight: queryWeight,
-        keyWeight: keyWeight,
-        angles: angles,
-        cacheKeys: cacheKeys,
-        cacheValues: cacheValues,
-        writeIdx: writeIdx,
-        scale: scale,
-        skipIdentity: true,
-        countBranches: false
-    )[0]
-}
-
-func lagunaSlidingFusedAttentionGate0(
-    rawQueries: MLXArray,
-    rawKeys: MLXArray,
-    rawValues: MLXArray,
-    queryWeight: MLXArray,
-    keyWeight: MLXArray,
-    angles: MLXArray,
-    cacheKeys: MLXArray,
-    cacheValues: MLXArray,
-    writeIdx: Int,
-    scale: MLXArray,
-    skipIdentity: Bool,
-    countBranches: Bool,
-    verbose: Bool = false
-) -> [MLXArray] {
-    let heads = LagunaConstants.slidingAttentionHeads
     let params = lagunaParamsAtlasEnabled
         ? lagunaRingIdxAtlas[writeIdx] : MLXArray([UInt32(writeIdx)])
     return lagunaSlidingFusedAttentionKernel(
@@ -1716,19 +1664,11 @@ func lagunaSlidingFusedAttentionGate0(
             queryWeight, keyWeight, angles,
             cacheKeys, cacheValues, params, scale,
         ],
-        template: [
-            ("skip_identity", skipIdentity),
-            ("count_branches", countBranches),
-        ],
         grid: ((heads / 2) * 1024, 1, 1),
         threadGroup: (1024, 1, 1),
-        outputShapes: [
-            [1, heads, 1, LagunaConstants.headDim],
-            [heads, 32, 2],
-        ],
-        outputDTypes: [.bfloat16, .uint32],
-        verbose: verbose
-    )
+        outputShapes: [[1, heads, 1, LagunaConstants.headDim]],
+        outputDTypes: [.bfloat16]
+    )[0]
 }
 
 /// Pre-materialized 4-byte uniform buffers for every possible sliding ring
@@ -1788,7 +1728,7 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
         "query_weight", "key_weight", "angles",
         "k_cache", "v_cache", "params", "scale_arr",
     ],
-    outputNames: ["attended", "branch_counts"],
+    outputNames: ["attended"],
     source: """
         constexpr uint head_dim = 128;
         constexpr uint gqa = 6;
@@ -1800,43 +1740,6 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
         constexpr float yarn_mscale = 1.3465735912322998f;
 
         typedef float U;
-
-        #define LAGUNA_ONLINE_UPDATE(maximum, sum, output, score, new_max, \\
-                                     v0, v1, v2, v3, count_index)       \\
-          do {                                                          \\
-            const bool laguna_same_max_ = (new_max) == (maximum);       \\
-            if (count_branches) {                                       \\
-              if (laguna_same_max_) {                                   \\
-                laguna_unchanged[count_index] += 1;                     \\
-              } else {                                                   \\
-                laguna_growth[count_index] += 1;                        \\
-              }                                                          \\
-            }                                                            \\
-            if (skip_identity && laguna_same_max_) {                    \\
-              U laguna_exp_ = metal::fast::exp((score) - (new_max));    \\
-              (maximum) = (new_max);                                    \\
-              (sum) = (sum) + laguna_exp_;                              \\
-              (output)[0] = (output)[0] + laguna_exp_ * (v0);           \\
-              (output)[1] = (output)[1] + laguna_exp_ * (v1);           \\
-              (output)[2] = (output)[2] + laguna_exp_ * (v2);           \\
-              (output)[3] = (output)[3] + laguna_exp_ * (v3);           \\
-            } else {                                                     \\
-              U laguna_factor_;                                         \\
-              LAGUNA_RESCALE(                                           \\
-                  laguna_factor_, (maximum) - (new_max));               \\
-              U laguna_exp_ = metal::fast::exp((score) - (new_max));    \\
-              (maximum) = (new_max);                                    \\
-              (sum) = (sum) * laguna_factor_ + laguna_exp_;             \\
-              (output)[0] =                                             \\
-                  (output)[0] * laguna_factor_ + laguna_exp_ * (v0);    \\
-              (output)[1] =                                             \\
-                  (output)[1] * laguna_factor_ + laguna_exp_ * (v1);    \\
-              (output)[2] =                                             \\
-                  (output)[2] * laguna_factor_ + laguna_exp_ * (v2);    \\
-              (output)[3] =                                             \\
-                  (output)[3] * laguna_factor_ + laguna_exp_ * (v3);    \\
-            }                                                            \\
-          } while (false)
 
         uint pair_tg = threadgroup_position_in_grid.x;
         uint head0 = pair_tg * 2;
@@ -1963,8 +1866,6 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
         U pair_max1 = metal::numeric_limits<U>::lowest();
         U pair_sum0 = 0;
         U pair_sum1 = 0;
-        uint laguna_unchanged[2] = {0, 0};
-        uint laguna_growth[2] = {0, 0};
 
         int i = sg;
         for (; i + BN < N; i += 2 * BN) {
@@ -1998,12 +1899,26 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
 
             U pair_new_max0 = metal::max(pair_max0, pair_score0);
             U pair_new_max1 = metal::max(pair_max1, pair_score1);
-            LAGUNA_ONLINE_UPDATE(
-                pair_max0, pair_sum0, pair_o0, pair_score0, pair_new_max0,
-                pipe_va0, pipe_va1, pipe_va2, pipe_va3, 0);
-            LAGUNA_ONLINE_UPDATE(
-                pair_max1, pair_sum1, pair_o1, pair_score1, pair_new_max1,
-                pipe_va0, pipe_va1, pipe_va2, pipe_va3, 1);
+            U pair_factor0;
+            U pair_factor1;
+            LAGUNA_RESCALE(pair_factor0, pair_max0 - pair_new_max0);
+            LAGUNA_RESCALE(pair_factor1, pair_max1 - pair_new_max1);
+            U pair_exp0 = metal::fast::exp(pair_score0 - pair_new_max0);
+            U pair_exp1 = metal::fast::exp(pair_score1 - pair_new_max1);
+
+            pair_max0 = pair_new_max0;
+            pair_max1 = pair_new_max1;
+            pair_sum0 = pair_sum0 * pair_factor0 + pair_exp0;
+            pair_sum1 = pair_sum1 * pair_factor1 + pair_exp1;
+
+            pair_o0[0] = pair_o0[0] * pair_factor0 + pair_exp0 * pipe_va0;
+            pair_o1[0] = pair_o1[0] * pair_factor1 + pair_exp1 * pipe_va0;
+            pair_o0[1] = pair_o0[1] * pair_factor0 + pair_exp0 * pipe_va1;
+            pair_o1[1] = pair_o1[1] * pair_factor1 + pair_exp1 * pipe_va1;
+            pair_o0[2] = pair_o0[2] * pair_factor0 + pair_exp0 * pipe_va2;
+            pair_o1[2] = pair_o1[2] * pair_factor1 + pair_exp1 * pipe_va2;
+            pair_o0[3] = pair_o0[3] * pair_factor0 + pair_exp0 * pipe_va3;
+            pair_o1[3] = pair_o1[3] * pair_factor1 + pair_exp1 * pipe_va3;
 
             U pipeb_score0 = 0;
             U pipeb_score1 = 0;
@@ -2020,12 +1935,26 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
 
             U pipeb_new_max0 = metal::max(pair_max0, pipeb_score0);
             U pipeb_new_max1 = metal::max(pair_max1, pipeb_score1);
-            LAGUNA_ONLINE_UPDATE(
-                pair_max0, pair_sum0, pair_o0, pipeb_score0, pipeb_new_max0,
-                pipe_vb0, pipe_vb1, pipe_vb2, pipe_vb3, 0);
-            LAGUNA_ONLINE_UPDATE(
-                pair_max1, pair_sum1, pair_o1, pipeb_score1, pipeb_new_max1,
-                pipe_vb0, pipe_vb1, pipe_vb2, pipe_vb3, 1);
+            U pipeb_factor0;
+            U pipeb_factor1;
+            LAGUNA_RESCALE(pipeb_factor0, pair_max0 - pipeb_new_max0);
+            LAGUNA_RESCALE(pipeb_factor1, pair_max1 - pipeb_new_max1);
+            U pipeb_exp0 = metal::fast::exp(pipeb_score0 - pipeb_new_max0);
+            U pipeb_exp1 = metal::fast::exp(pipeb_score1 - pipeb_new_max1);
+
+            pair_max0 = pipeb_new_max0;
+            pair_max1 = pipeb_new_max1;
+            pair_sum0 = pair_sum0 * pipeb_factor0 + pipeb_exp0;
+            pair_sum1 = pair_sum1 * pipeb_factor1 + pipeb_exp1;
+
+            pair_o0[0] = pair_o0[0] * pipeb_factor0 + pipeb_exp0 * pipe_vb0;
+            pair_o1[0] = pair_o1[0] * pipeb_factor1 + pipeb_exp1 * pipe_vb0;
+            pair_o0[1] = pair_o0[1] * pipeb_factor0 + pipeb_exp0 * pipe_vb1;
+            pair_o1[1] = pair_o1[1] * pipeb_factor1 + pipeb_exp1 * pipe_vb1;
+            pair_o0[2] = pair_o0[2] * pipeb_factor0 + pipeb_exp0 * pipe_vb2;
+            pair_o1[2] = pair_o1[2] * pipeb_factor1 + pipeb_exp1 * pipe_vb2;
+            pair_o0[3] = pair_o0[3] * pipeb_factor0 + pipeb_exp0 * pipe_vb3;
+            pair_o1[3] = pair_o1[3] * pipeb_factor1 + pipeb_exp1 * pipe_vb3;
 
             pair_keys += 2 * inner_k_stride;
             pair_values += 2 * inner_v_stride;
@@ -2052,21 +1981,26 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
 
             U pair_new_max0 = metal::max(pair_max0, pair_score0);
             U pair_new_max1 = metal::max(pair_max1, pair_score1);
-            LAGUNA_ONLINE_UPDATE(
-                pair_max0, pair_sum0, pair_o0, pair_score0, pair_new_max0,
-                pipe_va0, pipe_va1, pipe_va2, pipe_va3, 0);
-            LAGUNA_ONLINE_UPDATE(
-                pair_max1, pair_sum1, pair_o1, pair_score1, pair_new_max1,
-                pipe_va0, pipe_va1, pipe_va2, pipe_va3, 1);
-        }
+            U pair_factor0;
+            U pair_factor1;
+            LAGUNA_RESCALE(pair_factor0, pair_max0 - pair_new_max0);
+            LAGUNA_RESCALE(pair_factor1, pair_max1 - pair_new_max1);
+            U pair_exp0 = metal::fast::exp(pair_score0 - pair_new_max0);
+            U pair_exp1 = metal::fast::exp(pair_score1 - pair_new_max1);
 
-        if (count_branches && lane == 0) {
-            size_t count_base0 = ((size_t)head0 * BN + sg) * 2;
-            size_t count_base1 = ((size_t)head1 * BN + sg) * 2;
-            branch_counts[count_base0] = laguna_unchanged[0];
-            branch_counts[count_base0 + 1] = laguna_growth[0];
-            branch_counts[count_base1] = laguna_unchanged[1];
-            branch_counts[count_base1 + 1] = laguna_growth[1];
+            pair_max0 = pair_new_max0;
+            pair_max1 = pair_new_max1;
+            pair_sum0 = pair_sum0 * pair_factor0 + pair_exp0;
+            pair_sum1 = pair_sum1 * pair_factor1 + pair_exp1;
+
+            pair_o0[0] = pair_o0[0] * pair_factor0 + pair_exp0 * pipe_va0;
+            pair_o1[0] = pair_o1[0] * pair_factor1 + pair_exp1 * pipe_va0;
+            pair_o0[1] = pair_o0[1] * pair_factor0 + pair_exp0 * pipe_va1;
+            pair_o1[1] = pair_o1[1] * pair_factor1 + pair_exp1 * pipe_va1;
+            pair_o0[2] = pair_o0[2] * pair_factor0 + pair_exp0 * pipe_va2;
+            pair_o1[2] = pair_o1[2] * pair_factor1 + pair_exp1 * pipe_va2;
+            pair_o0[3] = pair_o0[3] * pair_factor0 + pair_exp0 * pipe_va3;
+            pair_o1[3] = pair_o1[3] * pair_factor1 + pair_exp1 * pipe_va3;
         }
 
         // Combine: promoted two-plane exchange, textual replica of the
@@ -2232,39 +2166,6 @@ func lagunaFullFusedAttention(
     precondition(writeIdx >= 0 && writeIdx < capacity)
     precondition(scale.dtype == .float32 && scale.size == 1)
 
-    return lagunaFullFusedAttentionGate0(
-        rawQueries: rawQueries,
-        rawKeys: rawKeys,
-        rawValues: rawValues,
-        queryWeight: queryWeight,
-        keyWeight: keyWeight,
-        angles: angles,
-        cacheKeys: cacheKeys,
-        cacheValues: cacheValues,
-        writeIdx: writeIdx,
-        scale: scale,
-        skipIdentity: true,
-        countBranches: false
-    )[0]
-}
-
-func lagunaFullFusedAttentionGate0(
-    rawQueries: MLXArray,
-    rawKeys: MLXArray,
-    rawValues: MLXArray,
-    queryWeight: MLXArray,
-    keyWeight: MLXArray,
-    angles: MLXArray,
-    cacheKeys: MLXArray,
-    cacheValues: MLXArray,
-    writeIdx: Int,
-    scale: MLXArray,
-    skipIdentity: Bool,
-    countBranches: Bool,
-    verbose: Bool = false
-) -> [MLXArray] {
-    let heads = LagunaConstants.fullAttentionHeads
-    let capacity = cacheKeys.dim(2)
     let params = MLXArray([
         UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity),
     ])
@@ -2274,19 +2175,11 @@ func lagunaFullFusedAttentionGate0(
             queryWeight, keyWeight, angles,
             cacheKeys, cacheValues, params, scale,
         ],
-        template: [
-            ("skip_identity", skipIdentity),
-            ("count_branches", countBranches),
-        ],
         grid: ((heads / 2) * 1024, 1, 1),
         threadGroup: (1024, 1, 1),
-        outputShapes: [
-            [1, heads, 1, LagunaConstants.headDim],
-            [heads, 32, 2],
-        ],
-        outputDTypes: [.bfloat16, .uint32],
-        verbose: verbose
-    )
+        outputShapes: [[1, heads, 1, LagunaConstants.headDim]],
+        outputDTypes: [.bfloat16]
+    )[0]
 }
 
 /// Force creation of `lagunaFullFusedAttentionKernel`'s pipeline state with
