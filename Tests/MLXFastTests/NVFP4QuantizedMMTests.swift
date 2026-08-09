@@ -369,11 +369,12 @@ struct NVFP4QuantizedMMTests {
             values.append(contentsOf:
                 row < 10 ? Array(repeating: UInt32(0), count: topK) : routePattern)
         }
-        let routes = MLXArray(routeValues, [sourceRows, topK])
+        let routes = MLXArray(routeValues, [1, sourceRows, topK])
         let sorted = gatherSortIndices(routes)
-        let packedIndices =
+        let packedIndices = (
             (sorted.sortedKeys.asType(.uint32) << 24)
-            | sorted.rowOrder.asType(.uint32)
+                | sorted.rowOrder.asType(.uint32)
+        ).reshaped(routes.shape)
         let sortedKeys = sorted.sortedKeys.asArray(UInt32.self)
         let sortedRows = sorted.rowOrder.asArray(UInt32.self)
         let packedValues = packedIndices.asArray(UInt32.self)
@@ -388,22 +389,25 @@ struct NVFP4QuantizedMMTests {
         #expect(sortedRows.contains(0))
         #expect(sortedRows.contains(UInt32(sourceRows - 1)))
 
-        let expertWords = (0..<256).map { expert -> UInt32 in
-            let code = UInt32(expert % 15 + 1)
-            return (0..<8).reduce(UInt32(0)) { word, offset in
-                word | (code << (offset * 4))
+        let weightWords = (0..<(n * k / 8)).map { index -> UInt32 in
+            (0..<8).reduce(UInt32(0)) { word, offset in
+                let code = UInt32((index * 5 + offset * 3) % 15 + 1)
+                return word | (code << (offset * 4))
             }
         }
         let packedWeight = broadcast(
-            MLXArray(expertWords, [256, 1, 1]),
+            MLXArray(weightWords, [1, n, k / 8]),
             to: [256, n, k / 8]
         )
+        let scaleValues = (0..<(n * k / 16)).map { index in
+            UInt8(0x34 + index % 9)
+        }
         let scales = broadcast(
-            MLXArray([UInt8(0x38)], [1, 1, 1]),
+            MLXArray(scaleValues, [1, n, k / 16]),
             to: [256, n, k / 16]
         )
         let x = deterministicNVFP4Source(
-            shape: [sourceRows, 1, 1, k],
+            shape: [1, sourceRows, 1, 1, k],
             salt: 79
         ).asType(.bfloat16)
         let materializedX = x.flattened(start: 0, end: -3)[sorted.rowOrder]
@@ -425,7 +429,7 @@ struct NVFP4QuantizedMMTests {
             packedWeight,
             scales: scales,
             biases: nil,
-            rhsIndices: packedIndices.reshaped([sourceRows, topK]),
+            rhsIndices: packedIndices,
             transpose: true,
             groupSize: 16,
             bits: 4,
@@ -446,7 +450,7 @@ struct NVFP4QuantizedMMTests {
             packedWeight,
             scales: scales,
             biases: nil,
-            rhsIndices: MLXArray(corruptedIndices, [sourceRows, topK]),
+            rhsIndices: MLXArray(corruptedIndices, [1, sourceRows, topK]),
             transpose: true,
             groupSize: 16,
             bits: 4,
