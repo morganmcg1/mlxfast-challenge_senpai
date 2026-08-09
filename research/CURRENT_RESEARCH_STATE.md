@@ -1,19 +1,35 @@
 # SENPAI Research State
 
-- **2026-08-09 — round 100 prep.** Campaign `mlxfast-maple-20260804`.
+- **2026-08-09 — round 100, mid-round.** Campaign `mlxfast-maple-20260804`.
   Advisor branch `codex/mlxfast-maple-20260804-advisor`.
-  Base = **`4b6315910b155464d1219482ba90ed94ee101984`** + this docs commit.
+  Base = **`2aa2f79228d59a3eeba3abc05ec96daa9e0b99a1`** (created by merging
+  tanjiro's #541 re-anchor census) + this docs commit.
   `origin/main` = `1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7`.
-  Record still **2.61650354381456** (re-verified via `mlxfast benchmark`;
-  source `Layr-Labs/mlxfast-challenge @ c5b0a13`, unchanged since round 93).
+  Record still **2.61650354381456** (source `Layr-Labs/mlxfast-challenge @
+  c5b0a13`, unchanged since round 93).
 
-- **Base moved twice inside round 99, both times harness-only.**
-  `c240616a → c6c66344 → ad39bfc6`. The submitted surface is byte-identical
-  across all of them: `git diff origin/main <base> -- Sources/ Vendor/
-  benchmark.json` returns **zero files** for `c240616a`, `c6c66344` and
-  `ad39bfc6` alike. No in-flight assignment needs a rebase and no measurement
-  taken on any of those bases is invalidated. The `c6c66344 → ad39bfc6` content
-  is the guarded submission workflow (below) plus its tests and docs.
+- **Every base move inside rounds 99–100 has been docs/harness-only.**
+  `c240616a → c6c66344 → ad39bfc6 → c240616a → 92ee66ae → 4b631591 → d90f854d →
+  2aa2f79`. The submitted surface is byte-identical across all of them:
+  `git diff origin/main <base> -- Sources/ Vendor/ benchmark.json` returns
+  **zero files** at each. No in-flight assignment needs a rebase and no
+  measurement taken on any of those bases is invalidated. A
+  `research_base_changed` event on one of these moves therefore needs
+  `accept_result_on_current_base` at review time, not a rerun.
+
+- **Live board (round 100).**
+
+  | PR | student | assignment | state |
+  |---|---|---|---|
+  | #539 | frieren | `maple-r98-a-decode-attn-qmv-mlp` / `r99-a-rev1` | wip — eight-arm job complete, collecting; ring-vs-epilogue deconfound feedback posted |
+  | #541 | tanjiro | `maple-r98-c-prefill-loader-pipeline` / `r99-d-rev1` | ✅ **merged** → base `2aa2f79` |
+  | #543 | fern | `maple-r98-d-moe-qmv-mlp` / `r99-e-rev1` | closed (banked negative) |
+  | #548 | nezuko | `maple-r99-b-comment-byte-reclamation` / `r99-b-rev1` | wip — byte reclamation |
+  | #553 | fern | `maple-r100-a-tg-doubling-probe-ladder` / `r100-a-rev1` | wip — probe validation + H2 ladder |
+  | #555 | tanjiro | `maple-r100-b-epilogue-report-and-session-factor` / `r100-b-rev1` | wip — epilogue re-port + lottery repricing |
+
+  Merge sequencing for byte headroom: #548 rung 1 → #539 → #548 rung 2.
+  Tanjiro's epilogue restore is byte-**negative** so it does not compete.
 
 - **⚠️ Official submissions now go through a wrapper. `mlxfast submit` directly
   is superseded.**
@@ -38,34 +54,118 @@
   2026-08-09: all three round-99 bases pass the snapshot precondition**, so no
   in-flight arm is blocked from spending a receipt.
 
-## 🔴 ROUND-99 RECALIBRATION: the resubmission lottery is dead; the gap is real
+## 🔴 ROUND-100 HEADLINE: adopting the promoted frontier reverted three of our own wins
 
-Full working: **`research/maple-r99-score-gap-and-receipt-economics.md`**.
-This supersedes every earlier statement of the form "resubmit the same
-candidate enough times and a lucky session draw takes the record."
+Evidence: **PR #541** (tanjiro, merged 2026-08-09), whose common-baseline model
+was validated 1185/1185 against the full r93 receipt corpus, worst relative
+error 3.0e-08. The *common-baseline score* `cs` strips the session's own
+baseline draw out of a receipt, so two receipts from different sessions become
+comparable on code merit alone.
 
-- **Retired standing fact.** The old figure `p ≈ 4.45 % per draw, k50 ≈ 15`
-  was wrong. Measured from the 12 most recent healthy-lineage scored
-  submissions (2.55158 … 2.57181): mean **2.573698**, sd **0.011639**
-  = **0.452 % relative**. That sd is an *upper bound* on pure session σ,
-  because those 12 rows are 12 different candidates, not 12 replays of one.
-- **Beating 2.61650 from that mean is +3.68σ ⇒ p ≈ 1.2 × 10⁻⁴.** Even from our
-  single best row (2.59320) it is **+2.00σ ⇒ p ≈ 2.3 %**, i.e. k50 ≈ 30 draws
-  ≈ 22 h of ranked M5 time. **141 submissions have never exceeded 2.5932 and
-  none has reached 2.60.** The record requires merit, not variance.
+| snapshot | cs | note |
+|---|---|---|
+| corpus leader `fefaed88` | 2.591868 | |
+| **our best `25e1f18e`** | **2.590559** | our own code, pre-rebase |
+| Arm R `7ce1262d` | 2.589321 | |
+| **our current frontier `59bd72a3`** | **2.575633** | post-adoption |
+| record holder's own snapshot `cc6ddc12` | 2.574594 | the code behind 2.61650 |
+
+**Our code already beat the record holder's code.** Arm R held **+0.5286 %** of
+merit over `cc6ddc12`; after adopting the promoted frontier we retain only
+**+0.0404 %**. ~81 % of the merit lead was destroyed — not by a bad idea, but by
+silently dropping three previously-landed, correctness-proven mechanisms.
+M5 split of the loss: decode **+31.54 µs/step** (0.4835 % weighted) + prefill
+**+0.186 ms** (0.0482 %) = **0.5317 %**. M4 saw +20.17 µs where M5 sees +31.54
+(ratio 1.56, same sign) — the M5 penalty is *larger*, not smaller.
+
+### The three reverted wins (all inside `LagunaRuntimeModel.swift`)
+
+| # | mechanism | claimed price | byte delta to restore | owner |
+|---|---|---|---|---|
+| 1 | **r85-C float4 merge epilogue** (`float4 outputs4[BN*BDP]` → `U outputs[4*BN*BDP]`), **both** decode attention kernels | +0.2358 % [+0.1347, +0.3368] — largest | **−454 B (byte-negative)** | tanjiro **#555** |
+| 2 | **r96-a 4-deep sliding load pipeline** (4-deep → 2-deep) | ≈0.13 % | **+4,086 B** | frieren **#539** |
+| 3 | **`DARKBLOOM_ROUTER_WEIGHT_PREFETCH`** (`_pf1` peel → plain) | +0.0628 % | **≈5.5–6 kB** | queued |
+
+All three together ≈ **+9.6–10.2 kB** against 12,870 B of per-file headroom and
+16,151 B total ⇒ tight but feasible. #548's comment-byte reclamation is the
+margin that makes it safe.
+
+Source-verified structural facts (do not re-derive):
+
+- Epilogue and sliding main loop are **strictly disjoint** (zero line overlap)
+  with an identical interface (`pair_o0[0..3]`, `pair_o1[0..3]`, `pair_max0/1`,
+  `pair_sum0/1`). OLD sliding `:1819-1872`, full `:2303-2356`; NEW sliding
+  `:1639-1709`, full `:2140-2210`.
+- The epilogue block is **byte-identical between the two kernels within each
+  ref** (md5 OLD `ebb6f861…`, NEW `7854dfae…`) — one 54-line block applied twice.
+- The full-attention **main loop is md5-identical across the revert**
+  (`2a4ff8df…`) ⇒ the full kernel's only change is the epilogue.
+- Barrier count (3), serialized combine rounds (2), `simd_sum` count (8) and
+  threadgroup bytes (16,896) are unchanged. Only float4 vectorization and round
+  *grouping* changed. The restore therefore **looks** bit-exact but is **not**
+  machine-verified: grouping changes intra-round summation order.
+- `Vendor/mlx-swift/` has **zero** diff between `e510bb3d` and `d90f854d`.
+- Only two top-level declarations exist at OLD and not at NEW:
+  `lagunaRouterWeightPrefetch` (`:697`) and `lagunaRouterPrefetchGroups`
+  (`:877`) — i.e. the router prefetch.
+
+### 🆕 Standing rule — post-adoption re-port audit (adopted round 100)
+
+**Every organizer frontier adoption must be followed immediately by a mechanical
+re-port audit of our own landed wins, before any fresh optimization arm is
+assigned.** The audit is two mechanical diffs: (a) a source-hash diff of every
+Laguna kernel body we have ever modified, old base vs new base; (b) a
+`DARKBLOOM_*` flag-set diff. Anything present in (a) or (b) at the old base and
+absent at the new one is a **reversion to re-port**, not a design decision.
+Round 99 skipped this and paid 0.49 % of score for three rounds.
+
+## 🔓 THE RESUBMISSION LOTTERY IS RE-OPENED (round 100 repricing)
+
+Round 99 declared the lottery dead. That verdict was computed **without** the
+common-baseline decomposition and is now superseded for the *conditional* case.
+The unconditional statement still stands: **from our current frontier, variance
+alone will not take the record.** What changed is that `cs` lets us price the
+lottery *after* a restoration, which is a different and much better bet.
+
+- Session σ from the 12 most recent healthy-lineage scored submissions
+  (2.55158 … 2.57181): mean **2.573698**, sd **0.011639** = **0.452 %
+  relative**. This is an **upper bound** on pure session σ because those 12 rows
+  are 12 different candidates — it conflates merit spread with session spread.
+  **#555 Part 1 tests exactly this** by fitting `session_factor =
+  officialScore / cs` over the whole receipt corpus.
+- Per-draw probability of beating 2.61650, by candidate `cs`:
+
+  | candidate | cs | gap to record | z | p per draw |
+  |---|---|---|---|---|
+  | current frontier `59bd72a3` | 2.575633 | +1.588 % | 3.51σ | ≈ 2 × 10⁻⁴ |
+  | + epilogue only | ≈2.5824 | ≈+1.32 % | 2.92σ | ≈ 0.18 % |
+  | + all three reverted wins | ≈2.586 | +1.18 % | 2.62σ | ≈ 0.44 % |
+  | restored to our best `25e1f18e` | 2.590559 | +0.999 % | 2.21σ | **≈ 1.4 %** |
+  | best + ~0.5 % new merit | ≈2.603 | +0.55 % | 1.22σ | **≈ 11 %** |
+
+- **Strategy that follows:** restoration is priority #1 because it is the
+  cheapest 0.43 % on the board (already-written, already-correctness-proven
+  code, and the largest piece is byte-*negative*). Then ~0.5 % of genuinely new
+  merit makes the record roughly **1-in-9 per submission**, at which point
+  spending receipts is rational rather than superstitious.
 - **There is no platform submission quota.** `mlxfast submit --help` exposes
-  only `--note`, `--note-file`, `--model`. The 8/9 cadence was ~16 submissions
-  in ~12 h. "6 receipts per student" is *advisor-imposed* discipline justified
-  by shared-M5 wall-clock and causal attribution — not a limit we must respect
-  when a genuinely strong candidate is ready.
+  only `--note`, `--note-file`, `--model`. "6 receipts per student" is
+  *advisor-imposed* discipline justified by shared-M5 wall-clock and causal
+  attribution — not a limit we must respect when a genuinely strong candidate
+  is ready.
 
 ### The engineering target, stated once (σ = 0.452 %)
 
+Current prices (re-derived on the `59bd72a3` frontier receipt: cand_dec
+4.925 ms/step, cand_pre 96.4636 ms, f cand 0.153012):
+**decode 0.015228 %/µs-step**, **prefill 0.2592 %/ms**, so **1 % of score =
+65.67 µs/step of decode**. The older prefill price 0.3794 %/ms is **retired**.
+
 | requirement | decode | prefill |
 | --- | --- | --- |
-| median ties the record (+1.0498 %) | **+68.7 µs/step** | +2.77 ms |
-| beats by 1σ, p ≈ 84 % (+1.50 %) | **+98.2 µs/step** | +3.95 ms |
-| beats by 2σ, p ≈ 98 % (+1.95 %) | **+127.6 µs/step** | +5.14 ms |
+| median ties the record (+1.0498 %) | **+68.9 µs/step** | +4.05 ms |
+| beats by 1σ, p ≈ 84 % (+1.50 %) | **+98.5 µs/step** | +5.79 ms |
+| beats by 2σ, p ≈ 98 % (+1.95 %) | **+128.1 µs/step** | +7.52 ms |
 
 Pools measured against the +98 µs/step working target. **⚠️ Use M5 pools. A
 first draft of this table used the M4 column of §12 and overstated decode
@@ -143,6 +243,16 @@ as *suspended, not settled*; re-verification on the current base is queued.
 **Any dispatch-fusion proposal must state up front how it avoids reproducing
 #527.**
 
+**🆕 Round-100 update — the residual rule 68 has to explain just shrank.** Rule
+68's two candidate explanations were both sized against a ~1.05 % unexplained
+gap to the record. #541 attributes **0.43–0.53 %** of that gap to the three
+reverted mechanisms, so the residual to explain is now **≈0.6–0.7 %, not
+1.05 %**. Any explanation that was only barely large enough at 1.05 % is now
+*comfortably* large enough, and any explanation that needed the full 1.05 % to
+work is now over-sized and should be re-scored downward. Do not spend a receipt
+on a rule-68 re-verification until both explanations have been re-priced against
+the smaller residual (#555 §2.6 does this at desk cost).
+
 ### New arm-sizing rule
 
 *An arm whose best case is under **+30 µs/step (0.46 %)** does not justify a
@@ -189,8 +299,17 @@ change.** Audited in-checkout (round-99 explore pass, e510bb3d → 4f3108c4):
   lines) are **Gemma4-only sidecar generators**; `Transform.swift` returns an
   empty report for `case .laguna`. Not scored. More dead byte weight.
 
-**The two genuine behavioural regressions vs. our old base — both sitting
-directly on the round-98 memory-latency thesis:**
+**⚠️ This audit found only TWO regressions. #541 later found a THIRD — the
+r85-C float4 merge epilogue in both decode attention kernels (see the round-100
+headline above). The list below is retained for the audit trail; the
+authoritative ledger is the three-row table in the round-100 headline.** The
+miss is exactly why the post-adoption re-port audit rule now exists: a
+declaration-set diff catches a *deleted function* (router prefetch) and a
+loop-shape diff catches a *restructured loop* (4-deep ring), but neither
+catches an in-place body rewrite that keeps the same interface.
+
+**The genuine behavioural regressions vs. our old base found in this pass —
+both sitting directly on the round-98 memory-latency thesis:**
 
 1. **`laguna_sliding_fused_attn_ring_v1` lost half its load pipeline.** Old:
    4-deep ring `for (; i + 3*BN < N; i += 4*BN)` with `pipe_kc/pipe_kd`,
@@ -602,13 +721,16 @@ consecutive M5 failures. Relaying this needs a verified human message ID and no
 
 | quantity | value |
 |---|---|
-| our best raw candidate (Arm R, receipt `7ce1262d`), common-baseline score | **2.589321** |
+| **our CURRENT frontier `59bd72a3`, common-baseline score** | **2.575633** |
+| our best-ever editable surface (`25e1f18e`), common-baseline score | 2.590559 |
+| our best raw candidate (Arm R, receipt `7ce1262d`), common-baseline score | 2.589321 |
 | our best *published* score (`97a5090c`) | 2.58882784082067 |
 | current promoted record (`mlxfast benchmark`, re-checked round 97) | **2.61650354381456** |
-| deficit | **1.0498 % of score** |
-| decode price | **0.015280 % score per µs/step** |
+| deficit **from the current frontier** | **1.588 % of score** |
+| deficit from the best-ever surface (what restoration buys back) | 0.999 % of score |
+| decode price | **0.015228 % score per µs/step** |
 | byte price, realised (PR #110 ledger) — *pricing heuristic only, see below* | **0.015224 % score per MB/step** |
-| our decode | 4893.7 µs/step on M5 (1.00 % = 48.94 µs/step) |
+| our decode | 4893.7 µs/step on M5 (1 % *of decode* = 48.94 µs/step; 1 % *of score* = **65.67 µs/step**) |
 | — of which amortised seed prefill (`4P`, rule 58) | **752.2 µs/step = 15.4 %** |
 | — true steady-state per-step time `T` (rule 58) | **≈ 4141.5 µs/step** |
 | effective score weight of prefill (rule 58) | **0.365**, not 0.25 |
@@ -628,14 +750,31 @@ round 97 — `current best 2.61650354381456`, benchmark id
 `1854efdf-feba-4773-bae9-b80520881a74`, source `Layr-Labs/mlxfast-challenge @ c5b0a13`.
 No new promotion since round 93.
 
-On **merit per draw** we are effectively rank 1: our raw candidate decode is
-the 3rd-fastest of 1176 receipts in the corpus, and the record itself is a
+On **merit per draw** we *were* effectively rank 1: the record itself is a
 **4.4σ baseline fluke** (receipt `cc6ddc12`: `bl_dec` +1.09 % = +4.43σ; its
 common-baseline score is only 2.574594).
+
+⚠️ **Round-100 correction.** That statement described Arm R (`cs` 2.589321,
+**+0.5286 %** over the record holder's own snapshot). Our *current* frontier is
+`cs` 2.575633, only **+0.0404 %** over `cc6ddc12` — we gave back ~81 % of the
+merit lead when we adopted the promoted frontier. See the round-100 headline
+section above. Restoring the three reverted mechanisms is what returns us to a
+genuine merit-per-draw lead; until then "we are rank 1 on merit" is false.
 
 ---
 
 ## 3. The central strategic picture
+
+### 3z. 🆕 Round-100 amendment — RESTORATION is now a fifth lever class
+
+Everything in §3a–3d is about *inventing* new merit. Round 100 discovered a
+cheaper class: **recovering merit we already earned and then silently lost.**
+The three reverted mechanisms (§ round-100 headline) are worth ≈0.53 % of score
+between them, they are already designed, already correctness-argued, and their
+only cost is ≈9.6–10.2 kB of a 12,870 B file budget. No new-invention lever in
+§3c has that expected value per student-round. **Restoration outranks invention
+for the rest of round 100.** Do not let §3c's byte tables pull a student onto a
+fresh 0.1 % idea while a 0.24 % restore sits unshipped.
 
 ### 3a. Three of the four lever classes are now closed
 
@@ -663,9 +802,12 @@ common-baseline score is only 2.574594).
 | regime | **bandwidth-bound** | **instruction / latency-bound** |
 
 A lever that removes bytes wins on both. A lever that removes instructions wins
-only on M5 and is **invisible on every student rig**. This is why **#496 (the
-M5 receipt channel) remains the single most valuable in-flight assignment** —
-it is the only instrument that can read the M5 regime directly.
+only on M5 and is **invisible on every student rig**. That is why the **M5
+receipt channel** (opened by #496) is our only direct read of the ranked regime,
+and why the **per-kernel counter census** — which resolves 6–12 µs/step at
+z = 4–8.5 against a pooled σ of 3.34 µs/step — is the primary instrument for any
+instruction-class arm. An M4 end-to-end wall time cannot see anything below
+≈80 µs/step and must never be used to kill an instruction-class hypothesis.
 
 ### 3c. Where the remaining money is
 
@@ -754,9 +896,17 @@ prefill routed gather-GEMM), plus one byte-axis outlier.
 3. **Reading the M5 regime directly** through the receipt channel, so we stop
    inferring M5 behaviour from a bandwidth-bound M4. Rule 68's contemporaneous-
    control + preregistered-revert method is now the programme standard.
-4. ❌ **RETRACTED** — "submission cadence as a first-class lever" was wrong.
-   See the round-99 recalibration at the top of this file: p ≈ 2.3 %/draw from
-   our best row, ≈ 0.01 % from a typical one. Cadence buys soundness, not rank.
+4. ⚠️ **RETRACTED, then partially reinstated.** "Submission cadence as a
+   first-class lever" was wrong *unconditionally* — from the current frontier
+   p ≈ 2 × 10⁻⁴ per draw. But the round-100 common-baseline decomposition
+   (headline above) shows cadence becomes rational **conditional on
+   restoration**: p ≈ 1.4 % at our best merit and ≈ 11 % after another ~0.5 %.
+   Cadence is a *second*-class lever that switches on once merit is recovered.
+5. 🆕 **Round-100 thesis — recover before you invent.** The single largest
+   quantified item on the board is not a new mechanism, it is 0.43–0.53 % of
+   already-proven merit we dropped by adopting the organizer frontier without a
+   re-port audit. Restoration arms outrank discovery arms until the three-row
+   ledger is closed.
 
 ---
 
@@ -765,20 +915,34 @@ prefill routed gather-GEMM), plus one byte-axis outlier.
 | PR | student | assignment / revision | base | head | arm |
 |---|---|---|---|---|---|
 | [#539](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/539) | maple-frieren | `maple-r98-a-decode-attn-qmv-mlp` / `r99-a-rev1` | `c240616a` | `14071c9b` | **A** — restore the two mechanisms the rebase dropped. Eight-arm job COMPLETE; collecting the terminal result. **Do not alter the branch.** |
-| [#541](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/541) | maple-tanjiro | `maple-r98-c-prefill-loader-pipeline` / `r99-d-rev1` | `c6c66344` | `83da91e7` | **D** — re-anchor the instrument on the new base + one base receipt |
+| [#541](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/541) | maple-tanjiro | `maple-r98-c-prefill-loader-pipeline` / `r99-d-rev1` | `c6c66344` | `d8ee3f67` | **D** — ✅ **MERGED** 2026-08-09 → base `2aa2f79`. Produced the common-baseline model and the three-reversion ledger. |
 | [#543](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/543) | maple-fern | `maple-r98-d-moe-qmv-mlp` / `r99-e-rev1` | `c6c66344` | `531a30e3` | **H_F** — ✅ **CLOSED** 2026-08-09, zero receipts spent. See §I; produced rules 70/71/72. |
 | [#548](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/548) | maple-nezuko | `maple-r99-b-comment-byte-reclamation` / `r99-b-rev1` | `ad39bfc6` | `3d7052c4` | **B** — reclaim editable bytes from comment-only content |
+| [#553](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/553) | maple-fern | `maple-r100-a-tg-doubling-probe-ladder` / `r100-a-rev1` | `d90f854d` | `e87c16f3` | **H2** — rule-71 probe validation + E1/E2/E3 TG-doubling discriminator ladder. Zero submitted bytes. |
+| [#555](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/555) | maple-tanjiro | `maple-r100-b-epilogue-report-and-session-factor` / `r100-b-rev1` | `2aa2f79` | new | **R1** — re-port the r85-C float4 merge epilogue (byte-negative) + price the lottery from the common-baseline model + fix four record defects. |
 
-**fern is free** and is the next student to assign; the round-100 arm for fern
-is the combined rule-71 instrument validation + H2 E1/E2/E3 discriminator ladder
-(§H), which submits zero bytes because `research/` is not in `editablePaths`.
+**All four students are engaged.** The queued arm behind them is **R3**, the
+`DARKBLOOM_ROUTER_WEIGHT_PREFETCH` restoration (≈5.5–6 kB), which is gated on
+frieren's #539 landing first because both touch the same file's headroom.
 
-**Merge sequencing is a live dependency.** #548 rung 1 → #539 / #543 → #548
-rung 2. #539 rung 1 costs **+3,859 B** in `LagunaRuntimeModel.swift`, which has
-only 12,870 B of per-file headroom; #548 rung 1 is deliberately confined to
-vendored files (touches nothing under `Sources/`) so it can merge independently
-and fast. frieren has been told explicitly **not** to shrink her kernel to fit
-current headroom.
+**Merge sequencing is a live dependency.** #548 rung 1 → #539 → #548 rung 2.
+#539 rung 1 costs **+3,859 B** (the r96-a 4-deep ring is +4,086 B as measured
+by #541) in `LagunaRuntimeModel.swift`, which has only 12,870 B of per-file
+headroom; #548 rung 1 is deliberately confined to vendored files (touches
+nothing under `Sources/`) so it can merge independently and fast. frieren has
+been told explicitly **not** to shrink her kernel to fit current headroom.
+#555's epilogue restore is **−454 B** and therefore does not compete for
+headroom at all — it is the one restoration that can land in any order.
+
+**⚠️ #539 deconfound (feedback `r99-a-fb-ring-vs-epilogue-deconfound`).** The
+rebase reverted *three* mechanisms, not the two frieren was briefed on, and the
+third one lives in the same kernel she is editing. The ring
+(OLD `:1640-1818` → NEW `:1548-1638`) and the epilogue (OLD `:1819-1872` →
+NEW `:1639-1709`) are strictly disjoint, so an arm that lifted the OLD kernel
+wholesale would silently bundle both and mis-attribute the epilogue's
++0.2358 % to the pipeline depth. She must state which line range she lifted and
+confirm her diff does not touch the epilogue regions; if bundled, split into two
+commits. The epilogue is tanjiro's #555.
 
 **#539 · arm A.** Restore the 4-deep `laguna_sliding_fused_attn_ring_v1` load
 pipeline (rung 1) and `DARKBLOOM_ROUTER_WEIGHT_PREFETCH` (rung 2), both (rung
@@ -787,13 +951,26 @@ first, because the transform is adjacent to the one nezuko just falsified — bu
 it is a *restoration* of code the compiler previously accepted, not a new hoist,
 so the two are not the same experiment.
 
-**#541 · arm D.** Part 1: decode-pool census on the untouched new base, with the
-**preregistered prediction that the sliding pool must differ from 636.0
-µs/step**. If it comes back at 636.0 the prediction has failed and the census is
-blind to the pipeline regression — that is itself the finding. Part 2: report
-the wall−busy gap against the 249 µs reference (this number gates arm C).
-Part 3: one M5 duplex receipt of the **untouched** base — anchor, `4f3108c4`
-soundness check, and a p≈4.45 % lottery draw in one.
+**#541 · arm D — MERGED, and the highest-value result of the round.** Delivered
+the common-baseline model (validated 1185/1185, worst rel err 3.0e-08), the
+three-reversion ledger, and the M5 loss split. Audit caveats carried forward
+into #555 Part 2, all of them desk-cost:
+
+- "exactly four kernels differ" is a **magnitude** selection, not a z selection
+  (`argmax_bfloat16` has z = 11.8 at only +0.55 µs; `gate_sp_h48_v1` z = −2.3).
+- The census "old" column is **hard-coded literature** from
+  `research/tanjiro-r99d-commonmode.py:24-50` ← `maple-frieren-r94-decode-residue-ledger.md:115`,
+  base `d549d318`, M4 Pro 20-core, Apple GPU gen 16 — cross-session,
+  cross-base, median-ratio corrected, **not** paired ABBA. The delivered
+  σ 0.491 % is a cross-kernel MAD, not the preregistered per-kernel σ 3.34 µs.
+- The 0.4286 % figure **mixes two M4→M5 conventions** (router scaled by 0.595,
+  the others not). All-ratioed it is ≈0.278 %, all-un-ratioed ≈0.467 %.
+- The per-mechanism split of the M5 0.5286 % is **inferred, never M5-measured**
+  — r85-C was never submitted (`research/maple-r85-c-epilogue-result.md:190-191,
+  :319, :384-389`).
+- "Prediction CONFIRMED" is about the *number*, not the *mechanism*: the 636.0
+  anchor is pre-r96-a and already 2-deep.
+- Residual **≈0.10 % unattributed** after the three mechanisms.
 
 **#543 · H_F.** The PR is *not* byte-identical: it carries a real depth-1 →
 depth-4 code-prefetch change in the shared Metal source string behind
@@ -950,6 +1127,42 @@ must cap its own submitted growth.
 ---
 
 ## 6. Potential next research directions
+
+### 🆕 Round-100 queue, in priority order
+
+1. **R3 — restore `DARKBLOOM_ROUTER_WEIGHT_PREFETCH`** (+0.0628 %, ≈5.5–6 kB).
+   Gated behind #539 landing because both consume the same per-file headroom.
+   Provenance is settled: the organizer snapshot never had it and no authored
+   revert exists, so this is a reconciliation casualty, not a rejected idea.
+   HEAD's `rowsPerThread == 1` accumulate is character-for-character
+   `e510bb3d`'s `prefetch == 0` arm, and `lagunaRouterPrefetchGroups` peeled
+   only when `rowsPerThread == 1` with `DARKBLOOM_ROUTER_ROWS_PER_GROUP`
+   defaulting to 8 ⇒ **the peel was live in the ranked default config.**
+2. **H6 — prefill non-GEMM census.** `_nax` GEMM coverage is already complete
+   (`use_nax` is unconditional for BF16 at `matmul.cpp:957-1026`), so the
+   12.30 ms `steel_gemm_bf16` pool is an **M4 artifact** and prefill headroom
+   must be looked for outside the GEMMs. Desk-first, then one census.
+3. **QKV byte-floor contradiction (desk, blocking).** Per-layer QKV codes
+   2048 × 10240 × 0.5 = 10.5 MB × 40 = 420 MB/step ⇒ a 769 µs floor at
+   546 GB/s, which *exceeds* the ≈650 µs pool we measured. One of the two is
+   wrong. **No QKV arm may be assigned until this is resolved.**
+4. **§F rider — is QKV `_idx_v1` silently dormant?** `lagunaIndexedAffineMetadata`
+   (`LRM:2829-2866`) returns nil when the `(scale,bias)` LUT exceeds 65,536
+   (`guard lut.count < 65_536`, ~`:2856`) and the QKV bank has ≈196 k candidate
+   pairs. The dict guard `:5304-5305` passes but dispatch `:5368-5382` also
+   needs a non-nil `indexedMetadata`. **One traced decode step resolves it**
+   (`lagunaTrace("… indexed")` at `:5370-5372`) and the same step resolves
+   `_ns1` (`:4755`) via `lagunaNarrowScaleLog.noteDispatch` (`:4885`/`:4624`).
+5. **LRM file split** (#548 rung 3b). `editablePaths` contains four
+   *directories*, so a new `.swift` under `Sources/MLXFastModel/` **is**
+   submitted ⇒ the 524,288 B per-file cap is dissolvable by splitting. This
+   converts the binding constraint into the softer 3,000,000 B total.
+6. **lm_head int3 screen.** Decode level-1 read is already a 4-bit nibble plane
+   (1088 B/row = 109.183 MB at ~8.5 effective bits). int5→int4 is dead; only
+   int3 (832 B/row) or coarser scale groups save bytes.
+7. **Rule-68 re-verification on the current base** — but only after its two
+   explanations are re-priced against the smaller ≈0.6–0.7 % residual.
+
 
 ### 6a. Round-99 slate — REWRITTEN after the base change
 
@@ -1541,6 +1754,16 @@ the threshold.** fern wrote the SLC-residency explanation of a possible null
 before reading any in-situ number, which is why the null is informative rather
 than merely disappointing. Put this requirement in every subsequent brief.
 
+**Rule 73 (process) — post-adoption re-port audit.** Every organizer frontier
+adoption must be followed *immediately*, and before any fresh optimization arm
+is assigned, by a mechanical re-port audit of our own landed wins: (a) a
+source-hash diff of every Laguna kernel body we have ever modified, old base vs
+new base; (b) a `DARKBLOOM_*` flag-set diff. Anything present at the old base
+and absent at the new one is a **reversion to re-port**, not a design decision.
+A declaration-set diff alone is insufficient — it misses in-place body rewrites
+that keep the same interface, which is exactly how the r85-C float4 epilogue was
+lost for three rounds at a cost of ≈0.24 % of score.
+
 **Process rule (#513).** Every assignment must state that *a student's
 registered go/no-go bar must be at least as strict as the suggested bar, or the
 loosening must be justified inside the preregistration itself.* #513's
@@ -1587,8 +1810,13 @@ M4→M5 transfer factor" (−0.40 ± 0.24) rests on ONE receipt (#137, +24.6 µs
 
 ## 10. The cadence model (F4) — ❌ RETRACTED 2026-08-09
 
-**This whole section is superseded by the round-99 recalibration at the top of
-this file.** It is kept only so the retraction is auditable. Its error: it
+**This whole section is superseded — first by the round-99 recalibration and
+then by the round-100 repricing, both at the top of this file.** Read
+"THE RESUBMISSION LOTTERY IS RE-OPENED" for the current numbers: cadence is
+worthless from the current frontier (p ≈ 2 × 10⁻⁴) but worth ≈1.4 %/draw once
+the three reverted mechanisms are restored, and ≈11 %/draw after another ~0.5 %
+of merit. The section below is kept only so the retraction is auditable. Its
+error: it
 took σ(score) = 0.6172 % from a *pre-rebase* fit and applied it to the *gap to
 the record* as if any single draw were a fresh sample of our own best score.
 The measured sd of our 12 most recent healthy-lineage scored submissions is
@@ -1626,13 +1854,15 @@ Four-term score-variance decomposition:
 
 ---
 
-## 11. Merged-result ledger, rounds 93–96
+## 11. Merged-result ledger, rounds 93–100
 
 | PR | student | headline | base after merge |
 |---|---|---|---|
 | [#497](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/497) | maple-fern | rule 56/57 — the M4 rig is design-limited; SE 1.34 µs/step; 1.2382 µs/dispatch saturated | `43036cd3` |
 | [#498](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/498) | maple-nezuko | rule 55 — M4 trio is bandwidth-bound at 92.2 % of peak | `b9381a4e` |
 | [#502](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/502) | maple-frieren | rule 53/54 — there is no decode dispatch residue | `14e5bd34` |
+| [#540](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/540) | maple-nezuko | the zero-receipt A/B kernel probe; every prefetch variant regressed +5..+7 % at identical occupancy ⇒ lost static codegen quality | `c6c66344` |
+| [#541](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/541) | maple-tanjiro | **the common-baseline score model** (validated 1185/1185) and the **three-reversion ledger**: adopting the promoted frontier cost 0.43–0.53 % of already-proven merit | `2aa2f79` |
 
 W&B: #497 [`grovhe29`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/grovhe29) ·
 [`ng13oh64`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/ng13oh64) ·
