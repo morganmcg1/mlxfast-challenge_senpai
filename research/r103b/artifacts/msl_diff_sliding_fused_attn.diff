@@ -1,0 +1,124 @@
+--- dump/old/lib_0096_custom_kernel_laguna_sliding_fused_attn_ring_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_uint32_tc_floatc_bfloat16_t.msl	2026-08-09 21:48:01
++++ dump/new/lib_0096_custom_kernel_laguna_sliding_fused_attn_ring_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_uint32_tc_floatc_bfloat16_t.msl	2026-08-09 21:48:40
+@@ -1277,21 +1277,37 @@
+ U pair_sum1 = 0;
+ 
+ int i = sg;
+-for (; i + BN < N; i += 2 * BN) {
++for (; i + 3 * BN < N; i += 4 * BN) {
+     const device bfloat* pipe_keys_b = pair_keys + inner_k_stride;
++    const device bfloat* pipe_keys_c = pair_keys + 2 * inner_k_stride;
++    const device bfloat* pipe_keys_d = pair_keys + 3 * inner_k_stride;
+     const device bfloat* pipe_values_b = pair_values + inner_v_stride;
++    const device bfloat* pipe_values_c = pair_values + 2 * inner_v_stride;
++    const device bfloat* pipe_values_d = pair_values + 3 * inner_v_stride;
+     const bool sub_a = uint(i) == widx;
+     const bool sub_b = uint(i + BN) == widx;
++    const bool sub_c = uint(i + 2 * BN) == widx;
++    const bool sub_d = uint(i + 3 * BN) == widx;
+     U pipe_ka[4];
+     U pipe_kb[4];
++    U pipe_kc[4];
++    U pipe_kd[4];
+     T_LOAD_K(pipe_ka, sub_a, pair_keys);
+     T_LOAD_K(pipe_kb, sub_b, pipe_keys_b);
++    T_LOAD_K(pipe_kc, sub_c, pipe_keys_c);
++    T_LOAD_K(pipe_kd, sub_d, pipe_keys_d);
+     bfloat pipe_va0, pipe_va1, pipe_va2, pipe_va3;
+     bfloat pipe_vb0, pipe_vb1, pipe_vb2, pipe_vb3;
++    bfloat pipe_vc0, pipe_vc1, pipe_vc2, pipe_vc3;
++    bfloat pipe_vd0, pipe_vd1, pipe_vd2, pipe_vd3;
+     T_LOAD_V(pipe_va0, pipe_va1, pipe_va2, pipe_va3, sub_a,
+         pair_values);
+     T_LOAD_V(pipe_vb0, pipe_vb1, pipe_vb2, pipe_vb3, sub_b,
+         pipe_values_b);
++    T_LOAD_V(pipe_vc0, pipe_vc1, pipe_vc2, pipe_vc3, sub_c,
++        pipe_values_c);
++    T_LOAD_V(pipe_vd0, pipe_vd1, pipe_vd2, pipe_vd3, sub_d,
++        pipe_values_d);
+ 
+     U pair_score0 = 0;
+     U pair_score1 = 0;
+@@ -1365,8 +1381,80 @@
+     pair_o0[3] = pair_o0[3] * pipeb_factor0 + pipeb_exp0 * pipe_vb3;
+     pair_o1[3] = pair_o1[3] * pipeb_factor1 + pipeb_exp1 * pipe_vb3;
+ 
+-    pair_keys += 2 * inner_k_stride;
+-    pair_values += 2 * inner_v_stride;
++    U pipec_score0 = 0;
++    U pipec_score1 = 0;
++    pipec_score0 += pair_q0[0] * pipe_kc[0];
++    pipec_score1 += pair_q1[0] * pipe_kc[0];
++    pipec_score0 += pair_q0[1] * pipe_kc[1];
++    pipec_score1 += pair_q1[1] * pipe_kc[1];
++    pipec_score0 += pair_q0[2] * pipe_kc[2];
++    pipec_score1 += pair_q1[2] * pipe_kc[2];
++    pipec_score0 += pair_q0[3] * pipe_kc[3];
++    pipec_score1 += pair_q1[3] * pipe_kc[3];
++    pipec_score0 = simd_sum(pipec_score0);
++    pipec_score1 = simd_sum(pipec_score1);
++
++    U pipec_new_max0 = metal::max(pair_max0, pipec_score0);
++    U pipec_new_max1 = metal::max(pair_max1, pipec_score1);
++    U pipec_factor0;
++    U pipec_factor1;
++    LAGUNA_RESCALE(pipec_factor0, pair_max0 - pipec_new_max0);
++    LAGUNA_RESCALE(pipec_factor1, pair_max1 - pipec_new_max1);
++    U pipec_exp0 = metal::fast::exp(pipec_score0 - pipec_new_max0);
++    U pipec_exp1 = metal::fast::exp(pipec_score1 - pipec_new_max1);
++
++    pair_max0 = pipec_new_max0;
++    pair_max1 = pipec_new_max1;
++    pair_sum0 = pair_sum0 * pipec_factor0 + pipec_exp0;
++    pair_sum1 = pair_sum1 * pipec_factor1 + pipec_exp1;
++
++    pair_o0[0] = pair_o0[0] * pipec_factor0 + pipec_exp0 * pipe_vc0;
++    pair_o1[0] = pair_o1[0] * pipec_factor1 + pipec_exp1 * pipe_vc0;
++    pair_o0[1] = pair_o0[1] * pipec_factor0 + pipec_exp0 * pipe_vc1;
++    pair_o1[1] = pair_o1[1] * pipec_factor1 + pipec_exp1 * pipe_vc1;
++    pair_o0[2] = pair_o0[2] * pipec_factor0 + pipec_exp0 * pipe_vc2;
++    pair_o1[2] = pair_o1[2] * pipec_factor1 + pipec_exp1 * pipe_vc2;
++    pair_o0[3] = pair_o0[3] * pipec_factor0 + pipec_exp0 * pipe_vc3;
++    pair_o1[3] = pair_o1[3] * pipec_factor1 + pipec_exp1 * pipe_vc3;
++
++    U piped_score0 = 0;
++    U piped_score1 = 0;
++    piped_score0 += pair_q0[0] * pipe_kd[0];
++    piped_score1 += pair_q1[0] * pipe_kd[0];
++    piped_score0 += pair_q0[1] * pipe_kd[1];
++    piped_score1 += pair_q1[1] * pipe_kd[1];
++    piped_score0 += pair_q0[2] * pipe_kd[2];
++    piped_score1 += pair_q1[2] * pipe_kd[2];
++    piped_score0 += pair_q0[3] * pipe_kd[3];
++    piped_score1 += pair_q1[3] * pipe_kd[3];
++    piped_score0 = simd_sum(piped_score0);
++    piped_score1 = simd_sum(piped_score1);
++
++    U piped_new_max0 = metal::max(pair_max0, piped_score0);
++    U piped_new_max1 = metal::max(pair_max1, piped_score1);
++    U piped_factor0;
++    U piped_factor1;
++    LAGUNA_RESCALE(piped_factor0, pair_max0 - piped_new_max0);
++    LAGUNA_RESCALE(piped_factor1, pair_max1 - piped_new_max1);
++    U piped_exp0 = metal::fast::exp(piped_score0 - piped_new_max0);
++    U piped_exp1 = metal::fast::exp(piped_score1 - piped_new_max1);
++
++    pair_max0 = piped_new_max0;
++    pair_max1 = piped_new_max1;
++    pair_sum0 = pair_sum0 * piped_factor0 + piped_exp0;
++    pair_sum1 = pair_sum1 * piped_factor1 + piped_exp1;
++
++    pair_o0[0] = pair_o0[0] * piped_factor0 + piped_exp0 * pipe_vd0;
++    pair_o1[0] = pair_o1[0] * piped_factor1 + piped_exp1 * pipe_vd0;
++    pair_o0[1] = pair_o0[1] * piped_factor0 + piped_exp0 * pipe_vd1;
++    pair_o1[1] = pair_o1[1] * piped_factor1 + piped_exp1 * pipe_vd1;
++    pair_o0[2] = pair_o0[2] * piped_factor0 + piped_exp0 * pipe_vd2;
++    pair_o1[2] = pair_o1[2] * piped_factor1 + piped_exp1 * pipe_vd2;
++    pair_o0[3] = pair_o0[3] * piped_factor0 + piped_exp0 * pipe_vd3;
++    pair_o1[3] = pair_o1[3] * piped_factor1 + piped_exp1 * pipe_vd3;
++
++    pair_keys += 4 * inner_k_stride;
++    pair_values += 4 * inner_v_stride;
+ }
+ 
+ if (lane == 0) {

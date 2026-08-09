@@ -1,0 +1,26 @@
+### alignment (geom=False) old vs new: len 11247 vs 11243, non-equal opcodes = 1
+  delete a[11243:11247] b[11243:11243]
+    - custom_kernel_laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6_bfloat16_t_uint32_t_uint8_t_uint32_t_float_bfloat16_t_uint32_t_uint8_t_bfloat16_t_bfloat16_t
+    - rmsbfloat16
+    - custom_kernel_laguna_lmhead_int5_base_coarse_delta_bf16_v1_bfloat16_t_uint8_t_uint8_t_float_bfloat16_t
+    - custom_kernel_laguna_lmhead_coarse_argmax_stage1_v5_float_float_uint32_t
+
+### alignment (geom=True) old vs new: len 11247 vs 11243, non-equal opcodes = 1
+  delete a[11243:11247] b[11243:11243]
+    - custom_kernel_laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6_bfloat16_t_uint32_t_uint8_t_uint32_t_float_bfloat16_t_uint32_t_uint8_t_bfloat16_t_bfloat16_t|147456x1x1|288x1x1
+    - rmsbfloat16|512x1x1|512x1x1
+    - custom_kernel_laguna_lmhead_int5_base_coarse_delta_bf16_v1_bfloat16_t_uint8_t_uint8_t_float_bfloat16_t|3211264x1x1|512x1x1
+    - custom_kernel_laguna_lmhead_coarse_argmax_stage1_v5_float_float_uint32_t|224x128x1|224x1x1
+
+### kernels whose (kind,grid,group,args) multiset differs: 5
+  custom_kernel_laguna_lmhead_coarse_argmax_stage1_v5_float_float_uint32_t
+         1 ->     0   ('threads', '224x128x1', '224x1x1', '0:float32[100352] 1:fl')
+  custom_kernel_laguna_lmhead_int5_base_coarse_delta_bf16_v1_bfloat16_t_uint8_t_uint8_t_float_bfloat16_t
+         6 ->     5   ('threads', '3211264x1x1', '512x1x1', '0:bfloat16[2048] 1:uint8[100352,1024] 2:uint8[100352,64] 3:float32[100352] 4:bfloat16[100352]')
+  custom_kernel_laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2_bfloat16_t_uint32_t_uint8_t_uint32_t_bfloat16_t
+         0 ->     1   ('threads', '131072x1x1', '64x1x1', '0:bfloat1')
+       236 ->   235   ('threads', '131072x1x1', '64x1x1', '0:bfloat16[1,1,2048] 1:uint32[256,1024,256] 2:uint8[16777344] 3:uint32[1,1,256] 4:bfloat16[1,1,8,1,512]')
+  custom_kernel_laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6_bfloat16_t_uint32_t_uint8_t_uint32_t_float_bfloat16_t_uint32_t_uint8_t_bfloat16_t_bfloat16_t
+       236 ->   235   ('threads', '147456x1x1', '288x1x1', '0:bfloat16[1,1,8,1,512] 1:uint32[256,2048,64] 2:uint8[8388736] 3:uint32[1,1,8] 4:float32[1,1,8] 5:bfloat16[1,1,512] 6:uint32[2048,64] 7:uint8[32896] 8:bfloat16[1,1,2048] 9:bfloat16[1,1,2048]')
+  rmsbfloat16
+       248 ->   247   ('threads', '512x1x1', '512x1x1', '0:bfloat16[1,1,2048] 1:bfloat16[2048] 2:bfloat16[1,1,2048]')

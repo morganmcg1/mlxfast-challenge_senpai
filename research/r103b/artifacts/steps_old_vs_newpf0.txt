@@ -1,0 +1,12 @@
+[old] rows=11247 malformed_skipped=0 prefill_dispatches=7334 decode_steps=6 per_step=[1759, 528, 408, 408, 408, 402]
+[new_pf0] rows=11247 malformed_skipped=0 prefill_dispatches=7334 decode_steps=6 per_step=[1759, 528, 408, 408, 408, 402]
+
+prefill delta = 0
+decode step 0: old=1759 new_pf0=1759 delta=0
+decode step 1: old=528 new_pf0=528 delta=0
+decode step 2: old=408 new_pf0=408 delta=0
+decode step 3: old=408 new_pf0=408 delta=0
+decode step 4: old=408 new_pf0=408 delta=0
+decode step 5: old=402 new_pf0=402 delta=0
+
+tail rows in old beyond aligned prefix:

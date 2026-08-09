@@ -1,0 +1,5 @@
+### alignment (geom=False) new vs new_aa: len 11243 vs 11243, non-equal opcodes = 0
+
+### alignment (geom=True) new vs new_aa: len 11243 vs 11243, non-equal opcodes = 0
+
+### kernels whose (kind,grid,group,args) multiset differs: 0

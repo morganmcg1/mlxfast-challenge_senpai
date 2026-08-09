@@ -1,0 +1,184 @@
+OLD lines(LRM+Layers, stripped)=9205  NEW lines(LRM, stripped)=9354
+multiset ADDED=173  REMOVED=24
+
+===== ADDED (NEW only) =====
+[12] }
+[3] for (uint u = 0; u < 4; ++u) {
+[2] (const device vec<bfloat, 4>*)(
+[2] """
+[2] uint column_u = column + u * block_width;
+[2] for (uint i = 0; i < n_reads; ++i) {
+[2] float(normalized_row[column_u + i]);
+[2] column += 4 * block_width;
+[1] private let lagunaRouterPrecomputedKeysEnabled =
+[1] }()
+[1] else {
+[1] return value
+[1] private let lagunaTerminalPrefillFusionEnabled =
+[1] guard
+[1] let lagunaRouterWeightPrefetch: Int = {
+[1] let raw = ProcessInfo.processInfo.environment["DARKBLOOM_ROUTER_WEIGHT_PREFETCH"],
+[1] let value = Int(raw), [0, 1, 5].contains(value)
+[1] return 1
+[1] private let lagunaRoPEAngleAtlasLength = 4096
+[1] ) -> String {
+[1] private func lagunaRouterPrefetchGroups(rowsPerThread: Int, prefetch: Int) -> Int {
+[1] guard rowsPerThread == 1 else { return 0 }
+[1] return prefetch == 5 ? 1 : prefetch
+[1] private func lagunaResidualRMSNormRouterSource(
+[1] rowsPerGroup: Int, prefetch: Int = 0
+[1] let prefetchGroups = lagunaRouterPrefetchGroups(
+[1] rowsPerThread: rowsPerThread, prefetch: prefetch)
+[1] let prefetchBlock = prefetchGroups == 0 ? "" : """
+[1] thread vec<bfloat, 4> laguna_pf[\(prefetchGroups * 4)];
+[1] if (simd_group < active_simd_groups) {
+[1] uint laguna_pf_row = tile * rows_per_group + simd_group * rows_per_thread;
+[1] uint laguna_pf_column = simd_lane * n_reads;
+[1] for (uint k = 0; k < \(prefetchGroups * 4); ++k) {
+[1] const device vec<bfloat, 4>* pf_values =
+[1] router_weight + laguna_pf_row * axis_size +
+[1] laguna_pf_column + k * block_width);
+[1] laguna_pf[k] = pf_values[0];
+[1] let prefetchEarly = prefetch == 5 ? "" : prefetchBlock
+[1] let prefetchLate = prefetch == 5 ? prefetchBlock : ""
+[1] if prefetchGroups > 0 {
+[1] accumulate = """
+[1] uint column = simd_lane * n_reads;
+[1] for (uint g = 0; g < \(prefetchGroups); ++g) {
+[1] router_result[0] += float(laguna_pf[g * 4 + u][i]) *
+[1] for (uint block = \(prefetchGroups * 4); block < router_blocks; block += 4) {
+[1] vec<bfloat, 4> rw[4];
+[1] const device vec<bfloat, 4>* row_values =
+[1] router_weight + router_row * axis_size +
+[1] column + u * block_width);
+[1] rw[u] = row_values[0];
+[1] router_result[0] += float(rw[u][i]) *
+[1] } else if rowsPerThread == 1 {
+[1] \(prefetchEarly)\(lagunaNormReductionTail2048)
+[1] \(prefetchLate)\(guardOpen)\
+[1] uniqueKeysWithValues: [1, 2, 4, 8, 16, 32, 64].flatMap { rowsPerGroup in
+[1] [0, 1, 5].map { prefetch -> (Int, MLXFast.MLXFastKernel) in
+[1] let groups = lagunaRouterPrefetchGroups(
+[1] rowsPerThread: rowsPerGroup >= 16 ? rowsPerGroup / 16 : 1,
+[1] prefetch: prefetch)
+[1] let armSuffix = groups == 0 ? "" : (prefetch == 5 ? "_pf1c" : "_pf\(groups)")
+[1] return (
+[1] rowsPerGroup * 8 + prefetch,
+[1] + (lagunaRouterPrecomputedKeysEnabled ? "keys_v1" : "v2")
+[1] + armSuffix,
+[1] source: lagunaResidualRMSNormRouterSource(
+[1] rowsPerGroup: rowsPerGroup, prefetch: prefetch),
+[1] lagunaTrace("residual+rmsnorm+router rpg\(rowsPerGroup) pf\(lagunaRouterWeightPrefetch)")
+[1] let outputs = lagunaResidualRMSNormRouterKernels[
+[1] rowsPerGroup * 8 + lagunaRouterWeightPrefetch]!(
+[1] for (; i + 3 * BN < N; i += 4 * BN) {
+[1] const device bfloat* pipe_keys_c = pair_keys + 2 * inner_k_stride;
+[1] const device bfloat* pipe_keys_d = pair_keys + 3 * inner_k_stride;
+[1] const device bfloat* pipe_values_c = pair_values + 2 * inner_v_stride;
+[1] const device bfloat* pipe_values_d = pair_values + 3 * inner_v_stride;
+[1] const bool sub_c = uint(i + 2 * BN) == widx;
+[1] const bool sub_d = uint(i + 3 * BN) == widx;
+[1] U pipe_kc[4];
+[1] U pipe_kd[4];
+[1] T_LOAD_K(pipe_kc, sub_c, pipe_keys_c);
+[1] T_LOAD_K(pipe_kd, sub_d, pipe_keys_d);
+[1] bfloat pipe_vc0, pipe_vc1, pipe_vc2, pipe_vc3;
+[1] bfloat pipe_vd0, pipe_vd1, pipe_vd2, pipe_vd3;
+[1] T_LOAD_V(pipe_vc0, pipe_vc1, pipe_vc2, pipe_vc3, sub_c,
+[1] pipe_values_c);
+[1] T_LOAD_V(pipe_vd0, pipe_vd1, pipe_vd2, pipe_vd3, sub_d,
+[1] pipe_values_d);
+[1] U pipec_score0 = 0;
+[1] U pipec_score1 = 0;
+[1] pipec_score0 += pair_q0[0] * pipe_kc[0];
+[1] pipec_score1 += pair_q1[0] * pipe_kc[0];
+[1] pipec_score0 += pair_q0[1] * pipe_kc[1];
+[1] pipec_score1 += pair_q1[1] * pipe_kc[1];
+[1] pipec_score0 += pair_q0[2] * pipe_kc[2];
+[1] pipec_score1 += pair_q1[2] * pipe_kc[2];
+[1] pipec_score0 += pair_q0[3] * pipe_kc[3];
+[1] pipec_score1 += pair_q1[3] * pipe_kc[3];
+[1] pipec_score0 = simd_sum(pipec_score0);
+[1] pipec_score1 = simd_sum(pipec_score1);
+[1] U pipec_new_max0 = metal::max(pair_max0, pipec_score0);
+[1] U pipec_new_max1 = metal::max(pair_max1, pipec_score1);
+[1] U pipec_factor0;
+[1] U pipec_factor1;
+[1] LAGUNA_RESCALE(pipec_factor0, pair_max0 - pipec_new_max0);
+[1] LAGUNA_RESCALE(pipec_factor1, pair_max1 - pipec_new_max1);
+[1] U pipec_exp0 = metal::fast::exp(pipec_score0 - pipec_new_max0);
+[1] U pipec_exp1 = metal::fast::exp(pipec_score1 - pipec_new_max1);
+[1] pair_max0 = pipec_new_max0;
+[1] pair_max1 = pipec_new_max1;
+[1] pair_sum0 = pair_sum0 * pipec_factor0 + pipec_exp0;
+[1] pair_sum1 = pair_sum1 * pipec_factor1 + pipec_exp1;
+[1] pair_o0[0] = pair_o0[0] * pipec_factor0 + pipec_exp0 * pipe_vc0;
+[1] pair_o1[0] = pair_o1[0] * pipec_factor1 + pipec_exp1 * pipe_vc0;
+[1] pair_o0[1] = pair_o0[1] * pipec_factor0 + pipec_exp0 * pipe_vc1;
+[1] pair_o1[1] = pair_o1[1] * pipec_factor1 + pipec_exp1 * pipe_vc1;
+[1] pair_o0[2] = pair_o0[2] * pipec_factor0 + pipec_exp0 * pipe_vc2;
+[1] pair_o1[2] = pair_o1[2] * pipec_factor1 + pipec_exp1 * pipe_vc2;
+[1] pair_o0[3] = pair_o0[3] * pipec_factor0 + pipec_exp0 * pipe_vc3;
+[1] pair_o1[3] = pair_o1[3] * pipec_factor1 + pipec_exp1 * pipe_vc3;
+[1] U piped_score0 = 0;
+[1] U piped_score1 = 0;
+[1] piped_score0 += pair_q0[0] * pipe_kd[0];
+[1] piped_score1 += pair_q1[0] * pipe_kd[0];
+[1] piped_score0 += pair_q0[1] * pipe_kd[1];
+[1] piped_score1 += pair_q1[1] * pipe_kd[1];
+[1] piped_score0 += pair_q0[2] * pipe_kd[2];
+[1] piped_score1 += pair_q1[2] * pipe_kd[2];
+[1] piped_score0 += pair_q0[3] * pipe_kd[3];
+[1] piped_score1 += pair_q1[3] * pipe_kd[3];
+[1] piped_score0 = simd_sum(piped_score0);
+[1] piped_score1 = simd_sum(piped_score1);
+[1] U piped_new_max0 = metal::max(pair_max0, piped_score0);
+[1] U piped_new_max1 = metal::max(pair_max1, piped_score1);
+[1] U piped_factor0;
+[1] U piped_factor1;
+[1] LAGUNA_RESCALE(piped_factor0, pair_max0 - piped_new_max0);
+[1] LAGUNA_RESCALE(piped_factor1, pair_max1 - piped_new_max1);
+[1] U piped_exp0 = metal::fast::exp(piped_score0 - piped_new_max0);
+[1] U piped_exp1 = metal::fast::exp(piped_score1 - piped_new_max1);
+[1] pair_max0 = piped_new_max0;
+[1] pair_max1 = piped_new_max1;
+[1] pair_sum0 = pair_sum0 * piped_factor0 + piped_exp0;
+[1] pair_sum1 = pair_sum1 * piped_factor1 + piped_exp1;
+[1] pair_o0[0] = pair_o0[0] * piped_factor0 + piped_exp0 * pipe_vd0;
+[1] pair_o1[0] = pair_o1[0] * piped_factor1 + piped_exp1 * pipe_vd0;
+[1] pair_o0[1] = pair_o0[1] * piped_factor0 + piped_exp0 * pipe_vd1;
+[1] pair_o1[1] = pair_o1[1] * piped_factor1 + piped_exp1 * pipe_vd1;
+[1] pair_o0[2] = pair_o0[2] * piped_factor0 + piped_exp0 * pipe_vd2;
+[1] pair_o1[2] = pair_o1[2] * piped_factor1 + piped_exp1 * pipe_vd2;
+[1] pair_o0[3] = pair_o0[3] * piped_factor0 + piped_exp0 * pipe_vd3;
+[1] pair_o1[3] = pair_o1[3] * piped_factor1 + piped_exp1 * pipe_vd3;
+[1] pair_keys += 4 * inner_k_stride;
+[1] pair_values += 4 * inner_v_stride;
+[1] private let lagunaDecodeRouterOrdinalHeader = """
+[1] private func lagunaDecodeEmbeddingRoPEAtlas(
+
+===== REMOVED (OLD only) =====
+[1] import Foundation
+[1] import MLX
+[1] import MLXFast
+[1] import MLXLMCommon
+[1] import MLXNN
+[1] let lagunaRouterPrecomputedKeysEnabled =
+[1] let lagunaTerminalPrefillFusionEnabled =
+[1] let lagunaRoPEAngleAtlasLength = 4096
+[1] private func lagunaResidualRMSNormRouterSource(rowsPerGroup: Int) -> String {
+[1] if rowsPerThread == 1 {
+[1] \(lagunaNormReductionTail2048)
+[1] \(guardOpen)\
+[1] uniqueKeysWithValues: [1, 2, 4, 8, 16, 32, 64].map { rowsPerGroup in
+[1] (
+[1] rowsPerGroup,
+[1] + (lagunaRouterPrecomputedKeysEnabled ? "keys_v1" : "v2"),
+[1] source: lagunaResidualRMSNormRouterSource(rowsPerGroup: rowsPerGroup),
+[1] lagunaTrace("residual+rmsnorm+router rpg\(rowsPerGroup)")
+[1] let outputs = lagunaResidualRMSNormRouterKernels[rowsPerGroup]!(
+[1] for (; i + BN < N; i += 2 * BN) {
+[1] pair_keys += 2 * inner_k_stride;
+[1] pair_values += 2 * inner_v_stride;
+[1] let lagunaDecodeRouterOrdinalHeader = """
+[1] func lagunaDecodeEmbeddingRoPEAtlas(
