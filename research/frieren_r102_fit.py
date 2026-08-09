@@ -309,7 +309,9 @@ def full_arm(blocks, stat="med"):
     out = {}
     for tag, rows in blocks:
         print()
-        print("### %s -- affine intercept fit, N in {512,384,256,128,64}" % tag)
+        used = sorted({r["N"] for r in rows if r["N"] >= 64}, reverse=True)
+        print("### %s -- affine intercept fit, N in {%s}" % (
+            tag, ",".join(str(n) for n in used)))
         print()
         print("| K | f us | +-95% | c us/pos | u=32c us | tau0=16u us | f/tau0 | "
               "95% CI | R^2 | rmse us | max resid us |")
@@ -396,10 +398,224 @@ def waves_c(k, c):
     return -(-k // c)
 
 
+def dense_arm(blocks, fits, stat="med"):
+    """Below-the-loop anchors and a curvature check on the dense N grid.
+
+    N=0 runs zero main iterations and no tail slice, so it times the prologue
+    and epilogue alone: a direct f that reads no KV bytes and must therefore
+    agree between the two cache modes. N=32 adds exactly one 32-position tail
+    pass, so (T(32) - T(0)) / 32 is a slope estimate that never enters the
+    intercept fit.
+    """
+    print()
+    print("### Direct fixed cost below the loop (N=0) versus the fitted intercept")
+    print()
+    print("| block | K | T(0) us | T(32) us | (T32-T0)/32 us/pos | fitted f us "
+          "| +-95% | T(0) - f us | agree within CI |")
+    print("|:------|--:|--------:|---------:|-------------------:|------------:"
+          "|------:|------------:|:----------------|")
+    direct = {}
+    for tag, rows in blocks:
+        for k in ks(rows):
+            t0 = [r[stat] for r in rows if r["K"] == k and r["N"] == 0]
+            t32 = [r[stat] for r in rows if r["K"] == k and r["N"] == 32]
+            if not t0:
+                continue
+            t0m = statistics.fmean(t0)
+            t32m = statistics.fmean(t32) if t32 else float("nan")
+            key = (tag, k)
+            direct[key] = (t0m, t32m)
+            if key not in fits:
+                continue
+            fit, _, _, _, _, _, _ = fits[key]
+            tq = T95.get(fit["df"], 2.0)
+            half = tq * fit["se_icpt"]
+            d = t0m - fit["icpt"]
+            print("| %s | %d | %.3f | %.3f | %.5f | %.3f | %.3f | %+.3f | %s |"
+                  % (tag, k, t0m, t32m, (t32m - t0m) / 32.0, fit["icpt"], half,
+                     d, "yes" if abs(d) <= half else "no"))
+
+    print()
+    print("Cache-mode invariance of the N=0 anchor (it reads no KV bytes, so a "
+          "difference here is probe overhead, not memory):")
+    print()
+    print("| K | resident T(0) us | defeat T(0) us | delta % |")
+    print("|--:|-----------------:|---------------:|--------:|")
+    res_tag = blocks[0][0]
+    def_tag = blocks[1][0] if len(blocks) > 1 else None
+    for k in sorted({k for (t, k) in direct if t == res_tag}):
+        a = direct[(res_tag, k)][0]
+        b = direct.get((def_tag, k), (float("nan"),))[0]
+        print("| %d | %.3f | %.3f | %+.2f%% |" % (k, a, b, 100 * (b - a) / a))
+
+    print()
+    print("### Gate arithmetic from measured points only (no fit)")
+    print()
+    print("tau0 := T(512) - T(0). Both terms are medians of the same shared "
+          "pipeline, so this ratio uses no extrapolation at all.")
+    print()
+    print("| block | K | T(512) us | T(0) us | tau0 us | f/tau0 | bar | verdict |")
+    print("|:------|--:|----------:|--------:|--------:|-------:|----:|:--------|")
+    meas = {}
+    for tag, rows in blocks:
+        for k in ks(rows):
+            t512 = [r[stat] for r in rows if r["K"] == k and r["N"] == 512]
+            t0 = [r[stat] for r in rows if r["K"] == k and r["N"] == 0]
+            if not t512 or not t0:
+                continue
+            a, b = statistics.fmean(t512), statistics.fmean(t0)
+            tau0 = a - b
+            meas[(tag, k)] = (a, b, tau0)
+            print("| %s | %d | %.3f | %.3f | %.3f | %.1f%% | 9.4%% | %s |"
+                  % (tag, k, a, b, tau0, 100 * b / tau0,
+                     "GO" if 100 * b / tau0 < 9.4 else "NO-GO"))
+
+    print()
+    print("### Wave decomposition of the measured fixed cost")
+    print()
+    print("T(K, 0) = a + W(K)*f_TG with W = ceil(K/%d): the K=24 (W=2) and "
+          "K=48 (W=3) anchors separate the once-per-dispatch constant from the "
+          "per-threadgroup fixed work, which is what lets a %d-core host answer "
+          "a 40-core question." % (CORES, CORES))
+    print()
+    print("| block | a us | f_TG us | f(C=40, W=1) us | tau0(C=40) us | "
+          "f/tau0 at C=40 | verdict |")
+    print("|:------|-----:|--------:|----------------:|--------------:|"
+          "---------------:|:--------|")
+    proj = {}
+    for tag, _ in blocks:
+        if (tag, 24) not in meas or (tag, 48) not in meas:
+            continue
+        t24, t48 = meas[(tag, 24)][1], meas[(tag, 48)][1]
+        f_tg = (t48 - t24) / (waves_c(48, CORES) - waves_c(24, CORES))
+        a = t24 - waves_c(24, CORES) * f_tg
+        f40 = a + f_tg
+        tau40 = meas[(tag, 24)][2] / waves_c(24, CORES)
+        proj[tag] = (a, f_tg, f40, tau40)
+        print("| %s | %.3f | %.3f | %.3f | %.3f | %.1f%% | %s |"
+              % (tag, a, f_tg, f40, tau40, 100 * f40 / tau40,
+                 "GO" if 100 * f40 / tau40 < 9.4 else "NO-GO"))
+
+    print()
+    print("### Split makespan on the ranked grid, from measured anchors only")
+    print()
+    print("makespan(S) = a + ceil(24S/C)*(f_TG + (16/S)*u_TG), merge dispatch "
+          "excluded so the scan is an upper bound on the achievable win. The "
+          "merge is a second dispatch, so it cannot cost less than the measured "
+          "once-per-dispatch constant `a`; the last two columns compare the best "
+          "gross win against that floor.")
+    for c in (40, CORES):
+        print()
+        print("C = %d cores" % c)
+        print()
+        print("| block | " + " | ".join("S=%d" % s for s in range(1, 9))
+              + " | best S | gross gain us | merge floor a us | net |")
+        print("|:------|" + "--:|" * 8 + "--:|--:|--:|:--|")
+        for tag, (a, f_tg, _, tau40) in proj.items():
+            u_tg = tau40 / 16.0
+            vals = [a + waves_c(24 * s, c) * (f_tg + (16.0 / s) * u_tg)
+                    for s in range(1, 9)]
+            best = 1 + min(range(8), key=lambda i: vals[i])
+            gain = vals[0] - vals[best - 1]
+            print("| %s | " % tag + " | ".join("%.2f" % v for v in vals)
+                  + " | %d | %+.2f | %.2f | %s |"
+                  % (best, gain, a, "WIN" if gain > a else "LOSS"))
+
+    print()
+    print("### Independent low-N estimate of f (never uses the large-N points)")
+    print()
+    print("N in {64,128,192} keeps the KV working set under 800 kB, where the "
+          "relative sd is below 0.5%% and no cache level is being exceeded. "
+          "Extrapolating that clean segment to N=0 is an estimate of f that "
+          "shares no data with the large-N points that dominate the full-grid "
+          "intercept, and none with the N=0 anchor itself.")
+    print()
+    print("| block | K | slope us/pos | low-N intercept us | direct T(0) us | "
+          "delta us | delta % | full-grid f us | delta vs full-grid us |")
+    print("|:------|--:|--:|--:|--:|--:|--:|--:|--:|")
+    for tag, rows in blocks:
+        for k in ks(rows):
+            acc = {}
+            for r in rows:
+                if r["K"] == k and 64 <= r["N"] <= 192:
+                    acc.setdefault(r["N"], []).append(r[stat])
+            if len(acc) < 3 or (tag, k) not in meas:
+                continue
+            pts = sorted(acc)
+            fit = linfit([float(n) for n in pts],
+                         [statistics.fmean(acc[n]) for n in pts])
+            t0 = meas[(tag, k)][1]
+            d = fit["icpt"] - t0
+            gf = fits[(tag, k)][0]["icpt"] if (tag, k) in fits else float("nan")
+            print("| %s | %d | %.5f | %.3f | %.3f | %+.3f | %+.1f%% | %.3f | %+.3f |"
+                  % (tag, k, fit["slope"], fit["icpt"], t0, d, 100 * d / t0,
+                     gf, fit["icpt"] - gf))
+
+    print()
+    print("### Model validation: the one split point this host can execute directly")
+    print()
+    print("A two-way split at C=%d is literally K=48 threadgroups each covering "
+          "N=256, which the dense grid already measures. Comparing that measured "
+          "point with the model's makespan(S=2, C=%d) says whether the scan is "
+          "optimistic or pessimistic about splitting."
+          % (CORES, CORES))
+    print()
+    print("Two merge costs are quoted. `a` is the strict floor: any second "
+          "dispatch pays the once-per-dispatch constant. T(0) is the realistic "
+          "estimate: the merge launches the same 24 threadgroups and so pays "
+          "their prologue and epilogue as well.")
+    print()
+    print("| block | measured T(K=48,N=256) us | model makespan(S=2,C=%d) us | "
+          "model error | measured vs S=1 | merge floor a us | merge est T(0) us "
+          "| net vs floor | net vs est |" % CORES)
+    print("|:------|--:|--:|--:|--:|--:|--:|:--|:--|")
+    for tag, rows in blocks:
+        if tag not in proj:
+            continue
+        a, f_tg, _, tau40 = proj[tag]
+        u_tg = tau40 / 16.0
+        model = a + waves_c(48, CORES) * (f_tg + 8.0 * u_tg)
+        obs = [r[stat] for r in rows if r["K"] == 48 and r["N"] == 256]
+        if not obs:
+            continue
+        om = statistics.fmean(obs)
+        base, t0 = meas[(tag, 24)][0], meas[(tag, 24)][1]
+        gain = base - om
+        print("| %s | %.3f | %.3f | %+.1f%% | %+.3f us (%.3fx) | %.2f | %.2f | "
+              "%s | %s |"
+              % (tag, om, model, 100 * (model - om) / om, gain, om / base, a,
+                 t0, "WIN" if gain > a else "LOSS",
+                 "WIN" if gain > t0 else "LOSS"))
+
+    print()
+    print("### Curvature of tau(N) on the dense grid")
+    print()
+    print("Second differences of the eight N in {64..512 step 64}. An affine "
+          "tau(N) has them at zero within the duplicate-N null; a positive run "
+          "means the working set is outgrowing a cache level as N grows.")
+    for tag, rows in blocks:
+        print()
+        print("| K | " + " | ".join("d2(%d)" % n for n in range(128, 449, 64))
+              + " | max |d2| us |")
+        print("|--:|" + "--:|" * 6 + "--:|")
+        for k in ks(rows):
+            acc = {}
+            for r in rows:
+                if r["K"] == k and 64 <= r["N"] <= 512:
+                    acc.setdefault(r["N"], []).append(r[stat])
+            y = {n: statistics.fmean(v) for n, v in acc.items()}
+            if not all(n in y for n in range(64, 513, 64)):
+                continue
+            d2 = [y[n - 64] - 2 * y[n] + y[n + 64] for n in range(128, 449, 64)]
+            print("| %s K=%d | " % (tag, k) + " | ".join("%+.3f" % v for v in d2)
+                  + " | %.3f |" % max(abs(v) for v in d2))
+    return direct
+
+
 def write_csv(blocks):
     path = os.path.join(ART, "sweep.csv")
     with open(path, "w", newline="") as fh:
-        w = csv.writer(fh)
+        w = csv.writer(fh, lineterminator="\n")
         w.writerow(["block", "K", "waves", "idx", "N", "M", "slots", "rounds",
                     "min_us", "med_us", "mean_us", "sd_us"])
         for _, rows in blocks:
@@ -416,10 +632,12 @@ def main():
     calib_tags = ("R_sweep", "D_sweep", "M3D")
     f2_tags = ("F2", "F2D")
     full_tags = ("FULL", "FULLD")
+    dense_tags = ("FZ", "FZD")
     calib = [(t, load(t)) for t in calib_tags]
     f2 = [(t, load(t)) for t in f2_tags]
     full = [(t, load(t)) for t in full_tags]
-    blocks = calib + f2 + full
+    dense = [(t, load(t)) for t in dense_tags]
+    blocks = calib + f2 + full + dense
     labels = {
         "R_sweep": "resident KV (1 slot, r98 binding)",
         "D_sweep": "SLC-defeat, byte-matched across N (slots scale as 512/N)",
@@ -428,6 +646,8 @@ def main():
         "F2D": "SLC-defeat, full-attention split diagonal (out of sample)",
         "FULL": "PRIMARY ARM: real laguna_full_fused_attn_grow_v1, resident KV",
         "FULLD": "PRIMARY ARM: real laguna_full_fused_attn_grow_v1, SLC-defeat",
+        "FZ": "PRIMARY ARM: dense N grid + below-the-loop anchors, resident KV",
+        "FZD": "PRIMARY ARM: dense N grid + below-the-loop anchors, SLC-defeat",
     }
     for tag, rows in blocks:
         print()
@@ -442,7 +662,7 @@ def main():
         for k, n, c, lo, hi, pct in dup_null(rows):
             print("| %d | %d | %d | %.3f | %.3f | %.2f%% |"
                   % (k, n, c, lo, hi, pct))
-        if tag in full_tags:
+        if tag in full_tags + dense_tags:
             print()
             print("Intercept fit for this block is in the primary-arm section "
                   "below; the sliding-kernel tau0 = 4g convention does not "
@@ -458,7 +678,13 @@ def main():
 
     print()
     print("# Primary arm -- full attention")
+    print()
+    print("FULL/FULLD are the five-point grid the assignment names. FZ/FZD "
+          "resample the same code path at every N divisible by 64 and add the "
+          "two below-the-loop anchors, so they are the confirmatory fit.")
     full_arm(full)
+    dense_fits = full_arm(dense)
+    dense_arm(dense, dense_fits)
 
     print()
     print("# Secondary arm -- sliding attention")

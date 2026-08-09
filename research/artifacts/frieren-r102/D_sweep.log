@@ -26,65 +26,65 @@ mode                  NULL CONTROL (base vs itself)
   dram_peak_GB_s        266.3  (measured, rule 55)
   slc_estimate_B        25165824  (M4-Pro-class, label only)
      K  TG/core   kvheads   slots   uniq_MiB   req_MiB/round   amplif   base_us   achieved_GB_s   pct_peak   slc_fit   regime
-    20     1.00         5      48      60.03         2550.78     42.5      9.75           137.2       51.5   no   PARTIAL
-    32     1.60         8      48      96.04         4080.08     42.5     18.10           118.2       44.4   no   PARTIAL
-    40     2.00        10      48     120.05         5099.61     42.5     18.91           141.4       53.1   no   PARTIAL
+    20     1.00         5      48      60.03         2550.78     42.5      9.77           136.8       51.4   no   PARTIAL
+    32     1.60         8      48      96.04         4080.08     42.5     19.20           111.4       41.8   no   PARTIAL
+    40     2.00        10      48     120.05         5099.61     42.5     19.68           135.8       51.0   no   PARTIAL
 
 === absolute cost ladder, best of 21 rounds of 2000 dispatches (E1) ===
 phi(K) = t(2K)/t(K).  A threadgroup-doubling change pays only if phi < 2.
 t/K is the per-threadgroup cost: flat means work-limited, falling means
 the added threadgroups are absorbed by idle cores.
      K  TG/core   base_us     t/K_us   phi(K)=t(2K)/t(K)
-    20     1.00      9.73     0.4863   1.7281
-    32     1.60     16.44     0.5138   -
-    40     2.00     16.81     0.4202   -
+    20     1.00      9.76     0.4882   1.8189
+    32     1.60     19.18     0.5994   -
+    40     2.00     17.76     0.4440   -
 
 === paired per-call cost, 21 alternating rounds of 2000 dispatches ===
 delta = second arm - base within a round, so drift cancels. neg = faster.
      K  TG/core   base_min   cand_min    d_mean    d_sd   spread   t_paired        %
-    20     1.00       9.52       9.65    +0.009   0.068     0.40      +0.59    +0.093
-    32     1.60      19.12      19.10    -0.036   0.056     0.25      -2.91    -0.188
-    40     2.00      19.59      19.41    -0.034   0.062     0.26      -2.54    -0.174
+    20     1.00       9.76       9.76    -0.004   0.010     0.04      -1.69    -0.040
+    32     1.60      16.77      18.79    +0.088   0.574     3.03      +0.70    +0.524
+    40     2.00      19.61      19.44    -0.035   0.066     0.29      -2.41    -0.178
 
 === interleaved row sweep, 21 rounds x 6 row points, 2000 dispatches ===
 Round r visits point (j + r) mod n, so no N owns a fixed slot in the round.
 Repeat an N in FERN_ROWS_SWEEP to get a within-round null on that N.
      K    idx      N    M   slots   min_us   med_us   mean_us   sd_us   spread
-    20      0     512    4      48     9.729     9.750      9.751    0.016    0.075
-    20      1     384    3      64     8.121     8.138      8.138    0.010    0.048
-    20      2     256    2      96     6.623     6.637      6.638    0.009    0.039
-    20      3     128    1     192     5.023     5.047      5.044    0.009    0.034
-    20      4      96    0     256     2.974     2.997      2.995    0.007    0.031
-    20      5     512    4      48     9.741     9.755      9.754    0.007    0.028
-    32      0     512    4      48    16.406    19.210     18.363    1.275    2.874
-    32      1     384    3      64    13.322    17.018     15.837    1.775    3.815
-    32      2     256    2      96    10.494    10.677     10.643    0.073    0.233
-    32      3     128    1     192     6.945     7.130      7.098    0.063    0.236
-    32      4      96    0     256     3.748     3.838      3.818    0.040    0.125
-    32      5     512    4      48    16.390    19.241     18.457    1.302    2.915
-    40      0     512    4      48    16.827    19.572     19.423    0.598    2.814
-    40      1     384    3      64    13.627    17.140     16.885    0.804    3.655
-    40      2     256    2      96    10.713    10.920     10.937    0.108    0.632
-    40      3     128    1     192     7.201     7.316      7.320    0.035    0.175
-    40      4      96    0     256     3.863     3.940      3.941    0.022    0.129
-    40      5     512    4      48    16.871    19.583     19.454    0.596    2.801
+    20      0     512    4      48     9.636     9.773      9.767    0.031    0.153
+    20      1     384    3      64     8.144     8.164      8.164    0.007    0.033
+    20      2     256    2      96     6.529     6.655      6.650    0.028    0.146
+    20      3     128    1     192     5.030     5.043      5.043    0.008    0.027
+    20      4      96    0     256     2.885     2.990      2.987    0.024    0.119
+    20      5     512    4      48     9.638     9.783      9.776    0.033    0.167
+    32      0     512    4      48    17.422    19.237     19.155    0.400    1.905
+    32      1     384    3      64    14.180    17.105     16.928    0.644    2.992
+    32      2     256    2      96    10.673    10.700     10.699    0.015    0.057
+    32      3     128    1     192     7.122     7.133      7.133    0.006    0.033
+    32      4      96    0     256     3.828     3.840      3.839    0.005    0.019
+    32      5     512    4      48    19.017    19.259     19.247    0.065    0.301
+    40      0     512    4      48    16.934    19.625     19.342    0.797    2.766
+    40      1     384    3      64    13.636    17.212     16.741    1.131    3.652
+    40      2     256    2      96    10.850    10.933     10.930    0.032    0.154
+    40      3     128    1     192     7.191     7.330      7.330    0.040    0.218
+    40      4      96    0     256     3.800     3.944      3.934    0.032    0.149
+    40      5     512    4      48    16.889    19.672     19.353    0.823    2.840
 
 === machine-readable sweep ===
-SWEEP k=20 idx=0 N=512 M=4 slots=48 n=21 min=9.7294 med=9.7499 mean=9.7514 sd=0.0159
-SWEEP k=20 idx=1 N=384 M=3 slots=64 n=21 min=8.1208 med=8.1380 mean=8.1381 sd=0.0096
-SWEEP k=20 idx=2 N=256 M=2 slots=96 n=21 min=6.6226 med=6.6372 mean=6.6381 sd=0.0086
-SWEEP k=20 idx=3 N=128 M=1 slots=192 n=21 min=5.0233 med=5.0471 mean=5.0435 sd=0.0090
-SWEEP k=20 idx=4 N=96 M=0 slots=256 n=21 min=2.9742 med=2.9966 mean=2.9946 sd=0.0073
-SWEEP k=20 idx=5 N=512 M=4 slots=48 n=21 min=9.7407 med=9.7552 mean=9.7544 sd=0.0066
-SWEEP k=32 idx=0 N=512 M=4 slots=48 n=21 min=16.4064 med=19.2102 mean=18.3630 sd=1.2750
-SWEEP k=32 idx=1 N=384 M=3 slots=64 n=21 min=13.3225 med=17.0181 mean=15.8370 sd=1.7754
-SWEEP k=32 idx=2 N=256 M=2 slots=96 n=21 min=10.4938 med=10.6774 mean=10.6431 sd=0.0727
-SWEEP k=32 idx=3 N=128 M=1 slots=192 n=21 min=6.9448 med=7.1299 mean=7.0982 sd=0.0626
-SWEEP k=32 idx=4 N=96 M=0 slots=256 n=21 min=3.7485 med=3.8378 mean=3.8182 sd=0.0405
-SWEEP k=32 idx=5 N=512 M=4 slots=48 n=21 min=16.3900 med=19.2411 mean=18.4565 sd=1.3023
-SWEEP k=40 idx=0 N=512 M=4 slots=48 n=21 min=16.8266 med=19.5719 mean=19.4226 sd=0.5981
-SWEEP k=40 idx=1 N=384 M=3 slots=64 n=21 min=13.6271 med=17.1399 mean=16.8851 sd=0.8044
-SWEEP k=40 idx=2 N=256 M=2 slots=96 n=21 min=10.7130 med=10.9197 mean=10.9374 sd=0.1075
-SWEEP k=40 idx=3 N=128 M=1 slots=192 n=21 min=7.2013 med=7.3158 mean=7.3199 sd=0.0355
-SWEEP k=40 idx=4 N=96 M=0 slots=256 n=21 min=3.8628 med=3.9395 mean=3.9405 sd=0.0224
-SWEEP k=40 idx=5 N=512 M=4 slots=48 n=21 min=16.8709 med=19.5826 mean=19.4544 sd=0.5958
+SWEEP k=20 idx=0 N=512 M=4 slots=48 n=21 min=9.6364 med=9.7731 mean=9.7672 sd=0.0312
+SWEEP k=20 idx=1 N=384 M=3 slots=64 n=21 min=8.1437 med=8.1644 mean=8.1635 sd=0.0072
+SWEEP k=20 idx=2 N=256 M=2 slots=96 n=21 min=6.5292 med=6.6546 mean=6.6499 sd=0.0284
+SWEEP k=20 idx=3 N=128 M=1 slots=192 n=21 min=5.0296 med=5.0428 mean=5.0431 sd=0.0083
+SWEEP k=20 idx=4 N=96 M=0 slots=256 n=21 min=2.8848 med=2.9901 mean=2.9873 sd=0.0242
+SWEEP k=20 idx=5 N=512 M=4 slots=48 n=21 min=9.6381 med=9.7832 mean=9.7763 sd=0.0330
+SWEEP k=32 idx=0 N=512 M=4 slots=48 n=21 min=17.4222 med=19.2370 mean=19.1551 sd=0.3998
+SWEEP k=32 idx=1 N=384 M=3 slots=64 n=21 min=14.1799 med=17.1053 mean=16.9279 sd=0.6442
+SWEEP k=32 idx=2 N=256 M=2 slots=96 n=21 min=10.6730 med=10.7000 mean=10.6986 sd=0.0151
+SWEEP k=32 idx=3 N=128 M=1 slots=192 n=21 min=7.1219 med=7.1329 mean=7.1334 sd=0.0064
+SWEEP k=32 idx=4 N=96 M=0 slots=256 n=21 min=3.8284 med=3.8397 mean=3.8387 sd=0.0052
+SWEEP k=32 idx=5 N=512 M=4 slots=48 n=21 min=19.0167 med=19.2585 mean=19.2471 sd=0.0648
+SWEEP k=40 idx=0 N=512 M=4 slots=48 n=21 min=16.9340 med=19.6253 mean=19.3423 sd=0.7967
+SWEEP k=40 idx=1 N=384 M=3 slots=64 n=21 min=13.6362 med=17.2125 mean=16.7411 sd=1.1305
+SWEEP k=40 idx=2 N=256 M=2 slots=96 n=21 min=10.8504 med=10.9326 mean=10.9301 sd=0.0322
+SWEEP k=40 idx=3 N=128 M=1 slots=192 n=21 min=7.1915 med=7.3296 mean=7.3300 sd=0.0395
+SWEEP k=40 idx=4 N=96 M=0 slots=256 n=21 min=3.8005 med=3.9438 mean=3.9338 sd=0.0325
+SWEEP k=40 idx=5 N=512 M=4 slots=48 n=21 min=16.8889 med=19.6722 mean=19.3528 sd=0.8225
