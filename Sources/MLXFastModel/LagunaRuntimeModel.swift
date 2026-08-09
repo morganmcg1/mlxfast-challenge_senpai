@@ -404,16 +404,16 @@ private let lagunaPrefillQKNormRoPEEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_QK_NORM_ROPE"] != "0"
 
 /// Heads-per-threadgroup repartition for the prefill QK-norm+RoPE kernels.
-/// The shipped kernels pack four heads (four SIMDs) per threadgroup; this
-/// selects a one-head-per-threadgroup twin (one SIMD) instead -- the proven
-/// DECODE shape. Bit-exact in the EG256 class: each head is one SIMD and all
-/// per-head arithmetic is SIMD-local, so only threadgroup composition changes.
-/// Default `1` selects H1; `DARKBLOOM_PREFILL_QK_HEADS=4` restores the control.
+/// The standard prefill kernels pack four heads (four SIMDs) per threadgroup.
+/// The H1 twin remains available as a same-commit research control and for the
+/// terminal-prefill shape, where only one query row is supplied. Both variants
+/// keep each head on one SIMD, so per-head arithmetic is unchanged.
+/// Default `4` selects H4; `DARKBLOOM_PREFILL_QK_HEADS=1` restores the control.
 let lagunaPrefillQKHeadsPerGroup: Int = {
     let raw =
         ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_QK_HEADS"]
-        ?? "1"
-    return raw == "4" ? 4 : 1
+        ?? "4"
+    return raw == "1" ? 1 : 4
 }()
 
 /// Terminal-prefill projection banking. The last decoder layer consumes Q and
@@ -2633,9 +2633,8 @@ private func lagunaPrefillSlidingQKNormRoPE(
         angles.shape == [1, 1, lagunaRoPEAngleAtlasLength, LagunaConstants.headDim])
     precondition(offsets.dtype == .int32 && offsets.size == 1)
 
-    let useH1 = lagunaPrefillQKHeadsPerGroup == 1
+    let useH1 = terminal || lagunaPrefillQKHeadsPerGroup == 1
     precondition(useH1 || (heads + kvHeads) % 4 == 0)
-    precondition(!terminal || useH1)
     let headsPerGroup = useH1 ? 1 : 4
     let threadGroupSize = headsPerGroup * 32
     let kernel = useH1
@@ -5867,8 +5866,7 @@ final class LagunaRuntimeAttention: Module {
         }
 
         let useFusedQK =
-            lagunaPrefillQKNormRoPEEnabled && lagunaPrefillQKHeadsPerGroup == 1 &&
-            B == 1 && isSliding &&
+            lagunaPrefillQKNormRoPEEnabled && B == 1 && isSliding &&
             nHeads == LagunaConstants.slidingAttentionHeads &&
             nKVHeads == LagunaConstants.numKeyValueHeads &&
             headDim == LagunaConstants.headDim &&
