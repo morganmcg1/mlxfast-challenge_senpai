@@ -105,27 +105,40 @@
   sliding layers and 24 TGs for the full layers**. Define machine-fill
   `Fill(K, C) = K / (C · ceil(K / C))` for `K` threadgroups on `C` cores.
 
-  | K (split S) | Fill on C=20 (M4 Pro) | Fill on C=40 (M5 Max) | wave ratio |
-  |---|---|---|---|
-  | 32 (sliding, S=1) | 0.800 | 0.400 | 1 |
-  | 24 (full, S=1) | 0.600 | 0.300 | 1 |
-  | 128 / 96 (S=4) | 0.800 / 0.600 | 0.800 / 0.600 | 4 / 3 |
-  | **160 / 120 (S=5)** | **1.000** | **1.000** | **4 / 3** |
-  | 320 / 240 (S=10) | 1.000 | 1.000 | 8 / 6 |
+  | dispatch | K | Fill, C=20 (M4 Pro) | Fill, C=40 (M5 Max) | waves C=20 / C=40 |
+  |---|---:|---:|---:|---|
+  | sliding, S=1 | 32 | 0.800 | 0.800 | 2 / 1 |
+  | full, S=1 | 24 | 0.600 | 0.600 | 2 / 1 |
+  | sliding, S=4 | 128 | 0.914 | 0.800 | 7 / 4 |
+  | full, S=4 | 96 | 0.960 | 0.800 | 5 / 3 |
+  | **sliding, S=5** | **160** | **1.000** | **1.000** | 8 / 4 |
+  | **full, S=5** | **120** | **1.000** | **1.000** | 6 / 3 |
+  | sliding / full, S=10 | 320 / 240 | 1.000 | 1.000 | 16,12 / 8,6 |
 
-  **S=5 is the unique small factor that reaches Fill = 1.000 on *both* host
-  geometries**, which is what makes an M4 measurement of this lever
-  directionally valid for M5 at all. S=4 is dominated (it merely reproduces the
-  S=1 fill on M4 while paying the split overhead) and S=10 is dominated (same
-  fill as S=5, twice the partial traffic and twice the fixed cost).
+  **S=5 is the smallest factor that reaches Fill = 1.000 for *both* kernels on
+  *both* host geometries.** S=4 is dominated (it does not even reach 1.000) and
+  S=10 is dominated (same fill, twice the partial traffic and twice the fixed
+  cost).
 
-  Break-even against per-TG fixed cost `f` (launch + prologue + epilogue, as a
-  fraction of the per-TG steady work `τ₀`): the split pays iff
-  **`f/τ₀ < 6.25 %` for the sliding layers and `< 16.7 %` for the full
-  layers.** Ceiling if it pays: **58 µs/step (sliding) + 40 µs/step (full) =
-  98 µs/step ≈ 1.49 % of score** at 0.015228 %/µs-step. That clears the +30
-  µs/step slot bar by 3.3×, which is why it earns a slot despite being the most
-  invasive kernel change on the board.
+  Break-even against per-TG fixed cost `f` (launch + prologue + epilogue) as a
+  fraction of the per-TG steady work `τ₀`. Makespan with `w` waves is
+  `w·(f + τ₀/S)`, so the split pays iff:
+
+  - sliding, M5: `4(f + τ₀/5) < 1(f + τ₀)` ⇒ `3f < 0.2τ₀` ⇒ **`f/τ₀ < 6.67 %`**
+  - sliding, M4: `8(f + τ₀/5) < 2(f + τ₀)` ⇒ `6f < 0.4τ₀` ⇒ **`f/τ₀ < 6.67 %`**
+  - full, M5: `3(f + τ₀/5) < 1(f + τ₀)` ⇒ `2f < 0.4τ₀` ⇒ **`f/τ₀ < 20 %`**
+  - full, M4: `6(f + τ₀/5) < 2(f + τ₀)` ⇒ `4f < 0.8τ₀` ⇒ **`f/τ₀ < 20 %`**
+
+  🔑 **The threshold and the ideal gain are both host-invariant at S=5** — 20 %
+  off the sliding pool and 40 % off the full pool on either machine. That is
+  what makes this the rare kernel-geometry lever an M4 measurement can actually
+  decide. (These thresholds ignore the recombination pass, so treat them as
+  upper bounds and demand margin.) Ceiling if it pays, against the *modelled*
+  M5 pools (≈290 µs/step sliding, ≈100 µs/step full — both M4×ratio figures,
+  under reconstruction by #561): **58 + 40 = 98 µs/step ≈ 1.49 % of score** at
+  0.015228 %/µs-step. That clears the +30 µs/step slot bar by 3.3×, which is
+  why it earns a slot despite being the most invasive kernel change on the
+  board.
 
   `f` has never been measured. It is measurable with **zero submitted bytes**
   by sweeping the attention window `N ∈ {512, 256, 128, 104, 64}` at fixed
