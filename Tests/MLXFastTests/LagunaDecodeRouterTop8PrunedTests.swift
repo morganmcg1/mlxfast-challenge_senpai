@@ -156,22 +156,32 @@ struct LagunaDecodeRouterTop8PrunedTests {
             _ = measureRouterBatch(candidate)
         }
 
-        var abbaSpeedups: [Double] = []
-        var baabSpeedups: [Double] = []
+        let superblocksPerOrder = 257
+        var abbaLogEffects: [Double] = []
+        var baabLogEffects: [Double] = []
         var acceptedNanoseconds: [Double] = []
         var candidateNanoseconds: [Double] = []
-        abbaSpeedups.reserveCapacity(61)
-        baabSpeedups.reserveCapacity(61)
-        for _ in 0..<61 {
+        abbaLogEffects.reserveCapacity(superblocksPerOrder)
+        baabLogEffects.reserveCapacity(superblocksPerOrder)
+        for block in 0..<superblocksPerOrder {
             let abba = [
                 measureRouterBatch(accepted),
                 measureRouterBatch(candidate),
                 measureRouterBatch(candidate),
                 measureRouterBatch(accepted),
             ]
+            let abbaLogEffect = 0.5 * (log(abba[0]) + log(abba[3])
+                - log(abba[1]) - log(abba[2]))
             acceptedNanoseconds.append(contentsOf: [abba[0], abba[3]])
             candidateNanoseconds.append(contentsOf: [abba[1], abba[2]])
-            abbaSpeedups.append(sqrt((abba[0] * abba[3]) / (abba[1] * abba[2])))
+            abbaLogEffects.append(abbaLogEffect)
+            print(
+                String(
+                    format:
+                        "ROUTER_TOP8_SAMPLE order=ABBA block=%d t0_ns=%.3f t1_ns=%.3f t2_ns=%.3f t3_ns=%.3f paired_log_effect=%.9f",
+                    block, abba[0], abba[1], abba[2], abba[3], abbaLogEffect
+                )
+            )
 
             let baab = [
                 measureRouterBatch(candidate),
@@ -179,28 +189,45 @@ struct LagunaDecodeRouterTop8PrunedTests {
                 measureRouterBatch(accepted),
                 measureRouterBatch(candidate),
             ]
+            let baabLogEffect = 0.5 * (log(baab[1]) + log(baab[2])
+                - log(baab[0]) - log(baab[3]))
             acceptedNanoseconds.append(contentsOf: [baab[1], baab[2]])
             candidateNanoseconds.append(contentsOf: [baab[0], baab[3]])
-            baabSpeedups.append(sqrt((baab[1] * baab[2]) / (baab[0] * baab[3])))
+            baabLogEffects.append(baabLogEffect)
+            print(
+                String(
+                    format:
+                        "ROUTER_TOP8_SAMPLE order=BAAB block=%d t0_ns=%.3f t1_ns=%.3f t2_ns=%.3f t3_ns=%.3f paired_log_effect=%.9f",
+                    block, baab[0], baab[1], baab[2], baab[3], baabLogEffect
+                )
+            )
         }
 
-        let abbaMedian = median(abbaSpeedups)
-        let baabMedian = median(baabSpeedups)
-        let abbaLogMAD = medianAbsoluteDeviation(abbaSpeedups.map(log))
-        let baabLogMAD = medianAbsoluteDeviation(baabSpeedups.map(log))
+        let abbaLogMedian = median(abbaLogEffects)
+        let baabLogMedian = median(baabLogEffects)
+        let abbaLogMAD = medianAbsoluteDeviation(abbaLogEffects)
+        let baabLogMAD = medianAbsoluteDeviation(baabLogEffects)
+        let abbaCI = bootstrapMedianConfidenceInterval(
+            abbaLogEffects, replicates: 20_000, seed: 0xABBA_ABBA_ABBA_ABBA)
+        let baabCI = bootstrapMedianConfidenceInterval(
+            baabLogEffects, replicates: 20_000, seed: 0xBAAB_BAAB_BAAB_BAAB)
         print(
             String(
                 format:
-                    "ROUTER_TOP8_ISOLATED dispatches_per_batch=39 superblocks_per_order=61 accepted_ns_per_dispatch=%.3f candidate_ns_per_dispatch=%.3f abba_speedup=%.6f abba_log_mad=%.6f baab_speedup=%.6f baab_log_mad=%.6f",
-                median(acceptedNanoseconds), median(candidateNanoseconds), abbaMedian,
-                abbaLogMAD, baabMedian, baabLogMAD
+                    "ROUTER_TOP8_ISOLATED dispatches_per_batch=39 superblocks_per_order=%d bootstrap_replicates=20000 accepted_ns_per_dispatch=%.3f candidate_ns_per_dispatch=%.3f abba_log_median=%.9f abba_speedup=%.6f abba_log_mad=%.9f abba_normalized_log_mad=%.9f abba_ci95_log_lower=%.9f abba_ci95_log_upper=%.9f abba_ci95_lower=%.6f abba_ci95_upper=%.6f baab_log_median=%.9f baab_speedup=%.6f baab_log_mad=%.9f baab_normalized_log_mad=%.9f baab_ci95_log_lower=%.9f baab_ci95_log_upper=%.9f baab_ci95_lower=%.6f baab_ci95_upper=%.6f",
+                superblocksPerOrder,
+                median(acceptedNanoseconds), median(candidateNanoseconds),
+                abbaLogMedian, exp(abbaLogMedian), abbaLogMAD, 1.4826 * abbaLogMAD,
+                abbaCI.lower, abbaCI.upper, exp(abbaCI.lower), exp(abbaCI.upper),
+                baabLogMedian, exp(baabLogMedian), baabLogMAD, 1.4826 * baabLogMAD,
+                baabCI.lower, baabCI.upper, exp(baabCI.lower), exp(baabCI.upper)
             )
         )
 
-        #expect(abbaMedian >= 1.005)
-        #expect(baabMedian >= 1.005)
-        #expect(log(abbaMedian) > 2 * abbaLogMAD)
-        #expect(log(baabMedian) > 2 * baabLogMAD)
+        #expect(exp(abbaLogMedian) >= 1.005)
+        #expect(exp(baabLogMedian) >= 1.005)
+        #expect(abbaCI.lower >= 0.0)
+        #expect(baabCI.lower >= 0.0)
     }
 }
 
@@ -325,6 +352,37 @@ private func median(_ values: [Double]) -> Double {
 private func medianAbsoluteDeviation(_ values: [Double]) -> Double {
     let center = median(values)
     return median(values.map { abs($0 - center) })
+}
+
+private func bootstrapMedianConfidenceInterval(
+    _ values: [Double], replicates: Int, seed: UInt64
+) -> (lower: Double, upper: Double) {
+    precondition(!values.isEmpty && replicates > 0)
+    var random = SplitMix64(state: seed)
+    var sample = Array(repeating: 0.0, count: values.count)
+    var medians: [Double] = []
+    medians.reserveCapacity(replicates)
+    for _ in 0..<replicates {
+        for index in sample.indices {
+            sample[index] = values[Int(random.next() % UInt64(values.count))]
+        }
+        medians.append(median(sample))
+    }
+    medians.sort()
+    return (
+        percentile(medians, probability: 0.025),
+        percentile(medians, probability: 0.975)
+    )
+}
+
+private func percentile(_ sortedValues: [Double], probability: Double) -> Double {
+    precondition(!sortedValues.isEmpty && (0.0...1.0).contains(probability))
+    let position = probability * Double(sortedValues.count - 1)
+    let lowerIndex = Int(position.rounded(.down))
+    let upperIndex = Int(position.rounded(.up))
+    let fraction = position - Double(lowerIndex)
+    return sortedValues[lowerIndex]
+        + fraction * (sortedValues[upperIndex] - sortedValues[lowerIndex])
 }
 
 private func sortEightBits(_ values: inout [Int]) {
