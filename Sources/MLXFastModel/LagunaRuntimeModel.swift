@@ -8038,17 +8038,14 @@ private let lagunaDecodeRouterTop8NormalizingKernel = MLXFast.metalKernel(
     ensureRowContiguous: true
 )
 
-/// Default-on decode-router payload optimization. Set
-/// `DARKBLOOM_ROUTER_ORDINAL=0` for the accepted float-payload fallback. The
-/// accepted bitonic
-/// network carries `(float key, uint index, float score)` through all 36
-/// compare/exchange stages. The ordinal arm preserves that network's exact
-/// stage, shuffle, barrier, and pair-role geometry, but replaces the live
-/// payload with `(uint ordinal, uint index)`. `laguna_router_key_ordinal`
-/// canonicalizes both signed zeros and every NaN before applying the usual
-/// monotone IEEE-754 bit transform, so unsigned ordinal comparison plus the
-/// original expert-index tie break is exactly `laguna_router_key_before`.
-/// Only final lanes 0...7 recompute their pre-bias sigmoid score.
+/// Default-on decode-router top-eight optimization. Set
+/// `DARKBLOOM_ROUTER_ORDINAL=0` for the accepted float-payload fallback. Each
+/// eight-lane leaf is sorted exactly, and a binary merge tree retains only the
+/// best eight items per subtree. `laguna_router_key_ordinal` canonicalizes both
+/// signed zeros and every NaN before applying the usual monotone IEEE-754 bit
+/// transform, so unsigned ordinal comparison plus the original expert-index
+/// tie break is exactly `laguna_router_key_before`. Only final lanes 0...7
+/// recompute their pre-bias sigmoid score.
 private func lagunaDecodeRouterOrdinalKernelSource(
     normalizing: Bool, scoreTable: Bool = false
 ) -> String {
@@ -8109,38 +8106,173 @@ private func lagunaDecodeRouterOrdinalKernelSource(
         uint my_ordinal = laguna_router_key_ordinal(key);
         uint my_index = lane;
 
-        // Byte-for-byte the accepted 256-element Batcher schedule and pair
-        // roles: 30 intra-simdgroup stages and six cross-simdgroup stages.
-        // Only the exact sortable payload representation differs.
-        for (uint sequence = 2; sequence <= 256; sequence <<= 1) {
-            for (uint stride = sequence >> 1; stride > 0; stride >>= 1) {
-                uint other_ordinal;
-                uint other_index;
-                if (stride < 32) {
-                    other_ordinal = simd_shuffle_xor(my_ordinal, ushort(stride));
-                    other_index = simd_shuffle_xor(my_index, ushort(stride));
-                } else {
-                    xchg_ordinals[lane] = my_ordinal;
-                    xchg_indices[lane] = my_index;
-                    threadgroup_barrier(mem_flags::mem_threadgroup);
-                    uint partner = lane ^ stride;
-                    other_ordinal = xchg_ordinals[partner];
-                    other_index = xchg_indices[partner];
-                    threadgroup_barrier(mem_flags::mem_threadgroup);
-                }
+        uint simd_lane = thread_index_in_simdgroup;
+        uint simd_group = simdgroup_index_in_threadgroup;
+        uint block_lane = simd_lane & 7u;
 
-                bool is_lower = (lane & stride) == 0;
-                bool lower_wants_better = (lane & sequence) == 0;
+        // Sort each eight-lane leaf, then retain only the better half at every
+        // merge. An item below its subtree's top eight cannot enter the root's
+        // top eight, so discarded halves never need another comparison.
+        for (uint sequence = 2u; sequence <= 8u; sequence <<= 1u) {
+            for (uint stride = sequence >> 1u; stride > 0u; stride >>= 1u) {
+                uint other_ordinal = simd_shuffle_xor(my_ordinal, ushort(stride));
+                uint other_index = simd_shuffle_xor(my_index, ushort(stride));
+                bool is_lower = (block_lane & stride) == 0u;
+                bool lower_wants_better = (block_lane & sequence) == 0u;
                 bool want_better = lower_wants_better == is_lower;
                 bool other_before_my = laguna_router_ordinal_before(
                     other_ordinal, other_index, my_ordinal, my_index);
-                // Expert indices are globally unique, so `my` and `other`
-                // can never compare equal. This is the accepted a/b pair-role
-                // rule reduced algebraically to a direct take-other decision.
-                bool take_other = want_better ? other_before_my : !other_before_my;
-                if (take_other) {
+                if (want_better ? other_before_my : !other_before_my) {
                     my_ordinal = other_ordinal;
                     my_index = other_index;
+                }
+            }
+        }
+
+        uint other_ordinal = simd_shuffle_xor(my_ordinal, ushort(15));
+        uint other_index = simd_shuffle_xor(my_index, ushort(15));
+        if ((simd_lane & 15u) < 8u && laguna_router_ordinal_before(
+                other_ordinal, other_index, my_ordinal, my_index)) {
+            my_ordinal = other_ordinal;
+            my_index = other_index;
+        }
+        for (uint stride = 4u; stride > 0u; stride >>= 1u) {
+            other_ordinal = simd_shuffle_xor(my_ordinal, ushort(stride));
+            other_index = simd_shuffle_xor(my_index, ushort(stride));
+            if ((simd_lane & 15u) < 8u) {
+                bool is_lower = (simd_lane & stride) == 0u;
+                bool other_before_my = laguna_router_ordinal_before(
+                    other_ordinal, other_index, my_ordinal, my_index);
+                if (is_lower ? other_before_my : !other_before_my) {
+                    my_ordinal = other_ordinal;
+                    my_index = other_index;
+                }
+            }
+        }
+
+        other_ordinal = simd_shuffle_xor(my_ordinal, ushort(23));
+        other_index = simd_shuffle_xor(my_index, ushort(23));
+        if (simd_lane < 8u && laguna_router_ordinal_before(
+                other_ordinal, other_index, my_ordinal, my_index)) {
+            my_ordinal = other_ordinal;
+            my_index = other_index;
+        }
+        for (uint stride = 4u; stride > 0u; stride >>= 1u) {
+            other_ordinal = simd_shuffle_xor(my_ordinal, ushort(stride));
+            other_index = simd_shuffle_xor(my_index, ushort(stride));
+            if (simd_lane < 8u) {
+                bool is_lower = (simd_lane & stride) == 0u;
+                bool other_before_my = laguna_router_ordinal_before(
+                    other_ordinal, other_index, my_ordinal, my_index);
+                if (is_lower ? other_before_my : !other_before_my) {
+                    my_ordinal = other_ordinal;
+                    my_index = other_index;
+                }
+            }
+        }
+
+        if (simd_lane < 8u) {
+            uint slot = simd_group * 8u + simd_lane;
+            xchg_ordinals[slot] = my_ordinal;
+            xchg_indices[slot] = my_index;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        if (simd_group < 4u) {
+            if (simd_lane < 16u) {
+                uint source = (simd_group * 2u + (simd_lane >> 3u)) * 8u
+                    + (simd_lane & 7u);
+                my_ordinal = xchg_ordinals[source];
+                my_index = xchg_indices[source];
+            }
+            other_ordinal = simd_shuffle_xor(my_ordinal, ushort(15));
+            other_index = simd_shuffle_xor(my_index, ushort(15));
+            if (simd_lane < 8u && laguna_router_ordinal_before(
+                    other_ordinal, other_index, my_ordinal, my_index)) {
+                my_ordinal = other_ordinal;
+                my_index = other_index;
+            }
+            for (uint stride = 4u; stride > 0u; stride >>= 1u) {
+                other_ordinal = simd_shuffle_xor(my_ordinal, ushort(stride));
+                other_index = simd_shuffle_xor(my_index, ushort(stride));
+                if (simd_lane < 8u) {
+                    bool is_lower = (simd_lane & stride) == 0u;
+                    bool other_before_my = laguna_router_ordinal_before(
+                        other_ordinal, other_index, my_ordinal, my_index);
+                    if (is_lower ? other_before_my : !other_before_my) {
+                        my_ordinal = other_ordinal;
+                        my_index = other_index;
+                    }
+                }
+            }
+            if (simd_lane < 8u) {
+                uint slot = 64u + simd_group * 8u + simd_lane;
+                xchg_ordinals[slot] = my_ordinal;
+                xchg_indices[slot] = my_index;
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        if (simd_group < 2u) {
+            if (simd_lane < 16u) {
+                uint source = 64u
+                    + (simd_group * 2u + (simd_lane >> 3u)) * 8u
+                    + (simd_lane & 7u);
+                my_ordinal = xchg_ordinals[source];
+                my_index = xchg_indices[source];
+            }
+            other_ordinal = simd_shuffle_xor(my_ordinal, ushort(15));
+            other_index = simd_shuffle_xor(my_index, ushort(15));
+            if (simd_lane < 8u && laguna_router_ordinal_before(
+                    other_ordinal, other_index, my_ordinal, my_index)) {
+                my_ordinal = other_ordinal;
+                my_index = other_index;
+            }
+            for (uint stride = 4u; stride > 0u; stride >>= 1u) {
+                other_ordinal = simd_shuffle_xor(my_ordinal, ushort(stride));
+                other_index = simd_shuffle_xor(my_index, ushort(stride));
+                if (simd_lane < 8u) {
+                    bool is_lower = (simd_lane & stride) == 0u;
+                    bool other_before_my = laguna_router_ordinal_before(
+                        other_ordinal, other_index, my_ordinal, my_index);
+                    if (is_lower ? other_before_my : !other_before_my) {
+                        my_ordinal = other_ordinal;
+                        my_index = other_index;
+                    }
+                }
+            }
+            if (simd_lane < 8u) {
+                uint slot = simd_group * 8u + simd_lane;
+                xchg_ordinals[slot] = my_ordinal;
+                xchg_indices[slot] = my_index;
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        if (simd_group == 0u) {
+            if (simd_lane < 16u) {
+                uint source = (simd_lane >> 3u) * 8u + (simd_lane & 7u);
+                my_ordinal = xchg_ordinals[source];
+                my_index = xchg_indices[source];
+            }
+            other_ordinal = simd_shuffle_xor(my_ordinal, ushort(15));
+            other_index = simd_shuffle_xor(my_index, ushort(15));
+            if (simd_lane < 8u && laguna_router_ordinal_before(
+                    other_ordinal, other_index, my_ordinal, my_index)) {
+                my_ordinal = other_ordinal;
+                my_index = other_index;
+            }
+            for (uint stride = 4u; stride > 0u; stride >>= 1u) {
+                other_ordinal = simd_shuffle_xor(my_ordinal, ushort(stride));
+                other_index = simd_shuffle_xor(my_index, ushort(stride));
+                if (simd_lane < 8u) {
+                    bool is_lower = (simd_lane & stride) == 0u;
+                    bool other_before_my = laguna_router_ordinal_before(
+                        other_ordinal, other_index, my_ordinal, my_index);
+                    if (is_lower ? other_before_my : !other_before_my) {
+                        my_ordinal = other_ordinal;
+                        my_index = other_index;
+                    }
                 }
             }
         }
@@ -8177,7 +8309,7 @@ private let lagunaDecodeRouterOrdinalHeader = """
     """
 
 private let lagunaDecodeRouterOrdinalKernel = MLXFast.metalKernel(
-    name: "laguna_decode_router_top8_ordinal_v1",
+    name: "laguna_decode_router_top8_ordinal_v2",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
     source: lagunaDecodeRouterOrdinalKernelSource(normalizing: false),
@@ -8186,7 +8318,7 @@ private let lagunaDecodeRouterOrdinalKernel = MLXFast.metalKernel(
 )
 
 private let lagunaDecodeRouterOrdinalNormalizingKernel = MLXFast.metalKernel(
-    name: "laguna_decode_router_top8_ordinal_norm_v1",
+    name: "laguna_decode_router_top8_ordinal_norm_v2",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
     source: lagunaDecodeRouterOrdinalKernelSource(normalizing: true),
@@ -8195,7 +8327,7 @@ private let lagunaDecodeRouterOrdinalNormalizingKernel = MLXFast.metalKernel(
 )
 
 private let lagunaDecodeRouterOrdinalScoreTableKernel = MLXFast.metalKernel(
-    name: "laguna_decode_router_top8_ordinal_table_v1",
+    name: "laguna_decode_router_top8_ordinal_table_v2",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
     source: lagunaDecodeRouterOrdinalKernelSource(normalizing: false, scoreTable: true),
@@ -8204,7 +8336,7 @@ private let lagunaDecodeRouterOrdinalScoreTableKernel = MLXFast.metalKernel(
 )
 
 private let lagunaDecodeRouterOrdinalScoreTableNormalizingKernel = MLXFast.metalKernel(
-    name: "laguna_decode_router_top8_ordinal_table_norm_v1",
+    name: "laguna_decode_router_top8_ordinal_table_norm_v2",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
     source: lagunaDecodeRouterOrdinalKernelSource(normalizing: true, scoreTable: true),
