@@ -14,8 +14,11 @@ Usage: python3 research/nezuko_r96_gen4deep.py [depth]
 import sys
 
 DEPTH = int(sys.argv[1]) if len(sys.argv) > 1 else 4
-SUFFIX = "abcd"[:DEPTH]
-PREFIX = {"a": "pair", "b": "pipeb", "c": "pipec", "d": "piped"}
+PREFIX = {"a": "pair", "b": "pipeb", "c": "pipec", "d": "piped",
+          "e": "pipee", "f": "pipef", "g": "pipeg", "h": "pipeh"}
+# N / BN == 16 rows per simdgroup, so only depths dividing 16 leave no tail.
+assert DEPTH in (1, 2, 4, 8, 16) and DEPTH <= len(PREFIX), DEPTH
+SUFFIX = "abcdefgh"[:DEPTH]
 
 
 def slot_block(p, k, v):
