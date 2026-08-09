@@ -597,6 +597,60 @@ The most important thing here is the rejection list. The naive reading of
 "404 dispatches x 2.339 us = 0.95 ms" is that any fusion is free money. That
 reading is wrong, and the code already contains the counter-example.
 
+### 8.0 Reconciliation with rule 53: this slope is an *affordability* price, not a fusion budget
+
+Round-93 PR #502 (W&B `ut3wdjct`) established rule 53: **there is no decode
+dispatch residue.** A 24-label ledger closes to +0.3 us across all 406 decode
+dispatches, so removing a dispatch on the ranked M5 recovers approximately
+nothing. That is the exact opposite sign of the naive reading of section 4.2,
+and it has to be addressed head-on rather than left as a footnote.
+
+Both results are correct, and they are not in conflict, because they measure
+two different quantities:
+
+| | this experiment (Arm B) | #502 (rule 53) |
+|---|---|---|
+| operation | **add** N bit-exact dispatches | **account for** the existing 406 |
+| what moves | wall-clock grows by 2.339 us per added dispatch | ledger closes to +0.3 us total |
+| what is being priced | the *marginal* cost of new work injected into a saturated pipeline | the *recoverable* cost of work already overlapped |
+
+The mechanism that makes both true is the one section 1.2 and the
+command-buffer-split control already isolated: the decode step is a producer /
+consumer pipeline in which the CPU spends roughly 1 ms per step building the MLX
+graph while the GPU drains it. The existing 406 dispatches are *already* hidden
+inside that shadow and inside each other's tails - so deleting one exposes
+nothing and recovers nothing, which is rule 53. But the shadow has finite
+capacity. Injecting a fresh, hazard-free chain past that capacity is not hidden,
+and it costs 2.339 us each, which is Arm B.
+
+The consequence for this report is concrete and I am stating it as a
+**retraction of the practical framing of section 8.3, not of its arithmetic**:
+
+- The shortlist in 8.3 is priced with the *addition* slope. Under rule 53 that
+  price does **not** run in reverse. A fusion that removes 39 or 78 dispatches
+  per token should be expected to recover **~0 us**, not 91 or 182 us, unless it
+  also removes DRAM bytes or ALU work.
+- Therefore candidates **B** (delete `lagunaDecodeRouterTop8`), **D** (lm-head
+  argmax stage-1) and **E** (final RMSNorm) are **retired**: their entire claimed
+  benefit was dispatch-count reduction, and rule 53 says that benefit is zero.
+- Candidates **A** (fold the per-head INT8-g32 gate QMV into NVFP4 QKV) and **C**
+  (merge the shared-expert QMV into the routed packed top-8 kernel) survive only
+  on their *byte* argument, not their dispatch argument: both delete a separate
+  read of an activation tensor that the absorbing kernel already has resident.
+  They should be re-costed in MB/step against the #512 / #513 methodology and
+  re-ranked there. If the re-cost shows no byte saving, they are dead too.
+
+What the 2.339 us number remains good for is the direction it was actually
+measured in: **an affordability test for optimizations that add dispatches.**
+Concretely - a fused-kernel rewrite that trades one large dispatch for three
+smaller ones, a mask or table precompute that adds a decode-time launch, or a
+router screen that adds a pre-pass, all pay 2.339 us [2.26, 2.41] per added
+dispatch on M5 and must clear that from the byte or ALU saving before they are
+worth anything. Section 3's resolvability table converts that directly: at n=4
+receipts the channel can only see about 10.5 added dispatches, so anything
+adding fewer than ~10 is free *within the measurement*, which is a trap worth
+knowing about explicitly.
+
 ### 8.1 Independent confirmation of the census
 
 The audit reproduced 404 exactly from source, by the same decomposition: 200
@@ -662,6 +716,12 @@ it default **ON** since the 2026-08-02 r=1 re-sweep. Doc rot, not a census error
    per-layer dispatch consumes layer-specific weights or state.
 
 ### 8.3 Surviving candidates, ranked
+
+> **Superseded by rule 53 - read 8.0 first.** The "Nominal us" column below runs
+> the addition slope backwards, which #502 has since shown is invalid. B, D and E
+> are retired; A and C survive only on their byte argument. The table is kept
+> because the dispatch counts and code locations are still correct and still
+> useful to whoever re-costs A and C in MB/step.
 
 Nominal us uses 2.339 us/dispatch and is an **average**, not a critical-path
 marginal cost - see 8.4.
