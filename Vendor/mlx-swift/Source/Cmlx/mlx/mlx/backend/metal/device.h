@@ -3,12 +3,14 @@
 #pragma once
 
 #include <Metal/Metal.hpp>
+#include <cstdint>
 #include <functional>
 #include <mutex>
 #include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 #include "mlx/array.h"
 #include "mlx/backend/metal/resident.h"
@@ -21,6 +23,22 @@ using MTLFCList =
 
 class Device;
 class EventImpl;
+
+struct BFSTraceMetadata {
+  int width;
+  size_t tape_ops;
+  size_t requested_output_bytes;
+  size_t fused_ops;
+  size_t fused_read_bytes;
+  size_t fused_intermediate_bytes;
+  size_t fused_write_bytes;
+  uint64_t tape_hash;
+  uint64_t fused_hash;
+};
+
+MLX_API bool bfs_trace_enabled();
+MLX_API void bfs_trace_begin(BFSTraceMetadata metadata);
+MLX_API void bfs_trace_end();
 
 class MLX_API CommandEncoder {
  public:
