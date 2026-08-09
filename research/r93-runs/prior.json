@@ -118,5 +118,50 @@
     "passed_dec_floor": true,
     "passed_pre_floor": true,
     "timestamp": "2026-08-09T04:41:11Z"
+  },
+  {
+    "marker": "probe-routed-fma-24",
+    "id": "ecd89cac",
+    "status": "rejected",
+    "cand_dec": 0.0049436468125,
+    "cand_pre": 0.0001878603515625,
+    "bl_dec": 0.0138392249375,
+    "bl_pre": 0.00037665926171875,
+    "dec_su": 2.7993959646363797,
+    "pre_su": 2.004996044061153,
+    "passed_correctness": true,
+    "passed_dec_floor": true,
+    "passed_pre_floor": true,
+    "timestamp": "2026-08-09T06:24:07Z"
+  },
+  {
+    "marker": "probe-routed-fma-0",
+    "id": "a000a397",
+    "status": "rejected",
+    "cand_dec": 0.0049156689453125,
+    "cand_pre": 0.0001879609375,
+    "bl_dec": 0.0138635045546875,
+    "bl_pre": 0.00036737369921875,
+    "dec_su": 2.8202681484292196,
+    "pre_su": 1.9545215304044226,
+    "passed_correctness": true,
+    "passed_dec_floor": true,
+    "passed_pre_floor": true,
+    "timestamp": "2026-08-09T07:24:20Z"
+  },
+  {
+    "marker": "probe-routed-fma-64",
+    "id": "ab3a2433",
+    "status": "rejected",
+    "cand_dec": 0.0052664296875,
+    "cand_pre": 0.0001874091796875,
+    "bl_dec": 0.013831364578125,
+    "bl_pre": 0.000371094890625,
+    "dec_su": 2.626326638510732,
+    "pre_su": 1.9801318763776206,
+    "passed_correctness": true,
+    "passed_dec_floor": true,
+    "passed_pre_floor": true,
+    "timestamp": "2026-08-09T06:58:58Z"
   }
 ]

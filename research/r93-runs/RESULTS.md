@@ -1998,7 +1998,7 @@ evidence of drift.
 | 3 | Minimum resolvable decode delta at n = 4, 6, 8 | section 3 | done |
 | 4 | Written submission-cadence policy | section 5 and `cadence-policy.md` | done |
 | 5 | Re-derived PR #137 M4 -> M5 transfer factor | section 6 and `pr137-transfer-factor.md` | done |
-| 6 | Every submission logged to W&B | section 11.3 | done, 10 runs |
+| 6 | Every submission logged to W&B | section 11.3 | done, 11 runs |
 
 Arm C (M5 regime ladder) was added by advisor revision and is reported in
 section 10. Its stopping rule did not fire (section 10.1), so it ran.
@@ -2016,7 +2016,11 @@ section 10. Its stopping rule did not fire (section 10.1), so it ran.
 | **M5 price of one extra decode dispatch** | **2.3403 us** (95 % CI [2.277, 2.404], n = 8, R^2 > 0.999) | section 4 |
 | Whole-token dispatch census priced at that slope | 945.5 us = **19.2 %** of decode | section 8.1 |
 | PR #137 M4 -> M5 transfer factor | **\|T\| < 0.5**, sign not resolved | section 6 |
-| **M5 price of one injected fma in the routed gather-GEMM, n = 24 -> 64** | **8.07 us** (95 % CI [6.65, 9.49]) - placement-free, matches the M4 price of 8.54 us | section 10.8 |
+| **M5 price of one injected fma unit in the routed gather-GEMM, above the knee (n = 24 -> 64)** | **8.070 us/unit** (95 % CI [6.653, 9.486]) = 0.164 % of decode per unit - matches the M4 Pro price of 8.542 us/unit | section 10.8, 10.9 |
+| **Same price below the knee (n = 0 -> 24)** | **1.166 us/unit** (95 % CI [-1.195, +3.526]) = 0.024 % of decode per unit - **7x cheaper, not distinguishable from free** | section 10.9 |
+| **Convexity of the M5 ladder** | slope ratio **6.92x**, delta-slope +6.904 us/unit, se 1.191, **t = +5.80 on 4 df** (crit 2.776), segment CIs disjoint | section 10.9 |
+| Placement term (probe present at n = 0 vs probe absent) | +4.744 us = **+0.097 %**, t = +0.300 df 4, not significant | section 10.9 |
+| Operative free-ALU budget for a byte-for-ALU transform | ~96 extra fma per K iteration per thread for **0.57 % of decode** (95 % upper bound 1.72 %) | section 10.9 |
 | Same price read as a single point at n = 24 against the null | 1.36 us (95 % CI [-0.46, +3.19]) - **superseded**, confounded with placement | section 10.5, 10.8 |
 
 ### 11.3 W&B runs
@@ -2038,20 +2042,25 @@ delta against the n = 5 null reference.
 | 8 | null-5 | [`92snii58`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/92snii58) | `4fec8e2d-3fa1-4a99-a9a5-e6883aee7497` |
 | 9 | probe-routed-fma-24 | [`59o0mk6y`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/59o0mk6y) | `ecd89cac-b21e-4948-b619-5ac106c8fe48` |
 | 10 | probe-routed-fma-64 | [`fotwz1v2`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/fotwz1v2) | `ab3a2433-2553-4946-8502-d04814565e17` |
+| 11 | probe-routed-fma-0 | [`8mhdbz67`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/8mhdbz67) | `a000a397-68cc-4514-8cfe-b2a9837d49e7` |
 
-All ten receipts passed every correctness gate: `passed_correctness = true`,
+All eleven receipts passed every correctness gate: `passed_correctness = true`,
 `max_abs_diff = 0`, 1344 checked steps over 11 cases, both 0.95 floors true,
-GPQA TTFT 9/9, semantic GPQA 9/9. Every one is `rejected` for ranking, which for
-this arm is the intended outcome: `rejected` here means only "did not beat the
-current best", and section 8.2 records that separation explicitly.
+GPQA TTFT 9/9, semantic GPQA passed (rows 1-10 at 9/9; row 11 at 8/9 with
+`semantic_gpqa_passed = true` and `max_abs_diff = 0`, i.e. judge noise on a
+bit-identical decode - see the footnote in section 10.9). Every one is
+`rejected` for ranking, which for this arm is the intended outcome: `rejected`
+here means only "did not beat the current best", and section 8.2 records that
+separation explicitly.
 
 ### 11.4 Responses to advisor feedback
 
 **"The PR looks unstarted."** It was not. Every commit on
 `maple-tanjiro/r93-m5-receipt-channel` was local until this submission, because
 the student role pushes only through `submit_experiment_result`. Ten official
-receipts had already been collected when that comment was written. Nothing was
-blocked; only the advisor's view was stale.
+receipts had already been collected when that comment was written, and the
+eleventh landed shortly after. Nothing was blocked; only the advisor's view was
+stale.
 
 **Budget raised to 14-18, Arm C <= 6.** 11 slots used: 5 Arm A, 3 Arm B, 3
 Arm C. Section 10.7 pre-registered the n = 64 point as a saving of the third
@@ -2070,13 +2079,24 @@ Section 10 tests whether that transfers to M5, which is the question the rule's
 M4-only provenance leaves open. The answer changed once the second rung landed.
 At n = 24 the injected ALU looked nearly free on M5 (+0.67 %, not significant);
 at n = 64 it is not free at all (+7.24 %, t = +22.5). The placement-free
-segment price is 8.07 us per injected fma, which is statistically
-indistinguishable from the M4 Pro price of 8.54 us. Section 10.8 replaces the
-provisional licence issued in section 10.6: **M5 does not have a wider
-free-ALU allowance than M4 Pro over the range this arm can see.** The remaining
-open question is whether the free region below n = 24 is a genuine knee or an
-artefact of the probe's placement cost, which is exactly what the C0' control
-in section 10.9 answers.
+segment price above n = 24 is 8.07 us per injected fma unit, which is
+statistically indistinguishable from the M4 Pro price of 8.54 us.
+
+The third receipt (C0', section 10.9) then settled the one remaining
+ambiguity: whether the cheap 0 -> 24 segment was a genuine free region or an
+artefact of the probe's fixed placement cost. It is genuine. The placement term
+is +0.097 % (t = 0.300, not significant), so the ladder is convex, not offset:
+1.166 us/unit below the knee against 8.070 us/unit above it, a 6.92x ratio with
+t = +5.80 on 4 df and disjoint segment confidence intervals.
+
+The net answer to rule 55 is therefore neither of the two simple readings.
+**M5 has a bounded free-ALU region in the routed gather-GEMM that M4 Pro does
+not appear to have, and above roughly n = 24 it pays M4's price.** For byte-for-ALU
+work that matters more than either extreme would: a transform may add on the
+order of 96 fma per K iteration per thread for about 0.57 % of decode
+(95 % upper bound 1.72 %), but a transform that overshoots the knee is charged
+7x more per unit. Follow-up work should quote its added instruction count per K
+iteration, not just its byte saving.
 
 **Arm C as "the single largest unpriced risk in the programme".** Priced, at
 3 receipts. See sections 10.8 and 10.9 for the verdict.
@@ -2094,7 +2114,7 @@ python3 research/r93-runs/channel_noise.py research/r93-runs/receipts-latest.jso
 python3 research/r93-runs/critique_checks.py research/r93-runs/receipts-latest.json
 ```
 
-`receipts/*.json` holds the ten official receipts;
+`receipts/*.json` holds the eleven official receipts;
 `receipts-latest.json` is the 1185-point programme corpus used in section 9.
 `manifest.json` maps every marker to its submission id, source commit, probe
 spec, and W&B run.
