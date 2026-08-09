@@ -1444,6 +1444,8 @@ uint lane = thread_index_in_simdgroup;
 uint widx = params[0];
 float scale = scale_arr[0];
 
+threadgroup U tg_scaled_q0[head_dim];
+threadgroup U tg_scaled_q1[head_dim];
 threadgroup bfloat tg_q0[head_dim];
 threadgroup bfloat tg_q1[head_dim];
 threadgroup bfloat tg_k[head_dim];
@@ -1458,6 +1460,8 @@ if (sg < 3) {
         sg == 2 ? key_weight : query_weight;
     threadgroup bfloat* outrow =
         sg == 0 ? tg_q0 : sg == 1 ? tg_q1 : tg_k;
+    threadgroup U* scaled_outrow =
+        sg == 0 ? tg_scaled_q0 : tg_scaled_q1;
 
     uint base = lane * 4;
     thread bfloat normalized[4];
@@ -1487,6 +1491,12 @@ if (sg < 3) {
             outrow[pair] = bfloat(first * cosine - second * sine);
             outrow[pair + rotary_pairs] =
                 bfloat(first * sine + second * cosine);
+            if (sg < 2) {
+                scaled_outrow[pair] =
+                    static_cast<U>(scale) * outrow[pair];
+                scaled_outrow[pair + rotary_pairs] =
+                    static_cast<U>(scale) * outrow[pair + rotary_pairs];
+            }
         }
     }
 } else if (sg == 3) {
@@ -1529,10 +1539,8 @@ thread U pair_o0[v_per_thread];
 thread U pair_o1[v_per_thread];
 
 for (int j = 0; j < qk_per_thread; ++j) {
-    pair_q0[j] =
-        static_cast<U>(scale) * tg_q0[lane * qk_per_thread + j];
-    pair_q1[j] =
-        static_cast<U>(scale) * tg_q1[lane * qk_per_thread + j];
+    pair_q0[j] = tg_scaled_q0[lane * qk_per_thread + j];
+    pair_q1[j] = tg_scaled_q1[lane * qk_per_thread + j];
 }
 for (int j = 0; j < v_per_thread; ++j) {
     pair_o0[j] = 0;
@@ -1894,6 +1902,8 @@ int N = int(params[1]);
 uint capacity = params[2];
 float scale = scale_arr[0];
 
+threadgroup U tg_scaled_q0[head_dim];
+threadgroup U tg_scaled_q1[head_dim];
 threadgroup bfloat tg_q0[head_dim];
 threadgroup bfloat tg_q1[head_dim];
 threadgroup bfloat tg_k[head_dim];
@@ -1908,6 +1918,8 @@ if (sg < 3) {
         sg == 2 ? key_weight : query_weight;
     threadgroup bfloat* outrow =
         sg == 0 ? tg_q0 : sg == 1 ? tg_q1 : tg_k;
+    threadgroup U* scaled_outrow =
+        sg == 0 ? tg_scaled_q0 : tg_scaled_q1;
 
     uint base = lane * 4;
     thread bfloat normalized[4];
@@ -1940,10 +1952,20 @@ if (sg < 3) {
             outrow[pair] = bfloat(first * cosine - second * sine);
             outrow[pair + rotary_pairs] =
                 bfloat(first * sine + second * cosine);
+            if (sg < 2) {
+                scaled_outrow[pair] =
+                    static_cast<U>(scale) * outrow[pair];
+                scaled_outrow[pair + rotary_pairs] =
+                    static_cast<U>(scale) * outrow[pair + rotary_pairs];
+            }
         }
     } else if (lane >= 16) {
         for (uint i = 0; i < 4; ++i) {
             outrow[base + i] = normalized[i];
+            if (sg < 2) {
+                scaled_outrow[base + i] =
+                    static_cast<U>(scale) * outrow[base + i];
+            }
         }
     }
 } else if (sg == 3) {
@@ -1987,10 +2009,8 @@ thread U pair_o0[v_per_thread];
 thread U pair_o1[v_per_thread];
 
 for (int j = 0; j < qk_per_thread; ++j) {
-    pair_q0[j] =
-        static_cast<U>(scale) * tg_q0[lane * qk_per_thread + j];
-    pair_q1[j] =
-        static_cast<U>(scale) * tg_q1[lane * qk_per_thread + j];
+    pair_q0[j] = tg_scaled_q0[lane * qk_per_thread + j];
+    pair_q1[j] = tg_scaled_q1[lane * qk_per_thread + j];
 }
 for (int j = 0; j < v_per_thread; ++j) {
     pair_o0[j] = 0;
