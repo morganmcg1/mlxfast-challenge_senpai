@@ -271,3 +271,64 @@ insertions / 11 deletions). "Read-only" in an agent's description constrains its
 **Rule: never run any subagent, including `explore`, while the parent holds
 uncommitted working-tree changes. Commit first.** This belongs alongside rule 75
 in the standing process guidance.
+
+## Step 4b: census pilot (REPS=2 STEPS=100 SPLIT=1, head 918136b)
+
+A deliberately cheap validation of the whole census chain before committing an
+hour of GPU time. `/tmp/r100c-census-pilot`, rc=0.
+
+Integrity: `git status --porcelain` empty afterwards and
+`digest_after == digest_before == 58ab3978…`, so the hook apply/build/sweep/
+revert cycle provably leaves the submitted surface untouched.
+
+Each arm selects a *distinct* pipeline — `…keys_v1`, `…keys_v1_pf1`,
+`…keys_v1_pf1c` — which rules out the failure mode where the env knob silently
+collapses onto one shared kernel. `divergences` 0 in all four slots.
+
+Router µs/step, paired within-rep:
+
+| arm | R89 (PR #488) | pilot |
+| --- | --- | --- |
+| pf0 | 318.5 | 319.40 |
+| pf1 | 312.8 | 313.55 |
+| pf1c | 323.5 | 319.75 |
+| 0b null control | — | 319.45 (d = +0.05) |
+
+`pf1 − pf0 = −5.85`, `pf1 − pf1c = −6.05` µs/step, against R89's −5.7 and
+−6.85. The historical effect reproduces on this host.
+
+### Resolvable floors, measured on this rig (null control, n=2)
+
+| estimator | ±95% µs/step |
+| --- | --- |
+| per-kernel router label | **±9.9** |
+| census absolute busy | ±228.7 |
+| census union busy | ±228.7 |
+| census wall | ±266.8 |
+| end-to-end median | ±317.7 |
+
+Only the per-kernel estimator is within an order of magnitude of a ~6 µs/step
+effect; the end-to-end floor is 54× too coarse. This confirms the preregistered
+end-to-end power limit **from this host's own data rather than from the prior**.
+
+Consequence for reporting: a "no effect" reading from any of the four coarse
+estimators must **not** be reported as a null. They are blind at this scale, and
+their flat result is uninformative, not negative evidence.
+
+## Hook lifetime (design note)
+
+The gpuprof hook is needed only at *build* time; the sweep runs the linked
+binary and never re-reads those sources. The census wrapper nevertheless holds
+the Vendor working-tree edit for the entire run and reverts it in the EXIT trap,
+so a ~30-minute sweep leaves the tree dirty throughout.
+
+During the 12-rep census the hook was therefore reverted by hand immediately
+after the build completed (worker `5e811560…` already linked and its sha
+recorded), restoring the digest to `58ab3978…` mid-run. The trap later finds
+nothing to reverse and prints a cosmetic `WARNING: hook revert failed`; the
+integrity check that matters, `digest_after == digest_before`, still passes.
+
+The wrapper should revert the hook right after `build_worker` instead, keeping
+the tree clean for all but ~90 s. That edit is deliberately deferred until no
+census is running: bash reads a script incrementally by file offset, so editing
+a running script in place can corrupt its execution.
