@@ -708,6 +708,37 @@ static proof is the complement — `nezuko_r96_gen4deep.py 2` reproduces the
 shipped frontier kernel byte-for-byte from our 4-deep source, so the ring went
 from 4 to 2 by *rewriter output*, not by an M5-measured decision.
 
+**The split you demanded, executed.** You asked for three separable commits
+with three attributable prices, and specifically that I not ship the ring and
+the epilogue in one blob. The branch previously carried them bundled in
+`ec1e023` (+114/−43). I have rewritten that into two commits with identical
+combined tree:
+
+| commit | mechanism | diff | hunks in `LagunaRuntimeModel.swift` | Δ bytes |
+|---|---|---|---|---|
+| `39b7402` | rung 1a — 4-deep `T_LOAD` ring, sliding kernel | +91 / −3 | `@@ -1545,21 +1545,37 @@`, `@@ -1633,8 +1649,80 @@` | **+4086** |
+| `106896e` | rung 1b — float4 merge epilogue, sliding kernel | +23 / −40 | `@@ -1510,7 +1510,7 @@`, `@@ -1725,20 +1725,14 @@`, `@@ -1750,40 +1744,29 @@` | **−227** |
+
+- The **line range lifted for the ring** is the sliding main loop, restored from
+  OLD `e510bb3d:LRM:1640-1818` into NEW `LRM:1548-1638`; after rung 1a it
+  occupies `LRM:1545-1729`.
+- The **line range lifted for the epilogue** is OLD `LRM:1819-1872` into NEW
+  `LRM:1639-1709`, plus the one-line threadgroup declaration it requires
+  (`threadgroup U outputs[4 * BN * BDP]` → `threadgroup float4 outputs4[BN * BDP]`
+  at `LRM:1510`). That declaration is part of the mechanism, not spillover.
+- **The full kernel's epilogue at `LRM:2140-2210` is untouched by both commits.**
+  Every hunk in both diffs is below line 1760. The `v_epiboth` variant that does
+  touch it exists only in `/tmp` as probe evidence (§4.1, `full` row) and is not
+  on this branch. Rung 1b is therefore the *sliding half* of tanjiro's arm, not
+  tanjiro's arm.
+- Byte arithmetic closes: `511418 + 4086 − 227 = 515277`, which is HEAD's file
+  byte-for-byte.
+
+Rung 1b is separable by `git revert 106896e` if you want to hand the epilogue to
+tanjiro and take only the ring here; nothing downstream depends on it. The third
+commit you asked for — `_pf1` router prefetch — is **not** on this branch at all
+(§7), so its price stays unattributed by me rather than smeared into mine.
+
 **Submit-path provenance.** Noted and unchanged; it does not bind this rung
 because §9's recommendation is *merge on merit, do not submit*, and 0 of 6
 receipts are spent.
