@@ -414,7 +414,7 @@ Written up in full in [`cadence-policy.md`](cadence-policy.md) as twelve rules
 how many official receipts a decode hypothesis of a given size needs, at 95 %
 two-sided confidence and 80 % power, computed by
 [`channel_noise.py`](channel_noise.py) from sigma(raw candidate decode) =
-0.4041 % and sigma(published decode speedup) = 0.4728 %.
+0.3386 % and sigma(published decode speedup) = 0.4181 %.
 
 | true decode delta | est. ref, raw us | est. ref, published | fresh ref, raw us | fresh ref, published |
 | --- | --- | --- | --- | --- |
@@ -648,11 +648,20 @@ by about 19 %.
 The prefill figure does the opposite, and it is the surprise of this section.
 The assignment's prefill bound was 0.2573 %. The channel's actual prefill
 repeatability is **1.9451 %, roughly 7.5x worse**. Section 2 already showed that
-my own machine-code-identical candidates repeat prefill to 0.0643 %. Both are
+my own machine-code-identical candidates repeat prefill to 0.1109 %. Both are
 true, and section 9.3 explains why they are not in conflict.
 
 Daily buckets show no trend: daily `bl_dec` means run 13839-13866 us across 14
 days, a total spread of 0.2 %, with daily CVs of 0.12-0.28 %.
+
+*Caveat on the CI.* Both intervals are chi-square intervals, which assume
+normality. Section 9.4 shows `bl_dec` has excess kurtosis +1.94, and the
+sampling variance of a variance grows with kurtosis roughly as `(2 + kurt)`, so
+the true `bl_dec` interval is about `sqrt((2 + 1.94)/2) = 1.4x` wider than
+printed — call it [0.232 %, 0.259 %]. `bl_pre` has *negative* excess kurtosis
+(-1.07), so its interval is if anything conservative. Neither correction changes
+any conclusion drawn from these numbers, but the decode CI should not be quoted
+to four digits as if it were exact.
 
 ### 9.2 The channel is white - there is no drift to correct for
 
@@ -701,11 +710,56 @@ timing trends within a day while the baseline does not, so
 | (c) near-replicate groups only, candidate CV < 0.5 % (n=311/259) | -0.0175 | -0.0746 |
 | (d) consecutive same-solver pairs <= 60 min apart (n=621) | -0.0472 | +0.0451 |
 
-First differencing removes any linear within-day trend, and (c) restricts to
-solver-days where the candidate barely moved, which is the least confounded of
-the four. All four land inside +/- 0.08. Since pairing can reduce variance by at
-most `1 - rho^2`, a correlation this small saves under 1 % of variance while the
-ratio adds 100 % of the baseline's. **Pairing is a net loss for precision.**
+All four land inside +/- 0.08 — but **three of the four cannot support the
+conclusion**, and it is worth being precise about why, because the naive reading
+of this table is wrong.
+
+**The attenuation trap.** `corr(candidate, baseline)` can only ever see the
+*noise* part of the candidate's variance; the part driven by the code change is
+pure attenuating ballast. If the candidate residuals in an estimator have
+standard deviation `sd_total` while only `sd_noise` of that is measurement
+noise, the observable correlation is the true noise correlation multiplied by
+`a = sd_noise / sd_total`. `research/r93-runs/critique_checks.py` computes `a`
+for each estimator:
+
+| estimator | sd(candidate residual) | sd(noise) | attenuation `a` | what \|r\| <= 0.08 actually bounds |
+|---|---|---|---|---|
+| (a) solver-day de-meaned | 328.4 us | ~23.2 us | **0.071** | \|rho\| <= 1.00 — **uninformative** |
+| (c) near-replicate, cand CV < 0.5 % (36 groups, 335 pts) | 18.13 us | ~23.2 us | **1.00** | \|rho\| <= 0.08 |
+| (c) near-replicate, cand CV < 0.6 % (41 groups, 384 pts) | 22.08 us | ~23.2 us | **1.00** | \|rho\| <= 0.08 |
+
+Estimators (a), (b) and (d) pool solver-days in which the candidate code
+genuinely changed. Their residual spread is ~330 us — roughly 14x the ~23 us of
+channel noise — so they are attenuated by a factor of 14 and would report
+`r ~ 0.07` even if the underlying noise correlation were a perfect `rho = 1`.
+Their agreement with (c) is reassuring but carries almost no information. Only
+estimator (c), which restricts to solver-days whose candidate barely moved so
+that `sd_total ~ sd_noise`, is unattenuated and can bound `rho`.
+
+**The bound that matters is not zero, it is the break-even.** Pairing does not
+need `rho = 0` to lose; it needs `rho` below the point where the cancelled
+covariance repays the baseline variance it imports. From
+`Var(log ratio) = CV_c^2 + CV_b^2 - 2 rho CV_c CV_b`, pairing beats the raw
+candidate only when
+
+> `rho > CV(baseline) / (2 CV(candidate))`
+
+| axis | CV(candidate) | CV(baseline) | break-even rho | measured bound |
+|---|---|---|---|---|
+| decode | 0.3386 % | 0.2453 % | **0.362** | \|rho\| <= 0.08 (estimator (c)) |
+| prefill | 0.1109 % | 1.9451 % | **8.77** | — |
+
+The **prefill conclusion needs no correlation estimate at all**: the break-even
+correlation is 8.77, and correlations cannot exceed 1. No conceivable coupling
+between candidate and baseline can make the published prefill speedup as precise
+as the raw candidate microseconds. That is an arithmetic impossibility, not a
+statistical inference.
+
+The **decode conclusion is a genuine inference** and rests on estimator (c)
+alone: the unattenuated bound `|rho| <= 0.08` sits comfortably below the 0.362
+break-even, so pairing loses. It is fair to note this is the one claim here that
+could be overturned by better data — it would take `rho` above 0.36, more than
+four times the measured bound, to reverse it.
 
 The consequence runs opposite to the intuition behind paired designs. With
 rho = 0 the published speedup is *noisier* than the raw candidate number,
@@ -718,43 +772,71 @@ microseconds**, not the published speedup. Using my measured candidate-side CVs
 from section 2, the minimum resolvable difference at 95 % confidence, two-sided,
 comparing two variants with n receipts each:
 
-**Decode** (candidate CV 0.4041 %, baseline CV 0.2454 %, published-speedup CV 0.4728 %)
+**Decode** (candidate CV 0.3386 % from n=4 nulls, baseline CV 0.2453 %,
+published-speedup CV 0.4181 %; us column at our 4910.5 us decode step, dispatch
+column at the section 4 slope of 2.34 us)
 
-| n per arm | raw candidate us | published speedup | sharpening |
-|---|---|---|---|
-| 2 | 1.7389 % | 2.0345 % | 1.2x |
-| 3 | 0.8074 % | 0.9447 % | 1.2x |
-| 4 | 0.5961 % | 0.6974 % | 1.2x |
-| 6 | 0.4601 % | 0.5383 % | 1.2x |
-| 8 | 0.3960 % | 0.4634 % | 1.2x |
+| n per arm | raw candidate | in us/step | in dispatches/token | published speedup | sharpening |
+|---|---|---|---|---|---|
+| 2 | 1.4570 % | 71.5 us | 30.6 | 1.7991 % | 1.2x |
+| 3 | 0.6765 % | 33.2 us | 14.2 | 0.8353 % | 1.2x |
+| 4 | 0.4995 % | 24.5 us | 10.5 | 0.6167 % | 1.2x |
+| 6 | 0.3855 % | 18.9 us | 8.1 | 0.4760 % | 1.2x |
+| 8 | 0.3318 % | 16.3 us | 7.0 | 0.4097 % | 1.2x |
 
-**Prefill** (candidate CV 0.0643 %, baseline CV 1.9451 %, published-speedup CV 1.9461 %)
+**Prefill** (candidate CV 0.1109 %, baseline CV 1.9451 %, published-speedup CV
+1.9483 %; us column at our 187.9 us prefill step)
 
-| n per arm | raw candidate us | published speedup | sharpening |
-|---|---|---|---|
-| 2 | 0.2766 % | 8.3742 % | **30.3x** |
-| 3 | 0.1284 % | 3.8883 % | **30.3x** |
-| 4 | 0.0948 % | 2.8706 % | **30.3x** |
-| 6 | 0.0732 % | 2.2157 % | **30.3x** |
-| 8 | 0.0630 % | 1.9072 % | **30.3x** |
+| n per arm | raw candidate | in us/token | published speedup | sharpening |
+|---|---|---|---|---|
+| 2 | 0.4772 % | 0.90 us | 8.383 % | **17.6x** |
+| 3 | 0.2216 % | 0.42 us | 3.893 % | **17.6x** |
+| 4 | 0.1636 % | 0.31 us | 2.874 % | **17.6x** |
+| 6 | 0.1263 % | 0.24 us | 2.219 % | **17.6x** |
+| 8 | 0.1087 % | 0.20 us | 1.910 % | **17.6x** |
 
-The decode gain is a modest 1.2x. The prefill gain is **30x**, and it resolves
+The decode gain is a modest 1.2x. The prefill gain is **17.6x**, and it resolves
 the apparent contradiction in section 9.1: the candidate side of a prefill
 measurement is one of the most repeatable numbers in this whole system
-(0.0643 %), while the *published prefill speedup* is nearly worthless for
+(0.1109 %), while the *published prefill speedup* is nearly worthless for
 detecting anything under about 3 %, because the pinned baseline's single
-512-token prefill pass is 30x noisier than ours.
+512-token prefill pass is ~18x noisier than ours.
+
+The dispatch column is the practically useful one. Even at n=8 — more than my
+entire submission budget spent on a single comparison — the decode resolution
+floor is **~7 injected dispatches per token**. Every candidate in section 8.3 is
+comfortably above that (the smallest, -39 dispatches, is 5.5x the n=8 floor and
+1.6x the n=2 floor), which is the concrete reason those candidates are worth
+submitting at all.
 
 Two concrete implications:
 
 1. **Never evaluate a prefill change using `prefill_speedup`.** A real +1 %
    prefill win is invisible in the published ratio at any budget we can afford,
    and clearly visible in `prefill_seconds_per_token` with n=2.
-2. **The 0.95 prefill floor is checked against a statistic with ~1.95 % CV.** A
-   candidate whose true prefill speedup is 1.00 is safe, but one genuinely
-   sitting at 0.98 would trip the floor by chance roughly 6 % of the time even
-   though it is compliant. Anything that spends prefill headroom to buy decode
-   should keep margin well above the floor rather than shaving it.
+2. **The 0.95 prefill floor risk is a cliff, not a gradient — and it is
+   narrower than normal theory says.** The floor is checked against a statistic
+   with ~1.95 % CV, which under a normal model would trip a truly-compliant 0.98
+   candidate about 6 % of the time. That normal model is wrong here.
+   `critique_checks.py` evaluates the trip rate directly against all 1185
+   observed `bl_pre` draws:
+
+   | true prefill speedup | needs `bl_pre` below | empirical trip rate | normal-theory rate |
+   |---|---|---|---|
+   | 0.98 | 0.9694 x mean | **0.00 %** (0 / 1185) | 5.78 % |
+   | 0.97 | 0.9794 x mean | 7.34 % | 14.46 % |
+   | 0.96 | 0.9896 x mean | **50.38 %** | 29.61 % |
+
+   The observed `bl_pre` distribution is short-tailed on the left — its minimum
+   is only 2.7 % below the mean, versus the 5.1 % a normal tail would reach — so
+   a genuine 0.98 has **never** tripped the floor in the entire public record.
+   But the left edge is a wall, not a taper: one further percent of true prefill
+   loss takes the risk from 0 % to 7 %, and the next from 7 % to over 50 %,
+   *faster* than the normal model predicts. The operational rule is therefore
+   sharper and simpler than "keep margin": **a true prefill speedup of 0.98 or
+   better is effectively safe, and 0.96 is a coin flip.** Any decode-for-prefill
+   trade should be sized against its true prefill cost, measured in raw
+   candidate microseconds per the table above, not against the published ratio.
 
 ### 9.4 The baseline decode distribution has a heavy right tail
 
@@ -793,11 +875,41 @@ rather than code change), binned by group mean:
 The residual *sd* rises with the mean while the residual *CV* stays inside
 0.26-0.44 %, so decode noise is multiplicative and the CV does extrapolate.
 
-The first row is the more useful result. That band, 4912-5100 us, **is our
-regime**, and it is measured on 89 near-replicate points from other solvers.
-Its 0.4358 % agrees closely with the 0.4041 % I measured on my own
-machine-code-identical nulls, and both sit clearly above the baseline channel's
-0.2454 %.
+**This table selects on relative spread, which could manufacture its own
+answer**, so it must not be trusted on its own. A `CV < 0.6 %` cut admits a
+larger absolute sd from a group with a larger mean, which is exactly the
+`sd ~ mean` pattern the table then reports. `hetero.py` therefore also fits the
+scaling directly, regressing `log(group sd)` on `log(group mean)` across groups
+weighted by degrees of freedom, where slope 1 is purely multiplicative and
+slope 0 purely additive:
+
+| axis | group cut | groups | slope | se | 95 % CI |
+|---|---|---|---|---|---|
+| decode | CV < 0.6 % | 32 | **+1.078** | 0.301 | [+0.475, +1.680] |
+| decode | CV < 1.0 % | 43 | +1.160 | 0.361 | [+0.438, +1.881] |
+| decode | **sd < 40 us (absolute)** | 32 | **+0.720** | 0.373 | [-0.027, +1.466] |
+| prefill | CV < 0.6 % | 30 | +2.310 | 0.645 | [+1.020, +3.599] |
+| prefill | sd < 1.0 us (absolute) | 22 | +0.311 | 3.113 | uninformative |
+
+The decode fit lands on **+1.08, excluding the additive model (slope 0) and
+sitting right on the multiplicative one (slope 1)**. The absolute-sd cut is the
+artifact-immune control: an absolute microsecond threshold cannot induce
+`sd ~ mean`, and in fact biases *against* it by preferentially discarding the
+high-sd, high-mean groups. It still returns +0.72, so the multiplicative
+conclusion survives its own selection rule.
+
+The prefill fit is steeper than multiplicative (+2.31), which is not noise about
+1 — it is the same effect section 9.3 depends on, seen from another angle: the
+slower the prefill path, the *relatively* noisier it gets, so the pinned
+baseline's slow prefill is disproportionately bad. Its absolute-cut control has
+too little lever arm to say anything.
+
+The first row of the banded table is the more useful practical result. That
+band, 4912-5100 us, **is our regime**, and it is measured on 89 near-replicate
+points from other solvers. Its 0.4358 % is consistent with the 0.3386 % I
+measured on my own machine-code-identical nulls — as it should be, since those
+89 points still contain small code differences and mine contain none — and both
+sit clearly above the baseline channel's 0.2453 %.
 
 That settles a puzzle from section 2. My candidate-side decode sigma came out
 *above* the assignment's 0.2924 % corpus bound, which was surprising because a
@@ -820,7 +932,7 @@ requirements tighten over the life of the campaign rather than relaxing.
 
 Prefill tells the opposite story about the baseline, and it is decisive for
 section 9.3. A candidate near 190 us repeats to 0.16-0.24 % even with small code
-differences mixed in, and to 0.0643 % when the code is machine-code identical.
+differences mixed in, and to 0.1109 % when the code is machine-code identical.
 The pinned baseline at 372 us repeats to only 1.9451 %. If the noise were purely
 a property of the machine, multiplicative scaling would predict similar CVs.
 It does not: **the baseline's prefill pass is specifically about 8x noisier in
@@ -835,7 +947,7 @@ It did not replace Arm A. The corpus baseline measures the channel under the
 *baseline's* code, which is roughly 2.8x slower at decode and 2x slower at
 prefill than ours; noise need not scale identically. Arm A's
 machine-code-identical candidates measure the channel under the code we actually
-ship, and section 2's prefill result - 0.0643 % against the baseline's 1.9451 %
+ship, and section 2's prefill result - 0.1109 % against the baseline's 1.9451 %
 - is exactly the sort of divergence that justifies having bought them.
 
 What it did replace is the *precision* requirement on Arm A. Section 3's

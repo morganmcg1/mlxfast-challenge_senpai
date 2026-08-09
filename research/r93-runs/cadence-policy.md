@@ -160,7 +160,7 @@ directly on the official channel is not a viable strategy.
 ## Receipts needed, by effect size
 
 From §5 of `RESULTS.md` (95 % two-sided, 80 % power, σ(raw candidate decode)
-= 0.4041 %, σ(published decode speedup) = 0.4728 %). "Estimated reference" means
+= 0.3386 %, σ(published decode speedup) = 0.4181 %). "Estimated reference" means
 you already have a well-characterised control from previous receipts; "fresh
 reference" means you must also pay for the control in this experiment.
 
