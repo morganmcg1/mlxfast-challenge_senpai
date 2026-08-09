@@ -3935,26 +3935,40 @@ func lagunaGatedAffineOProjNVFP4Source(
                     const uint p2 = (ge << 1) & 0x8E008E00u;
                     const uint p3 = go & 0x8E008E00u;
     """
-    let gateSetup = preActivatedGate ? "" : """
-    threadgroup float gt[gate_heads];
-    if(lid<gate_heads){
-        float l=float(gate_logits[lid]);
-        float g;
-        if(metal::isnan(l)) g=NAN;
-        else {
-            float hi=metal::max(l,0.0f);
-            float lo=metal::min(l,0.0f);
-            g=(metal::isinf(lo)||metal::isinf(hi))?hi:hi+log1p(metal::exp(lo-hi));
+    let gateSetup = preActivatedGate
+        ? "threadgroup bfloat input_tile[block_size];"
+        : """
+        threadgroup float gt[gate_heads];
+        if(lid<gate_heads){
+            float l=float(gate_logits[lid]);
+            float g;
+            if(metal::isnan(l)) g=NAN;
+            else {
+                float hi=metal::max(l,0.0f);
+                float lo=metal::min(l,0.0f);
+                g=(metal::isinf(lo)||metal::isinf(hi))?hi:hi+log1p(metal::exp(lo-hi));
+            }
+            gt[lid]=float(bfloat(g));
         }
-        gt[lid]=float(bfloat(g));
-    }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    """
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        """
     let loadInput = preActivatedGate
         ? """
-        float g=float(gate_values[column>>head_shift]);
-        for(uint i=0;i<values_per_thread;++i)
-            x_thread[i]=float(bfloat(float(xp[i])*g));
+        constexpr uint staged_values_per_thread = values_per_thread / num_simdgroups;
+        const uint staged_base = lid * staged_values_per_thread;
+        const uint staged_column = k + staged_base;
+        const float staged_gate = float(gate_values[staged_column >> head_shift]);
+        #pragma unroll
+        for (uint i = 0; i < staged_values_per_thread; ++i) {
+            input_tile[staged_base + i] =
+                bfloat(float(attention_output[staged_column + i]) * staged_gate);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        #pragma unroll
+        for (uint i = 0; i < values_per_thread; ++i) {
+            x_thread[i] = float(input_tile[simd_lid * values_per_thread + i]);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
         """
         : """
         float g=gt[column>>head_shift];
@@ -4144,7 +4158,7 @@ private let lagunaActivatedOProjKernels: [Int: MLXFast.MLXFastKernel] = {
     var result: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
         result[heads] = MLXFast.metalKernel(
-            name: "laguna_oproj_act_h\(heads)_v1"
+            name: "laguna_oproj_act_h\(heads)_v2"
                 + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
                 + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
             inputNames: [
