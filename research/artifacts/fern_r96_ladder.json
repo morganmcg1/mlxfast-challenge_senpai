@@ -1,0 +1,141 @@
+{
+ "base_bytes": 100663296,
+ "ladder": [
+  {
+   "rung": "R0_escape_free_natural",
+   "net_bytes": 83904512,
+   "saved_bytes": 16758784,
+   "saved_MB": 16.759,
+   "score_pct": 0.2551,
+   "us_M4": 62.9,
+   "mismatched": 0,
+   "bar_pass": false,
+   "detail": {
+    "gate_proj": {
+     "axis": "reduction",
+     "block": "row",
+     "d": 5,
+     "m": 7,
+     "bytes": 27271168,
+     "mismatched": 0,
+     "hash_equal": true,
+     "escaped_blocks": 0,
+     "total_blocks": 8192
+    },
+    "up_proj": {
+     "axis": "reduction",
+     "block": "row",
+     "d": 5,
+     "m": 7,
+     "bytes": 27271168,
+     "mismatched": 0,
+     "hash_equal": true,
+     "escaped_blocks": 0,
+     "total_blocks": 8192
+    },
+    "down_proj": {
+     "axis": "reduction",
+     "block": "row",
+     "d": 6,
+     "m": 7,
+     "bytes": 29362176,
+     "mismatched": 0,
+     "hash_equal": true,
+     "escaped_blocks": 0,
+     "total_blocks": 2048
+    }
+   }
+  },
+  {
+   "rung": "R1_per_tensor_natural",
+   "net_bytes": 80400128,
+   "saved_bytes": 20263168,
+   "saved_MB": 20.263,
+   "score_pct": 0.3085,
+   "us_M4": 76.1,
+   "mismatched": 0,
+   "bar_pass": false,
+   "detail": {
+    "gate_proj": {
+     "axis": "reduction",
+     "block": "128",
+     "d": 4,
+     "m": 7,
+     "bytes": 25516544,
+     "mismatched": 0,
+     "hash_equal": true,
+     "escaped_blocks": 858,
+     "total_blocks": 131072
+    },
+    "up_proj": {
+     "axis": "reduction",
+     "block": "128",
+     "d": 4,
+     "m": 7,
+     "bytes": 25521408,
+     "mismatched": 0,
+     "hash_equal": true,
+     "escaped_blocks": 877,
+     "total_blocks": 131072
+    },
+    "down_proj": {
+     "axis": "reduction",
+     "block": "row",
+     "d": 6,
+     "m": 7,
+     "bytes": 29362176,
+     "mismatched": 0,
+     "hash_equal": true,
+     "escaped_blocks": 0,
+     "total_blocks": 2048
+    }
+   }
+  },
+  {
+   "rung": "R2_mixed_axis",
+   "net_bytes": 78219008,
+   "saved_bytes": 22444288,
+   "saved_MB": 22.444,
+   "score_pct": 0.3417,
+   "us_M4": 84.3,
+   "mismatched": 0,
+   "bar_pass": true,
+   "detail": {
+    "gate_proj": {
+     "axis": "reduction",
+     "block": "128",
+     "d": 4,
+     "m": 7,
+     "bytes": 25516544,
+     "mismatched": 0,
+     "hash_equal": true,
+     "escaped_blocks": 858,
+     "total_blocks": 131072
+    },
+    "up_proj": {
+     "axis": "reduction",
+     "block": "128",
+     "d": 4,
+     "m": 7,
+     "bytes": 25521408,
+     "mismatched": 0,
+     "hash_equal": true,
+     "escaped_blocks": 877,
+     "total_blocks": 131072
+    },
+    "down_proj": {
+     "axis": "output",
+     "block": "32",
+     "d": 4,
+     "m": 7,
+     "bytes": 27181056,
+     "mismatched": 0,
+     "hash_equal": true,
+     "escaped_blocks": 742,
+     "total_blocks": 524288
+    }
+   }
+  }
+ ],
+ "reduction_only_saved": 20263168
+}
