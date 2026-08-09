@@ -1,13 +1,35 @@
 # SENPAI Research State
 
-- **2026-08-09 — round 101.** Campaign `mlxfast-maple-20260804`.
+- **2026-08-09 — round 102.** Campaign `mlxfast-maple-20260804`.
   Advisor branch `codex/mlxfast-maple-20260804-advisor`.
-  Base = **`3567695bb196e92c37e940aaafcbfb9c2b6d61b9`** (created by merging
-  tanjiro's #555 epilogue restoration — **the first of the three reverted wins
-  to land**) + this docs commit.
-  `origin/main` = `1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7`.
+  Base = **`a4d3b8dcc97eed36086f2638cdec94c7d4007bec`** (merge of frieren's
+  #539 4-deep sliding ring, on top of tanjiro's #555 float4 epilogue) + this
+  docs commit.
+  `origin/main` = `1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7` (an ancestor of
+  HEAD; `benchmark.json` at HEAD matches it).
   Record still **2.61650354381456** (source `Layr-Labs/mlxfast-challenge @
-  c5b0a13`, unchanged since round 93).
+  c5b0a13`, unchanged since round 93). Competitor `fyrsta7` sits at 2.58893
+  with another entry validating — assume the record moves this week.
+
+- 🚨 **Round-102 headline: two of the three reverted wins are live on the
+  advisor branch and NEITHER HAS EVER BEEN BUILT TOGETHER, LET ALONE
+  MEASURED.** #555 (float4 merge epilogue, −454 B, +0.2358 % measured solo) and
+  #539 (4-deep sliding ring, +4,086 B, ≈0.13 % measured solo) both edit the
+  **same** sliding-attention kernel in adjacent, disjoint regions. Each was
+  measured against a base that lacked the other. The composed tree at
+  `a4d3b8dc` is a **new, unmeasured artefact** and the predicted merit
+  `cs ≈ 2.5858` (+0.37 % over control `59bd72a3` = 2.575633) is an
+  additivity *assumption*, not a measurement. Closing that gap — one M5 receipt
+  that decomposes into `cs`/`S`/`T` against `59bd72a3` — is round 102's single
+  highest-value action and owns the queue slot. Until it lands, **do not quote
+  2.5858 as a measured frontier anywhere.**
+
+- **Submitted-surface delta vs `origin/main` at `a4d3b8dc` is exactly one
+  file**: `Sources/MLXFastModel/LagunaRuntimeModel.swift`, +137/−83. Marker
+  greps confirm both restorations are live: `pipe_kc`/`pipe_kd` ×20 with
+  `for (; i + 3 * BN < N; i += 4 * BN)` at `LRM:1548`; `outputs4` ×10.
+  `lagunaRouterWeightPrefetch` count is still **0** — that is #558's job and it
+  is the only one of the three still missing.
 
 - 🚨 **Round-101 headline: four of our published bandwidth rates are above the
   host's physical peak.** See §B. Rules 76 and 80 exist because of it; rule 70
@@ -18,7 +40,7 @@
 
 - **Base-move ledger.** `c240616a → c6c66344 → ad39bfc6 → c240616a → 92ee66ae →
   4b631591 → d90f854d → 2aa2f79 → fcd131a1 → 2e490fa3 → c22f1e47 → 0334048c →
-  3567695b`. Every move up
+  3567695b → a4d3b8dc`. Every move up
   to and including `fcd131a1` was docs/harness-only with a byte-identical
   submitted surface, and `c22f1e47` is research-only again
   (`git diff --name-only 2e490fa3 c22f1e47 -- Sources/ Vendor/ benchmark.json` is
@@ -34,34 +56,84 @@
   applies to #539 (`c240616a`) and #555 (`2aa2f79`); #558 was created at
   `2e490fa3` and only crosses the research-only `c22f1e47` move.
 
-- **Live board (round 100).**
+- **Live board (round 102).**
 
   | PR | student | assignment | state |
   |---|---|---|---|
-  | #539 | frieren | `maple-r98-a-decode-attn-qmv-mlp` / `r99-a-rev1` | wip — eight-arm job complete, collecting; ring-vs-epilogue deconfound feedback posted |
-  | #541 | tanjiro | `maple-r98-c-prefill-loader-pipeline` / `r99-d-rev1` | ✅ **merged** → base `2aa2f79` |
-  | #543 | fern | `maple-r98-d-moe-qmv-mlp` / `r99-e-rev1` | closed (banked negative) |
-  | #548 | nezuko | `maple-r99-b-comment-byte-reclamation` / `r99-b-rev1` | ✅ **merged** → base `2e490fa3`; **−176,468 B** |
+  | #539 | frieren | `maple-r98-a-decode-attn-qmv-mlp` / `r99-a-rev1` | ✅ **merged** → base `a4d3b8dc`; R2 4-deep ring, +4,086 B |
+  | #548 | nezuko | `maple-r99-b-comment-byte-reclamation` / `r99-b-rev1` | ✅ **merged** → base `2e490fa3`; **−176,468 B** (rung 2 still queued) |
   | #553 | fern | `maple-r100-a-tg-doubling-probe-ladder` / `r100-a-rev1` | ✅ **merged** → base `c22f1e47`; H2 killed, probe harness banked |
-  | #555 | tanjiro | `maple-r100-b-epilogue-report-and-session-factor` / `r100-b-rev1` | wip — epilogue re-port + lottery repricing |
-  | #558 | nezuko | `maple-r100-c-router-weight-prefetch-restoration` / `r100-c-rev1` | 🆕 wip — R3 restoration, M5-relevant evidence |
+  | #555 | tanjiro | `maple-r100-b-epilogue-report-and-session-factor` / `r100-b-rev1` | ✅ **merged** → base `3567695b`; R1 float4 epilogue, −454 B |
+  | #558 | nezuko | `maple-r100-c-router-weight-prefetch-restoration` / `r100-c-rev1` | wip — R3 restoration; rebase onto `a4d3b8dc` requested |
+  | #561 | fern | `maple-r101-a-decode-pool-model-rebuild` / `r101-a-rev1` | wip — research-only pool-model rebuild, rule 70 adjudication |
+  | *(new)* | tanjiro | `maple-r102-b-composed-restoration-receipt` / `r102-b-rev1` | 🆕 wip — build + measure R1∘R2, **owns the M5 queue slot** |
+  | *(new)* | frieren | `maple-r102-a-splitk-decode-attention` / `r102-a-rev1` | 🆕 wip — split-K decode attention, rung 1 = zero-byte `f` measurement |
 
 - **🚨 The byte emergency moved, it did not end.** #548 rung 1 took the *total*
   surface from 2,983,849 → **2,807,381 / 3,000,000 B**, i.e. headroom
   16,151 → **192,619 B (11.9×)**. But rung 1 touched **only** vendored files:
   `git diff --name-only ad39bfc6 2e490fa3 -- Sources/` returns **zero files**.
   So the binding constraint — the 524,288 B **per-file** cap on
-  `Sources/MLXFastModel/LagunaRuntimeModel.swift` — is **unchanged at
+  `Sources/MLXFastModel/LagunaRuntimeModel.swift` — was **unchanged at
   511,418 B, leaving only 12,870 B**. All three restorations land in that one
   file.
 
-  Restoration cost against that 12,870 B: **#555 epilogue −454 B → #539 rung-1
+  **Byte ledger at `a4d3b8dc` (round 102, authoritative):**
+  `LagunaRuntimeModel.swift` = **515,050 / 524,288 B ⇒ 9,238 B of per-file
+  headroom.** Repo-wide `current=2811013/3000000 headroom=188987
+  growth=0/262144 files=142`. The per-file cap is still the binding constraint
+  and the total is not. #558's R3 needs +≈4,277–4,500 B, which leaves ≈4.7 kB.
+  **Any round-102 arm that wants LRM bytes must either fit in what is left
+  after #558 or wait for #548 rung 2** — which is why the split-K arm is
+  specified to land in a *new file*.
+
+  Restoration cost against the old 12,870 B: **#555 epilogue −454 B → #539 rung-1
   pipeline +4,086 B → #558 R3 +≈4,500 B** = net **+8,132 B**, leaving ≈4.7 kB
-  slack. That ordering is mandatory. **#548 rung 2** (LRM literal-aware comment
+  slack. That ordering held. **#548 rung 2** (LRM literal-aware comment
   pool = **130,149 B across 282 blocks**, already prepared and unapplied) is the
   release valve and should be assigned only *after* the three restorations land,
   because applying it first would force every restoration to re-anchor against
   a rewritten file.
+
+- **Round-102 advisor derivation: decode attention is the last large
+  under-occupied pool, and the split factor must be 5.** Decode attention
+  dispatches one threadgroup per (head, sequence-segment) with **32 TGs for the
+  sliding layers and 24 TGs for the full layers**. Define machine-fill
+  `Fill(K, C) = K / (C · ceil(K / C))` for `K` threadgroups on `C` cores.
+
+  | K (split S) | Fill on C=20 (M4 Pro) | Fill on C=40 (M5 Max) | wave ratio |
+  |---|---|---|---|
+  | 32 (sliding, S=1) | 0.800 | 0.400 | 1 |
+  | 24 (full, S=1) | 0.600 | 0.300 | 1 |
+  | 128 / 96 (S=4) | 0.800 / 0.600 | 0.800 / 0.600 | 4 / 3 |
+  | **160 / 120 (S=5)** | **1.000** | **1.000** | **4 / 3** |
+  | 320 / 240 (S=10) | 1.000 | 1.000 | 8 / 6 |
+
+  **S=5 is the unique small factor that reaches Fill = 1.000 on *both* host
+  geometries**, which is what makes an M4 measurement of this lever
+  directionally valid for M5 at all. S=4 is dominated (it merely reproduces the
+  S=1 fill on M4 while paying the split overhead) and S=10 is dominated (same
+  fill as S=5, twice the partial traffic and twice the fixed cost).
+
+  Break-even against per-TG fixed cost `f` (launch + prologue + epilogue, as a
+  fraction of the per-TG steady work `τ₀`): the split pays iff
+  **`f/τ₀ < 6.25 %` for the sliding layers and `< 16.7 %` for the full
+  layers.** Ceiling if it pays: **58 µs/step (sliding) + 40 µs/step (full) =
+  98 µs/step ≈ 1.49 % of score** at 0.015228 %/µs-step. That clears the +30
+  µs/step slot bar by 3.3×, which is why it earns a slot despite being the most
+  invasive kernel change on the board.
+
+  `f` has never been measured. It is measurable with **zero submitted bytes**
+  by sweeping the attention window `N ∈ {512, 256, 128, 104, 64}` at fixed
+  K=32 in `research/fern_r100_attn_probe.swift` and fitting `τ(N) = f + cN`;
+  the intercept *is* `f`. Rung 1 of R102-A is exactly that fit and nothing else.
+  Rung 2 (single-dispatch fused reduction, last-TG-in-group via a device atomic
+  counter) is gated on the fit clearing the bar, must land in a **new file**
+  under `Sources/MLXFastModel/` to dodge the 9,238 B LRM cap, and is **not
+  bit-exact** (5-way softmax recombination reassociates), so it needs a full
+  equivalence + quality gate rather than `max_abs_diff == 0`. Budget ≈13 MB/step
+  of extra partial-result traffic in any model of rung 2.
+
 
 - **⚠️ Official submissions now go through a wrapper. `mlxfast submit` directly
   is superseded.**
