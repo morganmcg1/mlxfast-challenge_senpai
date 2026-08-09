@@ -159,12 +159,10 @@ final class LagunaPackedScalesLog: @unchecked Sendable {
     func recordRoute(compact: Bool) {
         lock.lock()
         if compact { compactRoutes += 1 } else { fallbackRoutes += 1 }
-        let complete = compactRoutes == 38 && fallbackRoutes == 1
+        let counts = (compactRoutes, fallbackRoutes)
         lock.unlock()
-        if complete {
-            let message = "mlxfast: packed-scales route compact_per_token=38 "
-                + "u8_per_token=1 expected_128_compact=4864 expected_128_u8=128 "
-                + "prefill_hits=0\n"
+        if !compact || counts.0.isMultiple(of: 38) {
+            let message = "mlxfast: packed-scales routes compact=\(counts.0) u8=\(counts.1)\n"
             FileHandle.standardError.write(Data(message.utf8))
         }
     }
