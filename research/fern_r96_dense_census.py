@@ -176,7 +176,7 @@ def main() -> int:
         )
         for block in (32, 64, 128, u.shape[1]):
             span, has, bpr = block_spans(exp, live, block)
-            hist = np.bincount(span.ravel(), minlength=40)
+            hist = np.bincount(np.clip(span.ravel(), 0, 255), minlength=256)
             rec["spans"][str(block)] = dict(
                 blocks=int(span.size),
                 blocks_per_row=int(bpr),
@@ -187,8 +187,8 @@ def main() -> int:
                 subnormal_blocks=int(subnormal.reshape(u.shape[0], bpr, block).any(axis=2).sum()),
             )
             key = str(block)
-            pooled_hist.setdefault(key, np.zeros(40, dtype=np.int64))
-            pooled_hist[key] += np.bincount(span.ravel(), minlength=40)
+            pooled_hist.setdefault(key, np.zeros(256, dtype=np.int64))
+            pooled_hist[key] += hist
             # D3: per-row escaped-block count distribution, for each d
             for d in (2, 3, 4, 5):
                 usable = (1 << d) - 1 - (1 if int(is_zero.sum()) > 0 else 0)
