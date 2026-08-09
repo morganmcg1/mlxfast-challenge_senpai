@@ -254,9 +254,15 @@ never be compared as if commensurable.
 ```bash
 python3 research/fern_r103d_pull.py --out /tmp/r103d-subs-raw.json      # read-only
 python3 research/fern_r103d_provenance.py ef055b9b… bd33883e… -- 30f752df e17bdeb
-python3 research/fern_r103d_rung1.py /tmp/r103d-subs-raw.json
+python3 research/fern_r103d_rung1.py /tmp/r103d-subs-raw.json \
+    --json research/artifacts/fern-r103d/rung1.json
+python3 research/fern_r103d_wandb.py research/artifacts/fern-r103d/rung1.json
 ```
 
 Provenance needs full 40-char SHAs (the git-database API rejects abbreviations)
 and uses ~15 of the 60/hr unauthenticated budget; trees cache in
 `/tmp/r103d-trees/`. Full rung-1 output: `research/artifacts/fern-r103d/rung1.txt`.
+
+W&B run: <https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/ycg78e8z>
+(`ycg78e8z`), with every σ, residual, power, and null-verdict metric above and
+the three artifact files attached as `fern-r103d-evidence`.
