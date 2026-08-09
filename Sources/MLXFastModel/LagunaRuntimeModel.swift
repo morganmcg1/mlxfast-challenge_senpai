@@ -62,6 +62,10 @@ private func lagunaBF16BitsEqual(_ lhs: MLXArray, _ rhs: MLXArray) -> Bool {
     return arrayEqual(lhs.view(dtype: .uint16), rhs.view(dtype: .uint16)).item(Bool.self)
 }
 
+private func lagunaOutputMajorQKVCheckLog(_ message: String) {
+    FileHandle.standardError.write(Data("\(message)\n".utf8))
+}
+
 /// `DARKBLOOM_FUSED_SHARED_GATE_UP` (default on; set "0" to disable): after
 /// checkpoint load, retain one row-concatenated NVFP4 `[gate; up]` bank per
 /// shared expert and serve single-token decode from one quantized matmul.
@@ -5469,7 +5473,7 @@ final class LagunaRuntimeAttention: Module {
                     let queryBitsMatch = lagunaBF16BitsEqual(queries, referenceQueries)
                     let keyBitsMatch = lagunaBF16BitsEqual(keys, referenceKeys)
                     let valueBitsMatch = lagunaBF16BitsEqual(values, referenceValues)
-                    print(
+                    lagunaOutputMajorQKVCheckLog(
                         "OUTPUT_MAJOR_QKV_RAW_BITS layer=\(layerIdx) " +
                             "n=\(queryDim + 2 * kvDim) q=\(queryBitsMatch) " +
                             "k=\(keyBitsMatch) v=\(valueBitsMatch)")
@@ -5710,7 +5714,7 @@ final class LagunaRuntimeAttention: Module {
             let queryBitsMatch = lagunaBF16BitsEqual(queries, referenceQueries)
             let keyBitsMatch = lagunaBF16BitsEqual(keys, referenceKeys)
             let valueBitsMatch = lagunaBF16BitsEqual(values, referenceValues)
-            print(
+            lagunaOutputMajorQKVCheckLog(
                 "OUTPUT_MAJOR_QKV_DOWNSTREAM_BITS layer=\(layerIdx) " +
                     "q=\(queryBitsMatch) k=\(keyBitsMatch) v=\(valueBitsMatch)")
             precondition(queryBitsMatch && keyBitsMatch && valueBitsMatch)
