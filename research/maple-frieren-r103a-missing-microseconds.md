@@ -1403,7 +1403,38 @@ decision statistic is a median over steps 1…249.
 
 ## § 4 Rung 1 — paired ABBA e2e decode on M4
 
-_Pending._
+### 4.1 What was actually executed (provenance, recorded before unblinding)
+
+Launched as supervised job `92c3bf47-f6c1-4278-b811-0f4df8418bf6` with
+
+```
+SNAP=/tmp/maple-r103a-snap OUT=/tmp/maple-r103a/rung1 REPS=26 STEPS=250 \
+  WARMUP_REPS=2 bash research/maple-frieren-r103a-abba.sh
+```
+
+- HEAD at launch `7dd93f75`; `digest_before` =
+  `c3fafd30b4fdba6d3058746e79a715a53a072c5d5c77b0716a3a73dbd385f492`, equal to
+  the rung-0 `digest_head` / `digest_at_new_build` / `digest_after_restore`
+  (§ 3.1, gate G0.4). The timed run therefore used binaries provably built from
+  the recorded trees.
+- Slot order `oldA old new oldB`, reversed on odd reps. `old`/`new` occupy the
+  interior positions {2,3} and are the contrast; `oldA`/`oldB` occupy the
+  exterior positions {1,4} and are a rule-79 identical-code null at position
+  separation 3.
+- `REPS=26`, first 2 discarded as warm-up ⇒ **K = 24** paired repetitions,
+  104 slots, `STEPS=250` teacher-forced one-token decode steps per slot.
+- Binary identity as recorded in `provenance.txt`: `new` =
+  `32d0a3d4…881ddb` (49,190,344 B); `old` = `oldA` = `oldB` =
+  `d36a981f…4a911e` (49,094,856 B). The three "old" labels are the *same
+  executable*, which is what makes the exterior pair a valid null.
+- Every arm shares the same `mlx.metallib`
+  (`8e8b18af…3097ec`, gate G0.5), so no part of any contrast is a Metal
+  shader-source difference.
+
+Arm mapping to § 1.11's three-point frame: `old` = **A** (`30f752df`), `new` =
+**C** (`0f6862d0`). Rung 1 therefore measures the **composed A→C contrast**,
+which is exactly the "missing microseconds" question as originally posed. The
+A↔B / B↔C decomposition requires arm B and is deferred to rung 1B (§ 4.4).
 
 ## § 5 Rung 2 — position-matched per-kernel census
 
