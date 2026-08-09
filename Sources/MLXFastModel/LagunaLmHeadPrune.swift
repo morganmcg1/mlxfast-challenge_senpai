@@ -944,7 +944,7 @@ final class LagunaLmHeadPruner {
                 threadGroup: (512, 1, 1),
                 outputShapes: [[vocab], [vocab]],
                 outputDTypes: [.float32, .bfloat16],
-                verbose: true
+                verbose: lagunaR92Verbose()
             )
             : lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel(
                 [x, int5CodesLo, int5CodesHi, int5Scales],
@@ -952,7 +952,7 @@ final class LagunaLmHeadPruner {
                 threadGroup: (512, 1, 1),
                 outputShapes: [[vocab], [vocab]],
                 outputDTypes: [.float32, .bfloat16],
-                verbose: true
+                verbose: lagunaR92Verbose()
             )
         let coarse = coarseOut[0]
         let delta = coarseOut[1]
@@ -962,7 +962,7 @@ final class LagunaLmHeadPruner {
             threadGroup: (224, 1, 1),
             outputShapes: [[128], [128]],
             outputDTypes: [.float32, .uint32],
-            verbose: true
+            verbose: lagunaR92Verbose()
         )
         let thr = lagunaLmHeadExactWinnerBF16PredecessorThresholdKernel(
             [argmaxPartials[0], argmaxPartials[1], lmHeadWeight, x],
@@ -970,7 +970,7 @@ final class LagunaLmHeadPruner {
             threadGroup: (32, 1, 1),
             outputShapes: [[1]],
             outputDTypes: [.float32],
-            verbose: true
+            verbose: lagunaR92Verbose()
         )[0]
         let assembled =
             refine
@@ -980,7 +980,7 @@ final class LagunaLmHeadPruner {
                 threadGroup: (256, 1, 1),
                 outputShapes: [[vocab]],
                 outputDTypes: [.bfloat16],
-                verbose: true
+                verbose: lagunaR92Verbose()
             )[0]
             : lagunaLmHeadInlineExactDeltaBF16Kernel(
                 [coarse, delta, thr, lmHeadWeight, x],
@@ -988,7 +988,7 @@ final class LagunaLmHeadPruner {
                 threadGroup: (256, 1, 1),
                 outputShapes: [[vocab]],
                 outputDTypes: [.bfloat16],
-                verbose: true
+                verbose: lagunaR92Verbose()
             )[0]
         return assembled.reshaped([1, 1, vocab])
     }

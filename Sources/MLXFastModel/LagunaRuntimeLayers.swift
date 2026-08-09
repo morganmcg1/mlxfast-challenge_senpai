@@ -720,7 +720,7 @@ func lagunaDecodeRouterTop8AcceptedForTesting(
         threadGroup: (256, 1, 1),
         outputShapes: [[1, 1, 8], [1, 1, 8]],
         outputDTypes: [.uint32, .float32],
-        verbose: true
+        verbose: lagunaR92Verbose()
     )
     return (outputs[0], outputs[1])
 }
@@ -742,7 +742,7 @@ func lagunaDecodeRouterTop8OrdinalForTesting(
         threadGroup: (256, 1, 1),
         outputShapes: [[1, 1, 8], [1, 1, 8]],
         outputDTypes: [.uint32, .float32],
-        verbose: true
+        verbose: lagunaR92Verbose()
     )
     return (outputs[0], outputs[1])
 }
@@ -765,7 +765,7 @@ func lagunaDecodeRouterTop8OrdinalScoreTableForTesting(
         threadGroup: (256, 1, 1),
         outputShapes: [[1, 1, 8], [1, 1, 8]],
         outputDTypes: [.uint32, .float32],
-        verbose: true
+        verbose: lagunaR92Verbose()
     )
     return (outputs[0], outputs[1])
 }
@@ -952,7 +952,7 @@ private func lagunaPrefillRouterTop8(
         threadGroup: (256, 1, 1),
         outputShapes: [[1, rows, 8], [1, rows, 8]],
         outputDTypes: [.uint32, .float32],
-        verbose: true
+        verbose: lagunaR92Verbose()
     )
     return (outputs[0], outputs[1])
 }
@@ -1339,7 +1339,7 @@ func lagunaPrefillRouterTournamentAcceptedForTesting(
         threadGroup: (256, 1, 1),
         outputShapes: [[1, rows, 8], [1, rows, 8]],
         outputDTypes: [.uint32, .float32],
-        verbose: true
+        verbose: lagunaR92Verbose()
     )
     return (outputs[0], outputs[1])
 }
@@ -1362,7 +1362,7 @@ func lagunaPrefillRouterTournamentOrdinalForTesting(
         threadGroup: (256, 1, 1),
         outputShapes: [[1, rows, 8], [1, rows, 8]],
         outputDTypes: [.uint32, .float32],
-        verbose: true
+        verbose: lagunaR92Verbose()
     )
     return (outputs[0], outputs[1])
 }
@@ -1633,7 +1633,7 @@ private func lagunaPrefillMoETail(
         threadGroup: (256, 1, 1),
         outputShapes: [[1, rows, LagunaConstants.hiddenSize]],
         outputDTypes: [.bfloat16],
-        verbose: true
+        verbose: lagunaR92Verbose()
     )[0]
 }
 
@@ -1667,7 +1667,7 @@ private func lagunaPrefillSortedMoETail(
         threadGroup: (256, 1, 1),
         outputShapes: [[1, rows, LagunaConstants.hiddenSize]],
         outputDTypes: [.bfloat16],
-        verbose: true
+        verbose: lagunaR92Verbose()
     )[0]
 }
 
@@ -2599,7 +2599,7 @@ func lagunaDecodeEmbeddingRoPEAtlas(
             [1, 1, 1, LagunaConstants.headDim],
         ],
         outputDTypes: [.bfloat16, .float32, .float32],
-        verbose: true
+        verbose: lagunaR92Verbose()
     )
     lagunaTrace("decode embedding+rope atlas")
     return (outputs[0], outputs[1], outputs[2])

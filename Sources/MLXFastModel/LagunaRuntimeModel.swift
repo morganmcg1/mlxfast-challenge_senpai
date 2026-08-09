@@ -1195,7 +1195,6 @@ func lagunaResidualRMSNormRouter(
     routerWeight: MLXArray, correctionBias: MLXArray
 ) -> (summed: MLXArray, normalized: MLXArray, routerLogits: MLXArray,
     routerKeys: MLXArray?) {
-    _ = lagunaR92DumpRedirect
     let hidden = LagunaConstants.hiddenSize
     let experts = LagunaConstants.numExperts
     precondition(residual.dtype == .bfloat16)
@@ -1231,7 +1230,7 @@ func lagunaResidualRMSNormRouter(
             + (lagunaRouterPrecomputedKeysEnabled ? [[1, 1, experts]] : []),
         outputDTypes: [.bfloat16, .bfloat16, .bfloat16]
             + (lagunaRouterPrecomputedKeysEnabled ? [.uint32] : []),
-        verbose: true
+        verbose: lagunaR92Verbose()
     )
     return (outputs[0], outputs[1], outputs[2], outputs.count > 3 ? outputs[3] : nil)
 }
@@ -1244,20 +1243,43 @@ func lagunaResidualRMSNormRouter(
 /// stderr pipe instead, which the parent drains and forwards line by line.
 let lagunaR92DumpRedirect: Bool = {
     guard ProcessInfo.processInfo.environment["DARKBLOOM_R92_DUMP_TO_STDERR"] == "1"
-    else {
-        fputs("R92CANARY global-forced env-off\n", stderr)
-        return false
-    }
+    else { return false }
     let rc = dup2(STDERR_FILENO, STDOUT_FILENO)
-    fputs("R92CANARY global-forced dup2=\(rc) errno=\(errno)\n", stderr)
+    fputs("R92CANARY dup2=\(rc) errno=\(errno)\n", stderr)
     setvbuf(stdout, nil, _IOLBF, 0)
     return true
 }()
 
+/// r92-b research instrumentation, reverted before submission. Every dispatch
+/// re-emits its whole translation unit, so an uncapped dump of the 512+128
+/// scored window is hundreds of megabytes through a per-line-flushed pipe. The
+/// census only needs one translation unit per distinct kernel, so spend a fixed
+/// global budget of emissions and go quiet afterwards.
+final class LagunaR92DumpBudget: @unchecked Sendable {
+    private let lock = NSLock()
+    private var remaining: Int
+    init(_ remaining: Int) { self.remaining = remaining }
+    func take() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard remaining > 0 else { return false }
+        remaining -= 1
+        return true
+    }
+}
+
+let lagunaR92DumpBudget = LagunaR92DumpBudget(
+    Int(ProcessInfo.processInfo.environment["DARKBLOOM_R92_DUMP_LIMIT"] ?? "") ?? 900
+)
+
+func lagunaR92Verbose() -> Bool {
+    guard lagunaR92DumpRedirect else { return false }
+    return lagunaR92DumpBudget.take()
+}
+
 func lagunaResidualRMSNorm(
     residual: MLXArray, branch: MLXArray, weight: MLXArray
 ) -> (MLXArray, MLXArray) {
-    _ = lagunaR92DumpRedirect
     precondition(residual.dtype == .bfloat16)
     precondition(branch.dtype == .bfloat16)
     precondition(weight.dtype == .bfloat16)
@@ -1272,7 +1294,7 @@ func lagunaResidualRMSNorm(
         threadGroup: (512, 1, 1),
         outputShapes: [residual.shape, residual.shape],
         outputDTypes: [.bfloat16, .bfloat16],
-        verbose: true
+        verbose: lagunaR92Verbose()
     )
     return (outputs[0], outputs[1])
 }
@@ -1380,7 +1402,7 @@ func lagunaFullQKNormYaRN(
             [1, 8, 1, LagunaConstants.headDim],
         ],
         outputDTypes: [.bfloat16, .bfloat16],
-        verbose: true
+        verbose: lagunaR92Verbose()
     )
     return (outputs[0], outputs[1])
 }
@@ -1500,7 +1522,7 @@ func lagunaSlidingQKNormRoPE(
             [1, kvHeads, 1, LagunaConstants.headDim],
         ],
         outputDTypes: [.bfloat16, .bfloat16],
-        verbose: true
+        verbose: lagunaR92Verbose()
     )
     return (outputs[0], outputs[1])
 }
@@ -1908,7 +1930,7 @@ func lagunaSlidingFusedAttention(
         threadGroup: (1024, 1, 1),
         outputShapes: [[1, heads, 1, LagunaConstants.headDim]],
         outputDTypes: [.bfloat16],
-        verbose: true
+        verbose: lagunaR92Verbose()
     )[0]
 }
 
@@ -2394,7 +2416,7 @@ func lagunaFullFusedAttention(
         threadGroup: (1024, 1, 1),
         outputShapes: [[1, heads, 1, LagunaConstants.headDim]],
         outputDTypes: [.bfloat16],
-        verbose: true
+        verbose: lagunaR92Verbose()
     )[0]
 }
 
@@ -2850,7 +2872,7 @@ private func lagunaPrefillSlidingQKNormRoPE(
             [1, kvHeads, length, LagunaConstants.headDim],
         ],
         outputDTypes: [.bfloat16, .bfloat16],
-        verbose: true
+        verbose: lagunaR92Verbose()
     )
     return (outputs[0], outputs[1])
 }
@@ -2896,7 +2918,7 @@ private func lagunaPrefillFullQKNormYaRN(
             [1, kvHeads, length, LagunaConstants.headDim],
         ],
         outputDTypes: [.bfloat16, .bfloat16],
-        verbose: true
+        verbose: lagunaR92Verbose()
     )
     return (outputs[0], outputs[1])
 }
@@ -3489,7 +3511,6 @@ func lagunaFusedNormQKVProjection(
     queries: MLXArray, keys: MLXArray, values: MLXArray, gateValues: MLXArray,
     gateActivated: Bool
 )? {
-    _ = lagunaR92DumpRedirect
     guard let kernel = lagunaFusedQKVProjectionKernels[heads] else { return nil }
     let hidden = LagunaConstants.hiddenSize
     let queryRows = heads * LagunaConstants.headDim
@@ -3517,7 +3538,7 @@ func lagunaFusedNormQKVProjection(
             [1, 1, queryRows], [1, 1, kvRows], [1, 1, kvRows], [1, 1, heads],
         ],
         outputDTypes: [.bfloat16, .bfloat16, .bfloat16, .bfloat16],
-        verbose: true
+        verbose: lagunaR92Verbose()
     )
     return (outputs[0], outputs[1], outputs[2], outputs[3], true)
 }
@@ -3805,7 +3826,7 @@ func lagunaGatedOutputProjection(
         threadGroup: (128, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
         outputDTypes: [.bfloat16],
-        verbose: true
+        verbose: lagunaR92Verbose()
     )[0]
 }
 
@@ -3891,7 +3912,7 @@ func lagunaGateProductSoftplus(
         threadGroup: (128, 1, 1),
         outputShapes: [[1, 1, inVec]],
         outputDTypes: [.bfloat16],
-        verbose: true
+        verbose: lagunaR92Verbose()
     )[0]
 }
 
@@ -4145,7 +4166,7 @@ func lagunaGatedAffineOProj(
             grid: ((outVec / 8) * 64, 1, 1),
             threadGroup: (64, 1, 1),
             outputShapes: [[1, 1, outVec]], outputDTypes: [.bfloat16],
-            verbose: true
+            verbose: lagunaR92Verbose()
         )[0]
     }
     guard let kernel = lagunaGatedAffineOProjKernels[heads] else { return nil }
@@ -4156,7 +4177,7 @@ func lagunaGatedAffineOProj(
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, outVec]],
         outputDTypes: [.bfloat16],
-        verbose: true
+        verbose: lagunaR92Verbose()
     )[0]
 }
 
@@ -4488,7 +4509,7 @@ private func lagunaGateSoftplus(
         grid: ((heads / 8) * 64, 1, 1),
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, heads]],
-        outputDTypes: [.bfloat16], verbose: true)[0]
+        outputDTypes: [.bfloat16], verbose: lagunaR92Verbose())[0]
 }
 
 private let lagunaActivatedOProjKernels: [Int: MLXFast.MLXFastKernel] = {
@@ -4573,7 +4594,7 @@ func lagunaGatedAffineOProjNVFP4(
             threadGroup: (64, 1, 1),
             outputShapes: [[1, 1, outVec]],
             outputDTypes: [.bfloat16],
-            verbose: true
+            verbose: lagunaR92Verbose()
         )[0]
     }
 
@@ -4589,7 +4610,7 @@ func lagunaGatedAffineOProjNVFP4(
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, outVec]],
         outputDTypes: [.bfloat16],
-        verbose: true
+        verbose: lagunaR92Verbose()
     )[0]
 }
 
@@ -4982,7 +5003,7 @@ private func lagunaDecodeNVFP4QKVR1(
             threadGroup: (64, 1, 1),
             outputShapes: [[1, 1, rows]],
             outputDTypes: [.bfloat16],
-            verbose: true
+            verbose: lagunaR92Verbose()
         )[0]
     }
     if let narrow = bank.narrowScales,
@@ -4999,7 +5020,7 @@ private func lagunaDecodeNVFP4QKVR1(
             threadGroup: (64, 1, 1),
             outputShapes: [[1, 1, rows]],
             outputDTypes: [.bfloat16],
-            verbose: true
+            verbose: lagunaR92Verbose()
         )[0]
     }
     guard let kernel = lagunaDecodeNVFP4QKVR1Kernels[heads] else { return nil }
@@ -5011,7 +5032,7 @@ private func lagunaDecodeNVFP4QKVR1(
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, rows]],
         outputDTypes: [.bfloat16],
-        verbose: true
+        verbose: lagunaR92Verbose()
     )[0]
 }
 
@@ -5479,7 +5500,7 @@ func lagunaNormAffineQKV(
             threadGroup: (64, 1, 1),
             outputShapes: [[1, 1, rows]],
             outputDTypes: [.bfloat16],
-            verbose: true
+            verbose: lagunaR92Verbose()
         )[0]
     }
 
@@ -5493,7 +5514,7 @@ func lagunaNormAffineQKV(
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, rows]],
         outputDTypes: [.bfloat16],
-        verbose: true
+        verbose: lagunaR92Verbose()
     )[0]
 }
 
@@ -7179,7 +7200,7 @@ func lagunaSharedSwiGLUQMV(
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.sharedExpertIntermediateSize]],
         outputDTypes: [.bfloat16],
-        verbose: true
+        verbose: lagunaR92Verbose()
     )[0]
 }
 
@@ -7314,7 +7335,7 @@ func lagunaSharedDownResidual(
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
         outputDTypes: [.bfloat16],
-        verbose: true
+        verbose: lagunaR92Verbose()
     )[0]
 }
 
@@ -7547,7 +7568,7 @@ func lagunaRoutedSwiGLUQMV(
             LagunaConstants.moeIntermediateSize,
         ]],
         outputDTypes: [.bfloat16],
-        verbose: true
+        verbose: lagunaR92Verbose()
     )[0]
 }
 
@@ -7693,7 +7714,7 @@ func lagunaRoutedSwiGLUQMVPacked(
             LagunaConstants.moeIntermediateSize,
         ]],
         outputDTypes: [.bfloat16],
-        verbose: true
+        verbose: lagunaR92Verbose()
     )[0]
 }
 
@@ -8009,7 +8030,7 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
                 LagunaConstants.moeIntermediateSize,
             ]],
             outputDTypes: [.bfloat16],
-            verbose: true
+            verbose: lagunaR92Verbose()
         )[0]
     }
     return lagunaRoutedSwiGLUQMVPackedTop8Kernel(
@@ -8021,7 +8042,7 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
             LagunaConstants.moeIntermediateSize,
         ]],
         outputDTypes: [.bfloat16],
-        verbose: true
+        verbose: lagunaR92Verbose()
     )[0]
 }
 
@@ -8156,7 +8177,7 @@ func lagunaRoutedDownReduce(
         threadGroup: (256, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
         outputDTypes: [.bfloat16],
-        verbose: true
+        verbose: lagunaR92Verbose()
     )[0]
 }
 
@@ -8608,7 +8629,7 @@ func lagunaRoutedSharedDownResidual(
         threadGroup: (288, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
         outputDTypes: [.bfloat16],
-        verbose: true
+        verbose: lagunaR92Verbose()
     )[0]
 }
 
@@ -8716,7 +8737,7 @@ func lagunaDenseGateUpSwiGLU(
         threadGroup: (512, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.denseIntermediateSize]],
         outputDTypes: [.bfloat16],
-        verbose: true
+        verbose: lagunaR92Verbose()
     )[0]
 }
 
@@ -8795,7 +8816,7 @@ func lagunaDenseDownResidual(
         threadGroup: (128, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
         outputDTypes: [.bfloat16],
-        verbose: true
+        verbose: lagunaR92Verbose()
     )[0]
 }
 
@@ -9492,7 +9513,7 @@ func lagunaInjectLayerWork(layer: Int, isSingleTokenDecode: Bool) {
                 threadGroup: (256, 1, 1),
                 outputShapes: [[256]],
                 outputDTypes: [.uint32],
-                verbose: true
+                verbose: lagunaR92Verbose()
             )[0])
     }
     for _ in 0..<matmuls {
@@ -9510,7 +9531,7 @@ func lagunaInjectLayerWork(layer: Int, isSingleTokenDecode: Bool) {
                 threadGroup: (256, 1, 1),
                 outputShapes: [[256]],
                 outputDTypes: [.uint32],
-                verbose: true
+                verbose: lagunaR92Verbose()
             )[0]
             if !lagunaInjectEmptyChain { pending.append(tail) }
         }
