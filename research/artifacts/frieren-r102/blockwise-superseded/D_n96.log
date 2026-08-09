@@ -1,0 +1,40 @@
+=== device ===
+name                  Apple M4 Pro
+architecture          applegpu_g16s
+gpu cores             20
+kernel                laguna_sliding_fused_attn_ring_v1
+attn rows N           96  (ring iters M = 0)
+stride kvheads        32
+mode                  NULL CONTROL (base vs itself)
+
+=== pipeline properties (register/occupancy gate) ===
+  arm            srcLines   tgMemB   maxTotalThreads   execWidth   source
+  BASE       356    18432              1024          32   Sources/MLXFastModel/LagunaRuntimeModel.swift
+  NULL(BASE)       356    18432              1024          32   Sources/MLXFastModel/LagunaRuntimeModel.swift
+
+=== memory regime (P1.1) ===
+  defeat slots          256
+  cache copies          64
+  k_cache buffer        1073741824 B
+  dram_peak_GB_s        266.3  (measured, rule 55)
+  slc_estimate_B        25165824  (M4-Pro-class, label only)
+     K  TG/core   kvheads   slots   uniq_MiB   req_MiB/round   amplif   base_us   achieved_GB_s   pct_peak   slc_fit   regime
+    20     1.00         5     256      60.03          519.53      8.7      2.99            91.0       34.2   no   UNSATURATED
+    32     1.60         8     256      96.04          830.08      8.6      3.82           113.9       42.8   no   PARTIAL
+    40     2.00        10     256     120.05         1037.11      8.6      3.94           137.8       51.8   no   PARTIAL
+
+=== absolute cost ladder, best of 21 rounds of 2000 dispatches (E1) ===
+phi(K) = t(2K)/t(K).  A threadgroup-doubling change pays only if phi < 2.
+t/K is the per-threadgroup cost: flat means work-limited, falling means
+the added threadgroups are absorbed by idle cores.
+     K  TG/core   base_us     t/K_us   phi(K)=t(2K)/t(K)
+    20     1.00      2.99     0.1493   1.3154
+    32     1.60      3.82     0.1195   -
+    40     2.00      3.93     0.0982   -
+
+=== paired per-call cost, 21 alternating rounds of 2000 dispatches ===
+delta = second arm - base within a round, so drift cancels. neg = faster.
+     K  TG/core   base_min   cand_min    d_mean    d_sd   spread   t_paired        %
+    20     1.00       2.98       2.98    -0.001   0.010     0.04      -0.66    -0.050
+    32     1.60       3.82       3.83    +0.002   0.007     0.03      +1.36    +0.058
+    40     2.00       3.92       3.93    +0.003   0.007     0.04      +1.70    +0.069

@@ -1,0 +1,46 @@
+=== device ===
+name                  Apple M4 Pro
+architecture          applegpu_g16s
+gpu cores             20
+kernel                laguna_sliding_fused_attn_ring_v1
+attn rows N           128  (ring iters M = 1)
+stride kvheads        auto
+mode                  NULL CONTROL (base vs itself)
+
+=== pipeline properties (register/occupancy gate) ===
+  arm            srcLines   tgMemB   maxTotalThreads   execWidth   source
+  BASE       356    18432              1024          32   Sources/MLXFastModel/LagunaRuntimeModel.swift
+  NULL(BASE)       356    18432              1024          32   Sources/MLXFastModel/LagunaRuntimeModel.swift
+
+=== memory regime (P1.1) ===
+  defeat slots          1  (r98 resident binding)
+  cache copies          1
+  k_cache buffer        16777216 B
+  dram_peak_GB_s        266.3  (measured, rule 55)
+  slc_estimate_B        25165824  (M4-Pro-class, label only)
+     K  TG/core   kvheads   slots   uniq_MiB   req_MiB/round   amplif   base_us   achieved_GB_s   pct_peak   slc_fit   regime
+    20     1.00         5       1       0.34          675.78   2000.0      4.27            83.0       31.2   yes   UNSATURATED
+    32     1.60         8       1       0.54         1080.08   2000.0      6.36            89.0       33.4   yes   UNSATURATED
+    40     2.00        10       1       0.67         1349.61   2000.0      6.63           106.8       40.1   yes   PARTIAL
+    64     3.20        16       1       1.08         2158.20   2000.0     12.46            90.8       34.1   yes   UNSATURATED
+   128     6.40        32       1       2.16         4314.45   2000.0     21.66           104.4       39.2   yes   UNSATURATED
+
+=== absolute cost ladder, best of 21 rounds of 2000 dispatches (E1) ===
+phi(K) = t(2K)/t(K).  A threadgroup-doubling change pays only if phi < 2.
+t/K is the per-threadgroup cost: flat means work-limited, falling means
+the added threadgroups are absorbed by idle cores.
+     K  TG/core   base_us     t/K_us   phi(K)=t(2K)/t(K)
+    20     1.00      4.26     0.2129   1.5467
+    32     1.60      6.36     0.1988   1.9590
+    40     2.00      6.59     0.1647   -
+    64     3.20     12.46     0.1947   1.7286
+   128     6.40     21.55     0.1683   -
+
+=== paired per-call cost, 21 alternating rounds of 2000 dispatches ===
+delta = second arm - base within a round, so drift cancels. neg = faster.
+     K  TG/core   base_min   cand_min    d_mean    d_sd   spread   t_paired        %
+    20     1.00       4.26       4.25    +0.001   0.005     0.02      +0.64    +0.017
+    32     1.60       6.35       6.36    +0.000   0.006     0.03      +0.06    +0.001
+    40     2.00       6.59       6.58    +0.002   0.005     0.02      +2.04    +0.034
+    64     3.20      12.40      12.46    +0.027   0.075     0.30      +1.64    +0.216
+   128     6.40      20.99      21.67    +0.084   0.202     0.74      +1.91    +0.401
