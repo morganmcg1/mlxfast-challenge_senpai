@@ -22,7 +22,7 @@ SEED="${SEED:-93}"
 OUT="${OUT:-research/r97-runs/stage1}"
 # This host idles right on the 40 C gate threshold, so a run started
 # immediately after the previous one stalls the gate instead of passing it.
-PRECOOL_SECONDS="${PRECOOL_SECONDS:-240}"
+PRECOOL_SECONDS="${PRECOOL_SECONDS:-120}"
 MAX_CONSECUTIVE_FAILURES="${MAX_CONSECUTIVE_FAILURES:-2}"
 mkdir -p "${OUT}"
 
