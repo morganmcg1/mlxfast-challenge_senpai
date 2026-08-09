@@ -105,13 +105,13 @@ func lagunaTrace(_ site: @autoclosure () -> String) {
 // is bit-exact against the separate dispatches it replaces. The per-head
 // g_proj (N=64) uses a different split-K gemv variant and is never fused.
 
-/// `DARKBLOOM_FUSED_QKV` (default on; set "0" to disable): after checkpoint
+/// `DARKBLOOM_FUSED_QKV` (default OFF; set "1" to enable): after checkpoint
 /// load, retain one row-concatenated `[Wq; Wk; Wv]` BF16 weight per attention
-/// layer and serve Q/K/V from a single projection dispatch at `L > 1`. The
-/// decode INT8 fused norm+QKV path is selected by shape (`L == 1`) and is
-/// unaffected.
+/// layer and serve Q/K/V from a single projection dispatch. Ablation on the
+/// paired local benchmark showed a mild prefill cost with no decode gain, so
+/// this ships opt-in.
 let lagunaFusedQKVEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_QKV"] != "0"
+    ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_QKV"] == "1"
 
 /// `DARKBLOOM_FUSED_SHARED_GATE_UP` (default on; set "0" to disable): after
 /// checkpoint load, retain one row-concatenated NVFP4 `[gate; up]` bank per
@@ -2523,10 +2523,10 @@ func lagunaWarmFullFusedAttentionKernel() {
 ///    re-derivation. The decode twin (`laguna_sliding_qk_norm_rope_bf16_128_v1`)
 ///    consumes the same table with the same expression.
 private let lagunaPrefillSlidingQKNormRoPEKernel = MLXFast.metalKernel(
-    name: "laguna_prefill_sliding_qk_norm_rope_bf16_128_v3",
+    name: "laguna_prefill_sliding_qk_norm_rope_bf16_128_v2",
     inputNames: [
         "raw_queries", "raw_keys", "query_weight", "key_weight", "angles",
-        "offsets", "layout",
+        "offsets",
     ],
     outputNames: ["queries", "keys"],
     source: """
@@ -2545,12 +2545,12 @@ const device bfloat* input;
 const device bfloat* weight;
 device bfloat* output;
 if (head < query_heads) {
-    input = raw_queries + t * uint(layout[0]) + uint(layout[1]) + head * head_dim;
+    input = raw_queries + (t * query_heads + head) * head_dim;
     weight = query_weight;
     output = queries + (head * length + t) * head_dim;
 } else {
     uint khead = head - query_heads;
-    input = raw_keys + t * uint(layout[2]) + uint(layout[3]) + khead * head_dim;
+    input = raw_keys + (t * kv_heads + khead) * head_dim;
     weight = key_weight;
     output = keys + (khead * length + t) * head_dim;
 }
@@ -2608,10 +2608,10 @@ if (lane < 16) {
 /// (`lagunaSlidingQKNormRoPEKernel`, one SIMD/head, the project's largest
 /// single win); the prefill `*4` was an unaudited divergence from it.
 private let lagunaPrefillSlidingQKNormRoPEH1Kernel = MLXFast.metalKernel(
-    name: "laguna_prefill_sliding_qk_norm_rope_bf16_128_h1_v3",
+    name: "laguna_prefill_sliding_qk_norm_rope_bf16_128_h1_v2",
     inputNames: [
         "raw_queries", "raw_keys", "query_weight", "key_weight", "angles",
-        "offsets", "layout",
+        "offsets",
     ],
     outputNames: ["queries", "keys"],
     source: """
@@ -2629,12 +2629,12 @@ const device bfloat* input;
 const device bfloat* weight;
 device bfloat* output;
 if (head < query_heads) {
-    input = raw_queries + t * uint(layout[0]) + uint(layout[1]) + head * head_dim;
+    input = raw_queries + (t * query_heads + head) * head_dim;
     weight = query_weight;
     output = queries + (head * length + t) * head_dim;
 } else {
     uint khead = head - query_heads;
-    input = raw_keys + t * uint(layout[2]) + uint(layout[3]) + khead * head_dim;
+    input = raw_keys + (t * kv_heads + khead) * head_dim;
     weight = key_weight;
     output = keys + (khead * length + t) * head_dim;
 }
@@ -2697,10 +2697,10 @@ if (lane < 16) {
 /// and the tail elements 64…127 written verbatim, matching the values the
 /// stock pre-RoPE copy leaves behind.
 private let lagunaPrefillFullQKNormYaRNKernel = MLXFast.metalKernel(
-    name: "laguna_prefill_full_qk_norm_yarn_bf16_128_v3",
+    name: "laguna_prefill_full_qk_norm_yarn_bf16_128_v2",
     inputNames: [
         "raw_queries", "raw_keys", "query_weight", "key_weight", "angles",
-        "offsets", "layout",
+        "offsets",
     ],
     outputNames: ["queries", "keys"],
     source: """
@@ -2720,12 +2720,12 @@ const device bfloat* input;
 const device bfloat* weight;
 device bfloat* output;
 if (head < query_heads) {
-    input = raw_queries + t * uint(layout[0]) + uint(layout[1]) + head * head_dim;
+    input = raw_queries + (t * query_heads + head) * head_dim;
     weight = query_weight;
     output = queries + (head * length + t) * head_dim;
 } else {
     uint khead = head - query_heads;
-    input = raw_keys + t * uint(layout[2]) + uint(layout[3]) + khead * head_dim;
+    input = raw_keys + (t * kv_heads + khead) * head_dim;
     weight = key_weight;
     output = keys + (khead * length + t) * head_dim;
 }
@@ -2788,10 +2788,10 @@ if (lane < 8) {
 /// per threadgroup instead of four changes only launch count/occupancy, not any
 /// head's output value. Matches the proven decode shape.
 private let lagunaPrefillFullQKNormYaRNH1Kernel = MLXFast.metalKernel(
-    name: "laguna_prefill_full_qk_norm_yarn_bf16_128_h1_v3",
+    name: "laguna_prefill_full_qk_norm_yarn_bf16_128_h1_v2",
     inputNames: [
         "raw_queries", "raw_keys", "query_weight", "key_weight", "angles",
-        "offsets", "layout",
+        "offsets",
     ],
     outputNames: ["queries", "keys"],
     source: """
@@ -2810,12 +2810,12 @@ const device bfloat* input;
 const device bfloat* weight;
 device bfloat* output;
 if (head < query_heads) {
-    input = raw_queries + t * uint(layout[0]) + uint(layout[1]) + head * head_dim;
+    input = raw_queries + (t * query_heads + head) * head_dim;
     weight = query_weight;
     output = queries + (head * length + t) * head_dim;
 } else {
     uint khead = head - query_heads;
-    input = raw_keys + t * uint(layout[2]) + uint(layout[3]) + khead * head_dim;
+    input = raw_keys + (t * kv_heads + khead) * head_dim;
     weight = key_weight;
     output = keys + (khead * length + t) * head_dim;
 }
@@ -2878,7 +2878,6 @@ private func lagunaPrefillSlidingQKNormRoPE(
     keyWeight: MLXArray,
     angles: MLXArray,
     offsets: MLXArray,
-    layout: MLXArray,
     length: Int
 ) -> (MLXArray, MLXArray) {
     let heads = LagunaConstants.slidingAttentionHeads
@@ -2887,9 +2886,8 @@ private func lagunaPrefillSlidingQKNormRoPE(
     precondition(rawKeys.dtype == .bfloat16)
     precondition(queryWeight.dtype == .bfloat16)
     precondition(keyWeight.dtype == .bfloat16)
-    lagunaPrecheckQKLayout(
-        rawQueries: rawQueries, rawKeys: rawKeys, layout: layout,
-        length: length, heads: heads, kvHeads: kvHeads)
+    precondition(rawQueries.dims(1, length, heads * LagunaConstants.headDim))
+    precondition(rawKeys.dims(1, length, kvHeads * LagunaConstants.headDim))
     precondition(queryWeight.dims(LagunaConstants.headDim))
     precondition(keyWeight.dims(LagunaConstants.headDim))
     precondition(angles.dtype == .float32)
@@ -2906,7 +2904,7 @@ private func lagunaPrefillSlidingQKNormRoPE(
         ? lagunaPrefillSlidingQKNormRoPEH1Kernel
         : lagunaPrefillSlidingQKNormRoPEKernel
     let outputs = kernel(
-        [rawQueries, rawKeys, queryWeight, keyWeight, angles, offsets, layout],
+        [rawQueries, rawKeys, queryWeight, keyWeight, angles, offsets],
         grid: ((heads + kvHeads) / headsPerGroup * threadGroupSize, length, 1),
         threadGroup: (threadGroupSize, 1, 1),
         outputShapes: [
@@ -2925,7 +2923,6 @@ private func lagunaPrefillFullQKNormYaRN(
     keyWeight: MLXArray,
     angles: MLXArray,
     offsets: MLXArray,
-    layout: MLXArray,
     length: Int
 ) -> (MLXArray, MLXArray) {
     let heads = LagunaConstants.fullAttentionHeads
@@ -2934,9 +2931,8 @@ private func lagunaPrefillFullQKNormYaRN(
     precondition(rawKeys.dtype == .bfloat16)
     precondition(queryWeight.dtype == .bfloat16)
     precondition(keyWeight.dtype == .bfloat16)
-    lagunaPrecheckQKLayout(
-        rawQueries: rawQueries, rawKeys: rawKeys, layout: layout,
-        length: length, heads: heads, kvHeads: kvHeads)
+    precondition(rawQueries.dims(1, length, heads * LagunaConstants.headDim))
+    precondition(rawKeys.dims(1, length, kvHeads * LagunaConstants.headDim))
     precondition(queryWeight.dims(LagunaConstants.headDim))
     precondition(keyWeight.dims(LagunaConstants.headDim))
     precondition(angles.dtype == .float32)
@@ -2953,7 +2949,7 @@ private func lagunaPrefillFullQKNormYaRN(
         ? lagunaPrefillFullQKNormYaRNH1Kernel
         : lagunaPrefillFullQKNormYaRNKernel
     let outputs = kernel(
-        [rawQueries, rawKeys, queryWeight, keyWeight, angles, offsets, layout],
+        [rawQueries, rawKeys, queryWeight, keyWeight, angles, offsets],
         grid: ((heads + kvHeads) / headsPerGroup * threadGroupSize, length, 1),
         threadGroup: (threadGroupSize, 1, 1),
         outputShapes: [
@@ -2963,46 +2959,6 @@ private func lagunaPrefillFullQKNormYaRN(
         outputDTypes: [.bfloat16, .bfloat16]
     )
     return (outputs[0], outputs[1])
-}
-
-/// `layout` is `[q_row_stride, q_column_offset, k_row_stride,
-/// k_column_offset]` in elements. It lets the prefill QK-norm+RoPE kernels
-/// address Q and K rows that live at a column offset inside a wider
-/// row-contiguous buffer, which is what the row-concatenated `[Wq; Wk; Wv]`
-/// bank produces. Passing the wide buffer instead of two last-axis slices is
-/// what keeps `ensureRowContiguous` from inserting a general strided copy per
-/// tensor per layer.
-private func lagunaPrecheckQKLayout(
-    rawQueries: MLXArray,
-    rawKeys: MLXArray,
-    layout: MLXArray,
-    length: Int,
-    heads: Int,
-    kvHeads: Int
-) {
-    // Shape-only: reading the layout values here would sync the GPU stream on
-    // every layer. Their consistency is asserted once in `lagunaQKLayout`.
-    precondition(layout.dtype == .int32 && layout.dims(4))
-    let headDim = LagunaConstants.headDim
-    precondition(rawQueries.ndim == 3 && rawQueries.dim(0) == 1)
-    precondition(rawKeys.ndim == 3 && rawKeys.dim(0) == 1)
-    precondition(rawQueries.dim(1) == length && rawKeys.dim(1) == length)
-    precondition(rawQueries.dim(2) >= heads * headDim)
-    precondition(rawKeys.dim(2) >= kvHeads * headDim)
-}
-
-/// Build the `[q_row_stride, q_column_offset, k_row_stride, k_column_offset]`
-/// descriptor once per attention module. `qWidth`/`kWidth` are the row widths
-/// of the buffers that will be handed to the kernel.
-private func lagunaQKLayout(
-    qWidth: Int, qOffset: Int, kWidth: Int, kOffset: Int,
-    heads: Int, kvHeads: Int
-) -> MLXArray {
-    let headDim = LagunaConstants.headDim
-    precondition(qOffset >= 0 && qOffset + heads * headDim <= qWidth)
-    precondition(kOffset >= 0 && kOffset + kvHeads * headDim <= kWidth)
-    return MLXArray(
-        [Int32(qWidth), Int32(qOffset), Int32(kWidth), Int32(kOffset)])
 }
 
 struct LagunaIndexedAffineMetadata {
@@ -5668,12 +5624,6 @@ final class LagunaRuntimeAttention: Module {
     /// arrays for parameter integrity.
     var _fusedQKVWeight: MLXArray?
 
-    /// Cached `[q_row_stride, q_column_offset, k_row_stride, k_column_offset]`
-    /// descriptors for the prefill QK-norm+RoPE kernels, one per buffer form.
-    /// Both are constant for the life of the module.
-    var _prefillQKLayoutBanked: MLXArray?
-    var _prefillQKLayoutPlain: MLXArray?
-
     /// Terminal-prefill-only BF16 side banks. Q and the per-head gate share
     /// the singleton final normalized row; K and V share every normalized
     /// supplied row. The authoritative modules remain intact for checkpoint
@@ -5847,33 +5797,6 @@ final class LagunaRuntimeAttention: Module {
         return fused
     }
 
-    /// Descriptor telling the prefill QK-norm+RoPE kernel where Q and K rows
-    /// start. With the bank, both live in one `[1, L, qDim + 2 * kvDim]` row;
-    /// without it they are two separate tightly packed buffers.
-    func prefillQKLayout(bank: MLXArray?) -> MLXArray {
-        let queryDim = nHeads * headDim
-        // Cached per bank-presence, not once: a layer that produced the bank in
-        // prefill can still reach the same kernel without it, and reusing the
-        // banked column offset against a narrow buffer would read out of range.
-        guard let bank else {
-            if let cached = _prefillQKLayoutPlain { return cached }
-            let layout = lagunaQKLayout(
-                qWidth: queryDim, qOffset: 0,
-                kWidth: nKVHeads * headDim, kOffset: 0,
-                heads: nHeads, kvHeads: nKVHeads)
-            _prefillQKLayoutPlain = layout
-            return layout
-        }
-        if let cached = _prefillQKLayoutBanked { return cached }
-        let width = bank.dim(2)
-        let layout = lagunaQKLayout(
-            qWidth: width, qOffset: 0,
-            kWidth: width, kOffset: queryDim,
-            heads: nHeads, kvHeads: nKVHeads)
-        _prefillQKLayoutBanked = layout
-        return layout
-    }
-
     /// Build the two terminal-prefill projection banks once after checkpoint
     /// load. Only the final sliding layer can dispatch them. Concatenating
     /// output rows is exact for bias-free `Linear`: each row retains the same
@@ -5971,7 +5894,7 @@ final class LagunaRuntimeAttention: Module {
                 queries: MLXArray, keys: MLXArray, values: MLXArray,
                 gateValues: MLXArray, gateActivated: Bool
             )?
-        if lagunaFusedQKVProjectionEnabled,
+        if lagunaFusedQKVProjectionEnabled, _fusedQKVWeight == nil,
             B == 1, L == 1,
             headDim == LagunaConstants.headDim,
             nKVHeads == LagunaConstants.numKeyValueHeads,
@@ -6139,15 +6062,10 @@ final class LagunaRuntimeAttention: Module {
         var queries: MLXArray
         var keys: MLXArray
         var values: MLXArray
-        // Non-nil only while the row-concatenated bank produced this layer's
-        // Q/K/V. Handing this wide row-contiguous buffer plus a column offset
-        // to the prefill QK-norm+RoPE kernel avoids the two general strided
-        // copies that `ensureRowContiguous` would otherwise insert for the
-        // sliced views.
-        var qkvBank: MLXArray?
-        // The retained BF16 [Wq; Wk; Wv] bank is PREFILL-ONLY: `L > 1` here is
-        // disjoint from the `L == 1` INT8 fused norm+QKV path above, so the
-        // bank collapses three steel GEMMs into one without displacing decode.
+        // The retained BF16 [Wq; Wk; Wv] bank is PREFILL-ONLY: at decode it
+        // would override the INT8 fused norm+QKV path (measured +1.4 ms/step
+        // when force-enabled), while at L > 1 it collapses three steel GEMMs
+        // into one.
         if let fusedQKVWeight = _fusedQKVWeight, L > 1 {
             guard let normalizedInput else {
                 preconditionFailure("retained fused QKV requires normalized input")
@@ -6164,7 +6082,6 @@ final class LagunaRuntimeAttention: Module {
             queries = qkv[.ellipsis, 0 ..< queryDim]
             keys = qkv[.ellipsis, queryDim ..< (queryDim + kvDim)]
             values = qkv[.ellipsis, (queryDim + kvDim) ..< (queryDim + 2 * kvDim)]
-            qkvBank = qkv
         } else if let fused = fusedNormQKV {
             queries = fused.queries
             keys = fused.keys
@@ -6307,13 +6224,12 @@ final class LagunaRuntimeAttention: Module {
             let angles = qkRoPEAngles, let offsets = qkRoPEOffsets
         {
             (queries, keys) = lagunaPrefillSlidingQKNormRoPE(
-                rawQueries: qkvBank ?? queries,
-                rawKeys: qkvBank ?? keys,
+                rawQueries: queries,
+                rawKeys: keys,
                 queryWeight: qNorm.weight,
                 keyWeight: kNorm.weight,
                 angles: angles,
                 offsets: offsets,
-                layout: prefillQKLayout(bank: qkvBank),
                 length: L
             )
             qkNormRoPEFused = true
@@ -6321,13 +6237,12 @@ final class LagunaRuntimeAttention: Module {
             let angles = qkRoPEAngles, let offsets = qkRoPEOffsets
         {
             (queries, keys) = lagunaPrefillFullQKNormYaRN(
-                rawQueries: qkvBank ?? queries,
-                rawKeys: qkvBank ?? keys,
+                rawQueries: queries,
+                rawKeys: keys,
                 queryWeight: qNorm.weight,
                 keyWeight: kNorm.weight,
                 angles: angles,
                 offsets: offsets,
-                layout: prefillQKLayout(bank: qkvBank),
                 length: L
             )
             qkNormRoPEFused = true
