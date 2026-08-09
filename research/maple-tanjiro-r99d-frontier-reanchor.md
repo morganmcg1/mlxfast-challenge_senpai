@@ -337,6 +337,22 @@ Per the stopping rule (Part 1 changed ⇒ proceed), the receipt is spent on the
 frontier, a soundness check on operator commit `4f3108c4`, and a free draw
 against the record. Result recorded in the reply below.
 
+Preconditions verified before dispatch: `git diff c6c66344 HEAD --
+Sources/ Vendor/ benchmark.json` empty (the §3.1 instrument is reverted by an
+explicit revert commit, kept in history for reproducibility), `c6c66344` is an
+ancestor of HEAD, `origin/main` (`1bc1c895`) and `c6c66344` agree on the whole
+protected path set, and the worktree is clean. The branch was rebased onto the
+advisor head `ad39bfc6` purely to obtain `senpai/submit-official.sh`; that
+range is harness-only and leaves `c6c66344` an ancestor.
+
+I deliberately did **not** run `./benchmark.sh --local-submit` first. The
+submitted surface is byte-identical to the promoted frontier already on
+`origin/main`, so a local M4 preflight can only re-measure code the organizer
+has already ranked, cannot inform the M5 verdict, and would consume roughly an
+hour of the host. `mlxfast submit` packages editable paths from the git
+worktree and does not consume a local-submit artifact, so nothing about the
+upload depended on it.
+
 ---
 
 ## Reply
