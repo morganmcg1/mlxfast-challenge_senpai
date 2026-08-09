@@ -11,6 +11,10 @@
 //      four-load peel above the four barriers of the RMS reduction tail; arm 5
 //      is the character-identical peel left below them. 1 - 5 is the overlap;
 //      1 - 0 confounds overlap with peeling.
+//   3. Phase durations. Arms 6 and 7 are numerically wrong by construction:
+//      6 keeps the reduction and drops the router GEMV, 7 keeps the GEMV and
+//      drops the cross-simdgroup reduction. Arm 6's level bounds the window a
+//      hoisted load can overlap into, which is the ceiling on mechanism B.
 //
 // The Metal text is NOT written here. `maple_r89_emit_router_sources.py` runs
 // the scored generator and drops `arm{N}.metal` + `header.metal` into a
@@ -27,11 +31,13 @@
 import Foundation
 import Metal
 
-let arms = [0, 1, 2, 3, 4, 5]
+let arms = [0, 1, 2, 3, 4, 5, 6, 7]
 let armLabel: [Int: String] = [
     0: "A0 depth0 (shipped)", 1: "A1 depth1 hoisted", 2: "A2 depth2 hoisted",
     3: "A5 depth3 hoisted", 4: "A3 depth4 hoisted (full)",
     5: "A4 depth1 control (below barriers)",
+    6: "P-norm  reduction phase only (no router GEMV)",
+    7: "P-gemv  router GEMV only (no cross-simd reduction)",
 ]
 
 let srcDir = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "/tmp/r89src"
@@ -238,6 +244,10 @@ let comparisons: [Comparison] = [
     Comparison(label: "A4 - A0", a: 5, b: 0),
     Comparison(label: "A1 - A4  (overlap)", a: 1, b: 5),
     Comparison(label: "A2 - A4  (overlap)", a: 2, b: 5),
+    // Phase split. A0 - P-norm is the router GEMV's marginal cost; P-norm is
+    // the window a prefetch issued above the barriers can overlap into.
+    Comparison(label: "P-norm - A0  (phase)", a: 6, b: 0),
+    Comparison(label: "P-gemv - A0  (phase)", a: 7, b: 0),
     Comparison(label: "null  A0 vs A0' (post)", a: 0, b: -1),
 ]
 

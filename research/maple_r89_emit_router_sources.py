@@ -17,6 +17,12 @@ import sys
 SCORED = "Sources/MLXFastModel/LagunaRuntimeModel.swift"
 ARMS = [0, 1, 2, 3, 4, 5]
 
+# Phase-split diagnostics. Not shippable and never numerically correct; they
+# exist only to put a duration on each half of arm 0 so the latency-overlap
+# ceiling can be quoted as a fraction of the reduction phase.
+NORM_ONLY_ARM = 6
+GEMV_ONLY_ARM = 7
+
 # (start-line prefix, end predicate) for every declaration the generator needs.
 REGIONS = [
     ("private let lagunaRouterPrecomputedKeysEnabled =",
@@ -49,6 +55,33 @@ def extract(lines, start_prefix, is_end):
         if not in_literal and is_end(line):
             break
     return "\n".join(out)
+
+
+def cut(text, start_anchor, end_anchor, replacement):
+    i = text.index(start_anchor)
+    j = text.index(end_anchor, i) + len(end_anchor)
+    return text[:i] + replacement + text[j:]
+
+
+def phase_variants(arm0):
+    """Split arm 0 into its reduction half and its router-GEMV half."""
+    # Keep every barrier, the residual add, the reduction and the normalize
+    # loop; drop only the 2048-column weight read and its FMAs. The shuffle
+    # ladder and epilogue stay so nothing downstream is dead-code eliminated.
+    norm_only = cut(
+        arm0,
+        "        uint column = simd_lane * n_reads;",
+        "            column += 4 * block_width;\n        }",
+        "        router_result[0] = float(normalized_row[simd_lane * n_reads]);",
+    )
+    # Drop the cross-simdgroup reduction and its three barriers; keep the GEMV.
+    gemv_only = cut(
+        arm0,
+        "acc = simd_sum(acc);",
+        "float laguna_inv_mean = local_inv_mean[0];",
+        "float laguna_inv_mean = 1.0f;",
+    )
+    return norm_only, gemv_only
 
 
 def main():
@@ -89,7 +122,14 @@ def main():
     subprocess.run(
         ["xcrun", "swiftc", "-O", driver, "-o", binary], check=True)
     subprocess.run([binary, outdir], check=True)
-    for arm in ARMS:
+    arm0 = open(os.path.join(outdir, "arm0.metal"), encoding="utf-8").read()
+    norm_only, gemv_only = phase_variants(arm0)
+    for arm, text in ((NORM_ONLY_ARM, norm_only), (GEMV_ONLY_ARM, gemv_only)):
+        with open(os.path.join(outdir, f"arm{arm}.metal"), "w",
+                  encoding="utf-8") as fh:
+            fh.write(text)
+
+    for arm in ARMS + [NORM_ONLY_ARM, GEMV_ONLY_ARM]:
         path = os.path.join(outdir, f"arm{arm}.metal")
         print(f"arm{arm}: {os.path.getsize(path)} bytes  {path}")
 
