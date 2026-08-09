@@ -188,6 +188,9 @@ let lagunaExpertAlignedGatherEnabled = {
 let lagunaPackedRoutedRHSAvailable =
     !lagunaNAXRuntimeAvailable || lagunaExpertAlignedGatherEnabled
 
+let lagunaPackedRoutedRHSEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_PACKED_ROUTED_RHS"] != "0"
+
 /// Decode post-attention residual + RMSNorm fusion. The kernel emits
 /// both the rounded BF16 residual (needed by the following skip connection)
 /// and the normalized row (consumed immediately by the MLP), eliminating a
@@ -9219,7 +9222,8 @@ private func lagunaFusedSortedRoutedGateUp(
 ) -> (output: MLXArray, inverseOrder: MLXArray?) {
     let expandedX = MLX.expandedDimensions(x, axes: [-2, -3])
     let doSort = indices.size >= 64
-    let usePackedRHS = indices.size >= 4 * LagunaConstants.numExperts
+    let usePackedRHS = lagunaPackedRoutedRHSEnabled
+        && indices.size >= 4 * LagunaConstants.numExperts
     var gateUpX = expandedX
     var idx = indices
     var gateUpIndices = indices
