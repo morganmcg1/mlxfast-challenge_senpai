@@ -1,3 +1,4 @@
+import Dispatch
 import Foundation
 import MLX
 @testable import MLXFastModel
@@ -72,61 +73,134 @@ struct LagunaDecodeRouterTop8PrunedTests {
 
     @Test
     func prunedKernelMatchesAcceptedKernelWhenRuntimeTestsAreEnabled() {
-        guard ProcessInfo.processInfo.environment["MLXFAST_RUN_MLX_RUNTIME_TESTS"] == "1"
-        else { return }
+        guard runtimeRouterTestsEnabled else { return }
 
         var checkedCorruptionControls = false
         for testCase in routerCases() {
-            for dtype in [DType.float32, .bfloat16] {
-                let baseLogits = MLXArray(testCase.logits, [1, 1, 256])
-                let logits = dtype == .bfloat16 ? baseLogits.asType(.bfloat16) : baseLogits
-                let bias = MLXArray(testCase.bias, [256])
+            checkCompiledRouterCase(
+                testCase,
+                includeRecomputedScores: true,
+                checkedCorruptionControls: &checkedCorruptionControls
+            )
+        }
+        #expect(checkedCorruptionControls)
+    }
 
-                for normalizing in [false, true] {
-                    let accepted = lagunaDecodeRouterTop8AcceptedForTesting(
-                        logits: logits,
-                        correctionBias: bias,
-                        normalizing: normalizing
-                    )
-                    let candidate = lagunaDecodeRouterTop8OrdinalScoreTableForTesting(
-                        logits: logits,
-                        correctionBias: bias,
-                        normalizing: normalizing
-                    )
-                    eval(accepted.0, accepted.1, candidate.0, candidate.1)
+    @Test
+    func prunedKernelCoversEveryExpertAtEveryRankWhenRuntimeTestsAreEnabled() {
+        guard runtimeRouterTestsEnabled else { return }
 
-                    let acceptedResult = capture(indices: accepted.0, scores: accepted.1)
-                    let candidateResult = capture(indices: candidate.0, scores: candidate.1)
-                    let label = "\(testCase.name), \(dtype), normalizing=\(normalizing)"
-                    #expect(
-                        resultsMatch(acceptedResult, candidateResult),
-                        Comment(rawValue: label)
-                    )
-
-                    if !checkedCorruptionControls {
-                        var droppedWinner = candidateResult
-                        droppedWinner.indices[0] = droppedWinner.indices[1]
-                        #expect(!resultsMatch(acceptedResult, droppedWinner))
-
-                        var swappedRanks = candidateResult
-                        swappedRanks.indices.swapAt(0, 1)
-                        swappedRanks.scoreBits.swapAt(0, 1)
-                        #expect(!resultsMatch(acceptedResult, swappedRanks))
-
-                        var corruptedIndex = candidateResult
-                        corruptedIndex.indices[0] ^= 1
-                        #expect(!resultsMatch(acceptedResult, corruptedIndex))
-
-                        var corruptedScore = candidateResult
-                        corruptedScore.scoreBits[0] ^= 1
-                        #expect(!resultsMatch(acceptedResult, corruptedScore))
-                        checkedCorruptionControls = true
-                    }
-                }
+        var coverage = Array(repeating: Array(repeating: 0, count: 256), count: 8)
+        var ignoredCorruptionControls = true
+        for shift in 0..<256 {
+            var logits = Array(repeating: Float(-8), count: 256)
+            for rank in 0..<8 {
+                let expert = (shift + rank * 33) % 256
+                logits[expert] = 8.0 - Float(rank) * 0.75
+                coverage[rank][expert] += 1
             }
+            checkCompiledRouterCase(
+                RouterCase(
+                    name: "cyclic-shift-\(shift)",
+                    logits: logits,
+                    bias: Array(repeating: 0, count: 256)
+                ),
+                includeRecomputedScores: false,
+                checkedCorruptionControls: &ignoredCorruptionControls
+            )
+        }
+        #expect(coverage.allSatisfy { $0.allSatisfy { $0 == 1 } })
+    }
+
+    @Test
+    func prunedKernelMatchesAcceptedKernelOnRandomizedRowsWhenRuntimeTestsAreEnabled() {
+        guard runtimeRouterTestsEnabled else { return }
+
+        var ignoredCorruptionControls = true
+        for testCase in randomizedRouterCases(count: 256) {
+            checkCompiledRouterCase(
+                testCase,
+                includeRecomputedScores: false,
+                checkedCorruptionControls: &ignoredCorruptionControls
+            )
+        }
+    }
+
+    @Test
+    func isolatedNormalizingScoreTableBenchmarkWhenEnabled() {
+        guard ProcessInfo.processInfo.environment["MLXFAST_RUN_ROUTER_BENCHMARK"] == "1"
+        else { return }
+
+        let testCase = routerCases()[0]
+        let logits = MLXArray(testCase.logits, [1, 1, 256]).asType(.bfloat16)
+        let bias = MLXArray(testCase.bias, [256])
+        eval(logits, bias)
+
+        let accepted = {
+            lagunaDecodeRouterTop8AcceptedForTesting(
+                logits: logits, correctionBias: bias, normalizing: true)
+        }
+        let candidate = {
+            lagunaDecodeRouterTop8OrdinalScoreTableForTesting(
+                logits: logits, correctionBias: bias, normalizing: true)
         }
 
-        #expect(checkedCorruptionControls)
+        for _ in 0..<8 {
+            _ = measureRouterBatch(accepted)
+            _ = measureRouterBatch(candidate)
+            _ = measureRouterBatch(candidate)
+            _ = measureRouterBatch(accepted)
+            _ = measureRouterBatch(candidate)
+            _ = measureRouterBatch(accepted)
+            _ = measureRouterBatch(accepted)
+            _ = measureRouterBatch(candidate)
+        }
+
+        var abbaSpeedups: [Double] = []
+        var baabSpeedups: [Double] = []
+        var acceptedNanoseconds: [Double] = []
+        var candidateNanoseconds: [Double] = []
+        abbaSpeedups.reserveCapacity(61)
+        baabSpeedups.reserveCapacity(61)
+        for _ in 0..<61 {
+            let abba = [
+                measureRouterBatch(accepted),
+                measureRouterBatch(candidate),
+                measureRouterBatch(candidate),
+                measureRouterBatch(accepted),
+            ]
+            acceptedNanoseconds.append(contentsOf: [abba[0], abba[3]])
+            candidateNanoseconds.append(contentsOf: [abba[1], abba[2]])
+            abbaSpeedups.append(sqrt((abba[0] * abba[3]) / (abba[1] * abba[2])))
+
+            let baab = [
+                measureRouterBatch(candidate),
+                measureRouterBatch(accepted),
+                measureRouterBatch(accepted),
+                measureRouterBatch(candidate),
+            ]
+            acceptedNanoseconds.append(contentsOf: [baab[1], baab[2]])
+            candidateNanoseconds.append(contentsOf: [baab[0], baab[3]])
+            baabSpeedups.append(sqrt((baab[1] * baab[2]) / (baab[0] * baab[3])))
+        }
+
+        let abbaMedian = median(abbaSpeedups)
+        let baabMedian = median(baabSpeedups)
+        let abbaLogMAD = medianAbsoluteDeviation(abbaSpeedups.map(log))
+        let baabLogMAD = medianAbsoluteDeviation(baabSpeedups.map(log))
+        print(
+            String(
+                format:
+                    "ROUTER_TOP8_ISOLATED dispatches_per_batch=39 superblocks_per_order=61 accepted_ns_per_dispatch=%.3f candidate_ns_per_dispatch=%.3f abba_speedup=%.6f abba_log_mad=%.6f baab_speedup=%.6f baab_log_mad=%.6f",
+                median(acceptedNanoseconds), median(candidateNanoseconds), abbaMedian,
+                abbaLogMAD, baabMedian, baabLogMAD
+            )
+        )
+
+        #expect(abbaMedian >= 1.005)
+        #expect(baabMedian >= 1.005)
+        #expect(log(abbaMedian) > 2 * abbaLogMAD)
+        #expect(log(baabMedian) > 2 * baabLogMAD)
     }
 }
 
@@ -144,6 +218,113 @@ private struct RouterCase {
 private struct RouterResult {
     var indices: [UInt32]
     var scoreBits: [UInt32]
+}
+
+private typealias RouterKernel = () -> (MLXArray, MLXArray)
+
+private var runtimeRouterTestsEnabled: Bool {
+    ProcessInfo.processInfo.environment["MLXFAST_RUN_MLX_RUNTIME_TESTS"] == "1"
+}
+
+private func checkCompiledRouterCase(
+    _ testCase: RouterCase,
+    includeRecomputedScores: Bool,
+    checkedCorruptionControls: inout Bool
+) {
+    for dtype in [DType.float32, .bfloat16] {
+        let baseLogits = MLXArray(testCase.logits, [1, 1, 256])
+        let logits = dtype == .bfloat16 ? baseLogits.asType(.bfloat16) : baseLogits
+        let bias = MLXArray(testCase.bias, [256])
+
+        for normalizing in [false, true] {
+            let accepted = lagunaDecodeRouterTop8AcceptedForTesting(
+                logits: logits,
+                correctionBias: bias,
+                normalizing: normalizing
+            )
+            let scoreTable = lagunaDecodeRouterTop8OrdinalScoreTableForTesting(
+                logits: logits,
+                correctionBias: bias,
+                normalizing: normalizing
+            )
+            let recomputed = includeRecomputedScores
+                ? lagunaDecodeRouterTop8OrdinalForTesting(
+                    logits: logits,
+                    correctionBias: bias,
+                    normalizing: normalizing
+                ) : nil
+            var outputs = [accepted.0, accepted.1, scoreTable.0, scoreTable.1]
+            if let recomputed {
+                outputs.append(contentsOf: [recomputed.0, recomputed.1])
+            }
+            eval(outputs)
+
+            let acceptedResult = capture(indices: accepted.0, scores: accepted.1)
+            let scoreTableResult = capture(indices: scoreTable.0, scores: scoreTable.1)
+            let label = "\(testCase.name), \(dtype), normalizing=\(normalizing)"
+            #expect(
+                resultsMatch(acceptedResult, scoreTableResult),
+                Comment(rawValue: "score-table: \(label)")
+            )
+            if let recomputed {
+                let recomputedResult = capture(indices: recomputed.0, scores: recomputed.1)
+                #expect(
+                    resultsMatch(acceptedResult, recomputedResult),
+                    Comment(rawValue: "recomputed: \(label)")
+                )
+            }
+
+            if !checkedCorruptionControls {
+                var droppedWinner = scoreTableResult
+                droppedWinner.indices[0] = droppedWinner.indices[1]
+                #expect(!resultsMatch(acceptedResult, droppedWinner))
+
+                var swappedRanks = scoreTableResult
+                swappedRanks.indices.swapAt(0, 1)
+                swappedRanks.scoreBits.swapAt(0, 1)
+                #expect(!resultsMatch(acceptedResult, swappedRanks))
+
+                var corruptedIndex = scoreTableResult
+                corruptedIndex.indices[0] ^= 1
+                #expect(!resultsMatch(acceptedResult, corruptedIndex))
+
+                var corruptedScore = scoreTableResult
+                corruptedScore.scoreBits[0] ^= 1
+                #expect(!resultsMatch(acceptedResult, corruptedScore))
+                checkedCorruptionControls = true
+            }
+        }
+    }
+}
+
+private func measureRouterBatch(_ invoke: RouterKernel) -> Double {
+    var outputs: [MLXArray] = []
+    outputs.reserveCapacity(78)
+    for _ in 0..<39 {
+        let result = invoke()
+        outputs.append(result.0)
+        outputs.append(result.1)
+    }
+
+    let start = DispatchTime.now().uptimeNanoseconds
+    eval(outputs)
+    let elapsed = DispatchTime.now().uptimeNanoseconds - start
+    return Double(elapsed) / 39.0
+}
+
+private func median(_ values: [Double]) -> Double {
+    precondition(!values.isEmpty)
+    let sorted = values.sorted()
+    let middle = sorted.count / 2
+    if sorted.count.isMultiple(of: 2) {
+        return (sorted[middle - 1] + sorted[middle]) / 2
+    }
+    return sorted[middle]
+}
+
+private func medianAbsoluteDeviation(_ values: [Double]) -> Double {
+    let center = median(values)
+    return median(values.map { abs($0 - center) })
 }
 
 private func sortEightBits(_ values: inout [Int]) {
@@ -262,6 +443,37 @@ private func routerCases() -> [RouterCase] {
     )
 
     return [pseudorandom, tied, distributed, special]
+}
+
+private struct SplitMix64 {
+    var state: UInt64
+
+    mutating func next() -> UInt64 {
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var value = state
+        value = (value ^ (value >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        value = (value ^ (value >> 27)) &* 0x94D0_49BB_1331_11EB
+        return value ^ (value >> 31)
+    }
+}
+
+private func randomizedRouterCases(count: Int) -> [RouterCase] {
+    var random = SplitMix64(state: 0xA11C_E5E5_CAFE_BEEF)
+    return (0..<count).map { caseIndex in
+        var logits: [Float] = []
+        var bias: [Float] = []
+        logits.reserveCapacity(256)
+        bias.reserveCapacity(256)
+        for _ in 0..<256 {
+            if caseIndex.isMultiple(of: 4) {
+                logits.append(Float(Int(random.next() % 33) - 16) / 4.0)
+            } else {
+                logits.append(Float(Int(random.next() % 4097) - 2048) / 128.0)
+            }
+            bias.append(Float(Int(random.next() % 1025) - 512) / 256.0)
+        }
+        return RouterCase(name: "random-\(caseIndex)", logits: logits, bias: bias)
+    }
 }
 
 private func capture(indices: MLXArray, scores: MLXArray) -> RouterResult {
