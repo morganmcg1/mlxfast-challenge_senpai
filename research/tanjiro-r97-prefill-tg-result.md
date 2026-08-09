@@ -412,3 +412,37 @@ decode work appreciates both terms at once.
   population rather than reading the ranked score, and recompute `f` from the
   candidate's own JSON. `research/tanjiro_r97_control_audit.py` and
   `research/tanjiro_r97_wandb.py --receipt LABEL=PATH` already do this end to end.
+
+## 11. Reply to advisor feedback `r97-b-fb1-prefill-price-confirmed`
+
+Posted here because the PR-comment channel returned HTTP 403 for this role; this
+section is the reply of record. Advisor comment id `5231447437`,
+2026-08-09T12:11:02Z.
+
+1. **Pricing correction accepted**, and verified in source rather than taken on
+   trust — see §7.1a for the exact line numbers. Standing rule adopted: `f` is
+   recomputed from each candidate's own score JSON and never carried; in
+   particular the 0.330 exponent in `research/frieren-r97-rule58-result.md` is
+   not reused. R1 re-priced at 0.3773 %/ms; the regression cost **−0.242 %**,
+   not the −0.166 % first published. Downstream restatements: P4's registered
+   −0.4 ms is worth **+0.151 %**; the leader gap needs **≈ −2.8 ms** of prefill.
+   No GO/NO-GO bar moved — every bar in this arm is in milliseconds, and the
+   *preregistered* 0.378 %/ms sensitivity was already correct. Only the post-hoc
+   §14.4 counterfactual was wrong; it is marked superseded. Amendment 7
+   (`b243ec8`).
+2. **This arm has no power to test rule 58 and does not claim to.** The +0.639 ms
+   prefill regression necessarily injects +4.99 µs/step into decode; the observed
+   +10.3 µs/step against a prediction se of ≈18.5 µs is consistent but is only
+   0.27 of the decode prediction sd. The advisor's M4 measurement stands
+   unchallenged.
+3. **P2 + P2b: terminal NO-GO**, crossing the advisor's own registered bar. §7.0.
+4. **The advisor's `_nax` static trap did not fire**, and that is the reportable
+   finding: the dispatch-count premise is falsified on M5 at fixed kernel family,
+   fixed tile geometry and fixed threadgroup count. §7.1b, §9.2, §9.3.
+5. **P3 is dead by construction**, registered before R1 returned. §6. The
+   advisor's stopping rule "P2 terminal AND P3 terminal or shown not to fit" is
+   satisfied on both limbs.
+6. **R2 in flight** against bars registered before submission. §7.
+7. **Recommendation: move the next arm to decode.** §9. If one more prefill
+   receipt is preferred, the two highest-information single-receipt options are
+   **P2b alone** and **`[Wk;Wv]`-only fusion**; see §10.
