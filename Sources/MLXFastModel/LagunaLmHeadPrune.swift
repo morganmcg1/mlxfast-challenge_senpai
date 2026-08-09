@@ -874,6 +874,32 @@ final class LagunaLmHeadPruner {
         // bump when mantissa >= 0.9375 * 2^23 (i.e. m >= 15.5/8).
         let bump = (mant .>= MLXArray(UInt32(0x78_0000))).asType(.int32)
         let sdByte = clip(biasedE - 3 + bump, min: 0, max: 255)
+        let scaleBytes = sdByte.asType(.uint8).asArray(UInt8.self)
+        var histogram = [Int](repeating: 0, count: 256)
+        var maxSpan = 0
+        var rowsAboveNibble = 0
+        let groups = hidden / 32
+        for row in 0..<vocab {
+            let start = row * groups
+            var rowMin = UInt8.max
+            var rowMax = UInt8.min
+            for group in 0..<groups {
+                let value = scaleBytes[start + group]
+                if value < rowMin { rowMin = value }
+                if value > rowMax { rowMax = value }
+            }
+            let span = Int(rowMax) - Int(rowMin)
+            histogram[span] += 1
+            if span > maxSpan { maxSpan = span }
+            if span > 15 { rowsAboveNibble += 1 }
+        }
+        let nonzeroHistogram = histogram.enumerated().compactMap { span, count in
+            count == 0 ? nil : "\(span):\(count)"
+        }.joined(separator: ",")
+        FileHandle.standardError.write(
+            Data(
+                "mlxfast: lm_head e8m0 census rows=\(vocab) bytes=\(scaleBytes.count) max_span=\(maxSpan) over15=\(rowsAboveNibble) histogram=\(nonzeroHistogram)\n"
+                    .utf8))
         let sd = which(
             sdByte .== 0,
             MLXArray(Float(bitPattern: 0x0040_0000)),  // 2^-127, e8m0 semantics
