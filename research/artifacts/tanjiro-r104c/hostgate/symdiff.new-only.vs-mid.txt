@@ -1,0 +1,194 @@
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+4 * block_width;
+4 * block_width;
+< active_simd_groups) {
+= column + u * block_width;
+= column + u * block_width;
+= simd_lane * n_reads;
+= tile * rows_per_group + simd_group * rows_per_thread;
+_$s12MLXFastModel26lagunaRouterWeightPrefetchSivp
+_$s12MLXFastModel26lagunaRouterWeightPrefetchSivp
+_$s12MLXFastModel26lagunaRouterWeightPrefetchSivpfiSiyXEfU_
+_$s12MLXFastModel26lagunaRouterWeightPrefetchSivpfiSiyXEfU_
+_$s12MLXFastModel26lagunaRouterWeightPrefetchSivpfiSiyXEfU_Tv_
+_$s12MLXFastModel26lagunaRouterWeightPrefetchSivpfiSiyXEfU_Tv_
+_$s12MLXFastModel26lagunaRouterWeightPrefetch_WZ
+_$s12MLXFastModel26lagunaRouterWeightPrefetch_WZ
+_$s12MLXFastModel26lagunaRouterWeightPrefetch_Wz
+_$s12MLXFastModel26lagunaRouterWeightPrefetch_Wz
+_$s12MLXFastModel33lagunaResidualRMSNormRouterSource33_31416BEFA6CA2F3E48115FE8A9CE78A4LL12rowsPerGroup8prefetchSSSi_SitF
+_$s12MLXFastModel33lagunaResidualRMSNormRouterSource33_31416BEFA6CA2F3E48115FE8A9CE78A4LL12rowsPerGroup8prefetchSSSi_SitF
+_$s12MLXFastModel34lagunaResidualRMSNormRouterKernels33_31416BEFA6CA2F3E48115FE8A9CE78A4LLSDySi3MLX0A0O0A6KernelCGvpfiSaySi_AHtGSiXEfU_Si_AHtSiXEfU_
+_$s12MLXFastModel34lagunaResidualRMSNormRouterKernels33_31416BEFA6CA2F3E48115FE8A9CE78A4LLSDySi3MLX0A0O0A6KernelCGvpfiSaySi_AHtGSiXEfU_Si_AHtSiXEfU_
+_$s12MLXFastModel34lagunaResidualRMSNormRouterKernels33_31416BEFA6CA2F3E48115FE8A9CE78A4LLSDySi3MLX0A0O0A6KernelCGvpfiSaySi_AHtGSiXEfU_Si_AHtSiXEfU_Tv0_
+_$s12MLXFastModel34lagunaResidualRMSNormRouterKernels33_31416BEFA6CA2F3E48115FE8A9CE78A4LLSDySi3MLX0A0O0A6KernelCGvpfiSaySi_AHtGSiXEfU_Si_AHtSiXEfU_Tv0_
+_$s12MLXFastModel34lagunaResidualRMSNormRouterKernels33_31416BEFA6CA2F3E48115FE8A9CE78A4LLSDySi3MLX0A0O0A6KernelCGvpfiSaySi_AHtGSiXEfU_Si_AHtSiXEfU_Tv1_
+_$s12MLXFastModel34lagunaResidualRMSNormRouterKernels33_31416BEFA6CA2F3E48115FE8A9CE78A4LLSDySi3MLX0A0O0A6KernelCGvpfiSaySi_AHtGSiXEfU_Si_AHtSiXEfU_Tv1_
+_$s12MLXFastModel34lagunaResidualRMSNormRouterKernels33_31416BEFA6CA2F3E48115FE8A9CE78A4LLSDySi3MLX0A0O0A6KernelCGvpfiSaySi_AHtGSiXEfU_Si_AHtSiXEfU_Tv2_
+_$s12MLXFastModel34lagunaResidualRMSNormRouterKernels33_31416BEFA6CA2F3E48115FE8A9CE78A4LLSDySi3MLX0A0O0A6KernelCGvpfiSaySi_AHtGSiXEfU_Si_AHtSiXEfU_Tv2_
+_$s12MLXFastModel34lagunaResidualRMSNormRouterKernels33_31416BEFA6CA2F3E48115FE8A9CE78A4LLSDySi3MLX0A0O0A6KernelCGvpfiSaySi_AHtGSiXEfU_Si_AHtSiXEfU_Tv_
+_$s12MLXFastModel34lagunaResidualRMSNormRouterKernels33_31416BEFA6CA2F3E48115FE8A9CE78A4LLSDySi3MLX0A0O0A6KernelCGvpfiSaySi_AHtGSiXEfU_Si_AHtSiXEfU_Tv_
+_$s12MLXFastModel34lagunaResidualRMSNormRouterKernels33_31416BEFA6CA2F3E48115FE8A9CE78A4LL_WZTv0_
+_$s12MLXFastModel34lagunaResidualRMSNormRouterKernels33_31416BEFA6CA2F3E48115FE8A9CE78A4LL_WZTv0_
+_$sSa6append10contentsOfyqd__n_t7ElementQyd__RszSTRd__lFSi_3MLX7MLXFastO0F6KernelCt_SaySi_AItGTg5
+_$sSa6append10contentsOfyqd__n_t7ElementQyd__RszSTRd__lFSi_3MLX7MLXFastO0F6KernelCt_SaySi_AItGTg5
+_$sSi_3MLX7MLXFastO0B6KernelCtMR
+_$sSi_3MLX7MLXFastO0B6KernelCtMR
+_$sSi_3MLX7MLXFastO0B6KernelCtMd
+_$sSi_3MLX7MLXFastO0B6KernelCtMd
+_$ss12_ArrayBufferV20_consumeAndCreateNew14bufferIsUnique15minimumCapacity13growForAppendAByxGSb_SiSbtFSi_3MLX7MLXFastO0P6KernelCt_Tg5
+_$ss12_ArrayBufferV20_consumeAndCreateNew14bufferIsUnique15minimumCapacity13growForAppendAByxGSb_SiSbtFSi_3MLX7MLXFastO0P6KernelCt_Tg5
+_$ss12_ArrayBufferV20_consumeAndCreateNew14bufferIsUnique15minimumCapacity13growForAppendAByxGSb_SiSbtFSi_3MLX7MLXFastO0P6KernelCt_Tg5Tm
+_symbolic Si______t 3MLX7MLXFastO0B6KernelC
+_symbolic Si______t 3MLX7MLXFastO0B6KernelC
+block =
+float(laguna_pf[g * 4 + u][i]) *
+float(rw[u][i]) *
+g = 0; g <
+i = 0; i < n_reads; ++i) {
+i = 0; i < n_reads; ++i) {
+i]);
+i]);
+k * block_width);
+k = 0; k <
+lCPI103_0
+lCPI103_1
+lCPI103_2
+lCPI103_3
+lCPI103_4
+lCPI108_0
+lCPI108_1
+lCPI108_2
+lCPI108_3
+lCPI108_4
+lCPI109_0
+lCPI109_1
+lCPI109_2
+lCPI109_3
+lCPI109_4
+lCPI113_0
+lCPI113_1
+lCPI113_2
+lCPI121_0
+lCPI121_1
+lCPI125_0
+lCPI125_1
+lCPI125_2
+lCPI128_0
+lCPI131_0
+lCPI131_1
+lCPI135_0
+lCPI135_1
+lCPI135_2
+lCPI148_0
+lCPI148_1
+lCPI157_0
+lCPI157_1
+lCPI157_2
+lCPI162_0
+lCPI162_1
+lCPI162_2
+lCPI178_0
+lCPI178_1
+lCPI178_2
+lCPI178_3
+lCPI190_0
+lCPI190_1
+lCPI190_2
+lCPI194_0
+lCPI195_0
+lCPI195_1
+lCPI195_2
+lCPI198_0
+lCPI207_1
+lCPI207_2
+lCPI208_0
+lCPI211_0
+lCPI211_1
+lCPI211_2
+lCPI211_3
+lCPI211_4
+lCPI211_5
+lCPI212_0
+lCPI212_1
+lCPI212_2
+lCPI212_3
+lCPI222_0
+lCPI233_0
+lCPI233_1
+lCPI237_0
+lCPI237_1
+lCPI242_0
+lCPI242_1
+lCPI249_0
+lCPI249_1
+lCPI262_0
+lCPI262_1
+lCPI263_0
+lCPI267_0
+lCPI285_0
+lCPI286_0
+lCPI286_1
+lCPI295_0
+lCPI295_1
+lCPI302_0
+lCPI302_1
+lCPI303_0
+lCPI311_0
+lCPI311_1
+lCPI311_2
+lCPI312_2
+lCPI314_0
+lCPI314_1
+lCPI327_1
+lCPI331_0
+lCPI331_1
+lCPI332_0
+lCPI332_1
+lCPI342_0
+lCPI345_0
+lCPI370_0
+lCPI370_1
+lCPI392_0
+lCPI46_0
+lCPI46_1
+lCPI68_0
+lCPI68_1
+lCPI68_2
+lCPI68_3
+lCPI78_0
+lCPI85_2
+lCPI85_3
+lCPI91_0
+lCPI91_1
+lCPI96_0
+lCPI96_1
+l_.str.195.];
+l_.str.264.; ++k) {
+l_.str.32.DARKBLOOM_ROUTER_WEIGHT_PREFETCH
+l_.str.32.thread vec<bfloat, 4> laguna_pf[
+l_.str.404.; ++g) {
+l_.str.72. uint column = simd_lane * n_reads;
+l_.str.752.; block < router_blocks; block += 4) {
+laguna_pf_row * axis_size +
+pf_values[0];
+router_row * axis_size +
+row_values[0];
+rw[4];
+u * block_width);
+u = 0; u < 4; ++u) {
+u = 0; u < 4; ++u) {
+u = 0; u < 4; ++u) {
+vec<bfloat, 4>* pf_values =
+vec<bfloat, 4>* row_values =
+vec<bfloat, 4>*)(
+vec<bfloat, 4>*)(

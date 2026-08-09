@@ -1,0 +1,160 @@
+{
+ "old": {
+  "objects": 10,
+  "total_text": 443488,
+  "detail": [
+   {
+    "name": "DenseTensorStore.swift.o",
+    "text": 25656,
+    "file_bytes": 215912
+   },
+   {
+    "name": "LagunaConfig.swift.o",
+    "text": 50264,
+    "file_bytes": 438544
+   },
+   {
+    "name": "LagunaLmHeadPrune.swift.o",
+    "text": 10792,
+    "file_bytes": 128744
+   },
+   {
+    "name": "LagunaRuntimeLayers.swift.o",
+    "text": 59288,
+    "file_bytes": 538752
+   },
+   {
+    "name": "LagunaRuntimeModel.swift.o",
+    "text": 202720,
+    "file_bytes": 1699032
+   },
+   {
+    "name": "LagunaRuntimeWeights.swift.o",
+    "text": 57052,
+    "file_bytes": 450368
+   },
+   {
+    "name": "LagunaUpstreamEquivalence.swift.o",
+    "text": 14812,
+    "file_bytes": 181432
+   },
+   {
+    "name": "MLXTensorBridge.swift.o",
+    "text": 584,
+    "file_bytes": 20824
+   },
+   {
+    "name": "RuntimeStartupMemoryPolicy.swift.o",
+    "text": 8064,
+    "file_bytes": 80064
+   },
+   {
+    "name": "RuntimeWeightLoading.swift.o",
+    "text": 14256,
+    "file_bytes": 126352
+   }
+  ]
+ },
+ "mid": {
+  "objects": 9,
+  "total_text": 443132,
+  "detail": [
+   {
+    "name": "DenseTensorStore.swift.o",
+    "text": 25656,
+    "file_bytes": 215912
+   },
+   {
+    "name": "LagunaConfig.swift.o",
+    "text": 50264,
+    "file_bytes": 438656
+   },
+   {
+    "name": "LagunaLmHeadPrune.swift.o",
+    "text": 10792,
+    "file_bytes": 128744
+   },
+   {
+    "name": "LagunaRuntimeModel.swift.o",
+    "text": 261652,
+    "file_bytes": 2190704
+   },
+   {
+    "name": "LagunaRuntimeWeights.swift.o",
+    "text": 57052,
+    "file_bytes": 450416
+   },
+   {
+    "name": "LagunaUpstreamEquivalence.swift.o",
+    "text": 14812,
+    "file_bytes": 181432
+   },
+   {
+    "name": "MLXTensorBridge.swift.o",
+    "text": 584,
+    "file_bytes": 20824
+   },
+   {
+    "name": "RuntimeStartupMemoryPolicy.swift.o",
+    "text": 8064,
+    "file_bytes": 80064
+   },
+   {
+    "name": "RuntimeWeightLoading.swift.o",
+    "text": 14256,
+    "file_bytes": 126352
+   }
+  ]
+ },
+ "new": {
+  "objects": 9,
+  "total_text": 445652,
+  "detail": [
+   {
+    "name": "DenseTensorStore.swift.o",
+    "text": 25656,
+    "file_bytes": 215912
+   },
+   {
+    "name": "LagunaConfig.swift.o",
+    "text": 50296,
+    "file_bytes": 437232
+   },
+   {
+    "name": "LagunaLmHeadPrune.swift.o",
+    "text": 10792,
+    "file_bytes": 128744
+   },
+   {
+    "name": "LagunaRuntimeModel.swift.o",
+    "text": 263876,
+    "file_bytes": 2211968
+   },
+   {
+    "name": "LagunaRuntimeWeights.swift.o",
+    "text": 57052,
+    "file_bytes": 450416
+   },
+   {
+    "name": "LagunaUpstreamEquivalence.swift.o",
+    "text": 15076,
+    "file_bytes": 186816
+   },
+   {
+    "name": "MLXTensorBridge.swift.o",
+    "text": 584,
+    "file_bytes": 20824
+   },
+   {
+    "name": "RuntimeStartupMemoryPolicy.swift.o",
+    "text": 8064,
+    "file_bytes": 80064
+   },
+   {
+    "name": "RuntimeWeightLoading.swift.o",
+    "text": 14256,
+    "file_bytes": 126352
+   }
+  ]
+ }
+}

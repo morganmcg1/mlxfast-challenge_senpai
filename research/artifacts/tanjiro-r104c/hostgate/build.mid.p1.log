@@ -1,0 +1,15 @@
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+[0/1] Planning build
+Building for production...
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+[2/3] Compiling MLXFastModel DenseTensorStore.swift
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/workspace/target/.mlxfast-private/r103b-mid/Sources/MLXFastModel/LagunaRuntimeModel.swift:10741:17: warning: variable 'mergedSharedActivated' was never mutated; consider changing to 'let' constant
+10739 |             // handed to the down projection instead of being issued again.
+10740 |             // Purely within this invocation; nothing survives it.
+10741 |             var mergedSharedActivated: MLXArray?
+      |                 `- warning: variable 'mergedSharedActivated' was never mutated; consider changing to 'let' constant
+10742 |             if lagunaFusedRoutedSwiGLUQMVEnabled,
+10743 |                 x.dtype == .bfloat16,
+[2/4] Write Objects.LinkFileList
+[3/4] Linking mlxfast-runtime-worker
+Build of product 'mlxfast-runtime-worker' complete! (26.43s)
