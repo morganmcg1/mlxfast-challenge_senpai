@@ -507,8 +507,95 @@ null `d_sd` at TG = 1024 is 3 × 0.151 = **0.45 µs**. Where the primary and
 secondary rules disagree, the primary (3× spread) governs and the disagreement is
 stated explicitly.
 
+### 7.4b Output-equivalence gate added before the dose ladder
 
-## Reply
+A timing instrument that silently computes something else is worthless, so the
+probe was extended (commit `3841f36`) with a byte-level equivalence gate that
+runs **before** timing:
+
+- `dActivated` is poisoned with `0xA5` between arms, so a kernel that fails to
+  write is caught rather than inheriting the previous arm's output.
+- Each arm runs once at TG = 1024 and once at TG = 2048; every output byte is
+  compared against the `depth1_shipped` reference.
+- A reference-vs-reference re-run is included as a determinism self-check.
+
+**Result: 0 / 65536 differing bytes for every arm at both TGs, and 0 for the
+determinism self-check.** The four variants are bitwise identical to the shipped
+kernel on this input, which is consistent with the source-level claim that
+addresses, bytes and `qdot` accumulation order are untouched. This is a
+necessary, not sufficient, correctness argument — the authoritative gates are
+`LagunaUpstreamEquivalence` and the hidden M5 suite.
+
+### 7.5 Dose ladder — results
+
+Two independent replicates, run back to back, `FERN_ROUNDS=21`, `FERN_REPS=500`.
+`d_mean` is candidate − reference in µs/dispatch; **negative = candidate faster**.
+
+| arm | staging bytes | TG=1024 rep 1 | TG=1024 rep 2 | TG=2048 rep 1 | verdict vs 1.80 µs |
+|---|---|---|---|---|---|
+| `tmpl_s1` | 16 B | **−3.002** | **−3.087** | −3.2 | **clears, faster** |
+| `tmpl_s2` | 32 B | **−3.096** | **−3.142** | −3.4 | **clears, faster** |
+| `tmpl_s4` | 64 B | **−2.860** | **−3.162** | −3.6 | **clears, faster** |
+| `stage4_cand` | 64 B | −1.804 | −1.841 | −3.3 | at threshold, faster |
+
+Pipeline reflection for all arms: `threadgroupMemoryLength` 0 B,
+`maxTotalThreadsPerThreadgroup` 1024, `threadExecutionWidth` 32. Generated line
+counts 256 / 254 / 254 / 254 / 253. **No arm lost occupancy** — the register
+pressure risk flagged in §7.2 did not materialise at any staging depth.
+
+### 7.6 What the ladder actually shows — the proposed mechanism is falsified
+
+Two things are true at once, and separating them is the result:
+
+**(a) The direction is the opposite of nezuko's codegen tax.** Every restructured
+variant is ~14 % *faster* than the shipped depth-1 body, clearing the
+preregistered 1.80 µs threshold with `d_mean < 0`. In its literal form —
+"restructuring this kernel body does not impose nezuko's penalty here" — **H_F is
+supported**, and the tax does not generalise across kernel families. Decision
+rule 3 fires and licenses one `--local-iterate` leg.
+
+**(b) The dose is flat, so the *staging-depth* mechanism is falsified.** Going
+16 B → 32 B → 64 B moves `d_mean` by ≤ 0.08 µs between replicate-matched arms —
+about 2.5 % of the effect, well inside the 0.60 µs null spread and far under the
+1.80 µs threshold. Depth-1 already captures essentially the whole win. The
+round-98 premise that *deeper staging buys ILP* is **not what is happening**.
+
+The `diff` of `depth1_shipped.metal` against `tmpl_s1.metal` locates the real
+mechanism. The shipped kernel runs a **runtime-trip-count four-iteration K loop
+with an `if (next_block < input_width)` prefetch guard**; every template variant
+is `#pragma clang loop unroll(full)` over a `constexpr` trip count. The win is
+**full unrolling of a four-block K loop** — removal of the loop-carried guard and
+trip test — and staging depth is a passenger. That is why the shipped candidate
+kept `stage_depth = 1`: it is the cheapest form that carries the whole effect,
+with scalars rather than arrays and therefore the lowest register footprint on
+the M5 I cannot measure.
+
+**A third observation, reported but not claimed.** `tmpl_s4` and `stage4_cand`
+are both 64 B staged and both fully unrolled; they differ only in scoping and
+index naming, and they differ reproducibly by ~1.3 µs/dispatch. That is under the
+conservative 1.80 µs threshold, so it does not meet my own bar for a claim. It
+does mean cosmetically equivalent rewrites are **not** free in this family, which
+is why the committed body is the exact measured `tmpl_s1` text rather than a
+hand-collapsed version of it.
+
+### 7.7 Caveat that bounds the claim
+
+The probe is a **relative codegen instrument, not a performance measurement**.
+Its working set is synthetic: at TG = 1024 it writes 4096 B of a 65536 B buffer,
+at TG = 2048 it writes 8192 B. Real decode dispatches this kernel against
+resident expert weights with a different cache footprint and different
+neighbouring work in the command buffer. The probe can say *this kernel body
+compiles to faster code at matched occupancy*; it cannot say *decode gets
+faster*. Only the in-situ paired leg can, and on this M4 Pro even that is below
+the ≈80 µs/step detection bar established in §5.3. The honest ceiling on what
+this rung can establish locally is therefore: **the mechanism is real and
+correctly signed, the end-to-end magnitude is unmeasurable here.**
+
+### 7.8 In-situ leg and correctness
+
+_(pending)_
+
+## Reply (r98-d rung — retained for the record, superseded by the Reply below)
 
 **1. Your occupancy request is answered, and it dissolves the confound for this
 rung.** The table (six kernels, grid / threads-per-TG / TG count / simds-per-TG)
