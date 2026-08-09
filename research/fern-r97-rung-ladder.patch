@@ -1,0 +1,99 @@
+# R97-A Stage 2 dense-MLP rung ladder (research instrument, NOT a shipping change)
+#
+# Replaces the two shipped per-decode selection helpers
+# `lagunaDenseBlockExponentGateUpActive()` / `...DownActive()` with a live read
+# of a 4-byte control word, so one worker process can switch between the three
+# timed states BETWEEN individual decode steps. Nothing else changes: the
+# kernels, the banks, the dispatch order and the guard chain are the shipped
+# ones, and both plane families are resident in every rung.
+#
+# Rungs (single-token decode only; prefill and the 512-token seed never reach
+# `fusedDenseDownResidual`, whose outer guard requires `x.dim(1) == 1`):
+#   0  stock BF16 gate/up, stock BF16 down    base
+#   1  compacted gate/up,  stock BF16 down    S2a  (B=128, d=4, escapes)
+#   2  compacted gate/up,  compacted down     S2b  (+ row blocks, d=6, no escapes)
+#
+# Controls:
+#   DARKBLOOM_R97_RUNG_MAP  path to a 4-byte file mmap'd once at first use. Its
+#                           little-endian Int32 is read live on every decode
+#                           forward and is the rung for that step. This is the
+#                           control channel the R93-B nested rig already drives
+#                           (it writes the same word through --glue-map), so
+#                           point both variables at one file.
+#   DARKBLOOM_R97_RUNG      static fallback rung, used only when
+#                           DARKBLOOM_R97_RUNG_MAP is unset. Default 2, i.e.
+#                           byte-for-byte the shipped default path.
+#
+# Rule 45: every rung is bit-exact by construction -- each bank is installed
+# only after an init-time certificate rebuilds every BF16 pattern of its plane
+# bit-for-bit -- so one token-stream hash must cover all three rungs. A session
+# that emits more than one hash is a failed session, not a finding.
+#
+# Base SHA: 55edbc7 (maple-fern/r97-dense-mlp-stage2)
+# Re-apply:  git checkout 617dc965c68214f07167406fa2fdc65223079214 -- Sources/MLXFastModel/LagunaRuntimeModel.swift \
+#              && git apply research/fern-r97-rung-ladder.patch
+#
+# RELOCATION WARNING: the single hunk is anchored on the
+# `lagunaDenseBlockExponent*Active()` block just below the two
+# `DARKBLOOM_DENSE_BEXP_*` flags. If that block moves or either helper is
+# renamed, re-derive the patch from a fresh edit instead of forcing the hunk
+# offset; a stale anchor would silently leave the rung word unread and make
+# every rung the same state.
+diff --git a/Sources/MLXFastModel/LagunaRuntimeModel.swift b/Sources/MLXFastModel/LagunaRuntimeModel.swift
+index ae88b09..8e4af9d 100644
+--- a/Sources/MLXFastModel/LagunaRuntimeModel.swift
++++ b/Sources/MLXFastModel/LagunaRuntimeModel.swift
+@@ -669,14 +669,51 @@ let lagunaDenseBlockExponentDownEnabled =
+ /// resident once a bank is installed, so the choice is a branch rather than a
+ /// residency decision; the research rung ladder replaces these two bodies with
+ /// a live read and leaves every other line of the dispatch identical.
++/// R97-A rung ladder control word. NON-SHIPPING research instrument.
++///
++/// `DARKBLOOM_R97_RUNG_MAP` names a 4-byte file mmap'd once at first use; its
++/// little-endian Int32 is read live on every single-token decode forward and
++/// selects the dense-MLP plane state for that step:
++///
++///   0  stock BF16 gate/up, stock BF16 down   (base)
++///   1  compacted gate/up,  stock BF16 down   (S2a)
++///   2  compacted gate/up,  compacted down    (S2b)
++///
++/// Both plane families stay resident, so a rung change is a branch and nothing
++/// else. `DARKBLOOM_R97_RUNG` is the static fallback used when no map is set.
++private let lagunaR97StaticRung = lagunaInjectEnvInt("DARKBLOOM_R97_RUNG", 2)
++
++private let lagunaR97RungControlAddress: UInt = {
++    guard
++        let path = ProcessInfo.processInfo.environment["DARKBLOOM_R97_RUNG_MAP"],
++        !path.isEmpty
++    else { return 0 }
++    let fd = open(path, O_RDWR)
++    guard fd >= 0 else { return 0 }
++    let mapped = mmap(
++        nil, MemoryLayout<Int32>.size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0)
++    close(fd)
++    guard let mapped, mapped != MAP_FAILED else { return 0 }
++    return UInt(bitPattern: mapped)
++}()
++
++@inline(__always)
++private func lagunaR97Rung() -> Int {
++    guard
++        let control = UnsafeMutablePointer<Int32>(
++            bitPattern: lagunaR97RungControlAddress)
++    else { return lagunaR97StaticRung }
++    return Int(control.pointee)
++}
++
+ @inline(__always)
+ func lagunaDenseBlockExponentGateUpActive() -> Bool {
+-    lagunaDenseBlockExponentGateUpEnabled
++    lagunaDenseBlockExponentGateUpEnabled && lagunaR97Rung() >= 1
+ }
+ 
+ @inline(__always)
+ func lagunaDenseBlockExponentDownActive() -> Bool {
+-    lagunaDenseBlockExponentDownEnabled
++    lagunaDenseBlockExponentDownEnabled && lagunaR97Rung() >= 2
+ }
+ 
+ /// `DARKBLOOM_ROUTER_ROWS_PER_GROUP` (default `8`; set `64` to restore the
