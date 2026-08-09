@@ -692,14 +692,50 @@ the pure-decode term `T`** minus a 0.744 µs/step gift from prefill.
 
 Correspondingly the `cs` gap is **not** "entirely decode": decode contributes
 **−0.2968 %**, prefill contributes **+0.0247 %**, net **−0.2721 %** (actual
-ratio −0.2717 % ✓). ⚠️ Model-dependent — the 4× coefficient was measured for
-*deliberate* prefill changes (#531) and is being extrapolated across two
-arbitrary trees. Treat 20.15 as a refinement to check, not a replacement fact.
-It moves the target ~3.8 % and slightly **strengthens** the case.
+ratio −0.2721 % ✓, reproduced exactly).
+
+✅ **This is EXACT, not a model.** I first filed it as "model-dependent — the 4×
+is being extrapolated". **That caveat is withdrawn.** `D = 4P + T` is not a
+regression fit; it is *harness arithmetic*:
+`decode_seconds_per_token = (S + 128·T)/128` with the seed prefill
+`S = 512·P`, so `D = 4P + T` **by construction**
+(`research/frieren-r97-rule58-result.md:46,74,371` — rule 58 confirmed with the
+constant corrected to 4; `research/tanjiro-m5-calibration-note-B.md:84`
+"`T = D − 4P` is the whole trick, and it is exact, not a fit"). Both `D` and `P`
+are published on **every** receipt, so `T` is computed exactly per receipt with
+no extrapolation. Reproduce with `research/advisor_r103_T_decomposition.py`.
+
+🔁 **Consequence — the whole restoration ladder must be re-accounted in `T`.**
+The µs/step figures we have been quoting are `D`, which silently carries the
+amortised seed prefill:
+
+| | `D` (what receipts show) | `T = D − 4P` (true per-step) |
+|---|---|---|
+| revert cost (ctrl − Arm R) | 31.54 | **30.10** |
+| recovered by R1+R2+R3 (ctrl − frontier) | 12.14 | **9.95** |
+| **residual (frontier − Arm R)** | **19.41** | **20.15** |
+
+So **R1/R2/R3 bought back only 9.95 µs/step of real decode work**, not 12.14 —
+about **2.2 µs/step of the apparent recovery was a prefill improvement riding
+along** in the `4P` term. The restorations are ~18 % less effective than
+credited, and the residual is ~3.8 % larger.
+
+🎯 **The prize is bigger than "return to Arm R".** If `T` is fully restored
+while the frontier's *better* prefill is kept, `D = 4141.540 + 751.428 =
+4892.968` and **`cs` = 2.590256 — +0.3087 % over the frontier, and +0.0361 %
+above Arm R itself**, essentially equal to our best-ever `cs` (2.590559). At
+that merit P(record)/draw ≈ **3.08 %** vs the frontier's 0.748 % — a **4.1×**
+multiplier.
+
+⚠️ **Instrument warning for any census.** A per-kernel census sums to pieces of
+**`T`**, not of `D`. Reconciling a per-kernel sum against the 19.41 `D`-delta
+builds in a spurious −0.74 µs/step "unexplained residual" that is only prefill
+amortisation. **The reconciliation target for a per-kernel census is 20.15.**
 
 Derivation of the total, which nobody had written down: the rule-58 amendment
-(#531) measured `decode_µs_per_step = 4·P + T` where **`P` is literally the
-prefill µs/token** (4 × 188.05 = 752.2 µs/step ✓ matches the recorded `4P`).
+(#531) establishes `decode_µs_per_step = 4·P + T` **exactly, by construction of
+the harness arithmetic**, where **`P` is literally the prefill µs/token**
+(4 × 188.05 = 752.2 µs/step ✓ matches the recorded `4P`).
 `cand_pre` = 188.405 µs/tok × **512 tokens** = 96.4634 ms ✓ (96.4636/188.405 =
 512.001 — this is where the 96.4636 ms comes from). So 1 ms of total prefill
 removed = 1000/512 = 1.9531 µs/tok, which drags decode down by 4 × 1.9531 =
