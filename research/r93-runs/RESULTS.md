@@ -185,6 +185,34 @@ clean-versus-incremental scratch-directory artifact. Section 1's comparison is
 unaffected because those three builds were made back to back in one session,
 but no cross-session hash equality should be read from this report.
 
+### 2.2 Why the null arm was extended past the required five
+
+The assignment asks for at least five nulls. Five is enough to *report* a sigma
+but not enough to *test* one, because the width of a chi-square interval on a
+standard deviation collapses very slowly in `n`:
+
+| nulls `n` | df | 95 % CI on sigma, as a multiple of the point estimate |
+|---|---|---|
+| 4 | 3 | [0.567, 4.067] |
+| 5 | 4 | [0.600, 2.984] |
+| 6 | 5 | [0.624, 2.504] |
+| 7 | 6 | [0.645, 2.231] |
+| 8 | 7 | [0.661, 2.053] |
+
+The assignment's stated corpus bounds are 0.2924 % decode and 0.2573 % prefill,
+and the question worth answering is whether the candidate-side sigma is
+*provably below* them. With the n=4 prefill point estimate of 0.1109 %, the
+upper limit is 0.451 % at n=4 and 0.331 % at n=5 — both above the bound, so
+neither can confirm it. It first drops below 0.2573 % at **n=7** (0.247 %) and
+clears it with margin at n=8 (0.228 %). Decode is hopeless on this arm at any
+affordable `n`: the n=4 point estimate of 0.3386 % is already above the 0.2924 %
+bound and its upper limit is 0.695 % even at n=8.
+
+So the null arm was planned to n=7-8 for one specific, decisive reason: it is
+the smallest `n` at which the **prefill** bound can be confirmed rather than
+merely quoted. That asymmetry — prefill confirmable, decode not — is itself a
+result, and it is the same asymmetry section 9 finds from the corpus.
+
 *(table and CI pending)*
 
 ## 3. Minimum resolvable decode difference *(pending)*
