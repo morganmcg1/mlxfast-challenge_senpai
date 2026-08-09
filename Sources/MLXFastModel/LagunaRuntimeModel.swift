@@ -3886,7 +3886,8 @@ func lagunaGatedAffineOProjNVFP4Source(
     heads: Int,
     signCarry: Bool = lagunaNvfp4QmvSignCarryEnabled,
     seedElide: Bool = lagunaNvfp4QmvSeedElisionEnabled,
-    preActivatedGate: Bool = false
+    preActivatedGate: Bool = false,
+    stagePreActivatedInput: Bool = true
 ) -> String {
     let scaleFold = lagunaNvfp4ScaleFoldEnabled
     let weightScale = scaleFold ? "" : " * 16384.0f"
@@ -3950,16 +3951,45 @@ func lagunaGatedAffineOProjNVFP4Source(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
     """
-    let loadInput = preActivatedGate
-        ? """
+    let useStagedInput = preActivatedGate && stagePreActivatedInput
+    let inputSetup = useStagedInput
+        ? "threadgroup bfloat prepared_input[block_size];"
+        : ""
+    let inputPointer = useStagedInput
+        ? ""
+        : "const device bfloat* xp = attention_output + simd_lid * values_per_thread;"
+    let loadInput: String
+    if useStagedInput {
+        loadInput = """
+        uint input_offset = lid * (block_size / 64);
+        const device bfloat* stage_xp = attention_output + k + input_offset;
+        float stage_gate = float(gate_values[(k + input_offset) >> head_shift]);
+        #pragma unroll
+        for (uint i = 0; i < block_size / 64; ++i)
+            prepared_input[input_offset + i] = bfloat(float(stage_xp[i]) * stage_gate);
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        #pragma unroll
+        for (uint i = 0; i < values_per_thread; ++i)
+            x_thread[i] = float(prepared_input[simd_lid * values_per_thread + i]);
+        """
+    } else if preActivatedGate {
+        loadInput = """
         float g=float(gate_values[column>>head_shift]);
         for(uint i=0;i<values_per_thread;++i)
             x_thread[i]=float(bfloat(float(xp[i])*g));
         """
-        : """
+    } else {
+        loadInput = """
         float g=gt[column>>head_shift];
         for(uint i=0;i<values_per_thread;++i)
             x_thread[i]=float(bfloat(float(xp[i])*g));
+        """
+    }
+    let finishBlock = useStagedInput
+        ? "threadgroup_barrier(mem_flags::mem_threadgroup);"
+        : """
+        xp += block_size;
+        column += block_size;
         """
     return """
     constexpr uint in_vec_size = \(heads * LagunaConstants.headDim);
@@ -3988,8 +4018,9 @@ func lagunaGatedAffineOProjNVFP4Source(
         out_row * (in_vec_size / 8) + simd_lid * codes_per_thread;
     const device uint8_t* sc = weight_scales +
         out_row * in_vec_size_g + simd_lid;
-    const device bfloat* xp = attention_output + simd_lid * values_per_thread;
+    \(inputPointer)
 
+    \(inputSetup)
     thread float x_thread[values_per_thread];
     thread float result[results_per_simdgroup] = {0.0f, 0.0f, 0.0f, 0.0f};
 
@@ -4025,8 +4056,7 @@ func lagunaGatedAffineOProjNVFP4Source(
 
         ws += block_size / 8;
         sc += block_size / group_size;
-        xp += block_size;
-        column += block_size;
+        \(finishBlock)
     }
 
     for (uint row = 0; row < results_per_simdgroup; ++row) {
@@ -4144,7 +4174,7 @@ private let lagunaActivatedOProjKernels: [Int: MLXFast.MLXFastKernel] = {
     var result: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
         result[heads] = MLXFast.metalKernel(
-            name: "laguna_oproj_act_h\(heads)_v1"
+            name: "laguna_oproj_act_h\(heads)_v2_tg1"
                 + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
                 + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
             inputNames: [
