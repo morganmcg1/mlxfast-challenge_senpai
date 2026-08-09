@@ -94,7 +94,22 @@ def unpack_groups(buf: np.ndarray, width: int, count: int) -> np.ndarray:
     return out.reshape(-1)[:count]
 
 
-def roundtrip(u: np.ndarray, block: int, d: int, m: int, zero_code: bool):
+def escape_line_bytes(esc: np.ndarray, block: int, strided: bool) -> int:
+    """Bytes really moved to re-read escaped weights from the resident original.
+
+    With reduction-axis blocking an escaped block is `block` contiguous ushorts,
+    so 2 B/weight is line-accurate. With output-axis blocking the same block is
+    `block` weights one row apart in the original tensor, so each one pulls its
+    own 64 B line; lines are shared by the 32 neighbouring reduction indices.
+    """
+    if not strided:
+        return int(esc.sum()) * block * 2
+    rows, bpr = esc.shape
+    assert rows % 32 == 0
+    return int(esc.reshape(rows // 32, 32, bpr).any(axis=1).sum()) * block * 64
+
+
+def roundtrip(u: np.ndarray, block: int, d: int, m: int, zero_code: bool, strided: bool = False):
     """Real bit-packed encode/decode of one tensor. Returns (recon, stats)."""
     rows, cols = u.shape
     exp, mant, sign = fields(u)
@@ -132,10 +147,14 @@ def roundtrip(u: np.ndarray, block: int, d: int, m: int, zero_code: bool):
         recon = np.where(dd == usable + 1, s.astype(np.uint16) << 15, recon)
     recon = np.where(esc[:, :, None], u.reshape(rows, bpr, block), recon)
     recon = recon.reshape(rows, cols).astype(np.uint16)
+    core = int(dplane.size + pplane.size + base.size)
     stats = dict(
         escaped_blocks=int(esc.sum()),
         total_blocks=int(esc.size),
-        plane_bytes=int(dplane.size + pplane.size + base.size + rawplane.size * 2),
+        core_bytes=core,
+        plane_bytes=core + int(rawplane.size) * 2,
+        plane_bytes_row=core + int(esc.any(axis=1).sum()) * cols * (64 if strided else 2),
+        plane_bytes_line=core + escape_line_bytes(esc, block, strided),
     )
     return recon, stats
 
@@ -144,11 +163,15 @@ def main() -> int:
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     weights = Path(args[0]) if args else Path("weights")
     use_wandb = "--wandb" in sys.argv
+    axis0 = "--axis0" in sys.argv
+    tag = "axis0" if axis0 else "axis1"
 
     per_tensor = {}
     pooled_hist = {}
     for name in TENSORS:
         u = load_bf16(weights, name)
+        if axis0:
+            u = np.ascontiguousarray(u.T)
         exp, mant, sign = fields(u)
         is_zero = (u & 0x7FFF) == 0
         subnormal = (exp == 0) & (mant != 0)
@@ -181,6 +204,7 @@ def main() -> int:
                 blocks=int(span.size),
                 blocks_per_row=int(bpr),
                 hist=[int(x) for x in hist[:33]],
+                hist_full=[int(x) for x in hist],
                 over32=int(hist[33:].sum()),
                 max=int(span.max()),
                 mean=round(float(span.mean()), 3),
@@ -190,13 +214,14 @@ def main() -> int:
             pooled_hist.setdefault(key, np.zeros(256, dtype=np.int64))
             pooled_hist[key] += hist
             # D3: per-row escaped-block count distribution, for each d
-            for d in (2, 3, 4, 5):
+            for d in (2, 3, 4, 5, 6):
                 usable = (1 << d) - 1 - (1 if int(is_zero.sum()) > 0 else 0)
                 esc = (span > usable) | subnormal.reshape(u.shape[0], bpr, block).any(axis=2)
                 per_row = esc.sum(axis=1)
                 rec["spans"][key][f"esc_d{d}"] = dict(
                     blocks=int(esc.sum()),
                     frac=round(float(esc.mean()), 6),
+                    line_bytes=escape_line_bytes(esc, block, axis0),
                     rows_with_esc=int((per_row > 0).sum()),
                     rows=int(esc.shape[0]),
                     row_p50=int(np.percentile(per_row, 50)),
@@ -210,14 +235,18 @@ def main() -> int:
     # D2 net-bytes grid
     any_zero = any(per_tensor[n]["zeros"] > 0 for n in TENSORS)
     min_tz = min(per_tensor[n]["trailing_zero_mantissa_bits"] for n in TENSORS)
+    # a row-granular fallback re-reads one row of the blocking orientation; with
+    # output-axis blocking that row is strided in the resident tensor, so every
+    # element costs its own line.
+    esc_unit = 64 if axis0 else 2
     grid = []
     for block_key in ("32", "64", "128", "row"):
-        for d in (2, 3, 4, 5):
+        for d in (2, 3, 4, 5, 6):
             for m in sorted({7, 7 - min_tz}):
                 if m < 1:
                     continue
                 p_bits = 1 + d + m
-                net_a = net_b = net_c = 0
+                net_a = net_b = net_c = net_l = 0
                 esc_blocks = tot_blocks = esc_rows = tot_rows = 0
                 for name in TENSORS:
                     t = per_tensor[name]
@@ -229,14 +258,15 @@ def main() -> int:
                     nb = s["blocks"]
                     core = n * p_bits // 8 + nb
                     net_a += core + e["blocks"] * b * 2
-                    net_b += core + e["rows_with_esc"] * t["shape"][1] * 2
+                    net_b += core + e["rows_with_esc"] * t["shape"][1] * esc_unit
                     net_c += core + nb * 4 + e["blocks"] * b * 2 - e["blocks"] * b * p_bits // 8
+                    net_l += core + e["line_bytes"]
                     esc_blocks += e["blocks"]
                     tot_blocks += nb
                     esc_rows += e["rows_with_esc"]
                     tot_rows += e["rows"]
                 row = dict(block=block_key, d=d, m=m, bits=p_bits)
-                for design, net in (("a", net_a), ("b", net_b), ("c", net_c)):
+                for design, net in (("a", net_a), ("b", net_b), ("c", net_c), ("l", net_l)):
                     saved = BASE_BYTES - net
                     row[f"net_{design}"] = int(net)
                     row[f"saved_MB_{design}"] = round(saved / 1e6, 3)
@@ -260,10 +290,10 @@ def main() -> int:
             print(f"  block={bk:5s} blocks={s['blocks']:9d} span max={s['max']:3d} mean={s['mean']:6.3f} "
                   f"subnorm_blocks={s['subnormal_blocks']}")
             print(f"      hist[0..16]={s['hist'][:17]} over32={s['over32']}")
-            for d in (2, 3, 4, 5):
+            for d in (2, 3, 4, 5, 6):
                 e = s[f"esc_d{d}"]
                 print(f"      d={d}: esc_blocks={e['blocks']:9d} ({e['frac']*100:7.4f}%)  "
-                      f"rows_with_esc={e['rows_with_esc']}/{e['rows']}  "
+                      f"line_bytes={e['line_bytes']:10d}  rows_with_esc={e['rows_with_esc']}/{e['rows']}  "
                       f"row p50/p90/p99/max={e['row_p50']}/{e['row_p90']}/{e['row_p99']}/{e['row_max']}")
 
     print("\n" + "=" * 100)
@@ -282,64 +312,114 @@ def main() -> int:
     print(f"D2 net-bytes grid   base={BASE_BYTES} B   any_zero={any_zero}  min_trailing_zero_mantissa={min_tz}")
     print("=" * 100)
     hdr = (f"{'blk':>5} {'d':>2} {'m':>2} {'bits':>4} | {'escblk%':>9} {'escrow%':>8} | "
-           f"{'savedMB(a)':>10} {'%score':>7} {'usM4':>7} | {'savedMB(b)':>10} {'%score':>7} | {'savedMB(c)':>10} {'%score':>7}")
+           f"{'savedMB(l)':>10} {'%score':>7} {'usM4':>7} | {'savedMB(b)':>10} {'%score':>7} | "
+           f"{'savedMB(a)':>10} {'savedMB(c)':>10}")
     print(hdr)
     for r in grid:
         if not r["admissible_m"]:
             continue
         print(f"{r['block']:>5} {r['d']:>2} {r['m']:>2} {r['bits']:>4} | "
               f"{r['esc_block_frac']*100:9.4f} {r['esc_row_frac']*100:8.4f} | "
-              f"{r['saved_MB_a']:10.3f} {r['score_pct_a']:7.4f} {r['us_M4_a']:7.1f} | "
+              f"{r['saved_MB_l']:10.3f} {r['score_pct_l']:7.4f} {r['us_M4_l']:7.1f} | "
               f"{r['saved_MB_b']:10.3f} {r['score_pct_b']:7.4f} | "
-              f"{r['saved_MB_c']:10.3f} {r['score_pct_c']:7.4f}")
+              f"{r['saved_MB_a']:10.3f} {r['saved_MB_c']:10.3f}")
 
-    # pre-registered selection: maximise saved bytes under designs (a)/(b) only
+    # pre-registered selection: maximise saved bytes under designs (b) and the
+    # line-accurate form of (a). Design (a)'s nominal 2 B/weight escape price is
+    # only reachable when escaped weights are contiguous in the resident tensor.
     cands = []
     for r in grid:
         if not r["admissible_m"]:
             continue
-        for design in ("a", "b"):
+        for design in ("l", "b"):
             cands.append((r[f"saved_MB_{design}"], design, r))
     cands.sort(key=lambda x: -x[0])
     best_saved, best_design, best = cands[0]
-    print(f"\nBEST (designs a/b): block={best['block']} d={best['d']} m={best['m']} "
+    print(f"\nBEST (designs l/b): block={best['block']} d={best['d']} m={best['m']} "
           f"design={best_design} saved={best_saved} MB  score={best[f'score_pct_{best_design}']}%  "
           f"escblk={best['esc_block_frac']*100:.4f}%")
     bar_pass = (BASE_BYTES - best[f"net_{best_design}"]) >= 21_300_000
     print(f"PRE-REGISTERED BAR (>= 21.3 MB saved): {'PASS' if bar_pass else 'FAIL'}")
 
-    # D4 round-trip for the selected variant
+    # E2: per-tensor (B,d,m,design) chosen independently, addendum A
     print("\n" + "=" * 100)
-    print("D4 round-trip identity for the selected variant")
+    print("E2 per-tensor optimum (each tensor picks its own B, d, design)")
+    print("=" * 100)
+    pick = {}
+    for name in TENSORS:
+        t = per_tensor[name]
+        opts = []
+        for block_key in ("32", "64", "128", "row"):
+            bk = str(t["shape"][1]) if block_key == "row" else block_key
+            s = t["spans"][bk]
+            b, n, nb = int(bk), t["n"], s["blocks"]
+            for d in (2, 3, 4, 5, 6):
+                e = s[f"esc_d{d}"]
+                for m in sorted({7, 7 - min_tz}):
+                    if m < 1 or not (m == 7 or min_tz >= 7 - m):
+                        continue
+                    p_bits = 1 + d + m
+                    core = n * p_bits // 8 + nb
+                    for design, net in (("l", core + e["line_bytes"]),
+                                        ("b", core + e["rows_with_esc"] * t["shape"][1] * esc_unit)):
+                        opts.append(dict(block=block_key, B=b, d=d, m=m, bits=p_bits, design=design,
+                                         net=int(net), saved=int(n * 2 - net),
+                                         esc_blocks=int(e["blocks"]), esc_frac=round(e["blocks"] / nb, 6)))
+        opts.sort(key=lambda o: -o["saved"])
+        pick[name] = opts[0]
+        print(f"\n{name}:")
+        for o in opts[:6]:
+            print(f"   B={o['block']:>4} d={o['d']} m={o['m']} bits={o['bits']:2d} design={o['design']} "
+                  f"esc={o['esc_frac']*100:8.4f}%  net={o['net']:9d}  saved={o['saved']/1e6:7.3f} MB")
+    e2_net = sum(pick[n]["net"] for n in TENSORS)
+    e2_saved = BASE_BYTES - e2_net
+    print(f"\nE2 TOTAL net={e2_net}  saved={e2_saved/1e6:.3f} MB  "
+          f"score={e2_saved/1e6*BYTE_PRICE_PCT_PER_MB:.4f}%  us_M4={e2_saved/M4_BYTES_PER_S*1e6:.1f}")
+    e2_bar = e2_saved >= 21_300_000
+    print(f"ADDENDUM-A BAR (>= 21.3 MB saved): {'PASS' if e2_bar else 'FAIL'}")
+
+    # D4 round-trip for the per-tensor selection (E2), which dominates the
+    # single global variant by construction.
+    print("\n" + "=" * 100)
+    print(f"D4 round-trip identity for the selected per-tensor variant ({tag})")
     print("=" * 100)
     mismatch_total = 0
     rt = {}
     for name in TENSORS:
         u = load_bf16(weights, name)
-        block = u.shape[1] if best["block"] == "row" else int(best["block"])
-        recon, st = roundtrip(u, block, best["d"], best["m"], any_zero)
+        if axis0:
+            u = np.ascontiguousarray(u.T)
+        p = pick[name]
+        block = u.shape[1] if p["block"] == "row" else int(p["block"])
+        recon, st = roundtrip(u, block, p["d"], p["m"], any_zero, strided=axis0)
         bad = int((recon != u).sum())
         mismatch_total += bad
         h0 = hashlib.sha256(np.ascontiguousarray(u, dtype="<u2").tobytes()).hexdigest()
         h1 = hashlib.sha256(np.ascontiguousarray(recon, dtype="<u2").tobytes()).hexdigest()
-        rt[name] = dict(mismatched=bad, sha_orig=h0, sha_recon=h1, hash_equal=h0 == h1, **st)
-        print(f"  {name}: mismatched={bad}  hash_equal={h0 == h1}  measured_plane_bytes={st['plane_bytes']}  "
+        measured = st["plane_bytes_line"] if p["design"] == "l" else st["plane_bytes_row"]
+        rt[name] = dict(mismatched=bad, sha_orig=h0, sha_recon=h1, hash_equal=h0 == h1,
+                        picked=p, measured_bytes=measured, **st)
+        print(f"  {name}: B={p['block']} d={p['d']} m={p['m']} design={p['design']}  mismatched={bad}  "
+              f"hash_equal={h0 == h1}  measured_bytes={measured}  (analytic {p['net']})  "
               f"escaped_blocks={st['escaped_blocks']}/{st['total_blocks']}")
         del u, recon
-    measured_net = sum(v["plane_bytes"] for v in rt.values())
+    measured_net = sum(v["measured_bytes"] for v in rt.values())
     print(f"  TOTAL mismatched weights = {mismatch_total} (must be 0)")
-    print(f"  measured packed bytes    = {measured_net}  (analytic net_{best_design} = {best[f'net_{best_design}']})")
+    print(f"  measured packed bytes    = {measured_net}  (analytic E2 net = {e2_net})")
     print(f"  measured saved           = {(BASE_BYTES - measured_net)/1e6:.3f} MB  "
           f"= {(BASE_BYTES - measured_net)/1e6*BYTE_PRICE_PCT_PER_MB:.4f}% score")
 
     out = dict(
+        base_axis="output" if axis0 else "reduction", tag=tag,
         base_bytes=BASE_BYTES, any_zero=any_zero, min_trailing_zero_mantissa=min_tz,
         per_tensor=per_tensor, grid=grid, best=dict(best, design=best_design),
-        bar_pass=bool(bar_pass), roundtrip=rt, measured_net_bytes=int(measured_net),
+        bar_pass=bool(bar_pass), per_tensor_pick=pick,
+        e2_net_bytes=int(e2_net), e2_saved_bytes=int(e2_saved), e2_bar_pass=bool(e2_bar),
+        roundtrip=rt, measured_net_bytes=int(measured_net),
         measured_saved_bytes=int(BASE_BYTES - measured_net),
         pooled_hist={k: [int(x) for x in v] for k, v in pooled_hist.items()},
     )
-    dest = Path("research/artifacts/fern_r96_dense_census.json")
+    dest = Path(f"research/artifacts/fern_r96_dense_census_{tag}.json")
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(json.dumps(out, indent=1))
     print(f"\nwrote {dest}")
@@ -347,26 +427,31 @@ def main() -> int:
     if use_wandb:
         import wandb
         run = wandb.init(project="mlxfast-maple", entity="wandb-applied-ai-team",
-                         name="fern-r96c-stage1-dense-census",
+                         name=f"fern-r96c-stage1-dense-census-{tag}",
                          job_type="census",
                          config=dict(assignment="maple-r96-c-bf16-lossless-compaction",
                                      revision="r96-c-rev1", stage=1,
+                                     base_axis="output" if axis0 else "reduction",
                                      base_sha="43036cd39dd3c795b117b099f0fe52767fbedbca",
                                      prereg_sha="4aaed2e", host="M4 Pro"))
         run.log({
             "dense_mlp_bytes_per_step": int(measured_net),
             "dense_mlp_bytes_per_step_baseline": BASE_BYTES,
-            "stage1_escape_block_fraction": float(best["esc_block_frac"]),
+            "stage1_escape_block_fraction": float(sum(rt[n]["escaped_blocks"] for n in TENSORS)
+                                                  / sum(rt[n]["total_blocks"] for n in TENSORS)),
             "stage1_net_bytes_saved": int(BASE_BYTES - measured_net),
             "stage1_net_score_pct": float((BASE_BYTES - measured_net) / 1e6 * BYTE_PRICE_PCT_PER_MB),
             "stage1_predicted_us_per_step_M4": float((BASE_BYTES - measured_net) / M4_BYTES_PER_S * 1e6),
             "roundtrip_mismatched_weights": int(mismatch_total),
-            "stage1_bar_pass": int(bar_pass),
-            "stage1_block": best["block"], "stage1_delta_bits": best["d"],
-            "stage1_mantissa_bits": best["m"], "stage1_bits_per_weight": best["bits"],
-            "stage1_escape_design": best_design,
+            "stage1_bar_pass": int(e2_bar),
+            "stage1_global_bar_pass": int(bar_pass),
+            "stage1_global_saved_bytes": int(BASE_BYTES - best[f"net_{best_design}"]),
+            "stage1_global_block": best["block"], "stage1_global_delta_bits": best["d"],
+            "stage1_global_mantissa_bits": best["m"], "stage1_global_escape_design": best_design,
+            **{f"stage1_pick_{n.split('.')[-2]}_{k}": pick[n][k]
+               for n in TENSORS for k in ("block", "d", "m", "design", "saved")},
         })
-        art = wandb.Artifact("fern_r96_dense_census", type="census")
+        art = wandb.Artifact(f"fern_r96_dense_census_{tag}", type="census")
         art.add_file(str(dest))
         run.log_artifact(art)
         print(f"W&B run: {run.url}  id={run.id}")
