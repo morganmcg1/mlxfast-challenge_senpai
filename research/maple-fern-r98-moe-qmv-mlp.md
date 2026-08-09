@@ -164,3 +164,26 @@ explanation, which is worth more than another inconclusive tweak.
 | when (UTC) | leg | receipt | decode s/tok | prefill s/tok | max_abs_diff | note |
 |---|---|---|---|---|---|---|
 | 2026-08-09T13:21:12Z | baseline A (M4, local) | — | 0.0130002975234375 | 0.00113808170703125 | 0 | unchanged base @ `61c8763` |
+| 2026-08-09T13:31:20Z | rung 1 candidate (M4, local) | — | 0.0129596627578125 | 0.001121568765625 | 0 | depth-4 staging @ `0ff6d26` |
+
+### 5.1 Reading the M4 rung-1 screen
+
+Decode is nominally 40.6 µs/token faster (−0.31 %). That is **below the ≈ 80 µs/step
+M4 detection bar and is not evidence for H-D.** The tell is in the same JSON:
+prefill moved −1.45 %, and the edited kernel is behind the decode gate
+`x.dim(1)==1 && inds.size<64` so it **cannot** run during prefill. A metric that
+must be exactly flat moved 1.45 %, which sets the cross-session noise floor for
+this host well above the decode delta.
+
+Also confirmed from the two JSONs: `baseline_decode_seconds_per_token` is
+**identical** (0.01385621216015625) in both runs, i.e. the local harness compares
+against *pinned calibration*, not a same-session paired baseline. `decode_speedup`
+is therefore a rescaling of the raw seconds and carries no extra information, so a
+contemporaneous revert control is required locally. The **official M5 receipt does
+run candidate and baseline back to back in one session**, so the receipt is
+self-paired and does not need a separate control leg.
+
+What the screen does establish, which is what it was for: `max_abs_diff = 0`,
+correctness passed over 130 checked steps, identical `golden_hash`, and **no
+regression** — so the depth-4 staging did not spill badly enough to cost time on a
+host that is already at 91 % of its roofline at this site.
