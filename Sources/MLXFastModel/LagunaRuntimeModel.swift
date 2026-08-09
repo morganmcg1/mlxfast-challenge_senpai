@@ -4126,143 +4126,6 @@ func lagunaGatedAffineOProj(
     )[0]
 }
 
-// MARK: - R93-C stall-structure census probes (research-only, default off)
-//
-// Selected by `NEZUKO_R93_PROBE=<target>:<kind>:<n>`, e.g. `qkv:fma:2`.
-// Targets: qkv | oproj | routed. Kinds: fma | imad | ld8 | ld16.
-//
-// Every enabled level (including n=0) changes the kernel name and binds the
-// same probe pool, so level 0 is the name- and residency-matched placement
-// control for its own ladder and for the other ladders on the same kernel
-// (Rule 44). All added work is bit-exact ADDITION (Rule 45): the probe result
-// is consumed only by a comparison that is never true at runtime.
-
-struct NezukoR93ProbeSpec {
-    let target: String
-    let kind: String
-    let n: Int
-}
-
-let nezukoR93ProbeSpec: NezukoR93ProbeSpec? = {
-    // senpai-r93-armc-spec: "" | "<target>:<kind>:<n>"
-    let raw = "routed:fma:0"
-    guard !raw.isEmpty else { return nil }
-    let parts = raw.split(separator: ":").map(String.init)
-    guard parts.count == 3, let n = Int(parts[2]), n >= 0, n <= 64,
-        ["qkv", "oproj", "routed"].contains(parts[0]),
-        ["fma", "imad", "ld8", "ld16"].contains(parts[1])
-    else { return nil }
-    return NezukoR93ProbeSpec(target: parts[0], kind: parts[1], n: n)
-}()
-
-private func nezukoR93Spec(_ target: String) -> NezukoR93ProbeSpec? {
-    guard let spec = nezukoR93ProbeSpec, spec.target == target else { return nil }
-    return spec
-}
-
-func nezukoR93Suffix(_ target: String) -> String {
-    guard let spec = nezukoR93Spec(target) else { return "" }
-    return "_pz\(spec.kind)\(spec.n)"
-}
-
-func nezukoR93InputNames(_ target: String) -> [String] {
-    nezukoR93Spec(target) == nil ? [] : ["nezuko_probe_pool"]
-}
-
-/// 128 MiB, far past any Apple Silicon cache level.
-private let nezukoR93PoolWords = 1 << 25
-
-private enum NezukoR93Store {
-    nonisolated(unsafe) static let pool: MLXArray = {
-        let pool = MLXArray.zeros([nezukoR93PoolWords], dtype: .uint32)
-        eval(pool)
-        return pool
-    }()
-}
-
-func nezukoR93Inputs(_ target: String) -> [MLXArray] {
-    nezukoR93Spec(target) == nil ? [] : [NezukoR93Store.pool]
-}
-
-/// Register state, emitted before the kernel's main K loop.
-func nezukoR93Decl(_ target: String) -> String {
-    guard let spec = nezukoR93Spec(target) else { return "" }
-    switch spec.kind {
-    case "fma":
-        return (0..<4).map {
-            "thread float nz_f\($0) = float(thread_index_in_simdgroup) + \($0 + 1).0f;"
-        }.joined(separator: "\n")
-    case "imad":
-        return (0..<4).map {
-            "thread uint nz_i\($0) = thread_index_in_simdgroup + \($0 + 1)u;"
-        }.joined(separator: "\n")
-    default:
-        return "thread float nz_l = 0.0f;"
-    }
-}
-
-/// Per-K-iteration ALU ladder. Four independent chains keep the ladder
-/// throughput-limited rather than latency-limited, and it sits inside the
-/// loop so the scheduler can hide it in the loop's memory stalls.
-func nezukoR93LoopBody(_ target: String) -> String {
-    guard let spec = nezukoR93Spec(target), spec.n > 0 else { return "" }
-    switch spec.kind {
-    case "fma":
-        return (0..<spec.n).flatMap { _ in
-            (0..<4).map { "nz_f\($0) = fma(nz_f\($0), 1.0000001f, 0.5f);" }
-        }.joined(separator: "\n")
-    case "imad":
-        // Non-affine on purpose: `x*C+D` repeated would reassociate into a
-        // single mul-add, so the ladder would collapse to one rung.
-        return (0..<spec.n).flatMap { _ in
-            (0..<4).map { "nz_i\($0) = nz_i\($0) * 2654435761u + (nz_i\($0) >> 16);" }
-        }.joined(separator: "\n")
-    default:
-        return ""
-    }
-}
-
-/// Extra-load ladder plus the never-taken consumer, emitted after the kernel
-/// epilogue. `sink` must be a writable output pointer; index 0 is in range for
-/// every dispatch shape used here.
-func nezukoR93Tail(_ target: String, sink: String) -> String {
-    guard let spec = nezukoR93Spec(target) else { return "" }
-    var lines: [String] = []
-    switch spec.kind {
-    case "fma":
-        lines.append("float nz_sum = nz_f0 + nz_f1 + nz_f2 + nz_f3;")
-    case "imad":
-        lines.append(
-            "float nz_sum = float(nz_i0) + float(nz_i1) + float(nz_i2) + float(nz_i3);")
-    default:
-        let width = spec.kind == "ld16" ? 4 : 2
-        let elems = nezukoR93PoolWords / width
-        lines.append("const device uint\(width)* nz_pool =")
-        lines.append("    (const device uint\(width)*)nezuko_probe_pool;")
-        lines.append("uint nz_sgs = max(threads_per_grid.x >> 5, 1u);")
-        lines.append("uint nz_stride = \(elems)u / nz_sgs;")
-        lines.append(
-            "uint nz_idx = ((thread_position_in_grid.x >> 5) * nz_stride"
-                + " + (thread_position_in_grid.x & 31u)) & \(elems - 1)u;")
-        for j in 0..<spec.n {
-            lines.append(
-                "{ uint\(width) nz_v = nz_pool[(nz_idx + \(j * 32)u) & \(elems - 1)u];")
-            if width == 2 {
-                lines.append("  nz_l += float(nz_v.x) + float(nz_v.y); }")
-            } else {
-                lines.append(
-                    "  nz_l += float(nz_v.x) + float(nz_v.y)"
-                        + " + float(nz_v.z) + float(nz_v.w); }")
-            }
-        }
-        lines.append("float nz_sum = nz_l;")
-    }
-    lines.append("if (nz_sum > 3.0e38f) {")
-    lines.append("    \(sink)[0] = bfloat(0.0f);")
-    lines.append("}")
-    return lines.joined(separator: "\n")
-}
-
 // MARK: - Gated NVFP4 output projection for the affine tail layers
 
 /// NVFP4 twin of `lagunaGatedAffineOProjSource` for layers using the native
@@ -4277,7 +4140,6 @@ func lagunaGatedAffineOProjNVFP4Source(
     laneMajor: Bool = false,
     pairwise: Bool = false
 ) -> String {
-    let probe = (preActivatedGate && laneMajor) ? "oproj" : "-"
     let scaleFold = lagunaNvfp4ScaleFoldEnabled
     let weightScale = scaleFold ? "" : " * 16384.0f"
     // Sign-carry fold: E4M3 is sign-magnitude, so carrying the sign bit into
@@ -4425,7 +4287,6 @@ const device bfloat* xp = attention_output + simd_lid * values_per_thread;
 
 thread float x_thread[values_per_thread];
 thread float result[results_per_simdgroup] = {0.0f, 0.0f, 0.0f, 0.0f};
-\(nezukoR93Decl(probe))
 
 uint column = simd_lid * values_per_thread;
 for (uint k = 0; k < in_vec_size; k += block_size) {
@@ -4453,7 +4314,6 @@ for (uint k = 0; k < in_vec_size; k += block_size) {
         }
         result[row] += scale * accum;
     }
-\(nezukoR93LoopBody(probe))
 
     ws += block_size / 8;
     \(scaleAdvance)
@@ -4467,7 +4327,6 @@ for (uint row = 0; row < results_per_simdgroup; ++row) {
         projected[out_row + row] = bfloat(result[row]);
     }
 }
-\(nezukoR93Tail(probe, sink: "projected"))
 """
 }
 
@@ -4623,12 +4482,11 @@ private let lagunaActivatedOProjLaneMajorKernels: [Int: MLXFast.MLXFastKernel] =
             name: "laguna_oproj_act_h\(heads)_v1_lm1"
                 + (lagunaAttnScalePairwiseOProjEnabled ? "_pw1" : "")
                 + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
-                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : "")
-                + nezukoR93Suffix("oproj"),
+                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
             inputNames: [
                 "attention_output", "gate_values", "weight_codes",
                 "scale_nibbles", "scale_bases", "weight_scales",
-            ] + nezukoR93InputNames("oproj"),
+            ],
             outputNames: ["projected"],
             source: lagunaGatedAffineOProjNVFP4Source(
                 heads: heads, preActivatedGate: true, laneMajor: true,
@@ -4676,7 +4534,7 @@ func lagunaGatedAffineOProjNVFP4(
             [
                 attentionOutput, gateLogits, codes, lane.nibbles, lane.bases,
                 scales,
-            ] + (gateIsActivated ? nezukoR93Inputs("oproj") : []),
+            ],
             grid: ((outVec / 8) * 64, 1, 1),
             threadGroup: (64, 1, 1),
             outputShapes: [[1, 1, outVec]],
@@ -5014,7 +4872,6 @@ if (row_base != 0xFFu) {
 
 thread float x_thread[values_per_thread];
 thread float result = 0.0f;
-\(nezukoR93Decl("qkv"))
 
 uint column = simd_lid * values_per_thread;
 for (uint k = 0; k < axis_size; k += block_size) {
@@ -5023,7 +4880,6 @@ for (uint k = 0; k < axis_size; k += block_size) {
     }
     result += laguna_tail_nvfp4_qdot(
         ws, x_thread, laguna_tail_nvfp4_scale(sb[k / block_size]));
-\(nezukoR93LoopBody("qkv"))
     ws += block_size / 2;
     column += block_size;
 }
@@ -5032,7 +4888,6 @@ result = simd_sum(result\(lagunaTailNVFP4RowScaleSuffixSource(scaleDefer: laguna
 if (simd_lid == 0) {
     projected[out_row] = bfloat(result);
 }
-\(nezukoR93Tail("qkv", sink: "projected"))
 """
 }
 
@@ -5043,12 +4898,11 @@ private let lagunaDecodeNVFP4QKVLaneMajorKernels: [Int: MLXFast.MLXFastKernel] =
             name: "laguna_decode_nvfp4_qkv_h\(heads)_r1_v1_lm1"
                 + (lagunaAttnScalePairwiseQKVEnabled ? "_pw1" : "")
                 + (lagunaTailNVFP4QKVSeedElisionEnabled ? "_se1" : "")
-                + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : "")
-                + nezukoR93Suffix("qkv"),
+                + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : ""),
             inputNames: [
                 "normalized", "weight_codes", "scale_nibbles", "scale_bases",
                 "weight_scales",
-            ] + nezukoR93InputNames("qkv"),
+            ],
             outputNames: ["projected"],
             source: lagunaDecodeNVFP4QKVLaneMajorSource(
                 pairwise: lagunaAttnScalePairwiseQKVEnabled),
@@ -5087,8 +4941,7 @@ private func lagunaDecodeNVFP4QKVR1(
         lagunaTrace("decode nvfp4 qkv r1 h\(heads) lane-major")
         lagunaNarrowScaleLog.noteDispatch("lane-major", "qkv h\(heads)")
         return kernel(
-            [normalized, bank.packedCodes, lane.nibbles, lane.bases, bank.scales]
-                + nezukoR93Inputs("qkv"),
+            [normalized, bank.packedCodes, lane.nibbles, lane.bases, bank.scales],
             grid: ((rows / 2) * 64, 1, 1),
             threadGroup: (64, 1, 1),
             outputShapes: [[1, 1, rows]],
@@ -7973,10 +7826,8 @@ let lagunaRoutedGateUpR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTED_GATEUP_R1"] != "0"
 
 private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
-    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2"
-        + nezukoR93Suffix("routed"),
-    inputNames: ["input", "fused_weight", "packed_scales", "router_keys"]
-        + nezukoR93InputNames("routed"),
+    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
+    inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
     outputNames: ["activated"],
     source: """
 constexpr uint input_width = 2048;
@@ -8014,7 +7865,6 @@ uint up_row = gate_row + 32;
 thread float gate_result = 0.0f;
 thread float up_result = 0.0f;
 thread float input_values[values_per_lane];
-\(nezukoR93Decl("routed"))
 
 uint2 gate_codes;
 uint2 up_codes;
@@ -8069,7 +7919,6 @@ for (uint block = 0; block < input_width; block += block_width) {
     up_result += laguna_nvfp4_qdot_codes_16(
         cur_up_codes, input_values,
         laguna_nvfp4_scale(cur_up_sb));
-\(nezukoR93LoopBody("routed"))
 }
 
 gate_result = simd_sum(gate_result);
@@ -8085,7 +7934,6 @@ if (lane == 0) {
     activated[expert_slot * output_width + logical_row] =
         bfloat(silu * up);
 }
-\(nezukoR93Tail("routed", sink: "activated"))
 """,
     header: lagunaSharedSwiGLUQMVHeader + "\n" + lagunaDecodeRouterOrdinalHeader
         + "\n" + lagunaRouterTop8PrologueHeader,
@@ -8108,8 +7956,7 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
 
     if lagunaRoutedGateUpR1Enabled {
         return lagunaRoutedSwiGLUQMVPackedTop8R1Kernel(
-            [input, fusedWeight, packedScales, routerKeys]
-                + nezukoR93Inputs("routed"),
+            [input, fusedWeight, packedScales, routerKeys],
             grid: (LagunaConstants.numExpertsPerTok * 256 * 64, 1, 1),
             threadGroup: (64, 1, 1),
             outputShapes: [[
@@ -9623,5 +9470,3 @@ func lagunaInjectLayerWork(layer: Int, isSingleTokenDecode: Bool) {
 
 // END M5 HARDWARE-CONSTANT INSTRUMENT
 // ============================================================================
-
-// senpai-r93-probe-routed-fma-0
