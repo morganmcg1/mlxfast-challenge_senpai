@@ -8994,7 +8994,6 @@ final class LagunaRuntimeModelInner: Module {
             h: h, cache: cache?[slidingAttentionIdx], windowSize: slidingWindow)
 
         let isSingleTokenDecode = inputs.dims(1, 1)
-        let r93Glue = isSingleTokenDecode ? lagunaR93GlueDepth() : 0
 
         // One cos/sin table per attention family per decode step, shared by
         // every layer of that family (their caches advance in lockstep). Each
@@ -9039,11 +9038,6 @@ final class LagunaRuntimeModelInner: Module {
                 }
             }
             lagunaInjectLayerWork(layer: i, isSingleTokenDecode: isSingleTokenDecode)
-            if isSingleTokenDecode, r93Glue > 0 {
-                for _ in 0..<r93Glue {
-                    h = maximum(h, h)
-                }
-            }
         }
 
         return h
@@ -9293,53 +9287,6 @@ private let lagunaInjectPrefillMatmuls = lagunaInjectEnvInt(
 /// Empty dispatches injected per single-token decode step.
 private let lagunaInjectDecodeEmpty = lagunaInjectEnvInt(
     "DARKBLOOM_INJECT_DECODE_EMPTY", 0)
-/// R93-B calibration ladder. NON-SHIPPING research instrument, inert at 0.
-///
-/// Chains this many `maximum(h, h)` reductions onto the residual at every layer
-/// boundary of a single-token decode step, so the decode chain gains exactly
-/// `40 * n` serialized dispatches per step and nothing else. `max(h, h) == h`
-/// bit-for-bit, so every downstream value and every emitted token is unchanged
-/// and a single token-stream hash covers all rungs.
-///
-/// It exists to put a KNOWN magnitude on the end-to-end rig so a proposed
-/// timing protocol can be validated against it. `maximum(h, h)` blocks MLX
-/// buffer donation, so its per-dispatch cost is an upper bracket on a
-/// donation-preserving unary and must not be quoted as a per-dispatch floor.
-private let lagunaR93MaxGluePerLayer = lagunaInjectEnvInt(
-    "DARKBLOOM_R93_MAX_GLUE_PER_LAYER", 0)
-
-/// Shared 4-byte control word that lets the driver retarget the R93 ladder
-/// between individual decode steps of one worker process.
-///
-/// `DARKBLOOM_R93_MAX_GLUE_PER_LAYER` is a process global, so an arm contrast
-/// built on it alone is unavoidably a cross-process contrast and inherits the
-/// largest variance component the rig has. Mapping one `Int32` shared with the
-/// driver moves the same contrast inside a single run, where it can be paired
-/// step by step. The read is one load from a resident page per decode forward,
-/// which is far below the resolution being calibrated.
-private let lagunaR93GlueControlAddress: UInt = {
-    guard
-        let path = ProcessInfo.processInfo.environment["DARKBLOOM_R93_GLUE_MAP"],
-        !path.isEmpty
-    else { return 0 }
-    let fd = open(path, O_RDWR)
-    guard fd >= 0 else { return 0 }
-    let mapped = mmap(
-        nil, MemoryLayout<Int32>.size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0)
-    close(fd)
-    guard let mapped, mapped != MAP_FAILED else { return 0 }
-    return UInt(bitPattern: mapped)
-}()
-
-@inline(__always)
-private func lagunaR93GlueDepth() -> Int {
-    guard
-        let control = UnsafeMutablePointer<Int32>(
-            bitPattern: lagunaR93GlueControlAddress)
-    else { return lagunaR93MaxGluePerLayer }
-    return Int(control.pointee)
-}
-
 /// Empty dispatches injected per multi-token forward.
 private let lagunaInjectPrefillEmpty = lagunaInjectEnvInt(
     "DARKBLOOM_INJECT_PREFILL_EMPTY", 0)
