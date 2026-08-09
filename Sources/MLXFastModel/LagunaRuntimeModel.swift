@@ -2608,14 +2608,15 @@ private let lagunaPrefillFullQKNormYaRNH1Kernel = MLXFast.metalKernel(
     ensureRowContiguous: true
 )
 
-private func lagunaPrefillSlidingQKNormRoPE(
+func lagunaPrefillSlidingQKNormRoPE(
     rawQueries: MLXArray,
     rawKeys: MLXArray,
     queryWeight: MLXArray,
     keyWeight: MLXArray,
     angles: MLXArray,
     offsets: MLXArray,
-    length: Int
+    length: Int,
+    headsPerGroupOverride: Int? = nil
 ) -> (MLXArray, MLXArray) {
     let heads = LagunaConstants.slidingAttentionHeads
     let kvHeads = LagunaConstants.numKeyValueHeads
@@ -2632,8 +2633,11 @@ private func lagunaPrefillSlidingQKNormRoPE(
     precondition(
         angles.shape == [1, 1, lagunaRoPEAngleAtlasLength, LagunaConstants.headDim])
     precondition(offsets.dtype == .int32 && offsets.size == 1)
+    if let headsPerGroupOverride {
+        precondition(headsPerGroupOverride == 1 || headsPerGroupOverride == 4)
+    }
 
-    let useH1 = terminal || lagunaPrefillQKHeadsPerGroup == 1
+    let useH1 = terminal || (headsPerGroupOverride ?? lagunaPrefillQKHeadsPerGroup) == 1
     precondition(useH1 || (heads + kvHeads) % 4 == 0)
     let headsPerGroup = useH1 ? 1 : 4
     let threadGroupSize = headsPerGroup * 32
@@ -2654,14 +2658,15 @@ private func lagunaPrefillSlidingQKNormRoPE(
     return (outputs[0], outputs[1])
 }
 
-private func lagunaPrefillFullQKNormYaRN(
+func lagunaPrefillFullQKNormYaRN(
     rawQueries: MLXArray,
     rawKeys: MLXArray,
     queryWeight: MLXArray,
     keyWeight: MLXArray,
     angles: MLXArray,
     offsets: MLXArray,
-    length: Int
+    length: Int,
+    headsPerGroupOverride: Int? = nil
 ) -> (MLXArray, MLXArray) {
     let heads = LagunaConstants.fullAttentionHeads
     let kvHeads = LagunaConstants.numKeyValueHeads
@@ -2678,8 +2683,11 @@ private func lagunaPrefillFullQKNormYaRN(
         angles.shape == [1, 1, lagunaRoPEAngleAtlasLength, LagunaConstants.headDim / 2])
     precondition(offsets.dtype == .int32 && offsets.size == 1)
     precondition((heads + kvHeads) % 4 == 0)
+    if let headsPerGroupOverride {
+        precondition(headsPerGroupOverride == 1 || headsPerGroupOverride == 4)
+    }
 
-    let useH1 = lagunaPrefillQKHeadsPerGroup == 1
+    let useH1 = (headsPerGroupOverride ?? lagunaPrefillQKHeadsPerGroup) == 1
     let headsPerGroup = useH1 ? 1 : 4
     let threadGroupSize = headsPerGroup * 32
     let kernel = useH1
