@@ -404,16 +404,15 @@ private let lagunaPrefillQKNormRoPEEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_QK_NORM_ROPE"] != "0"
 
 /// Heads-per-threadgroup repartition for the prefill QK-norm+RoPE kernels.
-/// The shipped kernels pack four heads (four SIMDs) per threadgroup; this
-/// selects a one-head-per-threadgroup twin (one SIMD) instead -- the proven
-/// DECODE shape. Bit-exact in the EG256 class: each head is one SIMD and all
-/// per-head arithmetic is SIMD-local, so only threadgroup composition changes.
-/// Default `1` selects H1; `DARKBLOOM_PREFILL_QK_HEADS=4` restores the control.
+/// Each head remains one SIMD, so H1, H2, and H4 change only threadgroup
+/// composition. Default `2` selects H2; the environment control retains H1 and
+/// H4 for isolated comparisons.
 let lagunaPrefillQKHeadsPerGroup: Int = {
-    let raw =
-        ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_QK_HEADS"]
-        ?? "1"
-    return raw == "4" ? 4 : 1
+    switch ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_QK_HEADS"] ?? "2" {
+    case "1": return 1
+    case "4": return 4
+    default: return 2
+    }
 }()
 
 /// Terminal-prefill projection banking. The last decoder layer consumes Q and
@@ -2244,14 +2243,8 @@ func lagunaWarmFullFusedAttentionKernel() {
 ///    absolute position — values the stock RoPE kernel computed, not a
 ///    re-derivation. The decode twin (`laguna_sliding_qk_norm_rope_bf16_128_v1`)
 ///    consumes the same table with the same expression.
-private let lagunaPrefillSlidingQKNormRoPEKernel = MLXFast.metalKernel(
-    name: "laguna_prefill_sliding_qk_norm_rope_bf16_128_v2",
-    inputNames: [
-        "raw_queries", "raw_keys", "query_weight", "key_weight", "angles",
-        "offsets",
-    ],
-    outputNames: ["queries", "keys"],
-    source: """
+private func lagunaPrefillSlidingQKNormRoPESource(headsPerGroup: Int) -> String {
+    return """
         constexpr uint head_dim = 128;
         constexpr uint rotary_pairs = 64;
         constexpr uint query_heads = 64;
@@ -2259,7 +2252,7 @@ private let lagunaPrefillSlidingQKNormRoPEKernel = MLXFast.metalKernel(
 
         uint t = threadgroup_position_in_grid.y;
         uint length = threadgroups_per_grid.y;
-        uint head = threadgroup_position_in_grid.x * 4
+        uint head = threadgroup_position_in_grid.x * \(headsPerGroup)
             + simdgroup_index_in_threadgroup;
         uint lane = thread_index_in_simdgroup;
 
@@ -2326,7 +2319,28 @@ private let lagunaPrefillSlidingQKNormRoPEKernel = MLXFast.metalKernel(
                     bfloat(first * sine + second * cosine);
             }
         }
-        """,
+        """
+}
+
+private let lagunaPrefillSlidingQKNormRoPEKernel = MLXFast.metalKernel(
+    name: "laguna_prefill_sliding_qk_norm_rope_bf16_128_v2",
+    inputNames: [
+        "raw_queries", "raw_keys", "query_weight", "key_weight", "angles",
+        "offsets",
+    ],
+    outputNames: ["queries", "keys"],
+    source: lagunaPrefillSlidingQKNormRoPESource(headsPerGroup: 4),
+    ensureRowContiguous: true
+)
+
+private let lagunaPrefillSlidingQKNormRoPEH2Kernel = MLXFast.metalKernel(
+    name: "laguna_prefill_sliding_qk_norm_rope_bf16_128_h2_v2",
+    inputNames: [
+        "raw_queries", "raw_keys", "query_weight", "key_weight", "angles",
+        "offsets",
+    ],
+    outputNames: ["queries", "keys"],
+    source: lagunaPrefillSlidingQKNormRoPESource(headsPerGroup: 2),
     ensureRowContiguous: true
 )
 
@@ -2428,14 +2442,8 @@ private let lagunaPrefillSlidingQKNormRoPEH1Kernel = MLXFast.metalKernel(
 /// `fl(fl(1/mscale) * mscale) == 1.0f`, so the atlas carries pure cos/sin);
 /// and the tail elements 64…127 written verbatim, matching the values the
 /// stock pre-RoPE copy leaves behind.
-private let lagunaPrefillFullQKNormYaRNKernel = MLXFast.metalKernel(
-    name: "laguna_prefill_full_qk_norm_yarn_bf16_128_v2",
-    inputNames: [
-        "raw_queries", "raw_keys", "query_weight", "key_weight", "angles",
-        "offsets",
-    ],
-    outputNames: ["queries", "keys"],
-    source: """
+private func lagunaPrefillFullQKNormYaRNSource(headsPerGroup: Int) -> String {
+    return """
         constexpr uint head_dim = 128;
         constexpr uint rotary_pairs = 32;
         constexpr uint query_heads = 48;
@@ -2444,7 +2452,7 @@ private let lagunaPrefillFullQKNormYaRNKernel = MLXFast.metalKernel(
 
         uint t = threadgroup_position_in_grid.y;
         uint length = threadgroups_per_grid.y;
-        uint head = threadgroup_position_in_grid.x * 4
+        uint head = threadgroup_position_in_grid.x * \(headsPerGroup)
             + simdgroup_index_in_threadgroup;
         uint lane = thread_index_in_simdgroup;
 
@@ -2512,7 +2520,28 @@ private let lagunaPrefillFullQKNormYaRNKernel = MLXFast.metalKernel(
                 output[base + i] = normalized[i];
             }
         }
-        """,
+        """
+}
+
+private let lagunaPrefillFullQKNormYaRNKernel = MLXFast.metalKernel(
+    name: "laguna_prefill_full_qk_norm_yarn_bf16_128_v2",
+    inputNames: [
+        "raw_queries", "raw_keys", "query_weight", "key_weight", "angles",
+        "offsets",
+    ],
+    outputNames: ["queries", "keys"],
+    source: lagunaPrefillFullQKNormYaRNSource(headsPerGroup: 4),
+    ensureRowContiguous: true
+)
+
+private let lagunaPrefillFullQKNormYaRNH2Kernel = MLXFast.metalKernel(
+    name: "laguna_prefill_full_qk_norm_yarn_bf16_128_h2_v2",
+    inputNames: [
+        "raw_queries", "raw_keys", "query_weight", "key_weight", "angles",
+        "offsets",
+    ],
+    outputNames: ["queries", "keys"],
+    source: lagunaPrefillFullQKNormYaRNSource(headsPerGroup: 2),
     ensureRowContiguous: true
 )
 
@@ -2633,14 +2662,15 @@ private func lagunaPrefillSlidingQKNormRoPE(
         angles.shape == [1, 1, lagunaRoPEAngleAtlasLength, LagunaConstants.headDim])
     precondition(offsets.dtype == .int32 && offsets.size == 1)
 
-    let useH1 = lagunaPrefillQKHeadsPerGroup == 1
-    precondition(useH1 || (heads + kvHeads) % 4 == 0)
-    precondition(!terminal || useH1)
-    let headsPerGroup = useH1 ? 1 : 4
+    let headsPerGroup = terminal ? 1 : lagunaPrefillQKHeadsPerGroup
+    precondition((heads + kvHeads) % headsPerGroup == 0)
     let threadGroupSize = headsPerGroup * 32
-    let kernel = useH1
+    let kernel =
+        headsPerGroup == 1
         ? lagunaPrefillSlidingQKNormRoPEH1Kernel
-        : lagunaPrefillSlidingQKNormRoPEKernel
+        : headsPerGroup == 2
+            ? lagunaPrefillSlidingQKNormRoPEH2Kernel
+            : lagunaPrefillSlidingQKNormRoPEKernel
     let groups = terminal ? heads + kvHeads * length : (heads + kvHeads) / headsPerGroup
     let outputs = kernel(
         [rawQueries, rawKeys, queryWeight, keyWeight, angles, offsets],
@@ -2678,14 +2708,16 @@ private func lagunaPrefillFullQKNormYaRN(
     precondition(
         angles.shape == [1, 1, lagunaRoPEAngleAtlasLength, LagunaConstants.headDim / 2])
     precondition(offsets.dtype == .int32 && offsets.size == 1)
-    precondition((heads + kvHeads) % 4 == 0)
 
-    let useH1 = lagunaPrefillQKHeadsPerGroup == 1
-    let headsPerGroup = useH1 ? 1 : 4
+    let headsPerGroup = lagunaPrefillQKHeadsPerGroup
+    precondition((heads + kvHeads) % headsPerGroup == 0)
     let threadGroupSize = headsPerGroup * 32
-    let kernel = useH1
+    let kernel =
+        headsPerGroup == 1
         ? lagunaPrefillFullQKNormYaRNH1Kernel
-        : lagunaPrefillFullQKNormYaRNKernel
+        : headsPerGroup == 2
+            ? lagunaPrefillFullQKNormYaRNH2Kernel
+            : lagunaPrefillFullQKNormYaRNKernel
     let outputs = kernel(
         [rawQueries, rawKeys, queryWeight, keyWeight, angles, offsets],
         grid: ((heads + kvHeads) / headsPerGroup * threadGroupSize, length, 1),
@@ -5867,8 +5899,7 @@ final class LagunaRuntimeAttention: Module {
         }
 
         let useFusedQK =
-            lagunaPrefillQKNormRoPEEnabled && lagunaPrefillQKHeadsPerGroup == 1 &&
-            B == 1 && isSliding &&
+            lagunaPrefillQKNormRoPEEnabled && B == 1 && isSliding &&
             nHeads == LagunaConstants.slidingAttentionHeads &&
             nKVHeads == LagunaConstants.numKeyValueHeads &&
             headDim == LagunaConstants.headDim &&
