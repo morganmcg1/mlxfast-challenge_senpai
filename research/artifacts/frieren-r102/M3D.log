@@ -3,16 +3,21 @@ name                  Apple M4 Pro
 architecture          applegpu_g16s
 gpu cores             20
 kernel                laguna_sliding_fused_attn_ring_v1
-attn rows N           512  (ring iters M = 4)
+attn rows N           512  (main-loop iters M = 4)
 stride kvheads        32
 rows sweep            512,256,128,512
 match bytes           off
+param rows            off (source substitution)
+gqa q-heads/kv-head   8
+iter positions        128
 mode                  NULL CONTROL (base vs itself)
 
 === pipeline properties (register/occupancy gate) ===
-  arm            srcLines   tgMemB   maxTotalThreads   execWidth   source
-  BASE       356    18432              1024          32   Sources/MLXFastModel/LagunaRuntimeModel.swift
-  NULL(BASE)       356    18432              1024          32   Sources/MLXFastModel/LagunaRuntimeModel.swift
+  arm            srcLines   tgMemB   maxTotalThreads   execWidth   tgMemCap   source
+  BASE       356    18432              1024          32      32768   Sources/MLXFastModel/LagunaRuntimeModel.swift
+  NULL(BASE)       356    18432              1024          32      32768   Sources/MLXFastModel/LagunaRuntimeModel.swift
+  resident TG/core: tgMem bound 1, threads/TG 1024;
+  empirical value is the wave-law step period in the K ladder below.
 
 === memory regime (P1.1) ===
   defeat slots          48
@@ -21,53 +26,53 @@ mode                  NULL CONTROL (base vs itself)
   dram_peak_GB_s        266.3  (measured, rule 55)
   slc_estimate_B        25165824  (M4-Pro-class, label only)
      K  TG/core   kvheads   slots   uniq_MiB   req_MiB/round   amplif   base_us   achieved_GB_s   pct_peak   slc_fit   regime
-    32     1.60         8      48      96.04         4080.08     42.5     19.29           110.9       41.6   no   PARTIAL
-    64     3.20        16      48     192.08         8158.20     42.5     34.66           123.4       46.3   no   PARTIAL
-   128     6.40        32      48     384.16        16314.45     42.5     58.37           146.5       55.0   no   PARTIAL
+    32     1.60         8      48      96.04         4080.08     42.5     19.24           111.2       41.7   no   PARTIAL
+    64     3.20        16      48     192.08         8158.20     42.5     34.75           123.1       46.2   no   PARTIAL
+   128     6.40        32      48     384.16        16314.45     42.5     58.65           145.8       54.8   no   PARTIAL
 
 === absolute cost ladder, best of 21 rounds of 2000 dispatches (E1) ===
 phi(K) = t(2K)/t(K).  A threadgroup-doubling change pays only if phi < 2.
 t/K is the per-threadgroup cost: flat means work-limited, falling means
 the added threadgroups are absorbed by idle cores.
      K  TG/core   base_us     t/K_us   phi(K)=t(2K)/t(K)
-    32     1.60     17.67     0.5522   1.9481
-    64     3.20     34.42     0.5378   1.6959
-   128     6.40     58.37     0.4561   -
+    32     1.60     19.22     0.6005   1.6679
+    64     3.20     32.05     0.5008   1.7386
+   128     6.40     55.72     0.4353   -
 
 === paired per-call cost, 21 alternating rounds of 2000 dispatches ===
 delta = second arm - base within a round, so drift cancels. neg = faster.
      K  TG/core   base_min   cand_min    d_mean    d_sd   spread   t_paired        %
-    32     1.60      19.27      19.25    -0.026   0.042     0.16      -2.79    -0.134
-    64     3.20      34.63      34.66    -0.030   0.036     0.14      -3.79    -0.087
-   128     6.40      58.30      57.92    -0.081   0.119     0.62      -3.11    -0.139
+    32     1.60      17.84      19.01    +0.077   0.282     1.33      +1.24    +0.429
+    64     3.20      34.68      34.61    -0.003   0.065     0.34      -0.21    -0.009
+   128     6.40      56.44      56.01    -0.086   0.626     3.36      -0.63    -0.152
 
 === interleaved row sweep, 21 rounds x 4 row points, 2000 dispatches ===
 Round r visits point (j + r) mod n, so no N owns a fixed slot in the round.
 Repeat an N in FERN_ROWS_SWEEP to get a within-round null on that N.
      K    idx      N    M   slots   min_us   med_us   mean_us   sd_us   spread
-    32      0     512    4      48    19.214    19.301     19.304    0.042    0.180
-    32      1     256    2      48    10.580    10.600     10.600    0.014    0.050
-    32      2     128    1      48     6.929     6.934      6.935    0.004    0.014
-    32      3     512    4      48    19.257    19.316     19.317    0.034    0.126
-    64      0     512    4      48    32.476    34.710     34.602    0.488    2.273
-    64      1     256    2      48    22.031    22.381     22.357    0.084    0.429
-    64      2     128    1      48    13.045    14.274     14.209    0.274    1.308
-    64      3     512    4      48    34.541    34.744     34.734    0.053    0.251
-   128      0     512    4      48    58.024    58.430     58.467    0.167    0.789
-   128      1     256    2      48    35.688    36.664     36.628    0.222    1.122
-   128      2     128    1      48    21.100    21.868     21.779    0.244    0.921
-   128      3     512    4      48    58.403    58.500     58.524    0.104    0.329
+    32      0     512    4      48    19.105    19.300     19.285    0.051    0.243
+    32      1     256    2      48    10.577    10.593     10.596    0.014    0.046
+    32      2     128    1      48     6.927     6.933      6.938    0.015    0.054
+    32      3     512    4      48    19.086    19.303     19.288    0.070    0.293
+    64      0     512    4      48    34.630    34.775     34.760    0.043    0.170
+    64      1     256    2      48    22.255    22.374     22.372    0.046    0.171
+    64      2     128    1      48    14.191    14.287     14.284    0.052    0.188
+    64      3     512    4      48    31.932    34.782     34.629    0.622    2.909
+   128      0     512    4      48    57.834    58.399     58.351    0.175    0.664
+   128      1     256    2      48    33.943    36.655     36.360    0.811    2.768
+   128      2     128    1      48    19.010    21.849     21.683    0.621    2.928
+   128      3     512    4      48    55.894    58.382     58.154    0.614    2.608
 
 === machine-readable sweep ===
-SWEEP k=32 idx=0 N=512 M=4 slots=48 n=21 min=19.2138 med=19.3012 mean=19.3043 sd=0.0424
-SWEEP k=32 idx=1 N=256 M=2 slots=48 n=21 min=10.5805 med=10.5998 mean=10.5997 sd=0.0138
-SWEEP k=32 idx=2 N=128 M=1 slots=48 n=21 min=6.9288 med=6.9343 mean=6.9350 sd=0.0038
-SWEEP k=32 idx=3 N=512 M=4 slots=48 n=21 min=19.2570 med=19.3162 mean=19.3166 sd=0.0344
-SWEEP k=64 idx=0 N=512 M=4 slots=48 n=21 min=32.4756 med=34.7102 mean=34.6020 sd=0.4877
-SWEEP k=64 idx=1 N=256 M=2 slots=48 n=21 min=22.0310 med=22.3811 mean=22.3572 sd=0.0841
-SWEEP k=64 idx=2 N=128 M=1 slots=48 n=21 min=13.0449 med=14.2742 mean=14.2093 sd=0.2740
-SWEEP k=64 idx=3 N=512 M=4 slots=48 n=21 min=34.5411 med=34.7441 mean=34.7336 sd=0.0532
-SWEEP k=128 idx=0 N=512 M=4 slots=48 n=21 min=58.0236 med=58.4296 mean=58.4667 sd=0.1671
-SWEEP k=128 idx=1 N=256 M=2 slots=48 n=21 min=35.6878 med=36.6641 mean=36.6280 sd=0.2225
-SWEEP k=128 idx=2 N=128 M=1 slots=48 n=21 min=21.0998 med=21.8682 mean=21.7785 sd=0.2435
-SWEEP k=128 idx=3 N=512 M=4 slots=48 n=21 min=58.4031 med=58.4996 mean=58.5241 sd=0.1039
+SWEEP k=32 idx=0 N=512 M=4 slots=48 n=21 min=19.1051 med=19.3001 mean=19.2848 sd=0.0507
+SWEEP k=32 idx=1 N=256 M=2 slots=48 n=21 min=10.5771 med=10.5929 mean=10.5963 sd=0.0136
+SWEEP k=32 idx=2 N=128 M=1 slots=48 n=21 min=6.9269 med=6.9332 mean=6.9378 sd=0.0148
+SWEEP k=32 idx=3 N=512 M=4 slots=48 n=21 min=19.0863 med=19.3034 mean=19.2879 sd=0.0698
+SWEEP k=64 idx=0 N=512 M=4 slots=48 n=21 min=34.6305 med=34.7754 mean=34.7601 sd=0.0428
+SWEEP k=64 idx=1 N=256 M=2 slots=48 n=21 min=22.2547 med=22.3737 mean=22.3719 sd=0.0463
+SWEEP k=64 idx=2 N=128 M=1 slots=48 n=21 min=14.1912 med=14.2866 mean=14.2840 sd=0.0517
+SWEEP k=64 idx=3 N=512 M=4 slots=48 n=21 min=31.9319 med=34.7824 mean=34.6293 sd=0.6217
+SWEEP k=128 idx=0 N=512 M=4 slots=48 n=21 min=57.8338 med=58.3988 mean=58.3508 sd=0.1746
+SWEEP k=128 idx=1 N=256 M=2 slots=48 n=21 min=33.9434 med=36.6548 mean=36.3604 sd=0.8114
+SWEEP k=128 idx=2 N=128 M=1 slots=48 n=21 min=19.0105 med=21.8488 mean=21.6831 sd=0.6212
+SWEEP k=128 idx=3 N=512 M=4 slots=48 n=21 min=55.8935 med=58.3819 mean=58.1539 sd=0.6141

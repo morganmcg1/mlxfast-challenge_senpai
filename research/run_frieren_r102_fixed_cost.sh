@@ -49,7 +49,7 @@ xcrun swiftc -O research/fern_r100_attn_probe.swift -o "$PROBE" || exit 1
 
 # BLOCKS selects which measurement blocks run; the default is all of them.
 # Re-running a subset never clobbers the logs of a block that is not selected.
-BLOCKS=${BLOCKS:-R_sweep,D_sweep,M3D,F2,F2D,FULL,FULLD}
+BLOCKS=${BLOCKS:-R_sweep,D_sweep,M3D,F2,F2D,FULL,FULLD,FZ,FZD}
 
 run() { # run <tag> <sweep-rows> <ladder> [extra env assignments...]
   local tag=$1 sweep=$2 ladder=$3
@@ -106,6 +106,20 @@ FULL_ENV="FERN_KERNEL=laguna_full_fused_attn_grow_v1 FERN_PARAM_ROWS=1 FERN_GQA=
 run FULL 512,384,256,128,64,512 24,48 $FULL_ENV \
   FERN_DEFEAT_SLOTS=1 FERN_CACHE_COPIES=1
 run FULLD 512,384,256,128,64,512 24,48 $FULL_ENV \
+  FERN_STRIDE_KV=32 FERN_CACHE_COPIES=96 FERN_DEFEAT_SLOTS=48 FERN_MATCH_BYTES=1
+
+# ---- Block FZ/FZD: dense clean grid plus a direct fixed-cost anchor -------
+# Every N divisible by 64 leaves the 2-deep loop with a whole number of
+# iterations and skips the single-slice `if (i < N)` tail, so the eight points
+# 64..512 are one code path sampled at eight trip counts and the five-point
+# FULL grid is a subset of them. Two extra anchors sit below the loop:
+#   N=32 runs zero main iterations and exactly one tail slice;
+#   N=0  runs zero main iterations and no tail, i.e. prologue + epilogue only,
+#        which is a direct measurement of f that reads no KV bytes at all and
+#        is therefore identical in both cache modes by construction.
+run FZ  512,448,384,320,256,192,128,64,32,0,512 24,48 $FULL_ENV \
+  FERN_DEFEAT_SLOTS=1 FERN_CACHE_COPIES=1
+run FZD 512,448,384,320,256,192,128,64,32,0,512 24,48 $FULL_ENV \
   FERN_STRIDE_KV=32 FERN_CACHE_COPIES=96 FERN_DEFEAT_SLOTS=48 FERN_MATCH_BYTES=1
 
 echo "=== rule 75 surface digest (post-timing) ===" | tee -a "$OUT/surface_digest.txt"

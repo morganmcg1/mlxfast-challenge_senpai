@@ -295,6 +295,107 @@ def split_scan(a, phi, t_ring512):
                       % (s, k * s, w, tphi, tring, t, t - base, t / base))
 
 
+def full_arm(blocks, stat="med"):
+    """Primary arm: affine tau(N) intercept on the real full-attention kernel.
+
+    The kernel's main loop is 2-deep over BN=32, so one iteration retires 64
+    positions and u := 32c is the cost of one BN slice. A 512-position call
+    carries tau0 = 16u of variable work on top of f. Splitting it S ways puts
+    K*S threadgroups on C cores and gives every shard 512/S positions, so
+    makespan(S) = ceil(K*S/C) * (f + (16/S)*u). The S=8 / C=40 gate the
+    assignment names is exactly makespan(8) < makespan(1), i.e. f < 1.5u.
+    """
+    gates = [("C=40 (ranked M5), S=8", 40, 8), ("C=20 (this host), S=4", 20, 4)]
+    out = {}
+    for tag, rows in blocks:
+        print()
+        print("### %s -- affine intercept fit, N in {512,384,256,128,64}" % tag)
+        print()
+        print("| K | f us | +-95% | c us/pos | u=32c us | tau0=16u us | f/tau0 | "
+              "95% CI | R^2 | rmse us | max resid us |")
+        print("|--:|-----:|------:|---------:|---------:|------------:|-------:|"
+              "-------:|----:|--------:|-------------:|")
+        for k in ks(rows):
+            acc = {}
+            for r in rows:
+                if r["K"] == k and r["N"] >= 64:
+                    acc.setdefault(r["N"], []).append(r[stat])
+            pts = sorted(acc)
+            xs = [float(n) for n in pts]
+            ys = [statistics.fmean(acc[n]) for n in pts]
+            fit = linfit(xs, ys)
+            tq = T95.get(fit["df"], 2.0)
+            u = 32.0 * fit["slope"]
+            tau0 = 16.0 * u
+            stau = 512.0 * fit["se_slope"]
+            ratio = fit["icpt"] / tau0
+            lo, hi = ratio_ci(fit["icpt"], fit["se_icpt"], tau0, stau, tq)
+            print("| %d | %.3f | %.3f | %.5f | %.3f | %.3f | %.1f%% | "
+                  "[%.1f%%, %.1f%%] | %.5f | %.4f | %.3f |" % (
+                      k, fit["icpt"], tq * fit["se_icpt"], fit["slope"], u,
+                      tau0, 100 * ratio, 100 * lo, 100 * hi, fit["r2"],
+                      fit["rmse"], max(abs(r) for r in fit["resid"])))
+            out[(tag, k)] = (fit, u, tau0, ratio, (lo, hi), pts, ys)
+        print()
+        print("Residuals (us, measured - fit):")
+        print()
+        print("| K | " + " | ".join("N=%d" % n for n in
+                                    sorted({r["N"] for r in rows if r["N"] >= 64})) + " |")
+        print("|--:|" + "--:|" * len({r["N"] for r in rows if r["N"] >= 64}))
+        for k in ks(rows):
+            fit, _, _, _, _, pts, _ = out[(tag, k)]
+            print("| %d | " % k + " | ".join("%+.3f" % r for r in fit["resid"]) + " |")
+
+    print()
+    print("### Primary gate: split-K makespan on the full-attention dispatch")
+    print()
+    print("makespan(S) = ceil(K*S/C) * (f + (16/S)*u); K=24 is the production")
+    print("dispatch (48 full-attention heads, 2 heads per threadgroup).")
+    for gate_label, c, s_star in gates:
+        for (tag, k), (fit, u, tau0, ratio, ci, _, _) in sorted(out.items()):
+            if k != 24:
+                continue
+            base = waves_c(24, c) * (fit["icpt"] + 16.0 * u)
+            split = waves_c(24 * s_star, c) * (fit["icpt"] + (16.0 / s_star) * u)
+            # f/tau0 bar that makes makespan(S*) == makespan(1)
+            wb, wsp = waves_c(24, c), waves_c(24 * s_star, c)
+            num = (wb * 16.0 - wsp * 16.0 / s_star)
+            bar = num / ((wsp - wb) * 16.0) if wsp != wb else float("inf")
+            need = bar
+            print()
+            print("- %s, %s: W(base)=%d W(S=%d)=%d; base %.3f us, split %.3f us "
+                  "(%.3fx); bar f/tau0 < %.1f%%, measured %.1f%% [%.1f%%, %.1f%%] "
+                  "-> %s" % (
+                      gate_label, tag, wb, s_star, wsp, base, split, split / base,
+                      100 * bar, 100 * ratio, 100 * ci[0], 100 * ci[1],
+                      "GO" if ci[1] < bar else ("PARTIAL" if ratio < bar else "NO-GO")))
+
+    print()
+    print("Full S scan (K=24; merge dispatch cost `a` from the wave law is")
+    print("added separately in the split-cost scan above):")
+    print()
+    for c in (40, 20):
+        print()
+        print("C = %d cores" % c)
+        print()
+        hdr = "| block | " + " | ".join("S=%d" % s for s in range(1, 9)) + " |"
+        print(hdr)
+        print("|:------|" + "--:|" * 8)
+        for (tag, k), (fit, u, tau0, _, _, _, _) in sorted(out.items()):
+            if k != 24:
+                continue
+            cells = []
+            for s in range(1, 9):
+                m = waves_c(24 * s, c) * (fit["icpt"] + (16.0 / s) * u)
+                cells.append("%.2f" % m)
+            print("| %s | " % tag + " | ".join(cells) + " |")
+    return out
+
+
+def waves_c(k, c):
+    return -(-k // c)
+
+
 def write_csv(blocks):
     path = os.path.join(ART, "sweep.csv")
     with open(path, "w", newline="") as fh:
@@ -314,15 +415,19 @@ def write_csv(blocks):
 def main():
     calib_tags = ("R_sweep", "D_sweep", "M3D")
     f2_tags = ("F2", "F2D")
+    full_tags = ("FULL", "FULLD")
     calib = [(t, load(t)) for t in calib_tags]
     f2 = [(t, load(t)) for t in f2_tags]
-    blocks = calib + f2
+    full = [(t, load(t)) for t in full_tags]
+    blocks = calib + f2 + full
     labels = {
         "R_sweep": "resident KV (1 slot, r98 binding)",
         "D_sweep": "SLC-defeat, byte-matched across N (slots scale as 512/N)",
         "M3D": "SLC-defeat, fixed 48 slots, split-emulation diagonal",
         "F2": "resident KV, full-attention split diagonal (out of sample)",
         "F2D": "SLC-defeat, full-attention split diagonal (out of sample)",
+        "FULL": "PRIMARY ARM: real laguna_full_fused_attn_grow_v1, resident KV",
+        "FULLD": "PRIMARY ARM: real laguna_full_fused_attn_grow_v1, SLC-defeat",
     }
     for tag, rows in blocks:
         print()
@@ -337,6 +442,12 @@ def main():
         for k, n, c, lo, hi, pct in dup_null(rows):
             print("| %d | %d | %d | %.3f | %.3f | %.2f%% |"
                   % (k, n, c, lo, hi, pct))
+        if tag in full_tags:
+            print()
+            print("Intercept fit for this block is in the primary-arm section "
+                  "below; the sliding-kernel tau0 = 4g convention does not "
+                  "apply to a 2-deep loop.")
+            continue
         print()
         print("Least-squares fit over M in {1,2,3,4}; M=0 is an independent "
               "check, never a fit input.")
@@ -345,6 +456,12 @@ def main():
         print("Gate arithmetic from measured points only:")
         direct_ratio_table(rows)
 
+    print()
+    print("# Primary arm -- full attention")
+    full_arm(full)
+
+    print()
+    print("# Secondary arm -- sliding attention")
     print()
     print("Wave law fitted on the calibration blocks only; F2/F2D are held "
           "out so their comparison is a genuine prediction.")
@@ -362,8 +479,9 @@ def main():
     f2_table(f2, wm["icpt"], wm["slope"], t_ring512)
     print()
     print("Refit including the held-out F2/F2D points (adds W=3, absent from "
-          "the calibration set):")
-    wave_model(blocks)
+          "the calibration set). FULL/FULLD are excluded: they are a different "
+          "kernel with its own fixed cost.")
+    wave_model(calib + f2)
     write_csv(blocks)
 
 
