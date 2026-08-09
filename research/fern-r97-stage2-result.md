@@ -37,7 +37,9 @@ plane that fails the certificate is declined and the stock path runs.
 
 **Both compacted states are slower than base. The experiment is a NO-GO, and it
 is the "conversion efficiency below 0.5" branch of the go/no-go bar, i.e. the
-branch the assignment names as a publishable bandwidth finding.**
+branch the preregistration names as a publishable measurement that the layer-0
+dense stream is not purely bandwidth-limited at decode
+(`research/fern-r97-stage2-preregistration.md:443-447`).**
 
 One blocked randomised ladder, 12 processes x 8 timed runs x 248 steps,
 `rand:0,1,2` with a placebo every 8 blocks, 40 C gate, seed 97. All three states
@@ -55,9 +57,12 @@ Every one of the 12 process files carries the single token-stream hash
 | S2b − S2a (down plane, marginal) | **−7.66 faster** | [−9.84, −5.39] | −15.8 (faster) | **+0.485** |
 
 Unpaired medians over the same records agree: base 8226.6 us/step, S2a 8296.9
-(+70.3), S2b 8288.9 (+62.3). S2b is 0.757% slower per decode step, which at the
-0.75 decode weight is about **−0.57% on score** against a preregistered
-**+0.31%** gain.
+(+70.3), S2b 8288.9 (+62.3). On those unpaired medians S2b is 0.757% slower per
+decode step; the matched blocked estimate (+61.96) gives 0.753%. At the 0.75
+decode weight that is about **−0.57% on score** against the preregistration's
+model-predicted **+0.31%** gain — a comparison between an M4 Pro measurement and
+a prediction made for a different host and base, so only its sign transfers
+(see §9.3).
 
 Two estimators appear in this table and they are deliberately not merged. Rows 1
 and 2 are the **preregistered** analyser `research/fern_r93_ladder.py`, which
@@ -106,8 +111,8 @@ recorded rather than buried.
   instrument checks, not measurements, and they cannot overturn two independent
   thermally gated sessions that each resolve the down marginal below zero. The
   honest reading is that the down marginal is small enough that only the gated,
-  many-replicate designs can sign it, which is why §9.4 item 1 is proposed as a
-  new measurement rather than an extrapolation.
+  many-replicate designs can sign it, which is why §9.4 items 3 and 4 are
+  proposed as new measurements rather than extrapolations.
 
 ### 2.3 The byte claim was met; the conversion was not
 
@@ -160,12 +165,18 @@ inside one process are paired, and the bootstrap is clustered on process.
 | S2b − base (K=80) | **+61.96** [+60.17, +63.74] | **+59.83** [+44.87, +69.49], se 6.62 | yes | yes |
 | down marginal (K=80 − K=40) | **−7.66** [−9.84, −5.39] | **−7.98** [−18.11, −0.87], se 4.52 | yes | yes |
 
-8 processes, 16 run-pairs per contrast, 1984 records per process.
+8 processes, 16 run-pairs per contrast, 1984 records per process. The pairing
+rule is `research/fern_r93_perrun.py:81-97`: within each process the warmup run
+is dropped, leaving 7 scored runs at rungs 40, 80, 0, 40, 80, 0, 40; only
+*adjacent* run pairs whose rung set matches the requested contrast are kept,
+which is 2 per process for each of the three contrasts, hence 16.
 
 Three things follow.
 
 1. **No switching artefact.** All three ladder point estimates land inside the
    corresponding per-run interval, and no sign disagrees. Per decision rule 56
+   (`research/fern-r96-stage2-kernel-design.md:139`, honoured literally at
+   `research/fern-r97-stage2-preregistration.md:376`)
    the two instruments keep their separate jobs — the ladder is the ranking
    instrument, the per-run arm the absolute-saving check — and I do **not**
    average them. The rule's inconclusive branch (sign disagreement, or a ladder
@@ -210,6 +221,10 @@ escaped gate/up blocks (858 gate + 877 up) out of 262,144 and zero escaped
 down rows out of 2,048; the bytes/step arithmetic in §5 of the preregistration
 was computed from those counts, so the byte predictions carry no census risk.
 Both certificates passed, so neither plane was declined.
+
+The same 48-step smoke session (job `f3fc3222`, exit 0) that produced this
+census also ran all three states and emitted token-stream hash
+`2a8b3751fd45e06d` with 0 teacher-forced mismatches in every state.
 
 ## 3b. Rung-control verification
 
@@ -282,7 +297,7 @@ rather than the rule.** The plane the audit called 3x-hopeless (down, 50.0
 ops/byte) is the one that converted, and the plane the audit called marginal
 (gate/up, 18.3 ops/byte) is the one that lost far more time than its bytes could
 ever have been worth. A scalar ops-per-byte screen does not rank these two
-kernels, so §9 does not promote it to a standing rule. §2 develops what does
+kernels, so §9 does not promote it to a standing rule. §3d develops what does
 separate them; the audit survives only as an accounting of what the unpack
 actually costs, not as a predictor.
 
@@ -314,14 +329,36 @@ Counting the inner loop of each kernel, per K-iteration per thread:
 | bexp down | 13 (**2.60x**) | 36 (**0.90x**) | 28 (**0.875x**) | **0** |
 
 The "bytes loaded" column includes the 8-byte activation load that both kernels
-in a pair issue identically; the "weight bytes" column strips it out. On weight
-bytes the two planes are compacted by *exactly* the same factor, 0.875 — 16 bits
-per weight become 14 in both cases, by construction — so the byte axis is
-perfectly matched between them.
+in a pair issue identically; the "weight bytes" column strips it out. These are
+*issued* per-thread load bytes, and on that axis the two planes are compacted by
+exactly the same factor, 0.875. That equality is a coincidence of two different
+mechanisms, and it is worth separating from the DRAM axis:
+
+| | stored weight bytes | vs stock | issued weight bytes/K-iter | vs stock |
+|---|---|---|---|---|
+| gate/up | 51,037,952 | **0.760** | 56 | 0.875 |
+| down | 29,362,176 | **0.875** | 28 | 0.875 |
+
+For down the two agree: `d=6` stores 8 payload + 4 deltaLo + 2 deltaHi = 14 bits
+per weight, and its 2,048 B of row-major bases are hoisted out of the K loop, so
+stored and issued coincide at 14/16 = 0.875. For gate/up they diverge: `d=4`
+stores only 8 + 4 = 12 bits per weight, but the `uchar4` base pair is re-loaded
+inside the K loop by **every one of the 32 lanes in the simdgroup**
+(`LagunaRuntimeModel.swift:8918-8920`, inside `for (uint block …)`), so the
+262,144 B of unique base data is issued 32x and the issued figure rises back to
+14 bits. Stored gate/up traffic is 12 bits per weight plus bases plus the
+444,160 B escape table, i.e. 0.760.
+
+The direction of that gap matters for the argument. **Gate/up removed the larger
+share of unique DRAM traffic — 24.0% against down's 12.5% — and still lost far
+more time.** Reading the contrast on stored bytes therefore makes the refutation
+of the bandwidth ordering stronger, not weaker; reading it on issued bytes makes
+the two planes matched. The conclusion below survives either reading.
 
 This table is the useful result of the whole experiment, because it kills three
-plausible explanations at once. The byte multiplier is identical for both planes
-(0.875 on weight bytes; 0.89 vs 0.90 including the shared activation load). The
+plausible explanations at once. The byte multiplier does not order the planes on
+either axis: it is identical (0.875) on issued weight bytes, and on stored bytes
+it *favours* the plane that lost. The
 added-op counts are within 1.4x of each other (293.6 vs 209.7 Mop, §3c). The
 load-instruction multiplier is actually **worse** for the plane that won (2.60x
 for down against 2.11x for gate/up). None of bytes, ops, or load count orders
@@ -336,11 +373,11 @@ construction, so all thirteen of its loads are unconditional.
 The cost is very unlikely to be divergence — at 1735/262144 the branch is
 essentially uniform across any simdgroup. The candidate mechanism is **loss of
 memory-level parallelism through a load-to-branch dependency**. Concretely, in
-`LagunaRuntimeModel.swift:8925-8935`:
+`LagunaRuntimeModel.swift:8922-8942`:
 
 - The branch *condition* is `gate_bases[row] == 0xFF`, a lane of the `uchar4`
   `gate_bases` value loaded from `bases` at the top of the same loop iteration
-  (line 8921). The condition is therefore not known until that load returns.
+  (line 8919). The condition is therefore not known until that load returns.
 - The *not-taken* (common) side loads `payload + gate_row * in_vec_size +
   column`. That address is loop-invariant arithmetic and does not depend on any
   value loaded in this iteration.
@@ -415,17 +452,18 @@ timestamp `2026-08-06T02:29:13Z`. It shares this run's `golden_hash` and
 and it was taken three days earlier on a different thermal history. It is
 therefore an *unmatched* baseline: the correct reading is that its decode
 number is consistent in sign and rough magnitude with the ladder's matched
-+0.76 %/step regression (§2.1), not that it independently measures it. The
++0.75 %/step regression (§2.1, paired blocked estimator), not that it
+independently measures it. The
 ladder is the estimator; this is a coarse cross-check that happens to agree.
 
 Both runs price their speedups against the same pinned official-runner
 constants (`baseline_decode_seconds_per_token` 0.01385621216015625,
 `baseline_prefill_seconds_per_token` 0.00036751938916015626), so
 `passed_prefill_speedup_floor` is **false** in *both* — the stored base fails it
-too, at prefill speedup 0.3264 against my 0.3270. That floor failure is a
+too, at prefill speedup 0.32644 against my 0.32658. That floor failure is a
 property of running a pinned M5 constant on a 20-core M4 Pro, not a property of
-this change. `passed_decode_speedup_floor` is true in both (1.0703 stored,
-1.0650 candidate).
+this change. `passed_decode_speedup_floor` is true in both (1.07032 stored,
+1.06463 candidate).
 
 ### 4.3 The upstream-equivalence oracle — exact on decode, pre-existing host divergence on prefill
 
@@ -454,7 +492,7 @@ So the prefill divergence is present with my change disabled and identical with
 it enabled. **Zero of it is attributable to this experiment.** Two independent
 facts corroborate that:
 
-1. `LagunaRuntimeLayers.swift:318` guards the fused dense path with
+1. `LagunaRuntimeLayers.swift:316` guards the fused dense path with
    `guard x.dim(1) == 1`, making both block-exponent planes decode-only. Neither
    can execute during a 512-token prefill, so neither can move a prefill logit.
 2. The test is named `lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled`, and
@@ -746,16 +784,29 @@ has not been edited. Everything below is recorded here instead.
 
 ### 9.1 Bar by bar
 
-The assignment's GO bar had five conjunctive clauses. Three pass, two fail, and
-one of the two explicit NO-GO triggers fired.
+The assignment's GO bar had five conjunctive clauses. Two pass, two fail, one
+passes with a caveat recorded below, and one of the two explicit NO-GO triggers
+fired.
 
 | # | Bar clause | Required | Measured | Verdict |
 |---|---|---|---|---|
 | 1 | S2b removes census-verified traffic | ≥ 19.0 MB/step | 20.263 MB/step (§2.3) | **PASS** |
 | 2 | Ladder shows S2b faster than base | ≥ 55 µs/step faster, 95 % CI excludes 0 | **+61.96 µs/step slower**, CI [+60.17, +63.74] | **FAIL** |
 | 3 | Conversion efficiency (measured ÷ 76.1 µs) | ≥ 0.72 | **−0.814** | **FAIL** |
-| 4 | Bit-exactness | `max_abs_diff = 0`, identical token-stream hash | `max_abs_diff = 0` and `passed_correctness = true` over 130 checked tokens (§4.1); all 12 ladder processes hash `082682744836a553` with 0 teacher-forced mismatches (§2.1, §2.5); oracle exact on all 8 decode steps (§4.3) | **PASS** |
+| 4 | Correctness | `max_abs_diff = 0` on the 64-step drift tripwire; `research/run_upstream_equivalence.sh` green with a verified nonzero test count; identical single token-stream hash for base, S2a and S2b | tripwire `max_abs_diff = 0`, `passed_correctness = true` over 130 checked tokens (§4.1); all 12 ladder processes hash `082682744836a553` with 0 teacher-forced mismatches (§2.1, §2.5); oracle exact on all 8 decode steps but **exit 1** on the 512-token prefill assertion (§4.3) | **PASS with caveat** |
 | 5 | Submitted-surface growth | ≤ 60,000 B | 26,383 B (§5) | **PASS** |
+
+Clause 4 has three sub-requirements and only two are unconditionally green. The
+oracle suite did **not** exit 0. §4.3 attributes that exit to the host rather
+than to this change, using a control in which both planes run stock code and the
+suite emits a bit-identical failure in every field — so the attributable
+contribution of this branch to the prefill divergence is zero, and every decode
+step the oracle checked is exact. That attribution is sound but it is an
+attribution, not a green gate: formally clearing clause 4 needs a rerun on the
+ranked M5. Since clauses 2 and 3 fail outright and the efficiency NO-GO trigger
+fired, this caveat does not change the verdict, and it is recorded here rather
+than resolved because resolving it would cost an M5 run on a branch that will
+not be promoted.
 
 NO-GO triggers:
 
@@ -772,8 +823,11 @@ regression is resolved to well outside its confidence interval, and the sign is
 the opposite of the one the bar required.
 
 The result is not a null: it is a *resolved* negative, and the NO-GO branch of
-the preregistration explicitly anticipated it as "a publishable bandwidth
-finding". The publishable content is §2.4 and §3d. Because the mechanism story
+the preregistration explicitly anticipated it as "a publishable measurement that
+the layer-0 dense stream is not purely bandwidth-limited at decode, i.e. that
+this kernel sits above the ALU knee"
+(`research/fern-r97-stage2-preregistration.md:443-446`). The publishable content
+is §2.4 and §3d. Because the mechanism story
 is the part most likely to be over-read, each of the four claims below is
 tagged by how it was established — **measured** (a contrast, CI, census, or
 static count), **inferred by elimination** (measured facts rule out the
@@ -789,14 +843,18 @@ on this host).
    (CI [−8.294, −7.406]) and `op_cost = −0.1937 µs/Mop`
    (CI [−0.2126, −0.1739]). Both coefficients are negative. A negative byte
    value is physically impossible under the model, so the model — not the
-   measurement — is what broke. Removing bytes from this kernel at this
-   arithmetic intensity does not buy time on this host.
+   measurement — is what broke. Removing bytes from the *fused gate/up* kernel
+   at this arithmetic intensity does not buy time on this host; the down plane
+   (item 3) shows the same removal can still pay elsewhere, just nowhere near
+   the bandwidth-model price.
 3. **The two planes disagree in the informative direction.** *(measured)* Gate/up costs
-   +69.47 µs (CI [67.67, 71.14]) while the *marginal* down plane returns
+   +69.60 µs (CI [+67.54, +71.58]) on the preregistered analyser — +69.47
+   (CI [+67.67, +71.15]) on the unpreregistered decompose fit, §8 dev. 4 —
+   while the *marginal* down plane returns
    −7.66 µs (CI [−9.84, −5.39]) — the only positive conversion in the
    experiment, 0.485. Neither bytes removed (16.07 vs 4.19 MB), added integer
    ops (293.6 vs 209.7 Mop, only 1.4× apart), nor load count (2.11× vs 2.60×,
-   *worse* for the plane that won) orders the two planes correctly (§3c).
+   *worse* for the plane that won) orders the two planes correctly (§3c, §3d).
 4. **The surviving discriminator is structural, not volumetric.** This claim has
    three layers and they are not equally supported:
    - *(measured)* The volumetric axes do not order the planes. Bytes removed,
@@ -838,8 +896,8 @@ The measured regression is +61.96 µs/step against a base of 8226.6 µs/step —
 result and the bar's requirement is even larger: the bar wanted ≥ 55 µs
 *faster*, so the candidate misses by roughly 117 µs, about 66 CI half-widths.
 An M5 would have to change the sign of a contrast that is resolved to two
-significant figures on this host, and do so by more than two orders of magnitude
-relative to the measurement noise, for the verdict to flip. Both timed states
+significant figures on this host, and move it by about 66 CI half-widths
+(≈130 standard errors, se 0.92 µs), for the verdict to flip. Both timed states
 are on the wrong side, and the switching-free per-run session (§2.5) reproduces
 all three contrasts with a completely different schedule, so this is not a
 ladder-ordering artefact either.
@@ -865,7 +923,8 @@ this assignment.
 1. **A `d=8` branchless gate/up rung — the decisive control.** Widen the gate/up
    delta field to a full byte at `B=128`. That removes escapes by construction
    (any 8-bit delta covers the full exponent range within a block), so the
-   `if (base == 0xFF)` branch and its dependent-address stall disappear, while
+   `if (base == 0xFF)` branch and its hypothesized dependent-address stall
+   disappear, while
    the byte saving collapses to approximately zero — the payload plus a
    full-byte delta is the same width as the original bf16. It keeps the same
    three-stream split, the same trip count, and the same register pressure. It
