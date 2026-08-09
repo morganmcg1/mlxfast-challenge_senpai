@@ -423,3 +423,128 @@ advisor, not a win claim. This host reports Apple GPU generation 16 and never
 selects the ranked `_nax` kernels, so it can falsify but cannot confirm for the
 ranked M5.
 
+### Rule 79: the position-matched contrast, and the warm-up bound
+
+The advisor's round-101 item 4 requires a same-session identical-code null **at
+the same slot positions**, not merely a null somewhere in the session. The ABBA
+schedule (`research/maple_r89_insitu.py:165`, forward on even reps, reversed on
+odd) produces exactly that:
+
+| slot | positions occupied | multiset |
+| --- | --- | --- |
+| pf0 (`0`) | 1 (even reps), 4 (odd) | {1,4} |
+| pf0b (`0`, null) | 2 (even), 3 (odd) | **{2,3}** |
+| pf1 (`1`) | 3 (even), 2 (odd) | **{2,3}** |
+| pf1c (`5`) | 4 (even), 1 (odd) | {1,4} |
+
+pf1 and pf0b run the *same* code at the *same* position multiset, and inside
+every single rep they are immediate neighbours with their order swapped in the
+other half of the reps. That contrast is the strictest one available:
+
+| contrast | mean µs/step | 95% CI | negative |
+| --- | --- | --- | --- |
+| **pf1 − pf0b (position-matched)** | **−6.4675** | [−7.0967, −5.8383] | **12/12** |
+| pf1c − pf0b | −0.0325 | [−0.9861, +0.9211] | 6/12 |
+| pf1 − pf0 | −6.3375 | [−6.9547, −5.7203] | 12/12 |
+| pf1 − pf1c | −6.4350 | [−7.3592, −5.5108] | 12/12 |
+
+All four references agree to within 0.13 µs/step. Separately, `pf0b − pf0`
+compares interior positions {2,3} against exterior {1,4} on *identical code*
+and reads **+0.058 ± 0.673 µs/step (6/12)**, which bounds any warm-up or
+position artifact on this rig at well under 1 µs/step — an order of magnitude
+below the effect. Discarding a first leg is therefore unnecessary here, and the
+bound is measured rather than assumed.
+
+On K ≥ 16: the quoted numbers are n = 12 paired reps of 300 steps each. The
+justification for reporting at n = 12 is that this design carries its own
+identical-code null, which reads flat (6/12, ±0.43 µs/step), so the instrument's
+bias and floor are measured rather than assumed; the K ≥ 16 rule exists to guard
+probes that have no such control. The effect is 14.7 floors and 12/12 in sign,
+so no plausible n would change the sign.
+
+## Archive reconciliation — round-36 recon A (required, advisor item 1)
+
+`research/RESEARCH_ARCHIVE_through-round-91.md:5020-5070` closed the
+`residual_rms_router` family with "**every lever is dead**". Two of its findings
+touch these arms directly.
+
+**(a) "Weight-hoist depth 1→16 moves the step 13 µs = 0.15 %."** This is the
+closest prior art and it is the reason for null **N-D** below. Note precisely
+what it measured: a *depth dose response starting at depth 1*. It never
+contained the contrast measured here, which is **depth 0 versus depth 4** —
+i.e. the presence or absence of the hoist, not its size. A flat response across
+1→16 is entirely compatible with a step between 0 and 1, because the first
+hoisted group is the only one that can be issued while the RMS reduction tail
+is still resident; deeper groups queue behind it.
+
+**(b) "Splitting out the redundant norm prologue has a ≈44 µs/step ceiling but
+costs +1 dispatch × 39 layers ≈ 140 µs ⇒ net negative."** This is *not* the
+same class as the pf1c control. That split added a dispatch. pf1c adds zero
+dispatches, zero barriers and zero instructions; it is pure intra-kernel code
+motion, and it measured **−0.03 ± 0.98 µs/step against the null control**, i.e.
+free. So the two results are consistent and complementary: inter-dispatch
+restructuring of this kernel costs ~140 µs; intra-kernel restructuring costs
+nothing, and only *where* the loads sit relative to the barrier matters.
+
+### N-D (already closed) — verdict: magnitude confirmed, closure overturned
+
+> **N-D.** The family was measured flat in round 36 across a 16× hoist-depth
+> dose range; the current arms will reproduce that flatness. *Falsifier:* a
+> monotone, significant dose response in the in-situ census, or a sign
+> difference between pf1 and pf1c that round 36's instrument could not have
+> resolved.
+
+Registration honesty: N-D was supplied by the advisor at 2026-08-09T17:29Z,
+after this document's preregistration commit `cc8a08b` and before the census
+result was read into it. It is therefore **advisor-registered, not
+student-preregistered**. What matters for its validity is that its stated
+falsifier — the pf1-versus-pf1c sign difference — was designed into the arm set
+from the first commit `d38b17b`, so the test was not constructed after seeing
+the data.
+
+**The falsifier fires.** `pf1 − pf1c = −6.435 µs/step` [−7.359, −5.511], 12/12
+negative, on two kernels whose MSL is byte-identical and differs only in
+placement. Round 36 had no in-situ ABBA census, no same-session identical-code
+null, and no static AIR read; its coarse instruments here have measured floors
+of ±6.5 to ±9.6 µs/step, so it could not have resolved a 6.4 µs effect even in
+principle. The Step 1 AIR evidence independently shows the compiler does not
+perform this motion by itself.
+
+**But round 36's economics survive intact, and they are what actually matter.**
+Its own headline number for this lever class was 13 µs/step; this work measures
+6.3–6.5 µs/step. These are the same order of magnitude. Round 36 judged 13 µs
+economically negligible and it was right; the correction is only that the
+effect is *real and mechanistically explained* rather than *absent*. The
+correct disposition is therefore not "reopen the family" but "this one lever is
+alive, worth ~0.012–0.015 % of score, and the family stays closed around it".
+
+Concretely, the family's remaining closure claims are untouched by this work:
+rpg retiling null, sub-8 null, 64-thread virtualised tree −0.182 ± 0.845 µs,
+router-top-8 fusion fully shadowed, and non-bit-exact reassociation/transpose.
+None of them were re-measured here and none should be reopened on this evidence.
+
+## Economics — what this is actually worth (advisor item 2)
+
+Using the shadowing factor from `maple-fern-decode-marginal-cost-ledger.md`
+(**E = 0.349** for the router family: 312.8 µs/step census against 106 µs/step
+chained marginal):
+
+```text
+census saving          6.33 us/step
+marginal saving        6.33 x 0.349            = 2.21 us/step
+M5 pinned decode base                            13856.2 us/step
+decode improvement     2.21 / 13856.2          = 0.0159 %
+score  (decode^0.75)   0.75 x 0.0159 %         = 0.0120 %
+```
+
+Cross-checking against the advisor's own scaling (5 % of the router pool ⇒
++0.037 % of score) gives +0.0147 % for a 1.98 % pool saving. So the honest range
+is **+0.012 % to +0.015 % of score** — about 4× below the 0.06 % EV in the
+original brief and ~36× below the σ = 0.5393 % noise of a single M5 receipt.
+
+The operational consequence is unambiguous and is stated here so the advisor
+does not have to derive it: **this mechanism must never draw its own official
+receipt.** It is a free rider or it is nothing. It costs +4,186 B, adds no
+dispatch, and is bit-exact, so riding along is cheap; but a receipt spent on it
+alone would be indistinguishable from noise.
+
