@@ -18,7 +18,12 @@ one run. That makes a ladder contrast step-paired instead of process-paired.
       --out /tmp/r93/p0.json --process-index 0
 
 Every model-holding run must be the only one on the host.
+
+The supervised-job PATH resolves `python3` to the macOS system 3.9, so keep this
+file free of runtime-evaluated 3.10+ syntax.
 """
+from __future__ import annotations
+
 import argparse
 import hashlib
 import json
