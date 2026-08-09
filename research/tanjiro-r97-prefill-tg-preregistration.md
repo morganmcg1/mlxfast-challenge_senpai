@@ -1,0 +1,282 @@
+# R97-B preregistration — prefill threadgroup-count remedies for the M5 `steel_gemm_bf16` pool
+
+Assignment `maple-r97-b-prefill-tg-count`, revision `r97-b-rev1`, PR #527,
+branch `maple-tanjiro/r97-prefill-tg-count`, base
+`codex/mlxfast-maple-20260804-advisor` @ `b78e7cdb80b5ae5f1cb1fdd39803322fb283ae5e`.
+
+This document is committed **before** any timed run. Everything below —
+reachability, kernel-selection analysis, go/no-go bars, receipt plan, and the
+corrections to the assignment's cited prior art — is registered in advance.
+
+Host for all local work: Apple **M4 Pro**, 20 GPU cores, 48 GiB, macOS 26.5.2
+(25F84), Apple GPU generation **16**. This host **never selects `_nax`**
+(proof in §3). Local prefill timing is therefore *not* evidence for the ranked
+M5; local decode timing and local dispatch counts are.
+
+---
+
+## 1. What this arm attacks
+
+`research/maple-tanjiro-nonmoe-prefill-census.md` puts the M5 prefill
+`steel_gemm_bf16` pool at **A = 37.93 ms** of the **S = 97.895 ms** prefill
+window (38.7%), against a modelled steel floor of 25.63 ms — i.e. **12.30 ms
+of headroom = 4.61% of score**. Our current deficit to the top of the board is
+**1.0498%** (best on board 2.61650354381456; our best normalised 2.589321,
+receipt `7ce1262d`). At **0.373% score per ms of prefill** we need roughly
+**2.8 ms** of prefill to take the lead outright.
+
+Two independent mechanisms are registered here, to be measured **in sequence,
+never summed**:
+
+- **P2 — fused QKV bank.** Turn on the row-concatenated `[Wq;Wk;Wv]` BF16
+  weight so the three prefill projections become one GEMM.
+- **P3 — skinny-N NAX tile.** Reduce the host-side NAX regular tile from
+  `bn=128, wn=4` to `bn=64, wn=2`, doubling threadgroup count for the same
+  total thread count.
+
+## 2. P2 reachability — verified in this tree, with one undocumented blocker
+
+All line numbers are against `a30aa9381546e2f0cd30ac75bc744ccdab5867c1`.
+
+| step | location | fact |
+|---|---|---|
+| env parse | `Sources/MLXFastModel/LagunaRuntimeModel.swift:113-114` | `DARKBLOOM_FUSED_QKV`, compared `== "1"` ⇒ **default OFF** |
+| doc | `…:108` | comment describing the bank |
+| build | `…:5778` `prepareFusedQKVWeight()` | concatenates `[Wq;Wk;Wv]` along rows |
+| storage | `…:5625` decl, `…:5796` assignment | `_fusedQKVWeight` |
+| prep call | `…:9257` inside `prepareFusedRuntimeWeights()` | runs off the hot path |
+| **consumption** | `…:6069` | `if let fusedQKVWeight = _fusedQKVWeight, L > 1 { let qkv = matmul(normalizedInput, fusedQKVWeight.T) … }` |
+| slices | `…:6079-6084` | three last-axis slices of `[512, 10240]` back into q/k/v |
+
+The consumption site is guarded on `L > 1`, so the bank is **prefill-only** by
+construction. That is exactly the control this arm wants.
+
+**Blocker (undocumented in the assignment and in the prior-art docs).** The
+*shipping* decode-side fusion at `…:5897` is guarded on
+`_fusedQKVWeight == nil`. Merely flipping the env default therefore **disables
+the INT8 fused norm+QKV decode path**, dropping decode to stock BF16 separate
+projections. That is the mechanism behind the previously measured
+**+39.99% µs/step and `decode_speedup` 0.7705** — a hard failure of the 0.95
+decode floor, and the reason a naive env flip is unshippable.
+
+The fix is one line: drop `_fusedQKVWeight == nil` from the `:5897` guard. It
+is safe because the two consumers are mutually exclusive by shape — `:6069`
+requires `L > 1`, the decode block requires `L == 1`. **Registered claim:**
+with that guard fix, decode is bit-identical and time-neutral versus base.
+Decode behaviour is host-independent, so this claim is falsifiable **on M4**
+and I will test it locally before spending any receipt.
+
+Do not confuse `DARKBLOOM_FUSED_QKV` with `DARKBLOOM_FUSED_QKV_PROJECTION`
+(`…:338`, `!= "0"`, default **ON**, already shipping). They are different
+switches.
+
+## 3. Static `_nax` kernel-selection check for the fused shape — PASSES
+
+This is the pre-clearance the assignment asks for, and it is terminal: it can
+be published without any timed run.
+
+Dispatch chain: Swift `matmul` → `Vendor/mlx-swift/Source/MLX/Ops+Array.swift:990`
+→ `…/mlx/mlx/ops.cpp:3264`, where `…/ops.cpp:3310-3311` flattens
+`A[1,512,2048]` → `[512,2048]` with `batch_size_out=1` → `Matmul::eval_gpu` →
+`steel_matmul` → `steel_matmul_regular_axpby_nax`.
+
+- `use_nax` is decided at `…/backend/metal/matmul.cpp:957-959` from
+  `metal::is_nax_available()`.
+- `…/backend/metal/device.cpp:913-931`, gate at `:927`:
+  `can_use_nax &= gen >= (arch == 'p' ? 18 : 17)`. M4 Pro reports `g16g` ⇒
+  **off**; M5 Max reports `g17s` ⇒ **on**. This is the proof that local
+  prefill timing cannot speak for the ranked host.
+- NAX regular tile selection, `matmul.cpp:227-238`: for `devc == 's'` the tile
+  is **bm=64, bn=128, bk=256, wm=2, wn=4**, 256 threads/threadgroup,
+  `swizzle_log=2`.
+
+For M=512, K=2048 the per-shape threadgroup counts are:
+
+| N | meaning | TGs = ceil(512/64)·ceil(N/128) | kernel |
+|---|---|---|---|
+| 1024 | wk, wv (separate) | 8·8 = **64** | `steel_gemm_fused_nax_nn_bfloat16_bfloat16_bm64_bn128_bk256_wm2_wn4` |
+| 2048 | wo | 8·16 = **128** | same |
+| 6144 | wq, full layers | 8·48 = **384** | same |
+| 8192 | fused QKV, full layers | 8·64 = **512** | same |
+| 10240 | **fused QKV, sliding layers** | 8·80 = **640** | same |
+
+Every fused shape selects the **identical** kernel as the unfused shapes. No
+split-K is introduced: Case-1 (`matmul.cpp:965-966`) requires `!use_nax`, and
+Case-2 (`:989-991`) requires `K ≥ 3·max(M,N)`, false here. `align_N` is true
+for every N above (all `N % 128 == 0`). Kernels are JIT
+(`jit_kernels.cpp:979-1010`), so the N=10240 instantiation is legal and needs
+no AOT rebuild.
+
+**Conclusion: the fused N=10240/8192 shapes stay on the `_nax` path on Apple
+GPU generation ≥ 17 with no accept-gate divergence.** The assignment's NO-GO
+condition "fused shape leaves `_nax` on gen ≥ 17" is therefore already
+resolved in the negative, statically, before any receipt is spent. Optional
+runtime ground truth is available via `DARKBLOOM_STEEL_TRACE=1`
+(`matmul.cpp:99-105`, printed `:358-364`) and will **never** be enabled inside
+a timed window.
+
+Model geometry backing the table (`Sources/MLXFastModel/LagunaConfig.swift:9-21`):
+hidden 2048, 40 layers, headDim 128, 8 KV heads (kvDim 1024), sliding layers 64
+heads (qDim 8192), full layers 48 heads (qDim 6144). Fused N = 10240 sliding,
+8192 full.
+
+## 4. Corrections to the cited prior art (registered before measuring)
+
+**(a) `research/maple-tanjiro-pr270-r2-f1-preclearance.md` is inadmissible as
+an M5 prefill prediction.** It measured a pure env flip on this same M4 gen-16
+host, i.e. the *non*-NAX kernel family. Its headline dispatch delta
+(1222→1144, −78) decomposes as `steel_gemm_bf16` −156 (78 split-K GEMMs plus
+78 accumulate passes) **and `qk_norm_rope` +78**. The −156 is **entirely an
+M4 artefact**: on M4 the wk/wv shape (512, 1024, 2048) takes the split-K path,
+whereas the M5 Case-2 test is the exact tie `2048 > 2048` = **false**, so on M5
+wk/wv are already regular. Projected M5 dispatch delta ≈ **0**
+(−117 fused-away, +39 fused-in, +78 copies). Any M5 gain must come from
+somewhere other than dispatch count.
+
+**(b) `research/RESEARCH_IDEAS_steel-gemm-prefill.md:100-137` overstates the
+prize by ~2×.** It claims −3 ms central (−4 with `g_proj` rows). The census it
+cites predicts Step-0 central **−1.6 ms** and F1 total **−2.2 ms**
+(`research/maple-tanjiro-nonmoe-prefill-census.md:543,558`). The two commits
+are 39 s apart and the ideas doc was informed only by the r1 census; it also
+never accounts for the +78 slice copies. I register the **census** number, not
+the ideas-doc number.
+
+**(c) The +78 `qk_norm_rope` dispatches are `g2_copy` general-strided copies**
+produced by slicing the `[512, 10240]` fused output on its last axis. On M4
+they cost **+1.516 ms/request**. They are not removable by reordering — a
+last-axis slice is inherently strided. Removing them requires teaching
+`laguna_prefill_{sliding,full}_qk_norm_*` to read the bank directly with a row
+offset and stride. That is **out of scope** for this arm and is registered as
+the primary follow-up.
+
+**(d) Finding B — the equivalence oracle is structurally blind to this flag.**
+`Sources/MLXFastModel/LagunaUpstreamEquivalence.swift:74-90` bypasses
+`prepareFusedRuntimeWeights()` (single caller
+`Sources/MLXFastModel/LagunaRuntimeWeights.swift:637`), so the oracle never
+constructs `_fusedQKVWeight`. An oracle pass is **not** correctness evidence
+for P2. Correctness evidence must come from `./benchmark.sh --local-iterate`
+token match plus the 64-step drift tripwire, and ultimately from the official
+M5 gates. This caveat applies to any teammate testing this flag.
+
+**(e) Standing rules 63, 64, 65 and 66 cited in the assignment do not exist.**
+`research/CURRENT_RESEARCH_STATE.md` numbers standing rules **24→59 only**
+(highest is rule 59 at `:436`). Rule 58 (`:421-434`) does exist and is used
+below. Rule 47 (`:374-377`) gives σ(score) = 0.6172%; rule 48 (`:379-380`)
+gives per-submission raw-timing σ ≤ 0.2924% decode and ≤ 0.2573% prefill,
+which differ from the σ values quoted in the assignment. I use the
+`CURRENT_RESEARCH_STATE.md` values and flag the discrepancy rather than
+silently picking one.
+
+## 5. My own mechanism model (registered prediction)
+
+The assignment's framing is "dispatch count". Per §4(a) that framing predicts
+**zero** M5 gain. I register a different mechanism, which is what I actually
+expect to be tested:
+
+**P2 is a wave-quantisation play, not a dispatch-count play.** A 64-threadgroup
+dispatch on a 40-core M5 Max has a makespan of 2 scheduling rounds for 1.6
+rounds of work — roughly 20-25% of the machine idle in the tail. The 78 wk/wv
+dispatches are exactly this shape. Folding them into the wq dispatch grows it
+from 512 to 640 threadgroups, where the same quantisation waste is amortised
+over 10× the work.
+
+Central estimate: gross ≈ **−2 ms** if wk/wv occupy ≈ 9 ms of the 37.93 ms
+pool, minus ≈ **1.0 ms** of `g2_copy` on M5 (M4 measured 1.516 ms; M5 is
+faster) ⇒ **net ≈ −1 to −2 ms**, i.e. **+0.37% to +0.75%** score. This is
+below the assignment's suggested 1.5 ms GO bar. I register the bar anyway (see
+§6) — the point of the receipt is to discriminate between "≈0, dispatch-count
+framing was right", "−1 to −2 ms, wave-quantisation framing is right", and
+"−3 ms, the ideas doc was right".
+
+**P3's theoretical basis is weaker than `research/maple-tanjiro-nax-skinny-tile.md`
+claims.** Halving `bn` 128→64 also halves `wn` 4→2, so threads/threadgroup
+falls 256→128. Total thread count is unchanged, and so is the makespan in
+rounds: 64 full threadgroups on 40 cores = 2 rounds; 128 half-threadgroups on
+40 cores = 4 rounds of half-size = the same 2 rounds of work. Any P3 gain must
+therefore come from *within-core* concurrency (more resident threadgroups per
+core hiding more latency), not from load balance. The doc's own roofline note
+is the main risk: achieved arithmetic intensity is 43 FLOP/byte, not 293, and
+the extra A-matrix re-read costs **+2.4 ms if it misses cache**. P3 is
+plausibly a *regression*.
+
+## 6. Registered go/no-go bars
+
+The assignment's suggested bars are adopted **unchanged and unloosened**:
+
+- **P2 GO** — a matched M5 receipt shows **≥ 1.5 ms** prefill gain, correctness
+  green, **both** floors passed.
+- **P2 NO-GO** — the fused shape leaves `_nax` on gen ≥ 17 (already resolved
+  negative in §3), **or** prefill regresses, **or** the prefill move is
+  **< 0.3 ms**.
+- **P3 GO** — **≥ 1.0 ms** *incremental* prefill gain measured on top of
+  whatever state P2 leaves behind.
+
+Between 0.3 ms and 1.5 ms is the registered **inconclusive-but-informative**
+band: it does not clear the GO bar, and I will report it as such rather than
+promoting it. Because §5 puts my own central estimate inside that band, I
+expect the most likely honest outcome of this arm to be a *characterisation*
+of the fused-QKV mechanism plus a quantified follow-up, not a promotion.
+
+Hard prerequisite for any P2 receipt, registered now: **local M4 evidence that
+the `:5897` guard fix leaves decode time-neutral** (|Δ µs/step| within run
+noise) and token-identical. If decode is not neutral on M4, P2 is abandoned
+without spending a receipt, because the decode floor is 0.95 and prior art
+already recorded 0.7705 for the unfixed flip.
+
+## 7. Receipt plan (budget: 6 M5 receipts, expect to use ≤ 3)
+
+1. **R1 — P2** (env default ON + `:5897` guard fix). Compare against the
+   recorded byte-identical base 3-receipt control `f8502e12`, `71586bcf`,
+   `f3cda678`.
+2. **R2 — P3 on top of P2** if P2 is GO, else P3 against plain base.
+3. **R3** — one repeat of whichever of R1/R2 lands closest to a decision
+   boundary, to separate a real move from σ.
+
+Receipts are dispatched with `mlxfast submit --model "senpai"` per the campaign
+attribution rule, with a note ≥ 5 KiB, and watched via
+`senpai/watch-submission.py` under `run_job`.
+
+Every receipt is read as **four independent verdicts**: correctness, decode
+floor, prefill floor, ranking. A `rejected` receipt still publishes full
+`officialMetrics` and can be a scientific success
+(`research/PREFILL_LEDGER_INSTRUMENT.md`); a floor or correctness failure
+publishes nothing.
+
+Metric normalisation used throughout (unchanged from prior arms):
+
+```
+norm_decode_su  = 0.013890  / decode_spt
+norm_prefill_su = 0.0003845 / prefill_spt
+ns              = norm_decode_su^0.75 * norm_prefill_su^0.25
+S (prefill ms)  = 512000 * prefill_spt
+T (decode ms)   = 1000 * decode_spt - S/128      # rule 58: D = 4P + T
+```
+
+Rule 58 is why prefill's *effective* weight is **0.365**, not 0.25: the seed
+prefill sits inside the decode timer, contributing 4P = 752.2 µs/step = 15.4%
+of the decode number.
+
+## 8. W&B logging contract
+
+Runs go to `wandb-applied-ai-team/mlxfast-maple`. Each receipt logs at minimum:
+
+- `prefill_ms_fused_qkv` and/or `prefill_ms_skinny_tile` (the S values above),
+- `decode_us_per_step`, `norm_decode_su`, `norm_prefill_su`, `ns`,
+- dispatch counts by kernel family for candidate and base,
+- `receipt_id`, `correctness`, `decode_floor_pass`, `prefill_floor_pass`,
+  `ranking_status` as four separate fields.
+
+## 9. Files this arm may touch
+
+Submitted surface (all inside `benchmark.json` `editablePaths`):
+
+- `Sources/MLXFastModel/LagunaRuntimeModel.swift` (P2: env default + `:5897`
+  guard).
+- `Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp` (P3: skinny
+  tile, env-gated, default OFF).
+
+Research-only: this file and `research/tanjiro-r97-prefill-tg-result.md`.
+
+Budget at registration time: `current=2899476/3000000, headroom=100524,
+growth=0/262144, files=141`. P3 is measured at +1,631 B in
+`research/maple-tanjiro-nax-skinny-tile.md`; P2 is a net-zero edit. Both fit.
