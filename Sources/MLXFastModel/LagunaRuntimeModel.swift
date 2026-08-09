@@ -8082,6 +8082,12 @@ let lagunaFusedDownRowStagingEnabled =
     ProcessInfo.processInfo.environment[
         "DARKBLOOM_FUSED_DOWN_ROW_STAGING"] != "0"
 
+/// `DARKBLOOM_FUSED_DOWN_BF16_SCRATCH_PACKETS=0` retains the scalar scratch
+/// epilogue for same-binary controls.
+let lagunaFusedDownBf16ScratchPacketsEnabled =
+    ProcessInfo.processInfo.environment[
+        "DARKBLOOM_FUSED_DOWN_BF16_SCRATCH_PACKETS"] != "0"
+
 private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
     name: lagunaSharedFirstDownOrderEnabled
         ? "laguna_routed_shared_nvfp4_down_residual_bf16_r1_v5sf"
@@ -8130,7 +8136,8 @@ private let lagunaRoutedSharedDownResidualSharedHalvedKernel =
     )
 
 private func lagunaRoutedSharedDownResidualSource(
-    sharedHalved: Bool, staged: Bool = false
+    sharedHalved: Bool, staged: Bool = false,
+    packetizedScratch: Bool = false
 ) -> String {
     let sharedRowBytes = sharedHalved ? 16 : 32
     let sharedBase =
@@ -8187,6 +8194,96 @@ private func lagunaRoutedSharedDownResidualSource(
             result[row] = simd_sum(result[row]);
         }
         """
+    let downScratch =
+        packetizedScratch
+        ? """
+        threadgroup uint2 down_output_packets[routed_experts + 1];
+        if (lane == 0) {
+            ushort output_bits[outputs_per_simd];
+            for (uint row = 0; row < outputs_per_simd; ++row) {
+                output_bits[row] = as_type<ushort>(
+                    bfloat(result[row]\(lagunaNvfp4RowScaleSuffix)));
+            }
+            down_output_packets[slot] = uint2(
+                uint(output_bits[0]) | (uint(output_bits[1]) << 16),
+                uint(output_bits[2]) | (uint(output_bits[3]) << 16));
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        if (slot == 0) {
+            bfloat routed_total = bfloat(0);
+            for (uint routed_slot = 0;
+                 routed_slot < routed_experts;
+                 ++routed_slot) {
+                uint2 packet = uint2(0);
+                if (lane == 0) {
+                    packet = down_output_packets[routed_slot];
+                }
+                uint low_word = simd_broadcast(packet.x, 0);
+                uint high_word = simd_broadcast(packet.y, 0);
+                if (lane < outputs_per_simd) {
+                    uint packed_word = lane < 2 ? low_word : high_word;
+                    bfloat down = as_type<bfloat>(ushort(
+                        packed_word >> ((lane & 1) * 16)));
+                    bfloat route_weight =
+                        bfloat(router_weights[routed_slot]);
+                    bfloat product = bfloat(down * route_weight);
+                    routed_total = bfloat(product + routed_total);
+                }
+            }
+            uint2 shared_packet = uint2(0);
+            if (lane == 0) {
+                shared_packet = down_output_packets[shared_slot];
+            }
+            uint shared_low_word = simd_broadcast(shared_packet.x, 0);
+            uint shared_high_word = simd_broadcast(shared_packet.y, 0);
+            if (lane < outputs_per_simd) {
+                uint shared_packed_word =
+                    lane < 2 ? shared_low_word : shared_high_word;
+                bfloat routed = bfloat(
+                    routed_total * bfloat(2.5f));
+                bfloat shared = as_type<bfloat>(ushort(
+                    shared_packed_word >> ((lane & 1) * 16)));
+                bfloat r2 = bfloat(routed + shared);
+                output[first_row + lane] =
+                    bfloat(residual[first_row + lane] + r2);
+            }
+        }
+        """
+        : """
+        threadgroup bfloat down_outputs[
+            (routed_experts + 1) * outputs_per_simd
+        ];
+        if (lane == 0) {
+            for (uint row = 0; row < outputs_per_simd; ++row) {
+                down_outputs[slot * outputs_per_simd + row] =
+                    bfloat(result[row]\(lagunaNvfp4RowScaleSuffix));
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        if (slot == 0 && lane < outputs_per_simd) {
+            bfloat routed_total = bfloat(0);
+            for (uint routed_slot = 0;
+                 routed_slot < routed_experts;
+                 ++routed_slot) {
+                bfloat route_weight =
+                    bfloat(router_weights[routed_slot]);
+                bfloat product = bfloat(
+                    down_outputs[
+                        routed_slot * outputs_per_simd + lane
+                    ] * route_weight);
+                routed_total = bfloat(product + routed_total);
+            }
+            bfloat routed = bfloat(
+                routed_total * bfloat(2.5f));
+            bfloat shared =
+                down_outputs[shared_slot * outputs_per_simd + lane];
+            bfloat r2 = bfloat(routed + shared);
+            output[first_row + lane] =
+                bfloat(residual[first_row + lane] + r2);
+        }
+        """
     return """
 constexpr uint input_width = 512;
 constexpr uint output_width = 2048;
@@ -8239,38 +8336,7 @@ for (uint i = 0; i < values_per_lane / 4; ++i) {
 
 \(qdots)
 
-threadgroup bfloat down_outputs[
-    (routed_experts + 1) * outputs_per_simd
-];
-if (lane == 0) {
-    for (uint row = 0; row < outputs_per_simd; ++row) {
-        down_outputs[slot * outputs_per_simd + row] =
-            bfloat(result[row]\(lagunaNvfp4RowScaleSuffix));
-    }
-}
-threadgroup_barrier(mem_flags::mem_threadgroup);
-
-if (slot == 0 && lane < outputs_per_simd) {
-    bfloat routed_total = bfloat(0);
-    for (uint routed_slot = 0;
-         routed_slot < routed_experts;
-         ++routed_slot) {
-        bfloat route_weight =
-            bfloat(router_weights[routed_slot]);
-        bfloat product = bfloat(
-            down_outputs[
-                routed_slot * outputs_per_simd + lane
-            ] * route_weight);
-        routed_total = bfloat(product + routed_total);
-    }
-    bfloat routed = bfloat(
-        routed_total * bfloat(2.5f));
-    bfloat shared =
-        down_outputs[shared_slot * outputs_per_simd + lane];
-    bfloat r2 = bfloat(routed + shared);
-    output[first_row + lane] =
-        bfloat(residual[first_row + lane] + r2);
-}
+\(downScratch)
 """
 }
 
@@ -8430,6 +8496,29 @@ private let lagunaRoutedSharedDownResidualStagedSharedHalvedKernel =
         ensureRowContiguous: true
     )
 
+private let lagunaRoutedSharedDownResidualPacketSharedHalvedKernel =
+    MLXFast.metalKernel(
+        name: lagunaSharedFirstDownOrderEnabled
+            ? "laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_packet_v7sf"
+            : "laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_packet_v7",
+        inputNames: lagunaSharedFirstDownOrderEnabled
+            ? [
+                "shared_activated", "shared_down_weight", "shared_down_scales",
+                "routed_activated", "routed_down_weight", "routed_down_scales",
+                "indices", "router_weights", "residual",
+            ]
+            : [
+                "routed_activated", "routed_down_weight", "routed_down_scales",
+                "indices", "router_weights", "shared_activated",
+                "shared_down_weight", "shared_down_scales", "residual",
+            ],
+        outputNames: ["output"],
+        source: lagunaRoutedSharedDownResidualSource(
+            sharedHalved: true, staged: true, packetizedScratch: true),
+        header: lagunaSharedSwiGLUQMVHeader,
+        ensureRowContiguous: true
+    )
+
 func lagunaRoutedSharedDownResidual(
     routedActivated: MLXArray,
     routedDownWeight: MLXArray,
@@ -8440,7 +8529,8 @@ func lagunaRoutedSharedDownResidual(
     sharedDownWeight: MLXArray,
     sharedDownScales: MLXArray,
     residual: MLXArray,
-    staged: Bool = lagunaFusedDownRowStagingEnabled
+    staged: Bool = lagunaFusedDownRowStagingEnabled,
+    packetizedScratch: Bool = lagunaFusedDownBf16ScratchPacketsEnabled
 ) -> MLXArray {
     precondition(routedActivated.dtype == .bfloat16)
     precondition(
@@ -8481,7 +8571,9 @@ func lagunaRoutedSharedDownResidual(
     let fusedKernel =
         sharedHalved
         ? (staged
-            ? lagunaRoutedSharedDownResidualStagedSharedHalvedKernel
+            ? (packetizedScratch
+                ? lagunaRoutedSharedDownResidualPacketSharedHalvedKernel
+                : lagunaRoutedSharedDownResidualStagedSharedHalvedKernel)
             : lagunaRoutedSharedDownResidualSharedHalvedKernel)
         : (staged
             ? lagunaRoutedSharedDownResidualStagedKernel
