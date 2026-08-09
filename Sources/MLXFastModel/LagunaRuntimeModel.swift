@@ -7808,26 +7808,41 @@ thread float gate_result = 0.0f;
 thread float up_result = 0.0f;
 thread float input_values[values_per_lane];
 
-uint2 gate_codes;
-uint2 up_codes;
-uint8_t gate_sb;
-uint8_t up_sb;
+// All four K-blocks of weight codes and scale bytes are issued before any
+// math, so 64 B of codes per lane are in flight instead of the 16 B a
+// depth-1 pipeline holds. Same addresses, same bytes, same qdot order.
+constexpr uint k_blocks = input_width / block_width;
+uint2 gate_codes[k_blocks];
+uint2 up_codes[k_blocks];
+uint8_t gate_sb[k_blocks];
+uint8_t up_sb[k_blocks];
 {
-    const device uint8_t* first_scales =
+    const device uint8_t* gate_base =
+        expert_weight + gate_row * fused_row_bytes + lane * 8;
+    const device uint8_t* up_base =
+        expert_weight + up_row * fused_row_bytes + lane * 8;
+    const device uint8_t* scale_base =
         row_scales + sub * 2 * scale_row_bytes + (lane >> 1);
     bool patch_lane = expert == 0 && logical_row == 0 && lane == 1;
-    gate_sb = patch_lane ? packed_scales[0] : first_scales[0];
-    up_sb = patch_lane ? packed_scales[1] : first_scales[scale_row_bytes];
-    gate_codes = *(const device uint2*)(
-        expert_weight + gate_row * fused_row_bytes + lane * 8);
-    up_codes = *(const device uint2*)(
-        expert_weight + up_row * fused_row_bytes + lane * 8);
+#pragma clang loop unroll(full)
+    for (uint k = 0; k < k_blocks; ++k) {
+        const device uint8_t* k_scales =
+            scale_base + k * scale_kblock_bytes;
+        bool patch = patch_lane && k == 0;
+        gate_sb[k] = patch ? packed_scales[0] : k_scales[0];
+        up_sb[k] = patch ? packed_scales[1] : k_scales[scale_row_bytes];
+        gate_codes[k] = *(const device uint2*)(
+            gate_base + k * (block_width / 2));
+        up_codes[k] = *(const device uint2*)(
+            up_base + k * (block_width / 2));
+    }
 }
 
-for (uint block = 0; block < input_width; block += block_width) {
+#pragma clang loop unroll(full)
+for (uint k = 0; k < k_blocks; ++k) {
     const device vec<bfloat, 4>* input_vectors =
         (const device vec<bfloat, 4>*) (
-            input + block + lane * values_per_lane);
+            input + k * block_width + lane * values_per_lane);
     for (uint i = 0; i < values_per_lane / 4; ++i) {
         const vec<bfloat, 4> values = input_vectors[i];
         input_values[4 * i] = values[0];
@@ -7836,31 +7851,12 @@ for (uint block = 0; block < input_width; block += block_width) {
         input_values[4 * i + 3] = values[3];
     }
 
-    const uint2 cur_gate_codes = gate_codes;
-    const uint2 cur_up_codes = up_codes;
-    const uint8_t cur_gate_sb = gate_sb;
-    const uint8_t cur_up_sb = up_sb;
-    const uint next_block = block + block_width;
-    if (next_block < input_width) {
-        const device uint8_t* next_scales =
-            row_scales + (next_block / block_width) * scale_kblock_bytes
-            + sub * 2 * scale_row_bytes + (lane >> 1);
-        gate_sb = next_scales[0];
-        up_sb = next_scales[scale_row_bytes];
-        gate_codes = *(const device uint2*)(
-            expert_weight + gate_row * fused_row_bytes
-            + next_block / 2 + lane * 8);
-        up_codes = *(const device uint2*)(
-            expert_weight + up_row * fused_row_bytes
-            + next_block / 2 + lane * 8);
-    }
-
     gate_result += laguna_nvfp4_qdot_codes_16(
-        cur_gate_codes, input_values,
-        laguna_nvfp4_scale(cur_gate_sb));
+        gate_codes[k], input_values,
+        laguna_nvfp4_scale(gate_sb[k]));
     up_result += laguna_nvfp4_qdot_codes_16(
-        cur_up_codes, input_values,
-        laguna_nvfp4_scale(cur_up_sb));
+        up_codes[k], input_values,
+        laguna_nvfp4_scale(up_sb[k]));
 }
 
 gate_result = simd_sum(gate_result);
