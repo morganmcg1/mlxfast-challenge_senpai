@@ -683,22 +683,23 @@ let lagunaRouterRowsPerGroup: Int = {
     return value
 }()
 
-/// `DARKBLOOM_ROUTER_WEIGHT_PREFETCH` (default `0`): R89-A ablation knob for
-/// hoisting the router GEMV's `router_weight` device loads above the RMS
-/// reduction tail. Those loads depend only on `tile`/`simd_group`/`simd_lane`,
-/// never on the norm, yet today they are issued after four
-/// `threadgroup_barrier`s. `1`/`2`/`3`/`4` hoist that many four-load groups;
-/// `5` is the PLACEMENT CONTROL that emits the character-identical one-group
-/// peel immediately below the normalize barrier instead, so `1` minus `5`
-/// isolates cross-barrier overlap from the peel itself. Loads only: the
-/// accumulation order into `router_result[0]` is untouched, so every arm is
-/// bit-exact with arm `0`.
+/// `DARKBLOOM_ROUTER_WEIGHT_PREFETCH` (default `1`): hoists the first group of
+/// the router GEMV's `router_weight` device loads above the RMS reduction tail.
+/// Those loads depend only on `tile`/`simd_group`/`simd_lane`, never on the
+/// norm, yet unhoisted they are issued after four `threadgroup_barrier`s, so
+/// their latency cannot overlap the reduction ladder. `1`/`2`/`3`/`4` hoist
+/// that many four-load groups; `0` restores the unhoisted form and `5` is the
+/// PLACEMENT CONTROL that emits the character-identical one-group peel
+/// immediately below the normalize barrier instead, so `1` minus `5` isolates
+/// cross-barrier overlap from the peel itself. Loads only: the accumulation
+/// order into `router_result[0]` is untouched, so every arm is bit-exact
+/// with arm `0`.
 let lagunaRouterWeightPrefetch: Int = {
     guard
         let raw = ProcessInfo.processInfo.environment["DARKBLOOM_ROUTER_WEIGHT_PREFETCH"],
         let value = Int(raw), [0, 1, 2, 3, 4, 5].contains(value)
     else {
-        return 0
+        return 1
     }
     return value
 }()
