@@ -187,6 +187,10 @@ Neither changed the verdict.
 
 ## Evidence
 
+- W&B run: `w1cp8up8` —
+  <https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/w1cp8up8>
+  (`grid` table carries all 64 configurations; summary carries the primary
+  metric `router_bytes_per_step` and `verdict_go = 0`).
 - Host, memory profile, toolchain, thermal policy: Apple **M4 Pro**, 48 GiB
   unified memory (low-memory startup profile, < 64 GiB), macOS 26.5.2. No
   `_nax` kernels are selected on this host. No thermal gate is involved because
