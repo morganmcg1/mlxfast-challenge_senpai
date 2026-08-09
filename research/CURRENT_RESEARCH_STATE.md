@@ -161,24 +161,58 @@
   host-invariant** — the earlier "host-invariant at S=5" claim was an artefact
   of the `τ₀/S` fiction. Decide at C=40, because that is what we ship to.
 
-  **Sliding kernel, K=32, C=40: probably dead by arithmetic.** Every `S ≤ 4`
-  gives `ceil(32S/40) = S` waves against unchanged `16u` of steady work, i.e.
-  `S·f + 16u`, worse than `f + 16u` at any `f > 0`. Every `S ≥ 5` drops the
+  **Sliding kernel, K=32, C=40: `r` decides, and `r` is now bounded.** Every
+  `S ≤ 4` gives `ceil(32S/40) = S` waves against unchanged `16u` of steady work,
+  i.e. `S·f + 16u`, worse than `f + 16u` at any `f > 0`. Every `S ≥ 5` drops the
   slice below 128 positions, which the 4-deep body cannot execute. A sliding
   split therefore **requires authoring a shallower kernel**; with `u' = r·u` for
-  that body, S=8 pays iff `6f < (16 − 14r)u`, so **`r ≥ 1.143` kills the arm
-  with no `f` measurement at all**. #539's own receipt (4-deep bought ≈0.13 %
-  of score ≈ 3 % of the sliding pool over 2-deep) puts `r ≈ 1.03`, leaving
-  `f/τ₀ < 1.6 %` and a prize of only ≈10 % of the sliding pool.
+  that body, S=8 pays iff `6f < (16 − 14r)u`, so **`r ≥ 16/14 = 1.1428` kills
+  the arm with no `f` measurement at all**.
 
-  Revised ceiling against the *modelled* M5 pools (≈290 µs/step sliding,
-  ≈100 µs/step full — both M4×ratio figures, under reconstruction by #561):
-  sliding ≈10 % ⇒ **29 µs/step** behind a 1.6 % gate (expect NO-GO); full
-  37.5 % ⇒ **37.5 µs/step** behind a 9.4 % gate (plausible). Total ≈
-  **66 µs/step ≈ 1.0 % of score** at 0.015228 %/µs-step — **not** the
-  98 µs/step / 1.49 % originally briefed. If the sliding arm dies as expected,
-  the full arm alone clears the +30 µs/step slot bar by only 1.25×. All of this
-  still ignores the recombination pass, so treat it as an upper bound.
+  🔑 **Archival same-kernel estimate of `r` (round 102, from #561's own
+  staleness).** Fern's T3a row — sliding fused attention, **636.0 µs/step on
+  M4** — was measured at base `3567695b`, which **predates #539's 4-deep ring**
+  (verified: `grep -c "i + 3 \* BN < N"` returns 0 at that base). So 636.0 is a
+  *same-kernel, same-host, same-`gqa`, same-`rotary_pairs`* **2-deep**
+  measurement of the very kernel #539 made 4-deep. Charging #539's ≈0.13 %-score
+  gain to this family at β = 0.5 gives 17.07 µs/step M4, so 4-deep M4 ≈ **618.93**
+  and `τ₂/τ₄ = 1.0276`. That ratio is `f`-diluted; undoing the dilution with
+  `r = ratio + (ratio − 1)·φ`, `φ = f/τ₀`, gives
+
+  > **`r ∈ [1.022, 1.041]`** across gain ∈ [0.10 %, 0.16 %] and φ ∈ [0.05, 0.20].
+
+  This is **far** below the 1.1428 kill threshold. The sliding arm is therefore
+  **not killed by `r`** — it is decided by `f`, at a bar of `f/τ₀ < 1.6 %`
+  (range 1.49–1.76 % over the same envelope), with a prize of
+  `1 − 0.875r` = **8.9–10.6 % of the sliding pool**. Status is upgraded from
+  "expect NO-GO" to **genuinely open**.
+
+  **Direct same-kernel `r` measurement, zero submitted bytes.** The archival
+  estimate can be replaced by a measurement inside `fern_r100_attn_probe.swift`
+  by source-substituting the extracted sliding body from 4-deep to 2-deep. Exact
+  anchors at base `51e36805` in `LagunaRuntimeModel.swift`: header `1548` →
+  `for (; i + BN < N; i += 2 * BN) {`; delete `1550,1551` (pipe_keys_c/d),
+  `1553,1554` (pipe_values_c/d), `1557,1558` (sub_c/d), `1561,1562`
+  (pipe_kc/kd), `1565,1566` (T_LOAD_K c/d), `1569,1570` (pipe_vc/vd),
+  `1575-1578` (T_LOAD_V c/d), and **`1651`–`1722`** (blank + pipec stage
+  `1652`–`1686` + piped stage `1688`–`1722`); change `1724`/`1725` from `4 *` to
+  `2 *`. Stage b ends `1650`; the loop closes `1726`. Position coverage is
+  **identical at N = 512** (4-deep: 4 iters × 128; 2-deep: 8 iters × 64), so the
+  two variants must agree numerically to ~1e-6 — that agreement is the
+  correctness check. Then `r = c₂/c₄` from two intercept fits over the shared
+  points N ∈ {512, 384, 256, 128}, and `f₄ ≈ f₂` is a free affine-model check
+  (a large disagreement detects N-B, i.e. that `f` is not N-independent).
+
+  Revised ceiling against the *modelled* M5 pools — **T3a sliding 309.5 µs/step
+  and T3a′ full 114.85 µs/step**, both from #561's measured M4 pools under the
+  M4 ×0.4369 bandwidth-pool / ×0.5 latency-pool two-pool map (residual −6.63 %),
+  with T3a corrected for the 2-deep staleness above. Sliding ≈10.3 % ⇒
+  **31.8 µs/step** behind a 1.6 % gate; full 37.5 % ⇒ **43.1 µs/step** behind a
+  9.4 % gate. Total ≈ **74.9 µs/step ≈ 1.14 % of score** at 0.015228 %/µs-step —
+  **not** the 98 µs/step / 1.49 % originally briefed. If the sliding arm dies on
+  `f`, the full arm **alone** is 43.1 µs/step ≈ **0.66 %**, clearing the
+  +30 µs/step slot bar by 1.44×. All of this still ignores the recombination
+  pass, so treat it as an upper bound.
 
   `f` has never been measured. It is measurable with **zero submitted bytes**
   in `research/fern_r100_attn_probe.swift`, which already does
@@ -196,7 +230,7 @@
      uniformly loaded. Fit `τ(N) = f + cN`, then `u = 32c`, `τ₀(512) = 16u`,
      and test `f/τ₀` against the **9.4 %** bar. This is the measurement that
      decides whether rung 2 exists.
-  2. **SECONDARY — the sliding kernel, expect NO-GO.** Its N knob **cannot** be
+  2. **SECONDARY — the sliding kernel; genuinely open, `f` decides.** Its N knob **cannot** be
      a `params[]` write: `constexpr int N = 512;` (`LRM:1434`) is compile-time
      and the kernel's **only** `params[]` read is `params[0]` (widx), so
      `params[2]` is dead there and wiring a `FERN_WINDOW` env var into
@@ -211,12 +245,18 @@
      condition `sg + 96 < 64` is false for *every* simdgroup, so the body never
      executes and the kernel processes **zero positions**; at `N = 104` only
      `sg < 8` enters. Both were listed in the original brief; both are dropped.
-  4. Consequently **the shallow-pipeline penalty `r` is not measurable from the
-     sliding kernel at all.** The only handle is comparing the sliding kernel's
-     4-deep `u` with the full kernel's 2-deep `u`, which is confounded by their
-     differing `gqa` (8 vs 6) and `rotary_pairs` (64 vs 32). Report it as a
-     confounded estimate cross-checked against the #539 prior of ≈1.03, never
-     as a measurement. Any probe result must name which kernel it extracted.
+  4. ⚠️ **RETRACTED (round 102): "`r` is not measurable from the sliding
+     kernel."** That claim assumed the only handle was the confounded
+     cross-kernel comparison of the sliding kernel's 4-deep `u` with the full
+     kernel's 2-deep `u` (confounded by `gqa` 8 vs 6 and `rotary_pairs` 64 vs
+     32). Two clean handles exist and supersede it: (a) the **archival
+     same-kernel** estimate `r ∈ [1.022, 1.041]` from fern's pre-#539 T3a row,
+     derived above; (b) the **direct same-kernel** measurement by 2-deep source
+     substitution in the extracted sliding body, recipe and line anchors above.
+     The cross-kernel number must never be quoted. Any probe result must still
+     name which kernel it extracted, and if the measured `r` disagrees with the
+     archival interval by more than ±0.02 that is itself a finding (it would
+     mean #539's score gain is not attributable to the ring depth alone).
   5. Rung-2 design note: the full layers' `N` grows with context and S=8 stays
      pipeline-clean only while the slice is ≥ 64 positions, i.e. `N ≥ 512`.
      Choose `S = clamp(N/64, 1, 8)` host-side per dispatch — `N` is already in
@@ -635,7 +675,170 @@ Per expert per layer:
 at the current layout epoch is 5.9 % high. State the layout epoch with every
 byte figure.
 
-### B. 🎯 Where the routed pool actually sits — REBUILT (round 101)
+### B. 🎯 THE MEASURED POOL MODEL — #561 MERGED (round 102)
+
+**This subsection supersedes B.1 below. Every M5 µs/step in this document
+should now be re-sourced from `research/artifacts/fern-r101/m5-pool-table.csv`
+and every per-family byte count from `research/artifacts/fern-r101/byte-audit.tsv`.**
+
+#### B.0.1 The measured M4 Pro ceiling, and the instrument that was wrong
+
+An autotuned streaming-read sweep on M4 Pro (`research/fern_r101_bw_probe.swift`,
+rule-77 geometry: 40 threadgroups = 2/core × 256 threads × ilp 8, grid 10240,
+163840 B per command buffer) measures **262.98 GB/s sequential / 266.80 GB/s
+64 KiB-blocked = 97.7 % of the 273 GB/s spec**. LLC knee at **16–20 MiB**.
+
+The programme's published 237.4 GB/s **under-reads this host by 12.4 %**, and
+the cause is *geometry*, not physics: the published instrument uses a fixed,
+non-autotuned 256 TG × 256 thread shape chosen on one machine and applied to
+both. A faithful autotuned replica of the same differential returns 259.52 =
+98.7 % of ceiling; a merely sane-looking geometry (2 TG/core × 128 threads)
+reads the same silicon at 226.9 GB/s. **A 14 % under-read from geometry alone,
+on a probe that otherwise looks healthy.** See rule 76 rev 2.
+
+#### B.0.2 The two-pool M4→M5 map
+
+Families are classified `bytes` or `latency` by the rule-71 two-column test,
+then mapped with **two** parameters and no third fitted term:
+
+- `α = 266.80 / 610.6 = 0.4369` for **bytes**-regime families (ceiling ratio)
+- `β = 0.5` for **latency**-regime families
+
+Fitted pools: **BW 6302.5 / LAT 1793.8 / unaudited tail 432.0 µs**. Predicts an
+M5 step of **3866.8 µs** against **4141.5 µs** measured ⇒ residual **−6.63 %**
+(the prior single-ratio map gave −12.77 %). Artifact:
+`research/artifacts/fern-r101/pool-model.json`.
+
+**Mandatory label for every M5 figure derived from this:** *M4 ×0.4369
+bandwidth-pool / ×0.5 latency-pool two-pool map, residual −6.63 %, #561*.
+
+#### B.0.3 The re-ranked pool table (15 families)
+
+`α = 0.4369`, `β = 0.5`, HEAD-epoch bytes. "% peak" is against the published
+610.6 GB/s M5 figure (carry 686 as a sensitivity, per rule 76 rev 2).
+
+| rank | family | calls | M4 µs | **M5 µs** | regime | % M5 peak | headroom µs | % score |
+|---|---|---:|---:|---:|---|---:|---:|---:|
+| 1 | T2c routed gate+up qmv | 39 | 1497.7 | **654.4** | bytes | 87.0 | 85.1 | 1.30 |
+| 2 | T0b(a) qkv h64 | 30 | 1340.1 | 585.6 | bytes | 90.8 | 53.8 | 0.82 |
+| 3 | T3b oproj h64 | 30 | 1117.7 | 488.4 | bytes | 87.0 | 63.3 | 0.96 |
+| 4 | T2d routed+shared down+resid | 39 | 858.9 | 375.3 | bytes | 85.3 | 55.1 | 0.84 |
+| 5 | **T3a sliding fused attn** ⚠️ | 30 | 636.0 | **318.0** | **latency** | **32.4** | **215.0** | **3.27** |
+| 6 | T1c lmhead int5 base+delta | 1 | 420.3 | 183.6 | bytes | 97.4 | 4.8 | 0.07 |
+| 7 | T0b(b) qkv h48 | 10 | 362.8 | 158.5 | bytes | 89.5 | 16.7 | 0.26 |
+| 8 | T1a residual/rms/router | 39 | 312.8 | 156.4 | **latency** | 42.8 | 89.4 | 1.36 |
+| 9 | T2a shared gate+up qmv | 39 | 287.1 | 143.6 | **latency** | 49.6 | 72.4 | 1.10 |
+| 10 | T3c oproj h48 | 10 | 301.8 | 131.9 | bytes | 80.6 | 25.6 | 0.39 |
+| 11 | **T2b gate_sp h64** | 30 | 248.0 | 124.0 | **latency** | **10.4** | 111.1 | **1.69** |
+| 12 | dense gate_up (layer 0) | 1 | 269.4 | 117.7 | bytes | 93.4 | 7.8 | 0.12 |
+| 13 | **T3a' full fused attn** | 10 | 229.7 | **114.9** | **latency** | **33.6** | 76.2 | 1.16 |
+| 14 | dense_down (layer 0) | 1 | 133.8 | 58.5 | bytes | 94.0 | 3.5 | 0.05 |
+| 15 | T2b' gate_sp h48 | 10 | 80.2 | 40.1 | **latency** | 8.0 | 36.9 | 0.56 |
+
+⚠️ **T3a staleness caveat (advisor, at merge).** The 636.0 µs M4 figure was
+measured at base `3567695b`, which **predates #539's 4-deep ring** (verified:
+`grep -c "i + 3 \* BN < N"` returns 0 there). Corrected for #539's ≈0.13 %-score
+gain at β = 0.5, the current values are **M4 ≈ 618.9, M5 ≈ 309.5**, a −2.7 %
+correction to this one row. It changes no ranking or verdict. **Quote 309.5, not
+318.0, in any ceiling calculation.** The staleness is productive: 636.0 is a
+same-kernel, same-host, same-`gqa`, same-`rotary_pairs` *2-deep* measurement of
+the kernel #539 made 4-deep, and it pins the shallow-pipeline penalty at
+`r = 1.022–1.041` across `f/τ₀ ∈ [0.05, 0.20]` — well under the `r ≥ 1.143`
+that would kill a sliding split-K on arithmetic (derivation and the
+direct same-kernel re-measurement recipe: the **"Round-102 advisor derivation"**
+block in the live-board section at the top of this file, line ≈108).
+
+#### B.0.4 🔑 The latency-regime cluster is the real prize pool
+
+Six families are **latency**-regime, totalling **≈601 µs/step ≈ 9.15 % of
+score** in headroom. Every one of them is an occupancy / dispatch-structure
+problem, not a bandwidth problem. The two attention kernels at **32.4 % and
+33.6 % of peak** are independent corroboration — arrived at by byte accounting
+against a measured ceiling, not by threadgroup counting — of the `Fill = 0.80 /
+0.60` under-occupancy premise driving R102-A.
+
+**Bandwidth headroom on a latency-bound family is an upper bound on a fiction.**
+T2b gate_sp "clears" any %-below-peak bar at 10.4 %, but it moves 7.9 MB in
+124 µs and is bound by 30 dispatches of per-head BF16 `g_proj`. The headroom bar
+is therefore **restated** (rule 81 below).
+
+#### B.0.5 Byte counts: four layout-epoch traps and one under-count
+
+Re-source per-family bytes from `research/artifacts/fern-r101/byte-audit.tsv`.
+Published figures that were wrong (MB/step):
+
+| family | published | **HEAD (correct)** |
+|---|---:|---:|
+| routed | 552.08 | **521.40** (= 521,404,416 B exactly) |
+| qkv | 448.3 | **411.30** |
+| oproj | 353.9 | **324.46** |
+| lmhead | 128.5 | **109.18** |
+| gate_sp | 5.5 | **9.83** (an *under*-count) |
+
+**🆕 Rule 81 — a family earns a named mechanism only if (a) it is
+bytes-bound by the rule-71 two-column test, AND (b) its achieved rate is
+≥10 pp below the best rate achieved by a family with the *same access pattern*
+on the *same host*, AND (c) the implied gain is ≥30 µs/step.** Under that bar
+exactly three bytes-regime families survive: **T2c (69.7 µs vs lmhead / 48.7 µs
+vs dense_down), T3b (51.7 / 36.1), T2d (46.4 / 34.6)** — 167.8 µs = 2.56 % or
+119.4 µs = 1.82 % of score. `dense_down` is the fairer same-pattern reference
+(a QMV with the same access shape); under it the ≥10 pp clause fails for all
+three, but the ≥30 µs clause holds for all three, which is why they stay on the
+board. T0b(a) qkv is the marginal case and is excluded. Publish both reference
+rates; never pick the flattering one.
+
+#### B.0.6 ⚠️ The α/β degeneracy — resolve this before ranking on headroom again
+
+The map has **two independent validations and they disagree**, and the
+disagreement is localised to exactly one family:
+
+| family | M4 µs | predicted M5 | measured M5 | residual | M5 achieved | % of 610.6 |
+|---|---:|---:|---:|---:|---:|---:|
+| routed | 2261.2 | 988.0 | 1010.67 | **−2.24 %** | 515.9 GB/s | 84.5 % |
+| qkvo | 3122.4 | 1364.3 | 1230.70 | **+10.86 %** | 597.9 GB/s | **97.9 %** |
+
+A family does not become 9.6 pp more efficient by changing host. If the true M5
+ceiling is ≈686 GB/s, qkvo on M5 achieves 87.1 % — matching its 88.3 % M4
+efficiency almost exactly. So two parameter sets fit the data equally well:
+
+- `α ≈ 0.389` (M5 ceiling 686), M5 efficiency ≈ 0.86 ⇒ **M5 is less saturated
+  than we think and per-family efficiency work pays**
+- `α ≈ 0.437` (M5 ceiling 610.6), M5 efficiency ≈ 0.62 ⇒ **M5 is near its
+  ceiling and only bytes pay**
+
+They differ by **~12 % in every M5 headroom figure in B.0.3** and imply opposite
+research programmes. A scalar residual cannot separate them.
+
+**🎯 The resolving experiment, and it is cheap: run
+`research/fern_r101_bw_probe.swift` (autotuned streaming sweep) on the official
+M5.** ~7 seconds, zero submitted-surface change, no receipt needed. It converts
+a conjectured 686 GB/s into a measurement and re-prices the entire table.
+**Highest value per second of any experiment currently nameable.** Treat every
+headroom-derived ranking as provisional until it runs.
+
+#### B.0.7 Caveats carried from #561
+
+1. **Host is M4 Pro, `applegpu_g16s`, gen 16, pre-NAX.** Directional for M5 pool
+   *structure*; not evidence for `_nax` kernel behaviour. Ratios and
+   percentages-of-peak transfer far better than absolute microseconds.
+2. **Rule 79 documentation lag.** The r94 census rows feeding B.0.3 predate the
+   identical-code-null requirement and carry no such null. Every absolute µs in
+   B.0.3 inherits that caveat.
+3. **Escape rates** priced at `e = 0`. Inverting the physics bound gives
+   `e < 0.756` for qkv h64 before the row becomes impossible, so no conclusion
+   flips. One decode step with `DARKBLOOM_ATTN_SCALE_NARROW_LOG=1` pins it.
+4. **Silent-fallback bug class, flagged not investigated:** the 3-plane
+   `LagunaNarrowScaleBank` is dead at HEAD (`LagunaRuntimeModel.swift:5578-5583`,
+   `:5496-5501`); narrow-path selection is by array *shape*, so a failed
+   certificate silently reverts a site to full width (`:8740-8760`,
+   `:10566-10572`) with **no trace**.
+5. **`research/pr80_receipt_analyze.py:35` hard-codes `M5_PEAK_BW = 651.8e9`** —
+   a family rate priced with stale bytes, not a peak. Anything it produced needs
+   re-deriving.
+6. The four M4→M5 ratios in circulation (0.456, 0.507/0.509/0.51, 0.595) come
+   from **no** paired measurement. `α` above is derived from ceilings instead.
+
+### B.1. Where the routed pool actually sits — SUPERSEDED BY B ABOVE (round 101)
 
 The earlier version of this section assumed an M5 routed pool of ≈600 µs/step
 (an M4 number scaled by a mis-cited ×0.456) and concluded 920 GB/s. **Both
@@ -884,14 +1087,40 @@ Four programme figures were published as rates and are hereby **withdrawn**:
 | M4 T0b 322.3 GB/s | duplicate-inject | **121.0 %** |
 
 Use GPU-timer census times divided by independently derived bytes, and state
-the layout epoch of those bytes. Host peaks: **M4 Pro 266.3 GB/s** (spec,
-unmeasured by us); **M5 Max 610 GB/s measured** (streaming-read sweep,
-`RESEARCH_STATE_ARCHIVE_through-round-21.md:4564-4578`, receipts `ff29f5c2` vs
-`553ef9f0`, band 603–628, cross-check 604.2 at `:5716`) / **614 GB/s nominal**
-(LPDDR5X-8533, `RESEARCH_ARCHIVE_through-round-91.md:2158`). The 610 figure is
-itself a receipt differential but is **valid** for the same reason T1c is: a
-streaming sweep has no reuse to discount. `research/pr80_receipt_analyze.py:35`
-still hard-codes `M5_PEAK_BW = 651.8e9` and must be corrected.
+the layout epoch of those bytes. `research/pr80_receipt_analyze.py:35` still
+hard-codes `M5_PEAK_BW = 651.8e9` and must be corrected.
+
+**🆕 Rule 76 (rev 2, #561 MERGED) — never quote a bandwidth number without
+naming (a) the family, (b) the layout epoch of its byte count, and (c) whether
+the denominator is measured or theoretical.** 546 GB/s is not "the M5
+roofline"; it is the *routed-QMV rate computed with pre-#72 byte counts*, and
+at HEAD-epoch bytes it is **515.9 GB/s**. Per-family M5 rates now on record,
+all recomputed at HEAD-epoch bytes: routed-expert QMV **515.9 GB/s = 84.5 %**
+of the published 610.6 peak; attention QKVO QMV **597.9 GB/s = 97.9 %**. No
+official M5 Max DRAM spec exists publicly. The published 610.6 GB/s figure is
+itself suspect: the instrument that produced it used a fixed, non-autotuned
+256 TG × 256 thread geometry (`LagunaRuntimeModel.swift:11804-11939`, PR #27),
+and on M4 Pro that same instrument under-reads the autotuned measured ceiling
+by **12.4 %** (237.4 published vs 262.98 measured; a faithful autotuned replica
+of the same differential returns 259.52 = 98.7 % of ceiling). A
+geometry-corrected M5 estimate is **686 GB/s**. Until an autotuned streaming
+sweep is run on the official M5, publish M5 percentages against **610.6
+(published)** and carry **686 (conjectured)** as an explicit sensitivity; never
+mix the two in one table.
+
+Corollaries. (1) **Every rate derived by duplicate injection is an upper bound,
+not a rate** — its per-dispatch footprint (0.001–10.3 MB) sits inside the
+measured 16–20 MiB LLC knee, so its misses are not compulsory and it
+over-reports by `1/E`, with `E` a measured monotone function of per-call
+footprint (Spearman ρ = 0.9286,
+`research/fern-r101-decode-pool-model.md` §4.2). (2) **Rates from GPU-timer
+censuses and from streaming-sweep receipt differentials are physically
+admissible** and none of ours exceeds peak once bytes are corrected — this is
+what preserves receipt differencing, our only per-family M5 instrument.
+(3) The measured M4 Pro ceiling is **266.80 GB/s** (64 KiB-block) / **262.98**
+(sequential) = 97.7 % of the 273 GB/s spec; **retire 273, 266.3, 260.6 and
+237.4.** (4) 64 KiB-granularity gathering costs **0 %** on M4 Pro, so "gathered
+expert banks" is **not** an explanation for the routed pool's rate deficit.
 
 **🆕 Rule 80 — before publishing any GB/s, divide it by the host peak.**
 Anything over 100 % is a category error, not a discovery. This single check
@@ -995,6 +1224,31 @@ cross-slice softmax reduction — reaches Fill 0.985 / 0.960 at 16 slices:
 | sliding (30 layers, 32 TG) | ≈290 | 0.800 | 0.985 | 18.8 % | 54.5 |
 | full (10 layers, 24 TG) | ≈100 | 0.600 | 0.960 | 37.5 % | 37.5 |
 | both | ≈390 | | | | **92.0 (1.41 %)** |
+
+⚠️❌ **SUPERSEDED, round 102 — do not quote this table.** Both its *pricing
+model* and its *pool sizes* have been replaced:
+
+- **Model.** The Fill-ratio pricing assumes a slice costs `τ₀/S`, i.e. that the
+  per-TG fixed cost divides when you subdivide. It does not (the caveat two
+  paragraphs below said so and the table ignored it). The correct model is
+  `makespan(S) = ceil(K·S/C)·(f + rounds(S)·u)`, derived in the **"Round-102
+  advisor derivation"** block at the top of this file (line ≈108). Under it,
+  **16 slices is not reachable on either kernel**: the sliding body is 4-deep
+  (128 positions/iteration, S ≤ 4 and every `S ≤ 4` is strictly worse than
+  S = 1) and the full body is 2-deep (64 positions/iteration, optimum
+  **S = 8**, `5f + 10u`, 37.5 % gain behind an `f/τ₀ < 9.4 %` gate). A sliding
+  split requires **authoring a shallower kernel** and pays a penalty
+  `r = u'/u`, with kill threshold `r ≥ 16/14 = 1.1428`.
+- **Pools.** ≈290 / ≈100 were M4 × a single scalar. #561's measured two-pool map
+  (M4 ×0.4369 bandwidth-pool / ×0.5 latency-pool, residual −6.63 %) gives
+  **T3a sliding 309.5** (after correcting the 2-deep staleness of the archival
+  M4 row) and **T3a′ full 114.85** µs/step.
+- **Revised ceiling: 31.8 (sliding, ≈10.3 % at `r ≈ 1.03`, gate `f/τ₀ < 1.6 %`)
+  + 43.1 (full, 37.5 %, gate 9.4 %) ≈ 74.9 µs/step ≈ 1.14 % of score**, not
+  92.0 / 1.41 %. Full-arm-alone is 43.1 µs/step ≈ 0.66 %, 1.44× the slot bar.
+
+The zero-extra-dispatch requirement for the cross-slice recombination below
+survives unchanged and is still binding.
 
 This independently reproduces **rule 67's** 0.1836 sliding starvation fraction
 (fern gets 0.188 from a completely different measurement) and finally supplies
@@ -2248,18 +2502,51 @@ and the deletion re-authorised. Operational form of the rule:
 **Rule 70 — the routed-expert MoE decode pool is DRAM-bandwidth-saturated and
 CLOSED to instruction-level work** (#543, #525).
 
-> **⚠️ STATUS, round 101: TRUE on M4, UNSUPPORTED on M5 — under adjudication in
-> #561.** The rule's *cited* support (552.1 MB/step against a ≈600 µs M5 pool)
-> is invalid: the 552.1 MB is the pre-#72 layout, the ≈600 µs was never
-> measured, and the derived 920 GB/s exceeds the 610 GB/s M5 peak. What
-> actually supports the rule is the **M4 GPU-timer census**: routed gate+up at
-> 88.0 % of M4 peak, routed down+shared at 76.9 %, versus QKV at 89.7 %. That
-> is a genuine near-saturation finding on M4 and nothing more. It is also why
-> the "routed is 16 % worse per byte" flagship is dead — there is no gap.
-> Keep the *operational* conclusion (do not assign another MoE-QMV codegen arm)
-> because it was independently confirmed by two negative experiments, #543 and
-> #525, not because of the arithmetic. Fern returns a TRUE/FALSE/UNSUPPORTED
-> verdict in #561.
+> **❌ STATUS, round 102: FALSE as stated on M4, UNSUPPORTED on M5 (#561,
+> MERGED). The routed MoE pool is REOPENED to instruction-level work.**
+>
+> The rule's *cited* support (552.1 MB/step against a ≈600 µs M5 pool) is
+> invalid: the 552.1 MB is the pre-#72 layout (HEAD is 521,404,416 B exactly),
+> the ≈600 µs was never measured on M5, and the derived 920 GB/s exceeds peak.
+> Recomputed at HEAD-epoch bytes the M5 routed rate is **515.9 GB/s = 84.5 %**
+> of the published 610.6 peak — about 13 pp below what the qkvo differential
+> achieves on the same machine.
+>
+> On M4, against the **measured** 266.80 GB/s ceiling (not the retired 266.3
+> spec), with one consistent layout epoch:
+>
+> | family | achieved / measured M4 ceiling |
+> |---|---:|
+> | routed gate+up (T2c) | **87.0 %** |
+> | routed down+residual (T2d) | **85.3 %** |
+> | dense gate_up (layer 0) | 93.4 % |
+> | dense_down (layer 0) | 94.0 % |
+> | lmhead (T1c) | 97.4 % |
+>
+> A family cannot be "at the limit" when another family on the same silicon, in
+> the same forward pass, beats it by **7.0 pp** (dense_down, the fairer
+> same-access-pattern QMV reference) to **10.4 pp** (lmhead). That is
+> **69.7 µs/step M5 = 1.06 % score for T2c alone** against lmhead, or 48.7 µs =
+> 0.74 % against dense_down; T2d adds 46.4 / 34.6 µs. Both are above every slot
+> bar we use.
+>
+> **My own counter-argument was epoch-mixed and is withdrawn.** "No meaningful
+> gap (88.0 % vs 89.7 %)" compared a stale-epoch routed rate with a HEAD-epoch
+> attention rate. On one consistent epoch it is **83.0 % vs 89.5 % = 6.5 pp**.
+>
+> **What survives:** the *operational* instruction — do not assign another
+> MoE-QMV **codegen** arm — still holds, because five such arms have failed
+> (#543, #525 among them) and because a 7–10 pp efficiency gap is not
+> automatically an addressable one. What does **not** survive is the *reason*:
+> "DRAM-saturated, therefore closed". The pool is not saturated. A *mechanism*
+> proposal for the routed pool (gather granularity, dispatch structure, expert
+> bank residency) is now in scope; a fifth codegen retry is not.
+>
+> **Ruled out as the mechanism:** "gathered expert banks vs sequential banks".
+> #561's `blk` arm measures 64 KiB-granularity gathering at **0 % cost** on
+> M4 Pro. Rule 76's ≈164 µs ≈ 2.4 % routed-rate prize was an artefact of
+> epoch-mixed byte counts on *both* sides; the corrected gap is real and worth
+> roughly the same, but not for the reason rule 76 gave.
 
 Unrolling, staging depth, wider code loads and scheduling changes in
 routed gate/up and in down+residual do not earn a slot. The only remaining lever
