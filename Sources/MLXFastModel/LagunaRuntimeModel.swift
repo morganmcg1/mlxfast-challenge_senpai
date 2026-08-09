@@ -1341,7 +1341,7 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
                 tg_k[base], tg_k[base + 1], tg_k[base + 2], tg_k[base + 3]));
             const uint2 packed_v = as_type<uint2>(vec<bfloat, 4>(
                 tg_v[base], tg_v[base + 1], tg_v[base + 2], tg_v[base + 3]));
-            device uint4* kvc = reinterpret_cast<device uint4*>(kv_cache) +
+            device uint4* kvc = (device uint4*)kv_cache +
                 (size_t)kv_head * (window * (head_dim / 4)) +
                 (size_t)widx * (head_dim / 4);
             kvc[lane] = uint4(

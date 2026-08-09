@@ -48,7 +48,7 @@ func lagunaSlidingInterleavedKVMatchesCanonical() throws {
     let angles = concatenated(
         [cos(halfAxis * 0.019), sin(halfAxis * 0.019)]
     ).reshaped([1, 1, 1, headDim])
-    let scale = MLXArray(Float(1.0 / sqrt(Float(headDim))))
+    let scale = MLXArray([Float(1.0 / sqrt(Float(headDim)))])
     eval(queryWeight, keyWeight, angles, scale)
 
     var observedWriteIndices: Set<Int> = []
@@ -135,12 +135,43 @@ func lagunaSlidingInterleavedKVMatchesCanonical() throws {
         keys: metaReplaced.keys,
         values: metaReplaced.values)
 
+    let originalRing = try #require(candidate.fusedRingPrepare())
+    let originalKeys = originalRing.keys
+        + MLXArray.zeros(originalRing.keys.shape, dtype: .bfloat16)
+    let originalValues = originalRing.values
+        + MLXArray.zeros(originalRing.values.shape, dtype: .bfloat16)
+    eval(originalKeys, originalValues)
+    let originalMeta = candidate.metaState
+
     let copied = try #require(candidate.copy() as? RotatingKVCache)
     let copiedRing = try #require(copied.fusedRingPrepare())
+    let copyToken = lagunaSlidingKVSeed(length: 1, phase: 3.75)
+    let copiedOutput = lagunaSlidingFusedAttention(
+        rawQueries: (cos(queryAxis * 0.031) * 0.25).asType(.bfloat16),
+        rawKeys: copyToken.keys.reshaped([1, 1, kvHeads * headDim]),
+        rawValues: copyToken.values.reshaped([1, 1, kvHeads * headDim]),
+        queryWeight: queryWeight,
+        keyWeight: keyWeight,
+        angles: angles,
+        cacheKeys: copiedRing.keys,
+        cacheValues: copiedRing.values,
+        cacheInterleavedKV: copiedRing.interleavedKV,
+        writeIdx: copiedRing.writeIdx,
+        scale: scale)
+    eval(copiedOutput)
+    copied.fusedRingAdvance()
+    let copiedAfter = try #require(copied.fusedRingPrepare())
     lagunaExpectInterleavedKVMatchesCanonical(
-        copiedRing.interleavedKV,
-        keys: copiedRing.keys,
-        values: copiedRing.values)
+        copiedAfter.interleavedKV,
+        keys: copiedAfter.keys,
+        values: copiedAfter.values)
+    let originalAfterCopyWrite = try #require(candidate.fusedRingPrepare())
+    #expect(lagunaBitwiseEqual(originalAfterCopyWrite.keys, originalKeys))
+    #expect(lagunaBitwiseEqual(originalAfterCopyWrite.values, originalValues))
+    #expect(candidate.metaState == originalMeta)
+
+    let compilable = CompilableRotatingKVCache(from: candidate)
+    #expect(compilable.fusedRingPrepare() == nil)
 
     #expect(candidate.trim(1) == 1)
     #expect(candidate.fusedRingPrepare() == nil)

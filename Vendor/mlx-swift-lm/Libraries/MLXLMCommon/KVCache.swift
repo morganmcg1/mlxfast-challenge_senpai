@@ -698,7 +698,8 @@ public class RotatingKVCache: BaseKVCache, CustomDebugStringConvertible {
     public func fusedRingPrepare() -> (
         keys: MLXArray, values: MLXArray, interleavedKV: MLXArray, writeIdx: Int
     )? {
-        guard keep == 0, let currentKeys = keys, let currentValues = values,
+        guard type(of: self) == RotatingKVCache.self,
+            keep == 0, let currentKeys = keys, let currentValues = values,
             currentKeys.dtype == .bfloat16, currentValues.dtype == .bfloat16,
             currentKeys.shape == currentValues.shape,
             currentKeys.dim(2) == maxCacheSize,
