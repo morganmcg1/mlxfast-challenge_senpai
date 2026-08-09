@@ -12,6 +12,10 @@ fires only during prefill, so prefill ends just after its last dispatch. The
 layer-0 dense residual epilogue fires exactly once per decode step, at a fixed
 offset from the step start, which fixes the remaining boundaries.
 
+That offset must be calibrated on the steady-state tail, not on step 0: step 0
+issues extra router-prefetch seeding dispatches ahead of its dense epilogue, so
+its offset is larger than every later step's and would shift all boundaries.
+
 Usage: python3 segment_dispatches.py [kernel-order.txt]
 """
 import sys
@@ -26,12 +30,15 @@ n = len(names)
 
 prefill_end = max(i for i, x in enumerate(names) if x == PREFILL_ONLY) + 1
 dense = [i for i, x in enumerate(names) if x == DENSE_EPILOGUE]
-offset = dense[0] - prefill_end
+steady_len = dense[-1] - dense[-2]
+offset = steady_len - (n - dense[-1])
 starts = [prefill_end] + [d - offset for d in dense[1:]]
 
 bounds = starts + [n]
 print(f"total dispatches: {n}")
 print(f"decode steps found: {len(starts)}   prefill dispatches: {starts[0]}")
+print(f"steady-state step length: {steady_len}   dense-epilogue offset: {offset}")
+print(f"step 0 dense-epilogue offset: {dense[0] - prefill_end} (extra seeding dispatches)")
 
 print("\nper-decode-step dispatch counts:")
 step_hists = []
