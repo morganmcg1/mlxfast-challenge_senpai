@@ -655,6 +655,48 @@ questions, and using the wrong one is a real error in either direction.**
 | **partial** | **0.2592 %/ms** | ∂ln`cs`/∂`cand_pre` holding `cand_dec` **fixed** = 0.25 / 96.4636 ms | reading a **receipt**, where `cand_dec` and `cand_pre` are *both observed* — the coupling is already inside the measured `cand_dec` |
 | **total** | **0.3781 %/ms** (doc's 0.3794 is the same number to 0.33 %) | includes the measured feedback that removing prefill work also removes decode work | pricing a **prospective prefill optimisation**, before you have measured its decode side-effect |
 
+✅ **The `cs` formula is now EXACTLY validated, and its units are pinned.**
+`ln cs = X − 0.75 ln cand_dec − 0.25 ln cand_pre`, `X = −5.1831677111`, with
+**`cand_dec` in SECONDS PER STEP and `cand_pre` in SECONDS PER TOKEN** — *not*
+total-prefill ms, which is the trap. Reproduces all six of our ranked receipts
+to **5 × 10⁻⁵ %**:
+
+| receipt | recomputed | recorded | rel err |
+|---|---|---|---|
+| `59bd72a3` | 2.575634 | 2.575633 | +0.00005 % |
+| `e08d759f` | 2.582285 | 2.582286 | −0.00003 % |
+| `7ce1262d` | 2.589320 | 2.589321 | −0.00003 % |
+| `25e1f18e` | 2.590560 | 2.590559 | +0.00004 % |
+| `83fd2642` | 2.588750 | 2.588750 | +0.00001 % |
+| `05dd8bbf` | 2.587191 | 2.587191 | +0.00002 % |
+
+So "0.2592 %/ms of prefill" means **per ms of *total* 512-token prefill**, and
+it carries the 512 inside it. Quoting it against a per-token number is a 512×
+error. Prefer the dimensionless form when in doubt: **a 1 % relative cut in
+`cand_dec` is worth +0.75 % `cs`; a 1 % relative cut in `cand_pre` is worth
++0.25 % `cs`.** Those two need no units at all.
+
+🔬 **Refinement to the flagship residual: the pure-decode regression is
+20.15 µs/step, not 19.41 — a prefill win is masking part of it.** Applying the
+rule-58 amendment's `decode_µs_step = 4·P + T` (P = prefill µs/token):
+
+| | `cand_dec` | `4P` | **`T`** |
+|---|---|---|---|
+| Arm R `7ce1262d` | 4893.712 | 752.172 | **4141.540** |
+| frontier `e08d759f` | 4913.117 | 751.428 | **4161.689** |
+
+The frontier's prefill is **0.186 µs/tok better**, which flows into decode as
+**−0.744 µs/step** and hides part of the regression. So the observed
++19.405 µs/step decode delta decomposes into a **+20.149 µs/step regression in
+the pure-decode term `T`** minus a 0.744 µs/step gift from prefill.
+
+Correspondingly the `cs` gap is **not** "entirely decode": decode contributes
+**−0.2968 %**, prefill contributes **+0.0247 %**, net **−0.2721 %** (actual
+ratio −0.2717 % ✓). ⚠️ Model-dependent — the 4× coefficient was measured for
+*deliberate* prefill changes (#531) and is being extrapolated across two
+arbitrary trees. Treat 20.15 as a refinement to check, not a replacement fact.
+It moves the target ~3.8 % and slightly **strengthens** the case.
+
 Derivation of the total, which nobody had written down: the rule-58 amendment
 (#531) measured `decode_µs_per_step = 4·P + T` where **`P` is literally the
 prefill µs/token** (4 × 188.05 = 752.2 µs/step ✓ matches the recorded `4P`).
