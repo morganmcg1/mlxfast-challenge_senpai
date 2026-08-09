@@ -218,6 +218,13 @@ itself be informative and we would report it.
   fixed geometry — on *this* M5 under *today's* thermal policy. A dispatch that
   moves real data costs more, so the fitted number is a floor on the value of
   removing a real dispatch, not a universal price.
+- More specifically, the injected kernels bind only their own buffers and never
+  touch a tensor the model reads or writes. MLX orders two encoders only when
+  their buffers intersect, so this chain has no hazard against the model's work
+  and can be scheduled into gaps that already exist. A real dispatch consumes
+  the previous operation's output and therefore serialises. We report the slope
+  as the price of a *hazard-free* dispatch and say so, rather than quietly
+  presenting it as the price of a dispatch.
 - Three rungs plus a replicated zero give a usable slope and a weak linearity
   test. Our own local evidence already predicts the per-segment slopes will
   disagree, so "a regime-dependent cost" is the expected answer rather than a

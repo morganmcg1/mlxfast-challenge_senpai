@@ -98,6 +98,46 @@ stays an internal control. Wall-clock risk is bounded too: the timed phase in
 `25e1f18e` was 45 s, and even a 65 % decode inflation keeps the run well inside
 the observed 52 s benchmark envelope plus correctness time.
 
+## The rung really is carried by the source constant
+
+The sweep above drove `K` through the environment. The ranked host never sees
+our environment, so before spending an official run we rebuilt with the rung
+compiled in and re-ran the probe with **no injection environment set at all**
+(`research/r93-runs/verify_source_constant.sh`):
+
+| source constant | worker sha256 | median ms | greedy tokens |
+| --- | --- | --- | --- |
+| `K = 2400`, TG 8 | `2ad01385…` | 11.276 | 0 divergences |
+| `K = 0`, TG 160 (base) | `53fae224…` | 8.199 | 0 divergences |
+| `K = 240`, TG 8 | `d98dfe80…` | 8.136 | 0 divergences |
+
+The source-constant `K = 2400` build reproduces the environment-driven `K = 2400`
+point (11.276 vs 11.259 ms median) to within 0.15 %, so the two channels agree
+and the compiled-in rung is what the ranked host will execute.
+
+## Why small `K` is free: the injected dispatches carry no hazard
+
+A static trace of the dispatch path explains the shape. The injected kernels
+bind only their own control/previous/sink buffers; they never touch a tensor the
+model reads or writes. MLX inserts ordering (a `MTLFence` wait, or an
+intra-encoder `memoryBarrier`) only when a new encoder's inputs intersect a
+prior encoder's outputs, so a hazard-free chain has nothing to wait for. With
+per-layer `asyncEval` finalisation and a commit cadence of a few tens of ops per
+command buffer, these tiny hazard-free command buffers can be scheduled into
+whatever gaps already exist between the model's own GPU work, and decode leaves
+gaps: roughly a millisecond per step of CPU-side graph building.
+
+That has a direct and uncomfortable consequence for the deliverable. **The empty
+ladder measures the price of a dispatch that has no dependency on the model's
+data.** A real dispatch that we might delete from the decode path consumes the
+previous operation's output, so it does serialise. The ladder slope is therefore
+a *lower bound* on the value of removing a real dispatch, and in a regime with
+scheduling slack it can be a very weak one. We keep the empty ladder as the
+primary instrument because it is exactly the instrument the historical M5
+receipts used, and resolving those receipts is the point; but we publish the
+number with that ceiling/floor distinction attached rather than as "the price of
+a dispatch".
+
 ## Correctness
 
 Greedy teacher-forced decode matched the public golden with **zero divergences
