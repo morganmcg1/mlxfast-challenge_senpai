@@ -3718,67 +3718,6 @@ func lagunaGateProductSoftplus(
     )[0]
 }
 
-private func lagunaPrefillGatedTransposeSource(heads: Int) -> String {
-    """
-    constexpr uint HEADS = \(heads);
-    constexpr uint HEAD_DIM = \(LagunaConstants.headDim);
-    uint gid = thread_position_in_grid.x;
-    uint d = gid % HEAD_DIM;
-    uint q = gid / HEAD_DIM;
-    uint h = q % HEADS;
-    uint l = q / HEADS;
-    size_t ai = size_t(h) * attended_strides[1]
-        + size_t(l) * attended_strides[2] + size_t(d) * attended_strides[3];
-    size_t gi = size_t(l) * gate_strides[1] + size_t(h) * gate_strides[2];
-    output[gid] = bfloat(float(attended[ai]) * float(gate[gi]));
-    """
-}
-
-private let lagunaPrefillGatedTransposeKernels: [Int: MLXFast.MLXFastKernel] = {
-    var kernels: [Int: MLXFast.MLXFastKernel] = [:]
-    for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
-        kernels[heads] = MLXFast.metalKernel(
-            name: "laguna_prefill_gated_transpose_bf16_h\(heads)_v1",
-            inputNames: ["attended", "gate"],
-            outputNames: ["output"],
-            source: lagunaPrefillGatedTransposeSource(heads: heads),
-            ensureRowContiguous: false
-        )
-    }
-    return kernels
-}()
-
-private let lagunaPrefillGatedTransposeEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_GATED_TRANSPOSE"] != "0"
-private let lagunaTracePrefillGatedTranspose =
-    ProcessInfo.processInfo.environment["DARKBLOOM_TRACE_PREFILL_GATED_TRANSPOSE"] == "1"
-
-func lagunaPrefillGatedTranspose(
-    attended: MLXArray, gate: MLXArray, gateIsActivated: Bool = true,
-    gatePerHead: Bool = true, enabled: Bool = true
-) -> MLXArray? {
-    guard enabled, lagunaPrefillGatedTransposeEnabled,
-        gateIsActivated, gatePerHead,
-        attended.dtype == .bfloat16, gate.dtype == .bfloat16,
-        attended.shape.count == 4, gate.shape.count == 3,
-        attended.shape[0] == 1, attended.shape[2] == 512,
-        attended.shape[3] == LagunaConstants.headDim,
-        let kernel = lagunaPrefillGatedTransposeKernels[attended.shape[1]],
-        gate.shape == [1, 512, attended.shape[1]]
-    else { return nil }
-    let heads = attended.shape[1]
-    let count = 512 * heads * LagunaConstants.headDim
-    if lagunaTracePrefillGatedTranspose {
-        FileHandle.standardError.write(
-            Data("laguna_prefill_gated_transpose h=\(heads) l=512\n".utf8))
-    }
-    return kernel(
-        [attended, gate], grid: (count, 1, 1), threadGroup: (256, 1, 1),
-        outputShapes: [[1, 512, heads * LagunaConstants.headDim]],
-        outputDTypes: [.bfloat16]
-    )[0]
-}
-
 // MARK: - Gated native-affine INT8 output projection (one dispatch)
 
 /// Exact per-head softplus gate plus group-32 affine INT8 output GEMV.
@@ -5823,14 +5762,6 @@ final class LagunaRuntimeAttention: Module {
                 projectedGate = gProj(normalizedInput)
                 gateIsActivated = false
             }
-            var usedPrefillGatedTranspose = false
-            if gateIsActivated, gatePerHead,
-                let gated = lagunaPrefillGatedTranspose(
-                    attended: attended, gate: projectedGate)
-            {
-                output = gated
-                usedPrefillGatedTranspose = true
-            }
             // Native group-32 affine INT8 output projection for the serial
             // decode token. The stock fused kernel folds the gate into the
             // GEMV's own vector loads; this path cannot, because MLX's
@@ -5989,11 +5920,9 @@ final class LagunaRuntimeAttention: Module {
                 ? lagunaCompiledSoftplusGate(projectedGate)
                 : softplus(projectedGate.asType(.float32)).asType(output.dtype)
             if gatePerHead {
-                if !usedPrefillGatedTranspose {
-                    output =
-                        (output.reshaped(B, L, nHeads, headDim) * gate[.ellipsis, .newAxis])
-                        .reshaped(B, L, -1)
-                }
+                output =
+                    (output.reshaped(B, L, nHeads, headDim) * gate[.ellipsis, .newAxis])
+                    .reshaped(B, L, -1)
             } else {
                 output = output * gate
             }
