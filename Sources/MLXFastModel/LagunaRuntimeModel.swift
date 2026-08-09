@@ -9038,6 +9038,11 @@ final class LagunaRuntimeModelInner: Module {
                 }
             }
             lagunaInjectLayerWork(layer: i, isSingleTokenDecode: isSingleTokenDecode)
+            if isSingleTokenDecode, lagunaR93MaxGluePerLayer > 0 {
+                for _ in 0..<lagunaR93MaxGluePerLayer {
+                    h = maximum(h, h)
+                }
+            }
         }
 
         return h
@@ -9287,6 +9292,20 @@ private let lagunaInjectPrefillMatmuls = lagunaInjectEnvInt(
 /// Empty dispatches injected per single-token decode step.
 private let lagunaInjectDecodeEmpty = lagunaInjectEnvInt(
     "DARKBLOOM_INJECT_DECODE_EMPTY", 0)
+/// R93-B calibration ladder. NON-SHIPPING research instrument, inert at 0.
+///
+/// Chains this many `maximum(h, h)` reductions onto the residual at every layer
+/// boundary of a single-token decode step, so the decode chain gains exactly
+/// `40 * n` serialized dispatches per step and nothing else. `max(h, h) == h`
+/// bit-for-bit, so every downstream value and every emitted token is unchanged
+/// and a single token-stream hash covers all rungs.
+///
+/// It exists to put a KNOWN magnitude on the end-to-end rig so a proposed
+/// timing protocol can be validated against it. `maximum(h, h)` blocks MLX
+/// buffer donation, so its per-dispatch cost is an upper bracket on a
+/// donation-preserving unary and must not be quoted as a per-dispatch floor.
+private let lagunaR93MaxGluePerLayer = lagunaInjectEnvInt(
+    "DARKBLOOM_R93_MAX_GLUE_PER_LAYER", 0)
 /// Empty dispatches injected per multi-token forward.
 private let lagunaInjectPrefillEmpty = lagunaInjectEnvInt(
     "DARKBLOOM_INJECT_PREFILL_EMPTY", 0)
