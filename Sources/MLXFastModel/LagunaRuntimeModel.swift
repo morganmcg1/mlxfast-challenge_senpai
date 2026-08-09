@@ -5431,7 +5431,6 @@ final class LagunaRuntimeAttention: Module {
             // (`matmul(x, w.T)`). Each output row's K-loop is independent of
             // which rows share the dispatch, so every Q/K/V element is
             // bit-exact.
-            let qkv = matmul(normalizedInput, fusedQKVWeight.T)
             let queryDim = nHeads * headDim
             let kvDim = nKVHeads * headDim
             let usesOutputMajorQKV =
@@ -5441,7 +5440,11 @@ final class LagunaRuntimeAttention: Module {
                 fusedQKVWeight.shape == [queryDim + 2 * kvDim, 2048] &&
                 (queryDim == 6144 || queryDim == 8192) && kvDim == 1024
             if usesOutputMajorQKV {
-                let flatQKV = qkv.flattened()
+                // The leading singleton weight dimension is a semantic dispatch tag.
+                let taggedWeight = fusedQKVWeight
+                    .reshaped(1, queryDim + 2 * kvDim, 2048)
+                    .transposed(0, 2, 1)
+                let flatQKV = matmul(normalizedInput, taggedWeight).flattened()
                 let queryCount = L * queryDim
                 let kvCount = L * kvDim
                 queries = flatQKV[0 ..< queryCount].reshaped(B, L, queryDim)
@@ -5449,6 +5452,7 @@ final class LagunaRuntimeAttention: Module {
                 values = flatQKV[(queryCount + kvCount) ..< (queryCount + 2 * kvCount)]
                     .reshaped(B, L, kvDim)
             } else {
+                let qkv = matmul(normalizedInput, fusedQKVWeight.T)
                 queries = qkv[.ellipsis, 0 ..< queryDim]
                 keys = qkv[.ellipsis, queryDim ..< (queryDim + kvDim)]
                 values = qkv[.ellipsis, (queryDim + kvDim) ..< (queryDim + 2 * kvDim)]
