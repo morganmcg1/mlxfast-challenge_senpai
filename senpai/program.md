@@ -279,6 +279,9 @@ authorized campaign role may submit from a provisioned AWS host, but must never
 print or commit its credentials.
 
 Every official submission from this Senpai campaign must first use
+`senpai/submit-official.sh "$BASE_SHA"`. The wrapper refreshes `origin/main`,
+requires the recorded base's submitted snapshot to match it, rejects
+uncommitted changes to the submitted surface, and invokes
 `mlxfast submit --model "senpai"`. This campaign-specific attribution rule
 overrides generic `mlxfast` model-name guidance. Only if the submission API
 explicitly rejects `senpai` as an invalid or unsupported model value may the
@@ -294,9 +297,9 @@ submission response or `mlxfast submissions` reports that validation capacity
 is occupied, preserve the candidate's exact commit and note, then manage its
 retry yourself: recheck status periodically without a tight polling loop and
 no sooner than server retry guidance. After capacity clears, retry the same
-`mlxfast submit --model "senpai"` command. Before retrying after a timeout or
-other ambiguous response, check whether the first request already created a
-submission; never duplicate one that is queued or validating.
+`senpai/submit-official.sh "$BASE_SHA"` command. Before retrying after a timeout
+or other ambiguous response, check whether the first request already created
+a submission; never duplicate one that is queued or validating.
 
 Waiting for validation admission must not block useful work. Continue testing
 and refining while monitoring the ready candidate, keeping each candidate

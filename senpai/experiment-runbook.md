@@ -189,10 +189,14 @@ printing or committing its credentials.
 Submit every official Senpai entry with the campaign attribution first:
 
 ```bash
-mlxfast submit --model "senpai" --note-file submission-note.md
+senpai/submit-official.sh "$BASE_SHA" --note-file submission-note.md
 ```
 
-This campaign-specific rule overrides generic `mlxfast` model-name guidance.
+The wrapper refreshes `origin/main` and refuses to submit if the recorded
+base's submitted snapshot differs from it, if the base is not an ancestor of
+`HEAD`, or if submitted paths have uncommitted changes. It then applies the
+campaign-specific `senpai` model attribution, which overrides generic
+`mlxfast` model-name guidance.
 Only when the API explicitly says that `senpai` is an invalid or unsupported
 model value may the same candidate be retried once as follows, with the exact
 rejection and fallback fact recorded in the note:
