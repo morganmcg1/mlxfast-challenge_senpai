@@ -110,8 +110,8 @@ private let lagunaLmHeadPruneHeader = """
         }
         return as_type<float>(uint(b) << 23);
     }
-    static inline float laguna_e8m0_row_decode(uint base, uint pair, uint half) {
-        uint b = base + ((pair >> (4u * half)) & 15u);
+    static inline float laguna_e8m0_row_decode(uint base, uint pair, uint slot) {
+        uint b = base + ((pair >> (4u * slot)) & 15u);
         return laguna_e8m0_decode(uint8_t(b));
     }
     """
