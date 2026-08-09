@@ -7314,7 +7314,7 @@ private func makeLagunaRoutedSharedDownResidualKernel(
         ];
         if (lane == 0) {
             for (uint row = 0; row < outputs_per_simd; ++row) {
-\(storeSource)
+        \(storeSource)
             }
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -7325,7 +7325,7 @@ private func makeLagunaRoutedSharedDownResidualKernel(
             for (uint routed_slot = 0;
                  routed_slot < routed_experts;
                  ++routed_slot) {
-\(productSource)
+        \(productSource)
                 routed_total = bfloat(product + routed_total);
             }
             bfloat routed = bfloat(
