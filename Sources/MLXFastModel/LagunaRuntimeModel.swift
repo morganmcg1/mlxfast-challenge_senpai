@@ -5149,7 +5149,9 @@ final class LagunaRuntimeAttention: Module {
         else {
             return nil
         }
-        let fused = concatenated([wq.weight, wk.weight, wv.weight], axis: 0)
+        let storage = concatenated(
+            [wq.weight[0 ..< 1], wq.weight, wk.weight, wv.weight], axis: 0)
+        let fused = storage[1 ..< storage.dim(0)]
         _fusedQKVWeight = fused
         return fused
     }
@@ -5433,6 +5435,7 @@ final class LagunaRuntimeAttention: Module {
             // bit-exact.
             let queryDim = nHeads * headDim
             let kvDim = nKVHeads * headDim
+            let qkv = matmul(normalizedInput, fusedQKVWeight.T)
             let usesOutputMajorQKV =
                 B == 1 && L == 512 &&
                 normalizedInput.dtype == .bfloat16 && fusedQKVWeight.dtype == .bfloat16 &&
@@ -5440,16 +5443,15 @@ final class LagunaRuntimeAttention: Module {
                 fusedQKVWeight.shape == [queryDim + 2 * kvDim, 2048] &&
                 (queryDim == 6144 || queryDim == 8192) && kvDim == 1024
             if usesOutputMajorQKV {
-                // The leading singleton weight dimension is a semantic dispatch tag.
-                let taggedWeight = fusedQKVWeight
-                    .reshaped(1, queryDim + 2 * kvDim, 2048)
-                    .transposed(0, 2, 1)
-                let qkv = matmul(normalizedInput, taggedWeight)
-                queries = qkv[.ellipsis, 0 ..< queryDim]
-                keys = qkv[.ellipsis, queryDim ..< (queryDim + kvDim)]
-                values = qkv[.ellipsis, (queryDim + kvDim) ..< (queryDim + 2 * kvDim)]
+                let flatQKV = qkv.flattened()
+                let queryCount = L * queryDim
+                let kvCount = L * kvDim
+                queries = flatQKV[0 ..< queryCount].reshaped(B, L, queryDim)
+                keys = flatQKV[queryCount ..< (queryCount + kvCount)]
+                    .reshaped(B, L, kvDim)
+                values = flatQKV[(queryCount + kvCount) ..< (queryCount + 2 * kvCount)]
+                    .reshaped(B, L, kvDim)
             } else {
-                let qkv = matmul(normalizedInput, fusedQKVWeight.T)
                 queries = qkv[.ellipsis, 0 ..< queryDim]
                 keys = qkv[.ellipsis, queryDim ..< (queryDim + kvDim)]
                 values = qkv[.ellipsis, (queryDim + kvDim) ..< (queryDim + 2 * kvDim)]
