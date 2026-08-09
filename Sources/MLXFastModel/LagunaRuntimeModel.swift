@@ -54,6 +54,14 @@ func lagunaRopeScalingConfig(_ spec: LagunaRopeSpec) -> [String: StringOrNumber]
 let lagunaFusedQKVEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_QKV"] == "1"
 
+private let lagunaOutputMajorQKVCheckEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_OUTPUT_MAJOR_QKV_CHECK"] == "1"
+
+private func lagunaBF16BitsEqual(_ lhs: MLXArray, _ rhs: MLXArray) -> Bool {
+    precondition(lhs.dtype == .bfloat16 && rhs.dtype == .bfloat16)
+    return arrayEqual(lhs.view(dtype: .uint16), rhs.view(dtype: .uint16)).item(Bool.self)
+}
+
 /// `DARKBLOOM_FUSED_SHARED_GATE_UP` (default on; set "0" to disable): after
 /// checkpoint load, retain one row-concatenated NVFP4 `[gate; up]` bank per
 /// shared expert and serve single-token decode from one quantized matmul.
@@ -5417,6 +5425,9 @@ final class LagunaRuntimeAttention: Module {
         let normalizedInput: MLXArray? =
             fusedNormQKV == nil ? inputNorm(input) : nil
 
+        var outputMajorReferenceQueries: MLXArray?
+        var outputMajorReferenceKeys: MLXArray?
+        var outputMajorReferenceValues: MLXArray?
         var queries: MLXArray
         var keys: MLXArray
         var values: MLXArray
@@ -5451,6 +5462,22 @@ final class LagunaRuntimeAttention: Module {
                     .reshaped(B, L, kvDim)
                 values = flatQKV[(queryCount + kvCount) ..< (queryCount + 2 * kvCount)]
                     .reshaped(B, L, kvDim)
+                if lagunaOutputMajorQKVCheckEnabled {
+                    let referenceQueries = wq(normalizedInput)
+                    let referenceKeys = wk(normalizedInput)
+                    let referenceValues = wv(normalizedInput)
+                    let queryBitsMatch = lagunaBF16BitsEqual(queries, referenceQueries)
+                    let keyBitsMatch = lagunaBF16BitsEqual(keys, referenceKeys)
+                    let valueBitsMatch = lagunaBF16BitsEqual(values, referenceValues)
+                    print(
+                        "OUTPUT_MAJOR_QKV_RAW_BITS layer=\(layerIdx) " +
+                            "n=\(queryDim + 2 * kvDim) q=\(queryBitsMatch) " +
+                            "k=\(keyBitsMatch) v=\(valueBitsMatch)")
+                    precondition(queryBitsMatch && keyBitsMatch && valueBitsMatch)
+                    outputMajorReferenceQueries = referenceQueries
+                    outputMajorReferenceKeys = referenceKeys
+                    outputMajorReferenceValues = referenceValues
+                }
             } else {
                 queries = qkv[.ellipsis, 0 ..< queryDim]
                 keys = qkv[.ellipsis, queryDim ..< (queryDim + kvDim)]
@@ -5638,6 +5665,55 @@ final class LagunaRuntimeAttention: Module {
         if !qkNormRoPEFused {
             queries = applyRotaryPosition(rope, to: queries, cache: cache)
             keys = applyRotaryPosition(rope, to: keys, cache: cache)
+        }
+
+        if var referenceQueries = outputMajorReferenceQueries,
+            var referenceKeys = outputMajorReferenceKeys,
+            let rawReferenceValues = outputMajorReferenceValues
+        {
+            if usePrefillFusedSlidingQKNormRoPE,
+                let angles = qkRoPEAngles, let offsets = qkRoPEOffsets
+            {
+                (referenceQueries, referenceKeys) = lagunaPrefillSlidingQKNormRoPE(
+                    rawQueries: referenceQueries,
+                    rawKeys: referenceKeys,
+                    queryWeight: qNorm.weight,
+                    keyWeight: kNorm.weight,
+                    angles: angles,
+                    offsets: offsets,
+                    length: L
+                )
+            } else if usePrefillFusedFullQKNormYaRN,
+                let angles = qkRoPEAngles, let offsets = qkRoPEOffsets
+            {
+                (referenceQueries, referenceKeys) = lagunaPrefillFullQKNormYaRN(
+                    rawQueries: referenceQueries,
+                    rawKeys: referenceKeys,
+                    queryWeight: qNorm.weight,
+                    keyWeight: kNorm.weight,
+                    angles: angles,
+                    offsets: offsets,
+                    length: L
+                )
+            } else {
+                referenceQueries =
+                    qNorm(referenceQueries.reshaped(B, L, nHeads, headDim))
+                    .transposed(0, 2, 1, 3)
+                referenceKeys =
+                    kNorm(referenceKeys.reshaped(B, L, nKVHeads, headDim))
+                    .transposed(0, 2, 1, 3)
+                referenceQueries = applyRotaryPosition(rope, to: referenceQueries, cache: cache)
+                referenceKeys = applyRotaryPosition(rope, to: referenceKeys, cache: cache)
+            }
+            let referenceValues = rawReferenceValues.reshaped(B, L, nKVHeads, headDim)
+                .transposed(0, 2, 1, 3)
+            let queryBitsMatch = lagunaBF16BitsEqual(queries, referenceQueries)
+            let keyBitsMatch = lagunaBF16BitsEqual(keys, referenceKeys)
+            let valueBitsMatch = lagunaBF16BitsEqual(values, referenceValues)
+            print(
+                "OUTPUT_MAJOR_QKV_DOWNSTREAM_BITS layer=\(layerIdx) " +
+                    "q=\(queryBitsMatch) k=\(keyBitsMatch) v=\(valueBitsMatch)")
+            precondition(queryBitsMatch && keyBitsMatch && valueBitsMatch)
         }
 
         let attended =
