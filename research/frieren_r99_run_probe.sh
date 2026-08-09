@@ -54,6 +54,10 @@ run() {
   echo "@@END"
 }
 
+# The very first leg of a fresh process pays shader-cache and clock-ramp cost
+# that lands entirely in its lowest-K rows; it is run and discarded.
+run warmup FWD base base
+
 for s in $(seq 1 "$SWEEPS"); do
   echo "@@SWEEP $s"
   run null  FWD base base
