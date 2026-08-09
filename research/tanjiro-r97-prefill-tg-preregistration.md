@@ -280,3 +280,108 @@ Research-only: this file and `research/tanjiro-r97-prefill-tg-result.md`.
 Budget at registration time: `current=2899476/3000000, headroom=100524,
 growth=0/262144, files=141`. P3 is measured at +1,631 B in
 `research/maple-tanjiro-nax-skinny-tile.md`; P2 is a net-zero edit. Both fit.
+
+## 10. Amendment 1 (2026-08-09) — P2b, copy-free fused-QKV consumption
+
+Registered **before** any timed M5 run and before any receipt is spent. This
+amendment adds one mechanism and *lowers* my own P2 prediction; it does not
+loosen any go/no-go bar in §6.
+
+### 10.1 What §4(c) got wrong
+
+§4(c) listed "the fused bank's Q/K slices may not be row-contiguous" as an
+out-of-scope follow-up. Local M4 measurement plus vendor source now show it is
+not a follow-up but the dominant cost of P2 as shipped in `64fa273`, large
+enough to cancel the whole mechanism.
+
+Proof, in order:
+
+1. `Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/custom_kernel.cpp:39-47`
+   — a `MLXFast` custom kernel input declared `ensure_row_contiguous` is passed
+   through `copy_gpu(..., CopyType::General, s)` whenever
+   `!x.flags().row_contiguous`.
+2. All four prefill QK-norm+RoPE kernels declare `ensureRowContiguous: true`.
+3. With `DARKBLOOM_FUSED_QKV` on, Q and K reach those kernels as last-axis
+   slices of the `[1, L, qDim+2*kvDim]` bank, so both are strided.
+4. Therefore the flip adds exactly `2 * 39 = 78` general strided copies per
+   request, one per tensor per layer, which is precisely the `+78 qk_norm_rope`
+   / `g2_copy` delta already recorded in
+   `research/maple-tanjiro-pr270-r2-f1-preclearance.md:140-175`, and **+1.516 ms
+   per request** on this M4 host.
+
+### 10.2 Sharpened M5 cost model
+
+The prior art's M4 census showed the split-K subtotal falling 155 to 77 when
+the flip is on, i.e. the 78 `wk`/`wv` N=1024 GEMMs disappearing from the
+split-K pool. That is an **M4-only** accounting. On M5 the same N=1024, M=512,
+K=2048 shape is **regular**, not split-K: the Case-2 predicate needs
+`K >= 3*max(M,N)` = 3072 > 2048, and the older `K > 2*max(M,N)` form is the
+exact tie `2048 > 2048` = false. The router (N=256) and `g_proj` (N=64/48)
+shapes do stay split-K on M5, so this correction is specific to `wk`/`wv`.
+
+Net M5 dispatch delta for P2 alone is therefore **minus 78 regular
+64-threadgroup GEMMs, plus 78 `g2_copy`**, i.e. approximately zero dispatches
+and approximately zero gain:
+
+| quantity | P2 alone | P2 + P2b |
+| --- | --- | --- |
+| gross wave-quantisation gain | -1.4 ms | -1.4 ms |
+| added strided copies | +1.0 to +1.5 ms | 0 |
+| **registered central estimate** | **0 to -0.4 ms** | **-1.4 ms** |
+| score at 0.373 %/ms | 0 to 0.15 % | ~0.52 % |
+
+So **P2 alone is predicted to land below the §6 0.3 ms NO-GO bar**. Spending a
+receipt on it would buy a null with no diagnostic value beyond what M4 already
+shows. P2b is the change that makes the arm worth a receipt.
+
+### 10.3 P2b mechanism
+
+Give the four prefill QK-norm+RoPE kernels an explicit
+`[q_row_stride, q_col_offset, k_row_stride, k_col_offset]` layout descriptor
+(elements, int32[4]) and hand them the wide bank directly instead of a slice.
+Addressing becomes
+
+```
+input = raw_queries + t * uint(layout[0]) + uint(layout[1]) + head * head_dim;
+input = raw_keys    + t * uint(layout[2]) + uint(layout[3]) + khead * head_dim;
+```
+
+With the unfused descriptor `[qDim, 0, kvDim, 0]` these reproduce the previous
+addresses element for element, so the unfused path is bit-exact by
+construction; with the fused descriptor `[width, 0, width, qDim]` they read the
+same values the copy would have produced. The kernels are renamed `_v2` to
+`_v3` so no stale compiled variant can be picked up.
+
+The layout array is built once per attention module and cached
+(`_prefillQKLayout`). The precheck deliberately validates **shapes only** and
+never reads the layout's element values on the hot path, because reading an
+`MLXArray` element forces a stream synchronisation every layer.
+
+### 10.4 Registered predictions for P2b
+
+- Prefill dispatch census, `on` arm: **zero** `g2_copy` / general-copy
+  dispatches attributable to the QK-norm inputs (78 to 0).
+- Local M4 prefill: **-1.3 to -1.7 ms** for `on+P2b` versus `on` alone, and
+  **-0.2 to -0.6 ms** versus `off`. M4 prefill wall clock is directional only;
+  it is admissible here because P2b removes copies in a kernel family that is
+  identical on both architectures, and the claim being tested is a *dispatch
+  count*, not an `_nax` tile effect.
+- Decode: unchanged. P2b touches only prefill kernels.
+- Correctness: `max_abs_diff = 0`, golden hash `b9509697...`, with the flag
+  both ON and OFF.
+
+### 10.5 Scope and budget
+
+P2b touches only `Sources/MLXFastModel/LagunaRuntimeModel.swift`, already
+declared in §9. Budget after P2b: `current=2903134/3000000, headroom=96866,
+growth=3658/262144, files=141` — PASS, and P3's measured +1,631 B still fits.
+
+### 10.6 Amended receipt plan
+
+R1 now carries **P2 + P2b together**, not P2 alone. They are not separable in a
+way that is worth a receipt: §10.2 predicts P2 alone is a null, and P2b without
+P2 is a no-op because the unfused descriptor reproduces the current addresses
+exactly. The separation is instead carried by the local dispatch census, which
+attributes the copy removal directly. If R1 lands in the §6
+inconclusive-but-informative band, R3 repeats it before anything is promoted.
+
