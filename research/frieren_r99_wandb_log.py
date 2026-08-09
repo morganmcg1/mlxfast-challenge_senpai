@@ -120,7 +120,15 @@ def parse_e2e(path):
 
 
 def e2e_paired(rows):
-    """(FWD - REV) / 2 on decode seconds/token, cand relative to base."""
+    """Order-corrected decode seconds/token, cand relative to base.
+
+    Each leg here is already signed as cand-vs-base via the arm label, so a
+    FWD sweep (base in slot 1) measures effect+slot_bias and a REV sweep
+    (cand in slot 1) measures effect-slot_bias. The mean recovers the effect
+    and the half-difference is the slot bias. This differs from the kernel
+    probe, whose legs are raw slot2/slot1 ratios and therefore need
+    (FWD-REV)/2 for the same quantity.
+    """
     by = {}
     for r in rows:
         if r.get("decode_spt"):
@@ -133,10 +141,11 @@ def e2e_paired(rows):
         return None
     fm, _, fse, fn = stats(legs["FWD"])
     rm, _, rse, rn = stats(legs["REV"])
-    est = (fm - rm) / 2
+    est = (fm + rm) / 2
+    slot_bias = (fm - rm) / 2
     sem = (fse ** 2 + rse ** 2) ** 0.5 / 2
-    return {"est_pct": est, "sem_pct": sem, "fwd_mean_pct": fm,
-            "rev_mean_pct": rm, "fwd_n": fn, "rev_n": rn,
+    return {"est_pct": est, "sem_pct": sem, "slot_bias_pct": slot_bias,
+            "fwd_mean_pct": fm, "rev_mean_pct": rm, "fwd_n": fn, "rev_n": rn,
             "t": est / sem if sem else float("nan")}
 
 

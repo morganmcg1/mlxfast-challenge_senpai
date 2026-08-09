@@ -1,0 +1,55 @@
+@@SWEEP 1
+@@ORDER FWD
+@@RUN sweep=1 slot=1 arm=base exit=0
+{"score":0.7972436998441721,"decode_spt":0.0129105328828125,"prefill_spt":0.00112464884375,"base_decode_spt":0.01385621216015625,"base_prefill_spt":0.00036751938916015626,"decode_speedup":1.0732486633919434,"prefill_speedup":0.32678590406469377,"passed_correctness":true,"golden_hash":"b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63","first_failing_case":null,"first_failing_step":null}
+    prefill 0.001112 -> 0.001125 s/token (+1.1%)
+    decode  0.012988 -> 0.012911 s/token (-0.6%)
+    est score 0.796 -> 0.797 (+0.2%)
+@@RUN sweep=1 slot=2 arm=cand exit=0
+{"score":0.7987697233376176,"decode_spt":0.012930745765625,"prefill_spt":0.001110853353515625,"base_decode_spt":0.01385621216015625,"base_prefill_spt":0.00036751938916015626,"decode_speedup":1.0715709991755853,"prefill_speedup":0.3308442000890866,"passed_correctness":true,"golden_hash":"b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63","first_failing_case":null,"first_failing_step":null}
+    prefill 0.001112 -> 0.001111 s/token (-0.1%)
+    decode  0.012988 -> 0.012931 s/token (-0.4%)
+    est score 0.796 -> 0.799 (+0.4%)
+@@ENDSWEEP 1
+@@SWEEP 2
+@@ORDER REV
+@@RUN sweep=2 slot=1 arm=cand exit=0
+{"score":0.7926727276010357,"decode_spt":0.0129578841171875,"prefill_spt":0.001138245361328125,"base_decode_spt":0.01385621216015625,"base_prefill_spt":0.00036751938916015626,"decode_speedup":1.0693267538777567,"prefill_speedup":0.3228823957001047,"passed_correctness":true,"golden_hash":"b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63","first_failing_case":null,"first_failing_step":null}
+    prefill 0.001112 -> 0.001138 s/token (+2.3%)
+    decode  0.012988 -> 0.012958 s/token (-0.2%)
+    est score 0.796 -> 0.793 (-0.4%)
+@@RUN sweep=2 slot=2 arm=base exit=0
+{"score":0.7952715096491741,"decode_spt":0.0129046953125,"prefill_spt":0.00113738858984375,"base_decode_spt":0.01385621216015625,"base_prefill_spt":0.00036751938916015626,"decode_speedup":1.0737341583520048,"prefill_speedup":0.32312561638291504,"passed_correctness":true,"golden_hash":"b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63","first_failing_case":null,"first_failing_step":null}
+    prefill 0.001112 -> 0.001137 s/token (+2.3%)
+    decode  0.012988 -> 0.012905 s/token (-0.6%)
+    est score 0.796 -> 0.795 (-0.1%)
+@@ENDSWEEP 2
+@@SWEEP 3
+@@ORDER FWD
+@@RUN sweep=3 slot=1 arm=base exit=0
+{"score":0.7931814722870536,"decode_spt":0.012994529953125,"prefill_spt":0.001125749755859375,"base_decode_spt":0.01385621216015625,"base_prefill_spt":0.00036751938916015626,"decode_speedup":1.0663111486248125,"prefill_speedup":0.32646632810468545,"passed_correctness":true,"golden_hash":"b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63","first_failing_case":null,"first_failing_step":null}
+    prefill 0.001112 -> 0.001126 s/token (+1.2%)
+    decode  0.012988 -> 0.012995 s/token (+0%)
+    est score 0.796 -> 0.793 (-0.3%)
+@@RUN sweep=3 slot=2 arm=cand exit=0
+{"score":0.7968554566941719,"decode_spt":0.012923833984375,"prefill_spt":0.0011233666171875,"base_decode_spt":0.01385621216015625,"base_prefill_spt":0.00036751938916015626,"decode_speedup":1.0721440848674242,"prefill_speedup":0.327158902122524,"passed_correctness":true,"golden_hash":"b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63","first_failing_case":null,"first_failing_step":null}
+    prefill 0.001112 -> 0.001123 s/token (+1%)
+    decode  0.012988 -> 0.012924 s/token (-0.5%)
+    est score 0.796 -> 0.797 (+0.1%)
+@@ENDSWEEP 3
+@@SWEEP 4
+@@ORDER REV
+@@RUN sweep=4 slot=1 arm=cand exit=0
+{"score":0.79320845739345,"decode_spt":0.0130464869765625,"prefill_spt":0.0011122021484375,"base_decode_spt":0.01385621216015625,"base_prefill_spt":0.00036751938916015626,"decode_speedup":1.0620646144091042,"prefill_speedup":0.3304429771840249,"passed_correctness":true,"golden_hash":"b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63","first_failing_case":null,"first_failing_step":null}
+    prefill 0.001112 -> 0.001112 s/token (+0%)
+    decode  0.012988 -> 0.013046 s/token (+0.4%)
+    est score 0.796 -> 0.793 (-0.3%)
+@@RUN sweep=4 slot=2 arm=base exit=0
+{"score":0.7927639373091334,"decode_spt":0.01301379915625,"prefill_spt":0.001123119546875,"base_decode_spt":0.01385621216015625,"base_prefill_spt":0.00036751938916015626,"decode_speedup":1.06473228868771,"prefill_speedup":0.3272308724238241,"passed_correctness":true,"golden_hash":"b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63","first_failing_case":null,"first_failing_step":null}
+    prefill 0.001112 -> 0.001123 s/token (+1%)
+    decode  0.012988 -> 0.013014 s/token (+0.2%)
+    est score 0.796 -> 0.793 (-0.4%)
+@@ENDSWEEP 4
+=== restore candidate ===
+ M research/frieren-r99-a-result.md
+DONE

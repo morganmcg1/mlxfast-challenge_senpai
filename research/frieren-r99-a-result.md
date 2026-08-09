@@ -322,20 +322,130 @@ to catch a *catastrophe* (a build that is 5 % slower, a correctness failure, a
 kernel that never dispatches), not to price a fifth of a percent.
 
 Design: 4 sweeps × 2 arms, order alternating FWD (base→cand) / REV
-(cand→base), estimator `(FWD − REV) / 2` on decode seconds/token, which cancels
-any monotone drift in host thermals across the run. Driver
+(cand→base) on decode seconds/token, which lets a slot-order bias be separated
+from the effect instead of contaminating it. Driver
 `research/frieren_r99_e2e_paired.sh`; each leg is a full
 `./benchmark.sh --local-iterate` with the arm's `LagunaRuntimeModel.swift`
 checked out and rebuilt, so build differences are inside the contrast rather
 than confounded with it.
 
-<!--E2E-->
+### 5.1 A sign-convention bug I introduced, and caught
+
+I have to report this before the numbers, because it changed my reading of them.
+
+My first aggregation of this leg reused the kernel probe's estimator,
+`(FWD − REV) / 2`, and reported **−0.303 % ± 0.175 (t = −1.73)** in an earlier
+working note — which I described as "consistent with the −0.23 % prediction."
+That was wrong, and conveniently wrong, which is why I am flagging it.
+
+The two instruments do not share a convention:
+
+- The **kernel probe** emits raw `slot2 / slot1` ratios. A FWD leg is
+  `base → variant`, so it measures `+effect + slot_bias`; a REV leg is
+  `variant → base`, so it measures `−effect + slot_bias`. There
+  `(FWD − REV) / 2` is the effect and the sum is the bias. This is correct and
+  the §3 probe numbers stand unchanged.
+- The **end-to-end leg** is parsed from arm *labels*, so both orders already
+  compute `cand / base − 1`. A FWD sweep measures `+effect + slot_bias` and a
+  REV sweep measures `+effect − slot_bias`. Here the **mean** is the effect and
+  `(FWD − REV) / 2` is the bias.
+
+So the number I first reported as the effect was the slot-order bias with the
+effect divided out. Fixed in `research/frieren_r99_wandb_log.py:122-149`, with
+the asymmetry between the two instruments written down in the docstring so the
+next person does not copy the estimator across again. The corrected reading
+below is less favourable to my own candidate than the buggy one was.
+
+### 5.2 Result
+
+| quantity | legs | value | sem | t |
+|---|---|---|---|---|
+| FWD sweeps (`cand/base − 1`) | +0.157 %, −0.544 % | −0.194 % | 0.350 | |
+| REV sweeps (`cand/base − 1`) | +0.412 %, +0.251 % | +0.332 % | 0.080 | |
+| **effect** = mean | 4 sweeps | **+0.069 %** | 0.180 | **+0.38** |
+| slot bias = half-difference | 4 sweeps | −0.263 % | 0.180 | −1.46 |
+
+**The end-to-end leg is a null, as preregistered.** The 95 % interval on the
+effect is `[−0.283 %, +0.421 %]`; the kernel-level prediction of −0.228 % sits
+1.65 σ from the point estimate and just inside that interval. This instrument
+therefore cannot separate the predicted effect from zero, which is exactly what
+§5's opening paragraph said it would fail to do — a ±0.18 % ruler cannot resolve
+a 0.23 % effect. Nothing here confirms the §3 result and nothing here refutes it.
+
+I want to be plain about the uncomfortable part: the point estimate has the
+**wrong sign**. Read alone it says the candidate is 0.07 % slower. I do not
+think that is real — it is 0.4 σ from zero and the two FWD legs disagree with
+each other by 0.70 %, which is three times the effect I am hunting — but it is
+not the corroboration I would have liked, and I am not going to dress it up as
+one. The slot bias is the largest term in the table (−0.26 %, slot 2 faster),
+which independently confirms the driver's design note that a fixed arm order on
+this host would have been untrustworthy.
+
+The load-bearing evidence for this experiment is §3, not §5. §5's job was to
+catch a catastrophe, and it caught none: no build failure, no dispatch failure,
+no correctness failure, and no 5 %-scale regression.
 
 ---
 
 ## 6. Correctness
 
+§9 makes this a **merge precondition**, not a formality, because I am no longer
+willing to call the float4 epilogue bit-exact by construction. Three
+independent gates, reported separately.
+
+### 6.1 Golden hash and drift, from the paired benchmark itself
+
+Every leg of the §5 benchmark is a full `--local-iterate` run, so the paired
+design doubles as a correctness replication: 8 independent runs, 4 per arm,
+each with its own build.
+
+| sweep | order | arm | `passed_correctness` | golden hash (first 16) | first failing case / step |
+|---|---|---|---|---|---|
+| 1 | FWD | base | true | `b9509697c08a2cf3` | none |
+| 1 | FWD | cand | true | `b9509697c08a2cf3` | none |
+| 2 | REV | cand | true | `b9509697c08a2cf3` | none |
+| 2 | REV | base | true | `b9509697c08a2cf3` | none |
+| 3 | FWD | base | true | `b9509697c08a2cf3` | none |
+| 3 | FWD | cand | true | `b9509697c08a2cf3` | none |
+| 4 | REV | cand | true | `b9509697c08a2cf3` | none |
+| 4 | REV | base | true | `b9509697c08a2cf3` | none |
+
+**Exactly one distinct golden hash across both arms**
+(`b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63`), and the
+public 64-step drift tripwire reports no failing case and no failing step in any
+run. So on this host the candidate is not merely "close" to the base, it is
+token-identical on the checked outputs, replicated four times per arm across
+independent builds.
+
+That is the strongest form of the claim I am entitled to make, and I want to be
+precise about its limit: it is evidence *on `applegpu_g16s`*. The epilogue
+re-associates a merge across a vector width, fast-math reassociation is a
+per-target codegen decision, and this model has known near-tie argmaxes. Four
+clean M4 replications do not prove the M5 argmax lands the same way. That
+residual risk is exactly why §9 asks for the gate to be read rather than
+assumed, and why I would rather this mechanism ride into a real receipt than be
+merged and forgotten.
+
+### 6.2 Upstream equivalence
+
+`LagunaUpstreamEquivalence.swift` checks the scored runtime against the
+vendored `Laguna.swift` oracle, which is the gate that matters for a change to
+representation and reduction order rather than to dispatch. Run through
+`research/run_upstream_equivalence.sh`, which uses the exact bare test filter,
+repairs the debug metallib placement, and refuses to call a zero-test
+invocation a pass — I read the reported test count, not just the exit status,
+because a filter that matches nothing exits 0.
+
 <!--CORRECTNESS-->
+
+### 6.3 Package test suite
+
+`swift test --force-resolved-versions`, followed by
+`git checkout -- Package.resolved`. The flag is not optional: the dependency
+graph is frozen and an unflagged invocation rewrites the lockfile, which would
+be an unreviewed change to a non-editable path.
+
+<!--SWIFTTEST-->
 
 ---
 
