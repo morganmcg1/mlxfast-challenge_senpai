@@ -1,0 +1,1102 @@
+[
+ {
+  "evidence": "/// Maximum bytes of bf16 output to accumulate per conversion chunk. /",
+  "gate": "DARKBLOOM_BF16_CHUNK_MB",
+  "polarity": "?",
+  "research_docs": 0,
+  "research_files": 0,
+  "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Load.swift:265",
+  "symbol": "raw",
+  "uses": 150
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_FUSED_SHARED_DOWN_RESIDUAL",
+  "polarity": "ON",
+  "research_docs": 0,
+  "research_files": 0,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:137",
+  "symbol": "lagunaFusedSharedDownResidualEnabled",
+  "uses": 4
+ },
+ {
+  "evidence": "/// `DARKBLOOM_CBV2_COMPILED=0` (or false/no/off) kills the compiled /",
+  "gate": "DARKBLOOM_CBV2_COMPILED",
+  "polarity": "?",
+  "research_docs": 0,
+  "research_files": 0,
+  "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/Compiled/CompiledDecodeConfigV2.swift:68",
+  "symbol": "envEnabled",
+  "uses": 4
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_ROUTE_COUNTING_SORT",
+  "polarity": "ON",
+  "research_docs": 0,
+  "research_files": 0,
+  "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift:78",
+  "symbol": "routeCountingSortEnabled",
+  "uses": 3
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_FUSED_ROUTED_DOWN_REDUCE",
+  "polarity": "ON",
+  "research_docs": 0,
+  "research_files": 0,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:199",
+  "symbol": "lagunaFusedRoutedDownReduceEnabled",
+  "uses": 2
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_PREFILL_FUSED_RESIDUAL_RMS",
+  "polarity": "ON",
+  "research_docs": 0,
+  "research_files": 0,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:280",
+  "symbol": "lagunaPrefillFusedResidualRMSNormEnabled",
+  "uses": 2
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_PREFILL_SORTED_MOE_TAIL",
+  "polarity": "ON",
+  "research_docs": 0,
+  "research_files": 0,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:9677",
+  "symbol": "lagunaPrefillSortedMoETailEnabled",
+  "uses": 2
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_INVERSE_SCATTER",
+  "polarity": "ON",
+  "research_docs": 0,
+  "research_files": 0,
+  "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift:64",
+  "symbol": "inversePermutationScatterEnabled",
+  "uses": 2
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_ROUTE_FUSED_SCATTER",
+  "polarity": "ON",
+  "research_docs": 0,
+  "research_files": 0,
+  "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift:187",
+  "symbol": "routeFusedScatterEnabled",
+  "uses": 2
+ },
+ {
+  "evidence": "?? \"1\"",
+  "gate": "DARKBLOOM_BF16_WEIGHTS",
+  "polarity": "DIAL",
+  "research_docs": 0,
+  "research_files": 0,
+  "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Load.swift:168",
+  "symbol": "bf16Env",
+  "uses": 2
+ },
+ {
+  "evidence": "// `log show --predicate 'subsystem == \"dev.darkbloom.provider\"'`. The",
+  "gate": "DARKBLOOM_MLX_RESOURCE_DEBUG",
+  "polarity": "?",
+  "research_docs": 0,
+  "research_files": 0,
+  "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatching/EngineCore.swift:158",
+  "symbol": "resourceDebug",
+  "uses": 2
+ },
+ {
+  "evidence": "// \u2014 raising it above what the hardware/OS reports would invite the ve",
+  "gate": "MLX_RESOURCE_LIMIT",
+  "polarity": "?",
+  "research_docs": 0,
+  "research_files": 0,
+  "site": "Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/allocator.cpp:75",
+  "symbol": null,
+  "uses": -1
+ },
+ {
+  "evidence": "} const char* save_cuda_graphs_dot_file() { static const char* filenam",
+  "gate": "MLX_SAVE_CUDA_GRAPHS_DOT_FILE",
+  "polarity": "?",
+  "research_docs": 0,
+  "research_files": 0,
+  "site": "Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/cuda/device.cpp:24",
+  "symbol": null,
+  "uses": -1
+ },
+ {
+  "evidence": "// Get the cache directory for storing compiled results. const std::fi",
+  "gate": "MLX_PTX_CACHE_DIR",
+  "polarity": "?",
+  "research_docs": 0,
+  "research_files": 0,
+  "site": "Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/cuda/jit_module.cpp:100",
+  "symbol": null,
+  "uses": -1
+ },
+ {
+  "evidence": "default CompileMode::enabled",
+  "gate": "MLX_DISABLE_COMPILE",
+  "polarity": "DIAL",
+  "research_docs": 0,
+  "research_files": 0,
+  "site": "Vendor/mlx-swift/Source/Cmlx/mlx/mlx/compile.cpp:219",
+  "symbol": null,
+  "uses": -1
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_WARM_GREEDY_ARGMAX",
+  "polarity": "ON",
+  "research_docs": 1,
+  "research_files": 1,
+  "site": "Sources/MLXFastModel/LagunaRuntimeWeights.swift:517",
+  "symbol": "vocabSize",
+  "uses": 105
+ },
+ {
+  "evidence": "var _base: Int = 0 public static let fastDecodeEnabledDefault: Bool = ",
+  "gate": "DARKBLOOM_FAST_BATCH_ROTATING_KV",
+  "polarity": "?",
+  "research_docs": 1,
+  "research_files": 1,
+  "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift:420",
+  "symbol": "_base",
+  "uses": 24
+ },
+ {
+  "evidence": "/// Defaults to `true`. Set `MLX_COMPILED_DECODE` to `0`/`false`/`no`/",
+  "gate": "MLX_COMPILED_DECODE",
+  "polarity": "?",
+  "research_docs": 1,
+  "research_files": 1,
+  "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/MLXHardwareInfo.swift:34",
+  "symbol": "isCompiledDecodeSupported",
+  "uses": 11
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_NVFP4_SCALE_FOLD",
+  "polarity": "ON",
+  "research_docs": 1,
+  "research_files": 1,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6606",
+  "symbol": "lagunaNvfp4ScaleFoldEnabled",
+  "uses": 7
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_FUSED_GATED_AFFINE_OPROJ",
+  "polarity": "ON",
+  "research_docs": 1,
+  "research_files": 1,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4111",
+  "symbol": "lagunaFusedGatedAffineOProjEnabled",
+  "uses": 6
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_FUSED_SLIDING_QK_NORM_ROPE",
+  "polarity": "ON",
+  "research_docs": 1,
+  "research_files": 1,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:524",
+  "symbol": "lagunaFusedSlidingQKNormRoPEEnabled",
+  "uses": 5
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_PREFILL_QK_NORM_ROPE",
+  "polarity": "ON",
+  "research_docs": 1,
+  "research_files": 1,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:541",
+  "symbol": "lagunaPrefillQKNormRoPEEnabled",
+  "uses": 5
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_TAIL_NVFP4_SCALE_FOLD",
+  "polarity": "ON",
+  "research_docs": 1,
+  "research_files": 1,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4660",
+  "symbol": "lagunaTailNVFP4ScaleFoldEnabled",
+  "uses": 5
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_PREFILL_MOE_TAIL",
+  "polarity": "ON",
+  "research_docs": 1,
+  "research_files": 1,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:9669",
+  "symbol": "lagunaPrefillMoETailEnabled",
+  "uses": 5
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_ROPE_ANGLE_ATLAS",
+  "polarity": "ON",
+  "research_docs": 1,
+  "research_files": 1,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:604",
+  "symbol": "lagunaRoPEAngleAtlasEnabled",
+  "uses": 4
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_NVFP4_SCALE_DEFER",
+  "polarity": "ON",
+  "research_docs": 1,
+  "research_files": 1,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6753",
+  "symbol": "lagunaNvfp4ScaleDeferEnabled",
+  "uses": 4
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_PREFILL_EXPERT_PAIRWISE_SCALES",
+  "polarity": "ON",
+  "research_docs": 1,
+  "research_files": 1,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:228",
+  "symbol": "lagunaPrefillExpertPairwiseScalesEnabled",
+  "uses": 3
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_NATIVE_AFFINE_GPROJ",
+  "polarity": "ON",
+  "research_docs": 1,
+  "research_files": 1,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:459",
+  "symbol": "lagunaNativeAffineGProjLayerCount",
+  "uses": 3
+ },
+ {
+  "evidence": "?? \"1\"",
+  "gate": "DARKBLOOM_PREFILL_QK_HEADS",
+  "polarity": "DIAL",
+  "research_docs": 1,
+  "research_files": 1,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:551",
+  "symbol": "lagunaPrefillQKHeadsPerGroup",
+  "uses": 3
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_NVFP4_QDOT_SEED_ELIDE",
+  "polarity": "ON",
+  "research_docs": 1,
+  "research_files": 1,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6720",
+  "symbol": "lagunaNvfp4QdotSeedElisionEnabled",
+  "uses": 3
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_FUSED_ROUTED_GATE_UP",
+  "polarity": "ON",
+  "research_docs": 1,
+  "research_files": 1,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:217",
+  "symbol": "lagunaFusedRoutedGateUpEnabled",
+  "uses": 2
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_PREFILL_FUSED_GATE_UP",
+  "polarity": "ON",
+  "research_docs": 1,
+  "research_files": 1,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:222",
+  "symbol": "lagunaPrefillFusedRoutedGateUpEnabled",
+  "uses": 2
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_FUSED_GATED_OUTPUT",
+  "polarity": "ON",
+  "research_docs": 1,
+  "research_files": 1,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:331",
+  "symbol": "lagunaFusedGatedOutputProjectionEnabled",
+  "uses": 2
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_TERMINAL_FUSION",
+  "polarity": "ON",
+  "research_docs": 1,
+  "research_files": 1,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:571",
+  "symbol": "lagunaTerminalPrefillFusionEnabled",
+  "uses": 2
+ },
+ {
+  "evidence": "== \"1\"",
+  "gate": "DARKBLOOM_FUSED_FULL_ATTN_WHOLE_MODEL_WARMUP",
+  "polarity": "OFF",
+  "research_docs": 1,
+  "research_files": 1,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:2017",
+  "symbol": "lagunaFusedFullAttentionWholeModelWarmupEnabled",
+  "uses": 2
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_FUSED_FULL_ATTN_KERNEL_WARMUP",
+  "polarity": "ON",
+  "research_docs": 1,
+  "research_files": 1,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:2024",
+  "symbol": "lagunaFusedFullAttentionKernelWarmupEnabled",
+  "uses": 2
+ },
+ {
+  "evidence": "}() private let lagunaNativeAffineProbeFormat: (mode: QuantizationMode",
+  "gate": "DARKBLOOM_NATIVE_AFFINE_PROBE_FORMAT",
+  "polarity": "?",
+  "research_docs": 1,
+  "research_files": 1,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:3058",
+  "symbol": "lagunaNativeAffineProbeFormat",
+  "uses": 2
+ },
+ {
+  "evidence": "default 0",
+  "gate": "DARKBLOOM_NATIVE_AFFINE_PROBE_FORMAT_FROM",
+  "polarity": "DIAL",
+  "research_docs": 1,
+  "research_files": 1,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:3068",
+  "symbol": "lagunaNativeAffineProbeFormatFrom",
+  "uses": 2
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_NVFP4_SCALE_CARRY",
+  "polarity": "ON",
+  "research_docs": 1,
+  "research_files": 1,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6668",
+  "symbol": "lagunaNvfp4ScaleCarry",
+  "uses": 2
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_FUSED_ROUTER_CAST",
+  "polarity": "ON",
+  "research_docs": 1,
+  "research_files": 1,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:9636",
+  "symbol": "lagunaDecodeRouterCastSinkEnabled",
+  "uses": 2
+ },
+ {
+  "evidence": "nullptr -> true",
+  "gate": "DARKBLOOM_STEEL_PREFILL_TILE",
+  "polarity": "ON",
+  "research_docs": 1,
+  "research_files": 1,
+  "site": "Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp:84",
+  "symbol": "darkbloom_steel_prefill_tile",
+  "uses": 2
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_ATTN_SCALE_PAIRWISE_QKV",
+  "polarity": "ON",
+  "research_docs": 1,
+  "research_files": 3,
+  "site": "Sources/MLXFastModel/LagunaRuntimeWeights.swift:719",
+  "symbol": "lagunaAttnScalePairwiseQKVEnabled",
+  "uses": 5
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_FUSED_SHARED_SWIGLU_QMV",
+  "polarity": "ON",
+  "research_docs": 1,
+  "research_files": 3,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:129",
+  "symbol": "lagunaFusedSharedSwiGLUQMVEnabled",
+  "uses": 3
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_FUSED_ROUTED_SWIGLU_QMV",
+  "polarity": "ON",
+  "research_docs": 1,
+  "research_files": 3,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:150",
+  "symbol": "lagunaFusedRoutedSwiGLUQMVEnabled",
+  "uses": 2
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_EXPERT_ALIGNED_GATHER",
+  "polarity": "ON",
+  "research_docs": 2,
+  "research_files": 2,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:254",
+  "symbol": "lagunaExpertAlignedGatherEnabled",
+  "uses": 4
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_FUSED_FULL_ATTN",
+  "polarity": "ON",
+  "research_docs": 2,
+  "research_files": 2,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:2011",
+  "symbol": "lagunaFusedFullAttentionEnabled",
+  "uses": 4
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_E4M3_SIGN_DOMAIN",
+  "polarity": "ON",
+  "research_docs": 2,
+  "research_files": 2,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4147",
+  "symbol": "lagunaE4M3SignDomainCertified",
+  "uses": 4
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_AFFINE_GATE_SOFTPLUS",
+  "polarity": "ON",
+  "research_docs": 2,
+  "research_files": 2,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4464",
+  "symbol": "lagunaGateSoftplusEnabled",
+  "uses": 4
+ },
+ {
+  "evidence": "} private let lagunaNormAffineQKVStaged = ProcessInfo.processInfo.envi",
+  "gate": "DARKBLOOM_NORM_AFFINE_QKV_STAGE",
+  "polarity": "?",
+  "research_docs": 2,
+  "research_files": 2,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:5206",
+  "symbol": "lagunaNormAffineQKVStaged",
+  "uses": 4
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_QMV_R1",
+  "polarity": "ON",
+  "research_docs": 2,
+  "research_files": 2,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:289",
+  "symbol": "lagunaSwiGLUQMVRows1Enabled",
+  "uses": 3
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_NATIVE_AFFINE_QKV",
+  "polarity": "ON",
+  "research_docs": 2,
+  "research_files": 2,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:347",
+  "symbol": "lagunaNativeAffineQKVLayerCount",
+  "uses": 3
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_NATIVE_AFFINE_OPROJ",
+  "polarity": "ON",
+  "research_docs": 2,
+  "research_files": 2,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:420",
+  "symbol": "lagunaNativeAffineOProjLayerCount",
+  "uses": 3
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_LAST_PREFILL_PROJECTION_BANKS",
+  "polarity": "ON",
+  "research_docs": 2,
+  "research_files": 2,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:564",
+  "symbol": "lagunaLastPrefillProjectionBanksEnabled",
+  "uses": 3
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_FUSED_DENSE_GATE_UP_SWIGLU",
+  "polarity": "ON",
+  "research_docs": 2,
+  "research_files": 2,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:639",
+  "symbol": "lagunaFusedDenseGateUpSwiGLUEnabled",
+  "uses": 3
+ },
+ {
+  "evidence": "default 0",
+  "gate": "DARKBLOOM_PREFILL_ASYNC_LADDER",
+  "polarity": "DIAL",
+  "research_docs": 2,
+  "research_files": 2,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:800",
+  "symbol": "lagunaPrefillAsyncLadderStride",
+  "uses": 3
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_FUSED_GATE_PRODUCT",
+  "polarity": "ON",
+  "research_docs": 2,
+  "research_files": 2,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:3925",
+  "symbol": "lagunaFusedGateProductEnabled",
+  "uses": 3
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_QKV_TAIL_FOLD",
+  "polarity": "ON",
+  "research_docs": 2,
+  "research_files": 2,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4677",
+  "symbol": "lagunaTailNVFP4QKVTailFoldEnabled",
+  "uses": 3
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_LM_HEAD_PRUNE_PREFILL",
+  "polarity": "ON",
+  "research_docs": 2,
+  "research_files": 2,
+  "site": "Sources/MLXFastModel/LagunaLmHeadPrune.swift:86",
+  "symbol": "lagunaLmHeadPrunePrefillEnabled",
+  "uses": 2
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_FUSED_SHARED_GATE_UP",
+  "polarity": "ON",
+  "research_docs": 2,
+  "research_files": 2,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:122",
+  "symbol": "lagunaFusedSharedGateUpEnabled",
+  "uses": 2
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_FUSED_QKV_PROJECTION",
+  "polarity": "ON",
+  "research_docs": 2,
+  "research_files": 2,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:338",
+  "symbol": "lagunaFusedQKVProjectionEnabled",
+  "uses": 2
+ },
+ {
+  "evidence": "== \"1\"",
+  "gate": "DARKBLOOM_NATIVE_AFFINE_SUFFIX",
+  "polarity": "OFF",
+  "research_docs": 2,
+  "research_files": 2,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:366",
+  "symbol": "lagunaNativeAffineSuffixSelection",
+  "uses": 2
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_FUSED_DENSE_DOWN_RESIDUAL",
+  "polarity": "ON",
+  "research_docs": 2,
+  "research_files": 2,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:649",
+  "symbol": "lagunaFusedDenseDownResidualEnabled",
+  "uses": 2
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_ATTN_PROJECTION_ASYNC",
+  "polarity": "ON",
+  "research_docs": 2,
+  "research_files": 2,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:784",
+  "symbol": "lagunaAttentionProjectionAsyncEnabled",
+  "uses": 2
+ },
+ {
+  "evidence": "default 2",
+  "gate": "DARKBLOOM_L5_UNROLL",
+  "polarity": "DIAL",
+  "research_docs": 2,
+  "research_files": 2,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:3814",
+  "symbol": "lagunaGatedOutputUnroll",
+  "uses": 2
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_DECODE_ROUTER_TOURNAMENT",
+  "polarity": "ON",
+  "research_docs": 2,
+  "research_files": 2,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:9532",
+  "symbol": "lagunaDecodeRouterTournamentEnabled",
+  "uses": 2
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_FUSED_ROUTER_NORM",
+  "polarity": "ON",
+  "research_docs": 2,
+  "research_files": 2,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:9643",
+  "symbol": "lagunaDecodeRouterNormSinkEnabled",
+  "uses": 2
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_PREFILL_ROUTER_TOURNAMENT",
+  "polarity": "ON",
+  "research_docs": 2,
+  "research_files": 2,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:10211",
+  "symbol": "lagunaPrefillRouterTournamentEnabled",
+  "uses": 2
+ },
+ {
+  "evidence": "int k_partition_size = K / split_k; int split_k_partition_stride = M *",
+  "gate": "DARKBLOOM_QMM_SPLITK_FUSED",
+  "polarity": "?",
+  "research_docs": 2,
+  "research_files": 2,
+  "site": "Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp:842",
+  "symbol": null,
+  "uses": -1
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_ATTN_SCALE_NARROW_QKV",
+  "polarity": "ON",
+  "research_docs": 2,
+  "research_files": 3,
+  "site": "Sources/MLXFastModel/LagunaRuntimeWeights.swift:681",
+  "symbol": "lagunaAttnScaleNarrowQKVEnabled",
+  "uses": 2
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_AFFINE_METADATA_INDEXED",
+  "polarity": "ON",
+  "research_docs": 3,
+  "research_files": 3,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:2971",
+  "symbol": "arrays",
+  "uses": 595
+ },
+ {
+  "evidence": "?? \"4\"",
+  "gate": "DARKBLOOM_NORM_AFFINE_QKV_PF",
+  "polarity": "DIAL",
+  "research_docs": 3,
+  "research_files": 3,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:5227",
+  "symbol": "lagunaNormAffineQKVPrefetchDepth",
+  "uses": 8
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_COMPILED_TIERED_ATTENTION",
+  "polarity": "ON",
+  "research_docs": 3,
+  "research_files": 3,
+  "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift:8",
+  "symbol": "compiledDecodeLog",
+  "uses": 8
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_NVFP4_QMV_SIGN_CARRY",
+  "polarity": "ON",
+  "research_docs": 3,
+  "research_files": 3,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4131",
+  "symbol": "lagunaNvfp4QmvSignCarryEnabled",
+  "uses": 6
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_NVFP4_QMV_SEED_ELIDE",
+  "polarity": "ON",
+  "research_docs": 3,
+  "research_files": 3,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4159",
+  "symbol": "lagunaNvfp4QmvSeedElisionEnabled",
+  "uses": 6
+ },
+ {
+  "evidence": "== \"1\"",
+  "gate": "DARKBLOOM_QMV_WIDE_CODES",
+  "polarity": "OFF",
+  "research_docs": 3,
+  "research_files": 3,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:325",
+  "symbol": "lagunaSharedQMVWideCodesEnabled",
+  "uses": 2
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_FUSED_DOWN_ROW_STAGING",
+  "polarity": "ON",
+  "research_docs": 3,
+  "research_files": 3,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:8227",
+  "symbol": "lagunaFusedDownRowStagingEnabled",
+  "uses": 2
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_ROUTER_ORDINAL_SCORE_TABLE",
+  "polarity": "ON",
+  "research_docs": 3,
+  "research_files": 3,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:9486",
+  "symbol": "lagunaDecodeRouterOrdinalScoreTableEnabled",
+  "uses": 2
+ },
+ {
+  "evidence": "== \"1\"",
+  "gate": "DARKBLOOM_PREFILL_ROUTER_TOP8",
+  "polarity": "OFF",
+  "research_docs": 3,
+  "research_files": 3,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:9660",
+  "symbol": "lagunaPrefillRouterTop8Enabled",
+  "uses": 2
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_WIRED_ZH",
+  "polarity": "ON",
+  "research_docs": 3,
+  "research_files": 3,
+  "site": "Sources/MLXFastModel/LagunaRuntimeWeights.swift:553",
+  "symbol": "wiredZHDefaultFraction",
+  "uses": 2
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_SHARED_QMV_R1",
+  "polarity": "ON",
+  "research_docs": 3,
+  "research_files": 4,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:296",
+  "symbol": "lagunaSharedSwiGLUQMVRows1Enabled",
+  "uses": 5
+ },
+ {
+  "evidence": "} } public static let isEnabled: Bool = { if let raw = ProcessInfo.pro",
+  "gate": "DARKBLOOM_COMPILED_DECODE",
+  "polarity": "?",
+  "research_docs": 3,
+  "research_files": 4,
+  "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift:53",
+  "symbol": "isEnabled",
+  "uses": 4
+ },
+ {
+  "evidence": "nullptr -> false",
+  "gate": "DARKBLOOM_STEEL_TRACE",
+  "polarity": "OFF",
+  "research_docs": 3,
+  "research_files": 4,
+  "site": "Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp:93",
+  "symbol": "darkbloom_steel_trace",
+  "uses": 3
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_FUSED_ROUTED_SHARED_DOWN_RESIDUAL",
+  "polarity": "ON",
+  "research_docs": 3,
+  "research_files": 5,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:143",
+  "symbol": "lagunaFusedRoutedSharedDownResidualEnabled",
+  "uses": 4
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_FUSED_RESIDUAL_RMS",
+  "polarity": "ON",
+  "research_docs": 3,
+  "research_files": 5,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:275",
+  "symbol": "lagunaFusedResidualRMSNormEnabled",
+  "uses": 3
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_FUSED_RESIDUAL_RMS_ROUTER",
+  "polarity": "ON",
+  "research_docs": 3,
+  "research_files": 5,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:580",
+  "symbol": "lagunaFusedResidualRMSNormRouterEnabled",
+  "uses": 3
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_SHARED_SCALE_HALVED",
+  "polarity": "ON",
+  "research_docs": 3,
+  "research_files": 6,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:312",
+  "symbol": "lagunaSharedScaleHalvedEnabled",
+  "uses": 2
+ },
+ {
+  "evidence": "== \"1\"",
+  "gate": "DARKBLOOM_ROPE_ATLAS_VIEWS",
+  "polarity": "OFF",
+  "research_docs": 4,
+  "research_files": 4,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:627",
+  "symbol": "lagunaRoPEAtlasViewsEnabled",
+  "uses": 3
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_ROUTER_ORDINAL",
+  "polarity": "ON",
+  "research_docs": 4,
+  "research_files": 4,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:9480",
+  "symbol": "lagunaDecodeRouterOrdinalEnabled",
+  "uses": 3
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_PARAMS_ATLAS",
+  "polarity": "ON",
+  "research_docs": 4,
+  "research_files": 4,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:1999",
+  "symbol": "lagunaParamsAtlasEnabled",
+  "uses": 2
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_FUSED_NORM_AFFINE_QKV",
+  "polarity": "ON",
+  "research_docs": 4,
+  "research_files": 4,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:5483",
+  "symbol": "lagunaFusedNormAffineQKVEnabled",
+  "uses": 2
+ },
+ {
+  "evidence": "default 1",
+  "gate": "DARKBLOOM_NVFP4_NIBBLE_SPLIT",
+  "polarity": "DIAL",
+  "research_docs": 4,
+  "research_files": 4,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6653",
+  "symbol": "lagunaNvfp4NibbleSplit",
+  "uses": 2
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_ROUTER_PRECOMPUTED_KEYS",
+  "polarity": "ON",
+  "research_docs": 4,
+  "research_files": 5,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:172",
+  "symbol": "lagunaRouterPrecomputedKeysEnabled",
+  "uses": 10
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_PACKED_SCALES",
+  "polarity": "ON",
+  "research_docs": 5,
+  "research_files": 5,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:166",
+  "symbol": "lagunaPackedScalesEnabled",
+  "uses": 4
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_FUSED_ROUTER",
+  "polarity": "ON",
+  "research_docs": 5,
+  "research_files": 5,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:9630",
+  "symbol": "lagunaDecodeRouterTop8Enabled",
+  "uses": 3
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_FUSED_SLIDING_ATTN",
+  "polarity": "ON",
+  "research_docs": 5,
+  "research_files": 5,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:1505",
+  "symbol": "lagunaFusedSlidingAttentionEnabled",
+  "uses": 2
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_LM_HEAD_PRUNE",
+  "polarity": "ON",
+  "research_docs": 5,
+  "research_files": 6,
+  "site": "Sources/MLXFastModel/LagunaLmHeadPrune.swift:79",
+  "symbol": "lagunaLmHeadPruneEnabled",
+  "uses": 3
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_ATTN_SCALE_LANEMAJOR",
+  "polarity": "ON",
+  "research_docs": 5,
+  "research_files": 8,
+  "site": "Sources/MLXFastModel/LagunaRuntimeWeights.swift:694",
+  "symbol": "lagunaAttnScaleLaneMajorEnabled",
+  "uses": 2
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_DECODE_NVFP4_QKV_R1",
+  "polarity": "ON",
+  "research_docs": 5,
+  "research_files": 13,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4808",
+  "symbol": "lagunaDecodeNVFP4QKVR1Enabled",
+  "uses": 2
+ },
+ {
+  "evidence": "default 8",
+  "gate": "DARKBLOOM_ROUTER_ROWS_PER_GROUP",
+  "polarity": "DIAL",
+  "research_docs": 6,
+  "research_files": 6,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:678",
+  "symbol": "lagunaRouterRowsPerGroup",
+  "uses": 2
+ },
+ {
+  "evidence": "== \"1\"",
+  "gate": "DARKBLOOM_ATTN_SCALE_NARROW_LOG",
+  "polarity": "OFF",
+  "research_docs": 7,
+  "research_files": 18,
+  "site": "Sources/MLXFastModel/LagunaRuntimeWeights.swift:728",
+  "symbol": "lagunaNarrowScaleDispatchLog",
+  "uses": 2
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_NATIVE_AFFINE_NVFP4",
+  "polarity": "ON",
+  "research_docs": 8,
+  "research_files": 8,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:3049",
+  "symbol": "lagunaNativeAffineNVFP4From",
+  "uses": 2
+ },
+ {
+  "evidence": "?? \"at:0",
+  "gate": "DARKBLOOM_DECODE_ASYNC_STAGE",
+  "polarity": "DIAL",
+  "research_docs": 8,
+  "research_files": 9,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:746",
+  "symbol": "lagunaDecodeAsyncStage",
+  "uses": 4
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_ROUTED_GATEUP_R1",
+  "polarity": "ON",
+  "research_docs": 8,
+  "research_files": 9,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:7913",
+  "symbol": "lagunaRoutedGateUpR1Enabled",
+  "uses": 2
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_LMHEAD_FUSED_REFINEMENT",
+  "polarity": "ON",
+  "research_docs": 8,
+  "research_files": 10,
+  "site": "Sources/MLXFastModel/LagunaLmHeadPrune.swift:95",
+  "symbol": "lagunaLmHeadFusedRefinementEnabled",
+  "uses": 2
+ },
+ {
+  "evidence": "== \"1\"",
+  "gate": "DARKBLOOM_SHARED_FIRST_DOWN",
+  "polarity": "OFF",
+  "research_docs": 9,
+  "research_files": 10,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:8219",
+  "symbol": "lagunaSharedFirstDownOrderEnabled",
+  "uses": 10
+ },
+ {
+  "evidence": "== \"1\"",
+  "gate": "DARKBLOOM_FUSED_QKV",
+  "polarity": "OFF",
+  "research_docs": 10,
+  "research_files": 11,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:114",
+  "symbol": "lagunaFusedQKVEnabled",
+  "uses": 2
+ },
+ {
+  "evidence": "default 1",
+  "gate": "DARKBLOOM_ROUTER_WEIGHT_PREFETCH",
+  "polarity": "DIAL",
+  "research_docs": 12,
+  "research_files": 23,
+  "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:698",
+  "symbol": "lagunaRouterWeightPrefetch",
+  "uses": 3
+ },
+ {
+  "evidence": "!= \"0\"",
+  "gate": "DARKBLOOM_ATTN_SCALE_NARROW",
+  "polarity": "ON",
+  "research_docs": 12,
+  "research_files": 29,
+  "site": "Sources/MLXFastModel/LagunaRuntimeWeights.swift:674",
+  "symbol": "lagunaAttnScaleNarrowEnabled",
+  "uses": 2
+ },
+ {
+  "evidence": "// routed/shared gate-up and down banks are ~507 MiB for the // 200 MB",
+  "gate": "MLX_BFS_MAX_WIDTH",
+  "polarity": "?",
+  "research_docs": 14,
+  "research_files": 14,
+  "site": "Sources/MLXFastModel/LagunaRuntimeWeights.swift:381",
+  "symbol": "env",
+  "uses": 73
+ },
+ {
+  "evidence": "== \"1\"",
+  "gate": "DARKBLOOM_TRACE_FUSION",
+  "polarity": "OFF",
+  "research_docs": 15,
+  "research_files": 17,
+  "site": "Sources/MLXFastModel/LagunaLmHeadPrune.swift:101",
+  "symbol": "lagunaTraceFusionEnabled",
+  "uses": 2
+ }
+]

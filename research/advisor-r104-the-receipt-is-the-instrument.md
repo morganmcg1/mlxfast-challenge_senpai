@@ -337,6 +337,13 @@ adding it, and now nobody should.
 * Env gates are frozen at first touch (§9). Do not propose flipping any
   `DARKBLOOM_*` / `MLX_*` gate inside a live process, and do not re-audit the
   binding scope by hand — re-run `research/advisor_r104_env_gate_scope.py`.
+* The gate inventory in §10. There is **no** dormant-win shortlist: all ten
+  default-OFF gates already carry a research write-up. Do not re-scan the
+  surface by hand and do not "discover" a dormant flag — re-run
+  `research/advisor_r104_gate_inventory.py`, which is idempotent and excludes
+  its own artifacts from the prior-work count. The open question §10 leaves is
+  the *opposite* one: the 76 default-**ON** kill switches, none of which has
+  been re-measured since it shipped.
 
 ## 8. 🔴 The record is not winnable by luck — it is winnable only by ~1.4 % of `cs`
 
@@ -560,9 +567,12 @@ decode regression** — these switches carry real, large, *already-written* code
 paths. §4 showed Mechanism B (the 4-deep sliding pipe) shipped with **no env
 guard and was never re-measured at all**. A calibrated same-binary channel turns
 "which of 126 switches matters" from a rebuild-bound question into a
-launch-bound one. §8.2 says we need +1.438 % of `cs`, and no single live lever
-reaches it; cheap ranking over a large dormant inventory is one of the few ways
-left to find another.
+launch-bound one.
+
+⚠️ When I first wrote this section I went on to claim that cheap ranking over a
+"large dormant inventory" was a way to find another lever. **I then measured the
+inventory and that claim is false.** See §10. The instrument is still worth
+building; what it buys is not a search for dormant wins.
 
 **The instrument must be validated before it is believed.** A same-binary rig
 needs (a) an A/A null that does *not* reject, and (b) a positive control that
@@ -572,4 +582,114 @@ default-ON paths, whose fallback code is therefore maintained:
 disables a ≈ 636 µs/step M4 kernel) and `DARKBLOOM_FUSED_FULL_ATTN=0`
 (`:2010`, default ON). `DARKBLOOM_FUSED_QKV=1` (`:113`, default OFF) is a
 second, with a known sign and a known ≈ +39.99 % magnitude.
+
+
+## 10. 🔴 There is no dormant-win inventory — there are 76 unaudited shipped optimizations
+
+I claimed in §9.3 that the 126-gate surface was a cheap place to hunt for a
+dormant lever. Then I measured it, and the claim died the same way §3's three
+hypotheses died. `research/advisor_r104_gate_inventory.py` classifies every gate
+on the **executed** path (excluding Vendor tests, server CLI and `jaccl`) by the
+default it takes when the variable is absent, and cross-references how many
+`research/` files have ever mentioned it:
+
+```
+executed-path env gates: 110
+  default ON    76      <- kill switch on a SHIPPED optimization
+  default OFF   10      <- dormant
+  default DIAL  11      <- non-binary tuning knob
+  default ?     13      <- mostly Vendor plumbing, hand-checked below
+
+SHORTLIST (default-OFF, never written up, symbol actually used): 0
+BOUND BUT NEVER USED (dead gate):                                0
+```
+
+### 10.1 The dormant set is ten gates, and every one is already spoken for
+
+| gate | research docs | what it is |
+|---|---|---|
+| `DARKBLOOM_TRACE_FUSION` | 15 | tracing, not an optimization |
+| `DARKBLOOM_STEEL_TRACE` | 3 | tracing, not an optimization |
+| `DARKBLOOM_FUSED_QKV` | 11 | **measured +39.99 % decode (§3b)** — a rejected experiment |
+| `DARKBLOOM_ATTN_SCALE_NARROW_LOG` | 7 | 18 research files |
+| `DARKBLOOM_SHARED_FIRST_DOWN` | 9 | 10 research files |
+| `DARKBLOOM_ROPE_ATLAS_VIEWS` | 4 | |
+| `DARKBLOOM_QMV_WIDE_CODES` | 3 | |
+| `DARKBLOOM_PREFILL_ROUTER_TOP8` | 3 | |
+| `DARKBLOOM_NATIVE_AFFINE_SUFFIX` | 2 | |
+| `DARKBLOOM_FUSED_FULL_ATTN_WHOLE_MODEL_WARMUP` | 1 | |
+
+**Every default-OFF gate has ≥ 1 prior research write-up.** Two are pure
+tracing. These are not unmeasured dormant code — they are **rejected
+experiments left in the tree behind a switch**. `DARKBLOOM_FUSED_QKV` is the
+archetype: it is OFF *because* it loses by 40 %. Flipping default-OFF gates on
+is, on the prior evidence, a way to find losses.
+
+⇒ **Rule 83 applies to the whole dormant set.** Do not propose enabling one of
+these without first reading its existing write-ups.
+
+### 10.2 What the surface actually is: an unaudited ablation ledger
+
+The real shape of the tree is **76 kill switches guarding optimizations we have
+already shipped and turned on**. Each one was added because it won *at the time
+it was added*. None has been re-measured since the tree changed underneath it.
+
+That is a different and, I think, better opportunity than the one I claimed:
+
+* An optimization worth +30 µs/step forty rounds ago may now be worth **zero**,
+  because a later fusion subsumed it.
+* It may now be worth **less than zero**. A shipped optimization that has
+  quietly become a pessimization is a **free win that costs one flag flip** —
+  no new code, no correctness risk, and it is bit-exact-or-not exactly as it
+  already is today.
+* The ledger is also the honest map of where decode time lives on *this* tree,
+  which is worth more than any model of where it ought to live.
+
+§8.2 says we need **+1.438 % of `cs`** and that no single live lever reaches it.
+Recovering regressions hidden inside our own stack is a genuinely different
+route to that number than inventing a new kernel, and it is the one route whose
+unit cost is a process launch rather than a round of student time.
+
+**Seven kill switches are shipped, ON, and mentioned nowhere in `research/` at
+all** — zero files, not merely zero docs:
+
+```
+DARKBLOOM_FUSED_SHARED_DOWN_RESIDUAL    LagunaRuntimeModel.swift:137
+DARKBLOOM_FUSED_ROUTED_DOWN_REDUCE      LagunaRuntimeModel.swift:199
+DARKBLOOM_PREFILL_FUSED_RESIDUAL_RMS    LagunaRuntimeModel.swift:280
+DARKBLOOM_PREFILL_SORTED_MOE_TAIL       LagunaRuntimeModel.swift:9677
+DARKBLOOM_ROUTE_COUNTING_SORT           SwitchLayers.swift:78
+DARKBLOOM_INVERSE_SCATTER               SwitchLayers.swift:64
+DARKBLOOM_ROUTE_FUSED_SCATTER           SwitchLayers.swift:187
+```
+
+That is the first page of the ledger, and it is a **rule-83-clean** list by
+construction: the script's `research_files == 0` column *is* the archive check.
+
+### 10.3 Order of operations
+
+The ledger is worthless without the instrument, and the instrument is worthless
+unvalidated. So the order is fixed:
+
+1. **σ_launch** — frieren, #571, this round. Until we know the resolution of a
+   same-binary relaunch contrast, every entry in the ledger is an unbounded
+   claim. If σ_launch is no better than the ≈ 48 rebuild figure, the ledger is
+   unaffordable and §10 dies here; that is a real outcome and #571 is
+   preregistered to report it.
+2. Only then, rank the 76. Cheapest first, decode-hot-path first.
+
+Do **not** start ablating gates before step 1 finishes. A ledger of 76
+uncalibrated deltas is 76 opportunities to fool ourselves, and §3 is the record
+of how easily I do that.
+
+### 10.4 Dials
+
+Eleven gates take a non-binary default. Two are already spoken for this round
+(`DARKBLOOM_ROUTER_WEIGHT_PREFETCH`, default 1, 13 docs — frieren's C2;
+`DARKBLOOM_L5_UNROLL`, default 2, 3 docs — nezuko's precedent). The others,
+with their defaults, are in
+`research/artifacts/advisor-r104-gate-inventory.json`. Note
+`DARKBLOOM_ROUTER_ROWS_PER_GROUP` (default 8, 6 docs) and
+`DARKBLOOM_DECODE_ASYNC_STAGE` (8 docs) are heavily trodden; check the archive
+before touching either.
 
