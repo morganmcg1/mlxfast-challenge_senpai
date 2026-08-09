@@ -159,7 +159,7 @@ private func medianAbsoluteDeviation(_ values: [Double]) -> Double {
 }
 
 private func timingValues(_ values: [Double]) -> String {
-    values.map(String.init).joined(separator: ",")
+    values.map { String($0) }.joined(separator: ",")
 }
 
 private func wordChecksum(_ words: [UInt16]) -> UInt64 {
