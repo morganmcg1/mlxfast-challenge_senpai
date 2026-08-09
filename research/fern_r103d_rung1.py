@@ -109,6 +109,7 @@ def main():
     stats = {
         "cand_dec": lambda r: r["cd"],
         "cand_pre": lambda r: r["cp"],
+        "T": lambda r: r["cd"] - 4 * r["cp"],   # D = 4P + T, exact (r103-d-fb2)
         "base_dec": lambda r: r["bd"],
         "base_pre": lambda r: r["bp"],
         "cs": lambda r: r["cs"],
@@ -188,17 +189,42 @@ def main():
     print(f"   |t| for decode = {abs(d_us)/se_dec:.2f}; N-2 "
           f"{'FIRES (CI includes 0)' if lo < 0 < hi else 'does not fire'}")
 
+    print("\n## 5T. the same residual on T = D - 4P (advisor r103-d-fb2)")
+    def T_us(r):
+        return (r["cd"] - 4 * r["cp"]) * 1e6
+    dT = T_us(B) - T_us(A)
+    sd_T = pooled["T"] / 100 * T_us(A)
+    se_T = sd_T * math.sqrt(2)
+    tlo, thi = dT - t * se_T, dT + t * se_T
+    print(f"   Arm R  D={A['cd']*1e6:8.3f}  4P={4*A['cp']*1e6:7.3f}  T={T_us(A):9.3f}")
+    print(f"   frontr D={B['cd']*1e6:8.3f}  4P={4*B['cp']*1e6:7.3f}  T={T_us(B):9.3f}")
+    print(f"   within-tree sigma(T) = {pooled['T']:.3f}% = {sd_T:.1f} us/step "
+          f"(advisor predicted 0.345% = 14.28 us/step)")
+    print(f"   >>> T residual = {dT:+.1f} us/step, 95% CI [{tlo:+.1f}, {thi:+.1f}] "
+          f"us/step; |t| = {abs(dT)/se_T:.2f}")
+    print(f"   N-2 on T {'FIRES (CI includes 0)' if tlo < 0 < thi else 'does not fire'}")
+    print(f"   MDD on T at n=1/arm = {1.96*se_T:.1f} us/step")
+    print("   rung-2 split of the cs gap (closed form, no fit needed):")
+    print(f"     decode term  -0.75*dln(cand_dec) = {-75*(math.log(B['cd'])-math.log(A['cd'])):+.4f}%")
+    print(f"     prefill term -0.25*dln(cand_pre) = {-25*(math.log(B['cp'])-math.log(A['cp'])):+.4f}%")
+    print(f"     net = {100*dln_cs:+.4f}% (identity check vs ln(cs) ratio)")
+
     print("\n## 5b. all pairwise contrasts among verified trees (decode, us/step)")
     labs = [k for k in ("59bd72a3", "e08d759f", "7ce1262d", "83fd2642", "25e1f18e")
             if k in got]
-    print(f"   {'A':10s} {'B':10s} {'B-A us/step':>12s} {'95% CI':>22s} {'|t|':>6s}")
+    print(f"   {'A':10s} {'B':10s} {'dD':>8s} {'95% CI(D)':>20s} "
+          f"{'dT':>8s} {'95% CI(T)':>20s}")
+    contrasts = {}
     for i, a in enumerate(labs):
         for b in labs[i + 1:]:
             dd = (got[b]["cd"] - got[a]["cd"]) * 1e6
             l, h = dd - t * se_dec, dd + t * se_dec
-            star = "" if l < 0 < h else "  <-- excludes 0"
-            print(f"   {a:10s} {b:10s} {dd:+12.1f} "
-                  f"[{l:+8.1f},{h:+8.1f}] {abs(dd)/se_dec:6.2f}{star}")
+            tt = T_us(got[b]) - T_us(got[a])
+            tl, th = tt - t * se_T, tt + t * se_T
+            star = "" if (l < 0 < h and tl < 0 < th) else "  <-- excludes 0"
+            contrasts[f"{a}_to_{b}"] = dict(dD=dd, dT=tt, dT_ci=[tl, th])
+            print(f"   {a:10s} {b:10s} {dd:+8.1f} [{l:+7.1f},{h:+7.1f}] "
+                  f"{tt:+8.1f} [{tl:+7.1f},{th:+7.1f}]{star}")
 
     print("\n## 5c. preregistered outcome y = ln(cand_dec) - ln(base_dec)")
     sq, dof2 = 0.0, 0
@@ -251,14 +277,16 @@ def main():
           f" (threshold 20% relative)")
 
     print("\n## 7b. measured corr(cand_dec, cand_pre) vs the 4P coupling")
-    wd, wp = [], []
+    wd, wp, wt = [], [], []
     for a in avail:
         if len(a) < 2:
             continue
         ld = [math.log(short[s]["cd"]) for s in a]
         lp = [math.log(short[s]["cp"]) for s in a]
+        lt = [math.log(short[s]["cd"] - 4 * short[s]["cp"]) for s in a]
         wd += [v - st.mean(ld) for v in ld]
         wp += [v - st.mean(lp) for v in lp]
+        wt += [v - st.mean(lt) for v in lt]
     r_within = st.correlation(wd, wp)
     r_corpus = st.correlation([math.log(r["cd"]) for r in rows],
                               [math.log(r["cp"]) for r in rows])
@@ -267,10 +295,21 @@ def main():
     d_us_mean = st.mean([r["cd"] for r in rows]) * 1e6
     share = 4 * p_us / d_us_mean
     r_pred = share * sdp / sdc
+    z = math.atanh(r_within)
+    sez = 1 / math.sqrt(len(wd) - 3)
+    rlo, rhi = math.tanh(z - 1.96 * sez), math.tanh(z + 1.96 * sez)
+    r_within_TP = st.correlation(wt, wp)
+    print(f"   within-tree corr(T, cand_pre) = {r_within_TP:+.3f} "
+          f"(the identity assumes these are independent)")
     print(f"   within-tree r = {r_within:+.3f} (n={len(wd)}, dof={DOF}), "
-          f"corpus-wide r = {r_corpus:+.3f} (n={len(rows)})")
+          f"Fisher 95% CI [{rlo:+.3f}, {rhi:+.3f}]")
+    print(f"   corpus-wide r = {r_corpus:+.3f} (n={len(rows)})")
     print(f"   4P share of cand_dec = 4*{p_us:.2f}/{d_us_mean:.1f} = {share:.3f}"
           f"  -> predicted within-tree r = {r_pred:+.3f}")
+    for name, pred in (("advisor r103-d-fb2 prediction", 0.122),
+                       ("our 4P-only prediction", r_pred), ("independence", 0.0)):
+        verdict = "consistent" if rlo <= pred <= rhi else "REJECTED"
+        print(f"   vs {name:30s} {pred:+.3f}: {verdict}")
 
     print("\n## 8. rung-2 power: n per arm for a +-0.43 us/step 95% CI half-width")
     power = {}
@@ -300,6 +339,13 @@ def main():
         N5_sigma_tension_is_bug=not (0.8 < obs / quad < 1.25),
         corr_dec_pre_within_tree=r_within, corr_dec_pre_corpus=r_corpus,
         corr_dec_pre_predicted_from_4P=r_pred, prefill_share_of_cand_dec=share,
+        corr_dec_pre_ci_lo=rlo, corr_dec_pre_ci_hi=rhi, corr_T_pre_within_tree=r_within_TP,
+        T_armR_us=T_us(A), T_frontier_us=T_us(B),
+        residual_T_us=dT, residual_T_ci_lo=tlo, residual_T_ci_hi=thi,
+        residual_T_abs_t=abs(dT) / se_T, sigma_T_pct=pooled["T"],
+        sigma_single_T_us=sd_T, se_diff_T_us=se_T, mdd_T_n1_us=1.96 * se_T,
+        N2_on_T_ci_includes_zero=bool(tlo < 0 < thi),
+        contrasts_T=contrasts,
         trees={r["id8"]: dict(label=VERIFIED[r["id8"]][0], commit=VERIFIED[r["id8"]][1],
                               cs=r["cs"], score=r["score"], cand_dec_us=r["cd"] * 1e6,
                               cand_pre_ms=r["cp"] * 1e3) for r in got.values()},

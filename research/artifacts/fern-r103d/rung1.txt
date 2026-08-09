@@ -14,6 +14,7 @@
    statistic         pooled        t1        t2        t3
    cand_dec          0.183%    0.168%    0.222%    0.151%   dof=6
    cand_pre          0.213%    0.260%    0.091%    0.245%   dof=6
+   T                 0.227%    0.238%    0.253%    0.183%   dof=6
    base_dec          0.271%    0.246%    0.239%    0.320%   dof=6
    base_pre          2.578%    2.358%    2.552%    2.805%   dof=6
    cs                0.135%    0.076%    0.180%    0.129%   dof=6
@@ -22,6 +23,7 @@
 ## 3. corpus-wide adjacent-pair robust sigma (cross-check, N-4)
    cand_dec       med|dlog| = 0.4348%  sigma_single <= 0.4559%  (n=1204)
    cand_pre       med|dlog| = 0.3562%  sigma_single <= 0.3734%  (n=1204)
+   T              med|dlog| = 0.4790%  sigma_single <= 0.5021%  (n=1204)
    base_dec       med|dlog| = 0.2324%  sigma_single <= 0.2437%  (n=1204)
    base_pre       med|dlog| = 1.9268%  sigma_single <= 2.0200%  (n=1204)
    cs             med|dlog| = 0.4154%  sigma_single <= 0.4355%  (n=1204)
@@ -46,18 +48,30 @@
    >>> cs residual = -0.2721%, 95% CI [-0.7400, +0.1959]%  = [-48.6, +12.9] us/step
    |t| for decode = 1.53; N-2 FIRES (CI includes 0)
 
+## 5T. the same residual on T = D - 4P (advisor r103-d-fb2)
+   Arm R  D=4893.712  4P=752.171  T= 4141.541
+   frontr D=4913.117  4P=751.427  T= 4161.690
+   within-tree sigma(T) = 0.227% = 9.4 us/step (advisor predicted 0.345% = 14.28 us/step)
+   >>> T residual = +20.1 us/step, 95% CI [-12.3, +52.6] us/step; |t| = 1.52
+   N-2 on T FIRES (CI includes 0)
+   MDD on T at n=1/arm = 26.0 us/step
+   rung-2 split of the cs gap (closed form, no fit needed):
+     decode term  -0.75*dln(cand_dec) = -0.2968%
+     prefill term -0.25*dln(cand_pre) = +0.0247%
+     net = -0.2721% (identity check vs ln(cs) ratio)
+
 ## 5b. all pairwise contrasts among verified trees (decode, us/step)
-   A          B           B-A us/step                 95% CI    |t|
-   59bd72a3   e08d759f          -12.1 [   -43.1,   +18.9]   0.96
-   59bd72a3   7ce1262d          -31.5 [   -62.5,    -0.6]   2.49  <-- excludes 0
-   59bd72a3   83fd2642          -26.3 [   -57.3,    +4.7]   2.08
-   59bd72a3   25e1f18e          -31.1 [   -62.1,    -0.2]   2.46  <-- excludes 0
-   e08d759f   7ce1262d          -19.4 [   -50.4,   +11.6]   1.53
-   e08d759f   83fd2642          -14.2 [   -45.2,   +16.8]   1.12
-   e08d759f   25e1f18e          -19.0 [   -50.0,   +12.0]   1.50
-   7ce1262d   83fd2642           +5.2 [   -25.8,   +36.2]   0.41
-   7ce1262d   25e1f18e           +0.4 [   -30.6,   +31.4]   0.03
-   83fd2642   25e1f18e           -4.8 [   -35.8,   +26.2]   0.38
+   A          B                dD            95% CI(D)       dT            95% CI(T)
+   59bd72a3   e08d759f      -12.1 [  -43.1,  +18.9]     -9.9 [  -42.4,  +22.6]
+   59bd72a3   7ce1262d      -31.5 [  -62.5,   -0.6]    -30.1 [  -62.6,   +2.4]  <-- excludes 0
+   59bd72a3   83fd2642      -26.3 [  -57.3,   +4.7]    -23.1 [  -55.6,   +9.4]
+   59bd72a3   25e1f18e      -31.1 [  -62.1,   -0.2]    -28.1 [  -60.6,   +4.4]  <-- excludes 0
+   e08d759f   7ce1262d      -19.4 [  -50.4,  +11.6]    -20.1 [  -52.6,  +12.3]
+   e08d759f   83fd2642      -14.2 [  -45.2,  +16.8]    -13.2 [  -45.7,  +19.3]
+   e08d759f   25e1f18e      -19.0 [  -50.0,  +12.0]    -18.1 [  -50.6,  +14.4]
+   7ce1262d   83fd2642       +5.2 [  -25.8,  +36.2]     +7.0 [  -25.5,  +39.4]
+   7ce1262d   25e1f18e       +0.4 [  -30.6,  +31.4]     +2.0 [  -30.5,  +34.5]
+   83fd2642   25e1f18e       -4.8 [  -35.8,  +26.2]     -4.9 [  -37.4,  +27.6]
 
 ## 5c. preregistered outcome y = ln(cand_dec) - ln(base_dec)
    within-tree sigma(y) = 0.3479%  vs sigma(cand_dec) alone = 0.1830%  and sigma(cs) = 0.1352%
@@ -84,8 +98,13 @@
    N-5 does not fire (threshold 20% relative)
 
 ## 7b. measured corr(cand_dec, cand_pre) vs the 4P coupling
-   within-tree r = -0.230 (n=9, dof=6), corpus-wide r = +0.943 (n=1205)
+   within-tree corr(T, cand_pre) = -0.384 (the identity assumes these are independent)
+   within-tree r = -0.230 (n=9, dof=6), Fisher 95% CI [-0.776, +0.513]
+   corpus-wide r = +0.943 (n=1205)
    4P share of cand_dec = 4*223.14/6830.4 = 0.131  -> predicted within-tree r = +0.152
+   vs advisor r103-d-fb2 prediction  +0.122: consistent
+   vs our 4P-only prediction         +0.152: consistent
+   vs independence                   +0.000: consistent
 
 ## 8. rung-2 power: n per arm for a +-0.43 us/step 95% CI half-width
    half-width  0.43 us/step -> n =   3332 receipts/arm

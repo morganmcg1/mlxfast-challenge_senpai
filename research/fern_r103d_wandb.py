@@ -87,6 +87,20 @@ def main():
         "power/n_per_arm_for_10us": d["n_per_arm_for_10us"],
         "contrast/revert_control_to_armR_us": d["revert_control_to_armR_us"],
         "corpus/identity_worst_rel_err": d["identity_worst_rel_err"],
+        "residual_T/us_per_step": d["residual_T_us"],
+        "residual_T/ci_lo_us": d["residual_T_ci_lo"],
+        "residual_T/ci_hi_us": d["residual_T_ci_hi"],
+        "residual_T/abs_t": d["residual_T_abs_t"],
+        "residual_T/T_armR_us": d["T_armR_us"],
+        "residual_T/T_frontier_us": d["T_frontier_us"],
+        "noise/sigma_T_pct": d["sigma_T_pct"],
+        "noise/sigma_single_T_us": d["sigma_single_T_us"],
+        "noise/se_diff_T_us": d["se_diff_T_us"],
+        "power/mdd_T_at_n1_us": d["mdd_T_n1_us"],
+        "null/N2_on_T_ci_includes_zero": int(d["N2_on_T_ci_includes_zero"]),
+        "coupling/corr_T_pre_within_tree": d["corr_T_pre_within_tree"],
+        "coupling/corr_dec_pre_ci_lo": d["corr_dec_pre_ci_lo"],
+        "coupling/corr_dec_pre_ci_hi": d["corr_dec_pre_ci_hi"],
         "corpus/distinct_timing_pairs": d["dedup_distinct_timing_pairs"],
         "corpus/timing_pair_repeats": d["dedup_repeats"],
         "null/N1_provenance_unverified": int(d["N1_provenance_unverified"]),
@@ -99,12 +113,19 @@ def main():
         "coupling/corr_dec_pre_predicted_from_4P": d["corr_dec_pre_predicted_from_4P"],
         "coupling/prefill_share_of_cand_dec": d["prefill_share_of_cand_dec"],
     })
+    for name, c in d["contrasts_T"].items():
+        flat[f"contrast_T/{name}_dT_us"] = c["dT"]
+        flat[f"contrast_T/{name}_dT_ci_lo_us"] = c["dT_ci"][0]
+        flat[f"contrast_T/{name}_dT_ci_hi_us"] = c["dT_ci"][1]
+
     run.log(flat)
     run.summary.update(flat)
     run.summary["headline"] = (
-        f"composed-vs-Arm-R decode residual {d['residual_decode_us']:+.1f} us/step, "
-        f"95% CI [{d['residual_decode_ci_lo']:+.1f}, {d['residual_decode_ci_hi']:+.1f}]; "
-        f"provenance verified; N-2 fires")
+        f"composed-vs-Arm-R per-step residual on T = D - 4P {d['residual_T_us']:+.1f} us/step, "
+        f"95% CI [{d['residual_T_ci_lo']:+.1f}, {d['residual_T_ci_hi']:+.1f}] "
+        f"(on raw decode D {d['residual_decode_us']:+.1f} "
+        f"[{d['residual_decode_ci_lo']:+.1f}, {d['residual_decode_ci_hi']:+.1f}]); "
+        f"provenance verified; N-2 fires on both")
 
     art = wandb.Artifact("fern-r103d-evidence", type="analysis")
     art.add_file(args.json)
