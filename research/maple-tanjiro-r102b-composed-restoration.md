@@ -177,6 +177,180 @@ worth buying.
 
 ## 6. Dynamic 2×2 on M4
 
+### 6.1 Why three sessions, and which three
+
+With unknown true per-step times `t00, t10, t01, t11` (R1 index first), the
+four arms admit six pairwise contrasts. Only three are worth buying:
+
+| session | contrast | estimates | meaning |
+| --- | --- | --- | --- |
+| **A** | arm00 → arm10 | `a = t10 − t00` | R1 with R2 **absent** |
+| **B** | arm01 → arm11 | `b = t11 − t01` | R1 with R2 **present** |
+| **C** | arm00 → arm11 | `total = t11 − t00` | the whole composed tree |
+
+The interaction is `I = b − a`, so **A and B alone determine it** — that is the
+question the round was assigned. A and B do *not* determine the total, because
+neither pair spans `t00 → t11`. C supplies the total directly and then back-out
+gives both conditional R2 effects, `t01 − t00 = total − b` and
+`t11 − t10 = total − a`, whose difference must reproduce `I`. That identity is
+the design's only internal consistency check; a fourth session (arm00 → arm01)
+would over-determine the system and was not run.
+
+Every contrast is measured **within one session as an interleaved duplex**, so
+no conclusion depends on comparing numbers across sessions.
+
+### 6.2 Protocol
+
+Each session is 28 timing slots, `ORDER="base cand cand base"` repeated 7×,
+`STEPS=200`, driven by `/tmp/r102b-session.sh` (archived as
+`research/artifacts/tanjiro-r102b/r102b-session.sh`). Slots run from immutable
+snapshots under `/tmp/r102b-sess<S>-snap/`; **the session runner never touches
+the working tree**. Adjacent `base cand` and `cand base` slot pairs form signed
+duplexes, which cancels linear session drift. The window is the last 199 steady
+steps; both sessions independently reported `406` command buffers per step, so
+`--cbs-per-step 406` is re-derived, not assumed.
+
+Reported deltas are **ratio-adjusted**: each kernel's delta is normalised by the
+duplex's own total-busy ratio, which removes whole-session clock and thermal
+scaling. Absolute deltas are printed alongside and are used whenever the
+adjustment could itself manufacture the effect.
+
+Two integrity gates ran on every session:
+
+- **Rule 75** — SHA-256 of both worker binaries and the metallib, taken before
+  and after timing. All three digests matched post-timing in every session
+  (`base` and `cand` per the arm table in §5, metallib
+  `8e8b18af…` identical across all four arms).
+- **Rule 79** — same-arm null duplexes at `--offset 1`, which pair
+  `cand→cand` and `base→base`. These are reported in full in
+  `research/artifacts/tanjiro-r102b/sess{A,B}_nulls.txt`.
+
+### 6.3 Session integrity
+
+| | Session A | Session B |
+| --- | --- | --- |
+| arms | arm00 (base) → arm10 (cand) | arm01 (base) → arm11 (cand) |
+| job | `cc092deb`, exit 0, 1227 s | `625e3506`, **SIGTERM at 1242.6 s** |
+| slots | 28 × 89,308 lines | 27 × 89,308 lines, slot 28 truncated to 2 |
+| duplexes used | 14 | **13** |
+| cbs/step | 406 | 406 |
+| rule 75 | clean | clean |
+
+Session B's supervisor reported `Job supervisor failed internally
+(PermissionError)` and killed the job during slot 28's startup. That is a
+harness artifact, not an experiment failure: the 27 completed slots are
+byte-complete and their pre/post digests match, so slot 28 was simply dropped
+and the analysis was restricted to slots 01–27 by explicit glob. The cost is
+one duplex of statistical power, which widens B's total-busy band from ±4.3 to
+±6.0 µs/step.
+
+### 6.4 Result
+
+Reproduce with:
+
+```bash
+python3 research/artifacts/tanjiro-r102b/r102b_interaction.py \
+  research/artifacts/tanjiro-r102b/sessA_stats.txt \
+  research/artifacts/tanjiro-r102b/sessB_stats.txt \
+  research/artifacts/tanjiro-r102b/sessC_stats.txt
+```
+
+Ratio-adjusted µs/step, negative = faster, 95 % CIs, derived bands combined in
+quadrature. Kernels whose three quantities are all under 1 µs/step are omitted;
+the full 19-kernel tables are in `sess{A,B}_stats.txt`.
+
+| kernel | A: R1 \| R2=0 | B: R1 \| R2=1 | **I = B − A** |
+| --- | --- | --- | --- |
+| `sliding_fused_attn_ring_v1` | −21.60 [−22.16, −21.05] | −15.47 [−16.27, −14.67] | **+6.13 [+5.15, +7.11]** |
+| `gate_sp_h64_v1` | +7.32 [+6.52, +8.12] | −0.88 [−1.79, +0.03] | **−8.20 [−9.41, −6.99]** |
+| `full_fused_attn_grow_v1` | −6.09 [−6.54, −5.64] | −7.83 [−8.15, −7.51] | **−1.74 [−2.29, −1.19]** |
+| `oproj_act_h64_v1…` | −2.19 [−3.10, −1.27] | −3.01 [−4.25, −1.76] | −0.82 [−2.37, +0.73] |
+| `oproj_act_h48_v1…` | −1.01 [−2.17, +0.15] | +0.30 [−0.76, +1.36] | +1.31 [−0.26, +2.88] |
+| **total steady GPU busy** | **−24.80 [−29.05, −20.55]** | **−27.50 [−33.45, −21.55]** | **−2.70 [−10.01, +4.61]** |
+| as M5 score % (0.01528 %/µs) | +0.3789 % | +0.4202 % | +0.0413 % |
+
+**The whole-step interaction is null.** `I = −2.70 ± 7.31` µs/step, well inside
+its band. Composed R1∘R2 is empirically additive at the step level on M4.
+
+**But it is additive by cancellation, not by independence.** Three per-kernel
+interactions are individually significant and nearly cancel:
+`+6.13 − 8.20 − 1.74 = −3.81` µs/step, against the −2.70 measured at the total.
+Had any one of them been absent, the composed tree would have moved by roughly
+±0.1 % of score relative to the additive prediction.
+
+### 6.5 The three mechanisms
+
+**Sub-additive where the hunks meet (`sliding`, +6.13).** The sliding kernel is
+the only object both restorations edit. R1 recovers **−21.60** µs/step there
+alone but only **−15.47** when R2 is present — **72 % of its solo gain**. This
+is the mechanistically expected result and the one the static census in §5 could
+not see: R1's float4 merge epilogue and R2's 4-deep load ring both work by
+covering the same load-to-use stall in the ring, so the second one to arrive
+finds less stall left to cover. Note this is *partial* overlap, not redundancy:
+R1 still delivers three quarters of its value on top of R2.
+
+**Synergistic off-target (`gate_sp_h64_v1`, −8.20).** R1 alone imposes a
+**+7.32 µs/step penalty on a kernel it does not touch** — the shared-expert gate,
+which is nowhere near attention in the source. With R2 present the penalty is
+gone (−0.88, not significant). Reading the arm levels directly:
+
+| kernel, µs/step | arm00 | arm10 | arm01 | arm11 |
+| --- | --- | --- | --- | --- |
+| `sliding_fused_attn_ring_v1` | 648.4 | 627.5 | 648.7 | 633.4 |
+| `full_fused_attn_grow_v1` | 255.2 | 249.3 | 255.1 | 247.1 |
+| `gate_sp_h64_v1` | 243.0 | **250.6** | 244.3 | 243.6 |
+
+arm10 is the outlier; arm00, arm01 and arm11 agree to ~1 µs/step. The natural
+explanation is occupancy: R1's epilogue changes the sliding kernel's register
+demand, and §5's IR census shows R2 *also* moves `max_live_regs32` (99 → 135 in
+the composed arm). A configuration that lands badly against an AGX
+register-allocator tier boundary can cost a co-resident kernel a SIMD slot.
+arm10 appears to land badly and arm11 does not. This is a hypothesis: the AGX
+allocator tier is exactly the layer §5 flagged as not publicly inspectable, and
+nothing here proves the mechanism. What is not in doubt is the measurement —
+the effect is 7.32 µs/step against nulls under 1 µs/step (§6.6).
+
+**Context-dependence of byte-identical code (`full`, −1.74).** From §5, R2
+changes **zero bytes** of `full_fused_attn_grow_v1`: arm00 and arm01 hash to
+`946fa24a22ebdf8d`, arm10 and arm11 to `cb63a94f8a78d350`. Sessions A and B
+therefore contrast *the same two kernel binaries*. They disagree by
+−1.74 µs/step with non-overlapping CIs, and the arm levels confirm it
+(249.3 vs 247.1). R1's full-kernel gain is **29 % larger** when the neighbouring
+sliding kernel carries R2's deeper ring.
+
+This is the most transferable finding in the section: **on this GPU, a kernel's
+timing is not a property of that kernel's code.** Per-kernel microbenchmarks
+cannot be composed, and a change confined to one kernel can be re-priced by an
+edit to a different one.
+
+### 6.6 Nulls (rule 79)
+
+Same-arm duplexes, per-kernel, all four combinations:
+
+| kernel | A: arm10−arm10 | A: arm00−arm00 | B: arm11−arm11 | B: arm01−arm01 |
+| --- | --- | --- | --- | --- |
+| `sliding_fused_attn_ring_v1` | −0.43 | −0.01 | −0.78 | −0.37 |
+| `full_fused_attn_grow_v1` | +0.47 | −0.32 | −0.01 | −0.35 |
+| `gate_sp_h64_v1` | +0.42 | −0.72 | −0.25 | +0.03 |
+| `oproj_act_h64_v1…` | −0.91 | +0.21 | +0.43 | −0.80 |
+| total steady GPU busy | −5.3 [−11.8, +1.3] | −1.4 [−10.5, +7.8] | −1.2 [−13.0, +10.7] | −6.9 [−14.8, +1.1] |
+
+Every per-kernel null is under 1 µs/step in magnitude and none is significant.
+The `gate_sp` nulls in particular are +0.42, −0.72, −0.25, +0.03 — so the
++7.32 in §6.5 is **17× the null scale** and cannot be a drift artifact. All
+four total-busy nulls contain zero.
+
+### 6.7 Expectation for Session C
+
+Recorded before Session C's data was analysed. Across sessions the unchanged
+kernels' levels agree closely — `full` reads 255.2 (arm00) vs 255.1 (arm01),
+`sliding` 648.4 vs 648.7 — which suggests **R2 alone is worth roughly nothing
+on M4** (~0.3 µs/step on the kernel it edits, against its official M5 +0.130 %).
+If that holds, C should land near B's −27.5 µs/step rather than near the
+additive −23 to −24, and the backed-out `t01 − t00` should be near zero.
+
+### 6.8 Session C: the composed total
+
 _Pending._
 
 ## 7. Official submission (P3)
