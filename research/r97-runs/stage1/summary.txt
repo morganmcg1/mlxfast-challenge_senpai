@@ -1,0 +1,16 @@
+01-b0-n0 rc=0 seconds=198
+02-b0-n10 rc=0 seconds=186
+03-b0-n20 rc=0 seconds=213
+04-b0-n40 rc=0 seconds=188
+05-b1-n20 rc=0 seconds=214
+06-b1-n10 rc=0 seconds=176
+07-b1-n40 rc=0 seconds=176
+08-b1-n0 rc=0 seconds=201
+09-b2-n20 rc=0 seconds=176
+10-b2-n40 rc=0 seconds=189
+11-b2-n0 rc=0 seconds=202
+12-b2-n10 rc=0 seconds=201
+13-b3-n10 rc=0 seconds=168
+14-b3-n20 rc=0 seconds=176
+15-b3-n40 rc=0 seconds=190
+16-b3-n0 rc=0 seconds=177

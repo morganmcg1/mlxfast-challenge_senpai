@@ -1,0 +1,11 @@
+worker up in 42.7s ok=True
+diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.719253540039062 mlx_active_gb=33.31 mlx_cache_gb=0.00 mlx_peak_gb=36.11
+prefill 512 tokens: 564.35 ms (1102.3 us/token)
+decode_begin seed forward: 563.94 ms
+DECODE_PHASE_START
+DECODE_PHASE_END
+teacher-forced greedy tokens: 0 divergences (all match)
+first 8 steps (ms): 13.392 8.380 8.228 8.217 8.196 8.293 8.187 8.233
+decode steps=128 mean=8.265 ms median=8.221 ms p10=8.182 ms p90=8.279 ms min=8.097 ms max=13.392 ms total=1.058 s
+diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.721542358398438 mlx_active_gb=33.39 mlx_cache_gb=1.08 mlx_peak_gb=36.11
+worker stderr -> research/r97-runs/stage0/06_n8.worker.err
