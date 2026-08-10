@@ -67,11 +67,55 @@
    "error": "",
    "partial_result": false,
    "commit_reported": "fdeb45614ce278fd58d8a6afdbf738cf25f7a347"
+  },
+  {
+   "arm": "A2-1",
+   "submission_id": "288c7025-3835-47b3-9bb2-26a09799e7b2",
+   "commit": "67ed6f26b09a7f369b0f362731fc2a503bc77cf0",
+   "queued_at": "2026-08-10T05:00:24Z",
+   "status": "rejected",
+   "official_score": 2.55214102802847,
+   "rejection_reason": "score did not improve current best",
+   "cand_dec": 0.0049303404921875,
+   "cand_pre": 0.000189811361328125,
+   "prefill_ms": 97.18341699999999,
+   "step_ms": 4.171095046875,
+   "norm_decode_su": 2.817249644727329,
+   "norm_prefill_su": 2.0256953920440974,
+   "norm_score": 2.594254236612786,
+   "prefill_price_pct_per_ms": 0.37608874590827157,
+   "baseline_dec": 0.01382469921875,
+   "baseline_pre": 0.000365262044921875,
+   "decode_speedup": 2.8040049649017726,
+   "prefill_speedup": 1.9243423700568176,
+   "max_abs_diff": 0,
+   "passed_correctness": true,
+   "passed_decode_floor": true,
+   "passed_prefill_floor": true,
+   "checked_steps": 1344,
+   "semantic_gpqa": "8/9",
+   "gpqa_ttft_passed": true,
+   "gpqa_ttft_p50_seconds": 0.081,
+   "measured_at": "2026-08-10T05:10:49Z",
+   "service_commit": "b4c9b4e48a7835596582c37171ddc79fb6ed9e01",
+   "error": "",
+   "partial_result": false,
+   "commit_reported": "b4c9b4e48a7835596582c37171ddc79fb6ed9e01"
+  },
+  {
+   "arm": "A0-3",
+   "submission_id": "d4a86ffd-b26a-48de-aba4-07d6d49558fb",
+   "commit": "73bf55bb021b421f6fcfea91a0bdd72ec4c29a27",
+   "queued_at": "2026-08-10T05:23:27Z",
+   "status": "validating",
+   "official_score": null,
+   "rejection_reason": null
   }
  ],
  "contrast": {
   "arm_receipt_counts": {
-   "A0": 2
+   "A0": 2,
+   "A2": 1
   },
   "control_n": 2,
   "control_dof": 1,
@@ -81,6 +125,22 @@
   "sigma_prefill_channel_ms": 0.18950461735800525,
   "sigma_decode_channel_ms": 0.2503158005400674,
   "sigma_ms": 0.18950461735800525,
-  "sigma_pct": 0.19706168671647362
+  "sigma_pct": 0.19706168671647362,
+  "A2": {
+   "n": 1,
+   "dof": 1,
+   "t95": 6.314,
+   "se_ms": 0.23209480821424242,
+   "delta_prefill_ms": -1.0182920000000024,
+   "delta_decode_echo_ms": -2.181874999999991,
+   "delta_step_ms": -0.009090492187500132,
+   "ci90_ms": [
+    -2.483738619064729,
+    0.4471546190647242
+   ],
+   "z_vs_zero": -4.387396718758293,
+   "verdict": "NULL-bar-excluded",
+   "verdict_is_shippable": false
+  }
  }
 }
