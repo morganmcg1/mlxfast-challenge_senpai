@@ -1,0 +1,324 @@
+diff --git a/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp b/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp
+index 2a8e15a..ebc9f29 100644
+--- a/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp
++++ b/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp
+@@ -1,7 +1,12 @@
+ // Copyright © 2023-2024 Apple Inc.
+ 
++#include <cstdio>
+ #include <cstdlib>
++#include <fstream>
++#include <mutex>
+ #include <sstream>
++#include <unordered_map>
++#include <vector>
+ 
+ #include <fmt/format.h>
+ 
+@@ -30,6 +35,205 @@ struct hash<NS::SharedPtr<T>> {
+ 
+ namespace mlx::core::metal {
+ 
++// === R103-B research instrumentation (temporary; never submitted) ==========
++// Enabled only when MLX_TRACE_DUMP_DIR is set. MLX_* is the sole env prefix
++// that survives the runtime worker's allowlist filter.
++namespace mlxfast_trace {
++
++inline const char* dump_dir() {
++  static const char* dir = std::getenv("MLX_TRACE_DUMP_DIR");
++  return (dir && *dir) ? dir : nullptr;
++}
++
++inline std::mutex& mutex() {
++  static std::mutex m;
++  return m;
++}
++
++inline std::string sanitize(const std::string& s) {
++  std::string out;
++  out.reserve(s.size());
++  for (char c : s) {
++    bool ok = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') ||
++        (c >= 'A' && c <= 'Z') || c == '_' || c == '-' || c == '.';
++    out.push_back(ok ? c : '_');
++  }
++  if (out.size() > 160) {
++    out.resize(160);
++  }
++  return out;
++}
++
++inline std::unordered_map<const void*, std::string>& pipeline_names() {
++  static std::unordered_map<const void*, std::string> m;
++  return m;
++}
++
++inline std::vector<std::string>& pending_args() {
++  static std::vector<std::string> v;
++  return v;
++}
++
++// --- R106-C DAG extension --------------------------------------------------
++// Per-dispatch buffer ranges, barrier firings and encoder identity, so the
++// exact runtime dependency graph can be reconstructed offline.
++struct BufRange {
++  const void* ptr;
++  long long off;
++  long long size;
++};
++
++inline std::vector<BufRange>& pending_ins() {
++  static std::vector<BufRange> v;
++  return v;
++}
++
++inline std::vector<BufRange>& pending_outs() {
++  static std::vector<BufRange> v;
++  return v;
++}
++
++inline long long& cur_encoder() {
++  static long long id = -1;
++  return id;
++}
++
++inline void new_encoder() {
++  if (!dump_dir()) {
++    return;
++  }
++  static long long next = 0;
++  std::lock_guard<std::mutex> lock(mutex());
++  cur_encoder() = next++;
++}
++
++inline void note_in_buf(const array& a) {
++  if (!dump_dir()) {
++    return;
++  }
++  std::lock_guard<std::mutex> lock(mutex());
++  pending_ins().push_back(
++      {a.buffer().ptr(),
++       static_cast<long long>(a.offset()),
++       static_cast<long long>(a.data_size() * a.itemsize())});
++}
++
++inline void note_out_buf(const array& a) {
++  if (!dump_dir()) {
++    return;
++  }
++  std::lock_guard<std::mutex> lock(mutex());
++  pending_outs().push_back(
++      {a.buffer().ptr(),
++       static_cast<long long>(a.offset()),
++       static_cast<long long>(a.data_size() * a.itemsize())});
++}
++
++inline void write_ranges(std::ostream& os, const std::vector<BufRange>& v) {
++  for (size_t i = 0; i < v.size(); ++i) {
++    if (i) {
++      os << ' ';
++    }
++    os << v[i].ptr << '+' << v[i].off << ':' << v[i].size;
++  }
++}
++// --- end R106-C DAG extension ----------------------------------------------
++
++inline void dump_library(const std::string& name, const std::string& src) {
++  const char* dir = dump_dir();
++  if (!dir) {
++    return;
++  }
++  std::lock_guard<std::mutex> lock(mutex());
++  static int seq = 0;
++  char idx[8];
++  std::snprintf(idx, sizeof(idx), "%04d", seq++);
++  std::string path =
++      std::string(dir) + "/lib_" + idx + "_" + sanitize(name) + ".msl";
++  std::ofstream f(path, std::ios::binary);
++  f << src;
++  f.close();
++  std::ofstream ix(std::string(dir) + "/library_index.tsv", std::ios::app);
++  ix << idx << '\t' << name << '\t' << src.size() << '\n';
++}
++
++inline void register_pipeline(const void* pipe, const std::string& hash_name) {
++  if (!dump_dir()) {
++    return;
++  }
++  std::lock_guard<std::mutex> lock(mutex());
++  pipeline_names()[pipe] = hash_name;
++}
++
++inline void note_arg(int idx, const array& a) {
++  if (!dump_dir()) {
++    return;
++  }
++  std::lock_guard<std::mutex> lock(mutex());
++  std::ostringstream os;
++  os << idx << ':' << type_to_name(a) << '[';
++  const auto& shape = a.shape();
++  for (size_t i = 0; i < shape.size(); ++i) {
++    if (i) {
++      os << ',';
++    }
++    os << shape[i];
++  }
++  os << ']';
++  pending_args().push_back(os.str());
++}
++
++inline void log_dispatch(
++    const void* pipe,
++    const char* kind,
++    MTL::Size grid,
++    MTL::Size group,
++    bool barrier_fired) {
++  const char* dir = dump_dir();
++  if (!dir) {
++    return;
++  }
++  std::lock_guard<std::mutex> lock(mutex());
++  static std::ofstream out(std::string(dir) + "/dispatch.tsv", std::ios::app);
++  static long long seq = 0;
++  auto& names = pipeline_names();
++  auto it = names.find(pipe);
++  out << seq++ << '\t' << (it == names.end() ? std::string("<unregistered>")
++                                             : it->second)
++      << '\t' << kind << '\t' << grid.width << 'x' << grid.height << 'x'
++      << grid.depth << '\t' << group.width << 'x' << group.height << 'x'
++      << group.depth << '\t';
++  auto& args = pending_args();
++  for (size_t i = 0; i < args.size(); ++i) {
++    if (i) {
++      out << ' ';
++    }
++    out << args[i];
++  }
++  out << '\t' << (barrier_fired ? 1 : 0) << '\t' << cur_encoder() << '\t';
++  write_ranges(out, pending_ins());
++  out << '\t';
++  write_ranges(out, pending_outs());
++  out << '\n';
++  out.flush();
++  args.clear();
++  pending_ins().clear();
++  pending_outs().clear();
++}
++
++inline void mark(const char* label) {
++  const char* dir = dump_dir();
++  if (!dir) {
++    return;
++  }
++  std::lock_guard<std::mutex> lock(mutex());
++  std::ofstream out(std::string(dir) + "/dispatch.tsv", std::ios::app);
++  out << "#MARK\t" << label << '\n';
++}
++
++} // namespace mlxfast_trace
++// === end R103-B research instrumentation ===================================
++
+ namespace {
+ 
+ constexpr const char* default_mtllib_path = METAL_PATH;
+@@ -324,6 +528,8 @@ void CommandEncoder::set_input_array(
+   needs_barrier_ =
+       needs_barrier_ | (prev_outputs_.find(r_buf) != prev_outputs_.end());
+   auto a_buf = static_cast<const MTL::Buffer*>(a.buffer().ptr());
++  mlxfast_trace::note_arg(idx, a);
++  mlxfast_trace::note_in_buf(a);
+   get_command_encoder()->setBuffer(a_buf, a.offset() + offset, idx);
+ }
+ 
+@@ -338,6 +544,7 @@ void CommandEncoder::set_output_array(
+ 
+ void CommandEncoder::register_output_array(const array& a) {
+   all_outputs_.insert(a.buffer().ptr());
++  mlxfast_trace::note_out_buf(a);
+ 
+   auto buf = static_cast<MTL::Resource*>(const_cast<void*>(a.buffer().ptr()));
+   if (concurrent_) {
+@@ -377,19 +584,33 @@ void CommandEncoder::maybeInsertBarrier() {
+ void CommandEncoder::dispatch_threadgroups(
+     MTL::Size grid_dims,
+     MTL::Size group_dims) {
++  bool traced_barrier = needs_barrier_;
+   maybeInsertBarrier();
+   buffer_ops_++;
++  mlxfast_trace::log_dispatch(
++      current_pipeline_, "threadgroups", grid_dims, group_dims,
++      traced_barrier);
+   get_command_encoder()->dispatchThreadgroups(grid_dims, group_dims);
+ }
+ 
+ void CommandEncoder::dispatch_threads(
+     MTL::Size grid_dims,
+     MTL::Size group_dims) {
++  bool traced_barrier = needs_barrier_;
+   maybeInsertBarrier();
+   buffer_ops_++;
++  mlxfast_trace::log_dispatch(
++      current_pipeline_, "threads", grid_dims, group_dims,
++      traced_barrier);
+   get_command_encoder()->dispatchThreads(grid_dims, group_dims);
+ }
+ 
++void CommandEncoder::set_compute_pipeline_state(
++    MTL::ComputePipelineState* kernel) {
++  current_pipeline_ = kernel;
++  get_command_encoder()->setComputePipelineState(kernel);
++}
++
+ void CommandEncoder::barrier() {
+   get_command_encoder()->memoryBarrier(MTL::BarrierScopeBuffers);
+ }
+@@ -547,6 +768,7 @@ MTL::ComputeCommandEncoder* CommandEncoder::get_command_encoder() {
+     encoder_ = NS::RetainPtr(
+         buffer_->computeCommandEncoder(MTL::DispatchTypeConcurrent));
+     fence_ = NS::TransferPtr(device_.mtl_device()->newFence());
++    mlxfast_trace::new_encoder();
+     // Reset error when user starts to encode new commands, they are supposed to
+     // have handled the error in synchronize() or Event::wait().
+     error_.reset();
+@@ -782,7 +1004,9 @@ MTL::Library* Device::get_library(
+     return it->second.get();
+   }
+ 
+-  auto mtl_lib = build_library_(builder());
++  auto src = builder();
++  mlxfast_trace::dump_library(name, src);
++  auto mtl_lib = build_library_(src);
+   library_map_.insert({name, mtl_lib});
+   return mtl_lib.get();
+ }
+@@ -836,6 +1060,7 @@ MTL::ComputePipelineState* Device::get_kernel_(
+ 
+   // Add kernel to cache
+   kernel_map_.insert({hash_name, kernel});
++  mlxfast_trace::register_pipeline(kernel.get(), hash_name);
+ 
+   return kernel.get();
+ }
+diff --git a/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.h b/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.h
+index bed0cd6..e2e283a 100644
+--- a/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.h
++++ b/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.h
+@@ -57,9 +57,7 @@ class MLX_API CommandEncoder {
+   void dispatch_threads(MTL::Size grid_dims, MTL::Size group_dims);
+   void maybeInsertBarrier();
+ 
+-  void set_compute_pipeline_state(MTL::ComputePipelineState* kernel) {
+-    get_command_encoder()->setComputePipelineState(kernel);
+-  }
++  void set_compute_pipeline_state(MTL::ComputePipelineState* kernel);
+ 
+   template <typename Vec, typename = std::enable_if_t<is_vector_v<Vec>>>
+   void set_vector_bytes(const Vec& vec, size_t nelems, int idx) {
+@@ -125,6 +123,7 @@ class MLX_API CommandEncoder {
+   // reset after calling end_encoding().
+   NS::SharedPtr<MTL::ComputeCommandEncoder> encoder_;
+   NS::SharedPtr<MTL::Fence> fence_;
++  MTL::ComputePipelineState* current_pipeline_{nullptr};
+   bool needs_barrier_{false};
+   bool concurrent_{false};
+   std::vector<array> temporaries_;
