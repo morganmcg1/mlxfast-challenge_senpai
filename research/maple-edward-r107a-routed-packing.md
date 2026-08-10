@@ -9,6 +9,27 @@ generation 16 (`applegpu_g16s`), low-memory startup profile. Every timing number
 below is M4-local and directional; only the tagged structural claims are argued
 to transfer.
 
+**Answer, up front (§6.0).** **No — routed gate/up threadgroup packing (family
+T2c) is not worth carrying into the integrated tree.** The dose curve is
+flat-then-cliff and its point estimates have the wrong sign:
+`base -> sg4 = +2.2 µs/step [-6.5, +10.9]`, `base -> sg8 = +5.15 [-2.49, +12.79]`,
+`base -> sg16 = +63.49 [+55.66, +71.32]` (18/18 slower, `+0.422 %cs`), all M4
+µs/step over 216 slots / 54,000 steps with **0 token divergences at every dose**.
+The most generous 95 % reading anywhere in the block is an improvement of 1.14 %
+of the family's own 1497.7 µs/step, against the 4.01 % a single arm would have to
+deliver to clear the 0.400 %`cs` bar. Plainly: **this S-curve shows sub-1 %
+effects and the sign is wrong**, and no unmeasured S can rescue it, because the
+mechanism's entire budget is threadgroup launch/retire and that is now bounded by
+measurement at **<= 0.042 ns/TG**, i.e. **<= 2.9 µs/step for any S** — under 5 %
+of the bar. The reusable residue is that ceiling, a calibrated bar-sized negative
+control on the scored decode path, and a tree left inert and hand-off-ready for
+maple-nezuko's #657 instrument.
+
+The QKV lane-major arm ("L3", Stage A) was stood down at 15:33 UTC after
+maple-fern's #625 refuted it; the truncated K = 12 block is reported at §5.3 and
+returns `N-L3`, agreeing with her interval (§6.2b).
+
+
 ---
 
 ## 0. Process note — routing defect, since repaired
@@ -1457,8 +1478,20 @@ instrument can certify, not T0b(a) + T2c.
 Ranked by information per unit of host time. All four are cheap and none of them
 needs an M5.
 
-1. **Run the QKV S = 16 arm.** This is the single highest-value missing cell and
-   it costs one short block: `SG_LIST="16"` with the existing Stage-A driver is
+Written before the 15:33 stand-down; item 1 is **downgraded** by it and item 4 is
+now the one that matters. Kept as written, with the downgrade recorded in place,
+because the reasoning for each is still what a future arm needs.
+
+1. **Run the QKV S = 16 arm** — *downgraded from highest-value to optional.*
+   With L3 refuted (§6.2b) this cell can no longer produce a speedup worth
+   promoting, and §6.0's <= 0.042 ns/TG ceiling makes #298's `G-0` (-35.4 µs at
+   S = 16, where the flip removes 8,064 of the QKV site's 9,216 TG/step) require
+   **4.4 ns/TG, 105x the measured ceiling** — so the archive claim is excluded by
+   mechanism before it is excluded by replication. What survives is the
+   supply-side reading in (b) below, which is about *transfer* rather than about
+   this site, and which a future packing arm at any site would want. Run it only
+   if a packing idea elsewhere needs the M4-S16-as-M5-S8 calibration.
+   It costs one short block: `SG_LIST="16"` with the existing Stage-A driver is
    three arms (base, `null1`, sg16), six slots per rep at ~45 s, so K = 12 is
    under an hour. It buys two things at once. (a) It directly replicates PR
    #298's arm `G-0` (-35.4 us/step, CI [-62.8, -8.0]), which was measured at
