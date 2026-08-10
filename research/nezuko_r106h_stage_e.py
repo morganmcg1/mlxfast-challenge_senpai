@@ -188,11 +188,12 @@ def load_groups(rows):
         if r["sha"]:
             by_sha[r["sha"][:12]] = r
     out = {}
-    for key, g in ver["groups"].items():
-        if not g.get("byte_identical_editable_surface"):
+    for g in ver["groups"]:
+        if not g.get("verified_inert_only"):
             continue
+        key = g["group"]
         members = []
-        for sha12 in g["members"]:
+        for sha12 in g["shas"]:
             r = by_sha.get(sha12[:12])
             if r:
                 members.append(r)

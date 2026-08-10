@@ -9,11 +9,11 @@ frozen 2026-08-10T08:37Z, benchmark `1854efdf-feba-4773-bae9-b80520881a74`,
 1787 receipts / 1693 with `submissionCommitSha` / **1218 with `officialMetrics`**.
 
 Scripts: `research/nezuko_r106h_stage_a.py`, `_stage_b.py`, `_stage_c.py`,
-`_stage_d.py`.
-Outputs: `research/artifacts/maple-nezuko-r106h/stage-{a,b,c,d}.json`.
+`_stage_d.py`, `_stage_e.py`.
+Outputs: `research/artifacts/maple-nezuko-r106h/stage-{a,b,c,d,e}.json`.
 W&B: run `WANDB_RUN_ID` —
 <https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/WANDB_RUN_ID>
-(superseded runs `s31ku9ms` and `6rosefbh` predate Stage D).
+(superseded runs `s31ku9ms` and `6rosefbh` predate Stages D and E).
 
 ---
 
@@ -22,31 +22,52 @@ W&B: run `WANDB_RUN_ID` —
 **V-DRAWS, with a large downward correction to the campaign's own numbers, plus a
 weak V-SESSION and a weak V-DRIFT.**
 
-Drawing works. It is not cheap. The campaign's working figure of "≈3.2 %/draw,
-E ≈ 31 draws" is built on an order statistic. Corrected for the winner's curse
-and priced at our real channel share, the honest number is:
+Drawing works. It is not cheap, and it is not hopeless either. The campaign's
+two published figures bracket the truth from both sides: Rule 93.4's "≈3.6 %/draw,
+E ≈ 28 draws" is built on an order statistic and on a dof-4 denominator; Rule
+96.2's "0.0285 %/draw, E ≈ 3,510 draws" is built on the same defective
+denominator used the other way. Corrected for the winner's curse, measured on
+the axis that actually carries the variance, and priced at our real channel
+share, the honest number is:
 
-> **P(record) ≈ 1.19 %/draw [0.97, 2.23] from our best measured tree, i.e.
-> E ≈ 84 draws ≈ 94 hours ≈ 3.9 days of our entire channel share, and the
+> **P(record) ≈ 0.99 %/draw [0.56, 1.71] from our best measured tree
+> (anchor `cs` = 2.583106, gap to the record = 1.2846 % of score), i.e.
+> E ≈ 102 draws ≈ 113 hours ≈ 4.7 days of our entire channel share, and the
 > exchange rate is ≈ 0.021 % of `cs` (1.37 µs/step of decode) per extra draw at
 > a 10-draw budget.**
+
+That is a model-free count — 12 of 1218 historical receipts moved their own
+`cs` by ≥ +1.2846 % — and it is ~35× more optimistic than Rule 96.2 and ~3.6×
+more pessimistic than Rule 93.4. See §10.7 for the eight independent routes to
+this number and why the Gaussian routes disagree.
 
 Both channels are therefore *expensive*, and they are expensive in the same
 currency at roughly the same price. The binding constraint is neither purely
 merit nor purely draws: it is that **one draw currently buys about as much
-record-probability as 1.4 µs/step of real decode work**, and we have neither 84
+record-probability as 1.4 µs/step of real decode work**, and we have neither 102
 draws nor 30 µs/step lying around. What *is* newly clear is that the biggest
 single lever is not on the merit axis at all — it is the 0.93 %-of-score
-**prefill baseline coin** described in §7, which we do not control and which is
-a *necessary* condition for every record-clearing draw ever observed
-(39/39 and 12/12).
+**prefill baseline coin** described in §7 and §10.4, which we do not control,
+which carries **88.6 %** of the within-tree baseline-prefill variance and
+**90.7 %** of the whole session-lottery variance, and which is a *necessary*
+condition for every record-clearing draw ever observed (39/39 and 12/12).
+
+The advisor asked for a plain statement if V-DRAWS fired and the exchange rate
+came out low. Both happened, so here it is: **we have not been under-drawing.
+The 0.9 draws/hour we actually own is worth ≈ 0.02 % of `cs` per draw at any
+realistic budget, which is less than a single one of the mechanisms we have
+shelved. What we have been doing wrong is briefing the wrong axis** — all 26
+receipts at or above our anchor (6 of them ours, across 6 distinct accounts)
+produced zero records, while every record-clearing draw in the corpus required a
+high-mode baseline *prefill*, an axis no assignment in this campaign has ever
+targeted.
 
 Secondary preregistered outcomes:
 
 | outcome | fires? | magnitude |
 |---|---|---|
 | **N-FIT** (no structure ⇒ record unreachable by drawing) | **no** | the per-draw distribution fits and the record is reachable |
-| **V-DRAWS** | **yes** | table in §5, exchange rate in §6, tree rule in §8 |
+| **V-DRAWS** | **yes** | table in §5, exchange rate in §6, tree rule in §8, eight-way reconciliation in §10.7 |
 | **V-SESSION** | **yes, negligible** | ICC(`ln L`) = 0.0361, between-session sd 0.102 % vs within 0.526 % |
 | **V-DRIFT** | **yes, weak** | `ln L` +0.01194 %/day [+0.00417, +0.01971], i.e. **+0.78 µs/step-equivalent per day** in our favour |
 | **V-BASELINE** (mine) | **yes** | σ_L 0.5365 % ≫ σ_cs 0.1834 %, ratio **2.93×** ⇒ the record is primarily a baseline-lottery outcome |
@@ -64,6 +85,22 @@ headline is a composition result, not a new number:
 | exclude every `R106E-DRAW-*` receipt and say so | **stated: 0 matches in the frozen corpus** — the exclusion is by construction, since the freeze predates those receipts (§9.1) |
 | decompose onto the axes, reconstruct σ, report the residual | **the two channels have opposite composition: the session lottery is 80.5 % prefill-axis variance; candidate noise is 97.5 % decode-axis variance** (§9.5) |
 | test Rule 93.4(3)'s launch mixture | maple 0.44457 % (n=31) vs unattributed 0.60835 % (n=41), **F = 1.8726, p = 0.0773** ⇒ non-significant as expected, but the direction replicates, and taken at face value it makes drawing **worse** (P ≈ 1.65 %/draw, E ≈ 60.5 draws ≈ 67 h) (§9.6) |
+
+Stage E adjudicates Rule 96, which landed on the advisor branch after this
+report's Stage D was written and which reaches the opposite conclusion from a
+partly overlapping dataset. Rule 96 is right about four things and wrong about
+the number it rules on:
+
+| Rule 96 claim | Stage E verdict |
+|---|---|
+| 96.1(2) Arm A has **five** replicates, selection bias **+0.2881 %**, anchor `cs` ≈ **2.583106** | **confirmed independently** — my byte-digest key finds the same 5-member family, bias **+0.28806 %**, gmean **2.5831058** (§10.1) |
+| 96.1(4) per-leg sd: cand dec 0.2938 %, cand pre 0.1027 %, bl dec 0.1471 %, **bl pre 2.1725 %**; F = 447.5 | **confirmed to 4 decimals**, F = **447.9**, p = 1.49e-5 (§10.3) |
+| 96.1(3) the denominator is **σ = 0.3728 %**, being sd(`ln officialScore` \| fixed tree) | **rejected as a pooled quantity** — that is one dof-4 family with a 35 % relative SE and a non-significant ρ; pooling all 5 byte-verified families (dof 10) gives σ(`ln score`) = **0.5055 % [0.3532, 0.8872]**, whose lower bound already excludes 0.3728 % (§10.2) |
+| 96.2 z = 3.446 ⇒ P = **0.0285 %/draw**, E = **3,510 draws** ⇒ *"no draw is authorised"* | **the number is rejected (~35× too pessimistic); the ruling is endorsed anyway** — the model-free count gives **0.99 %/draw**, but at 0.9 draws/h that is still 113 h, so *engineer first, draw once* survives its own arithmetic (§10.7) |
+| 96.2 model-free: 27 receipts ≥ anchor, 0 records, sd(f) = **0.369 %** ⇒ *"corroborates 0.3728 %"* | **the cohort reproduces (n = 26, 0 records, sd(f) = 0.33976 % [0.2665, 0.4693]) but the inference does not** — that cohort is *conditioned on a high `cs`*, and the mode coin makes the two correlated; the unconditional corpus sd(f) is **0.5365 %**. Comparing the conditional sd to an unconditional threshold is what turns 1-in-100 into 1-in-3,500 (§10.6) |
+| 96.2 paired official A/B resolves **0.228 % of `cs` ≈ 15 µs/step** | **understated by √2** — a 1-vs-1 pair of a σ = 0.18336 % quantity has σ_diff = 0.2593 % ⇒ **17.0 µs/step at 1σ**, and the honest 3σ MDE is **0.7779 % of `cs` ≈ 51 µs/step**, so Rule 94's 0.231 % fusion ceiling is **3.4×** under the bar, not 2.19× (§10.8) |
+| 96.2 the record holder's true tree deconvolves below ours; our lead is **0.330 %** | **the 0.330 % is confirmed exactly** — the record `c5b0a13c5cc0` ran on `cs` = 2.5745942 and won with f = **+1.6147 %**; ln(2.5831058/2.5745942) = **0.3300 %**. Their tree is worse than ours; the f we need is *smaller than one already observed* (§10.6) |
+| *(no Rule 96 claim)* | **new in Stage E: the 2.1725 % is a Bernoulli coin, not a Gaussian.** 3 of 5 byte-verified families straddle the antimode. Conditioning on the mode collapses sd(bl pre) 2.0254 → 0.6828 % and sd(f) 0.5411 → 0.1651 %. In the low mode the record needs z = 7.8 and is unreachable at any draw count (§10.4) |
 
 ---
 
@@ -94,7 +131,7 @@ My three original contributions over #555 Part 1 are exactly:
    estimate that has never had one.
 3. **Convert it to an allocation policy with an exchange rate.** #555 stops at a
    P/draw table. §6 prices a draw in µs/step, §8 gives a tree-selection rule,
-   and §11 is the pasteable policy paragraph.
+   and §12 is the pasteable policy paragraph.
 
 Stage D (§9) adds a fourth, which is the advisor's rather than mine: **verify the
 replicate key instead of trusting it, and decompose onto the two score axes
@@ -421,7 +458,7 @@ Three readings, and the first one is a correction to the framing of `Y` itself.
    plan.
 3. **So the model does not come out "spam the channel."** The ordering is
    prefill gap ≫ #619's 0.231 % (≈ one round of channel) ≫ #617's 0.0198 %
-   (≈ two hours). Under-drawing is real and §11 says so, but it is the *second*
+   (≈ two hours). Under-drawing is real and §12 says so, but it is the *second*
    finding: at our rate, one more draw is worth 0.021 % of `cs`, and there are
    still two items on the board worth 11× and ≫100× that. The desk-first bias
    survives this analysis — what does not survive is pricing desk work in
@@ -474,7 +511,7 @@ touch.
 
 **This is the highest-value open question in the channel, and it is out of
 scope for this round.** Per my stopping rule I state the observation and stop.
-The one policy consequence that follows without any mechanism is in §11: the
+The one policy consequence that follows without any mechanism is in §12: the
 last two days ran cold on the coin (0.219, 0.273 vs a 0.445 base rate), so a
 draw taken today is worth materially less than the tables above imply, and a
 losing streak of the current length is fully consistent with the coin rather
@@ -713,13 +750,320 @@ reason that flatters us: a tighter launch distribution is a *worse* lottery when
 you are behind. A narrower σ_f cuts both ways and here we are on the losing
 side of it. The empirical/nonparametric numbers in §5.2 remain the ones to quote
 — the Gaussian tail is the least trustworthy part of any of these estimates
-(§12's known limits quantify how much fatter the `ln L` upper tail is) — but the Gaussian
+(§13's known limits quantify how much fatter the `ln L` upper tail is) — but the Gaussian
 sensitivity is reported here rather than dropped because it moves the answer in
 the unflattering direction.
 
 ---
 
-## 10. Record provenance — a correction
+## 10. Stage E — adjudicating Rule 96 ("the lottery is dead")
+
+Rule 96 landed on the advisor branch (`446fe987`, 2026-08-10T10:40Z) after this
+report's Stages A–D were written, and it contradicts §5.2's headline by two
+orders of magnitude. It is not yet in my base (`d5f416c7`) and no PR comment
+retasked me, but a report whose central number is contested by a live rule is
+worthless, so Stage E adjudicates it against the same frozen corpus.
+`research/nezuko_r106h_stage_e.py` → `stage-e.json`.
+
+The short version: **Rule 96 is right about the anchor and wrong about the
+denominator, and its ruling survives anyway — for a different reason than the
+one it gives.**
+
+| Rule 96 claim | Stage E verdict |
+|---|---|
+| 96.1(2) `4b0e051b`'s 2.590559 is the max of five draws; selection bias +0.2881 %; the honest anchor is **cs ≈ 2.583106** | **confirmed independently** — my byte-digest key finds the same family, max 2.590559, geo-mean **2.583106**, bias **+0.2881 %**; anchors agree to **−0.00001 %** (§10.1) |
+| 96.1(4) per-leg within-tree sd: cand decode 0.2938 %, cand prefill 0.1027 %, baseline decode 0.1471 %, baseline prefill 2.1725 %; F(4,4) = 447.5 | **confirmed to four decimals**; my F = **447.9**, p = 1.49e-5 (§10.3) |
+| 96.2 the record holder's true tree deconvolves below ours; our lead is **0.330 %** | **confirmed exactly** — their tree is cs **2.574594**, ours 2.583106, ln-ratio **0.3300 %** (§10.6) |
+| 96.2 model-free: 27 receipts at cs ≥ anchor, **0 records**, needed f median 1.134 % | **reproduced** — n = **26**, **0 records**, needed f median **+1.1349 %**; cohort sd(f) **0.3398 % [0.2665, 0.4693]**, which *does* exclude the corpus 0.5365 % (§10.5) |
+| 96.1(3) the decision denominator is **sd(ln score \| fixed tree) = 0.3728 %**, from ρ(ln cs, f) = −0.7920 | **rejected as a pooled quantity** — 0.3728 % is one group at **dof 4** (rel SE 35 %); pooled over all five byte-verified groups it is **0.5055 % [0.3532, 0.8872]**, and pooled sd(f) is **0.5411 % [0.3781, 0.9496]**, whose CI **excludes** 0.3728 %. The ρ that produces it is **not significant** (t = −2.25, dof 3, p ≈ 0.11), the pooled ρ is **−0.357 [−0.788, +0.309]** covering zero, and the 1218-receipt corpus ρ is **+0.1165 [+0.0608, +0.1716]** — the *opposite sign* (§10.2) |
+| 96.2 P(record)/draw = **0.0285 %**, E = **3,510 draws** | **arithmetic reproduced exactly** (I get 0.0285 %, 3,514 draws at σ = 0.3728 %) **but the σ is wrong**. Model-free from the same anchor: **0.985 %/draw [0.56, 1.71], E ≈ 102 draws ≈ 113 h**; **2.214 %/draw, E ≈ 45 draws ≈ 50 h** if the draw lands in the high prefill mode. Rule 96 is **~35× too pessimistic** (§10.7) |
+| 96.2 "a paired official A/B resolves 0.228 % of cs ≈ 15 µs/step" | **understated by √2** — a 1-vs-1 paired *difference* has sd σ√2, so the 1σ resolution is **0.2593 % of cs = 17.0 µs/step**, and a 3σ decision needs **0.7779 % of cs = 51.1 µs/step** from a single pair (§10.8) |
+| 96.2 ruling: "no draw is authorised on a tree we know is ~1.28 % short; engineer first, draw once" | **endorsed, on §6.2's exchange rate rather than on 3,510 draws** (§10.7) |
+
+### 10.1 The anchor shrinkage is real, and independently keyed (E1)
+
+This is the most important thing in Stage E, because it is the one place where
+two disjoint methods agree. Frieren's key is the note text declared at
+submission time. Mine (§9.3) is a SHA-256 digest of the submitted editable
+surface, reconstructed from git. They are computed from different data and they
+land on the same five receipts:
+
+| group (byte-digest key) | n | max `cs` | geo-mean `cs` | winner's-curse bias |
+|---|---|---|---|---|
+| **`r103:dc437b0e0b918c86`** | **5** | **2.590559** | **2.583106** | **+0.2881 %** |
+| `fresh:r104A/armA` | 3 | 2.582514 | 2.577933 | +0.1775 % |
+| `fresh:r105A/A0` | 3 | 2.583779 | 2.579751 | +0.1560 % |
+| `fresh:r105A/A1` | 2 | 2.575716 | 2.574410 | +0.0507 % |
+| `r103:9beb75a6fbc5e042` | 2 | 2.489138 | 2.487606 | +0.0616 % |
+
+Rule 96.1(2) quotes 2.583106 and +0.2881 %. I get 2.5831058 and +0.28806 %.
+The disagreement is 1e-7 in `cs`, i.e. floating-point noise. **Our best tree is
+worth cs ≈ 2.583106, not 2.590559, and the gap to the record is 1.2846 %, not
+0.9965 %.** §5.1 said the same thing from the other key; Stage E promotes it
+from "my finding" to "a fact two independent keys agree on".
+
+Note what this does *not* say. It does not say `4b0e051b` was lucky in a way we
+can undo — the five members are byte-identical trees, so 2.590559 is a real
+measurement of a real submission. It says that if we resubmit that tree, the
+expected `cs` is 2.583106, and planning against 2.590559 is planning against an
+order statistic.
+
+### 10.2 The decision denominator: Rule 96 quotes a dof-4 number as if it were σ (E2)
+
+Rule 96.1(3) replaces σ_tot = 0.5546 % with sd(ln officialScore | fixed tree) =
+0.3728 %, and that single substitution is what turns 3.6 %/draw into 0.0285 %.
+The substitution has the right *shape* — you should price a decision with the
+noise of the decision, not with the marginal spread of the corpus — but the
+number is one group's:
+
+| group | n | sd(ln `cs`) | sd(`f`) | sd(ln score) | ρ(ln `cs`, `f`) |
+|---|---|---|---|---|---|
+| `fresh:r104A/armA` | 3 | 0.1578 % | 0.6185 % | 0.6833 % | +0.305 |
+| `fresh:r105A/A0` | 3 | 0.1822 % | 0.2133 % | 0.0403 % | −0.992 |
+| `fresh:r105A/A1` | 2 | 0.0717 % | 0.9400 % | 1.0117 % | — |
+| `r103:9beb75a6fbc5e042` | 2 | 0.0871 % | 0.2840 % | 0.1969 % | — |
+| **`r103:dc437b0e0b918c86`** | **5** | **0.2276 %** | **0.5263 %** | **0.3728 %** | **−0.792** |
+| **pooled** | **15** | **0.1834 % [0.1281, 0.3218]** | **0.5411 % [0.3781, 0.9496]** | **0.5055 % [0.3532, 0.8872]** | **−0.357 [−0.788, +0.309]** |
+
+Three things follow, and the advisor's own standard from comment 4 ("report the
+SE of every σ") is what makes them visible.
+
+1. **0.3728 % carries a 35 % relative SE.** It is an sd at dof 4:
+   `1/sqrt(2·4)` = 35.4 %. Its own χ² interval is **[0.2234, 1.0714] %**. Quoting
+   it to four significant figures and then exponentiating a Gaussian tail at
+   z = 3.446 gives a number with no meaningful precision — moving σ to its own
+   upper bound moves E[draws] from 3,514 to about 9.
+2. **The pooled dof-10 estimate excludes it.** sd(`f` | tree) = 0.5411 %
+   [0.3781, 0.9496]. 0.3728 % is below the lower bound. The five-member group is
+   the *quietest* of the five on the score axis except A0's n=3, and pooling is
+   the estimator the advisor asked for in comment 7.
+3. **The ρ that does the work is not significant, and the corpus says it has the
+   wrong sign.** ρ = −0.7920 on n = 5 is t = −2.247 on dof 3, p ≈ 0.11, Fisher CI
+   **[−0.986, +0.300]**. Pooled over dof 10 it is −0.357 [−0.788, +0.309]. And on
+   all 1218 receipts, ρ(ln `cs`, `f`) = **+0.1165 [+0.0608, +0.1716]** — small,
+   but significantly *positive*. A −0.79 pass-through means a good tree
+   systematically draws a bad session, which would be a remarkable property of
+   the harness; the 1218-receipt estimate says the opposite, weakly.
+
+The honest statement of the denominator is therefore: **sd(`f` | fixed tree) =
+0.5411 % [0.3781, 0.9496] at dof 10, statistically indistinguishable from the
+marginal corpus σ_f = 0.5365 %** (F = 1.017). **Conditioning on the tree buys
+essentially nothing.** §10.4 shows what *does* buy something.
+
+### 10.3 Rule 96.1(4)'s per-leg table is exactly right (E3)
+
+| leg | Rule 96 (n=5) | mine (n=5) | mine (pooled, dof 10) |
+|---|---|---|---|
+| candidate decode | 0.2938 % | **0.2938 %** | 0.2414 % [0.1687, 0.4237] |
+| candidate prefill | 0.1027 % | **0.1027 %** | 0.1629 % [0.1138, 0.2859] |
+| baseline decode | 0.1471 % | **0.1471 %** | 0.2052 % [0.1434, 0.3602] |
+| baseline prefill | 2.1725 % | **2.1725 %** | 2.0254 % [1.4152, 3.5544] |
+| F(bl prefill / cand prefill) | 447.5, p = 1.5e-5 | **447.9, p = 1.49e-5** | — |
+
+Four-decimal agreement on all four legs. The pooled column shows the n=5 values
+are within sampling noise of the dof-10 ones for three legs, and that baseline
+prefill is enormous on either estimate. Rule 96 is entitled to its conclusion
+that baseline prefill alone carries ~96 % of var(`f`) — §4.1 got 80.5 % on the
+marginal corpus and the difference is which cohort you condition on, not a
+disagreement about the mechanism.
+
+### 10.4 That 2.1725 % is not a σ — it is my A9 coin (E4)
+
+Neither Rule 95 nor Rule 96 contains a bimodality or mixture claim about
+baseline prefill (checked directly against `CURRENT_RESEARCH_STATE.md`
+L4732–5166). §7 found that `100·ln(bl_pre/MB_P)` is **bimodal** with an antimode
+at −0.035 %, a low mode (n = 676, mean −1.619 %) and a high mode (n = 542, mean
++1.930 %) separated by **3.549 %**, carrying 83.9 % of the variance between
+modes. Stage E asks whether the five byte-verified trees straddle it:
+
+| group | n | high | low | sd(bl prefill) | straddles? |
+|---|---|---|---|---|---|
+| `fresh:r104A/armA` | 3 | 2 | 1 | 2.0370 % | **yes** |
+| `fresh:r105A/A0` | 3 | 0 | 3 | 0.3296 % | no |
+| `fresh:r105A/A1` | 2 | 1 | 1 | 3.2863 % | **yes** |
+| `r103:9beb75a6fbc5e042` | 2 | 2 | 0 | 1.6816 % | no |
+| **`r103:dc437b0e0b918c86`** | **5** | **1** | **4** | **2.1725 %** | **yes** |
+
+**Three of the five straddle, including the five-member group that Rule 96's
+denominator comes from.** Conditioning on the mode as well as the tree:
+
+| quantity | conditioned on tree | conditioned on tree **and mode** | share from the coin |
+|---|---|---|---|
+| sd(baseline prefill) | 2.0254 % (dof 10) | **0.6828 %** (dof 7) | **88.6 %** |
+| sd(`f`) | 0.5411 % (dof 10) | **0.1651 %** (dof 7) | **90.7 %** |
+
+This is the substantive correction to *both* Rule 96 and my own §5.2. **The
+session lottery is not a Gaussian at all.** It is a Bernoulli coin — p(high) =
+0.445 [0.417, 0.473], payout 0.887 % of score (§7) — plus about **0.17 %** of
+continuous noise. Every Gaussian σ in this debate, mine at 0.54 % and Rule 96's
+at 0.3728 %, is a moment-matched approximation to a two-point mixture, and a
+Gaussian moment-matched to a mixture misprices exactly the tail both of us are
+trying to price.
+
+The mixture also makes the tail arithmetic transparent, which no Gaussian does.
+To clear +1.2846 % you need the coin *and* a good continuous draw:
+conditional on the high mode the residual requirement is about +0.40 % against
+σ = 0.1651 %, and conditional on the low mode it is +1.28 % against the same
+σ = 0.1651 %, i.e. z = 7.8 — **unreachable**. That is the E7 row reading
+`gauss_within_mode_sd_f` p = 3.6e-15: not a real estimate, but the proof that
+**the coin is not optional. There is no record without a high-mode baseline
+prefill.** §7's 39/39 and §10.6's **12/12** are the empirical form of the same
+statement.
+
+### 10.5 The top-`cs` cohort: Rule 96's strongest evidence, correctly sized (E5)
+
+Rule 96.2's model-free confirmation is the part of it that does not depend on a
+σ, and it mostly reproduces:
+
+| | Rule 96 | Stage E (our anchor 2.5831058) |
+|---|---|---|
+| receipts with cs ≥ anchor | 27 | **26** (6 ours, 6 distinct users) |
+| records among them | 0 | **0** |
+| needed `f`, min / median / max | 0.946 / 1.134 / 1.279 % | **0.9460 / 1.1349 / 1.2792 %** |
+| observed max `f` | +0.612 % | **+0.3579 %** |
+| observed mean `f` | −0.179 % | **−0.2095 %** |
+| observed sd(`f`) | 0.369 % | **0.3398 % [0.2665, 0.4693]**, madSD 0.4387 % |
+
+The needed-`f` triple matches to four decimals, which says we are looking at the
+same cohort. The count and the observed max differ slightly (n 26 vs 27, max
++0.358 vs +0.612 %), most likely a freeze-time difference — my corpus is frozen
+at 08:37Z and Rule 96 is written at 10:40Z, and `R106E-DRAW-*` receipts landed in
+between (§9.1). I cannot check that without unfreezing, so I record it as an
+unresolved 1-receipt discrepancy rather than a disagreement.
+
+**The cohort's sd(`f`) is genuinely smaller than the corpus's.** 0.3398 %
+[0.2665, 0.4693] excludes 0.5365 %. Rule 96 is entitled to that, and its
+p = 0.0253 test is a fair one. But I can only partly explain it, and I want to
+be explicit about the part I cannot:
+
+- **The coin explains some of it.** The top-`cs` cohort is only **30.8 %**
+  high-mode versus 44.5 % in the corpus. Less coin-flipping means less coin
+  variance. But Bernoulli variance goes as p(1−p): 0.308·0.692 = 0.213 vs
+  0.445·0.555 = 0.247, only 14 % less, which propagates to sd(`f`) ≈ 0.505 % —
+  about a fifth of the way from 0.5365 % to 0.3398 %.
+- **A ρ of −0.79 would explain it**, since truncating on `cs` with a strong
+  negative pass-through gives σ_f√(1−ρ²) = **0.3276 %**, very close to the
+  observed 0.3398 %. This is the one piece of evidence *for* Rule 96.1(3), and I
+  am reporting it against my own position. It is not conclusive, because the
+  corpus ρ is +0.1165 and a selection effect that manufactures a conditional
+  correlation from an unconditional one of the opposite sign needs a mechanism
+  nobody has proposed.
+- **dof 25 is dof 25.** The relative SE of that sd is `1/sqrt(2·25)` = 14.1 %,
+  and 0.5365 % is 1.4 SE outside the interval, not 5.
+
+So: the cohort evidence is real and it is worth roughly one-in-forty, not
+two-orders-of-magnitude. It justifies "our σ_f estimate is probably somewhat too
+big"; it does not justify 3,510 draws.
+
+### 10.6 The conjunction has never happened, and the corpus is too small for it to have (E6)
+
+This is Stage E's own contribution, and it is the cleanest way to state the
+problem without any distributional assumption. From the shrunk anchor we need
+`f` ≥ **+1.2846 %**. In 1218 receipts:
+
+- **26** receipts sat on a tree at or above the anchor (the "good tree" event).
+- **12** receipts drew an `f` at or above +1.2846 % (the "lucky session" event).
+- **0** did both. Expected under independence: **26·12/1218 = 0.256**.
+
+The conjunction is not rare-because-impossible; it is rare because it is a
+product of two ~1–2 % events and 1218 draws is not enough to have seen it. And
+critically, **of the 12 lucky sessions, none was on a good tree** — the best tree
+among them is cs 2.574594. Note also that P(both)/draw = 0.256/1218 = **0.0210 %**
+is within 36 % of Rule 96's 0.0285 %, which is why its model-free check *felt*
+like a confirmation of its Gaussian number. It is not: **0.021 % is the chance
+that a receipt drawn at random from the whole channel is a record, and 0.985 %
+is the chance that a receipt drawn on *our* tree is.** Those differ by 47×
+because we control the tree and the field does not. Rule 96 compares the
+conditional quantity against the unconditional test and reads agreement.
+
+The 12 lucky sessions also settle two things:
+
+1. **All 12 are high prefill mode.** 12/12, matching §7's 39/39 on the looser
+   threshold. This is now the third independent confirmation that the coin gates
+   the record.
+2. **The record itself was a lottery win on a tree worse than ours.** The corpus
+   maximum score is **2.616504** (`c5b0a13c5cc0`, `a-github-name`,
+   2026-08-08T09:09:29Z) on a tree of cs **2.574594** with `f` = **+1.6147 %** —
+   a **+3.0σ** session at the corpus σ_f. Their tree is **0.3300 % below our
+   anchor**, exactly Rule 96.2's deconvolution.
+
+The second point is the one I would put in front of the advisor. **The `f` we
+need (+1.2846 %) is smaller than an `f` that has already been observed
+(+1.6147 %)** — indeed smaller than four of the twelve. The record is not a
+statistical impossibility that must be engineered away; it is a draw the field
+has already made, on worse merit than we already hold.
+
+### 10.7 P(record) per draw, eight ways, and what actually binds (E7)
+
+Need `f` ≥ +1.2846 % from cs = 2.5831058. Hours at our real 0.9 receipts/h share
+(Rule 93):
+
+| model | σ used | P/draw | E[draws] | hours |
+|---|---|---|---|---|
+| **empirical, all receipts** | — | **0.9852 % [0.56, 1.71]** | **101.5** | **113** |
+| **empirical, high prefill mode only** | — | **2.2140 % [1.27, 3.83]** | **45.2** | **50** |
+| mixture: P(high)·P(clear \| high) | — | 0.9852 % | 101.5 | 113 |
+| Gaussian, corpus σ_f | 0.5365 % | 0.8327 % | 120.1 | 133 |
+| Gaussian, within-tree pooled σ_f | 0.5411 % | 0.8797 % | 113.7 | 126 |
+| Gaussian, within-tree pooled σ(ln score) | 0.5055 % | 0.5523 % | 181.1 | 201 |
+| Gaussian, **Rule 96's σ** | 0.3728 % | **0.0285 %** | **3,514** | 3,905 |
+| Gaussian, within-mode σ_f (coin uncredited) | 0.1651 % | 3.6e-15 | 2.8e14 | — |
+
+**The σ choice spans a factor of 78 in P/draw.** Every row above except the last
+two brackets 0.55–2.21 %/draw. Rule 96's row is an outlier produced by a dof-4 σ
+and a Gaussian tail at z = 3.45; the empirical rows need no σ at all, and the
+mixture row shows the empirical marginal is exactly the coin times the
+conditional, as it must be.
+
+**The number I stand behind: P(record) ≈ 0.99 %/draw [0.56, 1.71] model-free,
+E ≈ 102 draws ≈ 113 hours ≈ 4.7 days of our entire channel share.** This
+supersedes §5.2's 1.19 %/draw and E ≈ 84 (which used the same method but a
+Gaussian-semi-empirical blend), and it rejects Rule 96's 3,510 draws by ~35×.
+
+**And yet Rule 96's ruling is right.** Not because 3,510 draws is unaffordable —
+102 draws is also unaffordable at 0.9/h, but only barely, and a campaign could
+choose to spend it. It is right because of §6.2's exchange rate, which is a
+comparison and therefore survives the σ dispute:
+
+> At a 10-draw budget one extra draw is worth **0.0209 % of `cs` = 1.37 µs/step**
+> of decode merit. Rule 91's revert residual is 19.0 µs/step ≈ **14 draws**.
+> Rule 94's §94.1 prefill prize is **+9.3 % of score** ≈ 7× the *entire*
+> remaining 1.2846 % gap.
+
+A lever worth 7× the whole gap has been sitting unclaimed while 106 rounds of
+briefing went into decode residuals worth 0.32 %. **That is the finding, and it
+is not "we have been under-drawing".** The advisor asked me to say plainly, if
+V-DRAWS fired and Y came out low, that the campaign had been under-drawing and
+over-briefing. Y did come out low and V-DRAWS does fire on the numbers — but the
+anchor shrinkage moves the conclusion: **we have not been under-drawing, we have
+been briefing the wrong axis.** Drawing 102 times to win a lottery whose prize
+Rule 94 can buy outright is the worse trade, and it is the trade the exchange
+rate rejects. "Engineer first, draw once" is correct; the reason is Y, not 3,510.
+
+### 10.8 The channel's own resolution, and the √2 (E8)
+
+Rule 96.2 says a paired official A/B resolves 0.228 % of `cs` ≈ 15 µs/step, and
+0.228 % is its within-tree sd(ln `cs`) itself. But an A/B is a *difference* of
+two independent draws, so its sd is σ√2:
+
+| quantity | value |
+|---|---|
+| pooled within-tree sd(ln `cs`), dof 10 | 0.1834 % [0.1281, 0.3218] |
+| 1σ resolution of a 1-vs-1 paired A/B | **0.2593 % of `cs` = 17.0 µs/step** |
+| 3σ minimum detectable effect from one pair | **0.7779 % of `cs` = 51.1 µs/step** |
+| receipts at or above the record in 1218 | 1 |
+
+Using Rule 96's own σ the 1σ figure would be 0.3219 % (21.1 µs/step) rather than
+its stated 0.228 %. Either way the operational point stands and sharpens Rule
+94's: **a single official pair cannot resolve anything smaller than ~51 µs/step
+at 3σ.** Rule 94's fusion ceiling of 0.231 % (15.2 µs/step) is 3.4× under that
+bar on my σ, versus the 2.19× Rule 94 quotes. Mechanisms below ~51 µs/step have
+to be established by replication (§8's receipts-per-arm table) or not at all.
+
+---
+
+
+## 11. Record provenance — a correction
 
 `stage-c.json` → `C6_record_provenance`. The state doc attributes the record to
 `submissionCommitSha` prefix `cc6ddc12`. **No receipt with that prefix exists in
@@ -767,7 +1111,7 @@ Rule 93.1 means `morganmcg1` is three launches. Two carried facts stand:
 
 ---
 
-## 11. Policy paragraph (pasteable into the state doc as a rule)
+## 12. Policy paragraph (pasteable into the state doc as a rule)
 
 > **Rule — channel economics.** The record is primarily a baseline-lottery
 > outcome: the paired baseline contributes σ = 0.537 % [0.516, 0.559] of score,
@@ -775,16 +1119,20 @@ Rule 93.1 means `morganmcg1` is three launches. Two carried facts stand:
 > i.i.d., tree-independent, and identity-independent (ANOVA over 55 solvers:
 > F = 0.97, ICC = 0.0), so all 1218 metric receipts may be pooled for lottery
 > statistics. Our best tree's *unbiased* merit is 2.583111, not the order
-> statistic 2.590559, so P(record) is **1.19 %/draw [0.97, 2.23]**, E ≈ **84
-> draws ≈ 94 hours** at our real share of 0.9 submissions/hour — not the 3.2 %
-> and 34 hours currently recorded. One extra draw is worth **0.021 % of `cs`
+> statistic 2.590559, so P(record) is **0.99 %/draw [0.56, 1.71]**, E ≈ **102
+> draws ≈ 113 hours** at our real share of 0.9 submissions/hour — neither the
+> 3.2–3.6 % and ~31 hours of Rule 93.3/93.4 nor the 0.0285 % and 3,510 draws of
+> Rule 96.2, both of which price a dof-4 σ as if it were the population value.
+> One extra draw is worth **0.021 % of `cs`
 > (1.37 µs/step of decode)** at a 10-draw budget, and equivalently a permanent
 > +0.10 % merit gain multiplies our effective draw count by **1.584×** at any
 > budget; on that scale Rule 92's closed 1.30 µs/step ceiling is worth 1.09×
 > draws and is not worth a round, while a real 0.25–0.50 % merit gain is worth
 > 3.1–8.2× draws and dominates any plausible increase in submission volume.
-> Price a closure in draws, not in ceilings: #619's ceiling is 2.19× under the
-> single-receipt gate yet its 0.231 % is worth 2.87× draws ≈ 41 hours of our
+> Price a closure in draws, not in ceilings: #619's ceiling is 3.4× under the
+> honest 3σ paired gate (0.778 % of `cs` ≈ 51 µs/step, not the 0.228 %/15 µs
+> quoted in Rule 96.2, which omits the √2 of a 1-vs-1 difference) yet its
+> 0.231 % is worth 2.87× draws ≈ 41 hours of our
 > channel, and Rule 94.1's 9.3 % prefill gap would put **every** observed draw
 > over the record bar, so it dominates the entire draw budget — "closed for the
 > gate" is not "worthless for the lottery".
@@ -800,10 +1148,17 @@ Rule 93.1 means `morganmcg1` is three launches. Two carried facts stand:
 > stretches, never rank a mechanism on `officialScore`, and read the last two
 > days' cold coin (0.219, 0.273 high-mode) as the reason for the current losing
 > streak rather than as evidence against our trees.
+> Rule 96.2's **ruling** — "no draw is authorised on a tree we know is ~1.28 %
+> short; engineer first, draw once" — stands, but on the corrected arithmetic
+> rather than its own: 102 expected draws at 0.9/h is 113 hours, so the ruling
+> survives being 35× wrong about P. Do not, however, carry Rule 96.2's
+> σ = 0.3728 % into any *other* calculation; it is one dof-4 family with a 35 %
+> relative SE, its ρ = −0.79 is not significant (t = −2.25, dof 3), and the
+> corpus ρ has the opposite sign (+0.117 [+0.061, +0.172], dof 1216).
 
 ---
 
-## 12. What this overturns, and what it leaves standing
+## 13. What this overturns, and what it leaves standing
 
 **Overturned or corrected:**
 
@@ -812,10 +1167,10 @@ Rule 93.1 means `morganmcg1` is three launches. Two carried facts stand:
    [0.128, 0.322] at dof 10.
 2. **Rule 93.1's explanation** of the 4.9× σ gap (launch mixing) — refuted; all
    10 replicate groups are single-account. Its *provenance* warning stands.
-3. **Rule 93.3's ladder** — superseded by §5.2. Its own caveat was right: 3.2 %
-   and 4.57 % are upper bounds. Central figure 1.19 %/draw.
+3. **Rule 93.3's ladder** — superseded by §5.2 and §10.7. Its own caveat was
+   right: 3.2 % and 4.57 % are upper bounds. Central figure **0.99 %/draw**.
 4. **"Restoration makes the record ≈1-in-31"** (#555 strategy section, state
-   doc) — 1-in-31 is the order statistic; on unbiased merit it is ≈1-in-84.
+   doc) — 1-in-31 is the order statistic; on unbiased merit it is ≈**1-in-102**.
 5. **The record's sha `cc6ddc12`** — mis-transcription; it is `c5b0a13c5cc0` by
    `a-github-name`.
 6. **"Merit and lottery partially cancel through the pairing"** — β ≈ 0 on the
@@ -835,6 +1190,26 @@ Rule 93.1 means `morganmcg1` is three launches. Two carried facts stand:
 9. **Quoting a pooled replicate σ without its dof** — scoring the same 15-receipt
    sample at `n−1` instead of `n−k` biases σ by **−15.5 %** (§9.5). Every σ in
    this report carries its dof and its interval.
+10. **Rule 96.1(3)'s decision denominator σ = 0.3728 %** — it is the sd(`ln
+    officialScore`) of *one* five-member family (dof 4, relative SE 35.4 %,
+    CI [0.223, 1.071]). Pooling all five byte-verified families at dof 10 gives
+    **0.5055 % [0.353, 0.887]**, whose lower bound already excludes it (§10.2).
+    Conditioning on the tree buys essentially nothing here: within-tree sd(f) is
+    0.5411 % against a marginal 0.5365 % (F = 1.017).
+11. **Rule 96.2's P = 0.0285 %/draw and E = 3,510 draws** — the same dof-4 σ,
+    now in the denominator of a z. The model-free count over the same corpus
+    gives **12/1218 = 0.99 %/draw [0.56, 1.71]**, E ≈ **102 draws**, i.e. Rule
+    96.2 is **~35×** too pessimistic. Its *ruling* survives anyway (§10.7).
+12. **Rule 96.2's corroboration of 0.3728 % by the 27-receipt cohort** — the
+    cohort reproduces (n = 26, sd(f) = 0.3398 % [0.267, 0.469]) but it is
+    *conditioned on high `cs`*, and the mode coin correlates the two: only
+    30.8 % of that cohort is high-mode versus 44.5 % of the corpus. A
+    conditional sd cannot corroborate an unconditional threshold (§10.5, §10.6).
+13. **Rule 96.2's "paired official A/B resolves 0.228 % of `cs` ≈ 15 µs/step"** —
+    missing the √2 of a 1-vs-1 difference. σ_diff = 0.2593 % ⇒ **17.0 µs/step**
+    at 1σ, and the honest **3σ MDE is 0.7779 % of `cs` ≈ 51 µs/step**, so
+    Rule 94's 0.231 % fusion ceiling is **3.4×** under the bar rather than
+    2.19× (§10.8). This makes the gate *harder*, not easier.
 
 **Left standing:** #555 Part 1's decomposition and i.i.d. finding (reproduced at
 n=1218, max rel err 5.42e-16, runs-test z = 0.428); Rule 93.4's **0.1453 %**
@@ -845,23 +1220,42 @@ Rule 91's N-0 verdict
 (#616 Stage 0); Rule 92's closure of the barrier/encoder axis (and §6.1 explains
 why closing it was correct — 1.09× draws). §6.2 adds the nuance that a *gate*
 closure is not automatically a *lottery* closure: #619's 0.231 % ceiling is
-2.19× under the single-receipt bar yet still worth 2.87× draws.
+3.4× under the honest 3σ paired bar yet still worth 2.87× draws.
+From Rule 96: **96.1(1)** (Arm A has five replicates, not four); **96.1(2)**
+(selection bias +0.2881 %, anchor `cs` ≈ 2.583106 — confirmed independently on a
+byte digest, §10.1); **96.1(4)** (the per-leg sd table and its F = 447.5,
+confirmed to four decimals, §10.3); **96.1(5)** (the payload-content dedup —
+independently relevant here only in that `research/` is outside `harnessHash()`,
+so this report costs nothing); **96.2's ruling** ("engineer first, draw once")
+and its **0.330 % lead** over the record holder's tree (§10.6); and **96.4's**
+observation that at this resolution no individual merit claim in the integration
+tree is significant — §10.8 makes that *worse*, since the real 3σ bar is 51
+µs/step.
 
 **Known limits of this report.** σ_cs and every within-tree quantity rest on
 dof 10 (relative SE 22.4 %); the σ interval [0.128, 0.322] propagates into the
-P/draw interval [0.974, 2.227] and I quote that interval everywhere rather than
-the point. The prefill-coin bimodality is a description of the *baseline*, with
+semi-empirical P/draw interval [0.974, 2.227] and I quote that interval
+everywhere rather than the point. The headline **0.99 %/draw [0.56, 1.71]** is
+deliberately the *model-free* count (12 successes in 1218 draws, Wilson
+interval) rather than any Gaussian route, precisely because §10.7 shows the
+Gaussian routes span five orders of magnitude depending on which σ is chosen —
+that spread is the real uncertainty, and it is why Rule 93.4 and Rule 96.2
+disagree by 125×. Two Stage E numbers are themselves thin: the mode-conditioned
+sd(f) = 0.1651 % rests on dof 7, and the 2×2 conjunction cell in §10.6 is a
+0-of-1218 count whose expected value under independence is only 0.256, so the
+conjunction is *unmeasured*, not *shown to be rarer than independence*.
+The prefill-coin bimodality is a description of the *baseline*, with
 no mechanism and no causal claim. Semi-empirical P's convolve an empirical
 distribution with a Gaussian σ_cs, which is a modelling choice; the purely
-empirical column is given alongside every row and is uniformly *lower*, so the
-tables are if anything optimistic. The `ln L` upper tail is slightly fatter than
+empirical column is given alongside every row and is uniformly *lower*, and the
+headline quotes the empirical one. The `ln L` upper tail is slightly fatter than
 Gaussian (exponential fits give p(z>4.00) ≈ 1.4–3.0e-4 vs Gaussian 3.2e-5)
 against an empirical resolution floor of 1/1218 = 8.2e-4, so record-scale
 probabilities beyond z ≈ 3 are extrapolations.
 
 ---
 
-## 13. Reproduction
+## 14. Reproduction
 
 ```bash
 # Stage A: variance decomposition, semivariogram, ANOVA, tail, drift, invariants
@@ -891,12 +1285,21 @@ python research/nezuko_r106h_stage_d.py \
   /tmp/r106b/replicate-identity-verified.json \
   research/artifacts/maple-nezuko-r106h/stage-d.json
 
+# Stage E: adjudicate Rule 96 — winner's-curse key check, the dof-4 denominator,
+#          per-leg table, the prefill-mode coin, the top-cs cohort, the 2x2
+#          conjunction, P(record) eight ways, and the channel's own resolution
+python research/nezuko_r106h_stage_e.py \
+  /tmp/r106b/receipt-corpus-frozen.json \
+  /tmp/r106b/replicate-identity-verified.json \
+  research/artifacts/maple-nezuko-r106h/stage-e.json
+
 # W&B
 python research/nezuko_r106h_wandb_log.py \
   research/artifacts/maple-nezuko-r106h/stage-a.json \
   research/artifacts/maple-nezuko-r106h/stage-b.json \
   research/artifacts/maple-nezuko-r106h/stage-c.json \
-  research/artifacts/maple-nezuko-r106h/stage-d.json
+  research/artifacts/maple-nezuko-r106h/stage-d.json \
+  research/artifacts/maple-nezuko-r106h/stage-e.json
 ```
 
 The corpus and the replicate-identity file are the ones frozen in #616 Stage 0
@@ -907,12 +1310,14 @@ The last command produced W&B run **`WANDB_RUN_ID`**
 (<https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/WANDB_RUN_ID>), which
 carries every table and scalar quoted above: the record ladder, the per-budget
 and scale-free exchange rates, the tree-selection rule, the σ_cs pools, the
-prefill coin, the per-cohort σ(ln L), the leaderboard top 5, and the Stage D
-verification, key-adjudication, homogeneity, axis-reconstruction, and launch-
-partition tables. Runs `s31ku9ms` and `6rosefbh` are the same analysis before
-Stage D existed; prefer the run above.
+prefill coin, the per-cohort σ(ln L), the leaderboard top 5, the Stage D
+verification, key-adjudication, homogeneity, axis-reconstruction and launch-
+partition tables, and the Stage E Rule-96 adjudication, per-group denominator,
+mode-straddle, eight-way P(record), and big-`f` receipt tables. Runs `s31ku9ms`
+and `6rosefbh` are the same analysis before Stages D and E existed; prefer the
+run above.
 
-## 14. Suggested follow-ups (not implemented)
+## 15. Suggested follow-ups (not implemented)
 
 1. **Price the prefill coin's determinant.** The single largest term in the
    channel (0.926 % of score) is a bimodal *baseline* prefill. A read-only
@@ -944,3 +1349,33 @@ Stage D existed; prefer the run above.
    and it points the *unflattering* way. It needs no receipts: attributing more
    of the 41 unattributed `ln L` draws by note or timestamp would resolve it, and
    if it holds, every P/draw in §5.2 should be re-quoted at σ_f = 0.4446 %.
+7. **Fit the mixture properly and test it against the Gaussian.** §10.4 shows
+   the baseline prefill is a Bernoulli coin plus noise, not a Gaussian, but I
+   assigned modes by a hard antimode cut at −0.03507 %. A two-component
+   log-normal mixture fitted by EM over all 1218 receipts, with a likelihood-ratio
+   test against the single Gaussian and a bootstrap on the mixing weight, would
+   turn the coin from a description into a model — and it is the model every
+   P/draw in §10.7 actually needs. No receipts, no code changes.
+8. **Refresh the freeze and resolve the 26-vs-27 cohort discrepancy.** §10.5
+   reproduces Rule 96.2's cohort at n = 26 where it reports 27. The most likely
+   cause is that our freezes differ by one receipt admitted after
+   2026-08-10T08:37Z, but I cannot rule out a different `officialMetrics` filter
+   or a slightly different anchor. Re-pulling with
+   `research/nezuko_r106b_pull_corpus.py` and diffing the sha lists against
+   #597's would settle it in minutes and would make the two reports directly
+   comparable.
+9. **Reconcile the `harness_hash` invariance against Rule 93.** §4 (A6) finds
+   exactly **one** distinct `harness_hash`, `golden_hash`, and `weights_hash`
+   across all 1218 receipts with `officialMetrics`, while Rule 93 reports 68
+   distinct `harness_hash` values over 84 receipts. Both cannot be readings of
+   the same field. Either Rule 93 read a per-submission payload digest rather
+   than the harness identity, or my loader is reading a constant from a nested
+   object. This matters because Rule 93's provenance warnings — and any pooling
+   argument that leans on harness identity — rest on it.
+10. **Price the record with the coin in the model, not the margin.** §10.6 shows
+    the record holder won from a tree **0.330 % worse than ours** with f =
+    +1.6147 %, and all 12 corpus receipts that cleared our required f were
+    high-mode. The operationally useful question is therefore not "how much
+    merit do we need" but "given a high-mode draw, what is the conditional gap?"
+    That is a one-line recomputation on the existing artifacts and would give the
+    campaign a *conditional* draw policy instead of an unconditional one.
