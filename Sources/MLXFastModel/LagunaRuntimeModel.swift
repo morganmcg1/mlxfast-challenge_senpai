@@ -8142,6 +8142,19 @@ private func lagunaRoutedSharedDownResidualSource(
             + "        ? (is_shared ? shared_down_scales[0] : routed_down_scales[0])"
         : "(!is_shared && expert == 0 && output_row == 0 && lane == 1)\n"
             + "        ? routed_down_scales[0]"
+    let stagedScaleLoad =
+        sharedHalved
+        ? """
+            uint pair_sb = (lane & 1) == 0 ? uint(scale[0]) : 0u;
+            row_sb[row] =
+                \(patch)
+                : uint8_t(simd_shuffle(pair_sb, ushort(lane & ~1)));
+            """
+        : """
+            row_sb[row] =
+                \(patch)
+                : scale[0];
+            """
     // Same accumulation, scale conversion, reduction, and epilogue order in
     // both bodies; `staged` only hoists the four code words and scale bytes
     // ahead of the qdots (the promoted stage4 schedule).
@@ -8157,9 +8170,7 @@ private func lagunaRoutedSharedDownResidualSource(
                 expert_weight + output_row * packed_row_bytes + lane * 8);
             const device uint8_t* scale =
                 expert_scales + output_row * scale_row_bytes + scale_lane;
-            row_sb[row] =
-                \(patch)
-                : scale[0];
+            \(stagedScaleLoad)
         }
         for (uint row = 0; row < outputs_per_simd; ++row) {
             result[row] = laguna_nvfp4_qdot_codes_16(
