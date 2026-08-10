@@ -63,21 +63,28 @@ func fusedQKVPrefillEpilogueMatchesStandalonePipelineExactlyWhenEnabled() {
     let kEnd = qEnd + qkvLength * qkvKVDim
     let fusedQueries = fused[0..<qEnd].reshaped(1, 48, qkvLength, qkvHeadDim)
     let fusedKeys = fused[qEnd..<kEnd].reshaped(1, 8, qkvLength, qkvHeadDim)
-    let fusedValues = fused[kEnd..<(kEnd + qkvLength * qkvKVDim)]
+    let fusedVFlat = fused[kEnd..<(kEnd + qkvLength * qkvKVDim)]
+    let fusedValues = fusedVFlat.reshaped(1, qkvLength, qkvKVDim)
+    let fusedValuesAsHeadMajor = fusedVFlat
+        .reshaped(1, 8, qkvLength, qkvHeadDim)
+        .transposed(0, 2, 1, 3)
         .reshaped(1, qkvLength, qkvKVDim)
     let referenceValues = raw[
         .ellipsis,
         (qkvQueryDim + qkvKVDim)..<(qkvQueryDim + 2 * qkvKVDim)]
 
     eval(
-        fusedQueries, fusedKeys, fusedValues,
+        fusedQueries, fusedKeys, fusedValues, fusedValuesAsHeadMajor,
         referenceQueries, referenceKeys, referenceValues)
     let qMismatches = mismatchCount(fusedQueries, referenceQueries)
     let kMismatches = mismatchCount(fusedKeys, referenceKeys)
     let vMismatches = mismatchCount(fusedValues, referenceValues)
+    let vHeadMajorMismatches = mismatchCount(
+        fusedValuesAsHeadMajor, referenceValues)
     print(
         "fused_qkv_exactness offset=\(offset) q_mismatches=\(qMismatches) "
-            + "k_mismatches=\(kMismatches) v_mismatches=\(vMismatches)"
+            + "k_mismatches=\(kMismatches) v_mismatches=\(vMismatches) "
+            + "v_head_major_mismatches=\(vHeadMajorMismatches)"
     )
     #expect(qMismatches == 0)
     #expect(kMismatches == 0)
