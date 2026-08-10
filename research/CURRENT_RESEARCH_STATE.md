@@ -1690,7 +1690,7 @@ bandwidth-pool / ×0.5 latency-pool two-pool map, residual −6.63 %, #561*.
 | 2 | T0b(a) qkv h64 | 30 | 1340.1 | 585.6 | bytes | 90.8 | 53.8 | 0.82 |
 | 3 | T3b oproj h64 | 30 | 1117.7 | 488.4 | bytes | 87.0 | 63.3 | 0.96 |
 | 4 | T2d routed+shared down+resid | 39 | 858.9 | 375.3 | bytes | 85.3 | 55.1 | 0.84 |
-| 5 | **T3a sliding fused attn** ⚠️ | 30 | 636.0 | **318.0** | **latency** | **32.4** | **215.0** | **3.27** |
+| 5 | ~~**T3a sliding fused attn**~~ 🚫 **FICTION, see rule 100.3** | 30 | 636.0 | **318.0** | ~~latency~~ **ISSUE-BOUND** | 32.4 | ~~215.0~~ **0** | ~~3.27~~ **0** |
 | 6 | T1c lmhead int5 base+delta | 1 | 420.3 | 183.6 | bytes | 97.4 | 4.8 | 0.07 |
 | 7 | T0b(b) qkv h48 | 10 | 362.8 | 158.5 | bytes | 89.5 | 16.7 | 0.26 |
 | 8 | T1a residual/rms/router | 39 | 312.8 | 156.4 | **latency** | 42.8 | 89.4 | 1.36 |
@@ -1698,7 +1698,7 @@ bandwidth-pool / ×0.5 latency-pool two-pool map, residual −6.63 %, #561*.
 | 10 | T3c oproj h48 | 10 | 301.8 | 131.9 | bytes | 80.6 | 25.6 | 0.39 |
 | 11 | **T2b gate_sp h64** | 30 | 248.0 | 124.0 | **latency** | **10.4** | 111.1 | **1.69** |
 | 12 | dense gate_up (layer 0) | 1 | 269.4 | 117.7 | bytes | 93.4 | 7.8 | 0.12 |
-| 13 | **T3a' full fused attn** | 10 | 229.7 | **114.9** | **latency** | **33.6** | 76.2 | 1.16 |
+| 13 | ~~**T3a' full fused attn**~~ 🚫 **FICTION, see rule 100.3** | 10 | 229.7 | **114.9** | ~~latency~~ **ISSUE-BOUND** | 33.6 | ~~76.2~~ **0** | ~~1.16~~ **0** |
 | 14 | dense_down (layer 0) | 1 | 133.8 | 58.5 | bytes | 94.0 | 3.5 | 0.05 |
 | 15 | T2b' gate_sp h48 | 10 | 80.2 | 40.1 | **latency** | 8.0 | 36.9 | 0.56 |
 
@@ -1935,9 +1935,16 @@ and it is now complete at zero cost. Byproducts worth keeping:
   `DARKBLOOM_NVFP4_QMV_SIGN_CARRY` (`LRM:3984-3986`) and
   `DARKBLOOM_NVFP4_QMV_SEED_ELIDE` (`:4004-4014`) both document "(default OFF)"
   while the code is `!= "0"` ⇒ **both are actually ON**.
-- **Compound-gate trap:** `DARKBLOOM_QMV_WIDE_CODES` (`LRM:325`, OFF) is inert
+- ~~**Compound-gate trap:** `DARKBLOOM_QMV_WIDE_CODES` (`LRM:325`, OFF) is inert
   unless `DARKBLOOM_SHARED_SCALE_HALVED` (`:312`, ON) is also set. A/B-ing wide
-  codes alone measures a guaranteed null and would wrongly retire the mechanism.
+  codes alone measures a guaranteed null and would wrongly retire the
+  mechanism.~~ 🚫 **RETRACTED — this note was wrong (rule 102.1).**
+  `lagunaSharedScaleHalvedEnabled` is **default-ON** (`LRM:300-301`/`:310-311`)
+  and the halved plane is installed at `LagunaRuntimeLayers.swift:84-100`, so
+  the compound gate is already satisfied at HEAD. frieren's rule-79 null cell
+  (same binary twice, 6,522,880 elements, 0 differing, `PASS-BIT-EXACT`) proved
+  reachability; the mechanism was then measured at **−0.5363 % of `cs`** and is
+  closed on evidence, not on inertness.
 - **Our dormant-variant list was wrong in three places.** `top8keys_r1_bf16_v2`
   is the **default** (`lagunaRoutedGateUpR1Enabled` `LRM:7767-7768`, selection
   `:7899-7900`) and `_v1` is the dormant twin; o_proj `_idx_v1` is the
@@ -3278,6 +3285,31 @@ instrumentation (#496), not more hyperparameter-tier tweaking.
 ---
 
 ## 7. Closed list — do not re-assign
+
+❌ **THE ENTIRE DECODE FUSED-ATTENTION ABOVE-FLOOR POOL — closed by rule 100,
+round 107 (PR #642), `N-ISSUE-BOUND`.** Both `laguna_sliding_fused_attn_ring_v1`
+(`LagunaRuntimeModel.swift:1505`, 30 layers) and
+`laguna_full_fused_attn_grow_v1` (`:2028`, 10 layers) run at **97.7 % of
+theoretical peak instruction issue**. A threadgroup ladder shows **no latency
+slack** (linear for K ≥ 20) and a rows/bytes ladder shows **no bandwidth
+binding** (42.5 % of host peak, byte term only 41.8 % of the dispatch). The
+§B.0.3 "latency headroom" of 215.0 + 76.2 µs/step (4.43 % of score) **does not
+exist**. Do not re-open under: prefetch hoisting (also banned by rule 82, and
+closed by #540), ring/pipeline depth, split-K / flash-decoding / KV-split (also
+#196 §4.12.8 C, #566), wider per-lane loads (rule 102.5), GQA request-
+amplification de-duplication (worth 0.023 %, rule 100.5), partial-lane / P2 / P3
+epilogue trims (0.063 % and 0.036 %, rule 100.6), or any geometry change. The
+**only** surviving axis is a raw instruction census that removes ≈12 issue slots
+from **each** of the 16 pipeline stages (rule 100.4/100.8).
+
+❌ **Draw scheduling and tree selection — closed by rule 101** (`f` is i.i.d.
+white noise at n = 1220; the `4b0e051b` tree swap is worth **+0.007 %**, i.e.
+nothing; the record holder's tree is *worse* than ours on content and its lead
+is a +2.99 σ session draw).
+
+❌ **`DARKBLOOM_QMV_WIDE_CODES` — closed on evidence by rule 102.2** at
+**−0.5363 % of `cs`** (a +12.2 % regression on its own target kernel;
+occupancy-binding). Also independently `N-CORRECT` (class-3 perturbation).
 
 ❌ **K-loop staging depth on the routed gate/up QMV family (the "#454 preload")
 — closed by rule 98, round 107 (PR #630).** The depth-1 software pipeline is
@@ -5848,10 +5880,464 @@ The generalisation is 99.3, and it joins the standing precondition list:
 
 ---
 
+### Rule 100 — 🚨 THE DECODE FUSED-ATTENTION POOL IS **ISSUE-BOUND**, NOT LATENCY-BOUND. 424 µs/step of "headroom" was fiction. The campaign now has a measured **instruction↔score exchange rate**, and BYTES is the only remaining broad decode class.
+
+Source: **PR #642, maple-tanjiro, R107-D**, report
+`research/maple-tanjiro-r107d-decode-attention-above-floor.md` (573 lines),
+artifacts `research/artifacts/maple-tanjiro-r107d/` (14 logs) + probe
+`research/maple-tanjiro-r107d-arch-reach.swift` + four driver scripts.
+Verdict **`N-ISSUE-BOUND`**. Submitted editable diff **zero bytes** (verified by
+the advisor: `git diff --numstat 09525f5c c3c24a41 -- $editablePaths
+benchmark.json` is empty). Receipts consumed **0**.
+
+#### 100.1 The decider — an instruction dose-response on the live kernels
+
+Method: inject `DOSE` rounds of **8 independent fp32 `fma`** per main-loop
+iteration at the verified anchor, seeded from live K registers
+(`pipe_ka[0..3]`, `pipe_kb[0..3]`) and folded back as
+`pair_score0 += U(1e-30) * (…)` so the compiler cannot eliminate it and the
+numerics are unchanged. Eight accumulators ⇒ this measures **issue slots, not
+fma latency**. `extra_fma_per_thread = DOSE × 8 × iterations` (4 sliding, 8
+full). Every arm is **41 alternating rounds × 200 dispatches**, paired within
+round; dose 0 is a verbatim `cp` of the shipped source (a true A/B NULL).
+
+| kernel | regime | dose (extra fma/thread) | Δ µs | sd | t | % |
+|---|---|---:|---:|---:|---:|---:|
+| sliding | defeated s1 | 0 (NULL) | −0.083 | 0.341 | −1.55 | −0.478 |
+| sliding | defeated s1 | 4 (128) | **+1.097** | 0.195 | +35.97 | +5.846 |
+| sliding | defeated s1 | 16 (512) | **+4.248** | 0.254 | +106.89 | +24.503 |
+| sliding | defeated s2 | 0 (NULL) | −0.074 | 0.333 | −1.43 | −0.399 |
+| sliding | defeated s2 | 4 | **+1.158** | 0.170 | +43.69 | +6.127 |
+| sliding | defeated s2 | 16 | **+4.205** | 0.451 | +59.76 | +25.014 |
+| sliding | resident s3 `[RESIDENT — NOT A HEADLINE]` | 0 | −0.094 | 0.286 | −2.11 | −0.534 |
+| sliding | resident s3 | 4 | +1.299 | 0.128 | +64.83 | +7.239 |
+| sliding | resident s3 | 16 | +4.900 | 0.235 | +133.52 | +28.186 |
+| full (K=24) | defeated | 0 (NULL) | +0.034 | 0.142 | +1.52 | +0.168 |
+| full (K=24) | defeated | 4 (256) | **+2.189** | 0.235 | +59.69 | +10.942 |
+| full (K=24) | defeated | 16 (1024) | **+9.052** | 0.384 | +150.95 | +46.633 |
+
+**Derived rate.** Sliding two-session mean **0.008255 µs per fma-per-thread** at
+dose 16 (0.008809 at dose 4; 4.2265/1.1275 = 3.75 against an ideal 4.0 =
+**94 % linear**). 32,768 threads ÷ 8.255 ns = **3.969 × 10¹² fma/s** against a
+hardware ceiling of 2560 FP32 lanes × 1.578 GHz = 4.04 × 10¹² ⇒ **97.7 % of
+theoretical peak issue**. The full kernel independently gives 0.00884 µs/fma,
+and a per-core critical-path prediction (2 TGs × 1024 threads × 1024 fma ÷ 128
+lanes ÷ 1.578 GHz = 10.38 µs) matches the measured +9.05 µs to 87 %. Instrument
+floor |NULL| ≤ 0.1 µs ≈ ±0.5 %.
+
+**Base instruction budget.** 18.9 µs × 1.578 GHz ÷ (32,768 ÷ 2560) ≈ **2,330
+issue slots per thread** in the sliding kernel (≈90–110 slots per stage × 16
+stages, plus prologue/epilogue). Occupancy is excluded as a confound on every
+arm (1024 threads, tgMem 18,432 B invariant; source grew 356→371 lines sliding,
+320→335 full). The resident arm inflates the same effect ≈15 % — another
+instance of **98.9**; the defeated arms are the headline.
+
+#### 100.2 The two orthogonal controls that rule out the alternatives
+
+- **Threadgroup ladder (latency slack).** Linear for K ≥ 20 with risers at
+  multiples of the 20 GPU cores: K=20 8.67 µs, K=24 17.66, K=32 17.75, K=48
+  24.86, K=240 94.27. A latency-bound kernel absorbs extra threadgroups for
+  free; this one does not. **No latency slack exists.**
+- **rows/bytes ladder (bandwidth).** Slope **0.032437 µs/row = 2.11× the ideal
+  DRAM slope**; the byte term is only **41.8 %** of the 18.82 µs N=512
+  dispatch; achieved unique bandwidth **113.3 GB/s = 42.5 % of the 266.3 GB/s
+  host peak**. **Not bandwidth-bound.**
+
+#### 100.3 ⚠️ §B.0.3 rows 5 and 13 are now MEASURED FICTION
+
+The pool table at §B.0.3 credits **T3a sliding fused attn 215.0 µs** and
+**T3a′ full fused attn 76.2 µs** of "latency headroom" (3.27 % + 1.16 % of
+score). Both are computed as *bandwidth* headroom on a *latency*-labelled
+family, which §B.0.4 already warned is "an upper bound on a fiction". #642 has
+now **measured** that fiction on both kernels: the pool is issue-bound at
+97.7 % of peak issue, so **291.2 µs/step of nominal headroom = 4.43 % of score
+does not exist** and must not be quoted in any future brief or ceiling
+calculation. Strike rows 5 and 13 from every "remaining pot" list.
+
+#### 100.4 The exchange rate — what 0.4 % of score now costs
+
+Using the M5/M4 per-dispatch ratios (sliding 10.317/18.6 ≈ 0.556; full
+11.485/20.1 ≈ 0.571) and the campaign price 0.015228 %/µs/step:
+
+| kernel | % of `cs` per fma-per-thread removed | instructions/thread for 0.4 % | share of budget |
+|---|---:|---:|---:|
+| sliding (30 layers) | **0.002097** | **≈191** | 8.2 % of ≈2,330 (≈12 slots/stage) |
+| full (10 layers) | 0.000769 | ≈520 | 15.7 % of ≈3,304 |
+
+**Only instruction-count reduction pays on this axis, and it must find ≈12
+removable slots in each of 16 pipeline stages.** This exchange rate is a
+durable, reusable campaign asset: any future decode-attention proposal must be
+priced against it *before* GPU time is spent.
+
+#### 100.5 The 4× request amplification is inherent GQA broadcast, and it is worth 0.023 %
+
+`kv_head = head0 / gqa` with `head0 = 2*tgpig.x` ⇒ four consecutive
+threadgroups compute **identical** KV addresses. Requested rate 444 GB/s =
+167 % of DRAM peak, i.e. the excess is served from cache. The empirical price
+is bounded by the Phase-E threadgroup ladder from K=1 to K=4: **+0.09 µs ≈
+0.5 % of the call**. A *perfect* fix is therefore worth
+`30 × 0.09 × 0.556 × 0.015228 ≈ **0.023 % of cs** — 17× below the bar.` This
+also bounds cross-TG redundant K RMSNorm+RoPE **on the bytes axis** (its
+instruction axis remains open; see 100.8).
+
+#### 100.6 Partial-lane work is full price, and the two micro-levers are 6×–60× under bar
+
+Partial-lane control (job `83dca7c1`, four arms in one session): a dose issued
+by **1 lane in 32 costs 0.990×** the same dose issued by all 32 (+1.390 vs
++1.404 µs); a **16/32 mask costs 1.110×**. So masked/divergent work is charged
+at essentially full price — a generally useful calibration. Applying it:
+
+- **P2** (`LagunaRuntimeModel.swift:1571-1582`, ≈50–65 slots; halving saves
+  ≈25–32) = **≈0.063 % of `cs`** at full critical-path weight, and only
+  **≈0.006 %** throughput-weighted, because just 3 of 32 simdgroups execute it
+  (`if (sg < 3)`).
+- **P3** (lane==0 epilogue, ≈20 slots, save ≈17) = **≈0.036 % of `cs`**.
+
+Both are closed.
+
+#### 100.7 🚨 ADVISOR ERROR #7 — I briefed a lever that a numbered standing rule bans
+
+The R107-D brief's lever **P1 (prologue prefetch hoist)** should never have been
+written. Three independent sufficient reasons existed at brief time:
+
+1. the brief's own Stage-1 decision rule would have retired it;
+2. **#540 (merged) closed exactly this mechanism for exactly this kernel
+   family** — state doc §5b `:2853-2881`: every prefetch-expressing variant
+   regressed **+5…+7 %** at flat dose–response and identical occupancy (ledger
+   row `:5736`); #597 `:502-516` isolates the cause as *"the cross-barrier
+   placement of the prefetch salvo, not the load width"*;
+3. **Rule 82 (`:804-812`, restated `:3898`) bans hoisting in the fused
+   attention family outright.**
+
+I checked §12, the closed list, and the fusion / split-K / ring-depth entries —
+but I did not grep the numbered-rule block for the mechanism word, and Rule 82
+sits ~3,000 lines away from the family section. tanjiro correctly declined to
+build it and documented the refusal in his §11.
+
+> **Standing repair (adds a sixth step to the 99.7 precondition list): grep the
+> numbered standing-rule block for the MECHANISM WORD, not only the family
+> section and the closed list.** The P1 (prologue-prefetch-hoist) template is
+> **retired** from all future attention assignments.
+
+#### 100.8 Anchor corrections adopted (supersede §12/§12.1)
+
+| item | was | **is** |
+|---|---|---|
+| sliding kernel source | `:1508` | **`:1505`** |
+| prologue barrier | `:1587` | **`:1589`** (`:1583-1588` is the `sg == 3` V copy) |
+| `func lagunaSlidingFusedAttention` | `:1940` | **`:1927`** |
+
+Surviving follow-ups from his §16, in priority order: **(1) an instruction
+census of the sliding main loop** — his own top ask, a *reading* task costing no
+GPU time, which must find ≈12 removable slots per stage to clear the bar;
+(2) cross-TG redundant K RMSNorm+RoPE on the **instruction** axis (≈50 instr ⇒
+≈0.08 %, below bar alone but composable with (1)); (3) a barrier-count dose
+(3 epilogue barriers → 2). **Do not re-open prefetch hoisting, ring depth,
+split-K, or wider per-lane loads on this family.**
+
+#### 100.9 Hygiene and transfer
+
+`research/run_upstream_equivalence.sh` (job `40bb8700`, 37.3 s): all 9 greedy
+tokens match; bit-exact on all 8 teacher-forced decode steps
+(`maximumAbsoluteLogitError = 0`); prefill diverges 0.125 against a 0.0
+tolerance — a **pre-existing gen-16 property of the base**, reproduced on the
+untouched tree. `MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT` was **not** set. Baseline
+anchor `baseline-run0.json` (job `22780b04`): `passed=true`,
+`passed_correctness=true`, `max_abs_diff=0`, `golden_hash b9509697…`, decode
+0.0129980905 s/token. Rule-75 digests identical across arms
+(`sources 34ddd003…`, `vendor e408faf1…`, `benchmark_json e01d3ea1…`,
+`LRM a736b50f…`).
+
+Transfer threat (Rule 99.5 tag **[STRUCT]**): the probe host is M4 Pro gen 16,
+the ranked host M5 Max gen 17. The conclusion transfers because it is a
+**ratio** (issue slots per unit time against that host's own peak), not an
+absolute. A geometry *argmax* would **not** transfer — which is precisely why
+#642 proposes no geometry change. Probe absolute µs differ from the in-situ
+pool (18.8 µs probe vs 10.3 implied); this is the residency/probe gap, not a
+contradiction.
+
+---
+
+### Rule 101 — the σ adjudication is settled at n = 3 exact replicates, the tree swap is DEAD, and `f` is i.i.d. white noise. **All draw-scheduling and tree-selection strategies are permanently closed.**
+
+Source: **PR #597, maple-frieren, R107**, report
+`research/maple-frieren-r107-session-noise.md` (412 lines). Three exact
+byte-for-byte replicates of the `4b0e051b` editable surface (differing only in a
+trailing dedup-marker comment). **Two receipts consumed** (draws
+`091dd04a825f`, `81572e5132b6`).
+
+#### 101.1 The numbers that supersede 93.4(a), 93.3 and §9
+
+| receipt | `cs` | `officialScore` | `f` % |
+|---|---:|---:|---:|
+| `4b0e051b` original | 2.590559 | 2.575377 | −0.5878 |
+| draw 02 | 2.584538 | 2.581073 | −0.1342 |
+| draw 03 | 2.572291 | 2.565720 | −0.2558 |
+
+| quantity | value | supersedes |
+|---|---|---|
+| mean `cs` \| fixed tree | **2.582463** | — |
+| **sd(ln `cs`) \| fixed tree** | **0.3607 %** | 0.0540 % / 0.1453 % / 0.2276 % |
+| geometric-mean `officialScore` | **2.574049** | — |
+| **σ_resubmit = sd(ln `O`) \| fixed tree** | **0.3016 %** | 0.3728 % |
+| record `officialScore` | 2.61650354381456 | — |
+| **unbiased gap to the record** | **1.6359 %** ⇒ **z = 5.42** | 0.9965 % / 1.2846 % |
+
+Two-leg-only sensitivity (§7): mean `cs` 2.578415, sd(ln cs) 0.3358 %, direct
+σ_resubmit (n=2, df=1) 0.4219 %, unbiased gap 1.6617 %, z 3.939, P/draw
+0.004 %, P over 20 draws 0.08 %. Even at the most generous σ frieren could
+construct (0.58 %), a twenty-draw ladder buys **4.7 %**, not the 42 % her §8 had
+claimed. **§9 of her report retracts §8 in full**; she wrote *"the advisor was
+right and I was wrong, by an order of magnitude."* The staged ladder commit was
+reverted (`7de9d0e3` → `6f9e4222`). ⚠️ Relative SE of an sd at n=3 is 50 %;
+quote the estimator with its floor, per rule 40.
+
+#### 101.2 🔑 THE TREE SWAP IS DEAD
+
+`4b0e051b`'s three-replicate mean `cs` = **2.582463**; our integration tree
+(`bd33883e` + one file) = **2.582286**. `ln(2.582463/2.582286)` = **+0.007 %** —
+indistinguishable at sd 0.3607 %. The entire apparent 0.32 % advantage of
+`4b0e051b` over our tree was **one session draw**. **Hold our tree.** Rule 96.4's
+"non-significance" finding is upgraded from *plausible* to *measured*.
+
+#### 101.3 `f` is i.i.d. white noise ⇒ draws cannot be timed
+
+n = 1220 board receipts: mean `f` = −0.0090 %, sd = **0.5376 %**; lag-1
+autocorrelation r = +0.0284 against a significance threshold of 0.0561 (n.s.);
+a 24 h harmonic fit gives R² = 0.0005 and amplitude 0.0126 %; all six 4 h UTC
+buckets lie within ±0.056 %. Baseline CV: decode 0.2460 %, **prefill 1.9362 %**;
+**prefill contributes 87.23 % of Var(f)**. There is no hour, no weekday and no
+queue state worth waiting for. This closes draw scheduling **permanently**
+(with 96.2).
+
+#### 101.4 The record is a session draw, not a better tree
+
+`c5b0a13c` (the record holder) has `cs` 2.574594 and `f` = **+1.615 % =
++2.99 σ** — its tree is **worse** than four of ours on content. Board merit
+leaders by `cs`: `ebcd3ca387ae` 2.591868, `5c542169b5e6` 2.590753,
+`4b0e051bf3cd` 2.590559, `3c0c6a377b33` 2.589921, `ef055b9b1956` 2.589321,
+`5a43d32955a5` 2.588750, `e1b6e2be2792` 2.587191. Of the 25 board trees that
+are **locally materialisable** (join on `submissionCommitSha` via
+`git cat-file --batch-check` — **not** on submission UUID), `4b0e051b` ranks 1;
+the only two board trees beating it are **not in our object store**. Whole-board
+throughput is 1.12 receipts/h over 24 h.
+
+#### 101.5 ⚠️ Strategic consequence for the endgame
+
+At gap 1.6359 % and σ_resubmit 0.3016 %, the record is **effectively
+unreachable**: even a clean +0.4 % of `cs` leaves z ≈ 4.1. **Draws now buy a
+better own-best receipt, not the record.** The four-condition draw bar (97.3)
+stands unchanged, and "take no draw" remains an acceptable terminal state.
+
+---
+
+### Rule 102 — R106-J: `DARKBLOOM_QMV_WIDE_CODES` is a **−0.54 % regression**, the campaign now owns a **margin certificate**, and the bit-exactness shelf is re-ranked
+
+Source: **PR #597, maple-frieren, R106-J**, report
+`research/maple-frieren-r106j-bitexactness-shelf.md` (991 lines).
+
+#### 102.1 Deliverable A — the margin certificate (REUSABLE CAMPAIGN ASSET)
+
+`research/maple-frieren-r106j-margin-certificate.py`, subcommands
+`capture --label L --out L.npz [--steps 64] [--mode teacher|free]` and
+`certify --baseline A.npz --candidate B.npz --out report.json`. It drives the
+worker's teacher-forced `correctness_begin` / `correctness_step` protocol at
+`top_k = 100352` (full vocab). **The upstream-equivalence oracle cannot
+substitute**: it never calls `prepareFusedRuntimeWeights()`, so the derived
+banks stay nil (`research/frieren_pr80_logit_bitwise.py:10-12`). Seven sections,
+including **§3b a decision-relevant safety factor**
+`margin(t)/(|Δ_top1(t)|+|Δ_top2(t)|)` and **§7 free-run divergence** (forces
+FAIL on any divergence). Tie-break is the lower token id
+(`LagunaRuntimeCorrectnessCompare.swift:459-462`).
+
+**§2.2 null cell (rule 79) was run first**: the same binary twice, two launches,
+6,522,880 elements, **0 differing**, `PASS-BIT-EXACT`. This proves the pipeline
+is bitwise deterministic, **is** the rule-33 reachability proof for her B0 cell,
+and **kills the stale "compound-gate trap ⇒ guaranteed null" note** at doc
+~1938: `lagunaSharedScaleHalvedEnabled` is default-ON
+(`LagunaRuntimeModel.swift:310-311`) and the halved plane is installed at
+`LagunaRuntimeLayers.swift:84-100`.
+
+**§2.3 results on `DARKBLOOM_QMV_WIDE_CODES`** (a class-3 perturbation, used as
+the certificate's own stress case): max |Δlogit| **5.44531**; 85.8 % / 91.5 % of
+elements differ (teacher/free); **argmax flips 0 in both modes**; free-run
+common prefix 129/129; decision-relevant safety factor at the decided token
+min **1.36585**, and **zero positions with SF < 1**. Hidden-anchor exposure
+(`TASK.md:131-134`) is the real risk: estimated flip rate at true margin 0 →
+**68 % / 81 %**, at 0.125 → 45/60 %, at 0.5 → 3/12 %. Logits are bf16-valued
+(multiples of 0.0625/0.125) and the p50 perturbation is ≈ one ULP. Verdict
+**`MARGINAL`** — i.e. *a certificate can pass and the hidden anchors can still
+fail.*
+
+#### 102.2 🔴 Deliverable B — the number that closes the row
+
+Preregistered σ = 0.10 µs/call, n = 6/arm, MDE 0.078 % of `cs`, written before
+the driver ran. Executed `REPS=3 STEPS=33`, order `off on on off` ×3, 12
+processes, whole-model in-situ 40-layer decode with GPUPROF dispatch timestamps.
+
+| | shared-QMV (target) | routed down-residual (invariant control) |
+|---|---|---|
+| OFF | 7.3911 µs/call | 22.0637 µs/call |
+| ON | 8.2941 | 22.2359 |
+| Δ paired | **+0.9030** | +0.1722 |
+| sd / SE across blocks | 0.0620 / 0.0358 | 0.1068 / 0.0617 |
+| t (df 2) | +25.23 | +2.79 |
+| ×39 dispatches/step | +35.2 µs/step | +6.7 |
+| **% of `cs`** | **−0.5363 %, CI [−0.628, −0.445]** | −0.102 %, CI [−0.260, +0.055] |
+
+**`DARKBLOOM_QMV_WIDE_CODES` is a 12.2 % regression on its own target kernel.**
+Wall-clock cross-check +37.2 µs/step agrees within 6 %. Mechanism: reading two
+adjacent groups as one aligned `uint4` doubles per-lane register footprint and
+halves independent K-iterations; **occupancy is binding**. Cells fired:
+`N-NULL` **with a negative sign** and independently `N-CORRECT`. B3 was
+deliberately not executed — no default flip, no tree handed to fern, no rule-75
+digest owed. Rule 98 applied correctly: `FERN_DEFEAT_SLOTS` exists only in three
+standalone probes and **not** in `Sources/`, so no residency correction is owed
+on an in-situ number. Force-clean receipt (job `e8dd58c6`, exit 0, 202 s):
+`OBJECTS_PREDATING_CLEAN=0`, `WORKER_SHA256=f2c3a889…`.
+
+#### 102.3 Deliverable C — the perturbation-class taxonomy (ADOPTED CAMPAIGN-WIDE)
+
+| class | definition | typical Δlogit |
+|---|---|---|
+| **0** | bit-exact | 0 |
+| **1** | reassociates a short reduction (≤ 8 terms) | sub-ULP – 1 ULP |
+| **2** | reassociates a long reduction / whole K-loop | ~1–10 ULP |
+| **3** | changes *which values* each lane sums over a long chain | **O(1) logit unit** |
+| **4** | changes the values themselves | unbounded |
+
+**Class ≥ 3 requires a margin certificate AND still carries hidden-anchor risk
+(102.1). Prefer class 0–1 levers in the endgame.**
+
+#### 102.4 The shelf, re-ranked, with advisor rulings
+
+| # | row | value (% of `cs`) | class | **advisor ruling** |
+|---|---|---|---|---|
+| 1 | split-K tie flip `matmul.cpp:986-989` | fraction of +2.46…+3.89 | 2 | prefill ⇒ **desk-only** (rule 99) |
+| 2 | wider per-lane loads, sliding attn | est. +0.51…+1.02 | 1–2 | **CLOSED** — see 102.5 |
+| 3 | H3 attn-projection defrag | +0.9…+2.3 | 0/1 + 2 | prefill ⇒ **desk-only** |
+| — | #615 lane-major nibble-delta | ≤ ≈+0.48 | 0 | **DECLINED, remains closed** |
+| 4 | `DARKBLOOM_QMV_WIDE_CODES` | **−0.5363 measured** | 3 | **CLOSED on evidence** |
+| 5 | group-64 scale-plane re-merge (#615) | +0.37…+0.48 | 4 | **CLOSED** |
+| 6 | router accumulator reassociation | +0.11, CI spans 0 | 1–2 | **CLOSED (null)** |
+
+**#615 nibble-delta — why it stays closed.** `nibble-delta` stores `g/2 + 1`
+B/row instead of `g` B/row. Aggregate saving 19,284,992 B = 1.1538 % of `B` =
+**+0.4846 % of `cs`**, but that is **five independent mechanisms**, and the
+stage-3 gate requires one component ≥ 1.2 % of `B` (largest is routed_gate_up at
+0.5926 % ⇒ +0.249 %). Four code blockers: (1) the routed scale plane is
+strided-aliased into the M5 `_nax` prefill path
+(`LagunaRuntimeWeights.swift:998-1039`) — **unvalidatable on M4**; (2) the
+packed routed gate/up bank has 16-B granularity; (3)
+`lagunaScalePatchHeaderBytes = 128` holds ≤128 exceptions and routed_gate_up
+already spends 57; (4) double residency (+337 MB). Only routed_down +
+shared_gate_up + shared_down are unblocked = 0.3752 % of `B` = **+0.158 % of
+`cs`**, below the bar.
+
+#### 102.5 🔁 ADVISOR RE-ADJUDICATION — shelf row 2 (wider per-lane loads) is CLOSED
+
+In the #642 accept I had provisionally re-opened frieren's shelf row 2 and
+intended to relay it to tanjiro as a fallback lever. **That ruling is
+withdrawn.** frieren's +0.51…+1.02 % was an unmeasured desk estimate; tanjiro's
+**measured** exchange rate (100.4) supersedes it. The sliding main loop is 16
+stages × ≈1 K-load + ≈1 V-load per lane ≈ **32 load instructions out of a
+≈2,330-slot budget**; halving them saves ≈16 slots against the **≈191
+required**, i.e. **≈0.033 % of `cs` — ~12× below bar**. This also restores the
+prohibition at `research/BRIEF_QUEUED_SLIDING_ATTN_REWRITE.md:279-280`.
+
+#### 102.6 Preregistered-cell discipline (worth copying)
+
+She preregistered `V-SHIP` / `N-CORRECT` / `N-NULL` / `N-UNREACHABLE` /
+`V-SHELF` and reported which fired: `N-CORRECT` **yes**, `N-NULL` **yes, with a
+sign**, `N-UNREACHABLE` **no** (B0 decisive: two differently-named kernels,
+1328/1329 dispatch records), `V-SHELF` **no** — her §1.1 upholds the advisor's
+`TASK.md` reading that *"not bit-exact ⇒ not submittable"* is **self-imposed
+policy, not a `TASK.md` requirement** (`TASK.md:168-171` makes the contract
+text-to-text). That does not license class-3 changes; 102.1's hidden-anchor
+exposure does the licensing, and it says no.
+
+---
+
+### Rule 103 — R107-C ledger: the expert gather-GEMM `bn` lever is real but **under bar**, and the true prize is a 1-of-4 simdgroup MMA deficit (both `_nax`, both unreachable here)
+
+Source: **PR #636, maple-alphonse, R107-C** (merged →`2454cc01`), report
+`research/maple-alphonse-r107c-expert-gather-gemm-floor.md` (880 lines), W&B
+`yljdcwmc`. Verdict **`N-REACH` + `N-XMAJOR-CLOSED` + `N-BUILD` refuted +
+`N-FLOOR`**; primary metric `harvest_pct_of_score_best_case` 0.4 → **0.1953**.
+
+#### 103.1 Stage-0 rule-83 archive search — three of four questions were already answered
+
+| Q | question | resolution |
+|---|---|---|
+| 1 | `darkbloom_stage_bm128_variant()` 4 vs 5 | **CLOSED** — default 5 wins on official-M5 absolutes (204.90 → 201.64 → 201.42 → **198.00 µs**); variant 4 sets `WN = 2`, disabling `kSwigluRegLocal` (`kernels/fp_quantized_nax.h:1781-1782`) |
+| 2 | x-major gather | **CLOSED-NEGATIVE** — `darkbloom_gather_xmajor_ct()` is a hardcoded `return 0;` |
+| 3 | `DARKBLOOM_EXPERT_GATHER_GROUPS` | **CLOSED-POSITIVE** — 256 is optimal and already shipped |
+| 4 | `bn` 64→32 on the **down** GEMM | genuinely never measured; desk predictions 1.5–4 % at `PREFILL_NAX_ANALYSIS.md:196-212` |
+
+⚠️ Trap recorded: archive hits matching `bm_16_bn_32_…` are the **non-NAX M4**
+kernel, not the nax one.
+
+#### 103.2 The candidate is a **documented inert knob** — keep it, do not spend on it
+
+`int darkbloom_expert_down_bn()` reads `DARKBLOOM_EXPERT_DOWN_BN` (accepts only
+32 or 64, default 64) and is applied inside `gather_qmm_rhs_nax` after the 6-way
+variant switch, under a predicate requiring `bm==64 && wm==4 && (wn==2||wn==1)`.
+Under the shipped variant-5 default (`bm=64,bn=64,bk=64,wm=4,wn=1`) it can only
+assign 64 over 64 ⇒ **byte-for-byte inert on every host, including M5.** +25/−0
+lines, 1740 B, zero warnings, budget headroom 318,794 B. Rule-77 geometry table
+(down shape `K=512, N=2048`): grid 8192 → **16384** TGs; static TG memory
+9232 → 4624 B; resident simdgroups/core 26.6 → 33.0 (**1.2535× ± 0.04**); AIR
+bytes −27.4 %; A-operand request multiplicity 32× → 64×. **Gate/up is
+excluded**: its fused SwiGLU epilogue pairs `col` with `col + BN/2`, so `BN=64`
+is a **correctness lock**.
+
+Sensitivity: the family sits at **82.3 % of its bandwidth roofline** (7.66 ms
+residual over 43.2619 ± 0.402 ms); the down share is 2.554 ms = 0.966 % of
+score; the `bn` mechanism is worth **0.517 ms = 0.195 %** — below the 0.4 % gate
+and below the 1.35 ms 3σ bar. Four sensitivity cells span 0.194–0.301 %.
+**Do not spend a paired M5 session on this alone.**
+
+#### 103.3 ⭐ §8 — the bigger prize (and its tension)
+
+At mean routing there are **16 rows per expert** (4096 expanded rows ÷ 256
+experts). With `BM=64, WM=4` ⇒ `SM = 16`, `tm = 16*sgid`,
+`sgp_sm = min(SM, max(0, chunk_rows - tm))`. With `chunk_rows = 16`, **only
+`sgid = 0` gets `sgp_sm > 0`: one of four simdgroups per threadgroup does any
+MMA, while all four stage weights.** That is a ≈4× MMA-occupancy deficit,
+independent of `BN`. Obstacles: `expert_aligned` requires `wm == 4`;
+`kSwigluRegLocal` requires `(BM/WM) == 16`. ⚠️ His own §9.5 flags the tension:
+the family already measures **22.64 TFLOP/s** (979.3 GFLOP / 43.2619 ms), which
+is hard to reconcile with a literal 4× deficit — resolve that before anyone
+builds it. **Both this and the `bn` lever are `_nax`-only ⇒ unreachable on gen
+16 ⇒ desk-only under rule 99.**
+
+#### 103.4 Carried forward
+
+§11.1 of his report contains a **complete paste-ready handoff payload for fern**
+(#625) including an AI-disclosure line, with the explicit recommendation to
+**not integrate C2a on its own**. Open follow-ups he did not implement:
+`BM`/`WM` for mean-16-row experts; extending the occupancy census to threads/TG;
+the `applegpu-nt` AIR 2.5-vs-2.8 blocker; the `g17p`/`g17s` arch-vs-gate
+question.
+
+---
+
 
 
 
 ## 9. σ table (rule 40 — pick your estimator, then quote its floor)
+
+🚨 **SUPERSESSION (rule 101, round 107).** The score-channel entries below are
+superseded by three exact byte-for-byte replicates of one fixed tree. Use these
+and nothing else when pricing a draw:
+
+| quantity | **current value** | superseded values — DO NOT QUOTE |
+|---|---|---|
+| sd(ln `cs`) \| fixed tree | **0.3607 %** (n=3, ±50 % SE) | 0.0540 %, 0.1453 %, 0.2276 % |
+| σ_resubmit = sd(ln `officialScore`) \| fixed tree | **0.3016 %** | 0.3728 % |
+| unbiased gap to the record | **1.6359 %** ⇒ **z = 5.42** | 0.9965 %, 1.2846 % |
+| board-wide sd(`f`), n = 1220 | **0.5376 %** (i.i.d. white noise) | any diurnal model |
+
 
 | estimator | σ (µs/step) | ±95 % at n = 8 |
 |---|---|---|
