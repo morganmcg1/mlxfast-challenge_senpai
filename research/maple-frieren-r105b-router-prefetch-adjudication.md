@@ -1639,6 +1639,105 @@ strongest single outcome of the round, and the four dispositions in §9-§10 (th
 free-rider retraction, the Rule 82 qualification, and my own two retractions)
 rest on M4 and static evidence that cost no receipts at all.
 
+## 14. Characterisation of the submission limiter (campaign asset)
+
+The advisor asked for this as a standalone section rather than as an excuse
+folded into a results narrative, and that is the right call: the limiter is a
+shared resource whose behaviour every future maple student will hit, and the
+cost of rediscovering it is measured in wasted receipts. What follows is what I
+established, how I established it, and what I got wrong on the way.
+
+### 14.1 The mechanism, in one paragraph
+
+`mlxfast submit` runs against a **single API account shared by the whole
+campaign**. The account permits **one submission in flight at a time** and
+enforces an **account-wide rate limit** on top of that. A submission occupies
+the channel from acceptance until its M5 run finishes and its verdict is
+published — observed at **20-37 minutes**, median 23. Any attempt made while a
+row is `validating` returns a `conflict` error, and — this is the expensive
+part — **a conflict attempt still consumes rate-limit budget**. The rate-limit
+refusal states its own wait, observed between 759 and 1897 seconds.
+
+### 14.2 What that implies operationally
+
+Four rules follow, and I violated three of them before I derived them.
+
+1. **Never retry on conflict.** A retry loop converts one blocked attempt into
+   a rate-limit lockout that blocks the attempt that would have succeeded. The
+   correct pattern is read-only polling of `mlxfast submissions` and exactly
+   one wrapper invocation once no `validating`/`queued` row is observed.
+2. **Never confirm by exit code.** The wrapper's exit status reflects the
+   local archive-and-POST, not whether *your* receipt is the one now in the
+   channel.
+3. **Never confirm by "the newest id changed".** On a shared account the
+   newest id changes constantly. I twice believed a receipt was mine when it
+   was not; `288c702` turned out to be r105-A's ladder receipt A2-1. The only
+   sound confirmation is a **unique marker string embedded in the note body**,
+   retrieved with `mlxfast submission-note <id>`. Both my drawer script and
+   both Phase B notes are built around that marker.
+4. **Never mutate `HEAD` while a submit job can fire.** The wrapper archives
+   the *worktree at invocation time* restricted to `editablePaths`. If a
+   background drawer fires while you are staging the next arm, it submits a
+   tree that corresponds to no commit you can name. Serialise the arms, or
+   snapshot each arm into a private worktree first. This is why the P1 control
+   commit in this round was not created until P0 had confirmed.
+
+### 14.3 Who is actually contending, and the correction I owe
+
+My first pass at this concluded that the contending traffic was **other Senpai
+campaigns** sharing the account. The evidence looked strong: `mlxfast
+submissions --all` returns 1,216 sha-bearing rows, only 60 of which are commits
+that exist in this repository, and none of the recent ~22-minute-cadence
+receipts resolved locally.
+
+**That conclusion was wrong, and I am retracting it.** The inference "the SHA
+does not exist in my checkout, therefore the receipt is not ours" is invalid,
+because sibling students submit from branches I have never fetched. Resolving
+the notes by marker instead of by SHA settles it immediately:
+
+| receipt | time (8/10) | owner |
+|---|---|---|
+| `d5f2b4c` | 04:29 | r104-A stage 2, leg 01/08 |
+| `288c702` | 05:00 | r105-A ladder receipt A2-1 |
+| `d4a86ff` | 05:23 | r105-A ladder receipt A0-3 |
+| `0b9ae91` | 06:00 | r105-A ladder receipt A1-1 |
+| `a8a8040` | 06:20 | r104-A stage 2, leg 02/08 |
+| `c52994d` | 06:42 | r105-A ladder receipt A1-2 |
+| `795badf` | 07:04 | r104-A stage 2, leg 03/08 |
+| `8a09a94` | 07:27 | r104-A stage 2, leg 04/08 |
+
+Every one of the eight is a **maple sibling arm**. The channel is saturated by
+exactly two studies: r104-A's eight-leg sliding-attention k-loop unroll ladder
+and r105-A's prefetch ladder. Interarrival times were 24, 23, 31, 23, 37, 20,
+22, 22, 23 minutes — mean 25, median 23, and essentially back-to-back, meaning
+utilisation is at capacity rather than merely high.
+
+The general lesson is worth more than the specific correction: **absence from
+the local object database is not evidence of foreign origin**, and I should
+have reached for the note bodies — which I already knew how to read — before
+publishing an attribution.
+
+### 14.4 The consequence the advisor should weigh
+
+The instruction that "the channel is yours" for this round cannot be enforced
+from inside my process, and it was not true in fact: at the time I was told it,
+r104-A had four of eight legs still to draw and r105-A was mid-ladder. With a
+median 23-minute occupancy and two arms queueing, my expected wait per receipt
+is not 23 minutes but 23 minutes times the number of competitors who poll the
+same gap, and the race is won by whoever polls with the shortest period. That
+is a bad equilibrium: it rewards aggressive polling, which is exactly the
+behaviour rule 1 above tells everyone not to exhibit.
+
+This is a scheduling problem, not a research problem, and it has a cheap
+scheduling fix. My recommendation is that the campaign adopt an explicit
+**receipt-token allocation** — an ordered queue published in one place, with
+each arm told its slot — rather than letting parallel arms discover the
+contention by colliding. Failing that, a convention that each drawer polls on a
+randomised interval with a published mean would at least remove the incentive
+to poll fastest. I have not implemented either; both are campaign-level
+decisions.
+
+
 ---
 
 *(Nothing in §§0-5 is edited after the first Phase-A launch except to fix a
