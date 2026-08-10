@@ -257,7 +257,56 @@ TODO
 
 ## 7. Suggested follow-ups (not implemented)
 
-TODO
+Produced by a read-only mining pass over `research/CURRENT_RESEARCH_STATE.md`
+(CRS), `research/RESEARCH_ARCHIVE_through-round-91.md` (ARCH) and
+`research/advisor-r105-the-routed-gather-gemm-is-memory-bound.md` (R105). None
+of it was built or measured here; the estimates are the record's own pricing,
+not my receipts. Ranked by expected score per unit of engineering risk.
+
+1. **lm_head int3 approximate scan + exact BF16 refine.** The one carved-out
+   survivor of the closed byte families (CRS:3306-3308). Replace the 4-bit
+   level-1 nibble plane in `LagunaLmHeadPrune.swift:240-275` with 3-bit codes
+   plus a certified per-row upper bound, sending survivors to the existing
+   exact BF16 level-2 refine. 100,352 rows x 256 B = 25.69 MB/step = 1.54% of
+   `B`; break-even survivor growth is +6,272 rows, so a 4-20x survivor
+   inflation still nets **+0.38-0.61% score**. Exactness is preserved by
+   construction because the refine is exact and the tie comparator is
+   unchanged. Cheapest falsifier is a **pure-CPU desk screen** from
+   `Sources/MLXFastTransform` measuring bound width and survivor-count
+   distribution: zero GPU, zero receipts. This is the highest-value next step
+   and the only remaining >=0.5%-class removable decode byte block.
+2. **Rule-68 re-verification of prefill QKV fusion on `_nax`.** Explicitly
+   suspended rather than settled (CRS:3028-3031): the +0.639 ms falsification
+   predates the unconditional `_nax` swap (`matmul.cpp:957-1026`). Resurrect
+   the #527 patch and run one paired M5 prefill probe. Small (**+0.22%**) but
+   nearly free and record-sanctioned.
+3. **Gather-GEMM A-operand re-read elimination at constant `Ws_storage`.** A
+   permitted descendant of #592's closure wording: have each threadgroup in
+   `fp_gather_qmm_rhs_expert_nax` serially own two N-tiles so one loaded A
+   k-slice feeds both accumulators. The doubling lands in C-fragment
+   *registers*, not the `Ws_storage` that #592 identified as the cause of its
+   +1.166 ms negative. Prize is up to 8.76 ms of the 43.26 ms gather wall
+   (**+0.5-3.3% score**, the largest ceiling on the board) and it is bit-exact
+   because per-output k-accumulation order is unchanged. Medium risk: this is
+   the same register/occupancy family that produced #592's hard negative, and
+   it is M5-only since `_nax` is unreachable on M4. Falsify for free first by
+   reading #625's census for whether DRAM actually sees those A re-reads, then
+   a compile-only register report, and only then an M5 probe.
+4. **Hoist shape-static prefill glue into input-independent caches.** #619
+   showed binding overstates traversal 11.5x, which leaves #270's "glue at 99%
+   of the DRAM floor" unadjudicated for prefill. Masks, params arrays, and
+   aranges are explicitly cacheable under the serial rules. Unpriced until
+   #625/#620 land; gate on their ratio tables to avoid overlapping #620.
+5. **Split-K attention with a fused cross-slice reduction.** Gross Fill
+   recovery is 92.0 us = +1.41%, but it is the only proposal here that breaks
+   bit-exactness (softmax recombination), so it carries full
+   upstream-equivalence and M5 near-tie argmax risk. Measure the
+   intercept-versus-slice-count curve with the existing extracted-kernel
+   harness first and build only if >30 us survives.
+
+Enabler, not a hypothesis: `editablePaths` lists directories, so the per-file
+cap can be relieved by splitting `LagunaRuntimeModel.swift`; roughly 100.5 kB
+of global headroom remains (CRS:2924-2928).
 
 ## 8. Artefacts
 
