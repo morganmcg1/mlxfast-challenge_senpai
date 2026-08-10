@@ -6624,7 +6624,65 @@ the two candidate-producing arms (edward #629, alphonse #644). It was **not**
 sent to tanjiro, fern, or nezuko, whose assignments are census/integration/
 forensics and do not turn on it.
 
-#### 105.8 Broadcast record
+#### 105.8 🪤 The trap inside the fix — do NOT read a per-family `k` off §B.0.6
+
+Having written 105, I immediately tried to improve it and nearly committed
+advisor error #9 a second time, in a new costume. The reasoning was seductive
+enough that a student will try it too, so it is recorded here as a closed door.
+
+**The tempting move.** §B.0.6 carries *measured* M5 times beside M4 times:
+
+| group | M4 µs | "measured" M5 µs | implied ratio |
+|---|---:|---:|---:|
+| routed | 2261.2 | 1010.67 | 0.4470 |
+| qkvo | 3122.4 | 1230.70 | **0.3942** |
+
+The ratio of two measured times looks like it needs no ceiling at all — it
+looks like `k` handed over directly, per family, dissolving the whole α
+degeneracy. The apparent prize was large: the qkvo group **reconciles exactly**
+with B.0.3 (`T0b(a) 1340.1 + T0b(b) 362.8 + T3b 1117.7 + T3c 301.8 = 3122.4`),
+i.e. precisely L3's family and alphonse's, and at `k = 0.3942` L3 re-prices to
+0.2215 % with CI **[0.0774 %, 0.3662 %]** — an upper bound that finally sits
+*below* the bar, which would have let me exclude L3 at 95 % confidence.
+
+**Why it is wrong.** §B.1 states the provenance: those two M5 figures are the
+**receipt differentials** from `research/tanjiro-pr34-result.md:596-604`, and a
+receipt differential is a **marginal**, which rule 76 establishes is a *lower
+bound* on census time. The M4 figures are **censuses**. So the ratio divides a
+lower bound by a full count and is **biased low by an unknown factor** — it is
+not a time ratio at all.
+
+The document already contains the proof that these marginals cannot be taken at
+face value: §B.1 notes the qkvo marginal implies **651.8 GB/s = 106.9 % of
+peak — physically impossible as a rate**. A quantity that implies a
+faster-than-possible rate cannot be used to calibrate anything.
+
+**This is error #9's exact signature**: carrying a number across a boundary
+(marginal → census) without checking the boundary preserves it. The lesson is
+that the standing fix in 105.6 is not sufficient as stated — a host tag and an
+epoch tag would *not* have caught this one. So the fix is extended:
+
+> **Every quantity needs a host tag, an epoch tag, and a *census-or-marginal*
+> tag.** `1010.67 µs (M5, marginal, PR34 receipt differential)` is safe;
+> `1010.67 µs (M5)` is a loaded gun.
+
+**What survives, and it is not nothing.** §B.1's M4 GPU-timer census — where
+the denominators are real — puts T2c routed gate+up at **88.0 %** and T0b QKV
+at **89.7 %** of the 266.3 GB/s M4 peak: **within 1.7 pp**. There is no
+measured per-family rate gap on the host we can actually measure. That is
+affirmative evidence for a **single** bytes-regime α rather than per-family
+α's, and it means the §B.0.6 "9.6 pp efficiency gap" is far more likely an
+artifact of comparing marginals with different reuse discounts than a real
+per-family effect.
+
+**Therefore rule 105 stands exactly as written**: one α for bytes families,
+carried with its degeneracy interval [0.389, 0.4369], and the bar quoted as a
+range **52–68 µs/step on M4**. The degeneracy is about the **M5 ceiling**, it
+is only resolvable by a measurement on M5 that we do not have, and no amount of
+rearranging M4-side data will dissolve it. Quote the interval; do not collapse
+it.
+
+#### 105.9 Broadcast record
 
 Rule 105 was issued to **all six** open assignments on 2026-08-10, at advisor
 commit `8695fb0e`, tailored per arm (family regime, `k`, and the bar restated
@@ -6638,6 +6696,12 @@ as a fraction of that family's own M4 cost):
 | tanjiro | #648 | — (census) | — | census promoted: it now sets `k` for everyone; circularity trap named |
 | fern | #625 | 60.1 / 52.5 (mixture) | — | prefill leg declared non-convertible; census re-scoped to a map |
 | nezuko | #616 | — (forensics) | — | reporting-only impact; plus a status check after 6.7 h silence |
+
+Follow-ups issued after the broadcast: **105.7** (detection-bar corollary) to
+edward and alphonse; **105.8** (the §B.0.6 marginal trap and the
+census-or-marginal tag) to tanjiro, whose census is the one assignment that
+works directly in the B.0.3/B.0.6 material and is therefore the one exposed to
+it. The remaining students do not touch that material before the freeze.
 
 
 ## 9. σ table (rule 40 — pick your estimator, then quote its floor)
