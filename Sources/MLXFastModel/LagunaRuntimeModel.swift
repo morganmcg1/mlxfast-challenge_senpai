@@ -1156,12 +1156,6 @@ func lagunaPrefillInputRMSRPG4(
     else { return nil }
 
     let rows = input.dim(1)
-    if ProcessInfo.processInfo.environment[
-        "DARKBLOOM_TRACE_PREFILL_INPUT_RMS_RPG4_CENSUS"] == "1"
-    {
-        FileHandle.standardError.write(Data(
-            "prefill-input-rms-rpg4 rows=\(rows) groups=\(rows / 4)\n".utf8))
-    }
     let outputs = lagunaPrefillInputRMSRPG4Kernel(
         [input, weight],
         grid: ((rows / 4) * 512, 1, 1),
