@@ -392,6 +392,10 @@ Step 1 leaves the *submitted* surface untouched: the patch only edits
 reverted before any commit. `git status --porcelain` is clean on the result
 commit; the instrumentation exists in the repository only as the patch file.
 
+W&B record (ledger summary + artefact bundle):
+<https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/deuilxqt> —
+reproduce with `python3 research/r106c/scripts/log_wandb.py`.
+
 Host: Apple M4 Pro, 48 GiB (low-memory startup profile: allocator cache capped
 at 6 GiB; ranked code paths unaffected), macOS 26.5.2, `applegpu_g16s gen=16`.
 
