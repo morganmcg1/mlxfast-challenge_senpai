@@ -5,6 +5,7 @@ import copy
 import hashlib
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -13,19 +14,63 @@ import tempfile
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 
-SCHEMA_VERSION = "ranked-authority-evidence-bundle/v1"
-FIXTURE_VERSION = "ranked-authority-evidence-fixtures/v1"
-REQUIRED_PHASES = {"transform", "trusted_hash", "reaper", "worker_spawn", "worker_load_epoch"}
-REQUIRED_EVENTS = [
-    "transform",
-    "trusted_hash",
-    "reaper",
-    "profile_generated",
-    "sandbox_injected",
-    "worker_spawn",
-    "load_start",
-    "load_end",
+SCHEMA_VERSION = "ranked-authority-evidence-bundle/v2"
+FIXTURE_VERSION = "ranked-authority-evidence-fixtures/v2"
+AUTHORITY_CONTRACT_VERSION = "pr671-ranked-installed-authority/v1"
+SCHEMA_PATH = Path(__file__).with_name("ranked_authority_evidence_bundle.schema.json")
+MANDATORY_INSTALLED_PATHS = {
+    "workflow_file": "/synthetic/repository/.github/workflows/benchmark.yml",
+    "installation_recipe": "/synthetic/authority/install-recipe.json",
+    "bench_exec": "/opt/bench/bench-exec.sh",
+    "measure_job": "/opt/bench/measure-job.sh",
+    "reaper": "/opt/bench/reap-bench-processes.sh",
+    "worker_launcher": "/opt/bench/worker-launcher.sh",
+    "runtime_worker": "/synthetic/workspace/.build/release/MLXFastRuntimeWorker",
+    "worker_sandbox_profile_generator": "/opt/bench/generate-worker-profile.sh",
+    "profile_generator_input": "/opt/bench/profile-inputs/worker-policy.txt",
+    "worker_sandbox_profile": "/synthetic/job/worker.sb",
+}
+MANDATORY_ROLES = set(MANDATORY_INSTALLED_PATHS)
+EXPECTED_ACTORS = {
+    "controller": None,
+    "bench": "controller",
+    "worker": "bench",
+}
+EXPECTED_PHASE_ACTORS = {
+    "transform": "bench",
+    "trusted_hash": "bench",
+    "reaper": "bench",
+    "worker_spawn": "bench",
+    "worker_load_epoch": "worker",
+}
+EXPECTED_EVENTS = [
+    ("transform", "transform", "bench", "bench_exec"),
+    ("trusted-hash", "trusted_hash", "bench", "bench_exec"),
+    ("reaper", "reaper", "bench", "reaper"),
+    ("profile-generated", "profile_generated", "bench", "worker_sandbox_profile_generator"),
+    ("sandbox-injected", "sandbox_injected", "bench", "worker_launcher"),
+    ("worker-spawn", "worker_spawn", "bench", "bench_exec"),
+    ("load-start", "load_start", "worker", "runtime_worker"),
+    ("load-end", "load_end", "worker", "runtime_worker"),
 ]
+REQUIRED_EVENTS = [item[1] for item in EXPECTED_EVENTS]
+REQUIRED_EVENT_EDGES = [
+    ("transform", "trusted-hash", "happens_before"),
+    ("trusted-hash", "reaper", "happens_before"),
+    ("reaper", "profile-generated", "happens_before"),
+    ("profile-generated", "sandbox-injected", "sandbox_injection"),
+    ("sandbox-injected", "worker-spawn", "spawn"),
+    ("worker-spawn", "load-start", "spawn"),
+    ("load-start", "load-end", "load_epoch_bounds"),
+]
+EXPECTED_CAPABILITIES = {
+    "transform": ("bench", True, True, True, True),
+    "trusted_hash": ("bench", True, False, False, False),
+    "reaper": ("bench", False, False, False, False),
+    "worker_spawn": ("bench", True, False, False, False),
+    "worker_load_epoch": ("worker", True, False, False, False),
+}
+SECRET_KEY_PATTERN = re.compile(r"(?:^|_)(?:api_?key|credential|password|private_?key|secret|token)(?:$|_)", re.IGNORECASE)
 ZERO_SHA256 = "0" * 64
 
 
@@ -153,6 +198,128 @@ def error(code, path, message):
     return {"code": code, "path": path, "message": message}
 
 
+def resolve_schema_ref(root_schema, reference):
+    if not reference.startswith("#/"):
+        raise ValueError(f"unsupported schema reference: {reference}")
+    value = root_schema
+    for part in reference[2:].split("/"):
+        value = value[part.replace("~1", "/").replace("~0", "~")]
+    return value
+
+
+def schema_type_matches(value, expected):
+    if expected == "object":
+        return isinstance(value, dict)
+    if expected == "array":
+        return isinstance(value, list)
+    if expected == "string":
+        return isinstance(value, str)
+    if expected == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if expected == "boolean":
+        return isinstance(value, bool)
+    if expected == "null":
+        return value is None
+    return False
+
+
+def validate_schema_instance(value, schema, root_schema, path="$", errors=None):
+    errors = errors if errors is not None else []
+    if "$ref" in schema:
+        return validate_schema_instance(value, resolve_schema_ref(root_schema, schema["$ref"]), root_schema, path, errors)
+    if "oneOf" in schema:
+        matches = 0
+        for branch in schema["oneOf"]:
+            branch_errors = []
+            validate_schema_instance(value, branch, root_schema, path, branch_errors)
+            matches += not branch_errors
+        if matches != 1:
+            errors.append(error("SCHEMA_ONE_OF", path, "value must match exactly one allowed schema branch"))
+        return errors
+
+    expected_type = schema.get("type")
+    if expected_type is not None:
+        accepted = expected_type if isinstance(expected_type, list) else [expected_type]
+        if not any(schema_type_matches(value, item) for item in accepted):
+            errors.append(error("SCHEMA_TYPE", path, f"value must have type {expected_type}"))
+            return errors
+    if "const" in schema and value != schema["const"]:
+        errors.append(error("SCHEMA_CONST", path, "value does not match the committed constant"))
+    if "enum" in schema and value not in schema["enum"]:
+        errors.append(error("SCHEMA_ENUM", path, "value is outside the committed enumeration"))
+
+    if isinstance(value, dict):
+        properties = schema.get("properties", {})
+        for name in schema.get("required", []):
+            if name not in value:
+                errors.append(error("SCHEMA_REQUIRED", f"{path}.{name}", "required property is absent"))
+        if schema.get("additionalProperties") is False:
+            for name in sorted(set(value) - set(properties)):
+                errors.append(error("SCHEMA_ADDITIONAL_PROPERTY", f"{path}.{name}", "undeclared property is forbidden"))
+        for name, child in value.items():
+            if name in properties:
+                validate_schema_instance(child, properties[name], root_schema, f"{path}.{name}", errors)
+    elif isinstance(value, list):
+        if len(value) < schema.get("minItems", 0):
+            errors.append(error("SCHEMA_MIN_ITEMS", path, "array is shorter than the committed minimum"))
+        if "maxItems" in schema and len(value) > schema["maxItems"]:
+            errors.append(error("SCHEMA_MAX_ITEMS", path, "array is longer than the committed maximum"))
+        if schema.get("uniqueItems"):
+            serialized = [canonical_bytes(item) for item in value]
+            if len(serialized) != len(set(serialized)):
+                errors.append(error("SCHEMA_UNIQUE_ITEMS", path, "array items must be unique"))
+        item_schema = schema.get("items")
+        if item_schema:
+            for index, child in enumerate(value):
+                validate_schema_instance(child, item_schema, root_schema, f"{path}[{index}]", errors)
+    elif isinstance(value, str):
+        if len(value) < schema.get("minLength", 0):
+            errors.append(error("SCHEMA_MIN_LENGTH", path, "string is shorter than the committed minimum"))
+        if "pattern" in schema and re.fullmatch(schema["pattern"], value) is None:
+            errors.append(error("SCHEMA_PATTERN", path, "string does not match the committed pattern"))
+        if schema.get("format") == "date-time" and parse_timestamp(value) is None:
+            errors.append(error("SCHEMA_FORMAT", path, "string is not an ISO-8601 date-time"))
+    elif isinstance(value, int) and not isinstance(value, bool):
+        if "minimum" in schema and value < schema["minimum"]:
+            errors.append(error("SCHEMA_MINIMUM", path, "integer is below the committed minimum"))
+    return errors
+
+
+def validate_committed_schema(data):
+    schema = json.loads(SCHEMA_PATH.read_text())
+    return validate_schema_instance(data, schema, schema)
+
+
+def scan_for_secret_fields(value, errors, path="$", environment_observation=False):
+    if isinstance(value, dict):
+        for key, child in value.items():
+            child_path = f"{path}.{key}"
+            if SECRET_KEY_PATTERN.search(key):
+                errors.append(error("SECRET_FIELD_FORBIDDEN", child_path, "secret-bearing field names are forbidden"))
+            if key == "value" and environment_observation and isinstance(child, str) and value.get("redacted") is not True:
+                policy_secret = value.get("name", "").upper().endswith(("SECRET", "TOKEN", "PASSWORD", "KEY"))
+                if policy_secret:
+                    errors.append(error("SECRET_VALUE_FORBIDDEN", child_path, "secret-like environment values are forbidden"))
+            if isinstance(child, str) and "-----BEGIN " in child and "PRIVATE KEY-----" in child:
+                errors.append(error("SECRET_VALUE_FORBIDDEN", child_path, "private key material is forbidden"))
+            scan_for_secret_fields(child, errors, child_path, path.endswith(".observed") or environment_observation)
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            scan_for_secret_fields(child, errors, f"{path}[{index}]", path.endswith(".observed") or environment_observation)
+
+
+def installed_path_census_payload():
+    return [{"role": role, "installed_path": MANDATORY_INSTALLED_PATHS[role]} for role in sorted(MANDATORY_ROLES)]
+
+
+def canonical_absolute_path(value):
+    if not isinstance(value, str) or not value.startswith("/"):
+        return False
+    pure = PurePosixPath(value)
+    return pure.is_absolute() and str(pure) == value and "." not in pure.parts and ".." not in pure.parts
+
+
+
 def compare_identity(errors, target, capture):
     fields = {
         "repository": "IDENTITY_REPOSITORY_DRIFT",
@@ -189,6 +356,11 @@ def validate_artifacts(errors, data, root, missing_role):
 
     if len(required) != len(set(required)):
         errors.append(error("DUPLICATE_REQUIRED_ROLE", "required_artifact_roles", "required artifact roles must be unique"))
+    if set(required) != MANDATORY_ROLES or len(required) != len(MANDATORY_ROLES):
+        errors.append(error("MANDATORY_ROLE_CENSUS_MISMATCH", "required_artifact_roles", "required roles must equal the versioned PR #671 authority census"))
+    expected_census = digest_value(installed_path_census_payload())
+    if data.get("installed_path_census_sha256") != expected_census:
+        errors.append(error("INSTALLED_PATH_CENSUS_DIGEST_MISMATCH", "installed_path_census_sha256", "installed-path census digest does not match the validator contract"))
 
     by_role = {}
     by_path = {}
@@ -212,19 +384,27 @@ def validate_artifacts(errors, data, root, missing_role):
         else:
             by_path[bundle_path] = role
         installed_path = artifact.get("installed_path")
+        if not canonical_absolute_path(installed_path):
+            errors.append(error("INSTALLED_PATH_NONCANONICAL", f"{path}.installed_path", "installed path must be canonical and absolute"))
+        elif MANDATORY_INSTALLED_PATHS.get(role) != installed_path:
+            errors.append(error("INSTALLED_PATH_CENSUS_MISMATCH", f"{path}.installed_path", "installed path does not match the versioned role census"))
         if installed_path in installed_paths:
             errors.append(error("INSTALLED_PATH_COLLISION", f"{path}.installed_path", "two roles claim the same installed path"))
         else:
             installed_paths[installed_path] = role
 
-    absent = sorted(set(required) - set(by_role))
+    observed_roles = set(by_role)
+    absent = sorted(MANDATORY_ROLES - observed_roles)
+    extra = sorted(observed_roles - MANDATORY_ROLES)
+    if extra:
+        errors.append(error("ARTIFACT_ROLE_CENSUS_MISMATCH", "artifacts", f"unknown artifact roles are present: {', '.join(extra)}"))
     if absent:
         if len(absent) == 1 and absent[0] == missing_role:
             pass
         elif len(absent) == 1:
-            errors.append(error("MISSING_AUTHORITY_UNDECLARED", "required_artifact_roles", f"required artifact role {absent[0]} is absent without the matching missing_authority declaration"))
+            errors.append(error("MISSING_AUTHORITY_UNDECLARED", "artifacts", f"mandatory artifact role {absent[0]} is absent without the matching missing_authority declaration"))
         else:
-            errors.append(error("MULTIPLE_MISSING_AUTHORITIES", "required_artifact_roles", f"multiple required artifact roles are absent: {', '.join(absent)}"))
+            errors.append(error("MULTIPLE_MISSING_AUTHORITIES", "artifacts", f"multiple mandatory artifact roles are absent: {', '.join(absent)}"))
     elif missing_role is not None:
         errors.append(error("UNEXPECTED_MISSING_AUTHORITY", "missing_authority", "declared missing authority is present in the artifact set"))
 
@@ -319,11 +499,19 @@ def validate_environment(errors, data):
             errors.append(error("ENV_POLICY_DUPLICATE", f"environment.policy[{index}].name", "environment names may be declared only once"))
         elif name:
             policy_by_name[name] = entry
+    observed_pairs = set()
     for index, item in enumerate(observed if isinstance(observed, list) else []):
         if not isinstance(item, dict):
             errors.append(error("ENV_OBSERVATION_TYPE", f"environment.observed[{index}]", "environment observation must be an object"))
             continue
+        actor_id = item.get("actor_id")
         name = item.get("name")
+        if actor_id not in EXPECTED_ACTORS:
+            errors.append(error("ENV_ACTOR_UNKNOWN", f"environment.observed[{index}].actor_id", "environment observation actor is outside the closed-world census"))
+        pair = (actor_id, name)
+        if pair in observed_pairs:
+            errors.append(error("ENV_OBSERVATION_DUPLICATE", f"environment.observed[{index}]", "each actor and policy name must have exactly one observation"))
+        observed_pairs.add(pair)
         policy_entry = policy_by_name.get(name)
         if policy_entry is None:
             errors.append(error("ENV_UNDECLARED_NAME", f"environment.observed[{index}].name", "observed environment name is not in the capture policy"))
@@ -337,6 +525,10 @@ def validate_environment(errors, data):
             errors.append(error("ENV_VALUE_MISSING", f"environment.observed[{index}]", "public value capture policy requires a value"))
         elif capture == "name_only" and "value" in item:
             errors.append(error("ENV_NAME_ONLY_VALUE", f"environment.observed[{index}]", "name-only policy forbids a captured value"))
+    expected_pairs = {(actor_id, name) for actor_id in EXPECTED_ACTORS for name in policy_by_name}
+    missing_pairs = sorted(expected_pairs - observed_pairs)
+    if missing_pairs:
+        errors.append(error("ENV_OBSERVATION_MISSING", "environment.observed", f"actor/policy observations are absent: {missing_pairs}"))
     expected_policy = digest_value(policy)
     expected_observed = digest_value(observed)
     if environment.get("policy_sha256") != expected_policy:
@@ -359,8 +551,12 @@ def validate_actors_and_phases(errors, data, artifacts):
             by_id[actor_id] = actor
         if isinstance(actor, dict) and actor.get("environment_policy_sha256") != data.get("environment", {}).get("policy_sha256"):
             errors.append(error("ACTOR_ENV_POLICY_MISMATCH", f"actors[{index}].environment_policy_sha256", "actor must bind the captured environment policy"))
+    if set(by_id) != set(EXPECTED_ACTORS) or len(by_id) != len(EXPECTED_ACTORS):
+        errors.append(error("ACTOR_CENSUS_MISMATCH", "actors", "actors must equal the closed-world controller, bench, and worker census"))
     for actor_id, actor in by_id.items():
         parent = actor.get("parent_actor_id")
+        if actor_id in EXPECTED_ACTORS and parent != EXPECTED_ACTORS[actor_id]:
+            errors.append(error("ACTOR_PARENT_CONTRADICTION", f"actors[{actor_id}].parent_actor_id", "actor parent contradicts the closed-world hierarchy"))
         if parent is not None and parent not in by_id:
             errors.append(error("ACTOR_PARENT_MISSING", f"actors[{actor_id}].parent_actor_id", "parent actor is absent"))
         visited = set()
@@ -399,9 +595,12 @@ def validate_actors_and_phases(errors, data, artifacts):
             errors.append(error("TRANSITION_AUTHORIZER_MISSING", f"phases[{index}].transition.authorized_by_artifact_role", "transition authorizer artifact is absent"))
         if transition.get("kind") in ("none", "exec_inherited") and expected[:2] != expected[2:]:
             errors.append(error("TRANSITION_KIND_CONTRADICTION", f"phases[{index}].transition.kind", "non-privileged transition changes effective identity"))
-    missing = sorted(REQUIRED_PHASES - set(by_name))
-    if missing:
-        errors.append(error("REQUIRED_PHASE_MISSING", "phases", f"required phases are absent: {', '.join(missing)}"))
+    if set(by_name) != set(EXPECTED_PHASE_ACTORS) or len(by_name) != len(EXPECTED_PHASE_ACTORS):
+        errors.append(error("PHASE_CENSUS_MISMATCH", "phases", "phases must equal the closed-world ranked phase census"))
+    for name, actor_id in EXPECTED_PHASE_ACTORS.items():
+        phase = by_name.get(name)
+        if phase is not None and phase.get("actor_id") != actor_id:
+            errors.append(error("PHASE_ACTOR_CONTRADICTION", f"phases[{name}].actor_id", "phase actor contradicts the ranked phase census"))
     return by_id, by_name
 
 
@@ -440,16 +639,27 @@ def validate_events(errors, data, artifacts, actors, started, finished, missing_
         elif started and finished and not started <= timestamp <= finished:
             errors.append(error("EVENT_OUTSIDE_JOB", f"events[{index}].timestamp", "event is outside the ranked job interval"))
 
-    missing_types = [event_type for event_type in REQUIRED_EVENTS if event_type not in by_type]
-    if missing_types:
-        errors.append(error("REQUIRED_EVENT_MISSING", "events", f"required event types are absent: {', '.join(missing_types)}"))
-    else:
-        sequences = [by_type[event_type].get("sequence") for event_type in REQUIRED_EVENTS]
-        if any(not isinstance(value, int) for value in sequences) or sequences != sorted(sequences) or len(sequences) != len(set(sequences)):
+    expected_ids = {item[0] for item in EXPECTED_EVENTS}
+    if set(by_id) != expected_ids or len(by_id) != len(EXPECTED_EVENTS):
+        errors.append(error("EVENT_CENSUS_MISMATCH", "events", "events must equal the closed-world ranked event census"))
+    for event_id, event_type, actor_id, artifact_role in EXPECTED_EVENTS:
+        event_item = by_id.get(event_id)
+        if event_item is None:
+            continue
+        actual = (event_item.get("type"), event_item.get("actor_id"), event_item.get("command", {}).get("artifact_role"))
+        if actual != (event_type, actor_id, artifact_role):
+            errors.append(error("EVENT_BINDING_CONTRADICTION", f"events[{event_id}]", "event type, actor, or command role contradicts the ranked census"))
+    if expected_ids <= set(by_id):
+        ordered = [by_id[item[0]] for item in EXPECTED_EVENTS]
+        sequences = [item.get("sequence") for item in ordered]
+        if sequences != [10 * index for index in range(1, len(EXPECTED_EVENTS) + 1)]:
             errors.append(error("EVENT_ORDER_REVERSAL", "events", "required ranked events are not in strict transform-to-load order"))
+        timestamps = [parse_timestamp(item.get("timestamp")) for item in ordered]
+        if all(timestamp is not None for timestamp in timestamps) and any(left >= right for left, right in zip(timestamps, timestamps[1:])):
+            errors.append(error("EVENT_TIMESTAMP_REVERSAL", "events", "ranked event timestamps are not strictly increasing"))
 
     adjacency = {event_id: [] for event_id in by_id}
-    edge_types = set()
+    edge_triples = set()
     for index, edge_item in enumerate(edges if isinstance(edges, list) else []):
         if not isinstance(edge_item, dict):
             errors.append(error("EVENT_EDGE_TYPE", f"event_edges[{index}]", "event edge must be an object"))
@@ -461,7 +671,7 @@ def validate_events(errors, data, artifacts, actors, started, finished, missing_
             errors.append(error("EVENT_EDGE_ENDPOINT_MISSING", f"event_edges[{index}]", "event edge endpoint is absent"))
             continue
         adjacency[source].append(target)
-        edge_types.add((by_id[source].get("type"), by_id[target].get("type"), edge_type))
+        edge_triples.add((source, target, edge_type))
         source_seq = by_id[source].get("sequence")
         target_seq = by_id[target].get("sequence")
         if not isinstance(source_seq, int) or not isinstance(target_seq, int) or source_seq >= target_seq:
@@ -482,15 +692,13 @@ def validate_events(errors, data, artifacts, actors, started, finished, missing_
     if any(color.get(node, 0) == 0 and visit(node) for node in sorted(adjacency)):
         errors.append(error("EVENT_CYCLE", "event_edges", "event graph contains a cycle"))
 
-    required_edges = {
-        ("profile_generated", "sandbox_injected", "sandbox_injection"),
-        ("sandbox_injected", "worker_spawn", "spawn"),
-        ("worker_spawn", "load_start", "spawn"),
-        ("load_start", "load_end", "load_epoch_bounds"),
-    }
-    missing_edges = sorted(required_edges - edge_types)
+    required_edges = set(REQUIRED_EVENT_EDGES)
+    missing_edges = sorted(required_edges - edge_triples)
+    extra_edges = sorted(edge_triples - required_edges)
     if missing_edges:
         errors.append(error("REQUIRED_EVENT_EDGE_MISSING", "event_edges", f"required typed edges are absent: {missing_edges}"))
+    if extra_edges:
+        errors.append(error("EVENT_EDGE_CENSUS_MISMATCH", "event_edges", f"unexpected typed edges are present: {extra_edges}"))
 
     survivor_policy = data.get("survivor_policy")
     reaper_event = by_type.get("reaper")

@@ -1,5 +1,5 @@
 {
-  "schema_version": "ranked-authority-evidence-fixtures/v1",
+  "schema_version": "ranked-authority-evidence-fixtures/v2",
   "non_authoritative": true,
   "description": "Obviously synthetic, generated test material. It is not ranked-host evidence and cannot authorize a ranked conclusion.",
   "files": {
@@ -15,7 +15,9 @@
     "artifacts/worker.sb": { "text": "(version 1)\n(deny default)\n(allow file-read* (subpath \"/synthetic/weights\"))\n", "mode": "0644" }
   },
   "base_bundle": {
-    "schema_version": "ranked-authority-evidence-bundle/v1",
+    "schema_version": "ranked-authority-evidence-bundle/v2",
+    "authority_contract_version": "pr671-ranked-installed-authority/v1",
+    "installed_path_census_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
     "authority": {
       "authoritative": false,
       "synthetic": true,
@@ -151,7 +153,11 @@
         { "name": "SYNTHETIC_SECRET", "sensitivity": "secret", "capture": "redacted" }
       ],
       "observed": [
-        { "actor_id": "controller", "name": "SYNTHETIC_VISIBLE", "value": "fixture" },
+        { "actor_id": "controller", "name": "SYNTHETIC_VISIBLE", "value": "controller-fixture" },
+        { "actor_id": "controller", "name": "SYNTHETIC_SECRET", "redacted": true },
+        { "actor_id": "bench", "name": "SYNTHETIC_VISIBLE", "value": "bench-fixture" },
+        { "actor_id": "bench", "name": "SYNTHETIC_SECRET", "redacted": true },
+        { "actor_id": "worker", "name": "SYNTHETIC_VISIBLE", "value": "worker-fixture" },
         { "actor_id": "worker", "name": "SYNTHETIC_SECRET", "redacted": true }
       ],
       "policy_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
@@ -173,7 +179,7 @@
       { "id": "transform", "type": "transform", "sequence": 10, "timestamp": "2026-08-10T12:01:00Z", "actor_id": "bench", "command": { "artifact_role": "bench_exec", "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "argv": ["/opt/bench/bench-exec.sh", "synthetic-transform"] }, "failure_behavior": "fail", "survivor_policy": null },
       { "id": "trusted-hash", "type": "trusted_hash", "sequence": 20, "timestamp": "2026-08-10T12:02:00Z", "actor_id": "bench", "command": { "artifact_role": "bench_exec", "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "argv": ["/opt/bench/bench-exec.sh", "synthetic-hash"] }, "failure_behavior": "fail", "survivor_policy": null },
       { "id": "reaper", "type": "reaper", "sequence": 30, "timestamp": "2026-08-10T12:03:00Z", "actor_id": "bench", "command": { "artifact_role": "reaper", "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "argv": ["/opt/bench/reap-bench-processes.sh"] }, "failure_behavior": "warn", "survivor_policy": { "term_signal": "TERM", "kill_signal": "KILL", "residual_survivors": "warn" } },
-      { "id": "profile-generated", "type": "profile_generated", "sequence": 40, "timestamp": "2026-08-10T12:04:00Z", "actor_id": "bench", "command": { "artifact_role": "worker_sandbox_profile_generator", "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "argv": ["/opt/bench/generate-worker-profile.sh"] }, "failure_behavior": "fail", "survivor_policy": null },
+      { "id": "profile-generated", "type": "profile_generated", "sequence": 40, "timestamp": "2026-08-10T12:04:00Z", "actor_id": "bench", "command": { "artifact_role": "worker_sandbox_profile_generator", "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "argv": ["/opt/bench/generate-worker-profile.sh", "/opt/bench/profile-inputs/worker-policy.txt", "/synthetic/job/worker.sb"] }, "failure_behavior": "fail", "survivor_policy": null },
       { "id": "sandbox-injected", "type": "sandbox_injected", "sequence": 50, "timestamp": "2026-08-10T12:05:00Z", "actor_id": "bench", "command": { "artifact_role": "worker_launcher", "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "argv": ["/opt/bench/worker-launcher.sh", "--sandbox", "/synthetic/job/worker.sb"] }, "failure_behavior": "fail", "survivor_policy": null },
       { "id": "worker-spawn", "type": "worker_spawn", "sequence": 60, "timestamp": "2026-08-10T12:06:00Z", "actor_id": "bench", "command": { "artifact_role": "bench_exec", "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "argv": ["/opt/bench/bench-exec.sh", "/opt/bench/worker-launcher.sh"] }, "failure_behavior": "fail", "survivor_policy": null },
       { "id": "load-start", "type": "load_start", "sequence": 70, "timestamp": "2026-08-10T12:07:00Z", "actor_id": "worker", "command": { "artifact_role": "runtime_worker", "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "argv": ["/synthetic/workspace/.build/release/MLXFastRuntimeWorker", "--load"] }, "failure_behavior": "fail", "survivor_policy": null },
@@ -231,6 +237,8 @@
           "generator_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
           "input_roles": ["profile_generator_input"],
           "input_sha256": ["0000000000000000000000000000000000000000000000000000000000000000"],
+          "event_id": "profile-generated",
+          "generated_at": "2026-08-10T12:04:00Z",
           "base_sha": "1111111111111111111111111111111111111111",
           "workflow_sha": "2222222222222222222222222222222222222222",
           "run_id": "synthetic-run-100",
@@ -245,12 +253,16 @@
   "cases": [
     { "id": "complete-synthetic-bundle", "mutation": "none", "expected_state": "STATIC_RESUME_READY", "expected_error_codes": [] },
     { "id": "missing-profile-generator-input", "mutation": "missing_profile_generator_input", "expected_state": "INCOMPLETE", "expected_error_codes": [] },
+    { "id": "unknown-field", "mutation": "unknown_field", "expected_state": "INVALID", "expected_error_codes": ["SCHEMA_ADDITIONAL_PROPERTY"] },
+    { "id": "unknown-secret-field", "mutation": "unknown_secret_field", "expected_state": "INVALID", "expected_error_codes": ["SCHEMA_ADDITIONAL_PROPERTY", "SECRET_FIELD_FORBIDDEN"] },
+    { "id": "jointly-omitted-mandatory-roles", "mutation": "jointly_omitted_roles", "expected_state": "INVALID", "expected_error_codes": ["SCHEMA_MIN_ITEMS"] },
+    { "id": "installed-path-alias", "mutation": "installed_path_alias", "expected_state": "INVALID", "expected_error_codes": ["INSTALLED_PATH_NONCANONICAL"] },
     { "id": "physical-byte-drift", "mutation": "byte_drift", "expected_state": "INVALID", "expected_error_codes": ["PHYSICAL_HASH_MISMATCH", "PHYSICAL_SIZE_MISMATCH"] },
     { "id": "declared-hash-drift", "mutation": "hash_drift", "expected_state": "INVALID", "expected_error_codes": ["PHYSICAL_HASH_MISMATCH"] },
     { "id": "declared-size-drift", "mutation": "size_drift", "expected_state": "INVALID", "expected_error_codes": ["PHYSICAL_SIZE_MISMATCH"] },
     { "id": "bundle-path-escape", "mutation": "path_escape", "expected_state": "INVALID", "expected_error_codes": ["BUNDLE_PATH_ESCAPE"] },
     { "id": "symbolic-link-artifact", "mutation": "symlink", "expected_state": "INVALID", "expected_error_codes": ["PHYSICAL_SYMLINK"] },
-    { "id": "duplicate-artifact-role", "mutation": "duplicate_role", "expected_state": "INVALID", "expected_error_codes": ["DUPLICATE_ARTIFACT_ROLE"] },
+    { "id": "duplicate-artifact-role", "mutation": "duplicate_role", "expected_state": "INVALID", "expected_error_codes": ["SCHEMA_MAX_ITEMS"] },
     { "id": "owner-mismatch", "mutation": "owner_mismatch", "expected_state": "INVALID", "expected_error_codes": ["PHYSICAL_OWNER_UID_MISMATCH"] },
     { "id": "mode-mismatch", "mutation": "mode_mismatch", "expected_state": "INVALID", "expected_error_codes": ["PHYSICAL_MODE_MISMATCH"] },
     { "id": "acl-mismatch", "mutation": "acl_mismatch", "expected_state": "INVALID", "expected_error_codes": ["PHYSICAL_ACL_MISMATCH"] },
@@ -263,10 +275,19 @@
     { "id": "profile-hash-mismatch", "mutation": "profile_hash_mismatch", "expected_state": "INVALID", "expected_error_codes": ["PROFILE_HASH_MISMATCH"] },
     { "id": "secret-value-leak", "mutation": "secret_leak", "expected_state": "INVALID", "expected_error_codes": ["ENV_SECRET_LEAK"] },
     { "id": "undeclared-environment-name", "mutation": "undeclared_environment", "expected_state": "INVALID", "expected_error_codes": ["ENV_UNDECLARED_NAME"] },
+    { "id": "missing-environment-observation", "mutation": "missing_environment_observation", "expected_state": "INVALID", "expected_error_codes": ["ENV_OBSERVATION_MISSING"] },
+    { "id": "unknown-environment-actor", "mutation": "unknown_environment_actor", "expected_state": "INVALID", "expected_error_codes": ["ENV_ACTOR_UNKNOWN", "ENV_OBSERVATION_MISSING"] },
     { "id": "uid-gid-transition-contradiction", "mutation": "transition_contradiction", "expected_state": "INVALID", "expected_error_codes": ["TRANSITION_IDENTITY_CONTRADICTION"] },
     { "id": "survivor-policy-contradiction", "mutation": "survivor_contradiction", "expected_state": "INVALID", "expected_error_codes": ["SURVIVOR_POLICY_CONTRADICTION"] },
     { "id": "event-cycle", "mutation": "event_cycle", "expected_state": "INVALID", "expected_error_codes": ["EVENT_CYCLE"] },
     { "id": "event-order-reversal", "mutation": "order_reversal", "expected_state": "INVALID", "expected_error_codes": ["EVENT_ORDER_REVERSAL"] },
+    { "id": "early-chain-edge-reversal", "mutation": "early_chain_edge_reversal", "expected_state": "INVALID", "expected_error_codes": ["EVENT_ORDER_REVERSAL", "REQUIRED_EVENT_EDGE_MISSING"] },
+    { "id": "timestamp-reversal", "mutation": "timestamp_reversal", "expected_state": "INVALID", "expected_error_codes": ["EVENT_TIMESTAMP_REVERSAL"] },
+    { "id": "generation-event-drift", "mutation": "generation_event_drift", "expected_state": "INVALID", "expected_error_codes": ["GENERATION_EVENT_DRIFT"] },
+    { "id": "generator-confinement-drift", "mutation": "generator_confinement_drift", "expected_state": "INVALID", "expected_error_codes": ["PROFILE_CONFINEMENT_ROLE_DRIFT"] },
+    { "id": "incomplete-generator-drift", "mutation": "incomplete_generator_drift", "expected_state": "INVALID", "expected_error_codes": ["PROFILE_CONFINEMENT_ROLE_DRIFT"] },
+    { "id": "incomplete-timestamp-reversal", "mutation": "incomplete_timestamp_reversal", "expected_state": "INVALID", "expected_error_codes": ["EVENT_TIMESTAMP_REVERSAL"] },
+    { "id": "missing-capability", "mutation": "missing_capability", "expected_state": "INVALID", "expected_error_codes": ["SCHEMA_MIN_ITEMS"] },
     { "id": "mount-path-contradiction", "mutation": "mount_path_contradiction", "expected_state": "INVALID", "expected_error_codes": ["MOUNT_PATH_CONTRADICTION"] },
     { "id": "absent-self-declared-artifact", "mutation": "absent_declared_artifact", "expected_state": "INVALID", "expected_error_codes": ["PHYSICAL_FILE_MISSING"] }
   ]
