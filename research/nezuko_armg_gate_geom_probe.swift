@@ -129,23 +129,33 @@ enum Mode: String {
     /// the matvec still reads the separately supplied normalized activation, so
     /// the arm isolates prologue+emit from the staged-read cost.
     case emitOnly
+    /// Fused, staged, plus two independent savings: the reduction keeps the
+    /// residual elements it already loaded in registers so the stage pass does
+    /// not reread them, and the `normalized` device store is split into one
+    /// contiguous slice per threadgroup instead of being serialized in tile 0.
+    case stagedFast
 }
 
 /// `sg` owns AOT chunks `CPS*sg .. CPS*sg+CPS-1`; lane `l` of chunk `g`
 /// accumulates the same four contiguous squares in the same order into the same
 /// `local_sums[g]` slot, so the 32-lane final `simd_sum` sees an identical
 /// operand vector and the result is bit-identical to `rms_single_row`.
-func prologue(_ ns: Int) -> String {
+func prologue(_ ns: Int, keepRegisters: Bool = false) -> String {
     """
     threadgroup float laguna_norm_sums[32];
     threadgroup float laguna_norm_inv[1];
     constexpr uint CPS = 16 / NS;
+    \(keepRegisters ? "thread float laguna_xr[CPS * 4];" : "")
     if (sg == 0 && lane >= 16) { laguna_norm_sums[lane] = 0; }
     for (uint chunk = 0; chunk < CPS; ++chunk) {
         const uint g = sg * CPS + chunk;
         const device bfloat* row_x = residual + g * 128 + lane * 4;
         float acc = 0;
-        for (uint i = 0; i < 4; ++i) { float xi = float(row_x[i]); acc += xi * xi; }
+        for (uint i = 0; i < 4; ++i) {
+            float xi = float(row_x[i]);
+            \(keepRegisters ? "laguna_xr[chunk * 4 + i] = xi;" : "")
+            acc += xi * xi;
+        }
         acc = simd_sum(acc);
         if (lane == 0) { laguna_norm_sums[g] = acc; }
     }
@@ -186,11 +196,41 @@ func emit(_ staged: Bool) -> String {
         """
 }
 
+/// Register-sourced stage plus a contiguous per-threadgroup slice of the
+/// `normalized` device store. Every threadgroup still stages the whole row, so
+/// slicing the device store only removes duplicated traffic and the tile-0
+/// straggler; it is not a cross-threadgroup dependency.
+func emitFast() -> String {
+    """
+    threadgroup bfloat laguna_norm_x[K];
+    for (uint chunk = 0; chunk < CPS; ++chunk) {
+        const uint base = (sg * CPS + chunk) * 128 + lane * 4;
+        for (uint i = 0; i < 4; ++i) {
+            laguna_norm_x[base + i] = bfloat(
+                norm_weight[base + i] * bfloat(laguna_xr[chunk * 4 + i] * laguna_inv_mean));
+        }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    {
+        constexpr uint TILES = \(heads) / (NS * R);
+        constexpr uint GROUPS = K / 4;
+        constexpr uint PER = (GROUPS + TILES - 1) / TILES;
+        const uint lid = sg * 32 + lane;
+        const uint g1 = metal::min(tile * PER + PER, GROUPS);
+        for (uint g4 = tile * PER + lid; g4 < g1; g4 += NS * 32) {
+            const uint base = g4 * 4;
+            for (uint i = 0; i < 4; ++i) { normalized[base + i] = laguna_norm_x[base + i]; }
+        }
+    }
+
+    """
+}
+
 func gateSource(_ mode: Mode, ns: Int, r: Int) -> String {
     let load: String
     switch mode {
     case .stock, .emitOnly: load = "x[i]=float(input[col+i]);"
-    case .staged: load = "x[i]=float(laguna_norm_x[col+i]);"
+    case .staged, .stagedFast: load = "x[i]=float(laguna_norm_x[col+i]);"
     case .inline:
         load =
             "x[i]=float(bfloat(norm_weight[col+i]*bfloat(float(residual[col+i])*laguna_inv_mean)));"
@@ -203,7 +243,10 @@ func gateSource(_ mode: Mode, ns: Int, r: Int) -> String {
         uint lane=thread_index_in_simdgroup;
 
         """
-    if mode != .stock {
+    if mode == .stagedFast {
+        body += prologue(ns, keepRegisters: true)
+        body += emitFast()
+    } else if mode != .stock {
         body += prologue(ns)
         body += emit(mode == .staged)
     }
@@ -308,6 +351,9 @@ armSpecs.append(("I ns2r4", .inline, 2, 4))
 armSpecs.append(("I ns8r1", .inline, 8, 1))
 armSpecs.append(("E ns2r4", .emitOnly, 2, 4))
 armSpecs.append(("E ns8r1", .emitOnly, 8, 1))
+for (ns, r) in [(4, 2), (8, 1), (8, 2), (16, 1)] {
+    armSpecs.append(("G ns\(ns)r\(r)", .stagedFast, ns, r))
+}
 
 func buffer(_ bytes: Int) -> MTLBuffer {
     device.makeBuffer(length: bytes, options: .storageModeShared)!
