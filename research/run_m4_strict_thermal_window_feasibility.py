@@ -179,26 +179,39 @@ def fan_status():
     return output.splitlines()[-1].strip() if output else "unreadable"
 
 
+def process_matches(output, ignore_pids=()):
+    records = []
+    for line in output.splitlines():
+        fields = line.strip().split(None, 3)
+        if len(fields) < 4:
+            continue
+        try:
+            pid = int(fields[0])
+            ppid = int(fields[1])
+        except ValueError:
+            continue
+        records.append((pid, ppid, line.strip()))
+
+    ignored = {os.getpid(), *ignore_pids}
+    while True:
+        descendants = {pid for pid, ppid, _ in records if ppid in ignored}
+        expanded = ignored | descendants
+        if expanded == ignored:
+            break
+        ignored = expanded
+
+    return [
+        line
+        for pid, _, line in records
+        if pid not in ignored and any(pattern.lower() in line.lower() for pattern in MODEL_PATTERNS)
+    ]
+
+
 def matching_processes(ignore_pids=()):
     status, output = run_text(["ps", "-axo", "pid=,ppid=,comm=,args="], timeout=10)
     if status != 0:
         return ["process inventory failed"]
-    ignored = {os.getpid(), *ignore_pids}
-    matches = []
-    for line in output.splitlines():
-        fields = line.strip().split(None, 1)
-        if not fields:
-            continue
-        try:
-            pid = int(fields[0])
-        except ValueError:
-            continue
-        if pid in ignored:
-            continue
-        lowered = line.lower()
-        if any(pattern.lower() in lowered for pattern in MODEL_PATTERNS):
-            matches.append(line.strip())
-    return matches
+    return process_matches(output, ignore_pids)
 
 
 def clean_identity():
@@ -238,9 +251,11 @@ def host_record(macmon):
 
 
 def project_samples(raw_lines, attempt, phase, samples):
-    for sample in samples:
+    for index, sample in enumerate(samples):
+        if phase == "idle" and index % 5 and index != len(samples) - 1:
+            continue
         timestamp, cpu, gpu = sample_values(sample)
-        raw_lines.append(f"{attempt},{phase},{timestamp.isoformat().replace('+00:00', 'Z')},{cpu:.6f},{gpu:.6f}")
+        raw_lines.append(f"{attempt},{phase},{timestamp.isoformat().replace('+00:00', 'Z')},{cpu:.3f},{gpu:.3f}")
 
 
 def stream_stats(values):
@@ -490,8 +505,12 @@ def main():
     print(json.dumps({"synthetic_controls": control_record}, sort_keys=True), flush=True)
     if len(sys.argv) == 2 and sys.argv[1] == "--controls-only":
         return 0
-    if len(sys.argv) != 1:
-        raise RuntimeError("usage: run_m4_strict_thermal_window_feasibility.py [--controls-only]")
+    resume_after_a1 = len(sys.argv) == 2 and sys.argv[1] == "--resume-after-a1-monitor-fix"
+    if len(sys.argv) != 1 and not resume_after_a1:
+        raise RuntimeError(
+            "usage: run_m4_strict_thermal_window_feasibility.py "
+            "[--controls-only|--resume-after-a1-monitor-fix]"
+        )
 
     for name in FORBIDDEN_GATE_ENV:
         if name in os.environ:
@@ -509,6 +528,8 @@ def main():
     host = host_record(macmon)
     print(json.dumps({"identity": identity, "host": host, "initial_fan": initial_fan}, sort_keys=True), flush=True)
 
+    prior_attempts = 1 if resume_after_a1 else 0
+    start_attempt = 2 if resume_after_a1 else 1
     rows = []
     raw_lines = []
     passes = 0
@@ -519,7 +540,7 @@ def main():
 
     with tempfile.TemporaryDirectory(prefix="m4-strict-thermal-window-") as temporary:
         temp_dir = Path(temporary)
-        for attempt in range(1, 4):
+        for attempt in range(start_attempt, 4):
             if time.monotonic() - protocol_started >= 6000:
                 stop_reason = "100-minute total assignment wall budget reached"
                 break
@@ -650,7 +671,8 @@ def main():
                 stop_reason = gate_reason
                 break
 
-        if decision == "INCONCLUSIVE" and len(rows) == 3:
+        total_attempts = prior_attempts + len(rows)
+        if decision == "INCONCLUSIVE" and total_attempts == 3:
             decision = "GO" if passes >= 2 else "NO-GO"
             stop_reason = f"completed three attempts with {passes} qualifying passes"
         elif decision == "INCONCLUSIVE" and consecutive_hot >= 2:
@@ -665,7 +687,9 @@ def main():
         "decision": decision,
         "stop_reason": stop_reason,
         "passes": passes,
-        "attempts": len(rows),
+        "attempts": prior_attempts + len(rows),
+        "prior_attempts": prior_attempts,
+        "rows_recorded": len(rows),
         "consecutive_hot": consecutive_hot,
         "protocol_wall_seconds": time.monotonic() - protocol_started,
         "identity": identity,
