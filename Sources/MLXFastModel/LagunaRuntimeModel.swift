@@ -85,7 +85,8 @@ final class LagunaFusionTraceLog: @unchecked Sendable {
         let isNew = seen.insert(site).inserted
         lock.unlock()
         if isNew {
-            FileHandle.standardError.write(Data("mlxfast: fusion active: \(site)\n".utf8))
+            FileHandle.standardError.write(
+                Data("mlxfast: \(ProcessInfo.processInfo.systemUptime) fusion active: \(site)\n".utf8))
         }
     }
 }
@@ -762,6 +763,9 @@ private let lagunaDecodeAsyncStage: LagunaDecodeAsyncStage = {
 /// gate projections before the rest of that layer's graph is built.
 private let lagunaAttentionProjectionAsyncEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ATTN_PROJECTION_ASYNC"] != "0"
+
+private let lagunaPrefillProjectionAsyncEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_PROJECTION_ASYNC"] == "1"
 
 /// `DARKBLOOM_PREFILL_ASYNC_LADDER` (default `1`; `0`/`off` disables;
 /// `8` restores the prior default): a ranked measurement on the
@@ -5916,6 +5920,7 @@ final class LagunaRuntimeAttention: Module {
         var queries: MLXArray
         var keys: MLXArray
         var values: MLXArray
+        var prefillProjectedGate: MLXArray?
         // The retained BF16 [Wq; Wk; Wv] bank is PREFILL-ONLY: at decode it
         // would override the INT8 fused norm+QKV path (measured +1.4 ms/step
         // when force-enabled), while at L > 1 it collapses three steel GEMMs
@@ -5931,6 +5936,12 @@ final class LagunaRuntimeAttention: Module {
             // bit-exact; the slices are views and the reshapes below may
             // copy, which does not change values.
             let qkv = matmul(normalizedInput, fusedQKVWeight.T)
+            if lagunaPrefillProjectionAsyncEnabled, B == 1, gatingEnabled, let gProj {
+                let projectedGate = gProj(normalizedInput)
+                prefillProjectedGate = projectedGate
+                lagunaTrace("prefill projection enqueue layer \(layerIdx)")
+                asyncEval(qkv, projectedGate)
+            }
             let queryDim = nHeads * headDim
             let kvDim = nKVHeads * headDim
             queries = qkv[.ellipsis, 0 ..< queryDim]
@@ -6151,7 +6162,10 @@ final class LagunaRuntimeAttention: Module {
             // per-element gate).
             let projectedGate: MLXArray
             let gateIsActivated: Bool
-            if let fusedNormQKV {
+            if let prefillProjectedGate {
+                projectedGate = prefillProjectedGate
+                gateIsActivated = false
+            } else if let fusedNormQKV {
                 projectedGate = fusedNormQKV.gateValues
                 gateIsActivated = fusedNormQKV.gateActivated
             } else {
@@ -11570,6 +11584,7 @@ final class LagunaRuntimeModelInner: Module {
                 if lagunaPrefillAsyncLadderStride > 0, h.dim(1) > 1,
                     (i + 1) % lagunaPrefillAsyncLadderStride == 0
                 {
+                    lagunaTrace("prefill outer enqueue layer \(i)")
                     asyncEval(h)
                 }
             }
