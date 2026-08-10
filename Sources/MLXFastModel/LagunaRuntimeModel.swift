@@ -694,13 +694,19 @@ let lagunaRouterRowsPerGroup: Int = {
 // it, so that win looks like it belongs to the hoist. End to end the sign
 // reverses: #597 measures the hoist at +28.0 us/step on M4 Pro over 144 slots,
 // 16/16 cycles, with 5 back at 0, so the cross-barrier placement costs far more
-// elsewhere in the step than the label recovers. The default is therefore 0.
+// elsewhere in the step than the label recovers, so M4 argues for defaulting
+// to 0.
+//
+// R105-B Phase B arm P1: this commit is the paired M5 *control*. It deliberately
+// holds the shipped default of 1 so it can be differenced against the arm P0
+// receipt, which flips it to 0. Only the compiled-in constant below is visible
+// to the grader; the environment variable never resolves there.
 let lagunaRouterWeightPrefetch: Int = {
     guard
         let raw = ProcessInfo.processInfo.environment["DARKBLOOM_ROUTER_WEIGHT_PREFETCH"],
         let value = Int(raw), [0, 1, 5].contains(value)
     else {
-        return 0
+        return 1
     }
     return value
 }()
