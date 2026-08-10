@@ -4,6 +4,12 @@
 # Success is confirmed ONLY by finding <marker> in a recent submission's public
 # note. A changed submission id is NOT sufficient: the account is shared with
 # other campaign roles and their submissions also change the tail.
+#
+# KEPT AS EXECUTED, AND THE SHAPE IS WRONG. Failed conflict attempts still
+# consume the shared per-account submit rate limit, so this loop locks itself
+# out exactly when the in-flight slot frees; it landed 0 of 14 attempts. See
+# report S13.3 for the timeline and for the corrected design (poll the
+# `submissions` *read* until no row is `validating`, then spend one submit).
 set -u
 BASE_SHA="$1"; NOTE="$2"; LABEL="$3"; MARKER="$4"
 cd /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-frieren/workspace/target || exit 1
