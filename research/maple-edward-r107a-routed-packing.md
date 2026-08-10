@@ -1098,7 +1098,97 @@ occupancy-starved. On such a kernel wider threadgroups buy nothing until they
 start costing tail latency, which is exactly the flat-then-cliff shape measured.
 **Recommendation: do not spend M5 time on routed-site threadgroup packing.**
 
-### 6.2 QKV lane-major site — see 5.3
+### 6.2 QKV lane-major site
+
+#### 6.2a Pre-registered decision rule (written before Stage-A timing was read)
+
+Committed with §5.0b at 15:35 UTC while the Stage-A block was at repetition 13 of
+16 and no `.steps` file from it had been opened. `c` below is the drift-cancelled
+paired `base -> sg8` contrast in M4 us/step at `K = 16`, negative meaning faster,
+and `hw` its 95 % half-width.
+
+| measured | verdict | what is published |
+| --- | --- | --- |
+| `c + hw < 0` and `c <= -20` | **`V-L3`** | a rule-105.5 *component*, never a standalone submission |
+| `c + hw < 0` and `-20 < c` | **`V-L3`** (weak) | component, with the shortfall against `-29.6` stated |
+| CI contains 0 | **`N-L3`** | committed negative plus the exclusion bound `-(|c| + hw)` |
+| `c - hw > 0` | **`N-L3`** (adverse) | the lever is a regression at this site |
+
+**The bar cannot be cleared by this arm alone, at any outcome.** The 0.4 %`cs`
+bar is 60.1 M4 us/step at alpha = 0.4369 (52.5 at the most generous beta = 0.5).
+Even the *un-de-biased* `-36.9` argmax is 61 % of it, and the de-biased target
+`-29.6` is 49 %. There is therefore no version of this result that graduates on
+its own, and the disposition is fixed before the number arrives: either a
+rule-105.5 summation component, or a committed negative. Both are publishable;
+neither is a submission.
+
+**What the residual for a second summand becomes.** The advisor's hinge
+arithmetic, restated in the M4 units of rule 105:
+
+| if L3 lands at | its %`cs` (alpha = 0.4369) | residual needed | residual in M4 us/step | as a share of T2c (1,497.7) |
+| --- | --- | --- | --- | --- |
+| `-29.6` (de-biased target) | 0.1966 % | 0.2034 % | 30.6 | **2.04 %** |
+| `-20` | 0.1331 % | 0.2669 % | 40.1 | 2.68 % |
+| `-10` | 0.0665 % | 0.3335 % | 50.1 | 3.35 % |
+| `0` (null) | 0 | 0.4000 % | 60.1 | 4.01 % |
+
+So a `V-L3` roughly halves what alphonse's T3b, frieren's T2d/T1a and tanjiro's
+#648 have to find between them, and an `N-L3` snaps the requirement back to the
+full 4.01 % of a family.
+
+**The bundle CI is the real deliverable, and this is where a paired measurement
+earns its keep.** Rule 105.5's bar is a *point-estimate* bar, so a bundle that
+lands exactly on 0.400 % is only as trustworthy as the variances of its summands.
+Using #308's argmax sd of `12.27` M4 us/step (`0.0816 %cs`) for the L3 term, a
+two-summand bundle at 0.400 % carries a 95 % interval of about
+**[0.23, 0.57] %** — it cannot be certified. Substituting Stage A's own paired
+half-width for that term changes the picture:
+
+| L3 term's sd | second summand's sd | sd of the sum | 95 % CI at a 0.400 % point estimate |
+| --- | --- | --- | --- |
+| 12.27 us (#308 argmax) | 5 us | 0.0882 % | [0.227, 0.573] % |
+| ~4.1 us (Stage A, `hw/1.96` at `K = 16`) | 5 us | 0.0431 % | [0.316, 0.484] % |
+
+That is the concrete, quotable value of running L3 as a pre-specified paired
+contrast rather than re-reading the archive: it is not the point estimate, it is
+that it takes the bundle's lower confidence limit from 0.23 % — below the floor —
+to about 0.32 %. Under rule 105.7's "the CI is the deliverable" this is the
+result, whichever sign it has.
+
+**The `285f79fa` epoch caveat is 0.29 sigma and must not be carried as a prior
+against this site.** §5.0a recovers the raw receipt columns and shows the only
+official geometry datapoint is `+12.79` M5 us/step against a single-pair
+instrument sd of `34.3` M5 us/step. One official receipt could not have
+distinguished `-35` from `+35` M5 us/step at this site. It is absence of
+evidence, not evidence of absence, and the correct reading is that resolving a
+lever of this size officially needs about **four paired M5 receipts**
+(`n >= (2 * 0.5101 / 0.5261)^2 = 3.8`).
+
+**Transfer to the ranked host, stated as a bracket rather than a prediction.**
+§5.1 point 6 audits the kernel source directly: `lagunaDecodeNVFP4QKVLaneMajor`
+declares no `threadgroup` storage and no barrier, and reduces only inside a
+simdgroup via `simd_sum` with `out_row = tile * num_simdgroups + simd_gid`.
+Bit-exactness across `S` is therefore structural, threadgroup-memory pressure is
+identically zero, and there is no barrier-straggler coupling — which removes the
+two mechanisms that most often reverse a wide-threadgroup win on a different core
+count. What is left splits cleanly:
+
+- *shape-side* mechanisms depend on `S` itself and are identical on both hosts,
+  so M5 at `S = 8` is emulated by M4 at `S = 8`;
+- *supply-side* mechanisms depend on threadgroups per core, and M5's 40 cores at
+  `S = 8` (32 TG/core for h64) equal M4's 20 cores at `S = 16`.
+
+Both M5 profiles are therefore bracketed by M4 operating points I can run, which
+is exactly why §7.0's `S = 16` arm is the highest-value follow-up: it is
+simultaneously a replication of PR #298's arm and the supply-side M5 stand-in.
+The one mechanism that is genuinely core-count-dependent and not bracketed is the
+dispatch tail, which doubles on M5. I do **not** claim an M5 sign for this lever,
+and no M4 microsecond figure or its interval in this report should be quoted as
+an M5 prediction (rule 105.11's dual: an M5 target restated in M4 units inflates
+by `1/k`, i.e. 2.3x at alpha = 0.4369).
+
+#### 6.2b Measured verdict
+
 
 ## 7. Suggested follow-ups (not implemented)
 
