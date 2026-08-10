@@ -9964,6 +9964,73 @@ if (lane < 64) {
 """
 }
 
+private func lagunaPrefillRouterOrdinal4Source(normalizing: Bool) -> String {
+    lagunaPrefillRouterTournamentOrdinalKernelSource(normalizing: normalizing)
+        .replacingOccurrences(
+            of: "uint row = threadgroup_position_in_grid.y;",
+            with: """
+uint row = threadgroup_position_in_grid.y * 4;
+uint row_in_group = lane >> 6;
+uint local_lane = lane & 63;
+""")
+        .replacingOccurrences(
+            of: "threadgroup uint xchg_ordinals[64];",
+            with: "threadgroup uint xchg_ordinals[256];")
+        .replacingOccurrences(
+            of: "threadgroup uint xchg_indices[64];",
+            with: "threadgroup uint xchg_indices[256];")
+        .replacingOccurrences(
+            of: "threadgroup uint candidate_ordinals[64];",
+            with: "threadgroup uint candidate_ordinals[256];")
+        .replacingOccurrences(
+            of: "threadgroup uint candidate_indices[64];",
+            with: "threadgroup uint candidate_indices[256];")
+        .replacingOccurrences(
+            of: "threadgroup float original_scores[256];",
+            with: "threadgroup float original_scores[1024];")
+        .replacingOccurrences(
+            of: "float x = float(logits[row * 256 + lane]);",
+            with: """
+float bias = float(correction_bias[lane]);
+for (uint r = 0; r < 4; ++r) {
+float x = float(logits[(row + r) * 256 + lane]);
+""")
+        .replacingOccurrences(
+            of: "original_scores[lane] = score;",
+            with: "original_scores[r * 256 + lane] = score;")
+        .replacingOccurrences(
+            of: "float key = -(score + float(correction_bias[lane]));",
+            with: "float key = -(score + bias);")
+        .replacingOccurrences(
+            of: "candidate_ordinals[block * 8 + rank_in_block] = my_ordinal;",
+            with: "candidate_ordinals[r * 64 + block * 8 + rank_in_block] = my_ordinal;")
+        .replacingOccurrences(
+            of: """
+    candidate_indices[block * 8 + rank_in_block] = my_index;
+}
+threadgroup_barrier(mem_flags::mem_threadgroup);
+""",
+            with: """
+    candidate_indices[r * 64 + block * 8 + rank_in_block] = my_index;
+}
+}
+threadgroup_barrier(mem_flags::mem_threadgroup);
+row += row_in_group;
+""")
+        .replacingOccurrences(
+            of: "candidate_ordinals[lane]",
+            with: "candidate_ordinals[row_in_group * 64 + local_lane]")
+        .replacingOccurrences(
+            of: "candidate_indices[lane]",
+            with: "candidate_indices[row_in_group * 64 + local_lane]")
+        .replacingOccurrences(of: "lane < 64", with: "local_lane < 64")
+        .replacingOccurrences(
+            of: "original_scores[my_index2]",
+            with: "original_scores[row_in_group * 256 + my_index2]")
+        .replacingOccurrences(of: "lane < 8", with: "local_lane < 8")
+        .replacingOccurrences(of: "row * 8 + lane", with: "row * 8 + local_lane")
+}
+
 private let lagunaPrefillRouterTournamentKernel = MLXFast.metalKernel(
     name: "laguna_prefill_router_tournament_v1",
     inputNames: ["logits", "correction_bias"],
@@ -10000,6 +10067,28 @@ private let lagunaPrefillRouterTournamentOrdinalNormalizingKernel = MLXFast.meta
     ensureRowContiguous: true
 )
 
+private let lagunaPrefillRouterOrdinal4Kernel = MLXFast.metalKernel(
+    name: "laguna_prefill_router_ordinal4_v1",
+    inputNames: ["logits", "correction_bias"],
+    outputNames: ["router_indices", "router_scores"],
+    source: lagunaPrefillRouterOrdinal4Source(normalizing: false),
+    header: lagunaDecodeRouterOrdinalHeader,
+    ensureRowContiguous: true
+)
+
+private let lagunaPrefillRouterOrdinal4NormKernel = MLXFast.metalKernel(
+    name: "laguna_prefill_router_ordinal4_norm_v1",
+    inputNames: ["logits", "correction_bias"],
+    outputNames: ["router_indices", "router_scores"],
+    source: lagunaPrefillRouterOrdinal4Source(normalizing: true),
+    header: lagunaDecodeRouterOrdinalHeader,
+    ensureRowContiguous: true
+)
+
+func lagunaPrefillRouterOrdinalRowsPerThreadgroupForTesting(rows: Int) -> Int {
+    rows > 1 && rows.isMultiple(of: 4) ? 4 : 1
+}
+
 func lagunaPrefillRouterTournamentAcceptedForTesting(
     logits: MLXArray, correctionBias: MLXArray, rows: Int, normalizing: Bool
 ) -> (MLXArray, MLXArray) {
@@ -10022,20 +10111,27 @@ func lagunaPrefillRouterTournamentAcceptedForTesting(
 }
 
 func lagunaPrefillRouterTournamentOrdinalForTesting(
-    logits: MLXArray, correctionBias: MLXArray, rows: Int, normalizing: Bool
+    logits: MLXArray, correctionBias: MLXArray, rows: Int, normalizing: Bool,
+    useRows4: Bool = true
 ) -> (MLXArray, MLXArray) {
     precondition(logits.dtype == .bfloat16 || logits.dtype == .float32)
     precondition(correctionBias.dtype == .float32)
     precondition(logits.size == rows * 256)
     precondition(correctionBias.size == 256)
 
+    let rowsPerThreadgroup =
+        useRows4 ? lagunaPrefillRouterOrdinalRowsPerThreadgroupForTesting(rows: rows) : 1
     let kernel =
         normalizing
-        ? lagunaPrefillRouterTournamentOrdinalNormalizingKernel
-        : lagunaPrefillRouterTournamentOrdinalKernel
+        ? (rowsPerThreadgroup == 4
+            ? lagunaPrefillRouterOrdinal4NormKernel
+            : lagunaPrefillRouterTournamentOrdinalNormalizingKernel)
+        : (rowsPerThreadgroup == 4
+            ? lagunaPrefillRouterOrdinal4Kernel
+            : lagunaPrefillRouterTournamentOrdinalKernel)
     let outputs = kernel(
         [logits, correctionBias],
-        grid: (256, rows, 1),
+        grid: (256, rows / rowsPerThreadgroup, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, rows, 8], [1, rows, 8]],
         outputDTypes: [.uint32, .float32]

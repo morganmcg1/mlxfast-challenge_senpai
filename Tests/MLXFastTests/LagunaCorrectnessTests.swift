@@ -215,6 +215,70 @@ func lagunaRuntimeCorrectnessReportsGoldenMetadataWhenWeightsAreMissing() throws
 }
 
 @Test
+func lagunaPrefillRouterOrdinalFourRowMatchesCurrent() {
+    let rowCounts = [1, 2, 3, 4, 5, 8, 511, 512, 513]
+    for rows in rowCounts {
+        let expected = rows > 1 && rows.isMultiple(of: 4) ? 4 : 1
+        #expect(lagunaPrefillRouterOrdinalRowsPerThreadgroupForTesting(rows: rows) == expected)
+    }
+
+    let adversarial: [Float] = [
+        0, -0.0, 1, -1, 0.5, 0.5,
+        Float(bitPattern: 0x7f7f_0000), -Float(bitPattern: 0x7f7f_0000),
+        Float(bitPattern: 0x0001_0000), -Float(bitPattern: 0x0001_0000),
+        .infinity, -.infinity,
+        Float(bitPattern: 0x7fc1_0000), Float(bitPattern: 0xffc2_0000),
+        16, -16,
+    ]
+    let correctionBias = MLXArray(
+        (0..<256).map { Float(($0 * 17) % 23 - 11) / 128 },
+        [256]
+    )
+    var exercisedCorruptionControl = false
+
+    for rows in rowCounts {
+        let logitsValues = (0..<(rows * 256)).map { offset -> Float in
+            let row = offset / 256
+            let column = offset % 256
+            return adversarial[(column + row * 13) % adversarial.count]
+        }
+        let logits = MLXArray(logitsValues, [rows, 256]).asType(.bfloat16)
+        for normalizing in [false, true] {
+            let reference = lagunaPrefillRouterTournamentOrdinalForTesting(
+                logits: logits,
+                correctionBias: correctionBias,
+                rows: rows,
+                normalizing: normalizing,
+                useRows4: false
+            )
+            let candidate = lagunaPrefillRouterTournamentOrdinalForTesting(
+                logits: logits,
+                correctionBias: correctionBias,
+                rows: rows,
+                normalizing: normalizing
+            )
+            eval(reference.0, reference.1, candidate.0, candidate.1)
+
+            let referenceIndices = reference.0.asArray(UInt32.self)
+            let candidateIndices = candidate.0.asArray(UInt32.self)
+            let referenceScores = reference.1.asArray(Float.self).map(\.bitPattern)
+            let candidateScores = candidate.1.asArray(Float.self).map(\.bitPattern)
+            #expect(candidateIndices == referenceIndices)
+            #expect(candidateScores == referenceScores)
+
+            if !exercisedCorruptionControl {
+                var corrupted = referenceIndices
+                corrupted[0] ^= 1
+                #expect(corrupted != referenceIndices)
+                exercisedCorruptionControl = true
+            }
+        }
+    }
+    #expect(exercisedCorruptionControl)
+}
+
+
+@Test
 func lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled() throws {
     let environment = ProcessInfo.processInfo.environment
     guard environment["MLXFAST_RUN_LAGUNA_UPSTREAM_EQUIVALENCE"] == "1" else {
