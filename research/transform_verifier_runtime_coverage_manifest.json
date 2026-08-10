@@ -1,0 +1,423 @@
+{
+  "schema_version": 1,
+  "assignment_id": "cedar-nezuko-transform-verifier-runtime-coverage-20260810",
+  "revision_id": "cedar-nezuko-transform-verifier-runtime-coverage-20260810-r1",
+  "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
+  "terminal_verdict": "COVERAGE_DEFECT",
+  "stop_rule": "Stop at the first verifier/runtime or marker edge that is not closed.",
+  "first_failure": {
+    "id": "edge.runtime_directory_inventory.nonregular_safetensors_suffix",
+    "path_expression": "weightsRoot/<directory whose name ends in .safetensors>",
+    "synthetic_reproducer": "Keep the expected and actual regular-file trees byte-identical, then add an empty directory named extra.safetensors beneath the actual root.",
+    "verifier_effect": "Recursive enumeration skips directories, so the extra directory is absent from file-set equality, size checks, byte equality, and the reported tree digest.",
+    "runtime_effect": "The scored loader lists root entries and classifies every URL with pathExtension == safetensors as a discovered shard without first requiring a regular file. extra.safetensors is therefore an unindexed discovered shard and validation throws.",
+    "citations": [
+      "Sources/MLXFastTrustedHarness/TransformVerification.swift:187-237",
+      "Sources/MLXFastModel/RuntimeWeightLoading.swift:29-39",
+      "Sources/MLXFastModel/RuntimeWeightLoading.swift:89-110",
+      "Sources/MLXFastModel/LagunaRuntimeWeights.swift:626-638"
+    ],
+    "reproduction_mode": "static source reasoning only; no transform, model, build, or weight-tree mutation was run"
+  },
+  "inventory_status": {
+    "producer_regular_file_classes_closed_through_stop": true,
+    "runtime_read_classes_closed_through_stop": true,
+    "coverage_join_closed": false,
+    "source_marker_edge_reached_before_stop": true,
+    "historical_complete_proof_found": false
+  },
+  "rows": [
+    {
+      "id": "producer.config",
+      "kind": "producer",
+      "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
+      "path_class": "outputRoot/config.json",
+      "citations": {
+        "producer": "Sources/MLXFastTransform/Transform.swift:68-83,288-298",
+        "consumer": "Sources/MLXFastModel/LagunaConfig.swift:321-329",
+        "verifier": "Sources/MLXFastTrustedHarness/TransformVerification.swift:119-170"
+      },
+      "verifier_treatment": "Regular file; exact path set, size, bytes, and path-plus-content tree digest.",
+      "runtime_reach": "Required Laguna runtime configuration read.",
+      "verdict": "closed"
+    },
+    {
+      "id": "producer.index",
+      "kind": "producer",
+      "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
+      "path_class": "outputRoot/model.safetensors.index.json",
+      "citations": {
+        "producer": "Sources/MLXFastCore/CheckpointIndex.swift:28-57; Sources/MLXFastTransform/Transform.swift:68-83,288-298",
+        "consumer": "Sources/MLXFastModel/DenseTensorStore.swift:166-227",
+        "verifier": "Sources/MLXFastTrustedHarness/TransformVerification.swift:119-170"
+      },
+      "verifier_treatment": "Regular file; exact path set, size, bytes, and tree digest.",
+      "runtime_reach": "Required weight-map index read and parsed before shard use.",
+      "verdict": "closed"
+    },
+    {
+      "id": "producer.shard",
+      "kind": "producer",
+      "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
+      "path_class": "outputRoot/<validated local shardName ending .safetensors>",
+      "citations": {
+        "producer": "Sources/MLXFastTransform/Transform.swift:210-235,349-375",
+        "consumer": "Sources/MLXFastModel/DenseTensorStore.swift:39-118,166-227",
+        "verifier": "Sources/MLXFastTrustedHarness/TransformVerification.swift:119-170,225-228"
+      },
+      "verifier_treatment": "Each regular shard whose relative path has no newline is included as one whole file, covering safetensors header and payload bytes; a newline-bearing path rejects verification.",
+      "runtime_reach": "Index-selected shard headers and tensor payload byte ranges are opened, while any valid verification report excludes the newline-bearing filename case by rejection.",
+      "verdict": "closed_for_regular_shards"
+    },
+    {
+      "id": "producer.metadata",
+      "kind": "producer",
+      "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
+      "path_class": "outputRoot/<top-level eligible metadata basename: json|model|tiktoken|txt or tokenizer/vocab, excluding config/index/safetensors>",
+      "citations": {
+        "producer": "Sources/MLXFastTransform/Transform.swift:506-551",
+        "consumer": "No scored Laguna filesystem consumer under the audited weights-root path.",
+        "verifier": "Sources/MLXFastTrustedHarness/TransformVerification.swift:119-170,187-237"
+      },
+      "verifier_treatment": "Every emitted regular metadata file whose relative path has no newline is included in exact comparison and tree digest; a newline-bearing path rejects verification.",
+      "runtime_reach": "Runtime-inert for the scored model loading path audited here; verification rejects rather than silently omits newline-bearing names.",
+      "verdict": "closed_inert"
+    },
+    {
+      "id": "producer.laguna_sidecars_absent",
+      "kind": "producer",
+      "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
+      "path_class": "Laguna affine-attention/tied-weight sidecars",
+      "citations": {
+        "producer": "Sources/MLXFastTransform/Transform.swift:256-269",
+        "consumer": "No corresponding scored runtime path is constructed.",
+        "verifier": "Not emitted, so no file enters comparison."
+      },
+      "verifier_treatment": "Not applicable because Laguna emits neither sidecar class.",
+      "runtime_reach": "Absent.",
+      "verdict": "closed_absent"
+    },
+    {
+      "id": "verifier.regeneration",
+      "kind": "verifier",
+      "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
+      "path_class": "fresh temporary regenerated output root",
+      "citations": {
+        "producer": "Sources/MLXFastTrustedHarness/TransformVerification.swift:58-96",
+        "consumer": "Sources/MLXFastCLI/main.swift:95-137",
+        "verifier": "Sources/MLXFastTrustedHarness/TransformVerification.swift:58-96"
+      },
+      "verifier_treatment": "Runs the transform into a fresh root, then compares it with the supplied actual root.",
+      "runtime_reach": "Provides the expected tree for coverage comparison.",
+      "verdict": "closed"
+    },
+    {
+      "id": "verifier.regular_file_inventory",
+      "kind": "verifier",
+      "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
+      "path_class": "all non-ignored descendant regular files",
+      "citations": {
+        "producer": "All producer regular-file classes above.",
+        "consumer": "All exact runtime file classes above.",
+        "verifier": "Sources/MLXFastTrustedHarness/TransformVerification.swift:187-237"
+      },
+      "verifier_treatment": "Recursively enumerates regular files, rejects symlinks and other non-regular entries, but skips directories.",
+      "runtime_reach": "Insufficient for runtime root-entry inventory because directory names can affect that inventory.",
+      "verdict": "defect"
+    },
+    {
+      "id": "verifier.exact_set_size_bytes_digest",
+      "kind": "verifier",
+      "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
+      "path_class": "enumerated expected and actual regular-file maps",
+      "citations": {
+        "producer": "All enumerated producer regular files.",
+        "consumer": "All runtime file reads that resolve to those regular files.",
+        "verifier": "Sources/MLXFastTrustedHarness/TransformVerification.swift:119-170,244-273"
+      },
+      "verifier_treatment": "Requires equal relative path sets and sizes, streams byte equality, and hashes relative path plus file digest.",
+      "runtime_reach": "Closes included regular-file bytes only.",
+      "verdict": "closed_for_enumerated_files"
+    },
+    {
+      "id": "verifier.newline_names_rejected",
+      "kind": "verifier",
+      "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
+      "path_class": "any enumerated regular-file relative path containing a newline",
+      "citations": {
+        "producer": "Sources/MLXFastTransform/Transform.swift:349-375,506-551; Sources/MLXFastCore/PathValidation.swift:3-17",
+        "consumer": "Index-selected shard paths can be runtime-reachable; copied metadata is runtime-inert.",
+        "verifier": "Sources/MLXFastTrustedHarness/TransformVerification.swift:225-228"
+      },
+      "verifier_treatment": "Rejects the verification invocation rather than silently omitting the file.",
+      "runtime_reach": "Fail-closed for the closure of any valid verify-transform report.",
+      "verdict": "closed_by_rejection"
+    },
+    {
+      "id": "verifier.directories_skipped",
+      "kind": "verifier",
+      "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
+      "path_class": "any descendant directory, including outputRoot/extra.safetensors",
+      "citations": {
+        "producer": "Synthetic verifier semantics control; the transform need not emit this entry.",
+        "consumer": "Sources/MLXFastModel/RuntimeWeightLoading.swift:29-39,89-110",
+        "verifier": "Sources/MLXFastTrustedHarness/TransformVerification.swift:205-223"
+      },
+      "verifier_treatment": "Directories are skipped and contribute neither a relative path nor a digest entry.",
+      "runtime_reach": "A root directory whose basename ends in .safetensors changes discovered-shard validation.",
+      "verdict": "defect"
+    },
+    {
+      "id": "runtime.config",
+      "kind": "runtime_read",
+      "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
+      "path_class": "weightsRoot/config.json",
+      "citations": {
+        "producer": "Sources/MLXFastTransform/Transform.swift:68-83,288-298",
+        "consumer": "Sources/MLXFastModel/LagunaConfig.swift:321-329",
+        "verifier": "Sources/MLXFastTrustedHarness/TransformVerification.swift:119-170"
+      },
+      "verifier_treatment": "Included unless missing, non-regular, or byte-different, all of which fail.",
+      "runtime_reach": "Opened directly; no fallback under weights root.",
+      "verdict": "closed"
+    },
+    {
+      "id": "runtime.index",
+      "kind": "runtime_read",
+      "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
+      "path_class": "weightsRoot/model.safetensors.index.json",
+      "citations": {
+        "producer": "Sources/MLXFastTransform/Transform.swift:210-235,288-298",
+        "consumer": "Sources/MLXFastModel/DenseTensorStore.swift:166-227",
+        "verifier": "Sources/MLXFastTrustedHarness/TransformVerification.swift:119-170"
+      },
+      "verifier_treatment": "Included in exact comparison and digest.",
+      "runtime_reach": "Opened directly and used to derive the bounded indexed shard-name set.",
+      "verdict": "closed"
+    },
+    {
+      "id": "runtime.root_safetensors_inventory",
+      "kind": "runtime_read",
+      "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
+      "path_class": "contentsOfDirectory(weightsRoot).filter(pathExtension == safetensors)",
+      "citations": {
+        "producer": "The transform emits validated regular shards; an actual tree can also contain verifier-skipped directories.",
+        "consumer": "Sources/MLXFastModel/RuntimeWeightLoading.swift:29-39,89-110",
+        "verifier": "Sources/MLXFastTrustedHarness/TransformVerification.swift:205-223"
+      },
+      "verifier_treatment": "Only regular entries appear in the verifier file set; directories disappear.",
+      "runtime_reach": "Every root entry with the suffix affects indexed-versus-discovered validation regardless of file type.",
+      "verdict": "defect"
+    },
+    {
+      "id": "runtime.shard_header",
+      "kind": "runtime_read",
+      "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
+      "path_class": "weightsRoot/<index-derived validated shardName>, safetensors header region",
+      "citations": {
+        "producer": "Sources/MLXFastTransform/Transform.swift:288-298,365-375",
+        "consumer": "Sources/MLXFastModel/DenseTensorStore.swift:166-227; Sources/MLXFastModel/RuntimeWeightLoading.swift:45-63",
+        "verifier": "Sources/MLXFastTrustedHarness/TransformVerification.swift:119-170"
+      },
+      "verifier_treatment": "Whole regular shard bytes are compared, including the header.",
+      "runtime_reach": "Opened for header parsing; no alternate path construction.",
+      "verdict": "closed_for_regular_shards"
+    },
+    {
+      "id": "runtime.shard_payload",
+      "kind": "runtime_read",
+      "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
+      "path_class": "weightsRoot/<index-derived validated shardName>, tensor payload byte ranges",
+      "citations": {
+        "producer": "Sources/MLXFastTransform/Transform.swift:288-298,365-375",
+        "consumer": "Sources/MLXFastModel/DenseTensorStore.swift:39-118; Sources/MLXFastModel/LagunaRuntimeWeights.swift:626-638",
+        "verifier": "Sources/MLXFastTrustedHarness/TransformVerification.swift:119-170,244-273"
+      },
+      "verifier_treatment": "Whole regular shard bytes are compared and digested, covering every payload range.",
+      "runtime_reach": "Scored model loading materializes indexed tensor payload ranges.",
+      "verdict": "closed_for_regular_shards"
+    },
+    {
+      "id": "ignored.gitkeep",
+      "kind": "ignored_path",
+      "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
+      "path_class": "outputRoot/.gitkeep",
+      "citations": {
+        "producer": "benchmark.sh:1820-1861",
+        "consumer": "Runtime reads exact config/index paths and root entries ending .safetensors only.",
+        "verifier": "Sources/MLXFastTrustedHarness/TransformVerification.swift:205-206,235-237"
+      },
+      "verifier_treatment": "Ignored by exact basename.",
+      "runtime_reach": "No scored runtime consumer and no .safetensors suffix.",
+      "verdict": "closed_inert"
+    },
+    {
+      "id": "ignored.source_marker",
+      "kind": "ignored_path",
+      "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
+      "path_class": "outputRoot/.benchmark-source.sha256",
+      "citations": {
+        "producer": "benchmark.sh:1820-1861",
+        "consumer": "Runtime reads exact config/index paths and root entries ending .safetensors only.",
+        "verifier": "Sources/MLXFastTrustedHarness/TransformVerification.swift:205-206,235-237"
+      },
+      "verifier_treatment": "Ignored by exact basename; benchmark owns separate validation and injection.",
+      "runtime_reach": "No scored runtime consumer and no .safetensors suffix.",
+      "verdict": "closed_inert"
+    },
+    {
+      "id": "marker.source_hash_scope",
+      "kind": "source_marker",
+      "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
+      "path_class": "SHA-256 over relative path plus content SHA-256 for Package.swift, Package.resolved, Sources/MLXFastCore, and Sources/MLXFastTransform",
+      "citations": {
+        "producer": "benchmark.sh:1579-1608",
+        "consumer": "benchmark.sh:2116-2148,2271-2290",
+        "verifier": "Separate from verify-transform's ignored marker."
+      },
+      "verifier_treatment": "Not included in tree equality; benchmark binding covers only the four named inputs and excludes MLXFastCLI and the trusted verifier harness.",
+      "runtime_reach": "For ordinary reuse, selects regeneration versus reuse from the four-input source hash; a fresh valid verifier report separately compares output bytes.",
+      "verdict": "closed_limited_identity_before_runtime_inventory_defect"
+    },
+    {
+      "id": "marker.transform_authored_rejected",
+      "kind": "source_marker",
+      "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
+      "path_class": "stagedRoot/.benchmark-source.sha256 before benchmark injection",
+      "citations": {
+        "producer": "Participant transform output contract.",
+        "consumer": "benchmark.sh:1820-1861",
+        "verifier": "The verifier ignores the name, so benchmark staging must own this edge."
+      },
+      "verifier_treatment": "A transform-authored marker is not trusted; staging rejects its presence.",
+      "runtime_reach": "Prevents participant output from supplying source identity.",
+      "verdict": "closed"
+    },
+    {
+      "id": "marker.benchmark_injection",
+      "kind": "source_marker",
+      "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
+      "path_class": "stagedRoot/.benchmark-source.sha256 written from wanted_hash",
+      "citations": {
+        "producer": "benchmark.sh:1610-1629,1857-1861",
+        "consumer": "benchmark.sh:1389-1397,2116-2148",
+        "verifier": "Ignored marker is intentionally outside transform byte comparison."
+      },
+      "verifier_treatment": "Benchmark-created marker is separately constrained as a regular non-symlink file with a digest-formatted value.",
+      "runtime_reach": "Controls reuse/regeneration, not model data reads.",
+      "verdict": "closed"
+    },
+    {
+      "id": "marker.reuse_comparison",
+      "kind": "source_marker",
+      "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
+      "path_class": "read(.benchmark-source.sha256) == wanted_hash",
+      "citations": {
+        "producer": "benchmark.sh:1579-1608,1857-1861",
+        "consumer": "benchmark.sh:2116-2148",
+        "verifier": "verify-transform may subsequently compare output bytes while still ignoring the marker."
+      },
+      "verifier_treatment": "Separate source-to-output reuse guard.",
+      "runtime_reach": "Mismatch causes regeneration unless the explicit local skip override is used; the ranked evidence path records the wanted hash.",
+      "verdict": "closed_before_runtime_inventory_defect"
+    },
+    {
+      "id": "marker.integrity_binding",
+      "kind": "source_marker",
+      "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
+      "path_class": "integrity.transform_source_sha256 = wanted_hash",
+      "citations": {
+        "producer": "benchmark.sh:1579-1608",
+        "consumer": "benchmark.sh:2271-2290",
+        "verifier": "Complements, but cannot expand, verify-transform's enumerated file surface."
+      },
+      "verifier_treatment": "Records reviewed transform source identity beside output integrity evidence.",
+      "runtime_reach": "Does not cover a path class omitted by verifier enumeration.",
+      "verdict": "closed_but_not_curative"
+    },
+    {
+      "id": "history.prior_complete_proof",
+      "kind": "history",
+      "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
+      "path_class": "authorized ancestry and research reports for verifier-to-runtime closure",
+      "citations": {
+        "producer": "git grep at dd35f692 over research and current ancestry.",
+        "consumer": "research/ranked-weight-load-provenance-audit.md:67-84,112-115",
+        "verifier": "Tests/MLXFastTests/TransformTests.swift:793-888"
+      },
+      "verifier_treatment": "Prior tests cover marker ignore, changed metadata, and extra regular files, not runtime-significant directories.",
+      "runtime_reach": "PR #671 explicitly did not evaluate exact verifier/runtime inventory parity after its earlier stop.",
+      "verdict": "novel_defect"
+    }
+  ],
+  "path_safety": {
+    "symlinks": "The runtime follows final config/index/shard symlink targets when opening paths, but the pre-report verifier rejects descendant symlinks; ignored basenames are skipped before type inspection and benchmark separately owns marker creation.",
+    "hardlinks": "A hardlink is a regular file and each relative path's current bytes are compared, but inode identity and aliasing are not bound; alias lifetime and post-enumeration mutation are outside this static verifier-coverage scope.",
+    "non_regular_files": "Symlinks and non-directory/non-regular entries fail, but directories are skipped. A root directory ending .safetensors is the first defect.",
+    "duplicate_or_reassigned_shards": "Index shard names are validated local basenames; indexed and discovered shard sets must match, so missing, extra, or reassigned regular shards fail. The defect arises because discovered entries are not type-filtered.",
+    "path_normalization": "Verifier URL standardization and shard basename validation reject lexical slash, backslash, dot, and dot-dot escapes, but do not bind Unicode normalization, case-folding identity, or inode identity.",
+    "missing_regular_files": "Exact expected/actual file-set equality fails.",
+    "extra_regular_files": "Exact expected/actual file-set equality fails.",
+    "files_created_after_enumeration": "Entries created after the verifier snapshot are absent from that snapshot; this deployment-authority/TOCTOU race is excluded by assignment and does not cure the static directory omission."
+  },
+  "control_fixture": {
+    "required_producer_ids": [
+      "producer.config",
+      "producer.index",
+      "producer.shard",
+      "producer.metadata",
+      "producer.laguna_sidecars_absent"
+    ],
+    "required_runtime_ids": [
+      "runtime.config",
+      "runtime.index",
+      "runtime.root_safetensors_inventory",
+      "runtime.shard_header",
+      "runtime.shard_payload"
+    ],
+    "verifier_ignore_set": [
+      ".benchmark-source.sha256",
+      ".gitkeep"
+    ],
+    "runtime_consumed_paths": [
+      "config.json",
+      "model.safetensors.index.json",
+      "<index-derived>.safetensors"
+    ],
+    "source_hash_bound": true,
+    "transform_marker_trusted": false,
+    "runtime_paths_statically_bounded": true,
+    "path_normalization_required": true,
+    "root_escape_allowed": false,
+    "expected_regular_files": [
+      "config.json",
+      "model-00001-of-00001.safetensors",
+      "model.safetensors.index.json",
+      "tokenizer.json"
+    ],
+    "actual_regular_files": [
+      "config.json",
+      "model-00001-of-00001.safetensors",
+      "model.safetensors.index.json",
+      "tokenizer.json"
+    ],
+    "coverage_join": {
+      "runtime.config": "producer.config",
+      "runtime.index": "producer.index",
+      "runtime.shard_header": "producer.shard",
+      "runtime.shard_payload": "producer.shard"
+    },
+    "known_defect_id": "edge.runtime_directory_inventory.nonregular_safetensors_suffix"
+  },
+  "executed_scope": {
+    "static_checker_only": true,
+    "swift_tests": false,
+    "builds": false,
+    "transforms": false,
+    "model_loads": false,
+    "timing": false,
+    "wandb": false,
+    "receipts": false,
+    "official_submissions": false
+  }
+}
