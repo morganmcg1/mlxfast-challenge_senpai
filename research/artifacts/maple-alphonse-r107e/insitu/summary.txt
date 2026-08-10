@@ -2,3 +2,9 @@ screen1.p01.g0 rc=0 seconds=214
 screen1.p02.g1 rc=0 seconds=193
 screen1.p03.g2 rc=0 seconds=193
 screen1.p04.g3 rc=0 seconds=189
+abba1.p01.g0 rc=0 seconds=182
+abba1.p02.g1 rc=0 seconds=167
+abba1.p03.g2 rc=0 seconds=179
+abba1.p04.g3 rc=0 seconds=192
+abba1.p05.g3 rc=0 seconds=161
+abba1.p06.g2 rc=0 seconds=168

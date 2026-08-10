@@ -5,3 +5,9 @@ benchmark.sh: waiting for GPU to cool down before timing (current 40.1C, target 
 benchmark.sh: GPU cool-down gate passed (current 34.1C, target <=40C, waited 10s)
 benchmark.sh: waiting for GPU to cool down before timing (current 40.2C, target <=40C, waited 0s)...
 benchmark.sh: GPU cool-down gate passed (current 39.8C, target <=40C, waited 10s)
+benchmark.sh: GPU cool-down gate passed (current 39.4C, target <=40C, waited 0s)
+benchmark.sh: GPU cool-down gate passed (current 39.4C, target <=40C, waited 0s)
+benchmark.sh: GPU cool-down gate passed (current 39.5C, target <=40C, waited 0s)
+benchmark.sh: GPU cool-down gate passed (current 39.5C, target <=40C, waited 0s)
+benchmark.sh: GPU cool-down gate passed (current 39.5C, target <=40C, waited 0s)
+benchmark.sh: GPU cool-down gate passed (current 39.5C, target <=40C, waited 0s)
