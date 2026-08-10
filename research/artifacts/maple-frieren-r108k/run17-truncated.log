@@ -1,0 +1,19 @@
+benchmark.sh: reusing weights/ for unchanged transform source
+mlxfast: benchmark elapsed=0.0s local-submit start checked_tokens=1025 decode_steps=1023 repeats=1
+mlxfast: benchmark elapsed=0.0s local-submit baseline prefill_seconds_per_token=0.000368 decode_seconds_per_token=0.013856 (official-runner constants; local speedups are directional)
+mlxfast: benchmark elapsed=0.0s local-submit validation start
+mlxfast: benchmark elapsed=10.2s local-submit weights digest still running phase_seconds=10.2
+mlxfast: benchmark elapsed=20.2s local-submit weights digest still running phase_seconds=20.2
+mlxfast: benchmark elapsed=30.2s local-submit weights digest still running phase_seconds=30.2
+mlxfast: benchmark elapsed=37.8s local-submit weights digest complete files=9 bytes=21568891382
+mlxfast: benchmark elapsed=37.8s local-submit validation complete prompt_tokens=512 seconds=37.8
+mlxfast: benchmark elapsed=37.8s local-submit checked timing start
+mlxfast: benchmark elapsed=81.3s local thermal gate start phase=prefill
+benchmark.sh: waiting for GPU to cool down before timing (current 42.8C, target <=40C, waited 0s)...
+benchmark.sh: stopping the in-flight benchmark process tree (pid 44319) so no model-holding worker stays resident
+benchmark.sh: waiting for GPU to cool down before timing (current 41.3C, target <=40C, waited 10s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 40.8C, target <=40C, waited 20s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 40.5C, target <=40C, waited 30s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 40.2C, target <=40C, waited 40s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 40.1C, target <=40C, waited 50s)...
+benchmark.sh: GPU cool-down gate passed (current 40.0C, target <=40C, waited 60s)

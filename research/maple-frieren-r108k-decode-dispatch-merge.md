@@ -636,7 +636,8 @@ independent kernels. That is a hazard-management bug class, not a dispatch-count
 ## §3.2 The instrument, and the one thing it cannot do
 
 Arms, all via `./benchmark.sh --local-submit` (rule 86 forbids `--local-iterate` as
-evidence), fixed order `GCFSCSFCHJCFSCSFCJH`, six control-anchored blocks of three:
+evidence), fixed order `GCFSCSFCHJCFSCSFCJH`, six control-anchored blocks of three (five of
+which ran — see §3.2.3):
 
 | arm | injected no-ops/step | `CHAIN` | meaning |
 |---|---|---|---|
@@ -725,6 +726,29 @@ k  =  ( d(1200) − d(160) ) / 1040
 is the decisive estimator: the `40 · c` term is identical at both rungs and cancels exactly,
 without needing to know its sign or size. It was pre-registered as a post-hoc estimator in
 amendment §10 together with its out-of-sample predictions, before either high-rung arm ran.
+
+### §3.2.3 The probe stopped at its supervised timeout, not at plan completion
+
+The plan was 19 runs (`GCFSCSFCHJCFSCSFCJH`). The driver was launched at `17:03:27Z` under a
+supervised job with a 4500 s hard deadline and was terminated by that deadline at about
+`18:18:27Z`, part-way through run 17 — the block-6 control. Its log
+(`/tmp/r108k_barrier_20260810T170327Z_17C.log`, 19 lines) shows the run finishing weight-digest
+validation and entering the pre-prefill thermal gate, then
+`benchmark.sh: stopping the in-flight benchmark process tree (pid 44319) so no model-holding
+worker stays resident` at line 13; the already-running cool-down loop wrote its remaining
+lines before exiting. No timed phase and no `score.json` followed, so that run contributes
+nothing and is **discarded rather than partially used**. Runs 18 (`J`) and 19 (`H`) never
+started, and no model-holding worker was left resident (`ps` clean afterwards).
+
+What survives is **16 usable runs across five complete control-anchored blocks**: blocks 1–5
+are `(C,F,S)`, `(C,S,F)`, `(C,H,J)`, `(C,F,S)`, `(C,S,F)`, plus the leading gauge `G`. Every
+estimator below is block-paired inside a complete block, so the truncation costs precision,
+not validity. Concretely it costs one extra pairing at the 1200 rung: the high rung is
+anchored by **one** block (block 3), which is the dominant caveat on the width of the
+headline interval (§3.3, §3.5). No arm is missing entirely and no block is half-used. I did
+not relaunch: the remaining budget in this session was needed for analysis, reporting, and
+submission, and a sixth block re-opened on a different thermal history would not be paired
+with the same control anyway.
 
 <!--RESULTS:BEGIN-->
 ## §3.3 Results
