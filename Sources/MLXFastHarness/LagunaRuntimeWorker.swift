@@ -465,6 +465,9 @@ extension LagunaRuntime {
                 probeDurationNS: probe.durationNS,
                 probeMeasuredCallCount: probe.measuredCallCount,
                 probeCensus: probe.census,
+                probeRouteIndices: probe.routeIndices,
+                probeRouteWeightBits: probe.routeWeightBits,
+                probeRouteLayerCount: probe.routeLayerCount,
                 cachePosition: state.decodeSeedTokenCount + state.decodeStep
             )
 
@@ -957,6 +960,9 @@ struct RuntimeWorkerResponse: Codable {
     let probeDurationNS: UInt64?
     let probeMeasuredCallCount: Int?
     let probeCensus: [String: Int]?
+    let probeRouteIndices: [UInt32]?
+    let probeRouteWeightBits: [UInt32]?
+    let probeRouteLayerCount: Int?
     let cachePosition: Int?
 
     init(
@@ -983,6 +989,9 @@ struct RuntimeWorkerResponse: Codable {
         probeDurationNS: UInt64? = nil,
         probeMeasuredCallCount: Int? = nil,
         probeCensus: [String: Int]? = nil,
+        probeRouteIndices: [UInt32]? = nil,
+        probeRouteWeightBits: [UInt32]? = nil,
+        probeRouteLayerCount: Int? = nil,
         cachePosition: Int? = nil
     ) {
         self.id = id
@@ -1008,6 +1017,9 @@ struct RuntimeWorkerResponse: Codable {
         self.probeDurationNS = probeDurationNS
         self.probeMeasuredCallCount = probeMeasuredCallCount
         self.probeCensus = probeCensus
+        self.probeRouteIndices = probeRouteIndices
+        self.probeRouteWeightBits = probeRouteWeightBits
+        self.probeRouteLayerCount = probeRouteLayerCount
         self.cachePosition = cachePosition
     }
 
@@ -1101,6 +1113,18 @@ struct RuntimeWorkerResponse: Codable {
             [String: Int].self,
             forKey: .probeCensus
         )
+        probeRouteIndices = try container.decodeIfPresent(
+            [UInt32].self,
+            forKey: .probeRouteIndices
+        )
+        probeRouteWeightBits = try container.decodeIfPresent(
+            [UInt32].self,
+            forKey: .probeRouteWeightBits
+        )
+        probeRouteLayerCount = try container.decodeIfPresent(
+            Int.self,
+            forKey: .probeRouteLayerCount
+        )
         cachePosition = try container.decodeIfPresent(
             Int.self,
             forKey: .cachePosition
@@ -1165,6 +1189,9 @@ struct RuntimeWorkerResponse: Codable {
             forKey: .probeMeasuredCallCount
         )
         try container.encodeIfPresent(probeCensus, forKey: .probeCensus)
+        try container.encodeIfPresent(probeRouteIndices, forKey: .probeRouteIndices)
+        try container.encodeIfPresent(probeRouteWeightBits, forKey: .probeRouteWeightBits)
+        try container.encodeIfPresent(probeRouteLayerCount, forKey: .probeRouteLayerCount)
         try container.encodeIfPresent(cachePosition, forKey: .cachePosition)
     }
 
@@ -1192,6 +1219,9 @@ struct RuntimeWorkerResponse: Codable {
         case probeDurationNS = "probe_duration_ns"
         case probeMeasuredCallCount = "probe_measured_call_count"
         case probeCensus = "probe_census"
+        case probeRouteIndices = "probe_route_indices"
+        case probeRouteWeightBits = "probe_route_weight_bits"
+        case probeRouteLayerCount = "probe_route_layer_count"
         case cachePosition = "cache_position"
     }
 }

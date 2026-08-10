@@ -8,6 +8,9 @@ public struct LagunaResearchProbeSnapshot: Sendable {
     public let durationNS: UInt64
     public let measuredCallCount: Int
     public let census: [String: Int]
+    public let routeIndices: [UInt32]
+    public let routeWeightBits: [UInt32]
+    public let routeLayerCount: Int
 }
 
 private struct LagunaResearchProbeToken {
@@ -30,6 +33,7 @@ private final class LagunaResearchProbeState: @unchecked Sendable {
     private var durationNS: UInt64 = 0
     private var measuredCallCount = 0
     private var census: [String: Int] = [:]
+    private var routes: [(indices: MLXArray, weights: MLXArray)] = []
 
     func configure(family: String, mode: String) -> Bool {
         guard Self.families.contains(family), Self.modes.contains(mode) else {
@@ -42,6 +46,7 @@ private final class LagunaResearchProbeState: @unchecked Sendable {
         durationNS = 0
         measuredCallCount = 0
         census = [:]
+        routes = []
         lock.unlock()
         return true
     }
@@ -52,6 +57,15 @@ private final class LagunaResearchProbeState: @unchecked Sendable {
         durationNS = 0
         measuredCallCount = 0
         census = [:]
+        routes = []
+        lock.unlock()
+    }
+
+    func recordRoute(indices: MLXArray, weights: MLXArray) {
+        lock.lock()
+        if stepActive {
+            routes.append((indices: indices, weights: weights))
+        }
         lock.unlock()
     }
 
@@ -94,13 +108,28 @@ private final class LagunaResearchProbeState: @unchecked Sendable {
 
     func snapshot() -> LagunaResearchProbeSnapshot {
         lock.lock()
-        let result = LagunaResearchProbeSnapshot(
-            durationNS: durationNS,
-            measuredCallCount: measuredCallCount,
-            census: census)
+        let capturedDurationNS = durationNS
+        let capturedMeasuredCallCount = measuredCallCount
+        let capturedCensus = census
+        let capturedRoutes = routes
         stepActive = false
+        routes = []
         lock.unlock()
-        return result
+
+        var routeIndices: [UInt32] = []
+        var routeWeightBits: [UInt32] = []
+        for route in capturedRoutes {
+            routeIndices.append(contentsOf: route.indices.asArray(UInt32.self))
+            routeWeightBits.append(
+                contentsOf: route.weights.view(dtype: .uint32).asArray(UInt32.self))
+        }
+        return LagunaResearchProbeSnapshot(
+            durationNS: capturedDurationNS,
+            measuredCallCount: capturedMeasuredCallCount,
+            census: capturedCensus,
+            routeIndices: routeIndices,
+            routeWeightBits: routeWeightBits,
+            routeLayerCount: capturedRoutes.count)
     }
 }
 
@@ -116,6 +145,10 @@ public func lagunaResearchProbeBeginStep() {
 
 public func lagunaResearchProbeSnapshot() -> LagunaResearchProbeSnapshot {
     lagunaResearchProbeState.snapshot()
+}
+
+private func lagunaResearchProbeRecordRoute(indices: MLXArray, weights: MLXArray) {
+    lagunaResearchProbeState.recordRoute(indices: indices, weights: weights)
 }
 
 private func lagunaResearchProbeBegin(
@@ -10825,6 +10858,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
         routerKeys: MLXArray? = nil
     ) -> MLXArray {
         let (inds, weights) = gate(x, logits: routerLogits)
+        lagunaResearchProbeRecordRoute(indices: inds, weights: weights)
         var y: MLXArray
         var routedAlreadyReduced = false
         var sortedTailInverseOrder: MLXArray?
