@@ -17,7 +17,7 @@ export FERN_LADDER=${FERN_LADDER:-32}
 export FERN_ROUNDS=${FERN_ROUNDS:-41}
 export FERN_REPS=${FERN_REPS:-200}
 export FERN_DEFEAT_SLOTS=${FERN_DEFEAT_SLOTS:-64}
-ARMS=${ARMS:-"mul:0 mul:4 mul:16 sum:4 shf:4"}
+ARMS=${ARMS:-"fma:4 fma:16 fma:32"}
 
 xcrun swiftc -O research/fern_r100_attn_probe.swift -o "$BIN" || exit 1
 echo "probe built: $BIN"
