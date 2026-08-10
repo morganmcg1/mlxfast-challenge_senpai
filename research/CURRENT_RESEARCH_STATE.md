@@ -2623,10 +2623,11 @@ prefill routed gather-GEMM), plus one byte-axis outlier.
 Research base for every live assignment: the tip of
 `codex/mlxfast-maple-20260804-advisor`. Rule 96 landed at
 **`446fe9875d1f95b1216628b5809a99da844e5c79`**; everything published after it
-(`0db19dab` = this slate, plus the rule-97 commit) is **docs-only** and changes
-no compiled path, so no in-flight run needs re-executing. Campaign `BASE_SHA`
-for submission remains `1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7` =
-`origin/main` — *not* the research base (rule 89.6-CORRECTION).
+(`0db19dab` = slate, `05fa4292` = rule 97, `e1d206da` = the #630 merge, plus
+this commit) is **docs-and-`research/`-only** and changes no compiled path, so
+no in-flight run needs re-executing. Campaign `BASE_SHA` for submission remains
+`1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7` = `origin/main` — *not* the research
+base (rule 89.6-CORRECTION).
 
 All four original assignments were re-issued against this base after rule 96
 landed. Two of the four mid-round charges were **cancelled outright** (R106-H
@@ -2639,12 +2640,23 @@ patch handed to integration**, not in a document.
 and `maple-alphonse` arrived with assignment PRs **already seeded by the human
 operator** ([#629](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/629),
 [#630](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/630)). Those
-two PRs carry **no assignment marker**, so every advisor assignment tool
-(`create_assignment`, `send_assignment_feedback`,
-`request_assignment_revision`, `repair_assignment_routing`) refuses to act on
-them. Their charges are therefore **amended in this document under rule 97**,
-which reaches them because this advisor branch is their PR base. Read rule 97
-before Stage 0.
+two PRs at first carried **no assignment marker**, so every advisor assignment
+tool (`create_assignment`, `send_assignment_feedback`,
+`request_assignment_revision`, `repair_assignment_routing`) refused to act on
+them. Their charges were therefore **amended in this document under rule 97**,
+which reaches them because this advisor branch is their PR base.
+
+**⚡ RESOLVED at ~2026-08-10T11:2xZ.** The routing was repaired and both PRs now
+carry valid markers, so the ordinary assignment tools work again. Rule 97.1 has
+since been delivered verbatim as PR feedback on
+[#629](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/629)
+(comment `5239439037`). Rule 97.2 is **superseded**: alphonse terminated #630
+with a full measured adjudication, it was accepted on the current base and
+**merged** at `e1d206da`, and he now holds a fresh charge on
+[#636](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/636). His
+result is recorded as **rule 98**. Rule 97.0's tooling-defect narrative is kept
+for the record and because the base-drift and reply conventions in it still
+bind.
 
 | PR | student | assignment / revision | charge | pot |
 |---|---|---|---|---|
@@ -2652,8 +2664,8 @@ before Stage 0.
 | [#625](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/625) | maple-fern | `maple-r106-i-prefill-traversal-byte-census` / **`r106-i-rev2`** | **Own the integration tree.** R106-I cancelled (rule 79 — preserve partials). Stage 0 verify the HEAD/`bd33883e`/`4b0e051b` numstat table + force-clean build + oracle; Stage 1 T0 (HEAD) vs T1 (HEAD + `4b0e051b`'s `Sources/MLXFastModel/**` and `Sources/MLXFastTransform/**`) via the rule 95.6 replay recipe, paired locally, ~3 h timebox, **N-BUILD is an acceptable terminal answer**; Stage 2 integrate every student patch under rule 75 caps; Stage 3 hand **one** verified tree to frieren with the four submit-wrapper preconditions checked. Outcomes V-T1 / N-T1 / N-BUILD / V-INTEGRATED. | decides what we submit; composition upside if merits are additive |
 | [#620](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/620) | maple-tanjiro | `maple-r106-f-prefill-nongemm-census` / `r106-f-rev2` **+ endgame amendment** | **R106-F′ kept; tail amended.** Stage 1 (per-family decomposition + ranking) timeboxed to ~T+4 h, then **implement and measure the top-ranked family** on his CV-0.0403 % instrument and hand any winner to fern. Split-K tie flip (`matmul.cpp:986-989`) and H3 (24.42 ms) re-opened under rule 96.3 subject to a margin certificate. Outcomes V-PREFILL / N-PREFILL / N-REACH / N-CORRECT. | 27.83 ms unattributed = **10.5 % of score**; H3 alone = 9.2 % |
 | [#616](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/616) | maple-nezuko | `maple-r106-b-revert-residual-forensics` / **`r106-b-rev3`** | **The revert residual.** R106-H cancelled. Stage A attribute round-103's ≈19.0 µs/step residual to a ledger that closes; Stage B build and locally measure a recovery patch (paired, rules 40/68/86); Stage C hand to fern. Margin certificate available from frieren if the recovery is not bit-exact. Outcomes V-RECOVER / V-ATTRIB / N-RESIDUAL / N-RECOVER / N-CORRECT. | 0.3204 % of `cs` = **25 % of the whole 1.2846 % gap** |
-| [#629](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/629) | maple-edward | *operator-seeded, **no marker*** — base `ca39d216`, head `526881c4` | **Routed gate/up threadgroup packing, amended by rule 97.1.** Operator brief asks for an `S ∈ {2,4,8,16}` simdgroups-per-threadgroup curve on `lagunaRoutedSwiGLUQMVPackedTop8Kernel`. Half that curve is **already priced** (#48 measured the 8× threadgroup collapse at **−0.1488 %**; S=16 also lands at 6.4 TG/core inside the tail-starvation regime closed by rule 67), and the adjacent rows-per-simdgroup axis is already harvested (`DARKBLOOM_QMV_R1`). Amended: **Stage A settles L3 first** — `research/tanjiro_packing_default_flip.patch` applies clean at this HEAD and #308 measured it at **−36.9 µs/step = +0.562 % of `cs`**, CI [+0.196 %, +0.929 %]. Stage B extends to the routed site over **S ∈ {2,4}** only. Outcomes V-L3 / N-L3 / V-SITE1 / N-SITE1 / N-CORRECT / N-BUILD. | L3 alone is **+0.562 % of `cs`** — the largest ready-made bit-exact item on the board |
-| [#630](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/630) | maple-alphonse | *operator-seeded, **no marker*** — base `ca39d216`, head `71a65009` | **Routed gate/up prefetch adjudication, amended by rule 97.2.** Operator brief asks to re-adjudicate PR #454's depth-1 four-K-block preload. That exact mechanism is **already reconstructed on disk** (`research/artifacts/fern-r99/stage4_cand.metal:200-203`) and **already falsified** by #543 §I: fern's own dose curve put the 16→64 B staging at **≤0.08 µs**, and the real effect was *full unrolling of a constexpr trip count*, which showed **no transfer to the scored path** (−0.196 % against a 137.2 µs/tok control spread). #553 priced the probe's over-read at **8.01×**. Amended: do not rebuild the instrument; run the **SLC-defeated cold-gather** re-run of the **unroll** that #543 banked, then graduate only on the scored path. `N-DUPLICATE-543` is a first-class terminal answer. Outcomes V-UNROLL-COLD / N-UNROLL-COLD / N-DUPLICATE-543 / N-CORRECT / N-BUILD. | settles the last banked decode-side unroll; kills or ships a family that has cost three rounds |
+| [#629](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/629) | maple-edward | `maple-r107-a-routed-gateup-packing` / **`r107-a-rev1`** — head `526881c4` | **Routed gate/up threadgroup packing, amended by rule 97.1** (delivered as PR comment `5239439037`)**.** Operator brief asks for an `S ∈ {2,4,8,16}` simdgroups-per-threadgroup curve on `lagunaRoutedSwiGLUQMVPackedTop8Kernel`. Half that curve is **already priced** (#48 measured the 8× threadgroup collapse at **−0.1488 %**; S=16 also lands at 6.4 TG/core inside the tail-starvation regime closed by rule 67), and the adjacent rows-per-simdgroup axis is already harvested (`DARKBLOOM_QMV_R1`). Amended: **Stage A settles L3 first** — `research/tanjiro_packing_default_flip.patch` applies clean at this HEAD and #308 measured it at **−36.9 µs/step = +0.562 % of `cs`**, CI [+0.196 %, +0.929 %]. Stage B extends to the routed site over **S ∈ {2,4}** only. Outcomes V-L3 / N-L3 / V-SITE1 / N-SITE1 / N-CORRECT / N-BUILD. | L3 alone is **+0.562 % of `cs`** — the largest ready-made bit-exact item on the board |
+| [#636](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/636) | maple-alphonse | `maple-r107-c-expert-gather-gemm-floor` / **`r107-c-rev1`** — head `ace5bd09` | **The routed expert gather-GEMM floor.** #630 terminated (rule 98) and merged, freeing him for the **largest sized unclaimed target on the board**: `routed_gather_gemm` = 76 dispatches / 260.907 ms = **48.3 % of M4 prefill**, M5 `W = 43.2619 ± 0.402 ms` against a **35.6 ms** DRAM floor ⇒ **≈7.6 ms above floor = +2.87 % of score**. Stage 0 rule-83 mechanism-word grep; Stage A zero-build env sweep of `DARKBLOOM_STAGE_BM128` (default **variant 5** ⇒ `bm=64,bn=64,bk=64,wm=4,wn=1`, 128 threads/TG) and `DARKBLOOM_EXPERT_GATHER_GROUPS ∈ {64,128,256}`; Stage B **one** of C2a (`bn` 64→32, never varied) or C2b (revive the **dead** x-major dispatch order — `darkbloom_gather_xmajor_ct()` is hardcoded `return 0` at `quantized.cpp:1290-1292`); Stage C graduate only at ≥0.4 % of score **and** ≥3σ (1.35 ms) with decode proved neutral. Outcomes V-TILE / V-XMAJOR / V-EGROUPS / N-FLOOR / N-XMAJOR-CLOSED / N-BUILD / N-CORRECT / N-REACH. | **+2.87 % of score** — more than twice the whole 1.2846 % implied gap |
 
 Corrected σ constants issued to all six (frieren §22 withdrew her own earlier
 0.744 %/1.200 % answer as ~3× too large): sd(ln `cs` \| fixed tree) =
@@ -2661,15 +2673,27 @@ Corrected σ constants issued to all six (frieren §22 withdrew her own earlier
 Local paired measurement beats the channel by roughly an order of magnitude on
 prefill and is the only discriminator we can afford.
 
-**Deconfliction across six.** frieren owns the channel and the margin
-certificate; fern owns the integration tree; tanjiro owns **prefill**; nezuko
-owns the round-103 **revert residual**; edward owns **threadgroup packing** on
-the decode QMV family; alphonse owns the **K-loop unroll / prefetch** question
-on the routed gate/up decode kernel. edward and alphonse both touch
-`lagunaRoutedSwiGLUQMVPackedTop8Kernel` but on **orthogonal axes** — edward
-changes only `num_simdgroups` per threadgroup, alphonse changes only the K-loop
-body. Neither may compose with the other before both have terminated; fern
-composes at integration.
+**Deconfliction across six (updated after #630 merged).** frieren owns the
+channel and the margin certificate; fern owns the integration tree; nezuko owns
+the round-103 **revert residual**; edward owns **threadgroup packing** on the
+decode QMV family (`Sources/MLXFastModel/LagunaRuntimeModel.swift`).
+
+The one collision that now needs policing is **prefill**, which two students
+share. It is split by kernel family, not by file:
+
+- **alphonse owns the prefill GEMM**, exclusively: the `routed_gather_gemm`
+  family, `fp_gather_qmm_rhs_expert_nax`, and
+  `Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp` (plus its
+  `mlx-generated` twin if JIT requires it). 48.3 % of M4 prefill.
+- **tanjiro owns prefill non-GEMM**, exclusively: `attention_core`,
+  `qk_norm_rope`, `elementwise`, `sort_scatter`, `moe_tail`, `rms_norm`,
+  router tournament, `lm_head` — the 8.5 % non-GEMM share plus the H3 /
+  split-K-tie-flip questions re-opened under rule 96.3.
+
+If tanjiro's stage-1 ranking puts the gather-GEMM on top, he **flags it and
+does not race it** — the pot is large enough that duplicated effort there is
+the most expensive mistake available. Nobody may compose with anybody before
+both sides have terminated; fern composes at integration.
 
 ### Historical: round-106 mid-round slate (superseded, kept for provenance)
 
@@ -3234,6 +3258,18 @@ instrumentation (#496), not more hyperparameter-tier tweaking.
 ---
 
 ## 7. Closed list — do not re-assign
+
+❌ **K-loop staging depth on the routed gate/up QMV family (the "#454 preload")
+— closed by rule 98, round 107 (PR #630).** The depth-1 software pipeline is
+already shipped and default-ON at
+`LagunaRuntimeModel.swift:7956–8008`, staging all four K-blocks. Deleting it
+measures **−0.038 % and −0.037 %** in two independent residency-defeated
+sessions, CI95 [−0.104, +0.028] — a **powered** null ~7× tighter than the kill
+threshold, replicating to 0.001 %. The pipeline's ≈0.45 µs/dispatch of extra
+issue time exactly cancels the 0.45 µs of DRAM latency it hides. CI upper bound
+is 2.0 % of the promotion bar. Do not re-open under: preload depth, prologue
+peel, `next_block` staging, register latching, or depth-2+ pipelining. ⚠️ Note
+the resident-rung trap in **98.9** before quoting any kernel-local number here.
 
 ❌ **Barrier / encoder / command-buffer scheduling of the decode step — closed
 by rule 92, round 106 (PR #617).** A validated per-dispatch byte-range DAG
@@ -5209,7 +5245,7 @@ hand a build-verified tree to integration rather than a report.
 | maple-tanjiro | #620 | prefill speedup decomposition → **implement and measure** the top-ranked family | 27.83 ms unattributed = 10.5 % of score |
 | maple-nezuko | #616 | the ~19 µs/step revert residual (Rule 91) | 0.3204 % of cs = 25 % of the whole gap |
 | maple-edward | #629 | **added at 10:03Z; charge amended by rule 97.1** — settle **L3** (`research/tanjiro_packing_default_flip.patch`) first, then the routed site over S ∈ {2,4} only | L3 = **+0.562 % of cs**, CI [+0.196 %, +0.929 %] |
-| maple-alphonse | #630 | **added at 10:04Z; charge amended by rule 97.2** — do not rebuild #454's preload; run the **SLC-defeated cold-gather** re-run of the #543 unroll, graduate only on the scored path | closes or ships the last banked decode-side unroll |
+| maple-alphonse | ~~#630~~ → **#636** | #630 **TERMINATED and merged** (rule 98: staging depth closed by measurement, zero-byte diff). Re-assigned to the **routed expert gather-GEMM floor** — Stage 0 grep, Stage A zero-build env sweep of `DARKBLOOM_STAGE_BM128` / `DARKBLOOM_EXPERT_GATHER_GROUPS`, Stage B one of `bn` 64→32 or reviving the dead x-major dispatch order, Stage C graduate at ≥0.4 % **and** ≥3σ | **+2.87 % of score** — the largest sized unclaimed target on the board |
 
 Channel discipline is unchanged: Rule 88 watch-until-idle, one attempt, and
 **no draw until a locally-verified merit gain exists**. Draw scheduling
@@ -5460,6 +5496,150 @@ be integrated even under M4→M5 magnitude uncertainty, because shipping nothing
 has zero upside against a 1.2846 % gap. fern integrates in descending measured
 % of `cs`, preferring quickly reproducible measurements, and may decline a
 patch for lack of verification time.
+
+---
+
+### Rule 98 — the routed gate/up **staging-depth** axis is CLOSED BY MEASUREMENT; fern's r99/r100 +1.8 % was never the depth axis; and cache-resident kernel-local rungs inflate this family by ~30×
+
+Source: maple-alphonse, #630, `maple-r107-b-routed-prefetch-adjudication`,
+report `research/maple-alphonse-r107b-prefetch-adjudication.md` (261 lines),
+W&B run `1nlxutje`, host Apple M4 Pro / 20 GPU cores / 48 GiB / `applegpu_g16s`,
+measured DRAM peak 266.3 GB/s. **Merged at `e1d206da`.** Terminal verdict:
+**gate closed, killed at gate 1, zero-byte submitted diff.** This is the model
+result for the endgame — it cost one student-day and it permanently removes a
+family that had already consumed three rounds.
+
+#### 98.1 The mechanism PR #454 proposed is already shipped and default-ON
+
+`lagunaRoutedSwiGLUQMVPackedTop8R1Kernel`
+(`Sources/MLXFastModel/LagunaRuntimeModel.swift:7915–8027`, Metal name
+`laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2`) is a textbook
+depth-1 software pipeline already:
+
+| stage | lines |
+|---|---|
+| prologue peel | `:7956–7970` |
+| latch + guarded next fetch | `:7984–8001` — `const uint next_block = block + block_width; if (next_block < input_width) {…}` |
+| FMA on latched registers | `:8003–8008` — `laguna_nvfp4_qdot_codes_16` |
+
+`input_width = 2048`, `block_width = 512` ⇒ **4 K-blocks staged — exactly the
+preload #454 asked for.** The non-R1 sibling at `:7892` is **dead by default**.
+#454's patch does not even apply: 15,978 diff lines of drift since its commit
+`7f35354247dbd79b5c9c2276f0814d56387668a5`.
+
+#### 98.2 Rule 83, sharpened: **search mechanism words, not PR numbers**
+
+PR #454 appears nowhere in the archive by number. The retirement was recorded
+in `RESEARCH_ARCHIVE_through-round-91.md` under its *mechanism*: "⛔ **L2
+(routed-twin K-block prefetch) is RETIRED as moot** — `next_block` k-loop
+staging already ships in the adopted frontier." A number-grep finds nothing; a
+grep for `next_block` / `prefetch` / `k-block staging` finds it immediately.
+**Every Stage 0 must grep the mechanism vocabulary, and a brief that cites only
+a PR number has not discharged rule 83.**
+
+#### 98.3 The instrument (reuse, not rebuild — rule 58 discharged)
+
+He reused `research/fern_r99_qmv_probe.swift` and
+`research/fern_r99_qmv_variants.py` **verbatim**. Four arms:
+
+| arm | bytes | role |
+|---|---|---|
+| `depth1_shipped` | 9,561 | **byte-identical to fern's r99 artifact** |
+| `noop_control` | 9,561 | distinct pipeline, same size |
+| `depth0_oneaxis` | 8,872 | preload deleted, one axis changed |
+| `fault_control` | 8,858 | wrong up-scale index — **tripped the bitwise gate before any timing arm ran** |
+
+Rule-75 digest of `Sources/` + `Vendor/` =
+`b196bafa2d7738636837efa895fe2cc293a0633321b5c2845e708426656cf544`, taken
+before and after with a hard abort on mismatch. Rule-77 rung TG = 2048, 64
+threads/TG, 2 rows/simdgroup — reproduces the shipped geometry exactly. All
+three timing arms: `maxTotalThreadsPerThreadgroup = 1024`,
+`threadgroupMemory = 0 B`, `execWidth = 32`.
+
+#### 98.4 Results — 64 alternating rounds, 500 reps/round, order reversed every round
+
+`gain % > 0` means **removing** the preload is faster.
+
+| session | regime | gain % | CI95 | even | odd | rounds faster | noop | null |
+|---|---|---|---|---|---|---|---|---|
+| s1 10:23:29Z | **defeat** | **−0.038** | [−0.104, +0.028] | −0.029 | −0.046 | 13/32 | −0.010 | +0.025 |
+| s2 10:32:59Z | **defeat** | **−0.037** | [−0.163, +0.089] | −0.108 | +0.034 | 17/32 | −0.048 | +0.173 |
+| s1 | resident | +1.224 | [+1.166, +1.282] | +1.233 | +1.214 | 32/32 | +0.157 | +0.306 |
+| s2 | resident | +1.207 | [+1.113, +1.302] | +1.114 | +1.301 | 32/32 | +0.242 | +0.274 |
+
+Reference cost 39.03 µs/dispatch (defeat), 36.65 µs/dispatch (resident).
+`FERN_DEFEAT_SLOTS=1` (resident) / `=64` (defeat). The defeated null
+**replicates across sessions to 0.001 %** and is ~7× tighter than the 0.5 %
+kill threshold — this is a **powered** null, not an underpowered shrug.
+
+#### 98.5 The finding: the depth-1 preload is a **wash**, and it always was
+
+- **Resident rung**: deleting the preload is **+1.2 %** (32/32 rounds,
+  t ≈ −42) — the pipeline's extra instructions and registers are pure cost
+  (≈0.45 µs/dispatch of issue time) because there is no DRAM latency left to
+  hide.
+- **Defeated rung**: **0.00 %** — that same 0.45 µs of issue time exactly
+  equals the 0.45 µs of DRAM latency it hides. Cost and benefit cancel.
+
+⇒ **Essentially none of fern's r99 +1.824 % is the depth axis.** The depth axis
+is priced here at **−2 % of it**, in the same rung and the same regime. The
+residual is **loop spelling / rolled-vs-unrolled**, which #543 already shipped
+and already measured as non-transferring to the scored path (−0.196 % against a
+137.2 µs/tok control spread). This finally explains r99's otherwise inexplicable
+"flat in staging depth" result: it was flat because depth was never the
+variable.
+
+#### 98.6 Ceiling arithmetic — why no follow-up is worth a student-hour
+
+39 sparse layers × 1 dispatch = 39 per token (4,993 charged-window launches).
+Depth axis = **−0.58 µs/token**; CI upper bound **+1.35 µs/token = 2.0 % of the
+68.7 µs/step promotion bar**. The probe moves 4,456,448 B/dispatch in 39.03 µs
+= **114.2 GB/s = 42.9 % of M4 Pro peak** ⇒ this kernel is **issue-bound, not
+bandwidth-bound**, which is itself a reusable fact for anyone proposing to
+shave bytes off it.
+
+#### 98.7 #454's own evidence was the paired-channel noise floor
+
+#454's ±0.3 % whole-model sign flip (AB `+0.008149` / `+0.003309`, BA
+`−0.002182`) is **noise, not a fragile mechanism**. His host's
+`--local-iterate` MDE is **±0.73 %** and single-run decode σ is 48–49 µs/step —
+so a ±0.3 % swing is unresolvable there by construction. Rule 86 stands.
+
+#### 98.8 Disposition
+
+Leave `LagunaRuntimeModel.swift` as-is. Do **not** revert. Do **not** re-open
+#454. **The staging-depth axis of the routed gate/up QMV family is CLOSED BY
+MEASUREMENT** and is added to §7.
+
+#### 98.9 ⚠️ THE ~30× RESIDENT-RUNG INFLATION — now campaign-wide policy
+
+The same edit measures **+1.2 %** in a cache-resident kernel-local rung and
+**0.00 %** in a residency-defeated one. That is not a small distortion; on this
+family the resident rung inflates the effect by roughly **30×**, and it does so
+with a *tight* CI and 32/32 round consistency, i.e. it looks exactly like a real
+result. Combined with #553's separate 8.01× over-read pricing (1.59 unfaithful
+geometry × 5.02 SLC residency), the standing instruction is:
+
+> **A cache-resident kernel-local number may never be quoted as a headline for
+> this family.** Report it only alongside its residency-defeated twin, and
+> promote on the defeated number. This applies to every student and is
+> retroactive: fern's r99/r100 headline (+1.824 / +1.977 / +1.776 / +1.723 %)
+> should be read as a loop-spelling artefact of the resident rung, and the
+> archive entry for it is annotated accordingly.
+
+Rules 77 and 78 already required faithful geometry and residency defeat; rule
+98.9 makes **quoting** the resident number a reporting defect in its own right.
+
+#### 98.10 One follow-up declined, three adopted
+
+- ❌ **Declined**: an isolated `#pragma clang loop unroll(full)` arm. Its own
+  ceiling is +0.08–0.22 % of score, below the promotion bar, and rule 70
+  (no sixth MoE-QMV codegen arm) points away from it.
+- ✅ **Adopted**: a cheap AIR-level phi/br gate *before* timing, so a
+  codegen-identical pair is caught for free rather than after 64 rounds.
+- ✅ **Adopted**: retire the `resident` rung from headline numbers in this
+  family (→ 98.9).
+- ✅ **Adopted**: annotate the r99/r100 headline in the archive with 98.5.
 
 ---
 

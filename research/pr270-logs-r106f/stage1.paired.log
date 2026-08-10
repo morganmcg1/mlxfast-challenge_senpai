@@ -1,0 +1,78 @@
+========================================================================================================
+R106-F' Stage 1 - paired M4 Pro prefill family decomposition (512-token forward)
+========================================================================================================
+
+BASELINE 15852ee5  (research/pr270-logs-r106f/census.base.split1.log)
+  warm median 607.643 ms   instrumented wall 607.644 ms   busy union 601.918 (99.1 % of wall)
+  command buffers 2126   dispatches 2637   bound 31.552 GiB
+
+CANDIDATE HEAD    (research/pr270-logs-r106f/census.cand.split1.log)
+  warm median 548.242 ms   instrumented wall 548.441 ms   busy union 545.579 (99.5 % of wall)
+  command buffers 1066   dispatches 1222   bound 28.834 GiB
+
+WORK-IDENTITY TEST (Stage 2 input)
+  dispatches      base 2637  cand 1222  delta -1415 (-53.7 %)
+  command buffers base 2126  cand 1066  delta -1060 (-49.9 %)
+  bound bytes     base 31.552  cand 28.834 GiB  delta -8.6 %
+  steel_gemm_bf16      dispatches base    401  cand    392  (-2.2 %)
+  attention_core       dispatches base     40  cand     40  (+0.0 %)
+  routed_gather_gemm   dispatches base    117  cand     76  (-35.0 %)
+
+ATTRIBUTION REPAIRS - baseline
+  MIXED total   97.026 ms -> nvfp4_dense_qmm      +  71.343 ms (raw bracket weight  175.899 ms)
+  MIXED total   97.026 ms -> steel_gemm_bf16      +  17.593 ms (raw bracket weight   43.377 ms)
+  MIXED total   97.026 ms -> sort_scatter         +   7.565 ms (raw bracket weight   18.651 ms)
+  MIXED total   97.026 ms -> qk_norm_rope         +   0.302 ms (raw bracket weight    0.745 ms)
+  MIXED total   97.026 ms -> elementwise          +   0.223 ms (raw bracket weight    0.551 ms)
+  other  gemv_bfloat16_bm8_bn1_sm1_sn32_tm4_tn4_nc0_axpby0        -> lm_head              +   1.678 ms
+ATTRIBUTION REPAIRS - candidate
+  MIXED total    0.022 ms -> steel_gemm_bf16      +   0.022 ms (raw bracket weight   35.585 ms)
+  MIXED total    0.022 ms -> rms_norm             +   0.000 ms (raw bracket weight    0.022 ms)
+  other  gemv_al_bfloat16_bm4_bn1_sm1_sn32_tm4_tn4_nc0_axpby0     -> lm_head              +   0.143 ms
+  other  gemv_al_bfloat16_bm8_bn1_sm1_sn32_tm4_tn4_nc0_axpby0     -> lm_head              +   0.143 ms
+  other  laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_ -> nvfp4_dense_qmm      +   0.023 ms
+
+PRIMARY TABLE (fair-share; MIXED and other resolved), sorted by baseline ms
+  functional stage                         base ms  base %   cand ms  cand %   ratio
+  B NVFP4 expert GEMM + epilogue           238.025   39.17   256.290   46.73   0.929  <-- ~1.0x
+  A dense BF16 attn proj (q,k,v,o,g)       236.054   38.85   214.488   39.11   1.101  <-- ~1.0x
+  C routing (sort/scatter/gather)           65.773   10.82    40.287    7.35   1.633
+  D attention core (SDPA)                   28.777    4.74    22.946    4.18   1.254
+  F elementwise glue                        23.418    3.85     4.711    0.86   4.971
+  E norm + RoPE                              8.173    1.35     5.906    1.08   1.384
+  I GPU idle (unattributed)                  5.725    0.94     2.862    0.52   2.000
+  G lm_head + argmax                         1.697    0.28     0.952    0.17   1.783
+  TOTAL                                    607.642  100.00   548.442  100.00   1.108
+  ledger closure: base -0.002 ms, cand +0.001 ms
+  HEADLINE share of BASELINE prefill time in stages with speedup ~1.0x (0.85-1.18x): 78.02 %  (474.079 of 607.644 ms)
+
+SENSITIVITY: null-work `arangeuint32` fair share credited to routed_gather_gemm (base 25.788 ms, cand 38.248 ms)
+
+SENSITIVITY TABLE
+  functional stage                         base ms  base %   cand ms  cand %   ratio
+  B NVFP4 expert GEMM + epilogue           263.813   43.42   294.538   53.70   0.896  <-- ~1.0x
+  A dense BF16 attn proj (q,k,v,o,g)       236.054   38.85   214.488   39.11   1.101  <-- ~1.0x
+  C routing (sort/scatter/gather)           39.984    6.58     2.039    0.37  19.614
+  D attention core (SDPA)                   28.777    4.74    22.946    4.18   1.254
+  F elementwise glue                        23.418    3.85     4.711    0.86   4.971
+  E norm + RoPE                              8.173    1.35     5.906    1.08   1.384
+  I GPU idle (unattributed)                  5.725    0.94     2.862    0.52   2.000
+  G lm_head + argmax                         1.697    0.28     0.952    0.17   1.783
+  TOTAL                                    607.642  100.00   548.442  100.00   1.108
+  ledger closure: base -0.002 ms, cand +0.001 ms
+  HEADLINE share of BASELINE prefill time in stages with speedup ~1.0x (0.85-1.18x): 82.26 %  (499.867 of 607.644 ms)
+
+FAIR-SHARE-FREE CROSS-CHECK (per probe family; excl = time with no concurrent sibling, raw = summed bracket time)
+  probe family              b excl    c excl  e ratio     b raw     c raw  r ratio    b GB    c GB
+  attention_core            28.727    17.746    1.619    28.828    28.146    1.024   0.713   0.696
+  elementwise               11.837     4.695    2.521    36.594     4.728    7.740   3.575   1.632
+  lm_head                    0.019     0.666    0.029     0.019     0.666    0.029   0.000   0.959
+  moe_tail                   0.000     2.555    0.000     0.000     2.555    0.000   0.000   0.878
+  nvfp4_dense_qmm            0.814    20.007    0.041   183.365    20.007    9.165   0.458   0.652
+  other                      1.678     0.309    5.430     1.678     0.309    5.430   0.411   0.211
+  qk_norm_rope               1.704     4.159    0.410     2.449     4.203    0.583   0.713   0.768
+  rms_norm                   6.160     1.725    3.571     6.175     1.747    3.535   0.695   0.497
+  routed_gather_gemm        15.726   201.965    0.078   336.453   265.444    1.268  20.122  18.968
+  router                     0.000     0.674    0.000     0.000     0.673    0.000   0.000   0.012
+  sort_scatter               3.501     2.613    1.340   180.334    76.612    2.354   2.534   1.135
+  steel_gemm_bf16          208.877   212.228    0.984   230.303   218.533    1.054   4.658   4.552
