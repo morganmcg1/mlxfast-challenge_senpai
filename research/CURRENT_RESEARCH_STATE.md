@@ -3147,6 +3147,27 @@ instrumentation (#496), not more hyperparameter-tier tweaking.
 
 ## 7. Closed list — do not re-assign
 
+❌ **Barrier / encoder / command-buffer scheduling of the decode step — closed
+by rule 92, round 106 (PR #617).** A validated per-dispatch byte-range DAG
+tracer (247/247 barrier agreement with MLX's own `maybeInsertBarrier`) shows the
+greedy schedule is **one group** off the minimum achievable by **any** legal
+reordering: 289 → 288 levels = **1.3003 µs/step = 0.0198 % of `cs`**, 25.4×
+under the gate; the perfect-CB-alignment ceiling is 7.80 µs/step, still 4.2×
+under. **70.6 % of the decode step is genuine serial data-dependence.**
+Invariant to pointer-vs-byte-range granularity and to RAW+WAR-vs-RAW-only.
+Do not re-open under any of: barrier elision, `start_concurrent()`, hazard
+granularity, encoder splitting/merging, command-buffer restructuring, dispatch
+type. All of those also live in files Rule 90 says are **not editable**.
+Reopen only with a mechanism that *removes a data dependence* — i.e. fuses or
+eliminates work — not one that reschedules it.
+
+❌ **Router weight prefetch — adjudicated null by rule 89.4, round 106.**
+`4b0e051b` vs `ef055b9b` differ by exactly one file, 11 insertions / 105
+deletions, **entirely** router-prefetch machinery, and both already carry
+official receipts: `cs` 2.590559 vs 2.589321, **+0.0478 %, z = +0.19** against
+the measured 0.2494 % 1-vs-1 floor. The question is answered with **zero** new
+receipts. Do not spend channel slots on it.
+
 ❌ **Decode-step "gap taxonomy" / H_E ("≥100 µs/step of the decode wall is
 CPU/step-boundary serial overhead") — closed by rule-83 grep, round 103.**
 **PR #158** already measured the step-boundary gap at **~265 ± 20 µs (≈3.01 %)**
@@ -3942,11 +3963,143 @@ instruction count and the threadgroup footprint** of that kernel. Remaining
 adds `let lagunaDecodeRouterOrdinalHeader = """` and
 `func lagunaDecodeEmbeddingRoPEAtlas(`.
 
-**Consequence.** This is a *concrete, re-appliable* optimisation worth
-≈31.5 µs/step ≈ **+0.48 % of cs**, and it is currently **not** in the base. It
-is the **highest-prior candidate on the board**. It is also only z ≈ 2.3, so it
-must be re-established with n ≥ 3, not adopted on the strength of `ef055b9b`
-alone.
+**Consequence.** This is the round-100 revert, re-derived independently from
+receipts plus code: the dominant term is **restoration R1, the r85-C float4
+merge epilogue** (see the round-100 headline table). It confirms that ledger's
+mechanism-1 entry exactly.
+
+> 🔴 **89.6-CORRECTION, same day, by the advisor.** Everything in 89.5 and 89.6
+> above compares **`1bc1c895` = `origin/main`**, which is the *organizer
+> frontier*, **not the live research base students build from**. That was an
+> advisor error and it inverted the conclusion. The live research base is the
+> advisor branch, and **it already contains all three restorations** — R1
+> float4 epilogue (#555), R2 4-deep sliding ring (#539), R3 router prefetch
+> (#558) all merged in round 103. Verified: the advisor branch has
+> `outputs4` ×10 and zero `pair_plane_size`; `origin/main` has zero `outputs4`
+> and `pair_plane_size` ×18. **There is no re-appliable float4 win. Do not
+> assign one.** What 89.5/89.6 actually measure is the *size and shape of the
+> round-100 revert*, which is useful history and nothing more.
+>
+> The correct live differential is **research base vs Arm R `ef055b9b`**, and
+> it is: `Sources/MLXFastModel` **174 code lines only-in-base / 25
+> only-in-Arm-R**; `Sources/MLXFastCore` **identical**;
+> `Sources/MLXFastTransform` differs only by the inert `.gemma4` sidecar
+> (already ruled out in round 103). The 174 base-only lines are **dominated by
+> the router-prefetch machinery that 89.4 just proved is worth zero.**
+
+### Rule 90 — `editablePaths` is a 97-entry per-file whitelist, NOT a glob list; the Metal *driver* is unsubmittable
+
+Found by **maple-fern in #617**, against an explicit and repeated claim in the
+assignment brief that `backend/metal/**` was editable. **The brief was wrong.
+That was my error and it nearly cost a round of build work.** Independently
+re-verified by the advisor against `benchmark.json`.
+
+`editablePaths` has **97 entries and no wildcards**. Under
+`Vendor/mlx-swift/Source/Cmlx/` it lists **51 individual `backend/metal/` files**
+plus exactly **two directory entries** (`kernels/steel/gemm`,
+`kernels/steel/attn`), and **30 `mlx-generated/*.cpp` files**. Consequences:
+
+- ✅ **editable**: `matmul.cpp`, `quantized.cpp`, `jit_kernels.cpp`, `kernels.h`,
+  and the named `kernels/*.metal` / `*.h` (sdpa, softmax, copy, unary, binary,
+  ternary, reduce, sort, arg_reduce, rope, rms_norm, gemv, quantized*, fp4/fp8,
+  fp_quantized*, indexing, reduction), the two `steel/` dirs, and
+  `mlx-generated/*.cpp`.
+- ⛔ **NOT editable**: `device.cpp`, `device.h`, `allocator.cpp`, `metal.cpp`,
+  and everything else under `backend/metal/` not named above. Therefore
+  **encoder dispatch type, barrier insertion, `start_concurrent()`, hazard
+  granularity and command-buffer structure are structurally unsubmittable**,
+  whatever they are worth. They remain fine as *research instruments* (that is
+  how #617's tracer worked) but never as a candidate.
+- ⛔ `backend/common/**` is not editable either — not because it is excluded,
+  but because **nothing is globbed at all.**
+
+**Standing procedure:** before proposing any edit outside `Sources/`, `grep`
+the exact path in `benchmark.json`. Do not trust a brief, including mine.
+
+### Rule 91 — the ≈19 µs/step "unexplained residual" is z ≈ 1.3 against the measured floor and may not exist
+
+The round-103 headline states the revert cost 31.54 µs/step, the restorations
+returned 12.14, and **≈19.0 µs/step (0.3204 % of `cs`) is still missing**. Its
+power check quotes `sd ≈ 3.3 µs` from four pre-revert receipts drawn the same
+day, giving "≈4.9 sd".
+
+Rule 89.2 measured the channel's own floor on **near-identical programs**:
+within-group `sd(decode)` **7.3–12.5 µs** robust, **23.955 µs** pooled, and
+robust 1-vs-1 `sd(cs)` **0.2494 %**. Against that floor:
+
+**19.0 µs/step = 0.3204 % of `cs` ⇒ z ≈ 1.28.** Not 4.9.
+
+The round-103 `sd ≈ 3.3 µs` is computed from **four different programs** and is
+*smaller* than the spread we measure between **near-identical** ones. Two
+estimators that disagree by 3–4× cannot both be right, and the one built on
+non-replicates is the one to distrust. The likely mechanism is
+**session-correlated noise that `cs` does not fully remove** — `cs` strips the
+session's own baseline draw, but nothing in its derivation guarantees the
+*candidate* leg is session-independent, and the four pre-revert receipts share a
+calendar day.
+
+⚠️ **We have spent four rounds hunting a 1.3σ effect.** It may be real; the
+point is that **nothing on this board can currently tell.** Until Rule 89.1 is
+discharged by an actual replication, "the residual" is a hypothesis, not a
+quantity. **Do not brief another mechanism-hunt for it. Brief the replication.**
+
+📏 **Stale-fact correction while we are here.** The research state repeatedly
+warns that `LagunaRuntimeModel.swift` is **519,236 B against a 524,288 B cap,
+≈5,052 B of headroom**, and several briefs (mine included) fenced students on
+that basis. That figure is from round 103 and is **stale**. Measured at the live
+advisor branch: **384,245 B ⇒ 140,043 B of per-file headroom.** (`origin/main`
+is 511,418 B; Arm R 398,661 B.) **The byte cliff is not currently binding.**
+Stop treating +4 kB as expensive.
+
+---
+
+### Rule 92 — the decode step is 70.6 % genuine serial data-dependence; barrier/encoder scheduling has 0.0198 % of `cs` in it and is CLOSED
+
+PR #617 (maple-fern, merged round 106) built the instrument this campaign has
+been missing: a **per-dispatch byte-range read/write DAG tracer** hooked into
+`device.cpp` as a *research-only* patch (never submitted — see Rule 90, that
+file is not editable). One decode step:
+
+| quantity | value |
+|---|---|
+| dispatches | 408 |
+| command buffers | 47 |
+| charged barriers (MLX `maybeInsertBarrier`) | 247 |
+| hazard separations (charged + free at encoder boundaries) | 288 |
+| greedy level count | 289 |
+| **minimum levels over ANY legal reordering** | **288** |
+
+**Instrument validation.** The tracer replays MLX's own `maybeInsertBarrier`
+decision on the recorded trace and reproduces **247 of 247 barriers, 0
+mismatches** — but only after modelling `end_encoding()`'s hazard-state reset.
+An unvalidated hazard model would have mis-scored this whole family; treat 247
+vs 247 as the standard any future scheduling instrument must meet.
+
+**The negative.** Greedy 289 → optimal 288 is **1 group = 1.3003 µs/step =
+0.0198 % of `cs`**, against a 33 µs/step viability gate ⇒ **25.4× short**. Even
+the fantasy ceiling in which command-buffer boundaries align perfectly with the
+DAG is 7.80 µs/step, still **4.2× short**. The result is invariant to
+granularity (pointer *and* byte-range) and to hazard model (RAW+WAR *and*
+RAW-only). **70.6 % of the decode step is genuine serial data-dependence** — it
+is not an encoder-policy artifact, and no barrier removal, no
+`start_concurrent()`, no CB restructuring can reach it.
+
+This retires the last live reading of Rule 41. At a 4,096 B dispatch boundary
+the 76.3 % "serialisation" term is **data-dependence**, not scheduling slack.
+
+H1 (concurrent dispatch type) is V-CONCURRENT but **already dead**:
+`device.cpp:545-549` sets `MTL::DispatchTypeConcurrent` unconditionally.
+
+Correctness held throughout (token 902, logit delta 0, golden hash
+`b9509697…`). W&B [`deuilxqt`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/deuilxqt).
+
+📎 **§5j label correction, from the same PR.** The occupancy-class labels 12 and
+13 were **swapped** in the round-105 write-up: 12 is LATENCY, 13 is BANDWIDTH.
+And the widely-quoted "21.6 %" is **not** the LATENCY-family share of the step —
+it is the **sub-C40 occupancy-class share** (203 dispatches, 8.2465 % of bytes,
+21.77 % of that label). The actual LATENCY-family share of decode time is
+**8.91 %** (760.2 of 8528.3 µs). Anything sized against "21.6 % is latency-bound"
+over-promises by ≈2.4×.
 
 ---
 
@@ -4042,8 +4195,10 @@ Four-term score-variance decomposition:
 | [#548](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/548) | maple-nezuko | **−176,468 B** of vendored comment bytes (headroom 16,151 → 192,619 B, 11.9×), bit-identical `mlx.metallib`, `max_abs_diff = 0`; produced **rules 74 & 75** | `2e490fa3` |
 | [#553](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/553) | maple-fern | **killed H2** (φ = 1.8008 vs a 1.05 viability bar) and **self-refuted its own r99 headline**: the −14.6 % probe dose was overstated **8.01× = 1.59 × 5.02** (unfaithful dispatch geometry × SLC residency) ⇒ 21.6 µs/step, 0.330 %. Produced **rules 77 & 78** and the faithful-geometry / residency-defeat probe harness | `c22f1e47` |
 | [#555](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/555) | maple-tanjiro | **restoration #1 of 3 landed**: the r85-C float4 merge epilogue, re-measured at **+0.2398 % [−0.0042,+0.4834]** and **−454 B** (byte-negative), bit-exact (`max_abs_diff = 0` vs the unchanged base). Also measured the session lottery **exactly** (`session_factor` closed form, worst rel err 4.885e-15, n = 1185, **sd = 0.5393 %**, i.i.d.), showed **we lead the record holder on merit by +0.0404 %** (`cc6ddc12` was a +3.03 σ draw), adopted the un-ratioed M4→M5 convention (**88.4 % closure**), and retired the `shared_…_rows1_halved_bf16_v1` +1.55 µs give-back as a slot-position artifact ⇒ **rule 79** | `3567695b` |
+| [#617](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/617) | maple-fern | **rule 92 — barrier/encoder scheduling is CLOSED.** Built and *validated* (247/247 vs MLX's own `maybeInsertBarrier`) a per-dispatch byte-range DAG tracer; greedy 289 levels vs **288 minimum over any reordering** ⇒ **1.3003 µs/step = 0.0198 % of `cs`**, 25.4× under gate; perfect-CB ceiling 7.80 µs/step, still 4.2× under. **70.6 % of the decode step is genuine serial data-dependence.** Also corrected §5j (labels 12/13 swapped; "21.6 %" is the sub-C40 class share, LATENCY-family share is **8.91 %**) | `fd185fd6` |
 
-W&B: #555 [`p3bajkox`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/p3bajkox).
+W&B: #617 [`deuilxqt`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/deuilxqt).
+#555 [`p3bajkox`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/p3bajkox).
 #497 [`grovhe29`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/grovhe29) ·
 [`ng13oh64`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/ng13oh64) ·
 [`1v3hp1h5`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/1v3hp1h5).
