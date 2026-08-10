@@ -1,0 +1,71 @@
+[
+  {
+    "function": "laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6",
+    "args": [
+      "%0",
+      "%1",
+      "%2",
+      "%3",
+      "%4",
+      "%5",
+      "%6",
+      "%7",
+      "%8",
+      "%9",
+      "%10",
+      "%11",
+      "%12"
+    ],
+    "basic_blocks": 14,
+    "back_edges": 20,
+    "fully_unrolled": false,
+    "addrspace_totals": {
+      "load_as1": 6,
+      "store_as0": 7,
+      "load_as0": 19,
+      "store_as3": 1,
+      "load_as3": 2,
+      "store_as1": 1
+    },
+    "other": {
+      "barrier": 1
+    },
+    "per_buffer": {
+      "%3": {
+        "loads": 1,
+        "load_bytes": 4,
+        "load_w4": 1
+      },
+      "%4": {
+        "loads": 1,
+        "load_bytes": 4,
+        "load_w4": 1
+      },
+      "%8": {
+        "loads": 1,
+        "load_bytes": 2,
+        "load_w2": 1
+      },
+      "%9": {
+        "stores": 1,
+        "store_bytes": 2,
+        "store_w2": 1
+      },
+      "<ambiguous:%0|%5>": {
+        "loads": 1,
+        "load_bytes": 8,
+        "load_w8": 1
+      },
+      "<ambiguous:%1|%6>": {
+        "loads": 1,
+        "load_bytes": 8,
+        "load_w8": 1
+      },
+      "<ambiguous:%2|%7>": {
+        "loads": 1,
+        "load_bytes": 1,
+        "load_w1": 1
+      }
+    }
+  }
+]

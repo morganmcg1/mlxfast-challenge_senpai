@@ -1,0 +1,15 @@
+{
+  "n": 1220,
+  "sd_ln_baseline_decode": 0.002457317029988086,
+  "sd_ln_baseline_prefill": 0.019265950915643076,
+  "beta_decode": -12.327528011952301,
+  "beta_prefill": -0.9174082679361417,
+  "sigma_lnO_common_mode": 0.02624125411017485,
+  "sigma_lnf": 0.005157049347475705,
+  "repeat_group": {
+    "tol": 0.0002,
+    "df": 22,
+    "sd": 0.0055031427477701235
+  },
+  "need_ln_ratio": 0.009965218700204358
+}

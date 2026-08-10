@@ -1,0 +1,43 @@
+==============================================================================
+NON-BYTE SLACK BOUND  (hard ceiling on every fixed-byte / instruction-side lever)
+==============================================================================
+  DRAM peak 266.3 GB/s ; rule-55 intercept 3.97 us/dispatch ; price 0.015228 %cs per M4 us/step ; bar 0.4 %
+
+  family                     disp_us  bytes_us  floor_us  slack_us  slack/step  max %cs  bars   verdict
+  D  T2c routed gate+up        38.40    33.469    37.439     0.963       37.6    0.250   0.62   CLOSED
+  A  T3b oproj h64             37.26    32.492    36.462     0.794       23.8    0.159   0.40   CLOSED
+  C  T0b(a) qkv h64            44.67    40.645    44.615     0.055        1.7    0.011   0.03   CLOSED
+  B  T2d down+residual         22.02    18.827    22.797    -0.774      -30.2   -0.201  -0.50   CLOSED
+  E  T2b gate_sp h64            8.27     0.984     4.954     3.313       99.4    0.757   1.89   OPEN (but see family notes)
+
+  Reading: for A, B, C and D the ENTIRE non-byte budget -- exposed ALU plus every
+  unexplained latency term put together -- is smaller than one 0.4 % bar.  For
+  B it is not even positive: the family already runs at or below the modelled
+  DRAM floor, which also flags a ~3 % tension in the byte audit (see threats).
+
+==============================================================================
+FULL-FUSION PRIZE for family E (bytes still have to move; dispatch does not)
+==============================================================================
+  dispatch 8.27 us ; irreducible byte time 0.984 us
+  prize if the dispatch disappears entirely: 218.5 M4 us/step = 1.664 % of cs = 4.16 bars
+  of which rule 65's fixed per-dispatch cost 2.3403 us x 30 = 70.2 us/step = 0.535 % of cs
+  NOTE: the lever is dispatch-count / fusion, NOT bytes and NOT issue.
+  Prior art already priced on this axis: #48 dispatch-count reduction = -0.1488 %.
+
+==============================================================================
+ISSUE-SIDE EXCHANGE RATES, per family, both nominal and exposed
+==============================================================================
+  family   slot us/fma-thr  base fma/thr   nominal bar   exposed bar   exposed bar
+                                          (instr/thr)   (instr/thr)   as x base load
+  D              0.038044           128            41           466            3.6x
+  A              0.004506          1024           445          5112            5.0x
+  C              0.038044           256            53           605            2.4x
+  B              0.038044            64            41           466            7.3x
+  E              0.038044            68            46           529            7.8x
+
+  'nominal' assumes every added/removed instruction costs a full machine slot
+  (i.e. zero overlap with memory).  'exposed' uses the 8.7 % exposure fraction
+  measured directly on family D.  Even the NOMINAL bar exceeds the base ALU load
+  for D, B and E; for A and C the nominal bar is a fraction of the base load, so
+  for those two the closure argument rests on the slack bound above rather than
+  on the exchange rate alone.

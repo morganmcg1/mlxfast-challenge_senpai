@@ -1,0 +1,35 @@
+tsv: research/artifacts/maple-fern-r106j/abba_t0_t0p/runs.tsv
+control=T0 candidate=T0P
+usable runs: 32  complete ABBA blocks: 8
+correctness failures: 0
+distinct golden_hash values: 1 -> ['b9509697c08a2cf3']
+  T0 worker sha256 prefixes: ['02b171eb5874', '118ec3b45fdd', '3bba70d5234d', '462fabbf8818', '4eb2ac5c49ff', '6d484a782fbc', '7c4513123a0a', '7e9ef2bfe52a', '81eb8ee8afff', '94dac17102c7', 'b1f2ebeb7655', 'c848ddb0683c']
+  T0P worker sha256 prefixes: ['0780d5af8dbd', '4111ab2fefdf', '47aac7588c9e', '6aa7cbeedc8f', '7031861711b2', '7310815f5e31', 'c9c0e4488a29', 'd9cf822e128a', 'db8ac4b9a0b1', 'df3f0b2e2fa9', 'eb7e8bea0e55', 'fed8999f2159']
+  within-arm T0 decode_s_per_token: mean=0.012965275 cv=0.3206% n=16
+  within-arm T0 prefill_s_per_token: mean=0.001118825 cv=0.8498% n=16
+  within-arm T0P decode_s_per_token: mean=0.012945511 cv=0.3861% n=16
+  within-arm T0P prefill_s_per_token: mean=0.001119811 cv=0.4838% n=16
+
+-- ABBA block contrasts, T0P minus T0, natural log --
+d(ln decode)   : -0.1528%  CI95 [-0.5469, +0.2414]  sd=0.4714% n=8 dof=7 positive_blocks=3/8
+d(ln prefill)  : +0.0904%  CI95 [-0.4536, +0.6343]  sd=0.6506% n=8 dof=7 positive_blocks=6/8
+
+-- PRIMARY: d(ln score), T0P minus T0, positive means T0P better --
+d(ln score)    : +0.0920%  CI95 [-0.2347, +0.4187]  sd=0.3907% n=8 dof=7 positive_blocks=6/8
+
+-- CONSERVATIVE (nax wall): prefill charged as neutral --
+d(ln score|dec): +0.1146%  CI95 [-0.1811, +0.4102]  sd=0.3536% n=8 dof=7 positive_blocks=5/8
+
+-- verdict, primary --
+  superiority (CI excludes 0 positive): no
+  inferiority  (CI excludes 0 negative): no
+  clears the +0.40% bar (point)        : no
+  clears the +0.40% bar (CI lower)     : no
+
+-- verdict, conservative --
+  superiority (CI excludes 0 positive): no
+  inferiority  (CI excludes 0 negative): no
+  clears the +0.40% bar (point)        : no
+  clears the +0.40% bar (CI lower)     : no
+
+  per-block d(ln score) %: +0.3022, -0.3693, -0.6056, +0.4303, +0.1674, +0.0146, +0.3232, +0.4731

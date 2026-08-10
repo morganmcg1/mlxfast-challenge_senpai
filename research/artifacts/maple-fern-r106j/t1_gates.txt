@@ -1,0 +1,36 @@
+# GATE 1 (partial): git diff --numstat 4b0e051bf3cd9777bd6d2be64e172c490705f9a5 HEAD -- Sources/MLXFastModel Sources/MLXFastTransform (MUST BE EMPTY)
+# GATE 1 exit=0
+# GATE 2: origin/main ancestor of HEAD
+PASS
+# GATE 3: benchmark.json unchanged vs origin/main
+PASS
+# GATE 4: git status --porcelain=v1 -uall -- $PATHS_T1 (MUST BE EMPTY)
+# GATE 4 end
+# CONTEXT: full-surface diff vs 4b0e051bf3cd9777bd6d2be64e172c490705f9a5 is expected NON-empty (vendor is
+# advisor HEAD's comment-stripped copy; proven semantically identical).
+0	39	Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/Laguna.swift
+0	68	Vendor/mlx-swift-lm/Libraries/MLXLMCommon/AttentionUtils.swift
+0	29	Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+4	112	Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+2	43	Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+1	58	Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+1	41	Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+0	31	Vendor/mlx-swift-lm/Libraries/MLXLMCommon/DynamicSlice.swift
+2	7	Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+0	21	Vendor/mlx-swift-lm/Libraries/MLXLMCommon/JSONDecodingTypes.swift
+1	179	Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+0	85	Vendor/mlx-swift-lm/Libraries/MLXLMCommon/LanguageModel.swift
+0	38	Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEApplication.swift
+0	29	Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEUtils.swift
+1	87	Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift
+6	94	Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp
+1	2	Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels.h
+0	26	Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/arg_reduce.metal
+0	2	Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/binary.metal
+0	2	Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/gemv.metal
+0	37	Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rms_norm.metal
+0	6	Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rope.metal
+0	18	Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/scaled_dot_product_attention.metal
+0	294	Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/sdpa_vector.h
+19	227	Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+10	405	Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp

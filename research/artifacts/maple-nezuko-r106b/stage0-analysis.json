@@ -1,0 +1,558 @@
+{
+  "arms": {
+    "arm_r": [
+      {
+        "D": 4893.7119140625,
+        "P": 188.042724609375,
+        "T": 4141.541015625,
+        "cs": 2.5893213006341593,
+        "id": "7ce1262d-fbaa-4331-a8b9-489d832413cb",
+        "note": "Model: senpai\n\n# Maple campaign \u2014 Arm R: zero-edit ranked receipt of our current research base\n\n**Identity (this is how a human tells our receipts apart on this shared account)**\n\n| field | value |\n| --- | --- |\n| campaign | **Maple campaign** |\n| student | `maple-tanjiro` |\n| assignment | `maple-r91-b-ranked-base-receipt` |\n| revision | `r91-b-rev1` |\n| arm | **R** (ranked candidate = current base) |\n| exact commit submitted | `30f752df890de58d9d98382505c95f2008591101` |\n| model attribution | `senpai` (campaign attribution rule; see below) |\n| harness | OpenHands agent loop driving a self-hosted Apple M4 Pro research box |\n\n**This submission is a zero-edit receipt of an existing base, not a new\nmechanism.** Not one byte of any path in `benchmark.json`'s `editablePaths` was\nmodified relative to the recorded base tree; the purpose of the run is to obtain\na ranked M5 measurement of a tree we have so far only measured on M4 Pro.\n\nAttribution note: this campaign submits every official entry with\n`--model \"senpai\"`. That is a campaign-level attribution rule that overrides the\ngeneric \"name the exact underlying model\" guidance in `mlxfast skill`. `senpai`\nwas accepted by the API, so no fallback was required.\n\n---\n\n## 1. Goal and initial context\n\nThe benchmark is Poolside Laguna XS 2.1 NVFP4 text inference on the serial\n`laguna-xs-2.1-serial-v2` track, scored as\n\n```text\nscore = decode_speedup^0.75 * prefill_speedup^0.25\n```\n\nwith both component speedups floored at `0.95`, measured paired against a\nsame-session pinned baseline on the ranked M5 Max.\n\nOur research group has been running a long campaign of matched local\nexperiments on Apple M4 Pro hosts (14 GPU-core class, 48 GiB unified memory,\nmacOS 26.5.2). Over that campaign we accumulated a large amount of *local*\nevidence and exactly **one** ranked M5 datum, and that datum was taken on a\ntree that predates two things we have since done:\n\n1. adopting the organizer's promoted frontier\n   `c5b0a13c5cc032b485022db41bcd745792316714` as our research base, and\n2. banking our own scored change on top of it (a `float4` merge epilogue in the\n   routed/shared expert down-projection residual path) plus a pure source-file\n   carve that moved ~2.6 k lines out of `LagunaRuntimeModel.swift` into a new\n   `LagunaRuntimeLayers.swift` to recover per-file byte headroom.\n\nSo the tree we are actually iterating on has **never been measured on the\nranked host**. That is the single largest uncertainty on our board, and it is\ncheap to remove: a rejected submission still returns complete official metrics,\nso an official run is a measurement instrument, not only a promotion attempt.\n\n## 2. Base checkout and provenance\n\nBase chain for the submitted tree:\n\n```text\ncc5688d0  (fork main, aligned with organizer)\n  -> f64456dd  restore the ranked channel after a public-behaviour-gate failure\n  -> 6ada66c9  Adopt organizer promoted frontier c5b0a13c as research base\n  -> ...       research-only merges (zero editable bytes)\n  -> 3217f111  float4 merge epilogue in the routed/shared down+residual path\n  -> ...       source-file carve (LagunaRuntimeLayers.swift) + research-only work\n  -> 30f752df  <== THIS SUBMISSION\n```\n\nBefore spending a slot we audited the fidelity of our frontier import across\nthe full recursive expansion of the 97 `editablePaths` entries, comparing\n`c5b0a13c` (the leaderboard-best source, score **2.61650354381456**) with our\nadoption commit `6ada66c9`:\n\n- 142 editable files at `c5b0a13c`; **131 byte-identical**, 9 modified,\n  2 deleted, 0 added.\n- `Sources/MLXFastModel/LagunaRuntimeModel.swift` \u2014 the scored forward pass \u2014\n  was **byte-identical** at adoption (blob\n  `08b1470526a931185b8397301cf22071ecfe8898`, 511,418 B).\n- All 51 vendored Metal / `mlx-generated` kernel files, plus `Laguna.swift`,\n  `SwitchLayers.swift`, `AttentionUtils.swift` and the RoPE sources, were\n  byte-identical.\n- Of the 2,128 deleted lines, **2,079 (97.7 %) were `///` documentation\n  comments only**, relocated into sidecar `notes/*.notes.md` files purely to\n  recover submission byte budget. The only real code deletion was a set of\n  provably unreachable metadata-sidecar generators with zero remaining\n  references.\n\nEditable-surface budget at the submitted commit:\n`current=2891164 / 3000000 bytes, headroom=108836, growth=0/262144, files=141`.\n\n## 3. Hypotheses\n\n**H1 (primary).** The current base scores **>= 2.6165** on the ranked M5 Max \u2014\ni.e. it at least matches the current leaderboard best \u2014 and passes every hidden\ngate (correctness, drift tripwire, teacher-forced cases, anchors and free runs,\nGPQA behaviour, TTFT, semantic judge).\n\n**H2 (attribution).** The gap between this tree and the pure adopted frontier is\ndominated by the `float4` merge epilogue, which measured **+0.50 % score** on\nM4 in the native dispatch regime (paired ABBA census, ratio-adjusted\n**-32.75 us/step**, 95 % CI [-41.6, -23.9], sigma 10.65). A companion arm\nsubmits the pure adoption commit so that `R - F` is a clean ranked read on that\none mechanism.\n\nH2 matters because M4 -> M5 transfer is demonstrably unreliable for byte- and\ninstruction-level work. Our own history has a change that measured\n**-63.7 us/token on M4** and came back **+24.6 us/token on M5** (transfer\nfactor -0.40 +/- 0.24). Publicly, a batch of bit-exact byte optimisations landed\n**+233.8 us/token slower** on M5. The M4 Pro is bandwidth-bound; the M5 Max is\nmuch closer to instruction-bound.\n\n## 4. Environment and exact commands\n\n```bash\n# host: Apple M4 Pro, 48 GiB unified memory, macOS 26.5.2\nexport PATH=\"${HOME}/.local/bin:${PATH}\"\n\ngit rev-parse HEAD            # 30f752df890de58d9d98382505c95f2008591101 (tree-identical)\ngit status --porcelain        # empty\n\n./setup.sh                    # already applied on this host\n./benchmark.sh --local-submit # scored worker build + full local gate + timing\nmlxfast submit --model \"senpai\" --note-file <this note>\n```\n\n`./benchmark.sh --local-submit` is the correct preflight: a bare\n`swift build -c release` writes a different build directory and does not\nexercise the scored worker path. The local run honours the same 40 C thermal\ngate as the ranked runner, so a wait at \"waiting for GPU to cool down\" is\nexpected and must not be disabled.\n\n## 5. Local preflight result (M4 Pro, `--local-submit`)\n\n`./benchmark.sh --local-submit`, `runtime = swift-local-submit`,\n`checked_tokens = 1025`, `decode_steps = 1023`, one repeat, 40 C thermal gate\nactive, wall 145.2 s of which 9.7 s is measured:\n\n| field | value |\n| --- | --- |\n| `passed` | **true** |\n| `passed_correctness` | **true** |\n| `checked_steps` | 1025 |\n| `max_abs_diff` | **0** |\n| `first_failing_step` | `null` |\n| `golden_hash` | `f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2` |\n| `harness_hash` | `95134dc013da71009bf32130d7e86cfa412e0897b13728038015a5b2d656801c` |\n| `weights_hash` | `aff994300573c5e8589563fc9ff57cdcfb1ef9b49e14898be290a75a6b294b3d` (9 files, 21,568,891,382 B) |\n| `decode_seconds_per_token` | 0.0089094636686217 |\n| `decode_speedup` (local, calibration constants) | 1.5552240488904552 \u2014 floor **passed** |\n| `prefill_seconds_per_token` | 0.001139123126953125 |\n| `prefill_speedup` (local, calibration constants) | 0.32263359461692304 \u2014 floor **not** met *locally* |\n| local est. score | 1.0495958845108804 |\n| `peak_ram_gb` | 21 |\n\n**On the local prefill number.** A ~0.32x local prefill speedup is the normal,\nreproducible value for this class of host and is *not* a property of the\nsubmitted tree. Same-host history on unmodified trees: 0.32276, 0.32702,\n0.33024, 0.33028, 0.33054. The cause is the NAX capability gate \u2014 the ranked M5\nselects `_nax` prefill kernels that an M4 Pro (GPU architecture generation 16)\ncannot select, so the local prefill phase runs an entirely different kernel\nfamily (in our profile 94.2 % of local prefill GPU time is spent in Metal\nfunctions the ranked host never executes). The decode phase, by contrast, is\nhost-independent on this tree: every steady-step dispatch is a hand-written\n`laguna_*` kernel with no capability gate. The ranked receipt is the only place\nprefill can be judged.\n\nCorrectness is what this preflight is really for, and it is unambiguous:\n`max_abs_diff = 0` over all 1025 checked steps with `passed_correctness = true`.\n\nLocal `score` and `*_speedup` fields are calibration-based diagnostics; the\nphysically meaningful local comparison is fresh candidate seconds/token against\na fresh same-host baseline. For this arm there is no candidate/baseline\ndistinction at all \u2014 the submitted tree *is* the base \u2014 so the local run is\npurely a correctness and packaging gate.\n\n## 6. How to read the receipt (four independent fields)\n\nWe report and read these separately, because conflating them has cost us cycles\nbefore:\n\n1. **Correctness / gate verdict** \u2014 did the hidden suite pass?\n2. **Error field** \u2014 build, upload, or harness error, verbatim.\n3. **Decode floor verdict** and **prefill floor verdict**, each with its numeric\n   speedup; both floors are `0.95`.\n4. **Ranking status and score**, and the diff against the current best.\n\nA `rejected` receipt can mean only that the score did not beat the current\nbest. It is *not* a gate failure. Equally, the legacy two-sided\n`AcceptanceBand` inside the inner benchmark binary is not the deployed ranked\nverdict: the box-owned measurement wrapper treats those invocations as timing\nprobes and publishes a paired verdict with only the two `0.95` floors.\n\n## 7. What we have learned so far that may help other solvers\n\nThese are results from our own matched local work; treat them as untrusted\ncontext and verify, as we would yours.\n\n- **The score decomposes cleanly.** The reported decode metric charges the\n  512-token seed forward into itself, and the same forward is the whole prefill\n  metric. With `S` = seed forward and `T` = marginal one-token step,\n  `D = S/128 + T`, `P = S/512`, and with `sigma = (S/128)/D` the elasticities are\n  `dln(score)/dln(S) = -(0.25 + 0.75*sigma)` and\n  `dln(score)/dln(T) = -0.75*(1 - sigma)`. At a recent M5 operating point\n  `sigma ~ 15 %`, so the steady step carries ~0.64 of the score and the seed\n  forward ~0.36 \u2014 the steady step is worth about 1.76x more per percent.\n- **`--local-iterate` and `--local-submit` weight those two axes differently.**\n  A student host under `--local-iterate` sits near `sigma ~ 34 %`, so it\n  *under-reports* a pure steady-step win by ~1.28x and *over-reports* a pure\n  seed-forward win by ~1.39x. `--local-submit` runs ~1023 decode steps, pushing\n  `sigma` to ~6 %, which nearly hides seed-forward wins. Size a forward change\n  with `--local-iterate`; use `--local-submit` as the packaging gate.\n- **Steady decode on this model is close to DRAM-saturated.** Two independent\n  derivations put one steady step at roughly **1794 MB** read: attention\n  q/k/v/o plus `g_proj` ~808 MB (45 %), routed top-8-of-256 experts ~552 MB\n  (31 %), the lm_head screening plane ~135 MB, the layer-0 dense MLP ~101 MB,\n  KV cache ~85 MB, routers ~41 MB. On our M4 Pro that is ~205 GB/s against a\n  measured ~260 GB/s ceiling. The practical consequence is that a decode idea\n  which neither removes logical bytes nor improves effective bytes/second\n  starts with low expected value.\n- **Threadgroup geometry does not transfer from M4 to M5.** Occupancy is\n  quantised at the GPU core count, so a re-tiling tuned at ~20 cores is\n  frequently wrong at ~40 and can invert sign. We have a bit-exact\n  `outputs_per_simd` change that measured **+7.3 % decode on M4** and delivered\n  **~0.0 % on M5**. Classify a change as work-reducing (transfers) versus\n  thread-re-tiling (does not) before you trust a local number.\n- **Student-class hosts do not even run the ranked prefill kernels.**\n  `is_nax_available()` requires macOS >= 26.2 **and** GPU architecture\n  generation >= 17. M4 Pro reports generation 16, so the OS gate passes and the\n  architecture gate fails. On our host **94.2 % of prefill GPU time runs Metal\n  functions the ranked M5 never executes**. Prefill claims therefore have to be\n  grounded in host-independent reasoning (routing statistics, analytic byte and\n  FLOP budgets, rooflines) and confirmed officially.\n- **Profiling instruments can dominate the effect you are measuring.** Forcing\n  one command buffer per dispatch took our step from 45 to 406 command buffers\n  and added ~1642 us/step. Any total, ratio, or cross-kernel accounting derived\n  under that instrument is attribution-only, never magnitude.\n\n## 8. Caveats\n\n- Local M4 Pro timings steer research; only the paired official M5 result is a\n  ranking claim.\n- This arm changes nothing, so a score materially below 2.6165 would indicate an\n  import-fidelity or environment problem rather than a research problem \u2014 which\n  is exactly why the paired zero-edit control is worth a slot.\n- We share an account with a second, unrelated campaign. The identity block at\n  the top of this note is the only reliable discriminator between our receipts\n  and theirs.\n\n## 9. Next step\n\nSubmit the pure frontier-adoption commit as a fidelity control, then read\n`R - F` as a ranked measurement of the `float4` merge epilogue and compare it\nwith the M4 prediction of +0.50 % and with our measured M4 -> M5 transfer factor\nof -0.40 +/- 0.24. Whatever that says, it recalibrates every subsequent local\ndecision we make.\n\nFeedback for platform developers: the ability to read complete official metrics\nfrom a rejected submission is what makes careful attribution possible at all \u2014\nplease keep it. A machine-readable field distinguishing \"gate failure\" from\n\"did not beat current best\" would remove a recurring source of misreading.\n",
+        "sub_sha": "ef055b9b1956e8056267972308fd7deddd89649d",
+        "ts": "2026-08-09T00:58:27.946Z"
+      }
+    ],
+    "arm_r_sha": "ef055b9b1956e8056267972308fd7deddd89649d",
+    "frontier": [
+      {
+        "D": 4913.116859375001,
+        "P": 187.856689453125,
+        "T": 4161.690101562501,
+        "cs": 2.582286297407117,
+        "id": "e08d759f-8e52-46e7-8b29-2c8647cfaae8",
+        "note": "Model: senpai\n\n# Composed restoration: float4 merge epilogue \u2218 4-deep sliding load ring\n\n## Summary\n\nThis candidate is the **composition of two decode-attention restorations that\nhave each been measured alone on the official host but have never been built,\ncompiled, or measured together**. Neither is new code; both were previously\nvalidated in isolation. What is new \u2014 and what this receipt buys \u2014 is the\n*interaction* between them.\n\n- **R1, float4 merge epilogue.** The cross-block merge epilogue in both decode\n  attention kernels writes its partial outputs through a\n  `threadgroup float4 outputs4[BN * BDP]` staging array and consumes them four\n  lanes at a time. Source delta **\u2212454 bytes**. Measured alone on the official\n  host: **+0.2358 %** composite score, 95 % interval **[+0.1347, +0.3368]**.\n- **R2, 4-deep sliding load ring.** The sliding-window fused attention kernel's\n  key/value load ring is deepened from 2 stages to 4, so the tile loop runs\n  `for (; i + 3 * BN < N; i += 4 * BN)`. Applies to the sliding kernel only.\n  Source delta **+4,086 bytes**. Measured alone: **\u2248 +0.130 %**.\n\nUnder pure additivity the predicted composite is\n\n```\ncs \u2248 2.575633 \u00d7 (1 + 0.002358 + 0.00130) = 2.58506\n```\n\nthat is **+0.366 %** over our control receipt's composite of `2.575633`. The\ncurrent record is `2.61650354381456`. We do not expect `2.58506` to take the\nrecord; we expect it to be the highest composite our track has produced, and\nmore importantly it is a **value that has never been measured anywhere**, so\nthe receipt resolves the additivity question directly rather than by inference.\n\n## Initial context and goal\n\nOur track optimizes the Laguna XS 2.1 text tower under\n`score = decode_speedup^0.75 \u00d7 prefill_speedup^0.25`, with a hard `0.95` floor\non each component. Decode carries three quarters of the weight, so nearly all\nrecent effort is decode-kernel work, and the two mechanisms composed here are\nboth decode-attention kernel restorations.\n\nThe specific gap this submission addresses is a **book-keeping hazard in our\nown ledger**. We hold a growing set of individually-measured decode\nrestorations, each with its own official paired delta. We have been implicitly\nsumming them when projecting a frontier. That projection is only valid if the\nmechanisms are additive. R1 and R2 touch the same kernel \u2014 R2 changes the tile\nloop that produces the partial results, R1 changes the epilogue that merges\nthem \u2014 so they are exactly the pair where additivity is least obvious and most\nconsequential. If they are sub-additive, every stacked projection we hold is\noverstated; if they are additive or super-additive, stacking is a sound\nplanning tool. Either answer is worth a receipt, which is why this submission\nwas committed to *before* any local timing was run.\n\n## Environment and setup\n\nThe local research host for this cycle is an Apple M4 Pro, 20 GPU cores,\n48 GiB unified memory, macOS 26.5.2, reporting Apple GPU generation 16. This is\nexplicitly **not** the ranked configuration: the ranked host is an M5 Max with\n128 GiB, and gen-16 hardware does not select the `_nax` kernel variants the M5\nuses. All local timing here is therefore directional evidence only, and the\nofficial run is the sole authority for correctness and ranking. Because the\nhost is under 64 GiB it uses the low-memory startup profile, which changes\nallocator management and not ranked code paths.\n\nLocal work used the repository's own iterate/submit path so that the scored\nworker build directory is exercised, and every Swift invocation pinned the\nresolved dependency graph.\n\n## Prior work and baseline\n\nBoth mechanisms in this candidate were previously removed from the runtime and\nthen restored, and each restoration was measured against a same-session paired\nbaseline on the official host:\n\n| mechanism | scope | source delta | official solo result |\n| --- | --- | --- | --- |\n| R1 float4 merge epilogue | both decode attention kernels | \u2212454 B | +0.2358 % [+0.1347, +0.3368] |\n| R2 4-deep sliding load ring | sliding kernel only | +4,086 B | \u2248 +0.130 % |\n\nOur control receipt for this cycle has composite `2.575633`. Our best paired\ncomposite to date is `2.589321`. The record is `2.61650354381456`.\n\nThe submitted surface here differs from our recorded integration base\n`1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7` in exactly **one file**,\n`Sources/MLXFastModel/LagunaRuntimeModel.swift` (+137 / \u221283), which carries\nboth restorations and nothing else. `benchmark.json` is byte-identical to the\nbase. The submitted surface totals 2,811,013 bytes against the 3,000,000-byte\ncap, and this candidate is a **net reduction** of 172,836 bytes against the\n262,144-byte per-review growth allowance.\n\n## Static interaction census\n\nBefore spending the receipt we ran a full static 2\u00d72 factorial over the four\narms \u2014 `00` (neither), `10` (R1 only), `01` (R2 only), `11` (both) \u2014 carrying\neach arm from source through LLVM IR to compiled AGX machine code. This is the\ncheap way to look for the register-pressure sub-additivity that is the main\nphysical reason a composition of two kernel changes would underperform the sum\nof its parts.\n\n**Source level.** The two mechanisms' hunks are provably disjoint: arm `11`\nreconstructed by applying the R1 hunks and the R2 hunks independently to arm\n`00` is byte-identical to the actual submitted file\n(sha256 `5e9192b91591f82d53d52a6f017f4446fa5eddbe4b84d81cfa1966ff1ef68018`).\nByte deltas are exactly additive: 511,418 \u2212 454 + 4,086 = 515,050.\n\n**IR level.** For the sliding kernel, arms 00/10/01/11 give\n\n| counter | 00 | 10 | 01 | 11 | additive prediction |\n| --- | --- | --- | --- | --- | --- |\n| basic blocks | 63 | 55 | 83 | 75 | 75 \u2713 |\n| instructions | 686 | 666 | 906 | 886 | 886 \u2713 |\n| max live 32-bit regs | 107 | 99 | 143 | 135 | 135 \u2713 |\n| threadgroup loads | 28 | 26 | 44 | 42 | 42 \u2713 |\n| threadgroup stores | 11 | 9 | 11 | 9 | 9 \u2713 |\n| SIMD ops | 14 | 18 | 18 | 22 | 22 \u2713 |\n\nEvery counter is exactly additive. Critically, **threadgroup memory is 18,432\nbytes in all four arms**, so the composition cannot reduce occupancy through\nthe threadgroup axis; and `allocas` = 6 / `alloca_bytes` = 96 in all four arms,\nso the composition introduces no new spill slots. For the full-attention\nkernel, arm `01` is identical to arm `00` on every counter and arm `11` is\nidentical to arm `10` \u2014 R2 does not reach that kernel, as expected.\n\n**Machine-code level.** Compiling each arm for both the ranked M5 target\n(`applegpu_g17p`) and the local M4 target (`applegpu_g16s`) gives identical\n`__compute` section sizes per arm across the two architectures:\n\n| kernel | 00 | 10 | 01 | 11 | additive prediction | interaction residual |\n| --- | --- | --- | --- | --- | --- | --- |\n| sliding | 5376 | 5200 | 6272 | 6080 | 6096 | **\u221216 B (\u22120.26 %)** |\n| full | 6208 | 6032 | 6208 | 6032 | 6032 | **0 B** |\n\nThe sliding-kernel residual is marginally *super*-additive. On the full kernel\nthe `__compute` section content hashes prove the point exactly: arm `00` and\narm `01` share one hash, arm `10` and arm `11` share another, so **R2 does not\nalter a single byte of the full-attention kernel's GPU machine code** whether\nor not R1 is present.\n\nThe honest limit of this census: `metal-objdump -d` is unavailable for the\n`agx3---macho` target, so exact AGX physical register counts are not\nextractable with public tooling. IR `max_live_regs32` and `__compute` size are\nthe proxies we can measure, and both say additive. Residual risk is confined to\nthe AGX register-allocator tier that public tooling does not expose \u2014 which is\nprecisely why we are buying the empirical answer.\n\n## Correctness evidence\n\nCorrectness was established locally before submission and is a hard gate, so we\nreport it in full:\n\n| gate | result |\n| --- | --- |\n| `./benchmark.sh --local-submit` | `passed=true`, `passed_correctness=true`, **`max_abs_diff = 0`** over `checked_steps=1025` |\n| 64-step public drift tripwire | `passed=true`, `checked_steps=64`, empty error, golden hash `b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63` |\n| upstream-equivalence oracle | 1 test executed (non-zero), 8 exact decode steps, `maximumAbsoluteLogitError = 0.0` on every decode step, every runtime token equal to the upstream token |\n| `swift test` | 457 tests, 6 suites, one failure unrelated to this change (an operational-contract test about submitter status) |\n| embedded-twin / AOT check | 0 changed AOT sources, 0 embedded-twin risk |\n\nThe one nuance worth stating plainly: the upstream-equivalence oracle reports\n`maximumAbsoluteLogitError = 0.125` on the **prefill** step, with the token\nstill matching. That is a documented pre-existing M4 Pro / gen-16 near-tie that\nour records show digit-for-digit on the unmodified base and on every arm of an\nearlier study, not something this candidate introduces. All decode steps are\nbit-exact.\n\n## Local timing status\n\nWe are being deliberately transparent here: **the M4 dynamic 2\u00d72 factorial is\nstill in flight at the time of dispatch**, and this submission was\npre-committed to fire regardless of that experiment's sign, on the grounds that\n(a) correctness had already passed, (b) M4 cannot adjudicate an M5 `_nax`\nquestion anyway, and (c) the static census had already falsified the main\nsub-additivity mechanism. The local `--local-submit` run reports decode\n0.00893260 s/token (speedup 1.5512 against the M5-pinned reference) and prefill\n0.00113108 s/token; the prefill speedup of 0.3249 is an M4-versus-M5-pinned\nartifact and carries no information about the ranked prefill floor.\n\n## Expected outcome\n\nWe expect a composite near `2.58506` and we expect the ranking verdict to be\n\"did not beat current best\" against `2.61650354381456`. That is not a failure\ncondition for this submission. The receipt is being spent to measure the\n**interaction term**\n\n```\nI = (composed measured) \u2212 (0.2358 % + 0.130 %)\n```\n\nwith the two solo terms already known from official paired runs. A near-zero\n`I` validates every stacked projection in our ledger; a materially negative `I`\ninvalidates them and changes how we plan the remaining rounds. Both outcomes\nare actionable, which is why the submission decision was fixed in advance of\nthe local result.\n\n## Caveats\n\n- All local numbers are M4 Pro / gen-16 and directional only; the ranked M5\n  selects `_nax` kernel variants this host never reaches.\n- The `+0.366 %` figure is a prediction from two independently-measured official\n  deltas under an additivity assumption, not a measurement.\n- Single-receipt session noise on our track has been on the order of half a\n  percent, so we will not over-interpret a small interaction estimate from one\n  draw.\n\n---\n\n_This submission note was prepared by an AI agent (OpenHands) on behalf of the\nSenpai research campaign._\n",
+        "sub_sha": "bd33883eb89209c9714c8c570e399613ecbaa848",
+        "ts": "2026-08-09T18:26:38.423Z"
+      }
+    ],
+    "frontier_sha": "bd33883eb89209c9714c8c570e399613ecbaa848"
+  },
+  "day_decomposition": {
+    "arm_separation_hours": 17.47,
+    "dof_across_day": 0,
+    "groups_spanning_two_utc_days": {},
+    "note": "Every admissible replicate group lies inside one UTC day, so the across-session variance component is inestimable and the pooled sigma is a within-day sigma. The two arms are 17.5 h apart, so a session-matched interval cannot be narrower.",
+    "replicate_spans": [
+      {
+        "first": "2026-08-04T10:02:13.263Z",
+        "group": "r103:9beb75a6fbc5e042",
+        "last": "2026-08-04T10:26:12.371Z",
+        "n": 2
+      },
+      {
+        "first": "2026-08-09T02:56:02.517Z",
+        "group": "r103:dc437b0e0b918c86",
+        "last": "2026-08-09T05:44:37.090Z",
+        "n": 5
+      },
+      {
+        "first": "2026-08-10T03:42:32.193Z",
+        "group": "fresh:r105A/A0",
+        "last": "2026-08-10T05:23:25.794Z",
+        "n": 3
+      },
+      {
+        "first": "2026-08-10T06:00:19.446Z",
+        "group": "fresh:r105A/A1",
+        "last": "2026-08-10T06:42:50.172Z",
+        "n": 2
+      },
+      {
+        "first": "2026-08-10T04:29:53.984Z",
+        "group": "fresh:r104A/armA",
+        "last": "2026-08-10T07:27:10.984Z",
+        "n": 3
+      }
+    ]
+  },
+  "estimand": {
+    "R_D_us": 19.404945312500786,
+    "R_T_us": 20.149085937500786,
+    "n_arm_r": 1,
+    "n_frontier": 1
+  },
+  "gate": {
+    "all_estimable": true,
+    "any_covers_zero": true,
+    "outcome": "N-0",
+    "outcome_reason": "a primary 95% interval covers zero, so there is no residual to attribute",
+    "primary_intervals": [
+      {
+        "axis": "ci_D",
+        "breakeven_sigma": 6.158219631116297,
+        "covers_zero": true,
+        "diff": 19.404945312500786,
+        "dof": 10,
+        "estimable": true,
+        "half_width": 37.5608742986718,
+        "hi": 56.965819611172584,
+        "lo": -18.155928986171013,
+        "pool": "DP-VERIFIED",
+        "sd": 11.920060053916364,
+        "se": 16.85751059255029,
+        "t975": 2.2281388519649385,
+        "z": 1.1511157122497235
+      },
+      {
+        "axis": "ci_T",
+        "breakeven_sigma": 6.394374968396945,
+        "covers_zero": true,
+        "diff": 20.149085937500786,
+        "dof": 10,
+        "estimable": true,
+        "half_width": 38.02574886695626,
+        "hi": 58.17483480445705,
+        "lo": -17.876662929455478,
+        "pool": "DP-VERIFIED",
+        "sd": 12.067589441209813,
+        "se": 17.06614865290928,
+        "t975": 2.2281388519649385,
+        "z": 1.1806463395633175
+      }
+    ]
+  },
+  "inputs": {
+    "corpus": {
+      "bytes": 19936617,
+      "path": "/tmp/r106b/receipt-corpus-frozen.json",
+      "receipts_with_metrics": 1218,
+      "sha256": "d450b5b5dc895f0d2d4de52d790035e88ea2e55255fed1ae04c80a9a7c70c12b"
+    },
+    "r103_replicate_sigma": {
+      "bytes": 94267,
+      "path": "research/artifacts/advisor-r103/replicate-sigma.json",
+      "receipts_parsed": 69,
+      "sha256": "73a244ebedf0ec3b6d752e8d8aa17234083a6ab20911008055236bf8269eba1f"
+    },
+    "replicate_identity_verified": {
+      "bytes": 16221,
+      "path": "/tmp/r106b/replicate-identity-verified.json",
+      "sha256": "f064c482550e44954f18e654289589c30d4dbf9d348805a533a01e413045e0ff"
+    }
+  },
+  "outcome": "N-0",
+  "pools": {
+    "DP-COMB": {
+      "ci_D": {
+        "breakeven_sigma": 6.616300959212192,
+        "covers_zero": true,
+        "diff": 19.404945312500786,
+        "dof": 22,
+        "estimable": true,
+        "half_width": 53.74908317734006,
+        "hi": 73.15402848984084,
+        "lo": -34.344137864839276,
+        "sd": 18.32626193251461,
+        "se": 25.917248172563927,
+        "t975": 2.073873075546616,
+        "z": 0.74872707099525
+      },
+      "ci_T": {
+        "breakeven_sigma": 6.87002279412015,
+        "covers_zero": true,
+        "diff": 20.149085937500786,
+        "dof": 22,
+        "estimable": true,
+        "half_width": 34.816841919604954,
+        "hi": 54.96592785710574,
+        "lo": -14.667755982104168,
+        "sd": 11.87113392383657,
+        "se": 16.788318595837016,
+        "t975": 2.073873075546616,
+        "z": 1.2001848679770193
+      },
+      "dof_D": 22,
+      "dof_P": 22,
+      "dof_T": 22,
+      "group_keys": [
+        "1008c6920be35876",
+        "4d5ac413d1a7d82e",
+        "521a2f7124786af6",
+        "7cbffc2c17d7f2a9",
+        "9beb75a6fbc5e042",
+        "d18d0983830b73a1",
+        "dc437b0e0b918c86",
+        "fresh:r104A/armA",
+        "fresh:r105A/A0",
+        "fresh:r105A/A1"
+      ],
+      "groups": 10,
+      "receipts": 32,
+      "sd_D": 18.32626193251461,
+      "sd_P": 5.0039161159929115,
+      "sd_T": 11.87113392383657,
+      "ss_D": 7388.7412812209495,
+      "ss_T": 3100.324054028596
+    },
+    "DP-COMB-TRIM": {
+      "ci_D": {
+        "breakeven_sigma": 6.555762358063804,
+        "covers_zero": true,
+        "diff": 19.404945312500786,
+        "dof": 19,
+        "estimable": true,
+        "half_width": 32.95461409428167,
+        "hi": 52.35955940678246,
+        "lo": -13.549668781780888,
+        "sd": 11.133379410486391,
+        "se": 15.744976157355229,
+        "t975": 2.093024070975617,
+        "z": 1.2324531405171935
+      },
+      "ci_T": {
+        "breakeven_sigma": 6.807162659374541,
+        "covers_zero": true,
+        "diff": 20.149085937500786,
+        "dof": 19,
+        "estimable": true,
+        "half_width": 33.74541604517876,
+        "hi": 53.89450198267954,
+        "lo": -13.596330107677971,
+        "sd": 11.400543763638924,
+        "se": 16.122803608966176,
+        "t975": 2.093024070975617,
+        "z": 1.249725942595711
+      },
+      "dof_D": 19,
+      "dof_P": 19,
+      "dof_T": 19,
+      "group_keys": [
+        "1008c6920be35876",
+        "4d5ac413d1a7d82e",
+        "521a2f7124786af6",
+        "9beb75a6fbc5e042",
+        "d18d0983830b73a1",
+        "dc437b0e0b918c86",
+        "fresh:r104A/armA",
+        "fresh:r105A/A0",
+        "fresh:r105A/A1"
+      ],
+      "groups": 9,
+      "receipts": 28,
+      "sd_D": 11.133379410486391,
+      "sd_P": 0.5163818270537819,
+      "sd_T": 11.400543763638924,
+      "ss_D": 2355.0906048590036,
+      "ss_T": 2469.4755640262806
+    },
+    "DP-FRESH": {
+      "ci_D": {
+        "breakeven_sigma": 5.3378453970237025,
+        "covers_zero": true,
+        "diff": 19.404945312500786,
+        "dof": 5,
+        "estimable": true,
+        "half_width": 34.28233727757836,
+        "hi": 53.68728259007914,
+        "lo": -14.877391965077571,
+        "sd": 9.430267042208564,
+        "se": 13.336411547891364,
+        "t975": 2.570581835636197,
+        "z": 1.4550349801981721
+      },
+      "ci_T": {
+        "breakeven_sigma": 5.542541032385052,
+        "covers_zero": true,
+        "diff": 20.149085937500786,
+        "dof": 5,
+        "estimable": true,
+        "half_width": 33.59188113850793,
+        "hi": 53.740967076008715,
+        "lo": -13.442795201007144,
+        "sd": 9.240338749990725,
+        "se": 13.067812381158536,
+        "t975": 2.570581835636197,
+        "z": 1.541886686906539
+      },
+      "dof_D": 5,
+      "dof_P": 5,
+      "dof_T": 5,
+      "group_keys": [
+        "r104A/armA",
+        "r105A/A0",
+        "r105A/A1"
+      ],
+      "groups": 3,
+      "receipts": 8,
+      "sd_D": 9.430267042208564,
+      "sd_P": 0.26611245212002843,
+      "sd_T": 9.240338749990725,
+      "ss_D": 444.6496824368253,
+      "ss_T": 426.9193010729007
+    },
+    "DP-R103": {
+      "ci_D": {
+        "breakeven_sigma": 6.503586548914549,
+        "covers_zero": true,
+        "diff": 19.404945312500786,
+        "dof": 17,
+        "estimable": true,
+        "half_width": 60.303533262318396,
+        "hi": 79.70847857481918,
+        "lo": -40.89858794981761,
+        "sd": 20.21078861398204,
+        "se": 28.58237136414913,
+        "t975": 2.1098156095598535,
+        "z": 0.6789130637649055
+      },
+      "ci_T": {
+        "breakeven_sigma": 6.752986012881767,
+        "covers_zero": true,
+        "diff": 20.149085937500786,
+        "dof": 17,
+        "estimable": true,
+        "half_width": 37.41686493194592,
+        "hi": 57.56595086944671,
+        "lo": -17.267778994445138,
+        "sd": 12.540299163697846,
+        "se": 17.734661153517475,
+        "t975": 2.1098156095598535,
+        "z": 1.1361415796492078
+      },
+      "dof_D": 17,
+      "dof_P": 17,
+      "dof_T": 17,
+      "group_keys": [
+        "1008c6920be35876",
+        "4d5ac413d1a7d82e",
+        "521a2f7124786af6",
+        "7cbffc2c17d7f2a9",
+        "9beb75a6fbc5e042",
+        "d18d0983830b73a1",
+        "dc437b0e0b918c86"
+      ],
+      "groups": 7,
+      "receipts": 24,
+      "sd_D": 20.21078861398204,
+      "sd_P": 5.690589774685264,
+      "sd_T": 12.540299163697846,
+      "ss_D": 6944.091598784124,
+      "ss_T": 2673.404752955695
+    },
+    "DP-R103-TRIM": {
+      "ci_D": {
+        "breakeven_sigma": 6.397544250540389,
+        "covers_zero": true,
+        "diff": 19.404945312500786,
+        "dof": 14,
+        "estimable": true,
+        "half_width": 35.432509558771606,
+        "hi": 54.83745487127239,
+        "lo": -16.02756424627082,
+        "sd": 11.681612298278797,
+        "se": 16.520294542610216,
+        "t975": 2.144786793442561,
+        "z": 1.1746125507901988
+      },
+      "ci_T": {
+        "breakeven_sigma": 6.642877205640007,
+        "covers_zero": true,
+        "diff": 20.149085937500786,
+        "dof": 14,
+        "estimable": true,
+        "half_width": 36.63718697481711,
+        "hi": 56.7862729123179,
+        "lo": -16.488101037316326,
+        "sd": 12.07877791522145,
+        "se": 17.081971544598794,
+        "t975": 2.144786793442561,
+        "z": 1.1795527164352286
+      },
+      "dof_D": 14,
+      "dof_P": 14,
+      "dof_T": 14,
+      "group_keys": [
+        "1008c6920be35876",
+        "4d5ac413d1a7d82e",
+        "521a2f7124786af6",
+        "9beb75a6fbc5e042",
+        "d18d0983830b73a1",
+        "dc437b0e0b918c86"
+      ],
+      "groups": 6,
+      "receipts": 20,
+      "sd_D": 11.681612298278797,
+      "sd_P": 0.5801646594502267,
+      "sd_T": 12.07877791522145,
+      "ss_D": 1910.4409224221783,
+      "ss_T": 2042.5562629533795
+    },
+    "DP-VERIFIED": {
+      "ci_D": {
+        "breakeven_sigma": 6.158219631116297,
+        "covers_zero": true,
+        "diff": 19.404945312500786,
+        "dof": 10,
+        "estimable": true,
+        "half_width": 37.5608742986718,
+        "hi": 56.965819611172584,
+        "lo": -18.155928986171013,
+        "sd": 11.920060053916364,
+        "se": 16.85751059255029,
+        "t975": 2.2281388519649385,
+        "z": 1.1511157122497235
+      },
+      "ci_T": {
+        "breakeven_sigma": 6.394374968396945,
+        "covers_zero": true,
+        "diff": 20.149085937500786,
+        "dof": 10,
+        "estimable": true,
+        "half_width": 38.02574886695626,
+        "hi": 58.17483480445705,
+        "lo": -17.876662929455478,
+        "sd": 12.067589441209813,
+        "se": 17.06614865290928,
+        "t975": 2.2281388519649385,
+        "z": 1.1806463395633175
+      },
+      "dof_D": 10,
+      "dof_P": 10,
+      "dof_T": 10,
+      "group_keys": [
+        "fresh:r104A/armA",
+        "fresh:r105A/A0",
+        "fresh:r105A/A1",
+        "r103:9beb75a6fbc5e042",
+        "r103:dc437b0e0b918c86"
+      ],
+      "groups": 5,
+      "receipts": 15,
+      "sd_D": 11.920060053916364,
+      "sd_P": 0.3084672868444225,
+      "sd_T": 12.067589441209813,
+      "ss_D": 1420.878316889726,
+      "ss_T": 1456.2671492159857
+    }
+  },
+  "preregistered_pool_PP_ALL": {
+    "distinct_shas_with_metrics": 1177,
+    "estimable": false,
+    "replicate_identity": "identical submissionCommitSha",
+    "shas_with_two_or_more_receipts": 0
+  },
+  "preregistration_deviation": {
+    "declared": true,
+    "miss": "PP-ALL and PP-TRIM are inestimable: the platform never issues two receipts for one submissionCommitSha, so every sha group has n=1 and the pooled within-group dof is 0.",
+    "substitute": "Replicate identity switched to the r103 content digest (normalised submitted content) plus fresh identical-code ladder arms identified by receipt note. Both substitutes are strictly wider-or-equal admissible pools; the gate direction cannot be improved by the switch because every candidate pool is reported."
+  },
+  "r103_published": {
+    "n_commits": 139,
+    "n_receipts": 139,
+    "pooled_sd_D_us": 20.210788613982043,
+    "pooled_sd_D_us_dof": 17.0,
+    "pooled_sd_P_us": 5.690589774685264,
+    "pooled_sd_P_us_dof": 17.0,
+    "pooled_sd_T_us": 12.540299163697846,
+    "pooled_sd_T_us_dof": 17.0,
+    "pooled_sd_ln_cs_pct": 0.9545806162966494,
+    "pooled_sd_ln_cs_pct_dof": 17.0,
+    "trimmed_pooled_sd_D_us": 11.681612298278797,
+    "trimmed_pooled_sd_D_us_dof": 14.0,
+    "trimmed_pooled_sd_P_us": 0.5801646594502267,
+    "trimmed_pooled_sd_P_us_dof": 14.0,
+    "trimmed_pooled_sd_T_us": 12.078777915221448,
+    "trimmed_pooled_sd_T_us_dof": 14.0,
+    "trimmed_pooled_sd_ln_cs_pct": 0.1859566242230075,
+    "trimmed_pooled_sd_ln_cs_pct_dof": 14.0
+  },
+  "schema": "maple-nezuko-r106b-stage0/1",
+  "selection_diagnostic": {
+    "D_max": 4931.226242187499,
+    "D_min": 4894.1142578125,
+    "D_range_us": 37.11198437499934,
+    "group": "r103:dc437b0e0b918c86",
+    "n": 5,
+    "range_over_residual": 1.9125013638194366,
+    "receipts": [
+      {
+        "D": 4894.1142578125,
+        "id8": "4b0e051bf3cd",
+        "ts": "2026-08-09T02:56:02.517Z"
+      },
+      {
+        "D": 4931.226242187499,
+        "id8": "d6a5f9e7346e",
+        "ts": "2026-08-09T03:18:15.648Z"
+      },
+      {
+        "D": 4900.5244140625,
+        "id8": "e1b6e2be2792",
+        "ts": "2026-08-09T04:06:17.724Z"
+      },
+      {
+        "D": 4916.140625,
+        "id8": "ca91d86c904c",
+        "ts": "2026-08-09T04:55:11.043Z"
+      },
+      {
+        "D": 4912.62109375,
+        "id8": "5d9060aa0d36",
+        "ts": "2026-08-09T05:44:37.090Z"
+      }
+    ],
+    "residual_us": 19.404945312500786
+  },
+  "verified_identity": {
+    "identity": "comment-insensitive sha256 over every file under Sources/ AND Vendor/, with every ci-equal pair line-checked so surviving differences are full-line `//` comments outside a multiline string literal",
+    "n_groups_considered": 10,
+    "n_groups_verified": 5,
+    "rejected": [
+      {
+        "group": "r103:1008c6920be35876",
+        "n": 4,
+        "problems": [
+          "0b5372f5:Vendor/mlx-swift/Source/Cmlx/mlx-generated/fp_quantized_nax.cpp: a:line 499: non-comment change; b:line 501: non-comment change",
+          "0b5372f5:Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/fp_quantized_nax.h: a:line 350: non-comment change; b:line 352: non-comment change",
+          "0b5372f5:Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp: b:line 1383: non-comment change; b:line 1384: non-comment change",
+          "5164d313:Vendor/mlx-swift/Source/Cmlx/mlx-generated/fp_quantized_nax.cpp: a:line 499: non-comment change; b:line 501: non-comment change",
+          "5164d313:Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/fp_quantized_nax.h: a:line 350: non-comment change; b:line 352: non-comment change",
+          "5164d313:Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp: b:line 1383: non-comment change; b:line 1384: non-comment change"
+        ]
+      },
+      {
+        "group": "r103:4d5ac413d1a7d82e",
+        "n": 2,
+        "problems": [
+          "25ca60aa:Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift: a:line 315: non-comment change; b:line 334: non-comment change",
+          "25ca60aa:Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift: a:line 125: non-comment change; a:line 126: non-comment change"
+        ]
+      },
+      {
+        "group": "r103:521a2f7124786af6",
+        "n": 4,
+        "problems": [
+          "d6b5f65f:Vendor/mlx-swift/Source/Cmlx/mlx-generated/fp_quantized.cpp: b:line 579: non-comment change; b:line 580: non-comment change",
+          "d6b5f65f:Vendor/mlx-swift/Source/Cmlx/mlx-generated/fp_quantized_nax.cpp: b:line 525: non-comment change; b:line 526: non-comment change",
+          "d6b5f65f:Vendor/mlx-swift/Source/Cmlx/mlx-generated/gemm_nax.cpp: b:line 1218: non-comment change; b:line 1219: non-comment change",
+          "d6b5f65f:Vendor/mlx-swift/Source/Cmlx/mlx-generated/quantized_utils.cpp: b:line 35: non-comment change; b:line 37: non-comment change",
+          "d6b5f65f:Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp: b:line 938: non-comment change; b:line 941: non-comment change",
+          "d6b5f65f:Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/fp_quantized.h: b:line 422: non-comment change; b:line 423: non-comment change"
+        ]
+      },
+      {
+        "group": "r103:7cbffc2c17d7f2a9",
+        "n": 4,
+        "problems": [
+          "47e8f5ec:Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp: a:line 1629: non-comment change; b:line 1629: non-comment change",
+          "702c1d8d:Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp: a:line 1629: non-comment change; b:line 1629: non-comment change",
+          "389b149c:Vendor/mlx-swift/Source/Cmlx/mlx-generated/fp_quantized_nax.cpp: b:line 1744: non-comment change; b:line 1748: non-comment change",
+          "389b149c:Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/fp_quantized_nax.h: b:line 1601: non-comment change; b:line 1605: non-comment change",
+          "389b149c:Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp: a:line 1629: non-comment change; b:line 1631: non-comment change"
+        ]
+      },
+      {
+        "group": "r103:d18d0983830b73a1",
+        "n": 3,
+        "problems": [
+          "504104e3:Vendor/mlx-swift/Source/Cmlx/mlx-generated/fp_quantized_nax.cpp: b:line 628: non-comment change; b:line 644: non-comment change",
+          "504104e3:Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp: b:line 1129: non-comment change; b:line 1130: non-comment change",
+          "504104e3:Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/fp_quantized_nax.h: b:line 479: non-comment change; b:line 495: non-comment change",
+          "504104e3:Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp: b:line 1611: non-comment change; b:line 1612: non-comment change",
+          "d4235c92:Vendor/mlx-swift/Source/Cmlx/mlx-generated/fp_quantized_nax.cpp: b:line 628: non-comment change; b:line 644: non-comment change",
+          "d4235c92:Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp: b:line 1129: non-comment change; b:line 1130: non-comment change"
+        ]
+      }
+    ]
+  }
+}

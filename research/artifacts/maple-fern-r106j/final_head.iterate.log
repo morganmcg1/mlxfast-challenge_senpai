@@ -1,0 +1,601 @@
+benchmark.sh: trusted CLI or participant runtime worker missing or stale; building
+Building for production...
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+[1/3] Write sources
+[3/4] Compiling MLXFastTransform AffineMetadataCoding.swift
+Build of product 'mlxfast-swift' complete! (4.55s)
+Fetching https://github.com/apple/swift-service-context.git from cache
+Fetching https://github.com/apple/swift-distributed-tracing.git from cache
+Fetching https://github.com/apple/swift-numerics from cache
+Fetching https://github.com/apple/swift-configuration.git from cache
+Fetching https://github.com/apple/swift-nio-ssl.git from cache
+Fetching https://github.com/apple/swift-certificates.git from cache
+Fetching https://github.com/apple/swift-log.git from cache
+Fetching https://github.com/apple/swift-async-algorithms.git from cache
+Fetching https://github.com/swiftlang/swift-syntax.git from cache
+Fetching https://github.com/ibireme/yyjson.git from cache
+Fetched https://github.com/apple/swift-nio-ssl.git from cache (0.07s)
+Fetched https://github.com/swiftlang/swift-syntax.git from cache (0.07s)
+Fetched https://github.com/apple/swift-numerics from cache (0.07s)
+Fetched https://github.com/apple/swift-async-algorithms.git from cache (0.07s)
+Fetched https://github.com/apple/swift-configuration.git from cache (0.07s)
+Fetched https://github.com/apple/swift-certificates.git from cache (0.07s)
+Fetched https://github.com/ibireme/yyjson.git from cache (0.07s)
+Fetched https://github.com/apple/swift-service-context.git from cache (0.07s)
+Fetched https://github.com/apple/swift-log.git from cache (0.07s)
+Fetched https://github.com/apple/swift-distributed-tracing.git from cache (0.07s)
+Fetching https://github.com/huggingface/swift-huggingface.git from cache
+Fetching https://github.com/apple/swift-argument-parser from cache
+Fetching https://github.com/apple/swift-http-structured-headers.git from cache
+Fetching https://github.com/mattt/EventSource.git from cache
+Fetching https://github.com/apple/swift-asn1.git from cache
+Fetching https://github.com/apple/swift-http-types.git from cache
+Fetching https://github.com/apple/swift-collections.git from cache
+Fetching https://github.com/apple/swift-system.git from cache
+Fetching https://github.com/apple/swift-algorithms.git from cache
+Fetching https://github.com/apple/swift-nio.git from cache
+Fetched https://github.com/mattt/EventSource.git from cache (0.06s)
+Fetched https://github.com/apple/swift-http-structured-headers.git from cache (0.06s)
+Fetching https://github.com/swift-server/async-http-client.git from cache
+Fetched https://github.com/huggingface/swift-huggingface.git from cache (0.07s)
+Fetched https://github.com/apple/swift-http-types.git from cache (0.07s)
+Fetched https://github.com/apple/swift-argument-parser from cache (0.07s)
+Fetched https://github.com/apple/swift-asn1.git from cache (0.07s)
+Fetched https://github.com/apple/swift-system.git from cache (0.07s)
+Fetched https://github.com/apple/swift-nio.git from cache (0.07s)
+Fetched https://github.com/apple/swift-algorithms.git from cache (0.07s)
+Fetched https://github.com/apple/swift-collections.git from cache (0.07s)
+Fetching https://github.com/apple/swift-atomics.git from cache
+Fetching https://github.com/apple/swift-nio-extras.git from cache
+Fetching https://github.com/huggingface/swift-jinja.git from cache
+Fetching https://github.com/apple/swift-crypto.git from cache
+Fetching https://github.com/apple/swift-nio-http2.git from cache
+Fetching https://github.com/apple/swift-metrics.git from cache
+Fetching https://github.com/apple/swift-nio-transport-services.git from cache
+Fetching https://github.com/swift-server/swift-service-lifecycle.git from cache
+Fetching https://github.com/huggingface/swift-transformers from cache
+Fetched https://github.com/swift-server/async-http-client.git from cache (0.03s)
+Fetched https://github.com/apple/swift-atomics.git from cache (0.02s)
+Fetching https://github.com/hummingbird-project/hummingbird.git from cache
+Fetched https://github.com/apple/swift-nio-http2.git from cache (0.05s)
+Fetched https://github.com/apple/swift-nio-transport-services.git from cache (0.06s)
+Fetched https://github.com/apple/swift-crypto.git from cache (0.06s)
+Fetched https://github.com/apple/swift-metrics.git from cache (0.06s)
+Fetched https://github.com/huggingface/swift-jinja.git from cache (0.06s)
+Fetched https://github.com/apple/swift-nio-extras.git from cache (0.06s)
+Fetched https://github.com/swift-server/swift-service-lifecycle.git from cache (0.06s)
+Fetched https://github.com/huggingface/swift-transformers from cache (0.06s)
+Fetched https://github.com/hummingbird-project/hummingbird.git from cache (0.04s)
+Creating working copy for https://github.com/ibireme/yyjson.git
+Creating working copy for https://github.com/apple/swift-configuration.git
+Creating working copy for https://github.com/apple/swift-nio-ssl.git
+Creating working copy for https://github.com/swiftlang/swift-syntax.git
+Creating working copy for https://github.com/apple/swift-numerics
+Creating working copy for https://github.com/apple/swift-certificates.git
+Creating working copy for https://github.com/apple/swift-service-context.git
+Creating working copy for https://github.com/apple/swift-distributed-tracing.git
+Creating working copy for https://github.com/apple/swift-log.git
+Creating working copy for https://github.com/apple/swift-async-algorithms.git
+Creating working copy for https://github.com/apple/swift-algorithms.git
+Working copy of https://github.com/apple/swift-service-context.git resolved at 1.3.0
+Creating working copy for https://github.com/mattt/EventSource.git
+Working copy of https://github.com/apple/swift-distributed-tracing.git resolved at 1.4.1
+Creating working copy for https://github.com/apple/swift-system.git
+Working copy of https://github.com/apple/swift-async-algorithms.git resolved at 1.1.5
+Creating working copy for https://github.com/huggingface/swift-jinja.git
+Creating working copy for https://github.com/apple/swift-nio.git
+Creating working copy for https://github.com/apple/swift-http-structured-headers.git
+Creating working copy for https://github.com/apple/swift-http-types.git
+Working copy of https://github.com/apple/swift-algorithms.git resolved at 1.2.1
+Working copy of https://github.com/mattt/EventSource.git resolved at 1.4.1
+Creating working copy for https://github.com/apple/swift-asn1.git
+Creating working copy for https://github.com/apple/swift-nio-http2.git
+Working copy of https://github.com/huggingface/swift-jinja.git resolved at 2.3.6
+Creating working copy for https://github.com/apple/swift-argument-parser
+Working copy of https://github.com/apple/swift-numerics resolved at 1.1.1
+Working copy of https://github.com/apple/swift-log.git resolved at 1.14.0
+Creating working copy for https://github.com/apple/swift-collections.git
+Working copy of https://github.com/apple/swift-http-structured-headers.git resolved at 1.7.0
+Creating working copy for https://github.com/swift-server/async-http-client.git
+Creating working copy for https://github.com/huggingface/swift-huggingface.git
+Creating working copy for https://github.com/huggingface/swift-transformers
+Working copy of https://github.com/apple/swift-system.git resolved at 1.7.2
+Creating working copy for https://github.com/swift-server/swift-service-lifecycle.git
+Creating working copy for https://github.com/apple/swift-crypto.git
+Creating working copy for https://github.com/apple/swift-nio-transport-services.git
+Working copy of https://github.com/apple/swift-http-types.git resolved at 1.6.0
+Creating working copy for https://github.com/apple/swift-metrics.git
+Creating working copy for https://github.com/apple/swift-atomics.git
+Creating working copy for https://github.com/hummingbird-project/hummingbird.git
+Working copy of https://github.com/apple/swift-certificates.git resolved at 1.19.3
+Creating working copy for https://github.com/apple/swift-nio-extras.git
+Working copy of https://github.com/ibireme/yyjson.git resolved at 0.12.0
+Working copy of https://github.com/apple/swift-nio-ssl.git resolved at 2.37.1
+Working copy of https://github.com/apple/swift-asn1.git resolved at 1.7.1
+Working copy of https://github.com/apple/swift-configuration.git resolved at 1.2.0
+Working copy of https://github.com/swiftlang/swift-syntax.git resolved at 603.0.2
+Working copy of https://github.com/apple/swift-argument-parser resolved at 1.8.2
+Working copy of https://github.com/huggingface/swift-huggingface.git resolved at 0.9.0
+Working copy of https://github.com/swift-server/swift-service-lifecycle.git resolved at 2.11.0
+Working copy of https://github.com/apple/swift-nio-transport-services.git resolved at 1.28.0
+Working copy of https://github.com/apple/swift-metrics.git resolved at 2.11.0
+Working copy of https://github.com/swift-server/async-http-client.git resolved at 1.35.0
+Working copy of https://github.com/huggingface/swift-transformers resolved at 1.3.3
+Working copy of https://github.com/apple/swift-nio.git resolved at 2.101.2
+Working copy of https://github.com/apple/swift-atomics.git resolved at 1.3.1
+Working copy of https://github.com/hummingbird-project/hummingbird.git resolved at 2.25.0
+Working copy of https://github.com/apple/swift-nio-http2.git resolved at 1.44.0
+Working copy of https://github.com/apple/swift-nio-extras.git resolved at 1.34.3
+Working copy of https://github.com/apple/swift-collections.git resolved at 1.6.0
+Working copy of https://github.com/apple/swift-crypto.git resolved at 4.5.0
+[0/6] Write sources
+[3/6] Write swift-version--58304C5D6DBC2206.txt
+[5/7] Compiling ArgumentParserToolInfo ToolInfo.swift
+[6/8] Compiling ArgumentParser BashCompletionsGenerator.swift
+[7/9] Compiling encuda encuda-compile.swift
+[7/9] Write Objects.LinkFileList
+[8/9] Linking encuda-tool
+Building for production...
+[0/236] Compiling CNIOLinux liburing_shims.c
+[1/236] Compiling CNIOFreeBSD shim.c
+[1/236] Compiling CNIOWindows shim.c
+[3/236] Copying t5_tokenizer_config.json
+[4/236] Copying gpt2_tokenizer_config.json
+[5/236] Copying PrivacyInfo.xcprivacy
+[6/236] Copying pagedattention.metal
+[7/236] Compiling CNIOLinux shim.c
+[8/236] Write sources
+[9/236] Compiling CNIOOpenBSD shim.c
+[10/236] Write sources
+[12/236] Compiling _NumericsShims _NumericsShims.c
+[13/236] Write sources
+[39/236] Compiling version.cpp
+[40/236] Write swift-version--58304C5D6DBC2206.txt
+[41/236] Compiling _AtomicsShims.c
+[42/237] Compiling CNIODarwin shim.c
+[44/238] Compiling _NIODataStructures Heap.swift
+[44/238] Compiling stream.cpp
+[46/238] Compiling _NIOBase64 Base64.swift
+[46/238] Compiling utils.cpp
+[47/238] Compiling cuda.cpp
+[48/242] Compiling Cmlx.m
+[49/242] Compiling linalg.cpp
+[50/242] Compiling compile.cpp
+[51/242] Compiling device.cpp
+[53/242] Compiling RealModule AlgebraicField.swift
+[54/242] Compiling Crypto AES-GCM.swift
+[54/242] Compiling closure.cpp
+[55/243] Compiling scheduler.cpp
+[57/243] Compiling InternalCollectionsUtilities Debugging.swift
+[57/243] Compiling format.cc
+[59/244] Compiling ComplexModule Complex+AdditiveArithmetic.swift
+[59/245] Compiling no_gguf.cpp
+[61/245] Compiling ContainersPreview OutputSpan+Extras.swift
+[62/246] Compiling Numerics Numerics.swift
+[62/246] Compiling array.cpp
+[63/247] Compiling random.cpp
+[64/247] Compiling graph_utils.cpp
+[65/247] Compiling linalg.cpp
+[66/247] Compiling transforms.cpp
+[67/247] Compiling load.cpp
+[68/247] Compiling yyjson.c
+[69/247] Compiling dtype_utils.cpp
+[70/247] Compiling dtype.cpp
+[71/247] Compiling fft.cpp
+[72/247] Compiling utils.cpp
+[73/247] Compiling no_ring.cpp
+[74/247] Compiling no_nccl.cpp
+[75/247] Compiling no_mpi.cpp
+[76/247] Compiling safetensors.cpp
+[77/247] Compiling primitives.cpp
+[79/247] Compiling DequeModule Deque+Codable.swift
+[80/247] Compiling OrderedCollections _HashTable+Bucket.swift
+[80/247] Compiling device.cpp
+[81/247] Compiling ops.cpp
+[82/248] Compiling fast.cpp
+[83/248] Compiling distributed.cpp
+[84/248] Compiling einsum.cpp
+[85/248] Compiling utils.cpp
+[86/248] Compiling unary.cpp
+[87/248] Compiling ternary.cpp
+[88/248] Compiling softmax.cpp
+[90/248] Compiling MLXFastCore AcceptanceBand.swift
+[90/248] Compiling sort.cpp
+[91/248] Compiling scan.cpp
+[92/249] Compiling slicing.cpp
+[93/249] Compiling resident.cpp
+[94/249] Compiling rope.cpp
+[95/249] Compiling compile.cpp
+[96/249] Compiling metal.cpp
+[97/249] Compiling scaled_dot_product_attention.cpp
+[98/249] Compiling primitives.cpp
+[100/249] Compiling reduce.cpp
+[101/249] Compiling normalization.cpp
+[102/249] Compiling logsumexp.cpp
+[103/249] Compiling quantized.cpp
+[104/249] Compiling event.cpp
+[104/249] Compiling fence.cpp
+[106/249] Compiling hadamard.cpp
+[107/249] Compiling eval.cpp
+[108/249] Compiling distributed.cpp
+[109/249] Compiling ops.cpp
+[110/249] Compiling indexing.cpp
+[111/249] Compiling device_info.cpp
+[112/249] Compiling matmul.cpp
+[113/249] Compiling jit_kernels.cpp
+[114/249] Compiling custom_kernel.cpp
+[115/249] Compiling copy.cpp
+[116/249] Compiling slicing.cpp
+[117/249] Compiling threefry.cpp
+[118/249] Compiling primitives.cpp
+[119/249] Compiling allocator.cpp
+[120/249] Compiling binary.cpp
+[121/249] Compiling no_cuda.cpp
+[122/249] Compiling compiled.cpp
+[123/249] Compiling copy.cpp
+[124/249] Compiling conv.cpp
+[124/249] Compiling device.cpp
+[126/249] Compiling export.cpp
+[127/249] Compiling svd.cpp
+[128/249] Compiling softmax.cpp
+[129/249] Compiling fft.cpp
+[130/249] Compiling select.cpp
+[131/249] Compiling qrf.cpp
+[133/249] Compiling MLXFastTransform AffineMetadataCoding.swift
+[133/249] Compiling primitives.cpp
+[134/249] Compiling jit_compiler.cpp
+[135/249] Compiling logsumexp.cpp
+[136/249] Compiling luf.cpp
+[137/249] Compiling hadamard.cpp
+[138/249] Compiling masked_mm.cpp
+[139/249] Compiling matmul.cpp
+[140/249] Compiling inverse.cpp
+[141/249] Compiling cblas.cpp
+[142/249] Compiling bnns.cpp
+[143/249] Compiling encoder.cpp
+[144/249] Compiling eval.cpp
+[145/249] Compiling device_info.cpp
+[146/249] Compiling distributed.cpp
+[147/249] Compiling quantized.cpp
+[148/249] Compiling unary.cpp
+[149/249] Compiling eigh.cpp
+[150/249] Compiling eig.cpp
+[151/249] Compiling cholesky.cpp
+[152/249] Compiling slicing.cpp
+[153/249] Compiling utils.cpp
+[154/249] Compiling reduce.cpp
+[155/249] Compiling scan.cpp
+[156/249] Compiling load.cpp
+[157/249] Compiling reduce.cpp
+[158/249] Compiling arg_reduce.cpp
+[159/249] Compiling utils.cpp
+[160/249] Compiling unary_ops.cpp
+[161/249] Compiling unary.cpp
+[162/249] Compiling ternary_ops.cpp
+[163/249] Compiling ternary.cpp
+[164/249] Compiling compiled.cpp
+[165/249] Compiling steel_gemm_splitk_nax.cpp
+[166/249] Compiling steel_gemm_splitk.cpp
+[167/249] Compiling steel_gemm_segmented_nax.cpp
+[168/249] Compiling steel_gemm_segmented.cpp
+[169/249] Compiling steel_gemm_masked.cpp
+[170/249] Compiling steel_gemm_gather_nax.cpp
+[171/249] Compiling steel_gemm_fused_nax.cpp
+[171/249] Compiling steel_gemm_gather.cpp
+[173/249] Compiling steel_gemm_fused.cpp
+[174/249] Compiling steel_conv_general.cpp
+[175/249] Compiling steel_conv_3d.cpp
+[176/249] Compiling steel_attention_nax.cpp
+[177/249] Compiling steel_conv.cpp
+[178/249] Compiling steel_attention.cpp
+[179/249] Compiling softmax.cpp
+[180/249] Compiling sort.cpp
+[181/249] Compiling fft.cpp
+[182/249] Compiling scatter_axis.cpp
+[183/249] Compiling scan.cpp
+[184/249] Compiling scatter.cpp
+[185/249] Compiling reduce_utils.cpp
+[186/249] Compiling reduce.cpp
+[187/249] Compiling quantized_utils.cpp
+[188/249] Compiling quantized_nax.cpp
+[189/249] Compiling quantized.cpp
+[190/249] Compiling masked_scatter.cpp
+[191/249] Compiling common.cpp
+[192/249] Compiling logsumexp.cpp
+[193/249] Compiling hadamard.cpp
+[194/249] Compiling gemv.cpp
+[195/249] Compiling gemm_nax.cpp
+[196/249] Compiling gemv_masked.cpp
+[197/249] Compiling gather_front.cpp
+[198/249] Compiling gemm.cpp
+[199/249] Compiling gather_axis.cpp
+[200/249] Compiling gather.cpp
+[201/249] Compiling fp_quantized.cpp
+[202/249] Compiling fp_quantized_nax.cpp
+[203/249] Compiling fft.cpp
+[204/249] Compiling copy.cpp
+[205/249] Compiling conv.cpp
+[206/249] Compiling binary_ops.cpp
+[206/249] Compiling compiled_preamble.cpp
+[208/249] Compiling binary_two.cpp
+[209/249] Compiling binary.cpp
+[210/249] Compiling sort.cpp
+[211/249] Compiling arange.cpp
+[212/249] Compiling broadcasting.cpp
+[213/249] Compiling conv.cpp
+[214/249] Compiling jaccl_conditional.cpp
+[215/249] Compiling metal_kernel.cpp
+[216/249] Compiling array.cpp
+[217/249] Compiling version.cpp
+[218/249] Compiling transforms.cpp
+[218/249] Compiling transforms_impl.cpp
+[220/249] Compiling string.cpp
+[221/249] Compiling stream.cpp
+[222/249] Compiling vector.cpp
+[223/249] Compiling compiled_conditional.cpp
+[224/249] Compiling random.cpp
+[225/249] Compiling metal.cpp
+[226/249] Compiling memory.cpp
+[228/249] Compiling Jinja AST.swift
+[228/249] Compiling map.cpp
+[229/249] Compiling CNIOWindows WSAStartup.c
+[230/249] Compiling CNIOWASI CNIOWASI.c
+[231/249] Compiling error.cpp
+[232/249] Compiling graph_utils.cpp
+[233/249] Write sources
+[234/249] Compiling io_types.cpp
+[235/249] Compiling io.cpp
+[236/250] Compiling fft.cpp
+[237/250] Compiling ops.cpp
+[238/250] Compiling export.cpp
+[239/250] Compiling fast.cpp
+[240/250] Compiling distributed_group.cpp
+[241/250] Compiling distributed.cpp
+[242/250] Compiling c-nioatomics.c
+[243/250] Compiling c-atomics.c
+[245/251] Compiling NIOConcurrencyHelpers NIOAtomic.swift
+[246/251] Compiling Atomics OptionalRawRepresentable.swift
+[246/252] Compiling copy.cpp
+[248/252] Compiling NIOCore AddressedEnvelope.swift
+[249/253] Compiling EventSource AsyncEventsSequence.swift
+[249/254] Compiling indexing.cpp
+[251/254] Compiling HuggingFace AccessRequest.swift
+[251/255] Compiling binary.cpp
+[253/256] Compiling Hub BinaryDistinct.swift
+[254/257] Compiling MLX ArrayAt.swift
+[255/260] Compiling MLXFast MLXFast.swift
+[256/260] Compiling MLXRandom Random.swift
+[257/260] Compiling Tokenizers BPETokenizer.swift
+[258/260] Compiling MLXNN Activations.swift
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-fern/workspace/target/Vendor/mlx-swift/Source/MLXNN/Module.swift:1411:34: warning: conditional downcast from 'T?' to 'T' does nothing
+1409 |             // note: this gives a warning but it does in fact do something
+1410 |             // in the case where this is e.g. ParameterInfo<MLXArray?>
+1411 |             if let value = value as? T {
+     |                                  `- warning: conditional downcast from 'T?' to 'T' does nothing
+1412 |                 return value
+1413 |             } else {
+
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-fern/workspace/target/Vendor/mlx-swift/Source/MLXNN/Module.swift:1524:36: warning: conditional downcast from 'T?' to 'T' does nothing
+1522 |             // note: this gives a warning but it does in fact do something
+1523 |             // in the case where this is e.g. ModuleInfo<Linear?>
+1524 |             if let module = module as? T {
+     |                                    `- warning: conditional downcast from 'T?' to 'T' does nothing
+1525 |                 return module
+1526 |             } else {
+
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-fern/workspace/target/Vendor/mlx-swift/Source/MLXNN/Module.swift:293:13: warning: default will never be executed
+ 291 |                 return isAllNone ? .none : .array(result)
+ 292 | 
+ 293 |             default:
+     |             `- warning: default will never be executed
+ 294 |                 fatalError("Unexpected leaf \(vk) = \(v)")
+ 295 |             }
+[259/261] Compiling MLXOptimizers Optimizers.swift
+[260/262] Compiling MLXLMCommon DoRA+Layers.swift
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-fern/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1178:52: warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+ 128 | /// Incremental per-request detokenizer with UTF-8 + stop-string holdback.
+ 129 | /// See CONTRACT-ISSUES-B-scheduler.md §3.
+ 130 | public protocol CBv2IncrementalDetokenizer: AnyObject {
+     |                 `- note: protocol 'CBv2IncrementalDetokenizer' does not conform to the 'Sendable' protocol
+ 131 |     /// Append confirmed tokens; returns text now safe to emit.
+ 132 |     func push(_ tokens: [Int]) -> String
+     :
+1176 |                 stream?.reserveEmission()
+1177 |                 detokQueue.async {
+1178 |                     let text = isStopToken ? "" : (detokenizer?.push([token]) ?? "")
+     |                                                    `- warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+1179 |                     stream?.emit(
+1180 |                         .delta(text: text, tokens: [token], logprobs: logprobs),
+
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-fern/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1279:32: warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+ 128 | /// Incremental per-request detokenizer with UTF-8 + stop-string holdback.
+ 129 | /// See CONTRACT-ISSUES-B-scheduler.md §3.
+ 130 | public protocol CBv2IncrementalDetokenizer: AnyObject {
+     |                 `- note: protocol 'CBv2IncrementalDetokenizer' does not conform to the 'Sendable' protocol
+ 131 |     /// Append confirmed tokens; returns text now safe to emit.
+ 132 |     func push(_ tokens: [Int]) -> String
+     :
+1277 |         if rec.request.stopStrings.isEmpty {
+1278 |             detokQueue.async {
+1279 |                 let trailing = detokenizer?.flush() ?? ""
+     |                                `- warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+1280 |                 if !trailing.isEmpty {
+1281 |                     stream?.emit(.delta(text: trailing, tokens: [], logprobs: nil))
+
+[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+[261/263] Compiling MLXLLM LLMModel.swift
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-fern/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/DeepseekV4.swift:758:27: warning: immutable value 'D' was never used; consider replacing with '_' or removing it [#no-usage]
+ 756 | 
+ 757 |     func callAsFunction(_ x: MLXArray, poolCache: PoolingCache?, offset: Int) -> MLXArray {
+ 758 |         let B = x.dim(0), D = x.dim(2)
+     |                           `- warning: immutable value 'D' was never used; consider replacing with '_' or removing it [#no-usage]
+ 759 |         let kv = wkv(x)    // [B, S, out_dim]
+ 760 |         let gate = wgate(x) // [B, S, out_dim]
+
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-fern/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/DeepseekV4.swift:1401:9: warning: switch must be exhaustive
+1399 |         // Local scores: [B, H, L, localLen]
+1400 |         let localScores: MLXArray
+1401 |         switch localMask {
+     |         |- warning: switch must be exhaustive
+     |         `- note: add missing case: '.arrays(_)'
+1402 |         case .none, .causal:
+1403 |             localScores = qScaled.matmul(localKV.transposed(0, 1, 3, 2))
+
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-fern/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/DeepseekV4.swift:1513:13: warning: variable 'h' was never mutated; consider changing to 'let' constant
+1511 |         }
+1512 | 
+1513 |         var h = hcPost(x: attnOut, residual: residual, post: postAttn, comb: combAttn)
+     |             `- warning: variable 'h' was never mutated; consider changing to 'let' constant
+1514 | 
+1515 |         // FFN sub-block
+[262/264] Compiling MLXFastModel DenseTensorStore.swift
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-fern/workspace/target/Sources/MLXFastModel/LagunaRuntimeModel.swift:10832:17: warning: variable 'mergedSharedActivated' was never mutated; consider changing to 'let' constant
+10830 | 
+10831 | 
+10832 |             var mergedSharedActivated: MLXArray?
+      |                 `- warning: variable 'mergedSharedActivated' was never mutated; consider changing to 'let' constant
+10833 |             if lagunaFusedRoutedSwiGLUQMVEnabled,
+10834 |                 x.dtype == .bfloat16,
+[263/265] Compiling MLXFastRuntimeWorkerSupport BenchmarkSupport.swift
+[264/266] Compiling MLXFastRuntimeWorkerCLI main.swift
+[264/266] Write Objects.LinkFileList
+[265/266] Linking mlxfast-runtime-worker
+Build of product 'mlxfast-runtime-worker' complete! (127.12s)
+benchmark.sh: warning: could not find origin/main for local-iterate baseline context.
+benchmark.sh: run 'git fetch origin main' and measure the latest tip locally before comparing changes.
+benchmark.sh: reusing weights/ for unchanged transform source
+benchmark.sh: local baseline to beat (score.local-iterate.baseline.json): prefill 0.001126 s/token, decode 0.012946 s/token, est score 0.795
+mlxfast-swift: warning: mlx.metallib at /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-fern/workspace/target/.build-worker/arm64-apple-macosx/release/mlx.metallib was built from different vendored Metal sources than the ones on disk (recorded f1dfc3f701f0402df0ce4a27133be86e79cac98030b1af3399580e47ff18e222, current 6471573a7a9884afd54518b52a754f9db4dae2c0aa81f2376f1b7f2c53293ae3); rebuild it with tools/build-mlx-metallib.sh (or rerun ./setup.sh) so kernel edits are not masked by a stale metallib
+mlxfast: benchmark elapsed=0.0s local-iterate start checked_tokens=130 decode_steps=128 repeats=1
+mlxfast: benchmark elapsed=0.0s local-iterate baseline prefill_seconds_per_token=0.000368 decode_seconds_per_token=0.013856 (official-runner constants; local speedups are directional)
+mlxfast: benchmark elapsed=0.0s local-iterate validation start
+mlxfast: benchmark elapsed=10.2s local-iterate weights digest still running phase_seconds=10.2
+mlxfast: benchmark elapsed=20.2s local-iterate weights digest still running phase_seconds=20.2
+mlxfast: benchmark elapsed=30.2s local-iterate weights digest still running phase_seconds=30.2
+mlxfast: benchmark elapsed=35.2s local-iterate weights digest complete files=9 bytes=21568891382
+mlxfast: benchmark elapsed=35.2s local-iterate validation complete prompt_tokens=512 seconds=35.2
+mlxfast: benchmark elapsed=35.2s local-iterate checked timing start
+mlxfast: benchmark elapsed=75.6s local thermal gate start phase=prefill
+benchmark.sh: GPU cool-down gate passed (current 39.2C, target <=40C, waited 0s)
+mlxfast: benchmark elapsed=78.5s local thermal gate complete phase=prefill
+mlxfast: benchmark elapsed=78.5s local-iterate prefill measured start prompt_tokens=512
+mlxfast: benchmark elapsed=79.1s local-iterate prefill measured complete seconds=0.6 seconds_per_token=0.001111 prefill_speedup=0.331
+mlxfast-worker: mlxfast: low-memory startup profile active (physical memory 48 GiB is below the 64 GiB full-profile minimum): capping the MLX allocator cache at 6 GiB and clearing free warmup buffers; compiled decode and every other ranked code path stay enabled; set DARKBLOOM_STARTUP_MEMORY_PROFILE=full to opt out
+mlxfast-worker: mlxfast: a machine too small for the model plus the decode working set fails with an out-of-memory error instead of silently skipping ranked code paths; verify on a 64 GiB+ machine or rely on the ranked run
+mlxfast-worker: mlxfast: narrow-scales built lane-major pairwise: qkv
+mlxfast-worker: mlxfast: narrow-scales built lane-major pairwise: oproj
+mlxfast-worker: mlxfast: packed-scales active: shared gate/up halved
+mlxfast-worker: mlxfast: packed-scales active: shared down halved
+mlxfast-worker: mlxfast: packed-scales active: packed routed gate/up bank prepared
+mlxfast-worker: mlxfast: lm_head prune active (coarse copy resident)
+mlxfast-worker: mlxfast: packed-scales inactive: packed routed gate/up prefill scale view consumed
+mlxfast-worker: mlxfast: packed-scales inactive: packed routed down prefill scale view consumed
+mlxfast-worker: mlxfast: packed-scales active: routed swiglu qmv packed dispatch
+mlxfast: benchmark elapsed=122.3s local thermal gate start phase=decode
+benchmark.sh: GPU cool-down gate passed (current 38.7C, target <=40C, waited 0s)
+mlxfast: benchmark elapsed=125.1s local thermal gate complete phase=decode
+mlxfast: benchmark elapsed=125.1s local-iterate decode measured start tokens=128 includes_seed_prefill=true
+mlxfast: benchmark elapsed=125.6s local-iterate decode seed prefill complete seconds=0.6 (charged to decode)
+mlxfast: benchmark elapsed=125.7s local-iterate checked decode 1/128 tokens last_step_seconds=0.035160 mean_step_seconds=0.035160 decode_eta_seconds=4.5 projected_decode_seconds_per_token=0.039545 projected_decode_speedup=0.350 projected_score=0.345
+mlxfast: benchmark elapsed=125.7s local-iterate checked decode 8/128 tokens last_step_seconds=0.008398 mean_step_seconds=0.011743 decode_eta_seconds=1.4 projected_decode_seconds_per_token=0.016128 projected_decode_speedup=0.859 projected_score=0.677
+mlxfast: benchmark elapsed=125.8s local-iterate checked decode 16/128 tokens last_step_seconds=0.008223 mean_step_seconds=0.009988 decode_eta_seconds=1.1 projected_decode_seconds_per_token=0.014374 projected_decode_speedup=0.964 projected_score=0.738
+mlxfast: benchmark elapsed=125.9s local-iterate checked decode 24/128 tokens last_step_seconds=0.008220 mean_step_seconds=0.009399 decode_eta_seconds=1.0 projected_decode_seconds_per_token=0.013785 projected_decode_speedup=1.005 projected_score=0.761
+mlxfast: benchmark elapsed=125.9s local-iterate checked decode 32/128 tokens last_step_seconds=0.008227 mean_step_seconds=0.009104 decode_eta_seconds=0.9 projected_decode_seconds_per_token=0.013490 projected_decode_speedup=1.027 projected_score=0.774
+mlxfast: benchmark elapsed=126.0s local-iterate checked decode 40/128 tokens last_step_seconds=0.008247 mean_step_seconds=0.008929 decode_eta_seconds=0.8 projected_decode_seconds_per_token=0.013315 projected_decode_speedup=1.041 projected_score=0.781
+mlxfast: benchmark elapsed=126.1s local-iterate checked decode 48/128 tokens last_step_seconds=0.008262 mean_step_seconds=0.008815 decode_eta_seconds=0.7 projected_decode_seconds_per_token=0.013202 projected_decode_speedup=1.050 projected_score=0.786
+mlxfast: benchmark elapsed=126.1s local-iterate checked decode 56/128 tokens last_step_seconds=0.008260 mean_step_seconds=0.008735 decode_eta_seconds=0.6 projected_decode_seconds_per_token=0.013123 projected_decode_speedup=1.056 projected_score=0.790
+mlxfast: benchmark elapsed=126.2s local-iterate checked decode 64/128 tokens last_step_seconds=0.008200 mean_step_seconds=0.008672 decode_eta_seconds=0.6 projected_decode_seconds_per_token=0.013060 projected_decode_speedup=1.061 projected_score=0.793
+mlxfast: benchmark elapsed=126.3s local-iterate checked decode 72/128 tokens last_step_seconds=0.008238 mean_step_seconds=0.008626 decode_eta_seconds=0.5 projected_decode_seconds_per_token=0.013013 projected_decode_speedup=1.065 projected_score=0.795
+mlxfast: benchmark elapsed=126.3s local-iterate checked decode 80/128 tokens last_step_seconds=0.008293 mean_step_seconds=0.008588 decode_eta_seconds=0.4 projected_decode_seconds_per_token=0.012976 projected_decode_speedup=1.068 projected_score=0.797
+mlxfast: benchmark elapsed=126.4s local-iterate checked decode 88/128 tokens last_step_seconds=0.008248 mean_step_seconds=0.008559 decode_eta_seconds=0.3 projected_decode_seconds_per_token=0.012947 projected_decode_speedup=1.070 projected_score=0.798
+mlxfast: benchmark elapsed=126.5s local-iterate checked decode 96/128 tokens last_step_seconds=0.008253 mean_step_seconds=0.008534 decode_eta_seconds=0.3 projected_decode_seconds_per_token=0.012922 projected_decode_speedup=1.072 projected_score=0.799
+mlxfast: benchmark elapsed=126.5s local-iterate checked decode 104/128 tokens last_step_seconds=0.008257 mean_step_seconds=0.008514 decode_eta_seconds=0.2 projected_decode_seconds_per_token=0.012902 projected_decode_speedup=1.074 projected_score=0.800
+mlxfast: benchmark elapsed=126.6s local-iterate checked decode 112/128 tokens last_step_seconds=0.008424 mean_step_seconds=0.008499 decode_eta_seconds=0.1 projected_decode_seconds_per_token=0.012887 projected_decode_speedup=1.075 projected_score=0.801
+mlxfast: benchmark elapsed=126.7s local-iterate checked decode 120/128 tokens last_step_seconds=0.008279 mean_step_seconds=0.008483 decode_eta_seconds=0.1 projected_decode_seconds_per_token=0.012872 projected_decode_speedup=1.076 projected_score=0.801
+mlxfast: benchmark elapsed=126.7s local-iterate checked decode 128/128 tokens last_step_seconds=0.008263 mean_step_seconds=0.008470 projected_decode_seconds_per_token=0.012859 projected_decode_speedup=1.078 projected_score=0.802
+mlxfast-worker: mlxfast: low-memory startup profile active (physical memory 48 GiB is below the 64 GiB full-profile minimum): capping the MLX allocator cache at 6 GiB and clearing free warmup buffers; compiled decode and every other ranked code path stay enabled; set DARKBLOOM_STARTUP_MEMORY_PROFILE=full to opt out
+mlxfast-worker: mlxfast: a machine too small for the model plus the decode working set fails with an out-of-memory error instead of silently skipping ranked code paths; verify on a 64 GiB+ machine or rely on the ranked run
+mlxfast-worker: mlxfast: narrow-scales built lane-major pairwise: qkv
+mlxfast-worker: mlxfast: narrow-scales built lane-major pairwise: oproj
+mlxfast-worker: mlxfast: packed-scales active: shared gate/up halved
+mlxfast-worker: mlxfast: packed-scales active: shared down halved
+mlxfast-worker: mlxfast: packed-scales active: packed routed gate/up bank prepared
+mlxfast-worker: mlxfast: lm_head prune active (coarse copy resident)
+mlxfast-worker: mlxfast: packed-scales inactive: packed routed gate/up prefill scale view consumed
+mlxfast-worker: mlxfast: packed-scales inactive: packed routed down prefill scale view consumed
+mlxfast-worker: mlxfast: packed-scales active: routed swiglu qmv packed dispatch
+mlxfast: benchmark elapsed=126.9s local-iterate checked timing complete passed=true checked_steps=130 prefill_seconds_per_token=0.001111 decode_seconds_per_token=0.012859 measured_seconds=2.2 wall_seconds=91.7
+mlxfast: benchmark elapsed=126.9s local-iterate summary prefill_seconds_per_token=0.001111 prefill_speedup=0.331
+mlxfast: benchmark elapsed=126.9s local-iterate summary decode_seconds_per_token=0.012859 decode_speedup=1.078
+mlxfast: benchmark elapsed=126.9s local-iterate summary est_score=0.802 (decode_speedup^0.75 * prefill_speedup^0.25 vs official baseline; published as this run's local estimated score, not a ranked score)
+mlxfast: benchmark elapsed=126.9s local-iterate summary decode_bandwidth_gb_per_token=0.000000 peak_ram_gb=20.714
+{
+  "metrics" : {
+    "actual_token" : null,
+    "bandwidth_gb_per_token" : 0,
+    "bandwidth_source" : "ram_resident_model",
+    "baseline_decode_seconds_per_token" : 0.01385621216015625,
+    "baseline_prefill_seconds_per_token" : 0.00036751938916015626,
+    "benchmark_wall_seconds" : 130,
+    "case_count" : 1,
+    "checked_steps" : 130,
+    "commit" : "2127e436",
+    "correctness_seconds" : 2.2,
+    "decode_seconds_per_token" : 0.012858966796875,
+    "decode_speedup" : 1.0775525265003096,
+    "decode_speedup_floor" : 0.95,
+    "error" : "",
+    "expected_token" : null,
+    "expert_bytes_read" : 0,
+    "expert_cache_evictions" : 0,
+    "expert_cache_hits" : 0,
+    "expert_cache_misses" : 0,
+    "expert_hit_rate" : 0,
+    "expert_peak_cached_tensors" : 0,
+    "expert_read_seconds" : 0,
+    "first_failing_case" : null,
+    "first_failing_layer" : null,
+    "first_failing_step" : null,
+    "golden_hash" : "b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63",
+    "gpqa_ttft_case_count" : 0,
+    "gpqa_ttft_max_seconds" : 0,
+    "gpqa_ttft_p50_seconds" : 0,
+    "gpqa_ttft_pass_count" : 0,
+    "gpqa_ttft_passed" : false,
+    "gpqa_ttft_seconds" : 0,
+    "gpqa_ttft_source" : "",
+    "harness_hash" : "5cfe4988ee50e92376db6bfc3e8abd61b5258d31b3424fb0d91958b87873d398",
+    "max_abs_diff" : 0,
+    "num_layers" : 40,
+    "partial_result" : false,
+    "passed_correctness" : true,
+    "passed_decode_speedup_floor" : true,
+    "passed_prefill_speedup_floor" : false,
+    "peak_ram_gb" : 21,
+    "prefill_seconds_per_token" : 0.001111116048828125,
+    "prefill_speedup" : 0.33076598033821275,
+    "prefill_speedup_floor" : 0.95,
+    "preflight_seconds" : 35,
+    "process_resident_memory_gb" : 0.025,
+    "runtime" : "swift-local-iterate",
+    "semantic_gpqa_case_count" : 0,
+    "semantic_gpqa_model" : "",
+    "semantic_gpqa_pass_count" : 0,
+    "semantic_gpqa_passed" : false,
+    "timed_benchmark_seconds" : 2.2,
+    "timestamp" : "2026-08-10T14:54:24Z",
+    "weights_byte_count" : 21568891382,
+    "weights_file_count" : 9,
+    "weights_hash" : "aff994300573c5e8589563fc9ff57cdcfb1ef9b49e14898be290a75a6b294b3d"
+  },
+  "passed" : true,
+  "score" : 0.8020640409869858
+}
+benchmark.sh: local-iterate summary
+  prefill 0.001111 s/token  speedup 0.331x
+  decode  0.012859 s/token  speedup 1.078x
+  est score 0.802 (decode_speedup^0.75 * prefill_speedup^0.25; official score comes from the ranked runner)
+benchmark.sh: vs score.local-iterate.baseline.json (negative s/token deltas = faster)
+    prefill 0.001126 -> 0.001111 s/token (-1.3%)
+    decode  0.012946 -> 0.012859 s/token (-0.7%)
+    est score 0.795 -> 0.802 (+0.8%)

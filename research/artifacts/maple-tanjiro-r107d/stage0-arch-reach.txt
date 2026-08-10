@@ -1,0 +1,11 @@
+device_name              = Apple M4 Pro
+os_version               = Version 26.5.2 (Build 25F84)
+MLX_METAL_GPU_ARCH       = <unset>
+get_architecture()       = applegpu_g16s
+get_architecture().back() = s
+get_architecture_gen()   = 16
+os_allows_nax (>=26.2)   = true
+gen_threshold            = 17
+nax_available            = false
+max_threads_per_tg       = MTLSize(width: 1024, height: 1024, depth: 1024)
+recommended_wset_MB      = 38338

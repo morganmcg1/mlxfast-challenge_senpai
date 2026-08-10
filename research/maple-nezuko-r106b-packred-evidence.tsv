@@ -1,0 +1,25 @@
+session	idx	block	arm	kernel	decode_s_per_token	prefill_s_per_token	passed	wall_s	error
+20260810T130603Z	1	1	C	laguna_sliding_fused_attn_ring_v1	0.008975466724340176	0.001111287109375	true	183	
+20260810T130603Z	2	1	K	laguna_sliding_fused_attn_ring_packred_v1	0.009024120683284457	0.00112273909375	true	183	
+20260810T130603Z	3	1	P	laguna_sliding_fused_attn_ring_noreduce_v1	0.008991091805474095	0.001110030029296875	NA	209	local-submit teacher-forced token mismatch
+20260810T130603Z	4	1	H	laguna_sliding_fused_attn_ring_h4_v1	0.00904516071945259	0.0011378197421875	true	208	
+20260810T130603Z	5	2	C	laguna_sliding_fused_attn_ring_v1	0.00900637703714565	0.001122013751953125	true	209	
+20260810T130603Z	6	2	P	laguna_sliding_fused_attn_ring_noreduce_v1	0.00901322087878788	0.001123856853515625	NA	209	local-submit teacher-forced token mismatch
+20260810T130603Z	7	2	H	laguna_sliding_fused_attn_ring_h4_v1	0.009006960980449659	0.001111346841796875	true	195	
+20260810T130603Z	8	2	K	laguna_sliding_fused_attn_ring_packred_v1	0.009009026515151515	0.001137560302734375	true	197	
+20260810T130603Z	9	3	C	laguna_sliding_fused_attn_ring_v1	0.00898435699706745	0.00112407096484375	true	210	
+20260810T130603Z	10	3	H	laguna_sliding_fused_attn_ring_h4_v1	0.00901207579765396	0.001124143390625	true	197	
+20260810T130603Z	11	3	K	laguna_sliding_fused_attn_ring_packred_v1	0.008985091764418378	0.001123916177734375	true	185	
+20260810T130603Z	12	3	P	laguna_sliding_fused_attn_ring_noreduce_v1	0.008999434261974585	0.00112254443359375	NA	202	local-submit teacher-forced token mismatch
+20260810T130603Z	13	4	C	laguna_sliding_fused_attn_ring_v1	0.009001827998044965	0.001111653970703125	true	198	
+20260810T130603Z	14	4	K	laguna_sliding_fused_attn_ring_packred_v1	0.008992366243401759	0.001123160888671875	true	198	
+20260810T130603Z	15	4	H	laguna_sliding_fused_attn_ring_h4_v1	0.009024607079178884	0.0011113513984375	true	212	
+20260810T130603Z	16	4	P	laguna_sliding_fused_attn_ring_noreduce_v1	0.0089945743313783	0.0011127216796875	NA	195	local-submit teacher-forced token mismatch
+20260810T130603Z	17	5	C	laguna_sliding_fused_attn_ring_v1	0.008973106019550342	0.0011241564140625	true	197	
+20260810T130603Z	18	5	P	laguna_sliding_fused_attn_ring_noreduce_v1	0.009009122189638319	0.00113777880859375	NA	198	local-submit teacher-forced token mismatch
+20260810T130603Z	19	5	K	laguna_sliding_fused_attn_ring_packred_v1	0.00903301388856305	0.00112476953125	true	196	
+20260810T130603Z	20	5	H	laguna_sliding_fused_attn_ring_h4_v1	0.009010557224828936	0.0011116689453125	true	196	
+20260810T130603Z	21	6	C	laguna_sliding_fused_attn_ring_v1	0.008965871741935484	0.0011344418125	true	182	
+20260810T130603Z	22	6	H	laguna_sliding_fused_attn_ring_h4_v1	0.00902339609872923	0.00112375594140625	true	196	
+20260810T130603Z	23	6	P	laguna_sliding_fused_attn_ring_noreduce_v1	0.008997220512218964	0.001124841552734375	NA	196	local-submit teacher-forced token mismatch
+20260810T130603Z	24	6	K	laguna_sliding_fused_attn_ring_packred_v1	0.008996255906158358	0.001125453205078125	true	196	

@@ -1,0 +1,107 @@
+=== device ===
+name                             Apple M4 Pro
+architecture.name                applegpu_g16s
+maxThreadsPerThreadgroup         MTLSize(width: 1024, height: 1024, depth: 1024)
+maxThreadgroupMemoryLength       32768 B  (32.00 KiB)
+recommendedMaxWorkingSetSize     40200896512 B
+hasUnifiedMemory                 true
+supportsFamily(MTLGPUFamily(rawValue: 1007))              true
+supportsFamily(MTLGPUFamily(rawValue: 1008))              true
+supportsFamily(MTLGPUFamily(rawValue: 1009))              true
+supportsFamily(MTLGPUFamily(rawValue: 5001))              true
+
+scored source                    Sources/MLXFastModel/LagunaRuntimeModel.swift (12148 lines)
+
+=== Phase A: compiled pipeline properties (real kernel bodies) ===
+
+laguna_sliding_fused_attn_ring_v1
+  extracted source lines         356
+  assembled MSL bytes            17445
+  staticThreadgroupMemoryLength  18432 B  (18.000 KiB)
+  maxTotalThreadsPerThreadgroup  1024   (>= dispatched 1024)
+  threadExecutionWidth           32
+  tgmem / device tgmem limit     0.562  -> tgmem alone permits 1 TG/core
+  simdgroups in a 1024-thread TG 32
+
+laguna_full_fused_attn_grow_v1
+  extracted source lines         320
+  assembled MSL bytes            15536
+  staticThreadgroupMemoryLength  18432 B  (18.000 KiB)
+  maxTotalThreadsPerThreadgroup  1024   (>= dispatched 1024)
+  threadExecutionWidth           32
+  tgmem / device tgmem limit     0.562  -> tgmem alone permits 1 TG/core
+  simdgroups in a 1024-thread TG 32
+
+GPU cores (system_profiler)      20
+
+=== Phase B: synthetic residency vs static threadgroup memory ===
+timeout 500000 spins; a trailing `+` means residency >= the search cap.
+  variant                       maxK   TG/core   sg/core   maxMs
+  1024t static 16B                 60      3.00      96.0     123.7
+  1024t static 9984B               60      3.00      96.0     101.9
+  1024t static 18432B              60      3.00      96.0     101.8
+  1024t static 32768B              60      3.00      96.0      99.4
+  512t static 16B                 120      6.00      96.0     203.3
+  512t static 9984B               120      6.00      96.0     203.4
+  512t static 18432B              120      6.00      96.0     194.8
+  512t static 32768B              120      6.00      96.0     195.3
+  256t static 16B                 240     12.00      96.0     556.9
+  256t static 9984B               240     12.00      96.0     387.3
+  256t static 18432B              159      7.95      63.6     470.4
+  256t static 32768B              125      6.25      50.0     490.0
+  128t static 16B                 480     24.00      96.0    1177.8
+  128t static 9984B               476     23.80      95.2     837.2
+  128t static 18432B              480     24.00      96.0     955.2
+  128t static 32768B              314     15.70      62.8     714.2
+
+=== Phase C: residency of the real sliding-attention body ===
+`planes/2` halves the epilogue threadgroup buffer only as a *resource*
+counterfactual; it is deliberately not a functionally correct variant.
+  variant                       maxK   TG/core   sg/core   maxMs
+  real plane 18448B                60      3.00      96.0     102.0
+    maxTotalThreadsPerThreadgroup 1024
+  real plane/2 10000B              60      3.00      96.0     101.8
+    maxTotalThreadsPerThreadgroup 1024
+
+=== Phase D: oversubscribed dispatch cross-check ===
+Independent of the Phase B/C binary search: one dispatch of K far above
+capacity, where the count of successful slots estimates co-residency.
+  variant                           K   passed   TG/core   sg/core      ms
+  1024t static 16B                 240      47     2.35      75.2     308.4
+  1024t static 18432B              240      47     2.35      75.2     304.7
+  1024t static 32768B              240      51     2.55      81.6     304.2
+  512t static 16B                  480      15     0.75      12.0     736.7
+  512t static 18432B               480      39     1.95      31.2     698.8
+  512t static 32768B               480      12     0.60       9.6     725.3
+  256t static 16B                  960      39     1.95      15.6    1503.1
+  256t static 18432B               960      16     0.80       6.4    1447.9
+  256t static 32768B               960     223    11.15      89.2    1257.8
+  128t static 16B                 1024      63     3.15      12.6    1625.6
+  128t static 18432B              1024     341    17.05      68.2    1319.8
+  128t static 32768B              1024     180     9.00      36.0    1384.3
+  real plane 18448B                240      45     2.25      72.0     305.4
+  real plane/2 10000B              240      45     2.25      72.0     305.3
+
+=== Phase E: real-body cost vs threadgroup count (dummy buffers) ===
+Each threadgroup reads 512x128 K and V rows = 262144 B, and 4 consecutive
+threadgroups share one KV head, so `req` counts issued bytes and `uniq`
+counts distinct bytes. Shipped sliding dispatch is K=32; R1 would be K=64.
+     K   TGs/core     us/call   us/TG    req GB/s   uniq GB/s   vs K=32
+     1       0.05        8.45    8.45        31.0        31.0    0.000
+     2       0.10        8.47    4.24        61.9        30.9    0.000
+     4       0.20        8.54    2.13       122.8        30.7    0.000
+     8       0.40        8.61    1.08       243.6        60.9    0.000
+    16       0.80        8.65    0.54       484.9       121.2    0.000
+    20       1.00        8.67    0.43       604.6       151.1    0.000
+    24       1.20       17.66    0.74       356.2        89.0    0.000
+    32       1.60       17.75    0.55       472.6       118.2    1.000
+    40       2.00       17.84    0.45       587.8       146.9    1.005
+    48       2.40       24.86    0.52       506.2       126.6    1.400
+    56       2.80       24.99    0.45       587.4       146.9    1.408
+    60       3.00       25.43    0.42       618.6       154.7    1.433
+    64       3.20       31.93    0.50       525.4       131.3    1.799
+    72       3.60       32.38    0.45       583.0       145.7    1.824
+    96       4.80       39.62    0.41       635.1       158.8    2.233
+   120       6.00       46.56    0.39       675.6       168.9    2.624
+   128       6.40       53.54    0.42       626.7       156.7    3.017
+   240      12.00       94.27    0.39       667.4       166.8    5.311

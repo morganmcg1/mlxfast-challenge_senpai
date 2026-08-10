@@ -1,0 +1,35 @@
+tsv: research/artifacts/maple-fern-r106j/abba_t0_t0p/runs.tsv
+control=T0 candidate=T0P
+usable runs: 42  complete ABBA blocks: 10
+correctness failures: 0
+distinct golden_hash values: 1 -> ['b9509697c08a2cf3']
+  T0 worker sha256 prefixes: ['02b171eb5874', '118ec3b45fdd', '3bba70d5234d', '462fabbf8818', '4a5df390fde4', '4be20c6d4ee0', '4eb2ac5c49ff', '6d484a782fbc', '7a8b142a95cc', '7c4513123a0a', '7e9ef2bfe52a', '81eb8ee8afff', '94dac17102c7', 'b1f2ebeb7655', 'c848ddb0683c', 'f2589b2f0318']
+  T0P worker sha256 prefixes: ['0780d5af8dbd', '1765eaf2e797', '1c7acebecd54', '4111ab2fefdf', '47aac7588c9e', '4c898b8ba09c', '6aa7cbeedc8f', '7031861711b2', '7310815f5e31', 'c9c0e4488a29', 'd418dab83ee2', 'd9cf822e128a', 'db8ac4b9a0b1', 'df3f0b2e2fa9', 'eb7e8bea0e55', 'fed8999f2159']
+  within-arm T0 decode_s_per_token: mean=0.012955773 cv=0.3695% n=21
+  within-arm T0 prefill_s_per_token: mean=0.001118533 cv=0.8719% n=21
+  within-arm T0P decode_s_per_token: mean=0.012946689 cv=0.3619% n=21
+  within-arm T0P prefill_s_per_token: mean=0.001119002 cv=0.4904% n=21
+
+-- ABBA block contrasts, T0P minus T0, natural log --
+d(ln decode)   : -0.0686%  CI95 [-0.3921, +0.2550]  sd=0.4523% n=10 dof=9 positive_blocks=5/10
+d(ln prefill)  : +0.0745%  CI95 [-0.3955, +0.5446]  sd=0.6571% n=10 dof=9 positive_blocks=7/10
+
+-- PRIMARY: d(ln score), T0P minus T0, positive means T0P better --
+d(ln score)    : +0.0328%  CI95 [-0.2338, +0.2994]  sd=0.3727% n=10 dof=9 positive_blocks=6/10
+
+-- CONSERVATIVE (nax wall): prefill charged as neutral --
+d(ln score|dec): +0.0514%  CI95 [-0.1912, +0.2941]  sd=0.3392% n=10 dof=9 positive_blocks=5/10
+
+-- verdict, primary --
+  superiority (CI excludes 0 positive): no
+  inferiority  (CI excludes 0 negative): no
+  clears the +0.40% bar (point)        : no
+  clears the +0.40% bar (CI lower)     : no
+
+-- verdict, conservative --
+  superiority (CI excludes 0 positive): no
+  inferiority  (CI excludes 0 negative): no
+  clears the +0.40% bar (point)        : no
+  clears the +0.40% bar (CI lower)     : no
+
+  per-block d(ln score) %: +0.3022, -0.3693, -0.6056, +0.4303, +0.1674, +0.0146, +0.3232, +0.4731, -0.3482, -0.0598

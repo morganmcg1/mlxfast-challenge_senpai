@@ -1,0 +1,36 @@
+=== Stage-3 handoff certificate ===
+generated_utc   2026-08-10T11:45:21Z
+repo_root       /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-fern/workspace/target
+BASE_SHA        446fe9875d1f95b1216628b5809a99da844e5c79
+HEAD            c591dd560bb20fdb6e0f5aa71de422c15a195035
+origin/main     origin/main
+
+=== Item 5a — precondition 1: BASE_SHA is an ancestor of HEAD ===
+$ git merge-base --is-ancestor 446fe9875d1f95b1216628b5809a99da844e5c79 HEAD; echo $?
+exit=0
+
+=== Item 5b — precondition 2: benchmark.json identical origin/main vs BASE_SHA ===
+$ git diff --quiet origin/main 446fe9875d1f95b1216628b5809a99da844e5c79 -- benchmark.json; echo $?
+fatal: bad revision 'origin/main'
+exit=128
+
+=== Item 5c — precondition 3: benchmark.json identical origin/main vs HEAD ===
+$ git diff --quiet origin/main HEAD -- benchmark.json; echo $?
+fatal: bad revision 'origin/main'
+exit=128
+
+=== Item 5d — precondition 4: benchmark.json has no uncommitted/untracked/ignored state ===
+$ git status --porcelain=v1 --untracked-files=all --ignored=matching -- benchmark.json
+(empty above == pass)
+
+=== Item 5e — no skip-worktree / assume-unchanged under protected paths ===
+$ git ls-files -v -- benchmark.json senpai tools .github | grep -v '^H ' 
+(none — all entries are 'H', pass)
+
+$ git ls-files -v | awk '$1 != "H"' | head -50   # whole tree
+(empty above == no flagged paths anywhere in the index)
+
+=== Item 5f — submission-surface working tree is clean ===
+research/r106j/scripts/handoff_certificate.sh: line 62: mapfile: command not found
+$ git status --porcelain=v1 --untracked-files=all -- <97 editablePaths>
+research/r106j/scripts/handoff_certificate.sh: line 64: PATHS[@]: unbound variable

@@ -1,0 +1,35 @@
+=== SPACE CHECK: `cs` and `officialScore` are DIFFERENT quantities ===
+  4b0e051b receipt:  cs 2.590559   officialScore 2.575377   (differ by 0.588 %)
+  -> a gap of (record officialScore) / (our cs) is a UNIT ERROR, not a gap.
+
+record officialScore        2.616504
+our geo-mean officialScore  2.574049  (n=3 exact replicates, Rule 101)
+  -> unbiased gap 1.6359 %   (campaign constant 1.6359 %)   z = 5.42
+
+--- how wrong the superseded framing was ---
+  96.2 inferred shrunk anchor (cs)  2.583106
+  101 MEASURED 3-replicate mean cs  2.582463   -> shrinkage was RIGHT to +0.0249 %
+  but the selected-max receipt      2.590559   -> overstated by +0.3130 %
+  old (sigma 0.3728 %, gap 1.2846 %) -> z 3.45, P 2.847e-04
+  new (sigma 0.3016 %, gap 1.6359 %) -> z 5.42, P 2.913e-08   (9773x more pessimistic)
+
+candidate tree                      merit %       z   P(beat record) Gaussian        t(4)
+--------------------------------------------------------------------------------------------
+T0 = shipped best tree               0.0000    5.42                 2.913e-08   2.801e-03
+T0 + C2a (inert at default env)      0.0000    5.42                 2.913e-08   2.801e-03
+T0P  packing flip (measured)        -0.0606    5.62                 9.275e-09   2.456e-03
+T0P  if #308's corrected prior       0.3380    4.30                 8.411e-06   6.306e-03
+T0P  if #308's ORIGINAL claim        0.5620    3.56                 1.850e-04   1.179e-02
+hypothetical: clears the 0.4 % bar   0.4000    4.10                 2.085e-05   7.440e-03
+hypothetical: everything stacks      1.0000    2.11                 1.750e-02   5.134e-02
+
+E[draws to a record] at the Gaussian rate, for the shipped tree:
+  z = 5.42, P = 2.913e-08, E[draws] = 3.433e+07, hours at 2.7 draws/h = 1.272e+07
+Under a t(4) tail:
+  P = 2.801e-03, E[draws] = 357.0, hours at 2.7 draws/h = 132.2
+
+Merit needed for a single draw to have a given win probability (Gaussian):
+  P =   1%  requires merit = +0.934 % of cs
+  P =   5%  requires merit = +1.140 % of cs
+  P =  10%  requires merit = +1.249 % of cs
+  P =  50%  requires merit = +1.636 % of cs

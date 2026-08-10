@@ -1,0 +1,980 @@
+{
+ "C0_corpus_scope": {
+  "n_distinct_solvers": 72,
+  "note": "ln L is a function of the pinned baseline run only (zero candidate information, verified to 5.4e-16), so all 1218 receipts replicate the same program",
+  "our_account_receipts": 83,
+  "top_solvers": [
+   [
+    "a-github-name",
+    209
+   ],
+   [
+    "lBroth",
+    90
+   ],
+   [
+    "morganmcg1",
+    83
+   ],
+   [
+    "metaspartan",
+    59
+   ],
+   [
+    "saucegodbased",
+    56
+   ],
+   [
+    "davidtai",
+    54
+   ],
+   [
+    "polymorf",
+    53
+   ],
+   [
+    "0xkydo",
+    43
+   ]
+  ]
+ },
+ "C1_launch_mixing_L_axis": {
+  "anova_by_solver_ln_L": {
+   "F": 0.9729491419103874,
+   "between_sd_pct": 0.0,
+   "df1": 54,
+   "df2": 1141,
+   "groups": 55,
+   "icc": 0.0,
+   "n": 1196,
+   "p_F": 0.5313662422837697,
+   "within_sd_ci_pct": [
+    0.5151917122946605,
+    0.559270599738154
+   ],
+   "within_sd_pct": 0.5363208260299263
+  },
+  "anova_by_solver_ln_bl_dec": {
+   "F": 1.0108708140368226,
+   "between_sd_pct": 0.005633382200595426,
+   "df1": 54,
+   "df2": 1141,
+   "groups": 55,
+   "icc": 0.0005211661287742324,
+   "n": 1196,
+   "p_F": 0.45434416112671405,
+   "within_sd_ci_pct": [
+    0.2369802390327604,
+    0.25725584718672617
+   ],
+   "within_sd_pct": 0.24669930536096604
+  },
+  "anova_by_solver_ln_bl_pre": {
+   "F": 0.8316793661082749,
+   "between_sd_pct": 0.0,
+   "df1": 54,
+   "df2": 1141,
+   "groups": 55,
+   "icc": 0.0,
+   "n": 1196,
+   "p_F": 0.802146225154617,
+   "within_sd_ci_pct": [
+    1.852356041624038,
+    2.0108403330353917
+   ],
+   "within_sd_pct": 1.9283251237106998
+  },
+  "anova_lnL_by_note_launch": {
+   "F": 1.6031197746157122,
+   "between_sd_pct": 0.1042737141373349,
+   "df1": 3,
+   "df2": 76,
+   "groups": 4,
+   "icc": 0.03739554164056813,
+   "n": 80,
+   "p_F": 0.19565200375076663,
+   "within_sd_ci_pct": [
+    0.456657825347317,
+    0.6289325761059721
+   ],
+   "within_sd_pct": 0.5290404308934564
+  },
+  "high_prefill_mode_fraction": [
+   {
+    "ci": [
+     0.41729872892697334,
+     0.47303074137178586
+    ],
+    "cohort": "all",
+    "frac": 0.44499178981937604,
+    "k": 542,
+    "n": 1218
+   },
+   {
+    "ci": [
+     0.3436130292459178,
+     0.5527498356571707
+    ],
+    "cohort": "our account",
+    "frac": 0.4457831325301205,
+    "k": 37,
+    "n": 83
+   },
+   {
+    "ci": [
+     0.42110078284137187,
+     0.5554075533274295
+    ],
+    "cohort": "a-github-name",
+    "frac": 0.4880382775119617,
+    "k": 102,
+    "n": 209
+   }
+  ],
+  "our_account_note_attribution": {
+   "birch": 4,
+   "birch+maple": 2,
+   "cedar": 4,
+   "cedar+maple": 1,
+   "maple": 31,
+   "unattributed": 41
+  },
+  "sd_lnL_by_cohort": [
+   {
+    "label": "all receipts (n=1218)",
+    "mean_pct": -0.011562515573097917,
+    "median_pct": -0.15174156255698218,
+    "n": 1218,
+    "sd_ci_pct": [
+     0.5160564773521812,
+     0.5587508632637291
+    ],
+    "sd_pct": 0.5365499003937134
+   },
+   {
+    "label": "our shared account only",
+    "mean_pct": 0.0032200215797186763,
+    "median_pct": -0.1073325478161121,
+    "n": 83,
+    "sd_ci_pct": [
+     0.4663442192578666,
+     0.6345578233945333
+    ],
+    "sd_pct": 0.5375189173852238
+   },
+   {
+    "label": "largest single-solver account a-github-name",
+    "mean_pct": 0.0642911422928316,
+    "median_pct": -0.05042702278564002,
+    "n": 209,
+    "sd_ci_pct": [
+     0.513393276795909,
+     0.6224743532307867
+    ],
+    "sd_pct": 0.56266129459621
+   }
+  ],
+  "sd_lnL_by_note_launch": [
+   {
+    "label": "birch",
+    "mean_pct": -0.02764724669436407,
+    "median_pct": -0.011845610782481008,
+    "n": 4,
+    "sd_ci_pct": [
+     0.22183876465250957,
+     1.4601093855355862
+    ],
+    "sd_pct": 0.39160249860832635
+   },
+   {
+    "label": "birch+maple",
+    "mean_pct": 0.6585745651246844,
+    "median_pct": 0.6585745651246844,
+    "n": 2,
+    "sd_ci_pct": [
+     0.12380534813055015,
+     8.855309050899992
+    ],
+    "sd_pct": 0.277497750289955
+   },
+   {
+    "label": "cedar",
+    "mean_pct": -0.5092842970177425,
+    "median_pct": -0.5155617920653459,
+    "n": 4,
+    "sd_ci_pct": [
+     0.09143741015764591,
+     0.6018272819422474
+    ],
+    "sd_pct": 0.16141055572544827
+   },
+   {
+    "label": "cedar+maple",
+    "n": 1
+   },
+   {
+    "label": "maple",
+    "mean_pct": -0.05185305651110471,
+    "median_pct": -0.22078612611455942,
+    "n": 31,
+    "sd_ci_pct": [
+     0.35524862066727025,
+     0.594458037010362
+    ],
+    "sd_pct": 0.4445672880469727
+   },
+   {
+    "label": "unattributed",
+    "mean_pct": 0.07460949265677772,
+    "median_pct": -0.015312896507422739,
+    "n": 41,
+    "sd_ci_pct": [
+     0.49945330099708346,
+     0.7785519416628356
+    ],
+    "sd_pct": 0.6083532532629405
+   }
+  ]
+ },
+ "C2_cs_axis_provenance": {
+  "conclusion": "sigma_cs is estimated only from tree-identical receipts, and every verified group is entirely our own account, so that estimate is launch-clean by construction; Rule 93.1's mixture worry does not reach the cs axis",
+  "n_groups_in_file": 10,
+  "n_verified_groups": 5,
+  "n_verified_groups_all_ours": 5,
+  "verified_groups": [
+   {
+    "all_ours": true,
+    "group": "fresh:r104A/armA",
+    "n_in_group": 3,
+    "n_matched_in_corpus": 3,
+    "solvers": [
+     "morganmcg1"
+    ],
+    "verified_inert_only": true
+   },
+   {
+    "all_ours": true,
+    "group": "fresh:r105A/A0",
+    "n_in_group": 3,
+    "n_matched_in_corpus": 3,
+    "solvers": [
+     "morganmcg1"
+    ],
+    "verified_inert_only": true
+   },
+   {
+    "all_ours": true,
+    "group": "fresh:r105A/A1",
+    "n_in_group": 2,
+    "n_matched_in_corpus": 2,
+    "solvers": [
+     "morganmcg1"
+    ],
+    "verified_inert_only": true
+   },
+   {
+    "all_ours": true,
+    "group": "r103:1008c6920be35876",
+    "n_in_group": 4,
+    "n_matched_in_corpus": 4,
+    "solvers": [
+     "morganmcg1"
+    ],
+    "verified_inert_only": false
+   },
+   {
+    "all_ours": true,
+    "group": "r103:4d5ac413d1a7d82e",
+    "n_in_group": 2,
+    "n_matched_in_corpus": 2,
+    "solvers": [
+     "morganmcg1"
+    ],
+    "verified_inert_only": false
+   },
+   {
+    "all_ours": true,
+    "group": "r103:521a2f7124786af6",
+    "n_in_group": 4,
+    "n_matched_in_corpus": 4,
+    "solvers": [
+     "morganmcg1"
+    ],
+    "verified_inert_only": false
+   },
+   {
+    "all_ours": true,
+    "group": "r103:7cbffc2c17d7f2a9",
+    "n_in_group": 4,
+    "n_matched_in_corpus": 4,
+    "solvers": [
+     "morganmcg1"
+    ],
+    "verified_inert_only": false
+   },
+   {
+    "all_ours": true,
+    "group": "r103:9beb75a6fbc5e042",
+    "n_in_group": 2,
+    "n_matched_in_corpus": 2,
+    "solvers": [
+     "morganmcg1"
+    ],
+    "verified_inert_only": true
+   },
+   {
+    "all_ours": true,
+    "group": "r103:d18d0983830b73a1",
+    "n_in_group": 3,
+    "n_matched_in_corpus": 3,
+    "solvers": [
+     "morganmcg1"
+    ],
+    "verified_inert_only": false
+   },
+   {
+    "all_ours": true,
+    "group": "r103:dc437b0e0b918c86",
+    "n_in_group": 5,
+    "n_matched_in_corpus": 5,
+    "solvers": [
+     "morganmcg1"
+    ],
+    "verified_inert_only": true
+   }
+  ]
+ },
+ "C3_record_ladder": [
+  {
+   "cs": 2.590559143419936,
+   "empirical": {
+    "ci": [
+     0.023510496488730926,
+     0.043471564261907424
+    ],
+    "k": 39,
+    "n": 1218,
+    "p": 0.03201970443349754
+   },
+   "label": "observed max cs of our best tree (order statistic, n=5)",
+   "need_lnL_pct": 0.9965163337661842,
+   "sigma_variants": {
+    "hi": {
+     "cum_p_10_draws": 0.5899425846554893,
+     "cum_p_30_draws": 0.9310500413868521,
+     "expected_draws": 11.725005074293414,
+     "expected_draws_known_merit": 15.808218901560668,
+     "hours_account_rate": 4.299168527240918,
+     "hours_our_rate": 13.02778341588157,
+     "p_draw": 0.08528780957139698,
+     "p_draw_known_merit": 0.06325823334223155,
+     "sigma_cs_pct": 0.32178335912329004,
+     "sigma_predictive_pct": 0.45507039061812904
+    },
+    "lo": {
+     "cum_p_10_draws": 0.3607853705419337,
+     "cum_p_30_draws": 0.7388198795371249,
+     "expected_draws": 22.849348984174718,
+     "expected_draws_known_merit": 26.10044037032622,
+     "hours_account_rate": 8.37809462753073,
+     "hours_our_rate": 25.388165537971908,
+     "p_draw": 0.04376492304846813,
+     "p_draw_known_merit": 0.03831352980300314,
+     "sigma_cs_pct": 0.12811619060010068,
+     "sigma_predictive_pct": 0.1811836543062388
+    },
+    "point": {
+     "cum_p_10_draws": 0.4252086147319851,
+     "cum_p_30_draws": 0.8100974696741832,
+     "expected_draws": 18.563366639681995,
+     "expected_draws_known_merit": 22.71975540911455,
+     "hours_account_rate": 6.806567767883399,
+     "hours_our_rate": 20.625962932979995,
+     "p_draw": 0.053869538829360256,
+     "p_draw_known_merit": 0.04401455834330096,
+     "sigma_cs_pct": 0.1833592904341719,
+     "sigma_predictive_pct": 0.2593091953191132
+    }
+   }
+  },
+  {
+   "cs": 2.583111139942713,
+   "empirical": {
+    "ci": [
+     0.005644771939824675,
+     0.017141702214791273
+    ],
+    "k": 12,
+    "n": 1218,
+    "p": 0.009852216748768473
+   },
+   "label": "unbiased merit of that same tree (n=5 mean)",
+   "need_lnL_pct": 1.2844360586224068,
+   "sigma_variants": {
+    "hi": {
+     "cum_p_10_draws": 0.2273746241330462,
+     "cum_p_30_draws": 0.538781303947385,
+     "expected_draws": 39.267701808134234,
+     "expected_draws_known_merit": 44.893921398504915,
+     "hours_account_rate": 14.39815732964922,
+     "hours_our_rate": 43.630779786815815,
+     "p_draw": 0.025466221702662818,
+     "p_draw_known_merit": 0.022274730494656735,
+     "sigma_cs_pct": 0.32178335912329004,
+     "sigma_predictive_pct": 0.35249600884322346
+    },
+    "lo": {
+     "cum_p_10_draws": 0.09655221729266694,
+     "cum_p_30_draws": 0.26258975158156694,
+     "expected_draws": 98.98714610300563,
+     "expected_draws_known_merit": 102.64456846611056,
+     "hours_account_rate": 36.2952869044354,
+     "hours_our_rate": 109.98571789222848,
+     "p_draw": 0.010102321759629315,
+     "p_draw_known_merit": 0.009742356706679157,
+     "sigma_cs_pct": 0.12811619060010068,
+     "sigma_predictive_pct": 0.1403442551466129
+    },
+    "point": {
+     "cum_p_10_draws": 0.12076435788317963,
+     "cum_p_30_draws": 0.3203022142793235,
+     "expected_draws": 78.19973904999121,
+     "expected_draws_known_merit": 84.31053210263012,
+     "hours_account_rate": 28.673237651663445,
+     "hours_our_rate": 86.88859894443468,
+     "p_draw": 0.012787766457388357,
+     "p_draw_known_merit": 0.01186091434914339,
+     "sigma_cs_pct": 0.1833592904341719,
+     "sigma_predictive_pct": 0.2008600389978743
+    }
+   }
+  },
+  {
+   "cs": 2.582286,
+   "empirical": {
+    "ci": [
+     0.0038922878436450604,
+     0.013983565578079511
+    ],
+    "k": 9,
+    "n": 1218,
+    "p": 0.007389162561576354
+   },
+   "label": "merged frontier bd33883e",
+   "need_lnL_pct": 1.316384810185045,
+   "sigma_variants": {
+    "hi": {
+     "cum_p_10_draws": 0.2946966424781655,
+     "cum_p_30_draws": 0.6491448515206764,
+     "expected_draws": 29.1457589038318,
+     "expected_draws_known_merit": 50.97444973041632,
+     "hours_account_rate": 10.686778264738328,
+     "hours_our_rate": 32.38417655981311,
+     "p_draw": 0.034310309204833564,
+     "p_draw_known_merit": 0.019617671309618917,
+     "sigma_cs_pct": 0.32178335912329004,
+     "sigma_predictive_pct": 0.45507039061812904
+    },
+    "lo": {
+     "cum_p_10_draws": 0.09735717855058956,
+     "cum_p_30_draws": 0.26455906725505596,
+     "expected_draws": 98.13007402031678,
+     "expected_draws_known_merit": 117.65400838841823,
+     "hours_account_rate": 35.98102714078282,
+     "hours_our_rate": 109.03341557812976,
+     "p_draw": 0.010190555851338302,
+     "p_draw_known_merit": 0.00849949792359509,
+     "sigma_cs_pct": 0.12811619060010068,
+     "sigma_predictive_pct": 0.1811836543062388
+    },
+    "point": {
+     "cum_p_10_draws": 0.13642899440977474,
+     "cum_p_30_draws": 0.35598770688986825,
+     "expected_draws": 68.67723556726473,
+     "expected_draws_known_merit": 97.25892930250438,
+     "hours_account_rate": 25.181653041330403,
+     "hours_our_rate": 76.30803951918303,
+     "p_draw": 0.014560865645510256,
+     "p_draw_known_merit": 0.010281832292125082,
+     "sigma_cs_pct": 0.1833592904341719,
+     "sigma_predictive_pct": 0.2593091953191132
+    }
+   }
+  },
+  {
+   "cs": 2.585695543068852,
+   "empirical": {
+    "ci": [
+     0.008101858832229168,
+     0.021232109632908617
+    ],
+    "k": 16,
+    "n": 1218,
+    "p": 0.013136288998357963
+   },
+   "label": "unbiased best + 0.10 % of cs",
+   "need_lnL_pct": 1.1844360586224068,
+   "sigma_variants": {
+    "hi": {
+     "cum_p_10_draws": 0.31161114091462594,
+     "cum_p_30_draws": 0.6737868234961728,
+     "expected_draws": 27.283943275795902,
+     "expected_draws_known_merit": 30.54428887454874,
+     "hours_account_rate": 10.004112534458498,
+     "hours_our_rate": 30.315492528662112,
+     "p_draw": 0.03665159357251409,
+     "p_draw_known_merit": 0.032739344631894755,
+     "sigma_cs_pct": 0.32178335912329004,
+     "sigma_predictive_pct": 0.35249600884322346
+    },
+    "lo": {
+     "cum_p_10_draws": 0.14831474113074095,
+     "cum_p_30_draws": 0.38221495436606767,
+     "expected_draws": 62.79179471078066,
+     "expected_draws_known_merit": 65.52824934410674,
+     "hours_account_rate": 23.023658060619574,
+     "hours_our_rate": 69.76866078975628,
+     "p_draw": 0.01592564768384158,
+     "p_draw_known_merit": 0.015260593866146595,
+     "sigma_cs_pct": 0.12811619060010068,
+     "sigma_predictive_pct": 0.1403442551466129
+    },
+    "point": {
+     "cum_p_10_draws": 0.1843811948483478,
+     "cum_p_30_draws": 0.4574226109685292,
+     "expected_draws": 49.56744156876428,
+     "expected_draws_known_merit": 53.213165273412805,
+     "hours_account_rate": 18.17472857521357,
+     "hours_our_rate": 55.074935076404756,
+     "p_draw": 0.020174533289411614,
+     "p_draw_known_merit": 0.018792341986460175,
+     "sigma_cs_pct": 0.1833592904341719,
+     "sigma_predictive_pct": 0.2008600389978743
+    }
+   }
+  },
+  {
+   "cs": 2.589576996745941,
+   "empirical": {
+    "ci": [
+     0.019356269824622706,
+     0.037804549460232886
+    ],
+    "k": 33,
+    "n": 1218,
+    "p": 0.027093596059113302
+   },
+   "label": "unbiased best + 0.25 % of cs",
+   "need_lnL_pct": 1.03443605862239,
+   "sigma_variants": {
+    "hi": {
+     "cum_p_10_draws": 0.4646246415460472,
+     "cum_p_30_draws": 0.8465470878918462,
+     "expected_draws": 16.510656435168976,
+     "expected_draws_known_merit": 17.917265169049166,
+     "hours_account_rate": 6.053907359561959,
+     "hours_our_rate": 18.345173816854416,
+     "p_draw": 0.0605669437751683,
+     "p_draw_known_merit": 0.055812089097583416,
+     "sigma_cs_pct": 0.32178335912329004,
+     "sigma_predictive_pct": 0.35249600884322346
+    },
+    "lo": {
+     "cum_p_10_draws": 0.28479559130365584,
+     "cum_p_30_draws": 0.6341605388597407,
+     "expected_draws": 30.336895497285887,
+     "expected_draws_known_merit": 31.399680358793166,
+     "hours_account_rate": 11.123528349004825,
+     "hours_our_rate": 33.70766166365099,
+     "p_draw": 0.03296316197184599,
+     "p_draw_known_merit": 0.031847457954136786,
+     "sigma_cs_pct": 0.12811619060010068,
+     "sigma_predictive_pct": 0.1403442551466129
+    },
+    "point": {
+     "cum_p_10_draws": 0.33044623947151164,
+     "cum_p_30_draws": 0.6998375505345157,
+     "expected_draws": 25.432058020196774,
+     "expected_draws_known_merit": 26.783209218130033,
+     "hours_account_rate": 9.325087940738818,
+     "hours_our_rate": 28.25784224466308,
+     "p_draw": 0.03932045134553616,
+     "p_draw_known_merit": 0.037336825167429234,
+     "sigma_cs_pct": 0.1833592904341719,
+     "sigma_predictive_pct": 0.2008600389978743
+    }
+   }
+  },
+  {
+   "cs": 2.596059038413827,
+   "empirical": {
+    "ci": [
+     0.07246790157813693,
+     0.10418468887374219
+    ],
+    "k": 106,
+    "n": 1218,
+    "p": 0.08702791461412152
+   },
+   "label": "unbiased best + 0.50 % of cs",
+   "need_lnL_pct": 0.7844360586224064,
+   "sigma_variants": {
+    "hi": {
+     "cum_p_10_draws": 0.7302766854368681,
+     "cum_p_30_draws": 0.9803774491168116,
+     "expected_draws": 8.142415231097928,
+     "expected_draws_known_merit": 8.472399953476163,
+     "hours_account_rate": 2.9855522514025736,
+     "hours_our_rate": 9.047128034553253,
+     "p_draw": 0.12281368262585639,
+     "p_draw_known_merit": 0.1180303108317859,
+     "sigma_cs_pct": 0.32178335912329004,
+     "sigma_predictive_pct": 0.35249600884322346
+    },
+    "lo": {
+     "cum_p_10_draws": 0.626981739103624,
+     "cum_p_30_draws": 0.9480972607660961,
+     "expected_draws": 10.648888784706193,
+     "expected_draws_known_merit": 10.77563754660206,
+     "hours_account_rate": 3.904592554392271,
+     "hours_our_rate": 11.832098649673547,
+     "p_draw": 0.09390651177014714,
+     "p_draw_known_merit": 0.09280193359095819,
+     "sigma_cs_pct": 0.12811619060010068,
+     "sigma_predictive_pct": 0.1403442551466129
+    },
+    "point": {
+     "cum_p_10_draws": 0.6539880775953808,
+     "cum_p_30_draws": 0.9585739819446789,
+     "expected_draws": 9.931408235131919,
+     "expected_draws_known_merit": 10.148945573855967,
+     "hours_account_rate": 3.6415163528817036,
+     "hours_our_rate": 11.034898039035465,
+     "p_draw": 0.10069065497303233,
+     "p_draw_known_merit": 0.09853240346229016,
+     "sigma_cs_pct": 0.1833592904341719,
+     "sigma_predictive_pct": 0.2008600389978743
+    }
+   }
+  },
+  {
+   "cs": 2.609071838496113,
+   "empirical": {
+    "ci": [
+     0.30020359570668875,
+     0.3527792058356538
+    ],
+    "k": 397,
+    "n": 1218,
+    "p": 0.32594417077175697
+   },
+   "label": "unbiased best + 1.00 % of cs",
+   "need_lnL_pct": 0.28443605862240595,
+   "sigma_variants": {
+    "hi": {
+     "cum_p_10_draws": 0.9791872555018171,
+     "cum_p_30_draws": 0.9999909845365237,
+     "expected_draws": 3.11470595820099,
+     "expected_draws_known_merit": 3.1346582978426305,
+     "hours_account_rate": 1.1420588513403631,
+     "hours_our_rate": 3.4607843980011,
+     "p_draw": 0.32105759369259557,
+     "p_draw_known_merit": 0.31901403757093116,
+     "sigma_cs_pct": 0.32178335912329004,
+     "sigma_predictive_pct": 0.35249600884322346
+    },
+    "lo": {
+     "cum_p_10_draws": 0.9789036474546947,
+     "cum_p_30_draws": 0.9999906109398078,
+     "expected_draws": 3.1236524651325692,
+     "expected_draws_known_merit": 3.1174149881827136,
+     "hours_account_rate": 1.1453392372152755,
+     "hours_our_rate": 3.4707249612584103,
+     "p_draw": 0.3201380470978738,
+     "p_draw_known_merit": 0.3207785950188642,
+     "sigma_cs_pct": 0.12811619060010068,
+     "sigma_predictive_pct": 0.1403442551466129
+    },
+    "point": {
+     "cum_p_10_draws": 0.9780924075331354,
+     "cum_p_30_draws": 0.9999894856129431,
+     "expected_draws": 3.1489331623262644,
+     "expected_draws_known_merit": 3.143062928262914,
+     "hours_account_rate": 1.154608826186297,
+     "hours_our_rate": 3.4988146248069603,
+     "p_draw": 0.3175678709106843,
+     "p_draw_known_merit": 0.3181609858994051,
+     "sigma_cs_pct": 0.1833592904341719,
+     "sigma_predictive_pct": 0.2008600389978743
+    }
+   }
+  }
+ ],
+ "C4_exchange_rate": {
+  "basis": "unbiased merit of the best tree, cs 2.583111, n=5",
+  "inverse_mechanism_to_draws": {
+   "#617 + #619 closed-decode ceilings combined": {
+    "draws_multiplier": 3.1276825342816514,
+    "extra_draws_at_budget_10": 21.276825342816515,
+    "extra_draws_at_budget_20": 42.55365068563303,
+    "extra_hours_at_budget_20_our_rate": 47.28183409514781,
+    "p_with": 0.03945457546361589,
+    "p_without": 0.012787766457388357,
+    "pct_of_cs": 0.2508
+   },
+   "#619 redundant-read + fusion ceiling 0.231 %": {
+    "draws_multiplier": 2.8683547607829487,
+    "extra_draws_at_budget_10": 18.68354760782949,
+    "extra_draws_at_budget_20": 37.36709521565898,
+    "extra_hours_at_budget_20_our_rate": 41.51899468406553,
+    "p_with": 0.03624329433111308,
+    "p_without": 0.012787766457388357,
+    "pct_of_cs": 0.231
+   },
+   "+0.10 % of cs (6.6 us/step)": {
+    "draws_multiplier": 1.583562410336474,
+    "extra_draws_at_budget_10": 5.83562410336474,
+    "extra_draws_at_budget_20": 11.67124820672948,
+    "extra_hours_at_budget_20_our_rate": 12.968053563032756,
+    "p_with": 0.020174533289411614,
+    "p_without": 0.012787766457388357,
+    "pct_of_cs": 0.1
+   },
+   "+0.25 % of cs (16.4 us/step)": {
+    "draws_multiplier": 3.1168339712165825,
+    "extra_draws_at_budget_10": 21.168339712165825,
+    "extra_draws_at_budget_20": 42.33667942433165,
+    "extra_hours_at_budget_20_our_rate": 47.040754915924055,
+    "p_with": 0.03932045134553335,
+    "p_without": 0.012787766457388357,
+    "pct_of_cs": 0.25
+   },
+   "+0.50 % of cs (32.8 us/step)": {
+    "draws_multiplier": 8.246019984460268,
+    "extra_draws_at_budget_10": 72.46019984460268,
+    "extra_draws_at_budget_20": 144.92039968920537,
+    "extra_hours_at_budget_20_our_rate": 161.0226663213393,
+    "p_with": 0.1006906549730322,
+    "p_without": 0.012787766457388357,
+    "pct_of_cs": 0.5
+   },
+   "Rule 91 whole 19.0 us/step revert residual": {
+    "draws_multiplier": 4.1975784574024075,
+    "extra_draws_at_budget_10": 31.975784574024075,
+    "extra_draws_at_budget_20": 63.95156914804815,
+    "extra_hours_at_budget_20_our_rate": 71.05729905338683,
+    "p_with": 0.052590457189067644,
+    "p_without": 0.012787766457388357,
+    "pct_of_cs": 0.3204
+   },
+   "Rule 92 dispatch-reorder ceiling 1.30 us/step": {
+    "draws_multiplier": 1.094479308855799,
+    "extra_draws_at_budget_10": 0.9447930885579892,
+    "extra_draws_at_budget_20": 1.8895861771159783,
+    "extra_hours_at_budget_20_our_rate": 2.0995401967955316,
+    "p_with": 0.01398745815315706,
+    "p_without": 0.012787766457388357,
+    "pct_of_cs": 0.0198
+   },
+   "Rule 94.1 prefill gap, 9.3 % of score": {
+    "draws_multiplier": null,
+    "extra_draws_at_budget_10": null,
+    "extra_draws_at_budget_20": null,
+    "extra_hours_at_budget_20_our_rate": null,
+    "p_with": 1.0,
+    "p_without": 0.012787766457388357,
+    "pct_of_cs": 9.3
+   }
+  },
+  "multiplier_note": "cum(p1,k) = cum(p0, k*r) exactly, with r = ln(1-p1)/ln(1-p0), so a permanent merit gain multiplies the effective draw count by r at any budget; r is the budget-free statement and (r-1)*k is the extra-draw statement at budget k",
+  "per_budget": {
+   "10": {
+    "cum_p_at_k": 0.12076435788317963,
+    "cum_p_at_k_plus_1": 0.13200781793558147,
+    "pct_of_cs": 0.020899839711520287,
+    "us_per_step": 1.3724612366377913
+   },
+   "20": {
+    "cum_p_at_k": 0.22694468563142267,
+    "cum_p_at_k_plus_1": 0.2368303364502109,
+    "pct_of_cs": 0.010716872004640828,
+    "us_per_step": 0.7037609669451556
+   },
+   "4": {
+    "cum_p_at_k": 0.05017824184152775,
+    "cum_p_at_k_plus_1": 0.06232434066100434,
+    "pct_of_cs": 0.04874289891674258,
+    "us_per_step": 3.200873319985722
+   },
+   "40": {
+    "cum_p_at_k": 0.40238548092650006,
+    "cum_p_at_k_plus_1": 0.4100276358279563,
+    "pct_of_cs": 0.005428843333200092,
+    "us_per_step": 0.3565040276595805
+   },
+   "80": {
+    "cum_p_at_k": 0.6428568865925492,
+    "cum_p_at_k_plus_1": 0.6474239493186684,
+    "pct_of_cs": 0.0027325148192757463,
+    "us_per_step": 0.1794401641237028
+   }
+  }
+ },
+ "C5_prefill_coin": {
+  "antimode_pct_vs_MB_P": -0.03507169434067623,
+  "coin_value_pct_of_score": 0.9259791548682876,
+  "coin_value_us_per_step_decode_equiv": 60.80766711769685,
+  "high_mode": {
+   "mean_lnL_pct": 0.5023635178349173,
+   "mean_ln_bl_pre_pct": 1.92965618262628,
+   "n": 542,
+   "sd_lnL_pct": 0.3377433652030772,
+   "winners_vs_observed_max": {
+    "ci": [
+     0.053081226872946884,
+     0.09685509163068513
+    ],
+    "k": 39,
+    "p": 0.07195571955719557
+   },
+   "winners_vs_unbiased": {
+    "ci": [
+     0.012709655056853751,
+     0.03829683844504581
+    ],
+    "k": 12,
+    "p": 0.02214022140221402
+   }
+  },
+  "low_mode": {
+   "mean_lnL_pct": -0.4236156370333704,
+   "mean_ln_bl_pre_pct": -1.6189112998811883,
+   "n": 676,
+   "sd_lnL_pct": 0.21331691148405388,
+   "winners_vs_observed_max": {
+    "ci": [
+     -4.3123034589249e-19,
+     0.0056505215629988
+    ],
+    "k": 0,
+    "p": 0.0
+   },
+   "winners_vs_unbiased": {
+    "ci": [
+     -4.3123034589249e-19,
+     0.0056505215629988
+    ],
+    "k": 0,
+    "p": 0.0
+   }
+  }
+ },
+ "C6_record_provenance": {
+  "max_score_receipt_in_corpus": {
+   "createdAt": "2026-08-08T09:09:29.443Z",
+   "cs": 2.5745941683956177,
+   "lnL_pct": 1.6146984051264683,
+   "score": 2.616503543814561,
+   "sha12": "c5b0a13c5cc0",
+   "user": "a-github-name"
+  },
+  "n_corpus_receipts_at_or_above_record": 1,
+  "record_score_from_state_doc": 2.61650354381456,
+  "record_sha_cc6ddc12_in_corpus": false,
+  "top5": [
+   {
+    "cs": 2.5745941683956177,
+    "lnL_pct": 1.6146984051264683,
+    "score": 2.616503543814561,
+    "sha12": "c5b0a13c5cc0",
+    "user": "a-github-name"
+   },
+   {
+    "cs": 2.579117763156076,
+    "lnL_pct": 1.0486581648798934,
+    "score": 2.6063061998868484,
+    "sha12": "01e247a74d1e",
+    "user": "yudduy"
+   },
+   {
+    "cs": 2.582971727689329,
+    "lnL_pct": 0.8696471842425937,
+    "score": 2.605532425640169,
+    "sha12": "085228339775",
+    "user": "a-github-name"
+   },
+   {
+    "cs": 2.5803573672510214,
+    "lnL_pct": 0.9130018507126412,
+    "score": 2.6040239515471386,
+    "sha12": "",
+    "user": "fyrsta7"
+   },
+   {
+    "cs": 2.580111045518623,
+    "lnL_pct": 0.8619694316417514,
+    "score": 2.60244694003027,
+    "sha12": "50526ce8b536",
+    "user": "a-github-name"
+   }
+  ]
+ },
+ "C7_tree_selection": {
+  "basis": "ticket value of drawing from a tree whose merit is delta below the best known tree; r < 1 means the draw is worth less than a repeat of the best tree",
+  "rows": [
+   {
+    "merit_deficit_pct_of_cs": 0.0,
+    "merit_deficit_us_per_step": 0.0,
+    "n_receipts_to_resolve_this_deficit_per_arm": Infinity,
+    "p_draw": 0.01672291745760369,
+    "ticket_value_ratio": 1.0
+   },
+   {
+    "merit_deficit_pct_of_cs": 0.02,
+    "merit_deficit_us_per_step": 1.3133701076963489,
+    "n_receipts_to_resolve_this_deficit_per_arm": 645.7613169122315,
+    "p_draw": 0.015335495628775456,
+    "ticket_value_ratio": 0.9163901496296618
+   },
+   {
+    "merit_deficit_pct_of_cs": 0.05,
+    "merit_deficit_us_per_step": 3.283425269240872,
+    "n_receipts_to_resolve_this_deficit_per_arm": 103.32181070595703,
+    "p_draw": 0.013463322714934146,
+    "ticket_value_ratio": 0.8037544160263849
+   },
+   {
+    "merit_deficit_pct_of_cs": 0.1,
+    "merit_deficit_us_per_step": 6.566850538481744,
+    "n_receipts_to_resolve_this_deficit_per_arm": 25.83045267648926,
+    "p_draw": 0.010838648313842193,
+    "ticket_value_ratio": 0.6462052244773802
+   },
+   {
+    "merit_deficit_pct_of_cs": 0.2,
+    "merit_deficit_us_per_step": 13.133701076963488,
+    "n_receipts_to_resolve_this_deficit_per_arm": 6.457613169122315,
+    "p_draw": 0.007069390937825111,
+    "ticket_value_ratio": 0.420680806147986
+   },
+   {
+    "merit_deficit_pct_of_cs": 0.5,
+    "merit_deficit_us_per_step": 32.83425269240872,
+    "n_receipts_to_resolve_this_deficit_per_arm": 1.0332181070595703,
+    "p_draw": 0.0021863513434207255,
+    "ticket_value_ratio": 0.12978550933170477
+   },
+   {
+    "merit_deficit_pct_of_cs": 1.0,
+    "merit_deficit_us_per_step": 65.66850538481744,
+    "n_receipts_to_resolve_this_deficit_per_arm": 0.2583045267648926,
+    "p_draw": 0.00024548646414556557,
+    "ticket_value_ratio": 0.014558342139476967
+   }
+  ],
+  "rule": "Draw from the single highest-merit buildable tree. A second tree is only worth a draw when its merit deficit is inside the resolution floor of sigma_cs, and sigma_cs is 0.183 % of cs, so any deficit we can actually measure with a handful of receipts already costs more ticket value than diversification buys.",
+  "sigma_cs_pct": 0.1833592904341719
+ },
+ "n_receipts": 1218,
+ "schema": "maple-nezuko-r106h-stage-c/1"
+}
