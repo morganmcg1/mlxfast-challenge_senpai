@@ -653,3 +653,89 @@ The "≲ 0.3 ⇒ programme dead" branch is fully supported.
 
 <!--RESULTS-->
 
+## §3.4 Why the gauge's `1.157 µs/dispatch` is not an estimate of anything
+
+The gauge arm (2400 chained no-ops) moves decode by roughly +2.8 ms/step, which divides out
+to about `1.16` M4 µs/dispatch. The 160-dispatch rungs show nothing. A per-dispatch tax
+cannot be simultaneously `1.16` and `0`, so at least one of the two is not measuring a
+per-dispatch tax. Amendment §3 designated the gauge a **liveness check only**, before any
+data existed, precisely so this could not be retro-fitted into an estimate.
+
+The mechanism I believe explains the sign: with `CHAIN=1` the `LagunaInjectChain.tail`
+persists across layers (`:12084`, `:12139`), so the chained arms build **one serial
+critical path** through the whole step rather than 40 independent fans. What the gauge
+prices is therefore *serialized dispatch latency on the critical path* — a quantity with no
+bearing on whether two already-concurrent kernels can be merged. It is also strongly
+superlinear in `N` for that reason, which is exactly the pattern observed. MLX's
+`needs_commit()` buffer split (≈50 ops per command buffer on arch `s`) adds command buffers
+in both chained and unchained arms and so cannot explain a sign difference between them.
+
+The `N=1200` rung exists to bridge this gap, and the measured `dH`/`dJ` pair is the only
+part of the design that speaks to it.
+
+## §3.5 What this means for the merge programme
+
+The merge programme's premise is that deleting one dispatch per layer per step (40 per
+step, family E — corrected count, see §3.6) buys back real decode time. Two independent
+lines now bound that premise from above:
+
+1. **This probe.** Adding dispatches on the same path, with the barrier flag both set and
+   cleared, at 4× and 30× the merge's own dispatch count, does not move decode outside
+   noise — while the instrument is simultaneously charging the workload for extra encoders
+   and extra command buffers that a real merge would never save.
+2. **Roofline arithmetic** (independent estimate contributed by a frontier advisory agent
+   this session, not a measurement of mine, and labelled as such). Decode streams ≈2.9 GB
+   per token at an arithmetic intensity near 2 FLOP/byte against a ridge of ≥25, so the
+   step is bandwidth-bound in aggregate with latency-bound glue. Its costed launch tax for
+   the whole step is ≈37 µs, i.e. ≈0.4 % of a 9000 µs step; barrier stages price at ≈1–3 µs
+   each. A 40-dispatch deletion is a sub-0.1 % lever on that budget.
+
+Both agree the region is cheap. The probe is the load-bearing one because it is a
+device measurement on the ranked path; the roofline is corroboration.
+
+The consequence for rule 105.23(f) is that the merge is not worth the rule-65 price, and
+§2.7's Stage-1 recommendation should be read as superseded on its dispatch-count
+justification. It does **not** follow that the M2 pair is uninteresting — only that
+*dispatch count* is the wrong reason to touch it. Anything that reduces the ≈2.9 GB moved
+per token, or that removes a *false* hazard (see §3.1's `prev_inputs_` note) and so restores
+concurrency the encoder already intended, is priced on a completely different and much
+larger budget line.
+
+## §3.6 Corrections and unavailable knobs, carried forward as instructed
+
+* **Family E's `n` is 40, not 30.** Advisor self-correction in comment 6; the 105.20
+  figures built on `n=30` are 33 % low. Every dispatch-count figure in this section uses 40.
+* **My own R107-F §11.4 "+2.19–2.31 %" is retracted.** It double-counts. I am not
+  re-deriving a replacement here; it should be treated as withdrawn, not adjusted.
+* **`FERN_DEFEAT_SLOTS` does not exist as a runtime control.** No reader appears anywhere in
+  `Sources/` or in `benchmark.sh`. The probe records `defeat=0` in every row as a schema
+  constant, and I declare the knob unavailable rather than reporting a setting I could not
+  apply.
+* **`max_abs_diff` is never citable as evidence.** It is hard-coded `0`. The correctness
+  gate that actually runs is exact token-ID equality at
+  `Sources/MLXFastCore/Golden.swift:387` and `:535`, and it is what every `passed=true` in
+  the results table means.
+
+## §3.7 Follow-ups I did not implement
+
+Ranked by information per unit of device time:
+
+1. **Count command buffers directly.** A Metal capture, or per-command-buffer
+   `gpuStartTime`/`gpuEndTime` logging, converts the §3.2 ceiling into a real measurement
+   and would let a future probe separate "extra dispatch" from "extra submission". This is
+   the single change that would make a *positive* arm F interpretable, and it also yields
+   the GPU-busy fraction, which is the cheapest discriminator between bandwidth-bound and
+   launch-bound decode.
+2. **Finish the sanctioned INT8 attention coverage**, O-projection first (estimated 4–8 %,
+   inside the accepted group-32 affine envelope). This is on the bandwidth budget line, not
+   the dispatch line.
+3. **Eliminate false hazards / overlap the shared expert.** `register_output_array`'s WAR
+   tracking against `prev_inputs_` means allocator buffer recycling can serialize kernels
+   the encoder marked concurrent. Fixing that recovers concurrency without deleting a
+   single dispatch.
+4. **Commit-cadence sweep** around `needs_commit()`, since command-buffer commits price at
+   ≈30–50 µs each — an order of magnitude above a barrier stage.
+
+Items 2–4 come from the same frontier advisory analysis cited in §3.5 and are its ranking,
+not an independent measurement of mine.
+
