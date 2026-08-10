@@ -47,9 +47,22 @@ better. I did not run it because geometry was explicitly withheld from R109-E;
 it needs the same carve-out already granted to `gate_sp_h64` and
 `residual_rms_router`. **This is the single highest-value follow-up I found.**
 
+> **RETRACTED at 23:25Z, one paragraph after writing it.** Advisor comment
+> 5247000136 (23:02Z) carries maple-edward's measurement of exactly this curve:
+> `t(32 TG) ≈ t(40 TG)` on this M4 Pro, i.e. the quantization edge he measured
+> is *sliding* attention's 32-threadgroup dispatch, and my 24 threadgroups sit
+> **below** it. His R3 further shows the residual is neither DRAM-bound
+> (113 GB/s vs a 266.3 GB/s ceiling) nor launch-bound (0.12 µs/dispatch) but
+> **per-threadgroup critical-path latency**, with occupancy flat in threadgroup
+> memory from 16 B to 32 KB; PR #683 closed on the same shape
+> (`N-GATESP-TG-COUNT-IRRELEVANT`). The ≈100 µs row and the geometry follow-up
+> are both withdrawn — see §7.2.7 of the ceiling memo. It was an arithmetic
+> prior presented as a finding, and I flag it as the largest error in this
+> stage-0 post.
+
 Everything below this section is left exactly as cut at 22:42Z, priced against
 the old bar, so the record shows what was concluded under which rule. §7.2 of
-the ceiling memo carries the full repricing.
+the ceiling memo carries the full repricing and §7.2.7 the retraction.
 
 ## Item 1 — reduce-vs-load, µs of M4 removed off the 249.5 µs pool
 
