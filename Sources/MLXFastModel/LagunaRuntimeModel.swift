@@ -683,7 +683,7 @@ let lagunaRouterRowsPerGroup: Int = {
     return value
 }()
 
-// Router-GEMV weight-prefetch mode: 0, 1, or 5; anything else falls back to 1.
+// Router-GEMV weight-prefetch mode: 0, 1, or 5; anything else falls back to 0.
 // 0 selects the plain kernel. 1 issues a four-block vec<bfloat,4> salvo (256 KiB
 // per invocation, one quarter of the 1 MiB router weight) above the RMSNorm
 // reduction and all five threadgroup barriers, then peels the first 4 of 16
@@ -691,14 +691,16 @@ let lagunaRouterRowsPerGroup: Int = {
 // those barriers instead, so 1 and 5 are a matched pair that isolates placement
 // from the loads; neither variant moves extra bytes. In the serialised router
 // label 1 measures ~6.4 us/step faster than 0 while 5 is indistinguishable from
-// it, so that win belongs to the hoist rather than to the prefetch block itself.
-// See #597: end to end that hoist instead costs +28.0 us/step on M4 Pro, 16/16.
+// it, so that win looks like it belongs to the hoist. End to end the sign
+// reverses: #597 measures the hoist at +28.0 us/step on M4 Pro over 144 slots,
+// 16/16 cycles, with 5 back at 0, so the cross-barrier placement costs far more
+// elsewhere in the step than the label recovers. The default is therefore 0.
 let lagunaRouterWeightPrefetch: Int = {
     guard
         let raw = ProcessInfo.processInfo.environment["DARKBLOOM_ROUTER_WEIGHT_PREFETCH"],
         let value = Int(raw), [0, 1, 5].contains(value)
     else {
-        return 1
+        return 0
     }
     return value
 }()
