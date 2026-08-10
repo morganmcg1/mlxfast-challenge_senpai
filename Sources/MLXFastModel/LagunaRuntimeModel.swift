@@ -9450,8 +9450,18 @@ func lagunaDecodeRouterTop8OrdinalScoreTableForTesting(
 }
 
 private func lagunaDecodeRouterTop8(
-    logits: MLXArray, correctionBias: MLXArray, normalizing: Bool = false
+    logits: MLXArray, correctionBias: MLXArray, routerKeys: MLXArray? = nil,
+    normalizing: Bool = false
 ) -> (MLXArray, MLXArray) {
+    if let routerKeys,
+        logits.dtype == .bfloat16,
+        routerKeys.dtype == .uint32,
+        logits.size == 256,
+        routerKeys.size == 256
+    {
+        return lagunaDecodeRouterPrecomputedOrdinal(
+            logits: logits, routerKeys: routerKeys, normalizing: normalizing)
+    }
     if lagunaDecodeRouterOrdinalEnabled {
         if lagunaDecodeRouterOrdinalScoreTableEnabled {
             if lagunaDecodeRouterTournamentEnabled {
@@ -9829,10 +9839,44 @@ for (uint sequence = 2; sequence <= 64; sequence <<= 1) {
 /// `(float key, uint index, float score)` to `(uint ordinal, uint index)`.
 /// One per-row score table preserves the original sigmoid bytes for the
 /// final eight indexed loads without carrying scores through either network.
-private func lagunaPrefillRouterTournamentOrdinalKernelSource(normalizing: Bool) -> String {
-    let epilogue =
-        normalizing
-        ? """
+private func lagunaPrefillRouterTournamentOrdinalKernelSource(
+    normalizing: Bool, precomputedKeys: Bool = false
+) -> String {
+    let epilogue: String
+    if precomputedKeys {
+        let winnerScore = """
+float x = float(logits[row * 256 + my_index2]);
+float y = 1.0f / (1.0f + metal::exp(metal::abs(x)));
+my_score2 = x < 0.0f ? y : 1.0f - y;
+"""
+        epilogue =
+            normalizing
+            ? """
+float my_score2 = 0.0f;
+if (lane < 8) {
+\(winnerScore)
+}
+float total = 0.0f;
+for (uint i = 0; i < 8; ++i) {
+    total = simd_shuffle(my_score2, ushort(i)) + total;
+}
+if (lane < 8) {
+    router_indices[row * 8 + lane] = my_index2;
+    router_scores[row * 8 + lane] = my_score2 / total;
+}
+"""
+            : """
+if (lane < 8) {
+    float my_score2 = 0.0f;
+\(winnerScore)
+    router_indices[row * 8 + lane] = my_index2;
+    router_scores[row * 8 + lane] = my_score2;
+}
+"""
+    } else {
+        epilogue =
+            normalizing
+            ? """
 float my_score2 = lane < 8 ? original_scores[my_index2] : 0.0f;
 float total = 0.0f;
 for (uint i = 0; i < 8; ++i) {
@@ -9843,11 +9887,28 @@ if (lane < 8) {
     router_scores[row * 8 + lane] = my_score2 / total;
 }
 """
-        : """
+            : """
 if (lane < 8) {
     router_indices[row * 8 + lane] = my_index2;
     router_scores[row * 8 + lane] = original_scores[my_index2];
 }
+"""
+    }
+    let scoreStorage = precomputedKeys ? "" : "threadgroup float original_scores[256];"
+    let ordinalSetup =
+        precomputedKeys
+        ? """
+uint my_ordinal = router_keys[row * 256 + lane];
+uint my_index = lane;
+"""
+        : """
+float x = float(logits[row * 256 + lane]);
+float y = 1.0f / (1.0f + metal::exp(metal::abs(x)));
+float score = x < 0.0f ? y : 1.0f - y;
+original_scores[lane] = score;
+float key = -(score + float(correction_bias[lane]));
+uint my_ordinal = laguna_router_key_ordinal(key);
+uint my_index = lane;
 """
     return """
 uint lane = thread_position_in_threadgroup.x;
@@ -9857,15 +9918,9 @@ threadgroup uint xchg_ordinals[64];
 threadgroup uint xchg_indices[64];
 threadgroup uint candidate_ordinals[64];
 threadgroup uint candidate_indices[64];
-threadgroup float original_scores[256];
+\(scoreStorage)
 
-float x = float(logits[row * 256 + lane]);
-float y = 1.0f / (1.0f + metal::exp(metal::abs(x)));
-float score = x < 0.0f ? y : 1.0f - y;
-original_scores[lane] = score;
-float key = -(score + float(correction_bias[lane]));
-uint my_ordinal = laguna_router_key_ordinal(key);
-uint my_index = lane;
+\(ordinalSetup)
 
 for (uint sequence = 2; sequence <= 32; sequence <<= 1) {
     for (uint stride = sequence >> 1; stride > 0; stride >>= 1) {
@@ -10000,6 +10055,26 @@ private let lagunaPrefillRouterTournamentOrdinalNormalizingKernel = MLXFast.meta
     ensureRowContiguous: true
 )
 
+private let lagunaDecodeRouterPrecomputedOrdinalKernel = MLXFast.metalKernel(
+    name: "laguna_decode_router_precomputed_ordinal_active64_v1",
+    inputNames: ["logits", "router_keys"],
+    outputNames: ["router_indices", "router_scores"],
+    source: lagunaPrefillRouterTournamentOrdinalKernelSource(
+        normalizing: false, precomputedKeys: true),
+    header: lagunaDecodeRouterOrdinalHeader,
+    ensureRowContiguous: true
+)
+
+private let lagunaDecodeRouterPrecomputedOrdinalNormalizingKernel = MLXFast.metalKernel(
+    name: "laguna_decode_router_precomputed_ordinal_norm_active64_v1",
+    inputNames: ["logits", "router_keys"],
+    outputNames: ["router_indices", "router_scores"],
+    source: lagunaPrefillRouterTournamentOrdinalKernelSource(
+        normalizing: true, precomputedKeys: true),
+    header: lagunaDecodeRouterOrdinalHeader,
+    ensureRowContiguous: true
+)
+
 func lagunaPrefillRouterTournamentAcceptedForTesting(
     logits: MLXArray, correctionBias: MLXArray, rows: Int, normalizing: Bool
 ) -> (MLXArray, MLXArray) {
@@ -10038,6 +10113,28 @@ func lagunaPrefillRouterTournamentOrdinalForTesting(
         grid: (256, rows, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, rows, 8], [1, rows, 8]],
+        outputDTypes: [.uint32, .float32]
+    )
+    return (outputs[0], outputs[1])
+}
+
+private func lagunaDecodeRouterPrecomputedOrdinal(
+    logits: MLXArray, routerKeys: MLXArray, normalizing: Bool
+) -> (MLXArray, MLXArray) {
+    precondition(logits.dtype == .bfloat16)
+    precondition(routerKeys.dtype == .uint32)
+    precondition(logits.size == 256)
+    precondition(routerKeys.size == 256)
+
+    let kernel =
+        normalizing
+        ? lagunaDecodeRouterPrecomputedOrdinalNormalizingKernel
+        : lagunaDecodeRouterPrecomputedOrdinalKernel
+    let outputs = kernel(
+        [logits, routerKeys],
+        grid: (256, 1, 1),
+        threadGroup: (256, 1, 1),
+        outputShapes: [[1, 1, 8], [1, 1, 8]],
         outputDTypes: [.uint32, .float32]
     )
     return (outputs[0], outputs[1])
@@ -10089,7 +10186,9 @@ final class LagunaRuntimeMoEGate: Module {
     /// the same invocation already produced it (the fused residual + RMSNorm +
     /// router dispatch). It is the identical `x @ weight.T` this method would
     /// otherwise issue.
-    func callAsFunction(_ x: MLXArray, logits: MLXArray? = nil) -> (MLXArray, MLXArray) {
+    func callAsFunction(
+        _ x: MLXArray, logits: MLXArray? = nil, routerKeys: MLXArray? = nil
+    ) -> (MLXArray, MLXArray) {
         let projectedLogits = logits ?? x.matmul(weight.T)
         let inds: MLXArray
         var weights: MLXArray
@@ -10139,13 +10238,21 @@ final class LagunaRuntimeMoEGate: Module {
             // Cast-sink path: consumes the BF16 router GEMV directly. The
             // norm sink is a separate flag, so name it separately.
             let sinkNormalization = normTopkProb && lagunaDecodeRouterNormSinkEnabled
-            lagunaTrace(
-                sinkNormalization
-                    ? "decode router top8 (cast sink + norm sink)"
-                    : "decode router top8 (cast sink)")
+            if routerKeys != nil {
+                lagunaTrace(
+                    sinkNormalization
+                        ? "decode router top8 (producer ordinals + norm sink)"
+                        : "decode router top8 (producer ordinals)")
+            } else {
+                lagunaTrace(
+                    sinkNormalization
+                        ? "decode router top8 (cast sink + norm sink)"
+                        : "decode router top8 (cast sink)")
+            }
             (inds, weights) = lagunaDecodeRouterTop8(
                 logits: projectedLogits,
                 correctionBias: eScoreCorrectionBias.asType(.float32),
+                routerKeys: routerKeys,
                 normalizing: sinkNormalization
             )
             if sinkNormalization {
@@ -10648,16 +10755,19 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
 
     func callAsFunction(
         _ x: MLXArray, residual: MLXArray, routerLogits: MLXArray? = nil,
-        routerKeys: MLXArray? = nil
+        routerKeys: MLXArray? = nil, routerSelectionKeys: MLXArray? = nil
     ) -> MLXArray {
-        forward(x, residual: residual, routerLogits: routerLogits, routerKeys: routerKeys)
+        forward(
+            x, residual: residual, routerLogits: routerLogits, routerKeys: routerKeys,
+            routerSelectionKeys: routerSelectionKeys)
     }
 
     private func forward(
         _ x: MLXArray, residual: MLXArray?, routerLogits: MLXArray?,
-        routerKeys: MLXArray? = nil
+        routerKeys: MLXArray? = nil, routerSelectionKeys: MLXArray? = nil
     ) -> MLXArray {
-        let (inds, weights) = gate(x, logits: routerLogits)
+        let (inds, weights) = gate(
+            x, logits: routerLogits, routerKeys: routerSelectionKeys)
         var y: MLXArray
         var routedAlreadyReduced = false
         var sortedTailInverseOrder: MLXArray?
@@ -11081,7 +11191,7 @@ final class LagunaRuntimeDecoderLayer: Module {
         {
             return sparse(
                 normalized, residual: h, routerLogits: routerLogits,
-                routerKeys: routerKeys)
+                routerKeys: routerKeys, routerSelectionKeys: routerKeys)
         }
         // Multi-token prefill: hand the residual to the sparse block so the
         // prefill MoE tail kernel can fold the final residual add. When any
