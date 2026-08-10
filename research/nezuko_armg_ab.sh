@@ -34,6 +34,8 @@ for arm in "$@"; do
     C) knob="" ;;
     A) knob="DARKBLOOM_NORM_FUSED_GATE_SP=0" ;;
     W) knob="DARKBLOOM_NORM_FUSED_GATE_SP=2" ;;
+    N) knob="DARKBLOOM_NORM_FUSED_GATE_SP=3" ;;
+    S) knob="DARKBLOOM_NORM_FUSED_GATE_SP=4" ;;
     *) echo "unknown arm ${arm}" >&2; exit 2 ;;
   esac
   tag="$(printf 'p%02d-%s' "${pos}" "${arm}")"
