@@ -1,0 +1,466 @@
+{
+  "arms": {
+    "arm_r": {
+      "available": true,
+      "n_files": 2299,
+      "sha": "ef055b9b1956e8056267972308fd7deddd89649d",
+      "strict_digest": "59c93f42d1f2865392d113d2491f0bc2bfeb4bba1ad168fa613038840a394a73"
+    },
+    "frontier": {
+      "available": true,
+      "n_files": 2300,
+      "sha": "bd33883eb89209c9714c8c570e399613ecbaa848",
+      "strict_digest": "fba2e857e683eeeeaad017fca715354559915c17e003f6f785e3889f430668b3"
+    }
+  },
+  "groups": [
+    {
+      "changed_files_vs_reference": {
+        "Sources/MLXFastModel/LagunaRuntimeModel.swift": 2
+      },
+      "group": "fresh:r104A/armA",
+      "n": 3,
+      "n_distinct_strict": 3,
+      "problems": [],
+      "receipts": [
+        {
+          "D": 4928.8688125,
+          "P": 188.25537109375,
+          "T": 4175.847328125,
+          "sha12": "c9ace55085de",
+          "ts": "2026-08-10T04:29:53.984Z"
+        },
+        {
+          "D": 4928.668296875,
+          "P": 187.743328125,
+          "T": 4177.694984375,
+          "sha12": "1f08e907b8d7",
+          "ts": "2026-08-10T06:20:21.538Z"
+        },
+        {
+          "D": 4913.8463515625,
+          "P": 187.706787109375,
+          "T": 4163.019203125,
+          "sha12": "b2199f4e0c43",
+          "ts": "2026-08-10T07:27:10.984Z"
+        }
+      ],
+      "shas": [
+        "c9ace55085de",
+        "1f08e907b8d7",
+        "b2199f4e0c43"
+      ],
+      "verified_inert_only": true
+    },
+    {
+      "changed_files_vs_reference": {
+        "Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp": 2
+      },
+      "group": "fresh:r105A/A0",
+      "n": 3,
+      "n_distinct_strict": 3,
+      "problems": [],
+      "receipts": [
+        {
+          "D": 4911.91178125,
+          "P": 187.560791015625,
+          "T": 4161.6686171875,
+          "sha12": "51b6c142ea76",
+          "ts": "2026-08-10T03:42:32.193Z"
+        },
+        {
+          "D": 4914.67740625,
+          "P": 188.084228515625,
+          "T": 4162.3404921875,
+          "sha12": "fdeb45614ce2",
+          "ts": "2026-08-10T04:06:55.669Z"
+        },
+        {
+          "D": 4933.820968749999,
+          "P": 187.729248046875,
+          "T": 4182.903976562499,
+          "sha12": "24ad1d2eaf23",
+          "ts": "2026-08-10T05:23:25.794Z"
+        }
+      ],
+      "shas": [
+        "51b6c142ea76",
+        "fdeb45614ce2",
+        "24ad1d2eaf23"
+      ],
+      "verified_inert_only": true
+    },
+    {
+      "changed_files_vs_reference": {
+        "Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp": 1
+      },
+      "group": "fresh:r105A/A1",
+      "n": 2,
+      "n_distinct_strict": 2,
+      "problems": [],
+      "receipts": [
+        {
+          "D": 4911.5576171875,
+          "P": 189.961669921875,
+          "T": 4151.7109375,
+          "sha12": "2d967a120e60",
+          "ts": "2026-08-10T06:00:19.446Z"
+        },
+        {
+          "D": 4916.347,
+          "P": 190.1767578125,
+          "T": 4155.63996875,
+          "sha12": "5e435a6b6936",
+          "ts": "2026-08-10T06:42:50.172Z"
+        }
+      ],
+      "shas": [
+        "2d967a120e60",
+        "5e435a6b6936"
+      ],
+      "verified_inert_only": true
+    },
+    {
+      "changed_files_vs_reference": {
+        "Vendor/mlx-swift/Source/Cmlx/mlx-generated/fp_quantized_nax.cpp": 3,
+        "Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/fp_quantized_nax.h": 3,
+        "Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp": 3
+      },
+      "group": "r103:1008c6920be35876",
+      "n": 4,
+      "n_distinct_strict": 4,
+      "problems": [
+        "0b5372f5:Vendor/mlx-swift/Source/Cmlx/mlx-generated/fp_quantized_nax.cpp: a:line 499: non-comment change; b:line 501: non-comment change",
+        "0b5372f5:Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/fp_quantized_nax.h: a:line 350: non-comment change; b:line 352: non-comment change",
+        "0b5372f5:Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp: b:line 1383: non-comment change; b:line 1384: non-comment change",
+        "5164d313:Vendor/mlx-swift/Source/Cmlx/mlx-generated/fp_quantized_nax.cpp: a:line 499: non-comment change; b:line 501: non-comment change",
+        "5164d313:Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/fp_quantized_nax.h: a:line 350: non-comment change; b:line 352: non-comment change",
+        "5164d313:Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp: b:line 1383: non-comment change; b:line 1384: non-comment change"
+      ],
+      "receipts": [
+        {
+          "D": 4916.4280625,
+          "P": 191.3818359375,
+          "T": 4150.90071875,
+          "sha12": "456a92e53046",
+          "ts": "2026-08-07T02:20:19.542Z"
+        },
+        {
+          "D": 4937.4427109375,
+          "P": 191.81477734375,
+          "T": 4170.1836015625,
+          "sha12": "0b5372f5377f",
+          "ts": "2026-08-07T06:26:46.685Z"
+        },
+        {
+          "D": 4941.7265625,
+          "P": 190.47843554687498,
+          "T": 4179.8128203125,
+          "sha12": "5164d313fae0",
+          "ts": "2026-08-07T06:49:45.199Z"
+        },
+        {
+          "D": 4927.818359375,
+          "P": 192.94173046875,
+          "T": 4156.0514375,
+          "sha12": "56dcf063738e",
+          "ts": "2026-08-07T09:36:32.603Z"
+        }
+      ],
+      "shas": [
+        "456a92e53046",
+        "0b5372f5377f",
+        "5164d313fae0",
+        "56dcf063738e"
+      ],
+      "verified_inert_only": false
+    },
+    {
+      "changed_files_vs_reference": {
+        "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift": 1,
+        "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift": 1
+      },
+      "group": "r103:4d5ac413d1a7d82e",
+      "n": 2,
+      "n_distinct_strict": 2,
+      "problems": [
+        "25ca60aa:Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift: a:line 315: non-comment change; b:line 334: non-comment change",
+        "25ca60aa:Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift: a:line 125: non-comment change; a:line 126: non-comment change"
+      ],
+      "receipts": [
+        {
+          "D": 5181.3518828125,
+          "P": 190.498453125,
+          "T": 4419.3580703125,
+          "sha12": "5886a3d322e5",
+          "ts": "2026-08-07T00:29:19.105Z"
+        },
+        {
+          "D": 5191.625656249999,
+          "P": 190.515625,
+          "T": 4429.563156249999,
+          "sha12": "25ca60aad732",
+          "ts": "2026-08-07T04:45:10.977Z"
+        }
+      ],
+      "shas": [
+        "5886a3d322e5",
+        "25ca60aad732"
+      ],
+      "verified_inert_only": false
+    },
+    {
+      "changed_files_vs_reference": {
+        "Sources/MLXFastModel/LagunaRuntimeWeights.swift": 2,
+        "Vendor/mlx-swift/Source/Cmlx/mlx-generated/fp_quantized.cpp": 1,
+        "Vendor/mlx-swift/Source/Cmlx/mlx-generated/fp_quantized_nax.cpp": 1,
+        "Vendor/mlx-swift/Source/Cmlx/mlx-generated/gemm_nax.cpp": 1,
+        "Vendor/mlx-swift/Source/Cmlx/mlx-generated/quantized_utils.cpp": 1,
+        "Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp": 1,
+        "Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/fp_quantized.h": 1,
+        "Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/fp_quantized_nax.h": 1,
+        "Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/quantized_utils.h": 1,
+        "Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/gemm/nax.h": 1,
+        "Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp": 1
+      },
+      "group": "r103:521a2f7124786af6",
+      "n": 4,
+      "n_distinct_strict": 4,
+      "problems": [
+        "d6b5f65f:Vendor/mlx-swift/Source/Cmlx/mlx-generated/fp_quantized.cpp: b:line 579: non-comment change; b:line 580: non-comment change",
+        "d6b5f65f:Vendor/mlx-swift/Source/Cmlx/mlx-generated/fp_quantized_nax.cpp: b:line 525: non-comment change; b:line 526: non-comment change",
+        "d6b5f65f:Vendor/mlx-swift/Source/Cmlx/mlx-generated/gemm_nax.cpp: b:line 1218: non-comment change; b:line 1219: non-comment change",
+        "d6b5f65f:Vendor/mlx-swift/Source/Cmlx/mlx-generated/quantized_utils.cpp: b:line 35: non-comment change; b:line 37: non-comment change",
+        "d6b5f65f:Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp: b:line 938: non-comment change; b:line 941: non-comment change",
+        "d6b5f65f:Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/fp_quantized.h: b:line 422: non-comment change; b:line 423: non-comment change"
+      ],
+      "receipts": [
+        {
+          "D": 5111.86328125,
+          "P": 191.095296875,
+          "T": 4347.48209375,
+          "sha12": "9845a4add6bd",
+          "ts": "2026-08-04T10:49:27.512Z"
+        },
+        {
+          "D": 5129.44759375,
+          "P": 191.42765234375,
+          "T": 4363.736984375,
+          "sha12": "cc0d2399e2c5",
+          "ts": "2026-08-04T11:15:37.176Z"
+        },
+        {
+          "D": 5108.203125,
+          "P": 191.353435546875,
+          "T": 4342.7893828125,
+          "sha12": "57e16bbb324a",
+          "ts": "2026-08-04T11:38:33.247Z"
+        },
+        {
+          "D": 5129.566078125,
+          "P": 192.084634765625,
+          "T": 4361.2275390625,
+          "sha12": "d6b5f65fcbe8",
+          "ts": "2026-08-04T15:10:38.617Z"
+        }
+      ],
+      "shas": [
+        "9845a4add6bd",
+        "cc0d2399e2c5",
+        "57e16bbb324a",
+        "d6b5f65fcbe8"
+      ],
+      "verified_inert_only": false
+    },
+    {
+      "changed_files_vs_reference": {
+        "Vendor/mlx-swift/Source/Cmlx/mlx-generated/fp_quantized_nax.cpp": 1,
+        "Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/fp_quantized_nax.h": 1,
+        "Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp": 3
+      },
+      "group": "r103:7cbffc2c17d7f2a9",
+      "n": 4,
+      "n_distinct_strict": 4,
+      "problems": [
+        "47e8f5ec:Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp: a:line 1629: non-comment change; b:line 1629: non-comment change",
+        "702c1d8d:Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp: a:line 1629: non-comment change; b:line 1629: non-comment change",
+        "389b149c:Vendor/mlx-swift/Source/Cmlx/mlx-generated/fp_quantized_nax.cpp: b:line 1744: non-comment change; b:line 1748: non-comment change",
+        "389b149c:Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/fp_quantized_nax.h: b:line 1601: non-comment change; b:line 1605: non-comment change",
+        "389b149c:Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp: a:line 1629: non-comment change; b:line 1631: non-comment change"
+      ],
+      "receipts": [
+        {
+          "D": 4958.20865625,
+          "P": 195.197671875,
+          "T": 4177.41796875,
+          "sha12": "409ba5c83f52",
+          "ts": "2026-08-07T02:00:09.608Z"
+        },
+        {
+          "D": 5038.4658203125,
+          "P": 222.374185546875,
+          "T": 4148.969078125,
+          "sha12": "47e8f5ec8095",
+          "ts": "2026-08-07T02:41:24.512Z"
+        },
+        {
+          "D": 4946.203125,
+          "P": 192.842529296875,
+          "T": 4174.8330078125,
+          "sha12": "702c1d8d690c",
+          "ts": "2026-08-07T03:03:12.188Z"
+        },
+        {
+          "D": 4979.7662734375,
+          "P": 206.53800390625,
+          "T": 4153.6142578125,
+          "sha12": "389b149cb2ed",
+          "ts": "2026-08-07T03:27:41.125Z"
+        }
+      ],
+      "shas": [
+        "409ba5c83f52",
+        "47e8f5ec8095",
+        "702c1d8d690c",
+        "389b149cb2ed"
+      ],
+      "verified_inert_only": false
+    },
+    {
+      "changed_files_vs_reference": {
+        "Sources/MLXFastModel/MLXTensorBridge.swift": 1
+      },
+      "group": "r103:9beb75a6fbc5e042",
+      "n": 2,
+      "n_distinct_strict": 2,
+      "problems": [],
+      "receipts": [
+        {
+          "D": 5144.6455078125,
+          "P": 190.454833984375,
+          "T": 4382.826171875,
+          "sha12": "c99c2518ba24",
+          "ts": "2026-08-04T10:02:13.263Z"
+        },
+        {
+          "D": 5127.7200546875,
+          "P": 191.402099609375,
+          "T": 4362.11165625,
+          "sha12": "df676dbb5adb",
+          "ts": "2026-08-04T10:26:12.371Z"
+        }
+      ],
+      "shas": [
+        "c99c2518ba24",
+        "df676dbb5adb"
+      ],
+      "verified_inert_only": true
+    },
+    {
+      "changed_files_vs_reference": {
+        "Vendor/mlx-swift/Source/Cmlx/mlx-generated/fp_quantized_nax.cpp": 2,
+        "Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp": 2,
+        "Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/fp_quantized_nax.h": 2,
+        "Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp": 2
+      },
+      "group": "r103:d18d0983830b73a1",
+      "n": 3,
+      "n_distinct_strict": 3,
+      "problems": [
+        "504104e3:Vendor/mlx-swift/Source/Cmlx/mlx-generated/fp_quantized_nax.cpp: b:line 628: non-comment change; b:line 644: non-comment change",
+        "504104e3:Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp: b:line 1129: non-comment change; b:line 1130: non-comment change",
+        "504104e3:Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/fp_quantized_nax.h: b:line 479: non-comment change; b:line 495: non-comment change",
+        "504104e3:Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp: b:line 1611: non-comment change; b:line 1612: non-comment change",
+        "d4235c92:Vendor/mlx-swift/Source/Cmlx/mlx-generated/fp_quantized_nax.cpp: b:line 628: non-comment change; b:line 644: non-comment change",
+        "d4235c92:Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp: b:line 1129: non-comment change; b:line 1130: non-comment change"
+      ],
+      "receipts": [
+        {
+          "D": 5046.4443359375,
+          "P": 191.30777929687503,
+          "T": 4281.21321875,
+          "sha12": "e82d6cf1c923",
+          "ts": "2026-08-05T09:33:21.106Z"
+        },
+        {
+          "D": 5050.80403125,
+          "P": 192.21134375,
+          "T": 4281.95865625,
+          "sha12": "504104e35dc3",
+          "ts": "2026-08-05T10:25:19.078Z"
+        },
+        {
+          "D": 5061.296554687499,
+          "P": 191.53230859375,
+          "T": 4295.167320312499,
+          "sha12": "d4235c92fc08",
+          "ts": "2026-08-05T10:53:31.954Z"
+        }
+      ],
+      "shas": [
+        "e82d6cf1c923",
+        "504104e35dc3",
+        "d4235c92fc08"
+      ],
+      "verified_inert_only": false
+    },
+    {
+      "changed_files_vs_reference": {
+        "Sources/MLXFastModel/LagunaRuntimeModel.swift": 4
+      },
+      "group": "r103:dc437b0e0b918c86",
+      "n": 5,
+      "n_distinct_strict": 5,
+      "problems": [],
+      "receipts": [
+        {
+          "D": 4894.1142578125,
+          "P": 187.6372890625,
+          "T": 4143.5651015625,
+          "sha12": "4b0e051bf3cd",
+          "ts": "2026-08-09T02:56:02.517Z"
+        },
+        {
+          "D": 4931.226242187499,
+          "P": 187.73396875,
+          "T": 4180.290367187499,
+          "sha12": "d6a5f9e7346e",
+          "ts": "2026-08-09T03:18:15.648Z"
+        },
+        {
+          "D": 4900.5244140625,
+          "P": 187.877197265625,
+          "T": 4149.015625,
+          "sha12": "e1b6e2be2792",
+          "ts": "2026-08-09T04:06:17.724Z"
+        },
+        {
+          "D": 4916.140625,
+          "P": 188.1166171875,
+          "T": 4163.67415625,
+          "sha12": "ca91d86c904c",
+          "ts": "2026-08-09T04:55:11.043Z"
+        },
+        {
+          "D": 4912.62109375,
+          "P": 187.99357031250003,
+          "T": 4160.6468125,
+          "sha12": "5d9060aa0d36",
+          "ts": "2026-08-09T05:44:37.090Z"
+        }
+      ],
+      "shas": [
+        "4b0e051bf3cd",
+        "d6a5f9e7346e",
+        "e1b6e2be2792",
+        "ca91d86c904c",
+        "5d9060aa0d36"
+      ],
+      "verified_inert_only": true
+    }
+  ],
+  "identity": "comment-insensitive sha256 over every file under Sources/ AND Vendor/, with every ci-equal pair line-checked so surviving differences are full-line `//` comments outside a multiline string literal",
+  "n_groups": 10,
+  "n_verified_groups": 5,
+  "schema": "maple-nezuko-r106b-replicate-identity/1"
+}
