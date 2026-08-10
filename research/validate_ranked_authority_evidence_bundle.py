@@ -2271,12 +2271,17 @@ def seal_external_trust(data, trust):
 
 def validate_bundle(data, root, external_trust=None, expected_external_trust_sha256=None):
     result = _validate_bundle_v4(data, root, external_trust, expected_external_trust_sha256)
-    if not result["errors"] and isinstance(external_trust, dict):
-        if external_trust.get("expected_bundle_sha256") != result["bundle_digest_sha256"]:
-            result["errors"] = [error("TRUST_BUNDLE_DIGEST_MISMATCH", "$external_trust.expected_bundle_sha256", "canonical bundle differs from the externally authenticated digest")]
-            result["state"] = "INVALID"
-            result["authoritative"] = False
-            result["resumption_authorized"] = False
+    trust_authenticated = (
+        isinstance(external_trust, dict)
+        and isinstance(expected_external_trust_sha256, str)
+        and re.fullmatch(r"[0-9a-f]{64}", expected_external_trust_sha256) is not None
+        and hmac.compare_digest(digest_value(external_trust), expected_external_trust_sha256)
+    )
+    if trust_authenticated and external_trust.get("expected_bundle_sha256") != result["bundle_digest_sha256"]:
+        result["errors"] = [error("TRUST_BUNDLE_DIGEST_MISMATCH", "$external_trust.expected_bundle_sha256", "canonical bundle differs from the externally authenticated digest")]
+        result["state"] = "INVALID"
+        result["authoritative"] = False
+        result["resumption_authorized"] = False
     return result
 
 
@@ -2297,6 +2302,18 @@ def fictional_secret(kind):
     raise ValueError(f"unknown fictional secret kind: {kind}")
 
 
+def shift_bundle_timestamps(value):
+    if isinstance(value, dict):
+        for key, item in value.items():
+            value[key] = shift_bundle_timestamps(item)
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            value[index] = shift_bundle_timestamps(item)
+    elif isinstance(value, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", value):
+        return shifted_timestamp(value)
+    return value
+
+
 def mutate_fixture(name, data, root, trust):
     if name == "coherent_whole_bundle_rewrite":
         old_to_new = {actor["pid"]: actor["pid"] + 1000 for actor in data["actors"]}
@@ -2308,16 +2325,9 @@ def mutate_fixture(name, data, root, trust):
         for birth in data["process_births"]:
             birth["pid"] = old_to_new[birth["pid"]]
             birth["ppid"] = old_to_new.get(birth["ppid"], birth["ppid"])
-            birth["started_at"] = shifted_timestamp(birth["started_at"])
-            birth["observed_at"] = shifted_timestamp(birth["observed_at"])
         for event_item in data["events"]:
-            event_item["timestamp"] = shifted_timestamp(event_item["timestamp"])
             event_item["command"]["process_birth_pid"] = old_to_new[event_item["command"]["process_birth_pid"]]
-        for phase in data["phases"]:
-            phase["started_at"] = shifted_timestamp(phase["started_at"])
-            phase["finished_at"] = shifted_timestamp(phase["finished_at"])
-        data["capture_window"]["started_at"] = shifted_timestamp(data["capture_window"]["started_at"])
-        data["capture_window"]["finished_at"] = shifted_timestamp(data["capture_window"]["finished_at"])
+        shift_bundle_timestamps(data)
         seal_bundle_commands(data)
         refresh_derived(data)
         return trust
