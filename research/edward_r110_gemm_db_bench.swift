@@ -269,6 +269,34 @@ METAL_FUNC void gemm_loop_aligned(
 
 """
 
+// Occupancy control: 2x staging allocated, shipped single-buffer schedule.
+// Isolates the residency tax of the doubled threadgroup footprint from the
+// pipelining benefit. Numerically identical to base.
+let dbmemBody = """
+METAL_FUNC void gemm_loop_aligned(
+    threadgroup T* As,
+    threadgroup T* Bs,
+    thread mma_t& mma_op,
+    thread loader_a_t& loader_a,
+    thread loader_b_t& loader_b,
+    const int k_iterations,
+    const int a_tile,
+    const int b_tile) {
+  (void)a_tile;
+  (void)b_tile;
+  for (int k = 0; k < k_iterations; k++) {
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    loader_a.load_unsafe();
+    loader_b.load_unsafe();
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    mma_op.mma(As, Bs);
+    loader_a.next();
+    loader_b.next();
+  }
+}
+
+"""
+
 // Roofline split probes. Both are NUMERICALLY WRONG timing probes.
 //   noload: staging removed -> mma + barrier cost only.
 //   nomma:  mma removed     -> staging + barrier cost only.
@@ -340,6 +368,7 @@ let variantSource: [String: String] = [
     "nobar": replaceGemmLoopAligned(baseSource, with: nobarBody),
     "db": makeDoubleBufferedSource(dbBody),
     "db2": makeDoubleBufferedSource(db2Body),
+    "dbmem": makeDoubleBufferedSource(dbmemBody),
     "noload": replaceGemmLoopAligned(baseSource, with: noloadBody),
     "nomma": replaceGemmLoopAligned(baseSource, with: nommaBody),
 ]
@@ -501,7 +530,7 @@ func timeOne(_ pso: MTLComputePipelineState, _ p: Problem, isNull: Bool) -> Doub
 
 // MARK: - main
 
-let tags = (env("ED_TAGS") ?? "base,nobar,db,db2,noload,nomma")
+let tags = (env("ED_TAGS") ?? "base,nobar,db,db2,dbmem,noload,nomma")
     .split(separator: ",").map(String.init)
 var libs = [String: MTLLibrary]()
 for t in tags {
