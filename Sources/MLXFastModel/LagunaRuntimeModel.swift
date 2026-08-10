@@ -8612,61 +8612,6 @@ func lagunaDenseGateUpSwiGLU(
     )[0]
 }
 
-private let lagunaDenseDownTraceEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_TRACE_DENSE_DOWN_COUNTS"] == "1"
-private let lagunaDenseDownTrace = LagunaDenseDownTrace()
-
-private final class LagunaDenseDownTrace: @unchecked Sendable {
-    private let lock = NSLock()
-    private var phase = "none"
-    private var counts = ["prefill": 0, "decode_seed": 0, "decode_step": 0]
-
-    func setPhase(_ phase: String) {
-        guard lagunaDenseDownTraceEnabled else { return }
-        lock.lock()
-        self.phase = phase
-        lock.unlock()
-    }
-
-    func noteDispatch() {
-        guard lagunaDenseDownTraceEnabled else { return }
-        lock.lock()
-        counts[phase, default: 0] += 1
-        lock.unlock()
-    }
-
-    func report() {
-        guard lagunaDenseDownTraceEnabled,
-            let path = ProcessInfo.processInfo.environment["DARKBLOOM_DENSE_DOWN_COUNT_PATH"]
-        else { return }
-
-        lock.lock()
-        let prefill = counts["prefill", default: 0]
-        let decodeSeed = counts["decode_seed", default: 0]
-        let decodeStep = counts["decode_step", default: 0]
-        lock.unlock()
-        let line = "{\"prefill\":\(prefill),\"decode_seed\":\(decodeSeed),"
-            + "\"decode_step\":\(decodeStep)}\n"
-        let data = Data(line.utf8)
-        FileHandle.standardError.write(Data("DENSE_DOWN_TRACE_COUNTS ".utf8) + data)
-        if !FileManager.default.fileExists(atPath: path) {
-            _ = FileManager.default.createFile(atPath: path, contents: nil)
-        }
-        guard let handle = FileHandle(forWritingAtPath: path) else { return }
-        handle.seekToEndOfFile()
-        handle.write(data)
-        handle.closeFile()
-    }
-}
-
-public func lagunaSetDenseDownTracePhase(_ phase: String) {
-    lagunaDenseDownTrace.setPhase(phase)
-}
-
-public func lagunaReportDenseDownTrace() {
-    lagunaDenseDownTrace.report()
-}
-
 private let lagunaDenseDownResidualKernel = MLXFast.metalKernel(
     name: "laguna_dense_down_residual_bf16_r8_v1",
     inputNames: ["activated", "down_weight", "residual"],
@@ -8737,7 +8682,6 @@ func lagunaDenseDownResidual(
     precondition(residual.dtype == .bfloat16)
     precondition(residual.dims(1, 1, LagunaConstants.hiddenSize))
 
-    lagunaDenseDownTrace.noteDispatch()
     return lagunaDenseDownResidualKernel(
         [activated, downWeight, residual],
         grid: ((LagunaConstants.hiddenSize / 32) * 128, 1, 1),
