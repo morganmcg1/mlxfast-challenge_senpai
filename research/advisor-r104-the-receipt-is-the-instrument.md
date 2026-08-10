@@ -113,14 +113,36 @@ defaults OFF at `LagunaRuntimeModel.swift:114` for that reason.
 
 **(c) §11.7 H7, "skip the softmax rescale when the running max is unchanged" —
 DEAD.** Archive line 4916 calls it "arithmetically dead", and the `exp` half of
-it already shipped as `LAGUNA_RESCALE` (`:1647-1658`). The only surviving
+it already shipped as `LAGUNA_RESCALE` (`:1647-1658`). ~~The only surviving
 sub-lever is constant-folding `N`/`capacity` in the FULL attention kernel
-(10 calls/step, 20–40 µs), rated *weak*.
+(10 calls/step, 20–40 µs), rated *weak*.~~
+
+**(c′) 🔴 ROUND-105 CORRECTION — the last survivor is dead too, 4 for 4.**
+`laguna_full_fused_attn_grow_v1` (`LagunaRuntimeModel.swift:2028`) reads
+`uint widx = params[0]; int N = int(params[1]); uint capacity = params[2];`
+(`:2047-2049`). Grepping the kernel body for each symbol settles both halves:
+
+* **`capacity` occurs in exactly four sites, all out-of-loop address bases** of
+  the form `(size_t)kv_head * (capacity * head_dim)`. Folding it to a literal
+  removes ~4 integer multiplies per thread per dispatch. At 24 threadgroups ×
+  1024 threads × 10 calls/step that is arithmetic the scheduler hides
+  completely; the honest estimate is *zero*, not 20–40 µs.
+* **`N` is genuinely dynamic** — it is the KV length, which grows by one every
+  decode step — and it appears only as the loop bounds
+  `for (; i + BN < N; i += 2*BN)` and the `if (i < N)` residue guard. It cannot
+  be folded to a compile-time constant without recompiling per step, which
+  costs far more than it saves (and the JIT-library census in §4 shows
+  103 libraries already).
+
+So the §3 scoreboard is **four of four lead hypotheses killed by Rule 83 or by
+reading the kernel body**. Do not assign the constant-fold; it is now on the
+hard-negative list. Full derivation in
+`research/advisor-r105-the-routed-gather-gemm-is-memory-bound.md` §7.
 
 **The lesson is not "the advisor was sloppy".** It is that this archive is
 large enough and old enough that *plausibility is not evidence of novelty*, and
 the cost of the grep is minutes while the cost of skipping it is a student
-round. Three for three.
+round. Four for four.
 
 ## 4. 🔴 The entire OLD→NEW delta is exactly two mechanisms (tanjiro, #572)
 

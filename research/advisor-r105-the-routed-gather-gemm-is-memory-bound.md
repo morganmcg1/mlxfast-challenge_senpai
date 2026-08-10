@@ -304,6 +304,136 @@ fail, and it must be stated in the prereg.
   `Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift` (editable,
   556 lines, `gatherSort` at `:282`).
 
+### 7.1 🔴 §3's last surviving lead hypothesis is dead: the full-attention `N`/`capacity` constant-fold
+
+Flagship §3(c) left one sub-lever alive — "constant-folding `N`/`capacity` in
+the FULL attention kernel (10 calls/step, 20–40 µs), rated *weak*". Reading the
+kernel body kills it.
+
+`laguna_full_fused_attn_grow_v1` is registered at
+`Sources/MLXFastModel/LagunaRuntimeModel.swift:2028` (declaration `:2022`,
+function constants `:2031-2039`) and unpacks its dynamic parameters at
+`:2047-2049`:
+
+```
+uint widx     = params[0];
+int  N        = int(params[1]);
+uint capacity = params[2];
+```
+
+**`capacity`** appears in exactly **four** places in the kernel body, and all
+four are *out-of-loop* address bases of the shape
+`(size_t)kv_head * (capacity * head_dim)`. It never appears in the k-loop.
+Constant-folding it therefore deletes on the order of four integer multiplies
+per thread per dispatch — arithmetic that a 1024-thread threadgroup hides
+entirely behind the first memory access. The honest estimate of the win is
+**zero**, not 20–40 µs. (Compare #158, which measured the per-dispatch
+coefficient as NULL at −0.12 ± 0.22 µs; four multiplies are far below that.)
+
+**`N`** is not a constant at all. It is the KV length, which grows by one on
+every decode step, and it appears only as the loop bound
+`for (; i + BN < N; i += 2*BN)` and the residue guard `if (i < N)`. Folding it
+would require a fresh JIT library per step. §4 of the flagship already counts
+103 JIT Metal libraries per revision; per-step recompilation is categorically
+worse than the ~2.34 µs (rule 65) that one extra dispatch costs.
+
+⇒ **Flagship §3 is now four kills out of four leads.** Added to the
+hard-negative list: *do not propose constant-folding `N` or `capacity` in the
+fused attention kernels.*
+
+### 7.2 🔴 §10's "76 unaudited optimizations" and §12's seven-gate shortlist are both largely illusory
+
+§10 counted 110 executed-path env gates, called 76 of them "default-ON and
+therefore unaudited", and §12 narrowed that to a shortlist of seven "silent
+switches" — gates that flip a shipped fusion with a working unfused fallback and
+that were never written up. I have now read the **read sites** rather than the
+**declaration sites**, and most of that structure does not survive.
+
+**First, the census itself was wrong.** `research/advisor_r105_gate_reachability.py`
+(multi-line-aware, scans `Sources/` and `Vendor/` `*.swift`) reports:
+
+```
+default-ON  (!= "0") distinct names: 80   sites: 81
+default-OFF (== "1") distinct names: 13   sites: 16
+other comparisons  distinct names:  1   sites:  1
+  default-ON names with a Sources/ site: 75 ; with a Vendor/ site: 5
+```
+
+`SPM_CUDA` (`Vendor/mlx-swift/Plugins/CudaBuild/plugin.swift:192`) is a build
+plugin, not a runtime gate, so the runtime default-ON count is **79**, not 76.
+The single-line regexes behind §10 and §12 also missed every gate whose
+declaration wraps, including the one that turns out to be decisive:
+`DARKBLOOM_FUSED_ROUTED_SHARED_DOWN_RESIDUAL`
+(`LagunaRuntimeModel.swift:140-142`).
+
+**Second, four of the seven shortlisted gates are not clean instruments.**
+
+| # | gate | phase | verdict |
+|---|---|---|---|
+| 1 | `DARKBLOOM_FUSED_SHARED_DOWN_RESIDUAL` :136 | decode | **very likely masked** |
+| 2 | `DARKBLOOM_FUSED_ROUTED_DOWN_REDUCE` :198 | decode | **very likely masked** |
+| 3 | `DARKBLOOM_PREFILL_FUSED_RESIDUAL_RMS` :279 | prefill | live; **not bit-exact** |
+| 4 | `DARKBLOOM_PREFILL_SORTED_MOE_TAIL` :9676 | prefill | live, bit-exact — clean |
+| 5 | `DARKBLOOM_INVERSE_SCATTER` :63 | prefill | **provably unreachable** |
+| 6 | `DARKBLOOM_ROUTE_COUNTING_SORT` :77 | prefill | live, but **dominates gate 7** |
+| 7 | `DARKBLOOM_ROUTE_FUSED_SCATTER` :186 | prefill | live, bit-exact — clean |
+
+*Gate 5 is dead by construction.* `gatherSort`
+(`Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift:282-309`) calls
+`routeCountingSortFused` first and **returns early** at `:285-290` whenever it
+succeeds. Its guard at `:266` requires `dtype == .uint32`, `n > 0`,
+`n % routeSortTile(128) == 0`, and `m == routeFusedScatterTopK(8)`. At prefill,
+`n = 512 × 8 = 4096`, `4096 % 128 == 0`, `m == 8` — so the fused path *always*
+succeeds, `:285` always returns, and neither `inversePermutationScatterEnabled`
+(`:294`) nor `routeCountingSort`'s own body (`:161`) is ever reached. In decode,
+`inds.size = 8 < 64` ⇒ `doSort = false` (`:10545`) ⇒ `gatherSort` is not called
+at all. **An ablation receipt for `DARKBLOOM_INVERSE_SCATTER` would measure
+nothing.**
+
+*Gate 6 is not an isolate.* The `:266` guard reads
+`guard routeFusedScatterEnabled, routeCountingSortEnabled, …` — it requires
+**both**. Turning gate 6 off therefore also turns gate 7 off, plus re-enables
+`routeCountingSort`'s own body. Gate 6 OFF is a strictly larger perturbation
+than gate 7 OFF and cannot be reported as a main effect.
+
+*Gates 1 and 2 are masked by the eighth gate.* In the decode MoE branch
+(`LagunaRuntimeModel.swift:10896-10940`), the chain is
+`if lagunaFusedRoutedSharedDownResidualEnabled, … { return … } else if
+lagunaFusedRoutedDownReduceEnabled, …`. The first branch calls the *same*
+`fusedSharedDownInputs(x)` helper, under the same bank guard, that gate 1's own
+site at `:9055` requires. Whenever gate 1 could fire, the `:10902` branch has
+already returned at `:10909`. Note also that `mergedSharedActivated` (declared
+`:10832`, passed at `:10907`) is **never assigned** anywhere in the file.
+This is *not* statically closable — `:10902` carries extra shape guards
+(`downWeight.dims(256,2048,64)`, `downScales.size == lagunaRoutedDownScaleBytes`,
+`weights.dims(1,1,8)`) that I did not evaluate at runtime — but it is enough to
+forbid spending a receipt on gates 1 or 2 before the cheap check below.
+
+**The cheap check.** `DARKBLOOM_TRACE_FUSION=1` (`LagunaRuntimeModel.swift:70-76`,
+`lagunaTrace` `:94-97`) prints the branch actually taken. One scored decode run
+distinguishes `routed+shared down residual` (`:10897`) from `routed down reduce`
+(`:10930`) from `shared down residual` (`:9064`). **Zero receipts.** No gate-1 or
+gate-2 ablation should be designed until that string is read.
+
+**Third, the phase weighting is unfavourable.** Gates 3–7 are all prefill-only,
+and prefill is 25 % of the score. The only two decode-side gates on the
+shortlist — 1 and 2, i.e. the 75 % channel — are exactly the two that are
+probably masked.
+
+**Retraction.** §10's "76 unaudited shipped optimizations" is withdrawn as an
+overcount that conflates *declared* gates with *reachable* gates, and §12's
+seven-gate shortlist is withdrawn as an instrument list: only gates **4** and
+**7** are clean, bit-exact, live probes. The correct replacement for §10's
+ablation ledger is a **reachability-first** pass over all 79 runtime default-ON
+gates — declaration site, read sites, and whether any read site sits inside a
+branch already guarded by another default-ON gate — before any receipt is
+priced. That pass is round-105's assignment 105-B.
+
+**Standing hard negative added:** do not spend a receipt on
+`DARKBLOOM_INVERSE_SCATTER` (unreachable) or on `DARKBLOOM_ROUTE_COUNTING_SORT`
+as an isolate (it dominates `DARKBLOOM_ROUTE_FUSED_SCATTER`).
+
+
 ---
 
 ## 8. Standing prices for this family
