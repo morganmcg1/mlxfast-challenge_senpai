@@ -264,6 +264,20 @@ extension LagunaRuntime {
             }
         }
         switch request.kind {
+        case "research_probe_config":
+            guard let family = request.probeFamily, let mode = request.probeMode else {
+                throw MLXFastError.invalidInput(
+                    "runtime worker research probe request missing probe_family or probe_mode")
+            }
+            guard lagunaResearchProbeConfigure(family: family, mode: mode) else {
+                throw MLXFastError.invalidInput(
+                    "runtime worker research probe request has invalid family or mode")
+            }
+            return RuntimeWorkerResponse(
+                id: request.id,
+                nonce: sessionNonce,
+                ok: true)
+
         case "correctness":
             guard let promptTokens = request.promptTokens, let steps = request.steps else {
                 throw MLXFastError.invalidInput("runtime worker correctness request missing prompt_tokens or steps")
@@ -433,6 +447,7 @@ extension LagunaRuntime {
             // "I am being scored now", which lets it serve a slow/correct
             // path while checked and a cheap path while timed. Keep
             // trusted->editable calls phase-agnostic.
+            lagunaResearchProbeBeginStep()
             let logits = try lagunaLogits(
                 inputIDs: inputIDsArray([inputToken]),
                 model: try weightCache.requireLibraryModel(),
@@ -440,12 +455,17 @@ extension LagunaRuntime {
                 positionOffset: state.decodeSeedTokenCount + state.decodeStep
             )
             let token = try LagunaCorrectness.greedyToken(from: logits)
+            let probe = lagunaResearchProbeSnapshot()
             state.decodeStep += 1
             return RuntimeWorkerResponse(
                 id: request.id,
                 nonce: sessionNonce,
                 ok: true,
-                token: token
+                token: token,
+                probeDurationNS: probe.durationNS,
+                probeMeasuredCallCount: probe.measuredCallCount,
+                probeCensus: probe.census,
+                cachePosition: state.decodeSeedTokenCount + state.decodeStep
             )
 
         case "phase_diagnostics":
@@ -779,6 +799,8 @@ struct RuntimeWorkerRequest: Codable {
     let steps: Int?
     let topK: Int?
     let expectedToken: Int?
+    let probeFamily: String?
+    let probeMode: String?
 
     init(
         id: Int,
@@ -788,7 +810,9 @@ struct RuntimeWorkerRequest: Codable {
         seedTokens: [Int]? = nil,
         steps: Int? = nil,
         topK: Int? = nil,
-        expectedToken: Int? = nil
+        expectedToken: Int? = nil,
+        probeFamily: String? = nil,
+        probeMode: String? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -798,6 +822,8 @@ struct RuntimeWorkerRequest: Codable {
         self.steps = steps
         self.topK = topK
         self.expectedToken = expectedToken
+        self.probeFamily = probeFamily
+        self.probeMode = probeMode
     }
 
     init(from decoder: Swift.Decoder) throws {
@@ -835,6 +861,14 @@ struct RuntimeWorkerRequest: Codable {
             Int.self,
             forKey: .expectedToken
         )
+        probeFamily = try container.decodeIfPresent(
+            String.self,
+            forKey: .probeFamily
+        )
+        probeMode = try container.decodeIfPresent(
+            String.self,
+            forKey: .probeMode
+        )
     }
 
     func encode(to encoder: Swift.Encoder) throws {
@@ -847,6 +881,8 @@ struct RuntimeWorkerRequest: Codable {
         try container.encodeIfPresent(steps, forKey: .steps)
         try container.encodeIfPresent(topK, forKey: .topK)
         try container.encodeIfPresent(expectedToken, forKey: .expectedToken)
+        try container.encodeIfPresent(probeFamily, forKey: .probeFamily)
+        try container.encodeIfPresent(probeMode, forKey: .probeMode)
     }
 
     enum CodingKeys: String, CodingKey, CaseIterable {
@@ -858,6 +894,8 @@ struct RuntimeWorkerRequest: Codable {
         case steps
         case topK = "top_k"
         case expectedToken = "expected_token"
+        case probeFamily = "probe_family"
+        case probeMode = "probe_mode"
     }
 }
 
@@ -916,6 +954,10 @@ struct RuntimeWorkerResponse: Codable {
     let exactPairSegmentCount: Int?
     let exactPairRollbackRowCount: Int?
     let serialVerificationRowCount: Int?
+    let probeDurationNS: UInt64?
+    let probeMeasuredCallCount: Int?
+    let probeCensus: [String: Int]?
+    let cachePosition: Int?
 
     init(
         id: Int,
@@ -937,7 +979,11 @@ struct RuntimeWorkerResponse: Codable {
         targetVerificationMode: String? = nil,
         exactPairSegmentCount: Int? = nil,
         exactPairRollbackRowCount: Int? = nil,
-        serialVerificationRowCount: Int? = nil
+        serialVerificationRowCount: Int? = nil,
+        probeDurationNS: UInt64? = nil,
+        probeMeasuredCallCount: Int? = nil,
+        probeCensus: [String: Int]? = nil,
+        cachePosition: Int? = nil
     ) {
         self.id = id
         self.nonce = nonce
@@ -959,6 +1005,10 @@ struct RuntimeWorkerResponse: Codable {
         self.exactPairSegmentCount = exactPairSegmentCount
         self.exactPairRollbackRowCount = exactPairRollbackRowCount
         self.serialVerificationRowCount = serialVerificationRowCount
+        self.probeDurationNS = probeDurationNS
+        self.probeMeasuredCallCount = probeMeasuredCallCount
+        self.probeCensus = probeCensus
+        self.cachePosition = cachePosition
     }
 
     init(from decoder: Swift.Decoder) throws {
@@ -1039,6 +1089,22 @@ struct RuntimeWorkerResponse: Codable {
             Int.self,
             forKey: .serialVerificationRowCount
         )
+        probeDurationNS = try container.decodeIfPresent(
+            UInt64.self,
+            forKey: .probeDurationNS
+        )
+        probeMeasuredCallCount = try container.decodeIfPresent(
+            Int.self,
+            forKey: .probeMeasuredCallCount
+        )
+        probeCensus = try container.decodeIfPresent(
+            [String: Int].self,
+            forKey: .probeCensus
+        )
+        cachePosition = try container.decodeIfPresent(
+            Int.self,
+            forKey: .cachePosition
+        )
     }
 
     func encode(to encoder: Swift.Encoder) throws {
@@ -1093,6 +1159,13 @@ struct RuntimeWorkerResponse: Codable {
             serialVerificationRowCount,
             forKey: .serialVerificationRowCount
         )
+        try container.encodeIfPresent(probeDurationNS, forKey: .probeDurationNS)
+        try container.encodeIfPresent(
+            probeMeasuredCallCount,
+            forKey: .probeMeasuredCallCount
+        )
+        try container.encodeIfPresent(probeCensus, forKey: .probeCensus)
+        try container.encodeIfPresent(cachePosition, forKey: .cachePosition)
     }
 
     enum CodingKeys: String, CodingKey, CaseIterable {
@@ -1116,6 +1189,10 @@ struct RuntimeWorkerResponse: Codable {
         case exactPairSegmentCount = "exact_pair_segment_count"
         case exactPairRollbackRowCount = "exact_pair_rollback_row_count"
         case serialVerificationRowCount = "serial_verification_row_count"
+        case probeDurationNS = "probe_duration_ns"
+        case probeMeasuredCallCount = "probe_measured_call_count"
+        case probeCensus = "probe_census"
+        case cachePosition = "cache_position"
     }
 }
 
