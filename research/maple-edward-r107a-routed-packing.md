@@ -134,7 +134,14 @@ invariant the store-row fault control in §3.3 deliberately breaks.
 ### 2.3 Submitted surface
 
 Only `Sources/MLXFastModel/LagunaRuntimeModel.swift`, **+2,021 bytes net**
-(54 insertions / 7 deletions), well inside the 8 KiB cap.
+(54 insertions / 7 deletions) for the routed selector alone. With the stage-A
+QKV lane-major selector of §5 added, the branch's whole submitted surface is
+still that one file at **+3,655 bytes** net (107 insertions / 23 deletions)
+against base `4e9a8e16`, i.e. 45 % of the 8 KiB assignment cap, 387,900 bytes
+against the 524,288-byte per-file cap, and 1.4 % of the 262,144-byte
+per-review growth allowance. No other submitted path is touched: the one
+`Vendor/mlx-swift/.../quantized.cpp` hunk visible against the older
+`3241e5e5` is the advisor's own default-inert `c768d21f` base advance, not mine.
 
 - `lagunaRoutedSwiGLUQMVPackedTop8R1Source(_ sg: Int) -> String` (~`:7917`) —
   the previous literal, with the single substitution above. At `sg = 2` it
@@ -266,7 +273,21 @@ head = 81e57aa7 (pre-rebase sha of this branch; Sources/Vendor identical to the
        env gate in Vendor/.../quantized.cpp)
 ```
 
-Per-arm level (median statistic, mean over 18 reps, µs/step):
+All quantities in this section are **[M4-WALL] Apple M4 Pro** wall time at epoch
+**`base_sha` `3241e5e5`** (`Sources`/`Vendor` identical to `4e9a8e16`; see the
+head note above). Rule 105.6: no number below is quoted without those two tags.
+
+Rule-105 conversion used throughout: `Δ%cs = Δ_M4[µs/step] × k × 0.015228`, where
+`0.015228 %cs` per **M5** µs/step is the campaign price (fitted on official M5
+receipt `59bd72a3`, `cand_dec` = 4.925 ms/step, i.e. 1 %`cs` = 65.67 M5 µs/step)
+and `k` is the M4→M5 transfer factor for the family's regime. The routed gate+up
+family (T2c) has no measured regime verdict yet — tanjiro's #648 census owns that
+— so the table quotes `k = α = 0.4369` (bytes regime) as the primary and the
+whole admissible band `k ∈ {0.389, 0.4369, 0.5}` is carried in the readings.
+Per rule 105 the regime is **not** read off §B.0.3, whose M5 entries are derived
+from M4 by α/β and are therefore circular.
+
+Per-arm level (median statistic, mean over 18 reps, µs/step, [M4-WALL]):
 
 | arm | level | sd(rep) |
 | --- | --- | --- |
@@ -279,16 +300,20 @@ Per-arm level (median statistic, mean over 18 reps, µs/step):
 
 Drift-cancelled paired contrasts (later − earlier, µs/step, K = 18):
 
-| contrast | mean | 95 % hw | lo | hi | sign +/− | % of `cs` |
+| contrast | mean | 95 % hw | lo | hi | sign +/− | %`cs` (α = 0.4369) |
 | --- | --- | --- | --- | --- | --- | --- |
-| base→null1 | −2.91 | 9.80 | −12.72 | +6.89 | 9/9 | −0.044 |
-| base→sg2 | −3.03 | 8.64 | −11.66 | +5.61 | 9/9 | −0.046 |
-| base→sg4 | +2.22 | 8.67 | −6.46 | +10.89 | 11/7 | +0.034 |
-| base→sg8 | +5.15 | 7.64 | −2.49 | +12.79 | 15/3 | +0.078 |
-| **base→sg16** | **+63.49** | **7.83** | **+55.66** | **+71.32** | **18/0** | **+0.967** |
-| sg2→sg4 | +5.24 | 5.87 | −0.63 | +11.12 | 14/4 | +0.080 |
-| sg2→sg8 | +8.18 | 4.97 | +3.21 | +13.15 | 15/3 | +0.125 |
-| sg4→sg8 | +2.94 | 6.17 | −3.24 | +9.11 | 15/3 | +0.045 |
+| base→null1 | −2.91 | 9.80 | −12.72 | +6.89 | 9/9 | −0.019 |
+| base→sg2 | −3.03 | 8.64 | −11.66 | +5.61 | 9/9 | −0.020 |
+| base→sg4 | +2.22 | 8.67 | −6.46 | +10.89 | 11/7 | +0.015 |
+| base→sg8 | +5.15 | 7.64 | −2.49 | +12.79 | 15/3 | +0.034 |
+| **base→sg16** | **+63.49** | **7.83** | **+55.66** | **+71.32** | **18/0** | **+0.422** |
+| sg2→sg4 | +5.24 | 5.87 | −0.63 | +11.12 | 14/4 | +0.035 |
+| sg2→sg8 | +8.18 | 4.97 | +3.21 | +13.15 | 15/3 | +0.054 |
+| sg4→sg8 | +2.94 | 6.17 | −3.24 | +9.11 | 15/3 | +0.020 |
+
+The final column is the rule-105 conversion at `k = α = 0.4369`; at the band
+extremes every entry scales by ×0.890 (α = 0.389) or ×1.144 (β = 0.5), which
+changes no sign and no conclusion here.
 
 Positive is slower. Cycle-blocked (K = 3) half-widths for the same point
 estimates are 11.9–22.1 µs, and dropping the first rotation cycle (K = 12) moves
@@ -308,17 +333,26 @@ Three readings, all preregistered:
    is faster. The ordering is monotone in S (sg2 < sg4 < sg8 ≪ sg16) and the
    two candidate arms are bounded tightly: this design excludes any
    |base→sg4| > 18.4 µs/step and any |base→sg8| > 17.1 µs/step on M4 Pro, i.e.
-   ±0.28 % and ±0.26 % of `cs`. Under a Bonferroni correction across all 15
-   pairwise contrasts, no pair differs by more than 27.0 µs. The 26 µs/step
-   graduation bar therefore cannot be met at this site by any S in {4, 8}: the
-   *upper* end of the `base→sg8` interval is +12.8 µs on the slow side, and even
-   the most favourable reading of the interval is a 2.5 µs gain, one tenth of
-   the bar.
+   ±0.122 % and ±0.114 % of `cs` at α = 0.4369 (±0.140 %/±0.130 % at the most
+   generous β = 0.5). Under a Bonferroni correction across all 15 pairwise
+   contrasts, no pair differs by more than 27.0 µs = 0.180 %`cs`. Against the
+   **corrected rule-105 bar** — 0.4 %`cs` is **60.1** M4 µs/step at α = 0.4369,
+   **67.5** at α = 0.389, **52.5** at β = 0.5 — the site is excluded by a factor
+   of three to four in every regime. The most favourable reading of the
+   `base→sg8` interval is a 2.5 µs/step gain = 0.017 %`cs`, one twenty-fourth of
+   the bar; the point estimate is on the slow side. Note that the earlier
+   "26 µs/step bar" used in this report's first draft was the M5 figure applied
+   to M4 measurements (the rule-105 unit error); correcting it makes the routed
+   verdict *stronger*, not weaker, because the bar moves further away.
 3. **PR #48's collapse penalty reproduces here, and it is not site-specific.**
-   `base→sg16` is +63.5 µs/step = +0.967 % of `cs` with 18/18 slower signs — the
-   largest clean single-knob regression measured in this arm. That is the same
-   direction and, allowing for the M4-vs-M5 scale factor, roughly the same size
-   as the −0.1488 % official receipt `285f79fa` charged to #48's 8× collapse.
+   `base→sg16` is +63.5 µs/step [M4-WALL] = **+0.422 %`cs`** at α = 0.4369
+   (+0.376 % at α = 0.389, +0.484 % at β = 0.5) with 18/18 slower signs — the
+   largest clean single-knob regression measured in this arm, and the only
+   contrast at this site that reaches the 0.4 % bar, in the wrong direction. It
+   is the same direction as, and about 2.8× the size of, the −0.1488 % official
+   receipt `285f79fa` charged to #48's 8× collapse (#48 collapsed 8×, this arm
+   collapses 8× from a starting point already four times sparser in
+   threadgroups per core).
    The mechanism is visible in the stage-0 ledger: total simdgroups and
    rows-per-simdgroup are invariant, only threadgroup count changes, so
    collapsing threadgroups can only lose — it removes independent scheduling
@@ -450,8 +484,30 @@ not an artefact of a blunt instrument.
 ## 6. Verdict against the graduation gate
 
 The advisor's bar for this round is a paired full-decode gain of at least
-**0.4 % of `cs` = 26 us/step** on this host's scale, with the sign consistent
-across repetitions. Everything below is measured against that single number.
+**0.4 % of `cs`**, with the sign consistent across repetitions. Rule 105
+(PR #629 comment `5241594386`) corrected the units in which that bar is
+expressed: the campaign price `0.015228 %cs` per µs/step was fitted on an
+**official M5** decode, so 0.4 %`cs` = **26.3 M5 µs/step**, and an M4 measurement
+must be transferred first:
+
+| regime | `k` | %`cs` per **M4** µs/step | 0.4 % bar in **M4 µs/step** |
+| --- | --- | --- | --- |
+| bytes, α = 0.4369 | 0.4369 | 0.006653 | **60.1** |
+| bytes, α = 0.389 | 0.389 | 0.005924 | **67.5** |
+| latency, β = 0.5 | 0.5 | 0.007614 | **52.5** |
+
+Every number below is [M4-WALL] on Apple M4 Pro at epoch `base_sha` `3241e5e5`
+(`Sources`/`Vendor` ≡ `4e9a8e16`) and is quoted in both units, with the `k` used
+stated explicitly (rule 105.6). The regime for each family is a measured
+property, not a §B.0.3 lookup; where it is not yet settled the whole `k` band is
+carried.
+
+Rule 105.5 additionally allows the 0.4 % bar to be met by the **sum** of
+independently verified, bit-exact improvements in **different** families, each
+with a CI excluding zero. That is why §5 exists: the routed gate+up site is
+family **T2c** (M4 cost 1497.7 µs/step) and the QKV lane-major site is family
+**T0b(a)** (M4 cost 1340.1 µs/step), so a win at either is a summation
+component rather than a standalone submission.
 
 ### 6.1 Routed gate/up site — `N-SITE1`
 
@@ -462,9 +518,11 @@ curve, in the preregistered `N-SITE1` sense:
   `base -> sg4 = +2.2 us [-6.5, +10.9]` and `base -> sg8 = +5.2 us [-2.5,
   +12.8]`; the point estimates have the wrong sign and both confidence
   intervals exclude anything better than **-18.4 us** and **-17.1 us**
-  respectively. A 26 us/step win is excluded at both doses, and a Bonferroni
-  correction across all 15 contrasts still excludes any pair separation above
-  27.0 us.
+  respectively, i.e. better than **-0.122 %`cs`** and **-0.114 %`cs`** at
+  α = 0.4369 (-0.140 %/-0.130 % at the most generous β = 0.5). The bar - 52.5
+  to 67.5 M4 us/step depending on regime - is excluded at both doses by a factor
+  of three or more, and a Bonferroni correction across all 15 contrasts still
+  excludes any pair separation above 27.0 us = 0.180 %`cs`.
 - The two nulls behave. `base -> null1` (identical execution) is
   `-2.9 us [-12.7, +6.9]` and the byte-identical-body mechanism null
   `base -> sg2` is `-3.0 us [-11.7, +5.6]`, so the machinery itself - distinct
@@ -472,9 +530,10 @@ curve, in the preregistered `N-SITE1` sense:
   measurement is not being flattered by it.
 - The negative controls fire hard and in the predicted direction:
   `base -> sg16 = +63.5 us [+55.7, +71.3]`, 18/18 repetitions slower,
-  +0.967 % of `cs`. The instrument therefore has both the resolution and the
-  sign discipline to detect a 26 us effect; it simply is not there for S in
-  {4, 8}.
+  **+0.422 %`cs`** at α = 0.4369. That single arm is the size of the whole
+  graduation bar with the sign reversed, which is the cleanest available proof
+  that the instrument has the resolution and the sign discipline to detect a
+  bar-sized effect. It simply is not there for S in {4, 8}.
 
 The mechanism reading is the useful part. Stage 0 shows total simdgroups and
 rows-per-simdgroup are invariant in S, so packing can only ever *remove*

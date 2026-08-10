@@ -33,13 +33,26 @@ PROJECT = "mlxfast-maple"
 # at least 0.5%.
 GATE_DECODE_PCT = 0.20
 GATE_KERNEL_PCT = 0.50
-# Advisor graduation bar for this round: 0.4% of candidate score, which is
-# 26 us/step of paired full-decode time at 1 us/step = 0.015228% of cs.
-GRAD_BAR_US = 26.0
-# Percent of candidate score bought per us/step of M4-equivalent decode time,
-# and the M5<-M4 transfer factor for a structural change (doc R1).
-CS_PCT_PER_US = 1.0 / 65.67
-M5_FROM_M4 = 0.622
+# Rule 105: the campaign price was fitted on an official M5 decode, so it is
+# %cs per *M5* us/step. An M4 measurement must be transferred first:
+#     d_pct_cs = d_us_m4 * K_TRANSFER * CS_PCT_PER_M5_US
+# K_TRANSFER is alpha in the bytes regime (0.4369 primary, 0.389 sensitivity) or
+# beta = 0.5 in the latency regime. The regime is a measured property of the
+# family, never a lookup in a table whose M5 column was itself derived by alpha.
+CS_PCT_PER_M5_US = 0.015228
+K_TRANSFER = {"alpha": 0.4369, "alpha_low": 0.389, "beta": 0.5}
+K_PRIMARY = "alpha"
+# Advisor graduation bar for this round, 0.4% of candidate score, expressed in
+# the measured host's units for each admissible transfer factor.
+GRAD_BAR_PCT_CS = 0.40
+GRAD_BAR_US_M4 = {
+    k: GRAD_BAR_PCT_CS / (v * CS_PCT_PER_M5_US) for k, v in K_TRANSFER.items()
+}
+
+
+def cs_pct(us_m4: float, regime: str = K_PRIMARY) -> float:
+    """Rule-105 conversion from M4 us/step to percent of candidate score."""
+    return us_m4 * K_TRANSFER[regime] * CS_PCT_PER_M5_US
 
 SITES = {
     "routed": {
@@ -50,7 +63,9 @@ SITES = {
         "geom_prefix": "R107GEOM",
         "stride_needle": "logical_row = tile",
         "static": {"grid_threads": 131072, "total_simdgroups": 4096,
-                   "logical_rows": 512, "shipped_threadgroups": 2048},
+                   "logical_rows": 512, "shipped_threadgroups": 2048,
+                   "family": "T2c routed gate+up qmv",
+                   "family_cost_us_per_step_m4": 1497.7},
         "tags": ["routed-gate-up"],
         "arm_mechanism": {
             "sg2": "mechanism null: same body and geometry, distinct _sg2 pipeline",
@@ -70,7 +85,9 @@ SITES = {
                    "total_simdgroups_h64": 10240, "total_simdgroups_h48": 8192,
                    "rows_h64": 10240, "rows_h48": 8192,
                    "shipped_threadgroups_h64": 5120,
-                   "shipped_threadgroups_h48": 4096},
+                   "shipped_threadgroups_h48": 4096,
+                   "family": "T0b(a) qkv h64 lane-major",
+                   "family_cost_us_per_step_m4": 1340.1},
         "tags": ["qkv-lane-major", "L3", "pr308-revival"],
         "arm_mechanism": {
             "sg2": "mechanism null: same body and geometry, distinct _sg2 pipeline",
@@ -188,7 +205,17 @@ def main() -> None:
         "official_analog_statistic": "mean_first128",
         "gate_decode_pct": GATE_DECODE_PCT,
         "gate_kernel_pct": GATE_KERNEL_PCT,
-        "graduation_bar_us_per_step": GRAD_BAR_US,
+        "graduation_bar_pct_cs": GRAD_BAR_PCT_CS,
+        "graduation_bar_us_per_step_m4_alpha": GRAD_BAR_US_M4["alpha"],
+        "graduation_bar_us_per_step_m4_alpha_low": GRAD_BAR_US_M4["alpha_low"],
+        "graduation_bar_us_per_step_m4_beta": GRAD_BAR_US_M4["beta"],
+        "cs_pct_per_m5_us": CS_PCT_PER_M5_US,
+        "k_transfer_primary": K_PRIMARY,
+        "k_transfer_value": K_TRANSFER[K_PRIMARY],
+        "regime_verdict": "unsettled; tanjiro #648 census owns the T2c/T0b(a) "
+                          "regime, so the whole k band is reported",
+        "epoch_base_sha": "3241e5e55b17a1902cac47b01f186f7281391ca5",
+        "host_tag": "M4-WALL",
         "digest_before": prov.get("digest_before"),
         "digest_after": prov.get("digest_after"),
     }
@@ -211,19 +238,22 @@ def main() -> None:
         summary[f"level/{arm}_us_per_step"] = lvl
 
     contrasts = wandb.Table(columns=[
-        "leg", "estimator", "k", "mean_us", "half_width", "lo", "hi",
-        "pos", "neg", "pct_of_step", "cs_pct_m4", "excl_bound_us",
-        "clears_0.2pct_gate", "clears_grad_bar_26us"])
+        "leg", "estimator", "k", "mean_us_m4", "half_width", "lo", "hi",
+        "pos", "neg", "pct_of_step", "cs_pct_alpha", "cs_pct_alpha_low",
+        "cs_pct_beta", "excl_bound_us_m4", "clears_0.2pct_gate",
+        "clears_grad_bar_any_regime"])
     for est, block in (("cycle-blocked", med.get("cycle_contrasts") or {}),
                        ("per-repetition", med.get("contrasts") or {})):
         for leg, c in block.items():
             pct = 100.0 * c["mean"] / step_us
             contrasts.add_data(leg, est, c["k"], c["mean"], c["half_width"],
                                c["lo"], c["hi"], c["pos"], c["neg"], pct,
-                               c["mean"] * CS_PCT_PER_US,
+                               cs_pct(c["mean"], "alpha"),
+                               cs_pct(c["mean"], "alpha_low"),
+                               cs_pct(c["mean"], "beta"),
                                c.get("excludes_above_m4"),
                                bool(pct <= -GATE_DECODE_PCT and c["hi"] < 0),
-                               bool(c["hi"] <= -GRAD_BAR_US))
+                               bool(c["hi"] <= -GRAD_BAR_US_M4["beta"]))
     run.log({"contrasts": contrasts})
 
     for leg, c in (med.get("cycle_contrasts") or {}).items():
@@ -232,8 +262,10 @@ def main() -> None:
         summary[f"cycle/{key}/lo"] = c["lo"]
         summary[f"cycle/{key}/hi"] = c["hi"]
         summary[f"cycle/{key}/pct_of_step"] = 100.0 * c["mean"] / step_us
-        summary[f"cycle/{key}/cs_pct_m4"] = c["mean"] * CS_PCT_PER_US
-        summary[f"cycle/{key}/m5_projected_us"] = c["mean"] * M5_FROM_M4
+        summary[f"cycle/{key}/cs_pct_alpha"] = cs_pct(c["mean"], "alpha")
+        summary[f"cycle/{key}/cs_pct_beta"] = cs_pct(c["mean"], "beta")
+        summary[f"cycle/{key}/m5_projected_us"] = (
+            c["mean"] * K_TRANSFER[K_PRIMARY])
 
     robust = wandb.Table(columns=["statistic", "leg", "mean_us", "lo", "hi"])
     for stat, block in rep["stats"].items():
