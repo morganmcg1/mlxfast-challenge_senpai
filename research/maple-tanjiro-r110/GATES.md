@@ -177,9 +177,26 @@ $ git diff --numstat 32665a6b... -- Sources Vendor
 1	1	Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
 ```
 
-### `./benchmark.sh --local-iterate`
+### `./benchmark.sh --local-iterate` — GREEN
 
-<!-- A3-GATE-RESULT -->
+Job `2602e169-cd34-49f0-ae6e-884a129da56c`, exit 0, 203 s,
+`"timestamp": "2026-08-10T23:20:00Z"`, worker commit `67f7d830`.
+
+```
+"passed" : true
+"passed_correctness" : true
+"max_abs_diff" : 0
+"golden_hash" : "b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63"
+"harness_hash" : "141c159403ce1514499bfeed5fb7335c872aa959d501afd30dfd495110b9fda6"
+"weights_hash" : "aff994300573c5e8589563fc9ff57cdcfb1ef9b49e14898be290a75a6b294b3d"
+"num_layers" : 40
+"peak_ram_gb" : 21
+prefill 0.001117 s/token   decode 0.012976 s/token   est score 0.796
+```
+
+The same `golden_hash` / `harness_hash` / `weights_hash` triple as A1 and A2,
+so all three arms were gated against an identical harness, weight set, and
+public golden.
 
 ## What these local gates do and do not prove
 

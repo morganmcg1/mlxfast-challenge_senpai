@@ -117,6 +117,12 @@ git --no-pager diff --numstat 32665a6b66ce0d2d72b84772863575a6fdc35fb7 HEAD
 # expect exactly: 1  1  Vendor/mlx-swift/.../metal/quantized.cpp
 ```
 
+> **Trap worth knowing.** The A3 hunk is at `quantized.cpp:1223` and the A1
+> hunk is at `quantized.cpp:1239`, so `git apply` of the A3 patch **succeeds
+> on the A1 branch too** — silently producing a two-knob A1+A3 build with no
+> error. `git apply --check` will not catch this. The `--numstat` step above
+> is the real guard: a stacked build shows `2  2`, not `1  1`. Always run it.
+
 Details: `A3-expert-gather-groups-128.md`.
 
 > The patch files live on this branch under `research/maple-tanjiro-r110/`.
@@ -148,6 +154,23 @@ Both checks pass for every arm; each arm submits exactly one path.
 Growth is **negative** for all arms, so there is no submission-review byte risk.
 
 ## Gate evidence
+
+All three arms are green on `./benchmark.sh --local-iterate`, each validated
+**in isolation** (one knob in the tree at a time), and all three against the
+identical `golden_hash` / `harness_hash` / `weights_hash` triple:
+
+| Arm | Job | Worker commit | `passed` | `passed_correctness` | `max_abs_diff` |
+|---|---|---|---|---|---|
+| A1 | `1dce4167` | `b8c8a395` | true | true | 0 |
+| A2 | `050988cf` | `38152ae8` | true | true | 0 |
+| A3 | `2602e169` | `67f7d830` | true | true | 0 |
+
+A1 additionally has an upstream-equivalence run plus a
+`DARKBLOOM_EXPERT_DOWN_BN=64` control proving its lone prefill near-tie is
+pre-existing and not caused by the arm.
+
+Read the caveat at the top of this file before giving any of this weight: these
+gates prove build soundness and non-NAX-path integrity, not `_nax` behaviour.
 
 Full detail in `GATES.md`.
 
