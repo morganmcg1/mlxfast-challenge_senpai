@@ -1296,6 +1296,194 @@ git cherry-pick 2e9cd4f5
 I would rather be told to re-land it than have fern discover an unsigned arm in
 the submission surface.
 
+## 7.5 The atlas comment 5247182400 asked for: rank the whole decode step by size
+
+Comment 5247182400 says the campaign is ~1.4 % short, that levers should be
+ranked by size rather than by ease, and that any single lever plausibly worth
+≥ 50 µs/step should be reported immediately. Comment 5247143022 separately asks
+for a SPLIT=1 profile of the two kernels this campaign has never profiled,
+`full_fused_attn_grow_v1` and `shared_nvfp4_swiglu_qmv`. This section answers
+both from one capture, and it is the most transferable thing in this memo.
+
+### 7.5.1 Method
+
+`research/maple-alphonse-r109e-bwatlas.py` re-reads the raw SPLIT=1 capture
+(`/tmp/r109e-split1/split1.err.gz`, 87,976 records, 199 steady steps) that
+produced §7.3. The pr91 GPUPROF hook emits an `input_bytes` field per record, so
+for every kernel we can compute:
+
+```
+us/step_c = (busy_time/call - 1.554 us SPLIT=1 inflation) x calls/step
+GB/s      = bytes/call / corrected time/call
+floor     = time the same bytes would take at 273 GB/s (M4 Pro spec DRAM)
+headroom  = us/step_c - floor
+```
+
+`headroom` is the only quantity that matters for lever ranking. A kernel at the
+DRAM ceiling cannot be made faster by any in-kernel rewrite — only by moving
+fewer bytes. A kernel far below it is paying for latency, occupancy or ALU, and
+is the only kind an in-kernel rewrite can touch. The GB/s column is a ratio of
+two sums over the same records, so it needs no steady-window selection.
+
+Three honest caveats, all of which the data announces itself:
+
+- **Gathers over-count.** MLX reports a gather-matmul's `input_bytes` as the
+  whole expert tensor. Laguna routes top-8 of 256, so the two `routed_` kernels
+  read 1/32 of their declared bytes; uncorrected they report 2,800 % of peak.
+  The script divides them by 32. The same signature appears on
+  `decode_embedding_rope_atlas` (78,000 % of peak — it reads one row of a
+  414 MB table) and the `lmhead_exact_*` refine kernels, whose negative headroom
+  is therefore meaningless and should be ignored, not believed.
+- **Output bytes are not counted**, so every floor is slightly low and every
+  headroom slightly high.
+- **KV tensors are capacity-padded.** `KVCacheSimple.step = 256`, so at
+  N = 512→712 the cache tensor is 768 rows and `full_fused_attn_grow_v1` declares
+  3.170 MB/call where the live KV is 2.507 MB. Its floor is therefore an
+  over-estimate and its true headroom is *larger* than the table says
+  (≈ 142 rather than 117.7 µs/step).
+
+The arithmetic checks out independently: 2 × 768 × 8 KV heads × 128 dim × 2 B =
+3.146 MB against a declared 3.170 MB, which is how I know the byte field is the
+real tensor and not a proxy.
+
+### 7.5.2 Result: 47 % of the decode step is already at the DRAM ceiling
+
+Full table in `research/maple-alphonse-r109e-bwatlas.txt`. Corrected decode total
+8,165.4 µs/step over 29 kernels. Seven kernels run at **91–103 % of spec DRAM
+bandwidth**:
+
+| kernel | µs/step_c | GB/s | % peak |
+|---|---|---|---|
+| `decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1` | 1313.6 | 280.5 | 102.7 % |
+| `oproj_act_h64_v1_lm1_pw1_sc1_se1` | 1082.0 | 272.3 | 99.7 % |
+| `lmhead_int5_base_coarse_delta_bf16_v1` | 426.3 | 260.1 | 95.3 % |
+| `decode_nvfp4_qkv_h48_…` | 352.2 | 279.0 | 102.2 % |
+| `oproj_act_h48_…` | 291.4 | 252.8 | 92.6 % |
+| `dense_gate_up_swiglu_bf16_v1` | 271.4 | 249.8 | 91.5 % |
+| `dense_down_residual_bf16_v1` | 134.6 | 251.9 | 92.3 % |
+
+**That is 3,871.5 µs/step, 47.4 % of the decode step, sitting at or above 91 %
+of what this machine can physically deliver.** Several exceed 100 %, which just
+means 273 GB/s is a slightly pessimistic ceiling — the practical achievable
+figure on this M4 Pro is ~281 GB/s. None of that 47 % is purchasable by kernel
+rewriting. It is purchasable only by moving fewer bytes, which on a
+weight-stationary decode step means changing the weight representation, and that
+is outside the accepted quantization envelope.
+
+This is, I think, the single most useful thing I measured. It reframes the
+1.4 % gap: closing it needs ~200 µs/step of M4 decode wall, and the atlas says
+where that can and cannot come from.
+
+### 7.5.3 Every lever ≥ 50 µs/step, ranked
+
+Comment 5247182400 asks to be told immediately about any plausible ≥ 50 µs/step
+lever. There are **nine**, totalling ~1,480 µs/step of headroom:
+
+| rank | kernel | headroom µs/step | % peak | calls/step | µs/call | MB/call |
+|---|---|---|---|---|---|---|
+| 1 | `sliding_fused_attn_ring_v1` | **373.4** | 38.8 % | 30.3 | 20.13 | 2.131 |
+| 2 | `gate_sp_h64_v1` | **178.7** | 8.6 % | 30.3 | 6.45 | 0.152 |
+| 3 | `routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2` | 174.3 | 88.1 % | 39.4 | 37.07 | 8.913 |
+| 4 | `routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6` | 163.7 | 79.8 % | 39.4 | 20.54 | 4.474 |
+| 5 | `prefill_router_tournament_ordinal_norm_active64_v2` | **133.5** | 0.5 % | 39.8 | 3.37 | 0.004 |
+| 6 | `full_fused_attn_grow_v1` (mine) | 117.7 (≈142 corrected for KV padding) | 49.7 % | 10.0 | 23.37 | 3.170 |
+| 7 | `residual_rms_router_bf16_2048_rpg8_keys_v1_pf1` | 101.8 | 60.3 % | 39.4 | 6.51 | 1.072 |
+| 8 | `rmsbfloat16` | **80.5** | 9.1 % | 41.8 | 2.12 | 0.053 |
+| 9 | `shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1` | 68.5 | 70.2 % | 39.4 | 5.84 | 1.119 |
+| 10 | `gate_sp_h48_v1` | 61.9 | 6.4 % | 10.1 | 6.54 | 0.115 |
+
+Ranks 3 and 4 are large in absolute terms but sit at 88 % and 80 % of peak: they
+are *nearly* bandwidth-bound and the residual is small relative to the risk of
+touching the MoE gather path. The genuinely anomalous entries are the ones in
+bold.
+
+**Lever A — `gate_sp_h64_v1` + `gate_sp_h48_v1`: 240.6 µs/step of headroom at
+6–9 % of DRAM peak.** These two kernels together spend 261.6 µs/step reading
+152 KB and 115 KB per call. At peak bandwidth those bytes take 21.0 µs/step. The
+kernels take 261.6. **They are 92 % pure latency.** This is the largest pure-
+latency anomaly in the decode step and it is 24× the landing bar on its own.
+PR #683 closed as `N-GATESP-TG-COUNT-IRRELEVANT`, but that result closes *one*
+lever (threadgroup count), not the kernel: a kernel at 8.6 % of peak with
+240 µs/step of headroom is not explained by "TG count doesn't matter". My
+§7.2.7 measurement of a 0.12 µs per-dispatch fixed cost also rules out dispatch
+overhead (40 calls × 0.12 = 4.8 µs). Something else is costing ~250 µs/step
+here and nobody has named it.
+
+**Lever B — `prefill_router_tournament_ordinal_norm_active64_v2`: 133.5 µs/step
+at 0.5 % of DRAM peak, reading 4 KB per call.** A kernel whose name says
+*prefill* runs 39.8 times per decode step, 3.37 µs each, and touches four
+kilobytes. That is 1.6 % of the decode step spent on essentially no memory
+traffic and, at active64, not much arithmetic either. Either it is a
+prefill-shaped kernel mis-selected on the decode path — in which case a
+decode-shaped variant is a large, cheap win — or the name is vestigial and it is
+doing real work the byte count does not see. Deciding which costs one `rg` and
+one dose-ruler arm. This is the highest ratio of prize to effort in the table.
+
+**Lever C — `rmsbfloat16`: 80.5 µs/step at 9.1 % of peak, 41.8 calls/step.**
+This is MLX's *generic* RMSNorm, not a Laguna custom kernel, running once per
+layer plus two. 2.12 µs/call for 53 KB. Every other normalisation in this model
+has been fused into a neighbour (`residual_rms_router`, `residual_rms_bf16`,
+`oproj_act`); these 41.8 have not. Fusing them removes dispatches rather than
+adding a dependency, so the advisor's ≈ +102 µs/step encoder-barrier law works
+*for* the change, not against it.
+
+**Lever D — `sliding_fused_attn_ring_v1`: 373.4 µs/step, the largest single
+headroom on the board**, at 38.8 % of peak. This was maple-edward's kernel
+(PR #684, closed). Its per-call profile is structurally identical to mine —
+2.131 MB/call, 20.13 µs/call — but it runs 30 times per step against my 10, so
+it is 2.6× the prize for the same mechanism work. Everything in §7.1's budget
+method and §7.2's dose ruler transfers to it unchanged. If the programme wants
+one attention target, it is this one, not mine.
+
+### 7.5.4 The two kernels comment 5247143022 named
+
+**`full_fused_attn_grow_v1`** (mine): 233.9 µs/step corrected, 2.9 % of decode,
+10 calls/step, 23.37 µs/call, 3.170 MB/call, **135.6 GB/s = 49.7 % of peak**.
+Note this revises the ≈ 100 GB/s / 38 %-of-ceiling figure quoted in comment
+5246119853 — that number was computed from an uncorrected SPLIT=1 time, and
+removing the 1.554 µs/call inflation moves it to 51 %. The qualitative
+conclusion is unchanged and in fact strengthened: the kernel is only half
+bandwidth-bound, so it is exactly the kind of kernel an in-kernel rewrite could
+help. §7.1 then closes it anyway: in-loop ALU accounts for ~90.8 busy µs/step of
+the 233.9, the QK ladder is 28.4 of that, and §7.2/§7.2.7 show every route to
+removing the ladder costs more than it saves.
+
+**`shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1`**: 230.0 µs/step corrected,
+2.8 % of decode, 39.4 calls/step, 5.84 µs/call, 1.119 MB/call, **191.7 GB/s =
+70.2 % of peak**, headroom 68.5 µs/step. Two observations for whoever takes it:
+
+1. It is the *only* unfused half of the shared expert. The down-projection is
+   already fused with the routed path
+   (`routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6`, 39.4 calls/step); the
+   gate/up half is not, and runs as its own 39.4 dispatches beside
+   `routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2`. That asymmetry is the
+   obvious structural lever, and the down-projection fusion is a working
+   precedent in this very codebase for how to do it.
+2. But price it before building it. At 70 % of peak the *entire* headroom is
+   68.5 µs/step, and fusion does not remove the shared expert's weight reads —
+   only the launch tail and the activation round-trip. The realistic prize is a
+   fraction of 68.5, i.e. plausibly 20–40 µs/step: 2–4× the bar, worth doing,
+   but not the 1.4 % gap. Lever A is six times larger and structurally simpler.
+
+### 7.5.5 Direct answer to "is there a ≥ 50 µs/step lever in your atlas?"
+
+Yes — nine of them, but **none inside my assigned kernel**. Within
+`full_fused_attn_grow_v1` the largest single purchasable item is the QK ladder
+at 22.69 µs/step of wall (95 % upper 30.22), and §7.2.7 closes it on three
+independent mechanisms. My kernel is 2.9 % of the decode step and its total
+headroom is 117.7 µs/step; even deleting the whole thing would be 1.4 % of
+decode and would not close the gap alone.
+
+The ≥ 50 µs/step levers are all in *other people's* kernels, and the single
+largest concentration of them is not in attention at all — it is the 240.6
+µs/step of pure latency in `gate_sp_*` plus the 133.5 µs/step in
+`prefill_router_tournament_*`, i.e. **374 µs/step sitting in two small helper
+kernels that between them read a quarter of a megabyte per step.** That is
+1.9× the ~200 µs/step the campaign needs. I would put the next two students
+there rather than on any attention kernel, and I would give them the dose ruler
+(§7.2) rather than an A/B, because §6.3 shows a bare A/B cannot resolve anything
+at this bar.
+
 ## 8. Hand-off to maple-edward — MOOT
 
 **PR #684 closed at ~23:02Z with its own results already in hand (see §7.2.7).

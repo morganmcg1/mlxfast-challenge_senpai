@@ -67,37 +67,50 @@ def load(path):
     return agg
 
 
+def short(name):
+    n = name.replace("custom_kernel_laguna_", "")
+    for cut in ("_bfloat16_t_", "_bfloat16_bfloat16_"):
+        i = n.find(cut)
+        if i > 0:
+            return n[:i]
+    return n[:56]
+
+
 def main():
     path = sys.argv[1]
-    steps = int(sys.argv[2]) if len(sys.argv) > 2 else 0
+    steps = int(sys.argv[2]) if len(sys.argv) > 2 else 199
+    min_per_step = float(os.environ.get("MIN_N_PER_STEP", "0.9"))
     agg = load(path)
     rows = []
     for name, (secs, byts, n) in agg.items():
-        gbs = (byts / secs / 1e9) if secs > 0 else 0.0
-        rows.append((secs, name, byts, n, gbs))
+        n_step = n / steps
+        if n_step < min_per_step:
+            continue  # prefill-only or once-per-run kernel, not a decode cost
+        gathered = GATHER_MARK in name
+        real_bytes = byts / GATHER_DIV if gathered else float(byts)
+        us_call_c = secs * 1e6 / n - SPLIT1_INFLATION_US
+        gbs = real_bytes / n / (us_call_c * 1e-6) / 1e9
+        us_step_c = us_call_c * n_step
+        floor_step = real_bytes / n / M4_PRO_PEAK_GB_S / 1e9 * 1e6 * n_step
+        rows.append((us_step_c - floor_step, us_step_c, floor_step, gbs,
+                     n_step, us_call_c, real_bytes / n / 1e6, gathered, name))
     rows.sort(reverse=True)
-    total = sum(r[0] for r in rows)
+    tot_c = sum(r[1] for r in rows)
 
-    print(f"{path}: {len(rows)} named kernels, {sum(r[3] for r in rows)} records, "
-          f"{total * 1e3:.1f} ms attributed")
-    if steps:
-        print(f"steady steps = {steps}; us/step_c subtracts "
-              f"{SPLIT1_INFLATION_US} us/call of SPLIT=1 inflation")
+    print(f"{path}: {len(rows)} decode kernels at >= {min_per_step}/step, "
+          f"{tot_c:.1f} us/step corrected (SPLIT=1 inflation "
+          f"{SPLIT1_INFLATION_US} us/call removed), peak {M4_PRO_PEAK_GB_S} GB/s")
+    print("headroom = corrected busy time minus the time the same bytes would "
+          "take at peak DRAM bandwidth")
     print()
-    hdr = f"{'us/step':>9} {'us/step_c':>10} {'share':>7} {'n/step':>7} " \
-          f"{'us/call':>8} {'MB/call':>9} {'GB/s':>7} {'%peak':>6}  kernel"
-    print(hdr)
-    for secs, name, byts, n, gbs in rows:
-        share = secs / total * 100.0
-        if steps:
-            us_step = secs * 1e6 / steps
-            n_step = n / steps
-            us_step_c = us_step - SPLIT1_INFLATION_US * n_step
-        else:
-            us_step = us_step_c = n_step = 0.0
-        print(f"{us_step:9.1f} {us_step_c:10.1f} {share:6.2f}% {n_step:7.2f} "
-              f"{secs * 1e6 / n:8.2f} {byts / n / 1e6:9.3f} {gbs:7.1f} "
-              f"{gbs / M4_PRO_PEAK_GB_S * 100:5.1f}%  {name}")
+    print(f"{'headroom':>9} {'us/step_c':>10} {'floor':>8} {'share':>7} "
+          f"{'GB/s':>7} {'%peak':>6} {'n/step':>7} {'us/call':>8} "
+          f"{'MB/call':>9}  kernel")
+    for head, us_step_c, floor, gbs, n_step, us_call, mb, gathered, name in rows:
+        print(f"{head:9.1f} {us_step_c:10.1f} {floor:8.1f} "
+              f"{us_step_c / tot_c * 100:6.2f}% {gbs:7.1f} "
+              f"{gbs / M4_PRO_PEAK_GB_S * 100:5.1f}% {n_step:7.2f} "
+              f"{us_call:8.2f} {mb:9.3f}{'g' if gathered else ' '} {short(name)}")
 
 
 if __name__ == "__main__":
