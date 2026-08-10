@@ -41,6 +41,7 @@ Env:    KREF=alpha|beta   which k to headline (default alpha, the smaller and
 """
 import math
 import os
+import random
 import sys
 from collections import OrderedDict
 
@@ -166,6 +167,64 @@ def sd_ci(s, dof, conf=0.95):
     return s * math.sqrt(dof / hi_q), s * math.sqrt(dof / lo_q)
 
 
+def signflip_p(diffs):
+    """Two-sided p for H0: the paired diffs are symmetric about zero.
+
+    The t-CI above assumes the block diffs are normal.  With dof 11 that is an
+    assumption, not an observation, and one heat-soaked block could carry the
+    whole result.  Under the randomisation null the ARM LABEL within a block is
+    exchangeable, so every sign pattern of the diffs is equally likely: an exact
+    test is just an enumeration of the 2^n patterns.  n<=20 is 1M patterns, i.e.
+    cheap, and every campaign this instrument is meant for has n<=20.
+
+    Returns (p, mode, n_patterns).  This is a CHECK ON the t-interval, not a
+    replacement for it -- rule 105.7 wants an interval, and a p-value is not one.
+    """
+    n = len(diffs)
+    if n < 2:
+        return float('nan'), 'insufficient', 0
+    obs = abs(sum(diffs) / n)
+    tol = 1e-12 * max(1.0, max(abs(d) for d in diffs))
+    if n <= 20:
+        hits, total = 0, 1 << n
+        for mask in range(total):
+            s = 0.0
+            for i, d in enumerate(diffs):
+                s += -d if (mask >> i) & 1 else d
+            if abs(s / n) >= obs - tol:
+                hits += 1
+        return hits / total, 'exact', total
+    rnd = random.Random(20260810)
+    hits, total = 0, 200000
+    for _ in range(total):
+        s = sum(-d if rnd.random() < 0.5 else d for d in diffs)
+        if abs(s / n) >= obs - tol:
+            hits += 1
+    return hits / total, 'monte-carlo', total
+
+
+def pairing_gain(la, lr):
+    """How much the blocking actually bought, in variance of the mean diff.
+
+    If the two arms' levels are uncorrelated within a block, blocking buys
+    nothing and the honest thing is to say so.  Compares the paired variance of
+    the mean diff, var(D)/n, against the unpaired var(a)/n + var(r)/n.
+    Returns (r_pearson, gain) where gain>1 means blocking helped, and gain is
+    also the factor by which blocking reduces the REQUIRED RUN COUNT.
+    """
+    n = len(la)
+    if n < 3:
+        return float('nan'), float('nan')
+    va, vr = sd(la) ** 2, sd(lr) ** 2
+    d = [x - y for x, y in zip(la, lr)]
+    vd = sd(d) ** 2
+    ma, mr = mean(la), mean(lr)
+    cov = sum((x - ma) * (y - mr) for x, y in zip(la, lr)) / (n - 1)
+    r = cov / math.sqrt(va * vr) if va > 0 and vr > 0 else float('nan')
+    gain = (va + vr) / vd if vd > 0 else float('nan')
+    return r, gain
+
+
 def mean(xs):
     return sum(xs) / len(xs)
 
@@ -270,7 +329,7 @@ def main():
         print('PAIRED CONTRAST  %s - %s   (positive = %s SLOWER than %s)' % (a, ref, a, ref))
         print('-' * 78)
         blocks = sorted({int(r['block']) for r in arms[a]} & {int(r['block']) for r in arms[ref]})
-        D, DP, POS, used = [], [], [], []
+        D, DP, POS, used, LA, LR = [], [], [], [], [], []
         for b in blocks:
             ra = [r for r in arms[a] if int(r['block']) == b]
             rr = [r for r in arms[ref] if int(r['block']) == b]
@@ -286,6 +345,7 @@ def main():
             dp = (pa - pr) * 1e6 if (pa is not None and pr is not None) else float('nan')
             dpos = int(ra[0]['pos']) - int(rr[0]['pos'])
             D.append(d); DP.append(dp); POS.append(dpos); used.append(b)
+            LA.append(va * 1e6); LR.append(vr * 1e6)
             print('  block %-3d  %s=%10.3f  %s=%10.3f  D=%+9.3f us  dpos=%+d  dprefill=%+9.3f us'
                   % (b, a, va * 1e6, ref, vr * 1e6, d, dpos, dp))
         n = len(D)
@@ -311,6 +371,25 @@ def main():
                   % (nm, a3[0], a3[1], a3[2], val * K_BETA * PCS_PER_M5_US))
         covers0 = (m - hw) <= 0.0 <= (m + hw)
         print('  CI95 covers zero : %s' % ('YES' if covers0 else 'NO'))
+        # assumption-free cross-check on the t-interval: the t-CI needs the
+        # block diffs to be normal, which at dof 11 is an assumption. The
+        # sign-flip test needs only that the arm label is exchangeable within a
+        # block -- which is exactly what the interleaved rotation enforces.
+        p, pmode, npat = signflip_p(D)
+        agree = ('agrees with the CI' if ((p > 0.05) == covers0)
+                 else 'DISAGREES with the CI -- distrust the normal assumption')
+        print('  sign-flip test   : p=%.4f (%s, %d patterns) -> %s' % (p, pmode, npat, agree))
+        # did the blocking buy anything?  If the arms are uncorrelated within a
+        # block, the paired design costs discipline and returns nothing.
+        rp, gain = pairing_gain(LA, LR)
+        if math.isfinite(gain):
+            print('  pairing gain     : within-block r=%+.3f -> blocking cuts the '
+                  'variance of the mean diff %.2fx' % (rp, gain))
+            print('                     (%s)'
+                  % ('worth it: %.2fx fewer runs for the same half-width' % gain
+                     if gain > 1.15 else
+                     'blocking is NOT buying resolution here; the run-to-run '
+                     'noise is not shared between arms'))
         # prefill neutrality diagnostic (rule 105.4)
         dpv = [x for x in DP if x is not None and math.isfinite(x)]
         if len(dpv) >= 2:
