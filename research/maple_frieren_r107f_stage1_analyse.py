@@ -157,6 +157,7 @@ def print_paired(rows: list[dict], tags: list[str]) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--wandb", action="store_true")
+    ap.add_argument("--wandb-id", default=None, help="resume and update this existing run")
     args = ap.parse_args()
 
     docs = {tag: load(p) for tag, p in REPLICATES if p.exists()}
@@ -273,7 +274,9 @@ def main() -> None:
     )
 
     section("VERDICT")
-    verdict = "N-T2D-DRAM-BOUND"
+    # Vocabulary is fixed by the preregistration (§2.7) and may not be extended.
+    verdict = "N-T2D-ISSUE-BOUND"
+    secondary = "N-T2D-ROOFLINE"
     best = min((r for r in focus_rows if "delta_us_per_call" in r), key=lambda r: r["delta_us_per_call"])
     act0_min_us = min(
         r["us_per_call"]
@@ -281,7 +284,11 @@ def main() -> None:
         for r in arms(d, "grid calls=39 split cold")
         if r["arm"] == "a0_act0_min"
     )
-    print(f"preregistered negative: {verdict}")
+    print(f"preregistered negative: {verdict} (secondary, concurrently satisfied: {secondary})")
+    print(
+        "trigger: the §2.8 replica gate required A1 to beat the 17.6 us/step adverse prior; "
+        "A1 came back with the wrong sign"
+    )
     print(
         f"best lever in family:   {best['arm']} at {best['delta_us_per_call']:+.3f} us/call "
         f"= {best['delta_pct_cs']:+.3f} % of cs = {best['fraction_of_ship_bar']:.2f}x the "
@@ -295,6 +302,9 @@ def main() -> None:
     payload = {
         "probe": "maple-frieren-r107f-stage1-t2d",
         "verdict": verdict,
+        "verdict_secondary": secondary,
+        "verdict_mechanism": "unique DRAM bytes plus an inter-dispatch barrier drain; "
+        "issued bytes and L1 line touches are not binding at batch 1",
         "price_book": {
             "pct_cs_per_us_step": PCT_CS_PER_US_STEP,
             "pct_cs_per_us_call": PCT_CS_PER_US_CALL,
@@ -337,6 +347,8 @@ def main() -> None:
         run = wandb.init(
             entity="wandb-applied-ai-team",
             project="mlxfast-maple",
+            id=args.wandb_id,
+            resume="allow" if args.wandb_id else None,
             name="r107f-t2d-down-residual-amortisation",
             job_type="adjudication",
             tags=["r107f", "t2d", "down-residual", "negative", "stage1", "m4-pro"],
@@ -365,6 +377,7 @@ def main() -> None:
             "decode_us_per_step_baseline": IN_SITU_US_STEP,
             "decode_us_per_step_delta": 0.0,
             "verdict": verdict,
+            "verdict_secondary": secondary,
             "shipped_change": "none",
             "twin_us_per_call": statistics.mean(
                 v["us_per_call"] for k, v in gate.items() if k.endswith("_focus")

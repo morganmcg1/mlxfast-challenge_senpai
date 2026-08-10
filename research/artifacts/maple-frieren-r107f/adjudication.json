@@ -1617,5 +1617,7 @@
    "within_band": false
   }
  },
- "verdict": "N-T2D-DRAM-BOUND"
+ "verdict": "N-T2D-ISSUE-BOUND",
+ "verdict_mechanism": "unique DRAM bytes plus an inter-dispatch barrier drain; issued bytes and L1 line touches are not binding at batch 1",
+ "verdict_secondary": "N-T2D-ROOFLINE"
 }

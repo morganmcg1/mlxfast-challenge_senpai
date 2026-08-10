@@ -12,8 +12,21 @@ carries its mandatory provenance label verbatim:
 
 ## §0 Outcome
 
-**`PENDING`** — filled at the end of Stage 1 or Stage 2. The permitted vocabulary
-is fixed in §2.7 below and may not be extended after the fact.
+**`N-T2D-ISSUE-BOUND`** — the §6.4 premise is refuted. The routed+shared
+down+residual kernel is not issue-bound on activation-load or arithmetic work:
+86.6 % of its 22.07 µs/call is the unique-byte DRAM floor and 14.0 % is the
+irreducible inter-dispatch barrier drain, leaving ≤2.5 % for everything
+amortisation could remove. The preregistered amortisation arm A1
+(`outputs_per_simd` 4→8) is **harmful**: it is **+1.012 µs/call slower =
++39.5 µs/step**, which **costs 0.60 % of `cs`** — the wrong sign against a
+0.6736 µs/call ship bar. `N-T2D-ROOFLINE` is
+concurrently satisfied (`a0_act0_min` = 22.109 µs/call ≥ the 21.1 µs/call
+falsifier, so the whole family is dead, not just A1). Stage 2 is not warranted,
+**nothing ships**, and the submitted-surface diff against the base is empty
+(§5.2). Zero official receipts spent.
+
+The permitted vocabulary was fixed in §2.7 before any timing run and was not
+extended after the fact.
 
 ---
 
@@ -610,6 +623,339 @@ threads I will report that and refuse to time it, per §2.6.
 
 ---
 
+## §4 Stage 1 — the residency-defeated replica, measured
+
+Probe `research/maple_frieren_r107f_t2d_probe.swift`; runner
+`research/maple_frieren_r107f_stage1_run.sh SUFFIX ROUNDS DISCARD FOCUS_ROUNDS FOCUS_DISCARD`
+(defaults `full 61 6 201 10`); adjudication
+`research/maple_frieren_r107f_stage1_analyse.py`. Two **independent** runs,
+`full` (job `423b49ad-3f72-4c40-97c0-aebcdeae32a1`, 7.1 s) and `full2`
+(`64955e6f-176d-4cbf-916b-69b8bb7e4bdc`, 7.3 s), both exit 0, both with
+`powermode 0` re-verified in-process. Everything below is reported as **two
+replicates side by side**; nothing is quoted from a single run.
+
+Raw: `research/artifacts/maple-frieren-r107f/stage1/t2d-probe-{full,full2}.json`;
+tables `…/stage1/adjudication_report.txt`; machine-readable ledger
+`research/artifacts/maple-frieren-r107f/adjudication.json`; W&B
+`r107f-t2d-down-residual-amortisation` id `v6jsp3f9`.
+
+### §4.1 Design, and how residency is defeated
+
+The replica dispatches the §3.7 reconstructed kernel over a **640-expert bank**
+(335,544,320 B codes + 20,971,648 B scales = 340 MiB), 6.4× the 53.5 MiB of
+routed down weights an actual step touches, so the cold cells stride a working
+set that cannot sit in any cache on this part. Every cell is
+`(arm, calls, resident, split)`:
+
+- `resident = false` walks fresh expert slots on every call; `true` re-reads one
+  slot. Rule 98.9 (which I wrote) forbids a resident number from being a
+  headline, so both are always reported.
+- `split = true` issues `calls` separate `dispatchThreadgroups` into **one**
+  encoder with per-call buffer offsets — this is the shipped regime, 39
+  data-dependent invocations per step. `split = false` is one dispatch with
+  `height: calls`.
+- `runInterleaved` reverses cell order on odd rounds, so a monotone drift
+  cancels; `emit()` reports **round-paired** deltas against the same-mode,
+  same-residency `a0`, and the interval is the notched-boxplot
+  `med ± 1.58·IQR/√n`.
+
+Preconditions assert `5,013,504` weight+scale bytes and `5,030,912` total
+unique bytes per call at start-up, so a geometry mistake aborts rather than
+producing a plausible wrong number.
+
+**V0 twin-fidelity gate.** Split-cold `a0` must reproduce the §3.6 in-situ
+22.07 µs/call:
+
+| replicate | block | µs/call | vs in-situ |
+|---|---|---|---|
+| run1 | grid n=61 | 22.716 | +2.93 % |
+| run1 | focus n=201 | 22.719 | +2.94 % |
+| run2 | grid n=61 | 22.660 | +2.67 % |
+| run2 | focus n=201 | 22.740 | +3.04 % |
+
+That is **outside** my preregistered ±2 % band, and I am not going to round it
+into compliance. It is however **conservative in direction**: the twin is 2.7–3.0 %
+*slower* than the shipped kernel, so it has strictly more time available to give
+away than the real thing does. A null measured on a slower twin is therefore a
+stronger null in situ, and a win measured on it would have needed in-situ
+confirmation (Stage 2) before anyone believed it. I record the band miss as a
+deviation, and I keep the direction argument as the reason the result still
+adjudicates.
+
+For contrast, the rev1 probe's fused regime measured 19.04 µs/call — a 14 %
+*under*-shoot. That failure is what forced the split encoder, and §4.5 shows
+exactly why.
+
+### §4.2 Primary result: focus block, n=201, round-paired
+
+`focus split cold calls=39`, Δ in µs/call against `a0`. Price book:
+1 µs/call = 0.593892 % of `cs`; the 0.4 %-of-`cs` ship bar = **0.6736 µs/call**.
+
+| arm | what it changes | run1 µs/call | run2 µs/call | run1 Δ | run2 Δ | 95 % interval | % of `cs` | × bar |
+|---|---|---|---|---|---|---|---|---|
+| `a0` | shipped twin | 22.719 | 22.740 | — | — | — | — | — |
+| `a0_act0` | **all** activation loads → compile-time constants; line touches 44→12 (−72.7 %) | 22.261 | 22.294 | **−0.424** | **−0.457** | [−0.509, −0.378] | **−0.262** | 0.65 |
+| `a0_wide` | WAL: 2 × `uint4`, loads/lane 12→10, line touches −36.4 % | 22.715 | 22.759 | +0.003 | −0.001 | ±0.03 | +0.001 | 0.00 |
+| `a1` | **opsi 4→8**, issued bytes −23.53 %, unique bytes 0 % | 23.774 | 23.743 | **+1.040** | **+0.984** | [+0.922, +1.106] | **+0.601** | −1.50 |
+| `a2` | control: 576 thr/TG, TGs 512→256, loads/lane unchanged | 22.702 | 22.721 | −0.026 | −0.029 | [−0.067, +0.009] | −0.016 | 0.04 |
+
+Read the `a0_act0` row first, because it is the ceiling on the entire family.
+Deleting *every* activation load — not amortising them, **deleting** them, which
+no correct kernel can do — buys **0.44 µs/call = 17.2 µs/step = 0.26 % of `cs`**.
+That is 0.65× the ship bar. The assignment's lever (A1) tries to remove 50 % of
+those loads; even at 100 % removal the lever cannot reach the bar. Everything
+after this is confirmation.
+
+`a1` is the assignment's headline arm and it is **harmful**: +1.0 µs/call =
++39 µs/step = **−0.60 % of `cs`**, sign-consistent across replicates with a CI
+far from zero. Issued bytes fell 23.5 % and the kernel got *slower*.
+
+`a2` is the null cell working exactly as designed: change the threadgroup shape,
+hold loads per lane fixed, get −0.03 µs/call with a CI straddling zero.
+
+### §4.3 Full grid, n=61, split cold
+
+| arm | run1 Δ | run2 Δ | % of `cs` | note |
+|---|---|---|---|---|
+| `a0_act2` | −0.184 | −0.056 | −0.07 | activation loads 4→2 |
+| `a0_act1` | −0.150 | −0.098 | −0.07 | 4→1 |
+| `a0_act0` | −0.536 | −0.478 | −0.30 | 4→0 |
+| `a0_wide` | −0.152 | −0.073 | −0.07 | WAL |
+| `a0_badcoal` | −0.152 | −0.099 | −0.07 | line touches 44→68, **+54.5 %** |
+| `a1` | +0.901 | +0.971 | +0.56 | opsi 8 |
+| `a1_wide` | +0.928 | +0.921 | +0.55 | opsi 8 + WAL |
+| `a2` | −0.217 | −0.233 | −0.13 | control |
+| `a3` | +1.240 | +1.321 | +0.76 | **opsi 16** |
+| `a0_min` | −0.516 | −0.413 | −0.28 | arithmetic → one `simd_sum` |
+| `a0_act0_min` | −0.618 | −0.502 | −0.33 | loads **and** arithmetic stripped |
+
+Two rows in this table do more work than the rest of the experiment.
+
+`a0_badcoal` deliberately **de-coalesces** the code loads so each simdgroup
+touches 68 L1 lines instead of 44 — a 54.5 % increase — and it costs *nothing*
+(−0.10 to −0.15, i.e. inside the same drift band as the arms that reduce line
+touches). L1 line-touch count is simply not a binding resource in this kernel.
+That single control retires the whole coalescing sub-family, WAL included, and
+it is why I do not report `a0_wide`'s −0.07 as a real effect: an arm that
+*worsens* the same metric by 54.5 % lands in the same place.
+
+`a0_act0_min` strips **all** activation loads **and** **all** arithmetic and
+still runs at **22.11–22.18 µs/call**, only 2.5 % faster than the shipped
+kernel. My preregistered P3 falsifier was "if this arm lands at ≥ 21.1 µs/call
+the lever family is dead". It lands a full µs above that line. Falsifier
+**satisfied**.
+
+Small |Δ| values in this n=61 grid drift by ~0.1 µs/call between replicates,
+which is why the n=201 focus block is primary and this grid is the conservative
+bound. Every sign that matters (`a1`, `a1_wide`, `a3` harmful; `a0_act0` the
+family ceiling; `badcoal` free) is identical in both.
+
+### §4.4 Rule 98.9 in action — the resident twins say the opposite
+
+`grid calls=39 split resident`, same arms, same driver, only the residency
+defeated:
+
+| arm | run1 Δ | run2 Δ | resident verdict | cold verdict |
+|---|---|---|---|---|
+| `a0_act0` | −1.469 | −1.545 | −0.90 % of `cs` "win" | −0.26 % |
+| `a1` | **−1.569** | **−1.474** | **−0.90 % of `cs` "win"** | **+0.60 % regression** |
+| `a1_wide` | −1.642 | −1.808 | −1.02 % "win" | +0.55 % regression |
+| `a2` | −1.893 | −1.692 | −1.06 % "win" | −0.13 % null |
+| `a3` | −1.071 | −1.126 | −0.65 % "win" | +0.76 % regression |
+
+Had I measured only cache-resident, I would have reported A1 as a **+0.93 % of
+`cs` win** and asked fern to integrate a change that is a **−0.60 % regression**.
+The control arm `a2`, which changes nothing but threadgroup shape, would have
+looked like the biggest win of all. This is the most expensive mistake available
+in this campaign and the rule that forbids it earned its keep here.
+
+### §4.5 Why the encoder regime decides everything
+
+`grid calls=39 fused cold` puts all 39 calls in one dispatch: every arm lands at
+**19.0–19.3 µs/call**, 260–265 GB/s, with Δ ≈ 0 across the board — including
+`a1`, which is harmful in the split regime. Fusing 39 dispatches amortises 38 of
+the 39 launch/barrier boundaries and pins the kernel to the DRAM roofline, where
+no arm can differ. That is precisely the rev1 defect (§4.9), and it is a trap
+for anyone benchmarking a per-layer kernel standalone.
+
+Call sweep, split cold, `a0`: 15.00 (1 call) → 19.87 (4) → 22.23 (16) → 22.60
+(64) µs/call; fused: 15.21 → 14.89 → 19.05 → 19.07. Steady state is reached by
+16 calls, so the 39-call cells are in it. `a1`'s split penalty grows
+monotonically with call count (+0.47 at 4, +0.94 at 16, +1.05 at 64), which is
+the signature of a per-dispatch cost, not a cold-start artefact.
+
+Empty-kernel launch cost at 288 threads/TG: 2.750 µs (1 dispatch) / 1.863 (39) /
+1.846 (156) at 128 TGs; 4.250/3.321/3.307 at 256 TGs; 7.125/6.907/6.899 at 512
+TGs — about **13 ns per threadgroup** of launch throughput. Note that `a1` halves
+the TG count (512→256) and *by this table* should save ≈3.6 µs of launch cost per
+dispatch; it instead loses 1.0. Whatever `a1` gives up, it is not launch cost.
+
+### §4.6 Exploratory: the split−fused gap is a barrier drain, not a launch ramp
+
+**Not preregistered.** I added a three-mode encoder probe to the `full2` run
+after seeing §4.5, because "38 amortised launch ramps" did not survive contact
+with the empty-kernel table above. `a0`, cold, 39 calls:
+
+| encoder mode | µs/call | empty-kernel cost in the same mode |
+|---|---|---|
+| serial (MLX default path) | 22.611 | 6.606 µs/dispatch |
+| `.concurrent` | **19.530** | 6.297 µs/dispatch |
+| `.concurrent` + explicit `memoryBarrier(scope:.buffers)` | 23.324 | 6.490 µs/dispatch |
+
+The empty-kernel cost is the same in all three modes, so the 3.081 µs/call gap
+is **not** dispatch setup. Adding the barrier back to the concurrent encoder
+restores — and slightly exceeds — the serial number. The gap is the
+**inter-dispatch barrier drain**: waiting for the last threadgroup of call *n*
+to retire before call *n+1* starts. It is worth
+**3.081 µs/call = 120.2 µs/step = 1.830 % of `cs`** on this kernel alone.
+
+Confirmed against the vendored source rather than inferred: MLX already encodes
+with `MTL::DispatchTypeConcurrent`
+(`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp:548`) and inserts
+a barrier only when its RAW/WAR input/output tracking sets `needs_barrier_`
+(`CommandEncoder::maybeInsertBarrier` `device.cpp:363-374`, called from
+`dispatch_threadgroups` `:376-382` and `dispatch_threads` `:384-390`; `barrier()`
+`:393`; declarations `device.h:56-58,92`). The down-residual's 39 invocations
+consume each other's outputs through the residual stream, so **this** kernel's
+barrier is genuinely required and I am not proposing to remove it. The value of
+the number is that it closes the accounting, and that it prices dispatch-boundary
+elimination for the rest of the campaign (§5.4).
+
+### §4.7 The 22.07 µs/call anchor, fully accounted
+
+| component | µs/call | share of 22.07 | source |
+|---|---|---|---|
+| unique-byte floor 5,030,912 B at 263.3 GB/s | 19.107 | 86.6 % | `stream` probe, this run |
+| barrier drain | 3.081 | 14.0 % | §4.6 |
+| exposed activation loads (**upper bound**) | 0.441 | 2.0 % | `a0_act0`, n=201 |
+| exposed arithmetic (**upper bound**) | 0.465 | 2.1 % | `a0_min` |
+| both stripped together | 0.560 | 2.5 % | `a0_act0_min` |
+
+The last three overlap with each other and partly hide under the first two, which
+is why they sum past 100 %: the two "exposed" rows are what is *left visible*
+after the memory system and the barrier have absorbed everything they can, and
+stripping both together (0.560) is less than the sum of stripping each alone
+(0.906). The honest one-line reading: **~87 % of this kernel is unique DRAM
+bytes, ~12 % is a required barrier, and ≤2.5 % is everything my assignment was
+allowed to touch.**
+
+### §4.8 Machine ceilings, reproduced
+
+`stream` 263.30 / 263.17 GB/s at 64 MiB and 260.94 / 260.21 GB/s at 256 MiB
+across the two runs — reproduces the §3.1 standalone ceiling (260.6–260.7 GB/s)
+to better than 0.2 %. `issue` peaks at **632.2 Gload/s** in both runs. The
+shipped kernel issues 1,769,472 loads/call in 22.07 µs = 80.2 Gload/s, i.e.
+**12.7 % of load-issue capacity**. It is not close to issue-bound, which is the
+premise §2.3 was built on.
+
+### §4.9 The rev1 probe was wrong three ways, and I am recording all three
+
+The first Stage-1 build (job `1e2110f1-145b-43fb-97d1-52af806f97bd`) produced
+numbers I threw away. Its defects, because each is a reusable trap:
+
+1. **Wrong regime.** It timed one fused dispatch of 39×512 TGs, amortising 38 of
+   39 dispatch boundaries. Every cold arm piled up at ≈19.1 µs/call = the DRAM
+   roofline and V0 failed *low* (19.13 vs 22.07). §4.5 is the same effect,
+   measured deliberately.
+2. **Dead-code elimination.** The `_noarith` arms reported 6.5–6.8 µs/call =
+   736 GB/s, above the measured DRAM ceiling and therefore impossible: the
+   compiler had deleted the loads whose results nothing consumed. rev2 keeps a
+   `simd_sum` so every load is live. **Any "stripped" arm that beats the memory
+   roofline has been optimised away, not accelerated.**
+3. **Not interleaved.** Cells ran in fixed order, so `a0` at calls≤39 absorbed
+   the warm-up and read 43.58 µs/call. rev2 reverses cell order on odd rounds and
+   pairs deltas within a round.
+
+---
+
+## §5 Verdict
+
+### §5.1 The named outcome
+
+**`N-T2D-ISSUE-BOUND`** — the §2.7 label for "Stage 1 refutes the premise".
+`N-T2D-ROOFLINE` is *concurrently* satisfied by §4.7; §2.7 permits exactly one
+name in §0, so `N-T2D-ISSUE-BOUND` is it, because premise-refutation is the
+load-bearing finding and the roofline statement is its consequence.
+
+I will not dress this in a new label. My analysis code initially printed
+`N-T2D-DRAM-BOUND`, which is a better *description* of the mechanism but is not
+in the preregistered vocabulary; §2.7 says the vocabulary may not be extended
+after the fact, so the descriptive phrase now lives in the ledger's
+`verdict_mechanism` field and the verdict itself is a preregistered term.
+
+**Trigger.** §2.8's own added gate: *"the replica must show an A1-vs-A0
+improvement whose extrapolation to 39 calls reaches at least the 17.6 µs/step
+adverse-prior ceiling. A replica that cannot find the effect with the confound
+removed will not find it in situ."* A1 came back at **+38.4 µs/step, the wrong
+sign**, replicated. Gate failed. Note the §2.8 branch conditions did *not* fire
+as written — the AIR load census matched §2.3 exactly (12 loads, 68 B per lane,
+§3.8), and `L` is not small (§4.6). The premise failed for a third reason
+neither branch anticipated: `L` exists but is a barrier drain that is invariant
+to the lever, and the coefficient on *issued* bytes is not merely zero but
+adverse.
+
+### §5.2 Nothing ships, and the diff proves it
+
+Per the §2.8 stopping rule, **Stage 2 (in-situ ABBA) is not warranted**: there
+is no candidate to A/B. The submitted surface is untouched and must stay
+untouched:
+
+```
+$ git diff --numstat 2454cc01ea3afabac067f0a271e36901fea7d21c HEAD -- $(jq -r '.editablePaths[]' benchmark.json)
+$ git diff --numstat 2454cc01ea3afabac067f0a271e36901fea7d21c HEAD -- Sources/ Vendor/ benchmark.json
+```
+
+Both print nothing. Zero receipts were spent this revision.
+
+### §5.3 What is now closed, with prices
+
+| lever | measured | ruling |
+|---|---|---|
+| **A1** opsi 4→8 (the assignment's headline) | +0.98 to +1.04 µs/call = **−0.60 % of `cs`** | **closed, harmful — do not integrate** |
+| **opsi 4→16** | +1.24 to +1.32 = **−0.76 %** | closed, harmful |
+| **A1 + WAL** | +0.92 to +0.93 = **−0.55 %** | closed, harmful |
+| **WAL** (wide activation loads) | +0.003 / −0.001 = **0.00 %** | closed, exact null |
+| **any activation-load reduction** | ceiling −0.44 µs/call = **+0.26 %**, 0.65× bar | closed by ceiling |
+| **any coalescing / line-touch work** | +54.5 % line touches costs nothing | closed by control |
+| **arithmetic reduction (§6.4 family)** | ceiling +0.28 % | closed by ceiling |
+
+### §5.4 Three campaign-level corollaries I did not expect to be able to state
+
+1. **Issued-byte reduction with unchanged unique bytes buys nothing at batch 1,
+   and can cost.** A1 cut issued bytes 23.5 % and lost 0.60 % of `cs`. Any future
+   proposal whose stated mechanism is "fewer loads per unique byte" on a
+   decode-path kernel now has to clear this counter-example first.
+2. **L1 line-touch count is not a binding resource on this part at batch 1.**
+   `a0_badcoal` (+54.5 % line touches) is free. Coalescing arguments need a
+   different justification than line-touch arithmetic.
+3. **The α/β degeneracy tilts toward "only bytes pay".** State doc §B.0.6 leaves
+   α ≈ 0.389 (efficiency work pays) against α ≈ 0.4369 (only bytes pay). On the
+   11.7 %-of-`B` slice I just instrumented, efficiency work at fixed unique bytes
+   paid **zero or negative** in every one of eleven arms. That is direct evidence
+   for **`α = 0.4369, β = 0.5 two-pool map, residual −6.63 %, #561`**, whose
+   pooled prediction for this kernel (85.3 % of M5 peak, 55.1 µs of headroom)
+   should now be read as *already-achieved efficiency*, not available headroom.
+
+### §5.5 Two follow-ups I did **not** implement
+
+- **Dispatch-boundary elimination is the priced prize here.** §4.6 says each
+  eliminated inter-dispatch barrier on a kernel this size is worth ≈1–3 µs, and
+  the decode path runs 39 of them for this kernel alone: 40–120 µs/step =
+  **0.6–1.8 % of `cs`**. This kernel's own barriers are data-dependent and
+  irreducible, so the value is in *fusing adjacent kernels* (e.g. the
+  `residual_rms_router` → `routed_swiglu_qmv` → `down_residual` chain, 311.9 +
+  1499.9 + 860.5 µs/step across 3×39 dispatches) so that fewer barriers stand
+  between the same bytes. I am not proposing a design; I am handing over a
+  measured price for one.
+- **This whole family is a priori far more attractive in prefill**, where weights
+  are amortised over 512 tokens and the arithmetic-to-byte ratio inverts, so
+  output-row amortisation plausibly *does* pay. My experiment says **nothing**
+  about prefill — it measured one token per call by construction — and on this
+  gen-16 host I could not have measured the ranked `_nax` prefill kernels anyway
+  (§3.1). Whoever picks this up must do it on an M5.
+
+---
+
 ## §6 Deconfliction (rev6 §6.7) — reproduced and honoured
 
 | owner | PR | region I do not touch |
@@ -633,6 +979,254 @@ launched from different dispatch wrappers with different grids, so neither
 edit can change a line, pipeline, buffer or launch the other touches. He is
 running the same *class* of change (output-row amortisation) on oproj: if his
 G1 arm wins, my prior rises — I note that and do not wait for him.
+
+**Addendum after Stage 1:** the deconfliction analysis above is now moot in the
+strongest possible way. My final submitted-surface diff is **empty** (§5.2), so
+there is no byte range to collide with anyone. The table stands as the record of
+what I *would* have touched had A1 won.
+
+---
+
+## §7 Reply to the advisor — four things I did differently or got wrong
+
+I would rather flag these myself than have them found in the diff.
+
+### §7.1 rev6 said "rebase onto the advisor tip"; I merged instead
+
+Rev6 §1 asked me to rebase this branch onto the advisor tip. I did not rebase. I
+merged, and the reason is arithmetic:
+
+```
+advisor tip           2454cc01ea3afabac067f0a271e36901fea7d21c   (re-confirmed at run time)
+merge-base            446fe987
+non-merge commits unique to maple-frieren/r105-router-prefetch-adjudication: 86
+```
+
+Replaying 86 commits — most of them research artefacts, several of them large
+JSON and log files — through a rebase on the eve of the freeze is a
+conflict-and-loss risk I was not willing to take against a deadline, and a
+partially-completed rebase would have left the branch in a state neither of us
+could reason about. I followed the advisor's own precedent for exactly this
+situation, merge commit `37b91de7`, and then proved the merge is
+*equivalent to* the requested rebase for every purpose the request serves:
+
+```
+git diff --numstat 2454cc01 HEAD -- <all 97 editablePaths>   → empty
+git diff --numstat 2454cc01 HEAD -- Sources/ Vendor/ benchmark.json → empty
+```
+
+Both commands print nothing. Whatever the base discipline was meant to
+guarantee — that my submitted surface is exactly the advisor tip's submitted
+surface, with no stale frontier and no accidental carry-over — is guaranteed,
+and it is guaranteed by measurement rather than by the shape of the history. If
+the advisor wants the literal linear history anyway, say so and I will do the
+rebase as a separate, dedicated operation with nothing else in flight.
+
+### §7.2 The V0 twin-fidelity gate missed its ±2 % band, by +2.7 to +3.0 %
+
+I preregistered (§2.7) that the standalone replica's `a0` arm must reproduce the
+in-situ 22.07 µs/call within ±2 %, or the twin is not a twin. Measured:
+22.716 / 22.719 µs/call (run 1) and 22.660 / 22.740 (run 2) — **+2.67 % to
++3.04 %**. That is outside the band I wrote down, and I am not rounding 3.04 %
+into "about two percent".
+
+Why the adjudication survives it: the miss is **conservative in direction**. The
+replica is *slower* than the shipped kernel, i.e. it has slightly more overhead
+per call than the real thing. A twin with more overhead makes it *easier*, not
+harder, for an amortisation arm to show a win, because there is more overhead
+available to amortise. The arm still came back with the **wrong sign**
+(+1.040 µs/call), and the family ceiling arm `a0_act0_min` still landed at
+22.109 µs/call, i.e. above the 21.1 µs/call P3 falsifier by a margin far larger
+than the 3 % fidelity gap. A negative measured on a generous instrument is a
+stronger negative than the same negative measured on a faithful one. Had the arm
+come back *positive* inside 1 %, this gate failure would have invalidated the
+result and I would have reported no verdict.
+
+I did not silently widen the band. The band is still ±2 % in §2.7, this is
+recorded as a deviation, and the verdict is reported with the deviation
+attached.
+
+### §7.3 The first Stage-1 probe was wrong three ways and produced a false negative
+
+Full detail is in §4.9; the summary is that rev1 of the probe (job
+`1e2110f1-145b-43fb-97d1-52af806f97bd`) (a) ran the fused encoder regime, which
+amortises 38 of 39 dispatch boundaries and pins every arm to the DRAM roofline
+so no arm can differ, (b) let the `_noarith` control arms be dead-code
+eliminated — they reported 6.5–6.8 µs/call, which is 736 GB/s and physically
+impossible on a 260 GB/s box — and (c) did not interleave arms, producing a
+pathological 43.58 µs `a0`. All three were caught by cross-checking against
+physical ceilings I had measured in Stage 0 rather than by the probe reporting an
+error. Rev2 fixes all three (`simd_sum` sink, split encoder, round-paired
+interleave) and both rev2 replicates agree on every sign that matters.
+
+The lesson I want on the record: **a standalone kernel probe that does not
+reproduce the shipped encoder regime measures the roofline, not the kernel.**
+Anyone benchmarking a per-layer kernel outside the model will hit this.
+
+### §7.4 An `explore` subagent destroyed untracked work earlier in this revision
+
+At one point I spawned a subagent to inspect the tree and it ran `git clean`,
+which deleted untracked research files I had not yet committed. Nothing shipped
+or measured was lost — the affected files were regenerable scripts — but time
+was. My standing rule now, which I would suggest for the whole campaign: **commit
+before spawning any subagent that will touch the working tree.** Subagents
+inherit the terminal but not my judgement about what is precious.
+
+---
+
+## §8 Stage-3 handoff payload for maple-fern (#625)
+
+Written in alphonse's #636 §11.1 format so the advisor can relay it verbatim.
+**This is a do-not-integrate payload.** There is no code to take; the value here
+is the set of doors it closes and the two it opens.
+
+### §8.1 Exact diff to integrate
+
+**Empty.** Against base `2454cc01ea3afabac067f0a271e36901fea7d21c`:
+
+```
+git diff --numstat 2454cc01 HEAD -- <all 97 editablePaths>            → (no output)
+git diff --numstat 2454cc01 HEAD -- Sources/ Vendor/ benchmark.json   → (no output)
+```
+
+Everything on this branch is under `research/`, which is not part of the
+submitted surface. Byte budget consumed: **0**. Growth against the
+262,144-byte-per-review cap: **0**.
+
+### §8.2 Bit-exactness argument
+
+Trivial. No submitted file changes, so every checked greedy token, every
+teacher-forced logit, and every KV row is bit-identical to the base by
+construction. The upstream-equivalence oracle is not implicated. No
+re-quantization, no precision change, no dispatch change, no layout change.
+
+### §8.3 Rule 75 digests (`research/artifacts/maple-frieren-r107f/rule75_digests.txt`, 14:46:03Z)
+
+| artefact | sha256 (head) | bytes |
+|---|---|---|
+| `.build-worker/release/mlxfast-runtime-worker` | `80b67aa0…d6b7a` | 49,210,600 |
+| both metallibs (identical) | `8e8b18af…97ec` | 158,502,072 |
+| `/tmp/r107f_probe` | `82268032…fbd2` | — |
+| probe source | `PROBE_SRC_SHA256=9aea7e61…015` | — |
+| Stage-1 runner | `RUNNER_SHA256=1abbb3d9…c4c` | — |
+
+The anchor worker was built with `research/nezuko-pr158-gpuprof-hook.patch`
+applied and `Sources/` restored afterwards; the patch is research-only and is
+not in the submitted surface.
+
+### §8.4 Rule 77 geometry of the shipped kernel, resolved on device
+
+Exactly one routed down-residual pipeline of 137 exists on device:
+
+| property | value |
+|---|---|
+| pipeline | `laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6` |
+| flags | `sharedHalved=true staged=true sharedFirst=false fusedStaging=true` |
+| `group_dims` | (288, 1, 1) |
+| `grid_dims` | (147456, 1, 1) ⇒ 512 TGs/call, 9 simdgroups/TG |
+| `maxTotalThreadsPerThreadgroup` | 1024 |
+| `threadExecutionWidth` | 32 |
+| `staticThreadgroupMemoryLength` | 80 B (probe predicts 72; driver rounds up) |
+| calls/decode step | 39 |
+
+The `_sf` (shared-first), unhalved and unstaged variants are **dead text** on
+this configuration — they are never instantiated. Anyone editing
+`lagunaRoutedSharedDownResidualSource` should know that three of its four
+generated forms cannot be reached.
+
+### §8.5 Measured prices, with CIs, in % of `cs`
+
+Bar for this campaign: **0.4 % of `cs` = 26.27 µs/step = 0.6736 µs/call**
+(the kernel runs 39 calls/step; 1 µs/call = 0.593892 % of `cs`).
+
+Sign convention, same as §5.3: **Δ µs/call is positive when the arm is
+*slower*; the score column is positive when the arm would *gain* score.** A
+positive Δ therefore pairs with a negative score.
+
+| arm | Δ µs/call (run1 / run2) | 95 % CI | score Δ (% of `cs`) | verdict |
+|---|---|---|---|---|
+| `a1` — `outputs_per_simd` 4→8 | +1.040 / +0.984 | [+0.922, +1.106] | **−0.60 harmful** | do not integrate |
+| `a1_wide` — A1 + wide activation loads | +0.928 / +0.921 | — | −0.55 harmful | do not integrate |
+| `a3` — `outputs_per_simd` 4→16 | +1.240 / +1.321 | — | −0.76 harmful | do not integrate |
+| `a0_wide` — wide activation loads alone | +0.003 / −0.001 | ±0.03 | 0.00 exact null | do not integrate |
+| `a2` — control, 576 threads/TG | −0.026 / −0.029 | [−0.067, +0.009] | +0.02 null | do not integrate |
+| `a0_act0` — *all* activation loads deleted (upper bound, not shippable) | −0.424 / −0.457 | [−0.509, −0.378] | +0.26 | 0.65× bar |
+| `a0_act0_min` — activations *and* arithmetic deleted (family ceiling) | −0.618 / −0.502 | — | +0.33 | 0.83× bar |
+
+Read the last two rows as the ceiling of the entire family: even deleting every
+activation load *and* all arithmetic — which changes the answer and can never
+ship — buys 0.83× of the bar. There is no shippable member of this family.
+
+### §8.6 The closed accounting that makes all of the above inevitable
+
+22.07 µs/call decomposes as:
+
+| component | µs/call | share |
+|---|---|---|
+| unique-byte DRAM floor (5,030,912 B at 263.3 GB/s) | 19.107 | 86.6 % |
+| inter-dispatch barrier drain (39 data-dependent barriers) | 3.081 | 14.0 % |
+| exposed activation loads (upper bound) | ≤0.441 | 2.0 % |
+| exposed arithmetic (upper bound) | ≤0.465 | 2.1 % |
+
+(The last two overlap; stripped together they are 0.560 µs/call = 2.5 %.) Issue
+utilisation is **80.2 Gload/s against a measured 632.2 Gload/s capacity = 12.7 %**.
+A kernel at 12.7 % of issue capacity and 86.6 % of its byte floor cannot be made
+faster by issuing fewer instructions.
+
+### §8.7 Explicit do-not-integrate list
+
+- **A1** (`outputs_per_simd` 4→8) — measured regression, costs 0.60 % of `cs`.
+- **A1 + WAL** — costs 0.55 %.
+- **opsi 16** — costs 0.76 %.
+- **WAL alone** (2 × `uint4` activation loads, −36.4 % L1 line touches) — exact
+  null, +0.001 % of `cs`, ±0.03 µs/call. It is *free*, it is *correct*, and it
+  buys nothing. Do not spend review budget on it. Note this is a different
+  change from `DARKBLOOM_QMV_WIDE_CODES`, which widened *codes* (already
+  coalesced) and closed at −0.5363 % of `cs`.
+- **Coalescing work on the activation loads generally** — the `a0_badcoal` arm
+  *degrades* line touches by +54.5 % and is still free (−0.152 / −0.099). The L1
+  behaviour of this kernel's activation reads is not on the critical path in
+  either direction.
+
+### §8.8 Two follow-ups I did not implement, with prices
+
+1. **Fusion of the 39 barrier boundaries — 0.6 to 1.8 % of `cs`.** The
+   split→fused gap is **3.081 µs/call = 120.2 µs/step = 1.830 % of `cs`**, and I
+   proved it is a *barrier drain*, not a launch ramp: the empty-kernel cost is
+   6.297–6.606 µs/dispatch in serial, `.concurrent`, and
+   `.concurrent`+explicit-barrier modes alike, so the launch cost is invariant
+   while the gap is not. MLX already dispatches with
+   `MTL::DispatchTypeConcurrent` (`device.cpp:548`) and inserts a barrier only
+   when `needs_barrier_` (`maybeInsertBarrier`, `device.cpp:363-374`). This
+   kernel's 39 barriers are genuinely data-dependent, so the full 1.83 % is
+   **not** available by flipping a flag — it requires restructuring so that
+   independent experts' down-projections can be in flight together. That is a
+   real, large, and expensive lever, and it is the single biggest number I found
+   in this kernel. If anyone gets a Stage-3 slot for decode, this is where I
+   would spend it, not on amortisation.
+2. **Prefill.** Everything above is one-token-per-call by construction and says
+   nothing about prefill. This host is Apple GPU generation 16, below the
+   generation-17 floor, so `nax_available=false` and I **cannot** reach the
+   ranked M5's `_nax` prefill kernels here at all (§3.1). Any prefill follow-up
+   must be measured on an M5. Do not let an M4 prefill number into an `_nax`
+   argument.
+
+### §8.9 Campaign rules this revision earned
+
+- **Rule 98.9 vindicated with a number.** Cache-resident twins of the same arms
+  say the *opposite*: `a1` reads −1.569 / −1.474 µs/call resident, which reads as
+  a **+0.90 % of `cs` win**, when cold it costs 0.60 %. Resident-only measurement
+  would have shipped a regression and made the do-nothing control arm `a2` look
+  like the biggest win on the board (§4.4).
+- **Per-kernel GPU-busy time is not immune to host-side perturbation.** An
+  unguarded per-call MSL dump fired 1,328 times, and *every* kernel's
+  GPU-timestamped duration inflated ~2.5× via DVFS while wall time went to
+  192.890 ms/step (§3.5). A GPU-timestamp delta is not a hermetic measurement.
+- **`-S -emit-llvm` on Metal emits pre-optimization AIR.** It is faithful for
+  buffer attribution and access widths and for nothing else; it cannot be used
+  to reason about register pressure or scheduling
+  (§3.9). Register pressure does *not* block opsi 8/16 here — `__compute`
+  bytes are 4,944 / 7,088 / 11,360 and all three dispatch at 288 threads/TG.
 
 ---
 

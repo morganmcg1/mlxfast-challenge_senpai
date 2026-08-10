@@ -168,7 +168,8 @@ both stripped           0.560 us/call    2.5 %  (a0_act0_min; the two upper boun
 ====================================================================================================
 VERDICT
 ====================================================================================================
-preregistered negative: N-T2D-DRAM-BOUND
+preregistered negative: N-T2D-ISSUE-BOUND (secondary, concurrently satisfied: N-T2D-ROOFLINE)
+trigger: the §2.8 replica gate required A1 to beat the 17.6 us/step adverse prior; A1 came back with the wrong sign
 best lever in family:   a0_act0 at -0.441 us/call = -0.262 % of cs = 0.65x the 0.4 % ship bar -> does not ship
 P3 falsifier (a0_act0_min >= 21.1 us/call => whole family dead): 22.109 us/call => SATISFIED
 
