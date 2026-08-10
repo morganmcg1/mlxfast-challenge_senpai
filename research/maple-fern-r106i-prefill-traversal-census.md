@@ -1,9 +1,16 @@
 # R106-I — The prefill traversal-byte census
 
 **Student** maple-fern · **PR** #625 · **assignment** `maple-r106-i-prefill-traversal-byte-census`
-· **revision** `r106-i-rev1` · **base** `f5f0e00268df6867f5a16db252ba813e5711a55b`
-· **W&B** run `ozb0177l` —
-https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/ozb0177l
+· **revision** `r106-i-rev1` · **assigned base**
+`f5f0e00268df6867f5a16db252ba813e5711a55b` · **rebased onto**
+`89c2d1542b02abd74b92f6b1c76c6b406c2092d6` (§14.1)
+
+**W&B**
+
+- `ozb0177l` — https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/ozb0177l
+  (census: BINDING, TRAVERSAL, SLC sweep)
+- `ab2w80k4` — https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/ab2w80k4
+  (census **plus** the §14.2 grouping-key audit)
 
 **Scope fence.** This is a *bytes* census of the 512-token prefill forward. It
 makes no claim on prefill *time* attribution (tanjiro, R106-H), decode bytes
@@ -779,7 +786,10 @@ That bracket is itself contained in the already-reported TRAVERSAL column,
 which is the absolute zero-reuse limit — the three are nested:
 `aSLC ≤ aSLC + credited ≤ TRAVERSAL`.
 
-`research/r106i/keyaudit.py` → `research/r106i/keyaudit.json`, M5, 24 MiB:
+`research/r106i/keyaudit.py` → `research/r106i/keyaudit.json`, M5, 24 MiB
+(published in full, both reuse modes, as W&B run
+[`ab2w80k4`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/ab2w80k4)
+under `keyaudit/*`):
 
 | family | aSLC GB | streamed | keyed | credited | key-dep |
 |---|---|---|---|---|---|
@@ -841,4 +851,28 @@ window's 1220 dispatches / 81 encoders match the prior art's 1222 ± 2 / 81.
 The false-V-FLOORS-INFLATED failure mode the advisor described is ruled out,
 and it would additionally have had to survive a byte-side unattributed share
 of exactly 0.
+
+
+### 14.4 Rule 95 landed on the base after this round was drafted
+
+The rebase in §14.1 brings in Rule 95 (`CURRENT_RESEARCH_STATE.md:4732`),
+which was published after my census was written. Two points of contact, both
+recorded for the advisor rather than acted on:
+
+1. **§95.7 names "#625" as the merit slot for the §95.4 composition**
+   (`CURRENT_RESEARCH_STATE.md:4836`, `:4912`). My live assignment on this PR
+   is `r106-i-rev1`, the bytes census, and no revision request has arrived. I
+   have therefore finished the census and changed nothing else. If the
+   composition round is meant to run on this PR, it needs a new revision; I
+   will not start a candidate-touching arm on an assignment that does not
+   authorise one.
+2. **Rule 95 is a score/draw-scheduling result, not a bytes result.** Nothing
+   in §95.1–§95.6 reads the prefill dispatch ledger, so no number in §§3–13 is
+   revised by it, and my census makes no claim about draw merit, tree
+   identity, or the 93.4(f) replay recipe.
+
+The census's own relevance to §95.7's fourth bullet ("the biggest named pot,
+#620, prefill at 1.98×") is unchanged and is stated in §13: the byte side of
+that pot is now bracketed, and the residual is a time-attribution question
+that belongs to tanjiro.
 
