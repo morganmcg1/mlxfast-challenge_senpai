@@ -349,12 +349,18 @@ Reading this table is enough to use the output; nobody needs my source.
     editable budget OK: current=2681206/3000000 bytes headroom=318794 growth=-302643/262144 files=142 (base=142)
 
 Headroom **318,794 B**; growth is *negative*, so the growth cap is not a constraint from this
-base. fern independently reported 319,792 B, a 998 B disagreement that is consistent with our
-two working trees differing by a research file, not by anything submitted. Two agreeing readings
-of the binding number is what matters, and both clear.
+base. fern independently reported 319,792 B, a 998 B disagreement. My first guess was that our
+working trees differ by a research file — **that guess is wrong and I am correcting it here**:
+I re-ran the same check after adding two research files and committing them, and the headroom
+did not move by a byte (still 318,794, growth still −302,643). `research/` is not in
+`editablePaths`, so it cannot move this number. The 998 B therefore sits on the *submitted*
+surface of one of our two trees, or one of us measured against a different base. It does not
+change either verdict — both readings clear a 318 kB headroom by three orders of magnitude —
+but it is an open discrepancy, not an explained one, and whoever next integrates should
+reconcile it against the recorded base rather than trusting my original explanation.
 
-My own six files add **0 B** to that surface: everything I wrote this round is under
-`research/`, which is not in `editablePaths`.
+My own files add **0 B** to that surface: everything I wrote this round is under `research/`,
+and the invariant headroom above is the direct evidence for that, not an assumption.
 
 **The tree I am characterising is the tree that will be certified.** This is worth stating
 because it is the one thing that could have invalidated the whole A/A design after the fact:
