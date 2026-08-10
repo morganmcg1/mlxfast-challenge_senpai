@@ -1466,7 +1466,147 @@ causal rather than ranked:
 Amendment B cannot rescue a losing arm and cannot manufacture a winner — it
 only stops me attributing session noise to my own code in either direction.
 
+### 4.4.9 A1-1: Amendment B fires on its first application
 
+Slot 5 returned variant 7 (routed **gate/up** at `bn=128`, down left at 64) with
+`officialScore = 2.59235893273017`. Against the n₀ = 3 control mean of
+2.5707480348952267 that is **Δ = +0.0216109, SE 0.0011973, z = +18.05**, CI90
+[+0.0181147, +0.0251071], comfortably clear of the bar 0.0131568. On Amendment A
+alone this reads `WIN-pending-replicate`: the largest, cleanest, most
+statistically overwhelming number in the whole ladder.
+
+It is not a code win. Amendment B was written ~25 minutes before this receipt
+existed, and rule 3 refuses it:
+
+| limb / channel | control mean | A1-1 | z | reading |
+|---|---|---|---|---|
+| `baseline_pre` | 0.0003666 | 0.0003824 | **+11.34** | baseline 4.3 % slower — impossible for my edit |
+| `cand_pre` | 0.0001878 | 0.0001900 | **+7.03** | candidate prefill **worse** |
+| `baseline_dec` | 0.0138641 | 0.0138523 | −0.26 | null |
+| `cand_dec` | 0.0049201 | 0.0049116 | −0.62 | null |
+| `step_ms` | 4.168971 | 4.15171 | −1.24 | null |
+| `decode_speedup` | 2.817816 | — | +0.67 | null |
+
+Decomposing `dln S`, **92.0 %** of the score gain arrives through the prefill
+*ratio*, and that ratio improved only because the denominator degraded:
+`dln baseline_pre = +0.042195` against `dln cand_pre = +0.011646`. The candidate
+prefill wall was **97.26037 ms against a control 96.149208 ms, i.e. +1.111167 ms
+slower** (z = +7.03). The arm won the ranking by being handed a sicker baseline
+than the controls got, while itself getting worse.
+
+**Three score channels.** To make this reproducible rather than rhetorical, §5
+of `research/r105a-sigma-audit.py` now recomputes every arm in three channels:
+`official_score` (both limbs paired, the ranked objective), `hybrid_score`
+= `decode_speedup^0.75 · (CAL_PRE/cand_pre)^0.25` (keeps the paired decode ratio
+where pairing helps, un-pairs prefill where §4.4.8 showed pairing hurts), and
+`norm_score` (both baselines replaced by pinned constants — fully
+baseline-free).
+
+| channel | control mean | σ̂ | CV % |
+|---|---|---|---|
+| `official_score` | 2.5707480 | 0.0010369 | 0.0403 |
+| `hybrid_score` | 2.6015956 | 0.0030402 | 0.1169 |
+| `norm_score` | 2.6052544 | 0.0047446 | 0.1821 |
+
+A1 (n = 1, ν = 2, t95 = 2.920):
+
+| channel | Δ | SE | z | CI90 | verdict | share of official Δ |
+|---|---|---|---|---|---|---|
+| `official_score` | +0.0216109 | 0.0011973 | +18.05 | [+0.0181, +0.0251] | WIN-pending-replicate | 100 % by construction |
+| `hybrid_score` | −0.0057214 | 0.0035106 | −1.63 | [−0.0160, +0.0045] | NULL-bar-excluded | **−26.2 %** |
+| `norm_score` | −0.0040778 | 0.0054786 | −0.74 | [−0.0201, +0.0119] | NULL-bar-excluded | **−18.6 %** |
+
+Both baseline-free channels put the effect on the *wrong side of zero*. The sign
+of this arm's "win" is an artefact of which baseline draw it was paired with.
+
+> **Honest causal statement for the family: both routed shapes are harmed by the
+> wide N-tile. Variant 7 (gate/up) costs +1.111 ms of prefill wall, z = +7.03;
+> variant 8 (down) costs +1.034 ms, z = +6.55. Neither moves decode at all.**
+
+That is the preregistered **N-2** outcome (occupancy / register pressure at
+`bn=128`: N-tiles halve, per-threadgroup shared memory doubles), with **N-1**
+(the L2/SLC already absorbs the A-fragment re-reads, so there is no re-read to
+save) as co-explanation. The A-fragment reuse thesis is falsified in both routed
+shapes independently.
+
+**Numerical correction to §4.4.8(c).** (c) estimated that 50.7 % of A2's score
+loss was baseline-limb noise, derived from the paired decomposition. The fully
+baseline-free channel is the better instrument and disagrees: `norm_score` puts
+**58.3 % of A2's loss as candidate-attributable**, so ~41.7 % — not 50.7 % — was
+baseline noise. (c) was directionally right and numerically off; the A2
+REGRESSION verdict is unaffected because `hybrid_score` (Δ −0.0164939,
+z = −4.70, CI90 excluding zero) independently confirms it at 87.6 % attribution.
+
+Note also that `norm_score` is **4.6× noisier** than `official_score`. Stripping
+the baseline is not free: it destroys the `base_dec`/`cand_dec` pairing that
+genuinely cancels decode session drift. `hybrid_score` is the best-powered
+causal channel precisely because it un-pairs only the limb where pairing adds
+variance — which is what discipline rule 1 of the submission note prescribed
+before any receipt was spent, not a channel chosen after seeing A1-1.
+
+**Preregistered falsifiable prediction, recorded before A1-2's receipt.** Slot 6
+is the Amendment-A replicate of variant 7. If the limb analysis above is right
+and A1-2 draws a normal `baseline_pre`, its `officialScore` should land near
+**2.5667** (control 2.5707 plus a candidate-only effect of ≈ −0.004): a small
+loss, not a win. Pooling A1-1 + A1-2 then moves the A1 official delta from
++0.0216 to ≈ **+0.0088**, with n = 2 SE 0.0009466 and ν = 3 (t95 = 2.353) giving
+CI90 ≈ [+0.0066, +0.0110] — entirely **below the bar 0.0131568**, verdict
+`NULL-bar-excluded`. If instead A1-2 returns ≈ +0.021 *with a `baseline_pre`
+inside the control band*, then variant 7 genuinely wins, Amendment B refused a
+real winner, and this entire limb analysis is wrong. Both outcomes are
+distinguishable from a single receipt.
+
+### 4.4.10 The knob is structurally prefill-only
+
+The decode nulls in every arm are not weak evidence of a small effect; they are
+an **exact structural zero**, and I should have established this before spending
+receipts on the decode channel at all.
+
+`darkbloom_stage_bm128_variant()` is read at `quantized.cpp:1376`, inside
+`gather_qmm_rhs_nax` (opens :1332). That function is reachable from exactly one
+call site, `quantized.cpp:1670` inside `gather_qmm_rhs`, which the outer
+`GatherQMM::eval_gpu` dispatch calls only under
+
+```cpp
+const bool sorted_rhs =
+    M == 1 && B >= 16 && right_sorted_ == true && B / E >= 4;   // :1901-1902
+```
+
+`B` is the number of token-expert pairs. Prefill: 512 tokens × top-k 8 = 4096
+pairs, `E` = 256, so `B/E` = 16 and `sorted_rhs` holds. Decode: 1 token × top-k
+8 = **8 pairs, so `B >= 16` fails**, `sorted_rhs` is false, and the dispatch
+falls through to `gather_qmv` at :1958 — a GEMV path with its own hard-coded
+`bn=8 / bk=32` geometry (:1043-1046) that never reads the variant selector.
+
+Three consequences:
+
+1. **The decode limb is a structural placebo channel across all six receipts.**
+   Every `cand_dec` / `step_ms` movement I have measured is pure session noise
+   with a known-zero treatment effect. That is why §4.4.5's decode "effect"
+   retracted, why (c)'s residual retracted, and why the prefill-only prediction
+   has been right three times. It also means the arms themselves are extra
+   samples of decode-channel noise, not just the A0 controls.
+2. **The ceiling on this knob family is 25 % of the score weight.** With decode
+   structurally fixed, `dln S = 0.25 · (−dln cand_pre)`. Clearing the bar
+   (0.5118 % of score) therefore requires **≈1.97 ms, i.e. 2.05 %, off the
+   96.15 ms prefill wall**. Measured: +1.111 ms (variant 7) and +1.034 ms
+   (variant 8) in the wrong direction. The family is roughly **3 ms away** from
+   shippable, not a tuning nudge away. For contrast, the same bar on the decode
+   axis would need only 0.033 ms of the 4.92 ms per-token decode wall — 58× more
+   score per ms — and this knob cannot reach it.
+3. **Variant 6 (both routed shapes at `bn=128`) should not be given a receipt.**
+   An independent frontier review reached the same conclusion from the same code
+   and adds the mechanism check: gate/up and down are disjoint tensors each far
+   larger than the SLC (no cross-GEMM cache reuse to unlock), the GLU data
+   dependency serialises the two GEMMs (no occupancy coupling), the baseline
+   64/64 is already shape-uniform (so uniformity confers no edge), and the
+   candidate super-additive effects — PSO/spec-set uniformity, icache,
+   dispatch-branch — are microseconds against a ~1.03 ms harm to overturn, two
+   to three orders of magnitude short. Expect Δ(6) ≈ Δ(7) + Δ(8), dominated in
+   every branch: if 7 ≤ 0 then 6 < 8 < 0, and if 7 > 0 then 7 ships alone. The
+   untested 2×2 interaction cell has no shared resource to act through, so
+   skipping it is a scientific judgement with a stated mechanism, not budget
+   economy.
 
 ---
 
