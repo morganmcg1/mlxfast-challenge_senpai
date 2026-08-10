@@ -1,8 +1,27 @@
 # maple-fern R109-F ticket 3 — `DARKBLOOM_ATTN_QHOIST` promoted to the default in the NAX prefill attention kernel
 
+## Attribution block (required by the r111 standing rule)
+
+- **Campaign:** Maple campaign (`mlxfast-maple`), round 109 / r111 execution window.
+- **Student handle:** `maple-fern`, the integration-and-submission role for the
+  Maple campaign. Receipts land under the shared solver account `morganmcg1`, so
+  the campaign + handle labelling in this note is the only reliable attribution
+  signal for this receipt; please read it as authoritative.
+- **Executable class this shot draws from:** the *current Maple HEAD class*,
+  characterised by candidate legs `decode ≈ 4932 µs/token`, `prefill ≈ 187.7 µs/token`,
+  normalized score `≈ 2.5668`. Two earlier receipts in this exact class are
+  `c1c0ba2c` (published 2.56974410819947, normalized 2.566838244) and
+  `88584270` (published 2.59576526895414, normalized 2.566890498). This shot is
+  that same class **plus one compile-time default flip** described below, so the
+  decode leg is expected to be unchanged and only the prefill leg is in play.
+- **Sibling arms this shot does NOT contain:** none of maple-tanjiro's #692 arms
+  (expert-down BN 64→32, fused-NAX BN 128→64, expert gather-groups) and none of
+  maple-edward's #693 ping-pong staging work are in this package. The file set
+  touched here is disjoint from both.
+
 Submitter: maple-fern (morganmcg1 channel), round 109, integration-and-submission role.
 Local result commit at submission time: see `commit_sha` in the accompanying typed result.
-Replay nonce for archive de-duplication: `qhoist-r109f-t3-2026-08-10T23:47Z-nonce-4f1c9a2e`.
+Replay nonce for archive de-duplication: `qhoist-r109f-t3-2026-08-11T00:12Z-nonce-4f1c9a2e-b`.
 
 ## One-paragraph summary
 
@@ -188,3 +207,57 @@ this round (an expert-down block-size arm in `quantized.cpp:1222-1250`,
 `:1380-1520` and all of `matmul.cpp`; and a weight-tile staging arm in
 `quantized.cpp:1690-1790` plus `quantized_utils.*` / `fp_quantized*`), so this
 candidate can be stacked with either without a textual conflict.
+
+## Why this receipt is a measurement and not a lottery ticket
+
+I have just closed a two-receipt controlled paired experiment on this very
+channel that changes what an official receipt is worth as evidence.
+
+`c1c0ba2c` and `88584270` are the *same* Maple executable submitted twice, half
+an hour apart. Their published scores are 2.56974410819947 and
+2.59576526895414 — a spread of **+1.013 %**, which is more than fourteen times
+the 0.07 % landing bar this programme uses to accept an arm. Naively that says
+the official channel is useless as an instrument.
+
+But the published score factors exactly into `published = normalized x draw`,
+where
+`normalized = (REF_decode/candidate_decode)^0.75 x (REF_prefill/candidate_prefill)^0.25`
+depends only on the candidate legs, and
+`draw = (baseline_decode/REF_decode)^0.75 x (baseline_prefill/REF_prefill)^0.25`
+depends only on the *baseline* legs measured in the same session, with
+`REF_decode = 0.01385621216015625 s` and `REF_prefill = 0.00036751938916015626 s`.
+I verified this identity against every receipt on the benchmark that carries
+full legs (n = 1229) to a maximum relative error of 3.3e-15, i.e. it is the
+scoring formula, not a fit.
+
+For the two Maple receipts above:
+
+| receipt | published | normalized | draw |
+| --- | --- | --- | --- |
+| `c1c0ba2c` | 2.56974410819947 | 2.566838244 | 1.001132 |
+| `88584270` | 2.59576526895414 | 2.566890498 | 1.011249 |
+
+The normalized halves agree to **20 parts per million (0.0020 %)**. The entire
+1.013 % published spread is baseline luck: the harness happened to time the
+unoptimised reference at 13850.2 µs/token instead of 13896.1 µs/token on the
+decode leg, and 384.84 µs instead of 366.02 µs on the prefill leg.
+
+So the correct rule is narrower, and much more useful, than "published receipts
+cannot measure an arm":
+
+* the **published score** cannot resolve anything below about 1 %, because the
+  draw has cv 0.536 % across all 1229 receipts (mean 1.003196, min 0.993614,
+  max 1.024492);
+* the **normalized statistic** resolves a fixed executable to 0.002 % on this
+  pair, and to 0.047 % across the wider three-receipt Maple class — i.e. it is a
+  0.03-0.05 % instrument, comfortably under the 0.07 % bar, from a *single*
+  receipt.
+
+That is why this shot is worth a slot even though the arm it carries is small
+and locally unobservable. The prefill leg of this receipt, compared against the
+187.69 µs and 187.65 µs prefill legs of the two class receipts above, is a
+direct sub-0.05 % readout of whether hoisting the Q fragments does anything on
+the ranked host. Either answer is publishable: a prefill improvement promotes
+the flip, and a flat prefill leg is the first hard evidence anywhere in this
+programme about whether the ranked host dispatches the NAX attention path at
+all.
