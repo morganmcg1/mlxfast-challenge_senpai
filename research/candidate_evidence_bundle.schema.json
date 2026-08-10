@@ -1,0 +1,1244 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mlxfast.invalid/schemas/candidate-evidence-bundle-v3.json",
+  "title": "MLXFast candidate evidence bundle",
+  "description": "Structural contract for one content-addressed candidate revision. A verifier-owned external trusted-context pin, exact physical candidate surface, canonical artifact bytes, environment/protocol joins, arithmetic, and classification are enforced by validate_candidate_evidence_bundle.py.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "assignment_id",
+    "revision_id",
+    "mechanism_id",
+    "family_id",
+    "trusted_context_sha256",
+    "identity",
+    "artifact_manifest",
+    "phases",
+    "terminal",
+    "submission_authorization"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 3
+    },
+    "assignment_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "revision_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "mechanism_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "family_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "trusted_context_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "identity": {
+      "$ref": "#/$defs/candidateIdentity"
+    },
+    "artifact_manifest": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/artifact"
+      }
+    },
+    "phases": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "isolated",
+        "whole_model",
+        "ranked_m5"
+      ],
+      "properties": {
+        "isolated": {
+          "$ref": "#/$defs/isolatedPhase"
+        },
+        "whole_model": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/fullModelPhase"
+            }
+          ]
+        },
+        "ranked_m5": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/rankedPhase"
+            }
+          ]
+        }
+      }
+    },
+    "terminal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "predeclared_stop_reason",
+        "pending_phases"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "ISOLATED_COMPLETE",
+            "WHOLE_MODEL_COMPLETE",
+            "CENSORED",
+            "RANKED_MARGIN_COMPLETE"
+          ]
+        },
+        "predeclared_stop_reason": {
+          "enum": [
+            "ISOLATED_EVIDENCE_COMPLETE",
+            "WHOLE_MODEL_EVIDENCE_COMPLETE",
+            "PREDECLARED_EARLY_STOP",
+            "RANKED_MARGIN_EVIDENCE_COMPLETE"
+          ]
+        },
+        "pending_phases": {
+          "const": false
+        }
+      }
+    },
+    "submission_authorization": {
+      "const": false
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+    },
+    "sha1": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "decimalPositive": {
+      "type": "string",
+      "pattern": "^(?:0*[1-9][0-9]*|0*[0-9]*\\.[0-9]*[1-9][0-9]*)(?:[eE][+-]?[0-9]+)?$"
+    },
+    "decimalNonnegative": {
+      "type": "string",
+      "pattern": "^(?:0|0*[0-9]+(?:\\.[0-9]+)?)(?:[eE][+-]?[0-9]+)?$"
+    },
+    "surfaceFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "size",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "submittedSurface": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "files",
+        "canonical_sha256"
+      ],
+      "properties": {
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/surfaceFile"
+          }
+        },
+        "canonical_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "windowIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "prefill_tokens",
+        "decode_seed_tokens",
+        "decode_steps"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "prefill_tokens": {
+          "const": 512
+        },
+        "decode_seed_tokens": {
+          "const": 512
+        },
+        "decode_steps": {
+          "const": 128
+        }
+      }
+    },
+    "componentIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "isolated",
+        "prefill",
+        "decode"
+      ],
+      "properties": {
+        "isolated": {
+          "$ref": "#/$defs/identifier"
+        },
+        "prefill": {
+          "$ref": "#/$defs/identifier"
+        },
+        "decode": {
+          "$ref": "#/$defs/identifier"
+        }
+      }
+    },
+    "candidateIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "base_sha",
+        "candidate_sha",
+        "submitted_surface",
+        "benchmark_id",
+        "benchmark_contract_sha256",
+        "configuration_sha256",
+        "fixture_id",
+        "window",
+        "components"
+      ],
+      "properties": {
+        "base_sha": {
+          "$ref": "#/$defs/sha1"
+        },
+        "candidate_sha": {
+          "$ref": "#/$defs/sha1"
+        },
+        "submitted_surface": {
+          "$ref": "#/$defs/submittedSurface"
+        },
+        "benchmark_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "benchmark_contract_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "configuration_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "fixture_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "window": {
+          "$ref": "#/$defs/windowIdentity"
+        },
+        "components": {
+          "$ref": "#/$defs/componentIdentity"
+        }
+      }
+    },
+    "joinIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "assignment_id",
+        "revision_id",
+        "mechanism_id",
+        "family_id",
+        "base_sha",
+        "candidate_sha",
+        "submitted_surface_sha256",
+        "benchmark_id",
+        "benchmark_contract_sha256",
+        "configuration_sha256",
+        "fixture_id",
+        "window_id",
+        "isolated_component_id",
+        "prefill_component_id",
+        "decode_component_id"
+      ],
+      "properties": {
+        "assignment_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "revision_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "mechanism_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "family_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "base_sha": {
+          "$ref": "#/$defs/sha1"
+        },
+        "candidate_sha": {
+          "$ref": "#/$defs/sha1"
+        },
+        "submitted_surface_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "benchmark_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "benchmark_contract_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "configuration_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "fixture_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "window_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "isolated_component_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "prefill_component_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "decode_component_id": {
+          "$ref": "#/$defs/identifier"
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "host_model",
+        "chip",
+        "os",
+        "toolchain",
+        "thermal_policy_id",
+        "telemetry_policy_id",
+        "protocol_id",
+        "hardware_class",
+        "provenance_authority"
+      ],
+      "properties": {
+        "host_model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "chip": {
+          "type": "string",
+          "minLength": 1
+        },
+        "os": {
+          "type": "string",
+          "minLength": 1
+        },
+        "toolchain": {
+          "type": "string",
+          "minLength": 1
+        },
+        "thermal_policy_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "telemetry_policy_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "protocol_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "hardware_class": {
+          "enum": [
+            "M4_LOCAL",
+            "M5_RANKED",
+            "OTHER"
+          ]
+        },
+        "provenance_authority": {
+          "enum": [
+            "LOCAL_OBSERVATION",
+            "OFFICIAL_RANKED_RECEIPT",
+            "DECLARED_OTHER"
+          ]
+        }
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "status"
+      ],
+      "properties": {
+        "name": {
+          "enum": [
+            "PUBLIC_GREEDY_64",
+            "SERIAL_PROTOCOL",
+            "TIMED_TOKEN_VALIDATION",
+            "HIDDEN_TEACHER_FORCED_512",
+            "HIDDEN_ANCHORS",
+            "HIDDEN_FREE_RUNS",
+            "GPQA_BEHAVIOR",
+            "TTFT",
+            "SEMANTIC_GPQA"
+          ]
+        },
+        "status": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_RUN"
+          ]
+        }
+      }
+    },
+    "correctness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "exactness_status",
+        "checked_token_count",
+        "dispatch_call_census",
+        "peak_memory",
+        "gates"
+      ],
+      "properties": {
+        "exactness_status": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_RUN"
+          ]
+        },
+        "checked_token_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "dispatch_call_census": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/$defs/identifier"
+          },
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "peak_memory": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "measured_bytes",
+            "limit_bytes"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "PASS",
+                "FAIL",
+                "NOT_RUN"
+              ]
+            },
+            "measured_bytes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "limit_bytes": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "gates": {
+          "type": "array",
+          "minItems": 9,
+          "maxItems": 9,
+          "items": {
+            "$ref": "#/$defs/gate"
+          }
+        }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "path",
+        "size",
+        "sha256",
+        "canonical_units",
+        "producing_phase",
+        "binding"
+      ],
+      "properties": {
+        "role": {
+          "enum": [
+            "ISOLATED_RAW_ROWS",
+            "WHOLE_MODEL_RAW_ROWS",
+            "RANKED_M5_RECEIPT"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "canonical_units": {
+          "enum": [
+            "seconds_per_invocation",
+            "seconds_per_token",
+            "dimensionless_speedup"
+          ]
+        },
+        "producing_phase": {
+          "enum": [
+            "ISOLATED",
+            "WHOLE_MODEL",
+            "RANKED_M5"
+          ]
+        },
+        "binding": {
+          "$ref": "#/$defs/joinIdentity"
+        }
+      }
+    },
+    "isolatedRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sequence_index",
+        "arm",
+        "seconds"
+      ],
+      "properties": {
+        "sequence_index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "arm": {
+          "enum": [
+            "BASE",
+            "CANDIDATE"
+          ]
+        },
+        "seconds": {
+          "$ref": "#/$defs/decimalPositive"
+        }
+      }
+    },
+    "fullModelRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sequence_index",
+        "arm",
+        "prefill_seconds_per_token",
+        "decode_seconds_per_token"
+      ],
+      "properties": {
+        "sequence_index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "arm": {
+          "enum": [
+            "BASE",
+            "CANDIDATE"
+          ]
+        },
+        "prefill_seconds_per_token": {
+          "$ref": "#/$defs/decimalPositive"
+        },
+        "decode_seconds_per_token": {
+          "$ref": "#/$defs/decimalPositive"
+        }
+      }
+    },
+    "isolatedOrder": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "rows"
+      ],
+      "properties": {
+        "label": {
+          "enum": [
+            "ABBA",
+            "BAAB"
+          ]
+        },
+        "rows": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "items": {
+            "$ref": "#/$defs/isolatedRow"
+          }
+        }
+      }
+    },
+    "fullModelOrder": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "rows"
+      ],
+      "properties": {
+        "label": {
+          "enum": [
+            "ABBA",
+            "BAAB"
+          ]
+        },
+        "rows": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "$ref": "#/$defs/fullModelRow"
+          }
+        }
+      }
+    },
+    "stopThresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "promote_factor_gte",
+        "censor_factor_lte",
+        "max_relative_uncertainty"
+      ],
+      "properties": {
+        "promote_factor_gte": {
+          "$ref": "#/$defs/decimalPositive"
+        },
+        "censor_factor_lte": {
+          "$ref": "#/$defs/decimalPositive"
+        },
+        "max_relative_uncertainty": {
+          "$ref": "#/$defs/decimalNonnegative"
+        }
+      }
+    },
+    "isolatedPhase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "join_identity",
+        "environment",
+        "correctness",
+        "perturbation",
+        "stop_thresholds",
+        "orders",
+        "complete_chain"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "COMPLETE",
+            "CENSORED"
+          ]
+        },
+        "join_identity": {
+          "$ref": "#/$defs/joinIdentity"
+        },
+        "environment": {
+          "$ref": "#/$defs/environment"
+        },
+        "correctness": {
+          "$ref": "#/$defs/correctness"
+        },
+        "perturbation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "value",
+            "unit"
+          ],
+          "properties": {
+            "name": {
+              "$ref": "#/$defs/identifier"
+            },
+            "value": {
+              "$ref": "#/$defs/decimalPositive"
+            },
+            "unit": {
+              "$ref": "#/$defs/identifier"
+            }
+          }
+        },
+        "stop_thresholds": {
+          "$ref": "#/$defs/stopThresholds"
+        },
+        "orders": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "items": {
+            "$ref": "#/$defs/isolatedOrder"
+          }
+        },
+        "summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "base_seconds",
+            "candidate_seconds",
+            "factor"
+          ],
+          "properties": {
+            "base_seconds": {
+              "$ref": "#/$defs/decimalPositive"
+            },
+            "candidate_seconds": {
+              "$ref": "#/$defs/decimalPositive"
+            },
+            "factor": {
+              "$ref": "#/$defs/decimalPositive"
+            }
+          }
+        },
+        "uncertainty": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "method",
+            "value"
+          ],
+          "properties": {
+            "method": {
+              "const": "RELATIVE_HALF_RANGE"
+            },
+            "value": {
+              "$ref": "#/$defs/decimalNonnegative"
+            }
+          }
+        },
+        "censor": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "rule",
+            "threshold",
+            "observed_factor"
+          ],
+          "properties": {
+            "rule": {
+              "const": "CANDIDATE_FACTOR_LTE"
+            },
+            "threshold": {
+              "$ref": "#/$defs/decimalPositive"
+            },
+            "observed_factor": {
+              "$ref": "#/$defs/decimalPositive"
+            }
+          }
+        },
+        "complete_chain": {
+          "type": "boolean"
+        }
+      }
+    },
+    "fullSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "base",
+        "candidate",
+        "factors",
+        "uncertainty",
+        "floors"
+      ],
+      "properties": {
+        "base": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "prefill_seconds_per_token",
+            "decode_seconds_per_token"
+          ],
+          "properties": {
+            "prefill_seconds_per_token": {
+              "$ref": "#/$defs/decimalPositive"
+            },
+            "decode_seconds_per_token": {
+              "$ref": "#/$defs/decimalPositive"
+            }
+          }
+        },
+        "candidate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "prefill_seconds_per_token",
+            "decode_seconds_per_token"
+          ],
+          "properties": {
+            "prefill_seconds_per_token": {
+              "$ref": "#/$defs/decimalPositive"
+            },
+            "decode_seconds_per_token": {
+              "$ref": "#/$defs/decimalPositive"
+            }
+          }
+        },
+        "factors": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "prefill",
+            "decode",
+            "weighted"
+          ],
+          "properties": {
+            "prefill": {
+              "$ref": "#/$defs/decimalPositive"
+            },
+            "decode": {
+              "$ref": "#/$defs/decimalPositive"
+            },
+            "weighted": {
+              "$ref": "#/$defs/decimalPositive"
+            }
+          }
+        },
+        "uncertainty": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "method",
+            "prefill",
+            "decode"
+          ],
+          "properties": {
+            "method": {
+              "const": "RELATIVE_HALF_RANGE"
+            },
+            "prefill": {
+              "$ref": "#/$defs/decimalNonnegative"
+            },
+            "decode": {
+              "$ref": "#/$defs/decimalNonnegative"
+            }
+          }
+        },
+        "floors": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "threshold",
+            "prefill_pass",
+            "decode_pass"
+          ],
+          "properties": {
+            "threshold": {
+              "const": "0.95"
+            },
+            "prefill_pass": {
+              "type": "boolean"
+            },
+            "decode_pass": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    "fullModelPhase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "join_identity",
+        "environment",
+        "correctness",
+        "orders",
+        "summary",
+        "complete_chain"
+      ],
+      "properties": {
+        "status": {
+          "const": "COMPLETE"
+        },
+        "join_identity": {
+          "$ref": "#/$defs/joinIdentity"
+        },
+        "environment": {
+          "$ref": "#/$defs/environment"
+        },
+        "correctness": {
+          "$ref": "#/$defs/correctness"
+        },
+        "orders": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "$ref": "#/$defs/fullModelOrder"
+          }
+        },
+        "summary": {
+          "$ref": "#/$defs/fullSummary"
+        },
+        "complete_chain": {
+          "const": true
+        }
+      }
+    },
+    "receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "receipt_id",
+        "benchmark_id",
+        "terminal",
+        "assignment_id",
+        "revision_id",
+        "base_sha",
+        "candidate_sha",
+        "submitted_surface_sha256",
+        "benchmark_contract_sha256",
+        "configuration_sha256",
+        "fixture_id",
+        "window_id",
+        "decode_component_id",
+        "prefill_component_id",
+        "isolated_component_id",
+        "ranked_environment_sha256",
+        "checked_token_count",
+        "correctness_status",
+        "peak_memory_status"
+      ],
+      "properties": {
+        "receipt_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "benchmark_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "terminal": {
+          "const": true
+        },
+        "assignment_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "revision_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "candidate_sha": {
+          "$ref": "#/$defs/sha1"
+        },
+        "base_sha": {
+          "$ref": "#/$defs/sha1"
+        },
+        "submitted_surface_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "benchmark_contract_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "configuration_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "fixture_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "window_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "isolated_component_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "ranked_environment_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "prefill_component_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "decode_component_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "checked_token_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "correctness_status": {
+          "const": "PASS"
+        },
+        "peak_memory_status": {
+          "const": "PASS"
+        }
+      }
+    },
+    "rankedPhase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "join_identity",
+        "environment",
+        "correctness",
+        "orders",
+        "summary",
+        "receipt",
+        "complete_chain"
+      ],
+      "properties": {
+        "status": {
+          "const": "COMPLETE"
+        },
+        "join_identity": {
+          "$ref": "#/$defs/joinIdentity"
+        },
+        "environment": {
+          "$ref": "#/$defs/environment"
+        },
+        "correctness": {
+          "$ref": "#/$defs/correctness"
+        },
+        "orders": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "$ref": "#/$defs/fullModelOrder"
+          }
+        },
+        "summary": {
+          "$ref": "#/$defs/fullSummary"
+        },
+        "receipt": {
+          "$ref": "#/$defs/receipt"
+        },
+        "complete_chain": {
+          "const": true
+        }
+      }
+    },
+    "artifactPin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "path",
+        "size",
+        "sha256"
+      ],
+      "properties": {
+        "role": {
+          "enum": [
+            "ISOLATED_RAW_ROWS",
+            "WHOLE_MODEL_RAW_ROWS",
+            "RANKED_M5_RECEIPT"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "phaseEnvironments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "isolated",
+        "whole_model",
+        "ranked_m5"
+      ],
+      "properties": {
+        "isolated": {
+          "$ref": "#/$defs/environment"
+        },
+        "whole_model": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/environment"
+            }
+          ]
+        },
+        "ranked_m5": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/environment"
+            }
+          ]
+        }
+      }
+    },
+    "trustedContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "trust_schema_version",
+        "assignment_id",
+        "revision_id",
+        "mechanism_id",
+        "family_id",
+        "identity",
+        "phase_environments",
+        "artifact_pins"
+      ],
+      "properties": {
+        "trust_schema_version": {
+          "const": 2
+        },
+        "assignment_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "revision_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "mechanism_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "family_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "identity": {
+          "$ref": "#/$defs/candidateIdentity"
+        },
+        "phase_environments": {
+          "$ref": "#/$defs/phaseEnvironments"
+        },
+        "artifact_pins": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/artifactPin"
+          }
+        }
+      }
+    },
+    "isolatedArtifactDocument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_schema_version",
+        "artifact_type",
+        "binding",
+        "evidence"
+      ],
+      "properties": {
+        "artifact_schema_version": {
+          "const": 1
+        },
+        "artifact_type": {
+          "const": "ISOLATED_RAW_ROWS"
+        },
+        "binding": {
+          "$ref": "#/$defs/joinIdentity"
+        },
+        "evidence": {
+          "$ref": "#/$defs/isolatedPhase"
+        }
+      }
+    },
+    "wholeModelArtifactDocument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_schema_version",
+        "artifact_type",
+        "binding",
+        "evidence"
+      ],
+      "properties": {
+        "artifact_schema_version": {
+          "const": 1
+        },
+        "artifact_type": {
+          "const": "WHOLE_MODEL_RAW_ROWS"
+        },
+        "binding": {
+          "$ref": "#/$defs/joinIdentity"
+        },
+        "evidence": {
+          "$ref": "#/$defs/fullModelPhase"
+        }
+      }
+    },
+    "rankedReceiptArtifactDocument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_schema_version",
+        "artifact_type",
+        "binding",
+        "evidence"
+      ],
+      "properties": {
+        "artifact_schema_version": {
+          "const": 1
+        },
+        "artifact_type": {
+          "const": "RANKED_M5_RECEIPT"
+        },
+        "binding": {
+          "$ref": "#/$defs/joinIdentity"
+        },
+        "evidence": {
+          "$ref": "#/$defs/rankedPhase"
+        }
+      }
+    }
+  }
+}
