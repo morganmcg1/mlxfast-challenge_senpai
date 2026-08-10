@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "assignment_id": "cedar-nezuko-transform-verifier-runtime-coverage-20260810",
-  "revision_id": "cedar-nezuko-transform-verifier-runtime-coverage-20260810-r1",
+  "revision_id": "cedar-nezuko-transform-verifier-runtime-coverage-20260810-r2",
   "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
   "terminal_verdict": "COVERAGE_DEFECT",
   "stop_rule": "Stop at the first verifier/runtime or marker edge that is not closed.",
@@ -47,7 +47,7 @@
       "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
       "path_class": "outputRoot/model.safetensors.index.json",
       "citations": {
-        "producer": "Sources/MLXFastCore/CheckpointIndex.swift:28-57; Sources/MLXFastTransform/Transform.swift:68-83,288-298",
+        "producer": "Sources/MLXFastTransform/CheckpointIndex.swift:28-57; Sources/MLXFastTransform/Transform.swift:68-83,288-298",
         "consumer": "Sources/MLXFastModel/DenseTensorStore.swift:166-227",
         "verifier": "Sources/MLXFastTrustedHarness/TransformVerification.swift:119-170"
       },
@@ -70,17 +70,73 @@
       "verdict": "closed_for_regular_shards"
     },
     {
+      "id": "producer.tokenizer_json",
+      "kind": "producer",
+      "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
+      "path_class": "outputRoot/tokenizer.json",
+      "citations": {
+        "producer": "Sources/MLXFastTransform/Transform.swift:506-551",
+        "consumer": "Vendor/mlx-swift-lm/.build/checkouts/swift-transformers/Sources/Hub/Hub.swift:247-298",
+        "verifier": "Sources/MLXFastTrustedHarness/TransformVerification.swift:119-170"
+      },
+      "verifier_treatment": "Copied eligible JSON metadata; exact path set, size, bytes, and tree digest.",
+      "runtime_reach": "Required by semantic-GPQA preflight and parsed by the pinned local-tokenizer helper.",
+      "verdict": "closed"
+    },
+    {
+      "id": "producer.tokenizer_config",
+      "kind": "producer",
+      "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
+      "path_class": "outputRoot/tokenizer_config.json",
+      "citations": {
+        "producer": "Sources/MLXFastTransform/Transform.swift:506-551",
+        "consumer": "Sources/MLXFastTrustedHarness/LagunaRuntimeBenchmark.swift:314-332; Vendor/mlx-swift-lm/.build/checkouts/swift-transformers/Sources/Hub/Hub.swift:247-298",
+        "verifier": "Sources/MLXFastTrustedHarness/TransformVerification.swift:119-170"
+      },
+      "verifier_treatment": "Copied eligible JSON metadata; exact path set, size, bytes, and tree digest.",
+      "runtime_reach": "Required by semantic-GPQA preflight and conditionally decoded by the pinned helper.",
+      "verdict": "closed"
+    },
+    {
+      "id": "producer.chat_template_json",
+      "kind": "producer",
+      "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
+      "path_class": "outputRoot/chat_template.json when present",
+      "citations": {
+        "producer": "Sources/MLXFastTransform/Transform.swift:506-551",
+        "consumer": "Vendor/mlx-swift-lm/.build/checkouts/swift-transformers/Sources/Hub/Hub.swift:247-298",
+        "verifier": "Sources/MLXFastTrustedHarness/TransformVerification.swift:119-170"
+      },
+      "verifier_treatment": "Conditionally copied eligible JSON metadata; emitted bytes and path are compared.",
+      "runtime_reach": "Conditionally read as the fallback when chat_template.jinja is absent.",
+      "verdict": "closed_conditional"
+    },
+    {
+      "id": "producer.chat_template_jinja_absent",
+      "kind": "producer",
+      "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
+      "path_class": "outputRoot/chat_template.jinja",
+      "citations": {
+        "producer": "Sources/MLXFastTransform/Transform.swift:506-551",
+        "consumer": "Vendor/mlx-swift-lm/.build/checkouts/swift-transformers/Sources/Hub/Hub.swift:247-298",
+        "verifier": "N/A: the metadata eligibility predicate excludes the jinja extension"
+      },
+      "verifier_treatment": "Not emitted, because the jinja extension is outside the metadata-copy eligibility set.",
+      "runtime_reach": "The pinned helper nevertheless probes this exact child before its JSON fallback.",
+      "verdict": "closed_absent"
+    },
+    {
       "id": "producer.metadata",
       "kind": "producer",
       "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
-      "path_class": "outputRoot/<top-level eligible metadata basename: json|model|tiktoken|txt or tokenizer/vocab, excluding config/index/safetensors>",
+      "path_class": "outputRoot/<other eligible top-level metadata, excluding the named model and semantic-tokenizer files>",
       "citations": {
         "producer": "Sources/MLXFastTransform/Transform.swift:506-551",
-        "consumer": "No scored Laguna filesystem consumer under the audited weights-root path.",
+        "consumer": "N/A: other copied metadata is outside the enumerated semantic-tokenizer and scored model reads",
         "verifier": "Sources/MLXFastTrustedHarness/TransformVerification.swift:119-170,187-237"
       },
       "verifier_treatment": "Every emitted regular metadata file whose relative path has no newline is included in exact comparison and tree digest; a newline-bearing path rejects verification.",
-      "runtime_reach": "Runtime-inert for the scored model loading path audited here; verification rejects rather than silently omits newline-bearing names.",
+      "runtime_reach": "Runtime-inert for the explicitly enumerated scored model and semantic-tokenizer loading paths.",
       "verdict": "closed_inert"
     },
     {
@@ -90,8 +146,8 @@
       "path_class": "Laguna affine-attention/tied-weight sidecars",
       "citations": {
         "producer": "Sources/MLXFastTransform/Transform.swift:256-269",
-        "consumer": "No corresponding scored runtime path is constructed.",
-        "verifier": "Not emitted, so no file enters comparison."
+        "consumer": "N/A: No corresponding scored runtime path is constructed.",
+        "verifier": "N/A: Not emitted, so no file enters comparison."
       },
       "verifier_treatment": "Not applicable because Laguna emits neither sidecar class.",
       "runtime_reach": "Absent.",
@@ -117,8 +173,8 @@
       "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
       "path_class": "all non-ignored descendant regular files",
       "citations": {
-        "producer": "All producer regular-file classes above.",
-        "consumer": "All exact runtime file classes above.",
+        "producer": "N/A: All producer regular-file classes above.",
+        "consumer": "N/A: All exact runtime file classes above.",
         "verifier": "Sources/MLXFastTrustedHarness/TransformVerification.swift:187-237"
       },
       "verifier_treatment": "Recursively enumerates regular files, rejects symlinks and other non-regular entries, but skips directories.",
@@ -131,8 +187,8 @@
       "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
       "path_class": "enumerated expected and actual regular-file maps",
       "citations": {
-        "producer": "All enumerated producer regular files.",
-        "consumer": "All runtime file reads that resolve to those regular files.",
+        "producer": "N/A: All enumerated producer regular files.",
+        "consumer": "N/A: All runtime file reads that resolve to those regular files.",
         "verifier": "Sources/MLXFastTrustedHarness/TransformVerification.swift:119-170,244-273"
       },
       "verifier_treatment": "Requires equal relative path sets and sizes, streams byte equality, and hashes relative path plus file digest.",
@@ -146,7 +202,7 @@
       "path_class": "any enumerated regular-file relative path containing a newline",
       "citations": {
         "producer": "Sources/MLXFastTransform/Transform.swift:349-375,506-551; Sources/MLXFastCore/PathValidation.swift:3-17",
-        "consumer": "Index-selected shard paths can be runtime-reachable; copied metadata is runtime-inert.",
+        "consumer": "N/A: Index-selected shard paths can be runtime-reachable; copied metadata is runtime-inert.",
         "verifier": "Sources/MLXFastTrustedHarness/TransformVerification.swift:225-228"
       },
       "verifier_treatment": "Rejects the verification invocation rather than silently omitting the file.",
@@ -159,7 +215,7 @@
       "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
       "path_class": "any descendant directory, including outputRoot/extra.safetensors",
       "citations": {
-        "producer": "Synthetic verifier semantics control; the transform need not emit this entry.",
+        "producer": "N/A: Synthetic verifier semantics control; the transform need not emit this entry.",
         "consumer": "Sources/MLXFastModel/RuntimeWeightLoading.swift:29-39,89-110",
         "verifier": "Sources/MLXFastTrustedHarness/TransformVerification.swift:205-223"
       },
@@ -179,7 +235,8 @@
       },
       "verifier_treatment": "Included unless missing, non-regular, or byte-different, all of which fail.",
       "runtime_reach": "Opened directly; no fallback under weights root.",
-      "verdict": "closed"
+      "verdict": "closed",
+      "path_bound": "fixed_child"
     },
     {
       "id": "runtime.index",
@@ -193,7 +250,8 @@
       },
       "verifier_treatment": "Included in exact comparison and digest.",
       "runtime_reach": "Opened directly and used to derive the bounded indexed shard-name set.",
-      "verdict": "closed"
+      "verdict": "closed",
+      "path_bound": "fixed_child"
     },
     {
       "id": "runtime.root_safetensors_inventory",
@@ -201,13 +259,14 @@
       "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
       "path_class": "contentsOfDirectory(weightsRoot).filter(pathExtension == safetensors)",
       "citations": {
-        "producer": "The transform emits validated regular shards; an actual tree can also contain verifier-skipped directories.",
+        "producer": "N/A: The transform emits validated regular shards; an actual tree can also contain verifier-skipped directories.",
         "consumer": "Sources/MLXFastModel/RuntimeWeightLoading.swift:29-39,89-110",
         "verifier": "Sources/MLXFastTrustedHarness/TransformVerification.swift:205-223"
       },
       "verifier_treatment": "Only regular entries appear in the verifier file set; directories disappear.",
       "runtime_reach": "Every root entry with the suffix affects indexed-versus-discovered validation regardless of file type.",
-      "verdict": "defect"
+      "verdict": "defect",
+      "path_bound": "root_bounded"
     },
     {
       "id": "runtime.shard_header",
@@ -221,7 +280,8 @@
       },
       "verifier_treatment": "Whole regular shard bytes are compared, including the header.",
       "runtime_reach": "Opened for header parsing; no alternate path construction.",
-      "verdict": "closed_for_regular_shards"
+      "verdict": "closed_for_regular_shards",
+      "path_bound": "index_bounded"
     },
     {
       "id": "runtime.shard_payload",
@@ -235,7 +295,98 @@
       },
       "verifier_treatment": "Whole regular shard bytes are compared and digested, covering every payload range.",
       "runtime_reach": "Scored model loading materializes indexed tensor payload ranges.",
-      "verdict": "closed_for_regular_shards"
+      "verdict": "closed_for_regular_shards",
+      "path_bound": "index_bounded"
+    },
+    {
+      "id": "runtime.semantic_tokenizer_binding",
+      "kind": "runtime_read",
+      "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
+      "path_class": "official workflow weightsRoot passed unchanged as semanticTokenizerPath",
+      "citations": {
+        "producer": ".github/workflows/benchmark.yml:1503-1515; Sources/MLXFastCLI/main.swift:362-370",
+        "consumer": "Sources/MLXFastTrustedHarness/LagunaRuntimeBenchmark.swift:314-332; Sources/MLXFastTrustedHarness/LagunaRuntimeCorrectness.swift:467-470; Sources/MLXFastTrustedHarness/LagunaRuntimeSupport.swift:96-100",
+        "verifier": "Package.resolved:266-271; Vendor/mlx-swift-lm/.build/checkouts/swift-transformers/Sources/Hub/Hub.swift:247-298"
+      },
+      "verifier_treatment": "Binds semantic tokenizer loading to the transformed output root.",
+      "runtime_reach": "Semantic-GPQA correctness loads the tokenizer from the transformed weights root.",
+      "verdict": "closed_root_binding",
+      "path_bound": "fixed_root"
+    },
+    {
+      "id": "runtime.tokenizer_json",
+      "kind": "runtime_read",
+      "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
+      "path_class": "semanticTokenizerRoot/tokenizer.json",
+      "citations": {
+        "producer": "Sources/MLXFastTransform/Transform.swift:506-551",
+        "consumer": "Sources/MLXFastTrustedHarness/LagunaRuntimeBenchmark.swift:314-332; Vendor/mlx-swift-lm/.build/checkouts/swift-transformers/Sources/Hub/Hub.swift:247-298",
+        "verifier": "Sources/MLXFastTrustedHarness/TransformVerification.swift:119-170"
+      },
+      "verifier_treatment": "Included in exact regular-file comparison and digest.",
+      "runtime_reach": "Required by semantic preflight and parsed as the local tokenizer model.",
+      "verdict": "closed",
+      "path_bound": "fixed_child"
+    },
+    {
+      "id": "runtime.tokenizer_config",
+      "kind": "runtime_read",
+      "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
+      "path_class": "semanticTokenizerRoot/tokenizer_config.json",
+      "citations": {
+        "producer": "Sources/MLXFastTransform/Transform.swift:506-551",
+        "consumer": "Sources/MLXFastTrustedHarness/LagunaRuntimeBenchmark.swift:314-332; Vendor/mlx-swift-lm/.build/checkouts/swift-transformers/Sources/Hub/Hub.swift:247-298",
+        "verifier": "Sources/MLXFastTrustedHarness/TransformVerification.swift:119-170"
+      },
+      "verifier_treatment": "Included in exact regular-file comparison and digest.",
+      "runtime_reach": "Required by semantic preflight and conditionally decoded by the helper.",
+      "verdict": "closed",
+      "path_bound": "fixed_child"
+    },
+    {
+      "id": "runtime.tokenizer_model_config",
+      "kind": "runtime_read",
+      "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
+      "path_class": "semanticTokenizerRoot/config.json",
+      "citations": {
+        "producer": "Sources/MLXFastTransform/Transform.swift:68-83,288-298",
+        "consumer": "Vendor/mlx-swift-lm/.build/checkouts/swift-transformers/Sources/Hub/Hub.swift:247-298",
+        "verifier": "Sources/MLXFastTrustedHarness/TransformVerification.swift:119-170"
+      },
+      "verifier_treatment": "Included in exact regular-file comparison and digest.",
+      "runtime_reach": "Conditionally decoded by the pinned tokenizer helper as model configuration.",
+      "verdict": "closed_conditional",
+      "path_bound": "fixed_child"
+    },
+    {
+      "id": "runtime.tokenizer_chat_template_jinja",
+      "kind": "runtime_read",
+      "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
+      "path_class": "semanticTokenizerRoot/chat_template.jinja",
+      "citations": {
+        "producer": "Sources/MLXFastTransform/Transform.swift:506-551",
+        "consumer": "Vendor/mlx-swift-lm/.build/checkouts/swift-transformers/Sources/Hub/Hub.swift:247-298",
+        "verifier": "N/A: the exact child is probed but the transform does not emit jinja metadata"
+      },
+      "verifier_treatment": "No transformed file exists for this path class; the conditional probe observes absence.",
+      "runtime_reach": "Conditionally probed before the JSON fallback.",
+      "verdict": "closed_absent",
+      "path_bound": "fixed_child"
+    },
+    {
+      "id": "runtime.tokenizer_chat_template_json",
+      "kind": "runtime_read",
+      "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
+      "path_class": "semanticTokenizerRoot/chat_template.json",
+      "citations": {
+        "producer": "Sources/MLXFastTransform/Transform.swift:506-551",
+        "consumer": "Vendor/mlx-swift-lm/.build/checkouts/swift-transformers/Sources/Hub/Hub.swift:247-298",
+        "verifier": "Sources/MLXFastTrustedHarness/TransformVerification.swift:119-170"
+      },
+      "verifier_treatment": "When emitted, included in exact regular-file comparison and digest.",
+      "runtime_reach": "Conditionally probed and decoded as the fallback chat-template representation.",
+      "verdict": "closed_conditional",
+      "path_bound": "fixed_child"
     },
     {
       "id": "ignored.gitkeep",
@@ -244,7 +395,7 @@
       "path_class": "outputRoot/.gitkeep",
       "citations": {
         "producer": "benchmark.sh:1820-1861",
-        "consumer": "Runtime reads exact config/index paths and root entries ending .safetensors only.",
+        "consumer": "N/A: Runtime reads exact config/index paths and root entries ending .safetensors only.",
         "verifier": "Sources/MLXFastTrustedHarness/TransformVerification.swift:205-206,235-237"
       },
       "verifier_treatment": "Ignored by exact basename.",
@@ -258,7 +409,7 @@
       "path_class": "outputRoot/.benchmark-source.sha256",
       "citations": {
         "producer": "benchmark.sh:1820-1861",
-        "consumer": "Runtime reads exact config/index paths and root entries ending .safetensors only.",
+        "consumer": "N/A: Runtime reads exact config/index paths and root entries ending .safetensors only.",
         "verifier": "Sources/MLXFastTrustedHarness/TransformVerification.swift:205-206,235-237"
       },
       "verifier_treatment": "Ignored by exact basename; benchmark owns separate validation and injection.",
@@ -273,7 +424,7 @@
       "citations": {
         "producer": "benchmark.sh:1579-1608",
         "consumer": "benchmark.sh:2116-2148,2271-2290",
-        "verifier": "Separate from verify-transform's ignored marker."
+        "verifier": "N/A: Separate from verify-transform's ignored marker."
       },
       "verifier_treatment": "Not included in tree equality; benchmark binding covers only the four named inputs and excludes MLXFastCLI and the trusted verifier harness.",
       "runtime_reach": "For ordinary reuse, selects regeneration versus reuse from the four-input source hash; a fresh valid verifier report separately compares output bytes.",
@@ -285,9 +436,9 @@
       "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
       "path_class": "stagedRoot/.benchmark-source.sha256 before benchmark injection",
       "citations": {
-        "producer": "Participant transform output contract.",
+        "producer": "N/A: Participant transform output contract.",
         "consumer": "benchmark.sh:1820-1861",
-        "verifier": "The verifier ignores the name, so benchmark staging must own this edge."
+        "verifier": "N/A: The verifier ignores the name, so benchmark staging must own this edge."
       },
       "verifier_treatment": "A transform-authored marker is not trusted; staging rejects its presence.",
       "runtime_reach": "Prevents participant output from supplying source identity.",
@@ -301,7 +452,7 @@
       "citations": {
         "producer": "benchmark.sh:1610-1629,1857-1861",
         "consumer": "benchmark.sh:1389-1397,2116-2148",
-        "verifier": "Ignored marker is intentionally outside transform byte comparison."
+        "verifier": "N/A: Ignored marker is intentionally outside transform byte comparison."
       },
       "verifier_treatment": "Benchmark-created marker is separately constrained as a regular non-symlink file with a digest-formatted value.",
       "runtime_reach": "Controls reuse/regeneration, not model data reads.",
@@ -315,7 +466,7 @@
       "citations": {
         "producer": "benchmark.sh:1579-1608,1857-1861",
         "consumer": "benchmark.sh:2116-2148",
-        "verifier": "verify-transform may subsequently compare output bytes while still ignoring the marker."
+        "verifier": "N/A: verify-transform may subsequently compare output bytes while still ignoring the marker."
       },
       "verifier_treatment": "Separate source-to-output reuse guard.",
       "runtime_reach": "Mismatch causes regeneration unless the explicit local skip override is used; the ranked evidence path records the wanted hash.",
@@ -329,7 +480,7 @@
       "citations": {
         "producer": "benchmark.sh:1579-1608",
         "consumer": "benchmark.sh:2271-2290",
-        "verifier": "Complements, but cannot expand, verify-transform's enumerated file surface."
+        "verifier": "N/A: Complements, but cannot expand, verify-transform's enumerated file surface."
       },
       "verifier_treatment": "Records reviewed transform source identity beside output integrity evidence.",
       "runtime_reach": "Does not cover a path class omitted by verifier enumeration.",
@@ -341,7 +492,7 @@
       "source_revision": "dd35f692f26a17c93f69065ea8208e349f23743a",
       "path_class": "authorized ancestry and research reports for verifier-to-runtime closure",
       "citations": {
-        "producer": "git grep at dd35f692 over research and current ancestry.",
+        "producer": "N/A: git grep at dd35f692 over research and current ancestry.",
         "consumer": "research/ranked-weight-load-provenance-audit.md:67-84,112-115",
         "verifier": "Tests/MLXFastTests/TransformTests.swift:793-888"
       },
@@ -365,6 +516,10 @@
       "producer.config",
       "producer.index",
       "producer.shard",
+      "producer.tokenizer_json",
+      "producer.tokenizer_config",
+      "producer.chat_template_json",
+      "producer.chat_template_jinja_absent",
       "producer.metadata",
       "producer.laguna_sidecars_absent"
     ],
@@ -373,7 +528,13 @@
       "runtime.index",
       "runtime.root_safetensors_inventory",
       "runtime.shard_header",
-      "runtime.shard_payload"
+      "runtime.shard_payload",
+      "runtime.semantic_tokenizer_binding",
+      "runtime.tokenizer_json",
+      "runtime.tokenizer_config",
+      "runtime.tokenizer_model_config",
+      "runtime.tokenizer_chat_template_jinja",
+      "runtime.tokenizer_chat_template_json"
     ],
     "verifier_ignore_set": [
       ".benchmark-source.sha256",
@@ -382,30 +543,42 @@
     "runtime_consumed_paths": [
       "config.json",
       "model.safetensors.index.json",
-      "<index-derived>.safetensors"
+      "<index-derived>.safetensors",
+      "tokenizer.json",
+      "tokenizer_config.json",
+      "chat_template.jinja",
+      "chat_template.json"
     ],
     "source_hash_bound": true,
     "transform_marker_trusted": false,
-    "runtime_paths_statically_bounded": true,
     "path_normalization_required": true,
     "root_escape_allowed": false,
     "expected_regular_files": [
       "config.json",
       "model-00001-of-00001.safetensors",
       "model.safetensors.index.json",
-      "tokenizer.json"
+      "tokenizer.json",
+      "tokenizer_config.json",
+      "chat_template.json"
     ],
     "actual_regular_files": [
       "config.json",
       "model-00001-of-00001.safetensors",
       "model.safetensors.index.json",
-      "tokenizer.json"
+      "tokenizer.json",
+      "tokenizer_config.json",
+      "chat_template.json"
     ],
     "coverage_join": {
       "runtime.config": "producer.config",
       "runtime.index": "producer.index",
       "runtime.shard_header": "producer.shard",
-      "runtime.shard_payload": "producer.shard"
+      "runtime.shard_payload": "producer.shard",
+      "runtime.tokenizer_json": "producer.tokenizer_json",
+      "runtime.tokenizer_config": "producer.tokenizer_config",
+      "runtime.tokenizer_model_config": "producer.config",
+      "runtime.tokenizer_chat_template_jinja": "producer.chat_template_jinja_absent",
+      "runtime.tokenizer_chat_template_json": "producer.chat_template_json"
     },
     "known_defect_id": "edge.runtime_directory_inventory.nonregular_safetensors_suffix"
   },
@@ -419,5 +592,8 @@
     "wandb": false,
     "receipts": false,
     "official_submissions": false
+  },
+  "dependency_source_revisions": {
+    "swift-transformers": "2fa33e1f5e7131a7fc64c28e6d161dcec0d24820"
   }
 }

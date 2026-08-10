@@ -48,7 +48,11 @@ assignment.
 | Configuration | `outputRoot/config.json`, written by the Laguna transform (`Sources/MLXFastTransform/Transform.swift:68-83,288-298`) | Exactly one | Exact path, size, bytes, and digest |
 | Weight index | `outputRoot/model.safetensors.index.json` (`Sources/MLXFastTransform/CheckpointIndex.swift:28-57`; `Transform.swift:210-235,288-298`) | Exactly one | Exact path, size, bytes, and digest |
 | Safetensors shards | `outputRoot/<validated local shardName>.safetensors` (`Transform.swift:210-235,349-375`) | Finite names selected by the produced index; separators and dot escapes rejected | Whole regular file compared, covering header and payload; newline-bearing paths abort verification |
-| Top-level copied metadata | Eligible `.json`, `.model`, `.tiktoken`, `.txt`, tokenizer, or vocab basenames, excluding config/index/safetensors (`Transform.swift:506-551`) | Finite top-level source enumeration | Every emitted regular file is compared and digested, except newline-bearing paths abort verification |
+| Tokenizer model | `outputRoot/tokenizer.json`, copied by the metadata pass (`Transform.swift:506-551`) | One top-level source file when supplied; required by semantic-GPQA preflight | Exact path, size, bytes, and digest |
+| Tokenizer configuration | `outputRoot/tokenizer_config.json`, copied by the metadata pass (`Transform.swift:506-551`) | One top-level source file when supplied; required by semantic-GPQA preflight | Exact path, size, bytes, and digest |
+| JSON chat template | `outputRoot/chat_template.json`, copied by the metadata pass when present (`Transform.swift:506-551`) | Conditional fixed child | Exact path, size, bytes, and digest when emitted |
+| Jinja chat template | `outputRoot/chat_template.jinja` | Not emitted: `.jinja` is outside `shouldCopyMetadataFile`'s extension/name set (`Transform.swift:540-551`) | Proven absent from transform output, although the tokenizer helper probes the path |
+| Other top-level metadata | Other eligible `.json`, `.model`, `.tiktoken`, `.txt`, tokenizer, or vocab basenames, excluding named config/index/tokenizer files and safetensors (`Transform.swift:506-551`) | Finite top-level source enumeration | Every emitted regular file is compared and digested; newline-bearing paths abort verification |
 | Laguna sidecars | Affine-attention and tied-weight sidecars (`Transform.swift:256-269`) | Laguna emits neither class | Absent |
 
 The producer's regular-file classes are statically bounded. The local shard
@@ -60,7 +64,15 @@ the entry cannot be silently omitted. The terminal defect instead permits a
 successful equality report because the directory is skipped before any name
 check, while the runtime consumes its basename.
 
-### Scored runtime reads beneath the weights root
+### Scored and official semantic-correctness reads beneath the weights root
+
+The official workflow passes the transformed weights root to the CLI, which
+passes the same path as `semanticGPQATokenizerPath`
+(`.github/workflows/benchmark.yml:1503-1515`;
+`Sources/MLXFastCLI/main.swift:362-370`). Semantic correctness then loads the
+local tokenizer through the pinned `swift-transformers` revision
+`2fa33e1f5e7131a7fc64c28e6d161dcec0d24820`
+(`Package.resolved:266-271`).
 
 | Phase | Path expression | Consumer and fallback | Escape/bound |
 |---|---|---|---|
@@ -69,16 +81,25 @@ check, while the runtime consumes its basename.
 | Root shard inventory | `contentsOfDirectory(weightsRoot).filter(pathExtension == "safetensors")` | `RuntimeWeightLoading.swift:29-39,89-110`; any suffix-matching root entry changes validation | Root-bounded but not regular-file bounded; **defect** |
 | Shard headers | `weightsRoot/<validated index shardName>` | `DenseTensorStore.swift:166-227` and `RuntimeWeightLoading.swift:45-63`; required | Local basename validator in `Sources/MLXFastCore/PathValidation.swift:3-17` prevents path escape |
 | Tensor payloads | Same index-derived shard, indexed byte ranges | `DenseTensorStore.swift:39-118`, reached by `LagunaRuntimeWeights.swift:626-638` | Same bounded local shard set |
+| Semantic tokenizer root | `semanticTokenizerPath == weightsRoot` | Workflow/CLI binding above; harness checks required children at `LagunaRuntimeBenchmark.swift:314-332`, then correctness calls `loadLocalTokenizer` at `LagunaRuntimeCorrectness.swift:467-470` and `LagunaRuntimeSupport.swift:96-100` | Fixed root binding |
+| Tokenizer model | `weightsRoot/tokenizer.json` | Required preflight file and required parse by `Vendor/mlx-swift-lm/.build/checkouts/swift-transformers/Sources/Hub/Hub.swift:247-298` | Fixed child path |
+| Tokenizer configuration | `weightsRoot/tokenizer_config.json` | Required preflight file; helper conditionally decodes it when present (`Hub.swift:247-298`) | Fixed child path |
+| Tokenizer model configuration | `weightsRoot/config.json` | Helper conditionally decodes model configuration when present (`Hub.swift:247-298`) | Fixed child path, joined to transform configuration |
+| Preferred chat template | `weightsRoot/chat_template.jinja` | Helper probes this fixed child first (`Hub.swift:247-298`); transform output proves it absent | Fixed conditional probe |
+| Fallback chat template | `weightsRoot/chat_template.json` | Helper probes this fixed child only after the Jinja miss (`Hub.swift:247-298`) | Fixed conditional probe |
 
 ### Coverage join through the failure
 
-- `config.json`, the index, and every regular shard are included in exact
-  expected/actual relative-path equality, size equality, streamed byte equality,
-  and the path-plus-file-digest tree hash
+- `config.json`, the index, every regular shard, and emitted tokenizer metadata
+  are included in exact expected/actual relative-path equality, size equality,
+  streamed byte equality, and the path-plus-file-digest tree hash
   (`TransformVerification.swift:119-170,244-273`).
 - Whole-shard equality covers both safetensors headers and all payload ranges.
-- Copied metadata is verifier-visible but not read by the audited scored model
-  path.
+- `tokenizer.json`, `tokenizer_config.json`, generated `config.json`, and the
+  conditional chat-template paths are explicitly joined from transform
+  production or proven absence to the official semantic-GPQA tokenizer helper.
+  Other copied metadata remains verifier-visible but runtime-inert for the
+  enumerated model and semantic-tokenizer paths.
 - The root-entry shard inventory is not a regular-file read. Its outcome still
   affects whether the runtime proceeds, and `extra.safetensors/` is omitted by
   the verifier. This is the first unclosed join.
@@ -87,9 +108,11 @@ check, while the runtime consumes its basename.
 
 The verifier ignores exactly `.gitkeep` and `.benchmark-source.sha256`
 (`TransformVerification.swift:205-206,235-237`). Both are runtime-inert by
-code path rather than filename convention: the runtime reads exact config and
-index paths, index-derived shard paths, and root entries ending
-`.safetensors`; neither ignored basename matches any of those classes.
+code path rather than filename convention: model loading reads exact config and
+index paths, index-derived shard paths, and root entries ending `.safetensors`;
+semantic tokenizer loading reads or probes exact `config.json`,
+`tokenizer.json`, `tokenizer_config.json`, `chat_template.jinja`, and
+`chat_template.json` children. Neither ignored basename matches these classes.
 
 The separate marker chain reached before the stop is:
 
@@ -141,10 +164,14 @@ inventory parity was not evaluated after its earlier authority stop
 ## Machine controls
 
 `research/check_transform_verifier_runtime_coverage.py` validates row
-uniqueness, required producer/verifier/runtime/ignored/marker classes, exact
-source revisions, citation shape, regular-file joins, marker ownership,
-source-hash binding, bounded paths, normalization, and the known first defect.
-It then mutates only copied manifest objects for the nine assigned controls:
+uniqueness, required producer/verifier/runtime/ignored/marker classes, the main
+and pinned dependency revisions, producer-to-runtime joins, marker ownership,
+source-hash binding, per-runtime-row path bounds, normalization, and the known
+first defect. Citations must resolve to existing repository files with valid
+line ranges; selected workflow, transform, index, harness, dependency-pin, and
+pinned tokenizer-helper ranges must also contain their expected source anchors.
+
+The checker mutates only copied manifest objects for fourteen controls:
 
 1. omit config;
 2. omit index metadata;
@@ -152,18 +179,27 @@ It then mutates only copied manifest objects for the nine assigned controls:
 4. ignore a runtime-consumed path;
 5. trust a transform-authored marker;
 6. remove source-hash binding;
-7. add an unbounded runtime path;
-8. add an extra verifier-visible regular file; and
-9. allow normalization/root escape.
+7. insert an actual `runtime_read` row whose path bound is
+   `unbounded_dynamic`;
+8. add an extra verifier-visible regular file;
+9. allow normalization/root escape;
+10. omit the `tokenizer.json` producer row;
+11. omit the `tokenizer_config.json` runtime row;
+12. reassign the tokenizer producer/runtime join;
+13. replace a real citation with a nonexistent source path; and
+14. replace a real citation with an out-of-bounds line range.
 
-Every control must produce machine-readable errors. The checker prints one
-canonical JSON line containing the canonical manifest SHA-256, terminal verdict,
-baseline errors, known defect, and all control errors. Two runs are required to
-be byte-identical.
+Every control produces machine-readable errors while the unmodified manifest
+has an empty `manifest_errors` array. The checker prints one canonical JSON line
+containing the canonical manifest SHA-256, terminal verdict, baseline errors,
+known defect, and all control errors. Repeated executions are byte-identical.
+The SHA-256 of that exact newline-terminated checker output is:
+
+`478d27b8fead8674f0485a17594016e085151fcae7ac1bf86adffe5e24d6c7a0`
 
 ## Scope statement
 
 Only the assigned Markdown, manifest, and static checker are changed. No Swift
 test, build, transform, model load, inference, timing, W&B operation, receipt,
-live API operation, installed artifact, cache, or official submission was
-used. No production or workflow fix is proposed or implemented.
+MLXFast challenge API operation, installed artifact, cache, or official
+submission was used. No production or workflow fix is proposed or implemented.
