@@ -455,6 +455,159 @@ timing-independent: the resolved pipeline name, the GPUPSO geometry, the two
 scale sizes, the four MSL dumps, and `teacher-forced greedy tokens: 0
 divergences (all match)` — i.e. the instrument itself was behaviour-neutral.
 
+### §3.6 The clean in-situ anchor
+
+Same script, `INJECT` disabled, nothing else changed, same host, same thermal
+gate. `research/artifacts/maple-frieren-r107f/stage0_device_clean.log`.
+
+| quantity | perturbed (§3.5) | clean | R106-J | pot (#561, M4 column) |
+|---|---|---|---|---|
+| wall ms/step | 192.890 | **10.925** | — | — |
+| gpu_busy ms/step | 26.180 | **8.532** | — | — |
+| host gap | 86.4 % | 21.9 % | — | — |
+| down-residual µs/step | 2143.8 | **860.5** | 860.5 | 858.9 |
+| down-residual µs/call | 54.97 | **22.07** | — | — |
+| share of gpu_busy | 8.19 % | **10.09 %** | — | — |
+
+The clean anchor reproduces R106-J to 0.05 % and the pot's M4 figure to 0.19 %,
+on the Stage-0-stripped tree. That is the number every Stage-1/2 delta is
+measured against, and it is *my own* measurement, not an inherited one.
+
+Effective rate: 5,013,504 B / 22.07 µs = **227.1 GB/s = 87.15 %** of the
+260.6 GB/s measured DRAM read ceiling (§3.1). A perfect-efficiency call would
+take 19.24 µs, so the *entire* efficiency headroom in this kernel is
+**2.83 µs/call = 110.4 µs/step**. The ship bar is 26.27 µs/step, so any
+efficiency-only lever here must capture **23.8 %** of the total gap to the
+measured ceiling. That is the honest framing of the difficulty, and it is
+strictly worse than the naive "13 % below peak, so 13 % is available" reading.
+
+### §3.7 Offline replica, verified against the live pipeline
+
+Before spending device time I reconstructed the shipped kernel offline: the
+dumped MSL body (§3.2) plus a hand-reconstructed `write_signature` prologue and
+the `lagunaSharedSwiGLUQMVHeader` NVFP4 helpers evaluated at their shipped
+defaults (`fold=true`, `defer=true`, `carry=true`, `sign_domain=true`,
+`nibble_split=1`, `seed_elide=true`; all six are `!= "0"` env reads or a literal
+default, so the defaults are what ships).
+`research/artifacts/maple-frieren-r107f/offline/down_residual_reconstructed_opsi4.metal`.
+
+The reconstruction is **verified, not assumed**: built into a metallib and
+handed to the live driver, it reports
+
+```
+opsi4  maxTotalThreadsPerThreadgroup=1024  threadExecutionWidth=32  staticThreadgroupMemory=80
+```
+
+which is byte-identical to the in-situ `GPUPSO … maxThreads=1024 execWidth=32
+tgMem=80` line of §3.4. The signature is confirmed independently by the observed
+pipeline hash suffix
+`_bfloat16_t_uint32_t_uint8_t_uint32_t_float_bfloat16_t_uint32_t_uint8_t_bfloat16_t_bfloat16_t`
+— exactly the ten argument types the reconstructed prologue declares, in order.
+So the offline replica is a validated proxy and I can iterate on it for free.
+
+### §3.8 The §2.3 per-lane arithmetic, confirmed by compiler IR
+
+`research/maple_frieren_r107f_buffer_census.py` (new; existing censuses
+`research/tanjiro_ir_census_lib.py:22-44` and
+`research/maple-alphonse-r107c-air-census.py:14-32` classify by address space
+only and cannot attribute a load to a *buffer*). It walks every
+`addrspace(1)` access pointer back through `getelementptr`/`bitcast`/
+`addrspacecast`/`inttoptr`/`select`/`phi` to a named kernel argument, reports
+ambiguity explicitly rather than guessing, and sizes each access from its value
+type. Output for the shipped arm
+(`offline/opsi4_buffer_census.json`):
+
+| buffer | width | count | what it is |
+|---|---|---|---|
+| `<ambiguous:%0\|%5>` routed/shared_activated | **8 B** | 1 | `vec<bfloat,4>` activation load |
+| `<ambiguous:%1\|%6>` routed/shared_down_weight | **8 B** | 1 | `uint2` = 16 nvfp4 codes |
+| `<ambiguous:%2\|%7>` routed/shared_down_scales | **1 B** | 1 | the `lane>>1` scale byte |
+| `%3` indices | 4 B | 1 | expert id |
+| `%4` router_weights | 4 B | 1 | epilogue, 8 iterations |
+| `%8` residual | 2 B | 1 | epilogue |
+| `%9` output | 2 B store | 1 | epilogue |
+
+The three ambiguous entries are ambiguous *for a real reason*: the routed and
+shared pointers are combined by a `select` on `is_shared`, so a single load
+instruction serves both buffers. Reporting that honestly is the point of the
+tool; a tool that picked one would have been silently wrong.
+
+With the source trip counts (`values_per_lane/4 = 4`, `outputs_per_simd = 4`)
+this gives per lane per call exactly **4×8 + 4×8 + 4×1 = 12 loads, 68 B**,
+which is §2.3 to the byte — now *derived from the compiler's own view of the
+program* rather than read off the source by eye. It also settles two things I
+had only assumed:
+
+- the four **code** loads are *not* vectorised into wider loads (rows are
+  `packed_row_bytes = 256` apart, so they cannot coalesce), and
+- the four **scale** bytes are *not* merged (scale rows are 16 B apart).
+
+So the load count really is indexed by output row, which is the premise of the
+§2.4 correction: at `opsi = 8` only the *activation* loads amortise.
+
+### §3.9 Two levers closed offline, at zero device cost
+
+**(a) `input_values[16]` register promotion — closed, was never a lever.**
+The AIR census also reports `load_as0 = 19, store_as0 = 7`, i.e. thread-local
+(stack) traffic, with 4 surviving `alloca`s. Taken at face value that would be
+a large finding: 64 B of activations held in scratch and re-read four times
+would exceed the 68 B of device traffic. It is an artefact. `xcrun metal -S
+-emit-llvm` emits **pre-optimization** AIR: SROA and unrolling have not run, so
+the rolled staging loop's variable index still forces the array to memory.
+Proof that this is only an artefact: adding `#pragma clang loop unroll(full)` to
+the staging loop (arm `u1`) and to all three row loops (arm `u2`) changes the
+`.ll` (loop metadata appears) but leaves the census *byte-identical*, and after
+the native backend runs, all three arms produce **exactly the same machine
+code** — `__compute` section 4,944 B on `applegpu_g16s` and 5,040 B on
+`applegpu_g17s` for shipped, `u1` and `u2` alike, and the same live
+`maxThreads=1024 tgMem=80`. The backend already fully unrolls and promotes.
+
+Methodological consequence, which I will not forget and which also retro-explains
+why the advisor's `(bytes − floor)/8` instruction estimator did not reproduce:
+**AIR from `-S -emit-llvm` is faithful for buffer attribution and access widths
+(these follow from source types) and is *not* evidence about instruction counts,
+register allocation, or spill.** Those must come from the native object or the
+live driver.
+
+**(b) Register pressure does not block `opsi = 8` or `16` — gate passed.**
+`research/maple_frieren_r107f_opsi_pipeline_stats.swift` builds each arm's
+pipeline on this device and reads what the driver's own register allocator
+allows (`offline/opsi_pipeline_stats.json`). No kernel runs, so this costs no
+device time and takes no thermal gate.
+
+| arm | `__compute` g16s | `__compute` g17s | driver `maxTotalThreadsPerThreadgroup` | driver `tgMem` | my predicted `tgMem` | dispatchable @288 |
+|---|---|---|---|---|---|---|
+| `opsi4` (ships) | 4,944 | 5,040 | **1024** | 80 | 80 | yes |
+| `opsi4` + full unroll | 4,944 | 5,040 | 1024 | 80 | 80 | yes |
+| `opsi8` (**A1**) | 7,088 | 7,296 | **1024** | **144** | **144** | **yes** |
+| `opsi16` | 11,360 | 11,872 | **1024** | **288** | **288** | **yes** |
+
+Three independent things fall out:
+
+1. **A1 and the `opsi=16` extension are dispatchable with no occupancy clamp.**
+   The most likely cheap way for this lever to die — the register allocator
+   pushing `maxTotalThreadsPerThreadgroup` below the 288 threads the geometry
+   requests — does not happen. Rule 77's spill question is answered *before* any
+   timing run, which is exactly the order rev6 §8 asks for.
+2. **My threadgroup-memory arithmetic is confirmed by the driver**, not by me:
+   `9 · opsi · 2 B` rounded up to the 16 B granule gives 80 / 144 / 288, and the
+   driver reports 80 / 144 / 288.
+3. `__compute` grows **linearly** at ≈535 B per output row (2,144 B for
+   4→8, 4,272 B for 8→16) over a ≈2,804 B fixed floor. Linear growth with an
+   unchanged per-row cost means the row loop is fully unrolled at every `opsi`
+   and no spill-code expansion appears; a spill would show as a super-linear
+   jump. This is weak evidence and I label it as such — `__compute` bytes are
+   the only native observable on this platform (there is no AGX disassembler:
+   `research/advisor-r89-agx-native-instruction-census.md:99-104`,
+   `research/maple-frieren-r90-agx-instruction-census.md:114-116`) and I compare
+   only matched-null arms compiled with identical flags.
+
+Caveat stated up front: `maxTotalThreadsPerThreadgroup = 1024` is this device's
+hardware cap, so all four arms are *at* the cap and the metric cannot tell me
+how much register headroom is left above 288 — only that the arms are not
+clamped. If a Stage-2 arm ever reports a `maxThreads` below its requested
+threads I will report that and refuse to time it, per §2.6.
+
 ---
 
 ## §6 Deconfliction (rev6 §6.7) — reproduced and honoured
