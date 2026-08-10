@@ -397,6 +397,47 @@ fraction is preserved gives `0.75 × 100 × 0.8 / 12,990 = 0.004619 %score per
 local busy µs/step`. That is why §4 and §7 report **µs/step**, and why the
 advisor — who holds the M5 denominator — should do the conversion.
 
+### 5.9 Superseded: the advisor closed the bracket, and my constant was right in the wrong units
+
+PR #685 comment 5246312084 (21:35Z) closes the 8× gap with a two-axis
+elasticity identity rather than a calibration. It supersedes §5.6. I record it
+here because the resolution confirms §5's *structure* while correcting my
+units, and because it moves the stop bar.
+
+```
+T          = D - S/128                          steady decode step
+elasticity_T = 0.75 * (1 - sigma) = 0.638       at sigma = 14.98% (M5 frontier)
+%score     = elasticity_T * tau * Delta_M4_wall / T_M4  =  0.63 * tau * Delta / 8972
+```
+
+At `tau = 1`: **0.0070 %score per M4 steady-step wall µs**, **0.0056 per M4
+decode busy µs**. **The bar is 0.378 %score = 54 µs/step of M4 wall = 68 µs/step
+of M4 busy.**
+
+Three corrections to §5.2's table, which I accept:
+
+- **My constant A (0.0067 %/busy-µs) was right to within 5%** of the canonical
+  0.0056–0.0070 band. §5.6's recommendation stands numerically; only its
+  derivation was ad-hoc.
+- **My constant B (0.01642) was correct, but in *M5 steady-step* µs, not M4.**
+  It is exactly `elasticity_T / T_M5`. My §5.1 retraction retracted the wrong
+  thing: the number was never wrong, the programme's later application of it to
+  M4 microseconds was. §5.3's "exported outside its family" diagnosis was
+  therefore right in spirit and wrong in mechanism.
+- **My constant C (0.00203) is not a general price and not a phantom.** It is
+  the dispatch-overhead *mechanism class* carrying its own M4→M5 transfer
+  `tau ≈ 1%`. §5.5's "phantom denominator" claim is withdrawn.
+
+The transfer factor `tau` is the real free parameter: ≈1% for dispatch/launch
+overhead, ≈106% for DRAM-traffic savings, unknown and possibly sign-flipping
+for threadgroup-geometry changes. **My arms are all in-kernel ALU inside an
+unchanged grid, which is the `tau ≈ 1` regime**, so I price at `tau = 1`
+throughout and note that this is the *optimistic* assumption for my own
+hypothesis.
+
+The bar moving from 30 to 54 µs/step does not weaken this experiment's
+conclusion; §7 shows it converts a bounded negative into a two-sided exclusion.
+
 ## 6. Independent MMA feasibility analysis
 
 A frontier design review of the `simdgroup_matrix` rewrite at the mandated fixed
@@ -444,33 +485,54 @@ too** — it deletes strictly more work than the shortened ladder saves.
 
 **`N-FULL-QK-CHEAP`. Stop R109-E before any MMA implementation.**
 
-The number the advisor asked for, in the units the advisor asked for:
+**Stage-0 item 1 — reduce-vs-load, in the units the advisor asked for.**
+Raw ruler slope: **2.339 ns/step per added issue slot** (se 0.434, from D−X,
+both arms mid-block, §4.4). The shipped `simd_sum` ladder that the MMA rewrite
+would replace is ~10 slots.
 
-| estimate | µs/step of GPU busy time removable | vs 30 µs/step bar |
-|---|---|---|
-| direct removal probe (P − C, lead-corrected) | **0** (point +20.9 the *wrong* way, se 32.6) | below |
-| synthetic ladder ruler (D−X slope × 10 slots) | **23.4** (95% upper 31.9) | below |
+| estimate | ns/slot | µs/step M4 **wall** | ×1.28 corrected | µs/step M4 **busy** | %score @ τ=1 | vs 54 µs bar |
+|---|---|---|---|---|---|---|
+| synthetic ladder ruler (point) | 2.339 | **23.4** | 29.9 | 29.2 | 0.164 | **0.43×** |
+| synthetic ladder ruler (95% upper) | 3.190 | 31.9 | 40.8 | 39.9 | 0.223 | 0.59× |
+| direct removal probe P−C (point saving) | — | **−20.9** (costs, not saves) | −26.8 | −26.2 | −0.146 | below |
+| direct removal probe P−C (95% upper saving) | — | **43.0** | 55.1 | 53.8 | 0.301 | **0.80×** |
 
-I am deliberately **not** converting these to %score; §5 supplies the constant
-and its family if the advisor wants to.
+I apply the ×1.28 correction as instructed; its derivation is in the omitted
+middle of comment 5246312084 and I have not independently checked it. It does
+not change any sign or any verdict.
+
+**As a share of my 249.5 µs/step pool: the entire QK reduction is 9.4%
+(95% upper 12.8%). The advisor's own table says I need a 27.2% harvest of that
+pool to clear the bar.** The mechanism I was assigned is structurally too small
+by roughly 3×, independent of how well it is implemented.
 
 ### What this verdict is, and what it is not
 
-It is a **bounded negative and an expected-value decision**, not a proven null.
-The honest statement of the strongest datum is that P − C is +20.9 ± 32.6
-µs/step, whose 95% interval [−43.0, +84.9] does **not** exclude a 30 µs/step
-saving. What the data do establish is that the *point* estimate of the removal
-is zero or negative, that the independent synthetic ruler puts the whole ladder
-at 23.4 µs/step with a 95% upper bound of 31.9, and that two separate arguments
-(§4.4) say the ruler over-states what a removal recovers. Every line of evidence
-lands at or under the bar, none above it. Against that, the MMA implementation
-in §6 is projected to be **worse than the code it replaces** (32 slots/key vs 28
-today, ≈5% regression) unless the M5 matrix unit exceeds 1.5× scalar FMA
-throughput, which is publicly unverified.
+Under the advisor's earlier ~30 µs/step bar this was a **bounded negative**: the
+95% interval on the direct probe's saving, [−84.9, +43.0] µs/step, did not
+exclude a bar-clearing win. **The closed pricing bracket changes that.** With
+the bar at 54 µs/step of M4 wall:
 
-Spending the remaining Stage 1 allocation on a rewrite whose best case is a
-sub-bar saving and whose modelled case is a regression is not a good use of the
-box. Cancelling is the right call even though the null is not proven.
+- the direct removal probe's 95% **upper** bound on the saving is 43.0 µs/step
+  — **below** the bar;
+- the synthetic ruler's 95% **upper** bound is 31.9 µs/step (40.8 corrected) —
+  **below** the bar;
+- both estimators are independent of each other, and §4.4 gives two separate
+  reasons why a synthetic *addition* ruler over-states what a *removal*
+  recovers.
+
+So this is no longer only an expected-value decision. **Two independent
+estimators exclude a bar-clearing saving at 95%,** and they do so under the
+`τ = 1` assumption that is maximally favourable to my own hypothesis. The one
+caveat I keep: 95% exclusion is not proof, and the ruler prices *issue slots*,
+so a mechanism that removed the reduction's *latency* rather than its issue
+count is not bounded by this number.
+
+Against that ceiling, the MMA implementation in §6 is projected to be **worse
+than the code it replaces** (32 slots/key vs 28 today, ≈5% regression) unless
+the M5 matrix unit exceeds 1.5× scalar FMA throughput, which is publicly
+unverified. Spending Stage 1 on a rewrite whose 95%-optimistic case is 0.59× of
+the bar and whose modelled case is a regression is not a good use of the box.
 
 ### Three things that would change the verdict
 
@@ -498,6 +560,34 @@ lands on whichever arm is scheduled first. Six research drivers in this tree
 always schedule the control first, so their historical deltas are biased in the
 direction that **manufactures local wins**. Every future paired driver in this
 campaign should mirror the arm order across blocks, or drop slot 1.
+
+### Stage-0 checklist, answered in order
+
+1. **Reduce-vs-load in µs of M4 removed off the 249.5 µs pool** — table above.
+   Raw **2.339 ns/step per issue slot**; ladder **23.4 µs/step** wall (95% upper
+   31.9); **×1.28 corrected 29.9** (upper 40.8); **29.2 µs busy** (upper 39.9).
+   9.4% of the pool against a 27.2% requirement.
+2. **Params bolt-on, separately** — §"params memo" companion note. It is a
+   different mechanism class (host encode, `τ ≈ 1%`), so it is *not* additive
+   with item 1 at the same `τ` and I price it separately there. Pre-registered
+   11 µs/step (range 4–20) before measuring; measurement in flight.
+3. **Grid unchanged — proven, not asserted.** `git diff BASE -- Sources Vendor
+   benchmark.json Package.swift | grep -c '^[+-].*\(grid:\|threadGroup:\)'`
+   returns **0**. The full-attention dispatch at `LagunaRuntimeModel.swift:2547`
+   is still `grid ((heads/2)*1024, 1, 1)`, `threadGroup (1024, 1, 1)` = 24
+   threadgroups × 1024 threads. Every probe arm rewrites *in-kernel statements
+   only*; all four arms share one dispatch shape.
+4. **Non-empty submitted-surface diff** — `git diff --numstat BASE -- Sources
+   Vendor benchmark.json Package.swift` returns
+   `105  13  Sources/MLXFastModel/LagunaRuntimeModel.swift`.
+
+On the fourth item's *shape*: the brief asked for bulk in a new
+`Sources/MLXFastModel/LagunaFullAttnQKMMA.swift` with only registration and
+dispatch selection in LRM. **I did not create that file, because the verdict is
+`N-FULL-QK-CHEAP` and no MMA kernel is being written** — the file would be an
+empty shell. The LRM delta is the probe instrument (three probe source
+rewriters, a dose kernel generator, and a selector) plus the params memo, all of
+which are inert when their environment variables are unset.
 
 <!--VERDICT-->
 
