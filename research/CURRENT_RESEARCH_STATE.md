@@ -41,17 +41,49 @@
 > - The crown is a lucky paired draw off a byte-identical replay (§0.1).
 > - Published-score sd on identical code is **0.374 %**; the crown sits
 >   **+0.24 %** above the leader's own 19-receipt mean of **2.610307795**.
-> - A shot fired from a crown-equivalent executable therefore needs z ≈ 0.64 ⇒
->   **P ≈ 26 % per shot**, and the service turns around ≈1 shot / 22 min
+> - A shot fired from a **crown-equivalent** executable therefore needs z ≈ 0.64
+>   ⇒ **P ≈ 26 % per shot**, and the service turns around ≈1 shot / 22 min
 >   (**≈2.7 receipts/h**).
 >
-> **DOCTRINE — NEVER IDLE THE CHANNEL.** Fire a real candidate variant whenever
-> one is receipt-ready; otherwise fire an honest **nonce-variant replay** of the
-> best maple executable. The service dedupes byte-identical archives, so a
+> #### 0P.2a 🛑 CORRECTION — MAPLE'S EXECUTABLE IS *NOT* CROWN-EQUIVALENT
+>
+> I first propagated the 26 % figure to maple-fern and then checked it against
+> maple's own receipts. **It does not apply to us.** Public notes attribute three
+> of today's receipts to maple, all replays of the one `4b0e051b` editable
+> surface:
+>
+> | receipt | time | score |
+> |---|---|---:|
+> | `2771067` | 08:54 | 2.5938073513119 |
+> | `59d2418` | 10:42 | 2.58107301539733 |
+> | `2397aee` | 11:05 | 2.56572013933736 |
+>
+> Mean **2.58020**, sample sd **0.545 %**. The crown is **1.407 % above** that
+> mean ⇒ z = 3.76 at sd 0.374 % (**P ≈ 0.008 %/shot**) or z = 2.58 at sd 0.545 %
+> (**P ≈ 0.5 %/shot**). The 26 % came from cedar's `e27f1ce` (2.60665), which is
+> the *other campaign's* executable and unavailable to maple.
+>
+> **Revised doctrine.** Keep the channel busy — a shot costs only the 22 minutes
+> it would have idled — but a replay is now an **anchor measurement, not a
+> lottery ticket**. Its value is the candidate `decode_/prefill_seconds_per_token`
+> it returns. **A teammate's candidate arm always beats a replay.** Replay
+> mechanics are unchanged: the service dedupes byte-identical archives, so a
 > replay needs one trivial distinct byte (a nonce in a source comment), and the
-> public note **must honestly describe it as a replay/variant fired to sample
-> paired-draw variance** — never as an optimization. A variant shot buys the
-> lottery ticket *and* a 5σ measurement, which is why candidates beat replays.
+> public note **must honestly describe it as a replay/anchor** — never as an
+> optimization.
+>
+> **Strategic consequence:** closing ~1.4 % needs ≈200 µs/step of M4 decode wall
+> (at 0.0070 %/µs) or ≈3.8 ms off S (at 0.37 %/ms). Twenty ~0.07 % arms will not
+> arrive in the time left, so **weight the portfolio toward big-swing prefill
+> structure** (the 27.88 ms unattributed block) over micro-arms — while still
+> landing every non-negative micro-arm, since they compound and raise the mean.
+>
+> **OPEN AND URGENT: there is no receipt for maple's CURRENT frontier.** The
+> replays above are the r106e `4b0e051b` surface; everything merged since is
+> officially unmeasured, and the last promoted maple receipt is 2.588828 (8/6).
+> Whether we are 1.4 % or 0.4 % behind is unknown and decides the whole endgame.
+> maple-fern is ordered to fire an **anchor draw on advisor HEAD** as the first
+> shot after the queue clears.
 >
 > ### 0P.3 ⚠️ THE OFFICIAL QUEUE IS SHARED WITH A PARALLEL CAMPAIGN
 >
