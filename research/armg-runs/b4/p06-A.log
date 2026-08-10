@@ -1,0 +1,10 @@
+worker up in 43.9s ok=True
+diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.718002319335938 mlx_active_gb=33.02 mlx_cache_gb=0.00 mlx_peak_gb=36.11
+decode_begin seed forward: 551.81 ms
+DECODE_PHASE_START
+DECODE_PHASE_END
+teacher-forced greedy tokens: 0 divergences (all match)
+first 8 steps (ms): 9.488 8.381 8.257 8.325 8.300 8.262 8.239 8.261
+decode steps=200 mean=8.271 ms median=8.265 ms p10=8.215 ms p90=8.307 ms min=8.163 ms max=9.488 ms total=1.654 s
+diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.721527099609375 mlx_active_gb=33.10 mlx_cache_gb=1.08 mlx_peak_gb=36.11
+worker stderr -> research/armg-runs/b4/p06-A.err

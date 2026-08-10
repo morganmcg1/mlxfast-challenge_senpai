@@ -1,0 +1,10 @@
+worker up in 43.3s ok=True
+diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.718002319335938 mlx_active_gb=33.02 mlx_cache_gb=0.00 mlx_peak_gb=36.11
+decode_begin seed forward: 548.43 ms
+DECODE_PHASE_START
+DECODE_PHASE_END
+teacher-forced greedy tokens: 0 divergences (all match)
+first 8 steps (ms): 9.442 8.314 8.297 8.230 8.205 8.172 8.205 8.179
+decode steps=200 mean=8.234 ms median=8.221 ms p10=8.160 ms p90=8.305 ms min=8.113 ms max=9.442 ms total=1.647 s
+diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.72149658203125 mlx_active_gb=33.10 mlx_cache_gb=1.08 mlx_peak_gb=36.11
+worker stderr -> research/armg-runs/b4/p04-W.err

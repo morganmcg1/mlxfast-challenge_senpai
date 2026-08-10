@@ -5947,7 +5947,10 @@ final class LagunaRuntimeAttention: Module {
                 let fusedTailGateLogits: MLXArray? = nil
 
 
-                let fusedNormGate: (normalized: MLXArray, gate: MLXArray)?
+                let stockNormalized: MLXArray? =
+                    fusedQKV == nil && !lagunaNormFusedGateSoftplusPublishesNormalized
+                    ? inputNorm(input) : nil
+                let fusedNormGate: (normalized: MLXArray?, gate: MLXArray)?
                 if fusedQKV == nil, lagunaGateSoftplusEnabled,
                     lagunaFusedGatedAffineOProjEnabled,
                     lagunaGatedAffineOProjNVFP4Enabled,
@@ -5961,6 +5964,7 @@ final class LagunaRuntimeAttention: Module {
                 {
                     fusedNormGate = lagunaNormFusedGateSoftplus(
                         residual: input, normWeight: inputNorm.weight,
+                        normalizedInput: stockNormalized,
                         bank: affineGate, heads: nHeads)
                 } else {
                     fusedNormGate = nil
@@ -5968,7 +5972,8 @@ final class LagunaRuntimeAttention: Module {
                 let fusedNormalized =
                     lagunaNormFusedGateSoftplusPublishesNormalized
                     ? fusedNormGate?.normalized : nil
-                let normalized = fusedQKV ?? fusedNormalized ?? inputNorm(input)
+                let normalized =
+                    fusedQKV ?? fusedNormalized ?? stockNormalized ?? inputNorm(input)
                 let decodeNVFP4QKVR1 =
                     fusedQKV == nil
                     ? lagunaDecodeNVFP4QKVR1(

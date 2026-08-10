@@ -21,12 +21,26 @@ private let lagunaNormFusedGateSoftplusMode = ProcessInfo.processInfo.environmen
     "DARKBLOOM_NORM_FUSED_GATE_SP"] ?? "1"
 private let lagunaNormFusedGateSoftplusEnabled = lagunaNormFusedGateSoftplusMode != "0"
 
-/// Mode `2` runs the fused kernel and its `normalized` store but leaves the
-/// standalone pre-norm dispatch in place, so `normalized` still reaches the QKV
-/// matvec from `rmsbfloat16`. That measures the added prologue work without the
-/// new `gate_sp -> QKV` dependency edge the shipped fusion introduces, which is
-/// the only way to attribute a paired delta between the two.
-let lagunaNormFusedGateSoftplusPublishesNormalized = lagunaNormFusedGateSoftplusMode != "2"
+/// Only mode `1` lets the fused kernel be the sole producer of `normalized`.
+/// Modes `2`, `3`, and `4` keep the standalone pre-norm dispatch feeding the QKV
+/// matvec, so `gate_sp` never joins the QKV critical path; they exist to
+/// attribute the paired delta of mode 1 to its parts.
+///
+///   2  reduction restated in `gate_sp`, `normalized` still stored (unread)
+///   3  reduction restated in `gate_sp`, no `normalized` output at all
+///   4  no reduction: the shipped gate math at the fused kernel's geometry,
+///      still consuming `normalized` from `rmsbfloat16`
+///
+/// 4-vs-shipped is therefore the pure threadgroup-geometry contrast, 2-vs-4 the
+/// pure decoupling contrast, and 3-vs-2 the cost of the unread store.
+let lagunaNormFusedGateSoftplusPublishesNormalized = lagunaNormFusedGateSoftplusMode == "1"
+
+/// True when the caller must materialise `rmsbfloat16`'s output and hand it to
+/// the fused kernel instead of the residual.
+let lagunaNormFusedGateSoftplusConsumesNormalized = lagunaNormFusedGateSoftplusMode == "4"
+
+private let lagunaNormFusedGateSoftplusEmitsNormalized = lagunaNormFusedGateSoftplusMode == "1"
+    || lagunaNormFusedGateSoftplusMode == "2"
 
 /// Simdgroups per threadgroup and gate rows per simdgroup. The reduction, the
 /// matvec, and the dispatch geometry are all written against these.
@@ -64,14 +78,14 @@ if (sg == 0) {
 threadgroup_barrier(mem_flags::mem_threadgroup);
 const float laguna_inv_mean = laguna_norm_inv[0];
 {
-    const bool laguna_emit = (tile == 0);
+    LAGUNA_EMIT_SETUP
     for (uint chunk = 0; chunk < CPS; ++chunk) {
         const uint base = (sg * CPS + chunk) * 128 + lane * 4;
         for (uint i = 0; i < 4; ++i) {
             const bfloat v = bfloat(
                 norm_weight[base + i] * bfloat(float(residual[base + i]) * laguna_inv_mean));
             laguna_norm_x[base + i] = v;
-            if (laguna_emit) { normalized[base + i] = v; }
+            LAGUNA_EMIT_STORE
         }
     }
 }
@@ -79,14 +93,31 @@ threadgroup_barrier(mem_flags::mem_threadgroup);
 """
 
 private func lagunaNormFusedGateSoftplusSource(heads: Int) -> String {
-    """
+    let prologue: String
+    let load: String
+    if lagunaNormFusedGateSoftplusConsumesNormalized {
+        prologue = ""
+        load = "normalized_in[col+i]"
+    } else {
+        let emits = lagunaNormFusedGateSoftplusEmitsNormalized
+        prologue =
+            lagunaNormFusedGateSoftplusPrologue
+            .replacingOccurrences(
+                of: "LAGUNA_EMIT_SETUP",
+                with: emits ? "const bool laguna_emit = (tile == 0);" : "")
+            .replacingOccurrences(
+                of: "LAGUNA_EMIT_STORE",
+                with: emits ? "if (laguna_emit) { normalized[base + i] = v; }" : "")
+        load = "laguna_norm_x[col+i]"
+    }
+    return """
 constexpr uint K=\(LagunaConstants.hiddenSize),GS=32,V=8;
 constexpr uint BK=V*32,R=\(lagunaNormFusedGateSoftplusRowsPerSimdgroup);
 constexpr uint NS=\(lagunaNormFusedGateSoftplusSimdgroups),KG=K/GS,SS=GS/V;
 uint tile=threadgroup_position_in_grid.x;
 uint sg=simdgroup_index_in_threadgroup;
 uint lane=thread_index_in_simdgroup;
-\(lagunaNormFusedGateSoftplusPrologue)
+\(prologue)
 uint orow=tile*(NS*R)+sg*R;
 const device uint8_t* ws=(const device uint8_t*)packed_codes+orow*K+lane*V;
 const device bfloat* sc=scales+orow*KG+lane/SS;
@@ -98,7 +129,7 @@ uint col=lane*V;
 for(uint k=0;k<K;k+=BK){
     float sum=0.0f;
     for(uint i=0;i<V;++i){
-        x[i]=float(laguna_norm_x[col+i]);
+        x[i]=float(\(load));
         sum+=x[i];
     }
     for(uint row=0;row<R;++row){
@@ -127,12 +158,22 @@ for(uint row=0;row<R;++row){
 }
 
 private let lagunaNormFusedGateSoftplusKernels: [Int: MLXFast.MLXFastKernel] = {
+    let inputNames =
+        lagunaNormFusedGateSoftplusConsumesNormalized
+        ? ["normalized_in", "packed_codes", "scales", "biases"]
+        : ["residual", "norm_weight", "packed_codes", "scales", "biases"]
+    let outputNames =
+        lagunaNormFusedGateSoftplusEmitsNormalized
+        ? ["gate_values", "normalized"] : ["gate_values"]
+    let suffix =
+        lagunaNormFusedGateSoftplusConsumesNormalized
+        ? "geom" : (lagunaNormFusedGateSoftplusEmitsNormalized ? "emit" : "noemit")
     var result: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
         result[heads] = MLXFast.metalKernel(
-            name: "laguna_gate_sp_rms_h\(heads)_v1",
-            inputNames: ["residual", "norm_weight", "packed_codes", "scales", "biases"],
-            outputNames: ["gate_values", "normalized"],
+            name: "laguna_gate_sp_rms_\(suffix)_h\(heads)_v1",
+            inputNames: inputNames,
+            outputNames: outputNames,
             source: lagunaNormFusedGateSoftplusSource(heads: heads),
             ensureRowContiguous: true)
     }
@@ -144,8 +185,9 @@ private let lagunaNormFusedGateSoftplusKernels: [Int: MLXFast.MLXFastKernel] = {
 /// fused path does not apply, in which case the caller must keep the two-kernel
 /// form.
 func lagunaNormFusedGateSoftplus(
-    residual: MLXArray, normWeight: MLXArray, bank: LagunaNativeAffineWeight, heads: Int
-) -> (normalized: MLXArray, gate: MLXArray)? {
+    residual: MLXArray, normWeight: MLXArray, normalizedInput: MLXArray?,
+    bank: LagunaNativeAffineWeight, heads: Int
+) -> (normalized: MLXArray?, gate: MLXArray)? {
     let rowsPerTile =
         lagunaNormFusedGateSoftplusSimdgroups * lagunaNormFusedGateSoftplusRowsPerSimdgroup
     guard lagunaNormFusedGateSoftplusEnabled,
@@ -166,12 +208,25 @@ func lagunaNormFusedGateSoftplus(
         biases.dims(heads, LagunaConstants.hiddenSize / 32)
     else { return nil }
 
+    var inputs: [MLXArray] = [bank.packedCodes, bank.scales, biases]
+    if lagunaNormFusedGateSoftplusConsumesNormalized {
+        guard let normalizedInput,
+            normalizedInput.dtype == .bfloat16,
+            normalizedInput.dims(1, 1, LagunaConstants.hiddenSize)
+        else { return nil }
+        inputs.insert(normalizedInput, at: 0)
+    } else {
+        inputs.insert(contentsOf: [residual, normWeight], at: 0)
+    }
+
+    let emits = lagunaNormFusedGateSoftplusEmitsNormalized
     let threadsPerTile = 32 * lagunaNormFusedGateSoftplusSimdgroups
     let outputs = kernel(
-        [residual, normWeight, bank.packedCodes, bank.scales, biases],
+        inputs,
         grid: ((heads / rowsPerTile) * threadsPerTile, 1, 1),
         threadGroup: (threadsPerTile, 1, 1),
-        outputShapes: [[1, 1, heads], [1, 1, LagunaConstants.hiddenSize]],
-        outputDTypes: [.bfloat16, .bfloat16])
-    return (normalized: outputs[1], gate: outputs[0])
+        outputShapes: emits
+            ? [[1, 1, heads], [1, 1, LagunaConstants.hiddenSize]] : [[1, 1, heads]],
+        outputDTypes: emits ? [.bfloat16, .bfloat16] : [.bfloat16])
+    return (normalized: emits ? outputs[1] : nil, gate: outputs[0])
 }
