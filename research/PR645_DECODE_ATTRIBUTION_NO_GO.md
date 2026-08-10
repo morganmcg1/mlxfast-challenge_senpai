@@ -21,7 +21,7 @@ and no official submission was made.
 
 ## Scope and environment
 
-- Advisor base: `f7cf412e910a8f937f13b25828ca9b952ecf20f6`
+- Advisor base: `41d686f15eafda68d9f77905997dab6d78dfdcda`
   (advanced through research documentation only; production source unchanged)
 - Production-source base: `16d3730253eeb9809d306dda8b4777cbcb68e1da`
 - Final restoration commit: `e0b931bbffadfec680d5e08ae937978da5684687`
