@@ -2443,20 +2443,6 @@ private let lagunaFullFusedAttentionQKBroadcastProbeSource: String =
         "\($0) = simd_broadcast_first(\($0));"
     }
 
-/// Research-only upper-bound probe, and unlike the broadcast arm it is
-/// bit-exact: after `simd_sum` every lane holds the same sum S, scaling by
-/// 2^-5 and re-doubling through a five-stage butterfly reproduces S with no
-/// rounding. It roughly doubles reduction cost, so the two probes bracket the
-/// ladder's price from both sides and cross-check the instrument's linearity.
-private let lagunaFullFusedAttentionQKDoseProbeSource: String =
-    lagunaFullFusedAttentionQKProbeSource { name in
-        var out = "\(name) = simd_sum(\(name)) * 0.03125f;"
-        for mask in [1, 2, 4, 8, 16] {
-            out += " \(name) += simd_shuffle_xor(\(name), ushort(\(mask)));"
-        }
-        return out
-    }
-
 private let lagunaFullFusedAttentionQKBroadcastProbeKernel =
     MLXFast.metalKernel(
         name: "laguna_full_fused_attn_grow_qkbcast_probe_v1",
@@ -2467,22 +2453,48 @@ private let lagunaFullFusedAttentionQKBroadcastProbeKernel =
         ensureRowContiguous: true
     )
 
-private let lagunaFullFusedAttentionQKDoseProbeKernel =
-    MLXFast.metalKernel(
-        name: "laguna_full_fused_attn_grow_qkdose_probe_v1",
+/// Research-only dose-response probe, and unlike the broadcast arm it is
+/// bit-exact: after `simd_sum` every lane holds the same sum S, so scaling by
+/// 2^-5 and re-doubling through a five-stage shuffle butterfly reproduces S
+/// with no rounding, `reps` times over. Each repetition adds about eleven issue
+/// slots per site, so sweeping `reps` measures the kernel's marginal price per
+/// ALU slot even when a single ladder's worth of work sits below run-to-run
+/// noise. `simd_sum` is retained so the arm brackets the shipped kernel from
+/// above while staying a legal, correctness-passing configuration.
+private func lagunaFullFusedAttentionQKDoseProbeKernel(
+    reps: Int
+) -> MLXFast.MLXFastKernel {
+    precondition(reps >= 1, "dose probe needs at least one repetition")
+    let source = lagunaFullFusedAttentionQKProbeSource { name in
+        var out = "\(name) = simd_sum(\(name));"
+        for _ in 0 ..< reps {
+            out += " \(name) *= 0.03125f;"
+            for mask in [1, 2, 4, 8, 16] {
+                out += " \(name) += simd_shuffle_xor(\(name), ushort(\(mask)));"
+            }
+        }
+        return out
+    }
+    return MLXFast.metalKernel(
+        name: "laguna_full_fused_attn_grow_qkdose\(reps)_probe_v1",
         inputNames: lagunaFullFusedAttentionKernelInputNames,
         outputNames: ["attended"],
-        source: lagunaFullFusedAttentionQKDoseProbeSource,
+        source: source,
         header: lagunaFullFusedAttentionKernelHeader,
         ensureRowContiguous: true
     )
+}
 
 private let lagunaFullFusedAttentionActiveKernel: MLXFast.MLXFastKernel = {
-    switch lagunaFullFusedAttentionQKProbeMode {
-    case "bcast": return lagunaFullFusedAttentionQKBroadcastProbeKernel
-    case "dose": return lagunaFullFusedAttentionQKDoseProbeKernel
-    default: return lagunaFullFusedAttentionKernel
+    let mode = lagunaFullFusedAttentionQKProbeMode
+    if mode == "bcast" { return lagunaFullFusedAttentionQKBroadcastProbeKernel }
+    if mode.hasPrefix("dose") {
+        guard let reps = Int(mode.dropFirst(4)) else {
+            preconditionFailure("QK probe mode \(mode) needs a dose repetition count")
+        }
+        return lagunaFullFusedAttentionQKDoseProbeKernel(reps: reps)
     }
+    return lagunaFullFusedAttentionKernel
 }()
 
 
