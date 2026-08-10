@@ -4919,10 +4919,11 @@ private let lagunaDecodeNVFP4QKVR1NarrowKernels: [Int: MLXFast.MLXFastKernel] = 
 
 
 
-private func lagunaDecodeNVFP4QKVLaneMajorSource(pairwise: Bool) -> String {
+private func lagunaDecodeNVFP4QKVLaneMajorSource(pairwise: Bool, simdgroups: Int) -> String
+{
     """
 constexpr uint axis_size = 2048;
-constexpr uint num_simdgroups = 2;
+constexpr uint num_simdgroups = \(simdgroups);
 constexpr uint values_per_thread = 16;
 constexpr uint block_size = 512;
 constexpr uint in_vec_size_w = axis_size / 2;
@@ -4978,25 +4979,48 @@ if (simd_lid == 0) {
 """
 }
 
-private let lagunaDecodeNVFP4QKVLaneMajorKernels: [Int: MLXFast.MLXFastKernel] = {
+private func lagunaDecodeNVFP4QKVLaneMajorKernelSet(simdgroups: Int, suffix: String)
+    -> [Int: MLXFast.MLXFastKernel]
+{
     var kernels: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
         kernels[heads] = MLXFast.metalKernel(
             name: "laguna_decode_nvfp4_qkv_h\(heads)_r1_v1_lm1"
                 + (lagunaAttnScalePairwiseQKVEnabled ? "_pw1" : "")
                 + (lagunaTailNVFP4QKVSeedElisionEnabled ? "_se1" : "")
-                + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : ""),
+                + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : "")
+                + suffix,
             inputNames: [
                 "normalized", "weight_codes", "scale_nibbles", "scale_bases",
                 "weight_scales",
             ],
             outputNames: ["projected"],
             source: lagunaDecodeNVFP4QKVLaneMajorSource(
-                pairwise: lagunaAttnScalePairwiseQKVEnabled),
+                pairwise: lagunaAttnScalePairwiseQKVEnabled, simdgroups: simdgroups),
             header: lagunaTailNVFP4QMVHeader,
             ensureRowContiguous: true)
     }
     return kernels
+}
+
+private let lagunaDecodeNVFP4QKVLaneMajorKernels: [Int: MLXFast.MLXFastKernel] =
+    lagunaDecodeNVFP4QKVLaneMajorKernelSet(simdgroups: 2, suffix: "")
+
+/// Research selector (unset or 0 keeps the shipped 2-simdgroup dispatch and its
+/// original pipeline name). Each value gets its own `_sgN` pipeline name so the
+/// MLX JIT library cache is not keyed on a name whose source changed.
+let lagunaDecodeQKVLaneMajorSimdgroups: Int = {
+    guard
+        let raw = ProcessInfo.processInfo.environment["DARKBLOOM_QKV_LM_SG"],
+        let value = Int(raw), [2, 4, 8, 16].contains(value)
+    else { return 0 }
+    return value
+}()
+
+private let lagunaDecodeNVFP4QKVLaneMajorSGKernels: [Int: MLXFast.MLXFastKernel] = {
+    let sg = lagunaDecodeQKVLaneMajorSimdgroups
+    guard sg > 0 else { return [:] }
+    return lagunaDecodeNVFP4QKVLaneMajorKernelSet(simdgroups: sg, suffix: "_sg\(sg)")
 }()
 
 private func lagunaDecodeNVFP4QKVR1(
@@ -5022,18 +5046,31 @@ private func lagunaDecodeNVFP4QKVR1(
         lane.pairwise == lagunaAttnScalePairwiseQKVEnabled,
         lane.nibbles.dtype == .uint8,
         lane.nibbles.dims(rows, hidden / (lane.pairwise ? 64 : 32)),
-        lane.bases.dtype == .uint8, lane.bases.dims(rows),
-        let kernel = lagunaDecodeNVFP4QKVLaneMajorKernels[heads]
+        lane.bases.dtype == .uint8, lane.bases.dims(rows)
     {
-        lagunaTrace("decode nvfp4 qkv r1 h\(heads) lane-major")
-        lagunaNarrowScaleLog.noteDispatch("lane-major", "qkv h\(heads)")
-        return kernel(
-            [normalized, bank.packedCodes, lane.nibbles, lane.bases, bank.scales],
-            grid: ((rows / 2) * 64, 1, 1),
-            threadGroup: (64, 1, 1),
-            outputShapes: [[1, 1, rows]],
-            outputDTypes: [.bfloat16]
-        )[0]
+        let sg = lagunaDecodeQKVLaneMajorSimdgroups
+        if sg > 0, rows % sg == 0, let kernel = lagunaDecodeNVFP4QKVLaneMajorSGKernels[heads] {
+            lagunaTrace("decode nvfp4 qkv r1 h\(heads) lane-major sg\(sg)")
+            lagunaNarrowScaleLog.noteDispatch("lane-major", "qkv h\(heads)")
+            return kernel(
+                [normalized, bank.packedCodes, lane.nibbles, lane.bases, bank.scales],
+                grid: ((rows / sg) * 32 * sg, 1, 1),
+                threadGroup: (32 * sg, 1, 1),
+                outputShapes: [[1, 1, rows]],
+                outputDTypes: [.bfloat16]
+            )[0]
+        }
+        if let kernel = lagunaDecodeNVFP4QKVLaneMajorKernels[heads] {
+            lagunaTrace("decode nvfp4 qkv r1 h\(heads) lane-major")
+            lagunaNarrowScaleLog.noteDispatch("lane-major", "qkv h\(heads)")
+            return kernel(
+                [normalized, bank.packedCodes, lane.nibbles, lane.bases, bank.scales],
+                grid: ((rows / 2) * 64, 1, 1),
+                threadGroup: (64, 1, 1),
+                outputShapes: [[1, 1, rows]],
+                outputDTypes: [.bfloat16]
+            )[0]
+        }
     }
     if let narrow = bank.narrowScales,
         narrow.nibbles.dtype == .uint8, narrow.nibbles.dims(rows, hidden / 32),

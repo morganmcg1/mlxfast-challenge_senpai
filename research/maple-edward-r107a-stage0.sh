@@ -10,12 +10,23 @@
 set -uo pipefail
 
 MODE="${1:-full}"
+# SITE=routed drives the routed gate/up packing kernel (stage 1); SITE=qkv
+# drives the decode QKV lane-major kernel (stage A / "L3").
+SITE="${SITE:-routed}"
 SNAP="${SNAP:-/tmp/maple-r107a-snap}"
 OUT="${OUT:-/tmp/maple-r107a/stage0}"
 PARITY_STEPS="${PARITY_STEPS:-96}"
 # 1 is not an accepted selector value, so it must resolve to the untouched
 # shipped path; the receipt is what proves the `null1` arm is that path.
 GEOM_SG_LIST="${GEOM_SG_LIST:-1 2 4 8 16}"
+PARITY_SG_LIST="${PARITY_SG_LIST:-2 4 8 16}"
+case "${SITE}" in
+  routed) SEL_VAR=DARKBLOOM_ROUTED_GATEUP_SG; GEOM_MODE=geom; FAULT_MODE=fault
+    GEOM_TAG=R107GEOM ;;
+  qkv) SEL_VAR=DARKBLOOM_QKV_LM_SG; GEOM_MODE=geomqkv; FAULT_MODE=faultqkv
+    GEOM_TAG=R107QKVGEOM ;;
+  *) echo "SITE must be routed|qkv" >&2; exit 2 ;;
+esac
 mkdir -p "${OUT}"
 
 if ! git diff --quiet -- Sources Vendor; then
@@ -39,8 +50,8 @@ build_variant() {
 if [ "${MODE}" != geom-only ]; then
   NAME=new SNAP="${SNAP}" bash research/maple-edward-r107a-build.sh \
     || { echo "candidate build failed" >&2; exit 3; }
-  build_variant geom geom || { echo "geom build failed" >&2; exit 3; }
-  build_variant fault fault || { echo "fault build failed" >&2; exit 4; }
+  build_variant "${GEOM_MODE}" geom || { echo "geom build failed" >&2; exit 3; }
+  build_variant "${FAULT_MODE}" fault || { echo "fault build failed" >&2; exit 4; }
 fi
 
 DIGEST_AFTER="$(find Sources Vendor -type f -print0 | sort -z \
@@ -54,7 +65,7 @@ echo "digest_after=${DIGEST_AFTER}"
 probe() {  # tag snapshot steps [SG]
   local tag="$1" snap="$2" steps="$3" sg="${4:-}"
   local ev=()
-  [ -n "${sg}" ] && ev=(DARKBLOOM_ROUTED_GATEUP_SG="${sg}")
+  [ -n "${sg}" ] && ev=("${SEL_VAR}=${sg}")
   echo "=== ${tag} (snapshot=${snap} steps=${steps} sg=${sg:-unset}) ==="
   env ${ev[@]+"${ev[@]}"} \
     DECODE_PROBE_WORKER="${SNAP}/${snap}/mlxfast-runtime-worker" \
@@ -65,7 +76,7 @@ probe() {  # tag snapshot steps [SG]
   echo "  probe_rc=${PROBE_RC}"
   grep -E "^teacher-forced|^decode steps=" "${OUT}/${tag}.log" \
     || { echo "  (no summary)"; tail -3 "${OUT}/${tag}.err"; }
-  grep -o '^R107GEOM .*' "${OUT}/${tag}.err" | head -1
+  grep -o "^${GEOM_TAG} .*" "${OUT}/${tag}.err" | head -2
   awk '/^R107SRC_BEGIN$/{f=1;next} /^R107SRC_END$/{f=0} f' "${OUT}/${tag}.err" \
     | head -400 >"${OUT}/${tag}.metal"
   if [ -s "${OUT}/${tag}.metal" ]; then
@@ -85,13 +96,12 @@ if [ "${MODE}" = geom-only ]; then echo "########## done (geom-only) ##########"
 
 echo "########## B. greedy token parity on the shipped candidate ##########"
 probe parity-base new "${PARITY_STEPS}"
-for s in 2 4 8 16; do probe "parity-sg${s}" new "${PARITY_STEPS}" "${s}"; done
+for s in ${PARITY_SG_LIST}; do probe "parity-sg${s}" new "${PARITY_STEPS}" "${s}"; done
 echo "--- token stream checksums (must all be equal) ---"
 cksum "${OUT}"/parity-*.tokens | awk '{print $1, $3}'
 awk '{print $1}' <(cksum "${OUT}"/parity-*.tokens) | sort -u | wc -l \
   | xargs -I{} echo "distinct parity token checksums: {} (must be 1)"
 
 echo "########## C. store-row negative control (MUST fail) ##########"
-probe fault-sg8 fault "${PARITY_STEPS}" 8
-probe fault-sg16 fault "${PARITY_STEPS}" 16
+for s in ${FAULT_SG_LIST:-8 16}; do probe "fault-sg${s}" fault "${PARITY_STEPS}" "${s}"; done
 echo "########## done ##########"
