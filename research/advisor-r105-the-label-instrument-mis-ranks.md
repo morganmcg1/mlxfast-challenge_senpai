@@ -255,6 +255,69 @@ and it is the outcome I would bet against but must not exclude.
   directly by the A/A null.
 - **M6 — instruction/shader-cache boundary.** The pf1 kernel binary is +905 B
   (52,359 → 53,264 B). Bounded, not excluded.
+- **🆕 M7 — the step is `L`-dominated, and the label instrument only sees
+  `B/BW`.** Added by 105-E (see §4.1 below). Not a rival to M1; it is the
+  *reason* a mechanism of M1's shape can produce a sign flip of this size.
+
+### §4.1 🆕 105-E supplies the missing mechanism: `T = B/BW + L`
+
+Round 105-E (fern, PR #609, merged) fitted the decode step to
+`T = B/BW + L` on both hosts and found that fixed non-DRAM time is not a
+rounding term:
+
+| host | step `T` µs | DRAM term `B/BW` µs | **`L`** µs |
+|---|---:|---:|---:|
+| M4, wall | 8233.0 | 6404.6 | **1828.4** |
+| M5, ranked step | 4141.5 | 2773.1 | **1368.4** |
+
+`L` is **22.2 % of the M4 step and 33.0 % of the M5 step**. That is the fact
+this note has been missing.
+
+**Why it resolves the puzzle.** The per-kernel label instrument measures a
+kernel's own occupancy of the GPU — essentially its `B/BW` term plus whatever
+serialisation lives *inside* the kernel. It cannot see `L` that the kernel
+*causes* outside its own label: a stall it imposes on the next kernel's
+dependency chain, a barrier it pushes later, a memory burst that collides with
+a neighbour's. Under a pure bandwidth model, a lever that lowers a kernel's own
+label by 6.4 µs while raising the end-to-end step by 34.6 µs is inexplicable —
+which is exactly why this note was written as a paradox. Under `T = B/BW + L`
+it is ordinary arithmetic: **a lever that reduces `B/BW` while increasing `L`
+by more produces exactly this sign flip.** The router prefetch peel is a
+textbook instance — it front-loads weight loads to shorten the kernel's own
+memory phase, and the archive's own byte accounting
+(`RESEARCH_ARCHIVE_through-round-91.md:5020-5072`) says the bytes it moves are
+**L2-served, not DRAM traffic**, so the `B/BW` it "saves" was largely not DRAM
+time to begin with, while the barriers it moves are pure `L`.
+
+**Three closed families, three anomalies, one mechanism.** Fern noted the
+consistency without claiming to have measured it, and I am promoting it to
+doctrine because it is the only account that covers all three:
+
+| case | label / isolated instrument said | end-to-end said | status before 105-E |
+|---|---|---|---|
+| **#558 / #571 router prefetch** | −6.39 µs/step (12/12) | **+34.58 µs/step, 7/7, 21/21, p = 2⁻²⁰** | this note's paradox |
+| **#215 gather-GEMM BK=64 k-loop pipeline** | fewer issued loads per k-iteration | **+0.684 ms slower (+1.52σ)** ⇒ family closure | "unexplained null/regression" |
+| **#40 double-buffered `Ws` / register prefetch** | strictly fewer stalls by construction | **null** | "unexplained null" |
+
+All three are *reorderings that shorten a kernel's own memory phase at the cost
+of holding more state across more barriers*. All three lost. **The mechanism is
+not mysterious; the instrument was.**
+
+**⇒ Standing consequence.** A lever that only moves `B/BW` inside one kernel
+must be priced end-to-end before it is believed, and a lever that plausibly
+adds barriers, live registers, or dependency depth must be *assumed* to add `L`
+until an end-to-end measurement says otherwise. This is the mechanistic
+justification for Rule 82b, which §2.2 above stated as a bare prohibition.
+105-E §8 also sharpens Rule 82b in the other direction: the `SPLIT=1` label sum
+reproduces same-session `gpu_busy_sum` to **0.3 µs on 8528 µs**, so labels are
+**admissible for a within-kernel efficiency *ratio* in a single session** (a
+uniform inflation cancels) and **inadmissible for pricing a lever**. The
+inflation is now quantified: **`SPLIT=1` inflates busy by 1.074×** — distinct
+from the ≈4.2× it inflates the *inter-dispatch gap* (r93-C). Do not
+interchange the two factors.
+
+Cross-reference: `research/maple-fern-r105e-decode-bandwidth-efficiency.md` §7
+and §8; `research/advisor-r105-the-routed-gather-gemm-is-memory-bound.md` §3.4.
 
 ---
 

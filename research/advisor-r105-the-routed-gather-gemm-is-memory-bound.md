@@ -252,6 +252,156 @@ Cross-references: 105-D §2.4 (`research/maple-fern-r105d-decode-dispatch-census
 `research/advisor-r105-the-decode-step-is-half-empty.md` §4.0b and §4.0d;
 Rule 80 and Rule 84 in `research/CURRENT_RESEARCH_STATE.md`.
 
+### 3.4 🔴🔴 AMENDMENT (105-E, PR #609, merged): "% of peak bandwidth" was the wrong instrument, and my M4 comparison number was wrong
+
+Section 3.3 above closes with a decode row that reads **403.6 GB/s = 66.2 % of
+Rule 80's 610 GB/s**, and elsewhere in this campaign I paired it against an M4
+figure of **79.05 %** to argue that the *same byte stream* extracts markedly
+less of the available bandwidth on the ranked machine than on the local one.
+I assigned round 105-E (fern, PR #609) to find out why. It found out. The
+hypothesis is **false**, and two separate things I wrote were wrong.
+
+**Correction 1 — the 79.05 % M4 number is a mixed-axis artefact. RETRACTED.**
+It divides bytes and labels taken from the `SPLIT=1` PR #488 session by a
+**busy** time (7940 µs) taken from a *different, non-`SPLIT`* session
+(`research/maple-nezuko-r93-c-stall-structure-census.md:136`;
+`nezuko-pr158-decode-dead-time.md:1401,1606`). Three distinct M4 quantities
+exist and I silently mixed two of them:
+
+| M4 quantity | µs/step | implied GB/s | % of Rule-80 266.3 |
+|---|---:|---:|---:|
+| busy, non-`SPLIT` | 7940.0 | 210.5 | 79.05 ← **what I quoted. WRONG.** |
+| **wall, matched to the M5 step definition** | **8233.0** | **203.0** | **76.23** ← the correct comparand |
+| `SPLIT=1` label sum | 8528.3 | 195.98 | 73.59 |
+
+The M4 wall provenance is
+`research/maple-frieren-r103a-missing-microseconds.md:2076-2078` (three arms at
+8245.4 / **8233.0** / 8267.6 µs), corroborated twice at ≈8247
+(`research/fern-r105c-gate-surface-masking-audit.md:135-137`;
+`research/advisor-r105-the-decode-step-is-half-empty.md:90-92`). Fern's
+reconciliation also fixes the size of the `SPLIT=1` distortion in the *busy*
+channel specifically: **`SPLIT=1` inflates busy time by 8528.3/7940.0 = 1.074×**
+(this is a different and much smaller factor than the ≈4.2× inflation r93-C
+measured in the *inter-dispatch gap*; both are real, they are not the same
+number, and neither may be used in place of the other).
+
+**⇒ The gap I asked her to explain is 10.07 points, not 12.9. Naive M4 parity
+on the ranked machine is worth `+8.33 %` of `cs`, not `+10.25 %`. 1.92 % of
+`cs` — 18.7 % of my own headline — was a measurement artefact I manufactured.**
+
+**New rule (j): never compare a busy-derived rate against a wall-derived rate.**
+Bytes, labels, busy and wall are four different clocks. Fix one axis for the
+whole comparison and say in the sentence which one it is.
+
+**Correction 2 — the ratio itself is the wrong instrument.** Fit
+`T = B/BW + L`, where `L` is fixed non-DRAM time, and the "efficiency gap"
+mostly evaporates:
+
+| host | step `T` µs | DRAM term `B/BW` µs | **`L`** µs | `B/BW` as % of `T` |
+|---|---:|---:|---:|---:|
+| M4, wall | 8233.0 | 6404.6 | **1828.4** | 77.79 % |
+| M4, busy (non-`SPLIT`) | 7940.0 | 6404.6 | 1535.4 | 80.66 % |
+| M4, `SPLIT=1` labels | 8528.3 | 6404.6 | 2123.7 | 75.10 % |
+| **M5, ranked step** | **4141.5** | **2773.1** | **1368.4** | **66.96 %** |
+
+`L5 / L4(wall) = 0.748`. **M5's non-DRAM time is 25 % *smaller* in absolute
+microseconds.** The efficiency percentage falls only because the DRAM term
+shrank 2.31× while `L` shrank 1.34× — this is **Amdahl's law acting on a
+non-scaling component. It is arithmetic, not a deficiency.** The counterfactual
+settles it: an M5 carrying M4's `L` would run 2773.1 + 1828.4 = **4601.5 µs at
+60.27 %**; the actual M5 runs 4141.5 µs at 66.96 %. **M5 is ~6.7 points *better*
+than transferring M4's behaviour predicts, not 12.9 points worse.**
+
+**The `L5 < L4` conclusion is unconditional**, and does not depend on fern's
+projected M5 pattern ceiling of 602.7 GB/s. With `B = 1,671,402,432` fixed: at
+**100 %** of Rule 80's M5 peak (610 GB/s) `B/BW = 2740.0 µs`, so
+**`L5 ≤ 1401.5 µs` always**; at Rule 80's M4 peak (266.3 GB/s)
+`B/BW = 6276.2 µs`, so **`L4(wall) ≥ 1956.8 µs`**, and at the measured M4
+pattern ceiling `L4 = 1828.4 µs`. For `L5 ≥ L4` to hold, M5's true achievable
+bandwidth on this pattern would have to exceed **722.6 GB/s**
+(`B / (4141.5 − 1828.4)`). Rule 80 records 610 measured / 614 nominal, and even
+the *unmeasured* 686.2 GB/s geometry-corrected conjecture — which §3.3's
+discipline 2 above already flags as the direction that weakens every
+memory-bound claim here — sits below that break-even. **There is no admissible
+bandwidth constant under which M5 is the less efficient host.**
+
+**Apportionment of the (now 8.33 %, formerly 10.257 %) claimed prize.** Fern's
+§6.2 splits my three-way trichotomy — (D) access pattern, (B) byte model, (P)
+parallelism — and finds a fourth bucket I had not allowed for:
+
+| bucket | µs/step (M5) | % of `cs` | share | basis |
+|---|---:|---:|---:|---|
+| (D) access pattern | **0** | 0.000 | 0 % | an `nvfp4_qmv` replica runs at **98.0 %** of Rule-80 M4 peak |
+| (D) measurement axis | 126.4 | **1.925** | 18.8 % | the busy-vs-wall category error above |
+| (B) byte model | **0** | 0.000 | 0 % | MSL-exact for 85 % of step bytes |
+| (P) parallelism | ≤101.6 | **≤1.548** | ≤15.1 % | occupancy derating; best estimate **0.545 %** |
+| **(L) fixed non-DRAM** *(not in my trichotomy)* | **445.5** | **6.784** | **66.2 %** | residual — the part of `L5` that M4 parity would have to erase |
+
+**⇒ Two thirds of what I framed as a bandwidth-efficiency deficit is fixed
+non-DRAM time, and one fifth was my own arithmetic.**
+
+**What this kills.** Three whole classes of decode arm are now closed:
+
+* **Any "M5 extracts less bandwidth than M4" argument.** It is Amdahl
+  arithmetic on an `L` term that is *already smaller* on M5.
+* **Any decode arm premised on an NVFP4 / gather access-pattern derating.**
+  Fern's synthetic probe measured M4 stream peak at **263.12 GB/s** (98.8 % of
+  Rule 80; within 0.06 % of r101's independent 262.98) and a faithful
+  `nvfp4_qmv` replica — 64-thread threadgroups, `uint2` lane loads, per-row
+  scale bases — at **260.97 GB/s = 99.2 % of stream peak**. Slab gather costs
+  ≤4 %. **64-thread threadgroups are not a bandwidth handicap** (`stream_tg64`
+  = 99.1 % of stream peak). There is no pattern penalty to recover.
+* **Any decode arm premised on a compressible re-read stream.** Every buffer
+  larger than the ~24 MiB SLC shows amplification **exactly 1.00** —
+  `fused_weight` 64 MiB, `down_weight` 32 MiB, `codes_base` 98 MiB,
+  `routed_down_weight` 128 MiB — because row partitions are disjoint by
+  construction. The 2–5× amplification factors that *do* appear
+  (`nvfp4_qkv_h64` 4.93×, `lmhead_int5_base_coarse_delta` 4.77×,
+  `sliding_fused_attn_ring` 4.01×) are all on 4 KiB–1 MiB buffers served by L1
+  or L2. Fern measured the point directly: replaying a shared 4 KB activation
+  once per simdgroup drove *issued* bandwidth to 752 GB/s (2.88×) at a cost of
+  **0.45 µs out of 4371 = 0.010 %**. **New rule (k): re-read "savings" on a
+  sub-SLC buffer are not DRAM savings.** This is the same physics the archive
+  already recorded for the router weight bank at
+  `RESEARCH_ARCHIVE_through-round-91.md:5020-5072` (issued/unique = 1.36×,
+  L2-served, "a DRAM roofline does not bind this kernel") — 105-E confirms it
+  by measurement across thirteen families.
+
+**And the byte-carrying families are already at the roofline.** Eight families
+carrying **85.2 % of all step bytes** run at **89.7 % of Rule-80 peak** in
+aggregate: `lmhead_int5_base_coarse_delta` 97.5 %, `dense_down_residual`
+94.2 %, `dense_gate_up_swiglu` 93.5 %, `nvfp4_qkv_h64` 91.0 %,
+`nvfp4_qkv_h48` 89.6 %, `oproj_act_h64` 87.2 %,
+`routed_nvfp4_swiglu_qmv_packed_top8keys` 87.2 %,
+`routed_shared_nvfp4_down_residual` 85.5 %. Not one family reaches the +0.5 %
+effort bar on this axis; the largest single opportunity is **0.384 % of `cs`**
+(`nvfp4_qkv_h64`). The record bar of +1.438 % is unreachable on this axis
+entirely.
+
+**What replaces §3.3's discipline 1.** Section 3.3 said the 1401.50 µs decode
+residual is "a subtraction residual, not a pool", and that nobody may assign an
+arm against it until a mechanism inside it is named and measured. 105-E names
+it: it is **`L`, fixed non-DRAM time**, and `L5 = 1368.4 µs` lands within 33 µs
+of 105-D's independently-derived 1401.5 µs. That is a real advance — but the
+prohibition **stands**, because naming `L` is not decomposing it. In
+particular **`L` is not dispatch overhead**: 105-D §4 measured ≥68.4 % of the
+nominal dispatch tax as overlapped, #483 priced a dispatch at 0.108 µs (21.7×
+below Rule 65's *addition* constant, which may not be run in the removal
+direction at all), and #158's per-dispatch coefficient is null. The live part
+of `L` is **serialisation and dependency-chain latency**, and the surface is
+localised: 13 `LATENCY`-régime families (defined as <1 MiB/dispatch or <5120
+threads) carry **0.705 % of step bytes but 21.6 % of the `SPLIT=1` label**.
+
+**New rule (i): "% of peak bandwidth" is confounded by fixed cost. Fit
+`T = B/BW + L` and compare `L` and `B/BW` separately. Never compare the
+ratio across two machines.**
+
+Cross-reference: `research/maple-fern-r105e-decode-bandwidth-efficiency.md`
+(§3 the probe, §4.2 the mixed-axis defect, §5 the amplification table, §6.1 the
+fourth bucket, §6.4 the one number, §7 the sign-flip observation, §8 the Rule
+82b verdict); adjudication comment
+<https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/609#issuecomment-5236494753>.
+
 
 ---
 
