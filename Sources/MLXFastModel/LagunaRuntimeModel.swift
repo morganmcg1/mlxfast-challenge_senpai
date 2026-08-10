@@ -8334,78 +8334,6 @@ private let lagunaRoutedSharedDownResidualStagedSharedHalvedKernel =
         ensureRowContiguous: true
     )
 
-struct LagunaFusedDownGate0Snapshot {
-    let dispatches: Int
-    let stagedSharedHalvedDispatches: Int
-    let invalidVariants: Int
-    let invalidGeometry: Int
-    let combinedFallbacks: Int
-    let decodeBankFallbacks: Int
-    let outerFallbacks: Int
-}
-
-enum LagunaFusedDownGate0Trace {
-    nonisolated(unsafe) private static var active = false
-    nonisolated(unsafe) private static var dispatches = 0
-    nonisolated(unsafe) private static var stagedSharedHalvedDispatches = 0
-    nonisolated(unsafe) private static var invalidVariants = 0
-    nonisolated(unsafe) private static var invalidGeometry = 0
-    nonisolated(unsafe) private static var combinedFallbacks = 0
-    nonisolated(unsafe) private static var decodeBankFallbacks = 0
-    nonisolated(unsafe) private static var outerFallbacks = 0
-
-    static func begin() {
-        dispatches = 0
-        stagedSharedHalvedDispatches = 0
-        invalidVariants = 0
-        invalidGeometry = 0
-        combinedFallbacks = 0
-        decodeBankFallbacks = 0
-        outerFallbacks = 0
-        active = true
-    }
-
-    @inline(__always) static func noteDispatch(
-        sharedHalved: Bool, staged: Bool, groups: Int, threads: Int, scratchBytes: Int
-    ) {
-        guard active else { return }
-        dispatches += 1
-        if sharedHalved, staged {
-            stagedSharedHalvedDispatches += 1
-        } else {
-            invalidVariants += 1
-        }
-        if groups != 256 || threads != 288 || scratchBytes != 144 {
-            invalidGeometry += 1
-        }
-    }
-
-    @inline(__always) static func noteCombinedFallback() {
-        if active { combinedFallbacks += 1 }
-    }
-
-    @inline(__always) static func noteDecodeBankFallback() {
-        if active { decodeBankFallbacks += 1 }
-    }
-
-    @inline(__always) static func noteOuterFallback() {
-        if active { outerFallbacks += 1 }
-    }
-
-    static func end() -> LagunaFusedDownGate0Snapshot {
-        active = false
-        return LagunaFusedDownGate0Snapshot(
-            dispatches: dispatches,
-            stagedSharedHalvedDispatches: stagedSharedHalvedDispatches,
-            invalidVariants: invalidVariants,
-            invalidGeometry: invalidGeometry,
-            combinedFallbacks: combinedFallbacks,
-            decodeBankFallbacks: decodeBankFallbacks,
-            outerFallbacks: outerFallbacks
-        )
-    }
-}
-
 func lagunaRoutedSharedDownResidual(
     routedActivated: MLXArray,
     routedDownWeight: MLXArray,
@@ -8463,16 +8391,6 @@ func lagunaRoutedSharedDownResidual(
             ? lagunaRoutedSharedDownResidualStagedKernel
             : lagunaRoutedSharedDownResidualKernel)
     let rowsPerGroup = staged ? 8 : 4
-    let threadsPerGroup = 288
-    let groupCount = LagunaConstants.hiddenSize / rowsPerGroup
-    let scratchBytes = (8 + 1) * rowsPerGroup * 2
-    LagunaFusedDownGate0Trace.noteDispatch(
-        sharedHalved: sharedHalved,
-        staged: staged,
-        groups: groupCount,
-        threads: threadsPerGroup,
-        scratchBytes: scratchBytes
-    )
     return fusedKernel(
         lagunaSharedFirstDownOrderEnabled
             ? [
@@ -8485,8 +8403,8 @@ func lagunaRoutedSharedDownResidual(
                 indices, routerWeights, sharedActivated,
                 sharedDownWeight, sharedDownScales, residual,
             ],
-        grid: (groupCount * threadsPerGroup, 1, 1),
-        threadGroup: (threadsPerGroup, 1, 1),
+        grid: (LagunaConstants.hiddenSize / rowsPerGroup * 288, 1, 1),
+        threadGroup: (288, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
         outputDTypes: [.bfloat16]
     )[0]
@@ -10788,7 +10706,6 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 weights.dims(1, 1, LagunaConstants.numExpertsPerTok),
                 routedScalingFactor == Float(LagunaConstants.moeRoutedScalingFactor)
             {
-                LagunaFusedDownGate0Trace.noteCombinedFallback()
                 lagunaTrace("routed down reduce")
                 y = lagunaRoutedDownReduce(
                     activated,
@@ -10799,13 +10716,11 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 )
                 routedAlreadyReduced = true
             } else {
-                LagunaFusedDownGate0Trace.noteCombinedFallback()
                 y = MLX.squeezed(
                     downProj(activated, inds, sortedIndices: false),
                     axis: -2)
             }
         } else {
-            LagunaFusedDownGate0Trace.noteDecodeBankFallback()
             // PREFILL sorted-regime fused gate/up: same retained
             // row-concatenated NVFP4 bank the decode branch above uses, but
             // driven through `lagunaFusedSortedRoutedGateUp`, which mirrors
@@ -11092,9 +11007,6 @@ final class LagunaRuntimeDecoderLayer: Module {
             let fused = dense.fusedDenseDownResidual(normalized, residual: h)
         {
             return fused
-        }
-        if x.dim(1) == 1, mlp is LagunaRuntimeSparseMoEBlock {
-            LagunaFusedDownGate0Trace.noteOuterFallback()
         }
         let r2 = mlp(normalized)
         return h + r2

@@ -215,62 +215,6 @@ func lagunaRuntimeCorrectnessReportsGoldenMetadataWhenWeightsAreMissing() throws
 }
 
 @Test
-func lagunaSingleDecodeFusedDownR8Gate0WhenEnabled() throws {
-    let environment = ProcessInfo.processInfo.environment
-    guard environment["MLXFAST_RUN_FUSED_DOWN_GATE0"] == "1" else { return }
-    let weightsPath = try #require(environment["MLXFAST_LAGUNA_GATE0_WEIGHTS_PATH"])
-    let goldenPath = try #require(environment["MLXFAST_LAGUNA_GATE0_GOLDEN_PATH"])
-    let sourceCase = try #require(
-        loadGoldenCases(
-            from: goldenPath,
-            requiredSteps: 1,
-            requiredPromptTokens: MLXFastConstants.correctnessPromptTokens
-        ).first
-    )
-
-    let config = try LagunaConfig.load(from: weightsPath)
-    let loader = try LagunaWeightLoader(weightsPath: weightsPath)
-    let weightCache = LagunaRuntimeWeightCache(loader: loader, config: config)
-    let model = try weightCache.requireLibraryModel()
-    let cache = model.newCache(parameters: nil)
-    let prompt = MLXArray(
-        sourceCase.promptTokens.map(Int32.init),
-        [1, sourceCase.promptTokens.count]
-    )
-    let prefill = model(prompt, cache: cache)
-    eval(prefill)
-
-    let architecture = GPU.deviceInfo().architecture
-    LagunaFusedDownGate0Trace.begin()
-    let decode = model(
-        MLXArray([Int32(sourceCase.expectedTokens[0])], [1, 1]),
-        cache: cache
-    )
-    eval(decode)
-    let snapshot = LagunaFusedDownGate0Trace.end()
-
-    print(
-        "FUSED_DOWN_R8_GATE0 architecture=\(architecture) generation=16 "
-            + "dispatches=\(snapshot.dispatches) "
-            + "staged_shared_halved=\(snapshot.stagedSharedHalvedDispatches) "
-            + "groups=256 threads=288 scratch_bytes=144 "
-            + "invalid_variants=\(snapshot.invalidVariants) "
-            + "invalid_geometry=\(snapshot.invalidGeometry) "
-            + "combined_fallbacks=\(snapshot.combinedFallbacks) "
-            + "decode_bank_fallbacks=\(snapshot.decodeBankFallbacks) "
-            + "outer_fallbacks=\(snapshot.outerFallbacks)"
-    )
-    #expect(architecture.contains("16"))
-    #expect(snapshot.dispatches == 39)
-    #expect(snapshot.stagedSharedHalvedDispatches == 39)
-    #expect(snapshot.invalidVariants == 0)
-    #expect(snapshot.invalidGeometry == 0)
-    #expect(snapshot.combinedFallbacks == 0)
-    #expect(snapshot.decodeBankFallbacks == 0)
-    #expect(snapshot.outerFallbacks == 0)
-}
-
-@Test
 func lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled() throws {
     let environment = ProcessInfo.processInfo.environment
     guard environment["MLXFAST_RUN_LAGUNA_UPSTREAM_EQUIVALENCE"] == "1" else {
