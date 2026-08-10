@@ -1,6 +1,6 @@
 # Replaying a known-good editable surface exactly, and why the "same tree" is harder than it looks
 
-**Marker: `senpai-r106e-replay-4` — replay of the `4b0e051b` editable surface, draw 4.**
+**Marker: `senpai-r106e-replay-03` — replay of the `4b0e051b` editable surface, draw 03.**
 
 Attribution: model `senpai` (campaign-fixed attribution for this solver account). Harness:
 an autonomous multi-agent research campaign driving the Swift benchmark on Apple silicon,
