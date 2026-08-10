@@ -38,7 +38,12 @@ trap cleanup EXIT
 echo "=== applying $PATCH ==="
 git apply "$PATCH" || exit 1
 
-echo "=== injecting the temporary MSL dump + resolved-name print ==="
+# The dump block sits in the per-call launch wrapper, so it must fire once and
+# not 39 times per decode step: the first version cost ~410us of CPU per
+# dispatch, left the GPU 86% idle, and DVFS then inflated every per-kernel GPU
+# time by ~2.5x. INJECT=0 gives a completely unperturbed timing arm.
+if [ "${INJECT:-1}" = "1" ]; then
+echo "=== injecting the one-shot MSL dump + resolved-name print ==="
 python3 - <<'PY' || exit 1
 import io, sys
 p = "Sources/MLXFastModel/LagunaRuntimeModel.swift"
@@ -46,7 +51,8 @@ src = io.open(p, encoding="utf-8").read()
 anchor = "    let sharedHalved = sharedDownScales.ndim == 1\n"
 assert src.count(anchor) == 1, src.count(anchor)
 inject = anchor + '''
-    if let r107fDir = ProcessInfo.processInfo.environment["MAPLE_R107F_DUMP_MSL"] {
+    if let r107fDir = ProcessInfo.processInfo.environment["MAPLE_R107F_DUMP_MSL"],
+       !FileManager.default.fileExists(atPath: "\\(r107fDir)/down_residual_sh1_stage1.msl") {
         for h in [false, true] {
             for s in [false, true] {
                 let tag = "sh\\(h ? 1 : 0)_stage\\(s ? 1 : 0)"
@@ -67,6 +73,7 @@ inject = anchor + '''
 io.open(p, "w", encoding="utf-8").write(src.replace(anchor, inject))
 print("injected")
 PY
+fi
 git status --porcelain=v1 -- Sources/ Vendor/
 
 echo "=== building instrumented worker ==="
@@ -79,20 +86,20 @@ echo "=== running decode probe ($STEPS steps, split dispatches) ==="
 MAPLE_R107F_DUMP_MSL="$MSL_DIR" \
 DARKBLOOM_GPU_PROFILE=1 DARKBLOOM_GPU_PROFILE_SPLIT=1 \
   python3 research/decode_probe.py --steps "$STEPS" --profile --profile-top 20 \
-    --stderr "$OUT/stage0_device.err" >"$OUT/stage0_device.log" 2>&1
+    --stderr "$OUT/stage0_device${SUFFIX:-}.err" >"$OUT/stage0_device${SUFFIX:-}.log" 2>&1
 status=$?
 echo "exit=$status"
 
-echo "=== R107F_RESOLVED (first occurrence) ==="
-grep -m1 "R107F_RESOLVED" "$OUT/stage0_device.err" | tee "$OUT/stage0_resolved.txt"
+echo "=== R107F_RESOLVED occurrences: $(grep -c 'R107F_RESOLVED' "$OUT/stage0_device${SUFFIX:-}.err") ==="
+grep -m1 "R107F_RESOLVED" "$OUT/stage0_device${SUFFIX:-}.err" | tee "$OUT/stage0_resolved${SUFFIX:-}.txt" || true
 
 echo "=== GPUPSO geometry for the down-residual family ==="
-grep "^GPUPSO" "$OUT/stage0_device.err" | sort -u | tee "$OUT/stage0_gpupso.txt" \
+grep "^GPUPSO" "$OUT/stage0_device${SUFFIX:-}.err" | sort -u | tee "$OUT/stage0_gpupso${SUFFIX:-}.txt" \
   | grep -i "down_residual" || true
 
 echo "=== dumped MSL ==="
 ls -la "$MSL_DIR"
 
 echo "=== top pipelines by GPU time ==="
-grep -A30 "per steady step" "$OUT/stage0_device.log" | head -40
+grep -A30 "per steady step" "$OUT/stage0_device${SUFFIX:-}.log" | head -40
 exit "$status"
