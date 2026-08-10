@@ -1,0 +1,792 @@
+{
+  "default_on_ranked": [
+    {
+      "added": "2026-07-23",
+      "added_sha": "62c6697802e5",
+      "added_subject": "Validate submission 613aaf69-9016-4d57-b799-bdd22d51c5c9",
+      "churn_since": 66,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_FUSED_ROUTED_GATE_UP",
+      "research_docs": 1,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:217"
+    },
+    {
+      "added": "2026-07-23",
+      "added_sha": "62c6697802e5",
+      "added_subject": "Validate submission 613aaf69-9016-4d57-b799-bdd22d51c5c9",
+      "churn_since": 66,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_FUSED_SHARED_GATE_UP",
+      "research_docs": 2,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:122"
+    },
+    {
+      "added": "2026-07-24",
+      "added_sha": "b35bda722a6b",
+      "added_subject": "Validate submission 72bba602-7834-43eb-80ba-29632d586fdf",
+      "churn_since": 60,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_FUSED_ROUTER",
+      "research_docs": 5,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:9630"
+    },
+    {
+      "added": "2026-07-24",
+      "added_sha": "1e73cec51e2f",
+      "added_subject": "Validate submission 21320d4a-c4ae-46b5-84c5-161dee72ab44",
+      "churn_since": 59,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_FUSED_RESIDUAL_RMS",
+      "research_docs": 3,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:275"
+    },
+    {
+      "added": "2026-07-24",
+      "added_sha": "049f6d68baee",
+      "added_subject": "Validate submission 6bbeb204-4bb8-4153-9152-43746fb672da",
+      "churn_since": 58,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_FUSED_ROUTED_SWIGLU_QMV",
+      "research_docs": 1,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:150"
+    },
+    {
+      "added": "2026-07-24",
+      "added_sha": "049f6d68baee",
+      "added_subject": "Validate submission 6bbeb204-4bb8-4153-9152-43746fb672da",
+      "churn_since": 58,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_FUSED_SHARED_SWIGLU_QMV",
+      "research_docs": 1,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:129"
+    },
+    {
+      "added": "2026-07-24",
+      "added_sha": "97681ec95372",
+      "added_subject": "Validate submission 5bb15364-25c8-4d16-8d67-d2fb3b211404",
+      "churn_since": 57,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_FUSED_ROUTED_DOWN_REDUCE",
+      "research_docs": 0,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:199"
+    },
+    {
+      "added": "2026-07-25",
+      "added_sha": "6c95d3dab8d8",
+      "added_subject": "Validate submission 5850b8a4-9200-46da-9d5a-52690f85a0aa",
+      "churn_since": 54,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_FUSED_SHARED_DOWN_RESIDUAL",
+      "research_docs": 0,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:137"
+    },
+    {
+      "added": "2026-07-25",
+      "added_sha": "6c95d3dab8d8",
+      "added_subject": "Validate submission 5850b8a4-9200-46da-9d5a-52690f85a0aa",
+      "churn_since": 54,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_FUSED_ROUTER_CAST",
+      "research_docs": 1,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:9636"
+    },
+    {
+      "added": "2026-07-25",
+      "added_sha": "6c95d3dab8d8",
+      "added_subject": "Validate submission 5850b8a4-9200-46da-9d5a-52690f85a0aa",
+      "churn_since": 54,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_FUSED_ROUTED_SHARED_DOWN_RESIDUAL",
+      "research_docs": 3,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:143"
+    },
+    {
+      "added": "2026-07-25",
+      "added_sha": "74b2bffa8598",
+      "added_subject": "Validate submission f528d14e-3b5b-449d-94f0-b94305f18d73",
+      "churn_since": 53,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_FUSED_ROUTER_NORM",
+      "research_docs": 2,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:9643"
+    },
+    {
+      "added": "2026-07-25",
+      "added_sha": "017616ce09fe",
+      "added_subject": "Validate submission 2fa32f01-1ddf-4aa6-a2dd-c945fc378fbe",
+      "churn_since": 52,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_FUSED_GATED_OUTPUT",
+      "research_docs": 1,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:331"
+    },
+    {
+      "added": "2026-07-25",
+      "added_sha": "017616ce09fe",
+      "added_subject": "Validate submission 2fa32f01-1ddf-4aa6-a2dd-c945fc378fbe",
+      "churn_since": 52,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_FUSED_SLIDING_QK_NORM_ROPE",
+      "research_docs": 1,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:524"
+    },
+    {
+      "added": "2026-07-25",
+      "added_sha": "017616ce09fe",
+      "added_subject": "Validate submission 2fa32f01-1ddf-4aa6-a2dd-c945fc378fbe",
+      "churn_since": 52,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_FUSED_QKV_PROJECTION",
+      "research_docs": 2,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:338"
+    },
+    {
+      "added": "2026-07-25",
+      "added_sha": "017616ce09fe",
+      "added_subject": "Validate submission 2fa32f01-1ddf-4aa6-a2dd-c945fc378fbe",
+      "churn_since": 52,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_FUSED_RESIDUAL_RMS_ROUTER",
+      "research_docs": 3,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:580"
+    },
+    {
+      "added": "2026-07-25",
+      "added_sha": "a34a42448151",
+      "added_subject": "Validate submission 447d3841-9d65-41db-b63a-3ea9080ef5cd",
+      "churn_since": 50,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_PREFILL_MOE_TAIL",
+      "research_docs": 1,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:9669"
+    },
+    {
+      "added": "2026-07-25",
+      "added_sha": "d44352b898c4",
+      "added_subject": "Validate submission dad81b58-a765-4b88-bf10-f8f15da52d20",
+      "churn_since": 49,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_ROPE_ANGLE_ATLAS",
+      "research_docs": 1,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:604"
+    },
+    {
+      "added": "2026-07-25",
+      "added_sha": "d1910708adb9",
+      "added_subject": "Validate submission 1f342cb2-0bf8-4fbc-a122-539910867fb9",
+      "churn_since": 45,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_PREFILL_FUSED_GATE_UP",
+      "research_docs": 1,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:222"
+    },
+    {
+      "added": "2026-07-25",
+      "added_sha": "d1910708adb9",
+      "added_subject": "Validate submission 1f342cb2-0bf8-4fbc-a122-539910867fb9",
+      "churn_since": 45,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_FUSED_DENSE_DOWN_RESIDUAL",
+      "research_docs": 2,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:649"
+    },
+    {
+      "added": "2026-07-25",
+      "added_sha": "d1910708adb9",
+      "added_subject": "Validate submission 1f342cb2-0bf8-4fbc-a122-539910867fb9",
+      "churn_since": 45,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_FUSED_DENSE_GATE_UP_SWIGLU",
+      "research_docs": 2,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:639"
+    },
+    {
+      "added": "2026-07-25",
+      "added_sha": "d732fea3d687",
+      "added_subject": "Validate submission efc6872e-d590-4f1c-9345-b12d5210bf29",
+      "churn_since": 43,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_EXPERT_ALIGNED_GATHER",
+      "research_docs": 2,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:254"
+    },
+    {
+      "added": "2026-07-26",
+      "added_sha": "5ab00a6e4d00",
+      "added_subject": "Validate submission aa5fb689-6066-4007-9da9-c518b6ca814d",
+      "churn_since": 36,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_PREFILL_FUSED_RESIDUAL_RMS",
+      "research_docs": 0,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:280"
+    },
+    {
+      "added": "2026-07-26",
+      "added_sha": "5ab00a6e4d00",
+      "added_subject": "Validate submission aa5fb689-6066-4007-9da9-c518b6ca814d",
+      "churn_since": 36,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_PREFILL_ROUTER_TOURNAMENT",
+      "research_docs": 2,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:10211"
+    },
+    {
+      "added": "2026-07-26",
+      "added_sha": "e1b3301faad5",
+      "added_subject": "Validate submission d0652d39-6a26-4ba0-81d6-819670502a37",
+      "churn_since": 35,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_PREFILL_SORTED_MOE_TAIL",
+      "research_docs": 0,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:9677"
+    },
+    {
+      "added": "2026-07-26",
+      "added_sha": "da9058a5a000",
+      "added_subject": "Validate submission fe4c9350-34d8-4b87-9ac3-cc9e820e0803",
+      "churn_since": 33,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_NVFP4_SCALE_FOLD",
+      "research_docs": 1,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6606"
+    },
+    {
+      "added": "2026-07-28",
+      "added_sha": "7f50e0ced3b1",
+      "added_subject": "Validate submission 61278959-2152-489b-b0a9-4b438a05d7c0",
+      "churn_since": 30,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_PREFILL_QK_NORM_ROPE",
+      "research_docs": 1,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:541"
+    },
+    {
+      "added": "2026-07-29",
+      "added_sha": "0f7905e08601",
+      "added_subject": "Validate submission 724f8e52-38ff-44b8-a3e9-40b4de5c6805",
+      "churn_since": 22,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_NATIVE_AFFINE_QKV",
+      "research_docs": 2,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:347"
+    },
+    {
+      "added": "2026-07-29",
+      "added_sha": "20feeb3de59b",
+      "added_subject": "Accept submission 8afa9316-a9db-40aa-bf99-508801c31faf",
+      "churn_since": 16,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_NATIVE_AFFINE_OPROJ",
+      "research_docs": 2,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:420"
+    },
+    {
+      "added": "2026-08-03",
+      "added_sha": "99b974c1728f",
+      "added_subject": "Sync promoted frontier afcb832",
+      "churn_since": 10,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_FUSED_FULL_ATTN_KERNEL_WARMUP",
+      "research_docs": 1,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:2024"
+    },
+    {
+      "added": "2026-08-03",
+      "added_sha": "99b974c1728f",
+      "added_subject": "Sync promoted frontier afcb832",
+      "churn_since": 10,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_FUSED_GATED_AFFINE_OPROJ",
+      "research_docs": 1,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4111"
+    },
+    {
+      "added": "2026-08-03",
+      "added_sha": "99b974c1728f",
+      "added_subject": "Sync promoted frontier afcb832",
+      "churn_since": 10,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_NATIVE_AFFINE_GPROJ",
+      "research_docs": 1,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:459"
+    },
+    {
+      "added": "2026-08-03",
+      "added_sha": "99b974c1728f",
+      "added_subject": "Sync promoted frontier afcb832",
+      "churn_since": 10,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_NVFP4_QDOT_SEED_ELIDE",
+      "research_docs": 1,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6720"
+    },
+    {
+      "added": "2026-08-03",
+      "added_sha": "99b974c1728f",
+      "added_subject": "Sync promoted frontier afcb832",
+      "churn_since": 10,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_NVFP4_SCALE_CARRY",
+      "research_docs": 1,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6668"
+    },
+    {
+      "added": "2026-08-03",
+      "added_sha": "99b974c1728f",
+      "added_subject": "Sync promoted frontier afcb832",
+      "churn_since": 10,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_NVFP4_SCALE_DEFER",
+      "research_docs": 1,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6753"
+    },
+    {
+      "added": "2026-08-03",
+      "added_sha": "99b974c1728f",
+      "added_subject": "Sync promoted frontier afcb832",
+      "churn_since": 10,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_TAIL_NVFP4_SCALE_FOLD",
+      "research_docs": 1,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4660"
+    },
+    {
+      "added": "2026-08-03",
+      "added_sha": "99b974c1728f",
+      "added_subject": "Sync promoted frontier afcb832",
+      "churn_since": 10,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_TERMINAL_FUSION",
+      "research_docs": 1,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:571"
+    },
+    {
+      "added": "2026-08-03",
+      "added_sha": "99b974c1728f",
+      "added_subject": "Sync promoted frontier afcb832",
+      "churn_since": 10,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_AFFINE_GATE_SOFTPLUS",
+      "research_docs": 2,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4464"
+    },
+    {
+      "added": "2026-08-03",
+      "added_sha": "99b974c1728f",
+      "added_subject": "Sync promoted frontier afcb832",
+      "churn_since": 10,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_ATTN_PROJECTION_ASYNC",
+      "research_docs": 2,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:784"
+    },
+    {
+      "added": "2026-08-03",
+      "added_sha": "99b974c1728f",
+      "added_subject": "Sync promoted frontier afcb832",
+      "churn_since": 10,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_E4M3_SIGN_DOMAIN",
+      "research_docs": 2,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4147"
+    },
+    {
+      "added": "2026-08-03",
+      "added_sha": "99b974c1728f",
+      "added_subject": "Sync promoted frontier afcb832",
+      "churn_since": 10,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_FUSED_FULL_ATTN",
+      "research_docs": 2,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:2011"
+    },
+    {
+      "added": "2026-08-03",
+      "added_sha": "99b974c1728f",
+      "added_subject": "Sync promoted frontier afcb832",
+      "churn_since": 10,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_FUSED_GATE_PRODUCT",
+      "research_docs": 2,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:3925"
+    },
+    {
+      "added": "2026-08-03",
+      "added_sha": "99b974c1728f",
+      "added_subject": "Sync promoted frontier afcb832",
+      "churn_since": 10,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_LAST_PREFILL_PROJECTION_BANKS",
+      "research_docs": 2,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:564"
+    },
+    {
+      "added": "2026-08-03",
+      "added_sha": "99b974c1728f",
+      "added_subject": "Sync promoted frontier afcb832",
+      "churn_since": 10,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_QKV_TAIL_FOLD",
+      "research_docs": 2,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4677"
+    },
+    {
+      "added": "2026-08-03",
+      "added_sha": "99b974c1728f",
+      "added_subject": "Sync promoted frontier afcb832",
+      "churn_since": 10,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_QMV_R1",
+      "research_docs": 2,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:289"
+    },
+    {
+      "added": "2026-08-03",
+      "added_sha": "99b974c1728f",
+      "added_subject": "Sync promoted frontier afcb832",
+      "churn_since": 10,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_AFFINE_METADATA_INDEXED",
+      "research_docs": 3,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:2971"
+    },
+    {
+      "added": "2026-08-03",
+      "added_sha": "99b974c1728f",
+      "added_subject": "Sync promoted frontier afcb832",
+      "churn_since": 10,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_NVFP4_QMV_SEED_ELIDE",
+      "research_docs": 3,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4159"
+    },
+    {
+      "added": "2026-08-03",
+      "added_sha": "99b974c1728f",
+      "added_subject": "Sync promoted frontier afcb832",
+      "churn_since": 10,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_NVFP4_QMV_SIGN_CARRY",
+      "research_docs": 3,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4131"
+    },
+    {
+      "added": "2026-08-03",
+      "added_sha": "99b974c1728f",
+      "added_subject": "Sync promoted frontier afcb832",
+      "churn_since": 10,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_ROUTER_ORDINAL_SCORE_TABLE",
+      "research_docs": 3,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:9486"
+    },
+    {
+      "added": "2026-08-03",
+      "added_sha": "99b974c1728f",
+      "added_subject": "Sync promoted frontier afcb832",
+      "churn_since": 10,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_SHARED_QMV_R1",
+      "research_docs": 3,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:296"
+    },
+    {
+      "added": "2026-08-03",
+      "added_sha": "99b974c1728f",
+      "added_subject": "Sync promoted frontier afcb832",
+      "churn_since": 10,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_FUSED_NORM_AFFINE_QKV",
+      "research_docs": 4,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:5483"
+    },
+    {
+      "added": "2026-08-03",
+      "added_sha": "99b974c1728f",
+      "added_subject": "Sync promoted frontier afcb832",
+      "churn_since": 10,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_PARAMS_ATLAS",
+      "research_docs": 4,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:1999"
+    },
+    {
+      "added": "2026-08-03",
+      "added_sha": "99b974c1728f",
+      "added_subject": "Sync promoted frontier afcb832",
+      "churn_since": 10,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_ROUTER_ORDINAL",
+      "research_docs": 4,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:9480"
+    },
+    {
+      "added": "2026-08-03",
+      "added_sha": "99b974c1728f",
+      "added_subject": "Sync promoted frontier afcb832",
+      "churn_since": 10,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_ROUTER_PRECOMPUTED_KEYS",
+      "research_docs": 4,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:172"
+    },
+    {
+      "added": "2026-08-03",
+      "added_sha": "99b974c1728f",
+      "added_subject": "Sync promoted frontier afcb832",
+      "churn_since": 10,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_DECODE_NVFP4_QKV_R1",
+      "research_docs": 5,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4808"
+    },
+    {
+      "added": "2026-08-03",
+      "added_sha": "99b974c1728f",
+      "added_subject": "Sync promoted frontier afcb832",
+      "churn_since": 10,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_FUSED_SLIDING_ATTN",
+      "research_docs": 5,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:1505"
+    },
+    {
+      "added": "2026-08-03",
+      "added_sha": "99b974c1728f",
+      "added_subject": "Sync promoted frontier afcb832",
+      "churn_since": 10,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_PACKED_SCALES",
+      "research_docs": 5,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:166"
+    },
+    {
+      "added": "2026-08-03",
+      "added_sha": "99b974c1728f",
+      "added_subject": "Sync promoted frontier afcb832",
+      "churn_since": 10,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_NATIVE_AFFINE_NVFP4",
+      "research_docs": 8,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:3049"
+    },
+    {
+      "added": "2026-08-03",
+      "added_sha": "99b974c1728f",
+      "added_subject": "Sync promoted frontier afcb832",
+      "churn_since": 10,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_ROUTED_GATEUP_R1",
+      "research_docs": 8,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:7913"
+    },
+    {
+      "added": "2026-08-09",
+      "added_sha": "718180383f5a",
+      "added_subject": "Sync promoted organizer frontier cc6ddc1",
+      "churn_since": 7,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_PREFILL_EXPERT_PAIRWISE_SCALES",
+      "research_docs": 1,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:228"
+    },
+    {
+      "added": "2026-08-09",
+      "added_sha": "718180383f5a",
+      "added_subject": "Sync promoted organizer frontier cc6ddc1",
+      "churn_since": 7,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_DECODE_ROUTER_TOURNAMENT",
+      "research_docs": 2,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:9532"
+    },
+    {
+      "added": "2026-08-09",
+      "added_sha": "718180383f5a",
+      "added_subject": "Sync promoted organizer frontier cc6ddc1",
+      "churn_since": 7,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_FUSED_DOWN_ROW_STAGING",
+      "research_docs": 3,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:8227"
+    },
+    {
+      "added": "2026-08-09",
+      "added_sha": "718180383f5a",
+      "added_subject": "Sync promoted organizer frontier cc6ddc1",
+      "churn_since": 7,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_SHARED_SCALE_HALVED",
+      "research_docs": 3,
+      "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:312"
+    },
+    {
+      "added": "2026-08-06",
+      "added_sha": "dec0a83c075d",
+      "added_subject": "research: record the round-19 delta \u2014 two research-only merges, two new laws, one retracti",
+      "churn_since": 4,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_STEEL_PREFILL_TILE",
+      "research_docs": 1,
+      "site": "Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp:84"
+    },
+    {
+      "added": "2026-08-06",
+      "added_sha": "dec0a83c075d",
+      "added_subject": "research: record the round-19 delta \u2014 two research-only merges, two new laws, one retracti",
+      "churn_since": 4,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_LM_HEAD_PRUNE_PREFILL",
+      "research_docs": 2,
+      "site": "Sources/MLXFastModel/LagunaLmHeadPrune.swift:86"
+    },
+    {
+      "added": "2026-08-06",
+      "added_sha": "dec0a83c075d",
+      "added_subject": "research: record the round-19 delta \u2014 two research-only merges, two new laws, one retracti",
+      "churn_since": 4,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_LM_HEAD_PRUNE",
+      "research_docs": 5,
+      "site": "Sources/MLXFastModel/LagunaLmHeadPrune.swift:79"
+    },
+    {
+      "added": "2026-08-06",
+      "added_sha": "dec0a83c075d",
+      "added_subject": "research: record the round-19 delta \u2014 two research-only merges, two new laws, one retracti",
+      "churn_since": 4,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_LMHEAD_FUSED_REFINEMENT",
+      "research_docs": 8,
+      "site": "Sources/MLXFastModel/LagunaLmHeadPrune.swift:95"
+    },
+    {
+      "added": "2026-08-06",
+      "added_sha": "dec0a83c075d",
+      "added_subject": "research: record the round-19 delta \u2014 two research-only merges, two new laws, one retracti",
+      "churn_since": 2,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_ATTN_SCALE_PAIRWISE_QKV",
+      "research_docs": 1,
+      "site": "Sources/MLXFastModel/LagunaRuntimeWeights.swift:719"
+    },
+    {
+      "added": "2026-08-06",
+      "added_sha": "dec0a83c075d",
+      "added_subject": "research: record the round-19 delta \u2014 two research-only merges, two new laws, one retracti",
+      "churn_since": 2,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_WARM_GREEDY_ARGMAX",
+      "research_docs": 1,
+      "site": "Sources/MLXFastModel/LagunaRuntimeWeights.swift:517"
+    },
+    {
+      "added": "2026-08-06",
+      "added_sha": "dec0a83c075d",
+      "added_subject": "research: record the round-19 delta \u2014 two research-only merges, two new laws, one retracti",
+      "churn_since": 2,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_ATTN_SCALE_NARROW_QKV",
+      "research_docs": 2,
+      "site": "Sources/MLXFastModel/LagunaRuntimeWeights.swift:681"
+    },
+    {
+      "added": "2026-08-06",
+      "added_sha": "dec0a83c075d",
+      "added_subject": "research: record the round-19 delta \u2014 two research-only merges, two new laws, one retracti",
+      "churn_since": 2,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_WIRED_ZH",
+      "research_docs": 3,
+      "site": "Sources/MLXFastModel/LagunaRuntimeWeights.swift:553"
+    },
+    {
+      "added": "2026-08-06",
+      "added_sha": "dec0a83c075d",
+      "added_subject": "research: record the round-19 delta \u2014 two research-only merges, two new laws, one retracti",
+      "churn_since": 2,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_ATTN_SCALE_LANEMAJOR",
+      "research_docs": 5,
+      "site": "Sources/MLXFastModel/LagunaRuntimeWeights.swift:694"
+    },
+    {
+      "added": "2026-08-06",
+      "added_sha": "dec0a83c075d",
+      "added_subject": "research: record the round-19 delta \u2014 two research-only merges, two new laws, one retracti",
+      "churn_since": 2,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_ATTN_SCALE_NARROW",
+      "research_docs": 12,
+      "site": "Sources/MLXFastModel/LagunaRuntimeWeights.swift:674"
+    },
+    {
+      "added": "2026-08-06",
+      "added_sha": "dec0a83c075d",
+      "added_subject": "research: record the round-19 delta \u2014 two research-only merges, two new laws, one retracti",
+      "churn_since": 1,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_INVERSE_SCATTER",
+      "research_docs": 0,
+      "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift:64"
+    },
+    {
+      "added": "2026-08-06",
+      "added_sha": "dec0a83c075d",
+      "added_subject": "research: record the round-19 delta \u2014 two research-only merges, two new laws, one retracti",
+      "churn_since": 1,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_ROUTE_COUNTING_SORT",
+      "research_docs": 0,
+      "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift:78"
+    },
+    {
+      "added": "2026-08-06",
+      "added_sha": "dec0a83c075d",
+      "added_subject": "research: record the round-19 delta \u2014 two research-only merges, two new laws, one retracti",
+      "churn_since": 1,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_ROUTE_FUSED_SCATTER",
+      "research_docs": 0,
+      "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift:187"
+    },
+    {
+      "added": "2026-07-26",
+      "added_sha": "e1b3301faad5",
+      "added_subject": "Validate submission d0652d39-6a26-4ba0-81d6-819670502a37",
+      "churn_since": 1,
+      "era": "post-Laguna",
+      "gate": "DARKBLOOM_COMPILED_TIERED_ATTENTION",
+      "research_docs": 3,
+      "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift:8"
+    }
+  ],
+  "era_by_polarity": {
+    "?": {
+      "post-Laguna": 11,
+      "pre-Laguna": 2,
+      "unknown": 0
+    },
+    "DIAL": {
+      "post-Laguna": 11,
+      "pre-Laguna": 0,
+      "unknown": 0
+    },
+    "OFF": {
+      "post-Laguna": 10,
+      "pre-Laguna": 0,
+      "unknown": 0
+    },
+    "ON": {
+      "post-Laguna": 76,
+      "pre-Laguna": 0,
+      "unknown": 0
+    }
+  },
+  "migration": {
+    "date": "2026-07-21",
+    "sha": "4799830b"
+  },
+  "n_gates": 110,
+  "shortlist": []
+}

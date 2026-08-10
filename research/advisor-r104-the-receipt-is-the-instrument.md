@@ -348,6 +348,16 @@ adding it, and now nobody should.
   resubmitting a fixed tree to farm `L` draws, and do not plan a replicated
   submission without producing one distinct commit per receipt and *verifying*
   `git diff --numstat a b -- Sources` is empty between replicates.
+* The gate provenance in §12. **All 76 default-ON gates are post-migration.**
+  Do not revive "some of these were tuned on Gemma"; do not re-date the surface
+  by hand — re-run `research/advisor_r104_gate_provenance.py`. Do not use its
+  churn ranking as a priority order: churn ≈ age for a 384 KB single file. The
+  only shortlist is the seven silent switches, headed by
+  `DARKBLOOM_FUSED_ROUTED_DOWN_REDUCE` and `DARKBLOOM_FUSED_SHARED_DOWN_RESIDUAL`.
+* The additivity argument in §13. Decode-only and prefill-only changes have no
+  interaction term — that is algebra, not an empirical claim. What is *not*
+  settled is whether either arm's effect size transfers, which is why §13.4
+  preregisters the composed receipt.
 
 ## 8. 🔴 The record is not winnable by luck — it is winnable only by ~1.4 % of `cs`
 
@@ -686,6 +696,14 @@ unvalidated. So the order is fixed:
    preregistered to report it.
 2. Only then, rank the 76. Cheapest first, decode-hot-path first.
 
+> **Amended by §12.** The ranking prior in §10.2 was written on the assumption
+> that some of the 76 predate the Gemma → Laguna migration and were therefore
+> tuned against a model we no longer run. **That is false — all 76 are
+> post-migration** (§12). The ledger still exists and the seven silent switches
+> are still the first page of it, but the expected yield is lower than this
+> section claims, and step 2 above is now a *lower-value* program than step 1
+> was chosen to unlock. Read §12 before spending anyone on it.
+
 Do **not** start ablating gates before step 1 finishes. A ledger of 76
 uncalibrated deltas is 76 opportunities to fool ourselves, and §3 is the record
 of how easily I do that.
@@ -810,4 +828,236 @@ The refreshed record watch shows **16 receipts on 2026-08-09 alone under
   any individual measurement — each receipt is benchmarked independently — but
   it does mean the standing record can move underneath us from inside our own
   org, and §8's pricing table is only valid until it does.
+
+
+
+## 12. 🔴 The "gates tuned on the wrong model" hypothesis is dead — all 76 are post-Laguna
+
+§10 found 76 shipped, default-**ON** kill switches that have never been
+re-measured, and §10.2 argued they are worth ranking. The implicit prior behind
+that argument was that some of them are *old* — introduced while the serial
+track still ran Gemma 4 31B, tuned against a model with different shapes, and
+carried forward unexamined onto Laguna XS 2.1. A gate in that population would
+be a genuinely good bet: it was chosen to help a model we no longer run.
+
+`research/advisor_r104_gate_provenance.py` tests that prior directly and it is
+**false**.
+
+### 12.1 Method
+
+For each of §10's 110 executed-path gates, the script asks git when the gate
+literal first entered the file that reads it:
+
+```
+git log -S<GATE> --reverse --format=... -- <path>
+```
+
+and classifies the introducing commit against the migration commit
+`4799830b`, 2026-07-21, *"Migrate serial track: Gemma 4 31B → Poolside Laguna
+XS 2.1"*. It also counts **churn** — commits touching the guarded file since the
+gate was introduced — and carries forward §10's `research_docs` mention count.
+Output: `research/artifacts/advisor-r104-gate-provenance.json`
+(`migration`, `n_gates`, `era_by_polarity`, `shortlist`, `default_on_ranked`).
+
+Context for the dating: the repository is **1,572 commits** deep, of which
+**74 touch `Sources/MLXFastModel/LagunaRuntimeModel.swift`**, and the earliest
+of those 74 *is* `4799830b`. The file did not exist before the migration.
+
+### 12.2 Result
+
+```
+introduction era, split by default polarity   (migration 4799830b, 2026-07-21)
+
+polarity    pre-Laguna  post-Laguna   unknown
+?                    2           11         0
+DIAL                 0           11         0
+OFF                  0           10         0
+ON                   0           76         0
+
+default-ON and PRE-Laguna                : 0
+default-ON and unmentioned in research/  : 7
+default-ON, PRE-Laguna AND unmentioned   : 0
+```
+
+**Every default-ON gate is post-migration.** So is every default-OFF gate and
+every dial. Introduction dates run **2026-07-23 → 2026-08-09**, i.e. the entire
+`DARKBLOOM_*` surface was built *for* Laguna XS 2.1, after the migration. The
+only two pre-Laguna entries have polarity `?` — they are not kill switches at
+all.
+
+This is rule 83 for the fourth time this round (§3 has the other three). I
+should have dated the file before I theorised about its contents; the check
+cost one script.
+
+### 12.3 What dies, and what that costs §10
+
+Dead: *"some of the 76 were tuned on Gemma and are now pessimizations."* There
+is no such cohort. Every one of the 76 was chosen, at least once, by someone
+measuring the model we actually run, on hardware in the same family.
+
+That materially lowers the expected yield of §10.2. The ledger argument was
+never *only* the stale-tuning argument — a gate can still have been overtaken
+by a later change to the code it guards, and none of the 76 has been
+re-measured since it shipped — but the prior on any individual switch being a
+net loss today is now much closer to the base rate for "an optimization someone
+measured as a win a fortnight ago". §10.3's ordering is unchanged (σ_launch
+first) but step 2 is a lower-value program than §10.2 claimed, and I have
+amended §10.3 to say so in place.
+
+### 12.4 The ranking, and why its main column is nearly worthless
+
+The script ranks the 76 by churn-since-introduction. **That ranking is almost
+entirely an age ranking, and I do not trust it.** Churn counts commits touching
+*the file*, not commits touching the *guarded region*. For a 384 KB
+single-file monolith like `LagunaRuntimeModel.swift`, essentially every commit
+in the round touches the file, so churn ≈ (days since introduction) × (commits
+per day). The three distinct churn plateaus in the output — 66…43 for the
+2026-07-23/25 cohort, 36…16 for late July, exactly 10 for the thirty gates
+introduced on 2026-08-03, 7…1 for August — are calendar strata, not evidence.
+
+The one column that discriminates is `research_docs`, which is what §10.2
+already used. The surviving shortlist is therefore unchanged: **the seven
+silent switches of §10.2**, now dated:
+
+```
+rank gate                                     added       churn  site
+  7  DARKBLOOM_FUSED_ROUTED_DOWN_REDUCE       2026-07-24    57   LagunaRuntimeModel.swift:199
+  8  DARKBLOOM_FUSED_SHARED_DOWN_RESIDUAL     2026-07-25    54   LagunaRuntimeModel.swift:137
+ 22  DARKBLOOM_PREFILL_FUSED_RESIDUAL_RMS     2026-07-26    36   LagunaRuntimeModel.swift:280
+ 24  DARKBLOOM_PREFILL_SORTED_MOE_TAIL        2026-07-26    35   LagunaRuntimeModel.swift:9677
+ 73  DARKBLOOM_INVERSE_SCATTER                2026-08-06     1   SwitchLayers.swift:64
+ 74  DARKBLOOM_ROUTE_COUNTING_SORT            2026-08-06     1   SwitchLayers.swift:78
+ 75  DARKBLOOM_ROUTE_FUSED_SCATTER            2026-08-06     1   SwitchLayers.swift:187
+```
+
+Two refinements the dating does buy:
+
+* The **SwitchLayers trio was introduced by a single commit** (`dec0a83c`,
+  2026-08-06). Their silence is largely "young, and shipped together in one
+  batch" — much weaker evidence of neglect than four independently-added,
+  two-week-old switches. Rank them below the LRM four.
+* The head of the shortlist is therefore **`DARKBLOOM_FUSED_ROUTED_DOWN_REDUCE`
+  (2026-07-24) and `DARKBLOOM_FUSED_SHARED_DOWN_RESIDUAL` (2026-07-25)**: the
+  two oldest switches in the codebase that nothing in `research/` has ever
+  named, both on the decode MoE down-projection path, both with a full fortnight
+  of subsequent change around them.
+
+All seven live in files listed in `benchmark.json`'s `editablePaths`
+(`Sources/MLXFastModel` is a directory entry;
+`Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift` is an explicit
+entry), so a *win* here would be shippable and not merely observable.
+
+### 12.5 Caveats to carry
+
+* `research_docs == 0` means "the literal string does not appear under
+  `research/`". A gate could have been measured in a PR body, in an organizer
+  commit message, or under a different name. Silence is evidence of
+  un-audited-ness; it is not proof.
+* Nothing in §12 authorises flipping anything. Per §9 these are same-binary,
+  different-process contrasts, and their resolution — σ_launch — is exactly
+  what #571 is measuring this round. §10.3 step 1 still gates step 2.
+* The script is read-only, idempotent, and takes its repo root from
+  `MLXFAST_ROOT` (default: the checkout it lives in). Re-run it rather than
+  re-deriving any of this by hand.
+
+
+## 13. 🔴 The round-104 slate only pays if someone composes it — and nobody is assigned to
+
+### 13.1 The arms are disjoint, and disjoint means additive
+
+`ln cs = X − 0.75 ln cand_dec − 0.25 ln cand_pre`. Decode and prefill enter as
+**separate additive terms in log space**. A change that moves only `cand_dec`
+and a change that moves only `cand_pre` therefore combine with **no interaction
+term at all**, and the 0.75 / 0.25 weights are already folded into every
+score-% figure quoted in §5 and §8.3. Their score-% effects add exactly.
+
+The three round-104 arms are disjoint in the strong sense — not merely
+different files, but different execution paths:
+
+| arm | PR | touches | path | measured in |
+|---|---|---|---|---|
+| **104-A** sliding-attn k-loop depth | #584 nezuko | `LagunaRuntimeModel.swift` | **decode only** — µs/**step** | M5 receipts |
+| **104-B** wk/wv steel tile regroup | #585 fern | `matmul.cpp` | **prefill only** — steel GEMM at M=512 | M4 same-binary A/B |
+| **104-C** prefill steel shape census | #586 tanjiro | audit-only | prefill | static |
+
+Decode runs the GEMV/QMV path (89–98 % efficient, §4.10b); prefill runs the
+steel path (237 dispatches, §4.15). 104-B's tile-selection block at
+`matmul.cpp:664-684` is reached only when `(M+N)/2 ≥ 512`, which decode's
+M=1 shapes never satisfy. File ownership is disjoint by construction (round-104
+slate note). There is no plausible mechanism by which A and B interact.
+
+### 13.2 The sum clears §8.2's bar; neither arm does
+
+| arm | central score-% | source |
+|---|---|---|
+| 104-A | **+0.77 %** | §5: k-loop is ≈ 7.7 % of the step; a 10 % loop win |
+| 104-B | **+1.13 … +2.27 %** | §8.3, from the 3–6 ms central tail estimate |
+| **A + B** | **+1.90 … +3.04 %** | exact sum, §13.1 |
+| **bar** | **+1.438 %** | §8.2: `cs ≥ 2.620246`, i.e. 94.4 µs/step |
+
+**Neither arm reaches the bar alone. The pair does, in its central case.** That
+is the entire strategic content of the round-104 slate, and it is stated here
+for the first time — the assignment briefs each argue their own arm on its own
+merits, as they should, and none of them says this.
+
+104-C pays indirectly: it is fern's preregistered null N-C, and its N-B result
+("is the prefill deficit concentrated or diffuse?") is the premise 104-B rests
+on. If N-B says diffuse, 104-B's central estimate collapses and so does the sum.
+
+### 13.3 🔴 The gap: the composed tree is measured by nobody
+
+A tree carrying **both** A and B has a `Sources/` that differs from A's tree,
+from B's tree, and from today's base. By §11, **no existing receipt measures
+it**, and no future receipt can be borrowed from either arm. It needs **at
+least one receipt of its own, on its own distinct commit**.
+
+Nobody is assigned to produce that. All four live PRs (#584, #585, #586, #571)
+terminate in a per-arm answer. This is the load-bearing unassigned piece of work
+in the campaign right now.
+
+What composing costs, concretely:
+
+1. One merge of the two arms — trivially clean, disjoint files.
+2. One forced-clean build plus `research/run_upstream_equivalence.sh` and the
+   64-step drift tripwire (§11.11). 104-B's `bm`/`bn`-only constraint keeps it
+   bit-exact; 104-A's depth dial is bit-exact by construction (§6.2). So the
+   composed tree should be **bit-exact against today's base**, and that is a
+   checkable claim, not an assumption.
+3. **One receipt**, on a commit distinct from every replicate (§11.3).
+
+### 13.4 Preregister the composition null now
+
+Do not let "additivity" be assumed at the moment of writing up a win. The
++1.90…+3.04 % figure multiplies two effects measured on **two different
+instruments** — 104-A on M5 receipts (σ ≈ 0.26 % of score per 1-vs-1 receipt
+difference, §1), 104-B on an M4 same-binary A/B whose M5 transfer factor is
+0.622 (R1) / 0.534 ± 0.669 (composed). The composed receipt is the first and
+only measurement of the two together.
+
+Preregistered outcome for whoever gets this assignment:
+
+* **N-add**: composed `cs` lands within (A + B) ± the §1 receipt σ ⇒ additivity
+  holds, and the M4→M5 transfer factor for 104-B is confirmed at this size.
+* **N-short**: composed `cs` lands materially below the sum ⇒ additivity in log
+  space is right (it is algebra) but at least one arm's *effect size* did not
+  transfer. That is a publishable negative and it is the more likely outcome
+  given the transfer factor's ± 0.669.
+* Either way the composed tree is what we would submit, so the receipt is not
+  wasted on a null.
+
+### 13.5 The honest statement about round 104
+
+**Round 104 cannot itself take the record.** It can produce the two ingredients
+and a calibration (#571). Taking the record requires a round-105 composition
+assignment that (a) merges A and B, (b) verifies bit-exactness, (c) spends one
+receipt, and (d) reports against §13.4's preregistration.
+
+Two things can invalidate the plan before then, and both should be re-checked
+at the start of round 105 rather than assumed:
+
+* The standing record can move — including from inside our own org, since the
+  `morganmcg1` account is shared across campaigns (§11.4). §8.2's +1.438 % bar
+  is only valid until it does. Re-run `research/advisor_r104_record_watch.py`.
+* Either arm can return a null. 104-A's depth dial has already been measured on
+  M4 *with the opposite sign* (§5); 104-B depends on 104-C's N-B.
 
