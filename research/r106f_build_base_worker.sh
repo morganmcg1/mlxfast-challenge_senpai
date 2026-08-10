@@ -32,9 +32,17 @@ build() {
          --scratch-path .build-worker --product mlxfast-runtime-worker )
 }
 
+# The two trees' AOT Metal sources differ (kernels/ and mlx-generated/ diverge
+# over 15852ee5..HEAD), so each tree must compile and carry its own metallib.
+metallib() {
+  local dir="$1"
+  ( cd "$dir" && bash tools/build-mlx-metallib.sh )
+}
+
 echo "### candidate tree: $(git -C "$REPO" rev-parse HEAD)"
 grep -q GPUPROF "$REPO/$HOOK" || { echo "FATAL: candidate GPUPROF hook missing" >&2; exit 1; }
 build "$REPO" || { echo "FATAL: candidate build failed" >&2; exit 1; }
+metallib "$REPO" || { echo "FATAL: candidate metallib build failed" >&2; exit 1; }
 
 if [ ! -d "$WT" ]; then
   git -C "$REPO" worktree add --detach "$WT" "$BASE_COMMIT" || exit 1
@@ -44,13 +52,17 @@ echo "### baseline tree: $(git -C "$WT" rev-parse HEAD)"
 [ "$(git -C "$WT" rev-parse HEAD)" = "$BASE_COMMIT" ] || { echo "FATAL: worktree is not the pinned baseline" >&2; exit 1; }
 grep -q GPUPROF "$WT/$HOOK" || { echo "FATAL: baseline GPUPROF hook missing" >&2; exit 1; }
 build "$WT" || { echo "FATAL: baseline build failed" >&2; exit 1; }
+metallib "$WT" || { echo "FATAL: baseline metallib build failed" >&2; exit 1; }
 
 mkdir -p "$DEST_DIR"
 cp "$WT/.build-worker/release/mlxfast-runtime-worker" "$DEST_DIR/mlxfast-runtime-worker"
 for f in $RESOURCES; do ln -sfn "$WT/.build-worker/release/$f" "$DEST_DIR/$f"; done
 
 echo "### Rule 75 artifacts"
-for p in "$REPO/.build-worker/release/mlxfast-runtime-worker" "$DEST_DIR/mlxfast-runtime-worker"; do
+for p in "$REPO/.build-worker/release/mlxfast-runtime-worker" \
+         "$REPO/.build-worker/release/mlx.metallib" \
+         "$DEST_DIR/mlxfast-runtime-worker" \
+         "$DEST_DIR/mlx.metallib"; do
   echo "$(shasum -a 256 "$p" | cut -d' ' -f1)  $(stat -f '%z' "$p") bytes  $p"
 done
 git -C "$REPO" checkout -- Package.resolved 2>/dev/null || true
