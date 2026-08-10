@@ -1,27 +1,223 @@
 # 512-token prefill critical-path attribution
 
-## Result
+## R2 terminal result
 
-**Measurement NO-GO.** The hypothesis was not resolved, and no successor
-optimization should be assigned from this evidence.
+**Calibrated measurement GO; successor assignment NO-GO.** A same-binary,
+empty-fence-subtracted measurement resolved the common full-attention fused Q/K
+normalization + YaRN H1 family at **2.726245 ms/pass**, with a stratified
+bootstrap 95% interval of **[2.694376, 2.743162] ms/pass** and conservative
+half-width **0.031869 ms/pass**. The lower bound clears the advisor's decisive
+**2.33 ms/pass** headroom gate. Complete-prefill perturbation stayed below 1%
+in both A-B-B-A and reverse B-A-A-B orderings.
 
-The first global Metal System Trace calibration perturbed the complete 512-token
-prefill median by **+14.565 ms/pass (+2.665%)**, above the assignment's 1% stop
-limit. Its 95% bootstrap half-width was **5.715 ms**, far above the required
-0.10 ms bound. The exported trace also had zero application command-buffer
-submission rows and contained global GPU/driver traffic from unrelated
-processes. Therefore it cannot support inclusive/exclusive family timings,
-host-enqueue attribution, bucket shares, or a conservative >=2.33 ms/pass
-recoverable-headroom claim.
+This is a calibrated completion/critical-path interval, not a pure GPU kernel
+duration. Inputs were materialized before timing, outputs were materialized at
+the end, and the same-binary empty completion fence was subtracted. That method
+addresses the synchronization inflation identified in the R1 global trace and
+in analogous decode work, while the whole-pass perturbation gate limits graph
+and scheduling distortion.
 
-Per the explicit stop contract, I did not continue to 64 samples, complete the
-A-B-B-A plus reverse B-A-A-B blocks, add differential fences, or modify scored
-source. Doing so after the calibration failure would produce precise-looking
-but untrustworthy attribution. Production source and vendor trees remain
-identical to the assigned base.
+The measurement does **not** justify a new optimization assignment. The exact
+family clears the latency gate, but its known optimization mechanisms overlap
+active #641's Q/K raw-BF16 reuse or the exhausted Q/K/RoPE arithmetic and
+geometry space. I found no materially distinct, unassigned <=8 KiB production
+patch with a defensible byte/launch seam. No successor was nominated merely to
+satisfy the hypothesis.
 
-W&B is not applicable to this measurement-only hardware-profiling assignment.
-No official submission was made.
+W&B is not applicable to this measurement-only hardware experiment. No official
+submission was made.
+
+## Identity, host, and scope
+
+- Assignment base: `23a84d0e668eaf50b3f1cfbaf5bdfcb3b0694b25`.
+- R2 instrumented/tested SHA: `3ca6b1eb05c160cb132260140aeb248a7dd07092`.
+- Assignment revision:
+  `cedar-nezuko-prefill-critical-path-attribution-20260810-r2-differential-fence-calibration`.
+- Host: Mac mini, Apple M4 Pro, 14 CPU / 20 GPU cores, 48 GiB unified
+  memory; Apple GPU generation 16 (`applegpu_g16s`).
+- Worker SHA-256:
+  `140f3e288edb68f95faed57a282315eae2f3d938cdc562c180932ec2d5570eba`.
+- Fixture: `longcopy-gate-english-512`, exactly 512 prompt tokens, expected
+  first token 5991.
+- Fixture SHA-256:
+  `b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63`.
+- Compact prompt SHA-256:
+  `6340be0422a338354777310f5ab3d8c5dd4ff8b60f7e47539d08739166423f`.
+
+The M4 and ranked M5 both reach this common fused full-attention source family;
+this is not an M5-only `_nax` prefill kernel. Absolute M4 timing and threadgroup
+sign remain host-specific, so the M5 inference is directional rather than a
+ranked timing claim.
+
+## Exact measured seam and census
+
+The temporary selector was active only for length-512 prefill in
+`LagunaAttention.__callAsFunction`. The family branch was
+`usePrefillFusedFullQKNormYaRN`, calling `lagunaPrefillFullQKNormYaRN` at the
+default `lagunaPrefillQKHeadsPerGroup=1` setting.
+
+- Input boundary: materialize `[queries, keys]` before starting the interval.
+- Empty control: repeat materialization of those already-materialized inputs.
+- Family completion: materialize `[outQueries, outKeys]` after the fused call.
+- Exact census per pass: 10 sites, 10 completed sites, 10 dispatches, 5,120 Q
+  rows, 5,120 K rows, heads-per-group 1.
+- Output control: every arm and request returned token 5991; every census field
+  was constant and exact.
+
+The selector and fence records were temporary research instrumentation. They
+were removed after measurement. `Sources/` and `Vendor/` are tree-identical to
+the assigned base.
+
+## Calibrated results and gates
+
+Each phase used eight fresh-worker arms, one warmup and four measured prefills
+per arm, ordered A-B-B-A then B-A-A-B. Together the phases contain 64 warmed
+measured prefills. Estimates use arm medians and a 20,000-iteration bootstrap
+stratified by mirrored block/order with within-arm request resampling.
+
+| Phase / metric | Balanced baseline | Balanced candidate | Delta | ABBA delta | BAAB delta | 95% interval | Gate |
+|---|---:|---:|---:|---:|---:|---:|---|
+| off -> empty control, wall | 546.061141 | 547.210453 | +1.149312 ms (+0.2105%) | +1.119521 ms | +1.179104 ms | [0.939664, 2.399617] ms | <=1% pass |
+| off -> empty control, completion | 0 | 0.034927 | +0.034927 ms | +0.035812 ms | +0.034042 ms | [0.032619, 0.036204] ms | 0.002308 ms half-width |
+| control -> full-QK-H1, wall | 547.279000 | 548.097365 | +0.818365 ms (+0.1495%) | +0.996136 ms | +0.640594 ms | [-4.355112, 4.530449] ms | <=1% pass |
+| control -> full-QK-H1, completion | 0.032671 | 2.758917 | **+2.726245 ms** | +2.720876 ms | +2.731615 ms | **[2.694376, 2.743162] ms** | 0.031869 ms half-width; lower >2.33 ms |
+
+Ordering-specific wall perturbations were about 0.1821% (ABBA) and 0.1170%
+(BAAB). Even the wall-delta interval's +4.530449 ms upper endpoint is 0.828% of
+the 547.279000 ms control pass. Thus both the point estimates and the
+conservative upper perturbation stay below 1%.
+
+The family phase's input-boundary interval moved from 500.102131 to 498.853912
+ms (delta -1.248219 ms, 95% interval [-1.451880, -1.017321] ms). This boundary
+is upstream materialization, not family work, and is why the result is reported
+as an empty-fence-calibrated completion interval rather than a decomposition of
+whole-pass wall time.
+
+## Raw R2 samples
+
+Each cell lists the four measured values for one fresh-worker arm. `wall` is
+complete request latency; `fence` is the completion interval. Units are ms.
+The JSON artifacts retain every request timestamp, boundary interval, token,
+census field, command, child artifact hash, stderr hash, and cooling record.
+
+### Phase 1: off / empty-control calibration
+
+| Arm | Mode | wall | fence |
+|---:|---|---|---|
+| 0 | off | 546.185416, 546.230542, 545.901625, 545.943875 | 0, 0, 0, 0 |
+| 1 | control | 547.071166, 547.144125, 547.170334, 546.966500 | 0.039083, 0.043168, 0.033040, 0.041123 |
+| 2 | control | 546.872125, 547.058667, 547.637125, 547.232916 | 0.033375, 0.029667, 0.034542, 0.026624 |
+| 3 | off | 546.017917, 546.549583, 545.881583, 545.752583 | 0, 0, 0, 0 |
+| 4 | control | 552.282042, 547.371834, 546.956667, 547.439667 | 0.036459, 0.030458, 0.033211, 0.034334 |
+| 5 | off | 545.367791, 546.351625, 546.133833, 546.661000 | 0, 0, 0, 0 |
+| 6 | off | 546.084959, 545.889917, 546.138500, 545.119958 | 0, 0, 0, 0 |
+| 7 | control | 547.376500, 547.014791, 547.132833, 547.232416 | 0.034126, 0.035209, 0.031333, 0.034499 |
+
+### Phase 2: empty control / full-QK-H1
+
+| Arm | Mode | wall | fence |
+|---:|---|---|---|
+| 0 | control | 547.019125, 547.005666, 546.823000, 547.463167 | 0.037541, 0.027415, 0.032084, 0.026752 |
+| 1 | full-QK-H1 | 548.144167, 548.004667, 548.230917, 547.778708 | 2.755250, 2.746708, 2.753750, 2.721498 |
+| 2 | full-QK-H1 | 548.794292, 548.197250, 548.078292, 547.704417 | 2.784457, 2.810749, 2.728334, 2.729209 |
+| 3 | control | 547.792791, 547.090167, 546.898541, 547.324875 | 0.038580, 0.041249, 0.028668, 0.032542 |
+| 4 | full-QK-H1 | 562.948792, 548.095333, 548.198708, 547.926792 | 2.771958, 2.753249, 2.772377, 2.662791 |
+| 5 | control | 563.996458, 547.541375, 547.656833, 547.059834 | 0.041627, 0.032374, 0.031626, 0.031543 |
+| 6 | control | 567.775417, 546.960208, 547.443792, 547.150166 | 0.034459, 0.031748, 0.037374, 0.032291 |
+| 7 | full-QK-H1 | 560.623500, 548.125125, 547.799166, 547.935375 | 2.805210, 2.745417, 2.697040, 2.786585 |
+
+The isolated wall outliers are absorbed by per-arm medians and mirrored-block
+resampling; the fence samples remain stable. This is also why raw requests are
+reported rather than only aggregate point estimates.
+
+## Amdahl projection and successor decision
+
+The calibrated point estimate is 0.4981% of the 547.279000 ms control pass; the
+95% lower bound is 0.4923%. If the entire measured interval were removable with
+no regressions, the point projection is 1.005006x prefill and 1.001249x weighted
+score at neutral decode. The lower-bound projection is 1.004948x prefill and
+1.001235x weighted score.
+
+Those are upper-bound opportunity projections, not candidate speedups. No
+production optimization was implemented or timed. The family has enough
+critical-path mass to merit optimization in isolation, but the currently known
+seams are not still-unassigned:
+
+- raw Q/K vector lifetime and reuse overlaps active #641;
+- fused Q/K normalization, YaRN arithmetic, and H1 geometry are in the exhausted
+  Q/K/RoPE arithmetic/geometry space; and
+- adding or removing a measurement fence is not a production optimization.
+
+Therefore the terminal recommendation is **no successor from R2**. A future
+assignment would need a new, concrete seam that removes bytes or launches
+without duplicating those mechanisms, plus an exact M5-reachable dispatch
+census and correctness plan.
+
+## Reproduction and artifacts
+
+Artifact root:
+
+```bash
+ART=/Users/ec2-user/.senpai/native/mlxfast-cedar-20260804/roles/student-cedar-nezuko/experiment_artifacts/prefill-attribution/r2-differential-fence
+```
+
+Phase 1 command:
+
+```bash
+/Users/ec2-user/.senpai/venv/bin/python research/prefill_attribution_driver.py \
+  --worker .build-worker/release/mlxfast-runtime-worker --weights weights \
+  --fixture correctness_prompts/public_longcopy_gate_english_512_256.json \
+  --output "$ART/r2-control-pilot.json" --label pr646-r2-control-pilot \
+  --warmups 1 --repeats 4 --required-samples 4 \
+  --expected-prompt-tokens 512 --expected-token 5991 \
+  --bootstrap-samples 20000 --bootstrap-seed 646 \
+  --matrix-order off,control,control,off,control,off,off,control \
+  --cool-gate ./benchmark.sh
+```
+
+Phase 2 command:
+
+```bash
+/Users/ec2-user/.senpai/venv/bin/python research/prefill_attribution_driver.py \
+  --worker .build-worker/release/mlxfast-runtime-worker --weights weights \
+  --fixture correctness_prompts/public_longcopy_gate_english_512_256.json \
+  --output "$ART/r2-full-qk-h1-pilot.json" \
+  --label pr646-r2-full-qk-h1-pilot \
+  --warmups 1 --repeats 4 --required-samples 4 \
+  --expected-prompt-tokens 512 --expected-token 5991 \
+  --bootstrap-samples 20000 --bootstrap-seed 646 \
+  --matrix-order control,full-qk-h1,full-qk-h1,control,full-qk-h1,control,control,full-qk-h1 \
+  --cool-gate ./benchmark.sh
+```
+
+- `r2-control-pilot.json` SHA-256:
+  `d97eeabf646d9ece27d77df646780ca586ccede6830d4132f8a2190d8b96d1a6`.
+- `r2-full-qk-h1-pilot.json` SHA-256:
+  `dc5cc2642cdd14d5264168d0ca9c5827177c33478d5c017e252ac77e33c345b5`.
+- Phase 1 supervised job: `74af3556-6070-4f25-adf3-581016894feb`, exit 0.
+- Phase 2 supervised job: `cbad60fc-f81b-4c2c-b8fa-bcac66b62797`, exit 0,
+  639.984 s.
+
+## Correctness and final cleanup
+
+The R1 untouched-base and post-measurement upstream-equivalence runs had the
+same known M4-only floating signature: prefill max absolute logit error 0.125,
+mean error 0.011933609, exact argmax 5991, and exact decode steps 0-7. The
+positive corruption control required token 5992 and failed closed on observed
+5991.
+
+After R2 measurement, the temporary selector was removed and this proof passed:
+
+```bash
+git diff --exit-code 23a84d0e668eaf50b3f1cfbaf5bdfcb3b0694b25 -- Sources Vendor
+```
+
+A final post-removal `research/run_upstream_equivalence.sh` result and its exact
+clean tested SHA are recorded in the terminal structured result. The historical
+R1 evidence follows for auditability; its global-trace NO-GO is superseded by
+the R2 differential-fence calibration.
+
+# Appendix: R1 global-trace evidence (superseded)
 
 ## Base and host
 

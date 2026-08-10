@@ -1,4 +1,3 @@
-import Dispatch
 import Foundation
 import MLX
 import MLXFast
@@ -96,88 +95,6 @@ func lagunaTrace(_ site: @autoclosure () -> String) {
     guard lagunaTraceFusion else { return }
     lagunaTracedFusions.note(site())
 }
-
-private enum LagunaPrefillFenceMode: String {
-    case off
-    case control
-    case fullQKH1 = "full-qk-h1"
-
-    static let selected = LagunaPrefillFenceMode(
-        rawValue: ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_FENCE_MODE"] ?? "off"
-    ) ?? .off
-}
-
-private struct LagunaPrefillFenceTicket {
-    let measurementStartNs: UInt64?
-}
-
-private final class LagunaPrefillFenceProbe: @unchecked Sendable {
-    private let mode = LagunaPrefillFenceMode.selected
-    private var active = false
-    private var boundaryNs: UInt64 = 0
-    private var measurementNs: UInt64 = 0
-    private var siteCount = 0
-    private var completedSiteCount = 0
-    private var dispatchCount = 0
-    private var queryRowCount = 0
-    private var keyRowCount = 0
-
-    func beginPass(sequenceLength: Int) {
-        active = sequenceLength == 512
-        boundaryNs = 0
-        measurementNs = 0
-        siteCount = 0
-        completedSiteCount = 0
-        dispatchCount = 0
-        queryRowCount = 0
-        keyRowCount = 0
-    }
-
-    func beginSite(
-        _ inputs: [MLXArray], queryRows: Int, keyRows: Int
-    ) -> LagunaPrefillFenceTicket? {
-        guard active, lagunaPrefillQKHeadsPerGroup == 1 else { return nil }
-        siteCount += 1
-        dispatchCount += 1
-        queryRowCount += queryRows
-        keyRowCount += keyRows
-        switch mode {
-        case .off:
-            return LagunaPrefillFenceTicket(measurementStartNs: nil)
-        case .control, .fullQKH1:
-            let boundaryStart = DispatchTime.now().uptimeNanoseconds
-            eval(inputs)
-            boundaryNs += DispatchTime.now().uptimeNanoseconds - boundaryStart
-            let measurementStart = DispatchTime.now().uptimeNanoseconds
-            if mode == .control {
-                eval(inputs)
-                measurementNs += DispatchTime.now().uptimeNanoseconds - measurementStart
-                return LagunaPrefillFenceTicket(measurementStartNs: nil)
-            }
-            return LagunaPrefillFenceTicket(measurementStartNs: measurementStart)
-        }
-    }
-
-    func finishSite(_ outputs: [MLXArray], ticket: LagunaPrefillFenceTicket?) {
-        guard active, let ticket else { return }
-        if let measurementStart = ticket.measurementStartNs {
-            eval(outputs)
-            measurementNs += DispatchTime.now().uptimeNanoseconds - measurementStart
-        }
-        completedSiteCount += 1
-    }
-
-    func endPass() {
-        guard active else { return }
-        let record =
-            "mlxfast: prefill-fence {\"mode\":\"\(mode.rawValue)\",\"site_count\":\(siteCount),\"completed_site_count\":\(completedSiteCount),\"dispatch_count\":\(dispatchCount),\"query_row_count\":\(queryRowCount),\"key_row_count\":\(keyRowCount),\"heads_per_group\":\(lagunaPrefillQKHeadsPerGroup),\"boundary_ns\":\(boundaryNs),\"measurement_ns\":\(measurementNs)}\n"
-        FileHandle.standardError.write(Data(record.utf8))
-        active = false
-    }
-}
-
-private let lagunaPrefillFenceProbe = LagunaPrefillFenceProbe()
-
 
 // MARK: - Runtime fusion feature flags
 
@@ -6173,8 +6090,6 @@ final class LagunaRuntimeAttention: Module {
         } else if usePrefillFusedFullQKNormYaRN,
             let angles = qkRoPEAngles, let offsets = qkRoPEOffsets
         {
-            let fenceTicket = lagunaPrefillFenceProbe.beginSite(
-                [queries, keys], queryRows: L, keyRows: L)
             (queries, keys) = lagunaPrefillFullQKNormYaRN(
                 rawQueries: queries,
                 rawKeys: keys,
@@ -6184,8 +6099,6 @@ final class LagunaRuntimeAttention: Module {
                 offsets: offsets,
                 length: L
             )
-            lagunaPrefillFenceProbe.finishSite(
-                [queries, keys], ticket: fenceTicket)
             qkNormRoPEFused = true
         } else {
             queries =
@@ -11715,7 +11628,6 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
     }
 
     public func callAsFunction(_ inputs: MLXArray, cache: [KVCache]?) -> MLXArray {
-        lagunaPrefillFenceProbe.beginPass(sequenceLength: inputs.dim(1))
         let fullHidden = model(inputs, cache: cache)
         // Every consumer of multi-token logits reads only the LAST
         // position's row. Slice before the row-independent final RMSNorm and
@@ -11750,7 +11662,6 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
         if case .logits = lagunaDecodeAsyncStage, inputs.dims(1, 1) {
             asyncEval(result)
         }
-        lagunaPrefillFenceProbe.endPass()
         return result
     }
 
