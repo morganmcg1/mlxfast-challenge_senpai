@@ -29,6 +29,16 @@ The QKV lane-major arm ("L3", Stage A) was stood down at 15:33 UTC after
 maple-fern's #625 refuted it; the truncated K = 12 block is reported at §5.3 and
 returns `N-L3`, agreeing with her interval (§6.2b).
 
+**Whole assignment stood down at 15:51 UTC** (PR #629 comment `5242627442`),
+after maple-tanjiro's R107-G regime census (#648, merged `705484b9`) measured T2c
+directly and returned `N-BYTES-EVERYWHERE`. The terminal note is
+[`research/maple-edward-r107a-stood-down.md`](maple-edward-r107a-stood-down.md),
+verdict **`N-T2C-STOOD-DOWN`**; it reconciles his 1.10 % exposed-ALU figure with
+the family cost measured here (100 % of T2c's exposed ALU prices at **0.110 %`cs`
+= 0.27 draw bars**, and his budget is *smaller than this instrument's detection
+floor*). Everything below was written before that comment arrived, except §4b,
+which reports the prefill block cancelled by it.
+
 
 ---
 
@@ -505,6 +515,66 @@ would predict roughly double. Either way it is a regression, so the routed
 `N-SITE1` verdict does not depend on which reading is right; but any future
 threadgroup-geometry arm on this programme should carry this diagnostic, because
 it is the cheapest available discriminator for ranked-host transfer risk.
+
+### 4b Prefill control for the routed selector (rule 17) — cancelled at 4/5 reps, and flat
+
+**Status.** This block was stopped mid-repetition 5 by the advisor's 15:51Z
+whole-assignment stand-down (comment `5242627442`). Four of five palindrome
+repetitions — 24 of 30 slots — completed and are reported here; the fifth
+repetition's first slot was killed in flight and contributes nothing. Rule 75
+passed on cancellation: `digest_after = digest_before =
+f191c3b498f76c1135c92713b8749e1b3417bbe22b51bbb52f7ff0d6a14520b7`, so the
+`Sources`/`Vendor` tree was byte-identical across every timed slot. All 24 slots
+reported **0 greedy-token divergences** and the 24 dumped token streams reduce to
+**exactly one distinct checksum** (`3656350139`), which is the rule-105.15
+token-identity statement for this block. Artefacts:
+`/tmp/maple-r107a/prefillT2c/{index.tsv,provenance.txt,*.log,*.tokens}`.
+
+**Design.** 3 arms (`base` = `DARKBLOOM_ROUTED_GATEUP_SG=0`, `sg8`, `sg16`), one
+binary (`/tmp/maple-r107a-snapq/new`, sha `1674a523...2a146c`), 64 prefill steps
+per slot, palindrome order `base sg8 sg16 sg16 sg8 base` per repetition so each
+arm is position-matched against linear session drift. Contrasts are formed
+per-repetition from the two position-symmetric slots of each arm, then averaged
+over the 4 repetitions with a Student-*t* interval on 3 d.f.
+(`t.975 = 3.182`). Quantities are **[M4-WALL] Apple M4 Pro** at epoch
+**`3241e5e5`** (rule 105.6).
+
+| arm | n | mean prefill (ms) | sd |
+|---|---|---|---|
+| `base` (selector 0) | 8 | 547.650 | 1.288 |
+| `sg8` | 8 | 548.212 | 2.071 |
+| `sg16` | 8 | 548.404 | 1.205 |
+
+| contrast | per-rep (ms) | mean | CI95 | as % of prefill | signs |
+|---|---|---|---|---|---|
+| `base -> sg8` | +1.110, +0.090, +2.545, −1.495 | **+0.562 ms** | [−2.145, +3.270] | +0.103 % [−0.392, +0.597] | 3/1 |
+| `base -> sg16` | +1.165, +1.615, +0.860, −0.625 | **+0.754 ms** | [−0.790, +2.297] | +0.138 % [−0.144, +0.420] | 3/1 |
+| `sg8 -> sg16` | — | +0.191 ms | ±2.208 | +0.035 % | 2/2 |
+
+**Reading.** Both intervals contain zero, so there is no detected prefill effect
+at either packing. The load-bearing part is the `sg16` row, and it is a
+*positive-control* argument rather than a null one. `sg16` is the arm with a
+large, 18/18-signed, measured decode penalty: **+63.49 µs/step on a 8235.4
+µs/step base = +0.771 % of decode** (§4). If the routed selector carried any
+arm-dependent cost that lived outside the decode dispatch — a lazily JIT-compiled
+`_sgS` library, a distinct pipeline-name lookup, an extra kernel-set
+construction — prefill would have to pay some of it, and the `sg16` arm is where
+it would be largest. Instead the `base -> sg16` prefill interval tops out at
+**+0.420 %**, comfortably below the +0.771 % the same arm costs on decode: the
+decode penalty does **not** reproduce on the prefill axis even at its upper
+confidence bound. The threadgroup-packing effect is therefore decode-local by
+measurement, not only by the guard-reading argument, and the sibling-selector
+JIT/pipeline risk that §5.4 flags for `DARKBLOOM_QKV_LM_SG` is answered here on
+the same code shape in the same file.
+
+**What this block is not.** Four repetitions on a ~548 ms axis give a ±2.7 ms
+(±0.49 %) half-width at `sg8`, which is roughly 3× coarser than the intended
+5-repetition design and far too coarse to *certify* prefill neutrality to the
+0.05 % level a submission would want. It is sufficient for its actual job —
+excluding a prefill penalty of the size the decode cliff would predict — and it
+is quoted only for that. No prefill number from this block is offered as
+evidence for or against any packing being carried forward, because none is.
+
 
 ## 5. Stage A — the decode QKV lane-major width flip ("L3")
 
@@ -1718,14 +1788,27 @@ The QKV-site prefill probe was never run: the Stage-A stand-down (comment
 `5242424807`) arrived while the decode block was still going, and with L3 dead a
 prefill control for it has no consumer. §5.4 keeps the structural argument for
 that site and marks it unmeasured. The prefill probe that *was* run is the
-routed/T2c one above, reported in §4b.
+routed/T2c one above, reported in §4b; it was cancelled at repetition 5 of 5 by
+the whole-assignment stand-down, so `analysis.txt` and `tokens.cksum` were never
+emitted by the script. The 4 complete repetitions are reconstructed from
+`/tmp/maple-r107a/prefillT2c/index.tsv` and the 24 `*.tokens` dumps with
+
+```bash
+cd /tmp/maple-r107a/prefillT2c
+for f in *.tokens; do cksum "$f"; done | awk '{print $1}' | sort -u   # -> 1 line
+grep -c 'divergences=0' *.log                                        # -> 24
+```
+
+and the per-repetition palindrome contrasts in §4b are the two
+position-symmetric slots of each arm differenced against `base`, averaged over
+the 4 repetitions with `t.975(3) = 3.182`.
 
 W&B runs (entity `wandb-applied-ai-team`, project `mlxfast-maple`, group
 `r107a-threadgroup-packing`):
 
 | run | site | contents |
 | --- | --- | --- |
-| [`z22pu8ic`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/z22pu8ic) | routed **T2c** (the assignment) | Stage 0 geometry/parity/fault receipts + the 18-rep x 12-slot Stage-1 dose curve |
+| [`z22pu8ic`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/z22pu8ic) | routed **T2c** (the assignment) | Stage 0 geometry/parity/fault receipts, the 18-rep x 12-slot Stage-1 dose curve, the §4b `prefill/*` block, and the `verdict` / `standdown/*` / `census/*` / `ceiling/*` keys |
 | [`thleeah8`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/thleeah8) | QKV **T0b(a)** (stood down) | Stage-A stage-0 receipts + the K = 12 truncated decode block |
 
 Two reading cautions for `thleeah8`. Its `cycle/*` keys are the analyzer's
@@ -1846,3 +1929,15 @@ M4→M5 core-count halving of `TG/core` is the transfer risk that matters.
   387,900 / 524,288 B. Nothing needs to be reverted before a paired
   `--local-submit` block runs on this tree, and if the selectors are unwanted
   they are a single contiguous deletion each.
+- **Superseded, and by the right instrument.** tanjiro's R107-G census (#648,
+  `705484b9`) closed T2c directly at 15:40Z with `N-BYTES-EVERYWHERE`: exposed ALU
+  1.10 % of the dispatch, 85–91 % of measured DRAM ceiling, 0.71 bars of non-byte
+  slack. Priced through the family cost measured here that is **0.110 %`cs` for
+  removing 100 % of T2c's exposed ALU** — 0.27 draw bars — and it is *below this
+  instrument's 1.23 %-of-family detection floor*, which is exactly why a
+  full-decode paired S-curve returned flat. The lesson for the next arm is to
+  price the mechanism's total budget against the instrument's floor **before**
+  spending 216 slots: had that been done at 09:00Z this block would have been a
+  one-page desk calculation. Terminal note:
+  `research/maple-edward-r107a-stood-down.md`, verdict `N-T2C-STOOD-DOWN`.
+
