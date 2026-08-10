@@ -28,3 +28,5 @@ abba2.p07.g1 rc=0 seconds=194
 abba2.p08.g0 rc=0 seconds=183
 abba2.p09.g0 rc=0 seconds=150
 abba2.p10.g1 rc=0 seconds=168
+abba2.p11.g2 rc=0 seconds=169
+abba2.p12.g3 rc=0 seconds=169

@@ -408,6 +408,14 @@
     "verdict": "the lever's generous issue-slot ceiling is 0.412 % of cs at 100 % issue-boundedness, but the family issues at only 26.9 % of the measured issue peak while running at 87.0/80.6 % of its bandwidth roofline, so the utilisation-scaled ceiling is 0.111 % of cs"
   },
   "note": "issue-side counts only; compulsory DRAM bytes are identical across arms",
+  "occupancy_bracket": {
+    "cells": {
+      "g0": "rps=4 rows/tg=8  grid=16384 (shipped)",
+      "g4": "rps=2 rows/tg=4  grid=32768 (2x grid threads, de-amortised)"
+    },
+    "design": "single factor: results_per_simdgroup 4 -> 2 at fixed num_simdgroups=2",
+    "purpose": "brackets the shipped geometry from the opposite side of the grid-thread axis; the slot model and the measured occupancy axis predict opposite signs for g4"
+  },
   "regime_fit": {
     "bw_pinned_at_measured_ceiling": {
       "T3b_oproj_h64": {
@@ -543,6 +551,65 @@
       "alpha_0.389": 34.3,
       "alpha_0.4369": 30.6
     }
+  },
+  "roofline_falsifier": {
+    "borrowed_ceiling": {
+      "capture_fraction_needed_for_summand_pct": {
+        "alpha_0.4369": 68.72,
+        "beta_0.5": 60.05
+      },
+      "ceiling_gb_per_s": 266.8,
+      "ceiling_provenance": "fern-r101 corollary 3, another M4 Pro host",
+      "families": {
+        "T3b_oproj_h64": {
+          "addressable_slack_pct_of_anchor": 2.29,
+          "addressable_slack_us_per_call": 0.8549,
+          "anchor_us_per_call": 37.2567,
+          "daylight_over_dram_floor_only_pct": 14.88,
+          "dispatch_intercept_pct_of_anchor": 10.66,
+          "dispatch_intercept_us_per_call": 3.97,
+          "dram_floor_pct_of_anchor": 87.05,
+          "dram_floor_us_per_call": 32.4318,
+          "floor_us_per_call": 36.4018,
+          "unique_bytes_per_call": 8652800,
+          "within_tolerance_of_floor": true
+        },
+        "T3c_oproj_h48": {
+          "addressable_slack_pct_of_anchor": 6.24,
+          "addressable_slack_us_per_call": 1.8842,
+          "anchor_us_per_call": 30.18,
+          "daylight_over_dram_floor_only_pct": 24.07,
+          "dispatch_intercept_pct_of_anchor": 13.15,
+          "dispatch_intercept_us_per_call": 3.97,
+          "dram_floor_pct_of_anchor": 80.6,
+          "dram_floor_us_per_call": 24.3258,
+          "floor_us_per_call": 28.2958,
+          "unique_bytes_per_call": 6490112,
+          "within_tolerance_of_floor": false
+        }
+      },
+      "family_addressable_slack_pct_of_cs": {
+        "alpha_0.4369": 0.296,
+        "beta_0.5": 0.3387
+      },
+      "family_addressable_slack_us_per_step_m4": 44.49,
+      "family_slack_in_draw_bars": {
+        "alpha_0.4369": 0.74,
+        "beta_0.5": 0.847
+      },
+      "family_slack_in_summand_bars": {
+        "alpha_0.4369": 1.455,
+        "beta_0.5": 1.665
+      },
+      "frieren_t2d_reference_split_pct": {
+        "addressable": 2.5,
+        "barrier_drain": 14.0,
+        "dram_floor": 86.6
+      },
+      "tolerance_pct": 5.0,
+      "verdict": "N-T3B-ROOFLINE-h64-only"
+    },
+    "in_run_ceiling": null
   },
   "t2d_comparison_column": {
     "activation_reread_factor": 512,

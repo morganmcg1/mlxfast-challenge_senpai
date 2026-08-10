@@ -161,6 +161,15 @@ DOSE = {
     "T3c_oproj_h48": {"bytes": 6490112, "us": 301.8 / 10, "k_blocks": 12, "calls": 10},
 }
 M4_CEILING_GB_S = 266.80
+# Set from this session's own in-run probe so the falsifier does not rest on a
+# ceiling borrowed from another host (#644 comment 5242520568).
+IN_RUN_CEILING_GBS: float | None = None
+# Rule 55's measured M4 per-dispatch intercept, independently replicated as the
+# additive term of #648 §3.3's family slack bound.
+DISPATCH_INTERCEPT_US = 3.97
+# frieren R107-F's decision criterion: an anchor this close to its own floor
+# means the family is DRAM-bound and the amortisation class is dead.
+FALSIFIER_TOLERANCE_PCT = 5.0
 
 # Rule 100 (#642, maple-tanjiro, R107-D) measured an instruction-issue exchange
 # rate on this host's decode fused-attention kernels: 0.008255 us per
@@ -535,6 +544,75 @@ def roofline(local_decode_s: float | None = None) -> dict[str, object]:
     return out
 
 
+def roofline_falsifier(ceiling_gb_s: float, label: str) -> dict[str, object]:
+    """frieren's R107-F falsifier, applied to the two oproj dispatches.
+
+    She split her T2d call into unique-byte DRAM floor / inter-dispatch drain /
+    addressable residual and killed the whole family when the residual fell
+    under the tolerance. The same three-way split is available here because
+    both terms are measured on this host: the ceiling by probe and the
+    per-dispatch intercept by rule 55.
+    """
+    fams: dict[str, object] = {}
+    total_slack_us_step = 0.0
+    for name, d in DOSE.items():
+        anchor = d["us"]
+        dram_floor = d["bytes"] / (ceiling_gb_s * 1e9) * 1e6
+        floor = dram_floor + DISPATCH_INTERCEPT_US
+        slack = anchor - floor
+        total_slack_us_step += slack * d["calls"]
+        fams[name] = {
+            "anchor_us_per_call": round(anchor, 4),
+            "unique_bytes_per_call": d["bytes"],
+            "dram_floor_us_per_call": round(dram_floor, 4),
+            "dispatch_intercept_us_per_call": DISPATCH_INTERCEPT_US,
+            "floor_us_per_call": round(floor, 4),
+            "addressable_slack_us_per_call": round(slack, 4),
+            "dram_floor_pct_of_anchor": round(100 * dram_floor / anchor, 2),
+            "dispatch_intercept_pct_of_anchor": round(
+                100 * DISPATCH_INTERCEPT_US / anchor, 2
+            ),
+            "addressable_slack_pct_of_anchor": round(100 * slack / anchor, 2),
+            "daylight_over_dram_floor_only_pct": round(
+                100 * (anchor / dram_floor - 1), 2
+            ),
+            "within_tolerance_of_floor": bool(
+                100 * slack / anchor <= FALSIFIER_TOLERANCE_PCT
+            ),
+        }
+    slack_pct_cs = {k: total_slack_us_step * v * DECODE_PRICE_PCT_PER_US
+                    for k, v in {"alpha_0.4369": M5_OVER_M4, "beta_0.5": 0.5}.items()}
+    return {
+        "ceiling_gb_per_s": ceiling_gb_s,
+        "ceiling_provenance": label,
+        "tolerance_pct": FALSIFIER_TOLERANCE_PCT,
+        "families": fams,
+        "family_addressable_slack_us_per_step_m4": round(total_slack_us_step, 2),
+        "family_addressable_slack_pct_of_cs": {
+            k: round(v, 4) for k, v in slack_pct_cs.items()
+        },
+        "family_slack_in_summand_bars": {
+            k: round(v / SUMMAND_BAR_PCT, 3) for k, v in slack_pct_cs.items()
+        },
+        "family_slack_in_draw_bars": {
+            k: round(v / SHIPPABLE_BAR_PCT, 3) for k, v in slack_pct_cs.items()
+        },
+        "capture_fraction_needed_for_summand_pct": {
+            k: round(100 * SUMMAND_BAR_PCT / v, 2) for k, v in slack_pct_cs.items()
+        },
+        "verdict": (
+            "N-T3B-ROOFLINE"
+            if all(f["within_tolerance_of_floor"] for f in fams.values())
+            else "N-T3B-ROOFLINE-h64-only"
+            if fams["T3b_oproj_h64"]["within_tolerance_of_floor"]
+            else "DAYLIGHT"
+        ),
+        "frieren_t2d_reference_split_pct": {
+            "dram_floor": 86.6, "barrier_drain": 14.0, "addressable": 2.5,
+        },
+    }
+
+
 def main() -> int:
     arms: dict[str, dict[str, object]] = {}
     for path in sorted(ART.glob("oproj_g*_h*.metal")):
@@ -572,6 +650,18 @@ def main() -> int:
                        "axis predict opposite signs for g4",
         },
         "roofline": roofline(local_decode_s=float(sys.argv[1]) if len(sys.argv) > 1 else None),
+        "roofline_falsifier": {
+            "borrowed_ceiling": roofline_falsifier(
+                M4_CEILING_GB_S, "fern-r101 corollary 3, another M4 Pro host"
+            ),
+            "in_run_ceiling": (
+                roofline_falsifier(
+                    IN_RUN_CEILING_GBS, "this host, this session, fern_r101_bw_probe"
+                )
+                if IN_RUN_CEILING_GBS is not None
+                else None
+            ),
+        },
         "issue_ceiling": issue_ceiling(arms),
         "regime_fit": regime_fit(),
         "t2d_comparison_column": t2d_comparison_column(),
@@ -596,6 +686,25 @@ def main() -> int:
                 f"issued/compulsory={m['issued_over_compulsory']} "
                 f"act_reread={m['activation_reread_factor']}x ops/fma={m['ops_per_fma']}"
             )
+    for tag, fal in ledger["roofline_falsifier"].items():
+        if fal is None:
+            continue
+        print(f"--- roofline falsifier ({tag}, {fal['ceiling_gb_per_s']} GB/s) ---")
+        for name, f in fal["families"].items():
+            print(
+                f"  {name}: anchor={f['anchor_us_per_call']}us "
+                f"floor={f['floor_us_per_call']}us "
+                f"(dram {f['dram_floor_pct_of_anchor']}% + disp "
+                f"{f['dispatch_intercept_pct_of_anchor']}%) "
+                f"slack={f['addressable_slack_pct_of_anchor']}% "
+                f"within_tol={f['within_tolerance_of_floor']}"
+            )
+        print(
+            f"  family slack {fal['family_addressable_slack_us_per_step_m4']} us/step M4 "
+            f"= {fal['family_addressable_slack_pct_of_cs']} of cs "
+            f"= {fal['family_slack_in_draw_bars']} draw bars "
+            f"-> {fal['verdict']}"
+        )
     print(f"wrote {out}")
     return 0
 
