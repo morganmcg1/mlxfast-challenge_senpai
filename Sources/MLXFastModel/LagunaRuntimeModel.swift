@@ -85,8 +85,7 @@ final class LagunaFusionTraceLog: @unchecked Sendable {
         let isNew = seen.insert(site).inserted
         lock.unlock()
         if isNew {
-            FileHandle.standardError.write(
-                Data("mlxfast: \(ProcessInfo.processInfo.systemUptime) fusion active: \(site)\n".utf8))
+            FileHandle.standardError.write(Data("mlxfast: fusion active: \(site)\n".utf8))
         }
     }
 }
@@ -5939,7 +5938,6 @@ final class LagunaRuntimeAttention: Module {
             if lagunaPrefillProjectionAsyncEnabled, B == 1, gatingEnabled, let gProj {
                 let projectedGate = gProj(normalizedInput)
                 prefillProjectedGate = projectedGate
-                lagunaTrace("prefill projection enqueue layer \(layerIdx)")
                 asyncEval(qkv, projectedGate)
             }
             let queryDim = nHeads * headDim
@@ -11584,7 +11582,6 @@ final class LagunaRuntimeModelInner: Module {
                 if lagunaPrefillAsyncLadderStride > 0, h.dim(1) > 1,
                     (i + 1) % lagunaPrefillAsyncLadderStride == 0
                 {
-                    lagunaTrace("prefill outer enqueue layer \(i)")
                     asyncEval(h)
                 }
             }
