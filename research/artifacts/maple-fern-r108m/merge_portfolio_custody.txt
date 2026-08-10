@@ -1,0 +1,102 @@
+==============================================================================
+0. SELF-CHECK: 105.23(a) reproduced
+==============================================================================
+  P2(0.756)=0.0035  P2(1.069)=0.0593  P2(1.690)=0.8161
+  P2(1.512)=0.5652  P2(2.138)=0.9977  P2(3.380)=1.0000
+  all match the advisor's table to <5e-4.  Model agreed.
+
+==============================================================================
+1. IS THE STAGE-1 CRITICAL TEST CLEAN OF THE ALPHA UNCERTAINTY?
+==============================================================================
+  route A  dispatch count      1.0691 %   alpha band 0.0000 % of cs
+  route B  cost recovery       1.7807 -> 1.7760 %   alpha band 0.0046 % of cs
+  route C  measured slack      0.7593 -> 0.7551 %   alpha band 0.0043 % of cs
+
+  route-to-route disagreement the critical test must resolve ... 0.934 % of cs
+  worst single-route alpha band .............................. 0.0046 % of cs
+  ratio ...................................................... 202x
+
+  => VERDICT: alpha accounts for 0.50 % of the disagreement. The Stage-1
+     critical test is ALPHA-CLEAN. Whatever frieren measures at 21:00Z,
+     'the bandwidth constant was wrong' is not an available explanation,
+     and no one should spend the night re-deriving alpha to explain it.
+  => Note the sign, though: route C is a floor. alpha 0.4369 sits at the
+     78th percentile of my bracket, so if it errs it errs HIGH, too much
+     is charged to bytes, and the residual slack is understated. A
+     Stage-1 reading a little ABOVE 0.756 % is still consistent with
+     route C; the 105.23(f) branch point at 1.0 % is unaffected, because
+     0.004 % of cs is nowhere near the 0.244 % of headroom it would need.
+
+==============================================================================
+2. WHAT THE DEDUP TRAP COSTS, IN 105.23's OWN UNITS
+==============================================================================
+  Every P(>=1 of 2) above assumes two independent draws. Two submissions
+  of an UNCHANGED tree are content-deduplicated (freeze protocol 4.2,
+  proven from /usr/local/libexec/mlxfast.js): the second call returns
+  'Submission already exists', result.job is null, no scoring job is
+  created, and the note is discarded. Two draws against one tree is one
+  draw. So the honest column, absent a defeat, is P(1 draw).
+
+  portfolio            x %  P 1 draw P 2 draws dedup cost
+  1 merge  C  pessimistic   0.756    0.0018    0.0035    0.0018
+  1 merge  A  central   1.069    0.0301    0.0593    0.0292
+  1 merge  B  optimistic   1.690    0.5712    0.8161    0.2449
+  2 merges C  pessimistic   1.512    0.3406    0.5652    0.2246
+  2 merges A  central   2.138    0.9520    0.9977    0.0457
+  2 merges B  optimistic   3.380    1.0000    1.0000    0.0000
+
+  uniform prior over the three routes (105.23(c)'s own device):
+    E[P | 1 merge, 2 working draws] = 0.2930   (105.23(c): 0.2930)
+    E[P | 2 merges, 2 working draws] = 0.8543  (105.23(c): 0.8543)
+    E[P | 1 merge, dedup unfixed]   = 0.2010
+    E[P | 2 merges, dedup unfixed]  = 0.7642
+
+    value of the SECOND MERGE ....... +0.5613  (105.23(c): +0.5613)
+    value of DEFEATING THE DEDUP .... +0.0920 at 1 merge, +0.0901 at 2 merges
+    value of a THIRD merge (105.23(b)) +0.0023
+
+  => Defeating the dedup is worth +0.0920 in expectation: 40x a third merge,
+     and 16 % of what the entire second merge is worth. It costs one
+     comment line in an editable source file and 124 s of rebuild, against
+     ~4 hours for the second merge. On value per minute it is the single
+     best-priced item on the board.
+  => Worst single point: x = 1.690 (route B, one merge) loses 0.2449,
+     and x = 1.512 (route C, two merges) loses 0.2246. Both are larger
+     than the 0.232 splitting loss that 105.22(c) was written to prevent.
+
+==============================================================================
+3. 105.23(d) BYTE BUDGET, CHECKED AGAINST MY MEASURED SURFACE
+==============================================================================
+  measured at HEAD: 142 files, 2681206 B total, largest 384245 B
+  per-file headroom   140043 B -> 34 merges at 4096 B
+  total    headroom   318794 B -> 77 merges
+  growth vs base 1bc1c895 -302643 B (we are BELOW base), so growth headroom
+                      564787 B -> 137 merges
+
+  => 105.23(d) CONFIRMED, and the binding cap is the one it named:
+     per-file, at 34 merges. The other two are slacker (77 and 137).
+  => One correction worth having: the growth cap is measured against base
+     1bc1c895, and our tree is 302,643 B SMALLER than base, so the growth
+     cap is not merely slack, it is 564787 B slack. Nothing about the merge
+     programme can be stopped by bytes. The clock is the only resource,
+     and my measured rebuild cost is 124.3 s per touch of
+     LagunaRuntimeModel.swift (freeze protocol 4.1) - not the ~4 s that a
+     'touch'-based timing would suggest.
+
+==============================================================================
+4. 39- vs 30-DISPATCH, RE-PRICED ON 105.23's LADDER
+==============================================================================
+  Integration tree 9.6.2 already prefers a 39-dispatch pair on gain. 105.23
+  makes the ladder linear in the per-merge price, which amplifies the gap:
+
+  pair                         1 merge        P1   P>=1of2 2 merges P>=1of2
+  39-dispatch @ k_residue       1.1029    0.0386    0.0757         0.9991
+  30-dispatch @ k_residue       0.8484    0.0045    0.0090         0.8236
+  39-dispatch @ k=1.0           0.7354    0.0014    0.0028         0.4988
+  30-dispatch @ k=1.0           0.5657    0.0002    0.0004         0.0922
+
+  one merge : 39-dispatch is 8.4x the 30-dispatch P(>=1 of 2)
+  two merges: 1.21x -- the advantage COLLAPSES once two merges are on the
+              table, because 2 x 0.8484 = 1.6968 already sits on top of the
+              1.6359 record gap. That is the real argument for merge #2: it
+              makes the dispatch-count question stop mattering.

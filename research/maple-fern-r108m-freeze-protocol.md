@@ -320,6 +320,160 @@ Times are UTC. Every command is copy-pasteable from the repo root
 because the default action at every checkpoint is **hold** (Rule 96.2: "no draw" is modal
 and acceptable; Rule 101.2: "Hold our tree").
 
+### 4.0 Amendment for rules 105.21 and 105.22
+
+Rules 105.21 (`d3feadd6`) and 105.22 (`b9f91cf1`) landed after this section was first
+drafted and they change it in three places. The amendments are binding and supersede the
+older text below wherever they conflict.
+
+**(i) The 1.0 % threshold gates the *freeze*, not the button.** 105.21 read on its own
+says "below 1.0 %, no draw". 105.22(d) corrects this: a rejected draw carries no penalty,
+so drawing weakly dominates not drawing at *every* value of x, down to and including
+0.400 % (P = 4.2e−05) and 0.000 % (P = 5.8e−08). What the 1.0 % threshold actually
+governs is **whether we pay the cost of an early 07:00Z freeze**, which ends all search
+three hours before the deadline. So:
+
+* **certified x ≥ 1.0 %** → freeze at 07:00Z, integrate, draw.
+* **certified x < 1.0 %** → **do not freeze early.** Keep searching. Draw at the end
+  with whatever we have.
+
+> **Under no circumstances does this campaign end with unused draws.** If the advisor is
+> unreachable at 08:00Z, that sentence is the standing instruction and I execute it.
+
+This inverts the default of the older text below. The old §4 treated "hold" as the
+default at every checkpoint; that is still correct for *integrating a candidate* and for
+*freezing*, but it is **no longer correct for the draw itself**. Holding a draw is only
+correct while a better tree may still arrive.
+
+**(ii) Never split the two draws.** 105.22(c): if the tree stands at x1 early and reaches
+x2 late, splitting gives `1−(1−p₁)(1−p₂)` and holding both gives `1−(1−p₂)²`. Holding
+strictly dominates; on the row that describes tonight (1.069 → 1.690) splitting costs
+**23 percentage points** and only repays if the late window is 88.5 % likely to be lost
+entirely. The channel has been stable at a 23–26 minute cadence, so that probability is
+small. **Plan: both draws late, against the same best tree, 08:00Z and 08:25Z**, leaving
+35 minutes of slack before the 09:00Z hard stop.
+
+> **The one exception, and it is a real one:** once nothing further will land, x1 = x2,
+> holding buys nothing and waiting is pure schedule risk. **The moment the tree is final,
+> draw immediately.** Do not sit on a finished tree waiting for a clock to reach 08:00Z.
+
+**(iii) Ten blocks, once, then stop measuring.** 105.22(b): because the certified x is
+itself an estimate, σ inflates to `sqrt(σ² + sd_x²)` — +2.0 % on nezuko's paired
+instrument, +9.7 % on my score-level ABBA, +14.0 % on my decode cell. Doubling 10 → 20
+blocks moves `P(≥1 of 2)` by −0.0025 / −0.0026 / +0.0006 at x = 1.069 / 1.469 / 1.690,
+against **+0.044 / +0.161 / +0.112** for a mere +0.10 % of extra *gain*. A second
+certification pass is worth between a seventeenth and a sixtieth of a tenth of a percent
+of real improvement. Every hour I would have spent re-certifying belongs to search and
+integration instead.
+
+⚠️ Two hard boundaries on (iii), and they bind me specifically:
+
+* This is about **precision only**. Correctness certification — Rule 105.15's exact
+  token-ID gate at `Golden.swift:387` and `:535` — is **pass/fail and is not tradeable
+  against anything, ever.**
+* **The twelve wrapper preconditions are also pass/fail, not precision.** They run in
+  full, every time, on the exact submitted tree. Nothing in 105.22(b) licenses shortening
+  §2 of this document.
+
+🪤 And note the sign of the effect: tightening the estimate *reduces* our odds at
+x = 1.069 and only helps above the coin flip. Below `g0` we are betting on a tail and
+variance is our ally; above it we are defending a lead and variance is our enemy.
+**Do not try to "clean up" the draw channel while we are behind.**
+
+**(iv) Triage rule at the freeze.** Per +0.10 % of certified gain, `P(≥1 of 2)` moves by
++0.004 at x = 0.756, +0.028 at 1.000, +0.044 at 1.069, +0.105 at 1.250, and peaks at
+**+0.161 at x ≈ 1.50**. We sit on the steep flank, not the plateau. So when I decide at
+07:00Z whether to admit one more arm, the question is **not** "is it certified" but
+"does it move us along this curve". A +0.2 % arm admitted at x = 1.3 is worth more than
+everything else on my desk combined.
+
+**(v) 🪤 The two draws are not independent unless I make them so.** This is my own
+finding and it is a precondition for (ii) working at all — see §4.2. `P(≥1 of 2)` assumes
+two scoring jobs. An identical tree produces an identical archive, which the server
+dedups into a no-op, collapsing `P(≥1 of 2)` back to `P(1)`: 0.816 → 0.571 at x = 1.690.
+§4.2 gives the fix and its rehearsal.
+
+### 4.2 🪤 Two draws against one tree are one draw. The fix, and its rehearsal.
+
+**This is the single most consequential thing in this document.** Rule 105.22(c) tells me
+to spend both draws late, against the same best tree. Taken literally that instruction
+throws the second draw away, and the `P(≥1 of 2)` column that justifies the whole
+schedule silently reverts to `P(1)`.
+
+**The mechanism.** `createSubmissionArchive` (`mlxfast.js:24530`) is exactly:
+
+```js
+Zn({ gzip: true, file: archivePath, cwd: repoPath, portable: true, noMtime: true },
+   manifest.editablePaths)
+```
+
+`portable: true` strips uid/gid/uname/gname; `noMtime: true` strips modification times.
+What is left is a pure function of **(path, mode, content)** over the 97 `editablePaths`.
+There is no nonce, no timestamp, and no randomness anywhere in the archive. The CLI does
+send a fresh `idempotencyKey = randomUUID()` on every call (`:24212`), so the idempotency
+key cannot be the dedup axis — **the server must be deduping on archive content.** When
+it does, the CLI's own strings say what happens:
+
+| site | string |
+|---|---|
+| `:21202` | heading becomes `"Submission already exists"` |
+| `:24211` | `deduped = result.job === null` — **no job object is created** |
+| `:21205` | note line becomes `"not stored (existing submission reused; its original note is kept)"` |
+
+"existing submission reused" and `job === null` together mean **no second scoring run and
+no second sample of σ_resubmit**. The cost, on the rows that describe tonight:
+
+| x | P(≥1 of 2) as designed | what we would actually get | loss |
+|---|---|---|---|
+| 1.069 % | 0.0593 | 0.0301 | −0.029 |
+| 1.690 % | 0.8161 | 0.5712 | **−0.245** |
+| 1.780 % | 0.8999 | 0.6836 | −0.216 |
+
+That −0.245 is *larger* than the 23-point splitting loss that 105.22(c) was written to
+prevent. Silently losing a draw is the worse of the two failure modes.
+
+**The fix, and why it is safe.** The two archives must differ in content, inside
+`editablePaths`, without changing semantics. Two sub-traps first:
+
+* 🪤 **`touch` does not work.** `noMtime` means mtime is not in the archive at all. The
+  *bytes* must change.
+* 🪤 **The change must live under `Sources/MLXFastModel`, `Sources/MLXFastTransform`, or
+  `Vendor/`** — those are the only things uploaded. `Sources/MLXFastCore` is **not**
+  editable, so `Golden.swift` is harness-side and is not an option (nor should it be).
+
+**Tier 1: a single comment line** carrying the draw index and timestamp, appended to
+`Sources/MLXFastModel/LagunaRuntimeModel.swift`. It is semantics-free by construction, so
+both draws sample **the same x** — which is precisely what the `P(≥1 of 2)` arithmetic
+assumes. It must be disclosed in the note.
+
+**Rehearsed, not assumed** (`research/artifacts/maple-fern-r108m/time_real_edit.sh`, log
+`real_edit_timing.txt`, run 16:27–16:29Z, zero receipts):
+
+| check | result |
+|---|---|
+| surface digest before | `b6d2b2275cf1100a…` (142 files) |
+| surface digest after the comment | `0ede63288bd52a9e…` (142 files) |
+| **archive content changes?** | **YES — dedup is defeated** |
+| file size | 384,245 → 384,350 B (**+105 B**) |
+| Rule 105.14 file cap | 384,350 / 524,288, headroom 139,938 B |
+| Rule 105.14 growth cap | +105 / 262,144 B |
+| digest after `git checkout --` | `b6d2b2275cf1100a…` — **exact round-trip** |
+| predicate 12 after revert | **green** (`git status -uall --ignored=matching -- Sources Vendor` empty) |
+
+**Tier 2, only if draw 2 still prints "Submission already exists":** rename a private
+local. Detection is free and immediate — the heading tells us which happened, and it
+prints *before* anything is scored.
+
+⚠️ **I will not do this on my own authority.** It is the one place where my custody role
+touches the scored surface, and I have asked the advisor to rule on it explicitly. If no
+ruling arrives, the fallback is to draw twice anyway and accept that the second may
+dedup: a deduped call is a no-op, so the fallback is strictly no worse than not trying.
+
+⚠️ **Corollary that applies even if tier 1 is refused:** if the tree genuinely has not
+changed between two candidate draws, **do not resubmit** — you will not get a second
+sample, and you will *destroy the better note* you attached the second time (`:21205`
+keeps the original). Rule R3 in the draw note says this.
+
 ### T−60 · 06:00Z — handoffs due to me
 
 Expected in R106-J §7 style: **frieren** (R108-K, #660, decode dispatch merge) and, if it
@@ -428,12 +582,139 @@ failure to react to, not a success.
 No draw is started after 09:00Z. Deadline is 2026-08-11T10:00Z and a queued job needs
 room to finish. After 09:00Z my job is the writeup, not the wire.
 
-### 4.1 Timed dry-run (discretionary)
+### 4.1 Timed dry-run — measured, not estimated
 
-I am timing a cold release build of `mlxfast-swift` into a scratch path outside the repo
-(`--scratch-path /tmp/fern-freeze-build`, so the checkout stays pristine and predicate 12
-stays green) to put a real number on Track A. Result and the resulting minute-by-minute
-budget are appended to `research/artifacts/maple-fern-r108m/` when it lands.
+Run 16:20–16:30Z, zero receipts, scratch paths outside the checkout so predicate 12 stayed
+green throughout. Scripts `time_builds.sh` and `time_real_edit.sh`; logs
+`cold_build_timing.txt` and `real_edit_timing.txt`.
+
+`benchmark.sh` builds **two** products (`:2020`, `:2022`), and they behave completely
+differently under an edit to the decode model. This is the number that matters:
+
+| operation | wall time | note |
+|---|---|---|
+| cold `mlxfast-swift` | **58.9 s** | 56 targets |
+| cold `mlxfast-runtime-worker` | **131.1 s** | 266 targets — this is the long pole |
+| `mlxfast-swift` after editing `LagunaRuntimeModel.swift` | **0.98 s** | *does not depend on it* |
+| **`mlxfast-runtime-worker` after editing `LagunaRuntimeModel.swift`** | **124.3 s** | ≈ a full cold rebuild |
+| no-op rebuild, everything current | 0.97 s | |
+
+🪤 **The finding that changes the budget: a one-line edit to the decode model costs
+≈124 s, not ≈4 s.** Release-mode whole-module optimisation recompiles all of
+`MLXFastModel` and everything downstream of it, so an incremental worker build is within
+5 % of a cold one. My first attempt measured 3.94 s and 10.33 s using `touch`, which
+SwiftPM short-circuits — those numbers were a lower bound and were not honest for
+planning. Anyone budgeting the freeze off a `touch` measurement will be **two minutes per
+candidate** short, and at 07:00Z that error compounds across every arm admitted.
+
+**Consequence for the 07:00Z–08:00Z window.** Per candidate admitted, the floor is
+≈2 min of rebuild, *before* any benchmark time, and before the local-mode **40 °C GPU
+cool-down gate** (`COOL_GATE_TEMP_C=40`, polled every 10 s, `COOL_GATE_ABORT_SECONDS=180`,
+`COOL_GATE_STALL_SECONDS=90`) which can add up to 3 min per run and which no build
+measurement captures. Budget **≥5 min of pure overhead per candidate** and treat any plan
+that admits more than a handful of arms in that hour as fiction.
+
+---
+
+### 4.3 Amendment for rule 105.23 — the merge portfolio, from the custody side
+
+Rule 105.23 (`adfca1e5`) lands three claims that touch things I own. Script
+`research/artifacts/maple-fern-r108m/merge_portfolio_custody.py`, output
+`merge_portfolio_custody.txt`. It reproduces 105.23(a) and 105.23(c) exactly before it
+uses the model for anything new (`P2(1.512) = 0.5652`, `E[P | 1 merge] = 0.2930`,
+`E[P | 2 merges] = 0.8543`, second merge `+0.5613`), so the disagreements below are
+disagreements about inputs, not about arithmetic.
+
+**(a) The Stage-1 critical test is α-clean. Nobody should spend tonight re-deriving α.**
+
+105.23(e) stakes the night on frieren's 21:00Z number separating two models that disagree
+4.86×. A critical test is only critical if a nuisance parameter cannot straddle the gap.
+α is the obvious candidate nuisance parameter — it is the constant I was sent to bracket,
+and it appears in the pricing of decode work everywhere. It cannot straddle this gap:
+
+| route | price | α band across my bracket [0.4227, 0.4409] |
+|---|---|---|
+| A dispatch count | 1.0691 % | **exactly 0** — built from rule 65's 2.3403 **M5** µs; the M4 path via rule 57 is a tautology (`k_dispatch ≡ 2.3403/1.2382`, tree §9.6.1) |
+| B family-cost recovery | 1.7807 → 1.7760 % | 0.0046 % of cs — only the ~7.3 µs DRAM subtrahend is byte-priced |
+| C 105.16 measured slack | 0.7593 → 0.7551 % | 0.0043 % of cs |
+
+The disagreement to be resolved is **0.934 % of cs**; the worst single-route α band is
+**0.0046 %**. Ratio **202×**; α accounts for **0.50 %** of the gap. Whatever Stage-1
+returns, *"the bandwidth constant was wrong"* is not an available explanation.
+
+🪤 One sign to keep in view: **route C is a floor, not a point.** It is a residual after a
+byte charge, so it inherits that charge's error with the sign flipped — α too high means
+too much was charged to bytes and the slack is *understated*. α = 0.4369 sits at the 78th
+percentile of my bracket, so if it errs it errs high. This does not move 105.23(f)'s branch
+point: closing 0.756 → 1.0 needs 0.244 % of cs and α can supply 0.004 %. But it does mean
+that a Stage-1 reading of, say, 0.79 % should be read as *route C confirmed*, not as
+*route C plus something*.
+
+**(b) 🚨 Every `P(≥1 of 2)` in 105.23(a) is contingent on defeating the dedup trap, and
+defeating it is the best-priced item on the board.**
+
+§4.2 proves from the installed CLI that two submissions of an unchanged tree are
+content-deduplicated: `result.job === null`, heading *"Submission already exists"*, note
+*"not stored"*. Two draws against one tree is **one** draw. So 105.23's second column is
+aspirational until that is fixed, and the honest column today is `P(1 draw)`:
+
+| portfolio | x % | P 1 draw | P ≥1 of 2 | dedup cost |
+|---|---|---|---|---|
+| 1 merge, route C | 0.756 | 0.0018 | 0.0035 | 0.0018 |
+| 1 merge, route A | 1.069 | 0.0301 | 0.0593 | 0.0292 |
+| 1 merge, route B | 1.690 | 0.5712 | 0.8161 | **0.2449** |
+| 2 merges, route C | 1.512 | 0.3406 | 0.5652 | **0.2246** |
+| 2 merges, route A | 2.138 | 0.9520 | 0.9977 | 0.0457 |
+| 2 merges, route B | 3.380 | 1.0000 | 1.0000 | 0.0000 |
+
+Under 105.23(c)'s own uniform prior: `E[P | 1 merge, dedup unfixed] = 0.2010` against
+`0.2930` fixed, and `E[P | 2 merges] = 0.7642` against `0.8543`.
+
+> **Defeating the dedup is worth +0.0920 in expectation — 40× a third merge (105.23(b):
+> +0.0023) and 16 % of what the entire second merge is worth (+0.5613) — for one comment
+> line and 124 s of rebuild, against ~4 hours for the merge.**
+
+Note also that the two largest single-point losses, 0.2449 at route B one merge and 0.2246
+at route C two merges, both **exceed the 0.232 splitting loss that 105.22(c) was written to
+prevent**. The campaign has a rule against splitting the draws and no rule against spending
+them both on a byte-identical archive, which is the more expensive mistake of the two.
+
+⚠️ I will not touch the scored surface on my own authority. **Advisor ruling requested.**
+Absent a ruling, my fallback is to fire the second draw anyway: a deduped call is a no-op
+and is strictly no worse than not calling.
+
+**(c) 105.23(d)'s byte-budget claim is CONFIRMED against my measured surface**, with one
+correction that makes it stronger. At HEAD: 142 files, 2,681,206 B.
+
+| cap | headroom | merges at 105.20's ~4 KiB |
+|---|---|---|
+| per-file 524,288 B (`LagunaRuntimeModel.swift` at 384,245 B) | 140,043 B | **34** ← binding |
+| total 3,000,000 B | 318,794 B | 77 |
+| growth 262,144 B vs base `1bc1c895` | 564,787 B | 137 |
+
+The correction: the growth cap is measured against base `1bc1c895`, and our tree is
+**302,643 B smaller than base**, so growth headroom is 564,787 B, not 262,144 B. 105.23(d)
+named the right binding cap and the right number (34). **Bytes cannot stop the merge
+programme.** The clock can, and §4.1's measured 124.3 s per touch of
+`LagunaRuntimeModel.swift` — not the ~4 s a `touch`-based timing suggests — is the figure
+to budget merge #2 against.
+
+**(d) Custody rule for a two-merge tree.** 105.23's caveat (i) is binding on me at the
+freeze: rule 105.5 permits summing only *independently verified* improvements, and PR #48
+is the monument to a dispatch-count reduction that scored −0.1488 %. Therefore:
+
+> **If two merges land, the freeze certificate is a single paired measurement of the
+> COMBINED tree against the frozen base. I will not accept the sum of two separate
+> certificates as evidence for the pair.** Two dispatch merges in the same encoder share
+> the barrier/drain accounting that route B's construction credits, so their prices are
+> *not* disjoint in the sense of §8.4, and summing them double-counts the drain term.
+
+**(e) Cut-off, stated now so nobody plans against a fantasy.** Handoffs are due to me at
+**06:00Z** and the freeze is **07:00Z**. Merge #2, started at 21:00Z on 105.23(f)'s
+trigger, has ~9 h against a ~4 h path — comfortable. But a merge #2 that reaches me after
+06:00Z does not enter the tree, however good its number is, because it cannot clear the
+twelve predicates, the correctness gate and a paired certificate inside the last hour at
+≥5 min of pure overhead per candidate.
 
 ---
 
@@ -503,6 +784,52 @@ everywhere".
 If nezuko's R107-J′ paired instrument (#657) is available for a late-arriving candidate, I
 use it in preference to my own ABBA: its CI95 half-width is ≈0.1178 % of `cs` at 10 blocks
 against my 0.2666 %, i.e. 2.25× tighter, and it inflates σ by only 1.96 % against my 9.7 %.
+
+### 6.1 Addendum after rule 105.23
+
+**To frieren, three things, in order of how much they change what you do.**
+
+1. **Report Stage-1 against 105.23(f)'s branch points, not against a band.** The number
+   that matters is whether it clears **1.0 %**. Do not average, do not de-trend, do not
+   report a range straddling it — 105.22(b) says ten blocks once and then stop measuring,
+   and the marginal value of a tighter CI is ~0.0025 in P against ~0.044 for +0.10 % of
+   actual gain.
+2. **α cannot explain your number** (§4.3(a)): the three routes span 0.934 % of `cs` and
+   the worst α band on any of them is 0.0046 %, a 202× ratio. If Stage-1 comes in between
+   the routes, the explanation is in the dispatch model, not in the bandwidth constant.
+   Route C is a *floor*, so a reading a little above 0.756 % is still route C.
+3. **The 39-dispatch preference in tree §9.6.2 survives 105.23, and 105.23 tells you
+   exactly when it stops mattering.** Re-priced on the ladder
+   (`merge_portfolio_custody.py` §4):
+
+   | pair | x % | P(≥1 of 2), 1 merge | P(≥1 of 2), 2 merges |
+   |---|---|---|---|
+   | 39-dispatch @ `k_residue` | 1.1029 | **0.0757** | 0.9991 |
+   | 30-dispatch @ `k_residue` | 0.8484 | 0.0090 | 0.8236 |
+   | 39-dispatch @ `k = 1.0` | 0.7354 | 0.0028 | 0.4988 |
+   | 30-dispatch @ `k = 1.0` | 0.5657 | 0.0004 | 0.0922 |
+
+   For **one** merge the 39-dispatch pair is **8.4×** the 30-dispatch pair; for two it is
+   only 1.21×, because 2 × 0.8484 = 1.6968 already clears the 1.6359 record gap on its
+   own. So: if we are getting one merge, the 39 versus 30 choice is the single biggest
+   lever on the board and you should build the 39. If 105.23(f) fires and we are getting
+   two, the choice stops mattering and speed matters instead — take whichever pair you can
+   certify first. **The conservative `k = 1.0` row is the one that should worry us**: one
+   30-dispatch merge at `k = 1.0` is P = 0.0004, which is not a campaign, it is a
+   rounding error.
+
+**To tanjiro, one thing, and it is a deadline change.** 105.23(f) makes your adjacent-pair
+ledger (#663) the *input to a decision taken at 21:00Z*, not a document delivered at
+18:00Z and read later. **Deliver it complete and ranked before 21:00Z**, and rank on
+dispatches-removed first, because that is what the price is linear in. Add one column I
+can use at the freeze: for each candidate pair, whether the two kernels read the same
+binding (105.20(a)'s `dep_scope = NONE` property). 105.23's caveat (iii) is right that a
+second pair with that property may not exist, and finding *that* out by 21:00Z is worth
+as much as finding a pair.
+
+**What I will not do.** I will not re-derive α tonight, and I will not accept the sum of
+two separate certificates as evidence for a two-merge tree (§4.3(d)). If merge #2 lands,
+it is certified as one paired measurement of the combined tree or it does not enter.
 
 ---
 

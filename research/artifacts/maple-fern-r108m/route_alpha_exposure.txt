@@ -1,0 +1,57 @@
+==============================================================================
+1. INDEPENDENT CORROBORATION OF ALPHA FROM RULE 105.20
+==============================================================================
+  105.20's effective M5 bandwidth, from the byte price ... 603.0 GB/s
+  my MEASURED M4 ceiling ......................... 263.29 GB/s
+  M4_ceiling / alpha_campaign = implied M5 ....... 602.63 GB/s
+  disagreement .................................. -0.061 %
+  alpha implied by 105.20's 603 GB/s ............ 0.43663
+  campaign alpha ................................ 0.43690
+  inside my bracket [0.4227, 0.4409]? ........... YES
+
+  => This is a THIRD, independent line of evidence for alpha, derived from a
+     byte price I did not use in the bracket. It is not a bound, it is a point
+     estimate, and it lands 0.06 % from the campaign value.
+
+==============================================================================
+2. TRUE ALPHA EXPOSURE, ROUTE BY ROUTE
+==============================================================================
+
+  ROUTE A -- dispatch count: 30 x 2.3403 M5 us / 65.67 = 1.0691 %
+    alpha appears NOWHERE in this construction. Rule 65's 2.3403 is already an
+    M5 measurement; the M4 route via rule 57 (1.2382 us) x k_dispatch reproduces
+    it identically because k_dispatch = 2.3403/1.2382 is a tautology (9.6.1).
+    EXPOSURE: exactly zero. Report 1.069 % with no alpha band.
+
+  ROUTE B -- family-cost recovery: 124.0 M5 us/step less ~7.3 of irreducible DRAM
+    Only the subtrahend is byte-priced, and it scales linearly with alpha:
+      D(alpha) = D0 * alpha/alpha_c   (since M5_bw = M4_ceiling/alpha)
+      alpha_lo  alpha=0.4227  D=7.063 M5 us  ->  1.7807 %
+      campaign  alpha=0.4369  D=7.300 M5 us  ->  1.7771 %
+      alpha_hi  alpha=0.4409  D=7.367 M5 us  ->  1.7760 %
+    TOTAL SPREAD ACROSS THE WHOLE ALPHA BRACKET: 0.0046 % of cs
+    EXPOSURE: negligible (< 0.005 %). The main term is measured in M5 units;
+    alpha only moves a 6 % subtrahend. Report 1.69-1.78 % with no alpha band.
+
+  ROUTE C -- 105.16 measured slack, 1.89 bars = 0.756 %
+    This one IS alpha-exposed, and structurally so: 'non-byte slack' is a
+    RESIDUAL after subtracting a byte-priced term. A residual inherits the full
+    uncertainty of what was subtracted, with the sign flipped -- alpha too HIGH
+    means too much was charged to bytes and the non-byte slack is UNDERSTATED.
+    Since my bracket says 0.4369 errs high if it errs, route C is if anything
+    a floor. That is the same direction 105.20 already suspects (C collapses
+    into B), and it is one more reason not to headline 0.756 %.
+
+==============================================================================
+3. WHAT THIS DOES TO THE ARMING DECISION (105.21 / 105.22)
+==============================================================================
+  route                                  x %   P(1 draw)   P(>=1 of 2)  arming
+  A  dispatch count                    1.069      0.0301        0.0593  advisor's call
+  B  family-cost recovery (low)        1.690      0.5712        0.8161  FREEZE at 07:00Z
+  B  family-cost recovery (high)       1.780      0.6836        0.8999  FREEZE at 07:00Z
+  C  measured slack                    0.756      0.0018        0.0035  no early freeze
+
+  The alpha bracket moves none of these rows across a threshold, and for A and B
+  it does not move them at all. Alpha is settled as an input to the arming
+  decision; the decision now turns entirely on WHICH ROUTE IS TRUE, which is
+  frieren's Stage-1 measurement at 21:00Z and not a question about bandwidth.

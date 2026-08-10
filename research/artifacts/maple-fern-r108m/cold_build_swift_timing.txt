@@ -1,0 +1,182 @@
++ date -u
+Mon Aug 10 16:16:09 UTC 2026
++ swift build -c release --force-resolved-versions --scratch-path /tmp/fern-freeze-build --product mlxfast-swift
+Fetching https://github.com/apple/swift-configuration.git from cache
+Fetching https://github.com/apple/swift-algorithms.git from cache
+Fetching https://github.com/apple/swift-collections.git from cache
+Fetching https://github.com/huggingface/swift-huggingface.git from cache
+Fetching https://github.com/apple/swift-http-types.git from cache
+Fetching https://github.com/apple/swift-nio-transport-services.git from cache
+Fetching https://github.com/apple/swift-system.git from cache
+Fetching https://github.com/huggingface/swift-transformers from cache
+Fetching https://github.com/apple/swift-log.git from cache
+Fetching https://github.com/apple/swift-async-algorithms.git from cache
+Fetched https://github.com/apple/swift-log.git from cache (0.08s)
+Fetched https://github.com/apple/swift-collections.git from cache (0.08s)
+Fetched https://github.com/apple/swift-algorithms.git from cache (0.08s)
+Fetched https://github.com/apple/swift-configuration.git from cache (0.08s)
+Fetched https://github.com/huggingface/swift-huggingface.git from cache (0.08s)
+Fetched https://github.com/apple/swift-system.git from cache (0.08s)
+Fetched https://github.com/huggingface/swift-transformers from cache (0.08s)
+Fetched https://github.com/apple/swift-async-algorithms.git from cache (0.08s)
+Fetched https://github.com/apple/swift-nio-transport-services.git from cache (0.08s)
+Fetched https://github.com/apple/swift-http-types.git from cache (0.08s)
+Fetching https://github.com/apple/swift-service-context.git from cache
+Fetching https://github.com/hummingbird-project/hummingbird.git from cache
+Fetching https://github.com/apple/swift-http-structured-headers.git from cache
+Fetching https://github.com/apple/swift-metrics.git from cache
+Fetching https://github.com/apple/swift-nio.git from cache
+Fetching https://github.com/apple/swift-numerics from cache
+Fetching https://github.com/huggingface/swift-jinja.git from cache
+Fetching https://github.com/apple/swift-distributed-tracing.git from cache
+Fetching https://github.com/swift-server/swift-service-lifecycle.git from cache
+Fetching https://github.com/apple/swift-argument-parser from cache
+Fetched https://github.com/hummingbird-project/hummingbird.git from cache (0.04s)
+Fetching https://github.com/ibireme/yyjson.git from cache
+Fetched https://github.com/apple/swift-service-context.git from cache (0.05s)
+Fetching https://github.com/apple/swift-nio-ssl.git from cache
+Fetched https://github.com/apple/swift-http-structured-headers.git from cache (0.07s)
+Fetched https://github.com/swift-server/swift-service-lifecycle.git from cache (0.07s)
+Fetched https://github.com/apple/swift-metrics.git from cache (0.07s)
+Fetched https://github.com/apple/swift-argument-parser from cache (0.07s)
+Fetched https://github.com/huggingface/swift-jinja.git from cache (0.07s)
+Fetched https://github.com/apple/swift-nio.git from cache (0.07s)
+Fetched https://github.com/apple/swift-numerics from cache (0.07s)
+Fetched https://github.com/apple/swift-distributed-tracing.git from cache (0.07s)
+Fetched https://github.com/ibireme/yyjson.git from cache (0.03s)
+Fetched https://github.com/apple/swift-nio-ssl.git from cache (0.02s)
+Fetching https://github.com/apple/swift-nio-extras.git from cache
+Fetching https://github.com/swiftlang/swift-syntax.git from cache
+Fetching https://github.com/apple/swift-certificates.git from cache
+Fetching https://github.com/apple/swift-nio-http2.git from cache
+Fetching https://github.com/apple/swift-asn1.git from cache
+Fetching https://github.com/mattt/EventSource.git from cache
+Fetching https://github.com/swift-server/async-http-client.git from cache
+Fetching https://github.com/apple/swift-atomics.git from cache
+Fetching https://github.com/apple/swift-crypto.git from cache
+Fetched https://github.com/apple/swift-nio-http2.git from cache (0.06s)
+Fetched https://github.com/apple/swift-nio-extras.git from cache (0.07s)
+Fetched https://github.com/swiftlang/swift-syntax.git from cache (0.07s)
+Fetched https://github.com/apple/swift-asn1.git from cache (0.07s)
+Fetched https://github.com/apple/swift-certificates.git from cache (0.07s)
+Fetched https://github.com/apple/swift-crypto.git from cache (0.06s)
+Fetched https://github.com/mattt/EventSource.git from cache (0.07s)
+Fetched https://github.com/apple/swift-atomics.git from cache (0.07s)
+Fetched https://github.com/swift-server/async-http-client.git from cache (0.07s)
+Creating working copy for https://github.com/huggingface/swift-transformers
+Creating working copy for https://github.com/apple/swift-algorithms.git
+Creating working copy for https://github.com/apple/swift-log.git
+Creating working copy for https://github.com/apple/swift-collections.git
+Creating working copy for https://github.com/apple/swift-http-types.git
+Creating working copy for https://github.com/apple/swift-nio-transport-services.git
+Creating working copy for https://github.com/apple/swift-async-algorithms.git
+Creating working copy for https://github.com/apple/swift-configuration.git
+Creating working copy for https://github.com/apple/swift-system.git
+Creating working copy for https://github.com/huggingface/swift-huggingface.git
+Creating working copy for https://github.com/apple/swift-http-structured-headers.git
+Creating working copy for https://github.com/apple/swift-nio.git
+Creating working copy for https://github.com/huggingface/swift-jinja.git
+Working copy of https://github.com/apple/swift-http-types.git resolved at 1.6.0
+Creating working copy for https://github.com/apple/swift-metrics.git
+Working copy of https://github.com/huggingface/swift-huggingface.git resolved at 0.9.0
+Creating working copy for https://github.com/apple/swift-service-context.git
+Working copy of https://github.com/apple/swift-system.git resolved at 1.7.2
+Creating working copy for https://github.com/hummingbird-project/hummingbird.git
+Working copy of https://github.com/apple/swift-log.git resolved at 1.14.0
+Creating working copy for https://github.com/apple/swift-nio-ssl.git
+Creating working copy for https://github.com/apple/swift-distributed-tracing.git
+Working copy of https://github.com/apple/swift-http-structured-headers.git resolved at 1.7.0
+Creating working copy for https://github.com/swift-server/swift-service-lifecycle.git
+Working copy of https://github.com/apple/swift-nio-transport-services.git resolved at 1.28.0
+Creating working copy for https://github.com/apple/swift-nio-extras.git
+Working copy of https://github.com/apple/swift-async-algorithms.git resolved at 1.1.5
+Creating working copy for https://github.com/ibireme/yyjson.git
+Creating working copy for https://github.com/swiftlang/swift-syntax.git
+Creating working copy for https://github.com/apple/swift-argument-parser
+Creating working copy for https://github.com/apple/swift-atomics.git
+Creating working copy for https://github.com/apple/swift-nio-http2.git
+Working copy of https://github.com/apple/swift-configuration.git resolved at 1.2.0
+Creating working copy for https://github.com/mattt/EventSource.git
+Creating working copy for https://github.com/swift-server/async-http-client.git
+Creating working copy for https://github.com/apple/swift-numerics
+Creating working copy for https://github.com/apple/swift-crypto.git
+Working copy of https://github.com/huggingface/swift-transformers resolved at 1.3.3
+Creating working copy for https://github.com/apple/swift-certificates.git
+Working copy of https://github.com/huggingface/swift-jinja.git resolved at 2.3.6
+Creating working copy for https://github.com/apple/swift-asn1.git
+Working copy of https://github.com/apple/swift-metrics.git resolved at 2.11.0
+Working copy of https://github.com/apple/swift-service-context.git resolved at 1.3.0
+Working copy of https://github.com/swift-server/swift-service-lifecycle.git resolved at 2.11.0
+Working copy of https://github.com/apple/swift-distributed-tracing.git resolved at 1.4.1
+Working copy of https://github.com/mattt/EventSource.git resolved at 1.4.1
+Working copy of https://github.com/hummingbird-project/hummingbird.git resolved at 2.25.0
+Working copy of https://github.com/apple/swift-nio-extras.git resolved at 1.34.3
+Working copy of https://github.com/apple/swift-atomics.git resolved at 1.3.1
+Working copy of https://github.com/apple/swift-algorithms.git resolved at 1.2.1
+Working copy of https://github.com/apple/swift-argument-parser resolved at 1.8.2
+Working copy of https://github.com/apple/swift-numerics resolved at 1.1.1
+Working copy of https://github.com/apple/swift-collections.git resolved at 1.6.0
+Working copy of https://github.com/swift-server/async-http-client.git resolved at 1.35.0
+Working copy of https://github.com/apple/swift-asn1.git resolved at 1.7.1
+Working copy of https://github.com/apple/swift-certificates.git resolved at 1.19.3
+Working copy of https://github.com/apple/swift-nio-ssl.git resolved at 2.37.1
+Working copy of https://github.com/apple/swift-nio.git resolved at 2.101.2
+Working copy of https://github.com/ibireme/yyjson.git resolved at 0.12.0
+Working copy of https://github.com/apple/swift-nio-http2.git resolved at 1.44.0
+Working copy of https://github.com/swiftlang/swift-syntax.git resolved at 603.0.2
+Working copy of https://github.com/apple/swift-crypto.git resolved at 4.5.0
+[0/6] Write sources
+[3/6] Write swift-version--58304C5D6DBC2206.txt
+[5/7] Compiling ArgumentParserToolInfo ToolInfo.swift
+[6/8] Compiling ArgumentParser BashCompletionsGenerator.swift
+[7/9] Compiling encuda encuda-compile.swift
+[7/9] Write Objects.LinkFileList
+[8/9] Linking encuda-tool
+Building for production...
+[0/37] Copying gpt2_tokenizer_config.json
+[0/37] Copying PrivacyInfo.xcprivacy
+[0/37] Copying t5_tokenizer_config.json
+[3/37] Write sources
+[22/37] Compiling CNIOWindows shim.c
+[23/37] Compiling CNIOWindows WSAStartup.c
+[24/37] Compiling CNIOFreeBSD shim.c
+[24/37] Compiling CNIOLinux liburing_shims.c
+[26/37] Compiling CNIOWASI CNIOWASI.c
+[27/37] Compiling CNIOLinux shim.c
+[28/37] Compiling CNIOOpenBSD shim.c
+[29/37] Write swift-version--58304C5D6DBC2206.txt
+[30/42] Compiling _AtomicsShims.c
+[31/43] Compiling CNIODarwin shim.c
+[33/43] Compiling Crypto AES-GCM.swift
+[34/43] Compiling _NIOBase64 Base64.swift
+[34/43] Compiling c-nioatomics.c
+[36/43] Compiling _NIODataStructures Heap.swift
+[37/43] Compiling InternalCollectionsUtilities Debugging.swift
+[37/43] Compiling c-atomics.c
+[39/46] Compiling ContainersPreview OutputSpan+Extras.swift
+[40/47] Compiling NIOConcurrencyHelpers NIOAtomic.swift
+[41/47] Compiling Atomics OptionalRawRepresentable.swift
+[42/47] Compiling DequeModule Deque+Codable.swift
+[43/48] Compiling OrderedCollections _HashTable+Bucket.swift
+[43/48] Compiling yyjson.c
+[45/49] Compiling MLXFastCore AcceptanceBand.swift
+[46/50] Compiling MLXFastTransform AffineMetadataCoding.swift
+[47/50] Compiling NIOCore AddressedEnvelope.swift
+[48/51] Compiling EventSource AsyncEventsSequence.swift
+[49/52] Compiling Jinja AST.swift
+[50/52] Compiling HuggingFace AccessRequest.swift
+[51/53] Compiling Hub BinaryDistinct.swift
+[52/54] Compiling Tokenizers BPETokenizer.swift
+[53/55] Compiling MLXFastHarness BenchmarkSupport.swift
+[54/56] Compiling MLXFastCLI main.swift
+[54/56] Write Objects.LinkFileList
+[55/56] Linking mlxfast-swift
+Build of product 'mlxfast-swift' complete! (58.11s)
+
+real	0m58.869s
+user	1m46.112s
+sys	0m16.604s
++ echo rc=0
+rc=0
++ date -u
+Mon Aug 10 16:17:07 UTC 2026

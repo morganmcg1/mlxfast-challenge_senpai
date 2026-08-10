@@ -1,0 +1,39 @@
+repo=/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-fern/workspace/target
+head=b05994d0ce25869732f5fa371f146bb1bb7262d7
+Mon Aug 10 16:27:50 UTC 2026
+
+=== baseline ===
+surface_digest  b6d2b2275cf1100a3f658060e6005da4ba354778accf6cc09553d2110290632b  files=142
+binary_sha      1fe25c5252e7b57a11eaea75ac3bd7107db9f5e89963041daceafc7178599c3c
+file_bytes        384245
+
+=== apply the tier-1 perturbation: one comment line, semantics-free ===
+file_bytes        384350
+surface_digest  0ede63288bd52a9ed6ef9bb6e9841c790656acf32babc694293e131ce59402d7  files=142
+numstat: 2	0	Sources/MLXFastModel/LagunaRuntimeModel.swift
+
+=== [A] rebuild mlxfast-swift after a real content edit ===
+Build of product 'mlxfast-swift' complete! (0.74s)
+real 0.98
+user 0.93
+sys 1.03
+Mon Aug 10 16:27:51 UTC 2026
+
+=== [B] rebuild mlxfast-runtime-worker after the same edit ===
+Build of product 'mlxfast-runtime-worker' complete! (124.07s)
+real 124.30
+user 433.93
+sys 27.54
+Mon Aug 10 16:29:55 UTC 2026
+
+=== does the perturbation change the compiled product? ===
+binary_sha      1fe25c5252e7b57a11eaea75ac3bd7107db9f5e89963041daceafc7178599c3c
+(if this differs from baseline it is debug/line-table only; the comment cannot
+ change semantics. What matters is that the SURFACE digest changed.)
+
+=== revert and re-verify predicate 12 ===
+file_bytes        384245
+surface_digest  b6d2b2275cf1100a3f658060e6005da4ba354778accf6cc09553d2110290632b  files=142
+(empty above == predicate 12 green)
+Mon Aug 10 16:29:55 UTC 2026
+done
