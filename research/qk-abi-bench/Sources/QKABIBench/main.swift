@@ -335,6 +335,14 @@ private func staticAudit(baseline: String, candidate: String) throws -> [String:
 
     let fullLayerIDs = Array(stride(from: 0, to: 40, by: 4))
     let slidingLayerIDs = (0..<40).filter { $0 % 4 != 0 }
+    let fallbackSelectors = [
+        "} else if useFusedFullQKNormYaRN",
+        "} else if useFusedSlidingQKNormRoPE",
+    ]
+    let fallbackPreserved = fallbackSelectors.allSatisfy {
+        let baselineCount = occurrences(of: $0, in: baseline)
+        return baselineCount > 0 && occurrences(of: $0, in: candidate) == baselineCount
+    }
     return [
         "prefillDeclarations": prefill,
         "prefillPackedSelectionsAt512": 0,
@@ -344,8 +352,7 @@ private func staticAudit(baseline: String, candidate: String) throws -> [String:
         "fullLayerIDs": fullLayerIDs,
         "productionLayerOrder": (0..<40).map { $0 % 4 == 0 ? "full" : "sliding" },
         "fullFirstDecodeUsesStockFallback": true,
-        "fallbackPreserved": candidate.contains("fallback: regular attention")
-            && candidate.contains("fallback: plain SDPA"),
+        "fallbackPreserved": fallbackPreserved,
         "bankPreparedBeforeScoredForward": candidate.contains("prepareFusedRuntimeWeights")
             && candidate.contains("prepareFusedQKNormWeight"),
     ]
