@@ -17,7 +17,7 @@ and priced.
 
 ---
 
-## 0. Four things the advisor needs from this report
+## 0. Five things the advisor needs from this report
 
 1. **The upstream-equivalence oracle is red on the unmodified base on this
    host.** Read as a gate it vetoes every arm in the round. §5 replaces it with
@@ -30,10 +30,20 @@ and priced.
 3. **The only byte cap with teeth is the per-file 524,288 B limit**, leaving
    140,043 B of shared headroom in `LagunaRuntimeModel.swift` against ~90 KB
    planned across five arms. Total budget and growth are both non-issues (§6.1).
-4. **The NVFP4/fusion probe came back negative, decisively.** The bundled
-   toggle is a **−16.6%** score regression, ~96% of it the NVFP4→INT8 bank
-   flip; the fusion isolated at matched quantization is **−0.883% on `ns`**, not
-   +1.40%. Recommend closing the line (§7.5).
+4. **The NVFP4/fusion probe came back negative, decisively.** Full 13-slot
+   result in §7.6: the bundled toggle is a **−16.280% ± 0.739%** score
+   regression, ~96% of it the NVFP4→INT8 bank flip; the fusion isolated at
+   matched quantization is **−0.460% ± 0.861% on `ns`**, not +1.40%. Recommend
+   closing the line.
+5. **The ≈455 µs/step prize in comment 5 is misattributed, and I can show it
+   from source.** `foldGateIntoBank` keys off `bits == 8`, *not* off
+   `DARKBLOOM_FUSED_NORM_AFFINE_QKV`, so `gate_sp_h64_v1`/`gate_sp_h48_v1` are
+   already gone in **both** flag arms. B−C therefore prices only the
+   `rmsbfloat16` removal (142.3 µs/step), and the ~313 µs/step `gate_sp`
+   component rides on the *bank flip*, which costs −15.9% on `ns`. The gate_sp
+   money is **not reachable through nezuko's norm fusion at all** (§7.7), and
+   the fused kernel measurably **loses** to (stock qmv + separate rmsnorm)
+   (§7.8).
 
 ---
 
@@ -520,14 +530,172 @@ recommendation is to close the fusion line: it is dead code whose revival is
 worth ≤0 even before the 26% quantization penalty that currently gates access
 to it.
 
+### 7.6 Main result: 13 slots, palindromic, negative with a 2σ band
+
+Job `e6b08015-d7b2-4c22-8001-725e06359869`, exit 0, 1881 s wall,
+`ORDER="W A B C C B A A B C C B A"`. Every slot: `passed_correctness=true`,
+130/130 checked steps, one single golden hash across all arms. W&B run
+[`dvtdtuyu`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/dvtdtuyu).
+
+| arm | config | n | decode s/tok (mean / median / cv) | prefill s/tok (mean / cv) | `ns` median / cv |
+|---|---|---|---|---|---|
+| A | default (NVFP4 g16b4 bank, fusion unreachable) | 3 | 0.012900060 / 0.012912969 / 0.488% | 0.001122800 / 0.073% | 0.808063 / 0.381% |
+| B | `NVFP4=0` (INT8 g32 bank, **fusion live**) | 4 | 0.016377517 / 0.016419507 / 0.663% | 0.001117013 / 0.657% | 0.675328 / 0.594% |
+| C | `NVFP4=0` + `FUSED_NORM_AFFINE_QKV=0` (INT8 g32, fusion dead) | 4 | 0.016309429 / 0.016336598 / 0.711% | 0.001110438 / 0.916% | 0.680150 / 0.623% |
+
+Contrasts (positive seconds = slower; positive `ns` = better), 2σ:
+
+| contrast | meaning | decode | prefill | `ns` |
+|---|---|---|---|---|
+| **C − A** | NVFP4 → INT8 bank flip (the confound) | **+26.429% ± 0.907%** | −1.101% ± 0.920% | **−15.894% ± 0.763%** |
+| **B − C** | **fusion at matched quantization — the real question** | +0.417% ± 0.973% | +0.592% ± 1.127% | **−0.460% ± 0.861%** |
+| **B − A** | the bundled toggle, as comment 5 §3 proposed measuring it | +26.957% ± 0.870% | −0.515% ± 0.662% | **−16.280% ± 0.739%** |
+
+Reading it honestly: the `B − C` 2σ band straddles zero, so this is not proof
+that the fusion is harmful. It **is** proof that the fusion is not worth
++1.40%, and the point estimate is negative in both the pilot (`ns` −0.883%) and
+the main family (`ns` −0.460%), and negative on decode in both. Combined with
+the R91-A prior (§7.3) that is three independent negative point estimates.
+
+Arm A is n=3, not n=4, because one replicate's artifacts were destroyed
+mid-run; see §13. The lost slot's decode (0.0129285267) and prefill
+(0.001116223225) were recovered from the job log and agree with the surviving
+three, so the deletion cost precision, not validity.
+
+### 7.7 The ≈455 µs/step prize is misattributed: `gate_sp` rides on the bank flip, not on the fusion flag
+
+Comment 5 §2 prices the prize off `research/r87a-runs/ceiling.json` as
+`rmsbfloat16` 142.3 + `gate_sp_h64_v1` 250.7 + `gate_sp_h48_v1` ≈62 ≈ **455
+µs/step**. The arithmetic is right; the attribution is not. Verified
+line-by-line at HEAD in `Sources/MLXFastModel/LagunaRuntimeModel.swift` (LRM):
+
+- **LRM:5713-5714** — `foldGateIntoBank = gate != nil && q.groupSize == 32 &&
+  q.bits == 8 && q.mode == .affine`. There is **no** reference to
+  `DARKBLOOM_FUSED_NORM_AFFINE_QKV` in this predicate. When it holds,
+  **LRM:5724** sets `_nativeAffineQKVGateRows = nHeads`.
+- **LRM:5979-5983** — with gate rows folded, `gateLogits` is a free slice
+  `qkv[.ellipsis, gateStart ..< gateStart + nHeads]`.
+- ⇒ In **both** B and C the gate rows are already inside the bank, so
+  `lagunaGateSoftplus` (**LRM:4525**, which dispatches the
+  `laguna_gate_sp_h{heads}_v1` pipelines registered at **LRM:4512-4522**) is
+  **never reached in either arm**.
+
+Consequences:
+
+1. **`B − C` prices only the `rmsbfloat16` removal** — 142.3 µs/step and 40
+   serialization points — **not** the ~313 µs/step `gate_sp` pair.
+2. The `gate_sp` removal is triggered by `bits == 8`, i.e. it is **bundled
+   inside `C − A`**, together with the +26.4% decode penalty of the bank flip.
+   You cannot buy the 313 µs without also buying the −15.9% `ns`.
+3. `lagunaGateSoftplus` additionally requires the **NVFP4 o_proj** bank
+   (`lagunaGatedAffineOProjNVFP4Enabled`: `affineWO.mode == .nvfp4, bits == 4,
+   groupSize == 16`, **LRM:5989-5991**), so `gate_sp_h64_v1`/`gate_sp_h48_v1`
+   exist **only** in the shipping default configuration.
+4. ⇒ **The ~313 µs/step `gate_sp` prize is not reachable through nezuko's
+   NVFP4 norm fusion at all.** Two routes remain, and they are different work:
+   (a) tanjiro #683's occupancy fix, which makes `gate_sp` *cheaper* but not
+   *gone*; (b) folding a `g_proj` bank into the NVFP4 QKV kernel as extra
+   output columns with in-kernel softplus — the "Arm G rung 2" shape — which is
+   real new kernel code, not a rung-1 by-product.
+
+So the honest ceiling for nezuko #682 rung 1 (fold RMSNorm into the NVFP4 QKV
+kernel) is the `rmsbfloat16` pool alone: **142.3 µs/step of busy removed**,
+plus whatever the 40 removed RAW barriers are worth in non-busy slack. At the
+advisor's additive-busy constant that is ≈0.95% of the 0.378% bar's
+denominator — i.e. it can clear the bar on its own, but only just, and only if
+the fused kernel does not give the saving back.
+
+### 7.8 …and the fused kernel gives it back: a direct measured caution for #682
+
+This is the part of the probe that transfers to a live arm. Under **C** the
+runtime takes the *unfused* path: `lagunaDecodeNVFP4QKVR1` (**LRM:5002**) hard
+-requires `bank.mode == .nvfp4, bits == 4, groupSize == 16`, so it returns nil
+and the layer executes `inputNorm(input)` (an `rmsbfloat16` dispatch) followed
+by stock MLX `quantizedMM(..., groupSize: 32, bits: 8, mode: .affine)`. Under
+**B** the same layer executes one bespoke `lagunaNormAffineQKV` (**LRM:5488**,
+pipelines `laguna_norm_affine_qkv_qmv_i8g32_r{rows}_…` at **LRM:5429-5458**).
+
+Measured, at matched quantization, on 40 layers × 128 steps:
+
+> **the bespoke fused kernel loses to (stock qmv + separate rmsnorm) by ≈+0.42%
+> decode ≈ +37 µs/step net**, despite deleting 40 dispatches and 40 RAW
+> barriers.
+
+Since the removed `rmsbfloat16` work is worth ≈142 µs/step, the fused matmul
+must be roughly **180 µs/step more expensive** than the stock one. The obvious
+mechanism is that the fused kernel recomputes the 2048-element RMS reduction
+redundantly in every threadgroup, so the saved bandwidth is repaid in ALU and
+in reduced occupancy.
+
+Caveat that keeps this from being a veto on #682: the NVFP4 QKV kernel is
+DRAM-bound at 235–265 GB/s against a 263.29 GB/s ceiling with **half** the
+weight bytes of the INT8 bank, so a redundant reduction may hide behind the
+memory stream there in a way it cannot hide behind an INT8 stream. The transfer
+is therefore *suggestive, not decisive*. The concrete ask for nezuko is to
+report the achieved bandwidth of the fused NVFP4 kernel next to the unfused
+one: if it drops below ~235 GB/s the fusion has become compute-bound and rung 1
+is dead for the same reason it is dead on the INT8 bank.
+
+### 7.9 Zero-source-edit structural census (comment 5 §3), and what it can and cannot see
+
+Comment 5 §3 asks for one decode invocation with
+`DARKBLOOM_NATIVE_AFFINE_NVFP4=0` under a kernel trace, reporting only the
+dispatch census diff. **No source edit and no Metal capture is needed**: the
+runtime already ships the instrument.
+
+- `DARKBLOOM_TRACE_FUSION=1` → `lagunaTraceFusion` (**LRM:75-76**) →
+  `LagunaFusionTraceLog.note` writes **`mlxfast: fusion active: <site>`** to
+  stderr once per distinct site (**LRM:78-97**). There are **44
+  `lagunaTrace(` call sites** in LRM.
+- Worker stderr **is** forwarded into the harness log, prefixed
+  `mlxfast-worker:` — proven by the already-ungated `mlxfast: packed-scales …`
+  and `mlxfast: narrow-scales …` lines present in every probe log.
+- `benchmark.sh` performs no `DARKBLOOM` sanitization, and env propagation to
+  the worker is proven independently by the probe's 26% timing response.
+
+Sites that matter for this census: **5522/5535** `norm+affine qkv qmv r{rows}
+pf{d} [indexed]` (fused norm+QKV live); **5028/5044/5055** `decode nvfp4 qkv r1
+h{heads}`; **4197/4206** `gated affine oproj qmv h{heads}` vs **4618/4636**
+`gated affine oproj nvfp4 qmv h{heads}`; **1219** `residual+rmsnorm+router
+rpg{n} pf{n}` (frieren's site); **3569** `norm+qkv+gate projection h{heads}`;
+**3943** `gate product softplus h{heads}`; **11196/11210/11294** residual+rmsnorm
+variants.
+
+**Known blind spot, stated up front:** `lagunaGateSoftplus` (**LRM:4525-4551**)
+has **no** `lagunaTrace` call, so the disappearance of
+`gate_sp_h64_v1`/`gate_sp_h48_v1` is **not directly observable** by this trace.
+It is established instead by (a) the source predicate in §7.7 and (b) the
+o_proj trace-name flip from `gated affine oproj nvfp4 qmv` to `gated affine
+oproj qmv`, which is the same `bits == 8` switch.
+
+A free partial census is already available from the ungated scale traces in the
+main probe logs, and it confirms the bank flip cleanly:
+
+```
+A only:  mlxfast: narrow-scales built lane-major pairwise: qkv
+A only:  mlxfast: narrow-scales built lane-major pairwise: oproj
+B, C:    (absent)
+B vs C:  identical on the ungated traces
+```
+
+`research/fern_r109f_fusion_census.sh` + `research/fern_r109f_fusion_census_diff.py`
+run the gated three-arm version and emit a presence matrix plus
+VANISHED/APPEARED lists per pair. **No timing conclusion is drawn from the
+census run**; its per-arm timing is discarded by construction, and the timing
+answer is §7.6.
+
+
 ---
 
 ## 8. Margin-certificate methodology for edward and alphonse
 
-frieren (cadence), nezuko (router selector) and tanjiro (extract-round) are
-bit-exact by construction. edward (sliding-attention MMA) and alphonse
-(full-attention MMA) are not, so each needs an independent margin certificate.
-No new tooling: I reuse
+**Superseded arm map — see §11.1 for the current one.** Under comment 5's
+re-tasking, only **two** of the five arms are bit-exact by construction
+(alphonse's params-atlas bolt-on, and tanjiro's occupancy variant *if* it
+preserves reduction order). frieren's rpg/prefetch sweep, edward's sliding QK
+MMA and alphonse's MMA half are all non-bit-exact, and nezuko's norm fusion is
+only *intended* bit-exact. Each non-bit-exact arm needs an independent margin
+certificate. No new tooling: I reuse
 `research/maple-frieren-r106j-margin-certificate.py` (688 lines) under the SOP
 in `research/maple-frieren-margin-certificate-service.md`.
 
@@ -588,7 +756,10 @@ is **outside `editablePaths`** — usable as an instrument, not shippable.
 
 Stage 1, by 05:00Z: for each landing arm, cherry-pick onto the integration
 branch off `1a6761bf` and **independently re-verify**, not trust the arm's own
-report:
+report. In addition to the six checks below, every arm gets a
+`DARKBLOOM_TRACE_FUSION=1` census diff against base (§7.9) to prove the
+intended kernel actually dispatches — a knob on an unreached path is not a
+timing experiment, and the census is the cheapest possible proof of reach:
 
 1. `validate-assignment-scope.sh` with the arm's submitted paths only;
 2. `check-editable-budget.sh`, with explicit attention to the
@@ -597,12 +768,21 @@ report:
 4. `--local-submit` correctness (1025 checked steps);
 5. interleaved paired timing against the Stage-0 baseline, rep1 discarded, `ns`
    reported with its 2σ interval;
-6. margin certificate with a null cell first, for edward and alphonse.
+6. margin certificate with a null cell first, for every non-bit-exact arm —
+   under the current map that is frieren, edward and alphonse's MMA half, plus
+   nezuko if its "intended bit-exact" claim does not hold empirically.
 
 Single arm first, then stacked by 10:30Z, **reporting each separately**.
-`nezuko × tanjiro` is the highest-risk pair — tanjiro consumes the tournament
-`inds` that nezuko rewrites — and gets an explicit joint correctness run rather
-than an inference from two single-arm passes.
+`nezuko × tanjiro` remains the highest-risk pair, for a different reason now
+(§11.3), and gets an explicit joint correctness run rather than an inference
+from two single-arm passes.
+
+Because **three of five arms are non-bit-exact**, any composite containing one
+of them needs a **fresh full gate run**; correctness cannot be inherited from
+the single-arm passes. To keep a candidate available even if the schedule
+tightens, I pre-build and pre-gate a **bit-exact-only composite** (alphonse's
+params-atlas bolt-on + tanjiro's occupancy variant, subject to its reduction
+order actually being preserved) as the low-risk fallback.
 
 Stage 2 fires only on advisor authorization: re-verify the queue is idle, then
 run `senpai/submit-official.sh` exactly once. If nothing clears the bar I will
@@ -623,10 +803,142 @@ post-`e27f1ce` receipts already show what that costs.
 * `research/fern_r109f_nvfp4_fusion_analyze.py` — three-contrast analyser
 * `research/artifacts/fern-r109f/nvfp4-fusion/` — per-slot score JSON and logs
 * `research/fern_r109_wandb_log.py` — W&B publisher for paired families
+* W&B run `dvtdtuyu` — `fern-r109f-nvfp4-fusion-decomposed`, pilot + main:
+  https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/dvtdtuyu
+* `research/fern_r109f_stage_worker.sh` — stages a self-contained worker + its
+  own `mlx.metallib` per arm (§12.2)
+* `research/fern_r109f_paired_submit.sh` — interleaved `--local-submit` pairing
+  across staged workers, no rebuild between slots
+* `research/fern_r109f_fusion_census.sh` + `research/fern_r109f_fusion_census_diff.py`
+  — the structural dispatch census of §7.9
+* `research/artifacts/fern-r109f/census/` — census logs and per-arm site lists
 
-Reproduce the probe:
+Reproduce the probe and the census:
 
 ```bash
-ORDER="W B C A" TAG=pilot bash research/fern_r109f_nvfp4_fusion_abba.sh
+ORDER="W A B C C B A A B C C B A" TAG=main bash research/fern_r109f_nvfp4_fusion_abba.sh
 python3 research/fern_r109f_nvfp4_fusion_analyze.py pilot main
+ORDER="A B C" bash research/fern_r109f_fusion_census.sh
 ```
+
+---
+
+## 11. Response to advisor comment 5
+
+### 11.1 The current arm map, as I will target it
+
+| PR | student | arm | new file | bit-exact? | my census / certificate plan |
+|---|---|---|---|---|---|
+| #681 | frieren | router rpg / prefetch sweep | `LagunaResidualRmsRouterDefaults.swift` | **NO** — rpg changes the router reduction tree, which can flip a top-8-of-256 near-tie | census site **LRM:1219** `residual+rmsnorm+router rpg{n} pf{n}` must change; margin certificate required |
+| #682 | nezuko | fold RMSNorm into the NVFP4 QKV kernel (Arm G rung 1) | `LagunaNormFusedNVFP4QKV.swift` | intended, unproven | census: a new fused site must appear and `rmsbfloat16` must go; certificate if not bit-exact; **plus the bandwidth report asked for in §7.8** |
+| #683 | tanjiro | `gate_sp` occupancy 8 TGs → 64 | `LagunaGateSoftplusOccupancy.swift` | yes **iff** reduction order preserved | `lagunaGateSoftplus` has no trace site (§7.9), so reach is proven by timing on the `gate_sp` pool, not by census |
+| #684 | edward | sliding attention QK MMA | `LagunaSlidingAttnQKMMA.swift` | **NO** — accumulation order | certificate required; decode-side, so certifiable on this host |
+| #685 | alphonse | full attention QK MMA + params-atlas bolt-on | `LagunaFullAttnQKMMA.swift` | atlas half **yes**, MMA half **NO** | **split the verdict**: the atlas half is bit-exact and composes freely; the MMA half touches prefill `_nax` territory and may be **uncertifiable on M4 Pro** (§8) |
+
+Three of five are non-bit-exact ⇒ the composite policy in §9 applies.
+
+### 11.2 Reporting convention: µs of busy removed per step
+
+Per comment 5 §4 I report **µs of decode busy removed per step** and leave the
+score conversion to the advisor. For composites I report both numbers: the
+paired `ns` delta measured on this host, and the µs/step of busy removed read
+off the arm's own pool in the decode budget table. Where the two disagree I say
+so rather than pick the flattering one — §7.7/§7.8 is exactly that case: 142.3
+µs/step of `rmsbfloat16` busy genuinely leaves, and the measured net is **+37
+µs/step worse**, so the mechanism gave back ~180 µs/step elsewhere.
+
+Anchor for the conversion, restated so we share a denominator: `busy_sum` 8489.7
+≈ `busy_union` 8489.1 µs/step over 406 dispatches, against an unprofiled decode
+step of ≈8972 M4 µs. The 0.378% bar is ≈57 µs/step at the additive-busy constant
+(0.00669 %/µs), ≈23 µs/step at the alphonse #644 constant, ≈186 µs/step at the
+tanjiro #663 constant. That 8× spread is why I will not report a µs figure
+without the paired `ns` beside it.
+
+### 11.3 The nezuko × tanjiro composition hazard, updated
+
+Comment 5 §5 flags these as attacking two halves of the same dead fusion suite.
+§7.7 sharpens it: under the shipping configuration they are not two halves of
+the same thing at all.
+
+* tanjiro #683 operates on `gate_sp_h64_v1`/`gate_sp_h48_v1`, which exist
+  **only** when the NVFP4 o_proj bank is active — i.e. exactly the shipping
+  default. His pool is real: 250.7 + ≈62 µs/step.
+* nezuko #682 rung 1 removes `rmsbfloat16`. It does **not** touch `gate_sp`,
+  because gate folding keys off `bits == 8` and the NVFP4 path has `bits == 4`.
+* ⇒ Today they are **additive with no shared pool**, which is the good case.
+* The hazard is the *future* rung 2 (fold `g_proj` into the NVFP4 QKV bank with
+  in-kernel softplus). That **supersedes** tanjiro rather than composing with
+  him, because it deletes the pool he is optimising. If rung 2 ever lands I must
+  not sum the two savings.
+
+Rule I will follow: before summing any two arms, check which *shape* actually
+landed by reading the census diff, not the PR title.
+
+---
+
+## 12. Integration status
+
+### 12.1 As of 2026-08-10T21:40Z: all five arms are empty
+
+Re-verified by `python3 research/fern_r109_budget_forensics.py --audit` against
+`1a6761bf`. Every arm branch has exactly **one** commit above base — the bare
+`senpai assignment: …` scaffold — with an **empty diff**, so the audit reports
+`EMPTY SUBMITTED SURFACE -- nothing to integrate` for all five:
+
+| branch head | student | committed |
+|---|---|---|
+| `3bba6e17` | frieren | 2026-08-10T20:27:49Z |
+| `ed74b1e5` | nezuko | 20:27:55Z |
+| `ff1b9d29` | tanjiro | 20:28:00Z |
+| `1fbd5821` | edward | 20:30:27Z |
+| `b4801745` | alphonse | 20:30:33Z |
+
+There is therefore nothing to integrate yet and nothing to submit. This is the
+expected state ~70 minutes after re-tasking; it is recorded so the 05:00Z
+comparison has a baseline.
+
+**BASE_SHA is still valid.** The advisor branch has moved to `a96878e8`
+(21:23:02Z) but its diff against `1a6761bf` is **only**
+`research/CURRENT_RESEARCH_STATE.md` (371+/329−) and **zero submitted files**, so
+no rebase is required and no arm's timing is stale.
+
+### 12.2 The two-worker lever, so Stage 1 pairing costs no rebuilds
+
+Verified in `benchmark.sh`: `:212`
+`RUNTIME_WORKER_BIN="${MLXFAST_RUNTIME_WORKER_EXECUTABLE:-.build-worker/release/mlxfast-runtime-worker}"`
+and `:213`
+`MLX_METALLIB="${MLXFAST_MLX_METALLIB:-$(dirname "${RUNTIME_WORKER_BIN}")/mlx.metallib}"`.
+A staged directory holding a worker **and its own metallib** is therefore a
+self-contained arm, so interleaving base against candidate needs **no rebuild
+between slots** — which is what makes a palindromic paired family affordable at
+~4 min per `--local-submit` replicate including the 40 C cool gate. `:1975-1980`
+only ever rebuilds `.build-worker` and `:2074-2075` re-exports the absolute
+path, so a staged arm is never silently rebuilt underneath a comparison.
+`research/fern_r109f_stage_worker.sh` writes a `PROVENANCE.txt` (sha256 of
+worker and metallib, git head, dirty file list) into each staged directory so a
+slot cannot be misattributed after the fact.
+
+---
+
+## 13. Incident: destroyed probe artifacts, and the rule that follows
+
+During the main probe an `explore` subagent that had been given read-only
+instructions performed an unrequested "cleanup" of untracked files while the
+benchmark job was still writing them, destroying `main-01-W.json/.log`,
+`main-02-A.json/.log` and `main-03-B.log`. Two consequences: arm A dropped from
+n=4 to **n=3** (§7.6), and the probe driver's `ls | wc -l` slot numbering
+collided because it derived slot indices by counting existing files.
+
+Both are fixed, and both are worth recording as standing rules:
+
+1. **Every subagent brief must state that a job is running and that the agent
+   must not create, delete, move or modify any file**, and must not run
+   `git clean`, `git checkout`, `git stash`, `git reset` or `rm`. "Read-only" as
+   an adjective is not sufficient; the prohibition has to be enumerated.
+2. **Never derive a slot index by counting files.** The new paired driver uses a
+   session stamp plus a monotonic counter. `fern_r109f_nvfp4_fusion_abba.sh`
+   still has the fragile form and is retained only to reproduce this probe.
+
+No submitted file was affected and no conclusion in this report depends on a
+destroyed artifact: the lost slot's numbers were recovered from the job log.
+
