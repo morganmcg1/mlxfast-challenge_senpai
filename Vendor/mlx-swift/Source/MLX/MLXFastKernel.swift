@@ -106,8 +106,7 @@ extension DType: KernelTemplateArg {}
                 verbose: Bool = false,
                 stream: StreamOrDevice = .default
             ) -> [MLXArray] {
-                HostCensusProbe.measure("kernel_config") {
-                    let config = mlx_fast_metal_kernel_config_new()
+                let config = mlx_fast_metal_kernel_config_new()
                 defer { mlx_fast_metal_kernel_config_free(config) }
 
                 if let template {
@@ -155,8 +154,7 @@ extension DType: KernelTemplateArg {}
                 mlx_fast_metal_kernel_apply(&result, kernel, inputs, config, stream.ctx)
                 defer { mlx_vector_array_free(result) }
 
-                    return mlx_vector_array_values(result)
-                }
+                return mlx_vector_array_values(result)
             }
         }
 

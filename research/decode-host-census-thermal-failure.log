@@ -1,0 +1,222 @@
+HOST_CENSUS host_model=Mac16,11 arch=arm64 os=26.5.2
+HOST_CENSUS command=MLXFAST_HOST_CENSUS=1 MLXFAST_HOST_CENSUS_ROUNDS=5 ./benchmark.sh --local-iterate
+benchmark.sh: trusted CLI or participant runtime worker missing or stale; building
+Building for production...
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+Build of product 'mlxfast-swift' complete! (0.77s)
+Building for production...
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+[1/3] Write sources
+[3/4] Compiling MLX ArrayAt.swift
+[3/7] Write sources
+[6/10] Compiling MLXFast MLXFast.swift
+[7/10] Compiling MLXRandom Random.swift
+[8/10] Compiling MLXNN Activations.swift
+/Users/ec2-user/.senpai/native/mlxfast-cedar-20260810-expansion/roles/student-cedar-askeladd/workspace/target/Vendor/mlx-swift/Source/MLXNN/Module.swift:1411:34: warning: conditional downcast from 'T?' to 'T' does nothing
+1409 |             // note: this gives a warning but it does in fact do something
+1410 |             // in the case where this is e.g. ParameterInfo<MLXArray?>
+1411 |             if let value = value as? T {
+     |                                  `- warning: conditional downcast from 'T?' to 'T' does nothing
+1412 |                 return value
+1413 |             } else {
+
+/Users/ec2-user/.senpai/native/mlxfast-cedar-20260810-expansion/roles/student-cedar-askeladd/workspace/target/Vendor/mlx-swift/Source/MLXNN/Module.swift:1524:36: warning: conditional downcast from 'T?' to 'T' does nothing
+1522 |             // note: this gives a warning but it does in fact do something
+1523 |             // in the case where this is e.g. ModuleInfo<Linear?>
+1524 |             if let module = module as? T {
+     |                                    `- warning: conditional downcast from 'T?' to 'T' does nothing
+1525 |                 return module
+1526 |             } else {
+
+/Users/ec2-user/.senpai/native/mlxfast-cedar-20260810-expansion/roles/student-cedar-askeladd/workspace/target/Vendor/mlx-swift/Source/MLXNN/Module.swift:293:13: warning: default will never be executed
+ 291 |                 return isAllNone ? .none : .array(result)
+ 292 | 
+ 293 |             default:
+     |             `- warning: default will never be executed
+ 294 |                 fatalError("Unexpected leaf \(vk) = \(v)")
+ 295 |             }
+[9/11] Compiling MLXOptimizers Optimizers.swift
+[10/12] Compiling MLXLMCommon DoRA+Layers.swift
+/Users/ec2-user/.senpai/native/mlxfast-cedar-20260810-expansion/roles/student-cedar-askeladd/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1178:52: warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+ 128 | /// Incremental per-request detokenizer with UTF-8 + stop-string holdback.
+ 129 | /// See CONTRACT-ISSUES-B-scheduler.md §3.
+ 130 | public protocol CBv2IncrementalDetokenizer: AnyObject {
+     |                 `- note: protocol 'CBv2IncrementalDetokenizer' does not conform to the 'Sendable' protocol
+ 131 |     /// Append confirmed tokens; returns text now safe to emit.
+ 132 |     func push(_ tokens: [Int]) -> String
+     :
+1176 |                 stream?.reserveEmission()
+1177 |                 detokQueue.async {
+1178 |                     let text = isStopToken ? "" : (detokenizer?.push([token]) ?? "")
+     |                                                    `- warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+1179 |                     stream?.emit(
+1180 |                         .delta(text: text, tokens: [token], logprobs: logprobs),
+
+/Users/ec2-user/.senpai/native/mlxfast-cedar-20260810-expansion/roles/student-cedar-askeladd/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1279:32: warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+ 128 | /// Incremental per-request detokenizer with UTF-8 + stop-string holdback.
+ 129 | /// See CONTRACT-ISSUES-B-scheduler.md §3.
+ 130 | public protocol CBv2IncrementalDetokenizer: AnyObject {
+     |                 `- note: protocol 'CBv2IncrementalDetokenizer' does not conform to the 'Sendable' protocol
+ 131 |     /// Append confirmed tokens; returns text now safe to emit.
+ 132 |     func push(_ tokens: [Int]) -> String
+     :
+1277 |         if rec.request.stopStrings.isEmpty {
+1278 |             detokQueue.async {
+1279 |                 let trailing = detokenizer?.flush() ?? ""
+     |                                `- warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+1280 |                 if !trailing.isEmpty {
+1281 |                     stream?.emit(.delta(text: trailing, tokens: [], logprobs: nil))
+
+[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+[11/13] Compiling MLXLLM LLMModel.swift
+/Users/ec2-user/.senpai/native/mlxfast-cedar-20260810-expansion/roles/student-cedar-askeladd/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/DeepseekV4.swift:758:27: warning: immutable value 'D' was never used; consider replacing with '_' or removing it [#no-usage]
+ 756 | 
+ 757 |     func callAsFunction(_ x: MLXArray, poolCache: PoolingCache?, offset: Int) -> MLXArray {
+ 758 |         let B = x.dim(0), D = x.dim(2)
+     |                           `- warning: immutable value 'D' was never used; consider replacing with '_' or removing it [#no-usage]
+ 759 |         let kv = wkv(x)    // [B, S, out_dim]
+ 760 |         let gate = wgate(x) // [B, S, out_dim]
+
+/Users/ec2-user/.senpai/native/mlxfast-cedar-20260810-expansion/roles/student-cedar-askeladd/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/DeepseekV4.swift:1401:9: warning: switch must be exhaustive
+1399 |         // Local scores: [B, H, L, localLen]
+1400 |         let localScores: MLXArray
+1401 |         switch localMask {
+     |         |- warning: switch must be exhaustive
+     |         `- note: add missing case: '.arrays(_)'
+1402 |         case .none, .causal:
+1403 |             localScores = qScaled.matmul(localKV.transposed(0, 1, 3, 2))
+
+/Users/ec2-user/.senpai/native/mlxfast-cedar-20260810-expansion/roles/student-cedar-askeladd/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/DeepseekV4.swift:1513:13: warning: variable 'h' was never mutated; consider changing to 'let' constant
+1511 |         }
+1512 | 
+1513 |         var h = hcPost(x: attnOut, residual: residual, post: postAttn, comb: combAttn)
+     |             `- warning: variable 'h' was never mutated; consider changing to 'let' constant
+1514 | 
+1515 |         // FFN sub-block
+[12/14] Compiling MLXFastModel DenseTensorStore.swift
+/Users/ec2-user/.senpai/native/mlxfast-cedar-20260810-expansion/roles/student-cedar-askeladd/workspace/target/Sources/MLXFastModel/LagunaRuntimeModel.swift:10687:17: warning: variable 'mergedSharedActivated' was never mutated; consider changing to 'let' constant
+10685 |             // handed to the down projection instead of being issued again.
+10686 |             // Purely within this invocation; nothing survives it.
+10687 |             var mergedSharedActivated: MLXArray?
+      |                 `- warning: variable 'mergedSharedActivated' was never mutated; consider changing to 'let' constant
+10688 |             if lagunaFusedRoutedSwiGLUQMVEnabled,
+10689 |                 x.dtype == .bfloat16,
+[13/15] Compiling MLXFastRuntimeWorkerSupport BenchmarkSupport.swift
+[14/16] Compiling MLXFastRuntimeWorkerCLI main.swift
+[14/16] Write Objects.LinkFileList
+[15/16] Linking mlxfast-runtime-worker
+Build of product 'mlxfast-runtime-worker' complete! (65.52s)
+benchmark.sh: warning: could not find origin/main for local-iterate baseline context.
+benchmark.sh: run 'git fetch origin main' and measure the latest tip locally before comparing changes.
+benchmark.sh: reusing weights/ for unchanged transform source
+benchmark.sh: local baseline to beat (score.local-iterate.baseline.json): prefill 0.001112 s/token, decode 0.012897 s/token, est score 0.8
+mlxfast: benchmark elapsed=0.0s local-iterate start checked_tokens=130 decode_steps=128 repeats=1
+mlxfast: benchmark elapsed=0.0s local-iterate baseline prefill_seconds_per_token=0.000368 decode_seconds_per_token=0.013856 (official-runner constants; local speedups are directional)
+mlxfast: benchmark elapsed=0.0s local-iterate validation start
+mlxfast: benchmark elapsed=10.2s local-iterate weights digest still running phase_seconds=10.2
+mlxfast: benchmark elapsed=20.2s local-iterate weights digest still running phase_seconds=20.2
+mlxfast: benchmark elapsed=30.2s local-iterate weights digest still running phase_seconds=30.2
+mlxfast: benchmark elapsed=38.0s local-iterate weights digest complete files=9 bytes=21568891382
+mlxfast: benchmark elapsed=38.0s local-iterate validation complete prompt_tokens=512 seconds=38.0
+mlxfast: benchmark elapsed=82.1s local thermal gate start phase=host-census
+benchmark.sh: waiting for GPU to cool down before timing (current 43.6C, target <=40C, waited 0s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 42.1C, target <=40C, waited 10s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 41.4C, target <=40C, waited 20s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 41.2C, target <=40C, waited 30s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 41.0C, target <=40C, waited 40s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 40.8C, target <=40C, waited 50s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 40.8C, target <=40C, waited 60s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 40.7C, target <=40C, waited 70s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 40.7C, target <=40C, waited 80s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 40.6C, target <=40C, waited 90s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 40.6C, target <=40C, waited 100s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 40.6C, target <=40C, waited 110s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 40.6C, target <=40C, waited 120s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 40.6C, target <=40C, waited 130s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 40.6C, target <=40C, waited 140s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 40.6C, target <=40C, waited 150s)...
+benchmark.sh: another fan controller (or a prior un-restored boost) already holds the fans in manual mode; not boosting over it
+benchmark.sh: if that hold is stale, restore macOS automatic fan control with: ./benchmark.sh --fan-speed-normal
+benchmark.sh: waiting for GPU to cool down before timing (current 40.6C, target <=40C, waited 160s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 40.6C, target <=40C, waited 170s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 40.6C, target <=40C, waited 180s)...
+benchmark.sh: ERROR: GPU is hot and not cooling down (current 40.6C, min seen 40.6C, target <=40C, waited 190s).
+benchmark.sh: something else appears to be loading the GPU. Close GPU-heavy
+benchmark.sh: processes (other benchmarks, ML jobs, games, video encodes),
+benchmark.sh: let the machine cool, and rerun. To debug without the gate, set
+benchmark.sh: MLXFAST_LOCAL_COOL_GATE=0 (hot-start timings are not comparable).
+mlxfast-worker: mlxfast: low-memory startup profile active (physical memory 48 GiB is below the 64 GiB full-profile minimum): capping the MLX allocator cache at 6 GiB and clearing free warmup buffers; compiled decode and every other ranked code path stay enabled; set DARKBLOOM_STARTUP_MEMORY_PROFILE=full to opt out
+mlxfast-worker: mlxfast: a machine too small for the model plus the decode working set fails with an out-of-memory error instead of silently skipping ranked code paths; verify on a 64 GiB+ machine or rely on the ranked run
+mlxfast-worker: mlxfast: narrow-scales built lane-major pairwise: qkv
+mlxfast-worker: mlxfast: narrow-scales built lane-major pairwise: oproj
+mlxfast-worker: mlxfast: packed-scales active: shared gate/up halved
+mlxfast-worker: mlxfast: packed-scales active: shared down halved
+mlxfast-worker: mlxfast: packed-scales active: packed routed gate/up bank prepared
+mlxfast-worker: mlxfast: lm_head prune active (coarse copy resident)
+mlxfast-worker: mlxfast: packed-scales inactive: packed routed gate/up prefill scale view consumed
+mlxfast-worker: mlxfast: packed-scales inactive: packed routed down prefill scale view consumed
+mlxfast-worker: mlxfast: packed-scales active: routed swiglu qmv packed dispatch
+mlxfast: benchmark elapsed=306.2s local-iterate failed error=local GPU cool-down gate failed for host-census with status 1
+{
+  "metrics" : {
+    "actual_token" : null,
+    "bandwidth_gb_per_token" : 0,
+    "bandwidth_source" : "",
+    "baseline_decode_seconds_per_token" : 0.01385621216015625,
+    "baseline_prefill_seconds_per_token" : 0.00036751938916015626,
+    "benchmark_wall_seconds" : 310,
+    "case_count" : 0,
+    "checked_steps" : 0,
+    "commit" : "5d5e2a7",
+    "correctness_seconds" : 0,
+    "decode_seconds_per_token" : 0,
+    "decode_speedup" : 0,
+    "decode_speedup_floor" : 0.95,
+    "error" : "local GPU cool-down gate failed for host-census with status 1",
+    "expected_token" : null,
+    "expert_bytes_read" : 0,
+    "expert_cache_evictions" : 0,
+    "expert_cache_hits" : 0,
+    "expert_cache_misses" : 0,
+    "expert_hit_rate" : 0,
+    "expert_peak_cached_tensors" : 0,
+    "expert_read_seconds" : 0,
+    "first_failing_case" : null,
+    "first_failing_layer" : null,
+    "first_failing_step" : null,
+    "golden_hash" : "",
+    "gpqa_ttft_case_count" : 0,
+    "gpqa_ttft_max_seconds" : 0,
+    "gpqa_ttft_p50_seconds" : 0,
+    "gpqa_ttft_pass_count" : 0,
+    "gpqa_ttft_passed" : false,
+    "gpqa_ttft_seconds" : 0,
+    "gpqa_ttft_source" : "",
+    "harness_hash" : "71855979692718e4f0a70570f24fec3f22225e044475eb580242308cbf72a045",
+    "max_abs_diff" : 0,
+    "num_layers" : 40,
+    "partial_result" : false,
+    "passed_correctness" : false,
+    "passed_decode_speedup_floor" : false,
+    "passed_prefill_speedup_floor" : false,
+    "peak_ram_gb" : 0,
+    "prefill_seconds_per_token" : 0,
+    "prefill_speedup" : 0,
+    "prefill_speedup_floor" : 0.95,
+    "preflight_seconds" : 38,
+    "process_resident_memory_gb" : 0.03,
+    "runtime" : "swift-local-iterate",
+    "semantic_gpqa_case_count" : 0,
+    "semantic_gpqa_model" : "",
+    "semantic_gpqa_pass_count" : 0,
+    "semantic_gpqa_passed" : false,
+    "timed_benchmark_seconds" : 0,
+    "timestamp" : "2026-08-10T15:27:09Z",
+    "weights_byte_count" : 21568891382,
+    "weights_file_count" : 9,
+    "weights_hash" : "aff994300573c5e8589563fc9ff57cdcfb1ef9b49e14898be290a75a6b294b3d"
+  },
+  "passed" : false,
+  "score" : null
+}
+benchmark.sh: benchmark produced a failing score; see score.local-iterate.json
