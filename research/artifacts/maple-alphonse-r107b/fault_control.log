@@ -1,0 +1,38 @@
+=== device ===
+name                  Apple M4 Pro
+architecture          applegpu_g16s
+gpu cores             20
+kernel                laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2
+mode                  DOSE LADDER
+
+=== pipeline reflection (register/occupancy gate) ===
+  arm                          lines   tgMemB   maxTotalThreads   execWidth
+  depth1_shipped     256        0              1024          32
+  fault_control     235        0              1024          32
+
+=== output equivalence gate (bitwise, vs reference) ===
+  TG=1024  reference re-run  diff      0 /  65536 bytes   (reference wrote   4096)
+  TG=1024  fault_control  diff    528 /  65536 bytes
+  TG=2048  reference re-run  diff      0 /  65536 bytes   (reference wrote   8192)
+  TG=2048  fault_control  diff   1054 /  65536 bytes
+  VERDICT: MISMATCH — timing below is not a like-for-like comparison.
+
+=== memory regime (P1.1) ===
+  defeat slots          1  (r99 resident binding)
+  weight buffer         269484032 B
+  scale buffer          16781440 B
+  routed winners        [39, 88, 99, 110, 114, 184, 216, 239]
+  output_width          512
+  dram_peak_GB_s        266.3  (measured, rule 55)
+  slc_estimate_B        25165824  (M4-Pro-class, label only)
+    TG   rows   uniq_MiB   req_MiB/round   amplif   ref_us   achieved_GB_s   pct_peak   unique_GB_s   slc_fit   regime
+  2048    512       8.51           85.13     10.0   157.67            56.6       21.3           5.7   yes   UNSATURATED
+
+=== paired per-call cost, 1 alternating rounds of 10 dispatches ===
+delta = variant - reference within a round, so drift cancels. neg = faster.
+spread = max-min of the per-round deltas.
+
+--- fault_control  vs reference depth1_shipped ---
+    TG  TG/core    ref_min    var_min    d_mean     d_sd    d_min    d_max   spread    d%_ref    t_paired
+  2048   102.40     159.48     154.53    -4.958      nan    -4.96    -4.96     0.00    -3.109       +0.00
+  per-round delta TG=2048: -4.96

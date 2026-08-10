@@ -1,0 +1,9 @@
+=== provenance ===
+utc            2026-08-10T10:32:59Z
+host           Apple M4 Pro
+git head       e1e630cd5225a9addb3c69222690e2a0896eb144
+git status     1 dirty path(s)
+surface digest b196bafa2d7738636837efa895fe2cc293a0633321b5c2845e708426656cf544  -
+rounds         32
+reps           500
+defeat slots   64
