@@ -359,7 +359,7 @@ private func decode(
     kernels: Kernels,
     abi: ABI,
     fixtures: Fixtures,
-    stream: Stream
+    stream: MLX.Stream
 ) -> [MLXArray] {
     var finalOutputs = [MLXArray]()
     for step in 0..<fixtures.steps {
@@ -422,7 +422,7 @@ private func prefill(
     kernels: Kernels,
     abi: ABI,
     fixtures: Fixtures,
-    stream: Stream
+    stream: MLX.Stream
 ) -> [MLXArray] {
     var outputs = [MLXArray]()
     outputs.reserveCapacity(fixtures.prefillLayers.count * 2)
@@ -478,7 +478,7 @@ private func verifyCorrectness(
     old: Kernels,
     packed: Kernels,
     fixtures: Fixtures,
-    stream: Stream
+    stream: MLX.Stream
 ) throws -> Correctness {
     var result = Correctness()
     for layer in fixtures.decodeLayers {
@@ -556,8 +556,8 @@ private func timeWorkload(
     old: Kernels,
     packed: Kernels,
     fixtures: Fixtures,
-    stream: Stream,
-    operation: (Kernels, ABI, Fixtures, Stream) -> [MLXArray]
+    stream: MLX.Stream,
+    operation: (Kernels, ABI, Fixtures, MLX.Stream) -> [MLXArray]
 ) -> [TimingSample] {
     let order: [(ABI, String, Int)] = [
         (.packed, "BAAB", 0), (.old, "BAAB", 1),
@@ -694,7 +694,7 @@ private func run() throws {
     let packed = Kernels(sources: packedSources, abi: .packed)
 
     MLXRandom.seed(613)
-    let stream = Stream()
+    let stream = MLX.Stream()
     let fixtures = makeFixtures(quick: options.quick)
     let firstBank = fixtures.decodeLayers[0].weights.bank
     let firstQuery = fixtures.decodeLayers[0].weights.query
