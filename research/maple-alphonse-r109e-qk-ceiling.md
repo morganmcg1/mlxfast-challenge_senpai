@@ -115,6 +115,43 @@ analysis `research/maple-alphonse-r109e-analyze.py`.
 
 ## 4. Results
 
+### 4.0 Instrument finding first: the palindrome hides a position effect
+
+This has to come before the arm numbers, because it changes them.
+
+A fixed palindromic order gives every arm exactly one mirrored position pair —
+in `CXDPPDXC`, C owns slots {1, 8}, X owns {2, 7}, D owns {3, 6}, P owns {4, 5}.
+Arm is therefore **perfectly collinear with position-in-block**, and no
+regression on these rows, drift-adjusted or not, can separate the two. The
+palindrome cancels a *linear* drift within a block; it does nothing about a
+per-slot effect.
+
+This host has a large one: the first run of a block is markedly slower than the
+rest, and the gap grows across a session. Measured on control C, which is the
+only arm holding slot 1:
+
+| C slot | mean us/step | n |
+|---|---|---|
+| 1 (block lead) | see table in 4.1 | |
+| 8 (block tail) | see table in 4.1 | |
+
+The consequence for the whole campaign is direct. Six research drivers in this
+tree default to an order that always hands the lead slot to the control arm —
+`research/maple_r85c_epilogue_ab.sh`, `research/maple_r88a_two_regime_ab.sh`,
+`research/maple_r91a_input_norm_ab.sh`, `research/maple-nezuko-r106b-h4-paired.sh`,
+`research/nezuko_epilogue_abba.sh`, `research/tanjiro-r100b-census.sh`
+(`base cand cand base`, `CHCHCH`, `base skipr skipc base base skipc skipr base`).
+Under a lead penalty of size `d` those designs inflate the control by `d/2` for
+a four-slot block, which biases **candidates fast** by tens of us/step — the
+direction that manufactures local wins that do not reproduce on M5.
+`research/maple-nezuko-r106b-packred-paired.sh` and
+`research/maple_r85_placement_arms.sh` already rotate their arm order and are
+not affected.
+
+Everything below therefore reports, alongside the conventional estimators, a
+`no block-lead run (pos>1)` delta that simply drops slot 1 of each block. That
+is the estimate I trust.
+
 <!--RESULTS-->
 
 ## 5. Pricing: reconciling the 8× gap between the three campaign constants

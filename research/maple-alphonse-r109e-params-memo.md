@@ -116,9 +116,18 @@ Expected honest outcome: a null or a small positive at this host's noise floor.
 runs the **same binary** with no rebuild between arms — the cleanest possible
 control, and strictly better than the QK probe arms which need a rebuild.
 
-Driver: `research/maple-alphonse-r109e-params-memo-abba.sh`, palindromic
-`MOOMMOOM`-style ordering, `./benchmark.sh --local-iterate` per run,
-analysed with the same drift-adjusted OLS as the QK probe.
+Driver: `research/maple-alphonse-r109e-params-memo-abba.sh`,
+`./benchmark.sh --local-iterate` per run, analysed with
+`research/maple-alphonse-r109e-analyze.py` under `CTRL=O`.
+
+The order is **two mirrored palindromes**, `OMMOOMMO` then `MOOMMOOM`, not one
+repeated palindrome. The QK ceiling data (§4 of the sibling memo) shows this
+host charges the first run of a block about 74 us/step more than the rest, and
+a single fixed palindrome gives that lead slot to the same arm every time — arm
+and position-in-block are then perfectly collinear and no regression can
+separate them. Mirroring the second block gives each arm exactly one lead slot.
+This is the single most important thing I learned from the ceiling probe, and
+it is worth more to the programme than either arm's point estimate.
 
 <!--PARAMS-RESULTS-->
 

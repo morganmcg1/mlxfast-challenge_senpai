@@ -15,7 +15,11 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-ORDER="${1:-OMMOOMMO}"
+# Two mirrored blocks, not one.  The first run of a block on this host is about
+# 74 us/step slower than the rest (measured in the QK ceiling data), and in a
+# single palindrome the lead slot always belongs to the same arm.  `OMMOOMMO`
+# followed by `MOOMMOOM` gives each arm exactly one lead slot.
+ORDER="${1:-OMMOOMMOMOOMMOOM}"
 OUT="${2:-/tmp/r109e-params-memo.tsv}"
 printf 'idx\tarm\tdecode_s_per_token\tprefill_s_per_token\tpassed\terror\n' > "$OUT"
 
