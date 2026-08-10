@@ -392,17 +392,44 @@ declaration wraps, including the one that turns out to be decisive:
 
 **Second, four of the seven shortlisted gates are not clean instruments.**
 
-| # | gate | phase | verdict |
-|---|---|---|---|
-| 1 | `DARKBLOOM_FUSED_SHARED_DOWN_RESIDUAL` :136 | decode | **very likely masked** |
-| 2 | `DARKBLOOM_FUSED_ROUTED_DOWN_REDUCE` :198 | decode | **very likely masked** |
-| 3 | `DARKBLOOM_PREFILL_FUSED_RESIDUAL_RMS` :279 | prefill | live; **not bit-exact** |
-| 4 | `DARKBLOOM_PREFILL_SORTED_MOE_TAIL` :9676 | prefill | live, bit-exact — clean |
-| 5 | `DARKBLOOM_INVERSE_SCATTER` :63 | prefill | **provably unreachable** |
-| 6 | `DARKBLOOM_ROUTE_COUNTING_SORT` :77 | prefill | live, but **dominates gate 7** |
-| 7 | `DARKBLOOM_ROUTE_FUSED_SCATTER` :186 | prefill | live, bit-exact — clean |
+| # | gate | phase | verdict (static, mine) | 🔴 measured (fern, PR #598) |
+|---|---|---|---|---|
+| 1 | `DARKBLOOM_FUSED_SHARED_DOWN_RESIDUAL` :136 | decode | **very likely masked** | **DEAD** — `:9065` never fires; arm `e` byte-identical |
+| 2 | `DARKBLOOM_FUSED_ROUTED_DOWN_REDUCE` :198 | decode | **very likely masked** | **DEAD** — `:10949` never fires; arm `d` byte-identical |
+| 3 | `DARKBLOOM_PREFILL_FUSED_RESIDUAL_RMS` :279 | prefill | live; **not bit-exact** | live — confirmed |
+| 4 | `DARKBLOOM_PREFILL_SORTED_MOE_TAIL` :9676 | prefill | live, bit-exact — clean | live — confirmed **clean** |
+| 5 | `DARKBLOOM_INVERSE_SCATTER` :63 | prefill | **provably unreachable** | ⚠️ **wrong word** — reachable, but **dead by domination**; release either dominator and it fires **76×** |
+| 6 | `DARKBLOOM_ROUTE_COUNTING_SORT` :77 | prefill | live, but **dominates gate 7** | confirmed — with gate 6 off, **no `route_csort_*` kernel appears at all** |
+| 7 | `DARKBLOOM_ROUTE_FUSED_SCATTER` :186 | prefill | live, bit-exact — clean | live, **ON = 1 dispatch vs OFF = 6** (+190/prefill over 38 sites) |
 
-*Gate 5 is dead by construction.* `gatherSort`
+🔴 **CORRECTION (fern, PR #598 — measured, ten dispatch-traced arms).** Two of my
+static verdicts were upgraded from "very likely" to certain, and one word of the
+third was wrong in a way that matters.
+
+* **Gates 1 and 2 are confirmed DEAD by measurement,** not merely inferred. Fern
+  ran `DARKBLOOM_TRACE_FUSION=1` for 8 decode steps: the fused site
+  `:10922` fires **39×/step** and neither `:10949` nor `:9065` fires at all.
+  The A/B corroborates: arms `d` and `e` are byte-identical to base.
+* **Gate 5 is not "provably unreachable" — it is DOMINATED, and the difference
+  is the whole point.** `SwitchLayers.swift:64` *is* reachable; what makes it
+  dead is the early return at `:285`. Fern released each dominator in turn and
+  `inverse_permutation_scatter_u32_v1` fired 76 times. The distinction has a
+  rule attached to it:
+
+  > **Unreachable code can be deleted. Dominated code cannot** — it is one
+  > upstream flag away from executing, so removing it silently changes the
+  > program's behaviour under a configuration that is still selectable.
+
+  #558's 4,186-byte cost claim for this gate therefore still applies, and the
+  correct disposition is the one fern proposed: **document it, do not delete
+  it, do not ablate it for a receipt.**
+* **Gate 3's non-bit-exactness is unchanged and remains the reason it is not a
+  clean instrument** even though it is live.
+
+Net: of the seven, exactly **two are clean instruments** (gates 4 and 7), both
+prefill-only. There is no decode-side member of this shortlist at all.
+
+*Gate 5 is dead by domination (not by unreachability — see the correction above).* `gatherSort`
 (`Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift:282-309`) calls
 `routeCountingSortFused` first and **returns early** at `:285-290` whenever it
 succeeds. Its guard at `:266` requires `dtype == .uint32`, `n > 0`,
@@ -454,7 +481,7 @@ branch already guarded by another default-ON gate — before any receipt is
 priced. That pass is round-105's assignment 105-B.
 
 **Standing hard negative added:** do not spend a receipt on
-`DARKBLOOM_INVERSE_SCATTER` (unreachable) or on `DARKBLOOM_ROUTE_COUNTING_SORT`
+`DARKBLOOM_INVERSE_SCATTER` (dominated, hence dead) or on `DARKBLOOM_ROUTE_COUNTING_SORT`
 as an isolate (it dominates `DARKBLOOM_ROUTE_FUSED_SCATTER`).
 
 

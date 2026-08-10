@@ -170,8 +170,18 @@ corpus) and dump every JIT Metal library, plus a full dispatch tracer.
   process, with no rebuild.**
 * Dispatch count is **408 per decode step at every revision**; zero non-equal
   opcodes OLD vs MID. The only alignment opcode anywhere is a 4-row tail
-  deletion fully explained by the tracer's hard 1,671,168-byte quota, and it
+  deletion fully explained by a truncation at the end of the dump, and it
   reproduces across two independent dumps.
+  🔴 **CORRECTION (r105, fern PR #598 §8.1).** The mechanism named here — "the
+  tracer's hard 1,671,168-byte quota" — **does not exist**. 1,671,168 B is not a
+  quota; it is what you get when the tracer's final 4 KiB page is never flushed,
+  which costs ~25 trailing rows on *every* dump regardless of size. Fern's
+  ten-arm 105-C run produced dumps at many different byte counts and showed the
+  loss is a fixed unflushed-page tail, not a ceiling. The conclusion above
+  (the 4-row delta is an artifact, not a real dispatch difference) **survives**;
+  the stated cause is withdrawn. Every "±1 dispatch" count anywhere in the
+  round-103/104 corpus has this one cause. See
+  `research/advisor-r105-the-decode-step-is-half-empty.md` §3.
 * **A/A control**: NEW dumped twice gives 103/103 libraries and 11,243/11,243
   dispatch rows equal. The instrument's zero is a real zero.
 * Rider 1 resolved: **zero `_idx_v1` and zero `_ns1` kernels** are compiled or
@@ -185,13 +195,36 @@ He also derived, independently, the structural result in §5.
 
 ### 4.1 What he correctly refused to do
 
-Both fused attention kernels dispatch exactly **32 threadgroups**. A 20-core M4
+~~Both fused attention kernels dispatch exactly **32 threadgroups**. A 20-core M4
 runs that in **two waves**; a ≥32-core ranked host runs it in **one**. An M4
 A/B is therefore **structurally uninformative for ranking mechanism A against
-mechanism B**. He cancelled his own preregistered M4 A/B at 6 legs (K = 3 vs a
+mechanism B**.~~ He cancelled his own preregistered M4 A/B at 6 legs (K = 3 vs a
 preregistered 16), published the legs, and claimed nothing. He also flagged the
 M5-only `_nax` blind spot: "exactly 2 of 103" is a **lower bound** on the ranked
 host, not an equality.
+
+🔴 **CORRECTION (r105).** Two things in the struck sentences are wrong, and I
+propagated both.
+
+1. **The counts.** Fern's 105-C dispatch census (PR #598,
+   `research/artifacts/fern-r105c/dispatch-summary.json`) measures
+   `custom_kernel_laguna_sliding_fused_attn_ring_v1` at **32 threadgroups** and
+   `custom_kernel_laguna_full_fused_attn_grow_v1` at **24 threadgroups** — not
+   32 and 32. This matches the source (`LagunaRuntimeModel.swift:1969` grid
+   `((heads/2)*1024,1,1)` with 64 sliding heads ⇒ 32; `:2458` with 48 full heads
+   ⇒ 24) and matches the archive. §2(a) of this same note already had it right;
+   §4.1 did not.
+2. **The wave arithmetic.** "Two waves on a 20-core M4" assumes the concurrency
+   limit is one threadgroup per core. It is not. PR #196's rendezvous staircase
+   measured `T(K) = a + b·⌈K/C⌉` with **C = 40** on this host — 3 TGs/core, not
+   1. At C = 40 **both** kernels are a *single* wave on the M4 as well as on the
+   ranked host, so the wave count is not a source of M4/M5 disagreement at all.
+
+**What survives:** the *decision* to cancel. It was right for the reasons that
+remain — K = 3 against a preregistered 16, and the `_nax` blind spot. What does
+not survive is the stated *reason*, and I should have caught it, because §2(a)
+of this note kills the same "idle slots below C cost time" premise two pages
+earlier. See `research/advisor-r105-the-decode-step-is-half-empty.md` §4.1.
 
 That is the correct call and it is worth naming: a cancelled experiment with a
 published reason is a better deliverable than a completed experiment whose
@@ -211,9 +244,22 @@ floor — z ≈ 1.4, marginal but positive. That is why PR #565 shipped depth 4.
 
 But the **M5 receipts say the depth-4 tree is +20.15 µs/step (+0.30 %) WORSE**
 than the depth-2 tree (Arm R). Two marginal measurements of the same lever, on
-two hosts, with **opposite signs** — and §4.1 supplies the mechanism for the
+two hosts, with **opposite signs** — ~~and §4.1 supplies the mechanism for the
 disagreement: at 32 TGs the M4 runs two waves and the M5 runs one, so the two
-hosts are not measuring the same thing.
+hosts are not measuring the same thing.~~
+
+🔴 **CORRECTION (r105).** §4.1 does *not* supply that mechanism; see the
+correction block there. At the measured `C = 40` both hosts run these kernels in
+a single wave, so the wave count is identical and cannot explain a sign flip.
+**The M4/M5 opposite-sign disagreement on the depth dial is therefore currently
+UNEXPLAINED.** That is not a weakening of the case for measuring depth on M5 —
+it is a strengthening of it. An unexplained sign flip between the development
+host and the ranked host is exactly the condition under which only a ranked
+receipt is admissible evidence. (Round 105 supplies a second, independent
+instance of an unexplained sign flip on this codebase: the router-prefetch
+41 µs/step contradiction, where the per-kernel-label instrument and the
+end-to-end instrument disagree in sign. See
+`research/advisor-r105-the-label-instrument-mis-ranks.md`.)
 
 **No depth has ever been measured on M5.** Depths 1 and 2 on the ranked host are
 completely open. PR #103's own M4 numbers show a **≈1.5 % swing between depths 4
@@ -1008,6 +1054,49 @@ All seven live in files listed in `benchmark.json`'s `editablePaths`
 (`Sources/MLXFastModel` is a directory entry;
 `Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift` is an explicit
 entry), so a *win* here would be shippable and not merely observable.
+
+🔴🔴 **CORRECTION (r105, fern PR #598) — THE HEAD OF THIS SHORTLIST IS DEAD, AND
+IT IS DEAD IN THE WORST WAY: THE TWO GATES I RANKED FIRST DO NOT EXECUTE.**
+
+Fern measured all seven with a dispatch tracer over ten arms
+(`research/fern-r105c-gate-surface-masking-audit.md`). Result:
+
+| rank | gate | my r104 verdict | measured verdict |
+|---|---|---|---|
+| 7 | `DARKBLOOM_FUSED_ROUTED_DOWN_REDUCE` | head of shortlist | **DEAD** — trace site `LagunaRuntimeModel.swift:10949` never fires; arm `d` byte-identical to base |
+| 8 | `DARKBLOOM_FUSED_SHARED_DOWN_RESIDUAL` | head of shortlist | **DEAD** — trace site `:9065` never fires; arm `e` byte-identical to base |
+| 22 | `DARKBLOOM_PREFILL_FUSED_RESIDUAL_RMS` | live, not bit-exact | live (unchanged) |
+| 24 | `DARKBLOOM_PREFILL_SORTED_MOE_TAIL` | live, bit-exact | live (unchanged) — **clean** |
+| 73 | `DARKBLOOM_INVERSE_SCATTER` | rank below the LRM four | **DEAD BY DOMINATION** — reachable, but `SwitchLayers.swift:285` returns early first |
+| 74 | `DARKBLOOM_ROUTE_COUNTING_SORT` | rank below the LRM four | live, but **dominates gate 75** — not an isolate |
+| 75 | `DARKBLOOM_ROUTE_FUSED_SCATTER` | rank below the LRM four | live, bit-exact — **clean** |
+
+Both decode-side gates fire through a *third*, fused site
+(`lagunaFusedRoutedSharedDownResidual`, `:10922`, 39×/decode step) that
+subsumes them. The two ranked heads of my shortlist are unreachable code.
+
+Three things this costs, stated plainly:
+
+1. **The ranking was inverted.** I ranked the SwitchLayers trio *below* the LRM
+   four on an age-and-churn argument. Of the four I promoted, two are dead; of
+   the three I demoted, two are live and one is clean. Age and churn were
+   **anti-correlated** with liveness here. The `research_docs == 0` column was
+   the only discriminator I had, and it discriminated in the wrong direction.
+2. **The proxy was wrong in kind, not degree.** `research_docs == 0` measures
+   *whether anyone wrote about a gate*. It cannot distinguish "nobody looked" from
+   "nobody looked because it does nothing". Only a dispatch trace separates
+   those. **New rule: a default-ON gate is not a candidate until a runtime trace
+   shows its site executing in the phase you intend to price.**
+3. **The shippability sentence above is now vacuous for gates 7, 8 and 73.** A
+   file being in `editablePaths` says nothing about whether the code in it runs.
+
+What survives: the two *clean* instruments are gate 24
+(`DARKBLOOM_PREFILL_SORTED_MOE_TAIL`) and gate 75
+(`DARKBLOOM_ROUTE_FUSED_SCATTER`) — both live, both bit-exact, both prefill-only.
+And **§10's headline stands**: fern's dead-gate fraction came in at
+`m = 3/79 = 0.0380`, below her own 0.05 prereg threshold, so "there is no
+dormant-win inventory" is confirmed by measurement rather than by my inference.
+Full account: `research/advisor-r105-the-decode-step-is-half-empty.md` §2.
 
 ### 12.5 Caveats to carry
 

@@ -98,6 +98,65 @@
 > is priced at **+0.23 %…+0.53 % of `cs`** — 2.4×–5.6× the 0.095 % baseline
 > draw value, i.e. the best-priced single dial we have found this round.
 
+> 🔴🔴 **ROUND-105 SECOND HEADLINE — THE DEAD-GATE AUDIT CAME BACK NEGATIVE,
+> AND THAT IS A REAL RESULT.** maple-fern's 105-C (PR #598, merged) traced ten
+> arms of the live binary and measured `m = 3/79 = 0.0380 ≤ 0.05` dead-or-
+> dominated default-ON gates. **§10 of `research/advisor-r104-the-receipt-is-
+> the-instrument.md` therefore STANDS: there is no dormant-win inventory.**
+> Zero M5 receipts were spent to establish this. **Do not re-open the
+> gate-surface family.** Full report: `research/fern-r105c-gate-surface-
+> masking-audit.md`; advisor synthesis, with every correction below worked
+> through: **`research/advisor-r105-the-decode-step-is-half-empty.md`**.
+>
+> **1. Five corrections you must carry** (→ that note, §2). (i) The two gates
+> I ranked *first* on the §12 shortlist — `DARKBLOOM_FUSED_SHARED_DOWN_RESIDUAL`
+> and `DARKBLOOM_FUSED_ROUTED_DOWN_REDUCE`, the only two decode-side members —
+> are **measured DEAD**: their sites never execute, because the fused
+> routed+shared path at `LagunaRuntimeModel.swift:10922` subsumes both and
+> fires 39×/decode step. (ii) `DARKBLOOM_INVERSE_SCATTER` is **not
+> "provably unreachable"** — it is **dead by DOMINATION**; release either
+> dominator and `inverse_permutation_scatter_u32_v1` fires 76×. 🆕 **Rule:
+> unreachable code can be deleted; dominated code cannot.** (iii) The corrected
+> trace sites are **`LRM:9065` / `:10949` / `:10922`** (I published `:9064` /
+> `:10930` / `:10897`). (iv) `DARKBLOOM_FUSED_RESIDUAL_RMS` is live at exactly
+> **1 of 408** decode dispatches (dense layer 0 only) ⇒ 🆕 **only the
+> steady-state interval measures a gate's weight**; a whole-run count will
+> price a layer-0-only gate as if it ran everywhere. (v)
+> `DARKBLOOM_FUSED_RESIDUAL_RMS_ROUTER` **is not an isolate** — turning it OFF
+> also swaps the routed GEMM from `top8keys_r1` (2048 TGs) to `packed_bf16_v1`
+> (1024 TGs), so **any A/B on it is confounded** and none has ever been
+> controlled for this.
+>
+> **2. 🔴 THERE IS NO 1,671,168-BYTE TRACER QUOTA — RETRACTED.** I asserted a
+> hard output quota in the round-104 note and it does not exist. The real
+> limit is the **unflushed final 4 KiB page**, which silently loses ~25
+> trailing rows from every dump, and it is the **sole cause of every spurious
+> ±1 dispatch-count delta** we have chased. Every "we are only at X % of the
+> quota" headroom argument built on it is void; three student documents still
+> carry the old wording as a historical record.
+>
+> **3. The decode step is a serialisation problem, not a bandwidth problem.**
+> The steady decode step is **408 dispatches across 25 kernel families**
+> (`research/artifacts/fern-r105c/dispatch-summary.json`). **84 of 408
+> (20.6 %) launch exactly ONE threadgroup**; **203 of 408 (49.8 %) run below
+> 1 TG/core** at C = 40. Forty-one of them are `rmsbfloat16` — at rule-65's
+> 2.3403 µs that is **95.9 µs/step = 1.46 % of `cs`** in launch tax alone, and
+> a kernel *named* `laguna_prefill_router_tournament_...` fires 39× per decode
+> step on a single threadgroup. **Two guards on any occupancy proposal:**
+> PR #196's staircase `T(K) = a + b·⌈K/C⌉` with **C = 40** closed "idle slots
+> below C cost time" (`RESEARCH_ARCHIVE:6288`), and PR #158 measured the
+> per-dispatch coefficient **NULL**, so 408 × 2.3403 µs is a **marginal, not
+> an additive** quantity. The live distinction neither closure reaches: **a
+> 1-TG dispatch is serialisation of work, not an idle-slot tail.**
+> Adjudication: **PR #603** (maple-fern, 105-D), zero receipts by design.
+>
+> **4. 🆕 Doctrine: a kernel name records what the host asked for, not what
+> compiled.** tanjiro's 105-A D6 (PR #592) found a name that still reads
+> `_ws_1_wl_1` while the widened loader is statically disabled, and PR #138's
+> Finding D is the same failure at a different tile size. **A name-string
+> assertion is not a compilation receipt.**
+
+
 - **2026-08-09 — round 103.** Campaign `mlxfast-maple-20260804`.
   Advisor branch `codex/mlxfast-maple-20260804-advisor`.
   Base = **`10005c80bfcf35c25bac998fbaaf7ff5c8ac2a29`** (merge of frieren's #566
