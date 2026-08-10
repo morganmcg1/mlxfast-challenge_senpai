@@ -7,6 +7,7 @@
   "additionalProperties": false,
   "required": [
     "schema_version",
+    "static_resume_target",
     "audited_source_revisions",
     "workflow_sha256",
     "selector_census_sha256",
@@ -25,6 +26,7 @@
   ],
   "properties": {
     "schema_version": { "const": 1 },
+    "static_resume_target": { "$ref": "#/$defs/staticResumeTarget" },
     "audited_source_revisions": {
       "type": "object",
       "additionalProperties": false,
@@ -101,7 +103,13 @@
     },
     "captureEpoch": {
       "type": "string",
+      "format": "date-time",
       "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "base64Value": {
+      "type": "string",
+      "maxLength": 344,
+      "pattern": "^[A-Za-z0-9+/]*={0,2}$"
     },
     "nonSecretMetadata": {
       "type": "string",
@@ -122,6 +130,74 @@
         "pinned_baseline_timed",
         "current_candidate_timed"
       ]
+    },
+    "staticResumeTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "selector_audit_pr_number",
+        "frozen_experiment_base_sha",
+        "frozen_environment_audit_sha256",
+        "current_source_revision",
+        "pinned_source_revision"
+      ],
+      "properties": {
+        "selector_audit_pr_number": { "const": 670 },
+        "frozen_experiment_base_sha": { "const": "ccbe6fad8fc0923709ae335a83bdbafcc5a3fcdb" },
+        "frozen_environment_audit_sha256": { "const": "09dedaf97a31e0be10e679b792587c04142e5c662763486a32e097789f0d4375" },
+        "current_source_revision": { "const": "ac0e7cf6f283c8ac655af955d7ccf57c5141185e" },
+        "pinned_source_revision": { "const": "15852ee52858def42ddd4f32bca7e59d275e020e" }
+      }
+    },
+    "trustedExpectations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "static_resume_target",
+        "audited_source_revisions",
+        "workflow_sha256",
+        "selector_census_sha256",
+        "ranked_job_id",
+        "ranked_run_id",
+        "host_class",
+        "trusted_collector_id",
+        "capture_epoch",
+        "installed_authority_bundle_digest",
+        "canonical_bundle_sha256"
+      ],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "static_resume_target": { "$ref": "#/$defs/staticResumeTarget" },
+        "audited_source_revisions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["current", "pinned"],
+          "properties": {
+            "current": { "$ref": "#/$defs/gitSha" },
+            "pinned": { "$ref": "#/$defs/gitSha" }
+          }
+        },
+        "workflow_sha256": { "$ref": "#/$defs/sha256" },
+        "selector_census_sha256": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["current", "pinned"],
+          "properties": {
+            "current": { "$ref": "#/$defs/sha256" },
+            "pinned": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        "ranked_job_id": { "$ref": "#/$defs/nonSecretMetadata" },
+        "ranked_run_id": { "$ref": "#/$defs/nonSecretMetadata" },
+        "host_class": { "$ref": "#/$defs/nonSecretMetadata" },
+        "trusted_collector_id": { "$ref": "#/$defs/nonSecretMetadata" },
+        "capture_epoch": { "$ref": "#/$defs/captureEpoch" },
+        "installed_authority_bundle_digest": {
+          "oneOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }]
+        },
+        "canonical_bundle_sha256": { "$ref": "#/$defs/sha256" }
+      }
     },
     "phase": {
       "type": "object",
@@ -229,7 +305,7 @@
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
-          "items": { "type": "string", "pattern": "^[A-Za-z0-9+/]*={0,2}$" }
+          "items": { "$ref": "#/$defs/base64Value" }
         },
         "absent_normalized": {
           "type": ["boolean", "integer", "string"]
@@ -292,10 +368,7 @@
         },
         "state": { "enum": ["ABSENT", "VALUE"] },
         "value_utf8_b64": {
-          "oneOf": [
-            { "type": "string", "pattern": "^[A-Za-z0-9+/]*={0,2}$" },
-            { "type": "null" }
-          ]
+          "oneOf": [{ "$ref": "#/$defs/base64Value" }, { "type": "null" }]
         },
         "normalized_semantic": { "type": ["boolean", "integer", "string"] },
         "canonical_row_sha256": { "$ref": "#/$defs/sha256" }
@@ -314,14 +387,14 @@
   "x-physical-contract": {
     "entry_point": "attestation.json",
     "manifest_scope": "Every non-null census and phase snapshot path is present exactly once. No other physical file is allowed. The entry point is excluded to avoid a recursive file hash.",
-    "missing_evidence": "A required evidence reference is always present as a property. JSON null means explicitly missing and may produce INCOMPLETE; a non-null reference to a missing file is INVALID.",
+    "missing_evidence": "A required evidence reference is always present as a property. JSON null means explicitly missing. A null installed-authority digest or evidence reference may produce INCOMPLETE only after every present census and snapshot passes semantic validation; any invalid present evidence takes precedence and produces INVALID. A non-null reference to a missing file is INVALID.",
     "filesystem": "The bundle root, every path component, and every evidence file must be non-symlink. Paths are lexical POSIX relatives with no escape. Files must be regular, unique, declared, hash-consistent, and size-consistent."
   },
   "x-canonical-framing": {
     "row": "SHA-256 over ASCII magic RANKED_SELECTOR_ROW_V1\\0 followed by, in order, u32be-length+UTF-8 bytes for name, census_row_id, source_revision, parser_profile, one state byte (0 absent, 1 value), u64be value length (2^64-1 absent) plus exact value bytes when present, and u32be-length+compact sorted-key UTF-8 JSON for normalized_semantic.",
     "selector_map": "SHA-256 over ASCII magic RANKED_SELECTOR_MAP_V1\\0, u32be row count, then rows sorted by raw UTF-8 name bytes. Each row is u32be name length+name, one state byte, and u64be value length (2^64-1 absent) plus exact value bytes when present.",
     "bundle": "SHA-256 over compact sorted-key UTF-8 JSON of attestation.json with canonical_bundle_sha256 omitted. Physical evidence is transitively bound by the recomputed manifest hashes.",
-    "json": "UTF-8; no duplicate object keys; compact canonical output uses ensure_ascii=false, sort_keys=true, separators comma and colon, and one trailing LF for physical JSON files."
+    "json": "Enforced for attestation, trusted expectations, census, and snapshot inputs: UTF-8 compact sorted-key JSON using ensure_ascii=false, separators comma and colon, and exactly one trailing LF; duplicate object keys are forbidden."
   },
-  "x-trust-boundary": "The validator requires a separately supplied trusted expectations object pinning both source SHAs, workflow digest, both census file digests, ranked job/run identity, host class, collector identity, capture epoch, and installed-authority foreign digest. Self-consistency inside the bundle is insufficient."
+  "x-trust-boundary": "The separately supplied trusted expectations object pins the exact canonical bundle digest plus PR #670, frozen experiment-base/environment-audit identity, both source SHAs, workflow digest, both census file digests, ranked job/run identity, host class, collector identity, capture epoch, and installed-authority foreign digest. Self-consistency inside the bundle is insufficient. READY authorizes only future static resumption of PR #670 and never a ranked run or submission."
 }

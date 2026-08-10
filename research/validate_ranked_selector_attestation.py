@@ -11,12 +11,24 @@ import stat
 import struct
 import sys
 import tempfile
+from datetime import datetime
 from pathlib import Path, PurePosixPath
 
 
 READY = "SELECTOR_ATTESTATION_STATIC_RESUME_READY"
 INCOMPLETE = "SELECTOR_ATTESTATION_INCOMPLETE"
 INVALID = "SELECTOR_ATTESTATION_INVALID"
+AUTHORIZATION_SCOPE = "PR_670_FUTURE_STATIC_RESUMPTION_ONLY"
+DEFAULT_SCHEMA_PATH = Path(__file__).with_name("ranked_selector_attestation.schema.json")
+EXPECTED_SCHEMA_SHA256 = "PENDING_SCHEMA_SHA256"
+STATIC_RESUME_TARGET = {
+    "selector_audit_pr_number": 670,
+    "frozen_experiment_base_sha": "ccbe6fad8fc0923709ae335a83bdbafcc5a3fcdb",
+    "frozen_environment_audit_sha256": "09dedaf97a31e0be10e679b792587c04142e5c662763486a32e097789f0d4375",
+    "current_source_revision": "ac0e7cf6f283c8ac655af955d7ccf57c5141185e",
+    "pinned_source_revision": "15852ee52858def42ddd4f32bca7e59d275e020e",
+}
+STATIC_RESUME_TARGET_KEYS = set(STATIC_RESUME_TARGET)
 PHASES = (
     "current_public_correctness",
     "current_hidden_gates",
@@ -37,6 +49,7 @@ PARSER_PROFILES = {
 }
 ROOT_KEYS = {
     "schema_version",
+    "static_resume_target",
     "audited_source_revisions",
     "workflow_sha256",
     "selector_census_sha256",
@@ -55,6 +68,7 @@ ROOT_KEYS = {
 }
 EXPECTATION_KEYS = {
     "schema_version",
+    "static_resume_target",
     "audited_source_revisions",
     "workflow_sha256",
     "selector_census_sha256",
@@ -64,6 +78,7 @@ EXPECTATION_KEYS = {
     "trusted_collector_id",
     "capture_epoch",
     "installed_authority_bundle_digest",
+    "canonical_bundle_sha256",
 }
 CENSUS_KEYS = {
     "schema_version",
@@ -201,6 +216,23 @@ def strict_load_file(path, location):
     return strict_load_bytes(data, location)
 
 
+def strict_load_canonical_bytes(data, location):
+    value = strict_load_bytes(data, location)
+    if data != canonical_json_bytes(value, trailing_lf=True):
+        fail("PHYSICAL_JSON_NONCANONICAL", location, "expected compact sorted-key JSON with one LF")
+    return value
+
+
+def strict_load_canonical_file(path, location):
+    try:
+        data = path.read_bytes()
+    except FileNotFoundError:
+        fail("DECLARED_FILE_MISSING", location, "file is absent")
+    except OSError as exc:
+        fail("FILE_READ_FAILED", location, str(exc))
+    return strict_load_canonical_bytes(data, location)
+
+
 def exact_object(value, keys, location):
     if not isinstance(value, dict):
         fail("SCHEMA_INVALID", location, "expected object")
@@ -223,6 +255,11 @@ def require_string(value, location):
     return value
 
 
+def require_schema_version(value, location):
+    if type(value) is not int or value != 1:
+        fail("SCHEMA_INVALID", location, "only integer schema version 1 is supported")
+
+
 def require_sha256(value, location):
     if not isinstance(value, str) or not SHA256_RE.fullmatch(value):
         fail("SCHEMA_INVALID", location, "expected lowercase SHA-256")
@@ -242,8 +279,92 @@ def require_metadata(value, location):
         fail("SCHEMA_INVALID", location, "invalid non-secret metadata token")
 
 
+def require_capture_epoch(value, location):
+    if not isinstance(value, str) or not EPOCH_RE.fullmatch(value):
+        fail("SCHEMA_INVALID", location, "expected UTC second timestamp")
+    try:
+        datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        fail("CAPTURE_EPOCH_INVALID", location, "timestamp is not a real UTC calendar instant")
+
+
+def require_selector_name(value, location):
+    name = require_string(value, location)
+    if secret_name_forbidden(name):
+        fail("SECRET_NAME_FORBIDDEN", location, name)
+    if len(name) > 160:
+        fail("SELECTOR_NAME_INVALID", location, "selector exceeds 160 characters")
+    if not SELECTOR_RE.fullmatch(name):
+        fail("UNKNOWN_SELECTOR", location, name)
+    return name
+
+
 def sha256_bytes(data):
     return hashlib.sha256(data).hexdigest()
+
+
+def require_closed_schema_object(definition, keys, location):
+    if not isinstance(definition, dict) or definition.get("additionalProperties") is not False:
+        fail("SCHEMA_CONTRACT_DRIFT", location, "object is not closed-world")
+    if set(definition.get("required", [])) != keys or set(definition.get("properties", {})) != keys:
+        fail("SCHEMA_CONTRACT_DRIFT", location, "required/properties differ from validator")
+
+
+def validate_schema_contract(schema_path):
+    path = Path(schema_path)
+    try:
+        data = path.read_bytes()
+    except OSError as exc:
+        fail("SCHEMA_CONTRACT_MISSING", "schema", str(exc))
+    digest = sha256_bytes(data)
+    if digest != EXPECTED_SCHEMA_SHA256:
+        fail("SCHEMA_CONTRACT_DRIFT", "schema", f"expected {EXPECTED_SCHEMA_SHA256}, got {digest}")
+    schema = strict_load_bytes(data, str(path))
+    definitions = schema.get("$defs")
+    if not isinstance(definitions, dict):
+        fail("SCHEMA_CONTRACT_DRIFT", "schema.$defs", "definitions object is absent")
+    object_contracts = (
+        ("schema", schema, ROOT_KEYS),
+        ("schema.$defs.phase", definitions.get("phase"), PHASE_KEYS),
+        ("schema.$defs.manifestEntry", definitions.get("manifestEntry"), MANIFEST_KEYS),
+        ("schema.$defs.revisionOnlyRule", definitions.get("revisionOnlyRule"), POLICY_KEYS),
+        ("schema.$defs.census", definitions.get("census"), CENSUS_KEYS),
+        ("schema.$defs.censusRow", definitions.get("censusRow"), CENSUS_ROW_KEYS),
+        ("schema.$defs.snapshot", definitions.get("snapshot"), SNAPSHOT_KEYS),
+        ("schema.$defs.snapshotRow", definitions.get("snapshotRow"), SNAPSHOT_ROW_KEYS),
+        ("schema.$defs.staticResumeTarget", definitions.get("staticResumeTarget"), STATIC_RESUME_TARGET_KEYS),
+        ("schema.$defs.trustedExpectations", definitions.get("trustedExpectations"), EXPECTATION_KEYS),
+        ("schema.$defs.forcedRuntimeWorker", definitions.get("forcedRuntimeWorker"), {"name", "value_utf8_b64"}),
+    )
+    for location, definition, keys in object_contracts:
+        require_closed_schema_object(definition, keys, location)
+    root_properties = schema["properties"]
+    expectation_properties = definitions["trustedExpectations"]["properties"]
+    for prefix, properties in (("schema", root_properties), ("schema.$defs.trustedExpectations", expectation_properties)):
+        require_closed_schema_object(properties["audited_source_revisions"], {"current", "pinned"}, f"{prefix}.audited_source_revisions")
+        require_closed_schema_object(properties["selector_census_sha256"], {"current", "pinned"}, f"{prefix}.selector_census_sha256")
+    require_closed_schema_object(root_properties["comparison_intent"], {"kind", "policy_id"}, "schema.comparison_intent")
+    require_closed_schema_object(root_properties["censuses"], {"current", "pinned"}, "schema.censuses")
+    target_properties = definitions["staticResumeTarget"]["properties"]
+    for key, value in STATIC_RESUME_TARGET.items():
+        if target_properties[key].get("const") != value:
+            fail("SCHEMA_CONTRACT_DRIFT", f"schema.$defs.staticResumeTarget.{key}", "constant differs")
+    selector = definitions.get("selectorName", {})
+    if selector.get("type") != "string" or selector.get("maxLength") != 160 or selector.get("pattern") != SELECTOR_RE.pattern:
+        fail("SCHEMA_CONTRACT_DRIFT", "schema.$defs.selectorName", "selector limits differ")
+    capture = definitions.get("captureEpoch", {})
+    if capture.get("type") != "string" or capture.get("pattern") != EPOCH_RE.pattern or capture.get("format") != "date-time":
+        fail("SCHEMA_CONTRACT_DRIFT", "schema.$defs.captureEpoch", "UTC timestamp contract differs")
+    base64_value = definitions.get("base64Value", {})
+    if base64_value.get("type") != "string" or base64_value.get("maxLength") != 344:
+        fail("SCHEMA_CONTRACT_DRIFT", "schema.$defs.base64Value", "base64 length differs")
+    snapshot_value = definitions["snapshotRow"]["properties"]["value_utf8_b64"]["oneOf"]
+    if {json.dumps(item, sort_keys=True) for item in snapshot_value} != {
+        json.dumps({"$ref": "#/$defs/base64Value"}, sort_keys=True),
+        json.dumps({"type": "null"}, sort_keys=True),
+    }:
+        fail("SCHEMA_CONTRACT_DRIFT", "schema.$defs.snapshotRow.value_utf8_b64", "base64 reference differs")
+    return digest
 
 
 def u32(value):
@@ -260,8 +381,8 @@ def frame_text(value):
 
 
 def strict_b64_decode(value, location):
-    if not isinstance(value, str):
-        fail("SCHEMA_INVALID", location, "expected base64 string")
+    if not isinstance(value, str) or len(value) > 344:
+        fail("SCHEMA_INVALID", location, "expected base64 string of at most 344 characters")
     try:
         data = base64.b64decode(value, validate=True)
     except (binascii.Error, ValueError):
@@ -383,8 +504,15 @@ def normalize_value(profile, value, location):
 def validate_root_shape(root, expectations):
     exact_object(root, ROOT_KEYS, "attestation")
     exact_object(expectations, EXPECTATION_KEYS, "expectations")
-    if root["schema_version"] != 1 or expectations["schema_version"] != 1:
-        fail("SCHEMA_INVALID", "schema_version", "only version 1 is supported")
+    require_schema_version(root["schema_version"], "schema_version")
+    require_schema_version(expectations["schema_version"], "expectations.schema_version")
+    for location, target in (
+        ("static_resume_target", root["static_resume_target"]),
+        ("expectations.static_resume_target", expectations["static_resume_target"]),
+    ):
+        exact_object(target, STATIC_RESUME_TARGET_KEYS, location)
+        if target != STATIC_RESUME_TARGET:
+            fail("STATIC_RESUME_TARGET_MISMATCH", location, "PR #670 frozen audit/base identity differs")
     for container_name, container in (
         ("audited_source_revisions", root["audited_source_revisions"]),
         ("selector_census_sha256", root["selector_census_sha256"]),
@@ -394,53 +522,49 @@ def validate_root_shape(root, expectations):
         exact_object(container, {"current", "pinned"}, container_name)
     for role in ("current", "pinned"):
         require_git_sha(root["audited_source_revisions"][role], f"audited_source_revisions.{role}")
-        require_git_sha(
-            expectations["audited_source_revisions"][role],
-            f"expectations.audited_source_revisions.{role}",
-        )
+        require_git_sha(expectations["audited_source_revisions"][role], f"expectations.audited_source_revisions.{role}")
         require_sha256(root["selector_census_sha256"][role], f"selector_census_sha256.{role}")
-        require_sha256(
-            expectations["selector_census_sha256"][role],
-            f"expectations.selector_census_sha256.{role}",
-        )
+        require_sha256(expectations["selector_census_sha256"][role], f"expectations.selector_census_sha256.{role}")
+    if root["audited_source_revisions"] != {
+        "current": STATIC_RESUME_TARGET["current_source_revision"],
+        "pinned": STATIC_RESUME_TARGET["pinned_source_revision"],
+    }:
+        fail("STATIC_RESUME_TARGET_MISMATCH", "audited_source_revisions", "source revisions differ from frozen target")
     require_sha256(root["workflow_sha256"], "workflow_sha256")
     require_sha256(expectations["workflow_sha256"], "expectations.workflow_sha256")
     for field in ("ranked_job_id", "ranked_run_id", "host_class", "trusted_collector_id"):
         require_metadata(root[field], field)
         require_metadata(expectations[field], f"expectations.{field}")
-    if not isinstance(root["capture_epoch"], str) or not EPOCH_RE.fullmatch(root["capture_epoch"]):
-        fail("SCHEMA_INVALID", "capture_epoch", "expected UTC second timestamp")
-    if (
-        not isinstance(expectations["capture_epoch"], str)
-        or not EPOCH_RE.fullmatch(expectations["capture_epoch"])
-    ):
-        fail("SCHEMA_INVALID", "expectations.capture_epoch", "expected UTC second timestamp")
+    require_capture_epoch(root["capture_epoch"], "capture_epoch")
+    require_capture_epoch(expectations["capture_epoch"], "expectations.capture_epoch")
     for location, digest in (
         ("installed_authority_bundle_digest", root["installed_authority_bundle_digest"]),
-        (
-            "expectations.installed_authority_bundle_digest",
-            expectations["installed_authority_bundle_digest"],
-        ),
+        ("expectations.installed_authority_bundle_digest", expectations["installed_authority_bundle_digest"]),
     ):
         if digest is not None:
             require_sha256(digest, location)
     require_sha256(root["canonical_bundle_sha256"], "canonical_bundle_sha256")
+    require_sha256(expectations["canonical_bundle_sha256"], "expectations.canonical_bundle_sha256")
     exact_object(root["censuses"], {"current", "pinned"}, "censuses")
     exact_object(root["comparison_intent"], {"kind", "policy_id"}, "comparison_intent")
+    intent = root["comparison_intent"]
+    if intent["kind"] not in {"all_selectors_absent", "intentional_identical_explicit_map"}:
+        fail("SCHEMA_INVALID", "comparison_intent.kind", "unknown comparison intent")
+    if intent["policy_id"] is not None:
+        require_metadata(intent["policy_id"], "comparison_intent.policy_id")
     require_list(root["revision_only_policy"], "revision_only_policy")
     require_list(root["phases"], "phases")
     require_list(root["manifest"], "manifest")
 
 
 def validate_trust_binding(root, expectations):
+    if root["static_resume_target"] != expectations["static_resume_target"]:
+        fail("STATIC_RESUME_TARGET_MISMATCH", "static_resume_target", "trusted target differs")
     if root["audited_source_revisions"] != expectations["audited_source_revisions"]:
         fail("SOURCE_REVISION_MISMATCH", "audited_source_revisions", "trusted revisions differ")
     if root["workflow_sha256"] != expectations["workflow_sha256"]:
         fail("WORKFLOW_DIGEST_MISMATCH", "workflow_sha256", "trusted workflow differs")
-    for role, code in (
-        ("current", "CURRENT_CENSUS_DIGEST_MISMATCH"),
-        ("pinned", "PINNED_CENSUS_DIGEST_MISMATCH"),
-    ):
+    for role, code in (("current", "CURRENT_CENSUS_DIGEST_MISMATCH"), ("pinned", "PINNED_CENSUS_DIGEST_MISMATCH")):
         if root["selector_census_sha256"][role] != expectations["selector_census_sha256"][role]:
             fail(code, f"selector_census_sha256.{role}", "trusted census digest differs")
     for field in ("ranked_job_id", "ranked_run_id", "host_class", "trusted_collector_id"):
@@ -449,11 +573,31 @@ def validate_trust_binding(root, expectations):
     if root["capture_epoch"] != expectations["capture_epoch"]:
         fail("CAPTURE_EPOCH_MISMATCH", "capture_epoch", "trusted epoch differs")
     if root["installed_authority_bundle_digest"] != expectations["installed_authority_bundle_digest"]:
-        fail(
-            "AUTHORITY_DIGEST_MISMATCH",
-            "installed_authority_bundle_digest",
-            "trusted foreign authority digest differs",
-        )
+        fail("AUTHORITY_DIGEST_MISMATCH", "installed_authority_bundle_digest", "trusted foreign authority digest differs")
+    if root["canonical_bundle_sha256"] != expectations["canonical_bundle_sha256"]:
+        fail("TRUSTED_BUNDLE_DIGEST_MISMATCH", "canonical_bundle_sha256", "trusted captured bundle differs")
+
+
+def validate_policy_shapes(root):
+    policies = set()
+    for index, rule in enumerate(root["revision_only_policy"]):
+        location = f"revision_only_policy[{index}]"
+        exact_object(rule, POLICY_KEYS, location)
+        key = require_selector_name(rule["key"], f"{location}.key")
+        if key in policies:
+            fail("UNSUPPORTED_REVISION_POLICY", f"{location}.key", "duplicate rule")
+        policies.add(key)
+        present = rule["present_in_revision"]
+        missing = rule["missing_from_revision"]
+        if present not in {"current", "pinned"} or missing not in {"current", "pinned"} or present == missing:
+            fail("UNSUPPORTED_REVISION_POLICY", location, "revision roles are not complementary")
+        if rule["reason_code"] != "REVISION_ONLY_NO_CONSUMER":
+            fail("UNSUPPORTED_REVISION_POLICY", f"{location}.reason_code", str(rule["reason_code"]))
+        if rule["allowed_state"] not in {"ABSENT", "VALUE"}:
+            fail("UNSUPPORTED_REVISION_POLICY", f"{location}.allowed_state", str(rule["allowed_state"]))
+        if rule["allowed_value_sha256"] is not None:
+            require_sha256(rule["allowed_value_sha256"], f"{location}.allowed_value_sha256")
+        require_metadata(rule["justification"], f"{location}.justification")
 
 
 def validate_phases(root):
@@ -570,6 +714,8 @@ def validate_manifest_and_files(bundle, root, phases):
 
 def first_missing_reference(root, phases):
     missing = []
+    if root["installed_authority_bundle_digest"] is None:
+        missing.append("installed_authority_bundle_digest")
     for role in ("current", "pinned"):
         if root["censuses"][role] is None:
             missing.append(f"{role}.census")
@@ -589,10 +735,11 @@ def validate_census(bundle, root, role):
     code = "CURRENT_CENSUS_DIGEST_MISMATCH" if role == "current" else "PINNED_CENSUS_DIGEST_MISMATCH"
     if digest != root["selector_census_sha256"][role]:
         fail(code, location, "physical census digest differs")
-    census = strict_load_bytes(data, relative)
+    census = strict_load_canonical_bytes(data, relative)
     exact_object(census, CENSUS_KEYS, relative)
-    if census["schema_version"] != 1 or census["revision_role"] != role:
-        fail("SCHEMA_INVALID", relative, "census version or revision role differs")
+    require_schema_version(census["schema_version"], f"{relative}.schema_version")
+    if census["revision_role"] != role:
+        fail("SCHEMA_INVALID", f"{relative}.revision_role", "revision role differs")
     expected_revision = root["audited_source_revisions"][role]
     if census["source_revision"] != expected_revision:
         fail("SOURCE_REVISION_MISMATCH", f"{relative}.source_revision", role)
@@ -606,11 +753,7 @@ def validate_census(bundle, root, role):
     for index, row in enumerate(rows):
         row_location = f"{relative}.rows[{index}]"
         exact_object(row, CENSUS_ROW_KEYS, row_location)
-        name = require_string(row["name"], f"{row_location}.name")
-        if secret_name_forbidden(name):
-            fail("SECRET_NAME_FORBIDDEN", f"{row_location}.name", name)
-        if not SELECTOR_RE.fullmatch(name):
-            fail("UNKNOWN_SELECTOR", f"{row_location}.name", name)
+        name = require_selector_name(row["name"], f"{row_location}.name")
         require_metadata(row["row_id"], f"{row_location}.row_id")
         require_metadata(row["source_locator"], f"{row_location}.source_locator")
         if name in result or row["row_id"] in ids:
@@ -638,11 +781,7 @@ def validate_census(bundle, root, role):
 
 def validate_snapshot_row(row, census_row, revision, location):
     exact_object(row, SNAPSHOT_ROW_KEYS, location)
-    name = require_string(row["name"], f"{location}.name")
-    if secret_name_forbidden(name):
-        fail("SECRET_NAME_FORBIDDEN", f"{location}.name", name)
-    if not SELECTOR_RE.fullmatch(name):
-        fail("UNKNOWN_SELECTOR", f"{location}.name", name)
+    name = require_selector_name(row["name"], f"{location}.name")
     if census_row is None:
         fail("UNKNOWN_SELECTOR", f"{location}.name", name)
     if row["census_row_id"] != census_row["row_id"]:
@@ -675,10 +814,9 @@ def validate_snapshot_row(row, census_row, revision, location):
 def validate_snapshot(bundle, root, phase, stage, census, parent_names=None):
     relative = phase[f"{stage}_snapshot"]
     location = f"{phase['process_class']}.{stage}_snapshot"
-    snapshot = strict_load_file(bundle / PurePosixPath(relative), relative)
+    snapshot = strict_load_canonical_file(bundle / PurePosixPath(relative), relative)
     exact_object(snapshot, SNAPSHOT_KEYS, relative)
-    if snapshot["schema_version"] != 1:
-        fail("SCHEMA_INVALID", f"{relative}.schema_version", "only version 1 is supported")
+    require_schema_version(snapshot["schema_version"], f"{relative}.schema_version")
     if snapshot["process_class"] != phase["process_class"] or snapshot["stage"] != stage:
         fail("SNAPSHOT_IDENTITY_MISMATCH", relative, location)
     role = phase["source_revision_role"]
@@ -689,17 +827,17 @@ def validate_snapshot(bundle, root, phase, stage, census, parent_names=None):
         fail("SNAPSHOT_CENSUS_MISMATCH", f"{relative}.census_sha256", location)
     if snapshot["spawn_edge_id"] != phase["spawn_edge_id"]:
         fail("SPAWN_EDGE_MISMATCH", f"{relative}.spawn_edge_id", location)
+    require_capture_epoch(snapshot["capture_epoch"], f"{relative}.capture_epoch")
     if snapshot["capture_epoch"] != root["capture_epoch"]:
         fail("CAPTURE_EPOCH_MISMATCH", f"{relative}.capture_epoch", location)
     rows = require_list(snapshot["rows"], f"{relative}.rows")
+    if not rows:
+        fail("SCHEMA_INVALID", f"{relative}.rows", "empty selector snapshot")
     names = []
     for index, row in enumerate(rows):
-        if not isinstance(row, dict):
-            fail("SCHEMA_INVALID", f"{relative}.rows[{index}]", "expected object")
-        name = row.get("name")
-        if isinstance(name, str) and secret_name_forbidden(name):
-            fail("SECRET_NAME_FORBIDDEN", f"{relative}.rows[{index}].name", name)
-        names.append(name)
+        row_location = f"{relative}.rows[{index}]"
+        exact_object(row, SNAPSHOT_ROW_KEYS, row_location)
+        names.append(require_selector_name(row["name"], f"{row_location}.name"))
     if len(names) != len(set(names)):
         fail("DUPLICATE_SELECTOR", f"{relative}.rows", "duplicate selector name")
     if stage == "worker" and parent_names is not None:
@@ -819,7 +957,8 @@ def validate_cross_process(root, censuses, phase_maps):
     return "all_selectors_absent"
 
 
-def validate_bundle(bundle_path, expectations_path):
+def validate_bundle(bundle_path, expectations_path, schema_path=DEFAULT_SCHEMA_PATH):
+    validate_schema_contract(schema_path)
     bundle = Path(bundle_path)
     expectations_file = Path(expectations_path)
     if bundle.is_symlink():
@@ -829,38 +968,67 @@ def validate_bundle(bundle_path, expectations_path):
     entry = bundle / "attestation.json"
     if entry.is_symlink():
         fail("SYMLINK_FORBIDDEN", "attestation.json", "entry point is a symlink")
-    root = strict_load_file(entry, "attestation.json")
-    expectations = strict_load_file(expectations_file, "expectations")
+    root = strict_load_canonical_file(entry, "attestation.json")
+    expectations = strict_load_canonical_file(expectations_file, "expectations")
     validate_root_shape(root, expectations)
     validate_trust_binding(root, expectations)
+    validate_policy_shapes(root)
     phases = validate_phases(root)
     validate_manifest_and_files(bundle, root, phases)
-    missing = first_missing_reference(root, phases)
-    if missing:
-        return {"classification": INCOMPLETE, "first_missing": missing[0], "missing": missing}
-    censuses = {
-        role: validate_census(bundle, root, role)
-        for role in ("current", "pinned")
-    }
+
+    censuses = {}
+    for role in ("current", "pinned"):
+        if root["censuses"][role] is not None:
+            censuses[role] = validate_census(bundle, root, role)
+
     phase_maps = {}
     for name in PHASES:
         phase = phases[name]
-        census = censuses[phase["source_revision_role"]]
-        parent, parent_map = validate_snapshot(bundle, root, phase, "parent", census)
-        worker, worker_map = validate_snapshot(
-            bundle,
-            root,
-            phase,
-            "worker",
-            census,
-            parent_names=[row["name"] for row in parent["rows"]],
-        )
-        for key in sorted(parent_map):
-            if not map_entry_equal(parent_map[key], worker_map[key]):
-                fail("PARENT_WORKER_FORWARDING_MISMATCH", f"{name}.{key}", "raw or semantic value differs")
-        phase_maps[name] = parent_map
-    comparison = validate_cross_process(root, censuses, phase_maps)
+        role = phase["source_revision_role"]
+        present_stages = [stage for stage in ("parent", "worker") if phase[f"{stage}_snapshot"] is not None]
+        if present_stages and role not in censuses:
+            fail("SNAPSHOT_WITHOUT_CENSUS", name, f"missing {role} census")
+        if not present_stages:
+            continue
+        snapshots = {}
+        maps = {}
+        for stage in present_stages:
+            snapshots[stage], maps[stage] = validate_snapshot(
+                bundle,
+                root,
+                phase,
+                stage,
+                censuses[role],
+                parent_names=(
+                    [row["name"] for row in snapshots["parent"]["rows"]]
+                    if stage == "worker" and "parent" in snapshots
+                    else None
+                ),
+            )
+        if set(maps) == {"parent", "worker"}:
+            for key in sorted(maps["parent"]):
+                if not map_entry_equal(maps["parent"][key], maps["worker"][key]):
+                    fail("PARENT_WORKER_FORWARDING_MISMATCH", f"{name}.{key}", "raw or semantic value differs")
+            phase_maps[name] = maps["parent"]
+
+    comparison = None
+    if set(censuses) == {"current", "pinned"} and set(phase_maps) == set(PHASES):
+        comparison = validate_cross_process(root, censuses, phase_maps)
+    missing = first_missing_reference(root, phases)
+    common = {
+        "authorization_scope": AUTHORIZATION_SCOPE,
+        "ranked_run_or_submission_authorized": False,
+        "static_resume_target": STATIC_RESUME_TARGET,
+    }
+    if missing:
+        return {
+            **common,
+            "classification": INCOMPLETE,
+            "first_missing": missing[0],
+            "missing": missing,
+        }
     return {
+        **common,
         "canonical_bundle_sha256": root["canonical_bundle_sha256"],
         "classification": READY,
         "comparison_intent": comparison,
@@ -895,8 +1063,8 @@ def make_census_row(row_id, name, parser, allowed, absent):
 
 def synthetic_constants():
     return {
-        "current": "1" * 40,
-        "pinned": "2" * 40,
+        "current": STATIC_RESUME_TARGET["current_source_revision"],
+        "pinned": STATIC_RESUME_TARGET["pinned_source_revision"],
         "workflow": "a" * 64,
         "authority": "b" * 64,
         "epoch": "2099-01-01T00:00:00Z",
@@ -1047,6 +1215,7 @@ def build_synthetic_bundle(bundle, expectations_path, variant):
         }
     root = {
         "schema_version": 1,
+        "static_resume_target": dict(STATIC_RESUME_TARGET),
         "audited_source_revisions": {"current": constants["current"], "pinned": constants["pinned"]},
         "workflow_sha256": constants["workflow"],
         "selector_census_sha256": census_digests,
@@ -1066,6 +1235,7 @@ def build_synthetic_bundle(bundle, expectations_path, variant):
     refresh_manifest_and_root(bundle, root)
     expectations = {
         "schema_version": 1,
+        "static_resume_target": dict(STATIC_RESUME_TARGET),
         "audited_source_revisions": root["audited_source_revisions"],
         "workflow_sha256": root["workflow_sha256"],
         "selector_census_sha256": root["selector_census_sha256"],
@@ -1075,6 +1245,7 @@ def build_synthetic_bundle(bundle, expectations_path, variant):
         "trusted_collector_id": root["trusted_collector_id"],
         "capture_epoch": root["capture_epoch"],
         "installed_authority_bundle_digest": root["installed_authority_bundle_digest"],
+        "canonical_bundle_sha256": root["canonical_bundle_sha256"],
     }
     write_json(expectations_path, expectations)
 
@@ -1109,6 +1280,16 @@ def load_root(bundle):
     return strict_load_file(bundle / "attestation.json", "synthetic.attestation")
 
 
+def load_expectations(expectations_path):
+    return strict_load_file(expectations_path, "synthetic.expectations")
+
+
+def sync_expected_bundle_digest(bundle, expectations_path):
+    expectations = load_expectations(expectations_path)
+    expectations["canonical_bundle_sha256"] = load_root(bundle)["canonical_bundle_sha256"]
+    write_json(expectations_path, expectations)
+
+
 def load_snapshot(bundle, relative):
     return strict_load_file(bundle / PurePosixPath(relative), f"synthetic.{relative}")
 
@@ -1123,14 +1304,64 @@ def phase_by_name(root, name):
     return next(phase for phase in root["phases"] if phase["process_class"] == name)
 
 
-def mutate_fixture(bundle, mutation):
-    if mutation == "none":
+def remove_pinned_worker(bundle, root, pinned):
+    relative = pinned["worker_snapshot"]
+    (bundle / PurePosixPath(relative)).unlink()
+    pinned["worker_snapshot"] = None
+    refresh_manifest_and_root(bundle, root)
+
+
+def replace_public_parent_name(bundle, root, public, replacement):
+    relative = public["parent_snapshot"]
+    snapshot = load_snapshot(bundle, relative)
+    snapshot["rows"][0]["name"] = replacement
+    write_json(bundle / PurePosixPath(relative), snapshot)
+    refresh_manifest_and_root(bundle, root)
+
+
+def make_public_parent_noncanonical(bundle, root, public):
+    relative = public["parent_snapshot"]
+    snapshot = load_snapshot(bundle, relative)
+    data = json.dumps(snapshot, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8") + b"\n"
+    (bundle / PurePosixPath(relative)).write_bytes(data)
+    refresh_manifest_and_root(bundle, root)
+
+
+def mutate_fixture(bundle, expectations_path, mutation):
+    if mutation in {"none", "schema_drift", "trusted_bundle_digest_mismatch"}:
         return
     root = load_root(bundle)
     public = phase_by_name(root, "current_public_correctness")
     hidden = phase_by_name(root, "current_hidden_gates")
     pinned = phase_by_name(root, "pinned_baseline_timed")
-    if mutation == "artifact_byte_hash_drift":
+    if mutation == "null_authority":
+        root["installed_authority_bundle_digest"] = None
+        root["canonical_bundle_sha256"] = canonical_bundle_hash(root)
+        write_json(bundle / "attestation.json", root)
+        expectations = load_expectations(expectations_path)
+        expectations["installed_authority_bundle_digest"] = None
+        write_json(expectations_path, expectations)
+    elif mutation == "static_resume_target_mismatch":
+        root["static_resume_target"]["frozen_environment_audit_sha256"] = "f" * 64
+        root["canonical_bundle_sha256"] = canonical_bundle_hash(root)
+        write_json(bundle / "attestation.json", root)
+    elif mutation == "impossible_capture_date":
+        root["capture_epoch"] = "2099-02-30T00:00:00Z"
+        root["canonical_bundle_sha256"] = canonical_bundle_hash(root)
+        write_json(bundle / "attestation.json", root)
+    elif mutation == "selector_name_too_long":
+        replace_public_parent_name(bundle, root, public, "DARKBLOOM_" + "A" * 160)
+    elif mutation == "selector_name_wrong_type":
+        replace_public_parent_name(bundle, root, public, 17)
+    elif mutation == "noncanonical_snapshot_json":
+        make_public_parent_noncanonical(bundle, root, public)
+    elif mutation == "missing_worker_with_invalid_selector":
+        remove_pinned_worker(bundle, root, pinned)
+        replace_public_parent_name(bundle, root, public, "DARKBLOOM_" + "A" * 160)
+    elif mutation == "missing_worker_with_noncanonical_snapshot":
+        remove_pinned_worker(bundle, root, pinned)
+        make_public_parent_noncanonical(bundle, root, public)
+    elif mutation == "artifact_byte_hash_drift":
         path = bundle / PurePosixPath(public["parent_snapshot"])
         path.write_bytes(path.read_bytes() + b" ")
     elif mutation == "artifact_size_drift":
@@ -1242,39 +1473,53 @@ def mutate_fixture(bundle, mutation):
     elif mutation == "declared_file_missing":
         (bundle / PurePosixPath(public["parent_snapshot"])).unlink()
     elif mutation == "missing_pinned_worker":
-        relative = pinned["worker_snapshot"]
-        (bundle / PurePosixPath(relative)).unlink()
-        pinned["worker_snapshot"] = None
-        refresh_manifest_and_root(bundle, root)
+        remove_pinned_worker(bundle, root, pinned)
     else:
         raise ValueError(f"unknown mutation {mutation}")
 
 
-def fixture_bytes_digest(bundle):
-    payload = b"RANKED_SELECTOR_FIXTURE_BYTES_V1\x00"
+def fixture_bytes_digest(bundle, expectations_path, schema_path):
+    payload = b"RANKED_SELECTOR_FIXTURE_BYTES_V2\x00"
     paths = sorted(path for path in bundle.rglob("*") if path.is_file() and not path.is_symlink())
     for path in paths:
-        relative = path.relative_to(bundle).as_posix().encode("utf-8")
+        relative = f"bundle/{path.relative_to(bundle).as_posix()}".encode("utf-8")
         data = path.read_bytes()
         payload += u32(len(relative)) + relative + u64(len(data)) + data
     for path in sorted(path for path in bundle.rglob("*") if path.is_symlink()):
-        relative = path.relative_to(bundle).as_posix().encode("utf-8")
+        relative = f"bundle-symlink/{path.relative_to(bundle).as_posix()}".encode("utf-8")
         target = os.readlink(path).encode("utf-8")
         payload += u32(len(relative)) + relative + u64(len(target)) + target
+    for label, path in (
+        (b"trusted-expectations.json", expectations_path),
+        (b"ranked-selector-attestation.schema.json", schema_path),
+    ):
+        data = Path(path).read_bytes()
+        payload += u32(len(label)) + label + u64(len(data)) + data
     return sha256_bytes(payload)
 
 
-def execute_case(case):
+def execute_case(case, schema_path):
     with tempfile.TemporaryDirectory(prefix="selector-attestation-") as temporary:
         root = Path(temporary)
         bundle = root / "bundle"
         expectations = root / "trusted-expectations.json"
+        case_schema = root / "ranked-selector-attestation.schema.json"
         bundle.mkdir()
+        case_schema.write_bytes(Path(schema_path).read_bytes())
         build_synthetic_bundle(bundle, expectations, case["base_variant"])
-        mutate_fixture(bundle, case["mutation"])
-        bytes_digest = fixture_bytes_digest(bundle)
+        mutate_fixture(bundle, expectations, case["mutation"])
+        sync_expected_bundle_digest(bundle, expectations)
+        if case["mutation"] == "trusted_bundle_digest_mismatch":
+            trusted = load_expectations(expectations)
+            trusted["canonical_bundle_sha256"] = "f" * 64
+            write_json(expectations, trusted)
+        elif case["mutation"] == "schema_drift":
+            schema = strict_load_file(case_schema, "synthetic.schema")
+            schema["$defs"]["selectorName"]["maxLength"] += 1
+            write_json(case_schema, schema)
+        bytes_digest = fixture_bytes_digest(bundle, expectations, case_schema)
         try:
-            result = validate_bundle(bundle, expectations)
+            result = validate_bundle(bundle, expectations, case_schema)
         except ValidationFailure as exc:
             result = invalid_result(exc)
         summary = {
@@ -1305,7 +1550,8 @@ def assert_case_result(case, result):
             )
 
 
-def run_self_test(fixtures_path):
+def run_self_test(fixtures_path, schema_path=DEFAULT_SCHEMA_PATH):
+    schema_digest = validate_schema_contract(schema_path)
     fixture_bytes = Path(fixtures_path).read_bytes()
     fixtures = strict_load_bytes(fixture_bytes, str(fixtures_path))
     if fixtures.get("schema_version") != 1 or fixtures.get("synthetic_only") is not True:
@@ -1318,7 +1564,7 @@ def run_self_test(fixtures_path):
     for _ in range(runs):
         run_results = []
         for case in cases:
-            result = execute_case(case)
+            result = execute_case(case, schema_path)
             assert_case_result(case, result)
             run_results.append(result)
         outputs.append(canonical_json_bytes(run_results))
@@ -1327,9 +1573,11 @@ def run_self_test(fixtures_path):
     results = json.loads(outputs[0].decode("utf-8"))
     return {
         "case_count": len(cases),
+        "case_results_sha256": sha256_bytes(outputs[0]),
         "classification": "SELF_TEST_PASS",
         "determinism_runs": runs,
         "fixture_catalog_sha256": sha256_bytes(fixture_bytes),
+        "schema_sha256": schema_digest,
         "results": results,
     }
 
@@ -1340,6 +1588,11 @@ def parse_args(argv):
     )
     parser.add_argument("--bundle", help="bundle directory containing attestation.json")
     parser.add_argument("--expectations", help="separately trusted expectations JSON")
+    parser.add_argument(
+        "--schema",
+        default=str(DEFAULT_SCHEMA_PATH),
+        help="pinned ranked selector attestation JSON Schema",
+    )
     parser.add_argument("--self-test", action="store_true", help="run synthetic positive and negative controls")
     parser.add_argument(
         "--fixtures",
@@ -1359,10 +1612,10 @@ def main(argv=None):
     args = parse_args(argv)
     try:
         if args.self_test:
-            result = run_self_test(args.fixtures)
+            result = run_self_test(args.fixtures, args.schema)
             exit_code = 0
         else:
-            result = validate_bundle(args.bundle, args.expectations)
+            result = validate_bundle(args.bundle, args.expectations, args.schema)
             exit_code = 0 if result["classification"] == READY else 2
     except ValidationFailure as exc:
         result = invalid_result(exc)
