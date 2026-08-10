@@ -1231,6 +1231,22 @@ int darkbloom_expert_gather_groups() {
   return v;
 }
 
+// DARKBLOOM_EXPERT_DOWN_BN: N-tile width for the routed/shared down
+// projection (K=512, N=2048) only. That shape stores plain BN-wide Dtile
+// slices, so BN is free there; the fused gate/up shape pairs column c with
+// c + BN/2 and writes N/2 columns, so its BN is a correctness lock.
+int darkbloom_expert_down_bn() {
+  static const int v = [] {
+    auto s = env::get_var("DARKBLOOM_EXPERT_DOWN_BN", "");
+    if (s.empty()) {
+      return 64;
+    }
+    const int n = std::atoi(s.c_str());
+    return (n == 32 || n == 64) ? n : 64;
+  }();
+  return v;
+}
+
 int darkbloom_stage_bm128_variant() {
   static const int v = [] {
     auto s = env::get_var("DARKBLOOM_STAGE_BM128", "");
@@ -1369,6 +1385,15 @@ void gather_qmm_rhs_nax(
     case 4: bm = 64;  wm = 4; break;
     case 5: bm = 64;  wm = 4; wn = 1; break;
     default: break;
+  }
+
+  // Gated so the narrower tile can only reach fp_gather_qmm_rhs_expert_nax
+  // (same predicate as expert_aligned below, restricted to the down shape);
+  // the generic NAX kernels keep bn = 64.
+  if (darkbloom_expert_aligned_gather() && mode != "affine" && transpose &&
+      group_size == 16 && bits == 4 && K == 512 && N == 2048 && M >= 64 &&
+      bm == 64 && wm == 4 && (wn == 2 || wn == 1)) {
+    bn = darkbloom_expert_down_bn();
   }
 
   const bool align_M = (M % bm) == 0;
