@@ -457,6 +457,57 @@ The paired SD is *not* the ~1 % between-session spread above — the palindrome
 cancels session level and linear drift — which is the whole reason the design is
 paired.
 
+### Session `occ2` — bracketing the shipped geometry from the other side
+
+The 2×2 above only moves *away* from the shipped point in the direction of more
+amortisation, and that direction lost. That leaves one question the 2×2 cannot
+answer: is `results_per_simdgroup = 4` an optimum, or merely a point on a
+monotone slope whose better side was never sampled? Because the grid width is
+`32 · out_vec_size / results_per_simdgroup = 65536 / rps` exactly (§1,
+structural confound), the *opposite* move — `rps` 4 → 2 — doubles grid threads
+to 32,768 and is the only bit-exact way to test the other side.
+
+| id | `num_simdgroups` | `results_per_simdgroup` | rows/TG | threads/TG | TGs | grid threads |
+|---|---:|---:|---:|---:|---:|---:|
+| G0 | 2 | 4 | 8 | 64 | 256 | 16384 |
+| **G4** | 2 | **2** | 4 | 64 | **512** | **32768** |
+
+Bit-exactness is the same row-ownership argument as G1–G3: `out_row = tile *
+rows_per_threadgroup + simd_gid * results_per_simdgroup + i` still enumerates
+each of the 2048 output rows exactly once (512 tiles × 4 rows), the per-row
+k-loop, the 16-value lane partition and the `simd_sum` reduction are unchanged,
+and no accumulation order is altered. `rps = 2` *shrinks* the `result[]` array,
+so unlike G1/G2 it cannot add register pressure.
+
+The value of this arm is that the two models this report has built predict
+**opposite signs** for it, so it cannot be a confirmation exercise:
+
+- The Rule 100 slot model (§3) counts `values_per_thread + 1 + rps ·
+  codes_per_thread + 2 · rps` = 25 load instructions per thread at `rps = 2`
+  against 33 at `rps = 4`; at 2× the threads that is 1.515× the total load
+  slots, **+51.5 %**, so a slot-bound kernel must get slower.
+- The measured factor-A result points the other way: halving grid threads cost
+  **+110.6 µs/step** while *removing* 16.2 % of slots, i.e. on this axis the
+  slot model already has the wrong sign, and the binding quantity behaves like
+  occupancy. Extrapolating that, doubling grid threads should *gain*.
+
+Preregistered decision rule, fixed before the session:
+
+- `V-OCC` — CI excludes zero and negative: the shipped `results_per_simdgroup`
+  is not optimal. This is a two-line default change, so the instrument is then
+  **not** reverted, and the arm is priced against the 30.6 µs/step summand bar.
+- `N-OCC` — CI excludes zero and positive, or excludes a summand-sized gain:
+  the shipped geometry is a **local optimum with both bit-exact neighbours
+  worse**, which closes the geometry axis of this family for fern rather than
+  merely failing to open it.
+
+Design: `SESSION=occ2`, 16 runs as two mirrored blocks of the position-balanced
+quartet `g0 g4 g4 g0` / `g4 g0 g0 g4`, so each arm has mean position 2.5 within
+every half — the only structure §2's variance analysis found to reach the low
+noise floor. Analysed with `--design occ2`; expected `mde ≈ 22 µs/step M4`,
+which resolves the summand bar. The estimator, the drift-injection validation
+and the prefill placebo axis are the same code as `abba1`/`abba2`.
+
 ---
 
 ## §3 — Issued-traffic model (Rule 98.9: cache-resident, not DRAM)
