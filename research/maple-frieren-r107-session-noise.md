@@ -17,6 +17,14 @@ Notation. For a receipt, `cs` is the candidate-leg merit the harness reports and
 expressed in percent. `f` folds in everything that is not the tree: baseline-leg
 timing, machine state, queue neighbours, thermal drift.
 
+> **Read §8 first.** It was written last, after the draw ladder produced a
+> byte-for-byte replay of a fixed tree, and it *falsifies* the §3 claim that
+> `cs` is essentially constant within a tree (sd 0.0540 %). The replay moved
+> `cs` by −0.233 %. §3's reasoning and arithmetic still stand as published; its
+> candidate-leg term does not. §8 gives the corrected σ, the corrected (larger)
+> gap to the record, and the reason the plan is unchanged anyway.
+
+
 ---
 
 ## 1. Headline corrections to my own earlier numbers
@@ -265,3 +273,64 @@ framing:
 * The 1220-receipt feed is the public one. If submissions are filtered from it
   non-randomly with respect to `f`, every σ here is biased, most likely
   downward-biased in spread. I have no way to test that from inside.
+
+---
+
+## 8. The ladder falsified my own σ decomposition — the candidate legs are noisy too
+
+Written after draw 02 landed at 11:04Z. This is the most important thing in the
+document and it contradicts §3, so it goes last and it goes in full.
+
+Draw 02 is the first **byte-for-byte replay** of the `4b0e051b` surface: 141
+files, identical to the family tree except a single trailing comment line
+(`// senpai-r106e-replay-02`), proved by the `GATE 1'` step in
+`research/r106e_draw.sh` printing `1  1  Sources/MLXFastModel/LagunaRuntimeModel.swift`
+and nothing else. The tree is fixed by construction, so its merit `cs` must be
+fixed too.
+
+It is not:
+
+| receipt | `cs` | `f` | `O` |
+|---|---|---|---|
+| `4b0e051b` (original) | 2.590559 | −0.5878 % | 2.575377 |
+| draw 02 (exact replay) | **2.584538** | −0.1342 % | 2.581073 |
+
+`cs` moved by **−0.2327 %** on a tree that did not move at all. In §3 I put
+sd(ln cs | tree) at 0.0540 %, from the four family-A receipts. Under that
+figure draw 02 is a −4.3 σ event. One replicate does not overturn an estimate,
+but the cheapest explanation is that **0.0540 % was wrong** — family A is four
+receipts I *inferred* were one tree, and the inference was doing the work.
+Draw 02 needs no inference: I built the tree.
+
+Three consequences, in order of how much they change the endgame.
+
+**(a) σ_resubmit is larger than 0.5396 %, which helps us.** If the candidate
+term really carries ~0.23 %, then σ_resubmit ≈ √(0.5369² + 0.23²) ≈ 0.58 %
+rather than 0.5396 %, assuming independence. We need a **+1 %** excursion, so
+we are out in the tail, and wider noise is strictly good for us. This is the
+one place in the whole analysis where being wrong was profitable.
+
+**(b) Anchoring the gap on `cs = 2.590559` was a selection bias, which hurts
+us.** That number is the *maximum* over ~25 materialisable trees' single
+receipts, so it is a max of noisy draws and is biased upward. The unbiased
+anchor for a fixed tree is the **mean of its replicates**. With two replicates
+the tree's merit is ≈ 2.587546, so the true gap is ≈ **1.113 %**, not 0.9965 %.
+
+Roughly, (a) and (b) cancel. At σ ≈ 0.58 % and need ≈ 1.113 %, z ≈ 1.92,
+P/draw ≈ 2.7 %, and ~20 further draws give ≈ 42 %. That is close enough to §6's
+44.7 % that **the plan does not change** — but it now stands on a different
+pair of legs, and both of them are measured rather than modelled.
+
+**(c) The ladder is its own σ instrument, and it is the assumption-free one.**
+Every leg is an exact replicate, so sd(ln O) across legs *is* σ_resubmit, with
+no clustering, no tree inference, and no decomposition that has to be believed.
+§3's preferred figure (0.5396 %) and §3's honest adversarial case (0.267 %,
+df 4) get resolved by simply running the ladder — which is what we were going
+to do anyway. `research/maple-frieren-r107-harvest.py` now prints that direct
+estimate, the replicate-mean merit, and the re-priced overtake probability
+after every leg. By 6–8 legs the σ question on this board is settled
+empirically rather than by argument, including for #616.
+
+The correction to carry elsewhere: **do not use sd(ln cs | tree) = 0.0540 %**,
+and do not price any team's overtake off a best-ever `cs`. Use replicate means.
+

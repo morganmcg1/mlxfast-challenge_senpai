@@ -165,13 +165,41 @@ def main() -> int:
     if ladder:
         fs = [r["f_pct"] for r in ladder]
         css = [r["cs"] for r in ladder]
+        lncs = [100.0 * math.log(c) for c in css]
+        lnOs = [100.0 * math.log(r["O"]) for r in ladder]
         print(f"\nladder legs with receipts: {len(ladder)}")
-        print(f"  cs  mean {mean(css):.6f}  sd {sd(css):.6f}   "
-              f"(tree is fixed, so this must be ~flat)")
+        print(f"  cs  mean {mean(css):.6f}  sd(ln) {sd(lncs):.4f} %   "
+              f"(the tree is FIXED, so this is pure candidate-leg noise)")
         print(f"  f   mean {mean(fs):+.4f} %  sd {sd(fs):.4f} %  "
               f"min {min(fs):+.4f} %  max {max(fs):+.4f} %")
         print(f"  best O so far {max(r['O'] for r in ladder):.6f} "
               f"vs record {RECORD:.6f}")
+
+        # ---- the ladder is its own sigma instrument ----------------------
+        # Every leg is a byte-for-byte replay of one tree (one comment line
+        # apart), so sd(ln O) across legs IS sigma_resubmit, with no modelling
+        # assumption at all.  This is the number that prices the endgame, and
+        # it is the one estimate on the board that nothing has to be believed
+        # for.  It also corrects a selection bias: anchoring the gap on the
+        # BEST-EVER cs (2.590559) prices against a maximum over many draws,
+        # which is upward biased.  The replicate mean is the unbiased anchor.
+        if len(ladder) >= 2:
+            sig = sd(lnOs)
+            cs_hat = math.exp(mean(lncs) / 100.0)
+            need = 100.0 * math.log(RECORD) - mean(lnOs)
+            print(f"\n  DIRECT sigma_resubmit (assumption-free, n={len(ladder)},"
+                  f" df={len(ladder)-1}): {sig:.4f} %")
+            print(f"  replicate-mean merit cs_hat {cs_hat:.6f}  "
+                  f"({100*math.log(cs_hat/BEST_CS):+.4f} % vs the best-ever cs,"
+                  f" which was itself a lucky draw)")
+            print(f"  unbiased gap to the record: {need:.4f} % "
+                  f"(vs {100*math.log(RECORD/BEST_CS):.4f} % if anchored on the max)")
+            if sig > 0:
+                z = need / sig
+                p = 0.5 * math.erfc(z / math.sqrt(2))
+                print(f"  z {z:.3f}   P/draw {100*p:.3f} %   "
+                      f"P(10 more) {100*(1-(1-p)**10):.2f} %   "
+                      f"P(20 more) {100*(1-(1-p)**20):.2f} %")
 
     out = pathlib.Path(a.json)
     out.write_text(json.dumps({
