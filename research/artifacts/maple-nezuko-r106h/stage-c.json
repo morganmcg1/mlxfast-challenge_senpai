@@ -713,6 +713,24 @@
  "C4_exchange_rate": {
   "basis": "unbiased merit of the best tree, cs 2.583111, n=5",
   "inverse_mechanism_to_draws": {
+   "#617 + #619 closed-decode ceilings combined": {
+    "draws_multiplier": 3.1276825342816514,
+    "extra_draws_at_budget_10": 21.276825342816515,
+    "extra_draws_at_budget_20": 42.55365068563303,
+    "extra_hours_at_budget_20_our_rate": 47.28183409514781,
+    "p_with": 0.03945457546361589,
+    "p_without": 0.012787766457388357,
+    "pct_of_cs": 0.2508
+   },
+   "#619 redundant-read + fusion ceiling 0.231 %": {
+    "draws_multiplier": 2.8683547607829487,
+    "extra_draws_at_budget_10": 18.68354760782949,
+    "extra_draws_at_budget_20": 37.36709521565898,
+    "extra_hours_at_budget_20_our_rate": 41.51899468406553,
+    "p_with": 0.03624329433111308,
+    "p_without": 0.012787766457388357,
+    "pct_of_cs": 0.231
+   },
    "+0.10 % of cs (6.6 us/step)": {
     "draws_multiplier": 1.583562410336474,
     "extra_draws_at_budget_10": 5.83562410336474,
@@ -757,6 +775,15 @@
     "p_with": 0.01398745815315706,
     "p_without": 0.012787766457388357,
     "pct_of_cs": 0.0198
+   },
+   "Rule 94.1 prefill gap, 9.3 % of score": {
+    "draws_multiplier": null,
+    "extra_draws_at_budget_10": null,
+    "extra_draws_at_budget_20": null,
+    "extra_hours_at_budget_20_our_rate": null,
+    "p_with": 1.0,
+    "p_without": 0.012787766457388357,
+    "pct_of_cs": 9.3
    }
   },
   "multiplier_note": "cum(p1,k) = cum(p0, k*r) exactly, with r = ln(1-p1)/ln(1-p0), so a permanent merit gain multiplies the effective draw count by r at any budget; r is the budget-free statement and (r-1)*k is the extra-draw statement at budget k",

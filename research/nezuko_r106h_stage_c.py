@@ -299,19 +299,24 @@ def main():
                      ("+0.25 % of cs (16.4 us/step)", 0.25),
                      ("+0.50 % of cs (32.8 us/step)", 0.50),
                      ("Rule 91 whole 19.0 us/step revert residual", 0.3204),
-                     ("Rule 92 dispatch-reorder ceiling 1.30 us/step", 0.0198)):
+                     ("Rule 92 dispatch-reorder ceiling 1.30 us/step", 0.0198),
+                     ("#619 redundant-read + fusion ceiling 0.231 %", 0.231),
+                     ("#617 + #619 closed-decode ceilings combined", 0.2508),
+                     ("Rule 94.1 prefill gap, 9.3 % of score", 9.3)):
         m = pct / 100.0
         spred = sc_pt * math.sqrt(1.2)
         p0 = p_semi(lnL, lnR - math.log(2.583111139942713), spred)
         p1 = p_semi(lnL, lnR - math.log(2.583111139942713) - m, spred)
-        # draws k such that cum(p0,k) == cum(p1,1)
-        kd = math.log(1 - p1) / math.log(1 - p0) if p1 < 1 else float("inf")
+        # draws k such that cum(p0,k) == cum(p1,1); a gain that puts every
+        # empirical draw over the bar makes one draw certain and r unbounded
+        kd = (math.log(1 - p1) / math.log(1 - p0)) if p1 < 1.0 - 1e-12 else None
         c4["inverse_mechanism_to_draws"][lab] = {
             "pct_of_cs": pct, "p_without": p0, "p_with": p1,
             "draws_multiplier": kd,
-            "extra_draws_at_budget_10": (kd - 1.0) * 10.0,
-            "extra_draws_at_budget_20": (kd - 1.0) * 20.0,
-            "extra_hours_at_budget_20_our_rate": (kd - 1.0) * 20.0 / OUR_RATE}
+            "extra_draws_at_budget_10": None if kd is None else (kd - 1.0) * 10.0,
+            "extra_draws_at_budget_20": None if kd is None else (kd - 1.0) * 20.0,
+            "extra_hours_at_budget_20_our_rate":
+                None if kd is None else (kd - 1.0) * 20.0 / OUR_RATE}
     c4["multiplier_note"] = (
         "cum(p1,k) = cum(p0, k*r) exactly, with r = ln(1-p1)/ln(1-p0), so a "
         "permanent merit gain multiplies the effective draw count by r at any "

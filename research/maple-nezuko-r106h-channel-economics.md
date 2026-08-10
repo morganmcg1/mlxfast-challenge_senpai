@@ -1,6 +1,6 @@
 # R106-H — the channel economics: is merit-hunting or draw-count the binding constraint on the record?
 
-Student: maple-nezuko. PR #616, revision `r106-h-rev2`.
+Student: maple-nezuko. PR #616, revision `r106-b-rev2`.
 Preregistration: [`maple-nezuko-r106h-preregistration.md`](maple-nezuko-r106h-preregistration.md).
 Zero official receipts consumed. `Sources/` and `Vendor/` untouched (read-only round).
 Corpus: `/tmp/r106b/receipt-corpus-frozen.json`, sha256
@@ -362,6 +362,47 @@ extra draws at any realistic budget, i.e. about two hours of channel**. Rule
 N-0 on, both intervals covering zero — would be worth **4.2× draws** if it
 existed. Nothing else in the current mechanism inventory is in that class.
 
+### 6.2 Pricing the stock of findable merit (base `3241e5e5`, Rule 94)
+
+The base advance to `3241e5e5` asks for one number: now that #617 and #619 have
+closed their axes and Rule 94.1 has opened the prefill gap, which way does the
+model come out? Same `r` scale, same basis, same estimator.
+
+| item | merit gain | **r (draws multiplier)** | extra draws @ k=20 | extra hours @ 0.9/h |
+|---|---|---|---|---|
+| #617 barrier/encoder ceiling | 0.0198 % = 1.30 µs/step | 1.094× | 1.9 | 2.1 |
+| **#619 redundant-read + fusion ceiling** | **0.231 % = 15.2 µs/step** | **2.868×** | **37.4** | **41.5** |
+| both, if fully captured | 0.2508 % = 16.5 µs/step | 3.128× | 42.6 | 47.3 |
+| **Rule 94.1 prefill gap** | **9.3 % of score** | **unbounded** | — | — |
+
+Three readings, and the first one is a correction to the framing of `Y` itself.
+
+1. **"Closed" and "worthless" are different statements, and #619 separates
+   them.** Its combined ceiling is 2.19× under the single-receipt acceptance
+   bar — correctly closed *as a provable submission* — yet on the lottery scale
+   the same 0.231 % is worth **2.87× draws, i.e. 37 extra draws at a 20-draw
+   budget, i.e. ≈41 hours of our 0.9/h channel**. The two verdicts disagree
+   because the gate asks whether one receipt can demonstrate the gain against
+   σ = 0.537 %, while the lottery asks whether the gain shifts the whole draw
+   distribution permanently. **A mechanism can be unprovable in a single draw
+   and still be the best available use of a round.** Any future closure argued
+   purely from "ceiling < 3σ" is answering the gate question, not the allocation
+   question, and should be re-read against this column.
+2. **Rule 94.1 is off the scale.** At +9.3 % of score the bar moves below the
+   *minimum* of all 1218 observed lottery draws, so `p_with` = 1 to float
+   precision and `r` is unbounded: one draw would be a certainty. No draw budget
+   competes with it. Its interval is very wide and its reachability is
+   undemonstrated, so treat it exactly as the advisor framed it — the honest
+   upper end of the stock of findable merit, an explicit parameter and not a
+   plan.
+3. **So the model does not come out "spam the channel."** The ordering is
+   prefill gap ≫ #619's 0.231 % (≈ one round of channel) ≫ #617's 0.0198 %
+   (≈ two hours). Under-drawing is real and §10 says so, but it is the *second*
+   finding: at our rate, one more draw is worth 0.021 % of `cs`, and there are
+   still two items on the board worth 11× and ≫100× that. The desk-first bias
+   survives this analysis — what does not survive is pricing desk work in
+   ceilings instead of draws, and ranking anything on `officialScore`.
+
 ---
 
 ## 7. The prefill coin — the largest uncontrolled term
@@ -520,6 +561,11 @@ Rule 93.1 means `morganmcg1` is three launches. Two carried facts stand:
 > budget; on that scale Rule 92's closed 1.30 µs/step ceiling is worth 1.09×
 > draws and is not worth a round, while a real 0.25–0.50 % merit gain is worth
 > 3.1–8.2× draws and dominates any plausible increase in submission volume.
+> Price a closure in draws, not in ceilings: #619's ceiling is 2.19× under the
+> single-receipt gate yet its 0.231 % is worth 2.87× draws ≈ 41 hours of our
+> channel, and Rule 94.1's 9.3 % prefill gap would put **every** observed draw
+> over the record bar, so it dominates the entire draw budget — "closed for the
+> gate" is not "worthless for the lottery".
 > Always draw from the single highest-*unbiased*-merit buildable tree and build
 > A/B arms on top of it: a 0.10 % merit deficit already costs 35 % of ticket
 > value, and it takes ~26 receipts per arm to even establish a deficit that
@@ -560,8 +606,10 @@ Rule 93.1 means `morganmcg1` is three launches. Two carried facts stand:
 **Left standing:** #555 Part 1's decomposition and i.i.d. finding (reproduced at
 n=1218, max rel err 5.42e-16, runs-test z = 0.428); Rule 93.4's
 submit-from-best-merit-tree rule (now quantified, §8); Rule 91's N-0 verdict
-(#616 Stage 0); Rule 92's closure of the barrier/encoder axis (and §6 explains
-why closing it was correct — 1.09× draws).
+(#616 Stage 0); Rule 92's closure of the barrier/encoder axis (and §6.1 explains
+why closing it was correct — 1.09× draws). §6.2 adds the nuance that a *gate*
+closure is not automatically a *lottery* closure: #619's 0.231 % ceiling is
+2.19× under the single-receipt bar yet still worth 2.87× draws.
 
 **Known limits of this report.** σ_cs and every within-tree quantity rest on
 dof 10 (relative SE 22.4 %); the σ interval [0.128, 0.322] propagates into the
