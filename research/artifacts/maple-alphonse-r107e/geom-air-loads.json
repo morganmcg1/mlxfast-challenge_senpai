@@ -1,0 +1,265 @@
+{
+ "arms": {
+  "g0_h48": {
+   "alloca_private_floats": 20,
+   "allocas": [
+    "[16 x float]",
+    "[4 x float]"
+   ],
+   "device_load_sites": 5,
+   "loads": {
+    "device:bfloat": 2,
+    "device:i32": 1,
+    "device:i8": 2,
+    "thread:float": 14
+   },
+   "stores": {
+    "device:bfloat": 1,
+    "thread:float": 3
+   },
+   "thread_load_sites": 14,
+   "threadgroup_load_sites": 0
+  },
+  "g0_h64": {
+   "alloca_private_floats": 20,
+   "allocas": [
+    "[16 x float]",
+    "[4 x float]"
+   ],
+   "device_load_sites": 5,
+   "loads": {
+    "device:bfloat": 2,
+    "device:i32": 1,
+    "device:i8": 2,
+    "thread:float": 14
+   },
+   "stores": {
+    "device:bfloat": 1,
+    "thread:float": 3
+   },
+   "thread_load_sites": 14,
+   "threadgroup_load_sites": 0
+  },
+  "g1_h48": {
+   "alloca_private_floats": 24,
+   "allocas": [
+    "[16 x float]",
+    "[8 x float]"
+   ],
+   "device_load_sites": 5,
+   "loads": {
+    "device:bfloat": 2,
+    "device:i32": 1,
+    "device:i8": 2,
+    "thread:float": 14
+   },
+   "stores": {
+    "device:bfloat": 1,
+    "thread:float": 3
+   },
+   "thread_load_sites": 14,
+   "threadgroup_load_sites": 0
+  },
+  "g1_h64": {
+   "alloca_private_floats": 24,
+   "allocas": [
+    "[16 x float]",
+    "[8 x float]"
+   ],
+   "device_load_sites": 5,
+   "loads": {
+    "device:bfloat": 2,
+    "device:i32": 1,
+    "device:i8": 2,
+    "thread:float": 14
+   },
+   "stores": {
+    "device:bfloat": 1,
+    "thread:float": 3
+   },
+   "thread_load_sites": 14,
+   "threadgroup_load_sites": 0
+  },
+  "g2_h48": {
+   "alloca_private_floats": 24,
+   "allocas": [
+    "[16 x float]",
+    "[8 x float]"
+   ],
+   "device_load_sites": 5,
+   "loads": {
+    "device:bfloat": 2,
+    "device:i32": 1,
+    "device:i8": 2,
+    "thread:float": 14
+   },
+   "stores": {
+    "device:bfloat": 1,
+    "thread:float": 3
+   },
+   "thread_load_sites": 14,
+   "threadgroup_load_sites": 0
+  },
+  "g2_h64": {
+   "alloca_private_floats": 24,
+   "allocas": [
+    "[16 x float]",
+    "[8 x float]"
+   ],
+   "device_load_sites": 5,
+   "loads": {
+    "device:bfloat": 2,
+    "device:i32": 1,
+    "device:i8": 2,
+    "thread:float": 14
+   },
+   "stores": {
+    "device:bfloat": 1,
+    "thread:float": 3
+   },
+   "thread_load_sites": 14,
+   "threadgroup_load_sites": 0
+  },
+  "g3_h48": {
+   "alloca_private_floats": 20,
+   "allocas": [
+    "[16 x float]",
+    "[4 x float]"
+   ],
+   "device_load_sites": 5,
+   "loads": {
+    "device:bfloat": 2,
+    "device:i32": 1,
+    "device:i8": 2,
+    "thread:float": 14
+   },
+   "stores": {
+    "device:bfloat": 1,
+    "thread:float": 3
+   },
+   "thread_load_sites": 14,
+   "threadgroup_load_sites": 0
+  },
+  "g3_h64": {
+   "alloca_private_floats": 20,
+   "allocas": [
+    "[16 x float]",
+    "[4 x float]"
+   ],
+   "device_load_sites": 5,
+   "loads": {
+    "device:bfloat": 2,
+    "device:i32": 1,
+    "device:i8": 2,
+    "thread:float": 14
+   },
+   "stores": {
+    "device:bfloat": 1,
+    "thread:float": 3
+   },
+   "thread_load_sites": 14,
+   "threadgroup_load_sites": 0
+  }
+ },
+ "note": "Static AIR instruction SITE counts, not dynamic issue counts. The k_blocks loop and the results_per_simdgroup loop are both rolled at -O, so site counts are near-invariant across arms by construction. Rule 98.9: nothing here is a DRAM byte count.",
+ "rule75_digests": {
+  "g0_h48": {
+   "air_ir_bytes": 18744,
+   "air_ir_sha256_16": "3e78cecf5e2fa561",
+   "metal_bytes": 4727,
+   "metal_sha256_16": "2d0a4283cbbf8b34"
+  },
+  "g0_h64": {
+   "air_ir_bytes": 18736,
+   "air_ir_sha256_16": "ed2bc1be21b0b8df",
+   "metal_bytes": 4727,
+   "metal_sha256_16": "70fb41cdf86ad63b"
+  },
+  "g1_h48": {
+   "air_ir_bytes": 18744,
+   "air_ir_sha256_16": "1128222f326aba9c",
+   "metal_bytes": 4751,
+   "metal_sha256_16": "380fa5146bf5e4b8"
+  },
+  "g1_h64": {
+   "air_ir_bytes": 18736,
+   "air_ir_sha256_16": "f102c9ac29bda262",
+   "metal_bytes": 4751,
+   "metal_sha256_16": "439f050525e47614"
+  },
+  "g2_h48": {
+   "air_ir_bytes": 18722,
+   "air_ir_sha256_16": "5ca5d2a4f82a4397",
+   "metal_bytes": 4751,
+   "metal_sha256_16": "744bd8b5537f67c4"
+  },
+  "g2_h64": {
+   "air_ir_bytes": 18713,
+   "air_ir_sha256_16": "a292f9d7636edb2e",
+   "metal_bytes": 4751,
+   "metal_sha256_16": "1f8ea648c700627a"
+  },
+  "g3_h48": {
+   "air_ir_bytes": 18744,
+   "air_ir_sha256_16": "2943efb552d88e34",
+   "metal_bytes": 4727,
+   "metal_sha256_16": "6381d6b8a8b8bc0d"
+  },
+  "g3_h64": {
+   "air_ir_bytes": 18736,
+   "air_ir_sha256_16": "931396a3863b456f",
+   "metal_bytes": 4727,
+   "metal_sha256_16": "e40c239da4d0b007"
+  }
+ },
+ "spill_proxy": {
+  "g0_h48": {
+   "alloca_private_floats": 20,
+   "expected_result_plus_xthread": 20,
+   "matches_expected": true,
+   "thread_load_sites": 14
+  },
+  "g0_h64": {
+   "alloca_private_floats": 20,
+   "expected_result_plus_xthread": 20,
+   "matches_expected": true,
+   "thread_load_sites": 14
+  },
+  "g1_h48": {
+   "alloca_private_floats": 24,
+   "expected_result_plus_xthread": 24,
+   "matches_expected": true,
+   "thread_load_sites": 14
+  },
+  "g1_h64": {
+   "alloca_private_floats": 24,
+   "expected_result_plus_xthread": 24,
+   "matches_expected": true,
+   "thread_load_sites": 14
+  },
+  "g2_h48": {
+   "alloca_private_floats": 24,
+   "expected_result_plus_xthread": 24,
+   "matches_expected": true,
+   "thread_load_sites": 14
+  },
+  "g2_h64": {
+   "alloca_private_floats": 24,
+   "expected_result_plus_xthread": 24,
+   "matches_expected": true,
+   "thread_load_sites": 14
+  },
+  "g3_h48": {
+   "alloca_private_floats": 20,
+   "expected_result_plus_xthread": 20,
+   "matches_expected": true,
+   "thread_load_sites": 14
+  },
+  "g3_h64": {
+   "alloca_private_floats": 20,
+   "expected_result_plus_xthread": 20,
+   "matches_expected": true,
+   "thread_load_sites": 14
+  }
+ }
+}

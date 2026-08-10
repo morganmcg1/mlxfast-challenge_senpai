@@ -145,6 +145,180 @@ B_STEP_BYTES = 1671402432
 M5_BASELINE_STEP_US = 6500.0
 SHIPPABLE_BAR_PCT = 0.4
 
+# Measured M4 Pro per-dispatch times for the two oproj head counts (pool table
+# §B.0.3, M4 column, divided by the call count). These are the only two dose
+# points the family offers.
+DOSE = {
+    "T3b_oproj_h64": {"bytes": 8652800, "us": 1117.7 / 30, "k_blocks": 16, "calls": 30},
+    "T3c_oproj_h48": {"bytes": 6490112, "us": 301.8 / 10, "k_blocks": 12, "calls": 10},
+}
+M4_CEILING_GB_S = 266.80
+
+
+def regime_fit() -> dict[str, object]:
+    """Fit T = B/BW + L on the family's two dose points, and test whether the
+    residual L behaves like a per-dispatch fixed cost or a per-k_block issue
+    cost. The latter is what H-OPROJ-ISSUE requires."""
+    a, b = DOSE["T3b_oproj_h64"], DOSE["T3c_oproj_h48"]
+    d_bytes = a["bytes"] - b["bytes"]
+    d_us = a["us"] - b["us"]
+
+    # Two points, two parameters -> exact fit, zero residual degrees of freedom,
+    # so no uncertainty is estimable from the fit itself.
+    bw_free = d_bytes / (d_us * 1e-6) / 1e9
+    l_free = a["us"] - a["bytes"] / (bw_free * 1e9) * 1e6
+
+    # Collinearity diagnostic: are bytes and block count separable at all?
+    bytes_per_block = {k: v["bytes"] / v["k_blocks"] for k, v in DOSE.items()}
+    collinear_spread = (
+        max(bytes_per_block.values()) / min(bytes_per_block.values()) - 1.0
+    )
+
+    # Physical alternative: pin BW at the measured ceiling and read off L.
+    pinned = {}
+    for k, v in DOSE.items():
+        bw_us = v["bytes"] / (M4_CEILING_GB_S * 1e9) * 1e6
+        resid = v["us"] - bw_us
+        pinned[k] = {
+            "bytes_time_us": round(bw_us, 3),
+            "measured_us": round(v["us"], 3),
+            "residual_L_us": round(resid, 3),
+            "residual_per_k_block_us": round(resid / v["k_blocks"], 4),
+        }
+    l_vals = [pinned[k]["residual_L_us"] for k in DOSE]
+    lb_vals = [pinned[k]["residual_per_k_block_us"] for k in DOSE]
+    spread_fixed = max(l_vals) / min(l_vals) - 1.0
+    spread_per_block = max(lb_vals) / min(lb_vals) - 1.0
+
+    # H-OPROJ-ISSUE predicts L grows with k_blocks (more per-row re-issues).
+    k_ratio = a["k_blocks"] / b["k_blocks"]
+    l_ratio = pinned["T3b_oproj_h64"]["residual_L_us"] / pinned["T3c_oproj_h48"][
+        "residual_L_us"
+    ]
+
+    total_L_us = sum(pinned[k]["residual_L_us"] * DOSE[k]["calls"] for k in DOSE)
+    return {
+        "free_two_point_fit": {
+            "bw_gb_per_s": round(bw_free, 2),
+            "L_us_per_dispatch": round(l_free, 3),
+            "exceeds_measured_ceiling_by_pct": round(
+                100 * (bw_free / M4_CEILING_GB_S - 1.0), 2
+            ),
+            "degrees_of_freedom": 0,
+            "note": (
+                "Exact fit: 2 points, 2 parameters. No uncertainty is estimable. "
+                "The implied bandwidth exceeds the measured host ceiling, so a "
+                "single fixed-L model cannot reproduce both points physically."
+            ),
+        },
+        "collinearity": {
+            "bytes_per_k_block": {k: round(v, 1) for k, v in bytes_per_block.items()},
+            "spread": round(collinear_spread, 6),
+            "verdict": (
+                "DEGENERATE: bytes and k_blocks are collinear to "
+                f"{100 * collinear_spread:.3f} % across the only two dose points, "
+                "so this family cannot separate a bytes cost from a per-block "
+                "issue cost by dose curve. The geometry arms are the only "
+                "available instrument, because they hold compulsory bytes exactly "
+                "fixed while changing per-row issue count."
+            ),
+        },
+        "bw_pinned_at_measured_ceiling": pinned,
+        "residual_scaling_test": {
+            "k_blocks_ratio_h64_over_h48": round(k_ratio, 4),
+            "residual_L_ratio_h64_over_h48": round(l_ratio, 4),
+            "fixed_per_dispatch_spread": round(spread_fixed, 4),
+            "per_k_block_spread": round(spread_per_block, 4),
+            "better_described_as": (
+                "fixed_per_dispatch" if spread_fixed < spread_per_block
+                else "per_k_block"
+            ),
+            "h_oproj_issue_prediction": (
+                "L should scale with k_blocks, i.e. ratio ~= "
+                f"{k_ratio:.3f}"
+            ),
+            "observed_sign": (
+                "OPPOSITE" if (l_ratio - 1.0) * (k_ratio - 1.0) < 0 else "consistent"
+            ),
+        },
+        "family_total_residual_us_per_step": round(total_L_us, 1),
+        "family_total_residual_pct_of_m5_step": round(
+            100 * total_L_us / M5_BASELINE_STEP_US, 3
+        ),
+        "caveat": (
+            "Borrows the M4 family microsecond labels from the §B.0.3 pool table "
+            "and the 266.80 GB/s ceiling from fern-r101 corollary 3. Two dose "
+            "points only."
+        ),
+    }
+
+
+def t2d_comparison_column() -> dict[str, object]:
+    """Comparison column, not an arm -- the T2d kernel is UNTOUCHED by R107-E.
+
+    Verifies the advisor's arithmetic against the constants actually emitted by
+    lagunaRoutedSharedDownResidualSource, so frieren (#597 R107-F) gets a second
+    independent instrument reading on her own target.
+    """
+    input_width = 512
+    output_width = 2048
+    slots = 8 + 1  # routed_experts + shared_slot
+    outputs_per_simd = 4
+    values_per_lane = 16
+    packed_row_bytes = 256
+    routed_scale_row_bytes = 16
+    calls = 39
+
+    threadgroups = output_width // outputs_per_simd  # 1 simdgroup per TG
+    weight_per_tg = slots * outputs_per_simd * packed_row_bytes
+    scale_per_tg = slots * outputs_per_simd * routed_scale_row_bytes
+    bytes_per_call = (weight_per_tg + scale_per_tg) * threadgroups
+
+    unique_activation_bytes = slots * input_width * 2
+    issued_activation_bytes = threadgroups * slots * input_width * 2
+
+    lane_activation = values_per_lane * 2
+    lane_weight = outputs_per_simd * (packed_row_bytes // (input_width // values_per_lane))
+    lane_scale = 4
+    lane_total = lane_activation + lane_weight + lane_scale
+
+    return {
+        "status": "comparison column, not an arm - kernel untouched by R107-E",
+        "source_constants_verified": {
+            "input_width": input_width,
+            "output_width": output_width,
+            "slots": slots,
+            "outputs_per_simd": outputs_per_simd,
+            "values_per_lane": values_per_lane,
+            "packed_row_bytes": packed_row_bytes,
+            "routed_scale_row_bytes": routed_scale_row_bytes,
+        },
+        "byte_identity": {
+            "weight_bytes_per_tg": weight_per_tg,
+            "scale_bytes_per_tg": scale_per_tg,
+            "threadgroups": threadgroups,
+            "bytes_per_call": bytes_per_call,
+            "advisor_stated": 5013504,
+            "agrees": bytes_per_call == 5013504,
+            "bytes_per_step": bytes_per_call * calls,
+            "pct_of_b_step": round(100 * bytes_per_call * calls / B_STEP_BYTES, 4),
+        },
+        "loads_per_unique_weight_byte": 1.0,
+        "activation_reread_factor": threadgroups,
+        "unique_activation_bytes_per_call": unique_activation_bytes,
+        "issued_activation_bytes_per_call": issued_activation_bytes,
+        "lane_load_traffic": {
+            "activation_bytes": lane_activation,
+            "weight_bytes": lane_weight,
+            "scale_bytes": lane_scale,
+            "total_bytes": lane_total,
+            "activation_share_pct": round(100 * lane_activation / lane_total, 2),
+            "advisor_stated_share_pct": 47.0,
+        },
+        "amortisation_factor": outputs_per_simd,
+        "k_blocks": 1,
+    }
+
 
 def roofline(local_decode_s: float | None = None) -> dict[str, object]:
     """Price the ceiling on any mechanism that does not reduce compulsory bytes.
@@ -236,6 +410,8 @@ def main() -> int:
             "threadgroup_shape_main_effect": "mean(g1,g3) - mean(g0,g2)",
         },
         "roofline": roofline(local_decode_s=float(sys.argv[1]) if len(sys.argv) > 1 else None),
+        "regime_fit": regime_fit(),
+        "t2d_comparison_column": t2d_comparison_column(),
     }
     out = ART / "geom-traffic-model.json"
     out.write_text(json.dumps(ledger, indent=2, sort_keys=True) + "\n")

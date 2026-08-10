@@ -261,6 +261,49 @@
     "threadgroup_shape_main_effect": "mean(g1,g3) - mean(g0,g2)"
   },
   "note": "issue-side counts only; compulsory DRAM bytes are identical across arms",
+  "regime_fit": {
+    "bw_pinned_at_measured_ceiling": {
+      "T3b_oproj_h64": {
+        "bytes_time_us": 32.432,
+        "measured_us": 37.257,
+        "residual_L_us": 4.825,
+        "residual_per_k_block_us": 0.3016
+      },
+      "T3c_oproj_h48": {
+        "bytes_time_us": 24.326,
+        "measured_us": 30.18,
+        "residual_L_us": 5.854,
+        "residual_per_k_block_us": 0.4879
+      }
+    },
+    "caveat": "Borrows the M4 family microsecond labels from the \u00a7B.0.3 pool table and the 266.80 GB/s ceiling from fern-r101 corollary 3. Two dose points only.",
+    "collinearity": {
+      "bytes_per_k_block": {
+        "T3b_oproj_h64": 540800.0,
+        "T3c_oproj_h48": 540842.7
+      },
+      "spread": 7.9e-05,
+      "verdict": "DEGENERATE: bytes and k_blocks are collinear to 0.008 % across the only two dose points, so this family cannot separate a bytes cost from a per-block issue cost by dose curve. The geometry arms are the only available instrument, because they hold compulsory bytes exactly fixed while changing per-row issue count."
+    },
+    "family_total_residual_pct_of_m5_step": 3.128,
+    "family_total_residual_us_per_step": 203.3,
+    "free_two_point_fit": {
+      "L_us_per_dispatch": 8.943,
+      "bw_gb_per_s": 305.61,
+      "degrees_of_freedom": 0,
+      "exceeds_measured_ceiling_by_pct": 14.55,
+      "note": "Exact fit: 2 points, 2 parameters. No uncertainty is estimable. The implied bandwidth exceeds the measured host ceiling, so a single fixed-L model cannot reproduce both points physically."
+    },
+    "residual_scaling_test": {
+      "better_described_as": "fixed_per_dispatch",
+      "fixed_per_dispatch_spread": 0.2133,
+      "h_oproj_issue_prediction": "L should scale with k_blocks, i.e. ratio ~= 1.333",
+      "k_blocks_ratio_h64_over_h48": 1.3333,
+      "observed_sign": "OPPOSITE",
+      "per_k_block_spread": 0.6177,
+      "residual_L_ratio_h64_over_h48": 0.8242
+    }
+  },
   "roofline": {
     "b_step_bytes": 1671402432,
     "caveat": "m5_us columns inherit the alpha/beta degeneracy (CURRENT_RESEARCH_STATE B.0.6): alpha~0.389 (ceiling 686) and alpha~0.437 (ceiling 610.6) fit equally well and differ by ~12 pct in every M5 headroom figure. The m4_* columns are measured on this host and carry no such degeneracy.",
@@ -320,5 +363,41 @@
       "lmhead": 97.4
     },
     "shippable_bar_us_local": 52.3
+  },
+  "t2d_comparison_column": {
+    "activation_reread_factor": 512,
+    "amortisation_factor": 4,
+    "byte_identity": {
+      "advisor_stated": 5013504,
+      "agrees": true,
+      "bytes_per_call": 5013504,
+      "bytes_per_step": 195526656,
+      "pct_of_b_step": 11.6984,
+      "scale_bytes_per_tg": 576,
+      "threadgroups": 512,
+      "weight_bytes_per_tg": 9216
+    },
+    "issued_activation_bytes_per_call": 4718592,
+    "k_blocks": 1,
+    "lane_load_traffic": {
+      "activation_bytes": 32,
+      "activation_share_pct": 47.06,
+      "advisor_stated_share_pct": 47.0,
+      "scale_bytes": 4,
+      "total_bytes": 68,
+      "weight_bytes": 32
+    },
+    "loads_per_unique_weight_byte": 1.0,
+    "source_constants_verified": {
+      "input_width": 512,
+      "output_width": 2048,
+      "outputs_per_simd": 4,
+      "packed_row_bytes": 256,
+      "routed_scale_row_bytes": 16,
+      "slots": 9,
+      "values_per_lane": 16
+    },
+    "status": "comparison column, not an arm - kernel untouched by R107-E",
+    "unique_activation_bytes_per_call": 9216
   }
 }
