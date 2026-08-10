@@ -1,0 +1,1621 @@
+{
+ "a0_act0_min_us_per_call": 22.108974,
+ "barrier_drain_us_per_call": 3.081196000000002,
+ "ceilings": {
+  "issue_peak_gload_s": 632.2189001372789,
+  "stream_peak_gb_s": 263.301094
+ },
+ "encmode": {
+  "concurrent": {
+   "run2": {
+    "calls": 39,
+    "empty_us_med": 245.583302,
+    "empty_us_per_dispatch": 6.297008,
+    "kind": "encmode",
+    "mode": "concurrent",
+    "n": 61,
+    "tg_per_call": 512,
+    "us_ci_hi": 762.85519,
+    "us_ci_lo": 760.478179,
+    "us_mad": 2.958346,
+    "us_med": 761.666684,
+    "us_per_call": 19.529915
+   }
+  },
+  "concurrentBarrier": {
+   "run2": {
+    "calls": 39,
+    "empty_us_med": 253.124977,
+    "empty_us_per_dispatch": 6.490384,
+    "kind": "encmode",
+    "mode": "concurrentBarrier",
+    "n": 61,
+    "tg_per_call": 512,
+    "us_ci_hi": 912.887037,
+    "us_ci_lo": 906.362904,
+    "us_mad": 7.000053,
+    "us_med": 909.624971,
+    "us_per_call": 23.323717
+   }
+  },
+  "serial": {
+   "run2": {
+    "calls": 39,
+    "empty_us_med": 257.625012,
+    "empty_us_per_dispatch": 6.60577,
+    "kind": "encmode",
+    "mode": "serial",
+    "n": 61,
+    "tg_per_call": 512,
+    "us_ci_hi": 887.14365,
+    "us_ci_lo": 876.522981,
+    "us_mad": 10.208343,
+    "us_med": 881.833315,
+    "us_per_call": 22.611111
+   }
+  }
+ },
+ "focus": [
+  {
+   "arm": "a0",
+   "issued_bytes_per_call": 10027008,
+   "line_touches_per_sg": 44,
+   "loads_per_lane": 12,
+   "meaning": "shipped geometry twin (opsi 4, 288 thr/TG, 512 TG/call)",
+   "n": 201,
+   "pso_tg_mem": 80,
+   "run1_dram_gb_s": 221.440565,
+   "run1_us_per_call": 22.719017,
+   "run2_dram_gb_s": 221.232501,
+   "run2_us_per_call": 22.740384,
+   "tg_per_call": 512
+  },
+  {
+   "arm": "a0_act0",
+   "clears_ship_bar": false,
+   "delta_pct_cs": -0.26173117386,
+   "delta_us_per_call": -0.440705,
+   "delta_us_per_step": -17.187495000000002,
+   "fraction_of_ship_bar": 0.6543279346499999,
+   "issued_bytes_per_call": 5308416,
+   "line_touches_per_sg": 12,
+   "loads_per_lane": 8,
+   "meaning": "all activation loads -> compile-time constants (upper bound)",
+   "n": 201,
+   "pso_tg_mem": 80,
+   "replicates_agree_sign": true,
+   "run1_ci": [
+    -0.470341,
+    -0.377947
+   ],
+   "run1_delta_us_per_call": -0.424144,
+   "run1_dram_gb_s": 225.999883,
+   "run1_us_per_call": 22.260684,
+   "run2_ci": [
+    -0.50894,
+    -0.405592
+   ],
+   "run2_delta_us_per_call": -0.457266,
+   "run2_dram_gb_s": 225.664148,
+   "run2_us_per_call": 22.293803,
+   "tg_per_call": 512
+  },
+  {
+   "arm": "a0_wide",
+   "clears_ship_bar": false,
+   "delta_pct_cs": 0.000634573602,
+   "delta_us_per_call": 0.0010685,
+   "delta_us_per_step": 0.0416715,
+   "fraction_of_ship_bar": -0.0015864340049999998,
+   "issued_bytes_per_call": 10027008,
+   "line_touches_per_sg": 28,
+   "loads_per_lane": 10,
+   "meaning": "WAL: 2x uint4 wide activation loads (12 -> 10 loads/lane)",
+   "n": 201,
+   "pso_tg_mem": 80,
+   "replicates_agree_sign": false,
+   "run1_ci": [
+    -0.025014,
+    0.031423
+   ],
+   "run1_delta_us_per_call": 0.003204,
+   "run1_dram_gb_s": 221.482222,
+   "run1_us_per_call": 22.714744,
+   "run2_ci": [
+    -0.030595,
+    0.028461
+   ],
+   "run2_delta_us_per_call": -0.001067,
+   "run2_dram_gb_s": 221.055933,
+   "run2_us_per_call": 22.758548,
+   "tg_per_call": 512
+  },
+  {
+   "arm": "a1",
+   "clears_ship_bar": false,
+   "delta_pct_cs": 0.600871418784,
+   "delta_us_per_call": 1.011752,
+   "delta_us_per_step": 39.458328,
+   "fraction_of_ship_bar": -1.50217854696,
+   "issued_bytes_per_call": 7667712,
+   "line_touches_per_sg": 56,
+   "loads_per_lane": 20,
+   "meaning": "opsi 4 -> 8 (A1: issued bytes -23.5 %, unique bytes 0 %)",
+   "n": 201,
+   "pso_tg_mem": 144,
+   "replicates_agree_sign": true,
+   "run1_ci": [
+    0.973091,
+    1.105967
+   ],
+   "run1_delta_us_per_call": 1.039529,
+   "run1_dram_gb_s": 211.618445,
+   "run1_us_per_call": 23.773504,
+   "run2_ci": [
+    0.92218,
+    1.04577
+   ],
+   "run2_delta_us_per_call": 0.983975,
+   "run2_dram_gb_s": 211.894598,
+   "run2_us_per_call": 23.742521,
+   "tg_per_call": 256
+  },
+  {
+   "arm": "a2",
+   "clears_ship_bar": false,
+   "delta_pct_cs": -0.016179993648,
+   "delta_us_per_call": -0.027244,
+   "delta_us_per_step": -1.062516,
+   "fraction_of_ship_bar": 0.04044998412,
+   "issued_bytes_per_call": 10027008,
+   "line_touches_per_sg": 44,
+   "loads_per_lane": 12,
+   "meaning": "negative control: 576 thr/TG, same loads/lane",
+   "n": 201,
+   "pso_tg_mem": 144,
+   "replicates_agree_sign": true,
+   "run1_ci": [
+    -0.060289,
+    0.009007
+   ],
+   "run1_delta_us_per_call": -0.025641,
+   "run1_dram_gb_s": 221.607301,
+   "run1_us_per_call": 22.701924,
+   "run2_ci": [
+    -0.067067,
+    0.009373
+   ],
+   "run2_delta_us_per_call": -0.028847,
+   "run2_dram_gb_s": 221.419735,
+   "run2_us_per_call": 22.721154,
+   "tg_per_call": 256
+  }
+ ],
+ "grid": {
+  "grid calls=39 fused cold": [
+   {
+    "arm": "a0",
+    "issued_bytes_per_call": 10027008,
+    "line_touches_per_sg": 44,
+    "loads_per_lane": 12,
+    "meaning": "shipped geometry twin (opsi 4, 288 thr/TG, 512 TG/call)",
+    "n": 61,
+    "pso_tg_mem": 80,
+    "run1_dram_gb_s": 264.190625,
+    "run1_us_per_call": 19.042735,
+    "run2_dram_gb_s": 264.978525,
+    "run2_us_per_call": 18.986112,
+    "tg_per_call": 512
+   },
+   {
+    "arm": "a0_act2",
+    "clears_ship_bar": false,
+    "delta_pct_cs": 0.02696566626,
+    "delta_us_per_call": 0.045405,
+    "delta_us_per_step": 1.7707950000000001,
+    "fraction_of_ship_bar": -0.06741416565,
+    "issued_bytes_per_call": 7667712,
+    "line_touches_per_sg": 28,
+    "loads_per_lane": 10,
+    "meaning": "activation loads 4 -> 2",
+    "n": 61,
+    "pso_tg_mem": 80,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     0.017075,
+     0.057708
+    ],
+    "run1_delta_us_per_call": 0.037392,
+    "run1_dram_gb_s": 263.791039,
+    "run1_us_per_call": 19.07158,
+    "run2_ci": [
+     0.030509,
+     0.076328
+    ],
+    "run2_delta_us_per_call": 0.053418,
+    "run2_dram_gb_s": 264.072093,
+    "run2_us_per_call": 19.051282,
+    "tg_per_call": 512
+   },
+   {
+    "arm": "a0_act1",
+    "clears_ship_bar": false,
+    "delta_pct_cs": 0.057105091368,
+    "delta_us_per_call": 0.096154,
+    "delta_us_per_step": 3.750006,
+    "fraction_of_ship_bar": -0.14276272841999998,
+    "issued_bytes_per_call": 6488064,
+    "line_touches_per_sg": 20,
+    "loads_per_lane": 9,
+    "meaning": "activation loads 4 -> 1",
+    "n": 61,
+    "pso_tg_mem": 80,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     0.068371,
+     0.106843
+    ],
+    "run1_delta_us_per_call": 0.087607,
+    "run1_dram_gb_s": 263.098324,
+    "run1_us_per_call": 19.121794,
+    "run2_ci": [
+     0.084601,
+     0.124801
+    ],
+    "run2_delta_us_per_call": 0.104701,
+    "run2_dram_gb_s": 263.407376,
+    "run2_us_per_call": 19.099359,
+    "tg_per_call": 512
+   },
+   {
+    "arm": "a0_act0",
+    "clears_ship_bar": false,
+    "delta_pct_cs": 0.043463689074,
+    "delta_us_per_call": 0.0731845,
+    "delta_us_per_step": 2.8541955,
+    "fraction_of_ship_bar": -0.108659222685,
+    "issued_bytes_per_call": 5308416,
+    "line_touches_per_sg": 12,
+    "loads_per_lane": 8,
+    "meaning": "all activation loads -> compile-time constants (upper bound)",
+    "n": 61,
+    "pso_tg_mem": 80,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     0.054496,
+     0.090805
+    ],
+    "run1_delta_us_per_call": 0.072651,
+    "run1_dram_gb_s": 263.186533,
+    "run1_us_per_call": 19.115385,
+    "run2_ci": [
+     0.059453,
+     0.087982
+    ],
+    "run2_delta_us_per_call": 0.073718,
+    "run2_dram_gb_s": 263.894525,
+    "run2_us_per_call": 19.064101,
+    "tg_per_call": 512
+   },
+   {
+    "arm": "a0_wide",
+    "clears_ship_bar": false,
+    "delta_pct_cs": 0.021255988572,
+    "delta_us_per_call": 0.035791,
+    "delta_us_per_step": 1.3958490000000001,
+    "fraction_of_ship_bar": -0.05313997143,
+    "issued_bytes_per_call": 10027008,
+    "line_touches_per_sg": 28,
+    "loads_per_lane": 10,
+    "meaning": "WAL: 2x uint4 wide activation loads (12 -> 10 loads/lane)",
+    "n": 61,
+    "pso_tg_mem": 80,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     0.010476,
+     0.047218
+    ],
+    "run1_delta_us_per_call": 0.028847,
+    "run1_dram_gb_s": 263.8058,
+    "run1_us_per_call": 19.070513,
+    "run2_ci": [
+     0.02566,
+     0.059809
+    ],
+    "run2_delta_us_per_call": 0.042735,
+    "run2_dram_gb_s": 264.338924,
+    "run2_us_per_call": 19.032051,
+    "tg_per_call": 512
+   },
+   {
+    "arm": "a0_badcoal",
+    "clears_ship_bar": false,
+    "delta_pct_cs": -0.005075994924,
+    "delta_us_per_call": -0.008547,
+    "delta_us_per_step": -0.33333300000000005,
+    "fraction_of_ship_bar": 0.012689987310000001,
+    "issued_bytes_per_call": 10027008,
+    "line_touches_per_sg": 68,
+    "loads_per_lane": 12,
+    "meaning": "deliberately de-coalesced code loads (line touches +54.5 %)",
+    "n": 61,
+    "pso_tg_mem": 80,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     -0.012078,
+     0.007806
+    ],
+    "run1_delta_us_per_call": -0.002136,
+    "run1_dram_gb_s": 264.294405,
+    "run1_us_per_call": 19.035257,
+    "run2_ci": [
+     -0.027061,
+     -0.002854
+    ],
+    "run2_delta_us_per_call": -0.014958,
+    "run2_dram_gb_s": 265.277085,
+    "run2_us_per_call": 18.964744,
+    "tg_per_call": 512
+   },
+   {
+    "arm": "a1",
+    "clears_ship_bar": false,
+    "delta_pct_cs": 0.022841680212,
+    "delta_us_per_call": 0.038461,
+    "delta_us_per_step": 1.4999790000000002,
+    "fraction_of_ship_bar": -0.05710420053,
+    "issued_bytes_per_call": 7667712,
+    "line_touches_per_sg": 56,
+    "loads_per_lane": 20,
+    "meaning": "opsi 4 -> 8 (A1: issued bytes -23.5 %, unique bytes 0 %)",
+    "n": 61,
+    "pso_tg_mem": 144,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     0.00044,
+     0.035885
+    ],
+    "run1_delta_us_per_call": 0.018162,
+    "run1_dram_gb_s": 264.027684,
+    "run1_us_per_call": 19.054487,
+    "run2_ci": [
+     0.032824,
+     0.084695
+    ],
+    "run2_delta_us_per_call": 0.05876,
+    "run2_dram_gb_s": 264.012856,
+    "run2_us_per_call": 19.055557,
+    "tg_per_call": 256
+   },
+   {
+    "arm": "a1_wide",
+    "clears_ship_bar": false,
+    "delta_pct_cs": 0.05266367004599999,
+    "delta_us_per_call": 0.08867549999999999,
+    "delta_us_per_step": 3.4583444999999995,
+    "fraction_of_ship_bar": -0.13165917511499997,
+    "issued_bytes_per_call": 7667712,
+    "line_touches_per_sg": 40,
+    "loads_per_lane": 18,
+    "meaning": "A1 + WAL",
+    "n": 61,
+    "pso_tg_mem": 144,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     0.049154,
+     0.085464
+    ],
+    "run1_delta_us_per_call": 0.067309,
+    "run1_dram_gb_s": 263.23068,
+    "run1_us_per_call": 19.112179,
+    "run2_ci": [
+     0.08951,
+     0.130575
+    ],
+    "run2_delta_us_per_call": 0.110042,
+    "run2_dram_gb_s": 263.15713,
+    "run2_us_per_call": 19.117521,
+    "tg_per_call": 256
+   },
+   {
+    "arm": "a2",
+    "clears_ship_bar": false,
+    "delta_pct_cs": -0.0250622424,
+    "delta_us_per_call": -0.0422,
+    "delta_us_per_step": -1.6458000000000002,
+    "fraction_of_ship_bar": 0.062655606,
+    "issued_bytes_per_call": 10027008,
+    "line_touches_per_sg": 44,
+    "loads_per_lane": 12,
+    "meaning": "negative control: 576 thr/TG, same loads/lane",
+    "n": 61,
+    "pso_tg_mem": 144,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     -0.084214,
+     -0.041852
+    ],
+    "run1_delta_us_per_call": -0.063033,
+    "run1_dram_gb_s": 265.112801,
+    "run1_us_per_call": 18.976496,
+    "run2_ci": [
+     -0.036496,
+     -0.006238
+    ],
+    "run2_delta_us_per_call": -0.021367,
+    "run2_dram_gb_s": 265.187449,
+    "run2_us_per_call": 18.971154,
+    "tg_per_call": 256
+   },
+   {
+    "arm": "a3",
+    "clears_ship_bar": false,
+    "delta_pct_cs": 0.183688123086,
+    "delta_us_per_call": 0.3092955,
+    "delta_us_per_step": 12.0625245,
+    "fraction_of_ship_bar": -0.459220307715,
+    "issued_bytes_per_call": 6488064,
+    "line_touches_per_sg": 80,
+    "loads_per_lane": 36,
+    "meaning": "opsi 4 -> 16",
+    "n": 61,
+    "pso_tg_mem": 288,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     0.268757,
+     0.314577
+    ],
+    "run1_delta_us_per_call": 0.291667,
+    "run1_dram_gb_s": 260.305903,
+    "run1_us_per_call": 19.326922,
+    "run2_ci": [
+     0.306176,
+     0.347672
+    ],
+    "run2_delta_us_per_call": 0.326924,
+    "run2_dram_gb_s": 260.17645,
+    "run2_us_per_call": 19.336539,
+    "tg_per_call": 128
+   },
+   {
+    "arm": "a0_min",
+    "clears_ship_bar": false,
+    "delta_pct_cs": 0.03711825,
+    "delta_us_per_call": 0.0625,
+    "delta_us_per_step": 2.4375,
+    "fraction_of_ship_bar": -0.09279562499999999,
+    "issued_bytes_per_call": 10027008,
+    "line_touches_per_sg": 44,
+    "loads_per_lane": 12,
+    "meaning": "arithmetic stripped to a single simd_sum",
+    "n": 61,
+    "pso_tg_mem": 80,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     0.040619,
+     0.074767
+    ],
+    "run1_delta_us_per_call": 0.057693,
+    "run1_dram_gb_s": 263.495813,
+    "run1_us_per_call": 19.092949,
+    "run2_ci": [
+     0.050234,
+     0.084381
+    ],
+    "run2_delta_us_per_call": 0.067307,
+    "run2_dram_gb_s": 264.086906,
+    "run2_us_per_call": 19.050214,
+    "tg_per_call": 512
+   },
+   {
+    "arm": "a0_act0_min",
+    "clears_ship_bar": false,
+    "delta_pct_cs": 0.042194244924,
+    "delta_us_per_call": 0.071047,
+    "delta_us_per_step": 2.770833,
+    "fraction_of_ship_bar": -0.10548561230999999,
+    "issued_bytes_per_call": 5308416,
+    "line_touches_per_sg": 12,
+    "loads_per_lane": 8,
+    "meaning": "activation loads AND arithmetic both stripped",
+    "n": 61,
+    "pso_tg_mem": 80,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     0.055564,
+     0.091875
+    ],
+    "run1_delta_us_per_call": 0.073719,
+    "run1_dram_gb_s": 263.245399,
+    "run1_us_per_call": 19.111111,
+    "run2_ci": [
+     0.052381,
+     0.084368
+    ],
+    "run2_delta_us_per_call": 0.068375,
+    "run2_dram_gb_s": 264.027684,
+    "run2_us_per_call": 19.054487,
+    "tg_per_call": 512
+   }
+  ],
+  "grid calls=39 fused resident": [
+   {
+    "arm": "a0",
+    "issued_bytes_per_call": 10027008,
+    "line_touches_per_sg": 44,
+    "loads_per_lane": 12,
+    "meaning": "shipped geometry twin (opsi 4, 288 thr/TG, 512 TG/call)",
+    "n": 61,
+    "pso_tg_mem": 80,
+    "run1_dram_gb_s": 13.919978,
+    "run1_us_per_call": 9.267094,
+    "run2_dram_gb_s": 13.921583,
+    "run2_us_per_call": 9.266025,
+    "tg_per_call": 512
+   },
+   {
+    "arm": "a0_act2",
+    "clears_ship_bar": false,
+    "delta_pct_cs": 0.012689690364,
+    "delta_us_per_call": 0.021367,
+    "delta_us_per_step": 0.833313,
+    "fraction_of_ship_bar": -0.03172422591,
+    "issued_bytes_per_call": 7667712,
+    "line_touches_per_sg": 28,
+    "loads_per_lane": 10,
+    "meaning": "activation loads 4 -> 2",
+    "n": 61,
+    "pso_tg_mem": 80,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     0.018773,
+     0.02396
+    ],
+    "run1_delta_us_per_call": 0.021367,
+    "run1_dram_gb_s": 13.897548,
+    "run1_us_per_call": 9.28205,
+    "run2_ci": [
+     0.018341,
+     0.024393
+    ],
+    "run2_delta_us_per_call": 0.021367,
+    "run2_dram_gb_s": 13.897548,
+    "run2_us_per_call": 9.28205,
+    "tg_per_call": 512
+   },
+   {
+    "arm": "a0_act1",
+    "clears_ship_bar": false,
+    "delta_pct_cs": -0.199867225896,
+    "delta_us_per_call": -0.336538,
+    "delta_us_per_step": -13.124982,
+    "fraction_of_ship_bar": 0.49966806474,
+    "issued_bytes_per_call": 6488064,
+    "line_touches_per_sg": 20,
+    "loads_per_lane": 9,
+    "meaning": "activation loads 4 -> 1",
+    "n": 61,
+    "pso_tg_mem": 80,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     -0.3387,
+     -0.334378
+    ],
+    "run1_delta_us_per_call": -0.336539,
+    "run1_dram_gb_s": 14.451453,
+    "run1_us_per_call": 8.926282,
+    "run2_ci": [
+     -0.338266,
+     -0.334808
+    ],
+    "run2_delta_us_per_call": -0.336537,
+    "run2_dram_gb_s": 14.451453,
+    "run2_us_per_call": 8.926282,
+    "tg_per_call": 512
+   },
+   {
+    "arm": "a0_act0",
+    "clears_ship_bar": true,
+    "delta_pct_cs": -0.522827774118,
+    "delta_us_per_call": -0.8803415,
+    "delta_us_per_step": -34.3333185,
+    "fraction_of_ship_bar": 1.3070694352949999,
+    "issued_bytes_per_call": 5308416,
+    "line_touches_per_sg": 12,
+    "loads_per_lane": 8,
+    "meaning": "all activation loads -> compile-time constants (upper bound)",
+    "n": 61,
+    "pso_tg_mem": 80,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     -0.884869,
+     -0.877952
+    ],
+    "run1_delta_us_per_call": -0.88141,
+    "run1_dram_gb_s": 15.394858,
+    "run1_us_per_call": 8.379275,
+    "run2_ci": [
+     -0.883163,
+     -0.875383
+    ],
+    "run2_delta_us_per_call": -0.879273,
+    "run2_dram_gb_s": 15.396824,
+    "run2_us_per_call": 8.378205,
+    "tg_per_call": 512
+   },
+   {
+    "arm": "a0_wide",
+    "clears_ship_bar": false,
+    "delta_pct_cs": -0.059959633266000005,
+    "delta_us_per_call": -0.10096050000000001,
+    "delta_us_per_step": -3.9374595,
+    "fraction_of_ship_bar": 0.149899083165,
+    "issued_bytes_per_call": 10027008,
+    "line_touches_per_sg": 28,
+    "loads_per_lane": 10,
+    "meaning": "WAL: 2x uint4 wide activation loads (12 -> 10 loads/lane)",
+    "n": 61,
+    "pso_tg_mem": 80,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     -0.105181,
+     -0.095672
+    ],
+    "run1_delta_us_per_call": -0.100426,
+    "run1_dram_gb_s": 14.102067,
+    "run1_us_per_call": 9.147435,
+    "run2_ci": [
+     -0.104953,
+     -0.098036
+    ],
+    "run2_delta_us_per_call": -0.101495,
+    "run2_dram_gb_s": 14.092189,
+    "run2_us_per_call": 9.153847,
+    "tg_per_call": 512
+   },
+   {
+    "arm": "a0_badcoal",
+    "clears_ship_bar": false,
+    "delta_pct_cs": -0.19288780711200001,
+    "delta_us_per_call": -0.324786,
+    "delta_us_per_step": -12.666654000000001,
+    "fraction_of_ship_bar": 0.48221951778,
+    "issued_bytes_per_call": 10027008,
+    "line_touches_per_sg": 68,
+    "loads_per_lane": 12,
+    "meaning": "deliberately de-coalesced code loads (line touches +54.5 %)",
+    "n": 61,
+    "pso_tg_mem": 80,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     -0.32588,
+     -0.321557
+    ],
+    "run1_delta_us_per_call": -0.323718,
+    "run1_dram_gb_s": 14.432452,
+    "run1_us_per_call": 8.938034,
+    "run2_ci": [
+     -0.328231,
+     -0.323477
+    ],
+    "run2_delta_us_per_call": -0.325854,
+    "run2_dram_gb_s": 14.430726,
+    "run2_us_per_call": 8.939103,
+    "tg_per_call": 512
+   },
+   {
+    "arm": "a1",
+    "clears_ship_bar": true,
+    "delta_pct_cs": -0.706198758876,
+    "delta_us_per_call": -1.189103,
+    "delta_us_per_step": -46.375017,
+    "fraction_of_ship_bar": 1.76549689719,
+    "issued_bytes_per_call": 7667712,
+    "line_touches_per_sg": 56,
+    "loads_per_lane": 20,
+    "meaning": "opsi 4 -> 8 (A1: issued bytes -23.5 %, unique bytes 0 %)",
+    "n": 61,
+    "pso_tg_mem": 144,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     -1.18998,
+     -1.18609
+    ],
+    "run1_delta_us_per_call": -1.188035,
+    "run1_dram_gb_s": 15.964815,
+    "run1_us_per_call": 8.080128,
+    "run2_ci": [
+     -1.192116,
+     -1.188225
+    ],
+    "run2_delta_us_per_call": -1.190171,
+    "run2_dram_gb_s": 15.956374,
+    "run2_us_per_call": 8.084402,
+    "tg_per_call": 256
+   },
+   {
+    "arm": "a1_wide",
+    "clears_ship_bar": true,
+    "delta_pct_cs": -0.703026781704,
+    "delta_us_per_call": -1.183762,
+    "delta_us_per_step": -46.166717999999996,
+    "fraction_of_ship_bar": 1.7575669542599999,
+    "issued_bytes_per_call": 7667712,
+    "line_touches_per_sg": 40,
+    "loads_per_lane": 18,
+    "meaning": "A1 + WAL",
+    "n": 61,
+    "pso_tg_mem": 144,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     -1.185275,
+     -1.182248
+    ],
+    "run1_delta_us_per_call": -1.183762,
+    "run1_dram_gb_s": 15.958486,
+    "run1_us_per_call": 8.083332,
+    "run2_ci": [
+     -1.185707,
+     -1.181817
+    ],
+    "run2_delta_us_per_call": -1.183762,
+    "run2_dram_gb_s": 15.966926,
+    "run2_us_per_call": 8.079059,
+    "tg_per_call": 256
+   },
+   {
+    "arm": "a2",
+    "clears_ship_bar": false,
+    "delta_pct_cs": 0.027600239861999998,
+    "delta_us_per_call": 0.0464735,
+    "delta_us_per_step": 1.8124665,
+    "fraction_of_ship_bar": -0.069000599655,
+    "issued_bytes_per_call": 10027008,
+    "line_touches_per_sg": 44,
+    "loads_per_lane": 12,
+    "meaning": "negative control: 576 thr/TG, same loads/lane",
+    "n": 61,
+    "pso_tg_mem": 144,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     0.041414,
+     0.04833
+    ],
+    "run1_delta_us_per_call": 0.044872,
+    "run1_dram_gb_s": 13.870408,
+    "run1_us_per_call": 9.300213,
+    "run2_ci": [
+     0.044401,
+     0.051749
+    ],
+    "run2_delta_us_per_call": 0.048075,
+    "run2_dram_gb_s": 13.865628,
+    "run2_us_per_call": 9.303419,
+    "tg_per_call": 256
+   },
+   {
+    "arm": "a3",
+    "clears_ship_bar": true,
+    "delta_pct_cs": -0.984426767766,
+    "delta_us_per_call": -1.6575855000000002,
+    "delta_us_per_step": -64.6458345,
+    "fraction_of_ship_bar": 2.4610669194150003,
+    "issued_bytes_per_call": 6488064,
+    "line_touches_per_sg": 80,
+    "loads_per_lane": 36,
+    "meaning": "opsi 4 -> 16",
+    "n": 61,
+    "pso_tg_mem": 288,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     -1.665037,
+     -1.651203
+    ],
+    "run1_delta_us_per_call": -1.65812,
+    "run1_dram_gb_s": 16.903525,
+    "run1_us_per_call": 7.631411,
+    "run2_ci": [
+     -1.663103,
+     -1.651
+    ],
+    "run2_delta_us_per_call": -1.657051,
+    "run2_dram_gb_s": 16.910629,
+    "run2_us_per_call": 7.628205,
+    "tg_per_call": 128
+   },
+   {
+    "arm": "a0_min",
+    "clears_ship_bar": true,
+    "delta_pct_cs": -2.285785783008,
+    "delta_us_per_call": -3.848824,
+    "delta_us_per_step": -150.104136,
+    "fraction_of_ship_bar": 5.71446445752,
+    "issued_bytes_per_call": 10027008,
+    "line_touches_per_sg": 44,
+    "loads_per_lane": 12,
+    "meaning": "arithmetic stripped to a single simd_sum",
+    "n": 61,
+    "pso_tg_mem": 80,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     -3.849815,
+     -3.844629
+    ],
+    "run1_delta_us_per_call": -3.847222,
+    "run1_dram_gb_s": 23.814964,
+    "run1_us_per_call": 5.416668,
+    "run2_ci": [
+     -3.853236,
+     -3.847616
+    ],
+    "run2_delta_us_per_call": -3.850426,
+    "run2_dram_gb_s": 23.829067,
+    "run2_us_per_call": 5.413462,
+    "tg_per_call": 512
+   },
+   {
+    "arm": "a0_act0_min",
+    "clears_ship_bar": true,
+    "delta_pct_cs": -2.654430582492,
+    "delta_us_per_call": -4.469551,
+    "delta_us_per_step": -174.312489,
+    "fraction_of_ship_bar": 6.63607645623,
+    "issued_bytes_per_call": 5308416,
+    "line_touches_per_sg": 12,
+    "loads_per_lane": 8,
+    "meaning": "activation loads AND arithmetic both stripped",
+    "n": 61,
+    "pso_tg_mem": 80,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     -4.493281,
+     -4.472532
+    ],
+    "run1_delta_us_per_call": -4.482906,
+    "run1_dram_gb_s": 27.005562,
+    "run1_us_per_call": 4.77671,
+    "run2_ci": [
+     -4.466138,
+     -4.446254
+    ],
+    "run2_delta_us_per_call": -4.456196,
+    "run2_dram_gb_s": 27.011605,
+    "run2_us_per_call": 4.775642,
+    "tg_per_call": 512
+   }
+  ],
+  "grid calls=39 split cold": [
+   {
+    "arm": "a0",
+    "issued_bytes_per_call": 10027008,
+    "line_touches_per_sg": 44,
+    "loads_per_lane": 12,
+    "meaning": "shipped geometry twin (opsi 4, 288 thr/TG, 512 TG/call)",
+    "n": 61,
+    "pso_tg_mem": 80,
+    "run1_dram_gb_s": 221.471817,
+    "run1_us_per_call": 22.715811,
+    "run2_dram_gb_s": 222.014793,
+    "run2_us_per_call": 22.660256,
+    "tg_per_call": 512
+   },
+   {
+    "arm": "a0_act2",
+    "clears_ship_bar": false,
+    "delta_pct_cs": -0.071064225882,
+    "delta_us_per_call": -0.1196585,
+    "delta_us_per_step": -4.6666815,
+    "fraction_of_ship_bar": 0.177660564705,
+    "issued_bytes_per_call": 7667712,
+    "line_touches_per_sg": 28,
+    "loads_per_lane": 10,
+    "meaning": "activation loads 4 -> 2",
+    "n": 61,
+    "pso_tg_mem": 80,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     -0.273672,
+     -0.093851
+    ],
+    "run1_delta_us_per_call": -0.183762,
+    "run1_dram_gb_s": 223.045363,
+    "run1_us_per_call": 22.555555,
+    "run2_ci": [
+     -0.145033,
+     0.033922
+    ],
+    "run2_delta_us_per_call": -0.055555,
+    "run2_dram_gb_s": 222.549917,
+    "run2_us_per_call": 22.605769,
+    "tg_per_call": 512
+   },
+   {
+    "arm": "a0_act1",
+    "clears_ship_bar": false,
+    "delta_pct_cs": -0.07360192639799999,
+    "delta_us_per_call": -0.1239315,
+    "delta_us_per_step": -4.8333285,
+    "fraction_of_ship_bar": 0.184004815995,
+    "issued_bytes_per_call": 6488064,
+    "line_touches_per_sg": 20,
+    "loads_per_lane": 9,
+    "meaning": "activation loads 4 -> 1",
+    "n": 61,
+    "pso_tg_mem": 80,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     -0.20728,
+     -0.091866
+    ],
+    "run1_delta_us_per_call": -0.149573,
+    "run1_dram_gb_s": 223.151058,
+    "run1_us_per_call": 22.544872,
+    "run2_ci": [
+     -0.168317,
+     -0.028264
+    ],
+    "run2_delta_us_per_call": -0.09829,
+    "run2_dram_gb_s": 222.960871,
+    "run2_us_per_call": 22.564103,
+    "tg_per_call": 512
+   },
+   {
+    "arm": "a0_act0",
+    "clears_ship_bar": false,
+    "delta_pct_cs": -0.301070282994,
+    "delta_us_per_call": -0.5069445,
+    "delta_us_per_step": -19.7708355,
+    "fraction_of_ship_bar": 0.752675707485,
+    "issued_bytes_per_call": 5308416,
+    "line_touches_per_sg": 12,
+    "loads_per_lane": 8,
+    "meaning": "all activation loads -> compile-time constants (upper bound)",
+    "n": 61,
+    "pso_tg_mem": 80,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     -0.600732,
+     -0.471919
+    ],
+    "run1_delta_us_per_call": -0.536325,
+    "run1_dram_gb_s": 226.761705,
+    "run1_us_per_call": 22.185898,
+    "run2_ci": [
+     -0.541323,
+     -0.413805
+    ],
+    "run2_delta_us_per_call": -0.477564,
+    "run2_dram_gb_s": 226.499929,
+    "run2_us_per_call": 22.211539,
+    "tg_per_call": 512
+   },
+   {
+    "arm": "a0_wide",
+    "clears_ship_bar": false,
+    "delta_pct_cs": -0.066622507614,
+    "delta_us_per_call": -0.11217950000000002,
+    "delta_us_per_step": -4.3750005000000005,
+    "fraction_of_ship_bar": 0.166556269035,
+    "issued_bytes_per_call": 10027008,
+    "line_touches_per_sg": 28,
+    "loads_per_lane": 10,
+    "meaning": "WAL: 2x uint4 wide activation loads (12 -> 10 loads/lane)",
+    "n": 61,
+    "pso_tg_mem": 80,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     -0.224763,
+     -0.078658
+    ],
+    "run1_delta_us_per_call": -0.15171,
+    "run1_dram_gb_s": 222.676205,
+    "run1_us_per_call": 22.592948,
+    "run2_ci": [
+     -0.142892,
+     -0.002407
+    ],
+    "run2_delta_us_per_call": -0.072649,
+    "run2_dram_gb_s": 222.17191,
+    "run2_us_per_call": 22.644231,
+    "tg_per_call": 512
+   },
+   {
+    "arm": "a0_badcoal",
+    "clears_ship_bar": false,
+    "delta_pct_cs": -0.074553044436,
+    "delta_us_per_call": -0.125533,
+    "delta_us_per_step": -4.895787,
+    "fraction_of_ship_bar": 0.18638261109,
+    "issued_bytes_per_call": 10027008,
+    "line_touches_per_sg": 68,
+    "loads_per_lane": 12,
+    "meaning": "deliberately de-coalesced code loads (line touches +54.5 %)",
+    "n": 61,
+    "pso_tg_mem": 80,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     -0.236864,
+     -0.066553
+    ],
+    "run1_delta_us_per_call": -0.151709,
+    "run1_dram_gb_s": 222.676205,
+    "run1_us_per_call": 22.592948,
+    "run2_ci": [
+     -0.186026,
+     -0.012689
+    ],
+    "run2_delta_us_per_call": -0.099357,
+    "run2_dram_gb_s": 222.971431,
+    "run2_us_per_call": 22.563034,
+    "tg_per_call": 512
+   },
+   {
+    "arm": "a1",
+    "clears_ship_bar": false,
+    "delta_pct_cs": 0.55582203807,
+    "delta_us_per_call": 0.9358975,
+    "delta_us_per_step": 36.5000025,
+    "fraction_of_ship_bar": -1.389555095175,
+    "issued_bytes_per_call": 7667712,
+    "line_touches_per_sg": 56,
+    "loads_per_lane": 20,
+    "meaning": "opsi 4 -> 8 (A1: issued bytes -23.5 %, unique bytes 0 %)",
+    "n": 61,
+    "pso_tg_mem": 144,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     0.803597,
+     0.997682
+    ],
+    "run1_delta_us_per_call": 0.90064,
+    "run1_dram_gb_s": 213.373229,
+    "run1_us_per_call": 23.577991,
+    "run2_ci": [
+     0.874328,
+     1.067981
+    ],
+    "run2_delta_us_per_call": 0.971155,
+    "run2_dram_gb_s": 213.208979,
+    "run2_us_per_call": 23.596154,
+    "tg_per_call": 256
+   },
+   {
+    "arm": "a1_wide",
+    "clears_ship_bar": false,
+    "delta_pct_cs": 0.5491597576139999,
+    "delta_us_per_call": 0.9246795,
+    "delta_us_per_step": 36.0625005,
+    "fraction_of_ship_bar": -1.3728993940349998,
+    "issued_bytes_per_call": 7667712,
+    "line_touches_per_sg": 40,
+    "loads_per_lane": 18,
+    "meaning": "A1 + WAL",
+    "n": 61,
+    "pso_tg_mem": 144,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     0.829648,
+     1.027192
+    ],
+    "run1_delta_us_per_call": 0.92842,
+    "run1_dram_gb_s": 213.750963,
+    "run1_us_per_call": 23.536324,
+    "run2_ci": [
+     0.82649,
+     1.015389
+    ],
+    "run2_delta_us_per_call": 0.920939,
+    "run2_dram_gb_s": 213.151073,
+    "run2_us_per_call": 23.602565,
+    "tg_per_call": 256
+   },
+   {
+    "arm": "a2",
+    "clears_ship_bar": false,
+    "delta_pct_cs": -0.133562450502,
+    "delta_us_per_call": -0.2248935,
+    "delta_us_per_step": -8.7708465,
+    "fraction_of_ship_bar": 0.333906126255,
+    "issued_bytes_per_call": 10027008,
+    "line_touches_per_sg": 44,
+    "loads_per_lane": 12,
+    "meaning": "negative control: 576 thr/TG, same loads/lane",
+    "n": 61,
+    "pso_tg_mem": 144,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     -0.297714,
+     -0.136049
+    ],
+    "run1_delta_us_per_call": -0.216882,
+    "run1_dram_gb_s": 222.865906,
+    "run1_us_per_call": 22.573717,
+    "run2_ci": [
+     -0.328435,
+     -0.137376
+    ],
+    "run2_delta_us_per_call": -0.232905,
+    "run2_dram_gb_s": 223.71294,
+    "run2_us_per_call": 22.488248,
+    "tg_per_call": 256
+   },
+   {
+    "arm": "a3",
+    "clears_ship_bar": false,
+    "delta_pct_cs": 0.7604490114,
+    "delta_us_per_call": 1.28045,
+    "delta_us_per_step": 49.93755,
+    "fraction_of_ship_bar": -1.9011225285,
+    "issued_bytes_per_call": 6488064,
+    "line_touches_per_sg": 80,
+    "loads_per_lane": 36,
+    "meaning": "opsi 4 -> 16",
+    "n": 61,
+    "pso_tg_mem": 288,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     1.140317,
+     1.340455
+    ],
+    "run1_delta_us_per_call": 1.240386,
+    "run1_dram_gb_s": 209.565367,
+    "run1_us_per_call": 24.006409,
+    "run2_ci": [
+     1.227146,
+     1.413882
+    ],
+    "run2_delta_us_per_call": 1.320514,
+    "run2_dram_gb_s": 208.933072,
+    "run2_us_per_call": 24.07906,
+    "tg_per_call": 128
+   },
+   {
+    "arm": "a0_min",
+    "clears_ship_bar": false,
+    "delta_pct_cs": -0.27600774364799996,
+    "delta_us_per_call": -0.464744,
+    "delta_us_per_step": -18.125016,
+    "fraction_of_ship_bar": 0.69001935912,
+    "issued_bytes_per_call": 10027008,
+    "line_touches_per_sg": 44,
+    "loads_per_lane": 12,
+    "meaning": "arithmetic stripped to a single simd_sum",
+    "n": 61,
+    "pso_tg_mem": 80,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     -0.581297,
+     -0.450755
+    ],
+    "run1_delta_us_per_call": -0.516026,
+    "run1_dram_gb_s": 226.043288,
+    "run1_us_per_call": 22.25641,
+    "run2_ci": [
+     -0.493431,
+     -0.333494
+    ],
+    "run2_delta_us_per_call": -0.413462,
+    "run2_dram_gb_s": 225.956509,
+    "run2_us_per_call": 22.264957,
+    "tg_per_call": 512
+   },
+   {
+    "arm": "a0_act0_min",
+    "clears_ship_bar": false,
+    "delta_pct_cs": -0.33247796446799993,
+    "delta_us_per_call": -0.5598289999999999,
+    "delta_us_per_step": -21.833330999999998,
+    "fraction_of_ship_bar": 0.8311949111699998,
+    "issued_bytes_per_call": 5308416,
+    "line_touches_per_sg": 12,
+    "loads_per_lane": 8,
+    "meaning": "activation loads AND arithmetic both stripped",
+    "n": 61,
+    "pso_tg_mem": 80,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     -0.691005,
+     -0.544036
+    ],
+    "run1_delta_us_per_call": -0.617521,
+    "run1_dram_gb_s": 227.550676,
+    "run1_us_per_call": 22.108974,
+    "run2_ci": [
+     -0.576054,
+     -0.42822
+    ],
+    "run2_delta_us_per_call": -0.502137,
+    "run2_dram_gb_s": 226.838173,
+    "run2_us_per_call": 22.178419,
+    "tg_per_call": 512
+   }
+  ],
+  "grid calls=39 split resident": [
+   {
+    "arm": "a0",
+    "issued_bytes_per_call": 10027008,
+    "line_touches_per_sg": 44,
+    "loads_per_lane": 12,
+    "meaning": "shipped geometry twin (opsi 4, 288 thr/TG, 512 TG/call)",
+    "n": 61,
+    "pso_tg_mem": 80,
+    "run1_dram_gb_s": 7.736889,
+    "run1_us_per_call": 16.673077,
+    "run2_dram_gb_s": 7.742346,
+    "run2_us_per_call": 16.661325,
+    "tg_per_call": 512
+   },
+   {
+    "arm": "a0_act2",
+    "clears_ship_bar": false,
+    "delta_pct_cs": -0.018718288056000003,
+    "delta_us_per_call": -0.031518000000000004,
+    "delta_us_per_step": -1.2292020000000001,
+    "fraction_of_ship_bar": 0.046795720140000004,
+    "issued_bytes_per_call": 7667712,
+    "line_touches_per_sg": 28,
+    "loads_per_lane": 10,
+    "meaning": "activation loads 4 -> 2",
+    "n": 61,
+    "pso_tg_mem": 80,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     -0.294899,
+     0.198743
+    ],
+    "run1_delta_us_per_call": -0.048078,
+    "run1_dram_gb_s": 7.742843,
+    "run1_us_per_call": 16.660256,
+    "run2_ci": [
+     -0.254431,
+     0.224515
+    ],
+    "run2_delta_us_per_call": -0.014958,
+    "run2_dram_gb_s": 7.762256,
+    "run2_us_per_call": 16.61859,
+    "tg_per_call": 512
+   },
+   {
+    "arm": "a0_act1",
+    "clears_ship_bar": false,
+    "delta_pct_cs": -0.07423679694600001,
+    "delta_us_per_call": -0.12500050000000001,
+    "delta_us_per_step": -4.8750195000000005,
+    "fraction_of_ship_bar": 0.185591992365,
+    "issued_bytes_per_call": 6488064,
+    "line_touches_per_sg": 20,
+    "loads_per_lane": 9,
+    "meaning": "activation loads 4 -> 1",
+    "n": 61,
+    "pso_tg_mem": 80,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     -0.253804,
+     0.114915
+    ],
+    "run1_delta_us_per_call": -0.069445,
+    "run1_dram_gb_s": 7.683226,
+    "run1_us_per_call": 16.78953,
+    "run2_ci": [
+     -0.326444,
+     -0.034667
+    ],
+    "run2_delta_us_per_call": -0.180556,
+    "run2_dram_gb_s": 7.867458,
+    "run2_us_per_call": 16.396368,
+    "tg_per_call": 512
+   },
+   {
+    "arm": "a0_act0",
+    "clears_ship_bar": true,
+    "delta_pct_cs": -0.8949622829939999,
+    "delta_us_per_call": -1.5069445,
+    "delta_us_per_step": -58.7708355,
+    "fraction_of_ship_bar": 2.237405707485,
+    "issued_bytes_per_call": 5308416,
+    "line_touches_per_sg": 12,
+    "loads_per_lane": 8,
+    "meaning": "all activation loads -> compile-time constants (upper bound)",
+    "n": 61,
+    "pso_tg_mem": 80,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     -1.688821,
+     -1.249212
+    ],
+    "run1_delta_us_per_call": -1.469017,
+    "run1_dram_gb_s": 8.43582,
+    "run1_us_per_call": 15.291666,
+    "run2_ci": [
+     -1.702863,
+     -1.38688
+    ],
+    "run2_delta_us_per_call": -1.544872,
+    "run2_dram_gb_s": 8.54326,
+    "run2_us_per_call": 15.099358,
+    "tg_per_call": 512
+   },
+   {
+    "arm": "a0_wide",
+    "clears_ship_bar": false,
+    "delta_pct_cs": -0.016496538084,
+    "delta_us_per_call": -0.027777,
+    "delta_us_per_step": -1.083303,
+    "fraction_of_ship_bar": 0.041241345209999995,
+    "issued_bytes_per_call": 10027008,
+    "line_touches_per_sg": 28,
+    "loads_per_lane": 10,
+    "meaning": "WAL: 2x uint4 wide activation loads (12 -> 10 loads/lane)",
+    "n": 61,
+    "pso_tg_mem": 80,
+    "replicates_agree_sign": false,
+    "run1_ci": [
+     -0.24634,
+     0.049759
+    ],
+    "run1_delta_us_per_call": -0.09829,
+    "run1_dram_gb_s": 7.769248,
+    "run1_us_per_call": 16.603632,
+    "run2_ci": [
+     -0.115687,
+     0.20116
+    ],
+    "run2_delta_us_per_call": 0.042736,
+    "run2_dram_gb_s": 7.706273,
+    "run2_us_per_call": 16.739316,
+    "tg_per_call": 512
+   },
+   {
+    "arm": "a0_badcoal",
+    "clears_ship_bar": false,
+    "delta_pct_cs": -0.009834257627999998,
+    "delta_us_per_call": -0.016558999999999997,
+    "delta_us_per_step": -0.6458009999999998,
+    "fraction_of_ship_bar": 0.024585644069999996,
+    "issued_bytes_per_call": 10027008,
+    "line_touches_per_sg": 68,
+    "loads_per_lane": 12,
+    "meaning": "deliberately de-coalesced code loads (line touches +54.5 %)",
+    "n": 61,
+    "pso_tg_mem": 80,
+    "replicates_agree_sign": false,
+    "run1_ci": [
+     -0.34381,
+     0.108767
+    ],
+    "run1_delta_us_per_call": -0.117521,
+    "run1_dram_gb_s": 7.754778,
+    "run1_us_per_call": 16.634615,
+    "run2_ci": [
+     -0.140589,
+     0.309394
+    ],
+    "run2_delta_us_per_call": 0.084403,
+    "run2_dram_gb_s": 7.669073,
+    "run2_us_per_call": 16.820513,
+    "tg_per_call": 512
+   },
+   {
+    "arm": "a1",
+    "clears_ship_bar": true,
+    "delta_pct_cs": -0.9038454225839999,
+    "delta_us_per_call": -1.5219019999999999,
+    "delta_us_per_step": -59.354178,
+    "fraction_of_ship_bar": 2.2596135564599997,
+    "issued_bytes_per_call": 7667712,
+    "line_touches_per_sg": 56,
+    "loads_per_lane": 20,
+    "meaning": "opsi 4 -> 8 (A1: issued bytes -23.5 %, unique bytes 0 %)",
+    "n": 61,
+    "pso_tg_mem": 144,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     -1.699123,
+     -1.439765
+    ],
+    "run1_delta_us_per_call": -1.569444,
+    "run1_dram_gb_s": 8.471926,
+    "run1_us_per_call": 15.226496,
+    "run2_ci": [
+     -1.630622,
+     -1.318097
+    ],
+    "run2_delta_us_per_call": -1.47436,
+    "run2_dram_gb_s": 8.525164,
+    "run2_us_per_call": 15.13141,
+    "tg_per_call": 256
+   },
+   {
+    "arm": "a1_wide",
+    "clears_ship_bar": true,
+    "delta_pct_cs": -1.024400153556,
+    "delta_us_per_call": -1.724893,
+    "delta_us_per_step": -67.270827,
+    "fraction_of_ship_bar": 2.5610003838899997,
+    "issued_bytes_per_call": 7667712,
+    "line_touches_per_sg": 40,
+    "loads_per_lane": 18,
+    "meaning": "A1 + WAL",
+    "n": 61,
+    "pso_tg_mem": 144,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     -1.873138,
+     -1.411051
+    ],
+    "run1_delta_us_per_call": -1.642095,
+    "run1_dram_gb_s": 8.560219,
+    "run1_us_per_call": 15.069444,
+    "run2_ci": [
+     -2.017121,
+     -1.598261
+    ],
+    "run2_delta_us_per_call": -1.807691,
+    "run2_dram_gb_s": 8.621341,
+    "run2_us_per_call": 14.962608,
+    "tg_per_call": 256
+   },
+   {
+    "arm": "a2",
+    "clears_ship_bar": true,
+    "delta_pct_cs": -1.064691271566,
+    "delta_us_per_call": -1.7927355,
+    "delta_us_per_step": -69.9166845,
+    "fraction_of_ship_bar": 2.661728178915,
+    "issued_bytes_per_call": 10027008,
+    "line_touches_per_sg": 44,
+    "loads_per_lane": 12,
+    "meaning": "negative control: 576 thr/TG, same loads/lane",
+    "n": 61,
+    "pso_tg_mem": 144,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     -2.061528,
+     -1.724796
+    ],
+    "run1_delta_us_per_call": -1.893162,
+    "run1_dram_gb_s": 8.647893,
+    "run1_us_per_call": 14.916667,
+    "run2_ci": [
+     -1.872994,
+     -1.511624
+    ],
+    "run2_delta_us_per_call": -1.692309,
+    "run2_dram_gb_s": 8.588838,
+    "run2_us_per_call": 15.019232,
+    "tg_per_call": 256
+   },
+   {
+    "arm": "a3",
+    "clears_ship_bar": true,
+    "delta_pct_cs": -0.652266535518,
+    "delta_us_per_call": -1.0982915,
+    "delta_us_per_step": -42.8333685,
+    "fraction_of_ship_bar": 1.6306663387949998,
+    "issued_bytes_per_call": 6488064,
+    "line_touches_per_sg": 80,
+    "loads_per_lane": 36,
+    "meaning": "opsi 4 -> 16",
+    "n": 61,
+    "pso_tg_mem": 288,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     -1.231099,
+     -0.909928
+    ],
+    "run1_delta_us_per_call": -1.070514,
+    "run1_dram_gb_s": 8.255291,
+    "run1_us_per_call": 15.626069,
+    "run2_ci": [
+     -1.345658,
+     -0.90648
+    ],
+    "run2_delta_us_per_call": -1.126069,
+    "run2_dram_gb_s": 8.303548,
+    "run2_us_per_call": 15.535256,
+    "tg_per_call": 128
+   },
+   {
+    "arm": "a0_min",
+    "clears_ship_bar": true,
+    "delta_pct_cs": -0.4860263655,
+    "delta_us_per_call": -0.8183750000000001,
+    "delta_us_per_step": -31.916625000000003,
+    "fraction_of_ship_bar": 1.21506591375,
+    "issued_bytes_per_call": 10027008,
+    "line_touches_per_sg": 44,
+    "loads_per_lane": 12,
+    "meaning": "arithmetic stripped to a single simd_sum",
+    "n": 61,
+    "pso_tg_mem": 80,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     -1.019146,
+     -0.732989
+    ],
+    "run1_delta_us_per_call": -0.876067,
+    "run1_dram_gb_s": 8.11492,
+    "run1_us_per_call": 15.896367,
+    "run2_ci": [
+     -0.903978,
+     -0.617388
+    ],
+    "run2_delta_us_per_call": -0.760683,
+    "run2_dram_gb_s": 8.10838,
+    "run2_us_per_call": 15.909188,
+    "tg_per_call": 512
+   },
+   {
+    "arm": "a0_act0_min",
+    "clears_ship_bar": true,
+    "delta_pct_cs": -0.61260999111,
+    "delta_us_per_call": -1.0315175,
+    "delta_us_per_step": -40.2291825,
+    "fraction_of_ship_bar": 1.531524977775,
+    "issued_bytes_per_call": 5308416,
+    "line_touches_per_sg": 12,
+    "loads_per_lane": 8,
+    "meaning": "activation loads AND arithmetic both stripped",
+    "n": 61,
+    "pso_tg_mem": 80,
+    "replicates_agree_sign": true,
+    "run1_ci": [
+     -1.295981,
+     -0.874959
+    ],
+    "run1_delta_us_per_call": -1.08547,
+    "run1_dram_gb_s": 8.17038,
+    "run1_us_per_call": 15.788462,
+    "run2_ci": [
+     -1.234761,
+     -0.720369
+    ],
+    "run2_delta_us_per_call": -0.977565,
+    "run2_dram_gb_s": 8.312122,
+    "run2_us_per_call": 15.519231,
+    "tg_per_call": 512
+   }
+  ]
+ },
+ "in_situ_anchor": {
+  "us_per_call": 22.07,
+  "us_per_step": 860.5
+ },
+ "price_book": {
+  "calls_per_step": 39,
+  "pct_cs_per_us_call": 0.593892,
+  "pct_cs_per_us_step": 0.015228,
+  "ship_bar_pct_cs": 0.4,
+  "ship_bar_us_per_call": 0.6735231321519738
+ },
+ "probe": "maple-frieren-r107f-stage1-t2d",
+ "shipped_change": "none (empty diff vs base 2454cc01 over Sources/, Vendor/, benchmark.json)",
+ "unique_byte_floor_us_per_call": 19.10706835118581,
+ "v0_gate": {
+  "run1_focus": {
+   "conservative": true,
+   "rel_vs_in_situ": 0.029407204349796157,
+   "us_per_call": 22.719017,
+   "within_band": false
+  },
+  "run1_grid": {
+   "conservative": true,
+   "rel_vs_in_situ": 0.02926193928409604,
+   "us_per_call": 22.715811,
+   "within_band": false
+  },
+  "run2_focus": {
+   "conservative": true,
+   "rel_vs_in_situ": 0.030375351155414565,
+   "us_per_call": 22.740384,
+   "within_band": false
+  },
+  "run2_grid": {
+   "conservative": true,
+   "rel_vs_in_situ": 0.026744721341187105,
+   "us_per_call": 22.660256,
+   "within_band": false
+  }
+ },
+ "verdict": "N-T2D-DRAM-BOUND"
+}
