@@ -1,0 +1,14 @@
+device: Apple M4 Pro  maxTG=32768 B
+compiled variant base
+compiled variant nobar
+compiled variant db
+    base: tgmem=3840 B  maxTGThreads=1024
+   nobar: tgmem=3840 B  maxTGThreads=1024
+      db: tgmem=7680 B  maxTGThreads=1024
+
+=== shape gate_up: M=4096 K=2048 N=1024  grid=32x256 tgs ===
+null control  :   0.0274 ms/dispatch (n=2)
+base          :   5.1189 ms  vs base  +0.00 %  (n=2, spread 0.6 %)
+nobar         :   5.0582 ms  vs base  +1.18 %  (n=2, spread 0.2 %)
+db            :   5.2495 ms  vs base  -2.55 %  (n=2, spread 0.1 %)
+per-prefill projection (39 layers): base 199.6 ms, nobar 197.3 ms, db 204.7 ms
