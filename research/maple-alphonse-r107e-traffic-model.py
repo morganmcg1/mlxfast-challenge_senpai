@@ -128,6 +128,87 @@ def model(c: dict[str, int]) -> dict[str, object]:
     }
 
 
+# Published bytes-regime rates for the two oproj families. m4_us and head_bytes
+# are measured/HEAD-epoch columns of research/artifacts/fern-r101/m5-pool-table.csv;
+# m5_us is the alpha=0.4369 / beta=0.5 two-pool projection of the same row.
+POOL_ROWS = {
+    "T3b_oproj_h64": {"calls": 30, "head_bytes": 259584000, "m4_us": 1117.7, "m5_us": 488.376},
+    "T3c_oproj_h48": {"calls": 10, "head_bytes": 64901120, "m4_us": 301.8, "m5_us": 131.871},
+}
+# fern-r101 corollary 3: retire 273/266.3/260.6/237.4; measured M4 Pro ceiling.
+M4_CEILING_GBS = 266.80
+# Same-host reference efficiencies both published under rule 81, because the
+# >=10 pp clause is met under one and fails under the other.
+REFERENCE_PCT = {"lmhead": 97.4, "dense_down": 94.0}
+# fern-r106g/family_breakdown.json B_step, and the local/M5 step budgets.
+B_STEP_BYTES = 1671402432
+M5_BASELINE_STEP_US = 6500.0
+SHIPPABLE_BAR_PCT = 0.4
+
+
+def roofline(local_decode_s: float | None = None) -> dict[str, object]:
+    """Price the ceiling on any mechanism that does not reduce compulsory bytes.
+
+    Both oproj arms move identical compulsory bytes (weight_code_reread_factor
+    == 1.0 everywhere), so the *entire* headroom available to the geometry lever
+    is the family's distance from a same-pattern reference rate. If that
+    distance is below the shippable bar the experiment is a roofline null before
+    a single arm is timed.
+    """
+    out: dict[str, object] = {
+        "m4_ceiling_gb_per_s": M4_CEILING_GBS,
+        "b_step_bytes": B_STEP_BYTES,
+        "reference_pct_of_peak": REFERENCE_PCT,
+        "families": {},
+    }
+    tot = {k: 0.0 for k in REFERENCE_PCT}
+    for name, row in POOL_ROWS.items():
+        gbs = row["head_bytes"] / row["m4_us"] / 1e3
+        pct = 100.0 * gbs / M4_CEILING_GBS
+        fam: dict[str, object] = {
+            "calls": row["calls"],
+            "head_bytes": row["head_bytes"],
+            "bytes_per_dispatch": row["head_bytes"] / row["calls"],
+            "m4_us_measured": row["m4_us"],
+            "m4_us_per_dispatch": round(row["m4_us"] / row["calls"], 3),
+            "m4_achieved_gb_per_s": round(gbs, 2),
+            "m4_pct_of_ceiling": round(pct, 2),
+            "m5_us_modelled": row["m5_us"],
+            "m5_us_per_dispatch": round(row["m5_us"] / row["calls"], 3),
+            "pct_of_b_step": round(100.0 * row["head_bytes"] / B_STEP_BYTES, 3),
+            "headroom_us": {},
+        }
+        for ref, ref_pct in REFERENCE_PCT.items():
+            us = row["m4_us"] * (1.0 - pct / ref_pct)
+            fam["headroom_us"][ref] = round(us, 1)  # type: ignore[index]
+            tot[ref] += us
+        out["families"][name] = fam  # type: ignore[index]
+
+    step_us = (local_decode_s * 1e6) if local_decode_s else None
+    out["family_total_headroom_us"] = {k: round(v, 1) for k, v in tot.items()}
+    if step_us:
+        out["local_decode_step_us"] = round(step_us, 1)
+        out["local_achieved_gb_per_s"] = round(B_STEP_BYTES / step_us / 1e3, 2)
+        out["local_pct_of_ceiling_whole_step"] = round(
+            100.0 * B_STEP_BYTES / step_us / 1e3 / M4_CEILING_GBS, 2
+        )
+        out["family_total_headroom_pct_of_decode"] = {
+            k: round(100.0 * v / step_us, 3) for k, v in tot.items()
+        }
+        out["shippable_bar_us_local"] = round(SHIPPABLE_BAR_PCT / 100.0 * step_us, 1)
+        out["fraction_of_deficit_needed_to_clear_bar"] = {
+            k: round(SHIPPABLE_BAR_PCT / 100.0 * step_us / v, 3) for k, v in tot.items()
+        }
+    out["m5_bar_us"] = round(SHIPPABLE_BAR_PCT / 100.0 * M5_BASELINE_STEP_US, 1)
+    out["caveat"] = (
+        "m5_us columns inherit the alpha/beta degeneracy (CURRENT_RESEARCH_STATE "
+        "B.0.6): alpha~0.389 (ceiling 686) and alpha~0.437 (ceiling 610.6) fit "
+        "equally well and differ by ~12 pct in every M5 headroom figure. The "
+        "m4_* columns are measured on this host and carry no such degeneracy."
+    )
+    return out
+
+
 def main() -> int:
     arms: dict[str, dict[str, object]] = {}
     for path in sorted(ART.glob("oproj_g*_h*.metal")):
@@ -154,6 +235,7 @@ def main() -> int:
             "amortisation_main_effect": "mean(g1,g2) - mean(g0,g3)",
             "threadgroup_shape_main_effect": "mean(g1,g3) - mean(g0,g2)",
         },
+        "roofline": roofline(local_decode_s=float(sys.argv[1]) if len(sys.argv) > 1 else None),
     }
     out = ART / "geom-traffic-model.json"
     out.write_text(json.dumps(ledger, indent=2, sort_keys=True) + "\n")

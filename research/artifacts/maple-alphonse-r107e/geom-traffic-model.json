@@ -260,5 +260,65 @@
     "design": "2x2 over (results_per_simdgroup in {4,8}) x (rows_per_threadgroup in {8,16})",
     "threadgroup_shape_main_effect": "mean(g1,g3) - mean(g0,g2)"
   },
-  "note": "issue-side counts only; compulsory DRAM bytes are identical across arms"
+  "note": "issue-side counts only; compulsory DRAM bytes are identical across arms",
+  "roofline": {
+    "b_step_bytes": 1671402432,
+    "caveat": "m5_us columns inherit the alpha/beta degeneracy (CURRENT_RESEARCH_STATE B.0.6): alpha~0.389 (ceiling 686) and alpha~0.437 (ceiling 610.6) fit equally well and differ by ~12 pct in every M5 headroom figure. The m4_* columns are measured on this host and carry no such degeneracy.",
+    "families": {
+      "T3b_oproj_h64": {
+        "bytes_per_dispatch": 8652800.0,
+        "calls": 30,
+        "head_bytes": 259584000,
+        "headroom_us": {
+          "dense_down": 82.6,
+          "lmhead": 118.8
+        },
+        "m4_achieved_gb_per_s": 232.25,
+        "m4_pct_of_ceiling": 87.05,
+        "m4_us_measured": 1117.7,
+        "m4_us_per_dispatch": 37.257,
+        "m5_us_modelled": 488.376,
+        "m5_us_per_dispatch": 16.279,
+        "pct_of_b_step": 15.531
+      },
+      "T3c_oproj_h48": {
+        "bytes_per_dispatch": 6490112.0,
+        "calls": 10,
+        "head_bytes": 64901120,
+        "headroom_us": {
+          "dense_down": 43.0,
+          "lmhead": 52.0
+        },
+        "m4_achieved_gb_per_s": 215.05,
+        "m4_pct_of_ceiling": 80.6,
+        "m4_us_measured": 301.8,
+        "m4_us_per_dispatch": 30.18,
+        "m5_us_modelled": 131.871,
+        "m5_us_per_dispatch": 13.187,
+        "pct_of_b_step": 3.883
+      }
+    },
+    "family_total_headroom_pct_of_decode": {
+      "dense_down": 0.961,
+      "lmhead": 1.306
+    },
+    "family_total_headroom_us": {
+      "dense_down": 125.7,
+      "lmhead": 170.8
+    },
+    "fraction_of_deficit_needed_to_clear_bar": {
+      "dense_down": 0.416,
+      "lmhead": 0.306
+    },
+    "local_achieved_gb_per_s": 127.79,
+    "local_decode_step_us": 13079.7,
+    "local_pct_of_ceiling_whole_step": 47.9,
+    "m4_ceiling_gb_per_s": 266.8,
+    "m5_bar_us": 26.0,
+    "reference_pct_of_peak": {
+      "dense_down": 94.0,
+      "lmhead": 97.4
+    },
+    "shippable_bar_us_local": 52.3
+  }
 }
