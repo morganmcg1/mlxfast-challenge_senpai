@@ -12,6 +12,13 @@ All `matmul.cpp` line numbers in this report are on the **clean base**
 
 ## 0. Verdict up front
 
+> 🔴 **Superseded — read §14 first.** After my first terminal result was
+> published, 104-C's census confirmed the "diffuse" branch of my own
+> pre-registered VOID condition, and I found rule 68 / PR #527, which already
+> attacked this exact site on M5 and lost 0.639 ms. The hypothesis is
+> **refuted**, and the §8 receipt plan is **retracted**. The table below
+> records what this round produced; §14.7 gives the corrected verdict.
+
 | item | outcome |
 |---|---|
 | static routing derivation | **done** — and it **corrects the assignment**, see §1.4 |
@@ -791,7 +798,7 @@ reason the receipt cannot be replaced by arithmetic.
 | null | statement | disposition |
 |---|---|---|
 | **N-A** | routing prediction wrong | **Not observed.** Derivation in §1 is static and complete; the assignment's own proposed lever (`DARKBLOOM_STEEL_PREFILL_TILE`) *was* mis-routed and is corrected in §1.4. |
-| **N-B** | grid as predicted but occupancy not the limiter | **Open, and now the only live risk.** §7 shows occupancy/packing *is* the limiter on M4 at this exact simdgroup total; whether M5's band contains 512 simdgroups is unresolved and needs the receipt. |
+| **N-B** | grid as predicted but occupancy not the limiter | **CONFIRMED — this null carried (§14.2).** §7 shows occupancy/packing *is* the limiter on M4 at this exact simdgroup total, but PR #527 raised occupancy at this exact M5 site with geometry and threadgroup count fixed and *lost* 0.639 ms (t = 4.43). Occupancy is not the M5 limiter here. |
 | **N-C** | regroup hurts another captured shape | **Refuted (§2).** Exactly one prefill GEMM class satisfies the predicate; nothing else can be hurt. |
 | **N-D** | not bit-exact → halt | **Not triggered.** §3.4 argues bit-exactness by construction (identical `gemm_loop` instantiation), §4.1 confirms `SM/SN/SK/TM/TN` identical across all four geometries, §4.2 shows every checked token matching, §4.3 shows `max_abs_diff = 0` against the public golden. |
 
@@ -947,3 +954,180 @@ DARKBLOOM_NAX_SKINNY_TILE=1 ./benchmark.sh --local-iterate
 
 Commits on `maple-fern/r104-wkwv-tile-regroup`:
 `3d2e69d` (the 42-line patch), `a8c432a` (the probe), plus this report.
+
+---
+
+## 14. 🔴 Post-submission update — the hypothesis is refuted, and I retract §8
+
+Written after my first terminal result was published. Three pieces of evidence
+landed afterwards. Two of them kill this experiment; the third corrects an
+archive rule that would have killed it *for the wrong reason*.
+
+Source: maple-tanjiro's 104-C census, branch
+`maple-tanjiro/r104-prefill-steel-shape-census` @ `9e46572`, file
+`research/maple-tanjiro-r104c-prefill-steel-census.md`, artifacts under
+`research/artifacts/tanjiro-r104c/`. Read via `git show 9e46572:<path>`.
+His nulls are labelled N-A/N-B/N-C in *his* preregistration; mine (§10) reuse
+the same letters for different statements. I disambiguate below.
+
+### 14.1 My pre-registered VOID condition fired
+
+§9 and §12.2 committed, verbatim: *"This sizing is VOID if 104-C returns
+'diffuse'."* 104-C returned diffuse. His §5 headline is **"the geometry is
+concentrated; the recoverable deficit is diffuse"**, and his N-B ("tail deficit
+diffuse ⇒ no single-shape lever") is **CONFIRMED** (his `:348-349`, `:434-435`,
+`:618`).
+
+The arithmetic (his §5.1-5.2): 155 of 237 dispatches (65.4 %) run at ≤1.6
+TG/core, but carry only **192.8 of 1502.8 GFLOP = 12.8 %**. The other 82
+dispatches carry **87.2 %** at a healthy 9.6-12.8 TG/core. My own census (§2)
+found the same thing from the other side and I did not draw the conclusion: the
+single class my predicate captures is 167.50 of 1502.77 GFLOP = **11.1 %**.
+
+I should have treated my own §2 number as the answer. A lever that can only
+touch 11.1 % of prefill FLOPs, on an axis worth 25 % of the score, cannot clear
+the **0.89 ms** promotion bar I derived in §8.2 unless it makes that 11.1 %
+roughly twice as fast. Nothing in §7 supports a factor of two on M5.
+
+### 14.2 The site has already been attacked on M5, with the *cure* my lever proposes, and it lost
+
+I missed this in my §6 rule-83 sweep. I checked PR #293 (same *mechanism*,
+`darkbloom_steel_regular_skinny_tile`) and stopped. I did not find **rule 68 /
+PR #527** at `research/CURRENT_RESEARCH_STATE.md:2803-2812` (receipt detail
+`:2128-2140`), which attacked the same *site*:
+
+> "the fused Wq/Wk/Wv N=10240 GEMM stays on regular `_nax` with identical
+> geometry (bm64 bn128 bk256 wm2 wn4 sl2) and an identical **640
+> threadgroups**. Removing **78 dispatches / 156 GEMM launches** cost
+> **+0.639 ms** (CI [+0.325, +0.953], prediction-t 4.43 on 12 dof, =
+> **−0.242 % score**)."
+
+104-C §5.3 supplies the identification I was missing: N = 8192 (wq) + 1024 (wk)
++ 1024 (wv) = 10240, and the 78 removed dispatches are **exactly my 78**
+(39 layers × 2). So #527 is not an approximate precedent. It took the same 2.15
+GFLOP-per-dispatch wk/wv work that runs at 1.60 TG/core and made it execute
+inside a 640-TG dispatch — i.e. it *raised the effective occupancy of exactly
+this work* — with kernel family, tile geometry and total threadgroup count held
+fixed, and it **lost, on M5, at t = 4.43**.
+
+My lever is a different route to the same cure: spread the same work over
+128 or 256 threadgroups instead of 64. #527 is the strongest available direct
+test of the shared premise ("this work is occupancy-limited on M5") and it
+answers *no*. Rule 68 also records that **swizzle depth is a measured no-op**
+here (−0.0141 ms, t = −0.098, `:2826-2828`). 104-C §5.4 concludes: *"No
+single-shape lever survives."*
+
+This is a rule-83 miss and it is mine. §6 checked the mechanism and not the
+site; both are required.
+
+### 14.3 The premise was independently dead
+
+104-C's N-A is **CONFIRMED** (`:158-159`): the dense `steel_gemm_bf16` family
+already runs at **52.5 TFLOP/s = 87.5 %** of the 60 TFLOP/s reference
+(`research/maple-tanjiro-nonmoe-prefill-census.md:404-406`). The standing
+verdict in `research/RESEARCH_STATE_ARCHIVE_through-round-21.md:4245-4249` is
+that *"any hypothesis whose premise is 'prefill attention is inefficient' is
+refuted before it starts."* The real inefficiency is in the routed gather-GEMM
+(23.23 TFLOP/s ≈ 67 %), which my predicate cannot reach (§2).
+
+### 14.4 ⛔ Correction: rule 68's "dead by construction" clause is factually wrong
+
+Rule 68 ends with: *"`_nax` bn=128 is the minimum instantiated tile width. Any
+brief that proposes narrowing an `_nax` N-tile is dead by construction."*
+That clause is wrong on two independent grounds, and **§4.1 of this report
+already refutes it empirically** — I just had not connected the two.
+
+1. **bn=64 *is* AOT-instantiated.**
+   `Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/gemm/kernels/steel_gemm_fused_nax.metal`
+   instantiates exactly six geometries via `instantiate_gemm_shapes_helper`:
+   `(64,64,256,2,2)`, `(64,128,64,2,4)`, `(64,128,256,2,4)`,
+   `(128,128,64,4,4)`, `(128,128,256,4,4)`, `(128,128,512,4,4)`.
+   The first has **bn = 64**, and it is *exactly the tuple my arm 1 emits*.
+2. **The instantiation list does not bound reachable geometry at all in this
+   build.** `Vendor/mlx-swift/Package.swift` sources `jit_kernels.cpp` (`:25`
+   is the *no-Metal* exclude list) and **excludes `nojit_kernels.cpp`**
+   (`:284`). So Apple builds go through
+   `get_steel_gemm_fused_nax_kernel` at `jit_kernels.cpp:977-1009`, which
+   concatenates `utils() + gemm_nax() + steel_gemm_fused_nax()` with a
+   `get_template_definition(...)` built from the *runtime* `bm/bn/bk/wm/wn`.
+   Any geometry the templates accept compiles on demand.
+3. **Empirically confirmed, §4.1.** All four geometries — including
+   `bn=32,wn=1` and `bm=32,bn=32,wm=1,wn=1`, which are in *neither* list —
+   compiled to a metallib and created a pipeline, with distinct SHA-256s
+   (`b44d19fa…`, `bd4ea1ae…`) and all reporting `SM/SN/SK = 32/32/32`,
+   `TM/TN = 2/2`. The only shape constraints in `steel/gemm/nax.h` are the
+   16×16 `BaseNAXFrag` `static_assert`s (`:38`, `:119`, `:189`, `:981-989`),
+   none of which reference `bn`.
+
+Practical consequence: rule 68's *measured* content (§14.2) stands and is
+decisive. Its "dead by construction" clause should be struck, because as
+written it would also veto legitimate future briefs — including anything that
+wants the AOT-instantiated `(64,64,256,2,2)` tile. **The right reason to reject
+this brief is the +0.639 ms M5 measurement, not a compile-time impossibility
+that does not exist.**
+
+### 14.5 Provenance correction to 104-C's independence caveat
+
+104-C `:330-336` states: *"fern's claim originally derives from my own NMPC
+§3.4, so this is not independent corroboration of fern's work."*
+
+That is not accurate for §1 of this report. §1 is a source-predicate
+derivation performed directly against `matmul.cpp` on clean base `9527bb72`,
+with the full call chain and line numbers recorded at each branch
+(`:1206 → :1252 → :1274 → matmul.h:105/123 → :827 → :894-896 → :922-924 →
+:958`, definition at `:186`, tiles `:213-221`, grid `:280-308`). It does not
+cite or depend on NMPC §3.4. Two derivations from the same public source file
+are not the same as one derivation reused; they are exactly the replication the
+advisor asked for. His `steel_route_model.py` adds something my §1 does *not*
+have and that I want on the record: the non-nax configuration reproduces
+**237/237 observed rows on M4**, which validates the transcription itself.
+
+The agreement is therefore genuine, and it is worth more than his caveat
+allows. I am flagging this rather than letting it stand, since the advisor
+explicitly asked for agreements to be genuinely independent.
+
+He also records (`:337-343`) that he cannot comment on PR #585 and asked the
+advisor to relay. Relay received and answered here.
+
+### 14.6 🔴 Retraction of §8, and what should happen to this branch
+
+**§8 ("receipt-as-oracle") is retracted. Do not execute it.** Its concrete
+recommendation was to flip `DARKBLOOM_NAX_SKINNY_TILE` from 0 to 1 and spend one
+ranked receipt with a z ≥ 3 **and** Δ ≥ 0.89 ms promotion bar. Given §14.1-14.3
+that receipt has a near-zero prior of clearing the bar, and #527's +0.639 ms
+means the realistic outcome is a *negative* result on a scored axis with a hard
+0.95 floor. That is a receipt spent to re-learn rule 68.
+
+The §8 *method* — pricing a prefill arm against the candidate's own wall plus a
+contemporaneous control set, with `f` recomputed from the candidate's own score
+JSON, because `corr(base_pre, cand_pre) = −0.011` makes the paired baseline
+useless — is still correct and matches rule 68's own 📏 method note. It should
+be reused for a different lever.
+
+**Disposition I recommend:** close this branch as a negative. The patch is
+default-off and inert (§3.5), so it is harmless, but it should not be merged:
+it is 42 lines of dead selector on a lever whose premise is refuted, and rule
+83 already records the same mechanism being merged inert and then deleted
+(§6, PR #293). The durable value is §1 (routing derivation), §2 (shape census
+and the three archive errors it corrects), §4.1 (the `_nax` geometry compile
+evidence that corrects rule 68), §4.4 (the local-timing noise trap), §7 (the
+packing measurement and the refutation of my own static model), and §14.4.
+
+**The one open variant I am explicitly *not* proposing.** Rule 68 lists
+`[Wk;Wv]`-only fusion (8.39 MB weight bank, *smaller* than Wq's 33.55 MB) as a
+one-bit discriminator between the SLC-capacity and lost-overlap explanations of
+#527. Its own disposition is *"worth understanding, not worth a receipt now"*,
+and 104-C does not propose it either. I agree with both. Recording it here only
+so the next person does not rediscover it as if it were new.
+
+### 14.7 Corrected verdict
+
+| item | first submission | now |
+|---|---|---|
+| routing derivation (§1) | done | **confirmed independently** by 104-C (237/237 model validation) |
+| shape census (§2) | done, my N-C refuted | **stands**, and its 11.1 % figure is the number that kills the brief |
+| hypothesis "wk/wv is occupancy-limited on M5" | untested, receipt designed | **refuted** — #527 raised occupancy at this exact site and lost 0.639 ms |
+| `_nax` bn < 128 "dead by construction" | not known to me | **false** (§14.4); rule 68's clause needs striking |
+| §8 receipt plan | recommended | **retracted** (§14.6) |
+| overall | inconclusive (no receipt) | **failed — hypothesis refuted a priori** |
+
