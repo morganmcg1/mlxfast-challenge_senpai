@@ -23,7 +23,9 @@ inspected but never invoked.
 | **V-T1** | `4b0e051b`'s `Sources/` beats ours locally beyond the stated bar → adopt as integration base | **no — see below** |
 | **N-T1** | T1 builds but is indistinguishable, worse, or not transferable → stay on advisor HEAD | **YES** |
 | **N-BUILD** | T1 does not build on our tree inside the timebox | **no — refuted** |
-| **V-INTEGRATED** | one or more student patches land, verified, with a measured cumulative delta | see §5 |
+| **V-INTEGRATED** | one or more student patches land, verified, with a measured cumulative delta | **no — resolved `N-INTEGRATED`, see below** |
+| **N-PACK** | the packing-default flip (L3, candidate B) fails its preregistered 8-block checkpoint | **YES** — §5.3.6a |
+| **N-UNROLL-PREEMPTED** | the unroll-depth isolation (T0U) is cancelled before it runs | **YES** — §5.3.5b |
 
 Preregistered before any timing number was read: the bar for V-T1 is a
 **block-contrast CI95 on `d(ln score)` that excludes zero**, with the
@@ -65,6 +67,76 @@ sibling patches (§5).
 `V-T1` is recorded as "fired on the letter of the preregistered bar, overturned
 by the mechanism analysis in §4.6". Rule 72 requires me to say which; Rule 79
 requires me to publish both.
+
+**Resolution of `V-INTEGRATED` — the deliverable this assignment actually exists for.**
+
+`V-INTEGRATED` **did not fire**. The integrated tree I hand frieren is, on the scored
+surface, **byte-identical to the advisor tip `a30fa5f8`**:
+
+```
+git diff --numstat a30fa5f8 HEAD -- Sources/ Vendor/ benchmark.json Package.swift senpai/
+   (empty)
+```
+
+Not one candidate on the Stage-2 slate cleared the **0.4 % of `cs`** promotion bar, so
+by §5.0's own acceptance rule not one of them was allowed to land. In descending order
+of what each was actually worth after pricing (§6.2):
+
+| candidate | owner | disposition | measured / re-priced value |
+|---|---|---|---|
+| **A** — `C2a` gather-GEMM `bn` 64→32 | alphonse (#630/#636) | **carried, inert by default** (+998 B already in the advisor base) | 0.195 % of `cs`, Rule 103 — under bar, shelved upstream |
+| **B** — L3 packing-default flip (`num_simdgroups 2→8`) | mine (T0P) | **`N-PACK`**, not landed (+29 B) | **d(ln score) +0.0328 %, CI95 [−0.2338, +0.2994]** over 10 blocks — bar excluded at 95 % |
+| **C** — unroll-depth isolation | mine (T0U) | **`N-UNROLL-PREEMPTED`**, cancelled before it ran (−4,086 B) | would have byte-reverted #539's merged win, ≈ −0.130 % |
+| decode fused-attention pool | tanjiro (#642) | **`N-ISSUE-BOUND`** at zero bytes | Rule 100 — pool is 97.7 % ISSUE-bound; §B.0.3 rows 5/13 are measured fiction |
+| routed staging / floors | #643 | **`N-FLOOR` / `N-REACH`** | −0.038 % and unreachable |
+| r106f′ | — | **`V-UNTOUCHED`** | never arrived (§5.4) |
+| pf0 (B→C router prefetch) | frieren (#571) | **not mine to land**; re-priced for her | **+0.2301 % (α) / +0.2633 % (β)**, down from the quoted 0.53 % — under bar solo (§5.3.6c) |
+
+So the answer to "what is the cumulative measured delta of the integrated tree?" is
+**exactly 0 % of `cs`, by construction, and this is the correct answer rather than a
+missing one** (§6.1, §6.2). The tree is build-verified from a forced-clean rebuild
+(§6.1) and correctness-green on the exact HEAD (§6.3).
+
+This is the outcome rev2 explicitly named as acceptable: *if nothing clears the bar we
+take no draw.* It is also exactly what **Rule 101.2** independently concluded from
+frieren's own resubmission variance — *"Hold our tree."* Two instruments that share no
+inputs reached the same instruction, which is the strongest form of agreement available
+here.
+
+**Two findings in this document outrank its verdict**, and are flagged here so a reader
+who stops at §0 still gets them:
+
+- **§6.3.1 — instrument retraction.** `max_abs_diff` is **hard-coded to `0`** at all
+  five emission sites; **no code path computes it**. `golden_hash` is `golden.sha256`,
+  the hash of the golden *fixture file* — an **input**, not a function of the emitted
+  token stream. My §4.1 claim that a shared `golden_hash` demonstrates token-identical
+  output is **retracted in place**. The load-bearing correctness evidence is
+  `passed`, `passed_correctness`, `checked_steps`, `case_count`, `first_failing_case`,
+  `first_failing_step`, `error` — all of which I re-audited across all 43 runs (§6.3).
+  No verdict in this document moves, because none of them rested on the retracted
+  fields alone; but anything downstream that cited them must be re-read.
+- **§5.3.6a/§5.3.6c — L3 does not replicate, and this is the hinge result three other
+  arms are waiting on.** My candidate B *is* the `num_simdgroups 2→8` packing default
+  flip — the same contrast edward's #629 Stage A was assigned, measured here as one
+  pre-specified paired contrast (no argmax, so no selection bias to remove). Ten
+  palindromic blocks, 42 complete runs: **d(ln score) = +0.0328 %, CI95
+  [−0.2338, +0.2994]**; decode alone **−0.0686 %, CI95 [−0.3921, +0.2550]**. The
+  estimate shrank monotonically as blocks accumulated (+0.1889 at 4 → +0.0920 at 8 →
+  +0.0328 at 10). The interval **excludes the 0.4 % bar** and **excludes #308's
+  as-reported relative-decode effect of 0.4502 %**; it barely contains the Rule 105.10
+  de-biased 0.3611 %. In the advisor's own words on #629 this is the committed negative
+  — *"L3 does not replicate; the contrast is 5 ± 20 µs/step M4"* — that lets the
+  conditional framing of alphonse's T3b, frieren's T2d/T1a and the whole
+  "can a sum reach 0.4 %" question be stood down. **It is not a failure to build or a
+  failure to measure; it is a measured null on the campaign's largest ready-made item.**
+- **§5.3.6c — Rule 105 supersession, applied to my own numbers first.** My §5.3.4
+  "1.67× deflation" is superseded by the campaign's **2.29× (bytes) / 2.00× (latency)**
+  over-credit factor, and Rule 105.10's winner's-curse de-bias removes a further 19.9 %.
+  The published L3 figure of **0.562 %** is really **0.1966 %**, the product of three
+  compounding errors. The consequence for the only paper route to the bar
+  (`L3 + pf0`) is spelled out in §5.3.6c: **0.1966 + 0.2301 = 0.4267 %** on paper, but
+  substituting my *measured* L3 gives **0.0328 + 0.2301 = 0.2629 %** — the stack does
+  not reach the bar, and **the failure is L3, not pf0**.
 
 ---
 
@@ -320,10 +392,22 @@ so the AOT kernel set is provably held fixed; everything else is rebuilt from so
 | decode s/token | 0.0129993912734375 | 0.0129027454453125 | T1 faster |
 | prefill s/token | 0.001112037677734375 | 0.001124023681640625 | T0 faster on this single pair |
 
-The pair of hashes is the point. `golden_hash` is a function of the emitted token
-stream; it is unchanged, so **every checked greedy token is identical**. `harness_hash`
-is a function of the submitted surface; it moved, so the harness did observe a
-different tree and the identical `golden_hash` is not a stale-artefact reading.
+> ⚠️ **RETRACTED, 2026-08-10T15:5xZ.** This paragraph originally read: "`golden_hash`
+> is a function of the emitted token stream; it is unchanged, so every checked greedy
+> token is identical." **That is false.** `golden_hash` is `golden.sha256`
+> (`Sources/MLXFastTrustedHarness/LagunaRuntimeCorrectness.swift:127` and passim) — the
+> sha256 of the golden *fixture file*, an **input**. It is constant by construction and
+> carries no output information. The correct reading of this row, and the correct
+> statement of the correctness evidence that replaces it, is in **§6.3.1**. The
+> conclusion of §4.1 does not change — the token-identity claim is *better* supported by
+> the fields I should have quoted — but the instrument I named was the wrong one.
+
+`harness_hash` is a function of the submitted surface; it moved, so the harness did
+observe a different tree and this is not a stale-artefact reading. `golden_hash` being
+equal across the arms is a genuine control, but it is a control on the *fixture*: it
+proves both arms were graded against the same reference, not that they produced the same
+answer. What proves the latter is `passed_correctness == true` with `checked_steps == 130`
+and `first_failing_step == null` in both arms (§6.3.1).
 
 Rule 75, BINDING, from `research/artifacts/maple-fern-r106j/{T0,T1}.status`:
 
@@ -1339,6 +1423,150 @@ is a different `Source` function and a different pipeline — but it does mean t
 corrected prior is **+0.338 %** (§5.3.4) and my direct measurement of the flip is well
 below even that.
 
+#### 5.3.6c My own correction was superseded mid-round — Rule 105 says I under-deflated, and I audit my own report against it
+
+While this sweep was running, the advisor published **Rule 105** and shipped the tool that
+enforces it (`research/advisor_r105_price_audit.py`). It changes two of my numbers and it
+is worth being precise about *which* two, because one of them is a number I had already
+corrected once and got wrong in the same direction a second time.
+
+**105 in one line.** An M4-measured absolute delta converts as
+
+```
+% of cs = delta_M4 [µs/step] x k x 0.015228        k = alpha = 0.4369  (bytes regime)
+                                                   k = beta  = 0.5000  (latency regime)
+                                                   alpha_lo  = 0.389   (sensitivity)
+```
+
+so applying the bare campaign price `0.015228 %/µs` to an M4 delta over-credits by
+**2.29× (bytes)** or **2.00× (latency)**.
+
+**Where that lands on me.** §5.3.4 deflated #308's `+0.562 %` by the M4:M5 *per-step*
+ratio, ≈**1.67×**, to **+0.338 %**. That route implicitly assumes a relative decode delta
+transfers 1:1 M4→M5 and that the only error is the denominator. Rule 105 says the transfer
+itself is lossy for this pool, and the total deflation is 2.29×, not 1.67×. My correction
+was **directionally right and quantitatively insufficient**, and I want that recorded in
+those words rather than as a silent overwrite:
+
+| route | factor on the bare price | L3 prior, as reported | L3 prior, converted |
+|---|---|---|---|
+| corpus, uncorrected | 1.00 | 36.9 µs/step | +0.562 % |
+| my §5.3.4 (per-step ratio) | 0.60 | 36.9 µs/step | +0.338 % |
+| **Rule 105, alpha (bytes)** | **0.4369** | 36.9 µs/step | **+0.2455 %** |
+| Rule 105, beta (latency) | 0.5000 | 36.9 µs/step | +0.2810 % |
+| Rule 105, alpha_lo | 0.389 | 36.9 µs/step | +0.2186 % |
+
+The advisor's own **Rule 105.3** states the alpha figure as **0.2455 % of `cs`**, which
+reproduces my arithmetic to four decimals, so this is an agreed number and not a
+reconstruction.
+
+**And then 105.10 takes another 20 % off it.** #308 swept `S ∈ {2,4,8,16,32}` and reported
+the **interior argmax** `S=8`, with `{4,8,16}` statistically tied. That is a textbook
+winner's-curse selection: the reported effect at the argmax of a noisy sweep is biased
+upward. Rule 105.10 de-biases it at m=3 tied arms, ρ=0.5, giving **7.34 µs/step (19.9 %)**
+of pure selection bias:
+
+```
+de-biased delta = 36.9 - 7.34 = 29.6 µs/step
+  alpha    : 29.6 x 0.4369 x 0.015228 = 0.1966 % of cs
+  alpha_lo : 29.6 x 0.389  x 0.015228 = 0.1751 % of cs
+  beta     : 29.6 x 0.5    x 0.015228 = 0.2251 % of cs
+```
+
+So the honest prior on this patch, after both corrections, is **+0.1966 % of `cs`** — less
+than **half** the 0.400 % bar, and about **one third** of the figure that put it on the
+queue in the first place. I stated in §5.3.4 that "the honest ceiling on this patch was
+never 0.562 %, it was 0.338 %". That sentence is now itself wrong in the same direction:
+**the honest ceiling was 0.1966 %.**
+
+**Does my measured result survive the same discount?** My primary readout is a *relative*
+score-proxy delta measured on this host, `d(ln score) = +0.0328 %, CI [−0.2338, +0.2994]`.
+Rule 105's `k` is stated for *absolute* µs/step deltas. **I did not resolve whether the
+identical `k` applies verbatim to a relative delta**, and I am flagging that rather than
+quietly assuming it, because the two readings differ in interpretation but not in verdict.
+Both are tabulated:
+
+| treatment of my measurement | point estimate | CI95 | 0.400 % bar |
+|---|---|---|---|
+| undiscounted (relative transfers 1:1, Rule 99) | +0.0328 % | [−0.2338, +0.2994] | **excluded** |
+| × alpha = 0.4369 | +0.0143 % | [−0.1021, +0.1308] | **excluded** |
+| × beta = 0.5 | +0.0164 % | [−0.1169, +0.1497] | **excluded** |
+
+Every `k ≤ 1` shrinks the estimate **and** its interval toward zero, so the `N-PACK`
+exclusion of the bar holds **a fortiori** under Rule 105; there is no value of `k` in the
+menu, or outside it, that can rescue this patch. That is exactly why I am comfortable
+leaving the `k`-on-relative-deltas question open: it cannot change the disposition.
+
+**The host-independent comparison, which is the one I actually trust.** Stripping units
+entirely and comparing *relative decode improvement* — the quantity Rule 99 says transfers
+M4→M5 to +0.15 % — against #308's own session reference of 8196.8 µs/step at `S=2`:
+
+```
+#308 as reported   : 36.9 / 8196.8 = 0.4502 % relative decode improvement
+#308 de-biased 105.10 : 29.6 / 8196.8 = 0.3611 %
+this sweep (n=42, 10 blocks) : 0.0686 %, CI [−0.2550, +0.3921]
+```
+
+My interval **excludes** #308's as-reported 0.4502 % and **barely contains** the de-biased
+0.3611 % at its upper edge. So the correct summary is not "#308 was fabricated" — it is
+"#308's central estimate is inconsistent with mine, its selection-de-biased estimate is at
+the outer edge of my interval, and my point estimate is ~5× smaller than either". A wide
+interval that grazes a de-biased prior is a weak exclusion of that prior and a **strong**
+exclusion of the bar, and those are different statements.
+
+**Price audit of my own report.** I ran the advisor's tool against this document:
+
+```
+$ python3 research/advisor_r105_price_audit.py research/maple-fern-r106j-integration-tree.md
+```
+
+It returns four candidate uncorrected conversions. The tool's own caveat is that a hit is
+only an error if the µs/step figure is an **M4** measurement — if it is already M5, the
+bare price is correct. Adjudicating each (line numbers are as of the audit run, i.e.
+*before* this subsection was inserted; re-running the tool on the current file will
+re-flag the same four pairings plus the ones quoted inside the table below, which are
+quotations of the erroneous figures and not new assertions of them):
+
+| line | figure as written | verdict | corrected (alpha / beta) |
+|---|---|---|---|
+| L793 | 36.9 µs/step ↔ 0.562 % | **genuine hit** — M4 (#308 declares M4 Pro), and it is the number I quote to *criticise*; now doubly corrected above | 0.2455 % / 0.2810 %, de-biased **0.1966 %** |
+| L917 | 65.67 µs/step ↔ 1.0 % | **false positive** — this is the campaign constant itself, an M5 denominator quoted *as a definition*, not an M4 delta priced with it | unchanged, definitional |
+| L1362 | 424.35 µs/step ↔ 6.46 % | **probable hit, moot** — tanjiro's #642 decode fused-attention pot, quoted by me as the size of a pot; Rule 100 has since ruled the underlying §B.0.3 rows measured fiction and #642 closed `N-ISSUE-BOUND` at **zero bytes** | 2.8232 % / 3.2310 % — but the line item is retired either way |
+| L1390 | 34.58 µs/step ↔ 0.53 % | **genuine hit, and it matters** — frieren's merged #571 B→C leg, which *my own sentence* labels "on M4" | **0.2301 %** / 0.2633 % |
+
+L1390 is the consequential one, so I will not bury it in a table. §5.4.2 describes the
+`DARKBLOOM_ROUTER_WEIGHT_PREFETCH` default flip as "the one item on the board whose
+*nominal* value exceeds the packing patch", at +0.53 %. Priced under Rule 105 it is
+**+0.2301 % of `cs`** — **under the bar on its own**, not over it. It was never a
+solo-promotable lever; it was a summand. (I have not applied a 105.10 de-bias to it: #571's
+B→C is an ablation leg, not the argmax of a sweep, so the winner's-curse correction does
+not obviously apply. If it were a selected maximum, this number would fall further.)
+
+**The arithmetic route to the bar that this closes.** Rule 105.5 says a second,
+different-family summand must supply the residual, and with a de-biased L3 at 0.1966 % the
+residual is **0.2034 %**. pf0 at 0.2301 % is a different kernel family, bit-exact, and
+independent — so on paper `L3 + pf0 = 0.1966 + 0.2301 = 0.4267 %` **clears 0.400 %**. That
+is, as far as I can see, the *only* two-summand route to the bar left on the Maple board.
+
+It does not survive contact with this sweep. The L3 half of that sum is a **prior**; I have
+now **measured** it in situ, paired, 42 runs, 10 ABBA blocks, and it is **+0.0328 %**
+(undiscounted) or **+0.0143 %** (alpha), not +0.1966 %. Substituting the measurement for
+the prior:
+
+```
+measured L3 + priced pf0 = 0.0328 + 0.2301 = 0.2629 %   (undiscounted L3)
+                         = 0.0143 + 0.2301 = 0.2444 %   (alpha-discounted L3)
+                                                        bar = 0.400 %
+```
+
+Both fall short by a wide margin, and the shortfall is larger than the whole pf0 summand.
+**I therefore report to frieren that the L3+pf0 stack does not reach the bar**, and that
+the reason is not pf0 — which I have not measured and do not dispute — but L3, whose
+corpus prior was inflated by three compounding factors: an M4/M5 unit error (1.67×), a
+transfer-loss error (a further 1.37× to reach 2.29× total), and an argmax winner's curse
+(a further 1.25×). 0.562 → 0.1966 is the product of those three, and my direct measurement
+sits below even the last of them.
+
 ### 5.4 Candidates that did not arrive
 
 Rule 79 says the null cell gets reported, so: at my Stage-2 freeze check, **three of the
@@ -1531,15 +1759,212 @@ those six items in one place. I hold **zero receipts** and I never invoke
 
 ### 6.1 Item 1 — paired A/B for the integrated tree versus HEAD
 
-_Filled once §5.3 and, if it runs, §5.3.5 are terminal._
+**The integrated tree is the identity map on the scored surface, so the honest answer to
+"paired A/B versus HEAD" is that there is nothing to pair.** I state it that way rather
+than running a sweep, because running one would manufacture a noise measurement and dress
+it up as a result.
+
+The frozen artefact is:
+
+```
+branch : maple-fern/r106-prefill-traversal-census
+HEAD   : 2127e436049b5f3586e1c38f9904e4705fbf405e
+base   : a30fa5f8c1f8a0d8996e951281cefe4c9d53f425   (advisor tip)
+```
+
+and the scored-surface diff against that base is empty:
+
+```
+$ git diff --numstat a30fa5f8 HEAD -- Sources/ Vendor/ benchmark.json Package.swift senpai/
+$          <- no output
+```
+
+Every candidate that could have made it non-empty was adjudicated and closed:
+
+| candidate | disposition | scored-surface bytes it would have added |
+|---|---|---|
+| **A — alphonse `C2a`** (`DARKBLOOM_EXPERT_DOWN_BN`) | **carried**, but it merged upstream and arrives via the rebase; env never set, so semantically inert at default | +998 source B, already in the base |
+| **B — packing default flip `T0P`** (`num_simdgroups` 2→8) | **rejected `N-PACK`** (§5.3.6, §5.3.6c) | +29 |
+| **C — unroll depth `T0U`** | **cancelled `N-UNROLL-PREEMPTED`** (§5.3.5b) — byte-exact reversion of #539's merged win | −4,086 |
+| tanjiro #642 decode fused attention | closed `N-ISSUE-BOUND` at zero bytes | 0 |
+| alphonse #643/R107-C floors | closed `N-FLOOR` / `N-REACH` | 0 |
+| tanjiro r106f′ | closed `V-UNTOUCHED` | 0 |
+| frieren pf0 (#597) | **not mine to measure** (§5.4.2); priced at 0.2301 % under Rule 105, under bar solo (§5.3.6c) | 0 |
+
+so the integrated tree **is** the advisor tip, and the A/B is `A ≡ B`.
+
+**What I did measure on the exact frozen HEAD**, because "the diff is empty" is a claim
+about text and I wanted a claim about binaries: a force-clean scored-worker rebuild
+(`research/r106j/scripts/clean_build_and_iterate.sh final_head`, job
+`9c22364f-d57d-400c-a78e-c1d55998fe45`), `rc=0`, 260 s wall.
+
+| artefact | Stage-0 `T0` (base `446fe987` lineage) | **final HEAD `2127e436`** | reading |
+|---|---|---|---|
+| `mlxfast-runtime-worker` sha256 | `5cdfa7a163200111…` | `978a47ba68ba7cc3…` | differs |
+| worker bytes | 49,185,640 | **49,186,152** | **+512 B** |
+| `mlx.metallib` sha256 | `8e8b18afaee1ed50…` | `8e8b18afaee1ed50…` | **identical** |
+| `mlx.metallib` bytes | 158,502,072 | 158,502,072 | identical |
+| `harness_hash` | `5cfe4988ee50e923…` | `5cfe4988ee50e923…` | **identical** |
+
+Read that table carefully, because the three rows say three different things:
+
+1. **`harness_hash` identical** ⇒ every file `harnessHash()` covers — `Package.swift`,
+   `Sources`, `Tests`, `benchmark.json`, `benchmark.sh`, `setup.sh`, `tools`, `README.md`,
+   `TASK.md` — is byte-identical to the Stage-0 baseline. `Vendor/` is *not* covered, so
+   this row is silent about C2a by design.
+2. **metallib identical** ⇒ no `.metal` source moved. C2a lives in
+   `Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp`, which is **host**
+   C++ that selects kernel names and launch parameters; it compiles into the worker, not
+   into the shader library. The rebuild recompiled all 247 Cmlx units (log lines 139–390),
+   so `quantized.cpp` genuinely went through the compiler.
+3. **worker +512 B, nothing else** ⇒ the *entire* compiled difference between the tree I
+   started from and the tree I am handing over is alphonse's C2a, and it is 512 bytes of
+   text on a code path that `DARKBLOOM_EXPERT_DOWN_BN` gates off at default.
+
+**Disclosure on `dirty=1`.** The status file records `dirty=1` at build start. `git status
+--porcelain` on this checkout lists only paths under `research/` (this report and the
+artefact files). That is outside `harnessHash()` *and* outside the scored numstat — and the
+proof is not my assertion but row 1 of the table: `harness_hash` is computed from the
+working tree at run time, and it came back **bit-identical to the Stage-0 value**, which
+could not happen if any harness-covered file had uncommitted edits.
 
 ### 6.2 Item 2 — conversion to % of `cs`, and the 0.4 % test
 
-_Filled with §6.1._
+**% of `cs` = 0, exactly, by construction — not by measurement.**
+
+The promotion bar asks for a paired local win of ≥ 0.4 % of `cs` with a CI excluding zero.
+The integrated tree's delta against the base is the delta of the identity map:
+
+```
+delta(% of cs) = 0        CI = [0, 0]        (degenerate: the trees are the same tree)
+bar            = 0.400 %
+result         = BAR NOT CLEARED
+```
+
+I want to be blunt that this is a **null deliverable, and it is the correct one**. The
+assignment authorises zero official receipts and instructs frieren to spend the single
+channel draw on the tree I hand her. The two things I could have handed her are:
+
+- a tree carrying `T0P`, whose measured value is `+0.0328 %` with the bar **excluded at
+  95 %** (§5.3.6), i.e. a tree that is *worse* than the base with probability ≈0.42; or
+- the base itself.
+
+Rule 101.2 already settled the general form of this question — the tree swap is dead,
+"hold our tree" — and my own arithmetic reaches the same place from a different direction.
+Every candidate priced against the bar:
+
+| candidate | best available estimate of % of `cs` | basis | ≥ 0.400 %? |
+|---|---|---|---|
+| `T0P` packing flip | **+0.0328 %**, CI [−0.2338, +0.2994] | measured, n=42, 10 ABBA blocks | **no — bar excluded at 95 %** |
+| `T0P`, α-discounted (Rule 105) | +0.0143 %, CI [−0.1021, +0.1308] | as above × 0.4369 | **no** |
+| `C2a` at default env | 0 (semantic identity) | §5.2 | no |
+| `T0U` unroll | ≈ **−0.130 %** | byte-exact reversion of #539's merged win | no, and negative |
+| pf0 (frieren's, not integrated) | +0.2301 % | #571 B→C, Rule-105 priced | **no** (was quoted as +0.53 %) |
+| measured `T0P` + priced pf0 | +0.2629 % | §5.3.6c | **no** |
+| de-biased L3 prior + priced pf0 | +0.4267 % | §5.3.6c — the only paper route to the bar | yes **on paper only**, and its L3 half is refuted by measurement |
+
+**Nothing on the Maple board clears 0.400 % once the numbers are priced correctly.** Per
+my instructions that is an acceptable terminal state, and I am taking it rather than
+promoting a null through a bar it does not clear.
 
 ### 6.3 Item 3 — correctness on the exact HEAD
 
-_Filled with §6.1._
+Green, on the frozen HEAD, from the force-clean rebuild described in §6.1:
+
+```
+research/artifacts/maple-fern-r106j/final_head.score.json
+  passed                        = true
+  passed_correctness            = true
+  checked_steps                 = 130
+  case_count                    = 1
+  first_failing_case            = null
+  first_failing_step            = null
+  error                         = ""
+  passed_decode_speedup_floor   = true
+  passed_prefill_speedup_floor  = false      <- host artefact, see below
+  peak_ram_gb                   = 21
+  harness_hash                  = 5cfe4988ee50e92376db6bfc3e8abd61b5258d31b3424fb0d91958b87873d398
+  weights_hash                  = aff994300573c5e8589563fc9ff57cdcfb1ef9b49e14898be290a75a6b294b3d
+  golden_hash                   = b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63
+```
+
+`passed_prefill_speedup_floor = false` with `prefill_speedup 0.331×` is the same
+`--local-iterate` baseline artefact documented in §2.5/§2.6 and is present identically on
+unmodified base; the top-level `passed` is `true` and `MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT`
+was never set in any run of this round.
+
+#### 6.3.1 Two of the fields I had been gating on are vacuous, and I am retracting them
+
+While assembling this section I read the emitting code rather than the field names, and
+found that **two of the four correctness signals I quote throughout §2, §4 and §5 carry no
+information**. Both are in this report's own gate definitions, so this is a correction to
+my instrument, not to someone else's.
+
+**(a) `max_abs_diff` is a hard-coded literal.** Every site that constructs the score record
+passes `maxAbsDiff: 0` unconditionally:
+
+```
+Sources/MLXFastTrustedHarness/LagunaRuntimeBenchmark.swift:1095      maxAbsDiff: 0,
+Sources/MLXFastTrustedHarness/LagunaRuntimeBenchmark.swift:1175      maxAbsDiff: 0,
+Sources/MLXFastTrustedHarness/LagunaRuntimeLocalIterate.swift:1050   maxAbsDiff: 0,
+Sources/MLXFastHarness/LagunaRuntimeLocalIterate.swift:1038          maxAbsDiff: 0,
+Sources/MLXFastCore/Score.swift:635                                  maxAbsDiff: 0,
+```
+
+There is no code path anywhere in `Sources/` that computes it from data. `max_abs_diff == 0`
+is therefore **true of a failing run as well as a passing one** — the site at
+`LagunaRuntimeLocalIterate.swift:1050` emits `maxAbsDiff: 0` in the same record whose
+`error` field reads *"golden drift accepted by …: timings are usable, tokens are NOT
+verified"*. My §4.3, §5.3.3 and §5.3.6 gates all list "`max_abs_diff == 0`" as a
+criterion. **That criterion was vacuous and I am withdrawing it.** It never passed a run it
+should have failed, because nothing else failed either — but it could not have caught
+anything, and I presented it as if it could.
+
+**(b) `golden_hash` is the fixture's hash, not the output's.** It is
+`golden.sha256` — the sha256 of the loaded golden JSON — at every construction site
+(`LagunaRuntimeCorrectness.swift:104,127,137,179,270,374,396,462,610,631`), and
+`benchmark.sh:2266-2269` independently recomputes the same quantity as `golden_sha256` by
+`shasum -a 256 "${GOLDEN_PATH}"`. It is an **input** fingerprint. "One distinct
+`golden_hash` across all runs" means "all runs were graded against the same fixture" — a
+real and necessary control, but a control on the *reference*, not evidence about the
+*answers*. §4.1 asserted the opposite; that assertion is retracted in place.
+
+**What the evidence actually is.** The fields that do carry output information are
+`passed`, `passed_correctness`, `checked_steps`, `case_count`, `first_failing_case`,
+`first_failing_step` and `error`. `CorrectnessReport` populates `firstFailingCase` /
+`firstFailingStep` from the first greedy token that diverges from the golden continuation,
+so `passed_correctness == true` **with** `checked_steps == 130` **and**
+`first_failing_step == null` is exactly the statement "all 130 checked greedy decode steps
+reproduced the reference token stream". I re-derived this for every run I hold, from the
+preserved per-run score JSONs, with `research/r106j/scripts/correctness_audit.py`
+(output: `research/artifacts/maple-fern-r106j/correctness_audit.txt`):
+
+```
+ALL sweep runs: 42 run(s), 2 distinct correctness signature(s)
+  n=21  passed=True passed_correctness=True checked_steps=130 case_count=1
+        first_failing_case=None first_failing_step=None error=''
+        golden_hash='b9509697c08a2cf3' harness_hash='5cfe4988ee50e923'   <- T0 arm
+  n=21  passed=True passed_correctness=True checked_steps=130 case_count=1
+        first_failing_case=None first_failing_step=None error=''
+        golden_hash='b9509697c08a2cf3' harness_hash='9603cbabf3db6689'   <- T0P arm
+final_head: 1 run(s), 1 distinct correctness signature(s)
+  n=1   passed=True passed_correctness=True checked_steps=130 case_count=1
+        first_failing_case=None first_failing_step=None error=''
+        golden_hash='b9509697c08a2cf3' harness_hash='5cfe4988ee50e923'
+```
+
+The two signatures differ **only** in `harness_hash`, which is the positive control: the
+harness demonstrably saw two different trees and returned the same 130/130 correctness on
+both. That is a stronger statement than the one I originally made from `golden_hash`,
+because it is anchored to an absolute reference rather than to a cross-arm comparison —
+but I reached it by reading the source, not by reading the field names, and the difference
+between those two habits is the actual lesson here.
+
+**Scope of the retraction.** The *verdicts* in this report do not move: `N-PACK` rests on a
+timing interval, `N-T1` on a mechanism argument, and both arms were 130/130 green under the
+corrected reading. What moves is the strength of my correctness claims wherever I wrote
+"`max_abs_diff == 0` and one `golden_hash`" — read those, throughout, as "130/130 checked
+steps with no first-failing step, against a fixture verified identical across arms".
 
 ### 6.4 Item 4 — margin certificate: **N/A, and here is why that is a claim and not an omission**
 
@@ -1650,11 +2075,114 @@ fetch failure is the *only* condition rule 88 permits retrying, and being able t
 distinguish it from a genuine rejection is worth the round trip. And predicate 3 checks
 that `mlxfast` is on `PATH`; it does not and must not check that it works.
 
-_The pass/fail table on the exact frozen HEAD is pasted in §6.5.4 once the tree is frozen._
+#### 6.5.4 The pass/fail table on the frozen HEAD — 12/12
+
+Run at 2026-08-10T15:00:15Z on the frozen tree, verbatim from
+`research/artifacts/maple-fern-r106j/submit_preconditions.txt`:
+
+```
+HEAD           2127e436049b5f3586e1c38f9904e4705fbf405e
+branch         maple-fern/r106-prefill-traversal-census
+BASE_SHA arg   1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7
+simulated args <none>
+
+  1   PASS  BASE_SHA is full 40/64-char hex                             len=40, hex
+  2   PASS  no --model passed (wrapper injects it itself)               no --model in simulated args
+  3   PASS  git / jq / mlxfast on PATH                                  git, jq, mlxfast all present
+  4   PASS  run inside a git worktree                                   .../workspace/target
+  5   PASS  BASE_SHA resolves to a local commit                         1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7
+  6   PASS  git fetch origin main succeeds                              fetched
+      origin/main = 1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7
+  7   PASS  BASE_SHA is an ancestor of HEAD                             ancestor of 2127e436
+  8   PASS  origin/main:benchmark.json has usable editablePaths         97 editablePaths entries
+  9   PASS  origin/main == BASE_SHA on all protected paths              BASE_SHA == origin/main, trivially identical
+  10  PASS  HEAD benchmark.json == origin/main benchmark.json           identical
+  11  PASS  no skip-worktree/assume-unchanged under protected paths     no S/lowercase index tags
+  12  PASS  protected paths clean incl. untracked AND ignored           clean (untracked and ignored included)
+
+summary: 12 pass, 0 fail
+```
+
+Four notes for whoever actually pulls the trigger:
+
+- **Predicate 6 re-confirmed `origin/main` live**, and it is still
+  `1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7`. That is the value `BASE_SHA` must carry. It
+  is **not** the advisor base `a30fa5f8…`, **not** `446fe987…`, and **not** the candidate
+  commit. `research/r106j/scripts/handoff_certificate.sh` still defaults to `446fe987…`,
+  which is **wrong for a real draw** and covers only predicates 1, 7, 10, 11 and 12 —
+  use `submit_preconditions.sh`, not that script, and pass `BASE_SHA` explicitly.
+- **Predicate 9 passed trivially** here only because `BASE_SHA == origin/main`. If the fork's
+  main advances before the draw, predicate 9 becomes a real comparison and can fail. So
+  **re-run this rehearsal immediately before the draw**, not just once.
+- **Predicate 12 includes ignored files**, which is the trap: a stray build artefact under a
+  protected path fails the submission even though `git status` in its default mode looks
+  clean. It passes here.
+- **Both merge-checklist environment variables are unset** in this shell, verified directly:
+
+```
+$ env | grep -i 'DARKBLOOM\|MLXFAST_LOCAL_ALLOW'
+(no output)
+```
+
+  `DARKBLOOM_EXPERT_DOWN_BN` unset (Rule 103 — the `bn` 64→32 variant is 0.195 %, under bar
+  and shelved) and `DARKBLOOM_QMV_WIDE_CODES` unset (Rule 102 — −0.5363 %, closed and
+  harmful). The merge checklist requires both unset **on the integrated tree and in the
+  receipt run**, so this must be re-verified in the receipt shell, not merely in mine.
+
+The correct invocation, which **I do not run** (zero receipts authorised) and which frieren
+should issue on her own tree after re-running the rehearsal:
+
+```
+bash senpai/submit-official.sh 1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7 --notes "..."
+```
+
+with **no `--model` flag** — the wrapper injects `--model senpai` itself and exits 2 if you
+pass one.
 
 ### 6.6 Item 6 — Rule 75 surface census
 
-_Re-run on the final HEAD; generator `research/r106j/scripts/surface_census.py`._
+Re-run on the frozen HEAD `2127e436`, after the last build, with both the campaign's own
+checker and my independent generator. They agree.
+
+**Campaign checker, both plausible bases:**
+
+```
+$ bash senpai/check-editable-budget.sh 1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7   # origin/main, the draw base
+editable budget OK: current=2681206/3000000 bytes headroom=318794 growth=-302643/262144 files=142 (base=142)
+
+$ bash senpai/check-editable-budget.sh a30fa5f8c1f8a0d8996e951281cefe4c9d53f425   # advisor tip
+editable budget OK: current=2681206/3000000 bytes headroom=318794 growth=0/262144 files=142 (base=142)
+```
+
+**Independent generator** (`research/r106j/scripts/surface_census.py`, walks the 97
+`editablePaths` globs from `benchmark.json` and hashes each file):
+
+```
+head_commit          2127e436049b5f3586e1c38f9904e4705fbf405e
+surface_files        142
+surface_bytes        2681206   cap 3000000   headroom 318794   PASS
+largest_file_bytes   384245    cap 524288    headroom 140043   PASS   Sources/MLXFastModel/LagunaRuntimeModel.swift
+```
+
+Three readings worth extracting:
+
+1. **`growth = 0` against the advisor tip** is the byte-level restatement of §6.1: I add
+   nothing to the editable surface. The per-file cap is also clear by 140,043 B.
+2. **`growth = −302,643` against `origin/main`** is not my doing — it says the advisor's
+   tree is ~302 kB *smaller* on the editable surface than the fork's main. The growth
+   budget is one-sided (`≤ 262,144`), so a negative number is comfortable, but it is worth
+   flagging that whoever draws inherits **262,144 B of headroom measured from a base that
+   is 302 kB below where they may assume it is**.
+3. **`surface_bytes` moved +998 B since §6.6.1's reading** of `2680208` at base
+   `446fe987`: `2681206 − 2680208 = 998`, which is **exactly** the source-byte size I
+   recorded for alphonse's C2a in §5.2. The census independently re-derives the one change
+   between my starting tree and my finishing tree, from a completely different measurement
+   path than the `git diff --numstat` in §6.1 and the +512 B worker delta in the build
+   table. Three instruments, one answer.
+
+`LagunaRuntimeModel.swift` at **384,245 B** is byte-identical to the Stage-0 `T0` value in
+§2.4, which is the independent confirmation that the `T0P` working-tree edit left by the
+timed-out sweep was fully reverted (§6.7).
 
 #### 6.6.1 Reconciliation of the editable-surface byte total — I had this wrong twice
 
@@ -1914,6 +2442,44 @@ won and are now double-counting.*
    it is phase-agnostic by construction and `ABBA` and `BAAB` blocks are pooled without a
    sign fix. Stated because it is the one place where a reader could reasonably suspect an
    ordering bug.
+6. **Two correctness fields I relied on carry no information — retracted in §6.3.1.**
+   `max_abs_diff` is a hard-coded literal `0` at all five emission sites
+   (`LagunaRuntimeBenchmark.swift:1095,1175`, `LagunaRuntimeLocalIterate.swift:1050`,
+   `MLXFastHarness/LagunaRuntimeLocalIterate.swift:1038`, `MLXFastCore/Score.swift:635`);
+   no code path computes it, and it reads `0` on runs that *fail* golden-drift checks.
+   `golden_hash` is `golden.sha256` — the hash of the golden **fixture file**, an input,
+   recomputed independently by `benchmark.sh:2266-2269` — so a shared `golden_hash` says
+   the two runs read the same fixture, **not** that they emitted the same tokens. §4.1
+   claimed the latter and that claim is **withdrawn in place**, as is the acceptance gate
+   I built on `max_abs_diff`. §6.3 re-audits all 43 runs on the fields that do carry
+   information. **No verdict in this document moves**, because every one of them rested on
+   `passed_correctness` + `checked_steps` + `first_failing_*` as well; but a reader who
+   took §4.1's sentence at face value was given a stronger claim than the harness can
+   support, and that is my error, not the harness's.
+7. **The T0/T0P sweep was truncated by its own wall clock, mid-run.** Job
+   `0ca1fee0-…` was budgeted 4,200 s and self-cancelled at 4,194 s **inside run 43**, so
+   the analysis uses the **42 complete runs = 10 whole blocks** and discards the partial.
+   Two disclosures follow. (a) The block count was **not** chosen by looking at the
+   estimate: the driver appends blocks, I preregistered 4, scheduled 8 more, and the clock
+   stopped it at 10 — both stopping rules are value-independent, which is the property
+   optional-stopping bias needs to be absent (§5.3.6b). (b) The truncation happened while
+   the driver held the working tree in the **T0P** arm, so the tree was restored by hand;
+   §6.6's independent census confirms the restoration was exact —
+   `LagunaRuntimeModel.swift` is **384,245 B**, byte-for-byte its Stage-0 T0 size, and the
+   surface total is `2,681,206 B` with **growth = 0** against the advisor tip. I am
+   stating this because "a sweep died holding a modified worktree" is precisely the
+   failure mode that silently poisons everything downstream of it.
+8. **Rule 105 superseded my own unit-conversion correction, in the direction that hurts
+   my case (§5.3.6c).** §5.3.4 deflated M4 µs/step→`% of cs` by 1.67×; the campaign's
+   measured over-credit factor is **2.29× (bytes, α = 0.4369) / 2.00× (latency, β = 0.5)**,
+   and Rule 105.10 removes a further 19.9 % of winner's curse. I have re-priced *every*
+   figure I quote through it, starting with my own: L3 as published 0.562 % → 0.2455 %
+   (α) → **0.1966 %** de-biased. Under **all three** discounts — undiscounted, ×α, ×β — my
+   measured T0P interval still excludes the 0.4 % bar, so the verdict is discount-invariant.
+   One thing I could not resolve and will not paper over: it is **unproven that `k`
+   applies verbatim to *relative* (ln-ratio) deltas** rather than to absolute µs/step
+   deltas. It does not change any verdict here — the bar is excluded either way — but
+   anyone stacking small relative deltas across hosts should treat that as open.
 
 ### 6.8 Follow-ups I did not implement
 
@@ -1938,18 +2504,39 @@ Ranked by what I would hand the next round first. Reachability tags follow §1:
    deletion at every depth ≤ 4, and #308's own lesson was that the argmax of a geometry
    curve is **interior** and monotonicity is refuted. A depth curve is the natural sequel
    and it needs an M5 to be worth believing.
-5. **[STRUCT] The corpus carries a mis-scaled constant.** §5.3.4 shows `% of cs` was
-   computed at least four times by multiplying an **M4** absolute µs/step delta by an
-   **M5**-derived `%`-per-µs constant, inflating by the M4:M5 per-step ratio ≈1.67×.
+5. **[STRUCT] The corpus carries a mis-scaled constant — and my own correction of it was
+   itself too small.** §5.3.4 shows `% of cs` was computed at least four times by
+   multiplying an **M4** absolute µs/step delta by an **M5**-derived `%`-per-µs constant.
+   I deflated by 1.67×; **Rule 105 measures the true over-credit at 2.29× (bytes) /
+   2.00× (latency)**, and Rule 105.10 adds a winner's-curse de-bias on top wherever the
+   quoted number is an argmax over a swept geometry. §5.3.6c re-runs the audit under the
+   superseding constant and finds one figure that **matters and moves**: frieren's #571
+   B→C `pf0` prefetch, published at **0.53 %**, is really **+0.2301 % (α) / +0.2633 %
+   (β)** — *under* the bar solo, where as published it looked like a comfortable clear.
    Anything in the archive quoted as "µs/step ⇒ % of score" from a non-M5 session should
-   be re-derived in relative units before it is used to prioritise work. This is cheap,
-   mechanical, and changes the queue order.
+   be re-derived through Rule 105 before it is used to prioritise work. This is cheap,
+   mechanical, and it changes the queue order **and the promotion decisions**.
 6. **[PROJ] The two-pool model's residual is the largest unexplored block on decode.**
    Roughly 740 µs/step of M5 decode is unattributed (model residual ≈ −6.63 %, unaudited
    tail, and a wall-minus-busy gap). Nobody has a named mechanism for it and Rule 92's DAG
    audit caps *scheduling* recovery at ≈0.02 %, so the recoverable part is either small or
    it is somewhere the current instruments cannot see. Worth one round of instrument work,
    not one round of patches.
+7. **[STRUCT] Grep the corpus for the two retracted fields.** §6.3.1 shows `max_abs_diff`
+   is a hard-coded `0` and `golden_hash` hashes an input file. Every document in this
+   campaign that cites either as evidence of numerical or token-level agreement is
+   asserting something the harness never measured. I fixed mine; I did not audit anyone
+   else's, and the fix is a one-line grep followed by a re-read of whatever the sentence
+   was load-bearing for. If a promotion decision anywhere rested on "`max_abs_diff = 0`,
+   therefore bit-exact", that decision needs re-deriving from `passed_correctness`,
+   `checked_steps` and `first_failing_*`.
+8. **[STRUCT] Does `k` apply to relative deltas?** Rule 105's transfer coefficient was
+   calibrated on **absolute** µs/step deltas. Every stacking argument in this round —
+   including the `L3 + pf0` route to the bar — mixes it with **relative** ln-ratio
+   contrasts. I flagged this in §5.3.6c and §6.7 item 8 and could not resolve it inside
+   the timebox. It changes no verdict here because my intervals exclude the bar under
+   every discount, but it is a live soundness question sitting underneath a constant the
+   whole campaign now prices with.
 
 ### 6.9 The one thing I would hand over above every patch in this queue
 
@@ -1972,4 +2559,156 @@ cannot measure it.
 I am not claiming a number for it. I am claiming that "1 of 4 simdgroups issues MMA" is a
 statement about the ranked host that can be checked from the source without any GPU at
 all, and that if it is true, it dominates everything else written in this document.
+
+### 6.9.1 Two habits, both of which I acquired by being wrong in this document
+
+The section above is the best *finding* I can hand over. These two are the best
+*habits*, and I state them as habits because in both cases I had already published the
+error before I caught it.
+
+**1. Read the code that emits a field before you gate on the field's name.**
+`max_abs_diff` and `golden_hash` are perfectly chosen names. One sounds like the
+maximum absolute numerical divergence from the reference; the other sounds like a
+fingerprint of the generated output. Neither is. `max_abs_diff` is a hard-coded literal
+`0` at all five sites that emit it — there is **no arithmetic anywhere in the repository
+that could ever make it non-zero** — and it reads `0` on runs that fail golden-drift
+checks, which is the tell I should have noticed first. `golden_hash` is
+`sha256(golden fixture file)`: an **input** hash, constant across every arm of every
+sweep by construction, which is exactly why it looked like such convincing evidence of
+agreement. I gated on both, in writing, in §4.1. The cost of checking was one `grep` and
+about ninety seconds. The cost of not checking was a published claim stronger than the
+instrument could support. **A field name is a hypothesis about what the field contains;
+the emitting source is the only test of it.**
+
+**2. Price every cross-host delta through Rule 105 before you let it rank anything —
+including your own.** The failure mode here is not that people fabricate numbers, it is
+that a legitimate measurement passes through a legitimate-looking conversion and comes
+out inflated, and thereafter it *is* the number: it gets quoted, stacked, and used to
+order a queue. L3 travelled 0.562 % → 0.2455 % → **0.1966 %** across three independent
+compounding corrections (a unit error I made, a transfer-loss factor Rule 105 measured,
+and a winner's-curse de-bias Rule 105.10 supplied) — a **2.86× total over-credit**, all
+of it accumulated by people acting in good faith. When I applied the same audit to the
+rest of the queue it changed a promotion decision that was not mine: frieren's `pf0`
+drops from 0.53 % to 0.2301 %, i.e. from *clears the bar solo* to *does not*. And it
+resolved the round's central question — the only paper route to 0.4 % was `L3 + pf0`,
+which prices at 0.4267 % on paper and **0.2629 % on my measured L3**, so the stack
+fails, and **the failure is L3, not pf0**. Nobody would have found that by measuring
+harder. It was found by re-deriving numbers that already existed.
+
+The common structure is worth naming: **both errors were in the conversion layer, not
+the measurement layer.** The sweeps were sound, the harness was sound, the arithmetic
+was sound. What was unsound was the step where a measured quantity got turned into a
+quantity that meant something — and that step is the one nobody re-runs, because it
+looks like bookkeeping rather than science.
+
+---
+
+## 7. THE HANDOFF PACKET — frieren, this is the whole thing on one page
+
+Everything above is the working. This section is the deliverable. It is written to be
+actionable without reading anything else in this document, and every number in it is
+cross-referenced to the section that establishes it.
+
+### 7.1 The tree
+
+**The tree I hand you is the advisor tip, unchanged on every scored byte.**
+
+- Branch: `maple-fern/r106-prefill-traversal-census`, repo `morganmcg1/mlxfast-challenge_senpai`.
+- Build-verified HEAD: **`2127e436049b5f3586e1c38f9904e4705fbf405e`** (§6.1). Commits made
+  after it in this branch touch **`research/` only** — they change no compiled path, no
+  `harness_hash`, and no surface byte. Do not take that on my word; it is one command,
+  and an empty result is the proof:
+  ```
+  git diff --numstat 2127e436 HEAD -- Sources/ Vendor/ benchmark.json Package.swift senpai/
+  ```
+- Equality to the advisor tip, verbatim:
+  ```
+  git diff --numstat a30fa5f8c1f8a0d8996e951281cefe4c9d53f425 HEAD \
+      -- Sources/ Vendor/ benchmark.json Package.swift senpai/
+  (empty)
+  ```
+- Rule 75 census (§6.6): `current = 2,681,206 / 3,000,000`, `headroom = 318,794`,
+  **`growth = 0`** against the advisor tip, `files = 142`. Largest file
+  `Sources/MLXFastModel/LagunaRuntimeModel.swift` at 384,245 B, headroom 140,043.
+- Forced-clean release build: **rc = 0**, 260 s, all 247 Cmlx units recompiled
+  (§6.1). Correctness on that exact HEAD: `passed = true`, `passed_correctness = true`,
+  `checked_steps = 130`, `case_count = 1`, `first_failing_case = null`,
+  `first_failing_step = null`, `error = ""` (§6.3). Both `DARKBLOOM_EXPERT_DOWN_BN` and
+  `DARKBLOOM_QMV_WIDE_CODES` **unset** in the environment and unset in the build
+  (Rules 102/103 merge-checklist requirement).
+
+### 7.2 My recommendation, and I want to be unambiguous about it
+
+**Do not spend the draw on anything I produced. Hold our tree.**
+
+Nothing on the Stage-2 slate cleared the 0.4 % bar, so under §5.0's acceptance rule
+nothing landed, so the integrated tree's measured delta is **exactly 0 % of `cs`, by
+construction** (§6.2). rev2 named this outcome in advance as acceptable — *"if nothing
+clears the bar, we take no draw"* — and your own Rule 101.2 reached the identical
+instruction from a completely different direction (resubmission variance, not patch
+measurement). Two disjoint instruments, one answer.
+
+If the draw is taken anyway, it is a draw on a tree whose expected gain over the current
+frontier is zero, at `P(beat record) = 2.913e-08` (§6.6.2). That is not a reason to take
+it; it is the price of taking it.
+
+### 7.3 The three numbers that should change what you do next
+
+1. **Your own `pf0` is under the bar solo — it was mis-priced, not mis-measured**
+   (§5.3.6c). #571's B→C leg is a sound M4 measurement of **+34.58 µs/step**. What was
+   wrong is the conversion: it was multiplied by the **M5** price 0.015228 %/µs-step to
+   get **0.53 %**. Through Rule 105 the honest value is
+   **+0.2301 % (α = 0.4369) / +0.2633 % (β = 0.5)**. Your measurement stands; the
+   headline does not. This is the one price-audit hit in this document that changes a
+   promotion decision, and it is yours, which is why it leads.
+2. **The `L3 + pf0` stack — the only paper route to 0.4 % — does not get there, and the
+   failure is L3, not you.** On paper: de-biased L3 `0.1966 %` + pf0 `0.2301 %` =
+   **0.4267 %**, a bare clear. Substituting my *measured* L3 instead of the paper one:
+   **0.0328 % + 0.2301 % = 0.2629 %** (or `0.0143 + 0.2301 = 0.2444 %` if you discount
+   my relative delta by α as well). Either way the sum lands at roughly **60 % of the
+   bar**, and the shortfall is entirely on the L3 side.
+3. **L3 does not replicate.** Ten palindromic blocks, one pre-specified contrast, no
+   argmax: **d(ln score) = +0.0328 %, CI95 [−0.2338, +0.2994]** (§5.3.6a). Under every
+   discount — undiscounted, ×α, ×β — the interval excludes 0.4 %. L3's published
+   0.562 % was inflated **2.86×** by three compounding, independently-introduced errors.
+   If you were holding a plan that depended on L3 carrying half the bar, that plan is
+   dead and you should be told now rather than at 07:00Z.
+
+### 7.4 If you take the draw anyway — the exact invocation, and the four traps
+
+Rehearsed end-to-end at 15:00:15Z on the frozen HEAD: **12/12 predicates PASS**
+(§6.5.4, transcript `research/artifacts/maple-fern-r106j/submit_preconditions.txt`).
+Re-run it yourself with `bash research/r106j/scripts/submit_preconditions.sh`.
+
+```
+bash senpai/submit-official.sh 1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7 --notes "..."
+```
+
+**Trap 1 — `BASE_SHA` is `1bc1c895…`, which is `origin/main`.** It is **not**
+`446fe987…`, not `a30fa5f8…`, and not the candidate commit. `senpai/handoff_certificate.sh`
+defaults to `446fe987…` and that default is **wrong** here; it happens to satisfy
+predicates 1, 7, 10, 11 and 12 while silently failing the rest, which is the worst
+possible failure mode. **Re-run `git rev-parse origin/main` immediately before the draw**
+— this value is live and I verified it at 15:00Z, not later.
+
+**Trap 2 — do not pass `--model`.** The wrapper injects `--model senpai` itself and
+exits 2 if you supply one.
+
+**Trap 3 — predicate 9 passed only trivially** in my rehearsal (the condition it guards
+was vacuous on a clean tree). It **must be re-run on the exact submitted HEAD**, not
+inherited from my transcript.
+
+**Trap 4 — predicate 6 (`git fetch`) is the only retryable failure** (Rule 88). Any
+other predicate failing means stop and diagnose, not retry. Predicate 12's count
+includes ignored files, so do not read it as a working-tree cleanliness proof.
+
+### 7.5 What I am explicitly *not* handing you
+
+- No patch. No candidate. No byte of `Sources/`.
+- No margin certificate, because nothing non-bit-exact is being proposed (§6.4).
+- No official receipt of any kind: rev2 authorised **zero**, and I invoked
+  `senpai/submit-official.sh` **zero times**. The rehearsal script is a read-only
+  predicate checker that never calls the wrapper.
+- No claim resting on `max_abs_diff` or `golden_hash` — both retracted as
+  non-informative in §6.3.1, including where I myself relied on them in §4.1.
 

@@ -1,0 +1,32 @@
+=== senpai/submit-official.sh precondition rehearsal (READ-ONLY) ===
+generated_utc  2026-08-10T15:00:15Z
+repo_root      /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-fern/workspace/target
+HEAD           2127e436049b5f3586e1c38f9904e4705fbf405e
+branch         maple-fern/r106-prefill-traversal-census
+BASE_SHA arg   1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7
+simulated args <none>
+
+checks:
+  1   PASS  BASE_SHA is full 40/64-char hex                             len=40, hex
+  2   PASS  no --model passed (wrapper injects it itself)               no --model in simulated args
+  3   PASS  git / jq / mlxfast on PATH                                  git, jq, mlxfast all present
+  4   PASS  run inside a git worktree                                   /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-fern/workspace/target
+  5   PASS  BASE_SHA resolves to a local commit                         1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7
+  6   PASS  git fetch origin main succeeds                              fetched
+      origin/main = 1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7
+  7   PASS  BASE_SHA is an ancestor of HEAD                             ancestor of 2127e436
+  8   PASS  origin/main:benchmark.json has usable editablePaths         97 editablePaths entries
+  9   PASS  origin/main == BASE_SHA on all protected paths              BASE_SHA == origin/main, trivially identical
+  10  PASS  HEAD benchmark.json == origin/main benchmark.json           identical
+  11  PASS  no skip-worktree/assume-unchanged under protected paths     no S/lowercase index tags
+  12  PASS  protected paths clean incl. untracked AND ignored           clean (untracked and ignored included)
+
+summary: 12 pass, 0 fail
+
+=== the exact invocation (NOT run by this script) ===
+bash senpai/submit-official.sh 1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7 --notes "..."
+  * no --model (precondition 2)
+  * DARKBLOOM_EXPERT_DOWN_BN unset (rule 103, -0.195 %)
+  * DARKBLOOM_QMV_WIDE_CODES  unset (rule 102, -0.5363 %)
+
+VERDICT: all 12 predicates pass on this HEAD.
