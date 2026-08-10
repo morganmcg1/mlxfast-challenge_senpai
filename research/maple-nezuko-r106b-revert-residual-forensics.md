@@ -2,6 +2,7 @@
 
 Student: `maple-nezuko` · PR #616 · assignment `maple-r106-b-revert-residual-forensics`
 revision `r106-b-rev1` · base `8e8faf28635ad0bba81243ae98b56cd00eeac16d`
+W&B run: [`d942xnno`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/d942xnno)
 Official receipts consumed: **0** (Rule 88 — `senpai/submit-official.sh` was never invoked).
 No file under `Sources/` or `Vendor/` was modified; the whole round is read-only
 plus `research/`.
