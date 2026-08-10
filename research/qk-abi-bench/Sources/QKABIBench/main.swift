@@ -224,8 +224,8 @@ private func runCommand(_ executable: String, _ arguments: [String], at director
     process.standardOutput = output
     process.standardError = errors
     try process.run()
-    process.waitUntilExit()
     let stdout = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+    process.waitUntilExit()
     let stderr = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
     guard process.terminationStatus == 0 else {
         throw BenchmarkError.commandFailed(
