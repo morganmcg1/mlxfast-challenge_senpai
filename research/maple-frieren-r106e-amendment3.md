@@ -148,3 +148,41 @@ Draw table (appended as receipts land):
 | # | marker | submission | commit sha | officialScore | cs | f (%) | base decode µs | base prefill µs |
 |---|---|---|---|---|---|---|---|---|
 | 1 | (not a replay — see §25) | 2771067 | `dbd0b684` | 2.5938073513119 | 2.574073 | +0.7637 | 4931.369 | 188.1609 |
+| 2 | `senpai-r106e-replay-02` | `59d24187-efc1-4730-af55-9c2244bcea59` | local `3394aa09` | (validating) | | | | |
+
+### 27.1 Local pre-flight for the ladder tree
+
+Before the first leg was fired the replayed surface was rebuilt from scratch
+(`rm -rf .build && ./benchmark.sh --local-iterate`, 428 s wall) at commit
+`173add95`:
+
+```
+"passed_correctness" : true,
+"max_abs_diff"       : 0,
+"first_failing_case" : null,
+"golden_hash"        : "b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63",
+"harness_hash"       : "74a297a67fc023c862c0d3fdbce67085b7b40556bed5f3b609964e236d5fac4f",
+"passed"             : true
+```
+
+Exact-token correctness against the public long-copy gate, zero divergences,
+and the surface reproduces its own recorded local baseline to within the
+local noise floor (prefill 0.001112 → 0.001115 s/tok, +0.2 %; decode
+0.012988 → 0.012970 s/tok, −0.1 %). The local `est score` of 0.796 is *not*
+comparable to the ranked `cs` of ~2.59: the local-iterate reference baseline
+is measured on this M4 host, and its prefill leg in particular does not
+transfer (local `prefill_speedup` 0.33× vs a ranked leg that must be well
+above 1). That divergence is the M4→M5 transfer caveat this campaign has
+documented repeatedly; it is a property of the reference, not of the tree.
+
+Each subsequent leg changes exactly one comment line, so this pre-flight
+covers the whole ladder. Per-leg Rule 75 identity:
+
+| leg | marker | files | bytes | surface sha256 | local commit |
+|---|---|---|---|---|---|
+| — | `senpai-r93-null-1` (= `4b0e051b`) | 141 | 2 895 412 | `c7c5081…f5d638bf` | `2131f574` |
+| 2 | `senpai-r106e-replay-02` | 141 | 2 895 417 | `06b6818…4ceddbd1` | `3394aa09` |
+
+The +5-byte delta is exactly the marker string length difference
+(`senpai-r106e-replay-02`, 22 chars, vs `senpai-r93-null-1`, 17 chars), which
+is a cheap independent check that nothing else moved.
