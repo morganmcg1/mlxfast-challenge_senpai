@@ -13,6 +13,13 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 LRM = os.path.join(ROOT, "Sources/MLXFastModel/LagunaRuntimeModel.swift")
 OUTDIR = os.path.dirname(os.path.abspath(__file__))
 PREFIXES = ["pair", "pipeb", "pipec", "piped"]
+KARRAY = {"pair": "pipe_ka", "pipeb": "pipe_kb",
+          "pipec": "pipe_kc", "piped": "pipe_kd"}
+
+# Twelve extra products per site, i.e. 4x the useful QK MACs: the padding bill an
+# 8x8x8 MMA pays for the M=2 decode tile.
+FMA4X = "".join("    {v} += {q}[%d] * {k}[%d];\n" % ((d + r) % 4, d)
+                for r in (1, 2, 3) for d in range(4))
 
 ARMS = {
     "qk_free": "    {v} = ({v});",
@@ -29,6 +36,11 @@ ARMS = {
     # Mechanism control: one cross-lane broadcast, no reduction, so the
     # lane-dependency cost is separated from the reduction cost.
     "qk_bcast0": "    {v} = simd_shuffle({v}, 0u);",
+    # 4x the QK MACs with the reduction untouched, then the same with an
+    # MMA-shaped epilogue: together they price the M=2 MMA tile's padding under
+    # the assumption that an MMA MAC costs what a scalar FMA MAC costs.
+    "qk_fma4x": FMA4X + "    {v} = simd_sum({v});",
+    "qk_fma4x_bcast0": FMA4X + "    {v} = simd_shuffle({v}, 0u);",
 }
 
 
@@ -55,7 +67,8 @@ def main():
                 v = "%s_score%d" % (p, h)
                 old = "    %s = simd_sum(%s);" % (v, v)
                 assert block.count(old) == 1, "site not unique: %s" % old
-                block = block.replace(old, ARMS[arm].format(v=v))
+                block = block.replace(old, ARMS[arm].format(
+                    v=v, q="pair_q%d" % h, k=KARRAY[p]))
                 n += 1
         assert n == 8
         path = os.path.join(OUTDIR, "cand_%s.swift" % arm)

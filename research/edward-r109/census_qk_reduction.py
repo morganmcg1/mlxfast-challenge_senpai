@@ -22,6 +22,15 @@ KERNEL = "laguna_sliding_fused_attn_ring_v1"
 OUT = sys.argv[1] if len(sys.argv) > 1 else "/tmp/edward_r109_census"
 
 QK_PREFIXES = ["pair", "pipeb", "pipec", "piped"]
+QK_KARRAY = {"pair": "pipe_ka", "pipeb": "pipe_kb",
+             "pipec": "pipe_kc", "piped": "pipe_kd"}
+
+# Twelve extra products per site, i.e. 4x the useful QK MACs, folded into the
+# same accumulator. This is the MAC bill an 8x8x8 MMA pays for an M=2 decode
+# tile: six of its eight M rows are padding.
+FMA4X = "".join(
+    "    {v} += {q}[%d] * {k}[%d];\n" % ((d + r) % 4, d)
+    for r in (1, 2, 3) for d in range(4))
 
 PREAMBLE = """#include <metal_stdlib>
 #include <metal_simdgroup>
@@ -79,7 +88,8 @@ def sub_qk(src, template):
             v = "%s_score%d" % (prefix, h)
             old = "    %s = simd_sum(%s);" % (v, v)
             assert out.count(old) == 1, "site not unique: %s" % old
-            out = out.replace(old, template.format(v=v))
+            out = out.replace(old, template.format(
+                v=v, q="pair_q%d" % h, k=QK_KARRAY[prefix]))
             n += 1
     assert n == 8
     return out
@@ -116,6 +126,13 @@ ARMS = [
     # score already exists in one lane of the accumulator fragment and only has
     # to reach the 32 lanes that own the output dims.
     ("qk_bcast0", lambda s: sub_qk(s, "    {v} = simd_shuffle({v}, 0u);")),
+    # 4x the QK MACs, reduction untouched: the padding bill of an M=2 MMA tile
+    # in isolation.
+    ("qk_fma4x", lambda s: sub_qk(s, FMA4X + "    {v} = simd_sum({v});")),
+    # 4x the MACs and an MMA-shaped epilogue: a full stand-in for the MMA arm
+    # under the assumption that MMA MACs cost the same as scalar FMA MACs.
+    ("qk_fma4x_bcast0", lambda s: sub_qk(
+        s, FMA4X + "    {v} = simd_shuffle({v}, 0u);")),
 ]
 
 
