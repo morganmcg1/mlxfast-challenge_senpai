@@ -684,8 +684,99 @@ queue, and no one currently owns it. See §6.9.
 
 ### 5.3 Candidate B — the packing default flip (L3)
 
-_Measurement in flight at the time of writing; filled in below from
-`research/artifacts/maple-fern-r106j/abba_t0_t0p/runs.tsv`._
+#### 5.3.1 What the patch is, and why I claim it is bit-exact without a certificate
+
+`research/tanjiro_packing_default_flip.patch` — 1,844 B, sha256
+`96161c17d68a1091934bb0d4de5e15097cfb3ba7f227efca9e04ac7bc23c493d`. Three hunks, all
+inside `lagunaDecodeNVFP4QKVLaneMajorSource(pairwise:)`:
+
+| hunk | change |
+| --- | --- |
+| 1 | `num_simdgroups` 2 → 8 |
+| 2 | pipeline rename `..._r1_v1_lm1` → `..._lm1_sg8` |
+| 3 | a `rows % 8 == 0` guard, and grid `((rows/2)*64)` / TG 64 → `((rows/8)*256)` / TG 256 |
+
+The bit-exactness argument is structural rather than empirical, which is why it needs no
+margin certificate. The kernel is **lane-major**: each output row is computed
+independently by a fixed set of lanes, and `num_simdgroups` participates in exactly one
+place — the map `out_row → (tile, simd_gid)`. It is not a reduction width, not an
+accumulation order, and not a tiling of the K dimension. Changing it re-labels which
+simdgroup computes which row; it does not change what any row computes, in what order,
+or at what precision. Hunk 3 keeps `threads = rows * 32` invariant
+(`(rows/2)*64 == (rows/8)*256 == rows*32`), so the launch is the same thread count in a
+different threadgroup shape. And `rows` on this model is always a multiple of 128, so the
+new guard can never fire on any production configuration.
+
+⚠️ I state the limit of that argument honestly: it establishes that the *arithmetic* is
+identical, not that the *compiler output* is. A different threadgroup shape can change
+register allocation and therefore scheduling. That cannot change results in a kernel with
+no cross-lane reduction, but it is the reason I still gate on `max_abs_diff == 0` and a
+single `golden_hash` across every run of every arm rather than declaring victory from the
+source diff. The first two runs of the aborted sweep already agreed on
+`golden_hash b9509697c08a2cf3`, so the empirical check is not merely hypothetical.
+
+#### 5.3.2 The contested prior — stated before the result, not after
+
+This lever arrives with a **genuine sign conflict** and I want it on the record before my
+own number exists:
+
+- **#308** measured it at **−36.9 µs/step, CI [−61.0, −12.9]** ⇒ **+0.562 % of `cs`**,
+  CI [+0.196 %, +0.929 %].
+- **#48** measured an 8× threadgroup collapse in a neighbouring family at **−0.1488 %**,
+  i.e. the opposite sign.
+
+These are not trivially reconcilable, and the campaign's own doctrine says threadgroup
+geometry can change sign across core counts. So the honest prior is *wide and centred
+near, not far above, the 0.4 % bar*. That is precisely why the state doc shelved it as
+"L3 — do not assign yet" rather than banking it.
+
+#### 5.3.3 Preregistration (written 2026-08-10T13:20Z, while the sweep is still running)
+
+**Design.** Paired ABBA, arms `T0` (HEAD) and `T0P` (HEAD + the patch), four runs per
+block in palindrome order with the order reversed every block, `--local-iterate` in
+situ, force-clean per-arm selection with a sha256 guard on
+`Sources/MLXFastModel/LagunaRuntimeModel.swift` before every run
+(T0 `a736b50f…`, T0P `9c226373…`). Estimator, fixed in advance:
+
+```
+d(ln score) = -0.75 * d(ln decode) - 0.25 * d(ln prefill)
+```
+
+with the block as the unit of analysis and a Student-t CI95 on the per-block deltas.
+
+**Power, stated in advance.** sd(d ln score) per block is 0.3143 % from my own T0↔T1
+sweep. Four blocks therefore give a CI half-width of ≈0.50 %, eight blocks ≈0.26 %.
+Against a 0.4 % bar and a prior centred at +0.562 %, four blocks **cannot** produce a
+decisive answer and I say so now: I am launching four to get a fast read and I have
+already decided to extend to eight unless the four-block point estimate is so far from
+the bar that eight cannot move the verdict. Rule 58 — I extend the same sweep, I do not
+restart it.
+
+**Acceptance, fixed before the numbers.** `T0P` becomes the handoff tree if and only if
+all four hold:
+
+1. zero correctness failures and exactly one `golden_hash` across every run of both arms;
+2. the CI95 on d(ln score) excludes zero;
+3. the point estimate is **≥ +0.40 % of `cs`**;
+4. the surface census still passes Rule 75 (the patch adds 29 B to a file with 140,043 B
+   of headroom, so this is a formality, but it is checked, not assumed).
+
+**Preregistered revert.** If any of the four fails, the handoff tree is `T0` unchanged
+and I report `N-PACK`. The revert is mechanical: `RESTORE_ARM=T0` in the sweep driver
+already leaves the worktree matching HEAD, so "revert" is the absence of a commit, not an
+undo.
+
+**The null cell I will report either way (Rule 79).** d(ln prefill) for a decode-only
+kernel change is a null cell by construction — the patch cannot touch prefill — so its
+measured value is a live estimate of my instrument's per-block noise on this host, and I
+report it next to the effect cell whatever it says. If prefill moves *significantly* in
+either direction, that is evidence of an instrument or thermal problem, not of a prefill
+effect, and it invalidates the block rather than supporting a claim.
+
+#### 5.3.4 Result
+
+_Filled in below from `research/artifacts/maple-fern-r106j/abba_t0_t0p/runs.tsv` once the
+sweep terminates._
 
 ### 5.4 Candidates that did not arrive
 
