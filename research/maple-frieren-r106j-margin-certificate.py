@@ -431,6 +431,40 @@ def certify(args) -> int:
         "perturbation_at_baseline_top2_max": float(d[r, t2].max()),
     }
 
+    # --- 5b. hidden-anchor exposure (TASK.md:131-134) ---------------------
+    # The observed margin distribution is NOT the distribution an anchor is
+    # drawn from: TASK.md:134 says anchors cover "near-tie hardware cases",
+    # i.e. they are SELECTED for small margins. So the question that matters
+    # is not "did our margins survive" but "how much ground can a competitor
+    # gain on the incumbent here". That quantity is a property of the
+    # perturbation alone and transfers to a tighter margin distribution.
+    #
+    # gain(t) = max over the baseline top-N challengers j != top1 of
+    #           (delta_j - delta_top1), signed. A challenger sitting m below
+    #           the incumbent overtakes it iff gain > m.
+    sd = cd - bl                      # signed delta, candidate - baseline
+    chal = idx[rows, order]           # baseline top-(N+1) token ids, sorted
+    chal_sd = sd[rows, chal]          # signed delta at each of them
+    gain = (chal_sd[:, 1:] - chal_sd[:, :1]).max(axis=1)
+    probe = [0.0, 0.0625, 0.125, 0.25, 0.375, 0.5, 1.0, 2.0, 4.0]
+    safety["hidden_anchor_exposure"] = {
+        "definition": "signed ground a baseline top-%d challenger gains on the "
+                      "baseline top-1 at this position; a near-tie anchor with "
+                      "margin m flips iff gain > m" % N,
+        "gain_max": float(gain.max()),
+        "gain_p99": float(np.percentile(gain, 99)),
+        "gain_p50": float(np.percentile(gain, 50)),
+        "positions": int(n_pos),
+        "fraction_of_positions_that_would_flip_at_margin": {
+            f"{m:g}": float((gain > m).mean()) for m in probe},
+        "note": (
+            "This is the extrapolation the required sections cannot make. It "
+            "reads: IF a hidden anchor sits at a near-tie of margin m in a "
+            "context whose perturbation looks like ours, it flips with about "
+            "this probability. It is an estimate, not a bound: the anchor's "
+            "context is not ours."),
+    }
+
     verdict, reasons = _verdict(pert, marg, safety, argmax, rank)
     if free_run.get("diverged"):
         verdict = "FAIL"
@@ -596,6 +630,17 @@ def _print_human(r):
         print(f"                 realised candidate margin min "
               f"{d['realised_margin_min']:.6g}   negative "
               f"{d['realised_margin_negative_count']}")
+    h = s.get("hidden_anchor_exposure")
+    if h:
+        print(f"5b anchor exposure  challenger gain on incumbent: max "
+              f"{h['gain_max']:.6g}   p99 {h['gain_p99']:.6g}   p50 "
+              f"{h['gain_p50']:.6g}")
+        cells = "  ".join(
+            f"m={k}:{v * 100:.0f}%"
+            for k, v in h["fraction_of_positions_that_would_flip_at_margin"]
+            .items())
+        print(f"                 est. flip rate at a near-tie of margin m")
+        print(f"                 {cells}")
     f = r.get("7_free_run")
     if f and f.get("applicable"):
         print(f"7 free-run       diverged={f['diverged']}   common prefix "

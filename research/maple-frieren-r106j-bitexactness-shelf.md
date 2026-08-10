@@ -151,6 +151,72 @@ It reports the five required sections:
 Plus §6 of the report: an explicit, itemised statement of what it does **not**
 cover. That section is not boilerplate; it is the honest half of the deliverable.
 
+### §2.1 Two sections I added after seeing the first output
+
+The five required sections turned out to be *necessary but not sufficient*, in a
+way I could only see once real numbers existed. I added two more.
+
+**§3b, the decision-relevant safety factor.** The required global safety factor
+is `min_margin / max_perturbation`. That ratio takes the largest perturbation
+*anywhere in the vocabulary* and compares it against the smallest margin
+*anywhere in the run*. It is a legitimate worst case, but it is not the quantity
+that decides a token. A token flips at position *t* iff
+
+```
+margin(t)  <  Δ_top1(t) − Δ_top2(t)     (signed; bounded by |Δ_top1| + |Δ_top2|)
+```
+
+so I compute `margin(t) / (|Δ_top1(t)| + |Δ_top2(t)|)` per position, using each
+position's *own* perturbation at its *own* top-1 and top-2 rows. If this is
+below 1 the token can flip; the global factor can be 100× more pessimistic
+because its numerator and denominator come from different positions and
+different ranks. Reporting only the global factor would have made this lever
+look far more dangerous than the mechanism warrants — and I would rather be
+accused of steel-manning a lever I am about to reject than of strawmanning it.
+
+**§7, free-run divergence.** `TASK.md:136-138` runs greedy continuations, where
+the model's own output is fed back. A teacher-forced certificate is blind to
+this: it re-anchors on the golden prefix at every step, so a flip at step *k*
+cannot influence step *k+1*. In free-run mode the arms can walk apart, and the
+certificate now reports the common-prefix length and the first divergence step,
+truncates the margin analysis to the common prefix (comparing logits after the
+contexts have diverged is meaningless), and **forces the verdict to FAIL** on
+any divergence. That is stricter than the assignment's B1 rule and it should be.
+
+### §2.2 The null cell (Rule 79), run first
+
+An instrument that reports a difference is worthless until you have shown it
+reports *no* difference when there is none to report. Before certifying
+anything I captured the **same binary twice**, in two independent worker
+launches, with identical environment, and certified one against the other.
+
+| | |
+|---|---|
+| arms | `baseline_stock` vs `baseline_replicate2` (two launches of one build) |
+| mode | teacher-forced, 65 positions (step 0 + 64), full vocab `top_k = 100352` |
+| elements compared | 6,522,880 |
+| elements differing | **0** |
+| verdict | **`PASS-BIT-EXACT`** |
+| report | `/tmp/r106j/cert_null.json` |
+
+So the whole path — worker launch, weight preparation, prompt processing, the
+logit capture, the serialisation — is **bitwise deterministic** on this machine.
+That has three consequences I lean on for the rest of this note:
+
+1. **Attribution.** Every difference the candidate arm shows is caused by the
+   flag and nothing else. There is no run-to-run noise floor to subtract.
+2. **This is also the Rule 33 reachability proof for B0.** The flag site has no
+   `DARKBLOOM_TRACE_FUSION` line, so there is no trace string to grep for. But a
+   bitwise-deterministic pipeline that produces 5,596,429 differing logits when
+   and only when `DARKBLOOM_QMV_WIDE_CODES=1` **is** the proof that the code
+   ran. A dead flag cannot perturb a deterministic output. See §3.1.
+3. It kills, on this tree, the `CURRENT_RESEARCH_STATE.md` "compound-gate trap"
+   warning that A/B-ing wide codes alone "measures a guaranteed null". The
+   precondition `lagunaSharedScaleHalvedEnabled` is default-ON
+   (`LagunaRuntimeModel.swift:310-311`), the halved plane *is* installed
+   (`LagunaRuntimeLayers.swift:84-100`), and the measured null is 0 % of
+   elements, not 100 %. That note is stale and I say so out loud.
+
 <!-- RESULTS-A -->
 
 ---
