@@ -1,6 +1,7 @@
 # SENPAI Research State
 
-- **2026-08-10T21:25Z — round 109 (endgame), mid-round re-allocation done.**
+- **2026-08-10T21:50Z — round 109 (endgame), mid-round re-allocation done;
+  the pricing bracket is RESOLVED (§A) and broadcast to all six students.**
 - Most recent human/operator direction: none newer than §1; the standing
   direction is unchanged — beat the crown on the serial
   `laguna-xs-2.1-serial-v2` track without changing a single checked token.
@@ -8,36 +9,110 @@
   **`1a6761bf46c282fcabd0577b618f0c1206757e6c`**.
   Campaign `BASE_SHA` for submission: **`1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7`**.
 
-> 🟥🟥🟥 **R109 MID-ROUND — FOUR THINGS CHANGED AT 21:20Z. READ THIS BEFORE
-> ANYTHING BELOW IT; WHERE IT CONTRADICTS AN OLDER SECTION, THIS WINS.**
+> 🟥🟥🟥 **R109 MID-ROUND — FOUR THINGS CHANGED AT 21:20Z, AND §A WAS RESOLVED
+> AT 21:50Z. READ THIS BEFORE ANYTHING BELOW IT; WHERE IT CONTRADICTS AN OLDER
+> SECTION, THIS WINS.**
 >
-> ### A. The single "% of score per M4 µs" constant is RETRACTED. It is an 8× bracket.
+> ### A. The pricing bracket is RESOLVED. There was never one constant — there is an elasticity model plus a per-mechanism transfer factor.
 >
-> Three independent programme estimates of the same quantity disagree by 8×
-> and have never been reconciled:
+> Source: `research/maple-fern-terminal-report.md:40-70` (fern, round 106). It
+> is an algebraic identity at a pinned baseline, not a fit: it reproduces the
+> published M5 score to five decimals and both speedups to six.
 >
-> | source | % score per M4 busy µs/step | 0.378 % needs |
-> |---|---:|---:|
-> | additive-busy model `(µs/8972) × 0.8 transfer × 0.75 decode weight` | 0.00669 | **57 µs/step** |
-> | alphonse #644 host-unit conversion | 0.01642 | 23 µs/step |
-> | tanjiro #663 repriced dispatch axis (158 disp ≈ 70.8 µs ⇒ 0.1439 %) | 0.00203 | **186 µs/step** |
+> ```text
+> S     = 512000 × prefill_seconds_per_token   (ms)   the 512-token seed forward
+> D     = 1000   × decode_seconds_per_token    (ms)   the scored decode axis
+> T     = D − S/128                            (ms)   the steady decode step
+> sigma = (S/128)/D                                   seed share of the decode axis
+> d ln score / d ln T = −0.75 × (1 − sigma)
+> d ln score / d ln S = −(0.25 + 0.75 × sigma)
+> ```
 >
-> First-principles and now canonical: removing Δ µs of M4 decode **wall** per
-> token is worth `0.75 × Δ/8972` = **0.00836 %/µs**. Busy→wall transfer was
-> measured at **0.93** (E0: −69.71 ± 36.21 µs busy for −64.71 ± 116.43 µs wall)
-> with a very wide CI; **plan at 0.8** ⇒ **0.00669 %/µs of busy**.
+> | context | S (ms) | T (ms) | sigma | elasticity S | elasticity T |
+> |---|---:|---:|---:|---:|---:|
+> | official M5, our frontier snapshot | 97.863 | 4.3224 | 14.98 % | 0.362 | **0.638** |
+> | M5 pinned baseline | 193.544 | 12.3206 | | | |
+> | M4 `--local-iterate` | 585.6 | 8.769 | 33.6 % | 0.502 | 0.498 |
+> | M4 `--local-submit` | | | ~5.9 % | 0.294 | 0.706 |
+>
+> **Reconciliation of the three "disagreeing" numbers — all three were right
+> about different things:**
+>
+> - **#644's `0.01642 %/µs` is CORRECT, in M5 *steady-step* µs.** It is
+>   `elasticity_T / T_M5`. On the archived snapshot `0.638/4322 µs = 0.01476`;
+>   on the current frontier (`T_M5 ≈ 4.03 ms`) ≈ `0.0158`. It was never an M4
+>   constant, and the 8× "disagreement" is mostly just the M4→M5 step-time
+>   ratio (`8972/4322 ≈ 2.08`) times the harness sigma differences.
+> - **#663's `0.00203 %/µs` is NOT a general price.** It is the
+>   **dispatch-overhead mechanism class** exhibiting its own M4→M5 transfer
+>   factor τ. #663's axis-retirement conclusion stands untouched.
+> - **My additive-busy `0.00669` was right to within 5 %** and is now
+>   superseded by the chain below.
+>
+> **CANONICAL CHAIN (snapshot-independent — use this):**
+>
+> ```text
+> %score = elasticity_T × τ × (Δ_M4_steady_step_wall_µs / T_M4)
+>        = 0.63 × τ × Δ / 8972
+> ```
+>
+> At **τ = 1** this is **0.0070 % per M4 steady-step WALL µs**, or
+> **0.0056 % per M4 decode BUSY µs** (busy→wall transfer measured 0.93 with a
+> very wide CI; plan at 0.80).
+>
+> **τ by mechanism class (calibrated from the archive):**
+>
+> | mechanism removed | τ (M4 µs → M5 µs) | interpretation |
+> |---|---:|---|
+> | DRAM traffic / real memory work | **≈ 106 %** | transfers essentially 1:1 |
+> | dispatch / launch / command overhead | **≈ 1 %** | does not transfer; this is #663 |
+> | threadgroup-geometry change | **unknown, can change sign** | PR #7 failure mode |
+>
+> **THE BAR: 0.378 % short of the crown = 54 µs of M4 steady-step wall, or
+> 68 µs of M4 decode busy, per token** (at τ = 1).
+>
+> **HARNESS CORRECTION — a 1.42× swing between the two local harnesses on the
+> same physical change:**
+>
+> - `--local-iterate` (sigma 33.6 % ⇒ elasticity_T 0.498) **under-reports a
+>   steady-step win by 1.28× — MULTIPLY the reported `ns` gain by 1.28.**
+> - `--local-submit` (sigma ≈ 5.9 % ⇒ 0.706) **over-reports by 1.11× — DIVIDE
+>   by 1.11.**
+> - Every student must report raw `ns`, the corrected figure, and which
+>   harness produced it.
+>
+> **Two τ de-riskers that apply to the whole current slate:** (1) steady decode
+> is **100 % host-independent** — there is no NAX or `#available` gate anywhere
+> on it, every kernel is `laguna_*`, and the M5 runs the *same* kernels
+> (contrast prefill, where 94.2 % of M4 GPU time is fallback the M5 never
+> executes); (2) students are removing **measured GPU busy**, not slack —
+> `busy_sum ≈ busy_union` proves the decode kernels are serialized.
+>
+> **Repriced slate — four of five arms clear the entire bar at ≤27 % harvest:**
+>
+> | arm | pool µs/step | harvest needed for 0.378 % | %score at 25 / 50 / 100 % |
+> |---|---:|---:|---|
+> | edward `sliding_fused_attn_ring_v1` | 627.3 | **10.8 %** | 0.88 / 1.76 / 3.51 |
+> | frieren `residual_rms_router` | 320.1 | 21.2 % | 0.45 / 0.90 / 1.79 |
+> | tanjiro `gate_sp_h64`+`h48` | 313 | 21.7 % | 0.44 / 0.88 / 1.75 |
+> | alphonse `full_fused_attn_grow_v1` | 249.5 | 27.2 % | 0.35 / 0.70 / 1.40 |
+> | nezuko `rmsbfloat16` | 142.3 | 47.8 % | 0.20 / 0.40 / 0.80 |
+>
+> **Operational consequence — the primary submission path is now "submit the
+> single best VERIFIED arm", with composites as strictly upside.** Three of the
+> five arms are not bit-exact, so any composite needs a fresh full correctness
+> gate run — the longest item on the critical path — whereas a single-arm
+> candidate inherits its author's gate run. fern (#686) maintains a ranked
+> queue of independently gated, independently paired-measured single-arm
+> candidates, harness-normalised per the correction above.
 >
 > **Standing instruction to all six students: report ceilings and results in
-> MICROSECONDS of decode busy removed, alongside `ns`. Do not convert to
-> percent with any single constant. The advisor converts centrally.** Two
-> earlier notes of mine were arithmetically wrong and are corrected here:
-> "0.378 % = 565 µs/step" (10× too big; the additive-model figure is 57 µs) and
-> "a fully harvested 413 µs gap ⇒ 0.28 %" (never derived; first principles say
-> **3.45 %**, and the only reason 0.28 % is nearer the truth is #663's finding
-> that the slack is already spent).
->
-> **Open programme question, assigned to tanjiro as second priority:** reconcile
-> #644 (0.01642) against #663 (0.00203).
+> MICROSECONDS of M4 decode busy removed, alongside `ns`. Do not convert to
+> percent yourself. The advisor converts centrally.** Two earlier notes of mine
+> were arithmetically wrong and are corrected here: "0.378 % = 565 µs/step"
+> (10× too big) and "a fully harvested 413 µs gap ⇒ 0.28 %" (never derived;
+> the chain says 2.90 %, and the only reason a small number is nearer the truth
+> is #663's finding that the slack is gap, not busy, and already spent).
 >
 > ### B. The additive-busy model is confirmed. Kernels are serialized; only in-kernel µs move the clock.
 >
@@ -189,19 +264,23 @@
 >
 > | PR | student | arm (after mid-round re-allocation) | new file |
 > |---|---|---|---|
-> | #681 | frieren | cadence Stage-0 (2 masks) → **router `rpg` sweep** | `LagunaResidualRmsRouterDefaults.swift` |
+> | #681 | frieren | cadence Stage-0 (2 masks) → **router PREFETCH sweep first, `rpg` diagnostic only** | `LagunaResidualRmsRouterDefaults.swift` |
 > | #682 | nezuko | **RMSNorm → NVFP4 QKV fusion** (Arm G rung 1) | `LagunaNormFusedNVFP4QKV.swift` |
 > | #683 | tanjiro | **`gate_sp` occupancy 8 → 64 TGs** | `LagunaGateSoftplusOccupancy.swift` |
 > | #684 | edward | sliding attention QK MMA | `LagunaSlidingAttnQKMMA.swift` |
 > | #685 | alphonse | full attention QK MMA + params-atlas | `LagunaFullAttnQKMMA.swift` |
 > | #686 | fern | integration, verification, **sole submission driver** | — |
 >
-> Priced against the bracket: tanjiro ~236 µs = **0.48 %–1.58 %** — the only arm
-> that clears the 0.378 % bar under **all three** constants, so it is the
-> highest-priority arm. frieren's rpg pivot = 0.32 %–1.07 %. nezuko's
-> `rmsbfloat16` = 0.29 %–0.95 %, straddling the bar; nezuko must report the
-> `rmsbfloat16` µs removed **and** the QKV kernel's own delta separately,
-> because >~40 µs of QKV growth means the fused layout is wrong.
+> Repriced against the resolved chain in §A (see the harvest table there):
+> **edward is now the highest-priority arm** — largest pool (627.3 µs/step) and
+> the lowest harvest requirement (10.8 % clears the whole bar). Both attention
+> kernels also carry the compute/latency bandwidth signature (≈8.1–8.6 MB per
+> share-% ≈ 100 GB/s, 38 % of the 263.29 GB/s M4 read ceiling), which is the
+> mechanistic reason QK-MMA is the right shape there and hopeless on the
+> DRAM-pinned QMV kernels (19–22 MB per share-% = 235–265 GB/s). nezuko's
+> `rmsbfloat16` is the weakest single arm (47.8 % harvest needed) and must
+> report the `rmsbfloat16` µs removed **and** the QKV kernel's own delta
+> separately: QKV growth ≤40 µs is good, 40–74 µs suspect, >74 µs is a stop.
 >
 > **Two escalation triggers I am watching for at the 23:00Z/23:30Z Stage-0
 > checkpoint:**
