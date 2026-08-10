@@ -8,8 +8,31 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = Path(__file__).with_name("transform_verifier_runtime_coverage_manifest.json")
 SOURCE_REVISION = "dd35f692f26a17c93f69065ea8208e349f23743a"
+REVISION_ID = "cedar-nezuko-transform-verifier-runtime-coverage-20260810-r3-tracked-dependency-citation-closure"
 DEPENDENCY_REVISIONS = {
     "swift-transformers": "2fa33e1f5e7131a7fc64c28e6d161dcec0d24820",
+}
+DEPENDENCY_EVIDENCE = {
+    "swift-transformers": {
+        "package_identity": "swift-transformers",
+        "repository_url": "https://github.com/huggingface/swift-transformers",
+        "revision": DEPENDENCY_REVISIONS["swift-transformers"],
+        "version": "1.3.3",
+        "source_path": "Sources/Hub/Hub.swift",
+        "source_range": {"start": 247, "end": 298},
+        "content_addressed_url": (
+            "https://github.com/huggingface/swift-transformers/blob/"
+            "2fa33e1f5e7131a7fc64c28e6d161dcec0d24820/Sources/Hub/Hub.swift#L247-L298"
+        ),
+        "excerpt_sha256": "1cec8edb95382bee855ef929f63370e578548bd36ee61751782bcaa969f1cd65",
+        "required_path_anchors": [
+            "config.json",
+            "tokenizer.json",
+            "tokenizer_config.json",
+            "chat_template.jinja",
+            "chat_template.json",
+        ],
+    }
 }
 REQUIRED_FIELDS = {
     "id",
@@ -72,6 +95,10 @@ EXPECTED_IGNORES = [".benchmark-source.sha256", ".gitkeep"]
 RUNTIME_BOUNDS = {"fixed_root", "fixed_child", "index_bounded", "root_bounded"}
 KNOWN_DEFECT = "edge.runtime_directory_inventory.nonregular_safetensors_suffix"
 CITATION_RE = re.compile(r"^(?P<path>[^:;]+):(?P<ranges>\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*)$")
+DEPENDENCY_CITATION_RE = re.compile(
+    r"^dependency:(?P<identity>[^:;]+):(?P<path>[^:;]+):"
+    r"(?P<ranges>\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*)$"
+)
 REQUIRED_SOURCE_ANCHORS = {
     ("Sources/MLXFastTransform/CheckpointIndex.swift", 28, 57): ("writeStripped", "data.write"),
     ("Sources/MLXFastTransform/Transform.swift", 506, 551): ("captureMetadataFiles", "shouldCopyMetadataFile"),
@@ -81,22 +108,28 @@ REQUIRED_SOURCE_ANCHORS = {
     ("Sources/MLXFastTrustedHarness/LagunaRuntimeCorrectness.swift", 467, 470): ("loadLocalTokenizer",),
     ("Sources/MLXFastTrustedHarness/LagunaRuntimeSupport.swift", 96, 100): ("AutoTokenizer.from",),
     ("Package.resolved", 266, 271): (DEPENDENCY_REVISIONS["swift-transformers"],),
+}
+REQUIRED_DEPENDENCY_ANCHORS = {
     (
-        "Vendor/mlx-swift-lm/.build/checkouts/swift-transformers/Sources/Hub/Hub.swift",
+        "swift-transformers",
+        DEPENDENCY_EVIDENCE["swift-transformers"]["source_path"],
         247,
         298,
-    ): (
-        "config.json",
-        "tokenizer.json",
-        "tokenizer_config.json",
-        "chat_template.jinja",
-        "chat_template.json",
-    ),
+    ): tuple(DEPENDENCY_EVIDENCE["swift-transformers"]["required_path_anchors"]),
 }
 
 
 def canonical_bytes(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+
+
+def parse_ranges(ranges):
+    for range_text in ranges.split(","):
+        if "-" in range_text:
+            start_text, end_text = range_text.split("-", 1)
+        else:
+            start_text = end_text = range_text
+        yield range_text, int(start_text), int(end_text)
 
 
 def parse_citation(value, context, errors):
@@ -110,7 +143,27 @@ def parse_citation(value, context, errors):
 
     parsed = []
     for part in value.split(";"):
-        match = CITATION_RE.fullmatch(part.strip())
+        text = part.strip()
+        dependency_match = DEPENDENCY_CITATION_RE.fullmatch(text)
+        if dependency_match:
+            identity = dependency_match.group("identity")
+            expected = DEPENDENCY_EVIDENCE.get(identity)
+            if expected is None:
+                errors.append(f"dependency_citation_identity:{context}:{identity}")
+                continue
+            path = dependency_match.group("path")
+            if path != expected["source_path"]:
+                errors.append(f"dependency_citation_path:{context}:{identity}:{path}")
+                continue
+            expected_range = expected["source_range"]
+            for range_text, start, end in parse_ranges(dependency_match.group("ranges")):
+                if {"start": start, "end": end} != expected_range:
+                    errors.append(f"dependency_citation_range:{context}:{identity}:{range_text}")
+                    continue
+                parsed.append(("dependency", identity, path, start, end))
+            continue
+
+        match = CITATION_RE.fullmatch(text)
         if not match:
             errors.append(f"citation_format:{context}")
             continue
@@ -128,24 +181,77 @@ def parse_citation(value, context, errors):
             errors.append(f"citation_missing_path:{context}:{relative_path.as_posix()}")
             continue
         lines = source_path.read_text(errors="replace").splitlines()
-        for range_text in match.group("ranges").split(","):
-            if "-" in range_text:
-                start_text, end_text = range_text.split("-", 1)
-            else:
-                start_text = end_text = range_text
-            start, end = int(start_text), int(end_text)
+        for range_text, start, end in parse_ranges(match.group("ranges")):
             if start < 1 or end < start or end > len(lines):
                 errors.append(f"citation_range:{context}:{relative_path.as_posix()}:{range_text}")
                 continue
-            parsed.append((relative_path.as_posix(), start, end))
+            parsed.append(("tracked", relative_path.as_posix(), start, end))
     return parsed
 
 
-def validate_source_anchors(citations, errors):
-    cited = set(citations)
+def validate_dependency_evidence(manifest, errors):
+    evidence_map = manifest.get("dependency_evidence")
+    if not isinstance(evidence_map, dict):
+        errors.append("dependency_evidence")
+        return
+    if set(evidence_map) != set(DEPENDENCY_EVIDENCE):
+        errors.append("dependency_evidence_identities")
+
+    for identity, expected in DEPENDENCY_EVIDENCE.items():
+        evidence = evidence_map.get(identity)
+        if not isinstance(evidence, dict):
+            errors.append(f"dependency_evidence_missing:{identity}")
+            continue
+        for field, expected_value in expected.items():
+            if evidence.get(field) != expected_value:
+                errors.append(f"dependency_evidence_field:{identity}:{field}")
+
+        excerpt = evidence.get("excerpt")
+        if not isinstance(excerpt, str):
+            errors.append(f"dependency_excerpt_missing:{identity}")
+            continue
+        if not excerpt.endswith("\n"):
+            errors.append(f"dependency_excerpt_final_newline:{identity}")
+        source_range = expected["source_range"]
+        expected_lines = source_range["end"] - source_range["start"] + 1
+        if len(excerpt.splitlines()) != expected_lines:
+            errors.append(f"dependency_excerpt_line_count:{identity}")
+        digest = hashlib.sha256(excerpt.encode()).hexdigest()
+        if digest != evidence.get("excerpt_sha256"):
+            errors.append(f"dependency_excerpt_digest:{identity}")
+        if digest != expected["excerpt_sha256"]:
+            errors.append(f"dependency_excerpt_pinned_digest:{identity}")
+        for anchor in expected["required_path_anchors"]:
+            if anchor not in excerpt:
+                errors.append(f"dependency_excerpt_anchor:{identity}:{anchor}")
+
+    try:
+        resolved = json.loads((REPO_ROOT / "Package.resolved").read_text())
+    except (OSError, json.JSONDecodeError):
+        errors.append("dependency_package_resolved_unreadable")
+        return
+    pins = resolved.get("pins", [])
+    for identity, expected in DEPENDENCY_EVIDENCE.items():
+        matches = [pin for pin in pins if pin.get("identity") == identity]
+        if len(matches) != 1:
+            errors.append(f"dependency_package_pin_count:{identity}")
+            continue
+        pin = matches[0]
+        state = pin.get("state", {})
+        if pin.get("location") != expected["repository_url"]:
+            errors.append(f"dependency_package_location:{identity}")
+        if state.get("revision") != expected["revision"]:
+            errors.append(f"dependency_package_revision:{identity}")
+        if state.get("version") != expected["version"]:
+            errors.append(f"dependency_package_version:{identity}")
+
+
+def validate_source_anchors(citations, manifest, errors):
+    tracked_citations = {citation[1:] for citation in citations if citation[0] == "tracked"}
+    dependency_citations = {citation[1:] for citation in citations if citation[0] == "dependency"}
     for anchor, required_text in REQUIRED_SOURCE_ANCHORS.items():
         path, start, end = anchor
-        if anchor not in cited:
+        if anchor not in tracked_citations:
             errors.append(f"source_anchor_missing:{path}:{start}-{end}")
             continue
         lines = (REPO_ROOT / path).read_text(errors="replace").splitlines()
@@ -154,6 +260,17 @@ def validate_source_anchors(citations, errors):
             if token not in excerpt:
                 errors.append(f"source_anchor_text:{path}:{start}-{end}:{token}")
 
+    evidence_map = manifest.get("dependency_evidence", {})
+    for anchor, required_text in REQUIRED_DEPENDENCY_ANCHORS.items():
+        identity, path, start, end = anchor
+        if anchor not in dependency_citations:
+            errors.append(f"dependency_anchor_missing:{identity}:{path}:{start}-{end}")
+            continue
+        excerpt = evidence_map.get(identity, {}).get("excerpt", "")
+        for token in required_text:
+            if token not in excerpt:
+                errors.append(f"dependency_anchor_text:{identity}:{path}:{start}-{end}:{token}")
+
 
 def validate(manifest):
     errors = []
@@ -161,8 +278,11 @@ def validate(manifest):
         errors.append("schema_version")
     if manifest.get("source_revision") != SOURCE_REVISION:
         errors.append("source_revision")
+    if manifest.get("revision_id") != REVISION_ID:
+        errors.append("revision_id")
     if manifest.get("dependency_source_revisions") != DEPENDENCY_REVISIONS:
         errors.append("dependency_source_revisions")
+    validate_dependency_evidence(manifest, errors)
     if manifest.get("terminal_verdict") != "COVERAGE_DEFECT":
         errors.append("terminal_verdict")
 
@@ -199,7 +319,7 @@ def validate(manifest):
     failure = manifest.get("first_failure", {})
     for index, citation in enumerate(failure.get("citations", [])):
         parsed_citations.extend(parse_citation(citation, f"first_failure:{index}", errors))
-    validate_source_anchors(parsed_citations, errors)
+    validate_source_anchors(parsed_citations, manifest, errors)
 
     fixture = manifest.get("control_fixture", {})
     row_ids = set(ids)
@@ -327,6 +447,22 @@ def controls(manifest):
     candidate = copy.deepcopy(manifest)
     candidate["rows"][0]["citations"]["producer"] = "Sources/MLXFastTransform/Transform.swift:999999-1000000"
     cases.append(("invalid_source_range", validate(candidate)))
+
+    candidate = copy.deepcopy(manifest)
+    candidate["dependency_evidence"]["swift-transformers"]["revision"] = "0" * 40
+    cases.append(("drift_dependency_revision", validate(candidate)))
+
+    candidate = copy.deepcopy(manifest)
+    candidate["dependency_evidence"]["swift-transformers"]["excerpt"] = candidate[
+        "dependency_evidence"
+    ]["swift-transformers"]["excerpt"].replace("config.json", "config.drift", 1)
+    cases.append(("drift_dependency_excerpt", validate(candidate)))
+
+    candidate = copy.deepcopy(manifest)
+    candidate["dependency_evidence"]["swift-transformers"]["required_path_anchors"][0] = (
+        "config.drift"
+    )
+    cases.append(("drift_dependency_anchor", validate(candidate)))
 
     return [{"id": control_id, "errors": errors} for control_id, errors in cases]
 

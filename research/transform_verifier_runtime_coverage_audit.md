@@ -70,9 +70,14 @@ The official workflow passes the transformed weights root to the CLI, which
 passes the same path as `semanticGPQATokenizerPath`
 (`.github/workflows/benchmark.yml:1503-1515`;
 `Sources/MLXFastCLI/main.swift:362-370`). Semantic correctness then loads the
-local tokenizer through the pinned `swift-transformers` revision
+local tokenizer through `swift-transformers` version `1.3.3` at revision
 `2fa33e1f5e7131a7fc64c28e6d161dcec0d24820`
-(`Package.resolved:266-271`).
+(`Package.resolved:266-271`). The manifest embeds the exact newline-terminated
+`Sources/Hub/Hub.swift:247-298` excerpt from that revision, cites its
+content-addressed URL, and binds it with SHA-256
+`1cec8edb95382bee855ef929f63370e578548bd36ee61751782bcaa969f1cd65`.
+This makes the five tokenizer path probes independently checkable from tracked
+content without a dependency checkout or network access.
 
 | Phase | Path expression | Consumer and fallback | Escape/bound |
 |---|---|---|---|
@@ -82,11 +87,11 @@ local tokenizer through the pinned `swift-transformers` revision
 | Shard headers | `weightsRoot/<validated index shardName>` | `DenseTensorStore.swift:166-227` and `RuntimeWeightLoading.swift:45-63`; required | Local basename validator in `Sources/MLXFastCore/PathValidation.swift:3-17` prevents path escape |
 | Tensor payloads | Same index-derived shard, indexed byte ranges | `DenseTensorStore.swift:39-118`, reached by `LagunaRuntimeWeights.swift:626-638` | Same bounded local shard set |
 | Semantic tokenizer root | `semanticTokenizerPath == weightsRoot` | Workflow/CLI binding above; harness checks required children at `LagunaRuntimeBenchmark.swift:314-332`, then correctness calls `loadLocalTokenizer` at `LagunaRuntimeCorrectness.swift:467-470` and `LagunaRuntimeSupport.swift:96-100` | Fixed root binding |
-| Tokenizer model | `weightsRoot/tokenizer.json` | Required preflight file and required parse by `Vendor/mlx-swift-lm/.build/checkouts/swift-transformers/Sources/Hub/Hub.swift:247-298` | Fixed child path |
-| Tokenizer configuration | `weightsRoot/tokenizer_config.json` | Required preflight file; helper conditionally decodes it when present (`Hub.swift:247-298`) | Fixed child path |
-| Tokenizer model configuration | `weightsRoot/config.json` | Helper conditionally decodes model configuration when present (`Hub.swift:247-298`) | Fixed child path, joined to transform configuration |
-| Preferred chat template | `weightsRoot/chat_template.jinja` | Helper probes this fixed child first (`Hub.swift:247-298`); transform output proves it absent | Fixed conditional probe |
-| Fallback chat template | `weightsRoot/chat_template.json` | Helper probes this fixed child only after the Jinja miss (`Hub.swift:247-298`) | Fixed conditional probe |
+| Tokenizer model | `weightsRoot/tokenizer.json` | Required preflight file and required parse by pinned dependency evidence `swift-transformers:Sources/Hub/Hub.swift:247-298` | Fixed child path |
+| Tokenizer configuration | `weightsRoot/tokenizer_config.json` | Required preflight file; pinned dependency evidence conditionally decodes it when present | Fixed child path |
+| Tokenizer model configuration | `weightsRoot/config.json` | Pinned dependency evidence conditionally decodes model configuration when present | Fixed child path, joined to transform configuration |
+| Preferred chat template | `weightsRoot/chat_template.jinja` | Pinned dependency evidence probes this fixed child first; transform output proves it absent | Fixed conditional probe |
+| Fallback chat template | `weightsRoot/chat_template.json` | Pinned dependency evidence probes this fixed child only after the Jinja miss | Fixed conditional probe |
 
 ### Coverage join through the failure
 
@@ -167,11 +172,13 @@ inventory parity was not evaluated after its earlier authority stop
 uniqueness, required producer/verifier/runtime/ignored/marker classes, the main
 and pinned dependency revisions, producer-to-runtime joins, marker ownership,
 source-hash binding, per-runtime-row path bounds, normalization, and the known
-first defect. Citations must resolve to existing repository files with valid
-line ranges; selected workflow, transform, index, harness, dependency-pin, and
-pinned tokenizer-helper ranges must also contain their expected source anchors.
+first defect. Tracked citations must resolve to existing repository files with
+valid line ranges. The dependency citation resolves to the manifest's exact
+52-line, final-newline excerpt; its SHA-256 and five source anchors are checked,
+and its repository, revision, and version are structurally bound to tracked
+`Package.resolved` metadata.
 
-The checker mutates only copied manifest objects for fourteen controls:
+The checker mutates only copied manifest objects for seventeen controls:
 
 1. omit config;
 2. omit index metadata;
@@ -186,8 +193,11 @@ The checker mutates only copied manifest objects for fourteen controls:
 10. omit the `tokenizer.json` producer row;
 11. omit the `tokenizer_config.json` runtime row;
 12. reassign the tokenizer producer/runtime join;
-13. replace a real citation with a nonexistent source path; and
-14. replace a real citation with an out-of-bounds line range.
+13. replace a real citation with a nonexistent source path;
+14. replace a real citation with an out-of-bounds line range;
+15. drift the pinned dependency revision;
+16. mutate the embedded dependency excerpt; and
+17. remove a required dependency source anchor.
 
 Every control produces machine-readable errors while the unmodified manifest
 has an empty `manifest_errors` array. The checker prints one canonical JSON line
@@ -195,7 +205,7 @@ containing the canonical manifest SHA-256, terminal verdict, baseline errors,
 known defect, and all control errors. Repeated executions are byte-identical.
 The SHA-256 of that exact newline-terminated checker output is:
 
-`478d27b8fead8674f0485a17594016e085151fcae7ac1bf86adffe5e24d6c7a0`
+`b4b9aa16af187824d053d6a7af8cb45696aff0a76aa7568ecb55c7502b3b7a18`
 
 ## Scope statement
 
