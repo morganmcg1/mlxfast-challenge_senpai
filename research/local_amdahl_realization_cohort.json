@@ -4,7 +4,7 @@
     "repo": "morganmcg1/mlxfast-challenge_senpai",
     "pr_number": 666,
     "assignment_id": "cedar-fern-local-amdahl-realization-audit-20260810",
-    "revision_id": "cedar-fern-local-amdahl-realization-audit-20260810-r1",
+    "revision_id": "cedar-fern-local-amdahl-realization-audit-20260810-r2-evidence-closure",
     "base_sha": "60ce7f20abb31a7ec775396822fb988d19ea732c",
     "decision_threshold": {
       "minimum_mechanism_clusters": 8,
@@ -135,8 +135,8 @@
       "full_order_evidence": {"abba": ["A", "B", "B", "A"], "baab": ["B", "A", "A", "B"]},
       "eligible": false,
       "first_exclusion_rule": "rule_3_missing_absolute_isolated_pair",
-      "observed": "38 compact layers plus one fallback yielded exactly 4,864 compact and 128 fallback calls across 128 decode steps. Two complete whole-model ABBA+BAAB matrices survived; every arm had 130 checked steps, max_abs_diff=0, and 21 GB peak RAM. Controlled-repeat pooled decode, prefill, composite speedups were 1.004189x, 1.000753x, 1.003329x.",
-      "censored": "Isolated evidence preserved only per-run gain vectors, not absolute base and candidate family times, so projected Amdahl saving cannot be reconstructed."
+      "observed": "38 compact layers plus one fallback yielded exactly 4,864 compact and 128 fallback calls across 128 decode steps. The isolated source labels four seven-value gain vectors as us/token. Two complete whole-model ABBA+BAAB matrices survived; every arm had 130 checked steps, max_abs_diff=0, and 21 GB peak RAM. Controlled-repeat pooled decode, prefill, composite speedups were 1.004189x, 1.000753x, 1.003329x.",
+      "censored": "The vectors are aggregate reported gains per decode token, not per-call savings. Absolute isolated base/candidate endpoints and the isolated loop operation normalizer are unavailable, so neither an admissible absolute per-call saving nor projected Amdahl saving P can be identified."
     },
     {
       "mechanism_id": "pr602-shared-expert-rms-output-fusion",
@@ -254,6 +254,26 @@
       "censored": "The mandatory whole-model phase was not run."
     }
   ],
+  "pr517_isolated_gain_evidence": {
+    "source_pr": 517,
+    "source_label": "us/token",
+    "reported_unit_label": "microseconds_per_decode_token",
+    "vector_semantics": "Each value is an aggregate reported saving per decode token for the isolated family benchmark. It is not an absolute base time, candidate time, or per-call saving.",
+    "scored_calls_per_decode_token": 39,
+    "scored_call_breakdown": {"compact": 38, "fallback": 1},
+    "absolute_base_times_available": false,
+    "absolute_candidate_times_available": false,
+    "isolated_loop_normalizer_available": false,
+    "admissible_per_call_saving_identified": false,
+    "admissible_projected_saving_identified": false,
+    "eligibility_conclusion": "The exact 39-call census cannot convert an aggregate gain vector into an absolute per-call saving without isolated base/candidate endpoints and the benchmark loop normalizer. Projected saving P remains unidentified, so rule 3 still fails.",
+    "gain_vectors": [
+      {"block_id": "window1-ab", "values": [17667.1, 17638.5, 17641.3, 17656.5, 17633.6, 17718.3, 17596.0], "reported_median": 17641.3},
+      {"block_id": "window1-ba", "values": [17647.8, 17633.2, 17632.1, 17634.6, 17758.2, 17654.1, 17664.0], "reported_median": 17647.8},
+      {"block_id": "window2-ab", "values": [17793.3, 17938.4, 17789.7, 17758.9, 17731.7, 17853.2, 17822.0], "reported_median": 17793.3},
+      {"block_id": "window2-ba", "values": [17856.3, 17796.3, 17775.6, 17768.9, 17871.3, 17958.9, 17954.7], "reported_median": 17856.3}
+    ]
+  },
   "arithmetic_checks": [
     {
       "check_id": "pr517-repeat-abba",
@@ -305,26 +325,31 @@
     "duplicate_mechanism_row",
     "swap_time_units",
     "omit_order",
-    "alter_candidate_sha"
+    "alter_candidate_sha",
+    "archive_extraction_missing_pr",
+    "archive_result_coverage_mismatch",
+    "real_digest_mismatch",
+    "archive_byte_mismatch"
   ],
-  "imported_artifacts": [
-    {"locator": "typed-get-prs campaign archive pull-requests-844db61edd851eedb7a0.md", "sha256": "b13377e52bc7fc5496cffe00e9dc87e5d66a23a0dbedae21d4f316ad281d507f"},
-    {"locator": "pr517 timing-repeat score arm 01", "sha256": "fdc7b8fde88acb2601f9d000df8dbd57a7ef6130ce054b60c28147dbe6ae7673"},
-    {"locator": "pr517 timing-repeat score arm 02", "sha256": "8e31ce3ccf7abd4f32fc6e6131f49e9424f55c31161a197a981111397f9bc483"},
-    {"locator": "pr517 timing-repeat score arm 03", "sha256": "8af6a5c512a2869ebfc28e47c3e0610e5b1c88c083ba3ac3c60536667a941a1c"},
-    {"locator": "pr517 timing-repeat score arm 04", "sha256": "83d50adb3c2c4e99320eee9046cb1a16f3816f7ca38bca9a5bbd140ca4a64e0d"},
-    {"locator": "pr517 timing-repeat score arm 05", "sha256": "d6ad762b6441662b3c0e7519c0f328a3bc718545f95f58a1889265af3d5413da"},
-    {"locator": "pr517 timing-repeat score arm 06", "sha256": "5a716c8a7661d874085de308faa4429fd365f7d2a407eb0c2fdd0f98dcd40ac2"},
-    {"locator": "pr517 timing-repeat score arm 07", "sha256": "cf3bee395218cbc0886e8f573feb36f2ef3951bb54138c8f9e56b5bc64ee42be"},
-    {"locator": "pr517 timing-repeat score arm 08", "sha256": "36b6f8b927c022136aa6aac37306754d58c5aea2eb889dbd78cde255573a3f4e"},
-    {"locator": "pr517 timing-repeat integrity arm 01", "sha256": "c549ea6d32abf0d478d34b5dfaf9e8ca58bb933a9f374bd5aaa92b1d413a58ed"},
-    {"locator": "pr517 timing-repeat integrity arm 02", "sha256": "b86be47d97805dbdf70dd6d122a7b849edae89a94be961bba5f1892b9a1668f8"},
-    {"locator": "pr517 timing-repeat integrity arm 03", "sha256": "fda714bef5550a8f85ade4347b2bb91fc904fe748ada60ceb3d2f5506849d16c"},
-    {"locator": "pr517 timing-repeat integrity arm 04", "sha256": "c9e5de07e0ee5bda2865250eb0bc383787255f887b86764bb4d0a67157f0a3b1"},
-    {"locator": "pr517 timing-repeat integrity arm 05", "sha256": "f24c1cacdc17ea42a7c7b48987f8ef65018138e58b4b26b1ed325406061cb2e2"},
-    {"locator": "pr517 timing-repeat integrity arm 06", "sha256": "50921922e39671ea29ee929e043701a8f565819b21b6d64585f0a2a19d2c7c53"},
-    {"locator": "pr517 timing-repeat integrity arm 07", "sha256": "949f0e1ea043aa2a4e8ff9a880c9d834834d22353a5b59230bd8cd7f7cef4e04"},
-    {"locator": "pr517 timing-repeat integrity arm 08", "sha256": "06ab23b0655533e93c1fc55a5b170d61b65be7c06313da2b14c291fed50dd507"}
+  "artifacts": [
+    {"artifact_id": "committed_archive_index", "locator": "committed archive/exclusion index", "availability": "committed", "path": "research/local_amdahl_realization_archive_index.json", "sha256": "dde91d675d71f4e5358002cc2612d03152358334027541d141e7d287b766e009"},
+    {"artifact_id": "source_campaign_archive", "locator": "typed-get-prs controller artifact pull-requests-844db61edd851eedb7a0.md", "availability": "external_controller_state", "verification_status_without_bytes": "unverified", "sha256": "b13377e52bc7fc5496cffe00e9dc87e5d66a23a0dbedae21d4f316ad281d507f"},
+    {"artifact_id": "pr517_score_arm_01", "locator": "pr517 timing-repeat score arm 01", "availability": "unavailable_external", "verification_status": "unverified", "sha256": "fdc7b8fde88acb2601f9d000df8dbd57a7ef6130ce054b60c28147dbe6ae7673"},
+    {"artifact_id": "pr517_score_arm_02", "locator": "pr517 timing-repeat score arm 02", "availability": "unavailable_external", "verification_status": "unverified", "sha256": "8e31ce3ccf7abd4f32fc6e6131f49e9424f55c31161a197a981111397f9bc483"},
+    {"artifact_id": "pr517_score_arm_03", "locator": "pr517 timing-repeat score arm 03", "availability": "unavailable_external", "verification_status": "unverified", "sha256": "8af6a5c512a2869ebfc28e47c3e0610e5b1c88c083ba3ac3c60536667a941a1c"},
+    {"artifact_id": "pr517_score_arm_04", "locator": "pr517 timing-repeat score arm 04", "availability": "unavailable_external", "verification_status": "unverified", "sha256": "83d50adb3c2c4e99320eee9046cb1a16f3816f7ca38bca9a5bbd140ca4a64e0d"},
+    {"artifact_id": "pr517_score_arm_05", "locator": "pr517 timing-repeat score arm 05", "availability": "unavailable_external", "verification_status": "unverified", "sha256": "d6ad762b6441662b3c0e7519c0f328a3bc718545f95f58a1889265af3d5413da"},
+    {"artifact_id": "pr517_score_arm_06", "locator": "pr517 timing-repeat score arm 06", "availability": "unavailable_external", "verification_status": "unverified", "sha256": "5a716c8a7661d874085de308faa4429fd365f7d2a407eb0c2fdd0f98dcd40ac2"},
+    {"artifact_id": "pr517_score_arm_07", "locator": "pr517 timing-repeat score arm 07", "availability": "unavailable_external", "verification_status": "unverified", "sha256": "cf3bee395218cbc0886e8f573feb36f2ef3951bb54138c8f9e56b5bc64ee42be"},
+    {"artifact_id": "pr517_score_arm_08", "locator": "pr517 timing-repeat score arm 08", "availability": "unavailable_external", "verification_status": "unverified", "sha256": "36b6f8b927c022136aa6aac37306754d58c5aea2eb889dbd78cde255573a3f4e"},
+    {"artifact_id": "pr517_integrity_arm_01", "locator": "pr517 timing-repeat integrity arm 01", "availability": "unavailable_external", "verification_status": "unverified", "sha256": "c549ea6d32abf0d478d34b5dfaf9e8ca58bb933a9f374bd5aaa92b1d413a58ed"},
+    {"artifact_id": "pr517_integrity_arm_02", "locator": "pr517 timing-repeat integrity arm 02", "availability": "unavailable_external", "verification_status": "unverified", "sha256": "b86be47d97805dbdf70dd6d122a7b849edae89a94be961bba5f1892b9a1668f8"},
+    {"artifact_id": "pr517_integrity_arm_03", "locator": "pr517 timing-repeat integrity arm 03", "availability": "unavailable_external", "verification_status": "unverified", "sha256": "fda714bef5550a8f85ade4347b2bb91fc904fe748ada60ceb3d2f5506849d16c"},
+    {"artifact_id": "pr517_integrity_arm_04", "locator": "pr517 timing-repeat integrity arm 04", "availability": "unavailable_external", "verification_status": "unverified", "sha256": "c9e5de07e0ee5bda2865250eb0bc383787255f887b86764bb4d0a67157f0a3b1"},
+    {"artifact_id": "pr517_integrity_arm_05", "locator": "pr517 timing-repeat integrity arm 05", "availability": "unavailable_external", "verification_status": "unverified", "sha256": "f24c1cacdc17ea42a7c7b48987f8ef65018138e58b4b26b1ed325406061cb2e2"},
+    {"artifact_id": "pr517_integrity_arm_06", "locator": "pr517 timing-repeat integrity arm 06", "availability": "unavailable_external", "verification_status": "unverified", "sha256": "50921922e39671ea29ee929e043701a8f565819b21b6d64585f0a2a19d2c7c53"},
+    {"artifact_id": "pr517_integrity_arm_07", "locator": "pr517 timing-repeat integrity arm 07", "availability": "unavailable_external", "verification_status": "unverified", "sha256": "949f0e1ea043aa2a4e8ff9a880c9d834834d22353a5b59230bd8cd7f7cef4e04"},
+    {"artifact_id": "pr517_integrity_arm_08", "locator": "pr517 timing-repeat integrity arm 08", "availability": "unavailable_external", "verification_status": "unverified", "sha256": "06ab23b0655533e93c1fc55a5b170d61b65be7c06313da2b14c291fed50dd507"}
   ],
   "decision": {
     "screened_mechanisms": 14,

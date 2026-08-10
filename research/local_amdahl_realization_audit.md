@@ -4,7 +4,7 @@
 
 **NO-GO.** The frozen historical cohort contains **0 eligible mechanism clusters across 0 eligible families**, below the predeclared decision-use minimum of **8 mechanisms across 4 families**. Fourteen mechanisms across nine families were screened. Because no mechanism passes every frozen rule, this audit does not estimate, pool, or recommend an empirical local-to-whole-model realization factor.
 
-- Assignment: `cedar-fern-local-amdahl-realization-audit-20260810` revision `r1`
+- Assignment: `cedar-fern-local-amdahl-realization-audit-20260810` revision `r2-evidence-closure`
 - Assignment base: `60ce7f20abb31a7ec775396822fb988d19ea732c`
 - PR: #666
 - Primary metric: eligible mechanism clusters, observed `0`, required `8`
@@ -14,17 +14,18 @@ The hypothesis that the campaign's historical evidence can support a decision-us
 
 ## Scope and evidence universe
 
-The evidence universe was frozen before applying eligibility rules. It consists only of the current advisor branch and campaign-assigned PR evidence available in the complete archive returned for `base:codex/mlxfast-cedar-20260804-advisor`. The archive contains 262 PRs and 279 structured results. Active assignments #658, #659, #661, #662, and #665 were excluded before screening because their evidence was not terminal at freeze time.
+The evidence universe was frozen before applying eligibility rules. It consists only of the current advisor branch and campaign-assigned PR evidence in the complete archive returned for `base:codex/mlxfast-cedar-20260804-advisor`. Deterministic extraction finds **262 PR sections and exactly 274 `senpai-result:v1` envelopes**: 254 PRs contain at least one result and eight contain none. The earlier prose count of 279 results is withdrawn because it cannot be reproduced from the frozen bytes.
 
-The screened mechanism universe is fixed to PRs #336, #353, #354, #434, #480, #491, #517, #602, #611, #613, #621, #628, #633, and #640. Variants are clustered by mechanism unless they were predeclared independent. No M5 result or different-architecture result was reconstructed from M4 evidence.
+The archive disposition is exhaustive: 14 screened PRs (#336, #353, #354, #434, #480, #491, #517, #602, #611, #613, #621, #628, #633, and #640), five active exclusions (#658, #659, #661, #662, and #665), and 243 other omissions, totaling 262. `research/local_amdahl_realization_archive_index.json` records every PR's section digest, result count and result identities, diagnostic flags, disposition, and explicit reason. Variants are clustered by mechanism unless they were predeclared independent. No M5 result or different-architecture result was reconstructed from M4 evidence.
 
-The imported campaign archive is content-addressed:
+The actual available bytes are content-addressed:
 
 ```text
-SHA-256 b13377e52bc7fc5496cffe00e9dc87e5d66a23a0dbedae21d4f316ad281d507f
+source archive: SHA-256 b13377e52bc7fc5496cffe00e9dc87e5d66a23a0dbedae21d4f316ad281d507f (4,600,212 bytes)
+committed index: SHA-256 dde91d675d71f4e5358002cc2612d03152358334027541d141e7d287b766e009
 ```
 
-The structured cohort records hashes for this archive and all 16 imported PR #517 repeat score/integrity artifacts. The validator verifies that all 17 hashes are present and syntactically valid. The full inventory is in `research/local_amdahl_realization_cohort.json`.
+The validator recomputes both digests from bytes when the controller-state archive is available and regenerates the complete index for equality. The 16 separately referenced PR #517 repeat score/integrity artifacts are not available as matching standalone bytes in this checkout; their recorded digests remain metadata and are explicitly **unverified**, not promoted to verified evidence. The full artifact inventory is in `research/local_amdahl_realization_cohort.json`.
 
 ## Frozen eligibility rules
 
@@ -60,7 +61,7 @@ In particular, a whole-model speedup does not identify observed realization `O/P
 | #434 | OProj residual folding | `attention_projection` | Approximately 2–3%; no absolute pair or exact count | AB/BA 1.000591x/0.996637x, not matrices | Rule 2: exact scored call count missing |
 | #480 | Pruned top-8 router | `router` | Medians 14.679487/14.522436 µs; isolated ABBA 1.009887x and BAAB 1.011287x with CIs; 257 blocks/order × 39 dispatches | One A→B weighted speedup 0.994155307x; reverse stopped | Rule 5: complete whole ABBA+BAAB absent; reverse is censored |
 | #491 | Terminal-gated OProj reuse | `attention_projection` | One hit/512-token forward, zero decode hits; tail ratios 1.026–1.041x | AB/BA 1.0054886x/1.0039994x, not matrices | Rule 3: absolute isolated pair missing |
-| #517 | Word-aligned scale decoder | `moe_scale_representation` | Exact 4,864 compact + 128 fallback calls; uncertainty retained, but only gain vectors survive | Two complete ABBA+BAAB matrices; all arms 130 checked steps, max absolute diff 0; repeat pooled decode/prefill/composite 1.004189x/1.000753x/1.003329x | Rule 3: absolute isolated base/candidate times missing |
+| #517 | Word-aligned scale decoder | `moe_scale_representation` | Four seven-sample aggregate gain vectors reported in `us/token`; medians 17,641.3, 17,647.8, 17,793.3, and 17,856.3 µs/decode-token; exact 4,864 compact + 128 fallback scored calls, but no absolute endpoints or isolated-loop operation normalizer | Two complete ABBA+BAAB matrices; all arms 130 checked steps, max absolute diff 0; repeat pooled decode/prefill/composite 1.004189x/1.000753x/1.003329x | Rule 3: an admissible absolute per-call saving and projected `P` are not identifiable |
 | #602 | Shared-expert RMS/output fusion | `moe_fusion` | Aggregate AB/BA 1.015652x/1.014735x; raw rows and uncertainty absent | AB/BA 0.999696057x/0.995461689x, not matrices | Rule 3: reconstructable isolated block missing |
 | #611 | Sorted MoE tail/RMS handoff | `moe_fusion` | 38 exact boundaries; approximately 1.0922x, no absolute pair | Complete ABBA weighted 1.004762086700x; BAAB stopped | Rule 3: absolute isolated pair missing; BAAB is censored |
 | #613 | Packed shared expert | `moe_scale_representation` | Ratios 1.014916x, 1.022637x, 1.019450x, 1.015177x; aggregate old/packed decode 0.126354208/0.124332313 s | Complete ABBA retained; no BAAB | Rule 3: raw isolated rows and uncertainty missing |
@@ -71,30 +72,36 @@ In particular, a whole-model speedup does not identify observed realization `O/P
 
 ### Why the near-complete case is still ineligible
 
-PR #517 is the only screened mechanism with complete whole-model ABBA and BAAB matrices, matched identities, exact call census, exactness, and integrity evidence. Its isolated artifact, however, retained gain vectors rather than absolute family base and candidate times. Therefore the projected Amdahl saving `P` cannot be reconstructed. With `P` unidentified, realization `O/P` is also unidentified. Treating the whole-model 1.003329x composite as a realization factor would silently substitute outcome for realization and violate the frozen design.
+PR #517 is the only screened mechanism with complete whole-model ABBA and BAAB matrices, matched identities, exact call census, exactness, and integrity evidence. Its four surviving isolated vectors are labelled `us/token`; they are aggregate reported gains per decode token, not absolute per-call timings. The scored-path census establishes 39 calls per token (38 compact plus one fallback), but the artifact does not retain absolute base/candidate endpoints or the isolated loop's operation-count normalizer that would prove how a vector sample maps to one scored call. Dividing an aggregate gain by 39 would therefore impose an unverified denominator rather than recover an observed absolute per-call saving. Consequently projected Amdahl saving `P` and realization `O/P` remain unidentified. Treating the whole-model 1.003329x composite as a realization factor would silently substitute outcome for realization and violate the frozen design.
 
 ## Deterministic controls
 
 Run:
 
 ```bash
-python3 research/validate_local_amdahl_realization_audit.py
+python3 research/validate_local_amdahl_realization_audit.py \
+  --archive "$SENPAI_OPENHANDS_STATE_DIR/github/pull-requests-844db61edd851eedb7a0.md"
 ```
 
 The validator performs all of the following:
 
-1. Recomputes three weighted whole-model arithmetic examples from preserved ordered rows:
+1. Parses the source bytes and requires exactly 262 PR sections, 274 structured results, and exhaustive dispositions of 14 screened + 5 active + 243 omitted. It regenerates the committed index and requires byte-derived equality.
+2. Recomputes three weighted whole-model arithmetic examples from preserved ordered rows:
    - PR #517 repeat ABBA: `1.003061264611x`
    - PR #517 repeat BAAB: `1.003605072138x`
    - PR #613 full ABBA: `0.993993354413x`
-2. Exercises a synthetic positive control with known projected saving, observed saving, family, and realization. It recovers realization `0.8` exactly from `0.0008 / 0.001`.
-3. Verifies all 17 imported artifact hash records.
-4. Confirms four negative controls fail closed:
+3. Exercises a synthetic positive control with known projected saving, observed saving, family, and realization. It recovers realization `0.8` exactly from `0.0008 / 0.001`.
+4. Recomputes SHA-256 from actual bytes for the committed index and available source archive. It reports the 16 unavailable PR #517 artifacts as unverified; digest strings alone never count as verification.
+5. Confirms eight declared negative controls fail closed:
    - duplicate mechanism row;
    - swapped time units;
    - omitted full-order metadata;
-   - altered candidate SHA.
-5. Recomputes the terminal gate as `eligible_clusters=0/8` and `eligible_families=0/4`.
+   - altered candidate SHA;
+   - missing archive PR section;
+   - mismatched archive result coverage;
+   - real committed-index byte digest mismatch;
+   - source-archive byte digest mismatch.
+6. Recomputes the terminal gate as `eligible_clusters=0/8` and `eligible_families=0/4`.
 
 These derived values validate ingestion, arithmetic, identity, units, ordering, clustering, and fail-closed behavior. They are not entered into an empirical realization distribution.
 
@@ -116,7 +123,8 @@ No numeric factor, interval, family stratification, or recommendation is justifi
 
 ## Reproduction and resource accounting
 
-- Reproduction command: `python3 research/validate_local_amdahl_realization_audit.py`
+- Reproduction command: `python3 research/validate_local_amdahl_realization_audit.py --archive "$SENPAI_OPENHANDS_STATE_DIR/github/pull-requests-844db61edd851eedb7a0.md"`
+- Without the external archive bytes, the validator still checks the committed index but explicitly reports the source archive unverified.
 - W&B: not applicable; this is a historical metadata audit and launches no experiment.
 - Current-run runtime: not applicable beyond a short standard-library validator invocation.
 - Current-run peak model memory: not applicable; no model was loaded.
@@ -124,9 +132,10 @@ No numeric factor, interval, family stratification, or recommendation is justifi
 
 ## Scope and submission-surface proof
 
-This work creates only:
+This work creates or updates only:
 
 - `research/local_amdahl_realization_audit.md`
+- `research/local_amdahl_realization_archive_index.json`
 - `research/local_amdahl_realization_cohort.json`
 - `research/validate_local_amdahl_realization_audit.py`
 
