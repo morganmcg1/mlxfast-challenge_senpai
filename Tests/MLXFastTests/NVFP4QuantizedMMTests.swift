@@ -379,12 +379,17 @@ struct NVFP4QuantizedMMTests {
         #expect(gateBiases == nil)
         #expect(upBiases == nil)
 
-        let stockGate = quantizedMM(
-            x, gateWeight, scales: gateScales, biases: nil,
-            transpose: true, groupSize: 16, bits: 4, mode: .nvfp4)
-        let stockUp = quantizedMM(
-            x, upWeight, scales: upScales, biases: nil,
-            transpose: true, groupSize: 16, bits: 4, mode: .nvfp4)
+        let stockGateUp = quantizedMM(
+            x,
+            concatenated([gateWeight, upWeight], axis: 0),
+            scales: concatenated([gateScales, upScales], axis: 0),
+            biases: nil,
+            transpose: true,
+            groupSize: 16,
+            bits: 4,
+            mode: .nvfp4)
+        let stockGate = stockGateUp[.ellipsis, 0 ..< rows]
+        let stockUp = stockGateUp[.ellipsis, rows...]
         let stockActivation = (MLXNN.silu(stockGate) * stockUp).asType(.bfloat16)
 
         let interleavedWeight = concatenated([
