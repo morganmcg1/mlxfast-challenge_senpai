@@ -1506,6 +1506,11 @@ the smaller residual (#555 §2.6 does this at desk cost).
 student slot* — unless it is enabling work (byte reclamation, instruments,
 census) or it retires a standing rule.
 
+⚠️ **Rule 105.12: the 30 µs/step here is an M5 number.** If your best case is a
+locally measured **M4** estimate, the threshold in your units is **68.7 µs/step
+(bytes-bound)** or **60.0 µs/step (latency-bound)**. Applied naively to an M4
+estimate this rule is too permissive by 2.29×/2.00×.
+
 ### Operational hazard
 
 `mlxfast submissions` intermittently returns an **empty single line with exit
@@ -6842,6 +6847,89 @@ the same document by a mechanical sweep I could have run the moment I wrote
 105.6 — and did not, because I had already corrected the one site I cared
 about. Fixing the instance is not fixing the class. The sweep is now a script
 so the next person does not have to rediscover it.
+
+#### 105.12 ✅ The **one-sidedness theorem** — a blast-radius bound on advisor error #9, plus the triage-threshold dual
+
+Having classified the 45 audit hits of 105.11, the picture is much better than
+105.11 left it, and the residual danger is somewhere I had not looked.
+
+**Three categories, not two.** 105.11's discriminator was receipt-derived vs
+locally-measured. The audit shows there is a third, and it is the largest:
+
+| # | category | example | bare price correct? |
+|---|---|---|---|
+| a | **receipt-derived M5** — a difference of `cand_dec` between official receipts | L628 18.2 µs; L935/L2673 19.0 µs (nezuko); L1199 31.54 µs; L5343 84.0 µs (the gap); L1402–1404 draw-outcome thresholds | ✅ yes |
+| b | **§B.0.3-M5-column-derived** — an M4 census already multiplied by α or β *before* the price was applied | L1844 227 µs slack; L5958 291.2 µs (rule 100's fiction); L7044 424.35 µs; L7046 280.8 µs above floor; L3833 69.7 µs T2c | ✅ yes — the α is already inside the number |
+| c | **raw local M4 priced bare** — a paired ABBA, an in-situ elasticity, a per-dispatch coefficient | L2674/L6461 36.9 µs (L3 — already fixed by 105.3/105.10); ledger M3's 84 × 0.108 = 9.1 µs; L2989 92.0; L1132/L2221/L2222 43.1 | ❌ **no — over-stated by 1/k** |
+
+Category (b) is why most of the pot/pool language in this file survives rule
+105 untouched: §B.0.3's M5 column *is* M4 × α (rule 105.8), so pricing it bare
+is algebraically identical to pricing the M4 number through α. The pools were
+never the problem. Only category (c) is.
+
+**The one-sidedness theorem.** For every category-(c) site,
+`V_bare = µs_M4 × p` and `V_true = µs_M4 × k × p` with `k ∈ {α = 0.4369,
+β = 0.5}` and therefore `k < 1` always. Hence
+
+> **`V_bare > V_true` unconditionally. Advisor error #9 could only ever inflate
+> a locally-measured effect, never deflate one.**
+
+The corollary is the decision-relevant part, and it is worth more than the
+theorem:
+
+- **Every arm closed for being too small is still closed, a fortiori.** Its
+  true value is smaller than the number we rejected it for. Error #9 cannot
+  have produced a single **false negative**.
+- **Only arms we *kept*, and results we *claimed*, are at risk.** Error #9
+  produces **false positives** exclusively. That is exactly the population
+  105.3 and 105.10 have been working through (L3: 0.562 % → 0.2455 % → 0.1966 %).
+- ⇒ **Do not spend a slot re-auditing the closed list.** With ~15 h to the
+  06:00Z handoff that is the single most tempting and most wasteful thing the
+  campaign could do next.
+
+Worked instance, ledger M3 (eliminate/merge the 84 single-TG dispatches,
+§ the ranked mechanism ledger): closed at "84 × 0.108 = 9.1 µs = 0.138 % of
+`cs`, **3.6× below** the 0.5 % bar". The 0.108 µs/dispatch elasticity is a
+*locally measured M4* coefficient — category (c). Correctly,
+9.072 × β × p = **0.0691 %, 7.2× below the bar.** The verdict does not move;
+it only hardens. That is the theorem in miniature.
+
+**The triage-threshold dual.** 105.11's dual (an M5 target inflates by 1/k when
+expressed in the M4 units a student measures in) applies to *bars*, and the
+file states three of them in M5 µs/step without saying so:
+
+| bar as written | M5 µs/step | **M4 µs/step, bytes (α)** | **M4 µs/step, latency (β)** |
+|---|---|---|---|
+| 0.4 % endgame draw bar (§ rule 105.5) | 26.27 | **60.1** | **52.5** |
+| 0.46 % arm-sizing rule — "under +30 µs/step does not justify a slot" | 30.00 | **68.7** | **60.0** |
+| 0.5 % ranked mechanism ledger | 32.83 | **75.2** | **65.7** |
+| 1.0 % of `cs` | 65.67 | 150.3 | 131.3 |
+
+Applied naively to an M4 estimate, the arm-sizing rule is **too permissive by
+2.29× (bytes) / 2.00× (latency)**: an arm whose M4 best case is 35 µs/step
+looks like it clears "30" but is worth 0.233 %, half the threshold it appears
+to pass. Note the direction — the triage rule has been letting arms *in*, not
+keeping them out, which is consistent with the one-sidedness theorem.
+
+**What this says about the live slate, stated plainly.** Measure the three
+candidate-producing arms against the arm-sizing threshold in their own units:
+
+| arm | best case | threshold in the same units | ratio |
+|---|---|---|---|
+| edward #629, L3 de-biased | 29.6 µs/step M4 (bytes) | 68.7 | **0.43×** |
+| alphonse #644, T3b residual summand | 30.6 µs/step M4 (bytes) | 68.7 | **0.45×** |
+| nezuko #616, revert residual | 19.0 µs/step M5 | 30.0 | **0.63×** |
+
+**No single arm on the remaining slate can clear the draw bar alone.** Every
+one of them is below the campaign's own "does this justify a slot" line. This
+is not a reason to stand them down — rule 105.5's relaxation exists precisely
+for this regime, and a summand arm is justified if it can plausibly deliver
+≥ half the bar *and* a partner exists. But it does fix the expected outcome:
+a draw now requires **two independent, different-family, bit-exact wins, each
+with a CI excluding zero, landing on one integrated tree before 07:00Z**. That
+conjunction is low-probability, and rule 105.5's "no draw is the modal
+outcome, not the failure mode" should be read as the *planning assumption*
+from here, not as a caveat.
 
 
 ## 9. σ table (rule 40 — pick your estimator, then quote its floor)
