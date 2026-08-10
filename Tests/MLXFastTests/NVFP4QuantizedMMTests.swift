@@ -1,5 +1,6 @@
 import Foundation
 import MLX
+import MLXFastCore
 @testable import MLXFastModel
 import MLXNN
 import Testing
@@ -431,6 +432,45 @@ struct NVFP4QuantizedMMTests {
         corruptedBits[expectedBits.count / 2] ^= 1
         #expect(corruptedBits != expectedBits)
     }
+
+    @Test
+    func realSharedPrefillSwiGLUEpilogueMatchesEveryCheckpointBankWhenRuntimeTestsAreEnabled() throws {
+        guard nvfp4RuntimeTestsEnabled else { return }
+        defer { Memory.clearCache() }
+
+        let environment = ProcessInfo.processInfo.environment
+        let weightsPath = environment["MLXFAST_REFERENCE_DIR"]
+            ?? (FileManager.default.fileExists(atPath: MLXFastConstants.defaultWeightsPath)
+                ? MLXFastConstants.defaultWeightsPath
+                : MLXFastConstants.defaultReferencePath)
+        let store = try DenseTensorStore(weightsPath: weightsPath)
+        let bridge = MLXArrayTensorBridge()
+        let testedRows = [2, 31, 32, 33, 511, 512, 513]
+        var bankCount = 0
+        var caseCount = 0
+        var scoredActivationValues = 0
+        var corruptionControlPassed = false
+
+        for layer in 1...39 {
+            let result = try verifyRealSharedExpertBank(
+                layer: layer,
+                store: store,
+                bridge: bridge,
+                testedRows: testedRows,
+                isProductionSelection: layer <= 38
+            )
+            bankCount += 1
+            caseCount += result.caseCount
+            scoredActivationValues += result.scoredActivationValues
+            corruptionControlPassed = corruptionControlPassed || result.corruptionControlPassed
+            Memory.clearCache()
+        }
+
+        #expect(bankCount == 39)
+        #expect(caseCount == 39 * testedRows.count)
+        #expect(scoredActivationValues == 9_961_472)
+        #expect(corruptionControlPassed)
+    }
 }
 
 private let nvfp4RuntimeTestsEnabled =
@@ -466,6 +506,348 @@ private func expectBF16BitsEqual(
     #expect(actual.shape == expected.shape, Comment(rawValue: context))
     let actualBits = actual.view(dtype: .uint16).asArray(UInt16.self)
     let expectedBits = expected.view(dtype: .uint16).asArray(UInt16.self)
+    #expect(actualBits == expectedBits, Comment(rawValue: context))
+}
+
+private struct RealSharedExpertBankResult {
+    let caseCount: Int
+    let scoredActivationValues: Int
+    let corruptionControlPassed: Bool
+}
+
+private func verifyRealSharedExpertBank(
+    layer: Int,
+    store: DenseTensorStore,
+    bridge: MLXArrayTensorBridge,
+    testedRows: [Int],
+    isProductionSelection: Bool
+) throws -> RealSharedExpertBankResult {
+    let gateWeight = try loadRealSharedExpertArray(
+        layer: layer,
+        suffix: "shared_expert.gate_proj.weight",
+        expectedDType: "U32",
+        expectedShape: [512, 256],
+        store: store,
+        bridge: bridge)
+    let gateScales = try loadRealSharedExpertArray(
+        layer: layer,
+        suffix: "shared_expert.gate_proj.scales",
+        expectedDType: "U8",
+        expectedShape: [512, 128],
+        store: store,
+        bridge: bridge)
+    let upWeight = try loadRealSharedExpertArray(
+        layer: layer,
+        suffix: "shared_expert.up_proj.weight",
+        expectedDType: "U32",
+        expectedShape: [512, 256],
+        store: store,
+        bridge: bridge)
+    let upScales = try loadRealSharedExpertArray(
+        layer: layer,
+        suffix: "shared_expert.up_proj.scales",
+        expectedDType: "U8",
+        expectedShape: [512, 128],
+        store: store,
+        bridge: bridge)
+    let downWeight = try loadRealSharedExpertArray(
+        layer: layer,
+        suffix: "shared_expert.down_proj.weight",
+        expectedDType: "U32",
+        expectedShape: [2048, 64],
+        store: store,
+        bridge: bridge)
+    let downScales = try loadRealSharedExpertArray(
+        layer: layer,
+        suffix: "shared_expert.down_proj.scales",
+        expectedDType: "U8",
+        expectedShape: [2048, 32],
+        store: store,
+        bridge: bridge)
+
+    let candidate = makeRealSharedExpertMLP(
+        gateWeight: gateWeight,
+        gateScales: gateScales,
+        upWeight: upWeight,
+        upScales: upScales,
+        downWeight: downWeight,
+        downScales: downScales)
+    let control = makeRealSharedExpertMLP(
+        gateWeight: gateWeight,
+        gateScales: gateScales,
+        upWeight: upWeight,
+        upScales: upScales,
+        downWeight: downWeight,
+        downScales: downScales)
+    let candidatePrepared = candidate.prepareFusedSharedGateUp()
+    let controlPrepared = control.prepareFusedSharedGateUp()
+    eval(candidatePrepared)
+    eval(controlPrepared)
+    control._fusedPrefillGateUpWeight = nil
+    control._fusedPrefillGateUpScales = nil
+
+    let fusedWeight = try requireSharedArray(
+        candidate._fusedGateUpWeight,
+        context: "layer \(layer) fused gate/up weight")
+    let fusedScales = try requireSharedArray(
+        candidate._fusedGateUpScales,
+        context: "layer \(layer) fused gate/up scales")
+    let interleavedWeight = try requireSharedArray(
+        candidate._fusedPrefillGateUpWeight,
+        context: "layer \(layer) interleaved gate/up weight")
+    let markedScales = try requireSharedArray(
+        candidate._fusedPrefillGateUpScales,
+        context: "layer \(layer) marked gate/up scales")
+    #expect(candidate._fusedGateUpSplit == 512)
+    #expect(fusedWeight.dtype == .uint32)
+    #expect(fusedWeight.shape == [1024, 256])
+    #expect(fusedScales.dtype == .uint8)
+    #expect(fusedScales.shape == [1024, 128])
+    #expect(interleavedWeight.dtype == .uint32)
+    #expect(interleavedWeight.shape == [1024, 256])
+    #expect(markedScales.dtype == .uint8)
+    #expect(markedScales.shape == [1024, 128])
+    #expect(markedScales.asData(access: .noCopy).strides == [128, 0])
+
+    let interleavedScaleStorage = concatenated([
+        gateScales.reshaped([32, 16, 128]),
+        upScales.reshaped([32, 16, 128]),
+    ], axis: 1).reshaped([1024, 128])
+    let down = candidate.downProj
+    var scoredActivationValues = 0
+    var corruptionControlPassed = false
+
+    for rows in testedRows {
+        let context = "layer \(layer), rows \(rows)"
+        let x = adversarialSharedExpertInput(
+            batch: 1,
+            rows: rows,
+            salt: layer * 1009 + rows,
+            includeNonfinite: layer == 1)
+        let stockGateUp = quantizedMM(
+            x,
+            fusedWeight,
+            scales: fusedScales,
+            biases: nil,
+            transpose: true,
+            groupSize: 16,
+            bits: 4,
+            mode: .nvfp4)
+        let stockGate = stockGateUp[.ellipsis, 0 ..< 512]
+        let stockUp = stockGateUp[.ellipsis, 512...]
+        let rawInterleaved = quantizedMM(
+            x,
+            interleavedWeight,
+            scales: interleavedScaleStorage,
+            biases: nil,
+            transpose: true,
+            groupSize: 16,
+            bits: 4,
+            mode: .nvfp4
+        ).reshaped([1, rows, 32, 32])
+        let rawGate = rawInterleaved[.ellipsis, 0 ..< 16]
+            .reshaped([1, rows, 512])
+        let rawUp = rawInterleaved[.ellipsis, 16...]
+            .reshaped([1, rows, 512])
+        eval(stockGate, stockUp, rawGate, rawUp)
+        expectBF16BitsEqual(rawGate, stockGate, context: "\(context) raw gate")
+        expectBF16BitsEqual(rawUp, stockUp, context: "\(context) raw up")
+
+        if rows == 512 {
+            let expectedActivation = (MLXNN.silu(stockGate) * stockUp).asType(.bfloat16)
+            let fusedLogical = quantizedMM(
+                x,
+                interleavedWeight,
+                scales: markedScales,
+                biases: nil,
+                transpose: true,
+                groupSize: 16,
+                bits: 4,
+                mode: .nvfp4)
+            let actualActivation = fusedLogical.reshaped([-1])[0 ..< fusedLogical.size / 2]
+                .reshaped([1, 512, 512])
+            let expectedDown = down(expectedActivation)
+            let actualDown = candidate(x)
+            eval(expectedActivation, actualActivation, expectedDown, actualDown)
+            expectBF16BitsEqual(
+                actualActivation,
+                expectedActivation,
+                context: "\(context) fused activation")
+            expectBF16BitsEqual(
+                actualDown,
+                expectedDown,
+                context: "\(context) shared down")
+            if isProductionSelection {
+                scoredActivationValues += actualActivation.size
+            }
+            if layer == 1 {
+                let actualBits = actualActivation.view(dtype: .uint16).asArray(UInt16.self)
+                var corruptedBits = expectedActivation.view(dtype: .uint16).asArray(UInt16.self)
+                corruptedBits[corruptedBits.count / 2] ^= 1
+                #expect(corruptedBits != actualBits)
+                corruptionControlPassed = true
+            }
+        } else {
+            let expectedDown = control(x)
+            let actualDown = candidate(x)
+            eval(expectedDown, actualDown)
+            expectBF16BitsEqual(
+                actualDown,
+                expectedDown,
+                context: "\(context) unselected-row fallback")
+        }
+    }
+
+    if layer == 1 {
+        let decode = adversarialSharedExpertInput(
+            batch: 1, rows: 1, salt: 2029, includeNonfinite: false)
+        let decodeExpected = control(decode)
+        let decodeActual = candidate(decode)
+        eval(decodeExpected, decodeActual)
+        expectBF16BitsEqual(
+            decodeActual,
+            decodeExpected,
+            context: "one-token decode remains unchanged")
+
+        let floatPrefill = adversarialSharedExpertInput(
+            batch: 1, rows: 512, salt: 2039, includeNonfinite: false
+        ).asType(.float32)
+        let floatExpected = control(floatPrefill)
+        let floatActual = candidate(floatPrefill)
+        eval(floatExpected, floatActual)
+        expectFloat32BitsEqual(
+            floatActual,
+            floatExpected,
+            context: "float32 prefill fallback")
+
+        let batched = adversarialSharedExpertInput(
+            batch: 2, rows: 32, salt: 2053, includeNonfinite: false)
+        let batchedExpected = control(batched)
+        let batchedActual = candidate(batched)
+        eval(batchedExpected, batchedActual)
+        expectBF16BitsEqual(
+            batchedActual,
+            batchedExpected,
+            context: "unsupported batch-shape fallback")
+    }
+
+    return RealSharedExpertBankResult(
+        caseCount: testedRows.count,
+        scoredActivationValues: scoredActivationValues,
+        corruptionControlPassed: corruptionControlPassed)
+}
+
+private func loadRealSharedExpertArray(
+    layer: Int,
+    suffix: String,
+    expectedDType: String,
+    expectedShape: [Int],
+    store: DenseTensorStore,
+    bridge: MLXArrayTensorBridge
+) throws -> MLXArray {
+    let name = LagunaWeightNames.mlp(layer, suffix)
+    guard let record = store.record(named: name) else {
+        throw MLXFastError.invalidInput("missing real shared-expert tensor \(name)")
+    }
+    #expect(record.dtype == expectedDType, Comment(rawValue: name))
+    #expect(record.shape == expectedShape, Comment(rawValue: name))
+    let array = try bridge.makeArray(from: store.materializedTensor(named: name))
+    #expect(array.shape == expectedShape, Comment(rawValue: name))
+    if expectedDType == "U32" {
+        #expect(array.dtype == .uint32, Comment(rawValue: name))
+    } else {
+        #expect(array.dtype == .uint8, Comment(rawValue: name))
+    }
+    return array
+}
+
+private func makeRealSharedExpertMLP(
+    gateWeight: MLXArray,
+    gateScales: MLXArray,
+    upWeight: MLXArray,
+    upScales: MLXArray,
+    downWeight: MLXArray,
+    downScales: MLXArray
+) -> LagunaRuntimeMLP {
+    let mlp = LagunaRuntimeMLP(dimensions: 2048, hiddenDimensions: 512)
+    mlp.gateProj = QuantizedLinear(
+        weight: gateWeight,
+        scales: gateScales,
+        biases: nil,
+        groupSize: 16,
+        bits: 4,
+        mode: .nvfp4)
+    mlp.upProj = QuantizedLinear(
+        weight: upWeight,
+        scales: upScales,
+        biases: nil,
+        groupSize: 16,
+        bits: 4,
+        mode: .nvfp4)
+    mlp.downProj = QuantizedLinear(
+        weight: downWeight,
+        scales: downScales,
+        biases: nil,
+        groupSize: 16,
+        bits: 4,
+        mode: .nvfp4)
+    return mlp
+}
+
+private func requireSharedArray(
+    _ array: MLXArray?,
+    context: String
+) throws -> MLXArray {
+    guard let array else {
+        throw MLXFastError.invalidInput("missing \(context)")
+    }
+    return array
+}
+
+private func adversarialSharedExpertInput(
+    batch: Int,
+    rows: Int,
+    salt: Int,
+    includeNonfinite: Bool
+) -> MLXArray {
+    let hidden = 2048
+    var palette: [UInt16] = [
+        0x0000, 0x8000,
+        0x0001, 0x8001,
+        0x007f, 0x807f,
+        0x0080, 0x8080,
+        0x3f00, 0xbf00,
+        0x3f80, 0xbf80,
+        0x4000, 0xc000,
+        0x7f7f, 0xff7f,
+    ]
+    if includeNonfinite {
+        palette.append(contentsOf: [0x7f80, 0xff80, 0x7fc1, 0xffc1])
+    }
+    var bits = [UInt16](repeating: 0, count: batch * rows * hidden)
+    for index in bits.indices {
+        bits[index] = palette[(index * 17 + salt) % palette.count]
+    }
+    let boundaryColumns = [0, 1, 15, 16, 31, 32, 127, 128, 255, 256, 511, 512, 1023, 1024, 2047]
+    for batchIndex in 0..<batch {
+        let rowStart = (batchIndex * rows + rows - 1) * hidden
+        for (index, column) in boundaryColumns.enumerated() {
+            bits[rowStart + column] = palette[(salt + index * 3) % palette.count]
+        }
+    }
+    return MLXArray(bits, [batch, rows, hidden]).view(dtype: .bfloat16)
+}
+
+private func expectFloat32BitsEqual(
+    _ actual: MLXArray,
+    _ expected: MLXArray,
+    context: String
+) {
+    #expect(actual.dtype == .float32, Comment(rawValue: context))
+    #expect(expected.dtype == .float32, Comment(rawValue: context))
+    #expect(actual.shape == expected.shape, Comment(rawValue: context))
+    let actualBits = actual.view(dtype: .uint32).asArray(UInt32.self)
+    let expectedBits = expected.view(dtype: .uint32).asArray(UInt32.self)
     #expect(actualBits == expectedBits, Comment(rawValue: context))
 }
 
