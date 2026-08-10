@@ -1316,6 +1316,157 @@ early-stop clause is unchanged and now reads on the score channel.
 `research/r105a-analyse-selftest.py` covers the new branches: score-primary,
 prefill-only win refused, channel disagreement downgraded, and bar equivalence.
 
+### 4.4.8 Auditing Amendment A against itself: one retraction, one real correction
+
+Amendment A was preregistered before A1-1's receipt existed, so I audited it
+while that submission was in flight rather than after seeing its number.
+`research/r105a-sigma-audit.py` reproduces everything below from
+`r105a-receipts-resolved.json`. Two of the three threats I went looking for
+turned out to be real.
+
+**(a) RETRACTION: §4.4.6's anti-correlation "explanation" is an algebraic
+identity, not a finding.** I claimed the score channel's tightness was
+*explained* by the two scored axes being anti-correlated, and offered as
+evidence that re-propagating with the sample `r = −0.978` reproduced the
+observed score CV (0.040309 % predicted vs 0.040335 % observed). That agreement
+is worth nothing. Because
+
+```text
+ln S = 0.75 ln nd + 0.25 ln np        exactly, on every receipt
+```
+
+the sample variance of `ln S` *is* the bilinear form
+`0.5625 var(ln nd) + 0.0625 var(ln np) + 0.375 cov(ln nd, ln np)` evaluated at
+the sample moments. The audit confirms the ratio numerically:
+
+```text
+sample var(ln S)                    = 1.626847e-07
+0.5625 vd + 0.0625 vp + 0.375 cov   = 1.626847e-07     ratio = 1.000000000001
+```
+
+Recovering the observed spread is therefore guaranteed by the bilinearity of
+the covariance operator and tests nothing. At n = 3 the correlation has 1
+degree of freedom and its magnitude is essentially unconstrained; a Fisher-z
+interval is not even defined. What survives is much weaker and I should have
+said only this: *the sample covariance is negative, and the directly measured
+score spread is 2.47× tighter than independent propagation would give.* The
+mechanism behind that negative covariance is identified in (c) below, and it is
+not a property of the score at all.
+
+None of this touches the σ̂ actually used. `sigma_score = 0.0010369` is measured
+directly on the channel the rule reads, from three points, with 2 dof. It does
+not depend on the retracted story.
+
+**(b) The channel-selection worry is real, but it is answered by data rather
+than by argument.** I compared six channels' CVs on the same three controls and
+adopted the tightest. Picking the minimum-variance channel from six and then
+reusing that same σ̂ as if pre-specified biases σ̂ downward, which is exactly the
+kind of self-inflicted significance I should distrust at 2 dof. Two answers,
+one weak and one strong.
+
+The weak answer is a sensitivity bound. A2's regression verdict survives until
+σ̂ is inflated by **5.32×**:
+
+```text
+sigma x  1.000  SE 0.001197  CI90_hi -0.015111  REGRESSION
+sigma x  3.000  SE 0.003592  CI90_hi -0.008118  REGRESSION
+sigma x  5.000  SE 0.005987  CI90_hi -0.001126  REGRESSION
+sigma x  5.322  SE 0.006372  CI90_hi +0.000000  <-- critical
+```
+
+I will not oversell that. The noisiest of the six channels (`step_ms`,
+CV 0.2895 %) has 7.18× the score channel's CV, and 7.18 > 5.32, so a sceptic
+who insisted the score channel is secretly as noisy as the worst channel could
+deny the verdict. The inflation bound is not sufficient on its own.
+
+The strong answer is to stop choosing. A2 is worse on **all six** channels, and
+four of the six exclude zero at 90 %:
+
+| channel | ctrl mean | σ̂ | CV % | A2 Δ | z | verdict |
+|---|---|---|---|---|---|---|
+| `official_score` | 2.570748 | 0.001037 | 0.0403 | −0.018607 | −15.54 | WORSE, CI90 excludes 0 |
+| `decode_speedup` | 2.817816 | 0.003263 | 0.1158 | −0.013811 | −3.67 | WORSE, CI90 excludes 0 |
+| `prefill_speedup` | 1.952095 | 0.003825 | 0.1959 | −0.027753 | −6.28 | WORSE, CI90 excludes 0 |
+| `prefill_ms` | 96.149208 | 0.136807 | 0.1423 | +1.034209 | +6.55 | WORSE, CI90 excludes 0 |
+| `step_ms` | 4.168971 | 0.012071 | 0.2895 | +0.002124 | +0.15 | worse, not significant |
+| `cand_dec` | 0.004920 | 0.000012 | 0.2425 | +0.000010 | +0.74 | worse, not significant |
+
+No channel choice rescues A2, so for this arm the selection concern is moot.
+The defensible framing going forward is also not "I picked the tightest
+channel": `officialScore` is the function the competition maximizes, so it is
+the a-priori correct primary channel on grounds that never mention variance.
+Its tightness is a bonus, not the reason.
+
+**(c) REAL CORRECTION: half of A2's score loss is baseline-limb session noise,
+and the pairing imported it.** The table above contains a contradiction I had
+not chased. `decode_speedup` fell with z = −3.67, yet the candidate's own
+`step_ms` (z = +0.15) and `cand_dec` (z = +0.74) did not move. A published
+speedup is `baseline / candidate` measured in the same session, and **my edit
+cannot make the pinned baseline faster.** Splitting all four limbs:
+
+| limb | ctrl mean | σ̂ | CV % | A2 Δ | z | attributable to my edit? |
+|---|---|---|---|---|---|---|
+| `baseline_pre` | 0.0003666 | 0.0000012 | 0.3299 | −0.0000013 | −0.95 | no — session noise |
+| `cand_pre` | 0.0001878 | 0.0000003 | 0.1423 | +0.0000020 | **+6.55** | **yes** |
+| `baseline_dec` | 0.0138641 | 0.0000461 | 0.3328 | −0.0000394 | −0.74 | no — session noise |
+| `cand_dec` | 0.0049201 | 0.0000119 | 0.2425 | +0.0000102 | +0.74 | yes, but null |
+
+and decomposing the score delta:
+
+```text
+decode   0.75 * -0.004913 = -0.003685   ( 50.7% of dlnS)
+prefill  0.25 * -0.014319 = -0.003580   ( 49.3% of dlnS)
+total dlnS = -0.007265  ->  dS = -0.0186762
+```
+
+So the decode half of the score loss — 50.7 % of it — arises because A2's
+session happened to draw a baseline that was 0.74 σ *fast* while its candidate
+was 0.74 σ *slow*. Neither limb is individually significant; the ratio is
+significant only because the two limbs moved in opposite directions, breaking
+the positive session-to-session coupling that the pairing normally exploits.
+Exactly half of that ratio movement is a limb my code cannot influence.
+
+The honest causal statement about variant 8 is therefore narrower and stronger
+than §4.4.4's:
+
+> **Routing the down-projection through `bn=128` slows prefill by 1.03 ms
+> (z = +6.55 on the candidate limb, robust to every channel choice) and has no
+> detectable effect on decode (z = +0.15 on `step_ms`, +0.74 on `cand_dec`).
+> Its −0.0186 score delta overstates the causal harm by roughly 2× because half
+> of that delta came from the baseline limb of a single session.**
+
+This is the second time the decode side of this arm has produced a spurious
+signal, and it is the second time the preregistered prefill-only prediction was
+the correct one. §4.4.5 retracted a decode "effect" that was an artefact of a
+2-point σ̂; (c) retracts what remained of it as an artefact of pairing. The
+prefill harm has never wavered.
+
+It also finally explains the §4.4.6 oddity that pairing *hurts* on prefill.
+`baseline_pre` (CV 0.3299 %) is more than twice as noisy as `cand_pre`
+(0.1423 %), and its noise is not tightly coupled to the candidate's, so
+dividing by it adds variance instead of removing it: `prefill_speedup` comes out
+at 0.1959 %, worse than the raw candidate limb. On decode the coupling is real
+and the ratio does help, 0.1158 % against 0.2425 %. Same reason, opposite sign.
+The negative covariance of (a) is a *baseline-limb* phenomenon, not a property
+of the score.
+
+**Amendment B (recorded now, before A1-1's number).** Keep `officialScore` as
+the primary channel: it is the objective, the ranking is computed from it, and a
+shipping decision must be made on it. Add a mandatory second reading that is
+causal rather than ranked:
+
+1. Report `cand_pre` and `cand_dec` deltas for every arm. Only these can carry
+   a treatment effect.
+2. If an arm's score delta is materially driven by a `baseline_*` limb, say so
+   and quote the candidate-limb effect as the mechanism's true size.
+3. A score **WIN** whose gain is substantially attributable to a `baseline_*`
+   limb is not promoted on that receipt; it needs the replicate that Amendment A
+   already requires, and the replicate must reproduce it on the candidate limbs.
+
+Amendment B cannot rescue a losing arm and cannot manufacture a winner — it
+only stops me attributing session noise to my own code in either direction.
+
+
 
 ---
 

@@ -1,30 +1,37 @@
 [
- {
-  "arm": "A0-1",
-  "submission_id": "69fb349b-a675-4983-822e-181f18f30728",
-  "commit": "ae012da103559ec0d3d5fe230537db6e325b1149",
-  "variant": 5,
-  "queued_at": "2026-08-10T03:42:32Z"
- },
- {
-  "arm": "A0-2",
-  "submission_id": "c7930407-ff08-4ac7-8c9e-4ac56d1df10f",
-  "commit": "9e57530a402d004701b2ef0ab425f4e8c381fd6d",
-  "variant": 5,
-  "queued_at": "2026-08-10T04:07:00Z"
- },
- {
-  "arm": "A2-1",
-  "submission_id": "288c7025-3835-47b3-9bb2-26a09799e7b2",
-  "commit": "67ed6f26b09a7f369b0f362731fc2a503bc77cf0",
-  "variant": 8,
-  "queued_at": "2026-08-10T05:00:24Z"
- },
- {
-  "arm": "A0-3",
-  "submission_id": "d4a86ffd-b26a-48de-aba4-07d6d49558fb",
-  "commit": "73bf55bb021b421f6fcfea91a0bdd72ec4c29a27",
-  "variant": 5,
-  "queued_at": "2026-08-10T05:23:27Z"
- }
+  {
+    "arm": "A0-1",
+    "submission_id": "69fb349b-a675-4983-822e-181f18f30728",
+    "commit": "ae012da103559ec0d3d5fe230537db6e325b1149",
+    "variant": 5,
+    "queued_at": "2026-08-10T03:42:32Z"
+  },
+  {
+    "arm": "A0-2",
+    "submission_id": "c7930407-ff08-4ac7-8c9e-4ac56d1df10f",
+    "commit": "9e57530a402d004701b2ef0ab425f4e8c381fd6d",
+    "variant": 5,
+    "queued_at": "2026-08-10T04:07:00Z"
+  },
+  {
+    "arm": "A2-1",
+    "submission_id": "288c7025-3835-47b3-9bb2-26a09799e7b2",
+    "commit": "67ed6f26b09a7f369b0f362731fc2a503bc77cf0",
+    "variant": 8,
+    "queued_at": "2026-08-10T05:00:24Z"
+  },
+  {
+    "arm": "A0-3",
+    "submission_id": "d4a86ffd-b26a-48de-aba4-07d6d49558fb",
+    "commit": "73bf55bb021b421f6fcfea91a0bdd72ec4c29a27",
+    "variant": 5,
+    "queued_at": "2026-08-10T05:23:27Z"
+  },
+  {
+    "arm": "A1-1",
+    "submission_id": "0b9ae917-0695-4ffd-8c9f-f0fe3e8d8329",
+    "commit": "12f00794",
+    "variant": 7,
+    "queued_at": "2026-08-10T06:00:19.446Z"
+  }
 ]
