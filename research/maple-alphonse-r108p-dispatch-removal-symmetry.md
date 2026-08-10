@@ -30,7 +30,7 @@ this host has up to K ≈ 480 dispatches/step, and the same artifact is baked in
 | 6 | `k_removal` = rule 65 (2.3403 µs, M5) / 1 | see §5.3 | fourth read on the third-regime multiplier |
 | 7 | `k_dispatch` regime-matched = 2.3403 / 2.17 | see §5.3 | independent second route to the same k |
 
-**Three findings, in order of planning value.**
+**Four findings, in order of planning value.**
 
 1. **Rule 57's 1.2382 µs is a chord, not a saturated per-dispatch price.**
    `research/r93-runs/knee-results.md` — same M4 Pro host, prior round — has a
@@ -59,6 +59,16 @@ this host has up to K ≈ 480 dispatches/step, and the same artifact is baked in
    hazard-free launches, not to serialised ones.** #527's own "do not open a
    dispatch-fusion arm" was marked *suspended, not settled*, and this is the
    re-verification it queued — for the decode axis only.
+4. **The machines differ in slack, not in price — so an M4 null on dispatch
+   count does not clear an M5 win.** The historical M5 receipts fit a straight
+   1.98 µs/dispatch line over K = 0/100/400 with *no* free region
+   (`research/r93-runs/knee-results.md:55-57`); this M4 Pro is free to K ≈ 480
+   over the same range. The M5's price at low K therefore already equals the
+   M4's *saturated* price, which is what you would expect if a dispatch is
+   host-side encode work that does not scale with GPU core count. Consequence
+   for this axis only, and it is the reverse of the usual heuristic: a
+   dispatch-count change that reads as zero on M4 may still be worth ≈2.3 µs
+   each on M5, because M4 absorbed it in slack. Details in §6.6.
 
 **The planner rule I would replace "count dispatches" with.** A fusion is worth
 ≈2 µs per dispatch removed **only if that dispatch was on the critical chain**.
@@ -435,6 +445,17 @@ table also excludes α and β at ≈8 %, so it is not indifferent between these
 candidates. An independent mechanism landing inside an independently fitted
 bracket is the strongest corroboration available here without M5 access.
 
+**`k_residue` ≈ 1.40–1.50 is not in conflict with `k_dispatch` ≈ 1.1.** The
+residue is a *mixture* — dispatch glue plus encoder boundaries plus scheduling
+gaps — so it has no reason to share the multiplier of its cheapest component.
+Read the residue table as a fit rather than a bracket and it points the same
+way: solving `3650.9 + 351.7·k = 4141.5` gives a best-fit `k_residue = 1.395`,
+and the published 1.890 over-shoots `T_M5` by +4.20 % while `k = 1.1` under-shoots
+by only −2.50 %. So even the route that was cited *in support of* 1.890 fits
+better below it. The two CI-bearing routes — mine, [0.99, 1.18], and tanjiro's
+[1.4732, 1.5275] — each exclude 1.890 on their own quantity. For the dispatch
+axis specifically, plan at **k ≈ 1.1**; keep `k_residue` ≈ 1.5 for the mixture.
+
 One inconsistency in the existing constants is worth flagging rather than
 resolving: R93's fit of the historical **M5** injection receipts (K = 0/100/400)
 gives a straight line at **1.98 µs/dispatch**, while rule 65 publishes
@@ -445,8 +466,56 @@ correction in §6.3 does not depend on which M5 constant is preferred.
 
 The cheapest experiment that would settle the M5 side is a three-rung M5
 injection ladder inside the suspected free region (K = 0/240/480) — the exact
-rungs that resolved M4 — plus a refit of R93's M5 receipts tail-only. The refit
-is free; the ladder needs M5 access, so it is a request, not a task I can run.
+rungs that resolved M4. I checked whether R93's M5 receipts could be refit
+tail-only for free: they cannot, because their rungs are K = 0/100/400
+(`research/r93-runs/knee-results.md:55-57`), which is *entirely inside* the
+region that is free on M4. There is no M5 tail to refit. That absence is itself
+informative, and §6.6 uses it.
+
+### 6.6 The machines differ in slack, not in price
+
+Put the three pieces side by side and one reading survives.
+
+| machine | K range measured | marginal µs/dispatch | free region? |
+|---|---|---|---|
+| M4 Pro (R93, same host as this report) | 0 → 480 | ≈ 0 | **yes, ≥ 480 dispatches** |
+| M4 Pro (R93, same host) | 1200 → 2400 | 1.98 → 2.36 | saturated |
+| M4 Pro (R108-P, **real** chained dispatches) | removal ladder | **§5.2 slope, ≈ 2.1** | **no — already saturated** |
+| M5 (historical receipts, R93 §"Why this matters") | 0 → 400 | 1.98, single straight line | **no free region at all** |
+| M5 (rule 65) | marginal | 2.3403 [2.2766, 2.4040] | — |
+
+The M5's marginal price *at low K* already equals the M4's *saturated* price.
+The M4's price at low K is zero. So the two machines do not disagree about what
+a dispatch costs; they disagree about **how much slack sits in front of the
+bill**. On this M4 Pro an off-chain no-op is absorbed until roughly 480 of them
+have accumulated; on the M5 the first one is charged.
+
+That reframing does three things.
+
+1. **It explains why the naive ratio in §6.1 is 13× and meaningless.** My
+   addition probe sat at K = 276, inside M4 slack. The M5 has no equivalent
+   place to stand, so the "asymmetry" is not a property of dispatch at all.
+2. **It makes `k ≈ 1` mechanistically expected rather than surprising.** A
+   dispatch's cost is host-side encode and driver work. That scales with CPU
+   single-thread throughput, not GPU core count, so it should be nearly
+   machine-invariant across two Apple Silicon generations — which is exactly
+   what 2.17 (M4 saturated) vs 1.98–2.34 (M5) shows. The published 1.890
+   required believing that host-side work nearly doubles between generations;
+   the measurement says it does not.
+3. **It inverts the usual M4-transfer heuristic for this one axis.** For a
+   dispatch-*count* change, a null on M4 is **not** evidence against an M5 win,
+   because the M4 may simply have absorbed it in slack while the M5 pays
+   immediately. This is the single most useful sentence in the report for
+   anyone planning a fusion, and it is the reverse of the default assumption.
+
+The important caveat is that point 3 applies to dispatches that land in slack.
+The real dispatches I removed here were *not* in slack — removing them paid
+≈ 2.1 µs each on M4. Real decode dispatches on the critical chain are already
+saturated on M4; only injected off-chain no-ops are free. So:
+
+- a **chained** real dispatch: priced on M4, transfers to M5 at `k ≈ 1.1`;
+- an **off-chain** dispatch: may read as zero on M4 and still cost ≈ 2.3 µs on
+  M5, so M4 nulls do not clear it.
 
 ## 7 Threats to validity
 
@@ -536,14 +605,23 @@ the qualifying test.* Rule 68's "do not open a dispatch-fusion arm" should be
 narrowed to prefill, where #527's 512× amortisation makes per-dispatch overhead
 negligible and restructuring cost dominant.
 
+**Second recommended rule (§6.6), because it changes how M4 evidence is read.**
+*The two machines differ in dispatch **slack**, not dispatch **price**. This M4
+Pro absorbs ≈480 off-chain no-op dispatches/step for free; the historical M5
+receipts show no free region at K = 100. So on the dispatch-count axis a null on
+M4 does not clear an M5 win, and an M4 saving on the critical chain transfers at
+`k ≈ 1.1` rather than 1.890.* This is the opposite direction to the usual "M4 is
+weaker evidence" caution and is specific to this axis.
+
 **Follow-ups I did not run.**
 
-1. **Free (no host time): refit R93's M5 injection receipts tail-only.** They
-   are three points (K = 0/100/400) fitted as one line at 1.98 µs/dispatch. If
-   the M5 tail segment is steeper than the chord, M5 has a free region too and
-   `k` moves again; if it is not, the encode-limited reading is confirmed. This
-   also has to reconcile 1.98 against rule 65's 2.3403 for the same machine and
-   axis — they cannot both be the M5 addition price.
+1. **Reconcile 1.98 against rule 65's 2.3403 for the M5.** I checked whether
+   R93's M5 receipts could be refit tail-only for free — they cannot: the rungs
+   are K = 0/100/400 (`research/r93-runs/knee-results.md:55-57`), all inside the
+   range that is free on M4, so there is no M5 tail to fit. What remains is a
+   bookkeeping question the programme should answer from receipts it already
+   owns: 1.98 and 2.3403 cannot both be the M5 addition price. Either resolution
+   keeps `k` near 1 (§6.5).
 2. **M5 three-rung injection ladder at K = 0/240/480** — the exact rungs that
    resolved M4. Needs ranked-host access; this is a request, not a task.
 3. **Discriminate the phase-heterogeneity counter-model (threat 9) on M4:** an
