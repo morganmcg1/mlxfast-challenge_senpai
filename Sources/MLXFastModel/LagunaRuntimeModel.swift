@@ -2772,7 +2772,7 @@ private func lagunaPrefillSlidingQKNormRoPE(
     return (outputs[0], outputs[1])
 }
 
-private func lagunaPrefillFullQKNormYaRN(
+func lagunaPrefillFullQKNormYaRN(
     rawQueries: MLXArray,
     rawKeys: MLXArray,
     queryWeight: MLXArray,
