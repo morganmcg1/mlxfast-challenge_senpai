@@ -1,0 +1,43 @@
+{
+  "arm": "a_base",
+  "trace": "/tmp/r105c/dump/a_base/dispatch.tsv",
+  "marker": "custom_kernel_laguna_decode_embedding_rope_atlas",
+  "marker_interval_lengths": [
+    1759,
+    528,
+    408,
+    408,
+    408
+  ],
+  "marker_interval_tail": [
+    1759,
+    528,
+    408,
+    408,
+    408
+  ],
+  "dispatches_per_step": 408,
+  "distinct_families": 25,
+  "tg_launches_per_step": 327395,
+  "gpu_threads_per_step": 30804000,
+  "single_tg_dispatches": 84,
+  "single_tg_families": [
+    "argmax_bfloat16",
+    "embedding_rope_atlas_bf16_2048_v2_int32_tc_bfloat16_t_float_float_int32_ts_bfloat16_t_float_float",
+    "lmhead_exact_winner_bf16_midpoint_threshold_v1_float_uint32_t_bfloat16_t_bfloat16_t_float",
+    "prefill_router_tournament_ordinal_norm_active64_v2_bfloat16_t_float_uint32_t_float",
+    "residual_rms_bf16_2048_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t",
+    "rmsbfloat16"
+  ],
+  "sub_C40_dispatches": 203,
+  "sub_C20_dispatches": 124,
+  "waves_dispatch_C40_total": 8415,
+  "waves_dispatch_C20_total": 16571,
+  "waves_resident_C40_simdmodel_total": 598,
+  "pr196_modelled_us_C40": 63016.008,
+  "rule65_add_price_us_per_step": 954.842,
+  "rule65_add_price_pct_score": 14.54,
+  "rule65_single_tg_us_per_step": 196.585,
+  "m5_reference_step_us": 4141.5,
+  "us_per_pct_score": 65.67
+}
