@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "synthetic_only": true,
+  "fiction_notice": "All metadata and evidence bytes are generated in a temporary directory. Nothing describes a real ranked installation, process, environment, receipt, or authority bundle.",
+  "positive_cases": [
+    {
+      "id": "all_four_explicit_absence",
+      "base_variant": "all_absent",
+      "mutation": "none",
+      "expected_classification": "SELECTOR_ATTESTATION_STATIC_RESUME_READY",
+      "expected_comparison": "all_selectors_absent"
+    },
+    {
+      "id": "identical_intentional_map_with_revision_rule",
+      "base_variant": "identical_explicit",
+      "mutation": "none",
+      "expected_classification": "SELECTOR_ATTESTATION_STATIC_RESUME_READY",
+      "expected_comparison": "intentional_identical_explicit_map"
+    },
+    {
+      "id": "first_missing_pinned_timed_worker",
+      "base_variant": "all_absent",
+      "mutation": "missing_pinned_worker",
+      "expected_classification": "SELECTOR_ATTESTATION_INCOMPLETE",
+      "expected_first_missing": "pinned_baseline_timed.worker_snapshot"
+    },
+    {
+      "id": "null_authority_is_incomplete",
+      "base_variant": "all_absent",
+      "mutation": "null_authority",
+      "expected_classification": "SELECTOR_ATTESTATION_INCOMPLETE",
+      "expected_first_missing": "installed_authority_bundle_digest"
+    }
+  ],
+  "negative_controls": [
+    {"id":"artifact_byte_hash_drift","base_variant":"all_absent","mutation":"artifact_byte_hash_drift","expected_error":"ARTIFACT_HASH_MISMATCH"},
+    {"id":"artifact_size_drift","base_variant":"all_absent","mutation":"artifact_size_drift","expected_error":"ARTIFACT_SIZE_MISMATCH"},
+    {"id":"path_escape","base_variant":"all_absent","mutation":"path_escape","expected_error":"PATH_ESCAPE"},
+    {"id":"symlink_snapshot","base_variant":"all_absent","mutation":"symlink_snapshot","expected_error":"SYMLINK_FORBIDDEN"},
+    {"id":"duplicate_phase","base_variant":"all_absent","mutation":"duplicate_phase","expected_error":"DUPLICATE_PHASE"},
+    {"id":"duplicate_manifest_path","base_variant":"all_absent","mutation":"duplicate_manifest_path","expected_error":"DUPLICATE_MANIFEST_PATH"},
+    {"id":"current_census_digest_drift","base_variant":"all_absent","mutation":"current_census_digest_drift","expected_error":"CURRENT_CENSUS_DIGEST_MISMATCH"},
+    {"id":"pinned_census_digest_drift","base_variant":"all_absent","mutation":"pinned_census_digest_drift","expected_error":"PINNED_CENSUS_DIGEST_MISMATCH"},
+    {"id":"source_revision_drift","base_variant":"all_absent","mutation":"source_revision_drift","expected_error":"SOURCE_REVISION_MISMATCH"},
+    {"id":"implicit_omitted_selector_row","base_variant":"all_absent","mutation":"implicit_omitted_selector_row","expected_error":"SELECTOR_ROW_SET_MISMATCH"},
+    {"id":"unknown_darkbloom_selector","base_variant":"all_absent","mutation":"unknown_darkbloom_selector","expected_error":"UNKNOWN_SELECTOR"},
+    {"id":"hidden_override_differs_from_candidate","base_variant":"identical_explicit","mutation":"hidden_override_differs_from_candidate","expected_error":"CROSS_PROCESS_SELECTOR_MISMATCH"},
+    {"id":"parent_worker_value_mutation","base_variant":"identical_explicit","mutation":"parent_worker_value_mutation","expected_error":"PARENT_WORKER_FORWARDING_MISMATCH"},
+    {"id":"unauthorized_worker_addition","base_variant":"all_absent","mutation":"unauthorized_worker_addition","expected_error":"UNAUTHORIZED_WORKER_ADDITION"},
+    {"id":"missing_forced_runtime_worker","base_variant":"all_absent","mutation":"missing_forced_runtime_worker","expected_error":"FORCED_RUNTIME_WORKER_MISSING"},
+    {"id":"canonical_framing_mutation","base_variant":"all_absent","mutation":"canonical_framing_mutation","expected_error":"CANONICAL_MAP_HASH_MISMATCH"},
+    {"id":"mixed_capture_epoch","base_variant":"all_absent","mutation":"mixed_capture_epoch","expected_error":"CAPTURE_EPOCH_MISMATCH"},
+    {"id":"authority_foreign_key_mismatch","base_variant":"all_absent","mutation":"authority_foreign_key_mismatch","expected_error":"AUTHORITY_DIGEST_MISMATCH"},
+    {"id":"unsupported_revision_exception","base_variant":"identical_explicit","mutation":"unsupported_revision_exception","expected_error":"UNSUPPORTED_REVISION_POLICY"},
+    {"id":"credential_variable_inclusion","base_variant":"all_absent","mutation":"credential_variable_inclusion","expected_error":"SECRET_NAME_FORBIDDEN"},
+    {"id":"generic_environment_dump","base_variant":"all_absent","mutation":"generic_environment_dump","expected_error":"UNDECLARED_FILE"},
+    {"id":"secret_value_leakage","base_variant":"identical_explicit","mutation":"secret_value_leakage","expected_error":"SECRET_VALUE_FORBIDDEN"},
+    {"id":"redaction_placeholder_leakage","base_variant":"identical_explicit","mutation":"redaction_placeholder_leakage","expected_error":"REDACTION_PLACEHOLDER_FORBIDDEN"},
+    {"id":"declared_file_missing","base_variant":"all_absent","mutation":"declared_file_missing","expected_error":"DECLARED_FILE_MISSING"},
+    {"id":"trusted_bundle_digest_mismatch","base_variant":"all_absent","mutation":"trusted_bundle_digest_mismatch","expected_error":"TRUSTED_BUNDLE_DIGEST_MISMATCH"},
+    {"id":"schema_drift","base_variant":"all_absent","mutation":"schema_drift","expected_error":"SCHEMA_CONTRACT_DRIFT"},
+    {"id":"impossible_capture_date","base_variant":"all_absent","mutation":"impossible_capture_date","expected_error":"CAPTURE_EPOCH_INVALID"},
+    {"id":"selector_name_too_long","base_variant":"all_absent","mutation":"selector_name_too_long","expected_error":"SELECTOR_NAME_INVALID"},
+    {"id":"selector_name_wrong_type","base_variant":"all_absent","mutation":"selector_name_wrong_type","expected_error":"SCHEMA_INVALID"},
+    {"id":"noncanonical_snapshot_json","base_variant":"all_absent","mutation":"noncanonical_snapshot_json","expected_error":"PHYSICAL_JSON_NONCANONICAL"},
+    {"id":"static_resume_target_mismatch","base_variant":"all_absent","mutation":"static_resume_target_mismatch","expected_error":"STATIC_RESUME_TARGET_MISMATCH"},
+    {"id":"missing_worker_with_invalid_selector","base_variant":"all_absent","mutation":"missing_worker_with_invalid_selector","expected_error":"SELECTOR_NAME_INVALID"},
+    {"id":"missing_worker_with_noncanonical_snapshot","base_variant":"all_absent","mutation":"missing_worker_with_noncanonical_snapshot","expected_error":"PHYSICAL_JSON_NONCANONICAL"},
+    {"id":"missing_plus_cross_process_mismatch","base_variant":"identical_explicit","mutation":"missing_plus_cross_process_mismatch","expected_error":"CROSS_PROCESS_SELECTOR_MISMATCH"},
+    {"id":"coherent_bundle_expectations_reseal_without_external_pin","base_variant":"all_absent","mutation":"coherent_bundle_expectations_reseal_without_external_pin","expected_error":"TRUSTED_EXPECTATIONS_DIGEST_MISMATCH"},
+    {"id":"missing_expected_expectations_pin","base_variant":"all_absent","mutation":"missing_expected_expectations_pin","expected_error":"TRUSTED_EXPECTATIONS_PIN_MISSING"},
+    {"id":"credential_shaped_process_metadata","base_variant":"all_absent","mutation":"credential_shaped_process_metadata","expected_error":"SECRET_VALUE_FORBIDDEN"},
+    {"id":"aws_access_key_process_metadata","base_variant":"all_absent","mutation":"aws_access_key_process_metadata","expected_error":"SECRET_VALUE_FORBIDDEN"},
+    {"id":"gitlab_pat_process_metadata","base_variant":"all_absent","mutation":"gitlab_pat_process_metadata","expected_error":"SECRET_VALUE_FORBIDDEN"},
+    {"id":"slack_token_process_metadata","base_variant":"all_absent","mutation":"slack_token_process_metadata","expected_error":"SECRET_VALUE_FORBIDDEN"},
+    {"id":"relative_path_at_rejected","base_variant":"all_absent","mutation":"relative_path_at_rejected","expected_error":"PATH_ESCAPE"}
+  ],
+  "determinism": {
+    "runs": 2,
+    "require_byte_identical_results": true,
+    "require_actual_fixture_bytes": true
+  }
+}
