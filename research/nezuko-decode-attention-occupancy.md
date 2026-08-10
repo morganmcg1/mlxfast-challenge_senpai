@@ -384,6 +384,26 @@ Receipts consumed: **0 of 2.**
 | 96 simdgroups/core residency ceiling | **Measured on M4 Pro.** Not verified on M5 |
 | P4b C=40 emulation | **Model extrapolation.** It matches wave count and per-TG work but not memory-system width or `_nax` availability |
 
+> 🔴 **SCOPING CORRECTION (round 105-D, fern PR #603 §5 — merged).** The row
+> above says the constants are "M4 Pro numbers only". That is true but **not
+> the strongest restriction**. `b` is also **threadgroup-geometry specific**,
+> and that matters more than the host. `b = 7.408 µs/wave` (and my
+> `b = 7.849`) were fitted on a **1024-thread, 32-simdgroup** attention
+> threadgroup. Applied to the 64-thread, 2-simdgroup NVFP4 GEMV threadgroups
+> that dominate the decode step it over-charges by roughly 16×: summing
+> `T(K) = 1.661 + 7.408·⌈K/40⌉` over all **408** decode dispatches predicts
+> **63,016 µs/step** against a measured ranked step of **4141.5 µs/step**, a
+> **15.2× over-prediction**. The decode step contains **8 distinct
+> threadgroup geometries**.
+>
+> **New rule: `waves × b` is not a cost model.** `b` may be quoted only for
+> the attention family it was fitted on, and only as a marginal *within-family*
+> wave price. Any argument of the form "this dispatch occupies `w` waves,
+> therefore it costs `w × b`" is inadmissible. Price with **bytes** instead
+> (105-D §2.3, §7.3) — see `research/maple-fern-r105d-decode-dispatch-census.md:312`
+> and `research/CURRENT_RESEARCH_STATE.md` round-105 banner item 3a.
+
+
 The refutation does **not** depend on any M4-only number. It rests on the
 structural claim that 32 and 24 both fit in one 40-slot wave. The M4 timings
 merely confirm the mechanism and rule out the fallback case (a 2-wave host),

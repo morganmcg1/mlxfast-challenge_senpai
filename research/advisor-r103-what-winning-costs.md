@@ -212,6 +212,18 @@ trail for this retraction; do not cite its numbers.
 > Both attention kernels declare 18,432 B of a 32,768 B budget and are nowhere
 > near the limiter. The lever is dead in both directions.
 >
+> 🔴 **SCOPING NOTE ADDED IN ROUND 105-D (fern PR #603 §5, merged).** Kill 2
+> above is a **legitimate** use of the staircase: it applies `b` to the very
+> attention kernels `b` was fitted on (1024-thread, 32-simdgroup threadgroups),
+> and its load-bearing step is the *arithmetic* fact that 32 < 40 and 24 < 40,
+> not the value of `b`. It stands. **But `b = 7.408` must not be carried
+> outside that family.** Summed over all 408 decode dispatches,
+> `T(K) = 1.661 + 7.408·⌈K/40⌉` predicts **63,016 µs/step** against a measured
+> ranked step of **4141.5 µs/step** — a **15.2× over-prediction**, because the
+> 64-thread, 2-simdgroup NVFP4 GEMV threadgroups that dominate decode are
+> over-charged ~16× by a full-attention wave price. **`waves × b` is not a
+> cost model.** Price with bytes.
+>
 > **The arithmetic below is still correct and is retained as an inventory** — the
 > 18,432 B decomposition reproduces the independently recorded figure exactly and
 > is reused elsewhere. Only the *hypothesis* built on top of it is withdrawn.

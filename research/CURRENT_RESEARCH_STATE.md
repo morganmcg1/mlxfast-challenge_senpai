@@ -143,20 +143,128 @@
 > is admissible anywhere**; write traces to **`stderr`**, which is unbuffered.
 > Correction blocks are published at all four inherited citation sites.
 >
-> **3. The decode step is a serialisation problem, not a bandwidth problem.**
-> The steady decode step is **408 dispatches across 25 kernel families**
-> (`research/artifacts/fern-r105c/dispatch-summary.json`). **84 of 408
-> (20.6 %) launch exactly ONE threadgroup**; **203 of 408 (49.8 %) run below
-> 1 TG/core** at C = 40. Forty-one of them are `rmsbfloat16` — at rule-65's
-> 2.3403 µs that is **95.9 µs/step = 1.46 % of `cs`** in launch tax alone, and
-> a kernel *named* `laguna_prefill_router_tournament_...` fires 39× per decode
-> step on a single threadgroup. **Two guards on any occupancy proposal:**
-> PR #196's staircase `T(K) = a + b·⌈K/C⌉` with **C = 40** closed "idle slots
-> below C cost time" (`RESEARCH_ARCHIVE:6288`), and PR #158 measured the
-> per-dispatch coefficient **NULL**, so 408 × 2.3403 µs is a **marginal, not
-> an additive** quantity. The live distinction neither closure reaches: **a
-> 1-TG dispatch is serialisation of work, not an idle-slot tail.**
-> Adjudication: **PR #603** (maple-fern, 105-D), zero receipts by design.
+> **3. 🔴🔴 RETRACTED AND REPLACED — "the decode step is a serialisation
+> problem, not a bandwidth problem" IS FALSE. THE DECODE STEP IS
+> MEMORY-BOUND, AND OCCUPANCY IS ANTI-CORRELATED WITH COST.** I opened this
+> round claiming a bounded under-occupancy pool. maple-fern's **105-D
+> (PR #603, merged)** censused the step exactly and returned **N-1: the pool
+> does not exist.** Report:
+> `research/maple-fern-r105d-decode-dispatch-census.md`; artifacts
+> `research/artifacts/fern-r105d/`; W&B `1k7a3iv6`; zero receipts, zero
+> submitted bytes.
+>
+> **What survives.** The *shape* claims are all confirmed, re-derived from the
+> traces rather than cited: the steady decode step is **408 dispatches across
+> 25 kernel families**, **84 of 408 (20.59 %) launch exactly ONE
+> threadgroup**, **203 of 408 (49.75 %) run below 1 TG/core at C = 40**, and
+> **327,395 threadgroup launches per step** — reproduced to the digit. At
+> C = 20 only 124 are sub-C, so under-occupancy is *more* severe on the ranked
+> machine, not less.
+>
+> **What is dead.** 🔴 **My "41 `rmsbfloat16` × 2.3403 µs = 95.9 µs/step =
+> 1.46 % of `cs` launch tax" is WITHDRAWN — it overstates by 21.7×.** I
+> applied Rule 65's **addition** price in the **removal** direction, which
+> Rule 68 at `:1064-1065` of this file already refutes verbatim, and the
+> family had already been measured by fern herself in **PR #483**
+> (`research/maple-fern-r91-input-norm-fusion-price.md:14-24,36`): +80
+> dispatches/step cost **+8.61 µs/step, CI [−17.71, +35.02]** ⇒ **0.108
+> µs/dispatch**, family "terminal — the family is dead". 🔴 My
+> `laguna_prefill_router_tournament_…`-fires-in-decode headline is **a naming
+> fact with no lever**: the decode and prefill tournaments are separate gates
+> (`LRM:9532` vs `LRM:10211`) dispatching a shared Metal function whose
+> declarations (`LRM:10113, :10122, :10131, :10140`) carry the prefill name;
+> **PR #218 prices the family at 0.00 ± 0.12 µs/call, E = 0.00**, and #204
+> deleted it outright for −0.9 ± 12.1 µs.
+>
+> **🆕 The replacement finding — §7.3, the most transferable result of the
+> round. Dispatch count is not a cost proxy; bytes are.** Measured over the
+> exact step:
+>
+> | | sub-C40 (203 disp) | ≥ C40 (205 disp) |
+> |---|---|---|
+> | share of dispatches | 49.75 % | 50.25 % |
+> | **share of bytes** | **8.25 %** | **91.75 %** |
+> | share of label seconds (Rule 82b) | 21.77 % | 78.23 % |
+>
+> Per dispatch a ≥C40 dispatch is **~3.6× costlier in label seconds and ~255×
+> costlier in bytes**. The 84 single-TG dispatches move **0.0359 % of the
+> step's bytes** and have a **DRAM floor of 0.98 µs**. *The under-occupied
+> dispatches look bad on an occupancy metric precisely because they have
+> almost nothing to do.* 🆕 **Lead every future decode census with bytes.**
+>
+> **🆕 Decode roofline (§2.4).** Step traffic **1,671,402,432 B = 1671.40
+> MB/step** (99.883 % of it the 15 r101 spine families). Against Rule 80's
+> measured M5 **610 GB/s**, the **DRAM floor is 2740.00 µs = 66.16 % of the
+> 4141.5 µs ranked step**; achieved BW 403.6 GB/s = **66.2 % of peak**.
+> **Decode is memory-bound at the same knee as prefill** — see
+> `research/advisor-r105-the-routed-gather-gemm-is-memory-bound.md`. The
+> 1401.50 µs remainder is a **subtraction residual, not a pool**
+> (`RESEARCH_ARCHIVE_through-round-91.md:6785-6786`).
+>
+> **🆕 The 955 µs "dispatch tax" is OVERLAPPED, not additive.** 408 × 2.3403 =
+> 954.842 µs/step nominal. Conservation kills it: r93-C measured the
+> production inter-dispatch gap at **302 µs/step** (vs 1261 under `SPLIT=1`),
+> so **≥ 68.4 % must be overlapped**; r93-A shows this host absorbs the first
+> ~480 added dispatches free and production is 408, *inside* that region; and
+> #158's per-dispatch coefficient is **NULL (−0.12 ± 0.22 µs)**.
+>
+> **🆕 Ranked mechanism ledger (bar = +0.5 % of `cs` = 32.8 µs/step).**
+> M1 fuse the 41 input RMSNorms — **NO-GO**, closed by #483 (≤ 0.533 %, ≈0.13 %
+> after transfer). M2 widen/batch the 39 router tournaments — **NO-GO**,
+> bounded at zero by #218, and widening *adds* TGs at #196's `f = 3.130 µs`.
+> M3 eliminate/merge all 84 single-TG dispatches — **NO-GO**, measured
+> elasticity 84 × 0.108 = **9.1 µs = 0.138 % of `cs`**, 3.6× below the bar.
+> M4 head-axis repartition — **OUT OF SCOPE** (closed three ways). M5 reduce
+> bytes in the 205 ≥C40 dispatches — not an occupancy lever, but it is where
+> 91.75 % of the bytes live; **it overlaps live dials in #584/#592/#597 and
+> needs advisor coordination before anyone opens it.** **Nothing clears
+> +0.5 %.**
+>
+> **🆕 Rules published by 105-D:** (a) **never price a removal with an
+> addition constant** — Rule 65 is one-directional and Rule 68 says so;
+> (b) **`waves × b` is not a cost model** — see item 3a below; (c) **dispatch
+> count is not a cost proxy, bytes are**; (d) **lead decode censuses with
+> bytes**; (e) **an unattributed residual is a subtraction residual, not a
+> pool.**
+>
+> **⚠ Coincidence, flagged so nobody builds on it:** the decode step's
+> 1,671,402,432 B and the r105-C trace file's 1,671,168 B differ by a factor
+> of 1000.14. Different numbers from unrelated sources (the r101 byte model vs
+> a file size). This is the *second* spurious collision around 1,671,168 this
+> round; treat any third with suspicion.
+>
+> **3a. 🆕 `waves × b` IS NOT A COST MODEL — PR #196's staircase is scoped to
+> full-attention threadgroups.** 105-D §5 summed
+> `T(K) = 1.661 + 7.408·⌈K/40⌉` over all 408 dispatches and got **63,016 µs**
+> against a measured **4141.5 µs** step — a **15.2× over-prediction**. `b =
+> 7.408 µs/wave` was calibrated on **1024-thread, 32-simdgroup** full-attention
+> TGs; the decode step's dominant geometry is a **64-thread NVFP4 GEMV** TG,
+> which it over-charges ~16×, and **8 distinct threadgroup geometries** are in
+> use. Wave counts are a **shape statistic**. Any future quotation of #196's
+> staircase must carry this scoping note. (Existing citations:
+> `RESEARCH_ARCHIVE_through-round-91.md:2214, 3722, 3829, 3894, 4881, 4893,
+> 6111, 6297`; `advisor-r103-what-winning-costs.md:206`;
+> `maple-frieren-r102a-splitk-fixed-cost.md:99`;
+> `maple-nezuko-r96-a-decode-attention-pipeline.md:140`;
+> `nezuko-decode-attention-occupancy.md:193, 197, 383`.) Inline scoping blocks
+> are now published at `advisor-r103-what-winning-costs.md` (Kill 2 — that use
+> is *legitimate*, since it applies `b` to the attention family it was fitted
+> on and rests on the arithmetic 32 < 40 / 24 < 40, not on `b`'s value),
+> `nezuko-decode-attention-occupancy.md` §6, and
+> `advisor-r105-the-decode-step-is-half-empty.md` §4.1. The archive citations
+> are left unannotated by design (the archive is frozen); this banner is the
+> single place that scopes them.
+>
+> **3b. 🆕 A standing ambiguity, honestly flagged and NOT resolved.** The
+> residency model `R = floor(96 / simdgroups_per_TG)` is validated at 1024
+> thr/TG (#196 ⇒ 3 TG/core) and 128 thr/TG (#138 ⇒ 24 TG/core). A hard-cap
+> model (24 TG/core regardless) fits #138 and is refuted by #196. **At 64
+> threads/TG the two models disagree (48 vs 24) and nothing in the programme
+> distinguishes them** — and 64-thread TGs are the decode step's dominant
+> geometry. 105-D's CSV emits **both** columns
+> (`waves_resident_C40_R96simd`, `waves_resident_C40_Rcap24`); **neither is
+> measured — do not quote either.** Measuring the 64-thread/TG residency point
+> is cheap and retires this ambiguity in every occupancy analysis we hold.
 >
 > **4. 🆕 Doctrine: a kernel name records what the host asked for, not what
 > compiled.** tanjiro's 105-A D6 (PR #592) found a name that still reads

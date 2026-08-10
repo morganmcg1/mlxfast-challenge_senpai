@@ -190,6 +190,69 @@ between 1.434 GB (ideal reuse) and 15.938 GB (zero reuse). The measured
 > `research/CURRENT_RESEARCH_STATE.md`, and in the 105-A brief — read
 > **"≤ 8.76 ms, bar cleared only if `r ≥ 0.303`"** instead.
 
+### 3.3 🆕 The title thesis is not special to prefill: **decode is memory-bound too, at 66 %**
+
+This note was written about one prefill kernel family. Round 105-D
+(fern, PR #603, merged) applied the same roofline to the *other* phase and got
+the same verdict. Both halves of the model are byte-limited.
+
+Her decode byte census (`research/maple-fern-r105d-decode-dispatch-census.md:164`
+§2.3, §2.4 at `:180`) prices one steady decode step at **1,671,402,432 B =
+1671.40 MB/step**, built from the r101 byte model
+(`research/fern_r101_byte_audit.py`) over all **25 kernel families / 408
+dispatches**. Fifteen r101 spine families supply 1,669,443,584 B (**99.883 %**);
+ten newly-priced tail families supply the remaining 0.1172 %.
+
+| phase | object | bytes | wall | achieved BW | % of 610 GB/s (Rule 80) | DRAM floor as % of wall |
+|---|---|---|---|---|---|---|
+| **prefill** | routed gather-GEMM, 76 dispatches | 14.826 GB (weights) + activations | 43.262 ms | **375.9 GB/s** | **61.6 %** | 24.306 / 43.262 = **56.2 %** (weights only) |
+| **decode** | the whole step, 408 dispatches | 1.6714 GB | 4141.5 µs | **403.6 GB/s** | **66.2 %** | 2740.00 / 4141.5 = **66.16 %** |
+
+**Read the two rows together.** The routed gather-GEMM is not an unusually
+bandwidth-starved corner of an otherwise compute-bound model; it is
+*representative*. On the ranked machine the model spends about two thirds of
+both phases moving bytes it cannot avoid moving. Every arm in this campaign
+that proposes to rearrange **when** work is issued — tile shape, wave count,
+occupancy, dispatch count, scheduling order — is arguing about the other third,
+and the r105 census work has now priced that third at approximately zero on
+both sides:
+
+* **prefill** — §3.1 above: the `kFragRows = 16` / 1.456× MMA-row-inflation
+  family is priced at ~zero, which killed meridian's item 15 and the whole
+  tile/banding surface.
+* **decode** — 105-D §6: the best-supported bound on the entire dispatch-count
+  surface is **0.138 % of `cs`**, 3.6× below the +0.5 % bar, and 105-D §7.3
+  shows **occupancy is *anti*-correlated with cost**: a ≥C40 decode dispatch is
+  ~3.6× costlier in label seconds and **~255× costlier in bytes** than a
+  sub-C40 one. The 84 single-threadgroup dispatches carry **0.0359 %** of the
+  step's bytes; the 205 dispatches at ≥C40 carry **91.75 %**.
+
+**⇒ The standing instruction for both phases is the same: lead with bytes.**
+Dispatch count is not a cost proxy. Occupancy is not a cost proxy. Bytes are.
+
+Two disciplines carry over from this note to the decode side unchanged:
+
+1. **The residual is a subtraction residual, not a pool.** Decode's
+   4141.5 − 2740.00 = **1401.50 µs/step** unattributed (21.341 % of score) is
+   exactly the same kind of object as the "31.28 ms unattributed prefill pool"
+   that §9a of the round-104 flagship had to retract, and as the standing
+   archive rule at `RESEARCH_ARCHIVE_through-round-91.md:6785-6786`. Nobody may
+   assign an arm against it until some mechanism inside it is *named and
+   measured*.
+2. **The bandwidth constant is doing all the work, and it is measured, not
+   conjectured.** Both rows above use Rule 80's **measured 610 GB/s**. The
+   *unmeasured* geometry-corrected **686.2 GB/s** conjecture would move prefill
+   from 61.6 % → **54.8 %** of peak and decode from 66.2 % → **58.8 %**, i.e. it
+   makes **both** phases look *less* bandwidth-bound and *grows* both
+   unattributed residuals. So the 610 GB/s numbers are the aggressive end of
+   the memory-bound claim. If anyone measures 686.2 GB/s, this section weakens
+   in both rows simultaneously and must be re-derived, not patched.
+
+Cross-references: 105-D §2.4 (`research/maple-fern-r105d-decode-dispatch-census.md:180`);
+`research/advisor-r105-the-decode-step-is-half-empty.md` §4.0b and §4.0d;
+Rule 80 and Rule 84 in `research/CURRENT_RESEARCH_STATE.md`.
+
+
 ---
 
 ## 4. 🔴 The tension I must state, not hide
