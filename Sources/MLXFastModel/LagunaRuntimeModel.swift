@@ -4316,107 +4316,6 @@ private let lagunaGatedAffineOProjNVFP4LaneMajorKernels: [Int: MLXFast.MLXFastKe
     return kernels
 }()
 
-private let lagunaFusedNormGateSoftplusEnabled = ProcessInfo.processInfo.environment[
-    "DARKBLOOM_FUSED_NORM_GATE_SOFTPLUS"] == "1"
-private let lagunaFusedNormGateCensusEnabled = ProcessInfo.processInfo.environment[
-    "DARKBLOOM_FUSED_NORM_GATE_CENSUS"] == "1"
-
-private func lagunaFusedNormGateSoftplusSource(heads: Int) -> String {
-    """
-constexpr uint K=2048,NV=4,V=8,R=\(heads)/16,KG=K/32;
-uint lid=thread_position_in_threadgroup.x;
-uint sg=simdgroup_index_in_threadgroup;
-uint lane=thread_index_in_simdgroup;
-\(lagunaNormInvMeanScratch)
-threadgroup float local_sums[32];
-threadgroup bfloat norm_row[K];
-uint base=lid*NV;
-thread float raw[NV];
-float acc=0.0f;
-for(uint i=0;i<NV;++i){
-    raw[i]=float(residual[base+i]);
-    acc+=raw[i]*raw[i];
-}
-acc=simd_sum(acc);
-\(lagunaNormReductionTailQKV)
-for(uint i=0;i<NV;++i){
-    bfloat value=norm_weight[base+i]*bfloat(raw[i]*laguna_inv_mean);
-    norm_row[base+i]=value;
-    normalized[base+i]=value;
-}
-threadgroup_barrier(mem_flags::mem_threadgroup);
-uint orow=sg*R;
-const device uint8_t* ws=(const device uint8_t*)packed_codes+orow*K+lane*V;
-const device bfloat* sc=scales+orow*KG+lane/4;
-const device bfloat* bs=biases+orow*KG+lane/4;
-thread float x[V];
-thread float r[R];
-for(uint row=0;row<R;++row) r[row]=0.0f;
-uint col=lane*V;
-for(uint k=0;k<K;k+=256){
-    float sum=0.0f;
-    for(uint i=0;i<V;++i){x[i]=float(norm_row[col+i]);sum+=x[i];}
-    for(uint row=0;row<R;++row){
-        const device uint8_t* wl=ws+row*K;
-        float s=float(sc[row*KG]),b=float(bs[row*KG]),a=0.0f;
-        for(uint i=0;i<V;++i) a+=x[i]*wl[i];
-        r[row]+=s*a+sum*b;
-    }
-    ws+=256;sc+=8;bs+=8;col+=256;
-}
-for(uint row=0;row<R;++row){
-    r[row]=simd_sum(r[row]);
-    if(lane==0){
-        float l=float(bfloat(r[row])),g;
-        if(metal::isnan(l)) g=NAN;
-        else {
-            float hi=metal::max(l,0.0f),lo=metal::min(l,0.0f);
-            g=(metal::isinf(lo)||metal::isinf(hi))?hi:hi+log1p(metal::exp(lo-hi));
-        }
-        gate_values[orow+row]=bfloat(g);
-    }
-}
-"""
-}
-
-private let lagunaFusedNormGateSoftplusKernels: [Int: MLXFast.MLXFastKernel] = {
-    var result: [Int: MLXFast.MLXFastKernel] = [:]
-    for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
-        result[heads] = MLXFast.metalKernel(
-            name: "laguna_norm_gate_sp_bf16_h\(heads)_v1",
-            inputNames: ["residual", "norm_weight", "packed_codes", "scales", "biases"],
-            outputNames: ["normalized", "gate_values"],
-            source: lagunaFusedNormGateSoftplusSource(heads: heads),
-            ensureRowContiguous: true)
-    }
-    return result
-}()
-
-private func lagunaFusedNormGateSoftplus(
-    residual: MLXArray, normWeight: MLXArray,
-    bank: LagunaNativeAffineWeight, heads: Int
-) -> (normalized: MLXArray, gateValues: MLXArray)? {
-    let hidden = LagunaConstants.hiddenSize
-    guard lagunaFusedNormGateSoftplusEnabled,
-        let biases = bank.biases,
-        let kernel = lagunaFusedNormGateSoftplusKernels[heads],
-        residual.dtype == .bfloat16, residual.dims(1, 1, hidden),
-        normWeight.dtype == .bfloat16, normWeight.dims(hidden),
-        bank.mode == .affine, bank.bits == 8, bank.groupSize == 32,
-        bank.originalShape == [heads, hidden],
-        bank.packedCodes.dtype == .uint32, bank.packedCodes.dims(heads, hidden / 4),
-        bank.scales.dtype == .bfloat16, bank.scales.dims(heads, hidden / 32),
-        biases.dtype == .bfloat16, biases.dims(heads, hidden / 32)
-    else { return nil }
-    lagunaTrace("fused norm+gate softplus h\(heads)")
-    let outputs = kernel(
-        [residual, normWeight, bank.packedCodes, bank.scales, biases],
-        grid: (512, 1, 1), threadGroup: (512, 1, 1),
-        outputShapes: [[1, 1, hidden], [1, 1, heads]],
-        outputDTypes: [.bfloat16, .bfloat16])
-    return (outputs[0], outputs[1])
-}
-
 private let lagunaGateSoftplusEnabled = ProcessInfo.processInfo.environment[
     "DARKBLOOM_AFFINE_GATE_SOFTPLUS"] != "0"
 
@@ -5896,44 +5795,14 @@ final class LagunaRuntimeAttention: Module {
                         rows: fusedAffine.originalShape[0])
                 }
 
-                var fusedNormGate:
-                    (normalized: MLXArray, gateValues: MLXArray)? = nil
-                let nativeQKVRows =
-                    (nHeads + 2 * nKVHeads) * LagunaConstants.headDim
-                if fusedQKV == nil, lagunaDecodeNVFP4QKVR1Enabled,
-                    fusedAffine.mode == .nvfp4, fusedAffine.bits == 4,
-                    fusedAffine.groupSize == 16, fusedAffine.biases == nil,
-                    fusedAffine.originalShape
-                        == [nativeQKVRows, LagunaConstants.hiddenSize],
-                    fusedAffine.packedCodes.dtype == .uint32,
-                    fusedAffine.packedCodes.dims(
-                        nativeQKVRows, LagunaConstants.hiddenSize / 8),
-                    fusedAffine.scales.dtype == .uint8,
-                    fusedAffine.scales.dims(
-                        nativeQKVRows, LagunaConstants.hiddenSize / 16),
-                    _nativeAffineQKVGateRows != nHeads,
-                    inputNorm.eps == Float(LagunaConstants.rmsNormEpsilon),
-                    lagunaGateSoftplusEnabled,
-                    lagunaFusedGatedAffineOProjEnabled,
-                    lagunaGatedAffineOProjNVFP4Enabled,
-                    lagunaUseNativeAffineOProj(layer: layerIdx),
-                    let affineWO = _nativeAffineOProj,
-                    affineWO.mode == .nvfp4, affineWO.bits == 4,
-                    affineWO.groupSize == 16,
-                    let affineGate = _nativeAffineGProj
-                {
-                    if lagunaFusedNormGateCensusEnabled {
-                        FileHandle.standardError.write(
-                            Data("norm-gate census layer=\(layerIdx) heads=\(nHeads) fused=\(lagunaFusedNormGateSoftplusEnabled)\n".utf8))
-                    }
-                    fusedNormGate = lagunaFusedNormGateSoftplus(
-                        residual: input, normWeight: inputNorm.weight,
-                        bank: affineGate, heads: nHeads)
-                }
-                // The unchanged NVFP4 projection consumes the device-visible
-                // normalized output when fusion succeeds.
-                let normalized =
-                    fusedNormGate?.normalized ?? fusedQKV ?? inputNorm(input)
+                // The fused tail norm+QKV+gate kernel was removed after the
+                // r=1-regime re-sweep re-measured it +2.7% (its defusion is
+                // the promoted state); the placeholder keeps the downstream
+                // defer/eager gate-activation plumbing unchanged.
+                let fusedTailGateLogits: MLXArray? = nil
+                // Only materialized when the fused kernel declined; the gate
+                // branches below that read it are unreachable when it fired.
+                let normalized = fusedQKV ?? inputNorm(input)
                 let decodeNVFP4QKVR1 =
                     fusedQKV == nil
                     ? lagunaDecodeNVFP4QKVR1(
@@ -5957,9 +5826,11 @@ final class LagunaRuntimeAttention: Module {
                 let gateStart = queryDim + 2 * kvDim
                 let gateLogits: MLXArray
                 var gateProjectionActivated = false
-                if let activated = fusedNormGate?.gateValues {
-                    gateLogits = activated
-                    gateProjectionActivated = true
+                if let fusedTailGateLogits {
+                    // Removed tail-fusion placeholder: always nil since the
+                    // r=1-regime re-sweep; kept so the defer/eager plumbing
+                    // below stays structurally unchanged.
+                    gateLogits = fusedTailGateLogits
                 } else if _nativeAffineQKVGateRows == nHeads {
                     // The gate rows rode the fused bank's single dispatch;
                     // slice them out of its tail. Same row-local math as a
