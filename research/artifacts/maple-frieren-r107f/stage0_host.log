@@ -1,0 +1,16 @@
+device_name=Apple M4 Pro
+architecture_name=applegpu_g16s
+architecture_back_char=s
+architecture_gen=16
+os_version=26.5.2
+os_clause_macos_26_2=true
+nax_gen_floor=17
+nax_available=false
+max_ops_per_buffer=50
+max_mb_per_buffer=50
+max_threads_per_threadgroup_x=1024
+max_threadgroup_memory_length=32768
+max_buffer_length=30150672384
+recommended_max_working_set_size=40200896512
+has_unified_memory=true
+physical_memory_bytes=51539607552

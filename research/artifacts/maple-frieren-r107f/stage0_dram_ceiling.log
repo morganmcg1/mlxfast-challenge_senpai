@@ -1,0 +1,10 @@
+device=Apple M4 Pro buffer=2.00 GiB iterations=12 recommendedWorkingSet=37.4 GiB
+read threads=   65536 moved=  2.15 GB  gpu=  8.531 ms ->  251.7 GB/s   wall=  8.713 ms ->  246.5 GB/s
+read threads=  262144 moved=  2.15 GB  gpu=  8.374 ms ->  256.5 GB/s   wall=  8.551 ms ->  251.1 GB/s
+read threads= 1048576 moved=  2.15 GB  gpu=  8.327 ms ->  257.9 GB/s   wall=  8.492 ms ->  252.9 GB/s
+read threads= 4194304 moved=  2.15 GB  gpu=  8.236 ms ->  260.7 GB/s   wall=  8.394 ms ->  255.8 GB/s
+copy(r+w) threads=  262144 moved=  4.29 GB  gpu= 19.641 ms ->  218.7 GB/s   wall= 19.836 ms ->  216.5 GB/s
+copy(r+w) threads= 1048576 moved=  4.29 GB  gpu= 19.476 ms ->  220.5 GB/s   wall= 19.634 ms ->  218.8 GB/s
+copy(r+w) threads= 4194304 moved=  4.29 GB  gpu= 18.965 ms ->  226.5 GB/s   wall= 19.154 ms ->  224.2 GB/s
+rmw(r+w) threads= 1048576 moved=  4.29 GB  gpu= 17.706 ms ->  242.6 GB/s   wall= 17.886 ms ->  240.1 GB/s
+rmw(r+w) threads= 4194304 moved=  4.29 GB  gpu= 17.491 ms ->  245.6 GB/s   wall= 17.668 ms ->  243.1 GB/s
