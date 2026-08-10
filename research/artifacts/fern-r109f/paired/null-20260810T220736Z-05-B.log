@@ -1,0 +1,20 @@
+benchmark.sh: trusted CLI or participant runtime worker missing or stale; building
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+[0/1] Planning build
+Building for production...
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+Build of product 'mlxfast-swift' complete! (9.39s)
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+[0/1] Planning build
+Building for production...
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+Build of product 'mlxfast-runtime-worker' complete! (9.45s)
+benchmark.sh: reusing weights/ for unchanged transform source
+mlxfast-swift: warning: mlx.metallib at /private/tmp/fern-r109f/workers/baseB/mlx.metallib was built from different vendored Metal sources than the ones on disk (recorded f1dfc3f701f0402df0ce4a27133be86e79cac98030b1af3399580e47ff18e222, current 6471573a7a9884afd54518b52a754f9db4dae2c0aa81f2376f1b7f2c53293ae3); rebuild it with tools/build-mlx-metallib.sh (or rerun ./setup.sh) so kernel edits are not masked by a stale metallib
+mlxfast: benchmark elapsed=0.0s local-submit start checked_tokens=1025 decode_steps=1023 repeats=1
+mlxfast: benchmark elapsed=0.0s local-submit baseline prefill_seconds_per_token=0.000368 decode_seconds_per_token=0.013856 (official-runner constants; local speedups are directional)
+mlxfast: benchmark elapsed=0.0s local-submit validation start
+mlxfast: benchmark elapsed=10.2s local-submit weights digest still running phase_seconds=10.2
+mlxfast: benchmark elapsed=20.2s local-submit weights digest still running phase_seconds=20.2
+mlxfast: benchmark elapsed=30.3s local-submit weights digest still running phase_seconds=30.3
+benchmark.sh: stopping the in-flight benchmark process tree (pid 26810) so no model-holding worker stays resident

@@ -3,14 +3,14 @@ benchmark.sh: trusted CLI or participant runtime worker missing or stale; buildi
 [0/1] Planning build
 Building for production...
 [0/2] Write swift-version--58304C5D6DBC2206.txt
-Build of product 'mlxfast-swift' complete! (9.03s)
+Build of product 'mlxfast-swift' complete! (9.30s)
 [0/2] Write swift-version--58304C5D6DBC2206.txt
 [0/1] Planning build
 Building for production...
 [0/2] Write swift-version--58304C5D6DBC2206.txt
-Build of product 'mlxfast-runtime-worker' complete! (9.41s)
+Build of product 'mlxfast-runtime-worker' complete! (9.25s)
 benchmark.sh: reusing weights/ for unchanged transform source
-mlxfast-swift: warning: mlx.metallib at /private/tmp/fern-r109f/workers/baseB/mlx.metallib was built from different vendored Metal sources than the ones on disk (recorded f1dfc3f701f0402df0ce4a27133be86e79cac98030b1af3399580e47ff18e222, current 6471573a7a9884afd54518b52a754f9db4dae2c0aa81f2376f1b7f2c53293ae3); rebuild it with tools/build-mlx-metallib.sh (or rerun ./setup.sh) so kernel edits are not masked by a stale metallib
+mlxfast-swift: warning: mlx.metallib at /private/tmp/fern-r109f/workers/base/mlx.metallib was built from different vendored Metal sources than the ones on disk (recorded f1dfc3f701f0402df0ce4a27133be86e79cac98030b1af3399580e47ff18e222, current 6471573a7a9884afd54518b52a754f9db4dae2c0aa81f2376f1b7f2c53293ae3); rebuild it with tools/build-mlx-metallib.sh (or rerun ./setup.sh) so kernel edits are not masked by a stale metallib
 mlxfast: benchmark elapsed=0.0s local-submit start checked_tokens=1025 decode_steps=1023 repeats=1
 mlxfast: benchmark elapsed=0.0s local-submit baseline prefill_seconds_per_token=0.000368 decode_seconds_per_token=0.013856 (official-runner constants; local speedups are directional)
 mlxfast: benchmark elapsed=0.0s local-submit validation start
@@ -20,8 +20,8 @@ mlxfast: benchmark elapsed=30.2s local-submit weights digest still running phase
 mlxfast: benchmark elapsed=38.7s local-submit weights digest complete files=9 bytes=21568891382
 mlxfast: benchmark elapsed=38.7s local-submit validation complete prompt_tokens=512 seconds=38.7
 mlxfast: benchmark elapsed=38.7s local-submit checked timing start
-mlxfast-worker: sandbox-exec: execvp() of '/private/tmp/fern-r109f/workers/baseB/mlxfast-runtime-worker' failed: Operation not permitted
-mlxfast: benchmark elapsed=38.7s local-submit failed error=runtime worker closed stdout before returning a response: exit_status=71 stderr=sandbox-exec: execvp() of '/private/tmp/fern-r109f/workers/baseB/mlxfast-runtime-worker' failed: Operation not permitted
+mlxfast-worker: sandbox-exec: execvp() of '/private/tmp/fern-r109f/workers/base/mlxfast-runtime-worker' failed: Operation not permitted
+mlxfast: benchmark elapsed=38.7s local-submit failed error=runtime worker closed stdout before returning a response: exit_status=71 stderr=sandbox-exec: execvp() of '/private/tmp/fern-r109f/workers/base/mlxfast-runtime-worker' failed: Operation not permitted
 {
   "metrics" : {
     "actual_token" : null,
@@ -37,7 +37,7 @@ mlxfast: benchmark elapsed=38.7s local-submit failed error=runtime worker closed
     "decode_seconds_per_token" : 0,
     "decode_speedup" : 0,
     "decode_speedup_floor" : 0.95,
-    "error" : "runtime worker closed stdout before returning a response: exit_status=71 stderr=sandbox-exec: execvp() of '/private/tmp/fern-r109f/workers/baseB/mlxfast-runtime-worker' failed: Operation not permitted",
+    "error" : "runtime worker closed stdout before returning a response: exit_status=71 stderr=sandbox-exec: execvp() of '/private/tmp/fern-r109f/workers/base/mlxfast-runtime-worker' failed: Operation not permitted",
     "expected_token" : null,
     "expert_bytes_read" : 0,
     "expert_cache_evictions" : 0,
@@ -76,7 +76,7 @@ mlxfast: benchmark elapsed=38.7s local-submit failed error=runtime worker closed
     "semantic_gpqa_pass_count" : 0,
     "semantic_gpqa_passed" : false,
     "timed_benchmark_seconds" : 0,
-    "timestamp" : "2026-08-10T22:10:34Z",
+    "timestamp" : "2026-08-10T22:11:33Z",
     "weights_byte_count" : 21568891382,
     "weights_file_count" : 9,
     "weights_hash" : "aff994300573c5e8589563fc9ff57cdcfb1ef9b49e14898be290a75a6b294b3d"
@@ -84,4 +84,4 @@ mlxfast: benchmark elapsed=38.7s local-submit failed error=runtime worker closed
   "passed" : false,
   "score" : null
 }
-benchmark.sh: benchmark produced a failing score; see research/artifacts/fern-r109f/paired/null-20260810T220736Z-03-B.json
+benchmark.sh: benchmark produced a failing score; see research/artifacts/fern-r109f/paired/null-20260810T220736Z-04-A.json

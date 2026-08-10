@@ -17,12 +17,18 @@
 # symlinked to save ~100 MB per label.
 #
 # Usage: LABEL=<name> research/fern_r109f_stage_worker.sh
-# Env:   ROOT=<dir>  staging root (default /tmp/fern-r109f/workers)
+# Env:   ROOT=<dir>  staging root (default .build-worker/arms)
+#
+# ROOT must stay inside the repo tree. benchmark.sh resolves the worker path
+# with `pwd -P` (so /tmp becomes /private/tmp) while the trusted harness rebinds
+# the Seatbelt process-exec allow through Foundation's resolvingSymlinksInPath(),
+# which rewrites /private/tmp back to /tmp. The two spellings never match and
+# sandbox-exec fails execvp with EPERM (exit 71) before the protocol hello.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
 LABEL="${LABEL:?LABEL is required, e.g. LABEL=base}"
-ROOT="${ROOT:-/tmp/fern-r109f/workers}"
+ROOT="${ROOT:-.build-worker/arms}"
 DEST_DIR="${ROOT}/${LABEL}"
 BUILT=.build-worker/release
 BUNDLES="mlx-swift-lm_MLXLMCommon.bundle swift-crypto_Crypto.bundle swift-transformers_Hub.bundle"

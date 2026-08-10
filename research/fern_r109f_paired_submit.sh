@@ -15,7 +15,8 @@
 # ORDER   whitespace-separated arm letters, executed in that order.
 # LABELS  comma-separated arm=stagedlabel map. Every letter in ORDER must map.
 # TAG     artifact prefix (default "paired").
-# ROOT    staging root (default /tmp/fern-r109f/workers), see stage_worker.sh.
+# ROOT    staging root (default .build-worker/arms), see stage_worker.sh. Must
+#         stay inside the repo tree; a /tmp staging root is denied by Seatbelt.
 #
 # A non-zero benchmark exit does not stop the campaign: --local-submit exits 1
 # on a failed gate but still writes real seconds-per-token, and a correctness
@@ -26,7 +27,7 @@ cd "$(dirname "$0")/.."
 ORDER="${ORDER:?ORDER is required}"
 LABELS="${LABELS:?LABELS is required, e.g. LABELS=\"A=base,B=cand\"}"
 TAG="${TAG:-paired}"
-ROOT="${ROOT:-/tmp/fern-r109f/workers}"
+ROOT="${ROOT:-.build-worker/arms}"
 OUT="research/artifacts/fern-r109f/paired"
 SESSION="$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "${OUT}"

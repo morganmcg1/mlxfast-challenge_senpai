@@ -1,0 +1,17 @@
+=== null session 20260810T220736Z order 'W A B A B A B' labels 'W=base,A=base,B=baseB'
+--- arm A -> base: worker_sha256=978a47ba68ba7cc3aade309f9a28dd848f7b5aa703330f3b847e232a38cab279
+--- arm B -> baseB: worker_sha256=978a47ba68ba7cc3aade309f9a28dd848f7b5aa703330f3b847e232a38cab279
+--- arm W -> base: worker_sha256=978a47ba68ba7cc3aade309f9a28dd848f7b5aa703330f3b847e232a38cab279
+=== null slot 01 arm W label base start 2026-08-10T22:07:36Z ===
+=== null slot 01 arm W rc=1 end 2026-08-10T22:08:36Z ===
+{"slot": "01", "arm": "W", "label": "base", "rc": 1, "started": "2026-08-10T22:07:36Z", "decode_s_per_tok": 0, "prefill_s_per_tok": 0, "score": null, "passed": false, "passed_correctness": false, "checked_steps": 0, "golden_hash": "", "first_failing_step": null, "error": "runtime worker closed stdout before returning a response: exit_status=71 stderr=sandbox-exec: execvp() of '/private/tmp/fern-r109f/workers/base/mlxfast-runtime-worker' failed: Operation not permitted"}
+=== null slot 02 arm A label base start 2026-08-10T22:08:36Z ===
+=== null slot 02 arm A rc=1 end 2026-08-10T22:09:35Z ===
+{"slot": "02", "arm": "A", "label": "base", "rc": 1, "started": "2026-08-10T22:08:36Z", "decode_s_per_tok": 0, "prefill_s_per_tok": 0, "score": null, "passed": false, "passed_correctness": false, "checked_steps": 0, "golden_hash": "", "first_failing_step": null, "error": "runtime worker closed stdout before returning a response: exit_status=71 stderr=sandbox-exec: execvp() of '/private/tmp/fern-r109f/workers/base/mlxfast-runtime-worker' failed: Operation not permitted"}
+=== null slot 03 arm B label baseB start 2026-08-10T22:09:35Z ===
+=== null slot 03 arm B rc=1 end 2026-08-10T22:10:34Z ===
+{"slot": "03", "arm": "B", "label": "baseB", "rc": 1, "started": "2026-08-10T22:09:35Z", "decode_s_per_tok": 0, "prefill_s_per_tok": 0, "score": null, "passed": false, "passed_correctness": false, "checked_steps": 0, "golden_hash": "", "first_failing_step": null, "error": "runtime worker closed stdout before returning a response: exit_status=71 stderr=sandbox-exec: execvp() of '/private/tmp/fern-r109f/workers/baseB/mlxfast-runtime-worker' failed: Operation not permitted"}
+=== null slot 04 arm A label base start 2026-08-10T22:10:34Z ===
+=== null slot 04 arm A rc=1 end 2026-08-10T22:11:33Z ===
+{"slot": "04", "arm": "A", "label": "base", "rc": 1, "started": "2026-08-10T22:10:34Z", "decode_s_per_tok": 0, "prefill_s_per_tok": 0, "score": null, "passed": false, "passed_correctness": false, "checked_steps": 0, "golden_hash": "", "first_failing_step": null, "error": "runtime worker closed stdout before returning a response: exit_status=71 stderr=sandbox-exec: execvp() of '/private/tmp/fern-r109f/workers/base/mlxfast-runtime-worker' failed: Operation not permitted"}
+=== null slot 05 arm B label baseB start 2026-08-10T22:11:33Z ===
