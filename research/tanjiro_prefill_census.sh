@@ -17,7 +17,8 @@ for SPLIT in 1 0; do
   echo "=============== SPLIT=${SPLIT} ==============="
   DARKBLOOM_GPU_PROFILE_SPLIT="${SPLIT}" \
     python3 research/prefill_probe.py \
-      --reps 6 --profile --profile-top 60 \
+      --reps "${CENSUS_REPS:-6}" --profile \
+      --profile-top "${CENSUS_TOP:-60}" \
       --stderr "${OUT}/split${SPLIT}.worker.err" \
       2>&1 | tee "${OUT}/split${SPLIT}.log"
   echo "exit=${PIPESTATUS[0]}"
