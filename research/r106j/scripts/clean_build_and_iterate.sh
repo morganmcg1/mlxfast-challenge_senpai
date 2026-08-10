@@ -61,5 +61,5 @@ end=$(date +%s)
 } >> "$art/$label.status"
 
 [ -f score.local-iterate.json ] && cp score.local-iterate.json "$art/$label.score.json"
-tail -40 "$art/$label.iterate.log"
+tail -40 "$art/$label.iterate.log" 2>/dev/null
 exit $rc
