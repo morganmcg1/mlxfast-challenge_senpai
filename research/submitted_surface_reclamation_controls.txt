@@ -1,0 +1,9 @@
+submitted-surface reclamation positive controls
+PASS comment_like_sequences_inside_swift_strings: ordinary and raw string contents produced zero deletion ranges
+PASS embedded_metal_source_range: comment-like Metal text inside a Swift raw multiline string was excluded
+PASS required_license_block: the complete adjacent license comment block was excluded
+PASS active_selector_registry_token: the code token remained outside the sole comment-only deletion range
+PASS c_cpp_macro_line_continuation_hazard: C/C++/Metal files are excluded; the fixture's continued macro is rejected
+PASS corrupted_expected_byte_hash: a modified deletion receipt failed closed before dry-run application
+PASS corrupted_surface_manifest: a changed file count failed the same exact-surface validator used by the audit
+PASS submitted_files_read_only: dry run used in-memory byte strings only
