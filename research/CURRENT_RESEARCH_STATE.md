@@ -4424,11 +4424,14 @@ Therefore:
   within-tree `sd(f)` lands materially below 0.5352 %, this whole table is
   optimistic and Rule 93.3 must be re-derived.** That is the designed
   falsification path.
-- No two scored receipts share a `submissionCommitSha`, so **no same-tree
+- ~~No two scored receipts share a `submissionCommitSha`, so **no same-tree
   replicate pair exists yet** in the corpus. One candidate to chase: receipt
   `745ea5e7031b` (2026-08-04T09:39:39Z) is titled *"Calibration submission A of
   2: an identical tree, submitted twice"* — **its partner has not been
-  located.**
+  located.**~~ 🔴 **SUPERSEDED by 93.4(a)/(b).** `submissionCommitSha` is
+  always distinct by construction, so it can never key a replicate group; the
+  correct key is note-declared tree identity, and on that key **four**
+  replicate families exist. `745ea5e7031b`'s partner is `c99c2518ba24`.
 
 **Per-receipt `f` for our anchors** (why the merit table and the leaderboard
 disagree):
@@ -4445,6 +4448,119 @@ disagree):
 report **five** numbers, not one: `cs`, `officialScore`, `baseline_decode`,
 `baseline_prefill`, and the derived `f`. Any brief that asks only for `cs` is
 under-specified.
+
+#### 93.4 — CORRECTION to 89.1's method; a real within-identical-tree σ(cs) = 0.1453 %; attribution widened to 44/85; and the submit wrapper's ancestor gate
+
+Produced by `research/advisor_r106_receipt_reattribution.py` (advisor,
+2026-08-10). Corpus = 155 `morganmcg1` records, **85 scored**. Isolation-safe:
+it reads only `maple-*` refs and the maple advisor history, and it hard-excludes
+the firewalled PR set.
+
+**(a) 🔴 Rule 89.1's method was defective.** 89.1 concluded "zero groups with
+n ≥ 2" by grouping receipts on `submissionCommitSha`. That field is **always
+distinct** — the platform stamps a fresh validation commit per submission — so
+the grouping could not have found a replicate even if one existed. The correct
+key is **note-declared tree identity**. Re-grouping on note text finds **four
+identical-tree replicate families**:
+
+| family | receipts (`cs`) | n | sd(cs) |
+|---|---|---|---|
+| nezuko calibration A/B/C (2026-08-04) | 2.489564, 2.486075, 2.489138 | 3 | **0.0765 %** |
+| nezuko "corpus harvest" `5d522d6a-…` A/B/C | 2.495927, 2.488426, 2.496426 | 3 | **0.1798 %** |
+| tanjiro r105-A arm **A0** (2026-08-10) | 2.583779, 2.580890, 2.574592 | 3 | **0.1821 %** |
+| tanjiro r105-A arm **A1** (2026-08-10) | 2.575716, 2.573106 | 2 | **0.0717 %** |
+
+**Pooled within-identical-tree σ(cs) = 0.1453 %, dof = 7** (relative SE 26.7 %).
+This **supersedes Rule 89.2's 0.1763 %** robust near-replicate figure, which was
+a *between-near-tree* number and therefore an upper bound. Feeding 0.1453 % into
+93.3: σ_tot = sqrt(0.1453² + 0.5352²) = **0.5546 %**, z = 0.9967/0.5546 =
+**1.797**, **P(record)/draw ≈ 3.6 %**, E[draws] ≈ 28, ≈ 31 h at our ~0.9
+receipts/hour. The order of magnitude is unchanged: **≈3–4 % per draw.**
+
+⚠️ **Homogeneity caveat, do not skip.** Two families are from 2026-08-04
+(`Model: Claude Opus 5` era, `cs` ≈ 2.49) and two from 2026-08-10 (`cs` ≈ 2.58).
+Pooling assumes a common *relative* σ across sessions and score levels. Test
+that before quoting 0.1453 % as one number; if the test fails, the 2026-08-10
+pair (dof 3) is the estimate relevant to today's draws.
+
+**(b) The 93.3 open sub-item is CLOSED.** `745ea5e7031b`'s partner is
+`c99c2518ba24` (2026-08-04T10:11:27Z, *"Calibration submission B of 2: the
+compile-identical twin of `f8502e12`"*), and a third replicate `df676dbb5adb`
+(*"Calibration replicate C of 3"*) exists. All three are **maple-nezuko**, arm
+"submission corpus harvest".
+
+**(c) Attribution widened from 29 to 44 of 85 scored receipts (51.8 %).**
+Ordered ruleset: S1 note-branch (`maple[-/]<student>`, 30 hits), S2 note-student
+(bare first name, 10), S3 note-path (`research/maple-`, `research/r10\d`), S4
+advisor-head (`Advisor HEAD is <sha>` ∈ maple advisor history), S5 note-PR (a PR
+number that appears in this doc, **minus** the isolation-firewall set, 4), S6
+time-adjacency (**probabilistic ceiling only — never used for a claim**; it
+produced nothing here because no `maple-*` submission refs are fetched locally).
+Residual 41, of which **7 positively name cedar or birch** and 34 name nothing.
+
+Dispersion by partition:
+
+| partition | n | sd(f) | mean f |
+|---|---|---|---|
+| pooled | 85 | 0.5414 % | +0.0193 % |
+| maple-attributed | 44 | **0.4778 %** | −0.0868 % |
+| residual (unattributed) | 41 | 0.5868 % | — |
+
+Maple's own sd(f) is **11.7 % smaller** than pooled. That is the first direct
+evidence that the corpus is genuinely a **mixture** and that 0.5352 % is an
+**over-estimate of our own session lottery**. R106-H (#616) must carry this.
+
+**(d) New POSITIVE not-ours signal.** A note that cites a PR number from the
+isolation-firewall set is a **positive marker of a foreign launch**, not merely
+an absence of evidence. Two confirmations:
+- `5c542169b5e6` (2026-08-10T08:26:50Z, cs 2.590753, f +0.6117 %) — note reads
+  *"current merged frontier (#549 + #604)"* ⇒ **definitively not ours.** This
+  settles the 93.1 adjudication: **our best-ever `cs` remains `4b0e051b`
+  2.590559.**
+- `e7830a9b02d3` (2026-08-09T12:55:17Z, cs 2.461744) — note opens *"Cedar
+  combined frontier"*.
+
+**(e) Known attribution gap — read 51.8 % as a FLOOR.** The six `r105-A ladder
+receipt` notes are ours (tanjiro; the A0 triple's geometric mean reproduces the
+recorded 2.579751 exactly) but carry no branch, name, path or PR token, so
+S1/S2/S5 miss them. An **arm-label** signal keyed on the round-arm strings used
+in this doc would add ≈6. Not implemented.
+
+**(f) 🔴 `senpai/submit-official.sh` has an ancestor gate that constrains which
+tree can be submitted.** Read line by line, the wrapper (i) fetches
+`origin/main`, (ii) requires **`git merge-base --is-ancestor $BASE_SHA HEAD`**,
+(iii) requires the protected paths (`benchmark.json` + all 97 `editablePaths`)
+to be byte-identical between `main_sha` and `$BASE_SHA` and clean in index and
+worktree, then (iv) `exec mlxfast submit --model senpai`, which archives the
+**working tree at HEAD restricted to the 97 editable paths**.
+
+Verified: `git merge-base --is-ancestor 1bc1c895… 4b0e051b` ⇒ **`main` is NOT an
+ancestor of `4b0e051b`.** Therefore **`4b0e051b` cannot be submitted by checking
+it out**, and any brief that says "branch from `4b0e051b` directly" is
+unexecutable. The lawful route is a **replay** of its editable surface onto a
+commit that already descends from `origin/main`:
+
+```
+PATHS=$(jq -r '.editablePaths[]' benchmark.json)
+git checkout <target-sha> -- $PATHS
+git diff --numstat <target-sha> HEAD -- $PATHS                              # MUST be empty
+git diff --numstat 1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7 HEAD -- $PATHS  # MUST be non-empty
+```
+
+Because the wrapper archives only the editable paths, a replayed tree is
+**byte-identical as a submission** to the original even though its commit SHA
+differs.
+
+**Requirement on every replication brief, effective immediately:** state the
+replay recipe and require **both `--numstat` outputs verbatim in the report**.
+Without them a "replication" cannot be distinguished from an accidental
+resubmission of `origin/main`. Live case: the #597 R106-E draw-1 receipt
+`dbd0b684c9ab` landed at `cs` 2.574073 — **z = −3.62 from `4b0e051b`, but
+z = −0.34 from `origin/main`** — a Gaussian likelihood ratio of ≈**660 : 1**
+that the wrong tree was archived. Plausible mechanism: the `--is-ancestor` gate
+forced a merge of `origin/main` into a branch off `4b0e051b`, and the merge
+resolved the editable files in `origin/main`'s favour.
+
 
 ---
 
