@@ -1514,15 +1514,27 @@ let lagunaFusedSlidingAttentionEnabled =
 let lagunaFusedSlidingAttentionH4Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_SLIDING_ATTN_H4"] == "1"
 
-private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
-    name: "laguna_sliding_fused_attn_ring_v1",
-    inputNames: [
-        "raw_queries", "raw_keys", "raw_values",
-        "query_weight", "key_weight", "angles",
-        "k_cache", "v_cache", "params", "scale_arr",
-    ],
-    outputNames: ["attended"],
-    source: """
+// r106-B Stage B Amendment 1 (maple-nezuko): the shipped sliding
+// decode-attention kernel spends ~220 of its per-lane instruction slots on
+// 32-lane butterfly shuffles (32 `simd_sum` in the row loop, 12 more in the
+// online-softmax epilogue).  Every one of those sites reduces two or four
+// scalars at the same program point, so the shuffle traffic can be shared by
+// reducing a float2/float4 in one hand-rolled butterfly.  The reductions are
+// therefore factored behind macros that are supplied per kernel spelling
+// through `header:`, letting the control, the packed candidate and the
+// diagnostic probe share one source string.  Default OFF.
+let lagunaFusedSlidingAttentionPackredEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_SLIDING_ATTN_PACKRED"] == "1"
+
+// r106-B Stage B Amendment 1 section 5: attribution probe.  Deletes the
+// row-loop cross-lane reduction and uses each lane's partial dot product as
+// if it were the whole one, leaving every load, FMA and barrier in place.
+// This produces NUMERICALLY WRONG attention output by design; it exists only
+// to price the reduction and is never a submission candidate.
+let lagunaFusedSlidingAttentionNoReduceEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_SLIDING_ATTN_NOREDUCE"] == "1"
+
+private let lagunaSlidingFusedAttnRingSource = """
 constexpr uint head_dim = 128;
 constexpr uint window = 512;
 constexpr uint gqa = 8;
@@ -1688,8 +1700,7 @@ for (; i + 3 * BN < N; i += 4 * BN) {
     pair_score1 += pair_q1[2] * pipe_ka[2];
     pair_score0 += pair_q0[3] * pipe_ka[3];
     pair_score1 += pair_q1[3] * pipe_ka[3];
-    pair_score0 = simd_sum(pair_score0);
-    pair_score1 = simd_sum(pair_score1);
+    LAGUNA_QK_REDUCE2(pair_score0, pair_score1);
 
     U pair_new_max0 = metal::max(pair_max0, pair_score0);
     U pair_new_max1 = metal::max(pair_max1, pair_score1);
@@ -1724,8 +1735,7 @@ for (; i + 3 * BN < N; i += 4 * BN) {
     pipeb_score1 += pair_q1[2] * pipe_kb[2];
     pipeb_score0 += pair_q0[3] * pipe_kb[3];
     pipeb_score1 += pair_q1[3] * pipe_kb[3];
-    pipeb_score0 = simd_sum(pipeb_score0);
-    pipeb_score1 = simd_sum(pipeb_score1);
+    LAGUNA_QK_REDUCE2(pipeb_score0, pipeb_score1);
 
     U pipeb_new_max0 = metal::max(pair_max0, pipeb_score0);
     U pipeb_new_max1 = metal::max(pair_max1, pipeb_score1);
@@ -1760,8 +1770,7 @@ for (; i + 3 * BN < N; i += 4 * BN) {
     pipec_score1 += pair_q1[2] * pipe_kc[2];
     pipec_score0 += pair_q0[3] * pipe_kc[3];
     pipec_score1 += pair_q1[3] * pipe_kc[3];
-    pipec_score0 = simd_sum(pipec_score0);
-    pipec_score1 = simd_sum(pipec_score1);
+    LAGUNA_QK_REDUCE2(pipec_score0, pipec_score1);
 
     U pipec_new_max0 = metal::max(pair_max0, pipec_score0);
     U pipec_new_max1 = metal::max(pair_max1, pipec_score1);
@@ -1796,8 +1805,7 @@ for (; i + 3 * BN < N; i += 4 * BN) {
     piped_score1 += pair_q1[2] * pipe_kd[2];
     piped_score0 += pair_q0[3] * pipe_kd[3];
     piped_score1 += pair_q1[3] * pipe_kd[3];
-    piped_score0 = simd_sum(piped_score0);
-    piped_score1 = simd_sum(piped_score1);
+    LAGUNA_QK_REDUCE2(piped_score0, piped_score1);
 
     U piped_new_max0 = metal::max(pair_max0, piped_score0);
     U piped_new_max1 = metal::max(pair_max1, piped_score1);
@@ -1838,36 +1846,34 @@ threadgroup_barrier(mem_flags::mem_threadgroup);
 
 pair_max0 = max_scores[lane];
 pair_max1 = max_scores[BN + lane];
-U pair_global_max0 = simd_max(pair_max0);
-U pair_global_max1 = simd_max(pair_max1);
+U pair_global_max0 = pair_max0;
+U pair_global_max1 = pair_max1;
+LAGUNA_MAX_REDUCE2(pair_global_max0, pair_global_max1);
 U pair_global_factor0 = metal::fast::exp(pair_max0 - pair_global_max0);
 U pair_global_factor1 = metal::fast::exp(pair_max1 - pair_global_max1);
-pair_sum0 = simd_sum(sum_exp_scores[lane] * pair_global_factor0);
-pair_sum1 = simd_sum(sum_exp_scores[BN + lane] * pair_global_factor1);
+pair_sum0 = sum_exp_scores[lane] * pair_global_factor0;
+pair_sum1 = sum_exp_scores[BN + lane] * pair_global_factor1;
+LAGUNA_SUM_REDUCE2(pair_sum0, pair_sum1);
 
 float4 pair_v0 = outputs4[sg * BDP + lane];
-U acc00 = simd_sum(pair_v0.x * pair_global_factor0);
-U acc01 = simd_sum(pair_v0.y * pair_global_factor0);
-U acc02 = simd_sum(pair_v0.z * pair_global_factor0);
-U acc03 = simd_sum(pair_v0.w * pair_global_factor0);
-pair_o0[0] = pair_sum0 == 0 ? acc00 : (acc00 / pair_sum0);
-pair_o0[1] = pair_sum0 == 0 ? acc01 : (acc01 / pair_sum0);
-pair_o0[2] = pair_sum0 == 0 ? acc02 : (acc02 / pair_sum0);
-pair_o0[3] = pair_sum0 == 0 ? acc03 : (acc03 / pair_sum0);
+float4 acc0;
+LAGUNA_ACC_REDUCE4(acc0, pair_v0 * pair_global_factor0);
+pair_o0[0] = pair_sum0 == 0 ? acc0.x : (acc0.x / pair_sum0);
+pair_o0[1] = pair_sum0 == 0 ? acc0.y : (acc0.y / pair_sum0);
+pair_o0[2] = pair_sum0 == 0 ? acc0.z : (acc0.z / pair_sum0);
+pair_o0[3] = pair_sum0 == 0 ? acc0.w : (acc0.w / pair_sum0);
 
 threadgroup_barrier(mem_flags::mem_threadgroup);
 outputs4[lane * BDP + sg] =
     float4(pair_o1[0], pair_o1[1], pair_o1[2], pair_o1[3]);
 threadgroup_barrier(mem_flags::mem_threadgroup);
 float4 pair_v1 = outputs4[sg * BDP + lane];
-U acc10 = simd_sum(pair_v1.x * pair_global_factor1);
-U acc11 = simd_sum(pair_v1.y * pair_global_factor1);
-U acc12 = simd_sum(pair_v1.z * pair_global_factor1);
-U acc13 = simd_sum(pair_v1.w * pair_global_factor1);
-pair_o1[0] = pair_sum1 == 0 ? acc10 : (acc10 / pair_sum1);
-pair_o1[1] = pair_sum1 == 0 ? acc11 : (acc11 / pair_sum1);
-pair_o1[2] = pair_sum1 == 0 ? acc12 : (acc12 / pair_sum1);
-pair_o1[3] = pair_sum1 == 0 ? acc13 : (acc13 / pair_sum1);
+float4 acc1;
+LAGUNA_ACC_REDUCE4(acc1, pair_v1 * pair_global_factor1);
+pair_o1[0] = pair_sum1 == 0 ? acc1.x : (acc1.x / pair_sum1);
+pair_o1[1] = pair_sum1 == 0 ? acc1.y : (acc1.y / pair_sum1);
+pair_o1[2] = pair_sum1 == 0 ? acc1.z : (acc1.z / pair_sum1);
+pair_o1[3] = pair_sum1 == 0 ? acc1.w : (acc1.w / pair_sum1);
 
 if (lane == 0) {
     device bfloat* pair_out0 =
@@ -1879,8 +1885,9 @@ if (lane == 0) {
         pair_out1[p] = static_cast<bfloat>(pair_o1[p]);
     }
 }
-""",
-    header: """
+"""
+
+private let lagunaSlidingFusedAttnRingHeaderCommon = """
 #define LAGUNA_RESCALE(dst, delta_expr)         \\
   do {                                          \\
     const float db_delta_ = (delta_expr);       \\
@@ -1928,7 +1935,141 @@ if (lane == 0) {
   } while (false)
 
 
-""",
+"""
+
+private let lagunaSlidingFusedAttnRingReduceBaseline = """
+#define LAGUNA_QK_REDUCE2(a, b)                 \\
+  do {                                          \\
+    (a) = simd_sum(a);                          \\
+    (b) = simd_sum(b);                          \\
+  } while (false)
+
+#define LAGUNA_MAX_REDUCE2(a, b)                \\
+  do {                                          \\
+    (a) = simd_max(a);                          \\
+    (b) = simd_max(b);                          \\
+  } while (false)
+
+#define LAGUNA_SUM_REDUCE2(a, b)                \\
+  do {                                          \\
+    (a) = simd_sum(a);                          \\
+    (b) = simd_sum(b);                          \\
+  } while (false)
+
+#define LAGUNA_ACC_REDUCE4(dst, src)            \\
+  do {                                          \\
+    const float4 db_s_ = (src);                 \\
+    (dst) = float4(simd_sum(db_s_.x),           \\
+                   simd_sum(db_s_.y),           \\
+                   simd_sum(db_s_.z),           \\
+                   simd_sum(db_s_.w));          \\
+  } while (false)
+"""
+
+private let lagunaSlidingFusedAttnRingReducePacked = """
+#define LAGUNA_BUTTERFLY_ADD(acc)                       \\
+  do {                                                  \\
+    acc += simd_shuffle_xor(acc, ushort(1));             \\
+    acc += simd_shuffle_xor(acc, ushort(2));             \\
+    acc += simd_shuffle_xor(acc, ushort(4));             \\
+    acc += simd_shuffle_xor(acc, ushort(8));             \\
+    acc += simd_shuffle_xor(acc, ushort(16));            \\
+  } while (false)
+
+#define LAGUNA_QK_REDUCE2(a, b)                 \\
+  do {                                          \\
+    float2 db_r_ = float2((a), (b));            \\
+    LAGUNA_BUTTERFLY_ADD(db_r_);                \\
+    (a) = db_r_.x;                              \\
+    (b) = db_r_.y;                              \\
+  } while (false)
+
+#define LAGUNA_MAX_REDUCE2(a, b)                                     \\
+  do {                                                               \\
+    float2 db_m_ = float2((a), (b));                                 \\
+    db_m_ = metal::max(db_m_, simd_shuffle_xor(db_m_, ushort(1)));    \\
+    db_m_ = metal::max(db_m_, simd_shuffle_xor(db_m_, ushort(2)));    \\
+    db_m_ = metal::max(db_m_, simd_shuffle_xor(db_m_, ushort(4)));    \\
+    db_m_ = metal::max(db_m_, simd_shuffle_xor(db_m_, ushort(8)));    \\
+    db_m_ = metal::max(db_m_, simd_shuffle_xor(db_m_, ushort(16)));   \\
+    (a) = db_m_.x;                                                   \\
+    (b) = db_m_.y;                                                   \\
+  } while (false)
+
+#define LAGUNA_SUM_REDUCE2(a, b) LAGUNA_QK_REDUCE2(a, b)
+
+#define LAGUNA_ACC_REDUCE4(dst, src)            \\
+  do {                                          \\
+    float4 db_a_ = (src);                       \\
+    LAGUNA_BUTTERFLY_ADD(db_a_);                \\
+    (dst) = db_a_;                              \\
+  } while (false)
+"""
+
+private let lagunaSlidingFusedAttnRingReduceNoReduce = """
+#define LAGUNA_QK_REDUCE2(a, b) do { } while (false)
+
+#define LAGUNA_MAX_REDUCE2(a, b)                \\
+  do {                                          \\
+    (a) = simd_max(a);                          \\
+    (b) = simd_max(b);                          \\
+  } while (false)
+
+#define LAGUNA_SUM_REDUCE2(a, b)                \\
+  do {                                          \\
+    (a) = simd_sum(a);                          \\
+    (b) = simd_sum(b);                          \\
+  } while (false)
+
+#define LAGUNA_ACC_REDUCE4(dst, src)            \\
+  do {                                          \\
+    const float4 db_s_ = (src);                 \\
+    (dst) = float4(simd_sum(db_s_.x),           \\
+                   simd_sum(db_s_.y),           \\
+                   simd_sum(db_s_.z),           \\
+                   simd_sum(db_s_.w));          \\
+  } while (false)
+"""
+
+private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
+    name: "laguna_sliding_fused_attn_ring_v1",
+    inputNames: [
+        "raw_queries", "raw_keys", "raw_values",
+        "query_weight", "key_weight", "angles",
+        "k_cache", "v_cache", "params", "scale_arr",
+    ],
+    outputNames: ["attended"],
+    source: lagunaSlidingFusedAttnRingSource,
+    header: lagunaSlidingFusedAttnRingHeaderCommon
+        + lagunaSlidingFusedAttnRingReduceBaseline,
+    ensureRowContiguous: true
+)
+
+private let lagunaSlidingFusedAttentionPackredKernel = MLXFast.metalKernel(
+    name: "laguna_sliding_fused_attn_ring_packred_v1",
+    inputNames: [
+        "raw_queries", "raw_keys", "raw_values",
+        "query_weight", "key_weight", "angles",
+        "k_cache", "v_cache", "params", "scale_arr",
+    ],
+    outputNames: ["attended"],
+    source: lagunaSlidingFusedAttnRingSource,
+    header: lagunaSlidingFusedAttnRingHeaderCommon
+        + lagunaSlidingFusedAttnRingReducePacked,
+    ensureRowContiguous: true
+)
+
+private let lagunaSlidingFusedAttentionNoReduceKernel = MLXFast.metalKernel(
+    name: "laguna_sliding_fused_attn_ring_noreduce_v1",
+    inputNames: [
+        "raw_queries", "raw_keys", "raw_values",
+        "query_weight", "key_weight", "angles",
+        "k_cache", "v_cache", "params", "scale_arr",
+    ],
+    outputNames: ["attended"],
+    source: lagunaSlidingFusedAttnRingSource,
+    header: lagunaSlidingFusedAttnRingHeaderCommon
+        + lagunaSlidingFusedAttnRingReduceNoReduce,
     ensureRowContiguous: true
 )
 
@@ -2385,7 +2526,13 @@ func lagunaSlidingFusedAttention(
             outputDTypes: [.bfloat16]
         )[0]
     }
-    return lagunaSlidingFusedAttentionKernel(
+    let slidingKernel =
+        lagunaFusedSlidingAttentionNoReduceEnabled
+        ? lagunaSlidingFusedAttentionNoReduceKernel
+        : lagunaFusedSlidingAttentionPackredEnabled
+            ? lagunaSlidingFusedAttentionPackredKernel
+            : lagunaSlidingFusedAttentionKernel
+    return slidingKernel(
         [
             rawQueries, rawKeys, rawValues,
             queryWeight, keyWeight, angles,
