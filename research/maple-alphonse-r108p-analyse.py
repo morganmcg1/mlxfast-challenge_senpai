@@ -178,6 +178,12 @@ RULE65 = 2.3403       # M5 hazard-free addition price, µs/dispatch
 RULE65_CI = (2.2766, 2.4040)
 K_DISPATCH = 1.890    # RULE65 / RULE57
 K_RESIDUE = 1.4998    # tanjiro r107-G memory-residue host multiplier
+# R93 knee-results.md tail segments, i.e. the M4 addition price measured where
+# the free region is exhausted: 1200->1600 = 1.98, 1600->2400 = 2.36 µs/dispatch.
+# RULE57's 1.2382 is close to that curve's 0->2400 chord (1.300), not its tail.
+M4_SATURATED_ADDITION = 2.17
+M4_SATURATED_ADDITION_RANGE = (1.98, 2.36)
+R93_CHORD_0_2400 = 1.300
 
 
 def derive(out: dict) -> dict:
@@ -186,16 +192,31 @@ def derive(out: dict) -> dict:
     fit = out["removal_fit"]
     if not mp.get("available"):
         return {"available": False}
-    removal = mp["removal_price_us_per_dispatch"]
+    # Prefer the multi-rung slope; the d4/d0 matched pair is the fallback when
+    # only two rungs of the removal ladder exist.
+    removal = fit.get("slope") or mp["removal_price_us_per_dispatch"]
     addition_op = mp["addition_price_us_per_dispatch"]
     d = {
-        "removal_price_us_per_dispatch_matched": removal,
+        "removal_price_used": removal,
+        "removal_price_source": "slope" if fit.get("slope") else "matched_pair",
+        "removal_price_us_per_dispatch_matched": mp["removal_price_us_per_dispatch"],
         "removal_price_us_per_dispatch_slope": fit.get("slope"),
         "removal_price_ci_slope": fit.get("ci"),
         "addition_price_operating_point": addition_op,
         "ratio_removal_over_addition_operating_point":
             removal / addition_op if abs(addition_op) > 1e-9 else None,
         "ratio_removal_over_rule57_saturated_M4": removal / RULE57,
+        # The regime-matched comparison: both sides are same-host prices measured
+        # where the machine has no idle slack left to absorb a dispatch.
+        "ratio_removal_over_M4_saturated_addition": removal / M4_SATURATED_ADDITION,
+        "ratio_removal_over_M4_saturated_addition_range":
+            [removal / M4_SATURATED_ADDITION_RANGE[1],
+             removal / M4_SATURATED_ADDITION_RANGE[0]],
+        "ratio_removal_over_rule65_M5_addition": removal / RULE65,
+        "k_dispatch_regime_matched": RULE65 / M4_SATURATED_ADDITION,
+        "k_dispatch_regime_matched_range":
+            [RULE65 / M4_SATURATED_ADDITION_RANGE[1],
+             RULE65 / M4_SATURATED_ADDITION_RANGE[0]],
         "M5_removal_projected_at_k_dispatch": removal * K_DISPATCH,
         "M5_removal_projected_at_k_residue": removal * K_RESIDUE,
         "ratio_M5_projection_over_rule65_at_k_dispatch":
@@ -262,13 +283,21 @@ def render_md(out: dict) -> str:
     rows = [
         ("removal price, µs/dispatch (slope)", d.get("removal_price_us_per_dispatch_slope"),
          d.get("removal_price_ci_slope")),
-        ("removal price, µs/dispatch (matched pair)", d.get("removal_price_us_per_dispatch_matched"), None),
+        ("removal price, µs/dispatch (d4/d0 matched pair)", d.get("removal_price_us_per_dispatch_matched"), None),
         ("addition price at operating point, µs/dispatch", d.get("addition_price_operating_point"), None),
         ("**ratio removal / addition(operating point)**",
          d.get("ratio_removal_over_addition_operating_point"),
          (out.get("matched_pair_d4_e276") or {}).get("ratio_ci")),
-        ("ratio removal / rule 57 saturated M4", d.get("ratio_removal_over_rule57_saturated_M4"),
+        ("**ratio removal / M4 saturated addition (%.2f, regime-matched)**" % M4_SATURATED_ADDITION,
+         d.get("ratio_removal_over_M4_saturated_addition"),
+         d.get("ratio_removal_over_M4_saturated_addition_range")),
+        ("ratio removal / rule 65 M5 addition (%.4f)" % RULE65,
+         d.get("ratio_removal_over_rule65_M5_addition"), None),
+        ("ratio removal / rule 57 quoted M4 (%.4f, chord — void)" % RULE57,
+         d.get("ratio_removal_over_rule57_saturated_M4"),
          d.get("ratio_removal_over_rule57_ci")),
+        ("k_dispatch regime-matched = rule65 / M4 saturated addition",
+         d.get("k_dispatch_regime_matched"), d.get("k_dispatch_regime_matched_range")),
         ("M5 removal projected at k_dispatch=%.3f" % K_DISPATCH,
          d.get("M5_removal_projected_at_k_dispatch"), None),
         ("M5 removal projected at k_residue=%.4f" % K_RESIDUE,
