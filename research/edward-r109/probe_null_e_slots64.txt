@@ -1,0 +1,60 @@
+arm=null slots=64 rounds=31 reps=200
+=== device ===
+name                  Apple M4 Pro
+architecture          applegpu_g16s
+gpu cores             20
+kernel                laguna_sliding_fused_attn_ring_v1
+attn rows N           512  (main-loop iters M = 4)
+stride kvheads        auto
+rows sweep            off
+match bytes           off
+param rows            off (source substitution)
+gqa q-heads/kv-head   8
+iter positions        128
+mode                  NULL CONTROL (base vs itself)
+
+=== pipeline properties (register/occupancy gate) ===
+  arm            srcLines   tgMemB   maxTotalThreads   execWidth   tgMemCap   source
+  BASE       356    18432              1024          32      32768   Sources/MLXFastModel/LagunaRuntimeModel.swift
+  NULL(BASE)       356    18432              1024          32      32768   Sources/MLXFastModel/LagunaRuntimeModel.swift
+  resident TG/core: tgMem bound 1, threads/TG 1024;
+  empirical value is the wave-law step period in the K ladder below.
+
+=== memory regime (P1.1) ===
+  defeat slots          64
+  cache copies          6
+  k_cache buffer        100663296 B
+  dram_peak_GB_s        266.3  (measured, rule 55)
+  slc_estimate_B        25165824  (M4-Pro-class, label only)
+     K  TG/core   kvheads   slots   uniq_MiB   req_MiB/round   amplif   base_us   achieved_GB_s   pct_peak   slc_fit   regime
+     4     0.20         1      64      16.01           51.17      3.2      9.11            29.5       11.1   yes   UNSATURATED
+     8     0.40         2      64      32.01          102.15      3.2      9.29            57.6       21.6   no   UNSATURATED
+    16     0.80         4      64      64.02          204.10      3.2      9.48           112.8       42.4   no   PARTIAL
+    20     1.00         5      64      80.03          255.08      3.2      9.73           137.5       51.6   no   PARTIAL
+    32     1.60         8      64     128.04          408.01      3.2     19.08           112.1       42.1   no   PARTIAL
+    40     2.00        10      64     160.05          509.96      3.2     19.57           136.6       51.3   no   PARTIAL
+    64     3.20        16      48     192.08          815.82      4.2     34.33           124.6       46.8   no   PARTIAL
+
+=== absolute cost ladder, best of 31 rounds of 200 dispatches (E1) ===
+phi(K) = t(2K)/t(K).  A threadgroup-doubling change pays only if phi < 2.
+t/K is the per-threadgroup cost: flat means work-limited, falling means
+the added threadgroups are absorbed by idle cores.
+     K  TG/core   base_us     t/K_us   phi(K)=t(2K)/t(K)
+     4     0.20      8.84     2.2097   1.0506
+     8     0.40      9.29     1.1608   1.0168
+    16     0.80      9.44     0.5901   1.9706
+    20     1.00      9.66     0.4832   1.9867
+    32     1.60     18.61     0.5815   1.8403
+    40     2.00     19.20     0.4800   -
+    64     3.20     34.24     0.5350   -
+
+=== paired per-call cost, 31 alternating rounds of 200 dispatches ===
+delta = second arm - base within a round, so drift cancels. neg = faster.
+     K  TG/core   base_min   cand_min    d_mean    d_sd   spread   t_paired        %
+     4     0.20       8.97       8.98    -0.011   0.039     0.16      -1.59    -0.125
+     8     0.40       9.28       9.26    -0.016   0.026     0.11      -3.47    -0.173
+    16     0.80       9.44       9.43    -0.010   0.037     0.21      -1.48    -0.105
+    20     1.00       9.66       9.66    +0.005   0.022     0.09      +1.38    +0.057
+    32     1.60      18.77      18.67    +0.024   0.193     0.72      +0.68    +0.126
+    40     2.00      19.19      19.31    +0.065   0.131     0.49      +2.75    +0.337
+    64     3.20      31.83      31.81    +0.057   0.454     2.29      +0.69    +0.178
