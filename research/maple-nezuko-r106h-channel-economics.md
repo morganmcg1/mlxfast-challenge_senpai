@@ -11,9 +11,49 @@ frozen 2026-08-10T08:37Z, benchmark `1854efdf-feba-4773-bae9-b80520881a74`,
 Scripts: `research/nezuko_r106h_stage_a.py`, `_stage_b.py`, `_stage_c.py`,
 `_stage_d.py`, `_stage_e.py`.
 Outputs: `research/artifacts/maple-nezuko-r106h/stage-{a,b,c,d,e}.json`.
-W&B: run `WANDB_RUN_ID` —
-<https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/WANDB_RUN_ID>
+W&B: run `xuncd3kc` —
+<https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/xuncd3kc>
 (superseded runs `s31ku9ms` and `6rosefbh` predate Stages D and E).
+
+---
+
+## 0. Status: CANCELLED MID-FLIGHT, PRESERVED UNDER RULE 79
+
+Revision `r106-b-rev3` (comment `5239142107`, 2026-08-10T10:48Z) cancelled R106-H
+outright: frieren's R106-E within-tree replicate design on #597 is a strictly
+better instrument than a corpus regression, because it holds the tree fixed by
+construction. The instruction was *"write it down and stop there … but do not
+extend it."*
+
+This document is that write-down. **Stages A through E were already complete when
+the cancellation landed**, so what follows is a finished analysis rather than a
+partial one, and the W&B run above is its full record. Nothing here was extended
+after 10:48Z, no follow-up was built, and my remaining time went to the revert
+residual under rev3.
+
+Two things in it survive the cancellation and are worth the advisor's attention:
+
+1. **§10 Stage E agrees with frieren's design on the denominator and still
+   disagrees with both published price quotes.** Reconstructing Rule 96.2's own
+   five-receipt family gives sd(ln `officialScore` | fixed tree) = 0.3728 % at
+   dof 4 — an exact match, so the instrument is not in dispute. What is in
+   dispute is the *numerator*: pricing the gap off a dof-4 Gaussian tail gives
+   P(record)/draw = 0.0285 %, while the model-free count of receipts that
+   actually cleared the same gap gives **0.99 % [0.56, 1.71] %** (12 of 1218).
+   Rule 93.4's 3.6 % and Rule 96.2's 0.0285 % bracket that from either side, a
+   factor of 35 apart, and both are dof-4 extrapolations.
+2. **§5 and §7: the binding constraint is merit on the prefill axis, not draw
+   count.** The prefill mode coin carries 88.6 % of score variance, 39 of 39
+   record-carrying draws landed high-mode, and 26 receipts at or above the
+   frieren anchor produced zero records. The advisor asked for the plain
+   statement and it is in §1: *we have not been under-drawing, we have been
+   briefing the wrong axis.* Rev3 §0.3 reaches the same conclusion from
+   frieren's leg decomposition (baseline prefill = 96.0 % of var(f)), which I
+   read as independent corroboration rather than coincidence.
+
+The policy paragraph in §12 is therefore still live as an argument *against*
+drawing, which is the direction rev3 §0.4 also settles on. Everything else here
+is archival.
 
 ---
 
@@ -1306,8 +1346,8 @@ The corpus and the replicate-identity file are the ones frozen in #616 Stage 0
 and copied to `research/artifacts/maple-nezuko-r106b/`; the sha256 above is the
 identity check.
 
-The last command produced W&B run **`WANDB_RUN_ID`**
-(<https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/WANDB_RUN_ID>), which
+The last command produced W&B run **`xuncd3kc`**
+(<https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/xuncd3kc>), which
 carries every table and scalar quoted above: the record ladder, the per-budget
 and scale-free exchange rates, the tree-selection rule, the σ_cs pools, the
 prefill coin, the per-cohort σ(ln L), the leaderboard top 5, the Stage D
