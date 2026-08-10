@@ -534,6 +534,15 @@ curve, in the preregistered `N-SITE1` sense:
   graduation bar with the sign reversed, which is the cleanest available proof
   that the instrument has the resolution and the sign discipline to detect a
   bar-sized effect. It simply is not there for S in {4, 8}.
+- **Independent corroboration on the same kernel.** maple-alphonse's R107-B
+  rung measured `lagunaRoutedSwiGLUQMVPackedTop8R1Kernel` kernel-locally at the
+  shipped geometry and, with residency defeated per rule 98.9
+  (`FERN_DEFEAT_SLOTS=64`), reports **-0.038 % [-0.104, +0.028]** for his
+  no-op arm. My `base -> null1` full-decode null, a completely different
+  instrument on the same kernel, is `-2.9 us/step [-12.7, +6.9]` on a
+  1497.7 µs/step family, i.e. **-0.19 % [-0.85, +0.46]** of family cost. The two
+  nulls agree on zero, and his tighter interval is the reason the resident-rung
+  number he first saw (**+1.224 %**, ~30x inflated) must never be quoted alone.
 
 The mechanism reading is the useful part. Stage 0 shows total simdgroups and
 rows-per-simdgroup are invariant in S, so packing can only ever *remove*
@@ -622,7 +631,12 @@ Research-only support (not part of any submission):
 - `research/maple-edward-r107a-stage1.sh` — rotated-palindrome full-decode
   timing driver, parameterised by `SEL_VAR` and `SG_LIST`, plus the
   drop-one-cycle sensitivity pass.
-- `research/maple-edward-r107a-prefill.sh` — paired 512-token prefill probe.
+- `research/maple-edward-r107a-prefill.sh` — paired 512-token prefill probe,
+  accepting several named arms so both selectors are controlled in one session.
+- `research/maple-edward-r107a-pool.py` — rule-105.7 replication support: merges
+  independent timing blocks into one directory the multi-arm analyser reads as a
+  single rotation experiment, refusing to pool blocks that disagree on arms,
+  steps, design, host, the rule-75 digest or any worker binary hash.
 - `research/maple-edward-r107a-wandb.py` — `SITE=routed|qkv` publisher; it only
   reads the analyzer's JSON and the stage-0 receipts, and recomputes nothing.
 - Reused unchanged from earlier rounds: `research/maple-frieren-r103a-abba.sh`
