@@ -10312,7 +10312,7 @@ private func lagunaPrefillMoETail(
     )[0]
 }
 
-private final class LagunaPrefillSortedMoEGate0State {
+private final class LagunaPrefillSortedMoEGate0State: @unchecked Sendable {
     var boundary = 0
 }
 
