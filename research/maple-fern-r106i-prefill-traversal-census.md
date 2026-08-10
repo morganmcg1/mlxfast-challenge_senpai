@@ -31,14 +31,25 @@ the two largest errors are arithmetic, not physical:
    `1,769,472 × 256 × 39` bytes. It uses *all 256* expert slots per layer and
    *39* MoE layers. The trace shows **38** gather-GEMM layer pairs, and the
    routing histogram shows **20.26 %** of `(layer, expert)` pairs receive zero
-   rows. Correct M5 above-SLC cost is **29.06 ms** [PROJ] — **−6.58 ms
-   (−18.5 %)**.
-2. The "glue class runs at 99 % of its floor" verdict is **refuted twice
-   over**: its byte sum and its time sum use *inconsistent class membership*
-   (both self-consistent repairs are physically impossible), and its true
-   above-SLC floor is **4.19 ms** [PROJ] against **8.04 ms** [PROJ] of
-   projected time — roughly **1.9× over floor**, i.e. ≈ 3.85 ms of headroom,
-   not 1 %.
+   rows. Correct M5 above-SLC cost is **29.06–30.52 ms** [PROJ] — **−6.58 to
+   −5.12 ms (−18.5 % to −14.4 %)**. The range is the grouping-key bracket of
+   §14.2; *both* endpoints beat 35.64 ms, so this finding does not depend on
+   the cache key meaning anything.
+2. The "glue class runs at 99 % of its floor" verdict is **refuted**, on one
+   unconditional ground and one conditional one:
+   - *(unconditional)* its byte sum and its time sum use **inconsistent class
+     membership**, and both self-consistent repairs are physically impossible.
+     This is arithmetic on the prior-art document itself and survives any
+     assumption about my instrument or my model.
+   - *(conditional, weakened by §14.2)* its true above-SLC floor is
+     **4.19–8.29 ms** [PROJ] against **8.04 ms** [PROJ] of projected time.
+     At the max-reuse endpoint glue runs ≈1.9× over floor (≈3.85 ms of
+     headroom); at the no-reuse endpoint it is **at** its floor and the prior
+     art's "99 %" would be right for the wrong reason. **I cannot separate
+     these two with the trace I have**, because 61 % of the glue-class
+     above-SLC credit is pointer-keyed (§14.2). Argument 1 above is therefore
+     the load-bearing half of this refutation; the "1.9× over floor" number
+     must not be quoted without its bracket.
 
 **V-REREAD is refuted** for the routed *weight* pool on M5: the expert-aligned
 `_nax` gather kernel never lets a threadgroup straddle two experts, so weight
@@ -54,7 +65,12 @@ rejected on the strongest possible ground: the assignment's premise of a
 Headline: **B_pre = 31.3640 GB BINDING**, **61.258 MB/token** [STRUCT].
 Prefill read-multiplicity **TRAVERSAL/BINDING = 1.90–2.67× on M5** [PROJ]
 (3.40–4.39× on M4 [STRUCT]); **above-SLC/BINDING = 0.729–1.186×**; M5
-above-SLC floor **41.86–68.09 ms** [PROJ] against `S = 97.89475 ms` [M5-RCPT].
+above-SLC floor **41.86–76.48 ms** [PROJ] against `S = 97.89475 ms` [M5-RCPT],
+where the upper end now includes the grouping-key bracket of §14.2.
+
+`B_pre` itself is **BINDING** and is measured, not modelled: it needs no cache
+model, no host assumption, and no grouping key. Everything downstream of it is
+a model with a declared bracket.
 
 ---
 
@@ -173,20 +189,28 @@ so submitted-surface byte cost is **zero**.
 | `research/r106i/window.py` | 809 | `8793fbbf19b5cf38e31a83c57b706baefab6778383f7764fe5d9a74a888d22b8` |
 | `research/r106i/census.py` | 3,815 | `dd9aaefab27be9e410e921ec2d677301d40b7942f552e1cf15d3507b3145041d` |
 | `research/r106i/traversal.py` | 10,972 | `592ae4f7e61e283c1f7a7091e6cb16685545d4b6b920419d36ebf0ecbdf3ee1c` |
-| `research/r106i/wandb_log.py` | 2,996 | `44c26969017d6ba0525cb3f367f549852b6d95773690970efe896a8bde29ca53` |
+| `research/r106i/wandb_log.py` | 3,866 | `232493f90638096160a6bb73913ebe43bca003ea4a1a138a142736aab4f4bae7` |
 | `research/r106i/binding.json` | 657 | `0bdd12016377850d5a74d12257c3e927a0640d5851d80d2a83d62b1acd9c7426` |
 | `research/r106i/traversal.json` | 11,246 | `5767ec10cbc8cfb16429310e35e03e0adc85d346eb26c83db2d0c96ab341a6f9` |
+| `research/r106i/keyaudit.py` | 5,669 | `10e5299294a1aae03180b959ffcf1ec581a0cb9eb0b3889d4252332cedcbc4a6` |
+| `research/r106i/keyaudit.json` | 6,136 | `68097c9521482b633875355fdb14d23ed4090da0861452e02d7c09619446207a` |
 
-Reproduce:
+Reproduce (all paths repo-relative; run from the repository root):
 
 ```
 python3 research/r106i/census.py      # BINDING  -> research/r106i/binding.json
 python3 research/r106i/traversal.py   # TRAVERSAL-> research/r106i/traversal.json
+PYTHONPATH=research/r106i python3 research/r106i/keyaudit.py
+                                      # grouping-key audit (§14.2)
+                                      #          -> research/r106i/keyaudit.json
 ```
 
 Per rule 58 the census *extends* the existing tracer: `traversal.py` imports
 `FAMILIES`, `family`, `parse_args`, `parse_bufs` from `census.py` rather than
 re-deriving the classifier, and both read the committed R106-G ledger.
+`keyaudit.py` in turn imports `BW`, `FAMILIES`, `GLUE`, `LMHEAD_MASK_ROWS`,
+`SLC`, `TOKENS`, `load_rows`, `operand_mults` from `traversal.py`, so the audit
+in §14.2 re-uses the exact operand model it audits rather than a copy of it.
 
 ### 2.5 The PR91 "bound bytes" convention is neither BINDING nor TRAVERSAL
 
@@ -385,6 +409,16 @@ modes, since the class contains no large GEMM panel), against **8.04 ms**
 **Verdict: the glue class runs at ≈ 1.9× its DRAM floor, with ≈ 3.85 ms of
 headroom — not 1 %.** The prior verdict was an artefact of charging BINDING
 bytes as if they were DRAM bytes.
+
+> ⚠️ **Bracket added after the §14.2 grouping-key audit.** The 4.19 ms stated
+> above is the *max-reuse* endpoint. The glue class is **0 % streamed** and
+> **61.1 %** of its above-SLC credit is bought by pointer identity, so under
+> the no-reuse endpoint its floor rises to **8.29 ms** — bracket
+> **4.19 – 8.29 ms** against 8.04 ms of projected time, i.e. at the pessimistic
+> endpoint there is **no headroom at all**. The inconsistent-class-membership
+> refutation earlier in this section is pure arithmetic on the prior art's own
+> numbers, is independent of any cache model or grouping key, and remains the
+> unconditional half of this verdict.
 
 This does *not* say the 3.85 ms is recoverable: at 235 + 153 + 83 + 41 + 38 +
 39 = 589 dispatches for 4.94 GB of bound operands, the class is dispatch- and
@@ -594,12 +628,15 @@ Naming it precisely, because the assignment asks for it:
 - **Time-side unattributed: 22.9 – 37.9 ms, central 27.88 ms** [PROJ] — the
   gap between `S = 97.89475 ms` [M5-RCPT] and the prior-art per-stage floor
   sum of 70.07 ms. My census *widens* it: against my above-SLC floor of
-  41.86–68.09 ms the unattributed share becomes **29.8 – 56.0 ms**, i.e. 30 %
-  to 57 % of measured prefill is not explained by DRAM traffic of any kind.
+  41.86–76.48 ms (§14.2) the unattributed share becomes **21.4 – 56.0 ms**,
+  i.e. 22 % to 57 % of measured prefill is not explained by DRAM traffic of
+  any kind.
 - **The named cause of that widening is not new traffic; it is that two
   published floors were too high** (§6, §7). Together the two corrections move
   **6.58 ms (routed experts) + 3.85 ms (glue)** of previously-"spent" budget
-  into the unattributed pool.
+  into the unattributed pool. Under the §14.2 grouping-key bracket the pair
+  spans **5.12 – 6.58 ms + 0 – 3.85 ms**; only the expert half is
+  key-independent, and only it is claimed unconditionally.
 
 The census cannot say what fills that pool. Structural evidence already on
 record points away from bandwidth: non-GEMM work is 8.5 % of M4 busy time,
@@ -687,7 +724,121 @@ is expert-aligned.
    retire the single-draw caveat before anyone prices the −6.58 ms.
 2. Key the tracer on `(ptr, offset)` and re-capture, which would also let a
    future census separate KV-cache slices from their backing allocation.
-3. Ask whether the 589-dispatch glue class can be fused: the census now says
-   its DRAM floor is 4.19 ms against 8.04 ms of time, so the headroom is real
-   even though the mechanism is dispatch overhead rather than bandwidth. That
-   is a time-side question and belongs with R106-H.
+3. Ask whether the 589-dispatch glue class can be fused. Note §14.2: the
+   headroom is only established at the max-reuse endpoint (4.19 ms floor vs
+   8.04 ms of time). Settling this needs an `(ptr, offset)` re-capture, not
+   more modelling. That is a time-side question and belongs with R106-H.
+
+---
+
+## 14. Response to advisor comments 5238541612 and 5238735181
+
+Both landed while this round was in flight. Neither moves a compiled path.
+
+### 14.1 Base movement
+
+`f5f0e002` → `3241e5e5` → `ca39d216` → `89c2d154`, verified
+docs-and-advisor-tooling-only:
+
+```
+research/CURRENT_RESEARCH_STATE.md             | 536 +++--
+research/advisor_r105_ladder_monitor.py        |  48 +-
+research/advisor_r106_draw01_tree_identity.py  | 252 +++
+research/advisor_r106_receipt_reattribution.py | 336 +++
+4 files changed, 1152 insertions(+), 20 deletions(-)
+```
+
+No `Sources/`, no `Vendor/`, no `benchmark.json`, and no file this round reads
+or edits. Nothing rebuilt; the trace, the census, and every number below are
+unaffected. Rebased.
+
+### 14.2 The grouping-key hazard (rule 93.4(a) transfer) — audited, not assumed
+
+The advisor's transfer is correct and it lands on exactly one line of my
+model. `SLCache.access` is keyed on `(pointer, nbytes)`
+(`research/r106i/traversal.py:205`). MLX recycles allocations, so that key
+establishes **"the same allocation, at the same size, was bound again"** — it
+does *not* establish "the same logical tensor", and it does *not* establish
+"the same bytes". Two failure directions exist: a recycled pointer produces a
+**false hit** (aSLC understated), and a migrated tensor produces a **false
+miss** (aSLC overstated). Including `nbytes` in the key blocks recycling
+across *different* sizes only.
+
+Rather than argue about it, I measured the exposure. Every operand access
+takes one of two paths, and only one of them consults the key:
+
+- **streamed** (`nb > cap`): charged in full on every traversal, never entered
+  into the resident set. **Key-independent by construction.**
+- **keyed** (`nb <= cap`): charged on first touch, free on repeat. This is the
+  only place pointer identity buys anything.
+
+`credited` is precisely what the key bought. Charging every keyed repeat as a
+miss gives a no-reuse endpoint, so the truth is bracketed by
+`[aSLC, aSLC + credited]` for *any* keying discipline at this cache size.
+That bracket is itself contained in the already-reported TRAVERSAL column,
+which is the absolute zero-reuse limit — the three are nested:
+`aSLC ≤ aSLC + credited ≤ TRAVERSAL`.
+
+`research/r106i/keyaudit.py` → `research/r106i/keyaudit.json`, M5, 24 MiB:
+
+| family | aSLC GB | streamed | keyed | credited | key-dep |
+|---|---|---|---|---|---|
+| routed_gather_gemm | 15.8717 | 14.2773 | 1.5945 | 0.7975 | **4.8 %** |
+| steel_gemm_bf16 (ordered) | 18.2404 | 16.4419 | 1.7985 | 1.0929 | 5.7 % |
+| steel_gemm_bf16 (coresident) | 3.9127 | 2.1142 | 1.7985 | 1.0929 | 21.8 % |
+| elementwise | 0.6426 | 0.0000 | 0.6426 | 1.0074 | 61.1 % |
+| attention_core | 0.3471 | 0.0000 | 0.3471 | 0.3502 | 50.2 % |
+| qk_norm_rope | 0.4299 | 0.0000 | 0.4299 | 0.3377 | 44.0 % |
+| rms_norm | 0.3307 | 0.0000 | 0.3307 | 0.1667 | 33.5 % |
+| nvfp4_dense_qmm | 0.3059 | 0.0126 | 0.2933 | 0.0996 | 24.6 % |
+| sort_scatter | 0.6448 | 0.0021 | 0.6427 | 0.0809 | 11.2 % |
+| moe_tail | 0.2403 | 0.0000 | 0.2403 | 0.6375 | 72.6 % |
+| router | 0.0013 | 0.0000 | 0.0013 | 0.0100 | 88.6 % |
+| lm_head | 0.1367 | 0.1295 | 0.0072 | 0.0010 | 0.7 % |
+| **TOTAL (ordered)** | **37.1915** | 30.8634 | 6.3281 | 4.5816 | **11.0 %** |
+| **TOTAL (coresident)** | **22.8638** | 16.5357 | 6.3281 | 4.5816 | **16.7 %** |
+
+**The headline survives cleanly.** The routed-expert family is **89.95 %
+streamed**: its buffers are ~452 MB per layer, nineteen times the 24 MiB
+cache, so they can never enter the keyed path at all. Its bracket is
+**29.06 → 30.52 ms**, and **both endpoints beat the published 35.64 ms**. The
+−6.58 ms correction degrades to −5.12 ms in the worst case and does not
+vanish. Likewise `B_pre = 31.3640 GB` is BINDING and touches no cache model,
+no host assumption, and no key.
+
+**One claim genuinely weakens, and I am flagging it rather than burying it.**
+The glue class is the *opposite* case: it is 0 % streamed and 61 % of its
+credit is pointer-keyed. Its bracket is **4.19 → 8.29 ms** against 8.04 ms of
+projected time. At the max-reuse endpoint there is ≈3.85 ms of headroom; at
+the no-reuse endpoint there is none, and the prior art's "99 % of floor" would
+be numerically right — though still reached through the
+inconsistent-membership arithmetic of §6, which is wrong independently of
+anything I measure. So §6's argument (i) stands unconditionally and argument
+(ii) is now a bracket. The whole-prefill above-SLC bracket widens to
+**41.86–76.48 ms** against `S = 97.89475 ms` [M5-RCPT].
+
+Settling the glue half needs an instrument change, not more modelling:
+`note_in_buf` drops the `offset` argument of `set_input_array`
+(`research/r106c/scripts/trace_dag.patch:101`), so sub-buffer slices are
+invisible and a re-capture keyed on `(ptr, offset)` is the smallest thing that
+would collapse this bracket. That is follow-up 2 and it is not in scope here.
+
+### 14.3 The quota premise
+
+Both comments name the tracer quota as the round's likeliest failure mode, so
+to restate §2.2 in one line: **the quota does not exist.** A grep of the
+tracer patch for every limit-shaped token returns exactly one hit —
+`out.flush()` at `research/r106c/scripts/trace_dag.patch:202`. The
+1,671,168 B figure was R103-B page-flush truncation (`floor(n/4096) × 4096`),
+diagnosed and corrected in
+`research/maple-tanjiro-r103b-kernel-text-differential.md:1174-1187`; the
+per-row flush in the current patch is the fix. The artefact I parsed is
+2,792,366 B / 11,254 rows and ends on a complete row, and the prefill window
+is bounded on both sides by rows I can name (6115 `gather_front` embedding,
+7334 the last lm_head dispatch, 7335 the first decode dispatch), so a
+truncated tail could not masquerade as an absent dispatch. Independently, the
+window's 1220 dispatches / 81 encoders match the prior art's 1222 ± 2 / 81.
+The false-V-FLOORS-INFLATED failure mode the advisor described is ruled out,
+and it would additionally have had to survive a byte-side unattributed share
+of exactly 0.
+

@@ -6,12 +6,13 @@ BW = 546.2e9
 TOKENS = 512
 BIND = json.load(open('research/r106i/binding.json'))
 TRAV = json.load(open('research/r106i/traversal.json'))
+KEYA = json.load(open('research/r106i/keyaudit.json'))
 
 run = wandb.init(
     project='mlxfast-maple', entity='wandb-applied-ai-team',
-    name='r106i-prefill-traversal-census',
+    name='r106i-prefill-traversal-census-keyaudit',
     job_type='analysis',
-    tags=['r106i', 'prefill', 'census', 'bytes', 'maple-fern', 'pr625'],
+    tags=['r106i', 'prefill', 'census', 'bytes', 'keyaudit', 'maple-fern', 'pr625'],
     config={
         'assignment_id': 'maple-r106-i-prefill-traversal-byte-census',
         'revision_id': 'r106-i-rev1',
@@ -55,6 +56,15 @@ for mib, cell in TRAV['slc_sweep_ms'].items():
         summary[f'slc_sweep/{mib}mib/{reuse}/glue_ms'] = glue
         summary[f'slc_sweep/{mib}mib/{reuse}/experts_ms'] = exp
 
+for tag, blk in KEYA.items():
+    key = 'keyaudit/' + tag.replace('/', '_')
+    for scope in ('total', 'experts', 'glue'):
+        for name, val in blk[scope].items():
+            summary[f'{key}/{scope}/{name}'] = val
+    for fam, f in blk['families'].items():
+        summary[f'{key}/key_dependence/{fam}'] = f['key_dependence']
+        summary[f'{key}/streamed_gb/{fam}'] = f['streamed_gb']
+
 summary['prior_art/routed_expert_floor_ms'] = 35.64
 summary['prior_art/glue_projected_ms'] = 8.04
 summary['prior_art/S_total_ms'] = 97.89475
@@ -69,6 +79,15 @@ for tag in ('m5/ordered', 'm5/coresident', 'm4/ordered', 'm4/coresident'):
         tbl.add_data(fam, f['n'], f['bind_gb'], f['trav_gb'], f['tb'],
                      f['aslc_gb'], f['sb'])
     run.log({f'census/{tag.replace("/", "_")}': tbl})
+
+kcols = ['family', 'aslc_gb', 'streamed_gb', 'keyed_gb', 'credited_gb',
+         'key_dependence']
+for tag, blk in KEYA.items():
+    tbl = wandb.Table(columns=kcols)
+    for fam, f in blk['families'].items():
+        tbl.add_data(fam, f['aslc_gb'], f['streamed_gb'], f['keyed_gb'],
+                     f['credited_gb'], f['key_dependence'])
+    run.log({f'keyaudit/{tag.replace("/", "_")}': tbl})
 
 print('run_id', run.id)
 print('url', run.url)

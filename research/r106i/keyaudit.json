@@ -1,0 +1,234 @@
+{
+ "m5/coresident": {
+  "experts": {
+   "aslc_gb": 15.871737856,
+   "aslc_hi_ms": 30.518634580739658,
+   "aslc_ms": 29.058472823141706,
+   "credited_gb": 0.797540352,
+   "streamed_share": 0.8995410504844467
+  },
+  "families": {
+   "attention_core": {
+    "aslc_gb": 0.34709504,
+    "aslc_hi_gb": 0.69733376,
+    "credited_gb": 0.35023872,
+    "key_dependence": 0.5022540712785797,
+    "keyed_gb": 0.34709504,
+    "streamed_gb": 0.0
+   },
+   "elementwise": {
+    "aslc_gb": 0.642576256,
+    "aslc_hi_gb": 1.650009728,
+    "credited_gb": 1.007433472,
+    "key_dependence": 0.6105621408796931,
+    "keyed_gb": 0.642576256,
+    "streamed_gb": 0.0
+   },
+   "lm_head": {
+    "aslc_gb": 0.136725508,
+    "aslc_hi_gb": 0.137742344,
+    "credited_gb": 0.001016836,
+    "key_dependence": 0.007382159838952646,
+    "keyed_gb": 0.007226372,
+    "streamed_gb": 0.129499136
+   },
+   "moe_tail": {
+    "aslc_gb": 0.240320512,
+    "aslc_hi_gb": 0.87785472,
+    "credited_gb": 0.637534208,
+    "key_dependence": 0.7262411347517731,
+    "keyed_gb": 0.240320512,
+    "streamed_gb": 0.0
+   },
+   "nvfp4_dense_qmm": {
+    "aslc_gb": 0.305908288,
+    "aslc_hi_gb": 0.405540416,
+    "credited_gb": 0.099632128,
+    "key_dependence": 0.24567743206141998,
+    "keyed_gb": 0.293325376,
+    "streamed_gb": 0.012582912
+   },
+   "qk_norm_rope": {
+    "aslc_gb": 0.429936292,
+    "aslc_hi_gb": 0.767594148,
+    "credited_gb": 0.337657856,
+    "key_dependence": 0.43989112850818657,
+    "keyed_gb": 0.429936292,
+    "streamed_gb": 0.0
+   },
+   "rms_norm": {
+    "aslc_gb": 0.330681344,
+    "aslc_hi_gb": 0.49741312,
+    "credited_gb": 0.166731776,
+    "key_dependence": 0.33519778489156055,
+    "keyed_gb": 0.330681344,
+    "streamed_gb": 0.0
+   },
+   "routed_gather_gemm": {
+    "aslc_gb": 15.871737856,
+    "aslc_hi_gb": 16.669278208,
+    "credited_gb": 0.797540352,
+    "key_dependence": 0.047844924180174796,
+    "keyed_gb": 1.594458112,
+    "streamed_gb": 14.277279744
+   },
+   "router": {
+    "aslc_gb": 0.00128416,
+    "aslc_hi_gb": 0.011247168,
+    "credited_gb": 0.009963008,
+    "key_dependence": 0.8858237024644782,
+    "keyed_gb": 0.00128416,
+    "streamed_gb": 0.0
+   },
+   "sort_scatter": {
+    "aslc_gb": 0.64484352,
+    "aslc_hi_gb": 0.72578048,
+    "credited_gb": 0.08093696,
+    "key_dependence": 0.1115171353189328,
+    "keyed_gb": 0.642746368,
+    "streamed_gb": 0.0020971519999999997
+   },
+   "steel_gemm_bf16": {
+    "aslc_gb": 3.912687744,
+    "aslc_hi_gb": 5.005582464,
+    "credited_gb": 1.09289472,
+    "key_dependence": 0.21833517434985164,
+    "keyed_gb": 1.798496384,
+    "streamed_gb": 2.11419136
+   }
+  },
+  "glue": {
+   "aslc_gb": 2.289642084,
+   "aslc_hi_ms": 8.293481076528744,
+   "aslc_ms": 4.191948158183815,
+   "credited_gb": 2.24025728
+  },
+  "total": {
+   "aslc_gb": 22.86379652,
+   "aslc_hi_gb": 27.445376556,
+   "aslc_hi_ms": 50.247851622116436,
+   "aslc_ms": 41.859751958989385,
+   "credited_gb": 4.581580036,
+   "key_dependence": 0.1669344935622096,
+   "keyed_gb": 6.328146216,
+   "streamed_gb": 16.535650304,
+   "streamed_share": 0.7232241718708228
+  }
+ },
+ "m5/ordered": {
+  "experts": {
+   "aslc_gb": 15.871737856,
+   "aslc_hi_ms": 30.518634580739658,
+   "aslc_ms": 29.058472823141706,
+   "credited_gb": 0.797540352,
+   "streamed_share": 0.8995410504844467
+  },
+  "families": {
+   "attention_core": {
+    "aslc_gb": 0.34709504,
+    "aslc_hi_gb": 0.69733376,
+    "credited_gb": 0.35023872,
+    "key_dependence": 0.5022540712785797,
+    "keyed_gb": 0.34709504,
+    "streamed_gb": 0.0
+   },
+   "elementwise": {
+    "aslc_gb": 0.642576256,
+    "aslc_hi_gb": 1.650009728,
+    "credited_gb": 1.007433472,
+    "key_dependence": 0.6105621408796931,
+    "keyed_gb": 0.642576256,
+    "streamed_gb": 0.0
+   },
+   "lm_head": {
+    "aslc_gb": 0.136725508,
+    "aslc_hi_gb": 0.137742344,
+    "credited_gb": 0.001016836,
+    "key_dependence": 0.007382159838952646,
+    "keyed_gb": 0.007226372,
+    "streamed_gb": 0.129499136
+   },
+   "moe_tail": {
+    "aslc_gb": 0.240320512,
+    "aslc_hi_gb": 0.87785472,
+    "credited_gb": 0.637534208,
+    "key_dependence": 0.7262411347517731,
+    "keyed_gb": 0.240320512,
+    "streamed_gb": 0.0
+   },
+   "nvfp4_dense_qmm": {
+    "aslc_gb": 0.305908288,
+    "aslc_hi_gb": 0.405540416,
+    "credited_gb": 0.099632128,
+    "key_dependence": 0.24567743206141998,
+    "keyed_gb": 0.293325376,
+    "streamed_gb": 0.012582912
+   },
+   "qk_norm_rope": {
+    "aslc_gb": 0.429936292,
+    "aslc_hi_gb": 0.767594148,
+    "credited_gb": 0.337657856,
+    "key_dependence": 0.43989112850818657,
+    "keyed_gb": 0.429936292,
+    "streamed_gb": 0.0
+   },
+   "rms_norm": {
+    "aslc_gb": 0.330681344,
+    "aslc_hi_gb": 0.49741312,
+    "credited_gb": 0.166731776,
+    "key_dependence": 0.33519778489156055,
+    "keyed_gb": 0.330681344,
+    "streamed_gb": 0.0
+   },
+   "routed_gather_gemm": {
+    "aslc_gb": 15.871737856,
+    "aslc_hi_gb": 16.669278208,
+    "credited_gb": 0.797540352,
+    "key_dependence": 0.047844924180174796,
+    "keyed_gb": 1.594458112,
+    "streamed_gb": 14.277279744
+   },
+   "router": {
+    "aslc_gb": 0.00128416,
+    "aslc_hi_gb": 0.011247168,
+    "credited_gb": 0.009963008,
+    "key_dependence": 0.8858237024644782,
+    "keyed_gb": 0.00128416,
+    "streamed_gb": 0.0
+   },
+   "sort_scatter": {
+    "aslc_gb": 0.64484352,
+    "aslc_hi_gb": 0.72578048,
+    "credited_gb": 0.08093696,
+    "key_dependence": 0.1115171353189328,
+    "keyed_gb": 0.642746368,
+    "streamed_gb": 0.0020971519999999997
+   },
+   "steel_gemm_bf16": {
+    "aslc_gb": 18.240430208,
+    "aslc_hi_gb": 19.333324928,
+    "credited_gb": 1.09289472,
+    "key_dependence": 0.05652906181787626,
+    "keyed_gb": 1.798496384,
+    "streamed_gb": 16.441933824
+   }
+  },
+  "glue": {
+   "aslc_gb": 2.289642084,
+   "aslc_hi_ms": 8.293481076528744,
+   "aslc_ms": 4.191948158183815,
+   "credited_gb": 2.24025728
+  },
+  "total": {
+   "aslc_gb": 37.191538984,
+   "aslc_hi_gb": 41.77311902,
+   "aslc_hi_ms": 76.4795295129989,
+   "aslc_ms": 68.09142984987184,
+   "credited_gb": 4.581580036,
+   "key_dependence": 0.1096777100557525,
+   "keyed_gb": 6.328146216,
+   "streamed_gb": 30.863392768,
+   "streamed_share": 0.8298498424944877
+  }
+ }
+}
