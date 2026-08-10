@@ -788,8 +788,12 @@ team does next:
 2. **Roughly 29% of the kernel is neither marginal ALU nor DRAM bytes.** That
    residual is the largest single unclaimed block in my pool and nobody is
    assigned to it.
-3. **The likeliest owner of that residual is threadgroup quantization, and it is
-   arithmetic anyone can check without a benchmark.** The dispatch is
+3. ~~**The likeliest owner of that residual is threadgroup quantization.**~~
+   **RETRACTED 23:2xZ — see §7.2.7.** maple-edward measured the quantization
+   edge on this exact M4 Pro and it sits above my dispatch, and measured the
+   residual to be per-threadgroup critical-path latency rather than occupancy.
+   The paragraph is left below unedited so the retraction has something to
+   point at. The dispatch is
    `grid ((heads/2)*1024,1,1)`, `threadGroup (1024,1,1)` = **exactly 24
    threadgroups**, one per head pair, and a threadgroup cannot span cores. On
    this 20-core M4 Pro, 24 indivisible threadgroups give 4 cores two units of
@@ -924,23 +928,14 @@ pool clears, and the ranking of what to attack changes completely:
 | other in-loop ALU (softmax, AV, partials) | 62.4 | 0.349 | 5.0× | unexplored |
 | **all in-loop ALU** | 90.8 | 0.508 | 7.3× | unexplored |
 | KV-cache DRAM floor | ≈86 | ≈0.48 (τ≈1.06 ⇒ ≈0.51) | ≈7.3× | irreducible at bf16 |
-| **threadgroup quantization waste** | ≈100 | 0.560 | **8.0×** | **one 8-run test away** |
+| ~~threadgroup quantization waste~~ | ~~≈100~~ | — | — | **RETRACTED, §7.2.7** |
 | whole `full_fused_attn_grow_v1` pool | 249.5 | 1.397 | 20× | — |
 
-The line that matters is the last actionable one. This kernel dispatches
-exactly **24 threadgroups**. On this 20-core M4 Pro that is a makespan of 2
-waves against an ideal 1.2, i.e. **60 % efficiency and ≈100 busy µs/step
-wasted — 8× the new landing bar**, from a launch shape rather than from any
-instruction. §7.1 already names the cheapest decisive test: dispatch
-`2 × (heads/2)` threadgroups of 512 threads with the key range split per head
-pair, one ABBA block of 8 runs, ≈25 minutes of box time.
-
-**I did not run it, because geometry was explicitly withheld from R109-E.** I
-flag it here as the single highest-value follow-up I found: it is ~8× the bar,
-its τ is unknown and possibly sign-flipping across core counts (the M5 Max has
-far more cores than this M4 Pro, which *worsens* a 24-threadgroup launch, not
-improves it), and it costs one block to settle. It needs a carve-out of the
-same kind already granted to `gate_sp_h64` and `residual_rms_router`.
+~~The line that matters is the last actionable one.~~ **The paragraph that stood
+here proposed a threadgroup-count split as the single highest-value follow-up.
+It is retracted; see §7.2.7.** The remaining actionable rows are "other in-loop
+ALU" and "all in-loop ALU", and §6 plus edward's R1/R2 close the only
+mechanisms I know of for them.
 
 ### 7.2.6 One caveat I cannot discharge from this memo
 
@@ -955,11 +950,91 @@ every additive-busy figure above is an over-estimate by that fraction. I take
 the required `SPLIT=1` profile and report the nested fraction in §7.3 rather
 than leaving the tables unqualified.
 
+### 7.2.7 Retraction of the occupancy suspect, and independent confirmation of the verdict
+
+The 23:02Z advisor comment carries maple-edward's R109-D results (PR #684, now
+closed). Three of them bear directly on this memo. I take them as measured and
+correct my own text rather than defending it.
+
+**(a) My occupancy suspect is dead, and it was dead on my own numbers.**
+edward measured the M4 Pro threadgroup quantization edge directly and found
+`t(32 TG) ≈ t(40 TG)`: a 32-threadgroup dispatch is billed as 40 waves on 20
+cores, ≈112 µs/step of second-wave idle. That is a real effect and it is
+*sliding* attention's dispatch, not mine. My kernel launches **24**
+threadgroups, which sits *below* that quantization edge, so the effect edward
+measured does not reach me. I had asserted a 60 %-efficiency / ≈100 busy µs/step
+waste from 24-vs-20; the direct measurement of the neighbouring point on the
+same curve does not support extrapolating it downward, and I never measured my
+own point. §7.1.3 item 3, §7.1.4's proposed test, and the §7.2.5 table row are
+withdrawn. **This is the largest single error in this memo** and it was an
+arithmetic prior dressed as a finding — exactly the failure mode §7.1.4 warned
+about two paragraphs before committing it.
+
+**(b) The residual is not a geometry problem at all.** edward's R3 measured the
+kernel's residual after removing the reduce and the PV accumulate: 90.5–91.2 %
+of kernel time, running at 113 GB/s against a measured 266.3 GB/s ceiling
+(42.6 % of peak), i.e. **2.1× above the DRAM floor**, with per-dispatch fixed
+cost fitted at **0.12 µs**. So the residual is neither DRAM-bound nor
+launch-bound: it is **per-threadgroup critical-path latency**. Both escapes are
+measured-closed — occupancy is *flat* in threadgroup memory from 16 B to
+32,768 B at 1024 threads, and the MLP-via-next-trip hoist carries #540's flat
+**+3.8..4.8 % codegen tax**. PR #683 closed on the same shape
+(`N-GATESP-TG-COUNT-IRRELEVANT`: a latency-bound kernel can be completely
+insensitive to threadgroup count). A latency-bound residual is not harvested by
+rebalancing waves.
+
+**(c) `N-FULL-QK-MMA-NEGATIVE` is now independently confirmed, twice, by a
+better instrument than mine.** My §6 was a static feasibility argument; edward
+priced the same mechanism in a standalone Metal microbenchmark with fixed
+random K/V, correct shapes, no harness, paired A/B, null controls bracketing
+both ends, and two occupancy regimes. He did not write an MMA kernel — he built
+**value-neutral padding arms** that bill the M=2-of-8 tile shape:
+
+| arm | K=32 (≈M4, 1.60 TG/core) | K=16 (≈M5 proxy, 0.80 TG/core) |
+|---|---|---|
+| null vs itself (control) | +0.190 % / +0.082 % | −0.116 % / −0.051 % |
+| `qk_pad4x` (bit-exact 4× MACs = 8×8 fragment padding) | **+11.802 %** | **+10.200 %** |
+| `qk_pad4x_bcast0` (padding + best-possible broadcast epilogue) | **+6.047 %** | **+3.400 %** |
+
+Both padding arms are *slower than base*, and the padding bill alone is
+**1.7–2.0× the entire prize**. Two corroborations: measured simdgroup-MMA rate
+is **3,158 GMAC/s = 0.87× scalar FMA** where ≥4× is needed just to pay for the
+padding; and Apple Tech Talk 111432 shows `simdgroup_matrix` at **0 %
+neural-accelerator utilization even on M5** — the real matrix path is Metal 4
+tensors / MPP `matmul2d`, gated on macOS 26.2+ and Apple GPU arch gen ≥17, so it
+is not reachable from this submission surface at all. Separately, edward's
+`qk_ladder5` arm measured **+1.483 %**, i.e. the built-in `simd_sum` is already
+optimal, which kills every shuffle-ladder fallback I might have retreated to.
+
+**(d) Our two independent instruments agree on the size of the prize.** edward's
+`qk_bcast0` (MACs and loads preserved, cross-lane reduce removed) prices the QK
+reduction at **5.13–6.86 % of kernel time**; my synthetic dose ruler prices the
+ladder at 28.4 busy µs/step against a 249.5 busy µs/step pool = **11.4 %**.
+Those are the same order and bracket each other within ~2×, from a
+microbenchmark and from an end-to-end harness respectively. His free-deletion
+ceiling (`qk_loadonly`, deleting *both* the reduce and the PV accumulate) tops
+out at **8.8–9.5 %**, which is the same statement as my §7.1 closure: the whole
+in-loop arithmetic budget is too small for any single-stage mechanism to matter.
+
+**What survives.** §7's verdict token `N-FULL-QK-MMA-NEGATIVE` stands and is
+strengthened. §7.1's budget closure stands for the ALU and DRAM rows, which came
+from the ruler and the static census, not from the occupancy prior. §7.2's
+repricing stands. What dies is the one row I inferred instead of measuring, plus
+the follow-up I recommended off it. The honest summary of my pool after (a)–(c)
+is: ~36 % in-loop ALU (measured, no viable mechanism), ~35 % KV DRAM
+(irreducible at bf16), and a remaining ~29 % that edward has now identified as
+per-threadgroup critical-path latency with both known exits measured shut.
+
 <!--NESTED-->
 
 <!--VERDICT-->
 
-## 8. Hand-off to maple-edward
+## 8. Hand-off to maple-edward — MOOT
+
+**PR #684 closed at ~23:02Z with its own results already in hand (see §7.2.7).
+This hand-off was overtaken; it is kept only as a record of what I had ready to
+transfer, and because the ruler and the position-effect instrument finding below
+are still reusable by whoever next touches either attention kernel.**
 
 Reusable for the sliding-window kernel (`LagunaRuntimeModel.swift` 1507–1975,
 same six-statement structure at 1681/1717/…):
