@@ -208,8 +208,14 @@ def main():
         config={
             "host": "Apple M4 Pro / 20 GPU cores / 48 GiB",
             "epoch": "R107",
-            "measurement": "census (1023 decode steps, ./benchmark.sh "
-                           "--local-submit)",
+            # host . epoch . census-or-marginal, per the round's tagging rule.
+            # Levels and differences are different kinds of number:
+            "tag_levels": "host=M4-Pro . epoch=R107 . CENSUS "
+                          "(whole-model decode rate over all 1023 scored "
+                          "steps of ./benchmark.sh --local-submit)",
+            "tag_differences": "host=M4-Pro . epoch=R107 . MARGINAL "
+                               "(paired difference of two arms of one binary; "
+                               "every delta, CI, sd and power number)",
             "mode": "--local-submit",
             "arms": "A vs A' (identical binary, identical empty gate set)",
             "blocks": st["n_pairs"],

@@ -18,9 +18,21 @@ carried side by side per rule 105.12:
 Translation anchor supplied by the advisor: 0.4 % of cs = 26.27 M5 us/step
 = 60.1 M4 us/step at alpha = 52.5 M4 us/step at beta.
 
-Every printed quantity is  host=M4-Pro . epoch=R107 . MARGINAL (local, paired
-difference of two arms of one binary). Nothing here is a census number and
-nothing here came from a receipt.
+Tagging, per the round's "host . epoch . census-or-marginal" requirement.  The
+two kinds of number printed below are NOT the same kind:
+
+  * LEVELS  (per-arm means, e.g. 8984.5 us/token) are  host=M4-Pro . epoch=R107
+    . CENSUS -- each is a whole-model end-to-end decode rate over all 1023
+    scored steps of ./benchmark.sh --local-submit.
+  * DIFFERENCES (every D, CI, sd and power number) are  host=M4-Pro . epoch=R107
+    . MARGINAL -- a paired difference of two arms of one binary, i.e. the
+    increment attributable to the gate set, not a rate in its own right.
+
+The distinction is load-bearing, and it is the reason for guard rail 3: a local
+CENSUS level and a receipt CENSUS level are levels on DIFFERENT hosts, so their
+ratio (e.g. 4925.255/8984.50 = 0.5482) is not the transfer factor k and must
+never be used as one.  Only MARGINAL quantities are transferred, and only by
+multiplying by k.  Nothing here came from a receipt.
 
 Usage:  python3 research/maple-nezuko-r107j-paired-ci.py ROWS.tsv [ROWS2.tsv ...]
 Env:    KREF=alpha|beta   which k to headline (default alpha, the smaller and
@@ -137,7 +149,8 @@ def main():
     ref = labels[0]
 
     print('=' * 78)
-    print('R107-J\' paired local decode certification -- host=M4-Pro epoch=R107 MARGINAL')
+    print('R107-J\' paired local decode certification -- host=M4-Pro epoch=R107')
+    print('tags      : per-arm LEVELS are CENSUS; all D / CI / sd / power are MARGINAL')
     print('instrument: ./benchmark.sh --local-submit (1023 decode steps), blocked+interleaved')
     print('sessions  : %s' % ','.join(sorted({r['session'] for r in rows})))
     print('head      : %s' % ','.join(sorted({r['head'] for r in rows})))
@@ -265,7 +278,8 @@ def main():
         return
     print('\n' + '=' * 78)
     print('POWER CURVE of this instrument -- paired sd = %.3f us/token (measured, arm %s)' % (s_use, s_src))
-    print('host=M4-Pro epoch=R107 MARGINAL; reference level %.3f us/token; k=%s' % (base, k_name))
+    print('host=M4-Pro epoch=R107; half-widths are MARGINAL; reference CENSUS '
+          'level %.3f us/token; k=%s' % (base, k_name))
     print('=' * 78)
     print('%6s %4s %7s %12s %11s %11s %11s   %11s' %
           ('blocks', 'dof', 't.975', 'hw us/token', 'hw %decode', 'hw %cs(a)', 'hw %cs(b)', 'runs(2 arms)'))
