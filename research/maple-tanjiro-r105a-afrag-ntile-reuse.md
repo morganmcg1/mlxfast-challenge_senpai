@@ -1580,20 +1580,41 @@ falls through to `gather_qmv` at :1958 — a GEMV path with its own hard-coded
 
 Three consequences:
 
-1. **The decode limb is a structural placebo channel across all six receipts.**
-   Every `cand_dec` / `step_ms` movement I have measured is pure session noise
-   with a known-zero treatment effect. That is why §4.4.5's decode "effect"
-   retracted, why (c)'s residual retracted, and why the prefill-only prediction
-   has been right three times. It also means the arms themselves are extra
-   samples of decode-channel noise, not just the A0 controls.
-2. **The ceiling on this knob family is 25 % of the score weight.** With decode
-   structurally fixed, `dln S = 0.25 · (−dln cand_pre)`. Clearing the bar
-   (0.5118 % of score) therefore requires **≈1.97 ms, i.e. 2.05 %, off the
-   96.15 ms prefill wall**. Measured: +1.111 ms (variant 7) and +1.034 ms
-   (variant 8) in the wrong direction. The family is roughly **3 ms away** from
-   shippable, not a tuning nudge away. For contrast, the same bar on the decode
-   axis would need only 0.033 ms of the 4.92 ms per-token decode wall — 58× more
-   score per ms — and this knob cannot reach it.
+1. **The _marginal decode step_ is a structural placebo channel across all six
+   receipts — but `cand_dec` is not.** *(Corrected after reading the harness;
+   see §7.6.)* The reported `decode_seconds_per_token` is
+   `(seed prefill + 128 one-token steps) / 128`
+   (`LagunaRuntimeBenchmark.swift:966-968`, `:1010-1013`, whose own progress
+   line says `includes_seed_prefill=true`), so a prefill-only treatment **must**
+   show up in `cand_dec` at `ΔS/128`. The clean placebo statistic is therefore
+   `step_ms = 1000 * cand_dec - prefill_ms / 128`, which strips the seed. It is
+   null in both treatment arms, as predicted: variant 7 `z = -1.24`, variant 8
+   `+0.002124 ms` on `σ = 0.012071`, `SE = 0.013940`, **`z = +0.15`** (the
+   advisor independently computed `+0.15` for this arm). That is why §4.4.5's
+   decode "effect" retracted and why (c)'s residual retracted.
+   The `ΔS/128` leak is a *free positive control* that costs no receipt:
+
+   | arm | `ΔS` (ms) | predicted `Δcand_dec` (ms) | observed (ms) | SE (ms) | verdict |
+   |---|---|---|---|---|---|
+   | A2-1 (variant 8) | +1.034209 | +0.008080 | **+0.010167** | 0.013741 | agrees, 0.15 SE |
+   | A1-1 (variant 7) | +1.111167 | +0.008681 | **-0.008533** | 0.013741 | 1.25 SE short, not significant, not confirmatory |
+
+   With `σ(cand_dec)/128`-scale effects an order of magnitude under the channel
+   noise, this control can corroborate but cannot falsify at n=1; I report it
+   because it is the only free cross-check of the harness model that the ladder
+   generated.
+2. **The ceiling on this knob family is 36.45 % of the score weight**, not the
+   25 % I first wrote. Because the seed forward is charged on *both* axes, the
+   elasticity of the score to the prefill wall is
+   `0.75 * share + 0.25 = 0.364504` with `share = S/(S + 128 T) = 0.152672`
+   (§7.6 derives this). Clearing the bar (0.5118 % of score) therefore requires
+   **1.35 ms, i.e. 1.40 %, off the 96.15 ms prefill wall** — exactly the
+   preregistered `BAR_MS`, because the campaign's blended `0.379103 %/ms` *is*
+   the seed-forward price. Measured: +1.111 ms (variant 7) and +1.034 ms
+   (variant 8) in the wrong direction, so the family is about **2.5 ms** away
+   from shippable, not a tuning nudge away. For contrast, the same bar needs
+   only **0.0336 ms off each decode step** (0.68 % of the 4.169 ms step) — 40×
+   more score per millisecond — and this knob provably cannot reach that axis.
 3. **Variant 6 (both routed shapes at `bn=128`) should not be given a receipt.**
    An independent frontier review reached the same conclusion from the same code
    and adds the mechanism check: gate/up and down are disjoint tensors each far
@@ -1607,6 +1628,62 @@ Three consequences:
    untested 2×2 interaction cell has no shared resource to act through, so
    skipping it is a scientific judgement with a stated mechanism, not budget
    economy.
+
+### 4.4.11 Amendment C, and one deviation from the advisor's refined stopping rule
+
+**Amendment C — recorded now, while A1-2 is in flight and its receipt is
+unread.** Advisor feedback fb2 §2 asks that the outcome variable for the
+remaining leg be pre-registered prospectively. Adopting it verbatim:
+
+1. The **primary outcome for the remaining leg is `cand_pre`** (candidate
+   prefill limb), expressed as `prefill_ms = 512000 * cand_pre` so the bar is in
+   the same units as `BAR_MS`.
+2. `step_ms = 1000 * cand_dec - prefill_ms / 128` is the **null control**
+   (§4.4.10 item 1: structurally zero at `B = 8`).
+3. `officialScore`, `hybrid_score` and `norm_score` are still reported for the
+   record and for continuity with Amendment A, but the **causal verdict on the
+   `bn = 128` family is decided on `cand_pre`**, because A1-1 showed
+   `officialScore` can move `+18σ` on a baseline-limb lottery while the
+   candidate limb barely moves. `cand_pre` is the only channel whose treatment
+   assignment is guaranteed by construction.
+4. Decision rule on that channel, same shape as Amendment A: `Δ̂S = arm mean −
+   control mean` in ms of prefill wall; `σ̂ = 0.136807` ms from the n=3 A0
+   control; `SE = σ̂ * sqrt(1/n + 1/n₀)`; `ν = (n₀−1)+(n−1)`; same `T95` table.
+   Lower is better, so: CI entirely `> 0` → **REGRESSION**; CI lower bound
+   `> -1.35` ms → **NULL-bar-excluded**; CI upper bound `< -1.35` ms with `n ≥ 2`
+   → **WIN**. At `n = 2` vs `n₀ = 3`, `SE = 0.1249` ms and the 90 % half-width is
+   `2.353 * 0.1249 = 0.294` ms, so the pooled A1 prefill verdict will be
+   resolvable either way.
+5. Prospective prediction for A1-2 on this channel, paired with §4.4.9's score
+   prediction: pooled `Δ̂S ≈ +1.1` ms, CI ≈ `[+0.82, +1.41]` → **REGRESSION and
+   bar-excluded**. The falsifier is a pooled CI that reaches `-1.35` ms.
+
+**Deviation from fb2 §6.3, owned explicitly.** fb2 §6.3 refines the stopping
+rule: *if A1-1 also regresses on the prefill channel at `|z| ≥ 2`, fire N-1 on
+the entire `bn = 128` family and stop at 6 receipts — do not spend A1-2*, with
+the prescribed 6th receipt being A2-2. A1-1 did regress on prefill (`z = +7.03`),
+so that trigger fired, and I nonetheless spent slot 6 on **A1-2**. The
+chronology: fb2 was posted `2026-08-10T06:03:53Z`; the A1-2 dispatcher queued
+`c52994dc` at `06:42:51Z` after an 18-minute wait on the shared submission slot;
+I read fb2 at ≈`06:46Z`. So the choice was made under my own Amendment A, which
+requires a replicate for an apparent `WIN-pending-replicate` at `+18σ`, and not
+in defiance of a rule I had read.
+
+Why I would still choose A1-2 having now read fb2, stated so the advisor can
+disagree with the reasoning rather than the accident:
+
+- The two channels **disagreed in sign for the first time in the ladder**
+  (official `+18.05σ`, prefill `+7.03σ` the wrong way). Neither stopping rule
+  anticipated that case, and an unreplicated `+0.0216` score delta left on the
+  record is exactly the kind of artefact that gets promoted by a later reader.
+- A1-2 is the **decisive test of §4.4.9's baseline-lottery prediction**
+  (`officialScore ≈ 2.5667` with `baseline_pre` back inside the control band),
+  which is falsifiable and cheap. A2-2 could only tighten a harm already at
+  `z = -6.55` official / `z = -4.70` hybrid; it could not change any verdict.
+- The **budget outcome is identical**: 6 receipts spent, 2 banked, stop now.
+  I am not proposing to spend slots 7–8 to repair the deviation.
+
+N-1 fires on the whole family regardless of which arm took slot 6.
 
 ---
 
@@ -2019,58 +2096,117 @@ create intra-TG overlap — it is trying to delete DRAM traffic that no amount o
 overlap can hide — but the resource increase is a genuine, unresolved risk and
 it is exactly what §6's A1-negative branch is for.
 
-### 7.6 A millisecond is not a currency until you name the axis
+### 7.6 A millisecond is not a currency until you name the axis — and my first draft of this section was wrong
 
-This is a units correction to a campaign convention, not a refutation of a
-claim. Every recent brief and every one of my own bars prices work in "ms of
-saved wall time" using the blended constant
+I first wrote this section claiming the campaign's blended price overstates a
+prefill-only saving by 1.46x, so that my 1.35 ms bar "really" needed 1.97 ms of
+prefill wall, the record bar was 5.53 ms, and the brief's 8.4 ms prize was worth
+2.18 % rather than 3.18 % of score. **Every one of those four numbers is wrong.**
+I then read the trusted harness instead of assuming its shape, and it refutes
+the premise. I am keeping the refutation in the log rather than quietly deleting
+it, because the corrected version is the derivation the advisor asked for in
+fb2 §7 and the error is instructive: the whole mistake was pricing an axis I had
+not read the timer for.
 
-```text
-price = 100 * (0.75 / (128000 * dec) + 0.25 / (512000 * pre)) = 0.379103 %/ms
+**What the harness actually measures.** In
+`Sources/MLXFastTrustedHarness/LagunaRuntimeBenchmark.swift`:
+
+```swift
+let decodePhaseStart = DispatchTime.now().uptimeNanoseconds                        // :966
+progress?("decode measured start tokens=\(decodeSteps) includes_seed_prefill=true") // :967
+let beginResponse = try worker.beginDecode(seedTokens: seedTokens)                  // :968  <- 512-token prefill
+...
+let measuredSeconds = secondsSince(decodePhaseStart)                               // :1010
+let secondsPerToken = measuredSeconds / Double(decodeSteps)                         // :1013
 ```
 
-with `dec = 0.0049201 s/tok` and `pre = 0.0001878 s/tok` from my n=3 control.
-That constant is the score sensitivity to a change that saves **one millisecond
-on both axes at once**. Almost nothing does. Priced per axis instead:
+The timer starts **before** the 512-token seed prefill, and the harness's own
+progress line says so: `includes_seed_prefill=true`. So
 
-| what actually got faster | score value | vs blended |
+```text
+decode_seconds_per_token = (S + 128 * T) / 128        S = seed prefill wall, T = one decode step
+prefill_seconds_per_token = S / 512                   (:772 / :837, one 512-token prefill)
+```
+
+This is the *inclusive* model my `step_ms` derivation has assumed since §2 — it
+is now confirmed from source rather than inferred — and it destroys the
+"prefill is only worth 0.25" premise of the draft above. A millisecond removed
+from the seed forward pass is billed on **both** axes: once in the prefill
+speedup and once inside the decode phase.
+
+**The elasticities (fb2 §7).** With `cs = decode_speedup^0.75 *
+prefill_speedup^0.25` and the calibration constants fixed,
+
+```text
+ln cs = const - 0.75 * ln(S + 128 T) - 0.25 * ln S
+share = S / (S + 128 T)
+
+d ln cs / d ln S      = -(0.75 * share + 0.25)
+d ln cs / d ln T      = -(0.75 * (1 - share))
+```
+
+and the two magnitudes must sum to exactly 1 (scale invariance: doubling every
+time halves both speedups, so `cs` halves). From my n=3 control,
+`S = 96.149208 ms`, `128 T = 533.628 ms`, `T = 4.168968 ms`, decode phase
+`= 629.777 ms`, so `share = 0.152672` and
+
+| channel | elasticity | check |
 |---|---|---|
-| 1 ms off the 96.149 ms prefill wall | `0.25 / 96.149 = 0.260 %/ms` | 0.69x |
-| 1 ms off the 629.82 ms decode phase | `0.75 / 629.82 = 0.119 %/ms` | 0.31x |
-| 1 ms off **each** of the 128 decode steps | `0.75 * 128 / 629.82 = 15.24 %/ms` | 40x |
+| prefill wall `S` | **0.364504** | `0.75*0.152672 + 0.25` |
+| per-step decode `T` | **0.635496** | `0.75*(1 - 0.152672)` |
+| sum | 1.000000 | scale invariance ✓ |
 
-So an unqualified "1 ms" spans **128x** from the cheapest reading (decode
-phase, 0.119) to the dearest (per decode step, 15.24), and **58.6x** between the
-two readings that actual arms compete on (prefill wall vs per decode step). The
-blended price is not a midpoint of anything — it is the value of a coordinated
-saving that most candidate arms cannot deliver.
+My A2-1 note quoted 0.362 / 0.638 from the same argument; the corrected values
+are 0.3645 / 0.6355.
 
-Three concrete corrections this forces on my own numbers:
+**The campaign's blended price is not a blend at all — it is exactly the
+seed-forward price.**
 
-1. My preregistered `BAR_MS = 1.35` bar is a **prefill-only** bar for this
-   family (§4.4.10: the knob is structurally unreachable in decode). Blended,
-   it reads as 1.35 ms of work; correctly priced it is
-   `1.35 * 0.379103 / 0.260 = 1.97 ms` of prefill wall, a 2.05 % cut. The
-   blended price overstates a prefill-only saving by **1.46x**.
-2. The current record-beating bar (3.803 ms blended, `+1.438 %` of score)
-   becomes **5.53 ms of prefill wall** for a prefill-only mechanism — 5.8 % of
-   the prefill wall, from a kernel family the advisor's own roofline puts
-   within ~1.9x of DRAM-bandwidth-bound.
-3. The brief's headline prize, "~8.4 ms of prefill-only opportunity", is worth
-   `8.4 * 0.260 = 2.18 %` of score, not the `8.4 * 0.379 = 3.18 %` a blended
-   reading implies. §7.2 already disputes whether those 8.4 ms exist at all
-   (the traffic is bandwidth-bound, not tile-bound); this is the separate point
-   that even if they did exist they are worth ~two thirds of the quoted amount.
+```text
+100 * 0.364504 / 96.149208 = 0.379104 %/ms      (campaign constant: 0.379103)
+  = 0.260014 %/ms  on the prefill limb  (0.25 / S)
+  + 0.119089 %/ms  on the decode limb   (0.75 * share / S = 0.75 / 629.777)
+```
 
-The asymmetry also gives a cheap prioritisation rule that costs nothing to
-adopt: **per-step decode work is worth 58.6x prefill wall time per millisecond**
-(15.24 vs 0.260). Clearing my 1.35 ms bar needs 1.97 ms off prefill, or
-**0.0336 ms off one decode step** — 0.68 % of the 4.92 ms step. A decode-side
-arm with one-sixtieth of the mechanical leverage of a prefill arm is still the
-better bet, which is the honest reason this assignment's family was a poor
-place to spend six ranked receipts and the reason §4.4.10's follow-ups are all
-decode-side.
+The constant every recent brief and every bar in this log uses is therefore
+*correct and now derived*, not a coincidence and not an overstatement. Priced
+per axis:
 
-Recommendation: quote `%`-of-score directly, or quote ms **with the axis named**
-(`ms_prefill_wall`, `ms_decode_phase`, `ms_per_decode_step`). I have used
-`ms_prefill_wall` wherever this log converts.
+| what actually got faster | score value |
+|---|---|
+| 1 ms off the seed forward pass (both axes, e.g. any prefill-compute win) | **0.379103 %/ms** |
+| 1 ms off the decode phase once (e.g. one-off setup inside decode) | 0.119089 %/ms |
+| 1 ms off **each** of the 128 decode steps | **15.2435 %/ms** |
+
+Retractions, explicitly: the blended price does **not** overstate a prefill-only
+saving (factor is 1.00, not 1.46); my `BAR_MS = 1.35` bar is **1.35 ms of
+prefill wall**, not 1.97 (`bar_score = 0.0131568` as preregistered); the
+record-beating bar stays at **3.803 ms** of prefill wall, not 5.53; and the
+brief's 8.4 ms prize is worth **3.18 %** of score, exactly as the brief said.
+§7.2 still disputes whether those 8.4 ms exist at all — that bandwidth argument
+is untouched and is the operative objection — but the *pricing* half of my
+objection was my own arithmetic error and is withdrawn.
+
+**What survives is a real and useful asymmetry.** A millisecond off every decode
+step is worth `15.2435 / 0.379103 = 40.2x` a millisecond off the seed forward
+pass. Clearing my 1.35 ms bar needs either 1.35 ms of the 96.15 ms prefill wall
+(1.40 %) or **0.0336 ms off one decode step** (0.68 % of 4.169 ms). A decode-side
+arm with one-fortieth of the mechanical leverage of a prefill arm is still the
+better bet, which is the honest reason this family was a poor place to spend six
+ranked receipts and why §4.4.10's follow-ups are all decode-side.
+
+**The honest causal size of what this ladder measured**, at the corrected price:
+
+| arm | `ΔS` (ms of prefill wall) | % of score | score units |
+|---|---|---|---|
+| variant 7 (A1) | +1.111167 | -0.42125 % | **-0.010830** |
+| variant 8 (A2) | +1.034209 | -0.39207 % | **-0.010078** |
+
+Both are about 0.8x the bar in magnitude, in the wrong direction, and both are
+real harms rather than pricing artefacts.
+
+Recommendation for the campaign convention: keep `0.379103 %/ms` but rename it
+from a blended price to **`price_seed_forward_ms`**, and quote decode-side work
+in `%`-of-score or in `ms_per_decode_step` (15.2435 %/ms), because those two
+readings differ by 40x and the ambiguity is what produced the wrong section
+above.
