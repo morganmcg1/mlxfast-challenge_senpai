@@ -275,7 +275,7 @@ def validate_schema_instance(value, schema, root_schema, path="$", errors=None):
     elif isinstance(value, str):
         if len(value) < schema.get("minLength", 0):
             errors.append(error("SCHEMA_MIN_LENGTH", path, "string is shorter than the committed minimum"))
-        if "pattern" in schema and re.fullmatch(schema["pattern"], value) is None:
+        if "pattern" in schema and re.search(schema["pattern"], value) is None:
             errors.append(error("SCHEMA_PATTERN", path, "string does not match the committed pattern"))
         if schema.get("format") == "date-time" and parse_timestamp(value) is None:
             errors.append(error("SCHEMA_FORMAT", path, "string is not an ISO-8601 date-time"))
@@ -1042,22 +1042,43 @@ def hydrate_fixture(data, root):
     refresh_derived(data, by_role)
 
 
-def mutate_fixture(name, data, root):
-    by_role = {item["role"]: item for item in data["artifacts"]}
-    target = by_role.get("bench_exec")
-    if name == "none":
-        return
-    if name == "missing_profile_generator_input":
-        role = "profile_generator_input"
-        artifact = by_role[role]
-        safe_bundle_path(root, artifact["bundle_path"]).unlink()
-        data["artifacts"] = [item for item in data["artifacts"] if item["role"] != role]
+def remove_fixture_artifact(data, root, role, declare_missing):
+    artifact = next(item for item in data["artifacts"] if item["role"] == role)
+    safe_bundle_path(root, artifact["bundle_path"]).unlink()
+    data["artifacts"] = [item for item in data["artifacts"] if item["role"] != role]
+    if declare_missing:
         data["missing_authority"] = {
             "kind": "artifact_role",
             "role": role,
             "fact": "exact profile generator input bytes and installed metadata",
             "reason": "synthetic fixture intentionally omits the first unavailable authority fact",
         }
+
+
+def mutate_fixture(name, data, root):
+    by_role = {item["role"]: item for item in data["artifacts"]}
+    target = by_role.get("bench_exec")
+    if name == "none":
+        return
+    if name == "missing_profile_generator_input":
+        remove_fixture_artifact(data, root, "profile_generator_input", True)
+        refresh_derived(data)
+        return
+    if name == "unknown_field":
+        data["unexpected_field"] = "synthetic"
+        refresh_derived(data)
+        return
+    if name == "unknown_secret_field":
+        data["api_token"] = "synthetic-redacted-probe"
+        refresh_derived(data)
+        return
+    if name == "jointly_omitted_roles":
+        remove_fixture_artifact(data, root, "profile_generator_input", False)
+        data["required_artifact_roles"].remove("profile_generator_input")
+        refresh_derived(data)
+        return
+    if name == "installed_path_alias":
+        target["installed_path"] = "/opt/bench/../bench/bench-exec.sh"
         refresh_derived(data)
         return
     if name == "byte_drift":
@@ -1129,6 +1150,14 @@ def mutate_fixture(name, data, root):
         data["environment"]["observed"].append({"actor_id": "worker", "name": "UNDECLARED_SYNTHETIC", "value": "x"})
         refresh_derived(data)
         return
+    if name == "missing_environment_observation":
+        data["environment"]["observed"].pop()
+        refresh_derived(data)
+        return
+    if name == "unknown_environment_actor":
+        data["environment"]["observed"][0]["actor_id"] = "intruder"
+        refresh_derived(data)
+        return
     if name == "transition_contradiction":
         data["phases"][3]["transition"]["to_uid"] += 1
         refresh_derived(data)
@@ -1145,6 +1174,32 @@ def mutate_fixture(name, data, root):
     if name == "order_reversal":
         sandbox = next(item for item in data["events"] if item["type"] == "sandbox_injected")
         sandbox["sequence"] = 3
+        refresh_derived(data)
+        return
+    if name == "early_chain_edge_reversal":
+        edge = next(item for item in data["event_edges"] if item["from"] == "transform")
+        edge["from"], edge["to"] = edge["to"], edge["from"]
+        refresh_derived(data)
+        return
+    if name in {"timestamp_reversal", "incomplete_timestamp_reversal"}:
+        if name.startswith("incomplete_"):
+            remove_fixture_artifact(data, root, "profile_generator_input", True)
+        trusted_hash = next(item for item in data["events"] if item["id"] == "trusted-hash")
+        trusted_hash["timestamp"] = "2026-08-10T12:00:00Z"
+        refresh_derived(data)
+        return
+    if name == "generation_event_drift":
+        data["crypto_linkage"]["generation_links"][0]["event_id"] = "sandbox-injected"
+        refresh_derived(data)
+        return
+    if name in {"generator_confinement_drift", "incomplete_generator_drift"}:
+        if name.startswith("incomplete_"):
+            remove_fixture_artifact(data, root, "profile_generator_input", True)
+        data["confinement"]["profile_generator_role"] = "worker_launcher"
+        refresh_derived(data)
+        return
+    if name == "missing_capability":
+        data["confinement"]["capabilities"].pop()
         refresh_derived(data)
         return
     if name == "mount_path_contradiction":
@@ -1197,7 +1252,7 @@ def run_fixture_suite(fixture_path):
                 "actual_error_codes": actual_codes,
             })
     output = {
-        "schema_version": "ranked-authority-evidence-fixture-results/v1",
+        "schema_version": "ranked-authority-evidence-fixture-results/v2",
         "fixture_source_sha256": digest_file(fixture_path),
         "non_authoritative": True,
         "case_count": len(results),
