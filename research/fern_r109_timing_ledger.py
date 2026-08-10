@@ -23,6 +23,7 @@ Usage:
 
 import argparse
 import json
+import math
 import pathlib
 import re
 import statistics
@@ -36,7 +37,15 @@ DECODE_W = 0.75
 PREFILL_W = 0.25
 
 
-def load_families(root=ROOT):
+def load_families(root=ROOT, drop_first=False):
+    """`drop_first` discards each family's lowest-numbered replicate.
+
+    Stage-0 measured a reproducible cold-start penalty on the first
+    `--local-submit` of a session (+0.75% decode, +1.07% prefill against the
+    steady-state median of the next four), so a blocked design that compares a
+    fresh baseline family against a later candidate family is biased in the
+    candidate's favour by more than the whole ranked bar.
+    """
     fams = defaultdict(list)
     for path in sorted(root.glob("score.local-submit.*.json")):
         m = PATTERN.match(path.name)
@@ -62,9 +71,17 @@ def load_families(root=ROOT):
                 "base_prefill": met["baseline_prefill_seconds_per_token"],
             }
         )
-    for reps in fams.values():
+    for name, reps in fams.items():
         reps.sort(key=lambda r: r["replicate"])
+        if drop_first and len(reps) > 1:
+            fams[name] = reps[1:]
     return fams
+
+
+def stats(vals):
+    med = statistics.median(vals)
+    sd = statistics.stdev(vals) if len(vals) > 1 else 0.0
+    return med, sd, sd / med if med else 0.0
 
 
 def spread(vals):
@@ -72,9 +89,27 @@ def spread(vals):
     return (hi - lo) / statistics.median(vals)
 
 
+def detection_floor(cv, n, sigmas=2.0):
+    """Smallest relative difference two same-n families can resolve.
+
+    Both arms carry the same sampling error, so the standard error of their
+    ratio is cv/sqrt(n) * sqrt(2).
+    """
+    if n < 2:
+        return float("inf")
+    return sigmas * cv / (n**0.5) * (2**0.5)
+
+
+def replicates_needed(target, cv, sigmas=2.0):
+    """Per-family replicate count needed to resolve `target` at `sigmas`."""
+    return math.ceil(2.0 * (sigmas * cv / target) ** 2)
+
+
 def summarize(name, reps):
     dec = [r["decode"] for r in reps]
     pre = [r["prefill"] for r in reps]
+    _, _, dcv = stats(dec)
+    _, _, pcv = stats(pre)
     return {
         "family": name,
         "n": len(reps),
@@ -82,10 +117,12 @@ def summarize(name, reps):
         "decode_min": min(dec),
         "decode_max": max(dec),
         "decode_spread": spread(dec),
+        "decode_cv": dcv,
         "prefill_median": statistics.median(pre),
         "prefill_min": min(pre),
         "prefill_max": max(pre),
         "prefill_spread": spread(pre),
+        "prefill_cv": pcv,
         "all_correct": all(r["correct"] for r in reps),
         "max_abs_diff": max(r["max_abs_diff"] for r in reps),
         "golden_hashes": sorted({r["golden_hash"] for r in reps}),
@@ -108,9 +145,14 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("families", nargs="*", help="baseline family first")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument(
+        "--drop-first",
+        action="store_true",
+        help="discard each family's first replicate (cold-start outlier)",
+    )
     args = ap.parse_args()
 
-    fams = load_families()
+    fams = load_families(drop_first=args.drop_first)
     if not fams:
         print("no score.local-submit.<family><n>.json snapshots found", file=sys.stderr)
         return 1
@@ -146,12 +188,17 @@ def main():
         print(
             f"  decode  median={s['decode_median']:.9f} "
             f"min={s['decode_min']:.9f} max={s['decode_max']:.9f} "
-            f"spread={s['decode_spread'] * 100:.3f}%"
+            f"spread={s['decode_spread'] * 100:.3f}% cv={s['decode_cv'] * 100:.3f}%"
         )
         print(
             f"  prefill median={s['prefill_median']:.9f} "
             f"min={s['prefill_min']:.9f} max={s['prefill_max']:.9f} "
-            f"spread={s['prefill_spread'] * 100:.3f}%"
+            f"spread={s['prefill_spread'] * 100:.3f}% cv={s['prefill_cv'] * 100:.3f}%"
+        )
+        print(
+            "  2-sigma detection floor for a same-n paired comparison: "
+            f"decode {detection_floor(s['decode_cv'], s['n']) * 100:.3f}% "
+            f"prefill {detection_floor(s['prefill_cv'], s['n']) * 100:.3f}%"
         )
         print(
             f"  correctness: all_correct={s['all_correct']} "
