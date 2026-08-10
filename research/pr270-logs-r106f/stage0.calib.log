@@ -1,0 +1,59 @@
+c1c8cbe27752912a40c33613d022e166cb5578b5e3503bf2a36187c378ed450f  49904344 bytes  /tmp/r106f/base/mlxfast-runtime-worker
+6e9c1078ad2d2d693c4347776218f96c417ef965852f3cfbe687130031918420  49209912 bytes  /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/workspace/target/.build-worker/release/mlxfast-runtime-worker
+### settle 20s
+### slot 1 arm=cand worker=/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/workspace/target/.build-worker/release/mlxfast-runtime-worker
+prompt tokens: 512
+load: 42.6 s
+prefill 0:   546.78 ms  (1067.93 us/token)  cbs=    0 dispatches=    0  token=5991
+prefill 1:   545.47 ms  (1065.36 us/token)  cbs=    0 dispatches=    0  token=5991
+prefill 2:   546.92 ms  (1068.20 us/token)  cbs=    0 dispatches=    0  token=5991
+prefill 3:   550.12 ms  (1074.45 us/token)  cbs=    0 dispatches=    0  token=5991
+prefill 4:   548.81 ms  (1071.90 us/token)  cbs=    0 dispatches=    0  token=5991
+prefill 5:   548.67 ms  (1071.63 us/token)  cbs=    0 dispatches=    0  token=5991
+decode: 8.046 ms/step median over 40
+peak_ram_gb: 20.719314575195312
+
+prefill warm median: 548.673 ms/forward (1071.63 us/token) over 5 reps
+### settle 20s
+### slot 2 arm=base worker=/tmp/r106f/base/mlxfast-runtime-worker
+prompt tokens: 512
+load: 42.7 s
+prefill 0:   625.28 ms  (1221.25 us/token)  cbs=    0 dispatches=    0  token=5991
+prefill 1:   612.46 ms  (1196.21 us/token)  cbs=    0 dispatches=    0  token=5991
+prefill 2:   612.64 ms  (1196.56 us/token)  cbs=    0 dispatches=    0  token=5991
+prefill 3:   611.38 ms  (1194.10 us/token)  cbs=    0 dispatches=    0  token=5991
+prefill 4:   612.13 ms  (1195.56 us/token)  cbs=    0 dispatches=    0  token=5991
+prefill 5:   611.90 ms  (1195.12 us/token)  cbs=    0 dispatches=    0  token=5991
+decode: 23.101 ms/step median over 40
+peak_ram_gb: 20.707504272460938
+
+prefill warm median: 612.125 ms/forward (1195.56 us/token) over 5 reps
+### settle 20s
+### slot 3 arm=base worker=/tmp/r106f/base/mlxfast-runtime-worker
+prompt tokens: 512
+load: 4.5 s
+prefill 0:   613.13 ms  (1197.51 us/token)  cbs=    0 dispatches=    0  token=5991
+prefill 1:   612.21 ms  (1195.73 us/token)  cbs=    0 dispatches=    0  token=5991
+prefill 2:   611.23 ms  (1193.80 us/token)  cbs=    0 dispatches=    0  token=5991
+prefill 3:   610.99 ms  (1193.33 us/token)  cbs=    0 dispatches=    0  token=5991
+prefill 4:   612.08 ms  (1195.47 us/token)  cbs=    0 dispatches=    0  token=5991
+prefill 5:   611.59 ms  (1194.52 us/token)  cbs=    0 dispatches=    0  token=5991
+decode: 22.967 ms/step median over 40
+peak_ram_gb: 20.705917358398438
+
+prefill warm median: 611.593 ms/forward (1194.52 us/token) over 5 reps
+### settle 20s
+### slot 4 arm=cand worker=/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/workspace/target/.build-worker/release/mlxfast-runtime-worker
+prompt tokens: 512
+load: 5.3 s
+prefill 0:   546.49 ms  (1067.36 us/token)  cbs=    0 dispatches=    0  token=5991
+prefill 1:   544.12 ms  (1062.73 us/token)  cbs=    0 dispatches=    0  token=5991
+prefill 2:   545.18 ms  (1064.81 us/token)  cbs=    0 dispatches=    0  token=5991
+prefill 3:   543.79 ms  (1062.10 us/token)  cbs=    0 dispatches=    0  token=5991
+prefill 4:   544.63 ms  (1063.72 us/token)  cbs=    0 dispatches=    0  token=5991
+prefill 5:   544.14 ms  (1062.78 us/token)  cbs=    0 dispatches=    0  token=5991
+decode: 8.202 ms/step median over 40
+peak_ram_gb: 20.718414306640625
+
+prefill warm median: 544.143 ms/forward (1062.78 us/token) over 5 reps
+### done

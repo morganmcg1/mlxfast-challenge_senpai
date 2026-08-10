@@ -113,7 +113,7 @@ def shorten(name):
 
 FAMILIES = (
     ("routed_gather_gemm", r"gather_qmm|gather_mm"),
-    ("nvfp4_dense_qmm", r"nvfp4_qmm|qmm_splitk|nvfp4_qvm|quantized_matmul|qmv"),
+    ("nvfp4_dense_qmm", r"qmm|qvm|qmv|quantized_matmul"),
     ("steel_gemm_bf16", r"steel_gemm|^gemm_|steel_matmul"),
     ("attention_core", r"attention|sdpa|steel_attn"),
     ("qk_norm_rope", r"qk_norm|rope|yarn"),
@@ -125,7 +125,10 @@ FAMILIES = (
     ("lm_head", r"lmhead|lm_head|argmax|argreduce|arg_reduce"),
     ("elementwise", r"binary|unary|copy|reduce|softmax|concat|slice|pad|fill|"
                     r"broadcast|astype|multiply|add|subtract|divide|silu|"
-                    r"softplus|power|maximum|minimum|^v_|^vs_|^sv_|^vv_"),
+                    r"softplus|power|maximum|minimum|^v_|^vs_|^sv_|^vv_|"
+                    r"swiglu|glu|gelu|sigmoid|tanh|erf|where|select|"
+                    r"clip|square|sqrt|rsqrt|negative|logsumexp|"
+                    r"^g[0-9]+_|^gs_|^gn_|contiguous|strided"),
 )
 
 
