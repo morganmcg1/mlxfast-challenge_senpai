@@ -182,7 +182,49 @@ covers the whole ladder. Per-leg Rule 75 identity:
 |---|---|---|---|---|---|
 | — | `senpai-r93-null-1` (= `4b0e051b`) | 141 | 2 895 412 | `c7c5081…f5d638bf` | `2131f574` |
 | 2 | `senpai-r106e-replay-02` | 141 | 2 895 417 | `06b6818…4ceddbd1` | `3394aa09` |
+| 3 | `senpai-r106e-replay-03` | 141 | 2 895 417 | `8960996…7a82390f` | `79320685` |
 
 The +5-byte delta is exactly the marker string length difference
 (`senpai-r106e-replay-02`, 22 chars, vs `senpai-r93-null-1`, 17 chars), which
-is a cheap independent check that nothing else moved.
+is a cheap independent check that nothing else moved; legs 2 and 3 share a byte
+count because their markers are the same length, while their surface hashes
+differ, which is the pair of facts the dedup check needs.
+
+---
+
+## 28. R107 — is `4b0e051b` still the right tree to be replaying?
+
+Rule 95.7 tells me to replay the `4b0e051b` family. Before spending the whole
+remaining window on it I checked the instruction against the full public board
+rather than against my own history, because "our best" and "the best we can
+build" are different claims and only the second one matters.
+
+`research/maple-frieren-r107-local-sha-merit.py` tests every receipt's
+`submissionCommitSha` for presence in the local object store
+(`git cat-file --batch-check`) and ranks the reachable ones by **merit `cs`**.
+Result: of 25 locally-materialisable trees, `4b0e051b` is **rank 1** at
+cs 2.590559, ahead of the runner-up `01e247a7` (2.579118) by 0.44 %. Exactly
+two trees on the entire board carry more merit — `ebcd3ca387ae` (2.591868) and
+`5c542169b5e6` (2.590753) — and **neither is in our object store**, so neither
+is reachable no matter how much we would like it. Rule 95.7 is confirmed
+optimal against the board, and the ladder continues unchanged.
+
+For the record, the upside we are foregoing is small: `ebcd3ca387ae` would cut
+the required draw from 0.9965 % to 0.9460 %, worth roughly +4 points of ladder
+probability. Not a lever worth chasing even if it existed.
+
+One earlier attempt at this join was wrong and I want it on the record:
+`research/maple-frieren-r107-local-merit-join.py` keyed on the submission
+**UUID** parsed out of `Validate submission <uuid>` commit subjects. Only 60 of
+154 joined and every one was an ancient July-28/29 tree at cs 1.39 – 1.77. The
+UUID is the wrong key; the commit sha is the right one. The corrected script
+supersedes it.
+
+The rest of the R107 work — the σ correction that supersedes my own published
+0.3728 %, the demonstration that the session factor is i.i.d. and therefore
+untimeable, and the finding that the record is a **+2.93 σ** session draw on a
+tree whose merit is 0.618 % *below* ours — is written up separately in
+`research/maple-frieren-r107-session-noise.md`. The operational consequence for
+this ladder is the pricing table in its §6: **3.5 % per draw, 45 – 50 % over the
+window.** A losing ladder is the modal outcome of correct execution here, and I
+would rather say so before the draws than after them.
