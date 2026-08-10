@@ -7638,6 +7638,89 @@ we have; above 1.0 % we freeze early and protect the draw. Read 105.21's "below
 does the campaign end with unused draws.**
 
 
+#### 105.23 ⭐⭐⭐ The merge portfolio — a **second** dispatch merge is worth ~9× more than knowing the price of the first, and frieren's Stage-1 number is a **critical test** between two models that disagree 4.9× on the programme total
+
+Generator: `research/advisor_r105_23_merge_portfolio.py`. Self-checks: 39
+dispatches × 2.3403 M5 µs × 0.015228 = 1.3899 % and 30 dispatches = 1.0691 %,
+both reproducing 105.17; `p(0.1966 %) = 9.1e−07` reproducing the record.
+
+Rule 105.20 established that the family-E merge is buildable and priced it three
+incompatible ways (C 0.756 %, A 1.069 %, B 1.690 %). The natural instinct is to
+spend the night resolving that disagreement. **That instinct is wrong**, and the
+arithmetic says so unambiguously.
+
+**(a) The comparison that decides tonight's allocation.**
+
+| route | one merge | P(≥1 of 2) | two merges | P(≥1 of 2) |
+|---|---|---|---|---|
+| C (pessimistic) | 0.756 % | 0.0035 | 1.512 % | **0.5652** |
+| A (central) | 1.069 % | 0.0593 | 2.138 % | 0.9977 |
+| B (optimistic) | 1.690 % | 0.8161 | 3.380 % | 1.0000 |
+
+**Two merges at the most pessimistic price beat one merge at the central price
+by 9.5×** (0.5652 vs 0.0593). The second merge is the dominant term in every
+column.
+
+**(b) Marginal value of the k-th merge, priced at route A:** merge 1 buys
++0.0593; **merge 2 buys +0.9384**; merge 3 buys +0.0023. The programme is not
+linear in P — it is a step function, and the step is at two.
+
+**(c) Resolving the price route raises the expectation by exactly zero.**
+Under a uniform prior over the three routes, `E[P | one merge] = 0.2930`;
+learning which route is true replaces that with 0.0035, 0.0593 or 0.8161 but
+does not move the mean. `E[P | two merges] = 0.8543`. **The second merge is
+worth +0.5613 in expectation; the measurement is worth 0.** (The measurement is
+still necessary — see (f) — but as a *decision input*, not as a gain.)
+
+**(d) The byte budget is not the constraint.** `LagunaRuntimeModel.swift` has
+140,043 B of headroom to the 524,288 B per-file hard abort; 105.20 estimates
+~4 KiB per merge, i.e. **34 merges affordable**. The clock is the only binding
+resource.
+
+**(e) 🚨 The critical test.** The two models of the decode pool make wildly
+different predictions about the merge programme *as a whole*:
+
+| model | prediction for the whole programme | x % | P(≥1 of 2) |
+|---|---|---|---|
+| 105.16 measured non-byte slack (D 0.71 + A 0.45 + C 0.03 + B 0.00 + E 1.89 = **3.08 bars**) | ceiling on everything | **1.232** | 0.172 |
+| 105.17 dispatch accounting (168 per-layer dispatches × 2.3403 M5 µs) | ceiling on everything | **5.987** | 1.000 |
+
+They differ by **4.86×**. Sharper still: **route B's price for one merge
+(1.690 %) already exceeds 105.16's ceiling for all five families (1.232 %).**
+These are not two noisy estimates of one quantity. At least one model is wrong.
+
+**(f) The decision rule that follows.** Frieren's Stage-1 paired
+`--local-submit` measurement of the family-E merge (due 21:00Z, CI95 half-width
+≈0.118 % of `cs`) is a *critical test* in the strict sense — the two models
+predict non-overlapping outcomes and the instrument can separate them:
+
+- **Measures ≈0.756 %** → 105.16 stands. The whole merge programme is capped at
+  1.232 %, a second merge buys at most +0.476 %, and P tops out at 0.172.
+  **Stop the merge programme** and spend the night on other axes.
+- **Measures ≥ 1.0 %** → 105.16's family-E slack figure is falsified, the
+  dispatch accounting holds, and a second merge is worth **+0.9384 in
+  P(≥1 of 2)**. **Start merge #2 in the same hour**, from tanjiro's
+  adjacent-pair ledger.
+
+**Operational consequence, effective now:** tanjiro's adjacent-pair dispatch
+ledger (#663) must be *complete and ranked* before 21:00Z, not after, so that
+merge #2 can begin the moment frieren's number clears 1.0 %. A ledger delivered
+at 22:00Z is worth a fraction of the same ledger delivered at 20:00Z, because
+the build-and-certify path for merge #2 is ~4 hours against a 07:00Z freeze.
+
+⚠️ **Three standing caveats that this arithmetic does not repeal.** (i)
+Additivity is an assumption, not a result: 105.17's removal-symmetry, drain-
+generality and barrier-re-import assumptions are all still unverified, and PR
+#48 is the campaign's monument to a dispatch-count reduction that scored
+−0.1488 %. Rule 105.5 permits summing only **independently verified**
+improvements — each merge earns its own paired certificate. (ii) The upper rows
+of the ladder (three or more merges, x > 3 %) are extrapolation far beyond any
+measurement and should never be quoted as a forecast. (iii) Family E was
+mergeable because 105.20(a) found `dep_scope = NONE` — both kernels read the
+*same* `normalized` binding. A second pair with that property may simply not
+exist; the ledger's first job is to find out.
+
+
 ## 9. σ table (rule 40 — pick your estimator, then quote its floor)
 
 🚨 **SUPERSESSION (rule 101, round 107).** The score-channel entries below are
