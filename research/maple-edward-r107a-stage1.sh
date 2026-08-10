@@ -7,15 +7,16 @@
 # `sg2` is the rule-79 identical-code cell: same math and same rendered Metal
 # source as `base`, only a different pipeline name and a separate JIT library.
 #
-# 22 repetitions x 10 slots, 2 discarded, 20 measured -> 40 slots per arm and
-# four complete rotation cycles for the analyzer's cycle-blocked contrast.
+# 25 repetitions x 10 slots. The rotation cycle is 5 repetitions, so the
+# discarded warmup is one whole cycle and the 20 measured repetitions are four
+# whole cycles: 40 measured slots per arm with every arm at every position.
 set -uo pipefail
 
 export SNAP="${SNAP:-/tmp/maple-r107a-snap}"
 export OUT="${OUT:-/tmp/maple-r107a/stage1}"
 export DESIGN=rotate
-export REPS="${REPS:-22}"
-export WARMUP_REPS="${WARMUP_REPS:-2}"
+export REPS="${REPS:-25}"
+export WARMUP_REPS="${WARMUP_REPS:-5}"
 export STEPS="${STEPS:-250}"
 export ARMS="base:new \
 sg2:new:DARKBLOOM_ROUTED_GATEUP_SG=2 \
