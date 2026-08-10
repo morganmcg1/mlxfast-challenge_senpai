@@ -12,6 +12,7 @@ research/maple-alphonse-r109e-qk-ceiling.md for the discussion.
 
 import math
 import os
+import random
 import sys
 
 # Rule 105 / CURRENT_RESEARCH_STATE.md:2441 -- campaign price is an M5 constant.
@@ -113,6 +114,24 @@ def block_delta(rows, arm):
     return deltas
 
 
+def hodges_lehmann(probe, ctrl):
+    """Median of all pairwise differences; unaffected by a single outlier."""
+    diffs = sorted(p - c for p in probe for c in ctrl)
+    k = len(diffs)
+    return (diffs[k // 2] if k % 2 else 0.5 * (diffs[k // 2 - 1] + diffs[k // 2]))
+
+
+def hl_interval(probe, ctrl, draws=4000, seed=17):
+    rng = random.Random(seed)
+    shifts = []
+    for _ in range(draws):
+        p = [rng.choice(probe) for _ in probe]
+        c = [rng.choice(ctrl) for _ in ctrl]
+        shifts.append(hodges_lehmann(p, c))
+    shifts.sort()
+    return shifts[int(0.025 * draws)], shifts[int(0.975 * draws)]
+
+
 def report_delta(label, delta, se):
     print(
         f"  {label:28s} {delta:+8.2f} us/step  se {se:6.2f}  "
@@ -157,10 +176,10 @@ def main():
     # would mean a global thermal / DVFS / host confound is contaminating every
     # decode delta, and the decode numbers below could not be trusted.
     print("\n== prefill negative control (must be arm-independent) ==")
-    pref_ctrl = [p * 1e6 for a, _, p, _ in rows if a == control]
+    pref_ctrl = [p for a, _, p, _ in rows if a == control]
     pcm, pcsd, pcn = stats(pref_ctrl)
     for arm in arms:
-        pv = [p * 1e6 for a, _, p, _ in rows if a == arm]
+        pv = [p for a, _, p, _ in rows if a == arm]
         m, sd, n = stats(pv)
         if arm == control:
             print(f"  arm {arm} : mean {m:9.2f} us/token  sd {sd:6.2f}  n {n}")
@@ -171,6 +190,20 @@ def main():
                 f"  arm {arm} : mean {m:9.2f} us/token  sd {sd:6.2f}  n {n}  "
                 f"delta {m - pcm:+7.2f}  se {se:5.2f}  t {t:+5.2f}"
             )
+
+    # In a fixed palindromic order every arm occupies one mirrored position
+    # pair, so arm is perfectly collinear with position-in-block and no
+    # regression can separate them.  Print the position means so the size of
+    # the confound is visible, and repeat every contrast with the first run of
+    # each block dropped.
+    print("\n== position-in-block diagnostic (arm is confounded with slot) ==")
+    by_pos = {}
+    for i, (a, d, _, _) in enumerate(rows):
+        by_pos.setdefault((a, i % BLOCK + 1), []).append(d)
+    for (a, pos) in sorted(by_pos):
+        m, sd, n = stats(by_pos[(a, pos)])
+        print(f"  arm {a} pos {pos} : mean {m:9.2f} us/step  sd {sd:6.2f}  n {n}")
+    trimmed = [r for i, r in enumerate(rows) if i % BLOCK != 0]
 
     ctrl = [d for a, d, _, _ in rows if a == control]
     cm, csd, cn = stats(ctrl)
@@ -189,6 +222,22 @@ def main():
         if len(bd) > 1:
             bm, bsd, bn = stats(bd)
             report_delta(f"palindromic block (n={bn})", bm, bsd / math.sqrt(bn))
+        hl = hodges_lehmann(pv, ctrl)
+        lo, hi_hl = hl_interval(pv, ctrl)
+        print(
+            f"  {'Hodges-Lehmann (robust)':28s} {hl:+8.2f} us/step"
+            f"          boot 95% CI [{lo:+8.2f}, {hi_hl:+8.2f}]"
+        )
+        tc = [d for a, d, _, _ in trimmed if a == control]
+        tp = [d for a, d, _, _ in trimmed if a == arm]
+        if tc and tp:
+            tcm, tcsd, tcn = stats(tc)
+            tpm, tpsd, tpn = stats(tp)
+            tse = math.sqrt(
+                (tcsd * tcsd / tcn if tcn > 1 else 0.0)
+                + (tpsd * tpsd / tpn if tpn > 1 else 0.0)
+            )
+            report_delta("no block-lead run (pos>1)", tpm - tcm, tse)
         best, bse = reg.get(arm, (pm - cm, se))
         price(-best, cm, "point ceiling (saving = -delta):")
         price(-(best - 1.96 * bse), cm, "optimistic 95% upper ceiling:")
@@ -210,16 +259,30 @@ def main():
         # produce, and which disqualifies "issue slots" as a linear ruler.
         step_cost = dose["D"][0] - slope * SLOTS["D"]
         first = dose["D"][0] / SLOTS["D"]
+        gap = SLOTS["X"] - SLOTS["D"]
+        w_d = 1.0 + SLOTS["D"] / gap
+        w_x = SLOTS["D"] / gap
+        step_se = math.sqrt((w_d * dose["D"][1]) ** 2 + (w_x * dose["X"][1]) ** 2)
         print(
             f"  first-dose cost {first * 1000:+8.3f} ns/step per slot -> "
-            f"fixed step cost {step_cost:+.2f} us/step at any dose > 0"
+            f"fixed step cost {step_cost:+.2f} us/step at any dose > 0 "
+            f"(se {step_se:.2f})"
         )
-        print(
-            "  curve is "
-            + ("CONCAVE (first > marginal): fixed cost or clock response, "
-               "not slack" if first > slope else
-               "convex (first < marginal): consistent with saturating slack")
-        )
+        if abs(step_cost) < 1.96 * step_se:
+            print(
+                "  curve is LINEAR within noise (fixed step cost not "
+                "distinguishable from zero): the slot ruler is usable"
+            )
+        elif first > slope:
+            print(
+                "  curve is CONCAVE (first > marginal): a fixed per-step cost "
+                "or clock response, not latency slack"
+            )
+        else:
+            print(
+                "  curve is CONVEX (first < marginal): consistent with "
+                "saturating latency slack"
+            )
         ladder = slope * LADDER_SLOTS
         hi = (slope + 1.96 * sse) * LADDER_SLOTS
         print(
