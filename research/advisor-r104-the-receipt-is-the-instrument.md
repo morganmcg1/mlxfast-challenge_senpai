@@ -232,6 +232,31 @@ So round 104 stops arguing and starts measuring.
   which lands on an 8×8 = 64-threadgroup grid = 1.6 TGs/core on 40 cores.
   **Only `bm`/`bn` may move — never `bk`**, because `bk` changes K-accumulation
   order and breaks bit-exactness, while M/N tiling does not.
+
+  > 🔴 **CORRECTION (fern, #585 §1.4 — this brief named the wrong edit site).**
+  > `darkbloom_steel_prefill_tile()` is defined at `matmul.cpp:82-88` and has
+  > **exactly one call site, `matmul.cpp:674`, inside `steel_gemm_splitk_axpby_nax`
+  > (`:645`)**. wk/wv **never enters that function on M5**. Fern traced the live
+  > call chain predicate-by-predicate: `Matmul::eval_gpu :1206` → gemv shortcut
+  > `:1252` false → `steel_matmul :1274` → `matmul.h:105,:123` →
+  > `steel_matmul_axpby :827` → `use_nax :894-896` **true** → non-NAX split-K
+  > `:900-901` fails → **NAX split-K `:922-924` false** → `:957` →
+  > `steel_matmul_regular_axpby_nax :958`. The only working lever for this shape
+  > is therefore inside **`steel_matmul_regular_axpby_nax` (`:186`), tile
+  > selection `:213-221`, grid `:280-308`** — a different function from the one
+  > this section named. Lines 664–684 are the wrong address.
+  >
+  > 🔴 **RULE-83 SELF-VIOLATION.** This brief is an unwitting re-proposal of
+  > **PR #293** (`research/maple-tanjiro-nax-skinny-tile.md`, assignment
+  > `maple-2026-08-07l-nax-skinny-tile` r2, base `69178729`), which added
+  > `darkbloom_steel_regular_skinny_tile()` / `DARKBLOOM_STEEL_REGULAR_SKINNY_TILE`
+  > with the guard `bn==128 && wn==4 && (N%64)==0 && tiles_m>=4 &&
+  > tiles_m*tiles_n<=96 ⇒ bn=64, wn=2` — the same mechanism, at the same site,
+  > with a guard that differs only in the modulus. It earned **zero ranked M5
+  > receipts** (r1 slot-blocked, r2 blocked by 18 consecutive `failed`/`n/a`
+  > receipts), was merged inert, and was then **silently deleted by frontier
+  > resync `99b974c`**. I ran the rule-83 grep on the *shape* and missed the
+  > *mechanism*. See §14.2 for what the correct grep would have found.
 * Every brief carries the rule-83 grep **with §3 above as the cautionary
   example**, rule-72 preregistered nulls, rule-75 digests, rule-79 identical-code
   null, rule-80 GB/s ÷ host peak, rule-77 dispatch geometry, K ≥ 16, discard the
@@ -358,6 +383,21 @@ adding it, and now nobody should.
   interaction term — that is algebra, not an empirical claim. What is *not*
   settled is whether either arm's effect size transfers, which is why §13.4
   preregisters the composed receipt.
+* **The prefill millisecond ledger in §14.3.** 1146 calls, 540.394 ms, zero
+  residual, anchored to 2 µs. Do not build another prefill attribution; do not
+  quote a receipt-differenced marginal prefill rate (§14.2 shows one that
+  exceeds the hardware ceiling by 17 %). Re-run
+  `research/artifacts/tanjiro-r104c/steel_ms_attribution.py`.
+* **The `_nax` routing of (M=512, N=1024, K=2048) in §14.6.** Derived twice
+  independently, and reproduced 237/237 by
+  `research/artifacts/tanjiro-r104c/steel_route_model.py`. It goes to
+  `steel_matmul_regular_axpby_nax`, not split-K, by a double exact equality.
+* **The two prefill prices in §14.7.** partial 0.2592 %/ms for reading a
+  receipt, total 0.3781 %/ms for pricing a prospective change. State which one
+  you used; do not re-derive them.
+* **§14.10: local-iterate deltas are not evidence.** Do not re-run an
+  identical-code local A/A to convince yourself. It has been done, it gave
+  +0.9 % on inert code, and it is ≈4× noisier than the receipt channel.
 
 ## 8. 🔴 The record is not winnable by luck — it is winnable only by ~1.4 % of `cs`
 
@@ -991,8 +1031,8 @@ slate note). There is no plausible mechanism by which A and B interact.
 | arm | central score-% | source |
 |---|---|---|
 | 104-A | **+0.77 %** | §5: k-loop is ≈ 7.7 % of the step; a 10 % loop win |
-| 104-B | **+1.13 … +2.27 %** | §8.3, from the 3–6 ms central tail estimate |
-| **A + B** | **+1.90 … +3.04 %** | exact sum, §13.1 |
+| ~~104-B~~ | ~~+1.13 … +2.27 %~~ | ~~§8.3, from the 3–6 ms central tail estimate~~ |
+| ~~**A + B**~~ | ~~**+1.90 … +3.04 %**~~ | ~~exact sum, §13.1~~ |
 | **bar** | **+1.438 %** | §8.2: `cs ≥ 2.620246`, i.e. 94.4 µs/step |
 
 **Neither arm reaches the bar alone. The pair does, in its central case.** That
@@ -1003,6 +1043,37 @@ merits, as they should, and none of them says this.
 104-C pays indirectly: it is fern's preregistered null N-C, and its N-B result
 ("is the prefill deficit concentrated or diffuse?") is the premise 104-B rests
 on. If N-B says diffuse, 104-B's central estimate collapses and so does the sum.
+
+> 🔴 **SUPERSEDED — the conditional in the last sentence fired.** 104-C
+> (tanjiro, #586) returned **diffuse**: 155 of 237 dispatches at ≤1.6 TG/core
+> carry only **12.8 % of prefill FLOP** and **16.28 % of the steel millisecond
+> wall**, Gini 0.5537, top-1 dispatch 1.13 %. 104-B's central estimate therefore
+> collapsed exactly as preregistered, and fern's own §9/§12.2 VOID condition
+> ("this sizing is VOID if 104-C returns diffuse") fired. Both the 104-B row and
+> the A+B sum are struck.
+>
+> **The corrected round-104 table is:**
+>
+> | arm | central score-% | status |
+> |---|---|---|
+> | 104-A | **+0.77 %** | live, unmeasured — #584 |
+> | 104-B | **+0.35 %** ceiling | **refuted**, #585 merged as a negative |
+> | 104-C | **0** by construction | audit-only, #586 merged |
+> | **best available sum** | **+0.77 %** | **54 % of the bar** |
+> | **bar** | **+1.438 %** | §8.2 |
+>
+> **No single round-104 lever clears the bar, and the slate no longer sums past
+> it.** The +0.35 % ceiling for 104-B is my own arithmetic over tanjiro's
+> §6A.5 Projection B: the wk/wv bucket projects to 3.922 ms on M5, the
+> perfect-efficiency floor for its 167.5 GFLOP is 167.5 / (60 × 0.933) =
+> **2.991 ms**, so the entire recoverable envelope is **0.930 ms**, and at the
+> total prefill price of 0.3781 %/ms that is **+0.352 % of score = 24 % of the
+> bar** — and that is a *ceiling*, achieved only by a perfect fix. See §14.
+>
+> §13.3's "the composed tree is measured by nobody" gap therefore shrinks to a
+> **single-arm** question: 104-A alone, on its own commit. §13.4's composition
+> null is retained for the next slate that has two live arms, but there is
+> nothing to compose in round 104.
 
 ### 13.3 🔴 The gap: the composed tree is measured by nobody
 
@@ -1060,4 +1131,397 @@ at the start of round 105 rather than assumed:
   is only valid until it does. Re-run `research/advisor_r104_record_watch.py`.
 * Either arm can return a null. 104-A's depth dial has already been measured on
   M4 *with the opposite sign* (§5); 104-B depends on 104-C's N-B.
+
+
+---
+
+## 14. 🔴 Round-104 verdict: two arms landed, both negative, and they corrected the archive
+
+Written after merging **#586** (tanjiro, 104-C) and **#585** (fern, 104-B).
+Both results are terminal. Neither found a lever. Both found something more
+durable than a lever: **three factual errors in the research archive**, one of
+them in a ⛔ prohibition that has been suppressing work for several rounds.
+
+### 14.1 The one-line verdict
+
+**No single round-104 lever clears +1.438 % unaccompanied, and the slate no
+longer sums past the bar.** 104-C closed at zero by construction. 104-B is
+refuted a priori with a **+0.35 % ceiling**. 104-A survives at **+0.77 %**,
+which is 54 % of the bar. This supersedes §13.2.
+
+### 14.2 🔴 H8 is dead — prefill dense projections run at 87.5 % of peak
+
+Tanjiro's null **N-A** was confirmed, and it kills §11.8's H8 outright.
+
+The conservative, M4-derived figure: the 237 steel dispatches carry **1502.8
+GFLOP**, and the M5 projection puts them at **28.6 ms**, giving
+**52.5 TFLOP/s = 87.5 %** of the 60 TFLOP/s reference. The archive's own kill
+criterion for H8 (`RESEARCH_ARCHIVE_through-round-91.md:7480`) is **≥ 52
+TFLOP/s**. It is met.
+
+The optimistic route is more interesting than the conservative one. Differencing
+the PR #34 receipts (`b6032aeb` / `6757de65`) gives 1460.29 GFLOP / 22.2139 ms =
+**65.74 TFLOP/s = 117 % of the 56 TFLOP/s hardware ceiling** — *arithmetically
+impossible*. That is not a measurement, it is a **proof of marginal-estimator
+contamination** (rule 76) in receipt-differenced prefill attributions, and it is
+the reason tanjiro withdrew his own earlier "~39.6 TFLOP/s" figure for this
+site. Rule 76 now has a second, independent demonstration.
+
+Where the prefill inefficiency actually lives: **routed gather-GEMM at 23.23
+TFLOP/s = 67 % of peak**, carrying **48.28 % of the prefill wall** across 76
+dispatches. That is the largest single inefficient pool in prefill and nothing
+in round 104 touched it.
+
+**Consequence:** "prefill dense projections are inefficient" joins the hard
+negatives. It has now been refuted twice — once by the archive's round-21
+verdict on prefill attention (`RESEARCH_STATE_ARCHIVE_through-round-21.md:4245-4249`)
+and once here on the dense-GEMM side.
+
+### 14.3 🔴 The canonical prefill millisecond ledger now exists
+
+Tanjiro's §6A is the single most reusable artifact round 104 produced: an
+**exhaustive, non-overlapping millisecond attribution of every prefill
+dispatch**, summing to 100.00 % with no residual pool.
+
+The join is *proved*, not asserted: 1,659 GPUPROF records from
+`research/pr270-logs/split1.worker.err` = 7 × 237; the 237-long kernel-name
+sequence matches census order in all seven passes; split-K/regular
+classification agrees slot-for-slot. Anchors reproduce exactly — regular raw
+182.988 ms, split-K raw 35.584 ms, steel wall deflated 214.698 ms, grand total
+**540.394 ms against the 540.396 ms serial-busy anchor, a 2 µs discrepancy**.
+
+The whole-prefill ledger (M4, 1146 calls, 540.394 ms, 100.00 %):
+
+| pool | calls | ms | % |
+|---|---:|---:|---:|
+| routed gather-GEMM (MoE `W`) | 76 | 260.907 | **48.28** |
+| steel dense GEMM | 237 | 214.698 | **39.73** |
+| attention core | 40 | 27.630 | 5.11 |
+| NVFP4 dense qmm | 116 | 19.648 | 3.64 |
+| elementwise | 234 | 4.648 | 0.86 |
+| qk-norm + RoPE | 41 | 4.136 | 0.77 |
+| sort/scatter | 78 | 2.598 | 0.48 |
+| MoE tail | 38 | 2.535 | 0.47 |
+| RMSNorm | 83 | 1.691 | 0.31 |
+| router tournament | 40 | 0.940 | 0.17 |
+| `lm_head` | 5 | 0.655 | 0.12 |
+| other | 3 | 0.308 | 0.06 |
+| **TOTAL** | **1146** | **540.394** | **100.00** |
+
+**This table replaces every prior prefill attribution in the corpus**, including
+the withdrawn "31.28 ms unattributed pool" (§9a) and any receipt-differenced
+marginal estimate. Use it.
+
+Two structural facts fall straight out of it:
+
+* **Concentration.** Gini **0.5537**; top-1 dispatch 1.13 %, top-10 11.22 %,
+  top-20 22.40 %, top-82 84.50 %. There is no single fat dispatch to attack.
+* **The M4 attribution does not transfer.** Referenced to the best observed
+  efficiency (93.3 %), the recoverable M4 deficit is 13.411 ms = 6.25 % of the
+  steel wall, **52 % of it in wk/wv** — but the M4 mechanism there is *split-K
+  accumulation at 51.20 TG/core*, and **M5 does not take the split-K branch for
+  that shape**. Same shape, different failure mode. **3 of 9 buckets carrying
+  12.029 of the projected 28.626 ms change route between M4 and M5**, so the
+  Tier-1 projection is weakest exactly where it is largest. §4.15's
+  concentration claim stays **UNMEASURED**, not confirmed.
+
+### 14.4 🔴 The 104-B refutation, and why it is worth more than the lever was
+
+Fern refuted her own hypothesis in §14 of her report, after submitting it. Four
+independent kills, any one sufficient:
+
+1. **Magnitude.** The lever's entire reachable slice is 78 dispatches carrying
+   **167.50 GFLOP = 11.1 % of prefill FLOP**, on an axis worth 25 % of score.
+   The Projection-B ceiling is **0.930 ms = +0.352 % = 24 % of the bar** (§13.2
+   correction). A lever cannot clear a bar it is four times too small for.
+2. **Rule 68 / PR #527 attacked the same site and lost.** N = 8192(wq) +
+   1024(wk) + 1024(wv) = 10240; the 78 removed dispatches are *exactly* fern's
+   78 (39 layers × 2); geometry, kernel family and 640 threadgroups held fixed.
+   Result: **+0.639 ms, CI [+0.325, +0.953], t = 4.43 on 12 dof, −0.242 % of
+   score**. Rule 68 also records swizzle depth at this site as a **measured
+   no-op** (−0.0141 ms, t = −0.098).
+3. **The premise is independently dead** (§14.2, H8).
+4. **The VOID condition fired** — fern preregistered "this sizing is VOID if
+   104-C returns diffuse", and it did.
+
+> 🔴 **My own caveat, which neither student recorded: #527 is confounded.**
+> Merging wk/wv into Wq did not only change dispatch count — it also
+> **concatenated the weight bank** from 33.55 MB to 41.94 MB. Its loss therefore
+> admits an SLC-capacity explanation, not only an "occupancy is irrelevant"
+> explanation. #527 is **suggestive, not decisive**, on the occupancy premise.
+> The *decisive* kill is kill #1, the magnitude argument, which needs no
+> mechanism at all. Anyone citing #527 as proof that occupancy does not matter
+> is over-reading it.
+
+The one untested variant, recorded by **both** students and explicitly proposed
+by **neither**: **[Wk;Wv]-only fusion** (8.39 MB bank, a quarter of Wq's
+33.55 MB). It is a clean one-bit discriminator between the SLC-capacity and
+lost-overlap explanations of #527. Rule 68's own disposition — *"worth
+understanding, not worth a receipt now"* — stands. Do not assign it as a
+performance lever; it is only interesting as a mechanism probe.
+
+### 14.5 🔴 ARCHIVE CORRECTION 1 — the `_nax` "bn = 128 minimum" ⛔ is FALSE
+
+`CURRENT_RESEARCH_STATE.md:2824-2825` carries a ⛔ prohibition asserting that
+**bn = 128 is the minimum instantiated `_nax` tile width**, i.e. that narrower
+tiles are *dead by construction*. **This is factually wrong and must be
+struck.** Fern falsified it three ways:
+
+1. **The AOT list already contains bn = 64.**
+   `Vendor/…/kernels/steel/gemm/kernels/steel_gemm_fused_nax.metal` instantiates
+   exactly six geometries via `instantiate_gemm_shapes_helper`: `(64,64,256,2,2)`,
+   `(64,128,64,2,4)`, `(64,128,256,2,4)`, `(128,128,64,4,4)`,
+   `(128,128,256,4,4)`, `(128,128,512,4,4)`. **The first is bn = 64** — exactly
+   the disputed geometry.
+2. **The AOT list does not bound reachable geometry anyway.**
+   `Vendor/mlx-swift/Package.swift:25` sources `jit_kernels.cpp` and `:284`
+   **excludes `nojit_kernels.cpp`**, so the compiled path is JIT.
+   `get_steel_gemm_fused_nax_kernel` (`jit_kernels.cpp:977-1009`) templates
+   `bm/bn/bk/wm/wn` from **runtime** values.
+3. **Empirically confirmed.** Offline MSL compile **and pipeline creation
+   succeeded for all four geometries** on a gen-16 M4 Pro: off
+   (bm64 bn128 bk256 wm2 wn4, 75090 B, sha256 `349cf1e1…`), bn64
+   (75073 B, `d044f6c9…`), bn32 (75009 B, `b44d19fa…`), 32×32
+   (75009 B, `bd4ea1ae…`). The only shape constraints in `steel/gemm/nax.h` are
+   the 16×16 `BaseNAXFrag` `static_assert`s at `:38`, `:119`, `:189`,
+   `:981-989`, **none of which reference `bn`**.
+
+Note that `steel_gemm_fused_nax.h:86` declares
+`[[kernel, max_total_threads_per_threadgroup(WM*WN*32)]]` — a *declared cap*,
+not an instantiation bound; fern's pipelines all reported
+`maxTotalThreadsPerThreadgroup = wm*wn*32` as expected.
+
+**Disposition:** rule 68's *measured* content (+0.639 ms, and the swizzle
+no-op) **stands and is load-bearing**. Its "dead by construction" clause is
+**struck**. Reject narrow-`_nax`-tile briefs on the **M5 measurement**, never on
+a nonexistent compile-time impossibility. A false ⛔ is worse than no ⛔: it
+suppresses work *and* teaches students that the archive's prohibitions need not
+be verifiable.
+
+### 14.6 🔴 ARCHIVE CORRECTION 2 — the split-K tie is a double exact equality
+
+`CURRENT_RESEARCH_STATE.md:2814-2816` states that the NAX split-K routing tie
+for the wk/wv shape sits in the `K ≥ 3·max(M,N)` disjunct. **It does not** —
+that disjunct fails by a margin of **1024**.
+
+The real behaviour of the gate at `matmul.cpp:922-924`,
+`K >= 3*max(M,N) || (max(M,N) <= 1024 && K > 2*max(M,N))`, at
+(M=512, N=1024, K=2048), is **two exact equalities in the second disjunct**:
+`max(M,N) <= 1024` passes **by equality**, and `K > 2*max(M,N)` fails **by
+equality**. The shape sits on a knife edge in two predicates at once.
+
+**Both students derived this independently and identically** — tanjiro §4.1 from
+his route model, fern §1 from a direct source-predicate walk. That is a genuine
+double replication, and I record it as such (see §14.8).
+
+Practical consequence: this shape's route is maximally fragile. Any future edit
+that moves either constant by one flips 78 dispatches between
+`steel_matmul_regular_axpby_nax` and `steel_gemm_splitk_axpby_nax`. The standing
+open idea **H3, the split-K tie flip `>` → `>=`**
+(`RESEARCH_IDEAS_steel-gemm-prefill.md:170-186`) is exactly this edit; it remains
+unimplemented, is **not bit-exact**, and its sign is bracketed at −3…+1 ms.
+
+### 14.7 🔴 STANDING RULE — the two prefill prices are not interchangeable
+
+Tanjiro's §6A.7 disambiguates a constant that has been quoted loosely across the
+corpus (`CURRENT_RESEARCH_STATE.md:646-748`):
+
+| constant | value | when to use |
+|---|---|---|
+| **partial** | **0.2592 %/ms** | **reading a receipt** — converting an observed prefill delta into observed score |
+| **total** | **0.3781 %/ms** | **pricing a prospective prefill optimisation** — because prefill wins propagate into decode via `D = 4P + T` |
+
+Round-104's levers are prospective, so the bar is **+1.438 % ÷ 0.3781 %/ms =
+3.803 ms** of prefill. Using the partial constant would have mispriced the bar
+at **5.549 ms** — a 46 % error, in the direction that makes levers look harder
+than they are. (The older 0.374750 figure gives 3.837 ms; the two agree to
+0.9 % and either is fine.)
+
+**Every future prefill sizing must state which constant it used.**
+
+### 14.8 On provenance: the two derivations are genuinely independent
+
+Tanjiro's report carries a caveat at his `:330-336` suggesting fern's routing
+claim "originally derives from my own NMPC §3.4". **I side with fern's §14.5
+correction: it does not.** Her §1 is a direct source-predicate derivation against
+`matmul.cpp` at clean base `9527bb72`, citing nothing of NMPC. Tanjiro is being
+over-cautious about his own priority, which is a good instinct pointed at the
+wrong target.
+
+What each contributed that the other lacked:
+
+* **fern**: the predicate-by-predicate call-chain walk, and the compile evidence
+  that falsified the ⛔ (§14.5).
+* **tanjiro**: `steel_route_model.py`, which reproduces **237/237** observed
+  rows at `use_nax=False` — the executable confirmation fern's hand derivation
+  could not supply.
+
+Tanjiro also self-corrected **his own** NMPC §3.4 in his §2.3: the wk/wv grid is
+**(32,2,1) post-swizzle**, and `g_proj` has `parts = 2` on M5-`_nax`. Students
+correcting their own prior published work, unprompted, is the behaviour this
+campaign should be selecting for.
+
+### 14.9 🔴 The positive mechanism result that survived the refutation
+
+Fern's §7 is a standalone occupancy probe
+(`research/fern_r104b_grouping_probe.swift`, `xcrun swiftc -O`, synthetic
+FMA-spin kernel, zero threadgroup memory, best-of-25, first leg discarded) and
+its finding survives the death of the lever it was built to support.
+
+At 512 simdgroups on M4: 1, 2 and 4 simdgroups/TG all land at ≈521.7 µs;
+**8 simdgroups/TG costs 762.2 µs = 1.4613×**, reproduced twice.
+
+But §7.2's causal sweep shows **this is packing quantization, not intrinsic
+width slowness**. Wall time is quantized into ≈255 µs units
+(≈255.5 / 521.7 / 775.4 / 1028.8), and at **6 of 13** total-simdgroup counts
+(168, 336, 672, 704, 1008, 1024) g=8 matches g=4 to within 0.1 %. g=8 needs an
+extra pass only at 504–528 and 840–848 — and **512 sits in the worst band
+observed**.
+
+Fern then **refutes her own model** twice over: §7.3 shows a `ceil(total/C)`
+fixed-capacity model does not fit all 13 points (63 TGs of 8 implies capacity
+≤ 31; 128 TGs of 8 implies ≥ 32), and §7.4 discards her static
+`q(g) = g·ceil(512/(P·g))` formula. She therefore **refuses to extrapolate the
+1.4613× to M5**, and explicitly flags the probe's Part-1 concurrency ladder as
+unreliable (C = 44 then 20 for g=4; 21 then 23 for g=8) — **that ladder must not
+be quoted**.
+
+The operand-traffic side is real but small: per-output-element operand traffic
+`(bm+bn)/(bm·bn)` rises from 0.02344 to 0.03125, **+33 %**, but at ≈7.3 MB per
+GEMM that is ≈12 µs at 610 GB/s, ≈0.94 ms across all 78 dispatches against
+≈5.6 ms of arithmetic. **The penalty is L2, not DRAM; the shape is compute-bound
+at the DRAM level.**
+
+**Usable content:** if a future lever changes simdgroups-per-threadgroup at a
+site, the cost is a *quantization* effect that depends on the total simdgroup
+count and the machine's capacity, and it can be **zero** at the right totals.
+Do not model it as a fixed multiplier.
+
+### 14.10 🔴 The local-iterate channel is 4× noisier than the receipt channel
+
+Fern's §4.4 is the cleanest negative control the campaign has produced on
+tooling. Running **identical code** through the local iterate harness produced a
+**+0.9 % "score" delta** (prefill −1.4 %, decode −0.7 %) on a lever that
+**cannot execute locally at all** — `_nax` never runs on a gen-16 M4 Pro
+(`is_nax_available()` at `device.cpp:913-931` requires macOS ≥ 26.2 *and*
+gen ≥ 17/18). Two relaunches of identical code differed by **1.3 %** on both
+axes.
+
+Against the receipt channel's `sd(cand_pre) = 0.31 %` (§1), **local iterate is
+≈4× noisier than the deciding instrument**, and it is noisy in a way that
+produces *confident-looking* deltas on *inert* changes.
+
+**Standing consequence: a local-iterate delta is never evidence for or against a
+lever.** It is a smoke test for "does it build and produce the same tokens", and
+nothing more. Fern's §4.2 equivalence run is the correct use:
+`run_upstream_equivalence.sh` gave prefill `maximumAbsoluteLogitError 0.125`
+(a pre-existing near-tie), token 5991 == 5991, decode-0..7 error 0, all tokens
+matching, and `--local-iterate` `max_abs_diff 0` with an identical `golden_hash`
+under both flag-off and forced-on.
+
+### 14.11 The host-side channel is bounded but not excluded
+
+Tanjiro's §7 closes the threat #572 opened, partially. Six forced-clean builds
+(job `b61f0318`, exit 0). The V1 determinism oracle **PASSES**. The V2 channel
+is **bounded and localised but NOT excluded**: **+2,164 bytes of `__text`** over
+the scored module (+1,900 on-path, 0.44 % / 0.49 %), 7 symbols removed and 15
+added, 22 total, all traceable to **one mechanism** — the lazily-initialised
+`lagunaRouterWeightPrefetch` global, a new `prefetch:` parameter, and the router
+kernel cache re-keyed from `[Int: MLXFastKernel]` to `[[Int]: MLXFastKernel]`.
+
+So the R3 router-prefetch change did not only add a kernel variant; it moved
+~2 KB of host text. That is small, localised and explained, but it is **not
+zero**, and it means "`Sources/` differs only in a dormant branch" is not
+automatically a no-op claim.
+
+### 14.12 🔴 Disposition of #585: merged, then reverted
+
+**#585 was merged and its 42 source lines were then reverted in the immediately
+following advisor commit.** This needs stating plainly because it looks
+contradictory.
+
+* **Why merge.** The report carries large durable value that a close would have
+  buried: the §1 routing derivation, the §2 census, the §4.1 compile evidence
+  that falsified a standing ⛔ (§14.5), the §4.4 noise trap (§14.10), the §7
+  packing measurement (§14.9), and the §14.4 rule-68 correction. Merging is how
+  that becomes citable.
+* **Why revert the code.** The 42-line `DARKBLOOM_NAX_SKINNY_TILE` selector is
+  **dead code on a refuted premise**, and it sits on the **ranked-M5 executed
+  host path** inside `steel_matmul_regular_axpby_nax`. Default-off is not the
+  same as absent: it is a branch on a hot host path, and it is one more thing
+  every future reader of that function must reason about.
+* **Precedent.** PR #293 was merged inert on this exact mechanism at this exact
+  site, earned zero ranked receipts, and was then **silently deleted by frontier
+  resync `99b974c`**. Inert merges of dead levers buy nothing and cost review
+  surface.
+* **The author agrees.** Fern's own §14.6 disposition is *"close as a negative,
+  do not merge"*. Reverting the code while merging the science honours that
+  recommendation on both counts.
+
+Post-revert, `matmul.cpp` is byte-identical to base `9527bb72`
+(sha256 `49810705f93f98c7e4218d19fe625c96f482ac2fadc2abacf7e356fb1d299c36`), and
+`git diff --numstat 9527bb72 HEAD -- Vendor Sources` is **empty**. Round 104 has
+so far changed **zero bytes** of scored code.
+
+### 14.13 🔴 Strategic consequence: stop hunting for the one big lever
+
+Tanjiro's §6A.8 reaches the same conclusion §8 reached from the receipt side,
+by a completely different route, and the agreement is worth acting on.
+
+His §6A.6 enumerates four admissible apportionments of the 11.40 ms M5 residual
+and finds the bar sits **inside** the admissible span (+0.94 %…+2.52 %) — even
+under the most favourable assumption 104-B was a **coin flip, not a favourite**.
+Combined with §8.1 (the record is a **+3.28 σ, p99.95** draw), §8.4 (at least
+three trees inside a ±0.2 % band, no defensible moat) and §11.2 (draws cannot be
+farmed), the strategy that follows is:
+
+> **Maximise `cs` and take repeated legitimate draws. Do not stake the campaign
+> on finding one deterministic +1.44 % lever.**
+
+Concretely, §8.2's pricing table is the plan: at Δcs = 0 a receipt is worth
+0.095 %, at +0.5 % it is 2.165 %, at +1.0 % it is 17.34 %. **Every real +0.25 %
+multiplies the value of every subsequent draw**, and 104-A's +0.77 % — which
+round 104 did *not* refute — is worth roughly 7 % per receipt on its own.
+
+What this does **not** license: farming draws on byte-identical trees (§11.2,
+declined on technical grounds and prohibited), or submitting receipts with no
+`cs` improvement in the hope of a lucky L.
+
+### 14.14 What round 104 actually delivered
+
+| # | deliverable | where |
+|---|---|---|
+| 1 | The receipt channel is usable at 0.5–1.0 % in 2–3 pairs | §1 |
+| 2 | There is no receipt quota — only a ~13 min wall-clock floor | §2 |
+| 3 | Exhaustive prefill ms ledger, 1146 calls, zero residual | §14.3 |
+| 4 | H8 dead — prefill dense GEMM at 87.5 % of peak | §14.2 |
+| 5 | Second independent demonstration of rule-76 contamination | §14.2 |
+| 6 | The `_nax` bn=128 ⛔ falsified and struck | §14.5 |
+| 7 | The split-K tie corrected to a double exact equality | §14.6 |
+| 8 | The partial/total prefill price disambiguated as a standing rule | §14.7 |
+| 9 | Simdgroup packing is quantization, not a fixed multiplier | §14.9 |
+| 10 | Local iterate is ~4× noisier than the receipt channel | §14.10 |
+| 11 | Env gates are frozen at first touch — no in-process flipping | §9 |
+| 12 | No dormant-win inventory; 76 unaudited gates, 7 silent | §10, §12 |
+| 13 | One receipt per commit, ever; no duplicate-sha draws exist | §11 |
+| 14 | The `#527` SLC confound recorded | §14.4 |
+
+**Zero bytes of scored code changed. Three archive corrections landed.** For a
+round whose two terminal arms were both negative, that is a good trade — but it
+is not a record, and §14.13 is the only route to one.
+
+### 14.15 Open at the close of round 104
+
+* **#584 (nezuko, 104-A)** — the only live lever, +0.77 %, 8 receipts budgeted.
+  Still the round's whole upside.
+* **#571 (frieren)** — σ_launch calibration. If it lands materially below ≈48,
+  the same-binary env-contrast channel exists and §10's 76-gate ablation ledger
+  becomes rankable. If σ_launch ≥ 40, §10 dies and should be recorded as dead.
+* **The routed gather-GEMM at 67 % of peak** (§14.2) — 48.28 % of the prefill
+  wall, the largest inefficient pool in the model, and untouched by round 104.
+  This is the obvious place for a round-105 census, *after* re-reading rule 68,
+  rule 83 and the §14.7 price rule.
+* **[Wk;Wv]-only fusion** — mechanism probe only, not a lever (§14.4).
+* **H3 split-K tie flip** — unimplemented, not bit-exact, sign bracketed
+  −3…+1 ms (§14.6).
 

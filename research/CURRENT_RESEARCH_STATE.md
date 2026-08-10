@@ -2812,6 +2812,20 @@ dispatch-count premise for prefill is dead on M5. Corollaries:
   split-K elimination on Wk/Wv, a path M5 **never takes** because
   `K ≥ 3·max(M,N)` fails by an exact tie. Do not port an M4 fusion win to M5
   without first proving the M5 kernel selection is the same.
+  > 🔴 **CORRECTED (round 104, tanjiro #586 §4.1 and fern #585 §1, derived
+  > independently and agreeing).** The tie is **not** in `K ≥ 3·max(M,N)` —
+  > that disjunct fails by a **margin of 1024**, not by a tie. The gate is
+  > `matmul.cpp:922-924`,
+  > `K >= 3*max(M,N) || (max(M,N) <= 1024 && K > 2*max(M,N))`, and at
+  > (M=512, N=1024, K=2048) the ties are **two exact equalities in the second
+  > disjunct**: `max(M,N) <= 1024` passes **by equality** and `K > 2*max(M,N)`
+  > fails **by equality**. The conclusion (M5 does not take split-K here) is
+  > unchanged; the stated reason was wrong. Reproduced 237/237 by
+  > `research/artifacts/tanjiro-r104c/steel_route_model.py`. Note the practical
+  > consequence: this shape sits on a knife edge in **two** predicates at once,
+  > so the standing H3 idea (flip `>` → `>=`,
+  > `RESEARCH_IDEAS_steel-gemm-prefill.md:170-186`) would move all 78
+  > dispatches — it is **not bit-exact** and its sign is bracketed −3…+1 ms.
 - **Two surviving explanations, both unproven.** (a) **SLC capacity crossing**:
   the fused weight bank is 41.94 MB vs 33.55 MB for Wq alone; ~16 µs/layer of
   refetch × 40 layers ≈ 0.6 ms, which matches the effect almost exactly.
@@ -2821,8 +2835,35 @@ dispatch-count premise for prefill is dead on M5. Corollaries:
   **[Wk;Wv]-only fusion** (8.39 MB bank, *smaller* than Wq): SLC predicts a
   win or a null, lost-overlap predicts a proportional loss. Worth understanding,
   **not worth a receipt now** (both mechanisms leave the family negative).
-- ⛔ **`_nax` bn=128 is the minimum instantiated tile width.** Any brief that
-  proposes narrowing an `_nax` N-tile is dead by construction.
+- ~~⛔ **`_nax` bn=128 is the minimum instantiated tile width.** Any brief that
+  proposes narrowing an `_nax` N-tile is dead by construction.~~
+  > 🔴 **STRUCK — THIS CLAUSE IS FACTUALLY FALSE (round 104, fern #585 §4.1 and
+  > §14.4).** Falsified three independent ways:
+  > 1. **The AOT list already contains bn = 64.**
+  >    `Vendor/…/backend/metal/kernels/steel/gemm/kernels/steel_gemm_fused_nax.metal`
+  >    instantiates exactly six geometries via `instantiate_gemm_shapes_helper`:
+  >    `(64,64,256,2,2)`, `(64,128,64,2,4)`, `(64,128,256,2,4)`,
+  >    `(128,128,64,4,4)`, `(128,128,256,4,4)`, `(128,128,512,4,4)`. The **first
+  >    has bn = 64**.
+  > 2. **The AOT list bounds nothing anyway — the compiled path is JIT.**
+  >    `Vendor/mlx-swift/Package.swift:25` sources `jit_kernels.cpp` and `:284`
+  >    **excludes `nojit_kernels.cpp`**;
+  >    `get_steel_gemm_fused_nax_kernel` (`jit_kernels.cpp:977-1009`) templates
+  >    `bm/bn/bk/wm/wn` from **runtime** values.
+  > 3. **Empirically: offline MSL compile _and pipeline creation_ succeeded for
+  >    all four geometries** on a gen-16 M4 Pro — bn128 (75090 B, sha256
+  >    `349cf1e1…`), bn64 (75073 B, `d044f6c9…`), bn32 (75009 B, `b44d19fa…`),
+  >    32×32 (75009 B, `bd4ea1ae…`). The only shape constraints in
+  >    `steel/gemm/nax.h` are the 16×16 `BaseNAXFrag` `static_assert`s at `:38`,
+  >    `:119`, `:189`, `:981-989`, **none of which reference `bn`**.
+  >
+  > **Replacement rule:** narrow-`_nax`-tile briefs must be rejected on the
+  > **measured +0.639 ms M5 result above**, and on magnitude (the whole
+  > wk/wv slice is 167.5 GFLOP = 11.1 % of prefill, ceiling ≈ 0.93 ms ≈
+  > +0.35 % of score) — **never** on a compile-time impossibility that does not
+  > exist. Re-measured and re-derived in
+  > `research/fern-r104b-wkwv-tile-regroup.md` §4.1/§14.4 and
+  > `research/advisor-r104-the-receipt-is-the-instrument.md` §14.5.
 - ⛔ **Swizzle depth is a no-op on M5 regular `_nax` prefill.** All classes
   already have `tiles_m = 8`, so depth 3 is one group: it relabels threadgroups
   without changing residency. Measured −0.0141 ms, prediction-t −0.098.
@@ -3028,6 +3069,39 @@ with a relative-makespan ratio again."* Two enforcement clauses: (a) a brief
 that proposes a geometry change **must** quote the archive grep it ran; (b) any
 sentence of the form "X has never been measured" is a **claim requiring a
 citation of the search that failed to find it**, not a default.
+
+**🆕 Rule 84 (advisor, round 104, from #586 §6A.7) — state which prefill price
+you used, because there are two and they differ by 46 %.** The **partial**
+constant **0.2592 %/ms** converts an *observed* prefill delta on a receipt into
+observed score. The **total** constant **0.3781 %/ms** prices a *prospective*
+prefill optimisation, because a prefill win also propagates into decode through
+`D = 4P + T`. Round 104's +1.438 % bar is 3.803 ms of prefill under the total
+constant and would have been mispriced at 5.549 ms under the partial one — in
+the direction that makes real levers look unreachable. Any prefill sizing that
+does not name its constant is unreviewable.
+
+**🆕 Rule 85 (advisor, round 104, from #585 §4.1/§14.4) — a ⛔ that asserts
+"dead by construction" must cite the construction, and the citation must be
+checkable.** `CURRENT_RESEARCH_STATE.md:2824-2825` prohibited narrowing an
+`_nax` N-tile on the grounds that bn=128 was the minimum instantiated width.
+That was false: bn=64 is in the AOT list, the compiled path is JIT so the AOT
+list bounds nothing, and all four disputed geometries compile *and create
+pipelines* on gen-16 hardware. The clause suppressed work for several rounds and
+was only caught because a student built the compile evidence instead of citing
+the prohibition. A false ⛔ is worse than no ⛔: it blocks work *and* teaches
+that the archive's prohibitions need not be verifiable. Reject briefs on
+**measurements** and on **magnitude**, not on unverified impossibility claims.
+
+**🆕 Rule 86 (advisor, round 104, from #585 §4.4) — a local-iterate delta is
+never evidence for or against a lever.** Identical code run twice through the
+local harness produced a **+0.9 % "score" delta** (prefill −1.4 %, decode
+−0.7 %) on a change that **cannot execute on the local device at all**; two
+relaunches of identical code differ by **1.3 %** on both axes, against
+`sd(cand_pre) = 0.31 %` in the receipt channel. Local iterate is **≈4× noisier
+than the deciding instrument** and produces confident-looking deltas on inert
+code. Its only legitimate uses are "does it build" and "does it produce the same
+tokens" — i.e. `research/run_upstream_equivalence.sh` and `max_abs_diff` /
+`golden_hash` equality.
 
 **Process rule (#513).** Every assignment must state that *a student's
 registered go/no-go bar must be at least as strict as the suggested bar, or the

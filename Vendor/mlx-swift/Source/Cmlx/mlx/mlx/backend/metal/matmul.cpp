@@ -88,18 +88,6 @@ static bool darkbloom_steel_prefill_tile() {
 }
 
 
-// Selects an alternative M/N threadgroup grouping for the regular (non-split-K)
-// NAX steel GEMM. 0 disables the regroup; every enabled arm preserves the
-// per-simdgroup tile (bm/wm, bn/wn) and never touches bk, so the K-accumulation
-// order and the emitted template instantiation are unchanged.
-static int darkbloom_nax_skinny_tile() {
-  static int mode = []() {
-    const char* value = getenv("DARKBLOOM_NAX_SKINNY_TILE");
-    return value == nullptr ? 0 : atoi(value);
-  }();
-  return mode;
-}
-
 static bool darkbloom_steel_trace() {
   static bool v = []() {
     const char* e = getenv("DARKBLOOM_STEEL_TRACE");
@@ -231,36 +219,6 @@ void steel_matmul_regular_axpby_nax(
 
     bm = 64;
     wm = 2;
-  }
-
-  // Regroup the 64x128 NAX tile into more, smaller threadgroups for shapes that
-  // do not fill the machine. bk is read but never written here: the arms only
-  // repartition the same 32x32 per-simdgroup output tiles across threadgroups.
-  const int skinny_arm = darkbloom_nax_skinny_tile();
-  if (skinny_arm != 0 && bm == 64 && bn == 128 && bk == 256 && wm == 2 &&
-      wn == 4 && (M % 64) == 0 && (N % 128) == 0) {
-    const int tiles_m = M / bm;
-    const int tiles_n = N / bn;
-    if (tiles_m >= 4 && tiles_m * tiles_n <= 96) {
-      switch (skinny_arm) {
-        case 1: // 8 -> 4 simdgroups per threadgroup
-          bn = 64;
-          wn = 2;
-          break;
-        case 2: // 8 -> 2 simdgroups per threadgroup
-          bn = 32;
-          wn = 1;
-          break;
-        case 3: // 8 -> 1 simdgroup per threadgroup
-          bm = 32;
-          bn = 32;
-          wm = 1;
-          wn = 1;
-          break;
-        default:
-          break;
-      }
-    }
   }
 
   std::ostringstream kname;
