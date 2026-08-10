@@ -149,6 +149,9 @@ REFERENCE_PCT = {"lmhead": 97.4, "dense_down": 94.0}
 B_STEP_BYTES = 1671402432
 M5_BASELINE_STEP_US = 6500.0
 SHIPPABLE_BAR_PCT = 0.4
+# Rule 105.10 (#644 comment 5241791262): once L3 is de-biased to 0.1966 % of cs,
+# a second different-family bit-exact summand only has to supply the residual.
+SUMMAND_BAR_PCT = 0.2034
 
 # Measured M4 Pro per-dispatch times for the two oproj head counts (pool table
 # §B.0.3, M4 column, divided by the call count). These are the only two dose
@@ -170,6 +173,17 @@ RULE100_THEORETICAL_PER_S = 2560 * 1.578e9
 # alpha of the two-pool map: per-dispatch M5/M4 ratio for both oproj rows.
 M5_OVER_M4 = 0.4369
 DECODE_PRICE_PCT_PER_US = 0.015228
+# Rule 105 (#644 comment 5241615076): the price was fitted on an official M5
+# decode, so `SHIPPABLE_BAR_PCT` is a bar on M5 us/step. A delta measured on
+# this M4 Pro converts as `pct_cs = us_m4 * k * DECODE_PRICE_PCT_PER_US` with
+# k = alpha in the bytes regime. Comparing a raw M4 us figure, or a % of the M4
+# decode step, against the 0.4 % bar is a unit error.
+K_BYTES = {"alpha_0.4369": M5_OVER_M4, "alpha_0.389": 0.389}
+
+
+def bar_us_m4(pct_of_cs: float) -> dict[str, float]:
+    return {name: round(pct_of_cs / (k * DECODE_PRICE_PCT_PER_US), 1)
+            for name, k in K_BYTES.items()}
 
 
 def weighted_mean(values: list[float], weights: list[float]) -> float:
@@ -247,12 +261,25 @@ def issue_ceiling(arms: dict[str, dict[str, dict]]) -> dict[str, object]:
         "best_arm": best,
         "best_arm_combined_ceiling_pct_of_cs": combined[best],
         "bar_pct_of_cs": SHIPPABLE_BAR_PCT,
+        "summand_bar_pct_of_cs": SUMMAND_BAR_PCT,
         "ceiling_clears_bar": combined[best] >= SHIPPABLE_BAR_PCT,
+        "ceiling_clears_summand_bar": combined[best] >= SUMMAND_BAR_PCT,
         "time_weighted_issue_utilisation_pct": round(util, 2),
         # if only `util` of the dispatch is issue-limited, the ceiling scales down
         "utilisation_scaled_ceiling_pct_of_cs": round(combined[best] * util / 100.0, 4),
+        "utilisation_scaled_clears_summand_bar":
+            combined[best] * util / 100.0 >= SUMMAND_BAR_PCT,
+        # rule 105: the same ceiling stated in the units this host measures in.
+        "combined_ceiling_us_per_step_m4": bar_us_m4(combined[best]),
+        "utilisation_scaled_ceiling_us_per_step_m4":
+            bar_us_m4(combined[best] * util / 100.0),
+        "solo_bar_us_per_step_m4": bar_us_m4(SHIPPABLE_BAR_PCT),
+        "summand_bar_us_per_step_m4": bar_us_m4(SUMMAND_BAR_PCT),
         "slot_cost_multiplier_needed_at_measured_utilisation": round(
             SHIPPABLE_BAR_PCT / (combined[best] * util / 100.0), 3
+        ),
+        "slot_cost_multiplier_needed_for_summand_at_measured_utilisation": round(
+            SUMMAND_BAR_PCT / (combined[best] * util / 100.0), 3
         ),
         "verdict": (
             "the lever's generous issue-slot ceiling is "
@@ -478,10 +505,26 @@ def roofline(local_decode_s: float | None = None) -> dict[str, object]:
         out["family_total_headroom_pct_of_decode"] = {
             k: round(100.0 * v / step_us, 3) for k, v in tot.items()
         }
-        out["shippable_bar_us_local"] = round(SHIPPABLE_BAR_PCT / 100.0 * step_us, 1)
-        out["fraction_of_deficit_needed_to_clear_bar"] = {
-            k: round(SHIPPABLE_BAR_PCT / 100.0 * step_us / v, 3) for k, v in tot.items()
+        # rule 105: the bar is a bar on M5 us/step, so the local deficit must be
+        # compared against the *converted* bar, not against 0.4 % of this host's
+        # decode step. The retired `0.4 % x local step` figure was 52.3 us, which
+        # coincidentally equals the beta=0.5 latency conversion; the bytes regime
+        # that this family sits in gives 60.1 us (alpha=0.4369) or 67.5 (0.389).
+        out["family_total_headroom_pct_of_cs"] = {
+            k: {n: round(v * kk * DECODE_PRICE_PCT_PER_US, 4)
+                for n, kk in K_BYTES.items()}
+            for k, v in tot.items()
         }
+        out["fraction_of_deficit_needed_to_clear_bar"] = {
+            k: {n: round(b / v, 3) for n, b in bar_us_m4(SHIPPABLE_BAR_PCT).items()}
+            for k, v in tot.items()
+        }
+        out["fraction_of_deficit_needed_to_clear_summand_bar"] = {
+            k: {n: round(b / v, 3) for n, b in bar_us_m4(SUMMAND_BAR_PCT).items()}
+            for k, v in tot.items()
+        }
+    out["shippable_bar_us_per_step_m4"] = bar_us_m4(SHIPPABLE_BAR_PCT)
+    out["summand_bar_us_per_step_m4"] = bar_us_m4(SUMMAND_BAR_PCT)
     out["m5_bar_us"] = round(SHIPPABLE_BAR_PCT / 100.0 * M5_BASELINE_STEP_US, 1)
     out["caveat"] = (
         "m5_us columns inherit the alpha/beta degeneracy (CURRENT_RESEARCH_STATE "

@@ -41,8 +41,27 @@ INSITU = ART / "insitu"
 ARMS = ("g0", "g1", "g2", "g3")
 HALF_SIZE = 4
 BLOCK_SIZE = 8
-# assignment lever bar: 0.4% of the M5 candidate step
-BAR_PCT = 0.4
+# Rule 105 (advisor, #644 comment 5241615076): the campaign price was fitted on
+# an official M5 decode, so any bar derived from it is in M5 us/step. This host
+# is M4 Pro, so a measured delta must be converted, never compared directly:
+#     delta_pct_cs = delta_M4_us_per_step * k * PRICE_PCT_CS_PER_US
+# k = alpha in the bytes regime, beta in the latency regime. T3b oproj h64 is
+# labelled bytes, provisionally: if tanjiro's #648 census returns ISSUE-bound
+# there is no valid k and no conversion is legitimate at all.
+PRICE_PCT_CS_PER_US = 0.015228
+K = {"alpha_0.4369": 0.4369, "alpha_0.389": 0.389, "beta_0.5": 0.5}
+K_PRIMARY = "alpha_0.4369"
+BAR_PCT_CS = 0.4       # solo shippability bar
+SUMMAND_PCT_CS = 0.2034  # rule 105.10: residual once de-biased L3 supplies 0.1966
+HOST = "M4 Pro, 20 GPU cores, applegpu_g16s, nax_available=false"
+
+
+def bar_us_m4(pct_cs: float, k_name: str = K_PRIMARY) -> float:
+    return pct_cs / (K[k_name] * PRICE_PCT_CS_PER_US)
+
+
+BAR_US_M4 = bar_us_m4(BAR_PCT_CS)              # 60.13
+SUMMAND_US_M4 = bar_us_m4(SUMMAND_PCT_CS)      # 30.58
 
 # two-sided 95% t quantiles, indexed by degrees of freedom
 T95 = {1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447, 7: 2.365,
@@ -112,7 +131,7 @@ def contrast_value(vals: dict[str, float], plus: dict[str, float],
             - sum(w * vals[a] for a, w in minus.items()))
 
 
-def summarise(diffs: list[float], base: float) -> dict[str, object]:
+def summarise(diffs: list[float], base: float, priced: bool = True) -> dict[str, object]:
     n = len(diffs)
     mean = st.fmean(diffs)
     sd = st.stdev(diffs) if n > 1 else float("nan")
@@ -120,6 +139,39 @@ def summarise(diffs: list[float], base: float) -> dict[str, object]:
     h = t95(n - 1) * se if n > 1 else float("nan")
     pos = sum(1 for d in diffs if d > 0)
     neg = sum(1 for d in diffs if d < 0)
+    # Rule 105.6: every quantity carries a host tag and appears in both units.
+    mean_us, h_us = mean * 1e6, h * 1e6
+    # A negative delta is a speedup, so the largest gain the interval allows is
+    # -(mean - h). Rule 105.7 makes this the deliverable, not the point estimate.
+    best_case_gain_us = -(mean_us - h_us)
+    # The price and both bars were fitted on the *decode* axis, so pricing a
+    # prefill delta in % of cs would be the same class of unit error rule 105
+    # names. The placebo axis therefore reports measured us only.
+    priced_fields: dict[str, object] = {
+        "mean_us_per_step_m4": mean_us,
+        "ci95_us_per_step_m4": [mean_us - h_us, mean_us + h_us],
+        "mde_us_per_step_m4": h_us,
+        "best_case_gain_us_per_step_m4": best_case_gain_us,
+        "mean_pct_cs": {k: mean_us * v * PRICE_PCT_CS_PER_US for k, v in K.items()},
+        "ci95_pct_cs_primary": [(mean_us - h_us) * K[K_PRIMARY] * PRICE_PCT_CS_PER_US,
+                                (mean_us + h_us) * K[K_PRIMARY] * PRICE_PCT_CS_PER_US],
+        "resolves_bar": bool(n > 1 and h_us <= BAR_US_M4),
+        "resolves_summand": bool(n > 1 and h_us <= SUMMAND_US_M4),
+        "n_pairs_for_bar": n_for_bar(sd, BAR_US_M4),
+        "n_pairs_for_summand": n_for_bar(sd, SUMMAND_US_M4),
+        # rule 105.5: a bit-exact, CI-excludes-zero win below the solo bar is
+        # still a valid summand for fern if it comes from a different family.
+        "banks_as_summand": bool(n > 1 and abs(mean) > h
+                                 and mean_us <= -SUMMAND_US_M4),
+        # a null is useful when even the interval's best case cannot fund a
+        # summand: that lets fern stop budgeting for this family.
+        "excludes_summand_sized_gain": bool(n > 1 and best_case_gain_us < SUMMAND_US_M4),
+    } if priced else {k: None for k in (
+        "mean_us_per_step_m4", "ci95_us_per_step_m4", "mde_us_per_step_m4",
+        "best_case_gain_us_per_step_m4",
+        "mean_pct_cs", "ci95_pct_cs_primary", "resolves_bar", "resolves_summand",
+        "n_pairs_for_bar", "n_pairs_for_summand", "banks_as_summand",
+        "excludes_summand_sized_gain")}
     return {
         "n": n,
         "mean_s": mean,
@@ -130,21 +182,27 @@ def summarise(diffs: list[float], base: float) -> dict[str, object]:
         "excludes_zero": bool(n > 1 and abs(mean) > h),
         # smallest effect this n and this noise could have resolved
         "mde_pct": 100.0 * h / base,
-        "resolves_bar": bool(n > 1 and 100.0 * h / base <= BAR_PCT),
-        "n_pairs_for_bar": n_for_bar(sd, base),
         "sign_pos": pos,
         "sign_neg": neg,
         # exact two-sided sign test under p=0.5
         "sign_p": sign_p(max(pos, neg), pos + neg),
         "values_s": diffs,
+
+        "host": HOST,
+        "mean_us_per_token_m4": mean_us,
+        "ci95_us_per_token_m4": [mean_us - h_us, mean_us + h_us],
+        "mde_us_per_token_m4": h_us,
+        "best_case_gain_us_per_token_m4": best_case_gain_us,
+        "priced_in_cs": priced,
+        **priced_fields,
     }
 
 
-def n_for_bar(sd: float, base: float) -> int | None:
-    """Pairs needed for a t-CI half-width of BAR_PCT at the observed noise."""
+def n_for_bar(sd: float, target_us: float) -> int | None:
+    """Pairs needed for a t-CI half-width of target_us at the observed noise."""
     if not math.isfinite(sd) or sd <= 0.0:
         return None
-    target = BAR_PCT / 100.0 * base
+    target = target_us * 1e-6
     for n in range(2, 4097):
         if t95(n - 1) * sd / math.sqrt(n) <= target:
             return n
@@ -170,7 +228,7 @@ def analyse(halves: list[dict], axis: str) -> dict[str, object]:
     }
     for name, (plus, minus) in CONTRASTS.items():
         half_diffs = [contrast_value(h[axis], plus, minus) for h in halves]
-        rec = summarise(half_diffs, base)
+        rec = summarise(half_diffs, base, priced=axis == "decode")
         rec["by_order"] = {
             o: st.fmean([d for d, h in zip(half_diffs, halves) if h["order"] == o])
             for o in ("forward", "reverse")
@@ -180,7 +238,8 @@ def analyse(halves: list[dict], axis: str) -> dict[str, object]:
         for d, h in zip(half_diffs, halves):
             blocks.setdefault((h["session"], h["block"]), []).append(d)
         block_means = [st.fmean(v) for v in blocks.values() if len(v) == 2]
-        rec["block_means"] = summarise(block_means, base) if len(block_means) > 1 else None
+        rec["block_means"] = (summarise(block_means, base, priced=axis == "decode")
+                              if len(block_means) > 1 else None)
         out["contrasts"][name] = rec  # type: ignore[index]
     return out
 
@@ -197,6 +256,20 @@ def main() -> int:
         "n_forward_halves": n_fwd,
         "n_reverse_halves": len(halves) - n_fwd,
         "all_passed_correctness": True,
+        "host": HOST,
+        "bars": {
+            "price_pct_cs_per_m5_us_per_step": PRICE_PCT_CS_PER_US,
+            "k_regime_label": "bytes (provisional pending #648 census)",
+            "k_primary": K_PRIMARY,
+            "solo_bar_pct_cs": BAR_PCT_CS,
+            "solo_bar_us_per_step_m4": {k: bar_us_m4(BAR_PCT_CS, k) for k in K},
+            "summand_bar_pct_cs": SUMMAND_PCT_CS,
+            "summand_bar_us_per_step_m4": {k: bar_us_m4(SUMMAND_PCT_CS, k) for k in K},
+            "single_receipt_detection_bar_us_per_step_m4": 80.0,
+            "note": "rule 105/105.7/105.10; the solo bar sits below the ~80 us/step "
+                    "single-receipt M4 detection bar, which is why paired ABBA is "
+                    "the only admissible instrument here",
+        },
         "halves": halves,
         "decode": analyse(halves, "decode"),
         "prefill_placebo": analyse(halves, "prefill"),
@@ -217,6 +290,15 @@ def main() -> int:
                   f"sign={rec['sign_pos']}/{rec['sign_pos'] + rec['sign_neg']} "
                   f"p={rec['sign_p']:.3f} "
                   f"mde={rec['mde_pct']:.3f}% n@bar={rec['n_pairs_for_bar']}")
+            unit = "us/step M4" if rec["priced_in_cs"] else "us/token M4"
+            line = (f"  {'':22s} {rec['mean_us_per_token_m4']:+8.2f} {unit} "
+                    f"CI[{rec['ci95_us_per_token_m4'][0]:+8.2f},"
+                    f"{rec['ci95_us_per_token_m4'][1]:+8.2f}]")
+            if rec["priced_in_cs"]:
+                line += (f" -> {rec['mean_pct_cs'][K_PRIMARY]:+7.4f} %cs "
+                         f"(bar {BAR_US_M4:.1f}, summand {SUMMAND_US_M4:.1f} "
+                         f"us/step M4)")
+            print(line)
     print(f"wrote {out}")
     return 0
 

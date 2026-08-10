@@ -16,7 +16,6 @@ REPO = ("/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/"
         "roles/student-maple-alphonse/workspace/target")
 ART = f"{REPO}/research/artifacts/maple-alphonse-r107e"
 ARMS = ("g0", "g1", "g2", "g3")
-BAR_PCT = 0.4  # shippable relative-decode bar from the assignment
 
 head = subprocess.run(["git", "-C", REPO, "rev-parse", "HEAD"],
                       capture_output=True, text=True, check=True).stdout.strip()
@@ -31,13 +30,23 @@ fit = traffic["regime_fit"]
 t2d = traffic["t2d_comparison_column"]
 dyn = loads["dynamic_loads_per_thread_per_k_block"]
 dec, pla = stats["decode"], stats["prefill_placebo"]
+# Rule 105: the 0.4 % bar lives in M5 us/step because the campaign price was
+# fitted on an official M5 decode. Every verdict below is taken in % of cs after
+# converting this host's measured us/step with k = alpha (bytes regime), never by
+# comparing a raw M4 percentage against the bar.
+bars = stats["bars"]
+K_PRIMARY = bars["k_primary"]
+BAR_PCT_CS = bars["solo_bar_pct_cs"]
+SUMMAND_PCT_CS = bars["summand_bar_pct_cs"]
+BAR_US_M4 = bars["solo_bar_us_per_step_m4"][K_PRIMARY]
+SUMMAND_US_M4 = bars["summand_bar_us_per_step_m4"][K_PRIMARY]
 
 
 def wins(rec: dict) -> bool:
     """A contrast is a shippable win only if it is faster (negative delta), the
-    magnitude clears the bar, and the CI excludes zero."""
-    return bool(rec["mean_pct"] <= -BAR_PCT and rec["excludes_zero"]
-                and rec["ci95_pct"][1] < 0)
+    magnitude clears the solo bar in % of cs, and the CI excludes zero."""
+    return bool(rec["mean_pct_cs"][K_PRIMARY] <= -BAR_PCT_CS and rec["excludes_zero"]
+                and rec["ci95_pct_cs_primary"][1] < 0)
 
 
 amort, tgshape = dec["contrasts"]["A_amortisation"], dec["contrasts"]["B_threadgroup_shape"]
@@ -48,12 +57,14 @@ v_amort, v_tgshape = wins(amort), wins(tgshape)
 # The family already runs at 87.1% / 80.6% of the measured M4 Pro ceiling, so a
 # 24% cut in *issued* bytes that buys no time says the binding constraint is not
 # issue slots. That is the mechanistic reading of a null on factor A.
-n_issue_bound = bool(not v_amort and amort["mean_pct"] > -BAR_PCT
-                     and ceil["utilisation_scaled_ceiling_pct_of_cs"] < BAR_PCT)
+n_issue_bound = bool(not v_amort and amort["mean_pct_cs"][K_PRIMARY] > -BAR_PCT_CS
+                     and ceil["utilisation_scaled_ceiling_pct_of_cs"] < BAR_PCT_CS)
 n_amort = bool(not v_amort)
 # N-ROOFLINE would fire if the family's whole remaining deficit were under the
-# bar. It is not: 0.96-1.31% of decode is available, the arms just cannot take it.
-n_roofline = bool(min(roof["family_total_headroom_pct_of_decode"].values()) < BAR_PCT)
+# bar. It is not: 0.74-1.14% of cs is available, the arms just cannot take it.
+n_roofline = bool(min(v[K_PRIMARY]
+                      for v in roof["family_total_headroom_pct_of_cs"].values())
+                  < BAR_PCT_CS)
 
 run = wandb.init(
     entity="wandb-applied-ai-team",
@@ -103,9 +114,19 @@ run = wandb.init(
         "prefill_is_placebo_channel": True,
         "prefill_placebo_reason": ("decode oproj call site gated on gatePerHead && "
                                    "B==1 && L==1, LagunaRuntimeModel.swift:6355-6362"),
-        "shippable_bar_pct_of_decode": BAR_PCT,
+        # rule 105 unit contract: bar in % of cs, plus its conversion into the
+        # units this host actually measures in, under both alpha candidates.
+        "shippable_bar_pct_of_cs": BAR_PCT_CS,
         "shippable_bar_us_m5": roof["m5_bar_us"],
-        "shippable_bar_us_local": roof["shippable_bar_us_local"],
+        "shippable_bar_us_per_step_m4": roof["shippable_bar_us_per_step_m4"],
+        "summand_bar_pct_of_cs": SUMMAND_PCT_CS,
+        "summand_bar_us_per_step_m4": roof["summand_bar_us_per_step_m4"],
+        "k_regime": bars["k_regime_label"],
+        "k_primary": K_PRIMARY,
+        "price_pct_cs_per_m5_us_per_step": bars["price_pct_cs_per_m5_us_per_step"],
+        "single_receipt_detection_bar_us_per_step_m4":
+            bars["single_receipt_detection_bar_us_per_step_m4"],
+        "epoch": "R107, base 2454cc01 (advisor advanced to 4e9a8e16, docs-only)",
         "m4_ceiling_gb_per_s": roof["m4_ceiling_gb_per_s"],
         "b_step_bytes": roof["b_step_bytes"],
         "m5_pool_provenance": ("alpha = 0.4369 / beta = 0.5 two-pool map, "
@@ -148,18 +169,53 @@ summary = {
     "primary/best_arm_clears_bar": int(wins(best)),
     "primary/any_arm_shippable": int(any(wins(dec["contrasts"][f"{a}_vs_g0"])
                                          for a in ("g1", "g2", "g3"))),
-    "primary/bar_pct": BAR_PCT,
-    # A null is only informative if the design could have resolved the bar.
+    "primary/bar_pct_of_cs": BAR_PCT_CS,
+    "primary/bar_us_per_step_m4": BAR_US_M4,
+    "primary/summand_bar_pct_of_cs": SUMMAND_PCT_CS,
+    "primary/summand_bar_us_per_step_m4": SUMMAND_US_M4,
+    # Rule 105.6: every measured quantity in both units. `*_us_per_step_m4` is
+    # what this host measured; `*_pct_cs` is the converted campaign currency.
+    "primary/amortisation_effect_us_per_step_m4": amort["mean_us_per_step_m4"],
+    "primary/amortisation_ci95_lo_us_per_step_m4": amort["ci95_us_per_step_m4"][0],
+    "primary/amortisation_ci95_hi_us_per_step_m4": amort["ci95_us_per_step_m4"][1],
+    "primary/amortisation_effect_pct_cs": amort["mean_pct_cs"][K_PRIMARY],
+    "primary/amortisation_ci95_lo_pct_cs": amort["ci95_pct_cs_primary"][0],
+    "primary/amortisation_ci95_hi_pct_cs": amort["ci95_pct_cs_primary"][1],
+    "primary/amortisation_mde_us_per_step_m4": amort["mde_us_per_step_m4"],
+    "primary/best_arm_effect_us_per_step_m4": best["mean_us_per_step_m4"],
+    "primary/best_arm_effect_pct_cs": best["mean_pct_cs"][K_PRIMARY],
+    "primary/best_arm_best_case_gain_us_per_step_m4":
+        best["best_case_gain_us_per_step_m4"],
+    # Rule 105.7: the CI is the deliverable. A null is only informative if the
+    # interval is tight enough to exclude a bar-sized *or* summand-sized gain.
     "primary/amortisation_mde_pct": amort["mde_pct"],
     "primary/amortisation_resolves_bar": int(amort["resolves_bar"]),
+    "primary/amortisation_resolves_summand": int(amort["resolves_summand"]),
+    "primary/amortisation_excludes_summand_sized_gain":
+        int(amort["excludes_summand_sized_gain"]),
+    "primary/amortisation_banks_as_summand": int(amort["banks_as_summand"]),
     "primary/best_arm_mde_pct": best["mde_pct"],
+    "primary/best_arm_mde_us_per_step_m4": best["mde_us_per_step_m4"],
     "primary/best_arm_resolves_bar": int(best["resolves_bar"]),
+    "primary/best_arm_resolves_summand": int(best["resolves_summand"]),
+    "primary/best_arm_excludes_summand_sized_gain":
+        int(best["excludes_summand_sized_gain"]),
+    "primary/best_arm_banks_as_summand": int(best["banks_as_summand"]),
+    "primary/any_arm_banks_as_summand": int(any(
+        dec["contrasts"][f"{a}_vs_g0"]["banks_as_summand"]
+        for a in ("g1", "g2", "g3"))),
     "primary/n_pairs_for_bar_best_arm": best["n_pairs_for_bar"] or -1,
+    "primary/n_pairs_for_summand_best_arm": best["n_pairs_for_summand"] or -1,
 
     # Per-arm paired decode deltas.
     **{f"decode/{a}_vs_g0_pct": dec["contrasts"][f"{a}_vs_g0"]["mean_pct"]
        for a in ("g1", "g2", "g3")},
     **{f"decode/{a}_vs_g0_ci95_hi_pct": dec["contrasts"][f"{a}_vs_g0"]["ci95_pct"][1]
+       for a in ("g1", "g2", "g3")},
+    **{f"decode/{a}_vs_g0_us_per_step_m4":
+       dec["contrasts"][f"{a}_vs_g0"]["mean_us_per_step_m4"]
+       for a in ("g1", "g2", "g3")},
+    **{f"decode/{a}_vs_g0_pct_cs": dec["contrasts"][f"{a}_vs_g0"]["mean_pct_cs"][K_PRIMARY]
        for a in ("g1", "g2", "g3")},
     **{f"decode/mean_s_{a}": dec["arm_means_s"][a] for a in ARMS},
     "decode/g0_mean_s": dec["g0_mean_s"],
@@ -169,6 +225,8 @@ summary = {
     "placebo/prefill_g0_mean_s": pla["g0_mean_s"],
     "placebo/prefill_g0_cov_pct": pla["g0_cov_pct"],
     "placebo/prefill_amortisation_effect_pct": pla["contrasts"]["A_amortisation"]["mean_pct"],
+    "placebo/prefill_amortisation_effect_us_per_token_m4":
+        pla["contrasts"]["A_amortisation"]["mean_us_per_token_m4"],
     "placebo/prefill_max_abs_arm_effect_pct": max(
         abs(pla["contrasts"][f"{a}_vs_g0"]["mean_pct"]) for a in ("g1", "g2", "g3")),
     "placebo/prefill_any_false_positive": int(any(
@@ -188,10 +246,18 @@ summary = {
         roof["family_total_headroom_pct_of_decode"]["lmhead"],
     "roofline/family_headroom_pct_vs_dense_down":
         roof["family_total_headroom_pct_of_decode"]["dense_down"],
+    "roofline/family_headroom_pct_of_cs_vs_lmhead":
+        roof["family_total_headroom_pct_of_cs"]["lmhead"][K_PRIMARY],
+    "roofline/family_headroom_pct_of_cs_vs_dense_down":
+        roof["family_total_headroom_pct_of_cs"]["dense_down"][K_PRIMARY],
     "roofline/deficit_fraction_needed_vs_lmhead":
-        roof["fraction_of_deficit_needed_to_clear_bar"]["lmhead"],
+        roof["fraction_of_deficit_needed_to_clear_bar"]["lmhead"][K_PRIMARY],
     "roofline/deficit_fraction_needed_vs_dense_down":
-        roof["fraction_of_deficit_needed_to_clear_bar"]["dense_down"],
+        roof["fraction_of_deficit_needed_to_clear_bar"]["dense_down"][K_PRIMARY],
+    "roofline/summand_deficit_fraction_needed_vs_lmhead":
+        roof["fraction_of_deficit_needed_to_clear_summand_bar"]["lmhead"][K_PRIMARY],
+    "roofline/summand_deficit_fraction_needed_vs_dense_down":
+        roof["fraction_of_deficit_needed_to_clear_summand_bar"]["dense_down"][K_PRIMARY],
     "roofline/local_whole_step_pct_of_ceiling": roof["local_pct_of_ceiling_whole_step"],
     # Rule 81: both published reference rates, because the >=10pp clause is met
     # under lmhead and fails under the fairer same-pattern dense_down.
@@ -280,6 +346,16 @@ summary = {
     "ceiling/time_weighted_issue_utilisation_pct":
         ceil["time_weighted_issue_utilisation_pct"],
     "ceiling/utilisation_scaled_pct_of_cs": ceil["utilisation_scaled_ceiling_pct_of_cs"],
+    "ceiling/clears_summand_bar_at_full_issue_boundedness":
+        int(ceil["ceiling_clears_summand_bar"]),
+    "ceiling/utilisation_scaled_clears_summand_bar":
+        int(ceil["utilisation_scaled_clears_summand_bar"]),
+    "ceiling/combined_us_per_step_m4":
+        ceil["combined_ceiling_us_per_step_m4"][K_PRIMARY],
+    "ceiling/utilisation_scaled_us_per_step_m4":
+        ceil["utilisation_scaled_ceiling_us_per_step_m4"][K_PRIMARY],
+    "ceiling/slot_cost_multiplier_needed_for_summand": ceil[
+        "slot_cost_multiplier_needed_for_summand_at_measured_utilisation"],
     "ceiling/slot_cost_multiplier_needed": ceil[
         "slot_cost_multiplier_needed_at_measured_utilisation"],
     "ceiling/rule100_issue_per_s_reference": ceil["rule100_issue_per_s"],
@@ -318,16 +394,31 @@ run.log({"insitu_runs": runs_t})
 con_t = wandb.Table(columns=["axis", "contrast", "n_pairs", "mean_pct", "ci95_lo_pct",
                              "ci95_hi_pct", "excludes_zero", "sign_pos", "sign_p",
                              "forward_pct", "reverse_pct", "mde_pct", "resolves_bar",
-                             "n_pairs_for_bar"])
+                             "n_pairs_for_bar", "mean_us_per_token_m4",
+                             "ci95_lo_us_per_token_m4", "ci95_hi_us_per_token_m4",
+                             "priced_in_cs",
+                             "mean_pct_cs", "ci95_lo_pct_cs", "ci95_hi_pct_cs",
+                             "mde_us_per_token_m4", "resolves_summand",
+                             "excludes_summand_sized_gain", "banks_as_summand"])
 for axis, blk in (("decode", dec), ("prefill_placebo", pla)):
     for name, rec in blk["contrasts"].items():
         base = blk["g0_mean_s"]
+        # the decode-fitted price must not be applied to the placebo axis, so
+        # the %cs columns stay empty there (rule 105.6).
+        cs = rec["mean_pct_cs"][K_PRIMARY] if rec["priced_in_cs"] else None
+        cs_lo, cs_hi = (rec["ci95_pct_cs_primary"] if rec["priced_in_cs"]
+                        else (None, None))
         con_t.add_data(axis, name, rec["n"], rec["mean_pct"], rec["ci95_pct"][0],
                        rec["ci95_pct"][1], rec["excludes_zero"], rec["sign_pos"],
                        rec["sign_p"],
                        100.0 * rec["by_order"].get("forward", float("nan")) / base,
                        100.0 * rec["by_order"].get("reverse", float("nan")) / base,
-                       rec["mde_pct"], rec["resolves_bar"], rec["n_pairs_for_bar"])
+                       rec["mde_pct"], rec["resolves_bar"], rec["n_pairs_for_bar"],
+                       rec["mean_us_per_token_m4"], rec["ci95_us_per_token_m4"][0],
+                       rec["ci95_us_per_token_m4"][1], rec["priced_in_cs"],
+                       cs, cs_lo, cs_hi,
+                       rec["mde_us_per_token_m4"], rec["resolves_summand"],
+                       rec["excludes_summand_sized_gain"], rec["banks_as_summand"])
 run.log({"contrasts": con_t})
 
 geom_t = wandb.Table(columns=["arm", "head", "rps", "num_simdgroups", "rows_per_tg",

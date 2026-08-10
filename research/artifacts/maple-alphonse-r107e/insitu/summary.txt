@@ -18,3 +18,5 @@ abba1.p13.g3 rc=0 seconds=161
 abba1.p14.g2 rc=0 seconds=168
 abba1.p15.g1 rc=0 seconds=169
 abba1.p16.g0 rc=0 seconds=169
+abba2.p01.g0 rc=0 seconds=167
+abba2.p02.g1 rc=0 seconds=193
