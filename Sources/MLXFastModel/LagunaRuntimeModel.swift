@@ -8648,6 +8648,7 @@ private final class LagunaDenseDownTrace: @unchecked Sendable {
         let line = "{\"prefill\":\(prefill),\"decode_seed\":\(decodeSeed),"
             + "\"decode_step\":\(decodeStep)}\n"
         let data = Data(line.utf8)
+        FileHandle.standardError.write(Data("DENSE_DOWN_TRACE_COUNTS ".utf8) + data)
         if !FileManager.default.fileExists(atPath: path) {
             _ = FileManager.default.createFile(atPath: path, contents: nil)
         }
