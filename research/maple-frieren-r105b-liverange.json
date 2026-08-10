@@ -1,0 +1,53 @@
+{
+ "delta_pf1_minus_pf0": [
+  3,
+  3,
+  3,
+  3
+ ],
+ "delta_pf1_minus_pf1c": [
+  2,
+  2,
+  2,
+  2
+ ],
+ "delta_pf1c_minus_pf0": [
+  1,
+  1,
+  1,
+  1
+ ],
+ "pf0": {
+  "barriers": 4,
+  "live_across_barrier": [
+   8,
+   8,
+   7,
+   8
+  ],
+  "live_max": 8,
+  "ssa_defs": 136
+ },
+ "pf1": {
+  "barriers": 4,
+  "live_across_barrier": [
+   11,
+   11,
+   10,
+   11
+  ],
+  "live_max": 11,
+  "ssa_defs": 178
+ },
+ "pf1c": {
+  "barriers": 4,
+  "live_across_barrier": [
+   9,
+   9,
+   8,
+   9
+  ],
+  "live_max": 9,
+  "ssa_defs": 172
+ }
+}

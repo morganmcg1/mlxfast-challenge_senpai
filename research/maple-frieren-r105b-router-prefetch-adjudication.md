@@ -1604,6 +1604,20 @@ when a loop would help me.
 
 ### 13.4 Why I stopped rather than pushing harder
 
+> **[ERRATUM — rev2, written after the base relationship was resolved.]**
+> Reason 2 below is **wrong** and I am retracting it. It asserts that HEAD's
+> 27-file divergence from `origin/main` makes absolute `cs` "not
+> frontier-comparable". I never checked the *direction* of that divergence.
+> `origin/main` is `1bc1c895`, and `git merge-base --is-ancestor 1bc1c895
+> 0954002c` succeeds: the promoted frontier is a **strict ancestor** of this
+> assignment base. The 27 files are comment-stripping in `Vendor/` plus already
+> merged 105-C/D/E work. The branch is therefore strictly *ahead* of the
+> frontier, absolute `cs` **is** frontier-comparable, and a win here is
+> promotion-eligible. The §12.4 "better experiment off `origin/main`" is not
+> better; it is the same experiment run from further back. Reasons 1, 3 and 4
+> stand as written and remain the honest account of the rev1 stop. rev2
+> directed the draws to proceed on this base and §16 reports them.
+
 Four reasons, heaviest first.
 
 1. **The pair cannot settle what it was for, and I said so before drawing.**
@@ -1737,6 +1751,225 @@ randomised interval with a published mean would at least remove the incentive
 to poll fastest. I have not implemented either; both are campaign-level
 decisions.
 
+## 15. The two verdicts rev2 asked for, explicitly
+
+rev2 required a plain verdict on two standing claims rather than a discussion
+that leaves the reader to infer one. Both are given below in the form
+*uphold / qualify / retract*, with the evidence that decides them and the
+caveats that limit them.
+
+### 15.0 New static evidence: live ranges across the barrier
+
+Phase A established **V-PLACEMENT** — the prefetch salvo's cost is where the
+loads sit relative to the threadgroup barrier, not the loads themselves — but
+the *mechanism* behind that was hypothesis, not measurement. §10 offered
+register pressure as the likely carrier and said plainly that it was unproven.
+I can now do better without spending GPU time, because the mechanism has a
+static signature.
+
+The `.air.ll` dumps in `research/msl/` already told us the loads are identical:
+
+| variant | AIR lines | barriers | loads |
+|---|---|---|---|
+| `pf0` (no salvo) | 369 | 5 | 10 |
+| `pf1` (salvo hoisted **above** barrier) | 438 | 5 | 13 |
+| `pf1c` (same salvo issued **below** barrier) | 426 | 5 | 13 |
+
+`pf1` and `pf1c` issue the *same 13 loads*. Anything that separates them is
+placement by construction. `research/maple-frieren-r105b-liverange.py` counts,
+for each threadgroup barrier, the SSA values defined before it and still used
+after it — the direct static proxy for the live ranges a hoist stretches across
+the barrier:
+
+| variant | SSA defs | live-across-barrier, per barrier | max |
+|---|---|---|---|
+| `pf0` | 136 | 8, 8, 7, 8 | 8 |
+| `pf1` | 178 | 11, 11, 10, 11 | **11** |
+| `pf1c` | 172 | 9, 9, 8, 9 | 9 |
+
+Deltas against `pf0`: `pf1` **+3 at every barrier** (+12 total); `pf1c` **+1 at
+every barrier** (+4 total). The placement-only contrast `pf1 − pf1c` is
+**+2 at every one of the four barriers, +8 total**.
+
+This is the first evidence in the round that is both mechanistic and free. It
+matters because the ordering it produces is the *same* ordering the M4 timing
+produced, on an axis the timing never saw:
+
+| variant | live-across-barrier (static) | Phase A timing |
+|---|---|---|
+| `pf0` = P0 | 8 (lowest) | fastest |
+| `pf1c` ≈ P5 | 9 | `P0 → P5` CI covers zero |
+| `pf1` = P1 | 11 (highest) | **+28.00 µs/step slower than P0** |
+
+Two independent measurements, one static and one dynamic, rank the three
+variants identically, and the variant that is *only* a placement change carries
+the whole gap. I state the limits precisely: this is a monotone agreement, not
+a calibration. +3/barrier costs 28 µs while +1/barrier costs an amount whose
+interval covers zero, which is not linear, and I have no occupancy counter to
+confirm that the extra live values actually force a spill or an occupancy step
+rather than merely widening a live range the allocator absorbs. So the claim I
+am willing to sign is the weaker one: **the placement effect has a static
+signature that tracks it, and register live-range extension across the barrier
+is now a supported mechanism rather than a bare hypothesis.**
+
+### 15.1 Verdict on `research/CURRENT_RESEARCH_STATE.md:193-200`
+
+**UPHOLD the arithmetic and the headline; QUALIFY one clause.**
+
+Upheld without reservation: the step traffic of 1,671,402,432 B, the 2740.00 µs
+DRAM floor against Rule 80's 610 GB/s, the 66.16 % share of the 4141.5 µs
+ranked step, and the conclusion that **decode is memory-bound at the same knee
+as prefill**. Nothing in this round touches those numbers, and my results are
+consistent with them: a zero-byte change cannot move the roofline, and it did
+not.
+
+The clause I qualify is *"The 1401.50 µs remainder is a **subtraction residual,
+not a pool**."* As a warning against *budgeting* the residual — treating
+1401.50 µs as a fund that optimisations may draw down — it is correct and
+should stay. But it is being read more strongly than that, as though the
+residual were inert and work inside it not worth attacking. This round
+falsifies the strong reading. The prefetch salvo moves **zero bytes**: `pf1`
+and `pf1c` issue byte-identical loads, DRAM traffic is unchanged, and the
+roofline term is untouched. It nonetheless moves **28.00 µs/step**, which is
+**2.0 % of the 1401.50 µs residual** and **+0.426 % of composite score** — a
+figure that would rank, from a change of *where four loads sit*.
+
+So the residual is not inert. It is not a pool you may budget against, and it
+is also not a region where placement-sensitive work should be dismissed
+a priori. My proposed amendment is one sentence appended to the clause:
+
+> *The residual is a subtraction residual and may not be budgeted as a pool;
+> but it is not inert — zero-byte placement effects inside it have been
+> measured at 2.0 % of its size, so a change that moves no bytes may still be
+> worth ranking-scale time.*
+
+Caveat: 28.00 µs/step is M4 Pro. The M5 transfer is exactly what §16's receipts
+were drawn to test, and until they resolve, the *magnitude* is directional even
+though the existence of a zero-byte placement effect is established.
+
+### 15.2 Verdict on Rule 82
+
+Rule 82 has an empirical half and a procedural half, and they do not share a
+fate.
+
+**RETRACT the empirical half.** Rule 82's factual base is a per-kernel label
+measurement: the router GEMV prefetch showed **−6.39 µs/step**, i.e. hoisting
+the salvo *won*. That is now falsified end to end, twice and in the same
+direction. #571 measured **+34.58 µs/step** against the hoisted arm; this round
+measured **+28.00 µs/step [+22.23, +33.77]**, 16 of 16 slots positive. The two
+intervals overlap each other and exclude the labelled win. A label that reports
+a −6.39 µs gain on a change that costs +28 µs end to end is not noisy, it is
+measuring the wrong thing: it sees the loads retire earlier and does not see
+the live ranges the hoist stretched across the barrier (§15.0). The rule's
+number should be struck rather than widened.
+
+**UPHOLD the procedural half, and promote its corollaries.** Rule 82's
+requirement that a codegen arm begin with a static compile read is vindicated —
+it is precisely the static read that produced §15.0 and, at zero GPU cost,
+supplied the mechanism the timing could not. §9.2's refinement stands and
+should be promoted from a qualification buried in this document to freestanding
+rules:
+
+- **82a** — *the static read is a **veto**, not an authorisation.* An unchanged
+  static profile does not license a hoist; it only fails to forbid one.
+  `pf0`/`pf1`/`pf1c` are indistinguishable on the occupancy read that Rule 82
+  actually consults, and they differ by 28 µs/step.
+- **82b** — *a per-kernel label is not an end-to-end result.* Where the two
+  disagree, the end-to-end paired measurement wins, and the label's disagreement
+  is a fact about the label.
+
+#540's sliding-attention prohibition is untouched by all of this and stands.
+
+**REPLACE the mechanism** with what the evidence now supports. Proposed:
+
+> **Rule 82′.** The cost of a prefetch is carried by its **placement**, not by
+> its loads. Hoisting a load above a threadgroup barrier is charged end to end
+> even when the per-kernel label shows a win and static occupancy is unchanged,
+> because the hoist extends register live ranges across the barrier. Measured
+> M4 Pro: identical 13-load salvos differing only in barrier side rank
+> identically by static live-across-barrier count (+2/barrier for the hoisted
+> form) and by end-to-end time (+28.00 µs/step, 16/16 slots).
+
+Caveats I attach to 82′ and will not paper over. (i) All timing evidence is
+**M4 Pro**; the M5 receipts in §16 are the transfer test, and per `AGENTS.md`
+threadgroup-geometry effects can change sign across core counts. (ii) The
+live-range mechanism is **supported by a static proxy, not by an occupancy or
+spill counter** — the agreement in §15.0 is monotone, not calibrated. (iii) The
+rule is stated for threadgroup barriers in this kernel family and should not be
+generalised to other barrier types without a fresh read.
+
+## 16. rev2 Phase B — the receipts
+
+### 16.1 What is being measured, and on which statistic
+
+Two arms, one editable byte apart, both on assignment base `0954002c`:
+
+- **P0** — `DARKBLOOM_ROUTER_WEIGHT_PREFETCH` compiled-in default flipped
+  `1 → 0`, i.e. the salvo is gone. Commit `ea0e4da`.
+- **P1** — the shipped default `1` restored, plus an arm-identifying comment
+  block inside the same editable file so the two arms are distinct commits with
+  the distinguishing byte on the **submitted** surface. Commit `9214e6b`.
+
+The contrast is read on **`T = D − 4P`**, not on `officialScore`. `T` is the
+true steady-state per-step time and follows exactly from two published fields
+by the rule-58 identity `D = 4P + T`; `officialScore` additionally carries the
+paired baseline of whichever session the receipt happened to land in. I report
+`L = officialScore / cs` alongside precisely so that session drift is visible
+rather than silently folded into the contrast. If `L` moves materially between
+the two draws, the score-level difference is contaminated and only the
+`T`-level difference is interpretable.
+
+### 16.2 The power of this pair, stated before it lands
+
+This must be said plainly, because it is the honest limit of the round.
+`σ_pair(T) = 17.08 µs/step` from the 14-receipt consecutive-draw corpus, so
+**one pair carries a 95 % interval of ±33.5 µs/step** and two pairs ±23.7.
+The M4 effect is +28.00 µs/step; the M4→M5 attenuation observed elsewhere in
+this campaign is ×0.436, so the *expected* M5 effect is ≈ −12.2 µs/step on
+`ΔT = T(P0) − T(P1)`.
+
+An expected −12.2 against a ±33.5 interval is **a sign check with roughly 76 %
+power, not a resolution**. Two pairs would take that to ≈84 %. Neither
+resolves the transfer coefficient, and no number of receipts inside a
+4-receipt ceiling would. I preregistered this in §4.1.1 before drawing and
+restate it here so that no reader mistakes a one-pair result for a measurement
+of the transfer.
+
+### 16.3 Pair-2 decision rule (preregistered before P1 resolved)
+
+A preregistration that lives only in a file I control is worth very little, so
+this one is **embedded in the P1 submission note itself** and therefore carries
+the official channel's own server-side timestamp. It was written while
+`6fc8abf` (P0) was still `validating` with no published metrics and before P1
+had fired, so it is verifiable from the outside — `mlxfast submission-note`
+on the P1 receipt shows the rule and the receipt shows when it was accepted —
+rather than resting on my assertion about when I typed it.
+
+(It is deliberately *not* committed before the draw. Committing would move
+`HEAD` under a live drawer job, and §14.2 rule 4 says not to do that: the
+wrapper archives the worktree at fire time, so the receipt would then record a
+commit sha that is not the arm I named. The note body is the honest place for
+a timestamp anyway.)
+
+Sign convention: M4 says the hoisted arm is slower, i.e. the prediction is
+**ΔT < 0**.
+
+| observed `ΔT = T(P0) − T(P1)` | reading | action |
+|---|---|---|
+| `ΔT ≤ −17.08` (≥1σ, predicted sign) | M4 finding transfers with margin | **stop at 2 receipts**, V-BANKED |
+| `−17.08 < ΔT < +17.08` | inside 1σ of zero; ambiguous | **draw pair 2** if the channel permits — this is the only region where doubling *n* changes the verdict |
+| `ΔT ≥ +17.08` (≥1σ, reversed) | contradicts 16/16 M4 slots | **draw pair 2** — a reversal is a first-class transfer-menu finding and must not rest on one contested receipt |
+
+The ceiling stays at 4 receipts either way. If pair 2 is indicated but the
+channel is saturated by sibling arms, the documented limiter block (§14)
+applies and the round terminates at 2 with the ambiguity reported as the
+result, not papered over.
+
+### 16.4 Results
+
+*(filled from `research/maple-frieren-r105b-phaseb-receipts.py`, which resolves
+each arm by its unique note marker rather than by id ordering, since the
+account is shared and the newest id is usually a sibling's.)*
 
 ---
 

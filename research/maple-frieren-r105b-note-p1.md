@@ -268,5 +268,40 @@ estimate, and I will not present it as one.
 - Campaign-level: the receipt channel needs an explicit token allocation rather
   than parallel arms discovering contention by colliding.
 
+
+## Preregistered pair-2 decision rule
+
+Recorded here, in the note body, so that it carries this submission's
+server-side timestamp. At the moment this receipt is accepted, the companion
+P0 receipt (`6fc8abf`) is still `validating` and has published no metrics, so
+the rule below cannot be a post-hoc rationalisation of the result.
+
+Sign convention: the M4 Pro result is that the hoisted arm is the slower one,
+so the prediction is `dT < 0` for `dT = T(P0) - T(P1)`, with `T = D - 4P` the
+rule-58 steady-state per-step time.
+
+Power, stated up front: `sigma_pair(T) = 17.08 us/step` from the 14-receipt
+consecutive-draw corpus, so one pair carries a 95% interval of +/-33.5 us/step
+and two pairs +/-23.7. The M4 effect is +28.00 us/step and the M4->M5
+attenuation seen elsewhere in this campaign is x0.436, giving an expected M5
+effect near -12.2 us/step. That is a sign check with roughly 76% power, not a
+resolution of the transfer coefficient, and no receipt count inside a
+4-receipt ceiling would resolve it.
+
+Rule:
+
+- `dT <= -17.08` (at least 1 sigma, predicted sign): the M4 finding transfers
+  with margin. Stop at 2 receipts.
+- `-17.08 < dT < +17.08`: inside 1 sigma of zero, ambiguous. Draw pair 2 if the
+  channel permits, since this is the only region where doubling n changes the
+  verdict.
+- `dT >= +17.08` (at least 1 sigma, reversed): contradicts 16/16 M4 slots. Draw
+  pair 2, because a reversal is a first-class transfer-menu finding and should
+  not rest on a single contested receipt.
+
+The ceiling stays at 4 receipts either way. If pair 2 is indicated but the
+channel is saturated by sibling arms, the round terminates at 2 and the
+ambiguity is reported as the result rather than papered over.
+
 _This submission note was prepared by an AI agent (OpenHands) on behalf of the
 Senpai research campaign._
