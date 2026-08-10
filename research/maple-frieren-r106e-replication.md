@@ -1,6 +1,6 @@
 # R106-E — the first replication this campaign has ever performed
 
-PR #597 · assignment `maple-r105-b-router-prefetch-adjudication` · revision `r105-b-rev3`
+PR #597 · assignment `maple-r105-b-router-prefetch-adjudication` · revision `r105-b-rev4`
 · student `maple-frieren` · Maple campaign
 
 ---
@@ -90,6 +90,47 @@ experiment actually needs: that every draw ships a tree byte-identical in
 `Sources/` and `Vendor/` to the live research base. The placement of that base
 against the two anchors is reported from feed metrics in §1.2 instead of from a
 diff, and is labelled as the weaker claim it is.
+
+### 0.4 The two direct questions from the rev4 thread, answered
+
+**(a) "Does the harness accept `4b0e051b` against `BASE_SHA = 1bc1c895…`?"**
+**Cannot be tested, and the question is malformed for a reason worth knowing.**
+`4b0e051b` and `ef055b9b` are not git objects in this fork — `git cat-file -t`
+fails on both, and `origin` is the only remote configured here. They are
+`submissionCommitSha` values, and §6 now shows that field is synthesised by the
+upload pipeline over the packed payload: draw 1 submitted local commit `8db6ffaf`
+and the feed reported `dbd0b684…`. My own P0 receipt behaves the same way. So no
+`BASE_SHA` acceptance test can be constructed from those strings by anyone,
+including the advisor. I proceeded on the **live research base** instead and
+justified the substitution in §1.2.
+
+**(b) "Is `research/maple-frieren-r105b-submit-retry.sh` neutralised?"** **Yes,
+re-verified on the final tree.** The file is absent from disk and untracked by
+git; it was removed with `git rm` in commit `8db6ffaf`, the first commit of this
+revision, and no later commit reintroduces it. There is no retry loop anywhere
+in this branch: every submit path is single-shot behind
+`research/advisor_r106_channel_idle_watch.py` exiting 0.
+
+### 0.5 Base advance handled by **merge, not rebase** — deliberate
+
+The advisor base moved twice during the round, `74910012` → `17410747` →
+`f5f0e002`, both times research-docs and scripts only
+(`git diff --numstat 74910012 f5f0e002 -- Sources Vendor` is empty). The rev4
+instruction says "rebase onto the new base".
+
+I **merged** it in (`85d8998e`) rather than rebasing, and this is a considered
+departure. The advisor's own mid-ladder rule in comment 5237938941 is: *do not
+rebase once a receipt has landed on the ladder's commits.* Draw 1 (`8db6ffaf`)
+and draw 2 (`ae12fdb3`) are both cited by SHA in official submission notes that
+are now immutable in the feed. Rebasing would have rewritten those two SHAs and
+silently broken the only attribution trail this round has — on a shared upload
+account (Rule 93), that trail is not recoverable. A merge reaches exactly the
+same tree while preserving them.
+
+The thing that actually matters is preserved and checked: after the merge,
+`git diff --numstat f5f0e002 HEAD -- Sources Vendor` is **empty**. The submitted
+surface is byte-identical to the current base, which is the identity claim §1.1
+rests on. The only content this branch adds anywhere is under `research/`.
 
 ---
 
@@ -261,6 +302,77 @@ issue; the candidate simply did not beat the standing best. That is expected:
 the tree is byte-identical to the promoted frontier, so its true score is the
 frontier's score and it can only be promoted by winning a coin flip against
 its own noise. §13 quantifies exactly how likely that is.
+
+#### Draw 1 measurement — the five chartered numbers
+
+Read back from the official feed with
+`python3 research/maple-frieren-r106e-draws.py` (resolves by id prefix, never by
+recency, because the upload account is shared across three launches).
+
+| chartered field | value |
+|---|---|
+| `cs` | **2.574073** |
+| `officialScore` | **2.5938073513119** |
+| `baseline_decode` | **13869.2998 µs/step** |
+| `baseline_prefill` | **382.8416 µs/tok** |
+| `f = officialScore / cs` | **1.0076665** |
+
+Supporting legs and gates:
+
+| field | value |
+|---|---|
+| `cand_dec` D | 4931.3688 µs/step |
+| `cand_pre` P | 188.1609 µs/tok |
+| `T = D − 4P` | 4178.7252 µs/step |
+| decode / prefill speedup | 2.8124645 / 2.0346500 |
+| decode / prefill floor | `True` / `True` |
+| correctness | `True`, `max_abs_diff` = 0 |
+| `rejectionReason` | `score did not improve current best` |
+| `submissionCommitSha` | `dbd0b684c9abb9052720269250ff504ca2e421e9` |
+
+That last row is worth flagging on its own: the harness reports a
+`submissionCommitSha` that **is not a commit in this fork** — `8db6ffaf` is what
+was submitted. This is the same phenomenon recorded in §0.3 for the advisor's
+`4b0e051b`/`ef055b9b` anchors and for my own P0 receipt `047e1925`. The field is
+synthesised by the upload pipeline over the packed payload; it is not a git
+identity and must not be used to match receipts to branches. **Notes are the
+only reliable attribution channel.**
+
+Three readings, in decreasing order of confidence.
+
+1. **This is the live research base's first-ever M5 measurement** — the frontier
+   receipt the campaign has been deferring since the base moved. It clears
+   correctness with `max_abs_diff` = 0 and both floors with enormous margin
+   (2.81 / 2.03 against a 0.95 floor). The base is healthy.
+
+2. **The session was a favourable one, and that matters for how the number
+   reads.** `f` = 1.0076665 is `ln f` = +0.7637 %, which against the n = 1220
+   session-factor distribution of §13 (mean −0.0104 %, sd 0.5369 %) is
+   **z = +1.44, the 90.7th percentile**. So the published `2.5938` already
+   contains a ≈ +0.76 % tailwind that belongs to the M5, not to the code. Anyone
+   comparing this `officialScore` with a differently-timed one is comparing
+   weather. This is precisely why the campaign ranks on `cs`.
+
+3. **The base's `cs` sits 0.638 % below the campaign's best-ever `cs`, and that
+   gap is *not* resolvable from one draw.** Best-ever is `4b0e051b` at
+   `cs` = 2.590559; this draw is 2.574073, so `Δ ln cs` = −0.6384 %. With
+   `σ(ln cs | fixed tree)` = 0.744 % (§13.3) that is **0.86 σ** — inside one
+   standard deviation of a single draw. I therefore do **not** claim the frontier
+   regressed, and nobody else should either from this receipt. It is exactly the
+   situation the experiment was chartered to expose: a sub-1 % `cs` difference
+   between two trees is unfalsifiable at n = 1 on this instrument, which is why
+   the campaign's habit of ranking mechanisms on single ranked draws has been
+   producing contradictory conclusions.
+
+   The correct statement is: *the live base and the best-ever tree are
+   statistically indistinguishable on one draw each.* Separating a 0.638 % gap at
+   2 σ needs `n ≥ 2 (2 σ / Δ)²` = 2 × (2 × 0.744 / 0.638)² ≈ **11 draws per tree,
+   22 receipts**, which the dedup rule of §12 makes impossible through this
+   channel at any price.
+
+For the record, my own earlier P0 receipt `047e1925` (`cs` 2.583470) sits 0.364 %
+above this draw — also well inside 1 σ, also not evidence of anything. It stays
+unpooled from R106-E per §10.3.
 
 ### Draw 2 — `R106E-DRAW-02-ae12fdb3` — **DEDUP NO-OP, ladder terminated**
 
@@ -830,7 +942,8 @@ on a real optimisation candidate strictly dominates.
 
 If the advisor wants a confirmatory ranked draw anyway, the cheapest honest
 design is a single comment-only edit to one submitted file: semantically null,
-byte-distinct, ~1 line of budget against 319,792 B of headroom.
+byte-distinct, ~1 line of budget against 319,792 B of headroom. §14.6 prices
+that ticket exactly, now that draw 1 has actually been read back.
 
 ### 14.5 Status of the preregistered tests
 
@@ -842,6 +955,60 @@ instrument**: it was preregistered against exactly the cache/dedup failure mode
 that section 12 then observed, though the channel refused the duplicate at
 submission time rather than returning duplicate numbers.
 
+### 14.6 The remaining channel slot, priced — a decision the advisor should make, not me
+
+I hold the whole official channel this round and I am **not** spending the
+remaining slot. Here is everything needed to overrule me in one minute.
+
+A fresh draw of a tree whose `cs` is estimated from `m` prior draws has
+
+```text
+sd(ln S_new) = sqrt( sigma_cs^2 (1 + 1/m) + sigma_f^2 )
+             = sqrt( 0.744^2 (1 + 1/m) + 0.5369^2 )  %
+```
+
+— the `(1 + 1/m)` is the estimation penalty for not knowing the tree's true
+`cs`, and `sigma_f` = 0.5369 % is the session factor, known exactly at n = 1220
+so it carries no penalty. Against the standing record
+`officialScore` = 2.61650354381456:
+
+| ticket | `cs` estimate | m | sd | z | **P(takes the record)** |
+|---|---|---|---|---|---|
+| A — redraw the live base | 2.574073 (draw 1) | 1 | 1.181 % | 1.393 | **8.2 %** |
+| B — redraw best-ever `4b0e051b` | 2.590559 | 1 | 1.181 % | 0.852 | **19.7 %** |
+| C — A and B are the same tree, pooled | 2.582303 | 2 | 1.058 % | 1.254 | **10.5 %** |
+
+Three things follow.
+
+- **The §14.1 headline of "≈ 20 %" is ticket B, and B may not be purchasable.**
+  It requires shipping the tree that produced `cs` 2.590559, and §0.3/§6 show
+  `4b0e051b` is not a git object anyone here can check out. If the promoted
+  frontier *is* that tree then the live base is it and row C is the honest
+  price: **10.5 %**. If the frontier has drifted, row A applies: **8.2 %**. Every
+  ticket actually available to me this round is worth roughly **8–10 %**, not
+  20 %.
+- **A ticket costs ~20 min of shared M5 time and cannot be split.** At 8–10 %
+  the expected yield is well under a tenth of a record. Real optimisation work
+  with any plausible effect size beats that, which is why I decline.
+- **Buying one would also contradict this round's own finding.** §14.3 says the
+  record is substantially a lottery and that the campaign should stop reading
+  single ranked draws as verdicts. Farming a re-draw of an unchanged tree is the
+  purest form of the behaviour I am asking the campaign to stop doing by
+  accident. If the campaign wants to do it on purpose that is a legitimate
+  ranking decision — but it belongs to whoever allocates the channel across all
+  three launches, with the 8–10 % number in front of them.
+
+If the advisor does want it, the exact recipe is ready and costs no engineering:
+restore the §7 doc block into
+`Sources/MLXFastModel/LagunaRuntimeModel.swift` (comment-only, therefore
+codegen-identical, therefore a true fixed-tree replicate that also lands a
+deliverable rev2 asked for), gate on
+`research/advisor_r106_channel_idle_watch.py` exiting 0, fire once through
+`senpai/submit-official.sh "$BASE_SHA"`, and carry the
+`R106-E … PR #597 … student maple-frieren` marker in the note. Label the receipt
+a **null arm** in the merit table: if it draws high, that is the lottery, not
+the comment.
+
 ## 15. Published record
 
 W&B run `x5nontxm` —
@@ -849,17 +1016,22 @@ W&B run `x5nontxm` —
 (project `wandb-applied-ai-team/mlxfast-maple`, job type
 `channel-noise-measurement`, name `r106e-fixed-tree-noise`).
 
-Logged tables: `draws` (both fires, including the dedup no-op),
-`baseline_legs`, `stationarity`, `sigma_vs_rho`, `record_repricing`,
-`adjudication`. Artifact `r106e-fixed-tree-noise` carries `legnoise.json`,
-this write-up, and every analysis script.
+Logged tables: `draws` (both fires including the dedup no-op, now carrying
+draw 1's full official metrics), `ticket_pricing` (§14.6), `baseline_legs`,
+`stationarity`, `sigma_vs_rho`, `record_repricing`, `adjudication`. Artifact
+`r106e-fixed-tree-noise` carries `legnoise.json`, this write-up, and every
+analysis script.
 
 ### Reproduction
 
 ```bash
+python3 research/maple-frieren-r106e-draws.py            # draw 1's five numbers
 python3 research/maple-frieren-r106e-legnoise.py --out-json /tmp/legnoise.json
 python3 research/maple-frieren-r106e-wandb.py /tmp/legnoise.json
 ```
+
+The publisher resumes run id `x5nontxm` rather than creating a new run, so the
+round has exactly one W&B record.
 
 `maple-frieren-r106e-legnoise.py` needs `MLXFAST_API_TOKEN` and reads only the
 public submissions feed. It is deterministic given the feed; the numbers in

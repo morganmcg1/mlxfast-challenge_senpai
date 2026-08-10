@@ -26,6 +26,7 @@ import wandb
 
 PROJECT = "mlxfast-maple"
 ENTITY = "wandb-applied-ai-team"
+RUN_ID = "x5nontxm"
 
 HYPOTHESES = {
     "H1_near_replicate_pair": 0.2494,
@@ -34,18 +35,49 @@ HYPOTHESES = {
 }
 RECORD = 2.61650354381456
 BEST_DRAW = 2.590559
+# Mean of ln(officialScore / cs) over the 1220 scored sessions; the X constant
+# was calibrated to make this ~0, and it is reported rather than assumed.
+MEAN_LN_SESSION_FACTOR_PCT = -0.0104
+
+# Draw 1 official metrics, read back from the submissions feed with
+# `maple-frieren-r106e-draws.py`. cs/f are recomputed there from the raw legs.
+DRAW1 = {
+    "cs": 2.574073,
+    "official_score": 2.5938073513119,
+    "baseline_decode_us_step": 13869.2998,
+    "baseline_prefill_us_tok": 382.8416,
+    "session_factor_f": 1.0076665,
+    "cand_decode_us_step": 4931.3688,
+    "cand_prefill_us_tok": 188.1609,
+    "decode_speedup": 2.8124645124005556,
+    "prefill_speedup": 2.0346500031788994,
+    "passed_correctness": True,
+    "max_abs_diff": 0,
+    "rejection_reason": "score did not improve current best",
+    "submission_commit_sha_reported": "dbd0b684c9abb9052720269250ff504ca2e421e9",
+}
 
 DRAWS = [
     {"draw": 1, "tag": "R106E-DRAW-01-8db6ffaf",
      "commit": "8db6ffaf1c67f6044711c2aa198ec3b3922553fd",
      "submission": "2771067f-54b4-4e73-aa4f-f2b01d322c02",
      "fired": "2026-08-10T08:54:49Z", "status": "rejected",
-     "outcome": "scored", "note_stored": True},
+     "outcome": "scored", "note_stored": True, "metrics": DRAW1},
     {"draw": 2, "tag": "R106E-DRAW-02-ae12fdb3",
      "commit": "ae12fdb397270061cc07e79b7f4b432d4af75c84",
      "submission": "2771067f-54b4-4e73-aa4f-f2b01d322c02",
      "fired": "2026-08-10T09:18:21Z", "status": "rejected",
-     "outcome": "dedup no-op (draw 1 receipt replayed)", "note_stored": False},
+     "outcome": "dedup no-op (draw 1 receipt replayed)", "note_stored": False,
+     "metrics": None},
+]
+
+# P(a fresh draw of a tree takes the record), with the estimation penalty for
+# knowing that tree's cs from only m prior draws.
+TICKETS = [
+    ("A: redraw the live base", DRAW1["cs"], 1),
+    ("B: redraw best-ever 4b0e051b", BEST_DRAW, 1),
+    ("C: A and B pooled as one tree",
+     math.exp(0.5 * (math.log(DRAW1["cs"]) + math.log(BEST_DRAW))), 2),
 ]
 
 
@@ -74,7 +106,7 @@ def main() -> None:
     config = {
         "experiment": "R106-E fixed-tree noise measurement",
         "assignment": "maple-r105-b-router-prefetch-adjudication",
-        "revision": "r105-b-rev3",
+        "revision": "r105-b-rev4",
         "pr": 597,
         "student": "maple-frieren",
         "chartered_design": "one fixed compiled tree, byte-identical in "
@@ -103,6 +135,7 @@ def main() -> None:
     }
 
     run = wandb.init(entity=ENTITY, project=PROJECT, config=config,
+                     id=RUN_ID, resume="allow",
                      job_type="channel-noise-measurement",
                      name="r106e-fixed-tree-noise",
                      tags=["r106", "r106-e", "maple-frieren", "pr597",
@@ -114,12 +147,38 @@ def main() -> None:
                            "sigma(ln cs) ~ 0.74 %, sigma(ln officialScore) ~ "
                            "1.20 %.")
 
-    dtbl = wandb.Table(columns=["draw", "tag", "commit", "submission",
-                                "fired", "status", "outcome", "note_stored"])
+    dtbl = wandb.Table(columns=["draw", "tag", "commit", "submission", "fired",
+                                "status", "outcome", "note_stored", "cs",
+                                "official_score", "session_factor_f",
+                                "baseline_decode_us_step",
+                                "baseline_prefill_us_tok",
+                                "cand_decode_us_step", "cand_prefill_us_tok",
+                                "decode_speedup", "prefill_speedup",
+                                "passed_correctness", "max_abs_diff"])
     for d in DRAWS:
+        m = d["metrics"] or {}
         dtbl.add_data(d["draw"], d["tag"], d["commit"][:12], d["submission"],
-                      d["fired"], d["status"], d["outcome"], d["note_stored"])
+                      d["fired"], d["status"], d["outcome"], d["note_stored"],
+                      m.get("cs"), m.get("official_score"),
+                      m.get("session_factor_f"),
+                      m.get("baseline_decode_us_step"),
+                      m.get("baseline_prefill_us_tok"),
+                      m.get("cand_decode_us_step"),
+                      m.get("cand_prefill_us_tok"),
+                      m.get("decode_speedup"), m.get("prefill_speedup"),
+                      m.get("passed_correctness"), m.get("max_abs_diff"))
     run.log({"draws": dtbl})
+
+    sd_cs, sd_f = at0["sd_ln_cs_pct"], sf["sd_ln_sf_pct"]
+    mu_f = MEAN_LN_SESSION_FACTOR_PCT
+    ttbl = wandb.Table(columns=["ticket", "cs_estimate", "m_prior_draws",
+                                "sd_ln_score_pct", "z_vs_record",
+                                "p_takes_record"])
+    for label, cs_hat, m in TICKETS:
+        sd = math.sqrt(sd_cs ** 2 * (1 + 1.0 / m) + sd_f ** 2)
+        z = (100 * math.log(RECORD / cs_hat) - mu_f) / sd
+        ttbl.add_data(label, cs_hat, m, sd, z, norm_sf(z))
+    run.log({"ticket_pricing": ttbl})
 
     ltbl = wandb.Table(columns=["quantity", "n", "sd_pct", "robust_sd_pct",
                                 "lag1"])
@@ -199,6 +258,18 @@ def main() -> None:
         "h3_prediction_rel_error":
             abs(at0["sd_ln_S_pct"] / HYPOTHESES["H3_pooled_cross_code_residual"]
                 - 1),
+        "draw1/cs": DRAW1["cs"],
+        "draw1/official_score": DRAW1["official_score"],
+        "draw1/baseline_decode_us_step": DRAW1["baseline_decode_us_step"],
+        "draw1/baseline_prefill_us_tok": DRAW1["baseline_prefill_us_tok"],
+        "draw1/session_factor_f": DRAW1["session_factor_f"],
+        "draw1/session_factor_z":
+            (100 * math.log(DRAW1["session_factor_f"])
+             - MEAN_LN_SESSION_FACTOR_PCT) / sf["sd_ln_sf_pct"],
+        "draw1/passed_correctness": DRAW1["passed_correctness"],
+        "draw1/gap_to_best_ever_cs_pct": 100 * math.log(BEST_DRAW / DRAW1["cs"]),
+        "draw1/gap_to_best_ever_in_sigma":
+            100 * math.log(BEST_DRAW / DRAW1["cs"]) / at0["sd_ln_cs_pct"],
         "channel/dedup_confirmed": True,
         "channel/ladder_feasible": False,
         "verdict": "sigma(ln cs | fixed tree) ~ 0.74 %; sigma(ln officialScore "
@@ -217,6 +288,7 @@ def main() -> None:
                   "research/maple-frieren-r106e-ladder.py",
                   "research/maple-frieren-r106e-note.py",
                   "research/maple-frieren-r106e-payload-digest.py",
+                  "research/maple-frieren-r106e-draws.py",
                   "research/maple-frieren-r106e-draw.sh"):
         if Path(extra).exists():
             art.add_file(extra, name=Path(extra).name)
