@@ -25,6 +25,7 @@ BUSY_TO_WALL = 0.8  # conservative planning transfer; measured 0.93 CI spans 0
 # removed chained host encode, NOT for in-kernel busy. Printed for contrast.
 BRIEF_PRICE = 0.01642
 BLOCK = 8  # palindromic ABBA block length used by the driver script
+CONTROL = os.environ.get("CTRL", "C")
 
 # Issue slots added per QK reduction site, relative to the shipped kernel.
 # One dose repetition is 1 fmul + 5 shuffles + 5 adds; the shipped simd_sum
@@ -128,7 +129,7 @@ def block_delta(rows, arm):
     deltas = []
     for start in range(0, len(rows) - BLOCK + 1, BLOCK):
         chunk = rows[start:start + BLOCK]
-        c = [d for a, d, _, _ in chunk if a == "C"]
+        c = [d for a, d, _, _ in chunk if a == CONTROL]
         p = [d for a, d, _, _ in chunk if a == arm]
         if c and p:
             deltas.append(sum(p) / len(p) - sum(c) / len(c))
@@ -190,7 +191,7 @@ def main():
             f"passed_correctness={'/'.join(sorted(passes))}"
         )
 
-    control = os.environ.get("CTRL", "C")
+    control = CONTROL
 
     # Negative control.  The probed kernel is dispatched only for single-token
     # decode queries, so no arm can reach prefill.  A systematic prefill shift
