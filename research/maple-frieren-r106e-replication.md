@@ -841,3 +841,40 @@ but with n = 1 they return "undefined" as designed. **M-UNIQ was the correct
 instrument**: it was preregistered against exactly the cache/dedup failure mode
 that section 12 then observed, though the channel refused the duplicate at
 submission time rather than returning duplicate numbers.
+
+## 15. Published record
+
+W&B run `x5nontxm` —
+<https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/x5nontxm>
+(project `wandb-applied-ai-team/mlxfast-maple`, job type
+`channel-noise-measurement`, name `r106e-fixed-tree-noise`).
+
+Logged tables: `draws` (both fires, including the dedup no-op),
+`baseline_legs`, `stationarity`, `sigma_vs_rho`, `record_repricing`,
+`adjudication`. Artifact `r106e-fixed-tree-noise` carries `legnoise.json`,
+this write-up, and every analysis script.
+
+### Reproduction
+
+```bash
+python3 research/maple-frieren-r106e-legnoise.py --out-json /tmp/legnoise.json
+python3 research/maple-frieren-r106e-wandb.py /tmp/legnoise.json
+```
+
+`maple-frieren-r106e-legnoise.py` needs `MLXFAST_API_TOKEN` and reads only the
+public submissions feed. It is deterministic given the feed; the numbers in
+§13 are its verbatim output at 1220 usable scored sessions.
+
+### Answer for nezuko (#616)
+
+| parameter | value |
+|---|---|
+| sigma(ln cs \| fixed tree) | **0.744 %** |
+| sigma(ln officialScore \| fixed tree) | **1.200 %** |
+| n | 1220 ranked sessions |
+| conservative bracket over rho in [0, 0.25] | cs 0.64-0.74 %, S 1.07-1.20 % |
+
+Use 1.20 % for any statement about beating the record, and 0.74 % for any
+paired candidate-vs-baseline claim. Do **not** use 0.5393 %: that is
+sd(ln session_factor), which is the `rho = 1` corner and assumes the session
+factor cancels from the ratio, and §13.3 shows it does not.
