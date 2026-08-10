@@ -116,7 +116,8 @@ struct LagunaRouteHandoffTests {
         activated: MLXArray,
         indices: MLXArray,
         scores: MLXArray,
-        normalizing: Bool
+        routePayload: MLXArray? = nil,
+        normalizing: Bool = false
     ) -> MLXArray {
         lagunaRoutedSharedDownResidual(
             routedActivated: activated,
@@ -128,13 +129,14 @@ struct LagunaRouteHandoffTests {
             sharedDownWeight: fixture.sharedDownWeight,
             sharedDownScales: fixture.sharedDownScales,
             residual: fixture.residual,
-            staged: true,
-            normalizeRouterWeights: normalizing
+            routePayload: routePayload,
+            normalizeRoutePayload: normalizing,
+            staged: true
         )
     }
 
     @Test
-    func payloadAndNormalizedReductionAreBitExact() throws {
+    func payloadAndDownReductionAreBitExact() {
         guard ProcessInfo.processInfo.environment["MLXFAST_RUN_ROUTE_HANDOFF_TESTS"] == "1"
         else { return }
 
@@ -146,52 +148,69 @@ struct LagunaRouteHandoffTests {
                 logits: logits, correctionBias: bias, normalizing: false)
             eval(rawIndices, rawScores)
             let expectedIndices = rawIndices.asArray(UInt32.self)
-            let producer = lagunaRoutedSwiGLUQMVPackedTop8(
+            let keys = orderedKeys(expectedIndices)
+            let legacyActivated = lagunaRoutedSwiGLUQMVPackedTop8(
                 fixture.input,
                 fusedWeight: fixture.fusedGateUpWeight,
                 packedScales: fixture.fusedGateUpScales,
-                routerKeys: orderedKeys(expectedIndices),
+                routerKeys: keys
+            )
+            let producer = lagunaRoutedSwiGLUQMVPackedTop8RouteHandoff(
+                input: fixture.input,
+                fusedWeight: fixture.fusedGateUpWeight,
+                packedScales: fixture.fusedGateUpScales,
+                routerKeys: keys,
                 routerLogits: logits
             )
-            let handoffIndices = try #require(producer.routeIndices)
-            let handoffScores = try #require(producer.routeScores)
-            eval(handoffIndices, handoffScores)
-            #expect(handoffIndices.asArray(UInt32.self) == expectedIndices, Comment(rawValue: label))
+            eval(legacyActivated, producer.activated, producer.routePayload)
+            let words = producer.routePayload.asArray(UInt32.self)
+            let payloadIndices = stride(from: 0, to: words.count, by: 2).map { words[$0] }
+            let payloadScores = stride(from: 1, to: words.count, by: 2).map { words[$0] }
+            let expectedScores = rawScores.asArray(Float.self).map(\.bitPattern)
+            #expect(payloadIndices == expectedIndices, Comment(rawValue: label))
+            #expect(payloadScores == expectedScores, Comment(rawValue: label))
             #expect(
-                handoffScores.asArray(Float.self).map(\.bitPattern)
-                    == rawScores.asArray(Float.self).map(\.bitPattern),
+                producer.activated.asArray(Float.self).map(\.bitPattern)
+                    == legacyActivated.asArray(Float.self).map(\.bitPattern),
                 Comment(rawValue: label)
             )
 
+            let rawBaseline = down(
+                fixture, activated: fixture.routedActivated,
+                indices: rawIndices, scores: rawScores)
+            let rawCandidate = down(
+                fixture, activated: fixture.routedActivated,
+                indices: rawIndices, scores: rawScores,
+                routePayload: producer.routePayload)
             let (normalizedIndices, normalizedScores) =
                 lagunaDecodeRouterTop8AcceptedForTesting(
                     logits: logits, correctionBias: bias, normalizing: true)
-            let baseline = down(
-                fixture,
-                activated: fixture.routedActivated,
-                indices: normalizedIndices,
-                scores: normalizedScores,
-                normalizing: false
-            )
-            let candidate = down(
-                fixture,
-                activated: fixture.routedActivated,
-                indices: handoffIndices,
-                scores: handoffScores,
-                normalizing: true
-            )
-            eval(normalizedIndices, normalizedScores, baseline, candidate)
+            let normalizedBaseline = down(
+                fixture, activated: fixture.routedActivated,
+                indices: normalizedIndices, scores: normalizedScores)
+            let normalizedCandidate = down(
+                fixture, activated: fixture.routedActivated,
+                indices: rawIndices, scores: rawScores,
+                routePayload: producer.routePayload, normalizing: true)
+            eval(
+                normalizedIndices, normalizedScores,
+                rawBaseline, rawCandidate, normalizedBaseline, normalizedCandidate)
             #expect(normalizedIndices.asArray(UInt32.self) == expectedIndices, Comment(rawValue: label))
             #expect(
-                candidate.asArray(Float.self).map(\.bitPattern)
-                    == baseline.asArray(Float.self).map(\.bitPattern),
+                rawCandidate.asArray(Float.self).map(\.bitPattern)
+                    == rawBaseline.asArray(Float.self).map(\.bitPattern),
+                Comment(rawValue: label)
+            )
+            #expect(
+                normalizedCandidate.asArray(Float.self).map(\.bitPattern)
+                    == normalizedBaseline.asArray(Float.self).map(\.bitPattern),
                 Comment(rawValue: label)
             )
         }
     }
 
     @Test
-    func isolatedFullBodyTiming() throws {
+    func isolatedFullBodyTiming() {
         guard ProcessInfo.processInfo.environment["MLXFAST_RUN_ROUTE_HANDOFF_BENCH"] == "1"
         else { return }
 
@@ -199,41 +218,40 @@ struct LagunaRouteHandoffTests {
         let (_, values, biasValues) = routeCases()[0]
         let logits = MLXArray(values, [1, 1, 256]).asType(.bfloat16)
         let bias = MLXArray(biasValues, [1, 1, 256])
-        let (rawIndices, _) = lagunaDecodeRouterTop8AcceptedForTesting(
+        let (rawIndices, rawScores) = lagunaDecodeRouterTop8AcceptedForTesting(
             logits: logits, correctionBias: bias, normalizing: false)
-        eval(rawIndices)
+        eval(rawIndices, rawScores)
         let keys = orderedKeys(rawIndices.asArray(UInt32.self))
 
-        func output(handoff: Bool) throws -> MLXArray {
-            let producer = lagunaRoutedSwiGLUQMVPackedTop8(
+        func output(handoff: Bool) -> MLXArray {
+            if handoff {
+                let producer = lagunaRoutedSwiGLUQMVPackedTop8RouteHandoff(
+                    input: fixture.input,
+                    fusedWeight: fixture.fusedGateUpWeight,
+                    packedScales: fixture.fusedGateUpScales,
+                    routerKeys: keys,
+                    routerLogits: logits
+                )
+                return down(
+                    fixture, activated: producer.activated,
+                    indices: rawIndices, scores: rawScores,
+                    routePayload: producer.routePayload, normalizing: true)
+            }
+            let activated = lagunaRoutedSwiGLUQMVPackedTop8(
                 fixture.input,
                 fusedWeight: fixture.fusedGateUpWeight,
                 packedScales: fixture.fusedGateUpScales,
-                routerKeys: keys,
-                routerLogits: logits
+                routerKeys: keys
             )
-            if handoff {
-                return down(
-                    fixture,
-                    activated: producer.activated,
-                    indices: try #require(producer.routeIndices),
-                    scores: try #require(producer.routeScores),
-                    normalizing: true
-                )
-            }
             let (indices, scores) = lagunaDecodeRouterTop8AcceptedForTesting(
                 logits: logits, correctionBias: bias, normalizing: true)
             return down(
-                fixture,
-                activated: producer.activated,
-                indices: indices,
-                scores: scores,
-                normalizing: false
-            )
+                fixture, activated: activated,
+                indices: indices, scores: scores)
         }
 
         for handoff in [false, true, true, false] {
-            eval(try output(handoff: handoff))
+            eval(output(handoff: handoff))
         }
 
         var baselineMilliseconds: [Double] = []
@@ -241,7 +259,7 @@ struct LagunaRouteHandoffTests {
         let order = [false, true, true, false, true, false, false, true]
         for _ in 0..<5 {
             for handoff in order {
-                let result = try output(handoff: handoff)
+                let result = output(handoff: handoff)
                 let start = DispatchTime.now().uptimeNanoseconds
                 eval(result)
                 let elapsed = DispatchTime.now().uptimeNanoseconds - start

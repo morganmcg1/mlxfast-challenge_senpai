@@ -7767,13 +7767,19 @@ private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
 let lagunaRoutedGateUpR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTED_GATEUP_R1"] != "0"
 
-private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
-    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_handoff_bf16_v1",
-    inputNames: [
-        "input", "fused_weight", "packed_scales", "router_keys", "router_logits",
-    ],
-    outputNames: ["activated", "route_indices", "route_scores"],
-    source: """
+private func lagunaRoutedSwiGLUQMVPackedTop8R1Source(handoff: Bool) -> String {
+    let payloadStore = handoff
+        ? """
+if (tile == 0 && simd_group == 0 && lane == 0) {
+    float x = float(router_logits[top8_winner]);
+    float y = 1.0f / (1.0f + metal::exp(metal::abs(x)));
+    float score = x < 0.0f ? y : 1.0f - y;
+    route_payload[2 * expert_slot] = top8_winner;
+    route_payload[2 * expert_slot + 1] = as_type<uint>(score);
+}
+"""
+        : ""
+    return """
 constexpr uint input_width = 2048;
 constexpr uint output_width = 512;
 constexpr uint block_width = 512;
@@ -7796,12 +7802,6 @@ uint lane = thread_index_in_simdgroup;
 uint logical_row = tile * 2 + simd_group;
 \(lagunaRouterTop8PrecomputedPrelude)
 uint expert = top8_winner;
-if (tile == 0 && simd_group == 0 && lane == 0) {
-    float route_x = float(router_logits[expert]);
-    float route_y = 1.0f / (1.0f + metal::exp(metal::abs(route_x)));
-    route_indices[expert_slot] = expert;
-    route_scores[expert_slot] = route_x < 0.0f ? route_y : 1.0f - route_y;
-}
 
 const device uint8_t* expert_weight =
     (const device uint8_t*)fused_weight + expert * fused_expert_bytes;
@@ -7884,7 +7884,26 @@ if (lane == 0) {
     activated[expert_slot * output_width + logical_row] =
         bfloat(silu * up);
 }
-""",
+
+\(payloadStore)
+"""
+}
+
+private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
+    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
+    inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
+    outputNames: ["activated"],
+    source: lagunaRoutedSwiGLUQMVPackedTop8R1Source(handoff: false),
+    header: lagunaSharedSwiGLUQMVHeader + "\n" + lagunaDecodeRouterOrdinalHeader
+        + "\n" + lagunaRouterTop8PrologueHeader,
+    ensureRowContiguous: true
+)
+
+private let lagunaRoutedSwiGLUQMVPackedTop8R1HandoffKernel = MLXFast.metalKernel(
+    name: "laguna_routed_gateup_handoff_bf16_v1",
+    inputNames: ["input", "fused_weight", "packed_scales", "router_keys", "router_logits"],
+    outputNames: ["activated", "route_payload"],
+    source: lagunaRoutedSwiGLUQMVPackedTop8R1Source(handoff: true),
     header: lagunaSharedSwiGLUQMVHeader + "\n" + lagunaDecodeRouterOrdinalHeader
         + "\n" + lagunaRouterTop8PrologueHeader,
     ensureRowContiguous: true
@@ -7894,9 +7913,8 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
     _ input: MLXArray,
     fusedWeight: MLXArray,
     packedScales: MLXArray,
-    routerKeys: MLXArray,
-    routerLogits: MLXArray
-) -> (activated: MLXArray, routeIndices: MLXArray?, routeScores: MLXArray?) {
+    routerKeys: MLXArray
+) -> MLXArray {
     precondition(input.dtype == .bfloat16)
     precondition(input.dims(1, 1, LagunaConstants.hiddenSize))
     precondition(fusedWeight.dtype == .uint32)
@@ -7904,27 +7922,20 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
     precondition(packedScales.size == lagunaPackedRoutedGateUpScaleBytes)
     precondition(routerKeys.dtype == .uint32)
     precondition(routerKeys.size == LagunaConstants.numExperts)
-    precondition(routerLogits.dtype == .bfloat16)
-    precondition(routerLogits.size == LagunaConstants.numExperts)
 
     if lagunaRoutedGateUpR1Enabled {
-        let outputs = lagunaRoutedSwiGLUQMVPackedTop8R1Kernel(
-            [input, fusedWeight, packedScales, routerKeys, routerLogits],
+        return lagunaRoutedSwiGLUQMVPackedTop8R1Kernel(
+            [input, fusedWeight, packedScales, routerKeys],
             grid: (LagunaConstants.numExpertsPerTok * 256 * 64, 1, 1),
             threadGroup: (64, 1, 1),
-            outputShapes: [
-                [
-                    1, 1, LagunaConstants.numExpertsPerTok, 1,
-                    LagunaConstants.moeIntermediateSize,
-                ],
-                [1, 1, LagunaConstants.numExpertsPerTok],
-                [1, 1, LagunaConstants.numExpertsPerTok],
-            ],
-            outputDTypes: [.bfloat16, .uint32, .float32]
-        )
-        return (outputs[0], outputs[1], outputs[2])
+            outputShapes: [[
+                1, 1, LagunaConstants.numExpertsPerTok, 1,
+                LagunaConstants.moeIntermediateSize,
+            ]],
+            outputDTypes: [.bfloat16]
+        )[0]
     }
-    let activated = lagunaRoutedSwiGLUQMVPackedTop8Kernel(
+    return lagunaRoutedSwiGLUQMVPackedTop8Kernel(
         [input, fusedWeight, packedScales, routerKeys],
         grid: (LagunaConstants.numExpertsPerTok * 128 * 64, 1, 1),
         threadGroup: (64, 1, 1),
@@ -7934,7 +7945,40 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
         ]],
         outputDTypes: [.bfloat16]
     )[0]
-    return (activated, nil, nil)
+}
+
+func lagunaRoutedSwiGLUQMVPackedTop8RouteHandoff(
+    input: MLXArray,
+    fusedWeight: MLXArray,
+    packedScales: MLXArray,
+    routerKeys: MLXArray,
+    routerLogits: MLXArray
+) -> (activated: MLXArray, routePayload: MLXArray) {
+    precondition(lagunaRoutedGateUpR1Enabled)
+    precondition(input.dtype == .bfloat16)
+    precondition(input.dims(1, 1, LagunaConstants.hiddenSize))
+    precondition(fusedWeight.dtype == .uint32)
+    precondition(packedScales.dtype == .uint8)
+    precondition(packedScales.size == lagunaPackedRoutedGateUpScaleBytes)
+    precondition(routerKeys.dtype == .uint32)
+    precondition(routerKeys.size == LagunaConstants.numExperts)
+    precondition(routerLogits.dtype == .bfloat16 || routerLogits.dtype == .float32)
+    precondition(routerLogits.size == LagunaConstants.numExperts)
+
+    let outputs = lagunaRoutedSwiGLUQMVPackedTop8R1HandoffKernel(
+        [input, fusedWeight, packedScales, routerKeys, routerLogits],
+        grid: (LagunaConstants.numExpertsPerTok * 256 * 64, 1, 1),
+        threadGroup: (64, 1, 1),
+        outputShapes: [
+            [
+                1, 1, LagunaConstants.numExpertsPerTok, 1,
+                LagunaConstants.moeIntermediateSize,
+            ],
+            [1, 1, LagunaConstants.numExpertsPerTok, 2],
+        ],
+        outputDTypes: [.bfloat16, .uint32]
+    )
+    return (outputs[0], outputs[1])
 }
 
 private let lagunaRoutedDownReduceKernel = MLXFast.metalKernel(
@@ -8147,7 +8191,10 @@ private let lagunaRoutedSharedDownResidualSharedHalvedKernel =
     )
 
 private func lagunaRoutedSharedDownResidualSource(
-    sharedHalved: Bool, staged: Bool = false, normalizeRouterWeights: Bool = false
+    sharedHalved: Bool,
+    staged: Bool = false,
+    routeHandoff: Bool = false,
+    normalizing: Bool = false
 ) -> String {
     let sharedRowBytes = sharedHalved ? 16 : 32
     let sharedBase =
@@ -8159,6 +8206,25 @@ private func lagunaRoutedSharedDownResidualSource(
             + "        ? (is_shared ? shared_down_scales[0] : routed_down_scales[0])"
         : "(!is_shared && expert == 0 && output_row == 0 && lane == 1)\n"
             + "        ? routed_down_scales[0]"
+    let expertIndex = routeHandoff
+        ? "route_payload[2 * slot]"
+        : "uint(indices[slot])"
+    let routeTotal = routeHandoff && normalizing
+        ? """
+    float route_total = 0.0f;
+    for (uint routed_slot = 0;
+         routed_slot < routed_experts;
+         ++routed_slot) {
+        route_total = as_type<float>(
+            route_payload[2 * routed_slot + 1]) + route_total;
+    }
+"""
+        : ""
+    let routeWeight = routeHandoff
+        ? (normalizing
+            ? "bfloat(as_type<float>(route_payload[2 * routed_slot + 1]) / route_total)"
+            : "bfloat(as_type<float>(route_payload[2 * routed_slot + 1]))")
+        : "bfloat(router_weights[routed_slot])"
     // Same accumulation, scale conversion, reduction, and epilogue order in
     // both bodies; `staged` only hoists the four code words and scale bytes
     // ahead of the qdots (the promoted stage4 schedule).
@@ -8204,21 +8270,6 @@ private func lagunaRoutedSharedDownResidualSource(
             result[row] = simd_sum(result[row]);
         }
         """
-    let normalization =
-        normalizeRouterWeights
-        ? """
-    float route_total = 0.0f;
-    for (uint routed_slot = 0;
-         routed_slot < routed_experts;
-         ++routed_slot) {
-        route_total = router_weights[routed_slot] + route_total;
-    }
-"""
-        : ""
-    let routeWeight =
-        normalizeRouterWeights
-        ? "router_weights[routed_slot] / route_total"
-        : "router_weights[routed_slot]"
     return """
 constexpr uint input_width = 512;
 constexpr uint output_width = 2048;
@@ -8240,7 +8291,7 @@ uint slot = simdgroup_index_in_threadgroup;
 uint lane = thread_index_in_simdgroup;
 uint first_row = tile * outputs_per_simd;
 bool is_shared = slot == shared_slot;
-uint expert = is_shared ? 0 : uint(indices[slot]);
+uint expert = is_shared ? 0 : \(expertIndex);
 
 const device bfloat* expert_input = is_shared
     ? shared_activated
@@ -8283,13 +8334,12 @@ if (lane == 0) {
 threadgroup_barrier(mem_flags::mem_threadgroup);
 
 if (slot == 0 && lane < outputs_per_simd) {
-\(normalization)
+\(routeTotal)
     bfloat routed_total = bfloat(0);
     for (uint routed_slot = 0;
          routed_slot < routed_experts;
          ++routed_slot) {
-        bfloat route_weight =
-            bfloat(\(routeWeight));
+        bfloat route_weight = \(routeWeight);
         bfloat product = bfloat(
             down_outputs[
                 routed_slot * outputs_per_simd + lane
@@ -8463,28 +8513,35 @@ private let lagunaRoutedSharedDownResidualStagedSharedHalvedKernel =
         ensureRowContiguous: true
     )
 
-private let lagunaRoutedSharedDownResidualRouteHandoffKernel =
-    MLXFast.metalKernel(
-        name: lagunaSharedFirstDownOrderEnabled
-            ? "laguna_routed_shared_nvfp4_down_residual_bf16_handoff_v1sf"
-            : "laguna_routed_shared_nvfp4_down_residual_bf16_handoff_v1",
-        inputNames: lagunaSharedFirstDownOrderEnabled
-            ? [
-                "shared_activated", "shared_down_weight", "shared_down_scales",
-                "routed_activated", "routed_down_weight", "routed_down_scales",
-                "indices", "router_weights", "residual",
-            ]
-            : [
-                "routed_activated", "routed_down_weight", "routed_down_scales",
-                "indices", "router_weights", "shared_activated",
-                "shared_down_weight", "shared_down_scales", "residual",
-            ],
-        outputNames: ["output"],
-        source: lagunaRoutedSharedDownResidualSource(
-            sharedHalved: true, staged: true, normalizeRouterWeights: true),
-        header: lagunaSharedSwiGLUQMVHeader,
-        ensureRowContiguous: true
+private let lagunaRouteHandoffDownKernels = {
+    let inputs = lagunaSharedFirstDownOrderEnabled
+        ? [
+            "shared_activated", "shared_down_weight", "shared_down_scales",
+            "routed_activated", "routed_down_weight", "routed_down_scales",
+            "route_payload", "residual",
+        ]
+        : [
+            "routed_activated", "routed_down_weight", "routed_down_scales",
+            "route_payload", "shared_activated", "shared_down_weight",
+            "shared_down_scales", "residual",
+        ]
+    let suffix = lagunaSharedFirstDownOrderEnabled ? "sf" : ""
+    return (
+        raw: MLXFast.metalKernel(
+            name: "laguna_route_handoff_down_bf16_v1\(suffix)",
+            inputNames: inputs, outputNames: ["output"],
+            source: lagunaRoutedSharedDownResidualSource(
+                sharedHalved: true, staged: true, routeHandoff: true),
+            header: lagunaSharedSwiGLUQMVHeader, ensureRowContiguous: true),
+        normalized: MLXFast.metalKernel(
+            name: "laguna_route_handoff_down_norm_bf16_v1\(suffix)",
+            inputNames: inputs, outputNames: ["output"],
+            source: lagunaRoutedSharedDownResidualSource(
+                sharedHalved: true, staged: true, routeHandoff: true,
+                normalizing: true),
+            header: lagunaSharedSwiGLUQMVHeader, ensureRowContiguous: true)
     )
+}()
 
 func lagunaRoutedSharedDownResidual(
     routedActivated: MLXArray,
@@ -8496,8 +8553,9 @@ func lagunaRoutedSharedDownResidual(
     sharedDownWeight: MLXArray,
     sharedDownScales: MLXArray,
     residual: MLXArray,
-    staged: Bool = lagunaFusedDownRowStagingEnabled,
-    normalizeRouterWeights: Bool = false
+    routePayload: MLXArray? = nil,
+    normalizeRoutePayload: Bool = false,
+    staged: Bool = lagunaFusedDownRowStagingEnabled
 ) -> MLXArray {
     precondition(routedActivated.dtype == .bfloat16)
     precondition(
@@ -8532,24 +8590,43 @@ func lagunaRoutedSharedDownResidual(
             sharedDownScales.dims(LagunaConstants.hiddenSize,
                 LagunaConstants.sharedExpertIntermediateSize / 16))
     }
+    if let routePayload {
+        precondition(staged && sharedHalved)
+        precondition(routePayload.dtype == .uint32)
+        precondition(routePayload.dims(1, 1, LagunaConstants.numExpertsPerTok, 2))
+    } else {
+        precondition(!normalizeRoutePayload)
+    }
     precondition(residual.dtype == .bfloat16)
     precondition(residual.dims(1, 1, LagunaConstants.hiddenSize))
-    if normalizeRouterWeights {
-        precondition(sharedHalved && staged)
-    }
 
     let fusedKernel =
-        normalizeRouterWeights
-        ? lagunaRoutedSharedDownResidualRouteHandoffKernel
-        : sharedHalved
+        routePayload != nil
+        ? (normalizeRoutePayload
+            ? lagunaRouteHandoffDownKernels.normalized
+            : lagunaRouteHandoffDownKernels.raw)
+        : (sharedHalved
             ? (staged
                 ? lagunaRoutedSharedDownResidualStagedSharedHalvedKernel
                 : lagunaRoutedSharedDownResidualSharedHalvedKernel)
             : (staged
                 ? lagunaRoutedSharedDownResidualStagedKernel
-                : lagunaRoutedSharedDownResidualKernel)
-    return fusedKernel(
-        lagunaSharedFirstDownOrderEnabled
+                : lagunaRoutedSharedDownResidualKernel))
+    let fusedInputs: [MLXArray]
+    if let routePayload {
+        fusedInputs = lagunaSharedFirstDownOrderEnabled
+            ? [
+                sharedActivated, sharedDownWeight, sharedDownScales,
+                routedActivated, routedDownWeight, routedDownScales,
+                routePayload, residual,
+            ]
+            : [
+                routedActivated, routedDownWeight, routedDownScales,
+                routePayload, sharedActivated, sharedDownWeight,
+                sharedDownScales, residual,
+            ]
+    } else {
+        fusedInputs = lagunaSharedFirstDownOrderEnabled
             ? [
                 sharedActivated, sharedDownWeight, sharedDownScales,
                 routedActivated, routedDownWeight, routedDownScales,
@@ -8559,7 +8636,10 @@ func lagunaRoutedSharedDownResidual(
                 routedActivated, routedDownWeight, routedDownScales,
                 indices, routerWeights, sharedActivated,
                 sharedDownWeight, sharedDownScales, residual,
-            ],
+            ]
+    }
+    return fusedKernel(
+        fusedInputs,
         grid: (LagunaConstants.hiddenSize / 4 * 288, 1, 1),
         threadGroup: (288, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
@@ -10710,14 +10790,16 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
 
     func callAsFunction(
         _ x: MLXArray, residual: MLXArray, routerLogits: MLXArray? = nil,
-        routerKeys: MLXArray? = nil
+        routerKeys: MLXArray? = nil, allowRouteHandoff: Bool = false
     ) -> MLXArray {
-        forward(x, residual: residual, routerLogits: routerLogits, routerKeys: routerKeys)
+        forward(
+            x, residual: residual, routerLogits: routerLogits,
+            routerKeys: routerKeys, allowRouteHandoff: allowRouteHandoff)
     }
 
     private func forward(
         _ x: MLXArray, residual: MLXArray?, routerLogits: MLXArray?,
-        routerKeys: MLXArray? = nil
+        routerKeys: MLXArray? = nil, allowRouteHandoff: Bool = false
     ) -> MLXArray {
         let (inds, weights) = gate(x, logits: routerLogits)
         var y: MLXArray
@@ -10742,12 +10824,10 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
             // fully stock sorted gather-GEMM path and never see the fused
             // bank.
             let activated: MLXArray
-            // Set when the routed and shared gate/up QMVs were issued as one
-            // dispatch below, so the shared half of that same dispatch is
-            // handed to the down projection instead of being issued again.
-            // Purely within this invocation; nothing survives it.
-            var mergedSharedActivated: MLXArray?
-            var routeHandoff: (indices: MLXArray, scores: MLXArray)?
+            var routePayload: MLXArray? = nil
+            var routeHandoffSharedInputs: (
+                activated: MLXArray, downWeight: MLXArray, downScales: MLXArray
+            )? = nil
             if lagunaFusedRoutedSwiGLUQMVEnabled,
                 x.dtype == .bfloat16,
                 x.dims(1, 1, LagunaConstants.hiddenSize),
@@ -10764,28 +10844,52 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                         "active", "routed swiglu qmv packed dispatch")
                     if lagunaRouterPrecomputedKeysEnabled,
                         let routerKeys,
-                        let routerLogits,
                         routerKeys.dtype == .uint32,
                         routerKeys.size == LagunaConstants.numExperts,
-                        routerLogits.dtype == .bfloat16,
-                        routerLogits.size == LagunaConstants.numExperts,
                         gate.topK == LagunaConstants.numExpertsPerTok,
                         gate.routerLogitSoftcapping == 0,
                         gate.eScoreCorrectionBias.size == LagunaConstants.numExperts
                     {
-                        lagunaTrace("routed gate/up QMV + SwiGLU (packed, producer keys)")
-                        let packed = lagunaRoutedSwiGLUQMVPackedTop8(
-                            x,
-                            fusedWeight: fusedWeight,
-                            packedScales: packedBank,
-                            routerKeys: routerKeys,
-                            routerLogits: routerLogits
-                        )
-                        activated = packed.activated
-                        if let routeIndices = packed.routeIndices,
-                            let routeScores = packed.routeScores
+                        if allowRouteHandoff,
+                            lagunaRoutedGateUpR1Enabled,
+                            lagunaDecodeRouterTop8Enabled,
+                            lagunaDecodeRouterCastSinkEnabled,
+                            lagunaFusedRoutedSharedDownResidualEnabled,
+                            lagunaFusedDownRowStagingEnabled,
+                            let routerLogits,
+                            routerLogits.dtype == .bfloat16,
+                            routerLogits.size == LagunaConstants.numExperts,
+                            let residual,
+                            let downWeight = _routedDownWeight,
+                            let downScales = _routedDownScales,
+                            let sharedInputs = sharedExpert.fusedSharedDownInputs(x),
+                            sharedInputs.downScales.ndim == 1,
+                            downWeight.dtype == .uint32,
+                            downWeight.dims(
+                                LagunaConstants.numExperts, LagunaConstants.hiddenSize,
+                                LagunaConstants.moeIntermediateSize / 8),
+                            downScales.dtype == .uint8,
+                            downScales.size == lagunaRoutedDownScaleBytes,
+                            weights.dtype == .float32,
+                            weights.dims(1, 1, LagunaConstants.numExpertsPerTok),
+                            routedScalingFactor
+                                == Float(LagunaConstants.moeRoutedScalingFactor),
+                            residual.dtype == .bfloat16,
+                            residual.dims(1, 1, LagunaConstants.hiddenSize)
                         {
-                            routeHandoff = (routeIndices, routeScores)
+                            lagunaTrace("routed gate/up QMV + route handoff")
+                            let handoff = lagunaRoutedSwiGLUQMVPackedTop8RouteHandoff(
+                                input: x, fusedWeight: fusedWeight,
+                                packedScales: packedBank, routerKeys: routerKeys,
+                                routerLogits: routerLogits)
+                            activated = handoff.activated
+                            routePayload = handoff.routePayload
+                            routeHandoffSharedInputs = sharedInputs
+                        } else {
+                            lagunaTrace("routed gate/up QMV + SwiGLU (packed, producer keys)")
+                            activated = lagunaRoutedSwiGLUQMVPackedTop8(
+                                x, fusedWeight: fusedWeight,
+                                packedScales: packedBank, routerKeys: routerKeys)
                         }
                     } else {
                         lagunaTrace("routed gate/up QMV + SwiGLU (packed scales)")
@@ -10831,8 +10935,8 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 let residual,
                 let downWeight = _routedDownWeight,
                 let downScales = _routedDownScales,
-                let sharedInputs = sharedExpert.fusedSharedDownInputs(
-                    x, sharedActivation: mergedSharedActivated),
+                let sharedInputs = routeHandoffSharedInputs
+                    ?? sharedExpert.fusedSharedDownInputs(x),
                 activated.dtype == .bfloat16,
                 activated.dims(1, 1, LagunaConstants.numExpertsPerTok, 1,
                     LagunaConstants.moeIntermediateSize),
@@ -10847,35 +10951,20 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 residual.dtype == .bfloat16,
                 residual.dims(1, 1, LagunaConstants.hiddenSize)
             {
-                let downIndices: MLXArray
-                let downRouterWeights: MLXArray
-                let normalizeRouterWeights: Bool
-                if let routeHandoff,
-                    gate.normTopkProb,
-                    lagunaFusedDownRowStagingEnabled,
-                    sharedInputs.downScales.ndim == 1
-                {
-                    lagunaTrace("routed selector result handoff")
-                    downIndices = routeHandoff.indices
-                    downRouterWeights = routeHandoff.scores
-                    normalizeRouterWeights = true
-                } else {
-                    downIndices = inds
-                    downRouterWeights = weights
-                    normalizeRouterWeights = false
-                }
-                lagunaTrace("routed+shared down residual")
+                lagunaTrace(routePayload == nil
+                    ? "routed+shared down residual" : "route handoff down")
                 return lagunaRoutedSharedDownResidual(
                     routedActivated: activated,
                     routedDownWeight: downWeight,
                     routedDownScales: downScales,
-                    indices: downIndices,
-                    routerWeights: downRouterWeights,
+                    indices: inds,
+                    routerWeights: weights,
                     sharedActivated: sharedInputs.activated,
                     sharedDownWeight: sharedInputs.downWeight,
                     sharedDownScales: sharedInputs.downScales,
                     residual: residual,
-                    normalizeRouterWeights: normalizeRouterWeights
+                    routePayload: routePayload,
+                    normalizeRoutePayload: routePayload != nil && gate.normTopkProb
                 )
             } else if lagunaFusedRoutedDownReduceEnabled,
                 let downWeight = _routedDownWeight,
@@ -11172,7 +11261,7 @@ final class LagunaRuntimeDecoderLayer: Module {
         {
             return sparse(
                 normalized, residual: h, routerLogits: routerLogits,
-                routerKeys: routerKeys)
+                routerKeys: routerKeys, allowRouteHandoff: true)
         }
         // Multi-token prefill: hand the residual to the sparse block so the
         // prefill MoE tail kernel can fold the final residual add. When any
