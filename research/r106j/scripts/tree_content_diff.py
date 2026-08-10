@@ -5,11 +5,12 @@ A pure code move shows up as a huge textual diff but a zero multiset
 difference, so this separates "moved between files" from "genuinely changed".
 """
 import collections
+import os
 import subprocess
 import sys
 
-T0 = "446fe987"
-T1 = "4b0e051b"
+T0 = os.environ.get("TCD_A", "446fe987")
+T1 = os.environ.get("TCD_B", "4b0e051b")
 PATHS = ("Sources/MLXFastModel", "Sources/MLXFastTransform")
 
 

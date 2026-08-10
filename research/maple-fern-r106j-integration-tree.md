@@ -592,3 +592,176 @@ identically to both arms in every paired block, so the contrast in §4.3 stands;
 the mechanism identification in Probe 4 is unaffected because the scored-path probe
 already excludes those lines.
 
+
+## 5. Stage 2 — the integration queue and what I actually landed
+
+### 5.0 The acceptance rule I apply, stated before the queue arrives
+
+Rule 72 requires the decision procedure to be fixed before the evidence. Mine is:
+
+> **A patch enters the integrated tree only if (a) it is bit-exact by construction or
+> carries a margin certificate, (b) it has a paired, contemporaneous, locally measured
+> win on *this* tree, and (c) it is behaviourally live on the ranked host.**
+
+Clause (c) is the one this round adds, and it is the reason the queue is thinner than
+it looks. Rule 99 (the nax wall) says prefill mechanisms that route through `_nax`
+kernels cannot be measured here at all; my own §4.3 result is the worked example of
+what happens when you forget that. Clause (b) is frieren's bar restated: a *composed*
+paired win on the integrated tree, not a sum of siblings' isolated deltas. Clause (a)
+is what keeps the correctness gate a formality rather than a gamble.
+
+There is a fourth, weaker rule that only applies to sub-threshold patches:
+
+> **A default-inert patch is carried but not activated.** Merging the code costs bytes
+> and nothing else; flipping its default without a measurement is exactly the move
+> this campaign has repeatedly punished.
+
+### 5.1 The queue as of 2026-08-10T12:50Z
+
+| # | student | charge | state at my freeze check | disposition |
+| --- | --- | --- | --- | --- |
+| #636 | alphonse | expert gather-GEMM floor (`C2a`, `DARKBLOOM_EXPERT_DOWN_BN`) | **terminated `N-FLOOR`, merged to advisor `main`** | **carried, inert** (§5.2) |
+| #629 | edward | routed gate/up packing; Stage A settles L3 | open, draft, no verdict at 12:44Z | L3 measured independently by me (§5.3) |
+| #642 | tanjiro | decode fused attention, prologue prefetch hoist | open, no handoff | **not delivered** |
+| #616 | nezuko | round-103 revert residual | open, no handoff | **not delivered** |
+| #597 | frieren | bit-exactness shelf + margin-certificate script | open; frieren is the channel owner | I *consume* the certificate script, I do not integrate #597 |
+
+### 5.2 Candidate A — alphonse's `C2a`: carried as merged, deliberately left inert
+
+`C2a` is already in my base. It arrived with the advisor tip `2454cc01`, not through a
+patch file, and it is the **only** non-documentation change between my required base
+`446fe987` and that tip:
+
+```text
+$ git diff --numstat 446fe987 2454cc01 -- Sources Vendor benchmark.json Package.swift
+25	0	Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+```
+
+One file, +25 lines, 0 deletions, commit `c768d21f`. It adds `darkbloom_expert_down_bn()`
+reading `DARKBLOOM_EXPERT_DOWN_BN` — **default `64`, which is the pre-existing value** —
+and accepts only `32` or `64`. The guard that consumes it lives inside
+`gather_qmm_rhs_nax` and is further restricted to `K==512 && N==2048 && bm==64 &&
+wm==4 && (wn==2 || wn==1)`, non-affine, transposed, `gs==16`, `bits==4`, `M>=64`.
+
+**Decision: carry it, do not set the env var.** Three independent reasons, any one of
+which is sufficient:
+
+1. **Its own author says so.** §11.1 of `maple-alphonse-r107c-expert-gather-gemm-floor.md`
+   reads *"Recommendation: do NOT integrate C2a on its own"*, verdict `N-FLOOR`, priced
+   at **0.195 % of score** (robust band 0.19 %–0.30 %) against this round's 0.4 % gate,
+   and below the 1.35 ms 3σ bar. The family is **DRAM-bound on M5** (51.6 FLOP/B
+   measured against an M5 balance of 63.5–104), which is adverse to an arm whose only
+   lever is latency hiding while it doubles A-side request multiplicity 32× → 64×.
+2. **I cannot measure it here.** The guard sits in `gather_qmm_rhs_nax`. This host is
+   GPU generation 16 and never selects a `_nax` variant (Rule 99), so on my box the
+   flip is *dead code*, not a slow path. `N-REACH` is alphonse's own reachability
+   verdict and it matches mine. Activating an unmeasured default would be a submission
+   with zero local evidence behind it.
+3. **It violates my own clause (b) and frieren's bar.** A composed paired win must be
+   measured. There is no measurement of `BN=32` on any host in this campaign.
+
+**What "carried" costs.** Nothing behavioural, and 1,740 B of surface. Rule 75 digests,
+reproduced from alphonse's ledger so the handoff is self-contained:
+
+| artefact | sha256 |
+| --- | --- |
+| `quantized.cpp` blob at alphonse's `BASE_SHA e1d206da` | `cf6d3847d583730fc7366110d91f54c676405869634cd0ae4eebbd362363c612` |
+| `quantized.cpp` candidate blob (pre-compile == post-compile) | `e5dac8a08c2a04c565fb575d86e710721d548413e826fa113f9b99dc23f33258` |
+| offline preamble+kernel surface during the AIR census | `803fe16405b346e41b80f5202c4d5135c137f95c94051e69b37c5679ae3c2eba` |
+
+I verified the third digest is *not* something I need to reproduce: it is an offline
+census artefact, not a submitted path.
+
+**One finding of his I am propagating even though it is not a patch.** With `BM=64,
+WM=4`, only **1 of 4 simdgroups per threadgroup issues MMA** on the largest prefill
+family — a ~4× MMA-occupancy deficit, invariant under `bn`. That is a structural
+`[STRUCT]` observation about the ranked host, it is worth more than every patch in this
+queue, and no one currently owns it. See §6.9.
+
+### 5.3 Candidate B — the packing default flip (L3)
+
+_Measurement in flight at the time of writing; filled in below from
+`research/artifacts/maple-fern-r106j/abba_t0_t0p/runs.tsv`._
+
+### 5.4 Candidates that did not arrive
+
+Rule 79 says the null cell gets reported, so: at my Stage-2 freeze check, **three of the
+five sibling channels had produced no integrable artefact**. #642 (tanjiro, decode fused
+attention, the largest single pot on the slate at 6.46 % of `cs`), #616 (nezuko, 0.3204 %
+of `cs`) and #629 (edward, Stage A) were all still open with no handoff payload. #597
+(frieren) is not an integration input at all — frieren is the channel owner and I consume
+his margin-certificate script rather than his patch.
+
+This is not a complaint about the siblings; the slate was issued at ~11:50Z and their
+handoffs are due ~06:00Z, seventeen hours later. It is a statement about **what the
+integrated tree could possibly contain at this timestamp**, which is the thing a reader
+of this report needs in order to interpret §6. If later handoffs arrive before my
+07:00Z freeze I extend §5 and re-measure the composed tree; I do not sum deltas.
+
+### 5.5 The byte budget of the integrated tree, and a headroom discrepancy I resolved
+
+Two independent tools agree on the state of the editable surface at the advisor tip:
+
+| tool | current | cap | headroom | growth | files |
+| --- | --- | --- | --- | --- | --- |
+| my `research/r106j/scripts/surface_census.py` | 2,680,208 B (base `446fe987`, pre-`C2a`) | 3,000,000 | 319,792 B | — | 142 |
+| alphonse's `senpai/check-editable-budget.sh` (§11.1) | **2,681,206 B** (tip `2454cc01`) | 3,000,000 | **318,794 B** | 998 / 262,144 | **142** |
+
+The two differ by exactly 998 B, which is `C2a`'s committed growth — i.e. they agree.
+
+**The discrepancy, and what it actually was.** The slate text in
+`research/CURRENT_RESEARCH_STATE.md` states that *"the file is 384,245 B with 140,043 B
+of headroom, and the whole editable surface has 188,987 B against `bd33883e`"*. The
+first half matches my base; the second is 129,807 B tighter than either tool reports,
+so one sentence appeared to carry two incompatible budgets. It does not — it carries
+**two different revisions**, and running my census at each one closes it exactly:
+
+```text
+$ python3 research/r106j/scripts/surface_census.py bd33883e…
+base_surface_files   142
+base_surface_bytes   2811013          # 3,000,000 − 2,811,013 = 188,987 B headroom
+  MOD  …  384245  (was 515050, -130805)  Sources/MLXFastModel/LagunaRuntimeModel.swift
+
+$ python3 research/r106j/scripts/surface_census.py 446fe987…
+base_surface_bytes   2680208          # 319,792 B headroom
+```
+
+The advisor's **188,987 B is exactly right against `bd33883e`**, and the **384,245 B /
+140,043 B file figure is exactly right against `446fe987`**; the two halves are simply
+measured at different revisions. The whole 130,805 B gap is one commit, `54d0cfb1`
+*"r103-C rung 1-2: relocate 134,991 B of comment prose out of `LagunaRuntimeModel.swift`"*
+— comment prose deleted from the surface, not code, and not moved into another editable
+file (the surface total falls by the same 130,805 B).
+
+Two consequences worth recording:
+
+- **Nothing is wrong with either number, and no advisor retraction is needed.** The
+  binding budget for this round is the one against my required base: **318,794 B of
+  surface headroom and 140,043 B of file headroom**, with `C2a` already counted.
+- `bd33883e` and `446fe987` are **not ancestors of each other in either direction**, and
+  at `bd33883e` the scored file sat 515,050 B against the 524,288 B per-file cap — only
+  **9,238 B** clear. Anyone reasoning from a `bd33883e`-era byte statement is reasoning
+  from a tree where a 10 KB patch was impossible. That is no longer the constraint.
+
+**Since neither revision is an ancestor of the other, I checked that my base is not
+behind the promoted frontier.** Running the §4.6 multiset differ across the two trees
+(`TCD_A=bd33883e TCD_B=446fe987 tree_content_diff.py 12 Sources/MLXFastModel`) gives
+12 lines present only in `bd33883e` and 86 only in `446fe987` out of ~12.3 k
+non-comment lines. Reading all 98: the 12 are re-indentation fallout from the comment
+relocation, and the 86 are one coherent addition — `lagunaRouterWeightPrefetch`
+(`DARKBLOOM_ROUTER_WEIGHT_PREFETCH`, valid set `[0,1,5]`, default 1),
+`lagunaRouterPrefetchGroups`, and the `prefetchEarly`/`prefetchLate` hoist threaded
+through `lagunaResidualRMSNormRouterSource`, i.e. commit `d38b17bb` *"R100-C: restore
+DARKBLOOM_ROUTER_WEIGHT_PREFETCH router GEMV load hoist"*. `ResidualRMSNormRouter`
+occurs 10× in both trees, so nothing was dropped.
+
+**`446fe987` is `bd33883e` plus the r100-C router prefetch restore, minus 134,991 B of
+comment prose. It is strictly forward of the promoted frontier**, which is the property
+frieren needs before submitting anything built on it.
+
+**Per-file cap.** `Sources/MLXFastModel/LagunaRuntimeModel.swift` is the binding file:
+384,245 B under T0 against the 524,288 B per-file cap, i.e. 140,043 B of file headroom.
+The packing patch grows it by 29 B (384,245 → 384,274). T1 would have consumed 18,664 B
+of that headroom for no measured decode benefit, which is a second, independent reason
+§4.6 lands where it does.
+
