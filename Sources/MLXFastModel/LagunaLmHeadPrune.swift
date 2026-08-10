@@ -655,16 +655,12 @@ private let lagunaLmHeadRefinedExactKernel = MLXFast.metalKernel(
     source: """
         constexpr uint VOCAB = 100352;
         constexpr uint K = 2048;
-        constexpr uint BLOCKS = VOCAB / 4;
 
         uint tgid = threadgroup_position_in_grid.x;
         uint sgid = simdgroup_index_in_threadgroup;
         uint lane = thread_index_in_simdgroup;
-        uint logical_sg = tgid * 8 + sgid;
-        uint logical_stride = threadgroups_per_grid.x * 8;
 
-        for (uint block = logical_sg; block < BLOCKS; block += logical_stride) {
-        uint base = block * 4;
+        uint base = tgid * 32 + sgid * 4;
 
         uint base_mask = 0;
         if (lane == 0) {
@@ -682,7 +678,7 @@ private let lagunaLmHeadRefinedExactKernel = MLXFast.metalKernel(
             if (lane < 4 && base + lane < VOCAB) {
                 assembled[base + lane] = bfloat(coarse[base + lane]);
             }
-            continue;
+            return;
         }
 
         // Per-thread scratch: every lane holds a copy, only lane 0's is ever
@@ -755,7 +751,7 @@ private let lagunaLmHeadRefinedExactKernel = MLXFast.metalKernel(
                     }
                 }
             }
-            continue;
+            return;
         }
 
         // --- stock gemv_al replica begin (gemv.h:151-289) ---
@@ -806,7 +802,6 @@ private let lagunaLmHeadRefinedExactKernel = MLXFast.metalKernel(
                             : bfloat(coarse[r]));
                 }
             }
-        }
         }
         """,
     header: lagunaLmHeadPruneHeader,
@@ -977,7 +972,7 @@ final class LagunaLmHeadPruner {
             refine
             ? lagunaLmHeadRefinedExactKernel(
                 [coarse, delta, thr, lmHeadWeight, x, int5CodesHi, int5Scales],
-                grid: (256 * 256, 1, 1),
+                grid: (vocab / 32 * 256, 1, 1),
                 threadGroup: (256, 1, 1),
                 outputShapes: [[vocab]],
                 outputDTypes: [.bfloat16]
