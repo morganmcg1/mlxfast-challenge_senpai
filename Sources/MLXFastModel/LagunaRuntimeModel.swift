@@ -330,6 +330,9 @@ let lagunaSharedQMVWideCodesEnabled =
 let lagunaFusedGatedOutputProjectionEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_GATED_OUTPUT"] != "0"
 
+private let lagunaLastPrefillGatedOutputProjectionEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_LAST_PREFILL_FUSED_GATED_OUTPUT"] != "0"
+
 /// Issues Q, K and V as one dispatch over the three stock weights (see
 /// `lagunaFusedQKVProjectionSource`). Unlike `DARKBLOOM_FUSED_QKV` this keeps
 /// no concatenated bank, so prefill is untouched. Set
@@ -6408,6 +6411,24 @@ final class LagunaRuntimeAttention: Module {
                 gatePerHead && projectedGate.dtype == output.dtype
                 ? lagunaCompiledSoftplusGate(projectedGate)
                 : softplus(projectedGate.asType(.float32)).asType(output.dtype)
+            if lagunaLastPrefillGatedOutputProjectionEnabled,
+                gatePerHead, B == 1, wo.bias == nil,
+                nHeads == LagunaConstants.slidingAttentionHeads,
+                headDim == LagunaConstants.headDim,
+                projectedGate.dtype == output.dtype,
+                output.dtype == .bfloat16, gate.dtype == .bfloat16,
+                wo.weight.dtype == .bfloat16,
+                output.dims(1, 1, nHeads * headDim),
+                gate.dims(1, 1, nHeads),
+                wo.weight.dims(LagunaConstants.hiddenSize, nHeads * headDim),
+                let projection = lagunaGatedOutputProjection(
+                    attentionOutput: output,
+                    gateValues: gate,
+                    weight: wo.weight,
+                    heads: nHeads)
+            {
+                return projection
+            }
             if gatePerHead {
                 output =
                     (output.reshaped(B, 1, nHeads, headDim) * gate[.ellipsis, .newAxis])
