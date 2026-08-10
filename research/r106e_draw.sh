@@ -37,16 +37,21 @@ if n != 1:
 open(path, "w", encoding="utf-8").write(new)
 PY
 
-python3 - "$NOTE" "$MARKER" <<'PY'
+python3 - "$NOTE" "$MARKER" "$NN" <<'PY'
 import re, sys
-path, marker = sys.argv[1], sys.argv[2]
+path, marker, nn = sys.argv[1], sys.argv[2], sys.argv[3]
 src = open(path, encoding="utf-8").read()
-new, n = re.subn(r"(R106E-REPLAY-DRAW-\S+|senpai-r106e-replay-\S+|senpai-r93-null-1)",
-                 marker, src)
+# Marker tokens only: the character class deliberately excludes the backtick so
+# a rewrite can never swallow the closing fence of `...`.
+new, n = re.subn(r"(?:R106E-REPLAY-DRAW-|senpai-r106e-replay-|senpai-r93-null-)"
+                 r"[A-Za-z0-9._-]*", marker, src)
 if n == 0:
     sys.exit("no marker placeholder found in %s" % path)
+# Repair a previously-eaten closing backtick, then stamp the draw number.
+new = re.sub(r"(`%s)(?!`)" % re.escape(marker), r"\1`", new)
+new, m = re.subn(r"\bdraw (?:NN|\d+)\b", "draw %s" % nn, new)
 open(path, "w", encoding="utf-8").write(new)
-print("note: rewrote %d marker occurrence(s)" % n)
+print("note: rewrote %d marker occurrence(s), %d draw-number occurrence(s)" % (n, m))
 PY
 
 # --- 2. prove the perturbation is exactly one comment line ------------------
