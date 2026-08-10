@@ -64,10 +64,22 @@ def derive(metrics: dict) -> dict:
         "norm_prefill_su": npf,
         "norm_score": nd**0.75 * npf**0.25,
         "prefill_price_pct_per_ms": price,
+        "baseline_dec": metrics["baseline_decode_seconds_per_token"],
+        "baseline_pre": metrics["baseline_prefill_seconds_per_token"],
         "decode_speedup": metrics["decode_speedup"],
         "prefill_speedup": metrics["prefill_speedup"],
         "max_abs_diff": metrics["max_abs_diff"],
         "passed_correctness": metrics["passed_correctness"],
+        "passed_decode_floor": metrics["passed_decode_speedup_floor"],
+        "passed_prefill_floor": metrics["passed_prefill_speedup_floor"],
+        "checked_steps": metrics["checked_steps"],
+        "semantic_gpqa": f"{metrics['semantic_gpqa_pass_count']}/{metrics['semantic_gpqa_case_count']}",
+        "gpqa_ttft_passed": metrics["gpqa_ttft_passed"],
+        "gpqa_ttft_p50_seconds": metrics["gpqa_ttft_p50_seconds"],
+        "measured_at": metrics["timestamp"],
+        "service_commit": metrics["commit"],
+        "error": metrics["error"],
+        "partial_result": metrics["partial_result"],
     }
 
 

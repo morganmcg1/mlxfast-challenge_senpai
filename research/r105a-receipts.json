@@ -3,6 +3,14 @@
   "arm": "A0-1",
   "submission_id": "69fb349b-a675-4983-822e-181f18f30728",
   "commit": "ae012da103559ec0d3d5fe230537db6e325b1149",
-  "queued_at": "2026-08-10T03:44:00Z"
+  "variant": 5,
+  "queued_at": "2026-08-10T03:42:32Z"
+ },
+ {
+  "arm": "A0-2",
+  "submission_id": "c7930407-ff08-4ac7-8c9e-4ac56d1df10f",
+  "commit": "9e57530a402d004701b2ef0ab425f4e8c381fd6d",
+  "variant": 5,
+  "queued_at": "2026-08-10T04:07:00Z"
  }
 ]
