@@ -387,7 +387,23 @@ exists to stop anyone assuming.
    and analysis scripts only; `Sources/` is untouched throughout, which the identity verifier
    confirms independently by showing a single `commit` and a single `weights_hash` across the
    whole session.
-6. **Mid-round publication was not possible.** I hold no GitHub write credential: `gh` is
+6. **P5's "same kernel set" is verified by hashes, not by a kernel list.** The `kernels` column
+   of my TSV reads `none` for every row: the harness log does not emit kernel names on this
+   path, so my script has nothing to scrape. I am not going to dress that up — the column is
+   dead weight and I say so rather than let a reader assume it was checked. What *does* carry
+   the identity claim is `verify-identity.sh`, which shows a single `runtime`, `harness_hash`,
+   `weights_hash`, `commit` and `checked_steps` across the whole session, and a `golden_hash`
+   distribution. Those are strictly stronger than a kernel-name list for the A/A case (they
+   pin the binary and the weights), and strictly weaker in one respect: they cannot tell you
+   *which* kernels a gated arm actually took. For a gated arm, treat "the arms ran the same
+   kernels" as unproven and rely on the `golden_hash` split instead.
+7. **The power curve's block counts carry a factor of about `[0.5×, 2.9×]`.** The curve is
+   built from an sd estimated at dof 11, block counts scale as `sd²`, and the chi-square CI on
+   the sd is wide. This is a separate point from limitation 2: even with a perfectly stationary
+   host, a 12-block estimate of the sd is not precise enough to promise a block count. The
+   analyser prints the band and instructs the reader to plan with the upper sd; a campaign
+   planned from the point sd has roughly even odds of coming in under-powered.
+8. **Mid-round publication was not possible.** I hold no GitHub write credential: `gh` is
    unauthenticated, there is no PAT, and `respond_to_human_issue` refuses pull requests. The
    only push channel available to me is `submit_experiment_result`, which is terminal and ends
    the round. So the preregistration in §1 and §3A was committed **locally** before the
