@@ -210,6 +210,10 @@ private let repoRoot = URL(fileURLWithPath: FileManager.default.currentDirectory
     .deletingLastPathComponent()
     .deletingLastPathComponent()
 
+private func progress(_ message: String) {
+    FileHandle.standardError.write(Data("PROGRESS \(message)\n".utf8))
+}
+
 private func runCommand(_ executable: String, _ arguments: [String], at directory: URL) throws -> String {
     let process = Process()
     let output = Pipe()
@@ -481,6 +485,7 @@ private func verifyCorrectness(
     stream: MLX.Stream
 ) throws -> Correctness {
     var result = Correctness()
+    progress("correctness bank layouts")
     for layer in fixtures.decodeLayers {
         result.bankQueryMaxAbs = max(
             result.bankQueryMaxAbs,
@@ -502,8 +507,11 @@ private func verifyCorrectness(
         )
     }
 
+    progress("correctness old decode")
     let oldDecode = decode(kernels: old, abi: .old, fixtures: fixtures, stream: stream)
+    progress("correctness packed decode")
     let packedDecode = decode(kernels: packed, abi: .packed, fixtures: fixtures, stream: stream)
+    progress("correctness decode comparisons")
     for (oldOutput, packedOutput) in zip(oldDecode, packedDecode) {
         result.decodeOutputMaxAbs = max(
             result.decodeOutputMaxAbs, maxAbsDiff(oldOutput, packedOutput))
@@ -515,8 +523,11 @@ private func verifyCorrectness(
             result.decodeValueCacheMaxAbs, maxAbsDiff(layer.oldValues, layer.packedValues))
     }
 
+    progress("correctness old prefill")
     let oldPrefill = prefill(kernels: old, abi: .old, fixtures: fixtures, stream: stream)
+    progress("correctness packed prefill")
     let packedPrefill = prefill(kernels: packed, abi: .packed, fixtures: fixtures, stream: stream)
+    progress("correctness prefill comparisons")
     for index in stride(from: 0, to: oldPrefill.count, by: 2) {
         result.prefillQueryMaxAbs = max(
             result.prefillQueryMaxAbs,
@@ -663,6 +674,7 @@ private func emitJSON(_ object: [String: Any]) throws {
 
 private func run() throws {
     let options = try Options.parse()
+    progress("start quick=\(options.quick) repeats=\(options.repeats)")
     guard FileManager.default.fileExists(
         atPath: repoRoot.appendingPathComponent("Sources/MLXFastModel/LagunaRuntimeModel.swift").path
     ) else {
@@ -688,6 +700,7 @@ private func run() throws {
         ["show", "\(baselineSHA):\(runtimePath)"],
         at: repoRoot
     )
+    progress("extract kernel sources")
     let oldSources = try loadSources(baselineText)
     let packedSources = try loadSources(currentText)
     let old = Kernels(sources: oldSources, abi: .old)
@@ -695,7 +708,9 @@ private func run() throws {
 
     MLXRandom.seed(613)
     let stream = MLX.Stream.gpu
+    progress("materialize fixtures")
     let fixtures = makeFixtures(quick: options.quick)
+    progress("fixtures ready")
     let firstBank = fixtures.decodeLayers[0].weights.bank
     let firstQuery = fixtures.decodeLayers[0].weights.query
     let firstKey = fixtures.decodeLayers[0].weights.key
@@ -703,16 +718,23 @@ private func run() throws {
         old: old, packed: packed, fixtures: fixtures, stream: stream
     )
     print("CORRECTNESS \(correctness)")
+    progress("correctness complete")
 
+    progress("warmup old decode")
     _ = decode(kernels: old, abi: .old, fixtures: fixtures, stream: stream)
+    progress("warmup packed decode")
     _ = decode(kernels: packed, abi: .packed, fixtures: fixtures, stream: stream)
+    progress("warmup old prefill")
     _ = prefill(kernels: old, abi: .old, fixtures: fixtures, stream: stream)
+    progress("warmup packed prefill")
     _ = prefill(kernels: packed, abi: .packed, fixtures: fixtures, stream: stream)
     stream.synchronize()
+    progress("warmup complete")
 
     var decodeSamples = [TimingSample]()
     var prefillSamples = [TimingSample]()
     if !options.quick {
+        progress("decode balanced timing")
         decodeSamples = timeWorkload(
             name: "decode",
             repeats: options.repeats,
@@ -724,6 +746,7 @@ private func run() throws {
                 decode(kernels: kernels, abi: abi, fixtures: fixtures, stream: stream)
             }
         )
+        progress("prefill balanced timing")
         prefillSamples = timeWorkload(
             name: "prefill",
             repeats: options.repeats,
@@ -735,6 +758,7 @@ private func run() throws {
                 prefill(kernels: kernels, abi: abi, fixtures: fixtures, stream: stream)
             }
         )
+        progress("balanced timing complete")
     }
 
     var result: [String: Any] = [
