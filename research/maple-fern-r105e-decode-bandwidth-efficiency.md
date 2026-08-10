@@ -164,6 +164,15 @@ More consequentially, the comparison itself changes axis:
 | **wall, same axis as the M5 step** | **8233** | **203.0** | **76.23** |
 | SPLIT=1 label sum | 8528.3 | 195.98 | 73.59 |
 
+Provenance of the wall figure: 8233.0 µs is arm B of the r103-A rotation-cycle
+census (`research/maple-frieren-r103a-missing-microseconds.md:2076-2078`, arms
+8245.4 / 8233.0 / 8267.6). Two independent sessions land in the same place —
+8.247 ms/step in `research/fern-r105c-gate-surface-masking-audit.md:135-137`
+and `research/advisor-r105-the-decode-step-is-half-empty.md:90-92`. Substituting
+8247 gives 202.7 GB/s and 76.10 %, a 0.13-point move that changes nothing below.
+The M4 wall step is 8233–8248 µs across every session that reports it, and every
+one of them is far above the 7940 µs busy number the assignment divides by.
+
 The M5 figure, 4141.5 µs, is a **step** time: it is wall-equivalent and includes
 inter-dispatch gaps. Comparing M4 *busy* with M5 *step* is a category error.
 On the matched wall axis the gap is **10.07 points, not 12.9**, and naive parity
