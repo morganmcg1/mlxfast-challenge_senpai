@@ -7565,6 +7565,72 @@ for (uint row = 0; row < 2; ++row) {
     ensureRowContiguous: true
 )
 
+let lagunaSimd6RoutedScaleWords = lagunaScalePatchHeaderBytes / 4
+    + (lagunaPackedRoutedGateUpScaleBytes - lagunaScalePatchHeaderBytes) / 16 * 3
+
+private let lagunaSimd6PackRoutedScalesKernel = MLXFast.metalKernel(
+    name: "laguna_pack_routed_scales_simd6_v1",
+    inputNames: ["packed_scales"],
+    outputNames: ["simd6_scales"],
+    source: """
+uint gid = thread_position_in_grid.x;
+constexpr uint header_words = \(lagunaScalePatchHeaderBytes / 4);
+if (gid < header_words) {
+    uint byte = gid * 4;
+    simd6_scales[gid] = uint(packed_scales[byte])
+        | (uint(packed_scales[byte + 1]) << 8)
+        | (uint(packed_scales[byte + 2]) << 16)
+        | (uint(packed_scales[byte + 3]) << 24);
+    return;
+}
+uint row = gid - header_words;
+const device uint8_t* source =
+    packed_scales + \(lagunaScalePatchHeaderBytes) + row * 16;
+uint words[3] = {0, 0, 0};
+for (uint i = 0; i < 16; ++i) {
+    uint bit = i * 6;
+    uint word = bit >> 5;
+    uint shift = bit & 31;
+    uint code = uint(source[i]);
+    words[word] |= code << shift;
+    if (shift > 26) words[word + 1] |= code >> (32 - shift);
+}
+uint output = header_words + row * 3;
+simd6_scales[output] = words[0];
+simd6_scales[output + 1] = words[1];
+simd6_scales[output + 2] = words[2];
+"""
+)
+
+private let lagunaSimd6ScaleHeader = """
+METAL_FUNC uint8_t laguna_simd6_scale_code(
+    const device uint* row, uint lane) {
+    uint packed = lane < 3 ? row[lane] : 0;
+    uint index = lane >> 1;
+    uint bit = index * 6;
+    uint source = bit >> 5;
+    uint shift = bit & 31;
+    uint code = simd_shuffle(packed, ushort(source)) >> shift;
+    if (index == 5) {
+        code |= simd_shuffle(packed, ushort(1)) << 2;
+    } else if (index == 10) {
+        code |= simd_shuffle(packed, ushort(2)) << 4;
+    }
+    return uint8_t(code & 63);
+}
+"""
+
+func lagunaSimd6PackedRoutedScales(_ packedScales: MLXArray) -> MLXArray {
+    precondition(packedScales.dtype == .uint8)
+    precondition(packedScales.size == lagunaPackedRoutedGateUpScaleBytes)
+    let rows = (packedScales.size - lagunaScalePatchHeaderBytes) / 16
+    return lagunaSimd6PackRoutedScalesKernel(
+        [packedScales], grid: (lagunaScalePatchHeaderBytes / 4 + rows, 1, 1),
+        threadGroup: (256, 1, 1), outputShapes: [[lagunaSimd6RoutedScaleWords]],
+        outputDTypes: [.uint32]
+    )[0]
+}
+
 func lagunaRoutedSwiGLUQMVPacked(
     _ input: MLXArray,
     fusedWeight: MLXArray,
@@ -7577,19 +7643,27 @@ func lagunaRoutedSwiGLUQMVPacked(
     precondition(
         fusedWeight.dims(LagunaConstants.numExperts, 2 * LagunaConstants.moeIntermediateSize,
             LagunaConstants.hiddenSize / 8))
-    precondition(packedScales.dtype == .uint8)
-    precondition(packedScales.size == lagunaPackedRoutedGateUpScaleBytes)
     precondition(indices.dtype == .uint32)
     precondition(indices.dims(1, 1, LagunaConstants.numExpertsPerTok))
-
+    let outputShapes = [[
+        1, 1, LagunaConstants.numExpertsPerTok, 1,
+        LagunaConstants.moeIntermediateSize,
+    ]]
+    if packedScales.dtype == .uint32 {
+        precondition(packedScales.size == lagunaSimd6RoutedScaleWords)
+        return lagunaRoutedSwiGLUQMVPackedSimd6Kernel(
+            [input, fusedWeight, packedScales, indices],
+            grid: (LagunaConstants.numExpertsPerTok * 128 * 64, 1, 1),
+            threadGroup: (64, 1, 1), outputShapes: outputShapes,
+            outputDTypes: [.bfloat16]
+        )[0]
+    }
+    precondition(packedScales.dtype == .uint8)
+    precondition(packedScales.size == lagunaPackedRoutedGateUpScaleBytes)
     return lagunaRoutedSwiGLUQMVPackedKernel(
         [input, fusedWeight, packedScales, indices],
         grid: (LagunaConstants.numExpertsPerTok * 128 * 64, 1, 1),
-        threadGroup: (64, 1, 1),
-        outputShapes: [[
-            1, 1, LagunaConstants.numExpertsPerTok, 1,
-            LagunaConstants.moeIntermediateSize,
-        ]],
+        threadGroup: (64, 1, 1), outputShapes: outputShapes,
         outputDTypes: [.bfloat16]
     )[0]
 }
@@ -7598,9 +7672,15 @@ func lagunaRoutedSwiGLUQMVPacked(
 /// prologue. The ordinary accepted kernel above stays byte-for-byte unchanged;
 /// this generator is used only by the exact router-key twin below.
 func lagunaRoutedSwiGLUQMVPackedSelectedSource(
-    prologue: String, expertExpression: String
+    prologue: String, expertExpression: String, simd6: Bool = false
 ) -> String {
-    """
+    let scaleType = simd6 ? "uint" : "uint8_t"
+    let laneOffset = simd6 ? "" : " + (lane >> 1)"
+    let gateRead = simd6
+        ? "laguna_simd6_scale_code(gate_scale, lane)" : "gate_scale[0]"
+    let upRead = simd6
+        ? "laguna_simd6_scale_code(up_scale, lane)" : "up_scale[0]"
+    return """
 constexpr uint input_width = 2048;
 constexpr uint output_width = 512;
 constexpr uint block_width = 512;
@@ -7608,12 +7688,11 @@ constexpr uint values_per_lane = 16;
 constexpr uint routed_experts = 8;
 constexpr uint fused_row_bytes = 1024;
 constexpr uint fused_expert_bytes = 1024 * fused_row_bytes;
-constexpr uint scale_patch_bytes = \(lagunaScalePatchHeaderBytes);
-constexpr uint scale_row_bytes = 16;
-constexpr uint scale_sub_bytes = 8 * scale_row_bytes;
-constexpr uint scale_kblock_bytes = scale_sub_bytes;
-constexpr uint scale_tile_bytes = 4 * scale_kblock_bytes;
-constexpr uint packed_expert_bytes = 128 * scale_tile_bytes;
+constexpr uint scale_patch_stride = \(simd6 ? lagunaScalePatchHeaderBytes / 4 : lagunaScalePatchHeaderBytes);
+constexpr uint scale_row_stride = \(simd6 ? 3 : 16);
+constexpr uint scale_kblock_stride = 8 * scale_row_stride;
+constexpr uint scale_tile_stride = 4 * scale_kblock_stride;
+constexpr uint packed_expert_stride = 128 * scale_tile_stride;
 
 uint group = threadgroup_position_in_grid.x;
 uint expert_slot = group % routed_experts;
@@ -7626,9 +7705,12 @@ uint expert = \(expertExpression);
 
 const device uint8_t* expert_weight =
     (const device uint8_t*)fused_weight + expert * fused_expert_bytes;
-const device uint8_t* tile_scales =
-    packed_scales + scale_patch_bytes + expert * packed_expert_bytes
-    + tile * scale_tile_bytes;
+const device uint8_t* scale_patch = (const device uint8_t*)packed_scales;
+const device \(scaleType)* scales =
+    (const device \(scaleType)*)packed_scales;
+const device \(scaleType)* tile_scales =
+    scales + scale_patch_stride + expert * packed_expert_stride
+    + tile * scale_tile_stride;
 
 thread float gate_result[2] = {0.0f, 0.0f};
 thread float up_result[2] = {0.0f, 0.0f};
@@ -7646,16 +7728,16 @@ for (uint block = 0; block < input_width; block += block_width) {
         input_values[4 * i + 3] = values[3];
     }
 
-    const device uint8_t* block_scales =
-        tile_scales + (block / block_width) * scale_kblock_bytes;
+    const device \(scaleType)* block_scales =
+        tile_scales + (block / block_width) * scale_kblock_stride;
     for (uint row = 0; row < 2; ++row) {
         uint logical_row = tile * 4 + simd_group * 2 + row;
         uint gate_row = (logical_row / 32) * 64 + logical_row % 32;
         uint up_row = gate_row + 32;
         uint sub = simd_group * 2 + row;
-        const device uint8_t* gate_scale =
-            block_scales + sub * 2 * scale_row_bytes + (lane >> 1);
-        const device uint8_t* up_scale = gate_scale + scale_row_bytes;
+        const device \(scaleType)* gate_scale =
+            block_scales + sub * 2 * scale_row_stride\(laneOffset);
+        const device \(scaleType)* up_scale = gate_scale + scale_row_stride;
         const device uint8_t* gate_weight =
             expert_weight + gate_row * fused_row_bytes
             + block / 2 + lane * 8;
@@ -7665,8 +7747,8 @@ for (uint block = 0; block < input_width; block += block_width) {
 
         bool patch_lane =
             expert == 0 && logical_row == 0 && block == 0 && lane == 1;
-        uint8_t gate_sb = patch_lane ? packed_scales[0] : gate_scale[0];
-        uint8_t up_sb = patch_lane ? packed_scales[1] : up_scale[0];
+        uint8_t gate_sb = patch_lane ? scale_patch[0] : \(gateRead);
+        uint8_t up_sb = patch_lane ? scale_patch[1] : \(upRead);
 
         gate_result[row] += laguna_nvfp4_qdot_16(
             gate_weight, input_values,
@@ -7694,6 +7776,16 @@ for (uint row = 0; row < 2; ++row) {
 }
 """
 }
+
+private let lagunaRoutedSwiGLUQMVPackedSimd6Kernel = MLXFast.metalKernel(
+    name: "laguna_routed_nvfp4_swiglu_qmv_simd6_direct_bf16_v1",
+    inputNames: ["input", "fused_weight", "packed_scales", "indices"],
+    outputNames: ["activated"],
+    source: lagunaRoutedSwiGLUQMVPackedSelectedSource(
+        prologue: "", expertExpression: "uint(indices[expert_slot])", simd6: true),
+    header: lagunaSharedSwiGLUQMVHeader + "\n" + lagunaSimd6ScaleHeader,
+    ensureRowContiguous: true
+)
 
 /// Simd-shuffle-only comparator-minimum extraction; lane `l` owns experts
 /// `l + 32j`, `mask` bit `j` marks extracted. Each routed slot performs only
@@ -7756,6 +7848,18 @@ private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
     ensureRowContiguous: true
 )
 
+private let lagunaRoutedSwiGLUQMVPackedTop8Simd6Kernel = MLXFast.metalKernel(
+    name: "laguna_routed_nvfp4_swiglu_qmv_simd6_top8keys_bf16_v1",
+    inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
+    outputNames: ["activated"],
+    source: lagunaRoutedSwiGLUQMVPackedSelectedSource(
+        prologue: lagunaRouterTop8PrecomputedPrelude,
+        expertExpression: "top8_winner", simd6: true),
+    header: lagunaSharedSwiGLUQMVHeader + "\n" + lagunaDecodeRouterOrdinalHeader
+        + "\n" + lagunaRouterTop8PrologueHeader + "\n" + lagunaSimd6ScaleHeader,
+    ensureRowContiguous: true
+)
+
 /// `DARKBLOOM_ROUTED_GATEUP_R1` (default ON; set "0" to restore the accepted
 /// two-rows-per-simdgroup pipeline): one output row per simdgroup for the
 /// routed gate/up packed QMV, with twice the threadgroups — the promoted
@@ -7767,11 +7871,13 @@ private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
 let lagunaRoutedGateUpR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTED_GATEUP_R1"] != "0"
 
-private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
-    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
-    inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
-    outputNames: ["activated"],
-    source: """
+func lagunaRoutedSwiGLUQMVPackedTop8R1Source(simd6: Bool) -> String {
+    let scaleType = simd6 ? "uint" : "uint8_t"
+    let laneOffset = simd6 ? "" : " + (lane >> 1)"
+    func read(_ base: String) -> String {
+        simd6 ? "laguna_simd6_scale_code(\(base), lane)" : "(\(base))[0]"
+    }
+    return """
 constexpr uint input_width = 2048;
 constexpr uint output_width = 512;
 constexpr uint block_width = 512;
@@ -7779,12 +7885,11 @@ constexpr uint values_per_lane = 16;
 constexpr uint routed_experts = 8;
 constexpr uint fused_row_bytes = 1024;
 constexpr uint fused_expert_bytes = 1024 * fused_row_bytes;
-constexpr uint scale_patch_bytes = \(lagunaScalePatchHeaderBytes);
-constexpr uint scale_row_bytes = 16;
-constexpr uint scale_sub_bytes = 8 * scale_row_bytes;
-constexpr uint scale_kblock_bytes = scale_sub_bytes;
-constexpr uint scale_tile_bytes = 4 * scale_kblock_bytes;
-constexpr uint packed_expert_bytes = 128 * scale_tile_bytes;
+constexpr uint scale_patch_stride = \(simd6 ? lagunaScalePatchHeaderBytes / 4 : lagunaScalePatchHeaderBytes);
+constexpr uint scale_row_stride = \(simd6 ? 3 : 16);
+constexpr uint scale_kblock_stride = 8 * scale_row_stride;
+constexpr uint scale_tile_stride = 4 * scale_kblock_stride;
+constexpr uint packed_expert_stride = 128 * scale_tile_stride;
 
 uint group = threadgroup_position_in_grid.x;
 uint expert_slot = group % routed_experts;
@@ -7797,9 +7902,12 @@ uint expert = top8_winner;
 
 const device uint8_t* expert_weight =
     (const device uint8_t*)fused_weight + expert * fused_expert_bytes;
-const device uint8_t* row_scales =
-    packed_scales + scale_patch_bytes + expert * packed_expert_bytes
-    + (logical_row / 4) * scale_tile_bytes;
+const device uint8_t* scale_patch = (const device uint8_t*)packed_scales;
+const device \(scaleType)* scales =
+    (const device \(scaleType)*)packed_scales;
+const device \(scaleType)* row_scales =
+    scales + scale_patch_stride + expert * packed_expert_stride
+    + (logical_row / 4) * scale_tile_stride;
 uint sub = logical_row % 4;
 uint gate_row = (logical_row / 32) * 64 + logical_row % 32;
 uint up_row = gate_row + 32;
@@ -7813,11 +7921,12 @@ uint2 up_codes;
 uint8_t gate_sb;
 uint8_t up_sb;
 {
-    const device uint8_t* first_scales =
-        row_scales + sub * 2 * scale_row_bytes + (lane >> 1);
+    const device \(scaleType)* first_scales =
+        row_scales + sub * 2 * scale_row_stride\(laneOffset);
     bool patch_lane = expert == 0 && logical_row == 0 && lane == 1;
-    gate_sb = patch_lane ? packed_scales[0] : first_scales[0];
-    up_sb = patch_lane ? packed_scales[1] : first_scales[scale_row_bytes];
+    gate_sb = patch_lane ? scale_patch[0] : \(read("first_scales"));
+    up_sb = patch_lane ? scale_patch[1]
+        : \(read("first_scales + scale_row_stride"));
     gate_codes = *(const device uint2*)(
         expert_weight + gate_row * fused_row_bytes + lane * 8);
     up_codes = *(const device uint2*)(
@@ -7842,11 +7951,11 @@ for (uint block = 0; block < input_width; block += block_width) {
     const uint8_t cur_up_sb = up_sb;
     const uint next_block = block + block_width;
     if (next_block < input_width) {
-        const device uint8_t* next_scales =
-            row_scales + (next_block / block_width) * scale_kblock_bytes
-            + sub * 2 * scale_row_bytes + (lane >> 1);
-        gate_sb = next_scales[0];
-        up_sb = next_scales[scale_row_bytes];
+        const device \(scaleType)* next_scales =
+            row_scales + (next_block / block_width) * scale_kblock_stride
+            + sub * 2 * scale_row_stride\(laneOffset);
+        gate_sb = \(read("next_scales"));
+        up_sb = \(read("next_scales + scale_row_stride"));
         gate_codes = *(const device uint2*)(
             expert_weight + gate_row * fused_row_bytes
             + next_block / 2 + lane * 8);
@@ -7876,9 +7985,26 @@ if (lane == 0) {
     activated[expert_slot * output_width + logical_row] =
         bfloat(silu * up);
 }
-""",
+"""
+}
+
+private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
+    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
+    inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
+    outputNames: ["activated"],
+    source: lagunaRoutedSwiGLUQMVPackedTop8R1Source(simd6: false),
     header: lagunaSharedSwiGLUQMVHeader + "\n" + lagunaDecodeRouterOrdinalHeader
         + "\n" + lagunaRouterTop8PrologueHeader,
+    ensureRowContiguous: true
+)
+
+private let lagunaRoutedSwiGLUQMVPackedTop8R1Simd6Kernel = MLXFast.metalKernel(
+    name: "laguna_routed_nvfp4_swiglu_qmv_simd6_top8keys_r1_bf16_v1",
+    inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
+    outputNames: ["activated"],
+    source: lagunaRoutedSwiGLUQMVPackedTop8R1Source(simd6: true),
+    header: lagunaSharedSwiGLUQMVHeader + "\n" + lagunaDecodeRouterOrdinalHeader
+        + "\n" + lagunaRouterTop8PrologueHeader + "\n" + lagunaSimd6ScaleHeader,
     ensureRowContiguous: true
 )
 
@@ -7891,31 +8017,36 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
     precondition(input.dtype == .bfloat16)
     precondition(input.dims(1, 1, LagunaConstants.hiddenSize))
     precondition(fusedWeight.dtype == .uint32)
-    precondition(packedScales.dtype == .uint8)
-    precondition(packedScales.size == lagunaPackedRoutedGateUpScaleBytes)
     precondition(routerKeys.dtype == .uint32)
     precondition(routerKeys.size == LagunaConstants.numExperts)
+    let outputShapes = [[
+        1, 1, LagunaConstants.numExpertsPerTok, 1,
+        LagunaConstants.moeIntermediateSize,
+    ]]
 
-    if lagunaRoutedGateUpR1Enabled {
-        return lagunaRoutedSwiGLUQMVPackedTop8R1Kernel(
+    if packedScales.dtype == .uint32 {
+        precondition(packedScales.size == lagunaSimd6RoutedScaleWords)
+        let kernel = lagunaRoutedGateUpR1Enabled
+            ? lagunaRoutedSwiGLUQMVPackedTop8R1Simd6Kernel
+            : lagunaRoutedSwiGLUQMVPackedTop8Simd6Kernel
+        let rows = lagunaRoutedGateUpR1Enabled ? 256 : 128
+        return kernel(
             [input, fusedWeight, packedScales, routerKeys],
-            grid: (LagunaConstants.numExpertsPerTok * 256 * 64, 1, 1),
-            threadGroup: (64, 1, 1),
-            outputShapes: [[
-                1, 1, LagunaConstants.numExpertsPerTok, 1,
-                LagunaConstants.moeIntermediateSize,
-            ]],
+            grid: (LagunaConstants.numExpertsPerTok * rows * 64, 1, 1),
+            threadGroup: (64, 1, 1), outputShapes: outputShapes,
             outputDTypes: [.bfloat16]
         )[0]
     }
-    return lagunaRoutedSwiGLUQMVPackedTop8Kernel(
+    precondition(packedScales.dtype == .uint8)
+    precondition(packedScales.size == lagunaPackedRoutedGateUpScaleBytes)
+    let kernel = lagunaRoutedGateUpR1Enabled
+        ? lagunaRoutedSwiGLUQMVPackedTop8R1Kernel
+        : lagunaRoutedSwiGLUQMVPackedTop8Kernel
+    let rows = lagunaRoutedGateUpR1Enabled ? 256 : 128
+    return kernel(
         [input, fusedWeight, packedScales, routerKeys],
-        grid: (LagunaConstants.numExpertsPerTok * 128 * 64, 1, 1),
-        threadGroup: (64, 1, 1),
-        outputShapes: [[
-            1, 1, LagunaConstants.numExpertsPerTok, 1,
-            LagunaConstants.moeIntermediateSize,
-        ]],
+        grid: (LagunaConstants.numExpertsPerTok * rows * 64, 1, 1),
+        threadGroup: (64, 1, 1), outputShapes: outputShapes,
         outputDTypes: [.bfloat16]
     )[0]
 }
@@ -10512,6 +10643,9 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
     /// the halved plane would not be bit-exact, in which case the routed QMV
     /// path reads the full fused scales instead.
     var _packedRoutedGateUpBank: MLXArray?
+    /// Exact 6-bit payload twin of `_packedRoutedGateUpBank`, retaining its
+    /// patch header as 32 words. Nil if any payload scale code exceeds 63.
+    var _simd6RoutedGateUpBank: MLXArray?
 
     /// Builds and retains the fused routed gate/up NVFP4 banks from the
     /// loaded stock `SwitchGLU` submodules (reached through the public
@@ -10625,6 +10759,15 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
             _fusedRoutedGateUpPairwiseScales = pairwiseView
             prepared.append(pairwiseView)
         }
+        if let packedScales = _packedRoutedGateUpBank {
+            let payload = packedScales[
+                lagunaScalePatchHeaderBytes ..< lagunaPackedRoutedGateUpScaleBytes]
+            if payload.max().item(UInt8.self) <= 63 {
+                let compactScales = lagunaSimd6PackedRoutedScales(packedScales)
+                _simd6RoutedGateUpBank = compactScales
+                prepared.append(compactScales)
+            }
+        }
         return prepared
     }
 
@@ -10695,8 +10838,9 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 _fusedRoutedGateUpSplit == LagunaConstants.moeIntermediateSize
             {
                 if lagunaPackedScalesEnabled,
-                    let packedBank = _packedRoutedGateUpBank
+                    let u8PackedBank = _packedRoutedGateUpBank
                 {
+                    let packedBank = _simd6RoutedGateUpBank ?? u8PackedBank
                     lagunaPackedScalesLog.note(
                         "active", "routed swiglu qmv packed dispatch")
                     if lagunaRouterPrecomputedKeysEnabled,
