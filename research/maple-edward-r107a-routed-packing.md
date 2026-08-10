@@ -759,6 +759,131 @@ bad QKV store corrupts a whole head's projection for every subsequent attention
 step. The four clean parity streams at this site are therefore a real result and
 not an artefact of a blunt instrument.
 
+### 5.2a Pre-registered mechanism prediction (written before any Stage-A timing was read)
+
+This subsection was committed while the Stage-A timing block was still running and
+before any `.steps` file from it had been opened. Only the slot count had been
+checked. It exists so that §5.3 cannot be read as a story fitted to whatever
+number arrived, and so that a null is as publishable as a win.
+
+**The cross-site arithmetic that constrains every candidate mechanism.** The two
+sites differ enormously in how hard they lean on the threadgroup-launch machinery,
+and that difference is the lever that turns §4's measured routed curve into a
+quantitative prior for this site.
+
+| quantity | routed gate/up (§4, measured) | QKV lane-major (this site) |
+| --- | --- | --- |
+| threadgroups per dispatch at S = 2 | 2,048 | 5,120 (h64) + 4,096 (h48) |
+| dispatches per decode step | 39 | 1 of each head shape |
+| threadgroups per decode step at S = 2 | 79,872 | 9,216 |
+| family cost per step [M4-WALL] | 1,497.7-1,522 us | 1,340.1 us |
+| threadgroup issue demand | ~52 TG/us | ~6.9 TG/us |
+| threadgroups removed by S = 2 -> 8 | 59,904 | 6,912 |
+
+The routed site issues threadgroups **7.6x faster** and S = 2 -> 8 retires
+**8.7x more** of them there than here. Any mechanism whose cost is *per
+threadgroup* must therefore be 8.7x larger at the routed site than here, and §4
+measured that site flat.
+
+**Consequence 1 - a hard upper bound on per-threadgroup launch/retire cost.**
+Apple states that per-threadgroup dispatch and retirement overhead exists
+(WWDC16 606, WWDC22 10159) but has never published a figure for it, and no
+public source gives a threadgroup issue rate for any Apple GPU. §4's
+`base -> sg8` contrast is `+5.15 us/step`, 95 % CI `[-2.49, +12.79]`, so the
+largest *gain* the routed data permits is 2.5 us/step spread over 59,904 retired
+threadgroups: **<= 0.042 ns per threadgroup**. Scaling that ceiling by this
+site's 6,912 removed threadgroups bounds the launch-amortisation mechanism here
+at **<= ~0.3 us/step** - two orders of magnitude below the 52.5-67.5 M4 us/step
+graduation bar of §6, and below this study's own resolution.
+
+**Consequence 2 - the -36.9 us/step prior is arithmetically incompatible with
+§4.** A -36.9 us/step gain from retiring 6,912 threadgroups requires
+**5.34 ns per threadgroup**, i.e. 127x the ceiling above. At that price the
+routed site's S = 2 -> 8 contrast would have to read about **-320 us/step**. It
+read `+5.15 +/- 7.6`. The two are inconsistent by more than 30 sigma. Unless the
+mechanism is something other than per-threadgroup overhead, PR #308's and
+PR #298's M4 numbers are best explained as unpaired slot-level drift, exactly as
+rule 105.7 warns.
+
+**Mechanisms that could still make a larger threadgroup faster, ranked.**
+
+1. *Per-threadgroup launch and retire amortisation.* Real, undocumented, and
+   bounded above at <= ~0.3 us/step here by Consequence 1.
+2. *An occupancy floor at small S.* If a core cannot host enough 64-thread
+   threadgroups to fill its simdgroup slots, S = 2 -> 4 would buy a step. This
+   predicts an equal *relative* step at both sites; §4 saw none, so it is dead.
+3. *L1 reuse of the activation vector.* Structurally nil here: `x` is shared by
+   every row irrespective of how rows are partitioned across threadgroups, so
+   repacking changes no load stream.
+4. *Instruction-cache and argument-buffer fetch per threadgroup.* Subsumed by
+   mechanism 1's ceiling.
+5. *Dispatch ramp fill.* Sub-microsecond at 640-5,120 threadgroups; negligible.
+
+**Mechanisms that could make a larger threadgroup slower, ranked.**
+
+1. *Residency/packing quantization.* Resident simdgroups per core is
+   `S * floor(M/S)` for a per-core slot budget `M`. §4's flat 2/4/8 with a
+   `+63.49 us/step` cliff at 16 implies `M = 8 (mod 16)`, i.e. `M` in
+   {24, 40, 56, 72}, giving 33/20/14/11 % occupancy loss at S = 16; the observed
+   `+4.2 %` of family implies a sensitivity of 0.13-0.38x the occupancy loss.
+   Public support: Philip Turner's M1 Max sweep
+   (`github.com/philipturner/metal-benchmarks`, `CommandConcurrency/MainFile.swift`)
+   reports a ~30 % collapse at simdgroups/TG of 7, 9, 14, **16**, 23 and 25 while
+   8 and 10-13 are clean. Caveat: Apple9's "dynamic shader core memory"
+   (Tech Talk 111375) voids static register-to-occupancy tables, and no
+   occupancy or register table has been published for Apple9, M4 or M5.
+2. *Tail and load-imbalance coarsening.* Apple says verbatim that "larger
+   threadgroups might prevent a more uniform distribution" (WWDC22 10159), and
+   the M5 MPP guide 2.3.1 adds dimension quantization. Here S = 16 leaves
+   640 TG / 20 cores = 32.0 exactly for h64 but 512/20 = 25.6 for h48.
+3. *Register-block admission head-of-line blocking.*
+4. *The Apple9 Occupancy Manager* (Tech Talk 111374) - undocumented wildcard.
+
+Both leading slow-mechanisms predict **S = 8 is free** at this site, because both
+only bite at S = 16.
+
+**Pre-registered outcome distribution for the S = 8 central estimate at this
+site** (expected sd of the contrast ~4.4 M4 us/step at K = 16):
+
+| outcome | probability |
+| --- | --- |
+| faster by more than 20 us/step | 5 % |
+| faster by 5-20 us/step | 15 % |
+| within +/- 5 us/step of zero | 55 % |
+| slower by more than 5 us/step | 25 % |
+
+Point predictions: `base -> sg8 = +2 +/- 9`, `base -> sg4 = +1 +/- 9` M4
+us/step. The modal pre-registered verdict is therefore **`N-L3`**, and the
+deliverable under rule 105.7 is the width of the interval, not its sign.
+
+**Falsifiable statements.** If **residency quantization** is the cliff mechanism,
+then a QKV `S = 16` arm must slow this family by 3-5 % (`+40` to `+70` us/step)
+roughly equally at both head shapes, the routed site's penalty must be uniform
+(about `+1.6 us` on each of its 39 dispatches) and appear as a stationary level
+shift across all timed steps with unchanged variance. If **tail imbalance** is
+the mechanism, the relative penalty scales as `1/(TG per core)`: a QKV `S = 16`
+arm must cost `<= ~1 %` (`<= +15 us/step`), concentrated in h48 and near zero in
+h64 (whose 640 TGs are exactly 32/core on 20 cores), with inflated per-step
+spread. If **per-threadgroup launch overhead** produces any gain `-G` here, the
+routed site must show about `-8.7 * G`; the -36.9 prior implies -320 us/step
+there and is already falsified.
+
+**Free diagnostics to run on the Stage-A data (no extra GPU time).** Split every
+contrast by head shape: a tail mechanism makes h48 show at least 1.25x the
+*relative* effect, while a front-end mechanism makes the effect track threadgroup
+count so h64 is larger in absolute microseconds. Check that the routed `sg16`
+per-step series is a stationary level shift rather than drifting or bimodal.
+Express every QKV effect as a percentage of the 1,340.1 us family, not of the
+8,240 us step. The best single *paid* diagnostic, if replication budget allows it
+later, is a QKV `S = 16` arm (~12 min), which separates quantization
+(`+45` to `+70` us/step, shape-independent) from tail (`<= +15`, h48-only).
+
+**Ranked-host transfer note.** On the M5 Max's 40 cores every threadgroup-per-core
+figure halves. Quantization is unchanged by that (it depends on `S` and the
+per-core slot budget), but the tail mechanism roughly doubles. So the
+quantization-versus-tail distinction is not academic: it changes the sign of the
+risk this lever carries to the scored host.
+
 ### 5.3 Full-decode rotated-palindrome timing
 
 ### 5.4 Prefill (rule 17)
