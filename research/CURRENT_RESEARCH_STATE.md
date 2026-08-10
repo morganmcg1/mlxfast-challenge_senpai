@@ -6616,7 +6616,13 @@ finer. But it means:
   more to the integrator than a loosely-bounded 0.5 %, because only the former
   can be summed under 105.5 with its CI still excluding zero.
 
-Both points were issued to all six students in the 105 broadcast.
+Provenance of this sub-rule: the *consequence* ("optimise for CI tightness,
+not effect size") was issued to frieren and alphonse in the 105 broadcast; the
+**quantitative** form above — the bar sitting below the single-receipt
+detection threshold — was derived afterwards from §9 and issued separately to
+the two candidate-producing arms (edward #629, alphonse #644). It was **not**
+sent to tanjiro, fern, or nezuko, whose assignments are census/integration/
+forensics and do not turn on it.
 
 #### 105.8 Broadcast record
 
