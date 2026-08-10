@@ -36,6 +36,14 @@ ADVISOR_PCS_PER_BUSY_US = 0.0056  # at tau = 1
 BAR_PCS = 0.378
 BAR_US_STEP_M4_WALL = 54.0
 BAR_US_STEP_M4_BUSY = 68.0
+# Comment 5246874781 (22:45Z) dropped the bar 5.4x: the crown is an
+# unchanged-persistence replay 1.02 sd above our best draw. Quoted as both
+# "~10 us of M4 decode busy" and "~0.07% of score"; those disagree by 25% under
+# the price pair above, and the advisor's own worked example divides a *wall*
+# number by 10, so the wall reading is the operative one.
+BAR_PCS_NEW = 0.07
+BAR_US_STEP_M4_WALL_NEW = BAR_PCS_NEW / ADVISOR_PCS_PER_WALL_US  # 10.0
+BAR_US_STEP_M4_BUSY_NEW = BAR_PCS_NEW / ADVISOR_PCS_PER_BUSY_US  # 12.5
 CORRECTION = 1.28  # applied as instructed; derivation not independently checked
 SIGMA = 0.1498
 ELASTICITY_T = 0.638
@@ -110,6 +118,15 @@ def _ceiling(prefix, saving_us, se_us, prices):
     out[f"{prefix}/fraction_of_bar_priced"] = out[f"{prefix}/pcs_advisor_wall"] / BAR_PCS
     out[f"{prefix}/fraction_of_bar_priced_95hi"] = (
         out[f"{prefix}/pcs_advisor_wall_95hi"] / BAR_PCS
+    )
+    out[f"{prefix}/fraction_of_new_bar_priced"] = (
+        out[f"{prefix}/pcs_advisor_wall"] / BAR_PCS_NEW
+    )
+    out[f"{prefix}/fraction_of_new_bar_priced_95hi"] = (
+        out[f"{prefix}/pcs_advisor_wall_95hi"] / BAR_PCS_NEW
+    )
+    out[f"{prefix}/clears_new_bar"] = (
+        1.0 if out[f"{prefix}/pcs_advisor_wall"] >= BAR_PCS_NEW else 0.0
     )
     return out
 
@@ -211,6 +228,10 @@ def main():
             "bar_pcs": BAR_PCS,
             "bar_us_step_m4_wall": BAR_US_STEP_M4_WALL,
             "bar_us_step_m4_busy": BAR_US_STEP_M4_BUSY,
+            "bar_pcs_new": BAR_PCS_NEW,
+            "bar_us_step_m4_wall_new": BAR_US_STEP_M4_WALL_NEW,
+            "bar_us_step_m4_busy_new": BAR_US_STEP_M4_BUSY_NEW,
+            "pool_harvest_required_new": BAR_US_STEP_M4_BUSY_NEW / POOL_US_STEP,
             "m4_to_m5_correction": CORRECTION,
             "sigma_prefill_share": SIGMA,
             "elasticity_T": ELASTICITY_T,

@@ -10,22 +10,46 @@ Evidence: `research/maple-alphonse-r109e-qk-ceiling.md` (§4.6, §7),
 `research/maple-alphonse-r109e-qk-ceiling-combined.txt` (raw analyser output),
 `/tmp/r109e-qk-ceiling-main.tsv` + `/tmp/r109e-qk-swap.tsv` (n=32 raw rows).
 
-## Headline
+## Headline (revised 23:20Z for the 22:45Z bar drop)
 
-**`N-FULL-QK-CHEAP`.** The QK reduction in the full fused attention decode
-kernel is **11.4%** of my 249.5 µs/step pool. The advisor's own slate says I need
-a 27.2% harvest of that pool to clear the 0.378 %score bar. The mechanism is
-structurally **2.4×** too small, so I am stopping R109-E before writing any MMA
-kernel — and landing the params-atlas bolt-on as instructed.
+**`N-FULL-QK-MMA-NEGATIVE`. The target is landable; the assigned mechanism is
+not.** I am stopping R109-E before writing any MMA kernel, and landing the
+params-atlas bolt-on as instructed.
 
-The stronger statement is in **§7.1 of the ceiling memo**: a sourced static
-instruction census plus the ruler prices *all* in-loop ALU in this kernel at
-≈90.8 busy µs/step = 36.4% of the pool = **1.34× the bar**. Deleting every
-arithmetic instruction in the hot loop — not just the reduction — would barely
-clear it. That retires in-loop ALU micro-optimization for this kernel as a
-class, and it points the residual 29–63% of the pool at something that is not
-arithmetic. §7.1.4 names threadgroup quantization (the dispatch is exactly 24
-threadgroups) as the leading unmeasured suspect and gives an 8-run test.
+Comment 5246874781 (22:45Z) dropped the landing bar from 0.378 %score to
+**≈0.07 %score (≈10 µs/step of M4 wall, 12.5 of busy)** on the evidence that the
+crown is an unchanged-persistence replay 1.02σ above our best draw. That is a
+5.4× move and it **inverts the size half of my conclusion**, so I restate it
+rather than quietly keeping the old wording:
+
+- **`N-FULL-QK-CHEAP` is withdrawn — it is false under the new bar.** The QK
+  ladder is **22.69 wall / 28.36 busy µs/step = 0.159 %score at τ=1 = 2.3× the
+  new bar**. I had the right number and the wrong adjective.
+- **The 95 % exclusion I claimed evaporates.** The ruler's upper bound
+  (30.22 wall µs/step) was *below* the old 54 µs bar; it is **3.0× above** the
+  new one. Nothing in this experiment now excludes a landable saving.
+- **What survives is the mechanism verdict, which never depended on the bar.**
+  simdgroup-MMA costs **32 issue slots per key against 28 shipped** (§6), and an
+  8-row `simdgroup_bfloat8x8` tile needs ≥6 query rows where this kernel has 2 —
+  a **forbidden grid change**, with ≥75 % of every tile padding. A bigger prize
+  does not rescue a negative-expectation rewrite; it makes the projected ≈5 %
+  regression cost ≈1.1× the new bar in the wrong direction.
+
+**The actionable consequence.** Against a 12.5 busy-µs bar, the required harvest
+of my 249.5 µs/step pool falls from 27.2 % to **5.0 %**, and *every* component
+of §7.1's budget closure clears: all in-loop ALU 90.8 busy µs/step = **7.3×**
+the bar, the KV DRAM floor ≈86 = ≈7.3×, and the leading unmeasured suspect —
+**threadgroup quantization, ≈100 busy µs/step = 8.0× the bar** — is one 8-run
+ABBA block (~25 min) from being settled. The dispatch is exactly **24
+threadgroups** on 20 M4 Pro cores (makespan 2 vs ideal 1.2, 60 % efficiency),
+and an M5 Max has *more* cores, which makes a 24-threadgroup launch worse, not
+better. I did not run it because geometry was explicitly withheld from R109-E;
+it needs the same carve-out already granted to `gate_sp_h64` and
+`residual_rms_router`. **This is the single highest-value follow-up I found.**
+
+Everything below this section is left exactly as cut at 22:42Z, priced against
+the old bar, so the record shows what was concluded under which rule. §7.2 of
+the ceiling memo carries the full repricing.
 
 ## Item 1 — reduce-vs-load, µs of M4 removed off the 249.5 µs pool
 

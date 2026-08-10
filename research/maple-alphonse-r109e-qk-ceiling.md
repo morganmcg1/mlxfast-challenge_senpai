@@ -543,7 +543,18 @@ too** — it deletes strictly more work than the shortened ladder saves.
 
 ## 7. Verdict
 
-**`N-FULL-QK-CHEAP`. Stop R109-E before any MMA implementation.**
+**`N-FULL-QK-MMA-NEGATIVE`. Stop R109-E before any MMA implementation.**
+
+> **Verdict token changed at 23:15Z; see §7.2.** This section was written and
+> measured against the 0.378 %score landing bar. PR #685 comment 5246874781
+> (22:45Z) dropped the bar to **≈0.07 %score**, and at that bar the old token
+> `N-FULL-QK-CHEAP` is **false and I withdraw it**: the QK ladder is worth
+> 0.159 %score at τ=1, i.e. **2.3× the new bar**, not a fraction of it. What
+> survives repricing is the *mechanism* verdict, which never depended on the
+> bar: **simdgroup-MMA cannot harvest this pool** (§6 projects 32 slots/key vs
+> 28 shipped, and an 8-row `simdgroup_bfloat8x8` tile needs ≥6 query rows,
+> which is a forbidden grid change for this assignment). Everything below is
+> left as measured, priced against the old bar; §7.2 reprices it.
 
 **Stage-0 item 1 — reduce-vs-load, in the units the advisor asked for.**
 All figures below are the **combined n=32 fit** (main block + mirrored
@@ -686,8 +697,6 @@ empty shell. The LRM delta is the probe instrument (three probe source
 rewriters, a dose kernel generator, and a selector) plus the params memo, all of
 which are inert when their environment variables are unset.
 
-<!--VERDICT-->
-
 ## 7.1 Budget closure: what the ruler says about the *whole* kernel
 
 The ruler is not only a verdict on the ladder. It is a **price for one
@@ -811,6 +820,144 @@ quantization, the split shape wins on M4 Pro and wins by more on M5 Max; if it
 is per-threadgroup prologue cost, it loses. One paired ABBA block of 8 runs
 (~25 minutes) settles it, and it is the same probe harness I already have in
 `research/maple-alphonse-r109e-qk-ceiling-abba.sh`.
+
+## 7.2 Repricing against the 22:45Z bar drop
+
+PR #685 comment 5246874781 (2026-08-10T22:45:47Z) moved the landing bar a
+second time, and this time it moved by 5.4×. The evidence given is that the
+crown is an *unchanged-persistence replay*: five official receipts of literally
+identical code have published-score sd **0.374 %**, and the crown sits
+**+0.378 % = 1.02σ** above our best draw. So the gap we have been trying to
+close with engineering is, to the best available estimate, a lucky draw. The
+new rule is: **anything shown non-negative that removes ≥ ~10 µs of M4 decode
+busy per step (≈0.07 % of score) is worth landing.**
+
+I reprice this whole experiment against that bar here rather than editing the
+measured sections, so the record shows what was concluded under which rule.
+
+### 7.2.1 First, a unit ambiguity in the bar itself
+
+The bar is quoted two ways in one sentence — "≥ ~10 µs of M4 decode busy" and
+"≈0.07 % of score" — and under the advisor's own price pair those are not the
+same number:
+
+| reading of "10 µs" | conversion | bar in %score |
+|---|---|---|
+| 10 µs/step of M4 **busy** | × 0.0056 %/busy-µs | 0.056 % |
+| 10 µs/step of M4 **wall** | × 0.0070 %/wall-µs | 0.070 % |
+
+The `0.07 %` figure the advisor quotes is the **wall** reading, and the
+advisor's own worked example ("your ruler point estimate 22.69 wall / 28.36
+busy µs/step is ~2.3× the new 10 µs bar") divides my *wall* number by 10. So
+the operative bar is **10 µs/step of M4 wall = 12.5 µs/step of M4 busy =
+0.07 %score at τ = 1**. The two readings differ by 25 %, which is smaller than
+any interval in this memo, so nothing here turns on it — but I price in
+**%score**, which is invariant, and give the µs both ways.
+
+### 7.2.2 The repriced table
+
+Same measurements as §7, same τ = 1 (the optimistic assumption for my own
+hypothesis, justified in §5.9: all four arms are in-kernel ALU inside an
+unchanged grid).
+
+| estimate | µs/step wall | µs/step busy | %score @ τ=1 | vs **old** 0.378 % bar | vs **new** 0.07 % bar |
+|---|---|---|---|---|---|
+| synthetic ladder ruler (point) | 22.69 | 28.36 | 0.159 | 0.42× | **2.3×** |
+| synthetic ladder ruler (95% upper) | 30.22 | 37.78 | 0.212 | 0.56× | **3.0×** |
+| direct removal probe P−C (point saving) | +6.16 | +7.70 | 0.043 | 0.11× | 0.62× |
+| direct removal probe P−C (95% upper saving) | +56.27 | +70.34 | 0.394 | 1.04× | **5.6×** |
+
+### 7.2.3 What this flips, stated as plainly as I can
+
+**`N-FULL-QK-CHEAP` is withdrawn. It is false under the new bar.** The QK
+reduction ladder in `full_fused_attn_grow_v1` is worth **2.3× the landing
+bar**, not 0.42× of it. I had the right number and the wrong adjective.
+
+Two subsidiary claims in §7 die with it:
+
+- **The ruler's 95 % exclusion evaporates.** §7's strongest claim was that the
+  better-powered estimator excludes a bar-clearing saving at 95 % because its
+  upper bound (30.22 wall µs/step) is below the 54 µs/step bar. Against a
+  10 µs/step bar that same upper bound is **3.0× above** it. Neither estimator
+  now excludes a landable saving; both *point* estimates are at or above the
+  bar (2.3× and 0.62×). There is no exclusion left in this experiment.
+- **The "structurally too small by 2.4×" framing dies.** Under the new bar the
+  required harvest of my 249.5 µs/step busy pool is `12.5 / 249.5 = 5.0 %`, not
+  27.2 %. The ladder alone is 11.4 % of the pool, i.e. **2.3× more than
+  needed**. My pool is no longer the constraint; it is 20× the bar end to end.
+
+### 7.2.4 What does not flip, and why the assignment still stops
+
+The mechanism verdict never depended on the bar, and it is unchanged:
+
+1. **§6's slot arithmetic projects a regression, not a win.** An MMA-based QK
+   costs **32 issue slots per key** against **28** in the shipped scalar path.
+   A bigger prize does not make a negative-expectation rewrite positive; it
+   makes the *regression* proportionally more expensive. At the new bar, §6's
+   projected ≈5 % ALU regression on this kernel is itself ≈1.1× the landing
+   bar in the wrong direction.
+2. **The rewrite requires a forbidden grid change.** An 8-row
+   `simdgroup_bfloat8x8` tile needs ≥6 query rows per simdgroup; this kernel
+   has 2, fixed by the `((heads/2)*1024,1,1)` / `(1024,1,1)` launch that R109-E
+   was explicitly told not to touch. MLX steel hard-codes the fragment lane
+   layout (`steel/gemm/mma.h:46, 49-55, 205`), so this is not a parameter I can
+   set. **≥75 % of every tile would be padding.**
+3. **The break-even is an unverified hardware claim.** The sign only flips if
+   the M5 matrix unit exceeds ≈1.5× scalar FMA throughput. That is publicly
+   unverified and cannot be measured on this M4 Pro (Apple GPU generation 16).
+
+So the correct token is **`N-FULL-QK-MMA-NEGATIVE`**: the *target* is landable,
+the *assigned mechanism* is not. Stopping R109-E before the rewrite remains the
+right call, and it is now a better-supported call than it was under the old
+bar, because the cost of a 5 %-regression rewrite is measured against a 5.4×
+smaller bar.
+
+### 7.2.5 The whole pool, repriced — this is the actionable part
+
+§7.1's budget closure was written against a 68 µs/step busy bar and mostly
+concluded "too small". Against 12.5 µs/step busy, **every** component of my
+pool clears, and the ranking of what to attack changes completely:
+
+| component (§7.1) | µs/step busy | %score @ τ=1 | vs new bar | mechanism status |
+|---|---|---|---|---|
+| QK reduction ladder | 28.4 | 0.159 | 2.3× | **no viable mechanism** (§6) |
+| other in-loop ALU (softmax, AV, partials) | 62.4 | 0.349 | 5.0× | unexplored |
+| **all in-loop ALU** | 90.8 | 0.508 | 7.3× | unexplored |
+| KV-cache DRAM floor | ≈86 | ≈0.48 (τ≈1.06 ⇒ ≈0.51) | ≈7.3× | irreducible at bf16 |
+| **threadgroup quantization waste** | ≈100 | 0.560 | **8.0×** | **one 8-run test away** |
+| whole `full_fused_attn_grow_v1` pool | 249.5 | 1.397 | 20× | — |
+
+The line that matters is the last actionable one. This kernel dispatches
+exactly **24 threadgroups**. On this 20-core M4 Pro that is a makespan of 2
+waves against an ideal 1.2, i.e. **60 % efficiency and ≈100 busy µs/step
+wasted — 8× the new landing bar**, from a launch shape rather than from any
+instruction. §7.1 already names the cheapest decisive test: dispatch
+`2 × (heads/2)` threadgroups of 512 threads with the key range split per head
+pair, one ABBA block of 8 runs, ≈25 minutes of box time.
+
+**I did not run it, because geometry was explicitly withheld from R109-E.** I
+flag it here as the single highest-value follow-up I found: it is ~8× the bar,
+its τ is unknown and possibly sign-flipping across core counts (the M5 Max has
+far more cores than this M4 Pro, which *worsens* a 24-threadgroup launch, not
+improves it), and it costs one block to settle. It needs a carve-out of the
+same kind already granted to `gate_sp_h64` and `residual_rms_router`.
+
+### 7.2.6 One caveat I cannot discharge from this memo
+
+Every µs in the tables above is **additive busy** — it assumes that removing
+GPU busy time from this kernel removes the same wall time from the step. The
+same 22:45Z comment retracts the archive claim that decode dispatches are
+serialized: measured `busy_sum / busy_union = 1.1359`, so **11.96 % of decode
+busy is hidden behind concurrent kernels**, essentially all of it
+`laguna_gate_sp`. `full_fused_attn_grow_v1` was **not** among the kernels
+measured at ~0 % nesting. If this kernel turns out to be substantially nested,
+every additive-busy figure above is an over-estimate by that fraction. I take
+the required `SPLIT=1` profile and report the nested fraction in §7.3 rather
+than leaving the tables unqualified.
+
+<!--NESTED-->
+
+<!--VERDICT-->
 
 ## 8. Hand-off to maple-edward
 
