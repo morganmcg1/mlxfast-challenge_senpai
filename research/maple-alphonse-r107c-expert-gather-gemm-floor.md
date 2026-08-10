@@ -577,6 +577,84 @@ reached-dispatch geometry table (§3.1 + §5.2 + §7). maple-frieren (#597) owns
 the channel. Deconfliction as assigned: tanjiro #620 = prefill non-GEMM;
 edward #629 = decode threadgroup packing; nezuko #616 = r103 revert residual.
 
+I hold no PR-comment capability, so the block below is the complete handoff
+payload, self-contained and paste-ready for #625.
+
+### 11.1 Handoff payload for maple-fern (#625)
+
+> _This handoff was prepared by an AI agent (OpenHands) on behalf of
+> maple-alphonse._
+>
+> **Source.** PR #636, branch `maple-alphonse/r107-expert-gather-gemm-floor`,
+> assignment `maple-r107-c-expert-gather-gemm-floor` / `r107-c-rev1`,
+> `BASE_SHA e1d206da6bedd2a3ce3957ae05437a78317e4620`. Full report:
+> `research/maple-alphonse-r107c-expert-gather-gemm-floor.md`. W&B:
+> [`yljdcwmc`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/yljdcwmc).
+>
+> **Recommendation: do NOT integrate C2a on its own.** Verdict is `N-FLOOR`.
+> The arm is real, bit-exact by construction, compiles clean, and is a no-op by
+> default — but its own mechanism model prices it at **0.195 % of score**,
+> below the round's 0.4 % relevance gate and well below the 1.35 ms 3σ bar
+> (§7.2). Take it only if you are bundling several sub-threshold down-side
+> changes, and then measure the bundle, not this arm.
+>
+> **Submitted surface — one file, rule-75 digests (§4).**
+>
+> | | sha256 of `Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp` |
+> | --- | --- |
+> | base blob at `BASE_SHA` | `cf6d3847d583730fc7366110d91f54c676405869634cd0ae4eebbd362363c612` |
+> | candidate blob (pre-compile == post-compile) | `e5dac8a08c2a04c565fb575d86e710721d548413e826fa113f9b99dc23f33258` |
+> | offline preamble+kernel surface during the AIR census | `803fe16405b346e41b80f5202c4d5135c137f95c94051e69b37c5679ae3c2eba` (pre == post) |
+>
+> Diff: **+25 lines, 1740 bytes**, well inside the 8 KiB cap. Budget after the
+> patch: `current=2681206/3000000 headroom=318794 growth=998/262144 files=142`.
+> No `mlx-generated` twin edit is required (§5.3). Compiles under the exact
+> scored-worker command with **zero warnings in 2.0 s** (§3.3).
+>
+> **Activation.** `DARKBLOOM_EXPERT_DOWN_BN=32`. Default is `64`, i.e. the
+> patch is byte-for-byte behaviourally inert unless that env var is set, and it
+> accepts only `32` or `64`.
+>
+> **Rule-77 geometry, down shape `K=512, N=2048` (the only shape it touches).**
+>
+> | quantity | BN=64 (default) | BN=32 (arm) | source |
+> | --- | --- | --- | --- |
+> | kernel name component | `_bn_64_` | `_bn_32_` | rule 33 satisfied automatically |
+> | `group_dims` | (32, 1, 4) = 128 threads = 4 simdgroups | same | unchanged |
+> | `grid_dims` | (32, 256, 1) = 8192 TGs | (64, 256, 1) = **16384 TGs** | `:1603-1608` |
+> | `staticThreadgroupMemoryLength` | **9232 B** (measured) | **4624 B** (measured) | §6.2 |
+> | resident TGs / core (measured census) | 26.6 simdgroups | 33.0 simdgroups | **1.2535× ± 0.04**, §6.4 |
+> | `barrier` sites in AIR | 4 | 4 | invariant, §5.2 |
+> | `run_cooperative` MMA calls | 1 | 1 | invariant, §5.2 |
+> | AIR bytes | 35984 | 26128 | −27.4 % |
+> | total weight bytes / layer | 150 994 944 | 150 994 944 | **invariant**, §7 |
+> | output bytes / layer | 16 MiB | 16 MiB | invariant |
+> | A-operand request multiplicity | 32× | **64×** | the one real cost, §7.1 |
+> | MMA-active simdgroups per TG | **1 of 4** | **1 of 4** | §8 — untouched by `bn` |
+>
+> **Gate/up (`K=2048, N=1024`) is deliberately excluded**: its fused SwiGLU
+> epilogue pairs `col` with `col + BN/2`, so `BN = 64` there is a correctness
+> lock, not a tuning choice (§3). The guard requires
+> `K==512 && N==2048 && bm==64 && wm==4 && (wn==2||wn==1)` plus
+> `darkbloom_expert_aligned_gather()`, non-affine, transpose, `gs==16`,
+> `bits==4`, `M>=64`.
+>
+> **What is NOT established.** No millisecond on any host: this is an M4 Pro,
+> Apple GPU generation **16**, and `is_nax_available()` requires gen ≥ 17, so
+> `fp_gather_qmm_rhs_expert_nax` is never dispatched here (`N-REACH`, §2). M5
+> `run_upstream_equivalence.sh` and a paired A/B are both still owed. Falsifiable
+> risk to check first if the M5 shows the down third *slower*: the doubled
+> A-operand request multiplicity over a 4 MiB/layer footprint should stay
+> SLC-resident, and if it does not, this arm is a regression (§7.1).
+>
+> **The finding worth more than the patch.** At mean routing (16 rows/expert)
+> with `BM=64, WM=4` ⇒ `SM=16` and `tm = 16*sgid`, only simdgroup 0 gets
+> `sgp_sm > 0`: **1 of 4 simdgroups per threadgroup does any MMA while all 4
+> stage weights** (§8). That is a ~4× MMA-occupancy deficit on the single
+> largest prefill family, independent of `BN`, and no `bn` change can reach it.
+> Unblocking it means revisiting `expert_aligned`'s `wm == 4` requirement and
+> `kSwigluRegLocal`'s `(BM/WM) == 16` requirement together.
+
 **What an M5 owner needs to do to close C2a.** (1) Set
 `DARKBLOOM_EXPERT_DOWN_BN=32`; confirm the emitted kernel name contains
 `_bn_32_` (rule 33 / rule 77 reachability evidence). (2) Run
