@@ -3,6 +3,7 @@
 import argparse
 import copy
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -2434,6 +2435,16 @@ def run_fixture_suite(fixture_path):
             pre_mutation_pin = digest_value(trust)
             trust = mutate_fixture(case["mutation"], data, root, trust)
             pin_mode = case.get("external_trust_pin", "current")
+            if pin_mode != "pre_mutation" and isinstance(trust, dict):
+                attestation_was_valid = hmac.compare_digest(
+                    trust.get("collector_attestation_sha256", ""),
+                    digest_value(collector_attestation_payload(data, trust)),
+                )
+                trust["expected_bundle_sha256"] = digest_value(data)
+                if attestation_was_valid:
+                    trust["collector_attestation_sha256"] = digest_value(
+                        collector_attestation_payload(data, trust)
+                    )
             if pin_mode == "missing":
                 trust_pin = None
             elif pin_mode == "invalid":

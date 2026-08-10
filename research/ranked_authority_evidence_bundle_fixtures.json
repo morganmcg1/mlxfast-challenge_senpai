@@ -1497,7 +1497,7 @@
         "COMMAND_CHAIN_IDENTITY_MISMATCH",
         "EVENT_COMMAND_HASH_MISMATCH",
         "PHYSICAL_HASH_MISMATCH",
-        "PROCESS_START_IDENTITY_MISMATCH",
+        "PROCESS_BIRTH_IDENTITY_MISMATCH",
         "TRUST_MOUNT_IDENTITY_MISMATCH"
       ],
       "expected_authoritative": false,
@@ -1519,8 +1519,8 @@
       "mutation": "path_escape",
       "expected_state": "INVALID",
       "expected_error_codes": [
-        "ARTIFACT_SET_DIGEST_MISMATCH",
-        "BUNDLE_PATH_ESCAPE"
+        "BUNDLE_PATH_ESCAPE",
+        "VALIDATOR_INPUT_UNSAFE"
       ],
       "expected_authoritative": false,
       "expected_resumption_authorized": false
@@ -1780,8 +1780,7 @@
       "expected_state": "INVALID",
       "expected_error_codes": [
         "ARTIFACT_SET_DIGEST_MISMATCH",
-        "EVENT_TIMESTAMP_REVERSAL",
-        "PROCESS_START_IDENTITY_MISMATCH"
+        "EVENT_TIMESTAMP_REVERSAL"
       ],
       "expected_authoritative": false,
       "expected_resumption_authorized": false
@@ -1834,7 +1833,6 @@
         "COLLECTOR_ATTESTATION_MISMATCH",
         "EVENT_TIMESTAMP_REVERSAL",
         "INSTALLED_PATH_CENSUS_DIGEST_MISMATCH",
-        "PROCESS_START_IDENTITY_MISMATCH",
         "TRUST_COMPLETENESS_CONTRADICTION",
         "TRUST_MOUNT_IDENTITY_MISMATCH"
       ],
@@ -1917,6 +1915,7 @@
         "COMMAND_CHAIN_IDENTITY_MISMATCH",
         "COMMAND_EXECUTABLE_PATH_MISMATCH",
         "INSTALLED_PATH_CENSUS_DIGEST_MISMATCH",
+        "PROCESS_BIRTH_IDENTITY_MISMATCH",
         "TRUST_CENSUS_MISMATCH",
         "TRUST_MOUNT_IDENTITY_MISMATCH"
       ],
