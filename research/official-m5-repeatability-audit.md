@@ -47,11 +47,11 @@ A fresh in-memory one-byte corruption control independently verified the cc6 man
 
 Reproduction: `git log --all --format='%H %s' --grep='^Validate submission '`; hash each `benchmark.json`, expand `editablePaths` with `git ls-tree -r`, read blobs with `git cat-file blob`, and hash the canonical manifest above. Join UUIDs to the frozen API export without filtering status or score.
 
-## Statistical policy and next evidence
+## Statistical policy and unavailable counterfactual
 
 The existence test is decisive: `max(n) = 1 < 5`. Computing dispersion from singleton groups would manufacture precision. If an exact identity later reaches five proven independent sessions, report every observation chronologically and compute geometric mean, log-scale sample standard deviation/CV, median, IQR, range, and a clearly caveated 95% t interval for score, prefill, and decode. Any acceptance threshold must be declared before viewing those outcomes.
 
-At least four additional independent timings of one unchanged archive are required. Because ordinary exact-archive resubmission can deduplicate to an existing submission, this should use an authorized official rerun mechanism that preserves the archive hash and exposes distinct timing-session IDs—not nonce edits or repeated UUID snapshots.
+Mathematically, at least four additional independent timings of one unchanged archive would be necessary. Those observations are unavailable counterfactual evidence, not a recommendation to collect them. No receipt—including cc6 or terminal e27—may be retried, rerun, resubmitted, or mutated; nonce edits and repeated UUID snapshots remain ineligible.
 
 ## Novelty versus the earlier audit
 
