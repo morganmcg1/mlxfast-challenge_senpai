@@ -4483,7 +4483,9 @@ func lagunaGatedAffineOProjNVFP4(
             ? (lagunaGateSoftplusEnabled ? lagunaActivatedOProjLaneMajorKernels[heads] : nil)
             : lagunaGatedAffineOProjNVFP4LaneMajorKernels[heads]
     {
-        lagunaTrace("gated affine oproj nvfp4 qmv h\(heads) lane-major")
+        lagunaTrace(
+            "gated affine oproj nvfp4 qmv \(gateIsActivated ? "activated" : "raw") h\(heads) lane-major"
+        )
         lagunaNarrowScaleLog.noteDispatch("lane-major", "oproj h\(heads)")
         return kernel(
             [
@@ -4501,7 +4503,9 @@ func lagunaGatedAffineOProjNVFP4(
         ? (lagunaGateSoftplusEnabled ? lagunaActivatedOProjKernels[heads] : nil)
         : lagunaGatedAffineOProjNVFP4Kernels[heads]
     guard let kernel = selected else { return nil }
-    lagunaTrace("gated affine oproj nvfp4 qmv h\(heads)")
+    lagunaTrace(
+        "gated affine oproj nvfp4 qmv \(gateIsActivated ? "activated" : "raw") h\(heads)"
+    )
     lagunaNarrowScaleLog.noteDispatch("inactive", "oproj h\(heads)")
     return kernel(
         [attentionOutput, gateLogits, codes, scales],
