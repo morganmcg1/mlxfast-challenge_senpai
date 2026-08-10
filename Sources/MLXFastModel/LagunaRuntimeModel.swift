@@ -2415,25 +2415,47 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
 private let lagunaFullFusedAttentionQKProbeMode =
     ProcessInfo.processInfo.environment["DARKBLOOM_FULL_ATTN_QK_PROBE"] ?? ""
 
-/// Research-only ceiling probe: numerically wrong by construction. It keeps the
-/// per-lane partial QK dot products and all surrounding softmax work but
-/// replaces the cross-lane allreduce with a broadcast of lane 0's partial, so
-/// the score stays lane-uniform and the LAGUNA_RESCALE branch stays uniform.
-/// The measured delta therefore isolates the butterfly ladder instead of also
-/// introducing branch divergence.
-private let lagunaFullFusedAttentionQKBroadcastProbeSource: String = {
+/// Rewrites the six QK cross-lane allreduce statements of the full-attention
+/// kernel, leaving every other instruction untouched, so a paired timing delta
+/// prices exactly that ladder.
+private func lagunaFullFusedAttentionQKProbeSource(
+    _ replacement: (String) -> String
+) -> String {
     var src = lagunaFullFusedAttentionKernelSource
     var replaced = 0
     for name in ["pair_score0", "pair_score1", "pipeb_score0", "pipeb_score1"] {
         let needle = "\(name) = simd_sum(\(name));"
         replaced += src.components(separatedBy: needle).count - 1
-        src = src.replacingOccurrences(
-            of: needle,
-            with: "\(name) = simd_broadcast_first(\(name));")
+        src = src.replacingOccurrences(of: needle, with: replacement(name))
     }
     precondition(replaced == 6, "QK probe expected 6 rewrites, got \(replaced)")
     return src
-}()
+}
+
+/// Research-only lower-bound probe: numerically wrong by construction. It keeps
+/// the per-lane partial QK dot products and all surrounding softmax work but
+/// replaces the cross-lane allreduce with a broadcast of lane 0's partial, so
+/// the score stays lane-uniform and the LAGUNA_RESCALE branch stays uniform.
+/// The measured delta therefore isolates the butterfly ladder instead of also
+/// introducing branch divergence.
+private let lagunaFullFusedAttentionQKBroadcastProbeSource: String =
+    lagunaFullFusedAttentionQKProbeSource {
+        "\($0) = simd_broadcast_first(\($0));"
+    }
+
+/// Research-only upper-bound probe, and unlike the broadcast arm it is
+/// bit-exact: after `simd_sum` every lane holds the same sum S, scaling by
+/// 2^-5 and re-doubling through a five-stage butterfly reproduces S with no
+/// rounding. It roughly doubles reduction cost, so the two probes bracket the
+/// ladder's price from both sides and cross-check the instrument's linearity.
+private let lagunaFullFusedAttentionQKDoseProbeSource: String =
+    lagunaFullFusedAttentionQKProbeSource { name in
+        var out = "\(name) = simd_sum(\(name)) * 0.03125f;"
+        for mask in [1, 2, 4, 8, 16] {
+            out += " \(name) += simd_shuffle_xor(\(name), ushort(\(mask)));"
+        }
+        return out
+    }
 
 private let lagunaFullFusedAttentionQKBroadcastProbeKernel =
     MLXFast.metalKernel(
@@ -2445,10 +2467,23 @@ private let lagunaFullFusedAttentionQKBroadcastProbeKernel =
         ensureRowContiguous: true
     )
 
-private let lagunaFullFusedAttentionActiveKernel =
-    lagunaFullFusedAttentionQKProbeMode == "bcast"
-    ? lagunaFullFusedAttentionQKBroadcastProbeKernel
-    : lagunaFullFusedAttentionKernel
+private let lagunaFullFusedAttentionQKDoseProbeKernel =
+    MLXFast.metalKernel(
+        name: "laguna_full_fused_attn_grow_qkdose_probe_v1",
+        inputNames: lagunaFullFusedAttentionKernelInputNames,
+        outputNames: ["attended"],
+        source: lagunaFullFusedAttentionQKDoseProbeSource,
+        header: lagunaFullFusedAttentionKernelHeader,
+        ensureRowContiguous: true
+    )
+
+private let lagunaFullFusedAttentionActiveKernel: MLXFast.MLXFastKernel = {
+    switch lagunaFullFusedAttentionQKProbeMode {
+    case "bcast": return lagunaFullFusedAttentionQKBroadcastProbeKernel
+    case "dose": return lagunaFullFusedAttentionQKDoseProbeKernel
+    default: return lagunaFullFusedAttentionKernel
+    }
+}()
 
 
 
