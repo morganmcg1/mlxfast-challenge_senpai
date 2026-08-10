@@ -4,83 +4,114 @@
 
 `RANKED_AUTHORITY_EVIDENCE_CONTRACT_READY`
 
-Revision r2 closes the ranked-authority evidence contract as a deterministic,
-closed-world static validator. It classifies future bundles as `INVALID`,
-`INCOMPLETE`, or `STATIC_RESUME_READY`; it does not claim that a ranked run or
-worker currently satisfies the contract.
+Revision r3 defines a deterministic static evidence contract with a mandatory,
+separate verifier-owned trust document. The bundle cannot grant authority to
+itself. Validation may classify a structurally complete bundle as
+`STATIC_RESUME_READY`, but the command exits successfully only for a complete
+ranked trust root and an affirmative, non-synthetic authority claim.
 
-## Assignment and authority boundary
+This result does **not** upgrade PR #671. Its ranked audit remains
+`RANKED_WEIGHT_PROVENANCE_INDETERMINATE`.
+
+## Assignment and scope
 
 - Branch: `cedar-tanjiro/ranked-authority-evidence-contract`
 - Pull request: `#674`
-- Assignment: `cedar-tanjiro-ranked-authority-evidence-contract-20260810`
-- Revision: `cedar-tanjiro-ranked-authority-evidence-contract-20260810-r2-closed-world-authority`
-- Base: `5ae76f3267eff85254b08c4890556d5727ca6f28`
-- Authority contract: `pr671-ranked-installed-authority/v1`
-- This was a static-only task. It did not access a real `/opt` path, ranked
-  worker, model, hidden artifact, credential, secret, receipt, or W&B run.
-- No build, GPU/model execution, benchmark, ranked job, submission, or receipt
-  polling occurred. `/opt` strings below are synthetic contract data only.
-- Every fixture is synthetic and explicitly non-authoritative. A passing
-  positive fixture proves contract consistency, not ranked authority.
+- Revision: `cedar-tanjiro-ranked-authority-evidence-contract-20260810-r3-external-trust-command-binding`
+- Implementation parent: `8ef3939c748b95cb215f2f9b4775fc75752a7510`
+- Authority contract: `pr671-ranked-installed-authority/v2`
+- This was a static-only task. It did not access `/opt`, a ranked worker, model
+  data, timing data, receipts, submissions, credentials, or secrets.
+- No build, benchmark, GPU/model execution, ranked job, submission, receipt
+  polling, or W&B run occurred.
+- The diff is limited to the schema, validator, fixtures, and this audit.
 
-## Closed-world v2 contract
+## Frozen PR #671 boundary
 
-The committed Draft 2020-12 schema and standard-library validator both enforce
-the contract. The schema rejects additional properties at every declared object
-boundary. The validator recursively rejects secret-looking keys and secret
-values before semantic classification, so an unknown secret field cannot hide
-behind ordinary unknown-field handling.
+The ranked trust scope pins only source-backed facts:
 
-The validator requires exact censuses rather than best-effort subsets:
-
-- all ten artifact roles and their versioned installed paths;
-- the complete actor, phase, event, event-edge, capability, and environment
-  observation sets;
-- exactly one record for every mandatory identity; and
-- canonical absolute installed paths with no aliases, dot segments, duplicate
-  separators, or alternate spellings.
-
-The `pr671-ranked-installed-authority/v1` role/path census is:
-
-| Mandatory role | Exact installed path |
+| Fact | Exact value |
 | --- | --- |
-| `workflow_file` | `/synthetic/repository/.github/workflows/benchmark.yml` |
-| `installation_recipe` | `/synthetic/authority/install-recipe.json` |
-| `bench_exec` | `/opt/bench/bench-exec.sh` |
-| `measure_job` | `/opt/bench/measure-job.sh` |
-| `reaper` | `/opt/bench/reap-bench-processes.sh` |
-| `worker_launcher` | `/opt/bench/worker-launcher.sh` |
-| `runtime_worker` | `/synthetic/workspace/.build/release/MLXFastRuntimeWorker` |
-| `worker_sandbox_profile_generator` | `/opt/bench/generate-worker-profile.sh` |
-| `profile_generator_input` | `/opt/bench/profile-inputs/worker-policy.txt` |
-| `worker_sandbox_profile` | `/synthetic/job/worker.sb` |
+| Assignment PR | `671` |
+| Audit | `research/ranked-weight-load-provenance-audit.md` |
+| Audit terminal | `RANKED_WEIGHT_PROVENANCE_INDETERMINATE` |
+| First unavailable path | `/opt/bench/bench-exec.sh` |
+| Audited base | `5593d8f4a394023e83dfbfe11ef01fa01a5b7f15` |
+| Repository | `morganmcg1/mlxfast-challenge_senpai` |
+| Workflow path | `.github/workflows/benchmark.yml` |
+| Workflow git blob | `cd045c1b29009a041acb70360c2907a2623a146a` |
+| Workflow SHA-256 | `a73f67d041e780371b8bae45de1f94f0649fb9e09fe846e4e5b79062ae6d2e18` |
+| `MLXFAST_BENCH_EXEC` | `/opt/bench/bench-exec.sh` |
+| `MLXFAST_MEASURE_JOB` | `/opt/bench-runner/measure-job.sh` |
 
-The `/synthetic/...` values are deliberate closed-world fixture identities. A
-future contract version must change the version and census together rather than
-silently accepting a different path.
+The exact stopped edge is:
 
-## Independent authority joins
+```text
+trusted runner hash of transformed weight tree -> bench-exec-mediated reaper / worker launch / sandbox injection -> worker's independent pathname opens during the load epoch
+```
 
-Validation is deliberately non-short-circuiting across semantic domains.
-Missing one role cannot mask contradictions in the remaining evidence. The
-validator independently joins and checks:
+No other installed ranked pathname is asserted by this revision. A real ranked
+trust root must provide the complete collector-attested role/path census. If
+that collector cannot establish the next required fact, it must set
+`census_complete: false`, name exactly that `first_missing_fact`, and produce an
+`INCOMPLETE` result rather than inventing a pathname.
 
-- repository, base, workflow, run, job, host, platform, OS, and capture-window
-  identities;
-- artifact role, installed path, bundle-relative path, install provenance,
-  source digest, physical digest, and physical metadata;
-- actor parentage, phase ownership, UID/GID transitions, and confinement actor;
-- exact typed events, event actors, phase references, sequence numbers,
-  timestamps, and the full required edge census;
-- profile generator role, input roles, generated profile role, generation and
-  injection events, confinement role, mounts, rights, weights root, and
-  capabilities;
-- every actor-by-policy environment observation, allowlisted names, redacted
-  secret-name accounting, and unknown actors; and
-- generation and authority digests over canonical JSON.
+## External trust architecture
 
-The required ordered event chain is:
+The manifest and `--external-trust` document are separate schema instances.
+The external document pins:
+
+- the exact PR #671 source scope above;
+- accepted repository, base, workflow, run, and job identity;
+- expected bundle authority claims;
+- trusted collector identity and collector authority;
+- the complete installed role/path census, its digest, and completeness state;
+- event command policies for every required event; and
+- a collector attestation over trust facts and the collector-observed installed
+  artifact identities.
+
+Missing external trust is `INVALID` with `EXTERNAL_TRUST_REQUIRED`. A coherent
+but foreign target is rejected. Flipping the bundle authority claim is rejected.
+The ranked source mode additionally pins the known repository/base/workflow
+identity and the two source-backed installed paths.
+
+The external trust file is an invocation trust root, not another field copied
+inside the bundle. Operational ownership and distribution of that file remain
+the verifier's responsibility.
+
+## Copied versus installed metadata
+
+Each artifact now carries two distinct metadata records:
+
+- `bundle_metadata`: metadata observed for the copied evidence file under the
+  read-only bundle root; and
+- `installed_metadata`: metadata attested by the trusted collector for the
+  installed pathname before copying.
+
+The validator continues to verify copied bytes and `bundle_metadata` with
+`lstat`-based checks. It independently authenticates the installed pathname,
+content digest, `installed_metadata`, and mount identity through the external
+collector attestation. Re-sealing only the bundle after changing installed
+metadata cannot restore validity.
+
+## Command and process-start binding
+
+Every event binds the exact command identity used at that edge:
+
+- primary artifact role, installed executable path, and artifact digest;
+- complete `argv`, `argv[0]`, and canonical argv digest;
+- ordered launcher/profile/worker `exec_chain` entries with role, installed
+  path, and digest; and
+- process-start identity: actor, parent actor, PID, parent PID, executable path,
+  executable digest, and start timestamp.
+
+Verifier-owned command policies bind expected event actor, process actor,
+primary role, exec-chain roles, and argv digest. The validator rejects a wrong
+measure-job path, arbitrary `argv[0]`, argv resealing, launcher-chain
+substitution, and process-start identity drift. These joins prevent a valid
+artifact census from being reused to describe a different launch.
+
+The required ordered event chain remains:
 
 ```text
 transform
@@ -93,65 +124,61 @@ transform
   -> load_end
 ```
 
-All seven adjacent edges are mandatory. Graph acyclicity, sequence ordering,
-and timestamp ordering are checked independently, including early-chain
-reversals. Generation-event and confinement references must agree with their
-artifact roles and canonical command arguments.
+## Classification and exit contract
 
-## Physical evidence checks
+- `INVALID`: schema, trust, identity, census, physical evidence, command,
+  process, event, confinement, or authenticated-linkage contradiction.
+- `INCOMPLETE`: no contradiction exists, but the externally trusted census
+  stops at exactly one declared first missing authority fact.
+- `STATIC_RESUME_READY`: all static joins pass. This state alone does not grant
+  ranked authority.
 
-The validator resolves only bundle-relative evidence beneath the supplied
-bundle root and uses `lstat`-based checks. It rejects path escape, symlinks,
-non-regular files, missing files, hardlink ambiguity, and drift in bytes,
-SHA-256, size, mode, UID/GID, ACL, flags, link count, device, filesystem, or
-install provenance. Manifest-only assertions cannot become ready when copied
-physical evidence disagrees.
+`resumption_authorized` is true only when all of these hold:
 
-## Classification contract
+1. state is `STATIC_RESUME_READY`;
+2. external trust exists and has `source_kind: ranked`;
+3. its census is complete;
+4. the bundle claims `authoritative: true`; and
+5. the bundle claims `synthetic: false`.
 
-- `INVALID`: any schema defect, unknown field, secret leak, malformed or
-  contradictory claim, census mismatch, identity/path drift, physical mismatch,
-  event/order/timestamp error, or profile-generation/confinement inconsistency.
-  Contradictions always dominate missing-authority declarations.
-- `INCOMPLETE`: no contradiction exists and exactly the first missing authority
-  fact is identified with its reason. Omitting roles jointly, or declaring a
-  missing role while retaining generator, confinement, or timestamp drift,
-  remains `INVALID`.
-- `STATIC_RESUME_READY`: every required static fact is present, physically
-  verified, internally consistent, and cryptographically bound. This resumes
-  static review only. Ranked authority additionally requires an affirmative
-  authority claim and `non_authoritative: false`; the positive synthetic
-  fixture never supplies ranked authority.
+The CLI returns zero only for `resumption_authorized: true`. Therefore neither a
+bundle without external trust nor the structurally complete synthetic fixture
+can authorize PR #671 or produce CLI success.
 
-## Deterministic control matrix
+## Deterministic controls
 
-The fixture runner creates temporary synthetic files, hydrates observed
-physical metadata, applies one named mutation, recomputes only permitted
-derived values, and checks both state and required error codes.
+The fixture runner creates temporary files, hydrates copied and installed
+metadata, seals command/process and trust linkage, then applies one named
+mutation. Every fixture is explicitly synthetic and non-authoritative.
 
-| Expected state | Covered controls |
-| --- | --- |
-| `STATIC_RESUME_READY` | `complete-synthetic-bundle` |
-| `INCOMPLETE` | `missing-profile-generator-input` |
-| `INVALID` | Closed world: `unknown-field`, `unknown-secret-field` |
-| `INVALID` | Census and paths: `jointly-omitted-mandatory-roles`, `installed-path-alias`, `duplicate-artifact-role`, `missing-capability` |
-| `INVALID` | Physical: `physical-byte-drift`, `declared-hash-drift`, `declared-size-drift`, `bundle-path-escape`, `symbolic-link-artifact`, `owner-mismatch`, `mode-mismatch`, `acl-mismatch`, `hardlink-ambiguity`, `absent-self-declared-artifact` |
-| `INVALID` | Identity/provenance: `workflow-identity-drift`, `base-identity-drift`, `job-identity-drift`, `stale-capture`, `missing-install-provenance`, `profile-hash-mismatch` |
-| `INVALID` | Environment/actors: `secret-value-leak`, `undeclared-environment-name`, `missing-environment-observation`, `unknown-environment-actor`, `uid-gid-transition-contradiction`, `survivor-policy-contradiction` |
-| `INVALID` | Event graph/time: `event-cycle`, `event-order-reversal`, `early-chain-edge-reversal`, `timestamp-reversal` |
-| `INVALID` | Generator/confinement: `generation-event-drift`, `generator-confinement-drift`, `incomplete-generator-drift`, `incomplete-timestamp-reversal`, `mount-path-contradiction` |
+Revision r3 adds controls for:
+
+- `missing-external-trust`;
+- `authority-claim-flip`;
+- `coherent-foreign-target`;
+- `wrong-measure-path`;
+- `arbitrary-worker-argv0`;
+- `launch-chain-substitution`;
+- `process-identity-drift`; and
+- `installed-metadata-reseal`.
+
+The earlier closed-world, physical evidence, path, identity, environment,
+actor, event graph, timestamp, generation, and confinement controls remain.
 
 Control totals:
 
-- 39 of 39 fixture cases pass.
-- 1 case classifies `STATIC_RESUME_READY`.
+- 47 of 47 fixture cases pass.
+- 1 case classifies `STATIC_RESUME_READY` and remains unauthorized.
 - 1 case classifies `INCOMPLETE`.
-- 37 cases classify `INVALID`.
+- 45 cases classify `INVALID`.
+- Fixture source SHA-256 reported by the runner:
+  `ea1b6bb389848968a0139f55a924b19184cc25b589805f53940235d1f176d0a4`.
 
-These controls specifically prove rejection of unknown secret fields, jointly
-omitted roles, installed-path aliases, missing environment observations, unknown
-actors, early edge reversals, timestamp reversals, generation-event drift,
-confinement drift, and contradictions that coexist with an incomplete claim.
+A direct contract check also confirmed:
+
+- absent external trust: `INVALID`, `resumption_authorized: false`, CLI exit 1;
+- synthetic external trust: `STATIC_RESUME_READY`,
+  `resumption_authorized: false`, CLI exit 1.
 
 ## Reproduction
 
@@ -163,31 +190,25 @@ python3 research/validate_ranked_authority_evidence_bundle.py \
   research/ranked_authority_evidence_bundle_fixtures.json
 ```
 
-The validator emits canonical compact sorted JSON followed by one newline. A
-future read-only bundle can be checked with:
+A future read-only bundle requires an independently supplied trust document:
 
 ```bash
 python3 research/validate_ranked_authority_evidence_bundle.py \
   --bundle-root /path/to/read-only-bundle \
-  --manifest /path/to/read-only-bundle/bundle.json
+  --manifest /path/to/read-only-bundle/bundle.json \
+  --external-trust /verifier-owned/path/external-trust.json
 ```
 
-## Organizer collection handoff
+## Collector handoff
 
-A future collector should run in the same trusted ranked job after installation
-and before replacement is possible. It should copy all ten exact installed
-artifacts without following links, record their physical metadata and install
-provenance, record the complete identity/actor/phase/event/edge/environment and
-profile-confinement censuses, and compute canonical generation and authority
-digests last. It must never place a secret value in the manifest, logs, fixtures,
-or audit. If one fact is unavailable, it should declare only the first missing
-fact without omitting other required records or concealing contradictions.
-
-## Scope verification target
-
-The branch diff is limited to the schema, validator, fixture suite, and this
-audit. No runtime, kernel, transform, harness, workflow, model, package, or
-ranked-system file is modified.
+A future trusted collector should run in the ranked job after installation and
+before replacement is possible. It should record the complete role/path census,
+commands, argv, execution chains, process starts, installed metadata, mount
+identity, actors, phases, events, edges, environment observations, and
+confinement facts. It should copy evidence without following links, compute
+canonical digests last, and never place a secret value in evidence or logs. If
+one source fact is unavailable, it must stop at the first missing fact and issue
+an incomplete external trust statement.
 
 ---
 

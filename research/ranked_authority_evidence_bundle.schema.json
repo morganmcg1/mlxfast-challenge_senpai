@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://mlxfast.invalid/schemas/ranked-authority-evidence-bundle-v2.json",
-  "title": "Ranked installed-authority evidence bundle",
+  "$id": "https://mlxfast.invalid/schemas/ranked-authority-evidence-bundle-v3.json",
+  "title": "Ranked installed-authority evidence bundle v3",
   "description": "Organizer-produced, read-only evidence for the exact ranked installation and load epoch. This schema validates shape; validate_ranked_authority_evidence_bundle.py validates physical files, graph semantics, contradictions, and cryptographic linkage.",
   "type": "object",
   "additionalProperties": false,
@@ -26,7 +26,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "ranked-authority-evidence-bundle/v2"
+      "const": "ranked-authority-evidence-bundle/v3"
     },
     "authority": {
       "type": "object",
@@ -35,7 +35,8 @@
         "authoritative",
         "synthetic",
         "trusted_collector",
-        "captured_at"
+        "captured_at",
+        "collector_authority"
       ],
       "properties": {
         "authoritative": {
@@ -50,6 +51,10 @@
         },
         "captured_at": {
           "$ref": "#/$defs/timestamp"
+        },
+        "collector_authority": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },
@@ -65,6 +70,9 @@
         "workflow_sha",
         "run_id",
         "job_id",
+        "workflow_file_sha256",
+        "workflow_blob_sha",
+        "workflow_path",
         "host",
         "platform",
         "os_build",
@@ -105,6 +113,15 @@
         },
         "job_finished_at": {
           "$ref": "#/$defs/timestamp"
+        },
+        "workflow_path": {
+          "const": ".github/workflows/benchmark.yml"
+        },
+        "workflow_blob_sha": {
+          "$ref": "#/$defs/gitSha"
+        },
+        "workflow_file_sha256": {
+          "$ref": "#/$defs/sha256"
         }
       }
     },
@@ -175,35 +192,12 @@
           "type": "null"
         },
         {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "kind",
-            "role",
-            "fact",
-            "reason"
-          ],
-          "properties": {
-            "kind": {
-              "const": "artifact_role"
-            },
-            "role": {
-              "$ref": "#/$defs/role"
-            },
-            "fact": {
-              "type": "string",
-              "minLength": 1
-            },
-            "reason": {
-              "type": "string",
-              "minLength": 1
-            }
-          }
+          "$ref": "#/$defs/missingAuthority"
         }
       ]
     },
     "authority_contract_version": {
-      "const": "pr671-ranked-installed-authority/v1"
+      "const": "pr671-ranked-installed-authority/v2"
     },
     "installed_path_census_sha256": {
       "$ref": "#/$defs/sha256"
@@ -246,7 +240,10 @@
         "base_sha",
         "workflow_sha",
         "run_id",
-        "job_id"
+        "job_id",
+        "workflow_path",
+        "workflow_blob_sha",
+        "workflow_file_sha256"
       ],
       "properties": {
         "repository": {
@@ -264,6 +261,15 @@
         },
         "job_id": {
           "$ref": "#/$defs/identifier"
+        },
+        "workflow_path": {
+          "const": ".github/workflows/benchmark.yml"
+        },
+        "workflow_blob_sha": {
+          "$ref": "#/$defs/gitSha"
+        },
+        "workflow_file_sha256": {
+          "$ref": "#/$defs/sha256"
         }
       }
     },
@@ -413,7 +419,8 @@
         "installed_path",
         "size",
         "sha256",
-        "metadata",
+        "bundle_metadata",
+        "installed_metadata",
         "installation"
       ],
       "properties": {
@@ -434,11 +441,14 @@
         "sha256": {
           "$ref": "#/$defs/sha256"
         },
-        "metadata": {
-          "$ref": "#/$defs/metadata"
-        },
         "installation": {
           "$ref": "#/$defs/installation"
+        },
+        "bundle_metadata": {
+          "$ref": "#/$defs/metadata"
+        },
+        "installed_metadata": {
+          "$ref": "#/$defs/metadata"
         }
       }
     },
@@ -533,6 +543,8 @@
         "egid",
         "groups",
         "umask",
+        "pid",
+        "ppid",
         "cwd",
         "pgid",
         "sid",
@@ -588,6 +600,14 @@
         },
         "environment_policy_sha256": {
           "$ref": "#/$defs/sha256"
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "ppid": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },
@@ -699,7 +719,11 @@
       "required": [
         "artifact_role",
         "artifact_sha256",
-        "argv"
+        "executable_path",
+        "argv",
+        "argv_sha256",
+        "exec_chain",
+        "process_start"
       ],
       "properties": {
         "artifact_role": {
@@ -714,6 +738,23 @@
           "items": {
             "type": "string"
           }
+        },
+        "executable_path": {
+          "$ref": "#/$defs/absolutePath"
+        },
+        "argv_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "exec_chain": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/execChainEntry"
+          }
+        },
+        "process_start": {
+          "$ref": "#/$defs/processStartIdentity"
         }
       }
     },
@@ -1108,6 +1149,328 @@
           "maxItems": 1
         },
         "authority_link_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "execChainEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_role",
+        "installed_path",
+        "artifact_sha256"
+      ],
+      "properties": {
+        "artifact_role": {
+          "$ref": "#/$defs/role"
+        },
+        "installed_path": {
+          "$ref": "#/$defs/absolutePath"
+        },
+        "artifact_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "processStartIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actor_id",
+        "pid",
+        "ppid",
+        "executable_role",
+        "executable_path",
+        "executable_sha256",
+        "started_at"
+      ],
+      "properties": {
+        "actor_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "ppid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "executable_role": {
+          "$ref": "#/$defs/role"
+        },
+        "executable_path": {
+          "$ref": "#/$defs/absolutePath"
+        },
+        "executable_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "started_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "missingAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "role",
+        "fact",
+        "reason"
+      ],
+      "properties": {
+        "kind": {
+          "const": "artifact_role"
+        },
+        "role": {
+          "$ref": "#/$defs/role"
+        },
+        "fact": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "trustScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "assignment_pr",
+        "audit_path",
+        "audit_terminal",
+        "first_unavailable_path",
+        "audited_base_sha",
+        "workflow_path",
+        "workflow_blob_sha",
+        "workflow_file_sha256",
+        "stopped_edge"
+      ],
+      "properties": {
+        "assignment_pr": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "audit_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "audit_terminal": {
+          "const": "RANKED_WEIGHT_PROVENANCE_INDETERMINATE"
+        },
+        "first_unavailable_path": {
+          "const": "/opt/bench/bench-exec.sh"
+        },
+        "audited_base_sha": {
+          "$ref": "#/$defs/gitSha"
+        },
+        "workflow_path": {
+          "const": ".github/workflows/benchmark.yml"
+        },
+        "workflow_blob_sha": {
+          "$ref": "#/$defs/gitSha"
+        },
+        "workflow_file_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "stopped_edge": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "trustedCollector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "authority",
+        "installation_mount_identity_sha256"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "authority": {
+          "type": "string",
+          "minLength": 1
+        },
+        "installation_mount_identity_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "installedPathCensusEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "installed_path"
+      ],
+      "properties": {
+        "role": {
+          "$ref": "#/$defs/role"
+        },
+        "installed_path": {
+          "$ref": "#/$defs/absolutePath"
+        }
+      }
+    },
+    "commandPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event_type",
+        "event_actor_id",
+        "process_actor_id",
+        "primary_role",
+        "exec_chain_roles",
+        "argv_sha256"
+      ],
+      "properties": {
+        "event_type": {
+          "enum": [
+            "transform",
+            "trusted_hash",
+            "reaper",
+            "profile_generated",
+            "sandbox_injected",
+            "worker_spawn",
+            "load_start",
+            "load_end"
+          ]
+        },
+        "event_actor_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "process_actor_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "primary_role": {
+          "$ref": "#/$defs/role"
+        },
+        "exec_chain_roles": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/role"
+          }
+        },
+        "argv_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "externalTrust": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "authority_contract_version",
+        "source_kind",
+        "scope",
+        "accepted_target_identity",
+        "expected_authority",
+        "trusted_collector",
+        "installed_path_census",
+        "installed_path_census_sha256",
+        "census_complete",
+        "first_missing_fact",
+        "command_policies",
+        "collector_attestation_sha256"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "ranked-authority-external-trust/v1"
+        },
+        "authority_contract_version": {
+          "const": "pr671-ranked-installed-authority/v2"
+        },
+        "source_kind": {
+          "enum": [
+            "fixture",
+            "ranked"
+          ]
+        },
+        "scope": {
+          "$ref": "#/$defs/trustScope"
+        },
+        "accepted_target_identity": {
+          "$ref": "#/$defs/identity"
+        },
+        "expected_authority": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "authoritative",
+            "synthetic",
+            "trusted_collector",
+            "captured_at",
+            "collector_authority"
+          ],
+          "properties": {
+            "authoritative": {
+              "type": "boolean"
+            },
+            "synthetic": {
+              "type": "boolean"
+            },
+            "trusted_collector": {
+              "type": "string",
+              "minLength": 1
+            },
+            "captured_at": {
+              "$ref": "#/$defs/timestamp"
+            },
+            "collector_authority": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "trusted_collector": {
+          "$ref": "#/$defs/trustedCollector"
+        },
+        "installed_path_census": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/installedPathCensusEntry"
+          }
+        },
+        "installed_path_census_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "census_complete": {
+          "type": "boolean"
+        },
+        "first_missing_fact": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/missingAuthority"
+            }
+          ]
+        },
+        "command_policies": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/commandPolicy"
+          }
+        },
+        "collector_attestation_sha256": {
           "$ref": "#/$defs/sha256"
         }
       }

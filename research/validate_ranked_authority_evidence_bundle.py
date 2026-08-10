@@ -14,23 +14,38 @@ import tempfile
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 
-SCHEMA_VERSION = "ranked-authority-evidence-bundle/v2"
-FIXTURE_VERSION = "ranked-authority-evidence-fixtures/v2"
-AUTHORITY_CONTRACT_VERSION = "pr671-ranked-installed-authority/v1"
+SCHEMA_VERSION = "ranked-authority-evidence-bundle/v3"
+FIXTURE_VERSION = "ranked-authority-evidence-fixtures/v3"
+TRUST_SCHEMA_VERSION = "ranked-authority-external-trust/v1"
+AUTHORITY_CONTRACT_VERSION = "pr671-ranked-installed-authority/v2"
 SCHEMA_PATH = Path(__file__).with_name("ranked_authority_evidence_bundle.schema.json")
-MANDATORY_INSTALLED_PATHS = {
-    "workflow_file": "/synthetic/repository/.github/workflows/benchmark.yml",
-    "installation_recipe": "/synthetic/authority/install-recipe.json",
-    "bench_exec": "/opt/bench/bench-exec.sh",
-    "measure_job": "/opt/bench/measure-job.sh",
-    "reaper": "/opt/bench/reap-bench-processes.sh",
-    "worker_launcher": "/opt/bench/worker-launcher.sh",
-    "runtime_worker": "/synthetic/workspace/.build/release/MLXFastRuntimeWorker",
-    "worker_sandbox_profile_generator": "/opt/bench/generate-worker-profile.sh",
-    "profile_generator_input": "/opt/bench/profile-inputs/worker-policy.txt",
-    "worker_sandbox_profile": "/synthetic/job/worker.sb",
+MANDATORY_ROLES = {
+    "workflow_file",
+    "installation_recipe",
+    "bench_exec",
+    "measure_job",
+    "reaper",
+    "worker_launcher",
+    "runtime_worker",
+    "worker_sandbox_profile_generator",
+    "profile_generator_input",
+    "worker_sandbox_profile",
 }
-MANDATORY_ROLES = set(MANDATORY_INSTALLED_PATHS)
+RANKED_SCOPE = {
+    "assignment_pr": 671,
+    "audit_path": "research/ranked-weight-load-provenance-audit.md",
+    "audit_terminal": "RANKED_WEIGHT_PROVENANCE_INDETERMINATE",
+    "first_unavailable_path": "/opt/bench/bench-exec.sh",
+    "audited_base_sha": "5593d8f4a394023e83dfbfe11ef01fa01a5b7f15",
+    "workflow_path": ".github/workflows/benchmark.yml",
+    "workflow_blob_sha": "cd045c1b29009a041acb70360c2907a2623a146a",
+    "workflow_file_sha256": "a73f67d041e780371b8bae45de1f94f0649fb9e09fe846e4e5b79062ae6d2e18",
+    "stopped_edge": "trusted runner hash of transformed weight tree -> bench-exec-mediated reaper / worker launch / sandbox injection -> worker's independent pathname opens during the load epoch",
+}
+KNOWN_RANKED_PATHS = {
+    "bench_exec": "/opt/bench/bench-exec.sh",
+    "measure_job": "/opt/bench-runner/measure-job.sh",
+}
 EXPECTED_ACTORS = {
     "controller": None,
     "bench": "controller",
@@ -46,10 +61,10 @@ EXPECTED_PHASE_ACTORS = {
 EXPECTED_EVENTS = [
     ("transform", "transform", "bench", "bench_exec"),
     ("trusted-hash", "trusted_hash", "bench", "bench_exec"),
-    ("reaper", "reaper", "bench", "reaper"),
+    ("reaper", "reaper", "bench", "bench_exec"),
     ("profile-generated", "profile_generated", "bench", "worker_sandbox_profile_generator"),
     ("sandbox-injected", "sandbox_injected", "bench", "worker_launcher"),
-    ("worker-spawn", "worker_spawn", "bench", "bench_exec"),
+    ("worker-spawn", "worker_spawn", "bench", "measure_job"),
     ("load-start", "load_start", "worker", "runtime_worker"),
     ("load-end", "load_end", "worker", "runtime_worker"),
 ]
@@ -1263,15 +1278,693 @@ def run_fixture_suite(fixture_path):
     return output
 
 
+_validate_events_v2 = validate_events
+_validate_confinement_v2 = validate_confinement
+_mutate_fixture_v2 = mutate_fixture
+
+
+def installed_path_census_payload(census):
+    return sorted(
+        ({"role": item.get("role"), "installed_path": item.get("installed_path")} for item in census),
+        key=lambda item: (item["role"] or "", item["installed_path"] or ""),
+    )
+
+
+def compare_identity(errors, target, capture):
+    fields = {
+        "repository": "IDENTITY_REPOSITORY_DRIFT",
+        "base_sha": "IDENTITY_BASE_DRIFT",
+        "workflow_sha": "IDENTITY_WORKFLOW_DRIFT",
+        "run_id": "IDENTITY_RUN_DRIFT",
+        "job_id": "IDENTITY_JOB_DRIFT",
+        "workflow_path": "IDENTITY_WORKFLOW_DRIFT",
+        "workflow_blob_sha": "IDENTITY_WORKFLOW_DRIFT",
+        "workflow_file_sha256": "IDENTITY_WORKFLOW_DRIFT",
+    }
+    for field, code in fields.items():
+        if target.get(field) != capture.get(field):
+            errors.append(error(code, f"capture_identity.{field}", "captured identity does not match the requested ranked authority"))
+
+
+def installed_mount_payload(data):
+    return sorted(
+        (
+            {
+                "role": item.get("role"),
+                "installed_path": item.get("installed_path"),
+                "sha256": item.get("sha256"),
+                "installed_metadata": item.get("installed_metadata"),
+            }
+            for item in data.get("artifacts", [])
+        ),
+        key=lambda item: (item["role"] or "", item["installed_path"] or ""),
+    )
+
+
+def collector_attestation_payload(data, trust):
+    collector = copy.deepcopy(trust.get("trusted_collector", {}))
+    return {
+        "authority": data.get("authority"),
+        "target_identity": data.get("target_identity"),
+        "capture_identity": data.get("capture_identity"),
+        "missing_authority": data.get("missing_authority"),
+        "scope": trust.get("scope"),
+        "accepted_target_identity": trust.get("accepted_target_identity"),
+        "expected_authority": trust.get("expected_authority"),
+        "trusted_collector": collector,
+        "installed_path_census": installed_path_census_payload(trust.get("installed_path_census", [])),
+        "installed_path_census_sha256": trust.get("installed_path_census_sha256"),
+        "census_complete": trust.get("census_complete"),
+        "first_missing_fact": trust.get("first_missing_fact"),
+        "command_policies": sorted(trust.get("command_policies", []), key=lambda item: item.get("event_type", "")),
+        "installed_artifacts": installed_mount_payload(data),
+    }
+
+
+def validate_external_trust(errors, data, trust):
+    if not isinstance(trust, dict):
+        errors.append(error("EXTERNAL_TRUST_REQUIRED", "$external_trust", "a separate verifier-owned trust document is required"))
+        return {}, {}, False
+    schema = json.loads(SCHEMA_PATH.read_text())
+    validate_schema_instance(trust, schema["$defs"]["externalTrust"], schema, "$external_trust", errors)
+    scan_for_secret_fields(trust, errors, "$external_trust")
+    if trust.get("schema_version") != TRUST_SCHEMA_VERSION:
+        errors.append(error("TRUST_SCHEMA_VERSION", "$external_trust.schema_version", f"expected {TRUST_SCHEMA_VERSION}"))
+    if trust.get("authority_contract_version") != AUTHORITY_CONTRACT_VERSION:
+        errors.append(error("TRUST_CONTRACT_VERSION", "$external_trust.authority_contract_version", f"expected {AUTHORITY_CONTRACT_VERSION}"))
+    if trust.get("scope") != RANKED_SCOPE:
+        errors.append(error("TRUST_SCOPE_MISMATCH", "$external_trust.scope", "external trust does not pin the exact PR #671 audit boundary"))
+    if trust.get("accepted_target_identity") != data.get("target_identity"):
+        errors.append(error("TRUST_TARGET_IDENTITY_MISMATCH", "$external_trust.accepted_target_identity", "bundle target identity is not accepted by the verifier-owned trust root"))
+    if trust.get("expected_authority") != data.get("authority"):
+        errors.append(error("TRUST_AUTHORITY_MISMATCH", "$external_trust.expected_authority", "bundle authority claims differ from verifier-owned expectations"))
+
+    collector = trust.get("trusted_collector", {})
+    authority = data.get("authority", {})
+    if collector.get("id") != authority.get("trusted_collector") or collector.get("authority") != authority.get("collector_authority"):
+        errors.append(error("TRUST_COLLECTOR_MISMATCH", "$external_trust.trusted_collector", "collector identity or authority differs from the bundle claim"))
+
+    census = trust.get("installed_path_census", [])
+    census_by_role = {}
+    seen_paths = set()
+    for index, item in enumerate(census if isinstance(census, list) else []):
+        role = item.get("role") if isinstance(item, dict) else None
+        installed_path = item.get("installed_path") if isinstance(item, dict) else None
+        if role in census_by_role:
+            errors.append(error("TRUST_CENSUS_DUPLICATE_ROLE", f"$external_trust.installed_path_census[{index}]", "installed role appears twice"))
+        elif role:
+            census_by_role[role] = item
+        if not canonical_absolute_path(installed_path):
+            errors.append(error("INSTALLED_PATH_NONCANONICAL", f"$external_trust.installed_path_census[{index}].installed_path", "trusted installed path must be canonical and absolute"))
+        if installed_path in seen_paths:
+            errors.append(error("TRUST_CENSUS_DUPLICATE_PATH", f"$external_trust.installed_path_census[{index}]", "installed path appears twice"))
+        seen_paths.add(installed_path)
+    census_digest = digest_value(installed_path_census_payload(census))
+    if trust.get("installed_path_census_sha256") != census_digest:
+        errors.append(error("TRUST_CENSUS_DIGEST_MISMATCH", "$external_trust.installed_path_census_sha256", "trusted installed-path census digest is incorrect"))
+    if data.get("installed_path_census_sha256") != census_digest:
+        errors.append(error("INSTALLED_PATH_CENSUS_DIGEST_MISMATCH", "installed_path_census_sha256", "bundle does not bind the verifier-owned installed-path census"))
+
+    missing = data.get("missing_authority")
+    complete = trust.get("census_complete") is True
+    expected_roles = set(MANDATORY_ROLES)
+    census_roles = set(census_by_role)
+    if complete:
+        if census_roles != expected_roles:
+            errors.append(error("TRUST_CENSUS_MISMATCH", "$external_trust.installed_path_census", "complete trust must cover every mandatory authority role"))
+        if trust.get("first_missing_fact") is not None or missing is not None:
+            errors.append(error("TRUST_COMPLETENESS_CONTRADICTION", "$external_trust.census_complete", "complete trust cannot declare a missing authority fact"))
+    else:
+        missing_role = missing.get("role") if isinstance(missing, dict) else None
+        if trust.get("first_missing_fact") != missing:
+            errors.append(error("TRUST_MISSING_FACT_MISMATCH", "$external_trust.first_missing_fact", "first missing fact must equal the bundle declaration"))
+        if missing_role is None or census_roles != expected_roles - {missing_role}:
+            errors.append(error("TRUST_CENSUS_MISMATCH", "$external_trust.installed_path_census", "incomplete trust must stop at exactly one declared missing role"))
+
+    if trust.get("source_kind") == "ranked":
+        identity = trust.get("accepted_target_identity", {})
+        ranked_identity = {
+            "repository": "morganmcg1/mlxfast-challenge_senpai",
+            "base_sha": RANKED_SCOPE["audited_base_sha"],
+            "workflow_path": RANKED_SCOPE["workflow_path"],
+            "workflow_blob_sha": RANKED_SCOPE["workflow_blob_sha"],
+            "workflow_file_sha256": RANKED_SCOPE["workflow_file_sha256"],
+        }
+        for field, expected in ranked_identity.items():
+            if identity.get(field) != expected:
+                errors.append(error("TRUST_RANKED_IDENTITY_MISMATCH", f"$external_trust.accepted_target_identity.{field}", "ranked trust must pin the source-backed audited identity"))
+        for role, expected in KNOWN_RANKED_PATHS.items():
+            if census_by_role.get(role, {}).get("installed_path") != expected:
+                errors.append(error("TRUST_CENSUS_MISMATCH", f"$external_trust.installed_path_census[{role}]", "ranked trust contradicts a source-backed installed path"))
+
+    policy_by_type = {}
+    for index, policy in enumerate(trust.get("command_policies", [])):
+        event_type = policy.get("event_type") if isinstance(policy, dict) else None
+        if event_type in policy_by_type:
+            errors.append(error("TRUST_COMMAND_POLICY_DUPLICATE", f"$external_trust.command_policies[{index}]", "command policy event type appears twice"))
+        elif event_type:
+            policy_by_type[event_type] = policy
+    expected_types = {item[1] for item in EXPECTED_EVENTS}
+    if set(policy_by_type) != expected_types:
+        errors.append(error("TRUST_COMMAND_POLICY_CENSUS_MISMATCH", "$external_trust.command_policies", "external trust must bind every required event type exactly once"))
+
+    mount_digest = digest_value(installed_mount_payload(data))
+    if collector.get("installation_mount_identity_sha256") != mount_digest:
+        errors.append(error("TRUST_MOUNT_IDENTITY_MISMATCH", "$external_trust.trusted_collector.installation_mount_identity_sha256", "collector-attested installed metadata or mount identity changed"))
+    if trust.get("collector_attestation_sha256") != digest_value(collector_attestation_payload(data, trust)):
+        errors.append(error("COLLECTOR_ATTESTATION_MISMATCH", "$external_trust.collector_attestation_sha256", "verifier-owned collector attestation does not match the bundle and trust facts"))
+    return census_by_role, policy_by_type, complete
+
+
+def validate_artifacts(errors, data, root, missing_role, census_by_role):
+    artifacts = data.get("artifacts", [])
+    required = data.get("required_artifact_roles", [])
+    if len(required) != len(set(required)):
+        errors.append(error("DUPLICATE_REQUIRED_ROLE", "required_artifact_roles", "required artifact roles must be unique"))
+    if set(required) != MANDATORY_ROLES or len(required) != len(MANDATORY_ROLES):
+        errors.append(error("MANDATORY_ROLE_CENSUS_MISMATCH", "required_artifact_roles", "required roles must equal the versioned PR #671 authority census"))
+    by_role = {}
+    bundle_paths = set()
+    installed_paths = set()
+    for index, artifact in enumerate(artifacts if isinstance(artifacts, list) else []):
+        path = f"artifacts[{index}]"
+        if not isinstance(artifact, dict):
+            continue
+        role = artifact.get("role")
+        if role in by_role:
+            errors.append(error("DUPLICATE_ARTIFACT_ROLE", f"{path}.role", "artifact role appears more than once"))
+            continue
+        by_role[role] = artifact
+        if artifact.get("bundle_path") in bundle_paths:
+            errors.append(error("BUNDLE_PATH_COLLISION", f"{path}.bundle_path", "two artifacts use the same bundle path"))
+        bundle_paths.add(artifact.get("bundle_path"))
+        installed_path = artifact.get("installed_path")
+        if not canonical_absolute_path(installed_path):
+            errors.append(error("INSTALLED_PATH_NONCANONICAL", f"{path}.installed_path", "installed path must be canonical and absolute"))
+        if installed_path in installed_paths:
+            errors.append(error("INSTALLED_PATH_COLLISION", f"{path}.installed_path", "two roles claim the same installed path"))
+        installed_paths.add(installed_path)
+        trusted_path = census_by_role.get(role, {}).get("installed_path")
+        if trusted_path != installed_path:
+            errors.append(error("TRUST_CENSUS_MISMATCH", f"{path}.installed_path", "bundle installed path differs from verifier-owned census"))
+        if role in KNOWN_RANKED_PATHS and census_by_role.get(role, {}).get("installed_path") == KNOWN_RANKED_PATHS[role] and installed_path != KNOWN_RANKED_PATHS[role]:
+            errors.append(error("INSTALLED_PATH_CENSUS_MISMATCH", f"{path}.installed_path", "installed path contradicts the source-backed ranked path"))
+
+        candidate = safe_bundle_path(root, artifact.get("bundle_path"))
+        if candidate is None:
+            errors.append(error("BUNDLE_PATH_ESCAPE", f"{path}.bundle_path", "bundle path must remain below the evidence root"))
+            continue
+        if not candidate.exists() and not candidate.is_symlink():
+            errors.append(error("PHYSICAL_FILE_MISSING", f"{path}.bundle_path", "declared artifact has no matching physical file"))
+            continue
+        metadata = artifact.get("bundle_metadata")
+        if not isinstance(metadata, dict):
+            errors.append(error("ARTIFACT_METADATA_MISSING", f"{path}.bundle_metadata", "copied bundle metadata is required"))
+            continue
+        actual = physical_metadata(candidate, metadata.get("mount_id", "unknown"))
+        if actual["symlink"]:
+            errors.append(error("PHYSICAL_SYMLINK", f"{path}.bundle_path", "authority artifacts must not be symbolic links"))
+            continue
+        if not candidate.is_file():
+            errors.append(error("PHYSICAL_NONREGULAR", f"{path}.bundle_path", "authority artifacts must be regular files"))
+            continue
+        if candidate.stat().st_size != artifact.get("size"):
+            errors.append(error("PHYSICAL_SIZE_MISMATCH", f"{path}.size", "declared size does not match physical bytes"))
+        if digest_file(candidate) != artifact.get("sha256"):
+            errors.append(error("PHYSICAL_HASH_MISMATCH", f"{path}.sha256", "declared hash does not match physical bytes"))
+        checks = (
+            ("owner_uid", "PHYSICAL_OWNER_UID_MISMATCH"), ("owner_gid", "PHYSICAL_OWNER_GID_MISMATCH"),
+            ("mode", "PHYSICAL_MODE_MISMATCH"), ("acl", "PHYSICAL_ACL_MISMATCH"),
+            ("flags", "PHYSICAL_FLAGS_MISMATCH"), ("link_count", "PHYSICAL_LINK_COUNT_MISMATCH"),
+            ("symlink", "PHYSICAL_SYMLINK_DECLARATION_MISMATCH"), ("device_id", "PHYSICAL_DEVICE_MISMATCH"),
+            ("filesystem", "PHYSICAL_FILESYSTEM_MISMATCH"),
+        )
+        for field, code in checks:
+            if metadata.get(field) != actual.get(field):
+                errors.append(error(code, f"{path}.bundle_metadata.{field}", "copied bundle metadata differs from the physical artifact"))
+        if actual.get("link_count") != 1:
+            errors.append(error("HARDLINK_AMBIGUITY", f"{path}.bundle_metadata.link_count", "authority artifact has multiple physical names"))
+        installation = artifact.get("installation")
+        if not isinstance(installation, dict):
+            errors.append(error("INSTALL_PROVENANCE_MISSING", f"{path}.installation", "installation provenance is required"))
+            continue
+        package = installation.get("package")
+        if not isinstance(package, dict) or not all(package.get(key) for key in ("name", "version", "digest_sha256")):
+            errors.append(error("INSTALL_PROVENANCE_MISSING", f"{path}.installation.package", "package name, version, and digest are required"))
+        if installation.get("expected_metadata") != artifact.get("installed_metadata"):
+            errors.append(error("INSTALL_METADATA_MISMATCH", f"{path}.installation.expected_metadata", "installation provenance must bind collector-attested installed metadata"))
+    for role, artifact in by_role.items():
+        installation = artifact.get("installation", {})
+        recipe_role = installation.get("recipe_role")
+        if recipe_role == missing_role:
+            continue
+        recipe = by_role.get(recipe_role)
+        if recipe is None:
+            errors.append(error("INSTALL_RECIPE_MISSING", f"artifacts[{role}].installation.recipe_role", "referenced installation recipe artifact is absent"))
+        elif installation.get("recipe_sha256") != recipe.get("sha256"):
+            errors.append(error("INSTALL_RECIPE_HASH_MISMATCH", f"artifacts[{role}].installation.recipe_sha256", "installation recipe hash does not match its artifact declaration"))
+    observed_roles = set(by_role)
+    absent = sorted(MANDATORY_ROLES - observed_roles)
+    extra = sorted(observed_roles - MANDATORY_ROLES)
+    if extra:
+        errors.append(error("ARTIFACT_ROLE_CENSUS_MISMATCH", "artifacts", f"unknown roles are present: {extra}"))
+    if absent != ([missing_role] if missing_role else []):
+        code = "MULTIPLE_MISSING_AUTHORITIES" if len(absent) > 1 else "MISSING_AUTHORITY_UNDECLARED"
+        errors.append(error(code, "artifacts", f"artifact absence does not match the first missing authority: {absent}"))
+    return by_role
+
+
+def validate_events(errors, data, artifacts, actors, started, finished, missing_role, policies, census):
+    by_id, by_type = _validate_events_v2(errors, data, artifacts, actors, started, finished, missing_role)
+    for index, event_item in enumerate(data.get("events", [])):
+        command = event_item.get("command", {})
+        role = command.get("artifact_role")
+        artifact = artifacts.get(role)
+        trusted_path = census.get(role, {}).get("installed_path")
+        policy = policies.get(event_item.get("type"))
+        path = f"events[{index}].command"
+        if policy is None:
+            continue
+        if policy.get("event_actor_id") != event_item.get("actor_id") or policy.get("primary_role") != role:
+            errors.append(error("COMMAND_POLICY_BINDING_MISMATCH", path, "event actor or primary role differs from external trust"))
+        if artifact is None and role == missing_role:
+            continue
+        if artifact is None:
+            continue
+        if command.get("artifact_sha256") != artifact.get("sha256"):
+            errors.append(error("EVENT_COMMAND_HASH_MISMATCH", f"{path}.artifact_sha256", "primary executable hash differs from captured artifact"))
+        if command.get("executable_path") != artifact.get("installed_path") or command.get("executable_path") != trusted_path:
+            errors.append(error("COMMAND_EXECUTABLE_PATH_MISMATCH", f"{path}.executable_path", "primary executable path differs from verifier-owned census"))
+        argv = command.get("argv", [])
+        if not argv or argv[0] != command.get("executable_path"):
+            errors.append(error("COMMAND_ARGV0_MISMATCH", f"{path}.argv[0]", "argv[0] must equal the bound executable path"))
+        argv_digest = digest_value(argv)
+        if command.get("argv_sha256") != argv_digest or policy.get("argv_sha256") != argv_digest:
+            errors.append(error("COMMAND_ARGV_DIGEST_MISMATCH", f"{path}.argv_sha256", "argv differs from the externally trusted command"))
+        chain = command.get("exec_chain", [])
+        chain_roles = [item.get("artifact_role") for item in chain if isinstance(item, dict)]
+        if chain_roles != policy.get("exec_chain_roles"):
+            errors.append(error("COMMAND_CHAIN_POLICY_MISMATCH", f"{path}.exec_chain", "launcher/worker chain differs from external trust"))
+        for chain_index, item in enumerate(chain):
+            chain_role = item.get("artifact_role") if isinstance(item, dict) else None
+            chain_artifact = artifacts.get(chain_role)
+            trusted_chain_path = census.get(chain_role, {}).get("installed_path")
+            if chain_artifact is None:
+                errors.append(error("COMMAND_CHAIN_ARTIFACT_MISSING", f"{path}.exec_chain[{chain_index}]", "chain artifact is absent"))
+                continue
+            if (
+                item.get("installed_path") != chain_artifact.get("installed_path")
+                or item.get("installed_path") != trusted_chain_path
+                or item.get("artifact_sha256") != chain_artifact.get("sha256")
+            ):
+                errors.append(error("COMMAND_CHAIN_IDENTITY_MISMATCH", f"{path}.exec_chain[{chain_index}]", "chain identity differs from captured artifacts or verifier-owned census"))
+        process = command.get("process_start", {})
+        actor = actors.get(process.get("actor_id"))
+        last_role = chain_roles[-1] if chain_roles else None
+        last_artifact = artifacts.get(last_role)
+        process_expected = (
+            policy.get("process_actor_id"),
+            actor.get("pid") if actor else None,
+            actor.get("ppid") if actor else None,
+            last_role,
+            census.get(last_role, {}).get("installed_path"),
+            last_artifact.get("sha256") if last_artifact else None,
+            event_item.get("timestamp"),
+        )
+        process_actual = (
+            process.get("actor_id"), process.get("pid"), process.get("ppid"), process.get("executable_role"),
+            process.get("executable_path"), process.get("executable_sha256"), process.get("started_at"),
+        )
+        if process_actual != process_expected:
+            errors.append(error("PROCESS_START_IDENTITY_MISMATCH", f"{path}.process_start", "process start identity differs from actor, chain, or event evidence"))
+    return by_id, by_type
+
+
+def validate_confinement(errors, data, artifacts, phases, missing_role):
+    legacy_artifacts = {role: {**artifact, "metadata": artifact.get("bundle_metadata", {})} for role, artifact in artifacts.items()}
+    _validate_confinement_v2(errors, data, legacy_artifacts, phases, missing_role)
+
+
+def authority_payload(data):
+    crypto = data.get("crypto_linkage", {})
+    return {
+        "authority": data.get("authority"),
+        "missing_authority": data.get("missing_authority"),
+        "required_artifact_roles": data.get("required_artifact_roles"),
+        "installed_path_census_sha256": data.get("installed_path_census_sha256"),
+        "target_identity": data.get("target_identity"),
+        "capture_identity": data.get("capture_identity"),
+        "artifact_set_sha256": crypto.get("artifact_set_sha256"),
+        "environment_sha256": crypto.get("environment_sha256"),
+        "event_graph_sha256": crypto.get("event_graph_sha256"),
+        "confinement_sha256": crypto.get("confinement_sha256"),
+        "generation_link_sha256": [item.get("link_sha256") for item in crypto.get("generation_links", [])],
+    }
+
+
+def validate_crypto(errors, data, artifacts, missing_role):
+    crypto = data.get("crypto_linkage", {})
+    expected = {
+        "artifact_set_sha256": digest_value(artifact_set_payload(data)),
+        "environment_sha256": digest_value({
+            "policy_sha256": data.get("environment", {}).get("policy_sha256"),
+            "observed_sha256": data.get("environment", {}).get("observed_sha256"),
+        }),
+        "event_graph_sha256": digest_value(event_graph_payload(data)),
+        "confinement_sha256": digest_value(data.get("confinement")),
+    }
+    codes = {
+        "artifact_set_sha256": "ARTIFACT_SET_DIGEST_MISMATCH", "environment_sha256": "ENVIRONMENT_LINK_DIGEST_MISMATCH",
+        "event_graph_sha256": "EVENT_GRAPH_DIGEST_MISMATCH", "confinement_sha256": "CONFINEMENT_DIGEST_MISMATCH",
+    }
+    for field, value in expected.items():
+        if crypto.get(field) != value:
+            errors.append(error(codes[field], f"crypto_linkage.{field}", "cryptographic linkage digest is incorrect"))
+    events = {item.get("id"): item for item in data.get("events", []) if isinstance(item, dict)}
+    confinement = data.get("confinement", {})
+    capture = data.get("capture_identity", {})
+    expected_roles = ("worker_sandbox_profile", "worker_sandbox_profile_generator", ["profile_generator_input"])
+    generation_command_roles = ("worker_sandbox_profile_generator", "profile_generator_input", "worker_sandbox_profile")
+    expected_argv = [artifacts.get(role, {}).get("installed_path") for role in generation_command_roles]
+    for index, link in enumerate(crypto.get("generation_links", [])):
+        path = f"crypto_linkage.generation_links[{index}]"
+        linked_roles = (link.get("output_role"), link.get("generator_role"), link.get("input_roles"))
+        if linked_roles != expected_roles or linked_roles != (
+            confinement.get("sandbox_profile_role"), confinement.get("profile_generator_role"), confinement.get("profile_generator_input_roles")
+        ):
+            errors.append(error("GENERATION_ROLE_DRIFT", path, "generation roles differ from the ranked confinement contract"))
+        event_item = events.get(link.get("event_id"))
+        actual_argv = event_item.get("command", {}).get("argv", []) if event_item else []
+        argv_matches = len(actual_argv) == len(expected_argv) and all(
+            canonical_absolute_path(actual) if role == missing_role else actual == expected
+            for role, actual, expected in zip(generation_command_roles, actual_argv, expected_argv)
+        )
+        if link.get("event_id") != "profile-generated" or event_item is None or link.get("generated_at") != event_item.get("timestamp") or not argv_matches:
+            errors.append(error("GENERATION_EVENT_DRIFT", path, "generation link does not exactly match the profile-generated event"))
+        output = artifacts.get(link.get("output_role"))
+        generator = artifacts.get(link.get("generator_role"))
+        inputs = [artifacts.get(role) for role in link.get("input_roles", [])]
+        absent = [role for role, item in zip([link.get("output_role"), link.get("generator_role")] + link.get("input_roles", []), [output, generator] + inputs) if item is None]
+        if any(role != missing_role for role in absent):
+            errors.append(error("GENERATION_ARTIFACT_MISSING", path, f"generation link references absent artifacts: {absent}"))
+        if output and generator and (link.get("output_sha256") != output.get("sha256") or link.get("generator_sha256") != generator.get("sha256")):
+            errors.append(error("GENERATION_HASH_MISMATCH", path, "generation output or generator hash differs from artifacts"))
+        if all(inputs) and link.get("input_sha256") != [item.get("sha256") for item in inputs]:
+            errors.append(error("GENERATION_INPUT_HASH_MISMATCH", path, "generation input hashes differ from artifacts"))
+        for field in ("base_sha", "workflow_sha", "run_id", "job_id"):
+            if link.get(field) != capture.get(field):
+                errors.append(error("GENERATION_IDENTITY_DRIFT", f"{path}.{field}", "generation identity differs from capture identity"))
+        if link.get("link_sha256") != digest_value(generation_payload(link)):
+            errors.append(error("GENERATION_LINK_DIGEST_MISMATCH", f"{path}.link_sha256", "generation link digest is incorrect"))
+    if crypto.get("authority_link_sha256") != digest_value(authority_payload(data)):
+        errors.append(error("AUTHORITY_LINK_DIGEST_MISMATCH", "crypto_linkage.authority_link_sha256", "authority claims are not included in authenticated linkage"))
+
+
+def validate_bundle(data, root, external_trust=None):
+    errors = []
+    if not isinstance(data, dict):
+        return {"state": "INVALID", "bundle_digest_sha256": digest_value(data), "errors": [error("TOP_LEVEL_TYPE", "$", "bundle must be an object")], "missing_authority": None, "authoritative": False, "resumption_authorized": False}
+    errors.extend(validate_committed_schema(data))
+    scan_for_secret_fields(data, errors)
+    if data.get("schema_version") != SCHEMA_VERSION:
+        errors.append(error("SCHEMA_VERSION", "schema_version", f"expected {SCHEMA_VERSION}"))
+    if data.get("authority_contract_version") != AUTHORITY_CONTRACT_VERSION:
+        errors.append(error("AUTHORITY_CONTRACT_VERSION", "authority_contract_version", f"expected {AUTHORITY_CONTRACT_VERSION}"))
+    missing = data.get("missing_authority")
+    missing_role = missing.get("role") if isinstance(missing, dict) else None
+    try:
+        census, policies, trust_complete = validate_external_trust(errors, data, external_trust)
+        compare_identity(errors, data.get("target_identity", {}), data.get("capture_identity", {}))
+        started, finished = validate_capture_window(errors, data)
+        artifacts = validate_artifacts(errors, data, root, missing_role, census)
+        validate_environment(errors, data)
+        actors, phases = validate_actors_and_phases(errors, data, artifacts)
+        validate_events(errors, data, artifacts, actors, started, finished, missing_role, policies, census)
+        validate_confinement(errors, data, artifacts, phases, missing_role)
+        validate_crypto(errors, data, artifacts, missing_role)
+    except (AttributeError, KeyError, TypeError, ValueError, OSError) as exception:
+        errors.append(error("VALIDATOR_INPUT_UNSAFE", "$", f"malformed input prevented semantic validation: {type(exception).__name__}"))
+        trust_complete = False
+    errors = sorted(errors, key=lambda item: (item["code"], item["path"], item["message"]))
+    state = "INVALID" if errors else ("INCOMPLETE" if missing_role or not trust_complete else "STATIC_RESUME_READY")
+    authority = data.get("authority", {})
+    authorized = (
+        state == "STATIC_RESUME_READY"
+        and isinstance(external_trust, dict)
+        and external_trust.get("source_kind") == "ranked"
+        and external_trust.get("census_complete") is True
+        and authority.get("authoritative") is True
+        and authority.get("synthetic") is False
+    )
+    return {
+        "state": state,
+        "bundle_digest_sha256": digest_value(data),
+        "errors": errors,
+        "missing_authority": missing,
+        "authoritative": authorized,
+        "resumption_authorized": authorized,
+    }
+
+
+def seal_bundle_commands(data):
+    artifacts = {item["role"]: item for item in data.get("artifacts", [])}
+    actors = {item["id"]: item for item in data.get("actors", [])}
+    for event_item in data.get("events", []):
+        command = event_item["command"]
+        primary = artifacts.get(command["artifact_role"])
+        if primary:
+            command["artifact_sha256"] = primary["sha256"]
+            command["executable_path"] = primary["installed_path"]
+        command["argv_sha256"] = digest_value(command["argv"])
+        for entry in command["exec_chain"]:
+            artifact = artifacts.get(entry["artifact_role"])
+            if artifact:
+                entry["installed_path"] = artifact["installed_path"]
+                entry["artifact_sha256"] = artifact["sha256"]
+        process = command["process_start"]
+        actor = actors.get(process["actor_id"])
+        if actor:
+            process["pid"] = actor["pid"]
+            process["ppid"] = actor["ppid"]
+        if command["exec_chain"]:
+            last = artifacts.get(command["exec_chain"][-1]["artifact_role"])
+            if last:
+                process["executable_role"] = last["role"]
+                process["executable_path"] = last["installed_path"]
+                process["executable_sha256"] = last["sha256"]
+        process["started_at"] = event_item["timestamp"]
+
+
+def refresh_derived(data, artifacts_by_role=None):
+    artifacts_by_role = artifacts_by_role or {item["role"]: item for item in data.get("artifacts", [])}
+    data["authority_contract_version"] = AUTHORITY_CONTRACT_VERSION
+    data["installed_path_census_sha256"] = digest_value(installed_path_census_payload(data.get("artifacts", [])))
+    environment = data["environment"]
+    environment["policy_sha256"] = digest_value(environment["policy"])
+    environment["observed_sha256"] = digest_value(environment["observed"])
+    for actor in data["actors"]:
+        actor["environment_policy_sha256"] = environment["policy_sha256"]
+    crypto = data["crypto_linkage"]
+    crypto["artifact_set_sha256"] = digest_value(artifact_set_payload(data))
+    crypto["environment_sha256"] = digest_value({"policy_sha256": environment["policy_sha256"], "observed_sha256": environment["observed_sha256"]})
+    crypto["event_graph_sha256"] = digest_value(event_graph_payload(data))
+    crypto["confinement_sha256"] = digest_value(data["confinement"])
+    capture = data["capture_identity"]
+    for link in crypto["generation_links"]:
+        output = artifacts_by_role.get(link["output_role"])
+        generator = artifacts_by_role.get(link["generator_role"])
+        inputs = [artifacts_by_role.get(role) for role in link["input_roles"]]
+        if output:
+            link["output_sha256"] = output["sha256"]
+        if generator:
+            link["generator_sha256"] = generator["sha256"]
+        if all(inputs):
+            link["input_sha256"] = [item["sha256"] for item in inputs]
+        for field in ("base_sha", "workflow_sha", "run_id", "job_id"):
+            link[field] = capture[field]
+        link["link_sha256"] = digest_value(generation_payload(link))
+    crypto["authority_link_sha256"] = digest_value(authority_payload(data))
+
+
+def seal_external_trust(data, trust):
+    trust["schema_version"] = TRUST_SCHEMA_VERSION
+    trust["authority_contract_version"] = AUTHORITY_CONTRACT_VERSION
+    trust["installed_path_census"] = installed_path_census_payload(trust.get("installed_path_census", []))
+    trust["installed_path_census_sha256"] = digest_value(trust["installed_path_census"])
+    data["installed_path_census_sha256"] = trust["installed_path_census_sha256"]
+    events = {item["type"]: item for item in data.get("events", [])}
+    for policy in trust.get("command_policies", []):
+        event_item = events.get(policy["event_type"])
+        if event_item:
+            policy["argv_sha256"] = event_item["command"]["argv_sha256"]
+    trust["trusted_collector"]["installation_mount_identity_sha256"] = digest_value(installed_mount_payload(data))
+    trust["collector_attestation_sha256"] = digest_value(collector_attestation_payload(data, trust))
+
+
+def hydrate_fixture(data, root, trust):
+    by_role = {item["role"]: item for item in data["artifacts"]}
+    for artifact in data["artifacts"]:
+        file_path = safe_bundle_path(root, artifact["bundle_path"])
+        bundle_metadata = physical_metadata(file_path, artifact["bundle_metadata"]["mount_id"])
+        installed_mount = artifact["installed_metadata"]["mount_id"]
+        installed_metadata = copy.deepcopy(bundle_metadata)
+        installed_metadata["mount_id"] = installed_mount
+        artifact["size"] = file_path.stat().st_size
+        artifact["sha256"] = digest_file(file_path)
+        artifact["bundle_metadata"] = bundle_metadata
+        artifact["installed_metadata"] = installed_metadata
+        artifact["installation"]["expected_metadata"] = copy.deepcopy(installed_metadata)
+    recipe = by_role["installation_recipe"]
+    for artifact in data["artifacts"]:
+        artifact["installation"]["recipe_sha256"] = recipe["sha256"]
+    mount = data["confinement"]["mounts"][0]
+    bundle_metadata = data["artifacts"][0]["bundle_metadata"]
+    mount["device_id"] = bundle_metadata["device_id"]
+    mount["filesystem"] = bundle_metadata["filesystem"]
+    weights = data["confinement"]["weights_root"]
+    weights["device_id"] = mount["device_id"]
+    weights["filesystem"] = mount["filesystem"]
+    profile = by_role[data["confinement"]["sandbox_profile_role"]]
+    data["confinement"]["sandbox_profile_sha256"] = profile["sha256"]
+    seal_bundle_commands(data)
+    refresh_derived(data, by_role)
+    seal_external_trust(data, trust)
+
+
+def remove_fixture_artifact(data, root, role, declare_missing):
+    artifact = next(item for item in data["artifacts"] if item["role"] == role)
+    safe_bundle_path(root, artifact["bundle_path"]).unlink()
+    data["artifacts"] = [item for item in data["artifacts"] if item["role"] != role]
+    if declare_missing:
+        data["missing_authority"] = {
+            "kind": "artifact_role",
+            "role": role,
+            "fact": "exact profile generator input bytes and installed metadata",
+            "reason": "synthetic fixture intentionally omits the first unavailable authority fact",
+        }
+
+
+def mutate_fixture(name, data, root, trust):
+    if name == "missing_external_trust":
+        return None
+    if name == "authority_claim_flip":
+        data["authority"]["authoritative"] = not data["authority"]["authoritative"]
+        refresh_derived(data)
+        return trust
+    if name == "coherent_foreign_target":
+        for identity in (data["target_identity"], data["capture_identity"]):
+            identity["repository"] = "synthetic/foreign-target"
+            identity["base_sha"] = "f" * 40
+        refresh_derived(data)
+        return trust
+    if name == "wrong_measure_path":
+        artifact = next(item for item in data["artifacts"] if item["role"] == "measure_job")
+        old = artifact["installed_path"]
+        artifact["installed_path"] = "/synthetic/installed/bench-runner/wrong-measure-job.sh"
+        for event_item in data["events"]:
+            command = event_item["command"]
+            command["argv"] = [artifact["installed_path"] if value == old else value for value in command["argv"]]
+        seal_bundle_commands(data)
+        refresh_derived(data)
+        return trust
+    if name == "arbitrary_worker_argv0":
+        event_item = next(item for item in data["events"] if item["type"] == "worker_spawn")
+        event_item["command"]["argv"][0] = "/synthetic/arbitrary/argv0"
+        refresh_derived(data)
+        return trust
+    if name == "launch_chain_substitution":
+        event_item = next(item for item in data["events"] if item["type"] == "worker_spawn")
+        event_item["command"]["exec_chain"] = [item for item in event_item["command"]["exec_chain"] if item["artifact_role"] != "bench_exec"]
+        seal_bundle_commands(data)
+        refresh_derived(data)
+        return trust
+    if name == "process_identity_drift":
+        event_item = next(item for item in data["events"] if item["type"] == "worker_spawn")
+        event_item["command"]["process_start"]["pid"] += 1
+        refresh_derived(data)
+        return trust
+    if name == "installed_metadata_reseal":
+        artifact = next(item for item in data["artifacts"] if item["role"] == "bench_exec")
+        artifact["installed_metadata"]["mount_id"] += "-resealed"
+        artifact["installation"]["expected_metadata"] = copy.deepcopy(artifact["installed_metadata"])
+        refresh_derived(data)
+        return trust
+
+    for artifact in data.get("artifacts", []):
+        artifact["metadata"] = artifact["bundle_metadata"]
+    try:
+        _mutate_fixture_v2(name, data, root)
+    finally:
+        for artifact in data.get("artifacts", []):
+            if "metadata" in artifact:
+                artifact["bundle_metadata"] = artifact.pop("metadata")
+    if name == "missing_install_provenance":
+        refresh_derived(data)
+    if name == "missing_profile_generator_input":
+        trust["installed_path_census"] = [item for item in trust["installed_path_census"] if item["role"] != "profile_generator_input"]
+        trust["census_complete"] = False
+        trust["first_missing_fact"] = copy.deepcopy(data["missing_authority"])
+        refresh_derived(data)
+        seal_external_trust(data, trust)
+    return trust
+
+
+def run_fixture_suite(fixture_path):
+    fixture_document = json.loads(fixture_path.read_text())
+    if fixture_document.get("schema_version") != FIXTURE_VERSION or fixture_document.get("non_authoritative") is not True:
+        raise ValueError("fixture document must be explicitly synthetic and non-authoritative")
+    results = []
+    failures = []
+    for case in fixture_document["cases"]:
+        with tempfile.TemporaryDirectory(prefix="ranked-authority-fixture-") as temporary:
+            root = Path(temporary)
+            for relative, specification in fixture_document["files"].items():
+                destination = safe_bundle_path(root, relative)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(specification["text"].encode())
+                destination.chmod(int(specification["mode"], 8))
+            data = copy.deepcopy(fixture_document["base_bundle"])
+            trust = copy.deepcopy(fixture_document["base_external_trust"])
+            hydrate_fixture(data, root, trust)
+            trust = mutate_fixture(case["mutation"], data, root, trust)
+            result = validate_bundle(data, root, trust)
+        actual_codes = sorted({item["code"] for item in result["errors"]})
+        expected_codes = sorted(case.get("expected_error_codes", []))
+        passed = (
+            result["state"] == case["expected_state"]
+            and all(code in actual_codes for code in expected_codes)
+            and result["resumption_authorized"] is False
+        )
+        case_result = {
+            "id": case["id"], "state": result["state"], "bundle_digest_sha256": result["bundle_digest_sha256"],
+            "error_codes": actual_codes, "resumption_authorized": result["resumption_authorized"], "passed": passed,
+        }
+        if result["state"] == "INCOMPLETE":
+            case_result["missing_authority"] = result["missing_authority"]
+        results.append(case_result)
+        if not passed:
+            failures.append({
+                "id": case["id"], "expected_state": case["expected_state"], "actual_state": result["state"],
+                "expected_error_codes": expected_codes, "actual_error_codes": actual_codes,
+                "resumption_authorized": result["resumption_authorized"],
+            })
+    return {
+        "schema_version": "ranked-authority-evidence-fixture-results/v3",
+        "fixture_source_sha256": digest_file(fixture_path), "non_authoritative": True,
+        "case_count": len(results), "passed": not failures, "results": results, "failures": failures,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description="Validate a ranked installed-authority evidence bundle")
     parser.add_argument("--bundle-root", type=Path, help="directory containing physical evidence files")
     parser.add_argument("--manifest", type=Path, help="bundle manifest JSON (defaults to BUNDLE_ROOT/bundle.json)")
+    parser.add_argument("--external-trust", type=Path, help="verifier-owned external trust JSON")
     parser.add_argument("--run-fixtures", type=Path, help="run the committed synthetic fixture suite")
     args = parser.parse_args()
 
     if args.run_fixtures:
-        if args.bundle_root or args.manifest:
+        if args.bundle_root or args.manifest or args.external_trust:
             parser.error("--run-fixtures cannot be combined with bundle arguments")
         output = run_fixture_suite(args.run_fixtures.resolve())
         sys.stdout.buffer.write(canonical_bytes(output))
@@ -1281,9 +1974,12 @@ def main():
     root = args.bundle_root.resolve()
     manifest = (args.manifest or root / "bundle.json").resolve()
     data = json.loads(manifest.read_text())
-    output = validate_bundle(data, root)
+    external_trust = None
+    if args.external_trust is not None:
+        external_trust = json.loads(args.external_trust.resolve().read_text())
+    output = validate_bundle(data, root, external_trust)
     sys.stdout.buffer.write(canonical_bytes(output))
-    return 0 if output["state"] in {"STATIC_RESUME_READY", "INCOMPLETE"} else 1
+    return 0 if output["resumption_authorized"] else 1
 
 
 if __name__ == "__main__":
