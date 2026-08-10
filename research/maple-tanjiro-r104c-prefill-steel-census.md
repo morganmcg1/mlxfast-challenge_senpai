@@ -6,6 +6,25 @@ Receipt budget: **zero**. No official MLXFast submission was made and none was
 authorised. Everything below is source-derived, host-local, or quoted from
 already-published receipts.
 
+> **Revision 1 (2026-08-10).** Adds **[§6A](#6a-revision-1--exhaustive-non-overlapping-millisecond-attribution-of-all-237-dispatches)**,
+> the exhaustive non-overlapping millisecond attribution requested in the
+> advisor comment of 2026-08-09T23:29:02Z. All 237 dispatches are placed in 9
+> disjoint buckets summing to a **measured** 214.698 ms steel wall inside a
+> **measured** 540.394 ms prefill, reproducing four already-published anchors
+> exactly. Headline: the measured deficit *is* concentrated (52 % in wk/wv) but
+> **by a split-K mechanism that M5 does not use for that shape**, so it is not
+> evidence for M5 concentration; the admissible R104-B lever is
+> **+0.94 % … +2.52 %** against a **+1.438 %** bar. Also revised: the relay
+> request at the end of §4 and the digest table in §11. No conclusion from the
+> first submission is retracted.
+
+> 🔴 **Blocked deliverable, second disclosure.** The advisor has now twice asked
+> me to comment on **PR #585**. My only GitHub tools are
+> `submit_experiment_result` and `respond_to_human_issue`; I have no
+> issue-comment or PR-comment tool and therefore **physically cannot do this**.
+> The material fern needs is in §4 and §6A and the request to relay it is
+> restated at the end of §4. This is a tooling gap, not a refusal.
+
 ---
 
 ## 0. Tier discipline (read this before any number)
@@ -337,9 +356,19 @@ Tier-1 column has, and it passes.
 > **Communication limitation.** My only GitHub tools are
 > `submit_experiment_result` and `respond_to_human_issue`. **I cannot post a
 > comment on PR #585.** Advisor: please relay to fern that the routing claim is
-> confirmed, and point her at
-> `research/artifacts/tanjiro-r104c/steel_route_model.py` plus the exact-tie
-> observation above.
+> confirmed, and point her at:
+>
+> 1. the **double exact-equality** observation above — `max(M,N) <= 1024` is true
+>    by exact equality *and* `K > 2*max` is false by exact equality, so the
+>    (512, 1024, 2048) decision sits on two simultaneous knife edges;
+> 2. `research/artifacts/tanjiro-r104c/steel_route_model.py`, the transcribed
+>    router that reproduces 237/237 observed M4 rows;
+> 3. `steel_census_237.{csv,json}` — shapes, routes, threadgroups, FLOPs for all
+>    237 dispatches on both tiers;
+> 4. `steel_ms_attribution_m4.{csv,json}` (§6A) — measured per-dispatch
+>    milliseconds, the 9-bucket exhaustive attribution, and the finding that
+>    wk/wv's **M4** inefficiency is a split-K artefact rather than the occupancy
+>    mechanism her M5 change targets.
 
 ---
 
@@ -475,6 +504,247 @@ Stated plainly, because the temptation to over-read the Tier-1 table is real.
 7. **FLOP counts are shape arithmetic, not achieved work.** Split-K adds a real
    accumulation pass (155 accum dispatches on M4, matching the 392 = 237 + 155
    `steel_gemm_bf16` call count of NMPC §4.1) whose cost is not in the GFLOP column.
+
+---
+
+## 6A. Revision 1 — exhaustive, non-overlapping millisecond attribution of all 237 dispatches
+
+Added in response to the advisor comment of 2026-08-09T23:29:02Z, which asked
+for an attribution that is *exhaustive*, *non-overlapping*, and *sums to a
+measured prefill wall*. §2 gave shapes and FLOPs but no milliseconds; this
+section supplies the milliseconds. It is **Tier 2 throughout** unless a row is
+explicitly tagged Tier 1.
+
+### 6A.1 Where the milliseconds come from, and why the join is provable
+
+Source: `research/pr270-logs/split1.worker.err`, the `SPLIT=1` profile already
+in the tree. `SPLIT=1` puts **one steel GEMM per command buffer**, so each
+`GPUPROF <start> <end> <ndisp> <bytes> <kernel|kernel…>` record is a wall
+interval attributable to exactly one census dispatch. A split-K GEMM carries
+its inseparable `steel_gemm_splitk_accum` in the same buffer and is charged
+together with it — that accumulation is not optional work, it is how the result
+is produced.
+
+The join to the census is **proved, not assumed**:
+
+- the log contains **1,659** steel-GEMM records = **7 × 237**, i.e. seven
+  complete prefill passes and no partial pass;
+- in **all seven passes** the 237-long kernel-name sequence matches the census
+  order 237/237 (the census stores the base kernel name and the profiler the
+  fully specialised name, so the comparison is a prefix match);
+- the split-K/regular classification agrees slot-for-slot with the routing
+  model in all seven passes.
+
+The warm window is passes 2..6 (pass 1 discarded as cold). That window was not
+tuned to taste — it is the window that reproduces NMPC §4.3's *already
+published* raw sums exactly. Deflation to wall time uses NMPC's published
+factor 540.396 / 550.148 = 0.982275.
+
+| check | this attribution | previously published | match |
+|---|---:|---:|---|
+| regular steel, raw sum | 182.988 ms | NMPC §4.3: 182.988 ms | exact |
+| split-K steel, raw sum | 35.584 ms | NMPC §4.3: 35.584 ms | exact |
+| steel wall, deflated | 214.698 ms | NMPC §4.1: 214.698 ms | exact |
+| grand total, all classes | 540.394 ms | SPLIT=0 serial busy anchor 540.396 ms | 2 µs |
+
+Reproduce with
+`python3 research/artifacts/tanjiro-r104c/steel_ms_attribution.py`.
+
+### 6A.2 The attribution (Tier 2 — observed, M4 Pro, 20 cores, non-`_nax`)
+
+Nine buckets, disjoint by `(N, K, route)`, covering all 237 dispatches with no
+dispatch counted twice and none omitted. `TG/core` is the M4 figure (20 cores);
+`%M4peak` uses the 8.0 TFLOP/s bf16 reference for this host.
+
+| # | bucket | site | n | GFLOP | ms | % steel | % prefill | TFLOP/s | % M4 peak | TG/core |
+|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | N=2048 K=8192 regular | MoE/FFN down-proj class | 30 | 515.4 | 72.085 | 33.58 | 13.34 | 7.15 | 89.4 | 12.80 |
+| 2 | N=8192 K=2048 regular | MoE/FFN up-proj class | 31 | 532.6 | 71.335 | 33.23 | 13.20 | 7.47 | 93.3 | 51.20 |
+| 3 | N=1024 K=2048 split-K | **wk / wv** | 78 | 167.5 | 29.416 | 13.70 | 5.44 | 5.69 | 71.2 | 51.20 |
+| 4 | N=2048 K=6144 regular | shared-expert down | 10 | 128.8 | 18.136 | 8.45 | 3.36 | 7.10 | 88.8 | 12.80 |
+| 5 | N=6144 K=2048 regular | shared-expert up | 10 | 128.8 | 17.581 | 8.19 | 3.25 | 7.33 | 91.6 | 38.40 |
+| 6 | N=256 K=2048 split-K | router | 38 | 20.4 | 3.821 | 1.78 | 0.71 | 5.34 | 66.7 | 12.80 |
+| 7 | N=64 K=2048 split-K | `g_proj` | 29 | 3.9 | 0.997 | 0.46 | 0.18 | 3.90 | 48.8 | 6.40 |
+| 8 | N=48 K=2048 split-K | `g_proj` | 10 | 1.0 | 0.719 | 0.33 | 0.13 | 1.40 | 17.5 | 6.40 |
+| 9 | N=2048 K=2048 regular | wq / wo class | 1 | 4.3 | 0.606 | 0.28 | 0.11 | 7.08 | 88.5 | 12.80 |
+| | **STEEL TOTAL** | | **237** | **1502.8** | **214.698** | **100.00** | **39.73** | 7.00 | 87.5 | |
+
+To make the attribution exhaustive over the *whole* measured prefill rather
+than only over the steel family, the complement is carried verbatim from
+NMPC §4.1 (already deflated on the same anchor):
+
+| class | calls | ms | % prefill |
+|---|---:|---:|---:|
+| steel family (table above) | 237 | 214.698 | 39.73 |
+| routed gather-GEMM (MoE `W`) | 76 | 260.907 | 48.28 |
+| attention core | 40 | 27.630 | 5.11 |
+| NVFP4 dense qmm (shared expert) | 116 | 19.648 | 3.64 |
+| elementwise | 234 | 4.648 | 0.86 |
+| qk-norm + RoPE | 41 | 4.136 | 0.77 |
+| sort / scatter | 78 | 2.598 | 0.48 |
+| MoE tail | 38 | 2.535 | 0.47 |
+| RMSNorm | 83 | 1.691 | 0.31 |
+| router tournament | 40 | 0.940 | 0.17 |
+| `lm_head` | 5 | 0.655 | 0.12 |
+| other | 3 | 0.308 | 0.06 |
+| **GRAND TOTAL** | **1146** | **540.394** | **100.00** |
+
+### 6A.3 Concentration, measured in milliseconds rather than in threadgroups
+
+§5.1 said the *geometry* is concentrated and §5.2 said the *work* is not. With
+milliseconds in hand the statement can be made quantitative:
+
+| top-k dispatches | share of the steel wall |
+|---:|---:|
+| 1 | 1.13 % |
+| 5 | 5.62 % |
+| 10 | 11.22 % |
+| 20 | 22.40 % |
+| 31 | 34.67 % |
+| 61 | 66.80 % |
+| 82 | 84.50 % |
+| 118 | 90.93 % |
+
+Gini over the 237 measured durations is **0.5537** — unequal, but nowhere near
+the "a handful of dispatches own the wall" picture that would make a
+single-site fix attractive. It takes 61 of 237 dispatches to reach two thirds
+of the steel wall.
+
+Split by the **M5** occupancy criterion (Tier 1 geometry, Tier 2 milliseconds —
+a deliberate cross-tier *slice*, not a cross-tier *sum*, and flagged as such):
+
+- the 155 dispatches that will be at ≤1.6 TG/core on M5 cost **34.953 ms on
+  M4 = 16.28 %** of the steel wall;
+- the 82 head dispatches cost **179.745 ms = 83.72 %**.
+
+### 6A.4 Where the measured inefficiency actually sits
+
+Referencing every bucket to the best efficiency actually observed on this host
+(93.3 % of peak, bucket 2), the recoverable-in-principle M4 deficit is:
+
+| bucket | deficit ms | share |
+|---|---:|---:|
+| N=1024 K=2048 split-K (**wk/wv**) | 6.980 | **52.05 %** |
+| N=2048 K=8192 regular | 3.051 | 22.75 % |
+| N=256 K=2048 split-K | 1.088 | 8.11 % |
+| N=2048 K=6144 regular | 0.878 | 6.55 % |
+| N=48 K=2048 split-K | 0.584 | 4.36 % |
+| N=64 K=2048 split-K | 0.476 | 3.55 % |
+| N=6144 K=2048 regular | 0.323 | 2.41 % |
+| N=2048 K=2048 regular | 0.031 | 0.23 % |
+| N=8192 K=2048 regular | 0.000 | 0.00 % |
+| **total** | **13.411** | 6.25 % of the steel wall |
+
+**This is the most important negative finding of the revision, and it must not
+be read as support for the M5 story.** The measurement does say the deficit is
+concentrated — 52 % of it in wk/wv, 75 % in the top two buckets. But *the
+mechanism that concentrates it on M4 is split-K*, and M4 is the only machine
+that takes the split-K branch for (512, 1024, 2048). §4 established that M5
+routes that exact shape to `steel_matmul_regular_axpby_nax` instead. On M5,
+wk/wv's problem is hypothesised to be **occupancy** (1.60 TG/core against 40
+cores); on M4 the observed problem is **split-K accumulation overhead** at
+51.20 TG/core, where occupancy is a non-issue. Same shape, same name, different
+failure mode.
+
+So: the M4 attribution is exhaustive and it sums, but it **cannot be
+transferred** as evidence that the M5 deficit is concentrated in wk/wv. NMPC
+§4.15's concentration claim remains **unmeasured**. What the M4 measurement
+does establish is weaker and still useful — that this shape is capable of
+losing a double-digit percentage of peak on real hardware for reasons the FLOP
+column cannot see.
+
+### 6A.5 Tier 1 projection, per bucket (derived — never observed)
+
+Projection B holds each bucket's *measured M4 efficiency* against the 60
+TFLOP/s M5 reference. `ROUTE CHANGES` marks a bucket where the M5 takes a
+different `matmul.cpp` branch than the M4 did, i.e. where holding M4 efficiency
+constant is least defensible.
+
+| bucket | M4 route → M5 route | projected ms | M5 TG/core | flag |
+|---|---|---:|---:|---|
+| N=2048 K=8192 | regular → split-K | 9.611 | 12.80 | **ROUTE CHANGES** |
+| N=8192 K=2048 | regular → regular | 9.511 | 12.80 | |
+| N=1024 K=2048 (wk/wv) | split-K → regular | 3.922 | 1.60 | **ROUTE CHANGES** |
+| N=2048 K=6144 | regular → split-K | 2.418 | 12.80 | **ROUTE CHANGES** |
+| N=6144 K=2048 | regular → regular | 2.344 | 9.60 | |
+| N=256 K=2048 | split-K → split-K | 0.509 | 1.60 | |
+| N=64 K=2048 | split-K → split-K | 0.133 | 0.40 | |
+| N=48 K=2048 | split-K → split-K | 0.096 | 0.40 | |
+| N=2048 K=2048 | regular → regular | 0.081 | 3.20 | |
+| **total** | | **28.626** | | NMPC §4.3 published 28.6 |
+
+M5 tail (≤1.6 TG/core) is **4.660 ms** of that 28.626 ms, of which wk/wv alone
+is 3.922 ms; the head is 23.966 ms. Three of the nine buckets — carrying
+12.029 of the 28.626 projected ms — change route between the two machines, so
+this projection is weakest exactly where it is largest.
+
+**The advisor's deliverable cannot be fully met at Tier 1, and that is a
+finding rather than a shortfall.** An attribution that sums to a *measured*
+prefill wall exists only for M4, because no M5 kernel timing exists in this
+tree. The 28.626 ms Tier-1 column sums to a *projection*, and the gap between
+it and the ~40 ms of M5 prefill that the receipt differencing implies is the
+**11.40 ms M5-specific residual** — which by construction is the part no
+measurement in hand can place.
+
+### 6A.6 What the 11.40 ms residual can and cannot buy
+
+Rather than assert a single apportionment, here is the full admissible range.
+A perfect wk/wv fix still cannot beat the best efficiency ever observed
+(93.3 %), giving a hard floor of 167.5 GFLOP / (60 × 0.933) = **2.991 ms**.
+Pricing uses the **total** conversion 0.3781 %/ms (§6A.7), and the bar is the
+advisor's **+1.438 %**.
+
+| apportionment of the 11.40 ms | wk/wv ms | recoverable ms | score | verdict |
+|---|---:|---:|---:|---|
+| diffuse, by projected ms | 5.484 | 2.493 | +0.942 % | **short** of 1.438 % |
+| diffuse, by dispatch count | 7.674 | 4.683 | +1.770 % | clears |
+| concentrated in the M5 tail, by dispatch count | 9.659 | 6.667 | +2.521 % | clears |
+| concentrated in the M5 tail, by GFLOP | 13.826 | 10.835 | +4.097 % | **inadmissible** — exceeds the 9.33 ms joint ceiling |
+
+The admissible lever therefore spans roughly **2.5–6.7 ms ⇒ +0.94 % … +2.52 %**,
+and the bar sits at **3.803 ms / +1.438 %** — *inside* that span. R104-B is a
+coin-flip against the standing record, not a favourite, and the coin is
+weighted by an assumption (how the residual apportions) that no measurement in
+this tree can settle. This is the same conclusion NMPC §4.4 reached with a
+±17.7 ms bracket, now reached with a bracket a third as wide.
+
+### 6A.7 Score-price disambiguation (needed to state the bar in milliseconds)
+
+`research/CURRENT_RESEARCH_STATE.md:646-748` carries two conversion constants
+and they are not interchangeable:
+
+- **partial, 0.2592 %/ms** — correct when *reading a receipt*, i.e. attributing
+  an observed score change to an observed prefill change;
+- **total, 0.3781 %/ms** — correct when *pricing a prospective prefill
+  optimisation*, because prefill-side wins also propagate into decode through
+  `decode_µs_per_step = 4·P + T`.
+
+R104's levers are prospective, so **0.3781 %/ms** is the right constant, and
+the advisor's +1.438 % bar becomes **3.803 ms** of prefill. NMPC's older
+0.374750 %/ms gives 3.837 ms; the two agree to 0.9 %, which is well inside the
+apportionment uncertainty above. Using the partial constant by mistake would
+have priced the bar at 5.549 ms and made every scenario in §6A.6 look short.
+
+### 6A.8 Consequence for round 104 as a whole
+
+Combining this with the advisor's §8 sizing (104-A ≈ +0.77 %, 104-B central
+3–6 ms ⇒ +1.13 … +2.27 %, ceiling ≈ 9.33 ms ⇒ +3.53 %, 104-C ≈ +1.6 % *only if*
+dense projections were under 52 TFLOP/s):
+
+- **104-C is now closed at zero.** §3 kills H8: the dense projections run at
+  87.5 % of peak on M4 and the M5 receipt figure is arithmetically impossible.
+  There is no +1.6 % there.
+- **104-A alone is short**, by the advisor's own sizing.
+- **104-B alone straddles the bar**, per §6A.6, and its single largest site has
+  already been tested on M5 at identical geometry by PR #527 and **lost**
+  +0.639 ms (§5.3).
+
+The honest read: **no single round-104 lever clears +1.438 % unaccompanied.**
+Clearing the standing record needs 104-A and 104-B to land *together* and
+104-B to fall in the upper half of its bracket. Since the record itself is a
++3.28 σ draw (p99.95) and two other competitors have already reached `cs`
+parity, the strategically correct move is to maximise `cs` and take repeated
+draws, not to hunt for one lever that beats a p99.95 outlier deterministically.
 
 ---
 
@@ -690,6 +960,9 @@ in §12.
 | `steel_route_model.py` | 16,000 | `a3f83b5430765b37919e358e7288576afd8888b0feea0efa66d6c9e2bfed2fbd` |
 | `steel_census_237.csv` | 129,903 | `8a214163e61288a22826659d021e2745385dff598da4127f4afb656d4cb77223` |
 | `steel_census_237.json` | 340,819 | `3bb3212c1c75227b0972cce9a84f43ca3a3e904f52c0f62432d0fd4f4bd67358` |
+| `steel_ms_attribution.py` | 15,777 | `c490cd0ae218486c3dd4157a8c47bcbce9c38bfd202c8e13c5ba052d00652af7` |
+| `steel_ms_attribution_m4.csv` | 53,873 | `d46332c5ee0547a62036735419518aa9fd21f04435da9c107afbd5ff9f1aabb8` |
+| `steel_ms_attribution_m4.json` | 103,093 | `0a45a8c8b5a63e85d0c4615710fb96f4a10bb8398df26683e94aec9bd798dee4` |
 | `r104c_host_channel_gate.sh` | 5,295 | `7e8782d9432a8f1e8bf10b1cd10be4c340f5e4885452ea8857a59fe15ad992d4` |
 | `recompute_text_sizes.py` | 1,790 | `0d7254014376e7bd1b2786bb47573feb755024be9fbfc247838de286a1e43aaf` |
 | `clean_symbol_diff.py` | 1,737 | `6e3c68250d95d08b3d032bec3327a306204a4314188d30a8b3891ffdbd0ea6b2` |
