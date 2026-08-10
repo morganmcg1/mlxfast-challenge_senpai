@@ -690,8 +690,21 @@ lines now bound that premise from above:
    the whole step is ≈37 µs, i.e. ≈0.4 % of a 9000 µs step; barrier stages price at ≈1–3 µs
    each. A 40-dispatch deletion is a sub-0.1 % lever on that budget.
 
-Both agree the region is cheap. The probe is the load-bearing one because it is a
-device measurement on the ranked path; the roofline is corroboration.
+3. **Tanjiro's R108-L** (`874e4917`), which returned `N-NO-MERGEABLE-PAIR` and priced
+   dispatch removal at `k = 0.0872` µs/dispatch, CI `[−0.221, +0.438]`, against the assumed
+   `k = 1.890` — a factor of 21.7. Two unit caveats, because they cut against a naive
+   agreement claim: his figure is in **M5** µs/dispatch while comment 6's `0.3`/`0.8`
+   thresholds and every slope in §3.3 are **M4**, so the two are not directly comparable in
+   absolute magnitude; and his `0.0872` is a *derived* pricing figure built on #483's
+   directly measured `0.108` µs/dispatch, which is a different measurement and should not be
+   quoted interchangeably. What survives both caveats is the sign and the order of
+   magnitude: an interval straddling zero, centred two orders of magnitude below the
+   assumption the merge programme was budgeted against.
+
+All three agree the region is cheap, by three different routes — a device measurement here,
+a device measurement on the other machine, and arithmetic. The probe is the load-bearing one
+for this assignment because it is on the ranked path and paired against its own controls; the
+roofline and R108-L are corroboration.
 
 The consequence for rule 105.23(f) is that the merge is not worth the rule-65 price, and
 §2.7's Stage-1 recommendation should be read as superseded on its dispatch-count
