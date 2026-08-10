@@ -2314,12 +2314,22 @@ func lagunaFullFusedAttention(
     precondition(scale.dtype == .float32 && scale.size == 1)
 
     let kernel: MLXFast.MLXFastKernel
+    let kernelName: String
     if capacity == 768 {
-        lagunaTrace("laguna_full_fused_attn_grow_capacity_768_v1")
+        kernelName = "laguna_full_fused_attn_grow_capacity_768_v1"
+        lagunaTrace(kernelName)
         kernel = lagunaFullFusedAttentionCapacity768Kernel
     } else {
-        lagunaTrace("laguna_full_fused_attn_grow_v1")
+        kernelName = "laguna_full_fused_attn_grow_v1"
+        lagunaTrace(kernelName)
         kernel = lagunaFullFusedAttentionKernel
+    }
+    if ProcessInfo.processInfo.environment[
+        "DARKBLOOM_TRACE_FULL_ATTN_DISPATCHES"] == "1"
+    {
+        let line = "mlxfast-full-attn-select kernel=\(kernelName) "
+            + "capacity=\(capacity) write_idx=\(writeIdx)\n"
+        FileHandle.standardError.write(Data(line.utf8))
     }
     let params = MLXArray([
         UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity),
@@ -2336,6 +2346,154 @@ func lagunaFullFusedAttention(
         outputDTypes: [.bfloat16]
     )[0]
 }
+
+private func lagunaBenchmarkFullAttentionCapacity768() {
+    let headDim = LagunaConstants.headDim
+    let heads = LagunaConstants.fullAttentionHeads
+    let kvHeads = LagunaConstants.numKeyValueHeads
+    let capacity = 768
+    let repetitions = 256
+    let rawQueries = MLXArray.ones(
+        [1, 1, heads * headDim], dtype: .bfloat16)
+    let rawKeys = MLXArray.ones(
+        [1, 1, kvHeads * headDim], dtype: .bfloat16)
+    let rawValues = MLXArray.ones(
+        [1, 1, kvHeads * headDim], dtype: .bfloat16)
+    let queryWeight = MLXArray.ones([headDim], dtype: .bfloat16)
+    let keyWeight = MLXArray.ones([headDim], dtype: .bfloat16)
+    let angles = MLXArray(
+        Array(repeating: Float(0.5), count: headDim / 2)
+    ).reshaped([1, 1, 1, headDim / 2])
+    let scale = MLXArray([pow(Float(headDim), -0.5)])
+
+    func invoke(
+        _ kernel: MLXFast.MLXFastKernel,
+        cacheKeys: MLXArray,
+        cacheValues: MLXArray,
+        writeIdx: Int
+    ) -> MLXArray {
+        let params = MLXArray([
+            UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity),
+        ])
+        return kernel(
+            [
+                rawQueries, rawKeys, rawValues,
+                queryWeight, keyWeight, angles,
+                cacheKeys, cacheValues, params, scale,
+            ],
+            grid: ((heads / 2) * 1024, 1, 1),
+            threadGroup: (1024, 1, 1),
+            outputShapes: [[1, heads, 1, headDim]],
+            outputDTypes: [.bfloat16]
+        )[0]
+    }
+
+    func maxAbsDiff(_ lhs: MLXArray, _ rhs: MLXArray) -> Float {
+        abs(lhs.asType(.float32) - rhs.asType(.float32))
+            .max().item(Float.self)
+    }
+
+    func time(
+        _ kernel: MLXFast.MLXFastKernel,
+        cacheKeys: MLXArray,
+        cacheValues: MLXArray,
+        writeIdx: Int
+    ) -> Double {
+        let outputs = (0..<repetitions).map { _ in
+            invoke(
+                kernel,
+                cacheKeys: cacheKeys,
+                cacheValues: cacheValues,
+                writeIdx: writeIdx)
+        }
+        let start = DispatchTime.now().uptimeNanoseconds
+        eval(outputs)
+        let elapsed = DispatchTime.now().uptimeNanoseconds - start
+        return Double(elapsed) / Double(repetitions)
+    }
+
+    let thermal = String(describing: ProcessInfo.processInfo.thermalState)
+    let header = "mlxfast-full-attn-abba begin repetitions=\(repetitions) "
+        + "thermal=\(thermal) generic=laguna_full_fused_attn_grow_v1 "
+        + "fixed=laguna_full_fused_attn_grow_capacity_768_v1\n"
+    FileHandle.standardError.write(Data(header.utf8))
+
+    for sequenceLength in [513, 576, 640, 767] {
+        let writeIdx = sequenceLength - 1
+        let genericCorrectnessKeys = MLXArray.zeros(
+            [1, kvHeads, capacity, headDim], dtype: .bfloat16)
+        let genericCorrectnessValues = MLXArray.zeros(
+            [1, kvHeads, capacity, headDim], dtype: .bfloat16)
+        let fixedCorrectnessKeys = MLXArray.zeros(
+            [1, kvHeads, capacity, headDim], dtype: .bfloat16)
+        let fixedCorrectnessValues = MLXArray.zeros(
+            [1, kvHeads, capacity, headDim], dtype: .bfloat16)
+        let genericOutput = invoke(
+            lagunaFullFusedAttentionKernel,
+            cacheKeys: genericCorrectnessKeys,
+            cacheValues: genericCorrectnessValues,
+            writeIdx: writeIdx)
+        let fixedOutput = invoke(
+            lagunaFullFusedAttentionCapacity768Kernel,
+            cacheKeys: fixedCorrectnessKeys,
+            cacheValues: fixedCorrectnessValues,
+            writeIdx: writeIdx)
+        eval(genericOutput, fixedOutput)
+        let outputDiff = maxAbsDiff(genericOutput, fixedOutput)
+        let keyDiff = maxAbsDiff(
+            genericCorrectnessKeys, fixedCorrectnessKeys)
+        let valueDiff = maxAbsDiff(
+            genericCorrectnessValues, fixedCorrectnessValues)
+        precondition(outputDiff == 0 && keyDiff == 0 && valueDiff == 0)
+
+        let timingKeys = MLXArray.zeros(
+            [1, kvHeads, capacity, headDim], dtype: .bfloat16)
+        let timingValues = MLXArray.zeros(
+            [1, kvHeads, capacity, headDim], dtype: .bfloat16)
+        eval(invoke(
+            lagunaFullFusedAttentionKernel,
+            cacheKeys: timingKeys,
+            cacheValues: timingValues,
+            writeIdx: writeIdx))
+        eval(invoke(
+            lagunaFullFusedAttentionCapacity768Kernel,
+            cacheKeys: timingKeys,
+            cacheValues: timingValues,
+            writeIdx: writeIdx))
+        let a1 = time(
+            lagunaFullFusedAttentionKernel,
+            cacheKeys: timingKeys,
+            cacheValues: timingValues,
+            writeIdx: writeIdx)
+        let b1 = time(
+            lagunaFullFusedAttentionCapacity768Kernel,
+            cacheKeys: timingKeys,
+            cacheValues: timingValues,
+            writeIdx: writeIdx)
+        let b2 = time(
+            lagunaFullFusedAttentionCapacity768Kernel,
+            cacheKeys: timingKeys,
+            cacheValues: timingValues,
+            writeIdx: writeIdx)
+        let a2 = time(
+            lagunaFullFusedAttentionKernel,
+            cacheKeys: timingKeys,
+            cacheValues: timingValues,
+            writeIdx: writeIdx)
+        let genericNanoseconds = (a1 + a2) / 2
+        let fixedNanoseconds = (b1 + b2) / 2
+        let speedup = genericNanoseconds / fixedNanoseconds
+        let line = "mlxfast-full-attn-abba n=\(sequenceLength) "
+            + "write_idx=\(writeIdx) repetitions=\(repetitions) "
+            + "a1_ns=\(a1) b1_ns=\(b1) b2_ns=\(b2) a2_ns=\(a2) "
+            + "generic_ns=\(genericNanoseconds) fixed_ns=\(fixedNanoseconds) "
+            + "speedup=\(speedup) output_max_abs_diff=\(outputDiff) "
+            + "key_max_abs_diff=\(keyDiff) value_max_abs_diff=\(valueDiff) "
+            + "thermal=\(String(describing: ProcessInfo.processInfo.thermalState))\n"
+        FileHandle.standardError.write(Data(line.utf8))
+    }
+}
+
 
 /// Force creation of both full-attention pipelines with production Q/K/V
 /// geometry. Every tensor is deterministic, input-independent, evaluated once,
@@ -2388,6 +2546,9 @@ func lagunaWarmFullFusedAttentionKernel() {
         writeIdx: 1,
         scale: scale
     ))
+    if ProcessInfo.processInfo.environment["DARKBLOOM_BENCH_FULL_ATTN_CAPACITY_768"] == "1" {
+        lagunaBenchmarkFullAttentionCapacity768()
+    }
 }
 
 /// Multi-token sliding-layer Q/K RMSNorm + plain RoPE fusion. One dispatch
