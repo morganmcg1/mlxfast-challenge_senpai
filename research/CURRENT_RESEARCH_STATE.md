@@ -6428,6 +6428,151 @@ Three traps worth naming:
 Rehearse the predicates directly instead; they are pure `git`/`jq` and free.
 `senpai/test_submit_official.py` covers them.
 
+### Rule 105 — 🚨 the host-unit error: every bar in this document is in **M5** µs/step, and every student measures on **M4**
+
+This is the largest methodological defect I have found in the campaign ledger,
+it is live in four open assignments right now, and it changes the verdict on
+the single largest candidate on the board.
+
+#### 105.1 The error
+
+The campaign price is **0.015228 % of `cs` per µs/step of decode**, and §3
+states its derivation explicitly: it is fitted on the `59bd72a3` frontier
+receipt at `cand_dec = 4.925 ms/step` — an **official M5 decode**. Every bar
+derived from it is therefore in **M5 µs/step**:
+
+```
+1 % of cs = 65.67 µs/step   (M5)
+0.4 % bar =  26.27 µs/step  (M5)
+```
+
+Students measure on **M4**, where the same *fractional* improvement is worth
+**~2.2× more µs/step**. Applying `0.015228 %/µs` to an M4-measured µs/step
+delta therefore **over-credits the change by a factor of 2.0–2.6**.
+
+That is exactly what has been happening. Two live instances:
+
+- **§7 / rule 97.1**: I priced `research/tanjiro_packing_default_flip.patch`
+  at "−36.9 µs/step ⇒ **+0.562 % of `cs`**" by multiplying an M4 paired-ABBA
+  delta by the M5 price. Corrected below: it is **≈0.25 %**.
+- **#630 §6 (alphonse)**: "CI upper bound of +1.35 µs/token = 2.0 % of the
+  68.7 µs/step bar" — an M4-measured µs/token compared directly against an
+  M5-units bar. Harmless there because the result was a null, but the
+  comparison was of unlike quantities.
+
+The error is **anti-conservative for wins and conservative for nulls**, which
+is the worst possible asymmetry: it inflates exactly the numbers we act on.
+
+#### 105.2 The correct conversion — and the proof that it is the campaign's own
+
+§B.0.3 already carries the host model: `M5 = α · M4` for **bytes-regime**
+families (`α = 0.4369`) and `M5 = β · M4` for **latency-regime** families
+(`β = 0.5`). Two independent checks say this is right:
+
+1. **Internal consistency.** The B.0.3 M4 column sums to **8096.3 µs/step**
+   against the #473 M4 decode busy pool of **7993.1 µs/step** (1.3 % apart).
+   The M5 column sums to **3650.9 µs/step** against the rule-58 true
+   steady-state M5 per-step time of **≈4141.5 µs/step** — i.e. the projected
+   kernel pool is **88.2 %** of steady-state, with the balance in gaps. Both
+   columns land where they should.
+2. **The document already does it correctly once.** The T3a staleness caveat
+   corrects M4 636.0 → 618.9 for #539's 4-deep ring — a **17.1 µs/step M4**
+   delta — and prices it at "**≈0.13 %-score gain at β = 0.5**".
+   `17.1 × 0.5 × 0.015228 = 0.1302 %`. **Exact.** So the right method is
+   already on the record; it was simply not applied anywhere else.
+
+**The rule, to be applied to every µs/step number a student reports:**
+
+```
+Δ%cs  =  Δ_M4[µs/step]  ×  k  ×  0.015228 ,     k = α (bytes) or β (latency)
+```
+
+| regime | k | %`cs` per M4 µs/step | **0.4 % bar, in M4 µs/step** |
+|---|---:|---:|---:|
+| bytes (α = 0.4369) | 0.4369 | 0.006653 | **60.1** |
+| bytes (α = 0.389, §B.0.6 sensitivity) | 0.389 | 0.005924 | **67.5** |
+| latency (β = 0.5) | 0.5 | 0.007614 | **52.5** |
+
+**So the integration bar, stated in the units students actually measure in, is
+≈52–68 µs/step on M4 — not 26.** Quote the α-degeneracy interval; §B.0.6 is
+unresolved and it moves this number by 12 %.
+
+For an **ISSUE-bound** family (rule 100) neither α nor β is derived. Use β = 0.5
+as an upper bound and say that you did.
+
+#### 105.3 What this does to L3 — the largest candidate on the board is **below bar**
+
+`research/tanjiro_packing_default_flip.patch` edits
+`lagunaDecodeNVFP4QKVLaneMajorSource`, i.e. family **T0b(a) qkv h64**, which
+B.0.3 ranks **bytes**-regime at 90.8 % of M5 peak. #308's −36.9 µs/step
+[−61.0, −12.9] is a local paired M4 measurement. Re-priced:
+
+| k | point | CI95 |
+|---|---:|---|
+| α = 0.4369 | **0.2455 %** | [0.0858 %, 0.4058 %] |
+| α = 0.389 | 0.2186 % | [0.0764 %, 0.3613 %] |
+| β = 0.5 (generous upper bound) | 0.2810 % | [0.0982 %, 0.4645 %] |
+
+**Under every conversion factor in our own model, L3 is below the 0.4 % bar,
+and its CI includes values four times smaller.** The headline "+0.562 % of
+`cs` — the largest ready-made bit-exact item on the board" is withdrawn.
+
+Sanity check that the corrected number is the physical one: −36.9 µs/step
+against T0b(a)'s **1340.1 µs/step on M4** is a **2.75 %** speedup of the QKV
+family; 2.75 % of its **585.6 µs/step on M5** is 16.1 µs/step, which is
+0.245 % of `cs`. The two routes agree.
+
+**#629 Stage A is still worth running, and its priority is unchanged.** It
+settles the #308-vs-#48 contradiction with a contemporaneous number on the
+current tree, and an unresolved contradiction is an unrun experiment, not a
+null. What changes is only the **graduation arithmetic**: edward must clear
+**≈60 µs/step measured on M4**, and #308's own point estimate does not.
+
+#### 105.4 Prefill does not convert at all
+
+The same instinct would convert an M4 prefill delta with `0.2592 %/ms` (or
+`0.3781 %/ms`). **Do not.** Prefill is 94.3 % nax-divergent and
+`device.cpp:1083-1101` gates `nax_available` on GPU generation ≥ 17, so our
+gen-16 M4s run a different program: tanjiro's R106-F′ Stage 0 measured M4
+prefill speedup **1.1198×** against ranked M5 **1.9834×** — **−43.5 %, does
+not reproduce** — while decode reproduced to **+0.15 %**. There is no prefill
+α. **An M4-measured prefill delta has no M5 score value and may not be quoted
+as one.** The prefill leg of the draw bar ("≈1.06 ms") is therefore
+unreachable from any local measurement we can make, and the draw is a
+decode-only decision in practice.
+
+#### 105.5 Consequences for the endgame, stated plainly
+
+1. **The bar stands at 0.4 % of `cs`.** It is not lowered to rescue a
+   candidate. σ_resubmit is 0.3016 % (rule 101), so a 0.25 % change is under
+   one channel σ.
+2. **One relaxation, and it is principled:** the bar may be met by the **sum**
+   of independently verified, bit-exact, different-family improvements on the
+   integrated tree, each with its own CI excluding zero. Different kernel
+   families are additive in the decode pool by construction; the bar is a
+   statement about the tree, not about any one patch.
+3. **"No draw" is now the modal outcome, not the failure mode.** On present
+   evidence nothing on the board clears 0.4 % alone. Rule 96.2 already makes
+   an unused draw an acceptable terminal state; rule 101 makes it a costless
+   one. Nobody should force a marginal tree through the freeze to avoid it.
+4. **Every open assignment must restate its result in both units** — raw M4
+   µs/step *and* converted %`cs` with the k it used and the α-degeneracy
+   interval. A number in one unit only is not reviewable.
+
+#### 105.6 🚨 ADVISOR ERROR #9 — the generalisable lesson
+
+Errors #7 (not grepping the standing rules for a mechanism word) and #8 (not
+reading a script before quoting its command line) were failures to *read the
+source of a claim*. This one is a failure to *read the units of a claim*. All
+three are the same failure: **carrying a number across a boundary without
+checking that the boundary preserves it.**
+
+The standing fix: **no quantity enters a brief, a bar, or a shelf entry
+without its host tag and its epoch tag.** Write `36.9 µs/step (M4, paired
+ABBA, #308)`, never `36.9 µs/step`. The campaign has a two-host structure at
+its centre and has been writing single-host numbers for a hundred rounds.
+
+
 ## 9. σ table (rule 40 — pick your estimator, then quote its floor)
 
 🚨 **SUPERSESSION (rule 101, round 107).** The score-channel entries below are
