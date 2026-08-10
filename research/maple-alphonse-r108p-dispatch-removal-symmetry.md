@@ -208,27 +208,73 @@ enough to separate 1.0 from 1.5–2.0, which is the decision the advisor needs.
 
 ## 6 Interpretation and planning consequence
 
-Rule 57 already records that the addition ladder is **not linear** — the fit is
-a hinge, `Δ = c·K − G`, with `c = 1.2382 µs/dispatch` only in the **saturated**
-regime after the machine's slack `G` has been absorbed (and #483's 0.751 is
-retired). That matters for symmetry in a specific way:
+### 6.1 The two prices are not the same currency
 
-- The *addition* price is measured **above** the hinge, where there is no slack
-  left to hide a dispatch in.
-- The *removal* price is measured **at** the fused baseline, which still has
-  slack. Naively, removal should therefore pay **less** than saturated addition.
-- The empty injected kernel is the **cheapest possible** dispatch: 160
-  threadgroups, no loads, no stores, no real work. A real fused dispatch that is
-  de-fused adds launch cost **plus** its own instruction stream and its own
-  round trip through the register/L1 hierarchy.
+The measurement resolves the crux of §2 cleanly, and not in the direction the
+hinge story predicted. On this host, at the ladder's operating point, an
+**added** dispatch is very nearly free while a **removed** dispatch is worth
+about 2 µs/step per dispatch. The mechanism is not a fitted allowance; it is
+hazard structure, and the prior round on this same host already documented it.
 
-So the two effects push in opposite directions, and the measurement decides
-which dominates. Whatever the sign, the actionable statement for the programme
-is the same shape: **`dispatches_saved × 2.3403 µs` is a *biased* planner**, and
-§5 gives the multiplier that de-biases it. Any future fusion proposal should be
-priced with the removal price, not the injection price.
+`research/r93-runs/knee-results.md` (same M4 Pro, previous round) records the
+full injection curve, medians in ms/step:
 
-Relation to the other reads on the third regime:
+| K | 0 | 240 | 480 | 800 | 1200 | 1600 | 2400 |
+|---|---|---|---|---|---|---|---|
+| ms/step | 8.223 | 8.131 | 8.125 | 8.456 | 8.597 | 9.409 | 11.344 |
+
+Segment prices rise monotonically from **−0.43** to **+2.36 µs/dispatch**, with
+the knee between K=480 and K=800. Below the knee there is a genuine **free
+region**. The reason is that an injected empty kernel reads and writes nothing
+the model touches, so MLX inserts **no fence** for it, and the dispatch drops
+into the ≈1 ms/step of GPU idle that already exists while the CPU builds the
+next step's graph. A de-fused *real* kernel is the opposite: it consumes and
+produces model tensors, so it is serialised against its neighbours and pays the
+full launch-plus-fence cost.
+
+Rule 57's own fitted offset closes the alternative explanation. #497 reports
+`G = 9.70 µs/step [7.05, 12.42]`. A hinge with a ~10 µs allowance cannot make
+276 injected dispatches flat; the flatness needs a *per-dispatch* free channel,
+which is what hazard-freedom supplies. So rule 57's hinge and this free region
+are different phenomena, and rule 57's saturated `c = 1.2382 µs` — measured
+above the knee, where the free channel is exhausted — is the only part of the
+addition ladder that is even comparable to a removal price.
+
+The consequence for the programme is direct: **`dispatches_saved × 2.3403 µs`
+is a biased planner**, because 2.3403 µs is an *addition* price on M5 and the
+thing a fusion actually buys is a *removal*. §5 gives the de-biasing multiplier.
+
+### 6.2 Which multiplier to use for M4→M5 projection
+
+R93 also fitted the historical **M5** injection receipts (K = 0/100/400) and
+found a straight line at **1.98 µs/dispatch with no free region at all**. That
+is the pivot, and it admits two readings that this experiment cannot separate:
+
+- **Reading A — M5 is encode-limited.** M5's CPU-side encode is the binding
+  constraint, so there is no GPU idle for a hazard-free dispatch to hide in;
+  every dispatch, hazard-carrying or not, costs the same. Then rule 65's
+  2.3403 µs *is* the M5 removal price, and the correct M4→M5 multiplier for a
+  fusion win measured on M4 is `2.3403 / 1.9939 = 1.174` — see §5 for the CI.
+  Under this reading `k_dispatch = 1.890` **over-projects M5 fusion gains by
+  ≈60 %**.
+- **Reading B — the asymmetry is symmetric across hosts.** If M5 also has a
+  hazard-free channel that these three coarse rungs (K ≤ 400) simply did not
+  resolve, then M5's removal price is above 2.3403 µs by the same factor M4's
+  is above its addition price, and `k` stays near 1.890.
+
+Reading A is the better-supported one: M5's fitted line is straight through
+K=0 with no negative first segment, which is exactly what an encode-limited
+machine looks like and is not what M4 shows. But the M5 evidence is three
+points from receipts, not a designed ladder, so the honest planning position is
+a **range**, `k_removal ∈ [1.17, 1.89]`, with the low end as the working value
+and the high end as the optimistic bound. Any fusion proposal whose M5 case
+survives only at 1.89 should be treated as unproven.
+
+The cheapest experiment that would separate the readings is a three-rung M5
+injection ladder inside the free region (K = 0/240/480) — the exact rungs that
+resolved M4. That needs M5 access, so it is a request, not a task I can run.
+
+### 6.3 Relation to the other reads on the third regime
 
 | read | value | source |
 |---|---|---|
@@ -236,12 +282,15 @@ Relation to the other reads on the third regime:
 | `k_residue` (tanjiro) | 1.4998 [1.4732, 1.5275] | #107-G |
 | bytes exponent α | 0.4369 | established |
 | latency exponent β | 0.5 | established |
-| **this experiment** | see §5 | R108-P |
+| **`k_removal` (this experiment, reading A)** | see §5 | R108-P |
 
 The residue table already brackets `k ∈ [1.0, 1.89]` and excludes α and β at
-≈8 %. R108-P is a *fourth* read: it does not re-measure `k`, it measures whether
-the M4 and M5 dispatch prices that define `k` are even the right prices to
-multiply.
+≈8 %. R108-P is a *fourth* read, and it is the only one that is about
+removals. It does not re-measure `k`; it shows that the two prices `k` is built
+from are measured in different regimes, which is why `k_removal` lands at the
+**bottom** of the residue table's bracket rather than at `k_dispatch`. That
+agreement — an independent mechanism landing inside an independently fitted
+bracket, at its low end — is the strongest support in this report for reading A.
 
 ## 7 Threats to validity
 
@@ -264,6 +313,21 @@ multiply.
 5. **Cache residency** (rule 98.9): no number here is headlined from a
    cache-resident measurement; every row is a full `--local-iterate` decode pass
    with a 512-token seed and 128 steps.
+6. **The removal price is an upper bound, not a pure per-dispatch cost.**
+   De-fusing does two things at once: it adds a dispatch *and* it splits one
+   kernel's arithmetic into two kernels that each re-enter the register/L1
+   hierarchy and re-materialise an intermediate. The byte audit in §5 bounds the
+   extra DRAM traffic at ≈1.7 µs/step out of ≈315 µs, so *memory* work is not the
+   explanation, but launch overhead and lost register-level fusion are not
+   separable by this design. Read 1.99 µs/dispatch as "what a fusion of this
+   shape buys per dispatch it removes", which is exactly the planner's question,
+   and **not** as "the cost of a dispatch in isolation".
+7. **The addition price is operating-point-specific, not a universal zero.** The
+   0.15 µs/dispatch figure is the price *inside the free region*. Past the knee
+   the same knob costs ≈2.4 µs/dispatch (§6.1). A reader who quotes "adding a
+   dispatch is free" without the K range will be wrong on any workload that has
+   already consumed the GPU's idle slack — which, per §6.2 reading A, plausibly
+   includes the ranked M5.
 
 ## 8 Verdict
 
