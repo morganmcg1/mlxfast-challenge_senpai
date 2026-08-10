@@ -320,6 +320,16 @@ All four read only the committed trace at
 Outputs: `read_census.json`, `roundtrip_census.json`, `family_breakdown.json`,
 `stage3_triage.json` under `research/artifacts/fern-r106g/`.
 
+```bash
+python3 research/r106g/scripts/log_wandb.py         # publishes the census to W&B
+```
+
+W&B run: <https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/omdt3epj>
+(`r106g-redundant-read-census`, id `omdt3epj`, state `finished`). It carries
+every headline number in this report as summary keys, plus an `analysis`
+artifact holding the four JSON censuses, the trace report, this document, and
+the four analysis scripts.
+
 ## 7. Suggested follow-ups (not implemented)
 
 - The `dense_gate_up_swiglu` + `dense_down_residual` pair is 6.02 % of `B` in two
