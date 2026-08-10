@@ -1,7 +1,7 @@
 # R110-B — double-buffered gather-GEMM staging: Stage-0 STOP
 
-**Assignment** `maple-r110-b-gemm-double-buffer-staging` / `r110-b-rev1`
-**PR** #693 · **base** `codex/mlxfast-maple-20260804-advisor` @ `32665a6b`
+**Assignment** `maple-r110-b-gemm-double-buffer-staging` / `r110-b-rev2`
+**PR** #693 · **base** `codex/mlxfast-maple-20260804-advisor` @ `9fe37190`
 **Host** Apple M4 Pro (Apple GPU generation 16), `maxThreadgroupMemoryLength = 32768 B`
 
 ## Verdict
@@ -130,13 +130,44 @@ R109-D figure of 3,158 GMAC/s — i.e. the kernel is running at achieved mma
 throughput. DRAM traffic is ≈583 MB per gate_up layer-set ≈ 115–130 GB/s
 against a ~273 GB/s ceiling (~42 %), so it is not bandwidth bound either.
 
-## Score reach
+## Kernel-time share on this host (Stage-0 item 3)
 
-Even at the `nobar` ceiling — which is not a legal kernel — 0.83 % of the
-gather-GEMM family × 48.5 % of prefill GPU time ≈ 0.40 % of prefill, × the
-0.25 prefill exponent ≈ **0.10 % score**, at or below the ~0.11 % landing
-bar. The mechanism that is actually implementable measures **negative**.
-There is no version of this idea that lands.
+The brief prices this family at 48.5 % of M4 prefill GPU time. My rig gives an
+independent cross-check without a harness profile: the 39-layer projection is
+gate_up 197.6 ms + down 99.9 ms = **297.5 ms**, against a local baseline
+prefill of S = 0.001122769125 s/token × 512 = **574.7 ms**
+(`score.local-iterate.json` @ `9469ac4d`) — a **51.8 %** share. That is
+consistent with 48.5 % and I am using the brief's figure below.
+
+Caveats: this compares a synthetic-routing microbenchmark projection against
+harness wall time, and assumes one dispatch of each shape per MoE layer. I did
+**not** run a `SPLIT=1` harness profile, because there is no runtime change to
+profile — see the limitations section.
+
+## Score reach — and where I have to correct myself
+
+Using the brief's prefill elasticity of 0.362 (1 ms off S ≈ 0.37 % score),
+**not** the raw 0.25 exponent:
+
+| arm | kernel time | × 48.5 % share | × 0.362 | vs 0.11 % bar |
+|---|---|---|---|---|
+| `nobar` (illegal ceiling) | +0.83 % | +0.403 % of prefill | **+0.146 % score** | *above* |
+| `db2` (implementable) | −0.46 % | −0.223 % of prefill | **−0.081 % score** | negative |
+
+I want to be precise about this rather than round it my way. The *ceiling* —
+a kernel that computes the wrong answer — is worth about 0.15 % score, which
+is modestly **above** the 0.11 % landing bar. Even at an absurd 100 % share
+it would only reach 0.30 %. What actually decides the arm is the other two
+facts:
+
+- the **preregistered** rule was 3 % of kernel time and the measurement is
+  0.83 %, so the rule fires on its own terms with a 3.6× margin; and
+- every legal implementation of the mechanism measures **negative**
+  (−0.46 % weighted, −0.081 % score), because the staging footprint costs
+  more than the pipelining returns.
+
+So the correct statement is not "the prize is too small to see" — it is
+"the prize is small, and the only way to collect it costs more than it pays."
 
 ## Two findings that change what should be funded next
 
@@ -240,4 +271,19 @@ Requires Metal; no model weights, no network, no benchmark lock. Runs in
   number does.
 - `nobar` is not a legal kernel; it exists only to bound the prize.
 - `nomma` is invalid (dead-code eliminated) and excluded.
+- **Several reporting-contract items are not applicable and I did not fake
+  them.** No `SPLIT=1` harness profile, no `--local-iterate` paired ABBA, no
+  harness correction factor, no `FERN_DEFEAT_SLOTS=64` residency-defeated
+  number, no `run_upstream_equivalence.sh` non-zero-count pass, and a
+  deliberately empty `git diff --numstat` on the submitted surface — because
+  the Stage-0 refutation fired before any runtime code was written, so there
+  is no candidate to profile, time, correct, or validate. The ABBA discipline,
+  null-control bracketing and preregistered threshold were applied to the
+  microbenchmark instead.
+- The `_db` name-collision precaution (MLX caches libraries by kernel name,
+  `device.cpp:602, 770`) never became relevant: the rig compiles each variant
+  into its own `MTLLibrary` from mutated source, so there is no shared cache
+  to collide in.
 - No M5 receipt was spent, by design: the stop fired at Stage 0.
+- Ownership: I touched nothing in `quantized.cpp`, so the deconfliction split
+  with maple-tanjiro's PR #692 is trivially intact.
