@@ -52,7 +52,7 @@ def main():
     # A3 occupancy curve: best achieved GB/s at each total grid size.
     best_by_grid = defaultdict(float)
     for m in probe["measurements"]:
-        if m["pattern"].startswith("stream"):
+        if m["pattern"].startswith("stream") and "grid_threads" in m:
             best_by_grid[m["grid_threads"]] = max(
                 best_by_grid[m["grid_threads"]], m["achieved_gbs"]
             )
@@ -241,13 +241,15 @@ def main():
                      round(100.0 * gbs / 266.3, 2))
     run.log({"a3/occupancy_curve": occ})
 
-    pat = wandb.Table(columns=["pattern", "threads_per_tg", "tg_per_core",
-                               "grid_threads", "loads_in_flight", "bytes_read",
-                               "us_med", "achieved_gbs", "pct_of_266_3"])
+    # The probe emits three record shapes (stream sweep, nvfp4/gather replicas,
+    # activation replay); take the union of their fields.
+    pat_cols = ["pattern", "threads_per_tg", "tg_per_core", "tg_per_call",
+                "threadgroups", "grid_threads", "loads_in_flight", "bytes_read",
+                "bytes_dram_unique", "bytes_issued", "us_med", "achieved_gbs",
+                "issued_gbs", "pct_of_266_3", "pct_of_stream_peak"]
+    pat = wandb.Table(columns=pat_cols)
     for m in probe["measurements"]:
-        pat.add_data(m["pattern"], m["threads_per_tg"], m["tg_per_core"],
-                     m["grid_threads"], m["loads_in_flight"], m["bytes_read"],
-                     m["us_med"], m["achieved_gbs"], m["pct_of_266_3"])
+        pat.add_data(*[m.get(c) for c in pat_cols])
     run.log({"a3/pattern_measurements": pat})
 
     apport = wandb.Table(columns=["bucket", "trichotomy_letter", "us_per_step_m5",
