@@ -117,45 +117,133 @@ analysis `research/maple-alphonse-r109e-analyze.py`.
 
 <!--RESULTS-->
 
-## 5. Pricing, and a correction the advisor needs
+## 5. Pricing: reconciling the 8× gap between the three campaign constants
 
-The brief prices the ceiling with `0.01642 %cs per M4 µs/step`, a decode
-denominator of `8972 µs/step`, and a `18.222` figure. **None of
-`0.01642`, `8972`, or `18.222` occurs anywhere under `research/`.** A full-text
-search of the research tree returns the following, which is what I used instead:
+Per the advisor's revised instruction (PR #685 comment 5246119853) the headline
+number in §4 and §7 is **µs/step of GPU busy time removed on this M4 host**,
+against the stated stop bar of **~30 µs/step**. No conversion is applied to the
+verdict. This section exists only to close the pricing question the advisor
+flagged as "worth as much to the programme as your main arm", and to retract an
+error in an earlier draft of this memo.
 
-* `research/CURRENT_RESEARCH_STATE.md:2441` (and `:1295-1296`, `:6449-6455`)
-  fixes the campaign price at **`0.015228 %cs per M5 µs/step`**, derived as
-  `0.75 / 4925.255 × 100`. It is an **M5** constant.
-* **Rule 105** (`:6441`, `:6459-6463`) states explicitly that applying the M5
-  constant directly to an M4 measurement over-credits by **2.0–2.6×**.
-* **Rule 105.2** (`:6505-6514`) gives the transfer
-  `Δ%cs = Δ_M4[µs/step] × k × 0.015228`, with `k = 0.4369` (α) →
-  `0.006653`, `k = 0.389` → `0.005924`, `k = 0.5` (β) → `0.007614`; and
-  (`:6520-6521`) instructs that for an **ISSUE-bound** family one should
-  "use β = 0.5 as an upper bound and say that you did". I do.
-* The decode-family census bounds `k_issue ∈ [0.267, 0.654]`
-  (`research/maple-tanjiro-r107g-decode-family-regime-census.md:742-743,
-  762-763`), i.e. `0.00407–0.00996 %cs per M4 µs/step`.
+### 5.1 Retraction
 
-The brief's `0.01642` is **~2.2× the most permissive sourced constant** and
-~1.08× the raw M5 constant — precisely the over-credit Rule 105 warns about. Any
-gate expressed in it is ~2.2× too easy to pass.
+An earlier draft of this section asserted that `0.01642` "occurs nowhere under
+`research/`". **That is wrong.** The constant is sourced, to my own prior work:
 
-This host needs one further adjustment. Its control decode is ~12,990 µs/step,
-not the ledger's 8,448 (steady) / 8,984.5 (local-submit) M4 reference, so a
-`k` calibrated on that faster M4 is not directly transferable. A relative
-transfer that assumes decode fraction is preserved gives the host-matched price
-`0.75 × 100 / 12,990 = 0.005774 %cs per local µs/step`.
+> `research/maple-alphonse-r108p-dispatch-removal-symmetry.md:81`
 
-Thresholds for the Stage 0 gate of 0.20 %cs, from most to least conservative:
+It is invisible from this worktree because that memo lives on branch
+`maple-alphonse/r107-decode-oproj-amortisation` (commits `f4784a1e` …
+`bee426df`) and was never merged into this base. A `grep` of the checked-out
+tree is therefore not evidence of absence for any cross-branch constant, and I
+should not have treated it as such.
 
-| constant | %cs per µs/step | µs/step needed for 0.20 %cs |
+### 5.2 The three constants are the same rule at three different `k`
+
+All three numbers in circulation are Rule 105.2,
+`Δ%score = Δ_M4[µs/step] × k × 0.015228`
+(`research/CURRENT_RESEARCH_STATE.md:6505-6514`; the M5 base constant
+`0.015228 = 0.75 / 4925.255 × 100` at `:2441`, `:1295-1296`, `:6449-6463`),
+evaluated with a `k` drawn from a **different physical family**:
+
+| | value (%score per µs/step) | what the µs/step must be | implied `k` | family it is valid for |
+|---|---|---|---|---|
+| **A** | **0.0066875** | M4 **GPU busy** µs/step | **0.4392** ( = α) | in-kernel work: bytes moved or latency removed |
+| **B** | 0.016423 | M4 µs/step of removed **chained host-encode / dispatch** | 1.0785 | the dispatch axis only |
+| **C** | 0.0020325 | M4 **nominal** dispatch µs | 0.1335 | nothing (see 5.4) |
+
+Derivations, so each is checkable:
+
+* **A** `0.75 × 100 × 0.8 / 8972 = 0.0066875`, i.e. Rule 105.2 at `k = α`.
+  `α = 0.4369` is `CURRENT_RESEARCH_STATE.md:6512`, cross-checked at
+  `research/maple-alphonse-r108p-dispatch-removal-symmetry.md:460`. The `0.8`
+  is the planning busy→wall transfer.
+* **B** `0.015228 × 1.0785 = 0.0164234`. `k_dispatch = 2.3403 / 2.17 = 1.0785`
+  is `r108p:81` and `:457`, CI `[0.9917, 1.1820]`. R108-P itself flags this
+  constant as **unvalidated** at `:85-88` and says it could move to ≈2.2.
+* **C** `0.1439 / 70.8 = 0.0020325` — a chain-discounted %score numerator
+  divided by a *nominal* dispatch-µs denominator.
+
+Ratios: **`B / C = 8.08×`** — this is the 8× gap. **`B / A = 2.469×`**, which is
+exactly `1.0785 / 0.4369`, i.e. entirely the `k` difference and nothing else.
+
+### 5.3 Error 1 — B was exported outside its family
+
+`k_dispatch = 1.0785` was fitted on **chained host-side dispatch removal**
+(R108-P's removal ladder, `r108p:29`), where each removed encode also removes a
+serialization stall. Applied to **in-kernel** busy µs it over-credits by
+`1.0785 / 0.4369 = 2.47×`. Rule 105 (`CURRENT_RESEARCH_STATE.md:6441`,
+`:6459-6463`) already warns that the raw M5 constant over-credits an M4
+measurement by 2.0–2.6×; B is that same over-credit re-derived by a different
+route. `β = 0.5` (`r108p:461`) is the sanctioned **upper** bound for
+issue-bound work, not 1.0785.
+
+### 5.4 Error 2 — C mixes two models in one fraction
+
+`70.8 µs / 158 dispatches = 0.448 µs/dispatch` is a **mixture**, not a rate.
+R108-P measures a *chained* slope of `2.1379 µs/dispatch`
+(CI `[1.6213, 2.6546]`) and a *free-region* slope of `0.0686 µs/dispatch`
+(`r108p:293-295`); rule 105.24 finds ≥ 68.4 % of decode dispatch is overlapped
+(`research/advisor-rule-105-24-*.md:108`). C divides a numerator that has
+already been chain-discounted by a denominator that has not been, so it is a
+ratio of two incompatible models. It should not be used for anything.
+
+Crucially, **C cannot apply to in-kernel busy at all**. Decode kernels on this
+family do not overlap — the advisor's own budget has `busy_sum` 8489.7 ≈
+`busy_union` 8489.1 µs/step over 406 dispatches with sd 0 — so any busy µs
+actually removed from a decode kernel is on the critical path *by construction*,
+and needs no overlap discount.
+
+### 5.5 Error 3 — a phantom denominator
+
+The chain `0.75 × 100 / 4568 = 0.016419` that appears to justify B is
+coincidence. `4925.255 / 1.0785 = 4566.8`, so "4568" is just the M5 denominator
+divided by `k_dispatch`. **No `4568 µs/step` decode denominator exists anywhere
+in the repo.**
+
+### 5.6 Recommendation
+
+For **in-kernel busy µs on decode**, use
+
+> **≈ 0.0067 %score per M4 busy µs/step** (constant **A**, Rule 105.2 at
+> `k = α = 0.4369`)
+
+with an honest band:
+
+| band | %score per M4 busy µs/step | basis |
 |---|---|---|
-| host-matched (this box) | 0.005774 | **≥ 34.6** |
-| Rule 105.2 β = 0.5 upper bound | 0.007614 | ≥ 26.3 |
-| `k_issue` census upper 0.654 | 0.009959 | ≥ 20.1 |
-| brief's unsourced 0.01642 | 0.01642 | ≥ 12.2 |
+| α/β bracket | 0.0059 – 0.0076 | `CURRENT_RESEARCH_STATE.md:6512-6514` |
+| ISSUE-bound widening | 0.0041 – 0.0100 | `k_issue ∈ [0.267, 0.654]`, `maple-tanjiro-r107g-decode-family-regime-census.md:762-763`; `0.00996` is a hard upper bound |
+
+Busy→wall is `0.8` for planning; the one measured estimate is `0.93` with a CI
+spanning zero (`research/r87a-runs/ceiling.json`, arms A0/E0, `:105`, `:118`),
+so `0.8` is the conservative choice and should be stated whenever used.
+
+**Do not use `0.01642` for in-kernel work. Do not use `0.00203` for anything.**
+
+### 5.7 Still unclosed
+
+Two inputs to A and C have **no in-repo source** and I could not close them:
+
+* the decode denominator **`8972 µs/step`** — the repo's M4 controls are
+  `8448` (`CURRENT_RESEARCH_STATE.md:6943`) and `8984.5`
+  (`research/maple-nezuko-r106b-handoff-to-fern.md:42`); `8972` is close to the
+  latter but is not it;
+* the pair **`(70.8 µs, 0.1439 %)`** feeding C. The `158` in `70.8 / 158` is my
+  own removal ladder (`r108p:29`); the other two numbers are not in the tree.
+
+If the advisor holds the provenance of `8972`, A should be re-derived on the
+sourced denominator; the effect is ≤ 6 % either way and does not change the
+Stage 0 verdict.
+
+### 5.8 What this means for this host
+
+This box's control decode is ~12,990 µs/step, not 8,448 / 8,972 / 8,984.5, so
+even A is not directly transferable. A relative transfer that assumes the decode
+fraction is preserved gives `0.75 × 100 × 0.8 / 12,990 = 0.004619 %score per
+local busy µs/step`. That is why §4 and §7 report **µs/step**, and why the
+advisor — who holds the M5 denominator — should do the conversion.
 
 ## 6. Independent MMA feasibility analysis
 

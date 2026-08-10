@@ -11,13 +11,18 @@ research/maple-alphonse-r109e-qk-ceiling.md for the discussion.
 """
 
 import math
+import os
 import sys
 
 # Rule 105 / CURRENT_RESEARCH_STATE.md:2441 -- campaign price is an M5 constant.
-M5_PRICE = 0.015228  # %cs per M5 us/step
+M5_PRICE = 0.015228  # %score per M5 us/step
+K_ALPHA = 0.4369  # in-kernel busy transfer, CURRENT_RESEARCH_STATE.md:6512
 K_ISSUE_UPPER = 0.654  # census bound, tanjiro r107g:762-763
 K_BETA = 0.5  # Rule 105.2 fallback upper bound for an ISSUE-bound family
-BRIEF_PRICE = 0.01642  # constant asserted by the r109-e brief; unsourced
+BUSY_TO_WALL = 0.8  # conservative planning transfer; measured 0.93 CI spans 0
+# Dispatch-family constant (k_dispatch = 1.0785, r108p:81). Valid only for
+# removed chained host encode, NOT for in-kernel busy. Printed for contrast.
+BRIEF_PRICE = 0.01642
 BLOCK = 8  # palindromic ABBA block length used by the driver script
 
 # Issue slots added per QK reduction site, relative to the shipped kernel.
@@ -116,15 +121,20 @@ def report_delta(label, delta, se):
 
 
 def price(saving, ctrl_mean, tag):
-    host_price = 0.75 * 100.0 / ctrl_mean
+    host_price = 0.75 * 100.0 * BUSY_TO_WALL / ctrl_mean
     print(f"    {tag}")
+    print(f"      vs advisor stop bar 30.0 us/step  ->  {saving / 30.0:.2f}x bar")
     for label, pr in (
-        (f"host-matched    ({host_price:.6f})", host_price),
-        (f"Rule 105.2 beta ({K_BETA * M5_PRICE:.6f})", K_BETA * M5_PRICE),
-        (f"k_issue upper   ({K_ISSUE_UPPER * M5_PRICE:.6f})", K_ISSUE_UPPER * M5_PRICE),
-        (f"brief constant  ({BRIEF_PRICE:.5f})", BRIEF_PRICE),
+        (f"A: in-kernel busy k=a  ({K_ALPHA * M5_PRICE:.6f})", K_ALPHA * M5_PRICE),
+        (f"A upper: k=beta        ({K_BETA * M5_PRICE:.6f})", K_BETA * M5_PRICE),
+        (f"k_issue hard upper     ({K_ISSUE_UPPER * M5_PRICE:.6f})", K_ISSUE_UPPER * M5_PRICE),
+        (f"host-matched this box  ({host_price:.6f})", host_price),
     ):
-        print(f"      {label:36s} {saving * pr:+.4f} %cs")
+        print(f"      {label:40s} {saving * pr:+.4f} %score")
+    print(
+        f"      [not applicable: dispatch-family {BRIEF_PRICE:.5f} would give "
+        f"{saving * BRIEF_PRICE:+.4f} %score -- see memo 5.3]"
+    )
 
 
 def main():
@@ -140,15 +150,16 @@ def main():
             f"passed_correctness={'/'.join(sorted(passes))}"
         )
 
-    ctrl = [d for a, d, _, _ in rows if a == "C"]
+    control = os.environ.get("CTRL", "C")
+    ctrl = [d for a, d, _, _ in rows if a == control]
     cm, csd, cn = stats(ctrl)
-    probes = [a for a in arms if a != "C"]
+    probes = [a for a in arms if a != control]
     reg = regression(rows, probes) if len(rows) > len(probes) + 3 else {}
 
     for arm in probes:
         pv = [d for a, d, _, _ in rows if a == arm]
         pm, psd, pn = stats(pv)
-        print(f"\n== arm {arm} minus control C ==")
+        print(f"\n== arm {arm} minus control {control} ==")
         se = math.sqrt(csd * csd / cn + psd * psd / pn)
         report_delta("unpaired Welch", pm - cm, se)
         if arm in reg:
