@@ -87,14 +87,6 @@ static bool darkbloom_steel_prefill_tile() {
   return enabled;
 }
 
-static bool darkbloom_fused_nax_narrow_bn() {
-  static bool enabled = []() {
-    const char* value = getenv("DARKBLOOM_FUSED_NAX_NARROW_BN");
-    return value == nullptr || atoi(value) != 0;
-  }();
-  return enabled;
-}
-
 
 static bool darkbloom_steel_trace() {
   static bool v = []() {
@@ -227,12 +219,6 @@ void steel_matmul_regular_axpby_nax(
 
     bm = 64;
     wm = 2;
-    // SN = bn / wn must stay a positive multiple of 16, so 64 with wn = 4 is
-    // the narrowest legal column tile here. Decode reaches this same path, so
-    // M >= 64 keeps the change confined to prefill.
-    if (darkbloom_fused_nax_narrow_bn() && M >= 64 && N <= 1024) {
-      bn = 64;
-    }
   }
 
   std::ostringstream kname;
