@@ -293,7 +293,167 @@ find the effect with the confound removed will not find it in situ.
 
 ## §3 Stage 0 — reachability, geometry, digests
 
-_Appended after §2 was committed. See `research/artifacts/maple-frieren-r107f/`._
+_Appended after §2 was committed. All numbers below are measured on this host,
+not inferred. Artifacts in `research/artifacts/maple-frieren-r107f/`._
+
+### §3.1 Host facts (Rule 99.3), measured not assumed
+
+`research/maple_frieren_r107f_stage0_host.swift` →
+`stage0_host.{log,json}`, `stage0_dram_ceiling.log`.
+
+| fact | value | how |
+| --- | --- | --- |
+| `device_name` | `Apple M4 Pro` | `MTLDevice.name` |
+| `architecture_name` | `applegpu_g16s` | `device.architecture.name` |
+| `architecture_gen` | **16** | replicating the parse at `Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp:564-572` (two chars before the trailing family letter) |
+| family back char | `s` | last char of the arch name |
+| `os_version` | `26.5.2` | `ProcessInfo.operatingSystemVersion` |
+| `_nax` OS clause | **passes** (≥ 26.2) | `device.cpp:913-931` |
+| `_nax` gen floor for back char `s` | 17 | `gen >= (back=='p' ? 18 : 17)` |
+| **`nax_available`** | **false** | gen 16 < 17. The OS clause is *not* what blocks it |
+| `max_ops_per_buffer` | 50 | `device.cpp:573-595`, selected on back char `s` |
+| `max_mb_per_buffer` | 50 | idem |
+| `max_threads_per_threadgroup_x` | 1024 | `MTLDevice` |
+| `max_threadgroup_memory_length` | 32768 B | `MTLDevice` |
+| `recommended_max_working_set_size` | 40,200,896,512 B | `MTLDevice` |
+| `physical_memory_bytes` | 51,539,607,552 = 48 GiB | `< 64 GiB` ⇒ **low-memory startup profile** |
+| GPU cores | 20 | `ioreg -l \| grep gpu-core-count` |
+| DRAM read ceiling | **260.6–260.7 GB/s** | GPU-timed, 4.19 M threads; reproduces the prior 260.2 GB/s to 0.15 % |
+| copy (r+w) / rmw | 227.0 / 245.4 GB/s | same probe |
+
+Two consequences worth stating because they cut in opposite directions:
+
+* Because the back char is `s` on both this host and the ranked M5 Max, the
+  command-buffer commit thresholds are **identical** (50 ops / 50 MB). The
+  batching axis is therefore *not* a cross-machine confound for this
+  experiment. That is a new fact; I had assumed it was one.
+* `nax_available=false` here and `true` on the ranked M5. Nothing in this
+  experiment touches an `_nax` kernel — the down-residual kernel is a
+  runtime-generated `metal_kernel`, which has no `_nax` twin — so this is a
+  recorded limit, not a blocker. It does mean an M4 prefill number from me is
+  not evidence about ranked prefill (AGENTS.md), which is why §2.7 prices the
+  prefill floor from the pot rather than from a local prefill measurement.
+
+### §3.2 Which of the four pipelines actually ships — resolved on device
+
+`Sources/MLXFastModel/LagunaRuntimeModel.swift` generates four texts from
+`lagunaRoutedSharedDownResidualSource(sharedHalved:staged:)` (:8277). Reading
+the code says non-`sf` and `staged=true` should ship; I did not want to rely on
+that. A temporary env-guarded block in the launch wrapper printed the resolved
+flags from the live worker:
+
+```
+R107F_RESOLVED sharedHalved=true staged=true sharedFirst=false \
+  fusedStaging=true sharedScalesNdim=1 sharedScalesSize=32896 \
+  routedScalesSize=8388736
+```
+
+and the GPUPSO hook shows exactly one routed down-residual pipeline ever
+created, out of 137 distinct pipelines in a 33-step decode:
+
+```
+GPUPSO custom_kernel_laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6\
+_bfloat16_t_uint32_t_uint8_t_uint32_t_float_bfloat16_t_uint32_t_uint8_t_bfloat16_t_bfloat16_t \
+  maxThreads=1024 execWidth=32 tgMem=80
+```
+
+**The shipped kernel is `laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6`.**
+The `_sf` order, the unhalved-shared-scale variant, and the unstaged variant are
+dead text on this tree. Any Stage-2 edit that changed only one of the other
+three would have measured exactly nothing; this is the reachability check
+rev6 asked for, and it passed.
+
+### §3.3 The two scale tensors reconcile the census exactly
+
+The resolved sizes are not round numbers, which makes them a strong check:
+
+* `routedDownScales.size = 8,388,736 = 256 experts × 2048 rows × (512/32) groups
+  × 1 B + 128 B` — the 128 is `lagunaScalePatchHeaderBytes`
+  (`LagunaRuntimeWeights.swift:985`).
+* `sharedDownScales.size = 32,896 = 2048 × 16 + 128`, and `ndim == 1`, which is
+  precisely the predicate `sharedHalved` tests.
+
+So one row of either bank carries 16 group scales, and one row of codes is
+512 nvfp4 values = 256 B. Per threadgroup: 9 slots × 4 rows × 256 B = 9,216 B of
+codes plus 9 × 4 × 16 B = 576 B of scales = 9,792 B; × 512 threadgroups =
+**5,013,504 B/call**, and 39 calls/step = **195,526,656 B/step**, which is the
+pot's census figure to the byte. The unhalved-shared alternative would have
+given 640 B/TG → 5,046,272 B/call and would *not* have matched. The byte
+identity therefore independently pins the same variant the device reported.
+
+### §3.4 Rule 77 geometry, and the spill question
+
+| quantity | value | source |
+| --- | --- | --- |
+| `group_dims` | (288, 1, 1) | launch wrapper `lagunaRoutedSharedDownResidual` (:8578) |
+| `grid_dims` | (147456, 1, 1) = `hiddenSize/4 × 288` | idem |
+| threadgroups/call | 512 | 147456 / 288 |
+| simdgroups/TG | 9 | 288 / 32 |
+| `threadExecutionWidth` | 32 | GPUPSO |
+| `maxTotalThreadsPerThreadgroup` | **1024** | GPUPSO |
+| `staticThreadgroupMemoryLength` | **80 B** | GPUPSO |
+
+The 80 B is `down_outputs[9 × 4]` bfloat16 = 72 B rounded up to the 16 B
+threadgroup-memory granule. Two things follow:
+
+1. **No spill and no occupancy clamp.** The compiler reports 1024 threads
+   available and the wrapper asks for 288. Had the kernel spilled or run out of
+   registers, `maxTotalThreadsPerThreadgroup` would have been clamped below
+   1024 — this is the strongest spill proxy available in this toolchain (there
+   is no AGX disassembler; see `research/advisor-r89-agx-native-instruction-census.md:99-104`
+   and `research/maple-frieren-r90-agx-instruction-census.md:114-116`).
+2. **Both proposed arms fit.** A1 keeps 288 threads and grows threadgroup
+   memory to 144 B. A2 (the negative control) needs 576 threads, and
+   576 ≤ 1024, so it is dispatchable *on this kernel as compiled today*. A1
+   roughly doubles live per-thread state, so the 1024 figure must be re-read
+   from GPUPSO for each arm rather than assumed — if an arm's number drops
+   below its requested threads, that arm is spilling and I report it instead of
+   timing it.
+
+### §3.5 A perturbation result I did not plan, and must not bury
+
+The first Stage-0 run produced a *fresh in-situ anchor* of **54.97 µs/call**
+(2143.9 µs/step) for the shipped kernel. My §2.2 anchor, measured on this same
+host in R106-J with the same GPUPROF patch, is **22.06 µs/call** (860.5 µs/step),
+and the pot's M4 figure is 858.9 µs/step. A 2.49× discrepancy against two
+agreeing priors is a red flag, so I stopped and found the cause rather than
+adopting either number.
+
+Cause: the MSL-dump block I injected sat in the **per-call** launch wrapper with
+no one-shot guard. It fired 1,328 times (39 calls × 34 steps), each time
+generating four kernel source strings and performing four `atomically: true`
+file writes — 5,312 atomic writes over the run.
+
+The signature is unambiguous:
+
+| | R106-J (clean) | Stage 0 first run (perturbed) |
+| --- | --- | --- |
+| wall/step | 9.764 ms | 192.890 ms |
+| gpu_busy/step | 8.535 ms | 26.180 ms |
+| CPU gap | 1.230 ms (12.6 %) | 166.710 ms (**86.4 %**) |
+| gap per dispatch | 3.0 µs | 410 µs |
+| down-residual | 22.06 µs/call | 54.97 µs/call |
+
+The methodological point is the one I want on the record: **per-kernel GPU-busy
+time is not immune to host-side perturbation.** The GPU was idle 86 % of the
+time, DVFS dropped its clocks, and *every* kernel's GPU-timestamped duration
+inflated ~2.5× — the whole table moved, not just the instrumented kernel. So a
+"GPU-busy per kernel" number is only comparable between arms whose **CPU-side
+cost is matched**. Rule 86 already forbids taking a bare score delta as
+evidence; this adds that a GPU-timestamp delta is also unsafe when an arm
+carries instrumentation the other arm does not. Concretely, for Stage 2 this
+means the null cell must be an inert *rename* (as preregistered in §2.7) and
+never a "same kernel plus a counter", and any diagnostic print must be one-shot.
+
+The perturbed run is retained as
+`stage0_device_perturbed.{log,err.gz}` — a negative control, explicitly not an
+anchor. The script now carries a one-shot file-existence guard and an `INJECT=0`
+switch, and the clean re-run is reported in §3.6.
+
+What the perturbed run *does* validate, because these are structural and
+timing-independent: the resolved pipeline name, the GPUPSO geometry, the two
+scale sizes, the four MSL dumps, and `teacher-forced greedy tokens: 0
+divergences (all match)` — i.e. the instrument itself was behaviour-neutral.
 
 ---
 
