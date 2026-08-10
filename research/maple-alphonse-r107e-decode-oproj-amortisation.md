@@ -935,6 +935,18 @@ retires the earlier 273 / 266.3 / 260.6 / 237.4 candidates).
 | T3b oproj h64 | 30 | 259.584 | 15.531 | 1117.7 | 37.257 | 232.25 | **87.05** | 118.8 µs | 82.6 µs | 488.376 (16.279/disp) |
 | T3c oproj h48 | 10 | 64.901 | 3.883 | 301.8 | 30.180 | 215.05 | **80.60** | 52.0 µs | 43.0 µs | 131.871 (13.187/disp) |
 
+### In-run host ceiling, measured on this box
+
+Required by advisor comment 5242520568: the falsifier's ceiling must be measured
+in-run on my own host, not borrowed and not read off a spec sheet. Probe is
+`research/fern_r101_bw_probe.swift`, the same instrument that produced the
+borrowed 266.80 GB/s on another M4 Pro, so the two numbers are directly
+comparable; its `seq` arm's large-working-set asymptote is the DRAM read ceiling
+and its small-working-set end is the cache-served ceiling.
+
+**PENDING — probe output pasted here, then `IN_RUN_CEILING_GBS` set and the
+falsifier re-run under `roofline_falsifier.in_run_ceiling`.**
+
 ### Both Rule-81 reference rates, as required
 
 - **lmhead reference** — 97.4 % of peak. Family total headroom = **170.8 µs =
