@@ -1,7 +1,6 @@
 import Foundation
 import MLX
 import MLXFast
-import MLXLMCommon
 import Testing
 @testable import MLXFastModel
 
@@ -270,45 +269,5 @@ private func maxAbsoluteDifference(_ lhs: MLXArray, _ rhs: MLXArray) -> Float {
     return zip(lhsValues, rhsValues).reduce(0) { maximum, pair in
         max(maximum, abs(pair.0 - pair.1))
     }
-}
-
-@Test
-func prefillQKTokenStripScoredReachabilityWhenResearchTestsAreEnabled() throws {
-    let environment = ProcessInfo.processInfo.environment
-    guard environment["MLXFAST_RUN_PREFILL_QK_REACHABILITY"] == "1" else {
-        return
-    }
-
-    unsetenv("DARKBLOOM_TRACE_PREFILL_QK_CENSUS")
-    let weightsPath = environment["MLXFAST_PREFILL_QK_WEIGHTS_PATH"] ?? "weights"
-    let config = try LagunaConfig.load(from: weightsPath)
-    let loader = try LagunaWeightLoader(weightsPath: weightsPath)
-    let weightCache = LagunaRuntimeWeightCache(loader: loader, config: config)
-    let model = try weightCache.requireLibraryModel()
-    let cache = model.newCache(parameters: nil)
-    let promptTokens = (0..<512).map { Int32((31 * $0 + 7) % config.vocabSize) }
-
-    setenv("DARKBLOOM_TRACE_PREFILL_QK_CENSUS", "1", 1)
-    defer { unsetenv("DARKBLOOM_TRACE_PREFILL_QK_CENSUS") }
-
-    prefillQKReachabilityMarker("phase=prefill event=begin input_shape=(1,512)")
-    let prefillLogits = model(MLXArray(promptTokens, [1, 512]), cache: cache)
-    eval(prefillLogits)
-    prefillQKReachabilityMarker(
-        "phase=prefill event=end cache_offset=\(cache.first?.offset ?? -1)"
-    )
-    #expect(cache.allSatisfy { $0.offset == 512 })
-
-    prefillQKReachabilityMarker("phase=decode event=begin input_shape=(1,1)")
-    let decodeLogits = model(MLXArray([Int32(1)], [1, 1]), cache: cache)
-    eval(decodeLogits)
-    prefillQKReachabilityMarker(
-        "phase=decode event=end cache_offset=\(cache.first?.offset ?? -1)"
-    )
-    #expect(cache.allSatisfy { $0.offset == 513 })
-}
-
-private func prefillQKReachabilityMarker(_ line: String) {
-    FileHandle.standardError.write(Data("PREFILL_QK_REACHABILITY \(line)\n".utf8))
 }
 

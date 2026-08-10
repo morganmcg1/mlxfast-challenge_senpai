@@ -96,11 +96,6 @@ func lagunaTrace(_ site: @autoclosure () -> String) {
     lagunaTracedFusions.note(site())
 }
 
-private func lagunaTracePrefillQKCensus(_ line: @autoclosure () -> String) {
-    guard getenv("DARKBLOOM_TRACE_PREFILL_QK_CENSUS") != nil else { return }
-    FileHandle.standardError.write(Data("mlxfast: prefill-qk-census \(line())\n".utf8))
-}
-
 // MARK: - Runtime fusion feature flags
 
 // Each fusion below concatenates the OUTPUT ROWS of same-dtype projections
@@ -2945,15 +2940,6 @@ private func lagunaPrefillSlidingQKNormRoPE(
             : lagunaPrefillSlidingQKNormRoPETokenStrip4Kernel)
     let gridWidth = useH4 ? (heads + kvHeads) / 4 * 128 : (heads + kvHeads) * 32
     let threadGroup = useH1 ? (32, 1, 1) : (useH4 ? (128, 1, 1) : (32, 4, 1))
-    if !useH1 && !useH4 {
-        lagunaTracePrefillQKCensus(
-            "kernel=laguna_prefill_sliding_qk_norm_rope_bf16_128_t4_v1 shape=H64 "
-                + "length=\(length) q_dtype=\(rawQueries.dtype) k_dtype=\(rawKeys.dtype) "
-                + "grid=(\(gridWidth),\(length),1) threadgroup=(32,4,1) "
-                + "terminal=true fallback=false supported_lengths=positive "
-                + "unsupported_dtypes=non-bfloat16"
-        )
-    }
     let outputs = kernel(
         [rawQueries, rawKeys, queryWeight, keyWeight, angles, offsets],
         grid: (gridWidth, length, 1),
@@ -3007,15 +2993,6 @@ private func lagunaPrefillFullQKNormYaRN(
             : lagunaPrefillFullQKNormYaRNTokenStrip4Kernel)
     let gridWidth = useH4 ? (heads + kvHeads) / 4 * 128 : (heads + kvHeads) * 32
     let threadGroup = useH1 ? (32, 1, 1) : (useH4 ? (128, 1, 1) : (32, 4, 1))
-    if !useH1 && !useH4 {
-        lagunaTracePrefillQKCensus(
-            "kernel=laguna_prefill_full_qk_norm_yarn_bf16_128_t4_v1 shape=H48 "
-                + "length=\(length) q_dtype=\(rawQueries.dtype) k_dtype=\(rawKeys.dtype) "
-                + "grid=(\(gridWidth),\(length),1) threadgroup=(32,4,1) "
-                + "terminal=true fallback=false supported_lengths=positive "
-                + "unsupported_dtypes=non-bfloat16"
-        )
-    }
     let outputs = kernel(
         [rawQueries, rawKeys, queryWeight, keyWeight, angles, offsets],
         grid: (gridWidth, length, 1),
