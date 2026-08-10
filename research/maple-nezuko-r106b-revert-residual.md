@@ -753,6 +753,117 @@ growth=26000/262144 files=142 (file count is diagnostic only; base=142)
   new in `research/` is documentation and instrumentation, which the budget
   tool does not count against the editable surface.
 
+**Re-verified at the final commit and found byte-identical.** I re-ran the tool at
+`ba8bd662` — about 10 KB of report prose and five new scripts later — expecting the
+`current` figure to have moved, and it did not: same 2706208, same headroom, same
+`growth=26000`, same `files=142`. The reason is §E.3: `research/` is not in
+`benchmark.json`'s `editablePaths` at all, so the budget tool never sees it. Writing
+more of this report can therefore *never* consume editable budget, which is
+reassuring for the budget and is exactly the fact that makes §E.3 bite.
+
+## E.3 The surface gate rejects this branch, and that is worth knowing
+
+Running the real CI gate locally is free, so I did, at `ba8bd662`:
+
+```
+BASE_SHA=446fe987… HEAD_SHA=ba8bd662… .github/scripts/enforce-modifiable-surface.sh
+→ exit 1, 64 offending paths
+```
+
+**All 64 offending paths are under `research/`. Zero are under `Sources/`.** The
+source edit is entirely inside the permitted surface; what the gate objects to is
+this report and its harness scripts.
+
+That is not a bug in the gate. `benchmark.yml` applies it as an explicit *content*
+rule: the candidate tree must differ from **current trusted main** only inside
+`editablePaths`, and `research/` is not an editable path. Documentation reaches
+`main` by ordinary review, not by riding along inside a benchmark candidate.
+
+The part worth passing on is the asymmetry with the local preflight.
+`senpai/submit-official.sh` checks a lot before it spends a receipt — base is an
+ancestor of `HEAD`, the base snapshot's editable paths match current `origin/main`,
+`benchmark.json` is untouched, no `skip-worktree` tricks, clean worktree under
+protected paths — but it does **not** check the one rule above. So a branch that
+carries its own round write-up (i.e. every properly documented round) passes every
+local check and can still be rejected by CI on the content rule after `mlxfast
+submit` has been called.
+
+I did not observe this against real CI — I consumed zero receipts this round, so
+this is inference from the trusted workflow's own text plus a local run of the
+trusted script, not an observed rejection. It is cheap to defend against either way:
+
+> Before any official submission, run
+> `BASE_SHA=<current trusted main> HEAD_SHA=$(git rev-parse HEAD) .github/scripts/enforce-modifiable-surface.sh`.
+> It costs seconds, it is the same script CI runs, and it either prints nothing or
+> names every path that would sink the submission. Submit from a source-only commit,
+> or land the documentation on `main` first.
+
+One trap in doing that check by hand: use the **current trusted main**, not
+whatever `refs/remotes/origin/main` happens to hold. In this workspace that ref is
+stale at `1bc1c895` (2026-08-09), an *ancestor* of my own branch point `446fe987`
+(2026-08-10); running the gate against the stale ref reports **2231** offending
+paths, nearly all of them main's own newer files that my branch simply does not
+have. The 64-path answer is the meaningful one because `446fe987` is the newest
+main-side commit this branch descends from.
+
+## E.4 The pre-handoff verification suite
+
+`research/maple-nezuko-r106b-verify-handoff.sh` runs, in one pass, everything a
+reviewer of #616 would want to see before trusting the branch, and reports each
+check's own exit status instead of letting an early `set -e` hide the rest. Run at
+`ba8bd662` with the worktree clean:
+
+| check | raw exit | verdict |
+|---|---|---|
+| worktree clean | — | 0 modified paths |
+| `enforce-modifiable-surface.sh` | 1 | **accepted** — 64 offenders, *all* under `research/`, none under `Sources/` (§E.3) |
+| `check-editable-budget.sh` | 0 | pass, byte-identical to §E.2 |
+| `Sources/` digest vs base | 0 | `c11c453b…`, 410245 B — unchanged since `86539cf9`, i.e. the campaign binary |
+| `rm -rf .build && swift build -c release` | 0 | **`Build complete! (134.84s)`** from scratch |
+| `swift test --force-resolved-versions` | 1 | **accepted** — 457 tests, 6 suites, exactly **1** issue, and that issue is a sandbox artefact (below) |
+| gate inventory | 0 | 4 kernel spellings, 3 opt-in env gates |
+
+**Two "failures", both classified rather than waved away.** The script now decides
+each of them programmatically, so it stays honest if the situation changes:
+
+- for the surface gate it counts offenders *outside* `research/`, and only a
+  nonzero count is blocking — a stray `Sources/` or `Vendor/` path would fail it;
+- for the tests it counts issues that are *not* the one known sandbox failure, and
+  only a nonzero count is blocking.
+
+**The single failing test is `senpaiOperationalGuidanceMatchesTheDeployedRankedPath`,
+and it cannot pass in a student role sandbox.** It shells out to
+`senpai/test_submit_official.py`, whose `setUp` does
+`git push -qu origin main` inside a throwaway repository under `roles/…/tmp/`. This
+role's `PATH` puts a shim first:
+
+```
+$ which git
+…/roles/student-maple-nezuko/workspace/git-guard-bin/git
+ERROR: refusing git push outside target repo; cwd=…/tmp/mlxfast-submit-guard-…/candidate
+```
+
+Run standalone, all **9** tests in that file fail in `setUp` in under a second,
+before a single assertion about this tree executes. And the attribution is airtight
+from the diff: `git diff --name-only 446fe987 HEAD` outside `research/` lists exactly
+one path, `Sources/MLXFastModel/LagunaRuntimeModel.swift`; **zero** files under
+`senpai/` or `.github/` are touched. The failure is the sandbox's push guard — the
+same guard that makes §G.2's channel problem what it is — not a defect in the
+branch. I record it rather than suppress it because a reviewer who runs
+`swift test` will see it and deserves the explanation.
+
+**One bug in my own instrument, found by reading its output.** The first version of
+the gate inventory grepped `Sources/` for `DARKBLOOM_FUSED_SLIDING_ATTN_PACKRED`
+and printed *one* hit, which for a moment looked like the H and P arms had no gate
+to read and had therefore been measuring the baseline all along. The real names are
+`DARKBLOOM_FUSED_SLIDING_ATTN_PACKRED`, `…_H4` and `…_NOREDUCE` — three sibling
+gates under a common prefix, not a `PACKRED_` prefix — and the campaign script sets
+exactly those, so nothing about §C.5 changes. Two independent facts had already
+foreclosed the scare before the grep was fixed: the per-row Rule 33 check in §D
+verified the *announced kernel name* for all 24 runs, and §F.3's three arms
+announced three different kernels. That is what the redundancy in §D is for. The
+script now greps the family prefix.
+
 ---
 
 # §F — correctness
@@ -904,12 +1015,20 @@ This round's charge asks for the Stage C handoff comment id on PR #625. I could
 not obtain one. The role has **no GitHub write credential**: `gh` is
 unauthenticated, there is no `GH_TOKEN` or PAT in the environment, and the
 `respond_to_human_issue` tool refuses a pull request ("human messages must use an
-issue, not a pull request"). Two channels remain, and both are used:
+issue, not a pull request"). Three channels remain, and all three are used:
 
 1. this file and the rest of `research/`, which are pushed on the assignment
-   branch and are therefore readable by fern and by the advisor; and
+   branch and are therefore readable by fern and by the advisor;
 2. the typed `submit_experiment_result` payload, whose summary carries the
-   verdict, the labels and the pointers.
+   verdict, the labels and the pointers; and
+3. **W&B run [`7wzz7sno`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/7wzz7sno)**
+   (`wandb-applied-ai-team/mlxfast-maple`, state `finished`), which is the
+   machine-readable copy of §C.5: all 24 paired rows as a table artifact, the
+   three arm contrasts with their `dof=5` intervals, the two triage sweeps, and
+   the Stage 0 `N-RESIDUAL` numbers alongside for continuity. It was logged by
+   `research/maple-nezuko-r106b-wandb-run.sh`, which pins `WANDB_DIR` outside the
+   checkout so that publishing cannot dirty the worktree the verification suite
+   attests to.
 
 So §G's "handoff comment id" is **unavailable, not omitted**. Anything that was
 meant to reach #616 or #625 as a comment is instead written here, including:
