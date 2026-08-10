@@ -79,7 +79,11 @@ graduation.
 
 - L3 note, `research/CURRENT_RESEARCH_STATE.md:3327-3334`: PR #48's 8× threadgroup
   collapse earned **−0.1488% on M5 receipt `285f79fa`**, and "geometry
-  neutrality is absolute until #496 says otherwise".
+  neutrality is absolute until #496 says otherwise". **§5.0 corrects my reading
+  of this bullet**: that collapse was on the *same* QKV lane-major site as `L3`,
+  not a different one, but it was a 3-way composite whose M4 decomposition
+  attributes only −35.4 of −55.0 µs/step to geometry, so the receipt does not
+  price the geometry term.
 - 105-D (PR #603): decode is memory-bound, occupancy is *anti*-correlated with
   cost, bytes are the cost proxy, "nothing clears +0.5%". Item 3b flags an
   unresolved residency ambiguity at 64 threads/TG (48 vs 24 TG per core), so
@@ -413,8 +417,7 @@ curve at all: it was to settle the shelved `L3` arm, the one-token flip
 `num_simdgroups 2 -> 8` in the decode QKV lane-major NVFP4 kernel that PR #308
 priced at **-36.9 us/step, CI [-61.0, -12.9]** and that was then shelved by
 analogy with PR #48's 8x threadgroup collapse (official receipt `285f79fa`,
--0.1488 %). The two sites are different kernels, so the analogy was an
-assumption, not a measurement. Stage A measures it.
+-0.1488 %). Stage A measures it.
 
 The control is a second selector in the same file, `DARKBLOOM_QKV_LM_SG` in
 {2,4,8,16}, built exactly like the routed one: unset or any rejected value
@@ -422,6 +425,72 @@ leaves the shipped dispatch and the shipped pipeline name untouched, an accepted
 value renders the kernel with `constexpr uint num_simdgroups = S`, compiles it
 under a distinct `_sgS` pipeline name and dispatches `threadGroup = 32*S`. Grid
 threads are unchanged at every S; only the threadgroup partition moves.
+
+### 5.0 Correction: PR #48 is the SAME site, and the M4 result is already replicated
+
+My PR body and my own §1 both treated PR #48 as a *different* kernel, so that
+shelving `L3` rested on an analogy. **That is wrong, and it is the most important
+correction in this report.** Reading `research/maple-nezuko-pr48-deconfound.md`
+(PR #298, the six-arm deconfound of PR #48) settles it:
+
+- PR #48's geometry confound was *this* kernel. `:30-32` names the live scored
+  site as `decode nvfp4 qkv r1 h48/h64 lane-major` — the site of §5.1 — and
+  `:20-22` describes the confound as "hardcoded 512 threads / 16 simdgroups per
+  threadgroup in the QKV kernel, an **8x reduction in threadgroup count**". In my
+  parameterisation that is exactly `DARKBLOOM_QKV_LM_SG=16`: 5120/4096 TGs of 64
+  threads becomes 640/512 TGs of 512 threads (§5.1's ledger).
+- nezuko already isolated the geometry term on an M4 Pro. Arm `G` (sg 16, fold
+  held out) against arm `0` (stock sg 2) is **`G-0 = -35.4 us/step`, t = -2.61,
+  95 % CI [-62.8, -8.0]** (`:180`, trimmed fixed-effects, se 13.6 us, 39 df).
+- So PR #308's `-36.9 us/step` [-61.0, -12.9] at S=8 and PR #298's
+  `-35.4 us/step` [-62.8, -8.0] at S=16 are **two independent M4 measurements of
+  the same effect on the same site, agreeing to 1.5 us/step**, from different
+  students, different designs, and different bases. In %`cs` at k = 0.4369 they
+  are -0.246 % and -0.236 % [M4-WALL].
+- The knob nezuko built, `DARKBLOOM_DECODE_NVFP4_QKV_R1_SIMDGROUPS`, does **not
+  exist on this base** (`grep -rn DECODE_NVFP4_QKV_R1_SIMDGROUPS Sources/ Vendor/`
+  returns nothing). `DARKBLOOM_QKV_LM_SG` is therefore an independent
+  reimplementation of the same control on a newer base, not a rediscovery of a
+  live knob.
+
+This changes what Stage A is for. It is no longer the first measurement of `L3`;
+it is the **third**, and its job is to be the tightest and the only one that is
+position-matched and drift-cancelled (K = 16 rotated palindrome, half-width ~8 us
+against nezuko's se 13.6 us). It also changes the shelving argument: `L3` was not
+shelved by analogy, it was shelved by a **real same-site M5 receipt**. §6.2 has
+to deal with that receipt honestly rather than dismiss it, and the decomposition
+below is what makes that possible.
+
+**What the `285f79fa` receipt can and cannot say.** PR #48 moved three things at
+once, and nezuko's M4 decomposition closes exactly
+(`:190-196`): `N-0 = (G-0) + (R-G) + (N-R) = -35.4 + 80.4 - 100.0 = -55.0`. So on
+M4 the shipped candidate was a -55.0 us/step win built from a -35.4 geometry
+term, a **+80.4** redundant-reduction penalty, and a **-100.0** dispatch/barrier
+refund. The M5 measured that composite at -0.1488 %, i.e. about **+9.8 M5
+us/step slower** at the campaign price. Three terms, one scalar: the receipt is
+consistent with the geometry term reversing on M5, *or* with the +80.4 redundant
+reduction transferring at more than 1:1 while the -100.0 dispatch refund
+transfers at less, *or* any mixture. **The geometry term alone has never had an
+M5 receipt** (`:279` says so outright: "the term this study measures as
+`G-0 = -35.4` may be positive on M5"). Quoting -0.1488 % as the price of geometry
+is a confounded read, and the implied composite transfer factor
+`+9.8 / -55.0 = -0.18` is a property of the mixture, not of this lever.
+
+**The sharper prior is a different receipt.** Submission `27b9c7c6` restructured
+the fused decode attention kernel to 4 outputs per simdgroup with the grid
+divided by 4 — a clean **4x threadgroup collapse with no other change**. It
+measured **+7.32 % decode on M4** and came back from the M5 at **approximately
+0.0 %**, with every correctness gate passing; it was rejected on ranking only
+(`research/tanjiro-m5-calibration-note-B.md:208-211`). That is an unconfounded
+geometry gain that **completely failed to transfer**. The same note reports the
+mechanism directly: a standalone occupancy scan that times a fixed kernel at
+1..48 dispatched threadgroups on this M4 Pro runs "**flat to 20 threadgroups,
+risers at 21 and at 41**", identically at 9,216 B and 17,920 B of threadgroup
+memory — one 1024-thread threadgroup per GPU core — from which tanjiro concluded
+that "changes to bytes-in-flight per thread do appear to transfer; changes to
+wave count do not" (`:298-307`). Stage A's job is to find out which of those two
+classes `L3` belongs to, and §6.2 answers it with the wave-count arithmetic
+rather than with a hope.
 
 ### 5.1 Reachability (rule 39) and the geometry ledger (rule 77)
 
