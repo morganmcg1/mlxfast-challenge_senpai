@@ -1,93 +1,8 @@
-import Darwin
 import Foundation
 import MLX
 import MLXFast
 import MLXLMCommon
 import MLXNN
-
-public enum LagunaHostProfileFamily: Int {
-    case cacheConstruction = 1
-    case inputSetup = 2
-    case ordinaryLayers = 3
-    case asyncEnqueue = 4
-    case terminalLayer = 5
-    case finalNormHead = 6
-}
-
-public struct LagunaHostProfileSnapshot {
-    public let elapsedNanoseconds: Double
-    public let count: Int
-}
-
-public enum LagunaHostProfiler {
-    private enum Mode: Int {
-        case off = 9100
-        case empty = 9101
-        case active = 9102
-    }
-
-    nonisolated(unsafe) private static var modeCode = 0
-    nonisolated(unsafe) private static var familyCode = 0
-    nonisolated(unsafe) private static var elapsedTicks: UInt64 = 0
-    nonisolated(unsafe) private static var intervalCount = 0
-    private static let timebase: (numerator: Double, denominator: Double) = {
-        var info = mach_timebase_info_data_t()
-        mach_timebase_info(&info)
-        return (Double(info.numer), Double(info.denom))
-    }()
-
-    public static func configure(modeCode requestedMode: Int?, familyCode requestedFamily: Int?) -> Bool {
-        guard let requestedMode, Mode(rawValue: requestedMode) != nil,
-            let requestedFamily, LagunaHostProfileFamily(rawValue: requestedFamily) != nil
-        else {
-            disable()
-            return false
-        }
-        modeCode = requestedMode
-        familyCode = requestedFamily
-        elapsedTicks = 0
-        intervalCount = 0
-        return true
-    }
-
-    public static func disable() {
-        modeCode = 0
-        familyCode = 0
-        elapsedTicks = 0
-        intervalCount = 0
-    }
-
-    public static func snapshot() -> LagunaHostProfileSnapshot {
-        LagunaHostProfileSnapshot(
-            elapsedNanoseconds: nanoseconds(fromTicks: elapsedTicks),
-            count: intervalCount)
-    }
-
-    public static func nanoseconds(fromTicks ticks: UInt64) -> Double {
-        Double(ticks) * timebase.numerator / timebase.denominator
-    }
-
-    @inline(__always) static func calibrate(_ family: LagunaHostProfileFamily) {
-        guard modeCode == Mode.empty.rawValue, familyCode == family.rawValue else { return }
-        let start = mach_continuous_time()
-        let end = mach_continuous_time()
-        elapsedTicks &+= end &- start
-        intervalCount &+= 1
-    }
-
-    @inline(__always) static func start(_ family: LagunaHostProfileFamily) -> UInt64 {
-        guard modeCode == Mode.active.rawValue, familyCode == family.rawValue else { return 0 }
-        return mach_continuous_time()
-    }
-
-    @inline(__always) static func finish(_ family: LagunaHostProfileFamily, start: UInt64) {
-        guard start != 0, modeCode == Mode.active.rawValue, familyCode == family.rawValue else {
-            return
-        }
-        elapsedTicks &+= mach_continuous_time() &- start
-        intervalCount &+= 1
-    }
-}
 
 // Correctness-first Laguna XS 2.1 runtime, behavior-checked against the
 // vendored reference implementation and specialized by guarded fast paths.
@@ -11525,8 +11440,6 @@ final class LagunaRuntimeModelInner: Module {
         var fullRoPEAngles: MLXArray?
         var slidingRoPEAngles: MLXArray?
         var qkRoPEOffsets: MLXArray?
-        LagunaHostProfiler.calibrate(.inputSetup)
-        let inputSetupProfileStart = LagunaHostProfiler.start(.inputSetup)
         let decodeAtlasPosition = decodeRoPEAtlasPosition(inputs: inputs, cache: cache)
         if lagunaRoPEAngleAtlasEnabled,
             let position = decodeAtlasPosition,
@@ -11615,7 +11528,6 @@ final class LagunaRuntimeModelInner: Module {
             ? createAttentionMask(
                 h: h, cache: cache?[slidingAttentionIdx], windowSize: slidingWindow)
             : .none
-        LagunaHostProfiler.finish(.inputSetup, start: inputSetupProfileStart)
 
         let isSingleTokenDecode = inputs.dims(1, 1)
 
@@ -11630,8 +11542,6 @@ final class LagunaRuntimeModelInner: Module {
             let mask = isFull ? fullMask : slidingMask
             let qkRoPEAngles = isFull ? fullRoPEAngles : slidingRoPEAngles
             if i == layers.count - 1, h.dim(1) > 1 {
-                LagunaHostProfiler.calibrate(.terminalLayer)
-                let terminalProfileStart = LagunaHostProfiler.start(.terminalLayer)
                 if case .causal = mask {
                     h = layer.callLastPrefillRow(h, cache: cache?[i])
                 } else {
@@ -11646,10 +11556,7 @@ final class LagunaRuntimeModelInner: Module {
                         asyncEval(h)
                     }
                 }
-                LagunaHostProfiler.finish(.terminalLayer, start: terminalProfileStart)
             } else {
-                LagunaHostProfiler.calibrate(.ordinaryLayers)
-                let ordinaryProfileStart = LagunaHostProfiler.start(.ordinaryLayers)
                 h = layer(
                     h,
                     mask: mask,
@@ -11657,17 +11564,13 @@ final class LagunaRuntimeModelInner: Module {
                     qkRoPEAngles: qkRoPEAngles,
                     qkRoPEOffsets: qkRoPEOffsets
                 )
-                LagunaHostProfiler.finish(.ordinaryLayers, start: ordinaryProfileStart)
                 if isSingleTokenDecode, (decodeFireMask >> UInt64(i)) & 1 == 1 {
                     asyncEval(h)
                 }
                 if lagunaPrefillAsyncLadderStride > 0, h.dim(1) > 1,
                     (i + 1) % lagunaPrefillAsyncLadderStride == 0
                 {
-                    LagunaHostProfiler.calibrate(.asyncEnqueue)
-                    let enqueueProfileStart = LagunaHostProfiler.start(.asyncEnqueue)
                     asyncEval(h)
-                    LagunaHostProfiler.finish(.asyncEnqueue, start: enqueueProfileStart)
                 }
             }
             lagunaInjectLayerWork(layer: i, isSingleTokenDecode: isSingleTokenDecode)
@@ -11726,8 +11629,6 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
 
     public func callAsFunction(_ inputs: MLXArray, cache: [KVCache]?) -> MLXArray {
         let fullHidden = model(inputs, cache: cache)
-        LagunaHostProfiler.calibrate(.finalNormHead)
-        let finalProfileStart = LagunaHostProfiler.start(.finalNormHead)
         // Every consumer of multi-token logits reads only the LAST
         // position's row. Slice before the row-independent final RMSNorm and
         // vocabulary head so prefill neither normalizes nor projects the
@@ -11758,7 +11659,6 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
         } else {
             result = model.embedTokens.asLinear(hidden)
         }
-        LagunaHostProfiler.finish(.finalNormHead, start: finalProfileStart)
         if case .logits = lagunaDecodeAsyncStage, inputs.dims(1, 1) {
             asyncEval(result)
         }
@@ -11774,17 +11674,13 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
     }
 
     public func newCache(parameters _: GenerateParameters?) -> [KVCache] {
-        LagunaHostProfiler.calibrate(.cacheConstruction)
-        let cacheProfileStart = LagunaHostProfiler.start(.cacheConstruction)
-        let cache = (0..<configuration.numHiddenLayers).map { layerIndex in
+        (0..<configuration.numHiddenLayers).map { layerIndex in
             if configuration.layerTypes[layerIndex] == .full {
                 StandardKVCache()
             } else {
                 RotatingKVCache(maxSize: configuration.slidingWindow, keep: 0)
             }
         }
-        LagunaHostProfiler.finish(.cacheConstruction, start: cacheProfileStart)
-        return cache
     }
 
     /// Builds the retained fused runtime weight layouts (fused QKV, fused
