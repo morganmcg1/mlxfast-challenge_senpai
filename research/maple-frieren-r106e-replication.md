@@ -256,6 +256,40 @@ protocol change from retry-on-failure to watch-until-idle-then-fire-once. The
 watcher saw IDLE on both polls and the submit was accepted into the queue nine
 seconds later.
 
+Terminal status: **`rejected`** — i.e. correctness and both floors are not the
+issue; the candidate simply did not beat the standing best. That is expected:
+the tree is byte-identical to the promoted frontier, so its true score is the
+frontier's score and it can only be promoted by winning a coin flip against
+its own noise. §13 quantifies exactly how likely that is.
+
+### Draw 2 — `R106E-DRAW-02-ae12fdb3` — **DEDUP NO-OP, ladder terminated**
+
+| field | value |
+|---|---|
+| commit | `ae12fdb397270061cc07e79b7f4b432d4af75c84` |
+| launcher job | `7d97c92c-fa79-4a41-9345-f75a93c3e0ef` |
+| watcher | 16.8 min of `validating`, then 2 consecutive IDLE polls |
+| submit fired | 2026-08-10T09:18:21Z |
+| returned | rc = 0 after ≈ 9 s |
+| submission id | `2771067f-54b4-4e73-aa4f-f2b01d322c02` — **draw 1's id** |
+| status | `rejected` (draw 1's terminal status, replayed) |
+| note | `not stored (existing submission reused; its original note is kept)` |
+| attempts | **1** |
+
+`git diff --numstat 74910012 ae12fdb3 -- Sources Vendor` → empty. The delta
+between draw 1's commit and draw 2's commit is entirely under `research/`.
+
+The channel answered:
+
+```text
+Submission already exists
+submission  2771067f-54b4-4e73-aa4f-f2b01d322c02
+status      rejected
+note        not stored (existing submission reused; its original note is kept)
+```
+
+**This kills the assigned design.** See §12.
+
 ## 7. Preserved text — the pf doc block removed from `Sources/` in §0.1
 
 ```swift
@@ -417,3 +451,393 @@ failure and must not be counted as one.** My rev2 log shows 14 non-receipts
 before the first landing; on the rev3 taxonomy the great majority of those
 should have been deferrals, and the true attempt count needed for one receipt
 is far lower than 15.
+
+## 10. Amendment 1 — the noise budget, and a correction to my own §0.2
+
+**Provenance and honest timestamp.** Written **2026-08-10T09:12Z**, after an
+independent design review I commissioned while the channel was blocked by
+draw 1. At the time of writing, draw 1 was still `validating` (no receipt) and
+draw 2 had not fired. It is committed with the draw-3 commit, so it is
+preregistered with respect to draws 3–6 and to every analysis step, but **not**
+with respect to draw 1's existence. Everything in §10.1–10.2 is a derivation
+from data that predates this ladder entirely (#555, n = 1185), so no draw of
+mine could have informed it.
+
+### 10.1 🔴 The three "competing σ estimators" are not estimates of the same thing
+
+My §0.2, and the assignment brief I was given, both describe three estimators of
+one parameter disagreeing by 4.9×. **That framing is wrong, and I propagated it
+without checking.** Reading #555 Part 1 at
+`research/CURRENT_RESEARCH_STATE.md:1248-1256` settles it:
+
+> `session_factor = (bl_dec/0.013855009542)^0.75 · (bl_pre/0.000372473193)^0.25`
+> reproduces `officialScore / cs` to a worst relative error of 4.885e-15, so
+> session_factor carries **zero candidate information**. Lag-1 autocorrelation
+> is **−0.0173**. sd = **0.5393 %**, n = 1185.
+
+So `ln S = ln cs + ln sf` **exactly**, and:
+
+| figure | what it actually estimates | dof | status |
+|---|---|---|---|
+| 0.2494 % | σ(ln `cs`) from **one** near-replicate pair | 1 | 95 % CI factor [0.45, 31.9] ⇒ **[0.11 %, 7.96 %]** |
+| 0.5393 % | σ(ln `session_factor`) — **baseline legs only**, zero candidate information | 1184 | essentially exact |
+| 1.2244 % | pooled across **different code** ⇒ σ(ln `cs`)² + genuine code-effect variance | many | **upper bound**, biased up |
+
+**The 0.5393 % is a different parameter and was never in competition.** Only
+rows 1 and 3 are candidates for σ(ln `cs`), and row 3 is an upper bound. The
+"4.9× disagreement" is largely a category error, and the honest statement of
+the open question is much narrower — and much better posed:
+
+> **σ(ln `cs` | fixed compiled tree) is the one term in the campaign's ranked
+> noise budget that has never been measured. Everything else is known.**
+
+That is exactly what this ladder measures, so the experiment survives the
+correction intact; it is the *motivation* that needed repair, not the design.
+
+### 10.2 The ranked noise budget, written out
+
+With `ln S = ln cs + ln sf`:
+
+```
+Var(ln S) = Var(ln cs) + Var(ln sf) + 2·Cov(ln cs, ln sf)
+             ^unknown      ^0.29084 (%²), known    ^unknown (the pairing term)
+```
+
+Sign convention, stated explicitly because it is easy to get backwards: `sf`
+rises with **baseline** times and `cs` rises when the **candidate** is fast. A
+globally slow session raises baseline times (`sf` ↑) and raises candidate times
+(`cs` ↓), so common-mode drift makes **Cov < 0** and pairing **helps**. Pairing
+*hurts* only if Cov ≥ 0, i.e. if the thermal gate and back-to-back execution
+have already removed the common mode and what is left is idiosyncratic per-run
+noise that pairing merely adds.
+
+Consistency check against my own rev2 census (designed within-arm replicates,
+1-vs-1 units): σ(ln `cs`) ≈ 0.233 %, σ(ln `sf`) = 0.5393·√2 = 0.7627 %,
+zero-covariance prediction √(0.233² + 0.7627²) = **0.798 %**, observed
+σ(ln S) ≈ **0.885 %**. Ratio 1.11 ⇒ Ĉov slightly **positive** ⇒ pairing
+mildly **hurts**. The dof are far too small to call, but the *direction* agrees
+with my §5.4 claim, and the magnitude no longer needs the 4× story: the ranked
+quantity is noisier than `cs` overwhelmingly because it carries `sf`, whose
+0.5393 % simply dwarfs the candidate term.
+
+**Consequence for strategy, which nobody has priced.** The p-table at
+`CURRENT_RESEARCH_STATE.md:1258-1266` computes every per-draw record
+probability from σ = 0.5393 % applied to a gap in `cs` — i.e. it assumes
+**σ(ln `cs` | fixed code) = 0**. If instead σ(ln `cs`) ≈ 0.25 %, total
+σ(ln S) = √(0.5393² + 0.25²) = 0.5944 %, and from our best row
+(gap 0.999 %) z falls 1.852 → 1.680 and p rises **3.2 % → 4.65 %**, a **+45 %
+relative** change in the per-draw record probability. Every cadence decision in
+the campaign is priced off that table.
+
+### 10.3 Preregistered addition M-UNIQ (hard gate, applies from draw 2 on)
+
+Before any σ is published, all four raw times must be **pairwise distinct at
+full precision across draws**, and in particular **the two baseline legs must
+vary**. Identical baseline microseconds across two draws would mean the session
+did not re-execute and the ladder is measuring a cache, not the channel; in
+that case the σ estimate is void and must not be published. This is the one
+confound that would make the result look like the tightest σ while being an
+artefact.
+
+### 10.4 Preregistered addition Δ-PAIR (the pairing diagnostic)
+
+Report `Δ = s²(ln S) − s²(ln cs)` against the known Var(ln `sf`) = 0.29084 %²:
+
+- Δ ≈ **+0.291 %²** ⇒ Cov ≈ 0, pairing is inert (injects `sf` whole);
+- Δ ≫ +0.291 %² ⇒ Cov > 0, pairing **hurts**;
+- Δ ≈ **−0.291 %²** ⇒ strong cancellation, pairing **helps**.
+
+Recover Cov stably as `[s²(X) + s²(Y) − s²(Y−X)]/2` rather than from r̂, and
+report the exact **Pitman–Morgan** paired-variance test (t on
+corr(A+B, A−B), A = ln S, B = ln `cs`, df = n−2) alongside it. At n = 6 this is
+sign-information; label it as such.
+
+### 10.5 Preregistered addition POST (report a posterior, not a pick)
+
+At n = 4–6 the χ² CI factor on σ is [0.57, 3.73] / [0.60, 2.87] / [0.62, 2.45].
+Maximum-likelihood classification error between adjacent hypotheses (2.16×) is
+12–26 % at n = 4 and 8–17 % at n = 6; between the extremes (4.9×) it is
+0.5–6 %. So the ladder **classifies extremes reliably and neighbours poorly**.
+I will therefore publish a posterior over the hypotheses (scaled-χ² likelihood,
+uniform prior), updated after every draw, and decide from posterior-weighted
+expected utility — not a point estimate dressed as a measurement.
+
+### 10.6 Preregistered addition DECIDE (grind vs engineer)
+
+With g = ln(2.61650354/2.590559) = 0.99652 % and a channel budget of B draws,
+grind iff Σₖ P(σₖ | data)·[1 − (1−p(σₖ))^B] ≥ 0.5, where p(σ) = Φ(−g/σ) on
+**ln S**. Break-even σ\* = g/Φ⁻¹(1 − ln2/B) = **0.55 % / 0.45 % / 0.41 %** for
+B = 20 / 50 / 100. Since Var(ln `sf`) alone already puts σ(ln S) ≥ 0.539 %,
+**the campaign is at or above the break-even for B ≥ 20 on the baseline term
+alone**, and the candidate term can only push it further into the grind régime.
+Two riders: the frontier's mean is itself estimated from ≈1 draw, so also
+report z = g/(σ√2); and grind returns scale as σ√(2 ln N), so best-of-1000
+buys only ≈0.75σ over best-of-82. Grind and engineering are complements —
+at σ = 0.25 % a +0.5 % engineered gain cuts required draws by ~700×.
+
+### 10.7 Rejected and already-done suggestions, recorded for completeness
+
+- **Range/MAD estimators: rejected.** At n ≤ 6, range/d₂ is 95–97 % efficient
+  (no gain) and MAD is ~37 %. Kept only as an outlier cross-check.
+- **"Pool the historical baseline legs for free dof": already done, and far
+  better than I would have.** That is exactly #555 Part 1, n = 1185, and it is
+  where the 0.5393 % comes from. **Priority is maple-tanjiro's.** I add nothing
+  by redoing it with 82.
+- **Serial-correlation worry: already answered.** #555 measured lag-1
+  = −0.0173 over 1185 receipts ⇒ i.i.d., "nothing to time". I will still report
+  the von Neumann ratio on my own draws as a within-ladder flag, but the
+  campaign-scale question is settled and I should not re-litigate it.
+- **Distinct-SHA build stamping: must be checked, not assumed.** If the build
+  embeds the commit SHA, my draws are not byte-identical binaries and the
+  measured σ silently includes a code-layout term. Per Rule 75 I report the
+  sha256 and byte size of the compiled artifact per leg.
+
+
+---
+
+## 11. The submitted surface is identical across draws, not merely equivalent
+
+Checked before draw 2 was fired.
+
+`benchmark.json` `editablePaths` has 97 entries, all under `Sources/` or
+`Vendor/`; none under `research/`. Expanding the 4 directory entries gives the
+true submitted surface:
+
+| property | value |
+|---|---|
+| files | 142 |
+| total bytes | 2,680,208 (cap 3,000,000; headroom 319,792) |
+| largest file | `Sources/MLXFastModel/LagunaRuntimeModel.swift` = 384,245 B (cap 524,288; headroom 140,043) |
+| sha256 of the surface | `fcd5063faa5f4b142c0b6157e3b3e32f3d628a52aa5171b9dd8212757a8948e8` |
+
+The largest-file figure confirms the advisor's correction: the byte cliff is not
+binding.
+
+Because every R106-E draw commits only to `research/`, all draws upload **the
+same bytes**. The design is therefore stronger than "the same compiled tree":
+it is the same payload, and no code-difference confound is even expressible.
+
+Two supporting facts, both verified in source rather than assumed:
+
+- The commit SHA is **not compiled into the binary**.
+  `LagunaRuntime.commitIdentifier()`
+  (`Sources/MLXFastTrustedHarness/LagunaRuntimePreflight.swift:23-32`) reads
+  `MLXFAST_COMMIT_SHA` from the environment at run time, which the ranked
+  workflow threads through the gates argv and which `benchmark.sh --official`
+  recovers from `candidate.sha`; `git rev-parse` is only the local/dev
+  fallback. So per-draw SHA differences cannot perturb the executed code.
+- `harnessHash()` (same file) covers `Package.swift`, `Sources`, `Tests`,
+  `benchmark.json`, `benchmark.sh`, `setup.sh`, `tools`, `README.md`,
+  `TASK.md` -- not `research/`. Falsifiable prediction: every draw reports the
+  same `harness_hash` and a different `metrics.commit`.
+
+This is exactly why the M-UNIQ gate in section 10.4 was preregistered: an
+identical payload is the precondition for a content-addressed score cache.
+
+## 12. The assigned ladder is impossible: the channel deduplicates submissions
+
+**This closes R106-E as specified.**
+
+Draw 2 was committed as `ae12fdb397270061cc07e79b7f4b432d4af75c84`, a distinct
+commit from draw 1's `8db6ffaf1c67f6044711c2aa198ec3b3922553fd`, with an empty
+`git diff --numstat 74910012 HEAD -- Sources Vendor`. The idle-gated launcher
+waited for the channel (16.8 min of `validating`, then two consecutive IDLE
+polls) and fired exactly one attempt at 09:18:21Z. The wrapper returned in
+nine seconds:
+
+```text
+Submission already exists
+benchmark   eigenlabs/mlxfast-challenge
+submission  2771067f-54b4-4e73-aa4f-f2b01d322c02
+status      rejected
+note        not stored (existing submission reused; its original note is kept)
+```
+
+`2771067f-...` **is draw 1's submission id**. So:
+
+- the channel content-addresses submissions on the uploaded `editablePaths`
+  payload, not on `submissionCommitSha`;
+- a distinct commit SHA is **not** sufficient to obtain a new measurement;
+- the per-draw note is discarded, so the draw-index protocol the assignment
+  specified cannot even be recorded on a duplicate;
+- the cost is zero: no queue slot, no M5 time, rc=0 in ~9 s. This is a fourth
+  channel-limiter category to add to section 9 -- **dedup no-op**.
+
+Therefore the assigned design -- "one fixed compiled tree submitted n>=4 times,
+byte-identical in `Sources/`+`Vendor/`, under distinct commit SHAs" -- **cannot
+produce more than one measurement**, and sigma(ln cs | fixed tree) is not
+obtainable this way. I stopped the ladder at n=1 rather than burn further
+attempts.
+
+The only way to buy a second ticket is to make the payload byte-distinct. That
+observation is not a workaround to be used quietly; it is a strategic fact the
+campaign needs, and it is priced in section 14.
+
+## 13. Measuring the same parameter for free, at n = 1220
+
+The campaign has been re-measuring a fixed tree all along: **the pinned
+baseline runs in every ranked session.** The feed exposes both of its legs
+inline (`baseline_decode_seconds_per_token`,
+`baseline_prefill_seconds_per_token`) for every scored submission, so the
+dispersion of a fixed tree is directly observable at n = 1220 with no channel
+cost whatsoever.
+
+Implemented in `research/maple-frieren-r106e-legnoise.py`.
+
+### 13.1 Direct, assumption-free results (n = 1220)
+
+| quantity | sd | robust sd (1.4826 x MAD) | lag-1 |
+|---|---|---|---|
+| ln baseline decode leg | **0.2457 %** | 0.2490 % | +0.0348 |
+| ln baseline prefill leg | **1.9266 %** | 1.5823 % | -0.0050 |
+| corr(decode leg, prefill leg) within a session | **+0.1255** | | |
+
+The decode leg is stable and near-Gaussian: across the last 400 / 200 / 100 /
+50 sessions its sd is 0.2537 / 0.2389 / 0.2505 / 0.2481 %, and the robust sd
+tracks it. The prefill leg is **~8x noisier** and heavy-tailed (robust sd
+ranges 1.22-2.58 % across the same windows), so its spread is partly a tail of
+pathological sessions rather than a wide bulk.
+
+### 13.2 Validation against #555 Part 1
+
+`ln session_factor = 0.75 ln bd + 0.25 ln bp + const`, so it is completely
+determined by the second moments above. Reconstructing it:
+
+**sd(ln session_factor) = 0.5369 %**, versus the published **0.5393 %**
+(maple-tanjiro, #555 Part 1, n = 1185; this feed now has n = 1220).
+
+Agreement to 0.45 % relative on an independently derived quantity validates the
+extraction, the filter, and the algebra.
+
+That reconstruction also decomposes the constant for the first time:
+
+| source | share of Var(ln session_factor) |
+|---|---|
+| baseline decode leg | 11.8 % |
+| **baseline prefill leg** | **80.5 %** |
+| cross term | 7.7 % |
+
+**The campaign's session-noise constant is four-fifths baseline-prefill
+measurement noise.** It is not thermal drift and not a property of the
+candidate.
+
+### 13.3 sigma for a fixed candidate tree
+
+For a fixed candidate tree measured in the same session, with each candidate
+leg carrying the same relative noise as the corresponding baseline leg, and
+`rho` the within-session correlation between the baseline and candidate legs of
+the same metric (`rho = 1` is a pure common session factor that cancels from
+the ratio; `rho = 0` is leg-specific noise that does not):
+
+| rho | sigma(ln cs) % | sigma(ln officialScore) % |
+|---|---|---|
+| 0.00 | **0.7444** | **1.2005** |
+| 0.25 | 0.6447 | 1.0737 |
+| 0.50 | 0.5264 | 0.9299 |
+| 0.75 | 0.3722 | 0.7592 |
+| 0.90 | 0.2354 | 0.6352 |
+| 1.00 | 0.0000 | 0.5369 |
+
+**`rho` is pinned near 0 by three independent pieces of evidence:**
+
+1. The baseline's own two legs, measured back to back inside one session,
+   correlate only **+0.1255**. A session-wide multiplicative factor would drive
+   that correlation towards 1.
+2. Session-to-session lag-1 autocorrelation is ~0 on both legs (+0.0348,
+   -0.0050; #555 independently found -0.0173 on `session_factor`). There is no
+   persistent thermal drift to share.
+3. **The decisive check.** At `rho = 0` the model makes a *parameter-free point
+   prediction* of sigma(ln officialScore | fixed tree) = **1.2005 %**. The
+   campaign's measured pooled cross-code residual is **1.2244 %**. These agree
+   to 2 % relative.
+
+Point 3 reinterprets the third hypothesis. The 1.2244 % figure was filed as an
+"upper bound, biased up by code differences". It is not: a model with **no free
+parameters**, fitted only to baseline legs, reproduces it. So almost all of
+that residual is measurement noise, and 1.2244 % is approximately *correct* for
+sigma(ln S | fixed tree) rather than an inflated bound. Conversely the campaign
+has implicitly been assuming `rho = 1` -- the bottom row, 0.5369 % -- which the
+data rejects.
+
+### 13.4 Adjudication of the three hypotheses
+
+| hyp | value | what it actually is | verdict |
+|---|---|---|---|
+| H1 | 0.2494 % | one near-replicate pair, dof 1 | **too small by ~3x.** It is within noise of the *decode leg alone* (0.2457 %), i.e. it is what you measure when the prefill legs happen to agree. |
+| H2 | 0.5393 % | sd(ln session_factor), baseline-only | correct for what it measures, but it is not sigma(ln cs); it is the `rho = 1` corner. |
+| H3 | 1.2244 % | pooled cross-code residual | **approximately right for sigma(ln S \| fixed tree)**, and not meaningfully inflated by code differences. |
+
+**Answer: sigma(ln cs | fixed tree) ~ 0.74 %, and sigma(ln officialScore |
+fixed tree) ~ 1.20 %.**
+
+## 14. Consequences
+
+### 14.1 The ranked score is far noisier than the campaign has been pricing
+
+Re-pricing the p-table at `research/CURRENT_RESEARCH_STATE.md:1258-1266`, which
+assumes sigma(ln cs | fixed code) = 0 and hence sigma(ln S) = 0.5393 %. Our
+best row is a gap of 0.999 % of log score:
+
+| assumption | sigma(ln S) | z | p(one draw beats the record) |
+|---|---|---|---|
+| campaign's current (rho = 1) | 0.5393 % | 1.852 | 3.2 % |
+| section 10 first correction | 0.5942 % | 1.681 | 4.6 % |
+| **this section (rho = 0)** | **1.2005 %** | **0.832** | **20.3 %** |
+
+The chance that our existing best candidate beats the record on a re-draw is
+about **six times** what the campaign assumes. Symmetrically, the chance that a
+*measured* win is noise is correspondingly larger.
+
+### 14.2 Prefill dominates the noise despite carrying 25 % of the weight
+
+The prefill leg supplies 80.5 % of session-factor variance and, at `rho = 0`,
+0.464 of the 0.532 %^2 of Var(ln cs) -- **87 %** -- against decode's 0.068.
+
+Direct consequence for experiment design: **a single ranked session can resolve
+a decode change of a few tenths of a percent, but cannot resolve a prefill
+change below roughly 2 %.** This is a standing explanation for why
+prefill-targeted experiments in this campaign have been so hard to adjudicate,
+and it argues for judging prefill levers on M4/local paired evidence and
+reserving ranked sessions for decode levers. My own section 8 lever was
+decode-side, which is the regime where the ranked channel is actually
+informative.
+
+### 14.3 The record is substantially a lottery, and tickets are not free
+
+Sections 12 and 13 combine into an uncomfortable result. At `rho = 0` a
+resubmission of an unchanged best candidate has ~20 % per-draw probability of
+taking the record, so repeated draws dominate most marginal optimisation work.
+But section 12 shows **an unchanged payload cannot be redrawn at all** -- the
+channel returns the original submission. The only way to draw again is to ship
+a byte-distinct payload.
+
+I am flagging rather than exploiting this. Deliberately perturbing bytes to
+farm re-draws of an unchanged candidate is a lottery-ticket strategy, it
+consumes ~20 min of shared M5 time per ticket, and whether the campaign wants
+to spend the channel that way is an advisor and organizer call, not mine. It
+should at minimum be recorded in the research state, because any student who
+resubmits a near-identical candidate is already drawing from this lottery
+without knowing it.
+
+### 14.4 Recommendation on the remaining draws
+
+**Do not fund draws 3-6.** They would require deliberate byte perturbation
+(section 12), cost ~100 min of shared M5 time, and at n = 6 would return a
+sigma estimate with a chi-square CI factor of [0.62, 2.45]. Section 13 already
+answers the same question at n = 1220 with a validated pipeline, tighter
+intervals, and an independent parameter-free confirmation. Spending the channel
+on a real optimisation candidate strictly dominates.
+
+If the advisor wants a confirmatory ranked draw anyway, the cheapest honest
+design is a single comment-only edit to one submitted file: semantically null,
+byte-distinct, ~1 line of budget against 319,792 B of headroom.
+
+### 14.5 Status of the preregistered tests
+
+`research/maple-frieren-r106e-stats.py` implements M-UNIQ, Delta-PAIR, POST and
+DECIDE as preregistered in section 10, and is verified on synthetic fixtures in
+both the passing and the gate-firing direction. They are retained and runnable,
+but with n = 1 they return "undefined" as designed. **M-UNIQ was the correct
+instrument**: it was preregistered against exactly the cache/dedup failure mode
+that section 12 then observed, though the channel refused the duplicate at
+submission time rather than returning duplicate numbers.
