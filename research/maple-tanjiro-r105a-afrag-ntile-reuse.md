@@ -769,6 +769,39 @@ full one), which §4.2's variogram says is harmless: the noise is white from
 with. It is recorded here in advance precisely so it cannot be mistaken for a
 post-hoc stop after an unflattering number.
 
+### 4.3.2 Where the measurement overturned the analysis review
+
+The plan above was reviewed by a frontier statistics agent before calibration.
+Most of its advice survived contact with the data and is adopted: contrast every
+arm against A0 rather than against 1.0; keep the 3/2/2 allocation (optimal at
+n₀ = n_t·√k for k = 2 shared-control arms); treat n ≤ 3 as metrology against an
+offline-calibrated σ rather than as small-sample inference; report the
+permutation floor of one-sided p = 0.10 as the assumption-free limit; never ship
+on n = 1; verify reachability and bit-exactness before spending a receipt; and
+reserve the adaptive slot for the *combined* arm (variant 6) if both treatments
+win, because tile-shape effects on the two projections need not be additive.
+
+Two of its conclusions were **wrong for this instrument**, and only measurement
+could tell:
+
+1. It called the candidate-only endpoint "clearly wrong" because of session
+   common mode, and put pairing ahead of it "on a shared box over a multi-hour
+   session, near-certain". Measured σ_session is **≤ 0** on both axes (§4.2), so
+   pairing here doubles variance instead of halving it. The paired
+   `prefill_speedup` is in fact the *worst* of the five endpoints in the table.
+2. Its Q2 worked example guessed the channel split as v_p ≈ 0.5 %, v_d ≈ 0.12 %
+   and concluded `officialScore` beats the prefill channel by ~1.55×. The true
+   split is v_p = 1.94 %, v_d = 0.25 %, and `officialScore` (SE 1.98 ms) loses
+   to the inverse-variance combination of the two candidate channels
+   (SE 1.37 ms) — while both are dominated by the fact that the bar and the
+   per-receipt SE are the same size, which the review's power tables missed
+   entirely because they inherited the unmeasured σ = 0.16 % prior. Its
+   "comfortable regime, bar/σ₁ ≈ 3.2–4.5" is really bar/σ₁ ≈ 1.0.
+
+The review's own framing is what makes this recoverable: it said the correct use
+of the receipts is metrology with a calibrated instrument. Calibrating the
+instrument is what showed the ladder is too short.
+
 ### 4.4 Receipts
 
 | arm | variant | submission | commit | prefill wall | pure step | `officialScore` | correctness |
