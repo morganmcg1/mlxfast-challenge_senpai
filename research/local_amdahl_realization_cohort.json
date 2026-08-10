@@ -4,8 +4,8 @@
     "repo": "morganmcg1/mlxfast-challenge_senpai",
     "pr_number": 666,
     "assignment_id": "cedar-fern-local-amdahl-realization-audit-20260810",
-    "revision_id": "cedar-fern-local-amdahl-realization-audit-20260810-r2-evidence-closure",
-    "base_sha": "60ce7f20abb31a7ec775396822fb988d19ea732c",
+    "revision_id": "cedar-fern-local-amdahl-realization-audit-20260810-r3-exhaustive-omission-evidence",
+    "base_sha": "44b04208009a5b3df344aca5d4580188ef218996",
     "decision_threshold": {
       "minimum_mechanism_clusters": 8,
       "minimum_families": 4
@@ -328,11 +328,14 @@
     "alter_candidate_sha",
     "archive_extraction_missing_pr",
     "archive_result_coverage_mismatch",
+    "remove_omission_basis",
+    "mutate_omission_basis",
+    "generic_omission_fallback",
     "real_digest_mismatch",
     "archive_byte_mismatch"
   ],
   "artifacts": [
-    {"artifact_id": "committed_archive_index", "locator": "committed archive/exclusion index", "availability": "committed", "path": "research/local_amdahl_realization_archive_index.json", "sha256": "dde91d675d71f4e5358002cc2612d03152358334027541d141e7d287b766e009"},
+    {"artifact_id": "committed_archive_index", "locator": "committed archive/exclusion index", "availability": "committed", "path": "research/local_amdahl_realization_archive_index.json", "sha256": "4134227c3771e0c696a525804019da332036e0af40ba099c6c0fede8988632c6"},
     {"artifact_id": "source_campaign_archive", "locator": "typed-get-prs controller artifact pull-requests-844db61edd851eedb7a0.md", "availability": "external_controller_state", "verification_status_without_bytes": "unverified", "sha256": "b13377e52bc7fc5496cffe00e9dc87e5d66a23a0dbedae21d4f316ad281d507f"},
     {"artifact_id": "pr517_score_arm_01", "locator": "pr517 timing-repeat score arm 01", "availability": "unavailable_external", "verification_status": "unverified", "sha256": "fdc7b8fde88acb2601f9d000df8dbd57a7ef6130ce054b60c28147dbe6ae7673"},
     {"artifact_id": "pr517_score_arm_02", "locator": "pr517 timing-repeat score arm 02", "availability": "unavailable_external", "verification_status": "unverified", "sha256": "8e31ce3ccf7abd4f32fc6e6131f49e9424f55c31161a197a981111397f9bc483"},

@@ -4,8 +4,8 @@
 
 **NO-GO.** The frozen historical cohort contains **0 eligible mechanism clusters across 0 eligible families**, below the predeclared decision-use minimum of **8 mechanisms across 4 families**. Fourteen mechanisms across nine families were screened. Because no mechanism passes every frozen rule, this audit does not estimate, pool, or recommend an empirical local-to-whole-model realization factor.
 
-- Assignment: `cedar-fern-local-amdahl-realization-audit-20260810` revision `r2-evidence-closure`
-- Assignment base: `60ce7f20abb31a7ec775396822fb988d19ea732c`
+- Assignment: `cedar-fern-local-amdahl-realization-audit-20260810` revision `r3-exhaustive-omission-evidence`
+- Assignment base: `44b04208009a5b3df344aca5d4580188ef218996`
 - PR: #666
 - Primary metric: eligible mechanism clusters, observed `0`, required `8`
 - Family gate: eligible families, observed `0`, required `4`
@@ -16,16 +16,17 @@ The hypothesis that the campaign's historical evidence can support a decision-us
 
 The evidence universe was frozen before applying eligibility rules. It consists only of the current advisor branch and campaign-assigned PR evidence in the complete archive returned for `base:codex/mlxfast-cedar-20260804-advisor`. Deterministic extraction finds **262 PR sections and exactly 274 `senpai-result:v1` envelopes**: 254 PRs contain at least one result and eight contain none. The earlier prose count of 279 results is withdrawn because it cannot be reproduced from the frozen bytes.
 
-The archive disposition is exhaustive: 14 screened PRs (#336, #353, #354, #434, #480, #491, #517, #602, #611, #613, #621, #628, #633, and #640), five active exclusions (#658, #659, #661, #662, and #665), and 243 other omissions, totaling 262. `research/local_amdahl_realization_archive_index.json` records every PR's section digest, result count and result identities, diagnostic flags, disposition, and explicit reason. Variants are clustered by mechanism unless they were predeclared independent. No M5 result or different-architecture result was reconstructed from M4 evidence.
+The archive disposition is exhaustive: 14 screened PRs (#336, #353, #354, #434, #480, #491, #517, #602, #611, #613, #621, #628, #633, and #640), five active exclusions (#658, #659, #661, #662, and #665), and 243 other omissions, totaling 262. Of the 243 omissions, 238 contain structured results and five contain none. For every result-bearing omission, `research/local_amdahl_realization_archive_index.json` records the exact result scope (ordinal, revision ID, commit and expected-head SHAs, archive line range, and payload/hypothesis/summary digests), the candidate-specific Rules 1–4 atom states, the complete failed-rule set, the deterministic first failed rule, and content digests for both result scope and evidence basis. The five no-result omissions retain the distinct no-structured-envelope reason. A generic fallback reason is forbidden, and a present textual marker is diagnostic only: it never establishes eligibility. Variants are clustered by mechanism unless they were predeclared independent. No M5 result or different-architecture result was reconstructed from M4 evidence.
 
 The actual available bytes are content-addressed:
 
 ```text
 source archive: SHA-256 b13377e52bc7fc5496cffe00e9dc87e5d66a23a0dbedae21d4f316ad281d507f (4,600,212 bytes)
-committed index: SHA-256 dde91d675d71f4e5358002cc2612d03152358334027541d141e7d287b766e009
+committed index: SHA-256 4134227c3771e0c696a525804019da332036e0af40ba099c6c0fede8988632c6
+result-bearing omissions by deterministic first failure: Rule 1 = 20, Rule 2 = 189, Rule 3 = 22, Rule 4 = 7
 ```
 
-The validator recomputes both digests from bytes when the controller-state archive is available and regenerates the complete index for equality. The 16 separately referenced PR #517 repeat score/integrity artifacts are not available as matching standalone bytes in this checkout; their recorded digests remain metadata and are explicitly **unverified**, not promoted to verified evidence. The full artifact inventory is in `research/local_amdahl_realization_cohort.json`.
+The validator recomputes both digests from bytes when the controller-state archive is available, regenerates the complete index for equality, and checks every exact result field, failed-rule set, first failure, evidence-basis digest, and result-scope digest against the frozen archive. The 16 separately referenced PR #517 repeat score/integrity artifacts are not available as matching standalone bytes in this checkout; their recorded digests remain metadata and are explicitly **unverified**, not promoted to verified evidence. The full artifact inventory is in `research/local_amdahl_realization_cohort.json`.
 
 ## Frozen eligibility rules
 
@@ -85,25 +86,28 @@ python3 research/validate_local_amdahl_realization_audit.py \
 
 The validator performs all of the following:
 
-1. Parses the source bytes and requires exactly 262 PR sections, 274 structured results, and exhaustive dispositions of 14 screened + 5 active + 243 omitted. It regenerates the committed index and requires byte-derived equality.
+1. Parses the source bytes and requires exactly 262 PR sections, 274 structured results, and exhaustive dispositions of 14 screened + 5 active + 243 omitted. It requires candidate-specific evidence for all 238 result-bearing omissions, the no-envelope reason for the five remaining omissions, regenerates the committed index, and requires byte-derived equality.
 2. Recomputes three weighted whole-model arithmetic examples from preserved ordered rows:
    - PR #517 repeat ABBA: `1.003061264611x`
    - PR #517 repeat BAAB: `1.003605072138x`
    - PR #613 full ABBA: `0.993993354413x`
 3. Exercises a synthetic positive control with known projected saving, observed saving, family, and realization. It recovers realization `0.8` exactly from `0.0008 / 0.001`.
 4. Recomputes SHA-256 from actual bytes for the committed index and available source archive. It reports the 16 unavailable PR #517 artifacts as unverified; digest strings alone never count as verification.
-5. Confirms eight declared negative controls fail closed:
+5. Confirms eleven declared negative controls fail closed:
    - duplicate mechanism row;
    - swapped time units;
    - omitted full-order metadata;
    - altered candidate SHA;
    - missing archive PR section;
    - mismatched archive result coverage;
+   - removed candidate-specific omission evidence basis;
+   - mutated omission atom state or evidence basis;
+   - generic omission fallback substitution;
    - real committed-index byte digest mismatch;
    - source-archive byte digest mismatch.
 6. Recomputes the terminal gate as `eligible_clusters=0/8` and `eligible_families=0/4`.
 
-These derived values validate ingestion, arithmetic, identity, units, ordering, clustering, and fail-closed behavior. They are not entered into an empirical realization distribution.
+These derived values validate ingestion, arithmetic, identity, units, ordering, clustering, exhaustive omission provenance, and fail-closed behavior. They are not entered into an empirical realization distribution.
 
 ## Result and interpretation
 
