@@ -10,6 +10,11 @@ import MLXFast
 /// the other consumer of `normalized` and launches only `heads / 8`
 /// threadgroups, so hosting the reduction there multiplies the elementwise cost
 /// by 8 instead of 5120 while still publishing `normalized` for QKV.
+///
+/// The normalize must be staged in threadgroup memory rather than inlined at
+/// each `x[i]` load: the matvec reads the whole activation once per simdgroup,
+/// so inlining recomputes every element 16 times per dispatch and costs more
+/// than the launch it removes.
 private let lagunaNormFusedGateSoftplusEnabled = ProcessInfo.processInfo.environment[
     "DARKBLOOM_NORM_FUSED_GATE_SP"] != "0"
 
@@ -25,6 +30,7 @@ private func lagunaNormFusedGateSoftplusValue(_ index: String) -> String {
 private let lagunaNormFusedGateSoftplusPrologue = """
 threadgroup float laguna_norm_sums[32];
 threadgroup float laguna_norm_inv[1];
+threadgroup bfloat laguna_norm_x[K];
 if (sg == 0 && lane >= 16) {
     laguna_norm_sums[lane] = 0;
 }
@@ -50,11 +56,14 @@ if (sg == 0) {
 }
 threadgroup_barrier(mem_flags::mem_threadgroup);
 const float laguna_inv_mean = laguna_norm_inv[0];
-if (tile == 0 && sg == 0) {
-    for (uint j = lane; j < K; j += 32) {
-        normalized[j] = \(lagunaNormFusedGateSoftplusValue("j"));
+for (uint j = sg * 32 + lane; j < K; j += NS * 32) {
+    const bfloat laguna_v = \(lagunaNormFusedGateSoftplusValue("j"));
+    laguna_norm_x[j] = laguna_v;
+    if (tile == 0) {
+        normalized[j] = laguna_v;
     }
 }
+threadgroup_barrier(mem_flags::mem_threadgroup);
 """
 
 private func lagunaNormFusedGateSoftplusSource(heads: Int) -> String {
@@ -75,7 +84,7 @@ uint col=lane*V;
 for(uint k=0;k<K;k+=BK){
     float sum=0.0f;
     for(uint i=0;i<V;++i){
-        x[i]=float(\(lagunaNormFusedGateSoftplusValue("col+i")));
+        x[i]=float(laguna_norm_x[col+i]);
         sum+=x[i];
     }
     for(uint row=0;row<R;++row){
