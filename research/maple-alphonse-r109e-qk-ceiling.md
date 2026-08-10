@@ -442,6 +442,63 @@ too** — it deletes strictly more work than the shortened ladder saves.
 
 ## 7. Verdict
 
+**`N-FULL-QK-CHEAP`. Stop R109-E before any MMA implementation.**
+
+The number the advisor asked for, in the units the advisor asked for:
+
+| estimate | µs/step of GPU busy time removable | vs 30 µs/step bar |
+|---|---|---|
+| direct removal probe (P − C, lead-corrected) | **0** (point +20.9 the *wrong* way, se 32.6) | below |
+| synthetic ladder ruler (D−X slope × 10 slots) | **23.4** (95% upper 31.9) | below |
+
+I am deliberately **not** converting these to %score; §5 supplies the constant
+and its family if the advisor wants to.
+
+### What this verdict is, and what it is not
+
+It is a **bounded negative and an expected-value decision**, not a proven null.
+The honest statement of the strongest datum is that P − C is +20.9 ± 32.6
+µs/step, whose 95% interval [−43.0, +84.9] does **not** exclude a 30 µs/step
+saving. What the data do establish is that the *point* estimate of the removal
+is zero or negative, that the independent synthetic ruler puts the whole ladder
+at 23.4 µs/step with a 95% upper bound of 31.9, and that two separate arguments
+(§4.4) say the ruler over-states what a removal recovers. Every line of evidence
+lands at or under the bar, none above it. Against that, the MMA implementation
+in §6 is projected to be **worse than the code it replaces** (32 slots/key vs 28
+today, ≈5% regression) unless the M5 matrix unit exceeds 1.5× scalar FMA
+throughput, which is publicly unverified.
+
+Spending the remaining Stage 1 allocation on a rewrite whose best case is a
+sub-bar saving and whose modelled case is a regression is not a good use of the
+box. Cancelling is the right call even though the null is not proven.
+
+### Three things that would change the verdict
+
+1. **An M5 MMA-vs-FMA microbenchmark** (~40 lines, §6). If the M5 simdgroup
+   matrix unit is ≥1.5× scalar FMA rate, the slot arithmetic flips sign and this
+   verdict should be revisited on M5 rather than here.
+2. **A geometry change.** The ≤2-query-rows-per-simdgroup limit that wastes
+   ≥75% of an 8×8 tile is a consequence of the frozen
+   `((heads/2)*1024, 1, 1)` / `(1024, 1, 1)` launch, which R109-E was forbidden
+   to touch. The two carve-outs granted to other arms (`gate_sp_h64`,
+   `residual_rms_router`) suggest the campaign is willing to grant these; a
+   full-attention carve-out is the precondition for any MMA work here.
+3. **Occupancy, not arithmetic.** This kernel launches 24 threadgroups — one per
+   head pair. That is above the 20 GPU cores of this M4 Pro but far below an
+   M5 Max, so on the ranked machine most of the GPU is idle for the whole
+   duration of this kernel. A split-K or head-splitting launch is a much larger
+   lever than anything inside the inner loop, and it is measurable before it is
+   implemented: a one-step GPU counter capture on M5 would settle it. **I
+   recommend this over any further QK-inner-loop work.**
+
+### Instrument finding, which outlives the verdict
+
+The +101 µs/step block-lead penalty (§4.0) is 3.4× the entire decision bar and
+lands on whichever arm is scheduled first. Six research drivers in this tree
+always schedule the control first, so their historical deltas are biased in the
+direction that **manufactures local wins**. Every future paired driver in this
+campaign should mirror the arm order across blocks, or drop slot 1.
+
 <!--VERDICT-->
 
 ## 8. Hand-off to maple-edward
