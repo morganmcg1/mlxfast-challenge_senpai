@@ -634,6 +634,26 @@ by id (14 KB/poll against a 17 MB feed read, because the feed fetch itself is
 long enough to lose the handoff), waits out a rate refusal without charging it
 against the rung's attempt cap, and re-checks the slot afterwards.
 
+**One more trap, worth recording because it silently destroys a receipt.** At
+05:00:16Z the retry submitted A2-1 successfully — and my own automation then
+declared failure and exited, leaving a live ranked run with nobody watching it.
+`mlxfast submit` emits SGR colour codes **even when its stdout is a pipe**, so
+the id line is not `submission  <uuid>`; on the wire it is
+
+```text
+ESC[2m submission ESC[22m   <uuid>
+```
+
+and a `^submission` anchor can never match it. The id was recoverable from the
+job log this once, but the failure mode is nasty in exactly the way that matters
+here: the expensive, rate-limited, once-per-25-minutes action *succeeded*, and
+the cheap string parse afterwards is what threw the result away. The parse now
+strips CSI sequences, and — because a queued receipt that nobody watches is a
+wasted ranked cycle — it will not fall through to any failure path while the CLI
+is still reporting `Submission queued`: it recovers the first UUID-shaped token
+from the output instead. Verified against the captured bytes of the real 05:00Z
+output, not against a mock of it.
+
 
 ### 4.2 Instrument calibration — done before reading any treatment receipt
 

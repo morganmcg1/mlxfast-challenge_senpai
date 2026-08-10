@@ -75,10 +75,18 @@ while :; do
 
   attempts=$((attempts + 1))
   log "submit attempt ${attempts}/${MAX_ATTEMPTS}"
-  out="$(bash senpai/submit-official.sh "${BASE}" --note-file "${NOTE}" 2>&1)"
-  printf '%s\n' "${out}"
-  # A queued submission prints `submission  <uuid>` on its own line.
+  raw="$(bash senpai/submit-official.sh "${BASE}" --note-file "${NOTE}" 2>&1)"
+  printf '%s\n' "${raw}"
+  # The CLI emits SGR colour codes even when its output is a pipe, so the id line
+  # is really ESC[2m submission ESC[22m <uuid> and no ^submission anchor matches.
+  out="$(printf '%s\n' "${raw}" | sed $'s/\033\\[[0-9;]*[A-Za-z]//g')"
   sid="$(printf '%s\n' "${out}" | awk '/^submission[[:space:]]/{print $2; exit}')"
+  # A queued receipt that is not watched is a wasted ranked cycle, so never fall
+  # through to the failure paths while the CLI is reporting success.
+  if [[ -z "${sid}" ]] && printf '%s' "${out}" | grep -q 'Submission queued'; then
+    sid="$(printf '%s\n' "${out}" | grep -Eio '[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}' | head -1)"
+    log "id line did not parse; recovered ${sid:-nothing} from the queued receipt"
+  fi
   if [[ -n "${sid}" ]]; then
     log "submitted ${sid}"
     break
