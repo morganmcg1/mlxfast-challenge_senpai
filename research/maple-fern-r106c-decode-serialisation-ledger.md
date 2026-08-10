@@ -372,17 +372,25 @@ inner loop is fenced to tanjiro (R106-A).
 ```bash
 # 1. build the tracing worker (research-only patch, never submitted)
 git apply research/r106c/scripts/trace_dag.patch
-./benchmark.sh --local-iterate --build-only     # ~46 s incremental
+mkdir -p .build-worker/clang-module-cache
+CLANG_MODULE_CACHE_PATH="${PWD}/.build-worker/clang-module-cache" \
+  swift build -c release --force-resolved-versions \
+    --scratch-path .build-worker --product mlxfast-runtime-worker   # 46.4 s incremental
 git checkout -- Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp \
                 Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.h
 
-# 2. capture one traced decode run (~43 s)
-research/r106c/scripts/run_dag_trace.sh /tmp/r106c/dump/dag
+# 2. capture one traced decode run (42.8 s, arm label "dag" -> /tmp/r106c/dump/dag)
+research/r106c/scripts/run_dag_trace.sh dag
 
 # 3. build the ledger
 python3 research/r106c/scripts/dag_ledger.py /tmp/r106c/dump/dag \
         research/artifacts/fern-r106c
 ```
+
+Step 1 leaves the *submitted* surface untouched: the patch only edits
+`device.cpp` / `device.h`, which are not in `editablePaths` (§6) and are
+reverted before any commit. `git status --porcelain` is clean on the result
+commit; the instrumentation exists in the repository only as the patch file.
 
 Host: Apple M4 Pro, 48 GiB (low-memory startup profile: allocator cache capped
 at 6 GiB; ranked code paths unaffected), macOS 26.5.2, `applegpu_g16s gen=16`.

@@ -7,7 +7,7 @@ import sys
 import wandb
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.dirname(os.path.dirname(HERE))
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 LEDGER = os.path.join(REPO, "research", "artifacts", "fern-r106c", "dag_ledger.json")
 
 BARRIER_US = 1.3003
