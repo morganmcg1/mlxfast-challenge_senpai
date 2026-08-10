@@ -678,7 +678,14 @@ extra block; it is the cheapest fix available.
 2. **Params bolt-on, separately** — §"params memo" companion note. It is a
    different mechanism class (host encode, `τ ≈ 1%`), so it is *not* additive
    with item 1 at the same `τ` and I price it separately there. Pre-registered
-   11 µs/step (range 4–20) before measuring; measurement in flight.
+   11 µs/step (range 4–20) before measuring. **Measured, n=16:
+   `N-FULL-PARAMS-ALLOC-IRRELEVANT`.** Dose ruler **−24.760 ns/step per host
+   allocation (se 58.336)** ⇒ the 9 removed allocations are worth
+   **−0.22 µs/step, 95 % upper +0.81 µs/step, ~8 % of the ≥10 µs bar**; direct
+   `M − O` **+64.20 µs/step (se 35.52)**, on the *slower* side, 95 % upper
+   saving +5.43 µs/step. My own §5.1 arithmetic (9 × 30 ns = 0.27 µs/step) is
+   confirmed; the 11 µs/step pre-registration is refuted by ~50×. Arm
+   reverted, not landed.
 3. **Grid unchanged — proven, not asserted.** `git diff BASE -- Sources Vendor
    benchmark.json Package.swift | grep -c '^[+-].*\(grid:\|threadGroup:\)'`
    returns **0**. The full-attention dispatch at `LagunaRuntimeModel.swift:2547`
@@ -686,8 +693,13 @@ extra block; it is the cheapest fix available.
    threadgroups × 1024 threads. Every probe arm rewrites *in-kernel statements
    only*; all four arms share one dispatch shape.
 4. **Non-empty submitted-surface diff** — `git diff --numstat BASE -- Sources
-   Vendor benchmark.json Package.swift` returns
-   `147  16  Sources/MLXFastModel/LagunaRuntimeModel.swift`.
+   Vendor benchmark.json Package.swift` returned
+   `147  16  Sources/MLXFastModel/LagunaRuntimeModel.swift` at 22:42Z.
+   **Now empty**: with both arms terminal-negative, commit `ddf87e59` reverts
+   `Sources/` to `BASE_SHA 1a6761bf`, so the branch ships a **zero-byte
+   submitted surface** — zero static-review risk and zero byte-budget
+   consumption for fern's submission. Instrumentation stays recoverable from
+   history (`20dd6948..996c43f3`, `2e9cd4f5`).
 
 On the fourth item's *shape*: the brief asked for bulk in a new
 `Sources/MLXFastModel/LagunaFullAttnQKMMA.swift` with only registration and

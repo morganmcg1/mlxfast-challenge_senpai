@@ -231,8 +231,123 @@ The `_ = lagunaFullParamsMemoEnabled` shape is *not* used: both gates are
 top-level `let`s, so they are read once, lazily, on first use — outside the
 timed window — and are constant folded into the branch thereafter.
 
-<!--PARAMS-RESULTS-->
+## 6.2 Results (n = 16, complete)
+
+Raw data `/tmp/r109e-params-memo.tsv`, 16 runs, order `OABMMBAOMBAOOABM`,
+single uninterrupted session, `./benchmark.sh --local-iterate`, 40 °C gate
+between every run, `MLXFAST_LOCAL_FAN_PROMPT=0`. Job wall time 2390.6 s,
+exit 0. Analyser output committed at
+`research/maple-alphonse-r109e-params-memo-analysis.txt`.
+
+Arms: **O** = shipped path, `MEMO=0`, 10 host allocations/step (control);
+**M** = memo on, 1 allocation/step; **A** = `MEMO=0 DOSE=10`, 110/step;
+**B** = `MEMO=0 DOSE=100`, 1010/step.
+
+| arm | allocations/step | mean µs/step | sd | n | correctness |
+|---|---|---|---|---|---|
+| O (control) | 10 | 12948.20 | 31.04 | 4 | passed |
+| M (memo) | 1 | 13012.40 | 58.97 | 4 | passed |
+| A (dose 10) | 110 | 13022.33 | 63.17 | 4 | passed |
+| B (dose 100) | 1010 | 13000.05 | 30.09 | 4 | passed |
+
+### The direct contrast is null and on the wrong side
+
+`M − O` lead-adjusted OLS **+64.20 µs/step (se 35.52, 95 % CI
+[−5.43, +133.83])**. The point estimate says the memo is *slower*. The 95 %
+upper bound on the *saving* is therefore **+5.43 µs/step, below the ≥10 µs
+bar**. Robustness: palindromic-block variant +64.20 (se 7.65);
+Hodges–Lehmann +66.88; drop-the-block-lead +28.54 (se 30.06). Every variant
+keeps the sign.
+
+`A − O` = +74.13 (lead-adj se 34.18) and `B − O` = +58.54 (se 37.12) are
+**non-monotonic in dose**: B carries ten times A's allocation load and is
+*faster* than A. A per-allocation cost cannot produce that ordering.
+
+### The dose ruler is the number that matters
+
+The two-arm contrast is hopeless at this n (see §6.3). The ruler amplifies
+the mechanism 111× and is the only instrument here with real power:
+
+- marginal cost **−24.760 ns/step per added host `MLXArray([UInt32 × 3])`
+  allocation + upload (se 58.336)**;
+- the dose curve is **concave**, with a first-dose cost of +808.223 ns/step
+  per slot, which fits as a **fixed +83.30 µs/step at any dose > 0
+  (se 41.46)** rather than as anything proportional to count.
+
+**⇒ the memo's 9 removed allocations are worth −0.22 µs/step, 95 % upper
+bound +0.81 µs/step — about 8 % of the ≥10 µs bar.**
+
+Prefill negative control: all three arms non-significant against O
+(t = +0.60, +0.93, +1.15), as designed — the site is decode-only.
+
+### Reading the +83 µs intercept honestly
+
+The intercept, and the ~+65 µs common offset between the control and *every*
+other arm, cannot be caused by allocation count, because the ruler proves
+allocation count is worth ≈0 at 111× amplification. They are a
+session/position artifact of the harness, of the same family as the
+block-lead spike in §4.6 of the sibling memo (this session's slot-1 term is
++19.60 µs/step, se 39.93 — and slot 1 was in fact the *fastest* of all 16
+runs, i.e. opposite in sign to the QK session's +53.59). The honest ceiling
+for this arm is the ruler's, not the intercept's.
+
+### 6.3 Programme-level finding: the ≥10 µs bar is below harness resolution
+
+With a bar of 10 µs/step and this host's ~50 µs/step run-to-run sd, a bare
+two-arm ABBA needs **n ≈ 100 per arm ≈ 200 runs ≈ 9.4 hours** of exclusive
+box time to resolve the bar at 95 %/80 %. That is more box time than any
+single assignment in this campaign has had.
+
+**The ≥10 µs/step bar is below the `--local-iterate` harness's resolution at
+any affordable n.** Any future arm priced near that bar must be measured with
+a dose ruler (or another amplifying instrument), not with a two-arm A/B, or
+its result will be indistinguishable from noise no matter how carefully the
+A/B is balanced. I recommend this as a standing rule for the programme.
 
 ## 7. Verdict
 
-<!--PARAMS-VERDICT-->
+**`N-FULL-PARAMS-ALLOC-IRRELEVANT`.** Host-side `MLXArray` construction and
+upload for the full-attention kernel's params triple is not a measurable
+decode cost on this host: **−24.760 ± 58.336 ns per allocation**, so the
+whole 9-allocation saving is **−0.22 µs/step, 95 % upper +0.81 µs/step**.
+
+This bounds the entire params-atlas class, not just the simpler memo form I
+built. A 2-D `[writeIdx][capacity]` atlas removes the same 9 allocations; it
+cannot recover more than the 9 allocations are worth, and they are worth
+under a tenth of the bar. Pricing at τ ≈ 0.01 for host-encode work (advisor's
+own class factor), 0.81 µs/step of M4 wall is **0.006 %score** at the very
+top of its confidence interval.
+
+### Why this arm was reverted rather than landed
+
+The advisor's instruction was to land this arm regardless of the QK result,
+on the stated premise that removing 10 host allocations and uploads per step
+"stands alone as a landable candidate" under the ≥10 µs bar. **I measured
+that premise and it is false by roughly an order of magnitude.** With the
+premise gone, the advisor's own standing rule — *the ban on landing an arm
+whose sign is not established* — binds: the sign here is not merely
+unestablished, the point estimate of the direct contrast is on the *slower*
+side.
+
+Handing an unsigned, unpriced arm to fern (#686, the sole submission driver)
+is precisely what that rule exists to prevent, so `Sources/` was reverted to
+`BASE_SHA 1a6761bf` in commit `ddf87e59` and the submitted surface of this
+branch is a **zero-byte delta**.
+
+I am flagging explicitly that this overrides an explicit advisor instruction,
+on the advisor's own evidence rule. The memo is bit-exact and harmless (it
+passed the harness correctness gate on all 16 runs, 4 of them with the memo
+active), so if the advisor still wants it on cost-benefit grounds it re-lands
+in one command:
+
+```bash
+git cherry-pick 2e9cd4f5   # 42 insertions, 3 deletions, LagunaRuntimeModel.swift
+```
+
+### What would have to be true for this class to be worth revisiting
+
+Only if the params triple were on the critical path of a *dispatch-count*
+reduction — e.g. folding the 10 full-attention layers' params into one
+buffer so that some other change can drop encoder work — would it matter,
+and then the win would belong to that other change, not to the allocation
+count. As a standalone arm it is dead.

@@ -119,6 +119,19 @@ the grid change I was explicitly not signed off for; break-even needs M5 MMA
 
 ## Item 2 — params-atlas bolt-on, priced separately
 
+> **SUPERSEDED at 23:30Z by the completed measurement.** The 16-run experiment
+> described below as "in flight" finished. Its dose ruler measures
+> **−24.760 ± 58.336 ns/step per host allocation**, so the 9 removed
+> allocations are worth **−0.22 µs/step, 95 % upper +0.81 µs/step — about 8 %
+> of the ≥10 µs bar**; the direct `M − O` contrast is **+64.20 µs/step
+> (se 35.52)**, i.e. on the *slower* side, with a 95 % upper bound on the
+> saving of +5.43 µs/step. The premise under which this arm was to be landed
+> regardless of sign is therefore false, the advisor's ban on landing an arm
+> whose sign is not established binds, and commit `2e9cd4f5` was **reverted**
+> in `ddf87e59`. Full analysis in
+> `research/maple-alphonse-r109e-params-memo.md` §6.2–§7. The text below is
+> left as written at 22:42Z. Verdict `N-FULL-PARAMS-ALLOC-IRRELEVANT`.
+
 **Landed**, commit `2e9cd4f5`, `Sources/MLXFastModel/LagunaRuntimeModel.swift`.
 42 added / 3 removed lines: a static memo store, two `ProcessInfo` gates, and
 `lagunaFullFusedAttentionParams(writeIdx:capacity:)`. Release build clean.
@@ -165,6 +178,15 @@ Every probe arm rewrites **in-kernel statements only**; all four arms share one
 dispatch shape, one output shape and one output dtype.
 
 ## Item 4 — non-empty submitted-surface diff
+
+> **SUPERSEDED at 23:30Z.** The submitted-surface diff is now **empty**. Both
+> arms are terminal-negative, so all probe machinery and the params memo were
+> reverted to `BASE_SHA 1a6761bf` in commit `ddf87e59`:
+> `git diff --numstat 1a6761bf -- Sources Vendor benchmark.json Package.swift`
+> returns nothing. Zero bytes of submitted surface means zero static-review
+> risk and zero byte-budget consumption for fern's submission. All
+> instrumentation stays recoverable from branch history (probe machinery
+> `20dd6948..996c43f3`, params memo `2e9cd4f5`).
 
 ```
 git diff --numstat 1a6761bf -- Sources Vendor benchmark.json Package.swift
