@@ -22,6 +22,7 @@ Read-only with respect to the working tree; only fetches objects into .git.
 from __future__ import annotations
 
 import argparse
+import difflib
 import hashlib
 import json
 import os
@@ -94,15 +95,20 @@ def in_multiline_literal(lines: list[bytes], idx: int) -> bool:
 
 
 def inert_only(blob_a: bytes, blob_b: bytes) -> tuple[bool, list[str]]:
-    """True when every difference is a full-line `//` comment outside a \"\"\" literal."""
+    """True when every DIFFERING line is a full-line `//` comment outside a \"\"\" literal."""
     la, lb = blob_a.split(b"\n"), blob_b.split(b"\n")
     bad: list[str] = []
-    for lines in (la, lb):
-        for i, ln in enumerate(lines):
-            if ln.lstrip().startswith(b"//") and in_multiline_literal(lines, i):
-                bad.append(f"line {i + 1}: `//` inside a multiline literal")
-    if strip_comment_lines(blob_a) != strip_comment_lines(blob_b):
-        bad.append("non-comment bytes differ")
+    sm = difflib.SequenceMatcher(a=la, b=lb, autojunk=False)
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == "equal":
+            continue
+        for lines, lo, hi, side in ((la, i1, i2, "a"), (lb, j1, j2, "b")):
+            for i in range(lo, hi):
+                ln = lines[i]
+                if not ln.lstrip().startswith(b"//"):
+                    bad.append(f"{side}:line {i + 1}: non-comment change")
+                elif in_multiline_literal(lines, i):
+                    bad.append(f"{side}:line {i + 1}: `//` inside a multiline literal")
     return (not bad), bad
 
 
