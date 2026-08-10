@@ -64,3 +64,5 @@ local-docs/
 .env
 __pycache__/
 **/__pycache__/
+# in-flight benchmark stdout; force-added once all R107-E jobs finish
+research/artifacts/maple-alphonse-r107e/insitu/*.log
