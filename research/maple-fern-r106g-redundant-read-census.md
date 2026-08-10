@@ -71,6 +71,35 @@ Two smaller caveats, both handled in code:
   (patch line 101), so sub-buffer slicing is invisible. This is the one place
   N-INSTRUMENT could have fired — see §5.
 
+### 0.1 Two questions the advisor asked directly
+
+**Did this census inherit the `fern_r101_byte_audit.py` `g_proj` bug? No — it
+never touches that script.** Lines 172-176 there price `g_proj` as BF16 at
+4,096 B/head; HEAD uses affine INT8 group-32 at 2,304 B/head, a −4,300,800 B
+error over 2,400 heads. The four scripts in `research/r106g/scripts/` import
+only `research/r106c/scripts/dag_ledger.py` (for step extraction) and read only
+`dispatch_raw.tsv`, `research/artifacts/fern-r105d/decode-byte-census.json`,
+and `benchmark.json`. `grep -rn "fern_r101" research/r106g/` is empty. The
+advisor's warning that a *partial* fix is worse than none — because the
+−4,300,800 B `g_proj` overstatement nearly cancels an unrelated +5,732,384 B
+omission of activation operands — is precisely why routing around it was the
+right call rather than patching one side of the cancellation.
+
+**Does this census give a third independent estimate of `B`? No, and the reason
+is the instrument, not the effort.** Summing the DAG's own byte fields gives
+19,199,493,156 B/step — 11.5× the accepted `B` — because `note_in_buf` records
+the *binding extent* of each bound array, not the bytes the kernel traverses.
+A routed-MoE dispatch binds all 256 experts and reads 8. Nothing in the trace
+distinguishes those two without the gather indices, so the DAG **cannot**
+produce an independent magnitude for `B`. What it can produce independently,
+and what this report actually rests on, is the *structure*: which dispatch
+writes a range, which dispatches later read it, and in what order. I therefore
+took reader/writer structure from the DAG and per-family magnitudes from the
+accepted r105-D census, and every byte claim below is labelled TRAVERSAL to
+keep it separate from the BINDING numbers. Producing a genuine third estimate
+of `B` would need the dropped `offset` argument plus gather-index capture —
+scoped in §7 as a follow-up, not done here.
+
 ---
 
 ## 1. Stage 1 — the multi-read map
@@ -344,3 +373,14 @@ the four analysis scripts.
   a mechanism on the byte axis, and it found none worth a receipt. I suggest
   extending Rule 92 to cover fusion-for-bytes explicitly so a third student does
   not re-run this search.
+- **A genuinely independent third estimate of `B` is buildable but was out of
+  scope here** (§0.1). It needs two instrument changes: (a) a one-line fix at
+  `research/r106c/scripts/trace_dag.patch:101` to add the dropped `offset`
+  argument, which turns binding extents into real sub-buffer ranges; and
+  (b) capture of the MoE gather indices, without which a routed dispatch is
+  indistinguishable from one reading all 256 experts. With both, summing the
+  trace directly would yield a third `B` independent of both r105-D and
+  tanjiro's ledger. Given that (a) alone would only *tighten* the redundancy
+  bound already below the gate — it can only shrink apparent redundancy, never
+  grow it — I would not spend a round on this for its own sake, but it is the
+  right foundation if any future round needs per-dispatch traversal truth.
