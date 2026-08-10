@@ -1057,8 +1057,11 @@ private let lagunaResidualRMSNormRouterKernels: [Int: MLXFast.MLXFastKernel] =
             )
         })
 
-private let lagunaResidualRMSCoalescingGate0 =
-    ProcessInfo.processInfo.environment["DARKBLOOM_RESIDUAL_RMS_GATE0"] == "1"
+private let lagunaResidualRMSCoalescingGate0 = true
+
+private func lagunaResidualRMSGate0Log(_ message: String) {
+    FileHandle.standardError.write(Data((message + "\n").utf8))
+}
 
 private final class LagunaResidualRMSGate0State: @unchecked Sendable {
     private var ran = false
@@ -1157,11 +1160,11 @@ private func lagunaRunResidualRMSCoalescingGate0(
         .allSatisfy { $0.data == $1.data }
     let stockPhysical = lagunaRouterPrecomputedKeysEnabled ? 4 : 3
     let candidatePhysical = stockPhysical - 1
-    print("mlxfast: gate0 alias=\(alias) offset_bytes=\(normalizedAddress - packedAddress) strides_stock=\(stockMeta[0].strides) strides_views=\(candidateMeta[0].strides),\(candidateMeta[1].strides) stride_match=\(strideMatch) exact=\(exact) lifetime=\(lifetime)")
-    print("mlxfast: gate0 outputs physical=\(stockPhysical)->\(candidatePhysical) logical=\(stockPhysical)->\(candidatePhysical + 2) removed_per_layer_token=1 sparse_layers=39 projected_layers=40 allocator=custom_kernel.cpp:19-37")
-    print("mlxfast: gate0 trace stock=custom>add>eval candidate=custom>asStrided>asStrided>add>eval extra_kernel=0 extra_copy=0 extra_sync=0")
+    lagunaResidualRMSGate0Log("mlxfast: gate0 alias=\(alias) offset_bytes=\(normalizedAddress - packedAddress) strides_stock=\(stockMeta[0].strides) strides_views=\(candidateMeta[0].strides),\(candidateMeta[1].strides) stride_match=\(strideMatch) exact=\(exact) lifetime=\(lifetime)")
+    lagunaResidualRMSGate0Log("mlxfast: gate0 outputs physical=\(stockPhysical)->\(candidatePhysical) logical=\(stockPhysical)->\(candidatePhysical + 2) removed_per_layer_token=1 sparse_layers=39 projected_layers=40 allocator=custom_kernel.cpp:19-37")
+    lagunaResidualRMSGate0Log("mlxfast: gate0 trace stock=custom>add>eval candidate=custom>asStrided>asStrided>add>eval extra_kernel=0 extra_copy=0 extra_sync=0")
     guard alias && strideMatch && exact && lifetime else {
-        print("mlxfast: gate0 passed=false stop=alias_or_consumer")
+        lagunaResidualRMSGate0Log("mlxfast: gate0 passed=false stop=alias_or_consumer")
         return
     }
 
@@ -1192,7 +1195,7 @@ private func lagunaRunResidualRMSCoalescingGate0(
             ? [(times[0] - times[1]) * 40, (times[3] - times[2]) * 40]
             : [(times[1] - times[0]) * 40, (times[2] - times[3]) * 40]
         if order == "ABBA" { abba += contrasts } else { baab += contrasts }
-        print("mlxfast: gate0 raw block=\(block) order=\(order) us_layer=\(times) saving_us_token=\(contrasts)")
+        lagunaResidualRMSGate0Log("mlxfast: gate0 raw block=\(block) order=\(order) us_layer=\(times) saving_us_token=\(contrasts)")
     }
     func median(_ values: [Double]) -> Double {
         let sorted = values.sorted()
@@ -1206,7 +1209,7 @@ private func lagunaRunResidualRMSCoalescingGate0(
     let abbaMedian = median(abba)
     let baabMedian = median(baab)
     let passed = abbaMedian >= 35 && baabMedian >= 35 && center > 2 * mad
-    print("mlxfast: gate0 summary contrasts=\(all.count) abba_median_us_token=\(abbaMedian) baab_median_us_token=\(baabMedian) combined_median_us_token=\(center) pooled_mad_us_token=\(mad) threshold30=\(abbaMedian >= 30 && baabMedian >= 30) projection35=\(abbaMedian >= 35 && baabMedian >= 35) noise2x=\(center > 2 * mad) passed=\(passed)")
+    lagunaResidualRMSGate0Log("mlxfast: gate0 summary contrasts=\(all.count) abba_median_us_token=\(abbaMedian) baab_median_us_token=\(baabMedian) combined_median_us_token=\(center) pooled_mad_us_token=\(mad) threshold30=\(abbaMedian >= 30 && baabMedian >= 30) projection35=\(abbaMedian >= 35 && baabMedian >= 35) noise2x=\(center > 2 * mad) passed=\(passed)")
 }
 
 /// Residual add + RMSNorm for the layers whose MLP is not a sparse block
