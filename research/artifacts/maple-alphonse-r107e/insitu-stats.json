@@ -21,664 +21,700 @@
   },
   "decode": {
     "arm_means_s": {
-      "g0": 0.013080606119140624,
-      "g1": 0.01323031901171875,
-      "g2": 0.013184000326171874,
-      "g3": 0.01311252042578125
+      "g0": 0.01304835640625,
+      "g1": 0.013198003703124999,
+      "g2": 0.013173451458007811,
+      "g3": 0.013123186563476563
     },
     "axis": "decode",
     "contrasts": {
       "AB_interaction": {
         "banks_as_summand": false,
-        "best_case_gain_us_per_step_m4": 179.23296771425896,
-        "best_case_gain_us_per_token_m4": 179.23296771425896,
+        "best_case_gain_us_per_step_m4": 97.07595073959605,
+        "best_case_gain_us_per_token_m4": 97.07595073959605,
         "block_means": {
           "banks_as_summand": false,
-          "best_case_gain_us_per_step_m4": 391.3311789453168,
-          "best_case_gain_us_per_token_m4": 391.3311789453168,
-          "ci95_half_width_s": 0.00039853336839844187,
+          "best_case_gain_us_per_step_m4": 98.2630471751291,
+          "best_case_gain_us_per_token_m4": 98.2630471751291,
+          "ci95_half_width_s": 7.312409112044158e-05,
           "ci95_pct": [
-            -2.991689952139822,
-            3.1018100702371973
+            -0.7530683874335494,
+            0.3677485008209139
           ],
           "ci95_pct_cs_primary": [
-            -2.6035706322126493,
-            2.699404595651624
+            -0.6537551762330741,
+            0.31925053550975113
           ],
           "ci95_us_per_step_m4": [
-            -391.3311789453168,
-            405.73555785156697
+            -98.2630471751291,
+            47.98513506575405
           ],
           "ci95_us_per_token_m4": [
-            -391.3311789453168,
-            405.73555785156697
+            -98.2630471751291,
+            47.98513506575405
           ],
           "excludes_summand_sized_gain": false,
           "excludes_zero": false,
           "host": "M4 Pro, 20 GPU cores, applegpu_g16s, nax_available=false",
-          "mde_pct": 3.0467500111885095,
-          "mde_us_per_step_m4": 398.5333683984419,
-          "mde_us_per_token_m4": 398.5333683984419,
-          "mean_pct": 0.05506005904868746,
+          "mde_pct": 0.5604084441272317,
+          "mde_us_per_step_m4": 73.12409112044158,
+          "mde_us_per_token_m4": 73.12409112044158,
+          "mean_pct": -0.19265994330631775,
           "mean_pct_cs": {
-            "alpha_0.389": 0.042663552045961256,
-            "alpha_0.4369": 0.04791698171948707,
-            "beta_0.5": 0.05483747049609415
+            "alpha_0.389": -0.14891543286950407,
+            "alpha_0.4369": -0.16725232036166152,
+            "beta_0.5": -0.19140801140039082
           },
-          "mean_s": 7.2021894531250526e-06,
-          "mean_us_per_step_m4": 7.202189453125053,
-          "mean_us_per_token_m4": 7.202189453125053,
-          "n": 2,
+          "mean_s": -2.5138956054687528e-05,
+          "mean_us_per_step_m4": -25.138956054687526,
+          "mean_us_per_token_m4": -25.138956054687526,
+          "n": 4,
           "n_pairs_for_bar": 5,
-          "n_pairs_for_summand": 11,
+          "n_pairs_for_summand": 12,
           "priced_in_cs": true,
           "resolves_bar": false,
           "resolves_summand": false,
-          "sd_s": 4.435788561681959e-05,
-          "sign_neg": 1,
-          "sign_p": 1.0,
+          "sd_s": 4.596108807067353e-05,
+          "sign_neg": 3,
+          "sign_p": 0.625,
           "sign_pos": 1,
           "values_s": [
             3.8567951171875406e-05,
-            -2.41635722656253e-05
+            -2.41635722656253e-05,
+            -6.711970898437558e-05,
+            -4.7840494140624634e-05
           ]
         },
         "by_order": {
-          "forward": 0.00010369620898437442,
-          "reverse": -8.929183007812432e-05
+          "forward": 1.6702759765624495e-05,
+          "reverse": -6.698067187499955e-05
         },
-        "ci95_half_width_s": 0.000186435157167384,
+        "ci95_half_width_s": 7.193699468490853e-05,
         "ci95_pct": [
-          -1.3702191326745206,
-          1.4803392507718955
+          -0.7439707172092409,
+          0.35865083059660546
         ],
         "ci95_pct_cs_primary": [
-          -1.1924572233749102,
-          1.2882911868138842
+          -0.6458572892681563,
+          0.3113526485448333
         ],
         "ci95_us_per_step_m4": [
-          -179.23296771425896,
-          193.63734662050905
+          -97.07595073959605,
+          46.798038630221
         ],
         "ci95_us_per_token_m4": [
-          -179.23296771425896,
-          193.63734662050905
+          -97.07595073959605,
+          46.798038630221
         ],
         "excludes_summand_sized_gain": false,
         "excludes_zero": false,
         "host": "M4 Pro, 20 GPU cores, applegpu_g16s, nax_available=false",
-        "mde_pct": 1.4252791917232082,
-        "mde_us_per_step_m4": 186.435157167384,
-        "mde_us_per_token_m4": 186.435157167384,
-        "mean_pct": 0.05506005904868746,
+        "mde_pct": 0.5513107739029233,
+        "mde_us_per_step_m4": 71.93699468490853,
+        "mde_us_per_token_m4": 71.93699468490853,
+        "mean_pct": -0.19265994330631775,
         "mean_pct_cs": {
-          "alpha_0.389": 0.042663552045961256,
-          "alpha_0.4369": 0.04791698171948707,
-          "beta_0.5": 0.05483747049609415
+          "alpha_0.389": -0.14891543286950407,
+          "alpha_0.4369": -0.16725232036166152,
+          "beta_0.5": -0.19140801140039082
         },
-        "mean_s": 7.2021894531250526e-06,
-        "mean_us_per_step_m4": 7.202189453125053,
-        "mean_us_per_token_m4": 7.202189453125053,
-        "n": 4,
-        "n_pairs_for_bar": 18,
-        "n_pairs_for_summand": 57,
+        "mean_s": -2.5138956054687528e-05,
+        "mean_us_per_step_m4": -25.138956054687526,
+        "mean_us_per_token_m4": -25.138956054687526,
+        "n": 8,
+        "n_pairs_for_bar": 11,
+        "n_pairs_for_summand": 33,
         "priced_in_cs": true,
         "resolves_bar": false,
         "resolves_summand": false,
-        "sd_s": 0.00011718111701281207,
-        "sign_neg": 2,
-        "sign_p": 1.0,
+        "sd_s": 8.603321227886587e-05,
+        "sign_neg": 6,
+        "sign_p": 0.2890625,
         "sign_pos": 2,
         "values_s": [
           0.0001369734687499992,
           -5.983756640624838e-05,
           7.041894921874965e-05,
-          -0.00011874609375000025
+          -0.00011874609375000025,
+          -9.740901562500098e-05,
+          -3.683040234375018e-05,
+          -4.3172363281249876e-05,
+          -5.250862499999939e-05
         ]
       },
       "A_amortisation": {
         "banks_as_summand": false,
-        "best_case_gain_us_per_step_m4": -88.3680247858729,
-        "best_case_gain_us_per_token_m4": -88.3680247858729,
+        "best_case_gain_us_per_step_m4": -46.02614478595082,
+        "best_case_gain_us_per_token_m4": -46.02614478595082,
         "block_means": {
           "banks_as_summand": false,
-          "best_case_gain_us_per_step_m4": -29.23531226562808,
-          "best_case_gain_us_per_token_m4": -29.23531226562808,
-          "ci95_half_width_s": 8.136108421874603e-05,
+          "best_case_gain_us_per_step_m4": -31.243999832704688,
+          "best_case_gain_us_per_token_m4": -31.243999832704688,
+          "ci95_half_width_s": 6.871209587041977e-05,
           "ci95_pct": [
-            0.22350120475570745,
-            1.4674968342807302
+            0.23944778070086442,
+            1.2926393663860551
           ],
           "ci95_pct_cs_primary": [
-            0.1945058419405721,
-            1.277114848704674
+            0.20786986770776536,
+            1.1221685717780758
           ],
           "ci95_us_per_step_m4": [
-            29.23531226562808,
-            191.95748070312015
+            31.243999832704688,
+            168.66819157354422
           ],
           "ci95_us_per_token_m4": [
-            29.23531226562808,
-            191.95748070312015
+            31.243999832704688,
+            168.66819157354422
           ],
           "excludes_summand_sized_gain": true,
           "excludes_zero": true,
           "host": "M4 Pro, 20 GPU cores, applegpu_g16s, nax_available=false",
-          "mde_pct": 0.6219978147625114,
-          "mde_us_per_step_m4": 81.36108421874603,
-          "mde_us_per_token_m4": 81.36108421874603,
-          "mean_pct": 0.8454990195182188,
+          "mde_pct": 0.5265957928425954,
+          "mde_us_per_step_m4": 68.71209587041977,
+          "mde_us_per_token_m4": 68.71209587041977,
+          "mean_pct": 0.7660435735434598,
           "mean_pct_cs": {
-            "alpha_0.389": 0.655138989083315,
-            "alpha_0.4369": 0.735810345322623,
-            "beta_0.5": 0.8420809628320245
+            "alpha_0.389": 0.5921091244678327,
+            "alpha_0.4369": 0.6650192197429207,
+            "beta_0.5": 0.7610657126835897
           },
-          "mean_s": 0.00011059639648437411,
-          "mean_us_per_step_m4": 110.59639648437411,
-          "mean_us_per_token_m4": 110.59639648437411,
-          "n": 2,
-          "n_pairs_for_bar": 3,
-          "n_pairs_for_summand": 3,
+          "mean_s": 9.995609570312446e-05,
+          "mean_us_per_step_m4": 99.95609570312446,
+          "mean_us_per_token_m4": 99.95609570312446,
+          "n": 4,
+          "n_pairs_for_bar": 5,
+          "n_pairs_for_summand": 11,
           "priced_in_cs": true,
           "resolves_bar": false,
           "resolves_summand": false,
-          "sd_s": 9.055717672873465e-06,
+          "sd_s": 4.318799237612808e-05,
           "sign_neg": 0,
-          "sign_p": 0.5,
-          "sign_pos": 2,
+          "sign_p": 0.125,
+          "sign_pos": 4,
           "values_s": [
             0.0001169997558593738,
-            0.00010419303710937442
+            0.00010419303710937442,
+            0.00013961856835937453,
+            3.901302148437511e-05
           ]
         },
         "by_order": {
-          "forward": 0.00012079923632812416,
-          "reverse": 0.00010039355664062406
+          "forward": 9.223848437499944e-05,
+          "reverse": 0.00010767370703124949
         },
-        "ci95_half_width_s": 2.2228371698501206e-05,
+        "ci95_half_width_s": 5.392995091717364e-05,
         "ci95_pct": [
-          0.6755652144938873,
-          1.0154328245425501
+          0.35273519018766897,
+          1.1793519568992508
         ],
         "ci95_pct_cs_primary": [
-          0.5879224721608183,
-          0.8836982184844279
+          0.3062171514205206,
+          1.0238212880653206
         ],
         "ci95_us_per_step_m4": [
-          88.3680247858729,
-          132.82476818287532
+          46.02614478595082,
+          153.8860466202981
         ],
         "ci95_us_per_token_m4": [
-          88.3680247858729,
-          132.82476818287532
+          46.02614478595082,
+          153.8860466202981
         ],
         "excludes_summand_sized_gain": true,
         "excludes_zero": true,
         "host": "M4 Pro, 20 GPU cores, applegpu_g16s, nax_available=false",
-        "mde_pct": 0.1699338050243315,
-        "mde_us_per_step_m4": 22.228371698501206,
-        "mde_us_per_token_m4": 22.228371698501206,
-        "mean_pct": 0.8454990195182188,
+        "mde_pct": 0.41330838335579084,
+        "mde_us_per_step_m4": 53.92995091717364,
+        "mde_us_per_token_m4": 53.92995091717364,
+        "mean_pct": 0.7660435735434598,
         "mean_pct_cs": {
-          "alpha_0.389": 0.655138989083315,
-          "alpha_0.4369": 0.735810345322623,
-          "beta_0.5": 0.8420809628320245
+          "alpha_0.389": 0.5921091244678327,
+          "alpha_0.4369": 0.6650192197429207,
+          "beta_0.5": 0.7610657126835897
         },
-        "mean_s": 0.00011059639648437411,
-        "mean_us_per_step_m4": 110.59639648437411,
-        "mean_us_per_token_m4": 110.59639648437411,
-        "n": 4,
-        "n_pairs_for_bar": 3,
-        "n_pairs_for_summand": 4,
+        "mean_s": 9.995609570312446e-05,
+        "mean_us_per_step_m4": 99.95609570312446,
+        "mean_us_per_token_m4": 99.95609570312446,
+        "n": 8,
+        "n_pairs_for_bar": 7,
+        "n_pairs_for_summand": 19,
         "priced_in_cs": true,
         "resolves_bar": true,
-        "resolves_summand": true,
-        "sd_s": 1.3971320992144065e-05,
+        "resolves_summand": false,
+        "sd_s": 6.449764736167637e-05,
         "sign_neg": 0,
-        "sign_p": 0.125,
-        "sign_pos": 4,
+        "sign_p": 0.0078125,
+        "sign_pos": 8,
         "values_s": [
           0.00012834163281249915,
           0.00010565787890624845,
           0.00011325683984374918,
-          9.512923437499966e-05
+          9.512923437499966e-05,
+          5.299364843749932e-05,
+          0.00022624348828124974,
+          7.436181640625011e-05,
+          3.6642265625001086e-06
         ]
       },
       "B_threadgroup_shape": {
         "banks_as_summand": false,
-        "best_case_gain_us_per_step_m4": 197.52033489781857,
-        "best_case_gain_us_per_token_m4": 197.52033489781857,
+        "best_case_gain_us_per_step_m4": 40.7935017156489,
+        "best_case_gain_us_per_token_m4": 40.7935017156489,
         "block_means": {
           "banks_as_summand": false,
-          "best_case_gain_us_per_step_m4": 21.626298871089197,
-          "best_case_gain_us_per_token_m4": 21.626298871089197,
-          "ci95_half_width_s": 6.0742794964840405e-05,
+          "best_case_gain_us_per_step_m4": -21.74195717976969,
+          "best_case_gain_us_per_token_m4": -21.74195717976969,
+          "ci95_half_width_s": 2.7949243992105406e-05,
           "ci95_pct": [
-            -0.16533101504710707,
-            0.7634148612767205
+            0.166626021721445,
+            0.5950208803830014
           ],
           "ci95_pct_cs_primary": [
-            -0.14388221448638863,
-            0.6643751674845579
+            0.1446517023065605,
+            0.5165506705743548
           ],
           "ci95_us_per_step_m4": [
-            -21.626298871089197,
-            99.85929105859162
+            21.74195717976969,
+            77.6404451639805
           ],
           "ci95_us_per_token_m4": [
-            -21.626298871089197,
-            99.85929105859162
+            21.74195717976969,
+            77.6404451639805
           ],
           "excludes_summand_sized_gain": true,
-          "excludes_zero": false,
+          "excludes_zero": true,
           "host": "M4 Pro, 20 GPU cores, applegpu_g16s, nax_available=false",
-          "mde_pct": 0.46437293816191383,
-          "mde_us_per_step_m4": 60.74279496484041,
-          "mde_us_per_token_m4": 60.74279496484041,
-          "mean_pct": 0.29904192311480676,
+          "mde_pct": 0.21419742933077815,
+          "mde_us_per_step_m4": 27.949243992105405,
+          "mde_us_per_token_m4": 27.949243992105405,
+          "mean_pct": 0.38082345105222315,
           "mean_pct_cs": {
-            "alpha_0.389": 0.23171407497858532,
-            "alpha_0.4369": 0.2602464764990846,
-            "beta_0.5": 0.2978330012578217
+            "alpha_0.389": 0.2943553708522271,
+            "alpha_0.4369": 0.33060118644045766,
+            "beta_0.5": 0.37834880572265694
           },
-          "mean_s": 3.911649609375121e-05,
-          "mean_us_per_step_m4": 39.11649609375121,
-          "mean_us_per_token_m4": 39.11649609375121,
-          "n": 2,
+          "mean_s": 4.969120117187509e-05,
+          "mean_us_per_step_m4": 49.69120117187509,
+          "mean_us_per_token_m4": 49.69120117187509,
+          "n": 4,
           "n_pairs_for_bar": 3,
-          "n_pairs_for_summand": 3,
+          "n_pairs_for_summand": 4,
           "priced_in_cs": true,
-          "resolves_bar": false,
-          "resolves_summand": false,
-          "sd_s": 6.760844046570553e-06,
+          "resolves_bar": true,
+          "resolves_summand": true,
+          "sd_s": 1.7567092389758268e-05,
           "sign_neg": 0,
-          "sign_p": 0.5,
-          "sign_pos": 2,
+          "sign_p": 0.125,
+          "sign_pos": 4,
           "values_s": [
             3.4335857421876476e-05,
-            4.389713476562595e-05
+            4.389713476562595e-05,
+            7.497647460937354e-05,
+            4.555533789062441e-05
           ]
         },
         "by_order": {
-          "forward": 3.554923632812651e-05,
-          "reverse": 4.2683755859375914e-05
+          "forward": 7.57587480468753e-05,
+          "reverse": 2.3623654296874887e-05
         },
-        "ci95_half_width_s": 0.00023663683099156977,
+        "ci95_half_width_s": 9.048470288752399e-05,
         "ci95_pct": [
-          -1.510024329903111,
-          2.1081081761327245
+          -0.3126332577496835,
+          1.07428015985413
         ],
         "ci95_pct_cs_primary": [
-          -1.3141251473770974,
-          1.8346181003752664
+          -0.2714037847386063,
+          0.9326061576195217
         ],
         "ci95_us_per_step_m4": [
-          -197.52033489781857,
-          275.75332708532096
+          -40.7935017156489,
+          140.1759040593991
         ],
         "ci95_us_per_token_m4": [
-          -197.52033489781857,
-          275.75332708532096
+          -40.7935017156489,
+          140.1759040593991
         ],
         "excludes_summand_sized_gain": false,
         "excludes_zero": false,
         "host": "M4 Pro, 20 GPU cores, applegpu_g16s, nax_available=false",
-        "mde_pct": 1.809066253017918,
-        "mde_us_per_step_m4": 236.63683099156978,
-        "mde_us_per_token_m4": 236.63683099156978,
-        "mean_pct": 0.29904192311480676,
+        "mde_pct": 0.6934567088019067,
+        "mde_us_per_step_m4": 90.484702887524,
+        "mde_us_per_token_m4": 90.484702887524,
+        "mean_pct": 0.38082345105222315,
         "mean_pct_cs": {
-          "alpha_0.389": 0.23171407497858532,
-          "alpha_0.4369": 0.2602464764990846,
-          "beta_0.5": 0.2978330012578217
+          "alpha_0.389": 0.2943553708522271,
+          "alpha_0.4369": 0.33060118644045766,
+          "beta_0.5": 0.37834880572265694
         },
-        "mean_s": 3.911649609375121e-05,
-        "mean_us_per_step_m4": 39.11649609375121,
-        "mean_us_per_token_m4": 39.11649609375121,
-        "n": 4,
+        "mean_s": 4.969120117187509e-05,
+        "mean_us_per_step_m4": 49.69120117187509,
+        "mean_us_per_token_m4": 49.69120117187509,
+        "n": 8,
+        "n_pairs_for_bar": 15,
+        "n_pairs_for_summand": 49,
+        "priced_in_cs": true,
+        "resolves_bar": false,
+        "resolves_summand": false,
+        "sd_s": 0.0001082153860556756,
+        "sign_neg": 2,
+        "sign_p": 0.2890625,
+        "sign_pos": 6,
+        "values_s": [
+          -9.790120312499866e-05,
+          0.0001665729179687516,
+          0.00016899967578125168,
+          -8.120540624999978e-05,
+          0.00014963134374999798,
+          3.216054687490977e-07,
+          8.23051757812502e-05,
+          8.80549999999862e-06
+        ]
+      },
+      "g1_vs_g0": {
+        "banks_as_summand": false,
+        "best_case_gain_us_per_step_m4": -53.35571325289298,
+        "best_case_gain_us_per_token_m4": -53.35571325289298,
+        "block_means": {
+          "banks_as_summand": false,
+          "best_case_gain_us_per_step_m4": -65.16558199505366,
+          "best_case_gain_us_per_token_m4": -65.16558199505366,
+          "ci95_half_width_s": 8.448171487994634e-05,
+          "ci95_pct": [
+            0.4994160181265447,
+            1.794318031064828
+          ],
+          "ci95_pct_cs_primary": [
+            0.43355399375697384,
+            1.5576868186097885
+          ],
+          "ci95_us_per_step_m4": [
+            65.16558199505366,
+            234.12901175494633
+          ],
+          "ci95_us_per_token_m4": [
+            65.16558199505366,
+            234.12901175494633
+          ],
+          "excludes_summand_sized_gain": true,
+          "excludes_zero": true,
+          "host": "M4 Pro, 20 GPU cores, applegpu_g16s, nax_available=false",
+          "mde_pct": 0.6474510064691417,
+          "mde_us_per_step_m4": 84.48171487994634,
+          "mde_us_per_token_m4": 84.48171487994634,
+          "mean_pct": 1.1468670245956862,
+          "mean_pct_cs": {
+            "alpha_0.389": 0.8864644953200626,
+            "alpha_0.4369": 0.9956204061833812,
+            "beta_0.5": 1.13941451840625
+          },
+          "mean_s": 0.000149647296875,
+          "mean_us_per_step_m4": 149.647296875,
+          "mean_us_per_token_m4": 149.647296875,
+          "n": 4,
+          "n_pairs_for_bar": 6,
+          "n_pairs_for_summand": 15,
+          "priced_in_cs": true,
+          "resolves_bar": false,
+          "resolves_summand": false,
+          "sd_s": 5.3099757938369796e-05,
+          "sign_neg": 0,
+          "sign_p": 0.125,
+          "sign_pos": 4,
+          "values_s": [
+            0.00015133561328125027,
+            0.00014809017187500037,
+            0.0002145950429687498,
+            8.456835937499952e-05
+          ]
+        },
+        "by_order": {
+          "forward": 0.00016799723242187517,
+          "reverse": 0.0001312973613281248
+        },
+        "ci95_half_width_s": 9.629158362210701e-05,
+        "ci95_pct": [
+          0.4089075404725783,
+          1.884826508718794
+        ],
+        "ci95_pct_cs_primary": [
+          0.35498160013823726,
+          1.636259212228525
+        ],
+        "ci95_us_per_step_m4": [
+          53.35571325289298,
+          245.938880497107
+        ],
+        "ci95_us_per_token_m4": [
+          53.35571325289298,
+          245.938880497107
+        ],
+        "excludes_summand_sized_gain": true,
+        "excludes_zero": true,
+        "host": "M4 Pro, 20 GPU cores, applegpu_g16s, nax_available=false",
+        "mde_pct": 0.737959484123108,
+        "mde_us_per_step_m4": 96.29158362210701,
+        "mde_us_per_token_m4": 96.29158362210701,
+        "mean_pct": 1.1468670245956862,
+        "mean_pct_cs": {
+          "alpha_0.389": 0.8864644953200626,
+          "alpha_0.4369": 0.9956204061833812,
+          "beta_0.5": 1.13941451840625
+        },
+        "mean_s": 0.000149647296875,
+        "mean_us_per_step_m4": 149.647296875,
+        "mean_us_per_token_m4": 149.647296875,
+        "n": 8,
+        "n_pairs_for_bar": 17,
+        "n_pairs_for_summand": 55,
+        "priced_in_cs": true,
+        "resolves_bar": false,
+        "resolves_summand": false,
+        "sd_s": 0.00011516013826703317,
+        "sign_neg": 0,
+        "sign_p": 0.0078125,
+        "sign_pos": 8,
+        "values_s": [
+          3.0440429687500492e-05,
+          0.00027223079687500006,
+          0.00028225651562500086,
+          1.3923828124999885e-05,
+          0.00020262499218749903,
+          0.00022656509375000057,
+          0.0001566669921875003,
+          1.2469726562498729e-05
+        ]
+      },
+      "g2_vs_g0": {
+        "banks_as_summand": false,
+        "best_case_gain_us_per_step_m4": -48.55854622162428,
+        "best_case_gain_us_per_token_m4": -48.55854622162428,
+        "block_means": {
+          "banks_as_summand": false,
+          "best_case_gain_us_per_step_m4": -31.798002536735694,
+          "best_case_gain_us_per_token_m4": -31.798002536735694,
+          "ci95_half_width_s": 9.329704922107673e-05,
+          "ci95_pct": [
+            0.24369354688614153,
+            1.6737134868134202
+          ],
+          "ci95_pct_cs_primary": [
+            0.21155571041078974,
+            1.4529873697983806
+          ],
+          "ci95_us_per_step_m4": [
+            31.798002536735694,
+            218.39210097888918
+          ],
+          "ci95_us_per_token_m4": [
+            31.798002536735694,
+            218.39210097888918
+          ],
+          "excludes_summand_sized_gain": true,
+          "excludes_zero": true,
+          "host": "M4 Pro, 20 GPU cores, applegpu_g16s, nax_available=false",
+          "mde_pct": 0.7150099699636393,
+          "mde_us_per_step_m4": 93.29704922107673,
+          "mde_us_per_token_m4": 93.29704922107673,
+          "mean_pct": 0.9587035168497808,
+          "mean_pct_cs": {
+            "alpha_0.389": 0.7410245573373394,
+            "alpha_0.4369": 0.832271540104585,
+            "beta_0.5": 0.9524737240839838
+          },
+          "mean_s": 0.00012509505175781243,
+          "mean_us_per_step_m4": 125.09505175781243,
+          "mean_us_per_token_m4": 125.09505175781243,
+          "n": 4,
+          "n_pairs_for_bar": 7,
+          "n_pairs_for_summand": 17,
+          "priced_in_cs": true,
+          "resolves_bar": false,
+          "resolves_summand": false,
+          "sd_s": 5.864050862418399e-05,
+          "sign_neg": 0,
+          "sign_p": 0.125,
+          "sign_pos": 4,
+          "values_s": [
+            7.843180468749926e-05,
+            0.00012835660937499972,
+            0.00020673827734375098,
+            8.685351562499975e-05
+          ]
+        },
+        "by_order": {
+          "forward": 7.553572460937494e-05,
+          "reverse": 0.0001746543789062499
+        },
+        "ci95_half_width_s": 7.653650553618815e-05,
+        "ci95_pct": [
+          0.37214300950857954,
+          1.545264024190982
+        ],
+        "ci95_pct_cs_primary": [
+          0.32306550483989865,
+          1.3414775753692714
+        ],
+        "ci95_us_per_step_m4": [
+          48.55854622162428,
+          201.63155729400057
+        ],
+        "ci95_us_per_token_m4": [
+          48.55854622162428,
+          201.63155729400057
+        ],
+        "excludes_summand_sized_gain": true,
+        "excludes_zero": true,
+        "host": "M4 Pro, 20 GPU cores, applegpu_g16s, nax_available=false",
+        "mde_pct": 0.5865605073412014,
+        "mde_us_per_step_m4": 76.53650553618814,
+        "mde_us_per_token_m4": 76.53650553618814,
+        "mean_pct": 0.9587035168497808,
+        "mean_pct_cs": {
+          "alpha_0.389": 0.7410245573373394,
+          "alpha_0.4369": 0.832271540104585,
+          "beta_0.5": 0.9524737240839838
+        },
+        "mean_s": 0.00012509505175781243,
+        "mean_us_per_step_m4": 125.09505175781243,
+        "mean_us_per_token_m4": 125.09505175781243,
+        "n": 8,
+        "n_pairs_for_bar": 12,
+        "n_pairs_for_summand": 35,
+        "priced_in_cs": true,
+        "resolves_bar": false,
+        "resolves_summand": false,
+        "sd_s": 9.153400773439388e-05,
+        "sign_neg": 1,
+        "sign_p": 0.0703125,
+        "sign_pos": 7,
+        "values_s": [
+          -8.63183593750004e-06,
+          0.00016549544531249856,
+          4.283789062499953e-05,
+          0.00021387532812499992,
+          0.0001504026640625003,
+          0.00026307389062500165,
+          0.00011753417968749999,
+          5.61728515624995e-05
+        ]
+      },
+      "g3_vs_g0": {
+        "banks_as_summand": false,
+        "best_case_gain_us_per_step_m4": 49.46183056597903,
+        "best_case_gain_us_per_token_m4": 49.46183056597903,
+        "block_means": {
+          "banks_as_summand": false,
+          "best_case_gain_us_per_step_m4": 22.234176565817577,
+          "best_case_gain_us_per_token_m4": 22.234176565817577,
+          "ci95_half_width_s": 9.70643337923802e-05,
+          "ci95_pct": [
+            -0.17039829288513064,
+            1.3173650816022122
+          ],
+          "ci95_pct_cs_primary": [
+            -0.1479264936011716,
+            1.1436335072054098
+          ],
+          "ci95_us_per_step_m4": [
+            -22.234176565817577,
+            171.8944910189428
+          ],
+          "ci95_us_per_token_m4": [
+            -22.234176565817577,
+            171.8944910189428
+          ],
+          "excludes_summand_sized_gain": true,
+          "excludes_zero": false,
+          "host": "M4 Pro, 20 GPU cores, applegpu_g16s, nax_available=false",
+          "mde_pct": 0.7438816872436715,
+          "mde_us_per_step_m4": 97.0643337923802,
+          "mde_us_per_token_m4": 97.0643337923802,
+          "mean_pct": 0.5734833943585409,
+          "mean_pct_cs": {
+            "alpha_0.389": 0.44327080372173117,
+            "alpha_0.4369": 0.4978535068021192,
+            "beta_0.5": 0.5697568171230478
+          },
+          "mean_s": 7.483015722656262e-05,
+          "mean_us_per_step_m4": 74.83015722656262,
+          "mean_us_per_token_m4": 74.83015722656262,
+          "n": 4,
+          "n_pairs_for_bar": 7,
+          "n_pairs_for_summand": 18,
+          "priced_in_cs": true,
+          "resolves_bar": false,
+          "resolves_summand": false,
+          "sd_s": 6.100838076202401e-05,
+          "sign_neg": 1,
+          "sign_p": 0.625,
+          "sign_pos": 3,
+          "values_s": [
+            -4.232093749999798e-06,
+            6.806070703125038e-05,
+            0.00014209618359375,
+            9.339583203124991e-05
+          ]
+        },
+        "by_order": {
+          "forward": 5.905598828124994e-05,
+          "reverse": 9.06043261718753e-05
+        },
+        "ci95_half_width_s": 0.00012429198779254164,
+        "ci95_pct": [
+          -0.37906560049423105,
+          1.526032389211313
+        ],
+        "ci95_pct_cs_primary": [
+          -0.32907515783467856,
+          1.324782171438917
+        ],
+        "ci95_us_per_step_m4": [
+          -49.46183056597903,
+          199.12214501910427
+        ],
+        "ci95_us_per_token_m4": [
+          -49.46183056597903,
+          199.12214501910427
+        ],
+        "excludes_summand_sized_gain": false,
+        "excludes_zero": false,
+        "host": "M4 Pro, 20 GPU cores, applegpu_g16s, nax_available=false",
+        "mde_pct": 0.9525489948527719,
+        "mde_us_per_step_m4": 124.29198779254165,
+        "mde_us_per_token_m4": 124.29198779254165,
+        "mean_pct": 0.5734833943585409,
+        "mean_pct_cs": {
+          "alpha_0.389": 0.44327080372173117,
+          "alpha_0.4369": 0.4978535068021192,
+          "beta_0.5": 0.5697568171230478
+        },
+        "mean_s": 7.483015722656262e-05,
+        "mean_us_per_step_m4": 74.83015722656262,
+        "mean_us_per_token_m4": 74.83015722656262,
+        "n": 8,
         "n_pairs_for_bar": 26,
         "n_pairs_for_summand": 91,
         "priced_in_cs": true,
         "resolves_bar": false,
         "resolves_summand": false,
-        "sd_s": 0.00014873465178602752,
-        "sign_neg": 2,
-        "sign_p": 1.0,
-        "sign_pos": 2,
-        "values_s": [
-          -9.790120312499866e-05,
-          0.0001665729179687516,
-          0.00016899967578125168,
-          -8.120540624999978e-05
-        ]
-      },
-      "g1_vs_g0": {
-        "banks_as_summand": false,
-        "best_case_gain_us_per_step_m4": 84.91338173529857,
-        "best_case_gain_us_per_token_m4": 84.91338173529857,
-        "block_means": {
-          "banks_as_summand": false,
-          "best_case_gain_us_per_step_m4": -129.0946033242197,
-          "best_case_gain_us_per_token_m4": -129.0946033242197,
-          "ci95_half_width_s": 2.0618289253905636e-05,
-          "ci95_pct": [
-            0.986916066032428,
-            1.3021658192336232
-          ],
-          "ci95_pct_cs_primary": [
-            0.8588810094251299,
-            1.1332326342182852
-          ],
-          "ci95_us_per_step_m4": [
-            129.0946033242197,
-            170.33118183203095
-          ],
-          "ci95_us_per_token_m4": [
-            129.0946033242197,
-            170.33118183203095
-          ],
-          "excludes_summand_sized_gain": true,
-          "excludes_zero": true,
-          "host": "M4 Pro, 20 GPU cores, applegpu_g16s, nax_available=false",
-          "mde_pct": 0.15762487660059765,
-          "mde_us_per_step_m4": 20.618289253905637,
-          "mde_us_per_token_m4": 20.618289253905637,
-          "mean_pct": 1.1445409426330255,
-          "mean_pct_cs": {
-            "alpha_0.389": 0.8868530640619005,
-            "alpha_0.4369": 0.9960568218217076,
-            "beta_0.5": 1.1399139640898461
-          },
-          "mean_s": 0.00014971289257812532,
-          "mean_us_per_step_m4": 149.71289257812532,
-          "mean_us_per_token_m4": 149.71289257812532,
-          "n": 2,
-          "n_pairs_for_bar": 2,
-          "n_pairs_for_summand": 2,
-          "priced_in_cs": true,
-          "resolves_bar": true,
-          "resolves_summand": true,
-          "sd_s": 2.2948736263029118e-06,
-          "sign_neg": 0,
-          "sign_p": 0.5,
-          "sign_pos": 2,
-          "values_s": [
-            0.00015133561328125027,
-            0.00014809017187500037
-          ]
-        },
-        "by_order": {
-          "forward": 0.00015634847265625067,
-          "reverse": 0.00014307731249999997
-        },
-        "ci95_half_width_s": 0.0002346262743134239,
-        "ci95_pct": [
-          -0.6491547942189491,
-          2.9382366794850006
-        ],
-        "ci95_pct_cs_primary": [
-          -0.5649383408797538,
-          2.557051984523169
-        ],
-        "ci95_us_per_step_m4": [
-          -84.91338173529857,
-          384.3391668915492
-        ],
-        "ci95_us_per_token_m4": [
-          -84.91338173529857,
-          384.3391668915492
-        ],
-        "excludes_summand_sized_gain": false,
-        "excludes_zero": false,
-        "host": "M4 Pro, 20 GPU cores, applegpu_g16s, nax_available=false",
-        "mde_pct": 1.7936957368519748,
-        "mde_us_per_step_m4": 234.6262743134239,
-        "mde_us_per_token_m4": 234.6262743134239,
-        "mean_pct": 1.1445409426330255,
-        "mean_pct_cs": {
-          "alpha_0.389": 0.8868530640619005,
-          "alpha_0.4369": 0.9960568218217076,
-          "beta_0.5": 1.1399139640898461
-        },
-        "mean_s": 0.00014971289257812532,
-        "mean_us_per_step_m4": 149.71289257812532,
-        "mean_us_per_token_m4": 149.71289257812532,
-        "n": 4,
-        "n_pairs_for_bar": 26,
-        "n_pairs_for_summand": 90,
-        "priced_in_cs": true,
-        "resolves_bar": false,
-        "resolves_summand": false,
-        "sd_s": 0.0001474709455144085,
-        "sign_neg": 0,
-        "sign_p": 0.125,
-        "sign_pos": 4,
-        "values_s": [
-          3.0440429687500492e-05,
-          0.00027223079687500006,
-          0.00028225651562500086,
-          1.3923828124999885e-05
-        ]
-      },
-      "g2_vs_g0": {
-        "banks_as_summand": false,
-        "best_case_gain_us_per_step_m4": 61.63972442022137,
-        "best_case_gain_us_per_token_m4": 61.63972442022137,
-        "block_means": {
-          "banks_as_summand": false,
-          "best_case_gain_us_per_step_m4": 213.77807714844084,
-          "best_case_gain_us_per_token_m4": 213.77807714844084,
-          "ci95_half_width_s": 0.00031717228417969036,
-          "ci95_pct": [
-            -1.634313235956422,
-            3.215191156895491
-          ],
-          "ci95_pct_cs_primary": [
-            -1.4222897469469102,
-            2.7980764741531883
-          ],
-          "ci95_us_per_step_m4": [
-            -213.77807714844084,
-            420.56649121093983
-          ],
-          "ci95_us_per_token_m4": [
-            -213.77807714844084,
-            420.56649121093983
-          ],
-          "excludes_summand_sized_gain": false,
-          "excludes_zero": false,
-          "host": "M4 Pro, 20 GPU cores, applegpu_g16s, nax_available=false",
-          "mde_pct": 2.4247521964259566,
-          "mde_us_per_step_m4": 317.17228417969034,
-          "mde_us_per_token_m4": 317.17228417969034,
-          "mean_pct": 0.7904389604695347,
-          "mean_pct_cs": {
-            "alpha_0.389": 0.6124754370373564,
-            "alpha_0.4369": 0.6878933636031389,
-            "beta_0.5": 0.7872434923359336
-          },
-          "mean_s": 0.00010339420703124949,
-          "mean_us_per_step_m4": 103.3942070312495,
-          "mean_us_per_token_m4": 103.3942070312495,
-          "n": 2,
-          "n_pairs_for_bar": 4,
-          "n_pairs_for_summand": 8,
-          "priced_in_cs": true,
-          "resolves_bar": false,
-          "resolves_summand": false,
-          "sd_s": 3.530216794394551e-05,
-          "sign_neg": 0,
-          "sign_p": 0.5,
-          "sign_pos": 2,
-          "values_s": [
-            7.843180468749926e-05,
-            0.00012835660937499972
-          ]
-        },
-        "by_order": {
-          "forward": 1.7103027343749744e-05,
-          "reverse": 0.00018968538671874924
-        },
-        "ci95_half_width_s": 0.00016503393145147086,
-        "ci95_pct": [
-          -0.47122987924867665,
-          2.0521078001877457
-        ],
-        "ci95_pct_cs_primary": [
-          -0.41009606418453715,
-          1.7858827913908146
-        ],
-        "ci95_us_per_step_m4": [
-          -61.63972442022137,
-          268.4281384827203
-        ],
-        "ci95_us_per_token_m4": [
-          -61.63972442022137,
-          268.4281384827203
-        ],
-        "excludes_summand_sized_gain": false,
-        "excludes_zero": false,
-        "host": "M4 Pro, 20 GPU cores, applegpu_g16s, nax_available=false",
-        "mde_pct": 1.2616688397182114,
-        "mde_us_per_step_m4": 165.03393145147086,
-        "mde_us_per_token_m4": 165.03393145147086,
-        "mean_pct": 0.7904389604695347,
-        "mean_pct_cs": {
-          "alpha_0.389": 0.6124754370373564,
-          "alpha_0.4369": 0.6878933636031389,
-          "beta_0.5": 0.7872434923359336
-        },
-        "mean_s": 0.00010339420703124949,
-        "mean_us_per_step_m4": 103.3942070312495,
-        "mean_us_per_token_m4": 103.3942070312495,
-        "n": 4,
-        "n_pairs_for_bar": 14,
-        "n_pairs_for_summand": 45,
-        "priced_in_cs": true,
-        "resolves_bar": false,
-        "resolves_summand": false,
-        "sd_s": 0.00010372968664454485,
+        "sd_s": 0.0001486472852689417,
         "sign_neg": 1,
-        "sign_p": 0.625,
-        "sign_pos": 3,
-        "values_s": [
-          -8.63183593750004e-06,
-          0.00016549544531249856,
-          4.283789062499953e-05,
-          0.00021387532812499992
-        ]
-      },
-      "g3_vs_g0": {
-        "banks_as_summand": false,
-        "best_case_gain_us_per_step_m4": 277.52215958762145,
-        "best_case_gain_us_per_token_m4": 277.52215958762145,
-        "block_means": {
-          "banks_as_summand": false,
-          "best_case_gain_us_per_step_m4": 427.36185672265697,
-          "best_case_gain_us_per_token_m4": 427.36185672265697,
-          "ci95_half_width_s": 0.00045927616336328226,
-          "ci95_pct": [
-            -3.267141085284311,
-            3.7551048134165366
-          ],
-          "ci95_pct_cs_primary": [
-            -2.843286810138018,
-            3.2679457996972014
-          ],
-          "ci95_us_per_step_m4": [
-            -427.36185672265697,
-            491.19047000390754
-          ],
-          "ci95_us_per_token_m4": [
-            -427.36185672265697,
-            491.19047000390754
-          ],
-          "excludes_summand_sized_gain": false,
-          "excludes_zero": false,
-          "host": "M4 Pro, 20 GPU cores, applegpu_g16s, nax_available=false",
-          "mde_pct": 3.5111229493504235,
-          "mde_us_per_step_m4": 459.27616336328225,
-          "mde_us_per_token_m4": 459.27616336328225,
-          "mean_pct": 0.24398186406611266,
-          "mean_pct_cs": {
-            "alpha_0.389": 0.18905052293261893,
-            "alpha_0.4369": 0.2123294947795918,
-            "beta_0.5": 0.24299553076172098
-          },
-          "mean_s": 3.191430664062529e-05,
-          "mean_us_per_step_m4": 31.91430664062529,
-          "mean_us_per_token_m4": 31.91430664062529,
-          "n": 2,
-          "n_pairs_for_bar": 6,
-          "n_pairs_for_summand": 14,
-          "priced_in_cs": true,
-          "resolves_bar": false,
-          "resolves_summand": false,
-          "sd_s": 5.111872966339014e-05,
-          "sign_neg": 1,
-          "sign_p": 1.0,
-          "sign_pos": 1,
-          "values_s": [
-            -4.232093749999798e-06,
-            6.806070703125038e-05
-          ]
-        },
-        "by_order": {
-          "forward": -6.814697265624965e-05,
-          "reverse": 0.00013197558593750023
-        },
-        "ci95_half_width_s": 0.0003094364662282467,
-        "ci95_pct": [
-          -2.1216307337740874,
-          2.6095944619063127
-        ],
-        "ci95_pct_cs_primary": [
-          -1.846386343244911,
-          2.2710453328040945
-        ],
-        "ci95_us_per_step_m4": [
-          -277.52215958762145,
-          341.350772868872
-        ],
-        "ci95_us_per_token_m4": [
-          -277.52215958762145,
-          341.350772868872
-        ],
-        "excludes_summand_sized_gain": false,
-        "excludes_zero": false,
-        "host": "M4 Pro, 20 GPU cores, applegpu_g16s, nax_available=false",
-        "mde_pct": 2.3656125978402,
-        "mde_us_per_step_m4": 309.43646622824673,
-        "mde_us_per_token_m4": 309.43646622824673,
-        "mean_pct": 0.24398186406611266,
-        "mean_pct_cs": {
-          "alpha_0.389": 0.18905052293261893,
-          "alpha_0.4369": 0.2123294947795918,
-          "beta_0.5": 0.24299553076172098
-        },
-        "mean_s": 3.191430664062529e-05,
-        "mean_us_per_step_m4": 31.91430664062529,
-        "mean_us_per_token_m4": 31.91430664062529,
-        "n": 4,
-        "n_pairs_for_bar": 41,
-        "n_pairs_for_summand": 156,
-        "priced_in_cs": true,
-        "resolves_bar": false,
-        "resolves_summand": false,
-        "sd_s": 0.00019449180781159442,
-        "sign_neg": 1,
-        "sign_p": 0.625,
-        "sign_pos": 3,
+        "sign_p": 0.0703125,
+        "sign_pos": 7,
         "values_s": [
           -0.00023487467187499958,
           0.00022641048437499998,
           9.858072656250029e-05,
-          3.7540687500000475e-05
+          3.7540687500000475e-05,
+          0.00024704035937499896,
+          3.715200781250101e-05,
+          0.00012547753906250007,
+          6.131412499999975e-05
         ]
       }
     },
-    "g0_cov_pct": 0.7929538311390251,
-    "g0_mean_s": 0.013080606119140624
+    "g0_cov_pct": 0.7071525068631248,
+    "g0_mean_s": 0.01304835640625
   },
   "design": "geom4",
   "design_arms": [
@@ -839,555 +875,744 @@
         "g3": 0.00117015275
       },
       "session": "abba1"
+    },
+    {
+      "arm_pos": {
+        "g0": [
+          1
+        ],
+        "g1": [
+          2
+        ],
+        "g2": [
+          3
+        ],
+        "g3": [
+          4
+        ]
+      },
+      "block": 0,
+      "decode": {
+        "g0": 0.0129517203828125,
+        "g1": 0.013154345375,
+        "g2": 0.013102123046875,
+        "g3": 0.0131987607421875
+      },
+      "half": 4,
+      "order": "forward",
+      "positions": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "prefill": {
+        "g0": 0.001143048013671875,
+        "g1": 0.0011441328125,
+        "g2": 0.001154390380859375,
+        "g3": 0.001143100830078125
+      },
+      "session": "abba2"
+    },
+    {
+      "arm_pos": {
+        "g0": [
+          8
+        ],
+        "g1": [
+          7
+        ],
+        "g2": [
+          6
+        ],
+        "g3": [
+          5
+        ]
+      },
+      "block": 0,
+      "decode": {
+        "g0": 0.01295153190625,
+        "g1": 0.013178097,
+        "g2": 0.013214605796875,
+        "g3": 0.0129886839140625
+      },
+      "half": 5,
+      "order": "reverse",
+      "positions": [
+        5,
+        6,
+        7,
+        8
+      ],
+      "prefill": {
+        "g0": 0.001142356365234375,
+        "g1": 0.001143331380859375,
+        "g2": 0.001131968181640625,
+        "g3": 0.001154482666015625
+      },
+      "session": "abba2"
+    },
+    {
+      "arm_pos": {
+        "g0": [
+          9
+        ],
+        "g1": [
+          10
+        ],
+        "g2": [
+          11
+        ],
+        "g3": [
+          12
+        ]
+      },
+      "block": 1,
+      "decode": {
+        "g0": 0.01304615071875,
+        "g1": 0.0132028177109375,
+        "g2": 0.0131636848984375,
+        "g3": 0.0131716282578125
+      },
+      "half": 6,
+      "order": "forward",
+      "positions": [
+        9,
+        10,
+        11,
+        12
+      ],
+      "prefill": {
+        "g0": 0.0011432974453125,
+        "g1": 0.00116979728125,
+        "g2": 0.001154935873046875,
+        "g3": 0.00117044148828125
+      },
+      "session": "abba2"
+    },
+    {
+      "arm_pos": {
+        "g0": [
+          16
+        ],
+        "g1": [
+          15
+        ],
+        "g2": [
+          14
+        ],
+        "g3": [
+          13
+        ]
+      },
+      "block": 1,
+      "decode": {
+        "g0": 0.013115023765625,
+        "g1": 0.0131274934921875,
+        "g2": 0.0131711966171875,
+        "g3": 0.013176337890625
+      },
+      "half": 7,
+      "order": "reverse",
+      "positions": [
+        13,
+        14,
+        15,
+        16
+      ],
+      "prefill": {
+        "g0": 0.001141919271484375,
+        "g1": 0.001169644369140625,
+        "g2": 0.00114418896484375,
+        "g3": 0.001154755533203125
+      },
+      "session": "abba2"
     }
   ],
   "host": "M4 Pro, 20 GPU cores, applegpu_g16s, nax_available=false",
-  "n_forward_halves": 2,
-  "n_halves": 4,
-  "n_reverse_halves": 2,
-  "n_runs": 16,
+  "n_forward_halves": 4,
+  "n_halves": 8,
+  "n_reverse_halves": 4,
+  "n_runs": 32,
   "prefill_placebo": {
     "arm_means_s": {
-      "g0": 0.0011484142045898437,
-      "g1": 0.0011398381958007812,
-      "g2": 0.0011471767373046875,
-      "g3": 0.0011639429111328125
+      "g0": 0.0011455347392578124,
+      "g1": 0.0011482823283691407,
+      "g2": 0.0011467737937011719,
+      "g3": 0.001159819020263672
     },
     "axis": "prefill",
     "contrasts": {
       "AB_interaction": {
         "banks_as_summand": null,
         "best_case_gain_us_per_step_m4": null,
-        "best_case_gain_us_per_token_m4": 25.87123121333606,
+        "best_case_gain_us_per_token_m4": 13.784489409082017,
         "block_means": {
           "banks_as_summand": null,
           "best_case_gain_us_per_step_m4": null,
-          "best_case_gain_us_per_token_m4": 54.247223107420915,
-          "ci95_half_width_s": 4.281359908398341e-05,
+          "best_case_gain_us_per_token_m4": 16.805162295813595,
+          "ci95_half_width_s": 1.0417289126868293e-05,
           "ci95_pct": [
-            -4.7236635432244,
-            2.732461418112924
+            -1.4670146369111072,
+            0.3517497828598052
           ],
           "ci95_pct_cs_primary": null,
           "ci95_us_per_step_m4": null,
           "ci95_us_per_token_m4": [
-            -54.247223107420915,
-            31.379975060545895
+            -16.805162295813595,
+            4.02941595792299
           ],
           "excludes_summand_sized_gain": null,
           "excludes_zero": false,
           "host": "M4 Pro, 20 GPU cores, applegpu_g16s, nax_available=false",
-          "mde_pct": 3.728062480668662,
+          "mde_pct": 0.9093822098854561,
           "mde_us_per_step_m4": null,
-          "mde_us_per_token_m4": 42.813599083983405,
-          "mean_pct": -0.9956010625557377,
+          "mde_us_per_token_m4": 10.417289126868292,
+          "mean_pct": -0.557632427025651,
           "mean_pct_cs": null,
-          "mean_s": -1.1433624023437507e-05,
+          "mean_s": -6.387873168945302e-06,
           "mean_us_per_step_m4": null,
-          "mean_us_per_token_m4": -11.433624023437508,
-          "n": 2,
+          "mean_us_per_token_m4": -6.387873168945302,
+          "n": 4,
           "n_pairs_for_bar": null,
           "n_pairs_for_summand": null,
           "priced_in_cs": false,
           "resolves_bar": null,
           "resolves_summand": null,
-          "sd_s": 4.765274081424025e-06,
-          "sign_neg": 2,
-          "sign_p": 0.5,
-          "sign_pos": 0,
+          "sd_s": 6.547636157679631e-06,
+          "sign_neg": 3,
+          "sign_p": 0.625,
+          "sign_pos": 1,
           "values_s": [
             -1.4803181640624932e-05,
-            -8.064066406250083e-06
+            -8.064066406250083e-06,
+            -2.7683715820312014e-06,
+            8.412695312500895e-08
           ]
         },
         "by_order": {
-          "forward": -5.538635253906255e-06,
-          "reverse": -1.732861279296876e-05
+          "forward": -5.593445068359309e-06,
+          "reverse": -7.182301269531295e-06
         },
-        "ci95_half_width_s": 1.4437607189898554e-05,
+        "ci95_half_width_s": 7.396616240136714e-06,
         "ci95_pct": [
-          -2.2527787543847015,
-          0.26157662927322634
+          -1.2033235603149786,
+          0.0880587062636767
         ],
         "ci95_pct_cs_primary": null,
         "ci95_us_per_step_m4": null,
         "ci95_us_per_token_m4": [
-          -25.87123121333606,
-          3.0039831664610457
+          -13.784489409082017,
+          1.0087430711914118
         ],
         "excludes_summand_sized_gain": null,
         "excludes_zero": false,
         "host": "M4 Pro, 20 GPU cores, applegpu_g16s, nax_available=false",
-        "mde_pct": 1.257177691828964,
+        "mde_pct": 0.6456911332893277,
         "mde_us_per_step_m4": null,
-        "mde_us_per_token_m4": 14.437607189898554,
-        "mean_pct": -0.9956010625557377,
+        "mde_us_per_token_m4": 7.396616240136714,
+        "mean_pct": -0.557632427025651,
         "mean_pct_cs": null,
-        "mean_s": -1.1433624023437507e-05,
+        "mean_s": -6.387873168945302e-06,
         "mean_us_per_step_m4": null,
-        "mean_us_per_token_m4": -11.433624023437508,
-        "n": 4,
+        "mean_us_per_token_m4": -6.387873168945302,
+        "n": 8,
         "n_pairs_for_bar": null,
         "n_pairs_for_summand": null,
         "priced_in_cs": false,
         "resolves_bar": null,
         "resolves_summand": null,
-        "sd_s": 9.074548830860185e-06,
-        "sign_neg": 4,
-        "sign_p": 0.125,
-        "sign_pos": 0,
+        "sd_s": 8.846000002089159e-06,
+        "sign_neg": 7,
+        "sign_p": 0.0703125,
+        "sign_pos": 1,
         "values_s": [
           -4.9514560546875044e-06,
           -2.465490722656236e-05,
           -6.125814453125005e-06,
-          -1.0002318359375161e-05
+          -1.0002318359375161e-05,
+          -5.155192382812332e-06,
+          -3.815507812500712e-07,
+          -6.141317382812395e-06,
+          6.309571289062413e-06
         ]
       },
       "A_amortisation": {
         "banks_as_summand": null,
         "best_case_gain_us_per_step_m4": null,
-        "best_case_gain_us_per_token_m4": 31.11846377377547,
+        "best_case_gain_us_per_token_m4": 15.590243115035289,
         "block_means": {
           "banks_as_summand": null,
           "best_case_gain_us_per_step_m4": null,
-          "best_case_gain_us_per_token_m4": 91.93896749707069,
-          "ci95_half_width_s": 7.926787618847695e-05,
+          "best_case_gain_us_per_token_m4": 22.276989068076503,
+          "ci95_half_width_s": 1.7128170342490573e-05,
           "ci95_pct": [
-            -8.005732350716325,
-            5.799021347325486
+            -1.9446803579706085,
+            1.045743198033961
           ],
           "ci95_pct_cs_primary": null,
           "ci95_us_per_step_m4": null,
           "ci95_us_per_token_m4": [
-            -91.93896749707069,
-            66.59678487988323
+            -22.276989068076503,
+            11.979351616904644
           ],
           "excludes_summand_sized_gain": null,
           "excludes_zero": false,
           "host": "M4 Pro, 20 GPU cores, applegpu_g16s, nax_available=false",
-          "mde_pct": 6.902376849020905,
+          "mde_pct": 1.4952117780022847,
           "mde_us_per_step_m4": null,
-          "mde_us_per_token_m4": 79.26787618847696,
-          "mean_pct": -1.1033555016954193,
+          "mde_us_per_token_m4": 17.128170342490574,
+          "mean_pct": -0.4494685799683237,
           "mean_pct_cs": null,
-          "mean_s": -1.267109130859373e-05,
+          "mean_s": -5.148818725585929e-06,
           "mean_us_per_step_m4": null,
-          "mean_us_per_token_m4": -12.67109130859373,
-          "n": 2,
+          "mean_us_per_token_m4": -5.148818725585929,
+          "n": 4,
           "n_pairs_for_bar": null,
           "n_pairs_for_summand": null,
           "priced_in_cs": false,
           "resolves_bar": null,
           "resolves_summand": null,
-          "sd_s": 8.822737727550404e-06,
-          "sign_neg": 2,
-          "sign_p": 0.5,
-          "sign_pos": 0,
+          "sd_s": 1.076566332023292e-05,
+          "sign_neg": 3,
+          "sign_p": 0.625,
+          "sign_pos": 1,
           "values_s": [
             -1.890970898437501e-05,
-            -6.432473632812449e-06
+            -6.432473632812449e-06,
+            -2.2912797851562744e-06,
+            7.038187500000019e-06
           ]
         },
         "by_order": {
-          "forward": -1.857065771484383e-05,
-          "reverse": -6.77152490234363e-06
+          "forward": -6.364257568359458e-06,
+          "reverse": -3.9333798828123994e-06
         },
-        "ci95_half_width_s": 1.844737246518174e-05,
+        "ci95_half_width_s": 1.0441424389449361e-05,
         "ci95_pct": [
-          -2.7096899053847414,
-          0.5029789019939028
+          -1.3609576890820567,
+          0.46202052914540953
         ],
         "ci95_pct_cs_primary": null,
         "ci95_us_per_step_m4": null,
         "ci95_us_per_token_m4": [
-          -31.11846377377547,
-          5.776281156588009
+          -15.590243115035289,
+          5.292605663863433
         ],
         "excludes_summand_sized_gain": null,
         "excludes_zero": false,
         "host": "M4 Pro, 20 GPU cores, applegpu_g16s, nax_available=false",
-        "mde_pct": 1.6063344036893221,
+        "mde_pct": 0.9114891091137332,
         "mde_us_per_step_m4": null,
-        "mde_us_per_token_m4": 18.44737246518174,
-        "mean_pct": -1.1033555016954193,
+        "mde_us_per_token_m4": 10.441424389449361,
+        "mean_pct": -0.4494685799683237,
         "mean_pct_cs": null,
-        "mean_s": -1.267109130859373e-05,
+        "mean_s": -5.148818725585929e-06,
         "mean_us_per_step_m4": null,
-        "mean_us_per_token_m4": -12.67109130859373,
-        "n": 4,
+        "mean_us_per_token_m4": -5.148818725585929,
+        "n": 8,
         "n_pairs_for_bar": null,
         "n_pairs_for_summand": null,
         "priced_in_cs": false,
         "resolves_bar": null,
         "resolves_summand": null,
-        "sd_s": 1.1594828702188397e-05,
-        "sign_neg": 4,
-        "sign_p": 0.125,
-        "sign_pos": 0,
+        "sd_s": 1.2487445227951374e-05,
+        "sign_neg": 5,
+        "sign_p": 0.7265625,
+        "sign_pos": 3,
         "values_s": [
           -3.0015502929687686e-05,
           -7.803915039062337e-06,
           -7.125812499999976e-06,
-          -5.739134765624923e-06
+          -5.739134765624923e-06,
+          6.187174804687381e-06,
+          -1.076973437499993e-05,
+          5.497110351562447e-06,
+          8.579264648437591e-06
         ]
       },
       "B_threadgroup_shape": {
         "banks_as_summand": null,
         "best_case_gain_us_per_step_m4": null,
-        "best_case_gain_us_per_token_m4": 24.903708295079106,
+        "best_case_gain_us_per_token_m4": 4.491852786776825,
         "block_means": {
           "banks_as_summand": null,
           "best_case_gain_us_per_step_m4": null,
-          "best_case_gain_us_per_token_m4": 105.62794652246036,
-          "ci95_half_width_s": 0.00010972302904199158,
+          "best_case_gain_us_per_token_m4": 9.221403181470901,
+          "ci95_half_width_s": 1.7117811018384956e-05,
           "ci95_pct": [
-            -9.197722050136553,
-            9.91089374431527
+            -0.8049867773931861,
+            2.1836281343598207
           ],
           "ci95_pct_cs_primary": null,
           "ci95_us_per_step_m4": null,
           "ci95_us_per_token_m4": [
-            -105.62794652246036,
-            113.8181115615228
+            -9.221403181470901,
+            25.01421885529901
           ],
           "excludes_summand_sized_gain": null,
           "excludes_zero": false,
           "host": "M4 Pro, 20 GPU cores, applegpu_g16s, nax_available=false",
-          "mde_pct": 9.554307897225913,
+          "mde_pct": 1.4943074558765037,
           "mde_us_per_step_m4": null,
-          "mde_us_per_token_m4": 109.72302904199158,
-          "mean_pct": 0.3565858470893586,
+          "mde_us_per_token_m4": 17.117811018384955,
+          "mean_pct": 0.6893206784833175,
           "mean_pct_cs": null,
-          "mean_s": 4.095082519531214e-06,
+          "mean_s": 7.896407836914055e-06,
           "mean_us_per_step_m4": null,
-          "mean_us_per_token_m4": 4.095082519531214,
-          "n": 2,
+          "mean_us_per_token_m4": 7.8964078369140545,
+          "n": 4,
           "n_pairs_for_bar": null,
           "n_pairs_for_summand": null,
           "priced_in_cs": false,
           "resolves_bar": null,
           "resolves_summand": null,
-          "sd_s": 1.221248195937679e-05,
+          "sd_s": 1.0759152117149563e-05,
           "sign_neg": 1,
-          "sign_p": 1.0,
-          "sign_pos": 1,
+          "sign_p": 0.625,
+          "sign_pos": 3,
           "values_s": [
             -4.540446289062489e-06,
-            1.2730611328124917e-05
+            1.2730611328124917e-05,
+            3.3211870117186423e-06,
+            2.007427929687515e-05
           ]
         },
         "by_order": {
-          "forward": -8.713399902343807e-06,
-          "reverse": 1.6903564941406234e-05
+          "forward": -3.816125488281569e-07,
+          "reverse": 1.6174428222656266e-05
         },
-        "ci95_half_width_s": 2.899879081461032e-05,
+        "ci95_half_width_s": 1.238826062369088e-05,
         "ci95_pct": [
-          -2.168530151886572,
-          2.881701846065289
+          -0.3921184258180663,
+          1.7707597827847013
         ],
         "ci95_pct_cs_primary": null,
         "ci95_us_per_step_m4": null,
         "ci95_us_per_token_m4": [
-          -24.903708295079106,
-          33.093873334141534
+          -4.491852786776825,
+          20.284668460604934
         ],
         "excludes_summand_sized_gain": null,
         "excludes_zero": false,
         "host": "M4 Pro, 20 GPU cores, applegpu_g16s, nax_available=false",
-        "mde_pct": 2.5251159989759304,
+        "mde_pct": 1.0814391043013838,
         "mde_us_per_step_m4": null,
-        "mde_us_per_token_m4": 28.99879081461032,
-        "mean_pct": 0.3565858470893586,
+        "mde_us_per_token_m4": 12.38826062369088,
+        "mean_pct": 0.6893206784833175,
         "mean_pct_cs": null,
-        "mean_s": 4.095082519531214e-06,
+        "mean_s": 7.896407836914055e-06,
         "mean_us_per_step_m4": null,
-        "mean_us_per_token_m4": 4.095082519531214,
-        "n": 4,
+        "mean_us_per_token_m4": 7.8964078369140545,
+        "n": 8,
         "n_pairs_for_bar": null,
         "n_pairs_for_summand": null,
         "priced_in_cs": false,
         "resolves_bar": null,
         "resolves_summand": null,
-        "sd_s": 1.8226769839478516e-05,
-        "sign_neg": 1,
-        "sign_p": 0.625,
-        "sign_pos": 3,
+        "sd_s": 1.481576844671139e-05,
+        "sign_neg": 2,
+        "sign_p": 0.2890625,
+        "sign_pos": 6,
         "values_s": [
           -2.0594198242187504e-05,
           1.1513305664062525e-05,
           3.1673984374998906e-06,
-          2.2293824218749944e-05
+          2.2293824218749944e-05,
+          -5.1023759765627015e-06,
+          1.1744749999999986e-05,
+          2.1002725585937687e-05,
+          1.914583300781261e-05
         ]
       },
       "g1_vs_g0": {
         "banks_as_summand": null,
         "best_case_gain_us_per_step_m4": null,
-        "best_case_gain_us_per_token_m4": 55.14854488021051,
+        "best_case_gain_us_per_token_m4": 17.92197558118019,
         "block_means": {
           "banks_as_summand": null,
           "best_case_gain_us_per_step_m4": null,
-          "best_case_gain_us_per_token_m4": 197.56691401953103,
-          "ci95_half_width_s": 0.0001889909052304685,
+          "best_case_gain_us_per_token_m4": 30.314675885683826,
+          "ci95_half_width_s": 3.3062264997011954e-05,
           "ci95_pct": [
-            -17.203454400852877,
-            15.709915091640754
+            -2.646334052280648,
+            3.126038249310636
           ],
           "ci95_pct_cs_primary": null,
           "ci95_us_per_step_m4": null,
           "ci95_us_per_token_m4": [
-            -197.56691401953103,
-            180.414896441406
+            -30.314675885683826,
+            35.809854108340076
           ],
           "excludes_summand_sized_gain": null,
           "excludes_zero": false,
           "host": "M4 Pro, 20 GPU cores, applegpu_g16s, nax_available=false",
-          "mde_pct": 16.456684746246818,
+          "mde_pct": 2.886186150795642,
           "mde_us_per_step_m4": null,
-          "mde_us_per_token_m4": 188.9909052304685,
-          "mean_pct": -0.7467696546060608,
+          "mde_us_per_token_m4": 33.06226499701195,
+          "mean_pct": 0.2398520985149938,
           "mean_pct_cs": null,
-          "mean_s": -8.576008789062516e-06,
+          "mean_s": 2.747589111328126e-06,
           "mean_us_per_step_m4": null,
-          "mean_us_per_token_m4": -8.576008789062517,
-          "n": 2,
+          "mean_us_per_token_m4": 2.747589111328126,
+          "n": 4,
           "n_pairs_for_bar": null,
           "n_pairs_for_summand": null,
           "priced_in_cs": false,
           "resolves_bar": null,
           "resolves_summand": null,
-          "sd_s": 2.1035219686927193e-05,
+          "sd_s": 2.0780807666255156e-05,
           "sign_neg": 1,
-          "sign_p": 1.0,
-          "sign_pos": 1,
+          "sign_p": 0.625,
+          "sign_pos": 3,
           "values_s": [
             -2.34501552734375e-05,
-            6.298137695312468e-06
+            6.298137695312468e-06,
+            1.0299072265624763e-06,
+            2.711246679687506e-05
           ]
         },
         "by_order": {
-          "forward": -2.7284057617187637e-05,
-          "reverse": 1.0132040039062605e-05
+          "forward": -6.745870117187561e-06,
+          "reverse": 1.2241048339843813e-05
         },
-        "ci95_half_width_s": 4.6572536091147996e-05,
+        "ci95_half_width_s": 2.0669564692508318e-05,
         "ci95_pct": [
-          -4.802147575308582,
-          3.30860826609646
+          -1.564507383930737,
+          2.0442115809607246
         ],
         "ci95_pct_cs_primary": null,
         "ci95_us_per_step_m4": null,
         "ci95_us_per_token_m4": [
-          -55.14854488021051,
-          37.99652730208548
+          -17.92197558118019,
+          23.41715380383644
         ],
         "excludes_summand_sized_gain": null,
         "excludes_zero": false,
         "host": "M4 Pro, 20 GPU cores, applegpu_g16s, nax_available=false",
-        "mde_pct": 4.0553779207025205,
+        "mde_pct": 1.804359482445731,
         "mde_us_per_step_m4": null,
-        "mde_us_per_token_m4": 46.572536091147995,
-        "mean_pct": -0.7467696546060608,
+        "mde_us_per_token_m4": 20.669564692508317,
+        "mean_pct": 0.2398520985149938,
         "mean_pct_cs": null,
-        "mean_s": -8.576008789062516e-06,
+        "mean_s": 2.747589111328126e-06,
         "mean_us_per_step_m4": null,
-        "mean_us_per_token_m4": -8.576008789062517,
-        "n": 4,
+        "mean_us_per_token_m4": 2.747589111328126,
+        "n": 8,
         "n_pairs_for_bar": null,
         "n_pairs_for_summand": null,
         "priced_in_cs": false,
         "resolves_bar": null,
         "resolves_summand": null,
-        "sd_s": 2.9272492829131363e-05,
+        "sd_s": 2.4719812868070474e-05,
         "sign_neg": 2,
-        "sign_p": 1.0,
-        "sign_pos": 2,
+        "sign_p": 0.2890625,
+        "sign_pos": 6,
         "values_s": [
           -5.060970117187519e-05,
           3.7093906250001887e-06,
           -3.958414062500085e-06,
-          1.655468945312502e-05
+          1.655468945312502e-05,
+          1.0847988281248964e-06,
+          9.750156250000561e-07,
+          2.6499835937500134e-05,
+          2.7725097656249986e-05
         ]
       },
       "g2_vs_g0": {
         "banks_as_summand": null,
         "best_case_gain_us_per_step_m4": null,
-        "best_case_gain_us_per_token_m4": 29.1777075767443,
+        "best_case_gain_us_per_token_m4": 10.139236411712464,
         "block_means": {
           "banks_as_summand": null,
           "best_case_gain_us_per_step_m4": null,
-          "best_case_gain_us_per_token_m4": 37.69174438964912,
-          "ci95_half_width_s": 3.645427710449285e-05,
+          "best_case_gain_us_per_token_m4": 5.992048597464735,
+          "ci95_half_width_s": 7.231103040824081e-06,
           "ci95_pct": [
-            -3.28206880749187,
-            3.066559929212497
+            -0.5230787327625664,
+            0.7394064268772162
           ],
           "ci95_pct_cs_primary": null,
           "ci95_us_per_step_m4": null,
           "ci95_us_per_token_m4": [
-            -37.69174438964912,
-            35.21680981933657
+            -5.992048597464735,
+            8.470157484183426
           ],
           "excludes_summand_sized_gain": null,
           "excludes_zero": false,
           "host": "M4 Pro, 20 GPU cores, applegpu_g16s, nax_available=false",
-          "mde_pct": 3.1743143683521837,
+          "mde_pct": 0.6312425798198914,
           "mde_us_per_step_m4": null,
-          "mde_us_per_token_m4": 36.454277104492846,
-          "mean_pct": -0.10775443913968641,
+          "mde_us_per_token_m4": 7.231103040824081,
+          "mean_pct": 0.1081638470573249,
           "mean_pct_cs": null,
-          "mean_s": -1.237467285156277e-06,
+          "mean_s": 1.2390544433593458e-06,
           "mean_us_per_step_m4": null,
-          "mean_us_per_token_m4": -1.237467285156277,
-          "n": 2,
+          "mean_us_per_token_m4": 1.2390544433593458,
+          "n": 4,
           "n_pairs_for_bar": null,
           "n_pairs_for_summand": null,
           "priced_in_cs": false,
           "resolves_bar": null,
           "resolves_summand": null,
-          "sd_s": 4.057463646126302e-06,
+          "sd_s": 4.545005053943483e-06,
           "sign_neg": 1,
-          "sign_p": 1.0,
-          "sign_pos": 1,
+          "sign_p": 0.625,
+          "sign_pos": 3,
           "values_s": [
             -4.106527343750079e-06,
-            1.6315927734375252e-06
+            1.6315927734375252e-06,
+            4.77091796874927e-07,
+            6.95406054687501e-06
           ]
         },
         "by_order": {
-          "forward": -1.3032022460937576e-05,
-          "reverse": 1.0557087890625022e-05
+          "forward": -7.70812500000041e-07,
+          "reverse": 3.2489213867187327e-06
         },
-        "ci95_half_width_s": 2.7940240291588022e-05,
+        "ci95_half_width_s": 1.1378290855071808e-05,
         "ci95_pct": [
-          -2.5406954616313824,
-          2.32518658335201
+          -0.8851094658448887,
+          1.1014371599595385
         ],
         "ci95_pct_cs_primary": null,
         "ci95_us_per_step_m4": null,
         "ci95_us_per_token_m4": [
-          -29.1777075767443,
-          26.702773006431745
+          -10.139236411712464,
+          12.617345298431154
         ],
         "excludes_summand_sized_gain": null,
         "excludes_zero": false,
         "host": "M4 Pro, 20 GPU cores, applegpu_g16s, nax_available=false",
-        "mde_pct": 2.432941022491696,
+        "mde_pct": 0.9932733129022137,
         "mde_us_per_step_m4": null,
-        "mde_us_per_token_m4": 27.940240291588022,
-        "mean_pct": -0.10775443913968641,
+        "mde_us_per_token_m4": 11.378290855071809,
+        "mean_pct": 0.1081638470573249,
         "mean_pct_cs": null,
-        "mean_s": -1.237467285156277e-06,
+        "mean_s": 1.2390544433593458e-06,
         "mean_us_per_step_m4": null,
-        "mean_us_per_token_m4": -1.237467285156277,
-        "n": 4,
+        "mean_us_per_token_m4": 1.2390544433593458,
+        "n": 8,
         "n_pairs_for_bar": null,
         "n_pairs_for_summand": null,
         "priced_in_cs": false,
         "resolves_bar": null,
         "resolves_summand": null,
-        "sd_s": 1.7561433244241372e-05,
-        "sign_neg": 2,
-        "sign_p": 1.0,
-        "sign_pos": 2,
+        "sd_s": 1.3607892806653962e-05,
+        "sign_neg": 3,
+        "sign_p": 0.7265625,
+        "sign_pos": 5,
         "values_s": [
           -2.506404687500018e-05,
           1.6850992187500023e-05,
           -9.999980468749711e-07,
-          4.263183593750022e-06
+          4.263183593750022e-06,
+          1.134236718749993e-05,
+          -1.0388183593750076e-05,
+          1.1638427734375059e-05,
+          2.269693359374962e-06
         ]
       },
       "g3_vs_g0": {
         "banks_as_summand": null,
         "best_case_gain_us_per_step_m4": null,
-        "best_case_gain_us_per_token_m4": 22.54106480775357,
+        "best_case_gain_us_per_token_m4": 0.1932669948094432,
         "block_means": {
           "banks_as_summand": null,
           "best_case_gain_us_per_step_m4": null,
-          "best_case_gain_us_per_token_m4": 51.380723415038716,
-          "ci95_half_width_s": 6.690942995800749e-05,
+          "best_case_gain_us_per_token_m4": -2.7282992429699924,
+          "ci95_half_width_s": 1.1555981762889391e-05,
           "ci95_pct": [
-            -4.47405850691209,
-            7.178432326202292
+            0.2381681802803857,
+            2.2557380307375556
           ],
           "ci95_pct_cs_primary": null,
           "ci95_us_per_step_m4": null,
           "ci95_us_per_token_m4": [
-            -51.380723415038716,
-            82.43813650097627
+            2.7282992429699924,
+            25.840262768748776
           ],
           "excludes_summand_sized_gain": null,
-          "excludes_zero": false,
+          "excludes_zero": true,
           "host": "M4 Pro, 20 GPU cores, applegpu_g16s, nax_available=false",
-          "mde_pct": 5.826245416557191,
+          "mde_pct": 1.0087849252285852,
           "mde_us_per_step_m4": null,
-          "mde_us_per_token_m4": 66.9094299580075,
-          "mean_pct": 1.3521869096451011,
+          "mde_us_per_token_m4": 11.555981762889392,
+          "mean_pct": 1.2469531055089706,
           "mean_pct_cs": null,
-          "mean_s": 1.5528706542968776e-05,
+          "mean_s": 1.4284281005859384e-05,
           "mean_us_per_step_m4": null,
-          "mean_us_per_token_m4": 15.528706542968775,
-          "n": 2,
+          "mean_us_per_token_m4": 14.284281005859384,
+          "n": 4,
           "n_pairs_for_bar": null,
           "n_pairs_for_summand": null,
           "priced_in_cs": false,
           "resolves_bar": null,
           "resolves_summand": null,
-          "sd_s": 7.4472078779526886e-06,
+          "sd_s": 7.263344916963791e-06,
           "sign_neg": 0,
-          "sign_p": 0.5,
-          "sign_pos": 2,
+          "sign_p": 0.125,
+          "sign_pos": 4,
           "values_s": [
             1.0262735351562551e-05,
-            2.0794677734375e-05
+            2.0794677734375e-05,
+            6.089558593749952e-06,
+            1.999015234375003e-05
           ]
         },
         "by_order": {
-          "forward": -3.174764648437552e-06,
-          "reverse": 3.42321777343751e-05
+          "forward": 5.211832519531206e-06,
+          "reverse": 2.335672949218756e-05
         },
-        "ci95_half_width_s": 3.806977135072235e-05,
+        "ci95_half_width_s": 1.4477548000668827e-05,
         "ci95_pct": [
-          -1.962799198900898,
-          4.6671730181911
+          -0.01687133424994689,
+          2.5107775452678887
         ],
         "ci95_pct_cs_primary": null,
         "ci95_us_per_step_m4": null,
         "ci95_us_per_token_m4": [
-          -22.54106480775357,
-          53.598477893691125
+          -0.1932669948094432,
+          28.76182900652821
         ],
         "excludes_summand_sized_gain": null,
         "excludes_zero": false,
         "host": "M4 Pro, 20 GPU cores, applegpu_g16s, nax_available=false",
-        "mde_pct": 3.314986108545999,
+        "mde_pct": 1.2638244397589176,
         "mde_us_per_step_m4": null,
-        "mde_us_per_token_m4": 38.06977135072235,
-        "mean_pct": 1.3521869096451011,
+        "mde_us_per_token_m4": 14.477548000668827,
+        "mean_pct": 1.2469531055089706,
         "mean_pct_cs": null,
-        "mean_s": 1.5528706542968776e-05,
+        "mean_s": 1.4284281005859384e-05,
         "mean_us_per_step_m4": null,
-        "mean_us_per_token_m4": 15.528706542968775,
-        "n": 4,
+        "mean_us_per_token_m4": 14.284281005859384,
+        "n": 8,
         "n_pairs_for_bar": null,
         "n_pairs_for_summand": null,
         "priced_in_cs": false,
         "resolves_bar": null,
         "resolves_summand": null,
-        "sd_s": 2.3928203237411908e-05,
+        "sd_s": 1.7314456433364348e-05,
         "sign_neg": 1,
-        "sign_p": 0.625,
-        "sign_pos": 3,
+        "sign_p": 0.0703125,
+        "sign_pos": 7,
         "values_s": [
           -1.56427421875e-05,
           3.61682128906251e-05,
           9.293212890624895e-06,
-          3.2296142578125105e-05
+          3.2296142578125105e-05,
+          5.281640624984693e-08,
+          1.2126300781250057e-05,
+          2.7144042968750082e-05,
+          1.2836261718749981e-05
         ]
       }
     },
-    "g0_cov_pct": 1.2883610840800361,
-    "g0_mean_s": 0.0011484142045898437
+    "g0_cov_pct": 0.8879581114261461,
+    "g0_mean_s": 0.0011455347392578124
   },
   "sessions": [
-    "abba1"
+    "abba1",
+    "abba2"
   ]
 }
