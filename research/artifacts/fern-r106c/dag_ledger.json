@@ -1,0 +1,150 @@
+{
+  "dispatches_per_step": 408,
+  "observed_barriers": 247,
+  "replayed_barriers": 247,
+  "replay_mismatches": 0,
+  "command_buffers_per_step": 47,
+  "total_rows": 11254,
+  "greedy_groups_ptr": 289,
+  "min_groups_ptr_with_anti": 288,
+  "min_groups_ptr_raw_only": 288,
+  "greedy_groups_range": 289,
+  "min_groups_range_with_anti": 288,
+  "min_groups_range_raw_only": 288,
+  "level_size_histogram": [
+    [
+      1,
+      207
+    ],
+    [
+      2,
+      42
+    ],
+    [
+      3,
+      39
+    ]
+  ],
+  "mean_dispatches_per_level": 1.4167,
+  "singleton_levels": 207,
+  "dispatches_in_singleton_levels": 207,
+  "label_sum_us_m4": 8528.3,
+  "label_weighted_critical_path_us_m4": 7725.8,
+  "label_weighted_critical_path_raw_only_us_m4": 7725.8,
+  "label_weighted_cp_frac": 0.9059,
+  "unattributed_dispatches": 0,
+  "hazard_separations": 288,
+  "charged_barriers": 247,
+  "free_at_encoder_boundary": 41,
+  "encoder_boundaries_in_step": 46,
+  "headroom_groups": 1,
+  "headroom_us_per_step": 1.3003,
+  "headroom_pct_of_cs": 0.0198,
+  "ceiling_charged_barriers_if_cb_aligned": 241,
+  "ceiling_headroom_us_per_step": 7.8018,
+  "ceiling_headroom_pct_of_cs": 0.11881,
+  "stage3_gate_us_per_step": 33.0,
+  "stage3_gate_open": false,
+  "kernels": [
+    [
+      "rmsbfloat16",
+      41
+    ],
+    [
+      "custom_kernel_laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_bfloat16_t_uint32_t",
+      39
+    ],
+    [
+      "custom_kernel_laguna_shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1_bfloat16_t_uint32_t_uint8_t_bfloat16_t",
+      39
+    ],
+    [
+      "custom_kernel_laguna_prefill_router_tournament_ordinal_norm_active64_v2_bfloat16_t_float_uint32_t_float",
+      39
+    ],
+    [
+      "custom_kernel_laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2_bfloat16_t_uint32_t_uint8_t_uint32_t_bfloat16_t",
+      39
+    ],
+    [
+      "custom_kernel_laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6_bfloat16_t_uint32_t_uint8_t_uint32_t_float_bfloat16_t_uint32_t_uint8_t_bfloat16_t_bfloat16_t",
+      39
+    ],
+    [
+      "custom_kernel_laguna_decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+      30
+    ],
+    [
+      "custom_kernel_laguna_sliding_fused_attn_ring_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_uint32_tc_floatc_bfloat16_t",
+      30
+    ],
+    [
+      "custom_kernel_laguna_gate_sp_h64_v1_bfloat16_t_uint32_t_bfloat16_t_bfloat16_t_bfloat16_t",
+      30
+    ],
+    [
+      "custom_kernel_laguna_oproj_act_h64_v1_lm1_pw1_sc1_se1_bfloat16_t_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+      30
+    ],
+    [
+      "custom_kernel_laguna_gate_sp_h48_v1_bfloat16_t_uint32_t_bfloat16_t_bfloat16_t_bfloat16_t",
+      10
+    ],
+    [
+      "custom_kernel_laguna_decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+      10
+    ],
+    [
+      "custom_kernel_laguna_full_fused_attn_grow_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_uint32_tc_floatc_bfloat16_t",
+      10
+    ],
+    [
+      "custom_kernel_laguna_oproj_act_h48_v1_lm1_pw1_sc1_se1_bfloat16_t_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+      10
+    ],
+    [
+      "gather_frontbfloat16_int32_int_2",
+      2
+    ],
+    [
+      "custom_kernel_laguna_decode_embedding_rope_atlas_bf16_2048_v2_int32_tc_bfloat16_t_float_float_int32_ts_bfloat16_t_float_float",
+      1
+    ],
+    [
+      "custom_kernel_laguna_residual_rms_bf16_2048_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t",
+      1
+    ],
+    [
+      "custom_kernel_laguna_dense_gate_up_swiglu_bf16_v1_bfloat16_t_bfloat16_t_bfloat16_t",
+      1
+    ],
+    [
+      "custom_kernel_laguna_dense_down_residual_bf16_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t",
+      1
+    ],
+    [
+      "custom_kernel_laguna_lmhead_int5_base_coarse_delta_bf16_v1_bfloat16_t_uint8_t_uint8_t_float_bfloat16_t",
+      1
+    ],
+    [
+      "custom_kernel_laguna_lmhead_coarse_argmax_stage1_v5_float_float_uint32_t",
+      1
+    ],
+    [
+      "custom_kernel_laguna_lmhead_exact_winner_bf16_midpoint_threshold_v1_float_uint32_t_bfloat16_t_bfloat16_t_float",
+      1
+    ],
+    [
+      "custom_kernel_laguna_lmhead_exact_fused_int5_sparse_refine_v1_float_bfloat16_t_floatc_bfloat16_t_bfloat16_t_uint8_t_uint8_t_bfloat16_t",
+      1
+    ],
+    [
+      "argmax_bfloat16",
+      1
+    ],
+    [
+      "vn_copybfloat16float32",
+      1
+    ]
+  ]
+}
