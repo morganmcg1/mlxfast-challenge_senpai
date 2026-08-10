@@ -629,6 +629,87 @@ instructions** and differ only in placement relative to the 5 threadgroup
 barriers, so they are a matched pair for attributing any cost to placement
 rather than to the loads.
 
+## 10. Phase A results and the preregistered verdicts
+
+### 10.1 A0 — the A/A null for the contrast estimator
+
+`[PENDING — filled from /tmp/maple-r105b/phaseA on job completion]`
+
+### 10.2 Which fallback, `prefetch = 0` or `prefetch = 5`?
+
+This subsection is placed **before** the A1 verdict on purpose: the answer does
+not depend on which A1 branch fires, and I want that on the record before I see
+the numbers. §3.2's V-PLACEMENT row originally implied `5` was the natural
+fallback because it "keeps the label's ILP win". That was wrong ([ERRATUM E2]),
+and once it is removed there is no argument left for `5` over `0`.
+
+**The label win does not exist for `5`.** From
+`research/CURRENT_RESEARCH_STATE.md:158-170`, the four-cell router-label census
+reads pf0 319.8417, pf0b 319.9000, pf1 313.5083, pf1c 319.8917 µs/step. The
+`_pf1c` variant is what `prefetch = 5` selects. Its contrast against the
+replicate baseline is the Rule-79 null cell itself:
+`pf1c − pf0b = −0.0083 µs/step [−0.9698, +0.9531]`, and against the first
+baseline `pf1c − pf0 = +0.0500`. Both sit inside a ±1 µs/step A/A noise floor.
+So the −6.4 µs/step that #558's decision row was bought with is credited
+**100 % to the cross-barrier hoist and 0 % to the prefetch block**. `5` puts the
+block back where it does nothing measurable, in either direction.
+
+**`0` dominates `5` across the whole A1 decision table.** This is the argument I
+actually rely on, because it does not require Phase A to land on any particular
+branch:
+
+| A1 branch (§3.2) | Fallbacks that remove the cost | Recommended |
+|---|---|---|
+| **V-PLACEMENT** (`P5 ≈ P0`, `P1 − P5 > 0`) | `0` and `5` both do | `0` — same fix, less machinery, no unmeasured bet |
+| **V-PEEL** (`P5 ≈ P1`, `P1 − P0 > 0`) | only `0` | `0` |
+| **V-MIXED** (`P5` strictly between `P0` and `P1`) | `0` fully, `5` partly | `0` |
+| **V-NEITHER** (`P1 ≈ P0`) | none — this is N-1 territory | none; retract §1.1 |
+
+There is no cell in which `5` is the recommendation. Four supporting reasons,
+in descending weight:
+
+1. **Less live machinery.** `prefetch = 0` drives
+   `lagunaRouterPrefetchGroups` to `0`, which makes the variant suffix empty and
+   selects the plain kernel: no `laguna_pf[4]` declaration, no four
+   `vec<bfloat,4>` loads, no 4-block peel. `prefetch = 5` selects `_pf1c`, a
+   third distinct router kernel that has to be compiled, cached, and — because
+   this family has an `mlx-generated/*.cpp` twin — kept byte-consistent with its
+   embedded source forever. Paying that maintenance surface for a contrast whose
+   CI straddles zero is a bad trade.
+2. **`5` is a bet on an unmeasured upside; `0` is not a bet.** There exists a
+   measured M4 Pro reading that `5 ≈ 0` in the label. There exists **no**
+   measured reading, on any host, in which `5 > 0`. The case for `5` is
+   therefore entirely a conjecture that the peel helps somewhere we have not
+   looked — plausibly on M5, whose memory system is ~2.3× wider (610 GB/s
+   measured vs 266.3) and whose `_nax` kernel selection differs. §11.9 puts
+   10-20 % on pf1c actually being *worse* than pf0 on M5. `0` has no comparable
+   tail because it is the absence of the mechanism under suspicion.
+3. **The static read is a veto, not an authorisation** (§9.2, Rule 82). M2
+   established that `_pf1c` costs nothing in occupancy terms: identical
+   `staticThreadgroupMemory` 4240 B, identical `maxTotalThreadsPerTG` 1024,
+   launchable at the 512-thread geometry the runtime actually uses, same 5
+   barriers, +3 AIR `load` instructions. That means the static read does not
+   *forbid* `5`. It cannot license `5` over `0`, and I will not let it.
+4. **Attribution.** Shipping `0` removes the mechanism; any subsequent reading is
+   unambiguous. Shipping `5` leaves a moved-but-present block, so a future win or
+   loss cannot be cleanly assigned. `0` is also the state that #558 replaced, so
+   it carries the longest measured history on this codebase.
+
+**What would overturn this.** One thing only: a paired official M5 A/B/A over
+{`0`, `1`, `5`} in which `5` beats `0` outside the paired noise band. That is
+exactly the Phase B measurement, and it is blocked by the submit guard in §6.4,
+so it was not available this session. Until it is drawn, the recommendation is
+`0`, and I am explicit that this is a *recommendation about a default*, not a
+measured M5 result.
+
+### 10.3 A1 — placement versus peel
+
+`[PENDING — filled from /tmp/maple-r105b/phaseA on job completion]`
+
+### 10.4 What Phase A settles and what it does not
+
+`[PENDING — filled from /tmp/maple-r105b/phaseA on job completion]`
+
 ## 11. Adversarial review of §§0-5, and the four corrections it forced
 
 While the Phase-A window was open I ran an independent review pass over §§0-5
