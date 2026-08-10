@@ -89,7 +89,7 @@ student" cap that has been operating all campaign is **advisor-imposed and was
 never a platform constraint.** Combined with §1, this is the single largest
 change in our available experimental budget this campaign.
 
-## 3. 🔴 Three of my own lead hypotheses died to rule 83 — including §8 of the round-103 flagship
+## 3. 🔴 Six of my own lead hypotheses died to rule 83 — including §8 of the round-103 flagship
 
 Rule 83 says: grep the archive before proposing. I required it of every student
 and then skipped it myself. Running it retroactively killed three of my
@@ -117,7 +117,7 @@ it already shipped as `LAGUNA_RESCALE` (`:1647-1658`). ~~The only surviving
 sub-lever is constant-folding `N`/`capacity` in the FULL attention kernel
 (10 calls/step, 20–40 µs), rated *weak*.~~
 
-**(c′) 🔴 ROUND-105 CORRECTION — the last survivor is dead too, 4 for 4.**
+**(c′) 🔴 ROUND-105 CORRECTION — the last survivor of the original three is dead too.**
 `laguna_full_fused_attn_grow_v1` (`LagunaRuntimeModel.swift:2028`) reads
 `uint widx = params[0]; int N = int(params[1]); uint capacity = params[2];`
 (`:2047-2049`). Grepping the kernel body for each symbol settles both halves:
@@ -134,15 +134,52 @@ sub-lever is constant-folding `N`/`capacity` in the FULL attention kernel
   costs far more than it saves (and the JIT-library census in §4 shows
   103 libraries already).
 
-So the §3 scoreboard is **four of four lead hypotheses killed by Rule 83 or by
-reading the kernel body**. Do not assign the constant-fold; it is now on the
-hard-negative list. Full derivation in
+Do not assign the constant-fold; it is now on the hard-negative list. Full
+derivation in
 `research/advisor-r105-the-routed-gather-gemm-is-memory-bound.md` §7.
+
+**(d) 🔴 ROUND-105 ADDITION — the decode "occupancy pool" (H4 + H5) — DEAD.**
+I read `research/artifacts/fern-r105c/dispatch-summary.json`, found that 84 of
+408 decode dispatches launch a single threadgroup and 203 of 408 cannot fill
+40 cores, and priced the removal of the 41 single-TG RMSNorms at
+`41 × 2.3403 = 95.9 µs/step = 1.461 % of cs`. PR #603 (fern, 105-D) refuted it
+two ways. Rule 65's 2.3403 µs is an **addition** constant and I applied it in
+the **removal** direction; PR #483 measured the same tree in the addition
+direction at **0.108 µs/dispatch**, so the headline was **21.7× overstated**.
+And the companion claim — that the `prefill_`-named router tournament running
+39×/step in decode is a misrouted kernel — is a naming fact with no lever
+behind it: PR #218 prices that family at **0.00 ± 0.12 µs/call**, and PR #204
+had already deleted it for **−0.9 ± 12.1 µs**. Both withdrawn; see
+`research/advisor-r105-the-decode-step-is-half-empty.md` §4.0.
+
+**(e) 🔴 ROUND-105 ADDITION — H-105E, "M5 extracts less DRAM bandwidth than
+M4 from the same byte stream" — DEAD.** I built the whole 105-E brief on the
+observation that the identical 1,671,402,432-byte decode step runs at 76–79 %
+of DRAM peak on M4 Pro but only 66.2 % on M5, and asked for the missing
+10–13 points. PR #609 (fern) found two defects. First, my 79.05 % came from
+dividing SPLIT=1 bytes by a **non-SPLIT busy** time drawn from a different
+session — a busy-vs-wall category error worth 1.92 % of `cs`, 18.7 % of my own
+headline. Second, and fatally, "% of peak" is not a well-posed efficiency
+measure for a step that contains a large fixed non-DRAM component: fitting
+`T = B/BW + L` shows M5's non-DRAM residual `L5 = 1368.4 µs` is **25 % smaller
+in absolute microseconds** than M4's `L4 = 1828.4 µs`, and that M5 carrying
+M4's `L` would score 60.27 % instead of the observed 66.96 %. **M5 is ~6.7
+points *better* than transfer predicts, not worse.** The recoverable prize on
+the axis I named is **≤ 1.548 % of `cs`, best estimate 0.545 %**, with no
+single family above the 0.5 % effort bar. See
+`research/advisor-r105-the-label-instrument-mis-ranks.md` §4.1.
+
+So the §3 scoreboard is **six of six lead hypotheses killed by Rule 83, by
+reading the kernel body, or by a student re-deriving the advisor's
+arithmetic**.
 
 **The lesson is not "the advisor was sloppy".** It is that this archive is
 large enough and old enough that *plausibility is not evidence of novelty*, and
 the cost of the grep is minutes while the cost of skipping it is a student
-round. Four for four.
+round. Six for six — and the last two, (d) and (e), fell in consecutive
+rounds to the *same* student correcting the *same* class of error: a
+per-dispatch or per-byte rate quoted without checking which clock produced its
+denominator. Rules (a), (i) and (j) exist because of them.
 
 ## 4. 🔴 The entire OLD→NEW delta is exactly two mechanisms (tanjiro, #572)
 
@@ -943,6 +980,68 @@ The refreshed record watch shows **16 receipts on 2026-08-09 alone under
   any individual measurement — each receipt is benchmarked independently — but
   it does mean the standing record can move underneath us from inside our own
   org, and §8's pricing table is only valid until it does.
+
+#### 🆕🆕 ROUND-105 AMENDMENT TO §11.4 — THE "FOREIGN `morganmcg1` TRAFFIC" WAS **US**
+
+The paragraph above is half right and its practical advice was **wrong**, and
+the error cost me most of a round of misreading the field. Written up in full
+by `research/advisor_r105_receipt_forensics.py`; the correction is:
+
+1. **Attribute by `submissionCommitSha` *and* by `note`.** Every one of the
+   `morganmcg1` receipts I had written off as another campaign's traffic
+   carries a `note` that quotes *my own assignment text verbatim* — campaign
+   name, student, assignment id, revision id, arm letter. The discriminator was
+   sitting in a field I was not reading. The sha alone is not enough, because a
+   sha only becomes recognisable once you have the object; the note is
+   recognisable immediately.
+2. **Absence of a submission commit from the local object store is NOT
+   evidence of foreign provenance.** This was the actual mechanism of my error.
+   Students submit ranked receipts *long before* they push the write-up branch
+   to their PR, so for a window of minutes-to-hours the receipt exists in the
+   feed while its commit exists nowhere I can `git cat-file` it. I read
+   "unreachable object" as "someone else's tree". It means "our student is
+   mid-experiment".
+3. **The receipt feed is therefore a live student-progress channel**, and the
+   most useful one available to an advisor: it reports arm, leg, and both raw
+   channels (`cand_dec`, `cand_pre`) for *rejected* receipts too, hours before
+   any PR comment appears. `research/advisor_r105_ladder_monitor.py` parses the
+   note structure (`# <title>`, `**Arm:** …`, `**Role of this leg:** …`,
+   `leg N of M — arm X`) and prints per-arm geometric-mean `cs`, observed
+   `sd(ln cs)`, and each non-control arm's contrast against the pooled control
+   with a z and a 95 % CI. Run it before writing feedback, not after.
+4. **⚠ Read the ladder only when it is complete.** My own preliminary read of
+   tanjiro's 105-A ladder at three receipts gave −0.53 % at z ≈ −3; the fourth
+   control receipt landed low and the honest contrast is **−0.42 %, z = −1.97**.
+   The feed tempts you to score a partial design. Do not.
+
+**API facts needed to use any of this** (verified 2026-08-10, and none of them
+documented anywhere else in the tree):
+
+* Base URL **`https://api.mlx.fast`** — env override `MLXFAST_API_BASE`, CLI env
+  `MLXFAST_API_URL`. **`https://mlxfast.eigenlabs.org` is DEAD** (Cloudflare
+  error 1016); anything still pointing at it will fail obscurely.
+* Auth: `Authorization: Bearer $MLXFAST_API_TOKEN`, or
+  `~/.config/mlxfast/config.json`.
+* `GET /api/benchmarks/{urlencoded ref}` → `{"benchmark": {…}}` — **the id is
+  nested**, not top level. Ref `eigenlabs/mlxfast-challenge`, id
+  **`1854efdf-feba-4773-bae9-b80520881a74`**.
+* `GET /api/benchmarks/{id}/submissions` → `{"submissions": […]}`.
+* Record fields: `benchmarkId, claimedScore, createdAt, id, improved, note,
+  officialMetrics, officialScore, promotedSourceRef, promotionFinishedAt,
+  promotionReason, promotionSnapshotRef, promotionStatus, rejectionReason,
+  solverAccountId, solverAvatarUrl, solverProfileUrl, solverUsername, status,
+  submissionCommitSha, updatedAt`.
+* 🔴 **There is no top-level `timestamp` field.** Earlier notes in this tree
+  that list one are wrong. Use `createdAt`/`updatedAt`, or
+  `officialMetrics.timestamp`. `officialMetrics` also carries
+  `{decode,prefill}_seconds_per_token` and their `baseline_*` twins, which is
+  where `cand_dec` and `cand_pre` come from.
+
+**Retire the standing caveat** that "our 72 metric-bearing receipts need a
+commit-based filter before they can be trusted" and every "provenance
+UNRESOLVED" note attached to it. Provenance is resolved: the ladder traffic
+under `morganmcg1` since 2026-08-09 is ours, and the field-parity split against
+`yudduy`, `fyrsta7` and `metaspartan` in §8.4 stands as measured.
 
 
 

@@ -303,6 +303,68 @@ a **subtraction residual, not a pool** — §4.2's discipline, applied to my own
 geometry-corrected 686.2 GB/s constant would move the floor to 58.8 % and *grow* the residual
 without making it a lever.
 
+> #### 🆕🆕 ROUND-105-E AMENDMENT TO §4.0b — THE TWO PERCENTAGE ROWS ARE RETIRED
+>
+> PR #609 (fern, 105-E) showed that the two bolded percentage rows above — "DRAM floor as % of
+> step 66.16 %" and "achieved BW 403.6 GB/s = 66.2 % of peak" — are **arithmetically correct and
+> analytically useless**, and I have withdrawn every argument I built on them.
+>
+> The defect is that `achieved BW = B / T` silently assumes the step is *entirely* a transfer.
+> It is not. Fit instead
+>
+> ```
+> T = B / BW_peak + L
+> ```
+>
+> with `B = 1,671,402,432 B` fixed by the byte census above and `BW_peak` the *measured* pattern
+> ceiling, and the "% of peak" number decomposes into a transfer term and a fixed non-DRAM
+> residual `L`:
+>
+> | host | step `T` µs | `B/BW` µs | **`L`** µs | `T`-efficiency |
+> |---|---:|---:|---:|---:|
+> | M4 Pro, wall | 8233.0 | 6404.6 | **1828.4** | 77.79 % |
+> | M4 Pro, busy (non-SPLIT) | 7940.0 | 6404.6 | 1535.4 | 80.66 % |
+> | M4 Pro, SPLIT=1 label sum | 8528.3 | 6404.6 | 2123.7 | 75.10 % |
+> | **M5 Max, ranked step** | **4141.5** | **2773.1** | **1368.4** | **66.96 %** |
+>
+> `L5 / L4(wall) = 0.748`: **M5's non-DRAM time is 25 % smaller in absolute microseconds than
+> M4's.** M5 does not extract less bandwidth; it finishes its transfers ~2.3× faster and is
+> therefore left holding a fixed cost that has not shrunk proportionally. That is Amdahl's law,
+> and it is the entire content of the "66 %". Counterfactually, M5 carrying M4's `L` would run
+> 2773.1 + 1828.4 = 4601.5 µs at 60.27 %; it actually runs 4141.5 µs at 66.96 %, so **M5 is ~6.7
+> points *better* than pure transfer scaling predicts.**
+>
+> **The conclusion is unconditional, not a fit artefact.** Even at 100 % of the Rule-80 M5 peak
+> of 610 GB/s, `B/BW = 2740.0 µs`, so `L5 ≤ 1401.5 µs` *always*; at the Rule-80 M4 peak of
+> 266.3 GB/s, `B/BW = 6276.2 µs`, so `L4(wall) ≥ 1956.8 µs`. For `L5 > L4` M5's true achievable
+> bandwidth would have to exceed **722.6 GB/s**, above its nominal 614.
+>
+> Two consequences for this file:
+>
+> 1. **The 1401.50 µs "unattributed residual" row now has a name: it is `L`.** 105-E's
+>    independent estimate from the measured M4 pattern ceiling is `L5 = 1368.4 µs`, within 33 µs
+>    of the subtraction residual — two different derivations agreeing to 2.4 %. **Naming is not
+>    decomposing.** §4.2's prohibition on assigning arms against a subtraction residual **stands
+>    unchanged**; what has changed is only that we now know `L` is real, is ~20.8 % of `cs`, and
+>    is *serialisation and dependency-chain* time, not launch-count time (105-D §4: ≥ 68.4 % of
+>    the nominal dispatch tax is overlapped; #483 prices addition at 0.108 µs/dispatch; #158's
+>    per-dispatch coefficient is null).
+> 2. **The M4 rate that appeared in my 105-E brief as "79.05 % of peak" was a busy-vs-wall
+>    category error** and is retracted; see
+>    `research/advisor-r105-the-routed-gather-gemm-is-memory-bound.md` §3.4 and
+>    `research/CURRENT_RESEARCH_STATE.md` round-105 second-headline item 5.
+>
+> New standing rules, from 105-E: **(i)** "% of peak bandwidth" is confounded by fixed cost — fit
+> `T = B/BW + L` and compare `L` and `B/BW` separately, never their ratio. **(j)** Never compare
+> a busy-derived rate against a wall-derived rate; `SPLIT=1` alone inflates busy by 1.074× on
+> this tree.
+>
+> What survives of the bandwidth axis: fern measured the shipped `nvfp4_qmv` access pattern at
+> **260.97 GB/s = 98.0 % of the Rule-80 M4 peak**, and the byte-carrying families at **89.7 % of
+> that peak for 85.2 % of all step bytes**, so the recoverable prize from bandwidth efficiency
+> is **≤ 1.548 % of `cs`, best estimate 0.545 %**, with no single family above the 0.5 % effort
+> bar. Full derivation: `research/maple-fern-r105e-decode-bandwidth-efficiency.md`.
+
 #### 🆕 §4.0c — THE 955 µs DISPATCH TAX IS OVERLAPPED, NOT ADDITIVE
 
 Nominal 408 × 2.3403 = **954.842 µs/step = 14.54 % of `cs`**. Four independent lines, in
