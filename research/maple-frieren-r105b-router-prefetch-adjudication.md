@@ -126,29 +126,38 @@ ARMS="P0:head:DARKBLOOM_ROUTER_WEIGHT_PREFETCH=0 \
       P1:head:DARKBLOOM_ROUTER_WEIGHT_PREFETCH=1 \
       P5:head:DARKBLOOM_ROUTER_WEIGHT_PREFETCH=5 \
       P1B:head:DARKBLOOM_ROUTER_WEIGHT_PREFETCH=1"
-DESIGN=rotate REPS=24 STEPS=250 WARMUP_REPS=4
+DESIGN=rotate REPS=18 STEPS=250 WARMUP_REPS=2
 SNAP=/tmp/maple-r105b-snap OUT=/tmp/maple-r105b/phaseA
-ASSERT_DIFFER="" ASSERT_SAME=""
+ASSERT_DIFFER=' ' ASSERT_SAME=' '
 bash research/maple-frieren-r103a-abba.sh
 ```
 
-4 arms × 2 slots = 8 slots/rep; rotation cycle = 4 reps = 32 slots; 24 reps =
-**192 slots**; 20 analysed reps = **5 cycles**. At the #571 measured slot cost
-of ≈44.2 s (§6.8: of which ≈42.5 s is model load — 96 % startup) this is
-≈8,600 s ≈ 143 min, inside the 180-min per-run limit.
+Budget note (revised after measuring the #571 rung-2 artefacts): the surviving
+`.steps` mtimes give **44.53 s/slot** over 144 slots. 4 arms × 2 slots × 18 reps
+= 144 slots = 6,367 s ≈ 106 min, inside the 180 min per-run ceiling. `REPS=18`
+with `WARMUP_REPS=2` leaves 16 analysed reps = exactly **four complete rotation
+cycles**, so position balance is exact; `REPS=24` would have left a two-rep
+partial cycle. n=16 within-rep pairs against σ_pair = 18.44 µs/step gives
+SE = 4.6 and hw ≈ 9.8 µs/step, which resolves a +34.58 effect at 7.5σ and still
+meets the A0 acceptance ceiling of hw ≤ 12.
 
-Why 192 slots rather than #571's 144: it merges the A0 null and the A1
-placement adjudication into a single session, removing cross-session variance
-between the null and the effect it is calibrating, and it costs less
-wall-clock than two separate 144-slot sessions. The price is statistical
-power: at K=5 cycles instead of 7, the expected CI half-width per contrast is
-≈11 µs/step rather than 8.19. §5 states what that does and does not resolve.
+`ASSERT_DIFFER`/`ASSERT_SAME`/`NULL_COPIES` are read with `${VAR:-default}`, so
+an *empty* string silently restores the default assertion. They must be passed
+as a single **space** to disable them.
+
+Why 4 arms at 144 slots rather than #571's 3 arms at 144 slots: it merges the
+A0 null, the effect and the A1 placement adjudication into a single session,
+removing cross-session variance between the null and the effect it is
+calibrating, at identical wall-clock. The price is power — n=16 pairs instead
+of #571's 21, hw ≈9.8 instead of 8.45. §5 states what that does and does not
+resolve.
 
 Analysis, fixed in advance:
 
 ```
-python3 research/maple-frieren-r103a-analyze-multi.py /tmp/maple-r105b/phaseA 4
+python3 research/maple-frieren-r103a-analyze-multi.py    /tmp/maple-r105b/phaseA 4
 python3 research/maple-frieren-r103a-position-matched.py /tmp/maple-r105b/phaseA 4
+python3 research/maple-frieren-r105b-stepwise.py        /tmp/maple-r105b/phaseA 4
 ```
 
 `analyze-multi.py` takes `itertools.combinations(arms, 2)`, so all **six**
@@ -178,18 +187,49 @@ still present after rotation and A0 is not sufficient.
 `prefetch = 5` is the preregistered **placement control** of #558
 (`maple-nezuko-r100c:38`): via `lagunaRouterPrefetchGroups` (LRM `:876-879`)
 it maps to `groups = 1`, and the variant dictionary (LRM `:1115-1150`) selects
-the `_pf1c` suffix — the peel without the cross-barrier hoist. #558's decision
-row 1 fired on `pf1 < pf1c ≈ pf0` *at the kernel label*. A1 asks whether that
-still holds end to end.
+the `_pf1c` suffix.
+
+M2 (§3.3, executed — results in §6.2) upgrades this from "a control someone
+labelled placement" to an **exactly isolated single-variable control**. The
+generated MSL for `_pf1` and `_pf1c` differs in nothing but the *line number* of
+one identical 12-line block:
+
+```
+ thread vec<bfloat, 4> laguna_pf[4];
+ if (simd_group < active_simd_groups) { ... laguna_pf[k] = pf_values[0]; }
+```
+
+In `_pf1` it sits at MSL line **75**, *before* the RMSNorm reduction and
+therefore before all **5** `threadgroup_barrier` calls. In `_pf1c` the identical
+block sits at line **103**, *after* them. Same loads, same registers, same
+arithmetic, same consumer loop, byte-identical everywhere else. So the three
+arms decompose the dial into two orthogonal halves:
+
+| Contrast | Isolates | Kernel-label value (archive) |
+|---|---|---|
+| `P5 − P0` | the **local hoist**: 4×`vec<bfloat,4>` batched into registers just before use, same side of the barriers — pure ILP | `+0.05` µs/step (`pf1c−pf0b` = −0.0083, the Rule-79 null) |
+| `P1 − P5` | the **cross-barrier hoist**: the same 8 live 32-bit registers carried *across* 5 threadgroup barriers, and the ≈1 MB `router_weight` burst issued *before* the norm's own traffic instead of after | `−6.38` µs/step (pf1 313.51 vs pf1c 319.89) |
+| `P1 − P0` | both together | `−6.39` µs/step |
+
+The kernel label therefore credits **100 % of its −6.39 win to the cross-barrier
+hoist and 0 % to the local hoist**. That gives A1 a sharp preregistered
+prediction rather than a menu: if the +34.58 end-to-end penalty is the hidden
+price of the same structural feature the label rewards, then
+
+> **P1 − P5 ≈ +34.6 µs/step and P5 − P0 ≈ 0.**
 
 | Verdict | Condition | Reading |
 |---|---|---|
-| **V-PLACEMENT** | `P5 ≈ P0` and `P1` slower than both | The end-to-end cost tracks the cross-barrier hoist, i.e. the same structural feature the census credited with the win. #558's decision row is *sign-inverted* end to end, not merely attenuated. |
-| **V-PEEL** | `P5 ≈ P1`, both slower than `P0` | The cost tracks the peel, not the hoist. #558 mis-attributed the mechanism and the census label is measuring something other than the dial's real cost. |
+| **V-PLACEMENT** | `P5 ≈ P0` (inside the A0 band) and `P1 − P5` CI excludes 0 upward | Confirms the prediction. The cross-barrier hoist buys −6.4 µs/step inside the router label and pays ≫ that outside it. #558's decision row is **sign-inverted end to end**, not merely attenuated, and `prefetch = 5` is a strictly better default than `1` — a *cheaper* fix than `0` because it keeps the label's ILP win. |
+| **V-PEEL** | `P5 ≈ P1`, both slower than `P0` | The cost tracks the loads themselves, not their placement. Then `0` is the only fix, and the label's Rule-79 null cell (`pf1c−pf0b` ≈ 0) is itself label-blind. |
+| **V-MIXED** | both `P5 − P0` and `P1 − P5` CIs exclude 0 upward | Two additive costs; report the split. |
 | **V-NEITHER** | all three within the A0 null band | No end-to-end effect of any placement at this power. The +34.58 does not reproduce. |
 
-`P5` is a zero-marginal-cost rider: it is the same binary and it occupies slots
-the rotation needs anyway.
+`P5` is a zero-marginal-cost rider: same binary, and it occupies slots the
+rotation needs anyway. **V-PLACEMENT would make the deliverable a one-token
+change (`return 1` → `return 5`) that keeps a measured kernel win and drops a
+measured end-to-end loss** — which is why P5 earns its arm even at the cost of
+5 pairs of power.
 
 ### 3.3 M2 — static compile read at the shipped geometry (no GPU time)
 
@@ -288,7 +328,169 @@ Stop and write up when the first of these holds:
    the +34.58, and submit. A broken estimator is the finding; buying M5 time to
    chase its artefact would be the same error #571 made in reverse.
 
-## 6. Scope fence I am holding
+## 6. Executed before any new GPU time was spent
+
+Two results below cost **zero** GPU seconds and both changed the design in §3.
+
+### 6.1 The #571 rung-2 raw per-step data survived, and it refutes mechanism B
+
+`/tmp/maple-r103a/rung2` still holds all 144 `.steps` files (250 per-step values
+each, in ms), `index.tsv`, `analysis-multi.json`, `position-matched.txt` and
+`provenance.txt`. Provenance line 4 confirms the arms:
+`A:old B:new:DARKBLOOM_ROUTER_WEIGHT_PREFETCH=0 C:new:DARKBLOOM_ROUTER_WEIGHT_PREFETCH=1`,
+host Apple M4 Pro. So `C − B` **is** the pf1-vs-pf0 contrast at fixed code, and
+the +34.58 can be re-interrogated at step resolution. I wrote
+`research/maple-frieren-r105b-stepwise.py` for this.
+
+**Step-index profile of `C − B`** (µs/step, cross-slot medians, windows
+0-1, 1-2, 2-5, 5-10, 10-25, 25-50, 50-100, 100-150, 150-200, 200-250):
+
+```
+C-B  +32.23 +26.15 +26.87 +24.67 +24.56 +26.63 +29.35 +32.91 +31.29 +33.63
+B-A  -22.92  -5.50  -7.43  -6.64  -7.08  -3.70  -4.15  -7.91  -5.52  -4.77
+C-A   +9.31 +20.65 +19.44 +18.04 +17.48 +22.93 +25.21 +25.00 +25.77 +28.87
+```
+
+**Mechanism B — a per-slot one-time cost (JIT, pipeline build, shader cache) — is
+quantitatively refuted.** The rung-2 primary statistic is a per-slot **median
+over 250 steps** (`STATS = ("median","trimmed","mean","mean_first128","step0")`,
+median primary), which is structurally blind to a step-0 spike. And all four
+sustained statistics agree: median **+34.58**, trimmed **+36.15**, mean
+**+35.96**, mean_first128 **+38.74**. `mean − median` = 1.38 µs/step × 250 steps
+= 345 µs of total one-time budget, which matches the direct `step0` estimate
+**+420.86 [−779.59, +1621.31]** — a CI that covers zero. So the one-time
+component is at most ≈1.7 µs/step of the 34.58 (**≈5 %**) and is not
+statistically distinguishable from nothing. The gap is *sustained across all 250
+steps*.
+
+**Not a position artefact.** Per-(arm, position) mean of slot medians (µs/step):
+
+| arm | pos1 | pos2 | pos3 | pos4 | pos5 | pos6 |
+|---|---|---|---|---|---|---|
+| A | 8260.9 | 8241.1 | 8240.8 | 8248.4 | 8238.4 | 8243.9 |
+| B | 8235.4 | 8216.9 | 8231.9 | 8240.8 | 8238.4 | 8235.4 |
+| C | 8284.1 | 8265.2 | 8267.8 | 8263.8 | 8261.9 | 8263.8 |
+| **C−B** | **+48.7** | **+48.3** | **+35.9** | **+23.0** | **+23.5** | **+28.4** |
+
+6/6 positions positive for `C−B` and for `C−A`; only 1/6 for `B−A`.
+
+**Not a drift artefact.** Within-rep paired, n=21: `C−B` mean **+34.63**, median
++29.60, sd 18.44, **21/21 positive**; `C−A` +22.20 (19/21); `B−A` −12.43 (4/21).
+Slot-median distributions (n=42 each): A [8230.5, 8383.3] sd 23.5; B [8084.0,
+8246.8] sd 24.4; C [8249.8, 8341.5] sd 15.7. **C and B are disjoint** —
+`min(C) − max(B) = +2.9 µs/step`, zero slots in the overlap.
+
+**Live growth signature.** `C − B` rises from +24.6 (steps 10-25) to +33.6 (steps
+200-250), **+36 %**, while the common level *falls* 8266 → 8262 over the same
+window (the arms' shared level drops as the slot warms). KV grows 512 → 762
+(**+49 %**) across the slot. A cost that scales with KV footprint is consistent
+with a memory-system / cache-contention mechanism (M4/M5 family) and
+inconsistent with a fixed per-step overhead. Time-in-slot and KV length are
+confounded here; only a step-count sweep (STEPS=125 vs 500 at fixed KV seed)
+separates them, and it is listed as the top follow-up.
+
+**Correction to the assignment brief's reading of the #571 "nulls".**
+`nulls()` (`research/maple-frieren-r103a-analyze-multi.py:135`) is a *within-arm,
+within-rep, later-minus-earlier position contrast at fixed separation*.
+`arm_estimates()` *averages an arm's two occurrences inside a rep, then
+differences arms*. These are different estimands, and the second averages over
+exactly the drift the first measures. So `null B@sep1 = +8.81 [+0.67, +16.95]`
+— which does exclude zero — is **not** a discount against the +34.58, and
+**no true A/A null for the contrast estimator has ever been run**. That is
+precisely the hole A0 (§3.1) fills. For the record the other cells are
+B@sep3 +21.69 [−34.74, +78.13], B@sep5 +0.01, A@sep5 −16.59, C@sep5 −19.97,
+pooled@sep1 +4.15, pooled@sep3 +5.23, pooled@sep5 −12.18.
+
+### 6.2 M2 executed — no occupancy change, and the dial is one relocated block
+
+`research/maple-nezuko-r100c-isa.sh` + `research/maple_nezuko_r100c_pipeline_stats.swift`
+on this M4 Pro at the shipped geometry:
+
+| variant | AIR | metallib | `maxTotalThreadsPerThreadgroup` | `threadExecutionWidth` | `staticThreadgroupMemory` | launchable@512 | AIR `load` | barriers |
+|---|---|---|---|---|---|---|---|---|
+| `pf0`  | 7392 | 7561 | 1024 | 32 | 4240 | yes | 10 | 5 |
+| `pf1`  | 7680 | 7849 | 1024 | 32 | 4240 | yes | 13 | 5 |
+| `pf1c` | 7664 | 7818 | 1024 | 32 | 4240 | yes | 13 | 5 |
+
+**Verdict on `CURRENT_RESEARCH_STATE.md:160-166`: CONFIRMED, not retracted.**
+The "identical pipeline stats — 1024 threads, width 32, 4240 B" sentence still
+holds at HEAD's 512-thread geometry. Threadgroup memory is byte-identical across
+all three, so there is **no static occupancy difference** to explain +34.58, and
+the code-size delta is 288 B of AIR (mechanism F is far too small).
+
+The MSL diffs are the load-bearing new fact. `pf0 → pf1` adds exactly one 12-line
+block (3 extra AIR loads: 4 × `vec<bfloat,4>` = 32 B/thread of `router_weight`
+into `thread vec<bfloat,4> laguna_pf[4]`, i.e. **8 live 32-bit registers**) plus
+the peeled first 4 blocks of the dot-product loop. `pf1 → pf1c` moves that same
+block from MSL line 75 to line 103 and changes **nothing else** — see §3.2.
+
+This localises the surviving mechanism family precisely: in `pf1` those 8
+registers stay live across **5 `threadgroup_barrier` calls**, and the ≈1 MB
+`router_weight` read burst is issued *before* the RMSNorm reduction's own traffic
+rather than after it. Both the register-liveness reading (frontier mechanism C)
+and the traffic-window reading (mechanism A/E) predict a cost that the router
+kernel's own label does not pay — the label got **6.39 µs/step faster** while
+≈41 µs/step landed somewhere else. §3.2's A1 contrast is the direct test.
+
+### 6.3 Phase A binary is built and pinned
+
+`SNAP=/tmp/maple-r105b-snap`, provenance `/tmp/maple-r105b/phaseA-build.txt`.
+Snapshot `head`: worker sha256
+`baae191f4907664a2a4b0dfffbd1cd66dd48effec61b48e60ee9054459a78399`
+(49,190,344 B), metallib
+`8e8b18afaee1ed5a0190403f79a4cc74b9bebcb52b50c4b67d0ed91dc73097ec`.
+**PASS(G0.4)** digest round-trip; **PASS(G0.5)** metallib byte-identical.
+
+Note for anyone reusing the harness: `rm -rf .build-worker` destroys
+`mlx.metallib` and `build_worker()` does **not** rebuild it, so the next arm
+build dies at `cp .build-worker/release/mlx.metallib` with exit 5. Run
+`tools/build-mlx-metallib.sh` first (50 s → 158,502,072 B).
+
+### 6.4 Phase B is blocked by the new submission base guard — advisor action needed
+
+`senpai/submit-official.sh` (merged into `origin/main` as part of #547,
+`e29a760` "Guard official submissions against stale bases") enforces at `:74`:
+
+```
+git diff --quiet "${main_sha}" "${base_sha}" -- "${protected_paths[@]}"
+  || "official submit: BASE_SHA submitted snapshot differs from current origin/main"
+```
+
+Measured on this checkout, `origin/main = 1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7`:
+
+| candidate `BASE_SHA` | ancestor of HEAD | editable files differing from `origin/main` | guard |
+|---|---|---|---|
+| `768bb9d4…` (campaign BASE_SHA) | yes | **9** | **refuses** |
+| `ed1ca05f…` (my assignment base = advisor branch tip) | yes | **27** | **refuses** |
+| `1bc1c895…` (= `origin/main` itself) | yes | 0 | passes |
+
+The direction matters: `768bb9d4` is an *ancestor* of `origin/main` (stale, the
+case the guard was written for), but `ed1ca05f` is a **descendant** — the advisor
+integration branch carries 27 editable files that are **not yet promoted to
+`main`**. `benchmark.json` at my HEAD does match `main`, so only the `:74` check
+fires.
+
+Passing `1bc1c895` would satisfy the guard *while defeating its purpose*: the
+uploaded surface is still my HEAD, which contains all 27 unpromoted files, and
+the guard's own remedy text is "reapply and remeasure the candidate on a current
+snapshot". **I am not doing that.** Consequently **Phase B spends zero receipts
+in this session** and the M4 evidence in §6.1/§6.2 plus Phase A is the whole
+deliverable. Unblocking needs one of:
+
+1. the advisor promotes the advisor branch into `origin/main` (then `ed1ca05f`
+   or its successor passes cleanly); or
+2. the T1/T0 pair is rebased onto `origin/main` and remeasured there — a
+   *different tree* from my assignment base, so it would no longer adjudicate
+   the tree the assignment names; or
+3. the advisor records an explicit, auditable exception.
+
+This is a campaign-level finding, not specific to R105-B: **every student branch
+based on the advisor integration branch is currently unable to submit an
+official receipt.** #584 is concurrently spending M5 receipts, so either that
+branch has a different base relationship to `main` or it hit the same wall.
+
+
+## 7. Scope fence I am holding
 
 - **rpg retiling is a CLOSED family.** It may ride along only as a
   zero-marginal-cost same-binary arm and is **never** the thesis and **never**
@@ -302,7 +504,7 @@ Stop and write up when the first of these holds:
 - Commits are kept distinct from `maple-nezuko`'s, which is concurrently
   spending M5 receipts on #584.
 
-## 7. Verdicts owed at the end (placeholders, filled in §9)
+## 8. Verdicts owed at the end (placeholders, filled in §9)
 
 1. `research/CURRENT_RESEARCH_STATE.md:193-200` — the "free rider / Bank it"
    doctrine for #558.
