@@ -81,31 +81,59 @@
 > `research/advisor-r105-base-sha-and-official-submission.md`.
 
 
-> 🔴🔴🔴 **🆕 r106 — READ BEFORE ANY SUBMIT. THE SUBMIT CHANNEL IS RATE-LIMITED
-> AND FAILED ATTEMPTS STILL CONSUME THE LIMIT. NO RETRY LOOPS. NO UNALLOCATED
-> SUBMITS.**
+> 🔴🔴🔴 **🆕 r106 — READ BEFORE ANY SUBMIT. THE OFFICIAL CHANNEL IS A SERIAL
+> QUEUE, NOT A QUOTA. WATCH UNTIL IDLE → ONE ATTEMPT → STOP. NEVER RETRY-LOOP.**
 >
-> **Rule 88** (full text in §8). Frieren's #597 §13.3 established a **shared
-> per-account submit limiter** and, decisively, that **attempts which fail on a
-> conflict still spend the limit**: **14 attempts → 0 receipts**, because the
-> retry loop locked itself out at the exact moment the slot freed.
+> **Rule 88** (full text in §8) — *measured, not inferred* (advisor,
+> 2026-08-10, `research/advisor_r105_ladder_monitor.py`). Eleven receipts landed
+> under the shared `morganmcg1` account between 03:52Z and 07:53Z. Inter-arrival
+> **15–36 min, median ≈22 min**, and **at every instant at most ONE submission
+> was non-terminal**.
 >
-> 1. **One attempt, then wait.** Preflight every wrapper guard locally first
->    (clean `git status --porcelain=v1 --untracked-files=all --ignored=matching`,
->    no `skip-worktree`/`assume-unchanged` tags, commit before you submit). A
->    submit that fails on a locally-checkable precondition burns a slot you
->    cannot get back.
-> 2. **The channel supports roughly ONE arm per round**, so multi-pair
->    alternating designs are not schedulable.
-> 3. **The advisor allocates the channel explicitly each round; without an
->    explicit allocation in your brief, you may not submit.** ⛔ This
->    **retracts** the round-104 guidance *"there is no platform quota — you are
->    wall-clock limited, not quota limited."* That was wrong.
-> 4. **Characterising the limiter is itself a first-class deliverable.**
+> **So the channel is a serial validation queue with ≈22 min of service time —
+> NOT a per-account quota.** A submit issued while another submission is
+> non-terminal **fails on conflict, and the failed attempt still costs**
+> (#597 §13.3). That is the entire mechanism.
 >
-> **Round-106 allocation: 100 % of the receipt channel to PR #597 (frieren).**
-> #615, #616 and #617 are receipt-free by design. Slate and rationale: the
-> round-106 allocation block below.
+> 1. **Watch until IDLE, then fire exactly once.**
+>    `python3 research/advisor_r105_ladder_monitor.py --since <ISO8601>` prints
+>    the queue; **any non-terminal row means do not submit.**
+>    `research/advisor_r106_channel_idle_watch.py` is read-only and exits 0 the
+>    moment the account has no non-terminal submission — run it as a job and
+>    fire when it returns. **Never** attempt → fail → retry: that pattern cost
+>    frieren 14 attempts for 0 receipts.
+> 2. **Preflight every wrapper guard locally first** — clean
+>    `git status --porcelain=v1 --untracked-files=all --ignored=matching`, no
+>    `skip-worktree`/`assume-unchanged` tags, and **commit before submitting**
+>    (the wrapper archives **`HEAD` restricted to the 97 `editablePaths`**, so
+>    an uncommitted edit silently submits the *other* arm). A guard failure
+>    costs a real slot.
+> 3. **Ladders ARE schedulable; the binding constraint is contention, not a
+>    quota.** ≈2.7 receipts/hour when nothing competes, so a 4-receipt design is
+>    ≈90 min of occupancy. What is unaffordable is **two ladders at once**.
+>    ⛔ This supersedes the first draft of this clause ("roughly one arm per
+>    round"), which was too pessimistic.
+> 4. **The advisor allocates the channel explicitly each round; without an
+>    explicit allocation in your brief you may not submit.** ⛔ This **retracts**
+>    the round-104 guidance *"there is no platform quota — you are wall-clock
+>    limited, not quota limited."*
+>
+> ⚠ **What went wrong in r105–r106 was ADVISOR ALLOCATION, not student
+> execution.** Frieren was queued out **by our own campaign**: nezuko's r104-A
+> ladder (still firing legs 03–04 *after* #584 was withdrawn — now cancelled)
+> and tanjiro's r105-A ladder together occupied ~100 % of the window she was
+> retrying into. Two ladders were briefed into a single-server queue.
+>
+> 📉 **The spend is not paying.** **All 11 receipts on 2026-08-10 were
+> `rejected`.** Best of the day `cs 2.583779`, against a best-ever **2.590559**.
+> Four hours of shared channel bought zero improvement — which is exactly why
+> the round-106 slate has **one** receipted arm and three receipt-free ones.
+>
+> **Round-106 allocation: 100 % to PR #597 (frieren)** — currently **HELD**,
+> because a sibling campaign's already-prepared crown candidate has been given
+> the next validation slot by operator directive (the untagged 07:53:02Z row).
+> The hold is released in #597 by the advisor, not by the idle watcher.
+> #615, #616 and #617 are receipt-free by design.
 
 
 > 🔴🔴🔴 **ROUND-105 HEADLINE — READ FIRST. Two instruments disagree about the
@@ -451,33 +479,29 @@
 
 
 > 🔴🔴🔴 **ROUND-106 ALLOCATION (advisor, 2026-08-10). THE OFFICIAL RECEIPT
-> CHANNEL IS RATE-LIMITED PER ACCOUNT AND IS NOW ALLOCATED, NOT ASSUMED.**
+> CHANNEL IS CONTENDED AND IS NOW ALLOCATED, NOT ASSUMED.**
 >
-> **🆕 Rule 88 — the submit channel is a scarce shared resource, and failed
-> attempts consume it.** Frieren's #597 §13.3 established that
-> `senpai/submit-official.sh` is governed by a **shared per-account submit
-> limiter**, and — decisively — that **attempts which fail on a conflict still
-> consume the limit**. She made **14 submit attempts and landed 0 receipts**;
-> the retry loop locked itself out at the moment the slot freed. Consequences,
-> all binding:
+> **🆕 Rule 88 — the channel is a serial queue (≈22 min service time) and a
+> submit issued while it is busy fails *and still costs*.** Full measured
+> statement, with the 11-receipt cadence table it was derived from, is in §8;
+> the short form is **watch until idle → one attempt → stop**, and **never brief
+> two ladders concurrently**. The mechanism is **contention**, not a quota: this
+> supersedes my own first draft of the rule, which read the evidence as a
+> per-account lockout and wrongly concluded "roughly one arm per round".
 >
-> 1. **No retry loops, ever.** One attempt, then wait. Preflight every wrapper
->    guard locally before invoking it (clean
->    `git status --porcelain=v1 --untracked-files=all --ignored=matching`, no
->    `skip-worktree`/`assume-unchanged` tags, commit before submitting). A
->    submit that fails on a locally-checkable precondition costs a slot that
->    cannot be recovered.
-> 2. **The channel supports roughly ONE arm per round.** Multi-pair alternating
->    designs (the 8-receipt / 4-pair shape used in #584) are **not schedulable**
->    and must not be briefed until the limiter is characterised.
-> 3. **The advisor allocates the channel explicitly each round.** A student
->    without an explicit receipt allocation may not submit. This supersedes the
->    round-104 guidance "there is no platform quota — you are wall-clock
->    limited", which was **wrong** and is retracted.
-> 4. **Characterising the limiter is itself a first-class deliverable** — it
->    currently blocks every paired M5 design in the campaign.
+> ⚠ **The r105/r106 receipt famine was an ADVISOR ALLOCATION FAILURE.** Frieren
+> made 14 attempts and landed 0 receipts not because the platform locked her
+> out but because I had briefed **#584's eight legs and #592's six arms into the
+> same single-server queue she was retrying into**; between 03:52Z and 07:53Z on
+> 2026-08-10 our own two ladders held it ~100 % of the time. Recorded here as my
+> error, not hers. Second-order lesson, equally mine: **withdrawing an
+> experiment does not stop its ladder** — r104-A kept firing legs 03 and 04
+> after #584 was closed, and had to be cancelled explicitly.
 >
-> **Receipt allocation this round: 100 % to #597 (frieren).** The router-prefetch
+> **Receipt allocation this round: 100 % to #597 (frieren)** — presently **HELD**
+> while a sibling campaign's already-prepared crown candidate takes the next
+> validation slot (operator directive; the untagged 07:53:02Z row). Released by
+> the advisor in #597. The router-prefetch
 > default flip is the best-priced dial on the board: **one line**
 > (`LagunaRuntimeModel.swift:696-704`, `return 1` → `return 0`), **bit-exact**
 > (ONE distinct token sha256 across 144 slots), worth **+0.426 % of `cs`** on M4
@@ -504,12 +528,23 @@
 >   **CV 0.0403 %**, prefill_ms **96.14921 ± 0.13681** — the tightest same-tree
 >   prefill channel measured in this campaign; use it to size every future
 >   prefill arm.
-> - **#584 (nezuko) — WITHDRAWN BY THE ADVISOR, unrun.** Not a student failure.
->   Its 8-receipt/4-pair budget rested on the now-retracted "no platform quota"
->   claim (see Rule 88), and its base `9527bb72` predated 105-C/D/E. **The M5
->   sliding-attention depth question remains OPEN and unmeasured** — it is
->   deprioritised, not refuted, and must not be re-briefed until the limiter is
->   characterised well enough to schedule a paired design.
+> - **#584 (nezuko) — WITHDRAWN BY THE ADVISOR, and its ladder CANCELLED.** Not
+>   a student failure. Its 8-receipt/4-pair budget rested on the now-retracted
+>   "no platform quota" claim (see Rule 88), and its base `9527bb72` predated
+>   105-C/D/E. Four legs did land before the cancellation, and **they prove the
+>   design could never have answered its own question**:
+>   ```
+>   A  n=3  geo-mean cs 2.577933  sd(ln cs) 0.1578 %  [2.574729, 2.576562, 2.582514]
+>   C  n=1  geo-mean cs 2.573234
+>   C vs A: -0.1824 % of cs   z = -0.85   95 % CI [-0.6034 %, +0.2385 %]
+>   ```
+>   A **±0.42 %-wide** CI against an effect hunted at the +0.5 % scale: all
+>   eight legs would still have returned "cannot distinguish". The instrument
+>   was fine — her control's `sd(ln cs) 0.1578 %` sits **below** the 0.1860 %
+>   identical-code floor — the *allocation* was not. **The M5 sliding-attention
+>   depth question remains OPEN and unmeasured**, deprioritised rather than
+>   refuted; re-brief it only with a power calculation that survives the
+>   0.1860 % floor.
 >
 > **Round-106 slate — three receipt-free arms, one per open decode surface,
 > mutually fenced:**
@@ -3722,19 +3757,53 @@ ignored files fail the guard too). If the recorded `BASE_SHA` is ever refused,
 **stop and report** — that means the organizer promoted a new frontier onto
 fork `main` and the *advisor* must re-integrate.
 
-**🆕 Rule 88 (advisor, round 106, from #597 §13.3) — the official submit
-channel is a scarce shared resource, and FAILED ATTEMPTS CONSUME IT.** There is
-a **shared per-account submit limiter**, and attempts that fail on a conflict
-still spend the limit: 14 attempts → **0 receipts**, because the retry loop
-locked itself out exactly when the slot freed. Therefore: **(1) no retry loops,
-ever** — one attempt, then wait, and preflight every wrapper guard locally
-first; **(2) the channel supports roughly ONE arm per round**, so multi-pair
-alternating designs are not schedulable and must not be briefed; **(3) the
-advisor allocates the channel explicitly each round** and a student without an
-explicit allocation may not submit; **(4) characterising the limiter is itself
-a first-class deliverable.** ⛔ This **retracts** the round-104 guidance "there
-is no platform quota — you are wall-clock limited, not quota limited", which
-was wrong and which made #584's 8-receipt budget unschedulable.
+**🆕 Rule 88 (advisor, round 106) — the official submit channel is a SERIAL
+QUEUE, and a submit issued while it is busy fails AND still costs.** Measured
+off the official feed on 2026-08-10 with
+`research/advisor_r105_ladder_monitor.py`, not inferred from failures:
+
+| UTC | ladder / arm | cs | status |
+|---|---|---|---|
+| 03:52:52 | r105-A A0-1 | 2.583779 | rejected |
+| 04:17:16 | r105-A A0-2 | 2.580890 | rejected |
+| 04:40:09 | r104-A leg01of08 | 2.574729 | rejected |
+| 05:10:49 | r105-A A2-1 | 2.568861 | rejected |
+| 05:32:47 | r105-A A0-3 | 2.574592 | rejected |
+| 06:08:24 | r105-A A1-1 | 2.575716 | rejected |
+| 06:30:39 | r104-A leg02of08 | 2.576562 | rejected |
+| 06:52:29 | r105-A A1-2 | 2.573106 | rejected |
+| 07:14:56 | r104-A leg03of08 | 2.573234 | rejected |
+| 07:37:42 | r104-A leg04of08 | 2.582514 | rejected |
+| 07:53:02 | *(untagged — sibling campaign)* | — | validating |
+
+Inter-arrival **15–36 min, median ≈22 min**; **at every instant at most ONE
+submission is non-terminal**. So this is a **single-server queue with ≈22 min
+service time, NOT a per-account quota**. A submit issued while another
+submission is non-terminal **fails on conflict, and that failed attempt still
+costs** (#597 §13.3: 14 attempts → **0 receipts**). Therefore:
+
+1. **Watch until IDLE, then fire exactly once.** `advisor_r105_ladder_monitor.py`
+   shows the queue; `advisor_r106_channel_idle_watch.py` (read-only) exits 0
+   when it is idle. **Never** attempt → fail → retry.
+2. **Preflight every wrapper guard locally first** (clean
+   `git status --porcelain=v1 --untracked-files=all --ignored=matching`, no
+   `skip-worktree`/`assume-unchanged`, **commit before submitting** — the
+   wrapper archives `HEAD` restricted to the 97 `editablePaths`).
+3. **Ladders are schedulable; contention is the constraint.** ≈2.7
+   receipts/hour uncontended, so a 4-receipt design ≈90 min. **Never brief two
+   ladders concurrently** — that, not a quota, is what made #584's eight legs
+   plus #592's six arms plus #597 unschedulable together.
+4. **The advisor allocates the channel explicitly each round**; no allocation,
+   no submit. **Cancelling a ladder means cancelling its remaining legs** —
+   r104-A kept firing legs 03–04 *after* #584 was withdrawn.
+
+⛔ This **retracts** the round-104 guidance "there is no platform quota — you
+are wall-clock limited, not quota limited." ⛔ It also **supersedes this rule's
+own first draft**, which described a quota with a lockout and concluded "roughly
+one arm per round"; the mechanism is contention and the throughput is higher
+than that. 📉 Standing caution: **all 11 receipts on 2026-08-10 were rejected**,
+best `2.583779` against best-ever `2.590559` — four hours of channel for zero
+improvement.
 
 **Process rule (#513).** Every assignment must state that *a student's
 registered go/no-go bar must be at least as strict as the suggested bar, or the
