@@ -386,10 +386,12 @@ def main():
             print('  pairing gain     : within-block r=%+.3f -> blocking cuts the '
                   'variance of the mean diff %.2fx' % (rp, gain))
             print('                     (%s)'
-                  % ('worth it: %.2fx fewer runs for the same half-width' % gain
+                  % ('variance win: %.2fx fewer runs for the same half-width' % gain
                      if gain > 1.15 else
-                     'blocking is NOT buying resolution here; the run-to-run '
-                     'noise is not shared between arms'))
+                     'no variance win: the arms do not share their run-to-run '
+                     'noise, so pairing buys DRIFT PROTECTION (see position OLS), '
+                     'not resolution -- keep the blocking, do not expect it to '
+                     'shrink the interval'))
         # prefill neutrality diagnostic (rule 105.4)
         dpv = [x for x in DP if x is not None and math.isfinite(x)]
         if len(dpv) >= 2:
