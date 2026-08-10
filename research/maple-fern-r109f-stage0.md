@@ -1219,3 +1219,166 @@ The advisor branch at `a96878e8` (21:23:02Z) differs from `1a6761bf` only in
 `research/CURRENT_RESEARCH_STATE.md`, zero submitted files. **`BASE_SHA`
 remains valid** and no re-baselining is required.
 
+
+## 15. Response to advisor comment 7 — `DARKBLOOM_QMV_WIDE_CODES`
+
+Comment 7 (2026-08-10T21:55:09Z, `r109-f-wide-codes-new-candidate-1`) proposes
+`DARKBLOOM_QMV_WIDE_CODES=1` as the "cheapest ever" zero-code candidate for
+frieren's #681 Stage 0, priced at 119 µs of slack / 57% harvest with stop
+verdict `N-WIDE-CODES-SLOWER`.
+
+**Recommendation: cancel that Stage 0 slot. The lever was already taken end to
+end and CLOSED on evidence by frieren herself in R106-J (PR #597).** It is not
+an unpriced opportunity; it is a *measured regression* with a certificate
+already on file. Spending frieren's Stage-0 window re-measuring it costs a slot
+we cannot refund before 10:30Z.
+
+### 15.1 The measurement that already exists
+
+`research/CURRENT_RESEARCH_STATE.md:6144-6208` (Rule 102). Preregistered
+σ=0.10 µs/call, n=6/arm, `REPS=3 STEPS=33`, order `off on on off` ×3 across 12
+processes, whole-model in-situ 40-layer decode with GPUPROF timestamps:
+
+| quantity | OFF | ON | Δ paired |
+|---|---|---|---|
+| shared-QMV target kernel (µs/call) | 7.3911 | 8.2941 | **+0.9030** (sd 0.0620, SE 0.0358, t(df2) **+25.23**) |
+| invariant control (routed down-residual) | 22.0637 | 22.2359 | −0.102%, CI [−0.260, +0.055] |
+
+×39 dispatches/step = **+35.2 µs/step**, i.e. **−0.5363 % of `cs`**, CI
+**[−0.628, −0.445]**. Wall-clock cross-check +37.2 µs/step agrees within 6%.
+Rule 102.2's own words: "**`DARKBLOOM_QMV_WIDE_CODES` is a 12.2 % regression on
+its own target kernel.**" The null cells fired `N-NULL` *with a negative sign*
+and independently `N-CORRECT`. Force-clean receipt job `e8dd58c6`, exit 0,
+202 s, `OBJECTS_PREDATING_CLEAN=0`, `WORKER_SHA256=f2c3a889…`.
+
+Rule 102.4 row 4 records it as `DARKBLOOM_QMV_WIDE_CODES | −0.5363 measured |
+class 3 | **CLOSED on evidence**`, and `:3315` repeats "❌ closed on evidence by
+rule 102.2".
+
+### 15.2 Why the slack is real but unreachable by this lever
+
+The advisor's §7 bandwidth arithmetic is not wrong: the kernel achieves
+153.1 GB/s of the 263.29 GB/s ceiling (58%), the DRAM floor is 165.6 µs against
+284.9 µs measured, so ~119 µs/step of slack exists, and 7.31 µs/dispatch against
+a 4.25 µs DRAM-limited dispatch is a genuine gap. The error is inferring that
+*wider loads* can harvest it.
+
+Rule 102.2's mechanism: reading two adjacent groups as one aligned `uint4`
+**doubles per-lane register footprint and halves the number of independent
+K-iterations**. Occupancy is binding, not load width. With `tiles = 256`, grid
+`(256*64,1,1)`, threadgroup `(64,1,1)` byte-identical between the two variants,
+the wide variant has strictly fewer resident waves to hide the same latency, so
+it goes *slower* while issuing the same bytes. A 58%-of-ceiling kernel that is
+occupancy-bound does not have bandwidth-harvestable slack.
+
+This is also the single most useful transferable lesson for the other four
+arms: "achieved GB/s < ceiling" is necessary but not sufficient evidence of a
+harvestable pool. The pool is only harvestable if the binding resource is the
+one the change relaxes.
+
+### 15.3 The margin certificate already exists and came back MARGINAL
+
+Comment 7 asks for a correctness gate. One was already run (Rule 102.1/102.3).
+`DARKBLOOM_QMV_WIDE_CODES` is the campaign's **class-3 stress case**:
+
+- max |Δlogit| **5.44531**; 85.8% (teacher) / 91.5% (free) of elements differ
+- argmax flips **0** in both modes; free-run common prefix 129/129
+- decision-relevant safety factor min **1.36585**, zero positions with SF < 1
+- hidden-anchor flip-rate estimate at true margin 0 → **68% / 81%**; at 0.125 →
+  45% / 60%; at 0.5 → 3% / 12%
+- verdict **`MARGINAL`** — "a certificate can pass and the hidden anchors can
+  still fail"
+
+So even in the counterfactual where it were faster, it would be a class-3
+candidate carrying explicit hidden-anchor risk in the last hours of the
+campaign. Our own policy (§8) is to prefer class 0–1 levers in the endgame.
+
+### 15.4 Rule 98 is not what retires it
+
+Comment 7 correctly notes Rule 98 does not retire the lever. Agreed — and
+irrelevant. Rule **102** retires it, on a direct paired in-situ measurement of
+the exact kernel pair (`laguna_shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1`
+vs `…_halved_wide_bf16_v1`), with a signed effect, a t-statistic, an invariant
+control, a wall-clock cross-check, and a force-clean receipt. Nothing about the
+source has changed since: the flag is still the same three lines (`:324`,
+`:7215`, `:7216`), still `== "1"` default OFF, still selecting between the same
+two pipelines with a byte-identical dispatch outside the ternary.
+
+### 15.5 Arithmetic correction to the harvest table
+
+Comment 7's table (and comment 6 §4's) prices the 0.378% bar at ~**68 µs** of
+M4 decode busy, giving edward 10.8%. The canonical chain from comment 6 §3,
+`%score = 100 × 0.63 × τ × Δ/8972 = 0.00702·Δ`, gives **53.8 µs**.
+
+`68 / 53.8 = 1.264`, which is the `--local-iterate` normalisation factor
+(§14.1 measures 1.304, the advisor quotes 1.28). It is being applied **twice**:
+pairing M5's `elast_T = 0.63` with the M4 `--local-iterate` steady-step
+denominator 8972 already carries it. Every arm in that table therefore looks
+~26% harder than it is.
+
+This error is in the *conservative* direction, so it has not caused a wrong
+decision — unlike the `--local-submit` ÷1.11 constant (§14.1), which is wrong
+by **1.88×** in the *unsafe* direction and would make us discard a real win.
+§14.3 restates the slate against the measured `--local-iterate` bar of
+**49.9 µs** (edward 8.0%, frieren 15.6%, tanjiro 15.9%, alphonse 20.0%,
+nezuko 35.1%).
+
+### 15.6 What I would spend frieren's slot on instead
+
+Her assignment already contains a higher-expected-value item that comment 6 §7
+flagged and nobody has executed: sweep `DARKBLOOM_ROUTER_WEIGHT_PREFETCH ∈
+{0,1,5}` on the `residual_rms_router` pool (320.1 µs/step, 21.2% harvest for
+the bar) **and confirm bit-exactness rather than assuming it**. If prefetch is
+bit-exact it is a class-0 arm, needs no margin certificate, and is composable
+with the bit-exact-only stack. That is strictly better than re-running a closed
+class-3 regression.
+
+## 16. Paired two-worker timing: Seatbelt blocks a `/tmp` staging root
+
+The interleaved paired-timing instrument (§9) stages one self-contained worker
+directory per arm and flips `MLXFAST_RUNTIME_WORKER_EXECUTABLE` between slots,
+so an A/B needs no rebuild between reps. The first attempt (job
+`82775eee`, 22:07Z) failed every slot in ~60 s with:
+
+```text
+runtime worker closed stdout before returning a response: exit_status=71
+stderr=sandbox-exec: execvp() of '/private/tmp/fern-r109f/workers/base/mlxfast-runtime-worker'
+failed: Operation not permitted
+```
+
+**Root cause, confirmed by direct probe.** Two path canonicalisations disagree:
+
+- `benchmark.sh:2074` exports the worker path through `absolute_path()`, which
+  uses `cd -P` + `pwd -P` and therefore **privatizes** `/tmp` → `/private/tmp`.
+- The trusted harness rebinds the Seatbelt exec rule in
+  `Sources/MLXFastTrustedHarness/LagunaRuntimeWorker.swift:1498-1540`
+  (`runtimeWorkerSandboxProfile(rebinding:toExecutableAt:)`): it strips every
+  `(allow process-exec …)` line from the profile and appends
+  `(deny process-exec*)` plus one `(allow process-exec (literal …))` built from
+  `URL(...).standardizedFileURL.resolvingSymlinksInPath().path`. Foundation
+  **de-privatizes** `/private/tmp` back to `/tmp`.
+
+So the allow literal is `/tmp/…` while `execvp` is called on `/private/tmp/…`.
+Seatbelt literal rules do not match, exec is denied, and the worker dies before
+the protocol hello. Reproduced exactly, byte-identical message and `rc=71`:
+
+```bash
+printf '(version 1)\n(allow default)\n(deny process-exec*)\n(allow process-exec (literal "/tmp/W"))\n' > p.sb
+/usr/bin/sandbox-exec -f p.sb /private/tmp/W   # rc=71, EPERM
+/usr/bin/sandbox-exec -f p.sb /tmp/W           # rc=0
+```
+
+An in-repo staging root has no `/private` prefix, so both spellings agree.
+`research/fern_r109f_stage_worker.sh` and
+`research/fern_r109f_paired_submit.sh` now default `ROOT` to
+`.build-worker/arms` (already covered by `.gitignore:6`, so the worktree stays
+clean for `run_job`). Denial log archived at
+`research/artifacts/fern-r109f/paired/null-attempt1-sandbox-denial.log`.
+
+**Note for every arm student**: this is a general trap, not specific to my
+instrument. Any staged worker, any force-clean rebuild copy, and any
+margin-certificate capture that puts a worker under `/tmp`, `/var`, or
+`$TMPDIR` when `$TMPDIR` resolves under `/private` will fail this way, with an
+error that looks like a harness/protocol bug rather than a path bug. Stage
+inside the checkout.
+
