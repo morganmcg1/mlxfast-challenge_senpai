@@ -181,3 +181,108 @@ whole one, leaving every load, FMA, barrier and the whole epilogue in place. It
 therefore produces **numerically wrong attention output by design**, was
 declared as such in Amendment 1 section 5 before it was run, is used only under
 `--local-iterate`, and is never a submission candidate.
+
+## B.6 A self-inflicted build break, recorded because it is a reusable trap
+
+The refactor in B.1 initially **broke the JIT build of every arm, the control
+included**, and the triage that ran against it was worthless. It is recorded
+here rather than quietly fixed, because the failure mode is invisible by
+inspection and any future header split will hit it.
+
+Swift multi-line string literals do **not** end with a newline. Splitting
+`header:` into `…HeaderCommon + …ReduceBaseline` therefore produced a header
+whose final characters were `} while (false)`, and MLX appends the generated
+`[[kernel]] void …(…)` signature directly after it — onto that same line. The
+diagnostics were:
+
+```
+mlx/backend/metal/kernels/utils.h:525: error: 'buffer' attribute only applies to parameters
+mlx/backend/metal/kernels/utils.h:525: error: program scope variable must reside in constant address space
+Fatal error: [metal::Device] Unable to build metal library from source
+```
+
+Both messages point at a *vendored* header, which is misleading: the tell is
+that `Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/utils.h` is
+**445 lines long**, so "line 525" is 80 lines past its end — the reported file is
+the concatenated translation unit, not the file on disk, and 525 − 445 = 80
+lands exactly on the last line of the spliced header. The two errors are then
+precisely what a kernel signature parsed at program scope looks like:
+`[[buffer(n)]]` attached to something that is not a parameter, and
+`device`-qualified declarations outside a function.
+
+Fix: follow the convention already present in this file at
+`LagunaRuntimeModel.swift:8473`, which concatenates with an explicit separator
+(`lagunaSharedSwiGLUQMVHeader + "\n" + lagunaDecodeRouterOrdinalHeader`), and
+additionally leave each macro block newline-terminated in its own right so the
+splice is safe from either side. Commit `82db365e`.
+
+Two hygiene consequences that are load-bearing for the rest of this report:
+
+1. **Every number below post-dates `82db365e`.** No measurement taken against
+   the broken tree is quoted anywhere, not even as a bound.
+2. The break was caught only because the control arm was interleaved and *also*
+   failed (`decode=0`, `passed=false` for both C and K). A candidate-only triage
+   would have reported "candidate does not build", moved on, and left the
+   control silently broken for the paired campaign. That is an argument for
+   Rule 68's contemporaneous control as a **build** check and not only as a
+   timing control.
+
+---
+
+# §D — dispatch geometry and the Rule 33 kernel-suffix proof
+
+## D.1 Geometry (Rule 77)
+
+All fields read directly off the dispatch site `lagunaSlidingFusedAttention`,
+`LagunaRuntimeModel.swift:2479-2548`, with `heads = 64`, `kvHeads = 8`,
+`headDim = 128`, `window = 512`.
+
+| quantity | C (control) | K (PACKRED) | H4 (refuted) |
+|---|---|---|---|
+| Metal kernel name | `laguna_sliding_fused_attn_ring_v1` | `laguna_sliding_fused_attn_ring_packred_v1` | `laguna_sliding_fused_attn_ring_h4_v1` |
+| `grid` | `((heads / 2) * 1024, 1, 1)` = **(32768, 1, 1)** | **(32768, 1, 1)** | `((heads / 4) * 1024, 1, 1)` = (16384, 1, 1) |
+| `threadGroup` | **(1024, 1, 1)** | **(1024, 1, 1)** | (1024, 1, 1) |
+| threadgroups per dispatch | **32** | **32** | 16 |
+| simdgroups per threadgroup | 32 | 32 | 32 |
+| query heads per threadgroup | 2 | 2 | 4 |
+| `outputShapes` | `[[1, 64, 1, 128]]` | `[[1, 64, 1, 128]]` | `[[1, 64, 1, 128]]` |
+| `outputDTypes` | `.bfloat16` | `.bfloat16` | `.bfloat16` |
+| threadgroup memory | unchanged | **unchanged** | unchanged |
+| dispatches per decode step | 30 | **30** | 30 |
+| KV bytes requested per call | 8 MiB (2 MiB unique) | **8 MiB (2 MiB unique)** | 4 MiB (2 MiB unique) |
+
+**C and K are geometrically identical in every field.** The PACKRED change is
+confined to the *instruction stream* at the reduction sites. Two consequences,
+stated because they are the usual confounders for a small decode effect:
+
+- Rule 65's **+2.3403 µs per added dispatch** cannot be any part of a C-vs-K
+  difference: the dispatch count is identical at 30 per step.
+- Rule 92's schedulable-slack family (408 dispatches / 247 charged barriers /
+  47 command buffers, 1.3003 µs/step of total headroom) is untouched, since no
+  barrier or command-buffer boundary moves.
+
+The H4 arm is tabulated only because it was measured and refuted (§C.1). It
+*does* change geometry, which is why its null is reported against its own
+interleaved control rather than against K's.
+
+## D.2 Rule 33 kernel-suffix proof
+
+Each arm is a **distinct Metal kernel name**, not a recompilation of one name,
+so the binary that ran is identifiable from the artifact instead of inferred
+from the environment:
+
+| Swift binding | Metal name | selection gate | decl line |
+|---|---|---|---|
+| `lagunaSlidingFusedAttentionKernel` | `laguna_sliding_fused_attn_ring_v1` | none — default | 2037 |
+| `lagunaSlidingFusedAttentionPackredKernel` | `laguna_sliding_fused_attn_ring_packred_v1` | `DARKBLOOM_FUSED_SLIDING_ATTN_PACKRED=1` | 2051 |
+| `lagunaSlidingFusedAttentionNoReduceKernel` | `laguna_sliding_fused_attn_ring_noreduce_v1` | `DARKBLOOM_FUSED_SLIDING_ATTN_NOREDUCE=1` | 2065 |
+| `lagunaSlidingFusedAttentionH4Kernel` | `laguna_sliding_fused_attn_ring_h4_v1` | `DARKBLOOM_FUSED_SLIDING_ATTN_H4=1` | 2079 |
+
+Gates are read once each at lines 1505 / 1515 / 1527 / 1535; the selection ladder
+is at 2515-2537. Because all four arms are compiled into **one binary** and
+chosen at run time, a paired campaign alternates arms *without rebuilding*, so
+no arm can be confounded by a differing compile — which is the property that
+makes the interleaving in §C meaningful. `DARKBLOOM_TRACE_FUSION=1` additionally
+emits `sliding fused attention` (all arms) and `sliding fused attention h4`
+(H4 only), so the taken path is visible in the run log.
+

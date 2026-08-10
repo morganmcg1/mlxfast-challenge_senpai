@@ -14,14 +14,18 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-for arm in off on; do
+# Amendment 2 promotes H4 back into the evidence campaign, so H4 needs the same
+# certificate as PACKRED: arm "h4" is checked here too. Arm "off" is the control
+# and doubles as the check that the header-macro refactor itself is
+# behaviour-preserving.
+for arm in off on h4; do
   log="/tmp/r106b_packred_exact_${arm}.log"
   echo "=== exactness arm=${arm} start $(date -u +%H:%M:%S)"
-  if [ "$arm" = on ]; then
-    DARKBLOOM_FUSED_SLIDING_ATTN_PACKRED=1 research/run_upstream_equivalence.sh > "$log" 2>&1
-  else
-    research/run_upstream_equivalence.sh > "$log" 2>&1
-  fi
+  case "$arm" in
+    on) DARKBLOOM_FUSED_SLIDING_ATTN_PACKRED=1 research/run_upstream_equivalence.sh > "$log" 2>&1 ;;
+    h4) DARKBLOOM_FUSED_SLIDING_ATTN_H4=1 research/run_upstream_equivalence.sh > "$log" 2>&1 ;;
+    *)  research/run_upstream_equivalence.sh > "$log" 2>&1 ;;
+  esac
   st=$?
   echo "arm=${arm} exit=${st}"
   grep -E 'EQUIVALENCE_EXACT_STEPS|EQUIVALENCE_EXIT' "$log" | sed "s/^/arm=${arm} /"
