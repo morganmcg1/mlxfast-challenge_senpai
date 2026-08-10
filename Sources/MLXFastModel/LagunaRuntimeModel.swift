@@ -171,23 +171,15 @@ let lagunaPackedScalesEnabled =
 private let lagunaRouterPrecomputedKeysEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTER_PRECOMPUTED_KEYS"] != "0"
 
-/// `DARKBLOOM_PACKED_SCALES_LOG=1` enables one-shot stderr visibility for the
-/// packed-scales arm. Diagnostics are disabled by default.
-private let lagunaPackedScalesLogEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_PACKED_SCALES_LOG"] == "1"
-
+/// One-shot stderr visibility for the packed-scales arm: with the flag set,
+/// the arm MUST announce either "active" (bank built / packed dispatch taken)
+/// or "inactive" (a guard declined and the stock kernel ran instead), so a
+/// silently-declining guard can never measure its own control.
 final class LagunaPackedScalesLog: @unchecked Sendable {
     private var seen: Set<String> = []
     private let lock = NSLock()
 
-    @inline(__always)
     func note(_ state: String, _ site: String) {
-        guard lagunaPackedScalesLogEnabled else { return }
-        record(state, site)
-    }
-
-    @inline(never)
-    private func record(_ state: String, _ site: String) {
         lock.lock()
         let isNew = seen.insert(site).inserted
         lock.unlock()
@@ -8785,9 +8777,7 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
         {
             _fusedGateUpScalesHalved = halved
             prepared.append(halved)
-            if lagunaPackedScalesLogEnabled {
-                lagunaPackedScalesLog.note("active", "shared gate/up halved")
-            }
+            lagunaPackedScalesLog.note("active", "shared gate/up halved")
         }
         if let down = downProj as? QuantizedLinear,
             type(of: down) == QuantizedLinear.self,
@@ -8798,9 +8788,7 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
         {
             _sharedDownScalesHalved = halvedDown
             prepared.append(halvedDown)
-            if lagunaPackedScalesLogEnabled {
-                lagunaPackedScalesLog.note("active", "shared down halved")
-            }
+            lagunaPackedScalesLog.note("active", "shared down halved")
         }
         return prepared
     }
@@ -10709,10 +10697,8 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 if lagunaPackedScalesEnabled,
                     let packedBank = _packedRoutedGateUpBank
                 {
-                    if lagunaPackedScalesLogEnabled {
-                        lagunaPackedScalesLog.note(
-                            "active", "routed swiglu qmv packed dispatch")
-                    }
+                    lagunaPackedScalesLog.note(
+                        "active", "routed swiglu qmv packed dispatch")
                     if lagunaRouterPrecomputedKeysEnabled,
                         let routerKeys,
                         routerKeys.dtype == .uint32,
@@ -10738,7 +10724,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                         )
                     }
                 } else {
-                    if lagunaPackedScalesEnabled, lagunaPackedScalesLogEnabled {
+                    if lagunaPackedScalesEnabled {
                         lagunaPackedScalesLog.note(
                             "inactive",
                             "routed swiglu qmv packed (bank missing; stock kernel dispatched)")
@@ -10860,16 +10846,12 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 let pairwiseDownScales =
                     lagunaPrefillExpertPairwiseScalesAdmitted(routedRows: inds.size)
                     ? _routedDownPairwiseScales : nil
-                if lagunaPrefillExpertPairwiseScalesEnabled,
-                    lagunaPackedScalesLogEnabled
-                {
+                if lagunaPrefillExpertPairwiseScalesEnabled {
                     lagunaPackedScalesLog.note(
                         pairwiseScales == nil ? "inactive" : "active",
                         "packed routed gate/up prefill scale view consumed")
                 }
-                if lagunaPrefillExpertDownPairwiseScalesEnabled,
-                    lagunaPackedScalesLogEnabled
-                {
+                if lagunaPrefillExpertDownPairwiseScalesEnabled {
                     lagunaPackedScalesLog.note(
                         pairwiseDownScales == nil ? "inactive" : "active",
                         "packed routed down prefill scale view consumed")
