@@ -2275,6 +2275,49 @@ struct LagunaFullAttentionParamsCarrier {
     }
 }
 
+private let lagunaFullAttentionParamsCensus =
+    ProcessInfo.processInfo.environment["MLXFAST_FULL_PARAMS_CENSUS"] == "1"
+private let lagunaFullAttentionParamsCensusBaseline =
+    ProcessInfo.processInfo.environment["MLXFAST_FULL_PARAMS_CENSUS_BASELINE"] == "1"
+
+@inline(__always)
+private func lagunaFullAttentionParamsCensusNote(_ event: StaticString) {
+    guard lagunaFullAttentionParamsCensus else { return }
+    FileHandle.standardError.write(Data("mlxfast: full params \(event)\n".utf8))
+}
+
+@inline(__always)
+func lagunaFullAttentionParams(
+    writeIdx: Int,
+    capacity: Int,
+    carrier: inout LagunaFullAttentionParamsCarrier?
+) -> MLXArray {
+    if lagunaFullAttentionParamsCensusBaseline {
+        lagunaFullAttentionParamsCensusNote("construct")
+        return MLXArray([
+            UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity),
+        ])
+    }
+    if let cached = carrier,
+        cached.writeIdx == writeIdx,
+        cached.capacity == capacity
+    {
+        lagunaFullAttentionParamsCensusNote("reuse")
+        return cached.array
+    }
+    if carrier == nil {
+        let value = LagunaFullAttentionParamsCarrier(
+            writeIdx: writeIdx, capacity: capacity)
+        carrier = value
+        lagunaFullAttentionParamsCensusNote("construct")
+        return value.array
+    }
+    lagunaFullAttentionParamsCensusNote("mismatch")
+    return MLXArray([
+        UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity),
+    ])
+}
+
 /// Fused decode attention for a full-attention layer with spare backing
 /// capacity. Returns `[1, heads, 1, headDim]`; the caller advances the
 /// cache clock via `KVCacheSimple.fusedAppendAdvance()`.
@@ -6058,23 +6101,10 @@ final class LagunaRuntimeAttention: Module {
             // stock). The clock advance mirrors the stock single-token
             // update.
             let capacity = append.keys.dim(2)
-            let params: MLXArray
-            if let carrier = fullAttentionParams,
-                carrier.writeIdx == append.writeIdx,
-                carrier.capacity == capacity
-            {
-                params = carrier.array
-            } else if fullAttentionParams == nil {
-                let carrier = LagunaFullAttentionParamsCarrier(
-                    writeIdx: append.writeIdx, capacity: capacity)
-                fullAttentionParams = carrier
-                params = carrier.array
-            } else {
-                params = MLXArray([
-                    UInt32(append.writeIdx), UInt32(append.writeIdx + 1),
-                    UInt32(capacity),
-                ])
-            }
+            let params = lagunaFullAttentionParams(
+                writeIdx: append.writeIdx,
+                capacity: capacity,
+                carrier: &fullAttentionParams)
             fusedAttended = lagunaFullFusedAttention(
                 rawQueries: queries,
                 rawKeys: keys,
