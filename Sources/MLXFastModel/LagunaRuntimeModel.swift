@@ -2275,44 +2275,24 @@ struct LagunaFullAttentionParamsCarrier {
     }
 }
 
-private let lagunaFullAttentionParamsCensus =
-    ProcessInfo.processInfo.environment["MLXFAST_FULL_PARAMS_CENSUS"] == "1"
-private let lagunaFullAttentionParamsCensusBaseline =
-    ProcessInfo.processInfo.environment["MLXFAST_FULL_PARAMS_CENSUS_BASELINE"] == "1"
-
-@inline(__always)
-private func lagunaFullAttentionParamsCensusNote(_ event: StaticString) {
-    guard lagunaFullAttentionParamsCensus else { return }
-    FileHandle.standardError.write(Data("mlxfast: full params \(event)\n".utf8))
-}
-
 @inline(__always)
 func lagunaFullAttentionParams(
     writeIdx: Int,
     capacity: Int,
     carrier: inout LagunaFullAttentionParamsCarrier?
 ) -> MLXArray {
-    if lagunaFullAttentionParamsCensusBaseline {
-        lagunaFullAttentionParamsCensusNote("construct")
-        return MLXArray([
-            UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity),
-        ])
-    }
     if let cached = carrier,
         cached.writeIdx == writeIdx,
         cached.capacity == capacity
     {
-        lagunaFullAttentionParamsCensusNote("reuse")
         return cached.array
     }
     if carrier == nil {
         let value = LagunaFullAttentionParamsCarrier(
             writeIdx: writeIdx, capacity: capacity)
         carrier = value
-        lagunaFullAttentionParamsCensusNote("construct")
         return value.array
     }
-    lagunaFullAttentionParamsCensusNote("mismatch")
     return MLXArray([
         UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity),
     ])
