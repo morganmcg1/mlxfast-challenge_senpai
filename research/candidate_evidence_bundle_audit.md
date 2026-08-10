@@ -2,21 +2,22 @@
 
 ## Result
 
-`CANDIDATE_EVIDENCE_CONTRACT_READY`
+`CANDIDATE_EVIDENCE_ROOTS_FAIL_CLOSED`
 
-This result means the static evidence contract and its deterministic adversarial
-fixture suite are ready. It is not candidate timing evidence, a ranked result,
-or submission authorization.
+This result means the static evidence contract now rejects hostile candidate
+and artifact filesystem roots deterministically while preserving every merged
+scientific control. It is not candidate timing evidence, a ranked result, or
+submission authorization.
 
 ## Scope
 
-This assignment adds only:
+The contract consists of:
 
 - `candidate_evidence_bundle.schema.json`, a JSON Schema 2020-12 contract;
 - `validate_candidate_evidence_bundle.py`, a standard-library fail-closed
   validator and deterministic self-test runner;
-- `candidate_evidence_bundle_fixtures.json`, four positive fixture profiles and
-  45 negative mutations; and
+- `candidate_evidence_bundle_fixtures.json`, four positive fixture profiles,
+  45 negative mutations, and 31 filesystem-boundary controls; and
 - this audit.
 
 No model code, build, inference, benchmark, W&B run, live receipt, or official
@@ -74,11 +75,34 @@ hashes still fails without the separately supplied verifier-owned context pin.
 The candidate surface is canonicalized as a path-sorted list of
 `{path,size,sha256}` records using UTF-8 compact JSON with sorted object keys
 and one trailing line feed. The validator recursively enumerates
-`--candidate-root` without following symlinks and requires the physical file set
-to equal the trusted submitted surface exactly. Extra or unlisted files, omitted
+`--candidate-root` from one descriptor-anchored root, opening every child
+relative to its already-open parent descriptor. The physical file set must
+equal the trusted submitted surface exactly. Extra or unlisted files, omitted
 or missing listed files, symlinks, and non-regular entries are rejected. It then
 checks every file's physical size and SHA-256, recomputes the surface digest,
 and rejoins that digest to every phase and artifact claim.
+
+Candidate and artifact traversal requires an integer `O_RDONLY`, nonzero
+`O_CLOEXEC`, `O_DIRECTORY`, `O_NOFOLLOW`, and `O_NONBLOCK`, descriptor-relative
+`open`, `stat`, and `readlink`, descriptor-based directory enumeration, and the
+`os.stat in os.supports_follow_symlinks` capability signal required for
+`stat(dir_fd=..., follow_symlinks=False)`. If any safety primitive is absent,
+the validator emits only `DESCRIPTOR_SAFETY_UNAVAILABLE` at
+`$verifier.filesystem` and performs no filesystem traversal. A deterministic
+capability override proves the exact message
+`required descriptor safety is unavailable: stat(dir_fd,follow_symlinks=False)`,
+that no filesystem hook fired, and that zero descriptors were opened. Each root
+is opened exactly once; root and nested objects are checked with no-follow
+metadata, descriptor identity, and directory snapshots before and after their
+work. Symlinks are classified only from no-follow metadata, and `readlink` is
+used solely for lexical escape reporting; symlink targets are never resolved or
+followed. File bytes are opened component-by-component relative to parent
+descriptors with no-follow and nonblocking flags, checked again with `fstat`,
+and read from that descriptor. All tracked descriptors close on success and
+every structured or unexpected exception path. These checks turn root,
+nested-directory, and file replacement races into deterministic disappearance,
+identity-change, scan-change, unreadable, non-regular, symlink,
+inspection-failed, or read-failed errors.
 
 ### Physical and semantic artifacts
 
@@ -167,9 +191,27 @@ The 45 negative mutations cover:
 - ranked receipt reuse under another revision; and
 - terminal classification contradiction.
 
+The 31 filesystem controls require exact error-code and JSON-path sets,
+`INVALID` classification, and exit code 1 for missing, symlink, regular-file,
+and FIFO roots; listed directory, FIFO, and symlink entries; deterministic
+disappearance and unreadability at the read boundary; absence of each required
+nonzero descriptor-safety flag; and unavailable no-follow `stat` capability.
+The capability control asserts the exact stable code, path, and message before
+traversal, plus no hook invocation, zero opened descriptors, and no descriptor
+leak. Real filesystem hooks replace candidate and artifact roots after
+inspection and after opening, and replace nested directories and files during
+candidate and artifact traversal. Each race fixture asserts that its hook fired,
+every descriptor opened during that case was closed, and only the declared
+stable error set was emitted. The harness separately proves that
+`NotADirectoryError`, `PermissionError`, and generic `OSError` are converted to
+stable filesystem errors while injected reader and schema `ValueError`
+exceptions still propagate and close all tracked descriptors.
+
 Each negative fixture declares at least one expected stable error code. The
 self-test requires every case to contain every declared code while also proving
-that all four positive profiles retain their intended classification.
+that all four positive profiles retain their intended classification. The
+legacy 49-result canonical digest is frozen so the scientific controls cannot
+silently change.
 
 ## Verification
 
@@ -177,13 +219,14 @@ The focused static checks are:
 
 ```bash
 python3 -m py_compile research/validate_candidate_evidence_bundle.py
-python3 research/validate_candidate_evidence_bundle.py --self-test > /tmp/candidate-evidence-a.json
-python3 research/validate_candidate_evidence_bundle.py --self-test > /tmp/candidate-evidence-b.json
-cmp -s /tmp/candidate-evidence-a.json /tmp/candidate-evidence-b.json
+python3 research/validate_candidate_evidence_bundle.py --self-test > /tmp/candidate-evidence-r3-run1.json
+python3 research/validate_candidate_evidence_bundle.py --self-test > /tmp/candidate-evidence-r3-run2.json
+cmp /tmp/candidate-evidence-r3-run1.json /tmp/candidate-evidence-r3-run2.json
+shasum -a 256 /tmp/candidate-evidence-r3-run1.json /tmp/candidate-evidence-r3-run2.json
 ```
 
-A standalone bundle validation requires three external filesystem roots plus the
-separately distributed verifier-owned context pin:
+A standalone bundle validation requires the external candidate, artifact, and
+trusted-context inputs plus the separately distributed verifier-owned context pin:
 
 ```bash
 python3 research/validate_candidate_evidence_bundle.py BUNDLE.json \
@@ -193,16 +236,35 @@ python3 research/validate_candidate_evidence_bundle.py BUNDLE.json \
   --expected-context-sha256 EXPECTED_TRUSTED_CONTEXT_SHA256
 ```
 
-Both self-test runs are byte-identical. The result contains 49 cases, reports
-`deterministic: true`, uses schema ID
-`https://mlxfast.invalid/schemas/candidate-evidence-bundle-v3.json`, and has
-canonical result digest:
+Both external self-test invocations are byte-identical, and each invocation
+executes the legacy and filesystem suites twice internally. The result reports
+`deterministic: true`, contains 80 cases (49 legacy and 31 filesystem), and
+uses schema ID
+`https://mlxfast.invalid/schemas/candidate-evidence-bundle-v3.json`.
 
 ```text
-75d8e716d4887e3b4aaac08499d44da281923d7de465ecf35de500bffc444124
+legacy_results_digest:        75d8e716d4887e3b4aaac08499d44da281923d7de465ecf35de500bffc444124
+prior filesystem subset digest: 33c3cded45453db59079c43850abd54cf2e3cc71b65fcae7778c59a0d5575578
+filesystem_results_digest:    af0898822088414fda4c042c742e5bf0826ab05bab75c1eb2c0cffe7e4f2e1ae
+results_digest:               d8a53be98de1190fd203151459432f7c0b6b2cece48a72efc76833259847c82b
+self-test output SHA-256:      b90979735657db65a6ebc84bf4fcdc21189a79766c05cab2f548ce06f428238b
 ```
 
-The terminal status is `CANDIDATE_EVIDENCE_CONTRACT_READY`.
+All 80 cases pass. The prior 30 filesystem-control records retain their frozen
+r2 digest byte-for-byte. All seven exception-boundary assertions are true:
+`descriptor_root_available`, `exception_descriptors_closed`,
+`reader_not_a_directory`, `reader_os_error`, `reader_permission_error`,
+`reader_value_error`, and `schema_value_error`. Every case reports all opened
+descriptors closed, the legacy 49-case digest is unchanged, and the terminal
+status is `CANDIDATE_EVIDENCE_ROOTS_FAIL_CLOSED`.
+
+## Research-base non-overlap
+
+The required assignment base is
+`185bbee7f2fd9eb2e08a3a384806eace0f26fa83` and is merged into this revision.
+The intervening base changes do not overlap the validator, fixture manifest, or
+this audit. The exact-base diff remains scoped to these three assigned research
+files.
 
 ## Limitations
 
