@@ -463,7 +463,67 @@ this harness; it is written into the Stage C notes in §G for that reason.
 
 ## C.5 Results
 
-<!-- FILLED FROM /tmp/r106b-packred-evidence.tsv -->
+<!-- TABLE OF RECORD: FILLED FROM /tmp/r106b-finalise/audit.txt -->
+
+### C.5.2 Reading
+
+All three arms are **null-or-worse**. No arm reaches the preregistered
+`<= -5 us/step` win threshold; every point estimate is on the *slower* side of the
+control, and the label for both candidate arms is **N-RECOVER** by the §4.5
+decision rule fixed in the preregistration. Amendment 2 §5 recorded in advance
+that this was the expected outcome and that `-D_P` was expected to be small, so
+this section reports a **met prediction rather than a rescued one** — which is the
+only reason the reader should give the negative result any weight at all.
+
+The load-bearing datum is arm P, and it is load-bearing precisely because it is
+not a candidate. P deletes the row-loop cross-lane reduction outright and accepts
+wrong output. It therefore measures the *entire* budget available to any lever
+that attacks that reduction — PACKRED's careful halving, the withdrawn
+`P-ROWLANE`, and anything anyone proposes next. That budget is not distinguishable
+from zero at this resolution. So the mechanism proposed in §C.2 —
+
+> is the sliding decode-attention kernel's cost sensitive to cross-lane reduction
+> instruction count on this host?
+
+— is answered **no**, and it is answered by an upper bound rather than by a failed
+attempt, which is the stronger of the two ways to close a direction.
+
+That K is *slower* than the control while issuing half the shuffles is worth one
+sentence of mechanism, because it constrains the explanation. Packing two rows
+into a `float2` doubles the live register footprint of the reduction stage; at
+1024 threads per threadgroup this kernel is already register-pressured, so the
+most economical reading is that K trades a cheap instruction for a scarcer
+resource. I did not measure occupancy or register counts, so this is an
+explanation offered as such and not a finding.
+
+### C.5.3 The one thing this result does not license
+
+It is tempting to summarise the above as "cross-lane reductions are free on this
+hardware". That is not what was measured and the distinction matters for whoever
+reads this next. K *adds* measurable time while *removing* instructions, so issue
+slots are demonstrably not free — if they were, K would have landed on the control
+within noise instead of above it. The defensible claim is narrower:
+
+> On this host, `simd_sum` and its shuffle butterflies are already at or near
+> their optimal cost, and the reduction is too small a slice of this kernel's
+> runtime for changes to its instruction count to show up in decode throughput.
+
+The general form — "reduce instruction count and this kernel gets faster" — is
+what arm P refutes, and it refutes it for the reduction only. §G.5 states which
+parts of the kernel remain untested by this campaign.
+
+### C.5.4 Achieved resolution, stated so the null is falsifiable
+
+A null result is only as good as the effect it could have detected. The
+preregistered win threshold was `-5 us/step`; the achieved 95 % half-widths are
+recorded in the table above. Where a half-width exceeds 5 us/step, this campaign
+**cannot** exclude a win of exactly threshold size — it can only exclude the large
+win the mechanism predicted, and the honest statement is that the direction is
+closed *at the resolution purchased*, not closed absolutely. The mechanism in §C.2
+predicted a saving on the order of half the reduction's cost, which is far above
+this resolution; that is the prediction being rejected. Anyone wishing to rescue a
+threshold-sized effect needs roughly an order of magnitude more blocks, and §C.3
+gives the arithmetic for costing that before running it.
 
 ---
 
