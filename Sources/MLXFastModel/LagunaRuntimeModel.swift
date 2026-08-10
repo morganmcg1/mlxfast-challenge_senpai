@@ -4225,7 +4225,9 @@ func lagunaGatedAffineOProjNVFP4Source(
     seedElide: Bool = lagunaNvfp4QmvSeedElisionEnabled,
     preActivatedGate: Bool = false,
     laneMajor: Bool = false,
-    pairwise: Bool = false
+    pairwise: Bool = false,
+    numSimdgroups: Int = 2,
+    resultsPerSimdgroup: Int = 4
 ) -> String {
     let scaleFold = lagunaNvfp4ScaleFoldEnabled
     let weightScale = scaleFold ? "" : " * 16384.0f"
@@ -4344,6 +4346,8 @@ nq += nsh >> 2;
 nsh ^= 4;
 """
         : "sc += block_size / group_size;"
+    let resultZeros = Array(repeating: "0.0f", count: resultsPerSimdgroup)
+        .joined(separator: ", ")
     return """
 constexpr uint in_vec_size = \(heads * LagunaConstants.headDim);
 constexpr uint out_vec_size = \(LagunaConstants.hiddenSize);
@@ -4353,8 +4357,8 @@ constexpr uint group_size = 16;
 constexpr uint values_per_thread = 16;
 constexpr uint codes_per_thread = values_per_thread / 8;
 constexpr uint block_size = values_per_thread * 32;
-constexpr uint results_per_simdgroup = 4;
-constexpr uint num_simdgroups = 2;
+constexpr uint results_per_simdgroup = \(resultsPerSimdgroup);
+constexpr uint num_simdgroups = \(numSimdgroups);
 constexpr uint in_vec_size_g = in_vec_size / group_size;
 
 uint tile = threadgroup_position_in_grid.x;
@@ -4373,7 +4377,7 @@ const device uint32_t* ws =
 const device bfloat* xp = attention_output + simd_lid * values_per_thread;
 
 thread float x_thread[values_per_thread];
-thread float result[results_per_simdgroup] = {0.0f, 0.0f, 0.0f, 0.0f};
+thread float result[results_per_simdgroup] = {\(resultZeros)};
 
 uint column = simd_lid * values_per_thread;
 for (uint k = 0; k < in_vec_size; k += block_size) {
@@ -4562,14 +4566,46 @@ private let lagunaActivatedOProjKernels: [Int: MLXFast.MLXFastKernel] = {
     return result
 }()
 
+/// Row-per-simdgroup geometry for the decode output projection. `rowsPerThreadgroup`
+/// is the tile stride the kernel body derives from `num_simdgroups *
+/// results_per_simdgroup`, so the launch grid must be derived from the same pair.
+struct LagunaOProjGeometry {
+    let numSimdgroups: Int
+    let resultsPerSimdgroup: Int
+    let tag: String
+
+    static let shipped = LagunaOProjGeometry(
+        numSimdgroups: 2, resultsPerSimdgroup: 4, tag: "")
+
+    var rowsPerThreadgroup: Int { numSimdgroups * resultsPerSimdgroup }
+    var threadsPerThreadgroup: Int { numSimdgroups * 32 }
+}
+
+/// Research-only geometry selector for R107-E. Absent or unrecognised values keep
+/// the shipped 2x4 geometry and its shipped pipeline name.
+let lagunaOProjGeometry: LagunaOProjGeometry = {
+    switch ProcessInfo.processInfo.environment["DARKBLOOM_OPROJ_GEOM"] ?? "" {
+    case "g1":
+        return LagunaOProjGeometry(numSimdgroups: 2, resultsPerSimdgroup: 8, tag: "_g1")
+    case "g2":
+        return LagunaOProjGeometry(numSimdgroups: 1, resultsPerSimdgroup: 8, tag: "_g2")
+    case "g3":
+        return LagunaOProjGeometry(numSimdgroups: 4, resultsPerSimdgroup: 4, tag: "_g3")
+    default:
+        return .shipped
+    }
+}()
+
 private let lagunaActivatedOProjLaneMajorKernels: [Int: MLXFast.MLXFastKernel] = {
     var result: [Int: MLXFast.MLXFastKernel] = [:]
+    let geom = lagunaOProjGeometry
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
         result[heads] = MLXFast.metalKernel(
             name: "laguna_oproj_act_h\(heads)_v1_lm1"
                 + (lagunaAttnScalePairwiseOProjEnabled ? "_pw1" : "")
                 + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
-                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
+                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : "")
+                + geom.tag,
             inputNames: [
                 "attention_output", "gate_values", "weight_codes",
                 "scale_nibbles", "scale_bases", "weight_scales",
@@ -4577,7 +4613,9 @@ private let lagunaActivatedOProjLaneMajorKernels: [Int: MLXFast.MLXFastKernel] =
             outputNames: ["projected"],
             source: lagunaGatedAffineOProjNVFP4Source(
                 heads: heads, preActivatedGate: true, laneMajor: true,
-                pairwise: lagunaAttnScalePairwiseOProjEnabled),
+                pairwise: lagunaAttnScalePairwiseOProjEnabled,
+                numSimdgroups: geom.numSimdgroups,
+                resultsPerSimdgroup: geom.resultsPerSimdgroup),
             ensureRowContiguous: true)
     }
     return result
@@ -4617,13 +4655,16 @@ func lagunaGatedAffineOProjNVFP4(
     {
         lagunaTrace("gated affine oproj nvfp4 qmv h\(heads) lane-major")
         lagunaNarrowScaleLog.noteDispatch("lane-major", "oproj h\(heads)")
+        let geom = gateIsActivated ? lagunaOProjGeometry : .shipped
         return kernel(
             [
                 attentionOutput, gateLogits, codes, lane.nibbles, lane.bases,
                 scales,
             ],
-            grid: ((outVec / 8) * 64, 1, 1),
-            threadGroup: (64, 1, 1),
+            grid: (
+                (outVec / geom.rowsPerThreadgroup) * geom.threadsPerThreadgroup, 1, 1
+            ),
+            threadGroup: (geom.threadsPerThreadgroup, 1, 1),
             outputShapes: [[1, 1, outVec]],
             outputDTypes: [.bfloat16]
         )[0]
