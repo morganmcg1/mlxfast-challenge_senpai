@@ -563,7 +563,43 @@ twelve-block half-width is 11.577 µs/token — **19.3 % of the bar**. The 0.25 
 target of rule 105.5 is 3.25× the half-width. Both are comfortably decidable in one
 session, which is the whole point of building this.
 
-### 5.8 What this licenses, and what it does not
+### 5.8 The two questions the advisor asked the power curve to answer
+
+**(a) alphonse's removal-symmetry ladder — how many blocks to resolve one dispatch?**
+
+Rule 65 prices one dispatch at **2.3403 M5 µs/step**. On this instrument that is
+**5.357 M4 µs/token = 0.0356 % of `cs` (α)**, and the answer is bad news stated plainly:
+
+| rung | M5 µs/step | M4 µs/token | % `cs`(α) | blocks to resolve | blocks at 80 % power |
+|---|---|---|---|---|---|
+| 1 dispatch | 2.3403 | 5.357 | 0.0356 | **47** (94 runs, ≈5.2 h) | **93** (186 runs, ≈10.2 h) |
+| 8 dispatches | 18.7224 | 42.853 | 0.2851 | **4** (8 runs, ≈26 min) | **4** (8 runs, ≈26 min) |
+
+So, concretely, for alphonse: **do not run the n = 1 rung expecting a CI that excludes
+zero.** One dispatch sits below even my 30-block half-width (0.0356 % vs 0.0453 %), and the
+~47 blocks it would take is five hours of host time for a single point on a ladder — not
+buyable tonight, and not a good trade even if it were. The **n = 8 rung is worth running**
+and is cheap: four blocks, eight runs, ~26 min, with 80 % power. The right shape for the
+ladder is therefore **fit the slope across the large rungs and read the per-dispatch price
+off the fitted slope**, where the ladder's own leverage does the work my sd cannot. A slope
+fitted across rungs at n = 8, 16, 32 buys per-dispatch resolution that no amount of
+replication at n = 1 will.
+
+**(b) rule 105.20's competing family-E price routes — can this instrument separate them?**
+
+| route | % `cs` | M4 µs/token | half-widths at 10 blocks |
+|---|---|---|---|
+| A (dispatch elimination) | 1.069 | 160.7 | 12.3 |
+| B (full fusion) | 1.690 | 254.0 | 19.5 |
+| B − A (the discriminating gap) | 0.621 | 93.3 | **7.2** |
+
+Yes, and not marginally: the two routes are **7.2 half-widths apart** at ten blocks, so a
+single ten-block run distinguishes them at overwhelming confidence, and either route
+individually is ≥12 half-widths from zero. This is the quantitative form of the advisor's
+"only instrument sharp enough" claim, and it holds with room to spare — including at the
+top of the chi-square `sd` band, where the gap is still 4.2 half-widths.
+
+### 5.9 What this licenses, and what it does not
 
 Licensed: quoting `sd(D) = 18.222 µs/token` (with its band) as the measured paired noise
 floor of `--local-submit` decode on this host in epoch R107; using the §5.6 table to size
