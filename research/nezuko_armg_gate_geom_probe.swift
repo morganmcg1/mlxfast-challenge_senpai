@@ -45,10 +45,22 @@ let hidden = 2048
 let heads = 64
 let reps = 192
 
+// MLX injects its own `log1p` into every `metalKernel` body (metal_stdlib has
+// none), so the probe restates the same shape to keep the softplus epilogue's
+// arithmetic and cost comparable with the shipped kernel.
 let preamble = """
     #include <metal_stdlib>
     #include <metal_simdgroup>
     using namespace metal;
+
+    inline float log1p(float x) {
+      float xp1 = 1.0f + x;
+      if (xp1 == metal::numeric_limits<float>::infinity()) {
+        return metal::numeric_limits<float>::infinity();
+      }
+      if (xp1 == 1.0f) { return x; }
+      return x * (metal::precise::log(xp1) / (xp1 - 1.0f));
+    }
 
     """
 
