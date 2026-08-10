@@ -4,15 +4,29 @@
 What this run carries, and why each piece is here:
 
   * The corrected within-tree sigma.  My earlier published figure (0.3728 %,
-    n = 5) was an underpowered estimate and too small by ~30 %.  The repeat-group
-    estimator reaches df 191-359 and lands at 0.527-0.550 %, which *confirms*
-    Rule 95.1's sigma_tot ~ 0.5546 % rather than undercutting it.  Anyone sizing
-    an overtake probability off the old number is over-optimistic.
+    n = 5) was an underpowered estimate and too small by ~30 %.  The estimator
+    that replaces it is a decomposition, not a clustering: ln O = ln cs + f with
+    f = 0.75 ln(bd/MB_D) + 0.25 ln(bp/MB_P) is tree-free BY CONSTRUCTION, so all
+    1220 receipts estimate it -- sd(f) = 0.5369 %, independently predicted at
+    0.5180 % from the baseline CVs.  Adding sd(ln cs | tree) = 0.0540 % gives
+    sigma_resubmit = 0.5396 %, which *confirms* Rule 95.1's sigma_tot ~ 0.5546 %
+    rather than undercutting it.  Anyone sizing an overtake probability off the
+    old number is over-optimistic.
+
+  * A retraction.  The repeat-group estimator I published earlier is WITHDRAWN:
+    it is single-linkage chain clustering over noisy candidate legs, so it can
+    both merge distinct trees and split one, and it is confounded in BOTH
+    directions.  Its agreement with 0.5546 % was luck, not evidence.
+
+  * The honest downside.  The assumption-free estimator over Rule 95.3
+    replicates gives 0.2666 % on df 4 (95 % CI [0.160, 0.766]); it is compatible
+    with 0.5396 % (chi2_4 = 0.912, p = 0.077) but if it is right, P(18 draws)
+    collapses from 44.7 % to 0.2 %.  That is the largest live risk on the board.
 
   * Evidence that the session factor is i.i.d. white noise, so draws cannot be
     timed.  This closes a lever rather than opening one.
 
-  * The decomposition showing the record is a +2.93 sigma session draw on a tree
+  * The decomposition showing the record is a +2.99 sigma session draw on a tree
     whose merit is 0.618 % BELOW ours.
 
   * The draw ladder itself, one row per fired leg, including draw 1's failed
@@ -28,7 +42,9 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import subprocess
+import tempfile
 from pathlib import Path
 
 import wandb
@@ -50,6 +66,11 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--draws", default="research/maple-frieren-r107-draws.json")
     args = ap.parse_args()
+
+    # Keep W&B's scratch tree out of the checkout: the draw ladder runs
+    # concurrently and commits, and a stray wandb/ directory would show up in
+    # its gate-4 cleanliness check.
+    os.environ.setdefault("WANDB_DIR", tempfile.mkdtemp(prefix="mf-r107-wandb-"))
 
     ledger = json.loads(Path(args.draws).read_text())
     draws = ledger["draws"]
