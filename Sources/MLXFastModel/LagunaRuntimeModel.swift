@@ -5947,7 +5947,25 @@ final class LagunaRuntimeAttention: Module {
                 let fusedTailGateLogits: MLXArray? = nil
 
 
-                let normalized = fusedQKV ?? inputNorm(input)
+                let fusedNormGate: (normalized: MLXArray, gate: MLXArray)?
+                if fusedQKV == nil, lagunaGateSoftplusEnabled,
+                    lagunaFusedGatedAffineOProjEnabled,
+                    lagunaGatedAffineOProjNVFP4Enabled,
+                    lagunaUseNativeAffineOProj(layer: layerIdx),
+                    _nativeAffineQKVGateRows != nHeads,
+                    inputNorm.eps == Float(LagunaConstants.rmsNormEpsilon),
+                    let affineGate = _nativeAffineGProj,
+                    let affineWO = _nativeAffineOProj,
+                    affineWO.mode == .nvfp4, affineWO.bits == 4,
+                    affineWO.groupSize == 16
+                {
+                    fusedNormGate = lagunaNormFusedGateSoftplus(
+                        residual: input, normWeight: inputNorm.weight,
+                        bank: affineGate, heads: nHeads)
+                } else {
+                    fusedNormGate = nil
+                }
+                let normalized = fusedQKV ?? fusedNormGate?.normalized ?? inputNorm(input)
                 let decodeNVFP4QKVR1 =
                     fusedQKV == nil
                     ? lagunaDecodeNVFP4QKVR1(
@@ -5991,8 +6009,9 @@ final class LagunaRuntimeAttention: Module {
                         let affineWO = _nativeAffineOProj,
                         affineWO.mode == .nvfp4, affineWO.bits == 4,
                         affineWO.groupSize == 16,
-                        let activated = lagunaGateSoftplus(
-                            input: normalized, bank: affineGate, heads: nHeads)
+                        let activated = fusedNormGate?.gate
+                            ?? lagunaGateSoftplus(
+                                input: normalized, bank: affineGate, heads: nHeads)
                     {
                         gateLogits = activated
                         gateProjectionActivated = true
