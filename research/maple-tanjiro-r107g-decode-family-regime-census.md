@@ -3,8 +3,9 @@
 `α = 0.4369, β = 0.5 two-pool map, residual −6.63 %, #561`
 
 Host tag: **AWS M4 Pro, `applegpu_g16s`, Apple GPU gen 16, 20 GPU cores, 48 GiB unified,
-macOS 26.5.2, Metal toolchain 17.6.109.0.** Epoch tag: **advisor tip `acb56108`,
-`LagunaRuntimeModel.swift` sha256 `a736b50f…d850c4`, 12,147 lines.**
+macOS 26.5.2, Metal toolchain 17.6.109.0.** Epoch tag: **assignment base advisor tip
+`acb56108`, re-verified against advisor tip `fc66172b` (rule 105.14) at the final revision;
+`LagunaRuntimeModel.swift` sha256 `a736b50f…d850c4`, 12,147 lines, identical at both tips.**
 Every number below is measured on **M4**; M5 numbers are quoted only where the charge
 supplies them, and are always marked.
 
@@ -68,7 +69,7 @@ for your issue; §3.3 is the evidence and §3.5 is the pricing caveat.
 | **#644 alphonse** | A — T3b oproj h64 | **STOP on the instruction axis; RE-AIM to bytes or stand down** | **high** | A runs at 37.26 µs against a 36.46 µs DRAM floor. Its *entire* non-byte budget — all exposed ALU, all latency, everything — is 0.79 µs/dispatch = 23.8 M4 µs/step = **0.159 % of `cs` = 0.40 of one bar**. No instruction-side change in this kernel can clear 0.4 %, even if it removed every instruction. The bytes axis needs 15.10 MiB/step = 5.8 % of the family's own traffic, which no metadata or packing trick left on the table can supply (#615 already took the metadata; L3 already took the packing default). |
 | **#597 frieren** | B — T2d routed+shared down+residual | **STOP on the instruction axis** | **high** | B is the one family that already runs *at or below* the modelled DRAM floor (22.02 µs measured vs 22.80 µs modelled). Slack ≤ 0 bars. There is nothing to buy on the issue axis and the byte axis would need 15.10 MiB/step = 7.7 % of the family's own traffic. The −0.78 µs discrepancy is itself a finding (see threats): either B.0.3 slightly understates B's M4 cost or the 3.97 µs intercept is smaller at 288 thr/TG. |
 | **#629 edward** | C — T0b(a) qkv h64, and D — T2c routed gate+up | **STOP on the instruction axis for both; C is finished** | **high (C), very high (D — directly probed)** | C: 44.67 µs against a 44.62 µs floor, i.e. **99.9 % of the theoretical best for its byte traffic**. Slack 0.03 bars. D: directly probed; exposed ALU is 1.1 % of the dispatch, the 0.4 % bar is 466 instructions/thread against a base load of 128, so the bar is **3.6× the entire arithmetic content of the kernel**. K-loop staging depth (#630) and `DARKBLOOM_QMV_WIDE_CODES` (−0.5363 %) are both consistent with this. |
-| **adversarial target** | E — T2b gate_sp h64 | **RE-AIM: the regime is LATENCY, not ISSUE and not BYTES** | **medium** (inferred, and the fix is on a deconflicted axis) | 88 % of E's 8.27 µs dispatch is neither bytes (0.98 µs) nor issue (0.04 µs). It is dispatch overhead: rule 65's +2.3403 µs/dispatch plus rule 55's 3.97 µs intercept explain ~6.3 of the missing 7.3 µs. Fusing the dispatch away entirely is worth **1.664 % of `cs` = 4.16 bars** — the largest nameable prize in this census by 6× — but #48 already scored −0.1488 % on the dispatch-count axis, so this needs a *genuine* fusion, not a dispatch merge. |
+| **adversarial target** | E — T2b gate_sp h64 | **RE-AIM: the regime is LATENCY, not ISSUE and not BYTES** | **medium** (inferred, and the fix is on a deconflicted axis) | 88 % of E's 8.27 µs dispatch is neither bytes (0.98 µs) nor issue (0.04 µs). It is dispatch overhead: rule 65's +2.3403 µs/dispatch plus rule 55's 3.97 µs intercept explain ~6.3 of the missing 7.3 µs. Fusing the dispatch away entirely is worth **2.451 % of `cs` = 6.13 bars** once rule 105.13's third regime prices the glue at `k_dispatch = 1.89` (§3.6; the dispatch-elimination component alone is **1.069 % = 2.67 bars**) — the largest nameable prize in this census by 6× — but #48 already scored −0.1488 % on the dispatch-count axis, so this needs a *genuine* fusion, not a dispatch merge. |
 | **the campaign** | α / β | **`N-DEGENERATE`, and the resolving experiment is free** | **high** | No single scalar α satisfies efficiency-invariance on both pools: `routed` demands a 597.1 GB/s M5 ceiling, `qkvo` demands 677.1 — **13 % apart** (§3.5). α-free bound: **α < 0.4454**. Run `research/fern_r101_bw_probe.swift` on the official M5: ~7 s, zero receipts. |
 
 **What this memo is *not* saying.** It is not saying these families are cheap — they are the
@@ -625,16 +626,22 @@ and should be stated so that nobody re-derives it: fusing the dispatch away enti
 its bytes moving inside whatever absorbs it, is worth
 **218.5 M4 µs/step = 1.664 % of `cs` = 4.16 bars** at k = β = 0.5.
 
+⚠️ **Superseded upward by rule 105.13 — see §3.6.** That rule landed after these ladders and
+splits the dispatch cost out into a *third* conversion regime at `k = 1.89`. Re-priced, E's
+full-fusion prize is **160.9 M5 µs/step = 2.451 % of `cs` = 6.13 bars**, and the
+dispatch-elimination component *alone* is **1.069 % = 2.67 bars**. §3.6 carries the
+arithmetic and an erratum on a figure I previously halved.
+
 That is the largest single nameable prize in this census by a factor of six. It is also on
 the one axis the campaign has already priced and lost on: **#48 dispatch-count reduction
 scored −0.1488 %**. My reading is that the prize is real but that the fusion has to be a
 *genuine* fusion (E's 262 KB of `g_proj` read inside the neighbour's dispatch), not a
 dispatch-count reduction that re-materialises the same work with worse locality. I do not
 have the receipts to attempt it in the hours remaining, and rule 105.7 says one unpaired M4
-receipt cannot see a change of this size anyway — but 4.16 bars is worth a paired ABBA if
-anyone has the receipts. **k = β = 0.5 for E**, because T1a/T2b sit in the pool whose two-pool
-map constant is β; and note that at β the bar is 52.5 M4 µs/step, the cheapest bar in the
-model.
+receipt cannot see a change of this size anyway — but 6.13 bars is worth a paired ABBA if
+anyone has the receipts. **k = β = 0.5 for E's in-kernel part**, because T1a/T2b sit in the
+pool whose two-pool map constant is β; and note that at β the bar is 52.5 M4 µs/step, the
+cheapest bar in the model.
 
 ### 3.5 α / β adjudication — verdict `N-DEGENERATE`, sharpened
 
@@ -702,6 +709,133 @@ The bars at the three live constants are 60.1 (α = 0.4369), 67.5 (α = 0.389) a
 µs/step. That is below the *smallest* of the three bars. **The `N-BYTES-EVERYWHERE` verdict
 is invariant to the α controversy.**
 
+### 3.6 Rule 105.13 landed after these ladders — I tested my census against it
+
+Rule 105.13 (advisor, commit `bde79502`, 2026-08-10 15:06Z) arrived ~5 h after I fixed my
+census and contributes two things my report did not have: the **first measured same-quantity
+whole-decode M4/M5 pair** (`T_M4 = 8448.0 µs/step` from nezuko's R106-B control, n = 6,
+sd 16.35; `T_M5 = 4141.5` from rule 58; `k_steady = 0.4902`) and a **third conversion
+regime** for dispatch glue (`k_dispatch = 2.3403 / 1.2382 = 1.890` from rules 65 and 57).
+
+My census is the only per-family *regime labelling* in the campaign, so the whole-decode
+budget becomes a closure test on it. Arithmetic: `research/maple-tanjiro-r107g-closure.py`;
+output archived at `research/artifacts/maple-tanjiro-r107g/stage1-105-13-closure.txt`.
+
+**Pools.** Taking B.0.3's M4 column with my measured labels where I have them, rule 100.3's
+ISSUE relabelling for the two attention rows, and the B.0.3 staleness caveat's corrected
+T3a (618.9, not 636.0):
+
+| pool | M4 µs/step | share of `T_M4` | label source |
+| --- | ---: | ---: | --- |
+| BYTES | 6302.5 | 74.6 % | 4 of 9 rows MEASURED here (A, B, C, D) |
+| LATENCY | 928.1 | 11.0 % | 1 of 4 rows MEASURED here (E) |
+| ISSUE | 848.6 | 10.0 % | rule 100.3 + my #642 |
+| census total | 8079.2 | 95.6 % | |
+| residue (non-census) | 368.8 | 4.4 % | dispatch glue, encoder boundaries, gaps |
+
+**The closure line.** `α·BYTES + β·LATENCY = 3217.6` M5 µs/step, so ISSUE + residue must
+supply `4141.5 − 3217.6 = 923.9` M5 µs/step out of 1217.4 M4 µs/step — a blended
+`k = 0.7589` for those two pools together. One equation, two unknowns, so I report it two
+ways rather than pretending it is identified:
+
+**(i) The corroboration.** Between an M4 Pro and the ranked M5, DRAM bandwidth and ALU
+throughput scale with the same core count and fabric width, so `k_issue` should sit near α,
+not near β. Setting `k_issue = α = 0.4369` forces
+
+```text
+k_residue = 1.4998        (+/-1 sem on T_M4: [1.4732, 1.5275])
+                          (+/-2 sem on T_M4: [1.4474, 1.5562])
+```
+
+which lands **inside rule 105.13(c)'s bracket `[1.0, 1.89]`**, nearer the `k_dispatch` end
+than the floor, and stays inside at ±2 sem. This is an **independent corroboration of the
+third regime**: 105.13(c) reached `[1.0, 1.89]` from a difference of two column totals, one
+of which is derived; this route reaches ≈1.50 from a regime-labelled census against a
+*measured* `T_M4`. Two routes, different failure modes, same answer.
+
+It also explains 105.13(a)'s slightly awkward observation that `k_steady = 0.4902` sits
+almost at β for a decode mix that is 74.6 % bytes. A pure α/β mix with those pools predicts
+`k_steady = 0.4519`; the gap to 0.4902 is **exactly the residue's `k > 1`**. The third regime
+is not a curiosity, it is required to make the whole-decode number come out.
+
+**(ii) The bound.** Imposing `k_residue ∈ [1.0, 1.89]` on the same line gives
+**`k_issue ∈ [0.267, 0.654]`**. Practical consequence: **nobody should price an
+attention-side (issue-regime) M4 saving above 0.654×**, and `k = 1.0` is excluded. That
+matters because the attention pool is where R102-A, #539 and my own #642 all live, and I
+have seen issue-regime M4 deltas quoted bare.
+
+**What this test does *not* do.** Honest statement, because it would be easy to oversell.
+Re-running the same closure with the four big GEMV families moved from BYTES to ISSUE is
+*also* feasible: it needs `k_issue ∈ [0.4115, 0.4695]`, which overlaps the
+`[0.267, 0.654]` my labels allow. **The whole-decode closure cannot discriminate BYTES from
+ISSUE on the GEMV block** — structurally, a one-equation two-unknown line cannot separate
+pools whose candidate `k` values are 0.44 versus 0.46. What discriminates is the direct
+measurement in this report: family D's dose ladder (exposed ALU **1.10 %** of dispatch time,
+two residency-defeated sessions, §2.4), the 85.5–91.0 % geometry-matched bandwidth band
+across all four (§3.2), and agreement with §B.1's independent GPU-timer census to −0.84 pp
+and +1.29 pp (§3.2.1). The closure's job is to show the measured labels are *arithmetically
+consistent* with the only measured whole-decode `k` we have, with no free parameter outside
+105.13's own bracket — and they are.
+
+The counterfactual does establish one thing: an ISSUE-labelled GEMV block is only survivable
+at `k_issue ≤ 0.469`. Priced at β it overshoots `T_M5` by **+4.18 %**, at 0.654 by
+**+25.2 %**, at 1.0 by **+72.6 %**. So whatever else is true, **GEMV-side M4 savings must
+not be priced above ≈0.47×** — which is α to within 7 %, and is the same practical
+instruction as my §3.5 bound `α < 0.4454`.
+
+**Re-pricing family E (§3.4), including an erratum against myself.** E's above-byte-floor
+time is 7.286 µs × 30 dispatches = 218.6 M4 µs/step. Rule 57 says 1.2382 µs/dispatch of that
+is M4 dispatch glue ⇒ 37.1 M4 µs/step converts at `k_dispatch`, and the remaining 181.4 at β:
+
+| pricing | M5 µs/step | % of `cs` | bars |
+| --- | ---: | ---: | ---: |
+| old — all at β = 0.5 | 109.3 | 1.664 | 4.16 |
+| **new — glue at `k_dispatch` = 1.89** | **160.9** | **2.451** | **6.13** |
+| dispatch-elimination component alone (rule 65) | 70.21 | 1.069 | 2.67 |
+
+🚨 **Erratum.** An earlier revision of this report quoted that last component as
+**0.535 %** of `cs`. That was wrong: rule 65's 2.3403 µs is **already an M5 price**, and I
+applied β to it a second time, halving it. The correct figure is **1.069 %**. This is exactly
+the failure mode rule 105.12 warns about, committed in the *opposite* direction from the
+usual one — and it is the one direction where 105.12's one-sidedness theorem gives no
+protection, because `k_dispatch > 1`. I have not found the same mistake anywhere else in this
+report; every other conversion starts from a raw M4 measurement of mine.
+
+**Do my GEMV STOP verdicts survive the third regime?** Yes, and for a structural reason
+rather than luck. My floor is `floor_us = bytes / 266.3 + 3.97`, i.e. it already *credits*
+every dispatch with the measured fixed intercept, and rule 57's marginal M4 glue (1.2382 µs)
+is **31 % of that 3.97 µs intercept**. Dispatch glue therefore sits *below* my floor, so the
+non-byte slack I report is in-kernel time and cannot be priced at `k_dispatch`. Even priced
+at β rather than α:
+
+| family | slack µs/dispatch | M4 µs/step | at α, % `cs` | at β, % `cs` | bars at β |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| D T2c | 0.963 | 37.6 | 0.250 | 0.286 | 0.71 |
+| A T3b | 0.794 | 23.8 | 0.158 | 0.181 | 0.45 |
+| C T0b(a) | 0.055 | 1.6 | 0.011 | 0.013 | 0.03 |
+| B T2d | −0.774 | −30.2 | −0.201 | −0.230 | ≤ 0 |
+
+All four stay below the 0.40 % draw bar at the *worse* of the two constants. **The STOP
+verdicts for A, B, C and D are invariant to rule 105.13.**
+
+**What 105.13 does open, stated on my own numbers.** The intercept itself. If a family's
+dispatches were merged away entirely:
+
+| family | dispatches/step | M5 µs/step recovered | % of `cs` |
+| --- | ---: | ---: | ---: |
+| D T2c | 39 | 91.27 | 1.390 |
+| B T2d | 39 | 91.27 | 1.390 |
+| A T3b | 30 | 70.21 | 1.069 |
+| C T0b(a) | 30 | 70.21 | 1.069 |
+| E T2b gate_sp | 30 | 70.21 | 1.069 |
+
+This is 105.13(e)'s own headline restated per family, and it is a **dispatch-count** lever —
+deconflicted to #48 (which scored −0.1488 %) and reachable only by genuine kernel merging.
+The reason I still single out **E** is that it is the only row where the *entire* dispatch is
+that cost: A, B, C and D each have 18–41 µs of irreducible byte streaming that has to happen
+somewhere regardless, whereas E moves 262 KB in 8.27 µs and has nothing to stream. **E is the
+cheapest merge target in the pool**, and 105.13 makes it 47 % more valuable than §3.4 said.
+
 
 ## 4. Rule 77 — geometry table for every kernel and probe in this report
 
@@ -756,9 +890,20 @@ exit 0
 $ git diff --numstat 04c7ac4761b007e45d46b70c6a0b497fbf39c907 HEAD -- $(jq -r '.editablePaths[]' benchmark.json) benchmark.json
 $ echo "exit $?"
 exit 0
+$ git diff --numstat fc66172b73a1ffa3bf2d9a4431267c0b922b7b7f HEAD -- $(jq -r '.editablePaths[]' benchmark.json) benchmark.json
+$ echo "exit $?"
+exit 0
 ```
 
-Two empty outputs with exit 0: the editable surface is **byte-identical** to both bases.
+Three empty outputs with exit 0: the editable surface is **byte-identical** to all three
+bases. The third is the advisor tip as of the final revision of this report,
+`fc66172b` (rule 105.14 plus the revert that restores `LagunaRuntimeModel.swift` to blob
+`9af980d9`). That tip is worth naming explicitly because the advisor branch took a round trip
+underneath me while this assignment was open: `960cd1e4` merged nezuko's #616 scaffolding into
+the editable surface and `fc66172b` reverted it, so
+`git diff --numstat acb56108 fc66172b -- <97 editable paths>` is *also* empty. My branch never
+carried either side of that round trip, which is why the same zero-byte claim holds against
+`acb56108`, against `04c7ac47`, and against `fc66172b` without my having to rebase again.
 `jq -r '.editablePaths[]' benchmark.json` expands to 97 paths, including all four
 line ranges I was told not to touch — `LagunaRuntimeModel.swift:3845-4700` (alphonse),
 `:4810-5010` and `:7892-8065` (edward), `:8225-8600` (frieren) — so the no-transient-edit
@@ -788,6 +933,24 @@ All dose variants were compiled and run as **standalone `.metal` files** under
 (`/tmp/tanjiro_r107g_qmv`). Nothing in the measurement path reads the shipped Swift
 source at runtime, which is why an issue-slot dose ladder on family D is possible at all
 without editing edward's range.
+
+**Rule 105.14 consequence, flagged for fern (#625) so nobody trips over it.** 105.14 records
+that `research/` is *outside* `editablePaths`, so the CI surface gate rejects any branch
+carrying `research/` edits, and the draw branch must be Sources-only. Every commit on this
+branch is a `research/` edit and *nothing else* — which is exactly the property that makes the
+zero-byte proof above trivial, and exactly the property that makes this branch **ineligible to
+be the draw branch**. That is intentional and it is not a defect to be fixed: this PR is a
+measurement report, and I never submit officially (frieren owns the receipt channel). The
+operational instruction is therefore: **do not merge this branch into the draw lineage.** Read
+the memo, take the verdicts, and cherry-pick nothing. If any of my numbers are wanted inside a
+draw branch they should be re-derived there, because the whole point of the census is that it
+recommends *no* source change in four of five families.
+
+Note also that 105.14's per-file budget is not at risk from me in either direction: I add zero
+editable bytes, so the post-revert total of 2,681,206 (headroom 318,794) and
+`LagunaRuntimeModel.swift`'s 384,245 B against the 524,288 B hard abort (73.3 % full, 140,043 B
+headroom) are unchanged by this branch. Anyone budgeting the remaining hours can treat my
+surface as exactly zero.
 
 ### 5.2 The `--local-iterate` correctness anchor at final HEAD
 
@@ -969,6 +1132,7 @@ All under `research/artifacts/maple-tanjiro-r107g/` unless stated.
 | `stage1-D-rows-s2-slots64.txt` | family-D bytes ladder, defeated session 2 |
 | `stage1-crossfamily-audit.txt` | output of `maple-tanjiro-r107g-decompose.py` — the §3.2 table and §3.5 adjudication |
 | `stage1-slack-bound.txt` | output of `maple-tanjiro-r107g-slack.py` — the §3.3 slack bound |
+| `stage1-105-13-closure.txt` | output of `maple-tanjiro-r107g-closure.py` (166 lines) — the §3.6 rule-105.13 whole-decode closure test, the `k_issue` bound, the BYTES-vs-ISSUE counterfactual, and the family-E re-pricing erratum |
 | `qmv_dose{0,4,8,16}.metal` | the four generated dose arms; `qmv_dose0.metal` is byte-identical to `research/artifacts/fern-r99/depth1_shipped.metal` |
 | `baseline-run0.json` | unmodified-tree `--local-iterate` correctness/provenance anchor at final HEAD |
 | `stage1-upstream-equivalence-HEAD.log` | `run_upstream_equivalence.sh` at final HEAD (98 lines): 8/8 decode steps bit-exact, prefill one ulp, `EQUIVALENCE_EXIT=1` inherited from the advisor tip (§5.3) |
@@ -982,6 +1146,7 @@ Harness and analysis scripts, all `research/maple-tanjiro-r107g-*`:
 | `qmv-dose-run.sh` | runs the NULL control and the 4-arm ladder, both residency regimes |
 | `decompose.py` | H-REGIME decomposition, cross-family audit, α/β adjudication |
 | `slack.py` | the non-byte slack bound |
+| `closure.py` | the §3.6 rule-105.13 whole-decode closure test and `k_issue`/`k_residue` solve |
 | `wandb.py` | publishes the census to `wandb-applied-ai-team/mlxfast-maple` |
 
 Reused unmodified from other students: `research/fern_r99_qmv_probe.swift`,
@@ -1053,9 +1218,11 @@ Ranked, with the reasoning compressed:
    respectively for efficiency-invariance; one probe tells us which, or that neither holds.
 2. **Family E (T2b gate_sp) fusion.** The only family whose regime is *not* BYTES. It runs at
    11.9 % of peak on 262,144 B, ~1,920 threads, 88 % latency residual. Full fusion is worth
-   **218.5 M4 µs/step = 1.664 % of `cs` = 4.16 bars**. It is small, self-contained, and nobody
-   is working it — it was handed to me as an *adversarial* family and it turned out to be the
-   one real lever in the census.
+   **218.6 M4 µs/step, which under rule 105.13's third regime prices at 160.9 M5 µs/step =
+   2.451 % of `cs` = 6.13 bars** (§3.6; at the old all-at-β pricing it was 1.664 % = 4.16 bars,
+   so 105.13 *raised* it). The dispatch-elimination component alone is **1.069 % = 2.67 bars**.
+   It is small, self-contained, and nobody is working it — it was handed to me as an
+   *adversarial* family and it turned out to be the one real lever in the census.
 3. **T3a sliding fused attention.** fern's audit puts it at 32.4 % of M5 peak with 212.2 µs of
    headroom and the pool's best score (3.23). Not my family, but it dwarfs anything left in
    the four BYTES families.
