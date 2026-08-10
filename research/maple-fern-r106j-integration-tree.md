@@ -1258,19 +1258,86 @@ the **point estimate** to reach +0.40 %, and +0.0920 % does not, whatever the in
 does.
 
 There is one wrinkle I have to disclose rather than quietly benefit from. I intended this
-job to add exactly four blocks. It added eight: the driver **appends** `blocks` new blocks
-to the existing rows rather than topping the total up to `blocks`, so `runs 17–48` is
-twelve complete blocks, not eight. I discovered this from the run indices while the job
-was in flight, and by then all twelve were already committed — the schedule was fixed at
-launch, before a single one of blocks 5–12 had been observed. **Blocks 9–12 are therefore
-pre-committed data, not optionally-stopped data, and reporting them costs nothing in
-inferential validity.** What would cost something is *choosing* to run block 13. I am not
-running block 13.
+job to add exactly four blocks. It scheduled eight: the driver **appends** `blocks` new
+blocks to the existing rows rather than topping the total up to `blocks`, so `blocks=8`
+from a base of four means twelve, not eight. I discovered this from the run indices while
+the job was in flight, and by then all twelve were already scheduled — the schedule was
+fixed at launch, before a single one of blocks 5–12 had been observed. **Blocks 9–12 are
+therefore pre-committed data, not optionally-stopped data, and reporting them costs
+nothing in inferential validity.** What would cost something is *choosing* to run one more
+block after seeing the interval. I am not doing that.
+
+In the event the job did not reach twelve either: it was killed by its own wall-clock
+`timeout_seconds` at 4,194 s, part-way through run 43, leaving **42 complete runs = ten
+complete blocks**. That stopping rule is also value-independent — the clock was set at
+launch and knows nothing about the numbers — so ten blocks is an unbiased readout of a
+pre-committed schedule, truncated by a pre-committed deadline. It is neither the eight I
+promised nor the twelve I accidentally queued, and I am reporting it as exactly that.
 
 So the record shows both, clearly labelled: the eight-block checkpoint above, which is the
-preregistered decision instrument and which fires `N-PACK`; and the twelve-block readout
-in §5.3.6b, which is a strictly-more-powerful estimate of the same quantity that I got by
-accident and would have had no right to request.
+preregistered decision instrument and which fires `N-PACK`; and the ten-block readout in
+§5.3.6b, which is a strictly-more-powerful estimate of the same quantity.
+
+##### 5.3.6b Ten-block readout — the bar is now *excluded*, not merely unmet
+
+`research/artifacts/maple-fern-r106j/abba_t0_t0p/analysis_10blocks.txt`, verbatim:
+
+```
+usable runs: 42   complete ABBA blocks: 10
+correctness failures: 0
+distinct golden_hash values: 1 -> ['b9509697c08a2cf3']
+  within-arm T0  decode mean=0.012955773 s/token  cv=0.3695%  n=21
+  within-arm T0P decode mean=0.012946689 s/token  cv=0.3619%  n=21
+  within-arm T0  prefill mean=0.001118533 s/token cv=0.8719%  n=21
+  within-arm T0P prefill mean=0.001119002 s/token cv=0.4904%  n=21
+
+d(ln decode)   : -0.0686%  CI95 [-0.3921, +0.2550]  sd=0.4523%   5/10 positive
+d(ln prefill)  : +0.0745%  CI95 [-0.3955, +0.5446]  sd=0.6571%   7/10 positive
+PRIMARY
+d(ln score)    : +0.0328%  CI95 [-0.2338, +0.2994]  sd=0.3727%   6/10 positive
+CONSERVATIVE (prefill charged neutral)
+d(ln score|dec): +0.0514%  CI95 [-0.1912, +0.2941]  sd=0.3392%   5/10 positive
+
+per-block d(ln score) %: +0.3022, -0.3693, -0.6056, +0.4303, +0.1674,
+                         +0.0146, +0.3232, +0.4731, -0.3482, -0.0598
+```
+
+**This is the sentence the whole subsection was for: `+0.0328 %, CI95 [−0.2338, +0.2994]`
+has an upper limit below the +0.40 % bar.** At eight blocks I could only say "the point
+estimate does not reach the bar"; at ten I can say "the bar is excluded at 95 %". The
+conservative variant excludes it too (+0.2941 %). Every one of the three readings I have
+taken on this patch — four blocks, eight blocks, ten blocks — is consistent with a true
+effect somewhere between −0.1 % and +0.2 %, and none of them is consistent with the
++0.562 % that put the patch on my queue in the first place.
+
+Note also that the estimate **shrank monotonically** as blocks accumulated: +0.1889 % at
+four, +0.0920 % at eight, +0.0328 % at ten. That is the signature of a null being
+approached from a noisy start, not of a real effect being diluted. The decode cell —
+again, the only cell the patch can physically move — sits at −0.0686 % with 5/10 blocks
+positive, i.e. a coin flip.
+
+**Verdict unchanged and now firmly held: `N-PACK`.** The integration tree is `T0`. The
+extra two blocks did not change the decision; they changed how confidently I can defend
+it, which is why I am glad the driver over-scheduled and sorry it ran out of clock before
+twelve.
+
+**Correctness across the whole sweep.** 42 runs, two arms, zero correctness failures, and
+a **single** `golden_hash b9509697c08a2cf3` — the same hash as the Stage-0 T0 build in
+§2.5 and the same hash as every T1 run in §4.1. That is the bit-exactness claim of §5.3.1
+confirmed empirically 42 times over, and it is worth keeping even though the patch is not
+shipping: if a future round wants this geometry change for some other reason, the
+correctness question is already answered and only the performance question needs
+re-opening.
+
+**A note for edward (#629) and alphonse (#644).** Edward's Stage A is the adjudication of
+this exact `num_simdgroups 2→8` flip on the QKV lane-major kernel, and alphonse's R107-E
+is the same *class* of change (output-row amortisation) on the oproj twin. This sweep is
+an independent, in-situ, 42-run paired reading of the flip on my host: **+0.0328 % of
+`cs`, CI [−0.2338, +0.2994], bar excluded.** It does not settle edward's arm — his target
+is a different `Source` function and a different pipeline — but it does mean the corpus's
++0.562 % prior should not be carried into either of their power calculations. The
+corrected prior is **+0.338 %** (§5.3.4) and my direct measurement of the flip is well
+below even that.
 
 ### 5.4 Candidates that did not arrive
 
