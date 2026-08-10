@@ -4144,17 +4144,28 @@ if(lid<gate_heads){
 }
 threadgroup_barrier(mem_flags::mem_threadgroup);
 """
+    let inputTileSetup = preActivatedGate
+        ? "threadgroup bfloat x_tile[block_size];"
+        : ""
     let loadInput = preActivatedGate
         ? """
-float g=float(gate_values[column>>head_shift]);
+if (simd_gid == 0) {
+    float g=float(gate_values[column>>head_shift]);
+    for(uint i=0;i<values_per_thread;++i)
+        x_tile[simd_lid*values_per_thread+i]=bfloat(float(xp[i])*g);
+}
+threadgroup_barrier(mem_flags::mem_threadgroup);
 for(uint i=0;i<values_per_thread;++i)
-    x_thread[i]=float(bfloat(float(xp[i])*g));
+    x_thread[i]=float(x_tile[simd_lid*values_per_thread+i]);
 """
         : """
 float g=gt[column>>head_shift];
 for(uint i=0;i<values_per_thread;++i)
     x_thread[i]=float(bfloat(float(xp[i])*g));
 """
+    let inputTileBarrier = preActivatedGate
+        ? "threadgroup_barrier(mem_flags::mem_threadgroup);"
+        : ""
     // Lane-major arm: one row-wide base plus a 4-bit offset per group, stored
     // so that lane `simd_lid` -- or pair-lane `simd_lid >> 1`, whose two lanes
     // provably share a scale byte -- owns a contiguous nibble run. A block's
@@ -4218,6 +4229,7 @@ uint simd_gid = simdgroup_index_in_threadgroup;
 uint simd_lid = thread_index_in_simdgroup;
 
 \(gateSetup)
+\(inputTileSetup)
 
 uint out_row = tile * (num_simdgroups * results_per_simdgroup) +
     simd_gid * results_per_simdgroup;
@@ -4257,6 +4269,7 @@ for (uint k = 0; k < in_vec_size; k += block_size) {
         result[row] += scale * accum;
     }
 
+    \(inputTileBarrier)
     ws += block_size / 8;
     \(scaleAdvance)
     xp += block_size;
@@ -4403,7 +4416,7 @@ private let lagunaActivatedOProjKernels: [Int: MLXFast.MLXFastKernel] = {
     var result: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
         result[heads] = MLXFast.metalKernel(
-            name: "laguna_oproj_act_h\(heads)_v1"
+            name: "laguna_oproj_act_h\(heads)_v2"
                 + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
                 + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
             inputNames: [
@@ -4421,7 +4434,7 @@ private let lagunaActivatedOProjLaneMajorKernels: [Int: MLXFast.MLXFastKernel] =
     var result: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
         result[heads] = MLXFast.metalKernel(
-            name: "laguna_oproj_act_h\(heads)_v1_lm1"
+            name: "laguna_oproj_act_h\(heads)_v2_lm1"
                 + (lagunaAttnScalePairwiseOProjEnabled ? "_pw1" : "")
                 + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
                 + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
