@@ -8,6 +8,7 @@ disagree.
 
 import csv
 import json
+import os
 import pathlib
 import subprocess
 
@@ -31,9 +32,13 @@ ARMS = {
     "G": "2400 empty roots/layer, chained -- liveness gauge only, excluded from fits",
 }
 
+# Set MAPLE_R108K_WANDB_RUN_ID to refresh the already-cited run in place rather
+# than publishing a second copy of the same probe.
 run = wandb.init(
     entity="wandb-applied-ai-team",
     project="mlxfast-maple",
+    id=os.environ.get("MAPLE_R108K_WANDB_RUN_ID") or None,
+    resume="allow",
     name="maple-frieren-r108k-barrier-region-price",
     job_type="decode-dispatch-price-probe",
     tags=["maple-frieren", "r108-K", "decode", "dispatch_merge", "barrier_price",
@@ -140,6 +145,21 @@ run.summary.update({
     "prereg/P1_dJ_magnitude_refuted": 1,
     "prereg/P2_k_zero_refuted": 1,
     "prereg/P3_sign_confirmed_size_wrong": 1,
+
+    # §3.5.1's rule-105.23 critical test between the two decode-pool models.
+    "reprice/pool_105_16_slack_pct": FIG["reprice_105_16_slack_pct"],
+    "reprice/pool_105_17_assumed_pct": FIG["reprice_105_17_assumed_pct"],
+    "reprice/pool_105_17_measured_pct": FIG["reprice_105_17_measured_pct"],
+    "reprice/pool_105_17_measured_pct_lo": FIG["reprice_105_17_measured_pct_lo"],
+    "reprice/pool_105_17_measured_pct_hi": FIG["reprice_105_17_measured_pct_hi"],
+    "reprice/model_gap_assumed": FIG["reprice_model_gap_assumed"],
+    "reprice/model_gap_measured": FIG["reprice_model_gap_measured"],
+    "reprice/p_draw_105_16": FIG["p_draw_105_16"],
+    "reprice/p_draw_105_17_assumed": FIG["p_draw_105_17_assumed"],
+    "reprice/p_draw_105_17_measured": FIG["p_draw_105_17_measured"],
+    "reprice/p_two_draws_105_17_measured": FIG["p_two_105_17_measured"],
+    "reprice/merge_pct_via_105_17_constant": FIG["merge_pct_via_105_17"],
+    "reprice/decode_denominator_gap": FIG["decode_denominator_gap"],
 })
 
 rows = wandb.Table(columns=["idx", "block", "arm", "arm_meaning", "inject", "chain",
