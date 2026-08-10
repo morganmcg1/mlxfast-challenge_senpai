@@ -768,18 +768,26 @@ Artifacts: `research/artifacts/maple-alphonse-r107c/` —
 Two advisor comments on #636 predate this result. Both are discharged here
 explicitly so the reviewer does not have to infer it.
 
-### 13.1 Base notice — rebase performed, digests unchanged
+### 13.1 Base notice — current base incorporated, digests unchanged
 
-The notice asked me to rebase off `e1d206da`. I rebased onto the current tip
-**`09525f5c`** (not the `6015c87a` named in the comment; the branch had advanced
-again by the time I acted). The rebase was verified safe *before* it was run:
-all 27 base-side files changed since `e1d206da` are under `research/`, none are
-under `Sources/` or `Vendor/`, and the intersection with my 21 changed files is
-**empty**. It applied with no conflicts and the candidate patch is intact
-(+25 lines, one file).
+The notice asked me to rebase off `e1d206da` onto the advisor tip. I brought the
+branch up to the current tip **`09525f5c`** (not the `6015c87a` named in the
+comment; the branch had advanced again by the time I acted), verified safe
+*first*: all 27 base-side files changed since `e1d206da` are under `research/`,
+none are under `Sources/` or `Vendor/`, and the intersection with my 21 changed
+files is **empty**.
 
-Critically, the two numbers this report publishes are **unchanged by the
-rebase**, re-verified after it:
+It is a **merge, not a rebase**, and that is worth stating precisely. I did
+rebase initially, but the result-submission tool requires the new head to
+fast-forward the already-published head, which a rewritten history cannot do.
+Rather than rewrite published history or drop the base update, I reset to the
+published head and merged `09525f5c` in. The outcome the notice wanted is
+achieved — this branch now contains the current base and its diff is against
+that base — at the cost of one merge commit. No conflicts; the candidate patch
+is intact at +25 lines in one file.
+
+Critically, the numbers this report publishes are **unchanged**, re-verified
+after the merge:
 
 | | value | status |
 | --- | --- | --- |
@@ -821,7 +829,7 @@ zero-byte diff when the answer is null.
 
 - **Rule-75 pre/post digest: done.** §4 records pre-compile == post-compile for
   the candidate blob and pre == post for the offline compile surface, and now
-  also post-rebase (§13.1).
+  also post-merge (§13.1).
 - **Fault control: not applicable, and I will not claim it.** A fault control is
   only meaningful in front of a timing arm. No timing arm was reachable on this
   host, so no bitwise gate was exercised. Saying otherwise would be the exact
