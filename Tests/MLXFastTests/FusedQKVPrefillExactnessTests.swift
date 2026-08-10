@@ -81,10 +81,16 @@ func fusedQKVPrefillEpilogueMatchesStandalonePipelineExactlyWhenEnabled() {
     let vMismatches = mismatchCount(fusedValues, referenceValues)
     let vHeadMajorMismatches = mismatchCount(
         fusedValuesAsHeadMajor, referenceValues)
+    let fusedVBits = fusedValues.view(dtype: .uint16).asArray(UInt16.self)
+    let referenceVBits = referenceValues.view(dtype: .uint16).asArray(UInt16.self)
     print(
         "fused_qkv_exactness offset=\(offset) q_mismatches=\(qMismatches) "
             + "k_mismatches=\(kMismatches) v_mismatches=\(vMismatches) "
             + "v_head_major_mismatches=\(vHeadMajorMismatches)"
+    )
+    print(
+        "fused_qkv_v_samples fused=\(Array(fusedVBits.prefix(16))) "
+            + "reference=\(Array(referenceVBits.prefix(16)))"
     )
     #expect(qMismatches == 0)
     #expect(kMismatches == 0)
