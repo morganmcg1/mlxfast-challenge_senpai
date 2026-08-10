@@ -1116,6 +1116,20 @@ kernel-set construction and a distinct `_sgS` pipeline name, so a lazily JIT-com
 library could in principle be paid at a different time, and any such cost would
 show up as a prefill regression even though the prefill dispatch is unchanged.
 
+**That empirical check was never run for this site**, and the report says so
+rather than implying otherwise: the Stage-A stand-down arrived while the decode
+block was still running, and with L3 refuted a prefill control for it has no
+consumer. What closes the residual risk instead is the *routed* prefill block of
+§4b. `DARKBLOOM_ROUTED_GATEUP_SG` is the same code shape in the same file —
+extra selector read, extra kernel-set construction, distinct `_sgS` pipeline
+name, separate JIT'd library — so a per-arm lazy-compilation or pipeline-lookup
+cost would appear there too. It does not: the routed prefill arms are flat
+within noise even for `sg16`, whose decode cost is a measured +63.5 µs/step. The
+JIT/pipeline-name risk is therefore answered by measurement on the sibling
+selector and by structure here, and only the structural half of the argument is
+site-specific.
+
+
 ## 6. Verdict against the graduation gate
 
 The advisor's bar for this round is a paired full-decode gain of at least
@@ -1598,9 +1612,9 @@ SNAP=/tmp/maple-r107a-snap OUT=/tmp/maple-r107a/stage1 REPS=18 STEPS=250 \
 SEL_VAR=DARKBLOOM_QKV_LM_SG SG_LIST='4 8' SNAP=/tmp/maple-r107a-snapq \
   OUT=/tmp/maple-r107a/stageA REPS=16 STEPS=250 \
   bash research/maple-edward-r107a-stage1.sh
-SEL_VAR=DARKBLOOM_QKV_LM_SG SNAP=/tmp/maple-r107a-snapq \
-  OUT=/tmp/maple-r107a/prefillA REPS=6 \
-  bash research/maple-edward-r107a-prefill.sh 0 8
+SEL_VAR=DARKBLOOM_ROUTED_GATEUP_SG SNAP=/tmp/maple-r107a-snapq \
+  OUT=/tmp/maple-r107a/prefillT2c REPS=5 STEPS=64 \
+  bash research/maple-edward-r107a-prefill.sh 0 8 16
 
 # publication
 SITE=routed python3 research/maple-edward-r107a-wandb.py \
@@ -1609,6 +1623,28 @@ SITE=qkv python3 research/maple-edward-r107a-wandb.py \
   /tmp/maple-r107a/stageA /tmp/maple-r107a/stage0q
 ```
 
+The QKV-site prefill probe was never run: the Stage-A stand-down (comment
+`5242424807`) arrived while the decode block was still going, and with L3 dead a
+prefill control for it has no consumer. §5.4 keeps the structural argument for
+that site and marks it unmeasured. The prefill probe that *was* run is the
+routed/T2c one above, reported in §4b.
+
+W&B runs (entity `wandb-applied-ai-team`, project `mlxfast-maple`, group
+`r107a-threadgroup-packing`):
+
+| run | site | contents |
+| --- | --- | --- |
+| [`z22pu8ic`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/z22pu8ic) | routed **T2c** (the assignment) | Stage 0 geometry/parity/fault receipts + the 18-rep x 12-slot Stage-1 dose curve |
+| [`thleeah8`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/thleeah8) | QKV **T0b(a)** (stood down) | Stage-A stage-0 receipts + the K = 12 truncated decode block |
+
+Two reading cautions for `thleeah8`. Its `cycle/*` keys are the analyzer's
+cycle-blocked estimator, which had only **K = 2** complete cycles once the block
+was cut short, so their half-widths are 250-315 µs/step and they are not quoted
+anywhere in this report; the per-repetition drift-cancelled `K = 12` numbers in
+§5.3 are the ones to use. For the same reason the run's `exclusion/*` keys, which
+are built on the cycle estimator, are also not quoted. `z22pu8ic` is unaffected —
+its block ran to completion at 18 repetitions.
+
 On-disk evidence kept under `/tmp/maple-r107a/`: `index.tsv` (slot order and arm
 assignment), one `.steps` file per slot with per-step microseconds, one `.log`
 and `.tokens` per probe, `provenance.txt` (reps, steps, rule-75 digests before
@@ -1616,7 +1652,16 @@ and after), `analysis.txt` / `analysis-multi.json` and the
 `…-drop1cycle/analysis.txt` sensitivity pass. Every number quoted in this
 document is in one of those files; nothing was recomputed by hand.
 
-## 9. Hand-off to fern (#625)
+## 9. Hand-off — what #625 settled, what #657 inherits
+
+This section was written when maple-fern's #625 was still open and this arm was
+feeding it. It landed first: #625 is merged to the advisor branch as `df64d186`
+and refuted L3 at 10 blocks / 42 runs (`d(ln score) = +0.0328 %`, CI95
+[-0.2338, +0.2994]), which is what stood Stage A down. So the hand-off below is
+no longer *to* fern — it is the residue this arm leaves for the next instrument
+on this host, which is maple-nezuko's paired `--local-submit` protocol (#657,
+CI95 half-width ~0.1178 % of `cs` at 10 blocks). §9.1 and §9.2 are unchanged
+receipts; §9.3 is the settled list.
 
 ### 9.1 Rule-75 tree digests
 
@@ -1694,3 +1739,19 @@ M4→M5 core-count halving of `TG/core` is the transfer risk that matters.
   `_nax` prefill kernels the ranked M5 uses. The transferable content is the
   occupancy ledger and the sign discipline, and the M5 remains authoritative for
   any near-tie.
+- **The threadgroup-launch price is now a number, not a hypothesis:**
+  **<= 0.042 ns/TG** at decode-shaped dispatch (§6.0), measured where the model
+  issues the most threadgroups per step (79,872). Price any future
+  packing/merging/launch-amortisation idea against it before building it. It is
+  what makes the L3 prior's mechanism impossible (5.34 ns/TG needed, 127x) and it
+  is one-sided, so it also bounds ideas nobody has measured yet.
+- **QKV-site prefill was never measured** (§5.4, §8). If any future arm turns the
+  QKV lane-major selector back on, that control still has to be run; the routed
+  prefill block of §4b covers the shared JIT/pipeline-name risk but not that
+  site's dispatch.
+- **State of this branch for #657.** Both selectors are unset-inert, so default
+  behaviour and default timing are `4e9a8e16`'s; the submitted surface carries
+  +3,655 B (45 % of the per-review growth cap) in one file at
+  387,900 / 524,288 B. Nothing needs to be reverted before a paired
+  `--local-submit` block runs on this tree, and if the selectors are unwanted
+  they are a single contiguous deletion each.
