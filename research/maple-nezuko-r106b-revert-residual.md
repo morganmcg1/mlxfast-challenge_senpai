@@ -903,9 +903,9 @@ version of the lesson: before proposing a geometry change, grep `research/` for
 the geometry's threadgroup count and for `ceil(` — Rule 60 and the split-K
 staircases both surface immediately.
 
-## G.4 Two measurement notes any successor on this harness should take
+## G.4 Three measurement notes any successor on this harness should take
 
-Neither of these is about the sliding kernel; both cost a round to learn.
+None of these is about the sliding kernel; each cost a round to learn.
 
 1. **Use a Latin square, not a control-first block.** This round's blocks put the
    control at position 1 and permuted the candidates over positions 2-4 (§C.1).
@@ -922,6 +922,18 @@ Neither of these is about the sliding kernel; both cost a round to learn.
    whose threshold was computed on evidence-scale noise can never be cleared by
    triage-scale data. Compute the screen's threshold in the screen's own units,
    or do not screen.
+3. **The 40 °C thermal gate is real, engaged, and bounded — so quote it rather
+   than worrying about it.** `benchmark.sh` refuses to start timing until the GPU
+   reads <= 40 °C. Across all 24 evidence runs the gate fired in **every** run and
+   the observed waits were only 0 s, 10 s or 20 s (never longer), which is the
+   useful part: each run's timing therefore begins from a *thermally normalised*
+   state, and the residual thermal drift the gate cannot absorb is bounded by one
+   10 s polling interval rather than by however hot the previous arm ran. This is
+   why §C.4's position audit found so little drift to correct, and it is a reason
+   to prefer this harness's numbers over a naive back-to-back loop. Anyone
+   reporting a *hot-host* regression on this tree should first check whether the
+   gate was waiting for minutes rather than seconds, because that would indicate a
+   different machine state than the one every number in this report was taken in.
 
 ## G.5 What arm P does *not* close, and the pre-specified campaign that would close it
 
