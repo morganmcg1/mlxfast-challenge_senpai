@@ -2520,17 +2520,13 @@ for (uint i = 0; i < 4; ++i) {
 const device float* angle_row =
     angles + (uint(offsets[0]) + t) * (2 * rotary_pairs);
 if (lane < 16) {
-    const device float4* angle_vectors =
-        reinterpret_cast<const device float4*>(angle_row);
-    float4 cosines = angle_vectors[lane];
-    float4 sines = angle_vectors[lane + rotary_pairs / 4];
     #pragma clang loop unroll(full)
     for (uint i = 0; i < 4; ++i) {
         uint pair = base + i;
         float first = float(normalized[i]);
         float second = paired[i];
-        float cosine = cosines[i];
-        float sine = sines[i];
+        float cosine = angle_row[pair];
+        float sine = angle_row[pair + rotary_pairs];
         output[pair] = bfloat(first * cosine - second * sine);
         output[pair + rotary_pairs] =
             bfloat(first * sine + second * cosine);
@@ -2705,10 +2701,6 @@ for (uint i = 0; i < 4; ++i) {
 const device float* angle_row =
     angles + (uint(offsets[0]) + t) * (2 * rotary_pairs);
 if (lane < 8) {
-    const device float4* angle_vectors =
-        reinterpret_cast<const device float4*>(angle_row);
-    float4 cosines = angle_vectors[lane];
-    float4 sines = angle_vectors[lane + rotary_pairs / 4];
     bfloat rounded_mscale = bfloat(yarn_mscale);
     #pragma clang loop unroll(full)
     for (uint i = 0; i < 4; ++i) {
@@ -2717,8 +2709,8 @@ if (lane < 8) {
             float(bfloat(normalized[i] * rounded_mscale));
         float second =
             float(bfloat(bfloat(paired[i]) * rounded_mscale));
-        float cosine = cosines[i];
-        float sine = sines[i];
+        float cosine = angle_row[pair];
+        float sine = angle_row[pair + rotary_pairs];
         output[pair] = bfloat(first * cosine - second * sine);
         output[pair + rotary_pairs] =
             bfloat(first * sine + second * cosine);
