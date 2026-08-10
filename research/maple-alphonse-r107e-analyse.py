@@ -38,9 +38,37 @@ import sys
 
 ART = pathlib.Path(__file__).resolve().parent / "artifacts" / "maple-alphonse-r107e"
 INSITU = ART / "insitu"
-ARMS = ("g0", "g1", "g2", "g3")
-HALF_SIZE = 4
-BLOCK_SIZE = 8
+# Two palindrome designs share this estimator. `geom4` is the 2x2 factorial of
+# the assignment (g0/g1/g2/g3, 4-run halves); `occ2` is the follow-up two-arm
+# contrast on the occupancy-increasing direction (g0/g4, 2-run halves).
+DESIGNS = {
+    "geom4": {
+        "arms": ("g0", "g1", "g2", "g3"),
+        "half_size": 4,
+        "block_size": 8,
+        "base_arm": "g0",
+        "stats_name": "insitu-stats.json",
+        "contrasts": {
+            "g1_vs_g0": ({"g1": 1.0}, {"g0": 1.0}),
+            "g2_vs_g0": ({"g2": 1.0}, {"g0": 1.0}),
+            "g3_vs_g0": ({"g3": 1.0}, {"g0": 1.0}),
+            "A_amortisation": ({"g1": 0.5, "g2": 0.5}, {"g0": 0.5, "g3": 0.5}),
+            "B_threadgroup_shape": ({"g1": 0.5, "g3": 0.5}, {"g0": 0.5, "g2": 0.5}),
+            "AB_interaction": ({"g0": 0.5, "g1": 0.5}, {"g2": 0.5, "g3": 0.5}),
+        },
+    },
+    "occ2": {
+        "arms": ("g0", "g4"),
+        "half_size": 2,
+        "block_size": 4,
+        "base_arm": "g0",
+        "stats_name": "insitu-stats-occ2.json",
+        "contrasts": {
+            "g4_vs_g0": ({"g4": 1.0}, {"g0": 1.0}),
+        },
+    },
+}
+DESIGN = DESIGNS["geom4"]
 # Rule 105 (advisor, #644 comment 5241615076): the campaign price was fitted on
 # an official M5 decode, so any bar derived from it is in M5 us/step. This host
 # is M4 Pro, so a measured delta must be converted, never compared directly:
@@ -93,19 +121,20 @@ def load_rows(sessions: list[str]) -> list[dict]:
 
 
 def group_halves(rows: list[dict]) -> list[dict]:
-    """Bucket rows into complete halves of four distinct arms."""
+    """Bucket rows into complete halves, one observation per arm."""
+    arms, half_size = DESIGN["arms"], DESIGN["half_size"]
     halves: list[dict] = []
-    for i in range(0, len(rows) - HALF_SIZE + 1, HALF_SIZE):
-        chunk = rows[i:i + HALF_SIZE]
-        if {c["arm"] for c in chunk} != set(ARMS):
-            raise SystemExit(f"half at index {i} is not a permutation of {ARMS}: "
+    for i in range(0, len(rows) - half_size + 1, half_size):
+        chunk = rows[i:i + half_size]
+        if {c["arm"] for c in chunk} != set(arms):
+            raise SystemExit(f"half at index {i} is not a permutation of {arms}: "
                              f"{[c['tag'] for c in chunk]}")
         pos = [c["pos"] for c in chunk]
-        order = "forward" if chunk[0]["arm"] == "g0" else "reverse"
+        order = "forward" if chunk[0]["arm"] == DESIGN["base_arm"] else "reverse"
         halves.append({
             "half": len(halves),
             "session": chunk[0]["session"],
-            "block": (chunk[0]["pos"] - 1) // BLOCK_SIZE,
+            "block": (chunk[0]["pos"] - 1) // DESIGN["block_size"],
             "order": order,
             "positions": pos,
             "arm_pos": {c["arm"]: c["pos"] for c in chunk},
@@ -113,16 +142,6 @@ def group_halves(rows: list[dict]) -> list[dict]:
             "prefill": {c["arm"]: c["prefill"] for c in chunk},
         })
     return halves
-
-
-CONTRASTS = {
-    "g1_vs_g0": ({"g1": 1.0}, {"g0": 1.0}),
-    "g2_vs_g0": ({"g2": 1.0}, {"g0": 1.0}),
-    "g3_vs_g0": ({"g3": 1.0}, {"g0": 1.0}),
-    "A_amortisation": ({"g1": 0.5, "g2": 0.5}, {"g0": 0.5, "g3": 0.5}),
-    "B_threadgroup_shape": ({"g1": 0.5, "g3": 0.5}, {"g0": 0.5, "g2": 0.5}),
-    "AB_interaction": ({"g0": 0.5, "g1": 0.5}, {"g2": 0.5, "g3": 0.5}),
-}
 
 
 def contrast_value(vals: dict[str, float], plus: dict[str, float],
@@ -217,16 +236,18 @@ def sign_p(k: int, n: int) -> float:
 
 
 def analyse(halves: list[dict], axis: str) -> dict[str, object]:
-    base = st.fmean([h[axis]["g0"] for h in halves])
+    ref = DESIGN["base_arm"]
+    base = st.fmean([h[axis][ref] for h in halves])
     out: dict[str, object] = {
         "axis": axis,
         "g0_mean_s": base,
-        "g0_cov_pct": 100.0 * st.stdev([h[axis]["g0"] for h in halves])
+        "g0_cov_pct": 100.0 * st.stdev([h[axis][ref] for h in halves])
         / base if len(halves) > 1 else float("nan"),
-        "arm_means_s": {a: st.fmean([h[axis][a] for h in halves]) for a in ARMS},
+        "arm_means_s": {a: st.fmean([h[axis][a] for h in halves])
+                        for a in DESIGN["arms"]},
         "contrasts": {},
     }
-    for name, (plus, minus) in CONTRASTS.items():
+    for name, (plus, minus) in DESIGN["contrasts"].items():
         half_diffs = [contrast_value(h[axis], plus, minus) for h in halves]
         rec = summarise(half_diffs, base, priced=axis == "decode")
         rec["by_order"] = {
@@ -245,11 +266,24 @@ def analyse(halves: list[dict], axis: str) -> dict[str, object]:
 
 
 def main() -> int:
-    sessions = sys.argv[1:] or ["abba1", "abba2"]
+    global DESIGN
+    argv = sys.argv[1:]
+    if "--design" in argv:
+        i = argv.index("--design")
+        name = argv[i + 1]
+        if name not in DESIGNS:
+            raise SystemExit(f"unknown design {name!r}; have {sorted(DESIGNS)}")
+        DESIGN = DESIGNS[name]
+        argv = argv[:i] + argv[i + 2:]
+    else:
+        name = "geom4"
+    sessions = argv or ["abba1", "abba2"]
     rows = load_rows(sessions)
     halves = group_halves(rows)
     n_fwd = sum(1 for h in halves if h["order"] == "forward")
     ledger = {
+        "design": name,
+        "design_arms": list(DESIGN["arms"]),
         "sessions": sessions,
         "n_runs": len(rows),
         "n_halves": len(halves),
@@ -274,7 +308,7 @@ def main() -> int:
         "decode": analyse(halves, "decode"),
         "prefill_placebo": analyse(halves, "prefill"),
     }
-    out = ART / "insitu-stats.json"
+    out = ART / DESIGN["stats_name"]
     out.write_text(json.dumps(ledger, indent=2, sort_keys=True) + "\n")
 
     for axis in ("decode", "prefill_placebo"):

@@ -11,7 +11,53 @@ Apple GPU generation **16** ⇒ `nax_available = false`, kernel family
 
 ## §0 — Verdict
 
-**PENDING — filled after sessions `abba1` + `abba2` land.**
+**`N-AMORT`, mechanistically explained by `N-ISSUE-BOUND`.** Raising oproj output
+rows per simdgroup does not buy decode time on this kernel family; it costs it,
+and the cost is measured, not inferred.
+
+- **Primary result (§2).** The `results_per_simdgroup` 4→8 main effect is a clean
+  **regression of +110.60 µs/step M4, CI95 [+88.4, +132.8]** — in the bytes
+  regime at α = 0.4369 that is **+0.7358 %`cs`, CI [+0.588, +0.884]** — with the
+  same sign in 4/4 halves and in both schedule orders. Host **M4 Pro**, epoch
+  **2026-08-10**.
+- **Rule 105.7: the interval is the deliverable.** The estimator's half-width is
+  **22.2 µs/step M4**, below both the **60.1 µs/step** solo bar and the
+  **30.6 µs/step** summand bar, so this experiment was powered to see a
+  shippable win and did not. Even the interval's most favourable end (+88.4
+  µs/step) is a loss, so `excludes_summand_sized_gain` is true. **fern (#625) can
+  stop budgeting decode oproj row-amortisation as a source of decode
+  microseconds** — that is the positive contribution here.
+- **Why (§1, §3).** The lever is structurally confounded by construction:
+  `grid_threads = 32 · out_vec / results_per_simdgroup = 65536 /
+  results_per_simdgroup`, with `num_simdgroups` cancelling exactly. Amortisation
+  cannot be bought in this kernel without paying an equal factor of occupancy,
+  and the measurement says occupancy is worth more than the issued traffic it
+  saves. Factor A is therefore identically the inverse-grid-thread axis.
+- **Not `V-TGSHAPE`.** The negative control g3 (same grid threads, twice the
+  threadgroup) is flat: **+31.9 µs/step, CI [−277.5, +341.3]**, and
+  `B_threadgroup_shape` is +39.1 µs/step, CI [−197.5, +275.8]. The effect tracks
+  grid threads, not threadgroup shape; B and AB are unresolved at this n.
+- **`N-ISSUE-BOUND` corroboration (§3).** The Rule-100 issue-slot model puts this
+  family at **27.30 %** (T3b) and **25.28 %** (T3c) of measured issue peak,
+  against the **97.7 %** that tanjiro #642 measured for the genuinely
+  issue-bound fused-attention pool. Scaling the best arm's 16.234 % slot saving
+  by the family's own 26.87 % time-weighted issue utilisation leaves a ceiling of
+  **0.1107 %`cs` = 16.6 µs/step M4** — 3.61× short of the solo bar and 1.84×
+  short of the summand bar. The lever cannot reach the bar even if it were free.
+- **Premise refuted independently (§5).** The residual-scaling test predicts an
+  h48:h64 fixed-overhead ratio of 1.3333 if the residual were per-row issue work;
+  the observed ratio is **0.8242**, `observed_sign = "OPPOSITE"`, and dispersion
+  assigns the residual to the **fixed-per-dispatch** family (0.2133 vs 0.6177),
+  i.e. the closed dispatch-count family of Rules 53/65/68 and #48.
+- **`N-ROOFLINE` does not fire.** The family still holds 0.836–1.1365 %`cs` of
+  roofline headroom (§5), above the 0.4 % bar. The deficit is real; row
+  amortisation is simply not the instrument that collects it.
+- **`N-CORRECT` / `N-BUILD` ruled out.** All four arms build and pass local
+  correctness; 16/16 paired runs and 4/4 screen runs reported
+  `passed_correctness = true`. All arms are bit-exact by construction (each
+  output row is owned by one lane and accumulated in the same order).
+- **Shipped state unchanged.** The instrument is reverted before the final commit
+  (§7) and **no official submission was dispatched from this PR.**
 
 ### Mandatory caveats carried into the verdict
 
@@ -33,6 +79,17 @@ Apple GPU generation **16** ⇒ `nax_available = false`, kernel family
   footprint is bit-identical across all four arms (§3, `weight_code_reread_factor
   = 1.0` in every arm). No figure in this report headlines a cache-resident
   number as a bandwidth saving.
+- **Rules 105.11 / 105.12 (units direction and one-sidedness).** Every §2 number
+  is a **raw local M4** marginal measurement, so it is converted with
+  `× k × 0.015228` and never with the bare price; targets handed down in %`cs`
+  are divided by 0.015228 **and then by `k`** to land on this bench (§1). Because
+  `k < 1` the bare price always over-states, so this arm's regression cannot be
+  an artefact of the units error in the favourable direction — the one-sidedness
+  theorem means error #9 could only have produced false positives, and this
+  result is a negative. R107-E was scoped as a **summand** arm under 105.5: its
+  arms are bit-exact by construction (row ownership, not arithmetic order), it
+  stays in a different family from edward's qkv site, and every interval is
+  published even where it straddles zero.
 
 ---
 
@@ -110,18 +167,194 @@ nothing else.
 `V-AMORT` · `N-AMORT` · `V-TGSHAPE` · `N-ISSUE-BOUND` · `N-ROOFLINE` ·
 `N-CORRECT` · `N-BUILD`. One is selected in §0.
 
-### Shippability bar
+### Shippability bar (rule 105 units contract)
 
-A lever is shippable only at ≥ **0.4 % relative** decode improvement with a CI
-excluding zero. On M5 that is **26 µs/step** against `cs` ≈ 6.5 ms. On this
-host, whose measured g0 decode step is ~13.08 ms, the equivalent absolute bar is
-**52.3 µs/step**.
+A lever is shippable only at ≥ **0.4 % of `cs`** with a CI excluding zero.
+Rule 105 (advisor comment 5241615076, commit `8695fb0e`) fixes how a **local M4**
+delta converts into that currency. The campaign price
+**0.015228 %`cs` per µs/step** was fitted on **official M5 decode**, so it
+consumes *M5* microseconds; a local M4 delta must be mapped through the
+cross-host factor first:
+
+```text
+Δ%cs = Δ_M4[µs/step] × k × 0.015228          k = α (bytes regime) or β (latency)
+```
+
+| regime | k | %`cs` per M4 µs/step | 0.4 % bar, M4 µs/step | 0.2034 % summand bar |
+|---|---:|---:|---:|---:|
+| bytes, α = 0.4369 (primary) | 0.4369 | 0.006653 | **60.1** | **30.6** |
+| bytes, α = 0.389 (§B.0.6 fork) | 0.389 | 0.005924 | **67.5** | 34.3 |
+| latency, β = 0.5 | 0.5 | 0.007614 | 52.5 | 26.7 |
+
+This family is in the **bytes** regime, so the primary solo bar for R107-E is
+**60.1 µs/step M4** (67.5 under the other α), *not* the 52.5 µs/step a β = 0.5
+latency mapping would give — the earlier figure in this file was that superseded
+latency number and is now retired. 60.1 µs/step is **5.4 %** of the oproj
+family's own 1117.7 µs/step M4 cost (§5), which is the honest way to read the
+size of the ask. The bytes label is **provisional pending #648**: if tanjiro's
+dose instrument returns an ISSUE verdict for T3b then no bytes-regime `k` is
+valid for this family at all, and the bar would have to be re-derived. It would
+be circular to defend `k` by citing §B.0.3's regime column, so this report does
+not.
+
+**Rule 105.5 — the summand route.** The 0.4 % bar may also be met by a *sum* of
+independently verified, bit-exact improvements from **different families**, each
+with a CI excluding zero on the same tree. Rule 105.10 (comment 5241791262,
+commit `c5db2915`) de-biases the L3 candidate for selection
+(`12.27 × 0.707 × 0.8463 = 7.34 µs/step = 19.9 %`,
+`research/advisor_r105_selection_bias.py`), leaving L3 at 29.6 µs/step =
+**0.1966 %`cs`**, so a second different-family summand needs only
+**0.2034 %`cs` = 30.6 µs/step M4 = 2.73 %** of T3b's own cost. Three conditions
+bind that route, and all three are recorded here because R107-E is a candidate
+summand: (1) it is conditional on L3 replicating — edward #629 Stage A is the
+test, and #48's M5 receipt `285f79fa` measured a comparable 8× QKV grid collapse
+at **−0.1488 %, a loss**; if L3 is zero the residual snaps straight back to
+60.1 µs/step; (2) rule 105.7 still binds the measurement; (3) the two summands
+must be load-bearing in different families (T3b oproj vs L3's T0b(a) qkv
+qualifies). A sum that lands exactly on 0.400 % carries a 95 % CI of
+**[0.23, 0.57] %** once L3's own σ = 0.0816 %`cs` is propagated, so "0.400 %"
+is not a safe promotion threshold on its own.
+
+**Rule 105.7 — the CI is the deliverable.** The M4 single-receipt detection bar
+is ≈ **80 µs/step**, which is *above* the 60.1 µs/step bar: an unpaired M4
+measurement mathematically cannot establish a win here. Paired ABBA on `nat`
+resolves at σ = 6.25–10.65 µs/step, which can. So the result this experiment
+owes the campaign is an **interval**, not a point estimate; a null is written as
+"CI [−a, +b] with b well under the bar", which is a positive contribution
+because it lets fern stop budgeting this lever.
+
+**Unit-error restatement (advisor, comment 5241615076).** My own #630 §6 said
+"+1.35 µs/token = 2.0 % of the 68.7 µs/step bar". That mixed a local M4
+µs/token delta with an M5-derived bar and used the retired 68.7 figure. Restated
+under this contract: **+1.35 µs/step M4 × 0.4369 × 0.015228 = +0.0090 %`cs`**,
+i.e. **2.2 %** of the 0.4 % solo bar and **4.4 %** of the 0.2034 % summand bar,
+both in the bytes regime at α = 0.4369. No rerun is implied; only the arithmetic
+label changes.
+
+**Rule 105.11 — the dual direction, and this arm's four numbers.** Advisor
+comment 5241939801 (commits `a30fa5f8`, `38c8c64c`) states the inverse of the
+rule I applied above: a target handed down in %`cs` is an *M5* target, so
+expressing it in the M4 units this bench actually measures inflates it by
+`1/k` — divide by 0.015228 **and then by `k`**. The discriminator for any of the
+45 sites in `CURRENT_RESEARCH_STATE.md` where a µs/step and a % stand in the bare
+ratio 0.015228: receipt-derived figures are already M5 (bare price correct),
+§B.0.3-M5-column figures are already α/β-scaled (bare price correct), and **raw
+local M4 figures — every number in §2 of this report — must go through `k`**.
+Restated in this arm's units at `k = α = 0.4369`:
+
+| what | %`cs` (M5-denominated) | M4 µs/step on this bench |
+|---|---:|---:|
+| endgame draw bar | 0.400 % | **60.1** |
+| "does this justify a slot" line | 0.457 % | **68.7** |
+| residual a second summand must cover if L3 replicates at 0.1966 % | 0.2034 % | **30.6** |
+| that residual as a fraction of T3b's own 1117.7 µs/step M4 pool | — | **2.73 %** |
+
+The numeral 68.7 recurs here with a *different* meaning from the retired 68.7 in
+#630 §6; the restatement above deliberately prices through
+`× k × 0.015228` rather than against any 68.7 figure, so the two cannot be
+conflated. `n` for this experiment was therefore sized against the
+**30.6 µs/step M4** summand effect, not against 60.1.
+
+**Rule 105.12 — one-sidedness, and what it demands of this arm.** Because
+`k < 1` always, applying the bare price to an M4 number *over-states*: advisor
+error #9 could only ever have produced false positives, never a false negative,
+so nothing on the closed list needs reopening and this report spends no time
+there. Turned on the live slate the same theorem is uncomfortable: edward's
+de-biased L3 is 29.6/68.7 = 0.43× the slot line, this arm's best case is
+30.6/68.7 = **0.45×**, nezuko's revert residual is 19.0 µs/step M5 / 30.0 =
+0.63× — **no remaining arm can clear the draw bar alone**. Three consequences
+were designed into R107-E before the first paired run:
+
+1. **Bit-exactness is not optional.** A summand needing a margin certificate
+   cannot be added cleanly to another summand, so all four arms change only
+   *which simdgroup owns which output row* — load placement, not arithmetic
+   order. The per-row k-traversal order, the FMA order within a row and the
+   32-lane `simd_sum` are untouched (§4 proves the shipped arm is byte-identical
+   emission, and `logit_delta == 0` was gated on every arm), so no accumulation
+   is reordered and no margin certificate is needed.
+2. **The CI is reported even when it straddles zero** (rule 96.2). §2 publishes
+   every contrast's interval, including the three that do straddle.
+3. **Different family from edward.** This patch touches
+   `lagunaGatedAffineOProjNVFP4Source` and its launcher only; the qkv path
+   (`lagunaDecodeNVFP4QKVLaneMajorSource`) is untouched, so T3b and T0b(a)
+   remain independent and admissible as separate summands (§5 deconfliction
+   table).
+
+Every quantity in this report is tagged **host · epoch · census-or-marginal**
+per rule 105.6 as extended by 105.8/105.11: §2 is *marginal* (paired in-situ M4
+deltas, epoch 2026-08-10), §3/§4 are *census* (static AIR and byte counts, host
+independent), §5 mixes a measured M4 census (bytes/step, achieved GB/s) with
+M5-column-derived pool figures that carry the mandatory provenance label.
 
 ---
 
 ## §2 — Paired in-situ timing
 
-**PENDING — sessions `abba1` + `abba2`.**
+Host **M4 Pro**, epoch **2026-08-10**, one model-holding worker at a time,
+`PRECOOL_SECONDS=120` plus `./benchmark.sh --local-cool-gate-only` before every
+arm. Schedule per session is the 16-run palindrome
+`g0 g1 g2 g3 | g3 g2 g1 g0 | g0 g1 g2 g3 | g3 g2 g1 g0`, i.e. four halves, two
+forward and two reverse, so every contrast is estimated within a half and every
+half is order-balanced against its mirror. 16/16 runs reported
+`passed_correctness = true`.
+
+**Session `abba1`** (n = 4 halves; g0 mean decode step **13.0806 ms**, g0
+coefficient of variation across halves 0.793 %). Both units are given per rule
+105.6; %`cs` uses the bytes regime at α = 0.4369.
+
+| contrast | mean | CI95 | µs/step M4 | CI µs/step M4 | %`cs` | fwd / rev | sign | mde µs/step |
+|---|---:|---|---:|---|---:|---|---|---:|
+| **A_amortisation** | **+0.845 %** | [+0.676, +1.015] | **+110.60** | **[+88.4, +132.8]** | **+0.7358** | +0.923 / +0.767 | 4/4 | **22.2** |
+| g1_vs_g0 | +1.145 % | [−0.649, +2.938] | +149.71 | [−84.9, +384.3] | +0.9961 | +1.195 / +1.094 | 4/4 | 234.6 |
+| g2_vs_g0 | +0.790 % | [−0.471, +2.052] | +103.39 | [−61.6, +268.4] | +0.6879 | +0.131 / +1.450 | 3/4 | 165.0 |
+| g3_vs_g0 | +0.244 % | [−2.122, +2.610] | +31.91 | [−277.5, +341.3] | +0.2123 | −0.521 / +1.009 | 3/4 | 309.4 |
+| B_threadgroup_shape | +0.299 % | [−1.510, +2.108] | +39.12 | [−197.5, +275.8] | +0.2602 | +0.272 / +0.326 | 2/4 | 236.6 |
+| AB_interaction | +0.055 % | [−1.370, +1.480] | +7.20 | [−179.2, +193.6] | +0.0479 | +0.793 / −0.683 | 2/4 | 186.4 |
+
+Positive = slower. The single load-bearing row is **A_amortisation**, the
+`results_per_simdgroup` 4→8 main effect: **+110.60 µs/step M4, CI
+[+88.4, +132.8] (= +0.7358 %`cs`, CI [+0.588, +0.884] at α = 0.4369)**, the same
+sign in all four halves and in both orders. Its half-width is 22.2 µs/step, so
+`resolves_bar` and `resolves_summand` are both true: the instrument was sharp
+enough to see either a 60.1 µs/step solo win or a 30.6 µs/step summand, and it
+saw a regression instead. Per rule 105.7 the deliverable is that interval —
+its most favourable end is **+88.4 µs/step**, i.e. still a loss — so
+`excludes_summand_sized_gain` is true and **fern can stop budgeting the oproj
+row-amortisation lever entirely** (§8).
+
+Why A's interval is ~10× tighter than every other row: the palindrome balances
+factor A exactly (A+ arms sit at schedule positions 2 and 3, A− at 1 and 4 in
+each half, and mirrored in the reverse halves), so A's contrast is free of the
+within-half position gradient. Factor B is off by one position, and the
+single-arm contrasts carry the full gradient, which is why they are wide. This is
+a property of the schedule, not of the effects: B and the interaction are
+genuinely unresolved at this n (mde 237 and 186 µs/step).
+
+**Second, more conservative estimator.** The ledger also reports `block_means`,
+which averages each forward half with its reverse mirror before taking the
+contrast, cancelling any linear drift *between* the two halves of a block as
+well. It costs half the degrees of freedom. On `abba1` it gives the identical
+point estimate for A (**+110.60 µs/step M4**) with CI **[+29.2, +192.0]**,
+half-width 81.4 µs/step, `resolves_bar = false` at n = 2. Both estimators agree
+on sign and magnitude; the half-diff estimator is the powered one, and where the
+two disagree about resolution this report takes the conservative reading.
+
+**Prefill placebo, same runs** (g0 = 1.1484 ms/token, cov 1.288 %). The decode
+oproj call site is gated on `gatePerHead && B == 1 && L == 1`
+(`LagunaRuntimeModel.swift:6355-6362`), so no arm can reach prefill; a prefill
+effect would be instrument error. A_amortisation −1.103 % CI [−2.710, +0.503];
+g1 −0.747 %; g2 −0.108 %; g3 +1.352 %; B +0.357 %; AB −0.996 %. **No placebo
+contrast excludes zero.** The decode-fitted price is deliberately *not* applied
+to this axis (that would repeat the unit error rule 105 names), so the placebo is
+reported in % and µs/token only.
+
+**Transfer to the ranked M5.** The regression is an occupancy effect (§1
+structural confound: `grid_threads = 65536 / results_per_simdgroup`, exactly),
+and the M5 Max has **40** GPU cores against this host's 20. At the A+ grid size
+of 8192 threads the M5 gets 6.4 simdgroups per core where this host gets 12.8, so
+the same change starves the M5 *harder*. The negative therefore transfers, and it
+transfers in the safe direction: there is no plausible M5 reading in which
+halving the grid to double amortisation becomes a win.
 
 ### Stage 1 — unpaired four-arm screen (session `screen1`, confounded)
 
@@ -159,13 +392,18 @@ across sessions; all contrasts are within-session, within-half.
 
 At this noise level a null could be a real null or an underpowered one, so the
 estimator reports its own resolution rather than leaving that to the reader.
-Each contrast carries `mde_pct` — the t-CI half-width, i.e. the smallest effect
-that this many pairs and this much paired noise could have pushed clear of zero
-— plus `resolves_bar` (`mde_pct ≤ 0.4`) and `n_pairs_for_bar`, the number of
-ABBA pairs the observed paired SD would need for a 0.4 % half-width. A verdict
-of `N-AMORT` is only stated as a refutation where `resolves_bar` is true; where
-it is false the honest claim is "no effect of shippable size was resolved at
-`mde_pct`", and `n_pairs_for_bar` says exactly what it would cost to do better.
+Each contrast carries `mde_us_per_step_m4` — the t-CI half-width, i.e. the
+smallest effect that this many pairs and this much paired noise could have pushed
+clear of zero — plus `resolves_bar` (half-width ≤ **60.1 µs/step M4**),
+`resolves_summand` (≤ **30.6**), and `n_pairs_for_bar` / `n_pairs_for_summand`,
+the number of ABBA pairs the observed paired SD would need to reach each
+half-width. A verdict of `N-AMORT` is only stated as a refutation where
+`resolves_bar` is true; where it is false the honest claim is "no effect of
+shippable size was resolved at `mde_us_per_step_m4`", and the `n_pairs_*` fields
+say exactly what it would cost to do better. Following rule 105.7, the estimator
+also reports `excludes_summand_sized_gain` — true when even the interval's most
+favourable end (`−(mean − h)`) is below the 30.6 µs/step summand bar. That flag,
+not the point estimate, is what licenses fern to stop budgeting a family.
 The paired SD is *not* the ~1 % between-session spread above — the palindrome
 cancels session level and linear drift — which is the whole reason the design is
 paired.
@@ -832,5 +1070,61 @@ Also carried out as instructed:
 - **G3 stays the whole experiment.** If G1 and G3 move together, §0 names
   `V-TGSHAPE`, the amortisation mechanism is reported dead, and the shape lever
   is priced instead.
+
+### Rule 105 and 105.7 — the host-units correction (comments 5241615076, 5241657928)
+
+- **Correction accepted in full and applied everywhere.** §1's
+  "Shippability bar" subsection is now a units contract:
+  `Δ%cs = Δ_M4 × k × 0.015228`, with the three-row `k` table, the bytes-regime
+  primary bar **60.1 µs/step M4** (67.5 at α = 0.389), the retired β = 0.5 value
+  52.5 marked superseded, and the 5.4 %-of-family framing. No local number in
+  this report is compared against a bar in M5 units any more; the analysis script
+  itself was refactored so that the conversion cannot be skipped
+  (`research/maple-alphonse-r107e-analyse.py`, constants `K`, `K_PRIMARY`,
+  `BAR_US_M4`, `SUMMAND_US_M4`, and a `priced_fields` block that is `None` on the
+  prefill axis so a decode-fitted price can never price prefill).
+- **My #630 §6 unit error is restated, not rerun**, at the end of §1: the
+  +1.35 µs/token M4 upper bound prices to **+0.0090 %`cs`** = 2.2 % of the solo
+  bar and 4.4 % of the summand bar. The conclusion of #630 does not move.
+- **Bytes label carried as provisional pending #648**, and §1 states explicitly
+  that defending `k` from §B.0.3's regime column would be circular, so it does
+  not.
+- **Rule 105.7 is why this arm has no unpaired headline.** Every number in §0
+  and §2's headline table comes from the paired palindrome; the unpaired
+  four-arm screen is kept only as a build/correctness gate and is labelled
+  confounded (§2, "Stage 1"). §2 also reports each contrast's minimum detectable
+  effect against both the 60.1 and the 30.6 µs/step thresholds, so the interval
+  — not the point estimate — is the deliverable, and the null is written in the
+  "b well under the bar" form you asked for so fern can stop budgeting oproj.
+
+### Rules 105.10, 105.11, 105.12 — summand sizing (comments 5241791262, 5241939801)
+
+- **Target restated at 30.6 µs/step M4 and `n` sized for it.** §1 records the L3
+  de-bias arithmetic (`12.27 × 0.707 × 0.8463 = 7.34 µs/step = 19.9 %`), the
+  de-biased L3 at 0.1966 %`cs`, the resulting **0.2034 % = 30.6 µs/step M4 =
+  2.73 %** of T3b's own pool, all three conditions (L3 must replicate — with
+  #48's `285f79fa` −0.1488 % counter-example noted; 105.7 still binds; different
+  family load-bearing), and the **[0.23, 0.57] %** interval on a sum that lands
+  on 0.400 %.
+- **105.11's dual is applied.** §1 has the two-direction discriminator
+  (receipt-derived and §B.0.3-M5-column figures take the bare price; raw local M4
+  goes through `k`) and the four-row table in my units, including the 68.7 µs/step
+  slot line. I also flag that the numeral 68.7 collides with the retired M5-units
+  figure from #630 §6 and price through `× k × 0.015228` instead, so the two
+  cannot be conflated.
+- **105.12's three consequences were already design constraints, and are now
+  stated as such.** (1) Bit-exactness by construction: the arms move row
+  *ownership*, not arithmetic order, so no accumulation is reordered and no
+  margin certificate is needed — if any future variant of this lever does
+  reorder accumulation I will say so in the same breath as the number. (2) Every
+  CI is published, including the three contrasts whose intervals straddle zero.
+  (3) The patch is confined to `lagunaGatedAffineOProjNVFP4Source` and its
+  launcher; the qkv path is untouched, so T3b and edward's T0b(a) remain
+  admissible as independent summands.
+- **One-sidedness noted and acted on**: because `k < 1`, error #9 could only
+  create false positives, so no closed-list arm was reopened and no time was
+  spent there.
+- **Every quantity now carries host · epoch · census-or-marginal**, with the
+  §1 paragraph stating which sections are census and which are marginal.
 
 **Verdict: PENDING — mirrors §0.**

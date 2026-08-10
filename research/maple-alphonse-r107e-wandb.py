@@ -8,6 +8,7 @@ speedup claim. The only speed claims are the paired in-situ decode contrasts.
 """
 
 import json
+import os
 import subprocess
 
 import wandb
@@ -487,9 +488,46 @@ for name, f in ceil["families"].items():
                         a["ceiling_pct_of_cs"], f["pct_of_measured_issue_peak"])
 run.log({"issue_slot_ceiling": ceil_t})
 
+ledger_files = ["insitu-stats.json", "geom-traffic-model.json", "geom-air-ledger.json",
+                "geom-air-loads.json"]
+
+# Follow-up `occ2` session, if it ran. Factor A turned out to be exactly the
+# inverse grid-thread count, so g4 halves results_per_simdgroup rather than
+# doubling it: same axis, opposite direction, grid threads up instead of down.
+occ2_path = f"{ART}/insitu-stats-occ2.json"
+if os.path.exists(occ2_path):
+    occ2 = json.load(open(occ2_path))
+    o4 = occ2["decode"]["contrasts"]["g4_vs_g0"]
+    o4p = occ2["prefill_placebo"]["contrasts"]["g4_vs_g0"]
+    occ_t = wandb.Table(columns=["axis", "n_pairs", "mean_us_per_token_m4",
+                                 "ci95_lo_us_per_token_m4", "ci95_hi_us_per_token_m4",
+                                 "mean_pct", "excludes_zero", "sign_pos", "sign_neg",
+                                 "mde_us_per_token_m4", "mean_pct_cs", "wins"])
+    occ_t.add_data("decode", o4["n"], o4["mean_us_per_token_m4"],
+                   o4["ci95_us_per_token_m4"][0], o4["ci95_us_per_token_m4"][1],
+                   o4["mean_pct"], int(o4["excludes_zero"]), o4["sign_pos"],
+                   o4["sign_neg"], o4["mde_us_per_token_m4"],
+                   o4["mean_pct_cs"][K_PRIMARY], int(wins(o4)))
+    occ_t.add_data("prefill_placebo", o4p["n"], o4p["mean_us_per_token_m4"],
+                   o4p["ci95_us_per_token_m4"][0], o4p["ci95_us_per_token_m4"][1],
+                   o4p["mean_pct"], int(o4p["excludes_zero"]), o4p["sign_pos"],
+                   o4p["sign_neg"], o4p["mde_us_per_token_m4"], None, None)
+    run.log({"occ2_g4_vs_g0": occ_t})
+    run.summary.update({
+        "occ2/n_pairs": o4["n"],
+        "occ2/decode_effect_us_per_step_m4": o4["mean_us_per_token_m4"],
+        "occ2/decode_ci95_lo_us_per_step_m4": o4["ci95_us_per_token_m4"][0],
+        "occ2/decode_ci95_hi_us_per_step_m4": o4["ci95_us_per_token_m4"][1],
+        "occ2/decode_effect_pct_cs": o4["mean_pct_cs"][K_PRIMARY],
+        "occ2/decode_excludes_zero": int(o4["excludes_zero"]),
+        "occ2/banks_as_summand": int(o4["banks_as_summand"]),
+        "occ2/wins_solo_bar": int(wins(o4)),
+        "occ2/placebo_prefill_effect_us_per_token_m4": o4p["mean_us_per_token_m4"],
+    })
+    ledger_files.append("insitu-stats-occ2.json")
+
 artifact = wandb.Artifact("maple-alphonse-r107e-ledger", type="analysis")
-for name in ("insitu-stats.json", "geom-traffic-model.json", "geom-air-ledger.json",
-             "geom-air-loads.json"):
+for name in ledger_files:
     artifact.add_file(f"{ART}/{name}")
 artifact.add_dir(f"{ART}/insitu", name="insitu")
 artifact.add_file(f"{REPO}/research/maple-alphonse-r107e-decode-oproj-amortisation.md")
