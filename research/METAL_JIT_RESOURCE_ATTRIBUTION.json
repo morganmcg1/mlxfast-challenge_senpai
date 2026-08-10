@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "assignment_pr": 647,
+  "timestamp_utc": "2026-08-10T14:03:51Z",
+  "status": "gate0_no_go",
+  "hypothesis": "Release Metal artifacts or supported counters expose a stable resource-level metric that can prefilter compiler-realized vector-load candidates.",
+  "conclusion": "No usable candidate-sensitive register, occupancy, spill-volume, or memory-transaction metric was available for non-spilling kernels; later gates were not run.",
+  "required_base_sha": "fa463e5a0600e9248ace9668773e11e09061914d",
+  "measurement_start_sha": "2981a14ef6b00b238f6edea7c26294ae6bfec496",
+  "production_changes": [],
+  "host": {
+    "soc": "Apple M4 Pro",
+    "memory_gb": 48,
+    "macos": "26.5.2 (25F84)",
+    "xcode": "26.6 (17F113)",
+    "sdk": "macOS 26.5",
+    "swift": "6.3.3",
+    "metal": "32023.883",
+    "metal_mobile_asset": "17.6.109.0"
+  },
+  "decision_rule": {
+    "allowed_metrics": ["registers", "spilled_bytes", "occupancy", "load_store_transactions"],
+    "max_repeat_spread_percent": 1.0,
+    "max_overhead_percent": 1.0,
+    "must_classify_controls": [637, 643],
+    "excluded_proxies": ["AIR_syntax", "metallib_size", "native_text_size", "thread_execution_width", "max_threads"]
+  },
+  "capabilities": [
+    {"path": "metal+metallib", "rc": 0, "exposed": "AIR IR and deterministic container", "usable": false},
+    {"path": "metal-objdump --disassemble", "rc": 0, "exposed": "AIR LLVM IR, not native ISA/resources", "usable": false},
+    {"path": "metal-objdump --build-table=all", "rc": 0, "exposed": "unsupported-file diagnostic", "usable": false},
+    {"path": "g16g", "rc": 72, "exposed": "tool unavailable", "usable": false},
+    {"path": "pipeline_reflection", "rc": 0, "exposed": "width,max_threads,static_tgmem,bindings", "usable": false},
+    {"path": "MTLCounterSampleBuffer", "rc": 0, "exposed": "GPUTimestamp only; dispatch sampling unsupported", "usable": false},
+    {"path": "Metal GPU Counters xctrace", "rc": 0, "exposed": "unsupported counter profile; zero rows", "usable": false},
+    {"path": "Metal System Trace spill events", "rc": 0, "exposed": "spilled-bytes schema; zero rows for both kernels", "usable": false},
+    {"path": "Metal System Trace shader list", "rc": 0, "exposed": "native PC spans 110 and 100 bytes", "usable": false}
+  ],
+  "pipeline_probe": {
+    "job_id": "f11b3089-8d06-4ece-b9d7-97f6c4e950e0",
+    "rc": 0,
+    "wall_seconds": 0.374,
+    "scalar": {"width": 32, "max_threads": 1024, "static_tgmem": 0, "bindings": 2},
+    "vector": {"width": 32, "max_threads": 1024, "static_tgmem": 0, "bindings": 2},
+    "counter_sets": [{"name": "timestamp", "sample_count": 4, "counters": ["GPUTimestamp"]}]
+  },
+  "compile_repeats": [
+    {"repeat": 1, "compile_rc": 0, "link_rc": 0},
+    {"repeat": 2, "compile_rc": 0, "link_rc": 0},
+    {"repeat": 3, "compile_rc": 0, "link_rc": 0},
+    {"repeat": 4, "compile_rc": 0, "link_rc": 0},
+    {"repeat": 5, "compile_rc": 0, "link_rc": 0}
+  ],
+  "artifacts": {
+    "air": {"bytes": 4240, "sha256": "01e9ce458f447b9c100711252c151e406418d6b95e9fb4e7658d67bd63b99ab3", "spread_percent": 0.0},
+    "metallib": {"bytes": 7788, "sha256": "4364bab9e1bd6994bcaffc2d615be0ebbf0229c5f75356771d93a98ed51f2c22", "spread_percent": 0.0}
+  },
+  "traces": [
+    {"template": "Metal GPU Counters", "job_id": "bf354009-90b4-48c0-a892-959580e65576", "rc": 0, "wall_seconds": 10.935, "warning": "Selected counter profile is not supported on target device", "counter_info_rows": 0, "counter_value_rows": 0},
+    {"template": "Metal System Trace", "job_id": "a51b1547-a7e5-4cde-a101-6b05e0519ddf", "rc": 0, "wall_seconds": 6.771, "spill_rows": 0, "compiler_activity_rows": 0, "shader_rows": 2, "counter_name": "RT Unit Active"}
+  ],
+  "export_hashes": [
+    {"name": "system-graphics-compiler-spill-events.xml", "rows": 0, "sha256": "d990503e165c1c840466f945f3aef7884ad8ed171f9fd97dbd069b0ac7d827bc"},
+    {"name": "system-graphics-compiler-activity-intervals.xml", "rows": 0, "sha256": "680d6f3f164d5577a12f9ae620a515b99826c272c6dae282223c5295cfa32c4b"},
+    {"name": "system-metal-shader-profiler-shader-list.xml", "rows": 2, "sha256": "94b3bcb8eff5691a70bc984c881c25cef7bc7bdc559e0d69fa0d09463872a898"},
+    {"name": "export-gpu-counter-info.xml", "rows": 0, "sha256": "21d4602564c9f6c99b44441795e2aa4a67e7adf603378ab2d1b5f44a6768cc6c"},
+    {"name": "export-gpu-counter-value.xml", "rows": 0, "sha256": "68b62a3c4315f71a6179a8852a1d3a9aa40672cf3066fc98875e700e9e2f689a"}
+  ],
+  "controls": [
+    {"pr": 637, "head_sha": "77b0c8cada8fd05519d006a7a91569076e4a9d97", "compiler_realized": true, "prior_speedup": 0.999451845, "prior_ci_savings_ns": [-3812.5, -1062.0], "direct_metric": null, "classified": false, "rerun": false},
+    {"pr": 643, "head_sha": "c79fe498b2ddf8a3321927a317bf2888bda5d741", "compiler_realized": true, "prior_abba_savings_us": 19.820, "prior_abba_ci_us": [-5.884, 45.524], "prior_baab_savings_us": -4.931, "prior_baab_speedup": 0.996736, "prior_baab_ci_us": [-10.807, 0.945], "direct_metric": null, "classified": false, "rerun": false}
+  ],
+  "perturbation_percent": null,
+  "perturbation_reason": "No usable resource instrumentation survived Gate 0; trace launch wall times are not comparable timed-kernel samples.",
+  "later_gates_run": false,
+  "official_submission": false,
+  "wandb": null
+}
