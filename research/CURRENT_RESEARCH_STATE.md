@@ -7166,6 +7166,561 @@ Do this for every field before it becomes load-bearing.
 
 
 
+#### 105.16 ⭐⭐ **N-BYTES-EVERYWHERE** — the decode GEMV pool has no instruction lever, and the byte axis has a price nobody can pay
+
+Source: tanjiro R107-G, PR #648, merged as `705484b9`,
+`research/maple-tanjiro-r107g-decode-family-regime-census.md` (1,245 lines,
+W&B `jhuxsg3h`). Family D probed directly (dose ladder, two residency-defeated
+sessions); A, B, C, E inferred from the same geometry.
+
+Decode families **A** (T3b oproj h64), **B** (T2d down+residual), **C** (T0b(a)
+qkv h64) and **D** (T2c routed gate+up) all sit at **85–91 % of their measured
+DRAM ceiling**. Exposed ALU in family D is **1.10 % of the dispatch**. There is
+**no ISSUE lever anywhere in the decode GEMV pool.**
+
+| family | non-byte slack, in 0.4 %-bars, at β |
+|---|---|
+| D (T2c routed gate+up) | 0.71 |
+| A (T3b oproj h64) | 0.45 |
+| C (T0b(a) qkv h64) | 0.03 |
+| B (T2d down+residual) | ≤ 0 |
+| **E (T2b gate_sp h64)** | **1.89 — and it is LATENCY, not bytes** |
+
+All STOP verdicts are **invariant to 105.13** (i.e. they hold at every k in
+[α, 1.89]).
+
+**The byte axis prices at 15.10 MiB/step per 0.4 %** — 4.5–7.7 % of each
+family's own traffic. Nobody has ever found a reduction of that size at fixed
+arithmetic, and rule 105.16's own census says the traffic is unique bytes, not
+re-reads.
+
+**Two arms died on this table.** Edward's T2c packing: the 0.4 % bar needs
+**466 instructions/thread against a base load of 128 = 3.6× the entire
+arithmetic content of the kernel**. Alphonse's oproj amortisation: the entire
+non-byte budget is 0.79 µs/dispatch = 23.8 M4 µs/step = **0.159 % of `cs` =
+0.40 bars**, which agrees with frieren's independent T2d refutation (#597 §5.4:
+86.6 % unique-byte DRAM floor, ≤2.5 % available to amortisation, eleven arms of
+efficiency work at fixed unique bytes paid zero-or-negative).
+
+**Corollary — the campaign's only remaining lever is dispatch structure.** See
+105.17.
+
+**Pool split (M4 µs/step, decode):** BYTES 6302.5 (74.6 %), LATENCY 928.1
+(11.0 %), ISSUE 848.6 (10.0 %), residue 368.8 (4.4 %).
+
+
+#### 105.17 ⭐⭐⭐ The **per-layer kernel merge** — the last lever, priced three ways, and its three unverified assumptions
+
+Two students reached this independently: frieren #597 §11.4 (from the T2d
+roofline) and tanjiro #648 §3.6/§5 (from the regime census).
+
+**Price of removing one per-layer dispatch across 39 layers**, on rule 65's M5
+added-dispatch price of 2.3403 µs [2.2766, 2.4040]:
+
+| k | M5 µs/step for 39 dispatches | % of `cs` |
+|---|---|---|
+| 1.000 (floor — pretend there is no third regime) | 48.29 | **+0.735 %** |
+| 1.395 (midpoint) | 67.36 | **+1.026 %** |
+| 1.890 (rule 105.13's k_dispatch) | 91.27 | **+1.390 %** |
+
+🚨 **Even the k = 1 floor is 1.8× the 0.4 % draw bar.** Quote the floor as the
+headline; the campaign does not need the optimistic end.
+
+🚨 **Rule 65's 2.3403 µs is ALREADY M5.** Tanjiro applied β to it and produced
+0.535 % where the answer is 1.069 %; he caught and corrected it himself. Know
+the basis of every constant before multiplying.
+
+**Per-family merge table** (dispatch-elimination component only):
+
+| family | dispatches removed | gain at k = 1.89 |
+|---|---|---|
+| D (T2c routed gate+up) | 39 | 1.390 % |
+| B (T2d down+residual) | 39 | 1.390 % |
+| A (T3b oproj h64) | 30 | 1.069 % |
+| C (T0b(a) qkv h64) | 30 | 1.069 % |
+| **E (T2b gate_sp h64)** | **30** | **1.069 %** |
+
+**Family E is the preferred target and the reason is regime, not count.** E is
+the only LATENCY-regime family: **88 % of its 8.27 µs dispatch is neither bytes
+(0.98 µs) nor issue (0.04 µs)**. Full fusion is worth **2.451 % of `cs` =
+6.13 bars**. It is also the *cheapest* merge to attempt because there is
+nothing to stream — merging two byte-bound kernels leaves the merged kernel
+carrying both kernels' unique bytes, and frieren's §5.4 corollary (1) says
+issued-byte reduction at unchanged unique bytes buys nothing at batch 1 and can
+cost.
+
+**Frieren's full-merge estimate**, including the barrier-drain component
+(3.081 µs/call, converting at k ∈ [α, β] = 0.799–0.915 %): **one merge total
++2.19–2.31 %**.
+
+**Three assumptions, all unverified, all named by their authors:**
+
+1. **Removal symmetry.** Rule 65 measured the price of an *added* dispatch.
+   Every merge estimate multiplies it by a count of dispatches *removed*.
+   Nobody has measured a removal. (Assigned: alphonse #644, R108-P.)
+2. **Drain generality.** The 3.081 µs/call drain was measured at **one**
+   boundary.
+3. **Barrier re-import.** If the producer→consumer dependency is grid-wide, the
+   merged kernel must re-import a device-wide barrier, giving back the drain and
+   leaving only the dispatch-elimination component. (Assigned: tanjiro #663,
+   the adjacent-pair ledger — TG-LOCAL vs GRID-WIDE per pair.)
+
+🚨 **The #48 trap.** PR #48 reduced dispatch count and scored **−0.1488 %**. A
+dispatch-count reduction that re-materialises the same work with worse locality
+*loses*. A merge only pays if the consumer reads the producer's output from
+registers or threadgroup memory. If the intermediate still round-trips through
+device memory, it is a #48 repeat. Rule 92 is the companion bound: 1.3003
+µs/step caps "same dispatch set, encoded better", so the drain requires a
+**source-level dispatch-set change**, not an encoding change — frieren
+re-confirmed this when `.concurrent`+barrier came out *worse* than serial
+(23.324 vs 22.611 µs/call).
+
+
+#### 105.18 ⭐⭐ Two independent corroborations of the third regime, and the resulting bound on `k_issue`
+
+105.13 established `k_dispatch ≈ 1.890` from the added-dispatch ladder. Two
+further routes now agree that the third regime is real and materially above 1.
+
+**(a) Tanjiro's ledger closure (#648 §3.6).** Closing the decode regime ledger
+with `k_issue = α` yields **`k_residue = 1.4998`, CI [1.4732, 1.5275]** — a
+different construction, same conclusion.
+
+**(b) The fiction-corrected census residue (advisor).** Rule 58's decode
+`T_M5` is 4141.5 µs/step. §B.0.3's M5 column *as printed* sums to 3650.9.
+Rule 100 established that rows 5 and 13 are **measured fiction** worth 291.2.
+So:
+
+| quantity | M5 µs/step |
+|---|---|
+| rule 58 `T_M5` (decode, ex-prefill) | 4141.5 |
+| §B.0.3 M5 column as printed | 3650.9 |
+| less rule-100 fiction (rows 5, 13) | −291.2 |
+| real kernel time | 3359.7 |
+| **residue available for dispatch glue** | **781.8** |
+| 319 dispatches × rule 65's 2.3403 µs | **746.6** |
+| slack | **+35.2** |
+
+The full rule-65 dispatch price **fits the fiction-corrected residue and does
+not fit the raw residue (490.6)**. Two corrections that were derived
+independently — rule 100's fiction and rule 65's dispatch price — reconcile to
+within 4.5 %. That is not a fit; it is a prediction that landed.
+
+**(c) The bound on `k_issue`.** Inverting tanjiro's closure over
+`k_residue ∈ [1.0, 1.890]` gives
+
+> 🚨 **`k_issue ∈ [0.267, 0.654]`.**
+
+**Never price an attention-side M4 saving above 0.654×. GEMV-side M4 savings
+must not be priced above ≈0.47×.** This is why the T3a instruction axis needs
+15 % of its issue removed at the optimistic end and 24 % at the conservative
+end to clear the 0.4 % bar.
+
+
+#### 105.19 🚨 **N-DEGENERATE** — α is not identified by our data; the defensible statement is α < 0.4454
+
+Tanjiro #648. The `routed` pool's numbers demand an M5 streaming ceiling of
+**597.1 GB/s**; the `qkvo` pool's demand **677.1 GB/s**. Those are **13 %
+apart** and cannot both be right, so the campaign's α = 0.4369 is *not*
+identified — it is merely consistent. The α-free bound that survives is
+
+> **α < 0.4454.**
+
+α = 0.4369 sits just under it, which is mildly reassuring and nothing more.
+Every byte-regime price in the campaign rides on α, including 105.16's
+15.10 MiB/step-per-0.4 % and 105.17's drain conversion.
+
+**The resolving experiment is free**: `research/fern_r101_bw_probe.swift` on the
+official M5, ~7 s, zero receipts. Assigned to fern, #664. Direction of the error
+matters: if the true ceiling is *higher* than assumed, the byte-regime STOP
+verdicts were **too permissive** and a closed family may deserve re-opening; if
+lower, they were conservative and everything stays closed.
+
+
+#### 105.20 ⭐⭐⭐ The family-E merge is already half-built in the tree, its refusal is a *quantisation-format accident*, and it may be worth 1.7 %, not 1.07 %
+
+Advisor source read of `Sources/MLXFastModel/LagunaRuntimeModel.swift` at
+`705484b9` / `1eda2174` (compiled paths identical). Unverified by a student at
+time of writing; relayed to frieren (#660, `5242802672`) and tanjiro (#663,
+`5242807697`) with an explicit instruction to re-verify. Recorded here because
+it is the campaign's only remaining path to the 1.6359 % record gap.
+
+##### (a) `laguna_gate_sp` has dependency scope **NONE** on the QKV projection
+
+`lagunaGateSoftplusSource` (`:4467`) and `lagunaDecodeNVFP4QKVLaneMajorSource`
+(`:4922`) read the **same** `normalized` `[1,1,2048]` bf16 binding — confirmed
+at the call site, `:5953` passes it to `lagunaDecodeNVFP4QKVR1` and `:5993`
+passes it to `lagunaGateSoftplus`. Each writes a disjoint output against its own
+bank. This is not producer→consumer; it is two independent row-blocks of the
+same GEMV. **`dep_scope = NONE`** — a category strictly better than TG-LOCAL:
+no intermediate to stage, no barrier to re-import, `intermediate_bytes = 0`. Of
+105.17's three unverified assumptions only **removal symmetry** applies.
+
+##### (b) The fold already exists and is refused for a *format* reason
+
+`:5711`: `let foldGateIntoBank = gate != nil && q.groupSize == 32 && q.bits == 8
+&& q.mode == .affine`. When true the gate rows are `concatenated` onto the Q/K/V
+codes, `_nativeAffineQKVGateRows = nHeads`, and `:5979` slices
+`gateLogits = qkv[.ellipsis, gateStart ..< (gateStart + nHeads)]` — **zero extra
+dispatches, live today for affine-8/group-32**. Our decode path runs Q as
+nvfp4/4-bit/group-16 (the *faster* path), the fold is refused, and we fall back
+to a standalone `laguna_gate_sp` per layer. **We pay 30 dispatches/step for a
+merge the tree already knows how to do in a different numeric format.**
+
+⚠️ **Generalisation worth more than the instance:** a merge can be stranded by a
+quantisation-format predicate rather than by dependency structure. Grep for
+`groupSize ==`, `bits ==`, `mode == .affine`, `fold…Into…`, `_native…Rows` and
+ask whether any *other* decode segment is stranded the same way. Assigned to
+tanjiro, #663.
+
+##### (c) Multi-output + early-tile `return` on a QKV kernel is precedented
+
+`lagunaFusedQKVProjectionSource` / `laguna_fused_norm_qkv_projection_bf16_h*_v3`
+(`:3526`) declares `outputNames: ["queries","keys","values","gate_values"]` and
+has an early-tile branch doing the gate GEMV + simd reduction + softplus +
+`return`, with the `max/min/log1p(exp(lo-hi))` formulation character-identical
+to `lagunaGateSoftplusSource`. The nvfp4 path is missing the feature the bf16
+path already has.
+
+##### (d) Geometry — the merge is a 0.16 % grid growth with no intra-TG divergence
+
+| | QKV lane-major (`:5045`) | gate_sp (`:4545`) |
+|---|---|---|
+| grid | `((rows/2)*64, 1, 1)` | `((heads/8)*64, 1, 1)` |
+| threadGroup | `(64,1,1)` = 2 simdgroups | `(64,1,1)`, NS=2, R=4 |
+| rows/TG | 2 (1 per simdgroup) | 8 |
+| h64 | rows = (64+16)·128 = 10240 ⇒ **5120 TGs** | **8 TGs** (512 threads) |
+| h48 | rows = 8192 ⇒ **4096 TGs** | **6 TGs** |
+
+`rows` is always even and `heads ∈ {48,64}` is divisible by 8, so appending the
+gate tiles to the QKV grid splits **exactly at threadgroup boundaries**: every
+threadgroup is wholly QKV or wholly gate, and the early-`return` branch costs
+nothing in divergence. **8 threadgroups appended to 5120 = 0.16 % grid growth.**
+
+##### (e) The landing site is a dead hook, already wired — and it has two landmines
+
+`:5946` `let fusedTailGateLogits: MLXArray? = nil`, consumed at `:5975`
+`if let fusedTailGateLogits { gateLogits = fusedTailGateLogits }`.
+`git log -S fusedTailGateLogits` shows it arrived already stubbed in `99b974c1`
+("Sync promoted frontier afcb832") — **no prior attempt in our history; the stub
+is not a tombstone.**
+
+1. 🚨 The `if let fusedTailGateLogits` branch **does not set
+   `gateProjectionActivated = true`**, but the `lagunaGateSoftplus` branch
+   (`:5996`) does. That flag selects `lagunaActivatedOProjLaneMajorKernels`
+   (pre-activated gate) versus the plain gated o-proj. Routing through the hook
+   without setting it applies softplus twice or not at all — a silent numeric
+   change.
+2. 🚨 The `gateProjectionActivated = true` path is guarded by
+   `lagunaFusedGatedAffineOProjEnabled && lagunaGatedAffineOProjNVFP4Enabled &&
+   lagunaUseNativeAffineOProj(layer:) && affineWO.mode == .nvfp4 && bits == 4 &&
+   groupSize == 16`. A merged path must reproduce that **entire** guard set or
+   it flips which o-proj kernel runs on some layer — a different arithmetic
+   path, not a merge.
+
+##### (f) 105.15 class: **IDENTICAL**, if the body is copied character-for-character
+
+Preserve `float l = float(bfloat(r[row]))` (the bfloat round-trip), the `isnan`
+branch, `hi = max(l,0)`, `lo = min(l,0)`,
+`(isinf(lo)||isinf(hi)) ? hi : hi + log1p(exp(lo-hi))`, and the `simd_sum`
+reduction order. Then the source-level argument under rule 102 as amended is
+available and **no margin certificate is needed** — 25–35 minutes of wall clock
+saved at the freeze. Change one operand order and the certificate is owed.
+
+##### (g) 🚨 Three price routes that disagree by 2.5× — the open question
+
+| route | construction | value |
+|---|---|---|
+| **A — dispatch count** | 30 × rule 65's 2.3403 M5 µs (already M5) = 70.2 M5 µs/step | **1.069 %** |
+| **B — family-cost recovery** | §B.0.3 T2b = 124.0 M5 µs/step, less the gate bank's irreducible ≈7.3 M5 µs/step of DRAM | **1.69–1.78 %** |
+| **C — 105.16 measured slack** | family E non-byte slack = 1.89 bars | **0.756 %** |
+
+Route B in full, because it is new and because it reveals something about the
+whole census:
+
+- The byte price 15.10 MiB/step per 0.4 % ⇒ **0.5748 MiB per M5 µs/step ⇒
+  ≈603 GB/s effective**, which independently reproduces 105.19's measured
+  597.1 GB/s routed-pool demand. **The byte model is self-consistent.**
+- Gate bank traffic: 64 × 2048 × 1 B codes + 64 × 64 × 2 B × 2 (bf16 scales and
+  biases) ≈ **0.14 MiB per layer-step**, × 30 = **4.2 MiB/step** =
+  **7.3 M5 µs/step**.
+- Family E costs **124.0 M5 µs/step**. ⇒ **gate_sp runs at ~6 % of the DRAM
+  ceiling** — the one family in the census nowhere near its byte wall, which is
+  exactly why 105.16's N-BYTES-EVERYWHERE verdict does not close it.
+- Tanjiro's dose data agrees from the other side: E's 8.27 M4 µs/dispatch =
+  0.98 bytes + 0.04 issue + **88 % other**.
+- 124.0/30 = **4.13 M5 µs per dispatch**, bracketed by rule 65's 2.3403 M5
+  added-dispatch price and frieren's §11.3 empty-kernel floor of 6.30–6.61 M4
+  (≈3.1–3.3 M5 at β). **Family E essentially *is* its dispatch overhead.**
+- Cross-check: frieren's §11.4 drain term scaled 39 → 30 dispatches is
+  0.61–0.70 %, and A + drain = **1.68–1.77 % = route B**. Two independent
+  constructions agree at ≈1.7 %.
+
+**Route C is the outlier and must be reconciled** (assigned to tanjiro, #663).
+The candidate explanation is a conversion factor: E's non-byte time is
+(8.27 − 0.98 − 0.04) × 30 = **217.5 M4 µs/step**, which is 4.14 bars at β = 0.5
+and 2.21 bars at `k_issue` = 0.267; 1.89 bars implies k ≈ 0.23 for a family
+classified **LATENCY**. If that is the error, C collapses into B.
+
+**Reporting discipline until it is reconciled:** headline **0.756 %**, quote
+**1.069 %** as the dispatch-count central, and state **1.7–1.8 %** as the
+recovery ceiling with its byte floor. At 1.7 % this single merge is within one
+further lever of the record gap; at 0.756 % no draw should be planned around it.
+
+##### (h) The one risk not resolvable from source
+
+The Metal compiler allocates the **union** of the two branches' register
+maxima. QKV holds `x_thread[16]` + `sb[4]`; gate holds `x[8]` + `r[4]`. If the
+union lowers QKV occupancy you lose on 5120 threadgroups to win on 8 — a
+catastrophic asymmetry. **Measure QKV-tile time and reflection register/spill
+counts before and after**, and treat a register increase as a stop-and-redesign
+signal, not a cost to absorb.
+
+
+#### 105.21 ⭐⭐⭐ The draw decision table — "no draw" is no longer unconditional; the arming threshold is a certified **+1.0 %**, and the coin flip is at **+1.64 %**
+
+Generator: `research/advisor_r105_21_draw_decision_table.py` (pure arithmetic on
+settled constants, no measurement). Inputs: rule 101's unbiased record gap
+`g0 = 1.6359 %` and fixed-tree resubmission `σ = 0.3016 %`; the draw channel is
+i.i.d. white noise (n = 1220), so N draws are independent Bernoulli trials.
+
+Self-checks: `g0/σ = 5.42` reproduces the campaign z; and at the de-biased L3
+value `x = 0.1966 %` the table returns **9.1e−07**, exactly the figure already
+on the record. The table is therefore the same model, merely inverted.
+
+| certified local gain | x % | z | P(1 draw beats record) | P(≥1 of 2 draws) |
+|---|---:|---:|---:|---:|
+| nothing (today's tree) | 0.000 | 5.42 | 2.9e−08 | 5.8e−08 |
+| the 0.4 % draw bar alone | 0.400 | 4.10 | 2.1e−05 | 4.2e−05 |
+| family-E merge, route C | 0.756 | 2.92 | 1.8e−03 | 3.5e−03 |
+| **family-E merge, route A** | **1.069** | 1.88 | **3.0e−02** | **5.9e−02** |
+| route A + a second 0.4 % lever | 1.469 | 0.55 | 0.290 | 0.496 |
+| **family-E merge, route B low** | **1.690** | −0.18 | **0.571** | **0.816** |
+| family-E merge, route B high | 1.780 | −0.48 | 0.684 | 0.900 |
+| full T2b recovery | 1.888 | −0.84 | 0.798 | 0.959 |
+| frieren §11.4 one-merge low | 2.190 | −1.84 | 0.967 | 0.999 |
+| family E full fusion (105.17) | 2.451 | −2.70 | 0.997 | 1.000 |
+
+Inverted:
+
+| target P(1 draw) | certified gain required |
+|---|---|
+| 0.10 | **+1.249 %** |
+| 0.25 | +1.432 % |
+| 0.50 | +1.636 % |
+| 0.80 | +1.890 % |
+
+##### What this changes
+
+The standing planning assumption has been **"no draw"** since rule 101, and it
+was correct: at every improvement the campaign could plausibly certify, P was
+between 1e−08 and 1e−05, and a draw was a pure waste of the freeze window.
+105.20 breaks that, because it is the first candidate whose *central* estimate
+is above 1 % and whose ceiling is above the gap itself.
+
+**New standing rule.** The draw is **armed if and only if** the integrated tree
+carries a certified improvement of **≥ 1.0 % of `cs`** measured on nezuko's
+paired `--local-submit` instrument (CI95 half-width ≈0.1178 % at 10 blocks, so a
+1.0 % point estimate has a CI comfortably clear of zero) **with correctness
+green on the exact submitted tree and fern's twelve wrapper preconditions
+passing**. Below 1.0 % the arithmetic is unchanged from rule 101 and we do not
+draw. Between 1.0 % and 1.25 % it is a judgement call and the honest framing is
+"a 3–10 % shot, taken because the alternative is a certain zero".
+
+**Draw budget.** Armed from 07:00Z, latest sensible start 08:00Z, hard stop
+09:00Z — room for **two** draws. Two draws roughly doubles P in the low regime
+and takes 0.571 → 0.816 in the route-B regime. There is no evidence of any
+penalty for a rejected draw (13 consecutive rejections earlier today cost
+nothing but wall clock), so if the draw is armed at all, take both.
+
+⚠️ **Do not let this table become a reason to inflate an estimate.** It is
+monotone and steep exactly where 105.20's three price routes disagree, which is
+precisely why 105.20 mandates headlining the conservative route C. The table
+tells you what a *certified* number is worth; it says nothing about what a
+hoped-for number is worth.
+
+
+#### 105.22 ⭐⭐⭐ Draw scheduling — the marginal percent is worth **5.9× more at the coin flip than at the arming threshold**, certification precision beyond ten blocks is worth **~1/30 of a tenth of a percent of gain**, and the two draws must **never be split**
+
+Generator: `research/advisor_r105_22_draw_scheduling.py`. Same model as 105.21
+(`p(x) = Φ(−(g0 − x)/σ)`, `g0 = 1.6359 %`, `σ = 0.3016 %`), same self-checks
+(`g0/σ = 5.42`; `p(0.1966 %) = 9.1e−07`), differentiated and scheduled. Four
+results, each with a direct operational consequence.
+
+**(a) Where a marginal +0.10 % of certified gain is worth most.** The model is a
+Gaussian CDF, so its derivative is a bell curve centred on the coin flip
+`x = g0 = 1.6359 %`. Per +0.10 % of certified gain:
+
+| standing at x % | p(1 draw) | P(≥1 of 2) | ΔP(≥1 of 2) per +0.10 % |
+|---|---|---|---|
+| 0.756 (105.20 route C) | 0.0018 | 0.0035 | **+0.004** |
+| 1.000 (arming threshold) | 0.0175 | 0.0347 | +0.028 |
+| 1.069 (105.20 route A) | 0.0301 | 0.0593 | +0.044 |
+| 1.250 | 0.1004 | 0.1906 | +0.105 |
+| 1.500 | 0.3261 | 0.5459 | **+0.161** ← peak |
+| 1.636 (coin flip) | 0.5001 | 0.7501 | +0.132 |
+| 1.690 (105.20 route B) | 0.5712 | 0.8161 | +0.112 |
+| 1.888 | 0.7984 | 0.9594 | +0.038 |
+| 2.190 (frieren §11.4 low) | 0.9669 | 0.9989 | +0.002 |
+
+For a single draw the marginal value at the coin flip is **5.85×** its value at
+route A; for two draws the peak sits slightly *below* the coin flip, at
+`x ≈ 1.50 %`, because the second draw's marginal contribution decays as the
+first becomes likely to succeed. **Consequence:** effort spent moving the tree
+from 1.0 % to 1.1 % buys 2.8 points; the same effort spent moving it from 1.4 %
+to 1.5 % buys 16 points. The campaign is *not* in the flat part of the curve —
+it is on the steep flank, which is exactly why 105.20's 2.5× route disagreement
+is the most expensive open question we have.
+
+**(b) Certification precision is nearly worthless; gain is everything.** Our
+certified `x` is itself an estimate, so the predictive probability integrates
+over it and the effective sigma becomes `sqrt(σ² + sd_x²)`:
+
+| instrument | CI95 half-width | sd_x | σ_eff | inflation |
+|---|---|---|---|---|
+| nezuko paired `--local-submit` | 0.1178 | 0.0601 | 0.3075 | **+2.0 %** |
+| fern score-level ABBA | 0.2666 | 0.1360 | 0.3309 | +9.7 % |
+| fern decode cell | 0.3235 | 0.1651 | 0.3438 | +14.0 % |
+
+Doubling the block count 10 → 20 (halving `sd_x²`) changes `P(≥1 of 2)` by
+**−0.0025 at x = 1.069, −0.0026 at x = 1.469, +0.0006 at x = 1.690** — against
+**+0.044 / +0.161 / +0.112** for a mere +0.10 % of extra gain. A second
+certification pass is worth between 1/17 and 1/60 of one tenth of a percent of
+real improvement. **Consequence: ten blocks on nezuko's instrument is enough.
+Every remaining student-hour belongs to search and integration, not to
+re-measurement.** (This is a statement about *precision* only. Correctness
+certification — rule 105.15's exact token-ID gate at `Golden.swift:387/:535` —
+is a hard pass/fail gate and is not tradeable against anything.)
+
+🪤 **Note the signs.** Tightening the estimate *reduces* our odds at
+`x = 1.069` and only helps above the coin flip. Below `g0` we are betting on a
+tail, and variance is our ally; above `g0` we are defending a lead, and variance
+is our enemy. Do not "clean up" the draw channel while we are behind, and do not
+reach for the noisier instrument while we are ahead.
+
+**(c) Never split the two draws — break-even needs an 86–94 % chance of losing
+the late window.** Suppose the tree stands at `x1` at the early slot and reaches
+`x2` by the late slot. Spending one draw early yields
+`1 − (1−p₁)(1−p₂)`; holding both yields `1 − (1−p₂)²`. Since `p₂ ≥ p₁`, holding
+strictly dominates:
+
+| x1 → x2 | split | hold both | cost of splitting | break-even q* |
+|---|---|---|---|---|
+| 0.756 → 1.069 | 0.032 | 0.059 | −0.028 | 0.940 |
+| 1.069 → 1.469 | 0.311 | 0.496 | −0.185 | 0.860 |
+| **1.069 → 1.690** | 0.584 | **0.816** | **−0.232** | **0.885** |
+| 1.469 → 1.690 | 0.696 | 0.816 | −0.121 | 0.294 |
+| 1.690 → 1.690 | 0.816 | 0.816 | 0 | — |
+
+`q*` is the probability that the late window is lost *entirely* at which
+splitting breaks even. In the case that actually describes tonight — frieren's
+merge landing between the freeze and the draw, `1.069 → 1.690` — splitting costs
+**23 percentage points** and only repays if there is an 88.5 % chance the late
+window evaporates. The official log shows a stable channel (13 consecutive draws
+today at a 23–26 minute cadence), so `q` is small.
+
+**The scheduling rule that follows:** take both draws **as late as the schedule
+safely permits and both against the same, best tree**. With an observed ~25
+minute cadence and a 09:00Z hard stop, 08:00Z and 08:25Z is the plan, with 35
+minutes of slack. The *only* reason to draw earlier is that the tree is already
+final — and note the last row: once nothing further will land, `x1 = x2`, holding
+buys nothing and waiting is pure schedule risk, so **the moment the tree is final,
+draw immediately.**
+
+**(d) 🚨 Correction to 105.21's arming threshold — 1.0 % is not a veto on the
+button.** A rejected draw carries no penalty. Therefore drawing weakly dominates
+not drawing at *every* value of `x`, including 0.756 % (3.5e−03) and 0.400 %
+(4.2e−05). The 1.0 % threshold is an **effort-allocation** threshold, not a
+submission gate: it is the level above which paying the 07:00Z integration
+freeze — which ends all search three hours before the deadline — is worth what
+it costs. Below 1.0 % we keep searching and still draw at the end with whatever
+we have; above 1.0 % we freeze early and protect the draw. Read 105.21's "below
+1.0 %, no draw" as "below 1.0 %, no *early freeze*". **Under no circumstances
+does the campaign end with unused draws.**
+
+
+#### 105.23 ⭐⭐⭐ The merge portfolio — a **second** dispatch merge is worth ~9× more than knowing the price of the first, and frieren's Stage-1 number is a **critical test** between two models that disagree 4.9× on the programme total
+
+Generator: `research/advisor_r105_23_merge_portfolio.py`. Self-checks: 39
+dispatches × 2.3403 M5 µs × 0.015228 = 1.3899 % and 30 dispatches = 1.0691 %,
+both reproducing 105.17; `p(0.1966 %) = 9.1e−07` reproducing the record.
+
+Rule 105.20 established that the family-E merge is buildable and priced it three
+incompatible ways (C 0.756 %, A 1.069 %, B 1.690 %). The natural instinct is to
+spend the night resolving that disagreement. **That instinct is wrong**, and the
+arithmetic says so unambiguously.
+
+**(a) The comparison that decides tonight's allocation.**
+
+| route | one merge | P(≥1 of 2) | two merges | P(≥1 of 2) |
+|---|---|---|---|---|
+| C (pessimistic) | 0.756 % | 0.0035 | 1.512 % | **0.5652** |
+| A (central) | 1.069 % | 0.0593 | 2.138 % | 0.9977 |
+| B (optimistic) | 1.690 % | 0.8161 | 3.380 % | 1.0000 |
+
+**Two merges at the most pessimistic price beat one merge at the central price
+by 9.5×** (0.5652 vs 0.0593). The second merge is the dominant term in every
+column.
+
+**(b) Marginal value of the k-th merge, priced at route A:** merge 1 buys
++0.0593; **merge 2 buys +0.9384**; merge 3 buys +0.0023. The programme is not
+linear in P — it is a step function, and the step is at two.
+
+**(c) Resolving the price route raises the expectation by exactly zero.**
+Under a uniform prior over the three routes, `E[P | one merge] = 0.2930`;
+learning which route is true replaces that with 0.0035, 0.0593 or 0.8161 but
+does not move the mean. `E[P | two merges] = 0.8543`. **The second merge is
+worth +0.5613 in expectation; the measurement is worth 0.** (The measurement is
+still necessary — see (f) — but as a *decision input*, not as a gain.)
+
+**(d) The byte budget is not the constraint.** `LagunaRuntimeModel.swift` has
+140,043 B of headroom to the 524,288 B per-file hard abort; 105.20 estimates
+~4 KiB per merge, i.e. **34 merges affordable**. The clock is the only binding
+resource.
+
+**(e) 🚨 The critical test.** The two models of the decode pool make wildly
+different predictions about the merge programme *as a whole*:
+
+| model | prediction for the whole programme | x % | P(≥1 of 2) |
+|---|---|---|---|
+| 105.16 measured non-byte slack (D 0.71 + A 0.45 + C 0.03 + B 0.00 + E 1.89 = **3.08 bars**) | ceiling on everything | **1.232** | 0.172 |
+| 105.17 dispatch accounting (168 per-layer dispatches × 2.3403 M5 µs) | ceiling on everything | **5.987** | 1.000 |
+
+They differ by **4.86×**. Sharper still: **route B's price for one merge
+(1.690 %) already exceeds 105.16's ceiling for all five families (1.232 %).**
+These are not two noisy estimates of one quantity. At least one model is wrong.
+
+**(f) The decision rule that follows.** Frieren's Stage-1 paired
+`--local-submit` measurement of the family-E merge (due 21:00Z, CI95 half-width
+≈0.118 % of `cs`) is a *critical test* in the strict sense — the two models
+predict non-overlapping outcomes and the instrument can separate them:
+
+- **Measures ≈0.756 %** → 105.16 stands. The whole merge programme is capped at
+  1.232 %, a second merge buys at most +0.476 %, and P tops out at 0.172.
+  **Stop the merge programme** and spend the night on other axes.
+- **Measures ≥ 1.0 %** → 105.16's family-E slack figure is falsified, the
+  dispatch accounting holds, and a second merge is worth **+0.9384 in
+  P(≥1 of 2)**. **Start merge #2 in the same hour**, from tanjiro's
+  adjacent-pair ledger.
+
+**Operational consequence, effective now:** tanjiro's adjacent-pair dispatch
+ledger (#663) must be *complete and ranked* before 21:00Z, not after, so that
+merge #2 can begin the moment frieren's number clears 1.0 %. A ledger delivered
+at 22:00Z is worth a fraction of the same ledger delivered at 20:00Z, because
+the build-and-certify path for merge #2 is ~4 hours against a 07:00Z freeze.
+
+⚠️ **Three standing caveats that this arithmetic does not repeal.** (i)
+Additivity is an assumption, not a result: 105.17's removal-symmetry, drain-
+generality and barrier-re-import assumptions are all still unverified, and PR
+#48 is the campaign's monument to a dispatch-count reduction that scored
+−0.1488 %. Rule 105.5 permits summing only **independently verified**
+improvements — each merge earns its own paired certificate. (ii) The upper rows
+of the ladder (three or more merges, x > 3 %) are extrapolation far beyond any
+measurement and should never be quoted as a forecast. (iii) Family E was
+mergeable because 105.20(a) found `dep_scope = NONE` — both kernels read the
+*same* `normalized` binding. A second pair with that property may simply not
+exist; the ledger's first job is to find out.
+
+
 ## 9. σ table (rule 40 — pick your estimator, then quote its floor)
 
 🚨 **SUPERSESSION (rule 101, round 107).** The score-channel entries below are
