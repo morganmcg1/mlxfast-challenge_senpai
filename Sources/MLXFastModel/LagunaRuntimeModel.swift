@@ -2024,7 +2024,15 @@ let lagunaFusedFullAttentionKernelWarmupEnabled =
     ProcessInfo.processInfo.environment[
         "DARKBLOOM_FUSED_FULL_ATTN_KERNEL_WARMUP"] != "0"
 
-private let lagunaFullFusedAttentionKernelSource = """
+private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
+    name: "laguna_full_fused_attn_grow_v1",
+    inputNames: [
+        "raw_queries", "raw_keys", "raw_values",
+        "query_weight", "key_weight", "angles",
+        "k_cache", "v_cache", "params", "scale_arr",
+    ],
+    outputNames: ["attended"],
+    source: """
 constexpr uint head_dim = 128;
 constexpr uint gqa = 6;
 constexpr int BN = 32;
@@ -2345,9 +2353,8 @@ if (lane == 0) {
         pair_out1[p] = static_cast<bfloat>(pair_o1[p]);
     }
 }
-"""
-
-private let lagunaFullFusedAttentionKernelHeader = """
+""",
+    header: """
 #define LAGUNA_RESCALE(dst, delta_expr)         \\
   do {                                          \\
     const float db_delta_ = (delta_expr);       \\
@@ -2395,108 +2402,9 @@ private let lagunaFullFusedAttentionKernelHeader = """
   } while (false)
 
 
-"""
-
-private let lagunaFullFusedAttentionKernelInputNames = [
-    "raw_queries", "raw_keys", "raw_values",
-    "query_weight", "key_weight", "angles",
-    "k_cache", "v_cache", "params", "scale_arr",
-]
-
-private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
-    name: "laguna_full_fused_attn_grow_v1",
-    inputNames: lagunaFullFusedAttentionKernelInputNames,
-    outputNames: ["attended"],
-    source: lagunaFullFusedAttentionKernelSource,
-    header: lagunaFullFusedAttentionKernelHeader,
+""",
     ensureRowContiguous: true
 )
-
-private let lagunaFullFusedAttentionQKProbeMode =
-    ProcessInfo.processInfo.environment["DARKBLOOM_FULL_ATTN_QK_PROBE"] ?? ""
-
-/// Rewrites the six QK cross-lane allreduce statements of the full-attention
-/// kernel, leaving every other instruction untouched, so a paired timing delta
-/// prices exactly that ladder.
-private func lagunaFullFusedAttentionQKProbeSource(
-    _ replacement: (String) -> String
-) -> String {
-    var src = lagunaFullFusedAttentionKernelSource
-    var replaced = 0
-    for name in ["pair_score0", "pair_score1", "pipeb_score0", "pipeb_score1"] {
-        let needle = "\(name) = simd_sum(\(name));"
-        replaced += src.components(separatedBy: needle).count - 1
-        src = src.replacingOccurrences(of: needle, with: replacement(name))
-    }
-    precondition(replaced == 6, "QK probe expected 6 rewrites, got \(replaced)")
-    return src
-}
-
-/// Research-only lower-bound probe: numerically wrong by construction. It keeps
-/// the per-lane partial QK dot products and all surrounding softmax work but
-/// replaces the cross-lane allreduce with a broadcast of lane 0's partial, so
-/// the score stays lane-uniform and the LAGUNA_RESCALE branch stays uniform.
-/// The measured delta therefore isolates the butterfly ladder instead of also
-/// introducing branch divergence.
-private let lagunaFullFusedAttentionQKBroadcastProbeSource: String =
-    lagunaFullFusedAttentionQKProbeSource {
-        "\($0) = simd_broadcast_first(\($0));"
-    }
-
-private let lagunaFullFusedAttentionQKBroadcastProbeKernel =
-    MLXFast.metalKernel(
-        name: "laguna_full_fused_attn_grow_qkbcast_probe_v1",
-        inputNames: lagunaFullFusedAttentionKernelInputNames,
-        outputNames: ["attended"],
-        source: lagunaFullFusedAttentionQKBroadcastProbeSource,
-        header: lagunaFullFusedAttentionKernelHeader,
-        ensureRowContiguous: true
-    )
-
-/// Research-only dose-response probe, and unlike the broadcast arm it is
-/// bit-exact: after `simd_sum` every lane holds the same sum S, so scaling by
-/// 2^-5 and re-doubling through a five-stage shuffle butterfly reproduces S
-/// with no rounding, `reps` times over. Each repetition adds about eleven issue
-/// slots per site, so sweeping `reps` measures the kernel's marginal price per
-/// ALU slot even when a single ladder's worth of work sits below run-to-run
-/// noise. `simd_sum` is retained so the arm brackets the shipped kernel from
-/// above while staying a legal, correctness-passing configuration.
-private func lagunaFullFusedAttentionQKDoseProbeKernel(
-    reps: Int
-) -> MLXFast.MLXFastKernel {
-    precondition(reps >= 1, "dose probe needs at least one repetition")
-    let source = lagunaFullFusedAttentionQKProbeSource { name in
-        var out = "\(name) = simd_sum(\(name));"
-        for _ in 0 ..< reps {
-            out += " \(name) *= 0.03125f;"
-            for mask in [1, 2, 4, 8, 16] {
-                out += " \(name) += simd_shuffle_xor(\(name), ushort(\(mask)));"
-            }
-        }
-        return out
-    }
-    return MLXFast.metalKernel(
-        name: "laguna_full_fused_attn_grow_qkdose\(reps)_probe_v1",
-        inputNames: lagunaFullFusedAttentionKernelInputNames,
-        outputNames: ["attended"],
-        source: source,
-        header: lagunaFullFusedAttentionKernelHeader,
-        ensureRowContiguous: true
-    )
-}
-
-private let lagunaFullFusedAttentionActiveKernel: MLXFast.MLXFastKernel = {
-    let mode = lagunaFullFusedAttentionQKProbeMode
-    if mode == "bcast" { return lagunaFullFusedAttentionQKBroadcastProbeKernel }
-    if mode.hasPrefix("dose") {
-        guard let reps = Int(mode.dropFirst(4)) else {
-            preconditionFailure("QK probe mode \(mode) needs a dose repetition count")
-        }
-        return lagunaFullFusedAttentionQKDoseProbeKernel(reps: reps)
-    }
-    return lagunaFullFusedAttentionKernel
-}()
-
 
 
 
@@ -2538,7 +2446,7 @@ func lagunaFullFusedAttention(
     let params = MLXArray([
         UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity),
     ])
-    return lagunaFullFusedAttentionActiveKernel(
+    return lagunaFullFusedAttentionKernel(
         [
             rawQueries, rawKeys, rawValues,
             queryWeight, keyWeight, angles,

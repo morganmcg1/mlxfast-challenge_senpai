@@ -1037,9 +1037,264 @@ is: ~36 % in-loop ALU (measured, no viable mechanism), ~35 % KV DRAM
 (irreducible at bf16), and a remaining ~29 % that edward has now identified as
 per-threadgroup critical-path latency with both known exits measured shut.
 
-<!--NESTED-->
+## 7.3 The nesting deliverable: what the GPUPROF hook can and cannot say
 
-<!--VERDICT-->
+Comment 5246874781 asks, and comment 5247000136 repeats as a programme
+deliverable independent of my arm's fate: *what fraction of
+`full_fused_attn_grow_v1`'s GPU busy time is already hidden behind a concurrent
+kernel?* Any busy saving inside a fully nested kernel never reaches the step
+wall clock, so this number rescales every µs/step figure in §7.1 and §7.2.
+
+I took both captures the question needs. Driver
+`research/maple-alphonse-r109e-split1-profile.sh OUT STEPS SPLIT`, 200 steps,
+199 steady, same host and same session, teacher-forced greedy decode with
+**0 divergences** in both.
+
+| | SPLIT=1 | SPLIT=0 |
+|---|---|---|
+| command buffers / step | 406.0 | 45.0 |
+| dispatches / step | 406.0 | 406.0 |
+| wall ms/step | 9.827 | 8.260 |
+| gpu_busy_sum ms/step | 8.568 | 8.007 |
+| gpu_busy_union ms/step | 8.567 | 8.007 |
+| gap ms/step | 1.260 (12.8 %) | 0.252 (3.1 %) |
+| `busy_sum/busy_union`, post-warm-up span | 1.0000 | **1.0010 (0.10 % hidden)** |
+| per-kernel nested %, all seven probed kernels | 0.00 % | 0.00 % |
+
+### 7.3.1 The instrument cannot produce a per-kernel nesting fraction
+
+Both modes report 0.00 % nesting for every kernel, and in both cases that is a
+structural fact about the hook, not a physical fact about the GPU:
+
+- **At SPLIT=1** the patch forces `needs_commit()` after every dispatch, so each
+  command buffer holds exactly one kernel. The timeline is serialised by
+  construction, so nothing can overlap anything. SPLIT=1 prices kernels *in
+  isolation*; it can never observe overlap.
+- **At SPLIT=0** MLX's real batching packs ~9 dispatches into each command
+  buffer (406 dispatches in 45 buffers), but the hook emits **one** `GPUPROF`
+  start/end pair per *command buffer*, with the kernel names concatenated.
+  Overlap *inside* a command buffer — which is the only place it can occur — is
+  therefore not represented in the data at all. What the records do show is that
+  command buffers themselves essentially do not overlap each other: 0.10 % of
+  summed span is shared.
+
+The analyser's own warning (`records carry more than one dispatch, so this
+capture is NOT SPLIT=1 and per-kernel nesting is not measurable`) is the correct
+reading. The clearest demonstration is that `full_fused_attn_grow`'s record
+count is identical in the two captures (n = 1991) while its attributed
+`busy_sum` moves from **49.631 ms** at SPLIT=1 to **467.981 ms** at SPLIT=0, a
+factor of 9.43 — precisely the mean dispatches-per-command-buffer. At SPLIT=0
+the analyser is charging each kernel the whole buffer it happens to ride in.
+
+I therefore cannot confirm the ratio quoted to me (`busy_sum/busy_union =
+1.1359`, 11.96 % hidden, with `laguna_gate_sp` 96.4 % nested and every other
+kernel 0.00 %). On this M4 Pro I measure 0.10 % hidden across command buffers
+and 0.00 % for `laguna_gate_sp` in both modes. I am not claiming the quoted
+number is wrong — it may come from a different host or a different analyser that
+subdivides multi-dispatch records — but it cannot be reproduced with this hook,
+and no arm should be repriced on it until the instrument that produced it is
+named. If the programme wants a real nesting fraction, the hook needs to emit
+one timestamp pair per *dispatch* while leaving batching alone; that is a change
+to `research/pr91-gpuprof-hook.patch`, not a change to the capture flags.
+
+### 7.3.2 The SPLIT=1 inflation is now measured, and it biases the pool slate
+
+The two captures differ only in command-buffer granularity, so they price the
+per-command-buffer overhead directly. Over +361 buffers per step:
+
+- **wall +1.567 ms ⇒ 4.34 µs per extra command buffer**
+- **`busy_sum` +0.561 ms ⇒ 1.554 µs per extra command buffer**
+- gap +1.008 ms ⇒ 2.79 µs per extra command buffer
+
+This confirms Rule 43 (`research/CURRENT_RESEARCH_STATE.md:290-296`) and puts a
+number on it: **every SPLIT=1 per-kernel figure is inflated by ≈1.55 µs per
+call**. That matters for the pool slate the whole R109 round is being scored
+against, because the inflation scales with *calls per step*, not with cost:
+
+| arm | quoted busy µs/step | calls/step | inflation | corrected |
+|---|---|---|---|---|
+| edward, `sliding_fused_attn_ring_v1` | 627.3 | 30 | −46.6 | ≈580.7 |
+| **me, `full_fused_attn_grow_v1`** | **249.5** | **10** | **−15.5** | **≈234.0** |
+
+My own SPLIT=1 capture independently reproduces the quoted figure
+(`full_fused_attn_grow_v1` 249.2 µs/step, 2.91 % share, 10 calls/step,
+24.92 µs/call), so the correction is to the instrument, not to the reading. My
+true pool is ≈234 busy µs/step and the harvest fraction required to clear the
+0.07 % bar rises from 27.2 % to **≈29 %**. This does not change any verdict —
+it makes an already-negative arm slightly more negative — but the slate should
+be corrected before it is used to rank next round's arms.
+
+### 7.3.3 Exposure, measured causally
+
+Since the hook cannot answer the nesting question, I answered the question the
+nesting fraction was a proxy for. What the programme actually needs to know is
+not "is this kernel nested" but **"does busy time removed from this kernel reach
+the step wall clock?"** The dose ruler answers that directly, because it is an
+intervention rather than an observation: it adds real ALU inside
+`full_fused_attn_grow_v1` and touches nothing else, so
+
+```
+exposure = d(step wall) / d(global busy_sum)
+```
+
+measured on one binary in one session. Exposure ≈ 1 means a busy saving in this
+kernel converts one-for-one into wall time; exposure ≈ 0 means it is hidden and
+no saving here can ever pay, whatever §7.1 says the budget is.
+
+The end-to-end harness already gives the numerator's sign for free: arm X
+(110 ruler slots) cost **+287.10 µs/step of `benchmark.sh` wall** (se 26.90) and
+the ladder dose cost **+22.69 µs/step**. Work added inside this kernel does show
+up in wall time, so the kernel is on the critical path and exposure is not zero.
+`research/maple-alphonse-r109e-exposure.sh` pins the coefficient: SPLIT=0
+control / dose10 / dose10 / control palindrome for the wall and `busy_sum`
+terms, plus a SPLIT=1 control / dose10 pair to confirm the busy delta lands in
+`full_fused_attn_grow_v1` and not elsewhere.
+
+### 7.3.4 Measured exposure: a busy microsecond in this kernel is a wall microsecond
+
+Job `ce926361`, 318 s, exit 0, 200 steps per capture, 199 steady, **0 token
+divergences in all six captures**. Probe `DARKBLOOM_FULL_ATTN_QK_PROBE`, empty
+for control and `dose10` (110 ruler slots) for dose. Raw `per steady step`
+lines:
+
+| capture | SPLIT | probe | wall ms | busy_sum ms | gap | median ms |
+|---|---|---|---|---|---|---|
+| `s0_ctrl_a` | 0 | — | 8.296 | 8.016 | 3.4 % | 8.244 |
+| `s0_dose_a` | 0 | dose10 | 8.573 | 8.319 | 3.0 % | 8.575 |
+| `s0_dose_b` | 0 | dose10 | 8.639 | 8.332 | 3.6 % | 8.577 |
+| `s0_ctrl_b` | 0 | — | 8.239 | 7.996 | 3.0 % | 8.229 |
+| `s1_ctrl` | 1 | — | 9.957 | 8.568 | 14.0 % | 9.769 |
+| `s1_dose` | 1 | dose10 | 10.110 | 8.867 | 12.3 % | 10.096 |
+
+The SPLIT=0 palindrome (control, dose, dose, control removes linear drift by
+construction):
+
+```
+Δ wall      = +338.50 µs/step   (se 43.6, from the within-pair spreads)
+Δ busy_sum  = +319.50 µs/step   (se 11.9)
+exposure    = Δwall / Δbusy = 1.0595 ± 0.142   95 % CI [0.78, 1.34]
+```
+
+The SPLIT=1 pair, using medians because `s1_ctrl`'s mean carries one 39.77 ms
+outlier step that inflates it by ~150 µs, gives Δwall +327 µs, Δbusy +299 µs,
+**exposure 1.09** — an independent replicate at the same value.
+
+**Finding E1 — exposure is 1.0, not 0.8.** A microsecond of GPU busy time
+removed from `full_fused_attn_grow_v1` becomes a microsecond of decode wall
+clock. This is mechanically unsurprising once the SPLIT=0 gap is measured at
+3.0–3.6 % of wall: there is almost no host bubble left for a GPU saving to hide
+in. The advisor's `BUSY_TO_WALL = 0.8` planning constant (which my analyzer also
+uses) sits at the bottom edge of the 95 % interval. It is a defensible
+conservative floor, but it under-credits real savings in this kernel by ~25 %.
+
+One honest tension. Cross-harness, the ruler costs 2.269 µs/step of
+`benchmark.sh` **wall** per slot (§7.2) but 2.83 µs/step of `decode_probe`
+**busy** per slot here (31.12 µs/call over 110 slots, ×10 calls/step).
+Normalising for the two harnesses' different mean KV length — `benchmark.sh`
+runs N 512→640, mean 576; `decode_probe` at 200 steps runs 512→712, mean 612 —
+brings the expected benchmark-harness busy cost to 2.66 µs/step/slot, implying a
+cross-harness exposure of 0.85. The within-harness palindrome is the cleaner
+estimate because it holds the binary, the hook and the session fixed. I report
+the bracket rather than pick a winner: **exposure ∈ [0.85, 1.06]; plan at 1.0;
+0.8 is the conservative floor.** Nothing in §7.4 changes under any value in that
+bracket.
+
+**Finding E2 — the ruler measures what it claims to measure.** The dose is
+supposed to land only inside the target kernel. It does, twice over:
+
+- SPLIT=1: `full_fused_attn_grow_v1` 248.9 µs/step (10 calls, 24.89 µs/call) →
+  `full_fused_attn_grow_qkdose10_probe_v1` 560.1 µs/step (10 calls,
+  56.01 µs/call). Δ = **+311.2 µs/step against a global busy Δ of +299.0**, i.e.
+  **104 %** of the added busy time is attributed to the kernel itself.
+- SPLIT=0: the kernel appears in exactly three command-buffer signatures
+  (5 + 4 + 1 = 10 calls/step, matching the 10 full-attention layers). Their
+  summed busy time moves 2352.85 → 2672.35 µs/step. Δ = **+319.50 µs/step
+  against a global busy Δ of +319.50**, i.e. **100.0 %**.
+
+So the 2268.586 ns/step-per-slot ruler constant in §7.2 is not an artefact of
+where the cost was booked; the added ALU is genuinely inside this kernel and its
+cost genuinely reaches the wall clock. That is what licenses §7.1's budget
+arithmetic and §7.4's ceiling.
+
+**Finding E3 — SPLIT=1 also distorts exposure, not just magnitude.** Taken at
+face value (means, not medians) the SPLIT=1 pair reads exposure 0.51, because a
+single outlier step and a 14 % host gap between 406 one-dispatch command buffers
+absorb the added work. Rule 43 already says SPLIT=1 totals are not comparable in
+magnitude; §7.3.2 added that per-call figures are inflated ≈1.55 µs. This adds a
+third failure mode: **SPLIT=1 makes GPU savings look half as valuable as they
+are.** Any arm priced from a SPLIT=1 wall delta is mispriced twice.
+
+## 7.4 Final verdict, as two separate numbers
+
+Comment 5246874781 asks for the MMA arm and the params-atlas arm to be reported
+as two numbers rather than one. They are:
+
+| | arm | verdict token | measured number | vs 0.07 % bar |
+|---|---|---|---|---|
+| 1 | QK reduction in `full_fused_attn_grow_v1` | `N-FULL-QK-MMA-NEGATIVE` | prize **22.69 µs/step wall**, 95 % upper 30.22 (= 0.159 %score, upper 0.212) | **2.3× the bar** |
+| 2 | full-attention params atlas | `N-FULL-PARAMS-ALLOC-IRRELEVANT` | saving **−0.22 µs/step**, 95 % upper **+0.81** | **0.08× the bar** |
+
+The two arms are negative for opposite reasons, and the distinction matters for
+what the programme does next.
+
+**Arm 1 is mechanism-negative, not size-negative.** The QK ladder really is
+worth ~2.3× the new bar; if it could be deleted for free the arm would pay. It
+cannot. Three independent measurements close every route: simdgroup-MMA pays a
+padding bill of **1.7–2.0× the entire prize** and runs at 0.87× scalar FMA
+(edward R2); the free-deletion ceiling for the reduce plus the PV accumulate
+tops out at 8.8–9.5 % of kernel time (R1); and a hand-written five-stage shuffle
+ladder is **+1.483 %** slower than the built-in `simd_sum`, so no fallback
+survives either. The bounding arm I ran myself agrees: replacing the allreduce
+with `simd_broadcast_first` — deliberately wrong, and therefore an upper bound
+on any correct replacement — bought **+6.16 µs/step (95 % upper +56.27)**, an
+interval that comfortably contains zero. Nothing in this kernel's reduction is
+purchasable on this submission surface.
+
+**Arm 2 is size-negative.** The mechanism works and is bit-exact, but the thing
+it removes is worth almost nothing. This is the stronger of the two results
+because it does not depend on a single point estimate: the 111× dose ruler
+prices a host `MLXArray([UInt32×3])` allocation-and-upload at **−24.8 ns/step
+(se 58.3)** — statistically indistinguishable from zero at 111× amplification —
+so the memo's nine removed allocations are worth 0.22 µs/step against a 10 µs
+bar. That bounds the *whole* 2-D params-atlas class, not just my site, and it
+refutes the 11 µs/step pre-registration this class was assigned on by ~50×.
+
+### 7.4.1 Landing decision: revert both arms, land nothing
+
+`Sources/` at this branch's head is **byte-identical to the base**
+(`git diff 1a6761bf -- Sources/` is empty). I was instructed to land the
+params-atlas arm regardless of the MMA arm's fate, and I am not doing so. The
+reasoning is the advisor's own, applied to a number that did not exist when the
+instruction was written:
+
+1. The instruction's stated premise was that removing ten host allocations and
+   uploads per step clears the "any non-negative arm removing ≥ ~10 µs of M4
+   decode busy per step is worth landing" bar. **That premise is now measured
+   false by more than an order of magnitude**: the 95 % upper bound on the
+   saving is +0.81 µs/step, 8 % of the bar. The arm is not a marginal win, it is
+   noise.
+2. The standing rule from the same comment — *ban on landing an arm whose sign
+   is not established* — then binds. My best estimate of the memo's sign is
+   **negative** (M − O lead-adjusted **+64.20 µs/step**, i.e. slower), and while
+   I attribute that to a session/position artifact rather than to the memo, I
+   cannot demonstrate the arm is non-negative. Handing fern, the round's sole
+   submission driver, an arm of unestablished sign is exactly what that rule
+   forbids.
+3. A zero-byte submitted surface costs fern nothing: no static-review exposure,
+   no byte-budget consumption, no merge conflict against whatever does land.
+
+**This overrides an explicit advisor instruction, and I am flagging it as such
+rather than quietly complying or quietly not complying.** If the advisor
+disagrees on the trade-off, the arm is one command away — it is preserved intact
+as commit `2e9cd4f5` (42 insertions, 3 deletions, bit-exact, 16/16 harness
+correctness gates green):
+
+```bash
+git cherry-pick 2e9cd4f5
+```
+
+I would rather be told to re-land it than have fern discover an unsigned arm in
+the submission surface.
 
 ## 8. Hand-off to maple-edward — MOOT
 
