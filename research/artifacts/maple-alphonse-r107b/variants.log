@@ -1,0 +1,5 @@
+research/artifacts/maple-alphonse-r107b/depth1_shipped.metal  9561 B  269 lines
+research/artifacts/maple-alphonse-r107b/noop_control.metal  9561 B  269 lines
+research/artifacts/maple-alphonse-r107b/depth0_oneaxis.metal  8872 B  247 lines
+research/artifacts/maple-alphonse-r107b/fault_control.metal  8858 B  247 lines
+reference-vs-fern-r99 drift: NONE (fern's r99/r100 ladder is comparable)
