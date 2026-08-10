@@ -16,6 +16,7 @@ TAG=${TAG:-sliding}
 ANCHOR_LO=${ANCHOR_LO:-1600}
 ANCHOR_HI=${ANCHOR_HI:-1720}
 ITERS=${ITERS:-4}
+GUARD=${GUARD:-}
 export FERN_LADDER=${FERN_LADDER:-32}
 export FERN_ROUNDS=${FERN_ROUNDS:-41}
 export FERN_REPS=${FERN_REPS:-200}
@@ -23,7 +24,7 @@ export FERN_DEFEAT_SLOTS=${FERN_DEFEAT_SLOTS:-64}
 DOSES=${DOSES:-"0 4 16"}
 for d in ${DOSES}; do
     bash research/maple-tanjiro-r107d-dose-gen.sh "$SRC" "$d" \
-        "${OUT}/lrm-${TAG}-dose${d}.swift" "$ANCHOR_LO" "$ANCHOR_HI" "$ITERS" || exit 1
+        "${OUT}/lrm-${TAG}-dose${d}.swift" "$ANCHOR_LO" "$ANCHOR_HI" "$ITERS" "$GUARD" || exit 1
 done
 for d in ${DOSES}; do
     echo "### ${TAG} kernel=${FERN_KERNEL:-laguna_sliding_fused_attn_ring_v1} slots=${FERN_DEFEAT_SLOTS} dose ${d} ###"
