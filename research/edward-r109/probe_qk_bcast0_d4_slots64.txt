@@ -27,16 +27,16 @@ mode                  A/B
   dram_peak_GB_s        266.3  (measured, rule 55)
   slc_estimate_B        25165824  (M4-Pro-class, label only)
      K  TG/core   kvheads   slots   uniq_MiB   req_MiB/round   amplif   base_us   achieved_GB_s   pct_peak   slc_fit   regime
-    32     1.60         8      64     128.04          408.01      3.2     18.88           113.3       42.6   no   PARTIAL
+    32     1.60         8      64     128.04          408.01      3.2     18.64           114.8       43.1   no   PARTIAL
 
 === absolute cost ladder, best of 101 rounds of 200 dispatches (E1) ===
 phi(K) = t(2K)/t(K).  A threadgroup-doubling change pays only if phi < 2.
 t/K is the per-threadgroup cost: flat means work-limited, falling means
 the added threadgroups are absorbed by idle cores.
      K  TG/core   base_us     t/K_us   phi(K)=t(2K)/t(K)
-    32     1.60     18.68     0.5837   -
+    32     1.60     18.31     0.5722   -
 
 === paired per-call cost, 101 alternating rounds of 200 dispatches ===
 delta = second arm - base within a round, so drift cancels. neg = faster.
      K  TG/core   base_min   cand_min    d_mean    d_sd   spread   t_paired        %
-    32     1.60      17.35      16.13    -1.138   0.185     0.95     -61.83    -6.557
+    32     1.60      17.07      15.77    -1.147   0.347     2.51     -33.23    -6.719
