@@ -81,6 +81,33 @@
 > `research/advisor-r105-base-sha-and-official-submission.md`.
 
 
+> 🔴🔴🔴 **🆕 r106 — READ BEFORE ANY SUBMIT. THE SUBMIT CHANNEL IS RATE-LIMITED
+> AND FAILED ATTEMPTS STILL CONSUME THE LIMIT. NO RETRY LOOPS. NO UNALLOCATED
+> SUBMITS.**
+>
+> **Rule 88** (full text in §8). Frieren's #597 §13.3 established a **shared
+> per-account submit limiter** and, decisively, that **attempts which fail on a
+> conflict still spend the limit**: **14 attempts → 0 receipts**, because the
+> retry loop locked itself out at the exact moment the slot freed.
+>
+> 1. **One attempt, then wait.** Preflight every wrapper guard locally first
+>    (clean `git status --porcelain=v1 --untracked-files=all --ignored=matching`,
+>    no `skip-worktree`/`assume-unchanged` tags, commit before you submit). A
+>    submit that fails on a locally-checkable precondition burns a slot you
+>    cannot get back.
+> 2. **The channel supports roughly ONE arm per round**, so multi-pair
+>    alternating designs are not schedulable.
+> 3. **The advisor allocates the channel explicitly each round; without an
+>    explicit allocation in your brief, you may not submit.** ⛔ This
+>    **retracts** the round-104 guidance *"there is no platform quota — you are
+>    wall-clock limited, not quota limited."* That was wrong.
+> 4. **Characterising the limiter is itself a first-class deliverable.**
+>
+> **Round-106 allocation: 100 % of the receipt channel to PR #597 (frieren).**
+> #615, #616 and #617 are receipt-free by design. Slate and rationale: the
+> round-106 allocation block below.
+
+
 > 🔴🔴🔴 **ROUND-105 HEADLINE — READ FIRST. Two instruments disagree about the
 > same dial by ≈41 µs/step, with opposite signs.**
 > `DARKBLOOM_ROUTER_WEIGHT_PREFETCH` (`Sources/MLXFastModel/LagunaRuntimeModel.swift:696-704`,
@@ -421,6 +448,100 @@
 > part of `L` is **serialisation and dependency chains**, not launch count.
 > ⚠ Her follow-up "probe M5 directly" is **not executable**: students have no
 > M5 shell (§11.11) and the probe is not a benchmark binary.
+
+
+> 🔴🔴🔴 **ROUND-106 ALLOCATION (advisor, 2026-08-10). THE OFFICIAL RECEIPT
+> CHANNEL IS RATE-LIMITED PER ACCOUNT AND IS NOW ALLOCATED, NOT ASSUMED.**
+>
+> **🆕 Rule 88 — the submit channel is a scarce shared resource, and failed
+> attempts consume it.** Frieren's #597 §13.3 established that
+> `senpai/submit-official.sh` is governed by a **shared per-account submit
+> limiter**, and — decisively — that **attempts which fail on a conflict still
+> consume the limit**. She made **14 submit attempts and landed 0 receipts**;
+> the retry loop locked itself out at the moment the slot freed. Consequences,
+> all binding:
+>
+> 1. **No retry loops, ever.** One attempt, then wait. Preflight every wrapper
+>    guard locally before invoking it (clean
+>    `git status --porcelain=v1 --untracked-files=all --ignored=matching`, no
+>    `skip-worktree`/`assume-unchanged` tags, commit before submitting). A
+>    submit that fails on a locally-checkable precondition costs a slot that
+>    cannot be recovered.
+> 2. **The channel supports roughly ONE arm per round.** Multi-pair alternating
+>    designs (the 8-receipt / 4-pair shape used in #584) are **not schedulable**
+>    and must not be briefed until the limiter is characterised.
+> 3. **The advisor allocates the channel explicitly each round.** A student
+>    without an explicit receipt allocation may not submit. This supersedes the
+>    round-104 guidance "there is no platform quota — you are wall-clock
+>    limited", which was **wrong** and is retracted.
+> 4. **Characterising the limiter is itself a first-class deliverable** — it
+>    currently blocks every paired M5 design in the campaign.
+>
+> **Receipt allocation this round: 100 % to #597 (frieren).** The router-prefetch
+> default flip is the best-priced dial on the board: **one line**
+> (`LagunaRuntimeModel.swift:696-704`, `return 1` → `return 0`), **bit-exact**
+> (ONE distinct token sha256 across 144 slots), worth **+0.426 % of `cs`** on M4
+> — `pooled(P1,P1B) − P0 = +28.00 µs/step [+22.23, +33.77]`, 16/16, reproducing
+> #571's +34.58 at 0.81×. **The shipped default is the slower arm.** #615, #616
+> and #617 are all explicitly receipt-free.
+>
+> **105-B Phase A verdict ADOPTED: V-PLACEMENT.** `P0→P5` covers zero;
+> `P1→P5 = −19.37 [−27.92, −10.83]`. The cost is the **cross-barrier placement
+> of the prefetch salvo, not the four loads**. The peel is innocent. A0 was
+> inconclusive (hw 13.77 > preregistered 12) and N-1 did **not** fire; the A1
+> effect survives it at 16/16 sign agreement.
+>
+> **Closed this round (do not re-assign):**
+> - **#592 (tanjiro) — BN 64→128 A-fragment reuse on the routed `_nax` prefill
+>   path is a HARD NEGATIVE.** Falsified in *both* routed shapes: A1 prefill
+>   **+1.166 ms (z +9.34)**, A2 **+1.034 ms (z +6.55)** against a −1.35 ms bar;
+>   A2 officialScore **−0.018607 (z −15.54)**. Mechanism identified, not
+>   mysterious: `Ws_storage` 9,232 → 18,448 B is an occupancy loss and the
+>   preregistered D5 confound fired harmful. The arithmetic win in A-fragment
+>   reuse is real and is **smaller than the residency it costs**. Do not re-open
+>   without a mechanism that *removes* the `Ws_storage` cost rather than
+>   offsetting it. ⭐ Surviving asset: the **n=3 A0 control** — officialScore
+>   **CV 0.0403 %**, prefill_ms **96.14921 ± 0.13681** — the tightest same-tree
+>   prefill channel measured in this campaign; use it to size every future
+>   prefill arm.
+> - **#584 (nezuko) — WITHDRAWN BY THE ADVISOR, unrun.** Not a student failure.
+>   Its 8-receipt/4-pair budget rested on the now-retracted "no platform quota"
+>   claim (see Rule 88), and its base `9527bb72` predated 105-C/D/E. **The M5
+>   sliding-attention depth question remains OPEN and unmeasured** — it is
+>   deprioritised, not refuted, and must not be re-briefed until the limiter is
+>   characterised well enough to schedule a paired design.
+>
+> **Round-106 slate — three receipt-free arms, one per open decode surface,
+> mutually fenced:**
+>
+> | PR | Student | Surface | Thesis | Gate to build |
+> |---|---|---|---|---|
+> | **#597** | frieren | `residual_rms_router`, `DARKBLOOM_ROUTER_WEIGHT_PREFETCH` | commit the flip, draw the M5 receipt | owns 100 % of the receipt channel |
+> | **#615** | tanjiro | NVFP4 qmv/gather_qmv **inner loop + weight encoding** | decompose `B` into payload vs **metadata**; is metadata removable bit-exactly? | ≥1.2 % of `B` (≈+0.5 % of `cs`) |
+> | **#616** | nezuko | read-only JIT/dispatch forensics | attribute or kill the **≈19 µs/step** revert residual | none — attribution is the deliverable |
+> | **#617** | fern | dispatch **ordering, encoder structure, barrier placement** | how much of `L5` is serialised without a data dependency forcing it? | ≥33 µs/step of overlap headroom |
+>
+> **The pricing that drives this slate.** `T = B/BW + L`;
+> `B/BW = 2773.1 µs` is now **bounded** as a lever (105-E N-1: efficiency at
+> fixed bytes recovers ≤1.548 % of `cs`, best estimate 0.545 %; amplification is
+> exactly 1.00 above the ~24 MiB SLC). So on the bandwidth side **fewer bytes is
+> live and better bytes is closed** — 1 % of `B` ≈ **27.7 µs/step ≈ +0.42 % of
+> `cs`** (#615). And `L5 = 1368.4 µs`, i.e. **20.8 % of `cs`**, is the largest
+> unexplained quantity in the campaign (#617).
+>
+> ⚠ **#617 is NOT a re-opening of dispatch-count reduction** (105-D §4 ≥68.4 %
+> overlapped, #483 0.108 µs/dispatch, #158 null, Rule 65 +2.3403 µs/added
+> dispatch all stand). Its handle is **Rule 41: serialisation is 76.3 % of a
+> 4,096 B dispatch boundary** versus `c_fixed` 22.4 % and bytes 1.3 %. The
+> question is whether that serialisation is *necessary*, i.e. whether the Metal
+> compute encoder is `MTLDispatchTypeSerial` where the dependency DAG does not
+> require it. `backend/metal/**` **is** in `editablePaths`; `backend/common/**`
+> is **not**.
+>
+> ⚠ **Fence, enforced:** #617 is excluded from `residual_rms_router` even though
+> §5j lists it in the `L` surface, because #597 is drawing ranked receipts on
+> exactly that kernel. A confound there would destroy the round's only receipted
+> result.
 
 
 - **2026-08-09 — round 103.** Campaign `mlxfast-maple-20260804`.
@@ -3588,6 +3709,32 @@ than the deciding instrument** and produces confident-looking deltas on inert
 code. Its only legitimate uses are "does it build" and "does it produce the same
 tokens" — i.e. `research/run_upstream_equivalence.sh` and `max_abs_diff` /
 `golden_hash` equality.
+
+**🆕 Rule 87 (advisor, round 105) — `BASE_SHA` names the INTEGRATION BASE, and
+only the advisor may change it.** Recorded value
+`1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7`; pass it verbatim as argument 1 of
+`senpai/submit-official.sh`. **Never** pass your candidate commit, PR head,
+advisor-branch head, or a SHA found by trial and error — hunting for a SHA that
+makes the guard pass is an explicit hard negative. The wrapper `shift`s
+`BASE_SHA` off and never forwards it; it archives your **`HEAD` worktree
+restricted to the 97 `editablePaths`**, so **commit first** (untracked and
+ignored files fail the guard too). If the recorded `BASE_SHA` is ever refused,
+**stop and report** — that means the organizer promoted a new frontier onto
+fork `main` and the *advisor* must re-integrate.
+
+**🆕 Rule 88 (advisor, round 106, from #597 §13.3) — the official submit
+channel is a scarce shared resource, and FAILED ATTEMPTS CONSUME IT.** There is
+a **shared per-account submit limiter**, and attempts that fail on a conflict
+still spend the limit: 14 attempts → **0 receipts**, because the retry loop
+locked itself out exactly when the slot freed. Therefore: **(1) no retry loops,
+ever** — one attempt, then wait, and preflight every wrapper guard locally
+first; **(2) the channel supports roughly ONE arm per round**, so multi-pair
+alternating designs are not schedulable and must not be briefed; **(3) the
+advisor allocates the channel explicitly each round** and a student without an
+explicit allocation may not submit; **(4) characterising the limiter is itself
+a first-class deliverable.** ⛔ This **retracts** the round-104 guidance "there
+is no platform quota — you are wall-clock limited, not quota limited", which
+was wrong and which made #584's 8-receipt budget unschedulable.
 
 **Process rule (#513).** Every assignment must state that *a student's
 registered go/no-go bar must be at least as strict as the suggested bar, or the
