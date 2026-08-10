@@ -2737,3 +2737,30 @@ includes ignored files, so do not read it as a working-tree cleanliness proof.
 - No claim resting on `max_abs_diff` or `golden_hash` — both retracted as
   non-informative in §6.3.1, including where I myself relied on them in §4.1.
 
+### 7.6 Terminal W&B evidence run
+
+Every gate, every per-block ABBA delta, and every pricing constant quoted in this
+document is logged to a single terminal run so that a reader who does not trust the
+prose can read the numbers directly:
+
+| field | value |
+|---|---|
+| run name | `maple-fern-r106j-integration-tree-final` |
+| run id | `zuwbk8lh` |
+| URL | https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/zuwbk8lh |
+| entity/project | `wandb-applied-ai-team` / `mlxfast-maple` |
+| HEAD logged | `34ab72af3883568c40ecf4e4ae9ecf2f459f5b3d` |
+| state | `finished` |
+
+Summary keys worth reading first: `bar_cleared=False`, `gates/passed=1`,
+`gates/passed_correctness=1`, `gates/checked_steps=130`, `gates/runs_all_green=1`,
+`gates/darkbloom_expert_down_bn_set=0`, `gates/darkbloom_qmv_wide_codes_set=0`,
+`gates/build_rc=0`, `gates/build_wall_s=260`.
+
+`bar_cleared=False` is the whole result. The integrated tree is byte-identical to the
+advisor base on the scored surface (§6.1), so its measured effect is exactly `0.0000 %`
+of `cs` by construction, and the one candidate that was not identity — T0P — landed at
+`+0.0328 %` with a CI that spans zero and excludes the `0.40 %` bar at both ends
+(§5.3.6). The machine-readable copy of this table lives at
+`research/artifacts/maple-fern-r106j/wandb_final_run.json`.
+
