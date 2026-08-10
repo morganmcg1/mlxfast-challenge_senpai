@@ -431,6 +431,241 @@
       "expected_error_code": "EXTERNAL_TRUST_PIN_REQUIRED"
     }
   ],
+  "filesystem_controls": [
+    {
+      "id": "reject-missing-candidate-root",
+      "scope": "candidate_root",
+      "operation": "missing",
+      "expected_errors": [
+        {"code": "SURFACE_ROOT_MISSING", "path": "$candidate_root"},
+        {"code": "SURFACE_LISTED_FILE_MISSING", "path": "$candidate_root.Sources/MLXFastModel/Synthetic.swift"},
+        {"code": "SURFACE_FILE_MISSING", "path": "$trusted_context.identity.submitted_surface.files[0].path"}
+      ]
+    },
+    {
+      "id": "reject-symlinked-candidate-root",
+      "scope": "candidate_root",
+      "operation": "symlink",
+      "expected_errors": [{"code": "SURFACE_ROOT_SYMLINK", "path": "$candidate_root"}]
+    },
+    {
+      "id": "reject-regular-candidate-root",
+      "scope": "candidate_root",
+      "operation": "regular",
+      "expected_errors": [{"code": "SURFACE_ROOT_NOT_DIRECTORY", "path": "$candidate_root"}]
+    },
+    {
+      "id": "reject-fifo-candidate-root",
+      "scope": "candidate_root",
+      "operation": "fifo",
+      "expected_errors": [{"code": "SURFACE_ROOT_NOT_DIRECTORY", "path": "$candidate_root"}]
+    },
+    {
+      "id": "reject-missing-artifact-root",
+      "scope": "artifact_root",
+      "operation": "missing",
+      "expected_errors": [{"code": "ARTIFACT_ROOT_MISSING", "path": "$artifact_root"}]
+    },
+    {
+      "id": "reject-symlinked-artifact-root",
+      "scope": "artifact_root",
+      "operation": "symlink",
+      "expected_errors": [{"code": "ARTIFACT_ROOT_SYMLINK", "path": "$artifact_root"}]
+    },
+    {
+      "id": "reject-regular-artifact-root",
+      "scope": "artifact_root",
+      "operation": "regular",
+      "expected_errors": [{"code": "ARTIFACT_ROOT_NOT_DIRECTORY", "path": "$artifact_root"}]
+    },
+    {
+      "id": "reject-fifo-artifact-root",
+      "scope": "artifact_root",
+      "operation": "fifo",
+      "expected_errors": [{"code": "ARTIFACT_ROOT_NOT_DIRECTORY", "path": "$artifact_root"}]
+    },
+    {
+      "id": "reject-directory-candidate-entry",
+      "scope": "candidate_entry",
+      "operation": "directory",
+      "expected_errors": [
+        {"code": "SURFACE_LISTED_FILE_MISSING", "path": "$candidate_root.Sources/MLXFastModel/Synthetic.swift"},
+        {"code": "SURFACE_FILE_NOT_REGULAR", "path": "$trusted_context.identity.submitted_surface.files[0].path"}
+      ]
+    },
+    {
+      "id": "reject-fifo-candidate-entry",
+      "scope": "candidate_entry",
+      "operation": "fifo",
+      "expected_errors": [
+        {"code": "SURFACE_FILE_NOT_REGULAR", "path": "$candidate_root.Sources/MLXFastModel/Synthetic.swift"},
+        {"code": "SURFACE_LISTED_FILE_MISSING", "path": "$candidate_root.Sources/MLXFastModel/Synthetic.swift"},
+        {"code": "SURFACE_FILE_NOT_REGULAR", "path": "$trusted_context.identity.submitted_surface.files[0].path"}
+      ]
+    },
+    {
+      "id": "reject-symlinked-candidate-entry",
+      "scope": "candidate_entry",
+      "operation": "symlink",
+      "expected_errors": [
+        {"code": "SURFACE_FILE_SYMLINK", "path": "$candidate_root.Sources/MLXFastModel/Synthetic.swift"},
+        {"code": "SURFACE_LISTED_FILE_MISSING", "path": "$candidate_root.Sources/MLXFastModel/Synthetic.swift"},
+        {"code": "SURFACE_FILE_SYMLINK", "path": "$trusted_context.identity.submitted_surface.files[0].path"}
+      ]
+    },
+    {
+      "id": "reject-directory-artifact-entry",
+      "scope": "artifact_entry",
+      "operation": "directory",
+      "expected_errors": [{"code": "ARTIFACT_NOT_REGULAR", "path": "$.artifact_manifest[0].path"}]
+    },
+    {
+      "id": "reject-fifo-artifact-entry",
+      "scope": "artifact_entry",
+      "operation": "fifo",
+      "expected_errors": [{"code": "ARTIFACT_NOT_REGULAR", "path": "$.artifact_manifest[0].path"}]
+    },
+    {
+      "id": "reject-symlinked-artifact-entry",
+      "scope": "artifact_entry",
+      "operation": "symlink",
+      "expected_errors": [{"code": "ARTIFACT_SYMLINK", "path": "$.artifact_manifest[0].path"}]
+    },
+    {
+      "id": "reject-disappearing-candidate-entry",
+      "scope": "candidate_transition",
+      "operation": "disappears",
+      "expected_errors": [
+        {"code": "SURFACE_ENTRY_CHANGED", "path": "$candidate_root.Sources/MLXFastModel/Synthetic.swift"},
+        {"code": "SURFACE_SCAN_CHANGED", "path": "$candidate_root.Sources/MLXFastModel"},
+        {"code": "SURFACE_SCAN_CHANGED", "path": "$candidate_root.Sources"}
+      ]
+    },
+    {
+      "id": "reject-unreadable-candidate-entry",
+      "scope": "candidate_transition",
+      "operation": "unreadable",
+      "expected_errors": [
+        {"code": "SURFACE_FILE_UNREADABLE", "path": "$candidate_root.Sources/MLXFastModel/Synthetic.swift"},
+        {"code": "SURFACE_SCAN_CHANGED", "path": "$candidate_root.Sources/MLXFastModel"}
+      ]
+    },
+    {
+      "id": "reject-disappearing-artifact-entry",
+      "scope": "artifact_transition",
+      "operation": "disappears",
+      "expected_errors": [{"code": "ARTIFACT_DISAPPEARED", "path": "$.artifact_manifest[0].path"}]
+    },
+    {
+      "id": "reject-unreadable-artifact-entry",
+      "scope": "artifact_transition",
+      "operation": "unreadable",
+      "expected_errors": [{"code": "ARTIFACT_UNREADABLE", "path": "$.artifact_manifest[0].path"}]
+    },
+    {
+      "id": "reject-missing-o-cloexec",
+      "scope": "descriptor_safety",
+      "operation": "missing_flag",
+      "flag": "O_CLOEXEC",
+      "expected_errors": [{"code": "DESCRIPTOR_SAFETY_UNAVAILABLE", "path": "$verifier.filesystem"}]
+    },
+    {
+      "id": "reject-missing-o-directory",
+      "scope": "descriptor_safety",
+      "operation": "missing_flag",
+      "flag": "O_DIRECTORY",
+      "expected_errors": [{"code": "DESCRIPTOR_SAFETY_UNAVAILABLE", "path": "$verifier.filesystem"}]
+    },
+    {
+      "id": "reject-missing-o-nofollow",
+      "scope": "descriptor_safety",
+      "operation": "missing_flag",
+      "flag": "O_NOFOLLOW",
+      "expected_errors": [{"code": "DESCRIPTOR_SAFETY_UNAVAILABLE", "path": "$verifier.filesystem"}]
+    },
+    {
+      "id": "reject-missing-o-nonblock",
+      "scope": "descriptor_safety",
+      "operation": "missing_flag",
+      "flag": "O_NONBLOCK",
+      "expected_errors": [{"code": "DESCRIPTOR_SAFETY_UNAVAILABLE", "path": "$verifier.filesystem"}]
+    },
+    {
+      "id": "reject-missing-stat-nofollow-capability",
+      "scope": "descriptor_capability",
+      "operation": "missing_capability",
+      "capability": "stat(dir_fd,follow_symlinks=False)",
+      "expected_hook_fired": false,
+      "expected_descriptor_count": 0,
+      "expected_errors": [
+        {
+          "code": "DESCRIPTOR_SAFETY_UNAVAILABLE",
+          "path": "$verifier.filesystem",
+          "message": "required descriptor safety is unavailable: stat(dir_fd,follow_symlinks=False)"
+        }
+      ]
+    },
+    {
+      "id": "reject-candidate-root-replaced-after-inspection",
+      "scope": "candidate_root_race",
+      "operation": "replace_after_inspection",
+      "expected_errors": [{"code": "SURFACE_ROOT_CHANGED", "path": "$candidate_root"}]
+    },
+    {
+      "id": "reject-candidate-root-replaced-after-open",
+      "scope": "candidate_root_race",
+      "operation": "replace_after_open",
+      "expected_errors": [{"code": "SURFACE_ROOT_CHANGED", "path": "$candidate_root"}]
+    },
+    {
+      "id": "reject-artifact-root-replaced-after-inspection",
+      "scope": "artifact_root_race",
+      "operation": "replace_after_inspection",
+      "expected_errors": [{"code": "ARTIFACT_ROOT_CHANGED", "path": "$artifact_root"}]
+    },
+    {
+      "id": "reject-artifact-root-replaced-after-open",
+      "scope": "artifact_root_race",
+      "operation": "replace_after_open",
+      "expected_errors": [{"code": "ARTIFACT_ROOT_CHANGED", "path": "$artifact_root"}]
+    },
+    {
+      "id": "reject-replaced-candidate-nested-directory",
+      "scope": "candidate_entry_race",
+      "operation": "replace_directory",
+      "relative": "Sources/MLXFastModel",
+      "expected_errors": [
+        {"code": "SURFACE_ENTRY_CHANGED", "path": "$candidate_root.Sources/MLXFastModel"},
+        {"code": "SURFACE_SCAN_CHANGED", "path": "$candidate_root.Sources"},
+        {"code": "SURFACE_SCAN_CHANGED", "path": "$candidate_root"}
+      ]
+    },
+    {
+      "id": "reject-replaced-candidate-file",
+      "scope": "candidate_entry_race",
+      "operation": "replace_file",
+      "relative": "Sources/MLXFastModel/Synthetic.swift",
+      "expected_errors": [
+        {"code": "SURFACE_ENTRY_CHANGED", "path": "$candidate_root.Sources/MLXFastModel/Synthetic.swift"},
+        {"code": "SURFACE_SCAN_CHANGED", "path": "$candidate_root.Sources/MLXFastModel"},
+        {"code": "SURFACE_SCAN_CHANGED", "path": "$candidate_root.Sources"}
+      ]
+    },
+    {
+      "id": "reject-replaced-artifact-nested-directory",
+      "scope": "artifact_entry_race",
+      "operation": "replace_directory",
+      "relative": "artifacts",
+      "expected_errors": [{"code": "ARTIFACT_CHANGED", "path": "$.artifact_manifest[0].path"}]
+    },
+    {
+      "id": "reject-replaced-artifact-file",
+      "scope": "artifact_entry_race",
+      "operation": "replace_file",
+      "relative": "artifacts/isolated-rows.json",
+      "expected_errors": [{"code": "ARTIFACT_CHANGED", "path": "$.artifact_manifest[0].path"}]
+    }
+  ],
   "candidate_files": [
     {
       "path": "Sources/MLXFastModel/Synthetic.swift",
