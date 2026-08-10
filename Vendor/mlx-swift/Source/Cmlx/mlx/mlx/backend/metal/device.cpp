@@ -2,7 +2,6 @@
 
 #include <cstdlib>
 #include <sstream>
-#include <tuple>
 
 #include <fmt/format.h>
 
@@ -32,140 +31,6 @@ struct hash<NS::SharedPtr<T>> {
 namespace mlx::core::metal {
 
 namespace {
-
-// LOCAL-ONLY GPU dispatch profiler (revert before any timing run).
-// Emits one line per command buffer on stderr:
-//   GPUPROF <gpu_start_s> <gpu_end_s> <nops> <input_bytes> <name>|<name>|...
-// input_bytes sums array::nbytes() over arrays first bound as inputs in this
-// command buffer. It excludes outputs, de-duplicates repeats within one buffer,
-// and charges each bound array in full whether or not the kernel reads all of
-// it, so it measures binding rather than DRAM traffic.
-// gpu_start/gpu_end share the mach-absolute epoch with CACurrentMediaTime and
-// with Python's time.perf_counter on macOS, so a driver can window the records
-// to a single phase.
-class GpuDispatchProfiler {
- public:
-  static GpuDispatchProfiler& instance() {
-    static GpuDispatchProfiler p;
-    return p;
-  }
-
-  bool enabled() const {
-    return enabled_;
-  }
-
-  // Cap dispatches per command buffer so each GPUPROF record times a small,
-  // known group. 1 gives single-dispatch attribution; larger values sweep
-  // co-residency. Inflates absolute time by per-command-buffer GPU overhead,
-  // so use it for attribution only. 0 keeps the shipped batching policy.
-  int split() const {
-    return split_;
-  }
-
-  void register_pso(const void* pso, const std::string& name) {
-    if (!enabled_) {
-      return;
-    }
-    std::lock_guard<std::mutex> lock(mtx_);
-    pso_names_.emplace(pso, name);
-  }
-
-  void record(
-      const std::vector<const void*>& psos,
-      double gpu_start,
-      double gpu_end,
-      size_t input_bytes) {
-    if (!enabled_ || psos.empty()) {
-      return;
-    }
-    std::lock_guard<std::mutex> lock(mtx_);
-    std::string line = fmt::format(
-        "GPUPROF {:.9f} {:.9f} {} {} ",
-        gpu_start,
-        gpu_end,
-        psos.size(),
-        input_bytes);
-    for (size_t i = 0; i < psos.size(); ++i) {
-      if (i) {
-        line += "|";
-      }
-      auto it = pso_names_.find(psos[i]);
-      line += (it == pso_names_.end()) ? "<unnamed>" : it->second;
-    }
-    line += "\n";
-    fputs(line.c_str(), stderr);
-  }
-
-  // Emits one GPUDIM line per distinct (pso, grid, threadgroup) shape:
-  //   GPUDIM <tg|th> <gx> <gy> <gz> <tx> <ty> <tz> <name>
-  // De-duplicated so the stderr write stays out of the steady-state dispatch
-  // loop and cannot perturb the SPLIT=0 wall.
-  void record_dims(
-      const void* pso,
-      const char* mode,
-      const MTL::Size& grid,
-      const MTL::Size& group) {
-    if (!enabled_ || pso == nullptr) {
-      return;
-    }
-    auto key = std::make_tuple(
-        pso,
-        mode,
-        grid.width,
-        grid.height,
-        grid.depth,
-        group.width,
-        group.height,
-        group.depth);
-    std::lock_guard<std::mutex> lock(mtx_);
-    if (!seen_dims_.insert(key).second) {
-      return;
-    }
-    auto it = pso_names_.find(pso);
-    fprintf(
-        stderr,
-        "GPUDIM %s %zu %zu %zu %zu %zu %zu %s\n",
-        mode,
-        grid.width,
-        grid.height,
-        grid.depth,
-        group.width,
-        group.height,
-        group.depth,
-        (it == pso_names_.end()) ? "<unnamed>" : it->second.c_str());
-  }
-
- private:
-  GpuDispatchProfiler() {
-    const char* e = std::getenv("DARKBLOOM_GPU_PROFILE");
-    enabled_ = e != nullptr && std::string(e) != "0";
-    const char* s = std::getenv("DARKBLOOM_GPU_PROFILE_SPLIT");
-    split_ = (enabled_ && s != nullptr) ? std::atoi(s) : 0;
-  }
-
-  using DimKey = std::
-      tuple<const void*, std::string, size_t, size_t, size_t, size_t, size_t, size_t>;
-
-  struct DimKeyHash {
-    size_t operator()(const DimKey& k) const {
-      size_t h = std::hash<const void*>{}(std::get<0>(k));
-      h = h * 1000003 ^ std::hash<std::string>{}(std::get<1>(k));
-      h = h * 1000003 ^ std::get<2>(k);
-      h = h * 1000003 ^ std::get<3>(k);
-      h = h * 1000003 ^ std::get<4>(k);
-      h = h * 1000003 ^ std::get<5>(k);
-      h = h * 1000003 ^ std::get<6>(k);
-      h = h * 1000003 ^ std::get<7>(k);
-      return h;
-    }
-  };
-
-  bool enabled_{false};
-  int split_{0};
-  std::mutex mtx_;
-  std::unordered_map<const void*, std::string> pso_names_;
-  std::unordered_set<DimKey, DimKeyHash> seen_dims_;
-};
 
 constexpr const char* default_mtllib_path = METAL_PATH;
 
@@ -453,7 +318,6 @@ void CommandEncoder::set_input_array(
     int64_t offset /* = 0 */) {
   if (all_inputs_.insert(a.buffer().ptr()).second) {
     buffer_sizes_ += a.data_size();
-    profile_nbytes_ += a.nbytes();
   }
   auto r_buf = static_cast<MTL::Resource*>(const_cast<void*>(a.buffer().ptr()));
   next_inputs_.insert(r_buf);
@@ -515,11 +379,6 @@ void CommandEncoder::dispatch_threadgroups(
     MTL::Size group_dims) {
   maybeInsertBarrier();
   buffer_ops_++;
-  if (GpuDispatchProfiler::instance().enabled()) {
-    profile_psos_.push_back(current_pso_);
-    GpuDispatchProfiler::instance().record_dims(
-        current_pso_, "tg", grid_dims, group_dims);
-  }
   get_command_encoder()->dispatchThreadgroups(grid_dims, group_dims);
 }
 
@@ -528,11 +387,6 @@ void CommandEncoder::dispatch_threads(
     MTL::Size group_dims) {
   maybeInsertBarrier();
   buffer_ops_++;
-  if (GpuDispatchProfiler::instance().enabled()) {
-    profile_psos_.push_back(current_pso_);
-    GpuDispatchProfiler::instance().record_dims(
-        current_pso_, "th", grid_dims, group_dims);
-  }
   get_command_encoder()->dispatchThreads(grid_dims, group_dims);
 }
 
@@ -628,9 +482,6 @@ void CommandEncoder::wait_event(
 }
 
 bool CommandEncoder::needs_commit() const {
-  if (int n = GpuDispatchProfiler::instance().split(); n > 0) {
-    return buffer_ops_ >= n;
-  }
   auto [max_ops, max_mb] = device_.get_max_ops_mb_per_buffer();
   return (buffer_ops_ > max_ops) || ((buffer_sizes_ >> 20) > max_mb);
 }
@@ -640,17 +491,10 @@ void CommandEncoder::commit(std::function<void()> completion) {
       [&error_ = error_,
        wait_events = std::move(wait_events_),
        signal_events = std::move(signal_events_),
-       profile_psos = std::move(profile_psos_),
-       profile_bytes = profile_nbytes_,
        completion = std::move(completion)](MTL::CommandBuffer* cbuf) {
         if (completion) {
           completion();
         }
-        GpuDispatchProfiler::instance().record(
-            profile_psos,
-            cbuf->GPUStartTime(),
-            cbuf->GPUEndTime(),
-            profile_bytes);
         // If any of the waited event has error in it, poison the encoder.
         for (auto& event : wait_events) {
           if (event->error()) {
@@ -683,8 +527,6 @@ void CommandEncoder::commit(std::function<void()> completion) {
   buffer_ = NS::RetainPtr(queue_->commandBufferWithUnretainedReferences());
   buffer_ops_ = 0;
   buffer_sizes_ = 0;
-  profile_nbytes_ = 0;
-  profile_psos_.clear();
 }
 
 void CommandEncoder::synchronize() {
@@ -994,18 +836,6 @@ MTL::ComputePipelineState* Device::get_kernel_(
 
   // Add kernel to cache
   kernel_map_.insert({hash_name, kernel});
-  GpuDispatchProfiler::instance().register_pso(kernel.get(), hash_name);
-  if (GpuDispatchProfiler::instance().enabled()) {
-    // Occupancy proxy: maxTotalThreadsPerThreadgroup falls when a kernel's
-    // register footprint grows, so a staging change that spills is visible.
-    fprintf(
-        stderr,
-        "GPUPSO %s maxThreads=%zu execWidth=%zu tgMem=%zu\n",
-        hash_name.c_str(),
-        kernel->maxTotalThreadsPerThreadgroup(),
-        kernel->threadExecutionWidth(),
-        kernel->staticThreadgroupMemoryLength());
-  }
 
   return kernel.get();
 }
