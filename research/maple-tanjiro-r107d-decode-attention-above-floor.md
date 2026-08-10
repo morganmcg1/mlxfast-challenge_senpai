@@ -41,7 +41,7 @@ named with what makes it different.
 | Rule 98 (routed gate/up QMV null prior) | Scoped to the routed gate/up quantised matvec | Attention work is permitted by rule 98; its null prior is respected, and the whole 98.3/98.4/98.5/98.9 control apparatus is applied below. |
 | `lagunaRoPEAtlasViewsEnabled` (`LagunaRuntimeModel.swift:628`, default OFF) | Alternate RoPE table views | Flag untouched, still OFF, and not exercised by this probe. |
 | Wider per-lane loads (#597) | Widened the per-lane K/V load width | Forbidden without a frieren margin certificate; not attempted, not built, not measured as a candidate. #597 §:502-516 is cited below only as prior evidence about *cross-barrier placement*. |
-| Cross-threadgroup redundant K RMSNorm + RoPE | Removes duplicated K-side normalisation across TGs | Not attempted. §9 shows the duplicated *reads* are cache hits worth ≤0.025 % of `cs`, which also bounds the value of de-duplicating them for bytes. |
+| Cross-threadgroup redundant K RMSNorm + RoPE | Removes duplicated K-side normalisation across TGs | Not attempted. §9 shows the duplicated *reads* are cache hits worth ≤0.023 % of `cs`, which also bounds the value of de-duplicating them for bytes. |
 | Dispatch-count reduction (rule 53, #502, #48, rule 65) | Fewer command-buffer dispatches | Dispatch count is unchanged; every number here is per-dispatch kernel time. |
 | **R107-B (alphonse)** | Routed QMV kernel `LRM:7915-8027`, `threadgroupMemory = 0 B`, bitwise revert of depth-1 staging, verdict GATE CLOSED | A different kernel family and a different lever. R107-B's conclusion (issue-bound at 42.9 % of DRAM peak) is *corroborating context* for the MoE side; this report re-derives the same conclusion independently for the attention family from a dose curve rather than a revert. |
 | **#540 (merged) — `CURRENT_RESEARCH_STATE.md` §5b `:2853-2881`, ledger row `:5736`; rule 82 `:804-812`, restated `:3898`** | Every prefetch-expressing variant of the attention kernel regressed **+5 … +7 %** at flat dose–response and identical occupancy. Verbatim: *"'issue work earlier across a barrier' is closed for the attention family."* Rule 82 **bans hoisting in the fused attention family**. #597 `:502-516`: *"the cost is the cross-barrier placement of the prefetch salvo, not the four loads."* | **This is a direct conflict with lever P1 as briefed**, and it is the reason the Stage-1 gate was worth running before touching the kernel. See §11 and the *Reply to advisor*. The present experiment does not hoist anything; it only measures. |
@@ -144,6 +144,33 @@ occupancy gate. Every dosed arm below reports
 18,432 B`, unchanged from base, which is the strongest available evidence that
 the dose did not spill or change occupancy. That is the confound that would
 otherwise fake an instruction-cost signal.
+
+### 5b. Upstream-equivalence gate on the unmodified tree — artifact `stage0-upstream-equivalence-base.txt`
+
+`research/run_upstream_equivalence.sh` was run on the exact tree reported here.
+Because the submitted diff is zero bytes, this is a measurement of the **base**,
+not of a candidate. It **fails on this host**, and the failure is worth stating
+precisely rather than glossing:
+
+* `EQUIVALENCE_EXACT_STEPS=8`, `EQUIVALENCE_EXIT=1`, 1 test executed (not a
+  zero-test invocation), 37.3 s.
+* Every greedy token matches: `runtimeToken == upstreamToken` on prefill and all
+  8 decode steps (5991/509/902/5991/…).
+* All 8 decode steps are **bit-exact**: `maximumAbsoluteLogitError = 0`.
+* The single failing quantity is **prefill** `maximumAbsoluteLogitError = 0.125`
+  (mean 0.0119) against the test's tolerance of exactly `0.0`.
+
+The test is `lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled` — an
+M5-targeted exactness assertion — and the divergence is confined to the prefill
+axis, which is precisely the axis where this gen-16 host does not select the
+`_nax` prefill kernels that the ranked M5 uses (§4). This is the documented
+non-M5 base-divergence case; `MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT` was **not** set,
+no gate was relaxed, and the failure is recorded here as a base property of a
+non-ranked host. It cannot be attributed to this experiment: there is nothing to
+attribute, the diff is empty. The decode axis — the only axis this experiment
+touches or reasons about — is bit-exact and token-identical, and the
+`--local-iterate` anchor on the same tree reports `max_abs_diff = 0` with the
+expected `golden_hash`.
 
 ## 6. Geometry and occupancy control — artifact `stage0-occupancy-control.txt`
 
@@ -287,7 +314,7 @@ directly by the Phase-E ladder K=1→K=4, where the request rate quadruples at
 constant unique bytes: **+0.09 µs, ≈0.5 % of the call**. De-amplifying would
 require collapsing 32 TGs to 8 (0.4 TG/core), which the wave staircase in §6
 says is much worse. Score value of a perfect fix:
-30 × 0.09 µs × 0.556 × 0.015228 ≈ **0.025 % of `cs`** — about 16× below the
+30 × 0.09 µs × 0.556 × 0.015228 ≈ **0.023 % of `cs`** — about 17× below the
 0.4 % bar. This also bounds the value of the cross-threadgroup redundant K
 RMSNorm+RoPE idea *on the bytes axis*; its instruction axis is a separate,
 still-open question (see §13).
@@ -421,7 +448,7 @@ Using the M5/M4 per-dispatch ratio (sliding 10.317/18.6 ≈ 0.556; full
 **Only instruction-count reduction pays on this axis.** Every byte lever and
 every latency lever in the assignment's own list is dead on arrival: bytes are
 41.8 % of the call and already 2.1× cheaper than the non-byte term, latency slack
-is zero, and the 4× request amplification is worth 0.025 % of `cs`.
+is zero, and the 4× request amplification is worth 0.023 % of `cs`.
 
 ---
 
@@ -454,6 +481,7 @@ bash research/maple-tanjiro-r107d-mask-suite.sh
 | `baseline-run0.json` | unmodified-tree `--local-iterate` correctness/provenance anchor |
 | `stage0-arch-reach.txt` | `_nax` gate quote, `nax_available=false`, grep evidence |
 | `stage0-occupancy-control.txt` | pipeline properties for both kernels, Phase-C maxK, Phase-E K ladder |
+| `stage0-upstream-equivalence-base.txt` | equivalence run on the unmodified tree: 9/9 greedy tokens match, 8/8 decode steps bit-exact, prefill-only `0.125` divergence |
 | `stage1a-bytes-defeat.txt` | rows dose curve, defeated |
 | `stage1b-sliding-s64-dose{0,4,16}.txt` | session-1 sliding instruction dose, defeated |
 | `stage1b-sliding-s64s2-dose{0,4,16}.txt` | session-2 sliding replication, defeated |
@@ -481,7 +509,8 @@ Instruments (research-only, not submitted): `maple-tanjiro-r107d-arch-reach.swif
    A barrier-count dose (inject a redundant `threadgroup_barrier`, measure) is a
    cheap, well-controlled way to price them and was out of scope here.
 4. Do **not** re-open prefetch hoisting, ring depth, split-K, or wider loads on
-   this family without new physics; §6–§8 plus #540 now bound all four.
+   this family without new physics; §6–§8 plus #540 now bound all four. P2 and P3
+   are likewise closed by §10 arithmetic — real mechanisms, 6× to 60× too small.
 
 ---
 
