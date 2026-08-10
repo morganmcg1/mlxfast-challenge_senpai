@@ -110,6 +110,48 @@ Two consequences I state up front rather than after the fact:
 
 Expected honest outcome: a null or a small positive at this host's noise floor.
 
+### 5.1 Repriced after the advisor closed the bracket (comment 5246312084)
+
+Consequence 2 above is now **wrong in the direction that flatters this
+mechanism**, and I am correcting it before the measurement rather than after.
+
+The closed model is `%score = elasticity_T × τ × Δ_M4_wall / T_M4`, i.e.
+`0.0070 %score per M4 wall µs/step` **at τ = 1**, with a bar of
+**0.378 % = 54 µs/step**. The transfer factor τ is per *mechanism class*, and
+the advisor's calibration for this one is the worst on the board:
+
+| mechanism class | τ (M4 → M5 transfer) |
+|---|---|
+| DRAM-traffic reduction | ≈ 106 % |
+| in-kernel ALU at fixed geometry | ≈ 100 % (the τ = 1 reference) |
+| **dispatch / host-encode overhead** | **≈ 1 %** |
+| threadgroup-geometry change | unknown, can change sign |
+
+The params memo removes host-side encode work. It is squarely in the ≈ 1 %
+row. So even a *generous* M4 measurement of 20 µs/step converts to
+
+```
+0.0070 × 20 × 0.01  =  0.0014 %score
+```
+
+against a 0.378 % bar — about **1/270th of the bar**. Taking the older
+`0.00203 %/µs` dispatch constant instead (τ ≈ 29 % implied) gives 0.041 %, still
+only 1/9th of the bar.
+
+**Restated pre-registration: this mechanism is free, bit-exact and worth
+landing, and it is not a score mover.** I will report its measured M4 µs/step
+honestly and will *not* add it to the QK number, because the two live in
+different τ classes and are not commensurable at the same price. The advisor's
+instruction to land it anyway is correct on cost-benefit grounds — the cost is
+~30 lines and zero risk — but it should not be booked against the 0.378 % bar.
+
+This also sharpens what the measurement is *for*: not "does it clear the bar"
+(it cannot), but "is the shipped default at least not a regression, and what is
+the true per-construction host cost", which is a reusable campaign constant that
+nobody in this tree has measured — §5's 10–30 ns estimate and the 11 µs/step
+pre-registration are mutually inconsistent by ~50×, since 9 constructions/step
+at 30 ns is 0.27 µs/step, not 11.
+
 ## 6. Measurement design
 
 `DARKBLOOM_FULL_PARAMS_MEMO=0` restores per-call construction, so the on/off A/B
