@@ -64,50 +64,55 @@ def prod(xs):
     return p
 
 
-rows = []
-with open(TSV) as f:
-    for line in f:
-        p = line.rstrip('\n').split('\t')
-        if len(p) < 10:
-            p = p + [''] * (10 - len(p))
-        try:
-            seq = int(p[0])
-        except ValueError:
-            continue
-        if not (LO <= seq <= HI):
-            continue
-        rows.append({
-            'seq': seq, 'kernel': p[1], 'kind': p[2],
-            'grid': tuple(int(v) for v in p[3].split('x')),
-            'group': tuple(int(v) for v in p[4].split('x')),
-            'args': parse_args(p[5]), 'barrier': p[6], 'enc': p[7],
-            'ins': parse_bufs(p[8]), 'outs': parse_bufs(p[9]),
-        })
+def main():
+    rows = []
+    with open(TSV) as f:
+        for line in f:
+            p = line.rstrip('\n').split('\t')
+            if len(p) < 10:
+                p = p + [''] * (10 - len(p))
+            try:
+                seq = int(p[0])
+            except ValueError:
+                continue
+            if not (LO <= seq <= HI):
+                continue
+            rows.append({
+                'seq': seq, 'kernel': p[1], 'kind': p[2],
+                'grid': tuple(int(v) for v in p[3].split('x')),
+                'group': tuple(int(v) for v in p[4].split('x')),
+                'args': parse_args(p[5]), 'barrier': p[6], 'enc': p[7],
+                'ins': parse_bufs(p[8]), 'outs': parse_bufs(p[9]),
+            })
 
-print(f'prefill forward #1: {len(rows)} dispatches, seq {rows[0]["seq"]}..{rows[-1]["seq"]}')
-print(f'encoders: {len(set(r["enc"] for r in rows))}')
-print(f'barriers set: {sum(1 for r in rows if r["barrier"] == "1")}')
+    print(f'prefill forward #1: {len(rows)} dispatches, seq {rows[0]["seq"]}..{rows[-1]["seq"]}')
+    print(f'encoders: {len(set(r["enc"] for r in rows))}')
+    print(f'barriers set: {sum(1 for r in rows if r["barrier"] == "1")}')
 
-bind = defaultdict(float)
-cnt = defaultdict(int)
-for r in rows:
-    bufs = dict(r['ins'])
-    for ptr, nb in r['outs'].items():
-        bufs[ptr] = max(bufs.get(ptr, 0), nb)
-    fam = family(r['kernel'])
-    r['fam'] = fam
-    r['bind'] = sum(bufs.values())
-    bind[fam] += r['bind']
-    cnt[fam] += 1
+    bind = defaultdict(float)
+    cnt = defaultdict(int)
+    for r in rows:
+        bufs = dict(r['ins'])
+        for ptr, nb in r['outs'].items():
+            bufs[ptr] = max(bufs.get(ptr, 0), nb)
+        fam = family(r['kernel'])
+        r['fam'] = fam
+        r['bind'] = sum(bufs.values())
+        bind[fam] += r['bind']
+        cnt[fam] += 1
 
-tot = sum(bind.values())
-print('\n=== BINDING bytes, prefill forward #1 (M4 trace, host-independent operands) ===')
-print(f'{"family":<22}{"n":>6}{"GB":>12}')
-for fam, _ in FAMILIES + [('other', '')]:
-    if cnt[fam]:
-        print(f'{fam:<22}{cnt[fam]:>6}{bind[fam]/1e9:>12.4f}')
-print(f'{"TOTAL":<22}{len(rows):>6}{tot/1e9:>12.4f}')
+    tot = sum(bind.values())
+    print('\n=== BINDING bytes, prefill forward #1 (M4 trace, host-independent operands) ===')
+    print(f'{"family":<22}{"n":>6}{"GB":>12}')
+    for fam, _ in FAMILIES + [('other', '')]:
+        if cnt[fam]:
+            print(f'{fam:<22}{cnt[fam]:>6}{bind[fam]/1e9:>12.4f}')
+    print(f'{"TOTAL":<22}{len(rows):>6}{tot/1e9:>12.4f}')
 
-json.dump({'n': len(rows), 'bind_gb': {k: v / 1e9 for k, v in bind.items()},
-           'count': dict(cnt), 'total_gb': tot / 1e9},
-          open('research/r106i/binding.json', 'w'), indent=1)
+    json.dump({'n': len(rows), 'bind_gb': {k: v / 1e9 for k, v in bind.items()},
+               'count': dict(cnt), 'total_gb': tot / 1e9},
+              open('research/r106i/binding.json', 'w'), indent=1)
+
+
+if __name__ == '__main__':
+    main()
