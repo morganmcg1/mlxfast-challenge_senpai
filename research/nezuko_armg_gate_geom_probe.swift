@@ -52,6 +52,7 @@ let preamble = """
     #include <metal_stdlib>
     #include <metal_simdgroup>
     using namespace metal;
+    using bfloat16_t = bfloat;
 
     inline float log1p(float x) {
       float xp1 = 1.0f + x;
