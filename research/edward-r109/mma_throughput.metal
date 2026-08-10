@@ -44,17 +44,21 @@ FMA_ARM(16)
                             device atomic_uint* trips [[buffer(1)]],          \
                             constant uint& loops [[buffer(2)]],               \
                             uint gid [[thread_position_in_grid]]) {           \
-    /* Runtime fill values: constant operands let the compiler fold A*B into \
-       a constant matrix and demote the MMA to an add. */                      \
-    simdgroup_matrix<bfloat, 8, 8> A = make_filled_simdgroup_matrix<bfloat,    \
-        8, 8>(bfloat(0.001f + 1e-9f * float(gid)));                           \
+    /* A is refilled from a scalar recurrence every iteration. With A and B    \
+       both loop-invariant the compiler strength-reduces the whole chain to    \
+       one product plus a scale and the reported rate is fiction; the arm      \
+       times then stay flat as N grows, which is the tell. */                  \
+    float av = 0.001f + 1e-9f * float(gid);                                   \
     simdgroup_matrix<bfloat, 8, 8> B = make_filled_simdgroup_matrix<bfloat,    \
         8, 8>(bfloat(0.002f + 1e-9f * float(gid)));                           \
     simdgroup_matrix<float, 8, 8> c[N];                                       \
     for (uint j = 0; j < N; ++j)                                              \
       c[j] = make_filled_simdgroup_matrix<float, 8, 8>(float(j) + 0.5f);      \
     uint n = 0;                                                               \
+    simdgroup_matrix<bfloat, 8, 8> A = B;                                     \
     for (; n < loops; ++n) {                                                  \
+      av = fma(av, 1.0000001f, 1e-9f);                                        \
+      A = make_filled_simdgroup_matrix<bfloat, 8, 8>(bfloat(av));             \
       for (uint j = 0; j < N; ++j)                                            \
         simdgroup_multiply_accumulate(c[j], A, B, c[j]);                       \
     }                                                                         \
