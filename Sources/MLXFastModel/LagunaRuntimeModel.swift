@@ -7732,17 +7732,15 @@ METAL_FUNC uint laguna_router_top8_extract_round(
 """
 
 private let lagunaRouterTop8PrecomputedPrelude = """
-thread uint top8_winner = 0u;
-    {
-        thread uint top8_keys[8];
-        for (uint j = 0; j < 8; ++j) {
-            top8_keys[j] = router_keys[lane + 32u * j];
-        }
-        uint top8_mask = 0u;
-        for (uint r = 0; r <= expert_slot; ++r) {
-            top8_winner = laguna_router_top8_extract_round(
-                top8_keys, top8_mask, lane);
-        }
+thread uint top8_keys[8];
+    for (uint j = 0; j < 8; ++j) {
+        top8_keys[j] = router_keys[lane + 32u * j];
+    }
+    uint top8_mask = 0u;
+    uint top8_winner = 0u;
+    for (uint r = 0; r <= expert_slot; ++r) {
+        top8_winner = laguna_router_top8_extract_round(
+            top8_keys, top8_mask, lane);
     }
 """
 
@@ -7769,21 +7767,11 @@ private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
 let lagunaRoutedGateUpR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTED_GATEUP_R1"] != "0"
 
-private let lagunaRouterTop8PrecomputedControlPrelude = """
-thread uint top8_keys[8];
-for (uint j = 0; j < 8; ++j) {
-    top8_keys[j] = router_keys[lane + 32u * j];
-}
-uint top8_mask = 0u;
-uint top8_winner = 0u;
-for (uint r = 0; r <= expert_slot; ++r) {
-    top8_winner = laguna_router_top8_extract_round(
-        top8_keys, top8_mask, lane);
-}
-"""
-
-private func lagunaRoutedSwiGLUQMVPackedTop8R1Source(prelude: String) -> String {
-"""
+private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
+    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
+    inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
+    outputNames: ["activated"],
+    source: """
 constexpr uint input_width = 2048;
 constexpr uint output_width = 512;
 constexpr uint block_width = 512;
@@ -7804,7 +7792,7 @@ uint tile = group / routed_experts;
 uint simd_group = simdgroup_index_in_threadgroup;
 uint lane = thread_index_in_simdgroup;
 uint logical_row = tile * 2 + simd_group;
-\(prelude)
+\(lagunaRouterTop8PrecomputedPrelude)
 uint expert = top8_winner;
 
 const device uint8_t* expert_weight =
@@ -7888,26 +7876,7 @@ if (lane == 0) {
     activated[expert_slot * output_width + logical_row] =
         bfloat(silu * up);
 }
-"""
-}
-
-private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
-    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
-    inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
-    outputNames: ["activated"],
-    source: lagunaRoutedSwiGLUQMVPackedTop8R1Source(
-        prelude: lagunaRouterTop8PrecomputedPrelude),
-    header: lagunaSharedSwiGLUQMVHeader + "\n" + lagunaDecodeRouterOrdinalHeader
-        + "\n" + lagunaRouterTop8PrologueHeader,
-    ensureRowContiguous: true
-)
-
-private let lagunaRoutedSwiGLUQMVPackedTop8R1ControlKernel = MLXFast.metalKernel(
-    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_control_bf16_v2",
-    inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
-    outputNames: ["activated"],
-    source: lagunaRoutedSwiGLUQMVPackedTop8R1Source(
-        prelude: lagunaRouterTop8PrecomputedControlPrelude),
+""",
     header: lagunaSharedSwiGLUQMVHeader + "\n" + lagunaDecodeRouterOrdinalHeader
         + "\n" + lagunaRouterTop8PrologueHeader,
     ensureRowContiguous: true
@@ -7942,32 +7911,6 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
     return lagunaRoutedSwiGLUQMVPackedTop8Kernel(
         [input, fusedWeight, packedScales, routerKeys],
         grid: (LagunaConstants.numExpertsPerTok * 128 * 64, 1, 1),
-        threadGroup: (64, 1, 1),
-        outputShapes: [[
-            1, 1, LagunaConstants.numExpertsPerTok, 1,
-            LagunaConstants.moeIntermediateSize,
-        ]],
-        outputDTypes: [.bfloat16]
-    )[0]
-}
-
-func lagunaRoutedSwiGLUQMVPackedTop8R1ControlForTesting(
-    _ input: MLXArray,
-    fusedWeight: MLXArray,
-    packedScales: MLXArray,
-    routerKeys: MLXArray
-) -> MLXArray {
-    precondition(input.dtype == .bfloat16)
-    precondition(input.dims(1, 1, LagunaConstants.hiddenSize))
-    precondition(fusedWeight.dtype == .uint32)
-    precondition(packedScales.dtype == .uint8)
-    precondition(packedScales.size == lagunaPackedRoutedGateUpScaleBytes)
-    precondition(routerKeys.dtype == .uint32)
-    precondition(routerKeys.size == LagunaConstants.numExperts)
-
-    return lagunaRoutedSwiGLUQMVPackedTop8R1ControlKernel(
-        [input, fusedWeight, packedScales, routerKeys],
-        grid: (LagunaConstants.numExpertsPerTok * 256 * 64, 1, 1),
         threadGroup: (64, 1, 1),
         outputShapes: [[
             1, 1, LagunaConstants.numExpertsPerTok, 1,
