@@ -11,13 +11,13 @@ import stat
 import subprocess
 import sys
 import tempfile
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path, PurePosixPath
 
-SCHEMA_VERSION = "ranked-authority-evidence-bundle/v3"
-FIXTURE_VERSION = "ranked-authority-evidence-fixtures/v4"
-TRUST_SCHEMA_VERSION = "ranked-authority-external-trust/v1"
-AUTHORITY_CONTRACT_VERSION = "pr671-ranked-installed-authority/v3"
+SCHEMA_VERSION = "ranked-authority-evidence-bundle/v4"
+FIXTURE_VERSION = "ranked-authority-evidence-fixtures/v5"
+TRUST_SCHEMA_VERSION = "ranked-authority-external-trust/v2"
+AUTHORITY_CONTRACT_VERSION = "pr671-ranked-installed-authority/v4"
 SCHEMA_PATH = Path(__file__).with_name("ranked_authority_evidence_bundle.schema.json")
 MANDATORY_ROLES = {
     "workflow_file",

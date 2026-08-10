@@ -1,7 +1,7 @@
 {
-  "schema_version": "ranked-authority-evidence-fixtures/v4",
+  "schema_version": "ranked-authority-evidence-fixtures/v5",
   "non_authoritative": true,
-  "description": "Synthetic, non-authoritative v4 controls for detached external trust authentication, installed metadata, launch-chain, and parent-process binding.",
+  "description": "Synthetic ranked-authority controls covering external whole-bundle authentication, immutable process births, secret rejection, and deterministic malformed-input handling.",
   "files": {
     "artifacts/workflow.yml": {
       "text": "name: synthetic-ranked-workflow\n",
@@ -45,8 +45,8 @@
     }
   },
   "base_bundle": {
-    "schema_version": "ranked-authority-evidence-bundle/v3",
-    "authority_contract_version": "pr671-ranked-installed-authority/v3",
+    "schema_version": "ranked-authority-evidence-bundle/v4",
+    "authority_contract_version": "pr671-ranked-installed-authority/v4",
     "installed_path_census_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
     "authority": {
       "authoritative": false,
@@ -897,6 +897,41 @@
         "ppid": 200
       }
     ],
+    "process_births": [
+      {
+        "actor_id": "controller",
+        "pid": 100,
+        "ppid": 1,
+        "parent_actor_id": null,
+        "executable_role": "measure_job",
+        "executable_path": "/synthetic/installed/bench-runner/measure-job.sh",
+        "executable_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "started_at": "2026-08-01T12:00:00Z",
+        "observed_at": "2026-08-01T12:00:05Z"
+      },
+      {
+        "actor_id": "bench",
+        "pid": 200,
+        "ppid": 100,
+        "parent_actor_id": "controller",
+        "executable_role": "bench_exec",
+        "executable_path": "/synthetic/installed/bench-exec.sh",
+        "executable_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "started_at": "2026-08-01T12:00:10Z",
+        "observed_at": "2026-08-01T12:00:15Z"
+      },
+      {
+        "actor_id": "worker",
+        "pid": 201,
+        "ppid": 200,
+        "parent_actor_id": "bench",
+        "executable_role": "runtime_worker",
+        "executable_path": "/synthetic/workspace/.build-worker/release/mlxfast-runtime-worker",
+        "executable_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "started_at": "2026-08-01T12:05:30Z",
+        "observed_at": "2026-08-01T12:05:45Z"
+      }
+    ],
     "phases": [
       {
         "name": "transform",
@@ -992,15 +1027,7 @@
               "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
             }
           ],
-          "process_start": {
-            "actor_id": "bench",
-            "pid": 200,
-            "ppid": 100,
-            "executable_role": "bench_exec",
-            "executable_path": "/synthetic/installed/bench-exec.sh",
-            "executable_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
-            "started_at": "2026-08-10T12:01:00Z"
-          }
+          "process_birth_pid": 200
         },
         "failure_behavior": "fail",
         "survivor_policy": null
@@ -1027,15 +1054,7 @@
               "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
             }
           ],
-          "process_start": {
-            "actor_id": "bench",
-            "pid": 200,
-            "ppid": 100,
-            "executable_role": "bench_exec",
-            "executable_path": "/synthetic/installed/bench-exec.sh",
-            "executable_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
-            "started_at": "2026-08-10T12:02:00Z"
-          }
+          "process_birth_pid": 200
         },
         "failure_behavior": "fail",
         "survivor_policy": null
@@ -1067,15 +1086,7 @@
               "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
             }
           ],
-          "process_start": {
-            "actor_id": "bench",
-            "pid": 200,
-            "ppid": 100,
-            "executable_role": "reaper",
-            "executable_path": "/synthetic/workspace/.github/scripts/reap-bench-processes.sh",
-            "executable_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
-            "started_at": "2026-08-10T12:03:00Z"
-          }
+          "process_birth_pid": 200
         },
         "failure_behavior": "warn",
         "survivor_policy": {
@@ -1107,15 +1118,7 @@
               "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
             }
           ],
-          "process_start": {
-            "actor_id": "bench",
-            "pid": 200,
-            "ppid": 100,
-            "executable_role": "worker_sandbox_profile_generator",
-            "executable_path": "/synthetic/collector/generate-worker-profile.sh",
-            "executable_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
-            "started_at": "2026-08-10T12:04:00Z"
-          }
+          "process_birth_pid": 200
         },
         "failure_behavior": "fail",
         "survivor_policy": null
@@ -1143,15 +1146,7 @@
               "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
             }
           ],
-          "process_start": {
-            "actor_id": "bench",
-            "pid": 200,
-            "ppid": 100,
-            "executable_role": "worker_launcher",
-            "executable_path": "/synthetic/workspace/benchmark.sh",
-            "executable_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
-            "started_at": "2026-08-10T12:05:00Z"
-          }
+          "process_birth_pid": 200
         },
         "failure_behavior": "fail",
         "survivor_policy": null
@@ -1195,15 +1190,7 @@
               "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
             }
           ],
-          "process_start": {
-            "actor_id": "worker",
-            "pid": 201,
-            "ppid": 200,
-            "executable_role": "runtime_worker",
-            "executable_path": "/synthetic/workspace/.build-worker/release/mlxfast-runtime-worker",
-            "executable_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
-            "started_at": "2026-08-10T12:06:00Z"
-          }
+          "process_birth_pid": 201
         },
         "failure_behavior": "fail",
         "survivor_policy": null
@@ -1230,15 +1217,7 @@
               "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
             }
           ],
-          "process_start": {
-            "actor_id": "worker",
-            "pid": 201,
-            "ppid": 200,
-            "executable_role": "runtime_worker",
-            "executable_path": "/synthetic/workspace/.build-worker/release/mlxfast-runtime-worker",
-            "executable_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
-            "started_at": "2026-08-10T12:07:00Z"
-          }
+          "process_birth_pid": 201
         },
         "failure_behavior": "fail",
         "survivor_policy": null
@@ -1265,15 +1244,7 @@
               "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
             }
           ],
-          "process_start": {
-            "actor_id": "worker",
-            "pid": 201,
-            "ppid": 200,
-            "executable_role": "runtime_worker",
-            "executable_path": "/synthetic/workspace/.build-worker/release/mlxfast-runtime-worker",
-            "executable_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
-            "started_at": "2026-08-10T12:08:00Z"
-          }
+          "process_birth_pid": 201
         },
         "failure_behavior": "fail",
         "survivor_policy": null
@@ -1978,7 +1949,7 @@
       "mutation": "process_identity_drift",
       "expected_state": "INVALID",
       "expected_error_codes": [
-        "PROCESS_START_IDENTITY_MISMATCH"
+        "PROCESS_BIRTH_REFERENCE_MISMATCH"
       ],
       "expected_authoritative": false,
       "expected_resumption_authorized": false
@@ -2066,11 +2037,195 @@
       ],
       "expected_authoritative": false,
       "expected_resumption_authorized": false
+    },
+    {
+      "id": "coherent-whole-bundle-rewrite-retained-pin",
+      "mutation": "coherent_whole_bundle_rewrite",
+      "external_trust_pin": "pre_mutation",
+      "expected_state": "INVALID",
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false,
+      "expected_error_codes": [
+        "TRUST_BUNDLE_DIGEST_MISMATCH"
+      ]
+    },
+    {
+      "id": "duplicate-process-birth",
+      "mutation": "duplicate_process_birth",
+      "expected_state": "INVALID",
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false,
+      "expected_error_codes": [
+        "PROCESS_BIRTH_ACTOR_DUPLICATE",
+        "PROCESS_BIRTH_PID_DUPLICATE"
+      ]
+    },
+    {
+      "id": "process-birth-start-after-observation",
+      "mutation": "process_birth_start_after_observation",
+      "expected_state": "INVALID",
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false,
+      "expected_error_codes": [
+        "PROCESS_BIRTH_TIME_INVALID"
+      ]
+    },
+    {
+      "id": "process-birth-observed-after-first-event",
+      "mutation": "process_birth_observed_after_first_event",
+      "expected_state": "INVALID",
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false,
+      "expected_error_codes": [
+        "PROCESS_BIRTH_LIFECYCLE_ORDER_INVALID"
+      ]
+    },
+    {
+      "id": "secret-github-manifest",
+      "mutation": "secret_github_manifest",
+      "expected_state": "INVALID",
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false,
+      "expected_error_codes": [
+        "SECRET_VALUE_FORBIDDEN"
+      ]
+    },
+    {
+      "id": "secret-aws-manifest",
+      "mutation": "secret_aws_manifest",
+      "expected_state": "INVALID",
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false,
+      "expected_error_codes": [
+        "SECRET_VALUE_FORBIDDEN"
+      ]
+    },
+    {
+      "id": "secret-bearer-manifest",
+      "mutation": "secret_bearer_manifest",
+      "expected_state": "INVALID",
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false,
+      "expected_error_codes": [
+        "SECRET_VALUE_FORBIDDEN"
+      ]
+    },
+    {
+      "id": "secret-private_key-manifest",
+      "mutation": "secret_private_key_manifest",
+      "expected_state": "INVALID",
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false,
+      "expected_error_codes": [
+        "SECRET_VALUE_FORBIDDEN"
+      ]
+    },
+    {
+      "id": "secret-github-external-trust",
+      "mutation": "secret_github_external_trust",
+      "expected_state": "INVALID",
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false,
+      "expected_error_codes": [
+        "SECRET_VALUE_FORBIDDEN"
+      ]
+    },
+    {
+      "id": "secret-aws-external-trust",
+      "mutation": "secret_aws_external_trust",
+      "expected_state": "INVALID",
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false,
+      "expected_error_codes": [
+        "SECRET_VALUE_FORBIDDEN"
+      ]
+    },
+    {
+      "id": "secret-bearer-external-trust",
+      "mutation": "secret_bearer_external_trust",
+      "expected_state": "INVALID",
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false,
+      "expected_error_codes": [
+        "SECRET_VALUE_FORBIDDEN"
+      ]
+    },
+    {
+      "id": "secret-private_key-external-trust",
+      "mutation": "secret_private_key_external_trust",
+      "expected_state": "INVALID",
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false,
+      "expected_error_codes": [
+        "SECRET_VALUE_FORBIDDEN"
+      ]
+    },
+    {
+      "id": "secret-github-artifact-bytes",
+      "mutation": "secret_github_artifact_bytes",
+      "expected_state": "INVALID",
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false,
+      "expected_error_codes": [
+        "SECRET_VALUE_FORBIDDEN"
+      ]
+    },
+    {
+      "id": "secret-aws-artifact-bytes",
+      "mutation": "secret_aws_artifact_bytes",
+      "expected_state": "INVALID",
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false,
+      "expected_error_codes": [
+        "SECRET_VALUE_FORBIDDEN"
+      ]
+    },
+    {
+      "id": "secret-bearer-artifact-bytes",
+      "mutation": "secret_bearer_artifact_bytes",
+      "expected_state": "INVALID",
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false,
+      "expected_error_codes": [
+        "SECRET_VALUE_FORBIDDEN"
+      ]
+    },
+    {
+      "id": "secret-private_key-artifact-bytes",
+      "mutation": "secret_private_key_artifact_bytes",
+      "expected_state": "INVALID",
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false,
+      "expected_error_codes": [
+        "SECRET_VALUE_FORBIDDEN"
+      ]
+    },
+    {
+      "id": "malformed-manifest-json",
+      "mutation": "none",
+      "malformed_input": "manifest",
+      "expected_state": "INVALID",
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false,
+      "expected_error_codes": [
+        "MANIFEST_JSON_INVALID"
+      ]
+    },
+    {
+      "id": "malformed-external-trust-json",
+      "mutation": "none",
+      "malformed_input": "external_trust",
+      "expected_state": "INVALID",
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false,
+      "expected_error_codes": [
+        "EXTERNAL_TRUST_JSON_INVALID"
+      ]
     }
   ],
   "base_external_trust": {
-    "schema_version": "ranked-authority-external-trust/v1",
-    "authority_contract_version": "pr671-ranked-installed-authority/v3",
+    "schema_version": "ranked-authority-external-trust/v2",
+    "authority_contract_version": "pr671-ranked-installed-authority/v4",
     "source_kind": "fixture",
     "scope": {
       "assignment_pr": 671,
