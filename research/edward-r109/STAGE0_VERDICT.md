@@ -30,11 +30,15 @@ and the verdict is `N-ISSUE-BOUND` for the reduction. Two independent reasons
 make it stronger than a rule technicality:
 
 1. The reduce ceiling priced in the advisor's units is **32–43 µs/step of decode
-   busy** (5.13–6.86% of the 627.3 µs/step sliding-attention budget; 26–34
-   µs/step of wall at the advisor's 0.8 busy→wall transfer). That straddles the
-   ~30 µs/step `N-QK-REDUCTION-CHEAP` floor and clears only alphonse's most
-   optimistic 0.01642 %score/µs constant, not the 0.00669 additive-busy
-   constant (needs 57) and nowhere near tanjiro's 0.00203 (needs 186).
+   busy** (5.13–6.86% of the 627.3 µs/step sliding-attention budget). Against the
+   constant comment 4 closed — **0.0056 %score per M4 decode busy µs at τ=1**,
+   i.e. the 0.378% bar is **68 µs/step = a 10.8% harvest** — that is
+   **0.180–0.241% of score, 0.47–0.64× of the bar**, and it also fires the
+   assignment body's 0.20% `N-QK-REDUCTION-CHEAP` rule at the M5-relevant
+   occupancy. Arm (c) tightens this into a pool-level closure: deleting the
+   reduction **and** the PV accumulate harvests only 8.8–9.5%, **82–89% of the
+   required 10.8%**, so no epilogue re-expression in this kernel can clear the
+   bar even in the unreachable limit.
 2. **Directly measured, bit-exact: an MMA-shaped QK tile is slower in both
    occupancy regimes.** At M=2 useful rows of an 8×8 fragment the tile must
    issue 4× the QK MACs; held bit-exact that padding costs **+10.2% (K=16) /
@@ -110,9 +114,11 @@ without a geometry change, and geometry is frozen.
 Recommendation: **close R109-D as a negative** on the MMA mechanism
 (`N-QK-MMA-PADDING-BOUND`) *and* on the reduction as a target
 (`N-ISSUE-BOUND`), with the load-geometry retarget pre-refuted above. §9 leaves
-exactly one live item (the W=4 `quad_sum` re-tile at ≈17–22 µs/step, itself
-below the ~30 µs/step floor) and closes six; treat the K=16/0.80-TG-core
-re-pricing as the default protocol for any future arm on this kernel family.
+exactly one live item (the W=4 `quad_sum` re-tile at ≈22–25 µs/step busy =
+0.12–0.14% of score, itself below the 35.7 µs/step `N-QK-REDUCTION-CHEAP`
+threshold implied by the closed constant) and closes six; treat the
+K=16/0.80-TG-core re-pricing as the default protocol for any future arm on this
+kernel family.
 
 ---
 
@@ -334,18 +340,53 @@ I did not write it; the submitted surface is byte-for-byte unchanged from
 
 In the advisor's own currency, with `sliding_fused_attn_ring_v1` = 627.3 µs/step:
 
-| | busy µs/step | wall µs/step @0.8 transfer |
+| | busy µs/step | wall µs/step @0.93 measured transfer |
 |---|---|---|
-| reduce ceiling, K=32 | 43.0 | 34.4 |
-| reduce ceiling, K=16 (M5 ratio) | 32.2 | 25.8 |
+| reduce ceiling, K=32 | 43.0 | 40.0 |
+| reduce ceiling, K=16 (M5 ratio) | 32.2 | 29.9 |
 
-Against the three published %score-per-µs constants: 0.00669 (additive-busy)
-needs 57 µs/step for the 0.378% gap, alphonse #644's 0.01642 needs 23,
-tanjiro #663's 0.00203 needs 186. **32–43 µs/step clears only the most
-favourable constant.** It straddles the advisor's own
-`N-QK-REDUCTION-CHEAP` floor of ~30 µs/step and is nowhere near the
-~190 µs/step that would clear under every constant. And this is the *ceiling* —
-the price of deleting the reduction outright, which no correct kernel can do.
+Advisor comment 4 (2026-08-10T21:34Z) then **closed the 8× pricing bracket**, so
+the three constants I priced against first (0.00669 additive-busy, alphonse
+#644's 0.01642, tanjiro #663's 0.00203) are superseded. The canonical chain is
+`%score = 0.63 × τ × Δ_M4_steady_wall_µs / 8972`, which at τ=1 is **0.0070% per
+M4 steady-step wall µs = 0.0056% per M4 decode busy µs**, so the 0.378% bar is
+**68 µs/step of decode busy** and the harvest needed off my 627.3 µs/step pool is
+**10.8%**. Repricing everything on that one constant:
+
+| what | harvest % of pool | µs/step busy | %score at τ=1 | fraction of bar |
+|---|---:|---:|---:|---:|
+| **(b) reduce ceiling, K=16 (M5 ratio)** | 5.134% | **32.2** | **0.180%** | **0.47×** |
+| (b) reduce ceiling, K=32 | 6.857% | 43.0 | 0.241% | 0.64× |
+| **(c) reduce + PV both deleted, K=16** | 8.817% | 55.3 | 0.310% | 0.82× |
+| (c) reduce + PV both deleted, K=32 | 9.544% | 59.9 | 0.335% | 0.89× |
+| required for the whole bar | **10.8%** | **67.7** | 0.378% | 1.00× |
+| MMA-shaped arm as measured, K=16 | −3.400% | −21.3 | −0.119% | negative |
+| MMA-shaped arm as measured, K=32 | −6.047% | −37.9 | −0.212% | negative |
+
+Three readings, in increasing strength:
+
+1. The assigned mechanism's *free-reduction ideal* reaches **0.47–0.64× of the
+   bar**. Restated in the body's units, the 0.20%-of-score
+   `N-QK-REDUCTION-CHEAP` threshold becomes **35.7 µs/step** under the closed
+   constant (not the ~30 µs quoted from the old 0.00669), so the K=16 ceiling of
+   32.2 µs/step **fires that rule independently of the ≥8% rule**.
+2. And this is the *ceiling* — the price of deleting the reduction outright,
+   which no correct kernel can do.
+3. Arm (c) makes it a pool-level result rather than a mechanism-level one:
+   deleting the reduction **and** the PV accumulate, both deliberately incorrect,
+   harvests **8.8–9.5% = 82–89% of the required 10.8%**. Answering comment 4
+   §8.2 directly: the probe does **not** support the 25% harvest the advisor asked
+   about (156.8 µs/step, 0.88%); 25% is **2.6–3.0× beyond the combined
+   free-deletion ceiling of both epilogue mechanisms**. Nothing that re-expresses
+   this kernel's epilogue can clear 0.378% on its own.
+
+Comment 4 §8.1 also requests raw `ns` and the ×1.28 `--local-iterate`
+correction. Not applicable here: all arms are standalone Metal microbenchmarks
+with fixed buffers, no model and no harness, so there is no `ns` and no sigma to
+correct; the 0.0056 %/busy-µs constant already folds the busy→wall transfer in.
+Comment 4 §8.3: **the grid is unchanged** — the submitted diff is empty, so
+`threadGroup (1024,1,1)` and `grid ((heads/2)*1024,1,1)` are untouched by
+construction.
 
 ### 4e. Why K=16 is the M5-relevant number, and the absolute ladder
 
@@ -546,17 +587,20 @@ Three separate results converge on the same close:
    expose it (occupancy via TG memory; MLP via next-trip hoist) are already
    measured-refuted, not merely banned.
 
-Also worth recording: the ceiling in the advisor's units is **32–43 µs/step
-busy (26–34 µs/step wall at 0.8 transfer)**, which straddles the ~30 µs/step
-`N-QK-REDUCTION-CHEAP` floor and clears only alphonse #644's most favourable
-%score-per-µs constant. So even the unreachable ceiling is a marginal item.
+Also worth recording: on the closed constant from advisor comment 4
+(`%score = 0.63 × τ × Δ_M4_busy_µs / 0.93 / 8972`, i.e. 0.0056 %/busy-µs at
+τ=1), the reduce-elimination ceiling is **32–43 µs/step busy = 0.180–0.241% of
+score = 0.47–0.64× the 0.378% bar**. The K=16 reading (32.2 µs) also sits below
+the 35.7 µs/step that the body's own 0.20% `N-QK-REDUCTION-CHEAP` threshold
+maps to under that constant, so the threshold fires independently of the ≥8%
+rule. Even the unreachable ceiling is a sub-bar, marginal item.
 
 Proposed labels, in order of what the evidence supports:
 
 - **`N-ISSUE-BOUND` (reduction)** — the rule's named outcome. The QK reduce is
   real (≈14 slots/stage, ≈7× a scalar FMA) but 5–7% of kernel time = 32–43
-  µs/step is not enough to cross the gap, and there is no cheaper correct way
-  to land it.
+  µs/step = 0.18–0.24% of score is not enough to cross the 0.378% gap, and
+  there is no cheaper correct way to land it.
 - **`N-QK-MMA-PADDING-BOUND`** — the assigned mechanism specifically: an M=2
   simdgroup-MMA tile loses at MAC-rate parity before any fragment
   load/store, layout or register-pressure cost.
@@ -567,27 +611,30 @@ Proposed labels, in order of what the evidence supports:
 **Still live (one item).**
 
 1. **W=4 `quad_sum` re-tile** is the only surviving sub-ceiling candidate:
-   measured **−3.540% / −3.937%** ⇒ ≈**17–22 µs/step busy**, ≈14–18 µs/step
-   wall at 0.8 transfer, at a cost of ≈+56 floats/lane of register pressure.
-   That is **below** the advisor's ~30 µs/step `N-QK-REDUCTION-CHEAP` floor, so
-   on the pricing in §4d it should stay shut unless the additive-busy constant
-   is revised upward. I did not start it. If it is ever revived it needs a
-   distinctly named pipeline, unchanged geometry, a margin certificate, and
-   ≥8-pair contemporaneous ABBA `--local-iterate`.
+   measured **−3.540% / −3.937%** ⇒ ≈**22–25 µs/step busy = 0.12–0.14% of
+   score**, at a cost of ≈+56 floats/lane of register pressure. That is
+   **below** the 35.7 µs/step that the 0.20% `N-QK-REDUCTION-CHEAP` threshold
+   maps to on the closed constant, and only ≈0.33× the 0.378% bar, so on the
+   pricing in §4d it should stay shut. I did not start it. If it is ever
+   revived it needs a distinctly named pipeline, unchanged geometry, a margin
+   certificate, and ≥8-pair contemporaneous ABBA `--local-iterate`.
 
 **Closed by this round's evidence (do not re-open without new physics).**
 
 2. **The reduce-elimination ceiling itself** is now priced at 32–43 µs/step
-   busy, not "the largest unclaimed decode-attention item". It is real but
+   busy = 0.18–0.24% of score (0.47–0.64× the bar), not "the largest unclaimed
+   decode-attention item". It is real but
    sub-threshold, and no correct kernel can collect all of it.
 3. **d-major re-tile** (each lane owning 32 dims of 1 row instead of 4 dims of
    8 rows) would make the reduce W=1 for free, but changes V-accumulation
    ownership and therefore the whole pipeline — and its whole prize is the
-   sub-threshold 32–43 µs/step. A full rewrite for a marginal item.
+   sub-threshold 32–43 µs/step = 0.18–0.24% of score. A full rewrite for a
+   marginal item.
 4. **Half-width lane split.** Giving lanes 0–15 eight dims of head0 and lanes
    16–31 eight dims of head1 would produce both scores in 5 passes instead of
-   10 at identical register count. Prize ≈ half the ceiling ≈ 16–22 µs/step,
-   below the floor, *and* an 8-dims-per-lane layout is a wider per-lane load,
+   10 at identical register count. Prize ≈ half the ceiling ≈ 16–22 µs/step = 0.09–0.12% of score,
+   below the 35.7 µs/step threshold, *and* an 8-dims-per-lane layout is a wider
+   per-lane load,
    which is on round 107's banned-re-open list (rule 102.5, PR #642). Both
    reasons now point the same way; I am closing it rather than asking for
    clearance.

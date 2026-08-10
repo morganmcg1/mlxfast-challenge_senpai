@@ -4,9 +4,10 @@ SENPAI-RESULT: {"terminal":true,"status":"complete","pending_arms":false,"wandb_
 - Hypothesis and target cost: replacing the 8 `simd_sum` QK reductions in
   `laguna_sliding_fused_attn_ring_v1` with a `simdgroup_matrix` MMA tile removes
   the cross-lane reduction cost and speeds up decode. Advisor comment 3 fixed the
-  budget: this kernel is **627.3 µs/step = 7.33% of decode busy**, the 0.378%
-  gap to the leader needs **57 µs/step** at the additive-busy constant (23 at
-  alphonse #644's, 186 at tanjiro #663's), and the preregistered stop rule was
+  budget: this kernel is **627.3 µs/step = 7.33% of decode busy**, and comment 4
+  then closed the pricing constant at **0.0056 %score per M4 decode busy µs**, so
+  the 0.378% gap to the leader needs **68 µs/step = a 10.8% harvest** off this
+  pool. The preregistered stop rule was
   *if arm (b) does not beat arm (a) by ≥8% of kernel time, do not write the MMA
   kernel — post `N-ISSUE-BOUND` for the reduction and retarget to load geometry.*
 - Decision: **dead hypothesis.** (b) − (a) = **6.86% at K=32 and 5.13% at the M5
@@ -131,12 +132,47 @@ per-dispatch fixed cost of **0.12 µs**, not rule 55's 3.97 µs intercept.
 | M-padding bill alone (bit-exact 4× MACs), K=16 / K=32 | 0.000% | +10.200% / +11.802% | 1.7–2.0× the prize |
 | reduce-elimination ceiling, K=16 / K=32 | 0.000% | −5.134% / −6.857% | 32–43 µs/step busy |
 
-Ceiling in the advisor's units, against the 627.3 µs/step sliding-attention
-budget: **43.0 µs/step busy at K=32, 32.2 at K=16** (34.4 / 25.8 µs/step wall at
-the advisor's 0.8 busy→wall transfer). The 0.378% gap needs 57 µs/step at the
-0.00669 additive-busy constant, 23 at alphonse #644's 0.01642, 186 at tanjiro
-#663's 0.00203 — so the *unreachable ceiling* clears only the most favourable
-constant and straddles the ~30 µs/step `N-QK-REDUCTION-CHEAP` floor.
+**Repriced against the closed constant (advisor comment 4, 2026-08-10T21:34Z).**
+That comment retires the 8× bracket and fixes `%score = 0.63 × τ × Δ_wall / 8972`
+⇒ **0.0056 % per M4 decode busy µs** at τ=1, so the 0.378% bar is **68 µs/step of
+M4 decode busy** and the harvest needed off the 627.3 µs/step pool is **10.8%**.
+Everything below uses that constant, not the superseded 0.00669 / 0.01642 /
+0.00203 triple:
+
+| what | harvest % of pool | µs/step busy | %score at τ=1 | fraction of the 0.378% bar |
+| --- | ---: | ---: | ---: | ---: |
+| **(b) QK-reduce ceiling, K=16 (M5 ratio)** | 5.134% | **32.2** | **0.180%** | **0.47×** |
+| (b) QK-reduce ceiling, K=32 | 6.857% | 43.0 | 0.241% | 0.64× |
+| **(c) reduce + PV both deleted, K=16** | 8.817% | 55.3 | 0.310% | 0.82× |
+| (c) reduce + PV both deleted, K=32 | 9.544% | 59.9 | 0.335% | 0.89× |
+| harvest required for the whole bar | **10.8%** | **67.7** | 0.378% | 1.00× |
+| MMA-shaped arm as measured, K=16 | **−3.400%** | −21.3 | **−0.119%** | negative |
+| MMA-shaped arm as measured, K=32 | −6.047% | −37.9 | −0.212% | negative |
+
+Two consequences, both decisive:
+
+1. **The assigned mechanism's free-reduction ideal reaches 0.47–0.64× of the bar.**
+   The 0.20%-of-score `N-QK-REDUCTION-CHEAP` threshold in the assignment body
+   becomes **35.7 µs/step** under the closed constant (not the ~30 µs quoted from
+   the old 0.00669), so the K=16 ceiling of 32.2 µs/step **fires that rule too**,
+   independently of the ≥8% rule.
+2. **Even deleting the reduction *and* the PV accumulate — arm (c), deliberately
+   incorrect — harvests only 82–89% of what the bar needs.** So no re-expression
+   of this kernel's epilogue, MMA or otherwise, can clear 0.378% on its own even
+   in the unreachable limit. Answering comment 4 §8.2 directly: the probe does
+   **not** support a 25% harvest (156.8 µs/step, 0.88%); 25% is 2.6–3.0× beyond
+   the combined free-deletion ceiling of both epilogue mechanisms.
+
+Comment 4 §8.1 also asks for raw `ns` and the ×1.28 `--local-iterate`
+correction. Not applicable to this stage: all three arms are standalone Metal
+microbenchmarks with fixed buffers, no model and no harness, so there is no `ns`
+to report and no sigma to correct. The 0.0056 %/busy-µs constant already folds
+the busy→wall transfer in, which is why the µs/step column is the honest one.
+Comment 4 §8.3: **the grid is unchanged** — `git diff --stat 1a6761bf -- Sources
+Vendor` is empty, so `threadGroup (1024,1,1)` and `grid ((heads/2)*1024,1,1)`
+are untouched by construction. Comment 4 §8.4 asked for a non-empty submitted
+diff when landing; nothing lands, because Stage 0 refuted the thing that would
+have landed.
 
 The paired estimate is a same-host research metric, not an official M5 score; this
 stage produced no end-to-end score at all by design. The primary metric above is
@@ -149,11 +185,15 @@ decisive number for the assigned mechanism — not a score claim.
   does not beat arm (a) by ≥8% of kernel time, do not write the MMA kernel". It
   measured **5.13% (K=16) to 6.86% (K=32)**, so **the rule fired** and no MMA
   kernel was written. Deleting all 8 `simd_sum` QK reductions is worth
-  **32–43 µs/step** of sliding-kernel busy time (26–34 µs/step wall at the 0.8
-  transfer factor) against a ~30 µs/step practical floor and the 57 µs/step
-  needed under the additive-busy constant. The ceiling straddles the floor: it
-  clears only @alphonse's most favourable 0.01642 %/µs constant (23 µs/step) and
-  fails the 0.00669 additive-busy constant (57 µs/step) outright.
+  **32.2 µs/step (K=16, M5 ratio) to 43.0 µs/step (K=32)** of decode busy off the
+  627.3 µs/step pool. Against the constant the advisor closed in comment 4
+  (0.0056 %/busy-µs at τ=1 ⇒ the bar is **68 µs/step**, a **10.8% harvest**), that
+  free-reduction ideal is **0.180–0.241% of score = 0.47–0.64× of the bar**, and it
+  also fires the assignment body's 0.20% `N-QK-REDUCTION-CHEAP` rule at the
+  M5-relevant occupancy. Stronger still: arm (c), which deletes the reduction
+  **and** the PV accumulate, harvests only 8.8–9.5% — **82–89% of the required
+  10.8%** — so nothing in this kernel's epilogue can clear the bar even when
+  deleted outright.
 - Evidence for or against the mechanism: three converging refutations, plus four
   independent supporting lines.
   **(R1) The preregistered rule fired.** (b)−(a) = 5.13–6.86% < 8%, with the null
@@ -216,12 +256,13 @@ decisive number for the assigned mechanism — not a score claim.
   useful rows). Unverified: MPP NVFP4 support (MLX PR #3551 hints at a limit) and
   any direct measurement of legacy `simdgroup_matrix` throughput on M5 silicon.
   Neither can rescue a tile that must win by ~2× to break even.
-- Smallest useful next action: **none above the floor.** Even the free-reduction
-  ideal (32–43 µs/step busy, 26–34 wall) does not reach the 57 µs/step the
-  additive-busy constant requires, so no partial-reduction variant is worth a
-  stage on its own. The only sub-threshold candidate left is the W=4 `quad_sum`
-  re-tile (measured −3.5% / −3.9% ⇒ **17–22 µs/step**, +56 floats/lane), which is
-  below the ~30 µs floor and should only run bundled with an independent win. The
+- Smallest useful next action: **none that can reach the bar.** Even the
+  free-reduction ideal (32–43 µs/step busy) is 0.47–0.64× of the 68 µs/step bar,
+  and the reduce+PV free-deletion limit is still only 0.82–0.89×, so no
+  partial-reduction variant is worth a stage on its own. The only sub-threshold
+  candidate left is the W=4 `quad_sum` re-tile (measured −3.5% / −3.9% ⇒
+  **22–25 µs/step = 0.12–0.14% of score**), which is a third of the bar and should
+  only run bundled with an independent win. The
   half-width lane split I would have proposed is now **closed for two reasons**:
   its 8-dims-per-lane layout is a "wider per-lane load" on round 107's
   banned-re-open list (`research/CURRENT_RESEARCH_STATE.md:3292–3308`), and (R2)
@@ -233,11 +274,15 @@ decisive number for the assigned mechanism — not a score claim.
   headroom that mis-pricing exposes is exactly the 32–43 µs/step already measured
   and already below the bar.
 - Recommendation: **close** R109-D with three labels — `N-ISSUE-BOUND` for the QK
-  reduction specifically (the label the preregistered rule asks for),
+  reduction specifically (the label the preregistered rule asks for; the body's
+  `N-QK-REDUCTION-CHEAP` also fires at the M5-relevant occupancy, 0.180% vs the
+  0.20% threshold, so either label is defensible and they agree),
   `N-QK-MMA-PADDING-BOUND` for the MMA mechanism (dead by R2, independent of the
   threshold), and the load-geometry retarget closed as not-DRAM-and-not-launch
-  bound (R3). Nothing to merge — `git diff --stat 1a6761bf -- Sources Vendor` is
-  empty, by design. Please forward §10 of the verdict to **@alphonse**, whose R109
+  bound (R3). I would also close the whole **627.3 µs/step sliding-attention pool
+  to epilogue restructuring**: arm (c) bounds every reduce/PV expression change at
+  0.89× of the bar. Nothing to merge — `git diff --stat 1a6761bf -- Sources Vendor`
+  is empty, by design. Please forward §10 of the verdict to **@alphonse**, whose R109
   assignment applies the same MMA technique to the full-attention twin at
   `LagunaRuntimeModel.swift:2027+`; five of these results (built-in `simd_sum`
   already optimal, the ~2× M-padding bill, the `LAGUNA_RESCALE` probe hazard, the
