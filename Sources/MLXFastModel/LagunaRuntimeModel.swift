@@ -1417,7 +1417,7 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
     name: "laguna_sliding_fused_attn_ring_v1",
     inputNames: [
         "raw_queries", "raw_keys", "raw_values",
-        "query_weight", "key_weight", "angles",
+        "qk_norm_weight", "angles",
         "k_cache", "v_cache", "params", "scale_arr",
     ],
     outputNames: ["attended"],
@@ -1455,7 +1455,7 @@ if (sg < 3) {
         : sg == 1 ? raw_queries + head1 * head_dim
                   : raw_keys + kv_head * head_dim;
     const device bfloat* weight =
-        sg == 2 ? key_weight : query_weight;
+        qk_norm_weight + (sg == 2 ? head_dim : 0);
     threadgroup bfloat* outrow =
         sg == 0 ? tg_q0 : sg == 1 ? tg_q1 : tg_k;
 
@@ -1767,8 +1767,7 @@ func lagunaSlidingFusedAttention(
     rawQueries: MLXArray,
     rawKeys: MLXArray,
     rawValues: MLXArray,
-    queryWeight: MLXArray,
-    keyWeight: MLXArray,
+    qkNormWeight: MLXArray,
     angles: MLXArray,
     cacheKeys: MLXArray,
     cacheValues: MLXArray,
@@ -1784,8 +1783,8 @@ func lagunaSlidingFusedAttention(
     precondition(rawQueries.dims(1, 1, heads * LagunaConstants.headDim))
     precondition(rawKeys.dims(1, 1, kvHeads * LagunaConstants.headDim))
     precondition(rawValues.dims(1, 1, kvHeads * LagunaConstants.headDim))
-    precondition(queryWeight.dims(LagunaConstants.headDim))
-    precondition(keyWeight.dims(LagunaConstants.headDim))
+    precondition(qkNormWeight.dtype == .bfloat16)
+    precondition(qkNormWeight.dims(2 * LagunaConstants.headDim))
     precondition(angles.dtype == .float32)
     precondition(angles.dims(1, 1, 1, LagunaConstants.headDim))
     precondition(cacheKeys.dtype == .bfloat16)
@@ -1802,7 +1801,7 @@ func lagunaSlidingFusedAttention(
     return lagunaSlidingFusedAttentionKernel(
         [
             rawQueries, rawKeys, rawValues,
-            queryWeight, keyWeight, angles,
+            qkNormWeight, angles,
             cacheKeys, cacheValues, params, scale,
         ],
         grid: ((heads / 2) * 1024, 1, 1),
@@ -1866,7 +1865,7 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
     name: "laguna_full_fused_attn_grow_v1",
     inputNames: [
         "raw_queries", "raw_keys", "raw_values",
-        "query_weight", "key_weight", "angles",
+        "qk_norm_weight", "angles",
         "k_cache", "v_cache", "params", "scale_arr",
     ],
     outputNames: ["attended"],
@@ -1905,7 +1904,7 @@ if (sg < 3) {
         : sg == 1 ? raw_queries + head1 * head_dim
                   : raw_keys + kv_head * head_dim;
     const device bfloat* weight =
-        sg == 2 ? key_weight : query_weight;
+        qk_norm_weight + (sg == 2 ? head_dim : 0);
     threadgroup bfloat* outrow =
         sg == 0 ? tg_q0 : sg == 1 ? tg_q1 : tg_k;
 
@@ -2268,8 +2267,7 @@ func lagunaFullFusedAttention(
     rawQueries: MLXArray,
     rawKeys: MLXArray,
     rawValues: MLXArray,
-    queryWeight: MLXArray,
-    keyWeight: MLXArray,
+    qkNormWeight: MLXArray,
     angles: MLXArray,
     cacheKeys: MLXArray,
     cacheValues: MLXArray,
@@ -2285,8 +2283,8 @@ func lagunaFullFusedAttention(
     precondition(rawQueries.dims(1, 1, heads * LagunaConstants.headDim))
     precondition(rawKeys.dims(1, 1, kvHeads * LagunaConstants.headDim))
     precondition(rawValues.dims(1, 1, kvHeads * LagunaConstants.headDim))
-    precondition(queryWeight.dims(LagunaConstants.headDim))
-    precondition(keyWeight.dims(LagunaConstants.headDim))
+    precondition(qkNormWeight.dtype == .bfloat16)
+    precondition(qkNormWeight.dims(2 * LagunaConstants.headDim))
     precondition(angles.dtype == .float32)
     precondition(angles.dims(1, 1, 1, LagunaConstants.headDim / 2))
     precondition(cacheKeys.dtype == .bfloat16)
@@ -2304,7 +2302,7 @@ func lagunaFullFusedAttention(
     return lagunaFullFusedAttentionKernel(
         [
             rawQueries, rawKeys, rawValues,
-            queryWeight, keyWeight, angles,
+            qkNormWeight, angles,
             cacheKeys, cacheValues, params, scale,
         ],
         grid: ((heads / 2) * 1024, 1, 1),
@@ -2328,8 +2326,7 @@ func lagunaWarmFullFusedAttentionKernel() {
         [1, 1, kvHeads * headDim], dtype: .bfloat16)
     let rawValues = MLXArray.zeros(
         [1, 1, kvHeads * headDim], dtype: .bfloat16)
-    let queryWeight = MLXArray.ones([headDim], dtype: .bfloat16)
-    let keyWeight = MLXArray.ones([headDim], dtype: .bfloat16)
+    let qkNormWeight = MLXArray.ones([2 * headDim], dtype: .bfloat16)
     let angles = MLXArray.zeros(
         [1, 1, 1, headDim / 2], dtype: .float32)
     let cacheKeys = MLXArray.zeros(
@@ -2341,8 +2338,7 @@ func lagunaWarmFullFusedAttentionKernel() {
         rawQueries: rawQueries,
         rawKeys: rawKeys,
         rawValues: rawValues,
-        queryWeight: queryWeight,
-        keyWeight: keyWeight,
+        qkNormWeight: qkNormWeight,
         angles: angles,
         cacheKeys: cacheKeys,
         cacheValues: cacheValues,
@@ -5477,6 +5473,7 @@ final class LagunaRuntimeAttention: Module {
     /// checkpoint parameter; the q/k/v `Linear` modules keep the original
     /// arrays for parameter integrity.
     var _fusedQKVWeight: MLXArray?
+    var _fusedQKNormWeight: MLXArray?
 
     /// Terminal-prefill-only BF16 side banks. Q and the per-head gate share
     /// the singleton final normalized row; K and V share every normalized
@@ -5620,6 +5617,21 @@ final class LagunaRuntimeAttention: Module {
         }
         _nativeAffineQKV = fused
         return fused.arrays + (_nativeAffineGProj?.arrays ?? [])
+    }
+
+    func prepareFusedQKNormWeight() -> MLXArray? {
+        if let fused = _fusedQKNormWeight {
+            return fused
+        }
+        guard qNorm.weight.dtype == .bfloat16,
+            kNorm.weight.dtype == .bfloat16,
+            qNorm.weight.dims(headDim), kNorm.weight.dims(headDim)
+        else {
+            return nil
+        }
+        let fused = concatenated([qNorm.weight, kNorm.weight], axis: 0)
+        _fusedQKNormWeight = fused
+        return fused
     }
 
     /// Builds and retains the fused QKV weight from the loaded q/k/v
@@ -6007,6 +6019,7 @@ final class LagunaRuntimeAttention: Module {
         if lagunaFusedSlidingAttentionEnabled,
             useFusedSlidingQKNormRoPE,
             let fusedAngles = qkRoPEAngles,
+            let fusedQKNormWeight = prepareFusedQKNormWeight(),
             values.dtype == .bfloat16,
             values.dims(1, 1, nKVHeads * headDim),
             let rotating = cache as? RotatingKVCache,
@@ -6020,8 +6033,7 @@ final class LagunaRuntimeAttention: Module {
                 rawQueries: queries,
                 rawKeys: keys,
                 rawValues: values,
-                queryWeight: qNorm.weight,
-                keyWeight: kNorm.weight,
+                qkNormWeight: fusedQKNormWeight,
                 angles: fusedAngles,
                 cacheKeys: ring.keys,
                 cacheValues: ring.values,
@@ -6033,6 +6045,7 @@ final class LagunaRuntimeAttention: Module {
         } else if lagunaFusedFullAttentionEnabled,
             useFusedFullQKNormYaRN,
             let fusedAngles = qkRoPEAngles,
+            let fusedQKNormWeight = prepareFusedQKNormWeight(),
             values.dtype == .bfloat16,
             values.dims(1, 1, nKVHeads * headDim),
             let simple = cache as? KVCacheSimple,
@@ -6046,8 +6059,7 @@ final class LagunaRuntimeAttention: Module {
                 rawQueries: queries,
                 rawKeys: keys,
                 rawValues: values,
-                queryWeight: qNorm.weight,
-                keyWeight: kNorm.weight,
+                qkNormWeight: fusedQKNormWeight,
                 angles: fusedAngles,
                 cacheKeys: append.keys,
                 cacheValues: append.values,
@@ -11694,6 +11706,9 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
     func prepareFusedRuntimeWeights() {
         var fusedArrays = model.prepareRoPEAngleAtlases()
         for layer in model.layers {
+            if let fused = layer.selfAttn.prepareFusedQKNormWeight() {
+                fusedArrays.append(fused)
+            }
             if lagunaUseNativeAffineQKV(layer: layer.selfAttn.layerIdx) {
                 fusedArrays.append(
                     contentsOf: layer.selfAttn.prepareNativeAffineQKVWeight())
