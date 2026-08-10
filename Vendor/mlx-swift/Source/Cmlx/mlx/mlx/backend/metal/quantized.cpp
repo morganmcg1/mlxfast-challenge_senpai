@@ -1235,7 +1235,7 @@ int darkbloom_stage_bm128_variant() {
   static const int v = [] {
     auto s = env::get_var("DARKBLOOM_STAGE_BM128", "");
     if (s.empty()) {
-      return 8;
+      return 5;
     }
     if (s == "1") {
       return 1;
@@ -2185,4 +2185,4 @@ void fast::ConvertFP8::eval_gpu(
 
 }
 
-// r105-A ladder receipt marker: A2-1
+// r105-A ladder receipt marker: A0-3
