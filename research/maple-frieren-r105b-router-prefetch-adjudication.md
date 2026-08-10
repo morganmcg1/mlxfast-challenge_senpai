@@ -495,6 +495,54 @@ official receipt.** #584 is concurrently spending M5 receipts, so either that
 branch has a different base relationship to `main` or it hit the same wall.
 
 
+### 6.5 Disclosed interim look, and the bit-exactness gate it delivered
+
+Mid-flight, with 91 of 144 slots written, I copied the output directory and ran
+`analyze-multi.py` on the partial data. The stated purpose was pipeline
+validation: the analyzer sorts arm names and builds contrasts by
+`itertools.combinations`, and I wanted a crash on the new `P0/P1/P1B/P5` labels
+to surface while there was still time to fix it rather than after the timed
+window closed. It did not crash.
+
+I am recording the look because an interim inspection of accumulating data is a
+multiplicity problem and hiding it would be dishonest. Two mitigations apply,
+and neither is retrospective:
+
+1. **Every decision rule was committed before any Phase A datum existed.** The
+   A0 trigger (CI excludes 0, or `|mean| >= 8` us/step), the A0 precision gate
+   (`hw <= 12`), and the four-cell A1 table are in commit `d8a5af7`; the Phase A
+   job launched afterwards. The §10.2 fallback-dominance argument, which names
+   `0` rather than `5`, was committed in `dda278a` — also before the look. So
+   the look cannot have selected a rule, an estimator, a statistic, or a
+   fallback.
+2. **No stopping decision was taken on it.** The stopping rule in §5 is
+   completion-based, the job ran to its full 18 repetitions, and the verdicts in
+   §10 are computed from the complete 16-repetition analysis set. The interim
+   numbers appear nowhere in §10.
+
+What the interim look did deliver, and what does not depend on any timing
+statistic at all, is the **correctness gate for the whole knob family**. Every
+one of the 91 slots written at that point emitted a byte-identical decode token
+stream:
+
+| quantity | value |
+|---|---|
+| `.tokens` files compared | 91 |
+| distinct sha256 over those files | **1** |
+| common digest | `aaf1cccc923270801a1e16da07012bc822d9f85eb33ce6e2039fb38f407e51d8` |
+| bytes per file | 1,083 |
+
+The four arms span `DARKBLOOM_ROUTER_WEIGHT_PREFETCH` in `{0, 1, 5}`, so this is
+a direct demonstration that **`prefetch=0` and `prefetch=5` are both bit-exact
+drop-in replacements for the shipped `prefetch=1`** on the scored decode axis, at
+this seed and step count. That matters for §10.2: the fallback I recommend is not
+merely believed to be output-neutral by reading the kernel source, it is measured
+to be output-neutral 91 times over. It does not substitute for
+`run_upstream_equivalence.sh` or the hidden gates, which cover cases this
+fixture does not, but it removes any doubt that the three settings are the same
+computation.
+
+
 ## 7. Scope fence I am holding
 
 - **rpg retiling is a CLOSED family.** It may ride along only as a
