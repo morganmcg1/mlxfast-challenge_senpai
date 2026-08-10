@@ -7052,6 +7052,120 @@ harden when the effect shrinks — the one-sidedness theorem doing its job. Her
 **N-RECOVER / DO NOT SEND verdict stands unchanged and strengthened.**
 
 
+#### 105.14 🚨 ADVISOR ERROR #10 — the **editable byte budget**, and why a green branch says nothing about the integrated tree
+
+**The error.** Merging nezuko's #616 I checked *base drift*
+(`base_old..base_new -- Sources …`) but never diffed **PR HEAD vs base over
+`editablePaths`**. Her verdict "zero source bytes adopted" was true about
+*semantics* — every arm was env-gated OFF — but her branch carried **26,000 B**
+of scaffolding (`DARKBLOOM_FUSED_SLIDING_ATTN_H4`, `_PACKRED`, `_NOREDUCE` and
+their macro plumbing) in `Sources/MLXFastModel/LagunaRuntimeModel.swift`. The
+squash merge put all of it on the integration tree. Reverted in `fc66172b`
+(file restored to blob `9af980d9`, 384,245 B).
+
+**The gate.** `senpai/check-editable-budget.sh BASE_SHA` (generator
+`research/advisor_r105_14_editable_byte_budget.py`) enforces three limits over
+the 97 `editablePaths` entries → 142 files:
+
+| limit | value |
+|---|---|
+| `MAX_TOTAL_BYTES` | 3,000,000 |
+| **`MAX_FILE_BYTES`** | **524,288 — per-file HARD ABORT** |
+| `MAX_GROWTH_BYTES` | 262,144 |
+
+Census at tip vs trusted main `1bc1c895…`: total **2,681,206** (headroom
+**318,794**), growth **−302,643**, 142 files. Fern reached **319,792 B** of
+headroom independently, from the other side, in her §6.6.1 — two censuses
+agreeing to 0.3 % is why the revert could be declared complete.
+
+**The binding constraint is the per-file cap, not the total.**
+`LagunaRuntimeModel.swift` is **384,245 B = 73.3 %** of its 524,288 B ceiling
+with **140,043 B** left. Every other editable file is under 16 % full. All five
+live arms edit that one file; 5 × 26,000 = 130,000 B against 140,043 B of
+headroom — it fits with 10 KB to spare, and only if nobody is careless.
+
+**Five rulings.**
+
+1. The **per-file** cap, not the total, is what aborts a draw.
+2. **A green check on one branch says nothing about the integrated tree.** Byte
+   budgets compose; correctness verdicts do not.
+3. **Env-gated scaffolding is not free.** Delete it from `Sources/` in the same
+   commit that reports a negative; keep the reproduction in `research/`, which
+   is outside `editablePaths` and therefore costs nothing.
+4. The advisor must diff **PR HEAD vs base over `editablePaths`** before every
+   merge — not base drift, which is a different question with a different
+   answer.
+5. Given nezuko's E.3 (CI's surface gate is a *content* rule against trusted
+   main and rejects any branch carrying `research/` changes), the draw branch
+   must be **Sources-only**, and the integrator must re-run **both** gates —
+   surface and budget — on the exact submitted tree.
+
+#### 105.15 ⭐⭐ The **correctness instrument does not measure what the campaign has been claiming** — `max_abs_diff` is a literal, `golden_hash` is the input digest
+
+Found and self-retracted by **maple-fern** in R106-J §4.1; verified at source by
+the advisor before propagation. This costs the campaign a word it has been using
+for twenty rounds.
+
+**(a) `max_abs_diff` is never computed.** It is a hard-coded `0` at every emit
+site: `Sources/MLXFastHarness/LagunaRuntimeBenchmark.swift:1079,1159`,
+`Sources/MLXFastHarness/LagunaRuntimeLocalIterate.swift:1038`, the mirrored
+trusted-harness sites at `LagunaRuntimeBenchmark.swift:1095,1175` and
+`LagunaRuntimeLocalIterate.swift:1050`, plus the `Score.swift:635` default. It
+is a **schema field carrying a constant**, not a measurement. **Never cite it.**
+
+**(b) `golden_hash` identifies the fixture, not the agreement.** It is
+`golden.sha256` at thirteen sites in
+`Sources/MLXFastTrustedHarness/LagunaRuntimeCorrectness.swift` — the digest of
+the *loaded golden fixture*. Two runs sharing a `golden_hash` read the same
+input file. It says nothing whatever about whether their outputs matched.
+
+**(c) But the gate itself is real, and the advisor is narrowing fern's
+retraction rather than accepting it whole.** `Sources/MLXFastCore/Golden.swift`
+compares **exact token-ID equality** — `if expectedToken != actualToken` at
+`:387` and `:535`, with **no tolerance anywhere in the comparison path**. That
+is what drives `passed_correctness`, `checked_steps` and `first_failing_step`.
+A green 130-step run *is* genuine evidence — of **token-identity on one
+fixture**.
+
+**(d) The word that has to change.** In this campaign:
+
+> **"bit-exact" has meant, and has only ever been evidenced as, "token-identical
+> on the local golden fixture."**
+
+Those are different claims. Any change that reorders floating-point
+accumulation — cross-lane reduction packing, split-K, tile regrouping, unroll
+depth, threadgroup repartitioning — is **not numerically bit-exact** merely
+because it ran green. Standing corrections:
+
+- nezuko's #616 "PACKRED and H4 are bit-exact" downgrades to **token-identical
+  over the checked steps**. Her verdict (N-RECOVER / DO NOT SEND) is unaffected,
+  because it never leaned on the stronger claim.
+- The §14 quantization precedent recorded at the end of this document explicitly
+  leans on "`max_abs_diff 0`". **That justification is void.** The policy there
+  (do not unilaterally revert; put it to the human team) is unchanged, but the
+  evidential basis stated for it must be read as token-identity on one fixture.
+
+**(e) Rule 102 is strengthened, not satisfied.** A green run is *weaker*
+evidence than the campaign assumed, so the margin-certificate requirement for
+non-bit-exact components becomes more load-bearing, not less. Token-identity on
+one fixture is a **behavioural** guarantee at one operating point; the official
+host runs a different fixture on different hardware, and a top-1 margin that is
+narrow locally can flip there. The draw-bar condition "bit-exact **or** margin
+certificate" therefore now reads: **either the transformation provably does not
+change the arithmetic (source-level argument — identical accumulation order),
+or it carries a margin certificate. A green harness run satisfies neither.**
+
+**(f) The generalisable lesson, which is 93.4's lesson again.** Rule 89.1
+grouped receipts on a key the platform regenerates per submission, so the test
+had zero power and returned a confident "no". Here the campaign read agreement
+off a field that is a compile-time constant and a digest of the *input*. **Both
+failures are the same failure: an instrument whose key does not mean what the
+analysis assumes it means.** The check is cheap and nobody had run it — `grep`
+the emit site and see whether the number is ever assigned from a computation.
+Do this for every field before it becomes load-bearing.
+
+
+
 ## 9. σ table (rule 40 — pick your estimator, then quote its floor)
 
 🚨 **SUPERSESSION (rule 101, round 107).** The score-channel entries below are
@@ -7338,3 +7452,8 @@ deliverable, and a clean `N-ISSUE-BOUND` closes a 4.28 % pool by measurement.**
   put it to the human team as a written question if a `human_issue` arrives.
   Meanwhile every new quantization-adjacent assignment must be lossless by
   construction rather than leaning on this precedent.
+  🚨 **Amended by rule 105.15:** the `max_abs_diff 0` cited above is a
+  **hard-coded literal**, not a measurement. The evidential basis for this entry
+  is therefore token-identity on one golden fixture, not numerical agreement.
+  The policy (do not unilaterally revert; escalate in writing) is unchanged; the
+  justification stated for it is void.
