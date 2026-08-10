@@ -65,11 +65,16 @@ private struct Options {
     }
 }
 
+private struct KernelSource {
+    let source: String
+    let header: String
+}
+
 private struct KernelSources {
-    let slidingDecode: String
-    let fullDecode: String
-    let slidingPrefill: String
-    let fullPrefill: String
+    let slidingDecode: KernelSource
+    let fullDecode: KernelSource
+    let slidingPrefill: KernelSource
+    let fullPrefill: KernelSource
 }
 
 private struct Kernels {
@@ -105,28 +110,32 @@ private struct Kernels {
             name: "qk_abi_\(abi.rawValue)_sliding_decode",
             inputNames: decodeInputs,
             outputNames: ["attended"],
-            source: sources.slidingDecode,
+            source: sources.slidingDecode.source,
+            header: sources.slidingDecode.header,
             ensureRowContiguous: true
         )
         fullDecode = MLXFast.metalKernel(
             name: "qk_abi_\(abi.rawValue)_full_decode",
             inputNames: decodeInputs,
             outputNames: ["attended"],
-            source: sources.fullDecode,
+            source: sources.fullDecode.source,
+            header: sources.fullDecode.header,
             ensureRowContiguous: true
         )
         slidingPrefill = MLXFast.metalKernel(
             name: "qk_abi_\(abi.rawValue)_sliding_prefill",
             inputNames: prefillInputs,
             outputNames: ["queries", "keys"],
-            source: sources.slidingPrefill,
+            source: sources.slidingPrefill.source,
+            header: sources.slidingPrefill.header,
             ensureRowContiguous: true
         )
         fullPrefill = MLXFast.metalKernel(
             name: "qk_abi_\(abi.rawValue)_full_prefill",
             inputNames: prefillInputs,
             outputNames: ["queries", "keys"],
-            source: sources.fullPrefill,
+            source: sources.fullPrefill.source,
+            header: sources.fullPrefill.header,
             ensureRowContiguous: true
         )
     }
@@ -235,7 +244,7 @@ private func runCommand(_ executable: String, _ arguments: [String], at director
     return stdout.trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
-private func extractSource(_ text: String, variable: String) throws -> String {
+private func extractSource(_ text: String, variable: String) throws -> KernelSource {
     let declaration = "private let \(variable) = MLXFast.metalKernel("
     guard let declarationRange = text.range(of: declaration) else {
         throw BenchmarkError.invalidSource("missing kernel declaration \(variable)")
@@ -248,7 +257,26 @@ private func extractSource(_ text: String, variable: String) throws -> String {
     guard let sourceEnd = text[sourceStart...].range(of: "\"\"\"") else {
         throw BenchmarkError.invalidSource("missing source terminator for \(variable)")
     }
-    return String(text[sourceStart..<sourceEnd.lowerBound])
+    guard let declarationEnd = text[sourceEnd.upperBound...].range(of: "\n)\n") else {
+        throw BenchmarkError.invalidSource("missing declaration terminator for \(variable)")
+    }
+
+    let arguments = text[sourceEnd.upperBound..<declarationEnd.lowerBound]
+    let header: String
+    if let headerMarker = arguments.range(of: "header: \"\"\"") {
+        let headerStart = headerMarker.upperBound
+        guard let headerEnd = arguments[headerStart...].range(of: "\"\"\"") else {
+            throw BenchmarkError.invalidSource("missing header terminator for \(variable)")
+        }
+        header = String(arguments[headerStart..<headerEnd.lowerBound])
+    } else {
+        header = ""
+    }
+
+    return KernelSource(
+        source: String(text[sourceStart..<sourceEnd.lowerBound]),
+        header: header
+    )
 }
 
 private func loadSources(_ text: String) throws -> KernelSources {
