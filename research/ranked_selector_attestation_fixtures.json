@@ -23,6 +23,13 @@
       "mutation": "missing_pinned_worker",
       "expected_classification": "SELECTOR_ATTESTATION_INCOMPLETE",
       "expected_first_missing": "pinned_baseline_timed.worker_snapshot"
+    },
+    {
+      "id": "null_authority_is_incomplete",
+      "base_variant": "all_absent",
+      "mutation": "null_authority",
+      "expected_classification": "SELECTOR_ATTESTATION_INCOMPLETE",
+      "expected_first_missing": "installed_authority_bundle_digest"
     }
   ],
   "negative_controls": [
@@ -49,7 +56,16 @@
     {"id":"generic_environment_dump","base_variant":"all_absent","mutation":"generic_environment_dump","expected_error":"UNDECLARED_FILE"},
     {"id":"secret_value_leakage","base_variant":"identical_explicit","mutation":"secret_value_leakage","expected_error":"SECRET_VALUE_FORBIDDEN"},
     {"id":"redaction_placeholder_leakage","base_variant":"identical_explicit","mutation":"redaction_placeholder_leakage","expected_error":"REDACTION_PLACEHOLDER_FORBIDDEN"},
-    {"id":"declared_file_missing","base_variant":"all_absent","mutation":"declared_file_missing","expected_error":"DECLARED_FILE_MISSING"}
+    {"id":"declared_file_missing","base_variant":"all_absent","mutation":"declared_file_missing","expected_error":"DECLARED_FILE_MISSING"},
+    {"id":"trusted_bundle_digest_mismatch","base_variant":"all_absent","mutation":"trusted_bundle_digest_mismatch","expected_error":"TRUSTED_BUNDLE_DIGEST_MISMATCH"},
+    {"id":"schema_drift","base_variant":"all_absent","mutation":"schema_drift","expected_error":"SCHEMA_CONTRACT_DRIFT"},
+    {"id":"impossible_capture_date","base_variant":"all_absent","mutation":"impossible_capture_date","expected_error":"CAPTURE_EPOCH_INVALID"},
+    {"id":"selector_name_too_long","base_variant":"all_absent","mutation":"selector_name_too_long","expected_error":"SELECTOR_NAME_INVALID"},
+    {"id":"selector_name_wrong_type","base_variant":"all_absent","mutation":"selector_name_wrong_type","expected_error":"SCHEMA_INVALID"},
+    {"id":"noncanonical_snapshot_json","base_variant":"all_absent","mutation":"noncanonical_snapshot_json","expected_error":"PHYSICAL_JSON_NONCANONICAL"},
+    {"id":"static_resume_target_mismatch","base_variant":"all_absent","mutation":"static_resume_target_mismatch","expected_error":"STATIC_RESUME_TARGET_MISMATCH"},
+    {"id":"missing_worker_with_invalid_selector","base_variant":"all_absent","mutation":"missing_worker_with_invalid_selector","expected_error":"SELECTOR_NAME_INVALID"},
+    {"id":"missing_worker_with_noncanonical_snapshot","base_variant":"all_absent","mutation":"missing_worker_with_noncanonical_snapshot","expected_error":"PHYSICAL_JSON_NONCANONICAL"}
   ],
   "determinism": {
     "runs": 2,
