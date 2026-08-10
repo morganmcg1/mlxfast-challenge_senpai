@@ -11,8 +11,10 @@
 # dominated by the ~42.5 s model load, so steps are kept modest but non-zero to
 # retain a per-slot greedy parity check.
 #
-# usage: bash research/maple-edward-r107a-prefill.sh [SG ...]     (default: 0 8)
-#   SG=0 selects the untouched default path; SG>0 selects the _sgN pipeline.
+# usage: bash research/maple-edward-r107a-prefill.sh [ARM ...]    (default: 0 8)
+#   A bare integer N is shorthand for "${SEL_VAR}=N" with arm name sgN (base at
+#   0).  NAME:VAR=VALUE names the arm and its selector explicitly, so both
+#   selector sites can share one paired session.
 set -uo pipefail
 
 SNAP="${SNAP:-/tmp/maple-r107a-snap}"
@@ -20,8 +22,19 @@ OUT="${OUT:-/tmp/maple-r107a/prefill}"
 SEL_VAR="${SEL_VAR:-DARKBLOOM_ROUTED_GATEUP_SG}"
 REPS="${REPS:-8}"
 STEPS="${STEPS:-64}"
-SGS=("$@")
-[ ${#SGS[@]} -eq 0 ] && SGS=(0 8)
+SPECS=("$@")
+[ ${#SPECS[@]} -eq 0 ] && SPECS=(0 8)
+
+ARM_NAME=(); ARM_ENV=()
+for spec in "${SPECS[@]}"; do
+  case "${spec}" in
+    *:*=*) ARM_NAME+=("${spec%%:*}"); ARM_ENV+=("${spec#*:}") ;;
+    0)     ARM_NAME+=("base");       ARM_ENV+=("${SEL_VAR}=0") ;;
+    [1-9]*[0-9]|[1-9])
+           ARM_NAME+=("sg${spec}");  ARM_ENV+=("${SEL_VAR}=${spec}") ;;
+    *)     echo "refusing: bad arm spec '${spec}'" >&2; exit 4 ;;
+  esac
+done
 
 WORKER="${SNAP}/new/mlxfast-runtime-worker"
 [ -x "${WORKER}" ] || { echo "refusing: missing ${WORKER}" >&2; exit 3; }
@@ -41,7 +54,8 @@ tree_digest() {
 DIGEST_BEFORE="$(tree_digest)"
 log "head=$(git rev-parse HEAD)"
 log "digest_before=${DIGEST_BEFORE}"
-log "reps=${REPS} steps=${STEPS} selector=${SEL_VAR} sgs=${SGS[*]}"
+log "reps=${REPS} steps=${STEPS} default_selector=${SEL_VAR}"
+for i in "${!ARM_NAME[@]}"; do log "arm ${ARM_NAME[$i]} = ${ARM_ENV[$i]}"; done
 log "host=$(sysctl -n machdep.cpu.brand_string)"
 shasum -a 256 "${WORKER}" | tee -a "${PROV}"
 
@@ -54,7 +68,7 @@ finish() {
 }
 trap finish EXIT
 
-NARMS=${#SGS[@]}
+NARMS=${#ARM_NAME[@]}
 : >"${OUT}/index.tsv"
 printf 'rep\tposition\tarm\tprefill_ms\n' >>"${OUT}/index.tsv"
 
@@ -68,11 +82,10 @@ for rep in $(seq 1 "${REPS}"); do
   pos=0
   for idx in "${order[@]}"; do
     pos=$((pos + 1))
-    sg="${SGS[$idx]}"
-    arm="sg${sg}"; [ "${sg}" = "0" ] && arm="base"
+    arm="${ARM_NAME[$idx]}"
     tag=$(printf "rep%02d-pos%d-%s" "${rep}" "${pos}" "${arm}")
     echo "=== ${tag} ==="
-    env "${SEL_VAR}=${sg}" \
+    env "${ARM_ENV[$idx]}" \
         DECODE_PROBE_WORKER="${WORKER}" \
       python3 research/decode_probe.py --steps "${STEPS}" --prefill \
         --dump-tokens "${OUT}/${tag}.tokens" \
