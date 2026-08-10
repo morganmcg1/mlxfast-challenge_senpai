@@ -1517,10 +1517,21 @@ is not a record, and §14.13 is the only route to one.
 * **#571 (frieren)** — σ_launch calibration. If it lands materially below ≈48,
   the same-binary env-contrast channel exists and §10's 76-gate ablation ledger
   becomes rankable. If σ_launch ≥ 40, §10 dies and should be recorded as dead.
-* **The routed gather-GEMM at 67 % of peak** (§14.2) — 48.28 % of the prefill
+* ~~**The routed gather-GEMM at 67 % of peak** (§14.2) — 48.28 % of the prefill
   wall, the largest inefficient pool in the model, and untouched by round 104.
   This is the obvious place for a round-105 census, *after* re-reading rule 68,
-  rule 83 and the §14.7 price rule.
+  rule 83 and the §14.7 price rule.~~
+  **STRUCK 2026-08-10 — see `research/advisor-r105-the-routed-gather-gemm-is-memory-bound.md`.**
+  Three corrections: (i) "48.28 %" is of the **M4 non-`_nax`** wall and M5 runs a
+  different kernel family; (ii) "67 % of peak" is an **achieved-bandwidth**
+  fraction restated in FLOP units, derived from a contaminated marginal
+  estimator; (iii) the bytes have already been counted **twice, byte-exactly**
+  (14.826 GB), so there is nothing for a census to find. The corrected roofline
+  makes the kernel **memory-bound** (issued AI 87.66 vs balance 98.36) with a
+  cache-immune floor of 24.306 ms, which prices the **entire MMA-row-inflation
+  family — including meridian's two-régime dispatch — at ≈0 ms**. The only
+  compressible stream left is A-operand re-read (L7), and even that may already
+  be absorbed by SLC.
 * **[Wk;Wv]-only fusion** — mechanism probe only, not a lever (§14.4).
 * **H3 split-K tie flip** — unimplemented, not bit-exact, sign bracketed
   −3…+1 ms (§14.6).
