@@ -212,10 +212,28 @@ After R2 measurement, the temporary selector was removed and this proof passed:
 git diff --exit-code 23a84d0e668eaf50b3f1cfbaf5bdfcb3b0694b25 -- Sources Vendor
 ```
 
-A final post-removal `research/run_upstream_equivalence.sh` result and its exact
-clean tested SHA are recorded in the terminal structured result. The historical
-R1 evidence follows for auditability; its global-trace NO-GO is superseded by
-the R2 differential-fence calibration.
+The final post-removal check tested clean production SHA
+`11563a137c372d93a59195136f2388b09b83ae01` with:
+
+```bash
+/usr/bin/env MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT=1 \
+  research/run_upstream_equivalence.sh
+```
+
+Supervised job `62bb9af2-57a5-4d42-95d9-3270f94dd75c` ran 57.831 s and exited
+1 after executing exactly one Swift Testing test. This is the expected recorded
+M4-only drift rather than a claimed pass: prefill max absolute error 0.125,
+mean error 0.011933609, exact runtime/upstream prefill token 5991, exact decode
+steps 0-7, and `EQUIVALENCE_EXACT_STEPS=8`. The allow-drift setting preserves
+and reports the failure; it does not relax the official correctness gate. This
+exactly matches the untouched-base signature above. The 102-line, 5,366-byte
+log is
+`/Users/ec2-user/.senpai/native/mlxfast-cedar-20260804/roles/student-cedar-nezuko/state/openhands_state/training/62bb9af2-57a5-4d42-95d9-3270f94dd75c.log`
+with SHA-256
+`6f20ae92591e1312c844da19375a23f119e7d5173adae875b556462379e08e5b`.
+
+The historical R1 evidence follows for auditability; its global-trace NO-GO is
+superseded by the R2 differential-fence calibration.
 
 # Appendix: R1 global-trace evidence (superseded)
 
