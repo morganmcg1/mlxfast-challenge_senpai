@@ -683,16 +683,16 @@ let lagunaRouterRowsPerGroup: Int = {
     return value
 }()
 
-
-
-
-
-
-
-
-
-
-
+// Router-GEMV weight-prefetch mode: 0, 1, or 5; anything else falls back to 1.
+// 0 selects the plain kernel. 1 issues a four-block vec<bfloat,4> salvo (256 KiB
+// per invocation, one quarter of the 1 MiB router weight) above the RMSNorm
+// reduction and all five threadgroup barriers, then peels the first 4 of 16
+// column blocks off the GEMV loop. 5 emits the identical instructions below
+// those barriers instead, so 1 and 5 are a matched pair that isolates placement
+// from the loads; neither variant moves extra bytes. In the serialised router
+// label 1 measures ~6.4 us/step faster than 0 while 5 is indistinguishable from
+// it, so that win belongs to the hoist rather than to the prefetch block itself.
+// See #597: end to end that hoist instead costs +28.0 us/step on M4 Pro, 16/16.
 let lagunaRouterWeightPrefetch: Int = {
     guard
         let raw = ProcessInfo.processInfo.environment["DARKBLOOM_ROUTER_WEIGHT_PREFETCH"],
@@ -702,12 +702,12 @@ let lagunaRouterWeightPrefetch: Int = {
     }
     return value
 }()
-
-
-
-
-
-
+// lagunaRouterWeightPrefetch reaches the kernel through
+// lagunaRouterPrefetchGroups, which returns 0 whenever rowsPerThread != 1 and
+// otherwise maps 5 to a single late-placed group and passes every other value
+// through unchanged. The variant key in lagunaResidualRMSNormRouterKernels is
+// rowsPerGroup * 8 + prefetch, and the kernel-name suffix is _pf1c when
+// prefetch == 5, _pf<groups> when groups > 0, and empty when groups == 0.
 
 private enum LagunaDecodeAsyncStage {
     case off

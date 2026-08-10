@@ -792,7 +792,84 @@ rather than to the loads.
 
 ### 10.1 A0 — the A/A null for the contrast estimator
 
-`[PENDING — filled from /tmp/maple-r105b/phaseA on job completion]`
+Phase A finished 18 repetitions × 8 slots = 144 timed slots, 16 analysed after
+the preregistered 2-repetition warm-up (exactly 4 complete rotation cycles).
+All four gates cleared before any number was read:
+
+| gate | requirement | result |
+| --- | --- | --- |
+| G1 slot count | 144 | 144 |
+| G2 Rule-75 tree digest | `digest_after == digest_before` | `d93a6d14…` both sides, `PASS(rule 75)` |
+| G3 token identity | one distinct `sha256` over all slots | 1 distinct: `aaf1cccc…e51d8`, 1,083 B × 144 |
+| G4 arm balance | 36 slots per arm | 36 / 36 / 36 / 36 |
+
+G3 is the correctness result of the round and it is stronger than the timing
+one. `DARKBLOOM_ROUTER_WEIGHT_PREFETCH ∈ {0, 1, 5}` produced **byte-identical
+greedy token streams in all 144 slots**, so `0` and `5` are bit-exact drop-in
+replacements for the shipped `1` on this host and this checkpoint.
+
+**A0 verdict: `A0-INCONCLUSIVE`.**
+
+| estimator | mean | 95 % hw | CI | signs | K |
+| --- | --- | --- | --- | --- | --- |
+| cycle-blocked (**primary**, preregistered) | **+4.04** | 13.77 | [−9.73, +17.81] | 2/2 | 4 |
+| per-repetition (secondary) | +4.04 | 7.71 | [−3.67, +11.74] | 8/8 | 16 |
+
+The preregistered table in §3.1 keys A0 off the primary estimator, and the
+primary estimator misses the 12 µs/step precision requirement (13.77 > 12), so
+the honest reading is `A0-INCONCLUSIVE`: the A/A null covers zero, but partly
+because the interval is wide. Under the secondary per-repetition estimator the
+same point estimate would have delivered `A0-CLEARS` (hw 7.71 ≤ 12). I record
+the branch selected by the rule I wrote down first, not the one I would prefer.
+
+What matters for the round is that **A0 did not fire `A0-FIRES-N1`**: the mean
+is +4.04 with |+4.04| < 8, and the interval covers zero on both estimators. The
+preregistered kill switch — retract the +34.58 and spend no receipt — is
+therefore **not** triggered, and Phase B is authorised.
+
+**The replicate delivered something better than a tight null.** `P1` and `P1B`
+are the same environment value and therefore the same machine code. Each was
+independently contrasted against `P0`:
+
+| contrast | cycle-blocked | per-repetition | signs |
+| --- | --- | --- | --- |
+| `P0->P1` | +25.90 [+17.33, +34.47] | +25.97 [+19.88, +32.06] | 4/0 and 16/0 |
+| `P0->P1B` | +29.94 [+20.47, +39.41] | +30.02 [+24.13, +35.91] | 4/0 and 16/0 |
+
+Two independent estimates of one quantity, both excluding zero with every
+repetition and every cycle on the same side. An A/A null whose interval is wide
+is a statement about the noise floor of a single 4-cycle contrast; two
+replicates that separately reject zero and land 4 µs apart is a statement about
+the effect. The second is the evidence the round needed.
+
+Pooling the two replicates — legitimate because they are byte-identical code —
+gives the headline of Phase A:
+
+| pooled `mean(P1, P1B) − P0` | mean | 95 % hw | CI | signs | K |
+| --- | --- | --- | --- | --- | --- |
+| cycle-blocked (primary) | **+28.00** | **5.77** | [+22.23, +33.77] | 4/0 | 4 |
+| per-repetition | +28.00 | 4.58 | [+23.42, +32.58] | 16/0 | 16 |
+
+The pooled primary half-width is 5.77 µs/step, which **clears the 8 µs/step
+precision target** that the single `P1->P1B` cell missed. Reproduced with
+`research/maple-frieren-r105b-pooled.py`.
+
+Two caveats I will not bury. First, the analyser's own `precision` field reports
+`worst_half_width_m4 = 13.77`, `pass = false`, because it reports the worst of
+all six pairwise contrasts and the worst one is the A/A cell. That field is
+accurate and I am not overriding it; I am pointing out that the contrast the
+round is about is measured four times more precisely than the cell that sets the
+worst case. Second, the pooled estimator was **not** preregistered — §3.1
+preregistered `P1->P1B` as the null and `P0->P1` as the effect. Pooling is a
+post-hoc precision gain, so it is reported alongside the preregistered cells and
+never in place of them; every preregistered branch above is decided on the
+preregistered cell.
+
+The blanket noise gates both cleared this time, which they did not for #571:
+`n2_fires = False` (no within-arm drift cell rivals a contrast) and
+`n5_fires = False`. The pooled within-arm nulls are quiet at every separation:
+`sep1 +8.44 [−3.16, +20.05]`, `sep3 +6.58 [−4.82, +17.99]`,
+`sep5 −3.96 [−10.00, +2.08]`, `sep7 −10.04 [−22.18, +2.10]`.
 
 ### 10.2 Which fallback, `prefetch = 0` or `prefetch = 5`?
 
@@ -866,11 +943,130 @@ default*, not a measured M5 result.
 
 ### 10.3 A1 — placement versus peel
 
-`[PENDING — filled from /tmp/maple-r105b/phaseA on job completion]`
+**A1 verdict: `V-PLACEMENT`.** All three preregistered conditions hold on the
+primary cycle-blocked estimator:
+
+| preregistered condition | required | measured | holds |
+| --- | --- | --- | --- |
+| `P0->P1` lo > 0 | the shipped default costs end to end | +25.90, lo **+17.33** | yes |
+| `P0->P5` covers 0 | the same loads below the barriers cost nothing | +6.53, [**−4.65**, **+17.71**] | yes |
+| `P1->P5` hi < 0 | moving them down recovers the loss | −19.37, hi **−10.83** | yes |
+
+Arm levels, µs/step, mean of slot medians over the 16 analysed repetitions:
+
+| arm | env | level | vs `P0` |
+| --- | --- | --- | --- |
+| `P0` | `…PREFETCH=0` | 8244.52 | — |
+| `P1` | `…PREFETCH=1` (shipped) | 8270.42 | +25.90 |
+| `P1B` | `…PREFETCH=1` (replicate) | 8274.46 | +29.94 |
+| `P5` | `…PREFETCH=5` (placement control) | 8251.05 | +6.53 |
+
+The ordering is `P0 ≲ P5 ≪ P1 ≈ P1B`. `P1` and `P1B` issue the same four
+`vec<bfloat, 4>` loads as `P5`; the only difference between them and `P5` is
+whether those loads sit above or below the RMSNorm reduction and its five
+threadgroup barriers. So the cost is not the loads. **It is the hoist.**
+
+Three cross-checks, none of which is the decision variable:
+
+1. **Position-matched.** Each of the four rotation-phase slot pairs gives an
+   independent `P0->P1`: +28.22, +22.70, +25.04, +27.63 — spread 5.52, all four
+   positive; and `P0->P1B`: +32.79, +27.66, +25.97, +33.53 — spread 7.56, all
+   four positive. `P0->P5` is the one contrast that does *not* keep its sign
+   across positions (+12.96, +8.98, +4.89, −0.31), which is what a genuine null
+   looks like.
+2. **Step-index profile.** `P1−P0` is +22 to +34 µs/step in every window from
+   step 1 to step 250, i.e. a *sustained* per-step cost, not a per-slot constant
+   (a constant `C` would appear in the mean and vanish from the median profile).
+   `P5−P1` is −15 to −32 across the same windows. The step-0 contrasts are all
+   noise (`P0->P1` −538 µs, CI [−2433, +1357]).
+3. **Slot-median distributions.** `P1` and `P0` overlap here (min(P1) − max(P0)
+   = −53.1), unlike #571 rung 2 where `C` and `B` were disjoint. That is honest
+   evidence that the between-slot variance on this host is larger than the
+   effect and that the *pairing* is doing the work — which is exactly why the
+   design pairs within repetitions.
+
+**Magnitude versus the #571 prediction.** §1.1 predicted +34.58 µs/step with CI
+[+26.39, +42.77]. Phase A measures +28.00 pooled, CI [+22.23, +33.77]. The
+intervals overlap on [+26.39, +33.77]; the point estimate reproduces at
+**0.81×**. The sign, the ordering, and the mechanism all reproduce; the
+magnitude reproduces at the low edge of the prior interval. I therefore restate
+§1.1's headline as **+28.00 µs/step = +0.426 % of the composite score = 0.79
+nominal session σ** and treat the +34.58 figure as superseded by the larger,
+better-controlled measurement rather than as confirmed.
+
+**Where that leaves the §1 contradiction.** The per-kernel `SPLIT=1` census
+measured the shipped hoist at **−6.39 µs/step (faster)** with 12/12 negative
+signs and a ±0.43 floor. Phase A measures the same hoist end to end at **+28.00
+µs/step (slower)** with 16/16 positive signs. Both measurements are sound
+measurements of different things, and §11.10 gives the mechanism that makes the
+sign flip predictable rather than paradoxical: `SPLIT=1` gives every one of the
+406 dispatches its own command buffer, so the census times the salvo arriving on
+an idle memory fabric, while the shipped 45-command-buffer regime lands the same
+salvo in the drain tail of the preceding dispatch, where queueing delay is
+convex in arrival rate. The instrument is not wrong; it is blind to the only
+regime that is scored.
 
 ### 10.4 What Phase A settles and what it does not
 
-`[PENDING — filled from /tmp/maple-r105b/phaseA on job completion]`
+**Settled.**
+
+1. `DARKBLOOM_ROUTER_WEIGHT_PREFETCH ∈ {0, 1, 5}` is **bit-exact** across all
+   144 timed slots — one `sha256` for every checked greedy token stream. `0` is a
+   drop-in for the shipped `1` with no correctness risk on this host and
+   checkpoint. This holds independently of every timing number in this document.
+2. On M4 Pro the shipped default is an **end-to-end decode regression** of
+   +28.00 µs/step, CI [+22.23, +33.77], 16/16 repetitions and 4/4 rotation
+   cycles on the same side, with two independent replicates of the same code each
+   excluding zero on their own.
+3. The cost is attributable to the **cross-barrier hoist**, not to the four
+   loads and not to the four-block peel: the same loads emitted below the five
+   threadgroup barriers (`prefetch = 5`) are indistinguishable from not emitting
+   them at all (+6.53, CI [−4.65, +17.71]), and moving them down from the hoisted
+   position recovers −19.37, CI [−27.92, −10.83].
+4. The §1 contradiction is **resolved in favour of the end-to-end measurement**,
+   with a mechanism (§11.10) that explains why the `SPLIT=1` per-kernel census
+   reports the opposite sign rather than merely failing to see the cost.
+5. The recommended fallback is **`0`, not `5`** (§10.2, committed before any data
+   was read). Phase A adds one unpreregistered reason: `P0->P5` has a positive
+   point estimate (+6.53) with 4/4 positive cycles, so if `5` differs from `0` at
+   all, the available evidence leans to `5` being the *worse* of the two.
+
+**Not settled.**
+
+1. **Transfer to M5.** Everything above is M4 Pro. M4 Pro reports Apple GPU
+   generation 16, has fewer cores, and a different memory-system arrival-rate
+   regime — and the mechanism in §11.10 is *specifically* an arrival-rate
+   mechanism, which is the class most likely to change magnitude, and possibly
+   sign, with core count and fabric width. This is not an `_nax` kernel, so the
+   kernel family does reach the ranked M5; the regime does not necessarily.
+2. **The magnitude that would be scored.** §11.5 records that the
+   KV-proportional reading is underpowered, not refuted. Phase A's own
+   per-repetition and bootstrap slope intervals for `P1−P0`
+   (+0.0787 ± 0.0805 and +0.0602 [+0.0070, +0.1129] µs per KV token) disagree
+   about whether zero is excluded — section 6 covers zero, section 7 excludes it
+   — and the report's own rule is that a haircut needs **both**. So the scored
+   128-step-window haircut is still not licensed and +28.00 is quoted unhaircut.
+3. **Which of the two leading mechanisms it is.** §11.7 ranks burst arrival into
+   the preceding dispatch's drain tail above self-delay of the kernel's own
+   residual loads, but Phase A separates neither; both predict exactly the
+   observed `P1` ≫ `P5` ≈ `P0` ordering.
+4. **Whether the −6.39 label win is real in the shipped regime.** Conceded in
+   §11.10: the census that produced it also ran on an idle fabric, so its sign
+   under 45 command buffers per step is unknown.
+5. **Whether `1` is beaten by `0` on the frontier tree.** My branch differs from
+   `origin/main` on 27 editable files, 26 of them unpromoted advisor-branch
+   content (§6.4.1 residual). An absolute `cs` from this branch is therefore not
+   frontier-comparable; only the *difference* between two of my own receipts is
+   valid, which is what Phase B draws. Some of those 26 files touch MoE and
+   attention and could in principle interact with the router prefetch, so even
+   the paired difference is a difference measured on my tree, not on the
+   frontier's.
+6. **Statistical strength of Phase B as budgeted.** §4.1.1 established, from 14
+   consecutive receipts on this account, a paired receipt-to-receipt σ of
+   ≈31.9 µs/step — 1.9× the inherited σ_pair. Against a +28.00 effect, two
+   pairs give ±44.2 µs/step. Phase B is a **sign-and-transfer check, not a
+   confirmation**, and that was accepted in writing before the first receipt was
+   drawn.
 
 ## 11. Adversarial review of §§0-5, and the four corrections it forced
 
