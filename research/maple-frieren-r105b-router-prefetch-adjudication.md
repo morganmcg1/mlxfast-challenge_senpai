@@ -515,6 +515,123 @@ branch has a different base relationship to `main` or it hit the same wall.
 
 ---
 
-*(Sections 8+ are written after the runs and report outcomes against the
-above. Nothing above this line is edited after the first Phase-A launch except
-to fix a typo, and any such edit is called out in the commit message.)*
+## 9. Verdicts — delivered
+
+### 9.1 `CURRENT_RESEARCH_STATE.md:193-200`, the "free rider / Bank it" doctrine
+
+The bullet reads: *"#558 ships as a free rider and must never draw its own
+receipt … E = 0.349, so the −6.3917 µs/step census win is worth 2.2307 µs/step
+chained ⇒ +0.016 % decode ⇒ +0.012 % of score — about 36× below the 0.5393 %
+session σ. It is free (bit-exact, 4,186 B, no risk) and therefore worth
+carrying."*
+
+**Verdict: the arithmetic is right and the inference is unsafe. Amend, do not
+delete.** Two defects, the second of which is unconditional.
+
+**(a) The magnitude claim is inverted when the measured end-to-end number is
+substituted for the modelled one.** The doctrine prices the dial at
+`census win × E` = 6.3917 × 0.349 = 2.2307 µs/step. #571's uninstrumented
+paired design measures the same dial at **+34.58 µs/step in the opposite
+direction** — **15.5×** the doctrine's own chained figure. At the decode price
+of 0.015228 %/µs-step that is **0.527 % of `cs`**, i.e. **≈1.0× the 0.5393 %
+session σ the doctrine used to dismiss it, not 1/36 of it.** The doctrine's own
+yardstick, applied to a measurement of the quantity the doctrine is about,
+reverses the doctrine's conclusion. (Conditional on A0 clearing — §3.1.)
+
+**(b) The pricing model has no term that could ever detect this, so the
+conclusion was unearned even if (a) turns out false.** `E` is a *shadowing
+factor*: it discounts a per-kernel saving down to its chained contribution.
+It is a one-sided operator on gains. There is no symmetric term for a
+kernel-local change whose cost lands *outside its own label* — and that is
+exactly the shape of what was measured (label −6.39, whole step ≈+41 elsewhere).
+A model that can only shrink gains cannot represent an out-of-label loss, so
+"E × win is tiny ⇒ risk-free" is not a valid inference at any value of E.
+
+The words carrying the unearned weight are **"no risk"**. Bit-exactness and
+4,186 B bound the *correctness* and *budget* risk. They say nothing about
+*timing* risk, and the bullet silently promotes the first two into the third.
+
+**Proposed amendment** (replacing "It is free (bit-exact, 4,186 B, no risk) and
+therefore worth carrying"):
+
+> It is bit-exact and 4,186 B, so its correctness and budget risk are zero.
+> Its **timing** risk is *unpriced*: `E` discounts gains and has no term for a
+> cost that lands outside the changed kernel's own label, which is precisely
+> the failure mode R105-B measures. A change may be banked as a free rider only
+> when (i) it is bit-exact **and** (ii) its end-to-end effect has been measured
+> or bounded in an **uninstrumented paired** design at a precision finer than
+> the claimed chained gain. Until (ii) exists the change is not a free rider;
+> it is an **unpriced position**, and carrying it is a bet, not a saving.
+
+### 9.2 Rule 82 — the static read is a veto, not an authorisation
+
+Rule 82 (`:3051`): *"Everywhere else it is decided by a **static compile read**
+(AIR/ISA, registers, spills, threadgroup memory) before any GPU time is spent —
+#558 did exactly that in the router GEMV, found zero occupancy change, and
+banked −6.39 µs/step. Make the static read step 1 of any codegen-restructuring
+arm."*
+
+**Verdict: the procedure survives and the factual finding survives; the word
+"decided" does not.** Three findings.
+
+1. **#558's static read replicates exactly.** My M2 (§6.2) redid it at HEAD's
+   shipped 512-thread geometry — the read #558 took in the 1024-thread era —
+   and every number matches: `maxTotalThreadsPerThreadgroup` 1024,
+   `threadExecutionWidth` 32, `staticThreadgroupMemoryLength` **4240 B**,
+   identical across `pf0`/`pf1`/`pf1c`. Rule 82's evidence is not stale and
+   `CURRENT_RESEARCH_STATE.md:160-166` needs no retraction.
+2. **A clean static read is nevertheless compatible with a +34.58 µs/step
+   end-to-end penalty.** Same binary, same metallib, same threadgroup memory,
+   same thread limits, 288 B of AIR apart, and 21/21 paired slots slower. So
+   the static read cannot *authorise* a hoist. It can only *veto* one.
+3. **"Zero occupancy change" is over-claimed even as a static statement.**
+   `maxTotalThreadsPerThreadgroup` reports the largest threadgroup the register
+   allocation permits. This kernel launches **512**, well under the reported
+   1024, so the metric is *not binding* on either arm and cannot distinguish
+   them. What Metal does **not** expose is the quantity that matters here: how
+   many 512-thread threadgroups stay co-resident per core. `pf1` holds 8 extra
+   live 32-bit registers per thread across 5 barriers = **16 KB of extra
+   register file per resident threadgroup at 512 threads**. That can halve
+   co-residency with no change whatsoever in any statistic #558 read. The
+   correct static conclusion is the weaker *"no threadgroup-level occupancy
+   limit change"*.
+
+**Proposed replacement for the second sentence of Rule 82:**
+
+> Everywhere else a **static compile read** (AIR/ISA, registers, spills,
+> threadgroup memory) is **step 1 and a veto, not an authorisation**. A read
+> that shows growth in spills or threadgroup memory, or a drop in
+> `maxTotalThreadsPerThreadgroup` below the launched width, kills the arm for
+> free. A read that shows none of that has established only that there is **no
+> threadgroup-level occupancy limit change** — it has *not* established
+> per-core threadgroup co-residency, which Metal does not expose, and it has
+> *not* established anything about cost landing outside the changed kernel's
+> own label. Promoting a hoist therefore still requires an **uninstrumented
+> paired end-to-end** measurement. #558's read was executed correctly and its
+> numbers replicate at the shipped geometry (R105-B §6.2); what did not follow
+> was the promotion.
+
+The banned/allowed split (fused attention vs elsewhere) is untouched: #540's
+attention cliff is a *static* veto, exactly what clause 1 keeps.
+
+### 9.3 The blank documentation blocks at LRM `:685-696` and `:705-711`
+
+Both blocks are empty at HEAD, so the shipped default `return 1` carries no
+recorded semantics at all. Text applied to source after the Phase-A timed window
+closes (editing `Sources/` during the run would trip the harness's own
+`digest_before`/`digest_after` Rule-75 check). Content: the allowed set
+`[0, 1, 5]`; the mapping through `lagunaRouterPrefetchGroups`
+(`rowsPerThread != 1` ⇒ 0; `5` ⇒ 1 group with the block placed *after* the
+reduction; otherwise `groups = prefetch`); the variant key
+`rowsPerGroup*8 + prefetch` and the `_pf1c` / `_pf<groups>` suffix rule; and the
+one fact a future reader most needs — that `1` and `5` emit **identical
+instructions** and differ only in placement relative to the 5 threadgroup
+barriers, so they are a matched pair for attributing any cost to placement
+rather than to the loads.
+
+---
+
+*(Nothing in §§0-5 is edited after the first Phase-A launch except to fix a
+typo, and any such edit is called out in the commit message. §6 was written
+before launch from zero-GPU-cost evidence and says so. §9 verdicts 9.1/9.2 are
+argued from evidence already in hand and are marked where they depend on A0.)*
