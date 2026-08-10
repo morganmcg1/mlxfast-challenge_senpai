@@ -4224,6 +4224,8 @@ uint out_row = tile * (num_simdgroups * results_per_simdgroup) +
 const device uint32_t* ws =
     (const device uint32_t*)weight_codes +
     out_row * (in_vec_size / 8) + simd_lid * codes_per_thread;
+const bool code_load_aligned =
+    (reinterpret_cast<ulong>(weight_codes) & 7ul) == 0ul;
 \(scaleSetup)
 const device bfloat* xp = attention_output + simd_lid * values_per_thread;
 
@@ -4239,9 +4241,15 @@ for (uint k = 0; k < in_vec_size; k += block_size) {
         \(scaleRead)
         \(scaleDecode)
         \(accumDecl)
+        uint2 code_pair;
+        if (code_load_aligned) {
+            code_pair = *reinterpret_cast<const device uint2*>(wl);
+        } else {
+            code_pair = uint2(wl[0], wl[1]);
+        }
         #pragma unroll
         for (uint j = 0; j < codes_per_thread; ++j) {
-            const uint c = wl[j];
+            const uint c = j == 0 ? code_pair.x : code_pair.y;
             \(extract)
             const float2 v04 = float2(as_type<half2>(p0))\(weightScale);
             const float2 v15 = float2(as_type<half2>(p1))\(weightScale);
