@@ -1553,6 +1553,92 @@ to hold the flip until the T1 receipt is *confirmed by marker*, and only then
 apply it. Any future paired submission must serialise the same way, or snapshot
 each arm into a private worktree before invoking the wrapper.
 
+### 13.3 Phase B was not drawn, and the reason is measurable
+
+Job `6e24bcdf-109a-4bd3-9d6d-275b9ad89d73` launched the T1 control submission at
+05:07:49Z with a 4,200 s deadline and was terminated by that deadline at 06:17Z
+(exit -15). It made **14 submit attempts and landed nothing.** The marker
+`R105-B Phase B, arm T1` never appeared in any note, so by the §13.1 predicate
+the receipt count for this experiment is **zero**.
+
+Thirteen attempts returned
+`{"code":"conflict","message":"account already has 1 submission(s) in flight for this benchmark (limit 1)"}`.
+Attempt 8, at 05:28:20Z, returned `Rate limit reached. Try again in 1897 seconds.`
+
+During the same 70 minutes the shared account landed three receipts, none of
+them mine:
+
+| id | opened | outcome | cs | commit |
+|---|---|---|---|---|
+| `288c702` | 05:00 | rejected | 2.55214102802847 | `b4c9b4e` |
+| `d4a86ff` | 05:23 | rejected | 2.57182973424995 | `24ad1d2` |
+| `0b9ae91` | 06:00 | validating at 06:16 | n/a | n/a |
+
+**The diagnosis, which is the genuinely new finding here: the two channel
+constraints compose adversarially, and a polling retry loop is anti-correlated
+with success.** A failed *conflict* attempt still consumes per-account
+rate-limit budget. So the loop spends its budget on attempts that were
+guaranteed to fail, and the resulting lock-out lands on the moment the slot
+frees. My own timeline shows exactly that: seven conflicts in the 21 minutes
+from 05:07 to 05:25 bought a 1,897 s lock-out running 05:28→06:01, and
+`d4a86ff` finished and `0b9ae91` claimed the slot at 06:00 — inside my
+lock-out. The rate-limit windows I had recorded earlier were 759 s and 973 s;
+1,897 s is 2-2.5× those, which is consistent with the penalty growing in the
+number of recent attempts. I built the loop to be robust and it was precisely
+the wrong shape.
+
+The corrected design, which I am recording rather than shipping: **gate on
+reads, not on submits.** `mlxfast submissions` is a read and does not appear to
+consume the submit limiter. Poll *that* until no row reads `validating`, and
+only then spend one `submit`. Every wasted submit becomes a free read, and the
+process contends only when the slot is actually open. I have not exercised this
+variant, so it is a recommendation and not a result, and §13.4 explains why I am
+not spending receipts to test it.
+
+One externality deserves stating plainly, because it is not visible from inside
+my own experiment: the limiter is **per account**, and the account is shared
+with the other campaign roles. My 14 attempts consumed shared budget and can
+only have slowed the three roles that were submitting successfully around me.
+That is a reason to prefer sparse, well-timed single attempts over loops even
+when a loop would help me.
+
+### 13.4 Why I stopped rather than pushing harder
+
+Four reasons, heaviest first.
+
+1. **The pair cannot settle what it was for, and I said so before drawing.**
+   §4.1.1 put σ_pair at 31.9 µs/step from 14 consecutive receipts, so a single
+   pair gives ±44 µs against an expected +28 µs, i.e. P(correct sign) ≈ 81 %.
+   Two contested receipts buy an underpowered sign check. That was accepted on
+   the record before any receipt was requested, so declining to draw it now is
+   consistency rather than retreat.
+2. **This is the known-inferior design.** §12.4 shows HEAD differs from
+   `origin/main` on 27 editable files, 26 of them unpromoted advisor content.
+   Off this base the pair costs two receipts *and* yields an absolute `cs` that
+   is not frontier-comparable. The better experiment is one receipt: apply the
+   one-token flip on top of `origin/main`, where existing `origin/main` receipts
+   already serve as the control. Spending two contested receipts to run the
+   worse version of an experiment whose better version I have already specified
+   is not defensible.
+3. **A lone control is worth almost nothing.** Had only T1 landed I would hold
+   one receipt on a tree comparable to nothing. This axis is all-or-nothing;
+   partial progress does not exist on it.
+4. **Continuing costs teammates.** See the externality in §13.3.
+
+What the advisor is therefore being asked to decide is whether to authorise the
+§12.4 single-receipt design off `origin/main`. That is a base change plus a
+receipt-budget call, so it is not mine to make. The direction matters for that
+decision: **P0 is faster than the shipped P1** by +28.00 µs/step = +0.426 % of
+composite score, and the flip is bit-exact (144/144 slots, one token digest).
+The open question is not academic — it is whether a possibly promotable,
+one-token, bit-exact win transfers to M5.
+
+What is *not* blocked is every Phase-A deliverable. A0 and A1 both carry
+verdicts under their preregistered rules, the correctness result is the
+strongest single outcome of the round, and the four dispositions in §9-§10 (the
+free-rider retraction, the Rule 82 qualification, and my own two retractions)
+rest on M4 and static evidence that cost no receipts at all.
+
 ---
 
 *(Nothing in §§0-5 is edited after the first Phase-A launch except to fix a
