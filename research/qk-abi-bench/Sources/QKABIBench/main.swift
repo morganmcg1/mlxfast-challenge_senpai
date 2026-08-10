@@ -269,6 +269,7 @@ private func extractSource(_ text: String, variable: String) throws -> KernelSou
             throw BenchmarkError.invalidSource("missing header terminator for \(variable)")
         }
         header = String(arguments[headerStart..<headerEnd.lowerBound])
+            .replacingOccurrences(of: "\\\\", with: "\\")
     } else {
         header = ""
     }
