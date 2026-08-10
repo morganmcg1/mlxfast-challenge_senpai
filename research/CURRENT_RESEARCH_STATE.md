@@ -2671,7 +2671,7 @@ bind.
 | [#625](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/625) | maple-fern | `maple-r106-i-prefill-traversal-byte-census` / **`r106-i-rev2`** | **Own the integration tree.** R106-I cancelled (rule 79 — preserve partials). Stage 0 verify the HEAD/`bd33883e`/`4b0e051b` numstat table + force-clean build + oracle; Stage 1 T0 (HEAD) vs T1 (HEAD + `4b0e051b`'s `Sources/MLXFastModel/**` and `Sources/MLXFastTransform/**`) via the rule 95.6 replay recipe, paired locally, ~3 h timebox, **N-BUILD is an acceptable terminal answer**; Stage 2 integrate every student patch under rule 75 caps; Stage 3 hand **one** verified tree to frieren with the four submit-wrapper preconditions checked. Outcomes V-T1 / N-T1 / N-BUILD / V-INTEGRATED. | decides what we submit; composition upside if merits are additive |
 | [#642](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/642) | maple-tanjiro | `maple-r107-d-decode-attention-above-floor` / **`r107-d-rev1`** — head `95f881e5` | **The decode fused-attention above-floor pool.** #620 merged (rule 99 — *his* positive control is what killed the prefill axis), so he moves to the axis that provably transfers at 0.15 %. `laguna_sliding_fused_attn_ring_v1` (`LRM:1508`) + `laguna_full_fused_attn_grow_v1` (`LRM:2028`) are plain Metal with **no `_nax` twin** ⇒ fully M4-reachable. Stage 0 reachability + geometry proof; Stage 1 adjudicate the regime (bandwidth- vs latency- vs issue-bound); Stage 2 implement and paired-ABBA **one** lever in-situ — **P1 prologue prefetch hoist** above the `:1587` barrier into the 28 idle simdgroups (bit-exact by construction), with P2/P3 as fallbacks and a matched-register negative control. Outcomes V-PROLOGUE / N-PROLOGUE / V-EPILOGUE / N-ISSUE-BOUND / N-CORRECT / N-BUILD. | **424.35 µs/step = 6.46 % of `cs`**, of which **≈280.8 µs/step = 4.28 %** is above the unique-byte DRAM floor — the largest unadjudicated decode pool left |
 | [#616](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/616) | maple-nezuko | `maple-r106-b-revert-residual-forensics` / **`r106-b-rev3`** | **The revert residual.** R106-H cancelled. Stage A attribute round-103's ≈19.0 µs/step residual to a ledger that closes; Stage B build and locally measure a recovery patch (paired, rules 40/68/86); Stage C hand to fern. Margin certificate available from frieren if the recovery is not bit-exact. Outcomes V-RECOVER / V-ATTRIB / N-RESIDUAL / N-RECOVER / N-CORRECT. | 0.3204 % of `cs` = **25 % of the whole 1.2846 % gap** |
-| [#629](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/629) | maple-edward | `maple-r107-a-routed-gateup-packing` / **`r107-a-rev1`** — head `526881c4` | **Routed gate/up threadgroup packing, amended by rule 97.1** (delivered as PR comment `5239439037`)**.** Operator brief asks for an `S ∈ {2,4,8,16}` simdgroups-per-threadgroup curve on `lagunaRoutedSwiGLUQMVPackedTop8Kernel`. Half that curve is **already priced** (#48 measured the 8× threadgroup collapse at **−0.1488 %**; S=16 also lands at 6.4 TG/core inside the tail-starvation regime closed by rule 67), and the adjacent rows-per-simdgroup axis is already harvested (`DARKBLOOM_QMV_R1`). Amended: **Stage A settles L3 first** — `research/tanjiro_packing_default_flip.patch` applies clean at this HEAD and #308 measured it at **−36.9 µs/step = +0.562 % of `cs`**, CI [+0.196 %, +0.929 %]. Stage B extends to the routed site over **S ∈ {2,4}** only. Outcomes V-L3 / N-L3 / V-SITE1 / N-SITE1 / N-CORRECT / N-BUILD. | L3 alone is **+0.562 % of `cs`** — the largest ready-made bit-exact item on the board |
+| [#629](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/629) | maple-edward | `maple-r107-a-routed-gateup-packing` / **`r107-a-rev1`** — head `526881c4` | **Routed gate/up threadgroup packing, amended by rule 97.1** (delivered as PR comment `5239439037`)**.** Operator brief asks for an `S ∈ {2,4,8,16}` simdgroups-per-threadgroup curve on `lagunaRoutedSwiGLUQMVPackedTop8Kernel`. Half that curve is **already priced** (#48 measured the 8× threadgroup collapse at **−0.1488 %**; S=16 also lands at 6.4 TG/core inside the tail-starvation regime closed by rule 67), and the adjacent rows-per-simdgroup axis is already harvested (`DARKBLOOM_QMV_R1`). Amended: **Stage A settles L3 first** — `research/tanjiro_packing_default_flip.patch` applies clean at this HEAD and #308 measured it at **−36.9 µs/step (M4, paired)**, ~~= +0.562 % of `cs`, CI [+0.196 %, +0.929 %]~~ 🚫 **re-priced by rule 105.3 to 0.2455 %, CI [0.0858 %, 0.4058 %] (α = 0.4369)**. Stage B extends to the routed site over **S ∈ {2,4}** only. Outcomes V-L3 / N-L3 / V-SITE1 / N-SITE1 / N-CORRECT / N-BUILD. | L3 alone is **≈0.25 % of `cs`** — **below the 0.4 % bar**; still a valid bit-exact *summand* under rule 105.5, paired with a T2c win from this same arm |
 | [#636](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/636) | maple-alphonse | `maple-r107-c-expert-gather-gemm-floor` / **`r107-c-rev1`** — head `ace5bd09` | **The routed expert gather-GEMM floor.** #630 terminated (rule 98) and merged, freeing him for the **largest sized unclaimed target on the board**: `routed_gather_gemm` = 76 dispatches / 260.907 ms = **48.3 % of M4 prefill**, M5 `W = 43.2619 ± 0.402 ms` against a **35.6 ms** DRAM floor ⇒ **≈7.6 ms above floor = +2.87 % of score**. Stage 0 rule-83 mechanism-word grep; Stage A zero-build env sweep of `DARKBLOOM_STAGE_BM128` (default **variant 5** ⇒ `bm=64,bn=64,bk=64,wm=4,wn=1`, 128 threads/TG) and `DARKBLOOM_EXPERT_GATHER_GROUPS ∈ {64,128,256}`; Stage B **one** of C2a (`bn` 64→32, never varied) or C2b (revive the **dead** x-major dispatch order — `darkbloom_gather_xmajor_ct()` is hardcoded `return 0` at `quantized.cpp:1290-1292`); Stage C graduate only at ≥0.4 % of score **and** ≥3σ (1.35 ms) with decode proved neutral. Outcomes V-TILE / V-XMAJOR / V-EGROUPS / N-FLOOR / N-XMAJOR-CLOSED / N-BUILD / N-CORRECT / N-REACH. | **+2.87 % of score** — more than twice the whole 1.2846 % implied gap |
 
 Corrected σ constants issued to all six (frieren §22 withdrew her own earlier
@@ -5350,7 +5350,7 @@ hand a build-verified tree to integration rather than a report.
 | maple-fern | #625 | own the **integration tree**: `HEAD` vs `4b0e051b` paired locally, then compose; every other student's win lands here | decides what we submit; composition upside if merits are additive |
 | maple-tanjiro | ~~#620~~ → **#642** | #620 **MERGED** (rule 99: his positive control killed the prefill axis for every Maple host). Re-assigned to the **decode fused-attention above-floor pool** — Stage 0 rule-99.3 reachability + rule-77 geometry, Stage 1 adjudicate bandwidth- vs latency- vs issue-bound, Stage 2 **one** lever (P1 prologue prefetch hoist above the `:1587` barrier) with a matched-register negative control | **6.46 % of `cs`**, of which **4.28 %** is above the unique-byte DRAM floor |
 | maple-nezuko | #616 | the ~19 µs/step revert residual (Rule 91) | 0.3204 % of cs = 25 % of the whole gap |
-| maple-edward | #629 | **added at 10:03Z; charge amended by rule 97.1** — settle **L3** (`research/tanjiro_packing_default_flip.patch`) first, then the routed site over S ∈ {2,4} only | L3 = **+0.562 % of cs**, CI [+0.196 %, +0.929 %] |
+| maple-edward | #629 | **added at 10:03Z; charge amended by rule 97.1** — settle **L3** (`research/tanjiro_packing_default_flip.patch`) first, then the routed site over S ∈ {2,4} only | L3 = **≈0.25 % of cs**, CI [0.086 %, 0.406 %] — 🚫 re-priced by rule 105.3 from the withdrawn "+0.562 %"; **below bar alone**, valid as a summand |
 | maple-alphonse | ~~#630~~ → **#636** | #630 **TERMINATED and merged** (rule 98: staging depth closed by measurement, zero-byte diff). Re-assigned to the **routed expert gather-GEMM floor** — Stage 0 grep, Stage A zero-build env sweep of `DARKBLOOM_STAGE_BM128` / `DARKBLOOM_EXPERT_GATHER_GROUPS`, Stage B one of `bn` 64→32 or reviving the dead x-major dispatch order, Stage C graduate at ≥0.4 % **and** ≥3σ | **+2.87 % of score** — the largest sized unclaimed target on the board |
 
 Channel discipline is unchanged: Rule 88 watch-until-idle, one attempt, and
@@ -5436,9 +5436,14 @@ Three archive facts your Rule-83 search must land on:
 3. ⭐ **The prize is already built and shelved.**
    `research/tanjiro_packing_default_flip.patch` **applies clean, reachability
    is confirmed**, and **#308 measured −36.9 µs/step, CI [−61.0, −12.9]** on
-   the QKV grid. At 0.015228 %/µs/step that is **+0.562 % of `cs`, CI
-   [+0.196 %, +0.929 %]** — a bit-exact patch with a confidence interval
-   excluding zero. It is shelved as "**L3 — do not assign yet**" (line ~3352)
+   the QKV grid. ~~At 0.015228 %/µs/step that is **+0.562 % of `cs`, CI
+   [+0.196 %, +0.929 %]**~~ 🚫 **WITHDRAWN BY RULE 105.3 — this multiplied an
+   M4 delta by an M5 price. Correct value: 0.2455 %, CI [0.0858 %, 0.4058 %]
+   at α = 0.4369; below the 0.4 % bar under every conversion factor.** It
+   remains a bit-exact patch with a confidence interval
+   excluding zero, and is therefore still a valid *summand* under rule 105.5 —
+   but it is no longer a headline candidate. It is shelved as
+   "**L3 — do not assign yet**" (line ~3352)
    *only* because #48's −0.1488 % contradicts it. That standoff was a
    reasonable call in a mid-round; **it is the wrong call in an endgame where
    the gap is 1.2846 % of `cs` and the integration bar is 0.4 %.** An
@@ -6592,6 +6597,41 @@ The standing fix: **no quantity enters a brief, a bar, or a shelf entry
 without its host tag and its epoch tag.** Write `36.9 µs/step (M4, paired
 ABBA, #308)`, never `36.9 µs/step`. The campaign has a two-host structure at
 its centre and has been writing single-host numbers for a hundred rounds.
+
+#### 105.7 A corollary that makes the protocol non-optional
+
+§9 records the **M4 single-receipt detection bar at ≈80 µs/step**. The bar in
+M4 units is **52–68 µs/step**. So a change that exactly clears the draw bar is
+**below the threshold at which a single M4 receipt can see it at all.**
+
+This is not a counsel of despair — it is a statement about protocol. Paired
+ABBA on `nat` resolves at σ = 6.25–10.65 µs/step (§9), an order of magnitude
+finer. But it means:
+
+- **An unpaired M4 measurement can never establish a bar-clearing win.** Any
+  result offered without a paired design is uninterpretable at this scale,
+  regardless of how large the point estimate looks.
+- **The CI, not the point estimate, is the deliverable.** At these effect
+  sizes replication buys more than ambition: a tightly-bounded 0.15 % is worth
+  more to the integrator than a loosely-bounded 0.5 %, because only the former
+  can be summed under 105.5 with its CI still excluding zero.
+
+Both points were issued to all six students in the 105 broadcast.
+
+#### 105.8 Broadcast record
+
+Rule 105 was issued to **all six** open assignments on 2026-08-10, at advisor
+commit `8695fb0e`, tailored per arm (family regime, `k`, and the bar restated
+as a fraction of that family's own M4 cost):
+
+| student | PR | bar in M4 µs/step | = fraction of own family | arm-specific consequence |
+|---|---|---:|---:|---|
+| edward | #629 | 60.1 (T2c, bytes) | 4.0 % of 1497.7 | L3 re-priced to 0.25 %, withdrawn as headline, retained as summand |
+| alphonse | #644 | 60.1 (T3b, bytes) | 5.4 % of 1117.7 | own #630 §6 unit error flagged; bank sub-bar clean results |
+| frieren | #597 | 52.5 (T1a, latency) | **16.8 % of 312.8** | hardest ratio on the board; re-aimed at CI tightness, not effect size |
+| tanjiro | #648 | — (census) | — | census promoted: it now sets `k` for everyone; circularity trap named |
+| fern | #625 | 60.1 / 52.5 (mixture) | — | prefill leg declared non-convertible; census re-scoped to a map |
+| nezuko | #616 | — (forensics) | — | reporting-only impact; plus a status check after 6.7 h silence |
 
 
 ## 9. σ table (rule 40 — pick your estimator, then quote its floor)
