@@ -7695,27 +7695,9 @@ for (uint row = 0; row < 2; ++row) {
 """
 }
 
-/// Simd-shuffle-only comparator-minimum extraction; lane `l` owns experts
-/// `l + 32j`, `mask` bit `j` marks extracted. Each routed slot performs only
-/// the rounds it needs and never waits on a cross-threadgroup selector.
+/// Exact Hybrid-T5 top-8 extraction shared by both packed routed QMV kernels.
 let lagunaRouterTop8PrologueHeader = """
-METAL_FUNC uint laguna_router_top8_extract_round(
-    thread const uint* keys, thread uint& mask, uint lane) {
-    uint best_ordinal = 0xFFFFFFFFu;
-    uint best_index = 256u;
-    for (uint j = 0; j < 8; ++j) {
-        if ((mask & (1u << j)) != 0u) continue;
-        uint e = lane + 32u * j;
-        uint o = keys[j];
-        if (laguna_router_ordinal_before(o, e, best_ordinal, best_index)) {
-            best_ordinal = o;
-            best_index = e;
-        }
-    }
-    // Transport the comparator's (ordinal, expert-index) state as one uint2
-    // through each butterfly step. simd_shuffle_xor moves both components
-    // bit-for-bit from the same source lane; comparator order is unchanged.
-    uint2 best_pair = uint2(best_ordinal, best_index);
+METAL_FUNC uint2 laguna_router_pair_min(uint2 best_pair) {
     for (ushort offset = 16; offset > 0; offset >>= 1) {
         const uint2 other_pair = simd_shuffle_xor(best_pair, offset);
         if (laguna_router_ordinal_before(
@@ -7723,29 +7705,96 @@ METAL_FUNC uint laguna_router_top8_extract_round(
             best_pair = other_pair;
         }
     }
-    best_index = best_pair.y;
-    if ((best_index & 31u) == lane) {
-        mask |= 1u << (best_index >> 5u);
+    return best_pair;
+}
+
+METAL_FUNC uint2 laguna_router_top8_extract_round(
+    thread const uint* keys, thread uint& mask, uint lane) {
+    uint2 best_pair = uint2(0xFFFFFFFFu, 256u);
+    for (uint j = 0; j < 8; ++j) {
+        if ((mask & (1u << j)) != 0u) continue;
+        const uint2 candidate = uint2(keys[j], lane + 32u * j);
+        if (laguna_router_ordinal_before(
+            candidate.x, candidate.y, best_pair.x, best_pair.y)) {
+            best_pair = candidate;
+        }
     }
-    return best_index;
+    best_pair = laguna_router_pair_min(best_pair);
+    if ((best_pair.y & 31u) == lane) {
+        mask |= 1u << (best_pair.y >> 5u);
+    }
+    return best_pair;
+}
+
+METAL_FUNC void laguna_router_pair_swap(thread uint2& a, thread uint2& b) {
+    if (laguna_router_ordinal_before(b.x, b.y, a.x, a.y)) {
+        const uint2 tmp = a;
+        a = b;
+        b = tmp;
+    }
+}
+
+METAL_FUNC void laguna_router_sort8(thread uint2* pairs) {
+    laguna_router_pair_swap(pairs[0], pairs[1]);
+    laguna_router_pair_swap(pairs[2], pairs[3]);
+    laguna_router_pair_swap(pairs[4], pairs[5]);
+    laguna_router_pair_swap(pairs[6], pairs[7]);
+    laguna_router_pair_swap(pairs[0], pairs[2]);
+    laguna_router_pair_swap(pairs[1], pairs[3]);
+    laguna_router_pair_swap(pairs[4], pairs[6]);
+    laguna_router_pair_swap(pairs[5], pairs[7]);
+    laguna_router_pair_swap(pairs[1], pairs[2]);
+    laguna_router_pair_swap(pairs[5], pairs[6]);
+    laguna_router_pair_swap(pairs[0], pairs[4]);
+    laguna_router_pair_swap(pairs[3], pairs[7]);
+    laguna_router_pair_swap(pairs[1], pairs[5]);
+    laguna_router_pair_swap(pairs[2], pairs[6]);
+    laguna_router_pair_swap(pairs[1], pairs[4]);
+    laguna_router_pair_swap(pairs[3], pairs[6]);
+    laguna_router_pair_swap(pairs[2], pairs[4]);
+    laguna_router_pair_swap(pairs[3], pairs[5]);
+    laguna_router_pair_swap(pairs[3], pairs[4]);
 }
 """
 
 private let lagunaRouterTop8PrecomputedPrelude = """
-thread uint top8_keys[8];
-    for (uint j = 0; j < 8; ++j) {
-        top8_keys[j] = router_keys[lane + 32u * j];
-    }
-    uint top8_mask = 0u;
-    uint top8_winner = 0u;
-    for (uint r = 0; r <= expert_slot; ++r) {
-        top8_winner = laguna_router_top8_extract_round(
-            top8_keys, top8_mask, lane);
+uint top8_winner;
+    {
+        threadgroup uint2 top8_pairs[8];
+        if (simd_group == 0) {
+            thread uint top8_keys[8];
+            for (uint j = 0; j < 8; ++j) {
+                top8_keys[j] = router_keys[lane + 32u * j];
+            }
+            uint top8_mask = 0u;
+            for (uint r = 0; r < 5; ++r) {
+                const uint2 winner = laguna_router_top8_extract_round(
+                    top8_keys, top8_mask, lane);
+                if (lane == 0) top8_pairs[r] = winner;
+            }
+
+            thread uint2 local_pairs[8];
+            for (uint j = 0; j < 8; ++j) {
+                local_pairs[j] = (top8_mask & (1u << j)) == 0u
+                    ? uint2(top8_keys[j], lane + 32u * j)
+                    : uint2(0xFFFFFFFFu, 256u);
+            }
+            laguna_router_sort8(local_pairs);
+            uint local_cursor = 0u;
+            for (uint r = 5; r < 8; ++r) {
+                const uint2 winner = laguna_router_pair_min(
+                    local_pairs[local_cursor]);
+                if (lane == 0) top8_pairs[r] = winner;
+                if ((winner.y & 31u) == lane) ++local_cursor;
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        top8_winner = top8_pairs[expert_slot].y;
     }
 """
 
 private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
-    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_bf16_v1",
+    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_bf16_v2",
     inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
     outputNames: ["activated"],
     source: lagunaRoutedSwiGLUQMVPackedSelectedSource(
@@ -7768,7 +7817,7 @@ let lagunaRoutedGateUpR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTED_GATEUP_R1"] != "0"
 
 private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
-    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
+    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v3",
     inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
     outputNames: ["activated"],
     source: """
