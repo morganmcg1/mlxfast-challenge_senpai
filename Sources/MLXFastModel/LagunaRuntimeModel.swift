@@ -8130,8 +8130,7 @@ private let lagunaRoutedSharedDownResidualSharedHalvedKernel =
     )
 
 private func lagunaRoutedSharedDownResidualSource(
-    sharedHalved: Bool, staged: Bool = false,
-    pairScaleBroadcast: Bool = true
+    sharedHalved: Bool, staged: Bool = false
 ) -> String {
     let sharedRowBytes = sharedHalved ? 16 : 32
     let sharedBase =
@@ -8143,24 +8142,6 @@ private func lagunaRoutedSharedDownResidualSource(
             + "        ? (is_shared ? shared_down_scales[0] : routed_down_scales[0])"
         : "(!is_shared && expert == 0 && output_row == 0 && lane == 1)\n"
             + "        ? routed_down_scales[0]"
-    let stagedScaleLoad =
-        sharedHalved && pairScaleBroadcast
-        ? """
-            uint pair_sb = 0u;
-            if ((lane & 1) == 0) {
-                pair_sb = uint(scale[0]);
-            }
-            uint8_t broadcast_sb = uint8_t(
-                simd_shuffle(pair_sb, ushort(lane & ~1)));
-            row_sb[row] =
-                \(patch)
-                : broadcast_sb;
-            """
-        : """
-            row_sb[row] =
-                \(patch)
-                : scale[0];
-            """
     // Same accumulation, scale conversion, reduction, and epilogue order in
     // both bodies; `staged` only hoists the four code words and scale bytes
     // ahead of the qdots (the promoted stage4 schedule).
@@ -8176,7 +8157,9 @@ private func lagunaRoutedSharedDownResidualSource(
                 expert_weight + output_row * packed_row_bytes + lane * 8);
             const device uint8_t* scale =
                 expert_scales + output_row * scale_row_bytes + scale_lane;
-            \(stagedScaleLoad)
+            row_sb[row] =
+                \(patch)
+                : scale[0];
         }
         for (uint row = 0; row < outputs_per_simd; ++row) {
             result[row] = laguna_nvfp4_qdot_codes_16(
@@ -8447,27 +8430,6 @@ private let lagunaRoutedSharedDownResidualStagedSharedHalvedKernel =
         ensureRowContiguous: true
     )
 
-private let lagunaRoutedSharedDownResidualPairScaleStockDiagnosticKernel =
-    MLXFast.metalKernel(
-        name: "laguna_routed_shared_nvfp4_down_residual_pair_scale_stock_diagnostic_v1",
-        inputNames: lagunaSharedFirstDownOrderEnabled
-            ? [
-                "shared_activated", "shared_down_weight", "shared_down_scales",
-                "routed_activated", "routed_down_weight", "routed_down_scales",
-                "indices", "router_weights", "residual",
-            ]
-            : [
-                "routed_activated", "routed_down_weight", "routed_down_scales",
-                "indices", "router_weights", "shared_activated",
-                "shared_down_weight", "shared_down_scales", "residual",
-            ],
-        outputNames: ["output"],
-        source: lagunaRoutedSharedDownResidualSource(
-            sharedHalved: true, staged: true, pairScaleBroadcast: false),
-        header: lagunaSharedSwiGLUQMVHeader,
-        ensureRowContiguous: true
-    )
-
 func lagunaRoutedSharedDownResidual(
     routedActivated: MLXArray,
     routedDownWeight: MLXArray,
@@ -8478,9 +8440,7 @@ func lagunaRoutedSharedDownResidual(
     sharedDownWeight: MLXArray,
     sharedDownScales: MLXArray,
     residual: MLXArray,
-    staged: Bool = lagunaFusedDownRowStagingEnabled,
-    pairScaleBroadcast: Bool = true,
-    verbose: Bool = false
+    staged: Bool = lagunaFusedDownRowStagingEnabled
 ) -> MLXArray {
     precondition(routedActivated.dtype == .bfloat16)
     precondition(
@@ -8517,18 +8477,15 @@ func lagunaRoutedSharedDownResidual(
     }
     precondition(residual.dtype == .bfloat16)
     precondition(residual.dims(1, 1, LagunaConstants.hiddenSize))
-    precondition(pairScaleBroadcast || (sharedHalved && staged))
 
     let fusedKernel =
-        !pairScaleBroadcast
-        ? lagunaRoutedSharedDownResidualPairScaleStockDiagnosticKernel
-        : sharedHalved
-            ? (staged
-                ? lagunaRoutedSharedDownResidualStagedSharedHalvedKernel
-                : lagunaRoutedSharedDownResidualSharedHalvedKernel)
-            : (staged
-                ? lagunaRoutedSharedDownResidualStagedKernel
-                : lagunaRoutedSharedDownResidualKernel)
+        sharedHalved
+        ? (staged
+            ? lagunaRoutedSharedDownResidualStagedSharedHalvedKernel
+            : lagunaRoutedSharedDownResidualSharedHalvedKernel)
+        : (staged
+            ? lagunaRoutedSharedDownResidualStagedKernel
+            : lagunaRoutedSharedDownResidualKernel)
     return fusedKernel(
         lagunaSharedFirstDownOrderEnabled
             ? [
@@ -8544,8 +8501,7 @@ func lagunaRoutedSharedDownResidual(
         grid: (LagunaConstants.hiddenSize / 4 * 288, 1, 1),
         threadGroup: (288, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
-        outputDTypes: [.bfloat16],
-        verbose: verbose
+        outputDTypes: [.bfloat16]
     )[0]
 }
 
