@@ -10258,29 +10258,32 @@ constexpr uint hidden = 2048;
 constexpr uint experts = 8;
 constexpr uint n_cols = 4;
 
-uint row = thread_position_in_grid.y;
+uint row0 = threadgroup_position_in_grid.y * 2;
 uint col = thread_position_in_grid.x * n_cols;
-const device float* weight_row = router_weights + row * experts;
+uint rows = router_weights_shape[1];
+for (uint row = row0; row < min(row0 + 2, rows); ++row) {
+    const device float* weight_row = router_weights + row * experts;
 
-bfloat expert_weights[experts];
-uint sorted_rows[experts];
-for (uint e = 0; e < experts; ++e) {
-    expert_weights[e] = bfloat(weight_row[e]);
-    sorted_rows[e] = inverse_order[row * experts + e];
-}
-
-for (uint i = 0; i < n_cols; ++i) {
-    bfloat total = bfloat(0);
+    bfloat expert_weights[experts];
+    uint sorted_rows[experts];
     for (uint e = 0; e < experts; ++e) {
-        bfloat product = bfloat(
-            sorted_expert_outputs[sorted_rows[e] * hidden + col + i] *
-            expert_weights[e]);
-        total = bfloat(product + total);
+        expert_weights[e] = bfloat(weight_row[e]);
+        sorted_rows[e] = inverse_order[row * experts + e];
     }
-    bfloat scaled = bfloat(total * bfloat(2.5f));
-    bfloat r2 = bfloat(scaled + shared_output[row * hidden + col + i]);
-    output[row * hidden + col + i] =
-        bfloat(residual[row * hidden + col + i] + r2);
+
+    for (uint i = 0; i < n_cols; ++i) {
+        bfloat total = bfloat(0);
+        for (uint e = 0; e < experts; ++e) {
+            bfloat product = bfloat(
+                sorted_expert_outputs[sorted_rows[e] * hidden + col + i] *
+                expert_weights[e]);
+            total = bfloat(product + total);
+        }
+        bfloat scaled = bfloat(total * bfloat(2.5f));
+        bfloat r2 = bfloat(scaled + shared_output[row * hidden + col + i]);
+        output[row * hidden + col + i] =
+            bfloat(residual[row * hidden + col + i] + r2);
+    }
 }
 """,
     ensureRowContiguous: true
@@ -10312,7 +10315,7 @@ private func lagunaPrefillMoETail(
     )[0]
 }
 
-private func lagunaPrefillSortedMoETail(
+func lagunaPrefillSortedMoETail(
     sortedExpertOutputs: MLXArray,
     inverseOrder: MLXArray,
     routerWeights: MLXArray,
@@ -10338,7 +10341,7 @@ private func lagunaPrefillSortedMoETail(
             sortedExpertOutputs, inverseOrder, routerWeights, sharedOutput,
             residual,
         ],
-        grid: (LagunaConstants.hiddenSize / 4, rows, 1),
+        grid: (LagunaConstants.hiddenSize / 4, (rows + 1) / 2, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, rows, LagunaConstants.hiddenSize]],
         outputDTypes: [.bfloat16]
