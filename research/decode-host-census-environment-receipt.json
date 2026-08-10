@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "immutable_results_sha256": "daaaaba11288b47a8917bfc7ae94efd6eaa23faf0f20827ba3f515af1a4dbbb2",
+  "pre_acquisition": {
+    "source_event": {
+      "filename": "event-00179-07d216b5-8f7d-4096-b2f7-5e60d8008109.json",
+      "sha256": "cd2d2065b818bc671fa5d74b834f1d33f14c24206b932317a9cfceaca1c9fa41",
+      "timestamp": "2026-08-10T17:49:44.499382Z"
+    },
+    "command": "tools/fan-control.sh status && A='mlxfast-'; B='runtime-worker'; C='benchmark.sh --local-'; if pgrep -x mlxfast-swift >/dev/null || pgrep -f \"$A$B\" >/dev/null || pgrep -x swift-frontend >/dev/null || pgrep -x swift-driver >/dev/null || pgrep -f \"$C\" >/dev/null; then echo 'competing_processes=true'; exit 1; else echo 'competing_processes=false'; fi && test -z \"$(git status --porcelain)\" && echo 'worktree_clean=true' && git diff --exit-code 922de16b035e037686dec820eee7426d1311b4e7 HEAD -- Sources/MLXFastHarness/LagunaRuntimeWorker.swift Sources/MLXFastModel/LagunaRuntimeModel.swift Sources/MLXFastTrustedHarness/LagunaRuntimeLocalIterate.swift Sources/MLXFastTrustedHarness/LagunaRuntimeWorker.swift Vendor/mlx-swift/Source/MLX/EvalProbe.swift Vendor/mlx-swift/Source/MLX/MLXArray.swift Vendor/mlx-swift/Source/MLX/MLXFastKernel.swift Vendor/mlx-swift/Source/MLX/Transforms+Eval.swift research/run_host_census.sh && echo 'all_9_frozen_blobs_exact=true'",
+    "stdout": [
+      "auto",
+      "competing_processes=false",
+      "worktree_clean=true",
+      "all_9_frozen_blobs_exact=true"
+    ],
+    "observations": {
+      "fan_mode": "auto",
+      "competing_model_or_build_process": false,
+      "worktree_clean": true,
+      "all_frozen_blobs_exact": true
+    }
+  },
+  "acquisition_gate": {
+    "source_receipt": "decode-host-census-acquisition-8d22dfb70ff95326f4171640d0b67ba7bc148d39464854ed7b44d49d8e5cc4c4.log.gz",
+    "raw_sha256": "8d22dfb70ff95326f4171640d0b67ba7bc148d39464854ed7b44d49d8e5cc4c4",
+    "markers": [
+      "mlxfast: benchmark elapsed=15.0s local thermal gate start phase=host-census",
+      "benchmark.sh: strict persistent macmon confirmed phase=host-census samples=5 interval=1000ms final=39.3C",
+      "benchmark.sh: GPU cool-down gate passed (current 39.3C, target <=40C, waited 20s)",
+      "mlxfast: benchmark elapsed=45.6s local thermal gate complete phase=host-census"
+    ]
+  },
+  "post_acquisition": {
+    "source_event": {
+      "filename": "event-00214-3b76898c-e239-40a3-b981-a7d4d0bfd373.json",
+      "sha256": "2a48d055be30ef7891278b54c5e13141ba62f6653c6b1e3cc7ba3709a543ed98",
+      "timestamp": "2026-08-10T18:03:55.638738Z"
+    },
+    "command": "date -u +'%Y-%m-%dT%H:%M:%SZ'; tools/fan-control.sh status; ps -p 53627 -o pid=,ppid=,comm=,args=; pgrep -x mlxfast-runtime-worker; pgrep -x mlxfast-swift; pgrep -x swift-frontend; pgrep -x swift-driver; pgrep -x metal; git status --short --untracked-files=all",
+    "stdout": [
+      "2026-08-10T18:03:54Z",
+      "auto"
+    ],
+    "observations": {
+      "checked_at": "2026-08-10T18:03:54Z",
+      "fan_mode": "auto",
+      "acquisition_pid_absent": true,
+      "named_competing_processes_absent": true,
+      "worktree_clean_before_restoration": true
+    }
+  },
+  "fan_mode_evidence": {
+    "before": "auto",
+    "after": "auto",
+    "continuous_during_acquisition": {
+      "available": false,
+      "status": "unverified",
+      "reason": "No independent continuous fan-mode trace was persisted during the acquisition."
+    },
+    "legacy_results_field": {
+      "field": "environment.fan_mode_before_during_after",
+      "value": "auto",
+      "verified_as_written": false,
+      "relied_upon": false
+    }
+  }
+}

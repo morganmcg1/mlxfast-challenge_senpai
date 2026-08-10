@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "classification": "HOST_ATTRIBUTION_INCONCLUSIVE",
+  "successor_nominated": false,
+  "immutable_results": {
+    "path": "decode-host-census-results.json",
+    "bytes": 404486,
+    "sha256": "daaaaba11288b47a8917bfc7ae94efd6eaa23faf0f20827ba3f515af1a4dbbb2",
+    "non_warm_windows": 400
+  },
+  "raw_receipts": [
+    {
+      "role": "sole_acquisition",
+      "job_id": "583206df-e77d-4d1d-8925-31600618ba1e",
+      "path": "decode-host-census-acquisition-8d22dfb70ff95326f4171640d0b67ba7bc148d39464854ed7b44d49d8e5cc4c4.log.gz",
+      "compressed_bytes": 13677,
+      "compressed_sha256": "9e1482a5e5aed82a72da036fe7f38a01f94b6d6684f3cca2c663b914cf498db8",
+      "raw_bytes": 172307,
+      "raw_lines": 493,
+      "raw_sha256": "8d22dfb70ff95326f4171640d0b67ba7bc148d39464854ed7b44d49d8e5cc4c4"
+    },
+    {
+      "role": "preceding_idle_telemetry",
+      "job_id": "dbbb1f46-977c-4b4e-b399-6e47aea4f30c",
+      "path": "decode-host-census-idle-cdfde761adfa32b0e0d1a99ff17cfe03bbecde29059c1d53a43ec0afaa5098c6.jsonl.gz",
+      "compressed_bytes": 145697,
+      "compressed_sha256": "ca58e7afec7606d010da7b62b22eb43349aca49530b9c882ca224f38a2466694",
+      "raw_bytes": 1327593,
+      "raw_lines": 600,
+      "raw_sha256": "cdfde761adfa32b0e0d1a99ff17cfe03bbecde29059c1d53a43ec0afaa5098c6"
+    },
+    {
+      "role": "post_restoration_equivalence",
+      "job_id": "08c1103b-8375-41de-8906-992f749982d3",
+      "path": "decode-host-census-equivalence-fce1364f59e1cd263d75144771434bfb8a2639ee38568b66fc42923b55f13e70.log.gz",
+      "compressed_bytes": 1409,
+      "compressed_sha256": "13ce46cf0931fc0d7bad21fc529c6019e336806ea3e83c12fbd866cd5322145a",
+      "raw_bytes": 5876,
+      "raw_lines": 113,
+      "raw_sha256": "fce1364f59e1cd263d75144771434bfb8a2639ee38568b66fc42923b55f13e70"
+    }
+  ],
+  "environment_receipt": "decode-host-census-environment-receipt.json",
+  "scope_reconciliation": "decode-host-census-scope.json",
+  "checker": "check_decode_host_census_evidence.py"
+}

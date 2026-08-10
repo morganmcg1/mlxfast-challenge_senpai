@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "immutable_results_sha256": "daaaaba11288b47a8917bfc7ae94efd6eaa23faf0f20827ba3f515af1a4dbbb2",
+  "decode_tokens_per_window": 128,
+  "frozen_internal_census": {
+    "custom_kernel_dispatch": {
+      "per_token": 323,
+      "per_window": 41344,
+      "components_per_token": {
+        "attention_cache_boundaries": 120,
+        "sparse_moe_kernel_boundaries": 195,
+        "dense_shared_kernel_boundaries": 3,
+        "lm_head_kernel_boundaries": 4,
+        "embedding_kernel_boundaries": 1
+      }
+    },
+    "async_eval": {
+      "per_token": 8,
+      "per_window": 1024
+    },
+    "blocking_eval_api": {
+      "per_token": 3,
+      "per_window": 384
+    },
+    "populated_vector": {
+      "per_token": 334,
+      "per_window": 42752,
+      "formula": "323 custom-kernel + 8 async + 3 blocking = 334"
+    },
+    "additional_nonvector_counts_per_token": {
+      "model_layers": 40,
+      "approximate_submission_opportunities": 9
+    }
+  },
+  "observed_dynamic_families": {
+    "model_dispatch": {"per_token": 1, "per_window": 128},
+    "layer_dispatch": {"per_token": 40, "per_window": 5120},
+    "attention_cache": {"per_token": 40, "per_window": 5120},
+    "kernel_config": {"per_token": 363, "per_window": 46464},
+    "moe_wrapper": {"per_token": 39, "per_window": 4992},
+    "graph_views": {"per_token": 1, "per_window": 128},
+    "async_submission": {"per_token": 8, "per_window": 1024},
+    "blocking_eval": {"per_token": 2, "per_window": 256},
+    "lm_head": {"per_token": 1, "per_window": 128},
+    "greedy_wait": {"per_token": 1, "per_window": 128}
+  },
+  "mappings": {
+    "kernel_config": {
+      "relation": "observed_superset",
+      "static_expression_per_token": "323 custom-kernel + 40 model-layer = 363",
+      "status": "validated_arithmetic",
+      "note": "This reconciles counts only; it does not make nested durations additive."
+    },
+    "attention_cache": {
+      "relation": "dynamic_wrapper_encloses_fixed_static_count",
+      "static_family": "attention_cache_boundaries",
+      "static_per_dynamic": 3,
+      "status": "validated"
+    },
+    "moe_wrapper": {
+      "relation": "dynamic_wrapper_encloses_fixed_static_count",
+      "static_family": "sparse_moe_kernel_boundaries",
+      "static_per_dynamic": 5,
+      "status": "validated"
+    },
+    "lm_head": {
+      "relation": "dynamic_wrapper_encloses_fixed_static_count",
+      "static_family": "lm_head_kernel_boundaries",
+      "static_per_dynamic": 4,
+      "status": "validated"
+    },
+    "async_submission": {
+      "relation": "exact_count_match",
+      "static_family": "async_eval",
+      "status": "validated"
+    },
+    "blocking_eval": {
+      "relation": "dynamic_subset_unresolved",
+      "static_family": "blocking_eval_api",
+      "static_per_token": 3,
+      "dynamic_per_token": 2,
+      "status": "unavailable",
+      "reason": "One frozen static blocking-eval API entry was not isolated as a dynamic family call, so full static-to-dynamic mapping coverage is unavailable."
+    }
+  },
+  "coverage_control": {
+    "status": "failed",
+    "complete": false,
+    "reason": "The blocking-eval static/dynamic mapping is unresolved; wrapper durations also overlap required graph work."
+  },
+  "interpretation": "The 334 populated-vector count is the frozen internal census aggregate. Dynamic wrapper-family counts are a separate, overlapping scope and must not be summed with it."
+}

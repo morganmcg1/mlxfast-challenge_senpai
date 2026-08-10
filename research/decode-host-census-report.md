@@ -29,7 +29,9 @@ MLXFAST_HOST_CENSUS_ROUNDS=5 \
 ./benchmark.sh --local-iterate
 ```
 
-Supervised job `583206df-e77d-4d1d-8925-31600618ba1e` ran once, with no retry, and ended after 694.032 seconds. The strict persistent telemetry gate passed after 20 seconds using five 1 Hz samples and a final GPU temperature of `39.3C`. Fan mode remained `auto` before, during, and after acquisition. A preceding 606.100-second idle trace contained 600 valid changing samples: GPU temperature `36.697365/38.471031/39.270184C` minimum/median/maximum and fan speed `993/1000.033/1008 RPM`.
+Supervised job `583206df-e77d-4d1d-8925-31600618ba1e` ran once, with no retry, and ended after 694.032 seconds. The strict persistent telemetry gate passed after 20 seconds using five 1 Hz samples and a final GPU temperature of `39.3C`. A preceding 606.100-second idle trace contained 600 valid changing samples: GPU temperature `36.697365/38.471031/39.270184C` minimum/mean/maximum and fan speed `993/1000.033/1008 RPM` minimum/mean/maximum.
+
+The separately persisted environment receipts establish fan mode `auto`, no competing process, a clean worktree, and exact frozen blobs immediately before acquisition; immediately afterward they establish fan mode `auto`, the acquisition PID absent, no named runtime/build process remaining, and a clean worktree. There is no independent continuous fan-mode trace for the acquisition interval. The immutable results artifact's legacy `fan_mode_before_during_after` field is therefore marked unverified and is not relied on for validity.
 
 The trusted binary was 12,683,712 bytes with SHA-256 `8ea677c663e8118d9333d21959ba0511169f625377c7a9c99724ae63718848f7`. The worker was 49,213,704 bytes with SHA-256 `e34df5a62cad50e8ae077afdc676b3a0c583c121c2ec21f08ae1b2f20c3ce085`.
 
@@ -40,6 +42,14 @@ The structured receipt `score.local-iterate.json` has SHA-256 `b6b810682b3a91c8d
 The frozen same-binary instrumentation selected one family at a time. Each family had 20 measured and 20 control windows, with 128 decode steps per window. Empty timer calibration was finite at `2,758,821 ns` over 200,000 calls, or `13.794105 ns/call`. The injected corruption control was observed exactly once and passed.
 
 Probe duration is the selected family's summed dispatch intervals minus calibrated timer cost, divided by 128 tokens. The 95% interval is a deterministic 20,000-resample nonparametric bootstrap interval for the median of 20 measured windows. Whole-wall perturbation uses nearest measured-control pairs within each order and round. These probe regions are nested: broad family durations include useful graph construction and dependency exposure and therefore are not additive removable costs.
+
+## Frozen census and dynamic scope reconciliation
+
+The frozen static census populated a family-call vector with `334 calls/token` (`42,752 calls/window`): `323` custom-instrumentation calls, `8` async submissions, and `3` blocking APIs. The custom subtotal is independently decomposed as `120` attention-cache calls, `195` sparse-MoE calls, `3` dense/shared-MoE calls, `4` LM-head calls, and `1` embedding call. Model dispatch (`1`), layer dispatch (`40`), and approximately `9` submissions are separate non-vector structural counts and are not added to the populated vector.
+
+The dynamic family counts were model `1`, layer `40`, attention `40`, kernel `363`, MoE `39`, graph `1`, async `8`, blocking `2`, LM head `1`, and greedy wait `1` call/token. Their explicit mapping explains the wrapper overlap: kernel `363 = 323 custom + 40 layer`; attention `40 x 3 = 120` custom sites; MoE `39 x 5 = 195` custom sites; LM head `1 x 4 = 4` custom sites; and async `8` matches exactly. These are nested scope relationships, not quantities that may be added together.
+
+The blocking control did not reconcile: the static census expected `3` calls/token but the dynamic family observed `2`. The checker deliberately rejects any claim that this coverage is validated. Consequently, `334` remains the populated static-vector scope rather than a validated dynamic invocation total, and this unresolved coverage strengthens rather than relaxes the inconclusive verdict. `research/decode-host-census-scope.json` records the reconciliation, while the evidence checker includes negative mutation controls for the custom subtotal, attention multiplier, and false blocking validation.
 
 ## Results
 
@@ -80,9 +90,21 @@ Post-restoration supervised upstream-equivalence job `08c1103b-8375-41de-8906-99
 
 ## Artifacts and successor
 
-`research/decode-host-census-results.json` retains every one of the 400 non-warm raw windows, the warm window, complete summaries, validity decisions, environment, binary identities, and restoration evidence. Its SHA-256 is `daaaaba11288b47a8917bfc7ae94efd6eaa23faf0f20827ba3f515af1a4dbbb2`. The supervised source log has 493 lines, 172,307 bytes, and SHA-256 `8d22dfb70ff95326f4171640d0b67ba7bc148d39464854ed7b44d49d8e5cc4c4`.
+`research/decode-host-census-results.json` is immutable and retains every one of the 400 non-warm windows, the warm window, complete summaries, validity decisions, environment, binary identities, and restoration evidence. Its SHA-256 is `daaaaba11288b47a8917bfc7ae94efd6eaa23faf0f20827ba3f515af1a4dbbb2`.
 
-No successor experiment or official submission was attempted.
+The compact raw receipt bundle preserves independently hash-checked evidence:
+
+- `research/decode-host-census-acquisition-8d22dfb70ff95326f4171640d0b67ba7bc148d39464854ed7b44d49d8e5cc4c4.log.gz`: the sole acquisition log; uncompressed 493 lines, 172,307 bytes, SHA-256 `8d22dfb70ff95326f4171640d0b67ba7bc148d39464854ed7b44d49d8e5cc4c4`.
+- `research/decode-host-census-idle-cdfde761adfa32b0e0d1a99ff17cfe03bbecde29059c1d53a43ec0afaa5098c6.jsonl.gz`: the preceding idle telemetry; uncompressed 600 lines, 1,327,593 bytes, SHA-256 `cdfde761adfa32b0e0d1a99ff17cfe03bbecde29059c1d53a43ec0afaa5098c6`.
+- `research/decode-host-census-equivalence-fce1364f59e1cd263d75144771434bfb8a2639ee38568b66fc42923b55f13e70.log.gz`: the post-restoration equivalence log; uncompressed 113 lines, 5,876 bytes, SHA-256 `fce1364f59e1cd263d75144771434bfb8a2639ee38568b66fc42923b55f13e70`.
+
+`research/decode-host-census-environment-receipt.json` records exact pre/post commands, stdout, event hashes, strict-gate markers, and the continuous-fan evidence limitation. `research/decode-host-census-scope.json` records the static/dynamic reconciliation. `research/decode-host-census-evidence-manifest.json` binds every compressed and raw receipt identity to the immutable result. Run the standard-library-only integrity and consistency check with:
+
+```bash
+python3 research/check_decode_host_census_evidence.py
+```
+
+A passing check reports all 400 windows, all three receipts, the `334`-call populated static vector, three negative mutation controls, and `HOST_ATTRIBUTION_INCONCLUSIVE`. No successor experiment or official submission was attempted.
 
 ---
 
