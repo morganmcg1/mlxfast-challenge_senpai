@@ -762,3 +762,111 @@ python3 research/maple-alphonse-r107c-byte-ledger.py
 Artifacts: `research/artifacts/maple-alphonse-r107c/` —
 `jit-preamble.metal`, `down-bn{64,32}.{metal,air,ir,compile.log}`,
 `twin-diff.txt`, `air-census.json`, `occupancy-census.csv`, `byte-ledger.json`.
+
+## 13. Advisor-comment reconciliation (rule 98, base notice, gate-1 discipline)
+
+Two advisor comments on #636 predate this result. Both are discharged here
+explicitly so the reviewer does not have to infer it.
+
+### 13.1 Base notice — rebase performed, digests unchanged
+
+The notice asked me to rebase off `e1d206da`. I rebased onto the current tip
+**`09525f5c`** (not the `6015c87a` named in the comment; the branch had advanced
+again by the time I acted). The rebase was verified safe *before* it was run:
+all 27 base-side files changed since `e1d206da` are under `research/`, none are
+under `Sources/` or `Vendor/`, and the intersection with my 21 changed files is
+**empty**. It applied with no conflicts and the candidate patch is intact
+(+25 lines, one file).
+
+Critically, the two numbers this report publishes are **unchanged by the
+rebase**, re-verified after it:
+
+| | value | status |
+| --- | --- | --- |
+| base blob of `quantized.cpp` at the new base | `cf6d3847…3612` | identical to §4 |
+| candidate blob | `e5dac8a0…3258` | identical to §4 |
+| budget vs new base | `current=2681206/3000000 headroom=318794 growth=998/262144 files=142` | identical to §7 |
+
+So the rule-75 table in §4 and the byte ledger in §7 remain literally correct
+against the base this PR now targets. No number in this report was restated
+from the old base.
+
+### 13.2 Rule 98.9 — no resident rung is headlined, because nothing was timed
+
+Rule 98.9 (from my own #630, adopted campaign-wide and retroactively) forbids a
+cache-resident kernel-local number from being a headline and requires it to be
+reported beside its residency-defeated twin.
+
+This report is compliant in the strongest available sense: **it contains no
+timing number for any arm on any host.** `N-REACH` (§2) means the `_nax` path
+is unreachable at gen 16, so there is no resident rung to inflate and no
+defeated twin to pair it with. The primary metric is an *analytic* harvest
+bound derived from the byte ledger, not a measured kernel time.
+
+The two measured quantities I do report are deliberately not speedups:
+
+- §6 resident-threadgroup census (ratio 1.2535) — an **occupancy count**, not a
+  latency. It says how many threadgroups co-reside, which is a capacity fact.
+- §8's 1-of-4-simdgroups reading — explicitly labelled a *hypothesis for the
+  next owner*, and §9.5 already flags the tension with the 22.64 TFLOP/s
+  achieved M5 rate that must be resolved before anyone treats it as 4× headroom.
+
+Neither is offered as evidence that anything got faster.
+
+### 13.3 Gate-1 discipline — what I could and could not run
+
+The advisor asked for the #630 pattern: fault control tripping the bitwise gate
+before any timing arm, rule-75 digest before and after with a hard abort, and a
+zero-byte diff when the answer is null.
+
+- **Rule-75 pre/post digest: done.** §4 records pre-compile == post-compile for
+  the candidate blob and pre == post for the offline compile surface, and now
+  also post-rebase (§13.1).
+- **Fault control: not applicable, and I will not claim it.** A fault control is
+  only meaningful in front of a timing arm. No timing arm was reachable on this
+  host, so no bitwise gate was exercised. Saying otherwise would be the exact
+  kind of borrowed-rigour claim rule 98.9 was written against. The bitwise
+  argument for C2a in §3 is a *construction* argument (unchanged accumulation
+  order and reduction tree; only the N-tile partition moves), and M5
+  equivalence remains **owed**, as §11 states.
+- **Zero-byte-null tension: acknowledged.** The verdict is null (`N-FLOOR`) yet
+  the diff is +1740 bytes, which cuts against the discipline the advisor praised.
+  My reading is that the brief asked for the candidate as a deliverable to fern,
+  and the patch is default-inert (env-gated, defaults to the shipped `bn=64`).
+  But since I also recommend *not* integrating it alone, the advisor may
+  legitimately prefer the zero-byte form: **reverting that one file is
+  sufficient and loses nothing**, because §11.1 contains the full geometry,
+  activation, guard predicate and digests needed to reconstruct the arm exactly.
+  That is the advisor's call, not mine; I am flagging it rather than quietly
+  shipping bytes behind a null.
+
+### 13.4 M4-vs-M5 divergence, and decode on every arm
+
+The amendment's central warning — an arm that wins here can be an M4-only route
+(the F1 precedent: 78 dispatches removed, −156 of them an M4-only split-K route,
+M5 net ≈ 0, decode 0.7705 against a 0.95 floor) — is the same failure mode this
+report is built to avoid, and it drove two of its findings:
+
+- `N-REACH` (§2) independently confirms the gen ≥ 17 gate the advisor cited from
+  tanjiro's §4.6, so I never treated a gen-16 dispatch as evidence for `_nax`.
+- §9.5 goes further and asks the question in the requested form — *does the
+  mechanism exist on M5 at all, and is it worth anything there?* — and the answer
+  is adverse: the family is compute-bound on M4 (51.6 FLOP/B vs balance 30.7) but
+  **DRAM-bound on M5** (balance 63.5–104), so C2a's only lever, latency hiding,
+  is worth least exactly where it would be ranked.
+
+**Decode was not recorded on any arm, because no arm ran.** That is a gap, not a
+pass: per-arm decode remains owed on M5 alongside the paired prefill A/B and the
+equivalence run (§11).
+
+### 13.5 AIR phi/br pre-gate
+
+The advisor asked for the #630 AIR-level phi/br pre-gate in Stage B if a
+codegen-identical pair appeared. I ran the AIR census (§5) and it did emit both
+`bn` variants, but the pre-gate could **not** be applied as intended: the
+`applegpu-nt` disassembler on this host rejects the emitted AIR bitcode version
+(2.8 vs the 2.5 it accepts), so real register counts and phi/br structure were
+unavailable. §5 reports the census at the level that survived that blocker
+(instruction/geometry deltas), and the disassembler-version blocker is listed in
+§11 as a tooling fix worth making before the next AIR-gated assignment.
+
