@@ -552,9 +552,67 @@ Four facts follow, and they are the reason this arm was worth reviving.
    +63.5 us). The QKV site at the *candidate* S = 8 has 64 and 51.2 TG/core on
    this host, deep inside the region where collapsing threadgroups cost nothing
    measurable at the routed site. On the ranked M5 the same dispatch is 32 and
-   25.6 TG/core, which is where the routed site was still flat. On this evidence
-   #48's collapse penalty is not an argument against `L3`: the two changes are
-   two points on the same occupancy axis, and only #48's landed past the knee.
+   25.6 TG/core, which is where the routed site was still flat.
+
+   With §5.0's correction the whole picture is consistent on one axis. PR #48's
+   geometry term is the QKV site at S = 16, which is 32 TG/core (h64) and 25.6
+   (h48) on M4 — *inside* the flat region — and it duly measured a **win**,
+   `G-0 = -35.4 us/step`. The routed site at S = 16 is 12.8 TG/core, *past* the
+   knee, and it duly measured a **loss**, +63.5 us/step. Nothing here says
+   collapsing threadgroups is dangerous per se; it says there is a knee on this
+   M4 Pro somewhere between 12.8 and 25.6 threadgroups per core, and that every
+   QKV arm in Stage A stays well clear of it on both hosts.
+
+5. **Wave-count arithmetic: why this lever is in the transferring class.** The
+   dichotomy tanjiro drew from the 1..48 threadgroup scan is that "changes to
+   bytes-in-flight per thread do appear to transfer; changes to wave count do
+   not" (`tanjiro-m5-calibration-note-B.md:298-307`). Put `L3` on the correct
+   side of it. Let `T_r` be the resident threads a core can hold for this kernel
+   and `N_r` the resident-threadgroup-per-core cap. Concurrent threadgroups per
+   core is `min(N_r, floor(T_r / (32 S)))`, so concurrent *threads* per core is
+   `min(32 S N_r, T_r)`, and
+
+   ```text
+   waves = grid_threads / (cores * min(32 S N_r, T_r))
+   ```
+
+   Grid threads are fixed by construction at every S (327680 for h64, 262144 for
+   h48 — see the receipts above). So whenever `N_r` is not the binding term,
+   `waves = grid_threads / (cores * T_r)` is **exactly independent of S**, and
+   so is its fractional part, on *any* core count. Concretely at `T_r = 1024`
+   (the value implied by tanjiro's scan finding one resident 1024-thread
+   threadgroup per core) h64 is 16.0 waves at every S on M4 and 8.0 waves at
+   every S on M5; h48 is 12.8 and 6.4 waves at every S. Core count divides out
+   of every arm identically, so it cannot induce a sign flip between arms.
+
+   This is precisely what separates `L3` from the two geometry changes that
+   failed. Submission `27b9c7c6` divided the **grid** by 4 (4 outputs per
+   simdgroup), which divides `grid_threads` and therefore the wave count by 4 —
+   a wave-count change, the non-transferring class, and it duly went from
+   +7.32 % on M4 to ~0.0 % on M5. tanjiro's own 1..48 scan likewise varied
+   threadgroup count at *fixed* threadgroup size, i.e. it varied grid threads.
+   `L3` and PR #48's arm `G` do the opposite: they hold grid threads and total
+   simdgroups fixed and move only the threadgroup boundary (5120 x 64 = 640 x
+   512 = 327680). Under this arithmetic the residual S-dependence can only come
+   from (i) `N_r` binding at small S, so that S = 2's 64-thread threadgroups
+   cannot fill a core with threads while S = 8's 256-thread ones can — an
+   *intra-core* effect, invariant to how many cores exist; (ii) per-threadgroup
+   launch and scheduling overhead, which scales with threadgroup count, not core
+   count; or (iii) locality and coalescing changes inside a wider threadgroup,
+   also intra-core. **All three transfer.** That is the static case for M5, and
+   it is falsifiable: if Stage A's win is real and mechanism (i) is operative,
+   the effect must be concentrated between S = 2 and S = 8 and must saturate
+   once `32 S N_r >= T_r`, which is exactly the flat-topped basin PR #308
+   reported.
+
+   The honest weakness of this argument is that `N_r` and `T_r` are not measured
+   for this kernel on either host — they are inferred from a different kernel's
+   scan. If Apple's M5 raised `N_r` (so that even S = 2 fills a core), mechanism
+   (i) would vanish on M5 and the win would shrink toward zero. That is a
+   *magnitude* risk, not a sign risk: none of (i)-(iii) has a mechanism that
+   makes a wider threadgroup slower at fixed grid threads while more than
+   25.6 threadgroups per core remain, which the routed sweep confirms
+   empirically down to that point. §7 lists the measurement that would close it.
 
 ### 5.2 Parity and fault control
 
