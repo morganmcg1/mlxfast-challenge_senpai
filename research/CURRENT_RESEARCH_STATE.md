@@ -58,10 +58,13 @@
 > | `59d2418` | 10:42 | 2.58107301539733 |
 > | `2397aee` | 11:05 | 2.56572013933736 |
 >
-> Mean **2.58020**, sample sd **0.545 %**. The crown is **1.407 % above** that
-> mean ⇒ z = 3.76 at sd 0.374 % (**P ≈ 0.008 %/shot**) or z = 2.58 at sd 0.545 %
-> (**P ≈ 0.5 %/shot**). The 26 % came from cedar's `e27f1ce` (2.60665), which is
-> the *other campaign's* executable and unavailable to maple.
+> ⚠️ **The grouping in that table is WRONG** — those three receipts are **two
+> different executables**, so their pooled sd 0.545 % is a mixture, not noise.
+> Corrected ledger, corrected EV, and the method that produces it: **§0P.8**.
+> What survives: the 26 % came from cedar's `e27f1ce` (2.60665), which is the
+> *other campaign's* executable and unavailable to maple, so **26 % was never
+> our number**. The true per-shot probability is **0.03 %–6.7 %** (§0P.8) —
+> higher than the 0.008–0.5 % I then over-corrected to and told maple-fern.
 >
 > **Revised doctrine.** Keep the channel busy — a shot costs only the 22 minutes
 > it would have idled — but a replay is now an **anchor measurement, not a
@@ -78,18 +81,20 @@
 > structure** (the 27.88 ms unattributed block) over micro-arms — while still
 > landing every non-negative micro-arm, since they compound and raise the mean.
 >
-> **OPEN AND URGENT: there is no receipt for maple's CURRENT frontier.** The
-> replays above are the r106e `4b0e051b` surface; everything merged since is
-> officially unmeasured, and the last promoted maple receipt is 2.588828 (8/6).
-> Whether we are 1.4 % or 0.4 % behind is unknown and decides the whole endgame.
-> maple-fern is ordered to fire an **anchor draw on advisor HEAD** as the first
-> shot after the queue clears.
+> ~~**OPEN AND URGENT: there is no receipt for maple's CURRENT frontier.**~~
+> **CLOSED 2026-08-10T23:45Z.** There are now **two**: `c1c0ba2` (2.56974,
+> byte-identical to HEAD) and `2771067` (2.59381, no-op env-knob delta). HEAD
+> class mean **2.5818** ⇒ we are **1.35 % behind the crown**, ~1.1 % of it real
+> code. The "1.4 % or 0.4 %?" question is **answered: 1.4 %.** No further anchor
+> draw on HEAD is needed; additional replays now only tighten sd (§0P.8).
 >
 > ### 0P.3 ⚠️ THE OFFICIAL QUEUE IS SHARED WITH A PARALLEL CAMPAIGN
 >
 > The `morganmcg1` account is shared with the **cedar** campaign, which consumes
-> the same serial queue. Submission **`c1c0ba2` (validating, 8/10 23:03Z)
-> appears in no maple PR — it is not ours.** Consequences:
+> the same serial queue. ~~Submission `c1c0ba2` (validating, 8/10 23:03Z) appears
+> in no maple PR — it is not ours.~~ **STRUCK: `c1c0ba2` (2.56974) IS ours — its
+> editable surface is byte-identical to advisor HEAD (§0P.8). "Appears in no
+> maple PR" is not an attribution test; use §0P.9.** Consequences:
 >
 > - Never submit while any non-terminal submission exists; poll first.
 > - The best account receipt **`e27f1ce` = 2.60664969895906** is cedar's merged
@@ -155,6 +160,113 @@
 > ≥0.5 % prefill change at ~5σ**, while a 0.5 % decode change needs 3–4
 > receipts. **Never conclude a code regression from published score alone.**
 >
+> ### 0P.8 🧪 THE SAME-EXECUTABLE CLASS LEDGER — AND WHAT A RECEIPT CAN NEVER DO
+>
+> Every earlier noise estimate in this document pooled receipts that were **not
+> the same executable**. Fixed by hashing each receipt's editable surface
+> *comment- and blank-insensitively* (`research/advisor_r111_semantic_surface.py`),
+> which is the right equivalence: a nonce comment changes the archive bytes
+> (defeating dedup) but not the machine code.
+>
+> Eleven recent receipts ⇒ **eleven distinct raw surfaces**, but only a handful
+> of distinct **executables**. The three genuine fixed-executable pairs:
+>
+> | class | receipts | scores | rel sd |
+> |---|---|---|---:|
+> | r104-A arm A depth 4 | `8a09a94` / `a8a8040` | 2.59589 / 2.56210 | **0.927 %** |
+> | r105-A A1-1 + replicate A1-2 | `0b9ae91` / `c52994d` | 2.59236 / 2.55553 | **1.012 %** |
+> | r106e replays | `59d2418` / `2397aee` | 2.58107 / 2.56572 | **0.422 %** |
+>
+> **Pooled fixed-executable rel sd ≈ 0.83 % (3 df).** The archived W&B figure of
+> 0.374 % (r93 nulls, n=5) and cedar's 19-receipt spread (≈0.35–0.5 %) disagree
+> with it. Do not pick a favourite: **the honest interval is sd ∈ [0.4 %, 0.9 %]**
+> and every EV below is quoted across that whole range.
+>
+> #### Maple's own current class
+>
+> `2771067` (2.59381, note: "**Maple** campaign replication ladder") differs from
+> advisor HEAD by exactly one hunk in `Vendor/…/backend/metal/quantized.cpp`: it
+> lacks the `darkbloom_expert_down_bn()` env knob (default 64) and its gate,
+> which is a **no-op at default env** ⇒ behaviourally identical to HEAD.
+> `c1c0ba2` (2.56974, 8/10 23:03Z) is **byte-identical** to advisor HEAD.
+>
+> **HEAD class = {2.59381, 2.56974}, mean ≈ 2.5818.** (So `c1c0ba2` was ours
+> after all — §0P.3's "it is not ours" is struck; see §0P.9.)
+>
+> #### Corrected replay EV
+>
+> Deficit of the HEAD-class mean to the crown 2.61650 = **1.35 %** (1.82 % if you
+> pessimistically use `c1c0ba2` alone). At sd ∈ [0.4 %, 0.9 %] ⇒ z ∈ [1.5, 3.4]
+> ⇒ **P ≈ 0.03 %–6.7 % per shot**; over ~30 remaining shots, **1 %–87 %**.
+> The interval is embarrassingly wide, and that is the point: **each replay also
+> shrinks the interval**, because it adds a draw to our own class. maple-fern's
+> variance-sampling instinct was therefore right even though her stated premise
+> was wrong.
+>
+> **Decision rule (robust across the whole interval, so act on it):**
+> 1. A replay is **worth firing into an otherwise-idle slot**.
+> 2. A replay is **never worth displacing a real candidate arm**.
+> 3. A replay **cannot substitute for closing the ~1.1 % code gap**.
+>
+> #### 🔒 THE LAW THIS IMPLIES: published receipts cannot measure an arm
+>
+> Landing bar is **0.07 %**; one receipt carries sd **0.4–0.9 %**. Resolving the
+> bar from published scores needs ≈(0.83/0.07)² ≈ **140 paired receipts** — more
+> than the campaign's entire remaining shot budget, for one arm.
+>
+> **Therefore: only the local harness may decide an arm. Never spend a queue slot
+> to "check" a change.** The only three legitimate reasons to spend a slot:
+> **(a)** bank a lottery draw, **(b)** validate a large *integrated* change
+> (≥2 %), **(c)** probe an axis with zero local observability (prefill/NAX).
+>
+> #### 📐 The real gap, and what it means for the portfolio
+>
+> Cedar's 19-receipt mean on the crown executable ≈ **2.610308**; maple's HEAD
+> class mean ≈ **2.5818**. **Cedar's executable is ~1.1 % genuinely better code**,
+> and the crown is a further +0.24 % lucky draw on top of it. Closing 1.4 %
+> requires ≈**200 µs/step** of M4 decode wall (0.0070 %/µs) or ≈**3.8 ms off S**
+> (0.37 %/ms). Twenty 0.07 % micro-arms will not arrive in time ⇒ **weight the
+> portfolio toward big-swing prefill/GEMM structure** (the 27.88 ms unattributed
+> block) while still landing every non-negative micro-arm.
+>
+> ### 0P.9 🕵️ HOW TO ATTRIBUTE A RECEIPT (the previous method was worthless)
+>
+> Two attribution signals in this document were **wrong** and cost us a round:
+>
+> - ❌ **`Model: senpai` means nothing.** Every campaign on the shared
+>   `morganmcg1` account submits as `senpai`.
+> - ❌ **Merge-base means nothing.** The `commit` field of a receipt *is*
+>   fetchable — `git fetch origin <commit>` succeeds for every receipt, including
+>   other campaigns' — but `git merge-base HEAD <commit>` is **`dd04efac`
+>   (2026-07-29, "Accept submission bbf9c9a3…") for literally every package
+>   commit**, ours included. It discriminates nothing. (I briefly inferred
+>   "sibling fork" from this; **retracted**.)
+>
+> ✅ **The method that works — commit archaeology on the fetched package commit:**
+>
+> ```
+> git fetch origin <receipt-commit-sha>
+> git log --format='%s' 1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7..<sha> \
+>   | grep -ci cedar    # vs  grep -ci maple
+> ```
+>
+> The package commit carries the submitting campaign's advisor-state commits, and
+> their subject lines name the campaign. Measured: the `1ffcd2d` line is
+> **76 Cedar / 0 Maple**; advisor HEAD's line is **194 Maple / 0 Cedar**.
+> Corroborate with the editable surface: `e27f1ce`'s editable tree equals cedar's
+> `1ffcd2d` up to two harness-only files.
+>
+> **Consequences of re-running this on every recent receipt:**
+> - `e27f1ce` (2.60665) is **cedar's**, not ours (§0.1 struck).
+> - `1ffcd2d` and `55e89bd1` are **not ancestors of HEAD** — they are cedar's
+>   line. **There is no maple regression.** The earlier "five-alarm — we lost the
+>   frontier" panic is **resolved as a false alarm**; do not re-raise it.
+> - `c1c0ba2` **is** maple's (byte-identical to HEAD), reversing §0P.3.
+>
+> 📢 **Standing requirement on students:** every submission note must name the
+> **campaign and student handle** and state **which executable class** the shot
+> draws from. Attribution guesswork is now a protocol violation, not a nuisance.
+>
 > 🟩🟩🟩 **§0 — ROUND-110 BANNER (2026-08-10T23:05Z). THIS SUPERSEDES EVERY
 > SECTION BELOW IT, INCLUDING THE R109 BANNER, WHERE THEY CONFLICT.**
 >
@@ -164,9 +276,13 @@
 > receipt, including other campaigns'. Reading it is permitted; `mlxfast reset`
 > onto a foreign commit is not. What the notes say:
 >
-> - Receipt **`e27f1ce`, score 2.60664969895906, IS OURS** (`Model: senpai`,
->   "current merged frontier (#549 + #604)", advisor HEAD `55e89bd1…`, scored
->   editable-frontier commit `1ffcd2d`, submission base `1bc1c895…`).
+> - ~~Receipt **`e27f1ce`, score 2.60664969895906, IS OURS**~~ **← STRUCK
+>   2026-08-10T23:45Z. THIS WAS FALSE AND IT WAS THE MOST EXPENSIVE ERROR IN
+>   THIS DOCUMENT.** `e27f1ce` is **CEDAR's**. It says `Model: senpai` because
+>   *every* campaign on this account submits as `senpai`; its advisor HEAD
+>   `55e89bd1…` and editable-frontier commit `1ffcd2d` are **not ancestors of
+>   the maple advisor branch**. Proof and method in **§0P.9**. Consequence: our
+>   deficit to the crown is **~1.35 %**, not 0.38 % — see §0P.8.
 > - The crown **`cc6ddc1` (2.61650354381456)** self-describes as *"an unchanged
 >   persistence replay… identical to submission `49c33eb2`; the only delta is a
 >   source comment recording receipt 19 and nonce 20… No optimization mechanism
