@@ -279,8 +279,6 @@ let lagunaFusedResidualRMSNormEnabled =
 let lagunaPrefillFusedResidualRMSNormEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_FUSED_RESIDUAL_RMS"] != "0"
 
-let lagunaPrefillResidualRMSNormRPG4Enabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_RESIDUAL_RMS_RPG4"] != "0"
 
 /// One output row per simdgroup for the default split routed gate/up decode
 /// QMV. Official submission `b56a6d9` passed all 1,344 exact-token checks:
@@ -1101,53 +1099,6 @@ for (uint i = 0; i < n_reads; ++i) {
     ensureRowContiguous: true
 )
 
-private let lagunaResidualRMSNormRPG4Kernel = MLXFast.metalKernel(
-    name: "laguna_residual_rms_bf16_2048_rpg4_v1",
-    inputNames: ["residual", "branch", "weight"],
-    outputNames: ["summed", "normalized"],
-    source: """
-constexpr uint axis_size = 2048;
-constexpr uint n_reads = 4;
-constexpr uint simd_size = 32;
-constexpr uint rows_per_group = 4;
-
-uint row = threadgroup_position_in_grid.x * rows_per_group;
-uint lid = thread_position_in_threadgroup.x;
-uint simd_lane = thread_index_in_simdgroup;
-uint simd_group = simdgroup_index_in_threadgroup;
-
-\(lagunaNormInvMeanScratch)
-threadgroup float local_sums[simd_size];
-
-thread bfloat norm_weight[n_reads];
-for (uint i = 0; i < n_reads; ++i) {
-    norm_weight[i] = weight[lid * n_reads + i];
-}
-
-for (uint r = 0; r < rows_per_group; ++r) {
-    uint base = (row + r) * axis_size + lid * n_reads;
-    thread bfloat values[n_reads];
-    float acc = 0.0f;
-    for (uint i = 0; i < n_reads; ++i) {
-        bfloat value = bfloat(residual[base + i] + branch[base + i]);
-        values[i] = value;
-        summed[base + i] = value;
-        float fv = float(value);
-        acc += fv * fv;
-    }
-
-    acc = simd_sum(acc);
-    \(lagunaNormReductionTail2048)
-
-    for (uint i = 0; i < n_reads; ++i) {
-        normalized[base + i] =
-            norm_weight[i] * bfloat(float(values[i]) * laguna_inv_mean);
-    }
-}
-""",
-    ensureRowContiguous: true
-)
-
 func lagunaResidualRMSNormRouter(
     residual: MLXArray, branch: MLXArray, weight: MLXArray,
     routerWeight: MLXArray, correctionBias: MLXArray
@@ -1205,36 +1156,6 @@ func lagunaResidualRMSNorm(
     let outputs = lagunaResidualRMSNormKernel(
         [residual, branch, weight],
         grid: (rows * 512, 1, 1),
-        threadGroup: (512, 1, 1),
-        outputShapes: [residual.shape, residual.shape],
-        outputDTypes: [.bfloat16, .bfloat16]
-    )
-    return (outputs[0], outputs[1])
-}
-
-func lagunaPrefillResidualRMSNormUsesRPG4(rows: Int) -> Bool {
-    lagunaPrefillResidualRMSNormRPG4Enabled && rows > 1 && rows.isMultiple(of: 4)
-}
-
-func lagunaPrefillResidualRMSNorm(
-    residual: MLXArray, branch: MLXArray, weight: MLXArray
-) -> (MLXArray, MLXArray) {
-    let rows = residual.size / LagunaConstants.hiddenSize
-    guard lagunaPrefillResidualRMSNormUsesRPG4(rows: rows) else {
-        lagunaTrace("prefill residual+rmsnorm rpg1")
-        return lagunaResidualRMSNorm(residual: residual, branch: branch, weight: weight)
-    }
-    precondition(residual.dtype == .bfloat16)
-    precondition(branch.dtype == .bfloat16)
-    precondition(weight.dtype == .bfloat16)
-    precondition(residual.sameDims(branch))
-    precondition(residual.dim(-1) == LagunaConstants.hiddenSize)
-    precondition(weight.dims(LagunaConstants.hiddenSize))
-
-    lagunaTrace("prefill residual+rmsnorm rpg4")
-    let outputs = lagunaResidualRMSNormRPG4Kernel(
-        [residual, branch, weight],
-        grid: ((rows / 4) * 512, 1, 1),
         threadGroup: (512, 1, 1),
         outputShapes: [residual.shape, residual.shape],
         outputDTypes: [.bfloat16, .bfloat16]
@@ -11137,8 +11058,12 @@ final class LagunaRuntimeDecoderLayer: Module {
             x.dim(-1) == LagunaConstants.hiddenSize,
             x.dim(1) > 1
         {
+            // Prefill (multi-token) counterpart of the fused decode branch
+            // above: same row-count-general `lagunaResidualRMSNorm` kernel,
+            // only the call-site guard differs. Full exactness argument in
+            // `lagunaPrefillFusedResidualRMSNormEnabled`'s doc comment.
             lagunaTrace("prefill residual+rmsnorm")
-            (h, normalized) = lagunaPrefillResidualRMSNorm(
+            (h, normalized) = lagunaResidualRMSNorm(
                 residual: x, branch: r, weight: postAttentionLayerNorm.weight)
         } else {
             h = x + r
