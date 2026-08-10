@@ -215,6 +215,11 @@ public enum TransformVerifier {
                 )
             }
             if values.isDirectory == true {
+                if !relativePath.contains("/") && standardized.pathExtension == "safetensors" {
+                    throw MLXFastError.invalidInput(
+                        "transform verification rejects runtime-significant directory \(relativePath)"
+                    )
+                }
                 continue
             }
             guard values.isRegularFile == true else {
