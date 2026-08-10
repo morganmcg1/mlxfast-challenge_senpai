@@ -8,6 +8,34 @@ macOS 26.5.2, Metal toolchain 17.6.109.0.** Epoch tag: **advisor tip `acb56108`,
 Every number below is measured on **M4**; M5 numbers are quoted only where the charge
 supplies them, and are always marked.
 
+W&B run: **https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/jhuxsg3h**
+(`maple-tanjiro-r107g-decode-family-regime-census`, 89 summary metrics + 6 tables: the
+per-family census, family D's dose and bytes ladders, the host bandwidth-vs-geometry and
+SLC ladders, and the α/β adjudication).
+
+### Units contract (rules 105.8, 105.11, 105.12) — read before quoting any number
+
+Per rule 105.12 I am a **producer** of category-(b) numbers, not a consumer, so:
+
+1. **Every timing I measured is raw M4 µs, census class.** The primary deliverable is the
+   *regime verdict* per family; the advisor applies α or β downstream.
+2. **Where I do show `% of cs`, the conversion has already been applied exactly once**, as
+   `Δ_M4[µs/step] × k × 0.015228` with `k` = that family's own verdict (α = 0.4369 for the
+   four BYTES families, β = 0.5 for E). Those figures are labelled `% cs` and must **not** be
+   converted again — that is the double-counting rule 105.12 warns about. If you want the
+   unconverted number, every table carries the M4 µs/step beside it.
+3. **Census-or-marginal tag.** Everything I measured with the dose/bytes ladders and the two
+   host probes is a **census** (full count over a controlled dispatch, 41 × 200 paired). The
+   only **marginals** appearing anywhere in this report are §B.0.6's two "measured M5"
+   figures, which I quote solely to *refute* their use as a calibration
+   (`1010.67 µs (M5, marginal, PR34 receipt differential)` — rule 76 lower bound, and §B.1's
+   companion implies 106.9 % of peak, so it cannot calibrate anything). I do not use them to
+   derive any α.
+4. **`dispatch_us` for families A, B, C, E is derived from the charge's audited M4 census**
+   (B.0.3 M4 column ÷ call count), not from B.0.3's M5 column. The M5 column is
+   `M4 × α` by construction (`654.4/1497.7 = 0.4370`), so using it would be circular; I
+   verified that ratio myself before discarding the column.
+
 ## VERDICT TABLE (incremental — one row committed as each family's ladder lands)
 
 | family | kernel | regime verdict | evidence | implied k | 0.4 % bar, instr/thread (exposed / nominal) vs base ALU load | 0.4 % bar, bytes/step | whole non-byte slack, in bars | rule 55 |
@@ -501,6 +529,45 @@ Decision rule, declared before the table was computed: **BYTES** when `%geom ≥
 `exp_ALU% < 5` and `latency% < 25`; **ISSUE** when `exp_ALU%` dominates; **LATENCY** when the
 residual dominates; **MIXED** otherwise. Outcome: D, A, C, B → **BYTES**; E → **LATENCY**.
 Nothing in the pool is ISSUE, and nothing is MIXED.
+
+### 3.2.1 Requested check: does my census agree with §B.1's M4 GPU-timer census?
+
+The advisor asked this directly ("if your instrument disagrees with that, the disagreement is
+itself the headline"). §B.1's M4 GPU-timer census puts T2c routed gate+up at **88.0 %** and
+T0b QKV at **89.7 %** of the 266.3 GB/s M4 peak. My route is completely different — a byte
+model read off the launcher argument shapes, divided into the charge's audited M4 census time
+— and it lands here:
+
+| family | §B.1 GPU-timer | my census | gap |
+| --- | --- | --- | --- |
+| D / T2c routed gate+up | 88.0 % (234.3 GB/s) | 87.2 % (232.1 GB/s) | **−0.84 pp** |
+| C / T0b(a) qkv | 89.7 % (238.9 GB/s) | 91.0 % (242.3 GB/s) | **+1.29 pp** |
+
+**I confirm §B.1.** Two independent instruments — a GPU timer with real denominators, and a
+byte model divided into an audited census — agree to better than 1.3 pp on both families.
+That is well inside what either method can resolve.
+
+Two consequences, both of which the advisor flagged as blocking:
+
+- **It is affirmative evidence for a single bytes-regime α**, not per-family α's. Both
+  families sit at 87–91 % of the same measured M4 ceiling. My census extends the finding to
+  two more families that §B.1 does not cover: A T3b oproj at 87.2 % and B T2d at 85.5 %. So
+  **all four NVFP4 GEMV families lie in an 85.5–91.0 % band, a 5.5 pp spread**, on an axis
+  where §B.0.6's marginal-derived figures claimed a 9.6 pp *efficiency* gap between the same
+  two pools.
+- **That §B.0.6 gap is therefore an artifact, and §3.5 identifies its mechanism.** The
+  marginals being compared carry different reuse discounts and different per-dispatch fixed
+  costs (117 vs 80 dispatches across the two pools, and a per-dispatch intercept that does
+  not scale with bandwidth). On the host we can actually measure there is **no per-family
+  rate gap** — which is exactly what the advisor suspected and could not confirm. The
+  §B.0.6 caveat that has been blocking headroom ranking can be retired *for the M4 side*.
+  What survives untouched is the **M5 ceiling** degeneracy (§3.5), and no amount of M4-side
+  data will dissolve it; that needs the 7-second M5 probe.
+
+My spread between D and C (3.83 pp) is larger than §B.1's (1.70 pp), and I do not want to
+over-sell the agreement: the difference is consistent with my byte model being 0.15–0.24 %
+off on each family in opposite directions, which is within its validated tolerance (§3.1).
+The claim I will defend is the band, not the ordering within it.
 
 ### 3.3 The non-byte slack bound — the strongest form of the result
 
