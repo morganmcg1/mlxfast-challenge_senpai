@@ -1,0 +1,313 @@
+{
+  "schema": "fern-r105d-decode-byte-census-v1",
+  "host_note": "byte counts are representation facts and are host-independent; the roofline divides them by the Rule 80 measured M5 ceiling",
+  "step_bytes": 1671402432,
+  "r101_15_family_bytes": 1669443584,
+  "r105d_tail_bytes": 1958848,
+  "r105d_tail_pct_of_step": 0.1172,
+  "single_tg_family_bytes": 600512,
+  "single_tg_family_calls": 84,
+  "single_tg_pct_of_step_bytes": 0.0359,
+  "single_tg_m5_dram_floor_us": 0.984,
+  "sub_C40_family_bytes": 137832896,
+  "sub_C40_family_calls": 203,
+  "occupancy_rollup": {
+    "SINGLE_TG": {
+      "dispatches": 84,
+      "pct_of_408_dispatches": 20.59,
+      "bytes_per_step": 600512,
+      "pct_of_step_bytes": 0.0359,
+      "m5_dram_floor_us": 0.984,
+      "label_us_m4_split1": 327.4,
+      "pct_of_label_total": 3.89,
+      "rule82b": "SPLIT=1 label seconds: upper bound, unguaranteed sign, shape only, never magnitude"
+    },
+    "SUB_C40_all": {
+      "dispatches": 203,
+      "pct_of_408_dispatches": 49.75,
+      "bytes_per_step": 137832896,
+      "pct_of_step_bytes": 8.2465,
+      "m5_dram_floor_us": 225.956,
+      "label_us_m4_split1": 1834.1,
+      "pct_of_label_total": 21.77,
+      "rule82b": "SPLIT=1 label seconds: upper bound, unguaranteed sign, shape only, never magnitude"
+    },
+    "AT_OR_ABOVE_C40": {
+      "dispatches": 205,
+      "pct_of_408_dispatches": 50.25,
+      "bytes_per_step": 1533569536,
+      "pct_of_step_bytes": 91.7535,
+      "m5_dram_floor_us": 2514.048,
+      "label_us_m4_split1": 6589.6,
+      "pct_of_label_total": 78.23,
+      "rule82b": "SPLIT=1 label seconds: upper bound, unguaranteed sign, shape only, never magnitude"
+    }
+  },
+  "roofline": {
+    "m5_dram_gbs_measured": 610.0,
+    "m4_dram_gbs_measured_this_host": 262.98,
+    "step_bytes": 1671402432,
+    "step_bytes_MB": 1671.4,
+    "dispatches_priced": 408,
+    "m5_dram_floor_us": 2740.0,
+    "m5_ranked_step_us": 4141.5,
+    "m5_dram_floor_pct_of_step": 66.16,
+    "m5_headroom_above_dram_floor_us": 1401.5,
+    "m5_headroom_pct_score": 21.341,
+    "m5_achieved_gbs_at_ranked_step": 403.6,
+    "m5_pct_of_measured_peak": 66.2,
+    "note": "The headroom row is a SUBTRACTION RESIDUAL. It is an upper bound on recoverable time, not recoverable time, and it has no per-kernel attribution behind it. An unattributed pool is not a lever."
+  },
+  "families": [
+    {
+      "family": "routed_nvfp4_swiglu_qmv_packed_top8keys",
+      "calls": 39,
+      "bytes_per_step": 347602944,
+      "source": "fern_r101_byte_audit.families() HEAD epoch, row 'T2c routed gate+up qmv'",
+      "arithmetic": "347602944 B/step over 39 calls = 8912896 B/call",
+      "pct_of_step_bytes": 20.7971,
+      "m5_floor_us": 569.841,
+      "m5_floor_pct_score": 8.6773
+    },
+    {
+      "family": "nvfp4_qkv_h64",
+      "calls": 30,
+      "bytes_per_step": 324710400,
+      "source": "fern_r101_byte_audit.families() HEAD epoch, row 'T0b(a) qkv h64'",
+      "arithmetic": "324710400 B/step over 30 calls = 10823680 B/call",
+      "pct_of_step_bytes": 19.4274,
+      "m5_floor_us": 532.312,
+      "m5_floor_pct_score": 8.1059
+    },
+    {
+      "family": "oproj_act_h64",
+      "calls": 30,
+      "bytes_per_step": 259584000,
+      "source": "fern_r101_byte_audit.families() HEAD epoch, row 'T3b oproj h64'",
+      "arithmetic": "259584000 B/step over 30 calls = 8652800 B/call",
+      "pct_of_step_bytes": 15.5309,
+      "m5_floor_us": 425.548,
+      "m5_floor_pct_score": 6.4801
+    },
+    {
+      "family": "routed_shared_nvfp4_down_residual",
+      "calls": 39,
+      "bytes_per_step": 195526656,
+      "source": "fern_r101_byte_audit.families() HEAD epoch, row 'T2d routed+shared down+residual'",
+      "arithmetic": "195526656 B/step over 39 calls = 5013504 B/call",
+      "pct_of_step_bytes": 11.6984,
+      "m5_floor_us": 320.536,
+      "m5_floor_pct_score": 4.881
+    },
+    {
+      "family": "lmhead_int5_base_coarse_delta",
+      "calls": 1,
+      "bytes_per_step": 109182976,
+      "source": "fern_r101_byte_audit.families() HEAD epoch, row 'T1c lmhead int5 base coarse delta'",
+      "arithmetic": "109182976 B/step over 1 calls = 109182976 B/call",
+      "pct_of_step_bytes": 6.5324,
+      "m5_floor_us": 178.988,
+      "m5_floor_pct_score": 2.7256
+    },
+    {
+      "family": "nvfp4_qkv_h48",
+      "calls": 10,
+      "bytes_per_step": 86589440,
+      "source": "fern_r101_byte_audit.families() HEAD epoch, row 'T0b(b) qkv h48'",
+      "arithmetic": "86589440 B/step over 10 calls = 8658944 B/call",
+      "pct_of_step_bytes": 5.1806,
+      "m5_floor_us": 141.95,
+      "m5_floor_pct_score": 2.1616
+    },
+    {
+      "family": "dense_gate_up_swiglu",
+      "calls": 1,
+      "bytes_per_step": 67108864,
+      "source": "fern_r101_byte_audit.families() HEAD epoch, row 'dense gate_up (layer 0)'",
+      "arithmetic": "67108864 B/step over 1 calls = 67108864 B/call",
+      "pct_of_step_bytes": 4.0151,
+      "m5_floor_us": 110.015,
+      "m5_floor_pct_score": 1.6753
+    },
+    {
+      "family": "oproj_act_h48",
+      "calls": 10,
+      "bytes_per_step": 64901120,
+      "source": "fern_r101_byte_audit.families() HEAD epoch, row 'T3c oproj h48'",
+      "arithmetic": "64901120 B/step over 10 calls = 6490112 B/call",
+      "pct_of_step_bytes": 3.883,
+      "m5_floor_us": 106.395,
+      "m5_floor_pct_score": 1.6202
+    },
+    {
+      "family": "sliding_fused_attn_ring",
+      "calls": 30,
+      "bytes_per_step": 62914560,
+      "source": "fern_r101_byte_audit.families() HEAD epoch, row 'T3a sliding fused attn'",
+      "arithmetic": "62914560 B/step over 30 calls = 2097152 B/call",
+      "pct_of_step_bytes": 3.7642,
+      "m5_floor_us": 103.139,
+      "m5_floor_pct_score": 1.5706
+    },
+    {
+      "family": "shared_nvfp4_swiglu_qmv_rows1_halved",
+      "calls": 39,
+      "bytes_per_step": 43450368,
+      "source": "fern_r101_byte_audit.families() HEAD epoch, row 'T2a shared gate+up qmv'",
+      "arithmetic": "43450368 B/step over 39 calls = 1114112 B/call",
+      "pct_of_step_bytes": 2.5996,
+      "m5_floor_us": 71.23,
+      "m5_floor_pct_score": 1.0847
+    },
+    {
+      "family": "residual_rms_router",
+      "calls": 39,
+      "bytes_per_step": 40894464,
+      "source": "fern_r101_byte_audit.families() HEAD epoch, row 'T1a residual rms router'",
+      "arithmetic": "40894464 B/step over 39 calls = 1048576 B/call",
+      "pct_of_step_bytes": 2.4467,
+      "m5_floor_us": 67.04,
+      "m5_floor_pct_score": 1.0209
+    },
+    {
+      "family": "dense_down_residual",
+      "calls": 1,
+      "bytes_per_step": 33554432,
+      "source": "fern_r101_byte_audit.families() HEAD epoch, row 'dense_down (layer 0)'",
+      "arithmetic": "33554432 B/step over 1 calls = 33554432 B/call",
+      "pct_of_step_bytes": 2.0076,
+      "m5_floor_us": 55.007,
+      "m5_floor_pct_score": 0.8376
+    },
+    {
+      "family": "full_fused_attn_grow",
+      "calls": 10,
+      "bytes_per_step": 23592960,
+      "source": "fern_r101_byte_audit.families() HEAD epoch, row 'T3a' full fused attn'",
+      "arithmetic": "23592960 B/step over 10 calls = 2359296 B/call",
+      "pct_of_step_bytes": 1.4116,
+      "m5_floor_us": 38.677,
+      "m5_floor_pct_score": 0.589
+    },
+    {
+      "family": "gate_sp_h64",
+      "calls": 30,
+      "bytes_per_step": 7864320,
+      "source": "fern_r101_byte_audit.families() HEAD epoch, row 'T2b gate_sp h64'",
+      "arithmetic": "7864320 B/step over 30 calls = 262144 B/call",
+      "pct_of_step_bytes": 0.4705,
+      "m5_floor_us": 12.892,
+      "m5_floor_pct_score": 0.1963
+    },
+    {
+      "family": "gate_sp_h48",
+      "calls": 10,
+      "bytes_per_step": 1966080,
+      "source": "fern_r101_byte_audit.families() HEAD epoch, row 'T2b' gate_sp h48'",
+      "arithmetic": "1966080 B/step over 10 calls = 196608 B/call",
+      "pct_of_step_bytes": 0.1176,
+      "m5_floor_us": 3.223,
+      "m5_floor_pct_score": 0.0491
+    },
+    {
+      "family": "lmhead_exact_fused_int5_sparse_refine",
+      "calls": 1,
+      "bytes_per_step": 526848,
+      "source": "r105-D, newly priced (absent from r94/r101 tables)",
+      "arithmetic": "392 candidate rows x 1344 B/row planar int5 = 526848 B",
+      "pct_of_step_bytes": 0.0315,
+      "m5_floor_us": 0.864,
+      "m5_floor_pct_score": 0.0132
+    },
+    {
+      "family": "rmsbfloat16",
+      "calls": 41,
+      "bytes_per_step": 503808,
+      "source": "r105-D, newly priced (absent from r94/r101 tables)",
+      "arithmetic": "41 calls x 3 x 2048 x 2 B (x, gamma, y) = 503808 B",
+      "pct_of_step_bytes": 0.0301,
+      "m5_floor_us": 0.826,
+      "m5_floor_pct_score": 0.0126
+    },
+    {
+      "family": "gather_front",
+      "calls": 2,
+      "bytes_per_step": 401408,
+      "source": "r105-D, newly priced (absent from r94/r101 tables)",
+      "arithmetic": "2 calls x 49 TG x 1024 thr x 4 B = 401408 B",
+      "pct_of_step_bytes": 0.024,
+      "m5_floor_us": 0.658,
+      "m5_floor_pct_score": 0.01
+    },
+    {
+      "family": "lmhead_coarse_argmax_stage1",
+      "calls": 1,
+      "bytes_per_step": 229376,
+      "source": "r105-D, newly priced (absent from r94/r101 tables)",
+      "arithmetic": "1 x 128 TG x 224 thr x 4 B x 2 (in+out) = 229376 B",
+      "pct_of_step_bytes": 0.0137,
+      "m5_floor_us": 0.376,
+      "m5_floor_pct_score": 0.0057
+    },
+    {
+      "family": "vn_copy",
+      "calls": 1,
+      "bytes_per_step": 200704,
+      "source": "r105-D, newly priced (absent from r94/r101 tables)",
+      "arithmetic": "1 x 49 TG x 1024 thr x 4 B = 200704 B",
+      "pct_of_step_bytes": 0.012,
+      "m5_floor_us": 0.329,
+      "m5_floor_pct_score": 0.005
+    },
+    {
+      "family": "prefill_router_tournament",
+      "calls": 39,
+      "bytes_per_step": 62400,
+      "source": "r105-D, newly priced (absent from r94/r101 tables)",
+      "arithmetic": "39 x (256x2 logits + 256x4 bias + 8x4 idx + 8x4 w) = 62400 B",
+      "pct_of_step_bytes": 0.0037,
+      "m5_floor_us": 0.102,
+      "m5_floor_pct_score": 0.0016
+    },
+    {
+      "family": "residual_rms_bf16_2048_v1",
+      "calls": 1,
+      "bytes_per_step": 16384,
+      "source": "r105-D, newly priced (absent from r94/r101 tables)",
+      "arithmetic": "1 x 4 x 2048 x 2 (x, residual, gamma, y) = 16384 B",
+      "pct_of_step_bytes": 0.001,
+      "m5_floor_us": 0.027,
+      "m5_floor_pct_score": 0.0004
+    },
+    {
+      "family": "embedding_rope_atlas",
+      "calls": 1,
+      "bytes_per_step": 9216,
+      "source": "r105-D, newly priced (absent from r94/r101 tables)",
+      "arithmetic": "1 x (2x2048x2 embed row + out, + 128x4x2 rope) = 9216 B",
+      "pct_of_step_bytes": 0.0006,
+      "m5_floor_us": 0.015,
+      "m5_floor_pct_score": 0.0002
+    },
+    {
+      "family": "argmax",
+      "calls": 1,
+      "bytes_per_step": 8192,
+      "source": "r105-D, newly priced (absent from r94/r101 tables)",
+      "arithmetic": "1 x 1024 thr x 4 B x 2 = 8192 B",
+      "pct_of_step_bytes": 0.0005,
+      "m5_floor_us": 0.013,
+      "m5_floor_pct_score": 0.0002
+    },
+    {
+      "family": "lmhead_exact_winner",
+      "calls": 1,
+      "bytes_per_step": 512,
+      "source": "r105-D, newly priced (absent from r94/r101 tables)",
+      "arithmetic": "1 x 32 lanes x 4 fields x 4 B = 512 B",
+      "pct_of_step_bytes": 0.0,
+      "m5_floor_us": 0.001,
+      "m5_floor_pct_score": 0.0
+    }
+  ]
+}
