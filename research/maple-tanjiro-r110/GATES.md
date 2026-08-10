@@ -90,6 +90,97 @@ and agrees exactly.
 The control also confirms the second-order point: **A1 is inert on this host**,
 which is exactly what the `_nax`-only gate predicts.
 
+## A2 — fused-NAX `bn` 128 -> 64 for prefill `N <= 1024` (delivered as patch)
+
+### Scope and budget
+
+```
+$ senpai/validate-assignment-scope.sh 1bc1c895... \
+    Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+assignment scope OK: 1 submitted path(s)
+
+$ senpai/check-editable-budget.sh 1bc1c895...
+editable budget OK: current=2681625/3000000 headroom=318375 growth=-302224/262144 files=142
+```
+
+### Diff footprint
+
+```
+$ git diff --numstat 32665a6b... 38152ae8 -- Sources Vendor
+14	0	Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+```
+
+`matmul.cpp` is byte-identical between the assignment base and the A1 head, so
+`A2-fused-nax-bn64-n1024.patch` (generated against the base) contains the A2
+knob and nothing else. Verified with `git apply --check` against a base-state
+`matmul.cpp` after the A2 source was reverted from this branch:
+
+```
+A2 PATCH APPLIES CLEANLY TO BASE-STATE matmul.cpp
+```
+
+### `./benchmark.sh --local-iterate` — GREEN
+
+Job `050988cf-efda-4dbf-95bb-f9466b45a4b2`, exit 0, 203 s,
+`"timestamp": "2026-08-10T23:14:47Z"`, worker commit `38152ae8`.
+
+```
+"passed" : true
+"passed_correctness" : true
+"max_abs_diff" : 0
+"golden_hash" : "b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63"
+"harness_hash" : "141c159403ce1514499bfeed5fb7335c872aa959d501afd30dfd495110b9fda6"
+"weights_hash" : "aff994300573c5e8589563fc9ff57cdcfb1ef9b49e14898be290a75a6b294b3d"
+"num_layers" : 40
+"peak_ram_gb" : 21
+prefill 0.001127 s/token   decode 0.012973 s/token   est score 0.794
+```
+
+### Note on the guard
+
+An earlier, **unguarded** form of this arm (`N <= 1024` with no `M` condition)
+also ran green here — job `71744112-6fd0-447f-9f1b-8a94591c5a02`, exit 0,
+`"timestamp": "2026-08-10T23:10:49Z"`, `"passed": true`,
+`passed_correctness: true`, `max_abs_diff: 0`. It was **discarded anyway**,
+because decode wk/wv (`M=8, N=1024, K=2048`) does not divert to split-k at
+`matmul.cpp:922-925` and therefore reaches the same regular fused-NAX entry as
+prefill. The unguarded form would have silently retiled a decode GEMM carrying
+75 % of the score. The shipped form adds `M >= 64`, mirroring the existing
+gate at `quantized.cpp:1393-1397`.
+
+That this host cannot tell the two forms apart (both green, both bit-exact) is
+itself a demonstration of the caveat below: the local gate has no visibility
+into `_nax` geometry at all.
+
+## A3 — `darkbloom_expert_gather_groups()` 256 -> 128 (delivered as patch)
+
+### Scope and budget
+
+```
+$ senpai/validate-assignment-scope.sh 1bc1c895... \
+    Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+assignment scope OK: 1 submitted path(s)
+
+$ senpai/check-editable-budget.sh 1bc1c895...
+editable budget OK: current=2681206/3000000 headroom=318794 growth=-302643/262144 files=142
+```
+
+Identical to A1's figures because `256` -> `128` is length-preserving.
+
+### Diff footprint
+
+Validated in isolation: A1's knob was temporarily reverted so `quantized.cpp`
+carried only the A3 hunk.
+
+```
+$ git diff --numstat 32665a6b... -- Sources Vendor
+1	1	Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+```
+
+### `./benchmark.sh --local-iterate`
+
+<!-- A3-GATE-RESULT -->
+
 ## What these local gates do and do not prove
 
 `is_nax_available()` is false here, so no `_nax` kernel is ever selected. All
