@@ -309,3 +309,70 @@ recomputable by a sceptic from files I did not write.
 ## 5. Results
 
 *(populated after the campaign; §1 was committed before launch)*
+
+---
+
+## 7. Part 2: the certification targets do not exist yet
+
+Part 2 asked me to certify edward's (#629) or alphonse's (#644) candidate, then the sum on the
+combined tree, and to report the fact if neither had pushed. Neither has. Checked directly
+against the remote, not inferred:
+
+| branch | remote head | what is on it |
+| --- | --- | --- |
+| `maple-edward/r107-routed-gateup-packing` | `526881c4f6e2b879c1dfef67212b852cf5c9b7ed` | one commit, `assign maple-edward…`; its only diff vs the shared base `fc66172b` is **−25 lines** of `Vendor/…/quantized.cpp`, i.e. it is *behind* base, not ahead of it |
+| `maple-alphonse/r107-decode-oproj-amortisation` | `f66a34b863ca2d9031ff800c946ae83d206bbf23` | one commit, `senpai assignment…`; no candidate |
+
+Both SHAs were re-read from `origin` at **15:47Z** and were unchanged from my earlier check.
+There is nothing to certify, so per the brief I am not inventing a target. What I did instead
+is spend the freed slot on the positive control of §3A, which serves the same end — it is the
+test that converts "here is a power curve" into "here is a power curve I have shown to be
+honest at the effect size that matters".
+
+The instrument is ready the moment either lands. Certifying one candidate is a single command
+with a gate list, and certifying **the sum** — the thing rule 105.5 actually requires, since
+rule 105.12's live slate has no arm above 0.45× of the slot threshold on its own — is the same
+command with a third arm that sets both gate sets at once:
+
+    research/maple-nezuko-r107j-certify.sh --blocks 8 \
+        C: E:<edward gates> A:<alphonse gates> S:<edward gates>,<alphonse gates>
+
+That four-arm form is deliberate. It measures each part *and* the sum against one shared
+reference in one interleaved session, so the summand CIs and the sum CI share a thermal
+history and a block structure. Summing two separately-run point estimates and adding their
+variances would be the cheaper thing to do and would be wrong: it assumes the two levers do
+not interact, which is exactly the claim rule 105.5's "on the same integrated tree" wording
+exists to stop anyone assuming.
+
+---
+
+## 8. Limitations, stated plainly
+
+1. **This round certifies an instrument, not a speedup.** Nothing here moves the shipped tree.
+   The deliverable is a CI and the ability to produce more of them (rule 105.7: the CI is the
+   deliverable).
+2. **The power curve is conditional on the A/A sd being stationary.** It is a projection made
+   from one afternoon's thermal history on one host. A campaign run on a hotter machine, or
+   with a different background load, will have a different sd and therefore a different block
+   requirement. The honest use of the curve is *plan with it, then re-measure*; the analyser
+   re-derives the sd from every session it is given, so drift shows up rather than hiding.
+3. **`k` is still unresolved between α = 0.4369 and β = 0.5000.** I report every % of `cs`
+   number on both bases and headline α, the smaller one, because it is the basis that makes a
+   candidate look *worse*. Nothing in this round can close that degeneracy (§3A.1 explains why
+   the positive control cannot either — the two hypotheses are only 10 µs apart, well inside my
+   resolution).
+4. **A/A is the weakest possible null.** It shares a binary, so it cannot detect a bias that
+   depends on the *code* differing between arms — for instance a compile-order or
+   binary-layout effect. It bounds run-to-run and position noise, which is what the power
+   curve needs, and no more than that.
+5. **Timings were taken at commit `ff8b0918`.** Later commits on this branch add documentation
+   and analysis scripts only; `Sources/` is untouched throughout, which the identity verifier
+   confirms independently by showing a single `commit` and a single `weights_hash` across the
+   whole session.
+6. **Mid-round publication was not possible.** I hold no GitHub write credential: `gh` is
+   unauthenticated, there is no PAT, and `respond_to_human_issue` refuses pull requests. The
+   only push channel available to me is `submit_experiment_result`, which is terminal and ends
+   the round. So the preregistration in §1 and §3A was committed **locally** before the
+   corresponding data existed, in separate commits with their own messages, and the whole chain
+   is pushed at once at the end. The commit graph, not a push timestamp, is the evidence that
+   the predictions preceded the numbers.
