@@ -41,7 +41,8 @@ private let lagunaR107GeometryReceipt: Bool = {
 '''
 
 ANCHOR_FUNC = "func lagunaRoutedSwiGLUQMVPackedTop8(\n"
-ANCHOR_BODY = "    precondition(input.dtype == .bfloat16)\n"
+ANCHOR_BODY = (
+    "    precondition(routerKeys.size == LagunaConstants.numExperts)\n")
 FAULT_FROM = "        source: lagunaRoutedSwiGLUQMVPackedTop8R1Source(sg),\n"
 FAULT_TO = "        source: lagunaRoutedSwiGLUQMVPackedTop8R1Source(2),\n"
 
@@ -53,7 +54,7 @@ def main() -> int:
         assert text.count(ANCHOR_FUNC) == 1 and text.count(ANCHOR_BODY) == 1
         text = text.replace(ANCHOR_FUNC, RECEIPT.lstrip("\n") + ANCHOR_FUNC)
         text = text.replace(
-            ANCHOR_BODY, "    _ = lagunaR107GeometryReceipt\n" + ANCHOR_BODY)
+            ANCHOR_BODY, ANCHOR_BODY + "    _ = lagunaR107GeometryReceipt\n")
     elif mode == "fault":
         assert text.count(FAULT_FROM) == 1
         text = text.replace(FAULT_FROM, FAULT_TO)
