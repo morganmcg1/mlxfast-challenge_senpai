@@ -161,6 +161,60 @@
    "threadgroup_load_sites": 0
   }
  },
+ "dynamic_loads_per_thread_per_k_block": {
+  "g0": {
+   "activation_bfloat": 16,
+   "cache_resident_pct": 75.8,
+   "device_load_sites_in_air": 5,
+   "dram_per_output_row": 2.0,
+   "gate_bfloat": 1,
+   "issued_per_output_row": 8.25,
+   "issued_total": 33,
+   "reach_dram": 8,
+   "scale_bases_i8": 4,
+   "scale_nibbles_i8": 4,
+   "weight_codes_i32": 8
+  },
+  "g1": {
+   "activation_bfloat": 16,
+   "cache_resident_pct": 67.3,
+   "device_load_sites_in_air": 5,
+   "dram_per_output_row": 2.0,
+   "gate_bfloat": 1,
+   "issued_per_output_row": 6.125,
+   "issued_total": 49,
+   "reach_dram": 16,
+   "scale_bases_i8": 8,
+   "scale_nibbles_i8": 8,
+   "weight_codes_i32": 16
+  },
+  "g2": {
+   "activation_bfloat": 16,
+   "cache_resident_pct": 67.3,
+   "device_load_sites_in_air": 5,
+   "dram_per_output_row": 2.0,
+   "gate_bfloat": 1,
+   "issued_per_output_row": 6.125,
+   "issued_total": 49,
+   "reach_dram": 16,
+   "scale_bases_i8": 8,
+   "scale_nibbles_i8": 8,
+   "weight_codes_i32": 16
+  },
+  "g3": {
+   "activation_bfloat": 16,
+   "cache_resident_pct": 75.8,
+   "device_load_sites_in_air": 5,
+   "dram_per_output_row": 2.0,
+   "gate_bfloat": 1,
+   "issued_per_output_row": 8.25,
+   "issued_total": 33,
+   "reach_dram": 8,
+   "scale_bases_i8": 4,
+   "scale_nibbles_i8": 4,
+   "weight_codes_i32": 8
+  }
+ },
  "note": "Static AIR instruction SITE counts, not dynamic issue counts. The k_blocks loop and the results_per_simdgroup loop are both rolled at -O, so site counts are near-invariant across arms by construction. Rule 98.9: nothing here is a DRAM byte count.",
  "rule75_digests": {
   "g0_h48": {

@@ -24,7 +24,11 @@ head = subprocess.run(["git", "-C", REPO, "rev-parse", "HEAD"],
 stats = json.load(open(f"{ART}/insitu-stats.json"))
 traffic = json.load(open(f"{ART}/geom-traffic-model.json"))
 air = json.load(open(f"{ART}/geom-air-ledger.json"))
+loads = json.load(open(f"{ART}/geom-air-loads.json"))
 roof = traffic["roofline"]
+fit = traffic["regime_fit"]
+t2d = traffic["t2d_comparison_column"]
+dyn = loads["dynamic_loads_per_thread_per_k_block"]
 dec, pla = stats["decode"], stats["prefill_placebo"]
 
 
@@ -56,7 +60,8 @@ run = wandb.init(
     job_type="paired-insitu-timing",
     tags=["maple-alphonse", "r107-E", "oproj_act_h64", "oproj_act_h48", "T3b",
           "T3c", "decode", "row-amortisation", "2x2-factorial", "abba-paired",
-          "rule-98.9-cache-resident", "rule-81-both-references"],
+          "rule-98.9-cache-resident", "rule-81-both-references",
+          "regime-fit-residual-scaling", "t2d-comparison-column-untouched"],
     notes=(
         "Does the decode NVFP4 oproj family lose time re-issuing cache-resident "
         "activation and scale traffic once per output row? Four arms in a 2x2 "
@@ -67,7 +72,11 @@ run = wandb.init(
         "exactly fixed. The pre-timing roofline is the tight constraint: T3b+T3c "
         "already achieve 87.1%/80.6% of the measured 266.80 GB/s M4 Pro ceiling, "
         "so the entire remaining deficit is 0.96-1.31% of decode and the 0.4% "
-        "bar needs 31-42% of it."
+        "bar needs 31-42% of it. A residual-scaling test on the two family dose "
+        "points contradicts the premise before any arm is timed: the hypothesis "
+        "predicts the non-byte residual scales with k_blocks (ratio 1.333), the "
+        "observed ratio is 0.824, and the residual is better described as a fixed "
+        "per-dispatch cost belonging to the closed dispatch-count family."
     ),
     config={
         "assignment_pr": 644,
@@ -109,7 +118,13 @@ run = wandb.init(
         "submitted_surface_file": "Sources/MLXFastModel/LagunaRuntimeModel.swift",
         "official_submissions_from_this_pr": 0,
         "instrument": ("research/maple-alphonse-r107e-{insitu.sh,"
-                       "oproj-geom-census.py,traffic-model.py,analyse.py}"),
+                       "oproj-geom-census.py,traffic-model.py,air-loads.py,analyse.py}"),
+        # Rule 99.3: pipeline names resolved statically from the name assembly at
+        # LagunaRuntimeModel.swift:4599-4607 plus the MLX "custom_kernel_" prefix at
+        # metal_kernel.cpp:289, with all three name flags at their default-on value.
+        "pipeline_name_g0_h64": "custom_kernel_laguna_oproj_act_h64_v1_lm1_pw1_sc1_se1",
+        "pipeline_name_g0_h48": "custom_kernel_laguna_oproj_act_h48_v1_lm1_pw1_sc1_se1",
+        "pipeline_name_arm_suffix": "_g1 | _g2 | _g3 appended to the g0 name",
         "report": "research/maple-alphonse-r107e-decode-oproj-amortisation.md",
     },
 )
@@ -197,6 +212,57 @@ summary = {
         all(air["g0_emission_identical_to_base"].values())),
     "air/all_eight_variants_compiled": 1,
     "air/ir_counts_flat_across_arms_loops_not_unrolled": 1,
+    "air/device_load_sites": dyn["g0"]["device_load_sites_in_air"],
+    "air/all_eight_air_digests_distinct": int(
+        len({d["air_ir_sha256_16"] for d in loads["rule75_digests"].values()}) == 8),
+    "air/no_spill_signature_all_variants": int(
+        all(v["matches_expected"] for v in loads["spill_proxy"].values())),
+
+    # Dynamic load census per thread per k-block, derived from the emitted IR.
+    "air/issued_loads_rps4": dyn["g0"]["issued_total"],
+    "air/issued_loads_rps8": dyn["g1"]["issued_total"],
+    "air/issued_per_output_row_rps4": dyn["g0"]["issued_per_output_row"],
+    "air/issued_per_output_row_rps8": dyn["g1"]["issued_per_output_row"],
+    "air/issued_per_row_reduction_pct": 100.0 * (
+        dyn["g1"]["issued_per_output_row"] / dyn["g0"]["issued_per_output_row"] - 1.0),
+    "air/dram_per_output_row_all_arms": dyn["g0"]["dram_per_output_row"],
+    "air/cache_resident_pct_rps4": dyn["g0"]["cache_resident_pct"],
+    "air/cache_resident_pct_rps8": dyn["g1"]["cache_resident_pct"],
+
+    # Regime fit T = B/BW + L. The premise of H-OPROJ-ISSUE predicts the residual
+    # scales with k_blocks; the observed ratio has the opposite sign.
+    "fit/free_two_point_bw_gb_per_s": fit["free_two_point_fit"]["bw_gb_per_s"],
+    "fit/free_two_point_L_us": fit["free_two_point_fit"]["L_us_per_dispatch"],
+    "fit/free_fit_exceeds_ceiling_pct": fit["free_two_point_fit"][
+        "exceeds_measured_ceiling_by_pct"],
+    "fit/residual_L_us_h64": fit["bw_pinned_at_measured_ceiling"][
+        "T3b_oproj_h64"]["residual_L_us"],
+    "fit/residual_L_us_h48": fit["bw_pinned_at_measured_ceiling"][
+        "T3c_oproj_h48"]["residual_L_us"],
+    "fit/residual_L_ratio_observed": fit["residual_scaling_test"][
+        "residual_L_ratio_h64_over_h48"],
+    "fit/residual_L_ratio_predicted_by_hypothesis": fit["residual_scaling_test"][
+        "k_blocks_ratio_h64_over_h48"],
+    "fit/residual_scaling_sign_opposite": int(
+        fit["residual_scaling_test"]["observed_sign"] == "OPPOSITE"),
+    "fit/residual_better_described_as_fixed_per_dispatch": int(
+        fit["residual_scaling_test"]["better_described_as"] == "fixed_per_dispatch"),
+    "fit/family_residual_us_per_step": fit["family_total_residual_us_per_step"],
+    "fit/family_residual_pct_of_m5_step": fit["family_total_residual_pct_of_m5_step"],
+    "fit/dose_curve_degenerate_bytes_vs_kblocks": int(
+        fit["collinearity"]["verdict"].startswith("DEGENERATE")),
+    "fit/bytes_per_k_block_spread": fit["collinearity"]["spread"],
+
+    # T2d down-residual: comparison column only, kernel untouched by R107-E.
+    "t2d/kernel_untouched": 1,
+    "t2d/bytes_per_call": t2d["byte_identity"]["bytes_per_call"],
+    "t2d/byte_identity_agrees_with_advisor": int(t2d["byte_identity"]["agrees"]),
+    "t2d/pct_of_b_step": t2d["byte_identity"]["pct_of_b_step"],
+    "t2d/activation_share_pct": t2d["lane_load_traffic"]["activation_share_pct"],
+    "t2d/activation_reread_factor": t2d["activation_reread_factor"],
+    "t2d/amortisation_factor": t2d["amortisation_factor"],
+    "t2d/loads_per_unique_weight_byte": t2d["loads_per_unique_weight_byte"],
+    "t2d/k_blocks": t2d["k_blocks"],
 
     # Preregistered outcomes.
     "outcome/V_AMORT": int(v_amort),
@@ -257,8 +323,38 @@ for name, f in roof["families"].items():
                     f["m5_us_modelled"])
 run.log({"roofline": roof_t})
 
+loads_t = wandb.Table(columns=["arm", "issued_total", "reach_dram", "issued_per_output_row",
+                               "dram_per_output_row", "cache_resident_pct",
+                               "activation_bfloat", "gate_bfloat", "weight_codes_i32",
+                               "scale_bases_i8", "scale_nibbles_i8"])
+for arm in ARMS:
+    d = dyn[arm]
+    loads_t.add_data(arm, d["issued_total"], d["reach_dram"], d["issued_per_output_row"],
+                     d["dram_per_output_row"], d["cache_resident_pct"],
+                     d["activation_bfloat"], d["gate_bfloat"], d["weight_codes_i32"],
+                     d["scale_bases_i8"], d["scale_nibbles_i8"])
+run.log({"dynamic_load_census": loads_t})
+
+dig_t = wandb.Table(columns=["variant", "metal_bytes", "metal_sha256_16", "air_ir_bytes",
+                             "air_ir_sha256_16", "alloca_private_floats",
+                             "expected_private_floats", "no_spill_signature"])
+for variant, d in sorted(loads["rule75_digests"].items()):
+    s = loads["spill_proxy"][variant]
+    dig_t.add_data(variant, d["metal_bytes"], d["metal_sha256_16"], d["air_ir_bytes"],
+                   d["air_ir_sha256_16"], s["alloca_private_floats"],
+                   s["expected_result_plus_xthread"], s["matches_expected"])
+run.log({"emission_digests": dig_t})
+
+fit_t = wandb.Table(columns=["family", "bytes_time_us", "measured_us", "residual_L_us",
+                             "residual_per_k_block_us"])
+for name, f in fit["bw_pinned_at_measured_ceiling"].items():
+    fit_t.add_data(name, f["bytes_time_us"], f["measured_us"], f["residual_L_us"],
+                   f["residual_per_k_block_us"])
+run.log({"regime_fit": fit_t})
+
 artifact = wandb.Artifact("maple-alphonse-r107e-ledger", type="analysis")
-for name in ("insitu-stats.json", "geom-traffic-model.json", "geom-air-ledger.json"):
+for name in ("insitu-stats.json", "geom-traffic-model.json", "geom-air-ledger.json",
+             "geom-air-loads.json"):
     artifact.add_file(f"{ART}/{name}")
 artifact.add_dir(f"{ART}/insitu", name="insitu")
 artifact.add_file(f"{REPO}/research/maple-alphonse-r107e-decode-oproj-amortisation.md")

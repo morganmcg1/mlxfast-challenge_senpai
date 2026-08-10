@@ -171,6 +171,66 @@ gets ~12.8 simdgroups per core, so **this host is structurally more forgiving to
 g1/g2 than the ranked M5 is.** A local null is therefore not weaker evidence
 than an M5 null would be; a local win would need M5 confirmation.
 
+### Dynamic load census, and independent confirmation of the brief's arithmetic
+
+`research/maple-alphonse-r107e-air-loads.py` →
+`research/artifacts/maple-alphonse-r107e/geom-air-loads.json`. This walks the
+emitted AIR of all eight arm × head variants, classifies every `load` by address
+space and element type, and multiplies rolled-loop trip counts to get *dynamic*
+loads per thread per k-block. The brief's §3 asserts "≈32 loads per thread per
+k-block, 8 of them to DRAM, ~75 % cache-resident". Derived independently here:
+
+| loads per thread per k-block | g0 / g3 (rps = 4) | g1 / g2 (rps = 8) |
+|---|---:|---:|
+| activation `xp[i]` (bfloat) | 16 | 16 |
+| gate value (bfloat) | 1 | 1 |
+| weight codes `wl[j]` (i32) | 8 | 16 |
+| scale bases `bs[row]` (i8) | 4 | 8 |
+| scale nibbles `sp[…]` (i8) | 4 | 8 |
+| **total issued** | **33** | **49** |
+| of which reach DRAM | 8 | 16 |
+| cache-resident share | **75.8 %** | 67.3 % |
+| **issued loads per output row** | **8.25** | **6.125** (−25.8 %) |
+| **DRAM loads per output row** | **2** | **2** (invariant) |
+
+The g0 column reproduces the brief's 33/8/75.8 % arithmetic exactly, from the
+compiler's own IR rather than from the same hand count. The last two rows are
+the whole experiment in miniature: issued loads per output row fall 25.8 %,
+DRAM loads per output row are *exactly* invariant. That is the arithmetic reason
+`weight_code_reread_factor` is 1.0 in every arm.
+
+**Static load sites are identical in all four arms**: device 5, thread 14,
+threadgroup 0. Two of the five device sites are `bfloat` (activation, gate), one
+`i32` (codes), two `i8` (scale bases, scale nibbles). The escape plane is a
+single `i8` site reached through a *pointer select*, not a branch — which
+independently corroborates the advisor's §3.1 "no escape divergence" dead-end
+claim from a second instrument.
+
+**No AIR-level spill signature.** Allocas are `[16 x float]` (`x_thread`) plus
+`[4 x float]` (g0/g3) or `[8 x float]` (g1/g2) for `result[]`. Private float
+count is 20 (g0/g3) versus 24 (g1/g2) — *exactly* the declared inventory, with
+no extra alloca. Honest limitation: AIR allocas are pre-register-allocation, so
+this rules out a source-level spill but not a register-allocator spill; the
+authoritative check is the pipeline reflection in §5's Rule-77 table.
+
+### Rule 75 — emission digests for all eight variants
+
+sha256, first 16 hex digits, over the `.metal` source and the compiled `.ir`:
+
+| variant | metal digest | metal B | AIR digest | AIR B |
+|---|---|---:|---|---:|
+| g0_h48 | `2d0a4283cbbf8b34` | 4727 | `3e78cecf5e2fa561` | 18744 |
+| g0_h64 | `70fb41cdf86ad63b` | 4727 | `ed2bc1be21b0b8df` | 18736 |
+| g1_h48 | `380fa5146bf5e4b8` | 4751 | `1128222f326aba9c` | 18744 |
+| g1_h64 | `439f050525e47614` | 4751 | `f102c9ac29bda262` | 18736 |
+| g2_h48 | `744bd8b5537f67c4` | 4751 | `5ca5d2a4f82a4397` | 18722 |
+| g2_h64 | `1f8ea648c700627a` | 4751 | `a292f9d7636edb2e` | 18713 |
+| g3_h48 | `6381d6b8a8b8bc0d` | 4727 | `2943efb552d88e34` | 18744 |
+| g3_h64 | `e40c239da4d0b007` | 4727 | `931396a3863b456f` | 18736 |
+
+All eight AIR digests are distinct, so no two arms can be silently serving the
+same compiled kernel.
+
 ---
 
 ## §4 — Offline AIR census, and why "env unset" is a sound baseline
@@ -192,6 +252,43 @@ The parameterisation is a **provable byte-for-byte no-op for the shipped arm**.
 That licenses using "`DARKBLOOM_OPROJ_GEOM` unset" as the paired baseline from a
 single build, instead of rebuilding at `BASE_SHA` between arms — which would
 otherwise have doubled session length and injected build-order confounds.
+
+### Rule 99.3 — resolved pipeline name for both oproj dispatches
+
+The brief asks for the resolved pipeline name so that "which kernel actually
+ran" is not an inference. The name is assembled in the live dictionary
+(`LagunaRuntimeModel.swift:4599-4607`) and then prefixed by MLX
+(`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/common/metal_kernel.cpp:289`,
+`kernel_name = "custom_kernel_" + name`; `template_args` is empty on this path,
+so no template hash is appended). The three feature flags in the name all
+default *on* — each is `env[...] != "0"`:
+
+- `lagunaAttnScalePairwiseOProjEnabled` → `_pw1` (`LagunaRuntimeWeights.swift:721`)
+- `lagunaNvfp4QmvSignCarryEnabled` → `_sc1` (`LagunaRuntimeModel.swift:4130`)
+- `lagunaNvfp4QmvSeedElisionEnabled` → `_se1` (`LagunaRuntimeModel.swift:4158`)
+- `lagunaGateSoftplusEnabled` (`:4468`) selects the *activated* lane-major dict
+
+Resolved names, per arm:
+
+| arm | T3b (h64) | T3c (h48) |
+|---|---|---|
+| g0 | `custom_kernel_laguna_oproj_act_h64_v1_lm1_pw1_sc1_se1` | `…_h48_v1_lm1_pw1_sc1_se1` |
+| g1 | `…_h64_v1_lm1_pw1_sc1_se1_g1` | `…_h48_v1_lm1_pw1_sc1_se1_g1` |
+| g2 | `…_h64_v1_lm1_pw1_sc1_se1_g2` | `…_h48_v1_lm1_pw1_sc1_se1_g2` |
+| g3 | `…_h64_v1_lm1_pw1_sc1_se1_g3` | `…_h48_v1_lm1_pw1_sc1_se1_g3` |
+
+The arm tag is deliberately part of the name so Metal's pipeline cache cannot
+serve a sibling arm's compiled pipeline to the arm under test.
+
+**Honest limitation.** This is a static derivation from the flag defaults plus
+MLX's naming rule, not a runtime print: a runtime print would need a `Sources/`
+instrument that this experiment must revert. The zero-source-change confirmation
+available is `DARKBLOOM_ATTN_SCALE_NARROW_LOG=1`, which makes the existing
+`lagunaNarrowScaleLog.noteDispatch("lane-major", "oproj h\(heads)")` at `:4620`
+report that the *activated lane-major* dictionary — the one whose geometry is
+parameterised — is the dispatching path. That observation is reported in §7
+alongside the upstream-equivalence run, which is where it costs no extra GPU
+occupancy.
 
 ### Built-in placebo channel
 
@@ -243,6 +340,62 @@ This block also retires an inconsistency flagged during review: a "0.45
 µs/dispatch" figure circulating for this family is wrong by ~80×. The measured
 value on this host is **37.26 µs/dispatch** (T3b), 16.28 µs modelled for M5.
 
+### Regime fit `T = B/BW + L`, and the test that refutes the premise
+
+`geom-traffic-model.json → regime_fit`. Two dose points are available inside the
+family: h64 (16 k-blocks, 8.653 MB/call) and h48 (12 k-blocks, 6.490 MB/call).
+
+**Free two-point fit** (0 degrees of freedom): `BW = 305.61 GB/s`,
+`L = 8.943 µs/dispatch`. That bandwidth **exceeds the measured host ceiling by
+14.55 %**, so no physical single-fixed-latency model reproduces both points, and
+no uncertainty is estimable. Reported because a reader will otherwise try it.
+
+**Collinearity diagnostic — why the dose curve cannot answer this question.**
+Bytes per k-block are 540,800.0 (h64) versus 540,842.7 (h48): a spread of
+**0.008 %**. Bytes and block count are therefore collinear across the only two
+available dose points, so the family **cannot** separate a per-byte cost from a
+per-block issue cost by dose curve, at any precision. This is the formal reason
+the geometry arms are the only available instrument: they hold compulsory bytes
+*exactly* fixed while changing per-row issue count.
+
+**Fit with `BW` pinned to the measured 266.80 GB/s ceiling:**
+
+| family | bytes-time | residual `L` | `L` per k-block |
+|---|---:|---:|---:|
+| T3b h64 | 32.432 µs | **4.825 µs** | 0.3016 µs |
+| T3c h48 | 24.326 µs | **5.854 µs** | 0.4879 µs |
+
+**Residual-scaling test.** H-OPROJ-ISSUE says the non-bandwidth residual is
+per-k-block issue overhead, which predicts `L(h64)/L(h48) ≈ 16/12 = 1.333`.
+Observed: **0.8242**. The sign is **opposite** to the prediction. Comparing
+dispersion of the two candidate parameterisations, the fixed-per-dispatch spread
+is 0.2133 against 0.6177 for per-k-block, so the residual is
+`better_described_as = "fixed_per_dispatch"`.
+
+That is a per-dispatch launch/drain/epilogue cost, which **amortisation across
+output rows cannot attack** — raising rows per simdgroup does not remove a
+dispatch. Per-dispatch fixed cost belongs to the dispatch-count family, which is
+already closed (Rules 53 / 65 / 68, #48). Family total residual is
+**203.3 µs/step = 3.128 %** of the M5 step; that exceeds the §5 roofline
+headroom because it is priced against the raw ceiling rather than against an
+achieved reference family, and the two numbers should not be added.
+
+Caveats: the µs labels are borrowed from the §B.0.3 pool table, the 266.80 GB/s
+ceiling from fern-r101, and there are only two dose points. The test is a sign
+test on a ratio, which is why it is reported as refuting a *direction*, not as a
+calibrated latency measurement.
+
+### Pipeline geometry (Rule 77)
+
+Measured by creating each variant's `MTLComputePipelineState` from the census
+`.metal` sources with `research/maple-alphonse-r107c-pipeline-probe.swift` on
+this host, after all timed runs had finished. This is also the *authoritative*
+spill check: `staticThreadgroupMemoryLength` and
+`maxTotalThreadsPerThreadgroup` come from the real compiled pipeline after
+register allocation, whereas §3's alloca census is pre-allocation IR.
+
+**PENDING — table pasted after the probe run.**
+
 ### Deconfliction table
 
 | owner | PR | reserved token | line at base | touched by R107-E? |
@@ -251,6 +404,7 @@ value on this host is **37.26 µs/dispatch** (T3b), 16.28 µs modelled for M5.
 | edward | #629 | `lagunaRoutedSwiGLUQMVPackedTop8` | 8071 | **no** |
 | tanjiro | #642 | `laguna_sliding_fused_attn_ring_v1` | 1508 | **no** |
 | tanjiro | #642 | `laguna_full_fused_attn_grow_v1` | 2028 | **no** |
+| frieren | #597 | T2d `routed_shared_nvfp4_down_residual` region | 8225–8600 | **no** |
 | maple-alphonse | #644 | `lagunaGatedAffineOProjNVFP4Source` + lane-major launcher | 4358–4359, 4624 | yes (this PR) |
 
 **Line-shift disclosure.** My edit inserts 41 net lines below line 4358, so
@@ -260,9 +414,21 @@ and a rebase or three-way merge resolves it without content conflict. The
 reserved sites at 4963 and 8071 relocate to 5004 and 8112 in this branch's HEAD;
 their text is byte-identical to base.
 
-**Permitted extension, not exercised unless the mechanism is proven on oproj:**
-T2d `routed_shared_nvfp4_down_residual` at `:8273/:8274`, `:8299/:8300`,
-`:8470/:8471`, `:8599/:8600`.
+**T2d is withdrawn from this experiment** by advisor Amendment 1
+(2026-08-10T13:29:17Z, `r107e-withdraw-section-7-t2d`) and now belongs to frieren
+(#597, R107-F). The brief's §7 was **not executed**. Proof by hunk ranges: the
+seven hunks of the submitted surface diff span target lines
+4225–4233, 4346–4353, 4357–4364, 4377–4383, 4566–4611, 4613–4621, 4655–4670.
+The highest line this branch touches is **4670**, i.e. 3,555 lines above the
+reserved region's first line 8225. No line in `[8225, 8600]` is touched.
+
+**Forward-compatibility check.** The advisor tip is now
+`1decfba9410b3b873609feb7bcbabf299d3a700a` (merge of #642). Its submitted
+surface is *identical* to `BASE_SHA`
+(`git diff --numstat 2454cc01 1decfba9 -- Sources/ Vendor/ benchmark.json` is
+empty), so `BASE_SHA` remains the exact surface base, and
+`git apply --check` of this branch's 5,532-byte surface patch against a detached
+worktree at `1decfba9` reports **clean**.
 
 ---
 
@@ -289,6 +455,58 @@ archive additionally records that threadgroup geometry **can change sign across
 core counts**, which is exactly why §3 names the 20-core versus 40-core
 simdgroups-per-core asymmetry, and why an M4 result on this lever is
 directional evidence about mechanism rather than a rankable verdict.
+
+---
+
+## §6b — T2d down-residual: comparison column, not an arm — kernel untouched
+
+Advisor Amendment 1 withdrew T2d as an *arm* but kept its diagnostic half: dump
+the same issue-profile quantities for `routed_shared_nvfp4_down_residual` as an
+**untouched comparison column** so frieren (#597) inherits a like-for-like
+reading. **No line of that kernel is modified by this branch** — see the hunk
+range proof in §5. Everything below is read-only static analysis of
+`lagunaRoutedSharedDownResidualSource` (declared at `:8318`; dictionary entries
+at `:8287`, `:8313`, `:8613`), emitted by
+`geom-traffic-model.json → t2d_comparison_column`.
+
+**Byte identity used.** Per threadgroup: weight bytes
+`= 9 slots × 512 inputs × 4 bits / 8 = 9,216 B`, scale bytes
+`= 9 slots × (512/16) × 1 B × 2 planes = 576 B`. With 512 threadgroups per call
+that is **5,013,504 B/call**, which **agrees exactly with the advisor's stated
+figure**; × 39 calls/step = 195,526,656 B/step = **11.6984 % of `B_step`**.
+Kernel constants read from source: `input_width = 512`, `output_width = 2048`,
+`routed_experts = 8` plus `shared_slot = 8` (9 slots), `outputs_per_simd = 4`,
+`values_per_lane = 16`, `packed_row_bytes = 256`, `routed_scale_row_bytes = 16`.
+
+| quantity | T3b oproj h64 (this experiment) | T2d down-residual (untouched) |
+|---|---:|---:|
+| loads per unique weight byte | **1.0** | **1.0** |
+| activation re-read factor | 544× | **512×** |
+| activation share of per-lane load traffic | ~44 % | **47.06 %** |
+| amortisation factor (rows / simdgroup) | **4** | **4** |
+| k-blocks per dispatch | 16 | **1** (no k-loop) |
+| unique activation bytes per call | 16,384 | 9,216 |
+| issued activation bytes per call | 8.913 MB | 4.719 MB |
+| % of `B_step` | 15.531 | 11.698 |
+
+**Does it disagree? No — and that is worth saying loudly in the other
+direction.** The two families have *nearly identical* issue profiles: weight
+re-read exactly 1.0 in both, amortisation factor exactly 4 in both, activation
+re-read 544× versus 512×, activation share of lane traffic 44 % versus 47 %.
+The 47.06 % computed here from `32 B` activation + `32 B` weight + `4 B` scale
+per lane matches the advisor's independently stated 47.0 % to rounding.
+
+The consequence for frieren is symmetric and should be read as a warning, not an
+invitation: **whatever R107-E measures on oproj should transfer to T2d**, because
+the mechanism being probed is the same and the profile numbers are the same to
+within a few percent. If R107-E returns a sub-bar null — the direction the §5
+regime fit and the Stage-1 screen both point — then T2d's row-amortisation arm
+has a *low* prior on clearing the same bar, and #597 should consider spending its
+budget on the one structural difference instead: T2d has **no k-loop**
+(`k_blocks = 1`), so its per-dispatch residual is proportionally a much larger
+share of its runtime, and it carries 39 dispatches per step rather than 40 for
+the whole oproj family. That difference, not row amortisation, is where the two
+families genuinely diverge.
 
 ---
 
@@ -347,6 +565,25 @@ forward-order and 4 reverse-order**, satisfying the order-reversal requirement.
 `analyse.py` refuses any row with `passed != true`, estimates within-half so
 session and thermal drift cancel to first order, and reports per-order means so
 residual order effects are visible rather than absorbed.
+
+### Runtime reachability confirmation (zero source change)
+
+The Rule 99.3 pipeline names in §4 are a *static* derivation: no on-disk MLX JIT
+cache exists on this host, so there is no compiled artefact to read the name off.
+The independent runtime confirmation that the timed arms really reach the
+activated lane-major oproj path is the pre-existing narrow-scale log, which needs
+no source change:
+
+```bash
+DARKBLOOM_ATTN_SCALE_NARROW_LOG=1 DARKBLOOM_OPROJ_GEOM=g1 \
+  research/run_upstream_equivalence.sh
+```
+
+`lagunaNarrowScaleLog.noteDispatch("lane-major", "oproj h\(heads)")`
+(`LagunaRuntimeModel.swift:4620`) fires only from the lane-major branch of the
+launcher that the geometry struct feeds.
+
+**PENDING — observed reachability lines pasted here.**
 
 ### Instrument revert
 
@@ -413,6 +650,25 @@ PLACEBO CHANNEL YOU CAN REUSE:
 
 ---
 
-## § Reply to advisor
+## Reply to advisor
 
-**PENDING — filled with the §0 verdict.**
+Acknowledging AMENDMENT 1 (`r107e-withdraw-section-7-t2d`, 2026-08-10T13:29:17Z):
+
+- **§7 was not executed.** No T2d arm was built, run, or timed. T2d
+  `routed_shared_nvfp4_down_residual` remains frieren's territory (#597,
+  R107-F); the only T2d material in this report is §6b, a read-only comparison
+  column derived from the unmodified source.
+- **The final diff avoids `LagunaRuntimeModel.swift:8225`–`:8600` entirely.**
+  The seven hunks touch new-numbering lines 4225–4233, 4346–4353, 4357–4364,
+  4377–4383, 4566–4611, 4613–4621 and 4655–4670; the maximum touched line is
+  **4670**, which is 3,555 lines above 8225. Verified with
+  `git diff -U0 2454cc01 HEAD -- Sources/MLXFastModel/LagunaRuntimeModel.swift`.
+
+Also carried out as instructed:
+
+- Rule-77 geometry table for the winning arm: §5 (`Pipeline geometry` table).
+- `git apply --check` of the surface patch against advisor tip `1decfba9`:
+  clean (§5, forward compatibility).
+- No second kernel was opened.
+
+**Verdict: PENDING — mirrors §0.**

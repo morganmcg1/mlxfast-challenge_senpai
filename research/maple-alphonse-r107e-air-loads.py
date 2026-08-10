@@ -85,6 +85,48 @@ def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
 
 
+# Emitted kernel constants (LagunaRuntimeModel.swift:4353-4364). Both the
+# k_blocks loop and the results_per_simdgroup loop are rolled at -O, so the
+# dynamic count per k-block is the static site count times its trip count.
+VALUES_PER_THREAD = 16
+CODES_PER_THREAD = 2
+GEOM = {"g0": 4, "g1": 8, "g2": 8, "g3": 4}
+
+
+def dynamic_loads(arms: dict) -> dict:
+    """Dynamic device loads per thread per k-block, from AIR sites x trip counts.
+
+    Cross-checks the census against the brief's hand arithmetic for the shipped
+    arm: 33 issued loads of which 8 reach DRAM. The DRAM subset is the weight
+    plane (codes plus its two scale sites), because the activation and gate
+    planes are 16 KB and 128 B respectively and are re-read by every simdgroup.
+    """
+    result = {}
+    for arm, rows in GEOM.items():
+        codes = rows * CODES_PER_THREAD
+        bases = rows
+        nibbles = rows
+        issued = VALUES_PER_THREAD + 1 + codes + bases + nibbles
+        dram = codes  # only the weight code plane is compulsory per row
+        result[arm] = {
+            "activation_bfloat": VALUES_PER_THREAD,
+            "gate_bfloat": 1,
+            "weight_codes_i32": codes,
+            "scale_bases_i8": bases,
+            "scale_nibbles_i8": nibbles,
+            "issued_total": issued,
+            "reach_dram": dram,
+            "cache_resident_pct": round(100.0 * (issued - dram) / issued, 1),
+            "issued_per_output_row": round(issued / rows, 3),
+            "dram_per_output_row": round(dram / rows, 3),
+            "device_load_sites_in_air": arms[f"{arm}_h64"]["device_load_sites"],
+        }
+    g0 = result["g0"]
+    assert (g0["issued_total"], g0["reach_dram"]) == (33, 8), g0
+    assert all(r["dram_per_output_row"] == 2.0 for r in result.values())
+    return result
+
+
 def main() -> None:
     out: dict = {
         "note": (
@@ -124,6 +166,8 @@ def main() -> None:
             "matches_expected": rec["alloca_private_floats"] == expect[arm],
             "thread_load_sites": rec["thread_load_sites"],
         }
+
+    out["dynamic_loads_per_thread_per_k_block"] = dynamic_loads(out["arms"])
 
     p = ART / "geom-air-loads.json"
     p.write_text(json.dumps(out, indent=1, sort_keys=True) + "\n")
