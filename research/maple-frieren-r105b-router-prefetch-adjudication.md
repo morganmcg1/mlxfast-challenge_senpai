@@ -103,7 +103,12 @@ LRM.
 That distinction is exactly what R105-B is about, because §5.4 of #571 blamed
 the missing microseconds on **binary layout**: `__text` +64,320 B, `laguna`
 symbols at an identical address in only **0.03 %** of cases, and 68 ns ×
-408 dispatches ≈ 27.7 µs/step of estimated displacement. A "pure relocation"
+408 dispatches ≈ 27.7 µs/step of estimated displacement. (#571 used 408 here;
+the repo's repeatedly measured figure is **406** dispatches/step —
+`research/RESEARCH_ARCHIVE_through-round-91.md:4067-4068`, `:4088-4090`, `:69`
+and `research/DATASET_ANALYSIS.md:146-147`. 68 ns × 406 ≈ 27.6 µs/step, so the
+correction is immaterial to #571's argument; I note it only so the number is not
+propagated further.) A "pure relocation"
 of 2,059 lines of LRM is precisely the kind of change that moves every
 `laguna` symbol without changing a single instruction's semantics.
 
@@ -876,16 +881,20 @@ described as underpowered.
 
 ### 11.7 Mechanism ranking after all of the above
 
+This table was rewritten once more after §11.10, which withdrew one of the two
+original co-leaders on a code fact I should have checked earlier.
+
 | rank | mechanism | status |
 |---|---|---|
-| 1= | bandwidth / arbitration interaction with the attention KV stream | consistent with §11.2's scale check. **Not** promoted on KV-proportionality, which §11.5 retracted. |
-| 1= | DVFS / power-arbitration response to salvo burstiness | untested; predicts a frequency signature, which `powermetrics` per arm would show cheaply (§12.2). |
-| 3 | in-kernel in-stream stall interaction | cannot be the whole effect: the label says the kernel is *faster*, so the cost is not inside the measured kernel. |
-| 4 | occupancy / register pressure | argued down by §6.2's static read: identical `maxTotalThreadsPerThreadgroup` (1024), execution width (32) and static threadgroup memory (4240 B) across pf0/pf1/pf1c, and the launch geometry is 512 threads, so the 8 extra live registers are non-binding (§9.2). |
-| 5 | SLC pollution | argued down on magnitude: 256 KiB per invocation against a last-level cache in the tens of MB, and the same kernel reads those bytes moments later regardless. |
+| 1 | **burst arrival into the preceding dispatch's drain tail** (§11.10) | best-supported. Consistent with every fact I hold — no extra bytes, pf1c label-neutral, kernel faster in isolation, step slower together, §11.2's 1.05 vs 0.96 µs scale check — and it *explains* the census/e2e disagreement rather than shrugging at it. Unmeasured. |
+| 2 | **self-delay of the kernel's own residual loads behind the salvo** | the same queueing physics applied inside the kernel instead of across the dispatch boundary; the five barriers amplify any such delay. Predicts the same sign. **Not separated from rank 1** by anything I hold. |
+| 3 | DVFS / power-arbitration response to salvo burstiness | untested; predicts a frequency signature that `powermetrics` per arm would show cheaply (§12.2). Demoted from 1= because it must also explain why a ≈1 µs burst occurring 39× inside an 8.25 ms step moves the clock at all. |
+| — | ~~bandwidth / arbitration against the concurrent attention KV read stream~~ | **withdrawn in §11.10.** MLX barrier-separates *dependent* dispatches (`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp:362-375`) and the router kernel consumes the attention output, so there is no concurrent attention stream for it to arbitrate against. This was a co-leader in the previous version of this table and it should not have been. |
+| 5 | occupancy / register pressure | argued down by §6.2's static read: identical `maxTotalThreadsPerThreadgroup` (1024), execution width (32) and static threadgroup memory (4240 B) across pf0/pf1/pf1c, and the launch geometry is 512 threads, so the 8 extra live registers are non-binding (§9.2). |
+| 6 | SLC pollution | argued down on magnitude: 256 KiB per invocation against a last-level cache in the tens of MB, and the same kernel reads those bytes moments later regardless. |
 
-Ranks 1= are not separated by any evidence I hold. I am not going to pretend
-otherwise, and §12.2 is the cheapest thing that would separate them.
+Ranks 1 and 2 are not separated by any evidence I hold. I am not going to pretend
+otherwise. §12.2 is the cheapest thing that would separate them.
 
 ### 11.8 Artefact ranking, with the falsifier for each
 
@@ -904,6 +913,96 @@ reliably at all: the review put the risk that pf1c is *worse* than pf0 on M5 at
 10-20 %, via a backend that hoists the loads anyway and then pays the same
 placement cost. That is decisive for §10.2 and is why the recommended fallback
 is `0` rather than `5`. I cannot draw the M5 pair that would settle it (§6.4).
+
+### 11.10 A second review pass: the dispatch topology, and what it costs me
+
+Still inside the Phase-A window I checked one thing I had been assuming rather
+than verifying — **what actually runs next to the router kernel** — and ran a
+second independent consultation on the paradox itself. Both changed §11.7.
+
+**The dispatch topology, from code.** All of this is verified in this checkout:
+
+| fact | evidence |
+|---|---|
+| The fused residual+RMSNorm+router kernel is encoded into the **same command buffer** as the same layer's attention kernels and as adjacent layers' kernels; there is no eval, sync or encoder boundary in the layer body | `Sources/MLXFastModel/LagunaRuntimeModel.swift:11153` (layer body), `:11165` (`selfAttn`), `:11180` (fused router), `:11219` (MoE) |
+| MLX closes a command buffer when `(buffer_ops_ > max_ops) \|\| ((buffer_sizes_ >> 20) > max_mb)` | `Vendor/mlx-swift/.../backend/metal/device.cpp:484-487`; split executed at `.../metal/eval.cpp:59-67` |
+| Effective caps on a ≥64 GiB host are **200 MB / 200 ops** (the low-memory 128 MB/64 ops branch and the 320 MB/128 ops constants are mutually exclusive alternatives that do not apply) | `Sources/MLXFastModel/LagunaRuntimeWeights.swift:358-398`, esp. `:385-388` |
+| Explicit boundaries per decode step: 1 layer-0 attention `asyncEval` + 7 stage fire points (`DARKBLOOM_DECODE_ASYNC_STAGE` default `at:0,1,7,15,23,31,39`) = **8**; the other ~37 of the measured 45 CBs/step are `needs_commit()` byte-cap commits | `:6010-6018`, `:744-770`, `:11444`, `:11695`/`:11707` |
+| Exactly **one blocking CPU sync per decode step**, at the very end | `Sources/MLXFastHarness/LagunaCorrectness.swift:108` (`argMax().item()`) |
+| **406** dispatches/step and 45 command buffers/step; `SPLIT=1` turns those 45 into 406 | `research/RESEARCH_ARCHIVE_through-round-91.md:4067-4068`, `:4088-4090`, `:69` |
+| The router kernel is **39 dispatches/step at 312.8 µs/step** — a third independent confirmation of §11.1's 39 routed layers, and it matches the pf1 census cell 313.5 | `research/advisor-r94-idea-slate.md:134-136` |
+
+**What this costs me: one co-leader is withdrawn.** MLX uses a concurrent
+compute encoder and inserts memory barriers only between *dependent* dispatches
+(`device.cpp:362-375`). The router kernel consumes the attention output (it is a
+residual add plus RMSNorm over `h`) and its outputs feed the MoE, so it is
+barrier-separated on both sides. **There is therefore no concurrent attention KV
+read stream for the salvo to arbitrate against.** My previous §11.7 rank-1=
+"bandwidth / arbitration interaction with the attention KV stream" is, as
+literally written, wrong. I should have checked the encoder's barrier rule before
+ranking a mechanism that depends on overlap.
+
+**What replaces it is sharper, not vaguer: a barrier drains the dependency, not
+the memory system.** `memoryBarrierWithScope` guarantees that the producer's
+results are *visible*. It does not guarantee that the fabric, SLC and DRAM
+controller queues are *empty*. At the instant the router kernel's first
+threadgroups launch, the preceding dependent dispatch's write-back and the
+residual reads are still in flight. A hoisted salvo issues 256 KiB of demand
+loads — 32 threadgroups × 8 KiB, arriving as roughly 256 strided 1 KiB runs — in
+the kernel's first cycles, i.e. directly into that drain tail. The late variant
+issues the identical requests after the RMSNorm reduction, hundreds of
+nanoseconds later, by which time the tail has cleared. Queueing delay is convex
+in arrival rate, and a row-hit-first memory scheduler will let a dense burst
+capture the controller ahead of latency-sensitive traffic, so the *same bytes*
+cost more when they arrive as a burst on a busy fabric than staggered on a quiet
+one. Under the "no extra bytes" constraint of §11.1 that arrival pattern is the
+only degree of freedom left, so this is where the effect has to live.
+
+**This dissolves E3's regime objection into a mechanism.** §11.4 conceded that a
+serialised census cannot locate the cost, but left it at that. The topology says
+why: `SPLIT=1` puts every dispatch in its **own command buffer** — 406 instead of
+45, priced by the archive at 1.317 µs/dispatch. A command-buffer boundary is a
+far longer quiet gap than a barrier, so under the census the fabric *is* idle
+when the router kernel starts, and the hoist shows only its latency-hiding
+benefit (−6.4 µs/step). In the shipped 45-CB regime the same hoist lands in a
+busy queue. Identical instructions, opposite sign, no contradiction.
+
+**Status: hypothesis.** It is consistent with every fact I hold and it has the
+right magnitude (§11.2: implied +1.05 µs/invocation against a 0.96 µs salvo drain
+at 266.3 GB/s). But nothing I hold *discriminates* it from the consultation's
+second candidate — the salvo delaying the kernel's *own* residual loads into the
+RMSNorm reduction, which is the same queueing physics applied inside the kernel
+rather than across the boundary, amplified by the five barriers. Both predict the
+observed sign and roughly the observed magnitude. Neither is measured.
+
+**Convergence worth recording.** The consultation's top recommendation was "run
+the existing end-to-end harness on pf1c — apparently never done." That is exactly
+Phase A's `P5` arm, already in flight when the advice arrived. Under the boundary
+story `P5` should recover most of the 34.6 µs/step; under a purely in-kernel
+story it should not. An independent reviewer and the preregistration picked the
+same next measurement, which is mild evidence that §3.2 was designed around the
+right question.
+
+**Two things I now have to own.**
+
+1. The −6.4 µs/step label win was itself only ever measured on an idle fabric. I
+   had been treating it as a real benefit that is merely outweighed. The honest
+   reading is that **its sign in the shipped regime is unknown**, and that is a
+   stronger statement against `prefetch = 1` than the one §1.1 makes.
+2. **AIR-identical is not ISA-identical.** §6.2 compared MSL, AIR and metallib
+   bytes, not final AGX machine code. Every claim in this report that pf1 and
+   pf1c "emit identical instructions" is a claim about the MSL and the AIR. Final
+   register allocation and wait-counter placement could differ, and an
+   `applegpu`-style disassembly or the Xcode shader profiler's register report
+   would be the cheap way to check.
+
+**One tension I am flagging rather than resolving,** because it is the advisor's
+call and it affects anyone reasoning about command-buffer structure on the decode
+path: standing rule 52 attributes the 45 CBs/step to the `asyncEval` stage points
+"not the op/MB caps", but the default stage mask yields only 8 explicit
+boundaries, and the observed decode command buffers reference 766-911 MB — far
+above the 200 MB cap — so roughly 37 of the 45 must be byte-cap commits. Rule 52's
+attribution looks at least partly wrong.
 
 ## 12. Follow-ups I did not implement
 
