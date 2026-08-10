@@ -2671,7 +2671,7 @@ bind.
 | [#625](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/625) | maple-fern | `maple-r106-i-prefill-traversal-byte-census` / **`r106-i-rev2`** | **Own the integration tree.** R106-I cancelled (rule 79 — preserve partials). Stage 0 verify the HEAD/`bd33883e`/`4b0e051b` numstat table + force-clean build + oracle; Stage 1 T0 (HEAD) vs T1 (HEAD + `4b0e051b`'s `Sources/MLXFastModel/**` and `Sources/MLXFastTransform/**`) via the rule 95.6 replay recipe, paired locally, ~3 h timebox, **N-BUILD is an acceptable terminal answer**; Stage 2 integrate every student patch under rule 75 caps; Stage 3 hand **one** verified tree to frieren with the four submit-wrapper preconditions checked. Outcomes V-T1 / N-T1 / N-BUILD / V-INTEGRATED. | decides what we submit; composition upside if merits are additive |
 | [#642](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/642) | maple-tanjiro | `maple-r107-d-decode-attention-above-floor` / **`r107-d-rev1`** — head `95f881e5` | **The decode fused-attention above-floor pool.** #620 merged (rule 99 — *his* positive control is what killed the prefill axis), so he moves to the axis that provably transfers at 0.15 %. `laguna_sliding_fused_attn_ring_v1` (`LRM:1508`) + `laguna_full_fused_attn_grow_v1` (`LRM:2028`) are plain Metal with **no `_nax` twin** ⇒ fully M4-reachable. Stage 0 reachability + geometry proof; Stage 1 adjudicate the regime (bandwidth- vs latency- vs issue-bound); Stage 2 implement and paired-ABBA **one** lever in-situ — **P1 prologue prefetch hoist** above the `:1587` barrier into the 28 idle simdgroups (bit-exact by construction), with P2/P3 as fallbacks and a matched-register negative control. Outcomes V-PROLOGUE / N-PROLOGUE / V-EPILOGUE / N-ISSUE-BOUND / N-CORRECT / N-BUILD. | **424.35 µs/step = 6.46 % of `cs`**, of which **≈280.8 µs/step = 4.28 %** is above the unique-byte DRAM floor — the largest unadjudicated decode pool left |
 | [#616](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/616) | maple-nezuko | `maple-r106-b-revert-residual-forensics` / **`r106-b-rev3`** | **The revert residual.** R106-H cancelled. Stage A attribute round-103's ≈19.0 µs/step residual to a ledger that closes; Stage B build and locally measure a recovery patch (paired, rules 40/68/86); Stage C hand to fern. Margin certificate available from frieren if the recovery is not bit-exact. Outcomes V-RECOVER / V-ATTRIB / N-RESIDUAL / N-RECOVER / N-CORRECT. | 0.3204 % of `cs` = **25 % of the whole 1.2846 % gap** |
-| [#629](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/629) | maple-edward | `maple-r107-a-routed-gateup-packing` / **`r107-a-rev1`** — head `526881c4` | **Routed gate/up threadgroup packing, amended by rule 97.1** (delivered as PR comment `5239439037`)**.** Operator brief asks for an `S ∈ {2,4,8,16}` simdgroups-per-threadgroup curve on `lagunaRoutedSwiGLUQMVPackedTop8Kernel`. Half that curve is **already priced** (#48 measured the 8× threadgroup collapse at **−0.1488 %**; S=16 also lands at 6.4 TG/core inside the tail-starvation regime closed by rule 67), and the adjacent rows-per-simdgroup axis is already harvested (`DARKBLOOM_QMV_R1`). Amended: **Stage A settles L3 first** — `research/tanjiro_packing_default_flip.patch` applies clean at this HEAD and #308 measured it at **−36.9 µs/step (M4, paired)**, ~~= +0.562 % of `cs`, CI [+0.196 %, +0.929 %]~~ 🚫 **re-priced by rule 105.3 to 0.2455 %, CI [0.0858 %, 0.4058 %] (α = 0.4369)**. Stage B extends to the routed site over **S ∈ {2,4}** only. Outcomes V-L3 / N-L3 / V-SITE1 / N-SITE1 / N-CORRECT / N-BUILD. | L3 alone is **≈0.25 % of `cs`** — **below the 0.4 % bar**; still a valid bit-exact *summand* under rule 105.5, paired with a T2c win from this same arm |
+| [#629](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/629) | maple-edward | `maple-r107-a-routed-gateup-packing` / **`r107-a-rev1`** — head `526881c4` | **Routed gate/up threadgroup packing, amended by rule 97.1** (delivered as PR comment `5239439037`)**.** Operator brief asks for an `S ∈ {2,4,8,16}` simdgroups-per-threadgroup curve on `lagunaRoutedSwiGLUQMVPackedTop8Kernel`. Half that curve is **already priced** (#48 measured the 8× threadgroup collapse at **−0.1488 %**; S=16 also lands at 6.4 TG/core inside the tail-starvation regime closed by rule 67), and the adjacent rows-per-simdgroup axis is already harvested (`DARKBLOOM_QMV_R1`). Amended: **Stage A settles L3 first** — `research/tanjiro_packing_default_flip.patch` applies clean at this HEAD and #308 measured it at **−36.9 µs/step (M4, paired)**, ~~= +0.562 % of `cs`, CI [+0.196 %, +0.929 %]~~ 🚫 **re-priced by rule 105.3 to 0.2455 %, CI [0.0858 %, 0.4058 %] (α = 0.4369)**, then **de-biased by rule 105.10 to ≈0.197 %** (36.9 is the *argmax* of a tied `S ∈ {4,8,16}` set; selection bias 7.34 µs/step). Stage B extends to the routed site over **S ∈ {2,4}** only. Outcomes V-L3 / N-L3 / V-SITE1 / N-SITE1 / N-CORRECT / N-BUILD. | L3 alone is **≈0.20 % of `cs`** — **below the 0.4 % bar**; still a valid bit-exact *summand* under rule 105.5. **Stage A's own single pre-specified contrast is the number that counts, not #308's**; expect ≈30 µs/step, and the residual for a second summand is then **30.6 µs/step = 2.04 % of T2c** |
 | [#636](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/636) | maple-alphonse | `maple-r107-c-expert-gather-gemm-floor` / **`r107-c-rev1`** — head `ace5bd09` | **The routed expert gather-GEMM floor.** #630 terminated (rule 98) and merged, freeing him for the **largest sized unclaimed target on the board**: `routed_gather_gemm` = 76 dispatches / 260.907 ms = **48.3 % of M4 prefill**, M5 `W = 43.2619 ± 0.402 ms` against a **35.6 ms** DRAM floor ⇒ **≈7.6 ms above floor = +2.87 % of score**. Stage 0 rule-83 mechanism-word grep; Stage A zero-build env sweep of `DARKBLOOM_STAGE_BM128` (default **variant 5** ⇒ `bm=64,bn=64,bk=64,wm=4,wn=1`, 128 threads/TG) and `DARKBLOOM_EXPERT_GATHER_GROUPS ∈ {64,128,256}`; Stage B **one** of C2a (`bn` 64→32, never varied) or C2b (revive the **dead** x-major dispatch order — `darkbloom_gather_xmajor_ct()` is hardcoded `return 0` at `quantized.cpp:1290-1292`); Stage C graduate only at ≥0.4 % of score **and** ≥3σ (1.35 ms) with decode proved neutral. Outcomes V-TILE / V-XMAJOR / V-EGROUPS / N-FLOOR / N-XMAJOR-CLOSED / N-BUILD / N-CORRECT / N-REACH. | **+2.87 % of score** — more than twice the whole 1.2846 % implied gap |
 
 Corrected σ constants issued to all six (frieren §22 withdrew her own earlier
@@ -6702,6 +6702,85 @@ edward and alphonse; **105.8** (the §B.0.6 marginal trap and the
 census-or-marginal tag) to tanjiro, whose census is the one assignment that
 works directly in the B.0.3/B.0.6 material and is therefore the one exposed to
 it. The remaining students do not touch that material before the freeze.
+
+#### 105.10 🚨 The second bias in L3 — it is an **argmax over a tied set**, and the campaign has never de-biased an *effect size*
+
+Rule 105.3 fixed L3's **units**. It did not fix its **selection**. Both errors
+push the same way, and the campaign has an established instrument for the
+second one that it has only ever pointed at receipts.
+
+**The observation.** #308 did not measure L3. It swept `S ∈ {2,4,8,16,32}` and
+*reported the winner*: "an **interior argmax at `S = 8`** (−36.9 µs/step vs
+`S=2`, CI [−61.0, −12.9]), with **`{4,8,16}` statistically tied** and `S=32`
+the second-worst point" (`RESEARCH_ARCHIVE_through-round-91.md:1006-1009`).
+`−36.9` is therefore not an estimate of an effect; it is the **maximum of three
+exchangeable estimates**. Its expectation exceeds the common mean.
+
+**The correction.** For `m` tied arms sharing one baseline arm,
+
+> `bias = σ_contrast · √(1 − ρ) · E[max of m iid N(0,1)]`
+
+with `ρ = 0.5` induced by the shared `S=2` leg. From the published CI,
+`σ_contrast = (61.0 − 12.9)/2/1.96 = 12.27 µs/step`; `E[max of 3] = 0.8463`.
+
+> **bias = 7.34 µs/step = 19.9 % of the reported effect.**
+> **de-biased L3 = 29.6 µs/step (M4) = 0.1966 % of `cs`** at α = 0.4369
+> (0.1751 % at α = 0.389).
+
+Sensitivity over `m ∈ {2,3,4,5} × ρ ∈ {0, 0.5}` spans **0.1506–0.2129 %**:
+**every cell of the grid is below rule 105.3's 0.2455 %.** The direction of the
+correction is not in doubt; only its size is. Reproduce with
+`research/advisor_r105_selection_bias.py`.
+
+**Why this is the *third* independent discount on L3**, all recorded and all
+negative: (i) units — rule 105.3, 2.29× over-credit; (ii) selection — this
+rule, 1.25×; (iii) **epoch** — "#308 predates the `_pw1_se1_sd1` inner-loop
+changes so the −36.9 µs may not even replicate", alongside #48's contrary M5
+receipt `285f79fa` measuring an 8× collapse of *this same QKV grid* at
+**−0.1488 % — a loss** (`archive:160-171`). L3 is not a 0.56 % candidate that
+shrank; it is a candidate whose every re-examination has moved it toward zero.
+
+**The operational rule (standing, campaign-wide).**
+
+> An effect size selected as the **argmax of a sweep** may never enter the draw
+> bar at its selected value. It must be **re-measured as a single
+> pre-specified contrast**, and that second number — which carries no
+> selection — is the one that counts.
+
+This costs nothing here: edward's #629 Stage A already re-measures the default
+flip as exactly one contrast (`S=8` vs shipped), so **Stage A's number is
+unbiased and is the number that enters the sum.** What changes is the *prior*:
+expect Stage A to land near **30 µs/step, not 37**, and do not read a shortfall
+against 36.9 as a failure to replicate. Rule 103's `bn` 64→32 is **not**
+affected — it is a desk roofline prediction with its own quoted 0.194–0.301 %
+cell spread, not a sweep argmax.
+
+**What the residual becomes.** Under rule 105.5's sum relaxation, with L3
+de-biased, a second different-family summand must supply **0.2034 %** =
+**30.6 µs/step (bytes) / 26.7 µs/step (latency)** — roughly *half* the
+standalone bar:
+
+| family | arm | need (M4 µs/step) | = % of own M4 cost | standalone bar was |
+|---|---|---:|---:|---:|
+| T2c decode routed gate/up | edward #629 | 30.6 | **2.04 %** | 4.01 % |
+| T3b oproj h64 | alphonse #644 | 30.6 | **2.73 %** | 5.38 % |
+| T2d | — | 30.6 | 3.56 % | 7.00 % |
+| T1a (latency) | frieren #597 | 26.7 | **8.54 %** | 16.80 % |
+| T2b gate_sp (latency) | — | 26.7 | 10.77 % | 21.18 % |
+
+This is the **only** genuinely good news rule 105 has produced, and it is
+conditional: it holds **iff** Stage A replicates L3 in the current epoch. If
+L3 fails to replicate the residual snaps back to the full 60.1 / 52.5.
+
+**And the honest caveat on the sum.** Rule 105.5's bar is a **point-estimate**
+bar. L3's own `σ = 12.27 µs/step = 0.0816 %` of `cs`; a two-summand sum that
+lands exactly on 0.400 % carries 95 % CI **[0.23, 0.57] %** even if the second
+summand is measured to ±5 µs/step. Clearing the summed bar therefore does not
+mean the tree is 0.4 % better — it means the point estimate says so while the
+interval still admits 0.23 %. Quote the interval at the freeze. Combined with
+rule 101.5 (`g = 0.4 %` ⇒ z = 4.10, P ≈ 2.1 × 10⁻⁵), nothing here revives the
+record: the bar decides whether a draw is *worth spending*, never whether it
+*wins*.
 
 
 ## 9. σ table (rule 40 — pick your estimator, then quote its floor)
