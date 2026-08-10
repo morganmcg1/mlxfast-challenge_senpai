@@ -36,7 +36,12 @@ echo "capture_b exit=$?"
 T2=$(date +%s)
 
 echo "=== phase 3/3: certify A vs B ==="
+# --expect-identical-build is MANDATORY here and only here: this is a null cell,
+# both arms are the same binary on purpose. Cert v2 VOIDs an identical-build
+# pair that does not declare itself (see SOP §9 trap 7); without the flag this
+# rehearsal exits 3 even when the host is perfectly reproducible.
 python3 "$SCRIPT" certify --baseline "$TMP/a.npz" --candidate "$TMP/b.npz" \
+  --expect-identical-build \
   --out "$OUT/cert_rehearsal_null.json"
 echo "certify exit=$?"
 T3=$(date +%s)
