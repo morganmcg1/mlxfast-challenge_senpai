@@ -8985,18 +8985,16 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
     }
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
-        let hidden = LagunaConstants.hiddenSize
-        let intermediate = LagunaConstants.sharedExpertIntermediateSize
-        if let fusedWeight = _fusedGateUpWeight, let fusedScales = _fusedGateUpScales,
-            x.dtype == .bfloat16,
-            x.ndim == 3, x.dim(0) == 1, x.dim(2) == hidden,
-            fusedWeight.dtype == .uint32,
-            fusedWeight.dims(2 * intermediate, hidden / 8),
-            fusedScales.dtype == .uint8,
-            fusedScales.dims(2 * intermediate, hidden / 16),
-            _fusedGateUpSplit == intermediate
+        if x.dim(1) == 1,
+            let fusedWeight = _fusedGateUpWeight, let fusedScales = _fusedGateUpScales
         {
-            if x.dim(1) == 1, lagunaFusedSharedSwiGLUQMVEnabled {
+            if lagunaFusedSharedSwiGLUQMVEnabled,
+                x.dtype == .bfloat16,
+                x.dims(1, 1, LagunaConstants.hiddenSize),
+                fusedWeight.dtype == .uint32,
+                fusedScales.dtype == .uint8,
+                _fusedGateUpSplit == LagunaConstants.sharedExpertIntermediateSize
+            {
                 lagunaTrace("shared gate/up QMV + SwiGLU")
                 return downProj(
                     lagunaSharedSwiGLUQMV(

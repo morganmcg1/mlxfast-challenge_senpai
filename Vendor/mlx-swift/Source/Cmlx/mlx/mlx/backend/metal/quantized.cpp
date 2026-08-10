@@ -827,16 +827,7 @@ void qmm_splitk(
   int bm = 32, bn = 32;
   int n_tiles = (N + bn - 1) / bn;
   int m_tiles = (M + bm - 1) / bm;
-  bool fused_laguna_shared_gate_up =
-      !biases && x.dtype() == bfloat16 && w.dtype() == uint32 &&
-      scales.dtype() == uint8 && mode == "nvfp4" && group_size == 16 &&
-      bits == 4 && M > 1 && N == 1024 && K == 2048 && w.ndim() == 2 &&
-      w.shape(0) == 1024 && w.shape(1) == 256 && scales.ndim() == 2 &&
-      scales.shape(0) == 1024 && scales.shape(1) == 128;
-  // The fused bank has two independent 512-row halves. Select split-K from
-  // one half so each output row keeps the separate QMM partition schedule.
-  int selector_n_tiles = fused_laguna_shared_gate_up ? n_tiles / 2 : n_tiles;
-  int current_tgs = selector_n_tiles * m_tiles;
+  int current_tgs = n_tiles * m_tiles;
   int split_k = std::max(1, 512 / current_tgs);
 
   // Each K partition must be a whole number of BK-wide (32) K-tiles as well as
