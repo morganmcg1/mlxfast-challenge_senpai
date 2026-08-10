@@ -6467,14 +6467,24 @@ is the worst possible asymmetry: it inflates exactly the numbers we act on.
 
 §B.0.3 already carries the host model: `M5 = α · M4` for **bytes-regime**
 families (`α = 0.4369`) and `M5 = β · M4` for **latency-regime** families
-(`β = 0.5`). Two independent checks say this is right:
+(`β = 0.5`). Two checks say this is right:
 
-1. **Internal consistency.** The B.0.3 M4 column sums to **8096.3 µs/step**
-   against the #473 M4 decode busy pool of **7993.1 µs/step** (1.3 % apart).
-   The M5 column sums to **3650.9 µs/step** against the rule-58 true
-   steady-state M5 per-step time of **≈4141.5 µs/step** — i.e. the projected
-   kernel pool is **88.2 %** of steady-state, with the balance in gaps. Both
-   columns land where they should.
+1. **Plausibility of the two columns.** The B.0.3 M4 column — which is
+   *measured* — sums to **8096.3 µs/step** against the #473 M4 decode busy
+   pool of **7993.1 µs/step** (1.3 % apart). The M5 column sums to
+   **3650.9 µs/step** against the rule-58 true steady-state M5 per-step time
+   of **≈4141.5 µs/step** — i.e. the projected kernel pool is **88.2 %** of
+   steady-state, with the balance in gaps. Both land where they should.
+
+   ⚠️ **Read this check honestly.** The B.0.3 M5 column is **derived**, not
+   measured: every bytes row is exactly `0.4369 × M4` and every latency row is
+   exactly `0.5 × M4` (verify on any row: `654.4/1497.7 = 0.4370`;
+   `156.4/312.8 = 0.5000`). The *per-row* agreement is therefore tautological
+   and proves nothing. What is **not** tautological is that the derived M5
+   total lands at a credible 88.2 % of an *independently measured* M5 steady
+   state: had α been wrong by the ~2.2× this rule is about, that figure would
+   read ~194 % or ~40 % and the model would be visibly broken. That is a weak
+   but real external constraint. **Check 2 is the load-bearing one.**
 2. **The document already does it correctly once.** The T3a staleness caveat
    corrects M4 636.0 → 618.9 for #539's 4-deep ring — a **17.1 µs/step M4**
    delta — and prices it at "**≈0.13 %-score gain at β = 0.5**".
@@ -6499,6 +6509,17 @@ unresolved and it moves this number by 12 %.
 
 For an **ISSUE-bound** family (rule 100) neither α nor β is derived. Use β = 0.5
 as an upper bound and say that you did.
+
+**Where `k` comes from, and what would falsify it.** Because the B.0.3 M5 column
+is derived, **nobody may read a regime verdict off B.0.3 and call it evidence**
+for the conversion — that is circular. The regime must be assigned from measured
+behaviour on the family itself (achieved bytes/s against the ceiling vs.
+dispatch-and-occupancy limited). That is exactly what **tanjiro's R107-G decode
+family regime census (#648)** is for, and it is why that assignment is now the
+highest-leverage one open: it sets `k` for every other student's number. A
+family that the census finds ISSUE-bound (rule 100) has **no** valid `k`, and a
+µs/step win there cannot be converted at all — it can only be reported in M4
+units with the conversion marked unavailable.
 
 #### 105.3 What this does to L3 — the largest candidate on the board is **below bar**
 
