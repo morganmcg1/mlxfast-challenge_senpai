@@ -2,21 +2,22 @@
 
 ## Result
 
-`CANDIDATE_EVIDENCE_CONTRACT_READY`
+`CANDIDATE_EVIDENCE_ROOTS_FAIL_CLOSED`
 
-This result means the static evidence contract and its deterministic adversarial
-fixture suite are ready. It is not candidate timing evidence, a ranked result,
-or submission authorization.
+This result means the static evidence contract now rejects hostile candidate
+and artifact filesystem roots deterministically while preserving every merged
+scientific control. It is not candidate timing evidence, a ranked result, or
+submission authorization.
 
 ## Scope
 
-This assignment adds only:
+The contract consists of:
 
 - `candidate_evidence_bundle.schema.json`, a JSON Schema 2020-12 contract;
 - `validate_candidate_evidence_bundle.py`, a standard-library fail-closed
   validator and deterministic self-test runner;
-- `candidate_evidence_bundle_fixtures.json`, four positive fixture profiles and
-  45 negative mutations; and
+- `candidate_evidence_bundle_fixtures.json`, four positive fixture profiles,
+  45 negative mutations, and 18 filesystem-boundary controls; and
 - this audit.
 
 No model code, build, inference, benchmark, W&B run, live receipt, or official
@@ -79,6 +80,14 @@ to equal the trusted submitted surface exactly. Extra or unlisted files, omitted
 or missing listed files, symlinks, and non-regular entries are rejected. It then
 checks every file's physical size and SHA-256, recomputes the surface digest,
 and rejoins that digest to every phase and artifact claim.
+
+Candidate and artifact roots are inspected with `lstat` before traversal.
+Missing roots, symlink roots, and non-directory roots produce stable structured
+errors and short-circuit all reads under that root. File bytes are opened
+component-by-component relative to directory descriptors with no-follow and
+nonblocking flags, then checked again with `fstat` before reading. This prevents
+FIFO blocking and narrows filesystem races to deterministic disappearance,
+unreadable, non-regular, symlink, inspection-failed, or read-failed errors.
 
 ### Physical and semantic artifacts
 
@@ -167,9 +176,19 @@ The 45 negative mutations cover:
 - ranked receipt reuse under another revision; and
 - terminal classification contradiction.
 
+The 18 added filesystem controls require exact error-code and JSON-path sets,
+`INVALID` classification, and exit code 1 for missing, symlink, regular-file,
+and FIFO roots; listed directory, FIFO, and symlink entries; and deterministic
+disappearance and unreadability at the read boundary. The harness separately
+proves that `NotADirectoryError`, `PermissionError`, and generic `OSError` are
+converted to stable filesystem errors while injected reader and schema
+`ValueError` exceptions still propagate.
+
 Each negative fixture declares at least one expected stable error code. The
 self-test requires every case to contain every declared code while also proving
-that all four positive profiles retain their intended classification.
+that all four positive profiles retain their intended classification. The
+legacy 49-result canonical digest is frozen so the scientific controls cannot
+silently change.
 
 ## Verification
 
@@ -177,9 +196,10 @@ The focused static checks are:
 
 ```bash
 python3 -m py_compile research/validate_candidate_evidence_bundle.py
-python3 research/validate_candidate_evidence_bundle.py --self-test > /tmp/candidate-evidence-a.json
-python3 research/validate_candidate_evidence_bundle.py --self-test > /tmp/candidate-evidence-b.json
-cmp -s /tmp/candidate-evidence-a.json /tmp/candidate-evidence-b.json
+python3 research/validate_candidate_evidence_bundle.py --self-test > /tmp/candidate-evidence-run1.json
+python3 research/validate_candidate_evidence_bundle.py --self-test > /tmp/candidate-evidence-run2.json
+cmp -s /tmp/candidate-evidence-run1.json /tmp/candidate-evidence-run2.json
+shasum -a 256 /tmp/candidate-evidence-run1.json /tmp/candidate-evidence-run2.json
 ```
 
 A standalone bundle validation requires three external filesystem roots plus the
@@ -193,16 +213,21 @@ python3 research/validate_candidate_evidence_bundle.py BUNDLE.json \
   --expected-context-sha256 EXPECTED_TRUSTED_CONTEXT_SHA256
 ```
 
-Both self-test runs are byte-identical. The result contains 49 cases, reports
-`deterministic: true`, uses schema ID
-`https://mlxfast.invalid/schemas/candidate-evidence-bundle-v3.json`, and has
-canonical result digest:
+Both external self-test invocations are byte-identical, and each invocation
+executes the legacy and filesystem suites twice internally. The result reports
+`deterministic: true`, contains 67 cases (49 legacy and 18 filesystem), and
+uses schema ID
+`https://mlxfast.invalid/schemas/candidate-evidence-bundle-v3.json`.
 
 ```text
-75d8e716d4887e3b4aaac08499d44da281923d7de465ecf35de500bffc444124
+legacy_results_digest:     75d8e716d4887e3b4aaac08499d44da281923d7de465ecf35de500bffc444124
+filesystem_results_digest: e608d30c9e3fdb532cf993df658cdab9eb6e872bac51ed33d6c55e334ce44427
+results_digest:            6c5179a89482d4cc265295f6192984d2a8f2e57aac7523c573d1673082c9f2dc
+self-test output SHA-256:   c3a2a49ba3c7400a8ed7602b9eca3b3b1d9afb3ef33f53a922362c3832562d02
 ```
 
-The terminal status is `CANDIDATE_EVIDENCE_CONTRACT_READY`.
+All 67 cases pass, all five exception-boundary assertions are true, and the
+terminal status is `CANDIDATE_EVIDENCE_ROOTS_FAIL_CLOSED`.
 
 ## Limitations
 
