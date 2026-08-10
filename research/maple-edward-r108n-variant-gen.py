@@ -9,9 +9,13 @@ separately in the report; the probe measures issue cost, not tokens.
   m1  factor == 1.0 fast path on the accumulator rescale.  Whenever the running
       max is unchanged the base multiplies the accumulator by exactly 1.0, so
       the fast path drops one multiply per (dim, head, row).
+  m2  upper bound on the ring-substitution predicate peel: the substitute
+      argument is forced false, so the compiler drops the four per-iteration
+      compares and the threadgroup path.  A correct peel keeps a single
+      post-loop fix-up, so the real gain is smaller than this arm.
   m3  epilogue: one reciprocal per head instead of four divides.
 
-usage: maple-edward-r108n-variant-gen.py SRC OUT m1[,m3]
+usage: maple-edward-r108n-variant-gen.py SRC OUT m1[,m2,m3]
 """
 import re
 import sys
@@ -23,16 +27,33 @@ lines = open(src_path).read().split("\n")
 STAGES = [("pair", "pipe_va"), ("pipeb", "pipe_vb"),
           ("pipec", "pipe_vc"), ("piped", "pipe_vd")]
 
+KERNEL = "laguna_sliding_fused_attn_ring_v1"
+
+
+def region(lines):
+    """Line index bounds of the sliding kernel's Metal source string.
+
+    The full-attention twin later in the file repeats the same statement text
+    twice, so an unscoped rewrite would edit three kernels at once.
+    """
+    k = next(i for i, l in enumerate(lines) if KERNEL in l)
+    lo = next(i for i in range(k, len(lines)) if lines[i].strip() == 'source: """')
+    hi = next(i for i in range(lo + 1, len(lines)) if lines[i].startswith('"""'))
+    return lo, hi
+
+
 if "m1" in variants:
     for stage, vprefix in STAGES:
+        lo, hi = region(lines)
         blocks = {0: [], 1: []}
         idx = {0: [], 1: []}
         pat = re.compile(
             r"^(\s*)(pair_(?:sum|o)([01])(?:\[(\d)\])?) = \2 \* "
             + stage + r"_factor\3 \+ (.+);$")
-        for i, ln in enumerate(lines):
-            m = pat.match(ln)
+        for i in range(lo, hi):
+            m = pat.match(lines[i])
             if m:
+                ln = lines[i]
                 h = int(m.group(3))
                 blocks[h].append((m.group(1), m.group(2), m.group(5)))
                 idx[h].append(i)
@@ -55,12 +76,22 @@ if "m1" in variants:
                  + new
                  + [ln for i, ln in enumerate(lines) if i > last])
 
+if "m2" in variants:
+    lo, hi = region(lines)
+    n = 0
+    for i in range(lo, hi):
+        if "T_LOAD_K(" in lines[i] or "T_LOAD_V(" in lines[i]:
+            lines[i], c = re.subn(r"\bsub_[a-d]\b", "false", lines[i])
+            n += c
+    assert n == 8, f"m2 predicate count {n}"
+
 if "m3" in variants:
+    lo, hi = region(lines)
     out = []
-    for ln in lines:
+    for i, ln in enumerate(lines):
         m = re.match(
             r"^(\s*)pair_o([01])\[(\d)\] = pair_sum\2 == 0 \? acc\2(\d) : "
-            r"\(acc\2\4 / pair_sum\2\);$", ln)
+            r"\(acc\2\4 / pair_sum\2\);$", ln) if lo <= i < hi else None
         if m:
             ind, h, d, a = m.group(1), m.group(2), m.group(3), m.group(4)
             if d == "0":
