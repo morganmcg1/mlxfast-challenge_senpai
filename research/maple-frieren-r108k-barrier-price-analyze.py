@@ -187,11 +187,57 @@ def main():
     pf = defaultdict(list)
     for r in rows:
         pf[r["arm"]].append(r["pre_us"])
-    base = statistics.fmean(pf["C"]) if pf.get("C") else float("nan")
+    if not pf.get("C"):
+        for arm in sorted(pf):
+            print(f"  arm {arm}: prefill {statistics.fmean(pf[arm]):.2f} us/token  "
+                  f"(no control anchor yet)")
+        return
+    base = statistics.fmean(pf["C"])
     for arm in sorted(pf):
         m = statistics.fmean(pf[arm])
         print(f"  arm {arm}: prefill {m:.2f} us/token  "
               f"delta vs C {m - base:+.3f} ({100 * (m - base) / base:+.3f} %)")
+
+    drift_diagnostic(by_block)
+
+
+def drift_diagnostic(by_block):
+    """POST-HOC, NOT PRE-REGISTERED, NOT part of any verdict.
+
+    The injection knob is decode-only, so prefill cannot respond to it. Any prefill
+    move inside a block is therefore pure host drift, and to first order the same
+    drift multiplies decode. Subtracting the prefill percentage from the decode
+    percentage removes that common-mode term. Reported only to show whether a
+    pre-registered decode difference is drift or signal; it never overrides sec 5.
+    """
+    print("\n## POST-HOC drift control (exploratory — prefill as common-mode gauge)")
+    print("  arm-vs-own-control, per block: decode %delta, prefill %delta, difference")
+    per_rung = defaultdict(list)
+    for b in sorted(by_block):
+        if b == 0 or "C" not in by_block[b]:
+            continue
+        cd = statistics.fmean(by_block[b]["C"])
+        cp = statistics.fmean(by_block[b]["Cp"]) if "Cp" in by_block[b] else None
+        if cp is None:
+            continue
+        for free, ser, n in RUNGS:
+            for arm in (free, ser):
+                if arm not in by_block[b] or arm + "p" not in by_block[b]:
+                    continue
+                dpct = 100 * (statistics.fmean(by_block[b][arm]) - cd) / cd
+                ppct = 100 * (statistics.fmean(by_block[b][arm + "p"]) - cp) / cp
+                corr_us = (dpct - ppct) / 100 * cd
+                per_rung[(arm, n)].append(corr_us / n)
+                print(f"  block {b} arm {arm}: decode {dpct:+.3f} %  "
+                      f"prefill {ppct:+.3f} %  diff {dpct - ppct:+.3f} %  "
+                      f"-> {corr_us / n:+.4f} us/dispatch")
+    if not per_rung:
+        print("  (no block has both a control and a treatment prefill row yet)")
+        return
+    print("  drift-corrected slopes:")
+    for (arm, n), xs in sorted(per_rung.items()):
+        m, hw, k = ci95(xs)
+        print(f"    arm {arm} N={n}: {fmt(m, hw, ' us/dispatch')}   B={k}")
 
 
 if __name__ == "__main__":
