@@ -988,7 +988,107 @@ per-core slot budget), but the tail mechanism roughly doubles. So the
 quantization-versus-tail distinction is not academic: it changes the sign of the
 risk this lever carries to the scored host.
 
-### 5.3 Full-decode rotated-palindrome timing
+### 5.3 Full-decode rotated-palindrome timing — stood down at K = 12, and it agrees with fern
+
+**Status.** The advisor stood Stage A down at 15:38 UTC (PR #629 comment
+`5242424807`) because fern's R106-J (#625, merged as `df64d186`) had already run
+the preregistered ABBA replication of this exact flip and returned
+`d(ln score) = +0.0328 %`, CI95 `[-0.2338, +0.2994]`. I cancelled the running
+block immediately. It was at repetition 13 of 16, so **12 balanced repetitions
+survive** and are reported here rather than discarded: they cost no additional
+GPU time, they are on a different instrument from fern's (M4 in-situ paired
+decode rather than paired `--local-submit` score), and a second independent look
+at a null is worth having on the page. Rule 75 passed on cancellation
+(`digest_after = digest_before = f191c3b498f76c...4520b7`), and every one of the
+105 timed slots reported **0 greedy-token divergences**, so bit-exactness holds
+as §5.2 predicted structurally.
+
+Design: 4 arms (`base` = selector 0, `null1` = selector 1, `sg4`, `sg8`),
+`DESIGN=rotate`, 8 slots per repetition, 250 steps per slot, one binary
+(`/tmp/maple-r107a-snapq/new`, sha `1674a523...2a146c`). Selector values 0 and 1
+are both outside the accepted set `{2,4,8,16}`, so `base` and `null1` execute
+**byte-identical code**; that pair is the session's own resolution floor. QC
+rejected 1 slot and voided repetition 7 (`p99/median = 1.438`).
+
+Per-arm level, mean over repetitions, primary statistic median
+[M4-WALL, epoch `3241e5e5`]:
+
+| arm | level (µs/step) | sd over reps |
+| --- | --- | --- |
+| base | 8,255.9 | **42.94** |
+| null1 | 8,245.7 | 13.07 |
+| sg4 | 8,234.4 | 4.83 |
+| sg8 | 8,235.0 | 8.16 |
+
+Drift-cancelled paired contrasts, `K = 12`, later arm minus earlier:
+
+| contrast | mean | 95 % hw | 95 % CI | sign −/+ | %`cs` at α = 0.4369 |
+| --- | --- | --- | --- | --- | --- |
+| base → null1 (**true null**) | −10.15 | 22.39 | [−32.55, +12.24] | 4/8 | 0.068 % "gain" from nothing |
+| base → sg4 | −21.45 | 29.45 | [−50.89, +8.00] | 2/10 | 0.143 % [0.339, −0.053] |
+| **base → sg8 (preregistered primary)** | **−20.83** | **27.00** | **[−47.82, +6.17]** | 3/9 | **0.139 % [0.318, −0.041]** |
+| null1 → sg4 | −11.29 | 10.60 | [−21.89, −0.70] | 2/10 | 0.075 % [0.146, 0.005] |
+| null1 → sg8 | −10.68 | 9.44 | [−20.12, −1.23] | 4/8 | 0.071 % [0.134, 0.008] |
+| sg4 → sg8 | +0.62 | 6.16 | [−5.55, +6.78] | 8/4 | −0.004 % |
+
+Robustness: the trimmed statistic gives `base -> sg8 = -24.86 [-50.60, +0.88]`
+and `null1 -> sg8 = -12.81 [-21.84, -3.79]`; the official-window analogue
+(`mean_first128`) gives `-25.14 [-75.52, +25.24]` and `-3.06 [-33.10, +26.97]`.
+All statistics agree in sign. Because the block was cut at 12 repetitions only
+2 complete 4-arm rotation cycles are balanced, so the cycle-blocked analysis is
+badly underpowered (`K = 2`, half-widths of 250-315 µs/step) and I do not quote
+it; the `K = 12` drift-cancelled rows above are the estimate.
+
+**Verdict: `N-L3`**, by the rule preregistered in §6.2a — the primary contrast's
+CI covers zero. Three readings, in decreasing order of how much I believe them.
+
+1. **The preregistered primary is a null, and it excludes the bar.**
+   `base -> sg8 = -20.83 [-47.82, +6.17]` M4 µs/step. The 0.4 %`cs` bar is
+   60.1 M4 µs/step at α = 0.4369 (52.5 at the most generous β = 0.5), and the
+   lower confidence limit is −47.8, so **this session excludes a bar-sized gain
+   at 95 % under every regime**. It also excludes the un-de-biased `-36.9`
+   argmax's *upper* reach only marginally, which is the honest limit of a
+   12-repetition block.
+2. **Half of the apparent gain is in the true null, and that is the number to
+   keep.** Two arms running byte-identical code separate by `-10.15` µs/step
+   and differ in per-repetition sd by 3.3× (42.94 vs 13.07). So this session's
+   own floor for an unreferenced reading at this site is about **±22 M4
+   µs/step**, and the base arm happened to catch one or two genuinely slow slots
+   (e.g. `rep13-pos5-base` median 8,316 vs a typical 8,235). Referencing the
+   candidate to `null1` instead of `base` moves the estimate from −20.8 to
+   −10.7. **Which of two byte-identical reference arms you choose changes the
+   answer by the size of the effect** — that is the most useful single sentence
+   this block produces, and it is exactly rule 105.7's warning made
+   quantitative.
+3. **If anything is there at all it is ≈ −11 µs/step, saturating by S = 4, and
+   it is not per-threadgroup launch cost.** `null1 -> sg4` and `null1 -> sg8`
+   are statistically identical (−11.29 and −10.68) and `sg4 -> sg8` is
+   `+0.62 [-5.55, +6.78]`: flat from 4 to 8. A per-threadgroup mechanism would
+   keep paying as `S` rises; a saturating intra-core one would not. And the
+   magnitude is wrong for launch cost by construction — §5.2a's Consequence 1
+   caps per-threadgroup cost at ≤ 0.042 ns from §4's routed null, whereas
+   −10.7 µs/step over 6,912 retired threadgroups needs 1.55 ns, i.e. **37× the
+   ceiling**. Both nominal `null1 -> sg*` intervals exclude zero, but they are
+   2 of 6 contrasts (a Bonferroni correction at m = 6 widens them across zero),
+   they are not the preregistered primary, and they are not robust to the choice
+   of reference arm. I therefore do **not** claim them.
+
+Priced honestly, the largest defensible reading of this site is
+`0.071 %cs [0.008, 0.134]` (α = 0.4369; 0.063 % at α = 0.389, 0.081 % at
+β = 0.5) — **18 % of the draw bar**, 0.80 % of the T0b(a) family's own
+1,340.1 µs/step, and comfortably inside fern's `[-0.234, +0.299]` interval. Two
+instruments, two designs, one conclusion: **L3 is not a lever.** The shrinkage
+sequence across the whole history of this claim is worth recording, because it is
+the shape rule 105.10 predicts:
+
+| source | estimate | why it shrank |
+| --- | --- | --- |
+| #308 as reported | `-36.9` M4 µs/step (quoted as +0.562 %`cs`) | sweep argmax, host-unit error |
+| after rule 105.11/105.12 host correction | +0.338 % `cs` | bare price applied to an M4 delta |
+| after rule 105.10 argmax de-bias | `-29.6` M4 µs/step = 0.197 % | `E[max of 3]` over tied arms |
+| fern #625, paired score ABBA, 10 blocks | +0.033 % [−0.234, +0.299] | properly paired, monotone shrinkage |
+| this block, paired decode ABBA, K = 12 | −20.8 [−47.8, +6.2] M4 µs/step; ≤ 0.071 % once referenced to a true null | reference-arm sensitivity |
+
 
 ### 5.4 Prefill (rule 17)
 
