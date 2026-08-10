@@ -7166,6 +7166,177 @@ Do this for every field before it becomes load-bearing.
 
 
 
+#### 105.16 ⭐⭐ **N-BYTES-EVERYWHERE** — the decode GEMV pool has no instruction lever, and the byte axis has a price nobody can pay
+
+Source: tanjiro R107-G, PR #648, merged as `705484b9`,
+`research/maple-tanjiro-r107g-decode-family-regime-census.md` (1,245 lines,
+W&B `jhuxsg3h`). Family D probed directly (dose ladder, two residency-defeated
+sessions); A, B, C, E inferred from the same geometry.
+
+Decode families **A** (T3b oproj h64), **B** (T2d down+residual), **C** (T0b(a)
+qkv h64) and **D** (T2c routed gate+up) all sit at **85–91 % of their measured
+DRAM ceiling**. Exposed ALU in family D is **1.10 % of the dispatch**. There is
+**no ISSUE lever anywhere in the decode GEMV pool.**
+
+| family | non-byte slack, in 0.4 %-bars, at β |
+|---|---|
+| D (T2c routed gate+up) | 0.71 |
+| A (T3b oproj h64) | 0.45 |
+| C (T0b(a) qkv h64) | 0.03 |
+| B (T2d down+residual) | ≤ 0 |
+| **E (T2b gate_sp h64)** | **1.89 — and it is LATENCY, not bytes** |
+
+All STOP verdicts are **invariant to 105.13** (i.e. they hold at every k in
+[α, 1.89]).
+
+**The byte axis prices at 15.10 MiB/step per 0.4 %** — 4.5–7.7 % of each
+family's own traffic. Nobody has ever found a reduction of that size at fixed
+arithmetic, and rule 105.16's own census says the traffic is unique bytes, not
+re-reads.
+
+**Two arms died on this table.** Edward's T2c packing: the 0.4 % bar needs
+**466 instructions/thread against a base load of 128 = 3.6× the entire
+arithmetic content of the kernel**. Alphonse's oproj amortisation: the entire
+non-byte budget is 0.79 µs/dispatch = 23.8 M4 µs/step = **0.159 % of `cs` =
+0.40 bars**, which agrees with frieren's independent T2d refutation (#597 §5.4:
+86.6 % unique-byte DRAM floor, ≤2.5 % available to amortisation, eleven arms of
+efficiency work at fixed unique bytes paid zero-or-negative).
+
+**Corollary — the campaign's only remaining lever is dispatch structure.** See
+105.17.
+
+**Pool split (M4 µs/step, decode):** BYTES 6302.5 (74.6 %), LATENCY 928.1
+(11.0 %), ISSUE 848.6 (10.0 %), residue 368.8 (4.4 %).
+
+
+#### 105.17 ⭐⭐⭐ The **per-layer kernel merge** — the last lever, priced three ways, and its three unverified assumptions
+
+Two students reached this independently: frieren #597 §11.4 (from the T2d
+roofline) and tanjiro #648 §3.6/§5 (from the regime census).
+
+**Price of removing one per-layer dispatch across 39 layers**, on rule 65's M5
+added-dispatch price of 2.3403 µs [2.2766, 2.4040]:
+
+| k | M5 µs/step for 39 dispatches | % of `cs` |
+|---|---|---|
+| 1.000 (floor — pretend there is no third regime) | 48.29 | **+0.735 %** |
+| 1.395 (midpoint) | 67.36 | **+1.026 %** |
+| 1.890 (rule 105.13's k_dispatch) | 91.27 | **+1.390 %** |
+
+🚨 **Even the k = 1 floor is 1.8× the 0.4 % draw bar.** Quote the floor as the
+headline; the campaign does not need the optimistic end.
+
+🚨 **Rule 65's 2.3403 µs is ALREADY M5.** Tanjiro applied β to it and produced
+0.535 % where the answer is 1.069 %; he caught and corrected it himself. Know
+the basis of every constant before multiplying.
+
+**Per-family merge table** (dispatch-elimination component only):
+
+| family | dispatches removed | gain at k = 1.89 |
+|---|---|---|
+| D (T2c routed gate+up) | 39 | 1.390 % |
+| B (T2d down+residual) | 39 | 1.390 % |
+| A (T3b oproj h64) | 30 | 1.069 % |
+| C (T0b(a) qkv h64) | 30 | 1.069 % |
+| **E (T2b gate_sp h64)** | **30** | **1.069 %** |
+
+**Family E is the preferred target and the reason is regime, not count.** E is
+the only LATENCY-regime family: **88 % of its 8.27 µs dispatch is neither bytes
+(0.98 µs) nor issue (0.04 µs)**. Full fusion is worth **2.451 % of `cs` =
+6.13 bars**. It is also the *cheapest* merge to attempt because there is
+nothing to stream — merging two byte-bound kernels leaves the merged kernel
+carrying both kernels' unique bytes, and frieren's §5.4 corollary (1) says
+issued-byte reduction at unchanged unique bytes buys nothing at batch 1 and can
+cost.
+
+**Frieren's full-merge estimate**, including the barrier-drain component
+(3.081 µs/call, converting at k ∈ [α, β] = 0.799–0.915 %): **one merge total
++2.19–2.31 %**.
+
+**Three assumptions, all unverified, all named by their authors:**
+
+1. **Removal symmetry.** Rule 65 measured the price of an *added* dispatch.
+   Every merge estimate multiplies it by a count of dispatches *removed*.
+   Nobody has measured a removal. (Assigned: alphonse #644, R108-P.)
+2. **Drain generality.** The 3.081 µs/call drain was measured at **one**
+   boundary.
+3. **Barrier re-import.** If the producer→consumer dependency is grid-wide, the
+   merged kernel must re-import a device-wide barrier, giving back the drain and
+   leaving only the dispatch-elimination component. (Assigned: tanjiro #663,
+   the adjacent-pair ledger — TG-LOCAL vs GRID-WIDE per pair.)
+
+🚨 **The #48 trap.** PR #48 reduced dispatch count and scored **−0.1488 %**. A
+dispatch-count reduction that re-materialises the same work with worse locality
+*loses*. A merge only pays if the consumer reads the producer's output from
+registers or threadgroup memory. If the intermediate still round-trips through
+device memory, it is a #48 repeat. Rule 92 is the companion bound: 1.3003
+µs/step caps "same dispatch set, encoded better", so the drain requires a
+**source-level dispatch-set change**, not an encoding change — frieren
+re-confirmed this when `.concurrent`+barrier came out *worse* than serial
+(23.324 vs 22.611 µs/call).
+
+
+#### 105.18 ⭐⭐ Two independent corroborations of the third regime, and the resulting bound on `k_issue`
+
+105.13 established `k_dispatch ≈ 1.890` from the added-dispatch ladder. Two
+further routes now agree that the third regime is real and materially above 1.
+
+**(a) Tanjiro's ledger closure (#648 §3.6).** Closing the decode regime ledger
+with `k_issue = α` yields **`k_residue = 1.4998`, CI [1.4732, 1.5275]** — a
+different construction, same conclusion.
+
+**(b) The fiction-corrected census residue (advisor).** Rule 58's decode
+`T_M5` is 4141.5 µs/step. §B.0.3's M5 column *as printed* sums to 3650.9.
+Rule 100 established that rows 5 and 13 are **measured fiction** worth 291.2.
+So:
+
+| quantity | M5 µs/step |
+|---|---|
+| rule 58 `T_M5` (decode, ex-prefill) | 4141.5 |
+| §B.0.3 M5 column as printed | 3650.9 |
+| less rule-100 fiction (rows 5, 13) | −291.2 |
+| real kernel time | 3359.7 |
+| **residue available for dispatch glue** | **781.8** |
+| 319 dispatches × rule 65's 2.3403 µs | **746.6** |
+| slack | **+35.2** |
+
+The full rule-65 dispatch price **fits the fiction-corrected residue and does
+not fit the raw residue (490.6)**. Two corrections that were derived
+independently — rule 100's fiction and rule 65's dispatch price — reconcile to
+within 4.5 %. That is not a fit; it is a prediction that landed.
+
+**(c) The bound on `k_issue`.** Inverting tanjiro's closure over
+`k_residue ∈ [1.0, 1.890]` gives
+
+> 🚨 **`k_issue ∈ [0.267, 0.654]`.**
+
+**Never price an attention-side M4 saving above 0.654×. GEMV-side M4 savings
+must not be priced above ≈0.47×.** This is why the T3a instruction axis needs
+15 % of its issue removed at the optimistic end and 24 % at the conservative
+end to clear the 0.4 % bar.
+
+
+#### 105.19 🚨 **N-DEGENERATE** — α is not identified by our data; the defensible statement is α < 0.4454
+
+Tanjiro #648. The `routed` pool's numbers demand an M5 streaming ceiling of
+**597.1 GB/s**; the `qkvo` pool's demand **677.1 GB/s**. Those are **13 %
+apart** and cannot both be right, so the campaign's α = 0.4369 is *not*
+identified — it is merely consistent. The α-free bound that survives is
+
+> **α < 0.4454.**
+
+α = 0.4369 sits just under it, which is mildly reassuring and nothing more.
+Every byte-regime price in the campaign rides on α, including 105.16's
+15.10 MiB/step-per-0.4 % and 105.17's drain conversion.
+
+**The resolving experiment is free**: `research/fern_r101_bw_probe.swift` on the
+official M5, ~7 s, zero receipts. Assigned to fern, #664. Direction of the error
+matters: if the true ceiling is *higher* than assumed, the byte-regime STOP
+verdicts were **too permissive** and a closed family may deserve re-opening; if
+lower, they were conservative and everything stays closed.
+
+
+
 ## 9. σ table (rule 40 — pick your estimator, then quote its floor)
 
 🚨 **SUPERSESSION (rule 101, round 107).** The score-channel entries below are
