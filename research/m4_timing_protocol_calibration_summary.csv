@@ -20,5 +20,5 @@ power,observed_mde_80pct,NA,percent,not_estimable,no mirrored-cycle standard dev
 power,observed_mde_95pct,NA,percent,not_estimable,no mirrored-cycle standard deviation
 runtime,failed_launch_wall_time,4.2,minutes,observed,252 seconds before any timing
 runtime,frozen_48_launch_lower_bound,201.6,minutes,lower_bound,already exceeds two-hour usefulness cap
-runtime,failed_launch_peak_ram,0,GB,observed,failure occurred before timed model execution
+runtime,failed_launch_peak_ram,NA,GB,not_estimable,failure occurred before timed model execution
 decision,sub_0_2pct_local_promotion_gate,NO-GO,decision,terminal,strict physical protocol infeasible and required calibration estimands unavailable
