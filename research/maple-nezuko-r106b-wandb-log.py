@@ -209,6 +209,14 @@ def main():
             "threadgroup_threads": 1024,
             "dispatches_per_step": 30,
             "threadgroup_memory_bytes": 18432,
+            # Measurement scale (report section C.3). The harness reports
+            # decode_seconds_per_token = mean_step_seconds + K/N with a fixed
+            # per-run K ~ 0.577 s, so the two local modes are NOT the same
+            # scale and iterate-mode noise is 1023/128 = 8x evidence-mode noise.
+            "decode_steps_evidence": 1023,
+            "decode_steps_triage": 128,
+            "fixed_per_run_overhead_seconds": 0.5766,
+            "triage_to_evidence_noise_ratio": 1023.0 / 128.0,
         },
     )
 
@@ -229,6 +237,13 @@ def main():
         summary[pref + "ci95_excludes_zero"] = aexc
         summary[pref + "runs_correct"] = acor
         summary[pref + "meaning"] = ARM_NAMES.get(arm, "?")
+        # Gate provenance: the MLX kernel name the runs of this arm actually
+        # compiled, read out of the run logs rather than assumed from the
+        # exported environment. Arm K is otherwise indistinguishable from the
+        # control, so a fabricated null is only excluded by this field.
+        kernels = sorted({r.get("kernel", "") for r in rows
+                          if r["arm"] == arm and r.get("kernel")})
+        summary[pref + "kernel"] = ",".join(kernels)
     if "P" in stats:
         # -D_P is the upper bound on what any main-loop-reduction lever can win.
         summary["stageb/reduction_recoverable_bound_us_per_step"] = \
@@ -236,8 +251,8 @@ def main():
     run.summary.update(summary)
 
     tbl = wandb.Table(columns=["session", "idx", "block", "arm", "arm_meaning",
-                               "decode_s_per_token", "prefill_s_per_token",
-                               "passed", "wall_s"])
+                               "kernel", "decode_s_per_token",
+                               "prefill_s_per_token", "passed", "wall_s"])
     for r in rows:
         dec = _num(r)
         try:
@@ -246,7 +261,8 @@ def main():
             pre = None
         tbl.add_data(r.get("session", ""), int(r["idx"]), r.get("block", ""),
                      r["arm"], ARM_NAMES.get(r["arm"], "?"),
-                     dec, pre, r["passed"], r.get("wall_s", ""))
+                     r.get("kernel", ""), dec, pre, r["passed"],
+                     r.get("wall_s", ""))
     payload = {"stageb/paired_runs": tbl}
     for p in sys.argv[2:]:
         payload.update(triage_table(read_rows(p), pathlib.Path(p).stem))

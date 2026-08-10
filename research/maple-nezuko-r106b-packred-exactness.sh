@@ -28,6 +28,26 @@ for arm in off on h4; do
   esac
   st=$?
   echo "arm=${arm} exit=${st}"
+  # Gate provenance. Without this, a mistyped gate would quietly compare the
+  # control kernel against itself and report a bit-exactness certificate for a
+  # kernel that never ran. Each sliding-attention kernel announces its MLX name
+  # once, from its own one-shot initialiser, so the name below is the kernel the
+  # oracle actually exercised.
+  case "$arm" in
+    on) want=laguna_sliding_fused_attn_ring_packred_v1 ;;
+    h4) want=laguna_sliding_fused_attn_ring_h4_v1 ;;
+    *)  want=laguna_sliding_fused_attn_ring_v1 ;;
+  esac
+  # Read only the announce line, never any other mention of a kernel name: the
+  # source string and the comments in the log also contain kernel names, and a
+  # comma-joined union of those would spuriously fail the comparison below.
+  got="$(grep -o 'sliding fused attn kernel: [a-z0-9_]*' "$log" 2>/dev/null \
+    | sed 's/.*: //' | sort -u | paste -sd, -)"
+  echo "arm=${arm} kernel=${got:-<none>} expected=${want}"
+  if [ "$got" != "$want" ]; then
+    echo "arm=${arm} FATAL: gate provenance mismatch -- this arm's certificate is void" >&2
+    exit 1
+  fi
   grep -E 'EQUIVALENCE_EXACT_STEPS|EQUIVALENCE_EXIT' "$log" | sed "s/^/arm=${arm} /"
   grep -c '"maximumAbsoluteLogitError"' "$log" | sed "s/^/arm=${arm} report_steps=/"
   grep -oE '"maximumAbsoluteLogitError" : [0-9.e-]+' "$log" | sort -u \

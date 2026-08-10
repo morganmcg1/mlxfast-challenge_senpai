@@ -306,8 +306,152 @@ deleting the row-loop reduction outright and accepting wrong output: `-D_P`
 bounds what **any** lever targeting that reduction could ever recover, PACKRED
 and the Stage C `P-ROWLANE` proposal included. The forward reference in §A.4 to
 "direct evidence that the kernel is instruction-issue-bound" is therefore a
-question this section answers, not an assumption it relies on; §C.3 records
+question this section answers, not an assumption it relies on; §C.5 records
 which way it went.
+
+## C.3 Measurement scale: why the triage numbers are 8x noisier than the evidence numbers
+
+This subsection is arithmetic on the harness, fixed before the evidence campaign
+was read, and it is the mechanical explanation of the noise wall that forced
+Amendment 2. It is written out because it is reusable by anyone on this tree who
+triages with `--local-iterate` and then reasons in `--local-submit` units.
+
+**The reported decode figure contains a fixed per-run term.** For a single
+control run the harness printed, in the same log,
+
+```
+mean_step_seconds            = 0.008448
+decode_seconds_per_token     = 0.012953    (N = 128 decode steps, --local-iterate)
+```
+
+The reported figure is 53 % larger than the mean step it is computed from, so it
+is not a mean step time. Fitting `decode_spt = mean_step + K/N` gives
+**K = (0.012953 - 0.008448) x 128 = 0.5766 s** of fixed per-run cost folded into
+the per-token figure. Predicting the long path from that one fit:
+
+| | mean_step_seconds | N | predicted decode_spt | observed decode_spt |
+|---|---|---|---|---|
+| `--local-iterate` | 0.008448 | 128 | (fit) 0.012953 | 0.012953 |
+| `--local-submit` | 0.008448 | 1023 | **0.009012** | **0.008966** |
+
+The prediction lands within 0.5 % of an independently measured `--local-submit`
+run on the same tree, so the model is the right one: one fixed ~0.58 s term,
+amortised over however many decode steps the mode runs.
+
+Three consequences, all of which bear on this round's design:
+
+1. **The two modes are not the same scale.** 0.012953 vs 0.008966 s/token is a
+   factor of 1.44. An iterate number and a submit number can never appear in the
+   same contrast, and a % - of - `cs` conversion calibrated on the submit path
+   (this round's 1 us/step = 0.015228 % of `cs`) is simply wrong applied to an
+   iterate number. Rule 86 forbids iterate-as-evidence; this is the mechanism
+   behind the rule, not merely a convention.
+
+2. **Triage noise is evidence noise multiplied by 1023/128 = 8.** Whatever
+   run-to-run variance the fixed term carries is divided by `N`. The three
+   interleaved control replicates in the PACKRED triage table gave
+   sd = **60.0 us/step** at N = 128, which implies an sd of only **7.7 ms** on the
+   fixed term, i.e. **7.5 us/step** at N = 1023. So the 118 us/step
+   control-versus-control spread that made Amendment 1's triage gate inoperable
+   is an artefact of the short run, not evidence that this host is unstable; the
+   evidence path's own sigma is expected near the ledger's fixed-tree
+   sigma(ln `cs`) = 0.2276 % ~ 15 us/step, and that is the scale the dof-5
+   intervals in C.5 should be read against.
+
+   This is a **falsifiable prediction about this round's own controls**, made
+   from triage data before any evidence run was read: the campaign's six
+   control replicates should show a standard deviation near **7.5 us/step** if
+   the fixed-term model is right, and in any case well under the 60 us/step the
+   same host showed at N = 128. If instead the controls scatter by tens of
+   microseconds per step, the model is wrong, the host really is unstable at
+   the evidence scale too, and every interval in C.5 has to be read as a
+   noise-dominated bound rather than a measurement. C.5 reports the outcome.
+
+3. **Amendment 1's abandonment gate was mis-scaled, which is why it was retired
+   unexercised.** Its threshold was 2 x 15 us/step - a number taken from the
+   evidence-scale ledger - but it was to be applied to iterate-scale
+   measurements whose own control noise is 8x larger. No candidate of the size
+   this round is chasing could ever have cleared it, so the gate could only ever
+   have returned "abandon", regardless of the truth. Amendment 2 replaced it
+   with a contemporaneous-control evidence campaign for exactly this reason.
+
+**A stale-score trap, recorded alongside B.6.** `--local-iterate` writes
+`score.local-iterate.json`; `--local-submit` writes `score.json`
+(`benchmark.sh:138-141`). A script that runs `--local-iterate` and then reads
+`score.json` does not fail - it silently reads whatever `--local-submit` left on
+disk earlier, possibly hours before and from a different arm. I hit this while
+smoke-testing the provenance line: a fresh iterate run appeared to report
+0.008966 s/token, which was in fact a 15-hour-old submit score. The triage
+runner sidesteps it by parsing the run log rather than the JSON; the evidence
+runner deletes `score.json` before every run and treats a missing file as fatal
+(non-fatal only for the deliberately incorrect probe arm), so a stale read
+cannot enter the paired table.
+
+**A second trap, found in my own instrument while the campaign ran.** The paired
+runner lifts the correctness flag with `jq -r '.metrics.passed_correctness //
+"NA"'`. jq's `//` alternative operator fires on `false` as well as on `null`, so
+a genuine `passed_correctness: false` is written into the table as `NA`. The
+correctness column is therefore ambiguous between "the harness said false" and
+"the field was absent" — which matters here precisely because one arm is
+*required* to say false. Rather than edit the runner mid-campaign (that would
+have split the table across two instrument versions), the ambiguity is resolved
+after the fact by `research/maple-nezuko-r106b-verify-evidence-rows.sh`, which
+re-derives, from each per-run log independently of the JSON, the announced Metal
+kernel name, the harness's own `checked timing complete passed=` flag and its own
+`decode_seconds_per_token`, and fails if any of the three disagrees with the
+table. A table row is admissible only in the combinations `true`/`true` and
+`NA`/`false`; a table `NA` paired with a log `true` would mean a control or
+candidate run had silently lost its score, and aborts the audit. The audit output
+is quoted in F.3.
+
+## C.4 A weakness in the design of record, and the audit that measures it
+
+This subsection is written **after the first block of four runs had landed and
+before any of the remaining twenty were read**, so it is a statement about the
+design and not a reaction to a result. It is here because it is the design's most
+serious flaw and I would rather name it than have a reviewer find it.
+
+Amendment 2 fixes the control at **position 1 of every block** and permutes
+K/H/P over positions 2, 3 and 4. That guarantees each candidate a
+contemporaneous control, which was the point. But it also means the control is
+**never measured at positions 2-4**, so anything systematic in run order —
+the host warming across a block, a page cache filling, any monotone drift the
+40 °C cool gate does not fully absorb — lands entirely on the candidates and
+pushes **every** paired difference in the same direction. A design that pairs a
+first-position control against later-position candidates cannot, by itself,
+distinguish "the candidate is slower" from "later runs in a block are slower".
+
+The design does make the confound measurable, and that is the redeeming
+property. Within the candidate positions, **arm and position are orthogonal**:
+each of K, H and P is run exactly twice at each of positions 2, 3 and 4. So
+
+- a position effect can be estimated from the **18 candidate runs alone**, with
+  no help from the control and no contamination by arm; and
+- an arm contrast adjusted for block and for a linear position trend can be
+  fitted over all 24 runs and compared against the preregistered contrast.
+
+`research/maple-nezuko-r106b-position-audit.py` does both, and also reports the
+scatter of the six control replicates (the C.3 prediction test) and the interval
+half-width the campaign actually achieved. Two rules of reading, fixed here:
+
+1. **The preregistered dof-5 paired contrast remains the result of record.** The
+   block + position + arm fit is secondary, was not preregistered, and is
+   reported as a diagnostic on the primary — never as a substitute for it.
+2. If the position slope is small relative to the paired deltas, the primary
+   stands as measured. If it is comparable to them, then the primary's deltas
+   are **upper bounds on candidate slowdown** and lower bounds on any candidate
+   speedup, and the correct conclusion is that the design, not the candidate,
+   is what the campaign measured. Either way the round's verdict is stated in
+   those terms rather than silently taking the more flattering number.
+
+A properly balanced design would have run C at every position too — blocks of
+four drawn from a Latin square over {C, K, H, P} rather than C-first blocks.
+That costs nothing extra in runs and is the design any successor should use on
+this harness; it is written into the Stage C notes in §G for that reason.
+
+## C.5 Results
+
+<!-- FILLED FROM /tmp/r106b-packred-evidence.tsv -->
 
 ---
 
@@ -316,7 +460,7 @@ which way it went.
 ## D.1 Geometry (Rule 77)
 
 All fields read directly off the dispatch site `lagunaSlidingFusedAttention`,
-`LagunaRuntimeModel.swift:2479-2548`, with `heads = 64`, `kvHeads = 8`,
+`LagunaRuntimeModel.swift:2496-2566` (call site `:6743`), with `heads = 64`, `kvHeads = 8`,
 `headDim = 128`, `window = 512`.
 
 | quantity | C (control) | K (PACKRED) | H4 (refuted) |
@@ -329,7 +473,7 @@ All fields read directly off the dispatch site `lagunaSlidingFusedAttention`,
 | query heads per threadgroup | 2 | 2 | 4 |
 | `outputShapes` | `[[1, 64, 1, 128]]` | `[[1, 64, 1, 128]]` | `[[1, 64, 1, 128]]` |
 | `outputDTypes` | `.bfloat16` | `.bfloat16` | `.bfloat16` |
-| threadgroup memory | unchanged | **unchanged** | unchanged |
+| threadgroup memory | **18432 B** | **18432 B (unchanged)** | larger (six `head_dim` staging rows instead of four, `4 * BN` score scratch instead of `2 * BN`) |
 | dispatches per decode step | 30 | **30** | 30 |
 | KV bytes requested per call | 8 MiB (2 MiB unique) | **8 MiB (2 MiB unique)** | 4 MiB (2 MiB unique) |
 
@@ -355,16 +499,264 @@ from the environment:
 
 | Swift binding | Metal name | selection gate | decl line |
 |---|---|---|---|
-| `lagunaSlidingFusedAttentionKernel` | `laguna_sliding_fused_attn_ring_v1` | none — default | 2037 |
-| `lagunaSlidingFusedAttentionPackredKernel` | `laguna_sliding_fused_attn_ring_packred_v1` | `DARKBLOOM_FUSED_SLIDING_ATTN_PACKRED=1` | 2051 |
-| `lagunaSlidingFusedAttentionNoReduceKernel` | `laguna_sliding_fused_attn_ring_noreduce_v1` | `DARKBLOOM_FUSED_SLIDING_ATTN_NOREDUCE=1` | 2065 |
-| `lagunaSlidingFusedAttentionH4Kernel` | `laguna_sliding_fused_attn_ring_h4_v1` | `DARKBLOOM_FUSED_SLIDING_ATTN_H4=1` | 2079 |
+| `lagunaSlidingFusedAttentionKernel` | `laguna_sliding_fused_attn_ring_v1` | none — default | 2052 |
+| `lagunaSlidingFusedAttentionPackredKernel` | `laguna_sliding_fused_attn_ring_packred_v1` | `DARKBLOOM_FUSED_SLIDING_ATTN_PACKRED=1` | 2066 |
+| `lagunaSlidingFusedAttentionNoReduceKernel` | `laguna_sliding_fused_attn_ring_noreduce_v1` | `DARKBLOOM_FUSED_SLIDING_ATTN_NOREDUCE=1` | 2081 |
+| `lagunaSlidingFusedAttentionH4Kernel` | `laguna_sliding_fused_attn_ring_h4_v1` | `DARKBLOOM_FUSED_SLIDING_ATTN_H4=1` | 2095 |
 
-Gates are read once each at lines 1505 / 1515 / 1527 / 1535; the selection ladder
-is at 2515-2537. Because all four arms are compiled into **one binary** and
+Gates are read once each at lines 1504 / 1514 / 1526 / 1534; the selection ladder
+is at 2532-2554 (the H4 early branch at 2532, the NOREDUCE/PACKRED/control
+ternary at 2549-2554). Because all four arms are compiled into **one binary** and
 chosen at run time, a paired campaign alternates arms *without rebuilding*, so
 no arm can be confounded by a differing compile — which is the property that
-makes the interleaving in §C meaningful. `DARKBLOOM_TRACE_FUSION=1` additionally
-emits `sliding fused attention` (all arms) and `sliding fused attention h4`
-(H4 only), so the taken path is visible in the run log.
+makes the interleaving in §C meaningful.
 
+**Provenance, not inference.** One binary chosen by environment variable has a
+matching failure mode: if the gate name were mistyped, or a stale binary were
+executed, the run would fall through to the control and the campaign would
+record a paired difference of ~0 under the candidate's label — a fabricated null
+that looks exactly like a real one. Arm K is the dangerous case, because it is
+identical to the control in geometry (D.1) *and* in output (§F), so nothing
+observable distinguishes it. Each of the four kernels above is a lazily
+initialised Swift global referenced from exactly one arm of the ladder, so its
+one-shot initialiser runs if and only if that arm was taken. Each therefore
+announces its own MLX kernel name once, on stderr, at construction:
+
+```
+mlxfast: sliding fused attn kernel: laguna_sliding_fused_attn_ring_packred_v1
+```
+
+The write is inside the initialiser, never in the decode loop, so it costs
+nothing per dispatch and cannot perturb a timed phase
+(`lagunaSlidingArmNoted`, line 2046). The evidence runner greps that line out of
+every run log, records it in the table's `kernel` column, and **aborts the whole
+campaign** on any disagreement with the arm it believes it exported
+(`maple-nezuko-r106b-packred-paired.sh`, `expected_kernel` / `observed_kernel`).
+Two smoke runs confirmed the discrimination before the campaign started:
+unset gates named `laguna_sliding_fused_attn_ring_v1`, and
+`DARKBLOOM_FUSED_SLIDING_ATTN_PACKRED=1` named
+`laguna_sliding_fused_attn_ring_packred_v1`.
+
+`DARKBLOOM_TRACE_FUSION=1` additionally emits `sliding fused attention` (all
+arms) and `sliding fused attention h4` (H4 only), but that path is deliberately
+*not* the campaign's provenance evidence: it is off by default and it never
+distinguished PACKRED from the control.
+
+---
+
+# §E — surface accounting (Rule 75)
+
+Every number below is printed by `research/maple-nezuko-r106b-surface.sh`, so
+this section is reproducible rather than transcribed. It is quoted at commit
+**`86539cf9c2b28013f0b21da9b4d542da4022e99e`**, which is the commit the campaign
+binary was built from. Commits after it touch `research/` only, so the edited
+source's digest below is the digest of the binary that produced every number in
+§C.5.
+
+## E.1 Edited-source identity
+
+Exactly **one** file under `Sources/` is touched.
+
+| | `Sources/MLXFastModel/LagunaRuntimeModel.swift` |
+|---|---|
+| base `446fe9875d1f95b1216628b5809a99da844e5c79` sha256 | `a736b50f66b08b9004a807ff38226aaeb95ba836e6e833b51a8e862466d850c4` |
+| base bytes | 384245 |
+| candidate `86539cf9` sha256 | `c11c453b6b9e4f3f0bebb1c11e43ee48595314a7000c4eda10412998d6269aed` |
+| candidate bytes | **410245** |
+| per-file cap | 524288 |
+| headroom under the per-file cap | 114043 B (78.2 % of cap used) |
+| diff vs base | 627 insertions, 36 deletions, 1 file |
+
+The 26000-byte growth is dominated by three whole extra kernel spellings (the
+packed candidate, the refuted H4 variant and the deliberately incorrect probe)
+plus the macro headers they select between, all default-off. §C.5's verdict
+decides whether any of it is proposed for anyone else's tree; if the verdict is
+that none of it is, the bytes are the price of the measurement, not of a
+shipped change.
+
+## E.2 Editable-surface budget
+
+`senpai/check-editable-budget.sh 446fe9875d1f95b1216628b5809a99da844e5c79` at the
+same commit:
+
+```
+editable budget OK: current=2706208/3000000 bytes headroom=293792
+growth=26000/262144 files=142 (file count is diagnostic only; base=142)
+```
+
+- **current** 2706208 of 3000000 → 293792 B headroom on the whole editable
+  surface.
+- **growth** 26000 of 262144 → **9.9 %** of the growth allowance consumed, all
+  of it in the one file above.
+- **files** 142, unchanged from base: no new source file was added. Everything
+  new in `research/` is documentation and instrumentation, which the budget
+  tool does not count against the editable surface.
+
+---
+
+# §F — correctness
+
+## F.1 What each arm is required to prove
+
+| arm | requirement | why that bar |
+|---|---|---|
+| C (control) | golden set passes on every run | if the control ever failed, the whole paired table would be measuring a broken tree |
+| K (PACKRED) | golden set passes **and** the zero-tolerance upstream-equivalence oracle reports bit-exactness | PACKRED changes the *order* of a floating-point reduction, so it is not exact by construction; it must be shown exact, or it needs frieren's #597 margin certificate before anyone may ship it |
+| H (H4) | golden set passes; equivalence oracle run for completeness | H4 changes the reduction tree width as well, same argument |
+| P (NOREDUCE) | **required to fail** | P deletes the row-loop cross-lane reduction, so its output is arithmetically wrong by construction. A `passed_correctness = true` from arm P would mean the gate had not been taken and the whole attribution would be void (§D.2). In the table P's flag appears as `NA` for the jq reason in §C.3; the audit script confirms the underlying log said `false` |
+
+Arm P's failure is therefore not a defect in the campaign, it is the campaign's
+positive control: it is the only run in the table whose correctness result proves
+that a gate-selected kernel swap actually reached the GPU.
+
+## F.2 The bit-exactness question for PACKRED
+
+`simd_shuffle_xor` butterflies are summed in a fixed tree. Packing two rows into a
+`float2` and reducing both in the same butterfly does not change *which* partial
+sums are added, nor in what order — each component of the packed vector follows
+exactly the tree the scalar version followed. The prediction is therefore
+bit-exactness, not merely closeness, and the oracle is run at
+`MLXFAST_LAGUNA_EQUIVALENCE_MAX_ABS_ERROR=0` so that any deviation at all is a
+failure rather than a tolerance question.
+
+## F.3 Results
+
+<!-- FILLED FROM research/maple-nezuko-r106b-packred-exactness.sh -->
+
+## F.4 Golden-set caveat on this host
+
+The public golden tensors were generated on an M5. This host is an M4 Pro, so a
+near-tie in an argmax comparison can in principle differ without any code being
+wrong. That caveat does **not** apply to the arm P failure reported above,
+because the interleaved C and K runs on the same host and in the same session
+passed: the host is producing golden-conformant output for every arm whose
+arithmetic is unchanged, and only the arm whose arithmetic was deliberately
+broken fails.
+
+---
+
+# §G — handoff
+
+## G.1 What is being handed to whom
+
+<!-- FILLED AFTER §C.5 -->
+
+## G.2 The channel problem, stated because it changes what a reader should expect
+
+This round's charge asks for the Stage C handoff comment id on PR #625. I could
+not obtain one. The role has **no GitHub write credential**: `gh` is
+unauthenticated, there is no `GH_TOKEN` or PAT in the environment, and the
+`respond_to_human_issue` tool refuses a pull request ("human messages must use an
+issue, not a pull request"). Two channels remain, and both are used:
+
+1. this file and the rest of `research/`, which are pushed on the assignment
+   branch and are therefore readable by fern and by the advisor; and
+2. the typed `submit_experiment_result` payload, whose summary carries the
+   verdict, the labels and the pointers.
+
+So §G's "handoff comment id" is **unavailable, not omitted**. Anything that was
+meant to reach #616 or #625 as a comment is instead written here, including:
+
+- the ladder-kill notice: the runaway r104-A ladder job
+  `1ad95928-4caa-491d-8964-f560e5fa88f5` is **dead** (exit -15, killed while
+  polling for leg 05 after legs 02/03/04 had landed) and no stray processes of
+  it remain on this host; and
+- the build-load notice: this round ran 24 x `--local-submit` plus 12 triage runs
+  plus an equivalence pass on the shared host, roughly two and a half hours of
+  continuous GPU occupancy, which is worth knowing for anyone timing an
+  integration build in the same window.
+
+## G.3 Stage C proposal (described and costed, NOT implemented): wave quantisation
+
+Amendment 1 §6 proposed `P-ROWLANE` — pushing the packed-reduction idea further
+by keeping the row loop's partial sums in lanes. Arm P kills that whole family:
+with the row-loop cross-lane reduction **deleted outright** the kernel is not
+measurably faster, so no lever that merely makes the reduction cheaper can win
+anything. `P-ROWLANE` is withdrawn. What follows replaces it.
+
+**The observation.** Every sliding-attention dispatch launches **32
+threadgroups** of 1024 threads onto a **20-GPU-core** M4 Pro. Each threadgroup
+asks for 18432 B of threadgroup memory, which is more than half of a core's
+32 KiB budget, so two threadgroups cannot co-reside on one core: the dispatch
+occupies **one core-slot per threadgroup**, and the wall time of the dispatch is
+
+```
+elapsed  =  ceil(nTG / 20)  x  (work per threadgroup)
+```
+
+With nTG = 32 that is `ceil(1.6) = 2` slots to do 1.6 slots of work, so **20 % of
+the kernel's own elapsed time is cores standing idle in the tail of the second
+wave**, not work.
+
+**The model already has one successful out-of-sample prediction.** Substituting
+H4's geometry: nTG = 16 threadgroups, each doing twice the work,
+`ceil(16/20) = 1` slot x 2t = **2t** — identical to the control's `2 x t = 2t`.
+The model therefore predicted H4's measured null *before* being fitted to it,
+and it predicts the same null for every power-of-two head split, because
+`ceil(64/(20h)) x h` is 2 for h = 1, 2 and 4 alike. That is why §C's H4 arm is not
+evidence against the request-side byte-redundancy hypothesis: the geometry it
+chose could not have moved the clock whatever the bytes did. Any future
+heads-per-threadgroup experiment on this tree will also return null for the same
+reason, and should not be run.
+
+**The only geometry that breaks the tie.** The waste vanishes when nTG is an
+exact multiple of 20. Writing nTG = (64/h) x s for h query heads per threadgroup
+and s splits of the 512-key window, `nTG ≡ 0 (mod 20)` needs `s ≡ 0 (mod 5)`.
+The cheapest solution is
+
+| | control | proposal |
+|---|---|---|
+| query heads per threadgroup | 2 | **8** |
+| window splits per head group | 1 | **5** (chunks of 103/103/102/102/102 keys) |
+| threadgroups per dispatch | 32 | **40** |
+| core-slots used on 20 cores | 2 (for 1.6 of work) | **2 (for 2.0 of work)** |
+
+**The prize, and why it is not a headline.** Removing the idle tail is worth up
+to 20 % of the sliding-attention kernel's own time. That kernel is a
+**kernel-local** 670 µs/step figure (22.34 µs/call x 30 calls), so 20 % of it is
+≈ **134 µs/step**, or ≈ 2.0 % of `cs` if — and only if — kernel time converts
+one-for-one into decode step time. Rule 98.9 forbids headlining that: it is an
+upper bound on a kernel-local quantity, and this round's own arm P is the standing
+warning that a kernel-local saving can convert to exactly nothing. It is offered
+as the reason to *run* the experiment, not as a claim.
+
+**The cost, stated honestly.** Five window chunks per head group must be combined
+into one softmax result. Two ways:
+
+- *Second dispatch* (flash-decoding style combine). Simple and correct, but
+  Rule 65 charges **+2.3403 µs/step per added dispatch**; one combine per
+  sliding-attention dispatch is +30 dispatches = **+70.2 µs/step**, which eats
+  more than half the prize before anything is measured. Net ≈ +64 µs/step.
+- *Single dispatch with a device-memory scratch* and an atomic arrival counter,
+  the last threadgroup of each head group performing the combine. No dispatch
+  charge, but it needs a scratch buffer, an atomic, and a correctness argument
+  about ordering — and it changes the request pattern, so it must be measured
+  against a contemporaneous control like everything else here.
+
+**What a Stage C owner should do first.** Confirm the residency premise before
+building anything: the whole model rests on one threadgroup per core, which is
+inferred from 18432 B against a 32 KiB budget, not measured. If two threadgroups
+do co-reside, `nTG/20` is not the right denominator and the prize evaporates. A
+counter-based occupancy probe, or simply timing a variant with the threadgroup
+memory dropped below 16 KiB, settles it for far less than the cost of the
+combine.
+
+## G.4 Two measurement notes any successor on this harness should take
+
+Neither of these is about the sliding kernel; both cost a round to learn.
+
+1. **Use a Latin square, not a control-first block.** This round's blocks put the
+   control at position 1 and permuted the candidates over positions 2-4 (§C.1).
+   That leaves run-order drift entirely on the candidates and is exactly the
+   confound §C.4 had to audit after the fact. Drawing each block of four as a row
+   of a Latin square over {control, cand1, cand2, cand3} costs **no extra runs**
+   and makes position orthogonal to arm for the control as well, so the paired
+   contrast needs no adjustment at all.
+2. **Never mix `--local-iterate` and `--local-submit` numbers.** They differ by
+   1.44x on this tree, for the mechanical reason derived in §C.3: the reported
+   `decode_seconds_per_token` carries a fixed ~0.5766 s per-run term amortised
+   over the mode's decode-step count (128 vs 1023). The same arithmetic says a
+   triage screen at N = 128 is **8x noisier** than the evidence path, so a gate
+   whose threshold was computed on evidence-scale noise can never be cleared by
+   triage-scale data. Compute the screen's threshold in the screen's own units,
+   or do not screen.

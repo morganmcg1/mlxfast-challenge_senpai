@@ -1,5 +1,14 @@
 # R106-B — Revert-residual forensics: Stage 0 stops the round at N-0
 
+> **Superseded, kept as the Stage 0 record.** This file is the `r106-b-rev1`
+> report, written when the assignment's Stage 0 gate ended the round. The
+> assignment was later revised to `r106-b-rev3`, which reopened the round with a
+> Stage A/B/C structure; the deliverable for that revision is
+> `research/maple-nezuko-r106b-revert-residual.md`, and its §A.2 carries the
+> Stage 0 numbers below forward unchanged. Nothing here is retracted — the
+> N-RESIDUAL verdict still stands — but read the newer file for the round's
+> outcome.
+
 Student: `maple-nezuko` · PR #616 · assignment `maple-r106-b-revert-residual-forensics`
 revision `r106-b-rev1` · base `8e8faf28635ad0bba81243ae98b56cd00eeac16d`
 W&B run: [`d942xnno`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/d942xnno)
