@@ -431,6 +431,131 @@
       "expected_error_code": "EXTERNAL_TRUST_PIN_REQUIRED"
     }
   ],
+  "filesystem_controls": [
+    {
+      "id": "reject-missing-candidate-root",
+      "scope": "candidate_root",
+      "operation": "missing",
+      "expected_errors": [
+        {"code": "SURFACE_ROOT_MISSING", "path": "$candidate_root"},
+        {"code": "SURFACE_LISTED_FILE_MISSING", "path": "$candidate_root.Sources/MLXFastModel/Synthetic.swift"},
+        {"code": "SURFACE_FILE_MISSING", "path": "$trusted_context.identity.submitted_surface.files[0].path"}
+      ]
+    },
+    {
+      "id": "reject-symlinked-candidate-root",
+      "scope": "candidate_root",
+      "operation": "symlink",
+      "expected_errors": [{"code": "SURFACE_ROOT_SYMLINK", "path": "$candidate_root"}]
+    },
+    {
+      "id": "reject-regular-candidate-root",
+      "scope": "candidate_root",
+      "operation": "regular",
+      "expected_errors": [{"code": "SURFACE_ROOT_NOT_DIRECTORY", "path": "$candidate_root"}]
+    },
+    {
+      "id": "reject-fifo-candidate-root",
+      "scope": "candidate_root",
+      "operation": "fifo",
+      "expected_errors": [{"code": "SURFACE_ROOT_NOT_DIRECTORY", "path": "$candidate_root"}]
+    },
+    {
+      "id": "reject-missing-artifact-root",
+      "scope": "artifact_root",
+      "operation": "missing",
+      "expected_errors": [{"code": "ARTIFACT_ROOT_MISSING", "path": "$artifact_root"}]
+    },
+    {
+      "id": "reject-symlinked-artifact-root",
+      "scope": "artifact_root",
+      "operation": "symlink",
+      "expected_errors": [{"code": "ARTIFACT_ROOT_SYMLINK", "path": "$artifact_root"}]
+    },
+    {
+      "id": "reject-regular-artifact-root",
+      "scope": "artifact_root",
+      "operation": "regular",
+      "expected_errors": [{"code": "ARTIFACT_ROOT_NOT_DIRECTORY", "path": "$artifact_root"}]
+    },
+    {
+      "id": "reject-fifo-artifact-root",
+      "scope": "artifact_root",
+      "operation": "fifo",
+      "expected_errors": [{"code": "ARTIFACT_ROOT_NOT_DIRECTORY", "path": "$artifact_root"}]
+    },
+    {
+      "id": "reject-directory-candidate-entry",
+      "scope": "candidate_entry",
+      "operation": "directory",
+      "expected_errors": [
+        {"code": "SURFACE_LISTED_FILE_MISSING", "path": "$candidate_root.Sources/MLXFastModel/Synthetic.swift"},
+        {"code": "SURFACE_FILE_NOT_REGULAR", "path": "$trusted_context.identity.submitted_surface.files[0].path"}
+      ]
+    },
+    {
+      "id": "reject-fifo-candidate-entry",
+      "scope": "candidate_entry",
+      "operation": "fifo",
+      "expected_errors": [
+        {"code": "SURFACE_FILE_NOT_REGULAR", "path": "$candidate_root.Sources/MLXFastModel/Synthetic.swift"},
+        {"code": "SURFACE_LISTED_FILE_MISSING", "path": "$candidate_root.Sources/MLXFastModel/Synthetic.swift"},
+        {"code": "SURFACE_FILE_NOT_REGULAR", "path": "$trusted_context.identity.submitted_surface.files[0].path"}
+      ]
+    },
+    {
+      "id": "reject-symlinked-candidate-entry",
+      "scope": "candidate_entry",
+      "operation": "symlink",
+      "expected_errors": [
+        {"code": "SURFACE_FILE_SYMLINK", "path": "$candidate_root.Sources/MLXFastModel/Synthetic.swift"},
+        {"code": "SURFACE_LISTED_FILE_MISSING", "path": "$candidate_root.Sources/MLXFastModel/Synthetic.swift"},
+        {"code": "SURFACE_FILE_SYMLINK", "path": "$trusted_context.identity.submitted_surface.files[0].path"}
+      ]
+    },
+    {
+      "id": "reject-directory-artifact-entry",
+      "scope": "artifact_entry",
+      "operation": "directory",
+      "expected_errors": [{"code": "ARTIFACT_NOT_REGULAR", "path": "$.artifact_manifest[0].path"}]
+    },
+    {
+      "id": "reject-fifo-artifact-entry",
+      "scope": "artifact_entry",
+      "operation": "fifo",
+      "expected_errors": [{"code": "ARTIFACT_NOT_REGULAR", "path": "$.artifact_manifest[0].path"}]
+    },
+    {
+      "id": "reject-symlinked-artifact-entry",
+      "scope": "artifact_entry",
+      "operation": "symlink",
+      "expected_errors": [{"code": "ARTIFACT_SYMLINK", "path": "$.artifact_manifest[0].path"}]
+    },
+    {
+      "id": "reject-disappearing-candidate-entry",
+      "scope": "candidate_transition",
+      "operation": "disappears",
+      "expected_errors": [{"code": "SURFACE_FILE_DISAPPEARED", "path": "$trusted_context.identity.submitted_surface.files[0].path"}]
+    },
+    {
+      "id": "reject-unreadable-candidate-entry",
+      "scope": "candidate_transition",
+      "operation": "unreadable",
+      "expected_errors": [{"code": "SURFACE_FILE_UNREADABLE", "path": "$trusted_context.identity.submitted_surface.files[0].path"}]
+    },
+    {
+      "id": "reject-disappearing-artifact-entry",
+      "scope": "artifact_transition",
+      "operation": "disappears",
+      "expected_errors": [{"code": "ARTIFACT_DISAPPEARED", "path": "$.artifact_manifest[0].path"}]
+    },
+    {
+      "id": "reject-unreadable-artifact-entry",
+      "scope": "artifact_transition",
+      "operation": "unreadable",
+      "expected_errors": [{"code": "ARTIFACT_UNREADABLE", "path": "$.artifact_manifest[0].path"}]
+    }
+  ],
   "candidate_files": [
     {
       "path": "Sources/MLXFastModel/Synthetic.swift",

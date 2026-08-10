@@ -2,11 +2,13 @@
 
 import argparse
 import copy
+import errno
 import hashlib
 import json
 import os
 import posixpath
 import re
+import shutil
 import stat
 import tempfile
 from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN, localcontext
@@ -272,17 +274,44 @@ def path_is_safe(relative_path):
     )
 
 
-def read_regular_file(root, relative, path, prefix, errors):
+class NonRegularFileError(OSError):
+    pass
+
+
+def read_relative_regular_file(root, relative):
+    common_flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    directory_flags = common_flags | nofollow | getattr(os, "O_DIRECTORY", 0)
+    file_flags = common_flags | nofollow
+    descriptors = []
+    try:
+        current = os.open(root, directory_flags)
+        descriptors.append(current)
+        parts = PurePosixPath(relative).parts
+        for part in parts[:-1]:
+            current = os.open(part, directory_flags, dir_fd=current)
+            descriptors.append(current)
+        descriptor = os.open(parts[-1], file_flags, dir_fd=current)
+        descriptors.append(descriptor)
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise NonRegularFileError(errno.EINVAL, "file must be regular", relative)
+        chunks = []
+        while True:
+            chunk = os.read(descriptor, 1024 * 1024)
+            if not chunk:
+                return b"".join(chunks)
+            chunks.append(chunk)
+    finally:
+        for descriptor in reversed(descriptors):
+            os.close(descriptor)
+
+
+def read_regular_file(root, relative, path, prefix, errors, byte_reader=read_relative_regular_file):
     if not path_is_safe(relative):
         errors.append(issue(f"{prefix}_PATH_ESCAPE", path, "path must be normalized, relative, and contained"))
         return None
-    root = root.resolve()
+    root = Path(root)
     target = root.joinpath(*PurePosixPath(relative).parts)
-    try:
-        target.resolve(strict=False).relative_to(root)
-    except ValueError:
-        errors.append(issue(f"{prefix}_PATH_ESCAPE", path, "path resolves outside its trusted root"))
-        return None
     current = root
     for part in PurePosixPath(relative).parts:
         current = current / part
@@ -290,18 +319,63 @@ def read_regular_file(root, relative, path, prefix, errors):
             mode = os.lstat(current).st_mode
         except FileNotFoundError:
             break
+        except PermissionError:
+            errors.append(issue(f"{prefix}_UNREADABLE", path, "file could not be inspected due to permissions"))
+            return None
+        except OSError:
+            errors.append(issue(f"{prefix}_INSPECTION_FAILED", path, "file could not be inspected"))
+            return None
         if stat.S_ISLNK(mode):
-            errors.append(issue(f"{prefix}_SYMLINK", path, "symlinks are forbidden"))
+            try:
+                resolved_root = root.resolve(strict=True)
+                resolved_target = target.resolve(strict=False)
+            except PermissionError:
+                errors.append(issue(f"{prefix}_UNREADABLE", path, "symlink target could not be inspected due to permissions"))
+            except OSError:
+                errors.append(issue(f"{prefix}_INSPECTION_FAILED", path, "symlink target could not be inspected"))
+            except RuntimeError:
+                errors.append(issue(f"{prefix}_SYMLINK", path, "symlinks are forbidden"))
+            else:
+                try:
+                    resolved_target.relative_to(resolved_root)
+                except ValueError:
+                    errors.append(issue(f"{prefix}_PATH_ESCAPE", path, "path resolves outside its trusted root"))
+                else:
+                    errors.append(issue(f"{prefix}_SYMLINK", path, "symlinks are forbidden"))
             return None
     try:
         mode = os.lstat(target).st_mode
     except FileNotFoundError:
         errors.append(issue(f"{prefix}_MISSING", path, "file does not exist"))
         return None
+    except PermissionError:
+        errors.append(issue(f"{prefix}_UNREADABLE", path, "file could not be inspected due to permissions"))
+        return None
+    except NotADirectoryError:
+        errors.append(issue(f"{prefix}_NOT_REGULAR", path, "file must be regular"))
+        return None
+    except OSError:
+        errors.append(issue(f"{prefix}_INSPECTION_FAILED", path, "file could not be inspected"))
+        return None
     if not stat.S_ISREG(mode):
         errors.append(issue(f"{prefix}_NOT_REGULAR", path, "file must be regular"))
         return None
-    return target.read_bytes()
+    try:
+        return byte_reader(root, relative)
+    except FileNotFoundError:
+        errors.append(issue(f"{prefix}_DISAPPEARED", path, "file disappeared before its bytes could be read"))
+    except PermissionError:
+        errors.append(issue(f"{prefix}_UNREADABLE", path, "file bytes could not be read due to permissions"))
+    except NonRegularFileError:
+        errors.append(issue(f"{prefix}_NOT_REGULAR", path, "file must remain regular while being read"))
+    except OSError as error:
+        if error.errno == errno.ELOOP:
+            errors.append(issue(f"{prefix}_SYMLINK", path, "symlinks are forbidden"))
+        elif error.errno in {errno.ENOTDIR, errno.EISDIR, errno.ENXIO}:
+            errors.append(issue(f"{prefix}_NOT_REGULAR", path, "file must remain regular while being read"))
+        else:
+            errors.append(issue(f"{prefix}_READ_FAILED", path, "file bytes could not be read"))
+    return None
 
 
 def valid_sha256(value):
@@ -347,19 +421,32 @@ def check_trusted_context(bundle, trusted_context, trusted_bytes, expected_conte
         errors.append(issue("TRUSTED_ARTIFACT_DUPLICATE_ROLE", "$trusted_context.artifact_pins", "trusted artifact roles must be unique"))
 
 
-def collect_candidate_surface(candidate_root, errors):
-    root = Path(candidate_root)
+def check_directory_root(root, path, prefix, noun, errors):
+    root = Path(root)
     try:
         root_mode = os.lstat(root).st_mode
     except FileNotFoundError:
-        errors.append(issue("SURFACE_ROOT_MISSING", "$candidate_root", "candidate root does not exist"))
-        return set()
+        errors.append(issue(f"{prefix}_ROOT_MISSING", path, f"{noun} root does not exist"))
+        return None
+    except PermissionError:
+        errors.append(issue(f"{prefix}_ROOT_UNREADABLE", path, f"{noun} root could not be inspected due to permissions"))
+        return None
+    except OSError:
+        errors.append(issue(f"{prefix}_ROOT_INSPECTION_FAILED", path, f"{noun} root could not be inspected"))
+        return None
     if stat.S_ISLNK(root_mode):
-        errors.append(issue("SURFACE_ROOT_SYMLINK", "$candidate_root", "candidate root must not be a symlink"))
-        return set()
+        errors.append(issue(f"{prefix}_ROOT_SYMLINK", path, f"{noun} root must not be a symlink"))
+        return None
     if not stat.S_ISDIR(root_mode):
-        errors.append(issue("SURFACE_ROOT_NOT_DIRECTORY", "$candidate_root", "candidate root must be a directory"))
-        return set()
+        errors.append(issue(f"{prefix}_ROOT_NOT_DIRECTORY", path, f"{noun} root must be a directory"))
+        return None
+    return root
+
+
+def collect_candidate_surface(candidate_root, errors):
+    root = check_directory_root(candidate_root, "$candidate_root", "SURFACE", "candidate", errors)
+    if root is None:
+        return None
 
     regular_files = set()
 
@@ -390,17 +477,25 @@ def collect_candidate_surface(candidate_root, errors):
     return regular_files
 
 
-def check_candidate_surface(trusted_context, candidate_root, errors):
+def check_candidate_surface(trusted_context, candidate_root, errors, byte_reader=read_relative_regular_file):
     files = trusted_context["identity"]["submitted_surface"]["files"]
     expected_paths = {entry["path"] for entry in files}
+    initial_error_count = len(errors)
     actual_paths = collect_candidate_surface(candidate_root, errors)
+    if actual_paths is None:
+        if any(error["code"] == "SURFACE_ROOT_MISSING" for error in errors[initial_error_count:]):
+            for index, entry in enumerate(files):
+                relative = entry["path"]
+                errors.append(issue("SURFACE_LISTED_FILE_MISSING", f"$candidate_root.{relative}", "trusted submitted-surface file is absent from the physical candidate root"))
+                errors.append(issue("SURFACE_FILE_MISSING", f"$trusted_context.identity.submitted_surface.files[{index}].path", "file does not exist"))
+        return
     for relative in sorted(expected_paths - actual_paths):
         errors.append(issue("SURFACE_LISTED_FILE_MISSING", f"$candidate_root.{relative}", "trusted submitted-surface file is absent from the physical candidate root"))
     for relative in sorted(actual_paths - expected_paths):
         errors.append(issue("SURFACE_UNLISTED_FILE", f"$candidate_root.{relative}", "physical candidate root contains a regular file absent from the trusted submitted surface"))
     for index, entry in enumerate(files):
         path = f"$trusted_context.identity.submitted_surface.files[{index}]"
-        data = read_regular_file(candidate_root, entry["path"], f"{path}.path", "SURFACE_FILE", errors)
+        data = read_regular_file(candidate_root, entry["path"], f"{path}.path", "SURFACE_FILE", errors, byte_reader)
         if data is None:
             continue
         if len(data) != entry["size"]:
@@ -409,7 +504,10 @@ def check_candidate_surface(trusted_context, candidate_root, errors):
             errors.append(issue("SURFACE_FILE_HASH_MISMATCH", f"{path}.sha256", "actual candidate file bytes disagree with trusted input"))
 
 
-def check_artifacts(bundle, artifact_root, join, trusted_context, checker, errors):
+def check_artifacts(bundle, artifact_root, join, trusted_context, checker, errors, byte_reader=read_relative_regular_file):
+    artifact_root = check_directory_root(artifact_root, "$artifact_root", "ARTIFACT", "artifact", errors)
+    if artifact_root is None:
+        return {}
     manifests = bundle["artifact_manifest"]
     roles = [entry["role"] for entry in manifests]
     paths = [entry["path"] for entry in manifests]
@@ -443,7 +541,7 @@ def check_artifacts(bundle, artifact_root, join, trusted_context, checker, error
             actual_pin = {key: artifact[key] for key in ("role", "path", "size", "sha256")}
             if actual_pin != pin:
                 errors.append(issue("TRUSTED_ARTIFACT_MISMATCH", path, "manifest disagrees with separately pinned artifact identity"))
-        data = read_regular_file(artifact_root, artifact["path"], f"{path}.path", "ARTIFACT", errors)
+        data = read_regular_file(artifact_root, artifact["path"], f"{path}.path", "ARTIFACT", errors, byte_reader)
         if data is None:
             continue
         if len(data) != artifact["size"]:
@@ -672,7 +770,16 @@ def classify_and_check_terminal(bundle, errors):
     return classification
 
 
-def validate_bundle(bundle, artifact_root, candidate_root, trusted_context, trusted_bytes, expected_context_sha256, schema):
+def validate_bundle(
+    bundle,
+    artifact_root,
+    candidate_root,
+    trusted_context,
+    trusted_bytes,
+    expected_context_sha256,
+    schema,
+    byte_reader=read_relative_regular_file,
+):
     digest = sha256_bytes(canonical_bytes(bundle)) if isinstance(bundle, (dict, list)) else sha256_bytes(repr(bundle).encode())
     checker = SchemaChecker(schema)
     errors = checker.check(bundle)
@@ -683,9 +790,9 @@ def validate_bundle(bundle, artifact_root, candidate_root, trusted_context, trus
     errors = []
     check_surface(bundle["identity"], errors)
     check_trusted_context(bundle, trusted_context, trusted_bytes, expected_context_sha256, errors)
-    check_candidate_surface(trusted_context, candidate_root, errors)
+    check_candidate_surface(trusted_context, candidate_root, errors, byte_reader)
     join = expected_join(bundle)
-    check_artifacts(bundle, artifact_root, join, trusted_context, checker, errors)
+    check_artifacts(bundle, artifact_root, join, trusted_context, checker, errors, byte_reader)
     check_isolated(bundle["phases"]["isolated"], join, errors)
     whole = bundle["phases"]["whole_model"]
     ranked = bundle["phases"]["ranked_m5"]
@@ -1144,6 +1251,168 @@ def write_files(root, files):
         target.write_bytes(data)
 
 
+def result_exit_code(result):
+    return 1 if result["classification"] == "INVALID" else 0
+
+
+def remove_path(path):
+    try:
+        mode = os.lstat(path).st_mode
+    except FileNotFoundError:
+        return
+    if stat.S_ISDIR(mode) and not stat.S_ISLNK(mode):
+        shutil.rmtree(path)
+    else:
+        path.unlink()
+
+
+def mutate_filesystem_control(control, root, artifact_root, candidate_root, bundle, candidate_files):
+    scope = control["scope"]
+    operation = control["operation"]
+    byte_reader = read_relative_regular_file
+    if scope in {"candidate_root", "artifact_root"}:
+        if operation not in {"missing", "symlink", "regular", "fifo"}:
+            raise ValueError(f"unknown root filesystem control operation: {operation}")
+        target = candidate_root if scope == "candidate_root" else artifact_root
+        remove_path(target)
+        if operation == "symlink":
+            other = root / f"{control['id']}-target"
+            other.mkdir()
+            target.symlink_to(other, target_is_directory=True)
+        elif operation == "regular":
+            target.write_bytes(b"not a directory\n")
+        elif operation == "fifo":
+            os.mkfifo(target)
+    elif scope in {"candidate_entry", "artifact_entry"}:
+        if operation not in {"directory", "fifo", "symlink"}:
+            raise ValueError(f"unknown entry filesystem control operation: {operation}")
+        if scope == "candidate_entry":
+            relative = sorted(candidate_files)[0]
+            target_root = candidate_root
+        else:
+            relative = bundle["artifact_manifest"][0]["path"]
+            target_root = artifact_root
+        target = target_root.joinpath(*PurePosixPath(relative).parts)
+        remove_path(target)
+        if operation == "directory":
+            target.mkdir()
+        elif operation == "fifo":
+            os.mkfifo(target)
+        else:
+            target.symlink_to(target.parent, target_is_directory=True)
+    elif scope in {"candidate_transition", "artifact_transition"}:
+        if operation not in {"disappears", "unreadable"}:
+            raise ValueError(f"unknown transition filesystem control operation: {operation}")
+        transition_root = candidate_root if scope == "candidate_transition" else artifact_root
+        transition_relative = (
+            sorted(candidate_files)[0]
+            if scope == "candidate_transition"
+            else bundle["artifact_manifest"][0]["path"]
+        )
+
+        def transition_reader(read_root, relative):
+            if Path(read_root) == transition_root and relative == transition_relative:
+                if operation == "disappears":
+                    raise FileNotFoundError(errno.ENOENT, "synthetic disappearance", relative)
+                raise PermissionError(errno.EACCES, "synthetic unreadable file", relative)
+            return read_relative_regular_file(read_root, relative)
+
+        byte_reader = transition_reader
+    else:
+        raise ValueError(f"unknown filesystem control scope: {scope}")
+    return byte_reader
+
+
+def execute_filesystem_control_suite(fixtures, schema):
+    positives = {entry["id"]: entry for entry in fixtures["positive_fixtures"]}
+    spec = positives["isolated-only"]
+    artifact_specs = fixtures["artifact_files"]
+    candidate_specs = fixtures["candidate_files"]
+    results = []
+    for control in sorted(fixtures["filesystem_controls"], key=lambda entry: entry["id"]):
+        bundle, artifacts, trusted_context, candidate_files = build_fixture_bundle(spec, artifact_specs, candidate_specs)
+        trusted_bytes = canonical_bytes(trusted_context)
+        expected_context_sha256 = sha256_bytes(trusted_bytes)
+        with tempfile.TemporaryDirectory(prefix="candidate-evidence-filesystem-") as directory:
+            root = Path(directory)
+            artifact_root = root / "artifact-root"
+            candidate_root = root / "candidate-root"
+            write_files(artifact_root, artifacts)
+            write_files(candidate_root, candidate_files)
+            byte_reader = mutate_filesystem_control(
+                control,
+                root,
+                artifact_root,
+                candidate_root,
+                bundle,
+                candidate_files,
+            )
+            result = validate_bundle(
+                bundle,
+                artifact_root,
+                candidate_root,
+                trusted_context,
+                trusted_bytes,
+                expected_context_sha256,
+                schema,
+                byte_reader,
+            )
+        actual_errors = sorted((entry["code"], entry["path"]) for entry in result["errors"])
+        expected_errors = sorted((entry["code"], entry["path"]) for entry in control["expected_errors"])
+        exit_code = result_exit_code(result)
+        passed = result["classification"] == "INVALID" and exit_code == 1 and actual_errors == expected_errors
+        results.append(
+            {
+                "classification": result["classification"],
+                "errors": result["errors"],
+                "exit_code": exit_code,
+                "id": control["id"],
+                "kind": "filesystem",
+                "passed": passed,
+            }
+        )
+    return results
+
+
+def execute_exception_passthrough_controls():
+    controls = {}
+    with tempfile.TemporaryDirectory(prefix="candidate-evidence-exceptions-") as directory:
+        root = Path(directory)
+        relative = "regular.txt"
+        write_files(root, {relative: b"regular\n"})
+
+        def fail_with_programming_error(_root, _relative):
+            raise ValueError("synthetic programming error")
+
+        try:
+            read_regular_file(root, relative, "$test.path", "TEST", [], fail_with_programming_error)
+        except ValueError:
+            controls["reader_value_error"] = True
+        else:
+            controls["reader_value_error"] = False
+
+        reader_errors = {
+            "reader_not_a_directory": (NotADirectoryError(errno.ENOTDIR, "synthetic not-a-directory"), "TEST_NOT_REGULAR"),
+            "reader_os_error": (OSError(errno.EIO, "synthetic read failure"), "TEST_READ_FAILED"),
+            "reader_permission_error": (PermissionError(errno.EACCES, "synthetic unreadable"), "TEST_UNREADABLE"),
+        }
+        for name, (failure, expected_code) in reader_errors.items():
+            errors = []
+
+            def fail_with_filesystem_error(_root, _relative, error=failure):
+                raise error
+
+            contents = read_regular_file(root, relative, "$test.path", "TEST", errors, fail_with_filesystem_error)
+            controls[name] = contents is None and [entry["code"] for entry in errors] == [expected_code]
+    try:
+        SchemaChecker({"$ref": "https://mlxfast.invalid/external"}).check({})
+    except ValueError:
+        controls["schema_value_error"] = True
+    else:
+        controls["schema_value_error"] = False
+    return controls
+
+
 def execute_fixture_suite(fixtures, schema):
     positives = {entry["id"]: entry for entry in fixtures["positive_fixtures"]}
     artifact_specs = fixtures["artifact_files"]
@@ -1229,19 +1498,52 @@ def run_self_test(fixtures_path, schema_path):
         or fixtures.get("fixture_schema_version") != 3
     ):
         raise ValueError("contract identity/version mismatch")
-    first = execute_fixture_suite(fixtures, schema)
-    second = execute_fixture_suite(fixtures, schema)
-    first_bytes = canonical_bytes(first)
-    second_bytes = canonical_bytes(second)
-    deterministic = first_bytes == second_bytes
-    passed = deterministic and all(result["passed"] for result in first)
+    legacy_first = execute_fixture_suite(fixtures, schema)
+    legacy_second = execute_fixture_suite(fixtures, schema)
+    filesystem_first = execute_filesystem_control_suite(fixtures, schema)
+    filesystem_second = execute_filesystem_control_suite(fixtures, schema)
+    exceptions_first = execute_exception_passthrough_controls()
+    exceptions_second = execute_exception_passthrough_controls()
+    legacy_first_bytes = canonical_bytes(legacy_first)
+    legacy_second_bytes = canonical_bytes(legacy_second)
+    filesystem_first_bytes = canonical_bytes(filesystem_first)
+    filesystem_second_bytes = canonical_bytes(filesystem_second)
+    combined_first = legacy_first + filesystem_first
+    combined_second = legacy_second + filesystem_second
+    combined_first_bytes = canonical_bytes(combined_first)
+    combined_second_bytes = canonical_bytes(combined_second)
+    legacy_digest = sha256_bytes(legacy_first_bytes)
+    filesystem_digest = sha256_bytes(filesystem_first_bytes)
+    deterministic = (
+        legacy_first_bytes == legacy_second_bytes
+        and filesystem_first_bytes == filesystem_second_bytes
+        and combined_first_bytes == combined_second_bytes
+        and exceptions_first == exceptions_second
+    )
+    passed = (
+        deterministic
+        and len(legacy_first) == 49
+        and len(filesystem_first) == len(fixtures["filesystem_controls"])
+        and legacy_digest == "75d8e716d4887e3b4aaac08499d44da281923d7de465ecf35de500bffc444124"
+        and all(result["passed"] for result in combined_first)
+        and all(exceptions_first.values())
+    )
     output = {
-        "case_count": len(first),
+        "case_count": len(combined_first),
         "deterministic": deterministic,
-        "results_digest": sha256_bytes(first_bytes),
+        "exception_passthrough": exceptions_first,
+        "filesystem_case_count": len(filesystem_first),
+        "filesystem_results_digest": filesystem_digest,
+        "legacy_case_count": len(legacy_first),
+        "legacy_results_digest": legacy_digest,
+        "results_digest": sha256_bytes(combined_first_bytes),
         "schema_id": SCHEMA_ID,
-        "status": "CANDIDATE_EVIDENCE_CONTRACT_READY" if passed else "CANDIDATE_EVIDENCE_CONTRACT_FAILED",
-        "tests": first,
+        "status": (
+            "CANDIDATE_EVIDENCE_ROOTS_FAIL_CLOSED"
+            if passed
+            else "CANDIDATE_EVIDENCE_ROOTS_FAIL_CLOSED_FAILED"
+        ),
+        "tests": combined_first,
     }
     print(canonical_bytes(output).decode("utf-8"), end="")
     return 0 if passed else 1
@@ -1286,7 +1588,7 @@ def main():
         schema,
     )
     print(canonical_bytes(result).decode("utf-8"), end="")
-    return 0 if result["classification"] != "INVALID" else 1
+    return result_exit_code(result)
 
 
 if __name__ == "__main__":
