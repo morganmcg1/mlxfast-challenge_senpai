@@ -2618,12 +2618,37 @@ prefill routed gather-GEMM), plus one byte-axis outlier.
 
 ---
 
-## 5. In-flight assignments (round 106 — CURRENT)
+## 5. In-flight assignments (round 106 endgame — CURRENT)
 
-Research base at the time of writing: **`f5f0e00268df6867f5a16db252ba813e5711a55b`**
-(after #617, #615 and #619 merged). Campaign `BASE_SHA` for submission remains
+Research base for every live assignment: **`446fe9875d1f95b1216628b5809a99da844e5c79`**
+(the commit that publishes rule 96). Campaign `BASE_SHA` for submission remains
 `1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7` = `origin/main` — *not* the research
 base (rule 89.6-CORRECTION).
+
+All four assignments were re-issued against this base after rule 96 landed.
+Two of the four mid-round charges were **cancelled outright** (R106-H channel
+economics, R106-I prefill traversal census) because frieren's R106-E answered
+the first and the endgame clock makes the second a report rather than a ship.
+Every live charge is scored-path and terminates in a **locally measured patch
+handed to integration**, not in a document.
+
+| PR | student | assignment / revision | charge | pot |
+|---|---|---|---|---|
+| [#597](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/597) | maple-frieren | `maple-r105-b-router-prefetch-adjudication` / **`r105-b-rev5`** | **The bit-exactness shelf (rule 96.3).** Re-adjudicate the shelf against `TASK.md`'s *actual* token-level gate; build the reusable **margin-certificate** instrument for all four students; take **`DARKBLOOM_QMV_WIDE_CODES`** end-to-end (reachability → correctness → paired local A/B → source default flip → hand to fern). Remains sole channel owner; **no draw authorised**. Outcomes V-SHIP / N-CORRECT / N-NULL / N-UNREACHABLE / V-SHELF. | halves code loads, scale loads and the K-loop trip count on the shared gate/up QMV |
+| [#625](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/625) | maple-fern | `maple-r106-i-prefill-traversal-byte-census` / **`r106-i-rev2`** | **Own the integration tree.** R106-I cancelled (rule 79 — preserve partials). Stage 0 verify the HEAD/`bd33883e`/`4b0e051b` numstat table + force-clean build + oracle; Stage 1 T0 (HEAD) vs T1 (HEAD + `4b0e051b`'s `Sources/MLXFastModel/**` and `Sources/MLXFastTransform/**`) via the rule 95.6 replay recipe, paired locally, ~3 h timebox, **N-BUILD is an acceptable terminal answer**; Stage 2 integrate every student patch under rule 75 caps; Stage 3 hand **one** verified tree to frieren with the four submit-wrapper preconditions checked. Outcomes V-T1 / N-T1 / N-BUILD / V-INTEGRATED. | decides what we submit; composition upside if merits are additive |
+| [#620](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/620) | maple-tanjiro | `maple-r106-f-prefill-nongemm-census` / `r106-f-rev2` **+ endgame amendment** | **R106-F′ kept; tail amended.** Stage 1 (per-family decomposition + ranking) timeboxed to ~T+4 h, then **implement and measure the top-ranked family** on his CV-0.0403 % instrument and hand any winner to fern. Split-K tie flip (`matmul.cpp:986-989`) and H3 (24.42 ms) re-opened under rule 96.3 subject to a margin certificate. Outcomes V-PREFILL / N-PREFILL / N-REACH / N-CORRECT. | 27.83 ms unattributed = **10.5 % of score**; H3 alone = 9.2 % |
+| [#616](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/616) | maple-nezuko | `maple-r106-b-revert-residual-forensics` / **`r106-b-rev3`** | **The revert residual.** R106-H cancelled. Stage A attribute round-103's ≈19.0 µs/step residual to a ledger that closes; Stage B build and locally measure a recovery patch (paired, rules 40/68/86); Stage C hand to fern. Margin certificate available from frieren if the recovery is not bit-exact. Outcomes V-RECOVER / V-ATTRIB / N-RESIDUAL / N-RECOVER / N-CORRECT. | 0.3204 % of `cs` = **25 % of the whole 1.2846 % gap** |
+
+Corrected σ constants issued to all four (frieren §22 withdrew her own earlier
+0.744 %/1.200 % answer as ~3× too large): sd(ln `cs` \| fixed tree) =
+**0.2276 %** ≈ 15 µs/step; sd(ln `officialScore` \| fixed tree) = **0.3728 %**.
+Local paired measurement beats the channel by roughly an order of magnitude on
+prefill and is the only discriminator we can afford.
+
+### Historical: round-106 mid-round slate (superseded, kept for provenance)
+
+Research base at the time of writing: **`f5f0e00268df6867f5a16db252ba813e5711a55b`**
+(after #617, #615 and #619 merged).
 
 | PR | student | assignment / revision | arm |
 |---|---|---|---|
