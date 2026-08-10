@@ -1,0 +1,111 @@
+{
+  "runs": 6,
+  "runs_with_known_dn": 6,
+  "all_passed_correctness": true,
+  "failed_tags": [],
+  "arms": {
+    "d0": {
+      "n": 2,
+      "mean_us_per_step": 12874.26611328125,
+      "sd_us_per_step": 36.57689364518578,
+      "dn": 0,
+      "values": [
+        12900.13,
+        12848.4
+      ]
+    },
+    "d4": {
+      "n": 2,
+      "mean_us_per_step": 13189.300617187499,
+      "sd_us_per_step": 30.300862447602473,
+      "dn": 158,
+      "values": [
+        13210.73,
+        13167.87
+      ]
+    },
+    "e276": {
+      "n": 2,
+      "mean_us_per_step": 12916.13753515625,
+      "sd_us_per_step": 50.827669596719794,
+      "dn": 276,
+      "values": [
+        12952.08,
+        12880.2
+      ]
+    }
+  },
+  "removal_fit": {
+    "n": 4,
+    "slope": 1.9938892652294444,
+    "se": 0.2125683304279838,
+    "dof": 2,
+    "ci": [
+      1.0792077393978303,
+      2.9085707910610585
+    ],
+    "intercept": 12874.266113281254,
+    "drift_us_per_run": null,
+    "resid_sd": 33.585796207621435
+  },
+  "addition_fit_all_K": {
+    "n": 2,
+    "slope": null,
+    "ci": null
+  },
+  "addition_fit_free_region": {
+    "n": 2,
+    "slope": null,
+    "ci": null
+  },
+  "addition_fit_past_knee": {
+    "n": 0,
+    "slope": null,
+    "ci": null
+  },
+  "ratio_bootstrap": {
+    "ratio": null
+  },
+  "matched_pair_d4_e276": {
+    "available": true,
+    "baseline_us_per_step": 12874.26611328125,
+    "baseline_n": 2,
+    "removal_delta_us_per_step": 315.0345039062486,
+    "removal_price_us_per_dispatch": 1.9938892652294213,
+    "addition_delta_us_per_step": 41.871421874999214,
+    "addition_price_us_per_dispatch": 0.15170805027173628,
+    "ratio_median": 13.142936460247222,
+    "ratio_ci": [
+      -25.341658142236856,
+      99.09925534544139
+    ]
+  },
+  "matched_pair_d4_e1600": {
+    "available": false
+  },
+  "drift_covariate": false,
+  "derived": {
+    "removal_price_us_per_dispatch_matched": 1.9938892652294213,
+    "removal_price_us_per_dispatch_slope": 1.9938892652294444,
+    "removal_price_ci_slope": [
+      1.0792077393978303,
+      2.9085707910610585
+    ],
+    "addition_price_operating_point": 0.15170805027173628,
+    "ratio_removal_over_addition_operating_point": 13.142936460247222,
+    "ratio_removal_over_rule57_saturated_M4": 1.6103127646821365,
+    "M5_removal_projected_at_k_dispatch": 3.7684507112836063,
+    "M5_removal_projected_at_k_residue": 2.990435119991086,
+    "ratio_M5_projection_over_rule65_at_k_dispatch": 1.610242580559589,
+    "ratio_M5_projection_over_rule65_at_k_residue": 1.2777999059911491,
+    "k_removal_if_M5_symmetric": 1.1737361952900227,
+    "k_removal_if_M5_symmetric_ci": [
+      0.8046219838253443,
+      2.1685352268746945
+    ],
+    "ratio_removal_over_rule57_ci": [
+      0.862124731904322,
+      2.3768658911996883
+    ]
+  }
+}

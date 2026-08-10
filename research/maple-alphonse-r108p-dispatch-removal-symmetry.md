@@ -57,7 +57,30 @@ Two ladders, same binary, same session, same thermal gate, no source change.
 `:11756`). Each injected unit is exactly one dispatch, so Δn is exact by
 construction. Defaults kept: `_EMPTY_SPREAD=1`, `_EMPTY_TG=160`×256 threads,
 `_EMPTY_CHAIN=1` (each empty kernel consumes the previous one's output, so the
-chain is serialised and cannot be hidden by the scheduler).
+injected chain is internally serialised).
+
+*This is the crux, and my pre-registered reading of it was wrong.* `_EMPTY_CHAIN=1`
+serialises the injected kernels **against each other**, but every injected kernel
+binds only its own scratch/control/sink buffers and never touches a tensor the
+model reads or writes. MLX inserts GPU ordering only when a new encoder's inputs
+intersect a prior encoder's outputs, so the injected chain is **hazard-free with
+respect to the model's data** and has nothing to wait for. It can be scheduled
+into whatever gaps already exist between the model's own GPU work — and decode
+leaves roughly a millisecond per step of such gaps while the CPU builds the next
+graph. Ladder E therefore does **not** measure the price of a dispatch on the
+critical path; it measures the price of a dispatch that can hide.
+
+This was anticipated on this exact host. `research/r93-runs/knee-results.md`
+mapped the same knob on M4 Pro and found a convex curve with a **free region**:
+K = 0 → 8.223 ms, 240 → 8.131, 480 → 8.125, 800 → 8.456, 1200 → 8.597,
+1600 → 9.409, 2400 → 11.344 ms, with segment prices rising monotonically from
+−0.43 to +2.36 µs/dispatch and the knee between 480 and 800. It also stated the
+consequence in advance: *"the ladder slope is a lower bound on the value of
+removing a real dispatch, and in a regime with scheduling slack it can be a very
+weak one"*, and predicted that a null at small K "converts into a hard upper
+bound of roughly 0.06 µs/dispatch on the cheap regime". R108-P is the first
+experiment to put the matching **real**-dispatch number beside it in the same
+session on the same tree.
 
 *Known benign confound.* When injection is active, `lagunaInjectLayerWork`
 ends each layer with `asyncEval(pending)`, so every rung with `n ≥ 40` carries

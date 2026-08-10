@@ -2,7 +2,9 @@
   "_comment": "R108-P per-decode-step dispatch-count deltas for the removal (de-fusion) ladder. Hand-audited against Sources/MLXFastModel/LagunaRuntimeModel.swift at merge commit f3c7944a (submitted surface byte-identical to base 705484b9). Positive dn = extra dispatches per decode step relative to the fully fused default. The removal price is measured in the -dn direction (fused minus de-fused).",
   "model_shape": {
     "num_hidden_layers": 40,
-    "mlp_only_layers": [0],
+    "mlp_only_layers": [
+      0
+    ],
     "moe_layers": 39,
     "num_experts": 256,
     "num_experts_per_tok": 8,
@@ -19,12 +21,27 @@
     "e276": 276,
     "dR": 117,
     "dQ": 40,
-    "d4": 158
+    "d4": 158,
+    "e800": 800,
+    "e1600": 1600,
+    "e4000": 4000
   },
   "dn_uncertainty": {
-    "d4": {"low": 119, "high": 197, "point": 158},
-    "dR": {"low": 78, "high": 156, "point": 117},
-    "dQ": {"low": 40, "high": 40, "point": 40}
+    "d4": {
+      "low": 119,
+      "high": 197,
+      "point": 158
+    },
+    "dR": {
+      "low": 78,
+      "high": 156,
+      "point": 117
+    },
+    "dQ": {
+      "low": 40,
+      "high": 40,
+      "point": 40
+    }
   },
   "audit": {
     "DARKBLOOM_FUSED_ROUTER_CAST=0": {
@@ -67,5 +84,30 @@
     "d4_is_not_the_sum_of_singletons": true,
     "explanation": "FUSED_ROUTER_CAST=0 subsumes FUSED_ROUTER_NORM=0 (same guarded if). FUSED_RESIDUAL_RMS and FUSED_NORM_AFFINE_QKV are independent of the router group and of each other. d4 = 117 (router group) + 1 (residual RMS, layer 0) + 40 (norm-affine QKV) = 158."
   },
-  "why_no_empirical_counter": "MLX's per-buffer dispatch counter buffer_ops_ lives in Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.h:113, and neither device.cpp nor eval.cpp is in benchmark.json editablePaths (only matmul.cpp, jit_kernels.cpp, kernels.h and kernels/**). dn is therefore an audited source census carrying its own stated uncertainty, not a measured count."
+  "why_no_empirical_counter": "MLX's per-buffer dispatch counter buffer_ops_ lives in Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.h:113, and neither device.cpp nor eval.cpp is in benchmark.json editablePaths (only matmul.cpp, jit_kernels.cpp, kernels.h and kernels/**). dn is therefore an audited source census carrying its own stated uncertainty, not a measured count.",
+  "hazard_class": {
+    "_comment": "Ladder D arms add/remove REAL dispatches that consume the previous op's output, so MLX inserts a fence and they serialise. Ladder E arms inject HAZARD-FREE no-op dispatches touching only private scratch, so MLX inserts no ordering (research/r93-runs/knee-results.md). The M4 free region ends between K=480 and K=800; K<=480 rungs price a dispatch at the operating point, K>=800 rungs price it in the saturated encode-limited regime that rules 57 and 65 quote.",
+    "D": [
+      "d0",
+      "dQ",
+      "dR",
+      "d1",
+      "d2",
+      "d3",
+      "d4"
+    ],
+    "E_free_region": [
+      "e0",
+      "e78",
+      "e156",
+      "e158",
+      "e198",
+      "e276"
+    ],
+    "E_past_knee": [
+      "e800",
+      "e1600",
+      "e4000"
+    ]
+  }
 }

@@ -171,6 +171,51 @@ def matched_pair(rows: list[dict], hi_d: str, hi_e: str) -> dict:
     }
 
 
+KNEE_K = 480          # R93 knee-results.md: M4 free region ends between 480 and 800
+RULE57 = 1.2382       # M4 saturated hazard-free addition price, µs/dispatch
+RULE57_CI = (1.2237, 1.2518)
+RULE65 = 2.3403       # M5 hazard-free addition price, µs/dispatch
+RULE65_CI = (2.2766, 2.4040)
+K_DISPATCH = 1.890    # RULE65 / RULE57
+K_RESIDUE = 1.4998    # tanjiro r107-G memory-residue host multiplier
+
+
+def derive(out: dict) -> dict:
+    """Turn the two measured prices into the ratios rule 65 is quoted against."""
+    mp = out["matched_pair_d4_e276"]
+    fit = out["removal_fit"]
+    if not mp.get("available"):
+        return {"available": False}
+    removal = mp["removal_price_us_per_dispatch"]
+    addition_op = mp["addition_price_us_per_dispatch"]
+    d = {
+        "removal_price_us_per_dispatch_matched": removal,
+        "removal_price_us_per_dispatch_slope": fit.get("slope"),
+        "removal_price_ci_slope": fit.get("ci"),
+        "addition_price_operating_point": addition_op,
+        "ratio_removal_over_addition_operating_point":
+            removal / addition_op if abs(addition_op) > 1e-9 else None,
+        "ratio_removal_over_rule57_saturated_M4": removal / RULE57,
+        "M5_removal_projected_at_k_dispatch": removal * K_DISPATCH,
+        "M5_removal_projected_at_k_residue": removal * K_RESIDUE,
+        "ratio_M5_projection_over_rule65_at_k_dispatch":
+            removal * K_DISPATCH / RULE65,
+        "ratio_M5_projection_over_rule65_at_k_residue":
+            removal * K_RESIDUE / RULE65,
+        # If the M5 is encode-limited (no free region at K=100, per R93) then a
+        # removal there recovers the full encode price and rule 65 IS the M5
+        # removal price, which turns the ratio into a host multiplier.
+        "k_removal_if_M5_symmetric": RULE65 / removal,
+        "k_removal_if_M5_symmetric_ci": None,
+    }
+    ci = fit.get("ci")
+    if ci and ci[0] > 0:
+        d["k_removal_if_M5_symmetric_ci"] = [RULE65 / ci[1], RULE65 / ci[0]]
+        d["ratio_removal_over_rule57_ci"] = [ci[0] / RULE57_CI[1],
+                                             ci[1] / RULE57_CI[0]]
+    return d
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--json", default="research/artifacts/maple-alphonse-r108p/fit.json")
@@ -198,6 +243,10 @@ def main() -> None:
 
     d_rows = [r for r in known if r["ladder"] == "D"]
     e_rows = [r for r in known if r["ladder"] == "E"]
+    # R93's knee-results.md places the M4 free region below K ~= 480-800, so a
+    # single slope across it and the saturated region would only be a secant.
+    e_free = [r for r in e_rows if r["dn"] <= KNEE_K]
+    e_sat = [r for r in e_rows if r["dn"] > KNEE_K]
     out = {
         "runs": len(rows),
         "runs_with_known_dn": len(known),
@@ -205,11 +254,15 @@ def main() -> None:
         "failed_tags": [r["tag"] for r in rows if not r["passed"]],
         "arms": arms,
         "removal_fit": slope_ci(d_rows, args.drift),
-        "addition_fit": slope_ci(e_rows, args.drift),
+        "addition_fit_all_K": slope_ci(e_rows, args.drift),
+        "addition_fit_free_region": slope_ci(e_free, args.drift),
+        "addition_fit_past_knee": slope_ci(e_sat, args.drift),
         "ratio_bootstrap": boot_ratio(known, args.drift),
         "matched_pair_d4_e276": matched_pair(rows, "d4", "e276"),
+        "matched_pair_d4_e1600": matched_pair(rows, "d4", "e1600"),
         "drift_covariate": args.drift,
     }
+    out["derived"] = derive(out)
     Path(args.json).write_text(json.dumps(out, indent=2) + "\n")
     print(json.dumps(out, indent=2))
 
