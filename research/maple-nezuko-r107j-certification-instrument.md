@@ -173,12 +173,99 @@ invoked** (the script fails closed on the name), **`DARKBLOOM_EXPERT_DOWN_BN` is
 
 ---
 
+## 3A. Preregistration of the positive control (written before it ran)
+
+An A/A null can only ever prove the instrument is **not lying**. It cannot prove the
+instrument is **listening**. A null result from a broken-but-quiet instrument and a null
+result from a healthy instrument look identical, so §1 alone is not sufficient to certify
+anything. The instrument therefore needs a second, opposite test: a *known, already
+independently measured, non-zero* effect of roughly the size we care about, which the
+instrument must recover.
+
+**The lever.** `DARKBLOOM_QMV_WIDE_CODES` (`LagunaRuntimeModel.swift:325`, default **OFF**,
+live use site `:7215`; classification row 209 of `research/artifacts/fern-r105c/gate-classification.csv`
+confirms `default-OFF / LIVE / no default-ON gate dominates this site`). Rule 102 closed it
+on evidence as a **regression**: a preregistered GPUPROF in-situ campaign measured the
+shared-QMV kernel at 7.3911 µs/call OFF → 8.2941 ON, Δ = **+0.9030 µs/call**, t(2) = +25.23,
+× 39 dispatches/step = **+35.2 µs/step**, with an independent whole-model wall-clock
+cross-check of **+37.2 µs/step** (agreeing within 6 %).
+
+**Why this lever and not another.** +35.2 µs/step is almost exactly the effect size this
+round actually has to resolve. Rule 105.10 leaves a residual of 0.2034 % of `cs` for a
+second summand to cover, which is **30.6 M4 µs/step at α**. So the positive control is not
+merely "some big effect" — it sits within 15 % of the certification threshold itself. If my
+paired instrument recovers +35 µs/step with a CI excluding zero, that is a direct,
+constructive demonstration that it can certify a 0.2 % summand. If it cannot, the power
+curve in §5 is optimistic and I must say so.
+
+**Registered design.** Arms `C:` (reference, no gates) and `W:DARKBLOOM_QMV_WIDE_CODES=1`,
+same binary, same blocked-and-interleaved rotation, block count chosen from the *measured*
+A/A sd so the predicted half-width is ≈ half the expected effect. Same script, same guard
+rails, no source edit.
+
+**Registered predictions.**
+
+* **Q1 — sign and size.** Δ(W − C) is **positive** (a slowdown) and the CI95 **excludes
+  zero**. Registered tolerance band for the point estimate: **+20 to +55 µs/step**,
+  bracketing the two independent rule-102 estimates (+35.2 GPUPROF, +37.2 wall clock) with
+  room for the α/β ambiguity and for the difference between a kernel-summed and an
+  end-to-end number.
+* **Q2 — correctness.** `passed_correctness` may be **false** and `golden_hash` **will**
+  differ from the reference on this arm: rule 102 §2.3 records max |Δlogit| = 5.44531 with
+  85.8 % / 91.5 % of elements differing. This is a class-3 (not bit-exact) perturbation. That
+  is *expected and is not a harness failure* — I am using it purely as a timing stimulus. It
+  is registered here so nobody can later read a differing golden hash as a broken run. It is
+  also exactly why this lever can never be shipped, which is why borrowing it as a stimulus
+  costs the campaign nothing.
+* **Q3 — falsification.** If the CI covers zero, or the point estimate falls outside
+  +20…+55, the instrument is **not** demonstrated fit to certify a 0.2 % summand, and §5's
+  power curve must be reported as an upper bound on sensitivity rather than a promise.
+
+### 3A.1 A side finding that falls out of the same arithmetic
+
+Rule 102 converted its M4-measured +35.2 µs/step into **−0.5363 % of `cs`**. Inverting the
+campaign's own conversion, `Δ%cs = Δ_M4 × k × 0.015228`, the implied transfer factor is
+
+    k_implied = 0.5363 / (35.2 × 0.015228) = 1.0005
+
+i.e. rule 102 priced an M4 number **as if k = 1** — no M4→M5 transfer factor at all. Rule
+105.12 states that `k < 1` always, so that price is an **over-statement**. De-biasing the
+same measurement gives
+
+| basis | k | `DARKBLOOM_QMV_WIDE_CODES` price |
+| --- | --- | --- |
+| rule 102 as published | 1.0005 (implicit) | −0.5363 % of `cs` |
+| bytes-priced α | 0.4369 | **−0.2343 % of `cs`** |
+| latency-priced β | 0.5000 | **−0.2681 % of `cs`** |
+
+This does not change rule 102's verdict — the sign is negative on every basis, so the gate
+stays closed, and nothing on the shipped tree moves. What it changes is the *magnitude* of a
+number that is now quoted on the closed list, by a factor of ≈ 2.1–2.3. I flag it because
+the same `k`-omission, applied to a lever with a *favourable* sign, would manufacture a
+phantom win of exactly the size this round is hunting: a lever truly worth 0.23 % would be
+reported as 0.54 % and would appear to clear the 0.40 % bar on its own. The positive control
+above measures the same lever end-to-end on the paired instrument, so it also supplies an
+independent check on this arithmetic.
+
+Caveat, registered in advance: my instrument's resolution at a realistic block count is
+≈ 17–26 µs/step, and α and β predict +80.6 vs +70.4 µs/step *only if* one back-converts from
+the published −0.5363 %. Those two are 10 µs apart, so this experiment **cannot** discriminate
+α from β and I will not claim it does. What it can do is test the far larger question of
+whether the end-to-end effect is near +35 µs/step (consistent with rule 102's own primary
+measurement) or near +70–80 µs/step (consistent with the published % of `cs` being a true
+`cs` fraction). Those two hypotheses are ~40 µs apart and *are* separable.
+
+---
+
 ## 4. Deliverable files
 
 | file | role |
 | --- | --- |
 | `research/maple-nezuko-r107j-certify.sh` | turnkey campaign runner: `--blocks N LABEL:GATES …` |
 | `research/maple-nezuko-r107j-paired-ci.py` | paired CI + power curve + position/prefill diagnostics |
+| `research/maple-nezuko-r107j-verify-identity.sh` | post-hoc third-party check that both arms were the same instrument |
+| `research/maple-nezuko-r107j-wandb-log.py` | publishes the characterisation to W&B |
+| `research/maple-nezuko-r107j-wandb-run.sh` | wrapper keeping `wandb/` out of the checkout |
 | `research/maple-nezuko-r107j-certification-instrument.md` | this report |
 
 Invocation, for maple-fern, no knowledge of my code required:
@@ -197,6 +284,25 @@ The first arm listed is the reference; every later arm is differenced against it
 block. `LABEL:` with an empty gate list means "set no gates at all". Rows land in
 `$OUT` (default `/tmp/r107j-certify-<session>.tsv`), deliberately **outside** the worktree so
 a campaign never dirties the assignment checkout.
+
+Then analyse and audit — neither step needs anything from me:
+
+    # paired CI, power curve, prefill-neutrality and position diagnostics
+    python3 research/maple-nezuko-r107j-paired-ci.py $OUT
+
+    # independent audit that both arms really were the same instrument.
+    # Needs KEEP=1 on the campaign (it reads the raw score.json files).
+    research/maple-nezuko-r107j-verify-identity.sh <SESSION-ID>
+
+    # publish to W&B (keeps wandb/ out of the checkout)
+    research/maple-nezuko-r107j-wandb-run.sh $OUT [extra.tsv ...]
+
+`verify-identity.sh` is the part worth insisting on. It re-derives, from the raw JSON rather
+than from my TSV, that every run in the session reported `runtime == "swift-local-submit"`,
+the same `checked_steps`, the same `harness_hash`, the same `weights_hash` and the same
+`commit`. `runtime` is the load-bearing one: `--local-iterate` stamps a *different* runtime
+string, so guard rail 1 stops being a promise in my shell script and becomes a fact
+recomputable by a sceptic from files I did not write.
 
 ---
 
