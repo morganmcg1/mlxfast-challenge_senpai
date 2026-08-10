@@ -64,7 +64,26 @@ ARMS = {
     # the softmax path.
     "qk_pad4x": PAD4X_NEUTRAL + "    {v} = simd_sum({v});",
     "qk_pad4x_bcast0": PAD4X_NEUTRAL + "    {v} = simd_shuffle({v}, 0u);",
+    # Advisor arm (c): keep every K/V load and every QK MAC, drop the reduction
+    # (via the ARMS entry) and the whole softmax/PV epilogue of each pipeline
+    # stage (via PV_STRIP), sinking scores and V values into the live
+    # accumulators so nothing can be eliminated. Prices the memory system plus
+    # bare MAC issue.
+    "qk_loadonly": "    {v} = ({v});",
 }
+
+# Replaces one pipeline stage's rescale/exp/PV-accumulate block. `pair_max`
+# consumes the score so the K loads and QK MACs stay live; `pair_o0` consumes
+# the four V registers so the V loads stay live. `pair_sum*` is left at its
+# initial 0, which the existing epilogue already handles.
+PV_STRIP = ("    pair_max0 = metal::max(pair_max0, {p}_score0);\n"
+            "    pair_max1 = metal::max(pair_max1, {p}_score1);\n"
+            "    pair_o0[0] += U(pipe_{s}0);\n"
+            "    pair_o0[1] += U(pipe_{s}1);\n"
+            "    pair_o0[2] += U(pipe_{s}2);\n"
+            "    pair_o0[3] += U(pipe_{s}3);")
+PV_ARMS = {"qk_loadonly"}
+VSUFFIX = {"pair": "va", "pipeb": "vb", "pipec": "vc", "piped": "vd"}
 
 
 def sliding_span(lines):
@@ -94,6 +113,13 @@ def main():
                     v=v, q="pair_q%d" % h, k=KARRAY[p]))
                 n += 1
         assert n == 8
+        if arm in PV_ARMS:
+            for p in PREFIXES:
+                head = "    U %s_new_max0 = metal::max(pair_max0, %s_score0);" % (p, p)
+                tail = ("    pair_o1[3] = pair_o1[3] * %s_factor1 + %s_exp1 * pipe_%s3;"
+                        % (p, p, VSUFFIX[p]))
+                i, j = block.index(head), block.index(tail) + len(tail)
+                block = block[:i] + PV_STRIP.format(p=p, s=VSUFFIX[p]) + block[j:]
         path = os.path.join(OUTDIR, "cand_%s.swift" % arm)
         out = lines[:start] + block.split("\n") + lines[end:]
         open(path, "w").write("\n".join(out))
