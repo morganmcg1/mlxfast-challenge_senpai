@@ -792,6 +792,53 @@ effect, and it invalidates the block rather than supporting a claim.
 _Filled in below from `research/artifacts/maple-fern-r106j/abba_t0_t0p/runs.tsv` once the
 sweep terminates._
 
+#### 5.3.5 Candidate C, held in reserve — `T0U`, the unroll-depth hunk of the T1 contrast
+
+Declared here **before** the §5.3 result is known, so that it cannot be read as a
+post-hoc rescue. §4.6 established that the measured T0→T1 score contrast
+(**+0.3791 %, CI [+0.0492, +0.7091]**) is carried by a small number of mechanisms, of
+which the largest is a *loop-spelling* change in the fused sliding-attention decode
+kernel. I have now isolated it in the git objects, without touching the worktree:
+
+```
+git diff -U3 446fe987 4b0e051b -- Sources/MLXFastModel/LagunaRuntimeModel.swift
+  @@ -1636,37 +1637,21 @@   -for (; i + 3 * BN < N; i += 4 * BN) {
+                             +for (; i + BN < N; i += 2 * BN) {
+  @@ -1740,80 +1725,8 @@   -    pair_keys   += 4 * inner_k_stride;
+                             -    pair_values += 4 * inner_v_stride;
+                             +    pair_keys   += 2 * inner_k_stride;
+                             +    pair_values += 2 * inner_v_stride;
+```
+
+T0 runs the pairwise KV block loop **4 pipeline stages deep** (`a,b,c,d`); T1 runs it
+**2 deep** (`a,b`). Everything between those two hunk anchors is the deletion of the
+`pipec_*`/`piped_*` stage bodies, which are textual replicas of the `pipea_*`/`pipeb_*`
+bodies with different pointers.
+
+**Why it is bit-exact.** The online-softmax state (`pair_max*`, `pair_sum*`,
+`pair_o*[0..3]`) is updated strictly in program order by each stage, and each stage
+accumulates into the *same* registers rather than into per-stage partials — T1's own
+doc comment at diff line 1247 says so explicitly ("on into the same register. Giving
+each unrolled step its own partial and … "). Both spellings visit keys
+`sg, sg+BN, sg+2BN, …` in identical order and apply the identical rescale/accumulate
+sequence; only the number of key positions consumed per trip of the `for` changes.
+Summation order is therefore invariant. This is not merely an argument: §4.1 already
+measured it, and T1's `golden_hash` came back **identical to T0's**, so the complete
+T0→T1 `Sources/` change — this hunk included — is token-identical on the local golden
+set.
+
+**Why it is worth holding.** It is a strictly smaller edit than the T1 replay (two
+hunk sites in one kernel, a net *deletion*, so it cannot consume byte headroom), it
+inherits an already-measured positive contrast rather than a sibling's unreplicated
+claim, and it is in a different kernel family from §5.3's packing flip, so the two
+could in principle compose.
+
+**Why it is not the primary.** The +0.3791 % it inherits is the effect of the *whole*
+T1 `Sources/` diff, not of this hunk alone; attributing all of it here would be exactly
+the error §4.6 accused the r99 result of. `T0U` therefore needs its own paired ABBA and
+must clear the bar on its own numbers. It is queued **only** if §5.3 returns `N-PACK`,
+and it is measured, never assumed.
+
 ### 5.4 Candidates that did not arrive
 
 Rule 79 says the null cell gets reported, so: at my Stage-2 freeze check, **three of the
