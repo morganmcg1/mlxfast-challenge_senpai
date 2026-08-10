@@ -1,0 +1,2475 @@
+{
+ "root_commit": "63bb3e8f990515ab596ae97634e915937554deea",
+ "gates": [
+  {
+   "gate": "DARKBLOOM_AFFINE_GATE_SOFTPLUS",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4464",
+   "symbols": "lagunaGateSoftplusEnabled",
+   "n_read_sites": 3,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaGateSoftplusEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4528",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaGateSoftplusEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4615",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaGateSoftplusEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4633",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_AFFINE_METADATA_INDEXED",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:2971",
+   "symbols": "lagunaAffineMetadataIndexedEnabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaAffineMetadataIndexedEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:2977",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_ATTN_PROJECTION_ASYNC",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:784",
+   "symbols": "lagunaAttentionProjectionAsyncEnabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaAttentionProjectionAsyncEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6014",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_ATTN_SCALE_LANEMAJOR",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeWeights.swift:694",
+   "symbols": "lagunaAttnScaleLaneMajorEnabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaAttnScaleLaneMajorEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeWeights.swift:889",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_ATTN_SCALE_NARROW",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeWeights.swift:674",
+   "symbols": "lagunaAttnScaleNarrowEnabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaAttnScaleNarrowEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeWeights.swift:776",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_ATTN_SCALE_NARROW_LOG",
+   "polarity": "default-OFF",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeWeights.swift:728",
+   "symbols": "lagunaNarrowScaleDispatchLog",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaNarrowScaleDispatchLog",
+     "site": "Sources/MLXFastModel/LagunaRuntimeWeights.swift:748",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_ATTN_SCALE_NARROW_OPROJ",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeWeights.swift:681",
+   "symbols": "lagunaAttnScaleNarrowOProjEnabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaAttnScaleNarrowOProjEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:5675",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_ATTN_SCALE_NARROW_QKV",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeWeights.swift:678",
+   "symbols": "lagunaAttnScaleNarrowQKVEnabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaAttnScaleNarrowQKVEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:5752",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_ATTN_SCALE_PAIRWISE_OPROJ",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeWeights.swift:722",
+   "symbols": "lagunaAttnScalePairwiseOProjEnabled",
+   "n_read_sites": 6,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaAttnScalePairwiseOProjEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4447",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaAttnScalePairwiseOProjEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4457",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaAttnScalePairwiseOProjEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4570",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaAttnScalePairwiseOProjEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4580",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaAttnScalePairwiseOProjEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4610",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaAttnScalePairwiseOProjEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:5680",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_ATTN_SCALE_PAIRWISE_QKV",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeWeights.swift:719",
+   "symbols": "lagunaAttnScalePairwiseQKVEnabled",
+   "n_read_sites": 4,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaAttnScalePairwiseQKVEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4986",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaAttnScalePairwiseQKVEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4995",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaAttnScalePairwiseQKVEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:5022",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaAttnScalePairwiseQKVEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:5760",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_CBV2_PAGED_BENCH",
+   "polarity": "default-OFF",
+   "declarations": "Vendor/mlx-swift-lm/Tests/MLXLMTests/CBv2PagedBenchmarkTests.swift:19",
+   "symbols": "(unbound)",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "(inline)",
+     "site": "Vendor/mlx-swift-lm/Tests/MLXLMTests/CBv2PagedBenchmarkTests.swift:19",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_CBV2_PAGED_PROFILE",
+   "polarity": "default-OFF",
+   "declarations": "Vendor/mlx-swift-lm/Tests/MLXLMTests/CBv2PagedProfileTests.swift:20",
+   "symbols": "enabled",
+   "n_read_sites": 62,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "enabled",
+     "site": "Sources/MLXFastCLI/main.swift:1248",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Sources/MLXFastCLI/main.swift:1248",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Sources/MLXFastModel/LagunaConfig.swift:316",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:5842",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/Laguna.swift:437",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatching/EngineCore.swift:449",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatching/EngineCore.swift:451",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatching/Scheduler.swift:1297",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatching/Scheduler.swift:1301",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatching/Scheduler.swift:1366",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatching/Scheduler.swift:1370",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/Compiled/CompiledDecodeConfigV2.swift:54",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/Compiled/CompiledDecodeConfigV2.swift:59",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/Compiled/CompiledDecodeConfigV2.swift:59",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/Compiled/CompiledDecodeV2.swift:135",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:701",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:705",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:724",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:880",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:888",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:890",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:896",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:904",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:916",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:918",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1116",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1123",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1184",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1186",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1190",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1192",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineV2.swift:180",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/StepProfilerV2.swift:30",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/StepProfilerV2.swift:41",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/GenerationBatch.swift:545",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/GenerationBatch.swift:560",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/GenerationBatch.swift:600",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/GenerationBatch.swift:603",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/GenerationBatch.swift:604",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/GenerationBatch.swift:617",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Sources/BenchCBv2/BenchCBv2RealModel.swift:152",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Sources/BenchCBv2/BenchCBv2RealModel.swift:981",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Sources/BenchCBv2/BenchCBv2RealModel.swift:986",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Sources/BenchCBv2/BenchCBv2RealModel.swift:995",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Sources/BenchCBv2/BenchCBv2RealModel.swift:1000",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Tests/MLXLMTests/CBv2CompiledDecodeTests.swift:49",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Tests/MLXLMTests/CBv2CompiledDecodeTests.swift:303",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Tests/MLXLMTests/CBv2CompiledDecodeTests.swift:407",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Tests/MLXLMTests/CBv2CompiledDecodeTests.swift:446",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Tests/MLXLMTests/CBv2CompiledDecodeTests.swift:482",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Tests/MLXLMTests/CBv2CompiledDecodeTests.swift:518",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Tests/MLXLMTests/CBv2CompiledDecodeTests.swift:534",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Tests/MLXLMTests/CBv2CompiledDecodeTests.swift:592",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Tests/MLXLMTests/CBv2PagedBenchmarkTests.swift:19",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Tests/MLXLMTests/CBv2PagedProfileTests.swift:22",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Tests/MLXLMTests/CBv2PagedProfileTests.swift:22",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Tests/MLXLMTests/CBv2PagedProfileTests.swift:32",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Tests/MLXLMTests/CBv2PagedProfileTests.swift:32",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Tests/MLXLMTests/CBv2PagedProfileTests.swift:42",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Tests/MLXLMTests/CBv2PagedProfileTests.swift:42",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Tests/MLXLMTests/CBv2PagedProfileTests.swift:52",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "enabled",
+     "site": "Vendor/mlx-swift-lm/Tests/MLXLMTests/CBv2PagedProfileTests.swift:52",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_COMPILED_TIERED_ATTENTION",
+   "polarity": "default-ON",
+   "declarations": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift:8",
+   "symbols": "tieredCompiledAttentionEnabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "tieredCompiledAttentionEnabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift:143",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_DECODE_NVFP4_QKV_R1",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4808",
+   "symbols": "lagunaDecodeNVFP4QKVR1Enabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaDecodeNVFP4QKVR1Enabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:5007",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_DECODE_ROUTER_TOURNAMENT",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:9532",
+   "symbols": "lagunaDecodeRouterTournamentEnabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaDecodeRouterTournamentEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:9602",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_E4M3_SIGN_DOMAIN",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4147",
+   "symbols": "lagunaE4M3SignDomainCertified",
+   "n_read_sites": 2,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaE4M3SignDomainCertified",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4236",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaE4M3SignDomainCertified",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6819",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_EXPERT_ALIGNED_GATHER",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:255",
+   "symbols": "lagunaExpertAlignedGatherEnabled",
+   "n_read_sites": 3,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaExpertAlignedGatherEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:10578",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaExpertAlignedGatherEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:10753",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaExpertAlignedGatherEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:10766",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_FUSED_DENSE_DOWN_RESIDUAL",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:649",
+   "symbols": "lagunaFusedDenseDownResidualEnabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaFusedDenseDownResidualEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:9124",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_FUSED_DENSE_GATE_UP_SWIGLU",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:639",
+   "symbols": "lagunaFusedDenseGateUpSwiGLUEnabled",
+   "n_read_sites": 2,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaFusedDenseGateUpSwiGLUEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:9113",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaFusedDenseGateUpSwiGLUEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:11857",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_FUSED_DOWN_ROW_STAGING",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:8227",
+   "symbols": "lagunaFusedDownRowStagingEnabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaFusedDownRowStagingEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:8588",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_FUSED_FULL_ATTN",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:2011",
+   "symbols": "lagunaFusedFullAttentionEnabled",
+   "n_read_sites": 3,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaFusedFullAttentionEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6178",
+     "class": "NEEDS-RUNTIME-OBSERVATION",
+     "reason": "in else-if branch after a chain condition gated by [lagunaFusedSlidingAttentionEnabled] plus extra runtime predicates"
+    },
+    {
+     "symbol": "lagunaFusedFullAttentionEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeWeights.swift:494",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaFusedFullAttentionEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeWeights.swift:500",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_FUSED_FULL_ATTN_KERNEL_WARMUP",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:2024",
+   "symbols": "lagunaFusedFullAttentionKernelWarmupEnabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaFusedFullAttentionKernelWarmupEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeWeights.swift:501",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_FUSED_FULL_ATTN_WHOLE_MODEL_WARMUP",
+   "polarity": "default-OFF",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:2017",
+   "symbols": "lagunaFusedFullAttentionWholeModelWarmupEnabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaFusedFullAttentionWholeModelWarmupEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeWeights.swift:495",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_FUSED_FULL_QK_NORM_YARN",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:583",
+   "symbols": "lagunaFusedFullQKNormYaRNEnabled",
+   "n_read_sites": 4,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaFusedFullQKNormYaRNEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6107",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaFusedFullQKNormYaRNEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:11501",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaFusedFullQKNormYaRNEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:11539",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaFusedFullQKNormYaRNEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:11623",
+     "class": "NEEDS-RUNTIME-OBSERVATION",
+     "reason": "in else branch after a chain condition gated by [lagunaRoPEAngleAtlasEnabled] plus extra runtime predicates"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_FUSED_GATED_AFFINE_OPROJ",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4111",
+   "symbols": "lagunaFusedGatedAffineOProjEnabled",
+   "n_read_sites": 5,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaFusedGatedAffineOProjEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:5988",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaFusedGatedAffineOProjEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6343",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaFusedGatedAffineOProjEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6359",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaFusedGatedAffineOProjEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6373",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaFusedGatedAffineOProjEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6389",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_FUSED_GATED_OUTPUT",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:331",
+   "symbols": "lagunaFusedGatedOutputProjectionEnabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaFusedGatedOutputProjectionEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6438",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_FUSED_GATE_PRODUCT",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:3925",
+   "symbols": "lagunaFusedGateProductEnabled",
+   "n_read_sites": 2,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaFusedGateProductEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:3934",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaFusedGateProductEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6026",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_FUSED_NORM_AFFINE_QKV",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:5483",
+   "symbols": "lagunaFusedNormAffineQKVEnabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaFusedNormAffineQKVEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:5926",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_FUSED_QKV",
+   "polarity": "default-OFF",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:114",
+   "symbols": "lagunaFusedQKVEnabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaFusedQKVEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:11844",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_FUSED_QKV_PROJECTION",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:338",
+   "symbols": "lagunaFusedQKVProjectionEnabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaFusedQKVProjectionEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:5896",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_FUSED_RESIDUAL_RMS",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:275",
+   "symbols": "lagunaFusedResidualRMSNormEnabled",
+   "n_read_sites": 2,
+   "overall_class": "NEEDS-RUNTIME-OBSERVATION",
+   "sites": [
+    {
+     "symbol": "lagunaFusedResidualRMSNormEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:11190",
+     "class": "NEEDS-RUNTIME-OBSERVATION",
+     "reason": "in else-if branch after a chain condition gated by [lagunaFusedResidualRMSNormRouterEnabled] plus extra runtime predicates"
+    },
+    {
+     "symbol": "lagunaFusedResidualRMSNormEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:11287",
+     "class": "NEEDS-RUNTIME-OBSERVATION",
+     "reason": "in else-if branch after a chain condition gated by [lagunaFusedResidualRMSNormRouterEnabled] plus extra runtime predicates"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_FUSED_RESIDUAL_RMS_ROUTER",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:580",
+   "symbols": "lagunaFusedResidualRMSNormRouterEnabled",
+   "n_read_sites": 2,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaFusedResidualRMSNormRouterEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:11172",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaFusedResidualRMSNormRouterEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:11268",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_FUSED_ROUTED_DOWN_REDUCE",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:199",
+   "symbols": "lagunaFusedRoutedDownReduceEnabled",
+   "n_read_sites": 1,
+   "overall_class": "NEEDS-RUNTIME-OBSERVATION",
+   "sites": [
+    {
+     "symbol": "lagunaFusedRoutedDownReduceEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:10934",
+     "class": "NEEDS-RUNTIME-OBSERVATION",
+     "reason": "in else-if branch after a chain condition gated by [lagunaFusedRoutedSharedDownResidualEnabled] plus extra runtime predicates"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_FUSED_ROUTED_GATE_UP",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:217",
+   "symbols": "lagunaFusedRoutedGateUpEnabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaFusedRoutedGateUpEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:11853",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_FUSED_ROUTED_SHARED_DOWN_RESIDUAL",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:143",
+   "symbols": "lagunaFusedRoutedSharedDownResidualEnabled",
+   "n_read_sites": 3,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaFusedRoutedSharedDownResidualEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:10902",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaFusedRoutedSharedDownResidualEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:11219",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaFusedRoutedSharedDownResidualEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:11304",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_FUSED_ROUTED_SWIGLU_QMV",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:150",
+   "symbols": "lagunaFusedRoutedSwiGLUQMVEnabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaFusedRoutedSwiGLUQMVEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:10833",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_FUSED_ROUTER",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:9630",
+   "symbols": "lagunaDecodeRouterTop8Enabled",
+   "n_read_sites": 2,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaDecodeRouterTop8Enabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:10277",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaDecodeRouterTop8Enabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:10304",
+     "class": "NEEDS-RUNTIME-OBSERVATION",
+     "reason": "in else branch after a chain condition gated by [lagunaDecodeRouterCastSinkEnabled] plus extra runtime predicates"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_FUSED_ROUTER_CAST",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:9636",
+   "symbols": "lagunaDecodeRouterCastSinkEnabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaDecodeRouterCastSinkEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:10278",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_FUSED_ROUTER_NORM",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:9643",
+   "symbols": "lagunaDecodeRouterNormSinkEnabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaDecodeRouterNormSinkEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:10286",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_FUSED_SHARED_DOWN_RESIDUAL",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:137",
+   "symbols": "lagunaFusedSharedDownResidualEnabled",
+   "n_read_sites": 3,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaFusedSharedDownResidualEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:9055",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaFusedSharedDownResidualEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:11218",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaFusedSharedDownResidualEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:11303",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_FUSED_SHARED_GATE_UP",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:122",
+   "symbols": "lagunaFusedSharedGateUpEnabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaFusedSharedGateUpEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:11850",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_FUSED_SHARED_SWIGLU_QMV",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:129",
+   "symbols": "lagunaFusedSharedSwiGLUQMVEnabled",
+   "n_read_sites": 2,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaFusedSharedSwiGLUQMVEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:9015",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaFusedSharedSwiGLUQMVEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:9136",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_FUSED_SLIDING_ATTN",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:1505",
+   "symbols": "lagunaFusedSlidingAttentionEnabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaFusedSlidingAttentionEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6152",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_FUSED_SLIDING_QK_NORM_ROPE",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:524",
+   "symbols": "lagunaFusedSlidingQKNormRoPEEnabled",
+   "n_read_sites": 4,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaFusedSlidingQKNormRoPEEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6114",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaFusedSlidingQKNormRoPEEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:11502",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaFusedSlidingQKNormRoPEEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:11540",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaFusedSlidingQKNormRoPEEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:11630",
+     "class": "NEEDS-RUNTIME-OBSERVATION",
+     "reason": "in else branch after a chain condition gated by [lagunaRoPEAngleAtlasEnabled] plus extra runtime predicates"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_GATED_AFFINE_OPROJ_NVFP4",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4115",
+   "symbols": "lagunaGatedAffineOProjNVFP4Enabled",
+   "n_read_sites": 3,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaGatedAffineOProjNVFP4Enabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:5989",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaGatedAffineOProjNVFP4Enabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6374",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaGatedAffineOProjNVFP4Enabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6390",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_INVERSE_SCATTER",
+   "polarity": "default-ON",
+   "declarations": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift:64",
+   "symbols": "inversePermutationScatterEnabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "inversePermutationScatterEnabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift:294",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_LAST_PREFILL_PROJECTION_BANKS",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:564",
+   "symbols": "lagunaLastPrefillProjectionBanksEnabled",
+   "n_read_sites": 2,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaLastPrefillProjectionBanksEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:5805",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaLastPrefillProjectionBanksEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6496",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_LMHEAD_FUSED_REFINEMENT",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaLmHeadPrune.swift:95",
+   "symbols": "lagunaLmHeadFusedRefinementEnabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaLmHeadFusedRefinementEnabled",
+     "site": "Sources/MLXFastModel/LagunaLmHeadPrune.swift:932",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_LM_HEAD_PRUNE",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaLmHeadPrune.swift:79",
+   "symbols": "lagunaLmHeadPruneEnabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaLmHeadPruneEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:11872",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_LM_HEAD_PRUNE_PREFILL",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaLmHeadPrune.swift:86",
+   "symbols": "lagunaLmHeadPrunePrefillEnabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaLmHeadPrunePrefillEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:11783",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_NATIVE_AFFINE_GPROJ",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:459",
+   "symbols": "lagunaNativeAffineGProjLayerCount",
+   "n_read_sites": 2,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaNativeAffineGProjLayerCount",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:466",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaNativeAffineGProjLayerCount",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:474",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_NATIVE_AFFINE_NVFP4",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:3049",
+   "symbols": "lagunaNativeAffineNVFP4From",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaNativeAffineNVFP4From",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:3101",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_NATIVE_AFFINE_OPROJ",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:420",
+   "symbols": "lagunaNativeAffineOProjLayerCount",
+   "n_read_sites": 2,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaNativeAffineOProjLayerCount",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:427",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaNativeAffineOProjLayerCount",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:432",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_NATIVE_AFFINE_QKV",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:347",
+   "symbols": "lagunaNativeAffineQKVLayerCount",
+   "n_read_sites": 2,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaNativeAffineQKVLayerCount",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:354",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaNativeAffineQKVLayerCount",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:401",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_NATIVE_AFFINE_SUFFIX",
+   "polarity": "default-OFF",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:366",
+   "symbols": "lagunaNativeAffineSuffixSelection",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaNativeAffineSuffixSelection",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:392",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_NORM_AFFINE_QKV_STAGE",
+   "polarity": "other(==\"tg\")",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:5206",
+   "symbols": "lagunaNormAffineQKVStaged",
+   "n_read_sites": 3,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaNormAffineQKVStaged",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:5425",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaNormAffineQKVStaged",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:5449",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaNormAffineQKVStaged",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:5534",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_NVFP4_QDOT_SEED_ELIDE",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6720",
+   "symbols": "lagunaNvfp4QdotSeedElisionEnabled",
+   "n_read_sites": 2,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaNvfp4QdotSeedElisionEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6849",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaNvfp4QdotSeedElisionEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6873",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_NVFP4_QMV_SEED_ELIDE",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4159",
+   "symbols": "lagunaNvfp4QmvSeedElisionEnabled",
+   "n_read_sites": 5,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaNvfp4QmvSeedElisionEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4225",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaNvfp4QmvSeedElisionEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4426",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaNvfp4QmvSeedElisionEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4449",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaNvfp4QmvSeedElisionEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4553",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaNvfp4QmvSeedElisionEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4572",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_NVFP4_QMV_SIGN_CARRY",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4131",
+   "symbols": "lagunaNvfp4QmvSignCarryEnabled",
+   "n_read_sites": 5,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaNvfp4QmvSignCarryEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4224",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaNvfp4QmvSignCarryEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4425",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaNvfp4QmvSignCarryEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4448",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaNvfp4QmvSignCarryEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4552",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaNvfp4QmvSignCarryEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4571",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_NVFP4_SCALE_CARRY",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6668",
+   "symbols": "lagunaNvfp4ScaleCarry",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaNvfp4ScaleCarry",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6816",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_NVFP4_SCALE_DEFER",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6753",
+   "symbols": "lagunaNvfp4ScaleDeferEnabled",
+   "n_read_sites": 3,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaNvfp4ScaleDeferEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6762",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaNvfp4ScaleDeferEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6773",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaNvfp4ScaleDeferEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6831",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_NVFP4_SCALE_FOLD",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6606",
+   "symbols": "lagunaNvfp4ScaleFoldEnabled",
+   "n_read_sites": 6,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaNvfp4ScaleFoldEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4230",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaNvfp4ScaleFoldEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6754",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaNvfp4ScaleFoldEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6773",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaNvfp4ScaleFoldEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6776",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaNvfp4ScaleFoldEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6777",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaNvfp4ScaleFoldEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6816",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_PACKED_SCALES",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:166",
+   "symbols": "lagunaPackedScalesEnabled",
+   "n_read_sites": 3,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaPackedScalesEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:10842",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaPackedScalesEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:10872",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaPackedScalesEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeWeights.swift:1115",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_PARAMS_ATLAS",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:1999",
+   "symbols": "lagunaParamsAtlasEnabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaParamsAtlasEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:1962",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_PREFILL_EXPERT_DOWN_PAIRWISE_SCALES",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:232",
+   "symbols": "lagunaPrefillExpertDownPairwiseScalesEnabled",
+   "n_read_sites": 2,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaPrefillExpertDownPairwiseScalesEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:10752",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaPrefillExpertDownPairwiseScalesEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:10999",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_PREFILL_EXPERT_PAIRWISE_SCALES",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:228",
+   "symbols": "lagunaPrefillExpertPairwiseScalesEnabled",
+   "n_read_sites": 2,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaPrefillExpertPairwiseScalesEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:10765",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaPrefillExpertPairwiseScalesEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:10994",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_PREFILL_FUSED_GATE_UP",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:222",
+   "symbols": "lagunaPrefillFusedRoutedGateUpEnabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaPrefillFusedRoutedGateUpEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:10977",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_PREFILL_FUSED_RESIDUAL_RMS",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:280",
+   "symbols": "lagunaPrefillFusedResidualRMSNormEnabled",
+   "n_read_sites": 1,
+   "overall_class": "NEEDS-RUNTIME-OBSERVATION",
+   "sites": [
+    {
+     "symbol": "lagunaPrefillFusedResidualRMSNormEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:11199",
+     "class": "NEEDS-RUNTIME-OBSERVATION",
+     "reason": "in else-if branch after a chain condition gated by [lagunaFusedResidualRMSNormRouterEnabled] plus extra runtime predicates; in else-if branch after a chain condition gated by [lagunaFusedResidualRMSNormEnabled] plus extra runtime predicates"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_PREFILL_MOE_TAIL",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:9669",
+   "symbols": "lagunaPrefillMoETailEnabled",
+   "n_read_sites": 4,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaPrefillMoETailEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:11016",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaPrefillMoETailEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:11025",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaPrefillMoETailEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:11071",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaPrefillMoETailEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:11236",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_PREFILL_QK_NORM_ROPE",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:541",
+   "symbols": "lagunaPrefillQKNormRoPEEnabled",
+   "n_read_sites": 4,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaPrefillQKNormRoPEEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6139",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaPrefillQKNormRoPEEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:6145",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaPrefillQKNormRoPEEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:11500",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaPrefillQKNormRoPEEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:11643",
+     "class": "NEEDS-RUNTIME-OBSERVATION",
+     "reason": "in else branch after a chain condition gated by [lagunaRoPEAngleAtlasEnabled] plus extra runtime predicates"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_PREFILL_ROUTER_TOP8",
+   "polarity": "default-OFF",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:9660",
+   "symbols": "lagunaPrefillRouterTop8Enabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaPrefillRouterTop8Enabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:10259",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_PREFILL_ROUTER_TOURNAMENT",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:10211",
+   "symbols": "lagunaPrefillRouterTournamentEnabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaPrefillRouterTournamentEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:10241",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_PREFILL_SORTED_MOE_TAIL",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:9677",
+   "symbols": "lagunaPrefillSortedMoETailEnabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaPrefillSortedMoETailEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:11015",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_QKV_TAIL_FOLD",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4677",
+   "symbols": "lagunaTailNVFP4QKVTailFoldEnabled",
+   "n_read_sites": 2,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaTailNVFP4QKVTailFoldEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4681",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaTailNVFP4QKVTailFoldEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4688",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_QMV_R1",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:289",
+   "symbols": "lagunaSwiGLUQMVRows1Enabled",
+   "n_read_sites": 2,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaSwiGLUQMVRows1Enabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:7581",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaSwiGLUQMVRows1Enabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:7584",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_QMV_WIDE_CODES",
+   "polarity": "default-OFF",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:325",
+   "symbols": "lagunaSharedQMVWideCodesEnabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaSharedQMVWideCodesEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:7215",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_ROPE_ANGLE_ATLAS",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:604",
+   "symbols": "lagunaRoPEAngleAtlasEnabled",
+   "n_read_sites": 3,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaRoPEAngleAtlasEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:11500",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaRoPEAngleAtlasEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:11538",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaRoPEAngleAtlasEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:11588",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_ROPE_ATLAS_VIEWS",
+   "polarity": "default-OFF",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:627",
+   "symbols": "lagunaRoPEAtlasViewsEnabled",
+   "n_read_sites": 2,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaRoPEAtlasViewsEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:11538",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaRoPEAtlasViewsEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:11602",
+     "class": "NEEDS-RUNTIME-OBSERVATION",
+     "reason": "in else-if branch after a chain condition gated by [lagunaRoPEAngleAtlasEnabled] plus extra runtime predicates"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_ROUTED_GATEUP_R1",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:7913",
+   "symbols": "lagunaRoutedGateUpR1Enabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaRoutedGateUpR1Enabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:8044",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_ROUTER_ORDINAL",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:9480",
+   "symbols": "lagunaDecodeRouterOrdinalEnabled",
+   "n_read_sites": 2,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaDecodeRouterOrdinalEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:9600",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaDecodeRouterOrdinalEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:10194",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_ROUTER_ORDINAL_SCORE_TABLE",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:9486",
+   "symbols": "lagunaDecodeRouterOrdinalScoreTableEnabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaDecodeRouterOrdinalScoreTableEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:9601",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_ROUTER_PRECOMPUTED_KEYS",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:172",
+   "symbols": "lagunaRouterPrecomputedKeysEnabled",
+   "n_read_sites": 9,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaRouterPrecomputedKeysEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:958",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaRouterPrecomputedKeysEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:1132",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaRouterPrecomputedKeysEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:1134",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaRouterPrecomputedKeysEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:1137",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaRouterPrecomputedKeysEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:1142",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaRouterPrecomputedKeysEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:1220",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaRouterPrecomputedKeysEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:1229",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaRouterPrecomputedKeysEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:1231",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaRouterPrecomputedKeysEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:10847",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_ROUTE_COUNTING_SORT",
+   "polarity": "default-ON",
+   "declarations": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift:78",
+   "symbols": "routeCountingSortEnabled",
+   "n_read_sites": 2,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "routeCountingSortEnabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift:161",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "routeCountingSortEnabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift:266",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_ROUTE_FUSED_SCATTER",
+   "polarity": "default-ON",
+   "declarations": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift:187",
+   "symbols": "routeFusedScatterEnabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "routeFusedScatterEnabled",
+     "site": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift:266",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_SHARED_FIRST_DOWN",
+   "polarity": "default-OFF",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:8219",
+   "symbols": "lagunaSharedFirstDownOrderEnabled",
+   "n_read_sites": 9,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaSharedFirstDownOrderEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:8231",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaSharedFirstDownOrderEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:8234",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaSharedFirstDownOrderEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:8257",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaSharedFirstDownOrderEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:8260",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaSharedFirstDownOrderEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:8428",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaSharedFirstDownOrderEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:8431",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaSharedFirstDownOrderEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:8557",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaSharedFirstDownOrderEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:8560",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaSharedFirstDownOrderEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:8635",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_SHARED_QMV_R1",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:296",
+   "symbols": "lagunaSharedSwiGLUQMVRows1Enabled",
+   "n_read_sites": 4,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaSharedSwiGLUQMVRows1Enabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:7202",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaSharedSwiGLUQMVRows1Enabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:7218",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaSharedSwiGLUQMVRows1Enabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:7221",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaSharedSwiGLUQMVRows1Enabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:8919",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_SHARED_SCALE_HALVED",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:312",
+   "symbols": "lagunaSharedScaleHalvedEnabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaSharedScaleHalvedEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:8911",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_TAIL_NVFP4_SCALE_FOLD",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4660",
+   "symbols": "lagunaTailNVFP4ScaleFoldEnabled",
+   "n_read_sites": 2,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaTailNVFP4ScaleFoldEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4688",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaTailNVFP4ScaleFoldEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:4749",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_TERMINAL_FUSION",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeModel.swift:571",
+   "symbols": "lagunaTerminalPrefillFusionEnabled",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaTerminalPrefillFusionEnabled",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:11258",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_TRACE_FUSION",
+   "polarity": "default-OFF",
+   "declarations": "Sources/MLXFastModel/LagunaLmHeadPrune.swift:101;Sources/MLXFastModel/LagunaRuntimeModel.swift:76",
+   "symbols": "lagunaTraceFusion;lagunaTraceFusionEnabled",
+   "n_read_sites": 2,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "lagunaTraceFusion",
+     "site": "Sources/MLXFastModel/LagunaRuntimeModel.swift:95",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "lagunaTraceFusionEnabled",
+     "site": "Sources/MLXFastModel/LagunaLmHeadPrune.swift:848",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "DARKBLOOM_WARM_GREEDY_ARGMAX",
+   "polarity": "default-ON",
+   "declarations": "Sources/MLXFastModel/LagunaRuntimeWeights.swift:517",
+   "symbols": "(unbound)",
+   "n_read_sites": 1,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "(inline)",
+     "site": "Sources/MLXFastModel/LagunaRuntimeWeights.swift:517",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "MLX_SWIFT_BUILD_DOC",
+   "polarity": "default-OFF",
+   "declarations": "Vendor/mlx-swift-lm/Package.swift:246;Vendor/mlx-swift/Package.swift:454",
+   "symbols": "(unbound)",
+   "n_read_sites": 2,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "(inline)",
+     "site": "Vendor/mlx-swift-lm/Package.swift:246",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "(inline)",
+     "site": "Vendor/mlx-swift/Package.swift:454",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "SPI_GENERATE_DOCS",
+   "polarity": "default-OFF",
+   "declarations": "Vendor/mlx-swift-lm/Package.swift:247;Vendor/mlx-swift/Package.swift:455",
+   "symbols": "(unbound)",
+   "n_read_sites": 2,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "(inline)",
+     "site": "Vendor/mlx-swift-lm/Package.swift:247",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "(inline)",
+     "site": "Vendor/mlx-swift/Package.swift:455",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  },
+  {
+   "gate": "SPM_CUDA",
+   "polarity": "default-ON",
+   "declarations": "Vendor/mlx-swift/Package.swift:102;Vendor/mlx-swift/Plugins/CudaBuild/plugin.swift:192",
+   "symbols": "(unbound)",
+   "n_read_sites": 2,
+   "overall_class": "LIVE",
+   "sites": [
+    {
+     "symbol": "(inline)",
+     "site": "Vendor/mlx-swift/Package.swift:102",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    },
+    {
+     "symbol": "(inline)",
+     "site": "Vendor/mlx-swift/Plugins/CudaBuild/plugin.swift:192",
+     "class": "LIVE",
+     "reason": "no default-ON gate dominates this site"
+    }
+   ]
+  }
+ ]
+}

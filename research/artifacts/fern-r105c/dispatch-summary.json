@@ -1,0 +1,1728 @@
+{
+ "arms": {
+  "a_base": {
+   "bytes": 1671168,
+   "rows": 11244,
+   "md5": "4ac083641d62268e2177ca84c19f7d61",
+   "markers": 6,
+   "prefill_rows": 7335,
+   "step_intervals": [
+    1759,
+    528,
+    408,
+    408,
+    408
+   ],
+   "steady_step_dispatches": 408,
+   "steady_step_profile": [
+    {
+     "n": 41,
+     "kernel": "rmsbfloat16",
+     "grid": "512x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_prefill_router_tournament_ordinal_norm_active64_v2_bfloat16_t_float_uint32_t_float",
+     "grid": "256x1x1",
+     "threadgroup": "256x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_bfloat16_t_uint32_t",
+     "grid": "16384x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2_bfloat16_t_uint32_t_uint8_t_uint32_t_bfloat16_t",
+     "grid": "131072x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6_bfloat16_t_uint32_t_uint8_t_uint32_t_float_bfloat16_t_uint32_t_uint8_t_bfloat16_t_bfloat16_t",
+     "grid": "147456x1x1",
+     "threadgroup": "288x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1_bfloat16_t_uint32_t_uint8_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "327680x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_gate_sp_h64_v1_bfloat16_t_uint32_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "512x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_oproj_act_h64_v1_lm1_pw1_sc1_se1_bfloat16_t_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_sliding_fused_attn_ring_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_uint32_tc_floatc_bfloat16_t",
+     "grid": "32768x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "262144x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_full_fused_attn_grow_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_uint32_tc_floatc_bfloat16_t",
+     "grid": "24576x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_gate_sp_h48_v1_bfloat16_t_uint32_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_oproj_act_h48_v1_lm1_pw1_sc1_se1_bfloat16_t_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 2,
+     "kernel": "gather_frontbfloat16_int32_int_2",
+     "grid": "50176x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "argmax_bfloat16",
+     "grid": "1024x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_decode_embedding_rope_atlas_bf16_2048_v2_int32_tc_bfloat16_t_float_float_int32_ts_bfloat16_t_float_float",
+     "grid": "512x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_dense_down_residual_bf16_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "128x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_dense_gate_up_swiglu_bf16_v1_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "65536x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_coarse_argmax_stage1_v5_float_float_uint32_t",
+     "grid": "224x128x1",
+     "threadgroup": "224x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_exact_fused_int5_sparse_refine_v1_float_bfloat16_t_floatc_bfloat16_t_bfloat16_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "802816x1x1",
+     "threadgroup": "256x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_exact_winner_bf16_midpoint_threshold_v1_float_uint32_t_bfloat16_t_bfloat16_t_float",
+     "grid": "32x1x1",
+     "threadgroup": "32x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_int5_base_coarse_delta_bf16_v1_bfloat16_t_uint8_t_uint8_t_float_bfloat16_t",
+     "grid": "3211264x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_residual_rms_bf16_2048_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "512x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "vn_copybfloat16float32",
+     "grid": "50176x1x1",
+     "threadgroup": "1024x1x1"
+    }
+   ],
+   "delta_decode_vs_base": 0,
+   "delta_prefill_vs_base": 0,
+   "identical_to_base": true
+  },
+  "b_base": {
+   "bytes": 1671168,
+   "rows": 11244,
+   "md5": "4ac083641d62268e2177ca84c19f7d61",
+   "markers": 6,
+   "prefill_rows": 7335,
+   "step_intervals": [
+    1759,
+    528,
+    408,
+    408,
+    408
+   ],
+   "steady_step_dispatches": 408,
+   "steady_step_profile": [
+    {
+     "n": 41,
+     "kernel": "rmsbfloat16",
+     "grid": "512x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_prefill_router_tournament_ordinal_norm_active64_v2_bfloat16_t_float_uint32_t_float",
+     "grid": "256x1x1",
+     "threadgroup": "256x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_bfloat16_t_uint32_t",
+     "grid": "16384x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2_bfloat16_t_uint32_t_uint8_t_uint32_t_bfloat16_t",
+     "grid": "131072x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6_bfloat16_t_uint32_t_uint8_t_uint32_t_float_bfloat16_t_uint32_t_uint8_t_bfloat16_t_bfloat16_t",
+     "grid": "147456x1x1",
+     "threadgroup": "288x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1_bfloat16_t_uint32_t_uint8_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "327680x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_gate_sp_h64_v1_bfloat16_t_uint32_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "512x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_oproj_act_h64_v1_lm1_pw1_sc1_se1_bfloat16_t_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_sliding_fused_attn_ring_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_uint32_tc_floatc_bfloat16_t",
+     "grid": "32768x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "262144x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_full_fused_attn_grow_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_uint32_tc_floatc_bfloat16_t",
+     "grid": "24576x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_gate_sp_h48_v1_bfloat16_t_uint32_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_oproj_act_h48_v1_lm1_pw1_sc1_se1_bfloat16_t_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 2,
+     "kernel": "gather_frontbfloat16_int32_int_2",
+     "grid": "50176x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "argmax_bfloat16",
+     "grid": "1024x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_decode_embedding_rope_atlas_bf16_2048_v2_int32_tc_bfloat16_t_float_float_int32_ts_bfloat16_t_float_float",
+     "grid": "512x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_dense_down_residual_bf16_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "128x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_dense_gate_up_swiglu_bf16_v1_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "65536x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_coarse_argmax_stage1_v5_float_float_uint32_t",
+     "grid": "224x128x1",
+     "threadgroup": "224x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_exact_fused_int5_sparse_refine_v1_float_bfloat16_t_floatc_bfloat16_t_bfloat16_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "802816x1x1",
+     "threadgroup": "256x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_exact_winner_bf16_midpoint_threshold_v1_float_uint32_t_bfloat16_t_bfloat16_t_float",
+     "grid": "32x1x1",
+     "threadgroup": "32x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_int5_base_coarse_delta_bf16_v1_bfloat16_t_uint8_t_uint8_t_float_bfloat16_t",
+     "grid": "3211264x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_residual_rms_bf16_2048_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "512x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "vn_copybfloat16float32",
+     "grid": "50176x1x1",
+     "threadgroup": "1024x1x1"
+    }
+   ],
+   "delta_decode_vs_base": 0,
+   "delta_prefill_vs_base": 0,
+   "identical_to_base": true
+  },
+  "c_inverse_scatter_off": {
+   "bytes": 1671168,
+   "rows": 11244,
+   "md5": "4ac083641d62268e2177ca84c19f7d61",
+   "markers": 6,
+   "prefill_rows": 7335,
+   "step_intervals": [
+    1759,
+    528,
+    408,
+    408,
+    408
+   ],
+   "steady_step_dispatches": 408,
+   "steady_step_profile": [
+    {
+     "n": 41,
+     "kernel": "rmsbfloat16",
+     "grid": "512x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_prefill_router_tournament_ordinal_norm_active64_v2_bfloat16_t_float_uint32_t_float",
+     "grid": "256x1x1",
+     "threadgroup": "256x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_bfloat16_t_uint32_t",
+     "grid": "16384x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2_bfloat16_t_uint32_t_uint8_t_uint32_t_bfloat16_t",
+     "grid": "131072x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6_bfloat16_t_uint32_t_uint8_t_uint32_t_float_bfloat16_t_uint32_t_uint8_t_bfloat16_t_bfloat16_t",
+     "grid": "147456x1x1",
+     "threadgroup": "288x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1_bfloat16_t_uint32_t_uint8_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "327680x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_gate_sp_h64_v1_bfloat16_t_uint32_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "512x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_oproj_act_h64_v1_lm1_pw1_sc1_se1_bfloat16_t_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_sliding_fused_attn_ring_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_uint32_tc_floatc_bfloat16_t",
+     "grid": "32768x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "262144x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_full_fused_attn_grow_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_uint32_tc_floatc_bfloat16_t",
+     "grid": "24576x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_gate_sp_h48_v1_bfloat16_t_uint32_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_oproj_act_h48_v1_lm1_pw1_sc1_se1_bfloat16_t_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 2,
+     "kernel": "gather_frontbfloat16_int32_int_2",
+     "grid": "50176x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "argmax_bfloat16",
+     "grid": "1024x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_decode_embedding_rope_atlas_bf16_2048_v2_int32_tc_bfloat16_t_float_float_int32_ts_bfloat16_t_float_float",
+     "grid": "512x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_dense_down_residual_bf16_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "128x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_dense_gate_up_swiglu_bf16_v1_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "65536x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_coarse_argmax_stage1_v5_float_float_uint32_t",
+     "grid": "224x128x1",
+     "threadgroup": "224x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_exact_fused_int5_sparse_refine_v1_float_bfloat16_t_floatc_bfloat16_t_bfloat16_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "802816x1x1",
+     "threadgroup": "256x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_exact_winner_bf16_midpoint_threshold_v1_float_uint32_t_bfloat16_t_bfloat16_t_float",
+     "grid": "32x1x1",
+     "threadgroup": "32x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_int5_base_coarse_delta_bf16_v1_bfloat16_t_uint8_t_uint8_t_float_bfloat16_t",
+     "grid": "3211264x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_residual_rms_bf16_2048_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "512x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "vn_copybfloat16float32",
+     "grid": "50176x1x1",
+     "threadgroup": "1024x1x1"
+    }
+   ],
+   "delta_decode_vs_base": 0,
+   "delta_prefill_vs_base": 0,
+   "identical_to_base": true
+  },
+  "d_routed_down_reduce_off": {
+   "bytes": 1671168,
+   "rows": 11244,
+   "md5": "4ac083641d62268e2177ca84c19f7d61",
+   "markers": 6,
+   "prefill_rows": 7335,
+   "step_intervals": [
+    1759,
+    528,
+    408,
+    408,
+    408
+   ],
+   "steady_step_dispatches": 408,
+   "steady_step_profile": [
+    {
+     "n": 41,
+     "kernel": "rmsbfloat16",
+     "grid": "512x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_prefill_router_tournament_ordinal_norm_active64_v2_bfloat16_t_float_uint32_t_float",
+     "grid": "256x1x1",
+     "threadgroup": "256x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_bfloat16_t_uint32_t",
+     "grid": "16384x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2_bfloat16_t_uint32_t_uint8_t_uint32_t_bfloat16_t",
+     "grid": "131072x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6_bfloat16_t_uint32_t_uint8_t_uint32_t_float_bfloat16_t_uint32_t_uint8_t_bfloat16_t_bfloat16_t",
+     "grid": "147456x1x1",
+     "threadgroup": "288x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1_bfloat16_t_uint32_t_uint8_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "327680x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_gate_sp_h64_v1_bfloat16_t_uint32_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "512x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_oproj_act_h64_v1_lm1_pw1_sc1_se1_bfloat16_t_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_sliding_fused_attn_ring_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_uint32_tc_floatc_bfloat16_t",
+     "grid": "32768x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "262144x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_full_fused_attn_grow_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_uint32_tc_floatc_bfloat16_t",
+     "grid": "24576x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_gate_sp_h48_v1_bfloat16_t_uint32_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_oproj_act_h48_v1_lm1_pw1_sc1_se1_bfloat16_t_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 2,
+     "kernel": "gather_frontbfloat16_int32_int_2",
+     "grid": "50176x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "argmax_bfloat16",
+     "grid": "1024x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_decode_embedding_rope_atlas_bf16_2048_v2_int32_tc_bfloat16_t_float_float_int32_ts_bfloat16_t_float_float",
+     "grid": "512x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_dense_down_residual_bf16_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "128x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_dense_gate_up_swiglu_bf16_v1_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "65536x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_coarse_argmax_stage1_v5_float_float_uint32_t",
+     "grid": "224x128x1",
+     "threadgroup": "224x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_exact_fused_int5_sparse_refine_v1_float_bfloat16_t_floatc_bfloat16_t_bfloat16_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "802816x1x1",
+     "threadgroup": "256x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_exact_winner_bf16_midpoint_threshold_v1_float_uint32_t_bfloat16_t_bfloat16_t_float",
+     "grid": "32x1x1",
+     "threadgroup": "32x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_int5_base_coarse_delta_bf16_v1_bfloat16_t_uint8_t_uint8_t_float_bfloat16_t",
+     "grid": "3211264x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_residual_rms_bf16_2048_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "512x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "vn_copybfloat16float32",
+     "grid": "50176x1x1",
+     "threadgroup": "1024x1x1"
+    }
+   ],
+   "delta_decode_vs_base": 0,
+   "delta_prefill_vs_base": 0,
+   "identical_to_base": true
+  },
+  "e_shared_down_residual_off": {
+   "bytes": 1671168,
+   "rows": 11244,
+   "md5": "4ac083641d62268e2177ca84c19f7d61",
+   "markers": 6,
+   "prefill_rows": 7335,
+   "step_intervals": [
+    1759,
+    528,
+    408,
+    408,
+    408
+   ],
+   "steady_step_dispatches": 408,
+   "steady_step_profile": [
+    {
+     "n": 41,
+     "kernel": "rmsbfloat16",
+     "grid": "512x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_prefill_router_tournament_ordinal_norm_active64_v2_bfloat16_t_float_uint32_t_float",
+     "grid": "256x1x1",
+     "threadgroup": "256x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_bfloat16_t_uint32_t",
+     "grid": "16384x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2_bfloat16_t_uint32_t_uint8_t_uint32_t_bfloat16_t",
+     "grid": "131072x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6_bfloat16_t_uint32_t_uint8_t_uint32_t_float_bfloat16_t_uint32_t_uint8_t_bfloat16_t_bfloat16_t",
+     "grid": "147456x1x1",
+     "threadgroup": "288x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1_bfloat16_t_uint32_t_uint8_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "327680x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_gate_sp_h64_v1_bfloat16_t_uint32_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "512x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_oproj_act_h64_v1_lm1_pw1_sc1_se1_bfloat16_t_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_sliding_fused_attn_ring_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_uint32_tc_floatc_bfloat16_t",
+     "grid": "32768x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "262144x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_full_fused_attn_grow_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_uint32_tc_floatc_bfloat16_t",
+     "grid": "24576x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_gate_sp_h48_v1_bfloat16_t_uint32_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_oproj_act_h48_v1_lm1_pw1_sc1_se1_bfloat16_t_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 2,
+     "kernel": "gather_frontbfloat16_int32_int_2",
+     "grid": "50176x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "argmax_bfloat16",
+     "grid": "1024x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_decode_embedding_rope_atlas_bf16_2048_v2_int32_tc_bfloat16_t_float_float_int32_ts_bfloat16_t_float_float",
+     "grid": "512x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_dense_down_residual_bf16_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "128x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_dense_gate_up_swiglu_bf16_v1_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "65536x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_coarse_argmax_stage1_v5_float_float_uint32_t",
+     "grid": "224x128x1",
+     "threadgroup": "224x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_exact_fused_int5_sparse_refine_v1_float_bfloat16_t_floatc_bfloat16_t_bfloat16_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "802816x1x1",
+     "threadgroup": "256x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_exact_winner_bf16_midpoint_threshold_v1_float_uint32_t_bfloat16_t_bfloat16_t_float",
+     "grid": "32x1x1",
+     "threadgroup": "32x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_int5_base_coarse_delta_bf16_v1_bfloat16_t_uint8_t_uint8_t_float_bfloat16_t",
+     "grid": "3211264x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_residual_rms_bf16_2048_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "512x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "vn_copybfloat16float32",
+     "grid": "50176x1x1",
+     "threadgroup": "1024x1x1"
+    }
+   ],
+   "delta_decode_vs_base": 0,
+   "delta_prefill_vs_base": 0,
+   "identical_to_base": true
+  },
+  "f_fused_scatter_off": {
+   "bytes": 1716224,
+   "rows": 11630,
+   "md5": "c5cef454e4edf7ec6f33967839849f0a",
+   "markers": 6,
+   "prefill_rows": 7525,
+   "step_intervals": [
+    1949,
+    528,
+    408,
+    408,
+    408
+   ],
+   "steady_step_dispatches": 408,
+   "steady_step_profile": [
+    {
+     "n": 41,
+     "kernel": "rmsbfloat16",
+     "grid": "512x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_prefill_router_tournament_ordinal_norm_active64_v2_bfloat16_t_float_uint32_t_float",
+     "grid": "256x1x1",
+     "threadgroup": "256x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_bfloat16_t_uint32_t",
+     "grid": "16384x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2_bfloat16_t_uint32_t_uint8_t_uint32_t_bfloat16_t",
+     "grid": "131072x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6_bfloat16_t_uint32_t_uint8_t_uint32_t_float_bfloat16_t_uint32_t_uint8_t_bfloat16_t_bfloat16_t",
+     "grid": "147456x1x1",
+     "threadgroup": "288x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1_bfloat16_t_uint32_t_uint8_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "327680x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_gate_sp_h64_v1_bfloat16_t_uint32_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "512x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_oproj_act_h64_v1_lm1_pw1_sc1_se1_bfloat16_t_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_sliding_fused_attn_ring_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_uint32_tc_floatc_bfloat16_t",
+     "grid": "32768x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "262144x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_full_fused_attn_grow_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_uint32_tc_floatc_bfloat16_t",
+     "grid": "24576x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_gate_sp_h48_v1_bfloat16_t_uint32_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_oproj_act_h48_v1_lm1_pw1_sc1_se1_bfloat16_t_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 2,
+     "kernel": "gather_frontbfloat16_int32_int_2",
+     "grid": "50176x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "argmax_bfloat16",
+     "grid": "1024x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_decode_embedding_rope_atlas_bf16_2048_v2_int32_tc_bfloat16_t_float_float_int32_ts_bfloat16_t_float_float",
+     "grid": "512x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_dense_down_residual_bf16_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "128x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_dense_gate_up_swiglu_bf16_v1_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "65536x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_coarse_argmax_stage1_v5_float_float_uint32_t",
+     "grid": "224x128x1",
+     "threadgroup": "224x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_exact_fused_int5_sparse_refine_v1_float_bfloat16_t_floatc_bfloat16_t_bfloat16_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "802816x1x1",
+     "threadgroup": "256x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_exact_winner_bf16_midpoint_threshold_v1_float_uint32_t_bfloat16_t_bfloat16_t_float",
+     "grid": "32x1x1",
+     "threadgroup": "32x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_int5_base_coarse_delta_bf16_v1_bfloat16_t_uint8_t_uint8_t_float_bfloat16_t",
+     "grid": "3211264x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_residual_rms_bf16_2048_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "512x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "vn_copybfloat16float32",
+     "grid": "50176x1x1",
+     "threadgroup": "1024x1x1"
+    }
+   ],
+   "delta_decode_vs_base": 0,
+   "delta_prefill_vs_base": 190,
+   "identical_to_base": false
+  },
+  "g_counting_sort_off": {
+   "bytes": 1720320,
+   "rows": 11706,
+   "md5": "0c595857b0ac09ac0e77cede2a0e24fb",
+   "markers": 6,
+   "prefill_rows": 7563,
+   "step_intervals": [
+    1987,
+    528,
+    408,
+    408,
+    408
+   ],
+   "steady_step_dispatches": 408,
+   "steady_step_profile": [
+    {
+     "n": 41,
+     "kernel": "rmsbfloat16",
+     "grid": "512x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_prefill_router_tournament_ordinal_norm_active64_v2_bfloat16_t_float_uint32_t_float",
+     "grid": "256x1x1",
+     "threadgroup": "256x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_bfloat16_t_uint32_t",
+     "grid": "16384x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2_bfloat16_t_uint32_t_uint8_t_uint32_t_bfloat16_t",
+     "grid": "131072x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6_bfloat16_t_uint32_t_uint8_t_uint32_t_float_bfloat16_t_uint32_t_uint8_t_bfloat16_t_bfloat16_t",
+     "grid": "147456x1x1",
+     "threadgroup": "288x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1_bfloat16_t_uint32_t_uint8_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "327680x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_gate_sp_h64_v1_bfloat16_t_uint32_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "512x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_oproj_act_h64_v1_lm1_pw1_sc1_se1_bfloat16_t_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_sliding_fused_attn_ring_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_uint32_tc_floatc_bfloat16_t",
+     "grid": "32768x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "262144x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_full_fused_attn_grow_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_uint32_tc_floatc_bfloat16_t",
+     "grid": "24576x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_gate_sp_h48_v1_bfloat16_t_uint32_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_oproj_act_h48_v1_lm1_pw1_sc1_se1_bfloat16_t_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 2,
+     "kernel": "gather_frontbfloat16_int32_int_2",
+     "grid": "50176x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "argmax_bfloat16",
+     "grid": "1024x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_decode_embedding_rope_atlas_bf16_2048_v2_int32_tc_bfloat16_t_float_float_int32_ts_bfloat16_t_float_float",
+     "grid": "512x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_dense_down_residual_bf16_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "128x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_dense_gate_up_swiglu_bf16_v1_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "65536x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_coarse_argmax_stage1_v5_float_float_uint32_t",
+     "grid": "224x128x1",
+     "threadgroup": "224x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_exact_fused_int5_sparse_refine_v1_float_bfloat16_t_floatc_bfloat16_t_bfloat16_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "802816x1x1",
+     "threadgroup": "256x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_exact_winner_bf16_midpoint_threshold_v1_float_uint32_t_bfloat16_t_bfloat16_t_float",
+     "grid": "32x1x1",
+     "threadgroup": "32x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_int5_base_coarse_delta_bf16_v1_bfloat16_t_uint8_t_uint8_t_float_bfloat16_t",
+     "grid": "3211264x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_residual_rms_bf16_2048_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "512x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "vn_copybfloat16float32",
+     "grid": "50176x1x1",
+     "threadgroup": "1024x1x1"
+    }
+   ],
+   "delta_decode_vs_base": 0,
+   "delta_prefill_vs_base": 228,
+   "identical_to_base": false
+  },
+  "h_full_attn_off": {
+   "bytes": 1679360,
+   "rows": 11348,
+   "md5": "7f1d69ea450aad3cbd549632a2fe5077",
+   "markers": 6,
+   "prefill_rows": 7335,
+   "step_intervals": [
+    1750,
+    528,
+    438,
+    438,
+    438
+   ],
+   "steady_step_dispatches": 438,
+   "steady_step_profile": [
+    {
+     "n": 41,
+     "kernel": "rmsbfloat16",
+     "grid": "512x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_prefill_router_tournament_ordinal_norm_active64_v2_bfloat16_t_float_uint32_t_float",
+     "grid": "256x1x1",
+     "threadgroup": "256x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_bfloat16_t_uint32_t",
+     "grid": "16384x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2_bfloat16_t_uint32_t_uint8_t_uint32_t_bfloat16_t",
+     "grid": "131072x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6_bfloat16_t_uint32_t_uint8_t_uint32_t_float_bfloat16_t_uint32_t_uint8_t_bfloat16_t_bfloat16_t",
+     "grid": "147456x1x1",
+     "threadgroup": "288x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1_bfloat16_t_uint32_t_uint8_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "327680x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_gate_sp_h64_v1_bfloat16_t_uint32_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "512x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_oproj_act_h64_v1_lm1_pw1_sc1_se1_bfloat16_t_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_sliding_fused_attn_ring_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_uint32_tc_floatc_bfloat16_t",
+     "grid": "32768x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 20,
+     "kernel": "gg2_copybfloat16bfloat16",
+     "grid": "128x8x1",
+     "threadgroup": "128x8x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "262144x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_full_qk_norm_yarn_bf16_128_v4_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t",
+     "grid": "1792x1x1",
+     "threadgroup": "32x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_gate_sp_h48_v1_bfloat16_t_uint32_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_oproj_act_h48_v1_lm1_pw1_sc1_se1_bfloat16_t_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "sdpa_vector_bfloat16_t_128_128_nomask_qnt_nc_nosinks",
+     "grid": "48x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 2,
+     "kernel": "gather_frontbfloat16_int32_int_2",
+     "grid": "50176x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "argmax_bfloat16",
+     "grid": "1024x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_decode_embedding_rope_atlas_bf16_2048_v2_int32_tc_bfloat16_t_float_float_int32_ts_bfloat16_t_float_float",
+     "grid": "512x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_dense_down_residual_bf16_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "128x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_dense_gate_up_swiglu_bf16_v1_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "65536x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_coarse_argmax_stage1_v5_float_float_uint32_t",
+     "grid": "224x128x1",
+     "threadgroup": "224x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_exact_fused_int5_sparse_refine_v1_float_bfloat16_t_floatc_bfloat16_t_bfloat16_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "802816x1x1",
+     "threadgroup": "256x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_exact_winner_bf16_midpoint_threshold_v1_float_uint32_t_bfloat16_t_bfloat16_t_float",
+     "grid": "32x1x1",
+     "threadgroup": "32x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_int5_base_coarse_delta_bf16_v1_bfloat16_t_uint8_t_uint8_t_float_bfloat16_t",
+     "grid": "3211264x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_residual_rms_bf16_2048_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "512x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "vn_copybfloat16float32",
+     "grid": "50176x1x1",
+     "threadgroup": "1024x1x1"
+    }
+   ],
+   "delta_decode_vs_base": 30,
+   "delta_prefill_vs_base": 0,
+   "identical_to_base": false
+  },
+  "i_sliding_attn_off": {
+   "bytes": 1716224,
+   "rows": 11732,
+   "md5": "62047573f4911689bbce3f581623fbde",
+   "markers": 6,
+   "prefill_rows": 7335,
+   "step_intervals": [
+    1820,
+    589,
+    498,
+    498,
+    498
+   ],
+   "steady_step_dispatches": 498,
+   "steady_step_profile": [
+    {
+     "n": 60,
+     "kernel": "gg2_copybfloat16bfloat16",
+     "grid": "128x8x1",
+     "threadgroup": "128x8x1"
+    },
+    {
+     "n": 41,
+     "kernel": "rmsbfloat16",
+     "grid": "512x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_prefill_router_tournament_ordinal_norm_active64_v2_bfloat16_t_float_uint32_t_float",
+     "grid": "256x1x1",
+     "threadgroup": "256x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_bfloat16_t_uint32_t",
+     "grid": "16384x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2_bfloat16_t_uint32_t_uint8_t_uint32_t_bfloat16_t",
+     "grid": "131072x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6_bfloat16_t_uint32_t_uint8_t_uint32_t_float_bfloat16_t_uint32_t_uint8_t_bfloat16_t_bfloat16_t",
+     "grid": "147456x1x1",
+     "threadgroup": "288x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1_bfloat16_t_uint32_t_uint8_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "327680x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_gate_sp_h64_v1_bfloat16_t_uint32_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "512x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_oproj_act_h64_v1_lm1_pw1_sc1_se1_bfloat16_t_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_sliding_qk_norm_rope_bf16_128_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t",
+     "grid": "2304x1x1",
+     "threadgroup": "32x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "sdpa_vector_bfloat16_t_128_128_nomask_qnt_nc_nosinks",
+     "grid": "64x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "262144x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_full_fused_attn_grow_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_uint32_tc_floatc_bfloat16_t",
+     "grid": "24576x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_gate_sp_h48_v1_bfloat16_t_uint32_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_oproj_act_h48_v1_lm1_pw1_sc1_se1_bfloat16_t_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 2,
+     "kernel": "gather_frontbfloat16_int32_int_2",
+     "grid": "50176x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "argmax_bfloat16",
+     "grid": "1024x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_decode_embedding_rope_atlas_bf16_2048_v2_int32_tc_bfloat16_t_float_float_int32_ts_bfloat16_t_float_float",
+     "grid": "512x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_dense_down_residual_bf16_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "128x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_dense_gate_up_swiglu_bf16_v1_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "65536x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_coarse_argmax_stage1_v5_float_float_uint32_t",
+     "grid": "224x128x1",
+     "threadgroup": "224x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_exact_fused_int5_sparse_refine_v1_float_bfloat16_t_floatc_bfloat16_t_bfloat16_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "802816x1x1",
+     "threadgroup": "256x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_exact_winner_bf16_midpoint_threshold_v1_float_uint32_t_bfloat16_t_bfloat16_t_float",
+     "grid": "32x1x1",
+     "threadgroup": "32x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_int5_base_coarse_delta_bf16_v1_bfloat16_t_uint8_t_uint8_t_float_bfloat16_t",
+     "grid": "3211264x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_residual_rms_bf16_2048_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "512x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "vn_copybfloat16float32",
+     "grid": "50176x1x1",
+     "threadgroup": "1024x1x1"
+    }
+   ],
+   "delta_decode_vs_base": 90,
+   "delta_prefill_vs_base": 0,
+   "identical_to_base": false
+  },
+  "j_residual_rms_router_off": {
+   "bytes": 1671168,
+   "rows": 11485,
+   "md5": "27c4952255a7bc55d8c00e27022a01ab",
+   "markers": 6,
+   "prefill_rows": 7336,
+   "step_intervals": [
+    1799,
+    567,
+    447,
+    447,
+    447
+   ],
+   "steady_step_dispatches": 447,
+   "steady_step_profile": [
+    {
+     "n": 41,
+     "kernel": "rmsbfloat16",
+     "grid": "512x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 40,
+     "kernel": "custom_kernel_laguna_residual_rms_bf16_2048_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "512x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_prefill_router_tournament_ordinal_norm_active64_v2_bfloat16_t_float_uint32_t_float",
+     "grid": "256x1x1",
+     "threadgroup": "256x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_routed_nvfp4_swiglu_qmv_packed_bf16_v1_bfloat16_t_uint32_t_uint8_t_uint32_t_bfloat16_t",
+     "grid": "65536x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6_bfloat16_t_uint32_t_uint8_t_uint32_t_float_bfloat16_t_uint32_t_uint8_t_bfloat16_t_bfloat16_t",
+     "grid": "147456x1x1",
+     "threadgroup": "288x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "custom_kernel_laguna_shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1_bfloat16_t_uint32_t_uint8_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 39,
+     "kernel": "gemv_al_bfloat16_bm4_bn1_sm1_sn32_tm4_tn4_nc0_axpby0",
+     "grid": "16x1x1",
+     "threadgroup": "32x1x4"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "327680x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_gate_sp_h64_v1_bfloat16_t_uint32_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "512x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_oproj_act_h64_v1_lm1_pw1_sc1_se1_bfloat16_t_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 30,
+     "kernel": "custom_kernel_laguna_sliding_fused_attn_ring_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_uint32_tc_floatc_bfloat16_t",
+     "grid": "32768x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "262144x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_full_fused_attn_grow_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_uint32_tc_floatc_bfloat16_t",
+     "grid": "24576x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_gate_sp_h48_v1_bfloat16_t_uint32_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 10,
+     "kernel": "custom_kernel_laguna_oproj_act_h48_v1_lm1_pw1_sc1_se1_bfloat16_t_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "64x1x1"
+    },
+    {
+     "n": 2,
+     "kernel": "gather_frontbfloat16_int32_int_2",
+     "grid": "50176x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "argmax_bfloat16",
+     "grid": "1024x1x1",
+     "threadgroup": "1024x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_decode_embedding_rope_atlas_bf16_2048_v2_int32_tc_bfloat16_t_float_float_int32_ts_bfloat16_t_float_float",
+     "grid": "512x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_dense_down_residual_bf16_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "16384x1x1",
+     "threadgroup": "128x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_dense_gate_up_swiglu_bf16_v1_bfloat16_t_bfloat16_t_bfloat16_t",
+     "grid": "65536x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_coarse_argmax_stage1_v5_float_float_uint32_t",
+     "grid": "224x128x1",
+     "threadgroup": "224x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_exact_fused_int5_sparse_refine_v1_float_bfloat16_t_floatc_bfloat16_t_bfloat16_t_uint8_t_uint8_t_bfloat16_t",
+     "grid": "802816x1x1",
+     "threadgroup": "256x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_exact_winner_bf16_midpoint_threshold_v1_float_uint32_t_bfloat16_t_bfloat16_t_float",
+     "grid": "32x1x1",
+     "threadgroup": "32x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "custom_kernel_laguna_lmhead_int5_base_coarse_delta_bf16_v1_bfloat16_t_uint8_t_uint8_t_float_bfloat16_t",
+     "grid": "3211264x1x1",
+     "threadgroup": "512x1x1"
+    },
+    {
+     "n": 1,
+     "kernel": "vn_copybfloat16float32",
+     "grid": "50176x1x1",
+     "threadgroup": "1024x1x1"
+    }
+   ],
+   "delta_decode_vs_base": 39,
+   "delta_prefill_vs_base": 1,
+   "identical_to_base": false
+  }
+ }
+}
