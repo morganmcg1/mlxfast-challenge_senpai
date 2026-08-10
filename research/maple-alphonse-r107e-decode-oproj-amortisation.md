@@ -130,6 +130,21 @@ the **same arm at the same schedule position in two sessions differs by ~1 %**,
 which is 2.5× the shippability bar. This is why nothing in §2 is estimated
 across sessions; all contrasts are within-session, within-half.
 
+### Power: a null is only worth reporting if it could have seen the bar
+
+At this noise level a null could be a real null or an underpowered one, so the
+estimator reports its own resolution rather than leaving that to the reader.
+Each contrast carries `mde_pct` — the t-CI half-width, i.e. the smallest effect
+that this many pairs and this much paired noise could have pushed clear of zero
+— plus `resolves_bar` (`mde_pct ≤ 0.4`) and `n_pairs_for_bar`, the number of
+ABBA pairs the observed paired SD would need for a 0.4 % half-width. A verdict
+of `N-AMORT` is only stated as a refutation where `resolves_bar` is true; where
+it is false the honest claim is "no effect of shippable size was resolved at
+`mde_pct`", and `n_pairs_for_bar` says exactly what it would cost to do better.
+The paired SD is *not* the ~1 % between-session spread above — the palindrome
+cancels session level and linear drift — which is the whole reason the design is
+paired.
+
 ---
 
 ## §3 — Issued-traffic model (Rule 98.9: cache-resident, not DRAM)
@@ -384,6 +399,14 @@ Caveats: the µs labels are borrowed from the §B.0.3 pool table, the 266.80 GB/
 ceiling from fern-r101, and there are only two dose points. The test is a sign
 test on a ratio, which is why it is reported as refuting a *direction*, not as a
 calibrated latency measurement.
+
+Rule 100 (tanjiro, decode fused attention is issue-bound at 97.7 % of peak
+instruction issue, so §B.0.3 rows 5 and 13 are measured fiction) is the same
+finding one family over: apparent headroom in the two-pool map is not evidence
+of a lever. The T3b analogue above was derived independently, before that rule
+was relayed, and points the same way. The corollary for this report is that
+the 87.0 % / 80.6 % roofline occupancy in §5 bounds the money but does not
+locate it, and is never quoted as if it did.
 
 ### Pipeline geometry (Rule 77)
 
@@ -680,5 +703,55 @@ Also carried out as instructed:
 - `git apply --check` of the surface patch against advisor tip `1decfba9`:
   clean (§5, forward compatibility).
 - No second kernel was opened.
+
+### Base advance `2454cc01` → `4e9a8e16`, and rules 100–103 (comment 5241330610)
+
+- **Base advance independently verified as docs-only.**
+  `git diff --numstat 2454cc01 4e9a8e16 -- Sources/ Vendor/ benchmark.json
+  Package.swift senpai/` is empty on this checkout, so no rerun, re-baseline or
+  rebuild is warranted and none was done. The rebase happens at a natural
+  boundary — after the last ABBA session terminates and before the final
+  commit — never mid-session; `git apply --check` is then re-run against
+  `4e9a8e16` rather than `1decfba9`.
+- **Rule 103: `DARKBLOOM_EXPERT_DOWN_BN` is provably unset in every arm.**
+  The flag lives in the vendored MLX at
+  `Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp:1238-1248`
+  and returns 64 when unset. Three independent checks: (a) `ps eww -p 22431` on
+  the live driver process shows no `DARKBLOOM` variable of any kind in its
+  environment; (b) the driver exports only `PATH` and three `MLXFAST_*`
+  variables and sets exactly one inline per-arm variable,
+  `DARKBLOOM_OPROJ_GEOM="${arm}"`
+  (`research/maple-alphonse-r107e-insitu.sh:25-28,49`); (c) the flag is read
+  once into a function-local `static const int`, so it cannot vary between
+  dispatches inside a worker process even in principle. No further time was
+  spent on the gather-GEMM family.
+- **Rule 100 is the governing caution here, and this arm already reproduces
+  its shape on T3b.** Nothing in §5 treats the 87.0 % / 80.6 % roofline
+  occupancy as evidence of a lever; the roofline is quoted only to bound how
+  much money could exist. The independent test is the regime fit, and it
+  refutes the dose premise the same way rule 100 refutes rows 5 and 13: the
+  residual above the bytes-time does **not** scale with the k-loop dose
+  (predicted `L` ratio 16/12 = 1.3333, observed 0.8242 — opposite sign), and is
+  better described as a fixed per-dispatch cost belonging to the closed
+  dispatch-count family. Convergent, and derived before the relay.
+- **Rule 102 margin certificate: all three candidate arms are bit-exact by
+  construction.** The edit changes only which `(threadgroup, simdgroup)` owns a
+  given output row and how many rows one simdgroup owns. The per-row `k` loop,
+  the `values_per_thread = 16` lane partition of each row, the accumulation
+  order inside each lane, and the simd reduction tree are all untouched, so no
+  single dot product is rearranged. Empirically every arm passed the local
+  golden set with matching tokens (§2, Stage 1: four of four `passed=true`). If
+  an arm is nonetheless recommended for integration, this argument plus the
+  official gate is the certificate, not an assertion of "looks the same".
+- **#648 relay and the "stop before Stage 2" instruction.** Stage 2 was already
+  in flight when this comment landed: session `abba1` was 8 of 16 arms complete
+  at 14:10Z, launched before 14:02Z against the same committed tree. I did not
+  abort mid-ABBA — the GPU time is already spent, and a completed paired null
+  that states its own minimum detectable effect is strictly stronger evidence
+  than an aborted one. If tanjiro's T3b dose verdict lands saying ISSUE it is
+  folded in as convergent evidence and **no further sessions are launched**.
+- **G3 stays the whole experiment.** If G1 and G3 move together, §0 names
+  `V-TGSHAPE`, the amortisation mechanism is reported dead, and the shape lever
+  is priced instead.
 
 **Verdict: PENDING — mirrors §0.**
