@@ -125,6 +125,11 @@ def model(c: dict[str, int]) -> dict[str, object]:
         "fma_per_thread_per_k": fma_per_k,
         "non_fma_ops_per_thread_per_k": act_ops_per_k + row_overhead_per_k,
         "ops_per_fma": round((fma_per_k + act_ops_per_k + row_overhead_per_k) / fma_per_k, 4),
+        # load *instructions*, not bytes; reproduces the AIR dynamic census
+        # (g0: 16 act + 1 gate + 8 codes + 4 nibbles + 4 bases = 33)
+        "load_instructions_per_thread_per_k": (
+            c["values_per_thread"] + 1 + rps * c["codes_per_thread"] + 2 * rps
+        ),
     }
 
 
@@ -153,6 +158,110 @@ DOSE = {
     "T3c_oproj_h48": {"bytes": 6490112, "us": 301.8 / 10, "k_blocks": 12, "calls": 10},
 }
 M4_CEILING_GB_S = 266.80
+
+# Rule 100 (#642, maple-tanjiro, R107-D) measured an instruction-issue exchange
+# rate on this host's decode fused-attention kernels: 0.008255 us per
+# fma-per-thread at 32,768 resident threads, i.e. 3.969e12 issued fma/s, which
+# is 97.7 % of the 2560 FP32 lanes x 1.578 GHz theoretical ceiling. That rate is
+# the only *measured* instruction<->time conversion the campaign owns, so it is
+# what H-OPROJ-ISSUE must be priced against.
+RULE100_ISSUE_PER_S = 3.969e12
+RULE100_THEORETICAL_PER_S = 2560 * 1.578e9
+# alpha of the two-pool map: per-dispatch M5/M4 ratio for both oproj rows.
+M5_OVER_M4 = 0.4369
+DECODE_PRICE_PCT_PER_US = 0.015228
+
+
+def weighted_mean(values: list[float], weights: list[float]) -> float:
+    return sum(v * w for v, w in zip(values, weights)) / sum(weights)
+
+
+def issue_ceiling(arms: dict[str, dict[str, dict]]) -> dict[str, object]:
+    """Price the amortisation lever against rule 100's measured issue rate.
+
+    Upper bound, deliberately generous to the hypothesis: every issue slot the
+    arm removes -- load, integer, convert, fma -- is credited at the full FP32
+    fma issue cost, and the halving of grid threads is assumed free. If the
+    lever cannot clear the bar under those assumptions it cannot clear it at
+    all.
+    """
+    fam = {"h64": "T3b_oproj_h64", "h48": "T3c_oproj_h48"}
+    out: dict[str, object] = {}
+    for head, key in fam.items():
+        us_per_dispatch = DOSE[key]["us"]
+        calls = DOSE[key]["calls"]
+        slots: dict[str, int] = {}
+        for arm, per_head in arms.items():
+            m = per_head[head]
+            per_thread_per_k = (
+                m["fma_per_thread_per_k"]
+                + m["non_fma_ops_per_thread_per_k"]
+                + m["load_instructions_per_thread_per_k"]
+            )
+            slots[arm] = m["grid_threads"] * m["k_blocks"] * per_thread_per_k
+        base = slots["g0"]
+        achieved = base / (us_per_dispatch * 1e-6)
+        rows = {}
+        for arm in sorted(slots):
+            removed = base - slots[arm]
+            us_saved = removed / RULE100_ISSUE_PER_S * 1e6
+            m5_us_step = us_saved * calls * M5_OVER_M4
+            rows[arm] = {
+                "issue_slots_per_dispatch": slots[arm],
+                "slots_removed_vs_g0": removed,
+                "slots_removed_pct": round(100.0 * removed / base, 3),
+                "ceiling_us_per_dispatch": round(us_saved, 4),
+                "ceiling_pct_of_dispatch": round(100.0 * us_saved / us_per_dispatch, 3),
+                "ceiling_m4_us_per_step": round(us_saved * calls, 3),
+                "ceiling_m5_us_per_step": round(m5_us_step, 3),
+                "ceiling_pct_of_cs": round(m5_us_step * DECODE_PRICE_PCT_PER_US, 4),
+            }
+        out[key] = {
+            "measured_us_per_dispatch": round(us_per_dispatch, 4),
+            "issue_slots_per_dispatch_g0": base,
+            "achieved_issue_per_s": achieved,
+            "pct_of_measured_issue_peak": round(100.0 * achieved / RULE100_ISSUE_PER_S, 2),
+            "pct_of_theoretical_issue_peak": round(
+                100.0 * achieved / RULE100_THEORETICAL_PER_S, 2
+            ),
+            "arms": rows,
+        }
+    combined = {
+        arm: round(
+            sum(out[k]["arms"][arm]["ceiling_pct_of_cs"] for k in fam.values()), 4
+        )
+        for arm in sorted(arms)
+    }
+    best = max(combined, key=lambda a: combined[a])
+    util = weighted_mean(
+        [out[k]["pct_of_measured_issue_peak"] for k in fam.values()],
+        [DOSE[k]["calls"] * DOSE[k]["us"] for k in fam.values()],
+    )
+    return {
+        "note": "generous upper bound: every removed slot credited at the full "
+                "fma issue cost, occupancy loss assumed free",
+        "rule100_issue_per_s": RULE100_ISSUE_PER_S,
+        "rule100_source": "#642 R107-D, 0.008255 us per fma-per-thread at 32768 threads",
+        "families": out,
+        "combined_ceiling_pct_of_cs": combined,
+        "best_arm": best,
+        "best_arm_combined_ceiling_pct_of_cs": combined[best],
+        "bar_pct_of_cs": SHIPPABLE_BAR_PCT,
+        "ceiling_clears_bar": combined[best] >= SHIPPABLE_BAR_PCT,
+        "time_weighted_issue_utilisation_pct": round(util, 2),
+        # if only `util` of the dispatch is issue-limited, the ceiling scales down
+        "utilisation_scaled_ceiling_pct_of_cs": round(combined[best] * util / 100.0, 4),
+        "slot_cost_multiplier_needed_at_measured_utilisation": round(
+            SHIPPABLE_BAR_PCT / (combined[best] * util / 100.0), 3
+        ),
+        "verdict": (
+            "the lever's generous issue-slot ceiling is "
+            f"{combined[best]:.3f} % of cs at 100 % issue-boundedness, but the family "
+            f"issues at only {util:.1f} % of the measured issue peak while running at "
+            "87.0/80.6 % of its bandwidth roofline, so the utilisation-scaled ceiling is "
+            f"{combined[best] * util / 100.0:.3f} % of cs"
+        ),
+    }
 
 
 def regime_fit() -> dict[str, object]:
@@ -410,6 +519,7 @@ def main() -> int:
             "threadgroup_shape_main_effect": "mean(g1,g3) - mean(g0,g2)",
         },
         "roofline": roofline(local_decode_s=float(sys.argv[1]) if len(sys.argv) > 1 else None),
+        "issue_ceiling": issue_ceiling(arms),
         "regime_fit": regime_fit(),
         "t2d_comparison_column": t2d_comparison_column(),
     }

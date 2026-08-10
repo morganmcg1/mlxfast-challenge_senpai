@@ -26,6 +26,7 @@ traffic = json.load(open(f"{ART}/geom-traffic-model.json"))
 air = json.load(open(f"{ART}/geom-air-ledger.json"))
 loads = json.load(open(f"{ART}/geom-air-loads.json"))
 roof = traffic["roofline"]
+ceil = traffic["issue_ceiling"]
 fit = traffic["regime_fit"]
 t2d = traffic["t2d_comparison_column"]
 dyn = loads["dynamic_loads_per_thread_per_k_block"]
@@ -47,7 +48,8 @@ v_amort, v_tgshape = wins(amort), wins(tgshape)
 # The family already runs at 87.1% / 80.6% of the measured M4 Pro ceiling, so a
 # 24% cut in *issued* bytes that buys no time says the binding constraint is not
 # issue slots. That is the mechanistic reading of a null on factor A.
-n_issue_bound = bool(not v_amort and amort["mean_pct"] > -BAR_PCT)
+n_issue_bound = bool(not v_amort and amort["mean_pct"] > -BAR_PCT
+                     and ceil["utilisation_scaled_ceiling_pct_of_cs"] < BAR_PCT)
 n_amort = bool(not v_amort)
 # N-ROOFLINE would fire if the family's whole remaining deficit were under the
 # bar. It is not: 0.96-1.31% of decode is available, the arms just cannot take it.
@@ -259,6 +261,29 @@ summary = {
         fit["collinearity"]["verdict"].startswith("DEGENERATE")),
     "fit/bytes_per_k_block_spread": fit["collinearity"]["spread"],
 
+    # Rule-100 issue-slot ceiling: the generous upper bound on factor A, priced
+    # by crediting every removed instruction slot at the full FP32 fma issue rate.
+    "ceiling/t3b_issue_slots_per_dispatch_g0":
+        ceil["families"]["T3b_oproj_h64"]["issue_slots_per_dispatch_g0"],
+    "ceiling/t3b_pct_of_measured_issue_peak":
+        ceil["families"]["T3b_oproj_h64"]["pct_of_measured_issue_peak"],
+    "ceiling/t3c_pct_of_measured_issue_peak":
+        ceil["families"]["T3c_oproj_h48"]["pct_of_measured_issue_peak"],
+    "ceiling/t3b_slots_removed_pct_g1":
+        ceil["families"]["T3b_oproj_h64"]["arms"]["g1"]["slots_removed_pct"],
+    "ceiling/t3b_ceiling_pct_of_cs_g1":
+        ceil["families"]["T3b_oproj_h64"]["arms"]["g1"]["ceiling_pct_of_cs"],
+    "ceiling/t3c_ceiling_pct_of_cs_g1":
+        ceil["families"]["T3c_oproj_h48"]["arms"]["g1"]["ceiling_pct_of_cs"],
+    "ceiling/best_arm_combined_pct_of_cs": ceil["best_arm_combined_ceiling_pct_of_cs"],
+    "ceiling/clears_bar_at_full_issue_boundedness": int(ceil["ceiling_clears_bar"]),
+    "ceiling/time_weighted_issue_utilisation_pct":
+        ceil["time_weighted_issue_utilisation_pct"],
+    "ceiling/utilisation_scaled_pct_of_cs": ceil["utilisation_scaled_ceiling_pct_of_cs"],
+    "ceiling/slot_cost_multiplier_needed": ceil[
+        "slot_cost_multiplier_needed_at_measured_utilisation"],
+    "ceiling/rule100_issue_per_s_reference": ceil["rule100_issue_per_s"],
+
     # T2d down-residual: comparison column only, kernel untouched by R107-E.
     "t2d/kernel_untouched": 1,
     "t2d/bytes_per_call": t2d["byte_identity"]["bytes_per_call"],
@@ -359,6 +384,17 @@ for name, f in fit["bw_pinned_at_measured_ceiling"].items():
     fit_t.add_data(name, f["bytes_time_us"], f["measured_us"], f["residual_L_us"],
                    f["residual_per_k_block_us"])
 run.log({"regime_fit": fit_t})
+
+ceil_t = wandb.Table(columns=["family", "arm", "issue_slots_per_dispatch",
+                              "slots_removed_pct", "ceiling_us_per_dispatch",
+                              "ceiling_m5_us_per_step", "ceiling_pct_of_cs",
+                              "pct_of_measured_issue_peak"])
+for name, f in ceil["families"].items():
+    for arm, a in f["arms"].items():
+        ceil_t.add_data(name, arm, a["issue_slots_per_dispatch"], a["slots_removed_pct"],
+                        a["ceiling_us_per_dispatch"], a["ceiling_m5_us_per_step"],
+                        a["ceiling_pct_of_cs"], f["pct_of_measured_issue_peak"])
+run.log({"issue_slot_ceiling": ceil_t})
 
 artifact = wandb.Artifact("maple-alphonse-r107e-ledger", type="analysis")
 for name in ("insitu-stats.json", "geom-traffic-model.json", "geom-air-ledger.json",

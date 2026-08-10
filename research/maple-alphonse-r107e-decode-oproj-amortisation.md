@@ -74,11 +74,36 @@ rows per *simdgroup*, so it changes threadgroup shape while leaving the
 amortisation factor at 4. If g3 moves as much as g1, the effect is threadgroup
 shape, not amortisation.
 
-**Known confound, stated up front.** Because rows/TG × TGs is fixed by `out_vec`,
-raising `results_per_simdgroup` necessarily halves total grid threads
-(16384 → 8192). Factor A is therefore confounded with total thread count and
-hence with memory-level parallelism. The 2×2 cannot separate them; §6 names the
-cheap fifth arm that can.
+**Known confound, stated up front — and it is structural, not a design flaw.**
+Because every output row is produced exactly once, `TGs × rows/TG = out_vec` is
+fixed, and the grid collapses to a single identity:
+
+```text
+grid_threads = TGs * threads_per_TG
+             = (out_vec / (ns * rps)) * (ns * 32)
+             = 32 * out_vec / rps
+             = 65536 / results_per_simdgroup        (out_vec = 2048)
+```
+
+`num_simdgroups` cancels. So in a fixed-output QMV kernel **factor A is exactly
+the inverse grid-thread count** — g0/g3 at 16384 threads, g1/g2 at 8192 — and no
+choice of `num_simdgroups` can restore the threads. You cannot buy amortisation
+here without paying occupancy; that is arithmetic, not tuning. A positive A
+therefore cannot distinguish "amortisation is worthless" from "amortisation is
+real but smaller than the memory-level-parallelism it costs", and the two
+readings have the same shipping consequence at this bar.
+
+The one instrument that *would* separate them is split-K: keep 16384 threads and
+give each simdgroup 8 rows over half the `k` range, then reduce. That changes the
+per-row accumulation order, so it is not bit-exact and cannot be recommended for
+integration under rule 102 without a margin certificate; it is a diagnostic
+only. §6 records it as such.
+
+**Factor B, by contrast, is clean.** B+ = {g1, g3} and B− = {g0, g2} are balanced
+on `rps` and therefore on grid threads, so B is purely threadgroup *width* at
+fixed total threads: 64→128 threads/TG within the rps=4 pair (g0→g3) and 32→64
+within the rps=8 pair (g2→g1). Any B effect is a scheduling/shape effect and
+nothing else.
 
 ### Preregistered outcomes
 
@@ -227,6 +252,60 @@ count is 20 (g0/g3) versus 24 (g1/g2) — *exactly* the declared inventory, with
 no extra alloca. Honest limitation: AIR allocas are pre-register-allocation, so
 this rules out a source-level spill but not a register-allocator spill; the
 authoritative check is the pipeline reflection in §5's Rule-77 table.
+
+### Rule 100 — pricing the lever's issue-slot ceiling before spending a session
+
+Rule 100 (tanjiro, #642) is the right tool to close this out without a single
+extra GPU-hour. It supplies a *measured* Apple-GPU issue rate on this host —
+0.008255 µs per fma-per-thread at 32,768 threads, i.e. **3.969e12 issue slots/s**,
+96.7 % of the 2560-lane × 1.578 GHz theoretical 4.040e12 — and the lesson that
+apparent headroom in the two-pool map is not evidence of a lever. Apply the same
+accounting to the oproj family. Every removed instruction slot (load, integer,
+convert, fma) is credited at the *full* FP32 fma issue cost and the occupancy
+loss is assumed free, so this is a deliberately generous upper bound.
+
+Per-thread per-k-block instruction inventory, which reproduces the AIR census
+exactly (`load_instructions_per_thread_per_k = values_per_thread + 1 +
+rps·codes_per_thread + 2·rps`): g0/g3 = 16 + 1 + 8 + 4 + 4 = **33**;
+g1/g2 = 16 + 1 + 16 + 8 + 8 = **49**. Scaled by grid threads (65536/rps) and
+k-blocks, `rps` 4→8 removes **16.234 %** of the family's issue slots.
+
+| family | µs/dispatch | slots/dispatch (g0) | % of measured issue peak | % of theoretical peak |
+|---|---:|---:|---:|---:|
+| T3b `oproj_act_h64` | 37.2567 | 40,370,176 | **27.30** | 26.82 |
+| T3c `oproj_act_h48` | 30.1800 | 30,277,632 | **25.28** | 24.83 |
+
+That is the decisive number. The pool tanjiro proved issue-bound runs at
+**97.7 %** of peak issue. This family runs at **27.3 %** of peak issue while
+sitting at 87.0 % / 80.6 % of its bandwidth roofline. The two instruments agree
+on the regime: oproj is bytes-bound, and issue slots are not the serial resource.
+
+Pricing the lever anyway (h64: 6,553,600 slots removed ⇒ 1.6512 µs/dispatch =
+4.432 % of the dispatch ⇒ 49.536 µs/step M4 ⇒ 21.642 µs/step M5; h48:
+4,915,200 slots ⇒ 1.2384 µs/dispatch = 4.103 % ⇒ 12.384 µs/step M4 ⇒
+5.411 µs/step M5):
+
+| arm | h64 % of `cs` | h48 % of `cs` | combined |
+|---|---:|---:|---:|
+| g0, g3 | 0.0000 | 0.0000 | 0.0000 |
+| g1, g2 | 0.3296 | 0.0824 | **0.4120** |
+
+So at **100 % issue-boundedness** the lever's ceiling is 0.412 % of `cs` — it
+would clear the 0.4 % bar by 3 %, with no margin for the occupancy it must pay.
+At the measured time-weighted issue utilisation of **26.87 %**, the ceiling is
+**0.1107 % of `cs`**. For the lever to reach the bar, a removed load/integer
+slot would have to cost **3.613×** an FP32 fma slot.
+
+Caveats, stated because they all point the same way: rule 100's rate was measured
+on FP32 FMA issue in a different kernel with 1024-thread threadgroups; treating a
+load or integer op as one fma slot assumes a single shared issue port; the op
+counts are a source-level model, not disassembly (the applegpu-nt blocker is
+still open); and the whole construction is an upper bound that assumes issue is
+the *only* serial resource, which the roofline says it is not. Under every one of
+those caveats the true value is smaller than 0.1107 %.
+
+Provenance label carried verbatim for the M5 conversion:
+`α = 0.4369 / β = 0.5 two-pool map, residual −6.63 %, #561`.
 
 ### Rule 75 — emission digests for all eight variants
 
