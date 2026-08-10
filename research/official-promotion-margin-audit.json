@@ -1,0 +1,174 @@
+{
+  "interpretation": "Every future candidate based on the exact e27 surface must exceed the strict cc6/e27 weighted ratio on ranked M5 while retaining both official component floors and all correctness gates. Tie rows are algebraic boundaries, not predictions.",
+  "mixed_log_margin_frontier": [
+    {
+      "decode_factor": "1.0000000000000000000",
+      "decode_savings_us_per_token": "0.00000000000000000000000000000000000",
+      "decode_share_percent": "0",
+      "decode_speedup": "2.8424405431090602000",
+      "floors": "PASS",
+      "prefill_factor": "1.0152070470061098753",
+      "prefill_savings_ms_per_512": "1.4416660876705680143",
+      "prefill_savings_us_per_token": "2.8157540774815781529",
+      "prefill_share_percent": "100",
+      "prefill_speedup": "2.0408502638440148621",
+      "weighted_score": "2.6165035438145600000"
+    },
+    {
+      "decode_factor": "1.0012585061625279445",
+      "decode_savings_us_per_token": "6.1472121663706542342",
+      "decode_share_percent": "25.00",
+      "decode_speedup": "2.8460177720491822298",
+      "floors": "PASS",
+      "prefill_factor": "1.0113837413732712231",
+      "prefill_savings_ms_per_512": "1.0832868484975626369",
+      "prefill_savings_us_per_token": "2.1157946259718020251",
+      "prefill_share_percent": "75.00",
+      "prefill_speedup": "2.0331643495937682209",
+      "weighted_score": "2.6165035438145600000"
+    },
+    {
+      "decode_factor": "1.0025185961628170099",
+      "decode_savings_us_per_token": "12.286697752296669090",
+      "decode_share_percent": "50.00",
+      "decode_speedup": "2.8495995029539701766",
+      "floors": "PASS",
+      "prefill_factor": "1.0075748344446232125",
+      "prefill_savings_ms_per_512": "0.72355283832343150082",
+      "prefill_savings_us_per_token": "1.4131891373504521500",
+      "prefill_share_percent": "50.00",
+      "prefill_speedup": "2.0255073807683323534",
+      "weighted_score": "2.6165035438145600000"
+    },
+    {
+      "decode_factor": "1.0037802719941367788",
+      "decode_savings_us_per_token": "18.418466469504881342",
+      "decode_share_percent": "75.00",
+      "decode_speedup": "2.8531857414891743157",
+      "floors": "PASS",
+      "prefill_factor": "1.0037802719941367788",
+      "prefill_savings_ms_per_512": "0.36245893574530058177",
+      "prefill_savings_us_per_token": "0.70792760887754019877",
+      "prefill_share_percent": "25.00",
+      "prefill_speedup": "2.0178792483582140232",
+      "weighted_score": "2.6165035438145600000"
+    },
+    {
+      "decode_factor": "1.0050435356522653763",
+      "decode_savings_us_per_token": "24.542528017515222157",
+      "decode_share_percent": "100",
+      "decode_speedup": "2.8567764933276753044",
+      "floors": "PASS",
+      "prefill_factor": "1.0000000000000000000",
+      "prefill_savings_ms_per_512": "0.0000000000000000000000000000000000000",
+      "prefill_savings_us_per_token": "0.0000000000000000000000000000000000000",
+      "prefill_share_percent": "0",
+      "prefill_speedup": "2.0102798437644536000",
+      "weighted_score": "2.6165035438145600000"
+    }
+  ],
+  "payload_identity_gate": {
+    "contract_sha256": "e01d3ea1c9281cfe81e1693d987627005fed6963440fbef6a761e4f28dd67fb6",
+    "editable_path_entries": 97,
+    "exact": true,
+    "file_count": 142,
+    "first_difference": null,
+    "gap_manifest_sha256": "2622b4de40b12f19fb696755425819b3c5faf7dfc300ac9d2ca7f9e2f9575230",
+    "manifest_sha256": "2622b4de40b12f19fb696755425819b3c5faf7dfc300ac9d2ca7f9e2f9575230",
+    "reclamation_manifest_sha256": "2622b4de40b12f19fb696755425819b3c5faf7dfc300ac9d2ca7f9e2f9575230",
+    "required_base_sha": "ac0e7cf6f283c8ac655af955d7ccf57c5141185e",
+    "total_bytes": 2984121
+  },
+  "positive_controls": {
+    "mutated_manifest_record_sha_digit": {
+      "first_difference_index": 0,
+      "first_difference_path": "Sources/MLXFastModel/DenseTensorStore.swift",
+      "mutated_manifest_sha256": "2e2b03b6fc372226522a048c7cf7e73aa12a0307ec074a75f1c1cacc912f8b72",
+      "original_manifest_sha256": "2622b4de40b12f19fb696755425819b3c5faf7dfc300ac9d2ca7f9e2f9575230",
+      "status": "PASS"
+    },
+    "mutated_official_component_digit": {
+      "mutated_e27_decode_speedup": "2.8424406431090602",
+      "original_e27_decode_speedup": "2.8424405431090602",
+      "score_reproduction": {
+        "absolute_difference": "0.000000068778474691864368095",
+        "computed": "2.6066497677375346919",
+        "passes_12_significant_digits": false,
+        "published": "2.60664969895906",
+        "rounded_12_significant": {
+          "computed": "2.60664976774",
+          "published": "2.60664969896"
+        }
+      },
+      "status": "PASS"
+    },
+    "swapped_exponents": {
+      "decode_weight": "0.25",
+      "prefill_weight": "0.75",
+      "score_reproduction": {
+        "absolute_difference": "0.41452509809961133822",
+        "computed": "2.1921246008594486618",
+        "passes_12_significant_digits": false,
+        "published": "2.60664969895906",
+        "rounded_12_significant": {
+          "computed": "2.19212460086",
+          "published": "2.60664969896"
+        }
+      },
+      "status": "PASS"
+    }
+  },
+  "promotion_margin": {
+    "decode_only_incremental_speedup": "1.0050435356522653763",
+    "decode_only_latency": {
+      "savings_microseconds_per_token": "24.542528017515222157"
+    },
+    "general_frontier_equation": "0.75*ln(decode_incremental_speedup) + 0.25*ln(prefill_incremental_speedup) = ln(tie_ratio_cc6_over_e27)",
+    "prefill_only_incremental_speedup": "1.0152070470061098753",
+    "prefill_only_latency": {
+      "savings_microseconds_per_token": "2.8157540774815781529",
+      "savings_milliseconds_per_512_token_pass": "1.4416660876705680143"
+    },
+    "strict_promotion_condition": "candidate weighted incremental multiplier > tie_ratio_cc6_over_e27",
+    "tie_ratio_cc6_over_e27": "1.0037802719941367788",
+    "tie_weighted_improvement_percent": "0.37802719941367788428"
+  },
+  "rounding_policy": "Python Decimal precision 80 with ROUND_HALF_EVEN; score checks compare values rounded to 12 significant digits; derived JSON decimals are rounded to 20 significant digits",
+  "schema_version": 1,
+  "scope": "deterministic static audit; no production edit, build, inference, timing, W&B, receipt query, or submission",
+  "score_reproduction": {
+    "cc6": {
+      "absolute_difference": "0.0000000000000013471057283922438490",
+      "computed": "2.6165035438145613471",
+      "decode_speedup": "2.8409180802229947",
+      "passes_12_significant_digits": true,
+      "prefill_speedup": "2.0441331295729355",
+      "published": "2.61650354381456",
+      "rounded_12_significant": {
+        "computed": "2.61650354381",
+        "published": "2.61650354381"
+      }
+    },
+    "e27": {
+      "absolute_difference": "0.00000000000000056460031268706140879",
+      "computed": "2.6066496989590594354",
+      "decode_speedup": "2.8424405431090602",
+      "passes_12_significant_digits": true,
+      "prefill_speedup": "2.0102798437644536",
+      "published": "2.60664969895906",
+      "rounded_12_significant": {
+        "computed": "2.60664969896",
+        "published": "2.60664969896"
+      }
+    }
+  },
+  "screening_distinction": {
+    "generic_local_weighted_gate": "1.001",
+    "remaining_multiplier_after_generic_gate_to_tie": "1.0027774944996371417",
+    "remaining_percent_after_generic_gate_to_tie": "0.27774944996371417011",
+    "rule": "Use the deterministic official margin in addition to candidate-specific local, full-model, and ranked-M5 evidence; it supplies no M4-to-M5 transfer factor.",
+    "score_at_exactly_generic_gate_from_e27": "2.6092563486580190600"
+  },
+  "status": "PROMOTION_MARGIN_PROVEN",
+  "terminal_receipt_rule": "cc6 and terminal e27 must never be retried, rerun, resubmitted, or mutated."
+}
