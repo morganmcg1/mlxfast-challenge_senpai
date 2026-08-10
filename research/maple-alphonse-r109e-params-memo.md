@@ -237,7 +237,11 @@ Raw data `/tmp/r109e-params-memo.tsv`, 16 runs, order `OABMMBAOMBAOOABM`,
 single uninterrupted session, `./benchmark.sh --local-iterate`, 40 °C gate
 between every run, `MLXFAST_LOCAL_FAN_PROMPT=0`. Job wall time 2390.6 s,
 exit 0. Analyser output committed at
-`research/maple-alphonse-r109e-params-memo-analysis.txt`.
+`research/maple-alphonse-r109e-params-memo-analysis.txt`. W&B run
+[`u6ps9kql`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/u6ps9kql)
+(`maple-alphonse-r109e-full-attn-params-memo`) logs every per-run decode and
+prefill sample in ABBA order plus all derived estimators; its numbers are
+imported from the same analyser module, so they cannot drift from this memo.
 
 Arms: **O** = shipped path, `MEMO=0`, 10 host allocations/step (control);
 **M** = memo on, 1 allocation/step; **A** = `MEMO=0 DOSE=10`, 110/step;
@@ -259,8 +263,8 @@ bar**. Robustness: palindromic-block variant +64.20 (se 7.65);
 Hodges–Lehmann +66.88; drop-the-block-lead +28.54 (se 30.06). Every variant
 keeps the sign.
 
-`A − O` = +74.13 (lead-adj se 34.18) and `B − O` = +58.54 (se 37.12) are
-**non-monotonic in dose**: B carries ten times A's allocation load and is
+`A − O` = +80.82 (lead-adj se 37.12) and `B − O` = +58.54 (lead-adj se 37.12)
+are **non-monotonic in dose**: B carries ten times A's allocation load and is
 *faster* than A. A per-allocation cost cannot produce that ordering.
 
 ### The dose ruler is the number that matters
@@ -287,9 +291,10 @@ other arm, cannot be caused by allocation count, because the ruler proves
 allocation count is worth ≈0 at 111× amplification. They are a
 session/position artifact of the harness, of the same family as the
 block-lead spike in §4.6 of the sibling memo (this session's slot-1 term is
-+19.60 µs/step, se 39.93 — and slot 1 was in fact the *fastest* of all 16
-runs, i.e. opposite in sign to the QK session's +53.59). The honest ceiling
-for this arm is the ruler's, not the intercept's.
++26.78 µs/step, se 43.14, 95 % CI [−57.78, +111.35] — wide enough to contain
+both zero and the QK session's +53.59, and the single fastest of all 16 runs
+was in fact a slot-1 run). The honest ceiling for this arm is the ruler's,
+not the intercept's.
 
 ### 6.3 Programme-level finding: the ≥10 µs bar is below harness resolution
 

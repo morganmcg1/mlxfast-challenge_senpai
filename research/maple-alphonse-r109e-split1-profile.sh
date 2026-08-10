@@ -15,6 +15,13 @@ cd "$(dirname "$0")/.."
 
 OUT="${1:-/tmp/r109e-split1}"
 STEPS="${2:-200}"
+# SPLIT=1 isolates one dispatch per command buffer, which serialises the
+# timeline and therefore reports 0% nesting by construction; it prices each
+# kernel in isolation. SPLIT=0 keeps MLX's real batching, so overlap is
+# observable but only the command buffers that happen to hold a single
+# dispatch can be attributed to one kernel. Both captures are needed to say
+# how much of a kernel's busy time is hidden.
+SPLIT="${3:-1}"
 PATCH="research/pr91-gpuprof-hook.patch"
 TOUCHED="Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp \
 Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.h"
@@ -47,20 +54,20 @@ if [ ${rc} -ne 0 ]; then
   exit 3
 fi
 
-echo "=== SPLIT=1 capture, ${STEPS} steps t=$(date -u +%H:%M:%S)"
-env DARKBLOOM_GPU_PROFILE=1 DARKBLOOM_GPU_PROFILE_SPLIT=1 \
+echo "=== SPLIT=${SPLIT} capture, ${STEPS} steps t=$(date -u +%H:%M:%S)"
+env DARKBLOOM_GPU_PROFILE=1 DARKBLOOM_GPU_PROFILE_SPLIT="${SPLIT}" \
   python3 research/decode_probe.py \
     --steps "${STEPS}" --profile --profile-top 44 \
-    --stderr "${OUT}/split1.err" \
-  > "${OUT}/split1.log" 2>&1
+    --stderr "${OUT}/split${SPLIT}.err" \
+  > "${OUT}/split${SPLIT}.log" 2>&1
 echo "--- decode_probe rc=$? t=$(date -u +%H:%M:%S)"
-tail -60 "${OUT}/split1.log"
+tail -60 "${OUT}/split${SPLIT}.log"
 
 echo "=== per-kernel nesting"
-python3 research/maple-alphonse-r109e-nesting.py "${OUT}/split1.err" \
+python3 research/maple-alphonse-r109e-nesting.py "${OUT}/split${SPLIT}.err" \
   full_fused_attn_grow sliding_fused_attn_ring laguna_gate_sp routed_swiglu \
   residual_rms_router oproj_act down_residual \
   | tee "${OUT}/nesting.txt"
 
-gzip -f "${OUT}/split1.err"
+gzip -f "${OUT}/split${SPLIT}.err"
 echo "=== done t=$(date -u +%H:%M:%S)"
