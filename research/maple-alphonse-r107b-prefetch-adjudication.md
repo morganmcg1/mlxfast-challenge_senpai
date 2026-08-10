@@ -46,8 +46,18 @@ reason reconstruction-by-patch was not available.
 Grepped `research/`, `notes/`, `docs/`, `senpai/` for `454`, the kernel name, and
 `prefetch`/`preload`/`pipeline` in this family.
 
-- **PR #454 is nowhere in the archive.** No newer experiment adjudicated it, so
-  the arm was not pre-empted.
+- **PR #454 is nowhere in the archive by number**, so no newer experiment
+  adjudicated it and the arm was not pre-empted.
+- **But the archive had already reached my §1 conclusion qualitatively.**
+  `research/RESEARCH_ARCHIVE_through-round-91.md` states: "⛔ **L2 (routed-twin
+  K-block prefetch) is RETIRED as moot** — `next_block` k-loop staging already
+  ships in the adopted frontier." I missed this on the first pass because the
+  archive names the lever `L2 (routed-twin K-block prefetch)` and never cites
+  #454. **Anyone re-greping this family should search the mechanism words, not
+  the PR number.** What the archive did *not* have, and what this round adds, is
+  the quantitative adjudication: the shipped staging is not merely present, it is
+  worth 0.00 % ± 0.07 % kernel-local in the production regime, so retiring the
+  lever as "moot" was right for a reason stronger than "already there".
 - The relevant instrument already existed: `research/fern_r99_qmv_probe.swift`
   plus `research/fern_r99_qmv_variants.py` and the `fern-r99` / `fern-r100`
   artifacts. Rule 58 says reuse, don't re-author — I reused the probe verbatim
