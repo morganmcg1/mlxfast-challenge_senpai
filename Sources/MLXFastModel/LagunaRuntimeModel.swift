@@ -11441,9 +11441,6 @@ final class LagunaRuntimeModelInner: Module {
         var slidingRoPEAngles: MLXArray?
         var qkRoPEOffsets: MLXArray?
         let decodeAtlasPosition = decodeRoPEAtlasPosition(inputs: inputs, cache: cache)
-        if let position = decodeAtlasPosition {
-            fputs("mask-elision \(position)\n", stderr)
-        }
         if lagunaRoPEAngleAtlasEnabled,
             let position = decodeAtlasPosition,
             let fullAtlas = _fullRoPEAngleAtlas,
