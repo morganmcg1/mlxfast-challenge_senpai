@@ -640,8 +640,7 @@ template <
     typename Wtype = bfloat,
     const int fixed_K = 0,
     const int fixed_N = 0,
-    const bool aligned_M = false,
-    const bool fuse_swiglu = false>
+    const bool aligned_M = false>
 METAL_FUNC void fp_qmm_t_impl(
     const device uint32_t* w,
     const device uint8_t* scales,
@@ -689,11 +688,7 @@ METAL_FUNC void fp_qmm_t_impl(
   x += y_row * static_cast<int64_t>(kernel_K);
   wl += y_col * K_w;
   scales += y_col * K_g;
-  if constexpr (fuse_swiglu) {
-    y += y_row * static_cast<int64_t>(kernel_N / 2) + y_col / 2;
-  } else {
-    y += y_row * static_cast<int64_t>(kernel_N) + y_col;
-  }
+  y += y_row * static_cast<int64_t>(kernel_N) + y_col;
 
   // Make the weight loader
   loader_w_t loader_w(wl, scales, kernel_K, Ws, simd_gid, simd_lid);
@@ -782,27 +777,7 @@ METAL_FUNC void fp_qmm_t_impl(
         threadgroup_barrier(mem_flags::mem_threadgroup);
       }
 
-      if constexpr (fuse_swiglu) {
-#pragma clang fp contract(off)
-        const short2 c = BaseNAXFrag::get_coord();
-        for (short i = 0; i < TM; ++i) {
-          const thread auto& gates = Dtile.frag_at(i, 0);
-          const thread auto& ups = Dtile.frag_at(i, 1);
-          for (short ie = 0; ie < 2; ++ie) {
-            for (short j = 0; j < 4; ++j) {
-              const bfloat gate = static_cast<bfloat>(gates[ie * 4 + j]);
-              const bfloat up = static_cast<bfloat>(ups[ie * 4 + j]);
-              const bfloat exp_abs = metal::exp(metal::abs(gate));
-              const bfloat denominator = bfloat(1) + exp_abs;
-              const bfloat z = bfloat(1) / denominator;
-              const bfloat sigmoid = gate < bfloat(0) ? z : bfloat(1) - z;
-              const bfloat silu = bfloat(gate * sigmoid);
-              y[(tm + 16 * i + c.y + 8 * ie) * (kernel_N / 2) +
-                tn / 2 + c.x + j] = bfloat(silu * up);
-            }
-          }
-        }
-      } else if constexpr (kAlignedM.value && kAlignedN.value) {
+      if constexpr (kAlignedM.value && kAlignedN.value) {
         Dtile.store(y + tm * kernel_N + tn, kernel_N);
       } else if (kAlignedM.value && sgp_sn == SN) {
         Dtile.store(y + tm * kernel_N + tn, kernel_N);
@@ -1089,7 +1064,6 @@ template <
     const int fixed_K,
     const int fixed_N,
     const bool aligned_M,
-    const bool fuse_swiglu,
     const int BM = 64,
     const int BK = 64,
     const int BN = 64,
@@ -1142,8 +1116,7 @@ template <
       Wtype,
       fixed_K,
       fixed_N,
-      aligned_M,
-      fuse_swiglu>(
+      aligned_M>(
       w, scales, x, y, Ws, K, N, M, tid, lid, simd_gid, simd_lid);
 }
 

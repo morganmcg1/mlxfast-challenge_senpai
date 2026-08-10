@@ -85,13 +85,6 @@ inline array ensure_row_contiguous_matrix(
   return x_copy;
 }
 
-inline bool laguna_shared_prefill_swiglu(const array& scales) {
-  return scales.dtype() == uint8 && scales.ndim() == 2 &&
-      scales.offset() == 0 && scales.shape(0) == 1024 &&
-      scales.shape(1) == 128 && scales.strides()[0] == 128 &&
-      scales.strides()[1] == 0;
-}
-
 inline int get_qmv_batch_limit(int D, int O, metal::Device& d) {
   auto arch_size = d.get_architecture().back();
   auto arch_gen = d.get_architecture_gen();
@@ -497,7 +490,6 @@ void qmm_nax(
     const Stream& s,
     const std::string& mode) {
   int B = out.size() / M / N;
-  const bool fuse_swiglu = laguna_shared_prefill_swiglu(scales);
 
   int wm = 2;
   int wn = 2;
@@ -516,7 +508,7 @@ void qmm_nax(
   static const bool static_laguna_shapes =
       env::get_var("DARKBLOOM_STATIC_NVFP4_SHAPES", "") != "0";
   const bool use_static_laguna_shape =
-      (static_laguna_shapes || fuse_swiglu) && transpose && aligned && !batched &&
+      static_laguna_shapes && transpose && aligned && !batched &&
       mode == "nvfp4" && type_string == "bfloat16_t" &&
       group_size == 16 && bits == 4 && !biases.has_value() &&
       ((K == 2048 && N == 1024) || (K == 512 && N == 2048));
@@ -546,8 +538,7 @@ void qmm_nax(
              "_alM_" + (aligned_M ? "true" : "false"))
           : "",
       transpose ? (aligned ? "_alN_true" : "_alN_false") : "",
-      batched ? "_batch_1" : "_batch_0",
-      fuse_swiglu ? "_swiglu" : "");
+      batched ? "_batch_1" : "_batch_0");
   std::string template_def;
   MTL::ComputePipelineState* kernel;
   if (use_static_laguna_shape) {
@@ -562,7 +553,6 @@ void qmm_nax(
         K,
         N,
         aligned_M,
-        fuse_swiglu,
         bm,
         bk,
         bn,
@@ -760,7 +750,6 @@ void qmm(
   }
 
   int B = out.size() / M / N;
-  const bool fuse_swiglu = laguna_shared_prefill_swiglu(scales);
 
   int wm = 2;
   int wn = 2;
@@ -783,8 +772,7 @@ void qmm(
       "_b_",
       bits,
       transpose ? (aligned ? "_alN_true" : "_alN_false") : "",
-      batched ? "_batch_1" : "_batch_0",
-      fuse_swiglu ? "_swiglu" : "");
+      batched ? "_batch_1" : "_batch_0");
   std::string template_def;
   MTL::ComputePipelineState* kernel;
   if (transpose) {
@@ -797,8 +785,7 @@ void qmm(
         group_size,
         bits,
         aligned,
-        batched,
-        fuse_swiglu);
+        batched);
   } else {
     kernel = get_quantized_kernel_wrapped(
         d, kname, "qmm_n", mode, type_string, group_size, bits, batched);
@@ -2180,12 +2167,9 @@ void QuantizedMatmul::eval_gpu(const std::vector<array>& inputs, array& out) {
 
   // Make sure the last two dims of x and w, s, b are contiguous. This should
   // be relaxed for x.
-  const bool fuse_swiglu = laguna_shared_prefill_swiglu(inputs[2]);
   array x = ensure_row_contiguous_matrix(inputs[0], d, s);
   array w = ensure_row_contiguous_matrix(inputs[1], d, s);
-  array scales = fuse_swiglu
-      ? inputs[2]
-      : ensure_row_contiguous_matrix(inputs[2], d, s);
+  array scales = ensure_row_contiguous_matrix(inputs[2], d, s);
   std::optional<array> biases = std::nullopt;
   if (inputs.size() == 4) {
     biases = ensure_row_contiguous_matrix(inputs[3], d, s);
@@ -2199,20 +2183,8 @@ void QuantizedMatmul::eval_gpu(const std::vector<array>& inputs, array& out) {
 
   int vector_limit = transpose_ ? get_qmv_batch_limit(K, N, d) : 4;
   auto mode = quantization_mode_to_string(mode_);
-  if (fuse_swiglu &&
-      !(inputs.size() == 3 && transpose_ && non_batched &&
-        x.dtype() == bfloat16 && x.ndim() == 3 && x.shape(0) == 1 &&
-        x.shape(1) == 512 && x.shape(2) == 2048 && w.dtype() == uint32 &&
-        w.shape(0) == 1024 && w.shape(1) == 256 && M == 512 && N == 1024 &&
-        K == 2048 && group_size_ == 16 && bits_ == 4 && mode == "nvfp4")) {
-    throw std::runtime_error("Invalid shared prefill SwiGLU QMM marker");
-  }
   // It is a matrix matrix product.
   if (M >= vector_limit) {
-    if (fuse_swiglu) {
-      qmm(x, w, scales, biases, out, true, 16, 4, M, N, K, d, s, mode);
-      return;
-    }
     // Use split-K qmm for small M with transposed weights (non-batched only)
     int B = out.size() / M / N;
     if (transpose_ && B == 1) {

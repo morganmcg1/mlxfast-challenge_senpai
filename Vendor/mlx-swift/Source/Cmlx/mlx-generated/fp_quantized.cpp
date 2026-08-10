@@ -235,21 +235,26 @@ inline U qdot(const device uint8_t* w, const thread U* x_thread, U scale) {
     // same half bit pattern (magnitude (n & 7) << 9 with sign (n & 8) in
     // the half sign bit) and the same exact half -> float conversion as the
     // generic bits == 4 path below. Two further bit-exact ALU eliminations
-    // are applied on top of the split-nibble decode (see the JIT twin
-    // mlx-generated/fp_quantized.cpp for the full argument):
+    // are applied on top of the split-nibble decode:
     //
-    // (a) 2^14 renormalization fold: power-of-two scaling is exact at every
-    //     step, so moving the 2^14 from the eight decoded float2s onto the
-    //     one scale multiply -- (scale * 16384.0f) * accum -- leaves every
-    //     partial sum exactly 2^-14 times its old value and the single
-    //     final rounding lands on the identical result (the e4m3 scale
-    //     cannot overflow: |s| <= 448, so scale * 16384.0f <= 7.3e6).
+    // (a) 2^14 renormalization fold. The old form multiplied each of the
+    //     eight decoded float2s by 16384.0f (16 multiplies per group). A
+    //     power-of-two scaling is exact at every step, so moving the 2^14
+    //     onto the one scale multiply -- (scale * 16384.0f) * accum --
+    //     leaves every partial sum exactly 2^-14 times its old value and
+    //     the single final rounding lands on the identical result. The
+    //     scale is e4m3 (|s| <= 448), so scale * 16384.0f <= 7.3e6 cannot
+    //     overflow FP32.
     //
-    // (b) Dead +0.0f accumulator-seed elision: +0.0f + t == t bitwise
-    //     except t == -0.0f, and that case leaves only a sign-of-zero
-    //     difference that every caller's +0.0f-seeded result cell absorbs
-    //     (+0.0f + -0.0f == +0.0f). The two packed-word bodies are emitted
-    //     textually, as the compiler was already fully unrolling them.
+    // (b) Dead +0.0f accumulator-seed elision. The old form seeded
+    //     `U accum = 0;` and paid one fadd per group computing fl(+0.0f +
+    //     t). +0.0f + t == t bitwise except t == -0.0f; that case leaves a
+    //     sign-of-zero difference only, and every caller accumulates the
+    //     return into a +0.0f-seeded result cell, which absorbs it
+    //     (+0.0f + -0.0f == +0.0f). Seeding the accumulator with the first
+    //     four-term product group directly is therefore bit-exact. The two
+    //     packed-word bodies are emitted textually, which is what the
+    //     compiler was already unrolling.
     const device uint2* wq = (const device uint2*)w;
     const uint2 codes = wq[0];
     U accum;
@@ -429,6 +434,9 @@ inline void dequantize(uint8_t w, U scale, threadgroup U* w_local) {
 
 // Per-group NVFP4 scale with fp4's 2^14 renormalization folded in (Change 1).
 static inline float fp4nv_scale_x16384(uint8_t s) {
+  // E4M3 bytes 0...15 are exactly s * 2^-9; after the 2^14 fold this is
+  // the integer s * 32, so avoid the generic fp8 conversion in the common
+  // positive range.  All exceptional bytes retain the stock expression.
   if (s < 16u) {
     return float(uint(s) << 5);
   }
@@ -1003,8 +1011,7 @@ template <
     const bool aligned_N,
     const int BM = 32,
     const int BK = 32,
-    const int BN = 32,
-    const bool fuse_swiglu = false>
+    const int BN = 32>
 METAL_FUNC void fp_qmm_t_impl(
     const device uint32_t* w,
     const device uint8_t* scales,
@@ -1058,11 +1065,7 @@ METAL_FUNC void fp_qmm_t_impl(
   x += y_row * static_cast<int64_t>(K);
   wl += y_col * K_w;
   scales += y_col * K_g;
-  if constexpr (fuse_swiglu) {
-    y += y_row * static_cast<int64_t>(N / 2) + y_col / 2;
-  } else {
-    y += y_row * static_cast<int64_t>(N) + y_col;
-  }
+  y += y_row * static_cast<int64_t>(N) + y_col;
 
   // Make the x loader and mma operation
   const short num_els = min(BM, M - y_row);
@@ -1120,24 +1123,7 @@ METAL_FUNC void fp_qmm_t_impl(
 
   // Store results to device memory
   threadgroup_barrier(mem_flags::mem_threadgroup);
-  if constexpr (fuse_swiglu) {
-#pragma clang fp contract(off)
-    for (short i = 0; i < 2; ++i) {
-      const thread auto& gates = mma_op.Ctile.frag_at(i, 0);
-      const thread auto& ups = mma_op.Ctile.frag_at(i, 1);
-      for (short j = 0; j < 2; ++j) {
-        const bfloat gate = static_cast<bfloat>(gates[j]);
-        const bfloat up = static_cast<bfloat>(ups[j]);
-        const bfloat exp_abs = metal::exp(metal::abs(gate));
-        const bfloat denominator = bfloat(1) + exp_abs;
-        const bfloat z = bfloat(1) / denominator;
-        const bfloat sigmoid = gate < bfloat(0) ? z : bfloat(1) - z;
-        const bfloat silu = bfloat(gate * sigmoid);
-        y[(mma_op.sm + 16 * i) * (N / 2) + mma_op.sn + j] =
-            bfloat(silu * up);
-      }
-    }
-  } else if (num_els < BM || num_outs < BN) {
+  if (num_els < BM || num_outs < BN) {
     mma_op.store_result_safe(y, N, short2(num_outs, num_els));
   } else {
     mma_op.store_result(y, N);
@@ -1589,7 +1575,6 @@ template <
     const int bits,
     const bool aligned_N,
     const bool batched,
-    const bool fuse_swiglu = false,
     const int BM = 32,
     const int BK = 32,
     const int BN = 32>
@@ -1635,7 +1620,7 @@ template <
         s_strides,
         tid);
   }
-  fp_qmm_t_impl<T, group_size, bits, aligned_N, BM, BK, BN, fuse_swiglu>(
+  fp_qmm_t_impl<T, group_size, bits, aligned_N, BM, BK, BN>(
       w, scales, x, y, Xs, Ws, K, N, M, K, tid, lid, simd_gid, simd_lid);
 }
 

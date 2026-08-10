@@ -8705,8 +8705,6 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
     var _fusedGateUpWeight: MLXArray?
     var _fusedGateUpScales: MLXArray?
     var _fusedGateUpSplit: Int = 0
-    var _fusedPrefillGateUpWeight: MLXArray?
-    var _fusedPrefillGateUpScales: MLXArray?
 
     /// Group-32 halved twins of the two shared-expert scale planes, built only
     /// under `DARKBLOOM_SHARED_SCALE_HALVED` and only when the halving is
@@ -8765,25 +8763,6 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
         _fusedGateUpScales = fusedScales
         _fusedGateUpSplit = gate.weight.dim(0)
         var prepared = [fusedWeight, fusedScales]
-        let rows = LagunaConstants.sharedExpertIntermediateSize
-        if gate.weight.dims(rows, 256), gate.scales.dims(rows, 128) {
-            let prefillWeight = concatenated([
-                gate.weight.reshaped([rows / 16, 16, 256]),
-                up.weight.reshaped([rows / 16, 16, 256]),
-            ], axis: 1).reshaped([2 * rows, 256])
-            let prefillScaleStorage = concatenated([
-                gate.scales.reshaped([rows / 16, 16, 128]),
-                up.scales.reshaped([rows / 16, 16, 128]),
-            ], axis: 1).reshaped([2 * rows, 128])
-            let prefillScales = asStrided(
-                prefillScaleStorage,
-                prefillScaleStorage.shape,
-                strides: [128, 0],
-                offset: 0)
-            _fusedPrefillGateUpWeight = prefillWeight
-            _fusedPrefillGateUpScales = prefillScales
-            prepared.append(contentsOf: [prefillWeight, prefillScaleStorage])
-        }
         guard lagunaSharedScaleHalvedEnabled else { return prepared }
         // Gate sits above up in the concatenated plane, so the first pair of
         // each source tensor becomes flat pair 0 and flat pair
@@ -9006,31 +8985,6 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
     }
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
-        if x.dtype == .bfloat16,
-            x.dims(1, 512, LagunaConstants.hiddenSize),
-            let fusedWeight = _fusedPrefillGateUpWeight,
-            let fusedScales = _fusedPrefillGateUpScales,
-            fusedWeight.dtype == .uint32,
-            fusedWeight.dims(2 * LagunaConstants.sharedExpertIntermediateSize, 256),
-            fusedScales.dtype == .uint8,
-            fusedScales.dims(2 * LagunaConstants.sharedExpertIntermediateSize, 128),
-            _fusedGateUpSplit == LagunaConstants.sharedExpertIntermediateSize
-        {
-            let gateUp = MLX.quantizedMM(
-                x,
-                fusedWeight,
-                scales: fusedScales,
-                biases: nil,
-                transpose: true,
-                groupSize: 16,
-                bits: 4,
-                mode: .nvfp4
-            )
-            return downProj(
-                gateUp.reshaped([-1])[0 ..< gateUp.size / 2]
-                    .reshaped([1, 512, _fusedGateUpSplit]))
-        }
-
         if x.dim(1) == 1,
             let fusedWeight = _fusedGateUpWeight, let fusedScales = _fusedGateUpScales
         {
