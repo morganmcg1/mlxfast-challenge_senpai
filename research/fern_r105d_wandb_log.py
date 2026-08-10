@@ -28,7 +28,7 @@ ENTITY = "wandb-applied-ai-team"
 
 def family_rows():
     with CSV_PATH.open() as fh:
-        return [r for r in csv.DictReader(fh) if r["row_kind"] == "family"]
+        return [r for r in csv.DictReader(fh) if r["row_type"] == "family"]
 
 
 def main():
@@ -135,15 +135,15 @@ def main():
     tbl = wandb.Table(
         columns=[
             "family", "calls_per_step", "threadgroups", "threads_per_tg",
-            "simdgroups_per_tg", "tg_launches_per_step", "occupancy_class",
+            "simdgroups_per_tg", "tg_launches_per_step", "occupancy_class_C40",
             "waves_dispatch_C40", "waves_dispatch_C20",
         ]
     )
-    for r in sorted(fams, key=lambda x: -int(x["tg_launches_per_step"])):
+    for r in sorted(fams, key=lambda x: -int(x["tg_launches"])):
         tbl.add_data(
             r["family"], int(r["calls_per_step"]), int(r["threadgroups"]),
             int(r["threads_per_tg"]), int(r["simdgroups_per_tg"]),
-            int(r["tg_launches_per_step"]), r["occupancy_class"],
+            int(r["tg_launches"]), r["occupancy_class_C40"],
             int(r["waves_dispatch_C40"]), int(r["waves_dispatch_C20"]),
         )
     run.log({"census/family_table": tbl})
