@@ -431,7 +431,17 @@ threadgroup, so simdgroups 2..S-1 write rows that belong to another lane block.
 If the parity check above could not see a genuine mis-mapped store, the whole
 Stage-A parity argument would be vacuous.
 
-FAULT_RESULT_PLACEHOLDER
+It is not. `fault-sg8` diverges on **96 of 96** steps, first at
+`(row 0, position 509, expert 0)`, and its decode mean drops to 7.741 ms against
+~8.22 ms for every healthy dose - the mis-mapped stores are both visible in the
+token stream and visible in the timing. The same control at the routed site fired
+on only 1 of 96 steps at S = 8 and 2 of 96 at S = 16, so the QKV site's detector
+is about two orders of magnitude more sensitive per step. That is the expected
+ordering: a bad routed store lands in one expert's contribution to one token,
+which the router weight then scales down and argmax usually absorbs, whereas a
+bad QKV store corrupts a whole head's projection for every subsequent attention
+step. The four clean parity streams at this site are therefore a real result and
+not an artefact of a blunt instrument.
 
 ### 5.3 Full-decode rotated-palindrome timing
 
@@ -596,3 +606,82 @@ and `.tokens` per probe, `provenance.txt` (reps, steps, rule-75 digests before
 and after), `analysis.txt` / `analysis-multi.json` and the
 `…-drop1cycle/analysis.txt` sensitivity pass. Every number quoted in this
 document is in one of those files; nothing was recomputed by hand.
+
+## 9. Hand-off to fern (#625)
+
+### 9.1 Rule-75 tree digests
+
+Every stage restored the tree to the commit it started from, and both timed
+stages assert it. The two digests differ only because the QKV selector was
+committed between them; each is self-consistent before and after.
+
+| stage | head at run time | `digest_before` = `digest_after` |
+|---|---|---|
+| stage 0 + stage 1 (routed) | `81e57aa7` | `9f22da52…42b7526b` |
+| stage 0q + stage A (QKV) | `798df257` | `f191c3b4…6a14520b7` |
+
+Nothing in `Sources/` or `Vendor/` differed at the end of any timed run, and no
+timed slot was produced by a patched tree: every arm in both timing stages is
+the *same* `new` binary steered by an environment selector, which is why
+build-to-build variation cannot enter any contrast reported here.
+
+### 9.2 Rule-77 dispatch-geometry table
+
+Both sites, every dose actually dispatched, taken from the one-shot receipts and
+not from reading the source. `dispatch rows` is `total_simdgroups *
+rows_per_simdgroup` as reported by the receipt: 4096 at the routed site (512
+logical rows across the 8 selected experts) and `(heads + 16) * 128` at the QKV
+site. `TG` is threadgroups launched per kernel invocation, `thr/TG` is `32*S`,
+and `TG/core` divides `TG` by 20 GPU cores on this M4 Pro and by the 40 cores of
+the ranked M5 Max.
+
+| site | S | dispatch rows | rows % S | TG | thr/TG | simdgroups | rows/simdgroup | grid threads | TG/core M4 | TG/core M5 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| routed gate/up | shipped (2) | 4096 | 0 | 2048 | 64 | 4096 | 1 | 131072 | 102.4 | 51.2 |
+| routed gate/up | 4 | 4096 | 0 | 1024 | 128 | 4096 | 1 | 131072 | 51.2 | 25.6 |
+| routed gate/up | 8 | 4096 | 0 | 512 | 256 | 4096 | 1 | 131072 | 25.6 | 12.8 |
+| routed gate/up | 16 | 4096 | 0 | 256 | 512 | 4096 | 1 | 131072 | 12.8 | 6.4 |
+| QKV lane-major, 64 heads | shipped (2) | 10240 | 0 | 5120 | 64 | 10240 | 1 | 327680 | 256.0 | 128.0 |
+| QKV lane-major, 64 heads | 4 | 10240 | 0 | 2560 | 128 | 10240 | 1 | 327680 | 128.0 | 64.0 |
+| QKV lane-major, 64 heads | 8 | 10240 | 0 | 1280 | 256 | 10240 | 1 | 327680 | 64.0 | 32.0 |
+| QKV lane-major, 64 heads | 16 | 10240 | 0 | 640 | 512 | 10240 | 1 | 327680 | 32.0 | 16.0 |
+| QKV lane-major, 48 heads | shipped (2) | 8192 | 0 | 4096 | 64 | 8192 | 1 | 262144 | 204.8 | 102.4 |
+| QKV lane-major, 48 heads | 4 | 8192 | 0 | 2048 | 128 | 8192 | 1 | 262144 | 102.4 | 51.2 |
+| QKV lane-major, 48 heads | 8 | 8192 | 0 | 1024 | 256 | 8192 | 1 | 262144 | 51.2 | 25.6 |
+| QKV lane-major, 48 heads | 16 | 8192 | 0 | 512 | 512 | 8192 | 1 | 262144 | 25.6 | 12.8 |
+
+Two invariants hold at both sites and every dose: total simdgroups and
+rows-per-simdgroup do not move, so `S` only merges existing simdgroups into
+wider threadgroups. It never changes how much arithmetic each simdgroup does.
+The only quantity `S` controls is threadgroup count, i.e. the scheduler's unit
+of work — which is why the whole family lives on one occupancy axis and why the
+M4→M5 core-count halving of `TG/core` is the transfer risk that matters.
+
+### 9.3 What is settled and what fern should not re-run
+
+- The routed gate/up packing knob is closed: `N-SITE1`, with the negative
+  control firing at `+63.5 us [+55.7, +71.3]`. Re-running it is not useful; the
+  useful residue is the *shape* in §9.2 — the routed curve is flat from 102.4
+  down to 25.6 TG/core on this host and only breaks at 12.8.
+- `S = 16` at the routed site is a calibrated, cheap negative control for any
+  future full-decode instrument at this scale: one binary, one env var, a known
+  `+0.97 %` of `cs`, 18/18 sign agreement.
+- The `_sgS` selector machinery is free. A byte-identical rendered Metal body
+  under a distinct pipeline name and an extra host branch cost
+  `-3.0 us [-11.7, +5.6]`, so a future arm can carry the selector without
+  paying for it, and can use `SG=1` as a rejected-value identical-execution
+  null.
+- Both drivers are already site-parameterised: `SEL_VAR` plus `SG_LIST` for
+  `research/maple-edward-r107a-stage1.sh`, `SITE=` plus `GEOM_SG_LIST` /
+  `PARITY_SG_LIST` / `FAULT_SG_LIST` for `…-stage0.sh`, `SITE=` for the
+  publisher. A third site needs a `SITES` entry and an instrumentation mode, not
+  a new harness.
+- The store-row fault control is the part worth copying. Its sensitivity is
+  site-dependent by two orders of magnitude (96/96 at QKV, 1/96 at routed), so a
+  clean greedy stream is only evidence *after* the matching fault build has been
+  shown to break it at that same site.
+- Nothing here is an M5 magnitude claim. Every interval is M4 Pro
+  (`applegpu_g16s`, gen 16, 20 GPU cores) and this host does not select the
+  `_nax` prefill kernels the ranked M5 uses. The transferable content is the
+  occupancy ledger and the sign discipline, and the M5 remains authoritative for
+  any near-tie.
