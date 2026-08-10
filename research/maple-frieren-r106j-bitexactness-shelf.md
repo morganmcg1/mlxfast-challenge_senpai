@@ -548,6 +548,89 @@ reusable: the margin certificate (`§2`, runnable on any candidate) and the
 ABBA harness (`§3.3`, runnable on any decode kernel), plus the §4 ranking that
 says where the remaining score actually is.
 
+### §3.5 Rule 98 (cache residency) applied to this row, and to §4
+
+The campaign-wide instruction issued in #597 comment 19 (2026-08-10T11:35Z) is
+that **a cache-resident kernel-local number may never be quoted as a headline**;
+it may only be reported next to its residency-defeated twin, and promotion
+decisions are made on the defeated one. alphonse's routed gate/up QMV probe is
+the evidence: deleting a depth-1 preload read **+1.224 %** resident
+(CI [+1.166, +1.282], 32/32 rounds) against **−0.038 %** with residency defeated
+(13/32) — a **~30× inflation with a tight CI**, because the pipeline pays
+≈0.45 µs/dispatch of issue time and hides ≈0.45 µs of DRAM latency. The
+instruction names `DARKBLOOM_QMV_WIDE_CODES` specifically: *if measured
+kernel-locally, run `FERN_DEFEAT_SLOTS=64` and quote that.*
+
+Four things, in the order they matter.
+
+**1. `FERN_DEFEAT_SLOTS` is not a knob that exists on my measurement path.** It
+is read in exactly three places in this repository, all of them standalone
+probe programs: `research/fern_r99_qmv_probe.swift:70-71`,
+`research/fern_r100_attn_probe.swift:25,66`, and the driver
+`research/run_frieren_r102_fixed_cost.sh`. `grep -rn FERN_DEFEAT_SLOTS Sources/`
+returns nothing. There is no way to set it for a run of the model runtime,
+because the residency-defeat mechanism it names (rotating over N copies of the
+weight slab so each round touches cold bytes) lives inside those probes'
+own dispatch loops, not inside `LagunaRuntimeModel`. So the literal instruction
+is not executable here, and I am not going to report that I executed it.
+
+**2. What I measured is not a resident microbenchmark.** §3.3's number is a
+**whole-model 40-layer decode**: the same worker binary, the same weights, the
+same 33-step teacher-forced walk, with the flag toggled by an environment
+variable between arms, and the per-call cost read out of GPUPROF dispatch
+timestamps *in situ*. The kernel under test is dispatched 39 times per step
+inside a step that also runs attention, the router, the down projection and the
+residual path — every one of which is competing for the same cache. That is the
+opposite of the alphonse configuration: there is no isolated hot loop re-reading
+one slab, and the working set per step is the whole model. A resident-inflation
+correction is a correction *for an isolation artifact I did not create*.
+
+**3. There is already a residency-defeated twin in this note, and it agrees.**
+§3.3 reports an **end-to-end wall-clock cross-check** on the same runs:
+**+0.0372 ms/step = +37.2 µs/step**, against the dispatch instrument's
+**+35.2 µs/step** — agreement to **6 %**. Wall clock cannot be inflated by
+cache residency of the kernel under test, because it is the time the whole step
+actually took. If the dispatch-timestamp reading were a ~30×-inflated isolation
+artifact, the wall-clock twin would have shown ≈+1.2 µs/step and it does not; it
+shows the same number. The twin is noisier (t = 1.07, CI [−0.040, +0.114] ms) —
+that is what an end-to-end instrument costs you — but it is *the* check Rule 98
+asks for, it was run, and it is consistent. **Promoting on the defeated reading
+gives the same verdict: do not ship.**
+
+**4. The sign matters for which way an artifact could bite.** Rule 98's failure
+mode is a resident probe **overstating a gain**. My row is a **regression**, and
+the decision it supports is *not shipping*. For the resident-inflation argument
+to overturn this row it would have to be true that the regression is an
+isolation artifact and the true effect is ≈zero — but the end-to-end twin is
+what rules that out, and even the most generous reading (take the twin's lower
+CI bound, −0.040 ms/step) does not produce a **+0.4 %** win. There is no version
+of this measurement that clears the endgame bar. The verdict is unchanged.
+
+**And the retroactive part, applied to §4.** The instruction is retroactive, so
+I checked what my own ranking is priced from. None of the §4 values are quoted
+from cache-resident kernel-local probes: rows 3, 4, 5 and 6 are priced from
+**in-situ census pools and marginal (shadow-corrected) costs** — row 6's
+`E = 0.349` shadowing correction is exactly this discipline applied a round
+early — and are stated as *fractions of a ceiling*, with the fraction unmeasured
+and flagged as such. So the ~30× number does not transfer to them.
+
+But there is one place where Rule 98's *mechanism* changes what I wrote, and I
+would rather say so than let it sit. The comment's last clause —
+*"a byte-halving may read smaller than byte arithmetic predicts on an
+issue-bound family"* — is precisely the argument of §3.3: this row halved the
+code-plane load count and **lost**, because the kernel is issue-bound and the
+wide read cost more occupancy than it saved traffic. That makes **my row 1 a
+direct local datum for Rule 98**, and it means the off-list **#615 lane-major
+nibble-delta** row, whose ≈**+0.48 %** is derived *purely by byte arithmetic*
+(1 % of `B` ≈ 0.42 % of `cs`), is standing on the exact assumption this round
+falsified once. I am not withdrawing it — it is bit-exact, class 0, needs no
+certificate, and is therefore nearly free to test — but its **value estimate
+should be read as an upper bound, not a point estimate**, and whoever picks it
+up should expect the byte arithmetic to over-predict. §4.3 carries that caveat
+in its row. Rows 5 and 3 ("wider per-lane loads", "more work per dispatch")
+inherit a weaker version of the same prior: on this family, *fewer instructions*
+has now beaten *fewer bytes* twice.
+
 ---
 
 ## §4. Deliverable C — the shelf, re-adjudicated
@@ -662,7 +745,7 @@ plus no effect is still no effect.
 | 1 | **split-K tie flip** `matmul.cpp:986-989` *(tanjiro #620)* | fraction of **+2.46…+3.89** | 2 | **plausibly yes** | **re-open — biggest unpriced number, and the perturbation class is right** |
 | 2 | **wider per-lane loads, sliding attn** | **+0.51…+1.02** | 1–2 | **likely yes** | **re-open — blocked for five rounds on an unmeasured label** |
 | 3 | **H3 attention-projection defrag** *(tanjiro #620)* | **+0.9…+2.3** | 0/1 **and** 2 | **yes for the class-0/1 half** | **split the lever; ship the bit-exact half without a certificate at all** |
-| — | *(not on my list)* **#615 lane-major nibble-delta byte coding** | **≈+0.48** | **0** | **not needed** | **re-open — bit-exact, above the §2 bar, dropped on a byte threshold** |
+| — | *(not on my list)* **#615 lane-major nibble-delta byte coding** | **≤ ≈+0.48** *(byte arithmetic — read as an **upper bound**, Rule 98 / §3.5)* | **0** | **not needed** | **re-open — bit-exact, dropped on a byte threshold; expect the byte arithmetic to over-predict** |
 | 4 | **`DARKBLOOM_QMV_WIDE_CODES`** | **−0.5363**, CI [−0.628, −0.445] *(measured, §3.3)* | **3 (measured)** | **NO — measured and refused** | **close on evidence** |
 | 5 | **group-64 scale-plane re-merge** (#615) | **+0.37…+0.48** | 4 | **no** | **close** |
 | 6 | **router accumulator reassociation** | **+0.11, CI spans 0** | 1–2 | probably yes | **leave closed — null effect, not a correctness problem** |
@@ -676,6 +759,53 @@ worth ≈0.48 % that was dropped for failing an internal byte gate rather than a
 score gate. The shelf's problem was never that we were too strict about
 correctness; it was that we never measured what "not bit-exact" costs, so every
 row got the same infinite price.
+
+---
+
+## §5. The preregistered outcome cells, answered
+
+The assignment listed five outcomes and required me to land in one. I land in
+two, for independent reasons, and I do not get to choose the flattering one.
+
+| cell | preregistered meaning | did it fire? |
+|---|---|---|
+| **V-SHIP** | wide codes is correct *and* faster; hand the tree to fern | **no** — B2 says it is **slower** by 0.5363 % of `cs` |
+| **N-CORRECT** | the correctness evidence is not good enough to hand on | **YES** — the §2 certificate is `MARGINAL`: class-3 perturbation, decision-relevant safety factor **1.37×**, 45–81 % modelled flip rate at the near-tie margins `TASK.md:131-134` selects for |
+| **N-NULL** | the speed effect is inside ±0.08 % of `cs` | **YES, with a sign** — it is **outside** the band, on the **wrong side**: −0.5363 %, CI [−0.628, −0.445] |
+| **N-UNREACHABLE** | the flag does not reach live code (Rule 33) | **no** — B0 is decisive; two differently-named kernels, 1328/1329 dispatch records, neither name in the other arm |
+| **V-SHELF** | the advisor's `TASK.md` reading is wrong and the shelf should be re-opened wholesale | **no, and I checked** — §1.1. The reading is correct. "Not bit-exact ⇒ not submittable" is *self-imposed policy*, not a `TASK.md` requirement, but `TASK.md:168-171` is decisive that the contract is text-to-text, and the three qualifications in §1.1 (rank not just argmax; anchors adversarially near-tie; free-run compounding) are reasons to keep the policy *tight*, not to abolish it |
+
+**The two firing cells are not the same claim and neither one is doing the
+other's work.** `N-NULL` would still hold if the certificate had come back
+`PASS-BIT-EXACT`, and `N-CORRECT` would still hold if the kernel had been 2 %
+faster. That matters because a single-cell result invites the reply "you only
+refused it because it was slow" — the refusal was independently justified before
+the timing ran, and §3.0's preregistration is timestamped ahead of the driver to
+prove I did not choose the reason afterwards.
+
+**Rule 75 obligation: none.** No tree is handed to fern from this row, so no
+sha256 and no byte size are owed. `LagunaRuntimeModel.swift:323-324` keeps its
+`false` default; **B3 was deliberately not executed** (§3.4).
+
+## §6. Evidence index
+
+Every number in this note resolves to a file. Nothing here is quoted from
+memory or inherited from an earlier round's summary.
+
+| deliverable | instrument | raw output |
+|---|---|---|
+| A — certificate | `research/maple-frieren-r106j-margin-certificate.py` | `research/artifacts/maple-frieren-r106j/cert_teacher.json`, `cert_free.json`, `cert_null.json` |
+| A — free-run capture | `research/artifacts/maple-frieren-r106j/free_run_capture.sh` | folded into `cert_free.json` |
+| B2 — driver | `research/maple_frieren_r106j_wide_codes_abba.sh` | `research/artifacts/maple-frieren-r106j/abba-*.log` (12 processes) |
+| B2 — analysis | `research/maple_frieren_r106j_abba_analyse.py` (+ `…_abba_summary.py`) | `research/artifacts/maple-frieren-r106j/abba_report.json` |
+| B1 — re-run | `research/maple_frieren_r106j_b1_rerun.sh` | §3.2.1 |
+| publication | `research/maple-frieren-r106j-wandb.py` | W&B run **`r106jfrieren`** — <https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/r106jfrieren> |
+
+The GPU dispatch trace used for B0 and B2 comes from
+`research/nezuko-pr158-gpuprof-hook.patch`, which instruments
+`Vendor/mlx-swift/…/backend/metal/device.cpp`. **That patch is applied to run
+the instrument and reverted before committing**; the tree published here
+contains no vendored instrumentation and no instrumented binary.
 
 ---
 
