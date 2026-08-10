@@ -89,6 +89,83 @@ def t80(dof):
     return _tbl(T80, dof)
 
 
+def _gammp(a, x):
+    """Regularised lower incomplete gamma P(a, x).  Numerical-Recipes split:
+    series below the turning point, continued fraction above it.  Needed because
+    this host has numpy but NOT scipy, and the power curve is only honest if the
+    uncertainty of its own sd estimate is quantified -- which needs chi-square
+    quantiles."""
+    if x <= 0.0:
+        return 0.0
+    if x < a + 1.0:
+        term = 1.0 / a
+        total = term
+        ap = a
+        for _ in range(1000):
+            ap += 1.0
+            term *= x / ap
+            total += term
+            if abs(term) < abs(total) * 1e-15:
+                break
+        return total * math.exp(-x + a * math.log(x) - math.lgamma(a))
+    # continued fraction for Q(a, x), then P = 1 - Q
+    tiny = 1e-300
+    b = x + 1.0 - a
+    c = 1.0 / tiny
+    d = 1.0 / b
+    h = d
+    for i in range(1, 1000):
+        an = -i * (i - a)
+        b += 2.0
+        d = an * d + b
+        if abs(d) < tiny:
+            d = tiny
+        c = b + an / c
+        if abs(c) < tiny:
+            c = tiny
+        d = 1.0 / d
+        delta = d * c
+        h *= delta
+        if abs(delta - 1.0) < 1e-15:
+            break
+    q = math.exp(-x + a * math.log(x) - math.lgamma(a)) * h
+    return 1.0 - q
+
+
+def chi2_ppf(p, dof):
+    """Inverse chi-square CDF by bisection on _gammp.  Bracket generously."""
+    if dof <= 0:
+        return float('nan')
+    lo, hi = 1e-12, max(10.0 * dof, 100.0)
+    while _gammp(dof / 2.0, hi / 2.0) < p:
+        hi *= 2.0
+        if hi > 1e12:
+            return float('nan')
+    for _ in range(300):
+        mid = 0.5 * (lo + hi)
+        if _gammp(dof / 2.0, mid / 2.0) < p:
+            lo = mid
+        else:
+            hi = mid
+    return 0.5 * (lo + hi)
+
+
+def sd_ci(s, dof, conf=0.95):
+    """CI95 for a standard deviation: s*sqrt(dof/chi2_hi), s*sqrt(dof/chi2_lo).
+
+    Reported because block counts scale as sd^2, so a 20 % error in the sd is a
+    44 % error in the campaign plan.  Quoting a power curve from a dof-11 sd
+    without this interval would overstate how well the plan is pinned down."""
+    if dof < 1 or not math.isfinite(s):
+        return float('nan'), float('nan')
+    a = (1.0 - conf) / 2.0
+    hi_q = chi2_ppf(1.0 - a, dof)
+    lo_q = chi2_ppf(a, dof)
+    if not (math.isfinite(hi_q) and math.isfinite(lo_q)) or lo_q <= 0:
+        return float('nan'), float('nan')
+    return s * math.sqrt(dof / hi_q), s * math.sqrt(dof / lo_q)
+
+
 def mean(xs):
     return sum(xs) / len(xs)
 
@@ -276,10 +353,20 @@ def main():
     if not math.isfinite(s_use):
         print('\nno usable paired sd; power curve omitted')
         return
+    # dof of the sd we actually quote: it belongs to the arm that supplied
+    # s_use, NOT to whichever arm happens to have the largest mean diff.
+    dof_use = results[s_src][0] - 1
+    sd_lo, sd_hi = sd_ci(s_use, dof_use)
+
     print('\n' + '=' * 78)
     print('POWER CURVE of this instrument -- paired sd = %.3f us/token (measured, arm %s)' % (s_use, s_src))
     print('host=M4-Pro epoch=R107; half-widths are MARGINAL; reference CENSUS '
           'level %.3f us/token; k=%s' % (base, k_name))
+    print('the sd is itself an estimate: chi-square CI95 on sd (dof %d) = '
+          '[%.3f, %.3f] us/token' % (dof_use, sd_lo, sd_hi))
+    print('  -> block counts scale as sd^2, so the planning numbers below carry')
+    print('     a factor [%.2fx, %.2fx] of their own. Plan with the UPPER sd.'
+          % ((sd_lo / s_use) ** 2, (sd_hi / s_use) ** 2))
     print('=' * 78)
     print('%6s %4s %7s %12s %11s %11s %11s   %11s' %
           ('blocks', 'dof', 't.975', 'hw us/token', 'hw %decode', 'hw %cs(a)', 'hw %cs(b)', 'runs(2 arms)'))
