@@ -11531,6 +11531,7 @@ final class LagunaRuntimeModelInner: Module {
         // seed row, so the angles are the exact floats that layer's kernel
         // would have computed rather than a re-derivation.
 
+        var injectionCallCount = 0
         for (i, layer) in layers.enumerated() {
             let isFull = layerTypes[i] == .full
             let mask = isFull ? fullMask : slidingMask
@@ -11568,6 +11569,11 @@ final class LagunaRuntimeModelInner: Module {
                 }
             }
             lagunaInjectLayerWork(layer: i, isSingleTokenDecode: isSingleTokenDecode)
+            injectionCallCount += 1
+        }
+        if inputs.dim(1) == 512 || isSingleTokenDecode {
+            lagunaTrace(
+                "injection calls input_length=\(inputs.dim(1)) count=\(injectionCallCount)")
         }
 
         return h
