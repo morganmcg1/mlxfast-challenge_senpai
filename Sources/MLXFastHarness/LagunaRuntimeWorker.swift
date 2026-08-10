@@ -433,19 +433,68 @@ extension LagunaRuntime {
             // "I am being scored now", which lets it serve a slow/correct
             // path while checked and a cheap path while timed. Keep
             // trusted->editable calls phase-agnostic.
-            let logits = try lagunaLogits(
-                inputIDs: inputIDsArray([inputToken]),
-                model: try weightCache.requireLibraryModel(),
-                cache: cache,
-                positionOffset: state.decodeSeedTokenCount + state.decodeStep
-            )
-            let token = try LagunaCorrectness.greedyToken(from: logits)
+            let bodyStart = DispatchTime.now().uptimeNanoseconds
+            let logits = try HostCensusProbe.measure("model_dispatch") {
+                try lagunaLogits(
+                    inputIDs: inputIDsArray([inputToken]),
+                    model: try weightCache.requireLibraryModel(),
+                    cache: cache,
+                    positionOffset: state.decodeSeedTokenCount + state.decodeStep
+                )
+            }
+            let token = try HostCensusProbe.measure("greedy_wait") {
+                try LagunaCorrectness.greedyToken(from: logits)
+            }
+            let bodyNanos = DispatchTime.now().uptimeNanoseconds &- bodyStart
             state.decodeStep += 1
             return RuntimeWorkerResponse(
                 id: request.id,
                 nonce: sessionNonce,
                 ok: true,
-                token: token
+                token: token,
+                targetVerificationMode: "body_nanos=\(bodyNanos)"
+            )
+
+        case "host_census_configure":
+            guard let values = request.promptTokens, values.count == 3 else {
+                throw MLXFastError.invalidInput("host census configure requires family, measured, corrupt")
+            }
+            let familyIndex = values[0]
+            guard familyIndex >= -1, familyIndex < HostCensusProbe.families.count else {
+                throw MLXFastError.invalidInput("host census family index out of range")
+            }
+            HostCensusProbe.configure(
+                family: familyIndex < 0 ? nil : HostCensusProbe.families[familyIndex],
+                measured: values[1] == 1,
+                corrupt: values[2] == 1
+            )
+            return RuntimeWorkerResponse(
+                id: request.id,
+                nonce: sessionNonce,
+                ok: true,
+                targetVerificationMode: "configured"
+            )
+
+        case "host_census_snapshot":
+            let snapshot = HostCensusProbe.snapshot()
+            let offsets = state.decodeCache?.map { String($0.offset) }.joined(separator: ",") ?? ""
+            return RuntimeWorkerResponse(
+                id: request.id,
+                nonce: sessionNonce,
+                ok: true,
+                targetVerificationMode: "count=\(snapshot.count);nanos=\(snapshot.nanos);step=\(state.decodeStep);offsets=\(offsets)"
+            )
+
+        case "host_census_calibrate":
+            guard let iterations = request.steps, iterations > 0 else {
+                throw MLXFastError.invalidInput("host census calibration requires positive iterations")
+            }
+            let calibration = HostCensusProbe.calibrate(iterations: iterations)
+            return RuntimeWorkerResponse(
+                id: request.id,
+                nonce: sessionNonce,
+                ok: true,
+                targetVerificationMode: "count=\(calibration.count);nanos=\(calibration.nanos)"
             )
 
         case "phase_diagnostics":
