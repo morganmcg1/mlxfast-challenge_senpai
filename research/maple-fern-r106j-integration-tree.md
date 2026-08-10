@@ -138,6 +138,50 @@ who stops at §0 still gets them:
   substituting my *measured* L3 gives **0.0328 + 0.2301 = 0.2629 %** — the stack does
   not reach the bar, and **the failure is L3, not pf0**.
 
+**Where to find the two things a reviewer usually wants first.** The integration
+worksheet in the advisor's fixed column schema — `arm | family | regime | k |
+Δ M4 µs/step | 95 % CI | bit-exact? | Δ% cs central | Δ% cs interval | running sum |
+SE of sum` — is **§8.1**, with the totals read in §8.2, the sample-size wall in §8.3,
+the edward × alphonse composition gate in §8.4, and the DARKBLOOM checkboxes in §8.5.
+The reason every prefill row in that worksheet is empty is **§15 of
+`research/maple-fern-r106i-prefill-traversal-census.md`**, which states the Rule 105.4
+merge-gating condition on the prefill census.
+
+**§8.7 re-prices the whole worksheet against the two rules published *after* I
+measured** — rule **105.13** (the first *measured* whole-decode `k_steady = 0.4902`,
+the levels-vs-contrasts trap, and the third conversion regime `k_dispatch = 1.890`)
+and rule **91**'s byte-cliff correction. Net effect: my one admitted row moves
+`+0.0591 % → +0.0663 %` of `cs`, still 6.0× short of the bar; **no verdict changes
+and the shipped tree is still `0.0000 %`**. §8.7.4 adds the one genuinely new
+negative result of the re-pricing: in the dispatch regime a bar-sized arm is only
+13.90 M4 µs/step, *below* my per-arm standard error, so an M4 rig of my sweep size
+is **blind** to it and would need ≈91 ABBA blocks (9.1× my budget) to see one.
+
+**§8.8 is a self-correction I owe under Rule 105.15** — the rule I generated. §8.1's
+`L3` row carried `bit-exact = Y` justified by a single-valued `golden_hash`, and
+105.15(b) says that field is the digest of the *fixture input* and is therefore **zero
+evidence** about outputs. The row is downgraded to `token-identical on 1 fixture` and
+reclassified **105.15 class 2 (reassociating)**, because `num_simdgroups 2 → 8` changes
+the tile→row map feeding the 32-lane `simd_sum`. No verdict in this document moves —
+L3 was already dead on magnitude — but the row **would have been ineligible as a Rule
+105.5 summand** had it measured at its published price. §8.8.4 replaces the worksheet's
+`bit-exact` column with a `gate` + `105.15 class` pair that I will apply to every
+incoming handoff.
+
+**§9 is the freeze decision rule, and it supersedes the *shape* of §7.2's advice.**
+§7.2's flat "hold our tree" was correct for a slate whose best arm measured
+`+0.0328 %`. R108-K (#660) plus tanjiro's merged family-E census put a lever with a
+desk price of `+0.735 %` … `+2.451 %` on the board, so §9 converts the recommendation
+into a function of the number that lands: **`< 0.40 %` HOLD; `0.40–0.93 %` HOLD and say
+why; `0.93–1.25 %` armed, advisor's call; `> 1.25 %` TAKE**. The arithmetic behind it —
+`P(beat record | g) = 1 − Φ((1.6359 − g)/σ)` — shows that **Rule 102's 0.4 % bar buys
+only `P = 2.1e-05`**: the bar is an admissibility threshold, never a sufficiency one.
+§9.1 also convolves in measurement noise and finds it is *not* the binding term
+(nezuko's instrument inflates σ by 2 %, mine by 10 %), so **blocks past ~10 buy the
+CI-excludes-zero gate, not draw probability**. §9.5 lists the five ways this could be
+wrong, headed by the fact that every `g` above the bar on today's board is a **desk
+price** — and my own N-PACK measured a desk price inflated **17×**.
+
 ---
 
 ## 1. Carried forward from R106-I (Rule 79: a partial census with its stopping point stated is a result)
@@ -2763,4 +2807,735 @@ of `cs` by construction, and the one candidate that was not identity — T0P —
 `+0.0328 %` with a CI that spans zero and excludes the `0.40 %` bar at both ends
 (§5.3.6). The machine-readable copy of this table lives at
 `research/artifacts/maple-fern-r106j/wandb_final_run.json`.
+
+
+---
+
+## 8. Appendix W — the integration worksheet, in the advisor's schema
+
+*Added 2026-08-10 in response to the work order in comment `5241990543`, items (c),
+(d) and (e). §§0–7 already contain every number below; this appendix exists because
+the advisor asked for one table in one fixed column layout so that the arms can be
+read off and summed without re-reading the report. Nothing here is new evidence.*
+
+### 8.1 The worksheet
+
+Column definitions, fixed by the work order:
+
+- **k** — the Rule 105 dual-conversion coefficient in `Δ%cs = Δ_M4[µs/step] × k × 0.015228`.
+  Central column uses `α = 0.4369` (bytes regime). The interval column brackets the
+  pessimistic bytes coefficient `α = 0.389` against the latency coefficient `β = 0.5`.
+- **Δ M4 µs/step** — positive means *time saved on this host* (arm is faster).
+- **bit-exact?** — `Y` means byte-identical logits under the harness golden set;
+  `margin-cert` means not bit-exact and therefore requiring frieren's margin
+  certificate before it may be summed.
+- **running sum** — cumulative `Δ% cs` at the central `k`, over *admitted* rows only.
+- **SE of sum** — `√(Σ SEᵢ²)` over admitted rows, in `% of cs` at the central `k`.
+
+| arm | family | regime (bytes/latency) | k | Δ M4 µs/step | 95 % CI (M4) | bit-exact? | Δ% cs central | Δ% cs interval [α=0.389, β=0.5] | running sum | SE of sum |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **`C2a`** (alphonse #636, gather-GEMM `bn`) | quantized expert gather-GEMM (`Vendor/.../quantized.cpp`) | bytes | 0.4369 | **0.00** | [0.00, 0.00] degenerate | **Y** (semantic identity: default `bn` returns 64) | **0.0000 %** | [0.0000, 0.0000] | **0.0000 %** | **0.0000 %** |
+| **`L3` / `T0P`** (packing default flip, `num_simdgroups 2→8`) | routed MoE gate/up packing | bytes | 0.4369 | **+8.89** | [−33.04, +50.80] | **Y** (`golden_hash b9509697c08a2cf3` on 42/42 runs; only `harness_hash` differs) | **+0.0591 %** | [−0.2515, +0.3868] | **+0.0591 %** | **0.1233 %** |
+| — *admitted total* — | — | — | 0.4369 | **+8.89** | [−33.04, +50.80] | Y | **+0.0591 %** | [−0.2515, +0.3868] | **+0.0591 %** | **0.1233 %** |
+| `T0U` unroll revert | decode qmv unroll (#539) | latency | 0.5 | **−19.6** (reversion of a merged win) | not re-measured | Y (byte-exact reversion) | **≈ −0.130 %** | — | *not summed — negative* | — |
+| pf0 (frieren #571, **not in my tree**) | prefill default | — | — | — | — | — | +0.2301 % / +0.2633 % (Rule-105 priced, was quoted +0.53 %) | — | *not summed — not integrated, not mine* | — |
+| edward #629 `T0b(a)` qkv | decode qkv projection | — | — | **did not arrive** | — | — | — | — | *no row* | — |
+| alphonse `T3b` oproj | decode output projection | — | — | **did not arrive** | — | — | — | — | *no row* | — |
+| nezuko #616 round-103 residual | — | — | — | **did not arrive** | — | — | — | — | *no row* | — |
+| tanjiro #642 decode fused attention | decode fused attention | latency | 0.5 | **0 (zero-byte diff)** | — | — | 0.0000 % | — | *nothing to integrate* | — |
+| **all prefill rows (R106-I census)** | prefill traversal | bytes | **n/a** | **inadmissible** | — | — | **excluded by rule** | — | *empty by rule, not by oversight* | — |
+| **THE TREE I ACTUALLY SHIP** | — | — | — | **0.00** | [0.00, 0.00] | **Y** (identity on the scored surface, §6.1) | **0.0000 %** | [0.0000, 0.0000] | **0.0000 %** | **0.0000 %** |
+
+**Prefill rows are empty by rule.** See §15 of
+`research/maple-fern-r106i-prefill-traversal-census.md`: 94.3 % of prefill traversal
+on the scored shapes is `nax`-divergent, M4 prefill runs at 1.1198× against M5's
+1.9834× (ratio 0.564586, a **−43.5414 %** structural gap that no scalar α or β
+reconciles), and every price this census could produce is Rule 105.12 **category (c)**
+— raw local M4 — which is inadmissible and biased toward false positives.
+
+### 8.2 Reading the totals
+
+The two totals in the table are different objects and both are needed:
+
+1. **Admitted total, if `L3` were taken:** `+0.0591 %` of `cs`, SE `0.1233 %`,
+   CI95 (t, dof 9) `[−0.2198, +0.3380] %`. This **includes zero** and **excludes the
+   0.400 % bar at the upper end**. It fails the promotion bar on both required
+   counts.
+2. **The tree I ship:** `0.0000 %` exactly, because after §5.3.6 I did not take
+   `L3`. This is a degenerate row, not a measurement, and §6.2 states it plainly.
+
+Derivation of the `L3` row, so the arithmetic is checkable:
+
+```
+T0 decode on M4 (arm mean, 21 runs) = 0.012955773 s/token = 12955.8 us/step
+d(ln decode), T0P - T0            = -0.0686 %  CI95 [-0.3921, +0.2550]
+=> time SAVED                      = +8.888 us/step  CI95 [-33.04, +50.80]
+k * 0.015228  at alpha=0.4369      = 0.0066531  -> +0.0591 %  CI [-0.2198, +0.3380]
+              at alpha=0.389       = 0.0059237  -> +0.0526 %  CI [-0.1957, +0.3009]
+              at beta =0.5         = 0.0076140  -> +0.0677 %  CI [-0.2515, +0.3868]
+half-width = 41.92 us/step = 0.2789 % of cs ;  SE = half-width / t(9) = 0.1233 %
+```
+
+**Internal consistency check.** The k-converted decode-only figure is `+0.0591 %`.
+The independently computed score-level "prefill charged as neutral" contrast in
+`analysis_10blocks.txt` is `d(ln score|dec) = +0.0514 %`. These two routes to the same
+quantity agree to **0.0077 pp**, which is 1/16 of a single standard error. I take that
+as evidence the conversion was applied in the right direction and with the right
+weighting, not as an independent confirmation of the arm.
+
+### 8.3 What a bar-clearing sum would have to look like
+
+The work order's own calibration: a `0.400 %` sum carries CI ≈ `[0.23, 0.57] %`, i.e.
+a half-width of `0.17 %` and therefore **SE ≈ 0.087 %** of `cs`. Set against what this
+channel can actually measure:
+
+| requirement | value | my best single arm |
+|---|---|---|
+| SE of a bar-clearing sum | **0.087 %** of `cs` | **0.1233 %** — 1.4× too wide *on its own* |
+| per-arm SE if two summands share it | `0.087/√2` = **0.061 %** | 0.1233 % — 2.0× too wide |
+| ABBA blocks needed for SE = 0.061 %, at sd = 0.3727 % | **37 blocks (~155 runs)** | I ran **10 blocks (42 runs)** |
+
+So even a *real* `+0.4 %` arm on this channel would need roughly **3.7× my whole
+sweep budget** before its interval could be certified as excluding zero at the bar.
+This is the same wall Rule 105.7 states from the other side (single-receipt M4
+detection floor ≈ 80 µs/step): **on M4 the confidence interval, not the point
+estimate, is the deliverable**, and the interval is expensive. It is the single
+strongest argument for §7.2's recommendation to hold our tree.
+
+### 8.4 Item (d) — the composition check for edward `T0b(a)` × alphonse `T3b`
+
+The work order specifies a gate to run *when both patches arrive*: diff the two
+patches **against each other**; if either touches the other's kernel, the sum is
+**inadmissible** and the correct action is to take the **larger arm alone**.
+
+**Neither patch arrived** (§5.4; both rows above are `did not arrive`), so the check
+is **vacuous and its result is null**. Recording it anyway, because Rule 79 says the
+null cell gets reported and because whoever inherits this channel will face exactly
+this gate the moment a second summand appears:
+
+```
+# 1. materialise both arms as patch files against the SAME base
+git diff <base>..<edward_head>   -- Sources/ Vendor/ benchmark.json > /tmp/T0ba.patch
+git diff <base>..<alphonse_head> -- Sources/ Vendor/ benchmark.json > /tmp/T3b.patch
+
+# 2. the admissibility test: do they touch a common file at all?
+comm -12 <(git apply --numstat /tmp/T0ba.patch | cut -f3 | sort) \
+         <(git apply --numstat /tmp/T3b.patch  | cut -f3 | sort)
+#    non-empty  -> escalate to the hunk-level test below
+#    empty      -> still not sufficient; go to step 3
+
+# 3. the real test is KERNEL identity, not FILE identity: extract the MSL
+#    source:/header: literals each patch alters and intersect those.
+#    qkv projection and output projection are distinct kernels; if either
+#    patch alters a literal the other also alters, the arms are NOT
+#    independent and Rule 105.5's "different family" precondition fails.
+
+# 4. if the intersection is non-empty: DO NOT SUM.
+#    Take max(|Δ_A|, |Δ_B|) alone, and re-measure the composed tree
+#    end-to-end rather than trusting either arm's solo number.
+```
+
+Two notes I want on the record for that future integrator:
+
+- **File-level disjointness is necessary but not sufficient.** Both projections are
+  driven by the same qmv/gather-GEMM machinery; two patches can live in different
+  files and still contend for the same dispatch, the same threadgroup memory budget,
+  or the same register pressure ceiling. The kernel-literal test in step 3 is the one
+  that matters.
+- **Even a clean pass does not license summing the point estimates.** Rule 105.5
+  permits a two-summand sum only when both arms are bit-exact, in different families,
+  measured on the *same* tree, and each carries its own CI excluding zero. My `L3`
+  row fails the last of those four conditions on its own, which is why the admitted
+  total above is a single arm and not a sum.
+
+### 8.5 Item (e) — merge-checklist environment checkboxes
+
+Rules 102 and 103 require both DARKBLOOM switches to be **unset** on the exact
+submitted HEAD. Verified on the frozen HEAD (also logged to W&B run `zuwbk8lh` as
+`gates/darkbloom_expert_down_bn_set = 0` and `gates/darkbloom_qmv_wide_codes_set = 0`):
+
+- [x] **`DARKBLOOM_EXPERT_DOWN_BN` is UNSET.** Rule 103: the nax gather-GEMM
+      `bn 64→32` path is worth 0.195 % of `cs` and is **shelved**; setting it would
+      also activate the otherwise-inert `C2a` row above and invalidate its
+      `bit-exact = Y`.
+- [x] **`DARKBLOOM_QMV_WIDE_CODES` is UNSET.** Rule 102: measured at
+      **−0.5363 %** of `cs`, i.e. actively harmful; setting it would by itself
+      consume more than the entire 0.400 % bar.
+- [x] **`MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT` is UNSET** and was never set in this
+      channel (§6.7).
+- [x] No other `DARKBLOOM_*` or `FERN_*` variable is set in the submitting
+      environment. `FERN_DEFEAT_SLOTS=64` appears only inside cache-defeat probes
+      (Rule 98.9) and is never exported into a scored run.
+
+### 8.6 Where this leaves the worksheet
+
+The worksheet's honest bottom line is a single line: **one admitted arm, worth
+`+0.0591 %` of `cs` with an SE of `0.1233 %`, which I did not take; and a shipped
+tree worth `0.0000 %`.** The prefill half of my charge contributes zero summands by
+rule, the four sibling arms that could have supplied a second summand did not arrive,
+and the composition gate that would have policed them never had anything to police.
+That is a null result, it is the modal outcome under Rule 96.2, and §7.2 is where I
+say what to do about it.
+
+
+### 8.7 Re-pricing the worksheet against the two rules published *after* I measured
+
+My ABBA sweep and the §8.1 worksheet were computed against rules 105.1–105.12.
+The advisor branch has since advanced to `fc66172b73a1ffa3bf2d9a4431267c0b922b7b7f`
+and added **rule 105.13** (a measured whole-decode `k`, plus a *third* conversion
+regime) and **rule 91's byte-cliff correction**. Neither is a docs-only footnote:
+105.13 changes the conversion constant I priced with, and it introduces the single
+exception to the one-sidedness theorem that census §15.3 leans on. This subsection
+re-prices every affected number and states the net effect.
+
+⚠️ Provenance note: the advisor advance from `a30fa5f8c1f8a0d8996e951281cefe4c9d53f425`
+to `fc66172b` is **docs-only** — `git diff --numstat a30fa5f8 fc66172b -- Sources/
+Vendor/ benchmark.json Package.swift senpai/` is empty. So no rebase is required and
+none of the measured M4 numbers below need re-taking; only their *conversion* moves.
+
+#### 8.7.1 Rule 105.13(a) — the first measured whole-decode `k`, and what it does to my row
+
+```text
+k_steady = T_M5 / T_M4 = 4141.5 / 8448.0 = 0.4902        (a = 0.4369 < 0.4902 < 0.5 = b)
+```
+
+The host model survives its first direct test, and the measured value sits *inside*
+the bracket I already used. My `L3` / `T0P` row therefore moves, but only within the
+interval column I had already published:
+
+| `k` used | source | Δ% of `cs` (central) | 95 % CI in % of `cs` | clears 0.400 %? |
+|---|---|---|---|---|
+| α = 0.4369 | rule 105 bytes floor | **+0.0591 %** | [−0.2198, +0.3380] | no |
+| **k_steady = 0.4902** | **105.13(a), measured** | **+0.0663 %** | **[−0.2466, +0.3792]** | **no** |
+| β = 0.5 | rule 105 latency ceiling | +0.0677 % | [−0.2516, +0.3868] | no |
+| k_dispatch = 1.890 | 105.13(c) — **not applicable**, see 8.7.3 | +0.2558 % | [−0.9509, +1.4621] | no |
+
+The central estimate moves by **+0.0072 pp** (0.0591 → 0.0663 %). The row remains
+**6.0× short of the bar** and its CI still straddles zero on both sides. The §8.1
+interval column `[−0.2516, +0.3868]` was already the union over `k ∈ [0.389, 0.5]`,
+so 105.13(a) does not widen anything — it *narrows* the honest bracket to
+`k ∈ [0.4369, 0.5]` and pins a point inside it. **No cell of §8.1 changes its
+verdict, and the shipped tree stays at `0.0000 %`.**
+
+#### 8.7.2 Rule 105.13(b) — the levels-vs-contrasts trap, and why this worksheet is immune
+
+105.13(b) makes a standing rule of it: 🚨 **never divide a local `--local-submit`
+level by a receipt level.** The two are not the same functional — the receipt
+amortises seed prefill over `S/128` (≈15.4 % of the step) and the local harness over
+`S/1023` (≈5.8 %), so the fixed term does not cancel and the ratio is not `k`. The
+naive `4925.255 / 8984.50 = 0.5482` is *above* `β` and would have falsified the host
+model if anyone had believed it.
+
+**Audit of this worksheet against that rule — clean, and here is why.** Every number
+in the §8.1 Δ column is a **paired within-host contrast**: a difference of two arms
+measured in the same ABBA sweep, on the same M4 host, in the same
+`--local-iterate` units. Rule 105.13(b) explicitly exempts these ("for *paired
+deltas* the fixed term cancels … this bites levels, not contrasts"). Concretely:
+
+- The `L3` Δ = `+8.888 µs/step` is `mean(T0 decode) − mean(T0P decode)` over 10
+  paired blocks. Both terms carry the identical `S/1023` seed-prefill loading, which
+  subtracts out exactly.
+- The only *levels* I quote anywhere (`T0` decode `12 955.8 µs/step`, `T0` prefill
+  `1 118.5 µs`) are used solely as denominators for **M4-local relative** quantities
+  (`d(ln decode)`, `d(ln prefill)`, cv). They are never divided into, or by, a
+  receipt number.
+- I hold **zero receipts** (rev2 authorises none), so there is no receipt level in
+  this channel that *could* have been mis-divided. The one receipt-derived quantity
+  I consume is `k` itself, and `k` was formed by the advisor, not by me, from two
+  whole-*decode* µs/step figures — a functional that carries no seed-prefill
+  denominator at all.
+
+So the pattern here is `contrast (local M4) × scalar k` — the legitimate form of
+rule 105.2 — and not `level ÷ level`. **No correction is required.** I flag this
+explicitly because 105.13(f) shows a sibling report (nezuko R106-B §C.5) whose bare
+prices all halved under exactly this class of check; mine do not move.
+
+#### 8.7.3 Rule 105.13(c)/(d) — the third regime, and which regime my arm lives in
+
+105.13(c) divides two numbers the rulebook has held for rounds without ever putting
+them in a ratio:
+
+```text
+rule 57  M4 per-dispatch glue, saturated marginal : 1.2382 us
+rule 65  M5 cost of one added dispatch, marginal  : 2.3403 us
+k_dispatch = 2.3403 / 1.2382 = 1.890      -- dispatch is MORE expensive on M5
+```
+
+105.13(d) then carves the **one exception** to the one-sidedness theorem that census
+§15.3 and §8.1 both rely on: for `k < 1` a bare M4 price *over*-states and can only
+manufacture false positives; for the dispatch regime `k > 1`, so a bare M4 price
+**under**-states by 1.890× and can hide a **false negative**. Bytes- and
+latency-family closures stay closed.
+
+**Does my `L3` arm live in the dispatch regime? No.** `research/tanjiro_packing_default_flip.patch`
+changes `num_simdgroups` from 2 to 8 in the QKV packing kernel — a *threadgroup-shape*
+change inside one already-existing kernel launch. It adds no encoder, removes no
+encoder, and leaves the dispatch **count** per step bit-identical (the arm is
+`bit-exact = Y` and the golden hash `b9509697c08a2cf3` is a single value across all
+42 runs). It is a bytes/latency-family arm, so it sits squarely in the `k < 1`
+closure where the conservative direction holds and my quoted price, if anything,
+**over**-states. The `k_dispatch` line in the 8.7.1 table is printed as a
+counterfactual bound only — and note that even under that maximally generous
+conversion the CI is `[−0.9509, +1.4621]`, still straddling zero, so no choice of
+`k` in `[0.4369, 1.890]` converts this row into a promotion candidate.
+
+**Independent corroboration of the third regime, from inside my own polling set.**
+`maple-tanjiro/r107-decode-family-regime-census` @ `1d299e2d` (commit `8ce120cc`,
+"rule 105.13 closure test corroborates the third regime") labels the §B.0.3 M4 pools
+by measured regime — BYTES 6302.5 µs/step (74.6 %), LATENCY 928.1 (11.0 %), ISSUE
+848.6 (10.0 %), residue 368.8 (4.4 %) — and finds that forcing `k_issue = α` implies
+`k_residue = 1.4998`, inside 105.13(c)'s independently derived `[1.0, 1.89]` bracket
+and staying inside at ±2 sem on the measured `T_M4`. Two routes, same answer.
+⚠️ For the worksheet this is **evidence about `k`, not a summand**: the branch's
+scored-surface diff against `a30fa5f8` is empty (`Sources/ Vendor/ benchmark.json
+Package.swift` → no rows), so it is a census and contributes **0.0000 %**. It joins
+the "did not arrive as a patch" population in §8.1.
+
+#### 8.7.4 Rule 105.13(e) — the triage dual, and the resolution floor it exposes
+
+The bar restated in the units I actually measure in, with my arm and my noise placed
+against it:
+
+| regime | `k` | 0.400 % bar in **M4 µs/step** | my `L3` Δ = 8.888 as % of bar | ABBA blocks needed to resolve a *bar-sized* arm at 95 % |
+|---|---|---|---|---|
+| bytes | 0.4369 | 60.12 | 14.8 % | **4.9** (≈ 21 runs) |
+| measured steady | 0.4902 | 53.59 | 16.6 % | **6.1** (≈ 26 runs) |
+| latency | 0.5 | 52.53 | 16.9 % | **6.4** (≈ 27 runs) |
+| **dispatch** | **1.890** | **13.90** | **64.0 %** | **91.0** (≈ 382 runs) |
+
+*Method for the last column:* my 10-block sweep delivered a 95 % half-width of
+**41.92 µs/step** (CI `[−33.04, +50.80]` about a centre of `+8.888`; that is a
+95 % interval **9.4× as wide as the point estimate**). Half-width scales as
+`1/√n_blocks`, so the blocks needed to make the half-width equal the bar are
+`10 × (41.92 / bar)²`.
+
+Two things fall out, and both are new:
+
+1. **In the bytes/latency regimes an M4 rig is adequate.** A genuinely bar-sized arm
+   (52–60 µs/step) is resolvable in **5–7 ABBA blocks**, i.e. *less* than the 10 I
+   already ran. My sweep was not underpowered for the job it was pointed at; the arm
+   simply is not bar-sized. This is the cleanest possible statement of the null: I
+   had the power to see a 0.4 % bytes arm and there was not one.
+2. **In the dispatch regime an M4 rig of my size cannot see the bar at all.** A
+   bar-sized dispatch arm is only **13.90 M4 µs/step** — *below* my per-arm standard
+   error of ≈21.4 µs/step. Resolving it needs **91 blocks (≈382 runs), 9.1× my
+   sweep budget**, which is why 105.13(d)'s false-negative exception is not merely
+   theoretical for this channel: it is the one place where my instrument is blind
+   and a real arm could be sitting under the noise. Any successor pricing a
+   dispatch-count change on an M4 host must budget for ~90 blocks or accept that a
+   null is uninformative.
+
+*The lever 105.13(e) names, and why I am not taking it.* One dispatch removed per
+step = **0.0356 % of `cs`**; one per-layer dispatch eliminated across 39 layers =
+91.3 M5 µs/step = **1.390 %**, i.e. **3.5× the draw bar** — the only single move on
+the whole slate that is bar-sized by itself. It is nominally open only: rule 92
+already closed the barrier/encoder/command-buffer *scheduling* family at 0.0198 %
+(0.0374 % at `k_dispatch`), and every split/fusion attempt that *added* dispatches
+measured null-to-negative. What 105.13 re-prices is a genuine **per-layer kernel
+merge**, which is a restructuring, not a scheduling change, and is far outside what
+remains of my budget before the 07:00Z integration freeze. **Recorded here as the
+single highest-value open item for whoever inherits this tree**, together with the
+91-block power requirement that makes it expensive to falsify on an M4 host.
+
+Note the arithmetic in §8.3 answers a *different* question (how many blocks to make a
+**two-summand sum** clear the bar with its own CI excluding zero, → 37 blocks / ≈155
+runs) and is unaffected: it is driven by the required SE of the sum, not by the
+per-arm resolution floor tabulated above.
+
+#### 8.7.5 Rule 91's byte-cliff correction — one more merge-checklist checkbox
+
+The long-standing "`LagunaRuntimeModel.swift` is 519,236 B against a 524,288 B cap
+⇒ ≈5,052 B of headroom" warning, which several briefs (including sequencing plans
+that fenced students away from kernel growth) rested on, is **STALE**. Measured on
+my exact submitted HEAD:
+
+```text
+wc -c Sources/MLXFastModel/LagunaRuntimeModel.swift  ->  384245
+524288 - 384245 = 140043 B of per-file headroom          (not 5052 B)
+```
+
+This reproduces the advisor's corrected figure exactly. Appending to §8.5's
+checklist:
+
+- [x] **Per-file cap is NOT binding on this HEAD.** `LagunaRuntimeModel.swift` =
+      **384,245 B**, leaving **140,043 B** against the 524,288 B cap. The cap must
+      not be used to reject a brief, and it did not shape any decision in this
+      report.
+- [x] **My tree contributes zero growth to it anyway.** The shipped tree is the
+      identity on `Sources/` (§8.1: the diff against the advisor base over
+      `Sources/ Vendor/ benchmark.json Package.swift Package.resolved` is empty), so
+      per-file growth is exactly **0 B**.
+- [x] **Repo-level editable budget is green on this HEAD.**
+      `senpai/check-editable-budget.sh 1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7` →
+      `current=2681206/3000000  headroom=318794  growth=-302643/262144  files=142`.
+      Growth is negative, i.e. the tree is *below* base.
+
+#### 8.7.6 Net effect of 105.13 + 91 on the worksheet
+
+| worksheet quantity | before (rules ≤105.12) | after (105.13 + 91) | verdict change? |
+|---|---|---|---|
+| `C2a` row | 0.0000 % | 0.0000 % | no |
+| `L3` / `T0P` row, central | +0.0591 % | **+0.0663 %** | **no** — still 6.0× short |
+| `L3` / `T0P` row, interval | [−0.2516, +0.3868] | [−0.2466, +0.3792] (k pinned) | no |
+| admitted total | +0.0591 % (not taken) | +0.0663 % (not taken) | no |
+| prefill rows | inadmissible by rule 105.12(c) | inadmissible; §15.3 one-sidedness intact for bytes | no |
+| one-sidedness theorem | closures conservative | conservative **except** dispatch regime | scope narrowed, no row affected |
+| sibling summands | none arrived | none arrived; tanjiro R107-G is census-only | no |
+| byte-cliff constraint | 5,052 B headroom (feared binding) | **140,043 B, not binding** | constraint dissolved |
+| **tree I actually ship** | **0.0000 %** | **0.0000 %** | **no** |
+
+**Bottom line.** The two post-measurement rules sharpen the conversion, exempt this
+worksheet from the levels trap by construction, narrow the one-sidedness theorem to
+exclude a regime my arm does not occupy, dissolve a byte constraint I was never
+close to, and add one genuinely new negative result — that an M4 rig of my sweep
+size is **blind to a bar-sized dispatch arm** and would need 9.1× the runs to see
+one. **None of them changes a single verdict in §8.1, and the tree I ship is still
+the identity, worth `0.0000 %` of `cs`.** Rule 96.2's modal outcome, reached under
+the newest constants available.
+
+
+### 8.8 SELF-CORRECTION under Rule 105.15 — I have to downgrade my own `bit-exact = Y`
+
+*(Written 2026-08-10 ~15:55Z, after PR #625 closed. Rule 105.15 is the rule I generated;
+it is only honest to apply it to my own worksheet first. This section supersedes the
+`bit-exact` column of §8.1 for the `L3 / T0P` row.)*
+
+#### 8.8.1 What §8.1 claimed and why it is now wrong
+
+§8.1's worksheet row for `L3` (`research/tanjiro_packing_default_flip.patch`,
+`num_simdgroups 2 → 8` in `lagunaDecodeNVFP4QKVLaneMajorSource`) carries
+**`bit-exact = Y`**, and the justification recorded in the row's note was:
+
+> *`golden_hash` took the single value `b9509697c08a2cf3` across all 42 runs of both arms;
+> 0 correctness failures; `checked_steps = 130`.*
+
+Under Rule 105.15 that justification is **void, and it is void in two independent ways**:
+
+1. **105.15(b)** — `golden_hash` is `golden.sha256`, the digest of the *loaded fixture
+   input*. It is invariant under *any* change to the kernel, correct or catastrophic. It
+   was never evidence about outputs. A single-valued `golden_hash` across two arms says
+   only that both arms read the same file. **My row's stated justification is therefore not
+   weak evidence — it is zero evidence.** I should have caught this when I read
+   `Golden.swift`; I read the emit sites for `max_abs_diff` and stopped.
+2. **105.15(d)** — even the evidence I *should* have cited (`passed_correctness = 1`,
+   `checked_steps = 130`, `first_failing_step` absent, driven by the real exact-token-ID
+   comparison at `Golden.swift:387,:535`) establishes only **token-identity on one local
+   golden fixture**, not numerical identity. It is a real gate and it is not nothing; it is
+   simply not "bit-exact."
+
+#### 8.8.2 The correction, and the classification that goes with it
+
+| field | §8.1 as written | corrected value |
+|---|---|---|
+| `bit-exact` | `Y` | **`token-identical on 1 fixture`** |
+| justification | single-valued `golden_hash b9509697c08a2cf3` | `passed_correctness = 1`, `checked_steps = 130`, no `first_failing_step`, over 42 runs / 2 arms — i.e. Rule 105.15(c) exact token-ID equality only |
+| 105.15 class | (not recorded) | **class 2 — reassociating** |
+| Rule 102 draw-bar condition | assumed satisfied | **NOT satisfied** by the run evidence alone |
+
+The class-2 call is not a formality and I want the mechanism on the record rather than the
+label. `num_simdgroups: 2 → 8` changes how many simdgroups cooperate on a threadgroup's
+output rows. In the lane-major NVFP4 QMV the per-output-row accumulation is a partial sum
+per lane closed by a 32-lane `simd_sum`, and the assignment of `k`-range to lane is a
+function of `simd_lid` and of the per-simdgroup row stride
+(`out_row = tile*(num_simdgroups*results_per_simdgroup) + simd_gid*results_per_simdgroup`).
+Changing `num_simdgroups` changes the tile→row map and therefore **can** change which
+partial products land in which lane before the reduction tree closes. Floating-point
+addition is not associative, so a changed reduction tree is a changed number. I do not
+claim it *does* differ — I claim I have no evidence that it does not, and under 105.15(e)
+that is exactly the state in which a source-level argument or a margin certificate is
+required.
+
+#### 8.8.3 Does this change any verdict in this document? No — and here is the audit
+
+I checked every place the `L3` bit-exactness claim is load-bearing:
+
+| use site | depends on bit-exactness? | effect of the downgrade |
+|---|---|---|
+| §5.0 acceptance rule (≥0.4 % of `cs`, CI excluding zero) | no | none — L3 was rejected on **magnitude** (`+0.0328 %`, CI [−0.2338, +0.2994]), not on correctness |
+| §6.2 integrated-tree delta = 0 % of `cs` | no | none — nothing landed, so nothing needs certifying |
+| §7.2 "Hold our tree" | no | none — strengthened, if anything |
+| §8.2 totals / consistency check | no | none — the k-conversion arithmetic is independent of correctness class |
+| **Rule 105.5 two-summand sum** (bit-exact is an explicit precondition) | **yes** | **the L3 row would have been INELIGIBLE as a summand even if it had cleared the bar** |
+| §8.4 edward × alphonse composition gate | no | that gate is about *kernel disjointness*, not about correctness class |
+
+So the downgrade costs me nothing in this document because L3 was already dead on
+magnitude — but it would have cost the campaign a great deal had L3 measured at
+`+0.562 %` as originally published, because §8.1 would then have offered it as a Rule-105.5
+summand on a correctness claim that does not exist. **The near-miss is the finding.** A row
+that dies on magnitude hides a bad correctness claim; the claim only becomes load-bearing
+in exactly the situation where you least want to discover it is unfounded.
+
+#### 8.8.4 Standing instruction to myself as integrator, for the 07:00Z freeze
+
+The worksheet's `bit-exact` column is retired. It is replaced by **two** columns, and no
+arm is admitted as a Rule-105.5 summand without both:
+
+| column | admissible values | evidence required |
+|---|---|---|
+| `gate` | `token-identical / 1 fixture`, `token-differs`, `not run` | `passed_correctness`, `checked_steps`, `first_failing_step` from the run — **never** `max_abs_diff`, **never** `golden_hash` |
+| `105.15 class` | `1 (source argument)`, `2 (reassociating)`, `unknown` | class 1 needs a written per-output accumulation-order argument in the arm's own report; class 2 needs frieren's margin certificate (`research/maple-frieren-margin-certificate-service.md`, 99 s measured, 25–35 min SLA) |
+
+`unknown` is treated as class 2. An arm that is class 2 and has **no** certificate may still
+be *reported*; it may **not** enter a summed draw claim, per 105.15(e). I will apply this to
+every incoming handoff — including, and especially, to any arm whose author tells me it is
+"obviously" bit-exact because the run was green. Mine was green. Mine was 42 runs green.
+
+
+---
+
+## 9. THE FREEZE DECISION RULE — arming the draw against the R108-K board
+
+*(Written 2026-08-10 ~16:00Z. §7.2 said "hold our tree." That recommendation was correct
+**for the slate it was written against**, whose best arm measured `+0.0328 %`. The board
+changed at 15:40Z when R108-K (#660) and tanjiro's merged R107-G census (`705484b9`) put a
+lever with a **desk price of `+0.735 %` to `+2.451 %`** in front of frieren. A flat HOLD is
+no longer the right shape of advice. This section replaces it with a decision rule that is
+a function of the number that actually lands, so that at the 07:00Z freeze the decision is
+arithmetic rather than judgement.)*
+
+### 9.1 The model, stated so it can be attacked
+
+Rule 101 gives me everything I need and I am not inventing anything here:
+
+- unbiased gap of our current tree to the record `officialScore`: **`gap = 1.6359 %`**
+- resubmission s.d. of the ranked score: **`σ_resubmit = 0.3016 %`** (this is what makes
+  `z = gap/σ = 5.42`)
+- a candidate lever contributes a gain `g`, in **% of `cs`**, on the **ranked M5** run
+
+Then the submitted score beats the record iff the realised noise covers the residual gap:
+
+```
+P(beat record | g) = 1 − Φ( (gap − g) / σ )
+```
+
+**Refinement the published table does not carry.** `g` is not known exactly; it is
+*measured*, with its own s.e. So the honest σ is the convolution
+
+```
+σ_total = sqrt( σ_resubmit² + σ_g² ),   σ_g = (CI95 half-width) / 1.95996
+```
+
+This matters less than one might fear, and that is itself a result worth stating:
+
+| instrument | CI95 half-width (% of `cs`) | `σ_g` | `σ_total` | inflation over `σ_resubmit` |
+|---|---:|---:|---:|---:|
+| nezuko's paired `--local-submit`, 10 blocks (#657) | 0.1178 | 0.0601 | **0.3075** | **+1.96 %** |
+| my score-level ABBA, 10 blocks (§5.3.6a) | 0.2666 | 0.1360 | **0.3309** | **+9.7 %** |
+
+So **measurement noise is not the binding term** — resubmission noise is. Nezuko's
+instrument adds 2 % to the total σ and mine adds 10 %; neither changes a decision. The
+practical consequence is the opposite of the usual one: **buying more blocks past ~10 is
+nearly worthless for the draw decision**, because you are refining the small term. Blocks
+buy you the *CI-excludes-zero* admissibility test (which is a hard gate), not draw
+probability. I want that on the record before anyone spends the last two hours grinding
+blocks instead of shipping.
+
+### 9.2 P(beat record) across the board as it now stands
+
+All three columns use `gap = 1.6359 %`. Column `σ₀` is the advisor's published convention
+(`σ_resubmit` only) and is the one to quote for comparability; the other two show the
+convolved value under each instrument.
+
+| scenario | source | `g` (% of `cs`) | P (σ₀ = 0.3016) | P (nezuko σ = 0.3075) | P (my ABBA σ = 0.3309) |
+|---|---|---:|---:|---:|---:|
+| ship my tree unchanged | §6.2 | 0.0000 | 2.913e-08 | 5.203e-08 | 3.818e-07 |
+| L3 as I measured it | §5.3.6a | 0.0328 | 5.324e-08 | 9.300e-08 | 6.320e-07 |
+| paper `L3 + pf0` (never existed) | §7.3 | 0.4267 | 3.045e-05 | 4.213e-05 | 1.287e-04 |
+| **R108-K, `k = 1.0` floor, 39 disp.** | #660 §1 | **0.735** | **1.408e-03** | 1.698e-03 | 3.235e-03 |
+| R108-K, `k = 1.395` | #660 §1 | 1.026 | 2.158e-02 | 2.367e-02 | 3.263e-02 |
+| tanjiro family-E, dispatch-only | #648 / #660 cmt | 1.069 | 3.008e-02 | 3.264e-02 | 4.332e-02 |
+| R108-K, `k = 1.890` (rule 65 direct) | #660 §1 | 1.390 | 2.074e-01 | 2.120e-01 | 2.287e-01 |
+| **tanjiro family-E, full fusion** | #648 / #660 cmt | **2.451** | **9.966e-01** | 9.960e-01 | 9.931e-01 |
+
+Read the first and last rows together. **The campaign's win probability spans eight orders
+of magnitude, and every bit of that span is inside R108-K.** Nothing else on the board
+moves the needle at all: edward's T2c and alphonse's T3b at their optimistic ≈0.17–0.18 %
+priors, even summed under 105.5 into the advisor's 0.25–0.35 % band, land between rows 2
+and 3 — i.e. at `P ≈ 3e-06`, which is *indistinguishable from shipping nothing*.
+
+This is the quantitative form of the advisor's sentence "your dispatch summand alone is 2–4×
+everything else on the board combined," and I think it understates it. On the metric that
+actually decides the campaign — probability of beating the record — the dispatch lever is
+not 2–4× the rest of the board. At `k = 1.890` it is **7 × 10⁶ ×** the rest of the board.
+
+### 9.3 Inverted: what a lever must measure to be worth the draw
+
+Solving `g* = gap − z_p·σ` at `σ₀ = 0.3016 %`, with the µs/step equivalents an integrator
+can check a handoff against directly (`Δ%cs = Δ_M4 × k × 0.015228`; M5 via 1 % = 65.67 M5 µs/step):
+
+| target P | `g*` (% of `cs`) | M5 µs/step | M4 µs/step @ `k_dispatch` 1.890 | M4 @ `k` 1.0 | M4 @ `k_steady` 0.4902 |
+|---|---:|---:|---:|---:|---:|
+| — (draw **bar**, Rule 102) | 0.4000 | 26.27 | 13.90 | 26.27 | 53.59 |
+| 0.1 % | 0.7039 | 46.23 | 24.46 | 46.22 | 94.30 |
+| **1 %** | **0.9343** | **61.36** | **32.46** | **61.35** | **125.16** |
+| 5 % | 1.1398 | 74.85 | 39.60 | 74.85 | 152.69 |
+| **10 %** | **1.2494** | **82.05** | **43.41** | **82.05** | **167.37** |
+| 25 % | 1.4325 | 94.07 | 49.77 | 94.07 | 191.90 |
+| coin-flip | 1.6359 | 107.43 | 56.84 | 107.43 | 219.15 |
+
+Note the gap between the two bars. **Rule 102's 0.4 % bar buys `P = 2.1e-05`.** The bar is
+an *admissibility* threshold — it says an arm is real enough to ship — and it was never a
+*sufficiency* threshold for winning. Clearing it is necessary and nowhere near sufficient.
+An arm has to be **2.3× the bar** before the draw is worth one part in a hundred, and
+**3.1× the bar** before it is worth one part in ten.
+
+### 9.4 The rule I will apply at the 07:00Z freeze
+
+For each arm handed to me I compute `g` = measured % of `cs`, with its CI, at the arm's own
+declared `k`, and I apply, in order:
+
+1. **Admissibility (Rule 102 / §5.0).** `g ≥ 0.4 %` **and** CI95 excludes zero. Fail ⇒ the
+   arm does not land; report it and move on. No exceptions, no "it's directionally right."
+2. **Correctness (§8.8.4).** `gate = token-identical / 1 fixture` on the exact tree
+   measured, **and** 105.15 class recorded. Class 2 without a margin certificate ⇒ may be
+   reported, may **not** enter a summed draw claim.
+3. **Composition (§8.4).** If two arms are to be summed under 105.5: MSL-literal
+   disjointness, not file disjointness. Intersection non-empty ⇒ take
+   `max(|Δ_A|, |Δ_B|)` and re-measure the composed tree end to end.
+4. **De-bias (Rule 105.10).** If the arm's `g` was selected as the best of several
+   candidates, apply the argmax de-bias before it enters this table. Frieren's Stage-0
+   ledger ranks candidate pairs and she picks one; if the pick is made *on measured
+   values* rather than on the pre-registered feasibility ranking, this bites.
+5. **Then and only then, the draw arithmetic above**, and the recommendation is:
+
+| integrated, certified `g` | recommendation |
+|---|---|
+| `< 0.40 %` | **HOLD.** §7.2 stands unchanged. `P ≤ 2.1e-05`. |
+| `0.40 – 0.93 %` | **HOLD, and say why out loud.** The arm is real and shippable and still buys `P < 1 %`. Ship it to the tree, record it, do not spend the draw on it. |
+| `0.93 – 1.25 %` | **ADVISOR'S CALL, armed.** `P` runs 1 %→10 %. This is the genuinely contested band and I will not pretend arithmetic settles it. |
+| `> 1.25 %` | **TAKE THE DRAW.** `P > 10 %`, rising to 21 % at 1.39 % and to 99.7 % at 2.451 %. Holding here is strictly dominated. |
+
+The draw decision is the advisor's, armed from 07:00Z. My job is to hand over a `g` that is
+admissible, certified, composed correctly, de-biased — and a row in that table.
+
+### 9.5 Five ways this section could be wrong, in descending order of how much it would hurt
+
+1. **Every `g` above 0.4 % on this board is a DESK PRICE, not a measurement.** `+0.735 %`,
+   `+1.069 %`, `+1.390 %`, `+2.451 %` are all rule-65 arithmetic on a dispatch count that
+   nobody has yet removed. My own N-PACK is the cautionary tale: L3's published `+0.562 %`
+   desk price measured at `+0.0328 %`, an inflation of **17×**. If R108-K inflates like L3
+   did, `+1.390 %` is `+0.08 %` and row 1 of §9.2 is the answer. **Nothing in §9.4 fires on
+   a desk price.** I will only ever apply it to a paired, in-situ, CI-bearing measurement.
+2. **PR #48 is a measured counter-example to the whole family.** It reduced dispatch count
+   and scored **−0.1488 %** (receipt `285f79fa`). The advisor's own gate condition on #660
+   is the right one: a merge that re-materialises the intermediate through device memory is
+   a #48 repeat. The sign of this lever is not guaranteed by its price.
+3. **`k_dispatch` is bracketed, not known.** [1.0, 1.890], and the 1.890 end rests on a
+   residue-fit corroboration (781.8 vs 746.6, slack +35.2) that itself depends on rule 100
+   correctly identifying §B.0.3 rows 5 and 13 as fiction. Tanjiro's independent
+   `k_residue = 1.4998, CI [1.4732, 1.5275]` sits **below** 1.890 and is the tighter of the
+   two estimates. My §8.7.3 already prices my own arm in the conservative `k < 1` closure
+   for exactly this reason. **Headline at `k = 1.0` (`+0.735 %`, `P = 1.4e-03`) and treat
+   everything above it as upside**, which is also what the advisor instructed frieren to do.
+4. **The normal model has no left tail protection and no repeat.** There is one draw. `P`
+   is a single-shot probability, `E[outcome]` is not a thing we get to average over, and a
+   `P = 21 %` draw is still a `79 %` loss. §9.4's `> 1.25 %` row says "strictly dominated"
+   because holding buys `2.9e-08`, i.e. holding is not a hedge — it is a certainty of not
+   winning. That asymmetry is the whole argument and it is worth being explicit that it is
+   the *only* argument.
+5. **Prefill is charged neutral throughout (Rule 105.4 / §15).** Every `g` here is a decode
+   number. If any candidate moves prefill, my census says the M4 measurement of that
+   movement does not transfer (M4 1.1198× vs ranked M5 1.9834×, ratio 0.5646, −43.54 %) and
+   it must be dropped from `g`, not converted.
+
+### 9.6 Audit of the R108-K / family-E prices, since my whole §9 rests on them
+
+I re-derived tanjiro's R107-G family-E arithmetic from his merged report
+(`research/maple-tanjiro-r107g-decode-family-regime-census.md` at advisor tip
+`705484b9e120d60a973d660fdbdd1ccc7cdfa124`) rather than taking the summary figures. Three
+findings, one of which materially changes §9.2.
+
+#### 9.6.1 The decomposition reproduces exactly — and that is the problem
+
+| step | value | check |
+|---|---:|---|
+| E above-byte-floor time | `7.286 M4 µs/dispatch × 30` = **218.58 M4 µs/step** | ✅ |
+| rule 57 marginal M4 glue | `1.2382 × 30` = **37.146 M4 µs/step** | ✅ |
+| glue converted at `k_dispatch = 1.890` | **70.206 M5 µs/step** | ✅ |
+| rule 65 direct, `30 × 2.3403` | **70.209 M5 µs/step** | agrees to **0.003 µs/step** |
+| remainder `218.58 − 37.15 = 181.43` at `β = 0.5` | **90.72 M5 µs/step** | ✅ |
+| full-fusion total | **160.92 M5 µs/step = 2.4505 % of `cs`** | ✅ matches the published 2.451 % |
+
+The two routes to `70.21` agree to three parts in 10⁵ — but **they are not independent, they
+are algebraically the same number.** `k_dispatch` is *defined* as `2.3403 / 1.2382 = 1.8901`
+(105.13(c)), so `n × 1.2382 × k_dispatch ≡ n × 2.3403` identically, for every `n`. Anyone
+reading "rule 57 × `k_dispatch` corroborates rule 65" as two instruments agreeing is reading
+a tautology. I flag this because the same identity appears in #660 §1's three-point read and
+it would be easy to bank it as confirmation.
+
+The genuinely independent evidence for the dispatch conversion is (i) the advisor's
+fiction-corrected residue fit (781.8 available vs 746.6 required, slack +35.2) and (ii)
+tanjiro's ledger closure `k_residue = 1.4998, CI [1.4732, 1.5275]`. **And (ii) sits well
+below 1.890.**
+
+#### 9.6.2 The conservatism gap — this is the finding that moves §9.2
+
+The advisor's instruction to frieren is explicit: *"price your candidate at `k = 1.0` as the
+conservative headline."* The `1.069 %` family-E figure does **not** do that — it is the
+`k_dispatch = 1.890` end of the bracket, arrived at via rule 65's M5-native price. Both are
+defensible; they are just very different bets. Priced across the bracket, with the count that
+actually applies to each candidate:
+
+| dispatches removed | `k = 1.0` (rule 57 M4 glue) | `k_residue = 1.4998` | `k_dispatch = 1.890` (= rule 65) |
+|---|---|---|---|
+| **30** (families A, C, **E**) | `0.5657 %`, **P = 1.94e-04** | `0.8484 %`, P = 4.51e-03 | `1.0691 %`, P = 3.01e-02 |
+| **39** (families B, D) | `0.7354 %`, **P = 1.41e-03** | `1.1029 %`, P = 3.86e-02 | `1.3898 %`, P = 2.07e-01 |
+
+**A 30-dispatch merge priced conservatively is `0.5657 %`, and that lands in §9.4's
+"HOLD, and say why out loud" band — `P = 1.9e-04`, which is 155× worse than the `1.069 %`
+headline suggests.** The conversion constant, not the engineering, is what decides whether
+family E is a draw or a footnote. §9.2's family-E row should be read with this table beside
+it, and I would ask that any handoff quoting `1.069 %` also quote `0.5657 %`.
+
+The honest summary of the whole board at the advisor's own conservative pricing: **nothing
+reaches even `P = 0.1 %` except a 39-dispatch removal, and only barely** (`0.7354 %` vs the
+`g* = 0.7039 %` threshold). The `P = 0.21` picture exists only at the top of the `k` bracket.
+
+#### 9.6.3 Sensitivity of the `2.451 %` full-fusion figure, and one unit slip
+
+`2.451 %` prices the 181.43 M4 µs/step remainder at `β = 0.5`. Swept:
+
+| remainder priced at | M5 µs/step | % of `cs` | P |
+|---|---:|---:|---:|
+| `k_issue` low 0.267 | 118.65 | 1.807 | 7.15e-01 |
+| `α` 0.4369 | 149.47 | 2.276 | 9.83e-01 |
+| **`β` 0.5 (published)** | **160.92** | **2.451** | 9.97e-01 |
+| `k_issue` high 0.654 | 188.86 | 2.876 | 1.00e+00 |
+
+The band is wide but every point in it is above parity, so the *decision* is insensitive.
+Two caveats that are not:
+
+1. **`β = 0.5` exceeds tanjiro's own bound.** His §3.6 counterfactual concludes GEMV-side M4
+   savings "must not be priced above ≈0.47×". E is latency-regime rather than issue-regime so
+   the bound may not bind, but the internally-consistent choice is `α`, giving `2.276 %`.
+2. **56.4 % of the prize (90.72 of 160.92 M5 µs/step) is an *unattributed residual*.** In
+   consistent M4 units the attribution of E's 7.286 µs/dispatch is: rule 57 glue 1.2382 µs
+   (17.0 %), rule 55 intercept 3.97 µs (54.5 %, and per §3.6 the intercept *contains* the
+   glue), leaving **3.316 µs = 45.5 % unexplained**. The full-fusion figure assumes all of it
+   vanishes on fusion, which is the strongest possible assumption.
+
+   ⚠️ **Unit slip, reported for correction, narrative-only.** §3.4 states that rule 65
+   "accounts for 2.34 µs of that, and rule 55's intercept for ~3.97 µs; together they explain
+   ~6.3 µs of the 7.3 µs." That **adds an M5 price (2.3403) to an M4 intercept (3.97, from
+   the M4 fit `floor_us = bytes/266.3 + 3.97`)** — precisely the 105.12 mixing trap, and it
+   double-counts besides, since §3.6 says the glue sits *inside* the intercept. In consistent
+   M4 units the explained fraction is `3.97 / 7.286 = 54.5 %`, not 86 %. **This does not
+   propagate to any price**: §3.6's arithmetic never uses the 6.3 µs figure, it splits
+   `218.58 = 37.15 + 181.43` directly. So the numbers survive; only the confidence
+   statement around them should come down. Tanjiro caught and published a worse version of
+   this same class of error against himself in his own erratum (`0.535 % → 1.069 %`), and I
+   record this one in the same spirit.
+
+### 9.7 One line for the advisor
+
+**§7.2's "hold our tree" is unchanged as a statement about *my* slate, and I am not
+retracting it — the integrated tree is still worth `0.0000 %` of `cs`. What I am adding is
+that the HOLD is now conditional on a number that does not exist yet, and §9.4 is the
+threshold at which I would change it: `0.93 %` to arm the question, `1.25 %` to answer it
+yes. Everything that is not R108-K is, on this metric, arithmetically indistinguishable
+from shipping nothing — and R108-K itself is above the arming threshold only at the top of
+the `k` bracket. At your own instructed conservative `k = 1.0`, a 30-dispatch merge is
+`0.5657 %` and a 39-dispatch merge is `0.7354 %`, i.e. `P = 1.9e-04` and `1.4e-03`. If you
+want frieren to be chasing a draw rather than a shippable-but-not-decisive arm, the count
+matters as much as the mechanism: tell her to prefer a 39-dispatch pair.**
 

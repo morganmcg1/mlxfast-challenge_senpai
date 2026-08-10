@@ -1,0 +1,52 @@
+==========================================================================
+1. THE FOUR PUBLISHED M4 DENOMINATORS vs MEASUREMENT (c4 = 263.29)
+==========================================================================
+  theoretical 273.0 (r94 census)               273.0  = 103.69% of measured
+  hardcoded 266.3 (rule 55, fern_r100:71)      266.3  = 101.14% of measured
+  roofline 260.6 (fern ledger:940)             260.6  =  98.98% of measured
+  tanjiro pool-diff 237.4                      237.4  =  90.17% of measured
+  -> rule 55's bytes/266.3 is 1.14% OPTIMISTIC (too much bandwidth assumed)
+
+==========================================================================
+2. ALPHA: two independent, opposite-signed constraints
+==========================================================================
+  LOWER  instrument-paired (tanjiro geometry both hosts):
+         alpha = 257.87 / 610.0 = 0.42274
+  UPPER  routed pool cannot exceed the measured M4 DRAM ceiling:
+         alpha <= 263.29 / 597.1 = 0.44095
+  => alpha in [0.4227, 0.4409]   (width -3.24% / +0.93% about campaign 0.4369)
+  campaign alpha = 0.4369  ->  INSIDE the interval: True
+  tanjiro's alpha-free bound alpha < 0.4454 -> my upper bound 0.44095 is TIGHTER by 1.00%
+
+==========================================================================
+3. WHY THE TWO POOLS DISAGREE  (implied M4 achieved BW at campaign alpha)
+==========================================================================
+  routed  demands M5 597.1 -> implied M4 achieved 260.87 GB/s = 99.1% of c4
+  qkvo    demands M5 677.1 -> implied M4 achieved 295.82 GB/s = 112.4% of c4
+  qkvo EXCEEDS the measured M4 DRAM ceiling by 12.36% -> physically impossible
+  => at least 11.0% of the qkvo pool's counted bytes must be CACHE-SERVED,
+     not DRAM.  Measured cache-served ceiling here is 1676 GB/s (6.4x c4).
+  routed sits at 99.1% of c4 -> fully consistent, so ROUTED identifies alpha.
+
+==========================================================================
+4. RE-PRICE the two live alpha-dependent numbers
+==========================================================================
+  tanjiro byte-axis price 15.10 MiB/step per 0.4%% of cs:
+     alpha_lo  alpha=0.4227 ->  15.61 MiB/step per 0.4%  (+3.35%)
+     campaign  alpha=0.4369 ->  15.10 MiB/step per 0.4%  (+0.00%)
+     alpha_hi  alpha=0.4409 ->  14.96 MiB/step per 0.4%  (-0.92%)
+  frieren barrier-drain 0.799-0.915%% at k in [alpha, beta]:
+     alpha_lo  alpha=0.4227 -> low end 0.7731%  (high end 0.915% at beta=0.5, unchanged)
+     campaign  alpha=0.4369 -> low end 0.7990%  (high end 0.915% at beta=0.5, unchanged)
+     alpha_hi  alpha=0.4409 -> low end 0.8064%  (high end 0.915% at beta=0.5, unchanged)
+
+==========================================================================
+5. DOES ANY VERDICT MOVE?  (section 9 draw model, sigma0 = 0.3016, gap 1.6359)
+==========================================================================
+  R108-K k=1.0, 30 disp    0.5657% -> alpha band [0.5474, 0.5709]%   P: 1.938e-04 -> [1.536e-04, 2.070e-04]
+  R108-K k=1.0, 39 disp    0.7354% -> alpha band [0.7116, 0.7422]%   P: 1.414e-03 -> [1.089e-03, 1.523e-03]
+  family E dispatch-only   1.0690% -> alpha band [1.0343, 1.0789]%   P: 3.008e-02 -> [2.305e-02, 3.239e-02]
+  family E full fusion     2.4510% -> alpha band [2.3715, 2.4737]%   P: 9.966e-01 -> [9.926e-01, 9.973e-01]
+
+  NOTE: these are LATENCY-regime prices carried at k >= 1.0, NOT at alpha.
+  Alpha rescaling shown only to bound the worst case; the real k is unchanged.
