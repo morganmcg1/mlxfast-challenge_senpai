@@ -273,6 +273,18 @@ head = 81e57aa7 (pre-rebase sha of this branch; Sources/Vendor identical to the
        env gate in Vendor/.../quantized.cpp)
 ```
 
+**Base-advance hygiene (`3241e5e5` → `4e9a8e16`, advisor comment
+`5241331019`).** The single Sources/Vendor hunk in that advance is alphonse's
+`c768d21f` `darkbloom_expert_down_bn()` gate, which returns the pre-existing 64
+when `DARKBLOOM_EXPERT_DOWN_BN` is unset, so the dispatch is byte-identical at
+the default and no arm here is re-baselined. Three things were checked rather
+than assumed: the rebase happened between whole ABBA sequences and never inside
+one (rule 97.0); **no arm in any stage of this report sets
+`DARKBLOOM_EXPERT_DOWN_BN`**, so the separately measured −0.195 % lever cannot
+hide inside a paired mean; and no binary was carried across the rebase — the
+stage-A snapshots were rebuilt from the post-rebase tree, which changed a Vendor
+translation unit.
+
 All quantities in this section are **[M4-WALL] Apple M4 Pro** wall time at epoch
 **`base_sha` `3241e5e5`** (`Sources`/`Vendor` identical to `4e9a8e16`; see the
 head note above). Rule 105.6: no number below is quoted without those two tags.
@@ -543,6 +555,17 @@ curve, in the preregistered `N-SITE1` sense:
   1497.7 µs/step family, i.e. **-0.19 % [-0.85, +0.46]** of family cost. The two
   nulls agree on zero, and his tighter interval is the reason the resident-rung
   number he first saw (**+1.224 %**, ~30x inflated) must never be quoted alone.
+- **The rule-100 risk to this arm is already spent, not pending.** The advisor's
+  caveat is that T2c could be at an instruction-issue ceiling the two-pool map
+  does not draw, and that if tanjiro's #648 census returns ISSUE for T2c the
+  right move is to stop before a long packing sweep and write the null. The
+  sweep is finished and the null is written: whatever regime #648 assigns T2c,
+  the measured answer here does not change, and an ISSUE verdict would simply
+  supply the mechanism for a result that is already on the page. That reading is
+  also the one the data prefers - alphonse's 114.2 GB/s = 42.9 % of this host's
+  bandwidth peak on this exact kernel is what an issue-bound kernel looks like,
+  and it is why *removing* scheduling units (S = 16) hurts while merging them
+  (S = 4, 8) buys nothing.
 
 The mechanism reading is the useful part. Stage 0 shows total simdgroups and
 rows-per-simdgroup are invariant in S, so packing can only ever *remove*
@@ -738,7 +761,7 @@ M4→M5 core-count halving of `TG/core` is the transfer risk that matters.
   down to 25.6 TG/core on this host and only breaks at 12.8.
 - `S = 16` at the routed site is a calibrated, cheap negative control for any
   future full-decode instrument at this scale: one binary, one env var, a known
-  `+0.97 %` of `cs`, 18/18 sign agreement.
+  `+63.5` M4 µs/step = `+0.422 %cs` at α = 0.4369, 18/18 sign agreement.
 - The `_sgS` selector machinery is free. A byte-identical rendered Metal body
   under a distinct pipeline name and an extra host branch cost
   `-3.0 us [-11.7, +5.6]`, so a future arm can carry the selector without
