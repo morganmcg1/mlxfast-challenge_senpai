@@ -72,10 +72,10 @@ struct PrefillResidualRMSRPG4Tests {
             expectExactMatch(rows: rows)
         }
 
-        let prefillCalls = (0..<39).filter {
+        let prefillCalls = (0..<39).filter { _ in
             lagunaPrefillResidualRMSNormUsesRPG4(rows: 512)
         }.count
-        let decodeCalls = (0..<39).filter {
+        let decodeCalls = (0..<39).filter { _ in
             lagunaPrefillResidualRMSNormUsesRPG4(rows: 1)
         }.count
         #expect(prefillCalls == (ablationDisabled ? 0 : 39))
