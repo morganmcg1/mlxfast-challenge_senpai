@@ -245,7 +245,10 @@ extension LagunaRuntime {
     ) throws -> RuntimeWorkerResponse {
         let carriesTraceDiagnostics =
             request.topK != nil || request.expectedToken != nil
-        if carriesTraceDiagnostics {
+        let carriesHostProfile = request.kind == "prefill"
+            && (9100...9102).contains(request.topK ?? 0)
+            && (1...6).contains(request.expectedToken ?? 0)
+        if carriesTraceDiagnostics && !carriesHostProfile {
             guard request.kind == "correctness_begin"
                 || request.kind == "correctness_step"
             else {
@@ -357,6 +360,10 @@ extension LagunaRuntime {
             guard let promptTokens = request.promptTokens else {
                 throw MLXFastError.invalidInput("runtime worker prefill request missing prompt_tokens")
             }
+            let profiling = LagunaHostProfiler.configure(
+                modeCode: request.topK,
+                familyCode: request.expectedToken)
+            defer { LagunaHostProfiler.disable() }
             try resetRuntimeWorkerAllocatorForPhaseStart()
             let model = try weightCache.requireLibraryModel()
             let cache = model.newCache(parameters: nil)
@@ -366,13 +373,20 @@ extension LagunaRuntime {
                 cache: cache,
                 positionOffset: 0
             )
+            let evaluationStart = profiling ? mach_continuous_time() : 0
             eval(logits)
+            let evaluationTicks = profiling ? mach_continuous_time() &- evaluationStart : 0
             let token = try LagunaCorrectness.greedyToken(from: logits)
+            let profile = profiling ? LagunaHostProfiler.snapshot() : nil
             return RuntimeWorkerResponse(
                 id: request.id,
                 nonce: sessionNonce,
                 ok: true,
-                token: token
+                token: token,
+                expectedTokenLogit: profile?.elapsedNanoseconds,
+                expectedTokenRank: profile?.count,
+                topLogitMargin: profiling
+                    ? LagunaHostProfiler.nanoseconds(fromTicks: evaluationTicks) : nil
             )
 
         case "decode_begin":
