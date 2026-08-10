@@ -1,0 +1,975 @@
+{
+  "gate_pct_B": 1.2,
+  "total_bytes_if_all_fused": 6181640,
+  "total_pct_of_B": 0.369847493437176,
+  "shortfall_factor": 3.2445805941465373,
+  "n_editable_paths": 97,
+  "rows": [
+    {
+      "writer_family": "sliding_fused_attn_ring",
+      "reader_family": "oproj_act_h64",
+      "n_pairs": 30,
+      "roundtrip_bytes": 491520,
+      "bytes_saved_if_fused": 983040,
+      "pct_of_B": 0.05881527878499581,
+      "us_per_step": 1.6310602289696365,
+      "pct_of_cs": 0.024837785166749626,
+      "gap_dispatches": [
+        2
+      ],
+      "same_encoder_pairs": 30,
+      "geometries": [
+        {
+          "writer_grid": "32768x1x1",
+          "writer_group": "1024x1x1",
+          "reader_grid": "16384x1x1",
+          "reader_group": "64x1x1"
+        }
+      ],
+      "example_writer_i": 11,
+      "example_reader_i": 13,
+      "writer_tgs": 32,
+      "reader_tgs": 256,
+      "intervening_families": {
+        "gate_sp_h64": 30
+      },
+      "geometry_match": false
+    },
+    {
+      "writer_family": "lmhead_int5_base_coarse_delta",
+      "reader_family": "lmhead_coarse_argmax_stage1",
+      "n_pairs": 1,
+      "roundtrip_bytes": 401408,
+      "bytes_saved_if_fused": 802816,
+      "pct_of_B": 0.048032477674413245,
+      "us_per_step": 1.3320325203252033,
+      "pct_of_cs": 0.020284191219512197,
+      "gap_dispatches": [
+        1
+      ],
+      "same_encoder_pairs": 1,
+      "geometries": [
+        {
+          "writer_grid": "3211264x1x1",
+          "writer_group": "512x1x1",
+          "reader_grid": "224x128x1",
+          "reader_group": "224x1x1"
+        }
+      ],
+      "example_writer_i": 400,
+      "example_reader_i": 401,
+      "writer_tgs": 6272,
+      "reader_tgs": 128,
+      "intervening_families": {},
+      "geometry_match": false
+    },
+    {
+      "writer_family": "routed_nvfp4_swiglu_qmv_packed_top8keys",
+      "reader_family": "routed_shared_nvfp4_down_residual",
+      "n_pairs": 39,
+      "roundtrip_bytes": 319488,
+      "bytes_saved_if_fused": 638976,
+      "pct_of_B": 0.03822993121024727,
+      "us_per_step": 1.060189148830264,
+      "pct_of_cs": 0.01614456035838726,
+      "gap_dispatches": [
+        1
+      ],
+      "same_encoder_pairs": 39,
+      "geometries": [
+        {
+          "writer_grid": "131072x1x1",
+          "writer_group": "64x1x1",
+          "reader_grid": "147456x1x1",
+          "reader_group": "288x1x1"
+        }
+      ],
+      "example_writer_i": 17,
+      "example_reader_i": 18,
+      "writer_tgs": 2048,
+      "reader_tgs": 512,
+      "intervening_families": {},
+      "geometry_match": false
+    },
+    {
+      "writer_family": "lmhead_int5_base_coarse_delta",
+      "reader_family": "lmhead_exact_fused_int5_sparse_refine",
+      "n_pairs": 1,
+      "roundtrip_bytes": 200704,
+      "bytes_saved_if_fused": 401408,
+      "pct_of_B": 0.024016238837206622,
+      "us_per_step": 0.6660162601626016,
+      "pct_of_cs": 0.010142095609756098,
+      "gap_dispatches": [
+        3
+      ],
+      "same_encoder_pairs": 0,
+      "geometries": [
+        {
+          "writer_grid": "3211264x1x1",
+          "writer_group": "512x1x1",
+          "reader_grid": "802816x1x1",
+          "reader_group": "256x1x1"
+        }
+      ],
+      "example_writer_i": 400,
+      "example_reader_i": 403,
+      "writer_tgs": 6272,
+      "reader_tgs": 3136,
+      "intervening_families": {
+        "lmhead_coarse_argmax_stage1": 1,
+        "lmhead_exact_winner": 1
+      },
+      "geometry_match": false
+    },
+    {
+      "writer_family": "gather_front",
+      "reader_family": "vn_copy",
+      "n_pairs": 1,
+      "roundtrip_bytes": 200704,
+      "bytes_saved_if_fused": 401408,
+      "pct_of_B": 0.024016238837206622,
+      "us_per_step": 0.6660162601626016,
+      "pct_of_cs": 0.010142095609756098,
+      "gap_dispatches": [
+        1
+      ],
+      "same_encoder_pairs": 0,
+      "geometries": [
+        {
+          "writer_grid": "50176x1x1",
+          "writer_group": "1024x1x1",
+          "reader_grid": "50176x1x1",
+          "reader_group": "1024x1x1"
+        }
+      ],
+      "example_writer_i": 406,
+      "example_reader_i": 407,
+      "writer_tgs": 49,
+      "reader_tgs": 49,
+      "intervening_families": {},
+      "geometry_match": true
+    },
+    {
+      "writer_family": "lmhead_exact_fused_int5_sparse_refine",
+      "reader_family": "gather_front",
+      "n_pairs": 1,
+      "roundtrip_bytes": 200704,
+      "bytes_saved_if_fused": 401408,
+      "pct_of_B": 0.024016238837206622,
+      "us_per_step": 0.6660162601626016,
+      "pct_of_cs": 0.010142095609756098,
+      "gap_dispatches": [
+        1
+      ],
+      "same_encoder_pairs": 0,
+      "geometries": [
+        {
+          "writer_grid": "802816x1x1",
+          "writer_group": "256x1x1",
+          "reader_grid": "50176x1x1",
+          "reader_group": "1024x1x1"
+        }
+      ],
+      "example_writer_i": 403,
+      "example_reader_i": 404,
+      "writer_tgs": 3136,
+      "reader_tgs": 49,
+      "intervening_families": {},
+      "geometry_match": false
+    },
+    {
+      "writer_family": "gather_front",
+      "reader_family": "argmax",
+      "n_pairs": 1,
+      "roundtrip_bytes": 200704,
+      "bytes_saved_if_fused": 401408,
+      "pct_of_B": 0.024016238837206622,
+      "us_per_step": 0.6660162601626016,
+      "pct_of_cs": 0.010142095609756098,
+      "gap_dispatches": [
+        1
+      ],
+      "same_encoder_pairs": 1,
+      "geometries": [
+        {
+          "writer_grid": "50176x1x1",
+          "writer_group": "1024x1x1",
+          "reader_grid": "1024x1x1",
+          "reader_group": "1024x1x1"
+        }
+      ],
+      "example_writer_i": 404,
+      "example_reader_i": 405,
+      "writer_tgs": 49,
+      "reader_tgs": 1,
+      "intervening_families": {},
+      "geometry_match": false
+    },
+    {
+      "writer_family": "residual_rms_router",
+      "reader_family": "routed_shared_nvfp4_down_residual",
+      "n_pairs": 39,
+      "roundtrip_bytes": 159744,
+      "bytes_saved_if_fused": 319488,
+      "pct_of_B": 0.019114965605123636,
+      "us_per_step": 0.530094574415132,
+      "pct_of_cs": 0.00807228017919363,
+      "gap_dispatches": [
+        4
+      ],
+      "same_encoder_pairs": 39,
+      "geometries": [
+        {
+          "writer_grid": "16384x1x1",
+          "writer_group": "512x1x1",
+          "reader_grid": "147456x1x1",
+          "reader_group": "288x1x1"
+        }
+      ],
+      "example_writer_i": 264,
+      "example_reader_i": 268,
+      "writer_tgs": 32,
+      "reader_tgs": 512,
+      "intervening_families": {
+        "shared_nvfp4_swiglu_qmv_rows1_halved": 39,
+        "prefill_router_tournament": 39,
+        "routed_nvfp4_swiglu_qmv_packed_top8keys": 39
+      },
+      "geometry_match": false
+    },
+    {
+      "writer_family": "routed_shared_nvfp4_down_residual",
+      "reader_family": "rmsbfloat16",
+      "n_pairs": 39,
+      "roundtrip_bytes": 159744,
+      "bytes_saved_if_fused": 319488,
+      "pct_of_B": 0.019114965605123636,
+      "us_per_step": 0.530094574415132,
+      "pct_of_cs": 0.00807228017919363,
+      "gap_dispatches": [
+        1
+      ],
+      "same_encoder_pairs": 31,
+      "geometries": [
+        {
+          "writer_grid": "147456x1x1",
+          "writer_group": "288x1x1",
+          "reader_grid": "512x1x1",
+          "reader_group": "512x1x1"
+        }
+      ],
+      "example_writer_i": 398,
+      "example_reader_i": 399,
+      "writer_tgs": 512,
+      "reader_tgs": 1,
+      "intervening_families": {},
+      "geometry_match": false
+    },
+    {
+      "writer_family": "residual_rms_router",
+      "reader_family": "shared_nvfp4_swiglu_qmv_rows1_halved",
+      "n_pairs": 39,
+      "roundtrip_bytes": 159744,
+      "bytes_saved_if_fused": 319488,
+      "pct_of_B": 0.019114965605123636,
+      "us_per_step": 0.530094574415132,
+      "pct_of_cs": 0.00807228017919363,
+      "gap_dispatches": [
+        1
+      ],
+      "same_encoder_pairs": 39,
+      "geometries": [
+        {
+          "writer_grid": "16384x1x1",
+          "writer_group": "512x1x1",
+          "reader_grid": "16384x1x1",
+          "reader_group": "64x1x1"
+        }
+      ],
+      "example_writer_i": 134,
+      "example_reader_i": 135,
+      "writer_tgs": 32,
+      "reader_tgs": 256,
+      "intervening_families": {},
+      "geometry_match": false
+    },
+    {
+      "writer_family": "oproj_act_h64",
+      "reader_family": "residual_rms_router",
+      "n_pairs": 30,
+      "roundtrip_bytes": 122880,
+      "bytes_saved_if_fused": 245760,
+      "pct_of_B": 0.014703819696248953,
+      "us_per_step": 0.40776505724240913,
+      "pct_of_cs": 0.006209446291687406,
+      "gap_dispatches": [
+        1
+      ],
+      "same_encoder_pairs": 18,
+      "geometries": [
+        {
+          "writer_grid": "16384x1x1",
+          "writer_group": "64x1x1",
+          "reader_grid": "16384x1x1",
+          "reader_group": "512x1x1"
+        }
+      ],
+      "example_writer_i": 133,
+      "example_reader_i": 134,
+      "writer_tgs": 256,
+      "reader_tgs": 32,
+      "intervening_families": {},
+      "geometry_match": false
+    },
+    {
+      "writer_family": "rmsbfloat16",
+      "reader_family": "nvfp4_qkv_h64",
+      "n_pairs": 30,
+      "roundtrip_bytes": 122880,
+      "bytes_saved_if_fused": 245760,
+      "pct_of_B": 0.014703819696248953,
+      "us_per_step": 0.40776505724240913,
+      "pct_of_cs": 0.006209446291687406,
+      "gap_dispatches": [
+        1
+      ],
+      "same_encoder_pairs": 30,
+      "geometries": [
+        {
+          "writer_grid": "512x1x1",
+          "writer_group": "512x1x1",
+          "reader_grid": "327680x1x1",
+          "reader_group": "64x1x1"
+        }
+      ],
+      "example_writer_i": 129,
+      "example_reader_i": 130,
+      "writer_tgs": 1,
+      "reader_tgs": 5120,
+      "intervening_families": {},
+      "geometry_match": false
+    },
+    {
+      "writer_family": "full_fused_attn_grow",
+      "reader_family": "oproj_act_h48",
+      "n_pairs": 10,
+      "roundtrip_bytes": 122880,
+      "bytes_saved_if_fused": 245760,
+      "pct_of_B": 0.014703819696248953,
+      "us_per_step": 0.40776505724240913,
+      "pct_of_cs": 0.006209446291687406,
+      "gap_dispatches": [
+        1,
+        2
+      ],
+      "same_encoder_pairs": 6,
+      "geometries": [
+        {
+          "writer_grid": "24576x1x1",
+          "writer_group": "1024x1x1",
+          "reader_grid": "16384x1x1",
+          "reader_group": "64x1x1"
+        }
+      ],
+      "example_writer_i": 4,
+      "example_reader_i": 5,
+      "writer_tgs": 24,
+      "reader_tgs": 256,
+      "intervening_families": {
+        "gate_sp_h48": 9
+      },
+      "geometry_match": false
+    },
+    {
+      "writer_family": "residual_rms_router",
+      "reader_family": "routed_nvfp4_swiglu_qmv_packed_top8keys",
+      "n_pairs": 39,
+      "roundtrip_bytes": 39936,
+      "bytes_saved_if_fused": 79872,
+      "pct_of_B": 0.004778741401280909,
+      "us_per_step": 0.132523643603783,
+      "pct_of_cs": 0.0020180700447984075,
+      "gap_dispatches": [
+        3
+      ],
+      "same_encoder_pairs": 39,
+      "geometries": [
+        {
+          "writer_grid": "16384x1x1",
+          "writer_group": "512x1x1",
+          "reader_grid": "131072x1x1",
+          "reader_group": "64x1x1"
+        }
+      ],
+      "example_writer_i": 14,
+      "example_reader_i": 17,
+      "writer_tgs": 32,
+      "reader_tgs": 2048,
+      "intervening_families": {
+        "shared_nvfp4_swiglu_qmv_rows1_halved": 39,
+        "prefill_router_tournament": 39
+      },
+      "geometry_match": false
+    },
+    {
+      "writer_family": "shared_nvfp4_swiglu_qmv_rows1_halved",
+      "reader_family": "routed_shared_nvfp4_down_residual",
+      "n_pairs": 39,
+      "roundtrip_bytes": 39936,
+      "bytes_saved_if_fused": 79872,
+      "pct_of_B": 0.004778741401280909,
+      "us_per_step": 0.132523643603783,
+      "pct_of_cs": 0.0020180700447984075,
+      "gap_dispatches": [
+        3
+      ],
+      "same_encoder_pairs": 39,
+      "geometries": [
+        {
+          "writer_grid": "16384x1x1",
+          "writer_group": "64x1x1",
+          "reader_grid": "147456x1x1",
+          "reader_group": "288x1x1"
+        }
+      ],
+      "example_writer_i": 15,
+      "example_reader_i": 18,
+      "writer_tgs": 256,
+      "reader_tgs": 512,
+      "intervening_families": {
+        "prefill_router_tournament": 39,
+        "routed_nvfp4_swiglu_qmv_packed_top8keys": 39
+      },
+      "geometry_match": false
+    },
+    {
+      "writer_family": "oproj_act_h48",
+      "reader_family": "residual_rms_router",
+      "n_pairs": 9,
+      "roundtrip_bytes": 36864,
+      "bytes_saved_if_fused": 73728,
+      "pct_of_B": 0.004411145908874686,
+      "us_per_step": 0.12232951717272275,
+      "pct_of_cs": 0.001862833887506222,
+      "gap_dispatches": [
+        1
+      ],
+      "same_encoder_pairs": 9,
+      "geometries": [
+        {
+          "writer_grid": "16384x1x1",
+          "writer_group": "64x1x1",
+          "reader_grid": "16384x1x1",
+          "reader_group": "512x1x1"
+        }
+      ],
+      "example_writer_i": 283,
+      "example_reader_i": 284,
+      "writer_tgs": 256,
+      "reader_tgs": 32,
+      "intervening_families": {},
+      "geometry_match": false
+    },
+    {
+      "writer_family": "rmsbfloat16",
+      "reader_family": "nvfp4_qkv_h48",
+      "n_pairs": 9,
+      "roundtrip_bytes": 36864,
+      "bytes_saved_if_fused": 73728,
+      "pct_of_B": 0.004411145908874686,
+      "us_per_step": 0.12232951717272275,
+      "pct_of_cs": 0.001862833887506222,
+      "gap_dispatches": [
+        1
+      ],
+      "same_encoder_pairs": 9,
+      "geometries": [
+        {
+          "writer_grid": "512x1x1",
+          "writer_group": "512x1x1",
+          "reader_grid": "262144x1x1",
+          "reader_group": "64x1x1"
+        }
+      ],
+      "example_writer_i": 279,
+      "example_reader_i": 280,
+      "writer_tgs": 1,
+      "reader_tgs": 4096,
+      "intervening_families": {},
+      "geometry_match": false
+    },
+    {
+      "writer_family": "residual_rms_router",
+      "reader_family": "prefill_router_tournament",
+      "n_pairs": 39,
+      "roundtrip_bytes": 19968,
+      "bytes_saved_if_fused": 39936,
+      "pct_of_B": 0.0023893707006404545,
+      "us_per_step": 0.0662618218018915,
+      "pct_of_cs": 0.0010090350223992037,
+      "gap_dispatches": [
+        2
+      ],
+      "same_encoder_pairs": 39,
+      "geometries": [
+        {
+          "writer_grid": "16384x1x1",
+          "writer_group": "512x1x1",
+          "reader_grid": "256x1x1",
+          "reader_group": "256x1x1"
+        }
+      ],
+      "example_writer_i": 14,
+      "example_reader_i": 16,
+      "writer_tgs": 32,
+      "reader_tgs": 1,
+      "intervening_families": {
+        "shared_nvfp4_swiglu_qmv_rows1_halved": 39
+      },
+      "geometry_match": false
+    },
+    {
+      "writer_family": "dense_gate_up_swiglu",
+      "reader_family": "dense_down_residual",
+      "n_pairs": 1,
+      "roundtrip_bytes": 16384,
+      "bytes_saved_if_fused": 32768,
+      "pct_of_B": 0.0019605092928331935,
+      "us_per_step": 0.05436867429898789,
+      "pct_of_cs": 0.0008279261722249876,
+      "gap_dispatches": [
+        1
+      ],
+      "same_encoder_pairs": 1,
+      "geometries": [
+        {
+          "writer_grid": "65536x1x1",
+          "writer_group": "512x1x1",
+          "reader_grid": "16384x1x1",
+          "reader_group": "128x1x1"
+        }
+      ],
+      "example_writer_i": 7,
+      "example_reader_i": 8,
+      "writer_tgs": 128,
+      "reader_tgs": 128,
+      "intervening_families": {},
+      "geometry_match": false
+    },
+    {
+      "writer_family": "embedding_rope_atlas",
+      "reader_family": "rmsbfloat16",
+      "n_pairs": 1,
+      "roundtrip_bytes": 4096,
+      "bytes_saved_if_fused": 8192,
+      "pct_of_B": 0.0004901273232082984,
+      "us_per_step": 0.013592168574746972,
+      "pct_of_cs": 0.0002069815430562469,
+      "gap_dispatches": [
+        1
+      ],
+      "same_encoder_pairs": 0,
+      "geometries": [
+        {
+          "writer_grid": "512x1x1",
+          "writer_group": "512x1x1",
+          "reader_grid": "512x1x1",
+          "reader_group": "512x1x1"
+        }
+      ],
+      "example_writer_i": 0,
+      "example_reader_i": 1,
+      "writer_tgs": 1,
+      "reader_tgs": 1,
+      "intervening_families": {},
+      "geometry_match": true
+    },
+    {
+      "writer_family": "rmsbfloat16",
+      "reader_family": "gate_sp_h48",
+      "n_pairs": 1,
+      "roundtrip_bytes": 4096,
+      "bytes_saved_if_fused": 8192,
+      "pct_of_B": 0.0004901273232082984,
+      "us_per_step": 0.013592168574746972,
+      "pct_of_cs": 0.0002069815430562469,
+      "gap_dispatches": [
+        1
+      ],
+      "same_encoder_pairs": 1,
+      "geometries": [
+        {
+          "writer_grid": "512x1x1",
+          "writer_group": "512x1x1",
+          "reader_grid": "384x1x1",
+          "reader_group": "64x1x1"
+        }
+      ],
+      "example_writer_i": 1,
+      "example_reader_i": 2,
+      "writer_tgs": 1,
+      "reader_tgs": 6,
+      "intervening_families": {},
+      "geometry_match": false
+    },
+    {
+      "writer_family": "oproj_act_h48",
+      "reader_family": "residual_rms_bf16_2048_v1",
+      "n_pairs": 1,
+      "roundtrip_bytes": 4096,
+      "bytes_saved_if_fused": 8192,
+      "pct_of_B": 0.0004901273232082984,
+      "us_per_step": 0.013592168574746972,
+      "pct_of_cs": 0.0002069815430562469,
+      "gap_dispatches": [
+        1
+      ],
+      "same_encoder_pairs": 1,
+      "geometries": [
+        {
+          "writer_grid": "16384x1x1",
+          "writer_group": "64x1x1",
+          "reader_grid": "512x1x1",
+          "reader_group": "512x1x1"
+        }
+      ],
+      "example_writer_i": 5,
+      "example_reader_i": 6,
+      "writer_tgs": 256,
+      "reader_tgs": 1,
+      "intervening_families": {},
+      "geometry_match": false
+    },
+    {
+      "writer_family": "residual_rms_bf16_2048_v1",
+      "reader_family": "dense_down_residual",
+      "n_pairs": 1,
+      "roundtrip_bytes": 4096,
+      "bytes_saved_if_fused": 8192,
+      "pct_of_B": 0.0004901273232082984,
+      "us_per_step": 0.013592168574746972,
+      "pct_of_cs": 0.0002069815430562469,
+      "gap_dispatches": [
+        2
+      ],
+      "same_encoder_pairs": 1,
+      "geometries": [
+        {
+          "writer_grid": "512x1x1",
+          "writer_group": "512x1x1",
+          "reader_grid": "16384x1x1",
+          "reader_group": "128x1x1"
+        }
+      ],
+      "example_writer_i": 6,
+      "example_reader_i": 8,
+      "writer_tgs": 1,
+      "reader_tgs": 128,
+      "intervening_families": {
+        "dense_gate_up_swiglu": 1
+      },
+      "geometry_match": false
+    },
+    {
+      "writer_family": "residual_rms_bf16_2048_v1",
+      "reader_family": "dense_gate_up_swiglu",
+      "n_pairs": 1,
+      "roundtrip_bytes": 4096,
+      "bytes_saved_if_fused": 8192,
+      "pct_of_B": 0.0004901273232082984,
+      "us_per_step": 0.013592168574746972,
+      "pct_of_cs": 0.0002069815430562469,
+      "gap_dispatches": [
+        1
+      ],
+      "same_encoder_pairs": 1,
+      "geometries": [
+        {
+          "writer_grid": "512x1x1",
+          "writer_group": "512x1x1",
+          "reader_grid": "65536x1x1",
+          "reader_group": "512x1x1"
+        }
+      ],
+      "example_writer_i": 6,
+      "example_reader_i": 7,
+      "writer_tgs": 1,
+      "reader_tgs": 128,
+      "intervening_families": {},
+      "geometry_match": false
+    },
+    {
+      "writer_family": "dense_down_residual",
+      "reader_family": "rmsbfloat16",
+      "n_pairs": 1,
+      "roundtrip_bytes": 4096,
+      "bytes_saved_if_fused": 8192,
+      "pct_of_B": 0.0004901273232082984,
+      "us_per_step": 0.013592168574746972,
+      "pct_of_cs": 0.0002069815430562469,
+      "gap_dispatches": [
+        1
+      ],
+      "same_encoder_pairs": 0,
+      "geometries": [
+        {
+          "writer_grid": "16384x1x1",
+          "writer_group": "128x1x1",
+          "reader_grid": "512x1x1",
+          "reader_group": "512x1x1"
+        }
+      ],
+      "example_writer_i": 8,
+      "example_reader_i": 9,
+      "writer_tgs": 128,
+      "reader_tgs": 1,
+      "intervening_families": {},
+      "geometry_match": false
+    },
+    {
+      "writer_family": "rmsbfloat16",
+      "reader_family": "lmhead_int5_base_coarse_delta",
+      "n_pairs": 1,
+      "roundtrip_bytes": 4096,
+      "bytes_saved_if_fused": 8192,
+      "pct_of_B": 0.0004901273232082984,
+      "us_per_step": 0.013592168574746972,
+      "pct_of_cs": 0.0002069815430562469,
+      "gap_dispatches": [
+        1
+      ],
+      "same_encoder_pairs": 1,
+      "geometries": [
+        {
+          "writer_grid": "512x1x1",
+          "writer_group": "512x1x1",
+          "reader_grid": "3211264x1x1",
+          "reader_group": "512x1x1"
+        }
+      ],
+      "example_writer_i": 399,
+      "example_reader_i": 400,
+      "writer_tgs": 1,
+      "reader_tgs": 6272,
+      "intervening_families": {},
+      "geometry_match": false
+    },
+    {
+      "writer_family": "gate_sp_h64",
+      "reader_family": "oproj_act_h64",
+      "n_pairs": 30,
+      "roundtrip_bytes": 3840,
+      "bytes_saved_if_fused": 7680,
+      "pct_of_B": 0.00045949436550777977,
+      "us_per_step": 0.012742658038825285,
+      "pct_of_cs": 0.00019404519661523145,
+      "gap_dispatches": [
+        1
+      ],
+      "same_encoder_pairs": 30,
+      "geometries": [
+        {
+          "writer_grid": "512x1x1",
+          "writer_group": "64x1x1",
+          "reader_grid": "16384x1x1",
+          "reader_group": "64x1x1"
+        }
+      ],
+      "example_writer_i": 12,
+      "example_reader_i": 13,
+      "writer_tgs": 8,
+      "reader_tgs": 256,
+      "intervening_families": {},
+      "geometry_match": false
+    },
+    {
+      "writer_family": "prefill_router_tournament",
+      "reader_family": "routed_shared_nvfp4_down_residual",
+      "n_pairs": 78,
+      "roundtrip_bytes": 2496,
+      "bytes_saved_if_fused": 4992,
+      "pct_of_B": 0.0002986713375800568,
+      "us_per_step": 0.008282727725236437,
+      "pct_of_cs": 0.00012612937779990047,
+      "gap_dispatches": [
+        2
+      ],
+      "same_encoder_pairs": 78,
+      "geometries": [
+        {
+          "writer_grid": "256x1x1",
+          "writer_group": "256x1x1",
+          "reader_grid": "147456x1x1",
+          "reader_group": "288x1x1"
+        }
+      ],
+      "example_writer_i": 16,
+      "example_reader_i": 18,
+      "writer_tgs": 1,
+      "reader_tgs": 512,
+      "intervening_families": {
+        "routed_nvfp4_swiglu_qmv_packed_top8keys": 78
+      },
+      "geometry_match": false
+    },
+    {
+      "writer_family": "lmhead_coarse_argmax_stage1",
+      "reader_family": "lmhead_exact_winner",
+      "n_pairs": 2,
+      "roundtrip_bytes": 1024,
+      "bytes_saved_if_fused": 2048,
+      "pct_of_B": 0.0001225318308020746,
+      "us_per_step": 0.003398042143686743,
+      "pct_of_cs": 5.1745385764061726e-05,
+      "gap_dispatches": [
+        1
+      ],
+      "same_encoder_pairs": 2,
+      "geometries": [
+        {
+          "writer_grid": "224x128x1",
+          "writer_group": "224x1x1",
+          "reader_grid": "32x1x1",
+          "reader_group": "32x1x1"
+        }
+      ],
+      "example_writer_i": 401,
+      "example_reader_i": 402,
+      "writer_tgs": 128,
+      "reader_tgs": 1,
+      "intervening_families": {},
+      "geometry_match": false
+    },
+    {
+      "writer_family": "gate_sp_h48",
+      "reader_family": "oproj_act_h48",
+      "n_pairs": 10,
+      "roundtrip_bytes": 960,
+      "bytes_saved_if_fused": 1920,
+      "pct_of_B": 0.00011487359137694494,
+      "us_per_step": 0.0031856645097063214,
+      "pct_of_cs": 4.851129915380786e-05,
+      "gap_dispatches": [
+        1,
+        3
+      ],
+      "same_encoder_pairs": 9,
+      "geometries": [
+        {
+          "writer_grid": "384x1x1",
+          "writer_group": "64x1x1",
+          "reader_grid": "16384x1x1",
+          "reader_group": "64x1x1"
+        }
+      ],
+      "example_writer_i": 2,
+      "example_reader_i": 5,
+      "writer_tgs": 6,
+      "reader_tgs": 256,
+      "intervening_families": {
+        "nvfp4_qkv_h48": 1,
+        "full_fused_attn_grow": 1
+      },
+      "geometry_match": false
+    },
+    {
+      "writer_family": "embedding_rope_atlas",
+      "reader_family": "sliding_fused_attn_ring",
+      "n_pairs": 1,
+      "roundtrip_bytes": 512,
+      "bytes_saved_if_fused": 1024,
+      "pct_of_B": 6.12659154010373e-05,
+      "us_per_step": 0.0016990210718433715,
+      "pct_of_cs": 2.5872692882030863e-05,
+      "gap_dispatches": [
+        11
+      ],
+      "same_encoder_pairs": 0,
+      "geometries": [
+        {
+          "writer_grid": "512x1x1",
+          "writer_group": "512x1x1",
+          "reader_grid": "32768x1x1",
+          "reader_group": "1024x1x1"
+        }
+      ],
+      "example_writer_i": 0,
+      "example_reader_i": 11,
+      "writer_tgs": 1,
+      "reader_tgs": 32,
+      "intervening_families": {
+        "rmsbfloat16": 2,
+        "gate_sp_h48": 1,
+        "nvfp4_qkv_h48": 1,
+        "full_fused_attn_grow": 1,
+        "oproj_act_h48": 1,
+        "residual_rms_bf16_2048_v1": 1,
+        "dense_gate_up_swiglu": 1,
+        "dense_down_residual": 1,
+        "nvfp4_qkv_h64": 1
+      },
+      "geometry_match": false
+    },
+    {
+      "writer_family": "embedding_rope_atlas",
+      "reader_family": "full_fused_attn_grow",
+      "n_pairs": 1,
+      "roundtrip_bytes": 256,
+      "bytes_saved_if_fused": 512,
+      "pct_of_B": 3.063295770051865e-05,
+      "us_per_step": 0.0008495105359216858,
+      "pct_of_cs": 1.2936346441015432e-05,
+      "gap_dispatches": [
+        4
+      ],
+      "same_encoder_pairs": 0,
+      "geometries": [
+        {
+          "writer_grid": "512x1x1",
+          "writer_group": "512x1x1",
+          "reader_grid": "24576x1x1",
+          "reader_group": "1024x1x1"
+        }
+      ],
+      "example_writer_i": 0,
+      "example_reader_i": 4,
+      "writer_tgs": 1,
+      "reader_tgs": 24,
+      "intervening_families": {
+        "rmsbfloat16": 1,
+        "gate_sp_h48": 1,
+        "nvfp4_qkv_h48": 1
+      },
+      "geometry_match": false
+    },
+    {
+      "writer_family": "lmhead_exact_winner",
+      "reader_family": "lmhead_exact_fused_int5_sparse_refine",
+      "n_pairs": 1,
+      "roundtrip_bytes": 4,
+      "bytes_saved_if_fused": 8,
+      "pct_of_B": 4.786399640706039e-07,
+      "us_per_step": 1.327360212377634e-05,
+      "pct_of_cs": 2.0213041314086612e-07,
+      "gap_dispatches": [
+        1
+      ],
+      "same_encoder_pairs": 0,
+      "geometries": [
+        {
+          "writer_grid": "32x1x1",
+          "writer_group": "32x1x1",
+          "reader_grid": "802816x1x1",
+          "reader_group": "256x1x1"
+        }
+      ],
+      "example_writer_i": 402,
+      "example_reader_i": 403,
+      "writer_tgs": 1,
+      "reader_tgs": 3136,
+      "intervening_families": {},
+      "geometry_match": false
+    }
+  ]
+}

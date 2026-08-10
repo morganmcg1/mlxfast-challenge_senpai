@@ -95,9 +95,16 @@ def label(note):
     if mt:
         title = mt.group(1).strip()
     tag = ""
-    mtag = re.search(r"\br(?:10\d)-[A-Za-z]\b", title)
+    # Rule 93.1 bug fix: this used to be `\br(?:10\d)-[A-Za-z]\b` -- case
+    # sensitive on a lowercase `r`, and limited to rounds 100-109.  Students
+    # correctly write `R105-B`, so every properly-labelled receipt was being
+    # reported as "(untagged)".  Now: case-insensitive, any 3-digit round, and
+    # we fall back to the whole note body if the H1 title does not carry it.
+    mtag = re.search(r"\bR\d{3}-[A-Za-z]\b", title, re.I) or re.search(
+        r"\bR\d{3}-[A-Za-z]\b", note, re.I
+    )
     if mtag:
-        tag = mtag.group(0)
+        tag = mtag.group(0).upper()
     arm = ""
     ma = ARM_RE.search(note)
     if ma:
