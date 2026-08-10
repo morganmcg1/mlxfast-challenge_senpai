@@ -451,7 +451,7 @@ Note for anyone reusing the harness: `rm -rf .build-worker` destroys
 build dies at `cp .build-worker/release/mlx.metallib` with exit 5. Run
 `tools/build-mlx-metallib.sh` first (50 s → 158,502,072 B).
 
-### 6.4 Phase B is blocked by the new submission base guard — advisor action needed
+### 6.4 What I first concluded about the submission base guard (RETRACTED in §6.4.1)
 
 `senpai/submit-official.sh` (merged into `origin/main` as part of #547,
 `e29a760` "Guard official submissions against stale bases") enforces at `:74`:
@@ -475,24 +475,91 @@ integration branch carries 27 editable files that are **not yet promoted to
 `main`**. `benchmark.json` at my HEAD does match `main`, so only the `:74` check
 fires.
 
-Passing `1bc1c895` would satisfy the guard *while defeating its purpose*: the
-uploaded surface is still my HEAD, which contains all 27 unpromoted files, and
-the guard's own remedy text is "reapply and remeasure the candidate on a current
-snapshot". **I am not doing that.** Consequently **Phase B spends zero receipts
-in this session** and the M4 evidence in §6.1/§6.2 plus Phase A is the whole
-deliverable. Unblocking needs one of:
+I then concluded that passing `1bc1c895` "would satisfy the guard while defeating
+its purpose", declared Phase B blocked, and spent zero receipts.
 
-1. the advisor promotes the advisor branch into `origin/main` (then `ed1ca05f`
-   or its successor passes cleanly); or
-2. the T1/T0 pair is rebased onto `origin/main` and remeasured there — a
-   *different tree* from my assignment base, so it would no longer adjudicate
-   the tree the assignment names; or
-3. the advisor records an explicit, auditable exception.
+#### RETRACTED. That conclusion was wrong. See §6.4.1.
 
-This is a campaign-level finding, not specific to R105-B: **every student branch
-based on the advisor integration branch is currently unable to submit an
-official receipt.** #584 is concurrently spending M5 receipts, so either that
-branch has a different base relationship to `main` or it hit the same wall.
+### 6.4.1 Retraction: I misread the guard's estimand, and Phase B was never blocked
+
+The advisor corrected this in PR #597 fb1 and recorded **Rule 87**. I reproduced
+the correction from the script itself and I accept it. The error was mine, and it
+is worth naming precisely because it is the same class of error as the §11.5
+retraction: **I inferred the estimand from the failure message instead of reading
+what the comparison actually compares.**
+
+Line 2 of the wrapper states its own purpose:
+
+```
+# Refuse an official submission unless its recorded base includes current fork main.
+```
+
+So the `:74` diff is an assertion about the **base**, not about the candidate:
+
+| line | check | question it asks |
+|---|---|---|
+| `:9-10` | `base_input="$1"; shift` | — |
+| `:109` | `exec mlxfast submit --model senpai "$@"` | `BASE_SHA` is **never forwarded**; it is a wrapper-side assertion only |
+| `:51` | `git merge-base --is-ancestor "$base_sha" HEAD` | is current fork `main` *in my history*? |
+| `:74` | `git diff --quiet "$main_sha" "$base_sha" -- protected` | has `main` *moved* since the base was recorded? |
+
+What is uploaded is my **`HEAD` worktree restricted to the 97 `editablePaths`**.
+A candidate is *by definition* a modification of that surface, so no candidate
+commit can ever satisfy `:74` against itself. Passing my own head SHA
+**guaranteed** the refusal I observed. Both the advisor and Tanjiro (#592 §4.1)
+made the identical substitution; that it was a shared error does not make it less
+of one.
+
+Verified on this checkout:
+
+| check | result |
+|---|---|
+| `1bc1c895…` is an ancestor of my `HEAD` | **yes** |
+| `git rev-parse origin/main` | `1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7` |
+| editable paths in `main:benchmark.json` | 97 |
+| `:74` diff for `BASE_SHA = 1bc1c895…` | 0 files ⇒ **passes trivially** |
+
+So passing `1bc1c895…` does **not** defeat the guard. The guard detects a *stale
+base*; my base is not stale, because `origin/main` is in my ancestry and has not
+moved. Passing it is the canonical correct usage, not a bypass.
+
+**Rule 87, as I will follow it:** `BASE_SHA` names the integration base. The
+recorded value is `1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7`, passed verbatim as
+argument 1. I will not pass a candidate/PR-head/advisor-head SHA, and I will not
+search for a SHA that makes the guard pass — the advisor has made SHA-hunting an
+explicit hard negative, which is the right call given that I just demonstrated
+how easy it is to rationalise one.
+
+#### One residual I am flagging rather than silently accepting
+
+`:74` constrains the **base**, and nothing constrains how far `HEAD` has moved
+beyond `main` on the submitted surface. My `HEAD` differs from `main` on **27**
+editable files, and only **one** of those is mine to change
+(`Sources/MLXFastModel/LagunaRuntimeModel.swift`); the other 26 are advisor-branch
+content not yet promoted. Verified: my own commits touch only `research/`, which
+is off the submitted surface entirely.
+
+The consequence is narrow but real, and it shapes how Phase B must be read:
+
+- An **absolute** `cs` from my branch is **not** comparable to a receipt taken on
+  a `main`-based tree, because 26 files of unpromoted work sit underneath it.
+- A **difference between two of my own receipts** *is* valid, because both arms
+  carry the identical 26 files and differ only in the knob. This is exactly what
+  Phase B is — a paired P1/P0 contrast — so the design is unaffected.
+
+I am recording this so nobody later reads a Phase B `cs` as a frontier number.
+
+#### Consequence for the §11.3 replicate commits (advisor addendum, accepted)
+
+The archive contains only the 97 `editablePaths`, and the service dedupes
+byte-identical archives. `BASE_SHA` is identical across replicates and cannot
+distinguish them, and neither can a `research/` file or a commit message. So each
+replicate needs a distinguishing byte **inside a submitted file**.
+
+This composes for free with the §9.3 deliverable: the doc blocks I owe are
+comments in `LagunaRuntimeModel.swift`, which is both editable and submitted. A
+one-line replicate tag in that file is therefore sufficient, and costs no
+behavioural change.
 
 
 ### 6.5 Disclosed interim look, and the bit-exactness gate it delivered
@@ -750,10 +817,13 @@ in descending weight:
 
 **What would overturn this.** One thing only: a paired official M5 A/B/A over
 {`0`, `1`, `5`} in which `5` beats `0` outside the paired noise band. That is
-exactly the Phase B measurement, and it is blocked by the submit guard in §6.4,
-so it was not available this session. Until it is drawn, the recommendation is
-`0`, and I am explicit that this is a *recommendation about a default*, not a
-measured M5 result.
+exactly the Phase B measurement. I first believed the submit guard forbade it;
+that was my error and is retracted in §6.4.1, so the measurement *is* available.
+It remains undrawn only because Phase B budget goes to the P1/P0 contrast that
+adjudicates the shipped default, which is the assignment's question; a three-way
+{`0`,`1`,`5`} arbitration is a follow-up, not a substitute. Until it is drawn the
+recommendation is `0`, and I am explicit that this is a *recommendation about a
+default*, not a measured M5 result.
 
 ### 10.3 A1 — placement versus peel
 
@@ -960,7 +1030,9 @@ has more power and bandwidth headroom. Nothing compiler-dependent transfers
 reliably at all: the review put the risk that pf1c is *worse* than pf0 on M5 at
 10-20 %, via a backend that hoists the loads anyway and then pays the same
 placement cost. That is decisive for §10.2 and is why the recommended fallback
-is `0` rather than `5`. I cannot draw the M5 pair that would settle it (§6.4).
+is `0` rather than `5`. The M5 pair that would settle it is drawable (§6.4.1
+retracts my earlier claim that it was not); it is simply not this assignment's
+question, so it is listed as a follow-up in §12.
 
 ### 11.10 A second review pass: the dispatch topology, and what it costs me
 
