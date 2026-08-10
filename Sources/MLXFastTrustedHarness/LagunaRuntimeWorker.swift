@@ -250,7 +250,10 @@ extension LagunaRuntime {
     ) throws -> RuntimeWorkerResponse {
         let carriesTraceDiagnostics =
             request.topK != nil || request.expectedToken != nil
-        if carriesTraceDiagnostics {
+        let carriesHostProfile = request.kind == "prefill"
+            && (9100...9102).contains(request.topK ?? 0)
+            && (1...6).contains(request.expectedToken ?? 0)
+        if carriesTraceDiagnostics && !carriesHostProfile {
             guard request.kind == "correctness_begin"
                 || request.kind == "correctness_step"
             else {
