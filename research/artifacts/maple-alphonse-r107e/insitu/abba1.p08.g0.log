@@ -17,3 +17,7 @@ mlxfast: benchmark elapsed=0.0s local-iterate baseline prefill_seconds_per_token
 mlxfast: benchmark elapsed=0.0s local-iterate validation start
 mlxfast: benchmark elapsed=10.2s local-iterate weights digest still running phase_seconds=10.2
 mlxfast: benchmark elapsed=20.2s local-iterate weights digest still running phase_seconds=20.2
+mlxfast: benchmark elapsed=30.2s local-iterate weights digest still running phase_seconds=30.2
+mlxfast: benchmark elapsed=38.6s local-iterate weights digest complete files=9 bytes=21568891382
+mlxfast: benchmark elapsed=38.6s local-iterate validation complete prompt_tokens=512 seconds=38.6
+mlxfast: benchmark elapsed=38.6s local-iterate checked timing start
