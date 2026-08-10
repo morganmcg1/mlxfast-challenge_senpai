@@ -2670,7 +2670,7 @@ bind.
 | [#597](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/597) | maple-frieren | `maple-r105-b-router-prefetch-adjudication` / **`r105-b-rev5`** | **The bit-exactness shelf (rule 96.3).** Re-adjudicate the shelf against `TASK.md`'s *actual* token-level gate; build the reusable **margin-certificate** instrument for all four students; take **`DARKBLOOM_QMV_WIDE_CODES`** end-to-end (reachability → correctness → paired local A/B → source default flip → hand to fern). Remains sole channel owner; **no draw authorised**. Outcomes V-SHIP / N-CORRECT / N-NULL / N-UNREACHABLE / V-SHELF. | halves code loads, scale loads and the K-loop trip count on the shared gate/up QMV |
 | [#625](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/625) | maple-fern | `maple-r106-i-prefill-traversal-byte-census` / **`r106-i-rev2`** | **Own the integration tree.** R106-I cancelled (rule 79 — preserve partials). Stage 0 verify the HEAD/`bd33883e`/`4b0e051b` numstat table + force-clean build + oracle; Stage 1 T0 (HEAD) vs T1 (HEAD + `4b0e051b`'s `Sources/MLXFastModel/**` and `Sources/MLXFastTransform/**`) via the rule 95.6 replay recipe, paired locally, ~3 h timebox, **N-BUILD is an acceptable terminal answer**; Stage 2 integrate every student patch under rule 75 caps; Stage 3 hand **one** verified tree to frieren with the four submit-wrapper preconditions checked. Outcomes V-T1 / N-T1 / N-BUILD / V-INTEGRATED. | decides what we submit; composition upside if merits are additive |
 | [#642](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/642) | maple-tanjiro | `maple-r107-d-decode-attention-above-floor` / **`r107-d-rev1`** — head `95f881e5` | **The decode fused-attention above-floor pool.** #620 merged (rule 99 — *his* positive control is what killed the prefill axis), so he moves to the axis that provably transfers at 0.15 %. `laguna_sliding_fused_attn_ring_v1` (`LRM:1508`) + `laguna_full_fused_attn_grow_v1` (`LRM:2028`) are plain Metal with **no `_nax` twin** ⇒ fully M4-reachable. Stage 0 reachability + geometry proof; Stage 1 adjudicate the regime (bandwidth- vs latency- vs issue-bound); Stage 2 implement and paired-ABBA **one** lever in-situ — **P1 prologue prefetch hoist** above the `:1587` barrier into the 28 idle simdgroups (bit-exact by construction), with P2/P3 as fallbacks and a matched-register negative control. Outcomes V-PROLOGUE / N-PROLOGUE / V-EPILOGUE / N-ISSUE-BOUND / N-CORRECT / N-BUILD. | **424.35 µs/step = 6.46 % of `cs`**, of which **≈280.8 µs/step = 4.28 %** is above the unique-byte DRAM floor — the largest unadjudicated decode pool left |
-| [#616](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/616) | maple-nezuko | `maple-r106-b-revert-residual-forensics` / **`r106-b-rev3`** | **The revert residual.** R106-H cancelled. Stage A attribute round-103's ≈19.0 µs/step residual to a ledger that closes; Stage B build and locally measure a recovery patch (paired, rules 40/68/86); Stage C hand to fern. Margin certificate available from frieren if the recovery is not bit-exact. Outcomes V-RECOVER / V-ATTRIB / N-RESIDUAL / N-RECOVER / N-CORRECT. | 0.3204 % of `cs` = **25 % of the whole 1.2846 % gap** |
+| [#616](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/616) | maple-nezuko | `maple-r106-b-revert-residual-forensics` / **`r106-b-rev3`** | **The revert residual.** R106-H cancelled. Stage A attribute round-103's ≈19.0 µs/step residual to a ledger that closes; Stage B build and locally measure a recovery patch (paired, rules 40/68/86); Stage C hand to fern. Margin certificate available from frieren if the recovery is not bit-exact. Outcomes V-RECOVER / V-ATTRIB / N-RESIDUAL / N-RECOVER / N-CORRECT. | ~~0.3204 % of `cs` = 25 % of the whole 1.2846 % gap~~ 🚫 **rule 105.11: the residual is receipt-derived ⇒ already M5, so the bare price is right, but at the campaign decode weight (0.7500) it is 0.2893 % of `cs` = 17.7 % of the current 1.6359 % gap.** ⚠️ **Stage B measures on M4: the target in her own units is 43.5 µs/step (bytes) / 38.0 (latency), not 19.** |
 | [#629](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/629) | maple-edward | `maple-r107-a-routed-gateup-packing` / **`r107-a-rev1`** — head `526881c4` | **Routed gate/up threadgroup packing, amended by rule 97.1** (delivered as PR comment `5239439037`)**.** Operator brief asks for an `S ∈ {2,4,8,16}` simdgroups-per-threadgroup curve on `lagunaRoutedSwiGLUQMVPackedTop8Kernel`. Half that curve is **already priced** (#48 measured the 8× threadgroup collapse at **−0.1488 %**; S=16 also lands at 6.4 TG/core inside the tail-starvation regime closed by rule 67), and the adjacent rows-per-simdgroup axis is already harvested (`DARKBLOOM_QMV_R1`). Amended: **Stage A settles L3 first** — `research/tanjiro_packing_default_flip.patch` applies clean at this HEAD and #308 measured it at **−36.9 µs/step (M4, paired)**, ~~= +0.562 % of `cs`, CI [+0.196 %, +0.929 %]~~ 🚫 **re-priced by rule 105.3 to 0.2455 %, CI [0.0858 %, 0.4058 %] (α = 0.4369)**, then **de-biased by rule 105.10 to ≈0.197 %** (36.9 is the *argmax* of a tied `S ∈ {4,8,16}` set; selection bias 7.34 µs/step). Stage B extends to the routed site over **S ∈ {2,4}** only. Outcomes V-L3 / N-L3 / V-SITE1 / N-SITE1 / N-CORRECT / N-BUILD. | L3 alone is **≈0.20 % of `cs`** — **below the 0.4 % bar**; still a valid bit-exact *summand* under rule 105.5. **Stage A's own single pre-specified contrast is the number that counts, not #308's**; expect ≈30 µs/step, and the residual for a second summand is then **30.6 µs/step = 2.04 % of T2c** |
 | [#636](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/636) | maple-alphonse | `maple-r107-c-expert-gather-gemm-floor` / **`r107-c-rev1`** — head `ace5bd09` | **The routed expert gather-GEMM floor.** #630 terminated (rule 98) and merged, freeing him for the **largest sized unclaimed target on the board**: `routed_gather_gemm` = 76 dispatches / 260.907 ms = **48.3 % of M4 prefill**, M5 `W = 43.2619 ± 0.402 ms` against a **35.6 ms** DRAM floor ⇒ **≈7.6 ms above floor = +2.87 % of score**. Stage 0 rule-83 mechanism-word grep; Stage A zero-build env sweep of `DARKBLOOM_STAGE_BM128` (default **variant 5** ⇒ `bm=64,bn=64,bk=64,wm=4,wn=1`, 128 threads/TG) and `DARKBLOOM_EXPERT_GATHER_GROUPS ∈ {64,128,256}`; Stage B **one** of C2a (`bn` 64→32, never varied) or C2b (revive the **dead** x-major dispatch order — `darkbloom_gather_xmajor_ct()` is hardcoded `return 0` at `quantized.cpp:1290-1292`); Stage C graduate only at ≥0.4 % of score **and** ≥3σ (1.35 ms) with decode proved neutral. Outcomes V-TILE / V-XMAJOR / V-EGROUPS / N-FLOOR / N-XMAJOR-CLOSED / N-BUILD / N-CORRECT / N-REACH. | **+2.87 % of score** — more than twice the whole 1.2846 % implied gap |
 
@@ -6781,6 +6781,67 @@ interval still admits 0.23 %. Quote the interval at the freeze. Combined with
 rule 101.5 (`g = 0.4 %` ⇒ z = 4.10, P ≈ 2.1 × 10⁻⁵), nothing here revives the
 record: the bar decides whether a draw is *worth spending*, never whether it
 *wins*.
+
+#### 105.11 🚨 The price audit — 44 bare-price conversions in this file, and the **dual** of rule 105
+
+Rule 105.6 mandated a host tag on every quantity going forward. It did not
+sweep what is already written. I swept it:
+`research/advisor_r105_price_audit.py` finds every line where a `µs/step`
+figure and a `%` figure stand in the bare-price ratio `0.015228`.
+
+> **44 sites.** Each is an error **iff** its µs/step figure is M4.
+
+**The discriminator, stated operationally.** Every µs/step number in this
+campaign has exactly one of two origins, and the origin decides the arithmetic:
+
+| origin | host | what to do |
+|---|---|---|
+| **receipt-derived** — a difference of `cand_dec` between two official receipts | **M5** | bare price `× 0.015228` is **correct** |
+| **locally measured** — student paired ABBA, in-situ census, §B.0.3's M4 column | **M4** | must go through `k` first: `× k × 0.015228` |
+
+So rule 105's correction is **direction-dependent, and both directions are
+live in this document**:
+
+> **M4 → %cs deflates** by `k` (2.29× bytes, 2.00× latency). This is the L3
+> error.
+> **An M5 target → the M4 units a student will measure it in *inflates* by
+> `1/k`.** This one has never been stated, and it bites the other way.
+
+**The case that forced it: nezuko's #616.** The ≈19.0 µs/step revert residual
+is *receipt*-derived — it is arithmetic on `cand_dec` 4893.712 / 4913.117 /
+4925.255 (§ round-103 table). It is therefore **already M5**, and the bare
+price is right. Two corrections all the same:
+
+- Rule 91 quotes **0.3204 %**, which implies a decode weight of 0.8251. The
+  campaign price implies `w = 0.015228 × 4925.255 / 100 = ` **0.7500 exactly**.
+  At the campaign weight the residual is **0.2893 % of `cs`**, and against the
+  *current* gap (1.6359 %, rule 101 — not the superseded 1.2846 %) it is
+  **17.7 % of the gap, not 25 %**.
+- **Her Stage B measures on M4.** A 19.0 µs/step M5 residual is
+  **19.0 / α = 43.5 µs/step on M4** (bytes) or **19.0 / β = 38.0 µs/step**
+  (latency). If she recovers 19 µs/step locally she has recovered **≈44 % of
+  the residual, not all of it.** Nobody had told her the target in her own
+  units.
+
+**Triage discipline for the remaining sites.** I am not rewriting 44 historical
+lines before the freeze; most are archived or already superseded, and churning
+them risks introducing errors worse than the ones I would fix. Instead:
+
+> ⚠️ **Standing caveat: any `%` figure in this document that was derived from a
+> µs/step quantity is untrustworthy unless the line names its host.** Before
+> any such figure enters a decision, re-derive it and tag it. The script makes
+> this a ten-second check.
+
+Rule 105.6's fix therefore grows a third field. Every quantity now needs
+**host** (M4/M5) · **epoch** (which code) · **census-or-marginal** (105.8) —
+and the host field must record *how* the number was obtained, because
+"receipt-derived" and "locally measured" are what actually determine it.
+
+**Advisor honesty note.** This is the same error as #9, found a second time in
+the same document by a mechanical sweep I could have run the moment I wrote
+105.6 — and did not, because I had already corrected the one site I cared
+about. Fixing the instance is not fixing the class. The sweep is now a script
+so the next person does not have to rediscover it.
 
 
 ## 9. σ table (rule 40 — pick your estimator, then quote its floor)
