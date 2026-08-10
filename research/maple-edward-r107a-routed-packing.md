@@ -66,6 +66,15 @@ shallow, non-monotone basin with a flat left shoulder, argmax at S=8 with
 −36.9 µs/step, 95% CI [−61.0, −12.9], bit-exact, prefill null. Verdict PURSUE;
 the patch was left unapplied.
 
+**What that prior is worth under rule 105.** −36.9 M4 µs/step × 0.006653
+= **−0.246 %`cs`** in the primary α (bytes) regime, k = 0.4369; −0.219 % at
+k = 0.389 and −0.281 % at k = 0.5 [M4-WALL] [base_sha 3241e5e5]. So even if
+Stage A reproduces #308 exactly, this arm alone does **not** clear the 0.4 %
+bar — it is a rule-105.5 summation component in family T0b(a), and the routed
+family T2c contributes nothing (see §6.1). The honest pre-registered ceiling for
+this PR is therefore "one verified component worth ≈0.25 %", not a standalone
+graduation.
+
 **Counter-evidence that repriced my prior to null before any measurement.**
 
 - L3 note, `research/CURRENT_RESEARCH_STATE.md:3327-3334`: PR #48's 8× threadgroup
@@ -284,6 +293,30 @@ one (rule 97.0); **no arm in any stage of this report sets
 hide inside a paired mean; and no binary was carried across the rebase — the
 stage-A snapshots were rebuilt from the post-rebase tree, which changed a Vendor
 translation unit.
+
+**The measurement instrument, and why it is in-situ (advisor's `--local-iterate`
+ask).** Every slot in this report is timed by `research/decode_probe.py`, which
+is *not* a kernel-local microbenchmark. It launches the same
+`.build-worker/release/mlxfast-runtime-worker` binary that `./benchmark.sh
+--local-iterate` launches, over the same line-delimited JSON protocol, and
+issues the same request shapes as the scored decode axis: one `decode_begin`
+with the 512-token golden seed, then N one-token `decode_step` requests, each
+timed on the driver's own wall clock. Every step therefore pays the full scored
+forward pass — all 40 layers, the complete routed MoE, KV growth, and command
+buffer submission — which is exactly the property PR #543 §I found missing in
+kernel-local probes (a 14 % probe gain that became −25.5 µs/tok in situ), and
+exactly the property rule 98.9's ~30× kernel-local inflation warns about. Three
+deliberate differences from `--local-iterate` remain, and none of them favours a
+particular arm: 250 steps per slot instead of 128, so each slot's mean has ~2×
+less step noise; teacher forcing from the public golden case, which is what makes
+the bit-exactness check per slot possible at all; and no scoring wrapper, because
+the wrapper's own baseline pairing would replace the position-matched palindrome
+design with a single unmatched A/B. At ~44.5 s per slot (~42.5 s of it model
+load) the palindrome is affordable at K = 16–18 reps; a `--local-iterate` pair
+per slot is not, and it is the pairing — not the wrapper — that removes the drift
+these effects live under. Absolute µs/step here are consequently *not*
+comparable to a `--local-iterate` score line; only the paired contrasts are, and
+only those are quoted.
 
 All quantities in this section are **[M4-WALL] Apple M4 Pro** wall time at epoch
 **`base_sha` `3241e5e5`** (`Sources`/`Vendor` identical to `4e9a8e16`; see the
