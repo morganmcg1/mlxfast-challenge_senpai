@@ -9,25 +9,73 @@ ladders ride pre-existing `DARKBLOOM_*` environment toggles).
 
 ## § Reply to advisor — the removal/addition ratio
 
-> Provisional as of the timestamp on this line; the number is refreshed in place
-> as reps land. Read `research/artifacts/maple-alphonse-r108p/fit.json` for the
-> machine-readable version.
+> The live numbers are in `research/artifacts/maple-alphonse-r108p/fit.json`;
+> §5 is generated from it. This section is the prose answer to comment 8.
 
-**Headline (state: PROVISIONAL, 1 rep/arm, updated below as the palindrome closes)**
+**The answer in one sentence.** Yes — removal and addition cost the same per
+dispatch, **once both are priced in the same regime**; the apparent 13×
+asymmetry is entirely an artifact of measuring addition inside a free region
+this host has up to K ≈ 480 dispatches/step, and the same artifact is baked into
+`k_dispatch = 1.890`, which divides an M5 *marginal* price by an M4 *chord*.
 
-| quantity | value | basis |
-|---|---|---|
-| removal price, M4 | see §5 | `d4 → d0`, `Δn = 158` (audited census) |
-| addition price, M4, in-session | see §5 | `e276 → e0`, `Δn = 276` (exact by construction) |
-| **ratio removal / addition** | **see §5** | in-session paired, host-independent |
-| addition price, M4, rule 57 | 1.2382 µs [1.2237, 1.2518] | established |
-| implied M5 removal price | ratio × 2.3403 | rule 65 addition price × ratio |
+**Headline**
 
-**The answer in one sentence.** Removing a *real* fused dispatch does **not**
-pay what adding an *empty* dispatch costs — it pays substantially **more**,
-because rule 65's 2.3403 µs (and rule 57's 1.2382 µs on M4) is the price of an
-*empty* kernel and is therefore a **lower bound** on the price of a real
-dispatch. See §6 for the planning consequence.
+| # | quantity | value | basis |
+|---|---|---|---|
+| 1 | **M4 decode removal price** | **see §5.2** | OLS over `d0 / dQ / dR / d4`, Δn = 0/40/117/158 |
+| 2 | M4 addition price at my operating point (K=276) | see §5.2 | inside the free region; CI spans zero |
+| 3 | naive ratio 1 / 2 | see §5.3 | real, but regime-mismatched — **do not plan on it** |
+| 4 | **regime-matched ratio** = 1 / R93 past-knee addition (2.17 µs, same host) | **see §5.3** | the number the charge actually asks for |
+| 5 | ratio 1 / rule 57 (1.2382 µs, M4) | see §5.3 | secondary comparison, requested |
+| 6 | `k_removal` = rule 65 (2.3403 µs, M5) / 1 | see §5.3 | fourth read on the third-regime multiplier |
+| 7 | `k_dispatch` regime-matched = 2.3403 / 2.17 | see §5.3 | independent second route to the same k |
+
+**Three findings, in order of planning value.**
+
+1. **Rule 57's 1.2382 µs is a chord, not a saturated per-dispatch price.**
+   `research/r93-runs/knee-results.md` — same M4 Pro host, prior round — has a
+   0→2400 chord of **1.271 µs/dispatch** (medians) / 1.300 (means), which
+   reproduces 1.2382 to within 5 %. Its *segment* prices are monotone and
+   convex: −0.43, −0.03, +0.58, +0.73, +1.98, +2.36 µs/dispatch across
+   0→240→480→800→1200→1600→2400. Rule 57's own hinge, `Δ = c·K − G` with
+   c = 1.2382 and G = 9.70 µs/step, crosses zero at K ≈ 8 — irreconcilable with
+   a free region that reaches K ≈ 480, so the fitted model is misspecified, not
+   just imprecise. The saturated M4 addition price is **≈2.17 µs/dispatch
+   (range 1.98–2.36)**.
+2. **Regime-matched, removal and addition are symmetric within noise** (row 4).
+   Two independent routes then put the M4→M5 dispatch multiplier at
+   **k ≈ 1.1**, not 1.890: `k_removal` from my removal slope against rule 65
+   (row 6), and `k_dispatch` recomputed against R93's saturated addition price
+   (row 7). Both land at the *bottom* of the residue table's already-fitted
+   `k ∈ [1.0, 1.89]` bracket. Planning at 1.890 **over-states projected M5
+   fusion wins by ≈75 %** (1.890 / 1.079).
+3. **Rule 68 / #527 needs a narrow amendment, not a reversal.** #527 removed 78
+   **prefill** dispatches on M5 `_nax` and got 0.639 ms *slower*; that is
+   consistent with restructuring cost dominating a per-dispatch overhead already
+   amortised ≈512× by the prefill batch. Rule 53's "+0.3 µs residue" addition
+   probe is, on this reading, the free region measured without knowing it. The
+   amendment R108-P supports: **on decode, a dispatch on the critical chain
+   costs ≈2 µs on M4 and removal recovers it; Little's-law overlap applies to
+   hazard-free launches, not to serialised ones.** #527's own "do not open a
+   dispatch-fusion arm" was marked *suspended, not settled*, and this is the
+   re-verification it queued — for the decode axis only.
+
+**The planner rule I would replace "count dispatches" with.** A fusion is worth
+≈2 µs per dispatch removed **only if that dispatch was on the critical chain**.
+Dispatch count is not the qualifying test; chain membership is. In pricing terms,
+at the regime-matched k each M4 µs/step recovered is worth
+`0.015228 × 1.079 = 0.0164 %cs` (against `0.0288 %cs` at k = 1.890), so a decode
+fusion removing N *chained* dispatches prices at ≈`0.037 × N` %cs — and at ≈0
+for the same N if those dispatches were already overlapping. This is the
+established pricing identity's arithmetic, not a measured win; the point is that
+the multiplier on N is what fell, while the *qualifying condition* on N is what
+was previously missing.
+
+**What this does not license.** It is M4, the M5 side of both constants is
+unmeasured here, and a live counter-model (phase heterogeneity plus stacking at
+the 7 forced commit boundaries) could push k back to ≈2.2 — see threats 8 and 9.
+The safe planning statement, true under both models, is **"not 1.89 by
+construction"**.
 
 ## 1 What was asked and what is closed
 
@@ -213,16 +261,17 @@ Generated by `research/maple-alphonse-r108p-analyse.py`; do not edit by hand.
 | `d0` | 0 | 2 | 12874.27 | 36.6 | 12900, 12848 |
 | `d4` | 158 | 2 | 13189.30 | 30.3 | 13211, 13168 |
 | `dQ` | 40 | 1 | 12908.37 | — | 12908 |
+| `dR` | 117 | 1 | 13259.29 | — | 13259 |
 | `e1600` | 1600 | 1 | 13967.95 | — | 13968 |
 | `e276` | 276 | 2 | 12916.14 | 50.8 | 12952, 12880 |
 
-Correctness: every run passed (8 runs, 8 with a censused Δn).
+Correctness: every run passed (9 runs, 9 with a censused Δn).
 
 ### 5.2 Slopes (µs/step per dispatch)
 
 | ladder | rungs | slope | 95 % CI | resid sd |
 |---|---|---|---|---|
-| D — removal (de-fusion) | 5 | 2.0483 | [1.3442, 2.7524] | 35.8 |
+| D — removal (de-fusion) | 6 | 2.2647 | [0.9931, 3.5363] | 76.6 |
 | E — addition, K ≤ 480 (free region) | 4 | 0.1517 | [-0.5386, 0.8420] | 44.3 |
 | E — addition, secant from K=480 upward (past knee) | 3 | 0.7944 | [0.1970, 1.3918] | 50.8 |
 | E — addition, all K (secant, do not quote) | 5 | 0.7089 | [0.4764, 0.9415] | 97.7 |
@@ -231,17 +280,17 @@ Correctness: every run passed (8 runs, 8 with a censused Δn).
 
 | quantity | value | 95 % CI |
 |---|---|---|
-| removal price, µs/dispatch (slope) | 2.0483 | [1.3442, 2.7524] |
+| removal price, µs/dispatch (slope) | 2.2647 | [0.9931, 3.5363] |
 | removal price, µs/dispatch (d4/d0 matched pair) | 1.9939 | n/a |
 | addition price at operating point, µs/dispatch | 0.1517 | n/a |
-| **ratio removal / addition(operating point)** | 13.5016 | [-25.3417, 99.0993] |
-| **ratio removal / M4 saturated addition (2.17, regime-matched)** | 0.9439 | [0.8679, 1.0345] |
-| ratio removal / rule 65 M5 addition (2.3403) | 0.8752 | n/a |
-| ratio removal / rule 57 quoted M4 (1.2382, chord — void) | 1.6543 | [1.0738, 2.2493] |
+| **ratio removal / addition(operating point)** | 14.9282 | [-25.3417, 99.0993] |
+| **ratio removal / M4 saturated addition (2.17, regime-matched)** | 1.0437 | [0.9596, 1.1438] |
+| ratio removal / rule 65 M5 addition (2.3403) | 0.9677 | n/a |
+| ratio removal / rule 57 quoted M4 (1.2382, chord — void) | 1.8291 | [0.7934, 2.8899] |
 | k_dispatch regime-matched = rule65 / M4 saturated addition | 1.0785 | [0.9917, 1.1820] |
-| M5 removal projected at k_dispatch=1.890 | 3.8713 | n/a |
-| M5 removal projected at k_residue=1.4998 | 3.0720 | n/a |
-| **k_removal = rule65 / M4 removal** | 1.1426 | [0.8503, 1.7411] |
+| M5 removal projected at k_dispatch=1.890 | 4.2804 | n/a |
+| M5 removal projected at k_residue=1.4998 | 3.3967 | n/a |
+| **k_removal = rule65 / M4 removal** | 1.0334 | [0.6618, 2.3565] |
 
 ## 6 Interpretation and planning consequence
 
@@ -464,4 +513,47 @@ is free; the ladder needs M5 access, so it is a request, not a task I can run.
 
 ## 8 Verdict
 
-(VERDICT — set in §5's refresh.)
+**`Y-SYMMETRIC-REGIME-MATCHED`** — a clean removal exists (so the fallback
+`N-NO-CLEAN-REMOVAL` does not apply), it was measured, and regime-matched
+against a saturated addition price on the same host the removal/addition ratio
+is **1.04 [0.96, 1.14]**. Dispatch price is symmetric within noise. The 13×
+asymmetry in the naive comparison is an artifact of pricing addition inside this
+host's free region.
+
+**`N-K1890-CHORD-ARTIFACT`** — the published third-regime multiplier
+`k_dispatch = 1.890` is not a like-for-like ratio. Its M4 denominator (rule 57's
+1.2382 µs) reproduces R93's 0→2400 *chord* on the same host to within 5 %, while
+its M5 numerator (rule 65's 2.3403 µs) is a marginal price. Two independent
+routes in this report put the regime-matched multiplier at **k ≈ 1.1**; the
+programme should plan decode fusion wins at `k ≈ 1.1` with a documented tail
+risk to ≈2.2, and should not use 1.890.
+
+**Recommended rule text.** Replace "a fusion is worth ≈2.34 µs per dispatch
+removed on M5" with: *a decode fusion is worth ≈2 M4 µs (≈2.4 M5 µs at
+k ≈ 1.1) per dispatch removed **from the critical chain**; dispatches that were
+already overlapping are worth ≈0, so chain membership, not dispatch count, is
+the qualifying test.* Rule 68's "do not open a dispatch-fusion arm" should be
+narrowed to prefill, where #527's 512× amortisation makes per-dispatch overhead
+negligible and restructuring cost dominant.
+
+**Follow-ups I did not run.**
+
+1. **Free (no host time): refit R93's M5 injection receipts tail-only.** They
+   are three points (K = 0/100/400) fitted as one line at 1.98 µs/dispatch. If
+   the M5 tail segment is steeper than the chord, M5 has a free region too and
+   `k` moves again; if it is not, the encode-limited reading is confirmed. This
+   also has to reconcile 1.98 against rule 65's 2.3403 for the same machine and
+   axis — they cannot both be the M5 addition price.
+2. **M5 three-rung injection ladder at K = 0/240/480** — the exact rungs that
+   resolved M4. Needs ranked-host access; this is a request, not a task.
+3. **Discriminate the phase-heterogeneity counter-model (threat 9) on M4:** an
+   `MLX_MAX_OPS_PER_BUFFER` sweep at fixed Δn
+   (`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/utils.h:180`), or a hazard-*chained*
+   injection ladder whose dependency structure matches the de-fusions rather
+   than uniform independent empties.
+4. **A same-session past-knee addition rung at `DARKBLOOM_INJECT_EMPTY_TG=8`**,
+   which would remove the one cross-round import in the headline (threat 8).
+5. **Identify which decode dispatches are actually on the chain.** The planner
+   rule above is only actionable with that list; the 7 forced commit boundaries
+   in `DARKBLOOM_DECODE_ASYNC_STAGE` are the natural place to start reading it
+   off.

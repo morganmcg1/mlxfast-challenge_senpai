@@ -1,0 +1,1 @@
+{"session":"s2","pos":4,"arm":"d4","tag":"s2.p04.d4","env":"DARKBLOOM_FUSED_ROUTER_CAST=0 DARKBLOOM_FUSED_RESIDUAL_RMS=0 DARKBLOOM_FUSED_NORM_AFFINE_QKV=0 DARKBLOOM_FUSED_ROUTER_NORM=0","seconds":177,"decode":0.01320318815625,"prefill":0.0011108168125,"passed":true,"error":""}
