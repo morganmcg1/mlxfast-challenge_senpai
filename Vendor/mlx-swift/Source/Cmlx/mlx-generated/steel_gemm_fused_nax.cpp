@@ -1,7 +1,17 @@
 namespace mlx::core::metal {
 
 const char* steel_gemm_fused_nax() {
-  return R"preamble(// Copyright © 2025 Apple Inc.
+  return R"preamble(
+// Copyright © 2025 Apple Inc.
+
+// Auto generated source for mlx/backend/metal/kernels/steel/gemm/kernels/steel_gemm_fused_nax.h
+
+///////////////////////////////////////////////////////////////////////////////
+// Contents from "mlx/backend/metal/kernels/steel/gemm/kernels/steel_gemm_fused_nax.h"
+///////////////////////////////////////////////////////////////////////////////
+
+#line 1 "mlx/backend/metal/kernels/steel/gemm/kernels/steel_gemm_fused_nax.h"
+// Copyright © 2025 Apple Inc.
 
 using namespace mlx::steel;
 
@@ -13,59 +23,6 @@ constant bool do_axpby [[function_constant(110)]];
 constant bool align_M [[function_constant(200)]];
 constant bool align_N [[function_constant(201)]];
 constant bool align_K [[function_constant(202)]];
-constant bool laguna_qkv [[function_constant(203)]];
-
-template <typename T>
-METAL_FUNC void laguna_qkv_epilogue(
-    device T* x,
-    const device T* m,
-    uint head,
-    uint group,
-    uint lane) {
-  const uint j = lane * 4;
-  for (uint z = 0; z < 8; ++z) {
-    const uint r = group * 8 + z;
-    device T* o = x + r * 128;
-    const device T* p = m + r * 384;
-    const device T* w = p + (head < 48 ? 0 : 128);
-    thread T n[4];
-    float s = 0.0f;
-#pragma clang loop unroll(full)
-    for (uint i = 0; i < 4; ++i) {
-      const float v = float(o[j + i]);
-      s += v * v;
-    }
-    s = simd_sum(s);
-    const float iv = metal::precise::rsqrt(s / 128.0f + 1.0e-6f);
-#pragma clang loop unroll(full)
-    for (uint i = 0; i < 4; ++i) {
-      n[i] = w[j + i] * T(float(o[j + i]) * iv);
-    }
-    thread float q[4];
-#pragma clang loop unroll(full)
-    for (uint i = 0; i < 4; ++i) {
-      q[i] = simd_shuffle(float(n[i]), lane ^ 8);
-    }
-    if (lane < 8) {
-      const device float* a =
-          reinterpret_cast<const device float*>(p + 256);
-      const T ym = T(1.3465735912322998f);
-#pragma clang loop unroll(full)
-      for (uint i = 0; i < 4; ++i) {
-        const uint k = j + i;
-        const float f = float(T(n[i] * ym));
-        const float g = float(T(T(q[i]) * ym));
-        o[k] = T(f * a[k] - g * a[k + 32]);
-        o[k + 32] = T(f * a[k + 32] + g * a[k]);
-      }
-    } else if (lane >= 16) {
-#pragma clang loop unroll(full)
-      for (uint i = 0; i < 4; ++i) {
-        o[j + i] = n[i];
-      }
-    }
-  }
-}
 
 // clang-format off
 template <
@@ -148,7 +105,6 @@ template <
     const constant GEMMAddMMParams* addmm_params [[buffer(5), function_constant(use_out_source)]],
     const constant int* batch_shape [[buffer(6), function_constant(has_batch)]],
     const constant int64_t* batch_strides [[buffer(7), function_constant(has_batch)]],
-    uint simd_lane_id [[thread_index_in_simdgroup]],
     uint simd_group_id [[simdgroup_index_in_threadgroup]],
     uint3 tid [[threadgroup_position_in_grid]]) { // clang-format on
   // Find block
@@ -186,7 +142,6 @@ template <
   }
 
   D += params->batch_stride_d * tid.z;
-  device T* D0 = D;
 
   // Prepare threadgroup memory
   threadgroup_barrier(mem_flags::mem_none);
@@ -204,7 +159,6 @@ template <
   if (use_out_source) {
     C += c_row_long * addmm_params->ldc + c_col_long * addmm_params->fdc;
   }
-  const device T* C0 = C;
 
   constexpr short SM = BM / WM;
   constexpr short SN = BN / WN;
@@ -259,19 +213,6 @@ template <
             params->gemm_k_iterations_aligned,
             sgp_sm,
             sgp_sn);
-        if (laguna_qkv) {
-          const uint h = c_col / 128;
-          const int ld = h < 56 ? 128 : 1024;
-          device T* x = h < 56
-              ? D0 + (h * 512 + c_row) * 128
-              : D0 + 56 * 512 * 128 + c_row * 1024 + (h - 56) * 128;
-          Dtile.store(x + tm * ld + tn, ld);
-          if (h < 56) {
-            threadgroup_barrier(mem_flags::mem_device);
-            laguna_qkv_epilogue(x, C0, h, simd_group_id, simd_lane_id);
-          }
-          return;
-        }
         if (use_out_source) {
           gemm_epilogue<kAlignedM.value, kAlignedN.value>(
               Dtile, C, params, addmm_params, sgp_sm, sgp_sn);
@@ -285,6 +226,8 @@ template <
     });
   });
 }
+
+///////////////////////////////////////////////////////////////////////////////
 )preamble";
 }
 

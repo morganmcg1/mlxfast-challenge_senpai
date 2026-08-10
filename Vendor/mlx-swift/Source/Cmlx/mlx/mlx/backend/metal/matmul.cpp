@@ -237,26 +237,6 @@ void steel_matmul_regular_axpby_nax(
     wm = 2;
   }
 
-  const bool laguna_qkv =
-      CHECK_AB && M == 512 && N == 8192 && K == 2048 &&
-      batch_size_out == 1 && batch_shape.size() <= 1 && !transpose_a &&
-      transpose_b && lda == 2048 && ldb == 2048 && ldd == 8192 &&
-      a.dtype() == bfloat16 && b.dtype() == bfloat16 &&
-      c.dtype() == bfloat16 && out.dtype() == bfloat16 && alpha == 1.0f &&
-      beta == 0.0f && c.ndim() == 3 && c.shape(0) == 1 &&
-      c.shape(1) == 512 && c.shape(2) == 8192 && c.strides()[0] == 0 &&
-      c.strides()[1] == 384 && c.strides()[2] == 0 && c.offset() >= 0 &&
-      c.offset() % (384 * c.itemsize()) == 0 &&
-      static_cast<size_t>(c.offset()) + 512 * 384 * c.itemsize() <=
-          c.buffer_size();
-  if (laguna_qkv) {
-    bm = 64;
-    bn = 128;
-    bk = 256;
-    wm = 2;
-    wn = 4;
-  }
-
   // Prepare kernel name
   std::ostringstream kname;
 
@@ -285,7 +265,6 @@ void steel_matmul_regular_axpby_nax(
       {&align_M, MTL::DataType::DataTypeBool, 200},
       {&align_N, MTL::DataType::DataTypeBool, 201},
       {&align_K, MTL::DataType::DataTypeBool, 202},
-      {&laguna_qkv, MTL::DataType::DataTypeBool, 203},
   };
 
   // clang-format off
@@ -294,8 +273,7 @@ void steel_matmul_regular_axpby_nax(
         << "_do_axpby_" << (do_axpby ? 't' : 'n')
         << "_align_M_" << (align_M ? 't' : 'n')
         << "_align_N_" << (align_N ? 't' : 'n')
-        << "_align_K_" << (align_K ? 't' : 'n')
-        << "_laguna_qkv_" << (laguna_qkv ? 't' : 'n'); // clang-format on
+        << "_align_K_" << (align_K ? 't' : 'n'); // clang-format on
 
   std::string hash_name = kname.str();
 
@@ -381,7 +359,7 @@ void steel_matmul_regular_axpby_nax(
     fprintf(
         stderr,
         "[darkbloom][steel] %s M=%d N=%d K=%d grid=(%lu,%lu,%lu)\n",
-        hash_name.c_str(), M, N, K, grid_dims.width, grid_dims.height,
+        base_name.c_str(), M, N, K, grid_dims.width, grid_dims.height,
         grid_dims.depth);
   }
   compute_encoder.dispatch_threadgroups(grid_dims, group_dims);
@@ -425,26 +403,6 @@ void steel_matmul_regular_axpby(
   char devc = d.get_architecture().back();
   GEMM_TPARAM_MACRO(devc)
 
-  const bool laguna_qkv =
-      CHECK_AB && M == 512 && N == 8192 && K == 2048 &&
-      batch_size_out == 1 && batch_shape.size() <= 1 && !transpose_a &&
-      transpose_b && lda == 2048 && ldb == 2048 && ldd == 8192 &&
-      a.dtype() == bfloat16 && b.dtype() == bfloat16 &&
-      c.dtype() == bfloat16 && out.dtype() == bfloat16 && alpha == 1.0f &&
-      beta == 0.0f && c.ndim() == 3 && c.shape(0) == 1 &&
-      c.shape(1) == 512 && c.shape(2) == 8192 && c.strides()[0] == 0 &&
-      c.strides()[1] == 384 && c.strides()[2] == 0 && c.offset() >= 0 &&
-      c.offset() % (384 * c.itemsize()) == 0 &&
-      static_cast<size_t>(c.offset()) + 512 * 384 * c.itemsize() <=
-          c.buffer_size();
-  if (laguna_qkv) {
-    bm = 64;
-    bn = 128;
-    bk = 16;
-    wm = 2;
-    wn = 4;
-  }
-
   // Prepare kernel name
   std::ostringstream kname;
 
@@ -473,7 +431,6 @@ void steel_matmul_regular_axpby(
       {&align_M, MTL::DataType::DataTypeBool, 200},
       {&align_N, MTL::DataType::DataTypeBool, 201},
       {&align_K, MTL::DataType::DataTypeBool, 202},
-      {&laguna_qkv, MTL::DataType::DataTypeBool, 203},
   };
 
   // clang-format off
@@ -482,8 +439,7 @@ void steel_matmul_regular_axpby(
         << "_do_axpby_" << (do_axpby ? 't' : 'n')
         << "_align_M_" << (align_M ? 't' : 'n')
         << "_align_N_" << (align_N ? 't' : 'n')
-        << "_align_K_" << (align_K ? 't' : 'n')
-        << "_laguna_qkv_" << (laguna_qkv ? 't' : 'n'); // clang-format on
+        << "_align_K_" << (align_K ? 't' : 'n'); // clang-format on
 
   std::string hash_name = kname.str();
 

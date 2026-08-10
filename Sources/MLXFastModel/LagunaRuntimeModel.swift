@@ -112,8 +112,6 @@ func lagunaTrace(_ site: @autoclosure () -> String) {
 /// this ships opt-in.
 let lagunaFusedQKVEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_QKV"] == "1"
-let lagunaFusedQKVPrefillEpilogueEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_QKV_PREFILL_EPILOGUE"] == "1"
 
 /// `DARKBLOOM_FUSED_SHARED_GATE_UP` (default on; set "0" to disable): after
 /// checkpoint load, retain one row-concatenated NVFP4 `[gate; up]` bank per
@@ -5472,8 +5470,13 @@ final class LagunaRuntimeAttention: Module {
 
     let rope: RoPELayer
 
+    /// Retained fused `[Wq; Wk; Wv]` weight (output rows concatenated, query
+    /// rows first), built once after checkpoint load when
+    /// `DARKBLOOM_FUSED_QKV` is enabled. Plain stored property with a leading
+    /// underscore so Module reflection never treats this derived layout as a
+    /// checkpoint parameter; the q/k/v `Linear` modules keep the original
+    /// arrays for parameter integrity.
     var _fusedQKVWeight: MLXArray?
-    var _fusedQKVPrefillMetadata: MLXArray?
 
     /// Terminal-prefill-only BF16 side banks. Q and the per-head gate share
     /// the singleton final normalized row; K and V share every normalized
@@ -5648,30 +5651,6 @@ final class LagunaRuntimeAttention: Module {
         return fused
     }
 
-    func prepareFusedQKVPrefillMetadata(_ angles: MLXArray?) -> MLXArray? {
-        guard lagunaFusedQKVPrefillEpilogueEnabled,
-            _fusedQKVPrefillMetadata == nil,
-            !isSliding, layerIdx.isMultiple(of: 4),
-            nHeads == LagunaConstants.fullAttentionHeads,
-            nKVHeads == LagunaConstants.numKeyValueHeads,
-            qNorm.eps == Float(LagunaConstants.rmsNormEpsilon),
-            kNorm.eps == Float(LagunaConstants.rmsNormEpsilon),
-            qNorm.weight.dtype == .bfloat16, qNorm.weight.dims(headDim),
-            kNorm.weight.dtype == .bfloat16, kNorm.weight.dims(headDim),
-            let angles, angles.dtype == .float32,
-            angles.dims(1, 1, lagunaRoPEAngleAtlasLength, headDim / 2)
-        else { return nil }
-        let q = broadcast(qNorm.weight.reshaped(1, headDim),
-            to: [lagunaRoPEAngleAtlasLength, headDim])
-        let k = broadcast(kNorm.weight.reshaped(1, headDim),
-            to: [lagunaRoPEAngleAtlasLength, headDim])
-        let a = angles.reshaped(lagunaRoPEAngleAtlasLength, headDim / 2)
-            .view(dtype: .bfloat16)
-        let metadata = concatenated([q, k, a], axis: 1)
-        _fusedQKVPrefillMetadata = metadata
-        return metadata
-    }
-
     /// Build the two terminal-prefill projection banks once after checkpoint
     /// load. Only the final sliding layer can dispatch them. Concatenating
     /// output rows is exact for bias-free `Linear`: each row retains the same
@@ -5757,8 +5736,7 @@ final class LagunaRuntimeAttention: Module {
         mask: MLXFast.ScaledDotProductAttentionMaskMode,
         cache: KVCache?,
         qkRoPEAngles: MLXArray? = nil,
-        qkRoPEOffsets: MLXArray? = nil,
-        qkRoPEOffset: Int? = nil
+        qkRoPEOffsets: MLXArray? = nil
     ) -> MLXArray {
         let (B, L) = (input.dim(0), input.dim(1))
 
@@ -5938,43 +5916,26 @@ final class LagunaRuntimeAttention: Module {
         var queries: MLXArray
         var keys: MLXArray
         var values: MLXArray
-        var projectionQKNormRoPEFused = false
+        // The retained BF16 [Wq; Wk; Wv] bank is PREFILL-ONLY: at decode it
+        // would override the INT8 fused norm+QKV path (measured +1.4 ms/step
+        // when force-enabled), while at L > 1 it collapses three steel GEMMs
+        // into one.
         if let fusedQKVWeight = _fusedQKVWeight, L > 1 {
             guard let normalizedInput else {
                 preconditionFailure("retained fused QKV requires normalized input")
             }
+            // One dispatch over the row-concatenated [Wq; Wk; Wv] weight,
+            // identical math to the three bias-free `Linear` calls
+            // (`matmul(x, w.T)`). Each output row's K-loop is independent of
+            // which rows share the dispatch, so every Q/K/V element is
+            // bit-exact; the slices are views and the reshapes below may
+            // copy, which does not change values.
+            let qkv = matmul(normalizedInput, fusedQKVWeight.T)
             let queryDim = nHeads * headDim
             let kvDim = nKVHeads * headDim
-            if lagunaFusedQKVPrefillEpilogueEnabled,
-                B == 1, L == 512, !isSliding, layerIdx.isMultiple(of: 4),
-                nHeads == LagunaConstants.fullAttentionHeads,
-                normalizedInput.dtype == .bfloat16,
-                normalizedInput.dims(1, 512, LagunaConstants.hiddenSize),
-                fusedQKVWeight.dtype == .bfloat16,
-                fusedQKVWeight.dims(8192, LagunaConstants.hiddenSize),
-                let metadata = _fusedQKVPrefillMetadata,
-                metadata.dtype == .bfloat16,
-                metadata.dims(lagunaRoPEAngleAtlasLength, 384),
-                let offset = qkRoPEOffset, offset >= 0,
-                offset + L <= lagunaRoPEAngleAtlasLength
-            {
-                let c = asStrided(
-                    metadata, [1, L, queryDim + 2 * kvDim],
-                    strides: [0, 384, 0], offset: offset * 384)
-                let qkv = addMM(c, normalizedInput, fusedQKVWeight.T, beta: 0)
-                    .reshaped(-1)
-                let qEnd = queryDim * L
-                let kEnd = qEnd + kvDim * L
-                queries = qkv[0 ..< qEnd].reshaped(B, nHeads, L, headDim)
-                keys = qkv[qEnd ..< kEnd].reshaped(B, nKVHeads, L, headDim)
-                values = qkv[kEnd ..< (kEnd + kvDim * L)].reshaped(B, L, kvDim)
-                projectionQKNormRoPEFused = true
-            } else {
-                let qkv = matmul(normalizedInput, fusedQKVWeight.T)
-                queries = qkv[.ellipsis, 0 ..< queryDim]
-                keys = qkv[.ellipsis, queryDim ..< (queryDim + kvDim)]
-                values = qkv[.ellipsis, (queryDim + kvDim) ..< (queryDim + 2 * kvDim)]
-            }
+            queries = qkv[.ellipsis, 0 ..< queryDim]
+            keys = qkv[.ellipsis, queryDim ..< (queryDim + kvDim)]
+            values = qkv[.ellipsis, (queryDim + kvDim) ..< (queryDim + 2 * kvDim)]
         } else if let fused = fusedNormQKV {
             queries = fused.queries
             keys = fused.keys
@@ -6041,7 +6002,7 @@ final class LagunaRuntimeAttention: Module {
             nHeads == LagunaConstants.fullAttentionHeads &&
             qkRoPEAngles?.dims(1, 1, lagunaRoPEAngleAtlasLength, headDim / 2) == true
 
-        var qkNormRoPEFused = projectionQKNormRoPEFused
+        var qkNormRoPEFused = false
         var fusedAttended: MLXArray?
         if lagunaFusedSlidingAttentionEnabled,
             useFusedSlidingQKNormRoPE,
@@ -6139,7 +6100,7 @@ final class LagunaRuntimeAttention: Module {
                 length: L
             )
             qkNormRoPEFused = true
-        } else if !qkNormRoPEFused {
+        } else {
             queries =
                 qNorm(queries.reshaped(B, L, nHeads, headDim))
                 .transposed(0, 2, 1, 3)
@@ -11049,8 +11010,7 @@ final class LagunaRuntimeDecoderLayer: Module {
         mask: MLXFast.ScaledDotProductAttentionMaskMode,
         cache: KVCache?,
         qkRoPEAngles: MLXArray? = nil,
-        qkRoPEOffsets: MLXArray? = nil,
-        qkRoPEOffset: Int? = nil
+        qkRoPEOffsets: MLXArray? = nil
     ) -> MLXArray {
         let r = selfAttn(
             x,
@@ -11058,8 +11018,7 @@ final class LagunaRuntimeDecoderLayer: Module {
             mask: mask,
             cache: cache,
             qkRoPEAngles: qkRoPEAngles,
-            qkRoPEOffsets: qkRoPEOffsets,
-            qkRoPEOffset: qkRoPEOffset
+            qkRoPEOffsets: qkRoPEOffsets
         )
         let h: MLXArray
         let normalized: MLXArray
@@ -11481,7 +11440,6 @@ final class LagunaRuntimeModelInner: Module {
         var fullRoPEAngles: MLXArray?
         var slidingRoPEAngles: MLXArray?
         var qkRoPEOffsets: MLXArray?
-        var qkRoPEOffset: Int?
         if lagunaRoPEAngleAtlasEnabled,
             let position = decodeRoPEAtlasPosition(inputs: inputs, cache: cache),
             let fullAtlas = _fullRoPEAngleAtlas,
@@ -11552,7 +11510,6 @@ final class LagunaRuntimeModelInner: Module {
                         fullRoPEAngles = fullAtlas
                         slidingRoPEAngles = slidingAtlas
                         qkRoPEOffsets = MLXArray([Int32(offset)])
-                        qkRoPEOffset = offset
                     }
                 }
             }
@@ -11587,8 +11544,7 @@ final class LagunaRuntimeModelInner: Module {
                         mask: mask,
                         cache: cache?[i],
                         qkRoPEAngles: qkRoPEAngles,
-                        qkRoPEOffsets: qkRoPEOffsets,
-                        qkRoPEOffset: qkRoPEOffset
+                        qkRoPEOffsets: qkRoPEOffsets
                     )
                     if isSingleTokenDecode, (decodeFireMask >> UInt64(i)) & 1 == 1 {
                         asyncEval(h)
@@ -11600,8 +11556,7 @@ final class LagunaRuntimeModelInner: Module {
                     mask: mask,
                     cache: cache?[i],
                     qkRoPEAngles: qkRoPEAngles,
-                    qkRoPEOffsets: qkRoPEOffsets,
-                    qkRoPEOffset: qkRoPEOffset
+                    qkRoPEOffsets: qkRoPEOffsets
                 )
                 if isSingleTokenDecode, (decodeFireMask >> UInt64(i)) & 1 == 1 {
                     asyncEval(h)
@@ -11743,11 +11698,6 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
             }
             if lagunaFusedQKVEnabled, let fused = layer.selfAttn.prepareFusedQKVWeight() {
                 fusedArrays.append(fused)
-                if let metadata = layer.selfAttn.prepareFusedQKVPrefillMetadata(
-                    model._fullRoPEAngleAtlas)
-                {
-                    fusedArrays.append(metadata)
-                }
             }
             fusedArrays.append(
                 contentsOf: layer.selfAttn.prepareLastPrefillProjectionWeights())
