@@ -247,7 +247,7 @@ precondition(alteredRejected)
 let arrays = (0..<10).map { mlx_array_new_int($0) }
 defer { arrays.forEach { _ = mlx_array_free($0) } }
 
-var results: [Result] = []
+private var results: [Result] = []
 var checksum: UInt64 = 0
 for elementCount in elementCounts {
     arrays.withUnsafeBufferPointer { buffer in
@@ -265,7 +265,7 @@ for elementCount in elementCounts {
     }
 }
 
-let report = Report(
+private let report = Report(
     schemaVersion: 1,
     operationA: "mlx_vector_array_new_data + mlx_vector_array_free",
     operationB: "pre-created same-size mlx_vector_array + mlx_vector_array_set_data",
