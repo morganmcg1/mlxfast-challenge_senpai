@@ -31,6 +31,16 @@ BLOCK = 8  # palindromic ABBA block length used by the driver script
 # ladder that arm P deletes is worth about ten.
 SLOTS = {"C": 0.0, "P": -10.0, "D": 11.0, "X": 110.0}
 LADDER_SLOTS = 10.0
+DOSE_ARMS = ("D", "X")
+
+# The params-memo session uses the same instrument with a different unit: the
+# dose arms add unused host MLXArray constructions at the full-attention params
+# site, and the "ladder" being priced is the nine constructions per step that
+# the single-entry memo removes.
+if os.environ.get("UNIT") == "alloc":
+    SLOTS = {"O": 0.0, "M": -9.0, "A": 100.0, "B": 1000.0}
+    LADDER_SLOTS = 9.0
+    DOSE_ARMS = ("A", "B")
 
 
 def load(paths):
@@ -267,11 +277,12 @@ def main():
         price(-(best - 1.96 * bse), cm, "optimistic 95% upper ceiling:")
 
     src = reg_lead or reg
-    dose = {a: src[a] for a in ("D", "X") if a in src}
+    lo_arm, hi_arm = DOSE_ARMS
+    dose = {a: src[a] for a in DOSE_ARMS if a in src}
     if len(dose) == 2:
-        slope = (dose["X"][0] - dose["D"][0]) / (SLOTS["X"] - SLOTS["D"])
-        sse = math.sqrt(dose["X"][1] ** 2 + dose["D"][1] ** 2) / (
-            SLOTS["X"] - SLOTS["D"]
+        slope = (dose[hi_arm][0] - dose[lo_arm][0]) / (SLOTS[hi_arm] - SLOTS[lo_arm])
+        sse = math.sqrt(dose[hi_arm][1] ** 2 + dose[lo_arm][1] ** 2) / (
+            SLOTS[hi_arm] - SLOTS[lo_arm]
         )
         print("\n== dose-response (bit-exact arms only) ==")
         print(
@@ -282,12 +293,12 @@ def main():
         # marginal slope.  A latency-slack model is convex (per-slot cost rises
         # with dose); F > 0 means the curve is concave, which slack cannot
         # produce, and which disqualifies "issue slots" as a linear ruler.
-        step_cost = dose["D"][0] - slope * SLOTS["D"]
-        first = dose["D"][0] / SLOTS["D"]
-        gap = SLOTS["X"] - SLOTS["D"]
-        w_d = 1.0 + SLOTS["D"] / gap
-        w_x = SLOTS["D"] / gap
-        step_se = math.sqrt((w_d * dose["D"][1]) ** 2 + (w_x * dose["X"][1]) ** 2)
+        step_cost = dose[lo_arm][0] - slope * SLOTS[lo_arm]
+        first = dose[lo_arm][0] / SLOTS[lo_arm]
+        gap = SLOTS[hi_arm] - SLOTS[lo_arm]
+        w_d = 1.0 + SLOTS[lo_arm] / gap
+        w_x = SLOTS[lo_arm] / gap
+        step_se = math.sqrt((w_d * dose[lo_arm][1]) ** 2 + (w_x * dose[hi_arm][1]) ** 2)
         print(
             f"  first-dose cost {first * 1000:+8.3f} ns/step per slot -> "
             f"fixed step cost {step_cost:+.2f} us/step at any dose > 0 "

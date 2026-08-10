@@ -118,16 +118,43 @@ control, and strictly better than the QK probe arms which need a rebuild.
 
 Driver: `research/maple-alphonse-r109e-params-memo-abba.sh`,
 `./benchmark.sh --local-iterate` per run, analysed with
-`research/maple-alphonse-r109e-analyze.py` under `CTRL=O`.
+`research/maple-alphonse-r109e-analyze.py` under `UNIT=alloc CTRL=O`.
 
-The order is **two mirrored palindromes**, `OMMOOMMO` then `MOOMMOOM`, not one
-repeated palindrome. The QK ceiling data (§4 of the sibling memo) shows this
-host charges the first run of a block about 74 us/step more than the rest, and
-a single fixed palindrome gives that lead slot to the same arm every time — arm
-and position-in-block are then perfectly collinear and no regression can
-separate them. Mirroring the second block gives each arm exactly one lead slot.
-This is the single most important thing I learned from the ceiling probe, and
-it is worth more to the programme than either arm's point estimate.
+Two things carried over from the ceiling probe change this design.
+
+**(a) Mirror the block.** The order is **two mirrored palindromes**, `OABMMBAO`
+then `MBAOOABM`, not one repeated palindrome. The QK ceiling data (§4.0 of the
+sibling memo) shows this host charges the first run of a block **+101 µs/step**
+more than the rest, and a single fixed palindrome gives that lead slot to the
+same arm every time — arm and position-in-block are then perfectly collinear and
+no regression can separate them. Mirroring the second block gives O and M one
+lead slot each and lets the slot-1 penalty be *estimated* instead of silently
+absorbed into an arm.
+
+**(b) Bring a ruler, because the bare A/B is hopeless.** A pre-registered
+11 µs/step effect against this host's ~50 µs/step run-to-run sd needs roughly
+300 runs to resolve at 80% power; 16 runs give a standard error near 25 µs/step.
+Reporting "no significant difference" from that design would be an empty
+statement. So two of the four arms *add* unused `MLXArray([UInt32...])`
+constructions at the same call site:
+
+| arm | `DARKBLOOM_FULL_PARAMS_MEMO` | `DARKBLOOM_FULL_PARAMS_DOSE` | constructions/step |
+|---|---|---|---|
+| M | unset (memo on) | 0 | 1 |
+| O | `0` | 0 | 10 (shipped) |
+| A | `0` | 10 | 110 |
+| B | `0` | 100 | 1010 |
+
+The A–B contrast prices **one** host construction with 100× the signal, and
+9 × that price is what the memo can possibly return. All four arms are
+bit-exact — the dose arrays are constructed, retained in a static sink so the
+optimiser cannot elide them, and never read by any kernel — so all four must
+report `passed_correctness=true`, and a failure in any of them invalidates the
+session. Analysed with `UNIT=alloc CTRL=O`.
+
+This is the single most important methodological thing I learned from the
+ceiling probe, and it is worth more to the programme than either arm's point
+estimate.
 
 <!--PARAMS-RESULTS-->
 
