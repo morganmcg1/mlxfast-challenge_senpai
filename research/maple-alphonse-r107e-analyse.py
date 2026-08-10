@@ -59,8 +59,8 @@ DESIGNS = {
     },
     "occ2": {
         "arms": ("g0", "g4"),
-        "half_size": 2,
-        "block_size": 4,
+        "half_size": 4,
+        "block_size": 8,
         "base_arm": "g0",
         "stats_name": "insitu-stats-occ2.json",
         "contrasts": {
@@ -121,25 +121,38 @@ def load_rows(sessions: list[str]) -> list[dict]:
 
 
 def group_halves(rows: list[dict]) -> list[dict]:
-    """Bucket rows into complete halves, one observation per arm."""
+    """Bucket rows into halves that carry `half_size / len(arms)` runs per arm.
+
+    Every design's half is position-balanced: each arm's mean position within
+    the half is the same, so a linear within-half drift cancels inside the half
+    and only the mirrored-block average is needed for curvature. That is what
+    buys the ~14 us/step noise floor; an unbalanced adjacent-pair estimator on
+    the same rows measures ~130 us/step of session wander instead.
+    """
     arms, half_size = DESIGN["arms"], DESIGN["half_size"]
+    reps = half_size // len(arms)
+    want = {a: reps for a in arms}
     halves: list[dict] = []
     for i in range(0, len(rows) - half_size + 1, half_size):
         chunk = rows[i:i + half_size]
-        if {c["arm"] for c in chunk} != set(arms):
-            raise SystemExit(f"half at index {i} is not a permutation of {arms}: "
-                             f"{[c['tag'] for c in chunk]}")
-        pos = [c["pos"] for c in chunk]
+        got: dict[str, int] = {}
+        for c in chunk:
+            got[c["arm"]] = got.get(c["arm"], 0) + 1
+        if got != want:
+            raise SystemExit(f"half at index {i} is not {reps} run(s) of each of "
+                             f"{arms}: {[c['tag'] for c in chunk]}")
         order = "forward" if chunk[0]["arm"] == DESIGN["base_arm"] else "reverse"
         halves.append({
             "half": len(halves),
             "session": chunk[0]["session"],
             "block": (chunk[0]["pos"] - 1) // DESIGN["block_size"],
             "order": order,
-            "positions": pos,
-            "arm_pos": {c["arm"]: c["pos"] for c in chunk},
-            "decode": {c["arm"]: c["decode"] for c in chunk},
-            "prefill": {c["arm"]: c["prefill"] for c in chunk},
+            "positions": [c["pos"] for c in chunk],
+            "arm_pos": {a: [c["pos"] for c in chunk if c["arm"] == a] for a in arms},
+            "decode": {a: st.fmean([c["decode"] for c in chunk if c["arm"] == a])
+                       for a in arms},
+            "prefill": {a: st.fmean([c["prefill"] for c in chunk if c["arm"] == a])
+                        for a in arms},
         })
     return halves
 

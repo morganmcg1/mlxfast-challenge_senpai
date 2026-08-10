@@ -20,3 +20,7 @@ abba1.p15.g1 rc=0 seconds=169
 abba1.p16.g0 rc=0 seconds=169
 abba2.p01.g0 rc=0 seconds=167
 abba2.p02.g1 rc=0 seconds=193
+abba2.p03.g2 rc=0 seconds=193
+abba2.p04.g3 rc=0 seconds=205
+abba2.p05.g3 rc=0 seconds=187
+abba2.p06.g2 rc=0 seconds=206
