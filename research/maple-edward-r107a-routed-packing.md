@@ -41,17 +41,205 @@ The experiment parameterizes R1, which is the code that actually runs.
 
 ---
 
-## 1. Rule-83 history search
+## 1. Rule-83 history search — the arm is open but repriced sharply downward
 
-TODO
+Searched for the routed kernel name, "packing", "rows per simdgroup", PR #308,
+and `DARKBLOOM_ROUTED_GATEUP`.
+
+**Open, and this is the named follow-up.**
+
+- `research/maple-tanjiro-threadgroup-packing-curve.md` §6.1 (`:862-891`) lists
+  site 1 as the routed MoE gate/up packed top-8 R1 kernel and classifies it
+  "SAFE to repack"; §6.2 (`:892+`) calls S=4–8 "the highest-value single
+  follow-up"; the `_sgN` JIT-cache warning is at `:930-943`; §7.5 (`:1040+`)
+  specifies exactly the S ∈ {2,4,8,16} ABBA sweep this PR assigns.
+- Restated as idea **L3** in
+  `research/RESEARCH_IDEAS_2026-08-08_21:40.md:173-182`.
+- Not on any closed-families list. Rule 70 explicitly re-permits MoE proposals
+  that change "dispatch structure".
+
+**Supporting prior.** PR #308 (QKV kernel, M4 Pro, W&B `8st0k26f`) swept
+S ∈ {1,2,4,8,16,32} at fixed grid threads and fixed total simdgroups. It found a
+shallow, non-monotone basin with a flat left shoulder, argmax at S=8 with
+−36.9 µs/step, 95% CI [−61.0, −12.9], bit-exact, prefill null. Verdict PURSUE;
+the patch was left unapplied.
+
+**Counter-evidence that repriced my prior to null before any measurement.**
+
+- L3 note, `research/CURRENT_RESEARCH_STATE.md:3327-3334`: PR #48's 8× threadgroup
+  collapse earned **−0.1488% on M5 receipt `285f79fa`**, and "geometry
+  neutrality is absolute until #496 says otherwise".
+- 105-D (PR #603): decode is memory-bound, occupancy is *anti*-correlated with
+  cost, bytes are the cost proxy, "nothing clears +0.5%". Item 3b flags an
+  unresolved residency ambiguity at 64 threads/TG (48 vs 24 TG per core), so
+  neither figure may be quoted as fact.
+- 105-E (PR #609): this kernel family's M5 occupancy is 0.975 and its
+  occupancy penalty is 14.8 µs = **0.226% of the candidate score**; the whole
+  PARALLELISM bucket tops out at 0.384% against a 0.5% bar → verdict N-1.
+  *Caveat I am obliged to state*: 105-E's derate is a function of **grid
+  threads**, which this experiment holds fixed, so it bounds the family but is
+  not strictly on-point for threadgroup geometry at fixed grid threads.
+- PR #543 §I: probe→in-situ non-transfer, a 14% probe gain became −25.5 µs/tok
+  in situ with an error bar 5.4× the effect. §H: threadgroup-doubling DEAD,
+  φ=1.8008, threadgroup cost is a step function with risers at K=20n+1.
+  `#543:2718-2723`: site 1 at S=2 already runs 51.2 threadgroups per M5 core,
+  so there is no residency deficit to recover.
+
+**Pre-registered prior (written before stage 1 ran): null.** The primary
+deliverable is therefore the exclusion bound, not a win. PR #308's basin was
+measured on a *bandwidth-lighter* attention kernel; this site moves the largest
+bytes-per-step of any decode kernel, and every byte-bound geometry result in the
+record has come back null or negative.
 
 ## 2. Mechanism and implementation
 
-TODO
+### 2.1 What the shipped kernel does
+
+`laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2` is dispatched
+**39 times per decode step** (40 layers, layer 0 dense). The call site is
+`LagunaRuntimeSparseMoEBlock.forward` (`LagunaRuntimeModel.swift:10801`), the
+decode guard is `x.dim(1) == 1 && inds.size < 64` (`:10809`) and the packed path
+is `:10833-10858`. It is a **decode-only** path, so prefill is structurally
+untouched by anything in this experiment.
+
+Grid is 131,072 threads = 4,096 simdgroups; each simdgroup owns exactly one of
+512 logical rows (8 experts × 64 rows), one row per simdgroup. The kernel has
+**no threadgroup memory and no barriers** — the only cross-lane primitive is
+`simd_sum` — so simdgroups are fully independent and can be re-bundled into
+threadgroups freely.
+
+### 2.2 The one-line change
+
+The whole mechanism is the row-ownership stride:
+
+```metal
+uint logical_row = tile * S + simd_group;   // shipped: S = 2
+```
+
+with the dispatch changed from `threadGroup: (64,1,1)` to
+`threadGroup: (32*S,1,1)` and **grid threads unchanged**. For any S dividing
+512, `tile ∈ [0, 512/S)` and `simd_group ∈ [0,S)` make `logical_row` a bijection
+onto `[0,512)`, so the set of rows computed, the bytes each simdgroup reads, the
+qdot order and the reduction order are all invariant. The change is bit-exact
+**by construction**, not by luck.
+
+The scale-tile mapping bakes in 4 rows per tile
+(`scale_tile_bytes = 4 * scale_kblock_bytes`, with R1 re-deriving
+`(logical_row/4) * scale_tile_bytes` and `sub = logical_row % 4`). Because it is
+re-derived from `logical_row` it survives repacking untouched; that is the
+invariant the store-row fault control in §3.3 deliberately breaks.
+
+### 2.3 Submitted surface
+
+Only `Sources/MLXFastModel/LagunaRuntimeModel.swift`, **+2,021 bytes net**
+(54 insertions / 7 deletions), well inside the 8 KiB cap.
+
+- `lagunaRoutedSwiGLUQMVPackedTop8R1Source(_ sg: Int) -> String` (~`:7917`) —
+  the previous literal, with the single substitution above. At `sg = 2` it
+  renders byte-identical to the shipped literal; §3.1 proves that with a hash.
+- `lagunaRoutedSwiGLUQMVPackedTop8R1Kernel` (~`:8026`) — name and body
+  unchanged, now built from `…R1Source(2)`.
+- `lagunaRoutedGateUpPackingSimdgroups` (`:8039-8046`) — parses
+  `DARKBLOOM_ROUTED_GATEUP_SG`, accepts only `{2,4,8,16,32}`, and returns 0 for
+  anything else, which leaves the shipped path completely untouched.
+- `lagunaRoutedSwiGLUQMVPackedTop8SGKernel` (`:8048-8061`) — `nil` at selector
+  0; otherwise a **distinct** pipeline named `…r1_bf16_v2_sg\(sg)`.
+
+The distinct name is mandatory, not cosmetic: MLX caches JIT libraries by kernel
+name (`mlx/backend/metal/jit/custom_kernel.cpp:56-72`, `device.cpp:820-861`), so
+reusing one name across arms would serve arm A's compiled library to arm B and
+silently destroy the A/B comparison (rule 33). §3.1 shows the separation costs
+nothing arithmetically: `base` and `sg2` render the identical Metal body.
+
+`verbose: true` on `MLXFastKernel` prints to `std::cout`
+(`mlx/backend/metal/metal_kernel.cpp:342`), which corrupts the worker's JSON
+stdout protocol. The instrumented build therefore writes its receipt to stderr.
 
 ## 3. Stage 0 — reached geometry, parity, fault control
 
-TODO
+Driver `research/maple-edward-r107a-stage0.sh` (job `b23cb4f0`, exit 0, full run;
+job `84de6c21`, exit 0, geometry top-up for the SG=1 receipt).
+
+Rule 75: `digest_before = digest_after =`
+`9f22da52768e28b2fb9b10b13d6806509bd3e8e44f89808fbe7504e842b7526b` on both runs
+— the instrumented and fault builds left `Sources` and `Vendor` byte-identical.
+
+### 3.1 Reached geometry (rule 77)
+
+Receipts are emitted from inside the dispatch call, not inferred. On every arm:
+`grid_threads = 131072`, `total_simdgroups = 4096`, `rows_per_simdgroup = 1`,
+`logical_rows = 512`.
+
+| arm | selector | simdgroups/TG | threads/TG | threadgroups | pipeline suffix | Metal source SHA-256 (prefix) | row stride |
+|---|---|---|---|---|---|---|---|
+| base  | 0  | 2  | 64  | 2048 | *(none)* | `d709725f8351a0af` | `tile * 2` |
+| sg1   | 0  | 2  | 64  | 2048 | *(none)* | `d709725f8351a0af` | `tile * 2` |
+| sg2   | 2  | 2  | 64  | 2048 | `_sg2`   | `d709725f8351a0af` | `tile * 2` |
+| sg4   | 4  | 4  | 128 | 1024 | `_sg4`   | `9eaa9134451cc956` | `tile * 4` |
+| sg8   | 8  | 8  | 256 | 512  | `_sg8`   | `9bf93a0146166271` | `tile * 8` |
+| sg16  | 16 | 16 | 512 | 256  | `_sg16`  | `50306db5122b76e7` | `tile * 16` |
+
+Three things this proves.
+
+1. **Every arm matches the shipped dispatch on the quantities rule 77 names.**
+   Grid threads, total simdgroups, rows per simdgroup and bytes written per
+   row are constant; only `(threadgroups, threads/TG)` moves, and their product
+   is invariant.
+2. **No arm spills or exceeds 1024 threads/TG.** The maximum reached is 512 at
+   S=16. Metal rejects a `threadsPerThreadgroup` above the pipeline's
+   `maxTotalThreadsPerThreadgroup`, so a *successful* run at 32·S threads is
+   itself the proof of support. Headroom exists for S=32 (1024) if the advisor
+   wants that dose later.
+3. **`base` and `sg2` share `metal_src_sha`.** The rule-33 name separation
+   demanded by the assignment is arithmetically free: `sg2` is the shipped
+   kernel body compiled under a distinct pipeline name. That is what makes
+   `base → sg2` a clean price for the machinery alone.
+
+`sg1` is the receipt for the stage-1 `null1` arm: `DARKBLOOM_ROUTED_GATEUP_SG=1`
+is not an accepted value, so it parses to selector 0, the `_sgN` pipeline is
+never built, and the unsuffixed shipped pipeline runs with the identical source
+hash. `null1` is therefore a genuine **identical-execution** null (rule 79), not
+an approximation of one.
+
+### 3.2 Greedy token parity
+
+96 teacher-forced steps on the public golden
+(`correctness_prompts/public_longcopy_gate_english_512_256.json`), shipped
+candidate binary, one arm per selector:
+
+| arm | divergences | decode median | token checksum |
+|---|---|---|---|
+| base | 0 | 8.216 ms | `3157477821` |
+| sg2  | 0 | 8.208 ms | `3157477821` |
+| sg4  | 0 | 8.208 ms | `3157477821` |
+| sg8  | 0 | 8.221 ms | `3157477821` |
+| sg16 | 0 | 8.279 ms | `3157477821` |
+
+Distinct checksums across all five arms: **1**, as required.
+
+### 3.3 Store-row fault control (must fail — it did)
+
+The control compiles the `_sgN` pipeline from `…R1Source(2)` — i.e. the *wrong*
+row stride — while dispatching 32·S threads. Rows are then mis-owned: roughly
+74% of the 512 output rows are left unwritten or raced.
+
+| control | divergences | first divergence |
+|---|---|---|
+| fault-sg8  | 1 | step 9, position 509, token 83 |
+| fault-sg16 | 2 | step 1, position 902, token 5991 |
+
+Both failed, so the parity probe is demonstrably wired to the kernel under test
+and §3.2's five zeroes are not vacuous.
+
+**A finding worth carrying forward.** Destroying ~74% of this kernel's output
+rows flipped only **1–2 tokens out of 96**. A short teacher-forced greedy parity
+run is a *weak* detector for this kernel: the routed contribution is small
+relative to the shared expert and the residual stream, and greedy argmax absorbs
+most of the perturbation. This is exactly why the assignment demanded a fault
+control, and it is why the real parity evidence for this experiment is stage 1's
+checksum over every timed slot (36 slots × 250 steps = 9,000 teacher-forced
+tokens per arm, 54,000 in total), not the 96-step probe. Any future experiment
+on this site should not treat a clean 96-step parity run as strong evidence.
 
 ## 4. Stage 1 — rotated-palindrome full-decode timing
 
