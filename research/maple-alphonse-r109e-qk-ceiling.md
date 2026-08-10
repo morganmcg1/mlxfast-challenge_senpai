@@ -119,6 +119,12 @@ analysis `research/maple-alphonse-r109e-analyze.py`.
 
 This has to come before the arm numbers, because it changes them.
 
+> **Superseded in part by §4.6.** Everything in §4.0–§4.5 is the first block
+> only (n=24), where the effect below is *aliased onto the control* and can only
+> be estimated indirectly. §4.6 adds a mirrored block that identifies it
+> directly at **+53.59 µs/step (se 29.88)**, not the +101 estimated here. Read
+> §4.6 for the numbers that the verdict actually uses.
+
 A fixed palindromic order gives every arm exactly one mirrored position pair —
 in `CXDPPDXC`, C owns slots {1, 8}, X owns {2, 7}, D owns {3, 6}, P owns {4, 5}.
 Arm is therefore **perfectly collinear with position-in-block**, and no
@@ -266,6 +272,60 @@ mechanism: `LagunaRuntimeLocalIterate.swift:559` charges prefill before
 repeat's prefill follows the first repeat's decode. Only X's decode is heavy
 enough (+269 us/step over 128 steps) to heat the die into the next prefill. This
 is a caveat on X, not on the comparison, and it makes 4.4 conservative.
+
+### 4.6 Confirmation block: the mirrored order, and what it did to §4.0–§4.4
+
+Everything above is the first block only (`CXDPPDXC` ×3, n=24), where slot 1 is
+always the control. I then ran a second block with the arm order **mirrored**,
+`PXDCCDXP` (n=8), so slot 1 is held by arm P and the control moves to slots 4/5.
+This makes the block-lead effect *identifiable* instead of aliased onto the
+control. Combined n=32, `python research/maple-alphonse-r109e-analyze.py
+/tmp/r109e-qk-ceiling-main.tsv /tmp/r109e-qk-swap.tsv`:
+
+| arm | mean µs/step | sd | n | correctness |
+|---|---|---|---|---|
+| C shipped (inert control) | 12971.42 | 62.44 | 8 | true |
+| D ladder + 1 slot | 13013.84 | 24.88 | 8 | true |
+| P `simd_broadcast_first` | 12951.87 | 44.15 | 8 | false, by construction |
+| X ladder + 10 slots | 13238.43 | 59.29 | 8 | true |
+
+**The block-lead spike is real but smaller than the single-block estimate, and
+it is no longer significant at 95%: +53.59 µs/step, se 29.88, CI
+[−4.98, +112.16].** The n=24 figure of +101 µs/step was an over-estimate that
+borrowed the control's own noise. I am restating it here rather than quietly
+dropping it: the honest claim is *"slot 1 runs tens of µs/step slower, point
+estimate ≈54, not distinguishable from zero at n=32"*, not *"+101"*. That is
+still large enough relative to a 54 µs/step decision bar to justify the
+recommendation in §7 that every paired driver mirror its arm order — a nuisance
+term whose plausible range is [0, +112] cannot sit aliased on the control.
+
+Combined estimators, arm P (reduction replaced by broadcast) minus control:
+
+| estimator | delta µs/step | se |
+|---|---|---|
+| unpaired Welch | −19.56 | 27.04 |
+| drift-adjusted OLS | −19.56 | 25.44 |
+| palindromic block | −19.56 | 15.00 |
+| Hodges–Lehmann | −23.93 | — |
+| drop slot 1 | **+15.37** | 24.87 |
+| **lead-adjusted OLS** | **−6.16** | 25.57 |
+
+The estimators disagree in *sign* and agree in *magnitude*: every one of them is
+within ±25 µs/step of zero, on a quantity that would have to be ≥54 µs/step to
+matter. The lead-adjusted fit is the one that uses all 32 runs and removes the
+nuisance term, and it says deleting the QK reduction saves **6.16 µs/step**,
+95% CI on the saving [−43.95, **+56.27**].
+
+The synthetic ruler also tightened, and it is the better-powered instrument by
+about 7×: marginal **2268.6 ns/step per added issue slot (se 384.2)**, fixed
+step cost +37.6 µs/step (se 30.0, i.e. indistinguishable from zero, so the
+ruler is linear and usable). Ten ladder slots ⇒ **22.69 µs/step, 95% upper
+30.22**.
+
+The prefill negative control now passes everywhere: deltas +1.89 (t 0.59),
+−0.02 (t −0.01), +4.78 (t 1.08) µs/token for D, P, X. The single-block
+`t = 2.03` on arm X did **not** replicate; it was noise, and I withdraw the
+speculative reading of it in §4.5.
 
 <!--RESULTS-->
 
@@ -486,52 +546,68 @@ too** — it deletes strictly more work than the shortened ladder saves.
 **`N-FULL-QK-CHEAP`. Stop R109-E before any MMA implementation.**
 
 **Stage-0 item 1 — reduce-vs-load, in the units the advisor asked for.**
-Raw ruler slope: **2.339 ns/step per added issue slot** (se 0.434, from D−X,
-both arms mid-block, §4.4). The shipped `simd_sum` ladder that the MMA rewrite
-would replace is ~10 slots.
+All figures below are the **combined n=32 fit** (main block + mirrored
+confirmation block, §4.6), not the n=24 single-block fit that earlier drafts of
+this section used. Raw ruler slope: **2268.6 ns/step per added issue slot**
+(se 384.2). The shipped `simd_sum` ladder that the MMA rewrite would replace is
+~10 slots. Busy µs = wall µs / 0.8, from the advisor's own pair
+(0.0070 %score per wall µs/step, 0.0056 per busy µs/step).
 
 | estimate | ns/slot | µs/step M4 **wall** | ×1.28 corrected | µs/step M4 **busy** | %score @ τ=1 | vs 54 µs bar |
 |---|---|---|---|---|---|---|
-| synthetic ladder ruler (point) | 2.339 | **23.4** | 29.9 | 29.2 | 0.164 | **0.43×** |
-| synthetic ladder ruler (95% upper) | 3.190 | 31.9 | 40.8 | 39.9 | 0.223 | 0.59× |
-| direct removal probe P−C (point saving) | — | **−20.9** (costs, not saves) | −26.8 | −26.2 | −0.146 | below |
-| direct removal probe P−C (95% upper saving) | — | **43.0** | 55.1 | 53.8 | 0.301 | **0.80×** |
+| synthetic ladder ruler (point) | 2268.6 | **22.69** | 29.04 | 28.36 | 0.159 | **0.42×** |
+| synthetic ladder ruler (95% upper) | 3021.9 | 30.22 | 38.68 | 37.78 | 0.212 | 0.56× |
+| direct removal probe P−C (point saving) | — | **+6.16** | 7.88 | 7.70 | 0.043 | 0.11× |
+| direct removal probe P−C (95% upper saving) | — | **+56.27** | 72.03 | 70.34 | 0.394 | **1.04×** |
 
 I apply the ×1.28 correction as instructed; its derivation is in the omitted
 middle of comment 5246312084 and I have not independently checked it. It does
 not change any sign or any verdict.
 
-**As a share of my 249.5 µs/step pool: the entire QK reduction is 9.4%
-(95% upper 12.8%). The advisor's own table says I need a 27.2% harvest of that
-pool to clear the bar.** The mechanism I was assigned is structurally too small
-by roughly 3×, independent of how well it is implemented.
+**As a share of my 249.5 µs/step pool: the entire QK reduction is 9.1%
+(ruler 95% upper 12.1%). The advisor's own table says I need a 27.2% harvest of
+that pool to clear the bar.** The mechanism I was assigned is structurally too
+small by roughly 3×, independent of how well it is implemented.
 
 ### What this verdict is, and what it is not
 
-Under the advisor's earlier ~30 µs/step bar this was a **bounded negative**: the
-95% interval on the direct probe's saving, [−84.9, +43.0] µs/step, did not
-exclude a bar-clearing win. **The closed pricing bracket changes that.** With
-the bar at 54 µs/step of M4 wall:
+An earlier draft of this section claimed *"two independent estimators exclude a
+bar-clearing saving at 95%"*. **The confirmation block does not support that
+claim and I withdraw it.** What the combined n=32 data actually supports is
+weaker and I state it exactly:
 
-- the direct removal probe's 95% **upper** bound on the saving is 43.0 µs/step
-  — **below** the bar;
-- the synthetic ruler's 95% **upper** bound is 31.9 µs/step (40.8 corrected) —
-  **below** the bar;
-- both estimators are independent of each other, and §4.4 gives two separate
-  reasons why a synthetic *addition* ruler over-states what a *removal*
-  recovers.
+- the **synthetic ruler**, which is the better-powered instrument by ≈7× (se
+  3.8 vs 25.6 µs/step on the ladder total), puts the whole ladder at
+  **22.69 µs/step, 95% upper 30.22 (38.68 corrected)** — the upper bound is
+  **below** the 54 µs/step bar, so this estimator does exclude a bar-clearing
+  saving at 95%;
+- the **direct removal probe** does **not**. Its point saving is +6.16 µs/step
+  and its 95% upper is **+56.27 (72.03 corrected)** — that upper bound sits
+  just *above* the bar. Deleting the reduction outright cannot be ruled out at
+  95% by this probe alone; it is simply far too noisy to resolve a 54 µs/step
+  effect with n=32 at sd ≈ 50 µs/step per run.
 
-So this is no longer only an expected-value decision. **Two independent
-estimators exclude a bar-clearing saving at 95%,** and they do so under the
-`τ = 1` assumption that is maximally favourable to my own hypothesis. The one
-caveat I keep: 95% exclusion is not proof, and the ruler prices *issue slots*,
-so a mechanism that removed the reduction's *latency* rather than its issue
-count is not bounded by this number.
+So this is an **expected-value decision plus one exclusion**, not two. The point
+estimates from both instruments (22.7 and 6.2 µs/step) are 0.42× and 0.11× of
+the bar; the only interval that reaches the bar is the wide one, from the weaker
+instrument, and it reaches it only at its optimistic extreme. Two further
+caveats I keep: the ruler prices *issue slots*, so a mechanism that removed the
+reduction's *latency* rather than its issue count is not bounded by it; and
+§4.4 gives two separate reasons why a synthetic *addition* ruler over-states
+what a *removal* recovers, which makes the ruler's own bound conservative in
+the direction that favours my hypothesis.
+
+To actually resolve the direct probe against a 54 µs/step bar I would need
+roughly `(25.6/13.8)^2 ≈ 3.4×` the sample, i.e. ~110 runs ≈ 5.5 h of box time,
+to halve the interval. **I do not recommend spending it**, because the ruler
+already answers the same question with 7× the power and the §6 design analysis
+independently projects the MMA rewrite as a regression. That trade is the
+recommendation, not a hidden assumption.
 
 Against that ceiling, the MMA implementation in §6 is projected to be **worse
 than the code it replaces** (32 slots/key vs 28 today, ≈5% regression) unless
 the M5 matrix unit exceeds 1.5× scalar FMA throughput, which is publicly
-unverified. Spending Stage 1 on a rewrite whose 95%-optimistic case is 0.59× of
+unverified. Spending Stage 1 on a rewrite whose 95%-optimistic case is 0.56× of
 the bar and whose modelled case is a regression is not a good use of the box.
 
 ### Three things that would change the verdict
@@ -555,18 +631,31 @@ the bar and whose modelled case is a regression is not a good use of the box.
 
 ### Instrument finding, which outlives the verdict
 
-The +101 µs/step block-lead penalty (§4.0) is 3.4× the entire decision bar and
-lands on whichever arm is scheduled first. Six research drivers in this tree
-always schedule the control first, so their historical deltas are biased in the
-direction that **manufactures local wins**. Every future paired driver in this
-campaign should mirror the arm order across blocks, or drop slot 1.
+The block-lead penalty (§4.0, §4.6) lands on whichever arm is scheduled first.
+With the mirrored block it is identified at **+53.59 µs/step, se 29.88, 95% CI
+[−4.98, +112.16]** — one whole decision bar at the point estimate, and up to two
+bars at the top of the interval. It is *not* significant at n=32, and I say so;
+the argument does not need significance. A nuisance term whose plausible range
+is [0, +112] µs/step must not sit **aliased onto the control**, because then it
+is indistinguishable from a candidate win. Six research drivers in this tree
+always schedule the control first
+(`research/maple_r85c_epilogue_ab.sh`, `maple_r88a_two_regime_ab.sh`,
+`maple_r91a_input_norm_ab.sh`, `maple-nezuko-r106b-h4-paired.sh`,
+`nezuko_epilogue_abba.sh`, `tanjiro-r100b-census.sh`), so their historical
+deltas are biased in the direction that **manufactures local wins**;
+`maple-nezuko-r106b-packred-paired.sh` and `maple_r85_placement_arms.sh`
+already rotate and are fine. Every future paired driver in this campaign should
+mirror the arm order across blocks, or drop slot 1. The mirroring costs one
+extra block; it is the cheapest fix available.
 
 ### Stage-0 checklist, answered in order
 
-1. **Reduce-vs-load in µs of M4 removed off the 249.5 µs pool** — table above.
-   Raw **2.339 ns/step per issue slot**; ladder **23.4 µs/step** wall (95% upper
-   31.9); **×1.28 corrected 29.9** (upper 40.8); **29.2 µs busy** (upper 39.9).
-   9.4% of the pool against a 27.2% requirement.
+1. **Reduce-vs-load in µs of M4 removed off the 249.5 µs pool** — table above,
+   combined n=32. Raw **2268.6 ns/step per issue slot** (se 384.2); ladder
+   **22.69 µs/step** wall (95% upper 30.22); **×1.28 corrected 29.04** (upper
+   38.68); **28.36 µs busy** (upper 37.78). **9.1% of the pool against a 27.2%
+   requirement.** The independent direct-removal probe agrees on the point
+   estimate (+6.16 µs/step saved) and is too noisy to bound (95% upper +56.27).
 2. **Params bolt-on, separately** — §"params memo" companion note. It is a
    different mechanism class (host encode, `τ ≈ 1%`), so it is *not* additive
    with item 1 at the same `τ` and I price it separately there. Pre-registered
