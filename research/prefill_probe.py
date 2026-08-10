@@ -24,13 +24,18 @@ Usage:
 
 import argparse
 import json
+import os
 import pathlib
 import re
 import subprocess
 import time
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
-WORKER = REPO / ".build-worker/release/mlxfast-runtime-worker"
+# PREFILL_PROBE_WORKER drives a worker built from another tree (R106-F' times
+# the pinned ranked-baseline commit 15852ee5 against this candidate).
+WORKER = pathlib.Path(
+    os.environ.get("PREFILL_PROBE_WORKER",
+                   REPO / ".build-worker/release/mlxfast-runtime-worker"))
 GOLDEN = REPO / "correctness_prompts/public_longcopy_gate_english_512_256.json"
 
 
