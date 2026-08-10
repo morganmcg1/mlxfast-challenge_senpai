@@ -7812,31 +7812,16 @@ uint2 gate_codes;
 uint2 up_codes;
 uint8_t gate_sb;
 uint8_t up_sb;
-const bool code_owner = (lane & 1u) == 0u;
 {
     const device uint8_t* first_scales =
         row_scales + sub * 2 * scale_row_bytes + (lane >> 1);
     bool patch_lane = expert == 0 && logical_row == 0 && lane == 1;
     gate_sb = patch_lane ? packed_scales[0] : first_scales[0];
     up_sb = patch_lane ? packed_scales[1] : first_scales[scale_row_bytes];
-    {
-        uint4 pair = uint4(0u);
-        if (code_owner) {
-            pair = *(const device uint4*)(
-                expert_weight + gate_row * fused_row_bytes + lane * 8);
-        }
-        const uint2 peer = simd_shuffle_xor(pair.zw, ushort(1));
-        gate_codes = code_owner ? pair.xy : peer;
-    }
-    {
-        uint4 pair = uint4(0u);
-        if (code_owner) {
-            pair = *(const device uint4*)(
-                expert_weight + up_row * fused_row_bytes + lane * 8);
-        }
-        const uint2 peer = simd_shuffle_xor(pair.zw, ushort(1));
-        up_codes = code_owner ? pair.xy : peer;
-    }
+    gate_codes = *(const device uint2*)(
+        expert_weight + gate_row * fused_row_bytes + lane * 8);
+    up_codes = *(const device uint2*)(
+        expert_weight + up_row * fused_row_bytes + lane * 8);
 }
 
 for (uint block = 0; block < input_width; block += block_width) {
@@ -7862,26 +7847,12 @@ for (uint block = 0; block < input_width; block += block_width) {
             + sub * 2 * scale_row_bytes + (lane >> 1);
         gate_sb = next_scales[0];
         up_sb = next_scales[scale_row_bytes];
-        {
-            uint4 pair = uint4(0u);
-            if (code_owner) {
-                pair = *(const device uint4*)(
-                    expert_weight + gate_row * fused_row_bytes
-                    + next_block / 2 + lane * 8);
-            }
-            const uint2 peer = simd_shuffle_xor(pair.zw, ushort(1));
-            gate_codes = code_owner ? pair.xy : peer;
-        }
-        {
-            uint4 pair = uint4(0u);
-            if (code_owner) {
-                pair = *(const device uint4*)(
-                    expert_weight + up_row * fused_row_bytes
-                    + next_block / 2 + lane * 8);
-            }
-            const uint2 peer = simd_shuffle_xor(pair.zw, ushort(1));
-            up_codes = code_owner ? pair.xy : peer;
-        }
+        gate_codes = *(const device uint2*)(
+            expert_weight + gate_row * fused_row_bytes
+            + next_block / 2 + lane * 8);
+        up_codes = *(const device uint2*)(
+            expert_weight + up_row * fused_row_bytes
+            + next_block / 2 + lane * 8);
     }
 
     gate_result += laguna_nvfp4_qdot_codes_16(
