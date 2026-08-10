@@ -770,27 +770,36 @@ private func makeRealSharedExpertMLP(
     downScales: MLXArray
 ) -> LagunaRuntimeMLP {
     let mlp = LagunaRuntimeMLP(dimensions: 2048, hiddenDimensions: 512)
-    mlp.gateProj = QuantizedLinear(
-        weight: gateWeight,
-        scales: gateScales,
-        biases: nil,
-        groupSize: 16,
-        bits: 4,
-        mode: .nvfp4)
-    mlp.upProj = QuantizedLinear(
-        weight: upWeight,
-        scales: upScales,
-        biases: nil,
-        groupSize: 16,
-        bits: 4,
-        mode: .nvfp4)
-    mlp.downProj = QuantizedLinear(
-        weight: downWeight,
-        scales: downScales,
-        biases: nil,
-        groupSize: 16,
-        bits: 4,
-        mode: .nvfp4)
+    let replacements: [(String, Module)] = [
+        (
+            "gate_proj",
+            QuantizedLinear(
+                weight: gateWeight,
+                scales: gateScales,
+                biases: nil,
+                groupSize: 16,
+                bits: 4,
+                mode: .nvfp4)),
+        (
+            "up_proj",
+            QuantizedLinear(
+                weight: upWeight,
+                scales: upScales,
+                biases: nil,
+                groupSize: 16,
+                bits: 4,
+                mode: .nvfp4)),
+        (
+            "down_proj",
+            QuantizedLinear(
+                weight: downWeight,
+                scales: downScales,
+                biases: nil,
+                groupSize: 16,
+                bits: 4,
+                mode: .nvfp4)),
+    ]
+    mlp.update(modules: .unflattened(replacements))
     return mlp
 }
 
