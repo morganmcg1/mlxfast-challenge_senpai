@@ -368,7 +368,8 @@ def main():
         for nm, val in (('point estimate', m), ('CI95 low', m - hw), ('CI95 high', m + hw)):
             a3 = three(val)
             print('  %-15s %+10.3f us/token   %+8.4f %% decode   %+8.4f %% cs(a)   %+8.4f %% cs(b)'
-                  % (nm, a3[0], a3[1], a3[2], val * K_BETA * PCS_PER_M5_US))
+                  % (nm, a3[0], a3[1], val * K_ALPHA * PCS_PER_M5_US,
+                     val * K_BETA * PCS_PER_M5_US))
         covers0 = (m - hw) <= 0.0 <= (m + hw)
         print('  CI95 covers zero : %s' % ('YES' if covers0 else 'NO'))
         # assumption-free cross-check on the t-interval: the t-CI needs the

@@ -9,6 +9,23 @@ Epoch **R107**. Unless a line says otherwise, every quantity below is
 **host = M4-Pro · epoch = R107 · MARGINAL** (a local paired difference of two arms of
 one binary). No number here is a census number and no number here came from a receipt.
 
+> **Part 1 verdict (§5).** The A/A null **passes**: 12 paired blocks, 24 runs, 0/24
+> correctness failures, one golden hash. `mean(D) = −4.935 µs/token`,
+> **CI95 [−16.513, +6.642] µs/token = [−0.1099, +0.0442] % of `cs` (α)** — covers zero.
+> The paired noise floor is now **measured** at `sd(D) = 18.222 µs/token`
+> (chi-square CI95 [12.908, 30.938]), 26.5 % below the 24.8 I had inferred, so the
+> instrument is **3.11×** tighter than fern's ABBA on the score channel rather than the
+> 2.25× I claimed. All five registered predictions P1–P5 hold. Two honest corrections:
+> pairing buys **drift protection, not resolution** (within-block r = −0.249, variance
+> factor 0.80×), and I wasted ~10 min of host time on a duplicate campaign launch which I
+> cancelled and excluded (§5.0).
+>
+> **Part 2 (§6, §7).** The blocker — certifying a candidate that is a source transplant
+> with no env gate — is solved by the **two-tree staging tool**
+> (`research/maple-nezuko-r107j-stage-tree.sh`), which makes a whole built tree an arm
+> without touching `certify.sh`. Standing by for frieren #660 and alphonse #644; nothing
+> to certify yet.
+
 ---
 
 ## 0. What this round is, and what it is not
@@ -34,6 +51,8 @@ certified with a CI that excludes zero. Nothing in the campaign can do that toda
 the score channel, which puts it in the right range — but its noise floor has only ever
 been **inferred** (24.8 µs/step, back-derived from a within-arm sd of 16.354 on 24 runs),
 never **measured**, and it has never been shown to return zero when nothing changed.
+*(Measured after the fact: `sd(D) = 18.222 µs/token`, so the real factor is 3.11×, not
+2.25×. Corrected in §5.7; the pre-run figure is left standing here as written.)*
 
 So the deliverable is the instrument, in this order:
 
@@ -359,7 +378,198 @@ surface**; they differ only in `research/`. Two consequences, both load-bearing:
 
 ## 5. Results
 
-*(populated after the campaign; §1 was committed before launch)*
+**Headline: the instrument passes its own A/A null. All five registered predictions hold.
+The paired noise floor is now MEASURED at `sd(D) = 18.222 µs/token`, not inferred.**
+
+### 5.0 Provenance and custody
+
+| field | value |
+|---|---|
+| session | `20260810T153224Z` |
+| tree at launch | `ff8b09188f1f` (HEAD when `certify.sh` recorded `HEAD_SHA`, pre-loop, `certify.sh:165`) |
+| row sink | `/tmp/r107j-aa-null.tsv`; session isolated to `/tmp/r107j-aa-null-s1.tsv`, committed verbatim as `research/maple-nezuko-r107j-aa-null-rows.tsv` |
+| W&B | run `lg646mqf` — https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/lg646mqf (24 run rows, 12 paired diffs, power curve, blocks-needed table as artefacts) |
+| instrument | `./benchmark.sh --local-submit` (1023 decode steps), blocked + order-rotated |
+| rows | 24 = 12 blocks × 2 arms, both arms **empty gate sets on one pristine binary** |
+| host | Apple M4 Pro, 20 GPU cores, 48 GiB, epoch R107 |
+
+**Operational error, disclosed.** At 16:56Z I launched a *second* A/A campaign
+(`20260810T165624Z`, head `b4442be52c9c`) without first checking that the registered
+12-block campaign had already completed at ~16:52Z. It was a duplicate replicate, not a
+continuation. I caught it two runs in and cancelled it (`cancel_job`, elapsed 579.8 s,
+exit −15, ~17:06Z), then confirmed no orphaned model-holding process was left behind.
+**The two session-2 rows are discarded and are not pooled into anything below**: pooling
+them would break the preregistered stopping rule in §1.5, which fixes n = 12 and forbids
+look-and-extend. For the record, session-2 block 1 gave `D = +17.9 µs/token`, which is a
+one-block anecdote inside the measured `sd` and is reported here only so that the
+discarded data is on the table rather than quietly dropped. The cost was ~10 min of host
+time and no scientific harm; the lesson is to read the row sink before launching.
+
+### 5.1 Per-arm description (CENSUS levels)
+
+| arm | n | mean µs/token | sd | cv % | gates | kernels | passed | golden |
+|---|---|---|---|---|---|---|---|---|
+| `A` (reference) | 12 | 8978.627 | 11.954 | 0.133 | none | none | true | `f49e4c2cbc0d3ceee9…` |
+| `A′` | 12 | 8973.692 | 11.095 | 0.124 | none | none | true | `f49e4c2cbc0d3ceee9…` |
+
+Correctness failures: **0 / 24**. One golden hash across all 24 runs.
+
+### 5.2 The twelve paired blocks
+
+| block | `A′` | `A` | `D = A′ − A` | dpos | dprefill |
+|---|---|---|---|---|---|
+| 1 | 8961.086 | 8978.021 | −16.936 | +1 | −13.699 |
+| 2 | 8964.238 | 8967.300 | −3.062 | −1 | −0.824 |
+| 3 | 8968.212 | 8970.264 | −2.052 | +1 | −4.298 |
+| 4 | 8990.645 | 8970.715 | **+19.930** | −1 | −13.496 |
+| 5 | 8972.755 | 8965.076 | +7.679 | +1 | −11.319 |
+| 6 | 8964.892 | 9001.588 | **−36.696** | −1 | +8.736 |
+| 7 | 8978.662 | 8995.401 | −16.740 | +1 | −7.585 |
+| 8 | 8973.795 | 8970.561 | +3.234 | −1 | +26.928 |
+| 9 | 8965.047 | 8992.541 | −27.494 | +1 | −1.162 |
+| 10 | 8974.005 | 8977.097 | −3.092 | −1 | +2.742 |
+| 11 | 8998.379 | 8972.249 | **+26.130** | +1 | −1.788 |
+| 12 | 8972.593 | 8982.716 | −10.123 | −1 | −28.355 |
+
+Position offsets sum to zero by construction (six `+1`, six `−1`), so the unadjusted mean
+is already position-balanced.
+
+### 5.3 The interval — which is the deliverable
+
+```
+n_blocks=12  dof=11  t(0.975,11)=2.201
+paired sd        =    18.222 us/token   (MEASURED, not inferred)
+standard error   =     5.260 us/token
+CI95 half-width  =    11.577 us/token
+t statistic      =    -0.938              (two-sided p = 0.3684)
+reference level  =  8978.627 us/token
+point estimate      -4.935 us/token    -0.0550 % decode    -0.0328 % cs(a)    -0.0376 % cs(b)
+CI95 low           -16.513 us/token    -0.1839 % decode    -0.1099 % cs(a)    -0.1257 % cs(b)
+CI95 high           +6.642 us/token    +0.0740 % decode    +0.0442 % cs(a)    +0.0506 % cs(b)
+CI95 covers zero : YES
+sign-flip test   : p=0.3677 (exact, 4096 patterns) -> agrees with the CI
+```
+
+Per rule 105.22(c) the reported result is the **interval**, not the point estimate: the
+instrument's answer to "nothing changed" is
+**−0.0328 % of `cs`, CI95 [−0.1099, +0.0442] % (α)** — equivalently
+**[−0.1257, +0.0506] % (β)**. It is centred on zero to well inside its own resolution and
+the exact sign-flip test (distribution-free, so it does not rely on the dof-11 normality
+assumption behind the t-interval) agrees to three decimal places on p.
+
+### 5.4 Registered predictions, scored
+
+| # | prediction | outcome | verdict |
+|---|---|---|---|
+| P1 | `mean(D)` CI95 covers zero | [−16.513, +6.642] µs/token | **PASS** |
+| P2 | `sd(D)` in the 15–35 µs/token band | 18.222 | **PASS**, but see below |
+| P3 | prefill difference covers zero | d = −3.677, CI95 [−12.308, +4.954] | **PASS** |
+| P4 | position OLS slope covers zero | +0.033 µs/position, CI95 [−12.259, +12.324] | **PASS** |
+| P5 | same kernel set, same golden, all passed | none/none, one hash, 24/24 | **PASS** |
+
+P1 is the pass condition and it holds, so §1.4's falsification branch does not fire: the
+instrument is not broken and Part 2 stays a measurement job rather than a repair job.
+
+**P2 passed but the prediction was miscalibrated in an informative direction.** The
+pre-run inference was 24.8 µs/token; the measurement is 18.222, i.e. **0.735× — 26.5 %
+below** what I had back-derived from a within-arm sd on 24 runs. So every R106-B power
+claim built on 24.8 was *pessimistic*, not optimistic. That is the benign direction, but
+it is still a miss, and it is exactly why P2 was registered with a band rather than as a
+point.
+
+P4 deserves its own note: the position slope's CI half-width (±12.3 µs/position) is about
+as wide as the whole effect interval, so P4 establishes "no *detectable* ordering
+confound at this resolution", not "no ordering confound". The position-adjusted intercept
+at `dpos = 0` is −4.935 µs/token, identical to the unadjusted mean to three decimals,
+which is the balanced-design guarantee doing its job rather than independent evidence.
+
+### 5.5 Pairing does not buy resolution — it buys drift protection
+
+The within-block correlation between arms is **r = −0.249**, so blocking changes the
+variance of the mean difference by **0.80×** relative to an unpaired comparison. That is
+not a variance win; it is a rounding error in the wrong direction of what I expected.
+
+I registered pairing on the assumption that the two arms of a block share their
+run-to-run noise, so differencing would cancel it. On this host, at this resolution, they
+**do not**: the dominant noise is per-run and independent, not per-block and common. I am
+reporting this against my own prior because the honest version matters for anyone reusing
+the design — and the conclusion is *keep the blocking anyway*. Its value is the guarantee
+scored in P4: with order rotation, any monotone session drift (thermal, allocator, page
+cache) lands on both arms equally and cannot alias into the contrast. Paying 1.25× in
+variance for structural immunity to drift is a good trade when the alternative failure
+mode is a confidently-signed artefact. What must **not** happen is anyone citing the
+blocking as the reason the interval is tight. It is not.
+
+### 5.6 Power curve, and the band on the power curve
+
+| blocks | runs | hw µs/token | hw % decode | hw % `cs`(α) | hw % `cs`(β) |
+|---|---|---|---|---|---|
+| 4 | 8 | 28.990 | 0.3229 | 0.1929 | 0.2207 |
+| 6 | 12 | 19.125 | 0.2130 | 0.1272 | 0.1456 |
+| 8 | 16 | 15.236 | 0.1697 | 0.1014 | 0.1160 |
+| **10** | **20** | **13.034** | **0.1452** | **0.0867** | **0.0992** |
+| 12 | 24 | 11.577 | 0.1289 | 0.0770 | 0.0882 |
+| 16 | 32 | 9.708 | 0.1081 | 0.0646 | 0.0739 |
+| 20 | 40 | 8.528 | 0.0950 | 0.0567 | 0.0649 |
+| 30 | 60 | 6.803 | 0.0758 | 0.0453 | 0.0518 |
+
+Blocks needed to certify a summed effect (α / β):
+
+| target | M4 µs (α) | M4 µs (β) | resolve (~50 %) | 80 % power | runs at 80 % |
+|---|---|---|---|---|---|
+| 0.40 % | 60.12 | 52.53 | 3 / 3 | 3 / 4 | 6 / 8 |
+| 0.30 % | 45.09 | 39.40 | 4 / 4 | 4 / 4 | 8 / 8 |
+| 0.25 % | 37.58 | 32.83 | 4 / 4 | 5 / 5 | 10 / 10 |
+| 0.20 % | 30.06 | 26.27 | 4 / 5 | 6 / 6 | 12 / 12 |
+
+**The `sd` is itself an estimate and I am not going to pretend otherwise.** The
+chi-square CI95 on `sd` at dof 11 is **[12.908, 30.938] µs/token**. Half-widths scale
+linearly in `sd` and block counts scale as `sd²`, so every row above carries a factor of
+**[0.71×, 1.70×]** on its half-width and **[0.50×, 2.88×]** on its block count. Planning
+uses the **upper** `sd`. Concretely: the ten-block half-width is 0.0867 % of `cs` (α) as
+measured, but could be as poor as 0.1472 % if the true `sd` sits at the top of its band —
+which is still inside the range that makes rule-105.5 summation decidable, so the plan
+does not change. This is the interval-on-the-interval, and it is the number to quote when
+someone asks how much the power curve can be trusted.
+
+### 5.7 Correction to my own earlier claim
+
+§0 and §7.1 were written before the measurement and say the instrument is **~2.25×**
+tighter than fern's `--local-iterate` ABBA (±0.27 % of the score channel), with a
+ten-block half-width of ≈0.1178 % of `cs`. Both figures came from the inferred `sd` of
+24.8. On the measured `sd` of 18.222 the correct numbers are:
+
+| quantity | pre-run claim (inferred sd 24.8) | measured (sd 18.222) |
+|---|---|---|
+| hw at 10 blocks, % `cs`(α) | 0.1178 | **0.0867** |
+| tightness vs fern's ±0.27 % (α) | 2.25× | **3.11×** |
+| tightness vs fern's ±0.27 % (β) | — | 2.72× |
+| tightness at 12 blocks (α) | — | 3.51× |
+| same, across the chi-square `sd` band (α) | — | 1.83× … 4.40× |
+
+So the instrument is **better than advertised**, by about 38 %. I am recording the
+correction rather than silently upgrading the claim, because the 2.25× figure has already
+been quoted in this report and the provenance of the improvement matters: it is a smaller
+measured noise floor, not a better design.
+
+For scale against the standing bar: 0.4 % of `cs` is 60.12 M4 µs/token (α), and the
+twelve-block half-width is 11.577 µs/token — **19.3 % of the bar**. The 0.25 % summation
+target of rule 105.5 is 3.25× the half-width. Both are comfortably decidable in one
+session, which is the whole point of building this.
+
+### 5.8 What this licenses, and what it does not
+
+Licensed: quoting `sd(D) = 18.222 µs/token` (with its band) as the measured paired noise
+floor of `--local-submit` decode on this host in epoch R107; using the §5.6 table to size
+a certification campaign; and reporting a candidate contrast from this instrument as an
+interval on the `cs` channel.
+
+Not licensed: any claim that a *candidate* arm shares this noise floor. A candidate that
+changes the kernel set, dispatch count, or memory traffic can have a different `sd`, and
+P5 is precisely the check that would catch it — the campaign aborts if an arm's kernel set
+moves mid-session. The A/A establishes the floor for two identical arms; a real
+certification re-measures `sd` on the arms it actually ran, which is why the analyser
+prints the measured `sd` every time rather than reusing this one.
 
 ---
 
@@ -512,10 +722,10 @@ because they bear on my own arithmetic rather than only on hers:
 
 Set against tanjiro's R108-L (`874e4917`), which priced removal at `k = 0.0872`, CI
 [−0.221, +0.438] and returned `N-NO-MERGEABLE-PAIR`, the honest prior on family E is weak. That
-is precisely the regime where a 2.25×-tighter instrument earns its keep: a weak prior plus a
-wide instrument yields nothing, while a weak prior plus a **half-width ≈0.118 % of `cs`** at ten
-blocks either clears the rule-105.21 arming threshold of a certified **+1.0 % of `cs`** or rules
-it out in a single session.
+is precisely the regime where a 3.11×-tighter instrument earns its keep: a weak prior plus a
+wide instrument yields nothing, while a weak prior plus a **measured half-width of 0.0867 % of
+`cs`** at ten blocks (§5.6; ≤0.1472 % at the top of the `sd` band) either clears the rule-105.21
+arming threshold of a certified **+1.0 % of `cs`** or rules it out in a single session.
 
 ### 7.2 Standing readiness, and the hand-off constraint
 
