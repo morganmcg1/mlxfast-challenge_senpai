@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "assignment_id": "cedar-tanjiro-external-ranked-mechanism-survey-20260810",
+  "base_sha": "21011663a0ecf8c5288a5092388dc0bc78ef2051",
+  "verdict": "no_go",
+  "nomination": null,
+  "gates": {
+    "decode_static_floor_us_per_token": 18.0,
+    "prefill_static_floor_ms_per_pass": 2.33,
+    "candidate_growth_limit_bytes": 8192,
+    "available_submission_headroom_bytes": 15879,
+    "exact_checked_output": true
+  },
+  "internal_baseline": {
+    "pr": "https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/652",
+    "commit": "1fae5317e0ba348b004d69fb94f1b6c3c7f710c0",
+    "atlas_sha256": "204879be05a5bce3edb12293a99af3847f7bf5284fc539d6d43c6e02e3ba08a7",
+    "family_count": 17
+  },
+  "sources": [
+    {
+      "id": "challenge",
+      "url": "https://github.com/Layr-Labs/mlxfast-challenge/pull/1814",
+      "revision": "candidate 1b21f5f9b394aca727f52510e8fed97da2e62016; receipt 7df02ad4-a616-484f-ba87-240a5719f074",
+      "date": "2026-08-10",
+      "license": "MIT",
+      "evidence_sha256": "ef2d9a13ed4b3c06db638d4b494766f671dfd64f1d121fb238b97bef01d30dc1"
+    },
+    {
+      "id": "mlx",
+      "url": "https://github.com/ml-explore/mlx/pulls?q=is%3Apr+quantized+metal",
+      "revision": "5a1e44c3bb991dab753cee394b0b1d889e2eb9a7; 5de6d94a903c9bf315e5548b03ec5294e5169c1a; 38ad257088fb2193ad47e527cf6534a689f30943",
+      "date": "2025-04-17/2026-03-21/2026-08-09",
+      "license": "MIT",
+      "license_sha256": "ccfab7ccb2ea306f71531c8ca77bb55507606cd90768b1e32b8b52ab5b48cf01"
+    },
+    {
+      "id": "llama_cpp",
+      "url": "https://github.com/ggml-org/llama.cpp/pulls?q=is%3Apr+metal+moe",
+      "revision": "611aa914ef4231fab5d1ad04773c42e119ae2d2e; da44953329daec5f16b7b19d7ebfdc6552415362",
+      "date": "2025-05-09/2026-05-12",
+      "license": "MIT",
+      "license_sha256": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d"
+    },
+    {
+      "id": "basert",
+      "url": "https://arxiv.org/html/2607.00501v1",
+      "revision": "https://github.com/basecompute/baseRT/commit/bbded2c2fdb5e8fc1893fbbc5853a9e131250034",
+      "date": "2026-08-09",
+      "license": "Apache-2.0",
+      "license_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    }
+  ],
+  "candidates": [
+    {
+      "id": "lane_major_lm_head_scale_metadata",
+      "source": "challenge#1814",
+      "claim": "33-byte lane-major exact scale rows remove 3,110,912 logical bytes/token; isolated M4 kernel saved 8.85 us (2.03%), recurring control 8.875 us, total decode regressed 0.256%.",
+      "cedar_seam": "LagunaLmHeadPrune.swift / final_norm_lm_head_argmax",
+      "m4_m5_mapping": "Same custom decode seam; official M5 submission was rejected.",
+      "classification": "below_amdahl",
+      "novel": true,
+      "ranked_reachable": true,
+      "exact_ownership": true,
+      "static_bound": "8.875 us/token = 49.3% of 18 us floor",
+      "scope": "7020-byte reported growth fits 8192-byte candidate cap",
+      "reason": "Only novel transferable mechanism, but measured ownership is below the mandatory floor and end-to-end direction was negative. Sentinel/escape predecessor was 1.8-2.1% slower."
+    },
+    {
+      "id": "narrow_nvfp4_qmv_results_per_simdgroup",
+      "source": "mlx#3961@5a1e44c3bb991dab753cee394b0b1d889e2eb9a7",
+      "claim": "M5 g17s uses 2 rather than 4 results/SIMD for N>=4096; Qwen generation 128.0 to 131.5 t/s (+2.7%).",
+      "cedar_seam": "custom packed routed gate/up QMV; internal families 11 and 13",
+      "m4_m5_mapping": "Upstream evidence is M5-only; generic MLX QMV is not the Cedar hot projection path.",
+      "classification": "already_present_or_exhausted",
+      "novel": false,
+      "ranked_reachable": false,
+      "exact_ownership": true,
+      "static_bound": null,
+      "scope": "unknown until reimplementation",
+      "reason": "Cedar already promotes a one-output-row/SIMD routed R1 kernel; output-row tilings and related load-sharing were exhausted."
+    },
+    {
+      "id": "sorted_gather_quantized_mm",
+      "source": "mlx#2078@5de6d94a903c9bf315e5548b03ec5294e5169c1a",
+      "claim": "Sort MoE rows by expert and run dedicated gathered quantized GEMM; public prompt throughput improved materially on several MoE models.",
+      "cedar_seam": "gatherSort + MLX.gatherQuantizedMM and fused sorted routed prefill; families 11 and 13",
+      "m4_m5_mapping": "Present on Cedar prefill; ranked M5 additionally selects NAX variants.",
+      "classification": "already_present",
+      "novel": false,
+      "ranked_reachable": true,
+      "exact_ownership": true,
+      "static_bound": null,
+      "scope": "n/a",
+      "reason": "The mechanism is already in the scored runtime."
+    },
+    {
+      "id": "split_k_small_m_qmm",
+      "source": "mlx#3120@38ad257088fb2193ad47e527cf6534a689f30943",
+      "claim": "M3 Max 4-bit group-64 QMM improved about 25-30% at M=12-16.",
+      "cedar_seam": "routed prefill gathered QMM; families 11 and 13",
+      "m4_m5_mapping": "Public M3 generic-kernel evidence does not establish ranked M5 NAX benefit.",
+      "classification": "incompatible_exactness_exhausted",
+      "novel": false,
+      "ranked_reachable": false,
+      "exact_ownership": false,
+      "static_bound": null,
+      "scope": "unknown",
+      "reason": "Split-K re-associates checked reductions and is already recorded as exhausted."
+    },
+    {
+      "id": "expert_major_dense_gemm_remap",
+      "source": "llama.cpp#13388@611aa914ef4231fab5d1ad04773c42e119ae2d2e",
+      "claim": "Compact token/expert rows to expert-major dense GEMMs then unmap; public pp512 gains ranged roughly 1.8-4.1x on Q4/F16 MoE models.",
+      "cedar_seam": "sorted routed gate/up/down prefill; families 11 and 13",
+      "m4_m5_mapping": "Different formats and kernels; Cedar already sorts expert runs and uses tuned M5 GatherQMM.",
+      "classification": "incompatible_no_static_bound",
+      "novel": false,
+      "ranked_reachable": true,
+      "exact_ownership": false,
+      "static_bound": "No conservative 2.33 ms/pass ownership after remap/materialization costs",
+      "scope": "likely exceeds narrow 8192-byte experiment",
+      "reason": "Core grouping is present; dense remap changes the reduction/data-movement seam and lacks an exact Cedar bound."
+    },
+    {
+      "id": "metal_function_constants_for_divmod",
+      "source": "llama.cpp#22711@da44953329daec5f16b7b19d7ebfdc6552415362",
+      "claim": "Compile batch divisors/strides as Metal function constants; M4 Pro decode gains 1.21-5.37%, prefill unchanged.",
+      "cedar_seam": "host_graph_enqueue_sync plus custom generated kernels",
+      "m4_m5_mapping": "M4 evidence is relevant in principle, but Cedar hot kernels already emit fixed dimensions as constexpr values.",
+      "classification": "already_present_or_not_reachable",
+      "novel": false,
+      "ranked_reachable": false,
+      "exact_ownership": true,
+      "static_bound": null,
+      "scope": "small in principle",
+      "reason": "Generic fallback divmod is not the scored custom-kernel seam; descriptor/literal hoists are exhausted."
+    },
+    {
+      "id": "separate_decode_gemv_inline_dequant",
+      "source": "BaseRT@bbded2c2fdb5e8fc1893fbbc5853a9e131250034",
+      "claim": "Separate decode GEMV with in-loop dequantization; paper reports up to 1.56x versus llama.cpp and 1.35x versus MLX, with large-MoE decode often only 1.04-1.07x.",
+      "cedar_seam": "custom M=1 NVFP4 QMV and laguna_nvfp4_qdot_16; families 3, 8, 11, 13, 15",
+      "m4_m5_mapping": "M3/M4 Q4/Q8 evidence; Cedar M4/M5 path uses fused NVFP4 kernels.",
+      "classification": "already_present_format_mismatch",
+      "novel": false,
+      "ranked_reachable": true,
+      "exact_ownership": true,
+      "static_bound": null,
+      "scope": "n/a",
+      "reason": "The architectural mechanism already defines Cedar decode; public format and model gains do not transfer."
+    }
+  ]
+}

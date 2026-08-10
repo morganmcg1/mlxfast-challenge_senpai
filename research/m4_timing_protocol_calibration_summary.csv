@@ -1,0 +1,24 @@
+category,metric,value,unit,status,notes
+collection,planned_sessions,2,sessions,planned,pre-registered
+collection,planned_cycles,6,mirrored_cycles,planned,three per session
+collection,planned_invocations,48,invocations,planned,eight per cycle
+collection,attempted_invocations,1,invocations,observed,first ABBA A label
+collection,valid_invocations,0,invocations,observed,no timed benchmark completed
+collection,rejected_invocations,1,invocations,observed,strict telemetry cool gate
+inference,pooled_prefill_speedup,NA,ratio,not_estimable,no valid latency
+inference,pooled_decode_speedup,NA,ratio,not_estimable,no valid latency
+inference,pooled_weighted_speedup,NA,ratio,not_estimable,no valid latency
+inference,abba_prefill_speedup,NA,ratio,not_estimable,no complete half-block
+inference,baab_prefill_speedup,NA,ratio,not_estimable,no complete half-block
+inference,order_interaction,NA,log_ratio,not_estimable,no complete cycle
+inference,position_slope,NA,log_latency_per_position,not_estimable,no valid latency
+inference,lag1_residual_autocorrelation,NA,correlation,not_estimable,no residual series
+inference,aa_actual_promotions,0,promotions,observed,zero eligible promotion decisions
+inference,aa_false_positive_rate,NA,fraction,not_estimable,no complete cycle contrasts
+inference,synthetic_0_2pct_recovery,NA,boolean,not_estimable,no observed noise structure
+power,observed_mde_80pct,NA,percent,not_estimable,no mirrored-cycle standard deviation
+power,observed_mde_95pct,NA,percent,not_estimable,no mirrored-cycle standard deviation
+runtime,failed_launch_wall_time,4.2,minutes,observed,252 seconds before any timing
+runtime,frozen_48_launch_lower_bound,201.6,minutes,lower_bound,already exceeds two-hour usefulness cap
+runtime,failed_launch_peak_ram,NA,GB,not_estimable,failure occurred before timed model execution
+decision,sub_0_2pct_local_promotion_gate,NO-GO,decision,terminal,strict physical protocol infeasible and required calibration estimands unavailable
