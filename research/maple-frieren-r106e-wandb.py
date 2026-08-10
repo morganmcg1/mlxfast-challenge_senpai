@@ -279,6 +279,151 @@ def main() -> None:
     for k, v in HYPOTHESES.items():
         summary[f"ratio_vs/{k}"] = at0["sd_ln_cs_pct"] / v
 
+    wt_path = Path("research/maple-frieren-r106e-withintree.json")
+    rc_path = Path("research/maple-frieren-r106e-record-check.json")
+    if wt_path.exists():
+        wt = json.loads(wt_path.read_text())
+        wtbl = wandb.Table(columns=["marker", "commit", "created", "cs",
+                                    "official_score", "session_factor_f_pct",
+                                    "baseline_decode_us_step",
+                                    "baseline_prefill_us_tok",
+                                    "cand_decode_us_step",
+                                    "cand_prefill_us_tok", "recon_official"])
+        for d in wt["draws"]:
+            wtbl.add_data(d["marker"], d["commit"][:12], d["created_at"],
+                          d["cs"], d["official_score"], d["f_pct"],
+                          1e6 * d["baseline_decode_s"],
+                          1e6 * d["baseline_prefill_s"],
+                          1e6 * d["decode_s"], 1e6 * d["prefill_s"],
+                          d["recon_official"])
+        run.log({"within_tree_draws": wtbl})
+
+        ptbl = wandb.Table(columns=["anchor", "sigma_model", "cs", "gap_pct",
+                                    "sigma_pct", "z", "p_record_per_draw",
+                                    "expected_draws"])
+        for anchor in ("null1", "replicate_mean"):
+            for model in ("corpus", "naive", "paired"):
+                r = wt[f"p_record_{anchor}_{model}"]
+                ptbl.add_data(anchor, model, r["cs"], r["gap_pct"],
+                              r["sigma_pct"], r["z"], r["p"], r["e_draws"])
+        run.log({"p_record_matrix": ptbl})
+
+        stbl = wandb.Table(columns=["statistic", "value_pct", "ci_lo", "ci_hi",
+                                    "interpretation"])
+        stbl.add_data("sd(ln cs) within fixed tree", wt["sd_ln_cs_pct"],
+                      *wt["sd_ln_cs_ci"],
+                      "candidate-only noise after same-session pairing")
+        stbl.add_data("sd(session factor f)", wt["sd_f_pct"], *wt["sd_f_ci"],
+                      "session noise carried by the pinned baseline legs")
+        stbl.add_data("sd(ln officialScore) within fixed tree",
+                      wt["sd_ln_official_pct"], *wt["sd_ln_official_ci"],
+                      "what actually governs the record lottery")
+        stbl.add_data("sd(ln baseline decode leg)",
+                      wt["sd_ln_bl_decode_pct"], float("nan"), float("nan"),
+                      "n=5 within-tree")
+        stbl.add_data("sd(ln baseline prefill leg)",
+                      wt["sd_ln_bl_prefill_pct"], float("nan"), float("nan"),
+                      "n=5 within-tree; prefill leg dominates f")
+        run.log({"within_tree_sigma": stbl})
+
+    if rc_path.exists():
+        rc = json.loads(rc_path.read_text())
+        ctbl = wandb.Table(columns=["rank_by_cs", "commit", "submission",
+                                    "created", "cs", "official_score",
+                                    "session_factor_f_pct", "attribution"])
+        for i, r in enumerate(rc["by_cs"], 1):
+            ctbl.add_data(i, r["commit"], r["id"], r["created"], r["cs"],
+                          r["official"], r["f_pct"],
+                          (r.get("note") or "")[:300])
+        run.log({"top_by_cs": ctbl})
+
+        cen = rc["census"]
+        ltbl = wandb.Table(columns=["quantity", "value"])
+        for k, v in cen.items():
+            ltbl.add_data(k, v)
+        ltbl.add_data("record_cs_rank_of_scored",
+                      f"{rc['record_cs_rank']} / {rc['scored']}")
+        run.log({"lottery_census": ltbl})
+
+    if wt_path.exists():
+        def sd_ln_pct(key):
+            v = [math.log(d[key]) for d in wt["draws"]]
+            m = sum(v) / len(v)
+            return 100 * math.sqrt(sum((x - m) ** 2 for x in v) / (len(v) - 1))
+
+        summary.update({
+            "within_tree/sd_ln_cand_decode_leg_pct": sd_ln_pct("decode_s"),
+            "within_tree/sd_ln_cand_prefill_leg_pct": sd_ln_pct("prefill_s"),
+            "within_tree/sd_ln_baseline_decode_leg_pct":
+                wt["sd_ln_bl_decode_pct"],
+            "within_tree/sd_ln_baseline_prefill_leg_pct":
+                wt["sd_ln_bl_prefill_pct"],
+            "within_tree/baseline_over_cand_prefill_noise_ratio":
+                wt["sd_ln_bl_prefill_pct"] / sd_ln_pct("prefill_s"),
+            "within_tree/n": wt["n"],
+            "within_tree/reconstruction_max_rel_err":
+                wt["reconstruction_max_rel_err"],
+            "within_tree/sd_ln_cs_pct": wt["sd_ln_cs_pct"],
+            "within_tree/sd_session_factor_pct": wt["sd_f_pct"],
+            "within_tree/sd_ln_official_pct": wt["sd_ln_official_pct"],
+            "within_tree/mean_session_factor_pct": wt["mean_f_pct"],
+            "within_tree/corr_ln_decode_vs_baseline_decode": wt["H0a_corr_dec"],
+            "within_tree/corr_ln_cs_vs_session_factor": wt["corr_lncs_f"],
+            "within_tree/session_pass_through": wt["session_pass_through"],
+            "within_tree/sd_ln_official_implied_by_slope_pct":
+                wt["sd_lnos_implied_by_slope_pct"],
+            "within_tree/H0b_chi2": wt["H0b_chi2_stat"],
+            "within_tree/H0b_reject_below_at_5pct":
+                wt["H0b_reject_below_at_5pct"],
+            "within_tree/winners_curse_bias_pct": wt["winners_curse_bias_pct"],
+            "within_tree/sigma_naive_unpaired_pct": wt["sigma_naive_pct"],
+            "p_record/headline_per_draw": wt["headline"]["p"],
+            "p_record/headline_expected_draws": wt["headline"]["e_draws"],
+            "p_record/headline_ci_lo": wt["headline"]["p_at_sd_ci_lo"],
+            "p_record/headline_ci_hi": wt["headline"]["p_at_sd_ci_hi"],
+            "p_record/advisor_prior_per_draw":
+                wt["p_record_null1_corpus"]["p"],
+            "record_holder/session_factor_pct":
+                wt["record_holder"]["f_pct"],
+            "record_holder/session_factor_z":
+                wt["record_holder"]["z_vs_corpus_sd_f"],
+            "record_holder/our_cs_lead_pct":
+                wt["record_holder"]["our_cs_lead_pct"],
+            "record_holder/expected_max_f_over_corpus_pct":
+                wt["record_holder"]["expected_max_f_pct"],
+        })
+    if rc_path.exists():
+        summary.update({
+            "corpus/n_scored": rc["scored"],
+            "corpus/sd_session_factor_pct": cen["corpus_sd_f_pct"],
+            "corpus/mean_session_factor_pct": cen["corpus_mean_f_pct"],
+            "corpus/corr_ln_cs_vs_session_factor": cen["corpus_corr_lncs_f"],
+            "corpus/record_cs_rank": rc["record_cs_rank"],
+            "lottery/n_top_cs_receipts": cen["n_band"],
+            "lottery/n_record_beating": cen["n_record_beating"],
+            "lottery/band_sd_session_factor_pct": cen["band_f_sd_pct"],
+            "lottery/required_f_median_pct": cen["required_f_median_pct"],
+            "lottery/p_max_le_observed_given_corpus_sd":
+                cen["p_max_le_observed_given_corpus_sd"],
+        })
+        summary["verdict"] = (
+            "RETRACTED by the direct n=5 within-tree measurement: the "
+            "corpus + rho=0 route overstated both sigmas by ~3x. Use "
+            f"sd(ln cs | fixed tree) = {wt['sd_ln_cs_pct']:.4f} % and "
+            f"sd(ln officialScore | fixed tree) = "
+            f"{wt['sd_ln_official_pct']:.4f} %.")
+        summary["verdict_r106e_final"] = (
+            "Same-session pairing cancels ~34 % of session noise: within a "
+            "fixed tree sd(ln officialScore) = "
+            f"{wt['sd_ln_official_pct']:.4f} %, not the corpus sd(f) = "
+            f"{cen['corpus_sd_f_pct']:.4f} %. Independent confirmation: the "
+            f"top-cs cohort shows sd(f) = {cen['band_f_sd_pct']:.4f} %. "
+            f"P(record)/draw for our best tree is {wt['headline']['p']:.6%} "
+            f"(E ~ {wt['headline']['e_draws']:.0f} draws), and "
+            f"{cen['n_band']} top-cs receipts have produced "
+            f"{cen['n_record_beating']} record-beating draws. Buying draws is "
+            "not a route to the record; raising cs by ~1.28 % is.")
+
     art = wandb.Artifact("r106e-fixed-tree-noise", type="measurement")
     art.add_file(sys.argv[1], name="legnoise.json")
     if writeup.exists():
@@ -289,7 +434,12 @@ def main() -> None:
                   "research/maple-frieren-r106e-note.py",
                   "research/maple-frieren-r106e-payload-digest.py",
                   "research/maple-frieren-r106e-draws.py",
-                  "research/maple-frieren-r106e-draw.sh"):
+                  "research/maple-frieren-r106e-draw.sh",
+                  "research/maple-frieren-r106e-withintree.py",
+                  "research/maple-frieren-r106e-withintree.json",
+                  "research/maple-frieren-r106e-record-check.py",
+                  "research/maple-frieren-r106e-record-check.json",
+                  "research/maple-frieren-r106e-surface-compare.py"):
         if Path(extra).exists():
             art.add_file(extra, name=Path(extra).name)
     run.log_artifact(art)

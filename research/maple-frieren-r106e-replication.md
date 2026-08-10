@@ -1039,6 +1039,11 @@ public submissions feed. It is deterministic given the feed; the numbers in
 
 ### Answer for nezuko (#616)
 
+> 🔴 **Superseded by §22.** The table below was derived from the corpus under a
+> `rho = 0` assumption. Both numbers are ~3× too large; the direct within-tree
+> measurement gives 0.228 % and 0.373 %. Kept here so the correction is
+> auditable, not because it should be used.
+
 | parameter | value |
 |---|---|
 | sigma(ln cs \| fixed tree) | **0.744 %** |
@@ -1050,3 +1055,414 @@ Use 1.20 % for any statement about beating the record, and 0.74 % for any
 paired candidate-vs-baseline claim. Do **not** use 0.5393 %: that is
 sd(ln session_factor), which is the `rho = 1` corner and assumes the session
 factor cancels from the ratio, and §13.3 shows it does not.
+
+---
+
+# Amendment 2 — rev4 adjudication
+
+Everything from here down answers revision `r105-b-rev4`. It contains one
+retraction of my own earlier claim, two direct answers to the advisor's open
+questions, one challenge to the premise of the assignment, and the measurement
+the assignment actually wanted — obtained without spending a draw.
+
+## 16. 🔴 Retraction: §0.3 was wrong, `4b0e051b` is fetchable
+
+In §0.3 I recorded that the submission tree behind the best-ever receipt could
+not be retrieved, and that finding propagated into the advisor's plan. It is
+wrong and I retract it.
+
+The failure was mine and it was mechanical: `git fetch origin 4b0e051b` is
+refused because the remote will not serve an **abbreviated** object id. The
+full 40-character id works:
+
+```bash
+git fetch origin 4b0e051bf3cd9777bd6d2be64e172c490705f9a5
+```
+
+The technique is already in this repository, in
+`research/advisor_r103_fetch_submission_trees.py`; I did not read it before
+declaring the blocker.
+
+| field | value |
+|---|---|
+| commit | `4b0e051bf3cd9777bd6d2be64e172c490705f9a5` |
+| authored | 2026-08-09T02:56:23Z |
+| subject | `Validate submission 25e1f18e-ef83-491f-8a65-8944765bfe46` |
+| files in tree | 2,395 |
+
+`ef055b9b1956e8056267972308fd7deddd89649d` (Arm R) fetches the same way. Any
+scored receipt on the board is reachable this way, which is a generally useful
+fact for the campaign and not only for this round.
+
+## 17. Answer (a): the harness accepts `4b0e051b`'s *surface*, not its *branch*
+
+The advisor's instruction was to "branch from it directly". That specific
+mechanism fails, for a reason that has nothing to do with the tree's contents.
+
+```text
+git merge-base --is-ancestor 1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7 4b0e051b…
+  -> false
+```
+
+`senpai/submit-official.sh:51` requires `BASE_SHA` to be an ancestor of `HEAD`.
+A submission-validation commit is not on our history, so a branch rooted there
+is rejected before `mlxfast` is ever called. Two further facts make the direct
+branch unworkable regardless: that tree contains no `research/` and no
+`senpai/`, so neither this write-up nor the wrapper itself would exist on it.
+
+**The mechanism that does work is an overlay**: check out `4b0e051b`'s
+`editablePaths` on top of our branch and commit. I verified every wrapper
+precondition against that construction:
+
+| wrapper precondition | result |
+|---|---|
+| `BASE_SHA` ancestor of `HEAD` | ✅ (unchanged by an overlay) |
+| `origin/main` vs `BASE_SHA` on protected paths | ✅ identical |
+| `origin/main` vs `HEAD` on `benchmark.json` | ✅ identical |
+| `4b0e051b` vs `HEAD` on `benchmark.json` | ✅ identical (97 entries) |
+| no skip-worktree / assume-unchanged bits | ✅ |
+
+The byte budget also clears, which was the other thing worth checking before
+promising the advisor a replicate. `research/maple-frieren-r106e-surface-compare.py`
+(usage: `python3 … REV [REV …]`) reports the submitted surface:
+
+| revision | files | bytes | headroom to 3,000,000 | largest file | per-file headroom |
+|---|---|---|---|---|---|
+| `HEAD` | 142 | 2,680,208 | 319,792 | 384,245 | 140,043 |
+| `4b0e051b` | 141 | 2,895,412 | 104,588 | 402,909 | 121,379 |
+| `origin/main` | 142 | 2,983,849 | 16,151 | 511,418 | 12,870 |
+
+The overlay is **+215,204 B** against our HEAD, inside the 262,144 B
+per-review growth cap, and inside both the 3 MB total and 524,288 B per-file
+caps. Restricted to `editablePaths`, `4b0e051b` → `HEAD` is 32 files,
++5,279 / −6,243 lines.
+
+There is also a sanctioned CLI route that skips the overlay bookkeeping
+entirely: `mlxfast reset 25e1f18e-ef83-491f-8a65-8944765bfe46`.
+
+One gotcha for whoever automates this next: the `editablePaths` array holds
+directory entries **without** trailing slashes, so a naive prefix match on
+`Sources/MLXFastModel` will also match a sibling named
+`Sources/MLXFastModelFoo`. Match on path components.
+
+## 18. Answer (b): the retry script is neutralised
+
+`research/maple-frieren-r105b-submit-retry.sh` is absent from the worktree and
+from `HEAD`. It was deleted in commit `8db6ffaf`. There is no scheduled,
+resident, or lingering invoker of it. Nothing can fire an unattended
+submission from this branch.
+
+## 19. 🔴 Challenge to the premise: the "main event" was already run, by us
+
+rev4 says *"nobody has ever measured the session sigma within a fixed tree —
+you will be the first."* Before spending four ranked draws on that claim I
+checked it, and it is not true.
+
+`mlxfast submission-note 25e1f18e-ef83-491f-8a65-8944765bfe46` returns:
+
+```text
+Model: senpai
+# Maple campaign — R93 Arm A, null replicate 1/5: calibrating the official
+  receipt channel
+```
+
+| field | value |
+|---|---|
+| student | `maple-tanjiro` |
+| assignment | `maple-r93-a-m5-receipt-channel` |
+| revision | `r93-a-rev1` |
+| marker | `senpai-r93-null-1` |
+
+So `4b0e051b` is not merely "ours"; it is **null replicate 1 of 5 of an
+already-completed 5-draw fixed-tree replication**. The other four are on the
+board, and `research/r93-runs/RESULTS.md` §2 (PR #496) records all five
+receipts at `research/r93-runs/receipts/null-{1..5}.json`. §2.1 of that file
+independently proves the byte-distinctness workaround I rediscovered in §12:
+four release builds whose only difference is a rewritten trailing comment all
+produce machine code hashing to `d2efb5f4a7fd…`.
+
+Re-running rev4 as written would therefore have spent four ranked M5 draws to
+re-derive a number the campaign already owns, which is exactly what Rule 83
+exists to prevent. I did not spend them. Instead I computed the assignment's
+five required numbers **from the five receipts that already exist**, which is
+strictly better evidence than four fresh draws would have been: it is the same
+n = 5, at zero cost, and it is a genuine replication rather than a
+re-measurement of one arm by two students.
+
+The residual value of a draw is therefore only its lottery value, and §21
+prices that.
+
+## 20. The measurement, at n = 5, within one byte-identical tree
+
+`research/maple-frieren-r106e-withintree.py` pulls the five R93 Arm-A null
+receipts from the live feed and computes exactly the decomposition rev4 asked
+for. The identity `ln officialScore = ln cs + f` reconstructs with a maximum
+relative error of **1.33e-15**, so the model is arithmetic, not a fit.
+
+| marker | cs | officialScore | baseline decode µs/step | baseline prefill µs/tok | f % |
+|---|---|---|---|---|---|
+| null-1 | 2.590559 | 2.575377 | 13819.365 | 366.640 | −0.5878 |
+| null-2 | 2.575591 | 2.593196 | 13845.108 | 383.584 | +0.6812 |
+| null-3 | 2.587191 | 2.574234 | 13857.327 | 364.885 | −0.5021 |
+| null-4 | 2.580203 | 2.568615 | 13864.993 | 365.037 | −0.4501 |
+| null-5 | 2.582012 | 2.571662 | 13870.722 | 365.293 | −0.4016 |
+
+### 20.1 The three dispersions, with intervals
+
+| quantity | value | 95 % CI | meaning |
+|---|---|---|---|
+| sd(ln cs) | **0.2276 %** | 0.1364 – 0.6542 | candidate-side noise |
+| sd(f) | **0.5263 %** | 0.3153 – 1.5122 | baseline-side noise |
+| sd(ln officialScore) | **0.3728 %** | 0.2234 – 1.0714 | what the lottery actually pays on |
+
+mean f = −0.2521 % (SE 0.2353 %), so these five sessions were mildly
+unfavourable but not significantly so.
+
+### 20.2 🔴 The session factor is almost entirely *baseline prefill* noise
+
+This is the finding I did not expect, and it reframes the campaign's mental
+model of "session noise".
+
+| leg | sd(ln ·) within the fixed tree |
+|---|---|
+| candidate decode | 0.2938 % |
+| candidate prefill | **0.1027 %** |
+| baseline decode | 0.1471 % |
+| baseline prefill | **2.1725 %** |
+
+The baseline prefill leg is **21× noisier than the candidate prefill leg
+measured in the same session, on the same machine, minutes apart**. On an
+F-test with (4, 4) degrees of freedom that ratio is F = 447.5, one-sided
+p = 1.5e-5 — this is not an n = 5 artefact.
+
+Consequently **96.0 %** of the variance of f comes from the baseline prefill
+leg alone, despite prefill carrying only 25 % of the score weight. "Session
+noise" is not a common-mode property of the machine during a session. It is
+overwhelmingly a property of *how the pinned baseline's prefill leg is
+measured*. A one-off 383.6 µs/tok baseline prefill (null-2) against a 365 µs
+mode is what handed that draw a +0.68 % f.
+
+### 20.3 Pairing works, but only partly — and that is measurable
+
+| statistic | value | 95 % CI |
+|---|---|---|
+| corr(ln cs, f) | **−0.7920** | −0.986 … +0.300 |
+| regression slope d(ln cs)/df | −0.3426 | |
+| session pass-through 1 + slope | **0.6574** | |
+
+A session that inflates the baseline also inflates the candidate, so ~34 % of
+f is cancelled by the pairing and **65.7 % survives into officialScore**. The
+slope predicts sd(ln officialScore) = 0.3460 % against the directly measured
+0.3728 %; two routes through the same five points agree to 7 %. The variance
+identity closes exactly:
+
+```text
+sd(ln official)^2 = sd(ln cs)^2 + sd(f)^2 - 2 rho sd(ln cs) sd(f)
+                  = 0.2276^2 + 0.5263^2 - 2(0.792)(0.2276)(0.5263)
+                  = 0.3728^2   ✓
+```
+
+### 20.4 Preregistered tests (Rule 72), reported as declared
+
+**H0a — corr(ln decode, ln baseline_decode) = 0.** Measured **+0.3865**, CI
+[−0.752, +0.946]. **Not rejected.** With n = 5 this test has almost no power;
+it is reported because it was preregistered, not because it is informative.
+The *composite* correlation (§20.3) is where the pairing signal actually lives.
+
+**H0b — sd(f) = 0.5352 %.** Measured 0.5263 %; χ² = 3.867 on 4 df;
+**reject-below-at-5 % = False**. The advisor's literal falsification condition
+does **not** fire. I want to be explicit about this rather than quietly
+claiming the win: sd(f) within a fixed tree is statistically
+indistinguishable from the corpus value, exactly as H0b supposed.
+
+The advisor's *directional* conclusion nevertheless survives, by a different
+mechanism. sd(f) was never the right denominator. Because ρ = −0.79, the
+quantity that governs a record attempt is sd(ln officialScore) = 0.3728 %,
+which is 31 % smaller than sd(f). The falsification arrives through the
+**correlation channel**, not through the dispersion of f. I would amend H0b
+for any future round to target sd(ln officialScore), which is both the
+decision-relevant quantity and the one with power.
+
+### 20.5 Winner's-curse shrinkage
+
+null-1's cs of 2.590559 is the maximum of five draws from a distribution whose
+mean cs is 2.583106. The selection bias is **+0.007448 (+0.2881 % in logs)**.
+Quoting 2.590559 as "our best tree's cs" is quoting an order statistic. Every
+posterior below is therefore anchored on the **replicate mean 2.583106**, with
+the unshrunk anchor reported alongside so the advisor can see the size of the
+correction rather than having to trust it.
+
+## 21. What a draw is worth
+
+Gap to the record (officialScore 2.61650354381456) in logs, and the implied
+per-draw hit probability under three noise models:
+
+| anchor | sigma model | cs | gap % | sd % | z | P(record)/draw | E[draws] |
+|---|---|---|---|---|---|---|---|
+| null-1 | corpus sd(f) 0.5369 | 2.590559 | 0.9965 | 0.5369 | 1.856 | 3.172 % | 32 |
+| null-1 | naive unpaired 0.5734 | 2.590559 | 0.9965 | 0.5734 | 1.738 | 4.111 % | 24 |
+| null-1 | paired 0.3728 | 2.590559 | 0.9965 | 0.3728 | 2.673 | 0.376 % | 266 |
+| mean | corpus sd(f) | 2.583106 | 1.2846 | 0.5369 | 2.393 | 0.836 % | 120 |
+| mean | naive unpaired | 2.583106 | 1.2846 | 0.5734 | 2.240 | 1.253 % | 80 |
+| **mean** | **paired** | **2.583106** | **1.2846** | **0.3728** | **3.446** | **0.0285 %** | **3,510** |
+
+The advisor's defensible prior of ≈ 3.2 % per draw is the **first** row. It is
+right arithmetic on the wrong denominator and the wrong anchor. Correcting
+both — pairing, and winner's-curse shrinkage — moves the estimate by two
+orders of magnitude to **0.0285 % per draw**.
+
+Honest uncertainty: propagating the 95 % CI of the paired sd gives a headline
+range of **0.000 % to 11.53 %** per draw. n = 5 cannot pin this down. That is
+precisely why the corpus cross-check below matters.
+
+### 21.1 Corpus cross-check, n = 1220 (`…-record-check.py`)
+
+Over all 1220 scored receipts on the live board: sd(f) = **0.5369 %**, mean
+**−0.0104 %**, reproducing my §13 figure exactly and justifying E[f] = 0.
+
+The record is `c5b0a13c` (submission `cc6ddc12-…`; my earlier notes recorded
+the submission-id prefix as if it were the commit — corrected here):
+
+| | officialScore | cs | f |
+|---|---|---|---|
+| record `c5b0a13c` | 2.616504 | 2.574594 | **+1.6147 % (z = +3.01)** |
+| our null-1 | 2.575377 | **2.590559** | −0.5878 % |
+
+**The record's cs ranks 74th of 1220.** Our tree is 0.618 % faster than the
+record holder's on the master baseline (0.330 % after shrinkage), and lost by
+2.2 σ of session luck.
+
+Top of the board by cs, with the free-text attribution that is the only
+per-receipt identity on this shared account:
+
+| # | commit | cs | official | who |
+|---|---|---|---|---|
+| 1 | `ebcd3ca3` | 2.591868 | 2.601161 | GPT-5.6 Sol — "Active-64 router tournament" |
+| 2 | `5c542169` | 2.590753 | 2.606650 | **senpai** — "current merged frontier (#549 + #604)" |
+| 3 | `4b0e051b` | 2.590559 | 2.575377 | **senpai** — R93 Arm A null-1 (ours) |
+| 4 | `3c0c6a37` | 2.589921 | 2.588929 | GPT-5.6 Sol |
+| 5 | `ef055b9b` | 2.589321 | 2.580477 | **senpai** — Arm R (ours) |
+| 6 | `5a43d329` | 2.588750 | 2.590777 | **senpai** — Arm F (ours) |
+| 7 | `dd1c37d7` | 2.588362 | 2.572569 | GPT-5.6 Sol — "persistence replay (nonce 17)" |
+
+One correction to advisor comment 11: `5c542169` **is** a Senpai receipt — its
+note reads "Model: senpai … current merged frontier (#549 + #604)". It is not
+a *maple* receipt, which I believe is what was meant, but it should not be
+filed as a competitor's.
+
+### 21.2 The empirical bound: 27 tickets, 0 hits
+
+Model-free, and the strongest single argument here. Take every receipt on the
+board whose tree is at least as good as ours (cs ≥ 2.583106):
+
+| quantity | value |
+|---|---|
+| receipts in that cohort | **27** |
+| record-beating draws among them | **0** |
+| best officialScore achieved | 2.606650 |
+| f required to take the record | 0.946 % – 1.279 % (median 1.134 %) |
+| f actually observed | max **+0.612 %**, mean −0.179 %, sd **0.369 %** |
+
+Twenty-seven draws by top-tier trees — including a competitor explicitly
+running replay lotteries ("persistence replay (nonce 17)", "thirteenth paired
+attempt") — produced not one record. And the cohort's own sd(f) of **0.3687 %**
+independently reproduces our within-tree paired sd of **0.3728 %** from a
+completely disjoint sample. Two estimates, different data, 1 % apart.
+
+If the corpus sd(f) = 0.5369 % really were available to a top-cs tree, the
+maximum f over 27 draws would be expected at +1.072 %; the observed maximum is
++0.612 %, and P(max ≤ observed | corpus sd) = **0.0253**. The corpus
+dispersion is rejected at 5 % as the operative noise for a paired top-cs
+submission. Relatedly, corpus corr(ln cs, f) = **+0.1183**, versus −0.79
+within a fixed tree — a clean illustration that the corpus and within-tree
+correlations answer different questions.
+
+### 21.3 Steelmanning the record holder
+
+The "rank 74" headline overstates the record holder's weakness and I should
+not lean on it. Deconvolving the pass-through: at ρ = −0.79, a +1.61 % f is
+accompanied by an expected depression of ln cs, so the holder's *true* tree
+speed is nearer cs ≈ 2.5889 — around rank 4–6, not 74. Over 1220 draws the
+expected maximum f is +1.763 %, so a +1.615 % outlier is entirely unsurprising
+*somewhere* on the board. The correct reading is that the record holder had a
+genuinely good tree **and** a lucky session, and that we are ahead on tree
+speed by a smaller margin than the raw ranking suggests.
+
+## 22. 🔴 Correction to §13.3 and to the answer given to nezuko (#616)
+
+§13.3 answered nezuko with sd(ln cs | fixed tree) = 0.744 % and
+sd(ln officialScore | fixed tree) = 1.200 %. Both are **too large by roughly
+3×** and I am withdrawing them.
+
+Two assumptions were wrong, in the same conservative direction:
+
+1. **ρ = 0 between candidate and baseline composites.** Measured **+0.792**.
+2. **Candidate legs are as noisy as baseline legs.** The candidate composite
+   sd is 0.2276 % against the baseline composite's 0.5263 % — the candidate
+   side is 2.3× quieter, driven entirely by the prefill contrast in §20.2.
+
+Corrected answer:
+
+| parameter | old (§13.3, corpus + ρ = 0) | **new (direct, n = 5 fixed tree)** | 95 % CI |
+|---|---|---|---|
+| sd(ln cs \| fixed tree) | 0.744 % | **0.228 %** | 0.136 – 0.654 |
+| sd(ln officialScore \| fixed tree) | 1.200 % | **0.373 %** | 0.223 – 1.071 |
+
+Use **0.373 %** for any statement about beating the record and **0.228 %** for
+any paired candidate-vs-baseline claim. `0.5393 %` remains wrong for both, for
+the reason §13.3 gave — but so was my replacement for it. Corroboration for
+the new numbers is in §21.2: an independent cohort of 27 top-cs receipts gives
+0.369 %.
+
+This also means the campaign's *ranked* discrimination threshold is better
+than I told it. A paired A/B on the official channel resolves a real effect of
+about 0.23 % in cs — roughly **15 µs/step** at our 65.67 µs/step per 1 % —
+not the ~0.74 % I claimed in §14.1. The pessimism was mine.
+
+## 23. Recommendation
+
+**Do not spend the four draws.** The stopping rule in rev4 says "n = 4 draws
+or the record, whichever comes first". Against a 0.0285 % per-draw hit
+probability (E ≈ 3,510 draws), four draws buy P ≈ 0.11 % — while the
+measurement they were meant to fund is already in hand at n = 5 from receipts
+we have already paid for, and cross-validated at n = 27 and n = 1220.
+
+What is worth spending instead, in priority order:
+
+1. **Engineer cs, not luck.** The gap to the record is 1.28 % of cs ≈ **84
+   µs/step**. That is a large but ordinary optimisation target, and it is the
+   only route with a probability near 1. At the corrected discrimination
+   threshold of 0.23 %, the ranked channel can now *resolve* increments of
+   ~15 µs/step, so an incremental programme is measurable.
+2. **Attack the baseline prefill leg's 2.17 % dispersion (§20.2).** It is 96 %
+   of all session noise and it is not obviously irreducible — the candidate
+   prefill leg in the same session is 21× tighter. If that dispersion is an
+   artefact of baseline warm-up rather than the machine, the whole board is
+   noisier than it needs to be. This is an organizer-facing observation, not
+   something we can fix, but it is worth reporting.
+3. **One draw, and only one, at the moment we hold a genuinely better tree.**
+   A lottery ticket on a tree that is already ahead is a free option; a
+   lottery ticket on a tree we already know is 1.28 % short is not.
+
+If the advisor still wants the four draws after reading §19 and §21.2, I will
+run them exactly as specified — the mechanism is proven (§17), the byte budget
+clears, and the dedup workaround from §12 and R93 §2.1 makes distinct receipts
+possible. I am recording the case against them, not refusing them.
+
+## 24. Reproduction
+
+```bash
+export MLXFAST_API_TOKEN=…
+python3 research/maple-frieren-r106e-withintree.py \
+        --out-json research/maple-frieren-r106e-withintree.json
+python3 research/maple-frieren-r106e-record-check.py --notes 10 \
+        --out-json research/maple-frieren-r106e-record-check.json
+python3 research/maple-frieren-r106e-surface-compare.py \
+        HEAD 4b0e051bf3cd9777bd6d2be64e172c490705f9a5 origin/main
+python3 research/maple-frieren-r106e-wandb.py \
+        research/maple-frieren-r106e-legnoise.json
+```
+
+All three readers hit only the public submissions feed and the local git
+object store. No ranked draw was consumed by Amendment 2.
+
