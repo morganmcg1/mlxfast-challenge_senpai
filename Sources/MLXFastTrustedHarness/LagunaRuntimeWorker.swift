@@ -1818,25 +1818,6 @@ final class RuntimeWorkerClient {
         )
     }
 
-    func hostCensusConfigure(
-        familyIndex: Int,
-        measured: Bool,
-        corrupt: Bool = false
-    ) throws -> RuntimeWorkerResponse {
-        try send(
-            kind: "host_census_configure",
-            promptTokens: [familyIndex, measured ? 1 : 0, corrupt ? 1 : 0]
-        )
-    }
-
-    func hostCensusSnapshot() throws -> RuntimeWorkerResponse {
-        try send(kind: "host_census_snapshot")
-    }
-
-    func hostCensusCalibrate(iterations: Int) throws -> RuntimeWorkerResponse {
-        try send(kind: "host_census_calibrate", steps: iterations)
-    }
-
     func phaseDiagnostics() throws -> RuntimeWorkerResponse {
         try send(kind: "phase_diagnostics")
     }

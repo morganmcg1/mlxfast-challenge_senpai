@@ -11012,16 +11012,14 @@ final class LagunaRuntimeDecoderLayer: Module {
         qkRoPEAngles: MLXArray? = nil,
         qkRoPEOffsets: MLXArray? = nil
     ) -> MLXArray {
-        let r = HostCensusProbe.measure("attention_cache") {
-            selfAttn(
-                x,
-                inputNorm: inputLayerNorm,
-                mask: mask,
-                cache: cache,
-                qkRoPEAngles: qkRoPEAngles,
-                qkRoPEOffsets: qkRoPEOffsets
-            )
-        }
+        let r = selfAttn(
+            x,
+            inputNorm: inputLayerNorm,
+            mask: mask,
+            cache: cache,
+            qkRoPEAngles: qkRoPEAngles,
+            qkRoPEOffsets: qkRoPEOffsets
+        )
         let h: MLXArray
         let normalized: MLXArray
         var routerLogits: MLXArray?
@@ -11081,11 +11079,9 @@ final class LagunaRuntimeDecoderLayer: Module {
             h.sameDims(normalized),
             let sparse = mlp as? LagunaRuntimeSparseMoEBlock
         {
-            return HostCensusProbe.measure("moe_wrapper") {
-                sparse(
-                    normalized, residual: h, routerLogits: routerLogits,
-                    routerKeys: routerKeys)
-            }
+            return sparse(
+                normalized, residual: h, routerLogits: routerLogits,
+                routerKeys: routerKeys)
         }
         // Multi-token prefill: hand the residual to the sparse block so the
         // prefill MoE tail kernel can fold the final residual add. When any
@@ -11096,11 +11092,9 @@ final class LagunaRuntimeDecoderLayer: Module {
             x.dim(1) > 1,
             let sparse = mlp as? LagunaRuntimeSparseMoEBlock
         {
-            return HostCensusProbe.measure("moe_wrapper") {
-                sparse(
-                    normalized, residual: h, routerLogits: routerLogits,
-                    routerKeys: routerKeys)
-            }
+            return sparse(
+                normalized, residual: h, routerLogits: routerLogits,
+                routerKeys: routerKeys)
         }
         // Layer-0-only decode fusion: `fusedDenseDownResidual` returns nil off
         // layer 0's decode shape (or if a guard declines); stock path then runs.
@@ -11109,12 +11103,7 @@ final class LagunaRuntimeDecoderLayer: Module {
         {
             return fused
         }
-        let r2: MLXArray
-        if mlp is LagunaRuntimeSparseMoEBlock {
-            r2 = HostCensusProbe.measure("moe_wrapper") { mlp(normalized) }
-        } else {
-            r2 = mlp(normalized)
-        }
+        let r2 = mlp(normalized)
         return h + r2
     }
 
@@ -11568,15 +11557,13 @@ final class LagunaRuntimeModelInner: Module {
                     }
                 }
             } else {
-                h = HostCensusProbe.measure("layer_dispatch") {
-                    layer(
-                        h,
-                        mask: mask,
-                        cache: cache?[i],
-                        qkRoPEAngles: qkRoPEAngles,
-                        qkRoPEOffsets: qkRoPEOffsets
-                    )
-                }
+                h = layer(
+                    h,
+                    mask: mask,
+                    cache: cache?[i],
+                    qkRoPEAngles: qkRoPEAngles,
+                    qkRoPEOffsets: qkRoPEOffsets
+                )
                 if isSingleTokenDecode, (decodeFireMask >> UInt64(i)) & 1 == 1 {
                     asyncEval(h)
                 }
@@ -11646,32 +11633,31 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
         // position's row. Slice before the row-independent final RMSNorm and
         // vocabulary head so prefill neither normalizes nor projects the
         // preceding rows. For single-token decode the slice is a no-op.
-        let hidden = HostCensusProbe.measure("graph_views") {
-            model.norm(lagunaLastTokenHidden(fullHidden))
-        }
+        let hidden = model.norm(lagunaLastTokenHidden(fullHidden))
         if case .norm = lagunaDecodeAsyncStage, inputs.dims(1, 1) {
             asyncEval(hidden)
         }
 
-        let result = HostCensusProbe.measure("lm_head") { () -> MLXArray in
-            if let lmHead {
-                if let pruner = lmHeadPruner,
-                    inputs.dims(1, 1) || lagunaLmHeadPrunePrefillEnabled
-                {
-                    // Certified two-pass final-row head (notes/68): full BF16
-                    // logits, bit-identical to stock in every argmax-reachable
-                    // slot. When enabled, prefill has already sliced to the last
-                    // hidden row; decode always retains this pruner. Only
-                    // single-token decode takes the three-level screen, whose
-                    // level-one pass reads 25.7 MB/step less of the int5 planes.
-                    return pruner.logits(
-                        hidden: hidden,
-                        lmHeadWeight: lmHead.weight,
-                        useFusedRefinement: inputs.dims(1, 1))
-                }
-                return lmHead(hidden)
+        let result: MLXArray
+        if let lmHead {
+            if let pruner = lmHeadPruner,
+                inputs.dims(1, 1) || lagunaLmHeadPrunePrefillEnabled
+            {
+                // Certified two-pass final-row head (notes/68): full BF16
+                // logits, bit-identical to stock in every argmax-reachable
+                // slot. When enabled, prefill has already sliced to the last
+                // hidden row; decode always retains this pruner. Only
+                // single-token decode takes the three-level screen, whose
+                // level-one pass reads 25.7 MB/step less of the int5 planes.
+                result = pruner.logits(
+                    hidden: hidden,
+                    lmHeadWeight: lmHead.weight,
+                    useFusedRefinement: inputs.dims(1, 1))
+            } else {
+                result = lmHead(hidden)
             }
-            return model.embedTokens.asLinear(hidden)
+        } else {
+            result = model.embedTokens.asLinear(hidden)
         }
         if case .logits = lagunaDecodeAsyncStage, inputs.dims(1, 1) {
             asyncEval(result)
