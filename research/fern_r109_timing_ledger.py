@@ -36,6 +36,10 @@ PATTERN = re.compile(r"^score\.local-submit\.([A-Za-z0-9_\-]+?)(\d+)\.json$")
 DECODE_W = 0.75
 PREFILL_W = 0.25
 
+# Official-M5 pinned baseline seconds/token, used by the campaign `ns` proxy.
+NS_DECODE_REF = 0.013890
+NS_PREFILL_REF = 0.0003845
+
 
 def load_families(root=ROOT, drop_first=False):
     """`drop_first` discards each family's lowest-numbered replicate.
@@ -105,14 +109,25 @@ def replicates_needed(target, cv, sigmas=2.0):
     return math.ceil(2.0 * (sigmas * cv / target) ** 2)
 
 
+def normalized_score(decode, prefill):
+    """The campaign `ns` proxy: official-M5 baseline seconds/token over ours."""
+    return (NS_DECODE_REF / decode) ** DECODE_W * (NS_PREFILL_REF / prefill) ** PREFILL_W
+
+
 def summarize(name, reps):
     dec = [r["decode"] for r in reps]
     pre = [r["prefill"] for r in reps]
+    nsv = [normalized_score(r["decode"], r["prefill"]) for r in reps]
     _, _, dcv = stats(dec)
     _, _, pcv = stats(pre)
+    _, _, ncv = stats(nsv)
     return {
         "family": name,
         "n": len(reps),
+        "ns_median": statistics.median(nsv),
+        "ns_min": min(nsv),
+        "ns_max": max(nsv),
+        "ns_cv": ncv,
         "decode_median": statistics.median(dec),
         "decode_min": min(dec),
         "decode_max": max(dec),
@@ -181,10 +196,17 @@ def main():
         for r in fams[n]:
             print(
                 f"  rep{r['replicate']}  decode={r['decode']:.9f}  "
-                f"prefill={r['prefill']:.9f}  score={r['score']:.6f}  "
+                f"prefill={r['prefill']:.9f}  "
+                f"ns={normalized_score(r['decode'], r['prefill']):.6f}  "
                 f"correct={r['correct']}  diff={r['max_abs_diff']}  "
                 f"commit={r['commit']}  {r['timestamp']}"
             )
+        print(
+            f"  ns      median={s['ns_median']:.6f} "
+            f"min={s['ns_min']:.6f} max={s['ns_max']:.6f} "
+            f"cv={s['ns_cv'] * 100:.3f}% "
+            f"2sigma-paired-floor={detection_floor(s['ns_cv'], s['n']) * 100:.3f}%"
+        )
         print(
             f"  decode  median={s['decode_median']:.9f} "
             f"min={s['decode_min']:.9f} max={s['decode_max']:.9f} "
