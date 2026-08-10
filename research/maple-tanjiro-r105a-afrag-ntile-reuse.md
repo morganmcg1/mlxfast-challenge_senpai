@@ -1733,6 +1733,66 @@ A2 both change **threadgroup memory per TG** (9,232 B → 18,448 B, measured in
 specifically to "halved A traffic". §7.3 gives the arm that separates those two,
 which I am **not** authorised to run under this assignment.
 
+### 6.1 What the dispatch code pins down after both arms lost
+
+Reading the launch and the kernel together explains the sign, and it explains it
+in terms that were checkable before any receipt was spent.
+
+**The grid is per-expert, not per-row.** `quantized.cpp:1629-1632` sets
+`grid.y = egroups` on the `expert_aligned` path — `darkbloom_expert_gather_groups()`
+returns **256** (`:1222-1232`), the expert count — and *not* `(M + bm − 1) / bm`,
+which is the generic path's y-extent. So the threadgroup count is
+`256 × ceil(N/bn)`, independent of `M`. `bn = 64 → 128` halves it: gate/up
+4096 → 2048 TGs, down 8192 → 4096 TGs. Both arms halve their grid by exactly 2×,
+which is why their harm is nearly equal (+1.111 vs +1.034 ms) despite different
+`N` and `K`. 2048 TGs is still ample grid-level parallelism for a 40-core part,
+so the harm is per-core **residency**, not starvation — and residency is set by
+threadgroup memory, which is where the second half of the mechanism lives.
+
+**Only the weights are staged; the activations are not.** In
+`fp_gather_qmm_rhs_expert_nax` (`fp_quantized_nax.h:1714`) the sole threadgroup
+allocation is `Ws_storage`, sized `kWsElems = BN × BK_padded`
+(`:1768-1772`), which the fused gate/up epilogue then *aliases* as
+`gate_up_stage`. There is no `Xs`. So `BN = 128` doubles the only tgmem consumer
+(D5's measured 9,232 → 18,448 B) while the A fragments it is supposed to help
+are read straight from device memory, i.e. served by L2/SLC on the re-reads.
+
+Put those together and the arm's trade is explicit: **it doubles the per-TG
+footprint of the DRAM-bound weight stream in order to halve the issue count of
+cache-resident activation loads.** §7.2 already bounded the second term
+(`r ≤ 0.698`, prize ≤ 8.76 ms and only at 100 % of DRAM peak); the ranked
+receipts now price the first term at ≈ +1.07 ms, and it wins. Twice,
+independently, in two different shapes.
+
+**The deeper reason no tile geometry can win here.** Each expert's rows are
+chunked *inside* the kernel: `for (chunk_start = run_start; chunk_start < run_end;
+chunk_start += BM)` with `chunk_rows = min(BM, run_end − chunk_start)` and per-SIMD
+row masking. The weight slab is staged *inside* that loop, so total weight
+traffic is `experts × K × N × chunks` bytes: each expert's `N/bn` tiles stage
+`bn × K` bytes apiece, which sums to `K × N` **whatever `bn` is**. Weight traffic
+is therefore exactly invariant to `bn` — the arm's entire prize has to come out of
+the activation term alone, and §7.2 already showed that term is mostly cache-served.
+
+`bm` is different, and not in a helpful direction. With 512 prompt tokens ×
+`experts_per_token = 8` (`LagunaRuntimeModel.swift:8077`) over 256 experts the
+average run is **16 rows against `BM = 64`**, so most experts take one chunk and
+the accumulator's M dimension is ~75 % empty. The obvious reaction — narrow `BM`
+to fit the runs — is wrong: `chunks = ceil(run/BM)`, so shrinking `BM` makes the
+imbalanced tail of long runs re-stream their weight slab more times, *raising*
+the dominant term to save masked-off MMA work in the bandwidth-bound regime.
+`BM = 64` is already at or near the weight-traffic floor, which is the honest
+reason to leave it alone rather than an untested assumption.
+
+So the routed prefill GEMM is weight-bandwidth-bound by construction, and its
+dominant traffic term is invariant to `bn` and already minimised at `bm = 64` —
+the advisor's own script puts that floor at 14.826 GB / 24.306 ms. The levers
+that could still matter reduce weight *bytes* or raise rows per weight pass;
+`(bm, bn)` does neither.
+
+That is a stronger and more useful form of N-1 than "cache absorbs the re-reads",
+and unlike the brief's wording it is a statement about the dispatch structure
+rather than about my two receipts.
+
 ---
 
 ## 7. Where the brief and the round-105 advisor note are wrong
