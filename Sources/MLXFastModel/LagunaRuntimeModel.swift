@@ -1057,6 +1057,158 @@ private let lagunaResidualRMSNormRouterKernels: [Int: MLXFast.MLXFastKernel] =
             )
         })
 
+private let lagunaResidualRMSCoalescingGate0 =
+    ProcessInfo.processInfo.environment["DARKBLOOM_RESIDUAL_RMS_GATE0"] == "1"
+
+private final class LagunaResidualRMSGate0State: @unchecked Sendable {
+    private var ran = false
+    private let lock = NSLock()
+
+    func claim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !ran else { return false }
+        ran = true
+        return true
+    }
+}
+
+private let lagunaResidualRMSGate0State = LagunaResidualRMSGate0State()
+private let lagunaResidualRMSCoalescingProbeKernel: MLXFast.MLXFastKernel? = {
+    guard lagunaResidualRMSCoalescingGate0 else { return nil }
+    let rows = lagunaRouterRowsPerGroup
+    var source = lagunaResidualRMSNormRouterSource(rowsPerGroup: rows)
+    source = source.replacingOccurrences(
+        of: "summed[base + i] = value;", with: "packed[base + i] = value;")
+    source = source.replacingOccurrences(
+        of: "normalized[base + i] = value;",
+        with: "packed[axis_size + base + i] = value;")
+    return MLXFast.metalKernel(
+        name: "laguna_residual_rms_router_coalesced_gate0_rpg\(rows)_v1",
+        inputNames: lagunaRouterPrecomputedKeysEnabled
+            ? ["residual", "branch", "weight", "router_weight", "correction_bias"]
+            : ["residual", "branch", "weight", "router_weight"],
+        outputNames: lagunaRouterPrecomputedKeysEnabled
+            ? ["packed", "router_logits", "router_keys"]
+            : ["packed", "router_logits"],
+        source: source,
+        header: lagunaRouterPrecomputedKeysEnabled ? lagunaDecodeRouterOrdinalHeader : "",
+        ensureRowContiguous: true)
+}()
+
+private func lagunaRunResidualRMSCoalescingGate0(
+    residual: MLXArray, branch: MLXArray, weight: MLXArray,
+    routerWeight: MLXArray, correctionBias: MLXArray,
+    rowsPerGroup: Int, tiles: Int
+) {
+    guard let candidateKernel = lagunaResidualRMSCoalescingProbeKernel else { return }
+    let hidden = LagunaConstants.hiddenSize
+    let experts = LagunaConstants.numExperts
+    let inputs = lagunaRouterPrecomputedKeysEnabled
+        ? [residual, branch, weight, routerWeight, correctionBias]
+        : [residual, branch, weight, routerWeight]
+    let tailShapes = [[1, 1, experts]]
+        + (lagunaRouterPrecomputedKeysEnabled ? [[1, 1, experts]] : [])
+    let tailTypes: [DType] = [.bfloat16]
+        + (lagunaRouterPrecomputedKeysEnabled ? [.uint32] : [])
+
+    func graph(_ coalesced: Bool) -> (values: [MLXArray], packed: MLXArray?) {
+        let raw = (coalesced ? candidateKernel
+            : lagunaResidualRMSNormRouterKernels[rowsPerGroup]!)(
+                inputs, grid: (tiles * 512, 1, 1), threadGroup: (512, 1, 1),
+                outputShapes: (coalesced
+                    ? [[1, 1, hidden * 2]] : [[1, 1, hidden], [1, 1, hidden]])
+                    + tailShapes,
+                outputDTypes: (coalesced ? [.bfloat16] : [.bfloat16, .bfloat16])
+                    + tailTypes)
+        guard coalesced else { return (raw, nil) }
+        let strides = [hidden, hidden, 1]
+        let summed = asStrided(raw[0], [1, 1, hidden], strides: strides)
+        let normalized = asStrided(
+            raw[0], [1, 1, hidden], strides: strides, offset: hidden)
+        return ([summed, normalized] + raw.dropFirst(), raw[0])
+    }
+
+    let stock = graph(false)
+    let candidate = graph(true)
+    let stockConsumer = stock.values[0] + stock.values[1]
+    let candidateConsumer = candidate.values[0] + candidate.values[1]
+    eval(stock.values + candidate.values + [stockConsumer, candidateConsumer])
+    let stockMeta = stock.values.map { $0.asData(access: .noCopy) }
+    let candidateMeta = candidate.values.map { $0.asData(access: .noCopy) }
+    let packedMeta = candidate.packed!.asData(access: .noCopy)
+    let packedAddress = packedMeta.data.withUnsafeBytes { Int(bitPattern: $0.baseAddress!) }
+    let summedAddress = candidateMeta[0].data.withUnsafeBytes {
+        Int(bitPattern: $0.baseAddress!)
+    }
+    let normalizedAddress = candidateMeta[1].data.withUnsafeBytes {
+        Int(bitPattern: $0.baseAddress!)
+    }
+    let alias = summedAddress == packedAddress
+        && normalizedAddress - packedAddress == hidden * 2
+    let strideMatch = stockMeta[0].strides == candidateMeta[0].strides
+        && stockMeta[1].strides == candidateMeta[1].strides
+    let exact = zip(stockMeta, candidateMeta).allSatisfy { $0.data == $1.data }
+        && stockConsumer.asData(access: .noCopy).data
+            == candidateConsumer.asData(access: .noCopy).data
+    let detached = graph(true).values
+    eval(detached)
+    let lifetime = zip(stockMeta, detached.map { $0.asData(access: .noCopy) })
+        .allSatisfy { $0.data == $1.data }
+    let stockPhysical = lagunaRouterPrecomputedKeysEnabled ? 4 : 3
+    let candidatePhysical = stockPhysical - 1
+    print("mlxfast: gate0 alias=\(alias) offset_bytes=\(normalizedAddress - packedAddress) strides_stock=\(stockMeta[0].strides) strides_views=\(candidateMeta[0].strides),\(candidateMeta[1].strides) stride_match=\(strideMatch) exact=\(exact) lifetime=\(lifetime)")
+    print("mlxfast: gate0 outputs physical=\(stockPhysical)->\(candidatePhysical) logical=\(stockPhysical)->\(candidatePhysical + 2) removed_per_layer_token=1 sparse_layers=39 projected_layers=40 allocator=custom_kernel.cpp:19-37")
+    print("mlxfast: gate0 trace stock=custom>add>eval candidate=custom>asStrided>asStrided>add>eval extra_kernel=0 extra_copy=0 extra_sync=0")
+    guard alias && strideMatch && exact && lifetime else {
+        print("mlxfast: gate0 passed=false stop=alias_or_consumer")
+        return
+    }
+
+    let batch = 16
+    func measure(_ coalesced: Bool) -> Double {
+        var pending: [MLXArray] = []
+        pending.reserveCapacity(batch * stockPhysical)
+        let start = DispatchTime.now().uptimeNanoseconds
+        for _ in 0..<batch {
+            let values = graph(coalesced).values
+            pending.append(values[0] + values[1])
+            pending.append(contentsOf: values.dropFirst(2))
+        }
+        eval(pending)
+        return Double(DispatchTime.now().uptimeNanoseconds - start)
+            / 1_000 / Double(batch)
+    }
+    for _ in 0..<4 {
+        _ = measure(false)
+        _ = measure(true)
+    }
+    var abba: [Double] = []
+    var baab: [Double] = []
+    for block in 0..<6 {
+        let order = block.isMultiple(of: 2) ? "ABBA" : "BAAB"
+        let times = order.map { measure($0 == "B") }
+        let contrasts = order == "ABBA"
+            ? [(times[0] - times[1]) * 40, (times[3] - times[2]) * 40]
+            : [(times[1] - times[0]) * 40, (times[2] - times[3]) * 40]
+        if order == "ABBA" { abba += contrasts } else { baab += contrasts }
+        print("mlxfast: gate0 raw block=\(block) order=\(order) us_layer=\(times) saving_us_token=\(contrasts)")
+    }
+    func median(_ values: [Double]) -> Double {
+        let sorted = values.sorted()
+        let middle = sorted.count / 2
+        return sorted.count.isMultiple(of: 2)
+            ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle]
+    }
+    let all = abba + baab
+    let center = median(all)
+    let mad = median(all.map { abs($0 - center) })
+    let abbaMedian = median(abba)
+    let baabMedian = median(baab)
+    let passed = abbaMedian >= 35 && baabMedian >= 35 && center > 2 * mad
+    print("mlxfast: gate0 summary contrasts=\(all.count) abba_median_us_token=\(abbaMedian) baab_median_us_token=\(baabMedian) combined_median_us_token=\(center) pooled_mad_us_token=\(mad) threshold30=\(abbaMedian >= 30 && baabMedian >= 30) projection35=\(abbaMedian >= 35 && baabMedian >= 35) noise2x=\(center > 2 * mad) passed=\(passed)")
+}
+
 /// Residual add + RMSNorm for the layers whose MLP is not a sparse block
 /// (layer 0) and for any shape the router fusion above declines.
 private let lagunaResidualRMSNormKernel = MLXFast.metalKernel(
@@ -1127,6 +1279,12 @@ func lagunaResidualRMSNormRouter(
     let rowsPerGroup = lagunaRouterRowsPerGroup
     let tiles = experts / rowsPerGroup
     lagunaTrace("residual+rmsnorm+router rpg\(rowsPerGroup)")
+    if lagunaResidualRMSCoalescingGate0 && lagunaResidualRMSGate0State.claim() {
+        lagunaRunResidualRMSCoalescingGate0(
+            residual: residual, branch: branch, weight: weight,
+            routerWeight: routerWeight, correctionBias: correctionBias,
+            rowsPerGroup: rowsPerGroup, tiles: tiles)
+    }
     let inputs = lagunaRouterPrecomputedKeysEnabled
         ? [residual, branch, weight, routerWeight, correctionBias]
         : [residual, branch, weight, routerWeight]
