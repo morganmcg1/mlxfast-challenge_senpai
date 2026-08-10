@@ -81,8 +81,12 @@ def load(path):
     return rows, voided
 
 
+RESULTS = {"rungs": {}, "drift": {}}
+
+
 def main():
-    path = sys.argv[1] if len(sys.argv) > 1 else "/tmp/r108k-barrier-price.tsv"
+    argv = [a for a in sys.argv[1:] if not a.startswith("--")]
+    path = argv[0] if argv else "/tmp/r108k-barrier-price.tsv"
     rows, voided = load(path)
 
     by_block = defaultdict(lambda: defaultdict(list))
@@ -119,6 +123,7 @@ def main():
               f"  effect={g_eff:+.1f} us/step  ({g_eff / 2400:+.4f} us/dispatch)")
         print(f"  threshold >= {GAUGE_MIN_US:+.0f} us/step -> "
               f"{'PASS (channel live)' if gauge_ok else 'FAIL -> P-INSTRUMENT-DEAD'}")
+        RESULTS["gauge"] = (g_eff, g_eff / 2400, gauge_ok)
 
     print("\n## rungs — block-paired against that block's own control anchor")
     slopes = {}
@@ -158,32 +163,37 @@ def main():
         if k:
             print(f"  {'d' + ser + ' - d' + free + ' (paired)':<24} {fmt(m, hw, ' us/step')}   B={k}")
             print(f"  {'-> barrier price':<24} {fmt(m / n, hw / n, ' M4 us/barrier')}")
+        RESULTS["rungs"][n] = {
+            "arms": (free, ser), "blocks": used,
+            "free": ci95(d_free), "ser": ci95(d_ser), "sep": (m, hw, k),
+        }
 
     # sec 5: the verdict table, applied mechanically to arm F's 160 rung.
     print("\n## verdict (amendment sec 5, applied mechanically)")
     key = "dF (no barrier)"
     if gauge_ok is False:
-        print("  P-INSTRUMENT-DEAD — gauge failed; no slope is reportable.")
+        verdict = "P-INSTRUMENT-DEAD — gauge failed; no slope is reportable."
     elif key not in slopes:
-        print("  P-INDETERMINATE-UNDERPOWERED — no complete 160-rung block.")
+        verdict = "P-INDETERMINATE-UNDERPOWERED — no complete 160-rung block."
     else:
         sm, shw, k = slopes[key]
         lo, hi = (sm - shw, sm + shw) if not math.isnan(shw) else (sm, sm)
-        n_blocks = k
-        if n_blocks < 4:
-            print(f"  P-INDETERMINATE-UNDERPOWERED — {n_blocks} block(s) < 4 required; "
-                  f"arm F slope {fmt(sm, shw, ' M4 us/dispatch')}")
+        if k < 4:
+            verdict = (f"P-INDETERMINATE-UNDERPOWERED — {k} block(s) < 4 required; "
+                       f"arm F slope {fmt(sm, shw, ' M4 us/dispatch')}")
         elif hi <= FREE_BAND_HI:
-            print(f"  P-FREE-REGION-CONFIRMED — arm F CI95 upper {hi:+.4g} "
-                  f"<= {FREE_BAND_HI}: the dispatch-count merge programme is dead.")
+            verdict = (f"P-FREE-REGION-CONFIRMED — arm F CI95 upper {hi:+.4g} "
+                       f"<= {FREE_BAND_HI}: the dispatch-count merge programme is dead.")
         elif lo >= TAX_BAND_LO:
-            print(f"  P-LAUNCH-TAX-CONFIRMED — arm F CI95 lower {lo:+.4g} "
-                  f">= {TAX_BAND_LO}: 105.17 survives, build the merge.")
+            verdict = (f"P-LAUNCH-TAX-CONFIRMED — arm F CI95 lower {lo:+.4g} "
+                       f">= {TAX_BAND_LO}: 105.17 survives, build the merge.")
         else:
-            print(f"  P-INDETERMINATE — arm F slope {fmt(sm, shw, ' M4 us/dispatch')} "
-                  f"straddles the {FREE_BAND_HI}-{TAX_BAND_LO} band.")
+            verdict = (f"P-INDETERMINATE — arm F slope {fmt(sm, shw, ' M4 us/dispatch')} "
+                       f"straddles the {FREE_BAND_HI}-{TAX_BAND_LO} band.")
         if gauge_ok is None:
-            print("  (gauge not yet complete — this verdict is provisional)")
+            verdict += "  (gauge not yet complete — this verdict is provisional)"
+    print(f"  {verdict}")
+    RESULTS["verdict"] = verdict
 
     # sec 6: prefill must not move. DARKBLOOM_INJECT_PREFILL_EMPTY stays 0.
     print("\n## falsification check — prefill must not move (sec 6)")
@@ -194,7 +204,7 @@ def main():
         for arm in sorted(pf):
             print(f"  arm {arm}: prefill {statistics.fmean(pf[arm]):.2f} us/token  "
                   f"(no control anchor yet)")
-        return
+        return rows, voided
     base = statistics.fmean(pf["C"])
     for arm in sorted(pf):
         m = statistics.fmean(pf[arm])
@@ -202,6 +212,7 @@ def main():
               f"delta vs C {m - base:+.3f} ({100 * (m - base) / base:+.3f} %)")
 
     drift_diagnostic(by_block)
+    return rows, voided
 
 
 def drift_diagnostic(by_block):
@@ -241,7 +252,61 @@ def drift_diagnostic(by_block):
     for (arm, n), xs in sorted(per_rung.items()):
         m, hw, k = ci95(xs)
         print(f"    arm {arm} N={n}: {fmt(m, hw, ' us/dispatch')}   B={k}")
+        RESULTS["drift"][(arm, n)] = ci95(xs)
+
+
+def markdown(rows, voided):
+    """Emit the report-ready sec 3.3 block from the same estimators printed above."""
+    out = ["## §3.3 Results", ""]
+    out.append(f"`{len(rows)}` usable runs, `{len(voided)}` voided. "
+               "Every run is a full `./benchmark.sh --local-submit`, so every row below "
+               "also carries an exact-token-ID correctness pass.")
+    out += ["", "### Raw levels", "",
+            "| block | arm | injected/step | chain | decode µs/step | prefill µs/token | gate |",
+            "|---|---|---|---|---|---|---|"]
+    for r in rows:
+        out.append(f"| {r['block']} | `{r['arm']}` | {r['inject']} | {r['chain']} | "
+                   f"{r['dec_us']:.1f} | {r['pre_us']:.2f} | "
+                   f"{'pass' if r['passed'] else 'FAIL'} |")
+    if "gauge" in RESULTS:
+        eff, per, ok = RESULTS["gauge"]
+        out += ["", "### Gauge (liveness only — amendment §3)", "",
+                f"Arm `G` (2400 chained) moves decode `{eff:+.1f}` µs/step "
+                f"(`{per:+.4f}` µs/dispatch) against the pooled controls; threshold is "
+                f"`≥ +500` µs/step ⇒ **{'PASS' if ok else 'FAIL'}**. "
+                "This confirms the channel is live and nothing is elided. It is **not** an "
+                "estimate of a per-dispatch tax; see §3.4."]
+    out += ["", "### Pre-registered estimators (block-paired, Student-t CI95)", "",
+            "| rung | estimator | µs/step | slope, M4 µs/dispatch | blocks |",
+            "|---|---|---|---|---|"]
+    for n, d in sorted(RESULTS["rungs"].items()):
+        free, ser = d["arms"]
+        for label, key in ((f"d{free} — concurrent, no barrier", "free"),
+                           (f"d{ser} — serialized, barrier per dispatch", "ser")):
+            m, hw, k = d[key]
+            if not k:
+                out.append(f"| {n} | {label} | — | no complete block | 0 |")
+                continue
+            out.append(f"| {n} | {label} | {fmt(m, hw)} | {fmt(m / n, hw / n)} | {k} |")
+        m, hw, k = d["sep"]
+        if k:
+            out.append(f"| {n} | **d{ser} − d{free}, paired ⇒ barrier price** | "
+                       f"{fmt(m, hw)} | {fmt(m / n, hw / n)} /barrier | {k} |")
+    if RESULTS["drift"]:
+        out += ["", "### Post-hoc drift control (exploratory, not pre-registered)", "",
+                "Injection is decode-only, so any prefill move within a block is host "
+                "drift that also multiplies decode. Subtracting it removes the "
+                "common-mode term.", "",
+                "| arm | rung | drift-corrected slope, M4 µs/dispatch | blocks |",
+                "|---|---|---|---|"]
+        for (arm, n), (m, hw, k) in sorted(RESULTS["drift"].items()):
+            out.append(f"| `{arm}` | {n} | {fmt(m, hw)} | {k} |")
+    out += ["", "### Verdict", "", f"**{RESULTS.get('verdict', 'not computed')}**"]
+    print("\n".join(out))
 
 
 if __name__ == "__main__":
-    main()
+    _rows, _voided = main()
+    if "--markdown" in sys.argv:
+        print()
+        markdown(_rows, _voided)
