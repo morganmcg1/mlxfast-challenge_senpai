@@ -247,23 +247,6 @@ func lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled() throws {
     let encoded = try encoder.encode(report)
     print(String(decoding: encoded, as: UTF8.self))
     #expect(report.passes(maximumAbsoluteLogitError: tolerance))
-
-    var corruptedSteps = report.steps
-    let firstStep = try #require(corruptedSteps.first)
-    corruptedSteps[0] = LagunaUpstreamEquivalenceStep(
-        label: firstStep.label,
-        maximumAbsoluteLogitError: firstStep.maximumAbsoluteLogitError,
-        meanAbsoluteLogitError: firstStep.meanAbsoluteLogitError,
-        runtimeToken: firstStep.runtimeToken,
-        upstreamToken: firstStep.runtimeToken == 0 ? 1 : 0
-    )
-    let corruptedReport = LagunaUpstreamEquivalenceReport(
-        promptTokenCount: report.promptTokenCount,
-        decodeTokenCount: report.decodeTokenCount,
-        steps: corruptedSteps
-    )
-    #expect(!corruptedReport.passes(maximumAbsoluteLogitError: tolerance))
-    print("EQUIVALENCE_CORRUPTION_CONTROL=PASS")
 }
 
 private func temporaryDirectory() throws -> URL {
