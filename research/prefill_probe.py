@@ -132,6 +132,40 @@ def family(short):
     return "other"
 
 
+def overlap_attribution(records, keyfn):
+    """Split GPU-busy wall time among concurrently-active command buffers.
+
+    Command buffers overlap on the GPU, so summing each buffer's
+    GPUStartTime..GPUEndTime bracket over-counts busy time (>100% of wall) and
+    inflates whichever tiny kernel happens to sit inside a long GEMM's bracket.
+    Sweeping the timeline and crediting each instant equally to the buffers
+    active at that instant gives an additive decomposition that sums exactly to
+    union busy time. `excl` is the time a key was the only thing on the GPU.
+    """
+    events = []
+    for idx, rec in enumerate(records):
+        events.append((rec[0], 1, idx))
+        events.append((rec[1], -1, idx))
+    events.sort(key=lambda ev: (ev[0], -ev[1]))
+    fair, excl = {}, {}
+    active, prev = set(), None
+    for t, delta, idx in events:
+        if active and prev is not None and t > prev:
+            span = t - prev
+            keys = [keyfn(records[i]) for i in active]
+            share = span / len(active)
+            for k in keys:
+                fair[k] = fair.get(k, 0.0) + share
+            if len(active) == 1:
+                excl[keys[0]] = excl.get(keys[0], 0.0) + span
+        if delta > 0:
+            active.add(idx)
+        else:
+            active.discard(idx)
+        prev = t
+    return fair, excl
+
+
 def analyze(label, batches, ceiling_gbs, top_n):
     """batches: list of (elapsed_seconds, records) for identical requests."""
     if not batches:
@@ -211,6 +245,34 @@ def analyze(label, batches, ceiling_gbs, top_n):
         print(f"  {label_:<20} {count / n:7.1f} {per * 1e3:8.3f} "
               f"{per / (wall / n) * 100:6.1f} {gbs:7.1f} "
               f"{gbs / ceiling_gbs * 100:5.0f}")
+
+    def record_family(rec):
+        names = rec[4]
+        if not names:
+            return "empty_commit"
+        fams = {family(shorten(x)) for x in names}
+        return fams.pop() if len(fams) == 1 else "MIXED"
+
+    fair, excl = overlap_attribution(records, record_family)
+    fair_total = sum(fair.values())
+    print(f"\n  overlap-corrected attribution (sums to union busy; "
+          f"raw bracket sum is {busy_sum / busy_union * 100:.1f}% of union)")
+    print(f"  {'family':<20} {'fair ms':>8} {'%wall':>6} {'excl ms':>8} "
+          f"{'raw ms':>8} {'concur':>7} {'GB bound':>9} {'GB/s':>7} {'%bw':>5}")
+    for label_, seconds in sorted(fair.items(), key=lambda kv: -kv[1]):
+        per = seconds / n
+        slot = fam.get(label_, [0, 0.0, 0])
+        raw = slot[1] / n
+        gb = slot[2] / n / 1e9
+        gbs = gb / per if per > 0 else 0.0
+        print(f"  {label_:<20} {per * 1e3:8.3f} {per / (wall / n) * 100:6.1f} "
+              f"{excl.get(label_, 0.0) / n * 1e3:8.3f} {raw * 1e3:8.3f} "
+              f"{raw / per if per > 0 else 0:7.2f} {gb:9.3f} {gbs:7.1f} "
+              f"{gbs / ceiling_gbs * 100:5.0f}")
+    resid = wall - fair_total
+    print(f"  {'GPU-idle (unattrib.)':<20} {resid / n * 1e3:8.3f} "
+          f"{resid / wall * 100:6.1f}")
+    print(f"  {'TOTAL':<20} {wall / n * 1e3:8.3f} {100.0:6.1f}")
 
 
 def main():
