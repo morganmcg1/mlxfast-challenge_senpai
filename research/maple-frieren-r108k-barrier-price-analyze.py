@@ -212,6 +212,7 @@ def main():
               f"delta vs C {m - base:+.3f} ({100 * (m - base) / base:+.3f} %)")
 
     drift_diagnostic(by_block)
+    rung_difference()
     return rows, voided
 
 
@@ -253,6 +254,58 @@ def drift_diagnostic(by_block):
         m, hw, k = ci95(xs)
         print(f"    arm {arm} N={n}: {fmt(m, hw, ' us/dispatch')}   B={k}")
         RESULTS["drift"][(arm, n)] = ci95(xs)
+
+
+def rung_difference():
+    """POST-HOC, added after seeing that both injected arms ran FASTER than control.
+
+    Not in the amendment, and it does not override the sec 5 verdict. It exists
+    because the pre-registered per-rung estimator is degenerate.
+
+    An injected arm differs from its control in two ways, not one: N extra
+    dispatches, and one extra `asyncEval` per layer (`:12143`), which arm C never
+    reaches because of the `guard !pending.isEmpty` at `:12142`. So
+        d(N) = N*k + 40*c
+    with k the per-dispatch cost and c the per-layer eval-boundary cost. One
+    equation, two unknowns — a null d(N) can equally mean k=0 or a positive k
+    masked by a negative c.
+
+    `lagunaInjectShare` (`:12105-12107`) spreads the total over all 40 layers for
+    every rung, so the 40*c term is IDENTICAL at N=160 and N=1200 and cancels:
+        k = (d(1200) - d(160)) / 1040
+    That is the only estimator here that isolates a true per-dispatch price.
+    """
+    r = RESULTS["rungs"]
+    print("\n## POST-HOC rung-difference estimator (cancels the eval-boundary term)")
+    if 160 not in r or 1200 not in r:
+        print("  (needs both rungs)")
+        return
+    for key, what in (("free", "unchained / concurrent (F -> H)"),
+                      ("ser", "chained / serialized (S -> J)")):
+        m1, h1, k1 = r[160][key]
+        m2, h2, k2 = r[1200][key]
+        if not k1 or not k2:
+            print(f"  {what}: incomplete (B={k1} at 160, B={k2} at 1200)")
+            continue
+        dn = 1200 - 160
+        k = (m2 - m1) / dn
+        hw = (math.sqrt(h1 ** 2 + h2 ** 2) / dn
+              if not (math.isnan(h1) or math.isnan(h2)) else float("nan"))
+        c = (m1 - 160 * k) / 40
+        print(f"  {what}: k = {fmt(k, hw, ' M4 us/dispatch')}  (B={k1},{k2})")
+        print(f"    implied eval-boundary term c = {c:+.2f} us per layer "
+              f"({40 * c:+.0f} us/step over 40 layers)")
+        RESULTS.setdefault("rungdiff", {})[key] = (k, hw, c, min(k1, k2))
+    # Coarser cross-check on the chained ladder using the gauge as a third rung.
+    # The gauge effect is measured against POOLED controls, not block-paired, so
+    # this is weaker evidence than the S->J difference above.
+    if "gauge" in RESULTS and r[160]["ser"][2]:
+        g_eff = RESULTS["gauge"][0]
+        m1 = r[160]["ser"][0]
+        k_ch = (g_eff - m1) / (2400 - 160)
+        print(f"  chained cross-check via gauge (S -> G): k = {k_ch:+.4f} M4 us/dispatch"
+              f"   implied c = {(m1 - 160 * k_ch) / 40:+.2f} us per layer")
+        RESULTS["gauge_xcheck"] = (k_ch, (m1 - 160 * k_ch) / 40)
 
 
 def markdown(rows, voided):
@@ -301,6 +354,29 @@ def markdown(rows, voided):
                 "|---|---|---|---|"]
         for (arm, n), (m, hw, k) in sorted(RESULTS["drift"].items()):
             out.append(f"| `{arm}` | {n} | {fmt(m, hw)} | {k} |")
+    if RESULTS.get("rungdiff") or RESULTS.get("gauge_xcheck"):
+        out += ["", "### Post-hoc rung-difference estimator (the decisive one)", "",
+                "An injected arm differs from its control by `N` dispatches **and** by one "
+                "`asyncEval` per layer (`:12143`), which arm `C` never reaches "
+                "(`guard !pending.isEmpty`, `:12142`). So `d(N) = N·k + 40·c`: one equation, "
+                "two unknowns, and a null `d(N)` is equally consistent with `k = 0` or with a "
+                "positive `k` masked by a negative `c`. `lagunaInjectShare` "
+                "(`:12105-12107`) spreads every rung over all 40 layers, so `40·c` is "
+                "identical at `N = 160` and `N = 1200` and cancels in the difference.", "",
+                "| ladder | k, M4 µs/dispatch | implied eval-boundary c | blocks |",
+                "|---|---|---|---|"]
+        for key, what in (("free", "unchained / concurrent (F→H)"),
+                          ("ser", "chained / serialized (S→J)")):
+            if key in RESULTS.get("rungdiff", {}):
+                k, hw, c, b = RESULTS["rungdiff"][key]
+                out.append(f"| {what} | {fmt(k, hw)} | {c:+.2f} µs/layer "
+                           f"({40 * c:+.0f} µs/step) | {b} |")
+            else:
+                out.append(f"| {what} | rung incomplete | — | — |")
+        if "gauge_xcheck" in RESULTS:
+            k_ch, c = RESULTS["gauge_xcheck"]
+            out.append(f"| chained cross-check via gauge (S→G) | {k_ch:+.4f} | "
+                       f"{c:+.2f} µs/layer ({40 * c:+.0f} µs/step) | pooled |")
     out += ["", "### Verdict", "", f"**{RESULTS.get('verdict', 'not computed')}**"]
     print("\n".join(out))
 
