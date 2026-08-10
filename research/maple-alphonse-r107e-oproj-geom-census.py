@@ -29,12 +29,16 @@ OUT = "research/artifacts/maple-alphonse-r107e"
 FN = "func lagunaGatedAffineOProjNVFP4Source("
 END = "private let lagunaGatedAffineOProjNVFP4Kernels"
 
-# (num_simdgroups, results_per_simdgroup) per the assignment's arm table.
+# (num_simdgroups, results_per_simdgroup) per the assignment's arm table, plus
+# g4, the occupancy arm on the far side of the shipped geometry: the 2x2 found
+# the effect on the grid-thread axis, and g4 is the only bit-exact way to step
+# that axis upward instead of downward.
 ARMS = {
     "g0": (2, 4),
     "g1": (2, 8),
     "g2": (1, 8),
     "g3": (4, 4),
+    "g4": (2, 2),
 }
 HEADS = (64, 48)
 OUT_VEC = 2048

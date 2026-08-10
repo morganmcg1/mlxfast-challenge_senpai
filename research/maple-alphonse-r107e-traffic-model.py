@@ -561,6 +561,16 @@ def main() -> int:
             "amortisation_main_effect": "mean(g1,g2) - mean(g0,g3)",
             "threadgroup_shape_main_effect": "mean(g1,g3) - mean(g0,g2)",
         },
+        "occupancy_bracket": {
+            "design": "single factor: results_per_simdgroup 4 -> 2 at fixed num_simdgroups=2",
+            "cells": {
+                "g0": "rps=4 rows/tg=8  grid=16384 (shipped)",
+                "g4": "rps=2 rows/tg=4  grid=32768 (2x grid threads, de-amortised)",
+            },
+            "purpose": "brackets the shipped geometry from the opposite side of the "
+                       "grid-thread axis; the slot model and the measured occupancy "
+                       "axis predict opposite signs for g4",
+        },
         "roofline": roofline(local_decode_s=float(sys.argv[1]) if len(sys.argv) > 1 else None),
         "issue_ceiling": issue_ceiling(arms),
         "regime_fit": regime_fit(),
@@ -572,7 +582,7 @@ def main() -> int:
     for head in ("h64", "h48"):
         print(f"--- {head} ---")
         base = arms["g0"][head]
-        for arm in ("g0", "g1", "g2", "g3"):
+        for arm in sorted(arms):
             m = arms[arm][head]
             print(
                 f"  {arm}: rps={m['results_per_simdgroup']} ns={m['num_simdgroups']} "

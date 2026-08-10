@@ -14,7 +14,7 @@ import re
 from pathlib import Path
 
 ART = Path("research/artifacts/maple-alphonse-r107e")
-ARMS = ["g0", "g1", "g2", "g3"]
+ARMS = ["g0", "g1", "g2", "g3", "g4"]
 HEADS = ["h64", "h48"]
 
 # device buffer element type -> which oproj argument it can only have come from
@@ -90,7 +90,7 @@ def digest(path: Path) -> str:
 # dynamic count per k-block is the static site count times its trip count.
 VALUES_PER_THREAD = 16
 CODES_PER_THREAD = 2
-GEOM = {"g0": 4, "g1": 8, "g2": 8, "g3": 4}
+GEOM = {"g0": 4, "g1": 8, "g2": 8, "g3": 4, "g4": 2}
 
 
 def dynamic_loads(arms: dict) -> dict:
@@ -156,7 +156,7 @@ def main() -> None:
     # Register-pressure / spill proxy: does result[] growth show up as more
     # private float traffic, and does any arm grow its alloca footprint beyond
     # the expected result[] + x_thread[] inventory?
-    expect = {"g0": 4 + 16, "g1": 8 + 16, "g2": 8 + 16, "g3": 4 + 16}
+    expect = {"g0": 4 + 16, "g1": 8 + 16, "g2": 8 + 16, "g3": 4 + 16, "g4": 2 + 16}
     out["spill_proxy"] = {}
     for key, rec in out["arms"].items():
         arm = key.split("_")[0]
