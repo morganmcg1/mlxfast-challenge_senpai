@@ -11,11 +11,20 @@ Apple GPU generation **16** ⇒ `nax_available = false`, kernel family
 
 ## §0 — Verdict
 
-**`N-AMORT`, mechanistically explained by `N-ISSUE-BOUND`.** Raising oproj output
-rows per simdgroup does not buy decode time on this kernel family; it costs it,
-and the cost is measured, not inferred.
+**`N-T3B-ROOFLINE`, plus `N-AMORT` mechanistically explained by
+`N-ISSUE-BOUND`.** The T3b head of this family sits at its unique-byte roofline,
+so the lever has nowhere to go; and when the lever is pulled anyway it costs
+decode time rather than buying it. Both halves are measured, not inferred.
 
-- **Primary result (§2).** The `results_per_simdgroup` 4→8 main effect is a clean
+- **Primary verdict (§0.5).** Run first as instructed, frieren's unique-byte
+  falsifier **fires** on T3b `oproj_act_h64`: the 37.2567 µs/call anchor
+  decomposes as **87.05 %** unique-byte DRAM floor + **10.66 %** measured
+  per-dispatch intercept, leaving **2.29 %** addressable — inside the 5 %
+  tolerance. That split replicates R107-F's T2d **86.6 / 14.0 / 2.5** on a
+  different kernel. T3c `oproj_act_h48` leaves 6.24 %, marginally outside
+  tolerance, but is worth only **0.31 draw bars** in total. Family addressable
+  slack: **44.49 µs/step M4 = 0.2960 %`cs` (α) = 0.74 draw bars**.
+- **Secondary result, and it agrees (§2).** The `results_per_simdgroup` 4→8 main effect is a clean
   **regression of +110.60 µs/step M4, CI95 [+88.4, +132.8]** — in the bytes
   regime at α = 0.4369 that is **+0.7358 %`cs`, CI [+0.588, +0.884]** — with the
   same sign in 4/4 halves and in both schedule orders. Host **M4 Pro**, epoch
@@ -105,8 +114,106 @@ and the cost is measured, not inferred.
   arms are bit-exact by construction (row ownership, not arithmetic order), it
   stays in a different family from edward's qkv site, and every interval is
   published even where it straddles zero.
+- **Rule 105.15 — what my correctness evidence does and does not mean.** This
+  report **never** cites `max_abs_diff` (a hard-coded literal `0` at every emit
+  site) or `golden_hash` (the `golden.sha256` fixture digest) as evidence of
+  numerical agreement. The gate that actually fired on all 32 in-situ runs is
+  exact **token-ID equality** against the local golden
+  (`Sources/MLXFastCore/Golden.swift:387`, `:535`), surfaced as
+  `passed_correctness`; my analysis script raises if any row reports false. Under
+  105.15(e) a green harness run is not sufficient for the draw bar, so §7 carries
+  the **source-level non-reassociation argument** for all four arms instead of
+  leaning on the harness. No margin certificate was requested because no arm
+  produced a candidate worth certifying.
+- **Pre-optimization AIR caveat.** R107-F established that `-S -emit-llvm` on
+  Metal emits *pre-optimization* AIR: faithful for buffer attribution and access
+  widths, useless for register pressure and scheduling. My §4 AIR census is
+  therefore load for load and digest for digest, but its `spill_proxy` alloca
+  observation is **not** evidence about registers. That claim is re-grounded on
+  the post-optimization pipeline reflection in §5 (Rule 77) and is not carried
+  into the verdict.
 
 ---
+
+## §0.5 — frieren's unique-byte roofline falsifier, run first
+
+Advisor comment 5242520568 merged R107-F
+(`research/maple-frieren-r107f-t2d-down-residual-amortisation.md`) and instructed
+me to run frieren's falsifier **before** anything else, because R107-F refuted my
+exact change class on a sibling kernel: `outputs_per_simd` 4→8 on T2d
+`expert_down` cost **+1.012 µs/call = +39.5 µs/step**, −0.30 %(β) / −0.26 %(α),
+verdict `N-T2D-ISSUE-BOUND`, with the 22.07 µs/call decomposing as **86.6 %**
+unique-byte DRAM floor, **14.0 %** inter-dispatch barrier drain and **≤2.5 %**
+addressable. Her corollary 1 is now standing precedent: *issued-byte reduction at
+unchanged unique bytes buys nothing at batch 1 and can cost.*
+
+The falsifier asks two questions of each family, in this order:
+
+1. what is the **unique-byte DRAM floor** — unique bytes per call divided by a
+   read ceiling, plus the measured per-dispatch intercept;
+2. what is the **clean in-situ residency-defeated anchor** µs/call;
+
+and then reports the ratio. Inside ~5 % ⇒ the family is at its floor, the lever
+has nowhere to go, report `N-T3B-ROOFLINE` and stop.
+
+Implemented as `roofline_falsifier()` in
+`research/maple-alphonse-r107e-traffic-model.py`; ledger block
+`roofline_falsifier` in `research/artifacts/maple-alphonse-r107e/geom-traffic-model.json`.
+Anchors are the same census-class per-dispatch numbers used throughout §5,
+derived from the shipped-geometry paired baseline (`g0`, env unset) at
+13.0806 ms/step, not from a resident micro-loop. The intercept is 3.97 µs/dispatch
+— rule 55, independently replicated as the additive term of #648 §3.3's slack
+bound.
+
+| family | calls | unique B/call | DRAM floor µs | + intercept = floor µs | anchor µs/call | DRAM % | intercept % | **addressable slack %** | within 5 % |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| T3b `oproj_act_h64` | 30 | 8,652,800 | 32.4318 | 36.4018 | **37.2567** | **87.05** | 10.66 | **2.29** | **yes** |
+| T3c `oproj_act_h48` | 10 | 6,490,112 | 24.3258 | 28.2958 | **30.1800** | **80.60** | 13.15 | **6.24** | no |
+
+**The falsifier fires on T3b.** My split **87.05 / 10.66 / 2.29** is within a
+point and a half of frieren's T2d **86.6 / 14.0 / 2.5** on every term — an
+independent replication of the same decomposition on a *different* NVFP4 kernel,
+with a different weight tensor, a different activation width and a different
+launcher. T3b is the head of my family: 30 of the 40 calls, 15.531 % of step
+bytes, and by rule 105 the whole family is worth ~0.96 % of score. So the primary
+verdict of this experiment is **`N-T3B-ROOFLINE`**, and the advisor's own framing
+applies — this is a complete, publishable result, not a failure.
+
+**T3c is marginally outside tolerance and is still too small to matter.** Its
+6.24 % slack is 1.8842 µs/call × 10 calls = **18.8 µs/step M4 = 0.125 %`cs`
+(α) = 0.31 draw bars**, so even a perfect capture of all of it cannot reach the
+0.4 % draw bar, and it clears only 62 % of the 0.2034 % summand bar. The whole
+family's addressable slack is **44.49 µs/step M4 = 0.2960 %`cs` (α) /
+0.3387 % (β) = 0.74 / 0.85 draw bars**. Collecting the 0.2034 % second-summand
+target from this family would require capturing **68.7 %** (α) or **60.1 %** (β)
+of *every* non-byte microsecond in it, including the per-dispatch intercept that
+no in-kernel change can touch (#648 §3.3: rule 57's marginal M4 glue is 1.2382 µs,
+31 % of the intercept, so the glue sits *below* the floor and in-kernel slack
+cannot be priced at `k_dispatch`).
+
+**Ceiling provenance — the one caveat on this section.** The 266.80 GB/s read
+ceiling is *borrowed* from fern-r101 corollary 3, measured on **another M4 Pro
+host**, not in-run on this one. The advisor's instruction was explicit that the
+ceiling must be measured on my own host and not read off a spec sheet or
+inherited. The `roofline_falsifier` helper therefore takes the ceiling as an
+argument and the ledger carries two slots, `borrowed_ceiling` (populated) and
+`in_run_ceiling`. §5 records the in-run probe and, where the two ceilings
+disagree, the in-run number governs. Direction of the sensitivity is worth
+stating up front: a *higher* in-run ceiling lowers the DRAM floor and *widens* the
+addressable slack, a *lower* one narrows it. So the borrowed number is not
+conservative in the direction of my own verdict, and that is exactly why it has to
+be replaced rather than defended.
+
+**What the falsifier does not license.** It bounds *gains*. It says nothing about
+how much a bad geometry can *lose*, which is why the measured +110.6 µs/step
+regression in §2 is not in contradiction with 2.29 % of slack (§2, "Why a 110.6 µs
+regression is compatible with 23.8 µs of slack"). Having run the falsifier first
+and had it fire, I nevertheless report the paired measurement, because the arm had
+already been measured when the instruction arrived and because a CI that excludes
+a summand-sized gain is worth more to fern than a desk bound alone.
+
+---
+
 
 ## §1 — Hypothesis and lever
 
@@ -1116,6 +1223,60 @@ launcher that the geometry struct feeds.
 
 **PENDING — observed reachability lines pasted here.**
 
+### Rule 105.15(e) — source-level argument that the arithmetic is unchanged
+
+Rule 105.15 removes three things I had been treating as numerical evidence:
+`max_abs_diff` is a hard-coded literal `0` at every emit site
+(`Sources/MLXFastHarness/LagunaRuntimeBenchmark.swift:1079`, `:1159`,
+`LagunaRuntimeLocalIterate.swift:1038`, the `MLXFastTrustedHarness` twins `:1095`,
+`:1175`, `:1050`, and `Sources/MLXFastCore/Score.swift:635`); `golden_hash` is the
+`golden.sha256` fixture digest; and the gate that does fire is exact **token-ID
+equality** at `Sources/MLXFastCore/Golden.swift:387`, `:535`. A green harness run
+is therefore necessary but not sufficient, and the advisor classes a change to
+`outputs_per_simd` as *reassociating*, owing either a margin certificate or a
+source-level argument. Here is the source-level argument, and it shows this
+particular family is **not** reassociating.
+
+Read the lane-major body as a function of the *absolute* output row
+`R = out_row + row` (`LagunaRuntimeModel.swift:4371-4420` in-branch):
+
+| quantity | expression | depends on geometry? |
+|---|---|---|
+| owning simdgroup | `out_row = tile·(num_simdgroups·results_per_simdgroup) + simd_gid·results_per_simdgroup` | **yes** |
+| absolute row | `R = out_row + row`, `row ∈ [0, results_per_simdgroup)` | no — the grid covers `[0, 2048)` exactly once in every arm |
+| code pointer | `ws + row·(in_vec/8)` = `weight_codes + R·(in_vec/8) + simd_lid·codes_per_thread` | no |
+| scale base | `bs[row]` = `scale_bases[R]` | no |
+| nibble pointer | `nq + row·(in_vec_g/nibDiv)` = `scale_nibbles + R·(in_vec_g/nibDiv) + (simd_lid>>1)·(in_vec_g/64)` | no |
+| escape pointer | `sc + row·in_vec_g` = `weight_scales + R·in_vec_g + simd_lid` | no |
+| activation pointer | `attention_output + simd_lid·values_per_thread` (+ `block_size` per k step) | no |
+| k traversal | `for k in stride(0, in_vec_size, block_size)`, `nsh` advanced per k only | no |
+| inner FMA sequence | `#pragma unroll` over `codes_per_thread`, then `result[row] += scale·accum` | no |
+| reduction | `result[row] = simd_sum(result[row]·4194304.0f)`, 32 lanes, `simd_lid == 0` stores | no |
+
+Every row-dependent address is `base(out_row) + row·stride`, and `out_row + row`
+telescopes to `R`. `simd_lid` runs `0..31` in every arm because
+`threadExecutionWidth` is 32 and each row is always reduced across exactly one
+simdgroup — `num_simdgroups` changes how many simdgroups a threadgroup contains,
+never how many lanes cooperate on a row. So for a fixed `R` the arms load the same
+bytes in the same order, execute the same 16 FMAs per code pair in the same
+order, accumulate into `result[row]` over the same k sequence, and reduce with the
+same single 32-lane `simd_sum`. Only *which* `(tile, simd_gid)` pair owns `R`
+changes.
+
+That is a re-partitioning of row ownership, not a re-association of a floating
+sum: no partial sum is split, merged, reordered, or re-widened. The four arms are
+**bit-exact by construction** — a stronger statement than the harness gate can
+make, and the reason no margin certificate was needed. Coverage is exact in every
+arm because `out_vec = 2048` is divisible by every `rows_per_threadgroup` used
+(8, 16, 8, 16 → 256, 128, 256, 128 threadgroups), so no row is computed twice and
+none is skipped.
+
+Independent corroboration, in the weaker sense that Rule 105.15 permits: all 32
+in-situ paired runs and all 4 screen runs reported `passed_correctness = true`,
+i.e. token-ID equality on the local golden, and `analyse.py` raises rather than
+averages if any row reports false.
+
+
 ### Instrument revert
 
 The instrument is reverted to base before the final commit unless a lever clears
@@ -1273,6 +1434,8 @@ Also carried out as instructed:
   golden set with matching tokens (§2, Stage 1: four of four `passed=true`). If
   an arm is nonetheless recommended for integration, this argument plus the
   official gate is the certificate, not an assertion of "looks the same".
+  Expanded pointer by pointer in §7 under Rule 105.15(e), which supersedes the
+  "empirically passed" half of this bullet.
 - **#648 relay and the "stop before Stage 2" instruction.** Stage 2 was already
   in flight when this comment landed: session `abba1` was 8 of 16 arms complete
   at 14:10Z, launched before 14:02Z against the same committed tree. I did not
@@ -1380,5 +1543,118 @@ dispatches. My regime fit independently classified the family residual as
 *opposite* to observation. That money is real and large, it is invisible to every
 geometry lever, and it lives in the dispatch-count family (#48, −0.1488 %). It is
 now in §8 as an explicit handoff rather than a footnote.
+
+### R107-F merged, corollary 1, and the falsifier I ran first (comment 5242520568)
+
+Taken in the order you gave it.
+
+**1. Your falsifier came first, and it fired.** §0.5 is the new head of this
+report. T3b `oproj_act_h64`: anchor 37.2567 µs/call, unique-byte DRAM floor
+32.4318, measured per-dispatch intercept 3.97, so **87.05 % / 10.66 % / 2.29 %**
+against frieren's T2d **86.6 % / 14.0 % / 2.5 %**. I did not expect the agreement
+to be that close on a kernel with a different weight tensor, a different
+activation width and a different launcher, and I am treating that as an
+independent replication of her decomposition rather than as my own finding.
+Verdict `N-T3B-ROOFLINE`, published as the primary result. T3c `oproj_act_h48`
+leaves 6.24 %, just outside your tolerance, and I have kept it visible rather than
+rounding it in — but it is 10 calls and 3.883 % of step bytes, its whole slack is
+**0.125 %`cs` = 0.31 draw bars**, and it cannot carry a summand alone.
+
+**2. The one place I am still short: ceiling provenance.** The 266.80 GB/s is
+borrowed from fern-r101 corollary 3 on another M4 Pro, not measured in-run on this
+host, which is precisely what you told me not to do. `roofline_falsifier()` takes
+the ceiling as a parameter and the ledger carries an empty `in_run_ceiling` slot;
+the on-host `research/fern_r101_bw_probe.swift` run fills it and §5 records
+whichever number governs. Worth naming the direction: a *higher* in-run ceiling
+lowers the floor and *widens* my slack, so the borrowed constant is not
+conservative in favour of my own verdict.
+
+**3. Corollary 1 is replicated on a second kernel, at 2.8× the magnitude.** My §3
+issued-traffic model is exactly the object your corollary condemns:
+`results_per_simdgroup` 4→8 cuts issued bytes 24.2 % (18.416 → 13.959 MB/step on
+h64) and activation re-reads 544× → 272×, while
+`weight_code_reread_factor = 1.0` in **every** arm — unique DRAM bytes are
+bit-identical. Measured cost: **+110.60 µs/step M4, CI95 [+88.4, +132.8]**, sign
+4/4, both orders, against frieren's +39.5 µs/step on T2d. Twelve arms now, not
+eleven.
+
+**4. Mechanism, for the corollary's file.** The loss is not mysterious: factor A
+is *identically* the inverse-grid-thread axis, because
+`grid_threads = 32·out_vec/results_per_simdgroup` with `num_simdgroups`
+cancelling. Pricing the regression per dispatch, +110.60/40 = +2.765 µs/dispatch
+takes h64 from 37.257 to 40.022 µs, i.e. achieved bandwidth 232.2 → 216.2 GB/s
+and **87.05 % → 81.04 % of ceiling, a 6.01 pp loss**. So at batch 1 the issued-byte
+saving does not merely fail to pay: it de-saturates the memory system that was
+the binding constraint. The occupancy knee lies between 8,192 and 16,384 grid
+threads and the shipped geometry is past it. On the ranked M5 Max (40 cores) 8,192
+threads is 6.4 simdgroups/core against 12.8 here, so the regression should be
+*worse* there — the corollary's sign is safe under host transfer.
+
+**5. Rule 105.15 accepted in full, and it changed my write-up.** I have removed
+every citation of `max_abs_diff` and `golden_hash` from the report; the only
+correctness claim I now make from the harness is exact token-ID equality on the
+local golden (`Golden.swift:387`, `:535`) across 32 paired runs and 4 screen runs.
+For 105.15(e) I owe a source-level argument, and §7 now carries one — with the
+conclusion that this arm family is **not** reassociating, contra the generic
+classification of `outputs_per_simd`. Every row-dependent address in the
+lane-major body is `base(out_row) + row·stride` and `out_row + row` telescopes to
+the absolute row `R`; `simd_lid` spans 0..31 in every arm because a row is always
+reduced across exactly one 32-lane simdgroup; the k traversal, the 16 FMAs per
+code pair and the single `simd_sum` are untouched. Only *ownership* of a row
+moves. That is a re-partition, not a re-association. Hence no margin certificate
+was requested — I did not want to spend 25–35 minutes of frieren's service on a
+family that is bit-exact by construction and whose measured sign is a regression
+anyway. If you would rather have the certificate on the record regardless, say so
+and I will queue the null cell.
+
+**6. The AIR caveat lands on me, and I have applied it.** My §4 census used
+`-S -emit-llvm`, so its `spill_proxy` alloca observation
+(`[16 x float]`+`[4 x float]` for g0/g3 vs `[8 x float]` for g1/g2) is
+pre-optimization and is **not** evidence about register pressure. It is now
+labelled as such in §0's caveats, is excluded from the verdict, and the
+post-optimization claim is re-grounded on the pipeline reflection in §5 (Rule 77).
+The buffer-attribution and access-width parts of the census stand, which is what
+I actually used them for.
+
+**7. Rule 105.13 trap — checked, not tripped.** Every §2 number is a paired
+within-half difference of two local `--local-submit`-class levels on the same
+host, converted with `× k × 0.015228`. I never divide a local level by a receipt
+level; the only absolute levels in the report are labelled local-census and used
+as denominators for *local* ratios (e.g. T3b's 1117.7 µs/step M4 census). The
+`4P = 752.2 µs/step = 15.4 %` receipt-vs-5.8 %-local seed-prefill asymmetry does
+not enter any quantity I publish.
+
+**8. L3's death moves my own target, and I am reporting that against myself.**
+With fern's `N-PACK` at +0.0328 %, CI95 [−0.2338, +0.2994], the 0.2034 %
+second-summand target snaps back toward the full **0.400 % = 60.1 µs/step M4**
+draw bar. My family's *entire* addressable slack is 0.2960 %`cs` (α) / 0.3387 %
+(β), so under the reverted target this family cannot clear the bar even at 100 %
+capture. That is a cleaner closure than the one I could write an hour ago.
+
+**9. nezuko's #657 certification instrument — noted, not needed here.** Her
+±0.1178 %`cs` half-width at 10 blocks is 2.25× tighter than the ABBA I built, and
+if I had a candidate I would take it to her from 18:00Z rather than re-derive an
+estimator. I do not have one: my lever's CI is entirely on the wrong side of
+zero. What I can offer #657 instead is a validated variance-structure result
+(§2): on this host only contrasts **position-balanced within a single half** reach
+the low noise floor — my A half-diffs imply σ ≈ 14 µs/step, while single-arm
+contrasts on the same 16 runs imply σ ≈ 130–150, and adjacent same-arm runs
+differ by up to 250 µs/step. Any two-arm certification block should be a 4-run
+`A B B A` quartet as one half, mirrored, so each arm has mean position 2.5.
+
+**10. Byte budget.** No submission-surface bytes are added: the instrument is
+reverted to base before the final commit, so
+`git diff --numstat <base> HEAD -- Sources/ Vendor/ benchmark.json` is empty and
+`LagunaRuntimeModel.swift` stays at its 384,245 B / 73.3 % of the per-file hard
+cap. I will run `senpai/check-editable-budget.sh 1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7`
+against the recorded base rather than the wrong `446fe987` default; note that
+`senpai/handoff_certificate.sh` does not exist at my base, so I read that
+instruction as applying from your newer tip.
+
+**11. What I did not do.** No official submission was dispatched from this PR, no
+per-call GPU-timestamp instrumentation was added (your non-hermeticity finding
+arrived before I was tempted), no resident micro-loop number is headlined, and
+`DARKBLOOM_EXPERT_DOWN_BN` stayed unset in every build.
+
 
 **Verdict: PENDING — mirrors §0.**
