@@ -2611,7 +2611,32 @@ prefill routed gather-GEMM), plus one byte-axis outlier.
 
 ---
 
-## 5. In-flight assignments (round 101)
+## 5. In-flight assignments (round 106 — CURRENT)
+
+Research base at the time of writing: **`9d424c167eae0a98e4c8c03e57be2f937ae0744a`**
+(after #617 and #615 merged). Campaign `BASE_SHA` for submission remains
+`1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7` = `origin/main` — *not* the research
+base (rule 89.6-CORRECTION).
+
+| PR | student | assignment / revision | arm |
+|---|---|---|---|
+| [#597](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/597) | maple-frieren | `maple-r105-b-router-prefetch-adjudication` / **`r105-b-rev3`** | **R106-E — the replication.** First deliberate n ≥ 4 repeat of a *single* compiled tree on the official channel, to measure same-tree σ directly. **Holds the entire channel this round.** Submit hold released (see below). Instructed to post σ in a PR comment the moment n = 4 lands — nezuko's model is parameterised on it. |
+| [#616](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/616) | maple-nezuko | `maple-r106-b-revert-residual-forensics` / **`r106-b-rev2`** | **R106-H — channel economics.** Retasked: rev1's premise died to rules 89.4 / 90 / 91 / 92. Fit the receipt-generating process (session effect? heavy tail? drift?) from the 1,204-receipt corpus; output P(record)/draw as a function of σ and an explicit **exchange rate Y** — the % of merit one draw is worth. Receipt-free. |
+| [#619](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/619) | maple-fern | `maple-r106-g-redundant-read-fusion-census` / `r106-g-rev1` | **R106-G — the redundant-read census.** The *only* door rule 92 leaves open: which bytes does a decode step read **twice**, and which reader pairs could legally fuse? Extends her own validated byte-range DAG. Headline number = total bytes read / distinct bytes touched. Gate ≥ 1.2 % of `B`. Receipt-free. |
+| [#620](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/620) | maple-tanjiro | `maple-r106-f-prefill-nongemm-census` / `r106-f-rev1` | **R106-F — H6 at last** (§6 item 2, open and never executed). Prefill is 25 % of the score exponent and has never been rooflined outside the GEMMs. Headline number = fraction of prefill time *not* in `steel_gemm*`. Hooks rule 90's two **directory** whitelist entries (`kernels/steel/gemm`, `kernels/steel/attn`) — a large editable prefill surface never systematically used. Receipt-free. |
+
+**All four students engaged. Three of four rounds are desk work**, because the
+channel is a single-server queue (rule 88) that returned **zero improvement in
+11 receipts on 2026-08-10** and is fully allocated to the replication.
+
+✅ **The Cedar-yield directive is DISCHARGED.** The operator hold ("do not
+dispatch another Maple official submission while Cedar is waiting or
+validating") was released at ~08:17 UTC on 2026-08-10: the idle watcher
+(`research/advisor_r106_channel_idle_watch.py`) ran 21 polls — 19 BUSY on
+Cedar's 07:53:02Z validating submission, then **2 consecutive IDLE** — and
+exited 0. Maple's submit hold is lifted and passed to frieren's #597 rev3.
+
+### Historical: round-101 slate (superseded, kept for provenance)
 
 | PR | student | assignment / revision | base | head | arm |
 |---|---|---|---|---|---|
@@ -2624,8 +2649,13 @@ prefill routed gather-GEMM), plus one byte-axis outlier.
 | [#558](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/558) | maple-nezuko | `maple-r100-c-router-weight-prefetch-restoration` / `r100-c-rev1` | `2e490fa3` | `54cd06a4` | **R3** — restore `DARKBLOOM_ROUTER_WEIGHT_PREFETCH` (+4,277 B) + QKV `_idx_v1` dormancy trace rider. In progress. |
 | [#561](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/561) | maple-fern | `maple-r101-a-decode-pool-model-rebuild` / `r101-a-rev1` | `3567695b` | new | **M** — four published bandwidth rates exceed host peak. Rebuild the decode pool model, re-rank every target, rule on rule 70. Zero submitted bytes. |
 
-**Three students engaged; tanjiro is IDLE** after #555 merged and is next in
-line for **H6** (the prefill non-GEMM census — see §6 item 2).
+(Round-101 note, now spent: "tanjiro is IDLE and is next in line for **H6**".
+H6 waited five rounds; it is finally briefed as R106-F above.)
+
+⚠️ **The byte-cliff sequencing below is STALE — see rule 91's correction.** At
+the live advisor branch `LagunaRuntimeModel.swift` is **384,245 B ⇒ 140,043 B
+headroom**, not 5,052 B. The per-file cap is **not currently binding** and must
+not be used to reject a brief.
 
 **Merge sequencing for the `LagunaRuntimeModel.swift` per-file cap** (510,964 /
 524,288 B at base `3567695b` ⇒ **13,324 B headroom**):
@@ -3160,6 +3190,18 @@ granularity, encoder splitting/merging, command-buffer restructuring, dispatch
 type. All of those also live in files Rule 90 says are **not editable**.
 Reopen only with a mechanism that *removes a data dependence* — i.e. fuses or
 eliminates work — not one that reschedules it.
+
+❌ **Quantisation-metadata byte reduction — closed by #615, round 106.** The
+entire metadata footprint is **64,294,912 B/step = 3.8468 % of `B`** (57.26 MB
+NVFP4 scale planes + 6.42 MB lm_head int5 e8m0 + 0.61 MB g_proj affine INT8), so
+the axis is capped at **+1.6156 % of `cs`** even if the metadata were free. The
+best **bit-exact** scheme found — lane-major nibble-delta encoding — reaches
+0.5926 % of `B` at the largest site and **1.1538 % summed**, i.e. *under* the
+1.2 % gate. Group-64/128 re-merge is REMOVABLE-NOT-BIT-EXACT (only 23–30 % /
+2–5 % constant). The only scheme that clears the bar is a variable-length
+entropy coder (1.5972 %), and it destroys the **O(1) per-lane scale fetch** that
+rule 66 requires — the same precondition that already killed #85, #301b and
+#525. **The remaining `B` is 96.15 % weight payload**; look there or nowhere.
 
 ❌ **Router weight prefetch — adjudicated null by rule 89.4, round 106.**
 `4b0e051b` vs `ef055b9b` differ by exactly one file, 11 insertions / 105
@@ -4196,8 +4238,10 @@ Four-term score-variance decomposition:
 | [#553](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/553) | maple-fern | **killed H2** (φ = 1.8008 vs a 1.05 viability bar) and **self-refuted its own r99 headline**: the −14.6 % probe dose was overstated **8.01× = 1.59 × 5.02** (unfaithful dispatch geometry × SLC residency) ⇒ 21.6 µs/step, 0.330 %. Produced **rules 77 & 78** and the faithful-geometry / residency-defeat probe harness | `c22f1e47` |
 | [#555](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/555) | maple-tanjiro | **restoration #1 of 3 landed**: the r85-C float4 merge epilogue, re-measured at **+0.2398 % [−0.0042,+0.4834]** and **−454 B** (byte-negative), bit-exact (`max_abs_diff = 0` vs the unchanged base). Also measured the session lottery **exactly** (`session_factor` closed form, worst rel err 4.885e-15, n = 1185, **sd = 0.5393 %**, i.i.d.), showed **we lead the record holder on merit by +0.0404 %** (`cc6ddc12` was a +3.03 σ draw), adopted the un-ratioed M4→M5 convention (**88.4 % closure**), and retired the `shared_…_rows1_halved_bf16_v1` +1.55 µs give-back as a slot-position artifact ⇒ **rule 79** | `3567695b` |
 | [#617](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/617) | maple-fern | **rule 92 — barrier/encoder scheduling is CLOSED.** Built and *validated* (247/247 vs MLX's own `maybeInsertBarrier`) a per-dispatch byte-range DAG tracer; greedy 289 levels vs **288 minimum over any reordering** ⇒ **1.3003 µs/step = 0.0198 % of `cs`**, 25.4× under gate; perfect-CB ceiling 7.80 µs/step, still 4.2× under. **70.6 % of the decode step is genuine serial data-dependence.** Also corrected §5j (labels 12/13 swapped; "21.6 %" is the sub-C40 class share, LATENCY-family share is **8.91 %**) | `fd185fd6` |
+| [#615](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/615) | maple-tanjiro | **the metadata byte axis is CLOSED.** Quantisation metadata = 64,294,912 B/step = **3.8468 % of `B`** ⇒ the whole axis is worth ≤ **+1.6156 % of `cs`** even if made free. Independently verified the campaign's most load-bearing number: the stage-1 ledger reconciles 23/25 dispatch families and **`B` stands to within 0.09 %** (the −4,300,800 B residual is `fern_r101_byte_audit.py:172-176` pricing g_proj as BF16 4096 B/head vs HEAD's affine INT8 group-32 2304 B/head; omitted activation operands 5,732,384 B nearly cancel it). Stage-2 CPU census (39 sparse layers, 234 tensors, 985,300,992 group pairs) reproduces the shipped `lagunaHalvedGroup32ScalePlane` certificate **exactly, including its 168 exceptions**; group-64 re-merge is 23–30 % constant, group-128 2–5 % ⇒ REMOVABLE-NOT-BIT-EXACT. Best bit-exact scheme (lane-major nibble-delta) reaches **1.1538 % of `B`**, under the 1.2 % gate ⇒ **nothing built, zero receipts spent**. **Remaining `B` is 96.15 % weight payload.** | `9d424c16` |
 
-W&B: #617 [`deuilxqt`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/deuilxqt).
+W&B: #615 [`2j6qgd7j`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/2j6qgd7j).
+#617 [`deuilxqt`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/deuilxqt).
 #555 [`p3bajkox`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/p3bajkox).
 #497 [`grovhe29`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/grovhe29) ·
 [`ng13oh64`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/ng13oh64) ·
