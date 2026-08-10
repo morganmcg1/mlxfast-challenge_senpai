@@ -442,10 +442,17 @@ elasticity actually is, and all four are `SATURATING` in this census.
 Run: `fern-r105d-decode-dispatch-occupancy-census` in `wandb-applied-ai-team/mlxfast-maple`,
 job type `census`, tags `r105-D`, `maple-fern`, `phase-A`, `census`, `no-timing`, `N-1`.
 
+- **Run ID:** `1k7a3iv6`
+- **URL:** <https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/1k7a3iv6>
+- **Reproduce:** `python3 research/fern_r105d_wandb_log.py` from the repository root at
+  `fdfc77f3` (requires `WANDB_API_KEY`; reads only the three committed artifacts, no GPU).
+- Regenerate the artifacts themselves with `python3 research/fern_r105d_census.py` and
+  `python3 research/fern_r105d_bytes.py` (the former needs the r105-C traces under
+  `/tmp/r105c/dump/`).
+
 It logs the full summary-statistic set (step structure, occupancy rollup, byte census, roofline,
 mechanism bounds, the 15.2× self-falsification, and the five headline verdicts), plus the per-family
-geometry table, the occupancy rollup table, and all three artifacts as a W&B Artifact. The run URL
-and ID are reported with the typed result.
+geometry table, the occupancy rollup table, and all three artifacts as a W&B Artifact.
 
 **This run records a static census, not a timed experiment.** No GPU timing was executed for this
 result; every number is either trace-derived arithmetic or a previously published in-repo
