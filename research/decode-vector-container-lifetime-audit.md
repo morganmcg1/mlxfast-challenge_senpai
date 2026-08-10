@@ -37,11 +37,11 @@ The table deliberately does not infer per-arity dynamic counts from source synta
 ## Ownership proof and safety limit
 
 1. `Vendor/mlx-swift/Source/MLX/Cmlx+Util.swift:6-10` creates a fresh C vector with `mlx_vector_array_new_data` and holds the Swift input buffer through the call.
-2. `Sources/MLXFastModel/MLXFastKernel.swift:139-157` creates populated input and empty output vectors, invokes the custom kernel synchronously, frees both C containers, then wraps returned array handles.
+2. `Vendor/mlx-swift/Source/MLX/MLXFastKernel.swift:139-157` creates populated input and empty output vectors, invokes the custom kernel synchronously, frees both C containers, then wraps returned array handles.
 3. `Vendor/mlx-swift/Source/MLX/Transforms+Eval.swift:6-9,15-25,32-40,48-53` serializes eval with a recursive lock. Blocking eval frees after return; async eval frees immediately after its C call.
 4. `Vendor/mlx-swift/Source/Cmlx/mlx-c/mlx/c/vector.cpp:41-49` makes a heap `std::vector` and shallow-copies array handles. Lines 65-79 show `set_data` builds a fresh temporary vector and assigns it; destination capacity may be reused, but the temporary still allocates/copies. `private/vector.h:16-24,26-45,48-59` owns/frees only that vector wrapper.
 5. `Vendor/mlx-swift/Source/Cmlx/mlx/mlx/array.h:82-91` defines shallow array copies. The transform bridge passes vectors by value and C++ graph/event code moves/copies those handles before returning; therefore the existing immediate frees are valid. Custom-kernel application likewise constructs graph state synchronously before return.
-6. MLX arrays are not generally thread-safe (`docs/src/dev/MLXArray.md:26-43`). Eval has a lock, but ordinary kernel calls do not share it. The ranked worker is serial (`LagunaRuntimeModel.swift:1815-1827`), yet a reusable field/global would create mutable cross-call ownership not guaranteed by the public API. A request-local reuse owner could avoid this, but no single proven <=4 KiB submitted owner spans all 334 calls, and vector.cpp/private vector ownership files are not editable.
+6. MLX arrays are not generally thread-safe (`Vendor/mlx-swift/Source/MLX/Documentation.docc/MLXArray.md:26-43`). Eval has a lock, but ordinary kernel calls do not share it. The ranked worker is serial (`LagunaRuntimeModel.swift:1815-1827`), yet a reusable field/global would create mutable cross-call ownership not guaranteed by the public API. A request-local reuse owner could avoid this, but no single proven <=4 KiB submitted owner spans all 334 calls, and vector.cpp/private vector ownership files are not editable.
 
 Conclusion: repopulating an unaliased container *after* a synchronous API return is locally valid, but a production shared container is not proven safe. Existing immediate-free semantics must remain.
 
@@ -61,8 +61,9 @@ Reproduce benchmark commit `530c23c`:
 
 ```bash
 cd Vendor/mlx-swift
-/usr/bin/time -l swift run -c release --force-resolved-versions \
-  VectorContainerLifetimeMicrobench ../../../research/decode-vector-container-microbench.json
+/usr/bin/time -l env \
+  MLXFAST_VECTOR_BENCH_OUTPUT="$(cd ../.. && pwd)/research/decode-vector-container-microbench.json" \
+  swift run -c release --force-resolved-versions VectorContainerLifetimeMicrobench
 ```
 
 Artifact: `research/decode-vector-container-microbench.json`, 10,975 bytes, SHA-256 `f9f2174049727c0a5ee6cd9c7208f1e9b3c7c0d7d0d1451835771a4e4e0c69cf`. Harness SHA-256: main `d555e31451c50132126fc922277a592baf0ca941b9fc1a72a96d984303d53fe8`; fixture `73e860ff34b6554c0c9e583cb4ddb662e684f3f88d2a8de76a5559fb1bdb1370`.
