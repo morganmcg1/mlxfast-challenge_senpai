@@ -463,24 +463,84 @@ this harness; it is written into the Stage C notes in §G for that reason.
 
 ## C.5 Results
 
-<!-- TABLE OF RECORD: FILLED FROM /tmp/r106b-finalise/audit.txt -->
+### C.5.1 The table of record
+
+24 runs, 6 complete blocks, all 4 arms in every block. Every row was re-derived
+from its own run log — kernel name, `passed_correctness`, decode figure — and all
+24 agreed (`research/maple-nezuko-r106b-verify-evidence-rows.sh`), so each arm's
+gate demonstrably reached the GPU (§D.2). Paired against the same-block control,
+dof 5, t(0.975,5) = 2.571:
+
+| arm | Δ µs/step | sd | 95 % CI | % of `cs` | label |
+|---|---|---|---|---|---|
+| **H** (H4) | **+35.959** | 24.893 | **[+9.831, +62.087]** | +0.5476 | N-RECOVER — *significant regression*, CI excludes zero |
+| **K** (PACKRED) | +22.145 | 28.405 | [−7.669, +51.958] | +0.3372 | N-RECOVER — null |
+| **P** (NOREDUCE) | +16.276 | 15.883 | [−0.395, +32.947] | +0.2479 | bound only; not a candidate, wrong by construction |
+
+Positive = **slower than control**. Control replicates: mean 8984.50 µs/step,
+sd 16.35, range 40.5, n = 6.
+
+**The single most important number in this report is P's lower confidence bound,
+−0.395 µs/step.** Arm P deletes the row-loop cross-lane reduction outright. So the
+*most* that removing every one of those shuffles could have bought, at 95 %
+confidence, is **0.4 µs/step — 0.006 % of `cs`**. That is not "we failed to
+measure a win"; it is a two-sided interval that **excludes the preregistered
+−5 µs/step win threshold by more than a factor of twelve**. The mechanism family
+is closed at the resolution the design was built to have.
+
+**This bound also disciplines arm K's own interval.** K's CI admits a win as large
+as −7.669 µs/step, which on its own would not exclude a threshold-sized effect. But
+K's mechanism is a *subset* of P's — halving the reduction cannot beat deleting it —
+so any real K win larger than P's 0.4 µs/step bound could not be the reduction
+mechanism K was designed around. The two intervals together say: PACKRED did not
+win, and if some future replication found it winning, the win would need a
+different explanation than the one in §B.3. I record this because reading K's
+interval alone would leave the door open to a claim the campaign actually closes.
+
+**Position confound, per the §C.4 rule 1 pre-commitment.** Arm and position are
+orthogonal across the candidate runs (each arm appears exactly twice at each of
+positions 2, 3, 4). The fitted linear position slope is **−1.608 µs/step per
+position, 95 % CI [−10.836, +7.620]** — indistinguishable from zero, and *negative*
+where the confound would need to be positive. If the slope were real it would
+inflate every paired delta by only **+3.22 µs/step**; subtracting it leaves
+H +32.7, K +18.9, P +13.1 and changes no sign and no verdict (H's interval still
+excludes zero). The preregistered dof-5 paired contrast therefore **stands as the
+result of record**, exactly as §C.4 committed in advance. The not-preregistered
+block+position+arm fit agrees (arm_H +39.174, arm_K +25.360, arm_P +19.492,
+residual sd 16.175 on 14 dof) and is reported only as a consistency check.
+
+**One prediction of mine that missed, recorded because it cost the design power.**
+§C.3's fixed-term model predicted control sd ≈ 7.5 µs/step; the realised control
+sd is **16.35**, i.e. **2.2× worse**. The model's *ratio* claim survives — triage
+noise was 60.0 µs/step, still ~3.7× the evidence path — but its absolute scale was
+optimistic, and the consequence is concrete: the achieved 95 % half-widths are
+H 26.13, K 29.81, P 16.67 µs/step, all above the 5 µs/step decision threshold. Only
+arm P, the tightest arm, ended up sharp enough to exclude a threshold-sized effect.
+Had PACKRED been the load-bearing arm this campaign would have been underpowered
+and I would have had to say so; it is the diagnostic probe that rescued the round,
+which is an argument for always registering one.
+
+
 
 ### C.5.2 Reading
 
-All three arms are **null-or-worse**. No arm reaches the preregistered
-`<= -5 us/step` win threshold; every point estimate is on the *slower* side of the
-control, and the label for both candidate arms is **N-RECOVER** by the §4.5
-decision rule fixed in the preregistration. Amendment 2 §5 recorded in advance
-that this was the expected outcome and that `-D_P` was expected to be small, so
-this section reports a **met prediction rather than a rescued one** — which is the
-only reason the reader should give the negative result any weight at all.
+All three arms are **null-or-worse**, and one is worse. No arm reaches the
+preregistered `<= -5 us/step` win threshold; every point estimate is on the
+*slower* side of the control; arm H is a **statistically significant regression**
+(CI excludes zero); and the label for both candidate arms is **N-RECOVER** by the
+§4.5 decision rule fixed in the preregistration. Amendment 2 §5 recorded in
+advance that this was the expected outcome and that `-D_P` was expected to be
+small, so this section reports a **met prediction rather than a rescued one** —
+which is the only reason the reader should give the negative result any weight at
+all.
 
 The load-bearing datum is arm P, and it is load-bearing precisely because it is
 not a candidate. P deletes the row-loop cross-lane reduction outright and accepts
 wrong output. It therefore measures the *entire* budget available to any lever
 that attacks that reduction — PACKRED's careful halving, the withdrawn
-`P-ROWLANE`, and anything anyone proposes next. That budget is not distinguishable
-from zero at this resolution. So the mechanism proposed in §C.2 —
+`P-ROWLANE`, and anything anyone proposes next. That budget is **at most
+0.4 µs/step at 95 % confidence**, twelve times smaller than the win threshold the
+round was designed to detect. So the mechanism proposed in §C.2 —
 
 > is the sliding decode-attention kernel's cost sensitive to cross-lane reduction
 > instruction count on this host?
@@ -488,21 +548,30 @@ from zero at this resolution. So the mechanism proposed in §C.2 —
 — is answered **no**, and it is answered by an upper bound rather than by a failed
 attempt, which is the stronger of the two ways to close a direction.
 
-That K is *slower* than the control while issuing half the shuffles is worth one
-sentence of mechanism, because it constrains the explanation. Packing two rows
-into a `float2` doubles the live register footprint of the reduction stage; at
-1024 threads per threadgroup this kernel is already register-pressured, so the
-most economical reading is that K trades a cheap instruction for a scarcer
-resource. I did not measure occupancy or register counts, so this is an
-explanation offered as such and not a finding.
+That K's point estimate sits *above* the control while issuing half the shuffles is
+worth one sentence of mechanism — offered as a conjecture, since K's interval spans
+zero and the campaign therefore has no significant K effect to explain. Packing two
+rows into a `float2` doubles the live register footprint of the reduction stage; at
+1024 threads per threadgroup this kernel is already register-pressured, so the most
+economical reading of a non-negative delta is that K trades a cheap instruction for
+a scarcer resource. I did not measure occupancy or register counts, and the sign is
+not statistically established, so this is a hypothesis for a successor and **not a
+finding of this round**.
 
 ### C.5.3 The one thing this result does not license
 
 It is tempting to summarise the above as "cross-lane reductions are free on this
 hardware". That is not what was measured and the distinction matters for whoever
-reads this next. K *adds* measurable time while *removing* instructions, so issue
-slots are demonstrably not free — if they were, K would have landed on the control
-within noise instead of above it. The defensible claim is narrower:
+reads this next.
+
+Note first what the arms do **not** support: K removes half the shuffles and its
+point estimate moves the *wrong way* (+22.1 µs/step) while its interval still spans
+zero, and P removes ~70 % of them for +16.3 µs/step, interval `[-0.395, +32.947]`.
+So the data neither show a saving nor establish that the removed instructions were
+costing anything at all — the reduction's contribution is bounded near zero from
+*above*, and nothing here licenses a general claim about what a `simd_shuffle_xor`
+costs on Apple silicon. A reader wanting that number will not find it in this
+report. The defensible claim is narrower and is about this kernel only:
 
 > On this host, `simd_sum` and its shuffle butterflies are already at or near
 > their optimal cost, and the reduction is too small a slice of this kernel's
@@ -514,16 +583,36 @@ parts of the kernel remain untested by this campaign.
 
 ### C.5.4 Achieved resolution, stated so the null is falsifiable
 
-A null result is only as good as the effect it could have detected. The
-preregistered win threshold was `-5 us/step`; the achieved 95 % half-widths are
-recorded in the table above. Where a half-width exceeds 5 us/step, this campaign
-**cannot** exclude a win of exactly threshold size — it can only exclude the large
-win the mechanism predicted, and the honest statement is that the direction is
-closed *at the resolution purchased*, not closed absolutely. The mechanism in §C.2
-predicted a saving on the order of half the reduction's cost, which is far above
-this resolution; that is the prediction being rejected. Anyone wishing to rescue a
-threshold-sized effect needs roughly an order of magnitude more blocks, and §C.3
-gives the arithmetic for costing that before running it.
+A null result is only as good as the effect it could have detected, so this
+subsection states exactly which effects this campaign can and cannot exclude. The
+preregistered win threshold was `-5 us/step`.
+
+**What is excluded.** Arm P's interval is `[-0.395, +32.947]`. Its lower bound is
+0.4 us/step, so a threshold-sized win from removing the row-loop cross-lane
+reduction is excluded outright — by a factor of twelve, not marginally. Since every
+lever in the family "issue fewer cross-lane reduction instructions" is bounded
+above by deleting them all, **the whole family is excluded at threshold
+resolution.** This is the campaign's result and it does not depend on the noise
+being as small as §C.3 hoped.
+
+**What is not excluded, stated plainly.** Arms H and K have half-widths of 26.13
+and 29.81 us/step. Taken in isolation neither could rule out a threshold-sized win
+of its own — K's interval formally reaches -7.669 us/step. So I do **not** claim
+"PACKRED is not a 5 us/step win because its own interval says so"; I claim it via
+P's bound plus the subset argument in §C.5.1, which is a different and stronger
+route. Anyone who rejects the subset argument is entitled to regard K as untested
+at threshold resolution, and the replication is priceable: at K's realised scatter
+of 28.4 us/step, driving the 95 % half-width down to 5 us/step needs **n ≈ 124
+blocks — 496 evidence runs, ≈ 27.6 hours** of uninterrupted host time on this
+harness. That is the honest cost of closing K on its own terms, it exceeds this
+round's entire budget, and it is why I did not attempt it.
+
+**What the mechanism actually predicted.** §C.2 predicted a saving on the order of
+half the reduction's cost, tens of us/step — far above every half-width here. That
+is the prediction this campaign rejects, and rejecting it is what closes the
+direction. The residual uncertainty is confined to effects an order of magnitude
+smaller than the mechanism claimed, which is the regime where the correct action is
+to stop looking rather than to buy more runs.
 
 ---
 
@@ -722,12 +811,15 @@ strength:
 
 1. **A closed direction (strong).** Cross-lane reduction cost in the sliding
    decode-attention kernel is not a lever on this host. Arm K halves the
-   shuffle/lane-read count 229 -> 109 per lane per call and does not win; arm P
-   deletes the row-loop reduction outright — roughly 70 % of the shuffles, and
-   an *upper bound* on any lever of this kind — and does not win either (§C.5).
-   Anyone who later proposes a cheaper reduction for this kernel is proposing
-   something already bounded to near zero, and should be asked to explain why
-   arm P's bound does not apply to them.
+   shuffle/lane-read count 229 -> 109 per lane per call and does not win
+   (+22.1 µs/step, CI spanning zero); arm P deletes the row-loop reduction
+   outright — roughly 70 % of the shuffles, and an *upper bound* on any lever of
+   this kind — and yields **+16.3 µs/step, 95 % CI [−0.395, +32.947]**. The
+   operative number is that lower bound: **removing the reduction entirely is worth
+   at most 0.4 µs/step (0.006 % of `cs`), twelve times below the −5 µs/step win
+   threshold** this round preregistered. Anyone who later proposes a cheaper
+   reduction for this kernel is proposing something already bounded to near zero,
+   and should be asked to explain why arm P's bound does not apply to them (§C.5).
 2. **A withdrawn Stage C proposal, with its refutation (medium).** `P-ROWLANE` is
    dead by arm P (§G.3). The wave-quantisation proposal that replaced it is
    withdrawn against this tree's own prior art, and §G.3.2-G.3.4 record why,
@@ -974,12 +1066,16 @@ silent on loads, on transcendentals, and on residency. Two specific things it do
    transcendentals do not issue at ALU rate. A FLOP-percentage argument cannot
    price either the special-function pipe or a serial chain.
 
-**A correction to how this round's own arms should be quoted.** Arm K *adds*
-~1.3-1.6 µs/call of butterfly instructions and (§C.5) does not come out ahead, so
-issue slots are not literally free; the defensible statement is "the hardware
-`simd_sum` is already at or near optimal for this reduction, and the reduction is
-a small enough slice of the kernel that removing all of it is not measurable" —
-not "cross-lane reductions are free". Similarly, the H4 arm must not be recorded
+**A correction to how this round's own arms should be quoted.** Arm K *removes*
+half the butterfly instructions and (§C.5) does not come out ahead — its point
+estimate is +22.1 µs/step, on the slower side, with an interval spanning zero. The
+defensible statement is "the hardware `simd_sum` is already at or near optimal for
+this reduction, and the reduction is a small enough slice of the kernel that
+removing all of it buys at most 0.4 µs/step" — **not** "cross-lane reductions are
+free", and equally not the converse claim that the removed shuffles were provably
+costing anything. §C.5.3 spells out why both readings overreach: this round bounds
+the reduction's contribution from above and measures nothing about the per-
+instruction cost of a shuffle on this hardware. Similarly, the H4 arm must not be recorded
 as evidence against KV request redundancy: it halved the threadgroup count, which
 §G.3.3 shows is itself a losing move on this tree, so its regression is
 attributable to geometry and says nothing about bytes. H4 tested "does halving

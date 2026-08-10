@@ -1,0 +1,26 @@
+idx	arm	tsv_kernel	log_kernel	tsv_passed	log_passed	tsv_decode	log_decode	verdict
+1	C	laguna_sliding_fused_attn_ring_v1	laguna_sliding_fused_attn_ring_v1	true	true	0.008975466724340176	0.008975	OK
+2	K	laguna_sliding_fused_attn_ring_packred_v1	laguna_sliding_fused_attn_ring_packred_v1	true	true	0.009024120683284457	0.009024	OK
+3	P	laguna_sliding_fused_attn_ring_noreduce_v1	laguna_sliding_fused_attn_ring_noreduce_v1	NA	false	0.008991091805474095	0.008991	OK
+4	H	laguna_sliding_fused_attn_ring_h4_v1	laguna_sliding_fused_attn_ring_h4_v1	true	true	0.00904516071945259	0.009045	OK
+5	C	laguna_sliding_fused_attn_ring_v1	laguna_sliding_fused_attn_ring_v1	true	true	0.00900637703714565	0.009006	OK
+6	P	laguna_sliding_fused_attn_ring_noreduce_v1	laguna_sliding_fused_attn_ring_noreduce_v1	NA	false	0.00901322087878788	0.009013	OK
+7	H	laguna_sliding_fused_attn_ring_h4_v1	laguna_sliding_fused_attn_ring_h4_v1	true	true	0.009006960980449659	0.009007	OK
+8	K	laguna_sliding_fused_attn_ring_packred_v1	laguna_sliding_fused_attn_ring_packred_v1	true	true	0.009009026515151515	0.009009	OK
+9	C	laguna_sliding_fused_attn_ring_v1	laguna_sliding_fused_attn_ring_v1	true	true	0.00898435699706745	0.008984	OK
+10	H	laguna_sliding_fused_attn_ring_h4_v1	laguna_sliding_fused_attn_ring_h4_v1	true	true	0.00901207579765396	0.009012	OK
+11	K	laguna_sliding_fused_attn_ring_packred_v1	laguna_sliding_fused_attn_ring_packred_v1	true	true	0.008985091764418378	0.008985	OK
+12	P	laguna_sliding_fused_attn_ring_noreduce_v1	laguna_sliding_fused_attn_ring_noreduce_v1	NA	false	0.008999434261974585	0.008999	OK
+13	C	laguna_sliding_fused_attn_ring_v1	laguna_sliding_fused_attn_ring_v1	true	true	0.009001827998044965	0.009002	OK
+14	K	laguna_sliding_fused_attn_ring_packred_v1	laguna_sliding_fused_attn_ring_packred_v1	true	true	0.008992366243401759	0.008992	OK
+15	H	laguna_sliding_fused_attn_ring_h4_v1	laguna_sliding_fused_attn_ring_h4_v1	true	true	0.009024607079178884	0.009025	OK
+16	P	laguna_sliding_fused_attn_ring_noreduce_v1	laguna_sliding_fused_attn_ring_noreduce_v1	NA	false	0.0089945743313783	0.008995	OK
+17	C	laguna_sliding_fused_attn_ring_v1	laguna_sliding_fused_attn_ring_v1	true	true	0.008973106019550342	0.008973	OK
+18	P	laguna_sliding_fused_attn_ring_noreduce_v1	laguna_sliding_fused_attn_ring_noreduce_v1	NA	false	0.009009122189638319	0.009009	OK
+19	K	laguna_sliding_fused_attn_ring_packred_v1	laguna_sliding_fused_attn_ring_packred_v1	true	true	0.00903301388856305	0.009033	OK
+20	H	laguna_sliding_fused_attn_ring_h4_v1	laguna_sliding_fused_attn_ring_h4_v1	true	true	0.009010557224828936	0.009011	OK
+21	C	laguna_sliding_fused_attn_ring_v1	laguna_sliding_fused_attn_ring_v1	true	true	0.008965871741935484	0.008966	OK
+22	H	laguna_sliding_fused_attn_ring_h4_v1	laguna_sliding_fused_attn_ring_h4_v1	true	true	0.00902339609872923	0.009023	OK
+23	P	laguna_sliding_fused_attn_ring_noreduce_v1	laguna_sliding_fused_attn_ring_noreduce_v1	NA	false	0.008997220512218964	0.008997	OK
+24	K	laguna_sliding_fused_attn_ring_packred_v1	laguna_sliding_fused_attn_ring_packred_v1	true	true	0.008996255906158358	0.008996	OK
+VERIFY: OK -- every row's kernel name, correctness flag and decode figure match its log
