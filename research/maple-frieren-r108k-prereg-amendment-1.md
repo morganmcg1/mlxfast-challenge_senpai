@@ -174,3 +174,34 @@ refutation test is defined only there.
    retracted here: rule 65's 2.3403 µs was itself measured with *dependent* probes, so
    the barrier-drain term is a decomposition *of* the dispatch term, not an addition to
    it. The sum is not carried forward anywhere in R108-K.
+
+## 8. Amendment 2 — stopping-rule wall clock (declared 2026-08-10T17:11Z)
+
+Declared **before any treatment row existed**. At the moment of writing, the row sink
+`/tmp/r108k-barrier-price.tsv` held exactly one data row, `idx=1 arm=G` (the gauge), and
+zero rows for arms C, F, S, H, or J. No difference, slope, or separation had been
+computed or observed. The amendment is therefore outcome-independent by construction,
+and it is committed ahead of the first control row so the commit timestamp proves
+precedence.
+
+**Change.** §4's stopping rule read "stop after the last block completing before
+**18:20Z**, minimum four blocks". The wall clock moves to **18:25Z**. Nothing else
+changes: the minimum of four blocks, the fixed arm order, the block-paired estimator,
+the Student-t interval, the §5 verdict vocabulary, and the 19:00Z report deadline all
+stand.
+
+**Reason.** The gauge run measured 383 s of wall clock per run, a figure not available
+when §4 was written. At that pace the 12th run — the third and last run of block 4 —
+completes at ≈18:20:03, three seconds after the original line. The 18:20Z figure was
+never a scientific quantity: it was a budget back-computed from the 19:00Z report
+deadline. Holding it literally would discard a complete, already-paid block and force
+`P-INDETERMINATE-UNDERPOWERED` on a rounding artifact, which is the worse error. 18:25Z
+still leaves 35 minutes for analysis, write-up, byte-budget preflight, and submission,
+and it does **not** reach block 5 (run 15, ≈18:39Z) at any plausible pace, so the
+amendment cannot be a disguised licence to keep sampling until a threshold is crossed.
+
+**Bound.** The probe is stopped at 18:25Z regardless of state. A block that has not
+completed all three of its runs by then is discarded whole; partial blocks are never
+analysed, because the estimator is defined only against a block's own control anchor.
+If four blocks are still not complete, `P-INDETERMINATE-UNDERPOWERED` is reported with
+the achieved half-width, exactly as §4 requires.
