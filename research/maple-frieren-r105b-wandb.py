@@ -278,12 +278,20 @@ def main() -> None:
         "a0_precision_target_us": A0_PRECISION_TARGET_US,
         "a1_placement_prediction_us": A1_PLACEMENT_PREDICTION_US,
         "receipts_spent": 0,
-        "receipts_blocked_reason":
-            "senpai/submit-official.sh:74 runs `git diff --quiet MAIN BASE -- "
-            "benchmark.json editablePaths` and refuses when they differ; the "
-            "assignment base ed1ca05f is a descendant of origin/main carrying "
-            "27 unpromoted editable files, so every student branch based on "
-            "the advisor branch is currently unable to submit",
+        "official_submission_base_sha":
+            "1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7",
+        "official_submission_note":
+            "senpai/submit-official.sh takes the campaign BASE_SHA as argv[1] "
+            "and never forwards it to `mlxfast submit`; the uploaded artifact "
+            "is HEAD's worktree intersected with benchmark.json editablePaths. "
+            "The correct argument is the campaign base 1bc1c895 (== "
+            "origin/main), which is an ancestor of HEAD and differs from main "
+            "on zero protected paths, so both guards pass. Passing a candidate "
+            "or PR-head SHA guarantees refusal. Because HEAD differs from main "
+            "on 27 editable files (26 unpromoted advisor-branch files plus "
+            "this branch's own change), an absolute cs from a receipt on this "
+            "branch is not frontier-comparable; only the difference between "
+            "two receipts drawn from this same branch is a valid contrast.",
         "r571_block_included": r571 is not None,
     }
 
