@@ -459,6 +459,24 @@ Two by-products worth recording:
   launcher's `scales` buffer were *also* being read, the implied rate would exceed the DRAM
   peak, which is impossible. So the lane-major path ships **and** `scales` is not read on
   that path. Both facts are needed for A's floor calculation and neither is in B.0.3.
+
+  **This was subsequently confirmed by direct runtime observation, not just by arithmetic.**
+  The `--local-iterate` anchor run of §5.2 prints its active code paths at worker startup,
+  and the log contains, verbatim:
+
+  ```
+  mlxfast-worker: mlxfast: narrow-scales built lane-major pairwise: qkv
+  mlxfast-worker: mlxfast: narrow-scales built lane-major pairwise: oproj
+  mlxfast-worker: mlxfast: packed-scales active: routed swiglu qmv packed dispatch
+  ```
+
+  So families **C (`qkv`) and A (`oproj`) both ship lane-major *pairwise*** — the `groups/4`
+  nibble path — exactly as the byte model required, and family **D ships the packed routed
+  QMV dispatch**, which is the kernel I probed directly. The three legs of the triangulation
+  in §3.0 are now joined by a fourth: the runtime says so itself. I had inferred the pairwise
+  flag from a 0.24 % byte agreement and a reductio on DRAM peak; it is more satisfying to
+  have the binary announce it.
+
 - **Family E's traffic is exactly one BF16 `g_proj` tensor**, 64 heads × 2048 × 2 B. There is
   no quantised weight, no scale table, nothing to compress. The byte axis in E is already at
   its information-theoretic floor for the current numerics.
@@ -616,5 +634,316 @@ The bars at the three live constants are 60.1 (α = 0.4369), 67.5 (α = 0.389) a
 (β = 0.5) M4 µs/step. The largest non-byte slack among A, B, C, D is family D's 37.6 M4
 µs/step. That is below the *smallest* of the three bars. **The `N-BYTES-EVERYWHERE` verdict
 is invariant to the α controversy.**
+
+
+## 4. Rule 77 — geometry table for every kernel and probe in this report
+
+Read off the shipped launchers at the re-derived anchors, and off the probes' own
+pipeline reflection. `tgMemB` is dynamic threadgroup memory bound at dispatch.
+
+| kernel / probe | anchor | threadgroups | threads/TG | total threads | tgMemB | maxTotalThreads/TG | execWidth |
+|---|---|---|---|---|---|---|---|
+| A T3b oproj h64 (lane-major) | `lagunaGatedAffineOProjNVFP4:4586` | 256 (`(outVec/8)*64/64`) | 64 | 16,384 | 0 | 1024 | 32 |
+| B T2d routed+shared down+residual | `:8578` | 512 | 288 | 147,456 | 0 | 1024 | 32 |
+| C T0b(a) qkv h64 lane-major | `lagunaDecodeNVFP4QKVLaneMajorSource:4922` | 1,280 | 64 | 81,920 | 0 | 1024 | 32 |
+| D T2c routed gate+up QMV | `lagunaRoutedSwiGLUQMVPackedTop8:8030` | 2,048 | 64 | 131,072 | 0 | 1024 | 32 |
+| E T2b gate_sp h64 | `lagunaGateSoftplus:4525` | 30 | 64 | ~1,920 | 0 | 1024 | 32 |
+| D probe, all four dose arms | `/tmp/tanjiro_r107g_qmv` | 128–2,048 (ladder) | 64 | up to 131,072 | 0 | 1024 | 32 |
+| ALU-ceiling probe, arm 1 | `/tmp/aluceil` | 2,048 | 64 | 131,072 | 0 | 1024 | 32 |
+| ALU-ceiling probe, arm 2 | `/tmp/aluceil` | 256 | 64 | 16,384 | 0 | 1024 | 32 |
+| bandwidth probe | `/tmp/bwprobe` | 80–520 (sweep) | 64 / 288 | up to 149,760 | 0 | 1024 | 32 |
+
+The occupancy digests match across every dose arm and between each probe and the family
+whose issue denominator it supplies. **No arm is void under rule 75**, and the issue
+denominators in §3.2 are geometry-matched, not borrowed.
+
+Threadgroup ladder (rule 77's "risers at multiples of 20 cores"): the bytes ladder in §2.3
+*is* the threadgroup ladder for family D, swept over 128 / 256 / 512 / 1024 / 2048
+threadgroups on a 20-core part. There is no riser at any multiple of 20; the curve is a
+smooth approach to the bandwidth asymptote (43.2 → 58.6 → 65.0 → 75.8 → 86.5 % of peak),
+which is the signature of a bandwidth ramp rather than a core-count quantisation. The
+bandwidth probe's own geometry sweep (§1.5) agrees: the winner is 160 threadgroups = 8× 20,
+but 260 = 13× 20 is *worse* than 160, so "multiple of 20" is not the organising variable —
+total in-flight requests is.
+
+## 5. Correctness and provenance anchor
+
+The submitted diff on this branch is **zero bytes on every editable path**, so no
+correctness claim in this report depends on new code. The anchor is nevertheless taken at
+final HEAD, per the assignment:
+
+`MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT` was **not** set at any point, and
+`DARKBLOOM_EXPERT_DOWN_BN` was left unset.
+
+### 5.1 The pasted zero-byte diff
+
+Run at final HEAD, expanding the editable surface straight out of `benchmark.json` so that
+the path list cannot be cherry-picked by me. Both the assignment base and the current
+advisor tip are used as the left-hand side, because the branch was rebased mid-flight (§0)
+and a reader is entitled to check either one:
+
+```
+$ git diff --numstat acb56108 HEAD -- $(jq -r '.editablePaths[]' benchmark.json) benchmark.json
+$ echo "exit $?"
+exit 0
+$ git diff --numstat 04c7ac4761b007e45d46b70c6a0b497fbf39c907 HEAD -- $(jq -r '.editablePaths[]' benchmark.json) benchmark.json
+$ echo "exit $?"
+exit 0
+```
+
+Two empty outputs with exit 0: the editable surface is **byte-identical** to both bases.
+`jq -r '.editablePaths[]' benchmark.json` expands to 97 paths, including all four
+line ranges I was told not to touch — `LagunaRuntimeModel.swift:3845-4700` (alphonse),
+`:4810-5010` and `:7892-8065` (edward), `:8225-8600` (frieren) — so the no-transient-edit
+constraint is discharged by the same command rather than by assertion. For completeness,
+the full file list that *does* differ from the advisor tip is 22 paths, every one of them
+under `research/`:
+
+```
+$ git diff --name-only acb56108 HEAD | sed -n '1,3p;20,22p'
+research/artifacts/maple-tanjiro-r107g/qmv_dose0.metal
+research/artifacts/maple-tanjiro-r107g/qmv_dose16.metal
+research/artifacts/maple-tanjiro-r107g/qmv_dose4.metal
+research/maple-tanjiro-r107g-qmv-dose-run.sh
+research/maple-tanjiro-r107g-slack.py
+research/maple-tanjiro-r107g-wandb.py
+```
+
+The independent check that the *shipped* kernel source never moved is the sha256 of
+`Sources/MLXFastModel/LagunaRuntimeModel.swift` at final HEAD, 12,147 lines:
+
+```
+a736b50f66b08b9004a807ff38226aaeb95ba836e6e833b51a8e862466d850c4
+```
+
+All dose variants were compiled and run as **standalone `.metal` files** under
+`research/artifacts/maple-tanjiro-r107g/`, driven by a standalone Swift probe
+(`/tmp/tanjiro_r107g_qmv`). Nothing in the measurement path reads the shipped Swift
+source at runtime, which is why an issue-slot dose ladder on family D is possible at all
+without editing edward's range.
+
+### 5.2 The `--local-iterate` correctness anchor at final HEAD
+
+One `./benchmark.sh --local-iterate` at HEAD `8ca38bff`, archived verbatim as
+`research/artifacts/maple-tanjiro-r107g/baseline-run0.json`:
+
+| field | value |
+| --- | --- |
+| `commit` | `8ca38bff` |
+| `passed_correctness` | **true** |
+| `max_abs_diff` | **0** |
+| `golden_hash` | `b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63` |
+| `harness_hash` | `141c159403ce1514499bfeed5fb7335c872aa959d501afd30dfd495110b9fda6` |
+| `checked_steps` | 130 |
+| `num_layers` | 40 |
+| `decode_seconds_per_token` | 0.0129457200546875 |
+| `prefill_seconds_per_token` | 0.001136998291015625 |
+| `runtime` | `swift-local-iterate` |
+| `peak_ram_gb` | 20.714 |
+| `weights_byte_count` | 21,568,891,382 |
+| `timestamp` | 2026-08-10T15:09:26Z |
+
+`max_abs_diff = 0` over 130 checked steps with the golden hash unchanged is the bit-exactness
+statement. The `golden_hash` is **identical** to the one in my R107-D anchor, so the golden
+reference itself has not moved under me across the two assignments.
+
+**A trap worth flagging for anyone else re-anchoring today.** `benchmark.sh` helpfully prints
+a delta against the checked-in `score.local-iterate.baseline.json`, and for this run it said
+`decode 0.013134 -> 0.012946 s/token (-1.4%)` and `est score 0.785 -> 0.793 (+1.1%)`. **That
+line must not be quoted as a speedup.** The checked-in baseline artifact is commit `5319168`
+from 2026-08-06 with
+
+```
+harness_hash 2f3ce1f6c0338f06bbc8c60fbdf791a12e64245af0ad8fde319b1f87e6995382
+```
+
+whereas this run has harness_hash `141c1594…`. It is a **cross-harness** comparison, and my
+branch's editable diff is zero bytes (§5.1), so there is no mechanism by which I could have
+produced −1.4 %. The apples-to-apples comparison is against **my own R107-D anchor**, same
+harness hash, same golden hash, same machine:
+
+| anchor | commit | harness | decode s/token |
+| --- | --- | --- | --- |
+| R107-D (#642) | `95f881e5` | `141c1594…` | 0.0129980905 |
+| R107-G (this report) | `8ca38bff` | `141c1594…` | 0.0129457201 |
+
+That is **−0.403 %** decode, across a tree whose only non-`research/` delta is the advisor
+tip's vendored `quantized.cpp` (+25 lines, §0) — well inside the run-to-run drift of a
+single unreplicated `--local-iterate` (which is why every timing claim in this report comes
+from paired standalone probes at 41 × 200 dispatches, not from this harness). I record it as
+a **correctness** anchor and explicitly not as a performance result.
+
+
+## 6. Threats to validity
+
+Ordered by how much they could move a conclusion.
+
+1. **A, B, C and E are inferred, not probed.** The regime labels for those four rest on the
+   charge's M4 µs/step, my byte model, and my two measured host constants. The byte model is
+   independently validated to 0.15–2.2 % (§3.1) and the host constants are mine, so the
+   weakest leg is the charge's per-family M4 attribution. If a family's M4 cost is
+   overstated by more than ~3 %, its slack estimate moves by roughly one dispatch-µs, which
+   for A would take it from 0.40 bars to ~0.7 bars — still under one bar. **No plausible
+   error in the charge's attribution flips a BYTES verdict to ISSUE**, because that would
+   require the achieved bandwidth to be far below 85 % of peak, i.e. the family to be
+   *much* slower than the charge says.
+2. **Family B runs below its modelled DRAM floor (−0.78 µs/dispatch, 3.5 %).** Something in
+   that row is slightly wrong. Candidates: (i) my byte model over-counts B (my own model
+   gives 4,901,888 B, 2.2 % below fern's, and even that leaves −0.36 µs); (ii) the 3.97 µs
+   rule-55 intercept is smaller at B's 288 threads/TG, which is plausible since B is the
+   only family in the pool not dispatched at 64 threads/TG and has 147,456 threads to hide
+   launch latency behind; (iii) B.0.3 understates B's M4 cost. All three readings leave B's
+   non-byte slack at or below zero, so the *verdict* is robust even though the row is not
+   fully explained. Flagged rather than hidden.
+3. **The exposure fraction is carried from family D to the others in §3.2.** Family D's
+   8.7 % base-point exposure is measured; applying it to A, B, C is an assumption. §3.3 is
+   the answer to this threat: the slack bound needs no exposure fraction at all, and it
+   closes A, B, C and D independently. Where the two arguments disagree, §3.3 governs.
+4. **M4 gen 16 vs M5 gen 17.** Everything measured here is on a 20-core gen-16 part; the
+   ranked host is a 40-core gen-17 part. Restated per family: for **A, B, C, D** the
+   conclusion is a *ratio* (achieved bandwidth as a fraction of the host's own ceiling), and
+   ratios of this kind transfer — indeed my direct M4 T2c efficiency of 86.4 % agrees with
+   fern's independently modelled M5 T2c efficiency of 87.0 % to **0.6 pp**, which is the
+   best available evidence that percent-of-peak is the transferable quantity. For **E** the
+   conclusion is about *fixed per-dispatch cost*, which does **not** scale with bandwidth and
+   is the least transferable quantity in the report; E's prize could be materially smaller or
+   larger on M5, and that is exactly why §3.5's M5 probe matters. No geometry argmax is
+   proposed anywhere, because that would not transfer.
+5. **The ALU denominator's register pressure.** The pure-ALU probe holds 8 accumulators; the
+   shipped QMV kernel holds considerably more state. If the shipped kernel's occupancy is
+   lower than the probe's, the probe's µs-per-slot understates the real slot price, which
+   would make the exposure fraction *even smaller* and strengthen the BYTES verdict. The
+   error is therefore conservative in the direction that matters. Both report identical
+   `tgMemB`, `maxTotalThreadsPerThreadgroup` and `threadExecutionWidth`, which is as far as
+   pipeline reflection can check.
+6. **α is unresolved (§3.5).** Every `% of cs` figure in this report is conditional on
+   `k`. Mitigated by publishing both units everywhere and by the invariance check at the end
+   of §3.5: the verdict does not change at any of the three live constants.
+7. **Rule 105.7.** Nothing here was measured with a receipt, so nothing here is subject to
+   single-receipt detection noise. The flip side is that no claim in this report has been
+   confirmed by the official harness; they are all host-local GPU-timer measurements and
+   audited arithmetic. The report is a *pricing* deliverable, not a scored change.
+
+## 7. Artifact index
+
+All under `research/artifacts/maple-tanjiro-r107g/` unless stated.
+
+| artifact | what it is |
+|---|---|
+| `stage1-ALU-ceiling-s1-tgs2048-tpt64.txt` | pure-ALU issue ceiling at family D's geometry (0.038044 µs/slot, 3.4453e12 fma/s) |
+| `stage1-ALU-ceiling-s1-tgs256-tpt64.txt` | same at family A's geometry (0.004506 µs/slot, 3.6364e12 fma/s) |
+| `stage1-BW-geometry-s1.txt` | bandwidth autotune over geometry + SLC ladder (110 lines) |
+| `stage1-D-null-s1-slots64.txt` | NULL control for the family-D ladder |
+| `stage1-D-dose-s1-slots64.txt` | family-D dose ladder, defeated session 1 |
+| `stage1-D-dose-s2-slots64.txt` | family-D dose ladder, defeated session 2 |
+| `stage1-D-dose-s3-slots1.txt` | resident twin — `[RESIDENT — NOT A HEADLINE]`, rule 98.9 evidence |
+| `stage1-D-rows-s1-slots64.txt` | family-D bytes ladder, defeated session 1 |
+| `stage1-D-rows-s2-slots64.txt` | family-D bytes ladder, defeated session 2 |
+| `stage1-crossfamily-audit.txt` | output of `maple-tanjiro-r107g-decompose.py` — the §3.2 table and §3.5 adjudication |
+| `stage1-slack-bound.txt` | output of `maple-tanjiro-r107g-slack.py` — the §3.3 slack bound |
+| `qmv_dose{0,4,8,16}.metal` | the four generated dose arms; `qmv_dose0.metal` is byte-identical to `research/artifacts/fern-r99/depth1_shipped.metal` |
+| `baseline-run0.json` | unmodified-tree `--local-iterate` correctness/provenance anchor at final HEAD |
+
+Harness and analysis scripts, all `research/maple-tanjiro-r107g-*`:
+
+| script | role |
+|---|---|
+| `alu-ceiling.swift` | the pure-ALU issue-ceiling probe |
+| `qmv-dose-gen.py` | generates the four dose arms from the shipped kernel literal |
+| `qmv-dose-run.sh` | runs the NULL control and the 4-arm ladder, both residency regimes |
+| `decompose.py` | H-REGIME decomposition, cross-family audit, α/β adjudication |
+| `slack.py` | the non-byte slack bound |
+| `wandb.py` | publishes the census to `wandb-applied-ai-team/mlxfast-maple` |
+
+Reused unmodified from other students: `research/fern_r99_qmv_probe.swift`,
+`research/fern_r99_qmv_variants.py`, `research/artifacts/fern-r99/*.metal`,
+`research/fern_r101_bw_probe.swift`. Byte audit cross-checked against
+`research/fern-r101-decode-pool-model.md` §7.
+
+## 8. Reply to the advisor
+
+### 8.1 Anchor corrections: none. All five were right.
+
+I was asked to correct the anchors if they had drifted. They had not — I checked every one
+with `grep -n` against `Sources/MLXFastModel/LagunaRuntimeModel.swift` at final HEAD
+(12,147 lines, sha256 `a736b50f…`), and all five families' line numbers land exactly where
+the assignment said:
+
+| family | assignment anchor | verified at | supporting symbols |
+| --- | --- | --- | --- |
+| A T3b oproj h64 | source 4222, launcher 4586 | **both exact** | `…Enabled:4114`, `…Kernels:4420`, `…LaneMajorKernels:4442`, call sites 6378, 6394 |
+| B T2d down+residual | source 8277, launcher 8578 | **both exact** | kernels 8230, 8255, 8427, 8555; call site 10923 |
+| C T0b(a) qkv lane-major | `…QKVLaneMajorSource(pairwise:)` 4922 | **exact** | kernels 4981, use 5026, `num_simdgroups = 2` at 4925, `out_row` at 4935 |
+| D T2c routed gate+up qmv | kernel 7892, R1 kernel 7915 | **both exact** | wrapper 8030, R1 branch 8045, non-R1 8056, call site 10856 |
+| E T2b gate_sp | source 4467, launcher 4525 | **both exact** | `…Enabled:4464`, `…Kernels:4512`, call site 5994 |
+
+One naming clarification that cost me time and may cost the next person the same: **"h64" in
+these family names means *64 attention heads*, i.e. the sliding-attention layers, not 64
+threads per threadgroup.** Families A, C and E are named after `slidingAttentionHeads = 64`
+(`LagunaConfig.swift`), which is why they have 30 call sites (the 30 sliding layers) rather
+than 39 or 40. The threads-per-threadgroup happens to also be 64 for A, C and E, which makes
+the collision easy to miss.
+
+### 8.2 What I dropped, and why
+
+I was budgeted for direct dose ladders on more than one family and delivered **one** (D).
+A, B, C and E are **inferred**, and labelled as such everywhere. That was a deliberate
+reallocation, taken at the point where family D's first ladder produced a marginal-fma rate
+that was *lower than the machine's own ALU issue rate* — an impossible number, which meant
+either the ladder or my assumed 4.04e12 fma/s ceiling was wrong. Rather than build three more
+ladders on top of a number I could not defend, I spent the budget on two host constants I
+measured myself:
+
+- the **ALU issue ceiling**, 3.4453e12 fma/s sustained at the family-D geometry (85.3 % of
+  the quoted figure — the quoted figure is not achievable, which is what broke the arithmetic);
+- the **achievable streaming bandwidth**, 266.3 GB/s, plus its dependence on geometry and the
+  ~12–16 MiB effective SLC.
+
+Their ratio is the **machine balance point, 0.0773 B per fma**. Every NVFP4 GEMV family in
+this pool sits at 0.516–0.531 B/fma, i.e. **6.7–6.9× memory-bound**, so ALU occupancy in this
+pool cannot exceed ~13–15 % *by construction*. That single number decides the regime of four
+families without another dispatch, and it is why I think the reallocation was the right call
+rather than a shortfall. I would make the same trade again — but the honest cost is that
+A, B, C and E have no measured issue-slot exposure of their own, only a bound, and §6 lists
+that first among the threats.
+
+The second drop: I did not build the family-A standalone probe (generator modelled on
+`research/fern_r99_qmv_variants.py`, driver on `research/fern_r100_attn_probe.swift`). It is
+the single highest-value next instrument if anyone gets stage-2 time, because A is the family
+with the largest *absolute* headroom on the byte axis and my inference for it leans hardest
+on the pairwise-nibble byte model.
+
+### 8.3 Where I would put the campaign's last hours
+
+Ranked, with the reasoning compressed:
+
+1. **Run `research/fern_r101_bw_probe.swift` on the official M5.** ~7 seconds, **zero
+   receipts**, no model load. It resolves the α/β degeneracy (§3.5) that currently makes every
+   M4→M5 projection in this campaign uncertain by ±13 %, and it is the cheapest high-value
+   measurement left anywhere on the board. The two pools demand 597.1 and 677.1 GB/s
+   respectively for efficiency-invariance; one probe tells us which, or that neither holds.
+2. **Family E (T2b gate_sp) fusion.** The only family whose regime is *not* BYTES. It runs at
+   11.9 % of peak on 262,144 B, ~1,920 threads, 88 % latency residual. Full fusion is worth
+   **218.5 M4 µs/step = 1.664 % of `cs` = 4.16 bars**. It is small, self-contained, and nobody
+   is working it — it was handed to me as an *adversarial* family and it turned out to be the
+   one real lever in the census.
+3. **T3a sliding fused attention.** fern's audit puts it at 32.4 % of M5 peak with 212.2 µs of
+   headroom and the pool's best score (3.23). Not my family, but it dwarfs anything left in
+   the four BYTES families.
+4. **Stop spending time on instruction-count work in A, B, C, D.** §3.3 bounds the *entire*
+   non-byte cost of the largest of them at 37.6 M4 µs/step against a 0.4 %-`cs` detection bar
+   of 52.5–67.5. The bound is smaller than the bar. This holds for every α in the plausible
+   range, so it does not depend on resolving item 1.
+
+### 8.4 One methodological result I would ask you to propagate
+
+The residency finding in §2.5 is not about family D. Measured **resident**
+(`FERN_DEFEAT_SLOTS=1`), family D's dose-4 arm looks **4.86× more issue-exposed** than it
+truly is, and the family would have been labelled **ISSUE-bound** — the opposite verdict,
+from the same kernel, the same doses and the same host, differing only in whether the weights
+were still in cache. Rule 98.9 already requires residency-defeated headlines; this is a
+quantified instance of what it buys, on a real shipped kernel, with both regimes measured
+side by side. Any prior campaign result on a byte-heavy decode kernel that was taken resident
+should be assumed to have over-attributed cost to issue slots by up to ~5×.
 
 
