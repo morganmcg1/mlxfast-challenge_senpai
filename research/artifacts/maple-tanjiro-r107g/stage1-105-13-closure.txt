@@ -1,0 +1,166 @@
+
+==============================================================================
+0. Inputs
+==============================================================================
+  alpha (bytes)          = 0.4369
+  beta  (latency)        = 0.5
+  k_dispatch (rules 57/65) = 1.8901
+  T_M4 (rule 105.13a)    = 8448.0 us/step
+  T_M5 (rule 58)         = 4141.5 us/step
+  k_steady = T_M5/T_M4   = 0.4902
+  1 %cs                  = 65.669 M5 us/step
+  0.40 %cs draw bar      = 26.27 M5 us/step
+
+==============================================================================
+1. The census pools, by regime label
+==============================================================================
+  T2c routed gate+up qmv            39 calls   1497.7 M4 us  bytes     MEASURED here (family D)
+  T0b(a) qkv h64                    30 calls   1340.1 M4 us  bytes     MEASURED here (family C)
+  T3b oproj h64                     30 calls   1117.7 M4 us  bytes     MEASURED here (family A)
+  T2d routed+shared down+resid      39 calls    858.9 M4 us  bytes     MEASURED here (family B)
+  T3a sliding fused attn            30 calls    618.9 M4 us  issue     rule 100.3 + my #642
+  T1c lmhead int5                    1 calls    420.3 M4 us  bytes     B.0.3
+  T0b(b) qkv h48                    10 calls    362.8 M4 us  bytes     B.0.3
+  T1a residual/rms/router           39 calls    312.8 M4 us  latency   B.0.3
+  T2a shared gate+up qmv            39 calls    287.1 M4 us  latency   B.0.3
+  T3c oproj h48                     10 calls    301.8 M4 us  bytes     B.0.3
+  T2b gate_sp h64                   30 calls    248.0 M4 us  latency   MEASURED here (family E)
+  dense gate_up (layer 0)            1 calls    269.4 M4 us  bytes     B.0.3
+  T3a' full fused attn              10 calls    229.7 M4 us  issue     rule 100.3 + my #642
+  dense_down (layer 0)               1 calls    133.8 M4 us  bytes     B.0.3
+  T2b' gate_sp h48                  10 calls     80.2 M4 us  latency   B.0.3
+  BYTES pool                                       6302.5 M4 us/step
+  LATENCY pool                                      928.1 M4 us/step
+  ISSUE pool                                        848.6 M4 us/step
+  census total                                     8079.2 M4 us/step  = 95.6 %% of T_M4
+  residue (non-census)                              368.8 M4 us/step  = 4.4 %% of T_M4
+
+==============================================================================
+2. Closure test: does the census reproduce the measured T_M5?
+==============================================================================
+  alpha*BYTES + beta*LATENCY            =   3217.6 M5 us/step
+  remainder that ISSUE+residue must supply =    923.9 M5 us/step
+  ISSUE+residue M4                      =   1217.4 M4 us/step
+  => implied blended k for ISSUE+residue = 0.7589
+
+  Feasible (k_issue, k_residue) pairs on the closure line:
+    k_issue   k_residue   note
+     0.4369     1.4998   INSIDE rule 105.13c bracket [1.0, 1.89]
+     0.5000     1.3546   INSIDE rule 105.13c bracket [1.0, 1.89]
+     0.5500     1.2396   INSIDE rule 105.13c bracket [1.0, 1.89]
+     0.6000     1.1245   INSIDE rule 105.13c bracket [1.0, 1.89]
+     0.6540     1.0003   INSIDE rule 105.13c bracket [1.0, 1.89]
+     0.7000     0.8944   below the 105.13c conservative floor
+
+==============================================================================
+2b. The two headline readings of the closure line
+==============================================================================
+  (i) PHYSICALLY MOTIVATED k_issue. Between an M4 Pro and the ranked M5
+      both DRAM bandwidth and ALU throughput scale with the same
+      core-count / fabric width, so k_issue should sit near alpha, not
+      near beta. Setting k_issue = alpha:
+        => k_residue = 1.4998
+      That lands inside rule 105.13(c)'s independently derived bracket
+      [1.0, 1.89] and NEARER the k_dispatch end than the floor. This is
+      an INDEPENDENT corroboration of the third regime: 105.13(c) got
+      [1.0, 1.89] from a difference of two column totals (one derived);
+      this route uses a regime-labelled census against a MEASURED T_M4.
+
+      Why the third regime is REQUIRED, not optional: under a PURE
+      alpha/beta model there is no assignment of the ISSUE and residue
+      pools that reaches the measured k_steady = 0.4902 --
+        issue=alpha, residue=beta                  k_steady = 0.4466
+        issue=beta,  residue=beta (max under a/b)  k_steady = 0.4529
+        issue=alpha, residue=alpha (min)           k_steady = 0.4438
+      -- every one falls short of 0.4902. The shortfall is
+      the residue's k > 1.
+
+  (ii) BOUND ON k_issue. Imposing 105.13(c)'s bracket on k_residue:
+        k_residue = 1.00  => k_issue = 0.6541  (upper bound)
+        k_residue = 1.89  => k_issue = 0.2673  (lower bound)
+      => k_issue in [0.267, 0.654]. NOBODY SHOULD PRICE AN
+      ATTENTION-SIDE (issue-regime) M4 SAVING ABOVE 0.654x.
+      In particular beta = 0.5 is inside this range but 1.0 is not:
+      issue-regime savings do NOT carry over one-for-one to M5.
+
+==============================================================================
+2c. Sensitivity of the (i) reading to the measured T_M4
+==============================================================================
+  T_M4 = 8448.0 +/- 16.35 (sd, n=6) => sem 6.67 us/step
+    point     k_residue = 1.4998
+    +/-1 sem  k_residue in [1.4732, 1.5275]   INSIDE the [1.0, 1.89] bracket
+    +/-2 sem  k_residue in [1.4474, 1.5562]   INSIDE the [1.0, 1.89] bracket
+
+==============================================================================
+3. Can the closure REJECT an ISSUE label on the four big GEMV families?
+==============================================================================
+  the four GEMV families total 4814.4 M4 us/step
+  Counterfactual: move them from BYTES to ISSUE and re-solve the SAME
+  closure line, again imposing k_residue in [1.0, 1.89]:
+    k_issue in [0.4115, 0.4695]
+  My labels required   k_issue in [0.2673, 0.6541]
+  These OVERLAP. So, stated honestly:
+  ** THE WHOLE-DECODE CLOSURE DOES NOT DISCRIMINATE BYTES FROM ISSUE **
+  ** ON THE GEMV BLOCK. It is a consistency check, not the evidence.  **
+  The reason is structural: a one-equation, two-unknown line cannot
+  separate two pools whose candidate k values are ~0.44 vs ~0.46.
+
+  What DOES discriminate is the direct measurement in this report:
+   - family D dose ladder: exposed ALU 1.10 %% of dispatch time, two
+     independent residency-defeated sessions (section 2.4)
+   - all four GEMV families at 85.5-91.0 %% of their geometry-matched
+     bandwidth ceiling, a 5.5 pp band (section 3.2)
+   - agreement with section B.1's independent M4 GPU-timer census to
+     -0.84 pp and +1.29 pp on the two families it also measured (3.2.1)
+  The closure's role is to confirm that the labels, once measured, are
+  ARITHMETICALLY CONSISTENT with the only measured whole-decode k we
+  have -- and they are, with no free parameter outside 105.13's bracket.
+
+  One thing the counterfactual DOES establish: the ISSUE relabelling is
+  only survivable if k_issue <= 0.469. An issue-bound GEMV block
+  priced at beta = 0.5 or at 1.0 breaks the whole-decode budget:
+    k_issue  0.500 (k_r at floor 1.0) => T_M5   4314.5    +4.18 %% vs measured
+    k_issue  0.654 (k_r at floor 1.0) => T_M5   5186.6   +25.23 %% vs measured
+    k_issue  1.000 (k_r at floor 1.0) => T_M5   7146.0   +72.55 %% vs measured
+
+==============================================================================
+4. Re-pricing family E's full-fusion prize under the third regime
+==============================================================================
+  family E above-byte-floor time    = 7.286 us/dispatch
+  x 30 dispatches                    = 218.6 M4 us/step
+  of which rule-57 dispatch glue    = 37.1 M4 us/step
+  remainder (in-kernel latency)     = 181.4 M4 us/step
+  OLD pricing, all at beta          = 109.3 M5 us/step  = 1.664 %cs = 4.16 bars
+  NEW pricing, glue at k_dispatch   = 160.9 M5 us/step  = 2.451 %cs = 6.13 bars
+  dispatch-elimination component alone (rule 65, already M5):
+    30 x 2.3403 = 70.21 M5 us/step = 1.069 %cs = 2.67 bars
+  ERRATUM: an earlier revision of this report quoted that component as
+  0.535 %cs by applying beta to rule 65's number. Rule 65 is ALREADY an
+  M5 price; converting it again halved it. Correct value is above.
+
+==============================================================================
+5. Are my GEMV STOP verdicts invariant to the third regime?
+==============================================================================
+  My floor is  floor_us = bytes/266.3 + 3.97, i.e. it already CREDITS
+  each dispatch with the measured fixed intercept. Rule 57's marginal
+  M4 dispatch glue is 1.2382 us, so dispatch glue sits BELOW my floor:
+    intercept 3.970 us/dispatch, of which glue 1.2382 us = 31 %%
+  => the reported non-byte slack is in-kernel time, not dispatch glue,
+     and cannot be priced at k_dispatch. Worst case it prices at beta:
+    family     slack us/disp   M4 us/step   at alpha %cs   at beta %cs   beta bars
+    D T2c            0.963         37.6         0.250         0.286        0.71
+    A T3b            0.794         23.8         0.158         0.181        0.45
+    C T0b(a)         0.055          1.6         0.011         0.013        0.03
+    B T2d           -0.774        -30.2        -0.201        -0.230       -0.57
+  All four remain below the 0.40 %cs draw bar even at beta. VERDICTS HOLD.
+
+  What 105.13 DOES open, on my own numbers: the intercept itself.
+    D T2c           39 dispatches ->   91.27 M5 us/step = 1.390 %cs if MERGED AWAY entirely
+    A T3b           30 dispatches ->   70.21 M5 us/step = 1.069 %cs if MERGED AWAY entirely
+    C T0b(a)        30 dispatches ->   70.21 M5 us/step = 1.069 %cs if MERGED AWAY entirely
+    B T2d           39 dispatches ->   91.27 M5 us/step = 1.390 %cs if MERGED AWAY entirely
+    E T2b gate_sp   30 dispatches ->   70.21 M5 us/step = 1.069 %cs if MERGED AWAY entirely
+  That is 105.13(e)'s own headline, restated per family. It is a
+  dispatch-COUNT lever (deconflicted to #48), reachable only by kernel
+  merging, and my census says family E is the cheapest merge target:
+  262 KB/dispatch, 88.1 %% latency, 8.27 us/dispatch, nothing to stream.
