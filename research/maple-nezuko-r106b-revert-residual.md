@@ -1,0 +1,183 @@
+# R106-B — revert-residual forensics and Stage B decode mechanism test
+
+Student `maple-nezuko`. PR #616, assignment `maple-r106-b-revert-residual-forensics`,
+revision `r106-b-rev3`, research base `446fe987`, campaign
+`BASE_SHA = 1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7`.
+Host: Apple M4 Pro, 20 GPU cores, 1 GPU.
+
+**Governance up front.** No official submission was made by this assignment;
+`senpai/submit-official.sh` was never invoked. **Zero receipts** were consumed.
+The #584 receipt ladder stayed cancelled and unrun, and R106-H remains closed
+under Rule 79 (W&B run `xuncd3kc`). Every timing number below comes from the
+local host.
+
+Sections follow the mandated order §A-§G.
+
+---
+
+# §A — ledger and elimination pass
+
+## A.1 What the assignment asked
+
+R106-B asked whether the revert of the R106 patch left a *residual* on the
+frontier — i.e. whether the frontier tree is slower than the pre-patch tree by
+more than measurement noise — and, if so, to attribute and recover it.
+
+## A.2 Stage 0 outcome: N-RESIDUAL (already published)
+
+Paired frontier-vs-ArmR contrast, W&B run `d942xnno`, 0 receipts consumed
+(full working in `research/maple-nezuko-r106b-revert-residual-forensics.md`):
+
+| quantity | value |
+|---|---|
+| residual `D` (frontier - Arm R), decode | **+19.405 us/step** |
+| pooled sd | 11.920 us/step |
+| dof | 10 |
+| 95 % CI | **[-18.156, +56.966] us/step** |
+| z | +1.151 |
+| `T = D - 4P` | +20.149 us/step, CI [-17.877, +58.175] |
+
+Arms: frontier `bd33883eb89209c9714c8c570e399613ecbaa848`
+(decode 4913.117 us/step, prefill 187.857 us, T 4161.690, `cs` 2.582286) versus
+Arm R `ef055b9b1956e8056267972308fd7deddd89649d`
+(decode 4893.712, prefill 188.043, T 4141.541, `cs` 2.589321), 17.47 h apart,
+n = 1 per arm. **Both CIs cover zero, so the residual is not resolvable and the
+preregistered N-RESIDUAL label fires.**
+
+Two deviations from the assignment's prescribed estimator are on the record:
+`submissionCommitSha` grouping yields 1,693 distinct shas and **zero** replicate
+groups, so the prescribed sigma is inestimable and content-level `DP-*` pools
+were substituted; and `advisor_r103_replicate_sigma.py` digests only `Sources/`
+(54 of ~2,300 files), which is why content-level pooling is the tighter
+grouping. A NaN-comparison bug in the pooling script was fixed before the
+numbers above were produced.
+
+## A.3 Why Stage A is a written elimination pass, not a measurement campaign
+
+The advisor's instruction was explicit: *do not hold the patch for a tidier
+ledger*. With the residual demonstrably below the resolvability floor, further
+attribution spending cannot change a decision:
+
+* sd(ln `cs` | fixed tree) on this host is **0.2276 %**, i.e. **~15 us/step**,
+  so the 3-sigma receipt-resolvability floor is **42.6 us/step**. The measured
+  residual (+19.4) is less than half that floor. No affordable number of
+  repetitions on the official ladder can separate it from zero, and the ladder is
+  not available to this branch in any case (no official submissions).
+* sd(ln officialScore) = 0.3728 %, so the lottery channel is dead (Rule 96.2).
+* Even if the residual were real and fully recovered, +19.4 us/step is
+  **0.295 % of `cs`** — below the gap to the record (record 2.61650354381456 vs
+  our best `cs` 2.590559 on tree `4b0e051b`, a gap of ~1.0 %).
+
+Stage A therefore closes as a written pass and the remaining budget goes to
+Stage B: find a *mechanism-level* decode win larger than the residual that
+survives a preregistered paired test.
+
+## A.4 Elimination pass over the decode dispatch ledger
+
+Families already closed and **not** reopened:
+
+| family | closed by | why it stays closed |
+|---|---|---|
+| split-K / flash-decoding / KV-split of either decode attention kernel | #196, #566 | measured null-to-negative; both raise the dispatch count, and Rule 65 prices every added dispatch at +2.3403 us |
+| threadgroup-boundary splitting for TG-count starvation | #528, rule 67 | raises TG count; measured negative |
+| barrier / encoder / command-buffer scheduling | Rule 92 | whole family capped at 1.3003 us/step |
+| decode byte reduction by fusion or redundant-read elimination | #619 | ceiling 0.231 % of `cs`, already largely banked |
+| quantisation-metadata byte reduction | #615 | closed |
+| router weight prefetch | Rule 89.4 | closed |
+| cross-TG dedup of phase-1 K RMSNorm+RoPE | prior round | closed |
+| second float4 epilogue plane | prior round | closed |
+| stream-fragmenting byte reductions | #525, rule 66 | closed |
+
+One family is **narrowly and deliberately reopened**, and I flag it rather than
+bury it: "ALU-side levers on M4 — decode is not ALU-bound on this host". That
+closure was reached on the projection/matmul kernels, where the question was
+arithmetic op count and precision. Stage B section C.2 below produces direct
+evidence that the *sliding decode-attention* kernel is instruction-issue-bound
+on cross-lane shuffles, which is a different cost and a different kernel. The
+reopening is therefore scoped to "cross-lane reduction instruction count in
+`laguna_sliding_fused_attn_ring_v1`" and to nothing else.
+
+Deconfliction against live channels: frieren #597 owns bit-exactness and the
+margin-certificate instrument; fern #625 owns the integration tree; tanjiro #620
+owns prefill; edward #629's L3 patch touches `lagunaDecodeNVFP4QKVLaneMajorSource`
+(the QKV projection kernel) and therefore does **not** overlap the attention
+kernel this branch edits; alphonse #630 owns the routed K-loop (a wash).
+
+What survived the pass was the sliding decode-attention kernel: 22.34 us/call x
+30 calls = **670 us/step**, 8 MiB requested per call against 2 MiB unique, and
+0.75 TFLOP/s = ~10 % of this host's ~7.2 TFLOP/s peak. Stage B attacked it
+twice: first on the request side (H4), then, after H4 refuted the request-side
+premise, on the instruction side (PACKRED).
+
+---
+
+# §B — the patch
+
+Single file: `Sources/MLXFastModel/LagunaRuntimeModel.swift`.
+
+## B.1 Structural change: reductions factored behind header macros
+
+The shipped kernel `laguna_sliding_fused_attn_ring_v1` performs 44 cross-lane
+reductions per lane per call (32 `simd_sum` in the row loop, 2 `simd_max` +
+2 `simd_sum` + 8 `simd_sum` in the online-softmax epilogue). Those call sites
+are replaced by four macros — `LAGUNA_QK_REDUCE2`, `LAGUNA_MAX_REDUCE2`,
+`LAGUNA_SUM_REDUCE2`, `LAGUNA_ACC_REDUCE4` — and the Metal source string and the
+common header are hoisted into `lagunaSlidingFusedAttnRingSource` and
+`lagunaSlidingFusedAttnRingHeaderCommon`. Each kernel spelling then supplies its
+own macro definitions through the `header:` argument, so **every arm compiles
+from one source string** and the arms cannot drift apart.
+
+The control spelling's macros expand to exactly the `simd_sum`/`simd_max` code
+that shipped, so the refactor is behaviour-preserving by construction; §F
+records the zero-tolerance oracle run that confirms it.
+
+## B.2 Arms registered
+
+| Swift binding | Metal name | gate | default |
+|---|---|---|---|
+| `lagunaSlidingFusedAttentionKernel` | `laguna_sliding_fused_attn_ring_v1` | none (control) | active |
+| `lagunaSlidingFusedAttentionPackredKernel` | `laguna_sliding_fused_attn_ring_packred_v1` | `DARKBLOOM_FUSED_SLIDING_ATTN_PACKRED=1` | off |
+| `lagunaSlidingFusedAttentionH4Kernel` | `laguna_sliding_fused_attn_ring_h4_v1` | `DARKBLOOM_FUSED_SLIDING_ATTN_H4=1` | off |
+
+All gates default to off/control, so one binary serves every arm of a paired
+campaign and no arm can be confounded by a rebuild.
+
+## B.3 PACKRED, the Stage B candidate
+
+Each reduction site in the kernel reduces two or four scalars at the same
+program point, so the 5-step butterfly can be shared:
+
+| site | reductions | shuffles (control) | shuffles (PACKRED) |
+|---|---|---|---|
+| row loop, 16 rows x 2 heads, 4 unrolled slots x 4 iterations | 32 x `simd_sum` | 160 | 80 (`float2`) |
+| epilogue output planes | 8 x `simd_sum` | 40 | 10 (`float4` per head) |
+| epilogue max and softmax sums | 2 x `simd_max`, 2 x `simd_sum` | 20 | 10 (`float2` each) |
+| prologue RMSNorm + RoPE (untouched) | 1 `simd_sum` + 4 `simd_shuffle` | 9 | 9 |
+| **total** | | **229** | **109** |
+
+The adds are unchanged in count; only the shuffle traffic is shared.
+`simd_max` packing is exact because `max` does no rounding; `simd_sum` packing
+uses an ascending-mask (1, 2, 4, 8, 16) xor butterfly, which is the standard
+lowering, but the vendor's `simd_sum` association is unspecified, so exactness
+was declared in advance to be an empirical question (§F).
+
+Device memory traffic, grid, threadgroup size, threadgroup memory and the
+dispatch count are all **unchanged** (§D), so Rule 65's +2.3403 us/dispatch does
+not apply.
+
+## B.4 The H4 arm (measured, retained only as evidence)
+
+`laguna_sliding_fused_attn_ring_h4_v1` packs 4 query heads that share one KV
+head into a single threadgroup instead of 2, halving threadgroups from 32 to 16
+and requested KV bytes per call from 8 MiB to 4 MiB against 2 MiB unique. Its
+per-head arithmetic and row-to-simdgroup mapping are unchanged.
+
+## B.5 Diagnostic probe (attribution instrument, not a candidate)
+
+`laguna_sliding_fused_attn_ring_noreduce_v1`, gate
+`DARKBLOOM_FUSED_SLIDING_ATTN_NOREDUCE=1`, deletes the row-loop cross-lane
+reduction and uses each lane's 4-dimension partial dot product as if it were the
+whole one, leaving every load, FMA, barrier and the whole epilogue in place. It
+therefore produces **numerically wrong attention output by design**, was
+declared as such in Amendment 1 section 5 before it was run, is used only under
+`--local-iterate`, and is never a submission candidate.

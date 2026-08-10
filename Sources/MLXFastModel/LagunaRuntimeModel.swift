@@ -1964,6 +1964,7 @@ private let lagunaSlidingFusedAttnRingReduceBaseline = """
                    simd_sum(db_s_.z),           \\
                    simd_sum(db_s_.w));          \\
   } while (false)
+
 """
 
 private let lagunaSlidingFusedAttnRingReducePacked = """
@@ -2004,6 +2005,7 @@ private let lagunaSlidingFusedAttnRingReducePacked = """
     LAGUNA_BUTTERFLY_ADD(db_a_);                \\
     (dst) = db_a_;                              \\
   } while (false)
+
 """
 
 private let lagunaSlidingFusedAttnRingReduceNoReduce = """
@@ -2029,6 +2031,7 @@ private let lagunaSlidingFusedAttnRingReduceNoReduce = """
                    simd_sum(db_s_.z),           \\
                    simd_sum(db_s_.w));          \\
   } while (false)
+
 """
 
 private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
@@ -2040,8 +2043,8 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
     ],
     outputNames: ["attended"],
     source: lagunaSlidingFusedAttnRingSource,
-    header: lagunaSlidingFusedAttnRingHeaderCommon
-        + lagunaSlidingFusedAttnRingReduceBaseline,
+    header: lagunaSlidingFusedAttnRingHeaderCommon + "\n"
+        + lagunaSlidingFusedAttnRingReduceBaseline + "\n",
     ensureRowContiguous: true
 )
 
@@ -2054,8 +2057,8 @@ private let lagunaSlidingFusedAttentionPackredKernel = MLXFast.metalKernel(
     ],
     outputNames: ["attended"],
     source: lagunaSlidingFusedAttnRingSource,
-    header: lagunaSlidingFusedAttnRingHeaderCommon
-        + lagunaSlidingFusedAttnRingReducePacked,
+    header: lagunaSlidingFusedAttnRingHeaderCommon + "\n"
+        + lagunaSlidingFusedAttnRingReducePacked + "\n",
     ensureRowContiguous: true
 )
 
@@ -2068,8 +2071,8 @@ private let lagunaSlidingFusedAttentionNoReduceKernel = MLXFast.metalKernel(
     ],
     outputNames: ["attended"],
     source: lagunaSlidingFusedAttnRingSource,
-    header: lagunaSlidingFusedAttnRingHeaderCommon
-        + lagunaSlidingFusedAttnRingReduceNoReduce,
+    header: lagunaSlidingFusedAttnRingHeaderCommon + "\n"
+        + lagunaSlidingFusedAttnRingReduceNoReduce + "\n",
     ensureRowContiguous: true
 )
 
