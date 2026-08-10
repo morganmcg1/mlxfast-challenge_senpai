@@ -566,15 +566,21 @@ sweep found no *new* stranded segment outside attention.
 
 ## 9. What I would do instead — the concurrency reframing
 
-> **RETRACTED by §13.4.** The premise of this section — that the decode command
-> encoder might be serialising the `NONE` boundaries — is **false in source**.
-> MLX creates *every* compute encoder with `MTL::DispatchTypeConcurrent`
+> **RETRACTED. Operative refutation is §15–§17 (measured), not §13.4
+> (inferred).** The premise of this section — that the decode command encoder
+> might be serialising the `NONE` boundaries — is false. MLX creates *every*
+> compute encoder with `MTL::DispatchTypeConcurrent`
 > (`Vendor/mlx-swift/…/backend/metal/device.cpp:545-548`) and emits a barrier
-> only on a real buffer-aliasing hazard (`:315-349`, `:363-391`). The ≈1.8 %
-> estimate below is **not available**: there is no unnecessary serialisation to
-> remove. `device.cpp` is also not in `editablePaths`. I am leaving the section
-> standing rather than deleting it, because the retraction is the most valuable
-> single result in this report — see §13.4.
+> only on a real buffer-aliasing hazard (`:315-349`, `:363-391`), so the
+> encoder was never serial; `device.cpp` is also not in `editablePaths`.
+>
+> But the *reason* the ≈1.8 % is unavailable is **not** the one §13.4 gave.
+> §13.4 inferred there was no overlap to relieve. §15–§17 then **measured** that
+> the overlap is real — `D(0) = 382–448` µs/step, 4.5–5.3 % of `cs` — and
+> already **100 % harvested** by that same concurrent encoder. The correct
+> statement is *already collected*, not *never there*. I am leaving the section
+> standing because the retraction, and the correction to the retraction, are the
+> most valuable results in this report.
 
 The ledger's `dep_scope` column has a second use, and it is worth ~14× more than
 its first.
@@ -704,6 +710,23 @@ Every constant in that script is copied unchanged from the committed census
 `research/maple-tanjiro-r107g-slack.py:22-31`. Nothing new was measured; this
 section is arithmetic plus one source read.
 
+**The three answers you asked for, in one place:**
+
+1. **Does 105.16's per-family slack use the same byte floor as my census?**
+   105.16 **does** (`2.5272e-08` %cs/B). 105.17 uses **no byte floor at all**.
+   The 4.86× is therefore *a total divided by one of its own addends*, not a
+   contradiction: 105.16 prices what lies **above** the floor (0.976 %), 105.17
+   prices **the floor's own dispatch term** (5.987 %), and
+   `0.976 + 4.552 = 5.527 ≈ 5.987` over the identical 168 dispatches. Neither
+   model is wrong; they price different strata of the same time. → §13.3
+2. **Which of your three options?** **Option 3.** Routes A/B/C are nested,
+   mutually consistent *attributed-occupancy* quantities that agree to 8 %;
+   route C is the narrowest, not the outlier. The conflict is between **all
+   three** and the removal direction. → §13.2, §13.4
+3. **Is "88 % other" incompatible with "1.89 bars"?** No — they are **additive
+   components**. `slack + intercept + byte` reconstructs route A with residual
+   **identically 0.0000**. → §13.2
+
 ### 13.1 The exact arithmetic, inputs, `k` and basis behind "1.89 bars"
 
 The number is mine, from `maple-tanjiro-r107g-slack.py`, family
@@ -786,6 +809,16 @@ R107-G script's printed line "rule 65's … 2.3403 µs × 30 = 70.2 µs/step =
 value is **1.069 %**; the reconciliation script omits `k` for route A throughout.
 
 ### 13.4 Answer to the three options: **option 3 — something not yet considered**
+
+> **Option 3 stands; the mechanism below is SUPERSEDED by §15–§17.** The
+> conclusion of this subsection — that all three routes are attributed
+> *occupancy* and none is a removal-direction measurement — is unaffected and is
+> confirmed independently by Part 2. But the *closing* mechanism I offer at the
+> end of this subsection (the "central symmetry": that `NONE` boundaries emit no
+> barrier and therefore have no serialisation to relieve) infers absence of
+> overlap. §15–§17 **measure** overlap of `D(0) = 382–448` µs/step and find it
+> already fully harvested. Prefer the measurement: the lever is closed because
+> the concurrency is *already collected*, not because it was never there.
 
 Not option 1 (`k` wrong): `k = 0.5 = β` is what the census uses for family E and
 is the conservative generic transfer. Not option 2 (route B wrong): route B
