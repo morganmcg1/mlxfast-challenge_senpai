@@ -1,0 +1,143 @@
+{
+  "groups": [
+    {
+      "label": "All scored sessions",
+      "n": 1220,
+      "sd_ln_bd_pct": 0.2457317029988086,
+      "sd_ln_bp_pct": 1.9265950915643075,
+      "corr_legs": 0.12545358752240493,
+      "lag1_ln_bd": 0.03475154726482448,
+      "lag1_ln_bp": -0.004977611920396988,
+      "identified": true,
+      "k_lo": 0.9835860126724082,
+      "k_hi": 62.49512973168339,
+      "grid": [
+        {
+          "k": 0.9835860126724082,
+          "sd_session_pct": 0.2457317029988086,
+          "sd_e_decode_pct": 0.0,
+          "sd_e_prefill_pct": 1.911374007116707,
+          "sd_ln_cs_pct": 0.675772760907964
+        },
+        {
+          "k": 0.9917930063362042,
+          "sd_session_pct": 0.2447128876275827,
+          "sd_e_decode_pct": 0.022353355176902644,
+          "sd_e_prefill_pct": 1.9112464931844633,
+          "sd_ln_cs_pct": 0.6761434953191233
+        },
+        {
+          "k": 1.0,
+          "sd_session_pct": 0.24370664024856944,
+          "sd_e_decode_pct": 0.03148242934477949,
+          "sd_e_prefill_pct": 1.9111189707442175,
+          "sd_ln_cs_pct": 0.6765072071452269
+        },
+        {
+          "k": 31.747564865841696,
+          "sd_session_pct": 0.043252593429386775,
+          "sd_e_decode_pct": 0.2418951901554201,
+          "sd_e_prefill_pct": 1.3513651838674914,
+          "sd_ln_cs_pct": 0.5423107281983457
+        },
+        {
+          "k": 62.49512973168339,
+          "sd_session_pct": 0.03082792370919065,
+          "sd_e_decode_pct": 0.24379029713767322,
+          "sd_e_prefill_pct": 0.0,
+          "sd_ln_cs_pct": 0.2585786584402982
+        }
+      ],
+      "sd_ln_cs_interval_pct": [
+        0.2585786584402982,
+        0.6765072071452269
+      ],
+      "sd_ln_cs_at_k1_pct": 0.6765072071452269
+    },
+    {
+      "label": "session_factor_reconstruction",
+      "n": 1220,
+      "sd_ln_sf_pct": 0.5368649058757362,
+      "prefill_share": 0.8048795348552874
+    },
+    {
+      "label": "window all",
+      "n": 1220,
+      "sd_ln_bd_pct": 0.2457317029988086,
+      "sd_ln_bp_pct": 1.926595091564308,
+      "robust_sd_ln_bd_pct": 0.24899420061464436,
+      "robust_sd_ln_bp_pct": 1.5823319044541964
+    },
+    {
+      "label": "window last 400",
+      "n": 400,
+      "sd_ln_bd_pct": 0.2537429973459302,
+      "sd_ln_bp_pct": 1.9890663057984457,
+      "robust_sd_ln_bd_pct": 0.23157004560700156,
+      "robust_sd_ln_bp_pct": 2.5785635816502066
+    },
+    {
+      "label": "window last 200",
+      "n": 200,
+      "sd_ln_bd_pct": 0.2389470038003777,
+      "sd_ln_bp_pct": 1.966241392107187,
+      "robust_sd_ln_bd_pct": 0.21609154824939025,
+      "robust_sd_ln_bp_pct": 2.242234752284205
+    },
+    {
+      "label": "window last 100",
+      "n": 100,
+      "sd_ln_bd_pct": 0.2504744511463049,
+      "sd_ln_bp_pct": 1.9126142961729689,
+      "robust_sd_ln_bd_pct": 0.22834294139924477,
+      "robust_sd_ln_bp_pct": 1.3246063409579314
+    },
+    {
+      "label": "window last 50",
+      "n": 50,
+      "sd_ln_bd_pct": 0.24807748035805305,
+      "sd_ln_bp_pct": 1.7833993369121497,
+      "robust_sd_ln_bd_pct": 0.22716391038508402,
+      "robust_sd_ln_bp_pct": 1.220023260956025
+    },
+    {
+      "label": "headline_fixed_tree",
+      "rows": [
+        {
+          "rho": 0.0,
+          "sd_ln_cs_pct": 0.7444296520719463,
+          "sd_ln_S_pct": 1.2004664242721723
+        },
+        {
+          "rho": 0.25,
+          "sd_ln_cs_pct": 0.6446949900247164,
+          "sd_ln_S_pct": 1.0737298117514724
+        },
+        {
+          "rho": 0.5,
+          "sd_ln_cs_pct": 0.5263912550964155,
+          "sd_ln_S_pct": 0.9298772937774582
+        },
+        {
+          "rho": 0.75,
+          "sd_ln_cs_pct": 0.37221482603597317,
+          "sd_ln_S_pct": 0.7592416310516212
+        },
+        {
+          "rho": 0.9,
+          "sd_ln_cs_pct": 0.2354093258314035,
+          "sd_ln_S_pct": 0.6352271231814242
+        },
+        {
+          "rho": 1.0,
+          "sd_ln_cs_pct": 0.0,
+          "sd_ln_S_pct": 0.5368649058757362
+        }
+      ],
+      "sd_ln_bd_pct": 0.2457317029988086,
+      "sd_ln_bp_pct": 1.9265950915643075,
+      "corr_legs": 0.12545358752240493
+    }
+  ],
+  "n_usable": 1220
+}

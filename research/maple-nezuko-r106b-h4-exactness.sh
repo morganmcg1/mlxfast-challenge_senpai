@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# R106-B Stage B — bit-exactness instrument for the H4 head-packed sliding
+# decode-attention kernel.
+#
+# research/run_upstream_equivalence.sh runs the vendored-Laguna upstream oracle
+# with ZERO tolerance (MLXFAST_LAGUNA_EQUIVALENCE_MAX_ABS_ERROR defaults to "0")
+# and prints EQUIVALENCE_EXACT_STEPS = the number of steps whose
+# "maximumAbsoluteLogitError" is exactly 0. Running it once with the H4 gate off
+# and once with it on therefore answers the bit-exactness question directly:
+# if both arms report the same EQUIVALENCE_EXACT_STEPS and exit 0, the packed
+# kernel reproduces the shipped path bit-for-bit against the same oracle.
+#
+# Logs are kept outside the worktree so a run never dirties the checkout.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+
+for arm in off on; do
+  log="/tmp/r106b_h4_exact_${arm}.log"
+  echo "=== exactness arm=${arm} start $(date -u +%H:%M:%S)"
+  if [ "$arm" = on ]; then
+    DARKBLOOM_FUSED_SLIDING_ATTN_H4=1 research/run_upstream_equivalence.sh > "$log" 2>&1
+  else
+    research/run_upstream_equivalence.sh > "$log" 2>&1
+  fi
+  st=$?
+  echo "arm=${arm} exit=${st}"
+  grep -E 'EQUIVALENCE_EXACT_STEPS|EQUIVALENCE_EXIT' "$log" | sed "s/^/arm=${arm} /"
+  grep -c '"maximumAbsoluteLogitError"' "$log" | sed "s/^/arm=${arm} report_steps=/"
+  grep -oE '"maximumAbsoluteLogitError" : [0-9.e-]+' "$log" | sort -u \
+    | sed "s/^/arm=${arm} distinct: /"
+  echo "=== exactness arm=${arm} done $(date -u +%H:%M:%S)"
+done
+
+git checkout -- Package.resolved 2>/dev/null || true
+echo "logs: /tmp/r106b_h4_exact_off.log /tmp/r106b_h4_exact_on.log"

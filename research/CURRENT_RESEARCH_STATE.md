@@ -1506,6 +1506,11 @@ the smaller residual (#555 §2.6 does this at desk cost).
 student slot* — unless it is enabling work (byte reclamation, instruments,
 census) or it retires a standing rule.
 
+⚠️ **Rule 105.12: the 30 µs/step here is an M5 number.** If your best case is a
+locally measured **M4** estimate, the threshold in your units is **68.7 µs/step
+(bytes-bound)** or **60.0 µs/step (latency-bound)**. Applied naively to an M4
+estimate this rule is too permissive by 2.29×/2.00×.
+
 ### Operational hazard
 
 `mlxfast submissions` intermittently returns an **empty single line with exit
@@ -2670,8 +2675,8 @@ bind.
 | [#597](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/597) | maple-frieren | `maple-r105-b-router-prefetch-adjudication` / **`r105-b-rev5`** | **The bit-exactness shelf (rule 96.3).** Re-adjudicate the shelf against `TASK.md`'s *actual* token-level gate; build the reusable **margin-certificate** instrument for all four students; take **`DARKBLOOM_QMV_WIDE_CODES`** end-to-end (reachability → correctness → paired local A/B → source default flip → hand to fern). Remains sole channel owner; **no draw authorised**. Outcomes V-SHIP / N-CORRECT / N-NULL / N-UNREACHABLE / V-SHELF. | halves code loads, scale loads and the K-loop trip count on the shared gate/up QMV |
 | [#625](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/625) | maple-fern | `maple-r106-i-prefill-traversal-byte-census` / **`r106-i-rev2`** | **Own the integration tree.** R106-I cancelled (rule 79 — preserve partials). Stage 0 verify the HEAD/`bd33883e`/`4b0e051b` numstat table + force-clean build + oracle; Stage 1 T0 (HEAD) vs T1 (HEAD + `4b0e051b`'s `Sources/MLXFastModel/**` and `Sources/MLXFastTransform/**`) via the rule 95.6 replay recipe, paired locally, ~3 h timebox, **N-BUILD is an acceptable terminal answer**; Stage 2 integrate every student patch under rule 75 caps; Stage 3 hand **one** verified tree to frieren with the four submit-wrapper preconditions checked. Outcomes V-T1 / N-T1 / N-BUILD / V-INTEGRATED. | decides what we submit; composition upside if merits are additive |
 | [#642](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/642) | maple-tanjiro | `maple-r107-d-decode-attention-above-floor` / **`r107-d-rev1`** — head `95f881e5` | **The decode fused-attention above-floor pool.** #620 merged (rule 99 — *his* positive control is what killed the prefill axis), so he moves to the axis that provably transfers at 0.15 %. `laguna_sliding_fused_attn_ring_v1` (`LRM:1508`) + `laguna_full_fused_attn_grow_v1` (`LRM:2028`) are plain Metal with **no `_nax` twin** ⇒ fully M4-reachable. Stage 0 reachability + geometry proof; Stage 1 adjudicate the regime (bandwidth- vs latency- vs issue-bound); Stage 2 implement and paired-ABBA **one** lever in-situ — **P1 prologue prefetch hoist** above the `:1587` barrier into the 28 idle simdgroups (bit-exact by construction), with P2/P3 as fallbacks and a matched-register negative control. Outcomes V-PROLOGUE / N-PROLOGUE / V-EPILOGUE / N-ISSUE-BOUND / N-CORRECT / N-BUILD. | **424.35 µs/step = 6.46 % of `cs`**, of which **≈280.8 µs/step = 4.28 %** is above the unique-byte DRAM floor — the largest unadjudicated decode pool left |
-| [#616](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/616) | maple-nezuko | `maple-r106-b-revert-residual-forensics` / **`r106-b-rev3`** | **The revert residual.** R106-H cancelled. Stage A attribute round-103's ≈19.0 µs/step residual to a ledger that closes; Stage B build and locally measure a recovery patch (paired, rules 40/68/86); Stage C hand to fern. Margin certificate available from frieren if the recovery is not bit-exact. Outcomes V-RECOVER / V-ATTRIB / N-RESIDUAL / N-RECOVER / N-CORRECT. | 0.3204 % of `cs` = **25 % of the whole 1.2846 % gap** |
-| [#629](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/629) | maple-edward | `maple-r107-a-routed-gateup-packing` / **`r107-a-rev1`** — head `526881c4` | **Routed gate/up threadgroup packing, amended by rule 97.1** (delivered as PR comment `5239439037`)**.** Operator brief asks for an `S ∈ {2,4,8,16}` simdgroups-per-threadgroup curve on `lagunaRoutedSwiGLUQMVPackedTop8Kernel`. Half that curve is **already priced** (#48 measured the 8× threadgroup collapse at **−0.1488 %**; S=16 also lands at 6.4 TG/core inside the tail-starvation regime closed by rule 67), and the adjacent rows-per-simdgroup axis is already harvested (`DARKBLOOM_QMV_R1`). Amended: **Stage A settles L3 first** — `research/tanjiro_packing_default_flip.patch` applies clean at this HEAD and #308 measured it at **−36.9 µs/step = +0.562 % of `cs`**, CI [+0.196 %, +0.929 %]. Stage B extends to the routed site over **S ∈ {2,4}** only. Outcomes V-L3 / N-L3 / V-SITE1 / N-SITE1 / N-CORRECT / N-BUILD. | L3 alone is **+0.562 % of `cs`** — the largest ready-made bit-exact item on the board |
+| [#616](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/616) | maple-nezuko | `maple-r106-b-revert-residual-forensics` / **`r106-b-rev3`** | **The revert residual.** R106-H cancelled. Stage A attribute round-103's ≈19.0 µs/step residual to a ledger that closes; Stage B build and locally measure a recovery patch (paired, rules 40/68/86); Stage C hand to fern. Margin certificate available from frieren if the recovery is not bit-exact. Outcomes V-RECOVER / V-ATTRIB / N-RESIDUAL / N-RECOVER / N-CORRECT. | ~~0.3204 % of `cs` = 25 % of the whole 1.2846 % gap~~ 🚫 **rule 105.11: the residual is receipt-derived ⇒ already M5, so the bare price is right, but at the campaign decode weight (0.7500) it is 0.2893 % of `cs` = 17.7 % of the current 1.6359 % gap.** ⚠️ **Stage B measures on M4: the target in her own units is 43.5 µs/step (bytes) / 38.0 (latency), not 19.** |
+| [#629](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/629) | maple-edward | `maple-r107-a-routed-gateup-packing` / **`r107-a-rev1`** — head `526881c4` | **Routed gate/up threadgroup packing, amended by rule 97.1** (delivered as PR comment `5239439037`)**.** Operator brief asks for an `S ∈ {2,4,8,16}` simdgroups-per-threadgroup curve on `lagunaRoutedSwiGLUQMVPackedTop8Kernel`. Half that curve is **already priced** (#48 measured the 8× threadgroup collapse at **−0.1488 %**; S=16 also lands at 6.4 TG/core inside the tail-starvation regime closed by rule 67), and the adjacent rows-per-simdgroup axis is already harvested (`DARKBLOOM_QMV_R1`). Amended: **Stage A settles L3 first** — `research/tanjiro_packing_default_flip.patch` applies clean at this HEAD and #308 measured it at **−36.9 µs/step (M4, paired)**, ~~= +0.562 % of `cs`, CI [+0.196 %, +0.929 %]~~ 🚫 **re-priced by rule 105.3 to 0.2455 %, CI [0.0858 %, 0.4058 %] (α = 0.4369)**, then **de-biased by rule 105.10 to ≈0.197 %** (36.9 is the *argmax* of a tied `S ∈ {4,8,16}` set; selection bias 7.34 µs/step). Stage B extends to the routed site over **S ∈ {2,4}** only. Outcomes V-L3 / N-L3 / V-SITE1 / N-SITE1 / N-CORRECT / N-BUILD. | L3 alone is **≈0.20 % of `cs`** — **below the 0.4 % bar**; still a valid bit-exact *summand* under rule 105.5. **Stage A's own single pre-specified contrast is the number that counts, not #308's**; expect ≈30 µs/step, and the residual for a second summand is then **30.6 µs/step = 2.04 % of T2c** |
 | [#636](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/636) | maple-alphonse | `maple-r107-c-expert-gather-gemm-floor` / **`r107-c-rev1`** — head `ace5bd09` | **The routed expert gather-GEMM floor.** #630 terminated (rule 98) and merged, freeing him for the **largest sized unclaimed target on the board**: `routed_gather_gemm` = 76 dispatches / 260.907 ms = **48.3 % of M4 prefill**, M5 `W = 43.2619 ± 0.402 ms` against a **35.6 ms** DRAM floor ⇒ **≈7.6 ms above floor = +2.87 % of score**. Stage 0 rule-83 mechanism-word grep; Stage A zero-build env sweep of `DARKBLOOM_STAGE_BM128` (default **variant 5** ⇒ `bm=64,bn=64,bk=64,wm=4,wn=1`, 128 threads/TG) and `DARKBLOOM_EXPERT_GATHER_GROUPS ∈ {64,128,256}`; Stage B **one** of C2a (`bn` 64→32, never varied) or C2b (revive the **dead** x-major dispatch order — `darkbloom_gather_xmajor_ct()` is hardcoded `return 0` at `quantized.cpp:1290-1292`); Stage C graduate only at ≥0.4 % of score **and** ≥3σ (1.35 ms) with decode proved neutral. Outcomes V-TILE / V-XMAJOR / V-EGROUPS / N-FLOOR / N-XMAJOR-CLOSED / N-BUILD / N-CORRECT / N-REACH. | **+2.87 % of score** — more than twice the whole 1.2846 % implied gap |
 
 Corrected σ constants issued to all six (frieren §22 withdrew her own earlier
@@ -5350,7 +5355,7 @@ hand a build-verified tree to integration rather than a report.
 | maple-fern | #625 | own the **integration tree**: `HEAD` vs `4b0e051b` paired locally, then compose; every other student's win lands here | decides what we submit; composition upside if merits are additive |
 | maple-tanjiro | ~~#620~~ → **#642** | #620 **MERGED** (rule 99: his positive control killed the prefill axis for every Maple host). Re-assigned to the **decode fused-attention above-floor pool** — Stage 0 rule-99.3 reachability + rule-77 geometry, Stage 1 adjudicate bandwidth- vs latency- vs issue-bound, Stage 2 **one** lever (P1 prologue prefetch hoist above the `:1587` barrier) with a matched-register negative control | **6.46 % of `cs`**, of which **4.28 %** is above the unique-byte DRAM floor |
 | maple-nezuko | #616 | the ~19 µs/step revert residual (Rule 91) | 0.3204 % of cs = 25 % of the whole gap |
-| maple-edward | #629 | **added at 10:03Z; charge amended by rule 97.1** — settle **L3** (`research/tanjiro_packing_default_flip.patch`) first, then the routed site over S ∈ {2,4} only | L3 = **+0.562 % of cs**, CI [+0.196 %, +0.929 %] |
+| maple-edward | #629 | **added at 10:03Z; charge amended by rule 97.1** — settle **L3** (`research/tanjiro_packing_default_flip.patch`) first, then the routed site over S ∈ {2,4} only | L3 = **≈0.25 % of cs**, CI [0.086 %, 0.406 %] — 🚫 re-priced by rule 105.3 from the withdrawn "+0.562 %"; **below bar alone**, valid as a summand |
 | maple-alphonse | ~~#630~~ → **#636** | #630 **TERMINATED and merged** (rule 98: staging depth closed by measurement, zero-byte diff). Re-assigned to the **routed expert gather-GEMM floor** — Stage 0 grep, Stage A zero-build env sweep of `DARKBLOOM_STAGE_BM128` / `DARKBLOOM_EXPERT_GATHER_GROUPS`, Stage B one of `bn` 64→32 or reviving the dead x-major dispatch order, Stage C graduate at ≥0.4 % **and** ≥3σ | **+2.87 % of score** — the largest sized unclaimed target on the board |
 
 Channel discipline is unchanged: Rule 88 watch-until-idle, one attempt, and
@@ -5436,9 +5441,14 @@ Three archive facts your Rule-83 search must land on:
 3. ⭐ **The prize is already built and shelved.**
    `research/tanjiro_packing_default_flip.patch` **applies clean, reachability
    is confirmed**, and **#308 measured −36.9 µs/step, CI [−61.0, −12.9]** on
-   the QKV grid. At 0.015228 %/µs/step that is **+0.562 % of `cs`, CI
-   [+0.196 %, +0.929 %]** — a bit-exact patch with a confidence interval
-   excluding zero. It is shelved as "**L3 — do not assign yet**" (line ~3352)
+   the QKV grid. ~~At 0.015228 %/µs/step that is **+0.562 % of `cs`, CI
+   [+0.196 %, +0.929 %]**~~ 🚫 **WITHDRAWN BY RULE 105.3 — this multiplied an
+   M4 delta by an M5 price. Correct value: 0.2455 %, CI [0.0858 %, 0.4058 %]
+   at α = 0.4369; below the 0.4 % bar under every conversion factor.** It
+   remains a bit-exact patch with a confidence interval
+   excluding zero, and is therefore still a valid *summand* under rule 105.5 —
+   but it is no longer a headline candidate. It is shelved as
+   "**L3 — do not assign yet**" (line ~3352)
    *only* because #48's −0.1488 % contradicts it. That standoff was a
    reasonable call in a mid-round; **it is the wrong call in an endgame where
    the gap is 1.2846 % of `cs` and the integration bar is 0.4 %.** An
@@ -6325,6 +6335,837 @@ question.
 
 
 
+### Rule 104 — endgame execution protocol: the draw fires **at the freeze**, and the wrapper takes **no `--model`**
+
+Two corrections to instructions I issued myself today. Both are execution
+defects, not scientific ones, and both would have cost us the single remaining
+draw. Recorded here because the endgame has no room for a second discovery of
+either.
+
+#### 104.1 🔴 The last-call draw is armed at 07:00Z, not scheduled for 08:00Z
+
+Every brief in this round carries a §7 clock whose T−2 h row reads "**your
+single last-call draw**". The bar in that row stands; the **time** was wrong.
+
+Evidence, from `mlxfast submissions --all` on 2026-08-10:
+
+| window (UTC) | behaviour |
+|---|---|
+| 03:42 → 08:54 | **thirteen consecutive draws, 22–26 min apart** — the shared account saturated for over five hours |
+| 10:42, 11:05 | 23 min apart |
+| 11:05 → 14:00 | idle ≈3 h |
+
+Service time is ~22–25 min on a **serial queue shared by three launches**
+(rules 88, 93). The hard stop is 09:00Z. A draw first attempted at 08:00Z
+therefore tolerates **at most two queue positions ahead of it** — and 08:00Z is
+precisely when the sibling launches reach for their own last-call draws,
+because they share our deadline. We would be choosing the single most contended
+minute of the campaign for our only attempt.
+
+**Rule 101.3 removes the only argument for waiting**: `f` is i.i.d. white noise
+over n=1220, so draw scheduling is permanently closed and the firing time
+carries no score information. Waiting buys nothing and can cost the attempt.
+
+**Protocol.** From the 07:00Z integration freeze the draw is *armed*. The moment
+all four bar conditions hold on the frozen tree, run the rule-88
+watch-until-idle loop (`research/advisor_r106_channel_idle_watch.py`, exit 0 on
+idle) and fire on the first idle window. 08:00Z is the **latest** sensible
+start, not the schedule. One attempt; never a retry loop. If the bar is not met
+at freeze the draw expires unused, which remains an acceptable terminal state
+(rule 96.2).
+
+#### 104.2 🚨 ADVISOR ERROR #8 — I quoted a command line without reading its source
+
+I told the integration owner to fire with `bash senpai/submit-official.sh
+<BASE_SHA> … --model "senpai"`. The wrapper contains:
+
+```bash
+for argument in "$@"; do
+  if [[ "${argument}" == "--model" || "${argument}" == --model=* ]]; then
+    echo "official submit: model attribution is fixed to senpai" >&2
+    exit 2
+  fi
+done
+…
+exec mlxfast submit --model senpai "$@"
+```
+
+It **injects** the attribution and **hard-refuses** a user-supplied one, in
+either `--model X` or `--model=X` form. My command line would have exited 2 on
+our single last-call draw. §1163-1171 already recorded this correctly; I
+reproduced a stale instruction from an older brief instead of reading the
+script. **The fix that generalises: before quoting any command line into a
+brief, read the script it invokes.** Error #7 was failing to grep the standing
+rules for a mechanism word; this is the same failure applied to tooling.
+
+The stale duplicate in §14 has been corrected in place.
+
+#### 104.3 The wrapper enforces twelve preconditions, not four
+
+Enumerated from source, in execution order:
+
+1. `BASE_SHA` present, full 40- or 64-char hex.
+2. **No `--model` anywhere in `"$@"`.**
+3. `git`, `jq`, `mlxfast` on `PATH`.
+4. Invoked inside a git worktree.
+5. `BASE_SHA` resolves to a local commit.
+6. `git fetch origin main` succeeds — **a network failure aborts with nothing sent.**
+7. `git merge-base --is-ancestor BASE_SHA HEAD`.
+8. `origin/main:benchmark.json` readable with a usable `editablePaths` array.
+9. `git diff --quiet origin/main BASE_SHA -- benchmark.json <editablePaths…>`.
+10. `git diff --quiet origin/main HEAD -- benchmark.json`.
+11. No `skip-worktree` / `assume-unchanged` bits under protected paths.
+12. `git status --porcelain=v1 --untracked-files=all --ignored=matching` clean
+    under `benchmark.json` + every editable path.
+
+Three traps worth naming:
+
+- **(12) counts untracked *and ignored* files.** A stray `.DS_Store`, an editor
+  swap file, or a generated `.metallib` anywhere under `Sources/MLXFastModel`,
+  `Sources/MLXFastTransform`, or the ~100 editable `Vendor/` paths aborts the
+  draw even though git ignores it. After a day of force-clean builds this is a
+  live risk.
+- **(9) is a freshness gate.** If upstream `main` moves in a way that touches an
+  editable path, `BASE_SHA` becomes invalid instantly and the candidate must be
+  reapplied on a fresh snapshot. Re-check `git rev-parse origin/main`
+  immediately before firing. **Verified 2026-08-10T14:05Z: `origin/main` =
+  `1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7`, unchanged**, so the standing
+  `BASE_SHA` is still correct.
+- **(6) is the only retryable failure.** Its message looks like a rejection but
+  nothing was sent.
+
+**You cannot dry-run the wrapper** — if the preconditions pass, it submits.
+Rehearse the predicates directly instead; they are pure `git`/`jq` and free.
+`senpai/test_submit_official.py` covers them.
+
+### Rule 105 — 🚨 the host-unit error: every bar in this document is in **M5** µs/step, and every student measures on **M4**
+
+This is the largest methodological defect I have found in the campaign ledger,
+it is live in four open assignments right now, and it changes the verdict on
+the single largest candidate on the board.
+
+#### 105.1 The error
+
+The campaign price is **0.015228 % of `cs` per µs/step of decode**, and §3
+states its derivation explicitly: it is fitted on the `59bd72a3` frontier
+receipt at `cand_dec = 4.925 ms/step` — an **official M5 decode**. Every bar
+derived from it is therefore in **M5 µs/step**:
+
+```
+1 % of cs = 65.67 µs/step   (M5)
+0.4 % bar =  26.27 µs/step  (M5)
+```
+
+Students measure on **M4**, where the same *fractional* improvement is worth
+**~2.2× more µs/step**. Applying `0.015228 %/µs` to an M4-measured µs/step
+delta therefore **over-credits the change by a factor of 2.0–2.6**.
+
+That is exactly what has been happening. Two live instances:
+
+- **§7 / rule 97.1**: I priced `research/tanjiro_packing_default_flip.patch`
+  at "−36.9 µs/step ⇒ **+0.562 % of `cs`**" by multiplying an M4 paired-ABBA
+  delta by the M5 price. Corrected below: it is **≈0.25 %**.
+- **#630 §6 (alphonse)**: "CI upper bound of +1.35 µs/token = 2.0 % of the
+  68.7 µs/step bar" — an M4-measured µs/token compared directly against an
+  M5-units bar. Harmless there because the result was a null, but the
+  comparison was of unlike quantities.
+
+The error is **anti-conservative for wins and conservative for nulls**, which
+is the worst possible asymmetry: it inflates exactly the numbers we act on.
+
+#### 105.2 The correct conversion — and the proof that it is the campaign's own
+
+§B.0.3 already carries the host model: `M5 = α · M4` for **bytes-regime**
+families (`α = 0.4369`) and `M5 = β · M4` for **latency-regime** families
+(`β = 0.5`). Two checks say this is right:
+
+1. **Plausibility of the two columns.** The B.0.3 M4 column — which is
+   *measured* — sums to **8096.3 µs/step** against the #473 M4 decode busy
+   pool of **7993.1 µs/step** (1.3 % apart). The M5 column sums to
+   **3650.9 µs/step** against the rule-58 true steady-state M5 per-step time
+   of **≈4141.5 µs/step** — i.e. the projected kernel pool is **88.2 %** of
+   steady-state, with the balance in gaps. Both land where they should.
+
+   ⚠️ **Read this check honestly.** The B.0.3 M5 column is **derived**, not
+   measured: every bytes row is exactly `0.4369 × M4` and every latency row is
+   exactly `0.5 × M4` (verify on any row: `654.4/1497.7 = 0.4370`;
+   `156.4/312.8 = 0.5000`). The *per-row* agreement is therefore tautological
+   and proves nothing. What is **not** tautological is that the derived M5
+   total lands at a credible 88.2 % of an *independently measured* M5 steady
+   state: had α been wrong by the ~2.2× this rule is about, that figure would
+   read ~194 % or ~40 % and the model would be visibly broken. That is a weak
+   but real external constraint. **Check 2 is the load-bearing one.**
+2. **The document already does it correctly once.** The T3a staleness caveat
+   corrects M4 636.0 → 618.9 for #539's 4-deep ring — a **17.1 µs/step M4**
+   delta — and prices it at "**≈0.13 %-score gain at β = 0.5**".
+   `17.1 × 0.5 × 0.015228 = 0.1302 %`. **Exact.** So the right method is
+   already on the record; it was simply not applied anywhere else.
+
+**The rule, to be applied to every µs/step number a student reports:**
+
+```
+Δ%cs  =  Δ_M4[µs/step]  ×  k  ×  0.015228 ,     k = α (bytes) or β (latency)
+```
+
+| regime | k | %`cs` per M4 µs/step | **0.4 % bar, in M4 µs/step** |
+|---|---:|---:|---:|
+| bytes (α = 0.4369) | 0.4369 | 0.006653 | **60.1** |
+| bytes (α = 0.389, §B.0.6 sensitivity) | 0.389 | 0.005924 | **67.5** |
+| latency (β = 0.5) | 0.5 | 0.007614 | **52.5** |
+
+**So the integration bar, stated in the units students actually measure in, is
+≈52–68 µs/step on M4 — not 26.** Quote the α-degeneracy interval; §B.0.6 is
+unresolved and it moves this number by 12 %.
+
+For an **ISSUE-bound** family (rule 100) neither α nor β is derived. Use β = 0.5
+as an upper bound and say that you did.
+
+**Where `k` comes from, and what would falsify it.** Because the B.0.3 M5 column
+is derived, **nobody may read a regime verdict off B.0.3 and call it evidence**
+for the conversion — that is circular. The regime must be assigned from measured
+behaviour on the family itself (achieved bytes/s against the ceiling vs.
+dispatch-and-occupancy limited). That is exactly what **tanjiro's R107-G decode
+family regime census (#648)** is for, and it is why that assignment is now the
+highest-leverage one open: it sets `k` for every other student's number. A
+family that the census finds ISSUE-bound (rule 100) has **no** valid `k`, and a
+µs/step win there cannot be converted at all — it can only be reported in M4
+units with the conversion marked unavailable.
+
+#### 105.3 What this does to L3 — the largest candidate on the board is **below bar**
+
+`research/tanjiro_packing_default_flip.patch` edits
+`lagunaDecodeNVFP4QKVLaneMajorSource`, i.e. family **T0b(a) qkv h64**, which
+B.0.3 ranks **bytes**-regime at 90.8 % of M5 peak. #308's −36.9 µs/step
+[−61.0, −12.9] is a local paired M4 measurement. Re-priced:
+
+| k | point | CI95 |
+|---|---:|---|
+| α = 0.4369 | **0.2455 %** | [0.0858 %, 0.4058 %] |
+| α = 0.389 | 0.2186 % | [0.0764 %, 0.3613 %] |
+| β = 0.5 (generous upper bound) | 0.2810 % | [0.0982 %, 0.4645 %] |
+
+**Under every conversion factor in our own model, L3 is below the 0.4 % bar,
+and its CI includes values four times smaller.** The headline "+0.562 % of
+`cs` — the largest ready-made bit-exact item on the board" is withdrawn.
+
+Sanity check that the corrected number is the physical one: −36.9 µs/step
+against T0b(a)'s **1340.1 µs/step on M4** is a **2.75 %** speedup of the QKV
+family; 2.75 % of its **585.6 µs/step on M5** is 16.1 µs/step, which is
+0.245 % of `cs`. The two routes agree.
+
+**#629 Stage A is still worth running, and its priority is unchanged.** It
+settles the #308-vs-#48 contradiction with a contemporaneous number on the
+current tree, and an unresolved contradiction is an unrun experiment, not a
+null. What changes is only the **graduation arithmetic**: edward must clear
+**≈60 µs/step measured on M4**, and #308's own point estimate does not.
+
+#### 105.4 Prefill does not convert at all
+
+The same instinct would convert an M4 prefill delta with `0.2592 %/ms` (or
+`0.3781 %/ms`). **Do not.** Prefill is 94.3 % nax-divergent and
+`device.cpp:1083-1101` gates `nax_available` on GPU generation ≥ 17, so our
+gen-16 M4s run a different program: tanjiro's R106-F′ Stage 0 measured M4
+prefill speedup **1.1198×** against ranked M5 **1.9834×** — **−43.5 %, does
+not reproduce** — while decode reproduced to **+0.15 %**. There is no prefill
+α. **An M4-measured prefill delta has no M5 score value and may not be quoted
+as one.** The prefill leg of the draw bar ("≈1.06 ms") is therefore
+unreachable from any local measurement we can make, and the draw is a
+decode-only decision in practice.
+
+#### 105.5 Consequences for the endgame, stated plainly
+
+1. **The bar stands at 0.4 % of `cs`.** It is not lowered to rescue a
+   candidate. σ_resubmit is 0.3016 % (rule 101), so a 0.25 % change is under
+   one channel σ.
+2. **One relaxation, and it is principled:** the bar may be met by the **sum**
+   of independently verified, bit-exact, different-family improvements on the
+   integrated tree, each with its own CI excluding zero. Different kernel
+   families are additive in the decode pool by construction; the bar is a
+   statement about the tree, not about any one patch.
+3. **"No draw" is now the modal outcome, not the failure mode.** On present
+   evidence nothing on the board clears 0.4 % alone. Rule 96.2 already makes
+   an unused draw an acceptable terminal state; rule 101 makes it a costless
+   one. Nobody should force a marginal tree through the freeze to avoid it.
+4. **Every open assignment must restate its result in both units** — raw M4
+   µs/step *and* converted %`cs` with the k it used and the α-degeneracy
+   interval. A number in one unit only is not reviewable.
+
+#### 105.6 🚨 ADVISOR ERROR #9 — the generalisable lesson
+
+Errors #7 (not grepping the standing rules for a mechanism word) and #8 (not
+reading a script before quoting its command line) were failures to *read the
+source of a claim*. This one is a failure to *read the units of a claim*. All
+three are the same failure: **carrying a number across a boundary without
+checking that the boundary preserves it.**
+
+The standing fix: **no quantity enters a brief, a bar, or a shelf entry
+without its host tag and its epoch tag.** Write `36.9 µs/step (M4, paired
+ABBA, #308)`, never `36.9 µs/step`. The campaign has a two-host structure at
+its centre and has been writing single-host numbers for a hundred rounds.
+
+#### 105.7 A corollary that makes the protocol non-optional
+
+§9 records the **M4 single-receipt detection bar at ≈80 µs/step**. The bar in
+M4 units is **52–68 µs/step**. So a change that exactly clears the draw bar is
+**below the threshold at which a single M4 receipt can see it at all.**
+
+This is not a counsel of despair — it is a statement about protocol. Paired
+ABBA on `nat` resolves at σ = 6.25–10.65 µs/step (§9), an order of magnitude
+finer. But it means:
+
+- **An unpaired M4 measurement can never establish a bar-clearing win.** Any
+  result offered without a paired design is uninterpretable at this scale,
+  regardless of how large the point estimate looks.
+- **The CI, not the point estimate, is the deliverable.** At these effect
+  sizes replication buys more than ambition: a tightly-bounded 0.15 % is worth
+  more to the integrator than a loosely-bounded 0.5 %, because only the former
+  can be summed under 105.5 with its CI still excluding zero.
+
+Provenance of this sub-rule: the *consequence* ("optimise for CI tightness,
+not effect size") was issued to frieren and alphonse in the 105 broadcast; the
+**quantitative** form above — the bar sitting below the single-receipt
+detection threshold — was derived afterwards from §9 and issued separately to
+the two candidate-producing arms (edward #629, alphonse #644). It was **not**
+sent to tanjiro, fern, or nezuko, whose assignments are census/integration/
+forensics and do not turn on it.
+
+#### 105.8 🪤 The trap inside the fix — do NOT read a per-family `k` off §B.0.6
+
+Having written 105, I immediately tried to improve it and nearly committed
+advisor error #9 a second time, in a new costume. The reasoning was seductive
+enough that a student will try it too, so it is recorded here as a closed door.
+
+**The tempting move.** §B.0.6 carries *measured* M5 times beside M4 times:
+
+| group | M4 µs | "measured" M5 µs | implied ratio |
+|---|---:|---:|---:|
+| routed | 2261.2 | 1010.67 | 0.4470 |
+| qkvo | 3122.4 | 1230.70 | **0.3942** |
+
+The ratio of two measured times looks like it needs no ceiling at all — it
+looks like `k` handed over directly, per family, dissolving the whole α
+degeneracy. The apparent prize was large: the qkvo group **reconciles exactly**
+with B.0.3 (`T0b(a) 1340.1 + T0b(b) 362.8 + T3b 1117.7 + T3c 301.8 = 3122.4`),
+i.e. precisely L3's family and alphonse's, and at `k = 0.3942` L3 re-prices to
+0.2215 % with CI **[0.0774 %, 0.3662 %]** — an upper bound that finally sits
+*below* the bar, which would have let me exclude L3 at 95 % confidence.
+
+**Why it is wrong.** §B.1 states the provenance: those two M5 figures are the
+**receipt differentials** from `research/tanjiro-pr34-result.md:596-604`, and a
+receipt differential is a **marginal**, which rule 76 establishes is a *lower
+bound* on census time. The M4 figures are **censuses**. So the ratio divides a
+lower bound by a full count and is **biased low by an unknown factor** — it is
+not a time ratio at all.
+
+The document already contains the proof that these marginals cannot be taken at
+face value: §B.1 notes the qkvo marginal implies **651.8 GB/s = 106.9 % of
+peak — physically impossible as a rate**. A quantity that implies a
+faster-than-possible rate cannot be used to calibrate anything.
+
+**This is error #9's exact signature**: carrying a number across a boundary
+(marginal → census) without checking the boundary preserves it. The lesson is
+that the standing fix in 105.6 is not sufficient as stated — a host tag and an
+epoch tag would *not* have caught this one. So the fix is extended:
+
+> **Every quantity needs a host tag, an epoch tag, and a *census-or-marginal*
+> tag.** `1010.67 µs (M5, marginal, PR34 receipt differential)` is safe;
+> `1010.67 µs (M5)` is a loaded gun.
+
+**What survives, and it is not nothing.** §B.1's M4 GPU-timer census — where
+the denominators are real — puts T2c routed gate+up at **88.0 %** and T0b QKV
+at **89.7 %** of the 266.3 GB/s M4 peak: **within 1.7 pp**. There is no
+measured per-family rate gap on the host we can actually measure. That is
+affirmative evidence for a **single** bytes-regime α rather than per-family
+α's, and it means the §B.0.6 "9.6 pp efficiency gap" is far more likely an
+artifact of comparing marginals with different reuse discounts than a real
+per-family effect.
+
+**Therefore rule 105 stands exactly as written**: one α for bytes families,
+carried with its degeneracy interval [0.389, 0.4369], and the bar quoted as a
+range **52–68 µs/step on M4**. The degeneracy is about the **M5 ceiling**, it
+is only resolvable by a measurement on M5 that we do not have, and no amount of
+rearranging M4-side data will dissolve it. Quote the interval; do not collapse
+it.
+
+#### 105.9 Broadcast record
+
+Rule 105 was issued to **all six** open assignments on 2026-08-10, at advisor
+commit `8695fb0e`, tailored per arm (family regime, `k`, and the bar restated
+as a fraction of that family's own M4 cost):
+
+| student | PR | bar in M4 µs/step | = fraction of own family | arm-specific consequence |
+|---|---|---:|---:|---|
+| edward | #629 | 60.1 (T2c, bytes) | 4.0 % of 1497.7 | L3 re-priced to 0.25 %, withdrawn as headline, retained as summand |
+| alphonse | #644 | 60.1 (T3b, bytes) | 5.4 % of 1117.7 | own #630 §6 unit error flagged; bank sub-bar clean results |
+| frieren | #597 | 52.5 (T1a, latency) | **16.8 % of 312.8** | hardest ratio on the board; re-aimed at CI tightness, not effect size |
+| tanjiro | #648 | — (census) | — | census promoted: it now sets `k` for everyone; circularity trap named |
+| fern | #625 | 60.1 / 52.5 (mixture) | — | prefill leg declared non-convertible; census re-scoped to a map |
+| nezuko | #616 | — (forensics) | — | reporting-only impact; plus a status check after 6.7 h silence |
+
+Follow-ups issued after the broadcast: **105.7** (detection-bar corollary) to
+edward and alphonse; **105.8** (the §B.0.6 marginal trap and the
+census-or-marginal tag) to tanjiro, whose census is the one assignment that
+works directly in the B.0.3/B.0.6 material and is therefore the one exposed to
+it. The remaining students do not touch that material before the freeze.
+
+#### 105.10 🚨 The second bias in L3 — it is an **argmax over a tied set**, and the campaign has never de-biased an *effect size*
+
+Rule 105.3 fixed L3's **units**. It did not fix its **selection**. Both errors
+push the same way, and the campaign has an established instrument for the
+second one that it has only ever pointed at receipts.
+
+**The observation.** #308 did not measure L3. It swept `S ∈ {2,4,8,16,32}` and
+*reported the winner*: "an **interior argmax at `S = 8`** (−36.9 µs/step vs
+`S=2`, CI [−61.0, −12.9]), with **`{4,8,16}` statistically tied** and `S=32`
+the second-worst point" (`RESEARCH_ARCHIVE_through-round-91.md:1006-1009`).
+`−36.9` is therefore not an estimate of an effect; it is the **maximum of three
+exchangeable estimates**. Its expectation exceeds the common mean.
+
+**The correction.** For `m` tied arms sharing one baseline arm,
+
+> `bias = σ_contrast · √(1 − ρ) · E[max of m iid N(0,1)]`
+
+with `ρ = 0.5` induced by the shared `S=2` leg. From the published CI,
+`σ_contrast = (61.0 − 12.9)/2/1.96 = 12.27 µs/step`; `E[max of 3] = 0.8463`.
+
+> **bias = 7.34 µs/step = 19.9 % of the reported effect.**
+> **de-biased L3 = 29.6 µs/step (M4) = 0.1966 % of `cs`** at α = 0.4369
+> (0.1751 % at α = 0.389).
+
+Sensitivity over `m ∈ {2,3,4,5} × ρ ∈ {0, 0.5}` spans **0.1506–0.2129 %**:
+**every cell of the grid is below rule 105.3's 0.2455 %.** The direction of the
+correction is not in doubt; only its size is. Reproduce with
+`research/advisor_r105_selection_bias.py`.
+
+**Why this is the *third* independent discount on L3**, all recorded and all
+negative: (i) units — rule 105.3, 2.29× over-credit; (ii) selection — this
+rule, 1.25×; (iii) **epoch** — "#308 predates the `_pw1_se1_sd1` inner-loop
+changes so the −36.9 µs may not even replicate", alongside #48's contrary M5
+receipt `285f79fa` measuring an 8× collapse of *this same QKV grid* at
+**−0.1488 % — a loss** (`archive:160-171`). L3 is not a 0.56 % candidate that
+shrank; it is a candidate whose every re-examination has moved it toward zero.
+
+**The operational rule (standing, campaign-wide).**
+
+> An effect size selected as the **argmax of a sweep** may never enter the draw
+> bar at its selected value. It must be **re-measured as a single
+> pre-specified contrast**, and that second number — which carries no
+> selection — is the one that counts.
+
+This costs nothing here: edward's #629 Stage A already re-measures the default
+flip as exactly one contrast (`S=8` vs shipped), so **Stage A's number is
+unbiased and is the number that enters the sum.** What changes is the *prior*:
+expect Stage A to land near **30 µs/step, not 37**, and do not read a shortfall
+against 36.9 as a failure to replicate. Rule 103's `bn` 64→32 is **not**
+affected — it is a desk roofline prediction with its own quoted 0.194–0.301 %
+cell spread, not a sweep argmax.
+
+**What the residual becomes.** Under rule 105.5's sum relaxation, with L3
+de-biased, a second different-family summand must supply **0.2034 %** =
+**30.6 µs/step (bytes) / 26.7 µs/step (latency)** — roughly *half* the
+standalone bar:
+
+| family | arm | need (M4 µs/step) | = % of own M4 cost | standalone bar was |
+|---|---|---:|---:|---:|
+| T2c decode routed gate/up | edward #629 | 30.6 | **2.04 %** | 4.01 % |
+| T3b oproj h64 | alphonse #644 | 30.6 | **2.73 %** | 5.38 % |
+| T2d | — | 30.6 | 3.56 % | 7.00 % |
+| T1a (latency) | frieren #597 | 26.7 | **8.54 %** | 16.80 % |
+| T2b gate_sp (latency) | — | 26.7 | 10.77 % | 21.18 % |
+
+This is the **only** genuinely good news rule 105 has produced, and it is
+conditional: it holds **iff** Stage A replicates L3 in the current epoch. If
+L3 fails to replicate the residual snaps back to the full 60.1 / 52.5.
+
+**And the honest caveat on the sum.** Rule 105.5's bar is a **point-estimate**
+bar. L3's own `σ = 12.27 µs/step = 0.0816 %` of `cs`; a two-summand sum that
+lands exactly on 0.400 % carries 95 % CI **[0.23, 0.57] %** even if the second
+summand is measured to ±5 µs/step. Clearing the summed bar therefore does not
+mean the tree is 0.4 % better — it means the point estimate says so while the
+interval still admits 0.23 %. Quote the interval at the freeze. Combined with
+rule 101.5 (`g = 0.4 %` ⇒ z = 4.10, P ≈ 2.1 × 10⁻⁵), nothing here revives the
+record: the bar decides whether a draw is *worth spending*, never whether it
+*wins*.
+
+#### 105.11 🚨 The price audit — 44 bare-price conversions in this file, and the **dual** of rule 105
+
+Rule 105.6 mandated a host tag on every quantity going forward. It did not
+sweep what is already written. I swept it:
+`research/advisor_r105_price_audit.py` finds every line where a `µs/step`
+figure and a `%` figure stand in the bare-price ratio `0.015228`.
+
+> **44 sites.** Each is an error **iff** its µs/step figure is M4.
+
+**The discriminator, stated operationally.** Every µs/step number in this
+campaign has exactly one of two origins, and the origin decides the arithmetic:
+
+| origin | host | what to do |
+|---|---|---|
+| **receipt-derived** — a difference of `cand_dec` between two official receipts | **M5** | bare price `× 0.015228` is **correct** |
+| **locally measured** — student paired ABBA, in-situ census, §B.0.3's M4 column | **M4** | must go through `k` first: `× k × 0.015228` |
+
+So rule 105's correction is **direction-dependent, and both directions are
+live in this document**:
+
+> **M4 → %cs deflates** by `k` (2.29× bytes, 2.00× latency). This is the L3
+> error.
+> **An M5 target → the M4 units a student will measure it in *inflates* by
+> `1/k`.** This one has never been stated, and it bites the other way.
+
+**The case that forced it: nezuko's #616.** The ≈19.0 µs/step revert residual
+is *receipt*-derived — it is arithmetic on `cand_dec` 4893.712 / 4913.117 /
+4925.255 (§ round-103 table). It is therefore **already M5**, and the bare
+price is right. Two corrections all the same:
+
+- Rule 91 quotes **0.3204 %**, which implies a decode weight of 0.8251. The
+  campaign price implies `w = 0.015228 × 4925.255 / 100 = ` **0.7500 exactly**.
+  At the campaign weight the residual is **0.2893 % of `cs`**, and against the
+  *current* gap (1.6359 %, rule 101 — not the superseded 1.2846 %) it is
+  **17.7 % of the gap, not 25 %**.
+- **Her Stage B measures on M4.** A 19.0 µs/step M5 residual is
+  **19.0 / α = 43.5 µs/step on M4** (bytes) or **19.0 / β = 38.0 µs/step**
+  (latency). If she recovers 19 µs/step locally she has recovered **≈44 % of
+  the residual, not all of it.** Nobody had told her the target in her own
+  units.
+
+**Triage discipline for the remaining sites.** I am not rewriting 44 historical
+lines before the freeze; most are archived or already superseded, and churning
+them risks introducing errors worse than the ones I would fix. Instead:
+
+> ⚠️ **Standing caveat: any `%` figure in this document that was derived from a
+> µs/step quantity is untrustworthy unless the line names its host.** Before
+> any such figure enters a decision, re-derive it and tag it. The script makes
+> this a ten-second check.
+
+Rule 105.6's fix therefore grows a third field. Every quantity now needs
+**host** (M4/M5) · **epoch** (which code) · **census-or-marginal** (105.8) —
+and the host field must record *how* the number was obtained, because
+"receipt-derived" and "locally measured" are what actually determine it.
+
+**Advisor honesty note.** This is the same error as #9, found a second time in
+the same document by a mechanical sweep I could have run the moment I wrote
+105.6 — and did not, because I had already corrected the one site I cared
+about. Fixing the instance is not fixing the class. The sweep is now a script
+so the next person does not have to rediscover it.
+
+#### 105.12 ✅ The **one-sidedness theorem** — a blast-radius bound on advisor error #9, plus the triage-threshold dual
+
+Having classified the 45 audit hits of 105.11, the picture is much better than
+105.11 left it, and the residual danger is somewhere I had not looked.
+
+**Three categories, not two.** 105.11's discriminator was receipt-derived vs
+locally-measured. The audit shows there is a third, and it is the largest:
+
+| # | category | example | bare price correct? |
+|---|---|---|---|
+| a | **receipt-derived M5** — a difference of `cand_dec` between official receipts | L628 18.2 µs; L935/L2673 19.0 µs (nezuko); L1199 31.54 µs; L5343 84.0 µs (the gap); L1402–1404 draw-outcome thresholds | ✅ yes |
+| b | **§B.0.3-M5-column-derived** — an M4 census already multiplied by α or β *before* the price was applied | L1844 227 µs slack; L5958 291.2 µs (rule 100's fiction); L7044 424.35 µs; L7046 280.8 µs above floor; L3833 69.7 µs T2c | ✅ yes — the α is already inside the number |
+| c | **raw local M4 priced bare** — a paired ABBA, an in-situ elasticity, a per-dispatch coefficient | L2674/L6461 36.9 µs (L3 — already fixed by 105.3/105.10); ledger M3's 84 × 0.108 = 9.1 µs; L2989 92.0; L1132/L2221/L2222 43.1 | ❌ **no — over-stated by 1/k** |
+
+Category (b) is why most of the pot/pool language in this file survives rule
+105 untouched: §B.0.3's M5 column *is* M4 × α (rule 105.8), so pricing it bare
+is algebraically identical to pricing the M4 number through α. The pools were
+never the problem. Only category (c) is.
+
+**The one-sidedness theorem.** For every category-(c) site,
+`V_bare = µs_M4 × p` and `V_true = µs_M4 × k × p` with `k ∈ {α = 0.4369,
+β = 0.5}` and therefore `k < 1` always. Hence
+
+> **`V_bare > V_true` unconditionally. Advisor error #9 could only ever inflate
+> a locally-measured effect, never deflate one.**
+
+The corollary is the decision-relevant part, and it is worth more than the
+theorem:
+
+- **Every arm closed for being too small is still closed, a fortiori.** Its
+  true value is smaller than the number we rejected it for. Error #9 cannot
+  have produced a single **false negative**.
+- **Only arms we *kept*, and results we *claimed*, are at risk.** Error #9
+  produces **false positives** exclusively. That is exactly the population
+  105.3 and 105.10 have been working through (L3: 0.562 % → 0.2455 % → 0.1966 %).
+- ⇒ **Do not spend a slot re-auditing the closed list.** With ~15 h to the
+  06:00Z handoff that is the single most tempting and most wasteful thing the
+  campaign could do next.
+
+Worked instance, ledger M3 (eliminate/merge the 84 single-TG dispatches,
+§ the ranked mechanism ledger): closed at "84 × 0.108 = 9.1 µs = 0.138 % of
+`cs`, **3.6× below** the 0.5 % bar". The 0.108 µs/dispatch elasticity is a
+*locally measured M4* coefficient — category (c). Correctly,
+9.072 × β × p = **0.0691 %, 7.2× below the bar.** The verdict does not move;
+it only hardens. That is the theorem in miniature.
+
+**The triage-threshold dual.** 105.11's dual (an M5 target inflates by 1/k when
+expressed in the M4 units a student measures in) applies to *bars*, and the
+file states three of them in M5 µs/step without saying so:
+
+| bar as written | M5 µs/step | **M4 µs/step, bytes (α)** | **M4 µs/step, latency (β)** |
+|---|---|---|---|
+| 0.4 % endgame draw bar (§ rule 105.5) | 26.27 | **60.1** | **52.5** |
+| 0.46 % arm-sizing rule — "under +30 µs/step does not justify a slot" | 30.00 | **68.7** | **60.0** |
+| 0.5 % ranked mechanism ledger | 32.83 | **75.2** | **65.7** |
+| 1.0 % of `cs` | 65.67 | 150.3 | 131.3 |
+
+Applied naively to an M4 estimate, the arm-sizing rule is **too permissive by
+2.29× (bytes) / 2.00× (latency)**: an arm whose M4 best case is 35 µs/step
+looks like it clears "30" but is worth 0.233 %, half the threshold it appears
+to pass. Note the direction — the triage rule has been letting arms *in*, not
+keeping them out, which is consistent with the one-sidedness theorem.
+
+**What this says about the live slate, stated plainly.** Measure the three
+candidate-producing arms against the arm-sizing threshold in their own units:
+
+| arm | best case | threshold in the same units | ratio |
+|---|---|---|---|
+| edward #629, L3 de-biased | 29.6 µs/step M4 (bytes) | 68.7 | **0.43×** |
+| alphonse #644, T3b residual summand | 30.6 µs/step M4 (bytes) | 68.7 | **0.45×** |
+| nezuko #616, revert residual | 19.0 µs/step M5 | 30.0 | **0.63×** |
+
+**No single arm on the remaining slate can clear the draw bar alone.** Every
+one of them is below the campaign's own "does this justify a slot" line. This
+is not a reason to stand them down — rule 105.5's relaxation exists precisely
+for this regime, and a summand arm is justified if it can plausibly deliver
+≥ half the bar *and* a partner exists. But it does fix the expected outcome:
+a draw now requires **two independent, different-family, bit-exact wins, each
+with a CI excluding zero, landing on one integrated tree before 07:00Z**. That
+conjunction is low-probability, and rule 105.5's "no draw is the modal
+outcome, not the failure mode" should be read as the *planning assumption*
+from here, not as a caveat.
+
+#### 105.13 ⭐⭐ The **third regime**: dispatch converts at `k ≈ 1.89`, and the α/β model passes its first direct whole-decode test
+
+Round 107, advisor, from `maple-nezuko`'s R106-B §C.3 (PR #616, commit
+`fad73839`). Arithmetic: `research/advisor_r105_13_third_regime.py`.
+
+**(a) The first *measured* whole-decode `k`, and it validates the model.**
+Rules 105.1–105.12 all rest on `α = 0.4369` / `β = 0.5` being the M4→M5
+factors. Until now nobody had a same-quantity M4 *and* M5 number for decode as
+a whole. nezuko's control campaign supplies the M4 half:
+`mean_step_seconds = 0.008448` ⇒ **`T_M4 = 8448 µs/step`** (n = 6, control sd
+16.35 µs/step). Rule 58 supplies the M5 half: **`T_M5 = 4141.5 µs/step`**.
+
+```text
+k_steady = T_M5 / T_M4 = 4141.5 / 8448 = 0.4902
+```
+
+`α = 0.4369 < 0.4902 < 0.5 = β`. **The host model survives its first direct
+test**, and the blended value sits where a bytes-dominated decode mix should
+put it. Nothing in 105.1–105.12 needs revisiting on this account.
+
+**(b) 🪤 The trap that nearly falsified it — the two reported decode figures
+are not the same functional.** The naive check is
+`4925.255 / 8984.50 = 0.5482`, which is *above* `β` and therefore impossible
+under an α/β model. That comparison is wrong, and the reason is rule 58:
+
+| figure | what it is | seed-prefill denominator |
+|---|---|---|
+| receipt `cand_dec` = 4925.255 µs/step | **M5**, official worker | `S/128` ⇒ `4P = 752.2 µs/step`, **15.4 %** |
+| local `--local-submit` = 8966–8984.5 µs/step | **M4**, student harness | `S/1023` ⇒ ≈ 518–564 µs/step, **5.8 %** |
+
+Different amortisation denominators ⇒ different fixed-term loadings ⇒ **the
+ratio of the two is not `k`**. Only the *steady-state* parts are comparable.
+🚨 **Standing rule: never divide a local `--local-submit` level by a receipt
+level.** For *paired deltas* the fixed term cancels, so 105.2's conversion is
+unaffected — this bites levels, not contrasts.
+
+**(c) ⭐ The third regime.** The rulebook already contains a measured M4/M5
+pair for dispatch cost, and nobody has ever divided them:
+
+```text
+rule 57  M4 per-dispatch glue, saturated marginal : 1.2382 µs  [1.2237, 1.2518]
+rule 65  M5 cost of one added dispatch, marginal  : 2.3403 µs  [2.2766, 2.4040]
+k_dispatch = 2.3403 / 1.2382 = 1.890
+```
+
+**Dispatch is `k ≈ 1.89`, not 0.4369 or 0.5.** M5 dispatch is *more* expensive
+than M4 dispatch — entirely plausible: it is host/driver-resident work that
+does not shrink when you add GPU cores, and the ranked machine has twice as
+many cores to broadcast to.
+
+*Independent corroboration from the census residue.* §B.0.3's M4 column sums to
+**8096.3 µs/step = 95.8 %** of the measured `T_M4`, leaving **351.7 µs/step**
+of non-census M4 decode time; its (derived) M5 column sums to **3650.9 =
+88.2 %** of `T_M5`, leaving **490.6 µs/step**. The implied residue factor is
+**1.395**, and the fit brackets tightly:
+
+| assumed `k_residue` | predicted `T_M5` | error vs 4141.5 |
+|---|---|---|
+| α = 0.4369 | 3804.6 | **−8.14 %** |
+| β = 0.5 | 3826.8 | **−7.60 %** |
+| 1.0 | 4002.6 | −3.35 % |
+| 1.890 (rules 57/65) | 4315.6 | +4.20 % |
+
+The residue — dispatch glue, encoder boundaries, gaps — is bracketed by
+`k ∈ [1.0, 1.89]` and **excludes α and β at ~8 %**. Two independent routes,
+same answer. ⚠️ Tagged **marginal, not census** (rule 105.8): it is a
+difference of two totals, one of which is derived, so treat 1.89 as the point
+estimate and 1.0 as the conservative floor — never quote the residue itself as
+a headroom pool.
+
+**(d) 🚨 The one-sidedness theorem (105.12) has exactly one exception.** The
+theorem was `k < 1 ⇒ bare price over-states ⇒ false positives only`. For the
+dispatch regime `k > 1`, so the bare price **under**-states by 1.89×.
+
+⇒ **Bytes- and latency-family closures stay closed** (105.12 corollary
+intact). ⇒ **Dispatch-count closures priced bare on an M4 number were
+under-valued and are the one population that can hide a false negative.**
+Checked against the live list, none of them moves a verdict: rule 92's
+barrier/encoder/command-buffer family cap of 1.3003 µs/step goes from 0.0198 %
+to 0.0374 %; ledger M3's 84 merged single-TG dispatches go from the corrected
+0.0691 % (β) to **0.2612 %** at `k_dispatch` — still below the 0.4 % bar, but
+now only 1.5× below rather than 7.2×. That is the largest re-pricing the
+theorem's exception produces anywhere in this file, and it is worth one line
+in any successor's triage.
+
+**(e) The triage dual, extended.**
+
+| bar | M5 µs/step | M4 bytes (α) | M4 latency (β) | **M4 dispatch (1.89)** |
+|---|---|---|---|---|
+| 0.40 % draw bar | 26.27 | 60.1 | 52.5 | **13.9** |
+| 0.46 % arm-sizing | 30.21 | 69.1 | 60.4 | **16.0** |
+| 0.50 % ledger | 32.83 | 75.2 | 65.7 | **17.4** |
+| 1.00 % | 65.67 | 150.3 | 131.3 | **34.7** |
+
+Useful headline: **one dispatch removed per step = 0.0356 % of `cs`; one
+per-layer dispatch eliminated across 39 layers = 91.3 M5 µs/step = 1.390 %** —
+3.5× the draw bar. That is the largest single lever class still nominally open,
+and rule 65's "multiply by 40 layers before you get excited" was, if anything,
+under-selling it by a factor of 1.89. ⚠️ It is nominally open only: the
+scheduling family is closed by rule 92 and every split/fusion attempt that
+*added* dispatches (#196, #528, #566) measured null-to-negative. What 105.13
+changes is the **price of a genuine per-layer kernel merge**, not the evidence
+that one exists.
+
+**(f) Worked correction, nezuko R106-B §C.5.** Her table prices M4 local
+paired deltas at the bare M5 price — category (c) of 105.12, textbook:
+
+| arm | Δ M4 µs/step | as written (bare) | correct (β) | correct (α) |
+|---|---|---|---|---|
+| H (H4) | +35.959 | +0.5476 % | **+0.2738 %** | +0.2392 % |
+| K (PACKRED) | +22.145 | +0.3372 % | **+0.1686 %** | +0.1473 % |
+| P (NOREDUCE) | +16.276 | +0.2479 % | **+0.1239 %** | +0.1083 % |
+| P lower bound | −0.395 | −0.0060 % | **−0.0030 %** | −0.0026 % |
+
+Her level statement "the sliding kernel is 670 µs/step, i.e. **10.2 %** of
+`cs`" is likewise bare; correctly **5.10 % (β) / 4.46 % (α)**. Every
+correction shrinks the number, her verdict is a *closure*, and closures only
+harden when the effect shrinks — the one-sidedness theorem doing its job. Her
+**N-RECOVER / DO NOT SEND verdict stands unchanged and strengthened.**
+
+
+#### 105.14 🚨 ADVISOR ERROR #10 — the **editable byte budget**, and why a green branch says nothing about the integrated tree
+
+**The error.** Merging nezuko's #616 I checked *base drift*
+(`base_old..base_new -- Sources …`) but never diffed **PR HEAD vs base over
+`editablePaths`**. Her verdict "zero source bytes adopted" was true about
+*semantics* — every arm was env-gated OFF — but her branch carried **26,000 B**
+of scaffolding (`DARKBLOOM_FUSED_SLIDING_ATTN_H4`, `_PACKRED`, `_NOREDUCE` and
+their macro plumbing) in `Sources/MLXFastModel/LagunaRuntimeModel.swift`. The
+squash merge put all of it on the integration tree. Reverted in `fc66172b`
+(file restored to blob `9af980d9`, 384,245 B).
+
+**The gate.** `senpai/check-editable-budget.sh BASE_SHA` (generator
+`research/advisor_r105_14_editable_byte_budget.py`) enforces three limits over
+the 97 `editablePaths` entries → 142 files:
+
+| limit | value |
+|---|---|
+| `MAX_TOTAL_BYTES` | 3,000,000 |
+| **`MAX_FILE_BYTES`** | **524,288 — per-file HARD ABORT** |
+| `MAX_GROWTH_BYTES` | 262,144 |
+
+Census at tip vs trusted main `1bc1c895…`: total **2,681,206** (headroom
+**318,794**), growth **−302,643**, 142 files. Fern reached **319,792 B** of
+headroom independently, from the other side, in her §6.6.1 — two censuses
+agreeing to 0.3 % is why the revert could be declared complete.
+
+**The binding constraint is the per-file cap, not the total.**
+`LagunaRuntimeModel.swift` is **384,245 B = 73.3 %** of its 524,288 B ceiling
+with **140,043 B** left. Every other editable file is under 16 % full. All five
+live arms edit that one file; 5 × 26,000 = 130,000 B against 140,043 B of
+headroom — it fits with 10 KB to spare, and only if nobody is careless.
+
+**Five rulings.**
+
+1. The **per-file** cap, not the total, is what aborts a draw.
+2. **A green check on one branch says nothing about the integrated tree.** Byte
+   budgets compose; correctness verdicts do not.
+3. **Env-gated scaffolding is not free.** Delete it from `Sources/` in the same
+   commit that reports a negative; keep the reproduction in `research/`, which
+   is outside `editablePaths` and therefore costs nothing.
+4. The advisor must diff **PR HEAD vs base over `editablePaths`** before every
+   merge — not base drift, which is a different question with a different
+   answer.
+5. Given nezuko's E.3 (CI's surface gate is a *content* rule against trusted
+   main and rejects any branch carrying `research/` changes), the draw branch
+   must be **Sources-only**, and the integrator must re-run **both** gates —
+   surface and budget — on the exact submitted tree.
+
+#### 105.15 ⭐⭐ The **correctness instrument does not measure what the campaign has been claiming** — `max_abs_diff` is a literal, `golden_hash` is the input digest
+
+Found and self-retracted by **maple-fern** in R106-J §4.1; verified at source by
+the advisor before propagation. This costs the campaign a word it has been using
+for twenty rounds.
+
+**(a) `max_abs_diff` is never computed.** It is a hard-coded `0` at every emit
+site: `Sources/MLXFastHarness/LagunaRuntimeBenchmark.swift:1079,1159`,
+`Sources/MLXFastHarness/LagunaRuntimeLocalIterate.swift:1038`, the mirrored
+trusted-harness sites at `LagunaRuntimeBenchmark.swift:1095,1175` and
+`LagunaRuntimeLocalIterate.swift:1050`, plus the `Score.swift:635` default. It
+is a **schema field carrying a constant**, not a measurement. **Never cite it.**
+
+**(b) `golden_hash` identifies the fixture, not the agreement.** It is
+`golden.sha256` at thirteen sites in
+`Sources/MLXFastTrustedHarness/LagunaRuntimeCorrectness.swift` — the digest of
+the *loaded golden fixture*. Two runs sharing a `golden_hash` read the same
+input file. It says nothing whatever about whether their outputs matched.
+
+**(c) But the gate itself is real, and the advisor is narrowing fern's
+retraction rather than accepting it whole.** `Sources/MLXFastCore/Golden.swift`
+compares **exact token-ID equality** — `if expectedToken != actualToken` at
+`:387` and `:535`, with **no tolerance anywhere in the comparison path**. That
+is what drives `passed_correctness`, `checked_steps` and `first_failing_step`.
+A green 130-step run *is* genuine evidence — of **token-identity on one
+fixture**.
+
+**(d) The word that has to change.** In this campaign:
+
+> **"bit-exact" has meant, and has only ever been evidenced as, "token-identical
+> on the local golden fixture."**
+
+Those are different claims. Any change that reorders floating-point
+accumulation — cross-lane reduction packing, split-K, tile regrouping, unroll
+depth, threadgroup repartitioning — is **not numerically bit-exact** merely
+because it ran green. Standing corrections:
+
+- nezuko's #616 "PACKRED and H4 are bit-exact" downgrades to **token-identical
+  over the checked steps**. Her verdict (N-RECOVER / DO NOT SEND) is unaffected,
+  because it never leaned on the stronger claim.
+- The §14 quantization precedent recorded at the end of this document explicitly
+  leans on "`max_abs_diff 0`". **That justification is void.** The policy there
+  (do not unilaterally revert; put it to the human team) is unchanged, but the
+  evidential basis stated for it must be read as token-identity on one fixture.
+
+**(e) Rule 102 is strengthened, not satisfied.** A green run is *weaker*
+evidence than the campaign assumed, so the margin-certificate requirement for
+non-bit-exact components becomes more load-bearing, not less. Token-identity on
+one fixture is a **behavioural** guarantee at one operating point; the official
+host runs a different fixture on different hardware, and a top-1 margin that is
+narrow locally can flip there. The draw-bar condition "bit-exact **or** margin
+certificate" therefore now reads: **either the transformation provably does not
+change the arithmetic (source-level argument — identical accumulation order),
+or it carries a margin certificate. A green harness run satisfies neither.**
+
+**(f) The generalisable lesson, which is 93.4's lesson again.** Rule 89.1
+grouped receipts on a key the platform regenerates per submission, so the test
+had zero power and returned a confident "no". Here the campaign read agreement
+off a field that is a compile-time constant and a digest of the *input*. **Both
+failures are the same failure: an instrument whose key does not mean what the
+analysis assumes it means.** The check is cheap and nobody had run it — `grep`
+the emit site and see whether the number is ever assigned from a computation.
+Do this for every field before it becomes load-bearing.
+
+
+
 ## 9. σ table (rule 40 — pick your estimator, then quote its floor)
 
 🚨 **SUPERSESSION (rule 101, round 107).** The score-channel entries below are
@@ -6587,9 +7428,12 @@ deliverable, and a clean `N-ISSUE-BOUND` closes a 4.28 % pool by measurement.**
 - `mlxfast sync -f` does a **hard checkout** — never run it on a working branch.
 - A `rejected` receipt ≠ a gate failure. Read `rejectionReason` and `error`
   separately from ranking status.
-- Every official submission uses `mlxfast submit --model "senpai"`; the note
-  body is the discriminator and must carry `Maple campaign`, student,
-  assignment id, revision id, arm letter, and the exact commit SHA.
+- ⚠️ **CORRECTED (rule 104.2).** Official submissions go through
+  `senpai/submit-official.sh`, which **refuses any `--model` argument** and
+  injects `--model senpai` itself. Never type `--model` on the command line —
+  it is `exit 2` before anything is sent. The note body is the discriminator
+  and must carry `Maple campaign`, student, assignment id, revision id, arm
+  letter, and the exact commit SHA. See §1163-1171 and rule 104.2.
 - Preserved branches (fetch, do not delete): `maple-fern/fused-norm-qkv-gate`
   `f4c86e44`, `maple-fern/router-top8-fusion` `e92d09eb`,
   `maple-frieren/shared-scale-halving` `d1cd8e91`.
@@ -6608,3 +7452,8 @@ deliverable, and a clean `N-ISSUE-BOUND` closes a 4.28 % pool by measurement.**
   put it to the human team as a written question if a `human_issue` arrives.
   Meanwhile every new quantization-adjacent assignment must be lossless by
   construction rather than leaning on this precedent.
+  🚨 **Amended by rule 105.15:** the `max_abs_diff 0` cited above is a
+  **hard-coded literal**, not a measurement. The evidential basis for this entry
+  is therefore token-identity on one golden fixture, not numerical agreement.
+  The policy (do not unilaterally revert; escalate in writing) is unchanged; the
+  justification stated for it is void.

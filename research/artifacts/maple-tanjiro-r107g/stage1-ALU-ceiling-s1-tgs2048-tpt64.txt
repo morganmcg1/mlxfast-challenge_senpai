@@ -1,0 +1,21 @@
+=== device ===
+name                  Apple M4 Pro
+architecture          applegpu_g16s
+threadgroups           2048
+threads/threadgroup    64
+threads total          131072
+maxTotalThreadsPerTG   1024
+threadExecutionWidth   32
+staticTGMemory         0
+
+=== sustained fp32 fma issue ceiling (best-of-15 rounds x 50 dispatches) ===
+  trips   fma/thread        us      fma_per_dispatch        fma_per_s   fma/thread/us
+    256         2048    82.725            268435456     3.2449e+12        24.75672
+    512         4096   161.357            536870912     3.3272e+12        25.38463
+   1024         8192   317.808           1073741824     3.3786e+12        25.77661
+   2048        16384   629.462           2147483648     3.4116e+12        26.02859
+
+marginal us per fma-per-thread   0.038043721
+==> MEASURED fma issue ceiling   3.4453e+12 fma/s   (6.891 TFLOP/s fp32)
+advisor quoted ceiling           4.0400e+12 fma/s  -> measured/quoted = 0.853
+implied clock at 20x128 lanes    1.346 GHz

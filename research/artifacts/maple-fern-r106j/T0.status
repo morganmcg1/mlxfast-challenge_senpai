@@ -1,0 +1,9 @@
+label=T0
+head=5772c9d85a9fa32c708d0933038a374ce59b840f
+dirty=1
+started_utc=2026-08-10T10:53:11Z
+finished_utc=2026-08-10T10:57:23Z
+wall_seconds=252
+rc=0
+sha256 5cdfa7a1632001117deacbeed599439e5c8f84106cfc53a43bd9806e01a24199 bytes 49185640 .build-worker/arm64-apple-macosx/release/mlxfast-runtime-worker
+sha256 8e8b18afaee1ed5a0190403f79a4cc74b9bebcb52b50c4b67d0ed91dc73097ec bytes 158502072 .build-worker/arm64-apple-macosx/release/mlx.metallib

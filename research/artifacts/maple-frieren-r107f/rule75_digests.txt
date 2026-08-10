@@ -1,0 +1,10 @@
+R107F_RULE75_UTC=2026-08-10T14:46:03Z
+R107F_HEAD=a2cfa6ef704b102b6ccef994eb5cbee17a55ab95
+R107F_ADVISOR_TIP=2454cc01ea3afabac067f0a271e36901fea7d21c
+DIGEST 80b67aa047e1e82a3fa9bd96397e38d184c221bb5fba2825259cd8dc037d6b7a bytes=49210600 mtime=2026-08-10T13:51:12Z path=.build-worker/release/mlxfast-runtime-worker
+DIGEST 8e8b18afaee1ed5a0190403f79a4cc74b9bebcb52b50c4b67d0ed91dc73097ec bytes=158502072 mtime=2026-08-10T12:05:20Z path=.build-worker/arm64-apple-macosx/release/mlx.metallib
+DIGEST 8e8b18afaee1ed5a0190403f79a4cc74b9bebcb52b50c4b67d0ed91dc73097ec bytes=158502072 mtime=2026-08-10T12:05:19Z path=.build-worker/mlx-metal/mlx/backend/metal/kernels/mlx.metallib
+DIGEST 8226803259cb7544f10bbc2c63db996ad0d136fa182f91abae6349d74aaefbd2 bytes=152824 mtime=2026-08-10T14:44:14Z path=/tmp/r107f_probe
+PROBE_SRC_SHA256=9aea7e6193ccc4513a18c29798ce358cd71b2f69607eff1cbc330f0a84afd015
+RUNNER_SHA256=1abbb3d974684cbaa6c9e6ff8f4c93a3a09ff6337c5a650acb8b8c29bac4b37c
+ANCHOR_BUILD_NOTE=worker built with research/nezuko-pr158-gpuprof-hook.patch applied to Sources/ so GPUPROF/GPUPSO lines are emitted; Sources/ restored afterwards, git diff --numstat 2454cc01 HEAD -- Sources/ Vendor/ benchmark.json is empty

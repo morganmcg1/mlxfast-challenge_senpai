@@ -1,0 +1,56 @@
+{
+  "_comment": "R106-E / Rule 95.7 fixed-tree draw ladder. One row per fired leg. cs and f are recomputed from the published raw legs, never copied from a summary.",
+  "record": 2.61650354381456,
+  "family_tree": "4b0e051bf3cd9777bd6d2be64e172c490705f9a5",
+  "family_cs": 2.590559,
+  "base_sha": "1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7",
+  "draws": [
+    {
+      "draw": 1,
+      "marker": "R106E-DRAW-01",
+      "commit": "8db6ffaf1c67f6044711c2aa198ec3b3922553fd",
+      "submission": "2771067f-54b4-4e73-aa4f-f2b01d322c02",
+      "fired_utc": "2026-08-10T08:54:49Z",
+      "status": "rejected",
+      "on_family_tree": false,
+      "adjudication": "NOT a 4b0e051b replay: 32 files differ under editablePaths (LagunaRuntimeLayers.swift -2597, LagunaRuntimeModel.swift 4330/1657, AffineMetadataCoding.swift +438, TiedHeadMetadataCoding.swift +401). Sat on the main-like family. The -3.09 sigma decode reading is fully explained by the tree swap; sec 93.4(f) confirmed live.",
+      "official_score": 2.5938073513119,
+      "cs": 2.574073,
+      "f_pct": 0.7637,
+      "baseline_decode_us_step": 13869.2998,
+      "baseline_prefill_us_tok": 382.8416,
+      "cand_decode_us_step": 4931.3688,
+      "cand_prefill_us_tok": 188.1609,
+      "submission_commit_sha_reported": "dbd0b684c9abb9052720269250ff504ca2e421e9"
+    },
+    {
+      "draw": 2,
+      "marker": "senpai-r106e-replay-02",
+      "commit": "3394aa09",
+      "submission": "59d24187-efc1-4730-af55-9c2244bcea59",
+      "fired_utc": "2026-08-10T10:42:40Z",
+      "terminal_utc": "2026-08-10T11:04:43Z",
+      "status": "rejected",
+      "official_score": 2.58107301539733,
+      "submission_commit_sha_reported": "091dd04a825f39328b30980025474b71c677e5a9",
+      "f_pct_approx": -0.3670,
+      "note": "First true 4b0e051b replay. f = ln(O/cs) with cs = 2.590559 gives -0.367 %, i.e. a -0.68 sigma session draw at sigma_f = 0.5369 %. Exact cs/f are recomputed from the published raw legs by maple-frieren-r107-harvest.py; the value here is the closed-form check against the fixed family cs.",
+      "on_family_tree": true,
+      "surface_files": 141,
+      "surface_bytes": 2895417,
+      "surface_sha256": "06b6818ffb111b655d0375736cef59db91376a86d636f74022c8a9124ceddbd1"
+    },
+    {
+      "draw": 3,
+      "marker": "senpai-r106e-replay-03",
+      "commit": "79320685",
+      "submission": "2397aee7-8376-4308-b013-f028b74a13e9",
+      "fired_utc": "2026-08-10T10:51:00Z",
+      "status": "in_flight",
+      "on_family_tree": true,
+      "surface_files": 141,
+      "surface_bytes": 2895417,
+      "surface_sha256": "89609962b369c44d0aa6f02408554c94877d6479b7351c164833c7a6f82390fa"
+    }
+  ]
+}

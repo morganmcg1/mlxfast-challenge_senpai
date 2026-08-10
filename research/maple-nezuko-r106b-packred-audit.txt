@@ -1,0 +1,43 @@
+=== rows: 24  (C=6, H=6, K=6, P=6)
+
+--- control replicates (tests the C.3 fixed-term noise model) ---
+C values us/step: 8975.5 9006.4 8984.4 9001.8 8973.1 8965.9
+C mean 8984.50  sd 16.35 us/step  (range 40.5)  n=6
+C.3 predicted sd ~7.5 us/step; triage sd at N=128 was 60.0 us/step
+
+--- preregistered primary: paired vs same-block control ---
+arm  n dof     delta_us      sd      95%% CI            %% of cs
+H    6   5    +35.959   24.893  [  +9.831,  +62.087]  +0.5476
+     per-block deltas: +69.7 +0.6 +27.7 +22.8 +37.5 +57.5
+K    6   5    +22.145   28.405  [  -7.669,  +51.958]  +0.3372
+     per-block deltas: +48.7 +2.6 +0.7 -9.5 +59.9 +30.4
+P    6   5    +16.276   15.883  [  -0.395,  +32.947]  +0.2479
+     per-block deltas: +15.6 +6.8 +15.1 -7.3 +36.0 +31.3
+
+--- within-block position effect, estimated from candidate runs only ---
+(arm and position are orthogonal here: each arm appears twice at each of positions 2, 3, 4)
+position 2: n=6 mean 9012.38 us/step  arms HHKKPP
+position 3: n=6 mean 9006.33 us/step  arms HHKKPP
+position 4: n=6 mean 9009.17 us/step  arms HHKKPP
+linear position slope -1.608 us/step per position 95% CI [-10.836, +7.620]  (dof 14)
+if that slope is real, a control measured at position 1 sits +3.22 us/step below the mean candidate position (3), i.e. every paired delta above is inflated by about that much
+
+--- secondary, NOT preregistered: block + linear position + arm ---
+residual sd 16.175 us/step on 14 dof
+pos_slope     -1.608  95% CI [ -11.624,   +8.408]
+arm_H        +39.174  95% CI [ +10.845,  +67.503]
+arm_K        +25.360  95% CI [  -2.969,  +53.689]
+arm_P        +19.492  95% CI [  -8.837,  +47.821]
+
+--- position-balanced candidate contrasts (no control involved) ---
+H - K: n=6   +13.814  sd 21.497  95% CI [  -8.749,  +36.377]  positions 223344 vs 223344
+H - P: n=6   +19.682  sd 21.851  95% CI [  -3.252,  +42.617]  positions 223344 vs 223344
+K - P: n=6    +5.869  sd 18.353  95% CI [ -13.395,  +25.132]  positions 223344 vs 223344
+
+--- achieved resolution of the preregistered design ---
+arm H: 95% CI half-width 26.13 us/step = 0.3979 % of cs; smallest effect this campaign could have called nonzero
+      to resolve the 19.405 us/step Stage 0 residual at this arm's own scatter would need n ~ 10.9 pairs
+arm K: 95% CI half-width 29.81 us/step = 0.4540 % of cs; smallest effect this campaign could have called nonzero
+      to resolve the 19.405 us/step Stage 0 residual at this arm's own scatter would need n ~ 14.2 pairs
+arm P: 95% CI half-width 16.67 us/step = 0.2539 % of cs; smallest effect this campaign could have called nonzero
+      to resolve the 19.405 us/step Stage 0 residual at this arm's own scatter would need n ~ 4.4 pairs

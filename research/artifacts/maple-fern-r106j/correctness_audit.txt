@@ -1,0 +1,62 @@
+ALL sweep runs: 42 run(s), 2 distinct correctness signature(s)
+  n=21
+    passed              = True
+    passed_correctness  = True
+    checked_steps       = 130
+    case_count          = 1
+    first_failing_case  = None
+    first_failing_step  = None
+    error               = ''
+    golden_hash         = 'b9509697c08a2cf3'
+    max_abs_diff        = 0
+    harness_hash        = '5cfe4988ee50e923'
+  n=21
+    passed              = True
+    passed_correctness  = True
+    checked_steps       = 130
+    case_count          = 1
+    first_failing_case  = None
+    first_failing_step  = None
+    error               = ''
+    golden_hash         = 'b9509697c08a2cf3'
+    max_abs_diff        = 0
+    harness_hash        = '9603cbabf3db6689'
+
+T0 arm: 21 run(s), 1 distinct correctness signature(s)
+  n=21
+    passed              = True
+    passed_correctness  = True
+    checked_steps       = 130
+    case_count          = 1
+    first_failing_case  = None
+    first_failing_step  = None
+    error               = ''
+    golden_hash         = 'b9509697c08a2cf3'
+    max_abs_diff        = 0
+    harness_hash        = '5cfe4988ee50e923'
+
+T0P arm: 21 run(s), 1 distinct correctness signature(s)
+  n=21
+    passed              = True
+    passed_correctness  = True
+    checked_steps       = 130
+    case_count          = 1
+    first_failing_case  = None
+    first_failing_step  = None
+    error               = ''
+    golden_hash         = 'b9509697c08a2cf3'
+    max_abs_diff        = 0
+    harness_hash        = '9603cbabf3db6689'
+
+final_head: 1 run(s), 1 distinct correctness signature(s)
+  n=1
+    passed              = True
+    passed_correctness  = True
+    checked_steps       = 130
+    case_count          = 1
+    first_failing_case  = None
+    first_failing_step  = None
+    error               = ''
+    golden_hash         = 'b9509697c08a2cf3'
+    max_abs_diff        = 0
+    harness_hash        = '5cfe4988ee50e923'

@@ -1,0 +1,176 @@
+
+====================================================================================================
+R107-F Stage 1: T2D down-residual amortisation adjudication
+====================================================================================================
+run1: device=Apple M4 Pro revision=2 rounds=61/6 focus=201/10 unique_bytes_per_call=5030912
+run2: device=Apple M4 Pro revision=2 rounds=61/6 focus=201/10 unique_bytes_per_call=5030912
+price book: 1 us/call = 0.593892 % of cs; ship bar 0.4 % of cs = 0.6735 us/call
+
+====================================================================================================
+V0 twin-fidelity gate (split cold a0 vs clean in-situ 22.07 us/call)
+====================================================================================================
+run1_focus       22.719 us/call  rel  +2.94 %  within_2pct=False  conservative=True
+run1_grid        22.716 us/call  rel  +2.93 %  within_2pct=False  conservative=True
+run2_focus       22.740 us/call  rel  +3.04 %  within_2pct=False  conservative=True
+run2_grid        22.660 us/call  rel  +2.67 %  within_2pct=False  conservative=True
+
+====================================================================================================
+PRIMARY: focus split cold calls=39 (n=201, round-paired vs a0)
+====================================================================================================
+           arm  run1 us/call  run2 us/call    run1 delta    run2 delta  mean %cs  x bar  meaning
+-------------------------------------------------------------------------------------------------------------------------------
+            a0        22.719        22.740           n/a           n/a       n/a    n/a  shipped geometry twin (opsi 4, 288 thr/TG, 512 TG/call)
+       a0_act0        22.261        22.294        -0.424        -0.457   -0.2617   0.65  all activation loads -> compile-time constants (upper bound)
+       a0_wide        22.715        22.759         0.003        -0.001    0.0006  -0.00  WAL: 2x uint4 wide activation loads (12 -> 10 loads/lane)
+            a1        23.774        23.743         1.040         0.984    0.6009  -1.50  opsi 4 -> 8 (A1: issued bytes -23.5 %, unique bytes 0 %)
+            a2        22.702        22.721        -0.026        -0.029   -0.0162   0.04  negative control: 576 thr/TG, same loads/lane
+
+====================================================================================================
+GRID: grid calls=39 split cold (n=61, round-paired vs same-mode a0)
+====================================================================================================
+           arm  run1 us/call  run2 us/call    run1 delta    run2 delta  mean %cs  x bar  meaning
+-------------------------------------------------------------------------------------------------------------------------------
+            a0        22.716        22.660           n/a           n/a       n/a    n/a  shipped geometry twin (opsi 4, 288 thr/TG, 512 TG/call)
+       a0_act2        22.556        22.606        -0.184        -0.056   -0.0711   0.18  activation loads 4 -> 2
+       a0_act1        22.545        22.564        -0.150        -0.098   -0.0736   0.18  activation loads 4 -> 1
+       a0_act0        22.186        22.212        -0.536        -0.478   -0.3011   0.75  all activation loads -> compile-time constants (upper bound)
+       a0_wide        22.593        22.644        -0.152        -0.073   -0.0666   0.17  WAL: 2x uint4 wide activation loads (12 -> 10 loads/lane)
+    a0_badcoal        22.593        22.563        -0.152        -0.099   -0.0746   0.19  deliberately de-coalesced code loads (line touches +54.5 %)
+            a1        23.578        23.596         0.901         0.971    0.5558  -1.39  opsi 4 -> 8 (A1: issued bytes -23.5 %, unique bytes 0 %)
+       a1_wide        23.536        23.603         0.928         0.921    0.5492  -1.37  A1 + WAL
+            a2        22.574        22.488        -0.217        -0.233   -0.1336   0.33  negative control: 576 thr/TG, same loads/lane
+            a3        24.006        24.079         1.240         1.321    0.7604  -1.90  opsi 4 -> 16
+        a0_min        22.256        22.265        -0.516        -0.413   -0.2760   0.69  arithmetic stripped to a single simd_sum
+   a0_act0_min        22.109        22.178        -0.618        -0.502   -0.3325   0.83  activation loads AND arithmetic both stripped
+
+====================================================================================================
+GRID: grid calls=39 split resident (n=61, round-paired vs same-mode a0)
+====================================================================================================
+           arm  run1 us/call  run2 us/call    run1 delta    run2 delta  mean %cs  x bar  meaning
+-------------------------------------------------------------------------------------------------------------------------------
+            a0        16.673        16.661           n/a           n/a       n/a    n/a  shipped geometry twin (opsi 4, 288 thr/TG, 512 TG/call)
+       a0_act2        16.660        16.619        -0.048        -0.015   -0.0187   0.05  activation loads 4 -> 2
+       a0_act1        16.790        16.396        -0.069        -0.181   -0.0742   0.19  activation loads 4 -> 1
+       a0_act0        15.292        15.099        -1.469        -1.545   -0.8950   2.24  all activation loads -> compile-time constants (upper bound)
+       a0_wide        16.604        16.739        -0.098         0.043   -0.0165   0.04  WAL: 2x uint4 wide activation loads (12 -> 10 loads/lane)
+    a0_badcoal        16.635        16.821        -0.118         0.084   -0.0098   0.02  deliberately de-coalesced code loads (line touches +54.5 %)
+            a1        15.226        15.131        -1.569        -1.474   -0.9038   2.26  opsi 4 -> 8 (A1: issued bytes -23.5 %, unique bytes 0 %)
+       a1_wide        15.069        14.963        -1.642        -1.808   -1.0244   2.56  A1 + WAL
+            a2        14.917        15.019        -1.893        -1.692   -1.0647   2.66  negative control: 576 thr/TG, same loads/lane
+            a3        15.626        15.535        -1.071        -1.126   -0.6523   1.63  opsi 4 -> 16
+        a0_min        15.896        15.909        -0.876        -0.761   -0.4860   1.22  arithmetic stripped to a single simd_sum
+   a0_act0_min        15.788        15.519        -1.085        -0.978   -0.6126   1.53  activation loads AND arithmetic both stripped
+
+====================================================================================================
+GRID: grid calls=39 fused cold (n=61, round-paired vs same-mode a0)
+====================================================================================================
+           arm  run1 us/call  run2 us/call    run1 delta    run2 delta  mean %cs  x bar  meaning
+-------------------------------------------------------------------------------------------------------------------------------
+            a0        19.043        18.986           n/a           n/a       n/a    n/a  shipped geometry twin (opsi 4, 288 thr/TG, 512 TG/call)
+       a0_act2        19.072        19.051         0.037         0.053    0.0270  -0.07  activation loads 4 -> 2
+       a0_act1        19.122        19.099         0.088         0.105    0.0571  -0.14  activation loads 4 -> 1
+       a0_act0        19.115        19.064         0.073         0.074    0.0435  -0.11  all activation loads -> compile-time constants (upper bound)
+       a0_wide        19.071        19.032         0.029         0.043    0.0213  -0.05  WAL: 2x uint4 wide activation loads (12 -> 10 loads/lane)
+    a0_badcoal        19.035        18.965        -0.002        -0.015   -0.0051   0.01  deliberately de-coalesced code loads (line touches +54.5 %)
+            a1        19.054        19.056         0.018         0.059    0.0228  -0.06  opsi 4 -> 8 (A1: issued bytes -23.5 %, unique bytes 0 %)
+       a1_wide        19.112        19.118         0.067         0.110    0.0527  -0.13  A1 + WAL
+            a2        18.976        18.971        -0.063        -0.021   -0.0251   0.06  negative control: 576 thr/TG, same loads/lane
+            a3        19.327        19.337         0.292         0.327    0.1837  -0.46  opsi 4 -> 16
+        a0_min        19.093        19.050         0.058         0.067    0.0371  -0.09  arithmetic stripped to a single simd_sum
+   a0_act0_min        19.111        19.054         0.074         0.068    0.0422  -0.11  activation loads AND arithmetic both stripped
+
+====================================================================================================
+GRID: grid calls=39 fused resident (n=61, round-paired vs same-mode a0)
+====================================================================================================
+           arm  run1 us/call  run2 us/call    run1 delta    run2 delta  mean %cs  x bar  meaning
+-------------------------------------------------------------------------------------------------------------------------------
+            a0         9.267         9.266           n/a           n/a       n/a    n/a  shipped geometry twin (opsi 4, 288 thr/TG, 512 TG/call)
+       a0_act2         9.282         9.282         0.021         0.021    0.0127  -0.03  activation loads 4 -> 2
+       a0_act1         8.926         8.926        -0.337        -0.337   -0.1999   0.50  activation loads 4 -> 1
+       a0_act0         8.379         8.378        -0.881        -0.879   -0.5228   1.31  all activation loads -> compile-time constants (upper bound)
+       a0_wide         9.147         9.154        -0.100        -0.101   -0.0600   0.15  WAL: 2x uint4 wide activation loads (12 -> 10 loads/lane)
+    a0_badcoal         8.938         8.939        -0.324        -0.326   -0.1929   0.48  deliberately de-coalesced code loads (line touches +54.5 %)
+            a1         8.080         8.084        -1.188        -1.190   -0.7062   1.77  opsi 4 -> 8 (A1: issued bytes -23.5 %, unique bytes 0 %)
+       a1_wide         8.083         8.079        -1.184        -1.184   -0.7030   1.76  A1 + WAL
+            a2         9.300         9.303         0.045         0.048    0.0276  -0.07  negative control: 576 thr/TG, same loads/lane
+            a3         7.631         7.628        -1.658        -1.657   -0.9844   2.46  opsi 4 -> 16
+        a0_min         5.417         5.413        -3.847        -3.850   -2.2858   5.71  arithmetic stripped to a single simd_sum
+   a0_act0_min         4.777         4.776        -4.483        -4.456   -2.6544   6.64  activation loads AND arithmetic both stripped
+
+====================================================================================================
+Call sweep (cold, a0 split vs fused; a1 split penalty)
+====================================================================================================
+-- run1
+ calls  split us/call  fused us/call  a1 split delta
+     1         15.000         15.208           7.958
+     4         19.865         14.885           0.469
+    16         22.227         19.047           0.938
+    64         22.598         19.066           1.051
+-- run2
+ calls  split us/call  fused us/call  a1 split delta
+     1         14.917         20.792           5.375
+     4         19.781         18.344           0.354
+    16         22.188         19.094           0.789
+    64         22.633         19.039           1.131
+
+====================================================================================================
+Encoder-serialisation probe (exploratory; a0 cold, 39 calls)
+====================================================================================================
+run2 serial               22.611 us/call   empty  6.606 us/dispatch
+run2 concurrent           19.530 us/call   empty  6.297 us/dispatch
+run2 concurrentBarrier    23.324 us/call   empty  6.490 us/dispatch
+
+barrier drain = 3.081 us/call = 120.2 us/step = 1.830 % of cs (irreducible here: the 39 calls are genuinely data-dependent)
+
+====================================================================================================
+Machine ceilings
+====================================================================================================
+run1 stream   64 MiB   263.30 GB/s
+run1 stream  256 MiB   260.94 GB/s
+run1 issue  threads= 147456 iters= 16    448.2 Gload/s
+run1 issue  threads= 147456 iters= 64    588.8 Gload/s
+run1 issue  threads= 589824 iters= 16    529.2 Gload/s
+run1 issue  threads= 589824 iters= 64    632.2 Gload/s
+run1 empty  tg= 128 dispatches=   1   2.750 us/dispatch
+run1 empty  tg= 128 dispatches=  39   1.863 us/dispatch
+run1 empty  tg= 128 dispatches= 156   1.846 us/dispatch
+run1 empty  tg= 256 dispatches=   1   4.250 us/dispatch
+run1 empty  tg= 256 dispatches=  39   3.322 us/dispatch
+run1 empty  tg= 256 dispatches= 156   3.306 us/dispatch
+run1 empty  tg= 512 dispatches=   1   7.125 us/dispatch
+run1 empty  tg= 512 dispatches=  39   6.911 us/dispatch
+run1 empty  tg= 512 dispatches= 156   6.870 us/dispatch
+run2 stream   64 MiB   263.17 GB/s
+run2 stream  256 MiB   260.21 GB/s
+run2 issue  threads= 147456 iters= 16    449.4 Gload/s
+run2 issue  threads= 147456 iters= 64    589.8 Gload/s
+run2 issue  threads= 589824 iters= 16    528.0 Gload/s
+run2 issue  threads= 589824 iters= 64    632.2 Gload/s
+run2 empty  tg= 128 dispatches=   1   2.750 us/dispatch
+run2 empty  tg= 128 dispatches=  39   1.863 us/dispatch
+run2 empty  tg= 128 dispatches= 156   1.848 us/dispatch
+run2 empty  tg= 256 dispatches=   1   4.250 us/dispatch
+run2 empty  tg= 256 dispatches=  39   3.321 us/dispatch
+run2 empty  tg= 256 dispatches= 156   3.308 us/dispatch
+run2 empty  tg= 512 dispatches=   1   7.125 us/dispatch
+run2 empty  tg= 512 dispatches=  39   6.907 us/dispatch
+run2 empty  tg= 512 dispatches= 156   6.899 us/dispatch
+
+====================================================================================================
+Closed accounting of the 22.07 us/call anchor
+====================================================================================================
+unique-byte floor      19.107 us/call   86.6 %  (5030912 B at 263.3 GB/s)
+barrier drain           3.081 us/call   14.0 %  (serial minus concurrent encoder)
+exposed activation ld   0.441 us/call    2.0 %  (upper bound, a0_act0)
+exposed arithmetic      0.465 us/call    2.1 %  (upper bound, a0_min)
+both stripped           0.560 us/call    2.5 %  (a0_act0_min; the two upper bounds overlap)
+
+====================================================================================================
+VERDICT
+====================================================================================================
+preregistered negative: N-T2D-ISSUE-BOUND (secondary, concurrently satisfied: N-T2D-ROOFLINE)
+trigger: the §2.8 replica gate required A1 to beat the 17.6 us/step adverse prior; A1 came back with the wrong sign
+best lever in family:   a0_act0 at -0.441 us/call = -0.262 % of cs = 0.65x the 0.4 % ship bar -> does not ship
+P3 falsifier (a0_act0_min >= 21.1 us/call => whole family dead): 22.109 us/call => SATISFIED
+
+wrote research/artifacts/maple-frieren-r107f/adjudication.json

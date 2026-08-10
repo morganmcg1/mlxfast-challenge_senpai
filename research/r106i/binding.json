@@ -1,0 +1,31 @@
+{
+ "n": 1220,
+ "bind_gb": {
+  "sort_scatter": 1.13472512,
+  "rms_norm": 0.49741312,
+  "steel_gemm_bf16": 5.005582464,
+  "qk_norm_rope": 0.767594148,
+  "attention_core": 0.69733376,
+  "elementwise": 1.650009728,
+  "router": 0.011247168,
+  "routed_gather_gemm": 18.967887872,
+  "nvfp4_dense_qmm": 0.795610688,
+  "moe_tail": 0.87785472,
+  "lm_head": 0.958777352
+ },
+ "count": {
+  "sort_scatter": 153,
+  "rms_norm": 83,
+  "steel_gemm_bf16": 394,
+  "qk_norm_rope": 41,
+  "attention_core": 40,
+  "elementwise": 235,
+  "router": 39,
+  "routed_gather_gemm": 76,
+  "nvfp4_dense_qmm": 117,
+  "moe_tail": 38,
+  "lm_head": 4,
+  "other": 0
+ },
+ "total_gb": 31.36403614
+}

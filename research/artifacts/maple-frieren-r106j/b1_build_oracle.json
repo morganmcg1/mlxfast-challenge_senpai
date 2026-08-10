@@ -1,0 +1,75 @@
+{
+  "_note": "R106-J deliverable B1 correctness receipts. Two rows (build, oracle) were 'green' in an earlier draft on no evidence; they were re-run and are recorded here with exit codes and digests. See research/maple-frieren-r106j-bitexactness-shelf.md sec 3.2.1a/b/c.",
+  "checks": [
+    {
+      "check": "force-clean worker build",
+      "status": "PASS",
+      "detail": "rm -rf .build-worker then full release build. BUILD_EXIT=0, BUILD_SECONDS=131, OBJECTS_BEFORE_CLEAN=1012, OBJECTS_AFTER_BUILD=1010, OBJECTS_PREDATING_CLEAN=0 (nothing reused). WORKER_SHA256=f2c3a8894ebb5c87568cb5cc5076ecebe648c0b27a08d8ae501d19b1f2529a95, WORKER_BYTES=49096008.",
+      "transcript": "job e8dd58c6-d27c-48ab-b2ce-f4d5ac98e9bc, exit 0, 202 s; driver research/maple_frieren_r106j_b1_rerun.sh; artifacts /tmp/r106j-b1/"
+    },
+    {
+      "check": "metallib rebuild (gap exposed by the force-clean)",
+      "status": "PASS",
+      "detail": "tools/build-mlx-metallib.sh output .build-worker/release/mlx.metallib is outside SwiftPM's dependency graph, so swift build never regenerates it; the force-clean deleted it and the first oracle attempt selected 0 tests (exit 3). Rebuilt by hand: METALLIB_PRESENT_BEFORE=no, METALLIB_EXIT=0, METALLIB_SECONDS=50, METALLIB_SHA256=8e8b18afaee1ed5a0190403f79a4cc74b9bebcb52b50c4b67d0ed91dc73097ec, METALLIB_BYTES=158502072.",
+      "transcript": "job 07f29d25-1c1f-4199-b53b-bafa70f70b07 stage 1; driver research/maple_frieren_r106j_b1_metallib_oracle.sh; artifacts /tmp/r106j-b1b/metallib.log"
+    },
+    {
+      "check": "upstream equivalence oracle (research/run_upstream_equivalence.sh)",
+      "status": "RAN-EXIT-1-PREEXISTING",
+      "detail": "EQUIVALENCE_SCRIPT_EXIT=1, EQUIVALENCE_SECONDS=18, EQUIVALENCE_EXACT_STEPS=8, EQ_REPORT_MARKERS=1, EQ_ZERO_ERROR_STEPS=8, EQ_NONZERO_ERROR_LINES=1, '1 test in 0 suites failed ... with 1 issue'. promptTokenCount=512, decodeTokenCount=8. Decode 0..7: maxAbsLogitError 0.0, meanAbsLogitError 0.0, every token matches. Prefill: maxAbsLogitError 0.125, meanAbsLogitError 0.011933609, runtimeToken 5991 == upstreamToken 5991. This is the documented pre-existing M4/non-M5-host near-tie, byte-identical to seven published reproductions (fern-r104b-wkwv-tile-regroup.md:366-372; RESEARCH_ARCHIVE_through-round-91.md:5001 and :4102; maple-fern-pr82-routed-qmv-router-dedup.md:1095-1104; maple-fern-pr48-fused-norm-qkv-gate.md:462-463; frieren-host-cpu-budget.md:471-494; frieren-pr23-r2-cap.md:311; RESEARCH_STATE_ARCHIVE_through-round-21.md:6085-6086). MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT was NOT set. Run in the baseline arm (flag unset); it also cannot reach the shared-expert banks because it never calls prepareFusedRuntimeWeights().",
+      "transcript": "job 07f29d25-1c1f-4199-b53b-bafa70f70b07 stage 2, exit 1 (expected, propagates oracle exit); artifacts /tmp/r106j-b1b/equivalence.log"
+    },
+    {
+      "check": "local golden set, teacher-forced (longcopy-gate-english-512, 256 + 1024)",
+      "status": "PASS",
+      "detail": "0 mismatches in both arms (DARKBLOOM_QMV_WIDE_CODES unset and =1).",
+      "transcript": "/tmp/r106j/"
+    },
+    {
+      "check": "free-run greedy, 128 steps",
+      "status": "PASS",
+      "detail": "0 divergences, common prefix 129/129 positions.",
+      "transcript": "research/artifacts/maple-frieren-r106j/cert_free.json"
+    },
+    {
+      "check": "ABBA replication, 12 worker processes x 33 teacher-forced steps",
+      "status": "PASS",
+      "detail": "0 divergences in 12 of 12 processes.",
+      "transcript": "research/artifacts/maple-frieren-r106j/abba-01..12*.log"
+    },
+    {
+      "check": "sec2 margin certificate (teacher-forced, 65 positions)",
+      "status": "MARGINAL",
+      "detail": "0 argmax flips, but global safety factor 0.0689 (<1) and decision-relevant safety factor min 1.366; 520/520 adjacent top-2 gaps narrower than 2x max perturbation. Zero flips here is not evidence of robustness.",
+      "transcript": "research/artifacts/maple-frieren-r106j/cert_teacher.json"
+    },
+    {
+      "check": "null control (Rule 79): same binary, two launches",
+      "status": "PASS-BIT-EXACT",
+      "detail": "0 of 6,522,880 elements differ. Confirms the instrument reports zero when nothing changed.",
+      "transcript": "research/artifacts/maple-frieren-r106j/cert_null.json"
+    }
+  ],
+  "summary": {
+    "token_flips": 0,
+    "forceclean_build_exit": 0,
+    "forceclean_objects_predating_clean": 0,
+    "worker_sha256": "f2c3a8894ebb5c87568cb5cc5076ecebe648c0b27a08d8ae501d19b1f2529a95",
+    "worker_bytes": 49096008,
+    "metallib_exit": 0,
+    "metallib_sha256": "8e8b18afaee1ed5a0190403f79a4cc74b9bebcb52b50c4b67d0ed91dc73097ec",
+    "metallib_bytes": 158502072,
+    "equivalence_script_exit": 1,
+    "equivalence_exact_steps": 8,
+    "equivalence_report_markers": 1,
+    "equivalence_zero_error_steps": 8,
+    "equivalence_prefill_max_abs_logit_error": 0.125,
+    "equivalence_prefill_mean_abs_logit_error": 0.011933609,
+    "equivalence_all_tokens_match": true,
+    "equivalence_failure_preexisting": true,
+    "equivalence_reaches_wide_codes_bank": false,
+    "golden_drift_flag_set": false,
+    "oracle_exit1_fires_n_correct": false,
+    "n_correct_fired_from_sec2_certificate": true
+  }
+}
