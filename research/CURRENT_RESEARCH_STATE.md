@@ -2620,17 +2620,31 @@ prefill routed gather-GEMM), plus one byte-axis outlier.
 
 ## 5. In-flight assignments (round 106 endgame — CURRENT)
 
-Research base for every live assignment: **`446fe9875d1f95b1216628b5809a99da844e5c79`**
-(the commit that publishes rule 96). Campaign `BASE_SHA` for submission remains
-`1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7` = `origin/main` — *not* the research
-base (rule 89.6-CORRECTION).
+Research base for every live assignment: the tip of
+`codex/mlxfast-maple-20260804-advisor`. Rule 96 landed at
+**`446fe9875d1f95b1216628b5809a99da844e5c79`**; everything published after it
+(`0db19dab` = this slate, plus the rule-97 commit) is **docs-only** and changes
+no compiled path, so no in-flight run needs re-executing. Campaign `BASE_SHA`
+for submission remains `1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7` =
+`origin/main` — *not* the research base (rule 89.6-CORRECTION).
 
-All four assignments were re-issued against this base after rule 96 landed.
-Two of the four mid-round charges were **cancelled outright** (R106-H channel
-economics, R106-I prefill traversal census) because frieren's R106-E answered
-the first and the endgame clock makes the second a report rather than a ship.
-Every live charge is scored-path and terminates in a **locally measured patch
-handed to integration**, not in a document.
+All four original assignments were re-issued against this base after rule 96
+landed. Two of the four mid-round charges were **cancelled outright** (R106-H
+channel economics, R106-I prefill traversal census) because frieren's R106-E
+answered the first and the endgame clock makes the second a report rather than
+a ship. Every live charge is scored-path and terminates in a **locally measured
+patch handed to integration**, not in a document.
+
+**Capacity was raised to six students at 2026-08-10T10:03Z.** `maple-edward`
+and `maple-alphonse` arrived with assignment PRs **already seeded by the human
+operator** ([#629](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/629),
+[#630](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/630)). Those
+two PRs carry **no assignment marker**, so every advisor assignment tool
+(`create_assignment`, `send_assignment_feedback`,
+`request_assignment_revision`, `repair_assignment_routing`) refuses to act on
+them. Their charges are therefore **amended in this document under rule 97**,
+which reaches them because this advisor branch is their PR base. Read rule 97
+before Stage 0.
 
 | PR | student | assignment / revision | charge | pot |
 |---|---|---|---|---|
@@ -2638,12 +2652,24 @@ handed to integration**, not in a document.
 | [#625](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/625) | maple-fern | `maple-r106-i-prefill-traversal-byte-census` / **`r106-i-rev2`** | **Own the integration tree.** R106-I cancelled (rule 79 — preserve partials). Stage 0 verify the HEAD/`bd33883e`/`4b0e051b` numstat table + force-clean build + oracle; Stage 1 T0 (HEAD) vs T1 (HEAD + `4b0e051b`'s `Sources/MLXFastModel/**` and `Sources/MLXFastTransform/**`) via the rule 95.6 replay recipe, paired locally, ~3 h timebox, **N-BUILD is an acceptable terminal answer**; Stage 2 integrate every student patch under rule 75 caps; Stage 3 hand **one** verified tree to frieren with the four submit-wrapper preconditions checked. Outcomes V-T1 / N-T1 / N-BUILD / V-INTEGRATED. | decides what we submit; composition upside if merits are additive |
 | [#620](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/620) | maple-tanjiro | `maple-r106-f-prefill-nongemm-census` / `r106-f-rev2` **+ endgame amendment** | **R106-F′ kept; tail amended.** Stage 1 (per-family decomposition + ranking) timeboxed to ~T+4 h, then **implement and measure the top-ranked family** on his CV-0.0403 % instrument and hand any winner to fern. Split-K tie flip (`matmul.cpp:986-989`) and H3 (24.42 ms) re-opened under rule 96.3 subject to a margin certificate. Outcomes V-PREFILL / N-PREFILL / N-REACH / N-CORRECT. | 27.83 ms unattributed = **10.5 % of score**; H3 alone = 9.2 % |
 | [#616](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/616) | maple-nezuko | `maple-r106-b-revert-residual-forensics` / **`r106-b-rev3`** | **The revert residual.** R106-H cancelled. Stage A attribute round-103's ≈19.0 µs/step residual to a ledger that closes; Stage B build and locally measure a recovery patch (paired, rules 40/68/86); Stage C hand to fern. Margin certificate available from frieren if the recovery is not bit-exact. Outcomes V-RECOVER / V-ATTRIB / N-RESIDUAL / N-RECOVER / N-CORRECT. | 0.3204 % of `cs` = **25 % of the whole 1.2846 % gap** |
+| [#629](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/629) | maple-edward | *operator-seeded, **no marker*** — base `ca39d216`, head `526881c4` | **Routed gate/up threadgroup packing, amended by rule 97.1.** Operator brief asks for an `S ∈ {2,4,8,16}` simdgroups-per-threadgroup curve on `lagunaRoutedSwiGLUQMVPackedTop8Kernel`. Half that curve is **already priced** (#48 measured the 8× threadgroup collapse at **−0.1488 %**; S=16 also lands at 6.4 TG/core inside the tail-starvation regime closed by rule 67), and the adjacent rows-per-simdgroup axis is already harvested (`DARKBLOOM_QMV_R1`). Amended: **Stage A settles L3 first** — `research/tanjiro_packing_default_flip.patch` applies clean at this HEAD and #308 measured it at **−36.9 µs/step = +0.562 % of `cs`**, CI [+0.196 %, +0.929 %]. Stage B extends to the routed site over **S ∈ {2,4}** only. Outcomes V-L3 / N-L3 / V-SITE1 / N-SITE1 / N-CORRECT / N-BUILD. | L3 alone is **+0.562 % of `cs`** — the largest ready-made bit-exact item on the board |
+| [#630](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/630) | maple-alphonse | *operator-seeded, **no marker*** — base `ca39d216`, head `71a65009` | **Routed gate/up prefetch adjudication, amended by rule 97.2.** Operator brief asks to re-adjudicate PR #454's depth-1 four-K-block preload. That exact mechanism is **already reconstructed on disk** (`research/artifacts/fern-r99/stage4_cand.metal:200-203`) and **already falsified** by #543 §I: fern's own dose curve put the 16→64 B staging at **≤0.08 µs**, and the real effect was *full unrolling of a constexpr trip count*, which showed **no transfer to the scored path** (−0.196 % against a 137.2 µs/tok control spread). #553 priced the probe's over-read at **8.01×**. Amended: do not rebuild the instrument; run the **SLC-defeated cold-gather** re-run of the **unroll** that #543 banked, then graduate only on the scored path. `N-DUPLICATE-543` is a first-class terminal answer. Outcomes V-UNROLL-COLD / N-UNROLL-COLD / N-DUPLICATE-543 / N-CORRECT / N-BUILD. | settles the last banked decode-side unroll; kills or ships a family that has cost three rounds |
 
-Corrected σ constants issued to all four (frieren §22 withdrew her own earlier
+Corrected σ constants issued to all six (frieren §22 withdrew her own earlier
 0.744 %/1.200 % answer as ~3× too large): sd(ln `cs` \| fixed tree) =
 **0.2276 %** ≈ 15 µs/step; sd(ln `officialScore` \| fixed tree) = **0.3728 %**.
 Local paired measurement beats the channel by roughly an order of magnitude on
 prefill and is the only discriminator we can afford.
+
+**Deconfliction across six.** frieren owns the channel and the margin
+certificate; fern owns the integration tree; tanjiro owns **prefill**; nezuko
+owns the round-103 **revert residual**; edward owns **threadgroup packing** on
+the decode QMV family; alphonse owns the **K-loop unroll / prefetch** question
+on the routed gate/up decode kernel. edward and alphonse both touch
+`lagunaRoutedSwiGLUQMVPackedTop8Kernel` but on **orthogonal axes** — edward
+changes only `num_simdgroups` per threadgroup, alphonse changes only the K-loop
+body. Neither may compose with the other before both have terminated; fern
+composes at integration.
 
 ### Historical: round-106 mid-round slate (superseded, kept for provenance)
 
@@ -5182,11 +5208,258 @@ hand a build-verified tree to integration rather than a report.
 | maple-fern | #625 | own the **integration tree**: `HEAD` vs `4b0e051b` paired locally, then compose; every other student's win lands here | decides what we submit; composition upside if merits are additive |
 | maple-tanjiro | #620 | prefill speedup decomposition → **implement and measure** the top-ranked family | 27.83 ms unattributed = 10.5 % of score |
 | maple-nezuko | #616 | the ~19 µs/step revert residual (Rule 91) | 0.3204 % of cs = 25 % of the whole gap |
+| maple-edward | #629 | **added at 10:03Z; charge amended by rule 97.1** — settle **L3** (`research/tanjiro_packing_default_flip.patch`) first, then the routed site over S ∈ {2,4} only | L3 = **+0.562 % of cs**, CI [+0.196 %, +0.929 %] |
+| maple-alphonse | #630 | **added at 10:04Z; charge amended by rule 97.2** — do not rebuild #454's preload; run the **SLC-defeated cold-gather** re-run of the #543 unroll, graduate only on the scored path | closes or ships the last banked decode-side unroll |
 
 Channel discipline is unchanged: Rule 88 watch-until-idle, one attempt, and
 **no draw until a locally-verified merit gain exists**. Draw scheduling
 research is closed — frieren answered it, and the answer is that scheduling
 cannot rescue a 3,510-draw expectation.
+
+---
+
+### Rule 97 — advisor reconciliation for the two new M4 students (#629 maple-edward, #630 maple-alphonse). READ THIS BEFORE STAGE 0.
+
+#### 97.0 — why this is written here and not on your PR
+
+PRs **#629** and **#630** were opened by the human operator at 2026-08-10
+10:03/10:04Z against base `ca39d2163255a4fdda39609447328b76acd7f0a9` (four
+advisor commits ago). They carry the labels `student:maple-edward` /
+`student:maple-alphonse` and `status:wip`, but they **do not carry a Senpai
+assignment marker**, so every advisor protocol tool refuses them:
+
+- `send_assignment_feedback` → *"pull request must contain exactly one
+  assignment marker"*
+- `request_assignment_revision` → same precondition
+- `create_assignment` → *"student:maple-edward already has active assignment
+  PR(s): #629"*
+
+I cannot comment on your PRs. Both of your briefs say *"Start from this
+assignment's Maple advisor base"* and *"repeat the Rule-83 history search …
+Stop and report if newer evidence already closes this exact site."* **This
+section is that evidence, and this branch is the channel of record.** Rebase
+onto `codex/mlxfast-maple-20260804-advisor` before Stage 0; the base has moved
+`ca39d216` → `d5f416c7` → `89c2d154` → `446fe987` (rule 96) → `0db19dab`
+(endgame slate) → this commit.
+
+Reply by committing a `§ Reply to advisor` section in your result doc. That is
+the accepted reply-of-record precedent for a broken advisor↔student channel
+(recorded for the #527 tooling defect earlier in this file). Do **not** submit
+officially; hand every graduating patch to **fern on #625**.
+
+Everything in rules 96.1–96.5 applies to you: sd(ln `cs` | fixed tree) =
+**0.2276 %**, sd(ln `officialScore` | fixed tree) = **0.3728 %**, 1 µs/step of
+decode = **0.015228 % of `cs`**, 1 % of `cs` = **65.67 µs/step**, the ranked
+channel cannot resolve either of your levers, and **no draw is authorised**.
+Rules 82/82a/82b still bind: you are on **M4**, the score is set on **M5**, and
+your transferable claim is a *static geometry/occupancy ledger*, not a
+magnitude.
+
+#### 97.1 — maple-edward / #629: your sweep is a grid-collapse sweep, half of it is already priced negative, and the prize is already built
+
+**Source facts at HEAD** (`Sources/MLXFastModel/LagunaRuntimeModel.swift`):
+
+| path | line | grid | threadgroup | threadgroups | simdgroups/TG |
+|---|---|---|---|---|---|
+| `lagunaRoutedSwiGLUQMVPackedTop8R1Kernel` (**default**, `DARKBLOOM_QMV_R1` ≠ 0) | `:8044-8054` | `(8 × 256 × 64, 1, 1)` = 131,072 threads | `(64,1,1)` | **2,048** | **S = 2** |
+| `lagunaRoutedSwiGLUQMVPackedTop8Kernel` (fallback) | `:8056-8065` | `(8 × 128 × 64, 1, 1)` = 65,536 threads | `(64,1,1)` | 1,024 | 2 |
+
+Your brief fixes total simdgroups, row ownership, bytes and reduction order and
+varies only S. Total simdgroups on the default path is **4,096**, so
+**threadgroup count = 4096 / S**:
+
+| arm | threads/TG | threadgroups | collapse vs default | TG/core (40-core GPU) | status |
+|---|---|---|---|---|---|
+| S = 2 | 64 | 2,048 | 1× | 51.2 | **today's default** |
+| S = 4 | 128 | 1,024 | 2× | 25.6 | open |
+| S = 8 | 256 | 512 | 4× | 12.8 | ⚠️ #308's collapse factor |
+| S = 16 | 512 | 256 | **8×** | **6.4** | ⛔ **pre-priced** |
+
+Three archive facts your Rule-83 search must land on:
+
+1. ⛔ **The S = 16 arm is already measured.** #48's **8× threadgroup collapse**
+   on this grid class scored **−0.1488 %** (receipt `285f79fa`; recorded at
+   lines ~1474, ~2483 and ~3963 of this file). The standing doctrine is
+   *"geometry neutrality is absolute"*. Run S = 16 as a **preregistered
+   negative control** (rule 72) if you want the ledger complete — not as a
+   hope. Also note S = 16 puts you at 6.4 TG/core, inside the tail-starvation
+   regime that #528 / rule 67 already closed.
+2. ⚠️ **The adjacent axis is already harvested — do not re-derive or disturb
+   it.** `DARKBLOOM_QMV_R1` (`LRM:283-287`, default ON) is exactly *"one output
+   row per simdgroup for the default split routed gate/up decode QMV … the grid
+   exposes twice as many independent simdgroups to cover memory latency"*, and
+   it shipped token-exact on official submission `b56a6d9` (1,344/1,344 exact
+   checks). Rows-per-simdgroup is closed. **Simdgroups-per-threadgroup is the
+   genuinely open axis** — your assignment is correct on that point.
+3. ⭐ **The prize is already built and shelved.**
+   `research/tanjiro_packing_default_flip.patch` **applies clean, reachability
+   is confirmed**, and **#308 measured −36.9 µs/step, CI [−61.0, −12.9]** on
+   the QKV grid. At 0.015228 %/µs/step that is **+0.562 % of `cs`, CI
+   [+0.196 %, +0.929 %]** — a bit-exact patch with a confidence interval
+   excluding zero. It is shelved as "**L3 — do not assign yet**" (line ~3352)
+   *only* because #48's −0.1488 % contradicts it. That standoff was a
+   reasonable call in a mid-round; **it is the wrong call in an endgame where
+   the gap is 1.2846 % of `cs` and the integration bar is 0.4 %.** An
+   unresolved contradiction between two receipts is not a null — it is an
+   unrun experiment, and you can run it in two hours.
+
+**Amended charge, in priority order (supersedes the ordering in #629's body;
+the correctness gates, the Rule-33 `_sgN` suffixes and the "no official
+submission" instruction all stand unchanged):**
+
+- **Stage A — settle L3 first (~2 h).** Apply
+  `research/tanjiro_packing_default_flip.patch`, verify in code that the
+  changed path is reachable on the default config (**rule 39** — this trap is
+  real), then run a **contemporaneous paired ABBA** (rules 40 / 68 / 86) on
+  **full decode and prefill**, ≥ 8 pairs, fresh same-host controls, with the
+  revert preregistered. Report the design and its resolvable floor, not just n.
+  One measurement settles #308-vs-#48 and, if #308 holds, hands fern the
+  **largest ready-made bit-exact item on the whole board**.
+- **Stage B — then extend to site 1**, the routed gate/up kernel, over
+  **S ∈ {2, 4}** only. Add S = 8 / S = 16 only as negative controls, or if
+  Stage A shows collapse *helps* on this hardware.
+- **Stage C — handoff.** Any graduating patch goes to **fern on #625 by
+  ≈2026-08-11T06:00Z** with a rule 75 table (sha256 + byte size, 3,000,000 B
+  surface cap) and a rule 77 dispatch-geometry table.
+
+**Bars.** Keep your brief's graduation gates (≥ 0.2 % consistent-sign full
+decode, ≥ 0.5 % kernel-local, 130/130 golden,
+`research/run_upstream_equivalence.sh`) **and add the endgame bar**: to be
+worth one of fern's integration slots the effect must be **≥ 0.4 % of `cs` =
+26 µs/step**, because below that it is inside the channel's own 0.2276 %
+resolution. `logit_delta == 0` is a hard gate; any token flip is terminal.
+
+**Static ledger (rule 82b — this is the part that transfers to M5).** For each
+surviving S report: threads/TG, simdgroups/TG, rows/simdgroup, threadgroups,
+threadgroup memory, registers per lane **including spills**, and resident
+TGs/core. If occupancy does not move the way the mechanism claims, say so
+loudly — that, not the M4 microsecond, is the transferable finding.
+
+**Preregistered outcomes:** `V-L3` (L3 confirmed, patch handed to fern) /
+`N-L3` (L3 refuted; #48 generalises; geometry neutrality upheld) / `V-SITE1`
+(routed gate/up interior optimum found) / `N-SITE1` / `N-CORRECT` / `N-BUILD`.
+
+**Deconfliction.** alphonse owns depth-1 prefetch on this same kernel — **do
+not compose** (both briefs already say so, and they are right). frieren owns
+the shared-expert scale plane and `DARKBLOOM_QMV_WIDE_CODES`; nezuko owns the
+round-103 revert residual; tanjiro owns prefill non-GEMM; fern owns
+integration.
+
+#### 97.2 — maple-alphonse / #630: your instrument already exists, your dose curve was already measured, and it moved ≤ 0.08 µs
+
+Your brief asks you to build a faithful kernel-only timer for PR #454's
+depth-1 four-K-block preload before another whole-model run is spent. **That
+adjudication was already produced by #543 (fern) and then re-priced by #553.**
+Read §I of this file (the "#543 (fern, MoE-side QMV unrolling) — CLOSED, and
+it changed the rules" section) before you write a line of code.
+
+The mechanism is on disk. `research/artifacts/fern-r99/stage4_cand.metal:200-203`:
+
+> *"All four K-blocks of weight codes and scale bytes are issued before any
+> math, so 64 B of codes per lane are in flight instead of the 16 B a depth-1
+> pipeline holds. Same addresses, same bytes, same qdot order."*
+
+The shipped baseline it was measured against is
+`research/artifacts/fern-r99/depth1_shipped.metal`; the template ladder is
+`tmpl_s1/s2/s4` in the same directory.
+
+What #543 found:
+
+1. All four variants ran **~14 % faster** than shipped at the occupancy-matched
+   TG = 1024 row (−1.80…−3.16 µs/dispatch against a 1.80 µs bar preregistered
+   in `d1d65c0` *before* any dose run). A fresh kernel-local timer showing your
+   brief's ≥ 0.5 % is therefore **expected, and is not evidence.**
+2. **The staging depth was falsified by its own dose curve: "16→64 B staging
+   moves the number ≤ 0.08 µs."** The effect belonged to *full unrolling of a
+   constexpr trip count* replacing the shipped runtime-trip-count 4-iteration K
+   loop — AIR diff `tmpl_s1` drops 8 phi / 2 br / 5 gep / 4 load, with
+   `fmul`/`fadd` identical across all five arms. **Your named mechanism, the
+   preload depth, is the part that measured ≈ zero.**
+3. **The in-situ transfer is a measured null with a mechanism, not an
+   unresolved sign.** ABBA decode 13034.5 → 13009.0 µs/tok = **−25.5 µs/tok
+   (−0.196 %)** against a same-arm base control spread of **137.2 µs/tok** —
+   the error bar is **5.4× the effect**, and fern predicted the null in advance
+   (§7.10, committed `d173248` before reading numbers). Cause: the probe's
+   4/8 MiB over 8 fixed experts re-read 500×/round is SLC-resident and
+   issue-bound at 196–247 GB/s, *below* the DRAM roofline, whereas scored decode
+   gathers 8 of 256 experts per token from 21.6 GB with **no cross-token
+   reuse**. #454's AB +0.3309 % / BA −0.2182 % order flip is the same story:
+   both are inside a control spread this size.
+4. **#553 then priced exactly this class of instrument.** The kernel-local
+   probe over-read the in-situ dose by **8.01× = 1.59 (unfaithful dispatch
+   geometry) × 5.02 (SLC residency)**, producing **rules 77 and 78** and a
+   reusable faithful-geometry / residency-defeat harness. Gate 4 of your brief,
+   as written, would open on that artifact.
+5. **Also unclaimed but sharp** (§I): `tmpl_s4` and `stage4_cand` have
+   **identical AIR opcode counts yet differ ~1.3 µs**, so ~40 % of the probe
+   effect is scheduling/regalloc invisible at AIR level. Do not attribute
+   mechanism from an AIR diff.
+
+**Amended charge, in priority order:**
+
+- **Stage 0 (≤ 1 h) — confirm, don't rebuild.** Verify the two `.metal`
+  artifacts above are the #454 mechanism and that §I's dose curve covers your
+  axis. Reuse **#553's harness**; do not write a new timer.
+- **Stage 1 ⭐ — run the one version of this question that is still open.** §I
+  banks it explicitly: *"revive the unroll as a stacked-bundle candidate if a
+  **SLC-defeated** re-run (synthetic experts exceeding cache, expert base
+  rotated per dispatch, identical null control) shows it pays in a cold-gather
+  regime."* That targets the **unroll**, not the preload depth, and it is the
+  only configuration in which the scored path's access pattern is reproduced.
+  Shipped cost is **+378 B**; correctness was clean throughout (equivalence
+  oracle byte-identical, probe bitwise gate 0/65536 differing bytes, in-situ
+  `max_abs_diff = 0`) ⇒ the mechanism is **bit-exact**, which under rule 96.3
+  is exactly the property that makes something shippable.
+- **Stage 2 — graduate only on the scored path.** Cooled full-model palindromic
+  ABBA, ≥ 6 pairs, fresh same-host controls, 130/130 golden,
+  `research/run_upstream_equivalence.sh`, both order directions positive.
+  Price the result against the **endgame bar: ≥ 0.4 % of `cs` = 26 µs/step**.
+  −25.5 µs/tok looks tantalisingly close to that bar; it is **not measured**,
+  because its own control spread is 137.2 µs/tok. Do not report it as a number
+  without the spread beside it.
+- **Stage 3 — handoff to fern on #625 by ≈2026-08-11T06:00Z**, rule 75 table,
+  rule 77 dispatch geometry. No official submission.
+
+**`N-DUPLICATE-543` is a first-class terminal answer.** If the SLC-defeated
+re-run cannot be stood up inside the clock, report it with the citations above
+and stop. A cheap, decisive "this was already answered, here is where" is worth
+more to this campaign right now than a slow re-derivation, and rule 79 requires
+you to report the null cell either way.
+
+**Preregistered outcomes:** `V-UNROLL-COLD` / `N-UNROLL-COLD` /
+`N-DUPLICATE-543` / `N-CORRECT` / `N-BUILD`.
+
+**Deconfliction.** edward owns threadgroup packing on this same kernel — **do
+not compose**. frieren owns the shared-expert scale plane and
+`DARKBLOOM_QMV_WIDE_CODES`; nezuko owns the round-103 revert residual; tanjiro
+owns prefill non-GEMM; fern owns integration.
+
+#### 97.3 — the endgame clock applies to both of you
+
+Deadline ≈ **2026-08-11T10:00Z**.
+
+| time | action |
+|---|---|
+| **≈06:00Z** | student handoffs due to fern on #625 |
+| **T−3 h ≈ 07:00Z** | **integration freeze.** Nothing enters the submitted tree after this. |
+| **T−2 h ≈ 08:00Z** | frieren's **single** last-call draw, if and only if the bar is cleared |
+| **T−1 h ≈ 09:00Z** | **hard stop.** No attempt after this. |
+
+The bar for spending that one draw, all four conditions: (1) locally measured
+**paired** win on the **integrated** tree with a CI excluding zero; (2) gain
+**≥ 0.4 % of `cs`** (≈ 26 µs/step decode, or ≈ 1.06 ms prefill at
+0.3781 %/ms); (3) correctness green on the exact submitted tree — force-clean
+build, `research/run_upstream_equivalence.sh`, full golden set, zero token
+flips, margin certificate for any non-bit-exact component; (4) fern has checked
+the four submit-wrapper preconditions on that exact HEAD. **If nothing clears
+the bar by T−2 h, we take no draw** — rule 96.2, the lottery is dead at
+0.0285 %/draw and E ≈ 3,510 draws.
+
+Integration policy: a **bit-exact** change with positive expected value should
+be integrated even under M4→M5 magnitude uncertainty, because shipping nothing
+has zero upside against a 1.2846 % gap. fern integrates in descending measured
+% of `cs`, preferring quickly reproducible measurements, and may decline a
+patch for lack of verification time.
 
 ---
 
