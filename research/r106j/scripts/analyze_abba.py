@@ -64,8 +64,57 @@ def summarise(name, vals, unit="%"):
     return m, lo, hi
 
 
+def read_rows(path=None):
+    rows = load(path or TSV)
+    return [r for r in rows if r["rc"] == "0" and r["decode_s_per_token"] != "nan"]
+
+
+def estimate(vals):
+    if not vals:
+        return None
+    n = len(vals)
+    m = statistics.fmean(vals)
+    out = {"mean": 100 * m, "n": n}
+    if n > 1:
+        sd = statistics.stdev(vals)
+        sem = sd / math.sqrt(n)
+        t = T975.get(n - 1, 1.96)
+        out.update(sd=100 * sd, sem=100 * sem, dof=n - 1,
+                   lo=100 * (m - t * sem), hi=100 * (m + t * sem),
+                   positive_blocks=sum(1 for v in vals if v > 0))
+    return out
+
+
+def analyse(rows):
+    dec = block_contrasts(rows, "decode_s_per_token")
+    pre = block_contrasts(rows, "prefill_s_per_token")
+    score = [-0.75 * d - 0.25 * p for d, p in zip(dec, pre)]
+    within = {}
+    for arm in ("T0", "T1"):
+        for key in ("decode_s_per_token", "prefill_s_per_token"):
+            v = [float(r[key]) for r in rows if r["arm"] == arm]
+            if len(v) > 1:
+                within[(arm, key)] = {
+                    "mean": statistics.fmean(v),
+                    "cv": 100 * statistics.stdev(v) / statistics.fmean(v),
+                    "n": len(v),
+                }
+    return {
+        "n_runs": len(rows),
+        "n_blocks": len(rows) // 4,
+        "failures": len([r for r in rows if r["passed"] != "True"
+                         or r["max_abs_diff"] not in ("0", "0.0")]),
+        "golden": sorted({r["golden_hash"] for r in rows}),
+        "within": within,
+        "blocks": {"d_ln_decode": dec, "d_ln_prefill": pre, "d_ln_score": score},
+        "d_ln_decode": estimate(dec),
+        "d_ln_prefill": estimate(pre),
+        "d_ln_score": estimate(score),
+    }
+
+
 def main():
-    rows = [r for r in load(TSV) if r["rc"] == "0" and r["decode_s_per_token"] != "nan"]
+    rows = read_rows()
     print(f"usable runs: {len(rows)}  complete ABBA blocks: {len(rows)//4}")
 
     bad = [r for r in rows if r["passed"] != "True" or r["max_abs_diff"] not in ("0", "0.0")]

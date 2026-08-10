@@ -1,0 +1,40 @@
+idx blk pos arm reused wall_s        decode       prefill
+  1   1   1  T0  False    198   0.012990762   0.001110358
+  2   1   2  T1  False    195   0.012894632   0.001112769
+  3   1   3  T1   True    153   0.012940822   0.001122998
+  4   1   4  T0  False    196   0.012946740   0.001130237
+  5   2   1  T1  False    196   0.012964175   0.001110995
+  6   2   2  T0  False    197   0.012924754   0.001114711
+  7   2   3  T0   True    157   0.013059604   0.001124329
+  8   2   4  T1  False    195   0.012952300   0.001109915
+  9   3   1  T0  False    197   0.012906763   0.001110151
+ 10   3   2  T1  False    194   0.012896702   0.001110119
+ 11   3   3  T1   True    152   0.012953587   0.001110604
+ 12   3   4  T0  False    197   0.013013155   0.001122584
+
+-- decode_s_per_token deviation from own-arm mean, %, by reused_build --
+  reused_build=False n=9  mean=-0.0973%  [+0.132, -0.303, -0.207, +0.235, -0.377, +0.144, -0.517, -0.286, +0.304]
+  reused_build=True  n=3  mean=+0.2897%  [+0.055, +0.660, +0.154]
+
+-- decode_s_per_token deviation from own-arm mean, %, by pos --
+  pos=1     n=3  mean=-0.0498%  [+0.132, +0.235, -0.517]
+  pos=2     n=3  mean=-0.3222%  [-0.303, -0.377, -0.286]
+  pos=3     n=3  mean=+0.2897%  [+0.055, +0.660, +0.154]
+  pos=4     n=3  mean=+0.0801%  [-0.207, +0.144, +0.304]
+
+-- prefill_s_per_token deviation from own-arm mean, %, by reused_build --
+  reused_build=False n=9  mean=-0.1350%  [-0.751, -0.012, +1.024, -0.171, -0.360, -0.269, -0.770, -0.250, +0.344]
+  reused_build=True  n=3  mean=+0.3987%  [+0.903, +0.499, -0.206]
+
+-- prefill_s_per_token deviation from own-arm mean, %, by pos --
+  pos=1     n=3  mean=-0.5640%  [-0.751, -0.171, -0.770]
+  pos=2     n=3  mean=-0.2073%  [-0.012, -0.360, -0.250]
+  pos=3     n=3  mean=+0.3987%  [+0.903, +0.499, -0.206]
+  pos=4     n=3  mean=+0.3663%  [+1.024, -0.269, +0.344]
+
+-- arm holding the build-reuse slot in each block --
+  block 1: ['T1']
+  block 2: ['T0']
+  block 3: ['T1']
+  tally: {'T0': 1, 'T1': 2}
+  A slot penalty p biases the headline contrast by p*(n_T1_slots - n_T0_slots)/(2*nblocks) against T1.
