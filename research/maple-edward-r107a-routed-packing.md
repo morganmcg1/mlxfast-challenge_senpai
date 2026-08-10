@@ -492,6 +492,77 @@ wave count do not" (`:298-307`). Stage A's job is to find out which of those two
 classes `L3` belongs to, and §6.2 answers it with the wave-count arithmetic
 rather than with a hope.
 
+### 5.0a The official instrument cannot resolve an effect this size
+
+The two paragraphs above quote `-0.1488 %` from a prose summary. The raw receipt
+metrics for both trees are in this checkout, in
+`research/artifacts/advisor-r103/replicate-sigma.json`, and recovering them
+changes how much weight that number can bear. Both were measured on 2026-08-05:
+
+| receipt | ts (UTC) | `cs` | `D` = decode us/step | `P` |
+|---|---|---:|---:|---:|
+| control `c3ce66ec` | 09:43:35 | 2.5194549917 | **5046.4443** | 191.30778 |
+| PR #48 `285f79fa` | 19:12:03 | 2.5157069444 | **5059.2328** | 190.99471 |
+
+The score decomposition reproduces the published delta to seven digits, which
+confirms the column reading: `0.75 * ln(D_ctrl/D_cand) = -0.18982 %` and
+`0.25 * ln(P_ctrl/P_cand) = +0.04095 %`, summing to **-0.14887 %** against the
+recorded -0.1488 %. So the first M5 microsecond figure for a threadgroup-geometry
+change is now on the table: **+12.79 M5 us/step of decode**, a slowdown, against
+the M4 composite of -55.0 us/step, a speedup. Composite transfer factor
+**-0.2325** - refining, but not changing, the -0.18 estimated from the campaign
+price above.
+
+**And it is 0.29 sigma.** Rule 101 measured `sd(ln cs) | fixed tree = 0.3607 %`
+from three replicate submissions of one unchanged tree (CRS:6080). Two
+independent receipts differ with `sd = 0.3607 * sqrt(2) = 0.5101 %`, so the
+observed -0.14887 % is **0.29 standard deviations**. The one M5 datapoint the
+record holds against collapsing threadgroups on this exact kernel is
+statistically indistinguishable from zero, and equally consistent with a +0.4 %
+win or a -0.7 % loss.
+
+Converting that noise floor into the units this arm measures in is the part worth
+carrying forward. A decode-only change of size `d` moves the score by
+`0.75 * d / D`, so the official instrument's 1 sigma on a *single unreplicated
+pair* is
+
+```text
+0.5101 % / 0.75 * 5046.44 / 100 = 34.3 M5 us/step of decode
+```
+
+That is the same size as the effect. Three consequences, none of them optional:
+
+1. **The `285f79fa` receipt is not a prior against `L3`; it is an absence of
+   evidence.** The paragraph above argued the receipt prices a three-way mixture.
+   This says something stronger and simpler: even if PR #48 had shipped the
+   geometry term alone, one official receipt could not have told a -35 us/step win
+   from a +35 us/step loss. Both readings of that submission - "geometry reverses
+   on M5" and "geometry transfers and the other two terms swamped it" - are inside
+   one sigma of the same number.
+2. **This is why the record contains no geometry transfer factor.** §5.0 notes
+   that every named M4 -> M5 factor traces back to PR #137's router-weight
+   prefetch (-0.40 +/- 0.24). That is not an oversight in the record-keeping. A
+   35 us/step effect is a 0.53 %`cs` signal against a 0.51 %`cs` per-pair sigma;
+   resolving it at 2 sigma needs **four independent paired M5 receipts**
+   (`n >= (2 * 0.5101 / 0.5261)^2 = 3.8`), i.e. eight official runs for one
+   number. The prefetch factor exists because its effect was large enough to
+   survive the instrument; geometry's is not.
+3. **Rule 105.5 is a necessity, not a convenience.** The 0.4 %`cs` graduation bar
+   is `0.4 / 0.75 * 5046.44 / 100 = 26.9 M5 us/step`, which is **0.78 sigma of a
+   single official pair**. An arm that exactly meets the bar and is then submitted
+   alone has close to a coin-flip chance of reading negative on its own receipt.
+   The only dispositions that survive this arithmetic are to bundle several
+   independently verified bit-exact wins into one submission so the sum clears
+   sigma, or to replicate the receipt. Reporting an M4 in-situ paired half-width
+   of ~8 us/step, as Stage 1 does at K = 18, is therefore not a weaker instrument
+   than the M5 receipt - for effects in the tens of microseconds it is a **four
+   times sharper** one, and its weakness is transfer, not resolution.
+
+The consequence for this arm's verdict is in §6.2: an M4-only result of this
+magnitude can be neither promoted nor refuted by one M5 probe, so what Stage A can
+honestly deliver is a sign, a mechanism class, and a place in a bundle.
+
+
 ### 5.1 Reachability (rule 39) and the geometry ledger (rule 77)
 
 The site is `lagunaDecodeNVFP4QKVLaneMajorSource`
@@ -837,13 +908,22 @@ needs an M5.
    unchanged, the cost is global and transfers near 1:1; if the argmax moves to
    S = 4, the site is supply-limited and M5's optimum is below S = 8. This is the
    sharpest M5 emulation available without an M5.
-4. **Recover a geometry-specific M4 -> M5 transfer factor from the archive.**
-   §5.0 establishes that no such factor exists in the record - every named factor
-   traces to PR #137's router-weight prefetch. `RESEARCH_ARCHIVE_through-round-91.md`
-   around receipt `285f79fa` may carry the raw M5 `decode_seconds_per_token` for
-   that submission and its control `c3ce66ec`; if it does, subtracting them gives
-   the first M5 microseconds-per-step figure for a threadgroup-geometry change and
-   turns the transfer question from qualitative to quantitative.
+4. **Decide, at programme level, whether a 30 us/step lever is submittable at
+   all.** This one is for the advisor, not for a student host. §5.0a shows the
+   official instrument's 1 sigma on an unreplicated pair is 34 M5 us/step of
+   decode, so the rule-105 bar sits at 0.78 sigma and an arm at the bar has close
+   to a coin-flip chance of reading negative on its own receipt. Two coherent
+   responses exist and they cost very different amounts: bundle four to six
+   verified bit-exact levers from different families into one submission so the
+   sum clears sigma (rule 105.5, cheap, but a single negative receipt then
+   condemns the whole bundle), or spend four paired receipts on one lever to
+   resolve it at 2 sigma (eight official runs, definitive, and it produces the
+   geometry transfer factor the record has never had). Choosing implicitly is the
+   expensive option, because it spends receipts on questions they cannot answer.
+   The archive lead that motivated this item is closed: the raw metrics were
+   already in `research/artifacts/advisor-r103/replicate-sigma.json` and are now
+   tabulated in §5.0a, so nobody needs to re-mine
+   `RESEARCH_ARCHIVE_through-round-91.md` for them.
 
 ### 7.1 Record-mined leads for the wider programme
 
