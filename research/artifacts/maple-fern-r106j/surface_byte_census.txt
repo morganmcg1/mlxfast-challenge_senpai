@@ -1,0 +1,18 @@
+# R106-J Stage 0/1 structural evidence (read-only, generated 2026-08-10T10:57:46Z)
+
+## editable-surface byte census over benchmark.json editablePaths (97 entries, 2 dir grants)
+tree                                     surface_B  Sources_B  Vendor+etc_B  files  headroom_to_3000000
+446fe987_advisor_base_T0                   2680208     652751       2027457    142     319792
+bd33883e_merged_frontier                   2811013     783556       2027457    142     188987
+4b0e051b_best_ever_cs2.590559              2895412     749452       2145960    141     104588
+1bc1c895_origin_main                       2983849     779924       2203925    142      16151
+
+## T1 = advisor-HEAD vendor + 4b0e051b Sources
+T1 surface_B = 2027457 + 749452 = 2776909   headroom = 223091   growth vs T0 = +96701 (cap 262144)
+T1 largest file = Sources/MLXFastModel/LagunaRuntimeModel.swift 402909 B (per-file cap 524288)
+
+## PROOF: Vendor/** diff advisor_base -> 4b0e051b is COMMENT-ONLY
+Cmlx     : 34 added / 34 deleted non-blank non-comment lines; after stripping
+           /*..*/ and //.. and whitespace the two multisets are IDENTICAL.
+mlx-swift-lm: 10 added / 10 deleted; same result.
+=> T1 is a SEMANTICALLY EXACT replay of 4b0e051b at 118503 fewer bytes.
