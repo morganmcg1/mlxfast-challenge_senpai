@@ -108,7 +108,7 @@ def cs_from(dec_us: float, pre_us: float) -> float:
 def load_corpus(path: str) -> list[dict]:
     with open(path) as fh:
         blob = json.load(fh)
-    recs = blob["records"] if isinstance(blob, dict) else blob
+    recs = blob["submissions"] if isinstance(blob, dict) else blob
     out = []
     for r in recs:
         m = r.get("officialMetrics") or {}
@@ -177,43 +177,31 @@ def ci_for(diff: float, sd: float, dof: int, n_f: int, n_r: int) -> dict:
 def r103_receipts(path: str) -> tuple[list[dict], dict]:
     with open(path) as fh:
         blob = json.load(fh)
-    published = {
-        k: blob.get(k) for k in ("groups", "receipts", "untrimmed", "trimmed", "sigma", "summary")
-        if k in blob
-    }
+    published = {k: v for k, v in blob.items()
+                 if k.startswith(("pooled_", "trimmed_", "n_"))}
     recs: list[dict] = []
-
-    def walk(node, digest=None):
-        if isinstance(node, dict):
-            has_metrics = ("D" in node or "decode_us" in node) and ("P" in node or "prefill_us" in node)
-            if has_metrics:
-                D = float(node.get("D", node.get("decode_us")))
-                P = float(node.get("P", node.get("prefill_us")))
-                recs.append({
-                    "digest": digest,
-                    "id8": node.get("id8") or node.get("id") or "",
-                    "ts": node.get("ts") or node.get("createdAt") or "",
-                    "sub_sha": node.get("sub_sha") or node.get("submissionCommitSha") or "",
-                    "D": D,
-                    "P": P,
-                    "T": D - 4.0 * P,
-                })
-                return
-            for k, v in node.items():
-                nd = k if (isinstance(k, str) and re.fullmatch(r"[0-9a-f]{12,16}", k)) else digest
-                walk(v, nd)
-        elif isinstance(node, list):
-            for v in node:
-                walk(v, digest)
-
-    walk(blob)
+    for g in blob["groups"]:
+        for r in g["receipts"]:
+            if r.get("D") is None or r.get("P") is None:
+                continue
+            D, P = float(r["D"]), float(r["P"])
+            recs.append({
+                "digest": g["digest"],
+                "id8": r.get("id8", ""),
+                "ts": r.get("ts", ""),
+                "sub_sha": r.get("sub_sha", ""),
+                "raw_tree": r.get("raw_tree", ""),
+                "D": D,
+                "P": P,
+                "T": D - 4.0 * P,
+            })
     return recs, published
 
 
 FRESH_PATTERNS = [
-    (re.compile(r"r105-A ladder receipt \((A\d)\)-\d", re.I), lambda m: f"r105A/{m.group(1)}"),
-    (re.compile(r"r104-A stage 2, leg \d+ of \d+ — arm ([A-Z])", re.I), lambda m: f"r104A/arm{m.group(1)}"),
-    (re.compile(r"r104-A stage 2, leg \d+ of \d+ -- arm ([A-Z])", re.I), lambda m: f"r104A/arm{m.group(1)}"),
+    (re.compile(r"r105-A ladder receipt (A\d)-\d", re.I), lambda m: f"r105A/{m.group(1)}"),
+    (re.compile(r"r104-A stage 2, leg \d+ of \d+ [\u2014-]+ arm ([A-Z])", re.I),
+     lambda m: f"r104A/arm{m.group(1)}"),
 ]
 
 
@@ -238,12 +226,14 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--corpus", required=True)
     ap.add_argument("--r103", required=True)
+    ap.add_argument("--verified", required=True)
     ap.add_argument("--slim", required=True)
     ap.add_argument("--fresh-since", default="2026-08-10")
     args = ap.parse_args()
 
     corpus_sha, corpus_bytes = sha256_and_size(args.corpus)
     r103_sha, r103_bytes = sha256_and_size(args.r103)
+    ver_sha, ver_bytes = sha256_and_size(args.verified)
 
     corpus = load_corpus(args.corpus)
     arm_f = [r for r in corpus if r["sub_sha"] == FRONTIER_SHA]
@@ -255,6 +245,8 @@ def main() -> int:
             "corpus": {"path": args.corpus, "sha256": corpus_sha, "bytes": corpus_bytes,
                        "receipts_with_metrics": len(corpus)},
             "r103_replicate_sigma": {"path": args.r103, "sha256": r103_sha, "bytes": r103_bytes},
+            "replicate_identity_verified": {"path": args.verified, "sha256": ver_sha,
+                                            "bytes": ver_bytes},
         },
         "arms": {
             "frontier_sha": FRONTIER_SHA,
@@ -349,9 +341,25 @@ def main() -> int:
         comb_trim[f"fresh:{k}"] = v
     as_pool("DP-COMB-TRIM", comb_trim)
 
+    # ---- DP-VERIFIED: replicate identity re-checked over Sources/ AND Vendor/ ----
+    with open(args.verified) as fh:
+        ver = json.load(fh)
+    ver_groups = {g["group"]: [{"D": r["D"], "P": r["P"], "T": r["T"], "ts": r["ts"],
+                                "id8": r["sha12"]} for r in g["receipts"]]
+                  for g in ver["groups"] if g["verified_inert_only"]}
+    report["verified_identity"] = {
+        "identity": ver["identity"],
+        "n_groups_considered": ver["n_groups"],
+        "n_groups_verified": ver["n_verified_groups"],
+        "rejected": [{"group": g["group"], "n": g["n"], "problems": g["problems"]}
+                     for g in ver["groups"] if not g["verified_inert_only"]],
+    }
+    as_pool("DP-VERIFIED", ver_groups)
+
     report["pools"] = pools
 
     # ---- day decomposition: is any replicate group split across UTC days? ----
+    comb = ver_groups if ver_groups else comb
     across = {}
     for k, v in comb.items():
         days = sorted({utc_day(x["ts"]) for x in v if x["ts"]})
@@ -389,12 +397,13 @@ def main() -> int:
                                  "ts": x["ts"], "D": x["D"]} for x in v), key=lambda x: x["ts"]),
         }
 
-    # ---- N-0 gate: primary intervals are the widest admissible pool per axis ----
+    # ---- N-0 gate ----
+    # Primary pool is DP-VERIFIED: the narrowest defensible sigma, i.e. the hardest
+    # test for N-0. Every other pool is a wider sensitivity and is reported.
     primary = []
-    for name in ("DP-COMB", "DP-COMB-TRIM"):
-        for axis in ("ci_D", "ci_T"):
-            c = pools[name][axis]
-            primary.append({"pool": name, "axis": axis, **c})
+    for axis in ("ci_D", "ci_T"):
+        c = pools["DP-VERIFIED"][axis]
+        primary.append({"pool": "DP-VERIFIED", "axis": axis, **c})
     estimable = [c for c in primary if c.get("estimable")]
     any_covers_zero = any(c["covers_zero"] for c in estimable)
     all_estimable = len(estimable) == len(primary)

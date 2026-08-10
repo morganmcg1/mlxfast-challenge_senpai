@@ -61,28 +61,32 @@ def fetch(shas: list[str]) -> dict[str, bool]:
     return {s: have(s) for s in shas}
 
 
-def surface_files(sha: str) -> list[str]:
-    p = sh(["git", "ls-tree", "-r", "--name-only", sha, "--", "Sources", "Vendor"])
-    return sorted(x for x in p.stdout.splitlines() if x.strip())
+def surface_tree(sha: str) -> dict[str, str]:
+    """path -> git blob sha for every file under Sources/ and Vendor/."""
+    p = sh(["git", "ls-tree", "-r", sha, "--", "Sources", "Vendor"])
+    out: dict[str, str] = {}
+    for line in p.stdout.splitlines():
+        if not line.strip():
+            continue
+        meta, path = line.split("\t", 1)
+        _mode, _typ, blob = meta.split()
+        out[path] = blob
+    return out
 
 
 def strip_comment_lines(blob: bytes) -> bytes:
     return b"\n".join(ln for ln in blob.split(b"\n") if not ln.lstrip().startswith(b"//"))
 
 
-def digests(sha: str) -> tuple[str, str, int, dict[str, bytes]]:
-    files = surface_files(sha)
-    hs, hc = hashlib.sha256(), hashlib.sha256()
-    blobs: dict[str, bytes] = {}
-    for f in files:
-        blob = sh(["git", "show", f"{sha}:{f}"], binary=True).stdout
-        blobs[f] = blob
-        key = f.encode() + b"\0"
-        hs.update(key)
-        hs.update(hashlib.sha256(blob).digest())
-        hc.update(key)
-        hc.update(hashlib.sha256(strip_comment_lines(blob) if f.endswith(".swift") else blob).digest())
-    return hs.hexdigest(), hc.hexdigest(), len(files), blobs
+def blob_bytes(blob_sha: str) -> bytes:
+    return sh(["git", "cat-file", "blob", blob_sha], binary=True).stdout
+
+
+def strict_digest(tree: dict[str, str]) -> str:
+    h = hashlib.sha256()
+    for path in sorted(tree):
+        h.update(path.encode() + b"\0" + tree[path].encode() + b"\0")
+    return h.hexdigest()
 
 
 def in_multiline_literal(lines: list[bytes], idx: int) -> bool:
@@ -153,46 +157,48 @@ def main() -> int:
     avail = fetch(all_shas)
     print(f"fetched: {sum(avail.values())}/{len(all_shas)} available", flush=True)
 
-    dig: dict[str, dict] = {}
-    blobcache: dict[str, dict[str, bytes]] = {}
-    for i, s in enumerate(all_shas):
-        if not avail[s]:
-            continue
-        st, ci, nfiles, blobs = digests(s)
-        dig[s] = {"strict": st, "ci": ci, "n_files": nfiles}
-        blobcache[s] = blobs
-        if (i + 1) % 5 == 0:
-            print(f"  digested {i + 1}/{len(all_shas)}", flush=True)
+    trees: dict[str, dict[str, str]] = {}
+    for s in all_shas:
+        if avail[s]:
+            trees[s] = surface_tree(s)
+    print(f"read {len(trees)} surface trees "
+          f"({len(next(iter(trees.values()))) if trees else 0} files each)", flush=True)
+
+    bcache: dict[str, bytes] = {}
+
+    def content(blob_sha: str) -> bytes:
+        if blob_sha not in bcache:
+            bcache[blob_sha] = blob_bytes(blob_sha)
+        return bcache[blob_sha]
 
     groups_out = []
     for name, shas in sorted(cand.items()):
-        shas = [s for s in shas if s in dig]
+        shas = [s for s in shas if s in trees]
         if len(shas) < 2:
             continue
-        ci_set = {dig[s]["ci"] for s in shas}
-        strict_set = {dig[s]["strict"] for s in shas}
+        strict_set = {strict_digest(trees[s]) for s in shas}
         problems: list[str] = []
-        if len(ci_set) > 1:
-            problems.append(f"{len(ci_set)} distinct full-surface comment-insensitive digests")
-        else:
-            ref = shas[0]
-            for s in shas[1:]:
-                fa, fb = blobcache[ref], blobcache[s]
-                if set(fa) != set(fb):
-                    problems.append(f"{s[:8]}: file set differs")
+        changed_files: dict[str, int] = defaultdict(int)
+        ref = shas[0]
+        for s in shas[1:]:
+            ta, tb = trees[ref], trees[s]
+            if set(ta) != set(tb):
+                only = sorted(set(ta) ^ set(tb))[:3]
+                problems.append(f"{s[:8]}: file set differs ({only})")
+                continue
+            for f in sorted(ta):
+                if ta[f] == tb[f]:
                     continue
-                for f in sorted(fa):
-                    if fa[f] == fb[f]:
-                        continue
-                    ok, bad = inert_only(fa[f], fb[f])
-                    if not ok:
-                        problems.append(f"{s[:8]}:{f}: " + "; ".join(bad[:2]))
+                changed_files[f] += 1
+                ok, bad = inert_only(content(ta[f]), content(tb[f]))
+                if not ok:
+                    problems.append(f"{s[:8]}:{f}: " + "; ".join(bad[:2]))
         groups_out.append({
             "group": name,
             "n": len(shas),
             "shas": [s[:12] for s in shas],
             "n_distinct_strict": len(strict_set),
-            "n_distinct_ci_full_surface": len(ci_set),
+            "changed_files_vs_reference": dict(sorted(changed_files.items())),
             "verified_inert_only": not problems,
             "problems": problems[:6],
             "receipts": sorted(({"sha12": s[:12], "ts": by_sha[s]["ts"],
@@ -206,8 +212,10 @@ def main() -> int:
         "identity": ("comment-insensitive sha256 over every file under Sources/ AND Vendor/, "
                      "with every ci-equal pair line-checked so surviving differences are "
                      "full-line `//` comments outside a multiline string literal"),
-        "arms": {k: dig.get(v, {"available": False}) for k, v in
-                 (("frontier", FRONTIER_SHA), ("arm_r", ARM_R_SHA))},
+        "arms": {k: {"sha": v, "available": v in trees,
+                     "strict_digest": strict_digest(trees[v]) if v in trees else None,
+                     "n_files": len(trees.get(v, {}))}
+                 for k, v in (("frontier", FRONTIER_SHA), ("arm_r", ARM_R_SHA))},
         "n_groups": len(groups_out),
         "n_verified_groups": sum(1 for g in groups_out if g["verified_inert_only"]),
         "groups": groups_out,
@@ -219,7 +227,7 @@ def main() -> int:
     for g in groups_out:
         flag = "VERIFIED" if g["verified_inert_only"] else "REJECTED"
         print(f"  {flag:8s} {g['group']:24s} n={g['n']} strict={g['n_distinct_strict']} "
-              f"ci_full={g['n_distinct_ci_full_surface']} {g['problems'][:1]}")
+              f"{g['problems'][:1]}")
     print(f"{out['n_verified_groups']}/{out['n_groups']} groups verified -> {args.out}")
     return 0
 
