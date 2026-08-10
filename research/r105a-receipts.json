@@ -33,5 +33,12 @@
     "commit": "12f00794",
     "variant": 7,
     "queued_at": "2026-08-10T06:00:19.446Z"
+  },
+  {
+    "arm": "A1-2",
+    "submission_id": "c52994dc-6fa1-49ff-a803-80b9443eb51a",
+    "commit": "b705d69a",
+    "variant": 7,
+    "queued_at": "2026-08-10T06:42:51Z"
   }
 ]

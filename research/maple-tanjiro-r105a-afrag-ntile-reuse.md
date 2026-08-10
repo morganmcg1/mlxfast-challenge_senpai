@@ -2018,3 +2018,59 @@ right to refuse to hand-wave it. The answer is that this arm is not trying to
 create intra-TG overlap — it is trying to delete DRAM traffic that no amount of
 overlap can hide — but the resource increase is a genuine, unresolved risk and
 it is exactly what §6's A1-negative branch is for.
+
+### 7.6 A millisecond is not a currency until you name the axis
+
+This is a units correction to a campaign convention, not a refutation of a
+claim. Every recent brief and every one of my own bars prices work in "ms of
+saved wall time" using the blended constant
+
+```text
+price = 100 * (0.75 / (128000 * dec) + 0.25 / (512000 * pre)) = 0.379103 %/ms
+```
+
+with `dec = 0.0049201 s/tok` and `pre = 0.0001878 s/tok` from my n=3 control.
+That constant is the score sensitivity to a change that saves **one millisecond
+on both axes at once**. Almost nothing does. Priced per axis instead:
+
+| what actually got faster | score value | vs blended |
+|---|---|---|
+| 1 ms off the 96.149 ms prefill wall | `0.25 / 96.149 = 0.260 %/ms` | 0.69x |
+| 1 ms off the 629.82 ms decode phase | `0.75 / 629.82 = 0.119 %/ms` | 0.31x |
+| 1 ms off **each** of the 128 decode steps | `0.75 * 128 / 629.82 = 15.24 %/ms` | 40x |
+
+So an unqualified "1 ms" spans **128x** from the cheapest reading (decode
+phase, 0.119) to the dearest (per decode step, 15.24), and **58.6x** between the
+two readings that actual arms compete on (prefill wall vs per decode step). The
+blended price is not a midpoint of anything — it is the value of a coordinated
+saving that most candidate arms cannot deliver.
+
+Three concrete corrections this forces on my own numbers:
+
+1. My preregistered `BAR_MS = 1.35` bar is a **prefill-only** bar for this
+   family (§4.4.10: the knob is structurally unreachable in decode). Blended,
+   it reads as 1.35 ms of work; correctly priced it is
+   `1.35 * 0.379103 / 0.260 = 1.97 ms` of prefill wall, a 2.05 % cut. The
+   blended price overstates a prefill-only saving by **1.46x**.
+2. The current record-beating bar (3.803 ms blended, `+1.438 %` of score)
+   becomes **5.53 ms of prefill wall** for a prefill-only mechanism — 5.8 % of
+   the prefill wall, from a kernel family the advisor's own roofline puts
+   within ~1.9x of DRAM-bandwidth-bound.
+3. The brief's headline prize, "~8.4 ms of prefill-only opportunity", is worth
+   `8.4 * 0.260 = 2.18 %` of score, not the `8.4 * 0.379 = 3.18 %` a blended
+   reading implies. §7.2 already disputes whether those 8.4 ms exist at all
+   (the traffic is bandwidth-bound, not tile-bound); this is the separate point
+   that even if they did exist they are worth ~two thirds of the quoted amount.
+
+The asymmetry also gives a cheap prioritisation rule that costs nothing to
+adopt: **per-step decode work is worth 58.6x prefill wall time per millisecond**
+(15.24 vs 0.260). Clearing my 1.35 ms bar needs 1.97 ms off prefill, or
+**0.0336 ms off one decode step** — 0.68 % of the 4.92 ms step. A decode-side
+arm with one-sixtieth of the mechanical leverage of a prefill arm is still the
+better bet, which is the honest reason this assignment's family was a poor
+place to spend six ranked receipts and the reason §4.4.10's follow-ups are all
+decode-side.
+
+Recommendation: quote `%`-of-score directly, or quote ms **with the axis named**
+(`ms_prefill_wall`, `ms_decode_phase`, `ms_per_decode_step`). I have used
+`ms_prefill_wall` wherever this log converts.
