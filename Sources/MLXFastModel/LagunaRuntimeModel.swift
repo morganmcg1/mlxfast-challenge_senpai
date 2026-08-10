@@ -100,7 +100,7 @@ func lagunaTrace(_ site: @autoclosure () -> String) {
 private enum LagunaPrefillFenceMode: String {
     case off
     case control
-    case bankPlusTail = "bank-plus-tail"
+    case fullQKH1 = "full-qk-h1"
 
     static let selected = LagunaPrefillFenceMode(
         rawValue: ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_FENCE_MODE"] ?? "off"
@@ -118,7 +118,9 @@ private final class LagunaPrefillFenceProbe: @unchecked Sendable {
     private var measurementNs: UInt64 = 0
     private var siteCount = 0
     private var completedSiteCount = 0
-    private var routeCount = 0
+    private var dispatchCount = 0
+    private var queryRowCount = 0
+    private var keyRowCount = 0
 
     func beginPass(sequenceLength: Int) {
         active = sequenceLength == 512
@@ -126,17 +128,23 @@ private final class LagunaPrefillFenceProbe: @unchecked Sendable {
         measurementNs = 0
         siteCount = 0
         completedSiteCount = 0
-        routeCount = 0
+        dispatchCount = 0
+        queryRowCount = 0
+        keyRowCount = 0
     }
 
-    func beginSite(_ inputs: [MLXArray], routeCount: Int) -> LagunaPrefillFenceTicket? {
-        guard active else { return nil }
+    func beginSite(
+        _ inputs: [MLXArray], queryRows: Int, keyRows: Int
+    ) -> LagunaPrefillFenceTicket? {
+        guard active, lagunaPrefillQKHeadsPerGroup == 1 else { return nil }
         siteCount += 1
-        self.routeCount += routeCount
+        dispatchCount += 1
+        queryRowCount += queryRows
+        keyRowCount += keyRows
         switch mode {
         case .off:
             return LagunaPrefillFenceTicket(measurementStartNs: nil)
-        case .control, .bankPlusTail:
+        case .control, .fullQKH1:
             let boundaryStart = DispatchTime.now().uptimeNanoseconds
             eval(inputs)
             boundaryNs += DispatchTime.now().uptimeNanoseconds - boundaryStart
@@ -150,20 +158,19 @@ private final class LagunaPrefillFenceProbe: @unchecked Sendable {
         }
     }
 
-    func finishSite(_ output: MLXArray, ticket: LagunaPrefillFenceTicket?) -> MLXArray {
-        guard active, let ticket else { return output }
+    func finishSite(_ outputs: [MLXArray], ticket: LagunaPrefillFenceTicket?) {
+        guard active, let ticket else { return }
         if let measurementStart = ticket.measurementStartNs {
-            eval(output)
+            eval(outputs)
             measurementNs += DispatchTime.now().uptimeNanoseconds - measurementStart
         }
         completedSiteCount += 1
-        return output
     }
 
     func endPass() {
         guard active else { return }
         let record =
-            "mlxfast: prefill-fence {\"mode\":\"\(mode.rawValue)\",\"site_count\":\(siteCount),\"completed_site_count\":\(completedSiteCount),\"route_count\":\(routeCount),\"boundary_ns\":\(boundaryNs),\"measurement_ns\":\(measurementNs)}\n"
+            "mlxfast: prefill-fence {\"mode\":\"\(mode.rawValue)\",\"site_count\":\(siteCount),\"completed_site_count\":\(completedSiteCount),\"dispatch_count\":\(dispatchCount),\"query_row_count\":\(queryRowCount),\"key_row_count\":\(keyRowCount),\"heads_per_group\":\(lagunaPrefillQKHeadsPerGroup),\"boundary_ns\":\(boundaryNs),\"measurement_ns\":\(measurementNs)}\n"
         FileHandle.standardError.write(Data(record.utf8))
         active = false
     }
@@ -6166,6 +6173,8 @@ final class LagunaRuntimeAttention: Module {
         } else if usePrefillFusedFullQKNormYaRN,
             let angles = qkRoPEAngles, let offsets = qkRoPEOffsets
         {
+            let fenceTicket = lagunaPrefillFenceProbe.beginSite(
+                [queries, keys], queryRows: L, keyRows: L)
             (queries, keys) = lagunaPrefillFullQKNormYaRN(
                 rawQueries: queries,
                 rawKeys: keys,
@@ -6175,6 +6184,8 @@ final class LagunaRuntimeAttention: Module {
                 offsets: offsets,
                 length: L
             )
+            lagunaPrefillFenceProbe.finishSite(
+                [queries, keys], ticket: fenceTicket)
             qkNormRoPEFused = true
         } else {
             queries =
@@ -10905,7 +10916,6 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
             // produced, so every consumer below (including the
             // `lagunaPrefillMoETailEnabled` tail fusion) is unaffected by
             // which branch ran.
-            var fenceTicket: LagunaPrefillFenceTicket?
             if lagunaPrefillFusedRoutedGateUpEnabled,
                 let fusedWeight = _fusedRoutedGateUpWeight,
                 let fusedScales = _fusedRoutedGateUpScales,
@@ -10933,8 +10943,6 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                         pairwiseDownScales == nil ? "inactive" : "active",
                         "packed routed down prefill scale view consumed")
                 }
-                fenceTicket = lagunaPrefillFenceProbe.beginSite(
-                    [x, residual ?? x, inds, weights], routeCount: inds.size)
                 let routed = lagunaFusedSortedRoutedGateUp(
                     x,
                     indices: inds,
@@ -10974,14 +10982,13 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 let sharedOut = sharedExpert(x)
                 if sharedOut.dtype == .bfloat16, sharedOut.sameDims(residual) {
                     lagunaTrace("prefill sorted moe tail")
-                    let output = lagunaPrefillSortedMoETail(
+                    return lagunaPrefillSortedMoETail(
                         sortedExpertOutputs: y,
                         inverseOrder: inverseOrder,
                         routerWeights: weights,
                         sharedOutput: sharedOut,
                         residual: residual
                     )
-                    return lagunaPrefillFenceProbe.finishSite(output, ticket: fenceTicket)
                 }
                 // Preserve the stock fallback for an unexpected shared-expert
                 // shape while reusing the already-built shared output.

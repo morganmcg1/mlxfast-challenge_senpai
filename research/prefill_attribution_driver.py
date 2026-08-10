@@ -167,26 +167,27 @@ def attach_fence_records(warmups, samples, records, expected_mode):
         )
     initialization_records = records[:-requested_count]
     request_records = records[-requested_count:]
-    expected_sites = 38
+    expected_census = {
+        "site_count": 10,
+        "completed_site_count": 10,
+        "dispatch_count": 10,
+        "query_row_count": 5_120,
+        "key_row_count": 5_120,
+        "heads_per_group": 1,
+    }
     for record in request_records:
         if record.get("mode") != expected_mode:
             raise RuntimeError(
                 f"fence mode {record.get('mode')!r} does not match {expected_mode!r}"
             )
-        if record.get("site_count") != expected_sites:
-            raise RuntimeError(
-                f"fence site count {record.get('site_count')} does not match {expected_sites}"
-            )
-        if record.get("completed_site_count") != expected_sites:
-            raise RuntimeError(
-                "fence completed-site count "
-                f"{record.get('completed_site_count')} does not match {expected_sites}"
-            )
+        for field, expected in expected_census.items():
+            if record.get(field) != expected:
+                raise RuntimeError(
+                    f"fence {field} {record.get(field)!r} does not match {expected}"
+                )
         for field in ("boundary_ns", "measurement_ns"):
             if not isinstance(record.get(field), int) or record[field] < 0:
                 raise RuntimeError(f"invalid fence field {field}: {record.get(field)!r}")
-        if not isinstance(record.get("route_count"), int) or record["route_count"] <= 0:
-            raise RuntimeError(f"invalid fence route count: {record.get('route_count')!r}")
     for request, fence in zip([*warmups, *samples], request_records):
         request["fence"] = fence
     return initialization_records
@@ -278,50 +279,103 @@ def arm_sample_values(arm, metric):
     raise ValueError(f"unknown arm metric: {metric}")
 
 
-def balanced_arm_comparison(arms, candidate_mode, metric, bootstrap_samples, seed):
-    baseline_arms = [arm for arm in arms if arm["controls"]["fence_mode"] == "off"]
-    candidate_arms = [
-        arm for arm in arms if arm["controls"]["fence_mode"] == candidate_mode
-    ]
-    if not baseline_arms or len(baseline_arms) != len(candidate_arms):
-        raise ValueError("matrix comparison requires balanced non-empty mode arms")
+def balanced_arm_comparison(
+    arms, baseline_mode, candidate_mode, metric, bootstrap_samples, seed
+):
+    if len(arms) < 8 or len(arms) % 4:
+        raise ValueError("matrix comparison requires complete mirrored four-arm blocks")
 
-    baseline_values = [arm_sample_values(arm, metric) for arm in baseline_arms]
-    candidate_values = [arm_sample_values(arm, metric) for arm in candidate_arms]
-    baseline_arm_medians = [statistics.median(values) for values in baseline_values]
-    candidate_arm_medians = [statistics.median(values) for values in candidate_values]
-    baseline_ms = statistics.fmean(baseline_arm_medians)
-    candidate_ms = statistics.fmean(candidate_arm_medians)
-    delta_ms = candidate_ms - baseline_ms
+    block_data = []
+    strata = {"ABBA": [], "BAAB": []}
+    for block_index in range(len(arms) // 4):
+        block = arms[block_index * 4 : block_index * 4 + 4]
+        modes = [arm["controls"]["fence_mode"] for arm in block]
+        if modes == [baseline_mode, candidate_mode, candidate_mode, baseline_mode]:
+            order_name = "ABBA"
+        elif modes == [candidate_mode, baseline_mode, baseline_mode, candidate_mode]:
+            order_name = "BAAB"
+        else:
+            raise ValueError(f"invalid mirrored block order: {modes}")
+        values = [arm_sample_values(arm, metric) for arm in block]
+        medians = [statistics.median(samples) for samples in values]
+        baseline_medians = [
+            median for median, mode in zip(medians, modes) if mode == baseline_mode
+        ]
+        candidate_medians = [
+            median for median, mode in zip(medians, modes) if mode == candidate_mode
+        ]
+        baseline_ms = statistics.fmean(baseline_medians)
+        candidate_ms = statistics.fmean(candidate_medians)
+        block_data.append(
+            {
+                "block_index": block_index,
+                "order_name": order_name,
+                "order": modes,
+                "values": values,
+                "arm_medians_ms": medians,
+                "baseline_ms": baseline_ms,
+                "candidate_ms": candidate_ms,
+                "delta_ms": candidate_ms - baseline_ms,
+            }
+        )
+        strata[order_name].append(block_index)
+    if not all(strata.values()):
+        raise ValueError("matrix comparison requires both ABBA and BAAB blocks")
+
+    baseline_ms = statistics.fmean(block["baseline_ms"] for block in block_data)
+    candidate_ms = statistics.fmean(block["candidate_ms"] for block in block_data)
+    delta_ms = statistics.fmean(block["delta_ms"] for block in block_data)
 
     rng = random.Random(seed)
     deltas_ms = []
     for _ in range(bootstrap_samples):
-        resampled_baseline_ms = statistics.fmean(
-            statistics.median(rng.choices(values, k=len(values)))
-            for values in baseline_values
-        )
-        resampled_candidate_ms = statistics.fmean(
-            statistics.median(rng.choices(values, k=len(values)))
-            for values in candidate_values
-        )
-        deltas_ms.append(resampled_candidate_ms - resampled_baseline_ms)
+        resampled_block_deltas = []
+        for order_name in ("ABBA", "BAAB"):
+            block_indices = strata[order_name]
+            for selected_index in rng.choices(block_indices, k=len(block_indices)):
+                selected = block_data[selected_index]
+                medians = [
+                    statistics.median(rng.choices(values, k=len(values)))
+                    for values in selected["values"]
+                ]
+                baseline_medians = [
+                    median
+                    for median, mode in zip(medians, selected["order"])
+                    if mode == baseline_mode
+                ]
+                candidate_medians = [
+                    median
+                    for median, mode in zip(medians, selected["order"])
+                    if mode == candidate_mode
+                ]
+                resampled_block_deltas.append(
+                    statistics.fmean(candidate_medians)
+                    - statistics.fmean(baseline_medians)
+                )
+        deltas_ms.append(statistics.fmean(resampled_block_deltas))
     ci_lower_ms = percentile(deltas_ms, 0.025)
     ci_upper_ms = percentile(deltas_ms, 0.975)
     return {
         "metric": metric,
-        "baseline_mode": "off",
+        "baseline_mode": baseline_mode,
         "candidate_mode": candidate_mode,
-        "baseline_arm_count": len(baseline_arms),
-        "candidate_arm_count": len(candidate_arms),
-        "samples_per_arm": [len(values) for values in baseline_values + candidate_values],
-        "baseline_arm_medians_ms": baseline_arm_medians,
-        "candidate_arm_medians_ms": candidate_arm_medians,
+        "baseline_arm_count": sum(
+            arm["controls"]["fence_mode"] == baseline_mode for arm in arms
+        ),
+        "candidate_arm_count": sum(
+            arm["controls"]["fence_mode"] == candidate_mode for arm in arms
+        ),
+        "samples_per_arm": [len(arm_sample_values(arm, metric)) for arm in arms],
         "balanced_baseline_ms": baseline_ms,
         "balanced_candidate_ms": candidate_ms,
         "delta_ms": delta_ms,
         "perturbation_percent": delta_ms / baseline_ms * 100 if baseline_ms else None,
+        "blocks": [
+            {key: value for key, value in block.items() if key != "values"}
+            for block in block_data
+        ],
         "bootstrap": {
+            "method": "stratified mirrored-block and within-arm request resampling",
             "iterations": bootstrap_samples,
             "seed": seed,
             "delta_95ci_lower_ms": ci_lower_ms,
@@ -336,25 +390,26 @@ def balanced_arm_comparison(arms, candidate_mode, metric, bootstrap_samples, see
 
 def parse_matrix_order(value):
     order = [mode.strip() for mode in value.split(",") if mode.strip()]
-    allowed = {"off", "control", "bank-plus-tail"}
+    allowed = {"off", "control", "full-qk-h1"}
     if any(mode not in allowed for mode in order):
         raise ValueError(f"matrix order contains unsupported mode: {order}")
-    if len(order) != 8 or order[0] != "off" or len(set(order)) != 2:
-        raise ValueError("matrix order must contain eight arms, begin off, and use two modes")
-    candidate_mode = next(mode for mode in order if mode != "off")
+    if len(order) < 8 or len(order) % 8 or len(set(order)) != 2:
+        raise ValueError("matrix order must contain complete mirrored eight-arm superblocks")
+    baseline_mode, candidate_mode = order[:2]
     expected = [
-        "off",
+        baseline_mode,
         candidate_mode,
         candidate_mode,
-        "off",
+        baseline_mode,
         candidate_mode,
-        "off",
-        "off",
+        baseline_mode,
+        baseline_mode,
         candidate_mode,
     ]
-    if order != expected:
-        raise ValueError("matrix order must be mirrored A-B-B-A then B-A-A-B")
-    return order, candidate_mode
+    for start in range(0, len(order), 8):
+        if order[start : start + 8] != expected:
+            raise ValueError("matrix order must repeat mirrored A-B-B-A then B-A-A-B")
+    return order, baseline_mode, candidate_mode
 
 
 def matrix_child_command(args, mode, arm_index, output_path):
@@ -426,10 +481,11 @@ def run_matrix(args):
             raise ValueError("inspect-only is not supported with matrix-order")
         if args.worker_stderr is not None:
             raise ValueError("worker-stderr cannot be shared across matrix arms")
-        order, candidate_mode = parse_matrix_order(args.matrix_order)
+        order, baseline_mode, candidate_mode = parse_matrix_order(args.matrix_order)
         base["controls"].update(
             {
                 "matrix_order": order,
+                "baseline_mode": baseline_mode,
                 "candidate_mode": candidate_mode,
                 "ordering": "A-B-B-A then B-A-A-B",
                 "fresh_worker_per_arm": True,
@@ -476,18 +532,37 @@ def run_matrix(args):
         tokens = {sample["token"] for arm in results for sample in arm["samples"]}
         if len(tokens) != 1:
             raise RuntimeError(f"matrix arms returned different tokens: {tokens}")
-        route_counts = {
-            sample["fence"]["route_count"]
-            for arm in results
-            for sample in arm["samples"]
+        census_fields = (
+            "site_count",
+            "completed_site_count",
+            "dispatch_count",
+            "query_row_count",
+            "key_row_count",
+            "heads_per_group",
+        )
+        observed_census = {
+            field: sorted(
+                {
+                    sample["fence"][field]
+                    for arm in results
+                    for sample in arm["samples"]
+                }
+            )
+            for field in census_fields
         }
-        if len(route_counts) != 1:
-            raise RuntimeError(f"matrix arms returned different route counts: {route_counts}")
+        inconsistent_census = {
+            field: values for field, values in observed_census.items() if len(values) != 1
+        }
+        if inconsistent_census:
+            raise RuntimeError(
+                f"matrix arms returned inconsistent dispatch census: {inconsistent_census}"
+            )
 
         metrics = ("elapsed_ms", "boundary_ms", "measurement_ms")
         comparisons = {
             metric: balanced_arm_comparison(
                 results,
+                baseline_mode,
                 candidate_mode,
                 metric,
                 args.bootstrap_samples,
@@ -495,30 +570,26 @@ def run_matrix(args):
             )
             for metric in metrics
         }
-        blocks = []
-        for block_index, block in enumerate((results[:4], results[4:])):
-            blocks.append(
-                {
-                    "block_index": block_index,
-                    "order": [arm["controls"]["fence_mode"] for arm in block],
-                    "elapsed_ms": balanced_arm_comparison(
-                        block,
-                        candidate_mode,
-                        "elapsed_ms",
-                        args.bootstrap_samples,
-                        args.bootstrap_seed + 100 + block_index,
-                    ),
-                }
-            )
+        mirrored_blocks = [
+            {
+                "block_index": block_index,
+                "order": comparisons["elapsed_ms"]["blocks"][block_index]["order"],
+                "metrics": {
+                    metric: comparisons[metric]["blocks"][block_index]
+                    for metric in metrics
+                },
+            }
+            for block_index in range(len(results) // 4)
+        ]
         base.update(
             {
                 "status": "succeeded",
                 "finished_at_utc": utc_now(),
                 "worker_sha256": next(iter(worker_hashes)),
                 "observed_tokens": sorted(tokens),
-                "observed_route_counts": sorted(route_counts),
+                "observed_census": observed_census,
                 "comparisons": comparisons,
-                "mirrored_blocks": blocks,
+                "mirrored_blocks": mirrored_blocks,
                 "statistics": comparisons["elapsed_ms"],
             }
         )
@@ -571,7 +642,7 @@ def parse_args():
     parser.add_argument("--bootstrap-seed", type=int, default=646)
     parser.add_argument(
         "--fence-mode",
-        choices=("off", "control", "bank-plus-tail"),
+        choices=("off", "control", "full-qk-h1"),
         default="off",
     )
     parser.add_argument(
@@ -730,9 +801,17 @@ def main():
             fence_records,
             args.fence_mode,
         )
-        route_counts = {sample["fence"]["route_count"] for sample in samples}
-        if len(route_counts) != 1:
-            raise RuntimeError(f"samples returned different route counts: {route_counts}")
+        observed_census = {
+            field: sorted({sample["fence"][field] for sample in samples})
+            for field in (
+                "site_count",
+                "completed_site_count",
+                "dispatch_count",
+                "query_row_count",
+                "key_row_count",
+                "heads_per_group",
+            )
+        }
         samples_ms = [sample["elapsed_ms"] for sample in samples]
         boundary_ms = [sample["fence"]["boundary_ns"] / 1_000_000 for sample in samples]
         measurement_ms = [
@@ -748,7 +827,7 @@ def main():
                     "mode": args.fence_mode,
                     "record_count": len(fence_records),
                     "initialization_records": initialization_fence_records,
-                    "observed_route_counts": sorted(route_counts),
+                    "observed_census": observed_census,
                     "boundary_statistics": summarize(
                         boundary_ms,
                         args.bootstrap_samples,
