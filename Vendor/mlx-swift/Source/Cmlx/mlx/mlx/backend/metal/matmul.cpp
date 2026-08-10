@@ -243,8 +243,12 @@ void steel_matmul_regular_axpby_nax(
       transpose_b && lda == 2048 && ldb == 2048 && ldd == 8192 &&
       a.dtype() == bfloat16 && b.dtype() == bfloat16 &&
       c.dtype() == bfloat16 && out.dtype() == bfloat16 && alpha == 1.0f &&
-      beta == 0.0f && c.ndim() >= 2 && c.strides()[c.ndim() - 2] == 384 &&
-      c.strides()[c.ndim() - 1] == 0;
+      beta == 0.0f && c.ndim() == 3 && c.shape(0) == 1 &&
+      c.shape(1) == 512 && c.shape(2) == 8192 && c.strides()[0] == 0 &&
+      c.strides()[1] == 384 && c.strides()[2] == 0 && c.offset() >= 0 &&
+      c.offset() % (384 * c.itemsize()) == 0 &&
+      static_cast<size_t>(c.offset()) + 512 * 384 * c.itemsize() <=
+          c.buffer_size();
   if (laguna_qkv) {
     bm = 64;
     bn = 128;
@@ -427,8 +431,12 @@ void steel_matmul_regular_axpby(
       transpose_b && lda == 2048 && ldb == 2048 && ldd == 8192 &&
       a.dtype() == bfloat16 && b.dtype() == bfloat16 &&
       c.dtype() == bfloat16 && out.dtype() == bfloat16 && alpha == 1.0f &&
-      beta == 0.0f && c.ndim() >= 2 && c.strides()[c.ndim() - 2] == 384 &&
-      c.strides()[c.ndim() - 1] == 0;
+      beta == 0.0f && c.ndim() == 3 && c.shape(0) == 1 &&
+      c.shape(1) == 512 && c.shape(2) == 8192 && c.strides()[0] == 0 &&
+      c.strides()[1] == 384 && c.strides()[2] == 0 && c.offset() >= 0 &&
+      c.offset() % (384 * c.itemsize()) == 0 &&
+      static_cast<size_t>(c.offset()) + 512 * 384 * c.itemsize() <=
+          c.buffer_size();
   if (laguna_qkv) {
     bm = 64;
     bn = 128;
