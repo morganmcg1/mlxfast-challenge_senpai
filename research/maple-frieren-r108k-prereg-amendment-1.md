@@ -205,3 +205,50 @@ completed all three of its runs by then is discarded whole; partial blocks are n
 analysed, because the estimator is defined only against a block's own control anchor.
 If four blocks are still not complete, `P-INDETERMINATE-UNDERPOWERED` is reported with
 the achieved half-width, exactly as §4 requires.
+
+## 9. Instrument caveat — the probe prices *out-of-encoder* dispatches (declared 17:26Z)
+
+Recorded before any verdict, while only blocks 1-2 existed. This is a limitation of the
+instrument, not a change to any estimator or threshold.
+
+**What the knob actually adds.** `lagunaInjectLayerWork` is called at
+`Sources/MLXFastModel/LagunaRuntimeModel.swift:11715`, *after* the layer body, and it
+terminates in its own `asyncEval(pending)` at `:12143`. In MLX an eval boundary runs
+`gpu::finalize`, which calls `end_encoding()` then `commit()`
+(`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/eval.cpp:71-77`,
+`.../metal/device.cpp:456-465` and `:526-529`). The injected kernels read only
+pre-evaluated inputs (`:12071`, `scratch.control[7]` at `:12130`), so the real layer
+graph is never a dependency of the injected roots and the injected tape is encoded
+alone. The decode fire mask defaults to seven layers (`:747`), so on the other layers
+the real work is still lazy and is not co-encoded.
+
+**Consequence.** The injected dispatches do **not** share an encoder with the real
+QKV/gate dispatches. Each injecting layer adds its own encoder *and* its own command
+buffer — up to 40 extra command buffers per decode step. The knob therefore prices
+"one more dispatch plus its share of a fresh encoder and command-buffer submission",
+which is an *upper bound* on the marginal cost of one more dispatch inside an encoder
+that already exists.
+
+**Asymmetric evidential force — this narrows the advisor's decision rule.** The merge
+candidate removes an already-concurrent dispatch from *inside* an existing encoder, so
+it can only ever recover the in-encoder component:
+
+- A **null** arm F is strong evidence against the merge programme. The instrument
+  over-states the available saving in three separate ways (extra encoder, extra command
+  buffer, and arm F alone appending `N` graph roots to `pending` at `:12137` where the
+  chained arms append one at `:12140`), and a null survives all three inflations. An
+  upper bound of zero is a kill.
+- A **positive** arm F slope does **not** license the merge, because the whole effect
+  could be encoder and command-buffer overhead that an in-encoder merge cannot recover.
+
+So PR #660 comment 6's "≥ 0.8 ⇒ build the merge" branch is not reachable from this
+instrument. If arm F lands high, the honest report is `P-INDETERMINATE` plus a named
+follow-up (a Metal capture counting command buffers per decode step with and without
+the knob) rather than a build authorisation. The "≲ 0.3 ⇒ programme dead" branch is
+unaffected and remains fully supported.
+
+**Verified independently of the estimators.** `CustomKernel::eval_gpu` dispatches
+unconditionally (`.../metal/custom_kernel.cpp:117`) and the `control[0] == 0xFFFFFFFFu`
+early-out at `:12042-12046` is a runtime device read, so no injected dispatch is folded
+away, fused, or dead-code eliminated. The knob does real GPU work; the question is only
+*where* that work sits.
