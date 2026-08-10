@@ -3,6 +3,7 @@ import MLX
 import MLXLMCommon
 import MLXNN
 import Testing
+@testable import MLXFastModel
 
 @Test
 func nvfp4Group16SplitKMatmulMatchesDequantizedReferenceWhenRuntimeTestsAreEnabled() {
@@ -327,4 +328,177 @@ private func expectFiniteClose(
         maximumError <= tolerance,
         Comment(rawValue: "\(label) max error \(maximumError) > \(tolerance)")
     )
+}
+
+@Test
+func terminalPrefillSlidingQKNormRoPEMatchesStockPipelineWhenRuntimeTestsAreEnabled() {
+    guard ProcessInfo.processInfo.environment["MLXFAST_RUN_MLX_RUNTIME_TESTS"] == "1" else {
+        return
+    }
+
+    for length in [2, 511, 512, 513] {
+        let fixture = TerminalPrefillQKFixture(length: length)
+        for offset in [0, 17] {
+            let actual = fixture.fused(offset: offset)
+            let reference = fixture.stock(offset: offset)
+            eval(actual.queries, actual.keys, reference.queries, reference.keys)
+            #expect(
+                arrayEqual(actual.queries, reference.queries).item(Bool.self),
+                Comment(rawValue: "query mismatch at length=\(length), offset=\(offset)")
+            )
+            #expect(
+                arrayEqual(actual.keys, reference.keys).item(Bool.self),
+                Comment(rawValue: "key mismatch at length=\(length), offset=\(offset)")
+            )
+        }
+    }
+}
+
+@Test
+func terminalPrefillSlidingQKNormRoPEIsolatedTimingWhenEnabled() {
+    guard ProcessInfo.processInfo.environment["MLXFAST_RUN_TERMINAL_PREFILL_QK_TIMING"] == "1" else {
+        return
+    }
+
+    let fixture = TerminalPrefillQKFixture(length: 512)
+    for _ in 0..<16 {
+        let stock = fixture.stock(offset: 17)
+        eval(stock.queries, stock.keys)
+        let fused = fixture.fused(offset: 17)
+        eval(fused.queries, fused.keys)
+    }
+
+    let abba = measureTerminalPrefillQK(
+        fixture: fixture,
+        ordering: [.stock, .fused, .fused, .stock],
+        cycles: 128
+    )
+    let baab = measureTerminalPrefillQK(
+        fixture: fixture,
+        ordering: [.fused, .stock, .stock, .fused],
+        cycles: 128
+    )
+
+    for (label, result) in [("A-B-B-A", abba), ("B-A-A-B", baab)] {
+        let speedup = Double(result.stockNanoseconds) / Double(result.fusedNanoseconds)
+        print(
+            "TERMINAL_PREFILL_QK_TIMING ordering=\(label) repetitions=\(result.repetitions) "
+                + "stock_ns=\(result.stockNanoseconds) fused_ns=\(result.fusedNanoseconds) "
+                + "speedup=\(speedup)"
+        )
+        #expect(
+            result.repetitions >= 256,
+            Comment(rawValue: "\(label) collected too few repetitions")
+        )
+        #expect(
+            speedup >= 1.05,
+            Comment(rawValue: "\(label) isolated speedup \(speedup) is below 1.05")
+        )
+    }
+}
+
+private struct TerminalPrefillQKFixture {
+    let length: Int
+    let rawQueries: MLXArray
+    let rawKeys: MLXArray
+    let queryWeight: MLXArray
+    let keyWeight: MLXArray
+    let angles: MLXArray
+    let rope: RoPE
+
+    init(length: Int) {
+        self.length = length
+        self.rawQueries = patternedBF16(count: 64 * 128, period: 251, divisor: 64)
+            .reshaped(1, 1, 64 * 128)
+        self.rawKeys = patternedBF16(count: length * 8 * 128, period: 241, divisor: 72)
+            .reshaped(1, length, 8 * 128)
+        self.queryWeight = patternedBF16(count: 128, period: 17, divisor: 128, bias: 1)
+        self.keyWeight = patternedBF16(count: 128, period: 19, divisor: 144, bias: 1)
+        self.rope = RoPE(dimensions: 128, traditional: false, base: 10_000, scale: 1)
+        let seed = MLXArray(
+            Array(repeating: Float(1), count: 64) + Array(repeating: Float(0), count: 64),
+            [1, 1, 1, 128]
+        )
+        self.angles = rope(broadcast(seed, to: [1, 1, 4096, 128]), offset: 0)
+        eval(rawQueries, rawKeys, queryWeight, keyWeight, angles)
+    }
+
+    func stock(offset: Int) -> (queries: MLXArray, keys: MLXArray) {
+        let queries = MLXFast.rmsNorm(
+            rawQueries.reshaped(1, 1, 64, 128),
+            weight: queryWeight,
+            eps: 1e-6
+        ).transposed(0, 2, 1, 3)
+        let keys = MLXFast.rmsNorm(
+            rawKeys.reshaped(1, length, 8, 128),
+            weight: keyWeight,
+            eps: 1e-6
+        ).transposed(0, 2, 1, 3)
+        return (
+            rope(queries, offset: offset + length - 1),
+            rope(keys, offset: offset)
+        )
+    }
+
+    func fused(offset: Int) -> (queries: MLXArray, keys: MLXArray) {
+        lagunaTerminalPrefillSlidingQKNormRoPE(
+            rawQueries: rawQueries,
+            rawKeys: rawKeys,
+            queryWeight: queryWeight,
+            keyWeight: keyWeight,
+            angles: angles,
+            offsets: MLXArray([Int32(offset)]),
+            length: length
+        )
+    }
+}
+
+private enum TerminalPrefillQKArm {
+    case stock
+    case fused
+}
+
+private func measureTerminalPrefillQK(
+    fixture: TerminalPrefillQKFixture,
+    ordering: [TerminalPrefillQKArm],
+    cycles: Int
+) -> (stockNanoseconds: UInt64, fusedNanoseconds: UInt64, repetitions: Int) {
+    var stockNanoseconds: UInt64 = 0
+    var fusedNanoseconds: UInt64 = 0
+    var stockRepetitions = 0
+    var fusedRepetitions = 0
+
+    for _ in 0..<cycles {
+        for arm in ordering {
+            let start = DispatchTime.now().uptimeNanoseconds
+            let output = switch arm {
+            case .stock: fixture.stock(offset: 17)
+            case .fused: fixture.fused(offset: 17)
+            }
+            eval(output.queries, output.keys)
+            let elapsed = DispatchTime.now().uptimeNanoseconds - start
+            switch arm {
+            case .stock:
+                stockNanoseconds += elapsed
+                stockRepetitions += 1
+            case .fused:
+                fusedNanoseconds += elapsed
+                fusedRepetitions += 1
+            }
+        }
+    }
+
+    #expect(stockRepetitions == fusedRepetitions)
+    return (stockNanoseconds, fusedNanoseconds, stockRepetitions)
+}
+
+private func patternedBF16(
+    count: Int,
+    period: Int,
+    divisor: Float,
+    bias: Float = 0
+) -> MLXArray {
+    let midpoint = period / 2
+    let values = (0..<count).map { bias + Float($0 % period - midpoint) / divisor }
+    return MLXArray(values).asType(.bfloat16)
 }
