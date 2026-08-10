@@ -279,6 +279,8 @@ let lagunaFusedResidualRMSNormEnabled =
 let lagunaPrefillFusedResidualRMSNormEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_FUSED_RESIDUAL_RMS"] != "0"
 
+let lagunaPrefillInputRMSRPG4Enabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_INPUT_RMS_RPG4"] == "1"
 
 /// One output row per simdgroup for the default split routed gate/up decode
 /// QMV. Official submission `b56a6d9` passed all 1,344 exact-token checks:
@@ -1098,6 +1100,77 @@ for (uint i = 0; i < n_reads; ++i) {
 """,
     ensureRowContiguous: true
 )
+
+private let lagunaPrefillInputRMSRPG4Kernel = MLXFast.metalKernel(
+    name: "laguna_prefill_input_rms_bf16_2048_rpg4_v1",
+    inputNames: ["input", "weight"],
+    outputNames: ["output"],
+    source: """
+constexpr uint axis_size = 2048;
+constexpr uint n_reads = 4;
+constexpr uint rows_per_group = 4;
+constexpr uint simd_size = 32;
+
+uint group = threadgroup_position_in_grid.x;
+uint lid = thread_position_in_threadgroup.x;
+uint simd_lane = thread_index_in_simdgroup;
+uint simd_group = simdgroup_index_in_threadgroup;
+uint column = lid * n_reads;
+
+\(lagunaNormInvMeanScratch)
+threadgroup float local_sums[simd_size];
+thread bfloat weights[n_reads];
+for (uint i = 0; i < n_reads; ++i) {
+    weights[i] = weight[column + i];
+}
+
+for (uint r = 0; r < rows_per_group; ++r) {
+    uint base = (group * rows_per_group + r) * axis_size + column;
+    thread float values[n_reads];
+    float acc = 0.0f;
+    for (uint i = 0; i < n_reads; ++i) {
+        float value = float(input[base + i]);
+        values[i] = value;
+        acc += value * value;
+    }
+    acc = simd_sum(acc);
+    \(lagunaNormReductionTail2048)
+    for (uint i = 0; i < n_reads; ++i) {
+        output[base + i] =
+            weights[i] * bfloat(values[i] * laguna_inv_mean);
+    }
+}
+""",
+    ensureRowContiguous: true
+)
+
+func lagunaPrefillInputRMSRPG4(
+    _ input: MLXArray, weight: MLXArray, epsilon: Float
+) -> MLXArray? {
+    guard lagunaPrefillInputRMSRPG4Enabled,
+        input.dtype == .bfloat16, input.ndim == 3,
+        input.dim(0) == 1, input.dim(2) == LagunaConstants.hiddenSize,
+        input.dim(1) > 1, input.dim(1) % 4 == 0,
+        weight.dtype == .bfloat16, weight.dims(LagunaConstants.hiddenSize),
+        epsilon == Float(LagunaConstants.rmsNormEpsilon)
+    else { return nil }
+
+    let rows = input.dim(1)
+    if ProcessInfo.processInfo.environment[
+        "DARKBLOOM_TRACE_PREFILL_INPUT_RMS_RPG4_CENSUS"] == "1"
+    {
+        FileHandle.standardError.write(Data(
+            "prefill-input-rms-rpg4 rows=\(rows) groups=\(rows / 4)\n".utf8))
+    }
+    let outputs = lagunaPrefillInputRMSRPG4Kernel(
+        [input, weight],
+        grid: ((rows / 4) * 512, 1, 1),
+        threadGroup: (512, 1, 1),
+        outputShapes: [input.shape],
+        outputDTypes: [.bfloat16]
+    )
+    return outputs[0]
+}
 
 func lagunaResidualRMSNormRouter(
     residual: MLXArray, branch: MLXArray, weight: MLXArray,
@@ -5911,7 +5984,11 @@ final class LagunaRuntimeAttention: Module {
         // above (rather than its environment flag) preserves the custom
         // fallback if fused-weight preparation declined.
         let normalizedInput: MLXArray? =
-            fusedNormQKV == nil ? inputNorm(input) : nil
+            fusedNormQKV == nil
+            ? (lagunaPrefillInputRMSRPG4(
+                input, weight: inputNorm.weight, epsilon: inputNorm.eps)
+                ?? inputNorm(input))
+            : nil
 
         var queries: MLXArray
         var keys: MLXArray
@@ -11113,7 +11190,9 @@ final class LagunaRuntimeDecoderLayer: Module {
         if lagunaTerminalPrefillFusionEnabled {
             // Fused terminal row (see flag doc). Reuses the ordinary path's
             // accepted row-local fusion; `else` is the exact stock fallback.
-            let normalized = inputLayerNorm(x)
+            let normalized = lagunaPrefillInputRMSRPG4(
+                x, weight: inputLayerNorm.weight, epsilon: inputLayerNorm.eps)
+                ?? inputLayerNorm(x)
             let r = selfAttn.callLastPrefillRow(normalized, cache: cache)
             let lastResidual = lagunaLastTokenHidden(x)
             let h: MLXArray
@@ -11177,7 +11256,9 @@ final class LagunaRuntimeDecoderLayer: Module {
             let r2 = mlp(normalizedAfterAttention)
             return h + r2
         } else {
-            let normalized = inputLayerNorm(x)
+            let normalized = lagunaPrefillInputRMSRPG4(
+                x, weight: inputLayerNorm.weight, epsilon: inputLayerNorm.eps)
+                ?? inputLayerNorm(x)
             let r = selfAttn.callLastPrefillRow(normalized, cache: cache)
             let h = lagunaLastTokenHidden(x) + r
             let r2 = mlp(postAttentionLayerNorm(h))
