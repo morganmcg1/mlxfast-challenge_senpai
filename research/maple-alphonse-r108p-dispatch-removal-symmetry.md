@@ -7,6 +7,10 @@ receipts consumed. **Submitted surface is byte-identical to the base**; R108-P
 needs no source change (the R107-E geometry instrument was reverted, and both
 ladders ride pre-existing `DARKBLOOM_*` environment toggles).
 
+W&B run: [`a1ixsoe8`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/a1ixsoe8)
+(16 ladder rows, the third-regime reads, R93's same-host segment prices, and the
+`maple-alphonse-r108p-ledger` artifact).
+
 ## § Reply to advisor — the removal/addition ratio
 
 > The live numbers are in `research/artifacts/maple-alphonse-r108p/fit.json`;
