@@ -1862,15 +1862,19 @@ let lagunaFusedFullAttentionKernelWarmupEnabled =
     ProcessInfo.processInfo.environment[
         "DARKBLOOM_FUSED_FULL_ATTN_KERNEL_WARMUP"] != "0"
 
-private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
-    name: "laguna_full_fused_attn_grow_v1",
-    inputNames: [
-        "raw_queries", "raw_keys", "raw_values",
-        "query_weight", "key_weight", "angles",
-        "k_cache", "v_cache", "params", "scale_arr",
-    ],
-    outputNames: ["attended"],
-    source: """
+private func makeLagunaFullFusedAttentionKernel(
+    name: String,
+    capacityDeclaration: String
+) -> MLXFast.MLXFastKernel {
+    MLXFast.metalKernel(
+        name: name,
+        inputNames: [
+            "raw_queries", "raw_keys", "raw_values",
+            "query_weight", "key_weight", "angles",
+            "k_cache", "v_cache", "params", "scale_arr",
+        ],
+        outputNames: ["attended"],
+        source: """
 constexpr uint head_dim = 128;
 constexpr uint gqa = 6;
 constexpr int BN = 32;
@@ -1891,7 +1895,7 @@ uint sg = simdgroup_index_in_threadgroup;
 uint lane = thread_index_in_simdgroup;
 uint widx = params[0];
 int N = int(params[1]);
-uint capacity = params[2];
+\(capacityDeclaration)
 float scale = scale_arr[0];
 
 threadgroup bfloat tg_q0[head_dim];
@@ -2258,8 +2262,20 @@ if (lane == 0) {
 
 
 """,
-    ensureRowContiguous: true
+        ensureRowContiguous: true
+    )
+}
+
+private let lagunaFullFusedAttentionKernel = makeLagunaFullFusedAttentionKernel(
+    name: "laguna_full_fused_attn_grow_v1",
+    capacityDeclaration: "uint capacity = params[2];"
 )
+
+private let lagunaFullFusedAttentionCapacity768Kernel =
+    makeLagunaFullFusedAttentionKernel(
+        name: "laguna_full_fused_attn_grow_capacity_768_v1",
+        capacityDeclaration: "constexpr uint capacity = 768;"
+    )
 
 /// Fused decode attention for a full-attention layer with spare backing
 /// capacity. Returns `[1, heads, 1, headDim]`; the caller advances the
@@ -2297,11 +2313,18 @@ func lagunaFullFusedAttention(
     precondition(writeIdx >= 0 && writeIdx < capacity)
     precondition(scale.dtype == .float32 && scale.size == 1)
 
-    lagunaTrace("full fused attention")
+    let kernel: MLXFast.MLXFastKernel
+    if capacity == 768 {
+        lagunaTrace("laguna_full_fused_attn_grow_capacity_768_v1")
+        kernel = lagunaFullFusedAttentionCapacity768Kernel
+    } else {
+        lagunaTrace("laguna_full_fused_attn_grow_v1")
+        kernel = lagunaFullFusedAttentionKernel
+    }
     let params = MLXArray([
         UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity),
     ])
-    return lagunaFullFusedAttentionKernel(
+    return kernel(
         [
             rawQueries, rawKeys, rawValues,
             queryWeight, keyWeight, angles,
@@ -2314,10 +2337,10 @@ func lagunaFullFusedAttention(
     )[0]
 }
 
-/// Force creation of `lagunaFullFusedAttentionKernel`'s pipeline state with
-/// production Q/K/V geometry and a minimal two-row cache. Every tensor is
-/// deterministic, input-independent, evaluated once, and released before the
-/// constructor clears transient allocator cache and wires resident weights.
+/// Force creation of both full-attention pipelines with production Q/K/V
+/// geometry. Every tensor is deterministic, input-independent, evaluated once,
+/// and released before the constructor clears transient allocator cache and
+/// wires resident weights.
 func lagunaWarmFullFusedAttentionKernel() {
     let headDim = LagunaConstants.headDim
     let heads = LagunaConstants.fullAttentionHeads
@@ -2346,6 +2369,22 @@ func lagunaWarmFullFusedAttentionKernel() {
         angles: angles,
         cacheKeys: cacheKeys,
         cacheValues: cacheValues,
+        writeIdx: 1,
+        scale: scale
+    ))
+    let fixedCacheKeys = MLXArray.zeros(
+        [1, kvHeads, 768, headDim], dtype: .bfloat16)
+    let fixedCacheValues = MLXArray.zeros(
+        [1, kvHeads, 768, headDim], dtype: .bfloat16)
+    eval(lagunaFullFusedAttention(
+        rawQueries: rawQueries,
+        rawKeys: rawKeys,
+        rawValues: rawValues,
+        queryWeight: queryWeight,
+        keyWeight: keyWeight,
+        angles: angles,
+        cacheKeys: fixedCacheKeys,
+        cacheValues: fixedCacheValues,
         writeIdx: 1,
         scale: scale
     ))
