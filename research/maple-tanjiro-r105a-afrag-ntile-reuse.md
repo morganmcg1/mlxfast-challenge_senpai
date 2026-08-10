@@ -39,6 +39,15 @@ This is not a caveat bolted on at the end. It is why Stage 1 was built the way
 it was, and why §7 spends as much space on what the brief got wrong as on what
 it got right.
 
+**And the second fact, which is why this report is terminal without a verdict:
+that M5 receipt ladder could not be started.** `senpai/submit-official.sh` —
+mandated by `AGENTS.md` for every official submission from this campaign —
+refuses every submission from this base, because `origin/main` is an *ancestor*
+of `BASE_SHA` and the script requires their submitted snapshots to be identical.
+This is an integration gap above the assignment, not something a student can fix
+from inside it. Full diagnosis and three unblock options: **§4.1**. Receipts
+consumed: **0 / 8**.
+
 ---
 
 ## 1. Stage 1 — design gate
@@ -614,7 +623,7 @@ resolved the remaining work is mechanical and needs no new design:
 | 2 | A1 commit: default variant `5 → 7` (gate/up only) |
 | 3 | A2 commit: default variant `5 → 8` (down only) |
 | 4 | A3 commit: default variant `5 → 6` (both), only if A1 or A2 is positive |
-| 5 | interleaved ladder A0-1, A1-1, A0-2, A1-2, A0-3, A2-1, A2-2, spare — 786 s minimum inter-arrival |
+| 5 | interleaved ladder, 786 s minimum inter-arrival. Brief's §3.2 order: A0-1, A1-1, A0-2, A1-2, A0-3, A2-1, A2-2, spare. **I recommend A0-1, A0-2, A2-1, A1-1, A0-3, A1-2, A2-2, spare instead — see the arm-ordering dissent in §7.3.** Advisor's call; no receipt is committed either way. |
 
 ---
 
@@ -728,6 +737,70 @@ has no empirical support for preferring the zero-reuse corner over the
 ideal-reuse corner at all, and the `≈8.4 ms` figure should not have been stated
 without an interval.
 
+### 7.2a Reconciliation with fb1's Rule-83 update
+
+Advisor feedback `tanjiro-r105a-fb1-receipt-coordination` (2026-08-10T02:15:33Z)
+lands the #571 result: on `DARKBLOOM_ROUTER_WEIGHT_PREFETCH`, the per-kernel
+`SPLIT=1` label says **−6.39 µs/step** (12/12 sign) while two independent
+end-to-end instruments say **+18.50** and **+34.58 µs/step** (21/21 reps,
+p = 2⁻²⁰). I am asked to state the caveat explicitly. Stating it:
+
+> **An isolated-régime per-kernel millisecond is an upper bound on the
+> overlapped-régime saving, and the router-prefetch dial is a measured
+> counterexample in which the sign itself inverted.** My #586 §6A attribution
+> (1146 calls / 540.394 ms) is an additive decomposition of exactly that kind of
+> isolated measurement and inherits exactly that caveat.
+
+**Does this weaken §7.2's bound? No — and it is worth being precise about why.**
+§7.2 rests on two inputs and **neither is a per-kernel label**:
+
+| input | provenance | exposed to the #571 critique? |
+|---|---|---|
+| 14.826 GB weight traffic | *static* count, `768 load_unsafe/chunk × 2304 B × 8379 chunks`, derived twice independently (`tanjiro-nax-kloop-pipeline.md:82-97`; `advisor_r105_gather_roofline.py`) | **No.** Static source counting has no régime. |
+| 43.262 ms anchor | PR #34 *end-to-end receipt* marginal (`141.1262 − 97.8643`) | **No.** It is already end-to-end. It is rule-76-contaminated, but §7.2 uses it only as an upper bound and over-estimation moves `r`'s ceiling *down*. |
+
+So `r ≤ 0.698` survives intact. What fb1 *does* add is a **third independent
+reason** to distrust any per-kernel pricing of this arm, which is why the Stage-2
+ladder in §5.1 is receipt-only end-to-end from the first arm and contains no
+label→end-to-end inference step anywhere. The advisor's "add an end-to-end
+confirmation before you spend a receipt" instruction therefore has no target
+here: there is nothing to confirm, because nothing in the design was priced off
+a label.
+
+**But fb1 makes D5's open confound materially more dangerous, and this is the
+real update.** The #571 mechanism is that `SPLIT=1` removes dispatch overlap, so
+a change that helps a kernel in isolation can cost more than it saves once
+neighbours overlap. `BN = 64 → 128` does something structurally similar from the
+other side: it **halves the threadgroup count** (gate/up 4096 → 2048, down
+8192 → 4096) while **doubling per-TG threadgroup memory** (9,232 → 18,448 B,
+measured, §1 D5). Fewer, fatter threadgroups is precisely the shape of change
+whose isolated-kernel accounting looks free and whose overlapped-régime
+behaviour is governed by residency. Combined with `GATHER_GEMM_REGIME_DESIGN.md`
+§2.1 — two unconditional barriers per k-iteration, so intra-TG overlap is
+impossible by construction and only *resource reduction* can move the number,
+and this arm *increases* resource use — the honest prior on this arm should
+shift **down**, not up:
+
+* the DRAM-byte mechanism (§7.2) is capped at `r ≤ 0.698` and needs `r ≥ 0.303`
+  merely to clear the record bar; and
+* the occupancy mechanism now has a measured campaign counterexample showing
+  that this class of reasoning can invert sign end to end.
+
+That is not a design-gate kill — fb1 §3 invites one and I decline it, because
+§7.2's own arithmetic leaves the bar *reachable* at `r ≥ 0.303` and the channel
+resolves `r` to ±0.033 in a single clean pair. It is an argument that **A2
+(down) is the better first receipt than A1 (gate/up)**, inverting the brief's
+§3.2 ordering, and I record that as an explicit dissent in §7.3.
+
+**fb1 §1 compliance.** No decode-side dial is touched: `DARKBLOOM_ROUTER_WEIGHT_PREFETCH`
+(`LagunaRuntimeModel.swift:696-704`) and the sliding-attention k-loop
+(`:1638-1817`) are untouched on this branch, and the tile-variant default
+remains `5`, so the branch is behaviourally identical to base until an arm
+commit flips it. The §5.1 ladder already specifies distinct commit SHAs per
+receipt with the SHA made to differ outside `Sources/`. Since **0 receipts were
+dispatched (§4.2)**, no commit of mine can collide with nezuko (#584),
+frieren (#597) or fern (#598).
+
 ### 7.3 The brief conflates two mechanisms; there is a second arm that separates them, and it was not offered
 
 D3's stated kill criterion is about **A device-load issue counts**. The §1.1
@@ -759,6 +832,34 @@ admits `wn == 2` explicitly.
 
 I did **not** run G2 — it is outside this assignment. It is a one-line variant
 on the same switch and is recorded here as the highest-value follow-up.
+
+**Dissent on arm ordering: A2 (down) should be the first receipt, not A1.** The
+brief's §3.2 orders gate/up first on two grounds — four times the A operand per
+layer, so least likely SLC-resident, and twice the prize. Both are correct as
+stated. Three considerations that post-date the brief nevertheless invert the
+ordering:
+
+1. **A1 confounds two of this branch's own repairs; A2 confounds none.**
+   `fuse_swiglu` is decided kernel-side at `fp_quantized_nax.h:1981-1982` on
+   `kernel_N == 1024 && kernel_K == 2048`, i.e. **the gate/up shape only**. So A2
+   exercises *only* the D6 wide-load repair, while A1 exercises the D6 repair
+   **and** the D4 block-aware epilogue rewrite (§6). A null A1 is
+   uninterpretable — epilogue cost, register pressure, or a genuine SLC null —
+   whereas a null A2 is clean evidence about `r` alone.
+2. **A2 carries the smaller occupancy risk, which fb1 just promoted to a live
+   mechanism (§7.2a).** Down keeps 4096 threadgroups at `BN = 128`; gate/up drops
+   to 2048. If residency is what actually binds, A1 is where it bites first, and
+   a negative A1 would then be misread as N-2 register pressure.
+3. **The channel does not need the bigger prize.** σ on the prefill channel is
+   0.420 ms against an A2 point prediction of `4.18·r` ms, so even A2 resolves
+   `r` to ±0.10 in one pair — ample to discriminate the two hypotheses the brief
+   actually cares about (`r ≈ 0` vs `r ≳ 0.3`).
+
+The cost of leading with A2 is one extra pair if `r` turns out large; the cost of
+leading with A1 is an uninterpretable result in the branch of outcome space the
+brief itself calls most likely. I would run **A0, A0, A2, A1, A0, A1, A2, spare**.
+This is a recommendation, not a unilateral change: no receipt was dispatched, so
+the advisor retains the choice.
 
 ### 7.4 `nax_safety_rig.sh` was validating a kernel variant that never ships
 
