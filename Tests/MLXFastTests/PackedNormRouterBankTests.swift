@@ -1,5 +1,6 @@
 import Foundation
 import MLX
+import MLXNN
 import Testing
 @testable import MLXFastModel
 
@@ -228,8 +229,14 @@ private func verifyPackedNormRouterSelectorFallback(
     let config = try loadLagunaConfig(pinnedLagunaConfigObject())
     let layer = LagunaRuntimeDecoderLayer(config, layerIdx: 1)
     let sparse = try #require(layer.mlp as? LagunaRuntimeSparseMoEBlock)
-    layer.postAttentionLayerNorm.weight = weights.norm
-    sparse.gate.weight = weights.router
+    try layer.postAttentionLayerNorm.update(
+        parameters: ModuleParameters.unflattened(["weight": weights.norm]),
+        verify: [.noUnusedKeys, .shapeMismatch]
+    )
+    try sparse.gate.update(
+        parameters: ModuleParameters.unflattened(["weight": weights.router]),
+        verify: [.noUnusedKeys, .shapeMismatch]
+    )
     let packed = try #require(layer.preparePackedNormRouterWeight())
     eval(packed)
     Stream.gpu.synchronize()
@@ -240,7 +247,13 @@ private func verifyPackedNormRouterSelectorFallback(
     eval(rebound)
     Stream.gpu.synchronize()
     #expect(bf16Bits(rebound) == bf16Bits(weights.norm))
-    layer.postAttentionLayerNorm.weight = rebound
+    let reboundNorm = RMSNorm(
+        dimensions: config.hiddenSize, eps: Float(config.rmsNormEps))
+    try reboundNorm.update(
+        parameters: ModuleParameters.unflattened(["weight": rebound]),
+        verify: [.noUnusedKeys, .shapeMismatch]
+    )
+    layer.postAttentionLayerNorm = reboundNorm
     switch layer.packedNormRouterWeight(for: sparse) {
     case nil:
         break
