@@ -841,6 +841,67 @@ from paired standalone probes at 41 × 200 dispatches, not from this harness). I
 a **correctness** anchor and explicitly not as a performance result.
 
 
+### 5.3 The upstream-equivalence test at final HEAD — decode is bit-exact, prefill is not (and was not before me)
+
+The assignment's second correctness leg is `research/run_upstream_equivalence.sh`
+(`MLXFAST_RUN_LAGUNA_UPSTREAM_EQUIVALENCE=1`, filter
+`lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled`). Run at final HEAD, 53.8 s wall,
+full log archived at
+`research/artifacts/maple-tanjiro-r107g/stage1-upstream-equivalence-HEAD.log` (98 lines).
+
+Trailer:
+
+```
+EQUIVALENCE_EXACT_STEPS=8
+EQUIVALENCE_EXIT=1
+```
+
+Per-step `maximumAbsoluteLogitError` against the vendored upstream, 512 prompt tokens and
+8 decode tokens:
+
+| step | max abs logit err | mean abs logit err | runtime token | upstream token |
+| --- | --- | --- | --- | --- |
+| prefill | **0.125** | 0.011933609 | 5991 | 5991 |
+| decode-0 | 0 | 0 | 509 | 509 |
+| decode-1 | 0 | 0 | 902 | 902 |
+| decode-2 | 0 | 0 | 5991 | 5991 |
+| decode-3 | 0 | 0 | 509 | 509 |
+| decode-4 | 0 | 0 | 902 | 902 |
+| decode-5 | 0 | 0 | 5991 | 5991 |
+| decode-6 | 0 | 0 | 509 | 509 |
+| decode-7 | 0 | 0 | 902 | 902 |
+
+Read this carefully, because the exit code is misleading if you stop at it:
+
+1. **All 8 decode steps are bit-exact.** `maximumAbsoluteLogitError = 0` and the argmax token
+   matches upstream at every decode position. Every family in this census (A, B, C, D, E) is a
+   **decode** kernel, so the leg that certifies the surface this report is about is green.
+2. **The single failing step is prefill**, at 0.125 max abs logit error — one bf16 ulp at that
+   logit magnitude — with the argmax token still identical (5991 == 5991). The test's assertion
+   is `passes(maximumAbsoluteLogitError: tolerance = 0.0)`, i.e. it demands exact equality on
+   *all* steps including prefill, so a one-ulp prefill difference is enough to set
+   `EQUIVALENCE_EXIT=1`.
+3. **This is inherited, not caused by me.** §5.1 pastes an empty
+   `git diff --numstat acb56108 HEAD -- <97 editable paths> benchmark.json`. My tree's runtime
+   is byte-identical to the advisor tip, so this outcome is a property of `acb56108`, not of my
+   branch. There is no mechanism by which a zero-byte editable diff could change a logit.
+4. The official gate — `--local-iterate` — is **green** on the same HEAD:
+   `passed_correctness=true`, `max_abs_diff=0`, golden hash
+   `b9509697…`, 130 checked steps (§5.2). Nothing here relaxes that.
+5. I did **not** set `MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT` and left `DARKBLOOM_EXPERT_DOWN_BN`
+   unset, per the assignment's hard constraints.
+
+**Action item for whoever owns the tree** (fern on #625, integration freeze ~07:00Z): if this
+test is on anyone's merge checklist, it is currently red at the advisor tip for a prefill-only
+one-ulp reason, and it will stay red for any branch that merges cleanly on top. It is worth
+deciding *before* the freeze whether the intended tolerance is `0.0` on all steps or `0.0` on
+decode steps with a small prefill tolerance — otherwise the check cannot distinguish "someone
+broke decode" from "prefill has always been one ulp off". That is a **tree-hygiene** call, not
+a performance call, and I am flagging it rather than acting on it because `Tests/` is outside
+my editable surface for this assignment and rule 99 puts prefill outside my remit entirely.
+
+
+
 ## 6. Threats to validity
 
 Ordered by how much they could move a conclusion.
@@ -910,6 +971,7 @@ All under `research/artifacts/maple-tanjiro-r107g/` unless stated.
 | `stage1-slack-bound.txt` | output of `maple-tanjiro-r107g-slack.py` — the §3.3 slack bound |
 | `qmv_dose{0,4,8,16}.metal` | the four generated dose arms; `qmv_dose0.metal` is byte-identical to `research/artifacts/fern-r99/depth1_shipped.metal` |
 | `baseline-run0.json` | unmodified-tree `--local-iterate` correctness/provenance anchor at final HEAD |
+| `stage1-upstream-equivalence-HEAD.log` | `run_upstream_equivalence.sh` at final HEAD (98 lines): 8/8 decode steps bit-exact, prefill one ulp, `EQUIVALENCE_EXIT=1` inherited from the advisor tip (§5.3) |
 
 Harness and analysis scripts, all `research/maple-tanjiro-r107g-*`:
 
