@@ -32,6 +32,12 @@ largest unclaimed decode-attention item I know of.**
    branch*. Any probe arm that perturbs score values mis-prices instructions.
    My first 4×-MAC arms appeared **faster** for exactly this reason. The fix is
    a runtime-zero multiply (`pad_ * zero_`, `zero_ = U(widx > 0x3fffffffu)`).
+6. Cross-checking the two censuses against the timing shows each `simd_sum`
+   burns ≈**8.4 issue-slot equivalents**, ~8× what the static byte census
+   implies — i.e. ≈**16.8 slots per pipeline stage**, *above* the ≈12-per-stage
+   bar that round 107 named as the only surviving axis. So this is on-rule work,
+   and the 97.7%-of-peak-issue closure appears to underprice cross-lane ops
+   (§7).
 
 Recommendation: **close R109-D as a negative on the MMA mechanism**
 (`N-QK-MMA-PADDING-BOUND`), and carry the −6.7% reduce-elimination ceiling
@@ -265,7 +271,46 @@ tensor-scale nvfp4 in qqmm" hints at a limit), and there is no public direct
 measurement of legacy `simdgroup_matrix` throughput on M5 silicon. Neither gap
 can rescue an M=2 tile that has to win by 1.6–1.8× just to break even.
 
-## 7. Decision against the stop rule
+## 7. The reduce *is* the round-107 surviving axis — and the static census undercounts it
+
+`research/CURRENT_RESEARCH_STATE.md:3292–3308` closes the whole decode
+fused-attention above-floor pool as `N-ISSUE-BOUND` at 97.7% of theoretical
+peak instruction issue, and states:
+
+> The **only** surviving axis is a raw instruction census that removes ≈12 issue
+> slots from **each** of the 16 pipeline stages (rule 100.4/100.8).
+
+Put my two censuses next to my timing and that axis is already located:
+
+- Static compute-byte census says `simd_sum` is **1 instruction** per site
+  (`qk_free` is −6 instructions across 8 sites).
+- Paired timing says deleting those 8 sites is worth **−6.7 to −7.6%** of a
+  ≈992-instruction kernel.
+
+Those cannot both be true of a kernel at 97.7% of peak issue unless
+`simd_sum` **occupies far more issue capacity than it costs in code bytes**.
+Back-solving, 6.7% of ≈1000 slots ≈ **67 slot-equivalents across 8 sites ≈ 8.4
+slots per `simd_sum`** — consistent with a hardware-sequenced 5-pass
+shuffle-and-add network plus its cross-lane latency, and roughly 8× what the
+byte census implies.
+
+The unrolled body has 4 pipeline stages × 2 heads = **8 static reduce sites, i.e.
+2 per pipeline stage**, so the reduce is worth ≈**16.8 slot-equivalents per
+pipeline stage** — *more* than the ≈12-per-stage target rule 100.4/100.8 set as
+the bar for the only surviving axis.
+
+Two consequences the advisor should weigh:
+
+1. This work is **on-rule, not a banned re-open**. It is a raw instruction-census
+   item on the one axis left open, and it is above the size bar that axis
+   requires.
+2. The 97.7%-of-peak-issue figure appears to have been computed from static
+   instruction counts. If so it **undercounts cross-lane ops by ~8×**, and any
+   other `simd_*` reduction in the fused attention kernels is similarly
+   mispriced in that model. That is worth re-checking before the closure is
+   used to reject a future proposal.
+
+## 8. Decision against the stop rule
 
 The brief's stop rule was: ceiling < 0.20% of normalized score ⇒ close as
 `N-QK-REDUCTION-CHEAP` (a successful negative).
@@ -281,7 +326,7 @@ independently kills every shuffle-ladder fragment-reduction tail.
 Proposed label: **`N-QK-MMA-PADDING-BOUND`** — the QK reduction is expensive
 enough to be worth attacking, but not with an M=2 simdgroup-MMA tile.
 
-## 8. What I would carry forward (not implemented)
+## 9. What I would carry forward (not implemented)
 
 1. **The −6.7% reduce-elimination ceiling is the largest unclaimed
    decode-attention item I am aware of** and should stay open as its own line.
@@ -296,12 +341,27 @@ enough to be worth attacking, but not with an M=2 simdgroup-MMA tile.
 3. A **d-major re-tile** (each lane owning 32 dims of 1 row instead of 4 dims of
    8 rows) would make the reduce W=1 for free, but changes the V-accumulation
    ownership and therefore the whole pipeline — a rewrite, not a Stage 1.
-4. If anyone revisits matrix hardware, the only viable target is
+4. **Half-width lane split (needs advisor clearance — collides with a ban).**
+   The cheapest way to halve reduce passes without touching MAC count is to
+   stop giving every lane 4 dims of *both* heads and instead give lanes 0–15
+   eight dims of head0 and lanes 16–31 eight dims of head1. Then one 4-pass
+   16-wide butterfly plus a single `simd_shuffle_xor(s, 16)` exchange produces
+   both scores in all lanes: **5 passes for 2 heads instead of 10**, at
+   identical q/k register count (8 floats/lane either way). Expected ≈ half the
+   ceiling, ≈ −3.3% kernel ⇒ **0.17–0.22%** score, non-bit-exact (different
+   summation order ⇒ margin certificate required). I did **not** pursue it
+   because an 8-dims-per-lane layout is a *wider per-lane load*, which is on
+   round 107's `N-ISSUE-BOUND` banned-re-open list (PR #642,
+   `research/CURRENT_RESEARCH_STATE.md:3292–3308`). The measurements here are
+   an argument that the ban was drawn for issue-count reasons that do not
+   apply to reduce-pass count, but re-opening it is the advisor's call, not
+   mine.
+5. If anyone revisits matrix hardware, the only viable target is
    `mpp::tensor_ops::matmul2d` in the `_nax` family on gen ≥ 17, and prefill is
    the place to look, not decode. Gen-1 NA's lack of bf16 must be resolved
    first.
 
-## 9. Note to @alphonse (full-attention twin, LRM 2027+)
+## 10. Note to @alphonse (full-attention twin, LRM 2027+)
 
 Everything above transfers, and three items save you a full stage:
 
@@ -321,7 +381,7 @@ Everything above transfers, and three items save you a full stage:
   (`const U zero_ = U(widx > 0x3fffffffu); acc += pad_ * zero_;`) to emit work
   while holding the score bit-identical.
 
-## 10. Reproduction
+## 11. Reproduction
 
 ```bash
 # static census (all arms, both architectures)
