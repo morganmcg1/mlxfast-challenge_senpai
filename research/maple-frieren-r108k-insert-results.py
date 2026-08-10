@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Regenerate every sink-derived figure in the R108-K report, idempotently.
 
-Four regions of the report are machine-written from the probe sink, because each
+Five regions of the report are machine-written from the probe sink, because each
 landing probe block moves the fitted values and hand-copied restatements go stale
 silently:
 
   RESULTS     the whole of §3.3, straight from the analyzer's --markdown output
   HEADLINE    the "Both stages, in one screen" Stage 1 table
   PRIZETABLE  §3.5's prize ladder and the fold-reduction sentence under it
+  REPRICE     §3.5.1's rule-105.23 critical test between the two decode-pool models
+  LADDER      §3.4.1's two-ladder k/c comparison
 
 Prose outside these regions is deliberately qualitative ("roughly four-fold",
 "more than fifteen standard errors") so that it cannot go stale within rounding.
@@ -15,6 +17,7 @@ Prose outside these regions is deliberately qualitative ("roughly four-fold",
 Rerunnable: each region is replaced between its BEGIN/END pair.
 """
 import json
+import math
 import pathlib
 import re
 import subprocess
@@ -28,6 +31,16 @@ SINK = sys.argv[1] if len(sys.argv) > 1 else "/tmp/r108k-barrier-price.tsv"
 DISPATCHES_PER_STEP = 40  # family E, advisor's corrected n (comment 6)
 DECODE_WEIGHT = 0.75
 ASSUMED_K = 1.890
+
+# Campaign constants for the 105.23 critical test, taken verbatim from the advisor's
+# comments 2 and 3 so this script's arithmetic can be checked against their own tables.
+RECORD_GAP = 1.6359          # rule 101 unbiased gap to the record, % of cs
+RESUBMIT_SIGMA = 0.3016      # fixed-tree resubmission noise, % of cs
+DRAW_BAR = 0.400             # one draw bar, % of cs
+SLACK_BARS = {"D": 0.71, "A": 0.45, "C": 0.03, "B": 0.00, "E": 1.89}  # 105.16
+PROGRAMME_DISPATCHES = 168   # 105.17 per-layer dispatches in the whole programme
+PROGRAMME_M5_US = 2.3403     # rule 65 price per dispatch, M5 µs
+PCT_PER_M5_US = 0.015228     # 105.17's µs/step -> % of cs constant
 
 
 def run(*args):
@@ -115,6 +128,50 @@ alone — the estimator amendment §5 pre-registered — would instead have said
 estimator is degenerate and §3.3 reports it anyway.
 """
 
+def p_draw(x):
+    """P(one draw beats the record) under rule 101's normal model."""
+    return 0.5 * math.erfc(((RECORD_GAP - x) / RESUBMIT_SIGMA) / math.sqrt(2))
+
+
+def p_two(x):
+    return 1.0 - (1.0 - p_draw(x)) ** 2
+
+
+def check(name, got, want, tol):
+    if abs(got - want) > tol:
+        sys.exit(f"self-check failed: {name} = {got!r}, expected ~{want!r}")
+
+
+slack_pct = sum(SLACK_BARS.values()) * DRAW_BAR
+dispatch_pct = PROGRAMME_DISPATCHES * PROGRAMME_M5_US * PCT_PER_M5_US
+check("105.16 slack", slack_pct, 1.232, 5e-4)
+check("105.17 dispatch accounting", dispatch_pct, 5.987, 5e-4)
+check("campaign z", RECORD_GAP / RESUBMIT_SIGMA, 5.42, 5e-3)
+check("P(>=1 of 2) at 105.16", p_two(slack_pct), 0.172, 5e-4)
+check("P(1 draw) at route A", p_draw(1.069), 0.030, 5e-4)
+
+# The reprice is a ratio applied to 105.17's own figure, so it is independent of the
+# µs -> % constant. It does assume the M4/M5 dispatch-price ratio implied by the
+# campaign's 1.890 M4 <-> 2.3403 M5 conversion carries over unchanged.
+repriced = [dispatch_pct * float(v) / ASSUMED_K for v in (k, k_lo, k_hi)]
+merge_via_105_17 = dispatch_pct * (DISPATCHES_PER_STEP / PROGRAMME_DISPATCHES) * float(k) / ASSUMED_K
+denominator_gap = merge_via_105_17 / k_score
+
+REPRICE = f"""\
+| model of the decode pool | whole-programme gain, % of `cs` | P(1 draw) | P(≥1 of 2 draws) |
+|---|---|---|---|
+| 105.16 measured non-byte slack ({sum(SLACK_BARS.values()):.2f} bars) | `{slack_pct:.3f}` | `{p_draw(slack_pct):.3f}` | `{p_two(slack_pct):.3f}` |
+| 105.17 dispatch accounting at the **assumed** `{ASSUMED_K:.3f}` M4 µs | `{dispatch_pct:.3f}` | `{p_draw(dispatch_pct):.3f}` | `{p_two(dispatch_pct):.3f}` |
+| **105.17 repriced at this probe's `k`** | **`{repriced[0]:.3f}`** `[{repriced[1]:.3f}, {repriced[2]:.3f}]` | `{p_draw(repriced[0]):.3f}` | `{p_two(repriced[0]):.3f}` |
+| this one merge alone ({DISPATCHES_PER_STEP} of {PROGRAMME_DISPATCHES} dispatches) | `{k_score:.3f}` (§3.5) or `{merge_via_105_17:.3f}` via 105.17's constant | `{p_draw(k_score):.1e}`–`{p_draw(merge_via_105_17):.1e}` | `{p_two(k_score):.1e}`–`{p_two(merge_via_105_17):.1e}` |
+
+**The {dispatch_pct / slack_pct:.2f}× disagreement collapses to {repriced[0] / slack_pct:.2f}×.** Comment 3 set the two models
+{dispatch_pct / slack_pct:.2f}× apart and asked which was wrong. The answer is that almost the whole gap was the
+*assumed price of a dispatch*, not the dispatch count: substituting the measured `k` moves
+105.17 from `{dispatch_pct:.3f} %` to `{repriced[0]:.3f} %`, which is within {100 * (repriced[0] / slack_pct - 1):.0f} % of 105.16's `{slack_pct:.3f} %`. Neither
+model is falsified; they now agree, and they agree on a **small** number.
+"""
+
 LADDER = f"""\
 | ladder | rungs used | `k`, M4 µs/dispatch | `c`, µs/layer | `40·c`, µs/step |
 |---|---|---|---|---|
@@ -129,6 +186,7 @@ REGIONS = {
     "RESULTS": results_block,
     "HEADLINE": HEADLINE,
     "PRIZETABLE": PRIZETABLE,
+    "REPRICE": REPRICE,
     "LADDER": LADDER,
 }
 
@@ -172,6 +230,19 @@ FIGURES.write_text(json.dumps({
     "assumed_prize_pct_score": prize(ASSUMED_K)[2],
     "fold_reduction_vs_assumed": fold,
     "dispatches_per_step": DISPATCHES_PER_STEP,
+    "reprice_105_16_slack_pct": slack_pct,
+    "reprice_105_17_assumed_pct": dispatch_pct,
+    "reprice_105_17_measured_pct": repriced[0],
+    "reprice_105_17_measured_pct_lo": repriced[1],
+    "reprice_105_17_measured_pct_hi": repriced[2],
+    "reprice_model_gap_assumed": dispatch_pct / slack_pct,
+    "reprice_model_gap_measured": repriced[0] / slack_pct,
+    "p_draw_105_16": p_draw(slack_pct),
+    "p_draw_105_17_assumed": p_draw(dispatch_pct),
+    "p_draw_105_17_measured": p_draw(repriced[0]),
+    "p_two_105_17_measured": p_two(repriced[0]),
+    "merge_pct_via_105_17": merge_via_105_17,
+    "decode_denominator_gap": denominator_gap,
     "mechanical_verdict": mechanical,
     "reported_verdict": "P-INDETERMINATE",
     "analyzer_plain": plain,
@@ -180,4 +251,8 @@ print(f"regenerated {', '.join(REGIONS)} from {rows} usable rows "
       f"(control {control:.1f} us/step, pooled sd {sd} us df {df}, B={b_low},{b_high})")
 print(f"k unchained = {k} [{k_lo}, {k_hi}] -> {k_us:.1f} us/step, "
       f"{k_score:.2f} % score, {fold:.1f}x fold")
+print(f"reprice: 105.16 = {slack_pct:.3f} %, 105.17 assumed = {dispatch_pct:.3f} % "
+      f"({dispatch_pct / slack_pct:.2f}x), 105.17 measured = {repriced[0]:.3f} % "
+      f"({repriced[0] / slack_pct:.2f}x); this merge {k_score:.3f} % or "
+      f"{merge_via_105_17:.3f} % ({denominator_gap:.2f}x denominator gap)")
 print(f"mechanical verdict: {verdict}")

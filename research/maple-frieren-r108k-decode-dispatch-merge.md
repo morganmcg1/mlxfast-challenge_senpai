@@ -990,6 +990,58 @@ own build bar of `0.8` corresponds to a 0.27 % score prize, so the decision rule
 `0.3`–`0.8` band spans only 0.10 %–0.27 % of score. The band is a narrow one in prize terms,
 and `k` landing inside it is the reason this section does not pick a side.
 
+### §3.5.1 The rule-105.23 critical test: which decode-pool model was wrong
+
+Comment 3 asked for the one thing the rest of this report does not deliver on its own — the
+critical test between the two live estimates of how much decode headroom the programme still
+has. Note first what this probe measures and what it does not: it measures the **price of one
+dispatch**, not the **gain of one merge**. Turning the former into the latter assumes the
+linear dispatch model `d(N) = N·k + 40·c` that §2 derives from the `!pending.isEmpty` guard,
+and that removing a dispatch returns its full price. Everything below is therefore an
+inference under that model, not a measured merge.
+
+<!--REPRICE:BEGIN-->
+| model of the decode pool | whole-programme gain, % of `cs` | P(1 draw) | P(≥1 of 2 draws) |
+|---|---|---|---|
+| 105.16 measured non-byte slack (3.08 bars) | `1.232` | `0.090` | `0.172` |
+| 105.17 dispatch accounting at the **assumed** `1.890` M4 µs | `5.987` | `1.000` | `1.000` |
+| **105.17 repriced at this probe's `k`** | **`1.419`** `[1.269, 1.568]` | `0.236` | `0.416` |
+| this one merge alone (40 of 168 dispatches) | `0.150` (§3.5) or `0.338` via 105.17's constant | `4.2e-07`–`8.4e-06` | `8.3e-07`–`1.7e-05` |
+
+**The 4.86× disagreement collapses to 1.15×.** Comment 3 set the two models
+4.86× apart and asked which was wrong. The answer is that almost the whole gap was the
+*assumed price of a dispatch*, not the dispatch count: substituting the measured `k` moves
+105.17 from `5.987 %` to `1.419 %`, which is within 15 % of 105.16's `1.232 %`. Neither
+model is falsified; they now agree, and they agree on a **small** number.
+<!--REPRICE:END-->
+
+Three riders belong with that table.
+
+**The reprice is a ratio, so it survives the µs→% conversion, but not the M4→M5 one.** It
+rescales 105.17's own published figure by `k_measured / k_assumed`, so whatever decode
+denominator 105.17 used cancels. What does not cancel is the assumption that the campaign's
+`1.890` M4 µs ↔ `2.3403` M5 µs dispatch price carries over unchanged — i.e. that this probe's
+M4 ratio is the M5 ratio. Only the ranked M5 can close that, and per `AGENTS.md` an M4 read is
+directional evidence at best.
+
+**The two accounting systems disagree about the decode denominator by more than 2×, and that
+is a separate finding.** This one merge is 40 of the programme's 168 dispatches. Priced
+through my own M4 step (8972 µs, 0.75 weight) it is 0.150 % of score; priced through 105.17's
+`% of cs` constant it is 0.338 %. The ratio is not a rounding artefact — 105.17's constant
+implies an M5 decode step near 4925 µs against my 8972 M4 µs. One of the two is wrong about
+the denominator, and until that is settled every whole-programme figure in either system
+inherits the same factor-of-two-plus uncertainty. I did not measure an M5 step, so I cannot
+say which.
+
+**Read mechanically, this closes the programme; read carefully, it re-scopes it.** Both
+single-merge figures sit below even comment 3's pessimistic `0.756 %` branch, whose stated
+consequence is "105.16 stands, cap the programme, redeploy". The whole 168-dispatch pool at
+the repriced `1.42 %` would clear the `1.0 %` arming threshold — but only if all 168 dispatches
+were actually removable, and both R108-L's `N-NO-MERGEABLE-PAIR` finding and my own §2 ledger
+say they are not. So the honest reading is that the dispatch-accounting model was not
+falsified, it was merely deflated onto the same small number the slack model already had, and
+neither model now supports arming on decode dispatch merging alone.
+
 Three lines of evidence bound the premise, and they agree less well than a summary would
 suggest, so I am reporting the disagreement:
 
