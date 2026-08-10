@@ -17,12 +17,18 @@
 # chain continues, so that a single wake carries the complete picture rather than
 # the first problem. The exit code is non-zero if any step failed.
 #
-# usage: maple-nezuko-r106b-finalise.sh <campaign_pid> <evidence.tsv> <expected_rows>
+# Step 4 rebuilds the tree and touches Package.resolved, so it needs a mutable
+# workspace. The paired campaign itself holds the runtime's single mutable slot
+# until it exits, so this script can be started in read-only mode with
+# SKIP_EXACT=1 for steps 1-3 and step 4 launched separately once the slot frees.
+#
+# usage: [SKIP_EXACT=1] maple-nezuko-r106b-finalise.sh <campaign_pid> <evidence.tsv> <expected_rows>
 set -uo pipefail
 
 PID="${1:?campaign pid}"
 SINK="${2:?evidence tsv}"
 WANT="${3:?expected data rows}"
+SKIP_EXACT="${SKIP_EXACT:-0}"
 
 OUT=/tmp/r106b-finalise
 mkdir -p "$OUT"
@@ -73,13 +79,17 @@ else
 fi
 
 # ---- 4. zero-tolerance exactness oracle --------------------------------------
-say "step 4: upstream-equivalence oracle for arms off/on/h4 (zero tolerance)"
-if bash research/maple-nezuko-r106b-packred-exactness.sh \
-     > "$OUT/exactness.txt" 2>&1; then
-  say "step 4 OK -- $(grep -c EQUIVALENCE_EXIT "$OUT/exactness.txt") arms reported"
+if [ "$SKIP_EXACT" = "1" ]; then
+  say "step 4 SKIPPED (SKIP_EXACT=1); run it separately in a mutable workspace"
 else
-  say "step 4 FAILED -- see $OUT/exactness.txt"
-  rc_total=1
+  say "step 4: upstream-equivalence oracle for arms off/on/h4 (zero tolerance)"
+  if bash research/maple-nezuko-r106b-packred-exactness.sh \
+       > "$OUT/exactness.txt" 2>&1; then
+    say "step 4 OK -- $(grep -c EQUIVALENCE_EXIT "$OUT/exactness.txt") arms reported"
+  else
+    say "step 4 FAILED -- see $OUT/exactness.txt"
+    rc_total=1
+  fi
 fi
 
 say "finalisation chain done, rc=$rc_total"
