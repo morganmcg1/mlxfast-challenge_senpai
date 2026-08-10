@@ -1,7 +1,7 @@
 {
-  "schema_version": "ranked-authority-evidence-fixtures/v3",
+  "schema_version": "ranked-authority-evidence-fixtures/v4",
   "non_authoritative": true,
-  "description": "Synthetic, non-authoritative v3 controls for external trust, installed metadata, launch-chain, and process-start binding.",
+  "description": "Synthetic, non-authoritative v4 controls for detached external trust authentication, installed metadata, launch-chain, and parent-process binding.",
   "files": {
     "artifacts/workflow.yml": {
       "text": "name: synthetic-ranked-workflow\n",
@@ -46,7 +46,7 @@
   },
   "base_bundle": {
     "schema_version": "ranked-authority-evidence-bundle/v3",
-    "authority_contract_version": "pr671-ranked-installed-authority/v2",
+    "authority_contract_version": "pr671-ranked-installed-authority/v3",
     "installed_path_census_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
     "authority": {
       "authoritative": false,
@@ -1434,46 +1434,76 @@
       "id": "complete-synthetic-bundle",
       "mutation": "none",
       "expected_state": "STATIC_RESUME_READY",
-      "expected_error_codes": []
+      "expected_error_codes": [],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "missing-profile-generator-input",
       "mutation": "missing_profile_generator_input",
       "expected_state": "INCOMPLETE",
-      "expected_error_codes": []
+      "expected_error_codes": [],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "unknown-field",
       "mutation": "unknown_field",
       "expected_state": "INVALID",
       "expected_error_codes": [
+        "ARTIFACT_SET_DIGEST_MISMATCH",
         "SCHEMA_ADDITIONAL_PROPERTY"
-      ]
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "unknown-secret-field",
       "mutation": "unknown_secret_field",
       "expected_state": "INVALID",
       "expected_error_codes": [
+        "ARTIFACT_SET_DIGEST_MISMATCH",
         "SCHEMA_ADDITIONAL_PROPERTY",
         "SECRET_FIELD_FORBIDDEN"
-      ]
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "jointly-omitted-mandatory-roles",
       "mutation": "jointly_omitted_roles",
       "expected_state": "INVALID",
       "expected_error_codes": [
-        "SCHEMA_MIN_ITEMS"
-      ]
+        "ARTIFACT_SET_DIGEST_MISMATCH",
+        "COLLECTOR_ATTESTATION_MISMATCH",
+        "GENERATION_ARTIFACT_MISSING",
+        "GENERATION_EVENT_DRIFT",
+        "INSTALLED_PATH_CENSUS_DIGEST_MISMATCH",
+        "MANDATORY_ROLE_CENSUS_MISMATCH",
+        "MISSING_AUTHORITY_UNDECLARED",
+        "PROFILE_GENERATOR_INPUT_MISSING",
+        "SCHEMA_MIN_ITEMS",
+        "TRUST_MOUNT_IDENTITY_MISMATCH"
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "installed-path-alias",
       "mutation": "installed_path_alias",
       "expected_state": "INVALID",
       "expected_error_codes": [
-        "INSTALLED_PATH_NONCANONICAL"
-      ]
+        "ARTIFACT_SET_DIGEST_MISMATCH",
+        "COLLECTOR_ATTESTATION_MISMATCH",
+        "COMMAND_CHAIN_IDENTITY_MISMATCH",
+        "COMMAND_EXECUTABLE_PATH_MISMATCH",
+        "INSTALLED_PATH_CENSUS_DIGEST_MISMATCH",
+        "INSTALLED_PATH_NONCANONICAL",
+        "TRUST_CENSUS_MISMATCH",
+        "TRUST_MOUNT_IDENTITY_MISMATCH"
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "physical-byte-drift",
@@ -1482,31 +1512,47 @@
       "expected_error_codes": [
         "PHYSICAL_HASH_MISMATCH",
         "PHYSICAL_SIZE_MISMATCH"
-      ]
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "declared-hash-drift",
       "mutation": "hash_drift",
       "expected_state": "INVALID",
       "expected_error_codes": [
-        "PHYSICAL_HASH_MISMATCH"
-      ]
+        "ARTIFACT_SET_DIGEST_MISMATCH",
+        "COLLECTOR_ATTESTATION_MISMATCH",
+        "COMMAND_CHAIN_IDENTITY_MISMATCH",
+        "EVENT_COMMAND_HASH_MISMATCH",
+        "PHYSICAL_HASH_MISMATCH",
+        "PROCESS_START_IDENTITY_MISMATCH",
+        "TRUST_MOUNT_IDENTITY_MISMATCH"
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "declared-size-drift",
       "mutation": "size_drift",
       "expected_state": "INVALID",
       "expected_error_codes": [
+        "ARTIFACT_SET_DIGEST_MISMATCH",
         "PHYSICAL_SIZE_MISMATCH"
-      ]
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "bundle-path-escape",
       "mutation": "path_escape",
       "expected_state": "INVALID",
       "expected_error_codes": [
+        "ARTIFACT_SET_DIGEST_MISMATCH",
         "BUNDLE_PATH_ESCAPE"
-      ]
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "symbolic-link-artifact",
@@ -1514,225 +1560,339 @@
       "expected_state": "INVALID",
       "expected_error_codes": [
         "PHYSICAL_SYMLINK"
-      ]
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "duplicate-artifact-role",
       "mutation": "duplicate_role",
       "expected_state": "INVALID",
       "expected_error_codes": [
-        "SCHEMA_MAX_ITEMS"
-      ]
+        "ARTIFACT_SET_DIGEST_MISMATCH",
+        "COLLECTOR_ATTESTATION_MISMATCH",
+        "DUPLICATE_ARTIFACT_ROLE",
+        "INSTALLED_PATH_CENSUS_DIGEST_MISMATCH",
+        "SCHEMA_MAX_ITEMS",
+        "TRUST_MOUNT_IDENTITY_MISMATCH"
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "owner-mismatch",
       "mutation": "owner_mismatch",
       "expected_state": "INVALID",
       "expected_error_codes": [
+        "ARTIFACT_SET_DIGEST_MISMATCH",
+        "INSTALL_METADATA_MISMATCH",
         "PHYSICAL_OWNER_UID_MISMATCH"
-      ]
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "mode-mismatch",
       "mutation": "mode_mismatch",
       "expected_state": "INVALID",
       "expected_error_codes": [
+        "ARTIFACT_SET_DIGEST_MISMATCH",
+        "INSTALL_METADATA_MISMATCH",
         "PHYSICAL_MODE_MISMATCH"
-      ]
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "acl-mismatch",
       "mutation": "acl_mismatch",
       "expected_state": "INVALID",
       "expected_error_codes": [
+        "ARTIFACT_SET_DIGEST_MISMATCH",
+        "INSTALL_METADATA_MISMATCH",
         "PHYSICAL_ACL_MISMATCH"
-      ]
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "hardlink-ambiguity",
       "mutation": "hardlink_ambiguity",
       "expected_state": "INVALID",
       "expected_error_codes": [
-        "HARDLINK_AMBIGUITY"
-      ]
+        "HARDLINK_AMBIGUITY",
+        "PHYSICAL_LINK_COUNT_MISMATCH"
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "workflow-identity-drift",
       "mutation": "workflow_drift",
       "expected_state": "INVALID",
       "expected_error_codes": [
+        "ARTIFACT_SET_DIGEST_MISMATCH",
+        "COLLECTOR_ATTESTATION_MISMATCH",
         "IDENTITY_WORKFLOW_DRIFT"
-      ]
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "base-identity-drift",
       "mutation": "base_drift",
       "expected_state": "INVALID",
       "expected_error_codes": [
+        "ARTIFACT_SET_DIGEST_MISMATCH",
+        "COLLECTOR_ATTESTATION_MISMATCH",
         "IDENTITY_BASE_DRIFT"
-      ]
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "job-identity-drift",
       "mutation": "job_drift",
       "expected_state": "INVALID",
       "expected_error_codes": [
+        "ARTIFACT_SET_DIGEST_MISMATCH",
+        "COLLECTOR_ATTESTATION_MISMATCH",
         "IDENTITY_JOB_DRIFT"
-      ]
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "stale-capture",
       "mutation": "stale_capture",
       "expected_state": "INVALID",
       "expected_error_codes": [
-        "STALE_CAPTURE"
-      ]
+        "AUTHORITY_LINK_DIGEST_MISMATCH",
+        "COLLECTOR_ATTESTATION_MISMATCH",
+        "STALE_CAPTURE",
+        "TRUST_AUTHORITY_MISMATCH"
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "missing-install-provenance",
       "mutation": "missing_install_provenance",
       "expected_state": "INVALID",
       "expected_error_codes": [
-        "INSTALL_PROVENANCE_MISSING"
-      ]
+        "INSTALL_PROVENANCE_MISSING",
+        "SCHEMA_REQUIRED"
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "profile-hash-mismatch",
       "mutation": "profile_hash_mismatch",
       "expected_state": "INVALID",
       "expected_error_codes": [
+        "ARTIFACT_SET_DIGEST_MISMATCH",
         "PROFILE_HASH_MISMATCH"
-      ]
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "secret-value-leak",
       "mutation": "secret_leak",
       "expected_state": "INVALID",
       "expected_error_codes": [
-        "ENV_SECRET_LEAK"
-      ]
+        "ARTIFACT_SET_DIGEST_MISMATCH",
+        "ENV_SECRET_LEAK",
+        "SECRET_VALUE_FORBIDDEN"
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "undeclared-environment-name",
       "mutation": "undeclared_environment",
       "expected_state": "INVALID",
       "expected_error_codes": [
+        "ARTIFACT_SET_DIGEST_MISMATCH",
         "ENV_UNDECLARED_NAME"
-      ]
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "missing-environment-observation",
       "mutation": "missing_environment_observation",
       "expected_state": "INVALID",
       "expected_error_codes": [
+        "ARTIFACT_SET_DIGEST_MISMATCH",
         "ENV_OBSERVATION_MISSING"
-      ]
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "unknown-environment-actor",
       "mutation": "unknown_environment_actor",
       "expected_state": "INVALID",
       "expected_error_codes": [
+        "ARTIFACT_SET_DIGEST_MISMATCH",
         "ENV_ACTOR_UNKNOWN",
         "ENV_OBSERVATION_MISSING"
-      ]
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "uid-gid-transition-contradiction",
       "mutation": "transition_contradiction",
       "expected_state": "INVALID",
       "expected_error_codes": [
+        "ARTIFACT_SET_DIGEST_MISMATCH",
         "TRANSITION_IDENTITY_CONTRADICTION"
-      ]
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "survivor-policy-contradiction",
       "mutation": "survivor_contradiction",
       "expected_state": "INVALID",
       "expected_error_codes": [
+        "ARTIFACT_SET_DIGEST_MISMATCH",
         "SURVIVOR_POLICY_CONTRADICTION"
-      ]
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "event-cycle",
       "mutation": "event_cycle",
       "expected_state": "INVALID",
       "expected_error_codes": [
-        "EVENT_CYCLE"
-      ]
+        "ARTIFACT_SET_DIGEST_MISMATCH",
+        "EVENT_CYCLE",
+        "EVENT_EDGE_CENSUS_MISMATCH",
+        "EVENT_ORDER_REVERSAL",
+        "SCHEMA_MAX_ITEMS"
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "event-order-reversal",
       "mutation": "order_reversal",
       "expected_state": "INVALID",
       "expected_error_codes": [
+        "ARTIFACT_SET_DIGEST_MISMATCH",
         "EVENT_ORDER_REVERSAL"
-      ]
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "early-chain-edge-reversal",
       "mutation": "early_chain_edge_reversal",
       "expected_state": "INVALID",
       "expected_error_codes": [
+        "ARTIFACT_SET_DIGEST_MISMATCH",
+        "EVENT_EDGE_CENSUS_MISMATCH",
         "EVENT_ORDER_REVERSAL",
         "REQUIRED_EVENT_EDGE_MISSING"
-      ]
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "timestamp-reversal",
       "mutation": "timestamp_reversal",
       "expected_state": "INVALID",
       "expected_error_codes": [
-        "EVENT_TIMESTAMP_REVERSAL"
-      ]
+        "ARTIFACT_SET_DIGEST_MISMATCH",
+        "EVENT_TIMESTAMP_REVERSAL",
+        "PROCESS_START_IDENTITY_MISMATCH"
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "generation-event-drift",
       "mutation": "generation_event_drift",
       "expected_state": "INVALID",
       "expected_error_codes": [
+        "ARTIFACT_SET_DIGEST_MISMATCH",
         "GENERATION_EVENT_DRIFT"
-      ]
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "generator-confinement-drift",
       "mutation": "generator_confinement_drift",
       "expected_state": "INVALID",
       "expected_error_codes": [
+        "ARTIFACT_SET_DIGEST_MISMATCH",
+        "GENERATION_ROLE_DRIFT",
         "PROFILE_CONFINEMENT_ROLE_DRIFT"
-      ]
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "incomplete-generator-drift",
       "mutation": "incomplete_generator_drift",
       "expected_state": "INVALID",
       "expected_error_codes": [
-        "PROFILE_CONFINEMENT_ROLE_DRIFT"
-      ]
+        "ARTIFACT_SET_DIGEST_MISMATCH",
+        "COLLECTOR_ATTESTATION_MISMATCH",
+        "GENERATION_ROLE_DRIFT",
+        "INSTALLED_PATH_CENSUS_DIGEST_MISMATCH",
+        "PROFILE_CONFINEMENT_ROLE_DRIFT",
+        "TRUST_COMPLETENESS_CONTRADICTION",
+        "TRUST_MOUNT_IDENTITY_MISMATCH"
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "incomplete-timestamp-reversal",
       "mutation": "incomplete_timestamp_reversal",
       "expected_state": "INVALID",
       "expected_error_codes": [
-        "EVENT_TIMESTAMP_REVERSAL"
-      ]
+        "ARTIFACT_SET_DIGEST_MISMATCH",
+        "COLLECTOR_ATTESTATION_MISMATCH",
+        "EVENT_TIMESTAMP_REVERSAL",
+        "INSTALLED_PATH_CENSUS_DIGEST_MISMATCH",
+        "PROCESS_START_IDENTITY_MISMATCH",
+        "TRUST_COMPLETENESS_CONTRADICTION",
+        "TRUST_MOUNT_IDENTITY_MISMATCH"
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "missing-capability",
       "mutation": "missing_capability",
       "expected_state": "INVALID",
       "expected_error_codes": [
+        "ARTIFACT_SET_DIGEST_MISMATCH",
+        "CAPABILITY_CENSUS_MISMATCH",
+        "LOAD_CAPABILITY_MISSING",
         "SCHEMA_MIN_ITEMS"
-      ]
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "mount-path-contradiction",
       "mutation": "mount_path_contradiction",
       "expected_state": "INVALID",
       "expected_error_codes": [
+        "ARTIFACT_SET_DIGEST_MISMATCH",
         "MOUNT_PATH_CONTRADICTION"
-      ]
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "absent-self-declared-artifact",
@@ -1740,7 +1900,9 @@
       "expected_state": "INVALID",
       "expected_error_codes": [
         "PHYSICAL_FILE_MISSING"
-      ]
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "missing-external-trust",
@@ -1748,35 +1910,47 @@
       "expected_state": "INVALID",
       "expected_error_codes": [
         "EXTERNAL_TRUST_REQUIRED"
-      ]
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "authority-claim-flip",
       "mutation": "authority_claim_flip",
       "expected_state": "INVALID",
       "expected_error_codes": [
-        "TRUST_AUTHORITY_MISMATCH",
-        "COLLECTOR_ATTESTATION_MISMATCH"
-      ]
+        "COLLECTOR_ATTESTATION_MISMATCH",
+        "TRUST_AUTHORITY_MISMATCH"
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "coherent-foreign-target",
       "mutation": "coherent_foreign_target",
       "expected_state": "INVALID",
       "expected_error_codes": [
-        "TRUST_TARGET_IDENTITY_MISMATCH",
-        "COLLECTOR_ATTESTATION_MISMATCH"
-      ]
+        "COLLECTOR_ATTESTATION_MISMATCH",
+        "TRUST_TARGET_IDENTITY_MISMATCH"
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "wrong-measure-path",
       "mutation": "wrong_measure_path",
       "expected_state": "INVALID",
       "expected_error_codes": [
-        "TRUST_CENSUS_MISMATCH",
+        "COLLECTOR_ATTESTATION_MISMATCH",
+        "COMMAND_ARGV_DIGEST_MISMATCH",
+        "COMMAND_CHAIN_IDENTITY_MISMATCH",
         "COMMAND_EXECUTABLE_PATH_MISMATCH",
-        "COLLECTOR_ATTESTATION_MISMATCH"
-      ]
+        "INSTALLED_PATH_CENSUS_DIGEST_MISMATCH",
+        "TRUST_CENSUS_MISMATCH",
+        "TRUST_MOUNT_IDENTITY_MISMATCH"
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "arbitrary-worker-argv0",
@@ -1785,7 +1959,9 @@
       "expected_error_codes": [
         "COMMAND_ARGV0_MISMATCH",
         "COMMAND_ARGV_DIGEST_MISMATCH"
-      ]
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "launch-chain-substitution",
@@ -1793,7 +1969,9 @@
       "expected_state": "INVALID",
       "expected_error_codes": [
         "COMMAND_CHAIN_POLICY_MISMATCH"
-      ]
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "process-identity-drift",
@@ -1801,7 +1979,9 @@
       "expected_state": "INVALID",
       "expected_error_codes": [
         "PROCESS_START_IDENTITY_MISMATCH"
-      ]
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     },
     {
       "id": "installed-metadata-reseal",
@@ -1810,12 +1990,87 @@
       "expected_error_codes": [
         "COLLECTOR_ATTESTATION_MISMATCH",
         "TRUST_MOUNT_IDENTITY_MISMATCH"
-      ]
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
+    },
+    {
+      "id": "ranked-trust-detached-pin-positive",
+      "mutation": "ranked_trust_positive",
+      "expected_state": "STATIC_RESUME_READY",
+      "expected_error_codes": [],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
+    },
+    {
+      "id": "missing-external-trust-pin",
+      "mutation": "none",
+      "external_trust_pin": "missing",
+      "expected_state": "INVALID",
+      "expected_error_codes": [
+        "EXTERNAL_TRUST_PIN_REQUIRED"
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
+    },
+    {
+      "id": "invalid-external-trust-pin",
+      "mutation": "none",
+      "external_trust_pin": "invalid",
+      "expected_state": "INVALID",
+      "expected_error_codes": [
+        "EXTERNAL_TRUST_PIN_INVALID"
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
+    },
+    {
+      "id": "mismatched-external-trust-pin",
+      "mutation": "none",
+      "external_trust_pin": "mismatch",
+      "expected_state": "INVALID",
+      "expected_error_codes": [
+        "EXTERNAL_TRUST_PIN_MISMATCH"
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
+    },
+    {
+      "id": "self-resealed-substituted-trust",
+      "mutation": "self_resealed_substituted_trust",
+      "external_trust_pin": "pre_mutation",
+      "expected_state": "INVALID",
+      "expected_error_codes": [
+        "EXTERNAL_TRUST_PIN_MISMATCH"
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
+    },
+    {
+      "id": "source-kind-drift",
+      "mutation": "source_kind_drift",
+      "external_trust_pin": "pre_mutation",
+      "expected_state": "INVALID",
+      "expected_error_codes": [
+        "EXTERNAL_TRUST_PIN_MISMATCH"
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
+    },
+    {
+      "id": "coherent-parent-ppid-drift",
+      "mutation": "coherent_parent_ppid_drift",
+      "expected_state": "INVALID",
+      "expected_error_codes": [
+        "PROCESS_PARENT_ACTOR_PID_MISMATCH"
+      ],
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false
     }
   ],
   "base_external_trust": {
     "schema_version": "ranked-authority-external-trust/v1",
-    "authority_contract_version": "pr671-ranked-installed-authority/v2",
+    "authority_contract_version": "pr671-ranked-installed-authority/v3",
     "source_kind": "fixture",
     "scope": {
       "assignment_pr": 671,

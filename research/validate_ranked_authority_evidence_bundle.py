@@ -15,9 +15,9 @@ from datetime import datetime
 from pathlib import Path, PurePosixPath
 
 SCHEMA_VERSION = "ranked-authority-evidence-bundle/v3"
-FIXTURE_VERSION = "ranked-authority-evidence-fixtures/v3"
+FIXTURE_VERSION = "ranked-authority-evidence-fixtures/v4"
 TRUST_SCHEMA_VERSION = "ranked-authority-external-trust/v1"
-AUTHORITY_CONTRACT_VERSION = "pr671-ranked-installed-authority/v2"
+AUTHORITY_CONTRACT_VERSION = "pr671-ranked-installed-authority/v3"
 SCHEMA_PATH = Path(__file__).with_name("ranked_authority_evidence_bundle.schema.json")
 MANDATORY_ROLES = {
     "workflow_file",
@@ -1328,6 +1328,7 @@ def collector_attestation_payload(data, trust):
         "target_identity": data.get("target_identity"),
         "capture_identity": data.get("capture_identity"),
         "missing_authority": data.get("missing_authority"),
+        "source_kind": trust.get("source_kind"),
         "scope": trust.get("scope"),
         "accepted_target_identity": trust.get("accepted_target_identity"),
         "expected_authority": trust.get("expected_authority"),
@@ -1341,10 +1342,23 @@ def collector_attestation_payload(data, trust):
     }
 
 
-def validate_external_trust(errors, data, trust):
+def authenticate_external_trust(errors, trust, expected_sha256):
     if not isinstance(trust, dict):
         errors.append(error("EXTERNAL_TRUST_REQUIRED", "$external_trust", "a separate verifier-owned trust document is required"))
-        return {}, {}, False
+        return False
+    if expected_sha256 is None:
+        errors.append(error("EXTERNAL_TRUST_PIN_REQUIRED", "$external_trust_sha256", "a verifier-owned SHA-256 pin is required"))
+        return False
+    if not isinstance(expected_sha256, str) or re.fullmatch(r"[0-9a-f]{64}", expected_sha256) is None:
+        errors.append(error("EXTERNAL_TRUST_PIN_INVALID", "$external_trust_sha256", "external trust pin must be exactly 64 lowercase hexadecimal characters"))
+        return False
+    if digest_value(trust) != expected_sha256:
+        errors.append(error("EXTERNAL_TRUST_PIN_MISMATCH", "$external_trust_sha256", "canonical external trust document differs from the verifier-owned pin"))
+        return False
+    return True
+
+
+def validate_external_trust(errors, data, trust):
     schema = json.loads(SCHEMA_PATH.read_text())
     validate_schema_instance(trust, schema["$defs"]["externalTrust"], schema, "$external_trust", errors)
     scan_for_secret_fields(trust, errors, "$external_trust")
@@ -1597,6 +1611,10 @@ def validate_events(errors, data, artifacts, actors, started, finished, missing_
         )
         if process_actual != process_expected:
             errors.append(error("PROCESS_START_IDENTITY_MISMATCH", f"{path}.process_start", "process start identity differs from actor, chain, or event evidence"))
+        parent_actor_id = actor.get("parent_actor_id") if actor else None
+        parent_actor = actors.get(parent_actor_id)
+        if parent_actor_id is not None and parent_actor is not None and process.get("ppid") != parent_actor.get("pid"):
+            errors.append(error("PROCESS_PARENT_ACTOR_PID_MISMATCH", f"{path}.process_start.ppid", "process parent PID differs from the declared parent actor PID"))
     return by_id, by_type
 
 
@@ -1680,7 +1698,7 @@ def validate_crypto(errors, data, artifacts, missing_role):
         errors.append(error("AUTHORITY_LINK_DIGEST_MISMATCH", "crypto_linkage.authority_link_sha256", "authority claims are not included in authenticated linkage"))
 
 
-def validate_bundle(data, root, external_trust=None):
+def validate_bundle(data, root, external_trust=None, expected_external_trust_sha256=None):
     errors = []
     if not isinstance(data, dict):
         return {"state": "INVALID", "bundle_digest_sha256": digest_value(data), "errors": [error("TOP_LEVEL_TYPE", "$", "bundle must be an object")], "missing_authority": None, "authoritative": False, "resumption_authorized": False}
@@ -1692,6 +1710,17 @@ def validate_bundle(data, root, external_trust=None):
         errors.append(error("AUTHORITY_CONTRACT_VERSION", "authority_contract_version", f"expected {AUTHORITY_CONTRACT_VERSION}"))
     missing = data.get("missing_authority")
     missing_role = missing.get("role") if isinstance(missing, dict) else None
+    trust_authenticated = authenticate_external_trust(errors, external_trust, expected_external_trust_sha256)
+    if not trust_authenticated:
+        errors = sorted(errors, key=lambda item: (item["code"], item["path"], item["message"]))
+        return {
+            "state": "INVALID",
+            "bundle_digest_sha256": digest_value(data),
+            "errors": errors,
+            "missing_authority": missing,
+            "authoritative": False,
+            "resumption_authorized": False,
+        }
     try:
         census, policies, trust_complete = validate_external_trust(errors, data, external_trust)
         compare_identity(errors, data.get("target_identity", {}), data.get("capture_identity", {}))
@@ -1710,7 +1739,7 @@ def validate_bundle(data, root, external_trust=None):
     authority = data.get("authority", {})
     authorized = (
         state == "STATIC_RESUME_READY"
-        and isinstance(external_trust, dict)
+        and trust_authenticated
         and external_trust.get("source_kind") == "ranked"
         and external_trust.get("census_complete") is True
         and authority.get("authoritative") is True
@@ -1845,8 +1874,58 @@ def remove_fixture_artifact(data, root, role, declare_missing):
 
 
 def mutate_fixture(name, data, root, trust):
+    if name == "none":
+        return trust
     if name == "missing_external_trust":
         return None
+    if name == "ranked_trust_positive":
+        ranked_identity = {
+            "repository": "morganmcg1/mlxfast-challenge_senpai",
+            "base_sha": RANKED_SCOPE["audited_base_sha"],
+            "workflow_path": RANKED_SCOPE["workflow_path"],
+            "workflow_blob_sha": RANKED_SCOPE["workflow_blob_sha"],
+            "workflow_file_sha256": RANKED_SCOPE["workflow_file_sha256"],
+        }
+        for identity in (data["target_identity"], data["capture_identity"]):
+            identity.update(ranked_identity)
+        trust["source_kind"] = "ranked"
+        trust["accepted_target_identity"] = copy.deepcopy(data["target_identity"])
+        for role, ranked_path in KNOWN_RANKED_PATHS.items():
+            artifact = next(item for item in data["artifacts"] if item["role"] == role)
+            old_path = artifact["installed_path"]
+            artifact["installed_path"] = ranked_path
+            for event_item in data["events"]:
+                command = event_item["command"]
+                command["argv"] = [ranked_path if value == old_path else value for value in command["argv"]]
+            census_item = next(item for item in trust["installed_path_census"] if item["role"] == role)
+            census_item["installed_path"] = ranked_path
+        seal_bundle_commands(data)
+        refresh_derived(data)
+        trust["expected_authority"] = copy.deepcopy(data["authority"])
+        seal_external_trust(data, trust)
+        return trust
+    if name == "self_resealed_substituted_trust":
+        data["authority"]["trusted_collector"] = "synthetic-substituted-collector"
+        data["authority"]["collector_authority"] = "synthetic-substituted-authority"
+        trust["trusted_collector"]["id"] = data["authority"]["trusted_collector"]
+        trust["trusted_collector"]["authority"] = data["authority"]["collector_authority"]
+        trust["expected_authority"] = copy.deepcopy(data["authority"])
+        refresh_derived(data)
+        seal_external_trust(data, trust)
+        return trust
+    if name == "source_kind_drift":
+        trust["source_kind"] = "ranked"
+        seal_external_trust(data, trust)
+        return trust
+    if name == "coherent_parent_ppid_drift":
+        worker = next(item for item in data["actors"] if item["id"] == "worker")
+        worker["ppid"] += 1
+        for event_item in data["events"]:
+            process = event_item["command"]["process_start"]
+            if process["actor_id"] == "worker":
+                process["ppid"] = worker["ppid"]
+        refresh_derived(data)
+        return trust
     if name == "authority_claim_flip":
         data["authority"]["authoritative"] = not data["authority"]["authoritative"]
         refresh_derived(data)
@@ -1926,18 +2005,34 @@ def run_fixture_suite(fixture_path):
             data = copy.deepcopy(fixture_document["base_bundle"])
             trust = copy.deepcopy(fixture_document["base_external_trust"])
             hydrate_fixture(data, root, trust)
+            pre_mutation_pin = digest_value(trust)
             trust = mutate_fixture(case["mutation"], data, root, trust)
-            result = validate_bundle(data, root, trust)
+            pin_mode = case.get("external_trust_pin", "current")
+            if pin_mode == "missing":
+                trust_pin = None
+            elif pin_mode == "invalid":
+                trust_pin = "A" * 64
+            elif pin_mode == "mismatch":
+                trust_pin = ZERO_SHA256
+            elif pin_mode == "pre_mutation":
+                trust_pin = pre_mutation_pin
+            elif pin_mode == "current":
+                trust_pin = digest_value(trust) if isinstance(trust, dict) else pre_mutation_pin
+            else:
+                raise ValueError(f"unknown external trust pin mode: {pin_mode}")
+            result = validate_bundle(data, root, trust, trust_pin)
         actual_codes = sorted({item["code"] for item in result["errors"]})
-        expected_codes = sorted(case.get("expected_error_codes", []))
+        expected_codes = sorted(case["expected_error_codes"])
         passed = (
             result["state"] == case["expected_state"]
-            and all(code in actual_codes for code in expected_codes)
-            and result["resumption_authorized"] is False
+            and actual_codes == expected_codes
+            and result["authoritative"] is case["expected_authoritative"]
+            and result["resumption_authorized"] is case["expected_resumption_authorized"]
         )
         case_result = {
             "id": case["id"], "state": result["state"], "bundle_digest_sha256": result["bundle_digest_sha256"],
-            "error_codes": actual_codes, "resumption_authorized": result["resumption_authorized"], "passed": passed,
+            "error_codes": actual_codes, "authoritative": result["authoritative"],
+            "resumption_authorized": result["resumption_authorized"], "passed": passed,
         }
         if result["state"] == "INCOMPLETE":
             case_result["missing_authority"] = result["missing_authority"]
@@ -1946,10 +2041,13 @@ def run_fixture_suite(fixture_path):
             failures.append({
                 "id": case["id"], "expected_state": case["expected_state"], "actual_state": result["state"],
                 "expected_error_codes": expected_codes, "actual_error_codes": actual_codes,
-                "resumption_authorized": result["resumption_authorized"],
+                "expected_authoritative": case["expected_authoritative"],
+                "actual_authoritative": result["authoritative"],
+                "expected_resumption_authorized": case["expected_resumption_authorized"],
+                "actual_resumption_authorized": result["resumption_authorized"],
             })
     return {
-        "schema_version": "ranked-authority-evidence-fixture-results/v3",
+        "schema_version": "ranked-authority-evidence-fixture-results/v4",
         "fixture_source_sha256": digest_file(fixture_path), "non_authoritative": True,
         "case_count": len(results), "passed": not failures, "results": results, "failures": failures,
     }
@@ -1960,11 +2058,15 @@ def main():
     parser.add_argument("--bundle-root", type=Path, help="directory containing physical evidence files")
     parser.add_argument("--manifest", type=Path, help="bundle manifest JSON (defaults to BUNDLE_ROOT/bundle.json)")
     parser.add_argument("--external-trust", type=Path, help="verifier-owned external trust JSON")
+    parser.add_argument(
+        "--external-trust-sha256",
+        help="verifier-owned lowercase SHA256 of the complete canonical external trust JSON",
+    )
     parser.add_argument("--run-fixtures", type=Path, help="run the committed synthetic fixture suite")
     args = parser.parse_args()
 
     if args.run_fixtures:
-        if args.bundle_root or args.manifest or args.external_trust:
+        if args.bundle_root or args.manifest or args.external_trust or args.external_trust_sha256:
             parser.error("--run-fixtures cannot be combined with bundle arguments")
         output = run_fixture_suite(args.run_fixtures.resolve())
         sys.stdout.buffer.write(canonical_bytes(output))
@@ -1977,7 +2079,7 @@ def main():
     external_trust = None
     if args.external_trust is not None:
         external_trust = json.loads(args.external_trust.resolve().read_text())
-    output = validate_bundle(data, root, external_trust)
+    output = validate_bundle(data, root, external_trust, args.external_trust_sha256)
     sys.stdout.buffer.write(canonical_bytes(output))
     return 0 if output["resumption_authorized"] else 1
 

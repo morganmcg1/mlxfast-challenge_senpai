@@ -197,7 +197,7 @@
       ]
     },
     "authority_contract_version": {
-      "const": "pr671-ranked-installed-authority/v2"
+      "const": "pr671-ranked-installed-authority/v3"
     },
     "installed_path_census_sha256": {
       "$ref": "#/$defs/sha256"
@@ -1391,7 +1391,7 @@
           "const": "ranked-authority-external-trust/v1"
         },
         "authority_contract_version": {
-          "const": "pr671-ranked-installed-authority/v2"
+          "const": "pr671-ranked-installed-authority/v3"
         },
         "source_kind": {
           "enum": [
