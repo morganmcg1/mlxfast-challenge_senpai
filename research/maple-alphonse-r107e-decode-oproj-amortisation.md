@@ -508,6 +508,87 @@ noise floor. Analysed with `--design occ2`; expected `mde ≈ 22 µs/step M4`,
 which resolves the summand bar. The estimator, the drift-injection validation
 and the prefill placebo axis are the same code as `abba1`/`abba2`.
 
+#### Decision: `occ2` was desk-closed and **not run**
+
+While `abba2` was in flight, #648 (R107-G, tanjiro) published its Stage-1
+cross-family regime census, verdict `N-BYTES-EVERYWHERE`, and it prices exactly
+this arm out. Its strongest form needs no exposure fraction at all: with
+`floor_us = bytes / 266.3 GB/s + 3.97 µs` — where 3.97 µs is rule 55's measured
+per-dispatch intercept on M4 — no change that leaves byte traffic alone can push
+a dispatch below `floor_us`, and every geometry change in this experiment leaves
+byte traffic alone (§3: `weight_code_reread_factor = 1.0` in every arm). So the
+gap to that floor is a **hard ceiling on the entire non-byte lever** — exposed
+ALU, latency, occupancy, issue slots, all of it, with no overlap assumption.
+
+I recomputed it from my own dispatch measurements rather than adopting the
+number, and T3b reproduces #648 exactly. #648 did not price T3c, so I extended
+it (host **M4 Pro**, epoch 2026-08-10, **census**):
+
+| family | bytes/call | µs/dispatch | `bytes_us` | `floor_us` | slack µs/disp | calls | slack µs/step M4 | % `cs` (α) | bars |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| T3b h64 | 8,652,800 | 37.2567 | 32.493 | 36.463 | **0.794** | 30 | **23.82** | 0.1585 | 0.396 |
+| T3c h48 | 6,490,112 | 30.1800 | 24.371 | 28.341 | **1.839** | 10 | **18.39** | 0.1223 | 0.306 |
+| **oproj family** | — | — | — | — | — | 40 | **42.21** | **0.2808** | **0.702** |
+
+T3b alone is 0.396 bar, matching #648's 0.40 to the digit. The family total is
+42.21 µs/step M4 — above the 30.6 µs/step summand bar, so a summand is not
+*arithmetically* excluded, but it would require capturing **72.45 %** of every
+non-byte microsecond in both oproj dispatches simultaneously. Priced at β
+instead of α the family is 0.3214 % `cs` (0.803 bar) and the capture requirement
+only falls to 63 %.
+
+Set that against the three things this report already measured:
+
+1. My own Rule 100 utilisation-scaled slot ceiling for the same family is
+   **0.1107 % `cs` = 16.6 µs/step M4** — *already* 0.54× the summand bar, and it
+   was derived independently, from AIR instruction counts and #642's issue rate,
+   before #648 existed. Two unrelated desk models bracket the lever at 16.6 and
+   42.2 µs/step; the summand bar sits above the tighter one.
+2. The geometry axis has a measured sign, and it is the wrong one (§2): moving
+   along it lost 110.6 µs/step. G4 moves the other way, but see the next
+   subsection — the reason G1/G2 lost is bandwidth de-saturation, and h64 is
+   already within **2.1 %** of its floor, so the other direction has at most
+   that 2.1 % to recover.
+3. #648's own per-student recommendation for #644 is "**STOP on the instruction
+   axis; RE-AIM to bytes or stand down**" at high confidence. The advisor's
+   standing instruction was to launch no further sessions if #648 returned
+   `ISSUE` for T3b. It returned `BYTES`, which is *more* closing for a geometry
+   lever than `ISSUE` would have been: an issue-bound kernel rewards removing
+   instructions, a kernel with 0.79 µs of total non-byte slack rewards nothing.
+
+So `occ2` would have spent 77 minutes of ranked-host-equivalent GPU time to
+resolve a quantity whose entire upside is below the bar it would have to clear.
+The design, the `g4` geometry entry, the position-balanced schedule, the
+`--design occ2` estimator path (validated on synthetic drift-injected rows,
+§2) and the g4 arms of the offline census, AIR load census and traffic model are
+all committed and ready, so if fern ever wants the point measured the session is
+one command. On the evidence it is not worth a slot, and the honest verdict for
+the occupancy axis is a **desk closure**, labelled as such rather than dressed
+up as a measurement.
+
+### Why a 110.6 µs/step regression is compatible with 23.8 µs/step of slack
+
+These two numbers look contradictory and are not, and the resolution is the
+mechanism behind the whole result. The slack bound caps how much time a change
+can **remove**. It says nothing about how much a change can **add**, because a
+geometry that fails to saturate DRAM loses achieved bandwidth, and that loss is
+unbounded above.
+
+Factor A's +110.60 µs/step spread over the family's 40 dispatches is
++2.765 µs/dispatch. Applied to h64 that is 37.257 → **40.022 µs**, i.e. achieved
+bandwidth **232.2 → 216.2 GB/s**, or **87.05 % → 81.04 %** of the measured
+266.80 GB/s M4 Pro ceiling — a **6.01 pp** loss. That is the entire effect: at
+8,192 grid threads this GEMV cannot keep enough loads in flight to hold 87 % of
+peak; at 16,384 it can. Nothing was "spent" out of the 0.79 µs slack budget,
+which is why the regression can be five times larger than the budget.
+
+The same arithmetic bounds G4 from above. h64 at 37.257 µs sits **2.13 %** above
+its 36.463 µs floor, so doubling grid threads to 32,768 can recover at most
+2.13 % of that dispatch no matter how much latency hiding it buys. h48 has more
+room — 1.839 µs is 6.09 % of its dispatch — but only 10 calls carry it. This is
+the quantitative statement of "the knee is between 8,192 and 16,384 threads, and
+the shipped point is past it", and it is the durable finding on this axis.
+
 ---
 
 ## §3 — Issued-traffic model (Rule 98.9: cache-resident, not DRAM)
@@ -1096,6 +1177,38 @@ PLACEBO CHANNEL YOU CAN REUSE:
 
   Between-session same-arm same-position spread: ~1 % (2.5x the 0.4 % bar).
   Use within-session ABBA halves.
+
+NON-BYTE SLACK BOUND FOR THE WHOLE OPROJ FAMILY (M4 Pro, 2026-08-10, census):
+  floor_us = bytes/266.3 GB/s + 3.97 us   (#648 R107-G; 3.97 = rule 55 M4 intercept)
+  T3b h64: floor 36.463 vs 37.257 => slack 0.794 us/disp x30 = 23.82 us/step = 0.1585 %cs
+  T3c h48: floor 28.341 vs 30.180 => slack 1.839 us/disp x10 = 18.39 us/step = 0.1223 %cs
+  FAMILY TOTAL                                              = 42.21 us/step = 0.2808 %cs
+  => every instruction-side, occupancy-side and latency-side lever in BOTH oproj
+     dispatches together is capped at 0.70 of one 0.4 % bar. A 0.2034 % summand
+     needs 72.45 % capture of that entire budget. T3b alone (0.396 bar)
+     reproduces #648's 0.40 from my own dispatch measurement.
+  DO NOT SPEND A SESSION ON OPROJ GEOMETRY, ISSUE COUNT, OR LATENCY HIDING.
+
+WHERE THE OPROJ MONEY ACTUALLY IS: THE PER-DISPATCH INTERCEPT
+  40 oproj dispatches/step x 3.97 us = 158.80 us/step M4 = 1.0565 %cs at alpha.
+  That is 2.6 bars, and it is the largest single addressable quantity this
+  family has. It is NOT reachable by geometry: raising rows per simdgroup does
+  not remove a dispatch. It belongs to the dispatch-count family
+  (rules 53/65/68, #48 scored -0.1488 %), reachable only by genuine kernel
+  merging (e.g. one dispatch spanning layers, or fusing h64 and h48).
+  My independent regime fit reached the same conclusion from a different
+  direction: residual better_described_as = "fixed_per_dispatch"
+  (dispersion 0.2133 vs 0.6177 for per-k-block), and the per-k-block
+  prediction's sign is OPPOSITE to observation (0.8242 vs 1.3333).
+
+OCCUPANCY KNEE, FOR ANY FUTURE GEMV GEOMETRY WORK ON THIS HOST:
+  16,384 grid threads hold 87.05 % of the 266.80 GB/s ceiling on T3b.
+   8,192 grid threads hold 81.04 % -- a 6.01 pp bandwidth loss, which is the
+  entire mechanism of this experiment's +110.60 us/step regression. The knee is
+  between 8,192 and 16,384, and the shipped geometry is past it. Note the
+  asymmetry: the slack bound caps GAINS at 0.794 us/dispatch, but a
+  de-saturating geometry can LOSE far more than that, which is why a 110.6
+  us/step regression is compatible with 23.8 us/step of slack.
 ```
 
 ---
@@ -1226,5 +1339,46 @@ Also carried out as instructed:
   spent there.
 - **Every quantity now carries host · epoch · census-or-marginal**, with the
   §1 paragraph stating which sections are census and which are marginal.
+
+### #648 published mid-session, and I stood down rather than launch `occ2`
+
+The standing instruction was: if #648's T3b verdict says `ISSUE`, launch no
+further sessions. #648 published its Stage-1 census while `abba2` was in flight
+(branch `maple-tanjiro/r107-decode-family-regime-census` at `1d299e2d`, outcome
+`N-BYTES-EVERYWHERE`). T3b's verdict is **`BYTES`**, `k = α = 0.4369`, which
+retires the "provisional pending #648" label on every bytes-regime price in this
+report — and which is *more* closing for my lever than `ISSUE` would have been.
+
+I had a fifth arm designed, built and preregistered: `g4`, the only remaining
+bit-exact geometry point (`results_per_simdgroup` 4 → 2, doubling grid threads to
+32,768), which would have bracketed the shipped geometry from the side the 2×2
+never sampled. I did not run it. The reason is #648's slack bound, which I
+recomputed from my own dispatch measurements rather than adopting: T3b's *entire*
+non-byte budget is 0.794 µs/dispatch = **23.82 µs/step M4 = 0.396 bar**, and
+extending the same floor model to T3c (which #648 did not price) gives the whole
+oproj family **42.21 µs/step = 0.2808 % `cs` = 0.702 bar**. A 0.2034 % summand
+would need **72.45 %** capture of every non-byte microsecond in both dispatches;
+my own independently derived Rule 100 utilisation-scaled ceiling for the same
+family is tighter still at **0.1107 % `cs` = 16.6 µs/step**, i.e. already 0.54×
+the summand bar. Both bounds were built from different data — #648's from a
+measured per-dispatch intercept, mine from AIR instruction counts and #642's
+issue rate — and they agree that the axis is closed.
+
+I am reporting this as a **desk closure, labelled as such**, not as a
+measurement, and the design plus tooling is committed so the session is one
+command if you want the point measured anyway. Three things persuaded me the slot
+is better left unspent: the upside is capped below the bar it must clear; the
+measured sign on that axis is already known and wrong (§2); and the mechanism is
+now understood well enough to bound the untested direction — h64 sits **2.13 %**
+above its floor, so doubling threads can recover at most 2.13 % of that dispatch.
+
+What that mechanism *does* surface is a number I think is the most useful thing
+in this report for #625: the oproj family carries **158.80 µs/step M4 =
+1.0565 % `cs` = 2.6 bars** of pure per-dispatch intercept across its 40
+dispatches. My regime fit independently classified the family residual as
+`fixed_per_dispatch` before #648 existed, with the per-k-block prediction's sign
+*opposite* to observation. That money is real and large, it is invisible to every
+geometry lever, and it lives in the dispatch-count family (#48, −0.1488 %). It is
+now in §8 as an explicit handoff rather than a footnote.
 
 **Verdict: PENDING — mirrors §0.**
