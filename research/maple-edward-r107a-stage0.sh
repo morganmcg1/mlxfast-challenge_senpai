@@ -27,6 +27,8 @@ build_variant() {
   return ${rc}
 }
 
+NAME=new SNAP="${SNAP}" bash research/maple-edward-r107a-build.sh \
+  || { echo "candidate build failed" >&2; exit 3; }
 build_variant geom geom || { echo "geom build failed" >&2; exit 3; }
 build_variant fault fault || { echo "fault build failed" >&2; exit 4; }
 
@@ -48,7 +50,8 @@ probe() {  # tag snapshot steps [SG]
     python3 research/decode_probe.py --steps "${steps}" \
       --stderr "${OUT}/${tag}.err" \
       --dump-tokens "${OUT}/${tag}.tokens" >"${OUT}/${tag}.log" 2>&1
-  echo "  probe_rc=$?"
+  PROBE_RC=$?
+  echo "  probe_rc=${PROBE_RC}"
   grep -E "^teacher-forced|^decode steps=" "${OUT}/${tag}.log" \
     || { echo "  (no summary)"; tail -3 "${OUT}/${tag}.err"; }
   grep -o '^R107GEOM .*' "${OUT}/${tag}.err" | head -1
@@ -63,6 +66,8 @@ probe() {  # tag snapshot steps [SG]
 
 echo "########## A. geometry receipts (instrumented build) ##########"
 probe geom-base geom 8
+[ "${PROBE_RC}" = 0 ] || { echo "FAIL: probe harness is dead; aborting" >&2
+  tail -20 "${OUT}/geom-base.log" >&2; exit 6; }
 for s in 2 4 8 16; do probe "geom-sg${s}" geom 8 "${s}"; done
 
 echo "########## B. greedy token parity on the shipped candidate ##########"
