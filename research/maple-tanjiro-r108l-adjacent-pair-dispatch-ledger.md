@@ -38,15 +38,21 @@ free, production is 408`). Rule 68 already forbids applying rule 65's addition
 price in the removal direction; a prior violation overstated by **21.7×**
 (`CURRENT_RESEARCH_STATE.md:219-226`).
 
-**The ledger is still worth its cost, for one reason.** Its `dep_scope` column is
-exactly the input that the *serialisation* lever needs, and serialisation is
-priced ~14× higher than launch count. Rule 41: serialisation is **76.3 %** of a
-4,096 B dispatch boundary, against `c_fixed` 22.4 % and bytes 1.3 %. The three
-`NONE` pairs are, by construction, the boundaries where **the dependency DAG does
-not require serialisation at all**. See §9 — that reframing is worth ≈**1.83 %**
-of `cs` where dispatch-removal is worth 0.13 %.
+**The ledger is still worth its cost, and §13 is why.** Its `dep_scope` column
+turns out to decide not just fusion legality but whether the boundary's cost
+*exists at all*. MLX creates every compute encoder with
+`MTL::DispatchTypeConcurrent` and emits a barrier only on a real buffer-aliasing
+hazard (`backend/metal/device.cpp:545-548`, `:315-349`, `:363-391`). Hence the
+central symmetry: **the per-dispatch intercept is collectible only at dependent
+boundaries, which are exactly the ones fusion cannot cross; and the `NONE`
+boundaries fusion can cross emit no barrier today, so there is nothing there to
+relieve.**
 
-**Do not build a merged kernel. Build a concurrent encoder for the `NONE` set.**
+**Do not build a merged kernel, and do not build a concurrent encoder either.**
+My own §9 estimate of ≈1.83 % for the latter is **retracted in §13.4**: the
+encoder is already concurrent, and `device.cpp` is not in `editablePaths`. Both
+halves of this axis price at ≈0.1 %, matching every removal-direction receipt
+(#48: −0.1488 %; #483: 0.108 M4 µs, CI [−0.221, +0.438]).
 
 ---
 
@@ -560,6 +566,16 @@ sweep found no *new* stranded segment outside attention.
 
 ## 9. What I would do instead — the concurrency reframing
 
+> **RETRACTED by §13.4.** The premise of this section — that the decode command
+> encoder might be serialising the `NONE` boundaries — is **false in source**.
+> MLX creates *every* compute encoder with `MTL::DispatchTypeConcurrent`
+> (`Vendor/mlx-swift/…/backend/metal/device.cpp:545-548`) and emits a barrier
+> only on a real buffer-aliasing hazard (`:315-349`, `:363-391`). The ≈1.8 %
+> estimate below is **not available**: there is no unnecessary serialisation to
+> remove. `device.cpp` is also not in `editablePaths`. I am leaving the section
+> standing rather than deleting it, because the retraction is the most valuable
+> single result in this report — see §13.4.
+
 The ledger's `dep_scope` column has a second use, and it is worth ~14× more than
 its first.
 
@@ -635,12 +651,16 @@ plus the finding that `dep_scope` is decidable by source reading alone.
 
 ## 11. Suggested follow-ups (not implemented)
 
-1. **Highest value — reprice the axis, don't merge it.** Turn §9 into a real
+1. ~~**Highest value — reprice the axis, don't merge it.** Turn §9 into a real
    assignment: does the decode command encoder use `MTLDispatchTypeSerial` where
-   the DAG (this ledger) says it need not? `backend/metal/**` is editable. The
-   three `NONE` rows are the pre-verified test set. ≈1.8 % if rule 41's
-   serialisation share is realisable, ≈0 if not, and it is a *bit-exact*
-   change by construction — no margin certificate needed.
+   the DAG (this ledger) says it need not?~~ **WITHDRAWN — answered in §13.4 for
+   the cost of one source read, and the answer is no.** The encoder is already
+   `MTL::DispatchTypeConcurrent` and barriers track real buffer hazards, so the
+   ≈1.8 % does not exist; `device.cpp` is also not in `editablePaths`. Do not
+   spend an assignment on it. The replacement follow-up is to look for a lever
+   that shortens the **critical path** through the dependency DAG, since §13.4
+   establishes that is what decode wall time is made of — removing off-path
+   occupancy, however large in attribution, buys ≈0.
 2. **Cheapest confirmatory read (≈15 min).** Diff the routed and shared SwiGLU
    QMV kernel bodies to promote ledger row 1 from INFERRED to source-confirmed
    IDENTICAL. It is the only structurally clean, collision-free, bit-exact,
@@ -674,3 +694,191 @@ plus the finding that `dep_scope` is decidable by source reading alone.
 | primary source read | `Sources/MLXFastModel/LagunaRuntimeModel.swift` @ 12,147 lines, unmodified |
 | secondary sources | `research/maple-fern-r91-input-norm-fusion-price.md:14-24,36`; `research/CURRENT_RESEARCH_STATE.md:219-226,270-280,465-480,560-575,1470-1482,3245`; `research/RESEARCH_IDEAS_2026-08-09_13:45.md:52,121-127,190-200`; `research/RESEARCH_ARCHIVE_through-round-91.md:312,1423,4242` |
 | terminal verdict | **`N-NO-MERGEABLE-PAIR`** — pricing refusal; three structurally clean `NONE` pairs named for contingency |
+
+---
+
+## 13. Route reconciliation (answers rule 105.23 and comments 5242807697, 5242969214)
+
+Reproduction: `python3 research/maple-tanjiro-r108l-route-reconciliation.py`.
+Every constant in that script is copied unchanged from the committed census
+`research/maple-tanjiro-r107g-slack.py:22-31`. Nothing new was measured; this
+section is arithmetic plus one source read.
+
+### 13.1 The exact arithmetic, inputs, `k` and basis behind "1.89 bars"
+
+The number is mine, from `maple-tanjiro-r107g-slack.py`, family
+**E `T2b gate_sp h64`**. Inputs: `calls=30`, occupancy `248.0` M4 µs/step,
+`262,000` unique B/dispatch, `k=0.5`, `PEAK=266.3e9` B/s,
+`INTERCEPT=3.97` M4 µs, `PRICE=0.015228` %cs per M5 µs/step, `BAR=0.4` %cs.
+
+```text
+disp  = 248.0 / 30                      =  8.2667  M4 µs/dispatch
+byte  = 262000 / 266.3e9 × 1e6          =  0.9839  M4 µs
+floor = byte + INTERCEPT                =  4.9539  M4 µs
+slack = disp − floor                    =  3.3128  M4 µs
+      × calls (30)                      = 99.38    M4 µs/step
+      × k (0.5) × PRICE (0.015228)      =  0.7567  %cs
+      ÷ BAR (0.4)                       =  1.892   bars
+```
+
+`k=0.5` for family E specifically (β, the generic M4→M5 transfer); the other
+four families carry the directly-probed `k=0.4369`. That asymmetry is in the
+committed census, not introduced here.
+
+**The basis is the part that matters.** `slack` is occupancy *above a floor that
+already concedes the per-dispatch intercept*. It was commissioned to bound the
+**fixed-dispatch-count / instruction-side** lever — the R107-G question. It was
+**never** a ceiling on *removing* the dispatch. Quoting 1.89 bars against a
+fusion proposal compares a fusion prize to a non-fusion bound.
+
+### 13.2 Routes B and C are addends, not rivals — residual identically zero
+
+| family | n | C (slack) % | intercept % | C+int % | B (advisor prize) % | residual | A (rule 65) % |
+|---|---|---|---|---|---|---|---|
+| D `T2c` routed gate+up | 39 | 0.2500 | 1.0301 | 1.2801 | 1.2801 | **0.0000** | 1.3899 |
+| A `T3b` oproj h64 | 30 | 0.1586 | 0.7924 | 0.9510 | 0.9510 | **0.0000** | 1.0691 |
+| C `T0b(a)` qkv h64 | 30 | 0.0110 | 0.7924 | 0.8034 | 0.8034 | **0.0000** | 1.0691 |
+| B `T2d` down+residual | 39 | −0.2008 | 1.0301 | 0.8293 | 0.8293 | **0.0000** | 1.3899 |
+| E `T2b` gate_sp h64 | 30 | 0.7567 | 0.9068 | 1.6635 | 1.6635 | **0.0000** | 1.0691 |
+| **sum** | **168** | **0.9756** | **4.5518** | **5.5274** | **5.5274** | **0.0000** | **5.9872** |
+
+Route B *is* route C plus the conceded intercept, exactly, for every family. My
+R107-G run already printed route B for family E directly —
+`(3.3128 + 3.97) × 30 = 218.5` M4 µs/step `= 1.664 % = 4.16 bars` — reproducing
+the advisor's route B (1.69–1.78 %) to 2–7 %.
+
+Over the whole population, **route A and route B agree to 1.083× (8 %)**:
+5.987 % vs 5.527 %. Three routes, two independent instruments, one number.
+
+### 13.3 The claimed 4.86× disagreement — same byte floor? Plain answer
+
+The advisor asked whether 105.16's per-family slack uses the same byte floor as
+my census, side by side. Here is the plain paragraph.
+
+The five families' `calls` sum to **exactly 168**, so 105.16 and 105.17 are
+priced over the *same* dispatch population; the 4.86× is not a population
+effect. **105.16 does use my census byte floor, unchanged** — `PEAK = 2.663e11`
+B/s, subtracted per dispatch as `uniqueB/PEAK`, equivalently `2.5272e-08` %cs
+per byte; its numbers were derived *from* that census, so it could not have used
+a different floor. **105.17 uses no byte floor at all** — it is dispatch count
+times rule 65's marginal price, and bandwidth never enters the calculation. So
+the two are not two estimates of one quantity under two different floors. They
+are **two different terms of one decomposition**: 105.16 = 0.976 % prices what
+sits *above* the floor, 105.17 = 5.987 % prices *the floor's dispatch term
+itself*. The conceded intercept between them is 4.552 %, and
+`0.976 + 4.552 = 5.527`, which agrees with 105.17's 5.987 % to 1.083×. The
+"4.86×" is `5.987 / 1.232`, i.e. a total divided by one of its own two addends.
+There is no disagreement to resolve, only a decomposition to name.
+
+Independent cross-check on the per-dispatch overhead, the one quantity both
+rules do estimate:
+
+| instrument | M5 µs/dispatch | ratio to rule 65 |
+|---|---|---|
+| rule 55 intercept @ `k=0.4369` | 1.7345 | 1.349× |
+| rule 55 intercept @ `k=0.5` (β) | 1.9850 | 1.179× |
+| rule 65 marginal (M5-native) | 2.3403 | — |
+
+Two instruments built from different experiments agree on the same physical
+quantity to 18–35 %. Note also the **erratum** already carried in §3.1: my
+R107-G script's printed line "rule 65's … 2.3403 µs × 30 = 70.2 µs/step =
+0.535 % of cs" wrongly applies `k` to a rule-65 (already-M5) number. The correct
+value is **1.069 %**; the reconciliation script omits `k` for route A throughout.
+
+### 13.4 Answer to the three options: **option 3 — something not yet considered**
+
+Not option 1 (`k` wrong): `k = 0.5 = β` is what the census uses for family E and
+is the conservative generic transfer. Not option 2 (route B wrong): route B
+reproduces from my own numbers to four decimal places and agrees with rule 65 to
+8 %. The routes are not in conflict **with each other**.
+
+The conflict is between *all three* of them and the **removal direction**. All
+of A, B and C are **attributed per-kernel occupancy**. None is a measurement of
+what happens when a dispatch is actually removed. The only marginal
+removal-direction measurement on this axis is PR #483 on the input-norm family:
+**0.108 M4 µs, CI [−0.221, +0.438]** — against family E's recoverable occupancy
+of `disp − byte = 7.283` M4 µs/dispatch. A **67.4× gap**, with zero inside the
+confidence interval. PR #48 (−0.1488 %) already falsified dispatch count as a
+removal-direction proxy.
+
+**The mechanism, from source, and it is decisive for the Stage-1 gate.** MLX
+creates *every* compute encoder concurrent, and inserts barriers only on real
+data hazards:
+
+- `Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp:545-548` —
+  `buffer_->computeCommandEncoder(MTL::DispatchTypeConcurrent)`, unconditionally.
+- `:315-328` — `set_input_array` raises `needs_barrier_` only if a bound buffer
+  is in `prev_outputs_` (RAW).
+- `:339-349` — `register_output_array` raises it only if the buffer is in
+  `prev_inputs_` (WAR); `:330-336` routes outputs through `set_input_array` so
+  WAW is covered too.
+- `:363-391` — `maybeInsertBarrier` runs on every `dispatch_threadgroups` /
+  `dispatch_threads`, but emits `memoryBarrier(MTL::BarrierScopeBuffers)` **only
+  when that flag is set**.
+
+So **adjacent independent dispatches are already free to overlap.** This yields
+the ledger's central symmetry, and it is the cleanest statement of the terminal
+verdict:
+
+> A boundary's intercept is collectible **only where a barrier is actually
+> emitted** — i.e. at dependent boundaries, `dep_scope ≠ NONE` — which are
+> exactly the boundaries fusion cannot legally or profitably cross. And the
+> boundaries fusion **can** cross, `dep_scope = NONE` (ledger rows 1, 2, 4),
+> emit no barrier today, so there is no serialisation there to relieve.
+
+This also reconciles rule 65 with #483 under fern's §0.9.16 law — *a boundary
+costs what it serialises*. Rule 65's probes **added dependent dataflow** (rule 67
+corollary), so each probe forced a whole-encoder `BarrierScopeBuffers` flush and
+measured a genuine serialisation cost. #483 **removed** dispatches without
+removing anything from the serialised critical path, and measured ≈0. Both are
+correct measurements of different quantities.
+
+Concurrency does not by itself close the 67× gap: rule 41's 76.3 % serialisation
+share bounds the overlap correction at `1/0.763 = 1.311×`. The residue is the
+§0.9.16 law itself — **decode wall time is set by the critical path through the
+dependency DAG, and attributed occupancy above that path is free.** Removing
+free work buys nothing. That is why every removal-direction receipt on this axis
+has returned ≈0 while every attribution-direction estimate returns 1–6 %.
+
+### 13.5 Canonical bars from my own census — correcting 105.23(e)
+
+| family | mine | advisor 105.23(e) |
+|---|---|---|
+| D `T2c` routed gate+up | **0.62** | 0.71 |
+| A `T3b` oproj h64 | **0.40** | 0.45 |
+| C `T0b(a)` qkv h64 | **0.03** | *(left blank)* |
+| B `T2d` down+residual | **−0.50** | 0.00 |
+| E `T2b` gate_sp h64 | 1.89 | 1.89 |
+| **sum** | **2.44 bars = 0.976 %** | 3.08 bars = 1.232 % |
+
+The quoted 3.08 bars is **26 % high** against the signed sum and 5 % high
+against a B-floored sum (2.94 bars = 1.176 %). Family C is 0.03 bars, not blank.
+Family B is **−0.50** bars, not 0.00: it already runs at or below the modelled
+DRAM floor, which is a **flag on the byte audit** (~3 % tension, §10) and not a
+recoverable zero — flooring it to 0.00 discards a diagnostic.
+
+### 13.6 Consequence for the Stage-1 go/no-go
+
+If the merge is pitched at route B (≈1.66 % for the QKV ∥ gate_sp pair), the
+source reading above says the intercept share of that number — 0.907 of the
+1.664 %, i.e. **55 %** — is not on the table, because that boundary emits no
+barrier. What remains is route C, **0.7567 % for family E and 0.0110 % for
+family C**, and route C is a *ceiling* on instruction-side work, reachable only
+by a kernel that does strictly less arithmetic — not by fusion, which changes no
+arithmetic. Set against #483's directly measured 0.108 M4 µs and #48's
+−0.1488 %, the expected value of building the merge is **≈0.1 %, not ≈1.7 %**.
+
+**Verdict unchanged: `N-NO-MERGEABLE-PAIR`.** It now rests on a mechanical cause
+in vendored source rather than on pricing arithmetic alone, which makes it
+cheaper to refute than it was at submission: any counter-claim now has to show a
+barrier being emitted at a `dep_scope = NONE` boundary.
+
+**And the retraction is the actionable half.** §9 proposed spending Stage-1 on a
+concurrent encoder at ≈1.8 %. That prize does not exist — the encoder is already
+concurrent, the surviving barriers are all genuine data hazards, and
+`device.cpp` is not in `editablePaths` in any case (the only editable
+metal-backend files are `matmul.cpp`, `jit_kernels.cpp`, `kernels.h`,
+`quantized.cpp`, plus the `kernels/` subtree). Spending the 21:00Z gate on
+either the merge or the concurrent encoder is spending it on a priced-at-zero
+axis. If Stage-1 needs a dispatch-side idea, it needs a *different* one.
+
