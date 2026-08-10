@@ -14,6 +14,7 @@ Prose outside these regions is deliberately qualitative ("roughly four-fold",
 
 Rerunnable: each region is replaced between its BEGIN/END pair.
 """
+import json
 import pathlib
 import re
 import subprocess
@@ -22,6 +23,7 @@ import sys
 HERE = pathlib.Path(__file__).resolve().parent
 REPORT = HERE / "maple-frieren-r108k-decode-dispatch-merge.md"
 ANALYZER = HERE / "maple-frieren-r108k-barrier-price-analyze.py"
+FIGURES = HERE / "artifacts" / "maple-frieren-r108k" / "figures.json"
 SINK = sys.argv[1] if len(sys.argv) > 1 else "/tmp/r108k-barrier-price.tsv"
 DISPATCHES_PER_STEP = 40  # family E, advisor's corrected n (comment 6)
 DECODE_WEIGHT = 0.75
@@ -144,6 +146,36 @@ REPORT.write_text(text)
 
 rows = results.split("usable rows ")[1].split(",")[0]
 verdict = [ln for ln in results.splitlines() if "P-" in ln and ln.startswith("**")][-1]
+
+FIGURES.parent.mkdir(parents=True, exist_ok=True)
+FIGURES.write_text(json.dumps({
+    "usable_rows": int(rows),
+    "control_us_per_step": control,
+    "pooled_sd_us": float(sd),
+    "pooled_sd_df": int(df),
+    "blocks_low_rung": int(b_low),
+    "blocks_high_rung": int(b_high),
+    "k_unchained": float(k), "k_unchained_lo": float(k_lo), "k_unchained_hi": float(k_hi),
+    "k_chained": float(ck), "k_chained_lo": float(ck_lo), "k_chained_hi": float(ck_hi),
+    "c_unchained_us_per_layer": float(c_layer), "c_unchained_us_per_step": float(c_step),
+    "c_chained_us_per_layer": float(cc_layer), "c_chained_us_per_step": float(cc_step),
+    "barrier_160": float(bar), "barrier_160_lo": float(bar_lo),
+    "barrier_160_hi": float(bar_hi), "barrier_160_blocks": int(bar_b),
+    "barrier_1200": float(bar_hi_rung),
+    "single_rung_f_slope": float(f_slope),
+    "single_rung_f_slope_lo": float(f_lo), "single_rung_f_slope_hi": float(f_hi),
+    "merge_prize_us_per_step": k_us,
+    "merge_prize_pct_decode": k_pct,
+    "merge_prize_pct_score": k_score,
+    "merge_prize_pct_score_lo": lo_score, "merge_prize_pct_score_hi": hi_score,
+    "assumed_k": ASSUMED_K,
+    "assumed_prize_pct_score": prize(ASSUMED_K)[2],
+    "fold_reduction_vs_assumed": fold,
+    "dispatches_per_step": DISPATCHES_PER_STEP,
+    "mechanical_verdict": mechanical,
+    "reported_verdict": "P-INDETERMINATE",
+    "analyzer_plain": plain,
+}, indent=2) + "\n")
 print(f"regenerated {', '.join(REGIONS)} from {rows} usable rows "
       f"(control {control:.1f} us/step, pooled sd {sd} us df {df}, B={b_low},{b_high})")
 print(f"k unchained = {k} [{k_lo}, {k_hi}] -> {k_us:.1f} us/step, "
