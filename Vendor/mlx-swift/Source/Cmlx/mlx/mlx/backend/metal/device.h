@@ -57,7 +57,9 @@ class MLX_API CommandEncoder {
   void dispatch_threads(MTL::Size grid_dims, MTL::Size group_dims);
   void maybeInsertBarrier();
 
-  void set_compute_pipeline_state(MTL::ComputePipelineState* kernel);
+  void set_compute_pipeline_state(MTL::ComputePipelineState* kernel) {
+    get_command_encoder()->setComputePipelineState(kernel);
+  }
 
   template <typename Vec, typename = std::enable_if_t<is_vector_v<Vec>>>
   void set_vector_bytes(const Vec& vec, size_t nelems, int idx) {
@@ -123,7 +125,6 @@ class MLX_API CommandEncoder {
   // reset after calling end_encoding().
   NS::SharedPtr<MTL::ComputeCommandEncoder> encoder_;
   NS::SharedPtr<MTL::Fence> fence_;
-  MTL::ComputePipelineState* current_pipeline_{nullptr};
   bool needs_barrier_{false};
   bool concurrent_{false};
   std::vector<array> temporaries_;

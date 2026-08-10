@@ -1,12 +1,7 @@
 // Copyright © 2023-2024 Apple Inc.
 
-#include <cstdio>
 #include <cstdlib>
-#include <fstream>
-#include <mutex>
 #include <sstream>
-#include <unordered_map>
-#include <vector>
 
 #include <fmt/format.h>
 
@@ -34,132 +29,6 @@ struct hash<NS::SharedPtr<T>> {
 } // namespace std
 
 namespace mlx::core::metal {
-
-// === R103-B research instrumentation (temporary; never submitted) ==========
-// Enabled only when MLX_TRACE_DUMP_DIR is set. MLX_* is the sole env prefix
-// that survives the runtime worker's allowlist filter.
-namespace mlxfast_trace {
-
-inline const char* dump_dir() {
-  static const char* dir = std::getenv("MLX_TRACE_DUMP_DIR");
-  return (dir && *dir) ? dir : nullptr;
-}
-
-inline std::mutex& mutex() {
-  static std::mutex m;
-  return m;
-}
-
-inline std::string sanitize(const std::string& s) {
-  std::string out;
-  out.reserve(s.size());
-  for (char c : s) {
-    bool ok = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') ||
-        (c >= 'A' && c <= 'Z') || c == '_' || c == '-' || c == '.';
-    out.push_back(ok ? c : '_');
-  }
-  if (out.size() > 160) {
-    out.resize(160);
-  }
-  return out;
-}
-
-inline std::unordered_map<const void*, std::string>& pipeline_names() {
-  static std::unordered_map<const void*, std::string> m;
-  return m;
-}
-
-inline std::vector<std::string>& pending_args() {
-  static std::vector<std::string> v;
-  return v;
-}
-
-inline void dump_library(const std::string& name, const std::string& src) {
-  const char* dir = dump_dir();
-  if (!dir) {
-    return;
-  }
-  std::lock_guard<std::mutex> lock(mutex());
-  static int seq = 0;
-  char idx[8];
-  std::snprintf(idx, sizeof(idx), "%04d", seq++);
-  std::string path =
-      std::string(dir) + "/lib_" + idx + "_" + sanitize(name) + ".msl";
-  std::ofstream f(path, std::ios::binary);
-  f << src;
-  f.close();
-  std::ofstream ix(std::string(dir) + "/library_index.tsv", std::ios::app);
-  ix << idx << '\t' << name << '\t' << src.size() << '\n';
-}
-
-inline void register_pipeline(const void* pipe, const std::string& hash_name) {
-  if (!dump_dir()) {
-    return;
-  }
-  std::lock_guard<std::mutex> lock(mutex());
-  pipeline_names()[pipe] = hash_name;
-}
-
-inline void note_arg(int idx, const array& a) {
-  if (!dump_dir()) {
-    return;
-  }
-  std::lock_guard<std::mutex> lock(mutex());
-  std::ostringstream os;
-  os << idx << ':' << type_to_name(a) << '[';
-  const auto& shape = a.shape();
-  for (size_t i = 0; i < shape.size(); ++i) {
-    if (i) {
-      os << ',';
-    }
-    os << shape[i];
-  }
-  os << ']';
-  pending_args().push_back(os.str());
-}
-
-inline void log_dispatch(
-    const void* pipe,
-    const char* kind,
-    MTL::Size grid,
-    MTL::Size group) {
-  const char* dir = dump_dir();
-  if (!dir) {
-    return;
-  }
-  std::lock_guard<std::mutex> lock(mutex());
-  static std::ofstream out(std::string(dir) + "/dispatch.tsv", std::ios::app);
-  static long long seq = 0;
-  auto& names = pipeline_names();
-  auto it = names.find(pipe);
-  out << seq++ << '\t' << (it == names.end() ? std::string("<unregistered>")
-                                             : it->second)
-      << '\t' << kind << '\t' << grid.width << 'x' << grid.height << 'x'
-      << grid.depth << '\t' << group.width << 'x' << group.height << 'x'
-      << group.depth << '\t';
-  auto& args = pending_args();
-  for (size_t i = 0; i < args.size(); ++i) {
-    if (i) {
-      out << ' ';
-    }
-    out << args[i];
-  }
-  out << '\n';
-  args.clear();
-}
-
-inline void mark(const char* label) {
-  const char* dir = dump_dir();
-  if (!dir) {
-    return;
-  }
-  std::lock_guard<std::mutex> lock(mutex());
-  std::ofstream out(std::string(dir) + "/dispatch.tsv", std::ios::app);
-  out << "#MARK\t" << label << '\n';
-}
-
-} // namespace mlxfast_trace
-// === end R103-B research instrumentation ===================================
 
 namespace {
 
@@ -455,7 +324,6 @@ void CommandEncoder::set_input_array(
   needs_barrier_ =
       needs_barrier_ | (prev_outputs_.find(r_buf) != prev_outputs_.end());
   auto a_buf = static_cast<const MTL::Buffer*>(a.buffer().ptr());
-  mlxfast_trace::note_arg(idx, a);
   get_command_encoder()->setBuffer(a_buf, a.offset() + offset, idx);
 }
 
@@ -511,8 +379,6 @@ void CommandEncoder::dispatch_threadgroups(
     MTL::Size group_dims) {
   maybeInsertBarrier();
   buffer_ops_++;
-  mlxfast_trace::log_dispatch(
-      current_pipeline_, "threadgroups", grid_dims, group_dims);
   get_command_encoder()->dispatchThreadgroups(grid_dims, group_dims);
 }
 
@@ -521,15 +387,7 @@ void CommandEncoder::dispatch_threads(
     MTL::Size group_dims) {
   maybeInsertBarrier();
   buffer_ops_++;
-  mlxfast_trace::log_dispatch(
-      current_pipeline_, "threads", grid_dims, group_dims);
   get_command_encoder()->dispatchThreads(grid_dims, group_dims);
-}
-
-void CommandEncoder::set_compute_pipeline_state(
-    MTL::ComputePipelineState* kernel) {
-  current_pipeline_ = kernel;
-  get_command_encoder()->setComputePipelineState(kernel);
 }
 
 void CommandEncoder::barrier() {
@@ -924,9 +782,7 @@ MTL::Library* Device::get_library(
     return it->second.get();
   }
 
-  auto src = builder();
-  mlxfast_trace::dump_library(name, src);
-  auto mtl_lib = build_library_(src);
+  auto mtl_lib = build_library_(builder());
   library_map_.insert({name, mtl_lib});
   return mtl_lib.get();
 }
@@ -980,7 +836,6 @@ MTL::ComputePipelineState* Device::get_kernel_(
 
   // Add kernel to cache
   kernel_map_.insert({hash_name, kernel});
-  mlxfast_trace::register_pipeline(kernel.get(), hash_name);
 
   return kernel.get();
 }
