@@ -231,7 +231,30 @@ was asked to measure, and I make no recommendation from it.
 
 ## 6. Draws
 
-(appended in order; empty at preregistration time)
+Tooling: `research/maple-frieren-r106e-draw.sh` (single-shot, idle-gated),
+`research/maple-frieren-r106e-note.py` (renders the note from one template so
+the six notes cannot drift apart by hand), `research/maple-frieren-r106e-ladder.py`
+(the analysis).
+
+### Draw 1 — `R106E-DRAW-01-8db6ffaf`
+
+| field | value |
+|---|---|
+| commit | `8db6ffaf1c67f6044711c2aa198ec3b3922553fd` |
+| submission id | `2771067f-54b4-4e73-aa4f-f2b01d322c02` |
+| watcher | 2 consecutive IDLE polls, exit 0 |
+| submit fired | 2026-08-10T08:54:49Z |
+| queued | 2026-08-10T08:54:58Z, status `validating` |
+| note | 6.7 KiB |
+| attempts | **1** |
+
+`git diff --numstat 74910012 8db6ffaf -- Sources Vendor` → empty.
+
+This is the first successful submission from this PR. The preceding 14 attempts
+in earlier revisions produced zero receipts; the difference is entirely the
+protocol change from retry-on-failure to watch-until-idle-then-fire-once. The
+watcher saw IDLE on both polls and the submit was accepted into the queue nine
+seconds later.
 
 ## 7. Preserved text — the pf doc block removed from `Sources/` in §0.1
 
@@ -268,3 +291,129 @@ worth restoring one day; its concluding sentence is not. See §8.
 Carried over from the closed Phase B and stated here so this revision is
 self-contained; the full Phase A/B record stays in
 `research/maple-frieren-r105b-router-prefetch-adjudication.md`.
+
+**I accept the closure. No pf0 arm will draw a receipt from me.**
+
+### 8.1 The ranked-hardware read, restated with its uncertainty attached
+
+The advisor's anchor pair is the only ranked-hardware read that exists on this
+contrast:
+
+| anchor | prefetch | `cs` |
+|---|---|---|
+| `4b0e051b` | present (`#558` default) | 2.590559 |
+| `ef055b9b` (Arm R) | absent | 2.589321 |
+
+Δ = +0.001238 = **+0.04781 % of `cs`**, sign favouring *prefetch present*.
+
+The advisor scored that z = +0.19. That is exact arithmetic against
+σ₁ᵥ₁ = 0.2494 %, the tightest of the three incumbent estimators. Carry the
+other two and the same pair reads:
+
+| σ estimator | σ (% of `cs`) | z on Δ | 95 % CI on Δ (% of `cs`) | decode-equivalent CI |
+|---|---|---|---|---|
+| near-replicate 1-vs-1 | 0.2494 | +0.192 | ±0.489 | ±32.0 µs/step |
+| #555 session lottery | 0.5393 | +0.089 | ±1.057 | ±69.2 µs/step |
+| pooled | 1.2244 | +0.039 | ±2.400 | ±157.1 µs/step |
+
+Decode-equivalent uses d ln `cs` = −0.75 d ln D at the P0 receipt's
+D = 4910.525 µs/step, i.e. a decode-only effect of ±0.489 % in `cs` is
+±32.0 µs/step.
+
+**Every row agrees the pair is a null.** They disagree by 4.9× about what a
+null *means*, and that is the whole content of R106-E.
+
+### 8.2 Whether the pair refutes my #571 number, and who was closer
+
+My M4 Pro measurement was **+34.58 µs/step against prefetch** (144 slots,
+16/16 cycles). Written in `cs` units at the M5 operating point that is a
+predicted **−0.528 %**. The pair measured **+0.048 %**. The discrepancy to
+explain is therefore **0.576 % of `cs`**:
+
+| σ estimator | z on (prediction − observation) | two-sided p | verdict on my M4 magnitude *as an M5 prediction* |
+|---|---|---|---|
+| 0.2494 % | 2.31 | 0.021 | **refuted** |
+| 0.5393 % | 1.07 | 0.285 | not refuted |
+| 1.2244 % | 0.47 | 0.638 | pair carries almost no information |
+
+So whether my own headline number is *refuted on ranked hardware* or merely
+*unreplicated on ranked hardware* is decided entirely by a σ that nobody in
+this campaign has ever measured. I am not able to argue for the estimator that
+saves me, and I am not going to: the honest statement is that **one of these
+three rows is true and I do not know which**, and the experiment I am running
+this revision is the one that finds out. That my own prior claim is the thing
+most at risk under the tightest σ is a reason to run it, not a reason to
+prefer a looser σ.
+
+**Who was closer: the advisor.** Three independent reasons, in descending
+strength:
+
+1. **The decision is right under all three σ.** Expected gain from a pf0 arm is
+   ≈0 at every estimator; a receipt is the scarcest resource in the campaign.
+   A decision that is correct for a cost reason survives any resolution of the
+   σ question. Mine was correct only if σ is large.
+2. **I over-claimed scope, not magnitude.** #571's +34.58 µs/step is a clean
+   M4 Pro fact and I still stand behind it *on M4 Pro*. What I did wrong was
+   let it read as a statement about the ranked machine. M4 Pro reports Apple
+   GPU generation 16 and never selects the `_nax` prefill kernels; per the
+   agent guide that alone disqualifies M4 prefill evidence for an `_nax`
+   contrast, and threadgroup geometry can change sign across core counts.
+3. **The advisor over-claimed only confidence, and in the direction that costs
+   nothing.** z = +0.19 versus z = +0.04 changes no action.
+
+### 8.3 Proposed amendment to Rule 82 (advisor's file, not edited by me)
+
+`research/CURRENT_RESEARCH_STATE.md:766-790` currently states 82a as: *"The
+−6.39 µs/step router-GEMV label win that Rule 82 was built on coexists with a
++34.58 µs/step end-to-end regression on the same contrast."*
+
+Both of those numbers are **M4-only**. The M5 read is a third, different
+answer. I propose appending, at that exact site:
+
+> …on the same contrast **on M4 Pro (Apple GPU generation 16, non-`_nax`
+> prefill path)**. The only ranked-hardware read on this contrast is the
+> `4b0e051b`/`ef055b9b` anchor pair, Δ = +0.048 % of `cs`, indistinguishable
+> from zero under every available σ estimate and too weak to confirm or refute
+> the M4 sign (§8.1–8.2 of `maple-frieren-r106e-replication.md`).
+
+**Rule 82a is not weakened by this — it is the cleanest demonstration of 82a
+we have.** One contrast, three instruments, three different answers: a
+per-kernel label says −6.39 µs/step (prefetch wins), M4 end-to-end says
++34.58 µs/step (prefetch loses), M5 end-to-end says 0 ± large. 82a's claim is
+precisely that the first of those cannot stand in for the others; the new M5
+row extends the same warning one level outward, from *label ⇏ end-to-end* to
+*end-to-end on one machine ⇏ end-to-end on the ranked machine*. 82b is
+untouched. The single change worth making is a **scope tag on every number in
+the block naming the machine that produced it**.
+
+### 8.4 What the lever leaves behind
+
+The transfer-menu entry — *"router-prefetch placement: M4 Pro +34.58 µs/step,
+M5 null at ±32 µs/step (1σ-family), does not transfer"* — is the durable
+output. It is a first-class finding: the campaign now has one measured example
+of a non-transferring codegen contrast, with a magnitude bound on the ranked
+side. The mechanism text preserved in §7 is the other durable output.
+
+## 9. Channel-limiter taxonomy: a third category
+
+`research/maple-frieren-r105b-*.md` recorded two ways a draw can fail to
+produce a receipt. This revision found a third, and it is the benign one:
+
+| # | category | cost | detection |
+|---|---|---|---|
+| 1 | **conflict-failure** — the wrapper is invoked while another submission holds the channel; it runs, then loses | one wasted wrapper invocation (~77 s) and, worse, a wasted *attempt* | non-zero rc from `submit-official.sh` |
+| 2 | **guard-failure** — the wrapper refuses locally (dirty worktree, base mismatch, byte budget) | one wasted invocation, no channel contact | non-zero rc, no submission id |
+| 3 | 🆕 **pre-invocation deferral** — the launcher polls the public feed, never invokes the wrapper at all, and exits without submitting | **zero** | watcher exit 2 |
+
+The evidence for 3 is the cancelled rev2 drawer: it polled `channel busy` for
+~40 minutes, never once invoked the wrapper, and cost nothing but wall time —
+no attempt consumed, no lease touched, no worktree state changed. That is why
+the rev3 protocol is *watch → single shot → stop* rather than *fire → retry*:
+converting category-1 failures into category-3 deferrals is free, and it is
+the only channel-hygiene change in this revision.
+
+Practical consequence for anyone drawing after me: **a deferral is not a
+failure and must not be counted as one.** My rev2 log shows 14 non-receipts
+before the first landing; on the rev3 taxonomy the great majority of those
+should have been deferrals, and the true attempt count needed for one receipt
+is far lower than 15.
