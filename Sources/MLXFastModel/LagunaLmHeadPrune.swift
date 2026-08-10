@@ -100,6 +100,9 @@ let lagunaLmHeadFusedRefinementEnabled =
 private let lagunaTraceFusionEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_TRACE_FUSION"] == "1"
 
+private let lagunaLmHeadGate0CensusEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_LMHEAD_GATE0_CENSUS"] == "1"
+
 /// Kernel header: the bit-exact e8m0 group-scale decoder, inlinable and
 /// libm-free.
 private let lagunaLmHeadPruneHeader = """
@@ -651,7 +654,7 @@ private let lagunaLmHeadRefinedExactKernel = MLXFast.metalKernel(
     inputNames: [
         "coarse", "delta", "thr", "lm_head", "x", "codes_bit", "scales",
     ],
-    outputNames: ["assembled"],
+    outputNames: ["assembled", "masks"],
     source: """
         constexpr uint VOCAB = 100352;
         constexpr uint K = 2048;
@@ -677,6 +680,9 @@ private let lagunaLmHeadRefinedExactKernel = MLXFast.metalKernel(
         if (base_mask == 0) {
             if (lane < 4 && base + lane < VOCAB) {
                 assembled[base + lane] = bfloat(coarse[base + lane]);
+            }
+            if (lane == 0) {
+                masks[base / 4] = uint8_t(0);
             }
             return;
         }
@@ -741,6 +747,7 @@ private let lagunaLmHeadRefinedExactKernel = MLXFast.metalKernel(
 
         if (refined_mask == 0) {
             if (lane == 0) {
+                masks[base / 4] = uint8_t(base_mask);
                 #pragma unroll
                 for (uint tm = 0; tm < 4; ++tm) {
                     uint r = base + tm;
@@ -791,6 +798,7 @@ private let lagunaLmHeadRefinedExactKernel = MLXFast.metalKernel(
         }
         // --- stock gemv_al replica end ---
         if (lane == 0) {
+            masks[base / 4] = uint8_t(base_mask | (refined_mask << 4));
             #pragma unroll
             for (uint tm = 0; tm < 4; ++tm) {
                 uint r = base + tm;
@@ -822,6 +830,7 @@ final class LagunaLmHeadPruner {
     let int5CodesLo: MLXArray
     let int5CodesHi: MLXArray
     let int5Scales: MLXArray
+    private var gate0CensusStep = 0
 
     /// The resident coarse-copy arrays, for the untimed init-time eval in
     /// `prepareFusedRuntimeWeights`.
@@ -918,6 +927,38 @@ final class LagunaLmHeadPruner {
         return (lo, hi, sdByte.asType(.uint8))
     }
 
+    private func emitGate0Census(assembled: MLXArray, masks: MLXArray) {
+        let argmaxArray = assembled.argMax()
+        eval(assembled, masks, argmaxArray)
+        let maskBytes = masks.asArray(UInt8.self)
+        let logitBits = assembled.view(dtype: .uint16).asArray(UInt16.self)
+        var first = 0
+        var exactBlocks = 0
+        var rows = [Int]()
+        var bits = [UInt16]()
+        for (block, byte) in maskBytes.enumerated() {
+            first += Int(byte & 0x0F).nonzeroBitCount
+            let exactMask = Int((byte >> 4) & 0x0F)
+            if exactMask != 0 {
+                exactBlocks += 1
+            }
+            for lane in 0..<4 where (exactMask & (1 << lane)) != 0 {
+                let row = block * 4 + lane
+                rows.append(row)
+                bits.append(logitBits[row])
+            }
+        }
+        let argmax = Int(argmaxArray.item(Int32.self))
+        let rowList = rows.map { String($0) }.joined(separator: ",")
+        let bitList = bits.map { String($0) }.joined(separator: ",")
+        let line =
+            "gate0-census scheme=4+1 step=\(gate0CensusStep) n=\(lagunaLmHeadPruneVocab) "
+            + "first=\(first) exact=\(rows.count) blocks=\(exactBlocks) argmax=\(argmax) "
+            + "rows=[\(rowList)] bits=[\(bitList)]\n"
+        FileHandle.standardError.write(Data(line.utf8))
+        gate0CensusStep += 1
+    }
+
     /// Pruned final-row lm_head: full [vocab] BF16 logits row, bit-identical to
     /// the stock pass in every candidate slot and certified-below elsewhere,
     /// so the downstream argmax emits the stock token.
@@ -968,22 +1009,28 @@ final class LagunaLmHeadPruner {
             outputShapes: [[1]],
             outputDTypes: [.float32]
         )[0]
-        let assembled =
-            refine
-            ? lagunaLmHeadRefinedExactKernel(
+        let assembled: MLXArray
+        if refine {
+            let refined = lagunaLmHeadRefinedExactKernel(
                 [coarse, delta, thr, lmHeadWeight, x, int5CodesHi, int5Scales],
                 grid: (vocab / 32 * 256, 1, 1),
                 threadGroup: (256, 1, 1),
-                outputShapes: [[vocab]],
-                outputDTypes: [.bfloat16]
-            )[0]
-            : lagunaLmHeadInlineExactDeltaBF16Kernel(
+                outputShapes: [[vocab], [vocab / 4]],
+                outputDTypes: [.bfloat16, .uint8]
+            )
+            assembled = refined[0]
+            if lagunaLmHeadGate0CensusEnabled {
+                emitGate0Census(assembled: assembled, masks: refined[1])
+            }
+        } else {
+            assembled = lagunaLmHeadInlineExactDeltaBF16Kernel(
                 [coarse, delta, thr, lmHeadWeight, x],
                 grid: (vocab / 32 * 256, 1, 1),
                 threadGroup: (256, 1, 1),
                 outputShapes: [[vocab]],
                 outputDTypes: [.bfloat16]
             )[0]
+        }
         return assembled.reshaped([1, 1, vocab])
     }
 }
