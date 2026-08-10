@@ -37,11 +37,13 @@ def api(path: str) -> dict:
     return json.load(urllib.request.urlopen(request, timeout=120))
 
 
-def fetch_rows() -> dict[str, dict]:
-    bench = api(f"/api/benchmarks/{urllib.parse.quote(BENCHMARK, safe='')}")
-    bid = bench.get("benchmark", bench)["id"]
-    rows = api(f"/api/benchmarks/{bid}/submissions")["submissions"]
-    return {row["id"]: row for row in rows}
+def fetch_rows(ids: list[str]) -> dict[str, dict]:
+    # Per-id reads cost ~14 KB each against ~17 MB for the whole benchmark feed,
+    # and the feed is also not guaranteed to still carry an older submission.
+    rows = {}
+    for sid in ids:
+        rows[sid] = api(f"/api/submissions/{urllib.parse.quote(sid, safe='')}")["submission"]
+    return rows
 
 
 def derive(metrics: dict) -> dict:
@@ -83,13 +85,95 @@ def derive(metrics: dict) -> dict:
     }
 
 
+BAR_MS = 1.35
+# One-sided 95 % Student-t, indexed by degrees of freedom.
+T95 = {1: 6.314, 2: 2.920, 3: 2.353, 4: 2.132, 5: 2.015, 6: 1.943, 7: 1.895, 8: 1.860}
+
+
+def _sd(xs: list[float]) -> float:
+    mean = sum(xs) / len(xs)
+    return (sum((x - mean) ** 2 for x in xs) / (len(xs) - 1)) ** 0.5
+
+
+def analyse(records: list[dict]) -> dict:
+    """Contrast each treatment arm against the A0 control mean (§4.3, §4.4.2).
+
+    The per-receipt sigma is measured from the A0 replicates rather than assumed
+    from the public cross-submission spread, which §4.4.1 shows overstates it by
+    ~10x. The prefill and decode channels are not independent - the decode pass
+    contains the 512-token seed prefill - so the tighter of the two is used
+    instead of an inverse-variance pool that would understate the SE.
+    """
+    arms: dict[str, list[dict]] = {}
+    for r in records:
+        if "prefill_ms" in r:
+            arms.setdefault(r["arm"].split("-")[0], []).append(r)
+    out: dict = {"arm_receipt_counts": {k: len(v) for k, v in sorted(arms.items())}}
+
+    control = arms.get("A0", [])
+    if len(control) < 2:
+        out["status"] = "needs >=2 A0 receipts to measure sigma"
+        return out
+
+    prefill = [r["prefill_ms"] for r in control]
+    decode = [128_000.0 * r["cand_dec"] for r in control]
+    n0 = len(control)
+    sigma_p, sigma_q = _sd(prefill), _sd(decode)
+    sigma = min(sigma_p, sigma_q)
+    out.update(
+        control_n=n0,
+        control_dof=n0 - 1,
+        control_mean_prefill_ms=sum(prefill) / n0,
+        control_mean_decode_ms=sum(decode) / n0,
+        control_mean_step_ms=sum(r["step_ms"] for r in control) / n0,
+        sigma_prefill_channel_ms=sigma_p,
+        sigma_decode_channel_ms=sigma_q,
+        sigma_ms=sigma,
+        sigma_pct=100.0 * sigma / (sum(prefill) / n0),
+    )
+
+    for name, rs in sorted(arms.items()):
+        if name == "A0":
+            continue
+        n = len(rs)
+        nu = (n0 - 1) + (n - 1)
+        t = T95[min(nu, max(T95))]
+        se = sigma * (1.0 / n + 1.0 / n0) ** 0.5
+        delta = out["control_mean_prefill_ms"] - sum(r["prefill_ms"] for r in rs) / n
+        echo = out["control_mean_decode_ms"] - sum(128_000.0 * r["cand_dec"] for r in rs) / n
+        step = out["control_mean_step_ms"] - sum(r["step_ms"] for r in rs) / n
+        lo, hi = delta - t * se, delta + t * se
+        if lo > BAR_MS and n >= 2:
+            verdict = "WIN"
+        elif hi < 0.0:
+            verdict = "REGRESSION"
+        elif hi < BAR_MS:
+            verdict = "NULL-bar-excluded"
+        else:
+            verdict = "NULL-underpowered"
+        out[name] = {
+            "n": n,
+            "dof": nu,
+            "t95": t,
+            "se_ms": se,
+            "delta_prefill_ms": delta,
+            "delta_decode_echo_ms": echo,
+            "delta_step_ms": step,
+            "ci90_ms": [lo, hi],
+            "z_vs_zero": delta / se,
+            "verdict": verdict,
+            "verdict_is_shippable": verdict == "WIN",
+        }
+    return out
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--wandb", action="store_true", help="log the series to W&B")
     args = parser.parse_args()
 
     manifest = json.loads(MANIFEST.read_text())
-    rows = fetch_rows()
+    rows = fetch_rows([entry["submission_id"] for entry in manifest])
     records = []
     for entry in manifest:
         row = rows.get(entry["submission_id"])
@@ -124,8 +208,12 @@ def main() -> int:
         else:
             print(f"| {r['arm']} | `{r['commit'][:8]}` | {r['status']} | - | - | - | - | - | - | - |")
 
+    contrast = analyse(records)
+    print("\n### contrast against the A0 control (§4.4.2)")
+    print(json.dumps(contrast, indent=1))
+
     out = ROOT / "research" / "r105a-receipts-resolved.json"
-    out.write_text(json.dumps(records, indent=1) + "\n")
+    out.write_text(json.dumps({"receipts": records, "contrast": contrast}, indent=1) + "\n")
     print(f"\nwrote {out.relative_to(ROOT)}")
 
     if args.wandb:
@@ -143,11 +231,11 @@ def main() -> int:
                 "branch": "maple-tanjiro/r105-afrag-ntile-reuse",
                 "base_sha": "5f7861c0981278929c3ef43d54a6d5bca10a8659",
                 "origin_main_sha": "1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7",
-                "design_bar_prefill_ms": 1.35,
-                "receipt_sigma_pct_of_score": 0.1588,
+                "design_bar_prefill_ms": BAR_MS,
+                "assumed_sigma_pct_of_score_prereg": 0.1588,
                 "calibration_decode_seconds_per_token": CAL_DEC,
                 "calibration_prefill_seconds_per_token": CAL_PRE,
-                "ladder_order": "A0-1,A0-2,A2-1,A1-1,A0-3,A1-2,A2-2,spare",
+                "ladder_order": "A0-1,A0-2,A2-1,A1-1,A0-3,replicate-leader,replicate-other,combined-or-third",
             },
         )
         table = wandb.Table(columns=sorted({k for r in records for k in r}))
@@ -162,6 +250,12 @@ def main() -> int:
         accepted = [r for r in records if r.get("official_score")]
         if accepted:
             run.summary["best_official_score"] = max(r["official_score"] for r in accepted)
+        for key, value in contrast.items():
+            if isinstance(value, dict):
+                for sub, subvalue in value.items():
+                    run.summary[f"contrast/{key}/{sub}"] = subvalue
+            else:
+                run.summary[f"contrast/{key}"] = value
         print(f"wandb run: {run.url}")
         run.finish()
     return 0

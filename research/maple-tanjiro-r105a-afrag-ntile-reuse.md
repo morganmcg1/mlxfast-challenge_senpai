@@ -859,12 +859,17 @@ Four things follow, and the third is the one that matters.
    session/host component — it smears it into the white floor. Two back-to-back
    submissions do not sample that component, which is exactly why they agree.
    This is a real limit on the calibration method, not a lucky draw.
-3. **The ladder is overpowered, not underpowered.** Inverse-variance combining
-   the two candidate channels gives σ₁,comb = (0.190⁻² + 0.250⁻²)^(−1/2) =
-   **0.151 ms**. A single treatment receipt against the two-receipt A0 mean has
-   SE = 0.151·√(1 + 1/2) = **0.185 ms**, so the 1.35 ms bar sits **7.3 SE** away.
-   §4.3.1 stopped the ladder early because the SE was believed to be 1.25–2.0 ms
-   and the bar unreachable. It is reachable at n = 1 per arm.
+3. **The ladder is overpowered, not underpowered.** §4.3 combines the prefill and
+   decode channels by inverse variance, but the pair shows they are **not
+   independent**: both moved in the same direction by nearly the same amount
+   (+0.268 ms and +0.354 ms of prefill-wall equivalent), and their difference —
+   the pure-step term — moved only 0.086 ms. The decode channel is largely the
+   same prefill wall measured again, so an independence-assuming combination
+   (0.151 ms) understates the SE. I therefore use the **tighter single channel**,
+   σ̂₁ = **0.190 ms**. A single treatment receipt against the two-receipt A0 mean
+   then has SE = 0.190·√(1 + 1/2) = **0.233 ms**, and the 1.35 ms bar sits
+   **5.8 SE** away. §4.3.1 stopped the ladder early because the SE was believed
+   to be 1.25–2.0 ms and the bar unreachable. It is reachable at n = 1 per arm.
 4. **Pairing is still the wrong endpoint, for a new reason.** §4.3 rejected the
    paired `prefill_speedup` because §4.2 measured σ_session ≤ 0. The pair shows
    there *is* positive common mode — Δln(speedup) = 0.310 % = 0.588 − 0.279
@@ -896,15 +901,22 @@ submitted, so no treatment number can be influencing this. Timestamp is the
 commit that carries this paragraph.
 
 **Binding decision rule.** Δ̂ = prefill-wall saving of the arm mean against the
-A0 mean on the §4.3 combined candidate endpoint, positive = faster. Because σ is
-*estimated*, the interval uses Student-t at the dof actually available when the
-call is made, not z:
+A0 mean on the candidate-prefill channel `P = 512000·pre`, positive = faster,
+with the decode channel reported as a consistency check rather than pooled in
+(§4.4.1 point 3). Because σ is *estimated*, the interval uses Student-t at the
+dof actually available when the call is made, not z:
 
 | receipts | ν | SE | t₀.₉₅,ν | WIN needs Δ̂ > | bar-excluded needs Δ̂ < |
 |---|---|---|---|---|---|
-| 2 A0, 1 arm | 1 | 0.185 ms | 6.31 | 2.52 ms | 0.18 ms |
-| 3 A0, 1 arm | 2 | 0.175 ms | 2.92 | 1.86 ms | 0.84 ms |
-| 3 A0, 2 arm | 3 | 0.151 ms | 2.35 | 1.70 ms | 1.00 ms |
+| 2 A0, 1 arm | 1 | 0.233 ms | 6.31 | 2.82 ms | −0.12 ms — **unattainable** |
+| 3 A0, 1 arm | 2 | 0.219 ms | 2.92 | 1.99 ms | 0.71 ms |
+| 3 A0, 2 arm | 3 | 0.173 ms | 2.35 | 1.76 ms | 0.94 ms |
+
+The ν = 1 row is why slot 5 has to be A0-3 and not a treatment replicate: with a
+single degree of freedom the t multiplier is 6.31, the bar-excluded branch is
+arithmetically unreachable, and *no* observed Δ̂ could produce a null verdict —
+only a win at an implausible 2.82 ms. One more control receipt turns an
+undecidable ladder into a decidable one.
 
 - **WIN**: Δ̂ − t₀.₉₅,ν·SE > 1.35 ms, with n ≥ 2 for that arm and all of D1–D5
   passing. A single receipt never ships, unchanged from §4.3.
