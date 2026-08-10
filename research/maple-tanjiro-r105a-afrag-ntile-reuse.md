@@ -734,6 +734,41 @@ A0 receipts. Any interval quoted below is explicitly conditional on the
 calibrated σ from §4.2; the pooled within-arm SD at 4 dof has a ~35 % CV and is
 reported only as a cross-check.
 
+### 4.3.1 Sequential stopping rule — recorded before the first treatment receipt
+
+§4.2 changes what the eight-slot ladder is worth, so I am fixing the stopping
+rule now, while A2-1 is committed but unsubmitted and no treatment receipt
+exists to be read. The ladder was sized before the instrument was calibrated.
+It cannot resolve the 1.35 ms bar at any allocation I can afford: the contrast
+SE at (3,2,2) is 1.25 ms, so a "win" verdict would require an observed
+Δ̂ ≥ 2.06 ms — larger than the effect the brief predicts. Spending slots 5–8 to
+move the SE from ≈2.0 ms to ≈1.25 ms buys a resolution that is still coarser
+than the hypothesis. That is not a good use of four ranked receipts, so the
+remaining slots are conditional on the first two treatment receipts:
+
+- **Slots 1–4 are unconditional**: A0-1, A0-2, A2-1, A1-1. Four receipts buy
+  the one thing the campaign has never had — a same-code replicate pair, hence
+  a *measured* σ — plus a single-receipt screen on each treatment arm at
+  SE ≈ 2.0 ms per contrast.
+- **Continue to slots 5–8 only if the screen is suggestive**: some arm shows
+  \|Δ̂\| ≥ 3 ms (≈1.5 SE of the single-receipt contrast) on the combined
+  endpoint, in either direction. A large win is worth confirming; a large
+  apparent regression is worth confirming too, because a regression verdict is
+  actionable at this resolution even when a win is not.
+- **Stop at slot 4 otherwise** and report NULL-and-underpowered with the
+  receipt count the bar actually needs. An effect the instrument cannot see is
+  not made visible by three more receipts, and reporting the shortfall is more
+  useful to the advisor than burning the budget to restate it with one extra
+  digit.
+
+This is a deviation from §4.3's fixed eight-slot allocation and it is a
+deliberate one. It costs the drift-balanced ordering (A0 mean slot 1.5 versus
+A1 4.0 and A2 3.0 under the truncated ladder, against 3.33/4.5/4.5 under the
+full one), which §4.2's variogram says is harmless: the noise is white from
+15 minutes to 30 days, so slot position carries no signal to be confounded
+with. It is recorded here in advance precisely so it cannot be mistaken for a
+post-hoc stop after an unflattering number.
+
 ### 4.4 Receipts
 
 | arm | variant | submission | commit | prefill wall | pure step | `officialScore` | correctness |
