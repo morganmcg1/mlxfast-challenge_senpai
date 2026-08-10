@@ -1,6 +1,7 @@
 import Foundation
 import MLX
 @testable import MLXFastModel
+import MLXNN
 import Testing
 
 @Suite(.serialized)
@@ -353,6 +354,78 @@ struct NVFP4QuantizedMMTests {
             salt: 71
         )
     }
+
+    @Test
+    func sharedPrefillSwiGLUEpilogueMatchesStockBF16BitsWhenRuntimeTestsAreEnabled() {
+        guard nvfp4RuntimeTestsEnabled else { return }
+        defer { Memory.clearCache() }
+
+        let rows = LagunaConstants.sharedExpertIntermediateSize
+        let hidden = LagunaConstants.hiddenSize
+        let x = deterministicNVFP4Source(shape: [1, 512, hidden], salt: 83)
+            .asType(.bfloat16)
+        let (gateWeight, gateScales, gateBiases) = quantized(
+            deterministicNVFP4Source(shape: [rows, hidden], salt: 89),
+            groupSize: 16,
+            bits: 4,
+            mode: .nvfp4
+        )
+        let (upWeight, upScales, upBiases) = quantized(
+            deterministicNVFP4Source(shape: [rows, hidden], salt: 97),
+            groupSize: 16,
+            bits: 4,
+            mode: .nvfp4
+        )
+        #expect(gateBiases == nil)
+        #expect(upBiases == nil)
+
+        let stockGate = quantizedMM(
+            x, gateWeight, scales: gateScales, biases: nil,
+            transpose: true, groupSize: 16, bits: 4, mode: .nvfp4)
+        let stockUp = quantizedMM(
+            x, upWeight, scales: upScales, biases: nil,
+            transpose: true, groupSize: 16, bits: 4, mode: .nvfp4)
+        let stockActivation = (MLXNN.silu(stockGate) * stockUp).asType(.bfloat16)
+
+        let interleavedWeight = concatenated([
+            gateWeight.reshaped([rows / 16, 16, hidden / 8]),
+            upWeight.reshaped([rows / 16, 16, hidden / 8]),
+        ], axis: 1).reshaped([2 * rows, hidden / 8])
+        let interleavedScaleStorage = concatenated([
+            gateScales.reshaped([rows / 16, 16, hidden / 16]),
+            upScales.reshaped([rows / 16, 16, hidden / 16]),
+        ], axis: 1).reshaped([2 * rows, hidden / 16])
+
+        let rawInterleaved = quantizedMM(
+            x, interleavedWeight, scales: interleavedScaleStorage, biases: nil,
+            transpose: true, groupSize: 16, bits: 4, mode: .nvfp4
+        ).reshaped([1, 512, rows / 16, 32])
+        let rawGate = rawInterleaved[.ellipsis, 0 ..< 16]
+            .reshaped([1, 512, rows])
+        let rawUp = rawInterleaved[.ellipsis, 16...]
+            .reshaped([1, 512, rows])
+
+        let markedScales = asStrided(
+            interleavedScaleStorage,
+            interleavedScaleStorage.shape,
+            strides: [hidden / 16, 0],
+            offset: 0)
+        let fusedLogical = quantizedMM(
+            x, interleavedWeight, scales: markedScales, biases: nil,
+            transpose: true, groupSize: 16, bits: 4, mode: .nvfp4)
+        let fusedActivation = fusedLogical.reshaped([-1])[0 ..< fusedLogical.size / 2]
+            .reshaped([1, 512, rows])
+
+        eval(stockGate, stockUp, stockActivation, rawGate, rawUp, fusedActivation)
+        expectBF16BitsEqual(rawGate, stockGate, context: "interleaved gate")
+        expectBF16BitsEqual(rawUp, stockUp, context: "interleaved up")
+        expectBF16BitsEqual(fusedActivation, stockActivation, context: "fused SwiGLU")
+
+        let expectedBits = stockActivation.view(dtype: .uint16).asArray(UInt16.self)
+        var corruptedBits = expectedBits
+        corruptedBits[expectedBits.count / 2] ^= 1
+        #expect(corruptedBits != expectedBits)
+    }
 }
 
 private let nvfp4RuntimeTestsEnabled =
@@ -376,6 +449,19 @@ private func deterministicNVFP4Source(shape: [Int], salt: Int) -> MLXArray {
         return Float(centered) / 16
     }
     return MLXArray(values, shape)
+}
+
+private func expectBF16BitsEqual(
+    _ actual: MLXArray,
+    _ expected: MLXArray,
+    context: String
+) {
+    #expect(actual.dtype == .bfloat16, Comment(rawValue: context))
+    #expect(expected.dtype == .bfloat16, Comment(rawValue: context))
+    #expect(actual.shape == expected.shape, Comment(rawValue: context))
+    let actualBits = actual.view(dtype: .uint16).asArray(UInt16.self)
+    let expectedBits = expected.view(dtype: .uint16).asArray(UInt16.self)
+    #expect(actualBits == expectedBits, Comment(rawValue: context))
 }
 
 private func nvfp4NonSplitReference(
