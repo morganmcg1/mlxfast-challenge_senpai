@@ -54,14 +54,13 @@ import MLXFast
 //      (LagunaCorrectness.swift:108), so the emitted token is the stock token.
 //
 // SINGLE-TOKEN DECODE runs a three-level form of the same screen
-// (DARKBLOOM_LMHEAD_FUSED_REFINEMENT, DEFAULT ON). The int5 planes are
-// re-split so the nibble plane alone is a self-contained 2x-coarse code
-// (nibble = floor(q/2) + 8, bit plane = q - 2*floor(q/2)), which lets step 1
-// read 1088 B/row instead of 1344 B/row -- 25.7 MB less per decode step over
-// the 100352-row vocabulary. The dropped 256 B/row residual bit plane is then
-// re-read INSIDE the exact dispatch, for surviving four-row blocks only, to
-// restore the exact int5 value and the tighter half-cell bound before the BF16
-// GEMV decision. Dispatch count, grid and threadgroup geometry are unchanged;
+// (DARKBLOOM_LMHEAD_FUSED_REFINEMENT, DEFAULT ON). Three upper bit planes
+// encode H = u >> 2 and form a self-contained 4x-coarse code; step 1 reads
+// 832 B/row instead of 1344 B/row, 51.4 MB less per decode step over the
+// 100352-row vocabulary. The two 512 B/row residual planes encode R = u & 3
+// and are re-read INSIDE the exact dispatch for surviving four-row blocks to
+// restore u = 4H + R and the tighter half-cell bound before the BF16 GEMV
+// decision. Dispatch count, grid and threadgroup geometry are unchanged;
 // prefill's already-sliced row keeps the one-pass form above.
 //
 // The e8m0 decoder in the kernel header below is a bit-exact replica of the
@@ -87,10 +86,10 @@ let lagunaLmHeadPrunePrefillEnabled =
         "DARKBLOOM_LM_HEAD_PRUNE_PREFILL"] != "0"
 
 /// Same-binary A/B switch for the three-level decode screen: read only the
-/// four-bit base plane for every row, then refine the surviving four-row
-/// blocks with the residual bit plane inside the exact dispatch. DEFAULT ON;
-/// set `DARKBLOOM_LMHEAD_FUSED_REFINEMENT=0` for the one-pass int5 control
-/// arm in the same binary.
+/// three upper bit planes for every row, then refine surviving four-row blocks
+/// with the two residual planes inside the exact dispatch. DEFAULT ON; set
+/// `DARKBLOOM_LMHEAD_FUSED_REFINEMENT=0` for the one-pass int5 control arm in
+/// the same binary.
 let lagunaLmHeadFusedRefinementEnabled =
     ProcessInfo.processInfo.environment[
         "DARKBLOOM_LMHEAD_FUSED_REFINEMENT"] != "0"
@@ -119,12 +118,9 @@ private let lagunaLmHeadPruneHeader = """
 /// The one-pass coarse kernel, used for prefill's already-sliced final row and
 /// as the same-binary decode control arm: 16 rows/threadgroup, one simdgroup
 /// per row, lane = 2 consecutive 32-element groups, fused coarse+delta
-/// outputs, 1344 B/row (nibble plane 1024 B + 1-bit plane 256 B + 64 scale
-/// bytes; 2048 elements x 5 bits = 1280 B of codes). All loads stay
-/// word-aligned: uint4 per lane-group from the nibble plane (16 B stride,
-/// 1024 B rows), one uint per lane-group from the 1-bit plane (4 B stride,
-/// 256 B rows), ushort4 from x. The ratio bound and the BF16-up delta store
-/// are folded in.
+/// outputs, and 1344 B/row (five 256 B bit planes plus 64 B scales). Each
+/// lane-group reads one aligned uint from every plane and ushort4 vectors from
+/// x. The ratio bound and the BF16-up delta store are folded in.
 ///
 /// Certificate:
 ///   * Scale. sd = 2^e per 32-element group with e = floorexp(gmax) - 3,
@@ -156,7 +152,7 @@ private let lagunaLmHeadPruneHeader = """
 /// float: exact. Accumulation depth is ~45 roundings/element-path, under
 /// the depth <= 96 budget assumed by gamma = 2^-15.
 private let lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel = MLXFast.metalKernel(
-    name: "laguna_lmhead_int5_inline_coarse_ratio_bound_delta_bf16_v6",
+    name: "laguna_lmhead_int5_inline_coarse_ratio_bound_delta_bf16_3p2_gate0_v1",
     inputNames: ["x", "codes_lo", "codes_hi", "scales"],
     outputNames: ["coarse", "delta"],
     source: """
@@ -166,8 +162,8 @@ private let lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel = MLXFast.metalKerne
             simdgroup_index_in_threadgroup;
         uint lane = thread_index_in_simdgroup;
 
-        const device uint8_t* lorow = codes_lo + size_t(row) * 1024;
-        const device uint8_t* hirow = codes_hi + size_t(row) * 256;
+        const device uint8_t* lorow = codes_lo + size_t(row) * 768;
+        const device uint8_t* hirow = codes_hi + size_t(row) * 512;
         const device uint8_t* srow = scales + size_t(row) * 64;
 
         float c_acc = 0.0f;
@@ -175,27 +171,34 @@ private let lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel = MLXFast.metalKerne
         for (uint gg = 0; gg < 2; ++gg) {
             uint g = 2 * lane + gg;
             float sd = laguna_e8m0_decode(srow[g]);
-            uint4 lo4 = ((const device uint4*)(lorow + g * 16))[0];
-            uint hb = ((const device uint*)(hirow + g * 4))[0];
+            uint b2 = ((const device uint*)(lorow + g * 4))[0];
+            uint b3 = ((const device uint*)(lorow + 256 + g * 4))[0];
+            uint b4 = ((const device uint*)(lorow + 512 + g * 4))[0];
+            uint b0 = ((const device uint*)(hirow + g * 4))[0];
+            uint b1 = ((const device uint*)(hirow + 256 + g * 4))[0];
             const device ushort4* xrow = (const device ushort4*)(x + g * 32);
             float cg = 0.0f;
             float ag = 0.0f;
             #pragma clang loop unroll(full)
             for (uint w = 0; w < 4; ++w) {
-                // Word w: elements 8w..8w+7 of the group. Nibble plane byte
-                // b holds elements 2b (low) / 2b+1 (high); 1-bit plane bit j
-                // of the group's word holds element j's residual bit.
-                uint lw = lo4[w];
-                uint hw = hb >> (8u * w);
-                uint4 ne = (uint4(lw) >> uint4(0u, 8u, 16u, 24u)) & 15u;
-                uint4 no = (uint4(lw) >> uint4(4u, 12u, 20u, 28u)) & 15u;
-                uint4 he = (uint4(hw) >> uint4(0u, 2u, 4u, 6u)) & 1u;
-                uint4 ho = (uint4(hw) >> uint4(1u, 3u, 5u, 7u)) & 1u;
-                // The nibble stores floor(q/2)+8 and the bit plane stores
-                // q-2*floor(q/2), so joining them rebuilds u = q + 16 in
-                // [1, 31]; offset-binary decode is exact.
-                float4 ve = float4((ne << 1u) | he) - 16.0f;
-                float4 vo = float4((no << 1u) | ho) - 16.0f;
+                uint shift = 8u * w;
+                uint4 even_shift = uint4(
+                    shift, shift + 2u, shift + 4u, shift + 6u);
+                uint4 odd_shift = even_shift + 1u;
+                uint4 ue =
+                    ((uint4(b0) >> even_shift) & 1u)
+                    | (((uint4(b1) >> even_shift) & 1u) << 1u)
+                    | (((uint4(b2) >> even_shift) & 1u) << 2u)
+                    | (((uint4(b3) >> even_shift) & 1u) << 3u)
+                    | (((uint4(b4) >> even_shift) & 1u) << 4u);
+                uint4 uo =
+                    ((uint4(b0) >> odd_shift) & 1u)
+                    | (((uint4(b1) >> odd_shift) & 1u) << 1u)
+                    | (((uint4(b2) >> odd_shift) & 1u) << 2u)
+                    | (((uint4(b3) >> odd_shift) & 1u) << 3u)
+                    | (((uint4(b4) >> odd_shift) & 1u) << 4u);
+                float4 ve = float4(ue) - 16.0f;
+                float4 vo = float4(uo) - 16.0f;
                 // bf16 -> f32 is exactly bits<<16 for every value class.
                 float4 xa = as_type<float4>(uint4(xrow[2 * w]) << 16);
                 float4 xb = as_type<float4>(uint4(xrow[2 * w + 1]) << 16);
@@ -232,29 +235,17 @@ private let lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel = MLXFast.metalKerne
     ensureRowContiguous: true
 )
 
-/// Level one of the three-level decode screen: the same 16-rows/threadgroup
-/// launch and lane partition as the one-pass kernel, but reading ONLY the
-/// nibble plane and the scale bytes -- 1088 B/row instead of 1344 B/row, i.e.
-/// 25.7 MB less per decode step across the 100352-row vocabulary.
+/// Level one of the three-level decode screen reads the upper three bitplanes
+/// and scales: 832 B/row rather than the full 1344 B/row.
 ///
-/// Certificate (the scale and code facts are the one-pass kernel's, unchanged):
-///   * Midpoint code. The nibble is H = floor(q/2) + 8, so q = 2H + b - 16
-///     with b the residual bit this kernel does not read. Substituting the
-///     cell midpoint b = 0.5 gives q0 = 2H - 15.5 and |q - q0| = 0.5 EXACTLY,
-///     so |w - sd*q0| <= |w - sd*q| + 0.5*sd <= sd: the full cell, twice the
-///     one-pass kernel's half-cell. That is why d_acc accumulates sd*ag here
-///     and (0.5*sd)*ag there.
-///   * Ratio bound. H <= 15 so |q0| <= 15.5, the m term contributes
-///     sd*|x_j|*|q0_ij| and the d term sd*|x_j|, giving m_i <= 15.5*d_i
-///     termwise and d_i*(1+gamma) + 2*gamma*m_i <= d_i*(1 + 32*gamma).
-///     32*gamma is 2^-10, so 1 + 32*gamma is exact in FP32.
-///   * Store. Identical sign-clear mask-and-bump round-UP to BF16; widening
-///     delta is monotone in candidacy and delta never feeds the threshold.
-/// Decode exactness: H << 1 <= 30 and the -15.5f offset are exact in FP32
-/// (q0 = 2H - 15.5 needs 6 significand bits), and sd*q0 multiplies a power of
-/// two by that value: exact.
+/// With u = q + 16, H = u >> 2, and R = u & 3, the coarse midpoint is
+/// q0 = 4H - 14.5 and q - q0 = R - 1.5. Quantization contributes at most
+/// 0.5*sd and the two-bit cell contributes at most 1.5*sd, so d_acc uses
+/// 2*sd*sum(abs(x)). Since |q0| <= 14.5, m <= 7.25*d termwise and
+/// d*(1+gamma) + 2*gamma*m <= d*(1+16*gamma). The sign-clear BF16
+/// mask-and-bump store rounds the bound outward.
 private let lagunaLmHeadInt5BaseCoarseKernel = MLXFast.metalKernel(
-    name: "laguna_lmhead_int5_base_coarse_delta_bf16_v1",
+    name: "laguna_lmhead_int5_base_coarse_delta_bf16_3p2_gate0_v1",
     inputNames: ["x", "codes_base", "scales"],
     outputNames: ["coarse", "delta"],
     source: """
@@ -264,7 +255,7 @@ private let lagunaLmHeadInt5BaseCoarseKernel = MLXFast.metalKernel(
             simdgroup_index_in_threadgroup;
         uint lane = thread_index_in_simdgroup;
 
-        const device uint8_t* crow = codes_base + size_t(row) * 1024;
+        const device uint8_t* crow = codes_base + size_t(row) * 768;
         const device uint8_t* srow = scales + size_t(row) * 64;
 
         float c_acc = 0.0f;
@@ -272,17 +263,28 @@ private let lagunaLmHeadInt5BaseCoarseKernel = MLXFast.metalKernel(
         for (uint gg = 0; gg < 2; ++gg) {
             uint g = 2 * lane + gg;
             float sd = laguna_e8m0_decode(srow[g]);
-            uint4 c4 = ((const device uint4*)(crow + g * 16))[0];
+            uint b2 = ((const device uint*)(crow + g * 4))[0];
+            uint b3 = ((const device uint*)(crow + 256 + g * 4))[0];
+            uint b4 = ((const device uint*)(crow + 512 + g * 4))[0];
             const device ushort4* xrow = (const device ushort4*)(x + g * 32);
             float cg = 0.0f;
             float ag = 0.0f;
             #pragma clang loop unroll(full)
             for (uint w = 0; w < 4; ++w) {
-                uint lw = c4[w];
-                uint4 ne = (uint4(lw) >> uint4(0u, 8u, 16u, 24u)) & 15u;
-                uint4 no = (uint4(lw) >> uint4(4u, 12u, 20u, 28u)) & 15u;
-                float4 ve = float4(ne << 1u) - 15.5f;
-                float4 vo = float4(no << 1u) - 15.5f;
+                uint shift = 8u * w;
+                uint4 even_shift = uint4(
+                    shift, shift + 2u, shift + 4u, shift + 6u);
+                uint4 odd_shift = even_shift + 1u;
+                uint4 he =
+                    ((uint4(b2) >> even_shift) & 1u)
+                    | (((uint4(b3) >> even_shift) & 1u) << 1u)
+                    | (((uint4(b4) >> even_shift) & 1u) << 2u);
+                uint4 ho =
+                    ((uint4(b2) >> odd_shift) & 1u)
+                    | (((uint4(b3) >> odd_shift) & 1u) << 1u)
+                    | (((uint4(b4) >> odd_shift) & 1u) << 2u);
+                float4 ve = float4(he << 2u) - 14.5f;
+                float4 vo = float4(ho << 2u) - 14.5f;
                 float4 xa = as_type<float4>(uint4(xrow[2 * w]) << 16);
                 float4 xb = as_type<float4>(uint4(xrow[2 * w + 1]) << 16);
                 float4 xe = float4(xa.x, xa.z, xb.x, xb.z);
@@ -298,13 +300,13 @@ private let lagunaLmHeadInt5BaseCoarseKernel = MLXFast.metalKernel(
                 }
             }
             c_acc += sd * cg;
-            d_acc += sd * ag;
+            d_acc += (2.0f * sd) * ag;
         }
         c_acc = simd_sum(c_acc);
         d_acc = simd_sum(d_acc);
         if (lane == 0) {
             coarse[row] = c_acc;
-            float d_up = d_acc * (1.0f + 32.0f * GAMMA);
+            float d_up = d_acc * (1.0f + 16.0f * GAMMA);
             uint dbits = as_type<uint>(d_up);
             uint dtrunc = dbits & 0xFFFF0000u;
             if (dtrunc != dbits) {
@@ -616,41 +618,15 @@ private let lagunaLmHeadInlineExactDeltaBF16Kernel = MLXFast.metalKernel(
     ensureRowContiguous: true
 )
 
-/// Levels two and three of the decode screen, fused into the exact dispatch:
-/// the same fixed four-row block per simdgroup and the same launch geometry as
-/// the one-pass exact kernel, with a sparse residual-plane refinement inserted
-/// between the base screen and the BF16 GEMV.
-///
-/// A block that fails the base screen writes `bfloat(coarse[r])` and returns,
-/// exactly as before. A block that survives re-reads the 256 B residual bit
-/// plane and 64 B of scales for its live rows ONLY, adds
-/// `sum_g sd_g * sum_j x_j*(b_j - 0.5)` to the stored midpoint value, and
-/// re-screens against the tightened bound. Only rows surviving THAT read
-/// BF16 lm_head. Live blocks are rare (single digits per step), so the plane
-/// bytes this refunds are negligible against the 25.7 MB level one saves.
-///
-/// Refined bound, re-derived rather than inherited:
-///   * `coarse[r] + correction` reconstructs sd*(2H + b - 16) = sd*q exactly
-///     (2H - 15.5 + b - 0.5 = 2H + b - 16, and every term is a power of two
-///     times a <=6-significand-bit value), so the exact-arithmetic error
-///     bound drops from the full cell D to the half cell d = D/2.
-///   * The accumulated magnitude is the sum of the two parts: the midpoint
-///     term is at most 15.5*D = 31*d and the residual term at most
-///     0.5*D = 1*d, so m <= 32*d and the certificate is
-///     d*(1+gamma) + 2*gamma*m <= d*(1 + 65*gamma).
-///   * `delta[r]` already bounds D*(1 + 32*gamma), so multiplying it by
-///     `0x1.005p-1f` = (1 + 40*gamma)/2 yields at least
-///     d*(1 + 32*gamma)*(1 + 40*gamma) > d*(1 + 65*gamma), with 7*gamma of
-///     margin. The multiply is EXACT in FP32 (a widened BF16 has <= 8
-///     significand bits, the constant has 13, and 21 < 24), and the
-///     mask-and-bump round-UP to BF16 that follows only widens further.
-///     Copying the source submission's `0x1.004p-1f` = (1 + 32*gamma)/2
-///     would deliver only d*(1 + 64.03*gamma) and miss the derived bound by
-///     about one gamma.
-/// The refined value is per-simdgroup scratch held by its owning lane, so no
-/// threadgroup storage or barrier is involved.
+/// Levels two and three fuse sparse two-plane residual refinement into the
+/// exact dispatch. Surviving rows add sd*(R - 1.5), reconstructing q from
+/// q0 = 4H - 14.5 and R = u & 3 before re-screening. The remaining half-cell
+/// error is one quarter of the base stage's two-cell bound. Multiplying its
+/// outward-rounded delta by `0x1.007p-2f` = (1 + 56*gamma)/4 preserves the
+/// refined FP32 certificate before a second outward BF16 rounding. Only rows
+/// surviving this screen read BF16 lm_head.
 private let lagunaLmHeadRefinedExactKernel = MLXFast.metalKernel(
-    name: "laguna_lmhead_exact_fused_int5_sparse_refine_v1",
+    name: "laguna_lmhead_exact_fused_int5_sparse_refine_3p2_gate0_v1",
     inputNames: [
         "coarse", "delta", "thr", "lm_head", "x", "codes_bit", "scales",
     ],
@@ -697,23 +673,31 @@ private let lagunaLmHeadRefinedExactKernel = MLXFast.metalKernel(
                 continue;
             }
             uint r = base + tm;
-            const device uint8_t* hirow = codes_bit + size_t(r) * 256;
+            const device uint8_t* hirow = codes_bit + size_t(r) * 512;
             const device uint8_t* srow = scales + size_t(r) * 64;
             float correction = 0.0f;
             for (uint gg = 0; gg < 2; ++gg) {
                 uint g = 2 * lane + gg;
                 float sd = laguna_e8m0_decode(srow[g]);
-                uint hb = ((const device uint*)(hirow + g * 4))[0];
+                uint b0 = ((const device uint*)(hirow + g * 4))[0];
+                uint b1 = ((const device uint*)(hirow + 256 + g * 4))[0];
                 const device ushort4* xrow =
                     (const device ushort4*)(x + g * 32);
                 float cg = 0.0f;
                 #pragma clang loop unroll(full)
                 for (uint w = 0; w < 4; ++w) {
-                    uint hw = hb >> (8u * w);
-                    uint4 he = (uint4(hw) >> uint4(0u, 2u, 4u, 6u)) & 1u;
-                    uint4 ho = (uint4(hw) >> uint4(1u, 3u, 5u, 7u)) & 1u;
-                    float4 ve = float4(he) - 0.5f;
-                    float4 vo = float4(ho) - 0.5f;
+                    uint shift = 8u * w;
+                    uint4 even_shift = uint4(
+                        shift, shift + 2u, shift + 4u, shift + 6u);
+                    uint4 odd_shift = even_shift + 1u;
+                    uint4 re =
+                        ((uint4(b0) >> even_shift) & 1u)
+                        | (((uint4(b1) >> even_shift) & 1u) << 1u);
+                    uint4 ro =
+                        ((uint4(b0) >> odd_shift) & 1u)
+                        | (((uint4(b1) >> odd_shift) & 1u) << 1u);
+                    float4 ve = float4(re) - 1.5f;
+                    float4 vo = float4(ro) - 1.5f;
                     float4 xa = as_type<float4>(uint4(xrow[2 * w]) << 16);
                     float4 xb = as_type<float4>(uint4(xrow[2 * w + 1]) << 16);
                     float4 xe = float4(xa.x, xa.z, xb.x, xb.z);
@@ -730,7 +714,7 @@ private let lagunaLmHeadRefinedExactKernel = MLXFast.metalKernel(
             if (lane == 0) {
                 float c_refined = coarse[r] + correction;
                 refined_coarse[tm] = c_refined;
-                float d_up = float(delta[r]) * 0x1.005p-1f;
+                float d_up = float(delta[r]) * 0x1.007p-2f;
                 uint dbits = as_type<uint>(d_up);
                 uint dtrunc = dbits & 0xFFFF0000u;
                 if (dtrunc != dbits) {
@@ -822,11 +806,10 @@ private let lagunaLmHeadRefinedExactKernel = MLXFast.metalKernel(
 /// `lagunaLmHeadPruneEnabled` (DARKBLOOM_LM_HEAD_PRUNE, default ON; set "0"
 /// to disable); ~135 MB additional resident memory.
 final class LagunaLmHeadPruner {
-    /// Planar int5 coarse copy: nibble plane [V, 1024] holding u >> 1, 1-bit
-    /// plane [V, 256] holding u & 1 (element j of each 32-element group at bit
-    /// j of the group's uint32 word), power-of-two group scale bytes [V, 64]
-    /// with e8m0 semantics. 1344 B/row, of which the nibble plane and the
-    /// scales (1088 B/row) are a self-contained 2x-coarse code.
+    /// Planar int5 copy: upper bit planes 2/3/4 [V, 768], residual bit planes
+    /// 0/1 [V, 512], and e8m0 power-of-two group scales [V, 64]. Total storage
+    /// remains 1344 B/row; the upper planes plus scales form an 832 B/row
+    /// self-contained 4x-coarse code.
     let int5CodesLo: MLXArray
     let int5CodesHi: MLXArray
     let int5Scales: MLXArray
@@ -856,7 +839,7 @@ final class LagunaLmHeadPruner {
         self.int5Scales = planes.scales
         if lagunaTraceFusionEnabled {
             FileHandle.standardError.write(
-                Data("fusion active: lmhead-int5-winner-coarse-v5\n".utf8))
+                Data("fusion active: lmhead-int5-winner-coarse-3plus2-gate0\n".utf8))
         }
     }
 
@@ -898,32 +881,28 @@ final class LagunaLmHeadPruner {
                         .utf8))
             return nil
         }
-        // Offset-binary u = q + 16 in [1, 31], split so the nibble plane is a
-        // self-contained 2x-coarse code: the nibble holds u >> 1 (the HIGH
-        // four bits, floor(q/2) + 8) and the 1-bit plane holds u & 1
-        // (q - 2*floor(q/2)). Total bytes are unchanged; what changes is that
-        // the level-one screen can now read the nibble plane alone.
         let u = (q + 16).asType(.uint8).reshaped([vocab, hidden])
-        let base = u >> 1
-        let u16 = base.view(dtype: .uint16)  // [V, 1024]: elem 2b low byte
-        let lo =
-            ((u16 & MLXArray(UInt16(0x000F)))
-            | ((u16 >> 4) & MLXArray(UInt16(0x00F0)))).asType(.uint8)
-        // 1-bit plane: bit 0 of each code; element j of each 32-element
-        // group lands at bit j of the group's little-endian uint32 word.
-        // Step 1: per uint32 word of u (4 codes), gather the four bit-0s
-        // (u32 bits 0, 8, 16, 24) into one low nibble.
-        let u32 = u.view(dtype: .uint32)  // [V, 512]: elem 4t..4t+3
-        let nib =
-            ((u32 & MLXArray(UInt32(0x01)))
-            | ((u32 >> 7) & MLXArray(UInt32(0x02)))
-            | ((u32 >> 14) & MLXArray(UInt32(0x04)))
-            | ((u32 >> 21) & MLXArray(UInt32(0x08)))).asType(.uint8)
-        // Step 2: merge nibble pairs into bytes (byte s = elements 8s..8s+7).
-        let nib16 = nib.view(dtype: .uint16)  // [V, 256]
-        let hi =
-            ((nib16 & MLXArray(UInt16(0x000F)))
-            | ((nib16 >> 4) & MLXArray(UInt16(0x00F0)))).asType(.uint8)
+
+        func packBitPlane(_ values: MLXArray) -> MLXArray {
+            let u32 = values.view(dtype: .uint32)
+            let nib =
+                ((u32 & MLXArray(UInt32(0x01)))
+                | ((u32 >> 7) & MLXArray(UInt32(0x02)))
+                | ((u32 >> 14) & MLXArray(UInt32(0x04)))
+                | ((u32 >> 21) & MLXArray(UInt32(0x08)))).asType(.uint8)
+            let nib16 = nib.view(dtype: .uint16)
+            return
+                ((nib16 & MLXArray(UInt16(0x000F)))
+                | ((nib16 >> 4) & MLXArray(UInt16(0x00F0)))).asType(.uint8)
+        }
+
+        let p0 = packBitPlane(u)
+        let p1 = packBitPlane(u >> 1)
+        let p2 = packBitPlane(u >> 2)
+        let p3 = packBitPlane(u >> 3)
+        let p4 = packBitPlane(u >> 4)
+        let lo = concatenated([p2, p3, p4], axis: 1)
+        let hi = concatenated([p0, p1], axis: 1)
         return (lo, hi, sdByte.asType(.uint8))
     }
 
@@ -952,7 +931,7 @@ final class LagunaLmHeadPruner {
         let rowList = rows.map { String($0) }.joined(separator: ",")
         let bitList = bits.map { String($0) }.joined(separator: ",")
         let line =
-            "gate0-census scheme=4+1 step=\(gate0CensusStep) n=\(lagunaLmHeadPruneVocab) "
+            "gate0-census scheme=3+2 step=\(gate0CensusStep) n=\(lagunaLmHeadPruneVocab) "
             + "first=\(first) exact=\(rows.count) blocks=\(exactBlocks) argmax=\(argmax) "
             + "rows=[\(rowList)] bits=[\(bitList)]\n"
         FileHandle.standardError.write(Data(line.utf8))
@@ -975,8 +954,8 @@ final class LagunaLmHeadPruner {
         // `coarse` alone (no `delta` read), the exact-winner threshold that
         // absorbs the winning row's 4 KB GEMV, and the inline-mask exact pass.
         // With `refine` the first and last dispatch swap to the three-level
-        // form: the coarse pass reads 1088 B/row instead of 1344 B/row and the
-        // exact pass re-reads the residual bit plane for live blocks only.
+        // form: the coarse pass reads 832 B/row instead of 1344 B/row and the
+        // exact pass re-reads both residual bit planes for live blocks only.
         let coarseOut =
             refine
             ? lagunaLmHeadInt5BaseCoarseKernel(
