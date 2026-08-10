@@ -683,24 +683,16 @@ let lagunaRouterRowsPerGroup: Int = {
     return value
 }()
 
-// Router-GEMV weight-prefetch mode: 0, 1, or 5; anything else falls back to 0.
-// 0 selects the plain kernel. 1 issues a four-block vec<bfloat,4> salvo (256 KiB
-// per invocation, one quarter of the 1 MiB router weight) above the RMSNorm
-// reduction and all five threadgroup barriers, then peels the first 4 of 16
-// column blocks off the GEMV loop. 5 emits the identical instructions below
-// those barriers instead, so 1 and 5 are a matched pair that isolates placement
-// from the loads; neither variant moves extra bytes. In the serialised router
-// label 1 measures ~6.4 us/step faster than 0 while 5 is indistinguishable from
-// it, so that win looks like it belongs to the hoist. End to end the sign
-// reverses: #597 measures the hoist at +28.0 us/step on M4 Pro over 144 slots,
-// 16/16 cycles, with 5 back at 0, so the cross-barrier placement costs far more
-// elsewhere in the step than the label recovers, so M4 argues for defaulting
-// to 0.
-//
-// R105-B Phase B arm P1: this commit is the paired M5 *control*. It deliberately
-// holds the shipped default of 1 so it can be differenced against the arm P0
-// receipt, which flips it to 0. Only the compiled-in constant below is visible
-// to the grader; the environment variable never resolves there.
+
+
+
+
+
+
+
+
+
+
 let lagunaRouterWeightPrefetch: Int = {
     guard
         let raw = ProcessInfo.processInfo.environment["DARKBLOOM_ROUTER_WEIGHT_PREFETCH"],
@@ -710,12 +702,12 @@ let lagunaRouterWeightPrefetch: Int = {
     }
     return value
 }()
-// lagunaRouterWeightPrefetch reaches the kernel through
-// lagunaRouterPrefetchGroups, which returns 0 whenever rowsPerThread != 1 and
-// otherwise maps 5 to a single late-placed group and passes every other value
-// through unchanged. The variant key in lagunaResidualRMSNormRouterKernels is
-// rowsPerGroup * 8 + prefetch, and the kernel-name suffix is _pf1c when
-// prefetch == 5, _pf<groups> when groups > 0, and empty when groups == 0.
+
+
+
+
+
+
 
 private enum LagunaDecodeAsyncStage {
     case off
