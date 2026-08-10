@@ -1,5 +1,5 @@
 {
-  "fixture_schema_version": 2,
+  "fixture_schema_version": 3,
   "artifact_files": {
     "isolated": {
       "path": "artifacts/isolated-rows.json"
@@ -358,6 +358,77 @@
       "source_fixture": "ranked-margin-just-above",
       "operation": "candidate_bytes",
       "expected_error_code": "SURFACE_FILE_HASH_MISMATCH"
+    },
+    {
+      "id": "reject-coherent-whole-host-drift",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "coherent_whole_environment_drift",
+      "field": "host_model",
+      "value": "Different local host",
+      "expected_error_code": "LOCAL_PHASE_ENVIRONMENT_MISMATCH"
+    },
+    {
+      "id": "reject-coherent-whole-toolchain-drift",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "coherent_whole_environment_drift",
+      "field": "toolchain",
+      "value": "Swift 6.3 alternate",
+      "expected_error_code": "LOCAL_PHASE_ENVIRONMENT_MISMATCH"
+    },
+    {
+      "id": "reject-coherent-whole-thermal-policy-drift",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "coherent_whole_environment_drift",
+      "field": "thermal_policy_id",
+      "value": "different-local-thermal-policy",
+      "expected_error_code": "LOCAL_PHASE_ENVIRONMENT_MISMATCH"
+    },
+    {
+      "id": "reject-coherent-whole-telemetry-policy-drift",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "coherent_whole_environment_drift",
+      "field": "telemetry_policy_id",
+      "value": "different-local-telemetry-policy",
+      "expected_error_code": "LOCAL_PHASE_ENVIRONMENT_MISMATCH"
+    },
+    {
+      "id": "reject-coherent-whole-protocol-drift",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "coherent_whole_environment_drift",
+      "field": "protocol_id",
+      "value": "different-local-protocol",
+      "expected_error_code": "LOCAL_PHASE_ENVIRONMENT_MISMATCH"
+    },
+    {
+      "id": "reject-extra-candidate-surface-file",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "candidate_extra_file",
+      "expected_error_code": "SURFACE_UNLISTED_FILE"
+    },
+    {
+      "id": "reject-omitted-candidate-surface-file",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "candidate_omit_file",
+      "expected_error_code": "SURFACE_LISTED_FILE_MISSING"
+    },
+    {
+      "id": "reject-candidate-surface-symlink",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "candidate_symlink",
+      "expected_error_code": "SURFACE_FILE_SYMLINK"
+    },
+    {
+      "id": "reject-candidate-surface-directory",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "candidate_directory",
+      "expected_error_code": "SURFACE_FILE_NOT_REGULAR"
+    },
+    {
+      "id": "reject-coherent-context-reseal-without-external-pin",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "coherent_context_reseal",
+      "value": "Swift 6.4 coherent-reseal",
+      "expected_error_code": "EXTERNAL_TRUST_PIN_REQUIRED"
     }
   ],
   "candidate_files": [

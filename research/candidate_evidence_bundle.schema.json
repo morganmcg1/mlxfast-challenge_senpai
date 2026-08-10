@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://mlxfast.invalid/schemas/candidate-evidence-bundle-v2.json",
+  "$id": "https://mlxfast.invalid/schemas/candidate-evidence-bundle-v3.json",
   "title": "MLXFast candidate evidence bundle",
-  "description": "Structural contract for one content-addressed candidate revision. A separately pinned trusted context, physical candidate surface, canonical artifact bytes, semantic joins, arithmetic, and classification are enforced by validate_candidate_evidence_bundle.py.",
+  "description": "Structural contract for one content-addressed candidate revision. A verifier-owned external trusted-context pin, exact physical candidate surface, canonical artifact bytes, environment/protocol joins, arithmetic, and classification are enforced by validate_candidate_evidence_bundle.py.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -20,7 +20,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": 2
+      "const": 3
     },
     "assignment_id": {
       "$ref": "#/$defs/identifier"
@@ -345,6 +345,8 @@
         "os",
         "toolchain",
         "thermal_policy_id",
+        "telemetry_policy_id",
+        "protocol_id",
         "hardware_class",
         "provenance_authority"
       ],
@@ -366,6 +368,12 @@
           "minLength": 1
         },
         "thermal_policy_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "telemetry_policy_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "protocol_id": {
           "$ref": "#/$defs/identifier"
         },
         "hardware_class": {
@@ -941,6 +949,7 @@
         "decode_component_id",
         "prefill_component_id",
         "isolated_component_id",
+        "ranked_environment_sha256",
         "checked_token_count",
         "correctness_status",
         "peak_memory_status"
@@ -984,6 +993,9 @@
         },
         "isolated_component_id": {
           "$ref": "#/$defs/identifier"
+        },
+        "ranked_environment_sha256": {
+          "$ref": "#/$defs/sha256"
         },
         "prefill_component_id": {
           "$ref": "#/$defs/identifier"
@@ -1078,6 +1090,40 @@
         }
       }
     },
+    "phaseEnvironments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "isolated",
+        "whole_model",
+        "ranked_m5"
+      ],
+      "properties": {
+        "isolated": {
+          "$ref": "#/$defs/environment"
+        },
+        "whole_model": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/environment"
+            }
+          ]
+        },
+        "ranked_m5": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/environment"
+            }
+          ]
+        }
+      }
+    },
     "trustedContext": {
       "type": "object",
       "additionalProperties": false,
@@ -1088,11 +1134,12 @@
         "mechanism_id",
         "family_id",
         "identity",
+        "phase_environments",
         "artifact_pins"
       ],
       "properties": {
         "trust_schema_version": {
-          "const": 1
+          "const": 2
         },
         "assignment_id": {
           "$ref": "#/$defs/identifier"
@@ -1108,6 +1155,9 @@
         },
         "identity": {
           "$ref": "#/$defs/candidateIdentity"
+        },
+        "phase_environments": {
+          "$ref": "#/$defs/phaseEnvironments"
         },
         "artifact_pins": {
           "type": "array",

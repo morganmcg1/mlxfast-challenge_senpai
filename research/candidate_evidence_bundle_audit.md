@@ -16,7 +16,7 @@ This assignment adds only:
 - `validate_candidate_evidence_bundle.py`, a standard-library fail-closed
   validator and deterministic self-test runner;
 - `candidate_evidence_bundle_fixtures.json`, four positive fixture profiles and
-  35 negative mutations; and
+  45 negative mutations; and
 - this audit.
 
 No model code, build, inference, benchmark, W&B run, live receipt, or official
@@ -46,35 +46,39 @@ and does not invent or recompute missing source facts.
 
 ## Contract structure
 
-The root schema is versioned as `candidate-evidence-bundle/v2`, rejects unknown
+The root schema is versioned as `candidate-evidence-bundle/v3`, rejects unknown
 properties, and fixes the immutable terminal hashes named in the assignment.
 The validator additionally performs semantic checks that JSON Schema alone
 cannot express.
 
 ### External trusted context
 
-Bundle claims are not self-authenticating. Validation therefore requires a
-separate trusted-context JSON file whose canonical SHA-256 is supplied inside
-the bundle and then recomputed. The context pins:
+Bundle claims are not self-authenticating. Validation therefore requires both a
+separate trusted-context JSON file and its verifier-owned canonical SHA-256 as a
+separate CLI input. The bundle's context digest is only a secondary binding; it
+is never the trust root. The context pins:
 
 - assignment, revision, bundle, base commit, and candidate commit;
 - canonical candidate-surface records and digest;
 - benchmark contract, configuration, fixture, windows, and component IDs;
+- exact isolated and whole-model environment/protocol facts: host model, chip,
+  OS, toolchain, thermal policy, telemetry policy, and protocol;
 - required artifact roles, paths, sizes, and hashes; and
-- ranked receipt identity, official hardware, toolchain, thermal, and telemetry
-  facts.
+- ranked receipt identity and a digest of the distinct official M5 environment.
 
-A coherent attacker rewrite of the bundle, artifacts, revision, and hashes still
-fails unless it also changes this independently supplied trusted input.
+A coherent rewrite of the bundle, artifacts, trusted context, and all embedded
+hashes still fails without the separately supplied verifier-owned context pin.
 
 ### Candidate-surface binding
 
 The candidate surface is canonicalized as a path-sorted list of
 `{path,size,sha256}` records using UTF-8 compact JSON with sorted object keys
-and one trailing line feed. The validator independently reads each regular,
-non-symlink file beneath `--candidate-root`, checks its physical size and
-SHA-256 against the trusted records, recomputes the surface digest, and rejoins
-that digest to every phase and artifact claim.
+and one trailing line feed. The validator recursively enumerates
+`--candidate-root` without following symlinks and requires the physical file set
+to equal the trusted submitted surface exactly. Extra or unlisted files, omitted
+or missing listed files, symlinks, and non-regular entries are rejected. It then
+checks every file's physical size and SHA-256, recomputes the surface digest,
+and rejoins that digest to every phase and artifact claim.
 
 ### Physical and semantic artifacts
 
@@ -104,8 +108,11 @@ Isolated evidence binds exact ABBA and BAAB order sequences, raw rows,
 uncertainty estimates, perturbation labels, stop conditions, and chain joins.
 Whole-model evidence binds mirrored order rows, raw timings, recomputed means,
 component factors, weighted factor, floors, gates, and exact checked-token
-counts. Ranked evidence adds a distinct official M5 receipt whose identities,
-measurements, gates, and content address all rejoin the bundle.
+counts. Numeric isolated-to-whole-model evidence requires exact equality of the
+trusted host model, chip, OS, toolchain, thermal policy, telemetry policy, and
+protocol across both phases. Ranked evidence remains a distinct official M5
+receipt; its environment is externally pinned by canonical digest and rebound
+inside the receipt along with identities, measurements, gates, and content.
 
 All derived numeric values are recomputed with Python `Decimal` at precision 80
 and `ROUND_HALF_EVEN`; serialized summaries are never trusted as authoritative.
@@ -134,7 +141,7 @@ The four positive profiles are:
 3. complete local M4 whole-model evidence; and
 4. official M5 ranked evidence just above the strict margin.
 
-The 35 negative mutations cover:
+The 45 negative mutations cover:
 
 - base, candidate, payload-surface, benchmark-contract, configuration, fixture,
   window, and revision identity drift;
@@ -143,7 +150,11 @@ The 35 negative mutations cover:
   reuse;
 - arbitrary ranked bytes with a refreshed manifest hash;
 - semantic artifact rewrites with refreshed size and hash;
-- physical candidate-surface byte mutation;
+- physical candidate-surface byte mutation, extra and omitted files, symlinks,
+  and non-regular entries;
+- coherent isolated-to-whole-model host, toolchain, thermal, telemetry, and
+  protocol drift;
+- coherent bundle and trusted-context resealing without an external pin;
 - coherent revision relabeling across the bundle and artifact;
 - local M4 evidence relabeled as official M5 evidence;
 - ranked receipt benchmark, base, and component drift;
@@ -171,22 +182,24 @@ python3 research/validate_candidate_evidence_bundle.py --self-test > /tmp/candid
 cmp -s /tmp/candidate-evidence-a.json /tmp/candidate-evidence-b.json
 ```
 
-A standalone bundle validation requires all three external roots:
+A standalone bundle validation requires three external filesystem roots plus the
+separately distributed verifier-owned context pin:
 
 ```bash
 python3 research/validate_candidate_evidence_bundle.py BUNDLE.json \
   --artifact-root ARTIFACT_ROOT \
   --candidate-root CANDIDATE_ROOT \
-  --trusted-context TRUSTED_CONTEXT.json
+  --trusted-context TRUSTED_CONTEXT.json \
+  --expected-context-sha256 EXPECTED_TRUSTED_CONTEXT_SHA256
 ```
 
-Both self-test runs are byte-identical. The result contains 39 cases, reports
+Both self-test runs are byte-identical. The result contains 49 cases, reports
 `deterministic: true`, uses schema ID
-`https://mlxfast.invalid/schemas/candidate-evidence-bundle-v2.json`, and has
+`https://mlxfast.invalid/schemas/candidate-evidence-bundle-v3.json`, and has
 canonical result digest:
 
 ```text
-77177cacc866f268233e5c915e4263436848eec6768e59b8b12556e64ea5d0d9
+75d8e716d4887e3b4aaac08499d44da281923d7de465ecf35de500bffc444124
 ```
 
 The terminal status is `CANDIDATE_EVIDENCE_CONTRACT_READY`.
@@ -197,7 +210,8 @@ The terminal status is `CANDIDATE_EVIDENCE_CONTRACT_READY`.
 - No live M5 receipt exists in this assignment, so no real candidate is ranked.
 - The contract intentionally defines no M4-to-M5 transfer model.
 - The validator checks trusted-context integrity and all joins, but the caller
-  remains responsible for obtaining that context from an authoritative source.
+  remains responsible for obtaining both the context and its expected digest
+  from an authoritative verifier-owned source.
 - Receipt uniqueness across separate valid bundles requires an external receipt
   registry; this validator guarantees content and revision binding within the
   bundle it is given.

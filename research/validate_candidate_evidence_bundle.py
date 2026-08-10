@@ -12,7 +12,7 @@ import tempfile
 from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN, localcontext
 from pathlib import Path, PurePosixPath
 
-SCHEMA_ID = "https://mlxfast.invalid/schemas/candidate-evidence-bundle-v2.json"
+SCHEMA_ID = "https://mlxfast.invalid/schemas/candidate-evidence-bundle-v3.json"
 STRICT_RANKED_MARGIN = Decimal("1.0037802719941367788")
 COMPONENT_FLOOR = Decimal("0.95")
 DECIMAL_TOLERANCE = Decimal("1e-24")
@@ -304,10 +304,20 @@ def read_regular_file(root, relative, path, prefix, errors):
     return target.read_bytes()
 
 
-def check_trusted_context(bundle, trusted_context, trusted_bytes, errors):
+def valid_sha256(value):
+    return isinstance(value, str) and len(value) == 64 and all(character in "0123456789abcdef" for character in value)
+
+
+def check_trusted_context(bundle, trusted_context, trusted_bytes, expected_context_sha256, errors):
     if trusted_bytes != canonical_bytes(trusted_context):
         errors.append(issue("TRUSTED_CONTEXT_NONCANONICAL", "$trusted_context", "trusted context must be canonical JSON with one trailing LF"))
     digest = sha256_bytes(trusted_bytes)
+    if expected_context_sha256 is None:
+        errors.append(issue("EXTERNAL_TRUST_PIN_REQUIRED", "$verifier.expected_context_sha256", "a verifier-owned trusted-context digest is required"))
+    elif not valid_sha256(expected_context_sha256):
+        errors.append(issue("EXTERNAL_TRUST_PIN_INVALID", "$verifier.expected_context_sha256", "external trusted-context digest must be lowercase SHA-256"))
+    elif expected_context_sha256 != digest:
+        errors.append(issue("EXTERNAL_TRUST_PIN_MISMATCH", "$verifier.expected_context_sha256", "supplied trusted context does not match the verifier-owned digest"))
     if bundle["trusted_context_sha256"] != digest:
         errors.append(issue("TRUSTED_CONTEXT_DIGEST_MISMATCH", "$.trusted_context_sha256", "bundle does not bind the supplied trusted context bytes"))
     expected = {
@@ -320,13 +330,74 @@ def check_trusted_context(bundle, trusted_context, trusted_bytes, errors):
     for key, value in expected.items():
         if trusted_context.get(key) != value:
             errors.append(issue("TRUSTED_CONTEXT_MISMATCH", f"$trusted_context.{key}", "bundle field disagrees with separately pinned trusted input"))
+    pinned_environments = trusted_context["phase_environments"]
+    phase_environments = {
+        name: None if phase is None else phase["environment"]
+        for name, phase in bundle["phases"].items()
+    }
+    for name in sorted(phase_environments):
+        if pinned_environments[name] != phase_environments[name]:
+            errors.append(issue("TRUSTED_ENVIRONMENT_MISMATCH", f"$trusted_context.phase_environments.{name}", "phase environment disagrees with the external trust root"))
+    isolated_environment = phase_environments["isolated"]
+    whole_environment = phase_environments["whole_model"]
+    if whole_environment is not None and whole_environment != isolated_environment:
+        errors.append(issue("LOCAL_PHASE_ENVIRONMENT_MISMATCH", "$.phases.whole_model.environment", "isolated and whole-model host, toolchain, thermal, telemetry, and protocol identities must match exactly"))
     roles = [pin["role"] for pin in trusted_context["artifact_pins"]]
     if len(roles) != len(set(roles)):
         errors.append(issue("TRUSTED_ARTIFACT_DUPLICATE_ROLE", "$trusted_context.artifact_pins", "trusted artifact roles must be unique"))
 
 
+def collect_candidate_surface(candidate_root, errors):
+    root = Path(candidate_root)
+    try:
+        root_mode = os.lstat(root).st_mode
+    except FileNotFoundError:
+        errors.append(issue("SURFACE_ROOT_MISSING", "$candidate_root", "candidate root does not exist"))
+        return set()
+    if stat.S_ISLNK(root_mode):
+        errors.append(issue("SURFACE_ROOT_SYMLINK", "$candidate_root", "candidate root must not be a symlink"))
+        return set()
+    if not stat.S_ISDIR(root_mode):
+        errors.append(issue("SURFACE_ROOT_NOT_DIRECTORY", "$candidate_root", "candidate root must be a directory"))
+        return set()
+
+    regular_files = set()
+
+    def visit(directory, prefix):
+        try:
+            entries = sorted(os.scandir(directory), key=lambda entry: entry.name)
+        except OSError:
+            errors.append(issue("SURFACE_SCAN_FAILED", f"$candidate_root.{prefix.as_posix()}", "candidate surface could not be enumerated"))
+            return
+        for entry in entries:
+            relative = prefix / entry.name
+            relative_text = relative.as_posix()
+            try:
+                mode = entry.stat(follow_symlinks=False).st_mode
+            except OSError:
+                errors.append(issue("SURFACE_SCAN_FAILED", f"$candidate_root.{relative_text}", "candidate surface entry could not be inspected"))
+                continue
+            if stat.S_ISLNK(mode):
+                errors.append(issue("SURFACE_FILE_SYMLINK", f"$candidate_root.{relative_text}", "symlinks are forbidden anywhere in the candidate surface"))
+            elif stat.S_ISDIR(mode):
+                visit(Path(entry.path), relative)
+            elif stat.S_ISREG(mode):
+                regular_files.add(relative_text)
+            else:
+                errors.append(issue("SURFACE_FILE_NOT_REGULAR", f"$candidate_root.{relative_text}", "candidate surface entries must be regular files or containing directories"))
+
+    visit(root, PurePosixPath())
+    return regular_files
+
+
 def check_candidate_surface(trusted_context, candidate_root, errors):
     files = trusted_context["identity"]["submitted_surface"]["files"]
+    expected_paths = {entry["path"] for entry in files}
+    actual_paths = collect_candidate_surface(candidate_root, errors)
+    for relative in sorted(expected_paths - actual_paths):
+        errors.append(issue("SURFACE_LISTED_FILE_MISSING", f"$candidate_root.{relative}", "trusted submitted-surface file is absent from the physical candidate root"))
+    for relative in sorted(actual_paths - expected_paths):
+        errors.append(issue("SURFACE_UNLISTED_FILE", f"$candidate_root.{relative}", "physical candidate root contains a regular file absent from the trusted submitted surface"))
     for index, entry in enumerate(files):
         path = f"$trusted_context.identity.submitted_surface.files[{index}]"
         data = read_regular_file(candidate_root, entry["path"], f"{path}.path", "SURFACE_FILE", errors)
@@ -568,13 +639,14 @@ def check_receipt(phase, bundle, join, errors):
         "isolated_component_id": join["isolated_component_id"],
         "prefill_component_id": join["prefill_component_id"],
         "decode_component_id": join["decode_component_id"],
+        "ranked_environment_sha256": sha256_bytes(canonical_bytes(phase["environment"])),
         "checked_token_count": phase["correctness"]["checked_token_count"],
         "correctness_status": "PASS",
         "peak_memory_status": "PASS",
     }
     for key, expected in fields.items():
         if receipt.get(key) != expected:
-            errors.append(issue("RECEIPT_IDENTITY_MISMATCH", f"{path}.{key}", "ranked receipt does not bind to this candidate revision"))
+            errors.append(issue("RECEIPT_IDENTITY_MISMATCH", f"{path}.{key}", "ranked receipt does not bind to this candidate revision and environment"))
 
 
 def classify_and_check_terminal(bundle, errors):
@@ -600,7 +672,7 @@ def classify_and_check_terminal(bundle, errors):
     return classification
 
 
-def validate_bundle(bundle, artifact_root, candidate_root, trusted_context, trusted_bytes, schema):
+def validate_bundle(bundle, artifact_root, candidate_root, trusted_context, trusted_bytes, expected_context_sha256, schema):
     digest = sha256_bytes(canonical_bytes(bundle)) if isinstance(bundle, (dict, list)) else sha256_bytes(repr(bundle).encode())
     checker = SchemaChecker(schema)
     errors = checker.check(bundle)
@@ -610,7 +682,7 @@ def validate_bundle(bundle, artifact_root, candidate_root, trusted_context, trus
         return {"bundle_digest": digest, "classification": "INVALID", "errors": errors}
     errors = []
     check_surface(bundle["identity"], errors)
-    check_trusted_context(bundle, trusted_context, trusted_bytes, errors)
+    check_trusted_context(bundle, trusted_context, trusted_bytes, expected_context_sha256, errors)
     check_candidate_surface(trusted_context, candidate_root, errors)
     join = expected_join(bundle)
     check_artifacts(bundle, artifact_root, join, trusted_context, checker, errors)
@@ -663,6 +735,8 @@ def fixture_environment(ranked=False):
             "os": "macOS synthetic-ranked",
             "toolchain": "Swift synthetic-ranked",
             "thermal_policy_id": "official-40c-gate-v1",
+            "telemetry_policy_id": "official-ranked-telemetry-v1",
+            "protocol_id": "official-ranked-protocol-v1",
             "hardware_class": "M5_RANKED",
             "provenance_authority": "OFFICIAL_RANKED_RECEIPT",
         }
@@ -672,6 +746,8 @@ def fixture_environment(ranked=False):
         "os": "macOS synthetic-local",
         "toolchain": "Swift synthetic-local",
         "thermal_policy_id": "local-40c-gate-v1",
+        "telemetry_policy_id": "local-telemetry-v1",
+        "protocol_id": "local-abba-baab-protocol-v1",
         "hardware_class": "M4_LOCAL",
         "provenance_authority": "LOCAL_OBSERVATION",
     }
@@ -838,6 +914,7 @@ def build_fixture_bundle(spec, artifact_specs, candidate_specs):
                 "isolated_component_id": spec["isolated_component_id"],
                 "prefill_component_id": spec["prefill_component_id"],
                 "decode_component_id": spec["decode_component_id"],
+                "ranked_environment_sha256": sha256_bytes(canonical_bytes(fixture_environment(ranked=True))),
                 "checked_token_count": 640,
                 "correctness_status": "PASS",
                 "peak_memory_status": "PASS",
@@ -876,7 +953,7 @@ def build_fixture_bundle(spec, artifact_specs, candidate_specs):
             "binding": copy.deepcopy(join),
         })
     bundle = {
-        "schema_version": 2,
+        "schema_version": 3,
         "assignment_id": spec["assignment_id"],
         "revision_id": spec["revision_id"],
         "mechanism_id": spec["mechanism_id"],
@@ -889,12 +966,17 @@ def build_fixture_bundle(spec, artifact_specs, candidate_specs):
         "submission_authorization": False,
     }
     trusted_context = {
-        "trust_schema_version": 1,
+        "trust_schema_version": 2,
         "assignment_id": spec["assignment_id"],
         "revision_id": spec["revision_id"],
         "mechanism_id": spec["mechanism_id"],
         "family_id": spec["family_id"],
         "identity": copy.deepcopy(identity),
+        "phase_environments": {
+            "isolated": copy.deepcopy(isolated["environment"]),
+            "whole_model": None if whole is None else copy.deepcopy(whole["environment"]),
+            "ranked_m5": None if ranked is None else copy.deepcopy(ranked["environment"]),
+        },
         "artifact_pins": [
             {key: entry[key] for key in ("role", "path", "size", "sha256")}
             for entry in manifest
@@ -937,7 +1019,9 @@ def apply_mutation(bundle, mutation):
         "artifact_bytes", "artifact_symlink", "artifact_arbitrary_rehash",
         "artifact_semantic_rehash", "coherent_revision_relabel",
         "coherent_m4_as_m5", "coherent_receipt_base_drift",
-        "coherent_receipt_benchmark_drift", "candidate_bytes",
+        "coherent_receipt_benchmark_drift", "coherent_whole_environment_drift",
+        "coherent_context_reseal", "candidate_bytes", "candidate_extra_file",
+        "candidate_omit_file", "candidate_symlink", "candidate_directory",
     }:
         raise ValueError(f"unknown mutation operation {operation}")
 
@@ -952,6 +1036,13 @@ def refresh_artifact(bundle, artifact_files, role, document):
     artifact_files[manifest["path"]] = data
     manifest["size"] = len(data)
     manifest["sha256"] = sha256_bytes(data)
+
+
+def refresh_trusted_artifact_pin(bundle, trusted_context, role):
+    manifest = manifest_for_role(bundle, role)
+    pin = next(pin for pin in trusted_context["artifact_pins"] if pin["role"] == role)
+    pin.update({key: manifest[key] for key in ("role", "path", "size", "sha256")})
+    bundle["trusted_context_sha256"] = sha256_bytes(canonical_bytes(trusted_context))
 
 
 def replace_revision(value, old, new):
@@ -999,12 +1090,37 @@ def mutate_fixture_state(bundle, artifact_files, trusted_context, candidate_file
         manifest = manifest_for_role(bundle, "RANKED_M5_RECEIPT")
         document = json.loads(artifact_files[manifest["path"]])
         m4_environment = fixture_environment()
+        environment_digest = sha256_bytes(canonical_bytes(m4_environment))
         bundle["phases"]["ranked_m5"]["environment"] = copy.deepcopy(m4_environment)
+        bundle["phases"]["ranked_m5"]["receipt"]["ranked_environment_sha256"] = environment_digest
         document["evidence"]["environment"] = copy.deepcopy(m4_environment)
+        document["evidence"]["receipt"]["ranked_environment_sha256"] = environment_digest
+        trusted_context["phase_environments"]["ranked_m5"] = copy.deepcopy(m4_environment)
         refresh_artifact(bundle, artifact_files, "RANKED_M5_RECEIPT", document)
-        pin = next(pin for pin in trusted_context["artifact_pins"] if pin["role"] == "RANKED_M5_RECEIPT")
-        pin.update({key: manifest[key] for key in ("role", "path", "size", "sha256")})
-        bundle["trusted_context_sha256"] = sha256_bytes(canonical_bytes(trusted_context))
+        refresh_trusted_artifact_pin(bundle, trusted_context, "RANKED_M5_RECEIPT")
+    elif operation == "coherent_whole_environment_drift":
+        phase = bundle["phases"]["whole_model"]
+        phase["environment"][mutation["field"]] = copy.deepcopy(mutation["value"])
+        manifest = manifest_for_role(bundle, "WHOLE_MODEL_RAW_ROWS")
+        document = json.loads(artifact_files[manifest["path"]])
+        document["evidence"]["environment"] = copy.deepcopy(phase["environment"])
+        trusted_context["phase_environments"]["whole_model"] = copy.deepcopy(phase["environment"])
+        refresh_artifact(bundle, artifact_files, "WHOLE_MODEL_RAW_ROWS", document)
+        refresh_trusted_artifact_pin(bundle, trusted_context, "WHOLE_MODEL_RAW_ROWS")
+    elif operation == "coherent_context_reseal":
+        phase = bundle["phases"]["ranked_m5"]
+        environment = copy.deepcopy(phase["environment"])
+        environment["toolchain"] = "Swift synthetic-ranked-resealed"
+        environment_digest = sha256_bytes(canonical_bytes(environment))
+        phase["environment"] = environment
+        phase["receipt"]["ranked_environment_sha256"] = environment_digest
+        manifest = manifest_for_role(bundle, "RANKED_M5_RECEIPT")
+        document = json.loads(artifact_files[manifest["path"]])
+        document["evidence"]["environment"] = copy.deepcopy(environment)
+        document["evidence"]["receipt"]["ranked_environment_sha256"] = environment_digest
+        trusted_context["phase_environments"]["ranked_m5"] = copy.deepcopy(environment)
+        refresh_artifact(bundle, artifact_files, "RANKED_M5_RECEIPT", document)
+        refresh_trusted_artifact_pin(bundle, trusted_context, "RANKED_M5_RECEIPT")
     elif operation in {"coherent_receipt_base_drift", "coherent_receipt_benchmark_drift"}:
         key = "base_sha" if operation.endswith("base_drift") else "benchmark_id"
         bundle["phases"]["ranked_m5"]["receipt"][key] = mutation["value"]
@@ -1015,6 +1131,10 @@ def mutate_fixture_state(bundle, artifact_files, trusted_context, candidate_file
     elif operation == "candidate_bytes":
         relative = sorted(candidate_files)[mutation.get("file_index", 0)]
         candidate_files[relative] += b"mutated"
+    elif operation == "candidate_extra_file":
+        candidate_files["Sources/MLXFastModel/Unlisted.swift"] = b"unlisted\n"
+    elif operation == "candidate_omit_file":
+        del candidate_files[sorted(candidate_files)[mutation.get("file_index", 0)]]
 
 
 def write_files(root, files):
@@ -1032,6 +1152,7 @@ def execute_fixture_suite(fixtures, schema):
     for fixture_id in sorted(positives):
         spec = positives[fixture_id]
         bundle, artifacts, trusted_context, candidate_files = build_fixture_bundle(spec, artifact_specs, candidate_specs)
+        expected_context_sha256 = sha256_bytes(canonical_bytes(trusted_context))
         with tempfile.TemporaryDirectory(prefix="candidate-evidence-") as directory:
             root = Path(directory)
             artifact_root = root / "artifact-root"
@@ -1039,7 +1160,15 @@ def execute_fixture_suite(fixtures, schema):
             write_files(artifact_root, artifacts)
             write_files(candidate_root, candidate_files)
             trusted_bytes = canonical_bytes(trusted_context)
-            result = validate_bundle(bundle, artifact_root, candidate_root, trusted_context, trusted_bytes, schema)
+            result = validate_bundle(
+                bundle,
+                artifact_root,
+                candidate_root,
+                trusted_context,
+                trusted_bytes,
+                expected_context_sha256,
+                schema,
+            )
         passed = result["classification"] == spec["expected_classification"] and not result["errors"]
         if "expected_weighted_factor" in spec:
             weighted = bundle["phases"]["ranked_m5"]["summary"]["factors"]["weighted"]
@@ -1049,6 +1178,7 @@ def execute_fixture_suite(fixtures, schema):
     for mutation in sorted(fixtures["negative_mutations"], key=lambda entry: entry["id"]):
         spec = positives[mutation["source_fixture"]]
         bundle, artifacts, trusted_context, candidate_files = build_fixture_bundle(spec, artifact_specs, candidate_specs)
+        expected_context_sha256 = sha256_bytes(canonical_bytes(trusted_context))
         mutate_fixture_state(bundle, artifacts, trusted_context, candidate_files, mutation)
         with tempfile.TemporaryDirectory(prefix="candidate-evidence-") as directory:
             root = Path(directory)
@@ -1063,8 +1193,27 @@ def execute_fixture_suite(fixtures, schema):
                 other.write_bytes(target.read_bytes())
                 target.unlink()
                 target.symlink_to(other)
+            elif mutation["operation"] in {"candidate_symlink", "candidate_directory"}:
+                relative = sorted(candidate_files)[mutation.get("file_index", 0)]
+                target = candidate_root.joinpath(*PurePosixPath(relative).parts)
+                target.unlink()
+                if mutation["operation"] == "candidate_symlink":
+                    other = root / "candidate-safe-target"
+                    other.write_bytes(b"safe target\n")
+                    target.symlink_to(other)
+                else:
+                    target.mkdir()
             trusted_bytes = canonical_bytes(trusted_context)
-            result = validate_bundle(bundle, artifact_root, candidate_root, trusted_context, trusted_bytes, schema)
+            expected_pin = None if mutation["operation"] == "coherent_context_reseal" else expected_context_sha256
+            result = validate_bundle(
+                bundle,
+                artifact_root,
+                candidate_root,
+                trusted_context,
+                trusted_bytes,
+                expected_pin,
+                schema,
+            )
         codes = {entry["code"] for entry in result["errors"]}
         passed = result["classification"] == "INVALID" and mutation["expected_error_code"] in codes
         results.append({"classification": result["classification"], "errors": result["errors"], "id": mutation["id"], "kind": "negative", "passed": passed})
@@ -1074,8 +1223,12 @@ def execute_fixture_suite(fixtures, schema):
 def run_self_test(fixtures_path, schema_path):
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     fixtures = json.loads(fixtures_path.read_text(encoding="utf-8"))
-    if schema.get("$id") != SCHEMA_ID or schema.get("properties", {}).get("schema_version", {}).get("const") != 2:
-        raise ValueError("schema identity/version mismatch")
+    if (
+        schema.get("$id") != SCHEMA_ID
+        or schema.get("properties", {}).get("schema_version", {}).get("const") != 3
+        or fixtures.get("fixture_schema_version") != 3
+    ):
+        raise ValueError("contract identity/version mismatch")
     first = execute_fixture_suite(fixtures, schema)
     second = execute_fixture_suite(fixtures, schema)
     first_bytes = canonical_bytes(first)
@@ -1101,19 +1254,37 @@ def main():
     parser.add_argument("--artifact-root", type=Path)
     parser.add_argument("--candidate-root", type=Path)
     parser.add_argument("--trusted-context", type=Path)
+    parser.add_argument("--expected-context-sha256")
     parser.add_argument("--schema", type=Path, default=directory / "candidate_evidence_bundle.schema.json")
     parser.add_argument("--fixtures", type=Path, default=directory / "candidate_evidence_bundle_fixtures.json")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     if args.self_test:
         return run_self_test(args.fixtures, args.schema)
-    if args.bundle is None or args.artifact_root is None or args.candidate_root is None or args.trusted_context is None:
-        parser.error("bundle, --artifact-root, --candidate-root, and --trusted-context are required unless --self-test is used")
+    if (
+        args.bundle is None
+        or args.artifact_root is None
+        or args.candidate_root is None
+        or args.trusted_context is None
+        or args.expected_context_sha256 is None
+    ):
+        parser.error(
+            "bundle, --artifact-root, --candidate-root, --trusted-context, and "
+            "--expected-context-sha256 are required unless --self-test is used"
+        )
     schema = json.loads(args.schema.read_text(encoding="utf-8"))
     bundle = json.loads(args.bundle.read_text(encoding="utf-8"))
     trusted_bytes = args.trusted_context.read_bytes()
     trusted_context = json.loads(trusted_bytes.decode("utf-8"))
-    result = validate_bundle(bundle, args.artifact_root, args.candidate_root, trusted_context, trusted_bytes, schema)
+    result = validate_bundle(
+        bundle,
+        args.artifact_root,
+        args.candidate_root,
+        trusted_context,
+        trusted_bytes,
+        args.expected_context_sha256,
+        schema,
+    )
     print(canonical_bytes(result).decode("utf-8"), end="")
     return 0 if result["classification"] != "INVALID" else 1
 
