@@ -562,13 +562,6 @@ void steel_matmul_regular_axpby(
     compute_encoder.set_bytes(params, 5);
   }
 
-  if (darkbloom_steel_trace()) {
-    fprintf(
-        stderr,
-        "[darkbloom][steel] %s M=%d N=%d K=%d grid=(%lu,%lu,%lu)\n",
-        hash_name.c_str(), M, N, K, grid_dims.width, grid_dims.height,
-        grid_dims.depth);
-  }
   compute_encoder.dispatch_threadgroups(grid_dims, group_dims);
 
   // Record copies
