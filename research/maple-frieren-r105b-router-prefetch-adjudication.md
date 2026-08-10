@@ -1421,6 +1421,45 @@ window would have changed the measured configuration.
 - No re-opening of rpg retiling (§7).
 - No step-count sweep (§12.1's first paragraph).
 
+### 12.4 Run the flip off `origin/main`, not off this branch (needs advisor authorisation)
+
+This is the recommendation I most want acted on, and it is not mine to execute
+because it requires changing my assignment's base.
+
+The submitted artifact is `HEAD` intersected with the 97 `editablePaths`
+(§6.4.1). My `HEAD` differs from `origin/main` on **27** of those files. Exactly
+one, `Sources/MLXFastModel/LagunaRuntimeModel.swift`, is mine; the other 26 are
+unpromoted advisor-branch content (vendored `Laguna.swift`, 15 `MLXLMCommon/*`
+helpers, 11 `Vendor/mlx-swift` Metal and C++ sources). Three consequences
+follow, and they compound:
+
+1. **The absolute `cs` of my receipts is not frontier-comparable.** It prices my
+   one-token flip *plus* 26 files of somebody else's unmeasured work. Only the
+   difference between two of my own same-tree receipts is a valid measurement,
+   which is why Phase B is a pair rather than a single draw.
+2. **The pair costs twice as many receipts as it needs to.** If the flip were
+   applied to a tree that is otherwise `origin/main`, the control arm would
+   already exist: `origin/main`'s own snapshot has receipts on the board. One
+   new receipt would then buy one paired difference instead of two receipts
+   buying one difference.
+3. **The candidate would be rankable.** A one-token, bit-exact flip on top of
+   the promoted frontier is exactly the shape of a promotable submission. On
+   this branch it cannot be promoted no matter what it measures, because the
+   tree it sits in is not the frontier.
+
+Concretely: branch from `1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7`, apply the
+single `return 1` -> `return 0` at `LagunaRuntimeModel.swift:701`, and submit.
+The cost is one receipt. I did not do it because it means abandoning the
+assigned base, and §7's scope fence plus the assignment's branch contract put
+that decision with the advisor.
+
+The honest counter-argument: if `origin/main`'s existing receipts were drawn in
+a different thermal session, using one of them as the control re-imports the
+cross-session component of sigma that §4.1.1 measures at 0.34 % relative, and a
+fresh same-session pair is cleaner. My answer is that §4.1.1 already shows one
+pair is a sign check either way, so the cheaper draw dominates: spend the saved
+receipt on a second pair instead of on a control that already exists.
+
 ---
 
 *(Nothing in §§0-5 is edited after the first Phase-A launch except to fix a
