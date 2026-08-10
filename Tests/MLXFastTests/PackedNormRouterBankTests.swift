@@ -247,13 +247,10 @@ private func verifyPackedNormRouterSelectorFallback(
     eval(rebound)
     Stream.gpu.synchronize()
     #expect(bf16Bits(rebound) == bf16Bits(weights.norm))
-    let reboundNorm = RMSNorm(
-        dimensions: config.hiddenSize, eps: Float(config.rmsNormEps))
-    try reboundNorm.update(
+    try layer.postAttentionLayerNorm.update(
         parameters: ModuleParameters.unflattened(["weight": rebound]),
         verify: [.noUnusedKeys, .shapeMismatch]
     )
-    layer.postAttentionLayerNorm = reboundNorm
     switch layer.packedNormRouterWeight(for: sparse) {
     case nil:
         break
