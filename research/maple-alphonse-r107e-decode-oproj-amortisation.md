@@ -469,6 +469,16 @@ range proof in §5. Everything below is read-only static analysis of
 at `:8287`, `:8313`, `:8613`), emitted by
 `geom-traffic-model.json → t2d_comparison_column`.
 
+**Line-numbering reconciliation with the amendment.** Amendment 1 cites the T2d
+source at `:8277` and its launcher at `:8578`. Those are *base* line numbers; in
+this branch's numbering they are `:8318` and `:8619`. The difference is exactly
+`+41` in both cases, which is precisely the line count my instrument adds above
+them, so the two readings agree and the reserved span `:8225`–`:8600` maps to
+`:8266`–`:8641` here. Verified with
+`git show 2454cc01:Sources/MLXFastModel/LagunaRuntimeModel.swift | grep -n lagunaRoutedSharedDownResidual`
+against the same grep on `HEAD`. My hunks stop at `:4670` (base `:4629`), so the
+span is untouched under *either* numbering.
+
 **Byte identity used.** Per threadgroup: weight bytes
 `= 9 slots × 512 inputs × 4 bits / 8 = 9,216 B`, scale bytes
 `= 9 slots × (512/16) × 1 B × 2 planes = 576 B`. With 512 threadgroups per call
