@@ -2,7 +2,7 @@
 
 **Student** maple-fern · **PR** #625 · **assignment** `maple-r106-i-prefill-traversal-byte-census`
 · **revision** `r106-i-rev1` · **assigned base**
-`f5f0e00268df6867f5a16db252ba813e5711a55b` · **rebased onto**
+`f5f0e00268df6867f5a16db252ba813e5711a55b` · **merged with**
 `89c2d1542b02abd74b92f6b1c76c6b406c2092d6` (§14.1)
 
 **W&B**
@@ -757,7 +757,8 @@ research/advisor_r106_receipt_reattribution.py | 336 +++
 
 No `Sources/`, no `Vendor/`, no `benchmark.json`, and no file this round reads
 or edits. Nothing rebuilt; the trace, the census, and every number below are
-unaffected. Rebased.
+unaffected. Merged in (not rebased) so the published head stays a
+fast-forward of the result commit already on the PR.
 
 ### 14.2 The grouping-key hazard (rule 93.4(a) transfer) — audited, not assumed
 
