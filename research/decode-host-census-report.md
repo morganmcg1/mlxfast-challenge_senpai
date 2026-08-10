@@ -1,121 +1,88 @@
-# Decode host-graph attribution census: measurement NO-GO
+# Decode host attribution completion: HOST_ATTRIBUTION_INCONCLUSIVE
 
 ## Verdict
 
-**Status: inconclusive measurement NO-GO. No successor experiment is nominated.**
+The sole permitted acquisition completed the full scientific stream: 400 non-warm windows covering 10 families, 5 rounds, both ABBA and BAAB orders, and all 4 positions. Its process exit code was 1 only because the frozen worker intentionally throws `host census complete` after emitting `HOST_CENSUS complete windows=400 passed=true`.
 
-The bounded host-path census could not enter its first warmed timing window because this M4 Pro host never satisfied the unchanged strict `<= 40C` GPU cool-down gate. The instrumented run stopped after 190 seconds at `40.6C`, its minimum observed temperature. Two unchanged-baseline attempts had already failed the same gate, with the closest minimum at approximately `40.1C`.
+The attribution remains inconclusive. Seven families failed mirrored-sign agreement and five exceeded the predeclared `5 us/token` uncertainty half-width. The only family satisfying all formal measurement gates, `moe_wrapper`, encloses required sparse-MoE graph construction rather than isolated removable host overhead. No successor experiment is nominated.
 
-No per-family latency, perturbation, order effect, uncertainty interval, removable lower bound, or speedup is reported. Zeros in the failing benchmark JSON are sentinel values produced before timing and are not measurements. Disabling or weakening the gate would make the result non-comparable, so the assignment's stopping rule requires a NO-GO rather than false precision.
+## Identity and acquisition
 
-## Identity and environment
+- PR: `#672`
+- Assignment: `cedar-thorfinn-decode-host-attribution-completion-20260810-r1`
+- Required base: `6149100f9d65d2d1cff9c3378caab0a57698b09e`
+- Production base: `b9d75bbc51c96f619915389abfe476742434df65`
+- Frozen instrumentation source: `922de16b035e037686dec820eee7426d1311b4e7`
+- Local instrumentation commit: `b9fac0ff9be8133363ca71b4cf9ed314d4c0c761`
+- Declared whole nine-path binary diff SHA-256: `dad4a979721960cbbacebe22ebb1c8c68b3abec41d0cfd291a02f7fbe62b7fcd`
+- Host: Apple M4 Pro, 48 GiB, `arm64`; GPU generation 16
+- OS / Metal / Swift: macOS `26.5.2 (25F84)` / `32023.883` / `6.3.3`
+- W&B: not applicable; this is a local inference attribution measurement
 
-- PR: `#650`
-- Branch: `cedar-askeladd/decode-host-graph-attribution`
-- Assignment start: `9f5bbf3ac0ed5f1c14fecfc8b2ba38d351db68f7`
-- Experiment base: `b9d75bbc51c96f619915389abfe476742434df65`
-- Exact temporary instrumentation: `922de16b035e037686dec820eee7426d1311b4e7`
-- Exact attempted runner: `5d5e2a78111c2e8cb0ff684d370075210aff5b63`
-- Host: `Mac16,11`, Apple M4 Pro, 48 GiB, `arm64`
-- OS: macOS `26.5.2`
-- GPU generation reported by the runtime: 16; M5-only `_nax` prefill kernels were not selected
-- Weights: `21,568,891,382` bytes across 9 files, SHA-256 `aff994300573c5e8589563fc9ff57cdcfb1ef9b49e14898be290a75a6b294b3d`
-- Harness SHA-256: `71855979692718e4f0a70570f24fec3f22225e044475eb580242308cbf72a045`
-- W&B: not applicable; this was a local inference attribution measurement, and no timing window ran
-
-## Intended measurement design
-
-The temporary probes were intentionally same-binary and release-built. They preserved GPU waits as separate families and selected one host family at a time:
-
-1. model dispatch
-2. layer dispatch
-3. attention/cache bookkeeping
-4. kernel configuration
-5. MoE wrapper work
-6. graph/view construction
-7. asynchronous submission
-8. blocking evaluation
-9. LM head
-10. greedy-token wait
-
-The worker was configured to perform an empty-probe calibration over 200,000 iterations, one warm 128-step decode, token/checksum/cache-offset corruption controls, and five repetitions of both ABBA and BAAB orders. A complete run would therefore have produced 400 warmed 128-step family/control windows. The predeclared gates were:
-
-- both orderings represented by at least 64 windows per ordering or uncertainty no greater than `5 us/token`;
-- instrumentation perturbation no greater than 1% in both orders;
-- GPU waits reported separately from host work; and
-- a successor only for a novel common M4/M5 host optimization with a conservative removable lower bound of at least `18 us/token`.
-
-The thermal stop occurred before the warm decode. Consequently, empty-probe calibration, controls, timing orders, perturbation, uncertainty, and lower-bound gates were not evaluated.
-
-## Static scored-path census
-
-These are deterministic call counts from the instrumented control flow, not elapsed-time estimates:
-
-| Boundary | Calls/token | Calls/128-step window |
-|---|---:|---:|
-| `MLXFastKernel` dispatches | 323 | 41,344 |
-| model layers | 40 | 5,120 |
-| attention/cache boundaries | 120 | 15,360 |
-| sparse MoE kernel boundaries | 195 | 24,960 |
-| dense/shared expert boundaries | 3 | 384 |
-| LM-head boundaries | 4 | 512 |
-| embedding boundary | 1 | 128 |
-| asynchronous eval entries | 8 | 1,024 |
-| blocking eval API entries | 3 | 384 |
-| approximate submission opportunities | 9 | 1,152 |
-
-Cache bookkeeping across the requested window had 5,120 update attempts and 5,110 advances: 3,840 sliding-window operations and 1,280 full-cache attempts, including 1,270 full-cache advances. This flow is shared between M4 and M5 decode. The M5-only `_nax` distinction applies to prefill and does not make this decode host census architecture-specific.
-
-## Thermal failure evidence
-
-Reproduction command:
+Exact reproduction command:
 
 ```bash
-/bin/bash research/run_host_census.sh
+MLXFAST_LOCAL_FAN_PROMPT=0 \
+MLXFAST_LOCAL_COOL_GATE_STRICT_TELEMETRY=1 \
+MLXFAST_HOST_CENSUS=1 \
+MLXFAST_HOST_CENSUS_ROUNDS=5 \
+./benchmark.sh --local-iterate
 ```
 
-The runner expands to:
+Supervised job `583206df-e77d-4d1d-8925-31600618ba1e` ran once, with no retry, and ended after 694.032 seconds. The strict persistent telemetry gate passed after 20 seconds using five 1 Hz samples and a final GPU temperature of `39.3C`. Fan mode remained `auto` before, during, and after acquisition. A preceding 606.100-second idle trace contained 600 valid changing samples: GPU temperature `36.697365/38.471031/39.270184C` minimum/median/maximum and fan speed `993/1000.033/1008 RPM`.
 
-```bash
-MLXFAST_HOST_CENSUS=1 MLXFAST_HOST_CENSUS_ROUNDS=5 ./benchmark.sh --local-iterate
-```
+The trusted binary was 12,683,712 bytes with SHA-256 `8ea677c663e8118d9333d21959ba0511169f625377c7a9c99724ae63718848f7`. The worker was 49,213,704 bytes with SHA-256 `e34df5a62cad50e8ae077afdc676b3a0c583c121c2ec21f08ae1b2f20c3ce085`.
 
-Supervised job `f46ab0a9-52ef-479c-b68c-d14fe498887b` exited 1 after 373.997 seconds. Build and 38-second weight preflight succeeded. The benchmark then waited 190 seconds for `<= 40C` and failed at `40.6C`, also the minimum observed temperature. Its structured failure was emitted at `2026-08-10T15:27:09Z` with `timed_benchmark_seconds=0`, `case_count=0`, and error `local GPU cool-down gate failed for host-census with status 1`.
+The structured receipt `score.local-iterate.json` has SHA-256 `b6b810682b3a91c8d4b487d9acbbfcad71d9890c0d9603a637ec9d3ce1f62fd2`. It records 690 benchmark wall seconds, 7.1 preflight seconds, harness SHA-256 `88672ebfbda8dfaa75c88d974896d223acd123120f61b847ec2c39b94175f753`, and the intentional `host census complete` sentinel. Its `0.85 GB` process-resident-memory field is a post-run diagnostic, not model peak memory; peak memory was unavailable.
 
-The attempt used a verified 80% fan hold only to improve cooling; the benchmark correctly detected that manual controller. Immediately afterward, the fan was restored and verified as `auto`. A process inspection found no model, Metal, Swift, benchmark, or runtime worker competing for the GPU. A single idle `macmon` sample reported GPU temperature `40.8559C`, CPU temperature `40.3212C`, and GPU active fraction approximately `0.0113`, consistent with this host idling above the strict threshold rather than an orphaned model process.
+## Method
 
-Raw supervised output is retained in `research/decode-host-census-thermal-failure.log` (SHA-256 `76084d655e38e033c6c51f5b2ed1119f1a09521f1a5a8c74f43676905c2e9675`).
+The frozen same-binary instrumentation selected one family at a time. Each family had 20 measured and 20 control windows, with 128 decode steps per window. Empty timer calibration was finite at `2,758,821 ns` over 200,000 calls, or `13.794105 ns/call`. The injected corruption control was observed exactly once and passed.
 
-## Baseline comparison
+Probe duration is the selected family's summed dispatch intervals minus calibrated timer cost, divided by 128 tokens. The 95% interval is a deterministic 20,000-resample nonparametric bootstrap interval for the median of 20 measured windows. Whole-wall perturbation uses nearest measured-control pairs within each order and round. These probe regions are nested: broad family durations include useful graph construction and dependency exposure and therefore are not additive removable costs.
 
-The trusted harness's pinned reference constants were:
+## Results
 
-- prefill: `0.00036751938916015626 s/token`
-- decode: `0.01385621216015625 s/token`
+All durations and wall effects below are `us/token`. Perturbation percentages use complete-window wall time.
 
-An earlier local diagnostic recorded approximately `0.001112 s/token` prefill and `0.012897 s/token` decode with legacy score `0.8`, but it was not a fresh paired measurement for this assignment. The required unchanged and instrumented paired windows both failed the strict thermal gate, so there is no valid candidate-minus-baseline comparison and no primary metric.
+| Family | Calls/window | Probe median | Probe p95 | 95% CI | CI half-width | ABBA wall effect | BAAB wall effect | ABBA / BAAB perturbation | Signs agree | All gates |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|:---:|:---:|
+| `model_dispatch` | 128 | 5624.698 | 5723.570 | [5622.940, 5634.666] | 5.863 | -2.082 | 2.242 | -0.025% / 0.027% | no | no |
+| `layer_dispatch` | 5120 | 1111.157 | 1206.472 | [1101.735, 1127.109] | 12.687 | 7.705 | -6.716 | 0.093% / -0.081% | no | no |
+| `attention_cache` | 5120 | 571.438 | 627.061 | [561.781, 610.091] | 24.155 | 17.686 | 7.773 | 0.213% / 0.094% | yes | no |
+| `kernel_config` | 46464 | 715.226 | 768.401 | [710.035, 720.113] | 5.039 | -12.359 | -4.417 | -0.149% / -0.053% | yes | no |
+| `moe_wrapper` | 4992 | 344.213 | 376.215 | [343.596, 348.614] | 2.509 | -4.019 | -0.721 | -0.048% / -0.009% | yes | yes |
+| `graph_views` | 128 | 0.831 | 0.992 | [0.812, 0.886] | 0.037 | 4.506 | -19.619 | 0.054% / -0.236% | no | no |
+| `async_submission` | 1024 | 4521.482 | 4534.357 | [4518.077, 4526.230] | 4.076 | -28.109 | 1.815 | -0.338% / 0.022% | no | no |
+| `blocking_eval` | 256 | 2622.303 | 2628.324 | [2621.822, 2624.348] | 1.263 | -32.600 | 0.616 | -0.391% / 0.007% | no | no |
+| `lm_head` | 128 | 12.540 | 13.530 | [12.338, 13.007] | 0.335 | 3.770 | -1.538 | 0.045% / -0.019% | no | no |
+| `greedy_wait` | 128 | 2600.660 | 2627.411 | [2585.879, 2624.106] | 19.113 | 1.007 | -5.832 | 0.012% / -0.070% | no | no |
 
-## Novelty audit and successor decision
+Every family passed the 1% perturbation ceiling in each order. Mirrored signs disagreed for `model_dispatch`, `layer_dispatch`, `graph_views`, `async_submission`, `blocking_eval`, `lm_head`, and `greedy_wait`. Uncertainty exceeded `5 us/token` for `model_dispatch`, `layer_dispatch`, `attention_cache`, `kernel_config`, and `greedy_wait`.
 
-The static census did not reveal an unassigned, submission-eligible common-host family that could independently satisfy the `18 us/token` threshold without timing evidence:
+The families also separate host work from waits rather than treating all observed duration as removable:
 
-- metadata/descriptor paths were negative in PRs `#340`, `#354`, `#559`, and `#621`;
-- wrapper boundaries were covered by `#344`, `#354`, and `#633`;
-- enqueue/synchronization work was covered by `#189` and `#632`, with a retired projection-launch estimate of only about `0.1-0.17 us/token`;
-- cache paths were covered by `#195`, `#227`, `#580`, and `#604`;
-- router/MoE paths were covered by `#327`, `#341`, `#480`, and `#614`;
-- LM-head work is represented by merged PR `#336`, while `#474`, `#479`, `#577`, and `#624` were negative; and
-- C-bridge/eval internals and the trusted token loop are not submission-editable.
+- `graph_views` and `lm_head` are the narrow host-only boundaries, and their measured medians are below the required `18 us/token` successor threshold.
+- `kernel_config` encloses configuration/build closures and narrowly misses the uncertainty gate.
+- `async_submission` includes dependency/backpressure exposure.
+- `blocking_eval` and `greedy_wait` are explicit GPU/read dependency waits.
+- `model_dispatch`, `layer_dispatch`, `attention_cache`, and `moe_wrapper` enclose required model graph work. In particular, the passing `moe_wrapper` duration is not an isolated removable lower bound.
 
-A delegated frontier review produced no usable advisory result because its descendants did not return a collected terminal synthesis. It is therefore not used as evidence.
+This evidence does not establish a novel common M4/M5 submission-eligible host optimization with a conservative removable lower bound of at least `18 us/token`. The M4 measurements remain directional; official M5 behavior is authoritative.
 
-Because no timing family passed perturbation, order, uncertainty, and lower-bound gates, nominating any successor would violate the assignment contract. The appropriate follow-up is operational: rerun the exact committed instrumentation on a host that can satisfy the unchanged thermal gate, preferably matched M5 hardware. No implementation or official submission was attempted.
+## Integrity, restoration, and correctness
 
-## Correctness and restoration
+The completion marker reported exactly 400 non-warm windows. Every measured and control window preserved 128 tokens, identical checksum `426215939139894599`, 40 cache offsets all equal to 640, and exact wall decomposition. Immediately afterward the fan remained `auto`, the acquisition PID was absent, and no runtime worker, trusted binary, Swift compiler, or Metal compiler process remained.
 
-Before instrumentation, `research/run_upstream_equivalence.sh` completed its checks but exited 1 with the known M4 public-fixture near-tie signature: prefill runtime/upstream token `5991`, maximum absolute logit difference `0.125`, mean absolute difference `0.011933609`, and all 8 decode steps exact. This is baseline-equivalent diagnostic behavior, not an introduced decode mismatch.
+All eight production/vendor probe files and `research/run_host_census.sh` were restored from the required assignment base and committed at `c418078664c6bd99f02dcb76d4f4ed69256e7884`. The current `Sources/` and `Vendor/` tree manifest is byte-identical to the required base, with canonical SHA-256 `039454963f131b9b113e635a87b646dd0904fc33397298c5be427205e6eacb97`; the runner is also byte-identical.
 
-All temporary `Sources/` and `Vendor/` changes were restored from the assignment start. The final production tree is byte-identical to base `b9d75bbc51c96f619915389abfe476742434df65`; only research evidence and the local runner remain. Post-restoration supervised job `40a035fb-fa54-4941-a683-eff08c270801` ran `research/run_upstream_equivalence.sh` in 57.677 seconds and exited 1 with the same known M4 signature: prefill runtime/upstream token `5991`, maximum absolute difference `0.125`, mean absolute difference `0.011933609`, and all 8 decode steps exact (`EQUIVALENCE_EXACT_STEPS=8`).
+Post-restoration supervised upstream-equivalence job `08c1103b-8375-41de-8906-992f749982d3` completed in 58.071 seconds. It produced only the accepted M4 public-fixture near-tie signature: prefill runtime/upstream token `5991`, maximum absolute logit difference `0.125`, mean absolute difference `0.011933609`, and all 8 decode steps exact (`EQUIVALENCE_EXACT_STEPS=8`). Its log SHA-256 is `fce1364f59e1cd263d75144771434bfb8a2639ee38568b66fc42923b55f13e70`.
+
+## Artifacts and successor
+
+`research/decode-host-census-results.json` retains every one of the 400 non-warm raw windows, the warm window, complete summaries, validity decisions, environment, binary identities, and restoration evidence. Its SHA-256 is `daaaaba11288b47a8917bfc7ae94efd6eaa23faf0f20827ba3f515af1a4dbbb2`. The supervised source log has 493 lines, 172,307 bytes, and SHA-256 `8d22dfb70ff95326f4171640d0b67ba7bc148d39464854ed7b44d49d8e5cc4c4`.
+
+No successor experiment or official submission was attempted.
 
 ---
 
