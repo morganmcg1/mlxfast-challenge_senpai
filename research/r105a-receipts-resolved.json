@@ -107,39 +107,115 @@
    "submission_id": "d4a86ffd-b26a-48de-aba4-07d6d49558fb",
    "commit": "73bf55bb021b421f6fcfea91a0bdd72ec4c29a27",
    "queued_at": "2026-08-10T05:23:27Z",
-   "status": "validating",
-   "official_score": null,
-   "rejection_reason": null
+   "status": "rejected",
+   "official_score": 2.57182973424995,
+   "rejection_reason": "score did not improve current best",
+   "cand_dec": 0.00493382096875,
+   "cand_pre": 0.000187729248046875,
+   "prefill_ms": 96.11737500000001,
+   "step_ms": 4.1829039765625,
+   "norm_decode_su": 2.8152622658943134,
+   "norm_prefill_su": 2.0481624680241217,
+   "norm_score": 2.60004129327291,
+   "prefill_price_pct_per_ms": 0.3788580315123297,
+   "baseline_dec": 0.0139168154296875,
+   "baseline_pre": 0.000365958087890625,
+   "decode_speedup": 2.8206972887411785,
+   "prefill_speedup": 1.9493930311767254,
+   "max_abs_diff": 0,
+   "passed_correctness": true,
+   "passed_decode_floor": true,
+   "passed_prefill_floor": true,
+   "checked_steps": 1344,
+   "semantic_gpqa": "9/9",
+   "gpqa_ttft_passed": true,
+   "gpqa_ttft_p50_seconds": 0.079,
+   "measured_at": "2026-08-10T05:32:47Z",
+   "service_commit": "24ad1d2eaf23c1d7930124abf69e7372bb0111c7",
+   "error": "",
+   "partial_result": false,
+   "commit_reported": "24ad1d2eaf23c1d7930124abf69e7372bb0111c7"
   }
  ],
  "contrast": {
   "arm_receipt_counts": {
-   "A0": 2,
+   "A0": 3,
    "A2": 1
   },
-  "control_n": 2,
-  "control_dof": 1,
-  "control_mean_prefill_ms": 96.16512499999999,
-  "control_mean_decode_ms": 628.901708,
-  "control_mean_step_ms": 4.1620045546875,
-  "sigma_prefill_channel_ms": 0.18950461735800525,
-  "sigma_decode_channel_ms": 0.2503158005400674,
-  "sigma_ms": 0.18950461735800525,
-  "sigma_pct": 0.19706168671647362,
+  "control_n": 3,
+  "control_dof": 2,
+  "control_mean_prefill_ms": 96.14920833333333,
+  "control_mean_decode_ms": 629.7775,
+  "control_mean_step_ms": 4.168971028645833,
+  "control_mean_score": 2.5707480348952267,
+  "prefill_price_pct_per_ms": 0.379103036806703,
+  "bar_ms": 1.35,
+  "bar_score": 0.013156808223064203,
+  "sigma_prefill_channel_ms": 0.13680650873892988,
+  "sigma_decode_channel_ms": 1.5272078711793147,
+  "sigma_score_channel": 0.0010369193475088547,
+  "sigma_ms": 0.13680650873892988,
+  "sigma_pct": 0.1422856319988038,
+  "channels": {
+   "official_score": {
+    "mean": 2.5707480348952267,
+    "sigma": 0.0010369193475088547,
+    "cv_pct": 0.04033531615832258
+   },
+   "decode_speedup": {
+    "mean": 2.8178163061243318,
+    "sigma": 0.0032633534027916512,
+    "cv_pct": 0.11581143155779795
+   },
+   "prefill_speedup": {
+    "mean": 1.952095498045347,
+    "sigma": 0.003824887536670567,
+    "cv_pct": 0.19593752152496974
+   },
+   "prefill_ms": {
+    "mean": 96.14920833333333,
+    "sigma": 0.13680650873892988,
+    "cv_pct": 0.1422856319988038
+   },
+   "decode_ms": {
+    "mean": 629.7775,
+    "sigma": 1.5272078711793147,
+    "cv_pct": 0.2424995925035929
+   },
+   "step_ms": {
+    "mean": 4.168971028645833,
+    "sigma": 0.012070962357671128,
+    "cv_pct": 0.2895429657517199
+   },
+   "speedup_axis_pearson_r": -0.9776330277422554,
+   "score_cv_pct_propagated_independent": 0.09971901193370383,
+   "score_cv_pct_propagated_with_r": 0.040308617327417924,
+   "score_cv_pct_observed": 0.04033531615832258
+  },
   "A2": {
    "n": 1,
-   "dof": 1,
-   "t95": 6.314,
-   "se_ms": 0.23209480821424242,
-   "delta_prefill_ms": -1.0182920000000024,
-   "delta_decode_echo_ms": -2.181874999999991,
-   "delta_step_ms": -0.009090492187500132,
-   "ci90_ms": [
-    -2.483738619064729,
-    0.4471546190647242
+   "dof": 2,
+   "t95": 2.92,
+   "se_score": 0.0011973313288243367,
+   "delta_score": -0.01860700686675676,
+   "delta_score_pct": -0.7237973778132288,
+   "ci90_score": [
+    -0.022103214346923823,
+    -0.015110799386589695
    ],
-   "z_vs_zero": -4.387396718758293,
-   "verdict": "NULL-bar-excluded",
+   "z_score_vs_zero": -15.540399235211723,
+   "bar_score": 0.013156808223064203,
+   "se_ms": 0.15797054929462812,
+   "delta_prefill_ms": -1.0342086666666575,
+   "delta_decode_echo_ms": -1.3060829999999441,
+   "delta_step_ms": -0.0021240182291668575,
+   "ci90_ms": [
+    -1.4954826706069715,
+    -0.5729346627263434
+   ],
+   "z_vs_zero": -6.546844783946233,
+   "channels_agree": true,
+   "verdict": "REGRESSION",
    "verdict_is_shippable": false
   }
  }

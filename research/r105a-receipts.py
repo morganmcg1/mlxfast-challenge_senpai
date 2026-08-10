@@ -95,16 +95,69 @@ def _sd(xs: list[float]) -> float:
     return (sum((x - mean) ** 2 for x in xs) / (len(xs) - 1)) ** 0.5
 
 
+def _pearson(xs: list[float], ys: list[float]) -> float:
+    mx, my = sum(xs) / len(xs), sum(ys) / len(ys)
+    cov = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
+    vx = sum((x - mx) ** 2 for x in xs) ** 0.5
+    vy = sum((y - my) ** 2 for y in ys) ** 0.5
+    return cov / (vx * vy)
+
+
+CHANNELS = {
+    "official_score": lambda r: r["official_score"],
+    "decode_speedup": lambda r: r["decode_speedup"],
+    "prefill_speedup": lambda r: r["prefill_speedup"],
+    "prefill_ms": lambda r: r["prefill_ms"],
+    "decode_ms": lambda r: 128_000.0 * r["cand_dec"],
+    "step_ms": lambda r: r["step_ms"],
+}
+
+
+def channel_stats(control: list[dict]) -> dict:
+    """Per-channel replicate noise on the same-code A0 control (section 4.4.6).
+
+    officialScore is decode_speedup**0.75 * prefill_speedup**0.25 to within
+    3e-5, yet is far tighter than propagating the two axes as independent
+    predicts, because the axes are strongly anti-correlated across sessions.
+    """
+    out: dict = {}
+    for name, get in CHANNELS.items():
+        xs = [get(r) for r in control]
+        mean = sum(xs) / len(xs)
+        sd = _sd(xs)
+        out[name] = {"mean": mean, "sigma": sd, "cv_pct": 100.0 * sd / mean}
+    r = _pearson([x["decode_speedup"] for x in control], [x["prefill_speedup"] for x in control])
+    prop = (
+        (0.75 * out["decode_speedup"]["cv_pct"]) ** 2 + (0.25 * out["prefill_speedup"]["cv_pct"]) ** 2
+        + 2 * 0.75 * 0.25 * r * out["decode_speedup"]["cv_pct"] * out["prefill_speedup"]["cv_pct"]
+    ) ** 0.5
+    out["speedup_axis_pearson_r"] = r
+    out["score_cv_pct_propagated_independent"] = (
+        (0.75 * out["decode_speedup"]["cv_pct"]) ** 2 + (0.25 * out["prefill_speedup"]["cv_pct"]) ** 2
+    ) ** 0.5
+    out["score_cv_pct_propagated_with_r"] = prop
+    out["score_cv_pct_observed"] = out["official_score"]["cv_pct"]
+    return out
+
+
 def analyse(records: list[dict]) -> dict:
     """Contrast each treatment arm against the A0 control mean (§4.3, §4.4.2).
 
     The per-receipt sigma is measured from the A0 replicates rather than assumed
     from the public cross-submission spread, which §4.4.1 shows overstates it by
-    ~10x. Delta is measured on the candidate-prefill channel, so its SE must come
-    from that same channel: the decode channel is a correlated re-measurement of
-    the same seed prefill, so pooling it would understate the SE and taking
-    whichever channel happens to be tighter would let the false-positive rate
-    float with the noise draw.
+    ~10x.
+
+    officialScore is the primary channel (§4.4.7): it is what ranks, and §4.4.6
+    measures it as the least noisy channel published. The candidate prefill wall
+    is retained as a secondary consistency channel, and a score-channel win that
+    the prefill wall contradicts is never shippable. Each channel's SE comes from
+    its own replicate spread: pooling across channels, or taking whichever
+    channel happens to be tighter, would let the false-positive rate float with
+    the noise draw.
+
+    The two bars are the same physical bar. BAR_MS milliseconds off the shared
+    512-token prefill is worth BAR_MS * price/100 in relative score, where price
+    is the measured %-score-per-ms of the control.
     """
     arms: dict[str, list[dict]] = {}
     for r in records:
@@ -119,19 +172,29 @@ def analyse(records: list[dict]) -> dict:
 
     prefill = [r["prefill_ms"] for r in control]
     decode = [128_000.0 * r["cand_dec"] for r in control]
+    score = [r["official_score"] for r in control]
     n0 = len(control)
-    sigma_p, sigma_q = _sd(prefill), _sd(decode)
+    sigma_p, sigma_q, sigma_s = _sd(prefill), _sd(decode), _sd(score)
     sigma = sigma_p
+    mean_score = sum(score) / n0
+    price = sum(r["prefill_price_pct_per_ms"] for r in control) / n0
+    bar_score = mean_score * BAR_MS * price / 100.0
     out.update(
         control_n=n0,
         control_dof=n0 - 1,
         control_mean_prefill_ms=sum(prefill) / n0,
         control_mean_decode_ms=sum(decode) / n0,
         control_mean_step_ms=sum(r["step_ms"] for r in control) / n0,
+        control_mean_score=mean_score,
+        prefill_price_pct_per_ms=price,
+        bar_ms=BAR_MS,
+        bar_score=bar_score,
         sigma_prefill_channel_ms=sigma_p,
         sigma_decode_channel_ms=sigma_q,
+        sigma_score_channel=sigma_s,
         sigma_ms=sigma,
         sigma_pct=100.0 * sigma / (sum(prefill) / n0),
+        channels=channel_stats(control),
     )
 
     for name, rs in sorted(arms.items()):
@@ -140,31 +203,49 @@ def analyse(records: list[dict]) -> dict:
         n = len(rs)
         nu = (n0 - 1) + (n - 1)
         t = T95[min(nu, max(T95))]
-        se = sigma * (1.0 / n + 1.0 / n0) ** 0.5
+        spread = (1.0 / n + 1.0 / n0) ** 0.5
+        se = sigma * spread
         delta = out["control_mean_prefill_ms"] - sum(r["prefill_ms"] for r in rs) / n
         echo = out["control_mean_decode_ms"] - sum(128_000.0 * r["cand_dec"] for r in rs) / n
         step = out["control_mean_step_ms"] - sum(r["step_ms"] for r in rs) / n
         lo, hi = delta - t * se, delta + t * se
-        if lo > BAR_MS:
+
+        se_s = sigma_s * spread
+        delta_s = sum(r["official_score"] for r in rs) / n - mean_score
+        lo_s, hi_s = delta_s - t * se_s, delta_s + t * se_s
+        if lo_s > bar_score:
             verdict = "WIN" if n >= 2 else "WIN-pending-replicate"
-        elif hi < 0.0:
+        elif hi_s < 0.0:
             verdict = "REGRESSION"
-        elif hi < BAR_MS:
+        elif hi_s < bar_score:
             verdict = "NULL-bar-excluded"
-        elif delta > 2.0 * se:
+        elif delta_s > 2.0 * se_s:
             verdict = "PROMISING-needs-replicate"
         else:
             verdict = "NULL-underpowered"
+        # A score-channel win the prefill wall contradicts is not a win: the
+        # mechanism under test is prefill-only, so disagreement means the score
+        # moved for some reason other than the change.
+        channels_agree = not (verdict.startswith("WIN") and delta <= 0.0)
+        if not channels_agree:
+            verdict = "PROMISING-channel-disagreement"
         out[name] = {
             "n": n,
             "dof": nu,
             "t95": t,
+            "se_score": se_s,
+            "delta_score": delta_s,
+            "delta_score_pct": 100.0 * delta_s / mean_score,
+            "ci90_score": [lo_s, hi_s],
+            "z_score_vs_zero": delta_s / se_s,
+            "bar_score": bar_score,
             "se_ms": se,
             "delta_prefill_ms": delta,
             "delta_decode_echo_ms": echo,
             "delta_step_ms": step,
             "ci90_ms": [lo, hi],
             "z_vs_zero": delta / se,
+            "channels_agree": channels_agree,
             "verdict": verdict,
             "verdict_is_shippable": verdict == "WIN",
         }

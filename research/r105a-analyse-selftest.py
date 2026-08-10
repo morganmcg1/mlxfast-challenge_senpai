@@ -20,14 +20,32 @@ A0 = [
 ]
 
 
-def rec(arm: str, dec: float, pre: float) -> dict:
+# Reference operating point for the synthetic score model: a millisecond off the
+# shared 512-token prefill is worth PRICE0 percent of score on both axes, so the
+# score channel and the prefill channel agree by construction and every branch
+# assertion below reads the same on either. Disagreement is then injected
+# explicitly rather than arriving by accident from a nonlinearity.
+PREFILL0 = sum(512_000.0 * p for _, _, p in A0) / len(A0)
+DECODE0 = sum(128_000.0 * d for _, d, _ in A0) / len(A0)
+PRICE0 = 100.0 * (0.75 / DECODE0 + 0.25 / PREFILL0)
+SCORE0 = 2.5707
+
+
+def rec(arm: str, dec: float, pre: float, score: float | None = None) -> dict:
     prefill_ms = 512_000.0 * pre
+    decode_ms = 128_000.0 * dec
+    if score is None:
+        score = SCORE0 * (1.0 + (PRICE0 / 100.0) * (PREFILL0 - prefill_ms))
     return {
         "arm": arm,
         "cand_dec": dec,
         "cand_pre": pre,
         "prefill_ms": prefill_ms,
         "step_ms": 1000.0 * dec - prefill_ms / 128.0,
+        "official_score": score,
+        "decode_speedup": 3.0 / decode_ms * DECODE0,
+        "prefill_speedup": 2.0 / prefill_ms * PREFILL0,
+        "prefill_price_pct_per_ms": 100.0 * (0.75 / decode_ms + 0.25 / prefill_ms),
     }
 
 
@@ -44,7 +62,8 @@ def show(label: str, res: dict, key: str) -> dict:
     print(
         f"{label:<34} n={a['n']} nu={a['dof']} t={a['t95']:.3f} "
         f"SE={a['se_ms']:.4f} delta={a['delta_prefill_ms']:+.4f} "
-        f"CI90=[{a['ci90_ms'][0]:+.3f},{a['ci90_ms'][1]:+.3f}] -> {a['verdict']}"
+        f"CI90=[{a['ci90_ms'][0]:+.3f},{a['ci90_ms'][1]:+.3f}] "
+        f"score={a['delta_score']:+.5f}/{a['bar_score']:.5f} -> {a['verdict']}"
     )
     return a
 
@@ -118,6 +137,42 @@ def main() -> int:
             arm = [arm_from_prefill(f"A2-{i + 1}", mean_ref - delta) for i in range(n)]
             got = show(label, R.analyse(ctl3 + arm), "A2")["verdict"]
             assert got == want, (n, label, got, want)
+
+    # The score channel is primary (section 4.4.7). A prefill wall that clears the
+    # bar cannot ship on its own when the score did not move, and a score win the
+    # prefill wall contradicts is downgraded rather than shipped.
+    for n in (1, 2):
+        flat_score = [
+            rec(f"A2-{i + 1}", 0.00491191178125, (mean_ref - 20.0) / 512_000.0, score=SCORE0)
+            for i in range(n)
+        ]
+        a = R.analyse(ctl3 + flat_score)["A2"]
+        assert a["delta_prefill_ms"] > R.BAR_MS and a["ci90_ms"][0] > R.BAR_MS, a
+        assert a["verdict"] == "NULL-bar-excluded", a["verdict"]
+        assert not a["verdict_is_shippable"]
+        print(f"prefill-only win n={n}: prefill delta {a['delta_prefill_ms']:+.2f} ms "
+              f"but score delta {a['delta_score']:+.5f} -> {a['verdict']}")
+
+        won_score = SCORE0 * (1.0 + (PRICE0 / 100.0) * 20.0)
+        disagree = [
+            rec(f"A2-{i + 1}", 0.00491191178125, (mean_ref + 5.0) / 512_000.0, score=won_score)
+            for i in range(n)
+        ]
+        a = R.analyse(ctl3 + disagree)["A2"]
+        assert a["ci90_score"][0] > a["bar_score"] and a["delta_prefill_ms"] < 0.0, a
+        assert a["verdict"] == "PROMISING-channel-disagreement", a["verdict"]
+        assert not a["channels_agree"] and not a["verdict_is_shippable"]
+        print(f"score win, prefill regression n={n}: score delta {a['delta_score']:+.5f} "
+              f"prefill delta {a['delta_prefill_ms']:+.2f} ms -> {a['verdict']}")
+
+    # The two bars must describe the same physical effect: BAR_MS off the prefill
+    # wall is exactly the score-channel bar under the linear price model.
+    probe = R.analyse(ctl3 + [arm_from_prefill("A2-1", mean_ref - R.BAR_MS)])
+    at_bar = probe["A2"]
+    assert abs(at_bar["delta_score"] / at_bar["bar_score"] - 1.0) < 2e-3, at_bar
+    print(f"\nbar equivalence: {R.BAR_MS} ms == score {probe['bar_score']:.6f} "
+          f"({probe['prefill_price_pct_per_ms']:.4f} %/ms), arm at bar scores "
+          f"{at_bar['delta_score']:+.6f}")
 
     # Only a WIN is shippable, and a WIN requires n>=2 however large the effect.
     for n in (1, 2):

@@ -877,7 +877,7 @@ instrument is what showed the ladder is too short.
 | A0-1 | 5 (default) | `69fb349b` | `51b6c142` | 96.031 ms | 4.16167 ms | 2.57065175986034 | pass, `max_abs_diff=0`, 1344 steps, GPQA 9/9 |
 | A0-2 | 5 (default) | `c7930407` | `fdeb4561` | 96.299 ms | 4.16234 ms | 2.56976261057539 | pass, `max_abs_diff=0`, 1344 steps, GPQA 9/9 |
 | A2-1 | 8 (down-proj bn=128) | `288c7025` | `b4c9b4e4` | 97.183 ms | 4.17110 ms | 2.55214102802847 | pass, `max_abs_diff=0`, 1344 steps, GPQA **8/9** |
-| A0-3 | 5 (default) | `d4a86ffd` | in flight | — | — | — | queued 05:23:27Z |
+| A0-3 | 5 (default) | `d4a86ffd` | `24ad1d2e` | 96.117 ms | 4.18290 ms | 2.57182973424995 | pass, `max_abs_diff=0`, 1344 steps, GPQA 9/9 |
 
 Receipt budget consumed: **4 / 8**. The A0 rungs are bit-identical to each other
 by construction — the only difference between them is a comment — so
@@ -1166,6 +1166,155 @@ is queued and unread:
   with slots unspent and the verdict is NULL-with-the-bar-excluded for both
   routed shapes, the default stays at variant 5, and per §5.2 the PR is **not**
   merged for being harmless.
+
+### 4.4.5 A0-3 lands, and it retracts the step-channel finding above
+
+A0-3's receipt (05:45:44Z, `officialScore` 2.57182973424995) does two things.
+The predicted one: A2's upper bound goes negative exactly as §4.4.4 said it
+would, so **A2 is now a formal `REGRESSION`** rather than merely bar-excluded.
+At n₀ = 3, σ̂ₚ = 0.13681 ms, SE = 0.15797 ms, t₀.₉₅(ν=2) = 2.920:
+Δ̂ₚ = **−1.03421 ms**, CI90 = [−1.49548, **−0.57293**], z = −6.55. The dividend
+arrived without spending a treatment slot, as designed.
+
+The unpredicted one is that A0-3 **falsifies the "step channel is the more
+interesting number" paragraph in §4.4.4, and I am retracting it.**
+
+| step channel | value |
+|---|---|
+| A0-1 / A0-2 / A0-3 | 4.16167 / 4.16234 / **4.18290** ms |
+| σ̂ from the A0-1/A0-2 pair | 0.000475 ms |
+| σ̂ from all three A0 rungs | **0.012071 ms** — 25× larger |
+| A0-3's distance from the pair mean | +0.0206 ms = **43 pair-σ̂** |
+
+A0-3 is a comment-only, bit-identical rung of the same code, and it sits 43
+pair-σ̂ away from its own twins on this channel. So the pair-based σ̂ was not a
+measurement of the step channel's noise; it was one lucky-close draw. Recomputed
+against the 3-rung control mean (4.168971 ms), A2's step delta is **−0.00212 ms**
+with SE = σ̂·√(1+⅓) = 0.01394 ms, i.e. **z = −0.15**. There is no step-channel
+effect. The claim that variant 8 "reaches the single-row decode GEMM" was an
+artefact of a two-point variance estimate and nothing more.
+
+This is precisely the failure mode §4.4.3 warned about — "σ̂ at these dof is
+unstable and can rise" — and it rose on the one channel where I had drawn the
+strongest conclusion. Two lessons I am writing down rather than rediscovering:
+
+1. A two-point σ̂ has a 76 % coefficient of variation. A z built on it is not a
+   test statistic, it is a ratio to an unknown. §4.4.1 said so about the prefill
+   channel and I then went and did it anyway on the step channel, because there
+   the number looked too big to worry about. Effect size does not rescue an
+   unknown denominator.
+2. The mechanism-plausibility argument ("the selector must be consulted on
+   decode-shaped calls too") arrived *after* the number and made a noise draw
+   feel explained. The prefill-only prediction was the preregistered one and it
+   was right.
+
+The prefill-channel conclusion in §4.4.4 is unaffected: it was already the
+preregistered channel, its σ̂ moved only from 0.18950 to 0.13681 ms (a fall, and
+within what 1→2 dof can do), and the verdict hardened rather than flipped.
+
+A0-3 also scored GPQA 9/9, so the tally is three 9/9 controls against one 8/9
+treatment. That nudges §4.4.4's two explanations apart slightly in favour of a
+free-run argmax divergence over judge nondeterminism, but one treatment receipt
+against three controls is not a test of the judge and I am not treating it as
+one.
+
+### 4.4.6 What the three controls say about which channel to measure on
+
+With three same-code receipts every published channel can be given a replicate
+noise, and they differ by 7×:
+
+| channel | σ̂ (n=3) | CV |
+|---|---|---|
+| **`officialScore`** | 0.0010369 | **0.0403 %** |
+| `decode_speedup` | 0.0032634 | 0.1158 % |
+| candidate prefill wall | 0.13681 ms | 0.1423 % |
+| `prefill_speedup` | 0.0038249 | 0.1959 % |
+| candidate decode wall | 1.52721 ms | 0.2425 % |
+| pure step | 0.012071 ms | 0.2895 % |
+
+Two things follow, and the second was a surprise.
+
+**The published speedups are exactly the raw ratios.** `decode_speedup` =
+`baseline_decode_seconds_per_token` / `candidate_...` to 2 × 10⁻⁶, likewise
+prefill, and `officialScore` = `decode_speedup`^0.75 · `prefill_speedup`^0.25 to
+3 × 10⁻⁵ on all four receipts. Nothing is being robustified or re-measured
+behind the scenes. (My own `nd`/`np` diagnostic columns are *not* these ratios —
+they subtract the seed prefill from decode to get a pure-step speedup — and I
+briefly misread that difference as evidence the service published a separate
+measurement pass. It does not.)
+
+**Yet the score is 2.5× tighter than propagating its own two factors as
+independent predicts** — 0.0403 % observed against 0.0997 % propagated. The
+reason is that the two scored axes are strongly **anti-correlated** across
+same-code sessions: Pearson r = **−0.978** on the three controls. Every rung
+that draws a high `decode_speedup` draws a low `prefill_speedup` and vice
+versa. Feeding r back into the propagation gives 0.0403 %, matching the observed
+0.0403 % to 0.06 % relative — so the anti-correlation is the whole explanation,
+not a partial one.
+
+I do not know the physical cause and three points cannot tell me; a shared
+session-level factor that shifts the baseline's two axes in opposite directions
+(measurement order, thermal ramp within the paired run) is the obvious candidate.
+The consequence stands regardless of cause: **the weighted geometric mean the
+organizers chose to rank on is a substantially quieter instrument than either
+axis it is built from, and quieter than any wall clock I can read.** For a
+prefill-side experiment this is the opposite of what I assumed in §4.3, where I
+picked the candidate prefill wall precisely because it seemed the most direct
+and least derived quantity. Directness and precision were not the same thing
+here.
+
+Note also that pairing does not always help: `prefill_speedup` (paired) is
+*noisier* than the candidate prefill wall (unpaired), 0.1959 % against 0.1423 %,
+because the baseline prefill contributes its own noise and the two prefills do
+not co-vary enough to pay for it. It is only the two-axis combination that wins.
+
+### 4.4.7 Amendment A — `officialScore` becomes the primary channel
+
+Recorded at 05:58Z. A1-1 is queued but rate-limited to the 06:00Z hour boundary
+and **its receipt does not exist yet**, so this is a preregistration and not a
+post-hoc channel switch. The A2 verdict is unaffected either way — it is a
+regression on both channels, z = −15.5 on score and −6.5 on prefill — so no
+already-published decision changes.
+
+The rule from §4.4.2 is unchanged in form. Only the channel changes:
+
+- **Primary channel: `officialScore`**, Δ̂ = arm mean − control mean, maximize.
+  σ̂ from the A0 controls' own score spread; SE = σ̂·√(1/n + 1/n₀); same t table
+  and same ν = (n₀−1)+(n−1).
+- **The bar is the same physical bar.** 1.35 ms off the shared 512-token prefill
+  is worth `BAR_MS · price/100 · score` where price is the measured score
+  sensitivity, 0.379103 %/ms on the controls. So
+  **BAR_SCORE = 0.0131568** score points = 0.5117 % of 2.5707480. The code
+  derives this rather than hardcoding it, and the self-test asserts that an arm
+  sitting exactly on the millisecond bar scores exactly the score bar.
+- **Secondary channel: the candidate prefill wall**, retained as a consistency
+  check. The mechanism under test is prefill-shaped, so a score-channel win that
+  the prefill wall contradicts (Δ̂ₚ ≤ 0) is not shippable; it downgrades to
+  `PROMISING-channel-disagreement`. A prefill-wall win with a flat score is
+  likewise not shippable — the score is what ranks.
+- Each channel's SE comes from its own replicate spread. No pooling across
+  channels, and never "whichever channel is tighter", which would let the
+  false-positive rate float with the noise draw.
+
+What this buys, at σ̂ = 0.0010369 and n₀ = 3, expressed back in prefill
+milliseconds for comparability with §4.4.2:
+
+| design | ν | t | SE (score) | WIN needs Δ̂ | in ms-equivalent | prior rule's ms |
+|---|---|---|---|---|---|---|
+| n=1 | 2 | 2.920 | 0.0011973 | 0.016653 | 1.710 ms | 1.811 ms |
+| n=2 | 3 | 2.353 | 0.0009466 | 0.015384 | 1.580 ms | 1.644 ms |
+| n=3 | 4 | 2.132 | 0.0008466 | 0.014962 | 1.537 ms | 1.596 ms |
+
+A ~4 % improvement in the detectable effect, which is honest but modest: at
+these σ̂ the 1.35 ms bar dominates the noise term, so no channel choice makes a
+sub-bar effect detectable. The real reason to switch is not power, it is
+validity — the primary channel should be the one the ranking is computed from,
+and I had no good reason to put a derived diagnostic in that role.
+
+`verdict_is_shippable` still requires `WIN`, which still requires n ≥ 2. The
+early-stop clause is unchanged and now reads on the score channel.
+`research/r105a-analyse-selftest.py` covers the new branches: score-primary,
+prefill-only win refused, channel disagreement downgraded, and bar equivalence.
 
 
 ---
