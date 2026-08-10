@@ -152,6 +152,19 @@ func wrappedSource(R: Int, NS: Int) -> String {
     using namespace metal;
     typedef bfloat bfloat16_t;
 
+    // Metal has no `log1p`; the shipped body resolves it to MLX's own helper in
+    // `Vendor/mlx-swift/.../metal/kernels/utils.h:312`, reproduced verbatim.
+    inline float log1p(float x) {
+      float xp1 = 1.0f + x;
+      if (xp1 == metal::numeric_limits<float>::max()) {
+        return metal::numeric_limits<float>::max();
+      }
+      if (xp1 == 1.0f) {
+        return x;
+      }
+      return x * (metal::log(xp1) / (xp1 - 1.0f));
+    }
+
     [[kernel]] void custom_kernel_\(kernelName)(
       const device bfloat16_t* input [[buffer(0)]],
       const device uint32_t* packed_codes [[buffer(1)]],
@@ -244,8 +257,12 @@ func buildArm(_ spec: String) -> Arm {
     let (R, NS) = (parts[0], parts[1])
     let src = wrappedSource(R: R, NS: NS)
     let lib: MTLLibrary
+    // MLX compiles JIT kernels with safe math (`metal/device.cpp:631`); matching
+    // it keeps the probe's codegen comparable to the shipped dispatch.
+    let opts = MTLCompileOptions()
+    opts.fastMathEnabled = false
     do {
-        lib = try device.makeLibrary(source: src, options: nil)
+        lib = try device.makeLibrary(source: src, options: opts)
     } catch {
         FileHandle.standardError.write("MSL compile failed for \(spec): \(error)\n".data(using: .utf8)!)
         exit(1)

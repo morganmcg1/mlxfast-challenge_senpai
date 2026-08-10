@@ -6,6 +6,11 @@ GPU-busy time is on the decode critical path, versus hidden inside a concurrent
 kernel's execution window.
 
 Usage: maple-tanjiro-r109d-overlap.py TRACE [FOCUS_SUBSTRING ...]
+       maple-tanjiro-r109d-overlap.py TRACE --all
+
+`--all` ranks every kernel by *exposed* time (the only time an isolated speedup
+of that kernel can remove from the critical path) using an O(n log n) sweep
+instead of the O(n^2) focus loop.
 """
 import re
 import sys
@@ -40,6 +45,81 @@ def union(intervals):
             ce = max(ce, e)
     total += ce - cs
     return total
+
+
+def exposed_by_kernel(recs, busy_union):
+    """Sweep-line: attribute every instant where exactly one dispatch is active.
+
+    A dispatch's exposed time is the part of its window during which nothing else
+    runs; that is the only part an isolated speedup can remove from the critical
+    path. Instants with two or more active dispatches are covered for all owners.
+    """
+    events = []
+    for idx, (s, e, _, _) in enumerate(recs):
+        events.append((s, 1, idx))
+        events.append((e, -1, idx))
+    events.sort(key=lambda ev: (ev[0], -ev[1]))
+
+    exposed = defaultdict(float)
+    busy = defaultdict(float)
+    count = defaultdict(int)
+    for s, e, _, name in recs:
+        busy[name] += e - s
+        count[name] += 1
+
+    active = set()
+    prev = None
+    for t, delta, idx in events:
+        if prev is not None and t > prev and len(active) == 1:
+            only = next(iter(active))
+            exposed[recs[only][3]] += t - prev
+        prev = t
+        if delta == 1:
+            active.add(idx)
+        else:
+            active.discard(idx)
+
+    # `exposed` marks any instant with >=2 dispatches as covered for *both*
+    # owners, so a long kernel that merely has short kernels nested inside it
+    # also looks covered. Nesting is the asymmetric test that says who is free:
+    # a dispatch wholly contained in one other dispatch's window can be deleted
+    # without shortening the union, while its container cannot.
+    order = sorted(range(len(recs)), key=lambda i: (recs[i][0], -recs[i][1]))
+    nested = defaultdict(float)
+    best_end = -1.0
+    best_idx = -1
+    for i in order:
+        s, e, _, name = recs[i]
+        if best_idx >= 0 and best_end >= e and recs[best_idx][0] <= s:
+            nested[name] += e - s
+        if e > best_end:
+            best_end, best_idx = e, i
+
+    tot_exposed = sum(exposed.values())
+    print("\n=== every kernel ranked by EXPOSED (critical-path) time ===")
+    print(
+        f"{'kernel':<54} {'n':>5} {'busy us':>11} {'exposed us':>11} "
+        f"{'%hidden':>8} {'%nested':>8} {'%of exp':>8}"
+    )
+    for name, bs in sorted(busy.items(), key=lambda kv: -exposed[kv[0]]):
+        ex = exposed[name]
+        print(
+            f"{name[:54]:<54} {count[name]:>5} {bs:>11,.1f} {ex:>11,.1f} "
+            f"{100.0 * (bs - ex) / bs:>7.2f}% {100.0 * nested[name] / bs:>7.2f}% "
+            f"{100.0 * ex / tot_exposed:>7.2f}%"
+        )
+    print(
+        f"\n  sum of exposed        : {tot_exposed:,.1f} us "
+        f"({100.0 * tot_exposed / busy_union:.2f}% of busy_union)"
+    )
+    print(
+        f"  multi-active union    : {busy_union - tot_exposed:,.1f} us "
+        "(time with >=2 dispatches in flight)"
+    )
+    print(
+        "  A kernel with a low exposed share cannot pay back an optimization no "
+        "matter how large its busy_sum is."
+    )
 
 
 def main():
@@ -87,6 +167,10 @@ def main():
         bs = sum(e - s for s, e, _ in iv)
         mb = sum(b for _, _, b in iv) / len(iv) / 2**20
         print(f"{name[:62]:<62} {len(iv):>5} {bs:>12,.1f} {bs / len(iv):>9.2f} {mb:>8.3f}")
+
+    if "--all" in focus:
+        exposed_by_kernel(recs, busy_union)
+        return 0
 
     for key in focus:
         sel = [(n, iv) for n, iv in per.items() if key in n]
