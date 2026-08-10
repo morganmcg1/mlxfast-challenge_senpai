@@ -115,7 +115,7 @@ Because no timing family passed perturbation, order, uncertainty, and lower-boun
 
 Before instrumentation, `research/run_upstream_equivalence.sh` completed its checks but exited 1 with the known M4 public-fixture near-tie signature: prefill runtime/upstream token `5991`, maximum absolute logit difference `0.125`, mean absolute difference `0.011933609`, and all 8 decode steps exact. This is baseline-equivalent diagnostic behavior, not an introduced decode mismatch.
 
-All temporary `Sources/` and `Vendor/` changes were restored from the assignment start. The final production tree is byte-identical to base `b9d75bbc51c96f619915389abfe476742434df65`; only research evidence and the local runner remain. Post-restoration equivalence: **pending before terminal submission**.
+All temporary `Sources/` and `Vendor/` changes were restored from the assignment start. The final production tree is byte-identical to base `b9d75bbc51c96f619915389abfe476742434df65`; only research evidence and the local runner remain. Post-restoration supervised job `40a035fb-fa54-4941-a683-eff08c270801` ran `research/run_upstream_equivalence.sh` in 57.677 seconds and exited 1 with the same known M4 signature: prefill runtime/upstream token `5991`, maximum absolute difference `0.125`, mean absolute difference `0.011933609`, and all 8 decode steps exact (`EQUIVALENCE_EXACT_STEPS=8`).
 
 ---
 
