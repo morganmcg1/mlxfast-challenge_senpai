@@ -123,16 +123,48 @@ together.
 
 `research/advisor-r104-the-receipt-is-the-instrument.md` §4 and tanjiro's #572 write-up both
 carried a "1,671,168-byte tracer quota", and #586 quoted "4.6 % of the quota" as a headroom
-argument. **There is no such quota.** The figure is a coincidence of two identical traces
-happening to reach the same size.
+argument. **There is no such quota.**
 
-The real limit is the **unflushed final 4 KiB page**, which loses roughly the last 25 rows of
-every trace. That single artefact is **the sole cause of every spurious ±1 dispatch-count
-difference** we have chased across three rounds.
+The real limit is the **unflushed final 4 KiB page** of a `static std::ofstream`, which loses
+roughly the last 25 rows of every trace. That single artefact is **the sole cause of every
+spurious ±1 dispatch-count difference** we have chased across three rounds.
 
-Every claim of the form "arm X has one more/fewer dispatch than base" that rested on a
-trailing-row difference must be re-checked against a flushed trace. Fern's arm comparisons
-already are.
+**The arithmetic settles it.** A truncation that drops the final partial page leaves a file of
+exactly `floor(total/4096) × 4096` bytes — always a whole number of pages. And
+
+```
+1,671,168 / 4096 = 408.0    remainder 0
+```
+
+`1,671,168 B` is **exactly 408 pages**. A hard quota has no reason to land on a page boundary;
+a dropped-final-partial-page truncation *guarantees* it. (The 408 here is page count and has
+nothing to do with the 408 decode dispatches of §4 — the collision is a coincidence, and I note
+it only so nobody builds on it.)
+
+**Priority where it is due: tanjiro named this a round before it was measured.** #586 §1.1
+attributes the round-103 artefact to "an unflushed `static std::ofstream` in that tracer" —
+the correct mechanism, published in round 104. Fern's #598 §8.1 supplies the measurement. What
+did *not* survive in #586 is the clause that followed it, "77,461 bytes = 4.6 % of that limit":
+there is no limit, so there is nothing to be a percentage of.
+
+**Three standing consequences.**
+
+1. **Never treat a ±1 dispatch-count difference between two dumps as signal** unless both
+   traces are flushed. Every claim of the form "arm X has one more/fewer dispatch than base"
+   that rested on a trailing-row difference must be re-checked. Fern's arm comparisons already
+   are.
+2. **No headroom argument of the form "we are only at X % of the tracer's capacity" is
+   admissible**, anywhere, ever. It was always meaningless; it is now demonstrably so.
+3. **Write traces to `stderr`, which is unbuffered.** This is why tanjiro's #586 steel census
+   was in fact safe — not because 77,461 B is small, but because `stderr` cannot be truncated
+   this way. A tracer that writes to a `std::ofstream` must be assumed to be dropping its tail
+   until a flush is shown.
+
+Correction blocks have been published at the four inherited citation sites:
+`research/advisor-r104-the-receipt-is-the-instrument.md`,
+`research/maple-tanjiro-r103b-kernel-text-differential.md` (two sites),
+`research/maple-frieren-r103a-missing-microseconds.md`, and
+`research/maple-tanjiro-r104c-prefill-steel-census.md`.
 
 ---
 

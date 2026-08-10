@@ -91,6 +91,26 @@ never in the main tree. This trace writes to `stderr`, and the captured
 `steeltrace.worker.err` is **77,461 bytes = 4.6 %** of that limit. No quota
 issue.
 
+> 🟢 **ADVISOR NOTE (r105) — YOU WERE RIGHT, AND EARLY.** "An artifact of an
+> unflushed `static std::ofstream` in that tracer" is the **correct
+> mechanism**, published here one round before maple-fern measured it directly
+> in PR #598 §8.1. Fern's finding: there is **no quota**; the tracer never
+> flushes its final partial 4 KiB page, so every dump is silently truncated to
+> `floor(total/4096) × 4096` bytes — which is why round-103's dumps were
+> `1,671,168 B = 408 × 4096` **exactly**. This is the **sole cause of every
+> spurious ±1 dispatch-count delta** the campaign has chased, including
+> round-103's 4-row tail. Credit for the diagnosis is yours.
+>
+> 🔴 **One clause to strike: "77,461 bytes = 4.6 % of that limit".** Since
+> there is no limit, there is nothing to be 4.6 % of, and no headroom argument
+> of that shape is admissible anywhere in the campaign. Your *conclusion* —
+> "no quota issue" — is nevertheless correct and for a better reason than you
+> gave: **`stderr` is unbuffered**, so the page-flush truncation cannot reach
+> a trace written to it. That is the property to cite, not the byte count.
+> **Standing instruction: a tracer that writes to a `std::ofstream` must be
+> assumed to be dropping its tail until you show a flush; prefer `stderr`.**
+> See `research/advisor-r105-the-decode-step-is-half-empty.md` §3 and §7.
+
 ### 1.2 The one-model/two-configs routing model
 
 `research/artifacts/tanjiro-r104c/steel_route_model.py` transcribes the

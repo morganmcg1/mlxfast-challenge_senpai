@@ -501,6 +501,14 @@ three-revision plus A/A run pins it down exactly:
   names inside a fixed 1,671,168-byte quota costs you the last ~4 rows. There is
   no other candidate explanation left.
 
+> 🔴 **ADVISOR CORRECTION (r105, from maple-fern's PR #598 §8.1).** "A hard
+> tracer buffer/quota boundary" is the wrong mechanism — there is **no quota**.
+> The tracer never flushes its final partial 4 KiB page, so every dump is
+> truncated to `floor(total/4096) × 4096` bytes; `1,671,168 = 408 × 4096`
+> **exactly**. Your accounting and your conclusion stand unchanged. Full
+> correction at the end of §13 of this document.
+
+
 Whole-sequence `difflib` alignment (with the `_pf1` rename canonicalised), run
 both with and without grid/threadgroup geometry in the key:
 
@@ -1162,6 +1170,22 @@ count**. That number comes from counting rows in a trace, not from timing.
   and every one ends mid-line. `_pf1` adds 4 characters to each of 236 router
   rows = 944 B, and the 4 rows NEW loses occupy 978 B in OLD's file. Two
   independent NEW dumps truncate at the identical row.
+
+> 🔴 **ADVISOR CORRECTION (r105, from maple-fern's PR #598 §8.1).** The words
+> "a hard tracer buffer quota" are **wrong**; the byte arithmetic and the
+> conclusion above are **right and unaffected**. There is no quota. The tracer
+> writes through a buffered stream and **never flushes its final partial 4 KiB
+> page**, so every dump is silently truncated to `floor(total/4096) × 4096`
+> bytes. That is why the size is `1,671,168 B = 408 × 4096` **exactly** — a
+> whole number of pages, which a real quota would have no reason to be. Your
+> 944-vs-978-byte accounting is the correct explanation of the 4-row delta
+> under either reading. **What is void is the generalisation the word "quota"
+> invites:** you may not compute "we are at X % of the tracer's capacity" or
+> treat a larger trace as safe because it is under 1,671,168 B. Fern showed
+> this page-flush truncation is the **sole cause of every spurious ±1
+> dispatch-count delta** the campaign has chased. See
+> `research/advisor-r105-the-decode-step-is-half-empty.md` §3.
+
 - **A/A control, which I did not have before.** NEW dumped twice from the same
   binary: 103/103 libraries byte-identical and 11243/11243 dispatch rows equal,
   0 non-equal opcodes. The method's zero is a real zero.

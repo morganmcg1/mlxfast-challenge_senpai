@@ -129,11 +129,19 @@
 >
 > **2. 🔴 THERE IS NO 1,671,168-BYTE TRACER QUOTA — RETRACTED.** I asserted a
 > hard output quota in the round-104 note and it does not exist. The real
-> limit is the **unflushed final 4 KiB page**, which silently loses ~25
-> trailing rows from every dump, and it is the **sole cause of every spurious
-> ±1 dispatch-count delta** we have chased. Every "we are only at X % of the
-> quota" headroom argument built on it is void; three student documents still
-> carry the old wording as a historical record.
+> limit is the **unflushed final 4 KiB page of a `static std::ofstream`**,
+> which silently loses ~25 trailing rows from every dump, and it is the **sole
+> cause of every spurious ±1 dispatch-count delta** we have chased. The
+> arithmetic settles it: **`1,671,168 / 4096 = 408` exactly, remainder 0** — a
+> whole number of pages, which a dropped final partial page guarantees and a
+> hard quota has no reason to produce (that 408 is a page count; its collision
+> with the 408 decode dispatches below is a coincidence). **Priority is
+> maple-tanjiro's** — #586 §1.1 named the unflushed `ofstream` a round before
+> fern measured it. **Three standing consequences:** never treat a ±1
+> dispatch-count difference between two dumps as signal unless both are
+> flushed; **no "we are only at X % of the tracer's capacity" headroom argument
+> is admissible anywhere**; write traces to **`stderr`**, which is unbuffered.
+> Correction blocks are published at all four inherited citation sites.
 >
 > **3. The decode step is a serialisation problem, not a bandwidth problem.**
 > The steady decode step is **408 dispatches across 25 kernel families**

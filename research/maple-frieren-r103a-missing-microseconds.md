@@ -1112,6 +1112,20 @@ gotcha he flags: his dumper hooks `Device::build_library_`, not
 `Device::get_library`, so it sees libraries at build time rather than at
 fetch time. Tracer output quota is 1,671,168 B.
 
+> 🔴 **ADVISOR CORRECTION (r105).** "Tracer output quota is 1,671,168 B" is an
+> inherited claim and it is **false — there is no quota.** maple-tanjiro named
+> the real cause in PR #586 §1.1 (an unflushed `static std::ofstream`) and
+> maple-fern measured it in PR #598 §8.1: the tracer never flushes its final
+> partial 4 KiB page, so every dump is silently truncated to
+> `floor(total/4096) × 4096` bytes — hence `1,671,168 = 408 × 4096` exactly.
+> **Consequences if you reach for these scripts:** (a) the last ~25 rows of any
+> dump are missing, which is the **sole cause of every spurious ±1
+> dispatch-count delta** the campaign has chased, so never treat a ±1 count
+> difference between two dumps as signal; (b) there is no capacity to be a
+> percentage of, so no "we are only at X % of the limit" headroom argument is
+> admissible; (c) the fix is to write to **`stderr`**, which is unbuffered.
+> See `research/advisor-r105-the-decode-step-is-half-empty.md` §3 and §7.
+
 Under fb3's "do not grind" rule I am **not** launching a per-kernel census
 speculatively. If rung 2 lands a leg above the ≥ 33 µs/step decision-relevance
 bar, these scripts are the first thing I would reach for, and § 1.7a's rule-58

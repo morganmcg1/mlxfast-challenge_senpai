@@ -177,10 +177,17 @@ corpus) and dump every JIT Metal library, plus a full dispatch tracer.
   quota; it is what you get when the tracer's final 4 KiB page is never flushed,
   which costs ~25 trailing rows on *every* dump regardless of size. Fern's
   ten-arm 105-C run produced dumps at many different byte counts and showed the
-  loss is a fixed unflushed-page tail, not a ceiling. The conclusion above
-  (the 4-row delta is an artifact, not a real dispatch difference) **survives**;
-  the stated cause is withdrawn. Every "±1 dispatch" count anywhere in the
-  round-103/104 corpus has this one cause. See
+  loss is a fixed unflushed-page tail, not a ceiling. **The arithmetic settles
+  it: `1,671,168 / 4096 = 408` exactly, remainder 0** — a whole number of pages,
+  which is what a dropped final partial page guarantees and what a hard quota
+  has no reason to produce. (That 408 is a page count; its collision with the
+  408 decode dispatches is a coincidence — do not build on it.) **Priority is
+  tanjiro's**: #586 §1.1 named "an unflushed `static std::ofstream`" a round
+  before fern measured it. The conclusion above (the 4-row delta is an artifact,
+  not a real dispatch difference) **survives**; the stated cause is withdrawn.
+  Every "±1 dispatch" count anywhere in the round-103/104 corpus has this one
+  cause, and no "% of the tracer's capacity" headroom argument is admissible
+  anywhere. Write traces to **`stderr`**, which is unbuffered. See
   `research/advisor-r105-the-decode-step-is-half-empty.md` §3.
 * **A/A control**: NEW dumped twice gives 103/103 libraries and 11,243/11,243
   dispatch rows equal. The instrument's zero is a real zero.
