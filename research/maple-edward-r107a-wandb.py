@@ -8,11 +8,16 @@ timing number comes from the preregistered analyzer
 against the on-disk files.
 
 Usage:
-  python3 research/maple-edward-r107a-wandb.py STAGE1_DIR [STAGE0_DIR]
+  SITE=routed|qkv python3 research/maple-edward-r107a-wandb.py \
+      STAGE1_DIR [STAGE0_DIR]
+
+SITE=routed is the stage-0/stage-1 routed gate/up curve; SITE=qkv is the
+stage-A decode QKV lane-major threadgroup-width flip (the "L3" arm).
 """
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -28,18 +33,57 @@ PROJECT = "mlxfast-maple"
 # at least 0.5%.
 GATE_DECODE_PCT = 0.20
 GATE_KERNEL_PCT = 0.50
+# Advisor graduation bar for this round: 0.4% of candidate score, which is
+# 26 us/step of paired full-decode time at 1 us/step = 0.015228% of cs.
+GRAD_BAR_US = 26.0
 # Percent of candidate score bought per us/step of M4-equivalent decode time,
 # and the M5<-M4 transfer factor for a structural change (doc R1).
 CS_PCT_PER_US = 1.0 / 65.67
 M5_FROM_M4 = 0.622
 
-ARM_MECHANISM = {
-    "base": "shipped default: R1 packed kernel, 2 simdgroups/threadgroup",
+SITES = {
+    "routed": {
+        "name": "maple-edward-r107a-routed-gateup-packing",
+        "site": "routed MoE gate/up packed top-8 R1 NVFP4 QMV "
+                "(laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2)",
+        "control": "DARKBLOOM_ROUTED_GATEUP_SG in {2,4,8,16,32}",
+        "geom_prefix": "R107GEOM",
+        "stride_needle": "logical_row = tile",
+        "static": {"grid_threads": 131072, "total_simdgroups": 4096,
+                   "logical_rows": 512, "shipped_threadgroups": 2048},
+        "tags": ["routed-gate-up"],
+        "arm_mechanism": {
+            "sg2": "mechanism null: same body and geometry, distinct _sg2 pipeline",
+            "sg4": "4 simdgroups/threadgroup (1024 threadgroups)",
+            "sg8": "8 simdgroups/threadgroup (512 threadgroups)",
+            "sg16": "16 simdgroups/threadgroup (256 threadgroups)",
+        },
+    },
+    "qkv": {
+        "name": "maple-edward-r107a-qkv-lanemajor-packing",
+        "site": "decode QKV lane-major NVFP4 R1 kernel "
+                "(laguna_decode_nvfp4_qkv_h{48,64}_r1_v1_lm1_pw1_se1_sd1)",
+        "control": "DARKBLOOM_QKV_LM_SG in {2,4,8,16}",
+        "geom_prefix": "R107QKVGEOM",
+        "stride_needle": "num_simdgroups",
+        "static": {"grid_threads_h64": 327680, "grid_threads_h48": 262144,
+                   "total_simdgroups_h64": 10240, "total_simdgroups_h48": 8192,
+                   "rows_h64": 10240, "rows_h48": 8192,
+                   "shipped_threadgroups_h64": 5120,
+                   "shipped_threadgroups_h48": 4096},
+        "tags": ["qkv-lane-major", "L3", "pr308-revival"],
+        "arm_mechanism": {
+            "sg2": "mechanism null: same body and geometry, distinct _sg2 pipeline",
+            "sg4": "4 simdgroups/threadgroup (2560/2048 threadgroups)",
+            "sg8": "PR #308 'L3' candidate: 8 simdgroups/threadgroup "
+                   "(1280/1024 threadgroups, 256 threads)",
+            "sg16": "16 simdgroups/threadgroup (640/512 threadgroups)",
+        },
+    },
+}
+ARM_MECHANISM_COMMON = {
+    "base": "shipped default: 2 simdgroups/threadgroup, 64 threads",
     "null1": "rule-79 identical-execution null (SG=1 parses to 0 -> default)",
-    "sg2": "mechanism null: same body and geometry, distinct _sg2 pipeline",
-    "sg4": "4 simdgroups/threadgroup (1024 threadgroups)",
-    "sg8": "8 simdgroups/threadgroup (512 threadgroups)",
-    "sg16": "16 simdgroups/threadgroup (256 threadgroups)",
 }
 
 
@@ -62,23 +106,34 @@ def kv_file(path: Path) -> dict[str, str]:
     return out
 
 
-def geometry_rows(stage0: Path) -> list[dict]:
-    """One R107GEOM receipt per arm, as emitted by the geom-instrumented build."""
+def geometry_rows(stage0: Path, prefix: str, needle: str) -> list[dict]:
+    """Dispatch-geometry receipts emitted by the geom-instrumented build.
+
+    The QKV site dispatches two distinct head counts per step, so one arm can
+    emit more than one receipt line; each becomes its own row.
+    """
     rows = []
     for err in sorted(stage0.glob("geom-*.err")):
-        line = next((ln for ln in err.read_text(errors="replace").splitlines()
-                     if ln.startswith("R107GEOM ")), None)
-        if line is None:
-            continue
-        row = {"arm": err.stem.replace("geom-", "")}
-        row.update(dict(kv.split("=", 1) for kv in line.split()[1:] if "=" in kv))
         metal = err.with_suffix(".metal")
+        shared = {}
         if metal.exists():
-            row["metal_src_sha"] = sh(["shasum", "-a", "256", str(metal)]).split()[0]
-            stride = [ln for ln in metal.read_text().splitlines()
-                      if "logical_row = tile" in ln]
-            row["row_stride_line"] = stride[0].strip() if stride else ""
-        rows.append(row)
+            shared["metal_src_sha"] = sh(
+                ["shasum", "-a", "256", str(metal)]).split()[0]
+            hit = [ln for ln in metal.read_text().splitlines() if needle in ln]
+            shared["geometry_src_line"] = hit[0].strip() if hit else ""
+        seen = set()
+        for line in err.read_text(errors="replace").splitlines():
+            if not line.startswith(prefix + " "):
+                continue
+            row = {"arm": err.stem.replace("geom-", "")}
+            row.update(dict(kv.split("=", 1) for kv in line.split()[1:]
+                            if "=" in kv))
+            row.update(shared)
+            key = (row["arm"], row.get("heads", ""))
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(row)
     return rows
 
 
@@ -102,6 +157,8 @@ def parity_rows(stage0: Path) -> list[dict]:
 
 
 def main() -> None:
+    site_key = os.environ.get("SITE", "routed")
+    site = SITES[site_key]
     s1 = Path(sys.argv[1])
     s0 = Path(sys.argv[2]) if len(sys.argv) > 2 else None
     rep = json.loads((s1 / "analysis-multi.json").read_text())
@@ -109,6 +166,7 @@ def main() -> None:
 
     med = rep["stats"]["median"]
     step_us = med["levels"]["base"]
+    narms = len(med["levels"])
 
     config = {
         "assignment_pr": 629,
@@ -118,10 +176,11 @@ def main() -> None:
         "code_sha": sh(["git", "rev-parse", "HEAD"]),
         "host": sh(["sysctl", "-n", "machdep.cpu.brand_string"]),
         "host_mem_bytes": sh(["sysctl", "-n", "hw.memsize"]),
-        "site": "routed MoE gate/up packed top-8 R1 NVFP4 QMV "
-                "(laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2)",
-        "control": "DARKBLOOM_ROUTED_GATEUP_SG in {2,4,8,16,32}",
-        "design": "rotated palindrome, 6 arms x 12 slots per repetition",
+        "stage": "stage1-routed" if site_key == "routed" else "stageA-qkv",
+        "site": site["site"],
+        "control": site["control"],
+        "design": f"rotated palindrome, {narms} arms x {2 * narms} slots "
+                  "per repetition",
         "reps": prov.get("reps"),
         "warmup_reps_discarded": rep.get("warmup_reps"),
         "steps_per_slot": prov.get("steps"),
@@ -129,18 +188,17 @@ def main() -> None:
         "official_analog_statistic": "mean_first128",
         "gate_decode_pct": GATE_DECODE_PCT,
         "gate_kernel_pct": GATE_KERNEL_PCT,
+        "graduation_bar_us_per_step": GRAD_BAR_US,
         "digest_before": prov.get("digest_before"),
         "digest_after": prov.get("digest_after"),
-        "grid_threads": 131072,
-        "total_simdgroups": 4096,
-        "logical_rows": 512,
     }
+    config.update(site["static"])
 
-    run = wandb.init(entity=ENTITY, project=PROJECT,
-                     name="maple-edward-r107a-routed-gateup-packing",
+    run = wandb.init(entity=ENTITY, project=PROJECT, name=site["name"],
                      job_type="kernel-geometry-sweep", config=config,
-                     tags=["r107a", "moe", "routed-gate-up", "threadgroup-packing",
-                           "m4-directional"])
+                     group="r107a-threadgroup-packing",
+                     tags=["r107a", "threadgroup-packing", "m4-directional",
+                           *site["tags"]])
 
     summary: dict = {
         "precision/worst_half_width_us": rep["precision"]["worst_half_width_m4"],
@@ -154,15 +212,18 @@ def main() -> None:
 
     contrasts = wandb.Table(columns=[
         "leg", "estimator", "k", "mean_us", "half_width", "lo", "hi",
-        "pos", "neg", "pct_of_step", "excl_bound_us", "clears_0.2pct_gate"])
+        "pos", "neg", "pct_of_step", "cs_pct_m4", "excl_bound_us",
+        "clears_0.2pct_gate", "clears_grad_bar_26us"])
     for est, block in (("cycle-blocked", med.get("cycle_contrasts") or {}),
                        ("per-repetition", med.get("contrasts") or {})):
         for leg, c in block.items():
             pct = 100.0 * c["mean"] / step_us
             contrasts.add_data(leg, est, c["k"], c["mean"], c["half_width"],
                                c["lo"], c["hi"], c["pos"], c["neg"], pct,
+                               c["mean"] * CS_PCT_PER_US,
                                c.get("excludes_above_m4"),
-                               bool(pct <= -GATE_DECODE_PCT and c["hi"] < 0))
+                               bool(pct <= -GATE_DECODE_PCT and c["hi"] < 0),
+                               bool(c["hi"] <= -GRAD_BAR_US))
     run.log({"contrasts": contrasts})
 
     for leg, c in (med.get("cycle_contrasts") or {}).items():
@@ -187,13 +248,14 @@ def main() -> None:
                        n["lo"], n["hi"], n["lo"] * n["hi"] > 0)
     run.log({"rule79_nulls": nulls})
 
+    mech = {**ARM_MECHANISM_COMMON, **site["arm_mechanism"]}
     arms = wandb.Table(columns=["arm", "mechanism", "us_per_step"])
     for arm, lvl in med["levels"].items():
-        arms.add_data(arm, ARM_MECHANISM.get(arm, ""), lvl)
+        arms.add_data(arm, mech.get(arm, ""), lvl)
     run.log({"arms": arms})
 
     if s0 is not None:
-        geo = geometry_rows(s0)
+        geo = geometry_rows(s0, site["geom_prefix"], site["stride_needle"])
         if geo:
             cols = sorted({k for r in geo for k in r})
             t = wandb.Table(columns=cols)

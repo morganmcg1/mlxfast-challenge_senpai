@@ -327,13 +327,131 @@ Three readings, all preregistered:
    site keeps just 256 threadgroups = 12.8 per GPU core on this host, and the
    tail of a 256-threadgroup dispatch is no longer hidden.
 
-## 5. Prefill
+## 5. Stage A — the decode QKV lane-major width flip ("L3")
 
-TODO
+The advisor's top-priority ask (PR #629 comment 5239585381) was not the routed
+curve at all: it was to settle the shelved `L3` arm, the one-token flip
+`num_simdgroups 2 -> 8` in the decode QKV lane-major NVFP4 kernel that PR #308
+priced at **-36.9 us/step, CI [-61.0, -12.9]** and that was then shelved by
+analogy with PR #48's 8x threadgroup collapse (official receipt `285f79fa`,
+-0.1488 %). The two sites are different kernels, so the analogy was an
+assumption, not a measurement. Stage A measures it.
+
+The control is a second selector in the same file, `DARKBLOOM_QKV_LM_SG` in
+{2,4,8,16}, built exactly like the routed one: unset or any rejected value
+leaves the shipped dispatch and the shipped pipeline name untouched, an accepted
+value renders the kernel with `constexpr uint num_simdgroups = S`, compiles it
+under a distinct `_sgS` pipeline name and dispatches `threadGroup = 32*S`. Grid
+threads are unchanged at every S; only the threadgroup partition moves.
+
+### 5.1 Reachability (rule 39) and the geometry ledger (rule 77)
+
+The site is `lagunaDecodeNVFP4QKVLaneMajorSource`
+(`Sources/MLXFastModel/LagunaRuntimeModel.swift:4922`), dispatched from
+`lagunaDecodeNVFP4QKVR1` behind `lagunaDecodeNVFP4QKVR1Enabled`
+(`DARKBLOOM_DECODE_NVFP4_QKV_R1 != "0"`, default on) and `bank.laneMajorScales`.
+Five other `num_simdgroups = 2` literals exist in the file (:3992, :4357, :4843,
+:5112, :5293); they belong to other kernels and are untouched.
+
+Reachability is not argued from the source, it is a receipt. The instrumented
+build prints one `R107QKVGEOM` line per dispatched head count on the first step
+of a real decode (stderr, because `verbose: true` corrupts the worker protocol).
+Both head counts appear on every step: 64 heads on sliding-window layers and 48
+on full-attention layers, i.e. `rows = (heads + 2*8) * 128` = 10,240 and 8,192.
+
+| S | pipeline suffix | rows h64/h48 | threads/TG | threadgroups h64/h48 | total simdgroups h64/h48 | rows/simdgroup | rows % S |
+|---|---|---|---|---|---|---|---|
+| unset (shipped) | none | 10240 / 8192 | 64 | 5120 / 4096 | 10240 / 8192 | 1 | 0 |
+| 1 (rejected value) | none | 10240 / 8192 | 64 | 5120 / 4096 | 10240 / 8192 | 1 | 0 |
+| 2 | `_sg2` | 10240 / 8192 | 64 | 5120 / 4096 | 10240 / 8192 | 1 | 0 |
+| 4 | `_sg4` | 10240 / 8192 | 128 | 2560 / 2048 | 10240 / 8192 | 1 | 0 |
+| 8 | `_sg8` | 10240 / 8192 | 256 | 1280 / 1024 | 10240 / 8192 | 1 | 0 |
+| 16 | `_sg16` | 10240 / 8192 | 512 | 640 / 512 | 10240 / 8192 | 1 | 0 |
+
+Four facts follow, and they are the reason this arm was worth reviving.
+
+1. **`rows % 8 == 0` at both head counts.** 10,240 and 8,192 are both divisible
+   by 8, so the flip is *reachable*: it does not fall back, and `L3` cannot be
+   closed as `N-L3`-by-guard. That was the cheapest way this arm could have
+   died, and it did not.
+2. **Total simdgroups and rows-per-simdgroup are invariant.** Exactly as at the
+   routed site, S moves only the threadgroup partition. No arithmetic, no
+   reduction tree and no memory traffic changes, so the whole effect - either
+   sign - is scheduling.
+3. **S = 2 renders a byte-identical Metal body.** `metal_src_sha` is
+   `12c7a143...29c36e3` for both the shipped path and `_sg2`, while S = 4/8/16
+   render `24bf1219...`, `1c987e45...`, `d0aabf77...`. So `base -> sg2` is a
+   true mechanism null: distinct pipeline object, extra branch, separate JIT
+   library, identical instructions.
+4. **The collapse is far gentler here than at the routed site.** This is the
+   quantitative reconciliation of #308's positive with #48's negative, and it is
+   a *static* argument that transfers to M5 (core counts from the shipped
+   hardware, threadgroups from the receipts above):
+
+| site | S | threadgroups | TG per core, M4 Pro (20) | TG per core, M5 Max (40) |
+|---|---|---|---|---|
+| QKV lane-major h64 | 2 | 5120 | 256 | 128 |
+| QKV lane-major h64 | 8 | 1280 | 64 | 32 |
+| QKV lane-major h48 | 2 | 4096 | 204.8 | 102.4 |
+| QKV lane-major h48 | 8 | 1024 | 51.2 | 25.6 |
+| routed gate/up | 2 | 2048 | 102.4 | 51.2 |
+| routed gate/up | 8 | 512 | 25.6 | 12.8 |
+| routed gate/up | 16 | 256 | 12.8 | 6.4 |
+
+   Read the M4 Pro column, because that is the host that produced section 4's
+   numbers. The routed curve was still flat at 51.2 TG/core (S = 4, +2.2 us) and
+   at 25.6 TG/core (S = 8, +5.2 us); it broke only at 12.8 TG/core (S = 16,
+   +63.5 us). The QKV site at the *candidate* S = 8 has 64 and 51.2 TG/core on
+   this host, deep inside the region where collapsing threadgroups cost nothing
+   measurable at the routed site. On the ranked M5 the same dispatch is 32 and
+   25.6 TG/core, which is where the routed site was still flat. On this evidence
+   #48's collapse penalty is not an argument against `L3`: the two changes are
+   two points on the same occupancy axis, and only #48's landed past the knee.
+
+### 5.2 Parity and fault control
+
+### 5.3 Full-decode rotated-palindrome timing
+
+### 5.4 Prefill
 
 ## 6. Verdict against the graduation gate
 
-TODO
+The advisor's bar for this round is a paired full-decode gain of at least
+**0.4 % of `cs` = 26 us/step** on this host's scale, with the sign consistent
+across repetitions. Everything below is measured against that single number.
+
+### 6.1 Routed gate/up site — `N-SITE1`
+
+The routed threadgroup-packing knob is settled and it is a null-to-negative
+curve, in the preregistered `N-SITE1` sense:
+
+- No candidate S is negative at all. The two candidate doses come back
+  `base -> sg4 = +2.2 us [-6.5, +10.9]` and `base -> sg8 = +5.2 us [-2.5,
+  +12.8]`; the point estimates have the wrong sign and both confidence
+  intervals exclude anything better than **-18.4 us** and **-17.1 us**
+  respectively. A 26 us/step win is excluded at both doses, and a Bonferroni
+  correction across all 15 contrasts still excludes any pair separation above
+  27.0 us.
+- The two nulls behave. `base -> null1` (identical execution) is
+  `-2.9 us [-12.7, +6.9]` and the byte-identical-body mechanism null
+  `base -> sg2` is `-3.0 us [-11.7, +5.6]`, so the machinery itself - distinct
+  pipeline object, extra branch, separate JIT library - is free, and the
+  measurement is not being flattered by it.
+- The negative controls fire hard and in the predicted direction:
+  `base -> sg16 = +63.5 us [+55.7, +71.3]`, 18/18 repetitions slower,
+  +0.967 % of `cs`. The instrument therefore has both the resolution and the
+  sign discipline to detect a 26 us effect; it simply is not there for S in
+  {4, 8}.
+
+The mechanism reading is the useful part. Stage 0 shows total simdgroups and
+rows-per-simdgroup are invariant in S, so packing can only ever *remove*
+independent scheduling units from a kernel maple-alphonse measured at 42.9 % of
+this host's bandwidth peak (PR #630) - i.e. issue-bound, not
+occupancy-starved. On such a kernel wider threadgroups buy nothing until they
+start costing tail latency, which is exactly the flat-then-cliff shape measured.
+**Recommendation: do not spend M5 time on routed-site threadgroup packing.**
+
+### 6.2 QKV lane-major site — see 5.3
 
 ## 7. Suggested follow-ups (not implemented)
 
@@ -388,6 +506,70 @@ Enabler, not a hypothesis: `editablePaths` lists directories, so the per-file
 cap can be relieved by splitting `LagunaRuntimeModel.swift`; roughly 100.5 kB
 of global headroom remains (CRS:2924-2928).
 
-## 8. Artefacts
+## 8. Artefacts and reproduction
 
-TODO
+Submitted surface (the only scored file this arm touches):
+
+- `Sources/MLXFastModel/LagunaRuntimeModel.swift` — two independent, default-inert
+  selectors. `DARKBLOOM_ROUTED_GATEUP_SG` (routed gate/up packed top-8 R1 QMV)
+  and `DARKBLOOM_QKV_LM_SG` (decode QKV lane-major R1). Unset or a rejected
+  value leaves the shipped dispatch, the shipped pipeline name and the shipped
+  rendered Metal body bit-identical; no other file in `editablePaths` is touched.
+
+Research-only support (not part of any submission):
+
+- `research/maple-edward-r107a-build.sh` — worker-only release build into a
+  snapshot directory, copying both `mlxfast-runtime-worker` and `mlx.metallib`.
+- `research/maple-edward-r107a-patch.py` — instrumentation applier:
+  `geom`/`geomqkv` emit the one-shot `R107GEOM`/`R107QKVGEOM` dispatch receipts
+  plus a Metal-source dump on stderr; `fault`/`faultqkv` are the deliberately
+  wrong builds used as detector controls.
+- `research/maple-edward-r107a-stage0.sh` — `SITE=routed|qkv` stage 0: build the
+  three snapshots, restore the tree (rule-75 digest), emit geometry receipts,
+  run 96-step greedy parity per dose, run the fault control.
+- `research/maple-edward-r107a-stage1.sh` — rotated-palindrome full-decode
+  timing driver, parameterised by `SEL_VAR` and `SG_LIST`, plus the
+  drop-one-cycle sensitivity pass.
+- `research/maple-edward-r107a-prefill.sh` — paired 512-token prefill probe.
+- `research/maple-edward-r107a-wandb.py` — `SITE=routed|qkv` publisher; it only
+  reads the analyzer's JSON and the stage-0 receipts, and recomputes nothing.
+- Reused unchanged from earlier rounds: `research/maple-frieren-r103a-abba.sh`
+  (position-matched slot harness, dirty-tree refusal, `ASSERT_SAME` /
+  `ASSERT_DIFFER`, rule-75 digest, token checksums),
+  `research/maple-frieren-r103a-analyze-multi.py` (cycle-blocked and
+  per-repetition contrasts, exclusion bounds, rule-79 null cells),
+  `research/decode_probe.py`, `research/prefill_probe.py`.
+
+Reproduction, in the order it was run:
+
+```bash
+# stage 0 / stage A geometry, parity and fault controls
+SITE=routed SNAP=/tmp/maple-r107a-snap OUT=/tmp/maple-r107a/stage0 \
+  bash research/maple-edward-r107a-stage0.sh full
+SITE=qkv SNAP=/tmp/maple-r107a-snapq OUT=/tmp/maple-r107a/stage0q \
+  GEOM_SG_LIST='1 2 4 8 16' PARITY_SG_LIST='2 4 8' FAULT_SG_LIST='8' \
+  bash research/maple-edward-r107a-stage0.sh full
+
+# timing
+SNAP=/tmp/maple-r107a-snap OUT=/tmp/maple-r107a/stage1 REPS=18 STEPS=250 \
+  bash research/maple-edward-r107a-stage1.sh
+SEL_VAR=DARKBLOOM_QKV_LM_SG SG_LIST='4 8' SNAP=/tmp/maple-r107a-snapq \
+  OUT=/tmp/maple-r107a/stageA REPS=16 STEPS=250 \
+  bash research/maple-edward-r107a-stage1.sh
+SEL_VAR=DARKBLOOM_QKV_LM_SG SNAP=/tmp/maple-r107a-snapq \
+  OUT=/tmp/maple-r107a/prefillA REPS=6 \
+  bash research/maple-edward-r107a-prefill.sh 0 8
+
+# publication
+SITE=routed python3 research/maple-edward-r107a-wandb.py \
+  /tmp/maple-r107a/stage1 /tmp/maple-r107a/stage0
+SITE=qkv python3 research/maple-edward-r107a-wandb.py \
+  /tmp/maple-r107a/stageA /tmp/maple-r107a/stage0q
+```
+
+On-disk evidence kept under `/tmp/maple-r107a/`: `index.tsv` (slot order and arm
+assignment), one `.steps` file per slot with per-step microseconds, one `.log`
+and `.tokens` per probe, `provenance.txt` (reps, steps, rule-75 digests before
+and after), `analysis.txt` / `analysis-multi.json` and the
+`…-drop1cycle/analysis.txt` sensitivity pass. Every number quoted in this
+document is in one of those files; nothing was recomputed by hand.

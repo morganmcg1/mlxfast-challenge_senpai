@@ -37,6 +37,10 @@ SG_LIST="${SG_LIST:-2 4 8 16}"
 arms="base:new null1:new:${SEL_VAR}=1"
 for s in ${SG_LIST}; do arms="${arms} sg${s}:new:${SEL_VAR}=${s}"; done
 export ARMS="${arms}"
+# DESIGN=rotate advances the arm order by one slot per repetition, so one whole
+# rotation cycle is exactly the arm count. The sensitivity pass drops one cycle.
+narms=$(printf '%s\n' ${arms} | wc -l | tr -d ' ')
+DROP_CYCLE="${DROP_CYCLE:-${narms}}"
 # abba expands these with ${VAR:-default}, so an empty string silently restores
 # its oldA/oldB defaults and aborts. Every arm here is one binary driven by env,
 # so assert that single-binary invariant and keep cmp itself non-vacuous by
@@ -51,6 +55,6 @@ python3 research/maple-frieren-r103a-analyze-multi.py "${OUT}" \
 OUT_SENS="${OUT}-drop1cycle"
 mkdir -p "${OUT_SENS}"
 cp "${OUT}"/index.tsv "${OUT}"/*.steps "${OUT}"/*.log "${OUT_SENS}/" 2>/dev/null
-python3 research/maple-frieren-r103a-analyze-multi.py "${OUT_SENS}" 6 \
+python3 research/maple-frieren-r103a-analyze-multi.py "${OUT_SENS}" "${DROP_CYCLE}" \
   | tee "${OUT}/analysis-drop1cycle.txt"
 exit ${rc}
