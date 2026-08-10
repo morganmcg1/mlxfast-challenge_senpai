@@ -802,12 +802,15 @@ dropped.
 
 **Reported verdict: `P-INDETERMINATE`.**
 
-The generated line prints the §5 rule as written: it looks at arm `F`'s single-rung slope,
-notices fewer than 4 blocks, and reports underpowered. Two things about it need saying plainly:
+The generated line prints the §5 rule as written: it looks at arm `F`'s single-rung slope and,
+now that the 160 rung has reached its pre-registered `B = 4`, it declares the free region
+confirmed and the merge programme dead. Two things about it need saying plainly:
 
-* **When the 160 rung reaches `B = 4` this line will flip to `P-FREE-REGION-CONFIRMED`, and
-  that flip would be an artifact.** Arm `F`'s slope is negative with a CI upper bound already
-  below `+0.3` (§3.3 for the value), which is exactly the condition §5 declares "free". But
+* **That verdict is an artifact of the estimator, not a finding.** Arm `F`'s slope is negative
+  with a CI upper bound below `+0.3` (§3.3 for the value), which is exactly the condition §5
+  declares "free" — and I watched it flip from `P-INDETERMINATE-UNDERPOWERED` to
+  `P-FREE-REGION-CONFIRMED` at 16 rows purely because a fourth block landed, with the slope
+  itself barely moving. But
   `dF` measures `160·k + 40·c`, not `160·k` (§3.2.1). A negative single-rung slope is what a
   *positive* `k` looks like once a negative `c` is folded in, and §3.2.2 records that I
   predicted this wrongly before the data arrived. I am not going to let the arithmetic of my
