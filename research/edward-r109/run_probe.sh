@@ -27,7 +27,7 @@ fi
 
 # 64 defeat slots stride 1 MiB each, so 6 logical cache copies keep the rotation
 # in bounds with headroom.
-export FERN_LADDER=32
+export FERN_LADDER="${FERN_LADDER:-32}"
 export FERN_ROUNDS="${FERN_ROUNDS:-21}"
 export FERN_REPS="${FERN_REPS:-200}"
 export FERN_DEFEAT_SLOTS="$SLOTS"

@@ -1,4 +1,4 @@
-arm=null slots=1 rounds=101 reps=200
+arm=null slots=64 rounds=101 reps=200
 === device ===
 name                  Apple M4 Pro
 architecture          applegpu_g16s
@@ -21,22 +21,22 @@ mode                  NULL CONTROL (base vs itself)
   empirical value is the wave-law step period in the K ladder below.
 
 === memory regime (P1.1) ===
-  defeat slots          1  (r98 resident binding)
+  defeat slots          64
   cache copies          6
   k_cache buffer        100663296 B
   dram_peak_GB_s        266.3  (measured, rule 55)
   slc_estimate_B        25165824  (M4-Pro-class, label only)
      K  TG/core   kvheads   slots   uniq_MiB   req_MiB/round   amplif   base_us   achieved_GB_s   pct_peak   slc_fit   regime
-    32     1.60         8       1       2.04          408.01    200.0     18.04           118.6       44.5   yes   PARTIAL
+    32     1.60         8      64     128.04          408.01      3.2     18.55           115.3       43.3   no   PARTIAL
 
 === absolute cost ladder, best of 101 rounds of 200 dispatches (E1) ===
 phi(K) = t(2K)/t(K).  A threadgroup-doubling change pays only if phi < 2.
 t/K is the per-threadgroup cost: flat means work-limited, falling means
 the added threadgroups are absorbed by idle cores.
      K  TG/core   base_us     t/K_us   phi(K)=t(2K)/t(K)
-    32     1.60     17.51     0.5471   -
+    32     1.60     18.36     0.5739   -
 
 === paired per-call cost, 101 alternating rounds of 200 dispatches ===
 delta = second arm - base within a round, so drift cancels. neg = faster.
      K  TG/core   base_min   cand_min    d_mean    d_sd   spread   t_paired        %
-    32     1.60      17.59      17.57    -0.020   0.239     1.20      -0.83    -0.112
+    32     1.60      18.23      18.52    +0.015   0.269     1.36      +0.56    +0.082
