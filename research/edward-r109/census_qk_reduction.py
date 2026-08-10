@@ -21,16 +21,10 @@ CENSUS = os.path.join(ROOT, "senpai/tools/agx-census-probe/census.sh")
 KERNEL = "laguna_sliding_fused_attn_ring_v1"
 OUT = sys.argv[1] if len(sys.argv) > 1 else "/tmp/edward_r109_census"
 
-QK_PREFIXES = ["pair", "pipeb", "pipec", "piped"]
-QK_KARRAY = {"pair": "pipe_ka", "pipeb": "pipe_kb",
-             "pipec": "pipe_kc", "piped": "pipe_kd"}
-
-# Twelve extra products per site, i.e. 4x the useful QK MACs, folded into the
-# same accumulator. This is the MAC bill an 8x8x8 MMA pays for an M=2 decode
-# tile: six of its eight M rows are padding.
-FMA4X = "".join(
-    "    {v} += {q}[%d] * {k}[%d];\n" % ((d + r) % 4, d)
-    for r in (1, 2, 3) for d in range(4))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from make_qk_arms import ARMS as ARM_TEMPLATES  # noqa: E402
+from make_qk_arms import KARRAY as QK_KARRAY  # noqa: E402
+from make_qk_arms import PREFIXES as QK_PREFIXES  # noqa: E402
 
 PREAMBLE = """#include <metal_stdlib>
 #include <metal_simdgroup>
@@ -95,45 +89,9 @@ def sub_qk(src, template):
     return out
 
 
-ARMS = [
-    # Reference.
-    ("base", lambda s: s),
-    # Free ceiling: the reduction disappears, MACs and loads stay live.
-    ("qk_free", lambda s: sub_qk(s, "    {v} = ({v});")),
-    # Five-stage shuffle butterfly: what any hand-rolled full-width reduction,
-    # including the tail of an MMA fragment reduction, has to pay.
-    ("qk_ladder5", lambda s: sub_qk(
-        s,
-        "    {v} += simd_shuffle_xor({v}, 1u);\n"
-        "    {v} += simd_shuffle_xor({v}, 2u);\n"
-        "    {v} += simd_shuffle_xor({v}, 4u);\n"
-        "    {v} += simd_shuffle_xor({v}, 8u);\n"
-        "    {v} += simd_shuffle_xor({v}, 16u);")),
-    # Depth-2 butterfly: the per-site cost of the re-tiled layout in which each
-    # lane already owns 32 of the 128 dims, so only masks 8 and 16 remain.
-    ("qk_ladder2", lambda s: sub_qk(
-        s,
-        "    {v} += simd_shuffle_xor({v}, 8u);\n"
-        "    {v} += simd_shuffle_xor({v}, 16u);")),
-    # Quad reduction: the cheapest hardware reduce that exists, used by a layout
-    # where four lanes own the 128 dims of one (row, head).
-    ("qk_quad", lambda s: sub_qk(s, "    {v} = quad_sum({v});")),
-    # One broadcast after a concentrated reduce: the unavoidable extra step for
-    # any layout whose row score does not already land in every lane.
-    ("qk_quad_bcast", lambda s: sub_qk(
-        s, "    {v} = simd_shuffle(quad_sum({v}), 0u);")),
-    # One bare broadcast: the exact shape of an MMA epilogue, where the row
-    # score already exists in one lane of the accumulator fragment and only has
-    # to reach the 32 lanes that own the output dims.
-    ("qk_bcast0", lambda s: sub_qk(s, "    {v} = simd_shuffle({v}, 0u);")),
-    # 4x the QK MACs, reduction untouched: the padding bill of an M=2 MMA tile
-    # in isolation.
-    ("qk_fma4x", lambda s: sub_qk(s, FMA4X + "    {v} = simd_sum({v});")),
-    # 4x the MACs and an MMA-shaped epilogue: a full stand-in for the MMA arm
-    # under the assumption that MMA MACs cost the same as scalar FMA MACs.
-    ("qk_fma4x_bcast0", lambda s: sub_qk(
-        s, FMA4X + "    {v} = simd_shuffle({v}, 0u);")),
-]
+ARMS = [("base", lambda s: s)] + [
+    (name, lambda s, t=template: sub_qk(s, t))
+    for name, template in ARM_TEMPLATES.items()]
 
 
 def census(path):

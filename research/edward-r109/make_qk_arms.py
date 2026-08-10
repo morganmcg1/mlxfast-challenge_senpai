@@ -21,10 +21,28 @@ KARRAY = {"pair": "pipe_ka", "pipeb": "pipe_kb",
 FMA4X = "".join("    {v} += {q}[%d] * {k}[%d];\n" % ((d + r) % 4, d)
                 for r in (1, 2, 3) for d in range(4))
 
+# Same twelve products, but folded in through a runtime-zero factor so the score
+# stays bit-identical. `widx` is a kernel argument, so the compiler cannot prove
+# `zero_` is zero and cannot drop or sink the padding work; the softmax path then
+# sees exactly the base values. Needed because the score feeds a value-dependent
+# `LAGUNA_RESCALE` branch, so a value-changing arm cannot price instructions.
+_PAD_PRODUCTS = [((d + r) % 4, d) for r in (1, 2, 3) for d in range(4)]
+PAD4X_NEUTRAL = (
+    "    {{\n"
+    "      const U zero_ = U(widx > 0x3fffffffu);\n"
+    "      U pad_ = {q}[%d] * {k}[%d];\n" % _PAD_PRODUCTS[0]
+    + "".join("      pad_ += {q}[%d] * {k}[%d];\n" % qd
+              for qd in _PAD_PRODUCTS[1:])
+    + "      {v} += pad_ * zero_;\n"
+    "    }}\n")
+
 ARMS = {
     "qk_free": "    {v} = ({v});",
     "qk_ladder2": ("    {v} += simd_shuffle_xor({v}, 8u);\n"
                    "    {v} += simd_shuffle_xor({v}, 16u);"),
+    # Cheapest hardware reduce that exists, and the same with the broadcast a
+    # concentrated reduce needs to reach the 32 lanes that own the output dims.
+    "qk_quad": "    {v} = quad_sum({v});",
     "qk_quad_bcast": "    {v} = simd_shuffle(quad_sum({v}), 0u);",
     # Correct all-lane butterfly: what an explicit-shuffle or fragment
     # reduction has to fall back on when `simd_sum` is unavailable.
@@ -41,6 +59,11 @@ ARMS = {
     # the assumption that an MMA MAC costs what a scalar FMA MAC costs.
     "qk_fma4x": FMA4X + "    {v} = simd_sum({v});",
     "qk_fma4x_bcast0": FMA4X + "    {v} = simd_shuffle({v}, 0u);",
+    # Value-neutral versions of the two arms above. Paired against `null` and
+    # `qk_bcast0` respectively, these price the MMA padding without perturbing
+    # the softmax path.
+    "qk_pad4x": PAD4X_NEUTRAL + "    {v} = simd_sum({v});",
+    "qk_pad4x_bcast0": PAD4X_NEUTRAL + "    {v} = simd_shuffle({v}, 0u);",
 }
 
 
@@ -78,4 +101,5 @@ def main():
               % (arm, n, start + 1, end, path))
 
 
-main()
+if __name__ == "__main__":
+    main()
