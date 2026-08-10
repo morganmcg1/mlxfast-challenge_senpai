@@ -11553,6 +11553,7 @@ final class LagunaRuntimeModelInner: Module {
                         qkRoPEOffsets: qkRoPEOffsets
                     )
                     if isSingleTokenDecode, (decodeFireMask >> UInt64(i)) & 1 == 1 {
+                        lagunaTrace("decode async rung layer \(i)")
                         asyncEval(h)
                     }
                 }
@@ -11565,6 +11566,7 @@ final class LagunaRuntimeModelInner: Module {
                     qkRoPEOffsets: qkRoPEOffsets
                 )
                 if isSingleTokenDecode, (decodeFireMask >> UInt64(i)) & 1 == 1 {
+                    lagunaTrace("decode async rung layer \(i)")
                     asyncEval(h)
                 }
                 if lagunaPrefillAsyncLadderStride > 0, h.dim(1) > 1,
