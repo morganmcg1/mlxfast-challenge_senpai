@@ -2399,6 +2399,17 @@ consecutive M5 failures. Relaying this needs a verified human message ID and no
 
 ## 2. Where we stand
 
+> 🆕 **2026-08-10, read Rule 89 first.** Three things changed. (a) The official
+> channel has **never** been replicated in 106 rounds — the measured robust
+> 1-vs-1 `sd` is **0.2494 % of cs**, and **no pair on this board clears z = 3**.
+> (b) The **router weight prefetch is a hard null** (z = +0.19) adjudicated by
+> receipts we already own — #597 needs no new submissions. (c) The round-100
+> **revert residual is localised** to ≤ 85 code lines in
+> `Sources/MLXFastModel`, dominated by a **`float4` threadgroup vectorisation**
+> in the paired-attention-output kernel; the backend and `mlx-swift-lm` are
+> code-identical, so no JIT/dispatch story is available. Also: **BASE_SHA
+> `1bc1c895` already has a receipt** — cs 2.575633 / decode 4925.255 µs (89.5).
+
 | quantity | value |
 |---|---|
 | **our CURRENT frontier `59bd72a3`, common-baseline score** | **2.575633** |
@@ -3820,6 +3831,122 @@ incantation. Declare a mechanism class for every decode lever. Geometry
 neutrality is absolute (#48 receipt `285f79fa` = −0.1488 %). The "negative
 M4→M5 transfer factor" (−0.40 ± 0.24) rests on ONE receipt (#137, +24.6 µs
 ≈ 1.7σ) and is UNSUPPORTED pending #496.
+
+### Rule 89 — the official channel has NEVER been replicated; every σ in this campaign is inferred, and four anchor pairs are now priced against a measured floor
+
+Measured 2026-08-10 by the advisor over **all 82 morganmcg1 receipts**
+(`research/advisor_r106_identical_tree_variance.py`, reads
+`/tmp/r106_our_commits.json` built from the official receipt list; grouping key
+is the **full compiled-tree identity** — `Sources/` + `Vendor/` + manifests,
+excluding `research/`, `senpai/`, `docs/`, `tools/`, `Tests/`, `*.md`).
+
+**89.1 — zero exact replicates exist.** Grouping the 82 receipts by compiled
+tree yields **no group with n ≥ 2**. In 106 rounds this campaign has *never*
+submitted the same program twice. Every σ quoted in every promotion decision —
+including §9's table and every `z` in every merged result — is **inferred from
+non-identical programs**, never measured on the channel.
+
+**89.2 — the near-replication floor.** Relaxing to *identical `Sources/` tree
+with comment-only `Vendor/` deltas* gives **5 groups, 15 receipts**:
+pooled `sd(cs) = 1.2244 %` (df = 10). That is dominated by one pathological
+group spanning **4.92 % of cs** (`2.429316 … 2.552550`) on a near-identical
+program. Dropping it gives the **robust** estimate:
+
+| quantity | robust value |
+|---|---|
+| within-group `sd(cs)` | **0.1763 % of cs** |
+| ⇒ 1-vs-1 difference `sd` | **0.2494 % of cs** ( = √2 × 0.1763 ) |
+| within-group `sd(decode)` | 7.3 – 12.5 µs/step |
+| pooled `sd(decode)`, all 5 groups | 23.955 µs/step |
+
+This **corroborates** §9's inferred 1-vs-1 decode σ of 0.2601 % — the two agree
+to 4 %. §9 may continue to be used. But the *pooled* 1.22 % shows the tail is
+fat: **a single receipt pair can be off by 5 % of cs and still be the same
+program.**
+
+⚠️ Units trap: the receipt JSON field `dec` is **seconds/step**. Multiply by
+1e6 for µs/step. Several past briefs mis-read it.
+
+**89.3 — the four anchor pairs, priced.** Using the robust 1-vs-1
+`sd = 0.2494 % of cs`:
+
+| pair | what differs | Δcs | z | reading |
+|---|---|---|---|---|
+| `4b0e051b` vs `ef055b9b` | **router weight prefetch, and nothing else** | +0.0478 % | **+0.19** | **NULL** |
+| `bd33883e` vs `e33efe4e` | — | +0.2583 % | +1.04 | noise |
+| `ef055b9b` vs `e33efe4e` | Arm R vs post-revert control | +0.5314 % | +2.13 | real, marginal |
+| `4b0e051b` vs `e33efe4e` | Arm R + prefetch vs control | +0.5795 % | +2.32 | real, marginal |
+
+**No single receipt pair on this board clears z = 3.** Promotion on one pair is
+not available. **A promotion now requires n ≥ 3 per arm, or Δ ≫ 0.5 % of cs.**
+
+**89.4 — the router weight prefetch is a hard null, already adjudicated, with
+zero new receipts needed.** `git diff 4b0e051b ef055b9b` is **one file,
+11 insertions / 105 deletions, containing only the router-prefetch machinery**.
+Both SHAs carry officially validated receipts:
+`4b0e051b` (prefetch present) **cs 2.590559 / decode 4894.114 µs**;
+`ef055b9b` (prefetch code absent) **cs 2.589321 / decode 4893.712 µs**.
+Δdecode **+0.402 µs/step**, Δcs **+0.0478 %**, **z = +0.19**. ⇒ #597's primary
+question is **closed as a null by receipts that already exist**. Do not spend
+channel on it. (Frieren's local M4 Pro measurement of +28.0 µs/step harm with
+16/16 sign consistency agrees in *sign* but **does not transfer in magnitude**
+to M5 — another instance of Rule 82's sign-only admissibility.)
+
+**89.5 — the campaign base's official score is KNOWN, for free.**
+`git diff 1bc1c895 e33efe4e` touches **no** `Sources/MLXFastModel`,
+`Sources/MLXFastTransform`, `Sources/MLXFastCore`, or `Vendor/` path — only
+`.agents/`, `.gitignore`, `AGENTS.md`, `README.md`, `TASK.md`, the harness
+`LagunaRuntimeLocalIterate.swift`, `Tests/`, `benchmark.sh`, `docs/`,
+`tools/fan-control.sh`, `research/`, `senpai/`. The compiled tree is identical.
+⇒ **BASE_SHA `1bc1c895` scores cs 2.575633 / decode 4925.255 µs** with a real
+receipt. **Never spend a submission on a base control again.**
+
+**89.6 — the round-100 revert residual is LOCALISED, and it is one kernel
+edit.** The advisor's "semantic no-op" hypothesis was **falsified**.
+`research/advisor_r106_semantic_noop_proof.py 1bc1c895 ef055b9b` compares the
+**per-target code-line multiset** after stripping comments and blank lines (so
+intra-target file moves cancel):
+
+| target | code lines | only in base | only in Arm R | verdict |
+|---|---|---|---|---|
+| `Sources/MLXFastModel` | 12,232 | **85** | **56** | **DIFFERS** |
+| `Sources/MLXFastTransform` | 1,899 | 833 | 4 | differs — dead `.gemma4` sidecar; the `.laguna` branch provably emits nothing |
+| `Sources/MLXFastCore` | 2,615 | 0 | 0 | identical |
+| `Vendor/mlx-swift-lm` | 81,573 | 0 | 0 | **IDENTICAL** (1111 removed lines were *all* comments) |
+| `Vendor/mlx-swift` (Cmlx / Metal / C++) | 351,678 | 0 | 0 | **IDENTICAL** |
+
+⇒ **The entire ≈31.5 µs/step base→Arm R gap is carried by ≤ 85/56 code lines in
+`Sources/MLXFastModel`.** The backend, the Metal shipped sources and
+`mlx-swift-lm` are byte-identical at code level, so **no JIT / dispatch /
+library-build explanation is available.**
+
+The dominant edit is a **`float4` threadgroup vectorisation in the embedded
+paired-attention-output Metal kernel**:
+
+- base `1bc1c895` `LagunaRuntimeModel.swift:1513` and `:1970` —
+  `threadgroup U outputs[4 * BN * BDP];`, with
+  `constexpr int pair_planes = 2; constexpr int pair_plane_size = BN * BDP;`
+  and four `for (int p = 0; p < pair_planes; ++p)` loops (≈`:1640`–`:1696`)
+  doing **scalar** stores `outputs[p * pair_plane_size + lane * BDP + sg] = pair_o0[p];`
+- Arm R `ef055b9b` `:1513` and `:1953` —
+  `threadgroup float4 outputs4[BN * BDP];`, single **vector** stores
+  `outputs4[lane * BDP + sg] = …` at `:1646`, `:1670`, `:2130`, `:2154`, and
+  reads `float4 pair_v0 = outputs4[sg * BDP + lane];` at `:1659`, `:1673`,
+  `:2143`, `:2157`.
+
+Four scalar planes → one vector plane: **quarters the threadgroup store
+instruction count and the threadgroup footprint** of that kernel. Remaining
+`Sources/MLXFastModel` deltas are cosmetic or additive:
+`lagunaRouterPrecomputedKeysEnabled` / `lagunaTerminalPrefillFusionEnabled` /
+`lagunaRoPEAngleAtlasLength = 4096` lose `private` (file-split artifact); Arm R
+adds `let lagunaDecodeRouterOrdinalHeader = """` and
+`func lagunaDecodeEmbeddingRoPEAtlas(`.
+
+**Consequence.** This is a *concrete, re-appliable* optimisation worth
+≈31.5 µs/step ≈ **+0.48 % of cs**, and it is currently **not** in the base. It
+is the **highest-prior candidate on the board**. It is also only z ≈ 2.3, so it
+must be re-established with n ≥ 3, not adopted on the strength of `ef055b9b`
+alone.
 
 ---
 
