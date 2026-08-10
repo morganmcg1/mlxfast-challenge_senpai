@@ -158,6 +158,20 @@ def main() -> None:
                 "custom_kernel_laguna_shared_nvfp4_swiglu_qmv_rows1_halved_WIDE_bf16_v1_", 1329)
     run.log({"B0_reachability": b0})
 
+    # B1: the correctness receipts, one row per check, each carrying the
+    # transcript it came from.  Two of these rows were "green" in an earlier
+    # draft on no evidence at all; they are now either earned or marked
+    # NOT OBTAINED with the exit code.  See sec3.2.1 of the note.
+    b1src = ART / "b1_build_oracle.json"
+    if b1src.exists():
+        b1r = json.loads(b1src.read_text())
+        b1 = wandb.Table(columns=["check", "status", "detail", "transcript"])
+        for row in b1r["checks"]:
+            b1.add_data(row["check"], row["status"], row["detail"],
+                        row["transcript"])
+        run.log({"B1_correctness_receipts": b1})
+        run.summary.update({f"b1_{k}": v for k, v in b1r["summary"].items()})
+
     # B2: the paired result, plus its own control.  Both are reported the same
     # way so the reader can check that the control is null by the same test
     # that calls the target significant.
@@ -301,6 +315,7 @@ def main() -> None:
                  "research/maple_frieren_r106j_wide_codes_abba.sh",
                  "research/maple_frieren_r106j_abba_analyse.py",
                  "research/maple_frieren_r106j_b1_rerun.sh",
+                 "research/maple_frieren_r106j_b1_metallib_oracle.sh",
                  "research/maple-frieren-r107-session-noise.md"):
         p = Path(name)
         if p.exists():

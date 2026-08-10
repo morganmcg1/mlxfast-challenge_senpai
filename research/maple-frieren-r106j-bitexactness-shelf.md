@@ -410,8 +410,8 @@ flag cannot perturb a deterministic output. **B0 passes.**
 
 | check | result |
 |---|---|
-| build | see **§3.2.1** — the binary every measurement in this note was taken with was an *incremental* release build, and I say so rather than round it up |
-| upstream equivalence oracle (`research/run_upstream_equivalence.sh`) | see **§3.2.1** — **but see the caveat below, it cannot reach this bank** |
+| force-clean worker build | **done, exit 0**, 131 s, `OBJECTS_PREDATING_CLEAN=0`, sha256 `f2c3a889…`, 49,096,008 B — §3.2.1a. *The measurements in §2/§3.3 were taken on an incremental build of the same source; I say so rather than round it up (§3.2.1).* |
+| upstream equivalence oracle (`research/run_upstream_equivalence.sh`) | **ran, exit 1**: 8/8 decode steps bit-exact, all tokens match, prefill `maxAbsLogitError 0.125` only — the **documented pre-existing non-M5-host near-tie**, byte-identical to seven published reproductions (§3.2.1c). Gate never relaxed. **Cannot reach this bank** — see the caveat below |
 | local golden set, teacher-forced (`longcopy-gate-english-512`, 256 + 1024) | **0 mismatches** in both arms |
 | free-run greedy, 128 steps | **0 divergences**, common prefix 129/129 |
 | ABBA replication, 12 independent worker processes × 33 teacher-forced steps | **0 divergences in 12 of 12** (`grep 'divergences' /tmp/r106j-abba/*.log`) |
@@ -448,7 +448,121 @@ oracle provably cannot reach the bank under test (the caveat above). But
 "it wouldn't have changed the answer" is the reasoning that makes a note
 untrustworthy, so I ran both properly rather than argue.
 
-<!-- B1-RERUN -->
+#### §3.2.1a Receipt 1 — the force-clean worker build
+
+Driver: `research/maple_frieren_r106j_b1_rerun.sh`, run under `run_job`
+(job `e8dd58c6-d27c-48ab-b2ce-f4d5ac98e9bc`, exit 0, 202 s wall).
+Artifacts: `/tmp/r106j-b1/`.
+
+```
+OBJECTS_BEFORE_CLEAN=1012
+(rm -rf .build-worker)
+BUILD_EXIT=0
+BUILD_SECONDS=131
+OBJECTS_AFTER_BUILD=1010
+OBJECTS_PREDATING_CLEAN=0
+WORKER_SHA256=f2c3a8894ebb5c87568cb5cc5076ecebe648c0b27a08d8ae501d19b1f2529a95
+WORKER_BYTES=49096008
+```
+
+`OBJECTS_PREDATING_CLEAN=0` is the line that matters: after the clean, **no**
+object file in the tree has an mtime older than the clean, so nothing was
+reused. The row in §3.2 is now earned. (1012 → 1010 objects is the two objects
+belonging to the deleted stale target; the build itself is complete, `BUILD_EXIT=0`.)
+
+#### §3.2.1b Receipt 2 — the metallib gap, which the force-clean exposed
+
+The first re-run's *oracle* stage still did not execute: it exited 3 having
+selected **0 tests**. The cause is worth recording because it is a trap for
+anyone who follows the "just force-clean it" instruction literally:
+
+`tools/build-mlx-metallib.sh` writes `.build-worker/release/mlx.metallib`, and
+that file **is not in SwiftPM's dependency graph**. `swift build` therefore
+never regenerates it. `rm -rf .build-worker` deletes the metallib, the rebuild
+does not put it back, and every Metal-touching test then declines to run. A
+force-clean build in this repo is only half a force-clean; the second half has
+to be invoked by hand.
+
+Second driver: `research/maple_frieren_r106j_b1_metallib_oracle.sh`
+(job `07f29d25-1c1f-4199-b53b-bafa70f70b07`, 68 s wall, job state *failed* /
+exit 1 — **expected**, it propagates the oracle's exit code; see §3.2.1c).
+Launched 2026-08-10T12:04:30Z at HEAD `c054a41f`, 0 dirty paths.
+Artifacts: `/tmp/r106j-b1b/{metallib.log,metallib.err,equivalence.log}`.
+
+```
+WORKER_SHA256=f2c3a8894ebb5c87568cb5cc5076ecebe648c0b27a08d8ae501d19b1f2529a95
+WORKER_BYTES=49096008
+METALLIB_PRESENT_BEFORE=no
+METALLIB_EXIT=0
+METALLIB_SECONDS=50
+METALLIB_SHA256=8e8b18afaee1ed5a0190403f79a4cc74b9bebcb52b50c4b67d0ed91dc73097ec
+METALLIB_BYTES=158502072
+```
+
+The worker sha256 is byte-identical to Receipt 1, i.e. the binary the oracle
+ran against is the same force-clean artifact.
+
+#### §3.2.1c Receipt 3 — the oracle actually ran, and what it returned
+
+```
+EQUIVALENCE_SCRIPT_EXIT=1
+EQUIVALENCE_SECONDS=18
+EQUIVALENCE_EXACT_STEPS=8
+EQ_REPORT_MARKERS=1
+EQ_ZERO_ERROR_STEPS=8
+EQ_NONZERO_ERROR_LINES=1
+"Test run with 1 test in 0 suites failed after 4.065 seconds with 1 issue"
+```
+
+One test selected, one report marker emitted — the stage genuinely executed
+this time, which is the whole point of the re-run. Transcript
+(`promptTokenCount: 512, decodeTokenCount: 8`):
+
+| step | maximumAbsoluteLogitError | meanAbsoluteLogitError | token |
+|---|---|---|---|
+| prefill | **0.125** | 0.011933609 | runtime 5991 == upstream 5991 |
+| decode 0 … decode 7 | **0.0** (all 8) | **0.0** (all 8) | all match |
+
+**Every emitted token matches upstream, including the prefill token.** The
+single "issue" is the prefill `maximumAbsoluteLogitError 0.125` exceeding the
+script's zero-tolerance assertion, with the token nonetheless identical.
+
+**Attribution.** This exact triple — `EQUIVALENCE_EXACT_STEPS=8`, exit 1,
+prefill-only `0.125` with a matching token and eight bit-exact decode steps —
+is the **documented pre-existing near-tie on M4 / non-M5 hosts**, not anything
+this branch did. It reproduces to every published digit across students and
+rounds:
+
+* `research/fern-r104b-wkwv-tile-regroup.md:366-372` — the identical block,
+  including `EQUIVALENCE_EXACT_STEPS=8` and `EQUIVALENCE_EXIT=1`
+* `research/RESEARCH_ARCHIVE_through-round-91.md:5001` (and `:4102`)
+* `research/maple-fern-pr82-routed-qmv-router-dedup.md:1095-1104`
+* `research/maple-fern-pr48-fused-norm-qkv-gate.md:462-463`
+* `research/frieren-host-cpu-budget.md:471-494`
+* `research/frieren-pr23-r2-cap.md:311`
+* `research/RESEARCH_STATE_ARCHIVE_through-round-21.md:6085-6086`
+
+Archive `:4995-5010` states the campaign's reference procedure for this
+failure: **prove the failure is byte-identical on the unchanged base, and never
+relax the gate.** I followed it. `MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT` was **not**
+set, in this run or any other in this note.
+
+Two facts keep this receipt from being over-read in the other direction:
+
+1. The oracle was run in the **baseline arm** — `DARKBLOOM_QMV_WIDE_CODES`
+   unset. It is a statement about the base, not about the lever.
+2. Even with the flag set it could not speak to the lever, because it never
+   calls `prepareFusedRuntimeWeights()` (the caveat in §3.2). So this receipt
+   discharges the assignment's B1 *procedure* and establishes that the base is
+   in its documented state; it is **not** correctness evidence for the wide-codes
+   bank. That evidence comes from the golden set, the free run, the 12-process
+   ABBA replication and the §2 certificate — all of which are zero-flip.
+
+**Net effect on this note's conclusion: none.** This receipt does **not** fire
+`N-CORRECT` — that cell fires in §5 for a different and independent reason (the
+§2 certificate returns `MARGINAL`), and it would fire identically had the oracle
+exited 0. B2's paired arithmetic is likewise untouched, because it compares two
+arms of one binary.
 
 **What this costs the reader.** Nothing, now. What it would have cost is the
 thing worth naming: a table row that says "green" when the author never ran it
@@ -798,7 +912,9 @@ memory or inherited from an earlier round's summary.
 | A — free-run capture | `research/artifacts/maple-frieren-r106j/free_run_capture.sh` | folded into `cert_free.json` |
 | B2 — driver | `research/maple_frieren_r106j_wide_codes_abba.sh` | `research/artifacts/maple-frieren-r106j/abba-*.log` (12 processes) |
 | B2 — analysis | `research/maple_frieren_r106j_abba_analyse.py` (+ `…_abba_summary.py`) | `research/artifacts/maple-frieren-r106j/abba_report.json` |
-| B1 — re-run | `research/maple_frieren_r106j_b1_rerun.sh` | §3.2.1 |
+| B1 — force-clean build re-run | `research/maple_frieren_r106j_b1_rerun.sh` | §3.2.1a, `/tmp/r106j-b1/{build.log,build.err,equivalence.log}` |
+| B1 — metallib rebuild + oracle re-run | `research/maple_frieren_r106j_b1_metallib_oracle.sh` | §3.2.1b/c, `/tmp/r106j-b1b/{metallib.log,metallib.err,equivalence.log}` |
+| B1 — all eight receipts, machine-readable | (transcribed from the two jobs above) | `research/artifacts/maple-frieren-r106j/b1_build_oracle.json` |
 | publication | `research/maple-frieren-r106j-wandb.py` | W&B run **`r106jfrieren`** — <https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/r106jfrieren> |
 
 The GPU dispatch trace used for B0 and B2 comes from
