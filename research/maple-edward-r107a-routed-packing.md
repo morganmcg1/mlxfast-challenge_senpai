@@ -1144,6 +1144,97 @@ family **T2c** (M4 cost 1497.7 µs/step) and the QKV lane-major site is family
 **T0b(a)** (M4 cost 1340.1 µs/step), so a win at either is a summation
 component rather than a standalone submission.
 
+That framing was overtaken at 15:33 UTC. Comment `5242424807` stood Stage A down
+because maple-fern's #625 refuted L3 outright, which removes the T0b(a) summand
+and snaps a single T2c arm's residual back to the full 0.400 % bar. §6.0 answers
+the resulting question directly; §6.1 keeps the measured routed curve that
+answers it, and §6.2 records the stood-down QKV block for the archive.
+
+### 6.0 The one-line answer — **No, T2c is not worth carrying into the integrated tree**
+
+Written after PR #629 comment `5242424807` (15:33 UTC) stood Stage A down and made
+Stage B — routed gate/up threadgroup packing in
+`lagunaRoutedSwiGLUQMVPackedTop8R1Kernel`, family **T2c** — the whole assignment.
+The advisor asked for a number rather than a chase, and for a plain yes/no. The
+number is below and the answer is **no**.
+
+| quantity | value | in %`cs` (α = 0.4369) | as a fraction of T2c's own 1497.7 µs/step |
+| --- | --- | --- | --- |
+| bar for a **standing-alone** arm (rule 105.12 dual) | 60.1 M4 µs/step | 0.400 % | **4.01 %** |
+| best point estimate over all S measured (`base -> sg4`) | **+2.2** µs/step (wrong sign) | +0.015 % | +0.15 % |
+| 95 % exclusion bound, best dose (`base -> sg8`) | **-17.1** µs/step | -0.114 % | **-1.14 %** |
+| Bonferroni bound over all 15 contrasts | 27.0 µs/step | 0.180 % | 1.80 % |
+| measured supply ceiling of the mechanism, **any** S (below) | **<= 2.9** µs/step | 0.020 % | 0.19 % |
+
+Said plainly, as requested: **this S-curve is showing sub-1 % effects, and the
+sign is wrong.** Every dose's point estimate is a slowdown; the most generous
+95 % reading anywhere in the block is a 1.14 % improvement of the family's own
+cost, which is 3.5x short of the 4.01 % the family would have to give up for a
+single-arm graduation. No configuration was found that crosses, and none is
+being hunted.
+
+**Why no further configuration can cross (the §5 source argument).** Stage 0
+(§3.1) shows the invariants: total simdgroups (4096) and rows per simdgroup (1)
+do not move with S. Packing therefore cannot change how much arithmetic or how
+many bytes the kernel touches; it can only *merge scheduling units*, so its
+entire budget is threadgroup-launch and -retire overhead. That budget is now
+measured, not assumed. At the shipped geometry this site issues 2048
+threadgroups per dispatch x 39 dispatches = **79,872 TG/step**; S = 8 leaves
+19,968, so `base -> sg8` removes **59,904 TG/step**. The measured contrast
+`base -> sg8 = +5.15 [-2.49, +12.79]` therefore caps the per-threadgroup cost at
+**<= 0.042 ns** (2.49 µs / 59,904), and the largest saving any S can buy at this
+site — S = 16, which removes 69,888 TG/step — is bounded by
+**<= 2.9 M4 µs/step = 0.020 %`cs`**. That is under 5 % of the 60.1 µs bar and
+under 0.2 % of family cost. The bound is one-sided and mechanism-level: it holds
+for every S, including ones not measured, and for any re-tiling that only
+changes how the same 4096 simdgroups are grouped. Meanwhile S = 16 is measured
+at **+63.5 µs/step [+55.7, +71.3]**, 18/18 repetitions slower — a real,
+bar-sized cost with the sign reversed. Supply <= 2.9 µs against a demonstrated
+cost of 63.5 µs is why the curve is flat-then-cliff and why there is no
+crossing configuration to find.
+
+**No S is advocated, so no margin certificate is owed.** The rule-102 §5
+obligation (source argument or margin certificate) attaches to a change being
+carried forward. Nothing here is: the recommendation is to keep the shipped
+geometry. For completeness the change *would* have been bit-exact by
+construction rather than by certificate — the kernel has no threadgroup storage
+and no barrier, reduces only with `simd_sum` inside one simdgroup, and maps
+`out_row = tile * num_simdgroups + simd_gid`, so S changes only how simdgroups
+are bundled into threadgroups and not the arithmetic, its order, or its
+accumulation width. The 216-slot / 54,000-step Stage-1 block and the 96-step
+teacher-forced parity block confirm it empirically: **0 divergences at every S,
+one token-stream checksum**, against a store-row fault control that fired 96/96.
+
+**What survives from this arm.** Three things, none of them a speedup:
+
+1. A hard, reusable upper bound on Apple-Silicon threadgroup-launch cost at
+   decode-shaped dispatch — **<= 0.042 ns/TG** — measured on the densest
+   TG-issuing site in the model (79,872 TG/step). Any future packing,
+   fusion-by-merging, or launch-amortisation proposal at any site can be priced
+   against it before it is built: multiply the TGs it removes by 0.042 ns. This
+   is the number that killed the L3 prior's mechanism (§5.2a, Consequence 2:
+   -36.9 µs at QKV needs 5.34 ns/TG, 127x this ceiling) before fern's #625
+   killed the effect.
+2. A calibrated negative control of bar size on the scored decode path
+   (`sg16`, +0.422 %`cs`, 18/18) that any future instrument on this host can use
+   to prove it has sign discipline and bar-scale resolution.
+3. Two default-inert selectors on the scored path (§2.3) that leave the shipped
+   dispatch byte-identical at default and are cheap to delete.
+
+**The tree is hand-off-ready for nezuko's #657 instrument.** Both selectors
+(`DARKBLOOM_ROUTED_GATEUP_SG`, `DARKBLOOM_QKV_LM_SG`) are unset-inert: with no
+environment variable the dispatch, the pipeline name, and the emitted Metal
+source are the shipped ones, so this branch's default behaviour and timing are
+`4e9a8e16`'s. Net growth on the submitted surface is +3,655 B (45 % of the 8 KiB
+per-review cap, file at 387,900 / 524,288 B). If her paired `--local-submit`
+protocol (CI95 half-width ~0.1178 % of `cs` at 10 blocks, 2.25x tighter on the
+score channel than the ABBA used here) is worth pointing at a T2c dose, `sg8` is
+the one dose whose 95 % interval still touches the 0.1-0.2 % band this arm cannot
+resolve; but note that the <= 2.9 µs supply ceiling above predicts she will find
+zero, and the honest recommendation is to spend her instrument on a family whose
+mechanism has a larger measured budget.
+
+
 ### 6.1 Routed gate/up site — `N-SITE1`
 
 The routed threadgroup-packing knob is settled and it is a null-to-negative
@@ -1288,6 +1379,61 @@ an M5 prediction (rule 105.11's dual: an M5 target restated in M4 units inflates
 by `1/k`, i.e. 2.3x at alpha = 0.4369).
 
 #### 6.2b Measured verdict
+
+**`N-L3`, and the primary refutation is fern's, not mine.** Applying §6.2a's
+pre-registered rule to the K = 12 primary contrast `base -> sg8 = -20.83 us,
+hw 27.00, [-47.82, +6.17]`: the interval covers zero, so the rule returns
+`N-L3`. Its *lower* limit also excludes the 60.1 µs single-arm bar at 95 %,
+so no reading of this block supports graduation either.
+
+The ordering matters for how much weight this carries. maple-fern's R107/R106-J
+(PR #625, merged to the advisor branch as `df64d186`) ran the pre-registered ABBA
+replication of the identical T0P/L3 lane-major flip at 10 blocks / 42 runs / 0
+correctness failures and reports **`d(ln score) = +0.0328 %`, CI95 [-0.2338,
++0.2994]**, with monotone shrinkage across block count (+0.1889 at 4 blocks,
++0.0920 at 8, +0.0328 at 10) — the signature of a null approached from a noisy
+start. That is the refutation. §5.3 is a second, independent instrument on a
+different host and a different measurement channel that lands inside her
+interval and agrees on the verdict; it is corroboration, not the primary
+evidence. Both are consistent with the argmax-de-biased prior of §5.0b
+(-29.6 µs = 0.197 %`cs`) being an artefact of selection plus the host-unit error
+of rules 105.11/105.12 rather than a real effect: #308's headline +0.562 %
+becomes +0.338 % [+0.118, +0.558] under host correction and then fails to
+replicate at all.
+
+The shrinkage ladder, in one place:
+
+| stage | estimate | CI95 |
+| --- | --- | --- |
+| #308 as published | +0.562 %`cs` | none quoted |
+| host-unit correction (rules 105.11/105.12) | +0.338 % | [+0.118, +0.558] |
+| argmax de-bias (rule 105.10, §5.0b) | +0.197 % | — |
+| fern #625, 10 blocks, 42 runs | **+0.033 %** | [-0.234, +0.299] |
+| §5.3, K = 12, largest defensible reading | **<= 0.071 %** | [+0.008, +0.134] |
+
+**The one thing §5.3 adds that fern's block cannot.** Because it was a dose
+block rather than a two-arm flip, it says *where* the ceiling comes from:
+`sg4 -> sg8 = +0.62 us [-5.55, +6.78]`, i.e. whatever small quantity is there
+has already saturated by S = 4. A per-threadgroup launch-amortisation
+explanation is therefore excluded twice over — it would have to keep paying as
+S doubles, and at the QKV site's 9,216 TG/step it would need 1.55 ns/TG, 37x the
+<= 0.042 ns/TG ceiling measured at the routed site (§6.0). It also puts a floor
+under this host's session noise that the rest of the report should be read
+against: two **byte-identical** arms (`base` and `null1`, both outside
+`{2,4,8,16}`, so the same compiled code and the same dispatch) separated by
+-10.15 µs/step with a 3.3x standard-deviation asymmetry, and switching which of
+them is the reference moves the primary estimate from -20.8 to -10.7 — the
+reference-arm choice changes the answer by the size of the effect. Session floor
+on this host, this epoch: **~+/-22 M4 µs/step**.
+
+**Consequence for rule 105.5.** §6.2a's "residual for a second summand" table is
+now moot in the direction it was written: with L3 at zero there is no L3 summand,
+so the residual for any single partner arm snaps back to the full 0.400 %
+= 60.1 M4 µs/step. T2c cannot supply it (§6.0). The live pairing for rule 105.5
+is therefore maple-alphonse's T3b `oproj` work plus whatever nezuko's #657
+instrument can certify, not T0b(a) + T2c.
+
+
 
 
 ## 7. Suggested follow-ups (not implemented)
