@@ -854,7 +854,8 @@ template <
     const bool aligned_N,
     const int BM = 32,
     const int BK = 32,
-    const int BN = 32>
+    const int BN = 32,
+    const bool fuse_swiglu = false>
 METAL_FUNC void fp_qmm_t_impl(
     const device uint32_t* w,
     const device uint8_t* scales,
@@ -908,7 +909,11 @@ METAL_FUNC void fp_qmm_t_impl(
   x += y_row * static_cast<int64_t>(K);
   wl += y_col * K_w;
   scales += y_col * K_g;
-  y += y_row * static_cast<int64_t>(N) + y_col;
+  if constexpr (fuse_swiglu) {
+    y += y_row * static_cast<int64_t>(N / 2) + y_col / 2;
+  } else {
+    y += y_row * static_cast<int64_t>(N) + y_col;
+  }
 
   // Make the x loader and mma operation
   const short num_els = min(BM, M - y_row);
@@ -966,7 +971,24 @@ METAL_FUNC void fp_qmm_t_impl(
 
   // Store results to device memory
   threadgroup_barrier(mem_flags::mem_threadgroup);
-  if (num_els < BM || num_outs < BN) {
+  if constexpr (fuse_swiglu) {
+#pragma clang fp contract(off)
+    for (short i = 0; i < 2; ++i) {
+      const thread auto& gates = mma_op.Ctile.frag_at(i, 0);
+      const thread auto& ups = mma_op.Ctile.frag_at(i, 1);
+      for (short j = 0; j < 2; ++j) {
+        const bfloat gate = static_cast<bfloat>(gates[j]);
+        const bfloat up = static_cast<bfloat>(ups[j]);
+        const bfloat exp_abs = metal::exp(metal::abs(gate));
+        const bfloat denominator = bfloat(1) + exp_abs;
+        const bfloat z = bfloat(1) / denominator;
+        const bfloat sigmoid = gate < bfloat(0) ? z : bfloat(1) - z;
+        const bfloat silu = bfloat(gate * sigmoid);
+        y[(mma_op.sm + 16 * i) * (N / 2) + mma_op.sn + j] =
+            bfloat(silu * up);
+      }
+    }
+  } else if (num_els < BM || num_outs < BN) {
     mma_op.store_result_safe(y, N, short2(num_outs, num_els));
   } else {
     mma_op.store_result(y, N);
@@ -1418,6 +1440,7 @@ template <
     const int bits,
     const bool aligned_N,
     const bool batched,
+    const bool fuse_swiglu,
     const int BM = 32,
     const int BK = 32,
     const int BN = 32>
@@ -1463,7 +1486,7 @@ template <
         s_strides,
         tid);
   }
-  fp_qmm_t_impl<T, group_size, bits, aligned_N, BM, BK, BN>(
+  fp_qmm_t_impl<T, group_size, bits, aligned_N, BM, BK, BN, fuse_swiglu>(
       w, scales, x, y, Xs, Ws, K, N, M, K, tid, lid, simd_gid, simd_lid);
 }
 
