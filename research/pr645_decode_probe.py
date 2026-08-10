@@ -238,7 +238,10 @@ def run_block(
             )
     if not collect:
         return None
-    totals = {name: sum(row["census"][name] for row in samples) for name in FAMILIES}
+    totals = {
+        name: sum(row["census"].get(name, 0) for row in samples)
+        for name in FAMILIES
+    }
     if totals != EXPECTED_TOTAL:
         raise RuntimeError(f"block census totals mismatch: {totals}")
     return {
@@ -362,7 +365,7 @@ def validate_result(result):
             if row.get("census") != expected:
                 errors.append(f"block {block_index} census step {step}")
             for name in FAMILIES:
-                totals[name] += row.get("census", {}).get(name, -1)
+                totals[name] += row.get("census", {}).get(name, 0)
         if totals != EXPECTED_TOTAL:
             errors.append(f"block {block_index} census total")
     if errors:
