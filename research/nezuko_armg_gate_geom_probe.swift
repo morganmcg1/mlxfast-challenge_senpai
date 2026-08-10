@@ -272,14 +272,14 @@ print("name                       \(device.name)")
 print("architecture               \(device.architecture.name)")
 print("maxThreadgroupMemoryLength \(device.maxThreadgroupMemoryLength) B")
 
-func pipeline(_ source: String, _ name: String) -> MTLComputePipelineState {
+func pipeline(_ source: String, _ entry: String, label: String) -> MTLComputePipelineState {
     let lib: MTLLibrary
     do { lib = try device.makeLibrary(source: source, options: nil) } catch {
-        print("--- compile failed for \(name) ---")
+        print("--- compile failed for \(label) ---")
         print(source)
         fatalError("\(error)")
     }
-    return try! device.makeComputePipelineState(function: lib.makeFunction(name: name)!)
+    return try! device.makeComputePipelineState(function: lib.makeFunction(name: entry)!)
 }
 
 // MARK: - Arms
@@ -315,7 +315,7 @@ func buffer(_ bytes: Int) -> MTLBuffer {
 let arms: [Arm] = armSpecs.map { label, mode, ns, r in
     Arm(
         label: label, mode: mode, ns: ns, r: r,
-        pipe: pipeline(gateSource(mode, ns: ns, r: r), label),
+        pipe: pipeline(gateSource(mode, ns: ns, r: r), "probe_gate", label: label),
         gate: buffer(heads * 2), norm: buffer(hidden * 2))
 }
 
@@ -397,7 +397,7 @@ func run(_ pipe: MTLComputePipelineState, _ binds: [(Int, MTLBuffer)], _ tg: Int
     return (cb.gpuEndTime - cb.gpuStartTime) * 1e6
 }
 
-let rmsPipe = pipeline(rmsSource, "probe_rms")
+let rmsPipe = pipeline(rmsSource, "probe_rms", label: "rms")
 func runRms() -> Double {
     run(rmsPipe, [(0, residualBuf), (1, normWeightBuf), (2, normalizedRefBuf)], 1, 512)
 }
