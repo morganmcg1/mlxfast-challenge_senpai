@@ -1,0 +1,327 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mlx.fast/contracts/ranked-selector-attestation-v1.schema.json",
+  "title": "Ranked selector effective-environment attestation bundle v1",
+  "description": "Prospective organizer-produced evidence only. Validation can authorize a future static resumption of the selector audit; it does not establish ranked environment closure, a defect, or permission to run or submit.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "audited_source_revisions",
+    "workflow_sha256",
+    "selector_census_sha256",
+    "ranked_job_id",
+    "ranked_run_id",
+    "host_class",
+    "trusted_collector_id",
+    "capture_epoch",
+    "installed_authority_bundle_digest",
+    "comparison_intent",
+    "revision_only_policy",
+    "censuses",
+    "phases",
+    "manifest",
+    "canonical_bundle_sha256"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "audited_source_revisions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["current", "pinned"],
+      "properties": {
+        "current": { "$ref": "#/$defs/gitSha" },
+        "pinned": { "$ref": "#/$defs/gitSha" }
+      }
+    },
+    "workflow_sha256": { "$ref": "#/$defs/sha256" },
+    "selector_census_sha256": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["current", "pinned"],
+      "properties": {
+        "current": { "$ref": "#/$defs/sha256" },
+        "pinned": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "ranked_job_id": { "$ref": "#/$defs/nonSecretMetadata" },
+    "ranked_run_id": { "$ref": "#/$defs/nonSecretMetadata" },
+    "host_class": { "$ref": "#/$defs/nonSecretMetadata" },
+    "trusted_collector_id": { "$ref": "#/$defs/nonSecretMetadata" },
+    "capture_epoch": { "$ref": "#/$defs/captureEpoch" },
+    "installed_authority_bundle_digest": {
+      "oneOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }]
+    },
+    "comparison_intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "policy_id"],
+      "properties": {
+        "kind": {
+          "enum": ["all_selectors_absent", "intentional_identical_explicit_map"]
+        },
+        "policy_id": {
+          "oneOf": [{ "$ref": "#/$defs/nonSecretMetadata" }, { "type": "null" }]
+        }
+      }
+    },
+    "revision_only_policy": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/revisionOnlyRule" }
+    },
+    "censuses": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["current", "pinned"],
+      "properties": {
+        "current": { "oneOf": [{ "$ref": "#/$defs/relativePath" }, { "type": "null" }] },
+        "pinned": { "oneOf": [{ "$ref": "#/$defs/relativePath" }, { "type": "null" }] }
+      }
+    },
+    "phases": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": { "$ref": "#/$defs/phase" }
+    },
+    "manifest": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/manifestEntry" }
+    },
+    "canonical_bundle_sha256": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "gitSha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "captureEpoch": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "nonSecretMetadata": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$"
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 240,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*//)[A-Za-z0-9._/-]+$"
+    },
+    "phaseName": {
+      "enum": [
+        "current_public_correctness",
+        "current_hidden_gates",
+        "pinned_baseline_timed",
+        "current_candidate_timed"
+      ]
+    },
+    "phase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "process_class",
+        "source_revision_role",
+        "spawn_edge_id",
+        "parent_snapshot",
+        "worker_snapshot"
+      ],
+      "properties": {
+        "process_class": { "$ref": "#/$defs/phaseName" },
+        "source_revision_role": { "enum": ["current", "pinned"] },
+        "spawn_edge_id": { "$ref": "#/$defs/nonSecretMetadata" },
+        "parent_snapshot": {
+          "oneOf": [{ "$ref": "#/$defs/relativePath" }, { "type": "null" }]
+        },
+        "worker_snapshot": {
+          "oneOf": [{ "$ref": "#/$defs/relativePath" }, { "type": "null" }]
+        }
+      }
+    },
+    "manifestEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "path", "byte_size", "sha256"],
+      "properties": {
+        "role": { "$ref": "#/$defs/nonSecretMetadata" },
+        "path": { "$ref": "#/$defs/relativePath" },
+        "byte_size": { "type": "integer", "minimum": 1, "maximum": 16777216 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "revisionOnlyRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "present_in_revision",
+        "missing_from_revision",
+        "reason_code",
+        "allowed_state",
+        "allowed_value_sha256",
+        "justification"
+      ],
+      "properties": {
+        "key": { "$ref": "#/$defs/selectorName" },
+        "present_in_revision": { "enum": ["current", "pinned"] },
+        "missing_from_revision": { "enum": ["current", "pinned"] },
+        "reason_code": { "const": "REVISION_ONLY_NO_CONSUMER" },
+        "allowed_state": { "enum": ["ABSENT", "VALUE"] },
+        "allowed_value_sha256": {
+          "oneOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }]
+        },
+        "justification": { "$ref": "#/$defs/nonSecretMetadata" }
+      }
+    },
+    "selectorName": {
+      "type": "string",
+      "pattern": "^(?:DARKBLOOM_|MLX_)[A-Z0-9_]+$",
+      "maxLength": 160
+    },
+    "census": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "revision_role",
+        "source_revision",
+        "consumer_inventory_sha256",
+        "rows"
+      ],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "revision_role": { "enum": ["current", "pinned"] },
+        "source_revision": { "$ref": "#/$defs/gitSha" },
+        "consumer_inventory_sha256": { "$ref": "#/$defs/sha256" },
+        "rows": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/censusRow" }
+        }
+      }
+    },
+    "censusRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "row_id",
+        "name",
+        "source_locator",
+        "parser_profile",
+        "allowed_values_utf8_b64",
+        "absent_normalized"
+      ],
+      "properties": {
+        "row_id": { "$ref": "#/$defs/nonSecretMetadata" },
+        "name": { "$ref": "#/$defs/selectorName" },
+        "source_locator": { "$ref": "#/$defs/nonSecretMetadata" },
+        "parser_profile": {
+          "enum": ["bool_exact_1_v1", "bool_nonzero_v1", "int_v1", "enum_identity_v1"]
+        },
+        "allowed_values_utf8_b64": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[A-Za-z0-9+/]*={0,2}$" }
+        },
+        "absent_normalized": {
+          "type": ["boolean", "integer", "string"]
+        }
+      }
+    },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "process_class",
+        "stage",
+        "source_revision",
+        "census_sha256",
+        "spawn_edge_id",
+        "capture_epoch",
+        "rows",
+        "forced_runtime_worker",
+        "canonical_selector_map_sha256"
+      ],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "process_class": { "$ref": "#/$defs/phaseName" },
+        "stage": { "enum": ["parent", "worker"] },
+        "source_revision": { "$ref": "#/$defs/gitSha" },
+        "census_sha256": { "$ref": "#/$defs/sha256" },
+        "spawn_edge_id": { "$ref": "#/$defs/nonSecretMetadata" },
+        "capture_epoch": { "$ref": "#/$defs/captureEpoch" },
+        "rows": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/snapshotRow" }
+        },
+        "forced_runtime_worker": {
+          "oneOf": [{ "$ref": "#/$defs/forcedRuntimeWorker" }, { "type": "null" }]
+        },
+        "canonical_selector_map_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "snapshotRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "census_row_id",
+        "source_revision",
+        "parser_profile",
+        "state",
+        "value_utf8_b64",
+        "normalized_semantic",
+        "canonical_row_sha256"
+      ],
+      "properties": {
+        "name": { "$ref": "#/$defs/selectorName" },
+        "census_row_id": { "$ref": "#/$defs/nonSecretMetadata" },
+        "source_revision": { "$ref": "#/$defs/gitSha" },
+        "parser_profile": {
+          "enum": ["bool_exact_1_v1", "bool_nonzero_v1", "int_v1", "enum_identity_v1"]
+        },
+        "state": { "enum": ["ABSENT", "VALUE"] },
+        "value_utf8_b64": {
+          "oneOf": [
+            { "type": "string", "pattern": "^[A-Za-z0-9+/]*={0,2}$" },
+            { "type": "null" }
+          ]
+        },
+        "normalized_semantic": { "type": ["boolean", "integer", "string"] },
+        "canonical_row_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "forcedRuntimeWorker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "value_utf8_b64"],
+      "properties": {
+        "name": { "const": "MLXFAST_USE_RUNTIME_WORKER" },
+        "value_utf8_b64": { "const": "MA==" }
+      }
+    }
+  },
+  "x-physical-contract": {
+    "entry_point": "attestation.json",
+    "manifest_scope": "Every non-null census and phase snapshot path is present exactly once. No other physical file is allowed. The entry point is excluded to avoid a recursive file hash.",
+    "missing_evidence": "A required evidence reference is always present as a property. JSON null means explicitly missing and may produce INCOMPLETE; a non-null reference to a missing file is INVALID.",
+    "filesystem": "The bundle root, every path component, and every evidence file must be non-symlink. Paths are lexical POSIX relatives with no escape. Files must be regular, unique, declared, hash-consistent, and size-consistent."
+  },
+  "x-canonical-framing": {
+    "row": "SHA-256 over ASCII magic RANKED_SELECTOR_ROW_V1\\0 followed by, in order, u32be-length+UTF-8 bytes for name, census_row_id, source_revision, parser_profile, one state byte (0 absent, 1 value), u64be value length (2^64-1 absent) plus exact value bytes when present, and u32be-length+compact sorted-key UTF-8 JSON for normalized_semantic.",
+    "selector_map": "SHA-256 over ASCII magic RANKED_SELECTOR_MAP_V1\\0, u32be row count, then rows sorted by raw UTF-8 name bytes. Each row is u32be name length+name, one state byte, and u64be value length (2^64-1 absent) plus exact value bytes when present.",
+    "bundle": "SHA-256 over compact sorted-key UTF-8 JSON of attestation.json with canonical_bundle_sha256 omitted. Physical evidence is transitively bound by the recomputed manifest hashes.",
+    "json": "UTF-8; no duplicate object keys; compact canonical output uses ensure_ascii=false, sort_keys=true, separators comma and colon, and one trailing LF for physical JSON files."
+  },
+  "x-trust-boundary": "The validator requires a separately supplied trusted expectations object pinning both source SHAs, workflow digest, both census file digests, ranked job/run identity, host class, collector identity, capture epoch, and installed-authority foreign digest. Self-consistency inside the bundle is insufficient."
+}
