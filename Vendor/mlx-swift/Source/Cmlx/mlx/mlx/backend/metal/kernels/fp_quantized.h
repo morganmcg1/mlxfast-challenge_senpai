@@ -1440,7 +1440,7 @@ template <
     const int bits,
     const bool aligned_N,
     const bool batched,
-    const bool fuse_swiglu,
+    const bool fuse_swiglu = false,
     const int BM = 32,
     const int BK = 32,
     const int BN = 32>
