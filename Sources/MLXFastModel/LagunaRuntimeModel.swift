@@ -2261,6 +2261,20 @@ if (lane == 0) {
     ensureRowContiguous: true
 )
 
+struct LagunaFullAttentionParamsCarrier {
+    let writeIdx: Int
+    let capacity: Int
+    let array: MLXArray
+
+    init(writeIdx: Int, capacity: Int) {
+        self.writeIdx = writeIdx
+        self.capacity = capacity
+        self.array = MLXArray([
+            UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity),
+        ])
+    }
+}
+
 /// Fused decode attention for a full-attention layer with spare backing
 /// capacity. Returns `[1, heads, 1, headDim]`; the caller advances the
 /// cache clock via `KVCacheSimple.fusedAppendAdvance()`.
@@ -2274,6 +2288,7 @@ func lagunaFullFusedAttention(
     cacheKeys: MLXArray,
     cacheValues: MLXArray,
     writeIdx: Int,
+    params: MLXArray,
     scale: MLXArray
 ) -> MLXArray {
     let heads = LagunaConstants.fullAttentionHeads
@@ -2298,9 +2313,6 @@ func lagunaFullFusedAttention(
     precondition(scale.dtype == .float32 && scale.size == 1)
 
     lagunaTrace("full fused attention")
-    let params = MLXArray([
-        UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity),
-    ])
     return lagunaFullFusedAttentionKernel(
         [
             rawQueries, rawKeys, rawValues,
@@ -2336,6 +2348,7 @@ func lagunaWarmFullFusedAttentionKernel() {
         [1, kvHeads, 2, headDim], dtype: .bfloat16)
     let cacheValues = MLXArray.zeros(
         [1, kvHeads, 2, headDim], dtype: .bfloat16)
+    let params = MLXArray([UInt32(1), UInt32(2), UInt32(2)])
     let scale = MLXArray([pow(Float(headDim), -0.5)])
     eval(lagunaFullFusedAttention(
         rawQueries: rawQueries,
@@ -2347,6 +2360,7 @@ func lagunaWarmFullFusedAttentionKernel() {
         cacheKeys: cacheKeys,
         cacheValues: cacheValues,
         writeIdx: 1,
+        params: params,
         scale: scale
     ))
 }
@@ -5735,6 +5749,7 @@ final class LagunaRuntimeAttention: Module {
         inputNorm: RMSNorm,
         mask: MLXFast.ScaledDotProductAttentionMaskMode,
         cache: KVCache?,
+        fullAttentionParams: inout LagunaFullAttentionParamsCarrier?,
         qkRoPEAngles: MLXArray? = nil,
         qkRoPEOffsets: MLXArray? = nil
     ) -> MLXArray {
@@ -6042,6 +6057,24 @@ final class LagunaRuntimeAttention: Module {
             // the second decode step (the first step's growth concat stays
             // stock). The clock advance mirrors the stock single-token
             // update.
+            let capacity = append.keys.dim(2)
+            let params: MLXArray
+            if let carrier = fullAttentionParams,
+                carrier.writeIdx == append.writeIdx,
+                carrier.capacity == capacity
+            {
+                params = carrier.array
+            } else if fullAttentionParams == nil {
+                let carrier = LagunaFullAttentionParamsCarrier(
+                    writeIdx: append.writeIdx, capacity: capacity)
+                fullAttentionParams = carrier
+                params = carrier.array
+            } else {
+                params = MLXArray([
+                    UInt32(append.writeIdx), UInt32(append.writeIdx + 1),
+                    UInt32(capacity),
+                ])
+            }
             fusedAttended = lagunaFullFusedAttention(
                 rawQueries: queries,
                 rawKeys: keys,
@@ -6052,6 +6085,7 @@ final class LagunaRuntimeAttention: Module {
                 cacheKeys: append.keys,
                 cacheValues: append.values,
                 writeIdx: append.writeIdx,
+                params: params,
                 scale: _fusedAttnScale
             )
             simple.fusedAppendAdvance()
@@ -11009,6 +11043,7 @@ final class LagunaRuntimeDecoderLayer: Module {
         _ x: MLXArray,
         mask: MLXFast.ScaledDotProductAttentionMaskMode,
         cache: KVCache?,
+        fullAttentionParams: inout LagunaFullAttentionParamsCarrier?,
         qkRoPEAngles: MLXArray? = nil,
         qkRoPEOffsets: MLXArray? = nil
     ) -> MLXArray {
@@ -11017,6 +11052,7 @@ final class LagunaRuntimeDecoderLayer: Module {
             inputNorm: inputLayerNorm,
             mask: mask,
             cache: cache,
+            fullAttentionParams: &fullAttentionParams,
             qkRoPEAngles: qkRoPEAngles,
             qkRoPEOffsets: qkRoPEOffsets
         )
@@ -11537,6 +11573,7 @@ final class LagunaRuntimeModelInner: Module {
         // seed row, so the angles are the exact floats that layer's kernel
         // would have computed rather than a re-derivation.
 
+        var fullAttentionParams: LagunaFullAttentionParamsCarrier?
         for (i, layer) in layers.enumerated() {
             let isFull = layerTypes[i] == .full
             let mask = isFull ? fullMask : slidingMask
@@ -11549,6 +11586,7 @@ final class LagunaRuntimeModelInner: Module {
                         h,
                         mask: mask,
                         cache: cache?[i],
+                        fullAttentionParams: &fullAttentionParams,
                         qkRoPEAngles: qkRoPEAngles,
                         qkRoPEOffsets: qkRoPEOffsets
                     )
@@ -11561,6 +11599,7 @@ final class LagunaRuntimeModelInner: Module {
                     h,
                     mask: mask,
                     cache: cache?[i],
+                    fullAttentionParams: &fullAttentionParams,
                     qkRoPEAngles: qkRoPEAngles,
                     qkRoPEOffsets: qkRoPEOffsets
                 )
