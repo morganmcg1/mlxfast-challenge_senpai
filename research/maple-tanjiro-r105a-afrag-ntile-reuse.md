@@ -572,13 +572,179 @@ Until one of those happens **every** official submission from this campaign is
 refused, not just this arm's. That is the most load-bearing finding of this
 session and it is why §4.2 is empty.
 
-### 4.2 Receipts
+### 4.1a Resolved in rev2
 
-| arm | commit SHA | timestamp | `cand_dec` | `cand_pre` | `cs` |
-|---|---|---|---|---|---|
-| — | — | — | — | — | — |
+The advisor took option 2. Revision `r105-a-rev2` records
+`BASE_SHA = 5f7861c0981278929c3ef43d54a6d5bca10a8659`, this branch was rebased
+onto it, and the wrapper now accepts the candidate. Every receipt below was
+dispatched with exactly this command line, changing only the note file:
 
-**None dispatched.** Receipt budget consumed: **0 / 8**.
+```bash
+bash senpai/submit-official.sh 1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7 \
+  --note-file research/r105a-notes/<ARM>.md
+```
+
+Argument 1 is the recorded `origin/main` SHA, verbatim, for every arm. It is not
+the candidate commit, not the PR head, and not the advisor branch SHA.
+
+### 4.2 Instrument calibration — done before reading any treatment receipt
+
+Stage 1 set the ship bar at **1.35 ms of prefill wall** and assumed a
+per-receipt noise of about 0.16 % of score. Neither number had ever been
+measured, so before spending treatment receipts I calibrated the ranked channel
+from the public benchmark history: 1,208 receipts that passed correctness, all
+sharing one `weights_hash`. Scripts: `research/r105a-calibrate.py` and
+`research/r105a-echo-test.py`.
+
+**The campaign has never measured its own instrument.** Grouping those 1,208
+receipts by `(harness_hash, weights_hash, commit)` yields **1,208 groups of size
+one — zero same-code replicates**. The archive is deduplicated byte-identically,
+so no candidate has ever been measured twice. Every speedup ever published on
+this benchmark, including every promotion decision, rests on a single unreplicated
+paired measurement whose noise was unknown. The A0 rungs of this ladder are, as
+far as the public record shows, the first same-code replicates ever dispatched.
+
+**The pinned baseline is a free 1,208-fold replicate.** The paired baseline is
+the same code in every receipt, so its spread *is* the instrument noise:
+
+| channel | mean | SD | relative SD |
+|---|---|---|---|
+| baseline prefill wall | 190.674 ms | 3.691 ms | **1.936 %** |
+| baseline decode per token | 13.8548 ms | 0.03413 ms | **0.246 %** |
+
+The prefill axis is nearly **8× noisier in relative terms** than the decode axis.
+
+**That noise is white — there is no session structure for pairing to cancel.**
+A variogram of the baseline series over elapsed gap is flat from under 15
+minutes to 30 days: σ(0–15 min) = 1.911 % against σ(total) = 1.926 % for
+prefill, and 0.251 % against 0.246 % for decode. A level shift between harness
+eras or a slow thermal drift would make short-gap pairs much tighter than
+long-gap pairs. They are identical, so the variation is per-run, not per-era.
+
+Consistently, the within-receipt covariance between a candidate and its own
+baseline — which estimates the shared session factor directly, because candidate
+code effects cannot enter the fixed baseline channel — is **≤ 0 on both axes**:
+σ_session = 0.000 % against σ_run = 1.926 % (prefill) and 0.246 % (decode). The
+point estimate says the paired ratio cancels nothing and therefore *doubles* the
+variance. This estimator is noisy (candidate SD is 18.5 % on prefill, so the
+2-SE upper bound on σ_session is about 1.4 %), which is precisely what the A0
+replicates resolve.
+
+**The seed prefill is charged to decode, but as an independent execution.** The
+Stage-1 price f = 0.38 %/ms assumed `dec = T + 4·pre`. The harness confirms the
+level: `LagunaRuntimeLocalIterate.swift:577-582` charges "prompt-specific setup,
+seed prefill, cache materialization, and checked token steps" to
+`decode_seconds_per_token`, and it logs `includes_seed_prefill=true`. But
+regressing the baseline's decode metric on its own prefill metric across 1,208
+receipts gives
+
+```
+d(base_dec)/d(base_pre) = 0.587 +/- 0.135     [4.0 if the same measurement is reused, 0.0 if prefill-free]
+z vs 4.0 = -25.2      z vs 0.0 = +4.3
+```
+
+so the decode phase runs its **own** seed prefill behind its own cool gate
+(`:768-772`) rather than reusing the timed prefill number. Both facts hold at
+once: the decode metric's *level* contains a 512-token prefill, so a genuine
+prefill saving is still worth `1/128` ms per step and **f = 0.3796 %/ms stands**;
+but the decode metric's *noise* contains an independent draw of prefill noise,
+4 × 1.936 % × pre, which is 0.0288 ms of its 0.0341 ms SD — about 72 % of the
+decode variance is seed-prefill noise, leaving a pure-step noise near 0.148 %.
+
+The noise is also not an outlier artifact that a median could dodge: for the
+baseline prefill wall, SD = 3.691 ms, 1.4826·MAD = 2.989 ms and IQR/1.349 =
+4.771 ms, with p1 = 186.2 ms and p99 = 198.7 ms. The distribution is
+right-skewed but its robust core is still ~1.6 %. The decode metric is clean
+(SD 0.0341, 1.4826·MAD 0.0346, IQR/1.349 0.0355).
+
+**Resulting resolution, at this arm's operating point** (A0-1: 96.031 ms
+prefill wall, 4.1617 ms pure step, f = 0.3796 %/ms), per one ms of prefill wall:
+
+| endpoint | signal | noise | SNR per ms | SE of one receipt |
+|---|---|---|---|---|
+| candidate prefill | 1.041 %/ms | 1.936 % | 0.538 | 1.86 ms |
+| candidate decode | 0.159 %/ms | 0.323 % | 0.495 | 2.02 ms |
+| both, inverse-variance | — | — | **0.731** | **1.37 ms** |
+| `prefill_speedup` (paired) | 1.041 %/ms | 2.738 % | 0.380 | 2.63 ms |
+| `officialScore` (paired) | 0.3796 %/ms | 0.750 % | 0.506 | 1.98 ms |
+
+Two consequences, both preregistered below. First, the **published paired
+speedups are the worst available endpoints** — pairing against a baseline whose
+noise does not cancel adds a factor √2 — so the analysis uses the candidate-only
+channels and treats A0 as the reference level. Second, the best achievable
+per-receipt SE on a prefill change is **1.37 ms, which is the size of the entire
+1.35 ms ship bar.** With the 3/2/2 allocation the arm-versus-A0 contrast has
+SE ≈ 1.37·√(1/2+1/3) = **1.25 ms**. Excluding the bar one-sided at 95 % would
+need a point estimate below −0.71 ms, and declaring a win would need +2.06 ms.
+**An eight-receipt ladder cannot resolve a 1.35 ms prefill effect on this
+instrument;** reaching SE ≈ 0.5 ms needs roughly 15 receipts per arm.
+
+### 4.3 Preregistered analysis plan
+
+Written before the first treatment receipt was readable, and amended once, here,
+after the calibration above and an independent methodological review.
+
+**Endpoint.** Per receipt, estimate the prefill wall saving ΔP in ms from the
+candidate channels only: `P = 512000·prefill_seconds_per_token` and the decode
+echo `128·(dec − dec_ref)`, combined by inverse variance. Contrast **arm means
+against the A0 mean**, never against 1.0 and never against the paired baseline,
+whose session-to-session level moves by ±3.7 ms. Report the decode/prefill
+consistency check on arm means; excess decode movement means a decode-side
+effect, not a prefill effect.
+
+**Allocation and order.** Keep 3 A0 / 2 A1 / 2 A2 — for two treatments against
+one shared control the variance-optimal control count is n_t·√2 ≈ 3. Fix the
+rev2 ladder's drift imbalance: the original order put A0 at slots {1,2,5} and
+treatments at mean slot 5.0, so any linear drift in the pair asymmetry loaded
+entirely onto the treatment contrasts. Slots 1–2 are already spent on A0, so the
+remainder is interleaved to equalise mean slot between the two treatments:
+
+| slot | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|---|---|
+| arm | A0-1 | A0-2 | A2-1 | A1-1 | A1-2 | A2-2 | A0-3 | adaptive |
+
+Mean slot: A0 3.33, A1 4.5, A2 4.5 — both treatments equally offset, so a linear
+drift cancels between them. Slot 8 is preregistered adaptive: the combined arm
+(variant 6, both routed shapes at bn=128) if both treatments clear the bar,
+because that is the variant that would actually ship and tile effects need not be
+additive; otherwise a third replicate of an inconclusive arm; otherwise unused.
+
+**No ship decision from a single receipt**, and no post-hoc selection of the
+better-looking arm as if it had been the only one tested.
+
+**Diagnostics, all of which must pass or the verdict is "invalid".**
+D1: the two A0 replicates agree within 3σ√2 of the calibrated per-receipt σ.
+D2: pooled within-arm SD ≤ 1.6× the calibrated σ.
+D3: no receipt's paired baseline is a >2σ outlier against the 1,208-receipt
+baseline distribution, and no monotone trend in it across slots.
+D4: the pure-step contrast (arm versus A0) is within ±2 SE of zero, since these
+arms touch only a multi-row prefill tile.
+D5: the modified kernel is reachable on ranked hardware.
+
+**Verdict rule.** WIN: Δ̂ ≥ 1.35 ms **and** Δ̂ − 1.645·SE > 0 **and** n ≥ 2 **and**
+diagnostics pass; if both arms win, shipping is contingent on the slot-8 combined
+receipt. NULL with the bar excluded: Δ̂ + 1.645·SE < 1.35 ms. NULL and
+underpowered: anything between. Δ̂ < −1.645·SE is reported as a regression, not
+folded into "null". Given §4.2's arithmetic the underpowered branch is the
+*expected* outcome, and saying so in advance is the point of writing it down.
+
+**Honesty limits.** With n = (3,2,2) the assumption-free permutation floor is
+one-sided p = 0.10, attainable only if both treatment receipts beat all three
+A0 receipts. Any interval quoted below is explicitly conditional on the
+calibrated σ from §4.2; the pooled within-arm SD at 4 dof has a ~35 % CV and is
+reported only as a cross-check.
+
+### 4.4 Receipts
+
+| arm | variant | submission | commit | prefill wall | pure step | `officialScore` | correctness |
+|---|---|---|---|---|---|---|---|
+| A0-1 | 5 (default) | `69fb349b` | `51b6c142` | 96.031 ms | 4.1617 ms | 2.57065175986034 | pass, `max_abs_diff=0`, 1344 steps |
+
+Receipt budget consumed: **2 / 8** dispatched (A0-2 in flight at time of
+writing). All arms are bit-identical by construction — the only difference
+between A0 rungs is a comment — so `max_abs_diff = 0` is the falsifiable
+prediction, and any nonzero value would refute the "inert by default" claim in
+§0.
 
 ---
 

@@ -1,0 +1,90 @@
+{
+  "harness_hash": "ec21942e29126ce3a5515de17b99dc727610995f96456e9ed05f8a8fdeaf33d6",
+  "receipts": 1208,
+  "replicated_commits": 0,
+  "prefill_ms": 100.767458,
+  "step_ms": 5.04858659375,
+  "price_pct_per_ms": 0.3484993829486879,
+  "channels": {
+    "cand_pre": {
+      "sigma_pct": NaN,
+      "dof": 0,
+      "prefill_ms": NaN,
+      "score_pct": NaN
+    },
+    "cand_dec": {
+      "sigma_pct": NaN,
+      "dof": 0,
+      "prefill_ms": NaN,
+      "score_pct": NaN
+    },
+    "base_pre": {
+      "sigma_pct": NaN,
+      "dof": 0,
+      "prefill_ms": NaN,
+      "score_pct": NaN
+    },
+    "base_dec": {
+      "sigma_pct": NaN,
+      "dof": 0,
+      "prefill_ms": NaN,
+      "score_pct": NaN
+    },
+    "ps": {
+      "sigma_pct": NaN,
+      "dof": 0,
+      "prefill_ms": NaN,
+      "score_pct": NaN
+    },
+    "ds": {
+      "sigma_pct": NaN,
+      "dof": 0,
+      "prefill_ms": NaN,
+      "score_pct": NaN
+    },
+    "score": {
+      "sigma_pct": NaN,
+      "dof": 0,
+      "prefill_ms": NaN,
+      "score_pct": NaN
+    },
+    "_baseline": {
+      "base_pre": 1.9260522724368432,
+      "base_dec": 0.24604878782296652
+    },
+    "_variogram": {
+      "base_pre": {
+        "0-15 min": 1.9112832912264806,
+        "15-60 min": 1.9125300414555957,
+        "60-360 min": 1.9059538468618888,
+        "360-1440 min": 1.931573068452237,
+        "1440-43200 min": 1.9263342765844762
+      },
+      "base_dec": {
+        "0-15 min": 0.25065228017453717,
+        "15-60 min": 0.24179973604250315,
+        "60-360 min": 0.24470797369476938,
+        "360-1440 min": 0.24755984624135727,
+        "1440-43200 min": 0.2459274585982537
+      }
+    },
+    "_decomposition": {
+      "prefill": {
+        "sd_base_pct": 1.9260522724368432,
+        "sd_cand_pct": 18.512537409374627,
+        "sigma_session_pct": 0.0,
+        "sigma_run_pct": 1.9260522724368432,
+        "sigma_paired_pct": 2.723849245519703,
+        "sigma_cand_only_pct": 1.9260522724368432
+      },
+      "decode": {
+        "sd_base_pct": 0.24604878782296652,
+        "sd_cand_pct": 29.31922302588223,
+        "sigma_session_pct": 0.0,
+        "sigma_run_pct": 0.24604878782296652,
+        "sigma_paired_pct": 0.3479655327446993,
+        "sigma_cand_only_pct": 0.24604878782296652
+      }
+    }
+  }
+}
