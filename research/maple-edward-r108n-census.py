@@ -12,15 +12,21 @@ Anchors are the R107-D (#642) sliding fma dose on the same host and epoch.
 """
 
 # ---------------------------------------------------------------- expansions
-SIMD_REDUCE = 10   # 5 simd_shuffle_xor + 5 arithmetic, 32 lanes
+SIMD_REDUCE = 9    # measured: simd_sum costs 9.05 fma slots (dose ladder below)
 EXP = 2            # mul by log2(e) + hardware exp2
 DIV = 5            # reciprocal + refine + mul, fp32, default math mode
 ROWS = 16          # 4 loop iterations x 4 unrolled row stages
 ITERS = 4
 
 # ------------------------------------------------------- measured anchors, M4
-PROBE_BASE_US = 4.248 / 0.24503        # dose-16 arm: +4.248 us == +24.503 %
-FMA_SLOT_US = 4.248 / 512.0           # us per fma-per-thread per dispatch
+# fma dose ladder, 41 paired rounds, FERN_DEFEAT_SLOTS=64:
+#   128 ops/thread +1.395 us | 512 +4.259 | 1024 +9.061
+# The marginal slope over 128..1024 is the slot price; the +0.30 us intercept is
+# the dose scaffold (register seeds and fold-back), not per-op cost.  The mul
+# arm is excluded: dose 16 measured the same as dose 4, so the constant-multiply
+# chain is folded by fast math and never priced a real slot.
+FMA_SLOT_US = (9.061 - 1.395) / (1024 - 128)
+PROBE_BASE_US = 18.39                 # null-arm base_min, 121 paired rounds
 MEASURED_SLOTS = PROBE_BASE_US / FMA_SLOT_US
 SLIDING_DISPATCHES = 30
 T3A_M4_US_STEP = 618.9                # corrected value, rule 100.3
@@ -74,6 +80,10 @@ rows = [
     ("epilogue: barriers, bf16 stores (lane==0, amortised)", 4, 0, ""),
 ]
 
+# Static predictions only.  The measured-arm block at the end of this script
+# supersedes them: M1 and M3 do not remove a slot at all, because the base
+# already contracts o*f + e*v into one multiply plus one fma and already shares
+# the two epilogue reciprocals.
 removable_net = {
     1: [("M2 ring-predicate peel", 40), ("M4 epilogue transpose merge", 4)],
     2: [("M1 factor==1 accumulator fast path", 96),
@@ -116,6 +126,38 @@ for rc in (1, 2, 3, 4):
     cum += sum(s for _, s in removable_net[rc])
     price(cum, f"CUMULATIVE through removable-class {rc}")
     print()
+
+# ------------------------------------------- directly measured arms, 121 rounds
+# maple-edward-r108n-variant-run.sh, M4, FERN_DEFEAT_SLOTS=64, epoch 705484b9.
+# (arm, d_mean us/dispatch, d_sd, note).  NULL is a verbatim copy, so its
+# d_mean is the instrument bias and every arm is reported bias-corrected too.
+NULL_US, NULL_SD, ROUNDS = -0.040, 0.194, 121
+arms = [
+    ("m1  factor==1 accumulator fast path", +0.358, 0.341,
+     "static census predicted -96 slots; measures slower"),
+    ("m2  ring predicate forced off (upper bound)", -0.100, 0.317,
+     "not correct as measured; a real peel keeps a fix-up"),
+    ("m3  epilogue reciprocal", +0.007, 0.183, "at the bias floor"),
+    ("m1+m2+m3", +0.158, 0.337, "net slower than base"),
+]
+print()
+print("directly measured arms (M4, 121 paired rounds, residency defeated):")
+print("cs+ is the score change if the arm were adopted; positive is a gain.")
+print(f"{'arm':44s} {'d_mean':>8s} {'95% CI':>18s} {'bias-corr':>10s} "
+      f"{'slots':>7s} {'cs+ k_lo':>9s} {'cs+ rule100':>12s}  note")
+for name, d, sd, note in [("NULL  verbatim copy", NULL_US, NULL_SD, "bias floor")] + arms:
+    ci = 1.96 * sd / ROUNDS ** 0.5
+    corr = d - NULL_US if name.startswith(("m1", "m2", "m3")) else d
+    slots = corr / FMA_SLOT_US
+    cs_lo = corr * SLIDING_DISPATCHES * K_ISSUE_LO * CS_PER_M5_US
+    cs_r100 = slots * RULE100_CS_PER_FMA
+    print(f"{name:44s} {d:+8.3f} [{d-ci:+.3f},{d+ci:+.3f}] {corr:+10.3f} "
+      f"{slots:+7.1f} {-cs_lo:+9.4f} {-cs_r100:+12.4f}  {note}")
+best = -(min(a[1] for a in arms) - NULL_US)
+print(f"best measured removal            {best:.3f} us/dispatch = "
+      f"{100*best/PROBE_BASE_US:.2f} % of T3a issue "
+      f"({best/FMA_SLOT_US:.1f} slots/thread)")
+print()
 
 need_lo = BAR_CS / (K_ISSUE_LO * CS_PER_M5_US) / SLIDING_DISPATCHES / FMA_SLOT_US
 need_hi = BAR_CS / (K_ISSUE_HI * CS_PER_M5_US) / SLIDING_DISPATCHES / FMA_SLOT_US
