@@ -6931,6 +6931,126 @@ conjunction is low-probability, and rule 105.5's "no draw is the modal
 outcome, not the failure mode" should be read as the *planning assumption*
 from here, not as a caveat.
 
+#### 105.13 ⭐⭐ The **third regime**: dispatch converts at `k ≈ 1.89`, and the α/β model passes its first direct whole-decode test
+
+Round 107, advisor, from `maple-nezuko`'s R106-B §C.3 (PR #616, commit
+`fad73839`). Arithmetic: `research/advisor_r105_13_third_regime.py`.
+
+**(a) The first *measured* whole-decode `k`, and it validates the model.**
+Rules 105.1–105.12 all rest on `α = 0.4369` / `β = 0.5` being the M4→M5
+factors. Until now nobody had a same-quantity M4 *and* M5 number for decode as
+a whole. nezuko's control campaign supplies the M4 half:
+`mean_step_seconds = 0.008448` ⇒ **`T_M4 = 8448 µs/step`** (n = 6, control sd
+16.35 µs/step). Rule 58 supplies the M5 half: **`T_M5 = 4141.5 µs/step`**.
+
+```text
+k_steady = T_M5 / T_M4 = 4141.5 / 8448 = 0.4902
+```
+
+`α = 0.4369 < 0.4902 < 0.5 = β`. **The host model survives its first direct
+test**, and the blended value sits where a bytes-dominated decode mix should
+put it. Nothing in 105.1–105.12 needs revisiting on this account.
+
+**(b) 🪤 The trap that nearly falsified it — the two reported decode figures
+are not the same functional.** The naive check is
+`4925.255 / 8984.50 = 0.5482`, which is *above* `β` and therefore impossible
+under an α/β model. That comparison is wrong, and the reason is rule 58:
+
+| figure | what it is | seed-prefill denominator |
+|---|---|---|
+| receipt `cand_dec` = 4925.255 µs/step | **M5**, official worker | `S/128` ⇒ `4P = 752.2 µs/step`, **15.4 %** |
+| local `--local-submit` = 8966–8984.5 µs/step | **M4**, student harness | `S/1023` ⇒ ≈ 518–564 µs/step, **5.8 %** |
+
+Different amortisation denominators ⇒ different fixed-term loadings ⇒ **the
+ratio of the two is not `k`**. Only the *steady-state* parts are comparable.
+🚨 **Standing rule: never divide a local `--local-submit` level by a receipt
+level.** For *paired deltas* the fixed term cancels, so 105.2's conversion is
+unaffected — this bites levels, not contrasts.
+
+**(c) ⭐ The third regime.** The rulebook already contains a measured M4/M5
+pair for dispatch cost, and nobody has ever divided them:
+
+```text
+rule 57  M4 per-dispatch glue, saturated marginal : 1.2382 µs  [1.2237, 1.2518]
+rule 65  M5 cost of one added dispatch, marginal  : 2.3403 µs  [2.2766, 2.4040]
+k_dispatch = 2.3403 / 1.2382 = 1.890
+```
+
+**Dispatch is `k ≈ 1.89`, not 0.4369 or 0.5.** M5 dispatch is *more* expensive
+than M4 dispatch — entirely plausible: it is host/driver-resident work that
+does not shrink when you add GPU cores, and the ranked machine has twice as
+many cores to broadcast to.
+
+*Independent corroboration from the census residue.* §B.0.3's M4 column sums to
+**8096.3 µs/step = 95.8 %** of the measured `T_M4`, leaving **351.7 µs/step**
+of non-census M4 decode time; its (derived) M5 column sums to **3650.9 =
+88.2 %** of `T_M5`, leaving **490.6 µs/step**. The implied residue factor is
+**1.395**, and the fit brackets tightly:
+
+| assumed `k_residue` | predicted `T_M5` | error vs 4141.5 |
+|---|---|---|
+| α = 0.4369 | 3804.6 | **−8.14 %** |
+| β = 0.5 | 3826.8 | **−7.60 %** |
+| 1.0 | 4002.6 | −3.35 % |
+| 1.890 (rules 57/65) | 4315.6 | +4.20 % |
+
+The residue — dispatch glue, encoder boundaries, gaps — is bracketed by
+`k ∈ [1.0, 1.89]` and **excludes α and β at ~8 %**. Two independent routes,
+same answer. ⚠️ Tagged **marginal, not census** (rule 105.8): it is a
+difference of two totals, one of which is derived, so treat 1.89 as the point
+estimate and 1.0 as the conservative floor — never quote the residue itself as
+a headroom pool.
+
+**(d) 🚨 The one-sidedness theorem (105.12) has exactly one exception.** The
+theorem was `k < 1 ⇒ bare price over-states ⇒ false positives only`. For the
+dispatch regime `k > 1`, so the bare price **under**-states by 1.89×.
+
+⇒ **Bytes- and latency-family closures stay closed** (105.12 corollary
+intact). ⇒ **Dispatch-count closures priced bare on an M4 number were
+under-valued and are the one population that can hide a false negative.**
+Checked against the live list, none of them moves a verdict: rule 92's
+barrier/encoder/command-buffer family cap of 1.3003 µs/step goes from 0.0198 %
+to 0.0374 %; ledger M3's 84 merged single-TG dispatches go from the corrected
+0.0691 % (β) to **0.2612 %** at `k_dispatch` — still below the 0.4 % bar, but
+now only 1.5× below rather than 7.2×. That is the largest re-pricing the
+theorem's exception produces anywhere in this file, and it is worth one line
+in any successor's triage.
+
+**(e) The triage dual, extended.**
+
+| bar | M5 µs/step | M4 bytes (α) | M4 latency (β) | **M4 dispatch (1.89)** |
+|---|---|---|---|---|
+| 0.40 % draw bar | 26.27 | 60.1 | 52.5 | **13.9** |
+| 0.46 % arm-sizing | 30.21 | 69.1 | 60.4 | **16.0** |
+| 0.50 % ledger | 32.83 | 75.2 | 65.7 | **17.4** |
+| 1.00 % | 65.67 | 150.3 | 131.3 | **34.7** |
+
+Useful headline: **one dispatch removed per step = 0.0356 % of `cs`; one
+per-layer dispatch eliminated across 39 layers = 91.3 M5 µs/step = 1.390 %** —
+3.5× the draw bar. That is the largest single lever class still nominally open,
+and rule 65's "multiply by 40 layers before you get excited" was, if anything,
+under-selling it by a factor of 1.89. ⚠️ It is nominally open only: the
+scheduling family is closed by rule 92 and every split/fusion attempt that
+*added* dispatches (#196, #528, #566) measured null-to-negative. What 105.13
+changes is the **price of a genuine per-layer kernel merge**, not the evidence
+that one exists.
+
+**(f) Worked correction, nezuko R106-B §C.5.** Her table prices M4 local
+paired deltas at the bare M5 price — category (c) of 105.12, textbook:
+
+| arm | Δ M4 µs/step | as written (bare) | correct (β) | correct (α) |
+|---|---|---|---|---|
+| H (H4) | +35.959 | +0.5476 % | **+0.2738 %** | +0.2392 % |
+| K (PACKRED) | +22.145 | +0.3372 % | **+0.1686 %** | +0.1473 % |
+| P (NOREDUCE) | +16.276 | +0.2479 % | **+0.1239 %** | +0.1083 % |
+| P lower bound | −0.395 | −0.0060 % | **−0.0030 %** | −0.0026 % |
+
+Her level statement "the sliding kernel is 670 µs/step, i.e. **10.2 %** of
+`cs`" is likewise bare; correctly **5.10 % (β) / 4.46 % (α)**. Every
+correction shrinks the number, her verdict is a *closure*, and closures only
+harden when the effect shrinks — the one-sidedness theorem doing its job. Her
+**N-RECOVER / DO NOT SEND verdict stands unchanged and strengthened.**
+
 
 ## 9. σ table (rule 40 — pick your estimator, then quote its floor)
 
