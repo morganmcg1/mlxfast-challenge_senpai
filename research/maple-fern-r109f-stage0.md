@@ -942,3 +942,280 @@ Both are fixed, and both are worth recording as standing rules:
 No submitted file was affected and no conclusion in this report depends on a
 destroyed artifact: the lost slot's numbers were recovered from the job log.
 
+
+## 14. Response to advisor comment 6 (pricing bracket CLOSED)
+
+Comment 6 closed the pricing bracket, replaced my composite-first plan with a
+ranked single-arm queue, and asked me for two deliverables: the structural
+dispatch census that decides whether nezuko's #682 should continue, and the
+harness normalisation constants. Both are done. One of them contradicts the
+comment, in the dangerous direction, so it leads.
+
+### 14.1 Headline: the `--local-submit` normalisation in comment 6 is wrong by 1.88x, and it errs in the direction that discards real wins
+
+Comment 6 §6 asked me to normalise a `--local-submit` steady-step delta by
+`/1.11`, on the stated basis that `--local-submit` runs at `sigma ~= 5.9%` and
+therefore `elast_T = 0.706`, i.e. *more* decode-elastic than the ranked M5
+frontier. I measured `sigma` on my own n=4 steady-state Stage 0 `--local-submit`
+baseline family (§3) instead of assuming it, using the comment's own identity:
+
+```
+S     = 512000 * prefill_s_per_token     (ms of prefill per 512-token prompt)
+D     = 1000   * decode_s_per_token      (ms per decode step)
+T     = D - S/128                        (us of steady step, prefill share out)
+sigma = (S/128)/D
+elast_S = 0.25 + 0.75*sigma ,  elast_T = 0.75*(1-sigma)
+```
+
+`research/fern_r109f_harness_calibration.py` (committed) evaluates all four
+operating points from measured numbers only:
+
+| operating point | S (ms) | D (ms) | T (us) | sigma | elast_S | elast_T | normT | normS |
+|---|---|---|---|---|---|---|---|---|
+| M5 pinned baseline | 188.17 | 13.8562 | 12386.1 | 10.61% | 0.330 | 0.670 | 0.952 | 1.098 |
+| M5 frontier `e27f1ce` | 97.86 | 5.0870 | 4322.4 | 15.03% | 0.363 | 0.637 | 1.001 | 0.998 |
+| M4 `--local-iterate` | 574.87 | 12.9130 | 8421.8 | 34.78% | 0.511 | 0.489 | **1.304** | 0.709 |
+| M4 `--local-submit` | 569.30 | 8.9557 | 4508.1 | **49.66%** | 0.622 | **0.378** | **1.690** | 0.582 |
+
+`normT = elast_T(M5 frontier) / elast_T(host)` is the factor by which a
+*fractional* steady-step win measured on that host must be **multiplied** to
+predict ranked %score. `normS` is the same for prefill.
+
+Two of these agree with comment 6 and one does not:
+
+1. `--local-iterate` `normT = 1.304` **confirms** the comment's `x1.28`. The
+   canonical chain `%score = 0.63 * tau * dT/8972` is specifically an
+   `--local-iterate` chain and is internally consistent; my measured
+   `--local-iterate` `T = 8421.8 us` is within 6% of the profiler's 8972 us
+   unprofiled step.
+2. `--local-submit` is **`sigma = 49.66%`, not 5.9%** -- it is the *least*
+   decode-elastic harness I have, not the most. `elast_T = 0.378`, so
+   `normT = x1.690`. Applying `/1.11` instead of `x1.690` understates a real
+   `--local-submit` steady-step win by **1.88x**.
+3. Therefore **both local harnesses under-report a steady-step win; neither
+   over-reports one.** There is no configuration in which a decode arm looks
+   better locally than it will rank, on the fractional model. The failure mode
+   comment 6's constant creates is the expensive one: an arm that genuinely
+   clears the 0.378% bar gets divided down to ~0.22% and discarded.
+
+The likely origin of the 5.9% figure is that `--local-submit` prefill *per
+token* is fast relative to its own decode on M5, but on this M4 Pro prefill is
+5.8x slower than M5 (S = 569 ms vs 98 ms) while decode is only 1.76x slower.
+94.2% of M4 prefill GPU time is a fallback the ranked M5 never executes, so M4
+`sigma` is inflated on **both** local harnesses. `--local-submit` has the faster
+decode of the two, which makes its `sigma` the worst, not the best.
+
+**Mirror image for prefill arms.** `normS < 1` on both harnesses, so a *prefill*
+win is **over**-reported: `x0.582` on `--local-submit` and `x0.709` on
+`--local-iterate`, i.e. divide a local prefill fraction by 1.72 or 1.41
+respectively. This matters specifically for alphonse's full-attention/prefill
+MMA and for any `_nax` claim, on top of the existing rule that an M4 cannot
+evidence an `_nax` change at all.
+
+**The absolute-microsecond bar is harness-specific.** Using
+`%score = elast_T(M5) * tau * dT_us / T_host`:
+
+| host | T (us) | %score per us | us needed for the 0.378% bar |
+|---|---|---|---|
+| `--local-iterate` | 8421.8 | 0.00758 | **49.9** |
+| `--local-submit` | 4508.1 | 0.01415 | **26.7** |
+| M5 frontier | 4322.4 | 0.01476 | 25.6 |
+| comment 6 canonical chain (0.63/8972) | 8972 | 0.00702 | 53.8 |
+
+The comment's "54 us" and my 49.9 us agree to 8%, and both are
+`--local-iterate` numbers. **"54 us" must never be applied to a `--local-submit`
+delta**; there the bar is 26.7 us.
+
+**Recommendation, and it changes the measurement plan: run the decode arms on
+`--local-submit`, not `--local-iterate`.** The reason is not precision, it is
+model ambiguity. Two transfer models are defensible -- the arm removes a fixed
+number of microseconds (absolute), or it removes a fixed fraction of the step
+(fractional). On `--local-submit` the steady step is 4508 us, within **4.3%** of
+the ranked M5 frontier's 4322 us, so the two models predict 1.690 vs 1.763 and
+the choice is immaterial. On `--local-iterate` the steady step is 8422 us, so
+the models predict 1.304 vs 2.542 -- a **1.95x** spread that no amount of
+replication resolves. The price is ~1.7x more wall-clock per replicate
+(3.5-4.3 min vs 140-200 s). For the arms that will decide a submission that is
+worth paying.
+
+`research/fern_r109_timing_ledger.py` now implements this as a self-calibrating
+two-axis projection (`m5_projection`) rather than a hardcoded constant: it takes
+the measured baseline and candidate medians on whatever harness produced them,
+forms `dln_S` and `dln_T`, applies the **M5 frontier** elasticities, and reports
+`projected_m5_ratio` plus a `beats_bar` flag against 1.003780272. There is no
+`x1.28` or `/1.11` to misapply. `--tau` defaults to 1.0 and its help text
+records 1.0 for dispatch/launch overhead, 1.06 for DRAM-traffic savings, and
+"unknown, can flip sign" for threadgroup geometry.
+
+### 14.2 Escalation deliverable: the structural dispatch census
+
+Design, per comment 6 §8: zero source edits, `DARKBLOOM_TRACE_FUSION=1`, one
+`--local-iterate` invocation per arm, **no timing claim and no ABBA**. Arms:
+**A** = shipping default; **B** = `DARKBLOOM_NATIVE_AFFINE_NVFP4=0`;
+**C** = that plus `DARKBLOOM_FUSED_NORM_AFFINE_QKV=0`. Job
+`e03b8df3-46fc-4838-be63-090858d6c694`, exit 0, 459 s. Artifacts:
+`research/artifacts/fern-r109f/census/{census,sites}-{A,B,C}.{log,txt}`.
+Distinct traced sites: A = 24, B = 26, C = 22.
+
+**A -> B.** Vanished: `decode nvfp4 qkv r1 h48 lane-major`,
+`decode nvfp4 qkv r1 h64 lane-major`,
+`gated affine oproj nvfp4 qmv h48 lane-major`,
+`gated affine oproj nvfp4 qmv h64 lane-major`. Appeared:
+`gated affine oproj qmv h48 indexed`, `gated affine oproj qmv h64 indexed`,
+`norm+affine qkv qmv r10304 pf4`, `norm+affine qkv qmv r10304 pf4 indexed`,
+`norm+affine qkv qmv r8240 pf4`, `norm+affine qkv qmv r8240 pf4 indexed`.
+
+**B -> C.** Vanished: **only** the four `norm+affine qkv qmv` sites. Nothing
+else moves in either direction.
+
+Four conclusions, and the first two are the ones that matter:
+
+1. **The o_proj flip from `nvfp4 qmv lane-major` to `qmv indexed` is present in
+   both B and C.** It therefore rides on the **quantization bank flip**, not on
+   the fusion. `lagunaGateSoftplus` is gated by
+   `lagunaGatedAffineOProjNVFP4Enabled` (LRM:5989-5991, requires
+   `mode == .nvfp4, bits == 4, groupSize == 16`), and that predicate is the same
+   `bits == 8` switch that renames the o_proj trace site. So
+   `gate_sp_h{48,64}_v1` disappears **with the bank flip, in C as well as B**.
+   The ~313 us gate_sp pool is **not** attributable to the fusion, which is the
+   source reattribution in §7.7 now confirmed by execution.
+2. **B - C is exactly and only the fusion** -- four `norm+affine qkv qmv` sites,
+   nothing else. So the probe's B-C decode number, **+0.417% +/- 0.973%**,
+   prices exactly one mechanism: deleting the separate `rmsbfloat16` dispatch
+   (142.3 us/step) and 40 RAW barriers, and folding the RMS reduction into the
+   QKV matmul, is **net zero to negative**.
+3. Under C the QKV path is stock MLX `quantizedMM(groupSize:32, bits:8,
+   mode:.affine)` with no trace site, plus a separate `inputNorm`. Under B it is
+   one bespoke `lagunaNormAffineQKV`. The bespoke fused kernel *loses* to
+   (stock qmv + separate rmsnorm) by ~+37 us/step net despite removing 40
+   dispatches, which implies the fused matmul itself is ~180 us/step more
+   expensive -- most plausibly a redundant per-threadgroup 2048-element RMS
+   reduction replicated across threadgroups.
+4. **Bonus: the census is simultaneously the Stage-1 reach check for all five
+   arms.** `residual+rmsnorm+router rpg8 pf1` (frieren), `sliding fused
+   attention` (edward), `full fused attention` (alphonse) and
+   `decode embedding+rope atlas` (alphonse's bolt-on) are all present in **A**,
+   the shipping default. Every arm's target dispatch site executes on the scored
+   path, so no arm on the slate is a knob on an unused fallback.
+
+**The escalation answer, stated more precisely than the binary in comment 6 §8.**
+The comment's test was "if `rmsbfloat16` and `gate_sp_h{64,48}_v1` do *not*
+vanish under `NATIVE_AFFINE_NVFP4=0`, the guard reading is wrong and #682 must
+stop." Both **do** vanish in B, so the literal test passes -- but they vanish
+for **two different reasons, and only one of them is nezuko's mechanism**:
+
+- `rmsbfloat16` vanishes via the **fusion**. That *is* her mechanism, and B-C
+  measured it as a **loss** at the INT8 bank.
+- `gate_sp` vanishes via the **bank flip**, which is present in C without any
+  fusion. Nezuko's rung 1 explicitly *keeps* the NVFP4 bank, so **gate_sp does
+  not vanish for her.**
+
+So the verdict is **reprice plus strong caution, not automatic stop**, and the
+repricing is severe: her prize is the `rmsbfloat16` pool alone, **142.3 us**,
+not the ~455 us that the bundled B-A number suggested. At `tau = 1` and the
+`--local-iterate` bar of 49.9 us she needs a **35% harvest** of her own pool to
+clear the bar alone (47.8% on comment 6's 54 us accounting), while the only
+end-to-end measurement of a very similar fusion at a different quantization bank
+is negative. The advisor owns the stop/continue call; my recommendation is that
+#682 is not a submission candidate for this round and should either be cut in
+favour of the queue's top arm or explicitly rebadged as a mechanism study.
+
+**One question for nezuko that would settle mechanism 3:** the achieved
+bandwidth of her fused NVFP4 QKV kernel versus the unfused one. The unfused
+NVFP4 QKV kernel runs at 235-265 GB/s of the 263.29 GB/s ceiling, i.e. it is
+DRAM-bound at half the weight bytes, so extra ALU may hide there in a way it
+demonstrably did not at INT8 g32. If her fused variant drops below ~235 GB/s it
+has gone compute-bound and the INT8 result transfers.
+
+**Known blind spot, unchanged.** `lagunaGateSoftplus` (LRM:4525-4551) contains
+no `lagunaTrace` call, so gate_sp's absence is inferred from the source
+predicate plus the o_proj trace-name flip that shares the same `bits == 8`
+switch. It is not directly observed. Adding a trace call there is a one-line
+instrument-only change if the advisor wants it observed rather than inferred.
+
+### 14.3 The repriced slate, and what it implies for the ranked queue
+
+Taking comment 6 §4's harvest arithmetic at `tau = 1` and correcting nezuko's
+pool per §14.2, with the `--local-iterate` bar of 49.9 us:
+
+| arm | student | pool (us/step, M4) | harvest for the whole bar | %score at 25 / 50 / 100% |
+|---|---|---|---|---|
+| `sliding_fused_attn_ring_v1` | edward | 627.3 | 8.0% | 0.88 / 1.76 / 3.51 |
+| `residual_rms_router` | frieren | 320.1 | 15.6% | 0.45 / 0.90 / 1.79 |
+| `gate_sp_h64 + h48` | tanjiro | 313.6 | 15.9% | 0.44 / 0.88 / 1.75 |
+| `full_fused_attn_grow_v1` | alphonse | 249.5 | 20.0% | 0.35 / 0.70 / 1.40 |
+| `rmsbfloat16` | nezuko | 142.3 | **35.1%** | 0.20 / 0.40 / 0.80 |
+
+Two observations for the queue:
+
+- Edward is the only arm that clears the bar at a plausible harvest fraction,
+  which matches comment 6's ranking. He is also **not bit-exact** (QK
+  accumulation order), so his arm needs a margin certificate, and §8 of this
+  report notes the certificate instrument is single-case and M4-only. The
+  sequencing risk is that his is both the most likely winner and the most
+  expensive to gate.
+- Alphonse is marginal at 25% harvest, so his params-atlas bolt-on is
+  load-bearing. Per comment 6 §7(5) I will expect two separate numbers from him
+  and add them myself rather than accepting a bundled figure; the atlas is
+  bit-exact and the MMA is not, so they also need different gates.
+
+### 14.4 Plan changes I am adopting from comment 6 §7
+
+1. **Primary path is a ranked queue of single arms**, not a composite. Each arm
+   gets: `--audit` static check, `senpai/validate-assignment-scope.sh` on
+   submitted paths only, `check-editable-budget.sh`, an equivalence differential
+   against the archived base signature (with a non-zero test count), the 64-step
+   drift tripwire, `--local-submit` correctness, interleaved paired
+   `--local-submit` timing against the staged base with the session's first slot
+   discarded, an `m5_projection` line, a microseconds-of-busy figure, and a
+   `DARKBLOOM_TRACE_FUSION=1` census diff proving the intended kernel is what
+   changed. Non-bit-exact arms additionally need a margin certificate with the
+   null cell run first.
+2. **Composites are strictly upside.** I will keep the bit-exact-only composite
+   (alphonse's atlas plus tanjiro's occupancy, plus frieren's prefetch if she
+   *confirms* bit-exactness rather than my assuming it) pre-built and pre-gated
+   as a fallback, and I will confirm via census which *shape* actually landed
+   before summing any two arms.
+3. I will report to the advisor the moment a single arm's projected ratio clears
+   **1.003780272x** over `e27f1ce`, and I will not fire without authorisation.
+
+### 14.5 Integration status at 22:10Z 2026-08-10
+
+Re-checked with `git ls-remote --heads origin 'refs/heads/maple-*/r109-*'` then a
+per-branch `--audit` against `BASE_SHA = 1a6761bf`:
+
+| branch | head | commits above base | submitted surface |
+|---|---|---|---|
+| `maple-frieren/r109-decode-commit-cadence` | `3bba6e17` | 1 (scaffold) | empty |
+| `maple-nezuko/r109-router-hybrid-selector` | `ed74b1e5` | 1 (scaffold) | empty |
+| `maple-tanjiro/r109-gateup-extract-round-elimination` | `a8f35a15` | 9 | `LagunaRuntimeModel.swift` +2410 B |
+| `maple-edward/r109-sliding-attn-qk-mma` | `1fbd5821` | 1 (scaffold) | empty |
+| `maple-alphonse/r109-full-attn-qk-mma` | `b4801745` | 1 (scaffold) | empty |
+
+Branch names are the R109 A-E assignment names and no longer describe the
+revised arms in comment 6 -- frieren's branch says "decode-commit-cadence" but
+her arm is the router prefetch/rpg sweep, nezuko's says
+"router-hybrid-selector" but her arm is the norm-fused NVFP4 QKV. Per the
+programme rule I identify arms from the assignment, never from the branch name.
+
+**Tanjiro is the only arm with a landed submitted diff, and it is a no-op at
+default.** His 76 insertions add
+`Int(ProcessInfo.processInfo.environment["DARKBLOOM_GATEUP_INDS"] ?? "0") ?? 0`
+and modes behind it; mode 0 is base behaviour. His own commit messages record
+the outcome as "R109-C end-to-end refutation + R109-D occupancy null (three
+independent lines)". So there is currently **nothing on any arm branch that
+would change ranked timing**, and integrating his diff as-is would add 2410
+bytes of dead probe code to the submitted surface for zero expected score. My
+recommendation is not to integrate it; the advisor owns whether the knob is
+worth carrying for research.
+
+Consequence for the queue: at 22:10Z the ranked queue is empty, so the honest
+Stage-1 statement is that the machinery is ready and validated and no candidate
+exists yet. The 05:00Z checkpoint will report per-arm status whatever it is.
+
+### 14.6 Base validity
+
+The advisor branch at `a96878e8` (21:23:02Z) differs from `1a6761bf` only in
+`research/CURRENT_RESEARCH_STATE.md`, zero submitted files. **`BASE_SHA`
+remains valid** and no re-baselining is required.
+
