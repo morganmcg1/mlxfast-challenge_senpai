@@ -16,11 +16,12 @@ This assignment adds only:
 - `validate_candidate_evidence_bundle.py`, a standard-library fail-closed
   validator and deterministic self-test runner;
 - `candidate_evidence_bundle_fixtures.json`, four positive fixture profiles and
-  28 negative mutations; and
+  35 negative mutations; and
 - this audit.
 
 No model code, build, inference, benchmark, W&B run, live receipt, or official
-submission was produced.
+submission was produced. All measurements, candidate files, trusted inputs, and
+artifacts in the fixture suite are synthetic contract-test data.
 
 ## Frozen benchmark rules
 
@@ -45,42 +46,57 @@ and does not invent or recompute missing source facts.
 
 ## Contract structure
 
-The root schema is versioned as `candidate-evidence-bundle/v1`, rejects unknown
+The root schema is versioned as `candidate-evidence-bundle/v2`, rejects unknown
 properties, and fixes the immutable terminal hashes named in the assignment.
 The validator additionally performs semantic checks that JSON Schema alone
 cannot express.
 
-### Identity and content joins
+### External trusted context
 
-Every phase is joined to one immutable identity tuple:
+Bundle claims are not self-authenticating. Validation therefore requires a
+separate trusted-context JSON file whose canonical SHA-256 is supplied inside
+the bundle and then recomputed. The context pins:
 
 - assignment, revision, bundle, base commit, and candidate commit;
-- canonical candidate-surface digest;
-- benchmark-contract and configuration digests;
-- fixture, window, and component identities; and
-- hardware, toolchain, thermal-policy, and telemetry classes.
+- canonical candidate-surface records and digest;
+- benchmark contract, configuration, fixture, windows, and component IDs;
+- required artifact roles, paths, sizes, and hashes; and
+- ranked receipt identity, official hardware, toolchain, thermal, and telemetry
+  facts.
+
+A coherent attacker rewrite of the bundle, artifacts, revision, and hashes still
+fails unless it also changes this independently supplied trusted input.
+
+### Candidate-surface binding
 
 The candidate surface is canonicalized as a path-sorted list of
 `{path,size,sha256}` records using UTF-8 compact JSON with sorted object keys
-and one trailing line feed. Its SHA-256 must match every phase and artifact
-claim. Reusing a receipt or candidate artifact under another revision therefore
-fails its identity join.
+and one trailing line feed. The validator independently reads each regular,
+non-symlink file beneath `--candidate-root`, checks its physical size and
+SHA-256 against the trusted records, recomputes the surface digest, and rejoins
+that digest to every phase and artifact claim.
 
-### Physical artifacts
+### Physical and semantic artifacts
 
-Artifact claims are checked against bytes under an explicit artifact root.
-The validator rejects:
+Artifact claims are checked against bytes under `--artifact-root`. Each artifact
+must be canonical UTF-8 JSON with exactly one trailing line feed. Its role-
+specific schema and parsed content are validated, and the semantic evidence is
+compared exactly with the corresponding bundle phase or ranked receipt. The
+validator also rejoins every manifest entry to the separately trusted artifact
+pin.
 
-- absolute paths and paths escaping the root;
-- symlinks in any path component;
-- non-regular files;
-- duplicate roles or duplicate paths;
-- missing or unexpected roles;
-- byte-count, declared-size, or SHA-256 drift; and
-- unit or identity drift.
+It rejects:
 
-The self-test mutates actual artifact bytes and creates an actual symlink; it
-does not merely edit manifest strings.
+- absolute paths, path escape, symlinks, and non-regular files;
+- duplicate roles or paths and missing or unexpected roles;
+- byte-count, declared-size, SHA-256, or trusted-pin drift;
+- arbitrary bytes even when their manifest hash is refreshed;
+- canonical JSON that was semantically rewritten and rehashed;
+- unit or identity drift; and
+- candidate-surface bytes that differ from the trusted physical records.
+
+The self-test mutates actual artifact and candidate bytes and creates an actual
+symlink; it does not merely edit manifest strings.
 
 ### Phase evidence
 
@@ -118,13 +134,19 @@ The four positive profiles are:
 3. complete local M4 whole-model evidence; and
 4. official M5 ranked evidence just above the strict margin.
 
-The 28 negative mutations cover:
+The 35 negative mutations cover:
 
 - base, candidate, payload-surface, benchmark-contract, configuration, fixture,
   window, and revision identity drift;
 - actual artifact-byte mutation, manifest hash and size drift, path escape,
   symlink traversal, duplicate role/path, unit drift, and candidate-artifact
   reuse;
+- arbitrary ranked bytes with a refreshed manifest hash;
+- semantic artifact rewrites with refreshed size and hash;
+- physical candidate-surface byte mutation;
+- coherent revision relabeling across the bundle and artifact;
+- local M4 evidence relabeled as official M5 evidence;
+- ranked receipt benchmark, base, and component drift;
 - ranked hardware drift, ABBA/BAAB order corruption, label reuse, and missing
   uncertainty;
 - zero checked tokens, correctness failure, hidden-gate failure, and memory-gate
@@ -134,8 +156,9 @@ The 28 negative mutations cover:
 - ranked receipt reuse under another revision; and
 - terminal classification contradiction.
 
-Each negative fixture declares its expected stable error code. The self-test
-requires every case to produce exactly that code.
+Each negative fixture declares at least one expected stable error code. The
+self-test requires every case to contain every declared code while also proving
+that all four positive profiles retain their intended classification.
 
 ## Verification
 
@@ -148,11 +171,22 @@ python3 research/validate_candidate_evidence_bundle.py --self-test > /tmp/candid
 cmp -s /tmp/candidate-evidence-a.json /tmp/candidate-evidence-b.json
 ```
 
-Both self-test runs are byte-identical. The result contains 32 cases, reports
-`deterministic: true`, and has canonical result digest:
+A standalone bundle validation requires all three external roots:
+
+```bash
+python3 research/validate_candidate_evidence_bundle.py BUNDLE.json \
+  --artifact-root ARTIFACT_ROOT \
+  --candidate-root CANDIDATE_ROOT \
+  --trusted-context TRUSTED_CONTEXT.json
+```
+
+Both self-test runs are byte-identical. The result contains 39 cases, reports
+`deterministic: true`, uses schema ID
+`https://mlxfast.invalid/schemas/candidate-evidence-bundle-v2.json`, and has
+canonical result digest:
 
 ```text
-f4ed68e47ab0aa70e0df1f7c68d7da895a522c70baf69b8789bb5a97f0ea94cc
+77177cacc866f268233e5c915e4263436848eec6768e59b8b12556e64ea5d0d9
 ```
 
 The terminal status is `CANDIDATE_EVIDENCE_CONTRACT_READY`.
@@ -162,6 +196,8 @@ The terminal status is `CANDIDATE_EVIDENCE_CONTRACT_READY`.
 - All fixtures are synthetic contract tests, not performance measurements.
 - No live M5 receipt exists in this assignment, so no real candidate is ranked.
 - The contract intentionally defines no M4-to-M5 transfer model.
+- The validator checks trusted-context integrity and all joins, but the caller
+  remains responsible for obtaining that context from an authoritative source.
 - Receipt uniqueness across separate valid bundles requires an external receipt
   registry; this validator guarantees content and revision binding within the
   bundle it is given.

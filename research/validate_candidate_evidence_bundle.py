@@ -12,7 +12,7 @@ import tempfile
 from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN, localcontext
 from pathlib import Path, PurePosixPath
 
-SCHEMA_ID = "https://mlxfast.invalid/schemas/candidate-evidence-bundle-v1.json"
+SCHEMA_ID = "https://mlxfast.invalid/schemas/candidate-evidence-bundle-v2.json"
 STRICT_RANKED_MARGIN = Decimal("1.0037802719941367788")
 COMPONENT_FLOOR = Decimal("0.95")
 DECIMAL_TOLERANCE = Decimal("1e-24")
@@ -35,6 +35,16 @@ ROLE_CONTRACT = {
     "ISOLATED_RAW_ROWS": ("ISOLATED", "seconds_per_invocation"),
     "WHOLE_MODEL_RAW_ROWS": ("WHOLE_MODEL", "seconds_per_token"),
     "RANKED_M5_RECEIPT": ("RANKED_M5", "dimensionless_speedup"),
+}
+ARTIFACT_DEFINITIONS = {
+    "ISOLATED_RAW_ROWS": "#/$defs/isolatedArtifactDocument",
+    "WHOLE_MODEL_RAW_ROWS": "#/$defs/wholeModelArtifactDocument",
+    "RANKED_M5_RECEIPT": "#/$defs/rankedReceiptArtifactDocument",
+}
+ARTIFACT_PHASE_KEYS = {
+    "ISOLATED_RAW_ROWS": "isolated",
+    "WHOLE_MODEL_RAW_ROWS": "whole_model",
+    "RANKED_M5_RECEIPT": "ranked_m5",
 }
 TERMINAL_CONTRACT = {
     "ISOLATED_COMPLETE": ("ISOLATED_COMPLETE", "ISOLATED_EVIDENCE_COMPLETE"),
@@ -68,6 +78,11 @@ class SchemaChecker:
     def check(self, instance):
         errors = []
         self._check(instance, self.schema, "$", errors)
+        return stable_issues(errors)
+
+    def check_reference(self, instance, reference, path):
+        errors = []
+        self._check(instance, self._resolve(reference), path, errors)
         return stable_issues(errors)
 
     def _resolve(self, reference):
@@ -213,6 +228,7 @@ def expected_join(bundle):
         "base_sha": identity["base_sha"],
         "candidate_sha": identity["candidate_sha"],
         "submitted_surface_sha256": identity["submitted_surface"]["canonical_sha256"],
+        "benchmark_id": identity["benchmark_id"],
         "benchmark_contract_sha256": identity["benchmark_contract_sha256"],
         "configuration_sha256": identity["configuration_sha256"],
         "fixture_id": identity["fixture_id"],
@@ -256,16 +272,82 @@ def path_is_safe(relative_path):
     )
 
 
-def check_artifacts(bundle, artifact_root, join, errors):
+def read_regular_file(root, relative, path, prefix, errors):
+    if not path_is_safe(relative):
+        errors.append(issue(f"{prefix}_PATH_ESCAPE", path, "path must be normalized, relative, and contained"))
+        return None
+    root = root.resolve()
+    target = root.joinpath(*PurePosixPath(relative).parts)
+    try:
+        target.resolve(strict=False).relative_to(root)
+    except ValueError:
+        errors.append(issue(f"{prefix}_PATH_ESCAPE", path, "path resolves outside its trusted root"))
+        return None
+    current = root
+    for part in PurePosixPath(relative).parts:
+        current = current / part
+        try:
+            mode = os.lstat(current).st_mode
+        except FileNotFoundError:
+            break
+        if stat.S_ISLNK(mode):
+            errors.append(issue(f"{prefix}_SYMLINK", path, "symlinks are forbidden"))
+            return None
+    try:
+        mode = os.lstat(target).st_mode
+    except FileNotFoundError:
+        errors.append(issue(f"{prefix}_MISSING", path, "file does not exist"))
+        return None
+    if not stat.S_ISREG(mode):
+        errors.append(issue(f"{prefix}_NOT_REGULAR", path, "file must be regular"))
+        return None
+    return target.read_bytes()
+
+
+def check_trusted_context(bundle, trusted_context, trusted_bytes, errors):
+    if trusted_bytes != canonical_bytes(trusted_context):
+        errors.append(issue("TRUSTED_CONTEXT_NONCANONICAL", "$trusted_context", "trusted context must be canonical JSON with one trailing LF"))
+    digest = sha256_bytes(trusted_bytes)
+    if bundle["trusted_context_sha256"] != digest:
+        errors.append(issue("TRUSTED_CONTEXT_DIGEST_MISMATCH", "$.trusted_context_sha256", "bundle does not bind the supplied trusted context bytes"))
+    expected = {
+        "assignment_id": bundle["assignment_id"],
+        "revision_id": bundle["revision_id"],
+        "mechanism_id": bundle["mechanism_id"],
+        "family_id": bundle["family_id"],
+        "identity": bundle["identity"],
+    }
+    for key, value in expected.items():
+        if trusted_context.get(key) != value:
+            errors.append(issue("TRUSTED_CONTEXT_MISMATCH", f"$trusted_context.{key}", "bundle field disagrees with separately pinned trusted input"))
+    roles = [pin["role"] for pin in trusted_context["artifact_pins"]]
+    if len(roles) != len(set(roles)):
+        errors.append(issue("TRUSTED_ARTIFACT_DUPLICATE_ROLE", "$trusted_context.artifact_pins", "trusted artifact roles must be unique"))
+
+
+def check_candidate_surface(trusted_context, candidate_root, errors):
+    files = trusted_context["identity"]["submitted_surface"]["files"]
+    for index, entry in enumerate(files):
+        path = f"$trusted_context.identity.submitted_surface.files[{index}]"
+        data = read_regular_file(candidate_root, entry["path"], f"{path}.path", "SURFACE_FILE", errors)
+        if data is None:
+            continue
+        if len(data) != entry["size"]:
+            errors.append(issue("SURFACE_FILE_SIZE_MISMATCH", f"{path}.size", "actual candidate file size disagrees with trusted input"))
+        if sha256_bytes(data) != entry["sha256"]:
+            errors.append(issue("SURFACE_FILE_HASH_MISMATCH", f"{path}.sha256", "actual candidate file bytes disagree with trusted input"))
+
+
+def check_artifacts(bundle, artifact_root, join, trusted_context, checker, errors):
     manifests = bundle["artifact_manifest"]
     roles = [entry["role"] for entry in manifests]
     paths = [entry["path"] for entry in manifests]
     for role in sorted(set(roles)):
         if roles.count(role) > 1:
             errors.append(issue("ARTIFACT_DUPLICATE_ROLE", "$.artifact_manifest", f"artifact role {role} is duplicated"))
-    for path in sorted(set(paths)):
-        if paths.count(path) > 1:
-            errors.append(issue("ARTIFACT_DUPLICATE_PATH", "$.artifact_manifest", f"artifact path {path} is duplicated"))
+    for relative in sorted(set(paths)):
+        if paths.count(relative) > 1:
+            errors.append(issue("ARTIFACT_DUPLICATE_PATH", "$.artifact_manifest", f"artifact path {relative} is duplicated"))
     required_roles = {"ISOLATED_RAW_ROWS"}
     if bundle["phases"]["whole_model"] is not None:
         required_roles.add("WHOLE_MODEL_RAW_ROWS")
@@ -274,50 +356,49 @@ def check_artifacts(bundle, artifact_root, join, errors):
     if set(roles) != required_roles:
         errors.append(issue("ARTIFACT_ROLE_SET_INVALID", "$.artifact_manifest", "artifact roles do not exactly match populated phases"))
 
-    root = artifact_root.resolve()
+    pins = {pin["role"]: pin for pin in trusted_context["artifact_pins"]}
+    if set(pins) != required_roles:
+        errors.append(issue("TRUSTED_ARTIFACT_ROLE_SET_INVALID", "$trusted_context.artifact_pins", "trusted artifact roles do not exactly match populated phases"))
+    documents = {}
     for index, artifact in enumerate(manifests):
         path = f"$.artifact_manifest[{index}]"
-        expected_phase, expected_unit = ROLE_CONTRACT[artifact["role"]]
+        role = artifact["role"]
+        expected_phase, expected_unit = ROLE_CONTRACT[role]
         if artifact["producing_phase"] != expected_phase or artifact["canonical_units"] != expected_unit:
             errors.append(issue("ARTIFACT_UNIT_MISMATCH", path, "artifact role, phase, and canonical units disagree"))
         check_join(artifact["binding"], join, f"{path}.binding", errors)
-        relative = artifact["path"]
-        if not path_is_safe(relative):
-            errors.append(issue("ARTIFACT_PATH_ESCAPE", f"{path}.path", "artifact path must be normalized, relative, and contained"))
+        pin = pins.get(role)
+        if pin is not None:
+            actual_pin = {key: artifact[key] for key in ("role", "path", "size", "sha256")}
+            if actual_pin != pin:
+                errors.append(issue("TRUSTED_ARTIFACT_MISMATCH", path, "manifest disagrees with separately pinned artifact identity"))
+        data = read_regular_file(artifact_root, artifact["path"], f"{path}.path", "ARTIFACT", errors)
+        if data is None:
             continue
-        target = root.joinpath(*PurePosixPath(relative).parts)
-        try:
-            target.resolve(strict=False).relative_to(root)
-        except ValueError:
-            errors.append(issue("ARTIFACT_PATH_ESCAPE", f"{path}.path", "artifact path resolves outside the artifact root"))
-            continue
-        current = root
-        symlink_found = False
-        for part in PurePosixPath(relative).parts:
-            current = current / part
-            try:
-                mode = os.lstat(current).st_mode
-            except FileNotFoundError:
-                break
-            if stat.S_ISLNK(mode):
-                errors.append(issue("ARTIFACT_SYMLINK", f"{path}.path", "symlinks are forbidden in artifact paths"))
-                symlink_found = True
-                break
-        if symlink_found:
-            continue
-        try:
-            mode = os.lstat(target).st_mode
-        except FileNotFoundError:
-            errors.append(issue("ARTIFACT_MISSING", f"{path}.path", "artifact file does not exist"))
-            continue
-        if not stat.S_ISREG(mode):
-            errors.append(issue("ARTIFACT_NOT_REGULAR", f"{path}.path", "artifact must be a regular file"))
-            continue
-        data = target.read_bytes()
         if len(data) != artifact["size"]:
             errors.append(issue("ARTIFACT_SIZE_MISMATCH", f"{path}.size", "artifact byte length does not match manifest"))
         if sha256_bytes(data) != artifact["sha256"]:
             errors.append(issue("ARTIFACT_HASH_MISMATCH", f"{path}.sha256", "artifact bytes do not match manifest hash"))
+        try:
+            document = json.loads(data.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            errors.append(issue("ARTIFACT_JSON_INVALID", f"{path}.path", "artifact bytes are not parseable UTF-8 JSON"))
+            continue
+        if data != canonical_bytes(document):
+            errors.append(issue("ARTIFACT_NONCANONICAL", f"{path}.path", "artifact must be canonical JSON with one trailing LF"))
+        semantic_errors = checker.check_reference(document, ARTIFACT_DEFINITIONS[role], f"$artifact[{role}]")
+        for semantic_error in semantic_errors:
+            errors.append(issue("ARTIFACT_SEMANTIC_SCHEMA_INVALID", semantic_error["path"], semantic_error["message"]))
+        if semantic_errors:
+            continue
+        documents[role] = document
+        check_join(document["binding"], join, f"$artifact[{role}].binding", errors, code="ARTIFACT_IDENTITY_MISMATCH")
+        if document["binding"] != artifact["binding"]:
+            errors.append(issue("ARTIFACT_SEMANTIC_MISMATCH", f"$artifact[{role}].binding", "artifact binding disagrees with manifest binding"))
+        phase = bundle["phases"][ARTIFACT_PHASE_KEYS[role]]
+        if document["evidence"] != phase:
+            errors.append(issue("ARTIFACT_SEMANTIC_MISMATCH", f"$artifact[{role}].evidence", "parsed artifact evidence disagrees with bundle phase"))
+    return documents
 
 
 def check_environment(environment, path, errors, ranked=False):
@@ -476,11 +557,17 @@ def check_receipt(phase, bundle, join, errors):
     fields = {
         "assignment_id": join["assignment_id"],
         "revision_id": join["revision_id"],
+        "base_sha": join["base_sha"],
         "candidate_sha": join["candidate_sha"],
         "submitted_surface_sha256": join["submitted_surface_sha256"],
+        "benchmark_id": join["benchmark_id"],
+        "benchmark_contract_sha256": join["benchmark_contract_sha256"],
         "configuration_sha256": join["configuration_sha256"],
         "fixture_id": join["fixture_id"],
         "window_id": join["window_id"],
+        "isolated_component_id": join["isolated_component_id"],
+        "prefill_component_id": join["prefill_component_id"],
+        "decode_component_id": join["decode_component_id"],
         "checked_token_count": phase["correctness"]["checked_token_count"],
         "correctness_status": "PASS",
         "peak_memory_status": "PASS",
@@ -513,15 +600,20 @@ def classify_and_check_terminal(bundle, errors):
     return classification
 
 
-def validate_bundle(bundle, artifact_root, schema):
+def validate_bundle(bundle, artifact_root, candidate_root, trusted_context, trusted_bytes, schema):
     digest = sha256_bytes(canonical_bytes(bundle)) if isinstance(bundle, (dict, list)) else sha256_bytes(repr(bundle).encode())
-    errors = SchemaChecker(schema).check(bundle)
+    checker = SchemaChecker(schema)
+    errors = checker.check(bundle)
+    errors.extend(checker.check_reference(trusted_context, "#/$defs/trustedContext", "$trusted_context"))
+    errors = stable_issues(errors)
     if errors:
         return {"bundle_digest": digest, "classification": "INVALID", "errors": errors}
     errors = []
     check_surface(bundle["identity"], errors)
+    check_trusted_context(bundle, trusted_context, trusted_bytes, errors)
+    check_candidate_surface(trusted_context, candidate_root, errors)
     join = expected_join(bundle)
-    check_artifacts(bundle, artifact_root, join, errors)
+    check_artifacts(bundle, artifact_root, join, trusted_context, checker, errors)
     check_isolated(bundle["phases"]["isolated"], join, errors)
     whole = bundle["phases"]["whole_model"]
     ranked = bundle["phases"]["ranked_m5"]
@@ -552,6 +644,7 @@ def fixture_join(spec, surface_digest):
         "base_sha": spec["base_sha"],
         "candidate_sha": spec["candidate_sha"],
         "submitted_surface_sha256": surface_digest,
+        "benchmark_id": spec["benchmark_id"],
         "benchmark_contract_sha256": spec["benchmark_contract_sha256"],
         "configuration_sha256": spec["configuration_sha256"],
         "fixture_id": spec["fixture_id"],
@@ -657,14 +750,19 @@ def full_summary(base_prefill, base_decode, candidate_prefill, candidate_decode)
     }
 
 
-def build_fixture_bundle(spec, artifacts):
-    surface_files = copy.deepcopy(spec["surface_files"])
-    surface_digest = sha256_bytes(canonical_bytes(sorted(surface_files, key=lambda entry: entry["path"])))
+def build_fixture_bundle(spec, artifact_specs, candidate_specs):
+    candidate_files = {entry["path"]: entry["content"].encode("utf-8") for entry in candidate_specs}
+    surface_files = [
+        {"path": relative, "size": len(data), "sha256": sha256_bytes(data)}
+        for relative, data in sorted(candidate_files.items())
+    ]
+    surface_digest = sha256_bytes(canonical_bytes(surface_files))
     join = fixture_join(spec, surface_digest)
     identity = {
         "base_sha": spec["base_sha"],
         "candidate_sha": spec["candidate_sha"],
         "submitted_surface": {"files": surface_files, "canonical_sha256": surface_digest},
+        "benchmark_id": spec["benchmark_id"],
         "benchmark_contract_sha256": spec["benchmark_contract_sha256"],
         "configuration_sha256": spec["configuration_sha256"],
         "fixture_id": spec["fixture_id"],
@@ -726,15 +824,20 @@ def build_fixture_bundle(spec, artifacts):
             "summary": full_summary("0.0010038", "0.005019", "0.001", "0.005"),
             "receipt": {
                 "receipt_id": "synthetic-ranked-receipt-v1",
-                "benchmark_id": "laguna-xs-2.1-serial-v2",
+                "benchmark_id": spec["benchmark_id"],
                 "terminal": True,
                 "assignment_id": spec["assignment_id"],
                 "revision_id": spec["revision_id"],
+                "base_sha": spec["base_sha"],
                 "candidate_sha": spec["candidate_sha"],
                 "submitted_surface_sha256": surface_digest,
+                "benchmark_contract_sha256": spec["benchmark_contract_sha256"],
                 "configuration_sha256": spec["configuration_sha256"],
                 "fixture_id": spec["fixture_id"],
                 "window_id": spec["window_id"],
+                "isolated_component_id": spec["isolated_component_id"],
+                "prefill_component_id": spec["prefill_component_id"],
+                "decode_component_id": spec["decode_component_id"],
                 "checked_token_count": 640,
                 "correctness_status": "PASS",
                 "peak_memory_status": "PASS",
@@ -745,37 +848,60 @@ def build_fixture_bundle(spec, artifacts):
         terminal = {"state": "RANKED_MARGIN_COMPLETE", "predeclared_stop_reason": "RANKED_MARGIN_EVIDENCE_COMPLETE", "pending_phases": False}
 
     role_details = {
-        "isolated": ("ISOLATED_RAW_ROWS", "ISOLATED", "seconds_per_invocation"),
-        "censored_isolated": ("ISOLATED_RAW_ROWS", "ISOLATED", "seconds_per_invocation"),
-        "whole_model": ("WHOLE_MODEL_RAW_ROWS", "WHOLE_MODEL", "seconds_per_token"),
-        "ranked_receipt": ("RANKED_M5_RECEIPT", "RANKED_M5", "dimensionless_speedup"),
+        "isolated": ("ISOLATED_RAW_ROWS", "ISOLATED", "seconds_per_invocation", isolated),
+        "censored_isolated": ("ISOLATED_RAW_ROWS", "ISOLATED", "seconds_per_invocation", isolated),
+        "whole_model": ("WHOLE_MODEL_RAW_ROWS", "WHOLE_MODEL", "seconds_per_token", whole),
+        "ranked_receipt": ("RANKED_M5_RECEIPT", "RANKED_M5", "dimensionless_speedup", ranked),
     }
     manifest = []
+    artifact_files = {}
     for name in artifact_names:
-        artifact = artifacts[name]
-        role, phase, units = role_details[name]
-        data = artifact["content"].encode("utf-8")
+        artifact_spec = artifact_specs[name]
+        role, phase, units, evidence = role_details[name]
+        document = {
+            "artifact_schema_version": 1,
+            "artifact_type": role,
+            "binding": copy.deepcopy(join),
+            "evidence": copy.deepcopy(evidence),
+        }
+        data = canonical_bytes(document)
+        artifact_files[artifact_spec["path"]] = data
         manifest.append({
             "role": role,
-            "path": artifact["path"],
+            "path": artifact_spec["path"],
             "size": len(data),
             "sha256": sha256_bytes(data),
             "canonical_units": units,
             "producing_phase": phase,
             "binding": copy.deepcopy(join),
         })
-    return {
-        "schema_version": 1,
+    bundle = {
+        "schema_version": 2,
         "assignment_id": spec["assignment_id"],
         "revision_id": spec["revision_id"],
         "mechanism_id": spec["mechanism_id"],
         "family_id": spec["family_id"],
+        "trusted_context_sha256": "0" * 64,
         "identity": identity,
         "artifact_manifest": manifest,
         "phases": {"isolated": isolated, "whole_model": whole, "ranked_m5": ranked},
         "terminal": terminal,
         "submission_authorization": False,
     }
+    trusted_context = {
+        "trust_schema_version": 1,
+        "assignment_id": spec["assignment_id"],
+        "revision_id": spec["revision_id"],
+        "mechanism_id": spec["mechanism_id"],
+        "family_id": spec["family_id"],
+        "identity": copy.deepcopy(identity),
+        "artifact_pins": [
+            {key: entry[key] for key in ("role", "path", "size", "sha256")}
+            for entry in manifest
+        ],
+    }
+    bundle["trusted_context_sha256"] = sha256_bytes(canonical_bytes(trusted_context))
+    return bundle, artifact_files, trusted_context, candidate_files
 
 
 def deep_parent(value, dotted_path):
@@ -807,30 +933,113 @@ def apply_mutation(bundle, mutation):
         phase = bundle["phases"]["ranked_m5"]
         phase["orders"] = fixture_full_orders("0.949", "1.1", "1", "1")
         phase["summary"] = full_summary("0.949", "1.1", "1", "1")
-    elif operation in {"artifact_bytes", "artifact_symlink"}:
-        return
-    else:
+    elif operation not in {
+        "artifact_bytes", "artifact_symlink", "artifact_arbitrary_rehash",
+        "artifact_semantic_rehash", "coherent_revision_relabel",
+        "coherent_m4_as_m5", "coherent_receipt_base_drift",
+        "coherent_receipt_benchmark_drift", "candidate_bytes",
+    }:
         raise ValueError(f"unknown mutation operation {operation}")
 
 
-def write_artifacts(root, artifacts):
-    for artifact in artifacts.values():
-        target = root.joinpath(*PurePosixPath(artifact["path"]).parts)
+def manifest_for_role(bundle, role):
+    return next(entry for entry in bundle["artifact_manifest"] if entry["role"] == role)
+
+
+def refresh_artifact(bundle, artifact_files, role, document):
+    manifest = manifest_for_role(bundle, role)
+    data = canonical_bytes(document)
+    artifact_files[manifest["path"]] = data
+    manifest["size"] = len(data)
+    manifest["sha256"] = sha256_bytes(data)
+
+
+def replace_revision(value, old, new):
+    if isinstance(value, dict):
+        for key in value:
+            value[key] = replace_revision(value[key], old, new)
+    elif isinstance(value, list):
+        for index in range(len(value)):
+            value[index] = replace_revision(value[index], old, new)
+    elif value == old:
+        return new
+    return value
+
+
+def mutate_fixture_state(bundle, artifact_files, trusted_context, candidate_files, mutation):
+    apply_mutation(bundle, mutation)
+    operation = mutation["operation"]
+    if operation == "artifact_bytes":
+        manifest = bundle["artifact_manifest"][mutation["artifact_index"]]
+        artifact_files[manifest["path"]] += b"mutated"
+    elif operation == "artifact_arbitrary_rehash":
+        manifest = manifest_for_role(bundle, "RANKED_M5_RECEIPT")
+        data = b"arbitrary bytes with a refreshed manifest hash\n"
+        artifact_files[manifest["path"]] = data
+        manifest["size"] = len(data)
+        manifest["sha256"] = sha256_bytes(data)
+    elif operation == "artifact_semantic_rehash":
+        manifest = manifest_for_role(bundle, "RANKED_M5_RECEIPT")
+        document = json.loads(artifact_files[manifest["path"]])
+        document["evidence"]["receipt"]["checked_token_count"] += 1
+        refresh_artifact(bundle, artifact_files, "RANKED_M5_RECEIPT", document)
+    elif operation == "coherent_revision_relabel":
+        old = bundle["revision_id"]
+        new = mutation["value"]
+        replace_revision(bundle, old, new)
+        for role in list(ARTIFACT_DEFINITIONS):
+            try:
+                manifest = manifest_for_role(bundle, role)
+            except StopIteration:
+                continue
+            document = json.loads(artifact_files[manifest["path"]])
+            replace_revision(document, old, new)
+            refresh_artifact(bundle, artifact_files, role, document)
+    elif operation == "coherent_m4_as_m5":
+        manifest = manifest_for_role(bundle, "RANKED_M5_RECEIPT")
+        document = json.loads(artifact_files[manifest["path"]])
+        m4_environment = fixture_environment()
+        bundle["phases"]["ranked_m5"]["environment"] = copy.deepcopy(m4_environment)
+        document["evidence"]["environment"] = copy.deepcopy(m4_environment)
+        refresh_artifact(bundle, artifact_files, "RANKED_M5_RECEIPT", document)
+        pin = next(pin for pin in trusted_context["artifact_pins"] if pin["role"] == "RANKED_M5_RECEIPT")
+        pin.update({key: manifest[key] for key in ("role", "path", "size", "sha256")})
+        bundle["trusted_context_sha256"] = sha256_bytes(canonical_bytes(trusted_context))
+    elif operation in {"coherent_receipt_base_drift", "coherent_receipt_benchmark_drift"}:
+        key = "base_sha" if operation.endswith("base_drift") else "benchmark_id"
+        bundle["phases"]["ranked_m5"]["receipt"][key] = mutation["value"]
+        manifest = manifest_for_role(bundle, "RANKED_M5_RECEIPT")
+        document = json.loads(artifact_files[manifest["path"]])
+        document["evidence"]["receipt"][key] = mutation["value"]
+        refresh_artifact(bundle, artifact_files, "RANKED_M5_RECEIPT", document)
+    elif operation == "candidate_bytes":
+        relative = sorted(candidate_files)[mutation.get("file_index", 0)]
+        candidate_files[relative] += b"mutated"
+
+
+def write_files(root, files):
+    for relative, data in files.items():
+        target = root.joinpath(*PurePosixPath(relative).parts)
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(artifact["content"], encoding="utf-8")
+        target.write_bytes(data)
 
 
 def execute_fixture_suite(fixtures, schema):
     positives = {entry["id"]: entry for entry in fixtures["positive_fixtures"]}
-    artifacts = fixtures["artifact_files"]
+    artifact_specs = fixtures["artifact_files"]
+    candidate_specs = fixtures["candidate_files"]
     results = []
     for fixture_id in sorted(positives):
         spec = positives[fixture_id]
-        bundle = build_fixture_bundle(spec, artifacts)
+        bundle, artifacts, trusted_context, candidate_files = build_fixture_bundle(spec, artifact_specs, candidate_specs)
         with tempfile.TemporaryDirectory(prefix="candidate-evidence-") as directory:
             root = Path(directory)
-            write_artifacts(root, artifacts)
-            result = validate_bundle(bundle, root, schema)
+            artifact_root = root / "artifact-root"
+            candidate_root = root / "candidate-root"
+            write_files(artifact_root, artifacts)
+            write_files(candidate_root, candidate_files)
+            trusted_bytes = canonical_bytes(trusted_context)
+            result = validate_bundle(bundle, artifact_root, candidate_root, trusted_context, trusted_bytes, schema)
         passed = result["classification"] == spec["expected_classification"] and not result["errors"]
         if "expected_weighted_factor" in spec:
             weighted = bundle["phases"]["ranked_m5"]["summary"]["factors"]["weighted"]
@@ -839,22 +1048,23 @@ def execute_fixture_suite(fixtures, schema):
 
     for mutation in sorted(fixtures["negative_mutations"], key=lambda entry: entry["id"]):
         spec = positives[mutation["source_fixture"]]
-        bundle = build_fixture_bundle(spec, artifacts)
-        apply_mutation(bundle, mutation)
+        bundle, artifacts, trusted_context, candidate_files = build_fixture_bundle(spec, artifact_specs, candidate_specs)
+        mutate_fixture_state(bundle, artifacts, trusted_context, candidate_files, mutation)
         with tempfile.TemporaryDirectory(prefix="candidate-evidence-") as directory:
             root = Path(directory)
-            write_artifacts(root, artifacts)
-            if mutation["operation"] == "artifact_bytes":
-                target = root.joinpath(*PurePosixPath(bundle["artifact_manifest"][mutation["artifact_index"]]["path"]).parts)
-                target.write_bytes(target.read_bytes() + b"mutated")
-            elif mutation["operation"] == "artifact_symlink":
-                artifact = bundle["artifact_manifest"][mutation["artifact_index"]]
-                target = root.joinpath(*PurePosixPath(artifact["path"]).parts)
-                other = root / "safe-symlink-target.txt"
-                other.write_text("safe symlink target\n", encoding="utf-8")
+            artifact_root = root / "artifact-root"
+            candidate_root = root / "candidate-root"
+            write_files(artifact_root, artifacts)
+            write_files(candidate_root, candidate_files)
+            if mutation["operation"] == "artifact_symlink":
+                manifest = bundle["artifact_manifest"][mutation["artifact_index"]]
+                target = artifact_root.joinpath(*PurePosixPath(manifest["path"]).parts)
+                other = artifact_root / "safe-symlink-target.json"
+                other.write_bytes(target.read_bytes())
                 target.unlink()
                 target.symlink_to(other)
-            result = validate_bundle(bundle, root, schema)
+            trusted_bytes = canonical_bytes(trusted_context)
+            result = validate_bundle(bundle, artifact_root, candidate_root, trusted_context, trusted_bytes, schema)
         codes = {entry["code"] for entry in result["errors"]}
         passed = result["classification"] == "INVALID" and mutation["expected_error_code"] in codes
         results.append({"classification": result["classification"], "errors": result["errors"], "id": mutation["id"], "kind": "negative", "passed": passed})
@@ -864,7 +1074,7 @@ def execute_fixture_suite(fixtures, schema):
 def run_self_test(fixtures_path, schema_path):
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     fixtures = json.loads(fixtures_path.read_text(encoding="utf-8"))
-    if schema.get("$id") != SCHEMA_ID or schema.get("properties", {}).get("schema_version", {}).get("const") != 1:
+    if schema.get("$id") != SCHEMA_ID or schema.get("properties", {}).get("schema_version", {}).get("const") != 2:
         raise ValueError("schema identity/version mismatch")
     first = execute_fixture_suite(fixtures, schema)
     second = execute_fixture_suite(fixtures, schema)
@@ -889,17 +1099,21 @@ def main():
     parser = argparse.ArgumentParser(description="Validate one content-addressed MLXFast candidate evidence bundle")
     parser.add_argument("bundle", nargs="?", type=Path)
     parser.add_argument("--artifact-root", type=Path)
+    parser.add_argument("--candidate-root", type=Path)
+    parser.add_argument("--trusted-context", type=Path)
     parser.add_argument("--schema", type=Path, default=directory / "candidate_evidence_bundle.schema.json")
     parser.add_argument("--fixtures", type=Path, default=directory / "candidate_evidence_bundle_fixtures.json")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     if args.self_test:
         return run_self_test(args.fixtures, args.schema)
-    if args.bundle is None or args.artifact_root is None:
-        parser.error("bundle and --artifact-root are required unless --self-test is used")
+    if args.bundle is None or args.artifact_root is None or args.candidate_root is None or args.trusted_context is None:
+        parser.error("bundle, --artifact-root, --candidate-root, and --trusted-context are required unless --self-test is used")
     schema = json.loads(args.schema.read_text(encoding="utf-8"))
     bundle = json.loads(args.bundle.read_text(encoding="utf-8"))
-    result = validate_bundle(bundle, args.artifact_root, schema)
+    trusted_bytes = args.trusted_context.read_bytes()
+    trusted_context = json.loads(trusted_bytes.decode("utf-8"))
+    result = validate_bundle(bundle, args.artifact_root, args.candidate_root, trusted_context, trusted_bytes, schema)
     print(canonical_bytes(result).decode("utf-8"), end="")
     return 0 if result["classification"] != "INVALID" else 1
 

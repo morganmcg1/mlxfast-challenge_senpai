@@ -1,21 +1,17 @@
 {
-  "fixture_schema_version": 1,
+  "fixture_schema_version": 2,
   "artifact_files": {
     "isolated": {
-      "path": "artifacts/isolated-rows.txt",
-      "content": "synthetic isolated rows evidence\n"
+      "path": "artifacts/isolated-rows.json"
     },
     "whole_model": {
-      "path": "artifacts/whole-model-rows.txt",
-      "content": "synthetic whole model evidence\n"
+      "path": "artifacts/whole-model-rows.json"
     },
     "ranked_receipt": {
-      "path": "artifacts/ranked-m5-receipt.txt",
-      "content": "synthetic ranked m5 receipt evidence\n"
+      "path": "artifacts/ranked-m5-receipt.json"
     },
     "censored_isolated": {
-      "path": "artifacts/censored-isolated-rows.txt",
-      "content": "synthetic censored isolated evidence\n"
+      "path": "artifacts/censored-isolated-rows.json"
     }
   },
   "positive_fixtures": [
@@ -36,13 +32,7 @@
       "isolated_component_id": "isolated-synthetic-kernel",
       "prefill_component_id": "prefill-window-512",
       "decode_component_id": "decode-seed-512-steps-128",
-      "surface_files": [
-        {
-          "path": "Sources/MLXFastModel/Synthetic.swift",
-          "size": 123,
-          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        }
-      ]
+      "benchmark_id": "laguna-xs-2.1-serial-v2"
     },
     {
       "id": "isolated-only",
@@ -61,13 +51,7 @@
       "isolated_component_id": "isolated-synthetic-kernel",
       "prefill_component_id": "prefill-window-512",
       "decode_component_id": "decode-seed-512-steps-128",
-      "surface_files": [
-        {
-          "path": "Sources/MLXFastModel/Synthetic.swift",
-          "size": 123,
-          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        }
-      ]
+      "benchmark_id": "laguna-xs-2.1-serial-v2"
     },
     {
       "id": "local-m4-whole-model",
@@ -86,13 +70,7 @@
       "isolated_component_id": "isolated-synthetic-kernel",
       "prefill_component_id": "prefill-window-512",
       "decode_component_id": "decode-seed-512-steps-128",
-      "surface_files": [
-        {
-          "path": "Sources/MLXFastModel/Synthetic.swift",
-          "size": 123,
-          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        }
-      ]
+      "benchmark_id": "laguna-xs-2.1-serial-v2"
     },
     {
       "id": "ranked-margin-just-above",
@@ -111,13 +89,7 @@
       "isolated_component_id": "isolated-synthetic-kernel",
       "prefill_component_id": "prefill-window-512",
       "decode_component_id": "decode-seed-512-steps-128",
-      "surface_files": [
-        {
-          "path": "Sources/MLXFastModel/Synthetic.swift",
-          "size": 123,
-          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        }
-      ]
+      "benchmark_id": "laguna-xs-2.1-serial-v2"
     }
   ],
   "negative_mutations": [
@@ -341,6 +313,57 @@
       "path": "terminal.state",
       "value": "RANKED_MARGIN_COMPLETE",
       "expected_error_code": "TERMINAL_CONTRADICTION"
+    },
+    {
+      "id": "reject-arbitrary-ranked-bytes-with-refreshed-hash",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "artifact_arbitrary_rehash",
+      "expected_error_code": "ARTIFACT_JSON_INVALID"
+    },
+    {
+      "id": "reject-refreshed-hash-semantic-mismatch",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "artifact_semantic_rehash",
+      "expected_error_code": "ARTIFACT_SEMANTIC_MISMATCH"
+    },
+    {
+      "id": "reject-coherent-artifact-reuse-under-revision",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "coherent_revision_relabel",
+      "value": "synthetic-revision-relabelled",
+      "expected_error_code": "TRUSTED_CONTEXT_MISMATCH"
+    },
+    {
+      "id": "reject-coherently-relabeled-m4-as-m5",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "coherent_m4_as_m5",
+      "expected_error_code": "RANKED_HARDWARE_REQUIRED"
+    },
+    {
+      "id": "reject-coherent-ranked-receipt-base-drift",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "coherent_receipt_base_drift",
+      "value": "3333333333333333333333333333333333333333",
+      "expected_error_code": "RECEIPT_IDENTITY_MISMATCH"
+    },
+    {
+      "id": "reject-coherent-ranked-receipt-benchmark-drift",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "coherent_receipt_benchmark_drift",
+      "value": "laguna-xs-2.1-serial-v3",
+      "expected_error_code": "RECEIPT_IDENTITY_MISMATCH"
+    },
+    {
+      "id": "reject-actual-candidate-surface-byte-mutation",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "candidate_bytes",
+      "expected_error_code": "SURFACE_FILE_HASH_MISMATCH"
+    }
+  ],
+  "candidate_files": [
+    {
+      "path": "Sources/MLXFastModel/Synthetic.swift",
+      "content": "synthetic candidate source\n"
     }
   ]
 }
