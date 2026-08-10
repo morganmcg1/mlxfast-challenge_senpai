@@ -14,19 +14,25 @@
 **Stage 1 first, because it changes how Stage 0's headline should be read.** Stage 0 argued M2 was worth
 ≈ 2 % of `cs` on a *kernel-time* accounting and said so was the reason to distrust it (§2.3.5). Stage 1 went
 and measured the one term that accounting cannot separate — the price of a decode dispatch — and it is
-**4.1× cheaper than the assignment's assumed 1.890 M4 µs/dispatch**. The dispatch-count half of the M2 prize
-is therefore ≈ 0.15 % of score, not 2 %. Whatever remains of the 2 % must come from fusing *work*, and Stage 1
-has no evidence for that.
+**roughly four-fold cheaper than the assignment's assumed 1.890 M4 µs/dispatch**. The dispatch-count half of
+the M2 prize is therefore ≈ 0.15 % of score, not 2 %. Whatever remains of the 2 % must come from fusing *work*,
+and Stage 1 has no evidence for that.
 
+Every figure in the table below, in §3.3, and in §3.5's ladder is machine-written from the probe sink by
+`research/maple-frieren-r108k-insert-results.py`; prose elsewhere is deliberately rounded so it cannot
+disagree with them.
+
+<!--HEADLINE:BEGIN-->
 | | Stage 1 answer |
 |---|---|
-| **Reported verdict** | **`P-INDETERMINATE`** — the identified per-dispatch price lands inside comment 6's undecided 0.3–0.8 band. One verdict only; §3.3 discloses that the mechanical §5 estimator prints `P-FREE-REGION-CONFIRMED` and §3.2.1 proves why that estimator is degenerate and must not be believed. |
-| **Per-dispatch price** | **`k = 0.460` M4 µs/dispatch, CI95 `[0.381, 0.538]`** from the unchained ladder; `0.467 [0.388, 0.545]` from the chained ladder, *independently*. Two ladders, one number. |
-| **Barrier price** | **≈ 0, at both rungs.** `−0.032 [−0.094, +0.029]` µs/barrier at N=160; `+0.0019` µs/barrier at N=1200. Serialising the injected chain costs nothing measurable — the free-region claim survives, but as a *barrier* claim, not a dispatch claim. |
-| **Merge prize, repriced** | 40 dispatches/step × `k` = **18.4 M4 µs/step = 0.20 % decode = 0.15 % score** (interval 0.13–0.18 %). At the assumed `k = 1.890` it would have been 0.63 %. |
-| **Pre-registered predictions** | 1 of 3 **refuted** (P1, by 3.2×), 1 discriminated as intended (P2: `k = 0` dead at 28.6σ), 1 sign-confirmed and size-wrong (P3). §3.3 scores all three and names the root cause: the pre-registration anchored its fit on a rung that turned out to be off the line. |
-| **Accidental finding** | the intercept is **negative and large**: `c ≈ −4.1` µs *per layer*, i.e. adding one `asyncEval` commit boundary per layer at zero added dispatches would make decode **≈ 164 µs/step (≈ 1.9 %) faster**. That is an order of magnitude more than the merge prize, it contradicts the campaign's ≈ 30–50 µs-*cost*-per-commit folklore, and it is the follow-up I would rank first. It is also an extrapolation to N=0 from rungs at 160 and 1200 with a tape-split confound, so §3.4.1 states it as a lead to test, not a result. |
+| **Reported verdict** | **`P-INDETERMINATE`** — the identified per-dispatch price lands inside comment 6's undecided 0.3–0.8 band. One verdict only; §3.3 discloses that the mechanical §5 estimator prints `P-INDETERMINATE-UNDERPOWERED` and §3.2.1 proves why that estimator is degenerate and must not be believed. |
+| **Per-dispatch price** | **`k = 0.451` M4 µs/dispatch, CI95 `[0.399, 0.502]`** from the unchained ladder; `0.465 [0.415, 0.514]` from the chained ladder, *independently*. Two ladders, one number. |
+| **Barrier price** | **≈ 0, at both rungs.** `−0.080 [−0.282, +0.123]` µs/barrier at N=160 (B=3); `+0.0019` µs/barrier at N=1200 (n=1). Serialising the injected chain costs nothing measurable — the free-region claim survives, but as a *barrier* claim, not a dispatch claim. |
+| **Merge prize, repriced** | 40 dispatches/step × `k` = **18.0 M4 µs/step = 0.20 % decode = 0.15 % score** (interval 0.13–0.17 %). At the assumed `k = 1.890` it would have been 0.63 %. |
+| **Pre-registered predictions** | 1 of 3 **refuted** (P1, by 3.2×), 1 discriminated as intended (P2: `k = 0` dead by more than fifteen standard errors), 1 sign-confirmed and size-wrong (P3). §3.3 scores all three and names the root cause: the pre-registration anchored its fit on a rung that turned out to be off the line. |
+| **Accidental finding** | the intercept is **negative and large**: `c ≈ −4.2 to −3.8` µs *per layer*, i.e. adding one `asyncEval` commit boundary per layer at zero added dispatches would make decode **≈ 153–168 µs/step (1.7–1.9 %) faster**. That is an order of magnitude more than the merge prize, it contradicts the campaign's ≈ 30–50 µs-*cost*-per-commit folklore, and it is the follow-up I would rank first. It is also an extrapolation to N=0 from rungs at 160 and 1200 with a tape-split confound, so §3.4.1 states it as a lead to test, not a result. |
 | **`Sources/` bytes spent** | **zero.** Both stages are measurement and source reading. |
+<!--HEADLINE:END-->
 
 ---
 
@@ -723,7 +729,7 @@ amendment §10 together with its out-of-sample predictions, before either high-r
 <!--RESULTS:BEGIN-->
 ## §3.3 Results
 
-`12` usable runs, `0` voided. Every run is a full `./benchmark.sh --local-submit`, so every row below also carries an exact-token-ID correctness pass.
+`15` usable runs, `0` voided. Every run is a full `./benchmark.sh --local-submit`, so every row below also carries an exact-token-ID correctness pass.
 
 ### Raw levels
 
@@ -741,18 +747,21 @@ amendment §10 together with its out-of-sample predictions, before either high-r
 | 3 | `J` | 1200 | 1 | 9351.3 | 1111.07 | pass |
 | 4 | `C` | 0 | NA | 8970.5 | 1112.54 | pass |
 | 4 | `F` | 160 | 0 | 8908.0 | 1111.32 | pass |
+| 4 | `S` | 160 | 1 | 8880.2 | 1123.02 | pass |
+| 5 | `C` | 0 | NA | 8959.1 | 1122.32 | pass |
+| 5 | `S` | 160 | 1 | 8865.9 | 1116.58 | pass |
 
 ### Gauge (liveness only — amendment §3)
 
-Arm `G` (2400 chained) moves decode `+2786.4` µs/step (`+1.1610` µs/dispatch) against the pooled controls; threshold is `≥ +500` µs/step ⇒ **PASS**. This confirms the channel is live and nothing is elided. It is **not** an estimate of a per-dispatch tax; see §3.4.
+Arm `G` (2400 chained) moves decode `+2789.7` µs/step (`+1.1624` µs/dispatch) against the pooled controls; threshold is `≥ +500` µs/step ⇒ **PASS**. This confirms the channel is live and nothing is elided. It is **not** an estimate of a per-dispatch tax; see §3.4.
 
 ### Pre-registered estimators (block-paired, Student-t CI95)
 
 | rung | estimator | µs/step | slope, M4 µs/dispatch | blocks |
 |---|---|---|---|---|
 | 160 | dF — concurrent, no barrier | -81.36 [-128.2, -34.55] | -0.5085 [-0.8011, -0.2159] | 3 |
-| 160 | dS — serialized, barrier per dispatch | -95.99 [-225, +32.98] | -0.5999 [-1.406, +0.2061] | 2 |
-| 160 | **dS − dF, paired ⇒ barrier price** | -5.187 [-15.05, +4.671] | -0.03242 [-0.09403, +0.02919] /barrier | 2 |
+| 160 | dS — serialized, barrier per dispatch | -93.88 [-107.8, -79.99] | -0.5867 [-0.6735, -0.5] | 4 |
+| 160 | **dS − dF, paired ⇒ barrier price** | -12.72 [-45.19, +19.75] | -0.0795 [-0.2824, +0.1234] /barrier | 3 |
 | 1200 | dH — concurrent, no barrier | +387.1 (n=1, no CI) | +0.3226 (n=1, no CI) | 1 |
 | 1200 | dJ — serialized, barrier per dispatch | +389.4 (n=1, no CI) | +0.3245 (n=1, no CI) | 1 |
 | 1200 | **dJ − dH, paired ⇒ barrier price** | +2.232 (n=1, no CI) | +0.00186 (n=1, no CI) /barrier | 1 |
@@ -766,7 +775,7 @@ Injection is decode-only, so any prefill move within a block is host drift that 
 | `F` | 160 | -0.4777 [-1.791, +0.8361] | 3 |
 | `H` | 1200 | +0.3575 (n=1, no CI) | 1 |
 | `J` | 1200 | +0.362 (n=1, no CI) | 1 |
-| `S` | 160 | -1.271 [-8.831, +6.288] | 2 |
+| `S` | 160 | -0.9827 [-2.053, +0.0875] | 4 |
 
 ### Post-hoc rung-difference estimator (the decisive one)
 
@@ -774,9 +783,9 @@ An injected arm differs from its control by `N` dispatches **and** by one `async
 
 | ladder | k, M4 µs/dispatch | implied eval-boundary c | blocks |
 |---|---|---|---|
-| unchained / concurrent (F→H) | +0.4505 [+0.3933, +0.5077] | -3.84 µs/layer (-153 µs/step) | 1 |
-| chained / serialized (S→J) | +0.4667 [+0.406, +0.5274] | -4.27 µs/layer (-171 µs/step) | 1 |
-| chained cross-check via gauge (S→G) | +1.2868 | -7.55 µs/layer (-302 µs/step) | pooled |
+| unchained / concurrent (F→H) | +0.4505 [+0.3992, +0.5017] | -3.84 µs/layer (-153 µs/step) | 1 |
+| chained / serialized (S→J) | +0.4647 [+0.415, +0.5143] | -4.21 µs/layer (-168 µs/step) | 1 |
+| chained cross-check via gauge (S→G) | +1.2873 | -7.50 µs/layer (-300 µs/step) | pooled |
 
 ### Verdict
 
@@ -796,24 +805,25 @@ The generated line prints the §5 rule as written: it looks at arm `F`'s single-
 notices fewer than 4 blocks, and reports underpowered. Two things about it need saying plainly:
 
 * **When the 160 rung reaches `B = 4` this line will flip to `P-FREE-REGION-CONFIRMED`, and
-  that flip would be an artifact.** Arm `F`'s slope is tightening around `−0.57` with a CI
-  upper bound already below `+0.3`, which is exactly the condition §5 declares "free". But
+  that flip would be an artifact.** Arm `F`'s slope is negative with a CI upper bound already
+  below `+0.3` (§3.3 for the value), which is exactly the condition §5 declares "free". But
   `dF` measures `160·k + 40·c`, not `160·k` (§3.2.1). A negative single-rung slope is what a
   *positive* `k` looks like once a negative `c` is folded in, and §3.2.2 records that I
   predicted this wrongly before the data arrived. I am not going to let the arithmetic of my
   own pre-registered estimator overrule a defect I can prove at `file:line`.
 * **The band question §5 was written to answer is about the per-dispatch price**, and the
-  identified per-dispatch price is `0.460 [0.381, 0.538]` — inside comment 6's `0.3`–`0.8`
-  undecided band, at both ends of the interval and on both ladders. `P-INDETERMINATE` is
+  identified per-dispatch price sits inside comment 6's `0.3`–`0.8` undecided band — at both
+  ends of the interval and on both ladders (§3.3 for the figures). `P-INDETERMINATE` is
   therefore the honest label under the rule's intent as well as its letter.
 
 Per comment 6's third branch I report both slopes with their intervals and **do not pick a
-side**: unchained `+0.4596 [+0.3935, +0.5256]`, chained `+0.4667 [+0.4006, +0.5327]` M4
-µs/dispatch.
+side**: the unchained and chained rung differences are both given, with intervals, in §3.3's
+rung-difference block and in the summary table at the top of this report.
 
 One caveat on those intervals, since they are the load-bearing numbers. They are **not** block
 bootstraps. The rung difference has one block at the 1200 rung, so no paired-block CI exists;
-the interval is propagated from the pooled within-arm scatter (`sd ≈ 17 µs/step`) through the
+the interval is propagated from the pooled within-arm scatter (a little under `15` µs/step,
+§3.3) through the
 `(d(1200) − d(160))/1040` difference on a Student-*t* with the pooled degrees of freedom. That
 treats run-to-run scatter as the only error source and so **understates** the true uncertainty,
 because it cannot see between-block drift at the high rung. The interval should be read as a
@@ -829,25 +839,25 @@ Scored against the rows that arrived afterwards:
 |---|---|---|---|---|
 | 1 | `dJ = +1242` µs/step from the gauge-anchored fit | within ±25 %, i.e. `[931, 1553]` | `+389.4` | 🚫 **refuted** |
 | 2 | `dH` discriminates `k`: `−301` / `+59` / `+659` for `k = 0` / `0.3` / `0.8` | discrimination, not a point | `+387.1` | ✅ discriminated; `k = 0` refuted |
-| 3 | `c < 0`, a commit-cadence lever of order `−300` µs/step | sign | `−164` and `−171` µs/step | ✅ sign confirmed, size 45 % low |
+| 3 | `c < 0`, a commit-cadence lever of order `−300` µs/step | sign | `c < 0` on both ladders (§3.3) | ✅ sign confirmed, roughly half the predicted magnitude |
 
 **Prediction 1 failed, and it failed for a reason worth recording rather than explaining
 away.** I fitted the two-parameter model using the gauge rung at `N = 2400` — the one rung
 that amendment §3 had explicitly designated liveness-only, precisely because it might not be
 a valid measurement. It was not: the ladder is strongly superlinear above 1200 (§3.4), so
-anchoring on the gauge inflated `k_chained` to `1.286` when the 160→1200 segment says `0.467`.
-Predicting `+1242` where `+389` occurred is a 3.2× error, and the discipline that caught it
-was writing the number down before the run.
+anchoring on the gauge inflated `k_chained` by a factor of ≈2.8 relative to the 160→1200
+segment (§3.3). Predicting `+1242` where `+389` occurred is a 3.2× error, and the discipline
+that caught it was writing the number down before the run.
 
 The consequence for the report is that **every `k` and `c` I quote now comes from the
 160→1200 segments only**, and the gauge appears nowhere in an estimate. Predictions 2 and 3
 were unaffected because they did not depend on the gauge fit's magnitude: the observed
-`dH = +387` sits between the `k = 0.3` and `k = 0.8` rows whether the row values are computed
-with the refuted `c = −7.54` (`+59` / `+659`) or the corrected `c = −4.11` (`+196` / `+796`),
-and it is `28.6` standard errors from the `k = 0` row. `k = 0` — a free region — is the one
-hypothesis this probe rules out cleanly.
+`dH = +387` sits between the `k = 0.3` and `k = 0.8` rows whether those rows are computed with
+the refuted gauge-anchored `c` or with the corrected 160→1200 `c`, and it is more than fifteen
+standard errors from the `k = 0` row. `k = 0` — a free region — is the one hypothesis this
+probe rules out cleanly.
 
-## §3.4 Why the gauge's `1.157 µs/dispatch` is not an estimate of anything
+## §3.4 Why the gauge's `≈1.2 µs/dispatch` is not an estimate of anything
 
 The gauge arm (2400 chained no-ops) moves decode by roughly +2.8 ms/step, which divides out
 to about `1.16` M4 µs/dispatch. The 160-dispatch rungs show a small *negative* shift.
@@ -861,18 +871,21 @@ in contradiction: `c < 0` absorbs it. Fitting the model on the two rungs that we
 for it, per ladder, gives close agreement across two arms that share no serialization
 mechanism:
 
+<!--LADDER:BEGIN-->
 | ladder | rungs used | `k`, M4 µs/dispatch | `c`, µs/layer | `40·c`, µs/step |
 |---|---|---|---|---|
-| unchained (`F`→`H`) | 160, 1200 | `+0.460 [0.381, 0.538]` | `−4.11` | `−164` |
-| chained (`S`→`J`) | 160, 1200 | `+0.467 [0.388, 0.545]` | `−4.27` | `−171` |
+| unchained (`F`→`H`) | 160, 1200 | `+0.451 [0.399, 0.502]` | `−3.84` | `−153` |
+| chained (`S`→`J`) | 160, 1200 | `+0.465 [0.415, 0.514]` | `−4.21` | `−168` |
+<!--LADDER:END-->
 
-That the two ladders recover the same `k` **and** the same `c` to within 2 % is the strongest
-internal check in this probe, and it is the reason I am willing to quote `k ≈ 0.46` at all.
+That the two ladders recover `k` to within a few percent **and** a negative `c` of the same
+size, from arms that share no serialization mechanism, is the strongest internal check in this
+probe, and it is the reason I am willing to quote a per-dispatch price at all.
 
 **The gauge does not lie on that line, and it must not be fitted with them.** Extrapolating
-the fit to `N = 2400` predicts `dG ≈ 949` µs/step; the measured `dG` is `+2777`. The segment
-from 1200 to 2400 implies `(2777 − 389) / 1200 ≈ 1.99` µs/dispatch, four times the slope of
-the segment below it. Something additional switches on above 1200 injected dispatches —
+the fit to `N = 2400` under-predicts the gauge by roughly a factor of three; the measured `dG`
+is about `+2.8` ms/step. The segment from 1200 to 2400 implies about `2` µs/dispatch, four
+times the slope of the segment below it. Something additional switches on above 1200 injected dispatches —
 plausibly MLX's `needs_commit()` command-buffer splitting, or pressure from holding 2400
 live output arrays — and whatever it is, it is not a regime the ranked path visits. Amendment
 §3 designated the gauge **liveness-only** before any data existed; the data vindicates that
@@ -880,22 +893,22 @@ restriction. Dividing `dG` by 2400 to get `1.16` µs/dispatch mixes three things
 and the superlinear regime — and estimates none of them.
 
 One thing the high rung settles cleanly: `dJ − dH = +2.2` µs/step across 1200 injected
-barriers, i.e. `+0.002` µs/barrier, replicating the low rung's `−0.032 [−0.094, +0.029]`.
+barriers, i.e. `+0.002` µs/barrier, replicating the low rung's near-zero paired difference
+(§3.3).
 **The barrier itself is free at both rungs**, which is the part of comment 6's reading the
 probe confirms directly. `k` is a dispatch cost, not a synchronization cost.
 
 ### §3.4.1 An accidental finding I am flagging, not claiming
 
-The fitted `c ≈ −4.1` to `−4.3 µs/layer` is a side effect of the instrument, but it is a side
-effect **on the ranked decode path**: it says that forcing an extra `asyncEval` — an
-`end_encoding()` + `commit()` pair — after every layer body made decode about `165–171
-µs/step` *faster*, roughly **1.9 %** of a 9000 µs step. That is an order of magnitude larger
-than the merge's 18 µs, and it points the opposite way from the usual "submit less often"
-intuition.
+The fitted `c ≈ −4` µs/layer is a side effect of the instrument, but it is a side effect **on
+the ranked decode path**: it says that forcing an extra `asyncEval` — an `end_encoding()` +
+`commit()` pair — after every layer body made decode of order `150–175 µs/step` *faster*,
+i.e. ≈**1.8 %** of a 9000 µs step. That is an order of magnitude larger than the merge's own
+prize (§3.5), and it points the opposite way from the usual "submit less often" intuition.
 
 The evidence for it is better than I expected when I pre-registered it in amendment §10: two
-ladders that share no serialization mechanism recover it independently, at `−4.11` and
-`−4.27`. It is not a fitting artifact of one arm.
+ladders that share no serialization mechanism recover it independently, and their fitted
+values agree to within about 10 % (§3.3). It is not a fitting artifact of one arm.
 
 I am still not claiming it, for two reasons I would want resolved before anyone spends bytes:
 
@@ -920,19 +933,26 @@ step, family E — corrected count, see §3.6) buys back real decode time.
 
 **The probe does not refute the premise. It prices it, and the price is small for a reason
 that has nothing to do with whether dispatches are cheap.** The identified per-dispatch cost
-is `k = 0.46 [0.38, 0.54]` M4 µs/dispatch (§3.3), which is about fifteen standard errors away
-from zero — the region is *not* free. But the merge deletes only 40 dispatches per step, so:
+is just under half an M4 µs per dispatch (§3.3), more than fifteen standard errors away from
+zero — the region is *not* free. But the merge deletes only 40 dispatches per step, so:
 
+<!--PRIZETABLE:BEGIN-->
 | per-dispatch `k` (M4 µs) | source | merge prize, µs/step | % decode | % score at 0.75 weight |
 |---|---|---|---|---|
 | `1.890` | value the merge was budgeted against | `75.6` | `0.84 %` | `0.63 %` |
 | `0.800` | comment 6's *build* bar | `32.0` | `0.36 %` | `0.27 %` |
-| **`0.460`** | **this probe, identified** | **`18.4`** | **`0.20 %`** | **`0.15 %`** |
-| `0.381`–`0.538` | its interval | `15.2`–`21.5` | `0.17`–`0.24 %` | `0.13`–`0.18 %` |
+| **`0.451`** | **this probe, identified** | **`18.0`** | **`0.20 %`** | **`0.15 %`** |
+| `0.399`–`0.502` | its interval | `16.0`–`20.1` | `0.18`–`0.22 %` | `0.13`–`0.17 %` |
 | `0.300` | comment 6's *dead* floor | `12.0` | `0.13 %` | `0.10 %` |
 
-So the measurement cuts the expected prize by **4.1×** against the assumption the programme
-was costed on, and lands it at ≈0.15 % of score. Worth noting for calibration: comment 6's
+So the measurement cuts the expected prize by **4.2×** against the assumption the
+programme was costed on, and lands it at ≈0.15 % of score. The single-rung arm-F read
+alone — the estimator amendment §5 pre-registered — would instead have said
+`−0.508 [−0.801, −0.216]` and killed the programme; §3.2.1 explains why that
+estimator is degenerate and §3.3 reports it anyway.
+<!--PRIZETABLE:END-->
+
+Worth noting for calibration: comment 6's
 own build bar of `0.8` corresponds to a 0.27 % score prize, so the decision rule's entire
 `0.3`–`0.8` band spans only 0.10 %–0.27 % of score. The band is a narrow one in prize terms,
 and `k` landing inside it is the reason this section does not pick a side.
@@ -941,12 +961,12 @@ Three lines of evidence bound the premise, and they agree less well than a summa
 suggest, so I am reporting the disagreement:
 
 1. **This probe**, the load-bearing evidence, because it is on the ranked path and paired
-   against its own per-block controls. `k = 0.46 [0.38, 0.54]` M4 µs/dispatch from the
-   unchained rung difference, corroborated by two weaker reads that do not share its
-   assumptions: the naive high-rung slope `dH/1200 = +0.32`, and the prefill-gauge
-   drift-corrected `+0.36`. All three sit inside comment 6's band. Note the direction of the
-   error this corrects: the single-rung arm-F read alone would have said `−0.57` and killed
-   the programme.
+   against its own per-block controls. Just under `0.5` M4 µs/dispatch from the unchained rung
+   difference, corroborated by two weaker reads that do not share its assumptions: the naive
+   high-rung slope `dH/1200 = +0.32`, and the prefill-gauge drift-corrected `+0.36`. All three
+   sit inside comment 6's band. Note the direction of the error this corrects: the single-rung
+   arm-F read alone would have reported a *negative* slope (see the note under the ladder
+   above) and killed the programme.
 2. **Roofline arithmetic** (independent estimate contributed by a frontier advisory agent
    this session, not a measurement of mine, and labelled as such). Decode streams ≈2.9 GB
    per token at an arithmetic intensity near 2 FLOP/byte against a ridge of ≥25, so the
@@ -967,9 +987,10 @@ suggest, so I am reporting the disagreement:
 
 All three agree the prize is **small** — sub-0.25 % of decode — and all three agree it is far
 below the `1.890` the programme was costed on. They do **not** agree on whether dispatches
-are free. My `0.46` is nonzero at fifteen standard errors; R108-L's point estimate is `0.087`
-and its interval contains zero. The overlap is only at the top of his interval (`0.438`) and
-the bottom of mine (`0.381`), and the machines differ. I am not averaging them, and I would
+are free. My estimate is nonzero at more than fifteen standard errors; R108-L's point estimate
+is `0.087` and its interval contains zero. The overlap is only at the top of his interval
+(`0.438`) and the bottom of mine (≈`0.4`), and the machines differ. I am not averaging them,
+and I would
 not describe the region as "free" on this evidence — "cheap, and cheap enough that a
 40-dispatch deletion cannot pay for much" is what both support.
 
@@ -982,7 +1003,8 @@ prize, not discarded.
 Separately, and independent of that call: *dispatch count* is not where the budget is.
 Anything that reduces the ≈2.9 GB moved per token, or that removes a *false* hazard (see
 §3.1's `prev_inputs_` note) and so restores concurrency the encoder already intended, or that
-changes commit cadence (§3.4.1, ≈1.9 % if real), is priced on a much larger line than 18 µs.
+changes commit cadence (§3.4.1, ≈1.8 % if real), is priced on a much larger line than the
+merge's own prize.
 
 ## §3.6 Corrections and unavailable knobs, carried forward as instructed
 
