@@ -661,6 +661,62 @@ and accepts only `32` or `64`. The guard that consumes it lives inside
 `gather_qmm_rhs_nax` and is further restricted to `K==512 && N==2048 && bm==64 &&
 wm==4 && (wn==2 || wn==1)`, non-affine, transposed, `gs==16`, `bits==4`, `M>=64`.
 
+**Re-verified at 2026-08-10T14:05Z against the *current* advisor tip
+`1decfba9410b3b873609feb7bcbabf299d3a700a`** (the branch has since moved
+`2454cc01 → … → 1decfba9`, adding eight further commits). The compiled-surface delta from
+my required base is **still exactly this one hunk and nothing else**:
+
+```text
+$ git diff --name-only 446fe987 1decfba9 | wc -l          # 91 paths
+$ git diff --numstat  446fe987 1decfba9 -- Sources Vendor benchmark.json Package.swift Package.resolved
+25	0	Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+```
+
+The other 90 changed paths are all under `research/`. `benchmark.json` is byte-identical,
+so `harnessHash()` and the 97-entry `editablePaths` whitelist are unchanged.
+
+⚠️ **A correction to the base notices, offered as a caution rather than a complaint.**
+Four separate advisor comments on sibling PRs (#616 `5239585180`, #629 `5239585381`, and
+two earlier) state that everything after `446fe987` is "docs-and-`research/`-only" and that
+"no compiled path changed". That is **not accurate**: `quantized.cpp` is a compiled
+translation unit *and* entry 1 of 3 `quantized.cpp` entries on the `editablePaths`
+whitelist. Any sibling who took "no compiled path changed" literally and skipped a rebuild
+after rebasing would be timing a stale binary. The conclusion the notices reach is right —
+nothing *behavioural* changed — but it is right for a reason nobody had checked, which I
+check next.
+
+**Proof that the hunk is an identity at default env, on M5 as well as on M4.** §5.2's
+first draft rested on "default `64`, which is the pre-existing value". That is a claim
+about `darkbloom_expert_down_bn()`; it is *not* by itself a proof that the assignment
+`bn = darkbloom_expert_down_bn()` is a no-op, because `bn` could have been re-written
+between its initialisation and the guard. I read the intervening code at the tip:
+
+```cpp
+int bm = 64, bn = 64, bk = 64;
+int wm = 2, wn = 2;
+const int bm128 = darkbloom_stage_bm128_variant();
+switch (bm128) {
+  case 1: bm = 128; wm = 4; break;
+  case 2: bm = 128; wm = 2; break;
+  case 3: bm = 128; wm = 8; break;
+  case 4: bm = 64;  wm = 4; break;
+  case 5: bm = 64;  wm = 4; wn = 1; break;
+  default: break;
+}
+if (… && bm == 64 && wm == 4 && (wn == 2 || wn == 1)) { bn = darkbloom_expert_down_bn(); }
+```
+
+**No arm of the `bm128` switch writes `bn`.** `bn` is therefore provably `64` at the
+guard on every path, and with `DARKBLOOM_EXPERT_DOWN_BN` unset the assignment stores `64`
+over `64`. The hunk is a **semantic identity for the default environment on every host**,
+including the ranked M5 where `gather_qmm_rhs_nax` *is* reachable and where I have no way
+to measure. This matters more than my host-reachability argument (reason 2 below): that
+argument only ever established that the code is *dead on M4*, which says nothing about the
+machine the score is set on. The switch-coverage argument closes M5 too, statically, and
+it is the reason I am willing to hand frieren a tree containing a `_nax`-path edit I
+cannot execute. It also means the change cannot be a *silent* regression on M5 — the only
+way to activate it is to export the env var, which the harness does not do.
+
 **Decision: carry it, do not set the env var.** Three independent reasons, any one of
 which is sufficient:
 
@@ -938,6 +994,56 @@ inherits an already-measured positive contrast rather than a sibling's unreplica
 claim, and it is in a different kernel family from §5.3's packing flip, so the two
 could in principle compose.
 
+##### 5.3.5a Static trip-count ledger — this is an unusually clean controlled contrast
+
+Everything in this loop is a **compile-time constant** in the kernel source string
+(`LagunaRuntimeModel.swift:1516-1525`): `head_dim = 128`, `window = 512`, `BN = 32`,
+`BD = 32`, `qk_per_thread = v_per_thread = 4`, and **`N = 512`** — `N` is *not* a
+runtime parameter for this kernel, so the trip counts are fully determined statically.
+Generator: `research/r106j/scripts/unroll_trip_ledger.py`.
+
+| unroll depth | main-loop iters / simdgroup | **remainder iters** | blocks / simdgroup | union over 32 sg | exact cover |
+|---|---:|---:|---:|---:|---|
+| 2 (`T0U`, = T1) | 8 | **0** | 16 | 512 | ✅ |
+| **4 (`T0`, shipped)** | **4** | **0** | **16** | **512** | ✅ |
+| 8 (hypothetical) | 2 | **0** | 16 | 512 | ✅ |
+
+Three things follow, and they matter more than the patch's size:
+
+1. **The remainder loop is dead code at every depth that divides 16.** `N/BN = 16`
+   blocks per simdgroup, and 16 is divisible by 2, 4 and 8, so the scalar tail never
+   executes. The contrast is therefore *purely* unroll depth — there is no
+   "remainder-handling overhead" confound in either direction, which is the usual
+   thing that muddies unroll experiments.
+2. **Identical work, identical traffic, identical visit order.** Each arm's simdgroup
+   touches exactly the same 16 blocks in the same ascending order `sg, sg+32, …, sg+480`,
+   and the 32 simdgroups partition all 512 positions with no duplicate and no gap
+   (asserted in the generator). This is the *mechanical* reason the edit is bit-exact,
+   and it is stronger than the program-order argument above because it is checked
+   rather than reasoned.
+3. **The only thing that changes is staged register pressure and memory-level
+   parallelism.** Per stage the kernel holds `U pipe_k[4]` (4 × 4 B) plus four
+   `bfloat` V components, i.e. ~8 live values; so the staged working set is roughly
+   16 values at depth 2, **32 at depth 4**, 64 at depth 8, on top of `pair_q0/q1` and
+   `pair_o0/o1` (16 more) and the softmax scalars.
+
+Point 3 is why **the direction of this experiment is genuinely open**, and I want that
+on the record before the data arrives. The naive prior is "T0's depth 4 was a measured
+win (R2), so depth 2 must be worse". But alphonse's #630 established that this decode
+kernel family is **issue-bound, not bandwidth-bound** (114.2 GB/s = 42.9 % of M4 Pro
+peak). For an issue-bound kernel, extra memory-level parallelism buys little, while
+halving the staged register footprint can raise simdgroup occupancy and therefore
+latency hiding. So depth 2 trading MLP-4 for roughly half the staged registers is a
+plausible *win*, not merely a plausible loss. That is the hypothesis, and it is the
+reason this is worth 2.1 h of the endgame rather than being filed as a curiosity.
+
+A note against my own convenience: depth **8** is equally exact by the table above and
+is the direction that would compound if more MLP were the lever. I am not building it.
+It is ~300 lines of hand-replicated Metal-in-a-Swift-string with a real chance of a
+silent transcription error, I could not verify it and T0U in the time left, and the
+issue-bound finding argues its prior is the *worse* of the two. Recording it as the
+obvious next probe for anyone with more clock than I have.
+
 **Why it is not the primary.** The +0.3791 % it inherits is the effect of the *whole*
 T1 `Sources/` diff, not of this hunk alone; attributing all of it here would be exactly
 the error §4.6 accused the r99 result of. `T0U` therefore needs its own paired ABBA and
@@ -967,6 +1073,204 @@ spelling it also widens the router-prefetch valid set from `[0,1,5]` to `[0,1,2,
 component is a drag inside T1, then `T0U` alone is not bounded above by T1's +0.3791 % —
 isolating the helper from the hindrance is precisely why a decomposition is worth
 running. That is a hypothesis, not a claim, and the sweep is what decides it.
+
+**Preregistered design for the `T0U` sweep (Rule 40 — the DESIGN, not just `n`), written
+2026-08-10T14:00Z, before the arm has been built even once.**
+
+| element | value |
+|---|---|
+| design | paired ABBA/BAAB palindrome blocks, phase continued across invocations, `T0` control vs `T0U` candidate |
+| arm guard | `LagunaRuntimeModel.swift` sha256 must equal `ebebe3fa…5735` (`T0U`) / `a736b50f…50c4` (`T0`) before every run, else abort |
+| unit of analysis | the **block**, not the run: contrast = (mean of the block's two `T0U` rows) − (mean of its two `T0` rows), in natural log |
+| dof | `blocks − 1` |
+| planned `n` | **12 blocks = 48 runs** (~2.1 h at ≈160 s/run) |
+| primary metric | `d(ln score)` composed from decode and prefill by the official weighting |
+| quoted metric | the **conservative** row (prefill charged neutral), per Rule 99's nax wall |
+| expected resolution | sd(d ln score)/block ≈ 0.3143 % (§4.4) ⇒ CI half-width ≈ **0.20 %** at n=12 |
+| correctness gate | every run must report `passed` with `max_abs_diff == 0` and a single `golden_hash` `b9509697c08a2cf3` across both arms |
+
+Acceptance criteria, all four required for **`V-UNROLL`**:
+
+1. zero correctness failures and exactly one `golden_hash` across all 48 runs;
+2. conservative `d(ln score)` CI95 excludes zero on the positive side;
+3. conservative `d(ln score)` point estimate ≥ **+0.40 %** of `cs`;
+4. `d(ln decode)` positive with a consistent block sign majority (≥ 9/12).
+
+Anything else is **`N-UNROLL`** and the integration tree stays `T0`. Note criterion 3 is
+already in tension with the prior: the *whole* T1 diff measured +0.3791 % composite and
+its decode component alone was a null in the +0.23 % neighbourhood (§4.5). If `T0U` is a
+strict subset of T1 and the router-prefetch component is not a drag, then `T0U` **cannot**
+clear +0.40 % and the honest expectation is `N-UNROLL`. I am running it anyway, because
+the §5.3.5 hypothesis is precisely that the subset may *exceed* the whole, and because a
+measured decode-only number on a bit-exact, byte-negative edit is the one thing a sibling
+handoff could later be stacked on top of. **No escape clause this time:** the 12 blocks
+run to completion regardless of the interim point estimate, because §5.3's four-block
+interim already showed how much a partial sweep can mislead.
+
+##### 5.3.5b ⛔ `T0U` is CANCELLED before a single GPU-second was spent — verdict `N-UNROLL-PREEMPTED`
+
+At 14:12Z, before launching the 12-block sweep preregistered above, I pulled the advisor
+tip (`1decfba9` → **`4e9a8e16`**) and read the four new standing rules on it. **Rule 100
+closes this axis, and the evidence is overwhelming enough that running the sweep would have
+been a waste of 2.1 hours of a shared timing host.** Four independent sufficient reasons,
+in ascending order of how badly I should have known better:
+
+**(1) The axis is explicitly banned by name.** Rule 100.8 closes with: *"Do not re-open
+prefetch hoisting, **ring depth**, split-K, or wider per-lane loads on this family."* `T0U`
+varies the staging depth of the sliding fused-attention main loop. That *is* the ring-depth
+axis, on that exact family.
+
+**(2) The mechanism I hypothesised is measured dead.** My §5.3.5 rationale was that halving
+the staged registers might raise occupancy and buy latency hiding. Rule 100.1 measures this
+pool at **97.7 % of theoretical peak instruction issue** (3.969 × 10¹² fma/s against a
+4.04 × 10¹² ceiling), and Rule 100.2's threadgroup ladder confirms there is **no latency
+slack** — *"a latency-bound kernel absorbs extra threadgroups for free; this one does
+not."* Occupancy buys latency hiding, and there is no latency to hide. **You cannot issue
+faster than peak issue.**
+
+**(3) My own trip-count ledger proves `T0U` cannot pay under the measured exchange rate.**
+Rule 100.4 prices this kernel at **0.002097 % of `cs` per fma-per-thread removed**, so
+clearing the 0.4 % bar requires removing **≈191 fma/thread**. §5.3.5a above establishes, by
+static analysis, that `T0U` is *bit-exact with identical work, identical traffic and
+identical visit order* — it removes **zero** fma per thread. Worse: dropping the depth from
+4 to 2 doubles the main-loop iteration count from 4 to 8, which **adds** loop-control
+instructions in a kernel where instructions *are* time. The predicted sign is **negative**.
+
+**(4) 🚨 The decisive one: `T0U` is the byte-exact reversion of a shipped, merged win.**
+The state doc's pre-cleared list for this family reads: *"❌ ring depth: shipped by #539
+(**+4,086 B**, ≈0.130 % solo)."* My `T0U` patch changes `LagunaRuntimeModel.swift` by
+**−4,086 B** (384,245 → 380,159), a figure I had already computed twice — in §2.4 and again
+in §6.6.1 — and quoted approvingly as "byte-negative, which is free headroom." It is not
+free headroom. **It is #539 run backwards.** The expected effect of `T0U` is not an unknown
+worth 2.1 hours of sweep; it is **≈−0.130 %**, the negation of a merged result the campaign
+already paid for.
+
+**What went wrong in my process, and the check I am adding.** I built `T0U` by *reading the
+kernel source*, noticing a staging constant I could halve, and verifying mechanically that
+the change was bit-exact. Every step of that was sound and none of it asked the only
+question that mattered: **who put that constant there, and what did it buy?** Rule 100.7 —
+written this same day, after the advisor made the structurally identical mistake with the
+P1 prefetch hoist — prescribes exactly the missing step: *"grep the numbered standing-rule
+block for the MECHANISM WORD, not only the family section and the closed list."* I ran that
+grep at 14:12Z for `ring depth`, `unroll`, `packing` and four other mechanism words; it
+took under a minute and returned the `#539` line immediately.
+
+There is a second, sharper check I want to record because I have not seen it written down
+anywhere and it would have caught this even faster: **a candidate's byte delta is a
+fingerprint.** My patch was −4,086 B; the ledger entry was +4,086 B. An exact
+magnitude match between a proposed edit and a shipped ledger entry is near-conclusive
+evidence that the edit is that entry's inverse. I had both numbers in my own report, in two
+different sections, and never put them side by side. **Cross-reference candidate byte
+deltas against the shipped-ledger byte deltas before measuring anything.**
+
+**Disposition.** `T0U` is withdrawn, not shelved: the artefacts
+(`research/r106j/scripts/t0u_unroll_depth.patch`, sha256 `6a714fdc…c670`, and the
+`make_t0u_patch.py` generator) stay on the tree as a *negative* record so that nobody
+reconstructs it, and `research/r106j/scripts/abba_arms.next.sh` — which was staged and
+verified to add the `T0U` arm — is **not** promoted. §5.3.5a's trip-count ledger survives
+on its own merits: it is a clean static proof that the depth-2/4/8 contrast has no
+remainder confound, and it is now also the proof that the axis carries no instruction
+saving. The 2.1 hours this frees go to final verification of the tree I actually hand over.
+The preregistration in §5.3.5 is left standing above, unedited, so the record shows what I
+intended to run and why I did not run it.
+
+#### 5.3.6 Result — blocks 5–8, the preregistered checkpoint. Verdict `N-PACK`
+
+Job `0ca1fee0-a277-4ece-9783-f74fc63c21cf`, launched 2026-08-10T13:38Z, appended runs
+17–48 to the same `runs.tsv` (Rule 58: extend, never restart). At the moment blocks 5–8
+completed, the preregistered eight-block readout is the one §5.3.3 committed me to, so it
+is the one that decides the verdict. Verbatim from
+`research/artifacts/maple-fern-r106j/abba_t0_t0p/analysis_8blocks.txt`:
+
+```
+usable runs: 32   complete ABBA blocks: 8
+correctness failures: 0
+distinct golden_hash values: 1 -> ['b9509697c08a2cf3']
+  within-arm T0  decode mean=0.012965275 s/token  cv=0.3206%  n=16
+  within-arm T0P decode mean=0.012945511 s/token  cv=0.3861%  n=16
+
+d(ln decode)   : -0.1528%  CI95 [-0.5469, +0.2414]  sd=0.4714%  3/8 positive
+d(ln prefill)  : +0.0904%  CI95 [-0.4536, +0.6343]  sd=0.6506%  6/8 positive
+PRIMARY
+d(ln score)    : +0.0920%  CI95 [-0.2347, +0.4187]  sd=0.3907%  6/8 positive
+CONSERVATIVE (prefill charged neutral)
+d(ln score|dec): +0.1146%  CI95 [-0.1811, +0.4102]  sd=0.3536%  5/8 positive
+
+per-block d(ln score) %: +0.3022, -0.3693, -0.6056, +0.4303, +0.1674, +0.0146, +0.3232, +0.4731
+```
+
+**Against the four criteria fixed in §5.3.3:**
+
+| # | criterion | result | verdict |
+|---|---|---|---|
+| 1 | zero correctness failures, exactly one `golden_hash` | 0 failures, 1 hash `b9509697c08a2cf3` over all 32 runs | **PASS** |
+| 2 | CI95 on d(ln score) excludes zero | [−0.2347, +0.4187] straddles zero | **FAIL** |
+| 3 | point estimate ≥ +0.40 % of `cs` | +0.0920 % | **FAIL** |
+| 4 | surface census still passes Rule 75 | +29 B against 140,043 B of headroom; `check-editable-budget.sh` headroom 319,792 B (§6.6.1) | **PASS** |
+
+Two of four fail, so the preregistered revert fires: **the handoff tree is `T0`
+unchanged and the verdict is `N-PACK`.** The revert is the absence of a commit —
+`RESTORE_ARM=T0` already left the worktree matching HEAD — so there is nothing to undo.
+
+**The null cell, read as §5.3.3 requires.** d(ln prefill) = **+0.0904 %, CI
+[−0.4536, +0.6343]**. The patch is a decode-only kernel geometry change and cannot touch
+prefill, so this cell is a live estimate of per-block instrument noise, and it is
+consistent with zero. That matters more than it looks: at five blocks this same cell read
+**+0.4792 %**, which is larger than the effect I was hunting for and would have been a
+loud instrument alarm had it persisted. It washed out. **The blocks were not thermally or
+otherwise contaminated, and the effect cell's failure to clear the bar is therefore a
+statement about the patch, not about the host.** I record the transient because the
+honest version of "the null cell held" is "the null cell wandered and then held", and a
+reader who only saw the final number would over-trust the instrument.
+
+**Sign consistency.** 6/8 blocks positive on the primary estimator is exactly what an
+effect of ≈+0.09 % against a per-block sd of ≈0.39 % should produce; it is not evidence of
+a real win. The decode cell — the only cell the patch can physically move — is
+**negative** (−0.1528 %, meaning T0P is *slower* on decode), with 3/8 blocks positive.
+The primary estimator's positive sign is carried by the prefill term, i.e. by the null
+cell, which is the one term the patch provably cannot affect. **On the mechanism's own
+channel the patch is, if anything, slightly harmful.**
+
+**Reconciliation with the corrected prior.** §5.3.4 corrected #308's +0.562 % to
+**+0.338 %, CI [+0.118, +0.558]** after removing the M4-µs-priced-with-an-M5-constant
+inflation. The measured +0.0920 %, CI [−0.2347, +0.4187] overlaps the corrected prior's
+lower half; the two are not in contradiction, they are two weak instruments whose
+intervals intersect near +0.15 %. What is now excluded, at eight blocks, is the *original*
++0.562 % headline: it sits outside the CI. **The number that would have justified
+integrating this patch was an artefact of a unit error, and measuring it directly is what
+established that.** This is the second time in this report that a corpus figure survived
+only because nobody had re-measured it (cf. §6.6.2's near-miss receipt gap).
+
+##### 5.3.6a I will not extend past the blocks I already committed to
+
+The eight-block CI upper limit is **+0.4187 %**, which does *not* exclude the +0.40 % bar.
+A tempting move presents itself: run more blocks until the interval is tight enough to
+exclude the bar, and only then declare `N-PACK`.
+
+**I am refusing that move, and the reason is worth stating precisely, because the
+temptation is structural rather than personal.** Deciding *now* — after seeing that the
+interval's upper edge sits a hair above the bar — to collect more data is optional
+stopping with a look-dependent rule. It biases whatever interval comes out the far end,
+and it biases it in the direction I would be hoping for. The eight-block interval is
+allowed to be inconclusive about the *bar* while being perfectly conclusive about the
+*decision*, because the decision rule was written as a conjunction: criterion 3 requires
+the **point estimate** to reach +0.40 %, and +0.0920 % does not, whatever the interval
+does.
+
+There is one wrinkle I have to disclose rather than quietly benefit from. I intended this
+job to add exactly four blocks. It added eight: the driver **appends** `blocks` new blocks
+to the existing rows rather than topping the total up to `blocks`, so `runs 17–48` is
+twelve complete blocks, not eight. I discovered this from the run indices while the job
+was in flight, and by then all twelve were already committed — the schedule was fixed at
+launch, before a single one of blocks 5–12 had been observed. **Blocks 9–12 are therefore
+pre-committed data, not optionally-stopped data, and reporting them costs nothing in
+inferential validity.** What would cost something is *choosing* to run block 13. I am not
+running block 13.
+
+So the record shows both, clearly labelled: the eight-block checkpoint above, which is the
+preregistered decision instrument and which fires `N-PACK`; and the twelve-block readout
+in §5.3.6b, which is a strictly-more-powerful estimate of the same quantity that I got by
+accident and would have had no right to request.
 
 ### 5.4 Candidates that did not arrive
 
@@ -1195,15 +1499,319 @@ in the #597 thread, and **(b)** it does not exist at my base `446fe987`. So if a
 round hands over a non-bit-exact component, that tool has to be located or rewritten
 first. I did not need it and did not reimplement it.
 
-### 6.5 Item 5 — the four `submit-official.sh` preconditions
+### 6.5 Item 5 — the `submit-official.sh` preconditions. **There are twelve, not four, and my `BASE_SHA` was wrong**
 
-_Re-run on the final HEAD and pasted here; the generator is
-`research/r106j/scripts/handoff_certificate.sh`, which also emits the exact command
-frieren runs._
+I have been calling these "the four preconditions" throughout this report, because that is
+the phrase the brief used and I inherited it without checking. At 14:08Z the advisor
+retracted his own count after reading the wrapper end to end. I then read
+`senpai/submit-official.sh` myself rather than take the corrected number on trust, and the
+count is right: **twelve** guarded exits before the `exec`. Two of my own working
+assumptions were wrong, and both would have mattered.
+
+**Error 1 — I had the wrong `BASE_SHA`.** `research/r106j/scripts/handoff_certificate.sh`
+defaults `BASE_SHA` to the advisor base `446fe987…`. That is the base my *assignment* is
+bound to, and it is **not** what the wrapper wants. The wrapper wants the fork's
+`origin/main`, **`1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7`**. Feeding it `446fe987…`
+fails predicate 9 (`git diff --quiet origin/main BASE_SHA -- <protected>`), because the
+advisor base carries our own campaign's edits on exactly those protected paths. My
+certificate would have "passed" a check that the real wrapper fails. This is the same
+class of mistake as the §6.6.2 space-mixing error: a correct computation performed on the
+wrong operand.
+
+**Error 2 — I was checking a strict subset.** The old certificate covered predicates 1, 7,
+10, 11 and 12. It never checked 2, 3, 4, 5, 6, 8 or 9.
+
+#### 6.5.1 The twelve predicates, transcribed from source
+
+Line references are to `senpai/submit-official.sh` as of 2026-08-10.
+
+| # | predicate | wrapper lines | exit |
+|---:|---|---|---|
+| 1 | `BASE_SHA` present and a full 40- or 64-char hex string | :5-17 | 2 |
+| 2 | **no `--model` anywhere in `"$@"`**, in either `--model X` or `--model=X` form | :18-23 | 2 |
+| 3 | `git`, `jq`, `mlxfast` all on `PATH` | :24-29 | 2 |
+| 4 | run inside a git worktree | :31-35 | 2 |
+| 5 | `BASE_SHA` resolves to a local commit | :36-39 | 2 |
+| 6 | `git fetch origin main` succeeds | :41-47 | 1 |
+| 7 | `git merge-base --is-ancestor BASE_SHA HEAD` | :49-52 | 1 |
+| 8 | `origin/main:benchmark.json` readable, `editablePaths` a non-empty array of non-empty strings | :54-67 | 1 |
+| 9 | `git diff --quiet origin/main BASE_SHA -- benchmark.json <editablePaths…>` | :73-77 | 1 |
+| 10 | `git diff --quiet origin/main HEAD -- benchmark.json` | :78-81 | 1 |
+| 11 | no `skip-worktree`/`assume-unchanged` index bits under protected paths | :83-96 | 1 |
+| 12 | `git status --porcelain=v1 --untracked-files=all --ignored=matching` empty under protected paths | :98-108 | 1 |
+
+#### 6.5.2 Three things the source says that the summary of it does not
+
+**(a) Predicate 9 is self-discharging *if and only if* `BASE_SHA` is `origin/main`.** The
+wrapper compares `main_sha` against `base_sha` over the protected paths. When those two
+SHAs are the same commit the diff is empty by construction. So the instruction "`BASE_SHA`
+is `1bc1c895…`, never the candidate commit" is not a convention — it is the only value
+that makes predicate 9 pass without a fresh re-measurement. This also explains the failure
+mode the advisor calls trap 9: if upstream `main` moves, `origin/main` changes, the
+identity breaks, and the candidate genuinely has to be reapplied and remeasured on the new
+snapshot. **`git rev-parse origin/main` must therefore be re-checked immediately before the
+draw, not once in the morning.**
+
+**(b) `protected_paths` is read from `origin/main`'s `benchmark.json`, not from ours.**
+The wrapper does `git show "${main_sha}:benchmark.json"` and takes `editablePaths` from
+*that*. If our tree's `benchmark.json` had a different list, the wrapper would still police
+origin/main's list. Predicate 10 then forces the two to be identical anyway — but the
+ordering matters for anyone reasoning about it, and my earlier surface-census work in
+§6.6.1 read `editablePaths` from the **working tree** copy. The two agree here only because
+predicate 10 holds.
+
+**(c) Predicate 12 counts ignored files, and I run force-clean builds.** `--ignored=matching`
+means a gitignored artefact under any protected path aborts the draw. I have rebuilt this
+tree from scratch many times today and the sweep in §5.3 wrote 96 log and JSON files. The
+saving grace is that build residue lands in `.build-worker/` and `research/artifacts/`, and
+neither is a protected path — but that is a fact to *verify on the frozen HEAD*, not to
+assume, and the rehearsal below verifies it explicitly and prints any offender.
+
+#### 6.5.3 The rehearsal, and why it is a re-implementation rather than a dry run
+
+**The wrapper cannot be dry-run: if every predicate passes, it submits.** There is no
+`--check` flag and no early exit. So the only safe rehearsal is to re-implement the twelve
+predicates against the same sources, in the same order, and never call `mlxfast`. That is
+`research/r106j/scripts/submit_preconditions.sh`, transcribed hunk by hunk from the
+wrapper. It is read-only, it takes `BASE_SHA` as an argument defaulting to `1bc1c895…`, and
+it can be handed simulated trailing arguments so predicate 2 can be exercised against the
+actual notes string frieren intends to use.
+
+Two limits I state rather than hide. Predicate 6 performs a real `git fetch`, so the
+rehearsal has the same network dependency as the wrapper — which is the point, since a
+fetch failure is the *only* condition rule 88 permits retrying, and being able to
+distinguish it from a genuine rejection is worth the round trip. And predicate 3 checks
+that `mlxfast` is on `PATH`; it does not and must not check that it works.
+
+_The pass/fail table on the exact frozen HEAD is pasted in §6.5.4 once the tree is frozen._
 
 ### 6.6 Item 6 — Rule 75 surface census
 
 _Re-run on the final HEAD; generator `research/r106j/scripts/surface_census.py`._
+
+#### 6.6.1 Reconciliation of the editable-surface byte total — I had this wrong twice
+
+Earlier in this report I quoted two different totals for the editable surface,
+**2,811,013 B** (§3) and **1,737,212 B** (§5.2). Both are wrong as statements of
+"the number the gate checks". The authoritative number is **2,680,208 B**. Here
+is the arithmetic, because the discrepancy has a cause worth knowing and it is a
+trap for anyone else reading `benchmark.json`.
+
+`benchmark.json`'s `editablePaths` has **97 entries, but they are not 97 files**:
+
+| kind | entries | files reached | bytes |
+|---|---:|---:|---:|
+| plain file entries | 93 | 93 | 1,736,131 |
+| **directory entries** | **4** | **49** | **944,077** |
+| **total** | **97** | **142** | **2,680,208** |
+
+The four directory entries are `Sources/MLXFastModel`, `Sources/MLXFastTransform`,
+`Vendor/…/kernels/steel/gemm`, `Vendor/…/kernels/steel/attn`.
+
+* My **1,737,212 B** figure came from `os.path.getsize()` over the 97 entries.
+  For a directory that returns the *inode* size (a few hundred bytes), not the
+  recursive content — so it silently dropped 49 files, including the single
+  largest file on the whole surface, `Sources/MLXFastModel/LagunaRuntimeModel.swift`
+  at 384,245 B. (1,736,131 B is that same buggy sum evaluated on the required
+  base `446fe987`; the 1,081 B gap to the 1,737,212 B I reported at the advisor
+  tip is *close to* but not equal to alphonse's C2a growth, which `git cat-file -s`
+  puts at exactly **+998 B** — 59,194 → 60,192. I cannot account for the residual
+  83 B and I am not going to invent a story for it: both numbers came from the
+  same defective generator and neither is load-bearing now that the authoritative
+  script has been run.)
+* My **2,811,013 B** figure I cannot reproduce at any tree state and I am
+  retracting it rather than rationalising it.
+
+`senpai/check-editable-budget.sh` resolves directory entries with
+`find "${editable_path}" -type f`, i.e. **by working-tree content, not by
+`git ls-files`**. Two consequences that matter operationally:
+
+1. **Untracked scratch inside an editable directory is charged to the budget.**
+   A stray `.o`, a saved log, or an editor backup under `Sources/MLXFastModel`
+   counts against the 3,000,000 B cap and against the 262,144 B growth cap even
+   though it is invisible to `git diff`. I checked: my tree has none
+   (`git status --porcelain=v1 --untracked-files=all --ignored=matching` over the
+   four directory entries is empty). **Anyone integrating after me must re-check
+   this after their last build**, since builds are exactly what drops files into
+   source directories.
+2. The base side is measured with `git cat-file -s` against `BASE_SHA`, so
+   `growth` is *working tree content* minus *base committed content*.
+
+Authoritative run against the required base, on the current tree:
+
+```
+$ bash senpai/check-editable-budget.sh 446fe9875d1f95b1216628b5809a99da844e5c79
+editable budget OK: current=2680208/3000000 bytes headroom=319792 growth=0/262144 files=142 (file count is diagnostic only; base=142)
+```
+
+**Headroom is 319,792 B and growth headroom is 262,144 B.** Against that:
+
+| candidate | file touched | bytes before → after | byte effect | verdict |
+|---|---|---:|---:|---|
+| A — C2a | `Vendor/…/metal/quantized.cpp` | 59,194 → 60,192 | **+998** | 0.38 % of growth cap; safe |
+| B — `T0P` packing flip | `Sources/MLXFastModel/LagunaRuntimeModel.swift` | 384,245 → 384,274 | **+29** | safe |
+| C — `T0U` unroll depth | `Sources/MLXFastModel/LagunaRuntimeModel.swift` | 384,245 → 380,159 | **−4,086** | *shrinks* the surface; safe |
+| A+B+C composed | — | — | **−3,059** | safe |
+
+Each delta above is **measured**, not estimated: the candidate patch was applied
+to a scratch copy of the base file with `patch -p1` and the result byte-counted.
+(I first wrote "+193" for T0P from a line-count estimate; the measured value is
+**+29**, because the patch's only growth is the four-character `_sg8` pipeline
+suffix in two places and a short `rows % 8 == 0` guard, against which the
+`num_simdgroups = 2` → `= 8` edit is byte-neutral. Estimating bytes when
+measuring them costs one second is a bad habit and I am flagging my own instance
+of it.) Resulting digests: T0P `LagunaRuntimeModel.swift` sha256
+`9c2263730192bee13687d2a34198972807ab4b9ca1970e7610606eadf9758944`;
+T0U sha256 `ebebe3faad9f232f4bb94a62719a80f4cc7d10d47cff8aee09acce0036d57735`.
+
+So **the byte budget is not a binding constraint on any candidate in this queue,
+and it never was.** The three caps that could have bitten — 3,000,000 total,
+524,288 per file, 262,144 growth — are all clear by more than an order of
+magnitude. The largest single file, `LagunaRuntimeModel.swift` at 384,245 B, sits
+at 73 % of the per-file cap; T0U moves it *down* to 380,159 B. The one realistic
+way to fail this gate is mechanism (1) above — build residue in an editable
+directory — not the size of any edit anybody proposed this round.
+
+### 6.6.2 What frieren's single draw is actually worth — and the constant-pairing trap I nearly fell into
+
+The whole point of this integration tree is that frieren spends the round's **one**
+remaining official channel draw on it. It is worth pricing that draw before deciding what
+goes into it, because the answer changes the objective. Script:
+`research/r106j/scripts/draw_lottery.py`; captured output:
+`research/artifacts/maple-fern-r106j/draw_lottery.txt`.
+
+> **⚠️ This section was written at 14:10Z against state doc §96.2 and then rewritten at
+> 14:20Z against Rule 101, which superseded every constant in it.** I am keeping the
+> correction visible rather than silently overwriting it, because the error I made is
+> instructive and I made it *inside a section whose entire purpose was to warn against
+> that class of error*. See "the irony" below.
+
+**Constant pairing — the corrected version.** Rule 101 (PR #597, frieren) replaced the
+campaign's *inferred* σ with a **measured** one: three byte-for-byte exact replicates of
+the `4b0e051b` editable surface, differing only in a trailing comment.
+
+| symbol | value | status |
+|---|---|---|
+| sd(ln `cs`) \| fixed tree | **0.3607 %** | measured, n=3; supersedes 0.0540 / 0.1453 / 0.2276 % |
+| σ_resubmit = sd(ln `officialScore`) \| fixed tree | **0.3016 %** | measured; supersedes 0.3728 % |
+| geometric-mean `officialScore`, 3 replicates | **2.574049** | the correct anchor |
+| record `officialScore` (`c5b0a13c`) | 2.61650354381456 | — |
+| **unbiased gap to the record** | **1.6359 %** ⇒ **z = 5.42** | supersedes 0.9965 % / 1.2846 % |
+
+**The irony, stated plainly.** My 14:10Z version of this section paired σ(ln
+`officialScore`) = 0.3728 % with a gap of 1.2846 % that I had computed as *record
+`officialScore` ÷ our `cs` anchor*. But `cs` and `officialScore` are **different
+quantities**: on the very receipt I was quoting, `4b0e051b`, `cs` = 2.590559 while
+`officialScore` = 2.575377 — they differ by **0.588 %**, which is larger than every effect
+this round is arguing about. So the section I wrote to warn against mixing constants
+across spaces *mixed constants across spaces*. The correct gap divides `officialScore` by
+`officialScore`: ln(2.616504 / 2.574049) = **1.6359 %**, exactly Rule 101's constant.
+
+**And my "validation" was circular.** I wrote that reproducing §96.2's P = 0.0285 % and
+E[draws] = 3,510 was "the only reason I trust the pairing," and called it "the
+reproduction of a number I did not fit." It was nothing of the kind. §96.2 had computed
+its numbers from the *same* two constants I fed my script, so agreeing with it only proved
+I had transcribed the document correctly — it could not detect an error the document
+already contained. **Reproducing a derived number checks arithmetic; it does not check
+premises.** The thing that actually caught this was new *measurement* (n=3 exact
+replicates), not any amount of internal consistency.
+
+**What the winner's-curse correction got right.** One piece of the old section survives
+intact and is worth banking. §96.2 *inferred* a shrunk anchor of 2.583106 in `cs` space;
+Rule 101 then *measured* the three-replicate mean at **2.582463**. The inference was right
+to **+0.0249 %** — essentially exact. Meanwhile the selected-max receipt 2.590559
+overstates the tree's true merit by **+0.3130 %**. So the shrinkage was sound and the
+winner's-curse warning was correct; what was wrong was the *gap*, and it was wrong for an
+unrelated reason (space mixing). Being right about one thing did not protect me from being
+wrong about the other, and the two errors were in the same paragraph.
+
+**The table.** P(a single draw beats the record), by candidate tree, at Rule 101's
+measured constants (σ = 0.3016 %, gap = 1.6359 %):
+
+| candidate tree | merit % | z | P Gaussian | P under t(4) |
+|---|---:|---:|---:|---:|
+| T0 = shipped best tree | 0.0000 | 5.42 | 2.91e-08 | 2.80e-03 |
+| T0 + C2a (inert at default env) | 0.0000 | 5.42 | 2.91e-08 | 2.80e-03 |
+| T0P packing flip (as measured here) | −0.0606 | 5.62 | 9.28e-09 | 2.46e-03 |
+| T0P at #308's *corrected* prior | +0.338 | 4.30 | 8.41e-06 | 6.31e-03 |
+| T0P at #308's original (unit-inflated) claim | +0.562 | 3.56 | 1.85e-04 | 1.18e-02 |
+| hypothetical: something clears the 0.4 % bar | +0.400 | 4.10 | 2.09e-05 | 7.44e-03 |
+| hypothetical: everything in the queue stacks | +1.000 | 2.11 | 1.75e-02 | 5.13e-02 |
+
+The correction moved P(record) for the shipped tree from 2.85e-04 to **2.91e-08** —
+**9,773× more pessimistic**. E[draws] goes from ≈3,500 to **≈34 million**.
+
+**Three conclusions, in order of how much they change my behaviour.**
+
+1. **The draw is not a record threat on any tree, and this is now a categorical rather
+   than a marginal statement.** At the old constants I concluded the draw was "not a record
+   threat" because the best candidate reached only ~0.9 %. At the measured constants the
+   best candidate reaches **0.002 %**, and even the fantasy row where every proposal in the
+   queue is real *and* they compose additively reaches 1.75 %. Rule 101.5 says the same
+   thing in the state doc's own words: at gap 1.6359 % and σ 0.3016 %, even a clean
+   +0.4 % leaves z ≈ 4.1, so **"draws now buy a better own-best receipt, not the record"**
+   and *"take no draw" remains an acceptable terminal state*. My conclusion survived the
+   correction, but I want to be honest that it survived by luck of direction: the revision
+   could just as easily have gone the other way, and I had staked a handoff recommendation
+   on constants I had not checked against their source.
+
+2. **Maximising merit and maximising P(record) happen to be the same decision here, and
+   it is worth saying why.** If the leaderboard keeps the max over receipts — and it must,
+   since our own 2.590559 is described as a selected maximum — then a draw is a *free
+   option*: the downside is bounded at zero and the upside is the record. Free options
+   normally argue for maximum *variance*, not maximum mean, which would be an argument for
+   handing over the riskiest tree. That argument fails here for a specific reason: σ is a
+   property of the channel (0.3728 %, measured at a **fixed** tree), not of which tree we
+   pick. With σ fixed, P(beat) = Φ((m − gap)/σ) is monotone in m alone, so the
+   variance-seeking and mean-seeking answers coincide. I want to be explicit that this is
+   a contingent fact about this channel rather than a general principle, because if a
+   candidate ever arrived with genuinely *higher run-to-run variance* the option logic
+   would flip and the risky tree would become correct.
+
+3. **Model uncertainty about the tail dominates every effect this round is arguing
+   about.** Swapping the Gaussian for a t(4) raises P(record) for the shipped tree by 46×
+   (0.028 % → 1.3 %), and E[draws] falls from 3,513 to 77. Meanwhile the *entire* merit
+   argument of this round — the difference between shipping T0 and shipping something that
+   clears the 0.4 % bar — is worth 31× under the Gaussian and only 2.9× under t(4). In
+   other words the heavy tail both raises the base rate and *flattens the value of merit*.
+   I am not claiming the tail is heavy; I have no way to estimate a tail index from the
+   receipts we hold. I am claiming that **the choice of tail model matters more than
+   anything I can measure on this host**, which is a reason to be modest about the
+   handoff, not a reason to gamble on it.
+
+**The near-miss — and its posthumous verdict.** Earlier in this round I noticed that our
+best receipt (2.590559) exceeds the shrunk anchor (2.583106) by +0.2875 %, which is almost
+exactly the conservative composite I measured locally for T1 (+0.2347 %). For about ten
+minutes I treated that coincidence as *independent M5 confirmation of T1* — two
+instruments, different hosts, same answer. It is not confirmation. The receipt gap is the
+selection artefact that the shrinkage exists to remove: 2.590559 is the max of a set of
+draws each carrying real noise, so it sits above the family mean **by construction**.
+Quoting it as evidence would have been circular — using the winner's curse as proof that
+the winner deserved it. The tell I should have caught is that agreement to 0.05 % is far
+too good given that my local composite's own CI is [−0.1191, +0.5885], i.e. ±0.35 %;
+agreement that tight between a noisy estimate and a selected maximum is a coincidence,
+not a replication.
+
+**Rule 101.2 has now settled it by measurement, and the verdict is unambiguous.** Frieren's
+three exact replicates put `4b0e051b`'s mean `cs` at **2.582463**, against our integration
+tree (`bd33883e` + one file) at **2.582286** — a difference of **+0.007 %**, indistinguishable
+at sd 0.3607 %. The state doc's words are "**THE TREE SWAP IS DEAD … Hold our tree.**" So
+the +0.2875 % receipt gap that I nearly quoted as evidence for T1 was **essentially 100 %
+selection artefact**: the true difference is 0.007 %, i.e. forty times smaller than the gap
+and forty times smaller than the effect I would have claimed.
+
+**This is genuine cross-instrument corroboration of my `N-T1` verdict, and I want to be
+precise about why it counts when the near-miss did not.** My local paired ABBA said T1's
+conservative composite was +0.2347 % with CI [−0.1191, +0.5885] — a null. Frieren's
+official channel now says +0.007 %. Two instruments on two hosts, different noise sources,
+both saying "these trees are the same tree." The reason this is admissible evidence and
+the receipt gap was not is not that the number is smaller — it is that **2.582463 is a
+mean of three prespecified replicates, while 2.590559 was a maximum over an unbounded
+number of draws**. Same channel, same σ; the difference is entirely in the selection rule.
+That distinction is the whole lesson, and it is worth more to the campaign than any patch
+in my queue: *a mean of replicates is evidence, a max over attempts is a bet you already
+won and are now double-counting.*
+
 
 ### 6.7 Deviations, caveats and known-imperfect instruments — disclosed, not buried
 
