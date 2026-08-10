@@ -78,7 +78,7 @@ git --no-pager diff --numstat "$FAMILY" HEAD -- $PATHS
 # --- 4. Rule 75 surface identity --------------------------------------------
 list=$(mktemp)
 git ls-files -- $PATHS > "$list"
-bytes=$(xargs -a "$list" stat -f %z | awk '{s+=$1} END{print s}')
+bytes=$(xargs stat -f %z < "$list" | awk '{s+=$1} END{print s}')
 sha=$(sort "$list" | xargs shasum -a 256 | shasum -a 256 | awk '{print $1}')
 echo "=== Rule 75 surface identity ==="
 echo "files:  $(wc -l < "$list" | tr -d ' ')"
