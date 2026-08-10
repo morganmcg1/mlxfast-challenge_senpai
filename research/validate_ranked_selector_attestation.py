@@ -20,7 +20,7 @@ INCOMPLETE = "SELECTOR_ATTESTATION_INCOMPLETE"
 INVALID = "SELECTOR_ATTESTATION_INVALID"
 AUTHORIZATION_SCOPE = "PR_670_FUTURE_STATIC_RESUMPTION_ONLY"
 DEFAULT_SCHEMA_PATH = Path(__file__).with_name("ranked_selector_attestation.schema.json")
-EXPECTED_SCHEMA_SHA256 = "66d11be47fc26211ca27f6cbc1df10b32ab3d6730f7a433a8c35328827a59414"
+EXPECTED_SCHEMA_SHA256 = "d27b3c1db7394089dcc328de0f715c3dd1ba596c3a6bd878dbf8d9c4ab41055e"
 STATIC_RESUME_TARGET = {
     "selector_audit_pr_number": 670,
     "frozen_experiment_base_sha": "ccbe6fad8fc0923709ae335a83bdbafcc5a3fcdb",
@@ -138,6 +138,9 @@ SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 GIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 EPOCH_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
 METADATA_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@+\-]*$")
+RELATIVE_PATH_RE = re.compile(
+    r"^(?!.*(?:^|/)\.{1,2}(?:/|$))[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$"
+)
 SELECTOR_RE = re.compile(r"^(?:DARKBLOOM_|MLX_)[A-Z0-9_]+$")
 SECRET_NAME_RE = re.compile(
     r"(?:TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|ACCESS_KEY|PRIVATE_KEY|AUTH_SOCK|CREDENTIAL|COOKIE|SESSION)"
@@ -231,6 +234,30 @@ def strict_load_canonical_file(path, location):
     except OSError as exc:
         fail("FILE_READ_FAILED", location, str(exc))
     return strict_load_canonical_bytes(data, location)
+
+
+def load_pinned_expectations(path, expected_sha256):
+    if expected_sha256 is None:
+        fail(
+            "TRUSTED_EXPECTATIONS_PIN_MISSING",
+            "expected_expectations_sha256",
+            "verifier-owned trusted expectations digest is required",
+        )
+    require_sha256(expected_sha256, "expected_expectations_sha256")
+    try:
+        data = path.read_bytes()
+    except FileNotFoundError:
+        fail("DECLARED_FILE_MISSING", "expectations", "file is absent")
+    except OSError as exc:
+        fail("FILE_READ_FAILED", "expectations", str(exc))
+    actual_sha256 = sha256_bytes(data)
+    if actual_sha256 != expected_sha256:
+        fail(
+            "TRUSTED_EXPECTATIONS_DIGEST_MISMATCH",
+            "expectations",
+            f"expected {expected_sha256}, got {actual_sha256}",
+        )
+    return strict_load_canonical_bytes(data, "expectations")
 
 
 def exact_object(value, keys, location):
@@ -355,6 +382,14 @@ def validate_schema_contract(schema_path):
     capture = definitions.get("captureEpoch", {})
     if capture.get("type") != "string" or capture.get("pattern") != EPOCH_RE.pattern or capture.get("format") != "date-time":
         fail("SCHEMA_CONTRACT_DRIFT", "schema.$defs.captureEpoch", "UTC timestamp contract differs")
+    relative_path = definitions.get("relativePath", {})
+    if relative_path != {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 240,
+        "pattern": RELATIVE_PATH_RE.pattern,
+    }:
+        fail("SCHEMA_CONTRACT_DRIFT", "schema.$defs.relativePath", "relative path grammar differs")
     base64_value = definitions.get("base64Value", {})
     if base64_value.get("type") != "string" or base64_value.get("maxLength") != 344:
         fail("SCHEMA_CONTRACT_DRIFT", "schema.$defs.base64Value", "base64 length differs")
@@ -430,13 +465,13 @@ def canonical_bundle_hash(root):
 
 
 def safe_relative_path(value, location):
-    if not isinstance(value, str) or not value or len(value) > 240:
-        fail("PATH_ESCAPE", location, "path must be a nonempty relative string")
-    if "\\" in value or "//" in value or value.startswith("/"):
-        fail("PATH_ESCAPE", location, "path is not a lexical POSIX relative")
+    if (
+        not isinstance(value, str)
+        or not 1 <= len(value) <= 240
+        or not RELATIVE_PATH_RE.fullmatch(value)
+    ):
+        fail("PATH_ESCAPE", location, "path violates the lexical POSIX relative grammar")
     path = PurePosixPath(value)
-    if any(part in {"", ".", ".."} for part in path.parts):
-        fail("PATH_ESCAPE", location, "path contains an unsafe component")
     if str(path) != value:
         fail("PATH_ESCAPE", location, "path is not lexically canonical")
     return path
@@ -468,19 +503,24 @@ def secret_name_forbidden(name):
     return bool(SECRET_NAME_RE.search(name))
 
 
-def inspect_value_safety(value_bytes, location):
+def inspect_value_safety(value_bytes, location, subject="selector value"):
     try:
         value = value_bytes.decode("utf-8")
     except UnicodeDecodeError:
-        fail("VALUE_UTF8_INVALID", location, "selector value is not UTF-8")
+        fail("VALUE_UTF8_INVALID", location, f"{subject} is not UTF-8")
     if len(value_bytes) > 256 or any(ord(char) < 0x20 or ord(char) == 0x7F for char in value):
-        fail("SECRET_VALUE_FORBIDDEN", location, "unsafe control bytes or excessive length")
+        fail("SECRET_VALUE_FORBIDDEN", location, f"unsafe {subject} control bytes or excessive length")
     if value.strip().lower() in REDACTION_VALUES:
         fail("REDACTION_PLACEHOLDER_FORBIDDEN", location, "redaction marker is evidence")
     token_pattern = re.compile("gh" + r"[pousr]_[A-Za-z0-9]{20,}")
     if token_pattern.search(value) or re.search(r"eyJ[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{8,}", value):
-        fail("SECRET_VALUE_FORBIDDEN", location, "credential-shaped selector value")
+        fail("SECRET_VALUE_FORBIDDEN", location, f"credential-shaped {subject}")
     return value
+
+
+def require_process_metadata(value, location):
+    require_metadata(value, location)
+    inspect_value_safety(value.encode("utf-8"), location, "process metadata")
 
 
 def normalize_value(profile, value, location):
@@ -533,8 +573,8 @@ def validate_root_shape(root, expectations):
     require_sha256(root["workflow_sha256"], "workflow_sha256")
     require_sha256(expectations["workflow_sha256"], "expectations.workflow_sha256")
     for field in ("ranked_job_id", "ranked_run_id", "host_class", "trusted_collector_id"):
-        require_metadata(root[field], field)
-        require_metadata(expectations[field], f"expectations.{field}")
+        require_process_metadata(root[field], field)
+        require_process_metadata(expectations[field], f"expectations.{field}")
     require_capture_epoch(root["capture_epoch"], "capture_epoch")
     require_capture_epoch(expectations["capture_epoch"], "expectations.capture_epoch")
     for location, digest in (
@@ -885,6 +925,17 @@ def map_entry_equal(left, right):
     )
 
 
+def compare_available_entries(key, names, phase_maps):
+    available = [(name, phase_maps[name][key]) for name in names if name in phase_maps]
+    if not available:
+        return None
+    reference = available[0][1]
+    for name, entry in available[1:]:
+        if not map_entry_equal(reference, entry):
+            fail("CROSS_PROCESS_SELECTOR_MISMATCH", key, f"phase={name}")
+    return reference
+
+
 def validate_policy(root, censuses, phase_maps):
     policies = {}
     for index, rule in enumerate(root["revision_only_policy"]):
@@ -899,48 +950,51 @@ def validate_policy(root, censuses, phase_maps):
         missing = rule["missing_from_revision"]
         if present not in {"current", "pinned"} or missing not in {"current", "pinned"} or present == missing:
             fail("UNSUPPORTED_REVISION_POLICY", location, "revision roles are not complementary")
-        if key not in censuses[present] or key in censuses[missing]:
-            fail("UNSUPPORTED_REVISION_POLICY", location, "rule is not revision-only")
+        if present in censuses and key not in censuses[present]:
+            fail("UNSUPPORTED_REVISION_POLICY", location, "key is absent from declared present revision")
+        if missing in censuses and key in censuses[missing]:
+            fail("UNSUPPORTED_REVISION_POLICY", location, "key exists in declared missing revision")
         if rule["reason_code"] != "REVISION_ONLY_NO_CONSUMER":
             fail("UNSUPPORTED_REVISION_POLICY", f"{location}.reason_code", str(rule["reason_code"]))
         if rule["allowed_state"] not in {"ABSENT", "VALUE"}:
             fail("UNSUPPORTED_REVISION_POLICY", f"{location}.allowed_state", str(rule["allowed_state"]))
         require_metadata(rule["justification"], f"{location}.justification")
         relevant_phases = [name for name in PHASES if PHASE_ROLES[name] == present]
-        actual = phase_maps[relevant_phases[0]][key]
-        for name in relevant_phases[1:]:
-            if not map_entry_equal(actual, phase_maps[name][key]):
-                fail("CROSS_PROCESS_SELECTOR_MISMATCH", key, f"revision={present}")
-        if actual["state"] != rule["allowed_state"]:
-            fail("UNSUPPORTED_REVISION_POLICY", f"{location}.allowed_state", "actual state differs")
-        expected_digest = None if actual["value_bytes"] is None else sha256_bytes(actual["value_bytes"])
-        if rule["allowed_value_sha256"] != expected_digest:
-            fail("UNSUPPORTED_REVISION_POLICY", f"{location}.allowed_value_sha256", "actual value differs")
+        actual = compare_available_entries(key, relevant_phases, phase_maps)
+        if actual is not None:
+            if actual["state"] != rule["allowed_state"]:
+                fail("UNSUPPORTED_REVISION_POLICY", f"{location}.allowed_state", "actual state differs")
+            expected_digest = None if actual["value_bytes"] is None else sha256_bytes(actual["value_bytes"])
+            if rule["allowed_value_sha256"] != expected_digest:
+                fail("UNSUPPORTED_REVISION_POLICY", f"{location}.allowed_value_sha256", "actual value differs")
         policies[key] = rule
     return policies
 
 
 def validate_cross_process(root, censuses, phase_maps):
-    shared = set(censuses["current"]) & set(censuses["pinned"])
-    for key in sorted(shared):
-        reference = phase_maps[PHASES[0]][key]
-        for name in PHASES[1:]:
-            if not map_entry_equal(reference, phase_maps[name][key]):
-                fail("CROSS_PROCESS_SELECTOR_MISMATCH", key, f"phase={name}")
+    for role, census in censuses.items():
+        relevant = [name for name in PHASES if PHASE_ROLES[name] == role]
+        for key in sorted(census):
+            compare_available_entries(key, relevant, phase_maps)
+
     policies = validate_policy(root, censuses, phase_maps)
-    revision_only = set(censuses["current"]) ^ set(censuses["pinned"])
-    for key in sorted(revision_only):
-        present = "current" if key in censuses["current"] else "pinned"
-        relevant = [name for name in PHASES if PHASE_ROLES[name] == present]
-        reference = phase_maps[relevant[0]][key]
-        for name in relevant[1:]:
-            if not map_entry_equal(reference, phase_maps[name][key]):
-                fail("CROSS_PROCESS_SELECTOR_MISMATCH", key, f"phase={name}")
-        if reference["state"] == "VALUE" and key not in policies:
-            fail("UNSUPPORTED_REVISION_POLICY", key, "explicit revision-only value lacks a rule")
-    extra_rules = sorted(set(policies) - revision_only)
-    if extra_rules:
-        fail("UNSUPPORTED_REVISION_POLICY", extra_rules[0], "rule is not revision-only")
+    if set(censuses) == {"current", "pinned"}:
+        shared = set(censuses["current"]) & set(censuses["pinned"])
+        for key in sorted(shared):
+            compare_available_entries(key, PHASES, phase_maps)
+        revision_only = set(censuses["current"]) ^ set(censuses["pinned"])
+        for key in sorted(revision_only):
+            present = "current" if key in censuses["current"] else "pinned"
+            relevant = [name for name in PHASES if PHASE_ROLES[name] == present]
+            reference = compare_available_entries(key, relevant, phase_maps)
+            if reference is not None and reference["state"] == "VALUE" and key not in policies:
+                fail("UNSUPPORTED_REVISION_POLICY", key, "explicit revision-only value lacks a rule")
+        extra_rules = sorted(set(policies) - revision_only)
+        if extra_rules:
+            fail("UNSUPPORTED_REVISION_POLICY", extra_rules[0], "rule is not revision-only")
+
+    if set(censuses) != {"current", "pinned"} or set(phase_maps) != set(PHASES):
+        return None
     any_value = any(
         entry["state"] == "VALUE"
         for process_map in phase_maps.values()
@@ -957,7 +1011,12 @@ def validate_cross_process(root, censuses, phase_maps):
     return "all_selectors_absent"
 
 
-def validate_bundle(bundle_path, expectations_path, schema_path=DEFAULT_SCHEMA_PATH):
+def validate_bundle(
+    bundle_path,
+    expectations_path,
+    expected_expectations_sha256,
+    schema_path=DEFAULT_SCHEMA_PATH,
+):
     validate_schema_contract(schema_path)
     bundle = Path(bundle_path)
     expectations_file = Path(expectations_path)
@@ -969,7 +1028,7 @@ def validate_bundle(bundle_path, expectations_path, schema_path=DEFAULT_SCHEMA_P
     if entry.is_symlink():
         fail("SYMLINK_FORBIDDEN", "attestation.json", "entry point is a symlink")
     root = strict_load_canonical_file(entry, "attestation.json")
-    expectations = strict_load_canonical_file(expectations_file, "expectations")
+    expectations = load_pinned_expectations(expectations_file, expected_expectations_sha256)
     validate_root_shape(root, expectations)
     validate_trust_binding(root, expectations)
     validate_policy_shapes(root)
@@ -1009,11 +1068,9 @@ def validate_bundle(bundle_path, expectations_path, schema_path=DEFAULT_SCHEMA_P
             for key in sorted(maps["parent"]):
                 if not map_entry_equal(maps["parent"][key], maps["worker"][key]):
                     fail("PARENT_WORKER_FORWARDING_MISMATCH", f"{name}.{key}", "raw or semantic value differs")
-            phase_maps[name] = maps["parent"]
+        phase_maps[name] = maps["parent"] if "parent" in maps else maps["worker"]
 
-    comparison = None
-    if set(censuses) == {"current", "pinned"} and set(phase_maps) == set(PHASES):
-        comparison = validate_cross_process(root, censuses, phase_maps)
+    comparison = validate_cross_process(root, censuses, phase_maps)
     missing = first_missing_reference(root, phases)
     common = {
         "authorization_scope": AUTHORIZATION_SCOPE,
@@ -1328,13 +1385,38 @@ def make_public_parent_noncanonical(bundle, root, public):
 
 
 def mutate_fixture(bundle, expectations_path, mutation):
-    if mutation in {"none", "schema_drift", "trusted_bundle_digest_mismatch"}:
+    if mutation in {
+        "none",
+        "missing_expected_expectations_pin",
+        "schema_drift",
+        "trusted_bundle_digest_mismatch",
+    }:
         return
     root = load_root(bundle)
     public = phase_by_name(root, "current_public_correctness")
     hidden = phase_by_name(root, "current_hidden_gates")
     pinned = phase_by_name(root, "pinned_baseline_timed")
-    if mutation == "null_authority":
+    if mutation == "coherent_bundle_expectations_reseal_without_external_pin":
+        value = "synthetic-ranked-job-resealed"
+        root["ranked_job_id"] = value
+        root["canonical_bundle_sha256"] = canonical_bundle_hash(root)
+        write_json(bundle / "attestation.json", root)
+        expectations = load_expectations(expectations_path)
+        expectations["ranked_job_id"] = value
+        write_json(expectations_path, expectations)
+    elif mutation == "credential_shaped_process_metadata":
+        leaked = "gh" + "p_" + "x" * 24
+        root["ranked_job_id"] = leaked
+        root["canonical_bundle_sha256"] = canonical_bundle_hash(root)
+        write_json(bundle / "attestation.json", root)
+        expectations = load_expectations(expectations_path)
+        expectations["ranked_job_id"] = leaked
+        write_json(expectations_path, expectations)
+    elif mutation == "relative_path_at_rejected":
+        root["censuses"]["current"] = "censuses/current@.json"
+        root["canonical_bundle_sha256"] = canonical_bundle_hash(root)
+        write_json(bundle / "attestation.json", root)
+    elif mutation == "null_authority":
         root["installed_authority_bundle_digest"] = None
         root["canonical_bundle_sha256"] = canonical_bundle_hash(root)
         write_json(bundle / "attestation.json", root)
@@ -1411,7 +1493,10 @@ def mutate_fixture(bundle, expectations_path, mutation):
         template["census_row_id"] = "unknown-selector"
         snapshot["rows"].append(template)
         save_snapshot_and_reseal(bundle, root, relative, snapshot)
-    elif mutation == "hidden_override_differs_from_candidate":
+    elif mutation in {
+        "hidden_override_differs_from_candidate",
+        "missing_plus_cross_process_mismatch",
+    }:
         for stage in ("parent", "worker"):
             relative = hidden[f"{stage}_snapshot"]
             snapshot = load_snapshot(bundle, relative)
@@ -1421,6 +1506,8 @@ def mutate_fixture(bundle, expectations_path, mutation):
             reseal_snapshot(snapshot)
             write_json(bundle / PurePosixPath(relative), snapshot)
         refresh_manifest_and_root(bundle, root)
+        if mutation == "missing_plus_cross_process_mismatch":
+            remove_pinned_worker(bundle, root, pinned)
     elif mutation == "parent_worker_value_mutation":
         relative = public["worker_snapshot"]
         snapshot = load_snapshot(bundle, relative)
@@ -1478,8 +1565,13 @@ def mutate_fixture(bundle, expectations_path, mutation):
         raise ValueError(f"unknown mutation {mutation}")
 
 
-def fixture_bytes_digest(bundle, expectations_path, schema_path):
-    payload = b"RANKED_SELECTOR_FIXTURE_BYTES_V2\x00"
+def fixture_bytes_digest(
+    bundle,
+    expectations_path,
+    expected_expectations_sha256,
+    schema_path,
+):
+    payload = b"RANKED_SELECTOR_FIXTURE_BYTES_V3\x00"
     paths = sorted(path for path in bundle.rglob("*") if path.is_file() and not path.is_symlink())
     for path in paths:
         relative = f"bundle/{path.relative_to(bundle).as_posix()}".encode("utf-8")
@@ -1495,6 +1587,13 @@ def fixture_bytes_digest(bundle, expectations_path, schema_path):
     ):
         data = Path(path).read_bytes()
         payload += u32(len(label)) + label + u64(len(data)) + data
+    label = b"expected-expectations-sha256"
+    data = (
+        b""
+        if expected_expectations_sha256 is None
+        else expected_expectations_sha256.encode("ascii")
+    )
+    payload += u32(len(label)) + label + u64(len(data)) + data
     return sha256_bytes(payload)
 
 
@@ -1507,6 +1606,7 @@ def execute_case(case, schema_path):
         bundle.mkdir()
         case_schema.write_bytes(Path(schema_path).read_bytes())
         build_synthetic_bundle(bundle, expectations, case["base_variant"])
+        original_expectations_sha256 = sha256_bytes(expectations.read_bytes())
         mutate_fixture(bundle, expectations, case["mutation"])
         sync_expected_bundle_digest(bundle, expectations)
         if case["mutation"] == "trusted_bundle_digest_mismatch":
@@ -1517,9 +1617,26 @@ def execute_case(case, schema_path):
             schema = strict_load_file(case_schema, "synthetic.schema")
             schema["$defs"]["selectorName"]["maxLength"] += 1
             write_json(case_schema, schema)
-        bytes_digest = fixture_bytes_digest(bundle, expectations, case_schema)
+
+        if case["mutation"] == "missing_expected_expectations_pin":
+            expected_expectations_sha256 = None
+        elif case["mutation"] == "coherent_bundle_expectations_reseal_without_external_pin":
+            expected_expectations_sha256 = original_expectations_sha256
+        else:
+            expected_expectations_sha256 = sha256_bytes(expectations.read_bytes())
+        bytes_digest = fixture_bytes_digest(
+            bundle,
+            expectations,
+            expected_expectations_sha256,
+            case_schema,
+        )
         try:
-            result = validate_bundle(bundle, expectations, case_schema)
+            result = validate_bundle(
+                bundle,
+                expectations,
+                expected_expectations_sha256,
+                case_schema,
+            )
         except ValidationFailure as exc:
             result = invalid_result(exc)
         summary = {
@@ -1589,6 +1706,10 @@ def parse_args(argv):
     parser.add_argument("--bundle", help="bundle directory containing attestation.json")
     parser.add_argument("--expectations", help="separately trusted expectations JSON")
     parser.add_argument(
+        "--expected-expectations-sha256",
+        help="verifier-owned SHA-256 of trusted expectations bytes",
+    )
+    parser.add_argument(
         "--schema",
         default=str(DEFAULT_SCHEMA_PATH),
         help="pinned ranked selector attestation JSON Schema",
@@ -1601,10 +1722,18 @@ def parse_args(argv):
     )
     args = parser.parse_args(argv)
     if args.self_test:
-        if args.bundle or args.expectations:
-            parser.error("--self-test cannot be combined with --bundle or --expectations")
-    elif not args.bundle or not args.expectations:
-        parser.error("--bundle and --expectations are required unless --self-test is used")
+        if args.bundle or args.expectations or args.expected_expectations_sha256:
+            parser.error(
+                "--self-test cannot be combined with --bundle, --expectations, "
+                "or --expected-expectations-sha256"
+            )
+    elif not all(
+        (args.bundle, args.expectations, args.expected_expectations_sha256)
+    ):
+        parser.error(
+            "--bundle, --expectations, and --expected-expectations-sha256 "
+            "are required unless --self-test is used"
+        )
     return args
 
 
@@ -1615,7 +1744,12 @@ def main(argv=None):
             result = run_self_test(args.fixtures, args.schema)
             exit_code = 0
         else:
-            result = validate_bundle(args.bundle, args.expectations, args.schema)
+            result = validate_bundle(
+                args.bundle,
+                args.expectations,
+                args.expected_expectations_sha256,
+                args.schema,
+            )
             exit_code = 0 if result["classification"] == READY else 2
     except ValidationFailure as exc:
         result = invalid_result(exc)

@@ -65,7 +65,12 @@
     {"id":"noncanonical_snapshot_json","base_variant":"all_absent","mutation":"noncanonical_snapshot_json","expected_error":"PHYSICAL_JSON_NONCANONICAL"},
     {"id":"static_resume_target_mismatch","base_variant":"all_absent","mutation":"static_resume_target_mismatch","expected_error":"STATIC_RESUME_TARGET_MISMATCH"},
     {"id":"missing_worker_with_invalid_selector","base_variant":"all_absent","mutation":"missing_worker_with_invalid_selector","expected_error":"SELECTOR_NAME_INVALID"},
-    {"id":"missing_worker_with_noncanonical_snapshot","base_variant":"all_absent","mutation":"missing_worker_with_noncanonical_snapshot","expected_error":"PHYSICAL_JSON_NONCANONICAL"}
+    {"id":"missing_worker_with_noncanonical_snapshot","base_variant":"all_absent","mutation":"missing_worker_with_noncanonical_snapshot","expected_error":"PHYSICAL_JSON_NONCANONICAL"},
+    {"id":"missing_plus_cross_process_mismatch","base_variant":"identical_explicit","mutation":"missing_plus_cross_process_mismatch","expected_error":"CROSS_PROCESS_SELECTOR_MISMATCH"},
+    {"id":"coherent_bundle_expectations_reseal_without_external_pin","base_variant":"all_absent","mutation":"coherent_bundle_expectations_reseal_without_external_pin","expected_error":"TRUSTED_EXPECTATIONS_DIGEST_MISMATCH"},
+    {"id":"missing_expected_expectations_pin","base_variant":"all_absent","mutation":"missing_expected_expectations_pin","expected_error":"TRUSTED_EXPECTATIONS_PIN_MISSING"},
+    {"id":"credential_shaped_process_metadata","base_variant":"all_absent","mutation":"credential_shaped_process_metadata","expected_error":"SECRET_VALUE_FORBIDDEN"},
+    {"id":"relative_path_at_rejected","base_variant":"all_absent","mutation":"relative_path_at_rejected","expected_error":"PATH_ESCAPE"}
   ],
   "determinism": {
     "runs": 2,

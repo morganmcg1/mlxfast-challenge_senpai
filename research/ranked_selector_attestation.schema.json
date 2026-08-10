@@ -121,7 +121,7 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 240,
-      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*//)[A-Za-z0-9._/-]+$"
+      "pattern": "^(?!.*(?:^|/)\\.{1,2}(?:/|$))[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$"
     },
     "phaseName": {
       "enum": [
@@ -387,8 +387,9 @@
   "x-physical-contract": {
     "entry_point": "attestation.json",
     "manifest_scope": "Every non-null census and phase snapshot path is present exactly once. No other physical file is allowed. The entry point is excluded to avoid a recursive file hash.",
-    "missing_evidence": "A required evidence reference is always present as a property. JSON null means explicitly missing. A null installed-authority digest or evidence reference may produce INCOMPLETE only after every present census and snapshot passes semantic validation; any invalid present evidence takes precedence and produces INVALID. A non-null reference to a missing file is INVALID.",
-    "filesystem": "The bundle root, every path component, and every evidence file must be non-symlink. Paths are lexical POSIX relatives with no escape. Files must be regular, unique, declared, hash-consistent, and size-consistent."
+    "missing_evidence": "A required evidence reference is always present as a property. JSON null means explicitly missing. A null installed-authority digest or evidence reference may produce INCOMPLETE only after every available semantic relationship, every decidable available-side revision-only policy constraint, and every possible cross-process comparison passes; any invalid available evidence takes precedence and produces INVALID. The first missing reference remains the INCOMPLETE reason only after those checks. A non-null reference to a missing file is INVALID.",
+    "filesystem": "The bundle root, every path component, and every evidence file must be non-symlink. Paths use exactly the relativePath grammar: one or more slash-separated [A-Za-z0-9._-]+ components, excluding dot components, dot-dot components, empty components, @, and every other character. Files must be regular, unique, declared, hash-consistent, and size-consistent.",
+    "process_metadata_safety": "ranked_job_id, ranked_run_id, host_class, and trusted_collector_id are non-secret metadata only and are rejected for credential-shaped tokens, redaction placeholders, control bytes, or excessive encoded length."
   },
   "x-canonical-framing": {
     "row": "SHA-256 over ASCII magic RANKED_SELECTOR_ROW_V1\\0 followed by, in order, u32be-length+UTF-8 bytes for name, census_row_id, source_revision, parser_profile, one state byte (0 absent, 1 value), u64be value length (2^64-1 absent) plus exact value bytes when present, and u32be-length+compact sorted-key UTF-8 JSON for normalized_semantic.",
@@ -396,5 +397,5 @@
     "bundle": "SHA-256 over compact sorted-key UTF-8 JSON of attestation.json with canonical_bundle_sha256 omitted. Physical evidence is transitively bound by the recomputed manifest hashes.",
     "json": "Enforced for attestation, trusted expectations, census, and snapshot inputs: UTF-8 compact sorted-key JSON using ensure_ascii=false, separators comma and colon, and exactly one trailing LF; duplicate object keys are forbidden."
   },
-  "x-trust-boundary": "The separately supplied trusted expectations object pins the exact canonical bundle digest plus PR #670, frozen experiment-base/environment-audit identity, both source SHAs, workflow digest, both census file digests, ranked job/run identity, host class, collector identity, capture epoch, and installed-authority foreign digest. Self-consistency inside the bundle is insufficient. READY authorizes only future static resumption of PR #670 and never a ranked run or submission."
+  "x-trust-boundary": "The separately supplied trusted expectations object pins the exact canonical bundle digest plus PR #670, frozen experiment-base/environment-audit identity, both source SHAs, workflow digest, both census file digests, ranked job/run identity, host class, collector identity, capture epoch, and installed-authority foreign digest. The verifier must authenticate the exact expectations bytes against a verifier-owned expected SHA-256 supplied separately from both the bundle and expectations file; READY is impossible without that external pin, and coherently resealing both files is insufficient. READY authorizes only future static resumption of PR #670 and never a ranked run or submission."
 }

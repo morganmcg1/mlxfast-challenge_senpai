@@ -43,7 +43,7 @@ source revision is part of selector identity.
 | --- | --- |
 | `ranked_selector_attestation.schema.json` | Closed-world machine-readable envelope, exact four-phase model, trust target, row shape, and canonical physical contract. |
 | `validate_ranked_selector_attestation.py` | Standard-library, fail-closed validator plus deterministic synthetic bundle generator and self-test. |
-| `ranked_selector_attestation_fixtures.json` | Four ready/incomplete scenarios and 33 invalid mutations with expected classifications and error codes. |
+| `ranked_selector_attestation_fixtures.json` | Four ready/incomplete scenarios and 38 invalid mutations with expected classifications and error codes. |
 | `ranked_selector_attestation_audit.md` | This decision record, validation matrix, reproduction commands, and non-claims. |
 
 No scored or submitted path is modified.
@@ -68,9 +68,11 @@ ready. A non-null reference that does not resolve to an exact declared regular
 file is contradictory and therefore `SELECTOR_ATTESTATION_INVALID`.
 
 Before reporting any missing reference or authority, the validator semantically
-validates every artifact that is present. Invalid evidence therefore wins over
-missing evidence. The controls combine a missing worker with both an invalid
-selector name and noncanonical snapshot JSON to prove this precedence.
+validates every artifact and every relationship that can be decided from the
+evidence that is present. Invalid evidence therefore wins over missing evidence.
+Controls combine a missing worker with an invalid selector name, noncanonical
+snapshot JSON, and a cross-process mismatch to prove this precedence while
+preserving the first-missing item for genuinely incomplete bundles.
 
 All four phases must bind to one trusted ranked job ID, run ID, workflow SHA,
 host class, collector identity, and capture epoch. The current phases must bind
@@ -84,8 +86,11 @@ validator pins the schema byte digest, validates the schema contract before a
 bundle, rejects unknown fields, enforces selector strings of at most 160
 characters, enforces base64 type and encoded-size bounds, and parses capture
 epochs as real UTC instants. A syntactically shaped impossible date is invalid.
-Dedicated controls cover schema drift, impossible dates, oversized selectors,
-and wrong selector types.
+The schema and handwritten path validator also pin the identical relative-path
+grammar, `^(?!.*(?:^|/)\.{1,2}(?:/|$))[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$`;
+characters such as `@` are rejected by both layers. Dedicated controls cover
+schema drift, path-grammar drift, impossible dates, oversized selectors, and
+wrong selector types.
 
 ## Selector row contract
 
@@ -147,24 +152,31 @@ forwarded before the runtime-worker variable is forced to zero.
 
 ## Cross-process policy
 
-All shared selector names must have identical exact value bytes across all
-process classes. No phase-specific override is permitted.
+All shared selector names must have identical exact value bytes across every
+available process-class snapshot. No phase-specific override is permitted, and
+a missing unrelated snapshot cannot suppress a mismatch among available maps.
 
 The sole supported exception is structural, not value-based: a selector row
 may exist in only one source revision when the separately trusted revision
 policy records exactly `key`, `present_in_revision`, `missing_from_revision`,
 `reason_code`, `allowed_state`, `allowed_value_sha256`, and `justification`.
 `reason_code` must be `REVISION_ONLY_NO_CONSUMER`; the revision roles must be
-complementary, and the keyed present row and allowed state/value digest must
-match the census and snapshots. The policy carries no stable row identifier.
-The validator rejects policy for a name present in both censuses, undeclared
-revision-only names, wrong revision roles, unsupported reason codes, and
-mismatched allowed states or values.
+complementary, and every available keyed present row must match the allowed
+state/value digest. Any revision-only relationship that can be decided from an
+available census and maps is validated before incomplete classification. An
+explicit `ABSENT` revision-only selector requires no policy because it grants no
+value exception; a `VALUE` row requires the exact trusted rule. The policy
+carries no stable row identifier. The validator rejects policy for a name
+present in both censuses, undeclared revision-only names, wrong revision roles,
+unsupported reason codes, and mismatched allowed states or values.
 
 ## Separate trust boundary
 
 Self-consistency is insufficient. The validator requires a separately supplied,
-physically canonical trusted expectations JSON object that pins:
+physically canonical trusted expectations JSON object and a separate
+verifier-owned expected SHA-256 for those exact expectation bytes. Missing or
+mismatched external pin material is invalid and makes ready classification
+impossible. The authenticated expectations object pins:
 
 - the exact PR #670 `static_resume_target`, including authorization scope,
   experiment base, frozen environment-audit digest, and both revisions;
@@ -177,50 +189,56 @@ The evidence bundle cannot redefine these values. The trusted canonical-bundle
 digest binds the complete manifest-backed evidence bytes rather than trusting
 self-consistency alone. A non-null mismatch is invalid. If both the attestation
 and expectations record installed authority as `null`, authority is missing and
-the result is incomplete, never ready. This prevents an internally consistent
-but foreign or replayed bundle from becoming authoritative merely by hashing
-itself.
+the result is incomplete, never ready. A coherent attacker-controlled reseal of
+both bundle and expectations still fails against the external expectations pin.
+This prevents an internally consistent but foreign or replayed bundle from
+becoming authoritative merely by hashing itself.
 
 ## Physical and secret-safety contract
 
 The entry point is `attestation.json`. Every non-null census and snapshot path
 must appear exactly once in the manifest. No other physical bundle file is
-allowed. Paths are lexical POSIX relatives; absolute paths, `..`, repeated
-manifest paths, symlinks in the root or any path component, non-regular files,
-undeclared files, missing files, byte-size drift, and SHA-256 drift are invalid.
+allowed. Paths use exactly the documented ASCII POSIX-relative grammar; absolute
+paths, `..`, `@`, other out-of-grammar characters, repeated manifest paths,
+symlinks in the root or any path component, non-regular files, undeclared files,
+missing files, byte-size drift, and SHA-256 drift are invalid.
 
 The artifact is a selector allowlist, not an environment dump. The validator
 rejects credential-shaped variable names, credential-shaped value content,
 redaction placeholders, generic environment dump files, and any selector not
-in the pinned census. Secret-safe evidence records exact allowed selector bytes
-only; it never records credentials or substitutes redacted text for evidence.
+in the pinned census. The same credential-shape, token, and redaction rejection
+is applied to `ranked_job_id`, `ranked_run_id`, `host_class`, and
+`trusted_collector_id` in both bundle and trusted expectations. Secret-safe
+evidence records exact allowed selector bytes and inert process metadata only;
+it never records credentials or substitutes redacted text for evidence.
 
 ## Classification semantics
 
 | Classification | Meaning |
 | --- | --- |
 | `SELECTOR_ATTESTATION_INVALID` | Evidence is contradictory, malformed, foreign, unsafe, ambiguously framed, or violates an invariant. It must not be resumed. |
-| `SELECTOR_ATTESTATION_INCOMPLETE` | All present evidence is valid, but authority or a mandatory census/snapshot reference is explicitly `null`. The output reports the first missing item. |
+| `SELECTOR_ATTESTATION_INCOMPLETE` | All present evidence and all decidable relationships are valid, but authority or a mandatory census/snapshot reference is explicitly `null`. The output reports the first missing item. |
 | `SELECTOR_ATTESTATION_STATIC_RESUME_READY` | All required static evidence validates for `PR_670_FUTURE_STATIC_RESUMPTION_ONLY`. It is not authority, correctness, timing, run, submission, promotion, or score permission. |
 
 Invalid always takes precedence over incomplete: the validator validates the
-schema, trust, all present physical files, every present census and snapshot,
-hashes, forwarding, and cross-process equality before reporting missing
+schema, external trust pin, all present physical files, every present census and
+snapshot, hashes, forwarding, available-side revision policy, and every
+cross-process comparison supported by available maps before reporting missing
 authority or references. Every non-invalid output includes the frozen static
 target and `ranked_run_or_submission_authorized: false`.
 
 ## Synthetic validation matrix
 
 Two independent CLI invocations produced byte-identical full JSON output with
-SHA-256 `a91e62a1976d035a945c373b6b96b4f57c1be3c7520ef18b2a0be894b7ccda47`.
+SHA-256 `f9d9e318d797effbab86b81a1413790e2f9504eaa7acfb1031c4a32e968bd896`.
 The output reports:
 
-- fixture catalog SHA-256 `8aae094d0d1d8142959a19c79dd58ce20f7d4022647d9bbe25a54bc9c46763f8`;
-- case-results SHA-256 `e703a384e7103ea09aa376142199857155633d627336ff6e9426df0f3ea126dd`; and
-- schema SHA-256 `66d11be47fc26211ca27f6cbc1df10b32ab3d6730f7a433a8c35328827a59414`.
+- fixture catalog SHA-256 `3a33ffbbbd04936aec316537886c112134b9df42379c79770ba805eec8b80093`;
+- case-results SHA-256 `6f803291eb9441c9c3d7d40be0cb02eb397fa92b502a7cb16528db3b62de4a9d`; and
+- schema SHA-256 `d27b3c1db7394089dcc328de0f715c3dd1ba596c3a6bd878dbf8d9c4ab41055e`.
 
-All 37 cases passed their expected classification and, for invalid cases,
-expected fail-closed code.
+All 42 cases passed their expected classification and, for invalid cases,
+expected fail-closed code: 2 ready, 2 incomplete, and 38 invalid.
 
 ### Ready and incomplete controls
 
@@ -268,11 +286,16 @@ expected fail-closed code.
 | `static_resume_target_mismatch` | `STATIC_RESUME_TARGET_MISMATCH` |
 | `missing_worker_with_invalid_selector` | `SELECTOR_NAME_INVALID` |
 | `missing_worker_with_noncanonical_snapshot` | `PHYSICAL_JSON_NONCANONICAL` |
+| `missing_plus_cross_process_mismatch` | `CROSS_PROCESS_SELECTOR_MISMATCH` |
+| `coherent_bundle_expectations_reseal_without_external_pin` | `TRUSTED_EXPECTATIONS_DIGEST_MISMATCH` |
+| `missing_expected_expectations_pin` | `TRUSTED_EXPECTATIONS_PIN_MISSING` |
+| `credential_shaped_process_metadata` | `SECRET_VALUE_FORBIDDEN` |
+| `relative_path_at_rejected` | `PATH_ESCAPE` |
 
 The self-test materializes bundles only under temporary directories, hashes the
-actual physical fixture bytes plus the trusted expectations and schema bytes,
-validates through the public bundle path, and removes temporary evidence after
-each run. It does not inspect the host environment.
+actual physical fixture bytes plus the externally pinned trusted expectations
+and schema bytes, validates through the public bundle path, and removes
+temporary evidence after each run. It does not inspect the host environment.
 
 ## Reproduction
 
@@ -310,7 +333,8 @@ PYTHONDONTWRITEBYTECODE=1 python3 \
   research/validate_ranked_selector_attestation.py \
   --schema research/ranked_selector_attestation.schema.json \
   --bundle ORGANIZER_BUNDLE_DIR \
-  --expectations ORGANIZER_TRUSTED_EXPECTATIONS.json
+  --expectations ORGANIZER_TRUSTED_EXPECTATIONS.json \
+  --expected-expectations-sha256 ORGANIZER_EXPECTATIONS_SHA256
 ```
 
 ## Conclusion
