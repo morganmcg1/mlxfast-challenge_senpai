@@ -810,8 +810,11 @@ main-side commit this branch descends from.
 
 `research/maple-nezuko-r106b-verify-handoff.sh` runs, in one pass, everything a
 reviewer of #616 would want to see before trusting the branch, and reports each
-check's own exit status instead of letting an early `set -e` hide the rest. Run at
-`ba8bd662` with the worktree clean:
+check's own exit status instead of letting an early `set -e` hide the rest. It was
+run twice with the worktree clean — first at `ba8bd662`, then again at `40723abc`
+after the classification logic and the inventory grep were fixed. The table below
+is the **second, attested run at `40723abc`**, whose one-line verdict was
+`VERIFY: OK (all blocking checks passed at 40723abca716b75bd02246488d6fd4c8f851ff0d)`:
 
 | check | raw exit | verdict |
 |---|---|---|
@@ -819,9 +822,18 @@ check's own exit status instead of letting an early `set -e` hide the rest. Run 
 | `enforce-modifiable-surface.sh` | 1 | **accepted** — 64 offenders, *all* under `research/`, none under `Sources/` (§E.3) |
 | `check-editable-budget.sh` | 0 | pass, byte-identical to §E.2 |
 | `Sources/` digest vs base | 0 | `c11c453b…`, 410245 B — unchanged since `86539cf9`, i.e. the campaign binary |
-| `rm -rf .build && swift build -c release` | 0 | **`Build complete! (134.84s)`** from scratch |
-| `swift test --force-resolved-versions` | 1 | **accepted** — 457 tests, 6 suites, exactly **1** issue, and that issue is a sandbox artefact (below) |
-| gate inventory | 0 | 4 kernel spellings, 3 opt-in env gates |
+| `rm -rf .build && swift build -c release` | 0 | **`Build complete! (132.31s)`** from scratch (`134.84s` at `ba8bd662`) |
+| `swift test --force-resolved-versions` | 1 | **accepted** — 457 tests, 6 suites, exactly **1** issue, 0 not the known sandbox failure (below) |
+| gate inventory | 0 | 4 kernel spellings, 3 opt-in env gates, all default off |
+
+**Why the attestation still holds at the tip of the branch.** Every commit after
+`40723abc` changes only prose under `research/` — the handoff file and this
+section. `Sources/` is byte-frozen at `c11c453b…` (§E.1), so the digest, the clean
+release build and the test verdict above are properties of the current tip as much
+as of the attested commit; only the offender count in the surface gate moves, and
+it moves within `research/`, which §E.3 has already shown to be non-blocking. A
+reviewer who wants a tip-exact attestation can re-run the one script; it costs
+about four minutes, nearly all of it the from-scratch build.
 
 **Two "failures", both classified rather than waved away.** The script now decides
 each of them programmatically, so it stays honest if the situation changes:
@@ -1018,7 +1030,13 @@ unauthenticated, there is no `GH_TOKEN` or PAT in the environment, and the
 issue, not a pull request"). Three channels remain, and all three are used:
 
 1. this file and the rest of `research/`, which are pushed on the assignment
-   branch and are therefore readable by fern and by the advisor;
+   branch and are therefore readable by fern and by the advisor. In particular
+   `research/maple-nezuko-r106b-handoff-to-fern.md` **is** the Stage C handoff,
+   written in the shape fern's queue rule wants (measured % of `cs` first,
+   reproduction command second) and carrying the verdict line
+   `VERDICT: DO NOT SEND — recommended adoption is ZERO source bytes`, plus the
+   §E.3 receipt-safety warning addressed to the one person on this team who will
+   actually spend a receipt;
 2. the typed `submit_experiment_result` payload, whose summary carries the
    verdict, the labels and the pointers; and
 3. **W&B run [`7wzz7sno`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/7wzz7sno)**
