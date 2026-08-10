@@ -2,6 +2,7 @@ import Foundation
 import MLX
 import MLXFastCore
 @testable import MLXFastModel
+import MLXLMCommon
 import MLXNN
 import Testing
 
@@ -470,6 +471,218 @@ struct NVFP4QuantizedMMTests {
         #expect(caseCount == 39 * testedRows.count)
         #expect(scoredActivationValues == 9_961_472)
         #expect(corruptionControlPassed)
+    }
+
+    @Test
+    func realSharedPrefillSwiGLUEpilogueMirroredTimingWhenEnabled() throws {
+        guard ProcessInfo.processInfo.environment["MLXFAST_RUN_SHARED_SWIGLU_TIMING"] == "1"
+        else { return }
+        defer { Memory.clearCache() }
+
+        let environment = ProcessInfo.processInfo.environment
+        let weightsPath = environment["MLXFAST_REFERENCE_DIR"]
+            ?? (FileManager.default.fileExists(atPath: MLXFastConstants.defaultWeightsPath)
+                ? MLXFastConstants.defaultWeightsPath
+                : MLXFastConstants.defaultReferencePath)
+        let store = try DenseTensorStore(weightsPath: weightsPath)
+        let bridge = MLXArrayTensorBridge()
+        let banks = try makeRealSharedPrefillTimingBanks(store: store, bridge: bridge)
+        #expect(banks.count == 38)
+
+        let residentArrays = banks.flatMap {
+            [$0.input, $0.stockWeight, $0.stockScales, $0.fusedWeight, $0.fusedScales]
+        }
+        eval(residentArrays)
+        Stream.gpu.synchronize()
+
+        for _ in 0..<2 {
+            materializeSharedPrefillTiming(banks: banks, fused: false)
+            materializeSharedPrefillTiming(banks: banks, fused: true)
+        }
+
+        let variants = [(name: "stock", fused: false), (name: "fused", fused: true)]
+        let orders = [(name: "ABBA", indices: [0, 1, 1, 0]),
+                      (name: "BAAB", indices: [1, 0, 0, 1])]
+        var sampleCount = 0
+        var thermalStates = [sharedPrefillThermalState()]
+        for cycle in 0..<12 {
+            for order in orders {
+                for (slot, variantIndex) in order.indices.enumerated() {
+                    let variant = variants[variantIndex]
+                    let thermal = sharedPrefillThermalState()
+                    thermalStates.append(thermal)
+                    let nanoseconds = timeSharedPrefillTiming(
+                        banks: banks, fused: variant.fused)
+                    print(
+                        "SHARED_SWIGLU_TIMING_RAW order=\(order.name) cycle=\(cycle) "
+                            + "slot=\(slot) variant=\(variant.name) ns=\(nanoseconds) "
+                            + "thermal=\(thermal)")
+                    sampleCount += 1
+                }
+            }
+        }
+        thermalStates.append(sharedPrefillThermalState())
+
+        let result: [String: Any] = [
+            "status": "completed",
+            "architecture": GPU.deviceInfo().architecture,
+            "rows": 512,
+            "layer_count": banks.count,
+            "cycles_per_order": 12,
+            "orders": orders.map(\.name),
+            "warmups_per_variant": 2,
+            "samples_per_variant_per_order": 24,
+            "sample_count": sampleCount,
+            "stock_qmm_dispatches_per_pass": 38,
+            "stock_activation_dispatches_per_pass": 38,
+            "fused_qmm_dispatches_per_pass": 38,
+            "fused_activation_dispatches_per_pass": 0,
+            "removed_activation_dispatches_per_pass": 38,
+            "removed_logical_intermediate_bytes_per_pass": 79_691_776,
+            "regular_fused_kernel_symbol":
+                "nvfp4_qmm_t_bfloat16_gs_16_b_4_alN_true_batch_0_swiglu",
+            "ranked_nax_fused_kernel_suffix": "_qmm_t_nax_static_swiglu",
+            "thermal_states": thermalStates,
+            "all_thermal_states_nominal": thermalStates.allSatisfy { $0 == "nominal" },
+        ]
+        let data = try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys])
+        print("SHARED_SWIGLU_TIMING \(String(decoding: data, as: UTF8.self))")
+        #expect(sampleCount == 96)
+    }
+}
+
+private struct RealSharedPrefillTimingBank {
+    let input: MLXArray
+    let stockWeight: MLXArray
+    let stockScales: MLXArray
+    let fusedWeight: MLXArray
+    let fusedScales: MLXArray
+}
+
+private func makeRealSharedPrefillTimingBanks(
+    store: DenseTensorStore,
+    bridge: MLXArrayTensorBridge
+) throws -> [RealSharedPrefillTimingBank] {
+    var banks: [RealSharedPrefillTimingBank] = []
+    banks.reserveCapacity(38)
+    for layer in 1...38 {
+        let gateWeight = try loadRealSharedExpertArray(
+            layer: layer,
+            suffix: "shared_expert.gate_proj.weight",
+            expectedDType: "U32",
+            expectedShape: [512, 256],
+            store: store,
+            bridge: bridge)
+        let gateScales = try loadRealSharedExpertArray(
+            layer: layer,
+            suffix: "shared_expert.gate_proj.scales",
+            expectedDType: "U8",
+            expectedShape: [512, 128],
+            store: store,
+            bridge: bridge)
+        let upWeight = try loadRealSharedExpertArray(
+            layer: layer,
+            suffix: "shared_expert.up_proj.weight",
+            expectedDType: "U32",
+            expectedShape: [512, 256],
+            store: store,
+            bridge: bridge)
+        let upScales = try loadRealSharedExpertArray(
+            layer: layer,
+            suffix: "shared_expert.up_proj.scales",
+            expectedDType: "U8",
+            expectedShape: [512, 128],
+            store: store,
+            bridge: bridge)
+        let fusedWeight = concatenated([
+            gateWeight.reshaped([32, 16, 256]),
+            upWeight.reshaped([32, 16, 256]),
+        ], axis: 1).reshaped([1024, 256])
+        let fusedScaleStorage = concatenated([
+            gateScales.reshaped([32, 16, 128]),
+            upScales.reshaped([32, 16, 128]),
+        ], axis: 1).reshaped([1024, 128])
+        banks.append(RealSharedPrefillTimingBank(
+            input: deterministicNVFP4Source(
+                shape: [1, 512, 2048], salt: layer * 1009
+            ).asType(.bfloat16),
+            stockWeight: concatenated([gateWeight, upWeight], axis: 0),
+            stockScales: concatenated([gateScales, upScales], axis: 0),
+            fusedWeight: fusedWeight,
+            fusedScales: asStrided(
+                fusedScaleStorage,
+                fusedScaleStorage.shape,
+                strides: [128, 0],
+                offset: 0)))
+    }
+    return banks
+}
+
+private func sharedPrefillTimingOutputs(
+    banks: [RealSharedPrefillTimingBank],
+    fused: Bool
+) -> [MLXArray] {
+    banks.map { bank in
+        if fused {
+            let logical = quantizedMM(
+                bank.input,
+                bank.fusedWeight,
+                scales: bank.fusedScales,
+                biases: nil,
+                transpose: true,
+                groupSize: 16,
+                bits: 4,
+                mode: .nvfp4)
+            return logical.reshaped([-1])[0 ..< logical.size / 2]
+                .reshaped([1, 512, 512])
+        }
+        let gateUp = quantizedMM(
+            bank.input,
+            bank.stockWeight,
+            scales: bank.stockScales,
+            biases: nil,
+            transpose: true,
+            groupSize: 16,
+            bits: 4,
+            mode: .nvfp4)
+        return compiledSiluProduct(
+            gateUp[.ellipsis, 0 ..< 512],
+            gateUp[.ellipsis, 512...])
+    }
+}
+
+private func materializeSharedPrefillTiming(
+    banks: [RealSharedPrefillTimingBank],
+    fused: Bool
+) {
+    let outputs = sharedPrefillTimingOutputs(banks: banks, fused: fused)
+    eval(outputs)
+    Stream.gpu.synchronize()
+}
+
+private func timeSharedPrefillTiming(
+    banks: [RealSharedPrefillTimingBank],
+    fused: Bool
+) -> UInt64 {
+    let outputs = sharedPrefillTimingOutputs(banks: banks, fused: fused)
+    let start = DispatchTime.now().uptimeNanoseconds
+    eval(outputs)
+    Stream.gpu.synchronize()
+    return DispatchTime.now().uptimeNanoseconds - start
+}
+
+private func sharedPrefillThermalState() -> String {
+    switch ProcessInfo.processInfo.thermalState {
+    case .nominal:
+        return "nominal"
+    case .fair:
+        return "fair"
+    case .serious:
+        return "serious"
+    case .critical:
+        return "critical"
+    @unknown default:
+        return "unknown"
     }
 }
 
