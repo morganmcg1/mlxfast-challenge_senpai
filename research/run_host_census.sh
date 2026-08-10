@@ -4,7 +4,7 @@ set -uo pipefail
 
 cd "$(dirname "$0")/.."
 
-raw="${MLXFAST_HOST_CENSUS_RAW:-${TMPDIR:-/tmp}/mlxfast-decode-host-census-raw.log}"
+raw="research/decode-host-census-raw.log"
 rounds="${MLXFAST_HOST_CENSUS_ROUNDS:-5}"
 
 {
