@@ -112,6 +112,10 @@ ARMS = [
     # any layout whose row score does not already land in every lane.
     ("qk_quad_bcast", lambda s: sub_qk(
         s, "    {v} = simd_shuffle(quad_sum({v}), 0u);")),
+    # One bare broadcast: the exact shape of an MMA epilogue, where the row
+    # score already exists in one lane of the accumulator fragment and only has
+    # to reach the 32 lanes that own the output dims.
+    ("qk_bcast0", lambda s: sub_qk(s, "    {v} = simd_shuffle({v}, 0u);")),
 ]
 
 

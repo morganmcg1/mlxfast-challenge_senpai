@@ -19,6 +19,16 @@ ARMS = {
     "qk_ladder2": ("    {v} += simd_shuffle_xor({v}, 8u);\n"
                    "    {v} += simd_shuffle_xor({v}, 16u);"),
     "qk_quad_bcast": "    {v} = simd_shuffle(quad_sum({v}), 0u);",
+    # Correct all-lane butterfly: what an explicit-shuffle or fragment
+    # reduction has to fall back on when `simd_sum` is unavailable.
+    "qk_ladder5": ("    {v} += simd_shuffle_xor({v}, 1u);\n"
+                   "    {v} += simd_shuffle_xor({v}, 2u);\n"
+                   "    {v} += simd_shuffle_xor({v}, 4u);\n"
+                   "    {v} += simd_shuffle_xor({v}, 8u);\n"
+                   "    {v} += simd_shuffle_xor({v}, 16u);"),
+    # Mechanism control: one cross-lane broadcast, no reduction, so the
+    # lane-dependency cost is separated from the reduction cost.
+    "qk_bcast0": "    {v} = simd_shuffle({v}, 0u);",
 }
 
 
