@@ -678,95 +678,121 @@ meant to reach #616 or #625 as a comment is instead written here, including:
   continuous GPU occupancy, which is worth knowing for anyone timing an
   integration build in the same window.
 
-## G.3 Stage C proposal (described and costed, NOT implemented): wave quantisation
+## G.3 A Stage C proposal I wrote, and then withdrew against prior art
 
 Amendment 1 §6 proposed `P-ROWLANE` — pushing the packed-reduction idea further
 by keeping the row loop's partial sums in lanes. Arm P kills that whole family:
 with the row-loop cross-lane reduction **deleted outright** the kernel is not
 measurably faster, so no lever that merely makes the reduction cheaper can win
-anything. `P-ROWLANE` is withdrawn. What follows replaces it.
+anything. `P-ROWLANE` is withdrawn.
 
-**The observation.** Every sliding-attention dispatch launches **32
-threadgroups** of 1024 threads onto a **20-GPU-core** M4 Pro. Each threadgroup
-asks for 18432 B of threadgroup memory, which is more than half of a core's
-32 KiB budget, so two threadgroups cannot co-reside on one core: the dispatch
-occupies **one core-slot per threadgroup**, and the wall time of the dispatch is
+I replaced it with a wave-quantisation proposal, derived it from first
+principles, costed it, and then commissioned an independent search of this
+tree's own research corpus before recommending it. That search returned decisive
+prior art. **The proposal is withdrawn too, and the record of why is worth more
+than the proposal was.** Both halves are kept below, because the failure mode —
+re-deriving a promoted rule and then mis-attributing it to a refuted mechanism —
+is the reusable lesson.
+
+### G.3.1 What I proposed
+
+Every sliding-attention dispatch launches **32 threadgroups** of 1024 threads
+onto a **20-GPU-core** M4 Pro (§D.1). Each asks 18432 B of threadgroup memory,
+more than half a core's 32 KiB, so — I argued — two cannot co-reside, the
+dispatch occupies one core-slot per threadgroup, and
 
 ```
 elapsed  =  ceil(nTG / 20)  x  (work per threadgroup)
 ```
 
-With nTG = 32 that is `ceil(1.6) = 2` slots to do 1.6 slots of work, so **20 % of
-the kernel's own elapsed time is cores standing idle in the tail of the second
-wave**, not work.
+With nTG = 32 that is `ceil(1.6) = 2` slots for 1.6 slots of work: **20 % of the
+kernel's elapsed time is idle tail**. The fix is to make nTG an exact multiple of
+20. Writing nTG = (64/h) x s for h query heads per threadgroup and s splits of the
+512-key window, `nTG ≡ 0 (mod 20)` needs `s ≡ 0 (mod 5)`; the cheapest solution is
+h = 8, s = 5, **nTG = 40** — which is also an exact multiple of the ranked M5
+Max's 40 cores, the one property that makes a geometry retune arguably
+transferable off this host. Prize: up to 20 % of a kernel-local 670 µs/step,
+≈ 134 µs/step, ≈ 2.0 % of `cs`, headline-forbidden by Rule 98.9. Cost: five
+chunks per head group must be combined, either by a second dispatch (Rule 65:
++30 dispatches = **+70.2 µs/step**, over half the prize) or by a device scratch
+plus an atomic arrival counter.
 
-**The model already has one successful out-of-sample prediction.** Substituting
-H4's geometry: nTG = 16 threadgroups, each doing twice the work,
-`ceil(16/20) = 1` slot x 2t = **2t** — identical to the control's `2 x t = 2t`.
-The model therefore predicted H4's measured null *before* being fitted to it,
-and it predicts the same null for every power-of-two head split, because
-`ceil(64/(20h)) x h` is 2 for h = 1, 2 and 4 alike. That is why §C's H4 arm is not
-evidence against the request-side byte-redundancy hypothesis: the geometry it
-chose could not have moved the clock whatever the bytes did. Any future
-heads-per-threadgroup experiment on this tree will also return null for the same
-reason, and should not be run.
+### G.3.2 Why it is withdrawn: four independent findings already in this tree
 
-**The only geometry that breaks the tie.** The waste vanishes when nTG is an
-exact multiple of 20. Writing nTG = (64/h) x s for h query heads per threadgroup
-and s splits of the 512-key window, `nTG ≡ 0 (mod 20)` needs `s ≡ 0 (mod 5)`.
-The cheapest solution is
+1. **The model is not new; it is Rule 60, measured at better resolution than I
+   could reach.** `research/nezuko-decode-attention-occupancy.md:105-124` reports
+   a unit-resolution K-staircase: flat from K=1 to K=20 (8.891 → 9.069 µs), then a
+   **+6.482 µs riser at K=21** and +6.444 at K=41. Fits
+   `T = 1.661 + 7.408·ceil(K/C)` (`:190-195`) and independently
+   `T = 1.413 + 7.849·ceil(K/20)`
+   (`research/maple-nezuko-r96-a-decode-attention-pipeline.md:133`), promoted as
+   Rule 60 (`research/CURRENT_RESEARCH_STATE.md:3506-3512`). The 80.0 %
+   efficiency at S=1/C=20 (`:252`) *is* my 20 % idle tail, already on the books.
+2. **My mechanism for it is refuted three times over.** The premise "18432 B ⇒
+   one threadgroup per core" was already written down at
+   `research/nezuko-pr-attn-marginal-wave-cost.md:736-748` and then measured
+   false: **60 co-resident threadgroups (3 per core), identically at 1024 /
+   9472 / 16384 / 18432 B** (`research/maple-tanjiro-pr103-occupancy-rewrite-result.md:118-127`
+   — "that cap is set by thread and simdgroup slots, not by threadgroup memory");
+   r96-a Phases B/C/D, a real 18448 B plane and a halved 10000 B plane both at
+   60 TGs / 96 simdgroups per core (`maple-nezuko-r96-a-…:60-83`); and the #196
+   rendezvous, flat from 16 B to 32768 B
+   (`nezuko-decode-attention-occupancy.md:57-70`, §7.3 `:448-451`). The staircase
+   is real; threadgroup-memory-limited residency is not its cause.
+   **The falsifier I proposed to a Stage C owner — "time a variant with
+   threadgroup memory below 16 KiB" — had already been run, and returned null.**
+   That is the sharpest single lesson of this section: I specified a decisive
+   experiment that this tree had already performed, and would have spent a round
+   re-performing it.
+3. **On the ranked host the prize is not 20 %.** M5 Max has 40 cores, so the
+   shipped 32 threadgroups are already a single wave, and
+   `nezuko-decode-attention-occupancy.md:296-303` states the consequence
+   directly: idle slots cost zero time. My "same 20 % on both hosts by two
+   different arithmetic routes" argument silently assumed per-threadgroup work
+   rescales as 1/s. Which brings the decisive point:
+4. **The exact geometry I proposed has been measured, and it is slower.** h=8,
+   s=5 is arm-for-arm prior art's S=5 window split. At C=20, against S=1 (32 TG,
+   18.333 µs): S=2 → 1.108x, S=3 → 1.179x, S=4 → 1.310x, **S=5 → 1.489x**,
+   S=8 → 1.572x, S=10 → 1.902x
+   (`nezuko-decode-attention-occupancy.md:311-321`). On the C=40 emulation
+   (P4b, `:344-353`): S=2 → 1.144x, S=3 → 1.603x, **S=5 → 1.704x**, S=10 → 2.185x
+   — i.e. the ranked-core-count case is *worse*, not better. PR #566 independently
+   declared split-K NO-GO on both arms with φ/t = 17.8 % against a 1.6 % bar, 8.6x
+   over (`CURRENT_RESEARCH_STATE.md:1082-1098`).
 
-| | control | proposal |
-|---|---|---|
-| query heads per threadgroup | 2 | **8** |
-| window splits per head group | 1 | **5** (chunks of 103/103/102/102/102 keys) |
-| threadgroups per dispatch | 32 | **40** |
-| core-slots used on 20 cores | 2 (for 1.6 of work) | **2 (for 2.0 of work)** |
+### G.3.3 What this round adds: 32 threadgroups is a measured local optimum
 
-**Why 40 and not some other multiple, and the one way this proposal escapes the
-cross-machine geometry rule.** AGENTS.md forbids justifying a threadgroup
-geometry from M4 timings precisely because the right shape depends on core count.
-That objection is fatal to most geometry retunes and it is worth spelling out why
-it is survivable here: **40 is an exact multiple of both 20 (this M4 Pro host) and
-40 (the ranked M5 Max)**. Control on 40 cores runs its 32 threadgroups in a
-single wave of `t`, wasting 8 idle cores; the proposal runs 40 threadgroups of
-`0.8t` in a single wave, so the predicted saving is the same 20 % on both hosts,
-for the same reason, by two different arithmetic routes. No other cheap solution
-of `nTG ≡ 0 (mod 20)` has that property — `nTG = 20` is one wave on M4 and half a
-wave on M5, and `nTG = 60` is three waves on M4 and two on M5. The proposal is
-still not *proved* transferable, because per-threadgroup work does not scale
-perfectly and M5's per-core resources differ, but it is the one geometry in the
-family whose sign does not flip between the research host and the ranked host.
+Prior art swept threadgroup count **upward** from 32 and found every step slower:
+64 via one-head-per-threadgroup `_h1` at 25.1 vs 20.9 µs = **+20.1 %**, bitwise
+identical, and a ranked collapse of **−0.1488 % score** on PR #48
+(`maple-tanjiro-pr103-occupancy-rewrite-result.md:169-186`); then 64/96/128/160/
+256/320 via split-K, monotonically worse (item 4 above).
 
-**The prize, and why it is not a headline.** Removing the idle tail is worth up
-to 20 % of the sliding-attention kernel's own time. That kernel is a
-**kernel-local** 670 µs/step figure (22.34 µs/call x 30 calls), so 20 % of it is
-≈ **134 µs/step**, or ≈ 2.0 % of `cs` if — and only if — kernel time converts
-one-for-one into decode step time. Rule 98.9 forbids headlining that: it is an
-upper bound on a kernel-local quantity, and this round's own arm P is the standing
-warning that a kernel-local saving can convert to exactly nothing. It is offered
-as the reason to *run* the experiment, not as a claim.
+The one direction nobody had measured is **downward**. That is exactly what arm H
+(H4, 4 heads per threadgroup, **16 threadgroups**) does, and §C.5 measures it
+**slower than control**, by roughly +25 to +33 µs/step. So:
 
-**The cost, stated honestly.** Five window chunks per head group must be combined
-into one softmax result. Two ways:
+- Both directions from the shipped geometry are now measured slower. Threadgroup
+  count 32 for this dispatch is a **local optimum**, and the
+  heads-per-threadgroup / split-K family is closed by measurement rather than by
+  argument.
+- **I must retract a claim made earlier in this file's own drafting.** I wrote
+  that Rule 60 "predicted H4's measured null out of sample" — `ceil(16/20) x 2t
+  = 2t`, equal to control. H4 is not null; it is slower. The pure wave model
+  under-predicts H4 by ~+30 µs/step (~0.35 % of the step), so this round's H arm
+  is mild evidence **against** the pure `ceil(nTG/C)` model at the low end, and
+  consistent with prior art's repeated finding that per-threadgroup work does not
+  rescale for free. Any successor tempted to write "the geometry could not have
+  moved the clock" should note that it did move, in the losing direction.
 
-- *Second dispatch* (flash-decoding style combine). Simple and correct, but
-  Rule 65 charges **+2.3403 µs/step per added dispatch**; one combine per
-  sliding-attention dispatch is +30 dispatches = **+70.2 µs/step**, which eats
-  more than half the prize before anything is measured. Net ≈ +64 µs/step.
-- *Single dispatch with a device-memory scratch* and an atomic arrival counter,
-  the last threadgroup of each head group performing the combine. No dispatch
-  charge, but it needs a scratch buffer, an atomic, and a correctness argument
-  about ordering — and it changes the request pattern, so it must be measured
-  against a contemporaneous control like everything else here.
+### G.3.4 The procedural lesson, since it costs nothing to state
 
-**What a Stage C owner should do first.** Confirm the residency premise before
-building anything: the whole model rests on one threadgroup per core, which is
-inferred from 18432 B against a 32 KiB budget, not measured. If two threadgroups
-do co-reside, `nTG/20` is not the right denominator and the prize evaporates. A
-counter-based occupancy probe, or simply timing a variant with the threadgroup
-memory dropped below 16 KiB, settles it for far less than the cost of the
-combine.
+Four separate documents in `research/` held the answer, and I derived the model,
+built the cost table, and drafted a recommendation before consulting them. On a
+tree this size the corpus search is cheaper than the derivation. The mechanical
+version of the lesson: before proposing a geometry change, grep `research/` for
+the geometry's threadgroup count and for `ceil(` — Rule 60 and the split-K
+staircases both surface immediately.
 
 ## G.4 Two measurement notes any successor on this harness should take
 
@@ -793,11 +819,21 @@ Neither of these is about the sliding kernel; both cost a round to learn.
 This section exists because I asked for an adversarial review of §G.3's mechanism
 before writing the verdict, from an agent given the shipped kernel source and no
 access to this round's history or my conclusions. It independently reconstructed
-the wave-quantisation model in §G.3 — including the recommendation to falsify the
-one-threadgroup-per-core premise by shrinking threadgroup memory below 16 KiB
-before building any combine — which is the strongest corroboration §G.3 is going
-to get on this host. It also found two mechanisms this round's two probes leave
-completely untouched, and I record them here rather than quietly inheriting them.
+the wave-quantisation model in §G.3, including the recommendation to falsify the
+one-threadgroup-per-core premise by shrinking threadgroup memory below 16 KiB.
+
+I first wrote that agreement up as corroboration. It is not. §G.3.2 shows the
+premise was already measured false and the proposed falsifier already run: two
+independent derivations from the same source file reached the same *refuted*
+mechanism, because both reasoned from 18432 B against a 32 KiB budget and neither
+had the measurement. **Agreement between two agents reading the same code is
+evidence about the code's plausible reading, not about the hardware.** Only the
+corpus search settled it. That is the second procedural lesson of this round, and
+it is the reason the arm table below lost a member.
+
+The review's durable contribution is different and survives intact: it found two
+mechanisms this round's two probes leave completely untouched, and I record them
+here rather than quietly inheriting them.
 
 **Arm P's scope, stated precisely.** Arm P deletes the row-loop cross-lane
 reduction and keeps *every load, every FMA, every `exp`, every barrier, the ring
@@ -823,8 +859,9 @@ issue slots are not literally free; the defensible statement is "the hardware
 `simd_sum` is already at or near optimal for this reduction, and the reduction is
 a small enough slice of the kernel that removing all of it is not measurable" —
 not "cross-lane reductions are free". Similarly, the H4 arm must not be recorded
-as evidence against KV request redundancy: §G.3's own model says H4's geometry
-could not have moved the clock whatever the bytes did, so H4 tested "does halving
+as evidence against KV request redundancy: it halved the threadgroup count, which
+§G.3.3 shows is itself a losing move on this tree, so its regression is
+attributable to geometry and says nothing about bytes. H4 tested "does halving
 threadgroup count below core count hurt" and answered yes.
 
 **The campaign that would close the two open mechanisms.** Same shape that worked
@@ -840,7 +877,18 @@ advisor's call, not mine.
 | A | control | correct | reference |
 | B | in `T_LOAD_K`/`T_LOAD_V`, replace device reads with constants; keep the substitution branches, all FMAs, reduces, `exp`s, barriers and the ring write | **wrong by design** | the per-core load path |
 | C | replace both `fast::exp` sites in the block update with `x + 1.0f`, keeping the `LAGUNA_RESCALE` branch shape | **wrong by design** | special-function pipe + softmax chain |
-| D | stage the epilogue transpose in float2 halves, dropping threadgroup memory from ~18.4 KiB to <10 KiB; geometry, math and combine order unchanged | **bit-exact** | residency (and is submittable if it wins) |
+
+A fourth arm D — stage the epilogue transpose in float2 halves to drop threadgroup
+memory from ~18.4 KiB to under 10 KiB, geometry and math unchanged, bit-exact — was
+in this table until the corpus search. **It is struck, not deferred.** Prior art
+already measured that plane: a real 18448 B kernel and a halved 10000 B kernel
+both hold 60 co-resident threadgroups at 96 simdgroups per core
+(`research/maple-nezuko-r96-a-decode-attention-pipeline.md:60-83`), tanjiro's
+sweep is flat across 1024 / 9472 / 16384 / 18432 B
+(`research/maple-tanjiro-pr103-occupancy-rewrite-result.md:118-127`), and the
+#196 rendezvous is flat from 16 B to 32768 B
+(`research/nezuko-decode-attention-occupancy.md:57-70`). Threadgroup memory is not
+this kernel's occupancy limiter, so D prices nothing.
 
 Read-out fixed in advance:
 
@@ -853,15 +901,20 @@ Read-out fixed in advance:
   or deferred-rescale reassociation, which is **not bit-exact**, needs the
   equivalence oracle plus the 64-step tripwire, and carries near-tie argmax risk
   on M5. Spend hours there only deliberately.
-- **D large** → residency-capped, which is the §G.3 premise confirmed; note
-  honestly that D's own ranked upside is small because 32 threadgroups already fit
-  one M5 wave, so D is a tie-safe freebie rather than a headline.
-- **All small** → the kernel is at its dispatch/fence floor. Record sliding decode
-  attention as locally optimal on this tree and stop spending rounds on it.
+- **Both small** → the kernel is at its dispatch/fence floor. With reductions
+  closed by arm P, geometry closed in both directions by §G.3.3, and threadgroup
+  memory closed by the struck arm D, that read-out would leave nothing on the
+  table: record sliding decode attention as locally optimal on this tree and stop
+  spending rounds on it.
 
 Priors from the reviewer, recorded so the outcome can embarrass them or me:
 residency/wave ≈ 35 %, load path ≈ 30 %, `exp`/chain ≈ 15 %, dispatch floor
-≈ 20 %.
+≈ 20 %. **Reallocate before using these.** The 35 % residency/wave mass is
+misinformed for the reasons in §G.3.2 — the reviewer had the source but not the
+measurements — so on this evidence it belongs mostly with the dispatch floor, and
+the honest restatement is load path ≈ 30 %, `exp`/chain ≈ 15 %, floor ≈ 55 %.
+That is a discouraging prior for the campaign, and it is a deliberate part of the
+recommendation not to run it before the freeze.
 
 **One unrelated lead found while reading the reduction sites, handed over
 untouched.** The shipped NVFP4 projection QMV epilogues at
