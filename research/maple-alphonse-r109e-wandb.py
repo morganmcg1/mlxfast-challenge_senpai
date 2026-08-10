@@ -104,6 +104,13 @@ def _ceiling(prefix, saving_us, se_us, prices):
         )
         out[f"{prefix}/pcs_{key}"] = lo_us * pr
         out[f"{prefix}/pcs_{key}_95hi"] = hi_us * pr
+    # `fraction_of_bar` compares raw microseconds and is only meaningful for a
+    # tau = 1 mechanism. This one divides through the class's own tau, so a
+    # host-encode saving is not read as if it were in-kernel work.
+    out[f"{prefix}/fraction_of_bar_priced"] = out[f"{prefix}/pcs_advisor_wall"] / BAR_PCS
+    out[f"{prefix}/fraction_of_bar_priced_95hi"] = (
+        out[f"{prefix}/pcs_advisor_wall_95hi"] / BAR_PCS
+    )
     return out
 
 
