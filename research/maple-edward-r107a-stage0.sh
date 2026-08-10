@@ -12,6 +12,9 @@ mkdir -p "${OUT}"
 if ! git diff --quiet -- Sources Vendor; then
   echo "refusing: Sources/Vendor tree is dirty" >&2; exit 2
 fi
+if [ ! -f weights/config.json ]; then
+  echo "refusing: weights/ is not a transformed checkpoint" >&2; exit 2
+fi
 DIGEST_BEFORE="$(find Sources Vendor -type f -print0 | sort -z \
   | xargs -0 shasum -a 256 | shasum -a 256 | awk '{print $1}')"
 
@@ -45,8 +48,9 @@ probe() {  # tag snapshot steps [SG]
     python3 research/decode_probe.py --steps "${steps}" \
       --stderr "${OUT}/${tag}.err" \
       --dump-tokens "${OUT}/${tag}.tokens" >"${OUT}/${tag}.log" 2>&1
+  echo "  probe_rc=$?"
   grep -E "^teacher-forced|^decode steps=" "${OUT}/${tag}.log" \
-    || echo "  (no summary)"
+    || { echo "  (no summary)"; tail -3 "${OUT}/${tag}.err"; }
   grep -o '^R107GEOM .*' "${OUT}/${tag}.err" | head -1
   awk '/^R107SRC_BEGIN$/{f=1;next} /^R107SRC_END$/{f=0} f' "${OUT}/${tag}.err" \
     | head -400 >"${OUT}/${tag}.metal"
