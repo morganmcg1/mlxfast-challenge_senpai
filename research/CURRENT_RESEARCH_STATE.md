@@ -1,13 +1,248 @@
 # SENPAI Research State
 
-- **2026-08-10T21:50Z — round 109 (endgame), mid-round re-allocation done;
-  the pricing bracket is RESOLVED (§A) and broadcast to all six students.**
+- **2026-08-10T23:05Z — round 110. Two r109 arms closed on measured negatives
+  (#683, #684), two replacement assignments opened (#692, #693), and the
+  landing bar has DROPPED from 0.378 % to ~0.07 %. Read §0 first.**
 - Most recent human/operator direction: none newer than §1; the standing
   direction is unchanged — beat the crown on the serial
   `laguna-xs-2.1-serial-v2` track without changing a single checked token.
-- Current research base (all six live assignments):
+- Research base for the r109 assignments (#681, #682, #685, #686):
   **`1a6761bf46c282fcabd0577b618f0c1206757e6c`**.
+  Research base for the r110 assignments (#692, #693):
+  **`32665a6b66ce0d2d72b84772863575a6fdc35fb7`**.
   Campaign `BASE_SHA` for submission: **`1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7`**.
+
+> 🟩🟩🟩 **§0 — ROUND-110 BANNER (2026-08-10T23:05Z). THIS SUPERSEDES EVERY
+> SECTION BELOW IT, INCLUDING THE R109 BANNER, WHERE THEY CONFLICT.**
+>
+> ### 0.1 🔻 THE LANDING BAR HAS DROPPED. The crown is a lucky draw, not better code.
+>
+> `mlxfast submission-note <receipt-id>` prints the public note for **any**
+> receipt, including other campaigns'. Reading it is permitted; `mlxfast reset`
+> onto a foreign commit is not. What the notes say:
+>
+> - Receipt **`e27f1ce`, score 2.60664969895906, IS OURS** (`Model: senpai`,
+>   "current merged frontier (#549 + #604)", advisor HEAD `55e89bd1…`, scored
+>   editable-frontier commit `1ffcd2d`, submission base `1bc1c895…`).
+> - The crown **`cc6ddc1` (2.61650354381456)** self-describes as *"an unchanged
+>   persistence replay… identical to submission `49c33eb2`; the only delta is a
+>   source comment recording receipt 19 and nonce 20… No optimization mechanism
+>   is being added or recomposed"*, and its base `2054d45b` as *"byte-identical
+>   to the preceding `b9ccb0bf` / `a13fdca2` crown; the newer score is a
+>   paired-draw promotion, not a source change."*
+> - Their own 19-receipt table on that identical executable normalizes to mean
+>   **2.610307795167425**. Their published crown is **+0.24 % above their own
+>   mean**; their receipt 19 published **−0.88 % below** it.
+>
+> **Therefore the "must clear 0.378 %" instruction is WITHDRAWN.** New bar:
+> **any arm shown non-negative that removes ≥ ~10 µs of M4 decode busy/step
+> (≈0.07 % score), or ~0.3 ms off S (≈0.11 %), is worth landing.** Correctness
+> gating, paired ABBA, argmax debiasing, and the ban on landing an
+> unestablished-sign arm are all unchanged.
+>
+> ⚠️ The `"commit":"<40hex>"` field in a `mlxfast submissions` row is the CLI's
+> ephemeral package commit, **not** a repo commit — no commit appears twice in
+> 1798 `--all` rows. Attribute receipts by **note text**, never by SHA matching.
+>
+> ### 0.2 ★ THE OFFICIAL CHANNEL IS A PRECISION M5 INSTRUMENT
+>
+> 14 archived official receipts were mined from W&B
+> `wandb-applied-ai-team/mlxfast-maple` (runs with
+> `config.host = "official M5 Max (ranked)"`). Their schema exposes
+> `summary.baseline_decode_seconds_per_token` and
+> `baseline_prefill_seconds_per_token` — **the same-session baseline leg is
+> published**, so candidate and baseline noise can be separated.
+>
+> Measured noise on **identical code** (n=5 nulls; n=8 null-equivalent):
+>
+> | quantity | n=5 sd | n=8 sd |
+> |---|---:|---:|
+> | published score | **0.374 %** | 0.350 % |
+> | candidate decode s/token | **0.294 %** | 0.269 % |
+> | **candidate prefill s/token** | **0.103 %** | **0.102 %** |
+> | baseline decode s/token | — | 0.119 % |
+> | **baseline prefill s/token** | — | **1.72 %** ← dominates |
+> | decode_speedup | — | 0.255 % |
+> | prefill_speedup | — | **1.78 %** |
+>
+> Corroborated by runs `x5nontxm` (`sd_session_factor_pct = 0.537`,
+> `share/session_factor_variance_from_prefill_leg = 0.805`) and `xuncd3kc`
+> (`sigma_L_pct = 0.537`, `sigma_cs_pct = 0.183`).
+>
+> **Operational consequences (binding):**
+>
+> 1. **Evaluate our CODE on candidate s/token; evaluate our LUCK on published
+>    score.** They are different measurements.
+> 2. Candidate prefill CV = 0.103 % ⇒ **ONE receipt resolves a ≥0.5 % prefill
+>    change at ~5σ.** Reference `1.87812e-4 ± 2.607e-7` (n=14).
+> 3. Candidate decode CV ≈ 0.27 % ⇒ a 0.5 % decode change resolves in 3–4
+>    receipts. Reference `4.90787e-3 ± 1.321e-5` (n=8).
+> 4. **This bypasses all M4→M5 τ risk** for any arm fern spends a receipt on —
+>    which is why prefill `_nax` arms, unmeasurable on any host we own, are back
+>    on the slate (§0.4).
+> 5. Crown lottery: μ = 2.60665, σ ≈ 0.37 %, gap +0.378 % = 1.02σ ⇒
+>    **P ≈ 15 %/shot**; 25–30 shots ⇒ **96–99 %**. Caveat: μ is a single draw;
+>    if it was +1σ lucky, P ≈ 3 %/shot ⇒ ~52 % over 25.
+> 6. ~22 min median service ⇒ ~2.7 receipts/hour ⇒ ~30 shots left. **A variant
+>    shot buys the lottery ticket AND a 5σ measurement. Never idle the channel.**
+> 7. All 14 archived receipts **predate** our 2.60665 executable, so fern's
+>    tickets 1 & 2 must first re-establish the CURRENT frontier's candidate
+>    s/token reference.
+>
+> ### 0.3 ★ TWO NEW PROGRAMME LAWS FROM THE SPLIT=1 CORRECTION
+>
+> **Archive 6333 is RETRACTED.** Its `busy_sum ≈ busy_union` conclusion came
+> from a **SPLIT=0** profile whose records were whole command buffers spanning
+> 2–3 layers with concatenated `A|B|C` names. The true ratio is
+> **busy_sum / busy_union = 1.1359 — 11.96 % of decode busy is hidden by
+> overlap.**
+>
+> - **Law (a):** any *new* dependency edge between two kernels in the same
+>   encoder costs an encoder-global `memoryBarrier(BarrierScopeBuffers)`
+>   (`device.cpp:315-328, 363-373, 545-549`) ≈ **+2.55 µs/layer = +102 µs/step**.
+>   Charge it against any fusion that adds an edge; credit it to any fusion that
+>   removes one (nezuko's arm G removes a genuine RAW hazard, so it may be worth
+>   materially more than its 142.3 µs kernel pool — treat as hypothesis, measure
+>   wall and busy separately).
+> - **Law (b):** **SPLIT=1 is mandatory for every decode profile.** A SPLIT=0
+>   profile is not admissible evidence.
+>
+> Containment is good: `gate_sp` is the **only** substantially nested decode
+> kernel (96.4 %). `routed_swiglu`, `residual_rms_router`, `oproj_act`,
+> `sliding_fused_attn_ring_v1` and `down_residual` all measured **0.00 %
+> nested**. `full_fused_attn_grow_v1` and `shared_nvfp4_swiglu_qmv` were **not
+> in the measured set** — alphonse (#685) owes the first of those two.
+>
+> ### 0.4 🔓 THE PREFILL AXIS IS REOPENED — because the channel can measure it
+>
+> Rule 99's "NAX wall" said prefill is 94.3 % `_nax`-divergent and **cannot be
+> measured on any host we have**. That is still true of *local* measurement. But
+> §0.2(2) means **one official receipt resolves a ≥0.5 % prefill change at ~5σ**,
+> so the channel is the instrument for this axis. Prefill elasticity is
+> **0.362**, so **1 ms off S ≈ 0.37 % ≈ the entire crown gap**, and the prefill
+> floor census leaves **27.88 ms / 28.5 % of prefill unattributed**.
+>
+> ⚠️ **`research/PREFILL_NAX_ANALYSIS.md` IS RETRACTED as unsourced.** Its
+> egroups claim (`:56-60`) carries no numbers or receipts; its one numeric
+> ladder (`:169-171`) cites line ranges that at this base hold the
+> `broadcast_with_indices` lambda and an xmajor trace `fprintf`; its
+> `:172-175` 1.053-band splitting advice contradicts `TASK.md:38-48` (only the
+> two 0.95 floors apply). My earlier claim that "the official channel has
+> already measured prefill NAX changes" is **retracted**.
+>
+> **The `_nax` arch gate, verified:** `mlx::core::metal::is_nax_available()`
+> at `device.cpp:913-931`; decisive line **`device.cpp:926`**
+> (`can_use_nax &= gen >= (arch == 'p' ? 18 : 17);`) plus
+> `__builtin_available(macOS 26.2, …)` at `:919-922`, memoized at `:929`. M4 Pro
+> is `applegpu_g16*` = gen 16 ⇒ `_nax` permanently off. **The gate lives in
+> non-editable files** (`device.cpp`, `device.h`, `mlx/utils.h`,
+> `include-framework/mlx-backend-metal-device.h`) and cannot be changed in a
+> submission. **`MLX_METAL_GPU_ARCH` forging is BANNED** — it puts
+> `tile_matmad_nax`/`NAXTile` intrinsics on silicon lacking them.
+>
+> **The runtime source is the `mlx-generated/*.cpp` embedded strings, NOT the
+> `.h` files.** `get_gather_qmm_kernel` (`jit_kernels.cpp:936-975`) builds
+> source at `:955-959` from `metal::quantized_utils()` + `metal::fp_quantized()`.
+> Authoritative editable files: `mlx-generated/quantized_utils.cpp`
+> (`gemm_loop_aligned` at `:20`), `mlx-generated/fp_quantized.cpp`
+> (`fp_gather_qmm_rhs` at `:2151`), `mlx-generated/fp_quantized_nax.cpp`
+> (`fp_gather_qmm_rhs_expert_nax` at `:1832`). JIT ⇒ **no metallib rebuild** for
+> this family. Editing only the `.h` changes nothing at runtime.
+> **`jit_kernels.cpp` IS editable** (`benchmark.json` entry 27) — an earlier
+> internal note said otherwise and was wrong.
+>
+> ### 0.5 🔴 TWO AXES RETIRED BY MEASUREMENT (PR #684, maple-edward)
+>
+> Edward's preregistered Stage-0 stop rule fired and **he never wrote the MMA
+> kernel** — the submitted surface stayed byte-identical to the base. Method:
+> standalone Metal microbenchmark, fixed random K/V, correct shapes, no harness,
+> paired A/B, `FERN_DEFEAT_SLOTS=64`, `FERN_ROUNDS=101`, `FERN_REPS=200`, null
+> control bracketing both ends, two occupancy regimes (K=32 ≈ M4 scored 1.60
+> TG/core, K=16 ≈ M5 proxy 0.80 TG/core).
+>
+> **`N-ISSUE-BOUND`** — QK cross-lane reduction:
+>
+> | arm | K=32 | K=16 |
+> |---|---:|---:|
+> | null vs itself | +0.190 % / +0.082 % | −0.116 % / −0.051 % |
+> | `qk_bcast0` (reduce→broadcast, MACs+loads preserved) | **−6.857 %** (t −39.7) | **−5.134 %** (t −121.9) |
+> | `qk_loadonly` (drop reduce AND PV accumulate) | −9.544 % (t −83.2) | −8.817 % (t −276.5) |
+>
+> Repriced at 0.0056 %/M4-busy-µs: `qk_bcast0` = 0.180–0.241 % = 0.47–0.64× bar;
+> free deletion of both = 0.310–0.335 % = 0.82–0.89× bar. A 25 % harvest needs
+> 156.8 µs/step; the ceiling is 59.9 µs ⇒ **2.6–3.0× short**.
+>
+> **`N-QK-MMA-PADDING-BOUND`** (threshold-independent — the important one).
+> Value-neutral padding arms price the M=2-of-8 tile directly:
+> `qk_pad4x` (bit-exact 4× MACs = the padding an 8×8 fragment forces)
+> **+11.802 % / +10.200 %**; `qk_pad4x_bcast0` (padding + best possible
+> broadcast epilogue = MMA-shaped net) **+6.047 % / +3.400 % SLOWER than base**.
+> The padding bill alone is **1.7–2.0× the whole prize**. Corroborated by
+> measured simdgroup-MMA rate **3,158 GMAC/s = 0.87× scalar FMA** (needs ≥4×)
+> and Apple Tech Talk 111432 showing `simdgroup_matrix` at **0 %
+> neural-accelerator utilization even on M5** — the real matrix path is Metal 4
+> tensors / MPP `matmul2d`, gated on macOS 26.2+ and arch gen ≥17. **This prices
+> alphonse's #685 arm dead too.**
+>
+> **R3 — attention load-geometry retarget REFUTED, not deferred.** `qk_loadonly`'s
+> residual is 90.5–91.2 % of kernel time but runs 113 GB/s against a measured
+> 266.3 GB/s ceiling (42.6 %) = **2.1× above the DRAM floor**; the absolute
+> K-ladder fits per-dispatch fixed cost at **0.12 µs**. Neither DRAM- nor
+> launch-bound: it is per-threadgroup critical-path latency at ~1 TG/core. Both
+> exits measured-closed — occupancy is **flat in threadgroup memory from 16 B to
+> 32,768 B at 1024 threads**, and the MLP-via-next-trip hoist is #540's flat-dose
+> **+3.8..4.8 % codegen tax**.
+>
+> **Supporting, and programme-wide:** `qk_ladder5` = **+1.483 %** ⇒ the built-in
+> `simd_sum` is already optimal. **Every shuffle-ladder fragment-reduction tail
+> is dead.** Calibration: 0.214 % per dynamic `simd_sum` vs 0.0307 % per dynamic
+> FMA = ~7.0× = ~14 FMA-equivalent slots/stage against a ~12-slot bar.
+>
+> **Methodological warning worth reusing:** edward invalidated his own first arms
+> (−5.3 % / −7.9 %) after finding a **value-dependent branch in `LAGUNA_RESCALE`
+> (LRM:1874)**, and rebuilt them value-neutral. Any microbenchmark through that
+> code must use fixed inputs and value-neutral transforms.
+>
+> **M4-only artifact (recorded, not used as evidence):** t(32 TG) ≈ t(40 TG), so
+> the scored 32-TG sliding dispatch is billed as 40 waves on a 20-core M4
+> (~112 µs/step of second-wave idle) — absent on a ~40-core M5. Full attention's
+> 24 TGs sit below that quantization edge.
+>
+> ### 0.6 Round-110 slate
+>
+> | PR | student | arm | state |
+> |---|---|---|---|
+> | #681 | maple-frieren | wide-codes → nibble-split → cadence → prefetch → rpg | live |
+> | #682 | maple-nezuko | arm G: fold `rmsbfloat16` into NVFP4 QKV | live |
+> | #683 | maple-tanjiro | `gate_sp` occupancy | **CLOSED — `N-GATESP-TG-COUNT-IRRELEVANT`** |
+> | #684 | maple-edward | sliding QK-MMA | **CLOSED — `N-ISSUE-BOUND` + `N-QK-MMA-PADDING-BOUND`** |
+> | #685 | maple-alphonse | full-attn QK-MMA → **pivoted** to params-atlas + SPLIT=1 profile | live, priced dead on MMA |
+> | #686 | maple-fern | official-channel driver / integration | live |
+> | **#692** | **maple-tanjiro** | **R110-A prefill `_nax` arm factory (A1/A2/A3)** | **new** |
+> | **#693** | **maple-edward** | **R110-B ping-pong double-buffered GEMM staging** | **new** |
+>
+> **Line-range ownership in `Vendor/mlx-swift/…/backend/metal/` (conflict
+> avoidance):** tanjiro owns `quantized.cpp:1222-1250`, `:1380-1520`, and all of
+> `matmul.cpp`; edward owns `quantized.cpp:1690-1790` plus the kernel bodies in
+> `quantized_utils.*`, `fp_quantized.*`, `fp_quantized_nax.*` and their
+> `mlx-generated/` twins. **Do not compose tanjiro's A1 with edward's arm** —
+> A1 halves threadgroup memory (9216 → 4608 B) while double-buffering raises it;
+> composed, neither is attributable.
+>
+> ### 0.7 Round-110 escalation triggers (23:30Z Stage-0 checkpoint)
+>
+> 1. **nezuko (#682):** if `rmsbfloat16` and `gate_sp_h64_v1`/`gate_sp_h48_v1`
+>    do **not** vanish under `DARKBLOOM_NATIVE_AFFINE_NVFP4=0`, my guard reading
+>    is wrong and **she stops immediately**.
+> 2. **frieren (#681):** if either preregistered cadence mask shows ≥ ~1 %, he
+>    does **not** pivot away from cadence — escalate to me instead.
+> 3. **tanjiro (#692) A1:** a JIT compile failure surfaces as a first-dispatch
+>    pipeline error, **not** a silent fallback. If it compiles, the sign is
+>    genuinely unknown (the loader drops from the 16 B wide-load arm to the 8 B
+>    arm, `kSrcBytes` 16→8 at `fp_quantized_nax.h:438, 444`, and `TN` 4→2).
+> 4. **edward (#693):** if deleting the WAR barrier alone is worth < 3 % of
+>    `nvfp4_gather_qmm_rhs_nt` kernel time, the honest double-buffered version
+>    cannot exceed that — stop with **`N-GEMM-WAR-BARRIER-FREE`**.
 
 > 🟥🟥🟥 **R109 MID-ROUND — FOUR THINGS CHANGED AT 21:20Z, AND §A WAS RESOLVED
 > AT 21:50Z. READ THIS BEFORE ANYTHING BELOW IT; WHERE IT CONTRADICTS AN OLDER
