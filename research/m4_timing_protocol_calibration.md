@@ -37,4 +37,58 @@ The protocol is useful only if the real A/A data produces zero promotions, the 0
 
 ## Results
 
-Pending collection and frozen analysis.
+**Terminal decision: NO-GO for sub-0.2% local promotion gates; acquisition is inconclusive.** The strict physical protocol could not produce one valid latency, and its observed launch-time lower bound already violates the frozen two-hour usefulness condition. No production, vendor, generated, weight, or harness file changed.
+
+### Acquisition outcome
+
+`./setup.sh` completed successfully in 80.543 s (Senpai job `449ce758-2188-4f28-ae9b-bc41c32ac95b`). The first frozen A/A invocation ran through Senpai job `a6393b15-616c-4162-8ef3-72bd12cf8f03` with:
+
+```text
+MLXFAST_LOCAL_FAN_PROMPT=0 \
+MLXFAST_LOCAL_COOL_GATE_STRICT_TELEMETRY=1 \
+MLXFAST_SCORE_PATH=<unique score path> \
+MLXFAST_INTEGRITY_PATH=<unique integrity path> \
+./benchmark.sh --local-iterate
+```
+
+It began at `2026-08-10T15:18:44Z` and failed at `15:22:56Z`, exit 1, before timing. After model startup the strict prefill gate observed 44.1 C, cooled for 180 s, then failed at 40.2 C with minimum 40.1 C against the required `<=40 C` threshold. The score records `timed_benchmark_seconds=0`, zero checked steps, zero measured prefill/decode latency, and `error="local GPU cool-down gate failed for prefill with status 1"`.
+
+No overlapping benchmark/model process was present afterward; fan mode remained `auto`. A quiet post-run snapshot at `15:24:28Z` showed GPU 40.015 C, CPU 40.042 C, GPU scaled load 1.2%, GPU power about 0.008 W, and fan 1004 RPM. This makes another unchanged launch unlikely to pass: idle equilibrium is approximately the strict threshold and startup adds heat. Raising fan speed or weakening the gate would violate the frozen protocol, so no replacement cycle was launched.
+
+The rejected launch consumed 252 s. Even treating that failed pre-timing duration as an optimistic per-invocation floor, the frozen 48-invocation design requires at least `48*252/60 = 201.6` minutes. A valid invocation necessarily adds actual correctness/timing work, so the design cannot satisfy the two-hour usefulness cap on this host.
+
+### Statistical result
+
+| Required result | Outcome |
+|---|---|
+| Valid invocations / cycles / sessions | 0 / 0 / 0 |
+| Pooled, ABBA, BAAB, session, order-interaction CIs | Not estimable |
+| Position slope and lag-1 autocorrelation | Not estimable |
+| A/A eligible promotions | 0 of 0 decisions |
+| 64-sign-flip false-positive rate | Not estimable |
+| Analysis-only 0.2% synthetic recovery | Not estimable; no observed noise structure |
+| Observed 80%/95% MDE, power, required cycles | Not estimable; no cycle SD |
+| Two-hour conservative MDE <=0.2% | Not demonstrated |
+
+The machine-readable records are `research/m4_timing_protocol_calibration_raw.csv` and `research/m4_timing_protocol_calibration_summary.csv`. Missing values are `NA`, not zeros. An independent feasibility review also found the requested sub-0.2% false-positive, MDE, and power claims cannot be jointly supported by two sessions; synthetic injection would validate analysis plumbing only, not the physical noise claim. Therefore no favorable inference is made from this failed acquisition.
+
+### Prior-experiment audit
+
+The six frozen external examples reinforce why this calibration was needed, but were not fit as A/A data. PR #610 changed sign dramatically between fresh-worker/order blocks (sliding 1.070844x versus 0.691164x). PR #623 isolated TG512 measured 1.080204x in ABBA but 0.997265x in BAAB. PR #632 full-model prefill was 0.996257x in ABBA and 1.000434x in BAAB. PR #637 used 484 isolated observations to resolve a small negative effect (0.999452x), illustrating that high repetition can be informative for a short isolated harness but not this full-model launch budget. PR #639 reported 1.0659x ABBA versus 0.96948x BAAB with a lower 95% bound of 0.90006. PR #643 reported 1.012585x ABBA versus 0.996736x reverse order. These are evidence against trusting one favorable ordering, not substitutes for the missing unchanged-baseline calibration.
+
+### Provenance and retained evidence
+
+Host: Apple M4 Pro, 20 GPU cores, 48 GiB, macOS 26.5.2 (`25F84`), Darwin 25.5.0, Swift 6.3.3, macmon 0.8.2. Branch HEAD during acquisition was the pre-data commit `104099fb29b58fcc37aab14ac304eaa942d0278a`; worktree and submitted payload were unchanged.
+
+- submitted payload SHA-256: `47121275b6239f422e8167b03c150409ee5af04e9eb508b015a8d8999ecb76ff`
+- release worker: `da213603d93346a48ded636ef87e52550e00df5c9e78440c2cb089bdf2f348e8`
+- metallib: `8e8b18afaee1ed5a0190403f79a4cc74b9bebcb52b50c4b67d0ed91dc73097ec`
+- harness: `25fafafc593dc655f2cecd3550de1e428fb577de56df900955136a533bc9202e`
+- weights: `aff994300573c5e8589563fc9ff57cdcfb1ef9b49e14898be290a75a6b294b3d` (9 files, 21,568,891,382 bytes)
+- golden: `b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63`
+- transform source: `5929dfd16cedf35645e5a2bab62baa06ae4908382eae16917f1594bafb3715ec`
+- runner: `86466a4754f021af4759d3dcc8386dc55b53e1fdb6adf2b7b736050ac151ef39`
+- score / integrity / log: `701978aa767ab84439501357716f701cfd975839699fd9b1619d96a736471a46` / `beaa053de9ccaeb0e49eedd06f1f68a3ef0b4bb4ab0ffc57f642394103ea036e` / `1b43e318c61d58d7d8f76ce2a697ccadc2819aa85d7819ff3bc980307538ab70`
+- raw manifest: `3f9cfba04c0b3123f34fe4f1fc990db3c2c5ce5d5fa639be80b8b1a12dc9c371`
+
+Full logs, score, integrity record, manifest, and before-run provenance remain under the role workspace at `m4-aa-calibration-raw/session-01/cycle-01/`; only checksums and compact tables are committed. W&B is N/A because this local Swift/Metal inference harness does not emit W&B runs. No official submission was made.
