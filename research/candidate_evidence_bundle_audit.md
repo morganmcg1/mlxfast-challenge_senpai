@@ -202,8 +202,8 @@ cmp -s /tmp/candidate-evidence-run1.json /tmp/candidate-evidence-run2.json
 shasum -a 256 /tmp/candidate-evidence-run1.json /tmp/candidate-evidence-run2.json
 ```
 
-A standalone bundle validation requires three external filesystem roots plus the
-separately distributed verifier-owned context pin:
+A standalone bundle validation requires the external candidate, artifact, and
+trusted-context inputs plus the separately distributed verifier-owned context pin:
 
 ```bash
 python3 research/validate_candidate_evidence_bundle.py BUNDLE.json \
