@@ -1,0 +1,225 @@
+=== Stage-3 handoff certificate ===
+generated_utc   2026-08-10T16:13:48Z
+repo_root       /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-fern/workspace/target
+BASE_SHA        1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7
+BASE_SHA source derived from origin/main at run time (no hardcoded default)
+HEAD            433c66a8f1497e529eff8ca6acbe8c7b5f31e3a0
+origin/main     1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7   (freshly fetched)
+
+=== precondition 1 — BASE_SHA is an ancestor of HEAD ===
+$ git merge-base --is-ancestor 1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7 HEAD
+exit=0  (0 == pass)
+
+=== precondition 2 — benchmark.json identical: origin/main vs BASE_SHA ===
+$ git diff --quiet 1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7 1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7 -- benchmark.json
+exit=0  (0 == pass)
+
+=== precondition 3 — benchmark.json identical: origin/main vs HEAD ===
+$ git diff --quiet 1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7 HEAD -- benchmark.json
+exit=0  (0 == pass)
+
+=== precondition 4 — benchmark.json carries no uncommitted/untracked/ignored state ===
+$ git status --porcelain=v1 --untracked-files=all --ignored=matching -- benchmark.json
+(no lines above == pass)
+
+=== no skip-worktree / assume-unchanged anywhere in the index ===
+$ git ls-files -v | awk '$1 != "H"'
+(no lines above == pass)
+
+=== submission surface is committed and clean ===
+$ git status --porcelain=v1 --untracked-files=all -- <editablePaths>
+(no lines above == pass)
+
+=== Rule 75 surface census — sha256 + bytes per submitted file, HEAD vs BASE_SHA ===
+988aca307350158ee1dc07f4ce117c2e0a76798a709422cce8f221d1f9c7b780     9020  Sources/MLXFastModel/DenseTensorStore.swift
+0a46d3dba4f3190fc147a09800ee001e8d1b3c757ce37b11c1c76d880f226cae    44726  Sources/MLXFastModel/LagunaConfig.swift
+3c50f9fa166bcaecc44015b2abe493acd913d8b48eeb055d65f1d2eaaa9c0fa5    46738  Sources/MLXFastModel/LagunaLmHeadPrune.swift
+a736b50f66b08b9004a807ff38226aaeb95ba836e6e833b51a8e862466d850c4   384245  Sources/MLXFastModel/LagunaRuntimeModel.swift
+f45ef351b6b94b1ef6655095918307e635278317f8d62b94867e44165c19ff30    56802  Sources/MLXFastModel/LagunaRuntimeWeights.swift
+df40798715fc2d06f617795a6c4825695ea6fad102d339f48eb2f79b3ba2d162     6501  Sources/MLXFastModel/LagunaUpstreamEquivalence.swift
+4938751a583a3783214d0cf6746062dbadd231aa2fa3a1470123b2a1bc4efa1b     1260  Sources/MLXFastModel/MLXTensorBridge.swift
+6f2ef2fd53fcdefa5781083aa141eae7a2aeb2a43a5ba6870ed43d285dc527e9     9595  Sources/MLXFastModel/RuntimeStartupMemoryPolicy.swift
+8a2596068e89843c5765a087c3c4bfc40dc34c2422b20da00d0ba4fdc682d11f     5884  Sources/MLXFastModel/RuntimeWeightLoading.swift
+63904fb512ee0023d9f928098c0f2cdd7e1b034a92f5ed58696c2df7714e8e53    16378  Sources/MLXFastTransform/AffineMetadataCoding.swift
+99c2e0bf072737aedbc2f1b9cb9c593516354f511942bf48c8774c273e74cc4e     3810  Sources/MLXFastTransform/CheckpointIndex.swift
+4a3d20cb6d121ac661e85632b3fc4d4305a18b4c254280588223585f280f3898    23378  Sources/MLXFastTransform/LagunaCheckpointValidation.swift
+41a5dcbb348c828237d1f28b8b5841be54e3c964b81c0fcb1c07b4f0e6f6daf6    15627  Sources/MLXFastTransform/TiedHeadMetadataCoding.swift
+c9a728438443a9b3e94b8303a07b099369915e96e0da7744fb6a94bcc948d27d    28787  Sources/MLXFastTransform/Transform.swift
+289ec7612aa7e8a271cfc275ebd435b2b62b772832bae072c6b8dcda66e35813    20491  Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/Laguna.swift
+9e3977db501554403527ec92a5860cc3eb91d87a292eec946b115cf3b83a972f     3013  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/AttentionUtils.swift
+f9b8dd57b13c1988d9319e9b15a29bb321f0537826137141d292bf9f6f63d0c1     4818  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+3aeb546d6fed444f825572e481638ddb61379b7b627d411d7e7a10b20803abd6    29644  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+176ed98b0bf31598faba6bbba0bf6a501cbb196d53559179f0d6553bf7d338db     6626  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+5a91d119716b5c1fe7ae0f26ccd6ab04bdd4285bca0f43931a37abcfcea6086c     4746  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+f61bde834188d0e81631d9c51f35ba99fc0900e65f4f8b03f5ebc0899be42d40     9253  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+46731fd011582a9bcf7444e35ef66f046b3d15d4f1ceacc372f375c4bf06c66f     1197  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/DynamicSlice.swift
+7db439565b5255a1890497b8883ba66bfb89b3f49c648f23da409a36d373e266    47946  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+18a47e5c84b6cb0092cd0b010b0a736532e730c0247605d4239eb0c8abde1660     3685  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/JSONDecodingTypes.swift
+829a2644f6690434f480686017f4b03e3d5d0279c52b1eb8b429f540bacd3281    57010  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+2e27514bf21b583f045bcb0734a7602d106abc2820d62328e95dc0e49794c67c     4831  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/LanguageModel.swift
+f0240fc5d651cafbc48f9ea74407dc7dc9af4311e70bee6be62699f25aa0bf8c      841  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEApplication.swift
+32c19f9a9358c6cf927d92c70fd3abfcf882394f7a599a52bd881d67cf01ca2d    11503  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEUtils.swift
+d82f54e7dd1c6ef01ae3dcb89d18ffe64de632f16d1523496d72f7c7a2b1af94    19370  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift
+73abf114ceeda4f70fcbca27431520eef66d3476fd0c46810c5315ae76366afb     6525  Vendor/mlx-swift/Source/Cmlx/mlx-generated/binary.cpp
+b2df6cc80277980578260db3d6857f1de04fe0df37d6aedc6b7db5f31b6da2ae     7577  Vendor/mlx-swift/Source/Cmlx/mlx-generated/binary_ops.cpp
+4265b143a35591b1dd9f22922d7546dfa78927f9e425772fbd8c9fa625c014c5    10336  Vendor/mlx-swift/Source/Cmlx/mlx-generated/copy.cpp
+b70c4e3374686e08222cf0896bcd6e2f0882d1e7a516d53725c90cf9e08446e8    76897  Vendor/mlx-swift/Source/Cmlx/mlx-generated/fp_quantized.cpp
+01f025d52bbbd626efba0733ffd3bc3ce7a83126a9091fd6b56b36bffb22757e    74454  Vendor/mlx-swift/Source/Cmlx/mlx-generated/fp_quantized_nax.cpp
+9f61e211cea95fbd5672b64ca64a3c8a3ce25395477993896da636477bd3fa83     2096  Vendor/mlx-swift/Source/Cmlx/mlx-generated/gather_axis.cpp
+075eafdae3c1d52510c5eecccc5326eb3e236ee7a963314eb1254a1e1c478ce3     2021  Vendor/mlx-swift/Source/Cmlx/mlx-generated/gather_front.cpp
+6c203cc9bd4867e8a0f62e8520ee5e0e9b2b60c4ce60c5a03f4b9ba5180f85b6    56953  Vendor/mlx-swift/Source/Cmlx/mlx-generated/gemm.cpp
+b5823701fe921f2e1347f52c429f4e01a273c851aae8a352f9a8ed95946d9110    44599  Vendor/mlx-swift/Source/Cmlx/mlx-generated/gemm_nax.cpp
+6db41293f7a98a6588a45456fa694f1711760c971142a51ab70d9eb104dd47e7    79603  Vendor/mlx-swift/Source/Cmlx/mlx-generated/gemv.cpp
+ebde9cd7dfa2507fef18bd49d71862b2712fead484f19f9d427806c87ae5ac8b    81561  Vendor/mlx-swift/Source/Cmlx/mlx-generated/quantized.cpp
+39fa08bd9083520ba6255ce460d6680b86a3c4b24745fffbfcb5367cfd10c908    49903  Vendor/mlx-swift/Source/Cmlx/mlx-generated/quantized_nax.cpp
+17db0ca3682900ade1f6dd6deab3e4f7e31a05d936192fd7a210fa29c7dca5d2     2914  Vendor/mlx-swift/Source/Cmlx/mlx-generated/quantized_utils.cpp
+aceb3b0e0c8e623d9297e797268167f4445dd15b73d81b496aaae5413b2e19c9    28654  Vendor/mlx-swift/Source/Cmlx/mlx-generated/reduce.cpp
+aeeb029c2846356bc13f97b805f2d8963a0a4304d90ddfd0d992736da83e6ad8    18271  Vendor/mlx-swift/Source/Cmlx/mlx-generated/reduce_utils.cpp
+2ada8d204ee8073a29192665a0787f1eee5f19723264fc83f257604c3268a26f     6574  Vendor/mlx-swift/Source/Cmlx/mlx-generated/softmax.cpp
+647d2bfa4f4d26b3d86c485559c00d3f6e798b32932c613c2c838f330010ae65    22151  Vendor/mlx-swift/Source/Cmlx/mlx-generated/sort.cpp
+140684e5d241cdc6fc6de57a563d81f1ab53d03d099e18ac763405a86ef78a11    64143  Vendor/mlx-swift/Source/Cmlx/mlx-generated/steel_attention.cpp
+f1059a7826242d1742ec395a02dd56f5c19865cf57f6975244ba0b6bc7442a55    59573  Vendor/mlx-swift/Source/Cmlx/mlx-generated/steel_attention_nax.cpp
+69f2657ed782b5cdaee3df8b56042501ee31076cc13cd689b93eca2301c172b1    10614  Vendor/mlx-swift/Source/Cmlx/mlx-generated/steel_gemm_fused.cpp
+869e7116d21eb6e81f009fd179af8185b913cf5c8767846b62ca4cbaa4eb7b2f     6988  Vendor/mlx-swift/Source/Cmlx/mlx-generated/steel_gemm_fused_nax.cpp
+547e32cd413ca6adc094b6c0ca19b41028b4979eaf81d495972526c1cceb1a47    14049  Vendor/mlx-swift/Source/Cmlx/mlx-generated/steel_gemm_gather.cpp
+cd53a232e09931bfe70a93f987236c4c1215d88fde515aeab035a862f80583e8     4623  Vendor/mlx-swift/Source/Cmlx/mlx-generated/steel_gemm_gather_nax.cpp
+a9cf02bfe3db319d67799e7e87fbb79656c2f2411e793e09e77a81b20a9a84bd     6940  Vendor/mlx-swift/Source/Cmlx/mlx-generated/steel_gemm_splitk.cpp
+31ce1f24c660dff26ef50332a5c4ce8f0870b949b72d2aad68d3f50bb116fa46     5369  Vendor/mlx-swift/Source/Cmlx/mlx-generated/steel_gemm_splitk_nax.cpp
+82dbd9f3342e729857a43b37767c27c9d3f354f756acf770f77fb742fc1a49b5     5146  Vendor/mlx-swift/Source/Cmlx/mlx-generated/ternary.cpp
+85f3fb84ca52850bc0e7b2f83a92d75e76f89ab5ac16ddfdbb6d636dad96ef79      739  Vendor/mlx-swift/Source/Cmlx/mlx-generated/ternary_ops.cpp
+4aa4d4153ba1ad611adaf278e0f39b68b80274dc953de6d2d1ea1ed920cad09b     2441  Vendor/mlx-swift/Source/Cmlx/mlx-generated/unary.cpp
+808606de2797ddfdff645a82142731ad260ff8f136c27150e7fc091cb9566f79    21761  Vendor/mlx-swift/Source/Cmlx/mlx-generated/unary_ops.cpp
+dd87275c570376235d6f90428f74648a0053be4a400d87797ee01c8d46203b14    44555  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp
+29e53e143f98e1bf33c56f1f0128056104010ed78383bd4df738ff9653001b22     9611  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels.h
+2c944e86be8eecf09649450e5a08c36fbcf3a30a4101f8183cab31e9ff789b3f     6515  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/arg_reduce.metal
+15185b24799b63177fab8549cceeedb90a5b758d627de27d553a22d367d8de14    10081  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/atomic.h
+9a367967a48907ac6792be685bab4cc062f3ad916cccacb441c627d87a4b7898     5965  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/binary.h
+6e573a438f8fcf6251d4f06d221df26b37e4f38df601f20881e54a2b5d3c6fd2     5284  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/binary.metal
+a3dd96bde609b3e91f1635f61c8a7477e0a111dc3c0beefefe0561d70629f91b     7014  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/binary_ops.h
+faafc09afc5e190252f3544c966b333b503c30404be3836444abf645f615b1c8     9784  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/copy.h
+ed8a579eb6fe6a14c36560d2c8b548baf99e66fa77d300fb4ad7554883820eba     4427  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/copy.metal
+bb8b47b8ed61c78555b8b025b71b4db242681d55d0e8ece3ea30125d145190ef      947  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/fp4.h
+39d1193a0cfbb1f9cfa6206b3056a9c437ec14f519d000e0ead03778df8316fa     2055  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/fp8.h
+2837d87510904479d421840b9def0ca434c8bec25d78f714066911610bdeb729    72411  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/fp_quantized.h
+254d1a0790fc246300f718114be6e83d7610e0a1d3adeb7b3aa7a3dc94d32a32     6582  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/fp_quantized.metal
+e17e1ac03c38f5feaa7c7aea265f07bcf94edb015740d88b5ced13ceea5257fa    71504  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/fp_quantized_nax.h
+9874131586aa02391139839edf15a2781a22537c1e6638eb0a7ae17cfa7e314e     3534  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/fp_quantized_nax.metal
+89fbdfd52a53be83bf1f27ac1a9069a282cc6bd479e3b67b5f756e4b1ef34c50    30595  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/gemv.h
+f8be6638d3292aaea9e15b8c5b6c3183d75f1a66b95bd0b301cdc70c7cb523ce     7397  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/gemv.metal
+e1a745391ff4990f3f1ad75c5687c3b102dcdc4833d8fbbac38e10f54af29af4     1502  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/indexing/gather_axis.h
+64aacebf6576dfcd389383564fa1214bc87f2a091dd33cc64c598c5367ecab96      723  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/indexing/gather_front.h
+e820b8ee2b5132a97122780c12433ebb5100d8078d31e211d0429400a11415bb      487  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/indexing/indexing.h
+3315046149b9b2f5475a018539be32540c4e93eefef70e23c6a09dd629fa3d6e    80989  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/quantized.h
+965f028f091b0c781934ae769207de48b0f85d2676a48f1941bf1c4d2359d23d     9389  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/quantized.metal
+387d1095316e90c3ce2503dac6760e39ffa7750903d10a4cf1fbf7631a419349    49315  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/quantized_nax.h
+4b00e59bf4fa3a6561ff318149cf30734999624da212b0e2b49dd71179f76b0d     6480  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/quantized_nax.metal
+a12841b57d505f6cca81631901b845dbf76bc90dfc099e7f40c763b2cc838c51     2318  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/quantized_utils.h
+2b4ca93fd1f43ee91129440359b18c0fa49bc70098bd4ca3033c6550b2c07d94      254  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/reduce.h
+9f232f0f77281b3105b6b905f3c706ef2a96d962ae317946d3b650a650db3ad9     9572  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/reduce.metal
+2cb64d9796e9eac8bced8f35337de9c7fea4db3840a3e398eca21e7fbdd9758c      146  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/reduce_utils.h
+f131776a2c8d61865b511639aa549fe116ed8775a9772cede3e769134d454795     7062  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/reduction/ops.h
+9408c7fdb822c1358388eeb3e94d7e927507ec7adef2437d1ae3026846be5c28     1830  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/reduction/reduce_all.h
+62dde467e6d7121dc88c550ec31ead495caf3699525d9ca55f967a3a9e2fb30f    13581  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/reduction/reduce_col.h
+c5ef9c65886f9aba64a5df03607cf175950fd99237ca068bd6fcaec72d63d519      204  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/reduction/reduce_init.h
+77cc7ac618640e02bc52a36b52955f959e121341f91b3b50544ce2e400312f37    11321  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/reduction/reduce_row.h
+024aa7952cb9170470182d0cb064b2a20faefb78b72ebcca6b49b5e18a4652be    12633  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rms_norm.metal
+0213f4c0beb8f79b33940efadfd24487eabc7aabc7b19afaaf0c933ee0d5cf9f     7643  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rope.metal
+8749351432a080b4e19e995b1a07af8b8c7d5e6bca586ff07c3af01348108334     2973  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/scaled_dot_product_attention.metal
+4aa1852f7c457e46ba4b43c6dfafde2568aa46b383b009e5e554fc4daaf0bfb1    27075  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/sdpa_vector.h
+cb233fe42a7358f5f658c9a1ef52cd2ee9dd3786ddfad01793a976d58f4d4051     6010  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/softmax.h
+d19231c66973edc3944f12529d1cc393029e7f7262b914907c710ef9dbcb39e2      933  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/softmax.metal
+bb335c9f5eb28016482822089278dcf6e897311cb6fcd060a419313af1d211ae    21599  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/sort.h
+be97ea6106fb2e0c0c26f006037408e246fafa012fd2577bfc20cf356475ee61     3787  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/sort.metal
+67722214ff487ec95df675e2f135ccd7fbe639b6eb6ab98b14bcefa58d66ba95     8532  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/attn/attn.h
+82d25e646d442a0a3da755a7f04941b0db2d71a72e41d0dcd6e089ea021f6f6a    13908  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/attn/kernels/steel_attention.h
+79cbc1164ca440df10dc66288677d1657c027fd88f4d285f48825be365dd6362     1155  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/attn/kernels/steel_attention.metal
+7cdcea6ac47b0df9dabc017ecde16775ad63296d2920df773bf6847f113e78b8    22575  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/attn/kernels/steel_attention_nax.h
+5baaa632aa2fdfdfb50e79820e6a9d9b4bfa2e4badb0d9b1fae4774299b76457     1229  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/attn/kernels/steel_attention_nax.metal
+a97d78dd8f67ff29a29bef6bfd3c093b18c878078a2aed7c00c2e8ec6fe573a9     7448  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/attn/loader.h
+7f502d66cf30eba95c35faaeed65da3385c62a48716b739fec65ea5130e13a85    21552  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/attn/mma.h
+1f39264decabe2a2ff11bcd2b071cbca264c654576507b443778604f24d9f31a    25271  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/attn/nax.h
+f03c6ed73d7298fa69b75a49e7eec54954b6fafd59530a1f175934215412ed80     1225  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/attn/params.h
+5865a55ec7bfbe47e86fb21e18939ecc7e2b53e6df2214461fbe06be8789cb04     1634  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/attn/transforms.h
+c84af31e2c57154f2a8a24fa7f9fe2449765cce9a66f3f035846ed3c03b6a8b0     8475  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/gemm/gemm.h
+cdc89ca6007a689b57f0a43d7d71eb1ef3a2530c3a971328139cb650f23b7d5f     3337  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/gemm/gemm_nax.h
+ed49c8b9c73957f0cbc9dea30f484cf84fb821aece68233d6d1967856200d5c7     9957  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/gemm/kernels/steel_gemm_fused.h
+6c6e67f5c7fc6b378ca2c849c36a79d696c93e65b3a60d3f5b1f13928c79029e     2024  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/gemm/kernels/steel_gemm_fused.metal
+0d8501043e85992efacaea723d083dac5a0a721db4a5ec07712506791ad17fd1     6315  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/gemm/kernels/steel_gemm_fused_nax.h
+497550cb5b0896fae66f679a6454676871fff8735901c46b997a781660ae7047     1986  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/gemm/kernels/steel_gemm_fused_nax.metal
+93986cc93c812bccc70b1393b6db9093509896c36598130ad07d759949b8d731    13388  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/gemm/kernels/steel_gemm_gather.h
+191402a9a6a18b6cfd5e74309c15e3c748dd59f2f609b9c8324ea514b872d7ed     4004  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/gemm/kernels/steel_gemm_gather.metal
+c2e6acf79d7eef7d560e96437eb4c5a4da37b094f4d09c2e9879e4671b3228e2     3946  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/gemm/kernels/steel_gemm_gather_nax.h
+b829a8226b88fbae47d0393d294dcbb339c96bd2cd7f29af8de8b85b423f65a8     2295  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/gemm/kernels/steel_gemm_gather_nax.metal
+9256d0d0e5796e2564246335c3fa507915d6e36d87b4c3b231b9b28daca5452b    21564  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/gemm/kernels/steel_gemm_masked.h
+6cd1102cdcff715226f095869069e5b84eebd3b7965bd5eb7f4a0f130d47354f     6188  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/gemm/kernels/steel_gemm_masked.metal
+e1256eb925f97cd594ffd0382ecd22f5540637a7bbb902da357a80ece284a9ad     8812  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/gemm/kernels/steel_gemm_segmented.h
+fe8a6ac43fd0383c94dff4cb0acf2d6e0b83b2ef692387a4e3307c824c6d14d6     2627  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/gemm/kernels/steel_gemm_segmented.metal
+5367b8e3c95726ff1b46cd2d65d34a873bd31cebf44c96ea650f449f8a953d82     3710  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/gemm/kernels/steel_gemm_segmented_nax.h
+cde0fce87a930b5dbba885bfafed2bb21ea93aea504611490930051140e77ed2     1793  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/gemm/kernels/steel_gemm_segmented_nax.metal
+2ada2a7ea548f6c4b0e7962b4a2f163e8a212620ecc46e078a06647df12b0635     6279  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/gemm/kernels/steel_gemm_splitk.h
+6c3f93a9f55d60ec8e6bd14e1b3e88b37ec65185b424042f2fa6436b397aeaed     4829  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/gemm/kernels/steel_gemm_splitk.metal
+9486b177261f657bceae6437a18d412a0e361c3e6b418c78b4c067b463c84597     4692  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/gemm/kernels/steel_gemm_splitk_nax.h
+0d3833d3857ccbf0dc19693e0338c7be4c2d942b6555a343839f584c8ed9329b     1725  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/gemm/kernels/steel_gemm_splitk_nax.metal
+703cd05158c22625dd636b85f7219bb374c65eeaed03f7b770bf8ac49f2fb16d     3832  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/gemm/loader.h
+57fb5f0aeddf2a760d5b9317fde2adcc562a2aba3942fda86d9a71c3d228a735    33627  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/gemm/mma.h
+87cb92f324857a3d2611640425811c1e8270d362c2c92ede015956f89fc9db25    29760  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/gemm/nax.h
+6711e72e32310eafb088895d5a6d20fcfca814158f5b38eb72b6e69d9d773e43     1136  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/gemm/params.h
+aead73fa873184cf7d930fb9d20308f765c52c35a775a9a0131162cc332fa814     1680  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/gemm/transforms.h
+1ad7ebbd7c6bb028b7d9a883ac72c549d218e1696cafa6a97c442f4e91af7e43     4582  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/ternary.h
+e042fe449dbf49761547d244d521bbe0be883eff2e67cffd33f674b95c3a4dc5     2499  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/ternary.metal
+e1cf8fecfa77957efe5db7a620602788d431617690f94b94dc83d773303a82a6      172  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/ternary_ops.h
+fb952a2c30a6d0cd01f6c61e852cc15e426b286475de8ff139bb65b8d9001c8c     1885  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/unary.h
+51af04126d68e1f5baee5f467268408650d24a68db66e8c044f7f0be3f15368b     5212  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/unary.metal
+95aeaba511fd32cfc89803366ac30f9e152ab02e2ac3c2aaecfc660d1f6b7463     8752  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/unary_ops.h
+49810705f93f98c7e4218d19fe625c96f482ac2fadc2abacf7e356fb1d299c36    78115  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+e5dac8a08c2a04c565fb575d86e710721d548413e826fa113f9b99dc23f33258    60192  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+
+head_commit          433c66a8f1497e529eff8ca6acbe8c7b5f31e3a0
+surface_files        142
+surface_bytes        2681206   cap 3000000   headroom 318794   PASS
+largest_file_bytes   384245   cap 524288   headroom 140043   PASS   Sources/MLXFastModel/LagunaRuntimeModel.swift
+
+base_commit          1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7
+base_surface_files   142
+base_surface_bytes   2983849
+growth               -302643   cap 262144   PASS
+
+changed_vs_base      27 file(s)
+  MOD  a736b50f66b08b9004a807ff38226aaeb95ba836e6e833b51a8e862466d850c4   384245  (was 511418, -127173)  Sources/MLXFastModel/LagunaRuntimeModel.swift
+  MOD  289ec7612aa7e8a271cfc275ebd435b2b62b772832bae072c6b8dcda66e35813    20491  (was 23040, -2549)  Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/Laguna.swift
+  MOD  9e3977db501554403527ec92a5860cc3eb91d87a292eec946b115cf3b83a972f     3013  (was 6691, -3678)  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/AttentionUtils.swift
+  MOD  f9b8dd57b13c1988d9319e9b15a29bb321f0537826137141d292bf9f6f63d0c1     4818  (was 8535, -3717)  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+  MOD  3aeb546d6fed444f825572e481638ddb61379b7b627d411d7e7a10b20803abd6    29644  (was 43383, -13739)  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+  MOD  176ed98b0bf31598faba6bbba0bf6a501cbb196d53559179f0d6553bf7d338db     6626  (was 12043, -5417)  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+  MOD  5a91d119716b5c1fe7ae0f26ccd6ab04bdd4285bca0f43931a37abcfcea6086c     4746  (was 11445, -6699)  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+  MOD  f61bde834188d0e81631d9c51f35ba99fc0900e65f4f8b03f5ebc0899be42d40     9253  (was 16147, -6894)  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+  MOD  46731fd011582a9bcf7444e35ef66f046b3d15d4f1ceacc372f375c4bf06c66f     1197  (was 2860, -1663)  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/DynamicSlice.swift
+  MOD  7db439565b5255a1890497b8883ba66bfb89b3f49c648f23da409a36d373e266    47946  (was 75312, -27366)  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+  MOD  18a47e5c84b6cb0092cd0b010b0a736532e730c0247605d4239eb0c8abde1660     3685  (was 4657, -972)  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/JSONDecodingTypes.swift
+  MOD  829a2644f6690434f480686017f4b03e3d5d0279c52b1eb8b429f540bacd3281    57010  (was 81231, -24221)  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+  MOD  2e27514bf21b583f045bcb0734a7602d106abc2820d62328e95dc0e49794c67c     4831  (was 9909, -5078)  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/LanguageModel.swift
+  MOD  f0240fc5d651cafbc48f9ea74407dc7dc9af4311e70bee6be62699f25aa0bf8c      841  (was 2792, -1951)  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEApplication.swift
+  MOD  32c19f9a9358c6cf927d92c70fd3abfcf882394f7a599a52bd881d67cf01ca2d    11503  (was 13352, -1849)  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEUtils.swift
+  MOD  d82f54e7dd1c6ef01ae3dcb89d18ffe64de632f16d1523496d72f7c7a2b1af94    19370  (was 25688, -6318)  Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift
+  MOD  dd87275c570376235d6f90428f74648a0053be4a400d87797ee01c8d46203b14    44555  (was 50368, -5813)  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/jit_kernels.cpp
+  MOD  29e53e143f98e1bf33c56f1f0128056104010ed78383bd4df738ff9653001b22     9611  (was 9697, -86)  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels.h
+  MOD  2c944e86be8eecf09649450e5a08c36fbcf3a30a4101f8183cab31e9ff789b3f     6515  (was 7794, -1279)  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/arg_reduce.metal
+  MOD  6e573a438f8fcf6251d4f06d221df26b37e4f38df601f20881e54a2b5d3c6fd2     5284  (was 5424, -140)  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/binary.metal
+  MOD  f8be6638d3292aaea9e15b8c5b6c3183d75f1a66b95bd0b301cdc70c7cb523ce     7397  (was 7544, -147)  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/gemv.metal
+  MOD  024aa7952cb9170470182d0cb064b2a20faefb78b72ebcca6b49b5e18a4652be    12633  (was 14537, -1904)  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rms_norm.metal
+  MOD  0213f4c0beb8f79b33940efadfd24487eabc7aabc7b19afaaf0c933ee0d5cf9f     7643  (was 7855, -212)  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/rope.metal
+  MOD  8749351432a080b4e19e995b1a07af8b8c7d5e6bca586ff07c3af01348108334     2973  (was 4293, -1320)  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/scaled_dot_product_attention.metal
+  MOD  4aa1852f7c457e46ba4b43c6dfafde2568aa46b383b009e5e554fc4daaf0bfb1    27075  (was 45148, -18073)  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/sdpa_vector.h
+  MOD  49810705f93f98c7e4218d19fe625c96f482ac2fadc2abacf7e356fb1d299c36    78115  (was 88309, -10194)  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+  MOD  e5dac8a08c2a04c565fb575d86e710721d548413e826fa113f9b99dc23f33258    60192  (was 84383, -24191)  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+
+=== the exact command frieren runs ===
+cd /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-fern/workspace/target && git checkout 433c66a8f1497e529eff8ca6acbe8c7b5f31e3a0 \
+  && bash senpai/submit-official.sh 1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7 --note-file <path-to-note.md>
+
+  * --note or --note-file is REQUIRED by 'mlxfast submit' itself; write the
+    note file BEFORE firing (mlxfast submit --help).
+  * never pass --model: the wrapper appends '--model senpai' and exits 2 if
+    you pass your own (senpai/submit-official.sh:18-23).
+  * DARKBLOOM_QMV_WIDE_CODES and DARKBLOOM_EXPERT_DOWN_BN must be UNSET
+    in the firing shell (rules 102 and 103).

@@ -149,9 +149,25 @@ fi
 echo
 echo "summary: ${pass_n} pass, ${fail_n} fail"
 echo
+echo "=== environment advisory (NOT wrapper predicates -- the wrapper never checks these) ==="
+env_bad=0
+for v in DARKBLOOM_QMV_WIDE_CODES DARKBLOOM_EXPERT_DOWN_BN; do
+  if [ -n "${!v:-}" ]; then
+    printf '  SET    %-28s = %s   <- rules 102/103: must be UNSET\n' "$v" "${!v}"
+    env_bad=$((env_bad + 1))
+  else
+    printf '  unset  %-28s   ok\n' "$v"
+  fi
+done
+if [ "$env_bad" -gt 0 ]; then echo "  -> unset these in the FIRING shell, not just here."; fi
+echo
+
 echo "=== the exact invocation (NOT run by this script) ==="
-echo "bash senpai/submit-official.sh ${BASE_INPUT} --notes \"...\""
-echo "  * no --model (precondition 2)"
+echo "bash senpai/submit-official.sh ${BASE_INPUT} --note-file <path-to-note.md>"
+echo "  * a note is REQUIRED by mlxfast submit itself: --note <markdown> or"
+echo "    --note-file <path>. There is no default. (mlxfast submit --help)"
+echo "  * the flag is --note / --note-file, NOT --notes."
+echo "  * no --model (precondition 2); the wrapper appends --model senpai."
 echo "  * DARKBLOOM_EXPERT_DOWN_BN unset (rule 103, -0.195 %)"
 echo "  * DARKBLOOM_QMV_WIDE_CODES  unset (rule 102, -0.5363 %)"
 echo
