@@ -280,6 +280,30 @@ def certify(args) -> int:
         print("WARNING: an arm was captured with top_k < vocab; the "
               "perturbation maximum is a LOWER BOUND only.", file=sys.stderr)
 
+    # In free-run mode the two arms feed their OWN tokens back, so after the
+    # first divergence they are conditioned on different contexts and a
+    # position-wise logit comparison is apples-to-oranges. Truncate to the
+    # common prefix and report the divergence step as the headline.
+    free_run = {"applicable": b_meta["mode"] == "free"}
+    if free_run["applicable"]:
+        diff = np.nonzero(b_tok != c_tok)[0]
+        first = int(diff[0]) if diff.size else None
+        free_run.update({
+            "first_divergence_step": first,
+            "common_prefix_length": int(first if first is not None else b_tok.size),
+            "total_steps": int(b_tok.size),
+            "diverged": first is not None,
+            "note": ("TASK.md:136-138 hidden `free_run` gates require the exact "
+                     "greedy prefix to match. Divergence is absorbing: the "
+                     "suffix after the first flip is unrelated, so statistics "
+                     "below cover only the common prefix."),
+        })
+        if first is not None:
+            b_log = b_log[:first + 1]
+            c_log = c_log[:first + 1]
+            b_tok = b_tok[:first + 1]
+            c_tok = c_tok[:first + 1]
+
     n_pos = b_log.shape[0]
     bl = b_log.astype(np.float64)
     cd = c_log.astype(np.float64)
@@ -378,7 +402,43 @@ def certify(args) -> int:
             "could in principle reorder at an unseen context."),
     }
 
+    # The decision-relevant safety factor. A flip at a position requires the
+    # top-1/top-2 gap to be closed, which needs |d(top1)| + |d(top2)| >= margin.
+    # Perturbation at rank 2170 cannot flip anything, so the full-vocabulary
+    # maximum above is a deliberately pessimistic bound and this is the tight
+    # one. Both are reported; the tight one is what a ship decision should use.
+    ord2 = np.argsort(-bl, axis=1)[:, :2]
+    r = np.arange(n_pos)
+    t1, t2 = ord2[:, 0], ord2[:, 1]
+    closing = d[r, t1] + d[r, t2]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        dsf = np.where(closing > 0, margin / closing, np.inf)
+    realised = cd[r, t1] - cd[r, t2]
+    safety["decision_relevant"] = {
+        "definition": "margin / (|delta logit at baseline top-1| + "
+                      "|delta logit at baseline top-2|)",
+        "min": float(dsf.min()),
+        "p1": float(np.percentile(dsf[np.isfinite(dsf)], 1))
+        if np.isfinite(dsf).any() else float("inf"),
+        "p50": float(np.percentile(dsf[np.isfinite(dsf)], 50))
+        if np.isfinite(dsf).any() else float("inf"),
+        "positions_below_1": int((dsf < 1).sum()),
+        "positions_below_2": int((dsf < 2).sum()),
+        "positions_below_10": int((dsf < 10).sum()),
+        "realised_margin_min": float(realised.min()),
+        "realised_margin_negative_count": int((realised < 0).sum()),
+        "perturbation_at_baseline_top1_max": float(d[r, t1].max()),
+        "perturbation_at_baseline_top2_max": float(d[r, t2].max()),
+    }
+
     verdict, reasons = _verdict(pert, marg, safety, argmax, rank)
+    if free_run.get("diverged"):
+        verdict = "FAIL"
+        reasons.insert(0, f"FREE-RUN DIVERGENCE at step "
+                          f"{free_run['first_divergence_step']} of "
+                          f"{free_run['total_steps']}: the greedy prefix does "
+                          f"not match, which a hidden `free_run` gate "
+                          f"(TASK.md:136-138) checks exactly.")
 
     report = {
         "instrument": "maple-frieren-r106j-margin-certificate.py",
@@ -392,6 +452,7 @@ def certify(args) -> int:
         "3_safety_factor": safety,
         "4_argmax_flips": argmax,
         "5_rank_delta_exposure": rank,
+        "7_free_run": free_run,
         "verdict": verdict,
         "verdict_reasons": reasons,
         "6_what_this_does_NOT_cover": _limitations(b_meta, n_pos),
@@ -520,6 +581,28 @@ def _print_human(r):
     print(f"5 rank exposure  top-{k['rank_depth']} adjacent gaps narrower than "
           f"2x max perturbation: {k['gaps_narrower_than_2x_max_perturbation']}"
           f"  (min gap {k['min_adjacent_gap']:.6g})")
+    d = s.get("decision_relevant")
+    if d:
+        print("3b decision-relevant safety factor "
+              "margin / (|d top1| + |d top2|)")
+        print(f"                 min {d['min']:.6g}   p1 {d['p1']:.6g}   "
+              f"p50 {d['p50']:.6g}")
+        print(f"                 positions below 1x: "
+              f"{d['positions_below_1']}   below 2x: {d['positions_below_2']}"
+              f"   below 10x: {d['positions_below_10']}")
+        print(f"                 perturbation at baseline top1 max "
+              f"{d['perturbation_at_baseline_top1_max']:.6g}   at top2 max "
+              f"{d['perturbation_at_baseline_top2_max']:.6g}")
+        print(f"                 realised candidate margin min "
+              f"{d['realised_margin_min']:.6g}   negative "
+              f"{d['realised_margin_negative_count']}")
+    f = r.get("7_free_run")
+    if f and f.get("applicable"):
+        print(f"7 free-run       diverged={f['diverged']}   common prefix "
+              f"{f['common_prefix_length']} / {f['total_steps']} steps"
+              + ("" if not f["diverged"]
+                 else f"   first divergence at step "
+                      f"{f['first_divergence_step']}"))
     print(f"\nVERDICT: {r['verdict']}")
     for reason in r["verdict_reasons"]:
         print(f"  - {reason}")
