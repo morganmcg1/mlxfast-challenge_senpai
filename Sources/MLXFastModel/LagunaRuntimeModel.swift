@@ -6672,6 +6672,10 @@ final class LagunaRuntimeAttention: Module {
     func callLastPrefillRow(_ x: MLXArray, cache: KVCache?) -> MLXArray {
         let (B, L) = (x.dim(0), x.dim(1))
         precondition(L > 1)
+        if lagunaQKVGateDiagnosticEnabled {
+            lagunaQKVGateDiagnosticState.notePath(
+                phase: "prefill", layer: layerIdx, heads: nHeads, combined: false)
+        }
 
         let lastInput = lagunaLastTokenHidden(x)
         var queries: MLXArray
@@ -11930,6 +11934,7 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
     /// set `DARKBLOOM_LM_HEAD_PRUNE=0` to disable) and the coarse copy built
     /// cleanly; the stock full pass is used otherwise.
     private var lmHeadPruner: LagunaLmHeadPruner?
+    private var qkvGateDiagnosticPrepared = false
 
     public init(_ config: LagunaConfig) {
         self.configuration = config
@@ -11958,6 +11963,10 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
     }
 
     public func callAsFunction(_ inputs: MLXArray, cache: [KVCache]?) -> MLXArray {
+        if lagunaQKVGateDiagnosticEnabled, !qkvGateDiagnosticPrepared {
+            prepareFusedRuntimeWeights()
+            qkvGateDiagnosticPrepared = true
+        }
         let fullHidden = model(inputs, cache: cache)
         // Every consumer of multi-token logits reads only the LAST
         // position's row. Slice before the row-independent final RMSNorm and
