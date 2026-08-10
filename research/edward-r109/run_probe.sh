@@ -10,10 +10,11 @@
 set -u
 cd "$(dirname "$0")/../.." || exit 1
 
-ARM="${1:?usage: run_probe.sh ARM [DEFEAT_SLOTS]}"
+ARM="${1:?usage: run_probe.sh ARM [DEFEAT_SLOTS] [TAG]}"
 SLOTS="${2:-64}"
+TAG="${3:-}"
 BASE="Sources/MLXFastModel/LagunaRuntimeModel.swift"
-OUT="research/edward-r109/probe_${ARM}_slots${SLOTS}.txt"
+OUT="research/edward-r109/probe_${ARM}${TAG}_slots${SLOTS}.txt"
 
 if [ ! -x /tmp/fernattn ]; then
   xcrun swiftc -O research/fern_r100_attn_probe.swift -o /tmp/fernattn || exit 1
