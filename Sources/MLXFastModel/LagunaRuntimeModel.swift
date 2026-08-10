@@ -7732,15 +7732,17 @@ METAL_FUNC uint laguna_router_top8_extract_round(
 """
 
 private let lagunaRouterTop8PrecomputedPrelude = """
-thread uint top8_keys[8];
-    for (uint j = 0; j < 8; ++j) {
-        top8_keys[j] = router_keys[lane + 32u * j];
-    }
-    uint top8_mask = 0u;
-    uint top8_winner = 0u;
-    for (uint r = 0; r <= expert_slot; ++r) {
-        top8_winner = laguna_router_top8_extract_round(
-            top8_keys, top8_mask, lane);
+thread uint top8_winner = 0u;
+    {
+        thread uint top8_keys[8];
+        for (uint j = 0; j < 8; ++j) {
+            top8_keys[j] = router_keys[lane + 32u * j];
+        }
+        uint top8_mask = 0u;
+        for (uint r = 0; r <= expert_slot; ++r) {
+            top8_winner = laguna_router_top8_extract_round(
+                top8_keys, top8_mask, lane);
+        }
     }
 """
 
