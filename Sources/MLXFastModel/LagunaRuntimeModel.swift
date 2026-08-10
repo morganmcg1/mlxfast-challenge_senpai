@@ -1389,36 +1389,84 @@ func lagunaSlidingQKNormRoPE(
     return (outputs[0], outputs[1])
 }
 
-/// `DARKBLOOM_FUSED_SLIDING_ATTN` (default on; set "0" to disable): decode
-/// fused attention for the thirty sliding-window layers in the steady
-/// wrapped regime. ONE dispatch replaces the four-stage dependency chain
-/// [QK-norm+RoPE kernel] -> [K cache slice-assign] -> [V cache
-/// slice-assign] -> [sdpa_vector]: it computes the new token's per-head
-/// Q/K RMSNorm + plain RoPE in threadgroup memory (textual replica of
-/// `laguna_sliding_qk_norm_rope_bf16_128_v1`), persists the new K/V row
-/// into the ring backing at the slot `RotatingKVCache.updateInPlace` would
-/// have written, and attends over the full 512-slot ring in slot order with
-/// the GQA-pair schedule of the shipped `sdpa_vector` pair path (textual
-/// replica: same key visit order per simdgroup, same online-softmax text
-/// including the alpha-skip rescale, same two-plane combine and reduction
-/// trees). Bit-exactness of the substitution: at slot `write_idx` every
-/// threadgroup substitutes the just-computed row from threadgroup memory —
-/// the values pass through the same `bfloat` storage rounding the separate
-/// kernels would have written to and re-read from the cache, so scores and
-/// output are bit-identical, and no threadgroup ever reads slot
-/// `write_idx` from device memory, making the concurrent slot write
-/// race-free by construction (its only consumers are future steps, ordered
-/// by command-buffer sequencing). Removes 3 dispatches + their encoder-wide
-/// barriers per sliding layer per decode step.
+/// `DARKBLOOM_FUSED_SLIDING_ATTN` (default on; set "0" to disable): two
+/// GPU-ordered dispatches replace QK-norm+RoPE, K/V cache updates, and
+/// `sdpa_vector` for steady one-token sliding decode. One 64-thread producer
+/// per KV head writes the ring row, then the original query-pair schedule
+/// reads all K/V uniformly from cache without changing its reduction order.
 let lagunaFusedSlidingAttentionEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_SLIDING_ATTN"] != "0"
 
-private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
-    name: "laguna_sliding_fused_attn_ring_v1",
+private let lagunaSlidingKVProducerKernel = MLXFast.metalKernel(
+    name: "laguna_sliding_kv_producer_ring_v1",
     inputNames: [
-        "raw_queries", "raw_keys", "raw_values",
-        "query_weight", "key_weight", "angles",
-        "k_cache", "v_cache", "params", "scale_arr",
+        "raw_keys", "raw_values", "key_weight", "angles",
+        "k_cache", "v_cache", "params",
+    ],
+    outputNames: ["write_fence"],
+    source: """
+constexpr uint head_dim = 128;
+constexpr uint window = 512;
+constexpr uint rotary_pairs = 64;
+
+uint kv_head = threadgroup_position_in_grid.x;
+uint sg = simdgroup_index_in_threadgroup;
+uint lane = thread_index_in_simdgroup;
+uint widx = params[0];
+device bfloat* kc = (device bfloat*)k_cache +
+    (size_t)kv_head * (window * head_dim) + (size_t)widx * head_dim;
+device bfloat* vc = (device bfloat*)v_cache +
+    (size_t)kv_head * (window * head_dim) + (size_t)widx * head_dim;
+
+if (sg == 0) {
+    const device bfloat* input = raw_keys + kv_head * head_dim;
+    uint base = lane * 4;
+    thread bfloat normalized[4];
+    float sum = 0.0f;
+    for (uint i = 0; i < 4; ++i) {
+        float value = float(input[base + i]);
+        sum += value * value;
+    }
+    sum = simd_sum(sum);
+    float inverse_rms = metal::precise::rsqrt(sum / 128.0f + 1.0e-6f);
+    for (uint i = 0; i < 4; ++i) {
+        normalized[i] = key_weight[base + i] *
+            bfloat(float(input[base + i]) * inverse_rms);
+    }
+    thread float paired[4];
+    for (uint i = 0; i < 4; ++i) {
+        paired[i] = simd_shuffle(float(normalized[i]), lane ^ 16);
+    }
+    if (lane < 16) {
+        for (uint i = 0; i < 4; ++i) {
+            uint pair = base + i;
+            float first = float(normalized[i]);
+            float second = paired[i];
+            float cosine = angles[pair];
+            float sine = angles[pair + rotary_pairs];
+            kc[pair] = bfloat(first * cosine - second * sine);
+            kc[pair + rotary_pairs] =
+                bfloat(first * sine + second * cosine);
+        }
+    }
+} else {
+    const device bfloat* vin = raw_values + kv_head * head_dim;
+    for (uint i = lane; i < head_dim; i += 32) {
+        vc[i] = vin[i];
+    }
+}
+if (kv_head == 0 && sg == 0 && lane == 0) {
+    write_fence[0] = widx;
+}
+""",
+    ensureRowContiguous: true
+)
+
+private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
+    name: "laguna_sliding_attn_ring_consumer_v2",
+    inputNames: [
+        "raw_queries", "query_weight", "angles",
+        "k_cache", "v_cache", "write_fence", "scale_arr",
     ],
     outputNames: ["attended"],
     source: """
@@ -1441,24 +1489,19 @@ uint head1 = head0 + 1;
 uint kv_head = head0 / gqa;
 uint sg = simdgroup_index_in_threadgroup;
 uint lane = thread_index_in_simdgroup;
-uint widx = params[0];
 float scale = scale_arr[0];
 
 threadgroup bfloat tg_q0[head_dim];
 threadgroup bfloat tg_q1[head_dim];
-threadgroup bfloat tg_k[head_dim];
-threadgroup bfloat tg_v[head_dim];
+threadgroup uint producer_idx;
 
-if (sg < 3) {
-    const device bfloat* input =
-        sg == 0 ? raw_queries + head0 * head_dim
-        : sg == 1 ? raw_queries + head1 * head_dim
-                  : raw_keys + kv_head * head_dim;
-    const device bfloat* weight =
-        sg == 2 ? key_weight : query_weight;
-    threadgroup bfloat* outrow =
-        sg == 0 ? tg_q0 : sg == 1 ? tg_q1 : tg_k;
-
+if (sg == 0 && lane == 0) {
+    producer_idx = write_fence[0];
+}
+if (sg < 2) {
+    const device bfloat* input = raw_queries +
+        (sg == 0 ? head0 : head1) * head_dim;
+    threadgroup bfloat* outrow = sg == 0 ? tg_q0 : tg_q1;
     uint base = lane * 4;
     thread bfloat normalized[4];
     float sum = 0.0f;
@@ -1469,8 +1512,7 @@ if (sg < 3) {
     sum = simd_sum(sum);
     float inverse_rms = metal::precise::rsqrt(sum / 128.0f + 1.0e-6f);
     for (uint i = 0; i < 4; ++i) {
-        normalized[i] =
-            weight[base + i] *
+        normalized[i] = query_weight[base + i] *
             bfloat(float(input[base + i]) * inverse_rms);
     }
     thread float paired[4];
@@ -1489,26 +1531,9 @@ if (sg < 3) {
                 bfloat(first * sine + second * cosine);
         }
     }
-} else if (sg == 3) {
-    const device bfloat* vin = raw_values + kv_head * head_dim;
-    for (uint i = lane; i < head_dim; i += 32) {
-        tg_v[i] = vin[i];
-    }
 }
 threadgroup_barrier(mem_flags::mem_threadgroup);
-
-if ((head0 % gqa) == 0 && sg == 0) {
-    device bfloat* kc = (device bfloat*)k_cache +
-        (size_t)kv_head * (window * head_dim) +
-        (size_t)widx * head_dim;
-    device bfloat* vc = (device bfloat*)v_cache +
-        (size_t)kv_head * (window * head_dim) +
-        (size_t)widx * head_dim;
-    for (uint i = lane; i < head_dim; i += 32) {
-        kc[i] = tg_k[i];
-        vc[i] = tg_v[i];
-    }
-}
+if (producer_idx >= window) return;
 
 threadgroup U outputs[4 * BN * BDP];
 threadgroup U max_scores[2 * BN];
@@ -1548,18 +1573,14 @@ int i = sg;
 for (; i + BN < N; i += 2 * BN) {
     const device bfloat* pipe_keys_b = pair_keys + inner_k_stride;
     const device bfloat* pipe_values_b = pair_values + inner_v_stride;
-    const bool sub_a = uint(i) == widx;
-    const bool sub_b = uint(i + BN) == widx;
     U pipe_ka[4];
     U pipe_kb[4];
-    T_LOAD_K(pipe_ka, sub_a, pair_keys);
-    T_LOAD_K(pipe_kb, sub_b, pipe_keys_b);
+    T_LOAD_K(pipe_ka, pair_keys);
+    T_LOAD_K(pipe_kb, pipe_keys_b);
     bfloat pipe_va0, pipe_va1, pipe_va2, pipe_va3;
     bfloat pipe_vb0, pipe_vb1, pipe_vb2, pipe_vb3;
-    T_LOAD_V(pipe_va0, pipe_va1, pipe_va2, pipe_va3, sub_a,
-        pair_values);
-    T_LOAD_V(pipe_vb0, pipe_vb1, pipe_vb2, pipe_vb3, sub_b,
-        pipe_values_b);
+    T_LOAD_V(pipe_va0, pipe_va1, pipe_va2, pipe_va3, pair_values);
+    T_LOAD_V(pipe_vb0, pipe_vb1, pipe_vb2, pipe_vb3, pipe_values_b);
 
     U pair_score0 = 0;
     U pair_score1 = 0;
@@ -1719,40 +1740,24 @@ if (lane == 0) {
     }                                           \\
   } while (false)
 
-#define T_LOAD_K(dst, substitute, ptr)                     \\
-  do {                                                     \\
-    if (substitute) {                                      \\
-      dst[0] = tg_k[lane * qk_per_thread + 0];             \\
-      dst[1] = tg_k[lane * qk_per_thread + 1];             \\
-      dst[2] = tg_k[lane * qk_per_thread + 2];             \\
-      dst[3] = tg_k[lane * qk_per_thread + 3];             \\
-    } else {                                               \\
-      const vec<bfloat, 4> v_ =                            \\
-          *reinterpret_cast<const device vec<bfloat, 4>*>( \\
-              ptr);                                        \\
-      dst[0] = v_.x;                                       \\
-      dst[1] = v_.y;                                       \\
-      dst[2] = v_.z;                                       \\
-      dst[3] = v_.w;                                       \\
-    }                                                      \\
+#define T_LOAD_K(dst, ptr)                                    \\
+  do {                                                        \\
+    const vec<bfloat, 4> v_ =                                 \\
+        *reinterpret_cast<const device vec<bfloat, 4>*>(ptr); \\
+    dst[0] = v_.x;                                            \\
+    dst[1] = v_.y;                                            \\
+    dst[2] = v_.z;                                            \\
+    dst[3] = v_.w;                                            \\
   } while (false)
 
-#define T_LOAD_V(d0, d1, d2, d3, substitute, ptr)          \\
-  do {                                                     \\
-    if (substitute) {                                      \\
-      d0 = tg_v[lane * v_per_thread + 0];                  \\
-      d1 = tg_v[lane * v_per_thread + 1];                  \\
-      d2 = tg_v[lane * v_per_thread + 2];                  \\
-      d3 = tg_v[lane * v_per_thread + 3];                  \\
-    } else {                                               \\
-      const vec<bfloat, 4> v_ =                            \\
-          *reinterpret_cast<const device vec<bfloat, 4>*>( \\
-              ptr);                                        \\
-      d0 = v_.x;                                           \\
-      d1 = v_.y;                                           \\
-      d2 = v_.z;                                           \\
-      d3 = v_.w;                                           \\
-    }                                                      \\
+#define T_LOAD_V(d0, d1, d2, d3, ptr)                         \\
+  do {                                                        \\
+    const vec<bfloat, 4> v_ =                                 \\
+        *reinterpret_cast<const device vec<bfloat, 4>*>(ptr); \\
+    d0 = v_.x;                                                \\
+    d1 = v_.y;                                                \\
+    d2 = v_.z;                                                \\
+    d3 = v_.w;                                                \\
   } while (false)
 
 
@@ -1796,14 +1801,24 @@ func lagunaSlidingFusedAttention(
     precondition(writeIdx >= 0 && writeIdx < window)
     precondition(scale.dtype == .float32 && scale.size == 1)
 
-    lagunaTrace("sliding fused attention")
     let params = lagunaParamsAtlasEnabled
         ? lagunaRingIdxAtlas[writeIdx] : MLXArray([UInt32(writeIdx)])
+    lagunaTrace("sliding kv producer")
+    let writeFence = lagunaSlidingKVProducerKernel(
+        [
+            rawKeys, rawValues, keyWeight, angles,
+            cacheKeys, cacheValues, params,
+        ],
+        grid: (kvHeads * 64, 1, 1),
+        threadGroup: (64, 1, 1),
+        outputShapes: [[1]],
+        outputDTypes: [.uint32]
+    )[0]
+    lagunaTrace("sliding attention consumer")
     return lagunaSlidingFusedAttentionKernel(
         [
-            rawQueries, rawKeys, rawValues,
-            queryWeight, keyWeight, angles,
-            cacheKeys, cacheValues, params, scale,
+            rawQueries, queryWeight, angles,
+            cacheKeys, cacheValues, writeFence, scale,
         ],
         grid: ((heads / 2) * 1024, 1, 1),
         threadGroup: (1024, 1, 1),
@@ -6013,7 +6028,7 @@ final class LagunaRuntimeAttention: Module {
             rotating.maxSize == LagunaConstants.slidingWindow,
             let ring = rotating.fusedRingPrepare()
         {
-            // One dispatch replaces the QK-norm+RoPE kernel, both cache
+            // Two dispatches replace the QK-norm+RoPE kernel, both cache
             // slice-assign dispatches, and sdpa_vector; see the kernel doc.
             // The clock advance below mirrors updateInPlace(tokenCount: 1).
             fusedAttended = lagunaSlidingFusedAttention(
