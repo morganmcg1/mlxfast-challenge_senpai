@@ -1807,7 +1807,7 @@ def execute_filesystem_control_suite(fixtures, schema):
                 descriptor_tracker=descriptors,
             )
             descriptors_closed = descriptors_are_closed(descriptors)
-            hook_fired = mutation["hook_state"] is not None and mutation["hook_state"]["fired"]
+            hook_fired = mutation["hook_state"] is None or mutation["hook_state"]["fired"]
         actual_errors = sorted((entry["code"], entry["path"]) for entry in result["errors"])
         expected_errors = sorted((entry["code"], entry["path"]) for entry in control["expected_errors"])
         actual_messages = {

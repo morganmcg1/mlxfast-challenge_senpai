@@ -243,13 +243,15 @@ uses schema ID
 `https://mlxfast.invalid/schemas/candidate-evidence-bundle-v3.json`.
 
 ```text
-legacy_results_digest:     75d8e716d4887e3b4aaac08499d44da281923d7de465ecf35de500bffc444124
-filesystem_results_digest: cb332c7404080972b267b98016b369ca910634ad7f7aa5a29ecd4c7d958f306d
-results_digest:            fc755da02c8fcd3691b9d92dc49678557e7489d56c632b8c85798f6e49d29919
-self-test output SHA-256:   c2fd27c00228da6683a278e904ddbc099523a44ccd019de884bd355558968582
+legacy_results_digest:        75d8e716d4887e3b4aaac08499d44da281923d7de465ecf35de500bffc444124
+prior filesystem subset digest: 33c3cded45453db59079c43850abd54cf2e3cc71b65fcae7778c59a0d5575578
+filesystem_results_digest:    af0898822088414fda4c042c742e5bf0826ab05bab75c1eb2c0cffe7e4f2e1ae
+results_digest:               d8a53be98de1190fd203151459432f7c0b6b2cece48a72efc76833259847c82b
+self-test output SHA-256:      b90979735657db65a6ebc84bf4fcdc21189a79766c05cab2f548ce06f428238b
 ```
 
-All 80 cases pass. All seven exception-boundary assertions are true:
+All 80 cases pass. The prior 30 filesystem-control records retain their frozen
+r2 digest byte-for-byte. All seven exception-boundary assertions are true:
 `descriptor_root_available`, `exception_descriptors_closed`,
 `reader_not_a_directory`, `reader_os_error`, `reader_permission_error`,
 `reader_value_error`, and `schema_value_error`. Every case reports all opened
