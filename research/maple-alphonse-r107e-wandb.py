@@ -147,6 +147,12 @@ summary = {
     "primary/any_arm_shippable": int(any(wins(dec["contrasts"][f"{a}_vs_g0"])
                                          for a in ("g1", "g2", "g3"))),
     "primary/bar_pct": BAR_PCT,
+    # A null is only informative if the design could have resolved the bar.
+    "primary/amortisation_mde_pct": amort["mde_pct"],
+    "primary/amortisation_resolves_bar": int(amort["resolves_bar"]),
+    "primary/best_arm_mde_pct": best["mde_pct"],
+    "primary/best_arm_resolves_bar": int(best["resolves_bar"]),
+    "primary/n_pairs_for_bar_best_arm": best["n_pairs_for_bar"] or -1,
 
     # Per-arm paired decode deltas.
     **{f"decode/{a}_vs_g0_pct": dec["contrasts"][f"{a}_vs_g0"]["mean_pct"]
@@ -286,7 +292,8 @@ run.log({"insitu_runs": runs_t})
 
 con_t = wandb.Table(columns=["axis", "contrast", "n_pairs", "mean_pct", "ci95_lo_pct",
                              "ci95_hi_pct", "excludes_zero", "sign_pos", "sign_p",
-                             "forward_pct", "reverse_pct"])
+                             "forward_pct", "reverse_pct", "mde_pct", "resolves_bar",
+                             "n_pairs_for_bar"])
 for axis, blk in (("decode", dec), ("prefill_placebo", pla)):
     for name, rec in blk["contrasts"].items():
         base = blk["g0_mean_s"]
@@ -294,7 +301,8 @@ for axis, blk in (("decode", dec), ("prefill_placebo", pla)):
                        rec["ci95_pct"][1], rec["excludes_zero"], rec["sign_pos"],
                        rec["sign_p"],
                        100.0 * rec["by_order"].get("forward", float("nan")) / base,
-                       100.0 * rec["by_order"].get("reverse", float("nan")) / base)
+                       100.0 * rec["by_order"].get("reverse", float("nan")) / base,
+                       rec["mde_pct"], rec["resolves_bar"], rec["n_pairs_for_bar"])
 run.log({"contrasts": con_t})
 
 geom_t = wandb.Table(columns=["arm", "head", "rps", "num_simdgroups", "rows_per_tg",

@@ -41,6 +41,8 @@ INSITU = ART / "insitu"
 ARMS = ("g0", "g1", "g2", "g3")
 HALF_SIZE = 4
 BLOCK_SIZE = 8
+# assignment lever bar: 0.4% of the M5 candidate step
+BAR_PCT = 0.4
 
 # two-sided 95% t quantiles, indexed by degrees of freedom
 T95 = {1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447, 7: 2.365,
@@ -126,12 +128,27 @@ def summarise(diffs: list[float], base: float) -> dict[str, object]:
         "ci95_half_width_s": h,
         "ci95_pct": [100.0 * (mean - h) / base, 100.0 * (mean + h) / base],
         "excludes_zero": bool(n > 1 and abs(mean) > h),
+        # smallest effect this n and this noise could have resolved
+        "mde_pct": 100.0 * h / base,
+        "resolves_bar": bool(n > 1 and 100.0 * h / base <= BAR_PCT),
+        "n_pairs_for_bar": n_for_bar(sd, base),
         "sign_pos": pos,
         "sign_neg": neg,
         # exact two-sided sign test under p=0.5
         "sign_p": sign_p(max(pos, neg), pos + neg),
         "values_s": diffs,
     }
+
+
+def n_for_bar(sd: float, base: float) -> int | None:
+    """Pairs needed for a t-CI half-width of BAR_PCT at the observed noise."""
+    if not math.isfinite(sd) or sd <= 0.0:
+        return None
+    target = BAR_PCT / 100.0 * base
+    for n in range(2, 4097):
+        if t95(n - 1) * sd / math.sqrt(n) <= target:
+            return n
+    return None
 
 
 def sign_p(k: int, n: int) -> float:
@@ -198,7 +215,8 @@ def main() -> int:
                   f"fwd={100 * rec['by_order'].get('forward', float('nan')) / a['g0_mean_s']:+6.3f} "
                   f"rev={100 * rec['by_order'].get('reverse', float('nan')) / a['g0_mean_s']:+6.3f} "
                   f"sign={rec['sign_pos']}/{rec['sign_pos'] + rec['sign_neg']} "
-                  f"p={rec['sign_p']:.3f}")
+                  f"p={rec['sign_p']:.3f} "
+                  f"mde={rec['mde_pct']:.3f}% n@bar={rec['n_pairs_for_bar']}")
     print(f"wrote {out}")
     return 0
 
