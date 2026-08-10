@@ -18,7 +18,13 @@ M5_PRICE = 0.015228  # %cs per M5 us/step
 K_ISSUE_UPPER = 0.654  # census bound, tanjiro r107g:762-763
 K_BETA = 0.5  # Rule 105.2 fallback upper bound for an ISSUE-bound family
 BRIEF_PRICE = 0.01642  # constant asserted by the r109-e brief; unsourced
-BLOCK = 6  # palindromic ABBA block length used by the driver script
+BLOCK = 8  # palindromic ABBA block length used by the driver script
+
+# Issue slots added per QK reduction site, relative to the shipped kernel.
+# One dose repetition is 1 fmul + 5 shuffles + 5 adds; the shipped simd_sum
+# ladder that arm P deletes is worth about ten.
+SLOTS = {"C": 0.0, "P": -10.0, "D": 11.0, "X": 110.0}
+LADDER_SLOTS = 10.0
 
 
 def load(paths):
@@ -154,6 +160,26 @@ def main():
         best, bse = reg.get(arm, (pm - cm, se))
         price(-best, cm, "point ceiling (saving = -delta):")
         price(-(best - 1.96 * bse), cm, "optimistic 95% upper ceiling:")
+
+    dose = {a: reg[a] for a in ("D", "X") if a in reg}
+    if len(dose) == 2:
+        slope = (dose["X"][0] - dose["D"][0]) / (SLOTS["X"] - SLOTS["D"])
+        sse = math.sqrt(dose["X"][1] ** 2 + dose["D"][1] ** 2) / (
+            SLOTS["X"] - SLOTS["D"]
+        )
+        print("\n== dose-response (bit-exact arms only) ==")
+        print(
+            f"  marginal cost {slope * 1000:+8.3f} ns/step per added issue slot"
+            f"  (se {sse * 1000:.3f})"
+        )
+        ladder = slope * LADDER_SLOTS
+        hi = (slope + 1.96 * sse) * LADDER_SLOTS
+        print(
+            f"  implied ceiling for deleting the whole ladder: "
+            f"{ladder:+.2f} us/step (95% upper {hi:+.2f})"
+        )
+        price(ladder, cm, "dose-response point ceiling:")
+        price(hi, cm, "dose-response 95% upper ceiling:")
 
 
 if __name__ == "__main__":
