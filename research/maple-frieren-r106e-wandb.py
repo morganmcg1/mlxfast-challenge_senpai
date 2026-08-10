@@ -341,8 +341,8 @@ def main() -> None:
         ltbl = wandb.Table(columns=["quantity", "value"])
         for k, v in cen.items():
             ltbl.add_data(k, v)
-        ltbl.add_data("record_cs_rank_of_scored",
-                      f"{rc['record_cs_rank']} / {rc['scored']}")
+        ltbl.add_data("record_cs_rank", rc["record_cs_rank"])
+        ltbl.add_data("scored_sessions", rc["scored"])
         run.log({"lottery_census": ltbl})
 
     if wt_path.exists():
