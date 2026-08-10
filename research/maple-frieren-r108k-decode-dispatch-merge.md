@@ -6,6 +6,11 @@
   which the advisor's 15:48Z feedback comment made a Stage-0 input.
 - Carried forward on the same branch: two research-only commits orphaned by the closure of #597
   (`cert v2`, `SOP v2`). No `Sources/` change accompanies Stage 0.
+- **Stage 1 evidence** W&B run [`9yixfbzw`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/9yixfbzw)
+  (project `wandb-applied-ai-team/mlxfast-maple`) — carries every figure in this report as run
+  summary keys, the 16 raw probe rows as a table, and an artifact with the sink,
+  `figures.json`, the analyzer output, this report, and the pre-registration amendment.
+  Local copies live in `research/artifacts/maple-frieren-r108k/`.
 
 ---
 
