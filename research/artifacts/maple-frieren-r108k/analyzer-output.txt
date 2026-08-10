@@ -1,0 +1,79 @@
+# R108-K barrier-region price probe — /tmp/r108k-barrier-price.tsv
+# usable rows 16, voided 0
+
+## raw levels (M4 us/step, decode_seconds_per_token x 1e6)
+block arm  N     chain  decode_us   prefill_us
+    0 G   2400  1         11761.7     1111.72
+    1 C   0     NA         9001.6     1122.76
+    1 F   160   0          8901.4     1111.05
+    1 S   160   1          8895.5     1123.02
+    2 C   0     NA         8967.0     1111.62
+    2 S   160   1          8881.2     1137.99
+    2 F   160   0          8885.6     1122.64
+    3 C   0     NA         8961.9     1116.69
+    3 H   1200  0          9349.1     1111.47
+    3 J   1200  1          9351.3     1111.07
+    4 C   0     NA         8970.5     1112.54
+    4 F   160   0          8908.0     1111.32
+    4 S   160   1          8880.2     1123.02
+    5 C   0     NA         8959.1     1122.32
+    5 S   160   1          8865.9     1116.58
+    5 F   160   0          8888.8     1111.80
+
+## gauge (amendment sec 3)
+  mean(G)=11761.7  mean(C)=8972.0  effect=+2789.7 us/step  (+1.1624 us/dispatch)
+  threshold >= +500 us/step -> PASS (channel live)
+
+## rungs — block-paired against that block's own control anchor
+
+### rung N=160  (arm F unchained / arm S chained), blocks [1, 2, 4, 5]
+  dF (no barrier)          -78.6 [-104.6, -52.58] us/step   B=4
+  -> slope                 -0.4912 [-0.6538, -0.3286] M4 us/dispatch
+  dS (barrier/no-op)       -93.88 [-107.8, -79.99] us/step   B=4
+  -> slope                 -0.5867 [-0.6735, -0.5] M4 us/dispatch
+  dS - dF (paired)         -15.28 [-34.11, +3.552] us/step   B=4
+  -> barrier price         -0.0955 [-0.2132, +0.0222] M4 us/barrier
+
+### rung N=1200  (arm H unchained / arm J chained), blocks [3]
+  dH (no barrier)          +387.1 us/step (n=1, no CI)   B=1
+  -> slope                 +0.3226 M4 us/dispatch (n=1, no CI)
+  dJ (barrier/no-op)       +389.4 us/step (n=1, no CI)   B=1
+  -> slope                 +0.3245 M4 us/dispatch (n=1, no CI)
+  dJ - dH (paired)         +2.232 us/step (n=1, no CI)   B=1
+  -> barrier price         +0.00186 M4 us/barrier (n=1, no CI)
+
+## verdict (amendment sec 5, applied mechanically)
+  P-FREE-REGION-CONFIRMED — arm F CI95 upper -0.3286 <= 0.3: the dispatch-count merge programme is dead.
+
+## falsification check — prefill must not move (sec 6)
+  arm C: prefill 1117.19 us/token  delta vs C +0.000 (+0.000 %)
+  arm F: prefill 1114.20 us/token  delta vs C -2.983 (-0.267 %)
+  arm G: prefill 1111.72 us/token  delta vs C -5.463 (-0.489 %)
+  arm H: prefill 1111.47 us/token  delta vs C -5.718 (-0.512 %)
+  arm J: prefill 1111.07 us/token  delta vs C -6.118 (-0.548 %)
+  arm S: prefill 1125.15 us/token  delta vs C +7.965 (+0.713 %)
+
+## POST-HOC drift control (exploratory — prefill as common-mode gauge)
+  arm-vs-own-control, per block: decode %delta, prefill %delta, difference
+  block 1 arm F: decode -1.113 %  prefill -1.043 %  diff -0.070 %  -> -0.0391 us/dispatch
+  block 1 arm S: decode -1.179 %  prefill +0.023 %  diff -1.202 %  -> -0.6762 us/dispatch
+  block 2 arm F: decode -0.908 %  prefill +0.992 %  diff -1.900 %  -> -1.0649 us/dispatch
+  block 2 arm S: decode -0.957 %  prefill +2.373 %  diff -3.330 %  -> -1.8661 us/dispatch
+  block 3 arm H: decode +4.320 %  prefill -0.467 %  diff +4.787 %  -> +0.3575 us/dispatch
+  block 3 arm J: decode +4.345 %  prefill -0.503 %  diff +4.848 %  -> +0.3620 us/dispatch
+  block 4 arm F: decode -0.697 %  prefill -0.110 %  diff -0.587 %  -> -0.3290 us/dispatch
+  block 4 arm S: decode -1.006 %  prefill +0.941 %  diff -1.948 %  -> -1.0919 us/dispatch
+  block 5 arm F: decode -0.785 %  prefill -0.938 %  diff +0.153 %  -> +0.0857 us/dispatch
+  block 5 arm S: decode -1.041 %  prefill -0.511 %  diff -0.529 %  -> -0.2964 us/dispatch
+  drift-corrected slopes:
+    arm F N=160: -0.3368 [-1.157, +0.4834] us/dispatch   B=4
+    arm H N=1200: +0.3575 us/dispatch (n=1, no CI)   B=1
+    arm J N=1200: +0.362 us/dispatch (n=1, no CI)   B=1
+    arm S N=160: -0.9827 [-2.053, +0.0875] us/dispatch   B=4
+
+## POST-HOC rung-difference estimator (cancels the eval-boundary term)
+  unchained / concurrent (F -> H): k = +0.4478 [+0.4006, +0.495] M4 us/dispatch  (B=4,1)  [scatter-propagated, pooled sd 13.9 us, df 10]
+    implied eval-boundary term c = -3.76 us per layer (-150 us/step over 40 layers)
+  chained / serialized (S -> J): k = +0.4647 [+0.4174, +0.5119] M4 us/dispatch  (B=4,1)  [scatter-propagated, pooled sd 13.9 us, df 10]
+    implied eval-boundary term c = -4.21 us per layer (-168 us/step over 40 layers)
+  chained cross-check via gauge (S -> G): k = +1.2873 M4 us/dispatch   implied c = -7.50 us per layer
