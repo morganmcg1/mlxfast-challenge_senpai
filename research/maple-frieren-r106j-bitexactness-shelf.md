@@ -223,6 +223,54 @@ That has three consequences I lean on for the rest of this note:
 
 ## §3. Deliverable B — `DARKBLOOM_QMV_WIDE_CODES`
 
+### §3.0 B2 preregistration — written before the driver was launched
+
+Rule 40/68 asks for σ and n **before** the mean. Recorded here at
+`11:35Z`, driver committed, worker not yet built.
+
+**Instrument choice, and why not the obvious one.** The assignment says "paired
+local ABBA … convert at 0.015228 % of score per µs/step". `./benchmark.sh
+--local-iterate` cannot produce that number honestly: **Rule 86** records
+identical code yielding a **+0.9 % score delta** through it, and two relaunches
+of identical code differing by **1.3 %** on both axes — ≈4× noisier than the
+deciding instrument, and it produced a confident-looking delta on code that
+*cannot execute on the local device at all*. So B2 runs on **GPU dispatch
+timestamps**, one dispatch per command buffer
+(`DARKBLOOM_GPU_PROFILE_SPLIT=1`), which is host-independent and has fixed
+geometry at decode. Driver:
+`research/maple_frieren_r106j_wide_codes_abba.sh`.
+
+**Design.** ABBA order `off on on off`, `REPS=3` ⇒ **n = 6 worker processes per
+arm**, one arm per process so process-level drift cannot align with the labels;
+`STEPS=33` ⇒ 32 steady steps × 39 dispatches = **1,248 steady calls per
+process**, 7,488 per arm. Unit of analysis is the **process mean**, not the
+call, because calls inside a process are not independent.
+
+**σ, from the prior measurement of this same kernel** (`§Stage 1` of
+`research/maple-frieren-shared-qmv-twin-gap.md`, `laguna_shared_nvfp4_swiglu_
+qmv_rows1_bf16_v1`): sd across processes **0.120 µs/call** (OFF) and
+**0.070 µs/call** (ON); I preregister the pooled **σ = 0.10 µs/call**.
+
+**Therefore, before seeing anything:**
+
+| quantity | value |
+|---|---|
+| SE(Δ) = σ·√(2/n) | **0.058 µs/call** |
+| 95 % CI half-width (t₀.₉₇₅, df≈10) | **≈0.13 µs/call** |
+| × 39 dispatches/step | **≈5.1 µs/step** |
+| × 0.015228 % of score per µs/step | **≈0.078 % of cs** |
+
+So this design's minimum detectable effect is **≈0.08 % of score**, and the
+endgame §2 bar is **0.4 %**. The instrument can resolve the bar about **5×
+over**; if the answer comes back inside ±0.08 % it is a genuine null and not an
+underpowered one. The **upper bound on any possible result** is the whole
+kernel: 295.9 µs/step (`maple-tanjiro-pr73-decode-kernel-census.md:195`) =
+**4.51 % of cs** if the dispatch became free.
+
+**Invariant control.** The routed twin
+(`routed_shared_nvfp4_down_residual…r1_v5`) is not touched by this flag; if the
+"effect" appears there too, it is a process-speed artefact and I report a null.
+
 <!-- RESULTS-B -->
 
 ---
