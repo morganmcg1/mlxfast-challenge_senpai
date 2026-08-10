@@ -198,6 +198,39 @@ This is the single most important methodological thing I learned from the
 ceiling probe, and it is worth more to the programme than either arm's point
 estimate.
 
+Correction to (a): the mirrored confirmation block has since run, and the
+slot-1 penalty is **+53.59 µs/step (se 29.88)**, not +101 — see §4.6 of the
+sibling memo. That does not change the design; it strengthens the reason for
+it, because at n=16 a +54 µs/step nuisance term aliased onto the control is
+larger than the entire effect this experiment is trying to measure.
+
+### 6.1 As implemented
+
+Landed in `Sources/MLXFastModel/LagunaRuntimeModel.swift` at commit `2e9cd4f5`,
+immediately above `func lagunaFullFusedAttention`: a four-field
+`LagunaFullParamsMemoStore`, two `ProcessInfo` gates, and a
+`lagunaFullFusedAttentionParams(writeIdx:capacity:)` helper. The single call
+site inside `lagunaFullFusedAttention` becomes one call to that helper. 42 added
+lines, 3 removed. `swift build -c release --force-resolved-versions --target
+MLXFastModel` is clean.
+
+Three deliberate choices, each of which could have been made wrongly:
+
+- **No `eval` on the miss path.** Materialising the memoised array once per step
+  would hand back the host cost the memo is trying to remove, and MLX's lazy
+  graph already keeps the array valid across the 9 hits.
+- **The dose loop runs before the memo guard**, so arm M is unaffected by
+  `DARKBLOOM_FULL_PARAMS_DOSE` and the ruler arms are pure additions on top of
+  the shipped path rather than a different code shape.
+- **`nonisolated(unsafe)`** matches the file's existing convention
+  (`LagunaRingIdxAtlasStore`, LRM 1978) and is sound because the worker decode
+  loop is single-threaded
+  (`research/maple-nezuko-r99-lrm-provenance.md:888-897`).
+
+The `_ = lagunaFullParamsMemoEnabled` shape is *not* used: both gates are
+top-level `let`s, so they are read once, lazily, on first use — outside the
+timed window — and are constant folded into the branch thereafter.
+
 <!--PARAMS-RESULTS-->
 
 ## 7. Verdict

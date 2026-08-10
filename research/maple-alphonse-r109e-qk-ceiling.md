@@ -668,7 +668,7 @@ extra block; it is the cheapest fix available.
    only*; all four arms share one dispatch shape.
 4. **Non-empty submitted-surface diff** — `git diff --numstat BASE -- Sources
    Vendor benchmark.json Package.swift` returns
-   `105  13  Sources/MLXFastModel/LagunaRuntimeModel.swift`.
+   `147  16  Sources/MLXFastModel/LagunaRuntimeModel.swift`.
 
 On the fourth item's *shape*: the brief asked for bulk in a new
 `Sources/MLXFastModel/LagunaFullAttnQKMMA.swift` with only registration and
