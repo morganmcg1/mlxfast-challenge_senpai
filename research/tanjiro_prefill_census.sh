@@ -7,7 +7,7 @@
 # needed: SPLIT=0 alone mis-attributes families by up to 7.6x.
 set -u
 cd "$(dirname "$0")/.."
-OUT=research/pr270-logs
+OUT="${CENSUS_OUT:-research/pr270-logs}"
 mkdir -p "$OUT"
 
 export DARKBLOOM_STARTUP_MEMORY_PROFILE=full

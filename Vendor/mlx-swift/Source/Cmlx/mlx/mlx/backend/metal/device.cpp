@@ -2,6 +2,7 @@
 
 #include <cstdlib>
 #include <sstream>
+#include <tuple>
 
 #include <fmt/format.h>
 
@@ -95,6 +96,45 @@ class GpuDispatchProfiler {
     fputs(line.c_str(), stderr);
   }
 
+  // Emits one GPUDIM line per distinct (pso, grid, threadgroup) shape:
+  //   GPUDIM <tg|th> <gx> <gy> <gz> <tx> <ty> <tz> <name>
+  // De-duplicated so the stderr write stays out of the steady-state dispatch
+  // loop and cannot perturb the SPLIT=0 wall.
+  void record_dims(
+      const void* pso,
+      const char* mode,
+      const MTL::Size& grid,
+      const MTL::Size& group) {
+    if (!enabled_ || pso == nullptr) {
+      return;
+    }
+    auto key = std::make_tuple(
+        pso,
+        mode,
+        grid.width,
+        grid.height,
+        grid.depth,
+        group.width,
+        group.height,
+        group.depth);
+    std::lock_guard<std::mutex> lock(mtx_);
+    if (!seen_dims_.insert(key).second) {
+      return;
+    }
+    auto it = pso_names_.find(pso);
+    fprintf(
+        stderr,
+        "GPUDIM %s %zu %zu %zu %zu %zu %zu %s\n",
+        mode,
+        grid.width,
+        grid.height,
+        grid.depth,
+        group.width,
+        group.height,
+        group.depth,
+        (it == pso_names_.end()) ? "<unnamed>" : it->second.c_str());
+  }
+
  private:
   GpuDispatchProfiler() {
     const char* e = std::getenv("DARKBLOOM_GPU_PROFILE");
@@ -103,10 +143,28 @@ class GpuDispatchProfiler {
     split_ = (enabled_ && s != nullptr) ? std::atoi(s) : 0;
   }
 
+  using DimKey = std::
+      tuple<const void*, std::string, size_t, size_t, size_t, size_t, size_t, size_t>;
+
+  struct DimKeyHash {
+    size_t operator()(const DimKey& k) const {
+      size_t h = std::hash<const void*>{}(std::get<0>(k));
+      h = h * 1000003 ^ std::hash<std::string>{}(std::get<1>(k));
+      h = h * 1000003 ^ std::get<2>(k);
+      h = h * 1000003 ^ std::get<3>(k);
+      h = h * 1000003 ^ std::get<4>(k);
+      h = h * 1000003 ^ std::get<5>(k);
+      h = h * 1000003 ^ std::get<6>(k);
+      h = h * 1000003 ^ std::get<7>(k);
+      return h;
+    }
+  };
+
   bool enabled_{false};
   int split_{0};
   std::mutex mtx_;
   std::unordered_map<const void*, std::string> pso_names_;
+  std::unordered_set<DimKey, DimKeyHash> seen_dims_;
 };
 
 constexpr const char* default_mtllib_path = METAL_PATH;
@@ -459,6 +517,8 @@ void CommandEncoder::dispatch_threadgroups(
   buffer_ops_++;
   if (GpuDispatchProfiler::instance().enabled()) {
     profile_psos_.push_back(current_pso_);
+    GpuDispatchProfiler::instance().record_dims(
+        current_pso_, "tg", grid_dims, group_dims);
   }
   get_command_encoder()->dispatchThreadgroups(grid_dims, group_dims);
 }
@@ -470,6 +530,8 @@ void CommandEncoder::dispatch_threads(
   buffer_ops_++;
   if (GpuDispatchProfiler::instance().enabled()) {
     profile_psos_.push_back(current_pso_);
+    GpuDispatchProfiler::instance().record_dims(
+        current_pso_, "th", grid_dims, group_dims);
   }
   get_command_encoder()->dispatchThreads(grid_dims, group_dims);
 }
