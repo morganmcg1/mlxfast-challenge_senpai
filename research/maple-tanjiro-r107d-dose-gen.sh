@@ -7,10 +7,12 @@
 # eliminate it and the numeric effect is nil.  Eight accumulators give enough
 # ILP that the dose measures issue slots, not fma latency.
 #
-# usage: maple-tanjiro-r107d-dose-gen.sh SRC DOSE OUT
+# usage: maple-tanjiro-r107d-dose-gen.sh SRC DOSE OUT [ANCHOR_LO ANCHOR_HI ITERS]
+# The default anchor window selects the sliding kernel's 4-deep main loop; pass
+# 2100 2200 8 for the full kernel's 2-deep loop.
 set -u
-src="$1"; dose="$2"; out="$3"
-anchor=$(awk 'NR>=1600 && NR<=1720 && /^ *U pair_score1 = 0;$/ {print NR; exit}' "$src")
+src="$1"; dose="$2"; out="$3"; lo="${4:-1600}"; hi="${5:-1720}"; iters="${6:-4}"
+anchor=$(awk -v lo="$lo" -v hi="$hi" 'NR>=lo && NR<=hi && /^ *U pair_score1 = 0;$/ {print NR; exit}' "$src")
 if [ -z "${anchor}" ]; then echo "anchor not found in $src" >&2; exit 1; fi
 if [ "${dose}" -eq 0 ]; then cp "$src" "$out"; echo "anchor=${anchor} dose=0 (verbatim copy)"; exit 0; fi
 awk -v n="${anchor}" -v d="${dose}" '
@@ -35,4 +37,4 @@ NR == n {
 }
 { print }
 ' "$src" > "$out"
-echo "anchor=${anchor} dose=${dose} extra_fma_per_thread=$((dose * 8 * 4)) out=${out}"
+echo "anchor=${anchor} dose=${dose} extra_fma_per_thread=$((dose * 8 * iters)) out=${out}"
