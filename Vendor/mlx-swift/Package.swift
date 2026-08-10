@@ -347,9 +347,16 @@ let package = Package(
             name: "CmlxTests",
             dependencies: ["Cmlx"]
         ),
+        .target(
+            name: "VectorContainerLifetimeFixtures",
+            dependencies: ["Cmlx"],
+            path: "Benchmarks/VectorContainerLifetimeFixtures",
+            publicHeadersPath: "include",
+            cxxSettings: [.unsafeFlags(["-ISource/Cmlx/mlx"])]
+        ),
         .executableTarget(
             name: "VectorContainerLifetimeMicrobench",
-            dependencies: ["Cmlx"],
+            dependencies: ["Cmlx", "VectorContainerLifetimeFixtures"],
             path: "Benchmarks/VectorContainerLifetimeMicrobench"
         ),
 

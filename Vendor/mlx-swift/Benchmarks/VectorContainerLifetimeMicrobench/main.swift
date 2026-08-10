@@ -1,6 +1,7 @@
 import Cmlx
 import Dispatch
 import Foundation
+import VectorContainerLifetimeFixtures
 
 private struct Census: Codable {
     let mlxFastKernel: Int
@@ -244,10 +245,7 @@ let alteredRejected = !validate(
 precondition(expectedAccepted)
 precondition(alteredRejected)
 
-let cpu = mlx_device_new_type(MLX_CPU, 0)
-precondition(mlx_set_default_device(cpu) == 0)
-defer { _ = mlx_device_free(cpu) }
-let arrays = (0..<10).map { mlx_array_new_int($0) }
+let arrays = (0..<10).map { _ in mlx_benchmark_array_new_lazy() }
 defer { arrays.forEach { _ = mlx_array_free($0) } }
 
 private var results: [Result] = []
