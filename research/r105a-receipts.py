@@ -100,9 +100,11 @@ def analyse(records: list[dict]) -> dict:
 
     The per-receipt sigma is measured from the A0 replicates rather than assumed
     from the public cross-submission spread, which §4.4.1 shows overstates it by
-    ~10x. The prefill and decode channels are not independent - the decode pass
-    contains the 512-token seed prefill - so the tighter of the two is used
-    instead of an inverse-variance pool that would understate the SE.
+    ~10x. Delta is measured on the candidate-prefill channel, so its SE must come
+    from that same channel: the decode channel is a correlated re-measurement of
+    the same seed prefill, so pooling it would understate the SE and taking
+    whichever channel happens to be tighter would let the false-positive rate
+    float with the noise draw.
     """
     arms: dict[str, list[dict]] = {}
     for r in records:
@@ -119,7 +121,7 @@ def analyse(records: list[dict]) -> dict:
     decode = [128_000.0 * r["cand_dec"] for r in control]
     n0 = len(control)
     sigma_p, sigma_q = _sd(prefill), _sd(decode)
-    sigma = min(sigma_p, sigma_q)
+    sigma = sigma_p
     out.update(
         control_n=n0,
         control_dof=n0 - 1,
@@ -143,12 +145,14 @@ def analyse(records: list[dict]) -> dict:
         echo = out["control_mean_decode_ms"] - sum(128_000.0 * r["cand_dec"] for r in rs) / n
         step = out["control_mean_step_ms"] - sum(r["step_ms"] for r in rs) / n
         lo, hi = delta - t * se, delta + t * se
-        if lo > BAR_MS and n >= 2:
-            verdict = "WIN"
+        if lo > BAR_MS:
+            verdict = "WIN" if n >= 2 else "WIN-pending-replicate"
         elif hi < 0.0:
             verdict = "REGRESSION"
         elif hi < BAR_MS:
             verdict = "NULL-bar-excluded"
+        elif delta > 2.0 * se:
+            verdict = "PROMISING-needs-replicate"
         else:
             verdict = "NULL-underpowered"
         out[name] = {

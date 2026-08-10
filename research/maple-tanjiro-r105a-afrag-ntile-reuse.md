@@ -1028,6 +1028,70 @@ treatment number.
   nothing and the verdict is NULL-with-the-bar-excluded, which is a *stronger*
   result than the underpowered null §4.3.1 expected to report.
 
+### 4.4.3 Auditing the rule before the data arrives
+
+The decision rule is only worth preregistering if the code that executes it does
+what the prose says. I tested `analyse()` against synthetic prefill walls before
+A2-1's receipt was readable (`research/r105a-analyse-selftest.py`, all checks
+pass). Three things came out of it, and two are corrections to my own work.
+
+**A latent preregistration violation, fixed pre-data.** `analyse()` set the
+per-receipt σ̂ to `min(σ_prefill, σ_decode)`. Δ̂ is measured on the candidate
+prefill channel, so its standard error has to come from that same channel.
+Taking whichever channel happened to be tighter would have let the
+false-positive rate float with the noise draw, and because the decode channel is
+a *correlated re-measurement of the same 512-token seed prefill* (§4.4.1) it is
+not an independent second estimate that could be legitimately pooled either. On
+the two A0 receipts in hand `min()` happens to select prefill (0.1895 vs 0.2503),
+so **no number published anywhere in this log changes** — but the loophole is
+closed while it still costs nothing to close, rather than after a treatment
+number could make the choice look motivated. σ̂ is now `σ_prefill`
+unconditionally; the decode channel stays in the output as a consistency check.
+
+**The §4.4.2 SE table is prospective, not the analysis.** I wrote that table by
+pinning σ̂ = 0.190 ms, the pair estimate. The code does not and should not do
+that: it re-estimates σ̂ from every A0 receipt in hand. These disagree, and my
+first version of the self-test failed precisely because I had conflated them —
+placing a synthetic third control exactly at the pair mean shrinks σ̂ to
+`|a−b|/2` = 0.134 ms and the SE to 0.155 ms, not the tabulated 0.219 ms. So the
+table is a *planning* device answering "what effect could this design detect if
+σ̂ holds", and the realized interval at analysis time is whatever the controls
+say. Both properties are now asserted separately so neither can be mistaken for
+the other.
+
+**Adding A0-3 buys degrees of freedom, not precision.** This is the part I had
+wrong in spirit. σ̂ at these dof is itself wildly unstable: the self-test's
+spread-out third control pushed σ̂ *up* to 0.267 ms, giving SE 0.308 ms — worse
+than the ν = 1 SE of 0.232 ms. A third control therefore does not reliably
+tighten the SE at all. What it reliably does is collapse t₀.₉₅ from 6.31 to 2.92,
+and that is where the entire gain lives. Sweeping plausible σ̂₃:
+
+| σ̂₃ (ms) | SE at n₀=3, n=1 | WIN needs Δ̂ > |
+|---|---|---|
+| 0.134 (third control at the mean) | 0.155 | 1.80 ms |
+| 0.190 (σ̂ holds at the pair value) | 0.219 | 1.99 ms |
+| 0.267 (third control disperses σ̂) | 0.308 | 2.25 ms |
+
+The WIN threshold lands in 1.8–2.3 ms across that whole range, against 2.82 ms
+at ν = 1. So the §4.4.2 conclusion — promote A0-3 ahead of A1-1 because it makes
+A2 decidable at four receipts — survives, but for the t reason rather than the
+σ̂ reason, and the threshold I will actually face is not knowable until A0-3
+lands. I am recording the range instead of a single number so that whichever
+value materialises cannot be presented as the one I expected.
+
+**Verdict labels.** Two branches were unreachable as written. A large positive
+Δ̂ at n = 1 fell through to `NULL-underpowered`, which would have been an
+actively misleading label for a strong signal that merely lacks a replicate; it
+is now `WIN-pending-replicate`, and `verdict_is_shippable` still requires
+n ≥ 2 no matter how large the effect (asserted with a 50 ms synthetic effect).
+§4.4.2's "any arm with Δ̂ > 2·SE gets a replicate before being called anything"
+was prose with no code behind it and is now the explicit
+`PROMISING-needs-replicate` branch. One consequence worth stating: when σ̂ is
+small, `NULL-underpowered` becomes *unreachable* — the interval cannot
+simultaneously reach the bar and keep Δ̂ under 2·SE — so an underpowered null is
+a symptom of a loose σ̂, not an inevitable outcome of a short ladder.
+
+
 ---
 
 ## 5. Verdict
