@@ -782,7 +782,51 @@ failure rather than a tolerance question.
 
 ## F.3 Results
 
-<!-- FILLED FROM research/maple-nezuko-r106b-packred-exactness.sh -->
+`research/maple-nezuko-r106b-packred-exactness.sh`, zero tolerance
+(`MLXFAST_LAGUNA_EQUIVALENCE_MAX_ABS_ERROR=0`), 512 prompt tokens + 8 decode
+tokens, one pass per arm. Gate provenance was enforced per arm from the one-shot
+`mlxfast: sliding fused attn kernel:` announce line; all three matched the expected
+kernel name, so the script's mismatch guard did not fire.
+
+| arm | kernel announced | prefill step | 8 decode steps | `EXACT_STEPS` | `EXIT` |
+|---|---|---|---|---|---|
+| `off` (**baseline**) | `…_ring_v1` | 0.125 | **all exactly 0** | 8 | 1 |
+| `on` (PACKRED) | `…_ring_packred_v1` | 0.125 | **all exactly 0** | 8 | 1 |
+| `h4` (H4) | `…_ring_h4_v1` | 0.125 | **all exactly 0** | 8 | 1 |
+
+**PACKRED is bit-exact on every decode step, which is the only path it touches.**
+`maximumAbsoluteLogitError` is *exactly* 0 for all 8 decode steps in all three arms.
+That is the §F.2 prediction confirmed: packing two rows into a `float2` preserved
+the butterfly's summation order exactly, as argued from the source.
+
+**The nonzero exit code is a property of the baseline, not of the candidates, and
+this is the whole reason the `off` arm is in the script.** The oracle fails at zero
+tolerance because the **prefill** step reports 0.125 — and it reports 0.125 with
+*every gate off*, on the unmodified shipped kernel. Had I run only the `on` arm I
+would have read `EQUIVALENCE_EXIT=1` and reported "PACKRED breaks upstream
+equivalence", which would have been false and would have condemned a correct
+change. The negative control converts a scary exit code into a known baseline
+artefact. Anyone using this oracle at zero tolerance on this tree should run the
+gates-off arm first for exactly this reason.
+
+Consistent with that, the per-step error sequences are **byte-identical across all
+three arms** (`md5 6671d9cd…` for the extracted sequence in each case): at this
+instrument's resolution the three kernels are indistinguishable from one another.
+The prefill deviation is plausibly the same host/reference mismatch described in
+§F.4 — the reference logits were not generated on this M4 Pro — but I did not
+investigate it, it is outside this round's scope, and I therefore report it as an
+observation rather than a diagnosis.
+
+**Two limits on how far this may be pushed.** First, the oracle reports a *maximum*
+absolute error per step, so identical maxima are strong but not a formal proof of
+bitwise-identical output tensors; the honest claim is "no numerical difference
+detectable by this instrument at zero tolerance on any decode step", not a signed
+bit-exactness certificate. Second, and more importantly, **this evidence is not
+load-bearing this round**: because K is `N-RECOVER` and §G.1 recommends zero source
+bytes, nothing is proposed for adoption, so the `V-RECOVER` / `V-ATTRIB` branch of
+the §4.5 decision rule — and with it any need for frieren's #597 margin certificate
+— is moot. It is recorded because a successor who revives PACKRED for a different
+reason inherits the exactness result and need not re-earn it.
 
 ## F.4 Golden-set caveat on this host
 
