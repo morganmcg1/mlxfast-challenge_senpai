@@ -2261,7 +2261,7 @@ if (lane == 0) {
     ensureRowContiguous: true
 )
 
-private struct LagunaFullAttentionParamsCarrier {
+struct LagunaFullAttentionParamsCarrier {
     let writeIdx: Int
     let capacity: Int
     let array: MLXArray
@@ -2276,7 +2276,7 @@ private struct LagunaFullAttentionParamsCarrier {
 }
 
 @inline(__always)
-private func lagunaFullAttentionParams(
+func lagunaFullAttentionParams(
     writeIdx: Int,
     capacity: Int,
     carrier: inout LagunaFullAttentionParamsCarrier?
