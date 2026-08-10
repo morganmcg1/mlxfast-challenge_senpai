@@ -1690,6 +1690,19 @@ so rather than reporting the stronger reading. §7.4's rig defect is the reason
 this ambiguity exists at all: the local rig was validating a variant that never
 ships.
 
+**Update — the ambiguity is now closed, by the harm.** The escape clause above
+said only a treatment receipt with a nonzero Δ̂ proves the geometry is actually
+launched. Both treatment arms delivered one, on the limb that can carry it:
+variant 8 moved `cand_pre` by +1.034 ms (z = +6.55) and variant 7 by +1.111 ms
+(z = +7.03), each many σ outside the control band on a channel with CV 0.1423 %.
+A knob that was never reached cannot slow the candidate down. **D5 is therefore
+positively satisfied for the `_nax` routed prefill path from ranked evidence, not
+from code reading** — and the reason is that both arms lost. Had they both
+returned exact nulls I would still be unable to distinguish "no effect" from "not
+reached", which is precisely the asymmetry §5.3 was written to flag. The residual
+unproven part is narrow: I have not shown from the M5 which of the two *decode*
+kernels executes, but §4.4.10 settles that from the dispatch predicate instead.
+
 ---
 
 ## 6. Mechanism attribution
