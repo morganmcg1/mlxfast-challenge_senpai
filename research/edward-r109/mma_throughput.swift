@@ -55,12 +55,12 @@ func run(_ name: String, threads: Int, loops: UInt32, macsPerLoopPerThread: Doub
 
 let threadCounts = [1 << 16, 1 << 18, 1 << 20]
 for threads in threadCounts {
-    for n in [1, 4, 8] {
+    for n in [1, 4, 8, 16] {
         try run("fma_f32_x\(n)", threads: threads, loops: 20000,
                 macsPerLoopPerThread: Double(n))
     }
     // One 8x8x8 MMA per simdgroup = 512 MACs spread over 32 lanes = 16 per lane.
-    for n in [1, 2, 4] {
+    for n in [1, 2, 4, 8, 16] {
         try run("mma_bf16_x\(n)", threads: threads, loops: 20000,
                 macsPerLoopPerThread: Double(16 * n))
     }

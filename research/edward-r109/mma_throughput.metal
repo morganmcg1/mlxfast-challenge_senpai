@@ -36,6 +36,7 @@ using namespace metal;
 FMA_ARM(1)
 FMA_ARM(4)
 FMA_ARM(8)
+FMA_ARM(16)
 
 // N independent MMA chains: 8*8*8 MACs = 1024 FLOP each per loop per simdgroup.
 #define MMA_ARM(N)                                                            \
@@ -43,10 +44,12 @@ FMA_ARM(8)
                             device atomic_uint* trips [[buffer(1)]],          \
                             constant uint& loops [[buffer(2)]],               \
                             uint gid [[thread_position_in_grid]]) {           \
-    simdgroup_matrix<bfloat, 8, 8> A =                                        \
-        make_filled_simdgroup_matrix<bfloat, 8, 8>(bfloat(0.001f));           \
-    simdgroup_matrix<bfloat, 8, 8> B =                                        \
-        make_filled_simdgroup_matrix<bfloat, 8, 8>(bfloat(0.002f));           \
+    /* Runtime fill values: constant operands let the compiler fold A*B into \
+       a constant matrix and demote the MMA to an add. */                      \
+    simdgroup_matrix<bfloat, 8, 8> A = make_filled_simdgroup_matrix<bfloat,    \
+        8, 8>(bfloat(0.001f + 1e-9f * float(gid)));                           \
+    simdgroup_matrix<bfloat, 8, 8> B = make_filled_simdgroup_matrix<bfloat,    \
+        8, 8>(bfloat(0.002f + 1e-9f * float(gid)));                           \
     simdgroup_matrix<float, 8, 8> c[N];                                       \
     for (uint j = 0; j < N; ++j)                                              \
       c[j] = make_filled_simdgroup_matrix<float, 8, 8>(float(j) + 0.5f);      \
@@ -65,3 +68,5 @@ FMA_ARM(8)
 MMA_ARM(1)
 MMA_ARM(2)
 MMA_ARM(4)
+MMA_ARM(8)
+MMA_ARM(16)
