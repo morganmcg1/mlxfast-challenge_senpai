@@ -32,6 +32,7 @@
 //   ED_CBS=<n>       timed command buffers per variant slot (default 9)
 //   ED_PAIRS=<n>     ABBA pair count (default 4 -> 8 slots per variant)
 //   ED_SHAPE=gate_up|down|both  (default both)
+//   ED_IDX=multinomial|aligned  (default multinomial) routed-index distribution
 
 import Foundation
 import Metal
@@ -441,12 +442,23 @@ func makeBuffer(_ bytes: Int, label: String) -> MTLBuffer {
     return b
 }
 
-// Sorted routed indices: contiguous expert runs of realistic (noisy) length.
-func sortedIndices(_ M: Int) -> [UInt32] {
-    var counts = [Int](repeating: 0, count: numExperts)
-    var rng = SystemRandomNumberGenerator()
-    for _ in 0..<M {
-        counts[Int(rng.next(upperBound: UInt32(numExperts)))] += 1
+// Sorted routed indices.
+//   multinomial: realistic top-8 routing -- expert runs of noisy length, so
+//                most BM=16 row tiles straddle >1 expert and the kernel
+//                re-runs its whole K loop per segment.
+//   aligned:     exactly M/numExperts rows per expert. Same weight bytes and
+//                same useful MAC count, but every 16-row tile holds exactly
+//                one expert -> zero segment-restart waste. The difference
+//                against multinomial IS the restart amplification.
+func sortedIndices(_ M: Int, mode: String) -> [UInt32] {
+    var counts = [Int](repeating: M / numExperts, count: numExperts)
+    if mode != "aligned" {
+        counts = [Int](repeating: 0, count: numExperts)
+        var state: UInt64 = 0x9E3779B97F4A7C15
+        for _ in 0..<M {
+            state = state &* 6364136223846793005 &+ 1442695040888963407
+            counts[Int((state >> 33) % UInt64(numExperts))] += 1
+        }
     }
     var out = [UInt32]()
     out.reserveCapacity(M)
@@ -454,6 +466,19 @@ func sortedIndices(_ M: Int) -> [UInt32] {
         for _ in 0..<counts[e] { out.append(UInt32(e)) }
     }
     return out
+}
+
+// Expected K-loop executions per BM=16 row tile, from the actual index vector.
+func segmentsPerTile(_ idx: [UInt32]) -> Double {
+    var segs = 0
+    var t = 0
+    while t < idx.count {
+        let end = min(t + 16, idx.count)
+        segs += 1
+        for i in (t + 1)..<end where idx[i] != idx[i - 1] { segs += 1 }
+        t = end
+    }
+    return Double(segs) / Double((idx.count + 15) / 16)
 }
 
 struct Problem {
@@ -466,14 +491,17 @@ struct Problem {
     let sink: MTLBuffer
     let gridX: Int
     let gridY: Int
+    let segsPerTile: Double
 }
+
+let idxMode = env("ED_IDX") ?? "multinomial"
 
 func makeProblem(_ s: Shape) -> Problem {
     let packFactor = 2 // get_pack_factor<8, 4>()
     let bytesPerPack = 1 // get_bytes_per_pack<8>()
     let wBytes = numExperts * s.N * (s.K * bytesPerPack / packFactor)
     let sBytes = numExperts * s.N * (s.K / groupSize)
-    let idx = sortedIndices(s.M)
+    let idx = sortedIndices(s.M, mode: idxMode)
     let idxBuf = device.makeBuffer(bytes: idx, length: idx.count * 4, options: .storageModeShared)!
     return Problem(
         shape: s,
@@ -484,7 +512,8 @@ func makeProblem(_ s: Shape) -> Problem {
         y: makeBuffer(s.M * s.N * 2, label: "y"),
         sink: makeBuffer(1024, label: "sink"),
         gridX: (s.N + 31) / 32,
-        gridY: (s.M + 15) / 16)
+        gridY: (s.M + 15) / 16,
+        segsPerTile: segmentsPerTile(idx))
 }
 
 // MARK: - timing
@@ -549,6 +578,7 @@ for s in shapes {
     let p = makeProblem(s)
     log("")
     log("=== shape \(s.tag): M=\(s.M) K=\(s.K) N=\(s.N)  grid=\(p.gridX)x\(p.gridY) tgs ===")
+    log("routing: ED_IDX=\(idxMode)  K-loop executions per BM=16 tile = \(fmt(p.segsPerTile, 3))")
 
     var acc = [String: [Double]]()
     for t in tags { acc[t] = [] }
