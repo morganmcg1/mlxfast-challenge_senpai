@@ -332,9 +332,6 @@ let package = Package(
         .library(name: "MLXFFT", targets: ["MLXFFT"]),
         .library(name: "MLXLinalg", targets: ["MLXLinalg"]),
         .library(name: "MLXFast", targets: ["MLXFast"]),
-        .executable(
-            name: "VectorContainerLifetimeMicrobench",
-            targets: ["VectorContainerLifetimeMicrobench"]),
     ],
     dependencies: [
         // for Complex type
@@ -346,18 +343,6 @@ let package = Package(
         .testTarget(
             name: "CmlxTests",
             dependencies: ["Cmlx"]
-        ),
-        .target(
-            name: "VectorContainerLifetimeFixtures",
-            dependencies: ["Cmlx"],
-            path: "Benchmarks/VectorContainerLifetimeFixtures",
-            publicHeadersPath: "include",
-            cxxSettings: [.unsafeFlags(["-ISource/Cmlx/mlx"])]
-        ),
-        .executableTarget(
-            name: "VectorContainerLifetimeMicrobench",
-            dependencies: ["Cmlx", "VectorContainerLifetimeFixtures"],
-            path: "Benchmarks/VectorContainerLifetimeMicrobench"
         ),
 
         .target(
