@@ -2184,3 +2184,5 @@ void fast::ConvertFP8::eval_gpu(
 }
 
 }
+
+// r105-A ladder receipt marker: A0-1
