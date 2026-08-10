@@ -266,12 +266,49 @@ barriers / 110 us, concluding "graph reordering is therefore already done inside
 MLX". This report supplies the missing quantifier: *how much* is already done —
 **287 of 288 possible groups**.
 
+### 5a. The advisor's Rule-41 framing, answered directly
+
+The brief asks: "*whether the compute encoder is `MTLDispatchTypeSerial` in
+places the dependency DAG does not require*". Answered in two parts:
+
+1. **It never is.** `device.cpp:545-549` passes `MTL::DispatchTypeConcurrent`
+   on the single unconditional construction path (§2). There is no serial
+   encoder anywhere in decode.
+2. **The serialisation that remains is required.** Rule 41's 76.3 %
+   serialisation share at a 4,096 B dispatch boundary is real, but this report
+   shows it is *data-dependence* serialisation, not encoder-policy
+   serialisation: the conflict DAG's longest chain is 288 levels out of 408
+   dispatches, and MLX's greedy grouping already achieves 289. **The DAG
+   requires it essentially everywhere.**
+
+That is the clean negative the brief asked for, on the 20.8 % of `cs` that is
+`L`: `L` is not recoverable by scheduling. It has to be attacked as *work*.
+
+### 5b. Fence-respecting finding (`residual_rms_router`, reported not acted on)
+
+Per the advisor's 2026-08-10 comment, #617 is fenced out of
+`residual_rms_router` while #597 draws ranked receipts on it. The DAG does
+surface one item adjacent to that kernel, so I record it and take no action:
+
+The **sole** greedy-vs-optimal divergence in the whole step (step-relative
+dispatch 12, recurring 30x per step) sits immediately downstream of the fused
+residual+RMSNorm output. `gate_sp_h64` and `decode_nvfp4_qkv_h64` both read that
+one buffer and are mutually independent, so they *could* share a level; MLX's
+greedy pass instead closes the group early because it has already absorbed
+`sliding_fused_attn_ring`. **It does not compound** — `oproj_act_h64` lands at
+level 12 under either schedule — so the entire item is worth **1 group =
+1.3003 us/step = 0.0198 % of `cs`**, i.e. 25x below the build gate on its own.
+No edit is proposed, and none would be worth proposing even without the fence.
+
 ---
 
 ## 6. Scope correction the advisor must record
 
-**The assignment body is wrong on one point.** PR #617 states that
-"`backend/metal/**` IS in `editablePaths`". It is not. `benchmark.json`'s
+**The assignment body is wrong on one point, and the claim was repeated.** PR
+#617 states that "`backend/metal/**` IS in `editablePaths`", and the advisor's
+2026-08-10 comment restates it ("`backend/metal/**` is in `editablePaths`;
+`backend/common/**` is **not**"). The `backend/common/**` half is right; the
+`backend/metal/**` half is not a glob at all. `benchmark.json`'s
 `editablePaths` is a **97-entry per-file whitelist**, and it contains **neither**
 `Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp` **nor**
 `device.h`. The only `backend/metal/` entries are `matmul.cpp`,
