@@ -252,3 +252,56 @@ unconditionally (`.../metal/custom_kernel.cpp:117`) and the `control[0] == 0xFFF
 early-out at `:12042-12046` is a runtime device read, so no injected dispatch is folded
 away, fused, or dead-code eliminated. The knob does real GPU work; the question is only
 *where* that work sits.
+
+## §10 Out-of-sample prediction, declared before block 3's treatment rows exist
+
+Declared at the timestamp of this commit. The sink currently holds 8 data rows, ending at
+`idx=8 arm=C block=3`. Arms `H` and `J` (`idx=9`, `idx=10`) have **not** run.
+
+Rows 1–7 forced a model change. Both injected arms at `N=160` ran ~90 µs *faster* than
+their controls, which no per-dispatch cost can produce. The cause is structural: arm `C`
+returns at the `guard !pending.isEmpty` on `LagunaRuntimeModel.swift:12142` and therefore
+never reaches the `asyncEval(pending)` at `:12143`, while every injected arm calls it once
+per layer. So each arm-vs-control delta contains two terms, not one:
+
+```text
+d(N) = N * k + 40 * c
+```
+
+`k` is the per-dispatch price, `c` the per-layer eval-boundary term. `lagunaInjectShare`
+(`:12105-12107`) spreads every rung across all 40 layers, so `40*c` is the same constant at
+every rung and **cancels in a rung difference**. This makes the pre-registered single-rung
+estimator degenerate and makes `k = (d(1200) - d(160)) / 1040` the estimator that identifies
+`k`.
+
+Fitting the two unknowns on the chained ladder from `dS(160) = -95.99` and the gauge
+`dG(2400) = +2777.4` gives `k_chained = +1.286` µs/dispatch and `c = -7.54` µs/layer
+(`-301` µs/step). That fit used no `H` or `J` data, so blocks 3 and 6 are an out-of-sample
+test of it.
+
+**Predictions, recorded now:**
+
+1. **Arm `J` (1200 chained) tests the fitted model.** Point prediction
+   `dJ = 1200*1.286 - 301 = +1242` µs/step, i.e. absolute decode ~= `10204` µs/step against
+   block 3's own control of `8961.9`. I will call the two-parameter model corroborated only
+   if `dJ` lands within +/-25 % of `+1242`.
+2. **Arm `H` (1200 unchained) is the decisive test of comment 6's threshold**, because it is
+   the only row that separates `k` from `c` on the concurrent ladder. The three outcomes are
+   far apart relative to the ~35 µs control scatter observed so far:
+
+   | if unchained `k` is | predicted `dH` | predicted decode µs/step |
+   |---|---|---|
+   | `0` (region free) | `-301` | `8661` |
+   | `0.3` (comment 6 floor) | `+59` | `9021` |
+   | `0.8` (comment 6 build bar) | `+659` | `9621` |
+
+3. **`c < 0` is itself a finding, not an artifact.** If it holds, adding ~40 per-layer
+   `asyncEval` boundaries *speeds decode up* by ~300 µs/step (~3.3 %). That is a
+   commit-cadence lever on the ranked path, discovered accidentally by this probe. It also
+   sits badly with the ~30-50 µs-per-commit figure I cite in the report as an independent
+   estimate, so at most one of the two can be right and I will say so rather than pick.
+
+This section changes no pre-registered estimator, threshold, stopping rule, or verdict
+vocabulary. §5 is still applied mechanically to arm `F`. Everything here is labelled
+post-hoc in the report, and the predictions above are the reason it is testable at all.
+
