@@ -4338,7 +4338,15 @@ for(uint i=0;i<NV;++i){
     acc+=raw[i]*raw[i];
 }
 acc=simd_sum(acc);
-\(lagunaNormReductionTailQKV)
+if(sg==0&&lane>=16) local_sums[lane]=0.0f;
+if(lane==0) local_sums[sg]=acc;
+threadgroup_barrier(mem_flags::mem_threadgroup);
+if(sg==0){
+    acc=simd_sum(local_sums[lane]);
+    if(lane==0) local_inv_mean[0]=metal::precise::rsqrt(acc/float(K)+1.0e-6f);
+}
+threadgroup_barrier(mem_flags::mem_threadgroup);
+float laguna_inv_mean=local_inv_mean[0];
 for(uint i=0;i<NV;++i){
     bfloat value=norm_weight[base+i]*bfloat(raw[i]*laguna_inv_mean);
     norm_row[base+i]=value;
@@ -4383,7 +4391,7 @@ private let lagunaFusedNormGateSoftplusKernels: [Int: MLXFast.MLXFastKernel] = {
     var result: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
         result[heads] = MLXFast.metalKernel(
-            name: "laguna_norm_gate_sp_bf16_h\(heads)_v1",
+            name: "laguna_norm_gate_sp_bf16_h\(heads)_v2",
             inputNames: ["residual", "norm_weight", "packed_codes", "scales", "biases"],
             outputNames: ["normalized", "gate_values"],
             source: lagunaFusedNormGateSoftplusSource(heads: heads),
