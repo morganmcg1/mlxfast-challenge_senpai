@@ -596,6 +596,45 @@ bash senpai/submit-official.sh 1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7 \
 Argument 1 is the recorded `origin/main` SHA, verbatim, for every arm. It is not
 the candidate commit, not the PR head, and not the advisor branch SHA.
 
+### 4.1b The channel's real throughput, and why it bounds the ladder
+
+The ladder's cost is not compute — it is ranked receipts, and the channel that
+issues them is shared and doubly limited. Both limits were measured, not assumed:
+
+1. **One in-flight submission per account.** The `morganmcg1` account carries
+   every Senpai student's submissions, so a rung waits behind whatever sibling
+   currently holds the slot. Receipts must therefore be attributed by
+   `submissionCommitSha` / `officialMetrics.commit`, never by `solverUsername`.
+   A ranked cycle takes roughly 25 minutes, so the *ceiling* is ~2.4
+   receipts/hour for all students combined.
+2. **Five `mlxfast submit` attempts per clock hour, also per account.** This one
+   cost me a handoff. At 04:52:03Z my watcher saw the holder go terminal and
+   submitted 0 s later — the fastest handoff available — and was refused with
+   `Rate limit reached. Try again in 472 seconds`. My own rung had spent *zero*
+   attempts in that hour; the budget had been consumed elsewhere on the shared
+   account. The reset delay pointed exactly at the top of the next clock hour,
+   so the window is wall-clock aligned, not a rolling per-caller window.
+
+The consequence for the design is concrete. A refused attempt creates no
+submission, so it is a wait, not a failure — but the two limits compose badly: an
+agent can win the in-flight slot and still be unable to use it, and by the time
+the rate window reopens a sibling may hold the slot again. Between 04:29Z and
+05:00Z the channel therefore issued me nothing at all despite my being first in
+line.
+
+So the honest planning number is **not** the eight slots §4.3 assumed. It is
+"however many receipts arrive before the turn ends", and the ladder has to stay
+decidable at every prefix. That is the reason the revised rule in §4.4.2 is
+indexed by the dof actually in hand and the reason slot 5 is a *control*: a
+ladder that only becomes interpretable at receipt 8 is a ladder that reports
+nothing if the channel yields 5.
+
+`research/r105a-dispatch.sh` encodes both limits — it watches the current holder
+by id (14 KB/poll against a 17 MB feed read, because the feed fetch itself is
+long enough to lose the handoff), waits out a rate refusal without charging it
+against the rung's attempt cap, and re-checks the slot afterwards.
+
+
 ### 4.2 Instrument calibration — done before reading any treatment receipt
 
 Stage 1 set the ship bar at **1.35 ms of prefill wall** and assumed a
@@ -925,21 +964,45 @@ undecidable ladder into a decidable one.
 - **NULL, underpowered**: anything else. At ν ≥ 2 this window is narrow, which
   is the whole change from §4.3.1.
 
-**Revised slot plan.** Slot 5 becomes A0-3, because lifting ν from 1 to 2 shrinks
-every threshold above by more than any treatment replicate does. Then:
+**Revised slot plan.** A0-3 is promoted ahead of A1-1, because lifting ν from 1
+to 2 shrinks every threshold above by more than any treatment receipt does:
 
 | slot | 3 | 4 | 5 | 6 | 7 | 8 |
 |---|---|---|---|---|---|---|
-| arm | A2-1 | A1-1 | A0-3 | replicate of the larger \|Δ̂\| | replicate of the other | combined (variant 6) or 3rd replicate |
+| arm | A2-1 | A0-3 | A1-1 | replicate of the larger \|Δ̂\| | replicate of the other | combined (variant 6) or 3rd replicate |
 
 - Any arm with Δ̂ > 2·SE gets a replicate before it is called anything. n = 1 is
   a screen, never a decision.
 - Slot 8 stays as §4.3 preregistered it: variant 6 if both treatments clear the
   bar at n ≥ 2, since the two projections' tile effects need not be additive;
   otherwise a third replicate of the leader.
-- Mean slot under this plan: A0 {1,2,5} → 2.67, A2 {3,6 or 7}, A1 {4,7 or 6} —
-  the treatments stay within one slot of each other, so the drift-balance
-  property §4.3 paid for is preserved.
+- Mean slot under this plan: A0 {1,2,4} → 2.33, A2 {3,6 or 7}, A1 {5,7 or 6} —
+  the treatments stay within two slots of each other, and A2-1 is now *bracketed*
+  in time by controls (1, 2 before it; 4 after), so a linear session drift over
+  the ladder is visible in the controls instead of loading onto the first
+  treatment.
+- Stopping early is still allowed, but only in the direction §4.3.1 could not
+  reach: if both treatments are bar-excluded at ν = 2 the remaining slots buy
+  nothing and the verdict is NULL-with-the-bar-excluded, which is a *stronger*
+  result than the underpowered null §4.3.1 expected to report.
+
+**Why the control moves ahead of the second treatment.** §4.1b measured the
+channel at ~2.4 receipts/hour shared across all students, with a rate window that
+can idle it entirely; the eight slots §4.3 assumed are not a budget I control. So
+the ordering question is which *prefix* is most decidable, and the two candidate
+orders reach the same 5-receipt state by different routes:
+
+| receipts in hand | order A2-1, A1-1, A0-3 | order A2-1, A0-3, A1-1 |
+|---|---|---|
+| 3 | ν = 1 — no null verdict reachable | same |
+| 4 | still ν = 1 for both arms — **nothing decidable** | ν = 2 for A2 — **A2 decidable** |
+| 5 | ν = 2, both arms decidable | ν = 2, both arms decidable |
+
+Promoting the control is therefore free at the end of the ladder and strictly
+better at every prefix, so the ladder now returns a real verdict on one arm even
+if the channel yields only four receipts. Recorded at 04:57Z, with A2-1 queued
+but unread and A1-1 not yet built: this reorder cannot be a response to any
+treatment number.
 - Stopping early is still allowed, but only in the direction §4.3.1 could not
   reach: if both treatments are bar-excluded at ν = 2 the remaining slots buy
   nothing and the verdict is NULL-with-the-bar-excluded, which is a *stronger*

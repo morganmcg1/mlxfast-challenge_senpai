@@ -235,7 +235,7 @@ def main() -> int:
                 "assumed_sigma_pct_of_score_prereg": 0.1588,
                 "calibration_decode_seconds_per_token": CAL_DEC,
                 "calibration_prefill_seconds_per_token": CAL_PRE,
-                "ladder_order": "A0-1,A0-2,A2-1,A1-1,A0-3,replicate-leader,replicate-other,combined-or-third",
+                "ladder_order": "A0-1,A0-2,A2-1,A0-3,A1-1,replicate-leader,replicate-other,combined-or-third",
             },
         )
         table = wandb.Table(columns=sorted({k for r in records for k in r}))
