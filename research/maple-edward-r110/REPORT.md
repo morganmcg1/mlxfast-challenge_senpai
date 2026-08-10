@@ -287,3 +287,121 @@ Requires Metal; no model weights, no network, no benchmark lock. Runs in
 - No M5 receipt was spent, by design: the stop fired at Stage 0.
 - Ownership: I touched nothing in `quantized.cpp`, so the deconfliction split
   with maple-tanjiro's PR #692 is trivially intact.
+
+---
+
+## Addendum — answer to advisor feedback 5247182180 (2026-08-10T23:28Z)
+
+This addendum was written after the terminal result at commit `86679f40` was
+posted. It adds no code and changes no measurement; it answers the questions
+the advisor raised and closes out one lead I had left open.
+
+### 1. The WAR-barrier probe answer: 0.83 %, so no re-weighting
+
+The advisor asked me to run the cheap WAR-barrier refutation first and, **if
+the probe says >= 3 %, to say so in the PR immediately** so the team could be
+re-weighted toward this arm.
+
+The probe says **0.83 %**, not >= 3 %. Stated explicitly so the advisor does
+not have to infer it from the tables above:
+
+- Deleting the WAR barrier alone (`nobar`, an illegal kernel that races) buys
+  +0.98 % decode-shape and +0.54 % prefill-shape, i.e. **0.83 % weighted** of
+  `nvfp4_gather_qmm_rhs_nt` time.
+- The preregistered Stage-0 stop threshold was 3 %. The margin is 3.6x in the
+  direction of stopping.
+- **No re-weighting toward this arm is warranted.** The arm is terminal and
+  Part 2 (the `_nax` port) should not be funded. The reasons are in the
+  Findings section above: the ranked M5 takes `gather_qmm_rhs_nax`, doubling
+  `Ws` 9,224 -> 18,440 B collapses residency 3 -> 1 TG/core, the A operand is
+  already register-hoisted, and `gate_up_stage` aliases `Ws_storage`.
+
+### 2. Repricing against the newly-stated 1.407 % deficit
+
+The feedback restates maple's real gap to the crown as **~1.407 %** (three
+replays of the `4b0e051b` surface, mean 2.58020 vs crown 2.61650, sd 0.545 %),
+which is ~200 us/step of M4 decode wall or ~3.8 ms off S.
+
+Against that target this arm is not close:
+
+| quantity | value | vs 1.407 % gap |
+| --- | --- | --- |
+| `nobar` ceiling (illegal, races) | +0.146 % score | ~10x short |
+| implementable arm (`db2`, best legal variant) | -0.081 % score | wrong sign |
+
+The `nobar` number clears the replacement for the withdrawn 0.378 % bar
+(~0.11 %), which is why I reported it against my own verdict rather than
+suppressing it -- but it is a ceiling on an illegal kernel, and every legal
+variant I measured is negative. Nothing here contributes to the 1.407 %.
+
+### 3. Closing the one lead I left open: the idle-simdgroup observation
+
+The main report flagged, without verifying, that the ranked `_nax` expert
+kernel appears to leave simdgroups idle at mean routing. I verified it from
+source this session (read-only; no files modified). It is real, it is
+**already known**, and I recommend **against** staffing it.
+
+Verified, in `.../metal/kernels/fp_quantized_nax.h` and `.../metal/quantized.cpp`:
+
+- Shipped geometry is `darkbloom_stage_bm128_variant()` default **5**
+  (`quantized.cpp:1250-1256`) => `bm=64, bn=64, bk=64, wm=4, wn=1`
+  (`quantized.cpp:1377-1387`), so `SM = BM/WM = 16` and `TM=1, TN=4, TK=2`
+  (`fp_quantized_nax.h:1759-1774`).
+- `tm = SM * (simd_group_id / WN)`, `sgp_sm = min(SM, max(0, chunk_rows - tm))`,
+  `sg_active = sgp_sm > 0` (`:1766, :1824-1826`). At mean routing
+  (512 tokens x top-8 / 256 experts = **16 rows per expert**) only `sgid = 0`
+  is active: **1 of 4 simdgroups does MMA while all 4 stage weights.**
+- An inactive simdgroup still clears `Dtile` (`:1828-1829`), builds its loader
+  (`:1836-1846`), **fully participates in the cooperative `Ws` load**
+  (`:1899, :1901, :1934`, outside the `sg_active` guard) and hits every barrier
+  (`:1889, :1903, :1940, :1989, :2012`). It skips only the A-tile loads
+  (`:1876-1886`) and the MMA loop (`:1905-1928`). It cannot exit early.
+
+**Why the obvious fix is not a win.** The naive move is to re-partition
+`WM=1, WN=4` so all four simdgroups get MMA work. But the MMA tile-op count is
+**100 % compile-time** and is never bounded by `sgp_sm`: `tile_matmad_nax`
+loops over the `TM`/`TN`/`TK` constants
+(`steel/gemm/nax.h:996-1000, :1014-1018`) and `Atile` is a compile-time-sized
+`NAXTile<T,TM,TK>` whose invalid rows are **zero-filled**
+(`nax.h:138-167, :813-825`). So `WM=1, WN=4` gives `TM=4, TN=1`: 4x the
+A-fragment registers and the *same* per-simdgroup MMA instruction count. The
+idle simdgroups are not burning issue slots that a re-partition would recover;
+re-partitioning moves the same total MMA work around rather than creating
+parallelism.
+
+**Two hard locks on top of that.** (a) The dispatch predicate requires
+`wm == 4` (`quantized.cpp:1404-1408`; `wn` may be 1 or 2, but `wm` is fixed and
+no `bm128` case emits `wm == 1`), so a WM=1 geometry needs edits to both the
+switch at `quantized.cpp:1381-1387` and the predicate at `:1407`. (b)
+`kSwigluRegLocal = (WN == 1) && (BN == 64) && ((BM/WM) == 16)`
+(`fp_quantized_nax.h:1785-1786`), so any WM/WN change also disables the
+register-local swiglu epilogue -- a known-good optimization that would have to
+be re-won.
+
+**Prior art / duplicate.** This is maple-alphonse's R107C section 8 finding
+(`research/maple-alphonse-r107c-expert-gather-gemm-floor.md:504-524`): "1 of 4
+simdgroups per threadgroup does any MMA work, while all 4 stage weights"; "the
+kernel is weight-staging bound at mean routing", flagged there with the same
+two obstacles. Alphonse's section 9.5(b) additionally records tanjiro's R106-F'
+measurement that this family is **51.6 FLOP/B -- compute-bound on M4 but
+DRAM-bound on M5** (M5 machine balance 63.5-104), at 22.64 TFLOP/s on M5, with
+the caveat that anyone taking section 8 forward must first split the family's
+FLOPs and bytes by routed vs shared before assuming 4x headroom.
+
+**Recommendation: do not staff it.** Compile-time TM/TN plus zero-filled A rows
+remove the naive 4x; the `wm == 4` gate and the `kSwigluRegLocal` lock make the
+change expensive; and the family is DRAM-bound on the ranked M5, where more MMA
+parallelism is not the binding constraint. I am recording this as a closed lead
+rather than a new prize.
+
+### 4. Ownership and protocol
+
+`quantized.cpp:1380-1520` is maple-tanjiro's range under the binding split, so
+any WM/WN geometry move belongs to him or needs advisor arbitration. I touched
+nothing in `quantized.cpp` in this arm, so the deconfliction with PR #692
+remains trivially intact. Per the feedback I have not submitted officially and
+have not composed with tanjiro's A1; only maple-fern submits.
+
+_This addendum was written by an AI agent (OpenHands) acting as student
+maple-edward._
+
