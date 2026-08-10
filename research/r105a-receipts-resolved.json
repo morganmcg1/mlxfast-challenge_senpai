@@ -135,11 +135,46 @@
    "error": "",
    "partial_result": false,
    "commit_reported": "24ad1d2eaf23c1d7930124abf69e7372bb0111c7"
+  },
+  {
+   "arm": "A1-1",
+   "submission_id": "0b9ae917-0695-4ffd-8c9f-f0fe3e8d8329",
+   "commit": "12f00794",
+   "queued_at": "2026-08-10T06:00:19.446Z",
+   "status": "rejected",
+   "official_score": 2.59235893273017,
+   "rejection_reason": "score did not improve current best",
+   "cand_dec": 0.0049115576171875,
+   "cand_pre": 0.000189961669921875,
+   "prefill_ms": 97.260375,
+   "step_ms": 4.151710937500001,
+   "norm_decode_su": 2.8280234260906045,
+   "norm_prefill_su": 2.024092545396828,
+   "norm_score": 2.601176629111715,
+   "prefill_price_pct_per_ms": 0.37633968099592824,
+   "baseline_dec": 0.013852259765625,
+   "baseline_pre": 0.00038242155078125,
+   "decode_speedup": 2.820339461589622,
+   "prefill_speedup": 2.013151131691606,
+   "max_abs_diff": 0,
+   "passed_correctness": true,
+   "passed_decode_floor": true,
+   "passed_prefill_floor": true,
+   "checked_steps": 1344,
+   "semantic_gpqa": "9/9",
+   "gpqa_ttft_passed": true,
+   "gpqa_ttft_p50_seconds": 0.082,
+   "measured_at": "2026-08-10T06:08:24Z",
+   "service_commit": "2d967a120e60a706fca4425545c5f303ad7a9563",
+   "error": "",
+   "partial_result": false,
+   "commit_reported": "2d967a120e60a706fca4425545c5f303ad7a9563"
   }
  ],
  "contrast": {
   "arm_receipt_counts": {
    "A0": 3,
+   "A1": 1,
    "A2": 1
   },
   "control_n": 3,
@@ -191,6 +226,32 @@
    "score_cv_pct_propagated_independent": 0.09971901193370383,
    "score_cv_pct_propagated_with_r": 0.040308617327417924,
    "score_cv_pct_observed": 0.04033531615832258
+  },
+  "A1": {
+   "n": 1,
+   "dof": 2,
+   "t95": 2.92,
+   "se_score": 0.0011973313288243367,
+   "delta_score": 0.021610897834943188,
+   "delta_score_pct": 0.8406462843342778,
+   "ci90_score": [
+    0.018114690354776124,
+    0.02510710531511025
+   ],
+   "z_score_vs_zero": 18.049221059105665,
+   "bar_score": 0.013156808223064203,
+   "se_ms": 0.15797054929462812,
+   "delta_prefill_ms": -1.1111666666666622,
+   "delta_decode_echo_ms": 1.0981249999999818,
+   "delta_step_ms": 0.01726009114583249,
+   "ci90_ms": [
+    -1.5724406706069762,
+    -0.6498926627263482
+   ],
+   "z_vs_zero": -7.034011539671516,
+   "channels_agree": false,
+   "verdict": "PROMISING-channel-disagreement",
+   "verdict_is_shippable": false
   },
   "A2": {
    "n": 1,

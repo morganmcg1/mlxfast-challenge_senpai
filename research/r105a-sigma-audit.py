@@ -17,6 +17,8 @@ import statistics as st
 HERE = pathlib.Path(__file__).resolve().parent
 RESOLVED = HERE / "r105a-receipts-resolved.json"
 T95 = {1: 6.314, 2: 2.920, 3: 2.353, 4: 2.132, 5: 2.015}
+BAR_MS = 1.35  # preregistered 3-sigma prefill detection bar
+CAL_PRE = 0.0003845  # pinned calibration baseline prefill seconds per token
 
 
 def load():
@@ -117,6 +119,7 @@ def section2(ctrl, treat):
 
 CHANS = [  # (key, higher_is_better)
     ("official_score", True),
+    ("norm_score", True),
     ("decode_speedup", True),
     ("prefill_speedup", True),
     ("prefill_ms", False),
@@ -228,12 +231,80 @@ def section4():
     print("row means the pairing imported drift the treatment cannot cause.")
 
 
+def section5():
+    """Amendment B: the same verdict machinery on the baseline-free score.
+
+    `norm_score` replaces each receipt's same-session paired baseline with the
+    pinned calibration constants, so its spread contains only candidate-limb
+    variation. It is not the ranked objective, but it is the only score-shaped
+    channel whose delta a code change can actually cause.
+    """
+    ctrl, arms = _arms()
+    n0 = len(ctrl)
+    print()
+    print("=" * 72)
+    print("5. AMENDMENT B: SCORE CHANNELS THAT DROP THE BASELINE LIMB")
+    print("=" * 72)
+    print("official_score keeps both paired limbs. norm_score replaces both")
+    print("baselines with the pinned calibration constants. hybrid_score keeps")
+    print("the paired decode ratio (where pairing cancels session drift) and")
+    print("un-pairs prefill (where the baseline limb is 2.3x noisier than the")
+    print("candidate and only weakly coupled) - the estimator this arm's own")
+    print("discipline rule 1 prescribed before any receipt was spent.")
+
+    def hyb(r):
+        return r["decode_speedup"] ** 0.75 * (CAL_PRE / r["cand_pre"]) ** 0.25
+
+    chans = [
+        ("official_score", lambda r: r["official_score"]),
+        ("hybrid_score", hyb),
+        ("norm_score", lambda r: r["norm_score"]),
+    ]
+    stats = {}
+    print()
+    print(f"{'channel':>15} {'ctrl mean':>12} {'sigma':>11} {'CV%':>8}")
+    for key, fn in chans:
+        vals = [fn(r) for r in ctrl]
+        m, sd = st.mean(vals), st.stdev(vals)
+        stats[key] = (m, sd, fn)
+        print(f"{key:>15} {m:>12.7f} {sd:>11.7f} {100 * sd / m:>8.4f}")
+    price = st.mean(r["prefill_price_pct_per_ms"] for r in ctrl)
+    for name, rs in sorted(arms.items()):
+        n = len(rs)
+        t = T95[(n0 - 1) + (n - 1)]
+        print(f"\n-- {name} (n={n}, nu={(n0 - 1) + (n - 1)}) --")
+        do = st.mean(r["official_score"] for r in rs) - stats["official_score"][0]
+        for key, _ in chans:
+            m, sd, fn = stats[key]
+            se = sd * math.sqrt(1 / n + 1 / n0)
+            d = st.mean(fn(r) for r in rs) - m
+            lo, hi = d - t * se, d + t * se
+            bar = m * BAR_MS * price / 100
+            if lo > bar:
+                v = "WIN" if n >= 2 else "WIN-pending-replicate"
+            elif hi < 0:
+                v = "REGRESSION"
+            elif hi < bar:
+                v = "NULL-bar-excluded"
+            elif abs(d) > 2 * se:
+                v = "PROMISING-needs-replicate"
+            else:
+                v = "NULL-underpowered"
+            # Rescale onto the official score so the shares are comparable.
+            share = 100 * (d / m) / (do / stats["official_score"][0])
+            print(f"  {key:>15} delta {d:+.7f}  SE {se:.7f}  "
+                  f"z {d / se:+6.2f}  bar {bar:.7f}")
+            print(f"  {'':>15} CI90 [{lo:+.7f}, {hi:+.7f}]  "
+                  f"{share:+6.1f}% of the official delta  -> {v}")
+
+
 def main():
     ctrl, treat = load()
     section1(ctrl)
     section2(ctrl, treat)
     section3()
     section4()
+    section5()
 
 
 if __name__ == "__main__":

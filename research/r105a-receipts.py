@@ -31,8 +31,8 @@ CAL_PRE = 0.0003845
 
 def api(path: str) -> dict:
     cfg = json.loads((pathlib.Path.home() / ".config" / "mlxfast" / "config.json").read_text())
-    key = cfg.get("apiKey") or cfg.get("api_key")
-    base = cfg.get("apiUrl") or "https://api.mlx.fast"
+    key = cfg["token"]
+    base = cfg["apiBaseUrl"].rstrip("/")
     request = urllib.request.Request(base + path, headers={"Authorization": f"Bearer {key}"})
     return json.load(urllib.request.urlopen(request, timeout=120))
 
