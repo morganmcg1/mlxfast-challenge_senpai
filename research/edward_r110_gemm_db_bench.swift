@@ -206,8 +206,113 @@ METAL_FUNC void gemm_loop_aligned(
 
 """
 
-func makeDbSource() -> String {
-    var s = replaceGemmLoopAligned(baseSource, with: dbBody)
+// Same ping-pong, but fully unrolled over buffer parity so no `mma` operand
+// address depends on a loop-carried runtime value. Discriminates a real
+// mechanism cost from a dynamic-addressing artifact.
+let db2Body = """
+METAL_FUNC void gemm_loop_aligned(
+    threadgroup T* As,
+    threadgroup T* Bs,
+    thread mma_t& mma_op,
+    thread loader_a_t& loader_a,
+    thread loader_b_t& loader_b,
+    const int k_iterations,
+    const int a_tile,
+    const int b_tile) {
+  if (k_iterations <= 0) {
+    return;
+  }
+
+  loader_a.load_unsafe();
+  loader_b.load_unsafe();
+  loader_a.next();
+  loader_b.next();
+  loader_a.dst += a_tile;
+  loader_b.dst += b_tile;
+  threadgroup_barrier(mem_flags::mem_threadgroup);
+
+  int k = 1;
+  for (; k + 1 < k_iterations; k += 2) {
+    loader_a.load_unsafe();
+    loader_b.load_unsafe();
+    loader_a.next();
+    loader_b.next();
+    mma_op.mma(As, Bs);
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    loader_a.dst -= a_tile;
+    loader_b.dst -= b_tile;
+
+    loader_a.load_unsafe();
+    loader_b.load_unsafe();
+    loader_a.next();
+    loader_b.next();
+    mma_op.mma(As + a_tile, Bs + b_tile);
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    loader_a.dst += a_tile;
+    loader_b.dst += b_tile;
+  }
+
+  if (k < k_iterations) {
+    loader_a.load_unsafe();
+    loader_b.load_unsafe();
+    loader_a.next();
+    loader_b.next();
+    mma_op.mma(As, Bs);
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    mma_op.mma(As + a_tile, Bs + b_tile);
+  } else {
+    mma_op.mma(As, Bs);
+  }
+  loader_a.dst -= a_tile;
+  loader_b.dst -= b_tile;
+}
+
+"""
+
+// Roofline split probes. Both are NUMERICALLY WRONG timing probes.
+//   noload: staging removed -> mma + barrier cost only.
+//   nomma:  mma removed     -> staging + barrier cost only.
+let noloadBody = """
+METAL_FUNC void gemm_loop_aligned(
+    threadgroup T* As,
+    threadgroup T* Bs,
+    thread mma_t& mma_op,
+    thread loader_a_t& loader_a,
+    thread loader_b_t& loader_b,
+    const int k_iterations) {
+  for (int k = 0; k < k_iterations; k++) {
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    mma_op.mma(As, Bs);
+    loader_a.next();
+    loader_b.next();
+  }
+}
+
+"""
+
+let nommaBody = """
+METAL_FUNC void gemm_loop_aligned(
+    threadgroup T* As,
+    threadgroup T* Bs,
+    thread mma_t& mma_op,
+    thread loader_a_t& loader_a,
+    thread loader_b_t& loader_b,
+    const int k_iterations) {
+  for (int k = 0; k < k_iterations; k++) {
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    loader_a.load_unsafe();
+    loader_b.load_unsafe();
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    loader_a.next();
+    loader_b.next();
+  }
+}
+
+"""
+
+func makeDoubleBufferedSource(_ body: String) -> String {
+    var s = replaceGemmLoopAligned(baseSource, with: body)
     let stageOld = """
       threadgroup T Xs[BM * BK_padded];
       threadgroup T Ws[transpose ? BN * BK_padded : BK * BN_padded];
@@ -233,7 +338,10 @@ func makeDbSource() -> String {
 let variantSource: [String: String] = [
     "base": baseSource,
     "nobar": replaceGemmLoopAligned(baseSource, with: nobarBody),
-    "db": makeDbSource(),
+    "db": makeDoubleBufferedSource(dbBody),
+    "db2": makeDoubleBufferedSource(db2Body),
+    "noload": replaceGemmLoopAligned(baseSource, with: noloadBody),
+    "nomma": replaceGemmLoopAligned(baseSource, with: nommaBody),
 ]
 
 // MARK: - device setup
@@ -393,7 +501,8 @@ func timeOne(_ pso: MTLComputePipelineState, _ p: Problem, isNull: Bool) -> Doub
 
 // MARK: - main
 
-let tags = ["base", "nobar", "db"]
+let tags = (env("ED_TAGS") ?? "base,nobar,db,db2,noload,nomma")
+    .split(separator: ",").map(String.init)
 var libs = [String: MTLLibrary]()
 for t in tags {
     libs[t] = buildLibrary(t)
@@ -435,6 +544,6 @@ for s in shapes {
                    (t as NSString).utf8String!, m, rel, acc[t]!.count, spread))
     }
     // Per-layer projection: 39 MoE layers, one dispatch of this shape each.
-    log(String(format: "per-prefill projection (39 layers): base %.1f ms, nobar %.1f ms, db %.1f ms",
-               baseMs * 39, median(acc["nobar"]!) * 39, median(acc["db"]!) * 39))
+    let proj = tags.map { "\($0) \(fmt(median(acc[$0]!) * 39, 1))" }.joined(separator: ", ")
+    log("per-prefill projection (39 layers, ms): " + proj)
 }
