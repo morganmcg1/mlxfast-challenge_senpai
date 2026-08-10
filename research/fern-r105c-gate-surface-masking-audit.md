@@ -249,3 +249,92 @@ typed tool that can post a PR comment**: the student schema exposes
 forbids reproducing a GitHub mutation with `gh`/REST/`git push`. I am recording
 the capability gap here and putting the A1 kill first in the terminal result
 summary so it reaches the advisor at the earliest point the protocol allows.
+
+---
+
+## 3. A4 — Tier 2 static reachability over the whole default-ON surface
+
+### 3.1 Method
+
+`research/fern_r105c_gate_classify.py` (committed) parses every
+`ProcessInfo.processInfo.environment["DARKBLOOM_*"]` read in `Sources/` and the
+listed `Vendor/` files, resolves the Swift symbol each gate is bound to
+(top-level `let`, closure-bound `let`, or an `(inline)` use), finds every read
+site of that symbol, and walks the enclosing brace structure to decide whether a
+*default-ON* sibling earlier in the same `if / else if / else` chain dominates
+the site.
+
+Classification labels are the ones fixed in §0.4: `LIVE`, `DEAD-BRANCH`,
+`NEG-GUARDED`, `NO-READ-SITE`, `NEEDS-RUNTIME-OBSERVATION`. A gate's overall
+class is the weakest label over its sites: a gate is dead only if *every* read
+site is dead.
+
+Artifacts: `research/artifacts/fern-r105c/gate-classification.csv` (one row per
+gate × read site) and `.json` (per-gate rollup, keyed by
+`root_commit = 63bb3e8`).
+
+### 3.2 Cross-check against the advisor's own enumeration
+
+`research/advisor_r105_gate_reachability.py` and this classifier agree exactly on
+the surface:
+
+| quantity | advisor script | this classifier |
+|---|---|---|
+| distinct default-ON `DARKBLOOM_*` names | 80 | 80 |
+| … of which runtime gates (drop `SPM_CUDA`) | **79** | **79** |
+| distinct default-OFF names | 13 | 13 |
+| set difference either direction | none | none |
+
+So the "79 default-ON gates" figure in the assignment title is reproduced
+independently before anything is classified.
+
+### 3.3 Static histogram — m(static) = 0/79
+
+| class | count (of 79 runtime default-ON gates) |
+|---|---|
+| `LIVE` | **76** |
+| `NEEDS-RUNTIME-OBSERVATION` | 3 |
+| `DEAD-BRANCH` | 0 |
+| `NEG-GUARDED` | 0 |
+| `NO-READ-SITE` | 0 |
+
+**m(static) = 0 / 79 = 0.0000.** Not one gate on the shipped surface is dead by
+*syntactic* domination alone. The three `NEEDS-RUNTIME-OBSERVATION` gates are
+
+- `DARKBLOOM_FUSED_ROUTED_DOWN_REDUCE`,
+- `DARKBLOOM_FUSED_RESIDUAL_RMS`,
+- `DARKBLOOM_PREFILL_FUSED_RESIDUAL_RMS`.
+
+A1 resolves all three empirically: `routed down reduce` never fires (dead), while
+`residual+rmsnorm` and `prefill residual+rmsnorm` both appear in the A1 trace, so
+the other two are LIVE. No Tier-3 (A5) work is left over for them.
+
+### 3.4 Why the static number is a floor, not the answer
+
+Both gates A1 killed are invisible to this pass, for two different reasons, and
+both reasons generalise:
+
+1. **Runtime-predicate masking.** `DARKBLOOM_FUSED_ROUTED_DOWN_REDUCE` sits in an
+   `else if` whose `if` sibling is also default-ON, so the classifier can only
+   say `NEEDS-RUNTIME-OBSERVATION`: syntactically the `if` may fail on its
+   *value* bindings (`let residual`, `let downWeight`). Only the A1 trace shows
+   that at defaults it never does.
+2. **Inter-procedural masking.** `DARKBLOOM_FUSED_SHARED_DOWN_RESIDUAL` is read
+   inside `fusedSharedDownResidual` (LRM:9055). That function is `LIVE` at its
+   own read site; it is the *single call site* (LRM:11112) that is unreachable at
+   decode. A per-function pass cannot see this, and the classifier reports
+   `LIVE`. It is a false negative of the method, not a bug in the script.
+
+The same holds for `DARKBLOOM_INVERSE_SCATTER` (§2.3): its read at
+`SwitchLayers.swift:64` is reached only after an *early return* taken inside the
+same function on a different branch, which the domination walk does not model
+because the masking construct is a `return`, not an `else`.
+
+**Therefore the honest statement of the audit's headline number is:**
+
+- m(static, syntactic domination only) = 0 / 79 = **0.0000**
+- m(empirical, observed dead on the scored path) >= 3 / 79 = **0.0380**
+
+and the second number is a lower bound, because it counts only the gates a trace
+actually exercised.
+
