@@ -1,0 +1,273 @@
+{
+  "schema_version": "ranked-authority-evidence-fixtures/v1",
+  "non_authoritative": true,
+  "description": "Obviously synthetic, generated test material. It is not ranked-host evidence and cannot authorize a ranked conclusion.",
+  "files": {
+    "artifacts/workflow.yml": { "text": "name: synthetic-ranked-workflow\n", "mode": "0644" },
+    "artifacts/install-recipe.json": { "text": "{\"synthetic\":true,\"package\":\"ranked-tools-fixture\"}\n", "mode": "0644" },
+    "artifacts/bench-exec.sh": { "text": "#!/bin/sh\nexec \"$@\"\n", "mode": "0755" },
+    "artifacts/measure-job.sh": { "text": "#!/bin/sh\necho synthetic-measurement\n", "mode": "0755" },
+    "artifacts/reaper.sh": { "text": "#!/bin/sh\necho synthetic-reaper\n", "mode": "0755" },
+    "artifacts/worker-launcher.sh": { "text": "#!/bin/sh\nexec synthetic-worker \"$@\"\n", "mode": "0755" },
+    "artifacts/runtime-worker": { "text": "synthetic worker executable bytes\n", "mode": "0755" },
+    "artifacts/profile-generator.sh": { "text": "#!/bin/sh\ncat synthetic-profile-input\n", "mode": "0755" },
+    "artifacts/profile-generator-input.txt": { "text": "(allow file-read* (subpath \"/synthetic/weights\"))\n", "mode": "0644" },
+    "artifacts/worker.sb": { "text": "(version 1)\n(deny default)\n(allow file-read* (subpath \"/synthetic/weights\"))\n", "mode": "0644" }
+  },
+  "base_bundle": {
+    "schema_version": "ranked-authority-evidence-bundle/v1",
+    "authority": {
+      "authoritative": false,
+      "synthetic": true,
+      "trusted_collector": "synthetic-organizer-collector-fixture",
+      "captured_at": "2026-08-10T12:05:00Z"
+    },
+    "target_identity": {
+      "repository": "synthetic/ranked-authority-fixture",
+      "base_sha": "1111111111111111111111111111111111111111",
+      "workflow_sha": "2222222222222222222222222222222222222222",
+      "run_id": "synthetic-run-100",
+      "job_id": "synthetic-job-200"
+    },
+    "capture_identity": {
+      "repository": "synthetic/ranked-authority-fixture",
+      "base_sha": "1111111111111111111111111111111111111111",
+      "workflow_sha": "2222222222222222222222222222222222222222",
+      "run_id": "synthetic-run-100",
+      "job_id": "synthetic-job-200",
+      "host": "synthetic-m5-max",
+      "platform": "synthetic-darwin-arm64",
+      "os_build": "SyntheticOS-1A1",
+      "job_started_at": "2026-08-10T12:00:00Z",
+      "job_finished_at": "2026-08-10T12:10:00Z"
+    },
+    "required_artifact_roles": [
+      "workflow_file",
+      "installation_recipe",
+      "bench_exec",
+      "measure_job",
+      "reaper",
+      "worker_launcher",
+      "runtime_worker",
+      "worker_sandbox_profile_generator",
+      "profile_generator_input",
+      "worker_sandbox_profile"
+    ],
+    "artifacts": [
+      {
+        "role": "workflow_file",
+        "bundle_path": "artifacts/workflow.yml",
+        "installed_path": "/synthetic/repository/.github/workflows/benchmark.yml",
+        "size": 0,
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "metadata": { "owner_uid": 0, "owner_gid": 0, "mode": "0644", "acl": { "normalized_text": "", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }, "flags": { "raw": 0, "names": [] }, "link_count": 1, "symlink": false, "device_id": 0, "filesystem": "synthetic", "mount_id": "synthetic-install" },
+        "installation": { "recipe_role": "installation_recipe", "recipe_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "package": { "name": "synthetic-ranked-tools", "version": "1.0.0-fixture", "digest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, "expected_metadata": { "owner_uid": 0, "owner_gid": 0, "mode": "0644", "acl": { "normalized_text": "", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }, "flags": { "raw": 0, "names": [] }, "link_count": 1, "symlink": false, "device_id": 0, "filesystem": "synthetic", "mount_id": "synthetic-install" } }
+      },
+      {
+        "role": "installation_recipe",
+        "bundle_path": "artifacts/install-recipe.json",
+        "installed_path": "/synthetic/authority/install-recipe.json",
+        "size": 0,
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "metadata": { "owner_uid": 0, "owner_gid": 0, "mode": "0644", "acl": { "normalized_text": "", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }, "flags": { "raw": 0, "names": [] }, "link_count": 1, "symlink": false, "device_id": 0, "filesystem": "synthetic", "mount_id": "synthetic-install" },
+        "installation": { "recipe_role": "installation_recipe", "recipe_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "package": { "name": "synthetic-ranked-tools", "version": "1.0.0-fixture", "digest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, "expected_metadata": { "owner_uid": 0, "owner_gid": 0, "mode": "0644", "acl": { "normalized_text": "", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }, "flags": { "raw": 0, "names": [] }, "link_count": 1, "symlink": false, "device_id": 0, "filesystem": "synthetic", "mount_id": "synthetic-install" } }
+      },
+      {
+        "role": "bench_exec",
+        "bundle_path": "artifacts/bench-exec.sh",
+        "installed_path": "/opt/bench/bench-exec.sh",
+        "size": 0,
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "metadata": { "owner_uid": 0, "owner_gid": 0, "mode": "0755", "acl": { "normalized_text": "", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }, "flags": { "raw": 0, "names": [] }, "link_count": 1, "symlink": false, "device_id": 0, "filesystem": "synthetic", "mount_id": "synthetic-install" },
+        "installation": { "recipe_role": "installation_recipe", "recipe_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "package": { "name": "synthetic-ranked-tools", "version": "1.0.0-fixture", "digest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, "expected_metadata": { "owner_uid": 0, "owner_gid": 0, "mode": "0755", "acl": { "normalized_text": "", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }, "flags": { "raw": 0, "names": [] }, "link_count": 1, "symlink": false, "device_id": 0, "filesystem": "synthetic", "mount_id": "synthetic-install" } }
+      },
+      {
+        "role": "measure_job",
+        "bundle_path": "artifacts/measure-job.sh",
+        "installed_path": "/opt/bench/measure-job.sh",
+        "size": 0,
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "metadata": { "owner_uid": 0, "owner_gid": 0, "mode": "0755", "acl": { "normalized_text": "", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }, "flags": { "raw": 0, "names": [] }, "link_count": 1, "symlink": false, "device_id": 0, "filesystem": "synthetic", "mount_id": "synthetic-install" },
+        "installation": { "recipe_role": "installation_recipe", "recipe_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "package": { "name": "synthetic-ranked-tools", "version": "1.0.0-fixture", "digest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, "expected_metadata": { "owner_uid": 0, "owner_gid": 0, "mode": "0755", "acl": { "normalized_text": "", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }, "flags": { "raw": 0, "names": [] }, "link_count": 1, "symlink": false, "device_id": 0, "filesystem": "synthetic", "mount_id": "synthetic-install" } }
+      },
+      {
+        "role": "reaper",
+        "bundle_path": "artifacts/reaper.sh",
+        "installed_path": "/opt/bench/reap-bench-processes.sh",
+        "size": 0,
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "metadata": { "owner_uid": 0, "owner_gid": 0, "mode": "0755", "acl": { "normalized_text": "", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }, "flags": { "raw": 0, "names": [] }, "link_count": 1, "symlink": false, "device_id": 0, "filesystem": "synthetic", "mount_id": "synthetic-install" },
+        "installation": { "recipe_role": "installation_recipe", "recipe_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "package": { "name": "synthetic-ranked-tools", "version": "1.0.0-fixture", "digest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, "expected_metadata": { "owner_uid": 0, "owner_gid": 0, "mode": "0755", "acl": { "normalized_text": "", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }, "flags": { "raw": 0, "names": [] }, "link_count": 1, "symlink": false, "device_id": 0, "filesystem": "synthetic", "mount_id": "synthetic-install" } }
+      },
+      {
+        "role": "worker_launcher",
+        "bundle_path": "artifacts/worker-launcher.sh",
+        "installed_path": "/opt/bench/worker-launcher.sh",
+        "size": 0,
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "metadata": { "owner_uid": 0, "owner_gid": 0, "mode": "0755", "acl": { "normalized_text": "", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }, "flags": { "raw": 0, "names": [] }, "link_count": 1, "symlink": false, "device_id": 0, "filesystem": "synthetic", "mount_id": "synthetic-install" },
+        "installation": { "recipe_role": "installation_recipe", "recipe_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "package": { "name": "synthetic-ranked-tools", "version": "1.0.0-fixture", "digest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, "expected_metadata": { "owner_uid": 0, "owner_gid": 0, "mode": "0755", "acl": { "normalized_text": "", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }, "flags": { "raw": 0, "names": [] }, "link_count": 1, "symlink": false, "device_id": 0, "filesystem": "synthetic", "mount_id": "synthetic-install" } }
+      },
+      {
+        "role": "runtime_worker",
+        "bundle_path": "artifacts/runtime-worker",
+        "installed_path": "/synthetic/workspace/.build/release/MLXFastRuntimeWorker",
+        "size": 0,
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "metadata": { "owner_uid": 0, "owner_gid": 0, "mode": "0755", "acl": { "normalized_text": "", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }, "flags": { "raw": 0, "names": [] }, "link_count": 1, "symlink": false, "device_id": 0, "filesystem": "synthetic", "mount_id": "synthetic-install" },
+        "installation": { "recipe_role": "installation_recipe", "recipe_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "package": { "name": "synthetic-ranked-tools", "version": "1.0.0-fixture", "digest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, "expected_metadata": { "owner_uid": 0, "owner_gid": 0, "mode": "0755", "acl": { "normalized_text": "", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }, "flags": { "raw": 0, "names": [] }, "link_count": 1, "symlink": false, "device_id": 0, "filesystem": "synthetic", "mount_id": "synthetic-install" } }
+      },
+      {
+        "role": "worker_sandbox_profile_generator",
+        "bundle_path": "artifacts/profile-generator.sh",
+        "installed_path": "/opt/bench/generate-worker-profile.sh",
+        "size": 0,
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "metadata": { "owner_uid": 0, "owner_gid": 0, "mode": "0755", "acl": { "normalized_text": "", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }, "flags": { "raw": 0, "names": [] }, "link_count": 1, "symlink": false, "device_id": 0, "filesystem": "synthetic", "mount_id": "synthetic-install" },
+        "installation": { "recipe_role": "installation_recipe", "recipe_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "package": { "name": "synthetic-ranked-tools", "version": "1.0.0-fixture", "digest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, "expected_metadata": { "owner_uid": 0, "owner_gid": 0, "mode": "0755", "acl": { "normalized_text": "", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }, "flags": { "raw": 0, "names": [] }, "link_count": 1, "symlink": false, "device_id": 0, "filesystem": "synthetic", "mount_id": "synthetic-install" } }
+      },
+      {
+        "role": "profile_generator_input",
+        "bundle_path": "artifacts/profile-generator-input.txt",
+        "installed_path": "/opt/bench/profile-inputs/worker-policy.txt",
+        "size": 0,
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "metadata": { "owner_uid": 0, "owner_gid": 0, "mode": "0644", "acl": { "normalized_text": "", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }, "flags": { "raw": 0, "names": [] }, "link_count": 1, "symlink": false, "device_id": 0, "filesystem": "synthetic", "mount_id": "synthetic-install" },
+        "installation": { "recipe_role": "installation_recipe", "recipe_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "package": { "name": "synthetic-ranked-tools", "version": "1.0.0-fixture", "digest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, "expected_metadata": { "owner_uid": 0, "owner_gid": 0, "mode": "0644", "acl": { "normalized_text": "", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }, "flags": { "raw": 0, "names": [] }, "link_count": 1, "symlink": false, "device_id": 0, "filesystem": "synthetic", "mount_id": "synthetic-install" } }
+      },
+      {
+        "role": "worker_sandbox_profile",
+        "bundle_path": "artifacts/worker.sb",
+        "installed_path": "/synthetic/job/worker.sb",
+        "size": 0,
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "metadata": { "owner_uid": 0, "owner_gid": 0, "mode": "0644", "acl": { "normalized_text": "", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }, "flags": { "raw": 0, "names": [] }, "link_count": 1, "symlink": false, "device_id": 0, "filesystem": "synthetic", "mount_id": "synthetic-install" },
+        "installation": { "recipe_role": "installation_recipe", "recipe_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "package": { "name": "synthetic-ranked-tools", "version": "1.0.0-fixture", "digest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, "expected_metadata": { "owner_uid": 0, "owner_gid": 0, "mode": "0644", "acl": { "normalized_text": "", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }, "flags": { "raw": 0, "names": [] }, "link_count": 1, "symlink": false, "device_id": 0, "filesystem": "synthetic", "mount_id": "synthetic-install" } }
+      }
+    ],
+    "environment": {
+      "policy": [
+        { "name": "SYNTHETIC_VISIBLE", "sensitivity": "public", "capture": "value" },
+        { "name": "SYNTHETIC_SECRET", "sensitivity": "secret", "capture": "redacted" }
+      ],
+      "observed": [
+        { "actor_id": "controller", "name": "SYNTHETIC_VISIBLE", "value": "fixture" },
+        { "actor_id": "worker", "name": "SYNTHETIC_SECRET", "redacted": true }
+      ],
+      "policy_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "observed_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "actors": [
+      { "id": "controller", "role": "trusted_controller", "euid": 0, "egid": 0, "groups": [0], "umask": "0022", "cwd": "/synthetic/repository", "pgid": 100, "sid": 100, "parent_actor_id": null, "environment_policy_sha256": "0000000000000000000000000000000000000000000000000000000000000000" },
+      { "id": "bench", "role": "bench_actor", "euid": 501, "egid": 20, "groups": [20, 80], "umask": "0022", "cwd": "/synthetic/workspace", "pgid": 200, "sid": 100, "parent_actor_id": "controller", "environment_policy_sha256": "0000000000000000000000000000000000000000000000000000000000000000" },
+      { "id": "worker", "role": "worker_actor", "euid": 501, "egid": 20, "groups": [20, 80], "umask": "0022", "cwd": "/synthetic/workspace", "pgid": 201, "sid": 100, "parent_actor_id": "bench", "environment_policy_sha256": "0000000000000000000000000000000000000000000000000000000000000000" }
+    ],
+    "phases": [
+      { "name": "transform", "actor_id": "bench", "transition": { "kind": "setuid_setgid", "from_actor_id": "controller", "to_actor_id": "bench", "from_uid": 0, "from_gid": 0, "to_uid": 501, "to_gid": 20, "authorized_by_artifact_role": "bench_exec" } },
+      { "name": "trusted_hash", "actor_id": "bench", "transition": { "kind": "exec_inherited", "from_actor_id": "bench", "to_actor_id": "bench", "from_uid": 501, "from_gid": 20, "to_uid": 501, "to_gid": 20, "authorized_by_artifact_role": "bench_exec" } },
+      { "name": "reaper", "actor_id": "bench", "transition": { "kind": "setuid_setgid", "from_actor_id": "controller", "to_actor_id": "bench", "from_uid": 0, "from_gid": 0, "to_uid": 501, "to_gid": 20, "authorized_by_artifact_role": "reaper" } },
+      { "name": "worker_spawn", "actor_id": "bench", "transition": { "kind": "setuid_setgid", "from_actor_id": "controller", "to_actor_id": "bench", "from_uid": 0, "from_gid": 0, "to_uid": 501, "to_gid": 20, "authorized_by_artifact_role": "bench_exec" } },
+      { "name": "worker_load_epoch", "actor_id": "worker", "transition": { "kind": "exec_inherited", "from_actor_id": "bench", "to_actor_id": "worker", "from_uid": 501, "from_gid": 20, "to_uid": 501, "to_gid": 20, "authorized_by_artifact_role": "worker_launcher" } }
+    ],
+    "events": [
+      { "id": "transform", "type": "transform", "sequence": 10, "timestamp": "2026-08-10T12:01:00Z", "actor_id": "bench", "command": { "artifact_role": "bench_exec", "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "argv": ["/opt/bench/bench-exec.sh", "synthetic-transform"] }, "failure_behavior": "fail", "survivor_policy": null },
+      { "id": "trusted-hash", "type": "trusted_hash", "sequence": 20, "timestamp": "2026-08-10T12:02:00Z", "actor_id": "bench", "command": { "artifact_role": "bench_exec", "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "argv": ["/opt/bench/bench-exec.sh", "synthetic-hash"] }, "failure_behavior": "fail", "survivor_policy": null },
+      { "id": "reaper", "type": "reaper", "sequence": 30, "timestamp": "2026-08-10T12:03:00Z", "actor_id": "bench", "command": { "artifact_role": "reaper", "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "argv": ["/opt/bench/reap-bench-processes.sh"] }, "failure_behavior": "warn", "survivor_policy": { "term_signal": "TERM", "kill_signal": "KILL", "residual_survivors": "warn" } },
+      { "id": "profile-generated", "type": "profile_generated", "sequence": 40, "timestamp": "2026-08-10T12:04:00Z", "actor_id": "bench", "command": { "artifact_role": "worker_sandbox_profile_generator", "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "argv": ["/opt/bench/generate-worker-profile.sh"] }, "failure_behavior": "fail", "survivor_policy": null },
+      { "id": "sandbox-injected", "type": "sandbox_injected", "sequence": 50, "timestamp": "2026-08-10T12:05:00Z", "actor_id": "bench", "command": { "artifact_role": "worker_launcher", "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "argv": ["/opt/bench/worker-launcher.sh", "--sandbox", "/synthetic/job/worker.sb"] }, "failure_behavior": "fail", "survivor_policy": null },
+      { "id": "worker-spawn", "type": "worker_spawn", "sequence": 60, "timestamp": "2026-08-10T12:06:00Z", "actor_id": "bench", "command": { "artifact_role": "bench_exec", "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "argv": ["/opt/bench/bench-exec.sh", "/opt/bench/worker-launcher.sh"] }, "failure_behavior": "fail", "survivor_policy": null },
+      { "id": "load-start", "type": "load_start", "sequence": 70, "timestamp": "2026-08-10T12:07:00Z", "actor_id": "worker", "command": { "artifact_role": "runtime_worker", "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "argv": ["/synthetic/workspace/.build/release/MLXFastRuntimeWorker", "--load"] }, "failure_behavior": "fail", "survivor_policy": null },
+      { "id": "load-end", "type": "load_end", "sequence": 80, "timestamp": "2026-08-10T12:08:00Z", "actor_id": "worker", "command": { "artifact_role": "runtime_worker", "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "argv": ["/synthetic/workspace/.build/release/MLXFastRuntimeWorker", "--loaded"] }, "failure_behavior": "fail", "survivor_policy": null }
+    ],
+    "event_edges": [
+      { "from": "transform", "to": "trusted-hash", "type": "happens_before" },
+      { "from": "trusted-hash", "to": "reaper", "type": "happens_before" },
+      { "from": "reaper", "to": "profile-generated", "type": "happens_before" },
+      { "from": "profile-generated", "to": "sandbox-injected", "type": "sandbox_injection" },
+      { "from": "sandbox-injected", "to": "worker-spawn", "type": "spawn" },
+      { "from": "worker-spawn", "to": "load-start", "type": "spawn" },
+      { "from": "load-start", "to": "load-end", "type": "load_epoch_bounds" }
+    ],
+    "survivor_policy": { "term_signal": "TERM", "kill_signal": "KILL", "residual_survivors": "warn" },
+    "confinement": {
+      "mounts": [
+        { "id": "synthetic-install", "path": "/synthetic", "device_id": 0, "filesystem": "synthetic", "mount_identity": "synthetic-volume-fixture", "flags": ["local"], "temporary_directories": ["/synthetic/job/tmp"] }
+      ],
+      "weights_root": {
+        "path": "/synthetic/weights",
+        "mount_id": "synthetic-install",
+        "device_id": 0,
+        "filesystem": "synthetic",
+        "owner_uid": 501,
+        "owner_gid": 20,
+        "mode": "0750",
+        "tree_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "immutable_during_load": true,
+        "worker_access": "pathnames",
+        "descriptor_manifest_sha256": null
+      },
+      "capabilities": [
+        { "actor_id": "bench", "phase": "transform", "read": true, "write": true, "rename": true, "unlink": true },
+        { "actor_id": "bench", "phase": "trusted_hash", "read": true, "write": false, "rename": false, "unlink": false },
+        { "actor_id": "bench", "phase": "reaper", "read": false, "write": false, "rename": false, "unlink": false },
+        { "actor_id": "bench", "phase": "worker_spawn", "read": true, "write": false, "rename": false, "unlink": false },
+        { "actor_id": "worker", "phase": "worker_load_epoch", "read": true, "write": false, "rename": false, "unlink": false }
+      ],
+      "sandbox_profile_role": "worker_sandbox_profile",
+      "sandbox_profile_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "profile_generator_role": "worker_sandbox_profile_generator",
+      "profile_generator_input_roles": ["profile_generator_input"]
+    },
+    "crypto_linkage": {
+      "artifact_set_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "environment_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "event_graph_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "confinement_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "generation_links": [
+        {
+          "output_role": "worker_sandbox_profile",
+          "output_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "generator_role": "worker_sandbox_profile_generator",
+          "generator_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "input_roles": ["profile_generator_input"],
+          "input_sha256": ["0000000000000000000000000000000000000000000000000000000000000000"],
+          "base_sha": "1111111111111111111111111111111111111111",
+          "workflow_sha": "2222222222222222222222222222222222222222",
+          "run_id": "synthetic-run-100",
+          "job_id": "synthetic-job-200",
+          "link_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "authority_link_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "missing_authority": null
+  },
+  "cases": [
+    { "id": "complete-synthetic-bundle", "mutation": "none", "expected_state": "STATIC_RESUME_READY", "expected_error_codes": [] },
+    { "id": "missing-profile-generator-input", "mutation": "missing_profile_generator_input", "expected_state": "INCOMPLETE", "expected_error_codes": [] },
+    { "id": "physical-byte-drift", "mutation": "byte_drift", "expected_state": "INVALID", "expected_error_codes": ["PHYSICAL_HASH_MISMATCH", "PHYSICAL_SIZE_MISMATCH"] },
+    { "id": "declared-hash-drift", "mutation": "hash_drift", "expected_state": "INVALID", "expected_error_codes": ["PHYSICAL_HASH_MISMATCH"] },
+    { "id": "declared-size-drift", "mutation": "size_drift", "expected_state": "INVALID", "expected_error_codes": ["PHYSICAL_SIZE_MISMATCH"] },
+    { "id": "bundle-path-escape", "mutation": "path_escape", "expected_state": "INVALID", "expected_error_codes": ["BUNDLE_PATH_ESCAPE"] },
+    { "id": "symbolic-link-artifact", "mutation": "symlink", "expected_state": "INVALID", "expected_error_codes": ["PHYSICAL_SYMLINK"] },
+    { "id": "duplicate-artifact-role", "mutation": "duplicate_role", "expected_state": "INVALID", "expected_error_codes": ["DUPLICATE_ARTIFACT_ROLE"] },
+    { "id": "owner-mismatch", "mutation": "owner_mismatch", "expected_state": "INVALID", "expected_error_codes": ["PHYSICAL_OWNER_UID_MISMATCH"] },
+    { "id": "mode-mismatch", "mutation": "mode_mismatch", "expected_state": "INVALID", "expected_error_codes": ["PHYSICAL_MODE_MISMATCH"] },
+    { "id": "acl-mismatch", "mutation": "acl_mismatch", "expected_state": "INVALID", "expected_error_codes": ["PHYSICAL_ACL_MISMATCH"] },
+    { "id": "hardlink-ambiguity", "mutation": "hardlink_ambiguity", "expected_state": "INVALID", "expected_error_codes": ["HARDLINK_AMBIGUITY"] },
+    { "id": "workflow-identity-drift", "mutation": "workflow_drift", "expected_state": "INVALID", "expected_error_codes": ["IDENTITY_WORKFLOW_DRIFT"] },
+    { "id": "base-identity-drift", "mutation": "base_drift", "expected_state": "INVALID", "expected_error_codes": ["IDENTITY_BASE_DRIFT"] },
+    { "id": "job-identity-drift", "mutation": "job_drift", "expected_state": "INVALID", "expected_error_codes": ["IDENTITY_JOB_DRIFT"] },
+    { "id": "stale-capture", "mutation": "stale_capture", "expected_state": "INVALID", "expected_error_codes": ["STALE_CAPTURE"] },
+    { "id": "missing-install-provenance", "mutation": "missing_install_provenance", "expected_state": "INVALID", "expected_error_codes": ["INSTALL_PROVENANCE_MISSING"] },
+    { "id": "profile-hash-mismatch", "mutation": "profile_hash_mismatch", "expected_state": "INVALID", "expected_error_codes": ["PROFILE_HASH_MISMATCH"] },
+    { "id": "secret-value-leak", "mutation": "secret_leak", "expected_state": "INVALID", "expected_error_codes": ["ENV_SECRET_LEAK"] },
+    { "id": "undeclared-environment-name", "mutation": "undeclared_environment", "expected_state": "INVALID", "expected_error_codes": ["ENV_UNDECLARED_NAME"] },
+    { "id": "uid-gid-transition-contradiction", "mutation": "transition_contradiction", "expected_state": "INVALID", "expected_error_codes": ["TRANSITION_IDENTITY_CONTRADICTION"] },
+    { "id": "survivor-policy-contradiction", "mutation": "survivor_contradiction", "expected_state": "INVALID", "expected_error_codes": ["SURVIVOR_POLICY_CONTRADICTION"] },
+    { "id": "event-cycle", "mutation": "event_cycle", "expected_state": "INVALID", "expected_error_codes": ["EVENT_CYCLE"] },
+    { "id": "event-order-reversal", "mutation": "order_reversal", "expected_state": "INVALID", "expected_error_codes": ["EVENT_ORDER_REVERSAL"] },
+    { "id": "mount-path-contradiction", "mutation": "mount_path_contradiction", "expected_state": "INVALID", "expected_error_codes": ["MOUNT_PATH_CONTRADICTION"] },
+    { "id": "absent-self-declared-artifact", "mutation": "absent_declared_artifact", "expected_state": "INVALID", "expected_error_codes": ["PHYSICAL_FILE_MISSING"] }
+  ]
+}
