@@ -32,6 +32,10 @@ from collections import defaultdict
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PATTERN = re.compile(r"^score\.local-submit\.([A-Za-z0-9_\-]+?)(\d+)\.json$")
+PAIRED_DIR = pathlib.Path("research/artifacts/fern-r109f/paired")
+PAIRED_PATTERN = re.compile(
+    r"^([A-Za-z0-9_\-]+?)-(\d{8}T\d{6}Z)-(\d+)-([A-Za-z0-9]+)\.json$"
+)
 
 DECODE_W = 0.75
 PREFILL_W = 0.25
@@ -79,6 +83,48 @@ def load_families(root=ROOT, drop_first=False):
         reps.sort(key=lambda r: r["replicate"])
         if drop_first and len(reps) > 1:
             fams[name] = reps[1:]
+    return fams
+
+
+def load_paired(root=ROOT, tag=None, session=None):
+    """Load the interleaved paired driver's per-slot snapshots, keyed by arm.
+
+    `fern_r109f_paired_submit.sh` runs several arms inside one session from
+    pre-staged worker binaries, so its slot index -- not a per-family counter --
+    is the replicate identity, and the session's warmup arm is simply an arm the
+    caller does not name.
+    """
+    fams = defaultdict(list)
+    for path in sorted((root / PAIRED_DIR).glob("*.json")):
+        m = PAIRED_PATTERN.match(path.name)
+        if not m:
+            continue
+        if tag and m.group(1) != tag:
+            continue
+        if session and m.group(2) != session:
+            continue
+        d = json.loads(path.read_text())
+        met = d["metrics"]
+        fams[m.group(4)].append(
+            {
+                "replicate": int(m.group(3)),
+                "path": path.name,
+                "decode": met["decode_seconds_per_token"],
+                "prefill": met["prefill_seconds_per_token"],
+                "score": d["score"],
+                "passed": d["passed"],
+                "correct": met["passed_correctness"],
+                "max_abs_diff": met["max_abs_diff"],
+                "golden_hash": met["golden_hash"],
+                "commit": met["commit"],
+                "timestamp": met["timestamp"],
+                "peak_ram_gb": met["peak_ram_gb"],
+                "base_decode": met["baseline_decode_seconds_per_token"],
+                "base_prefill": met["baseline_prefill_seconds_per_token"],
+            }
+        )
+    for reps in fams.values():
+        reps.sort(key=lambda r: r["replicate"])
     return fams
 
 
@@ -165,12 +211,32 @@ def main():
         action="store_true",
         help="discard each family's first replicate (cold-start outlier)",
     )
+    ap.add_argument(
+        "--paired",
+        action="store_true",
+        help=f"read interleaved per-slot snapshots from {PAIRED_DIR} instead",
+    )
+    ap.add_argument("--tag", help="restrict --paired to one campaign tag")
+    ap.add_argument("--session", help="restrict --paired to one session stamp")
     args = ap.parse_args()
 
-    fams = load_families(drop_first=args.drop_first)
-    if not fams:
-        print("no score.local-submit.<family><n>.json snapshots found", file=sys.stderr)
-        return 1
+    if args.paired:
+        fams = load_paired(tag=args.tag, session=args.session)
+        if args.drop_first:
+            for name, reps in fams.items():
+                if len(reps) > 1:
+                    fams[name] = reps[1:]
+        if not fams:
+            print(f"no paired snapshots under {PAIRED_DIR}", file=sys.stderr)
+            return 1
+    else:
+        fams = load_families(drop_first=args.drop_first)
+        if not fams:
+            print(
+                "no score.local-submit.<family><n>.json snapshots found",
+                file=sys.stderr,
+            )
+            return 1
 
     names = args.families or sorted(fams)
     missing = [n for n in names if n not in fams]
