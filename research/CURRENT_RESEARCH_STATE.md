@@ -7476,6 +7476,67 @@ counts before and after**, and treat a register increase as a stop-and-redesign
 signal, not a cost to absorb.
 
 
+#### 105.21 ⭐⭐⭐ The draw decision table — "no draw" is no longer unconditional; the arming threshold is a certified **+1.0 %**, and the coin flip is at **+1.64 %**
+
+Generator: `research/advisor_r105_21_draw_decision_table.py` (pure arithmetic on
+settled constants, no measurement). Inputs: rule 101's unbiased record gap
+`g0 = 1.6359 %` and fixed-tree resubmission `σ = 0.3016 %`; the draw channel is
+i.i.d. white noise (n = 1220), so N draws are independent Bernoulli trials.
+
+Self-checks: `g0/σ = 5.42` reproduces the campaign z; and at the de-biased L3
+value `x = 0.1966 %` the table returns **9.1e−07**, exactly the figure already
+on the record. The table is therefore the same model, merely inverted.
+
+| certified local gain | x % | z | P(1 draw beats record) | P(≥1 of 2 draws) |
+|---|---:|---:|---:|---:|
+| nothing (today's tree) | 0.000 | 5.42 | 2.9e−08 | 5.8e−08 |
+| the 0.4 % draw bar alone | 0.400 | 4.10 | 2.1e−05 | 4.2e−05 |
+| family-E merge, route C | 0.756 | 2.92 | 1.8e−03 | 3.5e−03 |
+| **family-E merge, route A** | **1.069** | 1.88 | **3.0e−02** | **5.9e−02** |
+| route A + a second 0.4 % lever | 1.469 | 0.55 | 0.290 | 0.496 |
+| **family-E merge, route B low** | **1.690** | −0.18 | **0.571** | **0.816** |
+| family-E merge, route B high | 1.780 | −0.48 | 0.684 | 0.900 |
+| full T2b recovery | 1.888 | −0.84 | 0.798 | 0.959 |
+| frieren §11.4 one-merge low | 2.190 | −1.84 | 0.967 | 0.999 |
+| family E full fusion (105.17) | 2.451 | −2.70 | 0.997 | 1.000 |
+
+Inverted:
+
+| target P(1 draw) | certified gain required |
+|---|---|
+| 0.10 | **+1.249 %** |
+| 0.25 | +1.432 % |
+| 0.50 | +1.636 % |
+| 0.80 | +1.890 % |
+
+##### What this changes
+
+The standing planning assumption has been **"no draw"** since rule 101, and it
+was correct: at every improvement the campaign could plausibly certify, P was
+between 1e−08 and 1e−05, and a draw was a pure waste of the freeze window.
+105.20 breaks that, because it is the first candidate whose *central* estimate
+is above 1 % and whose ceiling is above the gap itself.
+
+**New standing rule.** The draw is **armed if and only if** the integrated tree
+carries a certified improvement of **≥ 1.0 % of `cs`** measured on nezuko's
+paired `--local-submit` instrument (CI95 half-width ≈0.1178 % at 10 blocks, so a
+1.0 % point estimate has a CI comfortably clear of zero) **with correctness
+green on the exact submitted tree and fern's twelve wrapper preconditions
+passing**. Below 1.0 % the arithmetic is unchanged from rule 101 and we do not
+draw. Between 1.0 % and 1.25 % it is a judgement call and the honest framing is
+"a 3–10 % shot, taken because the alternative is a certain zero".
+
+**Draw budget.** Armed from 07:00Z, latest sensible start 08:00Z, hard stop
+09:00Z — room for **two** draws. Two draws roughly doubles P in the low regime
+and takes 0.571 → 0.816 in the route-B regime. There is no evidence of any
+penalty for a rejected draw (13 consecutive rejections earlier today cost
+nothing but wall clock), so if the draw is armed at all, take both.
+
+⚠️ **Do not let this table become a reason to inflate an estimate.** It is
+monotone and steep exactly where 105.20's three price routes disagree, which is
+precisely why 105.20 mandates headlining the conservative route C. The table
+tells you what a *certified* number is worth; it says nothing about what a
+hoped-for number is worth.
 
 
 ## 9. σ table (rule 40 — pick your estimator, then quote its floor)
