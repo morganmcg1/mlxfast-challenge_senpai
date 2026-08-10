@@ -35,8 +35,12 @@ sg2:new:DARKBLOOM_ROUTED_GATEUP_SG=2 \
 sg4:new:DARKBLOOM_ROUTED_GATEUP_SG=4 \
 sg8:new:DARKBLOOM_ROUTED_GATEUP_SG=8 \
 sg16:new:DARKBLOOM_ROUTED_GATEUP_SG=16"
-export ASSERT_DIFFER=""
-export ASSERT_SAME=""
+# abba expands these with ${VAR:-default}, so an empty string silently restores
+# its oldA/oldB defaults and aborts. Every arm here is one binary driven by env,
+# so assert that single-binary invariant and keep cmp itself non-vacuous by
+# pairing it with two snapshots that genuinely differ.
+export ASSERT_SAME="new:new"
+export ASSERT_DIFFER="new:geom"
 
 bash research/maple-frieren-r103a-abba.sh
 rc=$?
