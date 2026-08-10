@@ -1,0 +1,1506 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mlxfast.invalid/schemas/ranked-authority-evidence-bundle/v4",
+  "title": "Ranked Authority Evidence Bundle v4",
+  "description": "Offline schema for synthetic ranked-authority evidence with externally pinned whole-bundle authentication and immutable process-birth observations.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "authority_contract_version",
+    "installed_path_census_sha256",
+    "authority",
+    "target_identity",
+    "capture_identity",
+    "required_artifact_roles",
+    "artifacts",
+    "environment",
+    "actors",
+    "process_births",
+    "phases",
+    "events",
+    "event_edges",
+    "survivor_policy",
+    "confinement",
+    "crypto_linkage",
+    "missing_authority"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "ranked-authority-evidence-bundle/v4"
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authoritative",
+        "synthetic",
+        "trusted_collector",
+        "captured_at",
+        "collector_authority"
+      ],
+      "properties": {
+        "authoritative": {
+          "type": "boolean"
+        },
+        "synthetic": {
+          "type": "boolean"
+        },
+        "trusted_collector": {
+          "type": "string",
+          "minLength": 1
+        },
+        "captured_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "collector_authority": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "target_identity": {
+      "$ref": "#/$defs/identity"
+    },
+    "capture_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "base_sha",
+        "workflow_sha",
+        "run_id",
+        "job_id",
+        "workflow_file_sha256",
+        "workflow_blob_sha",
+        "workflow_path",
+        "host",
+        "platform",
+        "os_build",
+        "job_started_at",
+        "job_finished_at"
+      ],
+      "properties": {
+        "repository": {
+          "type": "string",
+          "pattern": "^[^/\\s]+/[^/\\s]+$"
+        },
+        "base_sha": {
+          "$ref": "#/$defs/gitSha"
+        },
+        "workflow_sha": {
+          "$ref": "#/$defs/gitSha"
+        },
+        "run_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "job_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "host": {
+          "type": "string",
+          "minLength": 1
+        },
+        "platform": {
+          "type": "string",
+          "minLength": 1
+        },
+        "os_build": {
+          "type": "string",
+          "minLength": 1
+        },
+        "job_started_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "job_finished_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "workflow_path": {
+          "const": ".github/workflows/benchmark.yml"
+        },
+        "workflow_blob_sha": {
+          "$ref": "#/$defs/gitSha"
+        },
+        "workflow_file_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "required_artifact_roles": {
+      "type": "array",
+      "minItems": 10,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/role"
+      },
+      "maxItems": 10
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 9,
+      "items": {
+        "$ref": "#/$defs/artifact"
+      },
+      "maxItems": 10
+    },
+    "environment": {
+      "$ref": "#/$defs/environment"
+    },
+    "actors": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "$ref": "#/$defs/actor"
+      },
+      "maxItems": 3
+    },
+    "process_births": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/processBirth"
+      }
+    },
+    "phases": {
+      "type": "array",
+      "minItems": 5,
+      "items": {
+        "$ref": "#/$defs/phase"
+      },
+      "maxItems": 5
+    },
+    "events": {
+      "type": "array",
+      "minItems": 8,
+      "items": {
+        "$ref": "#/$defs/event"
+      },
+      "maxItems": 8
+    },
+    "event_edges": {
+      "type": "array",
+      "minItems": 7,
+      "items": {
+        "$ref": "#/$defs/edge"
+      },
+      "maxItems": 7
+    },
+    "survivor_policy": {
+      "$ref": "#/$defs/survivorPolicy"
+    },
+    "confinement": {
+      "$ref": "#/$defs/confinement"
+    },
+    "crypto_linkage": {
+      "$ref": "#/$defs/cryptoLinkage"
+    },
+    "missing_authority": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/missingAuthority"
+        }
+      ]
+    },
+    "authority_contract_version": {
+      "const": "pr671-ranked-installed-authority/v4"
+    },
+    "installed_path_census_sha256": {
+      "$ref": "#/$defs/sha256"
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "gitSha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "role": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{1,63}$"
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"
+    },
+    "mode": {
+      "type": "string",
+      "pattern": "^0[0-7]{3}$"
+    },
+    "absolutePath": {
+      "type": "string",
+      "pattern": "^/"
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "base_sha",
+        "workflow_sha",
+        "run_id",
+        "job_id",
+        "workflow_path",
+        "workflow_blob_sha",
+        "workflow_file_sha256"
+      ],
+      "properties": {
+        "repository": {
+          "type": "string",
+          "pattern": "^[^/\\s]+/[^/\\s]+$"
+        },
+        "base_sha": {
+          "$ref": "#/$defs/gitSha"
+        },
+        "workflow_sha": {
+          "$ref": "#/$defs/gitSha"
+        },
+        "run_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "job_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "workflow_path": {
+          "const": ".github/workflows/benchmark.yml"
+        },
+        "workflow_blob_sha": {
+          "$ref": "#/$defs/gitSha"
+        },
+        "workflow_file_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "acl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "normalized_text",
+        "sha256"
+      ],
+      "properties": {
+        "normalized_text": {
+          "type": "string"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "flags": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "raw",
+        "names"
+      ],
+      "properties": {
+        "raw": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "names": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "owner_uid",
+        "owner_gid",
+        "mode",
+        "acl",
+        "flags",
+        "link_count",
+        "symlink",
+        "device_id",
+        "filesystem",
+        "mount_id"
+      ],
+      "properties": {
+        "owner_uid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "owner_gid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mode": {
+          "$ref": "#/$defs/mode"
+        },
+        "acl": {
+          "$ref": "#/$defs/acl"
+        },
+        "flags": {
+          "$ref": "#/$defs/flags"
+        },
+        "link_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "symlink": {
+          "type": "boolean"
+        },
+        "device_id": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "filesystem": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mount_id": {
+          "$ref": "#/$defs/identifier"
+        }
+      }
+    },
+    "packageProvenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version",
+        "digest_sha256"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "digest_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "installation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "recipe_role",
+        "recipe_sha256",
+        "package",
+        "expected_metadata"
+      ],
+      "properties": {
+        "recipe_role": {
+          "$ref": "#/$defs/role"
+        },
+        "recipe_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "package": {
+          "$ref": "#/$defs/packageProvenance"
+        },
+        "expected_metadata": {
+          "$ref": "#/$defs/metadata"
+        }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "bundle_path",
+        "installed_path",
+        "size",
+        "sha256",
+        "bundle_metadata",
+        "installed_metadata",
+        "installation"
+      ],
+      "properties": {
+        "role": {
+          "$ref": "#/$defs/role"
+        },
+        "bundle_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "installed_path": {
+          "$ref": "#/$defs/absolutePath"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "installation": {
+          "$ref": "#/$defs/installation"
+        },
+        "bundle_metadata": {
+          "$ref": "#/$defs/metadata"
+        },
+        "installed_metadata": {
+          "$ref": "#/$defs/metadata"
+        }
+      }
+    },
+    "environmentPolicyEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "sensitivity",
+        "capture"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Z_][A-Z0-9_]*$"
+        },
+        "sensitivity": {
+          "enum": [
+            "public",
+            "secret"
+          ]
+        },
+        "capture": {
+          "enum": [
+            "name_only",
+            "redacted",
+            "value"
+          ]
+        }
+      }
+    },
+    "environmentObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actor_id",
+        "name"
+      ],
+      "properties": {
+        "actor_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Z_][A-Z0-9_]*$"
+        },
+        "redacted": {
+          "type": "boolean"
+        },
+        "value": {
+          "type": "string"
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "policy",
+        "observed",
+        "policy_sha256",
+        "observed_sha256"
+      ],
+      "properties": {
+        "policy": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/environmentPolicyEntry"
+          }
+        },
+        "observed": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/environmentObservation"
+          }
+        },
+        "policy_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "observed_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "role",
+        "euid",
+        "egid",
+        "groups",
+        "umask",
+        "pid",
+        "ppid",
+        "cwd",
+        "pgid",
+        "sid",
+        "parent_actor_id",
+        "environment_policy_sha256"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "role": {
+          "$ref": "#/$defs/role"
+        },
+        "euid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "egid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "groups": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "umask": {
+          "$ref": "#/$defs/mode"
+        },
+        "cwd": {
+          "$ref": "#/$defs/absolutePath"
+        },
+        "pgid": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sid": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "parent_actor_id": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/identifier"
+            }
+          ]
+        },
+        "environment_policy_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "ppid": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "from_actor_id",
+        "to_actor_id",
+        "from_uid",
+        "from_gid",
+        "to_uid",
+        "to_gid",
+        "authorized_by_artifact_role"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "none",
+            "setuid",
+            "setgid",
+            "setuid_setgid",
+            "exec_inherited"
+          ]
+        },
+        "from_actor_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "to_actor_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "from_uid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "from_gid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "to_uid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "to_gid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "authorized_by_artifact_role": {
+          "$ref": "#/$defs/role"
+        }
+      }
+    },
+    "phase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "actor_id",
+        "transition"
+      ],
+      "properties": {
+        "name": {
+          "enum": [
+            "transform",
+            "trusted_hash",
+            "reaper",
+            "worker_spawn",
+            "worker_load_epoch"
+          ]
+        },
+        "actor_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "transition": {
+          "$ref": "#/$defs/transition"
+        }
+      }
+    },
+    "survivorPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "term_signal",
+        "kill_signal",
+        "residual_survivors"
+      ],
+      "properties": {
+        "term_signal": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kill_signal": {
+          "type": "string",
+          "minLength": 1
+        },
+        "residual_survivors": {
+          "enum": [
+            "fail",
+            "warn",
+            "ignore"
+          ]
+        }
+      }
+    },
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_role",
+        "artifact_sha256",
+        "executable_path",
+        "argv",
+        "argv_sha256",
+        "exec_chain",
+        "process_birth_pid"
+      ],
+      "properties": {
+        "artifact_role": {
+          "$ref": "#/$defs/role"
+        },
+        "artifact_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "argv": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "executable_path": {
+          "$ref": "#/$defs/absolutePath"
+        },
+        "argv_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "exec_chain": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/execChainEntry"
+          }
+        },
+        "process_birth_pid": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "sequence",
+        "timestamp",
+        "actor_id",
+        "command",
+        "failure_behavior",
+        "survivor_policy"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "type": {
+          "enum": [
+            "transform",
+            "trusted_hash",
+            "reaper",
+            "profile_generated",
+            "sandbox_injected",
+            "worker_spawn",
+            "load_start",
+            "load_end"
+          ]
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "timestamp": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "actor_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "command": {
+          "$ref": "#/$defs/command"
+        },
+        "failure_behavior": {
+          "enum": [
+            "fail",
+            "warn"
+          ]
+        },
+        "survivor_policy": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/survivorPolicy"
+            }
+          ]
+        }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to",
+        "type"
+      ],
+      "properties": {
+        "from": {
+          "$ref": "#/$defs/identifier"
+        },
+        "to": {
+          "$ref": "#/$defs/identifier"
+        },
+        "type": {
+          "enum": [
+            "happens_before",
+            "spawn",
+            "sandbox_injection",
+            "load_epoch_bounds"
+          ]
+        }
+      }
+    },
+    "mount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "path",
+        "device_id",
+        "filesystem",
+        "mount_identity",
+        "flags",
+        "temporary_directories"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "path": {
+          "$ref": "#/$defs/absolutePath"
+        },
+        "device_id": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "filesystem": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mount_identity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "flags": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "temporary_directories": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/absolutePath"
+          }
+        }
+      }
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actor_id",
+        "phase",
+        "read",
+        "write",
+        "rename",
+        "unlink"
+      ],
+      "properties": {
+        "actor_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "phase": {
+          "enum": [
+            "transform",
+            "trusted_hash",
+            "reaper",
+            "worker_spawn",
+            "worker_load_epoch"
+          ]
+        },
+        "read": {
+          "type": "boolean"
+        },
+        "write": {
+          "type": "boolean"
+        },
+        "rename": {
+          "type": "boolean"
+        },
+        "unlink": {
+          "type": "boolean"
+        }
+      }
+    },
+    "weightsRoot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "mount_id",
+        "device_id",
+        "filesystem",
+        "owner_uid",
+        "owner_gid",
+        "mode",
+        "tree_sha256",
+        "immutable_during_load",
+        "worker_access",
+        "descriptor_manifest_sha256"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/absolutePath"
+        },
+        "mount_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "device_id": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "filesystem": {
+          "type": "string",
+          "minLength": 1
+        },
+        "owner_uid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "owner_gid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mode": {
+          "$ref": "#/$defs/mode"
+        },
+        "tree_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "immutable_during_load": {
+          "type": "boolean"
+        },
+        "worker_access": {
+          "enum": [
+            "pathnames",
+            "immutable_descriptors"
+          ]
+        },
+        "descriptor_manifest_sha256": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/sha256"
+            }
+          ]
+        }
+      }
+    },
+    "confinement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mounts",
+        "weights_root",
+        "capabilities",
+        "sandbox_profile_role",
+        "sandbox_profile_sha256",
+        "profile_generator_role",
+        "profile_generator_input_roles"
+      ],
+      "properties": {
+        "mounts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/mount"
+          },
+          "maxItems": 1
+        },
+        "weights_root": {
+          "$ref": "#/$defs/weightsRoot"
+        },
+        "capabilities": {
+          "type": "array",
+          "minItems": 5,
+          "items": {
+            "$ref": "#/$defs/capability"
+          },
+          "maxItems": 5
+        },
+        "sandbox_profile_role": {
+          "$ref": "#/$defs/role"
+        },
+        "sandbox_profile_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "profile_generator_role": {
+          "$ref": "#/$defs/role"
+        },
+        "profile_generator_input_roles": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/role"
+          },
+          "maxItems": 1
+        }
+      }
+    },
+    "generationLink": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "output_role",
+        "output_sha256",
+        "generator_role",
+        "generator_sha256",
+        "input_roles",
+        "input_sha256",
+        "event_id",
+        "generated_at",
+        "base_sha",
+        "workflow_sha",
+        "run_id",
+        "job_id",
+        "link_sha256"
+      ],
+      "properties": {
+        "output_role": {
+          "$ref": "#/$defs/role"
+        },
+        "output_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "generator_role": {
+          "$ref": "#/$defs/role"
+        },
+        "generator_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "input_roles": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/role"
+          }
+        },
+        "input_sha256": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/sha256"
+          }
+        },
+        "base_sha": {
+          "$ref": "#/$defs/gitSha"
+        },
+        "workflow_sha": {
+          "$ref": "#/$defs/gitSha"
+        },
+        "run_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "job_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "link_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "event_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "generated_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "cryptoLinkage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_set_sha256",
+        "environment_sha256",
+        "event_graph_sha256",
+        "confinement_sha256",
+        "generation_links",
+        "authority_link_sha256"
+      ],
+      "properties": {
+        "artifact_set_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "environment_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "event_graph_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "confinement_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "generation_links": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/generationLink"
+          },
+          "maxItems": 1
+        },
+        "authority_link_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "execChainEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_role",
+        "installed_path",
+        "artifact_sha256"
+      ],
+      "properties": {
+        "artifact_role": {
+          "$ref": "#/$defs/role"
+        },
+        "installed_path": {
+          "$ref": "#/$defs/absolutePath"
+        },
+        "artifact_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "missingAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "role",
+        "fact",
+        "reason"
+      ],
+      "properties": {
+        "kind": {
+          "const": "artifact_role"
+        },
+        "role": {
+          "$ref": "#/$defs/role"
+        },
+        "fact": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "trustScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "assignment_pr",
+        "audit_path",
+        "audit_terminal",
+        "first_unavailable_path",
+        "audited_base_sha",
+        "workflow_path",
+        "workflow_blob_sha",
+        "workflow_file_sha256",
+        "stopped_edge"
+      ],
+      "properties": {
+        "assignment_pr": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "audit_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "audit_terminal": {
+          "const": "RANKED_WEIGHT_PROVENANCE_INDETERMINATE"
+        },
+        "first_unavailable_path": {
+          "const": "/opt/bench/bench-exec.sh"
+        },
+        "audited_base_sha": {
+          "$ref": "#/$defs/gitSha"
+        },
+        "workflow_path": {
+          "const": ".github/workflows/benchmark.yml"
+        },
+        "workflow_blob_sha": {
+          "$ref": "#/$defs/gitSha"
+        },
+        "workflow_file_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "stopped_edge": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "trustedCollector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "authority",
+        "installation_mount_identity_sha256"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "authority": {
+          "type": "string",
+          "minLength": 1
+        },
+        "installation_mount_identity_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "installedPathCensusEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "installed_path"
+      ],
+      "properties": {
+        "role": {
+          "$ref": "#/$defs/role"
+        },
+        "installed_path": {
+          "$ref": "#/$defs/absolutePath"
+        }
+      }
+    },
+    "commandPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event_type",
+        "event_actor_id",
+        "process_actor_id",
+        "primary_role",
+        "exec_chain_roles",
+        "argv_sha256"
+      ],
+      "properties": {
+        "event_type": {
+          "enum": [
+            "transform",
+            "trusted_hash",
+            "reaper",
+            "profile_generated",
+            "sandbox_injected",
+            "worker_spawn",
+            "load_start",
+            "load_end"
+          ]
+        },
+        "event_actor_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "process_actor_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "primary_role": {
+          "$ref": "#/$defs/role"
+        },
+        "exec_chain_roles": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/role"
+          }
+        },
+        "argv_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "externalTrust": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "authority_contract_version",
+        "source_kind",
+        "scope",
+        "accepted_target_identity",
+        "expected_authority",
+        "trusted_collector",
+        "installed_path_census",
+        "installed_path_census_sha256",
+        "census_complete",
+        "first_missing_fact",
+        "command_policies",
+        "expected_bundle_sha256",
+        "collector_attestation_sha256"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "ranked-authority-external-trust/v2"
+        },
+        "authority_contract_version": {
+          "const": "pr671-ranked-installed-authority/v4"
+        },
+        "source_kind": {
+          "enum": [
+            "fixture",
+            "ranked"
+          ]
+        },
+        "scope": {
+          "$ref": "#/$defs/trustScope"
+        },
+        "accepted_target_identity": {
+          "$ref": "#/$defs/identity"
+        },
+        "expected_authority": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "authoritative",
+            "synthetic",
+            "trusted_collector",
+            "captured_at",
+            "collector_authority"
+          ],
+          "properties": {
+            "authoritative": {
+              "type": "boolean"
+            },
+            "synthetic": {
+              "type": "boolean"
+            },
+            "trusted_collector": {
+              "type": "string",
+              "minLength": 1
+            },
+            "captured_at": {
+              "$ref": "#/$defs/timestamp"
+            },
+            "collector_authority": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "trusted_collector": {
+          "$ref": "#/$defs/trustedCollector"
+        },
+        "installed_path_census": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/installedPathCensusEntry"
+          }
+        },
+        "installed_path_census_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "census_complete": {
+          "type": "boolean"
+        },
+        "first_missing_fact": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/missingAuthority"
+            }
+          ]
+        },
+        "command_policies": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/commandPolicy"
+          }
+        },
+        "collector_attestation_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "expected_bundle_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "processBirth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actor_id",
+        "pid",
+        "ppid",
+        "parent_actor_id",
+        "executable_role",
+        "executable_path",
+        "executable_sha256",
+        "started_at",
+        "observed_at"
+      ],
+      "properties": {
+        "actor_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "ppid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "parent_actor_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "executable_role": {
+          "type": "string",
+          "minLength": 1
+        },
+        "executable_path": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "executable_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "started_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "observed_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    }
+  }
+}

@@ -2,11 +2,13 @@
 
 import argparse
 import copy
+import errno
 import hashlib
 import json
 import os
 import posixpath
 import re
+import shutil
 import stat
 import tempfile
 from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN, localcontext
@@ -272,36 +274,269 @@ def path_is_safe(relative_path):
     )
 
 
-def read_regular_file(root, relative, path, prefix, errors):
+REQUIRED_DESCRIPTOR_FLAGS = ("O_CLOEXEC", "O_DIRECTORY", "O_NOFOLLOW", "O_NONBLOCK")
+REQUIRED_DESCRIPTOR_CAPABILITIES = ("stat(dir_fd,follow_symlinks=False)",)
+
+
+class NonRegularFileError(OSError):
+    pass
+
+
+class MissingFileError(OSError):
+    pass
+
+
+class DisappearedFileError(OSError):
+    pass
+
+
+class ChangedFileError(OSError):
+    pass
+
+
+class SymlinkFileError(OSError):
+    def __init__(self, escapes_root):
+        super().__init__(errno.ELOOP, "symlinks are forbidden")
+        self.escapes_root = escapes_root
+
+
+class DescriptorRoot:
+    def __init__(self, path, descriptor, metadata, scope, flags, descriptor_tracker):
+        self.path = Path(os.path.abspath(os.fspath(path)))
+        self.descriptor = descriptor
+        self.metadata = metadata
+        self.scope = scope
+        self.flags = flags
+        self.descriptor_tracker = descriptor_tracker
+
+
+def descriptor_identity(metadata):
+    return metadata.st_dev, metadata.st_ino, stat.S_IFMT(metadata.st_mode)
+
+
+def stable_file_identity(metadata):
+    return (
+        *descriptor_identity(metadata),
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+
+def descriptor_open_flags(overrides=None, capability_overrides=None):
+    overrides = overrides or {}
+    capability_overrides = capability_overrides or {}
+    missing = []
+    values = {}
+    for name in REQUIRED_DESCRIPTOR_FLAGS:
+        if name in overrides:
+            value = overrides[name]
+        elif hasattr(os, name):
+            value = getattr(os, name)
+        else:
+            value = None
+        if not isinstance(value, int) or value == 0:
+            missing.append(name)
+        else:
+            values[name] = value
+    if not hasattr(os, "O_RDONLY") or not isinstance(os.O_RDONLY, int):
+        missing.append("O_RDONLY")
+    capabilities = (
+        (os.open in getattr(os, "supports_dir_fd", ()), "open(dir_fd)"),
+        (os.stat in getattr(os, "supports_dir_fd", ()), "stat(dir_fd)"),
+        (
+            os.stat in getattr(os, "supports_follow_symlinks", ()),
+            "stat(dir_fd,follow_symlinks=False)",
+        ),
+        (os.readlink in getattr(os, "supports_dir_fd", ()), "readlink(dir_fd)"),
+        (os.scandir in getattr(os, "supports_fd", ()), "scandir(fd)"),
+    )
+    missing.extend(
+        name
+        for available, name in capabilities
+        if not capability_overrides.get(name, available)
+    )
+    if missing:
+        return None, sorted(missing)
+    common = os.O_RDONLY | values["O_CLOEXEC"] | values["O_NOFOLLOW"] | values["O_NONBLOCK"]
+    return {
+        "directory": common | values["O_DIRECTORY"],
+        "file": common,
+    }, []
+
+
+def tracked_open(path, flags, descriptor_tracker, dir_fd=None):
+    if dir_fd is None:
+        descriptor = os.open(path, flags)
+    else:
+        descriptor = os.open(path, flags, dir_fd=dir_fd)
+    if descriptor_tracker is not None:
+        descriptor_tracker.append(descriptor)
+    return descriptor
+
+
+def invoke_filesystem_hook(filesystem_hook, event, **context):
+    if filesystem_hook is not None:
+        filesystem_hook(event, context)
+
+
+def close_descriptors(descriptors):
+    for descriptor in reversed(descriptors):
+        os.close(descriptor)
+
+
+def check_directory_root(root, path, prefix, noun, errors, flags, filesystem_hook=None, descriptor_tracker=None):
+    root = Path(root)
+    try:
+        metadata = os.lstat(root)
+    except FileNotFoundError:
+        errors.append(issue(f"{prefix}_ROOT_MISSING", path, f"{noun} root does not exist"))
+        return None
+    except PermissionError:
+        errors.append(issue(f"{prefix}_ROOT_UNREADABLE", path, f"{noun} root could not be inspected due to permissions"))
+        return None
+    except OSError:
+        errors.append(issue(f"{prefix}_ROOT_INSPECTION_FAILED", path, f"{noun} root could not be inspected"))
+        return None
+    if stat.S_ISLNK(metadata.st_mode):
+        errors.append(issue(f"{prefix}_ROOT_SYMLINK", path, f"{noun} root must not be a symlink"))
+        return None
+    if not stat.S_ISDIR(metadata.st_mode):
+        errors.append(issue(f"{prefix}_ROOT_NOT_DIRECTORY", path, f"{noun} root must be a directory"))
+        return None
+    invoke_filesystem_hook(filesystem_hook, f"{noun}_root_inspected", root=root)
+    try:
+        descriptor = tracked_open(root, flags["directory"], descriptor_tracker)
+    except PermissionError:
+        errors.append(issue(f"{prefix}_ROOT_UNREADABLE", path, f"{noun} root could not be opened due to permissions"))
+        return None
+    except OSError as error:
+        if error.errno in {errno.ENOENT, errno.ELOOP, errno.ENOTDIR}:
+            errors.append(issue(f"{prefix}_ROOT_CHANGED", path, f"{noun} root changed while it was being opened"))
+        else:
+            errors.append(issue(f"{prefix}_ROOT_OPEN_FAILED", path, f"{noun} root could not be opened"))
+        return None
+    try:
+        opened_metadata = os.fstat(descriptor)
+    except OSError:
+        os.close(descriptor)
+        errors.append(issue(f"{prefix}_ROOT_INSPECTION_FAILED", path, f"{noun} root descriptor could not be inspected"))
+        return None
+    if not stat.S_ISDIR(opened_metadata.st_mode) or descriptor_identity(metadata) != descriptor_identity(opened_metadata):
+        os.close(descriptor)
+        errors.append(issue(f"{prefix}_ROOT_CHANGED", path, f"{noun} root changed while it was being opened"))
+        return None
+    return DescriptorRoot(root, descriptor, opened_metadata, noun, flags, descriptor_tracker)
+
+
+def verify_directory_root(root, path, prefix, noun, errors):
+    try:
+        metadata = os.lstat(root.path)
+    except OSError:
+        errors.append(issue(f"{prefix}_ROOT_CHANGED", path, f"{noun} root changed while it was being validated"))
+        return
+    if descriptor_identity(metadata) != descriptor_identity(root.metadata):
+        errors.append(issue(f"{prefix}_ROOT_CHANGED", path, f"{noun} root changed while it was being validated"))
+
+
+def symlink_escapes_from_descriptor(root, directory_descriptor, parent_relative, name):
+    target = os.readlink(name, dir_fd=directory_descriptor)
+    if os.path.isabs(target):
+        normalized_target = os.path.normpath(target)
+        try:
+            return os.path.commonpath((os.fspath(root.path), normalized_target)) != os.fspath(root.path)
+        except ValueError:
+            return True
+    normalized = posixpath.normpath(posixpath.join(parent_relative, target))
+    return normalized == ".." or normalized.startswith("../")
+
+
+def read_relative_regular_file(root, relative, filesystem_hook=None):
+    current = root.descriptor
+    owned_descriptors = []
+    parts = PurePosixPath(relative).parts
+    try:
+        for index, part in enumerate(parts):
+            entry_relative = PurePosixPath(*parts[: index + 1]).as_posix()
+            parent_relative = PurePosixPath(*parts[:index]).as_posix() if index else ""
+            try:
+                metadata = os.stat(part, dir_fd=current, follow_symlinks=False)
+            except FileNotFoundError as error:
+                raise MissingFileError(error.errno, error.strerror, relative) from error
+            if stat.S_ISLNK(metadata.st_mode):
+                escapes = symlink_escapes_from_descriptor(root, current, parent_relative, part)
+                raise SymlinkFileError(escapes)
+            final = index == len(parts) - 1
+            if final:
+                if not stat.S_ISREG(metadata.st_mode):
+                    raise NonRegularFileError(errno.EINVAL, "file must be regular", relative)
+                flags = root.flags["file"]
+            else:
+                if not stat.S_ISDIR(metadata.st_mode):
+                    raise NonRegularFileError(errno.ENOTDIR, "path component must be a directory", relative)
+                flags = root.flags["directory"]
+            invoke_filesystem_hook(
+                filesystem_hook,
+                f"{root.scope}_entry_inspected",
+                relative=entry_relative,
+                root=root.path,
+            )
+            try:
+                descriptor = tracked_open(part, flags, root.descriptor_tracker, dir_fd=current)
+            except FileNotFoundError as error:
+                raise DisappearedFileError(error.errno, error.strerror, relative) from error
+            except OSError as error:
+                if error.errno in {errno.ELOOP, errno.ENOTDIR, errno.EISDIR, errno.ENXIO}:
+                    raise ChangedFileError(error.errno, "entry changed while being opened", relative) from error
+                raise
+            owned_descriptors.append(descriptor)
+            opened_metadata = os.fstat(descriptor)
+            if descriptor_identity(metadata) != descriptor_identity(opened_metadata):
+                raise ChangedFileError(errno.ESTALE, "entry changed while being opened", relative)
+            current = descriptor
+        before_read = stable_file_identity(opened_metadata)
+        chunks = []
+        while True:
+            chunk = os.read(current, 1024 * 1024)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        if stable_file_identity(os.fstat(current)) != before_read:
+            raise ChangedFileError(errno.ESTALE, "file changed while being read", relative)
+        return b"".join(chunks)
+    finally:
+        close_descriptors(owned_descriptors)
+
+
+def read_regular_file(root, relative, path, prefix, errors, byte_reader=read_relative_regular_file, filesystem_hook=None):
     if not path_is_safe(relative):
         errors.append(issue(f"{prefix}_PATH_ESCAPE", path, "path must be normalized, relative, and contained"))
         return None
-    root = root.resolve()
-    target = root.joinpath(*PurePosixPath(relative).parts)
     try:
-        target.resolve(strict=False).relative_to(root)
-    except ValueError:
-        errors.append(issue(f"{prefix}_PATH_ESCAPE", path, "path resolves outside its trusted root"))
-        return None
-    current = root
-    for part in PurePosixPath(relative).parts:
-        current = current / part
-        try:
-            mode = os.lstat(current).st_mode
-        except FileNotFoundError:
-            break
-        if stat.S_ISLNK(mode):
-            errors.append(issue(f"{prefix}_SYMLINK", path, "symlinks are forbidden"))
-            return None
-    try:
-        mode = os.lstat(target).st_mode
-    except FileNotFoundError:
+        return byte_reader(root, relative, filesystem_hook)
+    except MissingFileError:
         errors.append(issue(f"{prefix}_MISSING", path, "file does not exist"))
-        return None
-    if not stat.S_ISREG(mode):
+    except (DisappearedFileError, FileNotFoundError):
+        errors.append(issue(f"{prefix}_DISAPPEARED", path, "file disappeared before its bytes could be read"))
+    except PermissionError:
+        errors.append(issue(f"{prefix}_UNREADABLE", path, "file bytes could not be read due to permissions"))
+    except SymlinkFileError as error:
+        if error.escapes_root:
+            errors.append(issue(f"{prefix}_PATH_ESCAPE", path, "path resolves outside its trusted root"))
+        else:
+            errors.append(issue(f"{prefix}_SYMLINK", path, "symlinks are forbidden"))
+    except NonRegularFileError:
         errors.append(issue(f"{prefix}_NOT_REGULAR", path, "file must be regular"))
-        return None
-    return target.read_bytes()
+    except ChangedFileError:
+        errors.append(issue(f"{prefix}_CHANGED", path, "file changed while it was being opened or read"))
+    except OSError as error:
+        if error.errno == errno.ELOOP:
+            errors.append(issue(f"{prefix}_SYMLINK", path, "symlinks are forbidden"))
+        elif error.errno in {errno.ENOTDIR, errno.EISDIR, errno.ENXIO}:
+            errors.append(issue(f"{prefix}_NOT_REGULAR", path, "file must remain regular while being read"))
+        else:
+            errors.append(issue(f"{prefix}_READ_FAILED", path, "file bytes could not be read"))
+    return None
 
 
 def valid_sha256(value):
@@ -347,69 +582,213 @@ def check_trusted_context(bundle, trusted_context, trusted_bytes, expected_conte
         errors.append(issue("TRUSTED_ARTIFACT_DUPLICATE_ROLE", "$trusted_context.artifact_pins", "trusted artifact roles must be unique"))
 
 
-def collect_candidate_surface(candidate_root, errors):
-    root = Path(candidate_root)
+def candidate_display_path(relative):
+    return "$candidate_root" if relative == "" else f"$candidate_root.{relative}"
+
+
+def candidate_directory_snapshot(descriptor, relative, errors):
     try:
-        root_mode = os.lstat(root).st_mode
-    except FileNotFoundError:
-        errors.append(issue("SURFACE_ROOT_MISSING", "$candidate_root", "candidate root does not exist"))
-        return set()
-    if stat.S_ISLNK(root_mode):
-        errors.append(issue("SURFACE_ROOT_SYMLINK", "$candidate_root", "candidate root must not be a symlink"))
-        return set()
-    if not stat.S_ISDIR(root_mode):
-        errors.append(issue("SURFACE_ROOT_NOT_DIRECTORY", "$candidate_root", "candidate root must be a directory"))
-        return set()
+        directory_metadata = os.fstat(descriptor)
+        with os.scandir(descriptor) as iterator:
+            names = sorted(entry.name for entry in iterator)
+        entries = {
+            name: os.stat(name, dir_fd=descriptor, follow_symlinks=False)
+            for name in names
+        }
+        final_directory_metadata = os.fstat(descriptor)
+    except OSError:
+        errors.append(issue("SURFACE_SCAN_FAILED", candidate_display_path(relative), "candidate surface could not be enumerated"))
+        return None
+    if stable_file_identity(directory_metadata) != stable_file_identity(final_directory_metadata):
+        errors.append(issue("SURFACE_SCAN_CHANGED", candidate_display_path(relative), "candidate surface directory changed while it was being enumerated"))
+        return None
+    return directory_metadata, entries
 
-    regular_files = set()
 
-    def visit(directory, prefix):
-        try:
-            entries = sorted(os.scandir(directory), key=lambda entry: entry.name)
-        except OSError:
-            errors.append(issue("SURFACE_SCAN_FAILED", f"$candidate_root.{prefix.as_posix()}", "candidate surface could not be enumerated"))
+def read_descriptor_bytes(descriptor, metadata, relative):
+    before_read = stable_file_identity(os.fstat(descriptor))
+    if before_read != stable_file_identity(metadata):
+        raise ChangedFileError(errno.ESTALE, "file changed while being opened", relative)
+    chunks = []
+    while True:
+        chunk = os.read(descriptor, 1024 * 1024)
+        if not chunk:
+            break
+        chunks.append(chunk)
+    if stable_file_identity(os.fstat(descriptor)) != before_read:
+        raise ChangedFileError(errno.ESTALE, "file changed while being read", relative)
+    return b"".join(chunks)
+
+
+def collect_candidate_surface(root, errors, filesystem_hook=None):
+    regular_files = {}
+    kinds = {}
+    complete = True
+
+    def changed(relative):
+        nonlocal complete
+        complete = False
+        errors.append(issue("SURFACE_ENTRY_CHANGED", candidate_display_path(relative), "candidate surface entry changed while it was being opened or read"))
+
+    def visit(descriptor, prefix):
+        nonlocal complete
+        initial = candidate_directory_snapshot(descriptor, prefix, errors)
+        if initial is None:
+            complete = False
             return
-        for entry in entries:
-            relative = prefix / entry.name
-            relative_text = relative.as_posix()
-            try:
-                mode = entry.stat(follow_symlinks=False).st_mode
-            except OSError:
-                errors.append(issue("SURFACE_SCAN_FAILED", f"$candidate_root.{relative_text}", "candidate surface entry could not be inspected"))
-                continue
+        initial_directory_metadata, entries = initial
+        for name, metadata in entries.items():
+            relative = posixpath.join(prefix, name) if prefix else name
+            mode = metadata.st_mode
             if stat.S_ISLNK(mode):
-                errors.append(issue("SURFACE_FILE_SYMLINK", f"$candidate_root.{relative_text}", "symlinks are forbidden anywhere in the candidate surface"))
-            elif stat.S_ISDIR(mode):
-                visit(Path(entry.path), relative)
-            elif stat.S_ISREG(mode):
-                regular_files.add(relative_text)
-            else:
-                errors.append(issue("SURFACE_FILE_NOT_REGULAR", f"$candidate_root.{relative_text}", "candidate surface entries must be regular files or containing directories"))
+                try:
+                    escapes = symlink_escapes_from_descriptor(root, descriptor, prefix, name)
+                except OSError:
+                    changed(relative)
+                    continue
+                kinds[relative] = "symlink_escape" if escapes else "symlink"
+                errors.append(issue("SURFACE_FILE_SYMLINK", candidate_display_path(relative), "symlinks are forbidden anywhere in the candidate surface"))
+                continue
+            if stat.S_ISDIR(mode):
+                kinds[relative] = "directory"
+                invoke_filesystem_hook(filesystem_hook, "candidate_entry_inspected", relative=relative, root=root.path)
+                try:
+                    child = tracked_open(name, root.flags["directory"], root.descriptor_tracker, dir_fd=descriptor)
+                except OSError as error:
+                    if error.errno in {errno.ENOENT, errno.ELOOP, errno.ENOTDIR}:
+                        changed(relative)
+                    else:
+                        complete = False
+                        errors.append(issue("SURFACE_SCAN_FAILED", candidate_display_path(relative), "candidate surface directory could not be opened"))
+                    continue
+                try:
+                    opened_metadata = os.fstat(child)
+                    if descriptor_identity(metadata) != descriptor_identity(opened_metadata):
+                        changed(relative)
+                        continue
+                    visit(child, relative)
+                finally:
+                    os.close(child)
+                continue
+            if stat.S_ISREG(mode):
+                kinds[relative] = "regular"
+                invoke_filesystem_hook(filesystem_hook, "candidate_entry_inspected", relative=relative, root=root.path)
+                try:
+                    child = tracked_open(name, root.flags["file"], root.descriptor_tracker, dir_fd=descriptor)
+                except PermissionError:
+                    complete = False
+                    errors.append(issue("SURFACE_FILE_UNREADABLE", candidate_display_path(relative), "candidate surface file could not be opened due to permissions"))
+                    continue
+                except OSError as error:
+                    if error.errno in {errno.ENOENT, errno.ELOOP, errno.ENOTDIR, errno.EISDIR, errno.ENXIO}:
+                        changed(relative)
+                    else:
+                        complete = False
+                        errors.append(issue("SURFACE_SCAN_FAILED", candidate_display_path(relative), "candidate surface file could not be opened"))
+                    continue
+                try:
+                    opened_metadata = os.fstat(child)
+                    if descriptor_identity(metadata) != descriptor_identity(opened_metadata):
+                        changed(relative)
+                        continue
+                    try:
+                        regular_files[relative] = read_descriptor_bytes(child, metadata, relative)
+                    except ChangedFileError:
+                        changed(relative)
+                finally:
+                    os.close(child)
+                continue
+            kinds[relative] = "nonregular"
+            errors.append(issue("SURFACE_FILE_NOT_REGULAR", candidate_display_path(relative), "candidate surface entries must be regular files or containing directories"))
 
-    visit(root, PurePosixPath())
-    return regular_files
+        final = candidate_directory_snapshot(descriptor, prefix, errors)
+        if final is None:
+            complete = False
+            return
+        final_directory_metadata, final_entries = final
+        initial_identity = {
+            name: stable_file_identity(metadata)
+            for name, metadata in entries.items()
+        }
+        final_identity = {
+            name: stable_file_identity(metadata)
+            for name, metadata in final_entries.items()
+        }
+        if (
+            stable_file_identity(initial_directory_metadata) != stable_file_identity(final_directory_metadata)
+            or initial_identity != final_identity
+        ):
+            complete = False
+            errors.append(issue("SURFACE_SCAN_CHANGED", candidate_display_path(prefix), "candidate surface changed while it was being enumerated"))
+
+    visit(root.descriptor, "")
+    return regular_files, kinds, complete
 
 
-def check_candidate_surface(trusted_context, candidate_root, errors):
+def candidate_entry_kind(kinds, relative):
+    parts = PurePosixPath(relative).parts
+    for index in range(1, len(parts) + 1):
+        kind = kinds.get(PurePosixPath(*parts[:index]).as_posix())
+        if kind is not None and kind != "directory":
+            return kind
+    return kinds.get(relative)
+
+
+def check_candidate_surface(trusted_context, candidate_root, errors, flags, filesystem_hook=None, descriptor_tracker=None):
     files = trusted_context["identity"]["submitted_surface"]["files"]
-    expected_paths = {entry["path"] for entry in files}
-    actual_paths = collect_candidate_surface(candidate_root, errors)
-    for relative in sorted(expected_paths - actual_paths):
-        errors.append(issue("SURFACE_LISTED_FILE_MISSING", f"$candidate_root.{relative}", "trusted submitted-surface file is absent from the physical candidate root"))
-    for relative in sorted(actual_paths - expected_paths):
-        errors.append(issue("SURFACE_UNLISTED_FILE", f"$candidate_root.{relative}", "physical candidate root contains a regular file absent from the trusted submitted surface"))
-    for index, entry in enumerate(files):
-        path = f"$trusted_context.identity.submitted_surface.files[{index}]"
-        data = read_regular_file(candidate_root, entry["path"], f"{path}.path", "SURFACE_FILE", errors)
-        if data is None:
-            continue
-        if len(data) != entry["size"]:
-            errors.append(issue("SURFACE_FILE_SIZE_MISMATCH", f"{path}.size", "actual candidate file size disagrees with trusted input"))
-        if sha256_bytes(data) != entry["sha256"]:
-            errors.append(issue("SURFACE_FILE_HASH_MISMATCH", f"{path}.sha256", "actual candidate file bytes disagree with trusted input"))
+    initial_error_count = len(errors)
+    root = check_directory_root(
+        candidate_root,
+        "$candidate_root",
+        "SURFACE",
+        "candidate",
+        errors,
+        flags,
+        filesystem_hook,
+        descriptor_tracker,
+    )
+    if root is None:
+        if any(error["code"] == "SURFACE_ROOT_MISSING" for error in errors[initial_error_count:]):
+            for index, entry in enumerate(files):
+                relative = entry["path"]
+                errors.append(issue("SURFACE_LISTED_FILE_MISSING", candidate_display_path(relative), "trusted submitted-surface file is absent from the physical candidate root"))
+                errors.append(issue("SURFACE_FILE_MISSING", f"$trusted_context.identity.submitted_surface.files[{index}].path", "file does not exist"))
+        return
+    try:
+        invoke_filesystem_hook(filesystem_hook, "candidate_root_opened", root=root.path)
+        regular_files, kinds, complete = collect_candidate_surface(root, errors, filesystem_hook)
+        if not complete:
+            return
+        expected_paths = {entry["path"] for entry in files}
+        actual_paths = set(regular_files)
+        for relative in sorted(expected_paths - actual_paths):
+            errors.append(issue("SURFACE_LISTED_FILE_MISSING", candidate_display_path(relative), "trusted submitted-surface file is absent from the physical candidate root"))
+        for relative in sorted(actual_paths - expected_paths):
+            errors.append(issue("SURFACE_UNLISTED_FILE", candidate_display_path(relative), "physical candidate root contains a regular file absent from the trusted submitted surface"))
+        for index, entry in enumerate(files):
+            path = f"$trusted_context.identity.submitted_surface.files[{index}]"
+            data = regular_files.get(entry["path"])
+            if data is None:
+                kind = candidate_entry_kind(kinds, entry["path"])
+                if kind == "symlink_escape":
+                    errors.append(issue("SURFACE_FILE_PATH_ESCAPE", f"{path}.path", "path resolves outside its trusted root"))
+                elif kind == "symlink":
+                    errors.append(issue("SURFACE_FILE_SYMLINK", f"{path}.path", "symlinks are forbidden"))
+                elif kind in {"directory", "nonregular"}:
+                    errors.append(issue("SURFACE_FILE_NOT_REGULAR", f"{path}.path", "file must be regular"))
+                else:
+                    errors.append(issue("SURFACE_FILE_MISSING", f"{path}.path", "file does not exist"))
+                continue
+            if len(data) != entry["size"]:
+                errors.append(issue("SURFACE_FILE_SIZE_MISMATCH", f"{path}.size", "actual candidate file size disagrees with trusted input"))
+            if sha256_bytes(data) != entry["sha256"]:
+                errors.append(issue("SURFACE_FILE_HASH_MISMATCH", f"{path}.sha256", "actual candidate file bytes disagree with trusted input"))
+    finally:
+        verify_directory_root(root, "$candidate_root", "SURFACE", "candidate", errors)
+        os.close(root.descriptor)
 
 
-def check_artifacts(bundle, artifact_root, join, trusted_context, checker, errors):
+def check_artifacts_from_root(bundle, artifact_root, join, trusted_context, checker, errors, byte_reader, filesystem_hook):
     manifests = bundle["artifact_manifest"]
     roles = [entry["role"] for entry in manifests]
     paths = [entry["path"] for entry in manifests]
@@ -443,7 +822,7 @@ def check_artifacts(bundle, artifact_root, join, trusted_context, checker, error
             actual_pin = {key: artifact[key] for key in ("role", "path", "size", "sha256")}
             if actual_pin != pin:
                 errors.append(issue("TRUSTED_ARTIFACT_MISMATCH", path, "manifest disagrees with separately pinned artifact identity"))
-        data = read_regular_file(artifact_root, artifact["path"], f"{path}.path", "ARTIFACT", errors)
+        data = read_regular_file(artifact_root, artifact["path"], f"{path}.path", "ARTIFACT", errors, byte_reader, filesystem_hook)
         if data is None:
             continue
         if len(data) != artifact["size"]:
@@ -470,6 +849,47 @@ def check_artifacts(bundle, artifact_root, join, trusted_context, checker, error
         if document["evidence"] != phase:
             errors.append(issue("ARTIFACT_SEMANTIC_MISMATCH", f"$artifact[{role}].evidence", "parsed artifact evidence disagrees with bundle phase"))
     return documents
+
+
+def check_artifacts(
+    bundle,
+    artifact_root,
+    join,
+    trusted_context,
+    checker,
+    errors,
+    flags,
+    filesystem_hook=None,
+    descriptor_tracker=None,
+    byte_reader=read_relative_regular_file,
+):
+    root = check_directory_root(
+        artifact_root,
+        "$artifact_root",
+        "ARTIFACT",
+        "artifact",
+        errors,
+        flags,
+        filesystem_hook,
+        descriptor_tracker,
+    )
+    if root is None:
+        return {}
+    try:
+        invoke_filesystem_hook(filesystem_hook, "artifact_root_opened", root=root.path)
+        return check_artifacts_from_root(
+            bundle,
+            root,
+            join,
+            trusted_context,
+            checker,
+            errors,
+            byte_reader,
+            filesystem_hook,
+        )
+    finally:
+        verify_directory_root(root, "$artifact_root", "ARTIFACT", "artifact", errors)
+        os.close(root.descriptor)
 
 
 def check_environment(environment, path, errors, ranked=False):
@@ -672,7 +1092,20 @@ def classify_and_check_terminal(bundle, errors):
     return classification
 
 
-def validate_bundle(bundle, artifact_root, candidate_root, trusted_context, trusted_bytes, expected_context_sha256, schema):
+def validate_bundle(
+    bundle,
+    artifact_root,
+    candidate_root,
+    trusted_context,
+    trusted_bytes,
+    expected_context_sha256,
+    schema,
+    filesystem_hook=None,
+    descriptor_flag_overrides=None,
+    descriptor_capability_overrides=None,
+    descriptor_tracker=None,
+    byte_reader=read_relative_regular_file,
+):
     digest = sha256_bytes(canonical_bytes(bundle)) if isinstance(bundle, (dict, list)) else sha256_bytes(repr(bundle).encode())
     checker = SchemaChecker(schema)
     errors = checker.check(bundle)
@@ -683,9 +1116,41 @@ def validate_bundle(bundle, artifact_root, candidate_root, trusted_context, trus
     errors = []
     check_surface(bundle["identity"], errors)
     check_trusted_context(bundle, trusted_context, trusted_bytes, expected_context_sha256, errors)
-    check_candidate_surface(trusted_context, candidate_root, errors)
+    flags, missing_descriptor_safety = descriptor_open_flags(
+        descriptor_flag_overrides,
+        descriptor_capability_overrides,
+    )
+    if missing_descriptor_safety:
+        errors.append(
+            issue(
+                "DESCRIPTOR_SAFETY_UNAVAILABLE",
+                "$verifier.filesystem",
+                "required descriptor safety is unavailable: " + ", ".join(missing_descriptor_safety),
+            )
+        )
+    else:
+        check_candidate_surface(
+            trusted_context,
+            candidate_root,
+            errors,
+            flags,
+            filesystem_hook,
+            descriptor_tracker,
+        )
     join = expected_join(bundle)
-    check_artifacts(bundle, artifact_root, join, trusted_context, checker, errors)
+    if flags is not None:
+        check_artifacts(
+            bundle,
+            artifact_root,
+            join,
+            trusted_context,
+            checker,
+            errors,
+            flags,
+            filesystem_hook,
+            descriptor_tracker,
+            byte_reader,
+        )
     check_isolated(bundle["phases"]["isolated"], join, errors)
     whole = bundle["phases"]["whole_model"]
     ranked = bundle["phases"]["ranked_m5"]
@@ -1144,6 +1609,311 @@ def write_files(root, files):
         target.write_bytes(data)
 
 
+def result_exit_code(result):
+    return 1 if result["classification"] == "INVALID" else 0
+
+
+def remove_path(path):
+    try:
+        mode = os.lstat(path).st_mode
+    except FileNotFoundError:
+        return
+    if stat.S_ISDIR(mode) and not stat.S_ISLNK(mode):
+        shutil.rmtree(path)
+    else:
+        path.unlink()
+
+
+def one_shot_filesystem_hook(event_name, action, relative=None):
+    state = {"fired": False}
+
+    def hook(event, context):
+        if state["fired"] or event != event_name:
+            return
+        if relative is not None and context.get("relative") != relative:
+            return
+        state["fired"] = True
+        action()
+
+    return hook, state
+
+
+def filesystem_event_recorder():
+    state = {"fired": False}
+
+    def hook(_event, _context):
+        state["fired"] = True
+
+    return hook, state
+
+
+def replace_directory(path, control_id):
+    backup = path.with_name(f"{path.name}.{control_id}.original")
+    path.rename(backup)
+    path.mkdir()
+    (path / "replacement.txt").write_bytes(b"replacement directory contents\n")
+
+
+def replace_regular_file(path, control_id):
+    backup = path.with_name(f"{path.name}.{control_id}.original")
+    path.rename(backup)
+    path.write_bytes(b"replacement file contents\n")
+
+
+def mutate_filesystem_control(control, root, artifact_root, candidate_root, bundle, candidate_files):
+    scope = control["scope"]
+    operation = control["operation"]
+    mutation = {
+        "descriptor_flag_overrides": None,
+        "descriptor_capability_overrides": None,
+        "filesystem_hook": None,
+        "hook_state": None,
+    }
+    if scope in {"candidate_root", "artifact_root"}:
+        if operation not in {"missing", "symlink", "regular", "fifo"}:
+            raise ValueError(f"unknown root filesystem control operation: {operation}")
+        target = candidate_root if scope == "candidate_root" else artifact_root
+        remove_path(target)
+        if operation == "symlink":
+            other = root / f"{control['id']}-target"
+            other.mkdir()
+            target.symlink_to(other, target_is_directory=True)
+        elif operation == "regular":
+            target.write_bytes(b"not a directory\n")
+        elif operation == "fifo":
+            os.mkfifo(target)
+    elif scope in {"candidate_entry", "artifact_entry"}:
+        if operation not in {"directory", "fifo", "symlink"}:
+            raise ValueError(f"unknown entry filesystem control operation: {operation}")
+        if scope == "candidate_entry":
+            relative = sorted(candidate_files)[0]
+            target_root = candidate_root
+        else:
+            relative = bundle["artifact_manifest"][0]["path"]
+            target_root = artifact_root
+        target = target_root.joinpath(*PurePosixPath(relative).parts)
+        remove_path(target)
+        if operation == "directory":
+            target.mkdir()
+        elif operation == "fifo":
+            os.mkfifo(target)
+        else:
+            target.symlink_to(target.parent, target_is_directory=True)
+    elif scope == "descriptor_safety":
+        if operation != "missing_flag" or control.get("flag") not in REQUIRED_DESCRIPTOR_FLAGS:
+            raise ValueError(f"unknown descriptor safety control: {operation}")
+        mutation["descriptor_flag_overrides"] = {control["flag"]: None}
+    elif scope == "descriptor_capability":
+        capability = control.get("capability")
+        if operation != "missing_capability" or capability not in REQUIRED_DESCRIPTOR_CAPABILITIES:
+            raise ValueError(f"unknown descriptor capability control: {operation}")
+        hook, state = filesystem_event_recorder()
+        mutation.update(
+            descriptor_capability_overrides={capability: False},
+            filesystem_hook=hook,
+            hook_state=state,
+        )
+    elif scope in {"candidate_root_race", "artifact_root_race"}:
+        if operation not in {"replace_after_inspection", "replace_after_open"}:
+            raise ValueError(f"unknown root race operation: {operation}")
+        target = candidate_root if scope == "candidate_root_race" else artifact_root
+        noun = "candidate" if scope == "candidate_root_race" else "artifact"
+        event_suffix = "inspected" if operation == "replace_after_inspection" else "opened"
+        hook, state = one_shot_filesystem_hook(
+            f"{noun}_root_{event_suffix}",
+            lambda: replace_directory(target, control["id"]),
+        )
+        mutation.update(filesystem_hook=hook, hook_state=state)
+    elif scope in {"candidate_transition", "artifact_transition"}:
+        if operation not in {"disappears", "unreadable"}:
+            raise ValueError(f"unknown transition filesystem control operation: {operation}")
+        transition_root = candidate_root if scope == "candidate_transition" else artifact_root
+        transition_relative = (
+            sorted(candidate_files)[0]
+            if scope == "candidate_transition"
+            else bundle["artifact_manifest"][0]["path"]
+        )
+        target = transition_root.joinpath(*PurePosixPath(transition_relative).parts)
+        event = "candidate_entry_inspected" if scope == "candidate_transition" else "artifact_entry_inspected"
+        action = (lambda: remove_path(target)) if operation == "disappears" else (lambda: target.chmod(0))
+        hook, state = one_shot_filesystem_hook(event, action, transition_relative)
+        mutation.update(filesystem_hook=hook, hook_state=state)
+    elif scope in {"candidate_entry_race", "artifact_entry_race"}:
+        relative = control["relative"]
+        target_root = candidate_root if scope == "candidate_entry_race" else artifact_root
+        target = target_root.joinpath(*PurePosixPath(relative).parts)
+        if operation == "replace_directory":
+            action = lambda: replace_directory(target, control["id"])
+        elif operation == "replace_file":
+            action = lambda: replace_regular_file(target, control["id"])
+        else:
+            raise ValueError(f"unknown entry race operation: {operation}")
+        event = "candidate_entry_inspected" if scope == "candidate_entry_race" else "artifact_entry_inspected"
+        hook, state = one_shot_filesystem_hook(event, action, relative)
+        mutation.update(filesystem_hook=hook, hook_state=state)
+    else:
+        raise ValueError(f"unknown filesystem control scope: {scope}")
+    return mutation
+
+
+def descriptors_are_closed(descriptors):
+    for descriptor in set(descriptors):
+        try:
+            os.fstat(descriptor)
+        except OSError as error:
+            if error.errno == errno.EBADF:
+                continue
+            return False
+        return False
+    return True
+
+
+def execute_filesystem_control_suite(fixtures, schema):
+    positives = {entry["id"]: entry for entry in fixtures["positive_fixtures"]}
+    spec = positives["isolated-only"]
+    artifact_specs = fixtures["artifact_files"]
+    candidate_specs = fixtures["candidate_files"]
+    results = []
+    for control in sorted(fixtures["filesystem_controls"], key=lambda entry: entry["id"]):
+        bundle, artifacts, trusted_context, candidate_files = build_fixture_bundle(spec, artifact_specs, candidate_specs)
+        trusted_bytes = canonical_bytes(trusted_context)
+        expected_context_sha256 = sha256_bytes(trusted_bytes)
+        with tempfile.TemporaryDirectory(prefix="candidate-evidence-filesystem-") as directory:
+            root = Path(directory)
+            artifact_root = root / "artifact-root"
+            candidate_root = root / "candidate-root"
+            write_files(artifact_root, artifacts)
+            write_files(candidate_root, candidate_files)
+            mutation = mutate_filesystem_control(
+                control,
+                root,
+                artifact_root,
+                candidate_root,
+                bundle,
+                candidate_files,
+            )
+            descriptors = []
+            result = validate_bundle(
+                bundle,
+                artifact_root,
+                candidate_root,
+                trusted_context,
+                trusted_bytes,
+                expected_context_sha256,
+                schema,
+                filesystem_hook=mutation["filesystem_hook"],
+                descriptor_flag_overrides=mutation["descriptor_flag_overrides"],
+                descriptor_capability_overrides=mutation["descriptor_capability_overrides"],
+                descriptor_tracker=descriptors,
+            )
+            descriptors_closed = descriptors_are_closed(descriptors)
+            hook_fired = mutation["hook_state"] is None or mutation["hook_state"]["fired"]
+        actual_errors = sorted((entry["code"], entry["path"]) for entry in result["errors"])
+        expected_errors = sorted((entry["code"], entry["path"]) for entry in control["expected_errors"])
+        actual_messages = {
+            (entry["code"], entry["path"]): entry["message"]
+            for entry in result["errors"]
+        }
+        expected_messages = {
+            (entry["code"], entry["path"]): entry["message"]
+            for entry in control["expected_errors"]
+            if "message" in entry
+        }
+        messages_match = all(actual_messages.get(key) == message for key, message in expected_messages.items())
+        descriptor_count_matches = len(descriptors) == control.get("expected_descriptor_count", len(descriptors))
+        if "expected_hook_fired" in control:
+            hook_expectation_met = hook_fired == control["expected_hook_fired"]
+        else:
+            hook_expectation_met = mutation["hook_state"] is None or hook_fired
+        exit_code = result_exit_code(result)
+        passed = (
+            result["classification"] == "INVALID"
+            and exit_code == 1
+            and actual_errors == expected_errors
+            and messages_match
+            and descriptors_closed
+            and descriptor_count_matches
+            and hook_expectation_met
+        )
+        results.append(
+            {
+                "classification": result["classification"],
+                "descriptor_count": len(descriptors),
+                "descriptors_closed": descriptors_closed,
+                "errors": result["errors"],
+                "exit_code": exit_code,
+                "hook_fired": hook_fired,
+                "id": control["id"],
+                "kind": "filesystem",
+                "passed": passed,
+            }
+        )
+    return results
+
+
+def execute_exception_passthrough_controls():
+    controls = {}
+    with tempfile.TemporaryDirectory(prefix="candidate-evidence-exceptions-") as directory:
+        path = Path(directory)
+        relative = "regular.txt"
+        write_files(path, {relative: b"regular\n"})
+        flags, missing = descriptor_open_flags()
+        descriptors = []
+        errors = []
+        root = None if flags is None else check_directory_root(
+            path,
+            "$test_root",
+            "TEST",
+            "test",
+            errors,
+            flags,
+            descriptor_tracker=descriptors,
+        )
+        controls["descriptor_root_available"] = root is not None and not missing and not errors
+        if root is not None:
+            try:
+                def fail_with_programming_error(_root, _relative, _filesystem_hook):
+                    raise ValueError("synthetic programming error")
+
+                try:
+                    read_regular_file(root, relative, "$test.path", "TEST", [], fail_with_programming_error)
+                except ValueError:
+                    controls["reader_value_error"] = True
+                else:
+                    controls["reader_value_error"] = False
+
+                reader_errors = {
+                    "reader_not_a_directory": (NotADirectoryError(errno.ENOTDIR, "synthetic not-a-directory"), "TEST_NOT_REGULAR"),
+                    "reader_os_error": (OSError(errno.EIO, "synthetic read failure"), "TEST_READ_FAILED"),
+                    "reader_permission_error": (PermissionError(errno.EACCES, "synthetic unreadable"), "TEST_UNREADABLE"),
+                }
+                for name, (failure, expected_code) in reader_errors.items():
+                    reader_errors_found = []
+
+                    def fail_with_filesystem_error(_root, _relative, _filesystem_hook, error=failure):
+                        raise error
+
+                    contents = read_regular_file(
+                        root,
+                        relative,
+                        "$test.path",
+                        "TEST",
+                        reader_errors_found,
+                        fail_with_filesystem_error,
+                    )
+                    controls[name] = contents is None and [entry["code"] for entry in reader_errors_found] == [expected_code]
+            finally:
+                os.close(root.descriptor)
+        controls["exception_descriptors_closed"] = descriptors_are_closed(descriptors)
+    try:
+        SchemaChecker({"$ref": "https://mlxfast.invalid/external"}).check({})
+    except ValueError:
+        controls["schema_value_error"] = True
+    else:
+        controls["schema_value_error"] = False
+    return controls
+
+
 def execute_fixture_suite(fixtures, schema):
     positives = {entry["id"]: entry for entry in fixtures["positive_fixtures"]}
     artifact_specs = fixtures["artifact_files"]
@@ -1229,19 +1999,52 @@ def run_self_test(fixtures_path, schema_path):
         or fixtures.get("fixture_schema_version") != 3
     ):
         raise ValueError("contract identity/version mismatch")
-    first = execute_fixture_suite(fixtures, schema)
-    second = execute_fixture_suite(fixtures, schema)
-    first_bytes = canonical_bytes(first)
-    second_bytes = canonical_bytes(second)
-    deterministic = first_bytes == second_bytes
-    passed = deterministic and all(result["passed"] for result in first)
+    legacy_first = execute_fixture_suite(fixtures, schema)
+    legacy_second = execute_fixture_suite(fixtures, schema)
+    filesystem_first = execute_filesystem_control_suite(fixtures, schema)
+    filesystem_second = execute_filesystem_control_suite(fixtures, schema)
+    exceptions_first = execute_exception_passthrough_controls()
+    exceptions_second = execute_exception_passthrough_controls()
+    legacy_first_bytes = canonical_bytes(legacy_first)
+    legacy_second_bytes = canonical_bytes(legacy_second)
+    filesystem_first_bytes = canonical_bytes(filesystem_first)
+    filesystem_second_bytes = canonical_bytes(filesystem_second)
+    combined_first = legacy_first + filesystem_first
+    combined_second = legacy_second + filesystem_second
+    combined_first_bytes = canonical_bytes(combined_first)
+    combined_second_bytes = canonical_bytes(combined_second)
+    legacy_digest = sha256_bytes(legacy_first_bytes)
+    filesystem_digest = sha256_bytes(filesystem_first_bytes)
+    deterministic = (
+        legacy_first_bytes == legacy_second_bytes
+        and filesystem_first_bytes == filesystem_second_bytes
+        and combined_first_bytes == combined_second_bytes
+        and exceptions_first == exceptions_second
+    )
+    passed = (
+        deterministic
+        and len(legacy_first) == 49
+        and len(filesystem_first) == len(fixtures["filesystem_controls"])
+        and legacy_digest == "75d8e716d4887e3b4aaac08499d44da281923d7de465ecf35de500bffc444124"
+        and all(result["passed"] for result in combined_first)
+        and all(exceptions_first.values())
+    )
     output = {
-        "case_count": len(first),
+        "case_count": len(combined_first),
         "deterministic": deterministic,
-        "results_digest": sha256_bytes(first_bytes),
+        "exception_passthrough": exceptions_first,
+        "filesystem_case_count": len(filesystem_first),
+        "filesystem_results_digest": filesystem_digest,
+        "legacy_case_count": len(legacy_first),
+        "legacy_results_digest": legacy_digest,
+        "results_digest": sha256_bytes(combined_first_bytes),
         "schema_id": SCHEMA_ID,
-        "status": "CANDIDATE_EVIDENCE_CONTRACT_READY" if passed else "CANDIDATE_EVIDENCE_CONTRACT_FAILED",
-        "tests": first,
+        "status": (
+            "CANDIDATE_EVIDENCE_ROOTS_FAIL_CLOSED"
+            if passed
+            else "CANDIDATE_EVIDENCE_ROOTS_FAIL_CLOSED_FAILED"
+        ),
+        "tests": combined_first,
     }
     print(canonical_bytes(output).decode("utf-8"), end="")
     return 0 if passed else 1
@@ -1286,7 +2089,7 @@ def main():
         schema,
     )
     print(canonical_bytes(result).decode("utf-8"), end="")
-    return 0 if result["classification"] != "INVALID" else 1
+    return result_exit_code(result)
 
 
 if __name__ == "__main__":
