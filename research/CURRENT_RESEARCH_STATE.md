@@ -6325,6 +6325,109 @@ question.
 
 
 
+### Rule 104 — endgame execution protocol: the draw fires **at the freeze**, and the wrapper takes **no `--model`**
+
+Two corrections to instructions I issued myself today. Both are execution
+defects, not scientific ones, and both would have cost us the single remaining
+draw. Recorded here because the endgame has no room for a second discovery of
+either.
+
+#### 104.1 🔴 The last-call draw is armed at 07:00Z, not scheduled for 08:00Z
+
+Every brief in this round carries a §7 clock whose T−2 h row reads "**your
+single last-call draw**". The bar in that row stands; the **time** was wrong.
+
+Evidence, from `mlxfast submissions --all` on 2026-08-10:
+
+| window (UTC) | behaviour |
+|---|---|
+| 03:42 → 08:54 | **thirteen consecutive draws, 22–26 min apart** — the shared account saturated for over five hours |
+| 10:42, 11:05 | 23 min apart |
+| 11:05 → 14:00 | idle ≈3 h |
+
+Service time is ~22–25 min on a **serial queue shared by three launches**
+(rules 88, 93). The hard stop is 09:00Z. A draw first attempted at 08:00Z
+therefore tolerates **at most two queue positions ahead of it** — and 08:00Z is
+precisely when the sibling launches reach for their own last-call draws,
+because they share our deadline. We would be choosing the single most contended
+minute of the campaign for our only attempt.
+
+**Rule 101.3 removes the only argument for waiting**: `f` is i.i.d. white noise
+over n=1220, so draw scheduling is permanently closed and the firing time
+carries no score information. Waiting buys nothing and can cost the attempt.
+
+**Protocol.** From the 07:00Z integration freeze the draw is *armed*. The moment
+all four bar conditions hold on the frozen tree, run the rule-88
+watch-until-idle loop (`research/advisor_r106_channel_idle_watch.py`, exit 0 on
+idle) and fire on the first idle window. 08:00Z is the **latest** sensible
+start, not the schedule. One attempt; never a retry loop. If the bar is not met
+at freeze the draw expires unused, which remains an acceptable terminal state
+(rule 96.2).
+
+#### 104.2 🚨 ADVISOR ERROR #8 — I quoted a command line without reading its source
+
+I told the integration owner to fire with `bash senpai/submit-official.sh
+<BASE_SHA> … --model "senpai"`. The wrapper contains:
+
+```bash
+for argument in "$@"; do
+  if [[ "${argument}" == "--model" || "${argument}" == --model=* ]]; then
+    echo "official submit: model attribution is fixed to senpai" >&2
+    exit 2
+  fi
+done
+…
+exec mlxfast submit --model senpai "$@"
+```
+
+It **injects** the attribution and **hard-refuses** a user-supplied one, in
+either `--model X` or `--model=X` form. My command line would have exited 2 on
+our single last-call draw. §1163-1171 already recorded this correctly; I
+reproduced a stale instruction from an older brief instead of reading the
+script. **The fix that generalises: before quoting any command line into a
+brief, read the script it invokes.** Error #7 was failing to grep the standing
+rules for a mechanism word; this is the same failure applied to tooling.
+
+The stale duplicate in §14 has been corrected in place.
+
+#### 104.3 The wrapper enforces twelve preconditions, not four
+
+Enumerated from source, in execution order:
+
+1. `BASE_SHA` present, full 40- or 64-char hex.
+2. **No `--model` anywhere in `"$@"`.**
+3. `git`, `jq`, `mlxfast` on `PATH`.
+4. Invoked inside a git worktree.
+5. `BASE_SHA` resolves to a local commit.
+6. `git fetch origin main` succeeds — **a network failure aborts with nothing sent.**
+7. `git merge-base --is-ancestor BASE_SHA HEAD`.
+8. `origin/main:benchmark.json` readable with a usable `editablePaths` array.
+9. `git diff --quiet origin/main BASE_SHA -- benchmark.json <editablePaths…>`.
+10. `git diff --quiet origin/main HEAD -- benchmark.json`.
+11. No `skip-worktree` / `assume-unchanged` bits under protected paths.
+12. `git status --porcelain=v1 --untracked-files=all --ignored=matching` clean
+    under `benchmark.json` + every editable path.
+
+Three traps worth naming:
+
+- **(12) counts untracked *and ignored* files.** A stray `.DS_Store`, an editor
+  swap file, or a generated `.metallib` anywhere under `Sources/MLXFastModel`,
+  `Sources/MLXFastTransform`, or the ~100 editable `Vendor/` paths aborts the
+  draw even though git ignores it. After a day of force-clean builds this is a
+  live risk.
+- **(9) is a freshness gate.** If upstream `main` moves in a way that touches an
+  editable path, `BASE_SHA` becomes invalid instantly and the candidate must be
+  reapplied on a fresh snapshot. Re-check `git rev-parse origin/main`
+  immediately before firing. **Verified 2026-08-10T14:05Z: `origin/main` =
+  `1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7`, unchanged**, so the standing
+  `BASE_SHA` is still correct.
+- **(6) is the only retryable failure.** Its message looks like a rejection but
+  nothing was sent.
+
+**You cannot dry-run the wrapper** — if the preconditions pass, it submits.
+Rehearse the predicates directly instead; they are pure `git`/`jq` and free.
+`senpai/test_submit_official.py` covers them.
+
 ## 9. σ table (rule 40 — pick your estimator, then quote its floor)
 
 🚨 **SUPERSESSION (rule 101, round 107).** The score-channel entries below are
@@ -6587,9 +6690,12 @@ deliverable, and a clean `N-ISSUE-BOUND` closes a 4.28 % pool by measurement.**
 - `mlxfast sync -f` does a **hard checkout** — never run it on a working branch.
 - A `rejected` receipt ≠ a gate failure. Read `rejectionReason` and `error`
   separately from ranking status.
-- Every official submission uses `mlxfast submit --model "senpai"`; the note
-  body is the discriminator and must carry `Maple campaign`, student,
-  assignment id, revision id, arm letter, and the exact commit SHA.
+- ⚠️ **CORRECTED (rule 104.2).** Official submissions go through
+  `senpai/submit-official.sh`, which **refuses any `--model` argument** and
+  injects `--model senpai` itself. Never type `--model` on the command line —
+  it is `exit 2` before anything is sent. The note body is the discriminator
+  and must carry `Maple campaign`, student, assignment id, revision id, arm
+  letter, and the exact commit SHA. See §1163-1171 and rule 104.2.
 - Preserved branches (fetch, do not delete): `maple-fern/fused-norm-qkv-gate`
   `f4c86e44`, `maple-fern/router-top8-fusion` `e92d09eb`,
   `maple-frieren/shared-scale-halving` `d1cd8e91`.
