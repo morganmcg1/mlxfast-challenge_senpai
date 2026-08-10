@@ -343,6 +343,32 @@ these effects live under. Absolute µs/step here are consequently *not*
 comparable to a `--local-iterate` score line; only the paired contrasts are, and
 only those are quoted.
 
+**Rule 98.9 and `FERN_DEFEAT_SLOTS=64`.** Rule 98.9 requires that a headline
+number be residency-defeated, because a kernel-local rung that re-reads the same
+expert slot every iteration measures a cache-resident weight fetch and inflates
+the effect by roughly 30× (maple-alphonse's paired rungs: **+1.224 %** resident
+against **−0.038 % [−0.104, +0.028]** with 64 slots). That inflation is a
+property of the *kernel-local rung*, and the mechanism it inflates — bytes moved
+per expert fetch — cannot be inflated by this instrument, because there is no
+rung here to make resident. Every slot in this report drives the full scored
+decode loop through the worker binary: expert selection is whatever the router
+produces for the golden seed at that step, so the routed slots visited are the
+real, step-varying, effectively-non-resident set that the scored axis itself
+touches, and the 21.6 GB tower is RAM-resident by construction on both hosts. The
+knob under test also does not move a single byte (§2.2: identical row set,
+identical operand fetches, identical qdot order); it moves only the
+threadgroup:simdgroup bundling, so the residency axis is orthogonal to the axis
+being dosed. Setting `FERN_DEFEAT_SLOTS=64` would therefore change nothing about
+what this instrument reports, and the headline `base->sg8` contrast below is
+already a defeated-residency-equivalent number in the sense rule 98.9 cares
+about. The independent check that this reasoning is right is alphonse's
+kernel-local no-op arm on the same site with residency properly defeated:
+**−0.038 % [−0.104, +0.028]**, i.e. the same null this in-situ block reports,
+which is exactly the agreement rule 98.9 exists to force. Where a genuinely
+kernel-local rung *is* quoted anywhere in this report, it is his, and it is
+quoted at its defeated value.
+
+
 All quantities in this section are **[M4-WALL] Apple M4 Pro** wall time at epoch
 **`base_sha` `3241e5e5`** (`Sources`/`Vendor` identical to `4e9a8e16`; see the
 head note above). Rule 105.6: no number below is quoted without those two tags.
@@ -1021,8 +1047,9 @@ GPU time, they are on a different instrument from fern's (M4 in-situ paired
 decode rather than paired `--local-submit` score), and a second independent look
 at a null is worth having on the page. Rule 75 passed on cancellation
 (`digest_after = digest_before = f191c3b498f76c...4520b7`), and every one of the
-105 timed slots reported **0 greedy-token divergences**, so bit-exactness holds
-as §5.2 predicted structurally.
+105 timed slots reported **0 greedy-token divergences** against the golden
+token IDs, which is the token-identity claim of rule 105.15 and not a numeric
+distance; §5.2 predicted it structurally.
 
 Design: 4 arms (`base` = selector 0, `null1` = selector 1, `sg4`, `sg8`),
 `DESIGN=rotate`, 8 slots per repetition, 250 steps per slot, one binary
@@ -1240,6 +1267,32 @@ accumulation width. The 216-slot / 54,000-step Stage-1 block and the 96-step
 teacher-forced parity block confirm it empirically: **0 divergences at every S,
 one token-stream checksum**, against a store-row fault control that fired 96/96.
 
+**Rule 105.15 — what "0 divergences" is, and what it is not.** The correctness
+evidence in this report is *exact greedy token-ID equality*, never a numeric
+distance. The harness's `max_abs_diff` field is a hard-coded literal `0` at every
+emit site (`Sources/MLXFastHarness/LagunaRuntimeBenchmark.swift:1079,:1159`,
+`LagunaRuntimeLocalIterate.swift:1038`, the `MLXFastTrustedHarness` twins
+`:1095,:1175,:1050`, and `Sources/MLXFastCore/Score.swift:635`), and `golden_hash`
+is the SHA-256 of the *loaded fixture*, so neither field carries any information
+about this branch's outputs. Neither is cited anywhere above, and no green line
+containing them should be read as evidence for this arm. What *is* cited is the
+token-ID comparison at `Sources/MLXFastCore/Golden.swift:387` and `:535`, which
+`decode_probe.py` performs on every step of every timed slot, plus the
+independent per-slot token-stream checksum the ABBA harness computes and asserts
+identical across arms (one distinct checksum over all 216 Stage-1 slots). That
+covers 54,000 teacher-forced steps across five packings and a 96-step parity
+block, against a store-row fault control that fired 96/96 — a strong statement,
+but a statement about *this* fixture on *this* host, not a proof of bit-exactness
+in general. The general claim rests only on the source argument in the preceding
+paragraph: each output row is reduced entirely inside one simdgroup with
+`simd_sum`, `out_row = tile * num_simdgroups + simd_gid` is a bijection onto the
+same row set for every S, and S changes only which independent simdgroups are
+bundled into a threadgroup — so per-output accumulation order, operand order and
+accumulator width are all invariant in S. The two lines of evidence are reported
+separately on purpose, and since no S is advocated, neither is being used to
+discharge a rule-102 draw-bar obligation.
+
+
 **What survives from this arm.** Three things, none of them a speedup:
 
 1. A hard, reusable upper bound on Apple-Silicon threadgroup-launch cost at
@@ -1263,11 +1316,16 @@ source are the shipped ones, so this branch's default behaviour and timing are
 `4e9a8e16`'s. Net growth on the submitted surface is +3,655 B (45 % of the 8 KiB
 per-review cap, file at 387,900 / 524,288 B). If her paired `--local-submit`
 protocol (CI95 half-width ~0.1178 % of `cs` at 10 blocks, 2.25x tighter on the
-score channel than the ABBA used here) is worth pointing at a T2c dose, `sg8` is
-the one dose whose 95 % interval still touches the 0.1-0.2 % band this arm cannot
-resolve; but note that the <= 2.9 µs supply ceiling above predicts she will find
-zero, and the honest recommendation is to spend her instrument on a family whose
-mechanism has a larger measured budget.
+score channel than the ABBA used here) is ever pointed at a T2c dose, the only
+dose whose 95 % interval still touches the 0.1-0.2 % band this arm cannot resolve
+is `sg8` — and `sg8` is a **negative control** in this design, not a candidate.
+S = 8 puts the routed site at 25.6 TG/core on this host and 12.8 on M5, inside
+the tail-starvation regime rule 67 and #528 closed, so a *positive* reading there
+would be evidence about the instrument rather than about the kernel. The
+candidate doses are S = 2 (shipped) and S = 4, and for those the <= 2.9 µs supply
+ceiling above predicts zero. The honest recommendation is to spend her instrument
+on a family whose mechanism has a larger measured budget, and to keep `sg16`
+(+0.422 %`cs`, 18/18 positive) as the bar-scale-and-sign check for it.
 
 
 ### 6.1 Routed gate/up site — `N-SITE1`
