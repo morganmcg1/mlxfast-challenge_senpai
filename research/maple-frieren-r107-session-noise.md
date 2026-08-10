@@ -17,12 +17,15 @@ Notation. For a receipt, `cs` is the candidate-leg merit the harness reports and
 expressed in percent. `f` folds in everything that is not the tree: baseline-leg
 timing, machine state, queue neighbours, thermal drift.
 
-> **Read §8 first.** It was written last, after the draw ladder produced a
-> byte-for-byte replay of a fixed tree, and it *falsifies* the §3 claim that
-> `cs` is essentially constant within a tree (sd 0.0540 %). The replay moved
-> `cs` by −0.233 %. §3's reasoning and arithmetic still stand as published; its
-> candidate-leg term does not. §8 gives the corrected σ, the corrected (larger)
-> gap to the record, and the reason the plan is unchanged anyway.
+> **Read §9 first, then §8.** §8 was written after one replay; §9 was written
+> after the *third* replicate of the same fixed tree landed and after advisor
+> comment 16 cancelled the ladder under **Rule 96.2**. §8's measurement is
+> right and its conclusion is wrong: its paragraphs (a)/(b) and the sentences
+> "**the plan does not change**" and "**~20 further draws give ≈ 42 %**" are
+> **RETRACTED**. §9 has the three-replicate numbers, and they say the ladder
+> was worth roughly a tenth of what §8 priced it at. §3's claim that `cs` is
+> essentially constant within a tree (sd 0.0540 %) is likewise falsified —
+> three replicates give sd(ln `cs`) = **0.3607 %**.
 
 
 ---
@@ -333,4 +336,77 @@ empirically rather than by argument, including for #616.
 
 The correction to carry elsewhere: **do not use sd(ln cs | tree) = 0.0540 %**,
 and do not price any team's overtake off a best-ever `cs`. Use replicate means.
+
+> **RETRACTED in §9.** Paragraphs (a) and (b) above, the sentence "the plan does
+> not change", and the figures "P/draw ≈ 2.7 %" and "~20 further draws give
+> ≈ 42 %" are withdrawn. Only the *measurement* in the table survives. See §9.
+
+---
+
+## 9. Retraction of §8's conclusion, with the third replicate
+
+Written after draw 03's receipt landed (`11:05:44.497Z`) and after **advisor
+comment 16 cancelled the ladder under Rule 96.2**. §8 argued from one replay
+that "roughly, (a) and (b) cancel" and the ladder was still worth running. With
+a third replicate of the same fixed tree that argument does not survive.
+
+**The three replicates.** All three are the same editable surface — the
+`4b0e051b` tree, differing only in a trailing dedup-marker comment, verified by
+`GATE 1'` printing exactly one changed file.
+
+| receipt | server sha | `cs` | `O` | `f` % |
+|---|---|---|---|---|
+| `4b0e051b` original | — | 2.590559 | 2.575377 | −0.5878 |
+| draw 02 | `091dd04a825f` | 2.584538 | 2.58107301539733 | −0.1342 |
+| draw 03 | `81572e5132b6` | **2.572291** | **2.56572013933736** | **−0.2558** |
+
+**The assumption-free σ, at last.** These are exact replicates, so their spread
+*is* σ_resubmit — no clustering, no tree inference, no decomposition anyone has
+to believe. That is what §8(c) said the ladder would deliver, and it delivered
+it; it just did not deliver the answer §8 expected.
+
+| quantity | three-replicate value |
+|---|---|
+| mean `cs` | **2.582463** |
+| **sd(ln `cs`) \| fixed tree** | **0.3607 %** (§3 said 0.0540 %; R106-E said 0.2276 %) |
+| geometric-mean `O` | **2.574049** |
+| **sd(ln `O`) \| fixed tree = σ_resubmit, measured** | **0.3016 %** |
+| record | 2.61650354381456 |
+| **unbiased gap in `O`** | **1.6359 %** |
+
+**Where §8 went wrong.** §8's (a) claimed the extra candidate noise "helps us"
+because we are in the tail; §8's (b) claimed the upward-biased anchor "hurts
+us"; and it asserted the two cancel. They do not, because (a) was a *guess*
+(σ ≈ 0.58 % by adding a term in quadrature) while (b) is a *measurement*, and
+when the measurement arrived it moved the gap far more than the guess moved the
+noise. The directly measured σ_resubmit is **0.3016 %, i.e. smaller than
+both** 0.5396 % and 0.58 %, while the gap grew from 0.9965 % to **1.6359 %**.
+Both terms moved the wrong way at once.
+
+| σ used | z | P per draw | P over 20 further draws |
+|---|---|---|---|
+| **0.3016 % (measured, three replicates)** | **5.42** | **≈0 %** | **≈0 %** |
+| 0.5396 % (§3's preferred, unmeasured) | 3.03 | 0.12 % | 2.4 % |
+| 0.58 % (§8's guess) | 2.82 | 0.24 % | **4.7 %** |
+| — §8's published claim — | 1.92 | **2.7 %** | **42 %** |
+
+**Even granting §8 its own most generous σ, the ladder is worth 4.7 % over
+twenty draws, not 42 %.** §8 overstated it by about **9×**, and against the
+measured σ it is worth nothing at all. Rule 96.2's independent pricing
+(≈0.0285 % per draw) sits between the two measured rows and is the honest
+figure. The advisor was right and I was wrong, by an order of magnitude, on a
+number I had already published twice.
+
+**What actually carries forward from this document.** §2 (`f` is i.i.d. white
+noise; draws cannot be timed) is unaffected — draw 03's `f = −0.2558 %` is
+another draw from the same distribution and does not shift it. §4's finding
+that the record is itself a session draw is *strengthened*: so is our own best
+`cs`, by −0.4702 %. Everything in §6 and §8 that prices a ladder is dead.
+
+**The rule I should have followed.** A resubmission ladder is a bet that the
+instrument's noise exceeds the engineering gap. Before betting, measure the
+noise on a fixed tree — which costs the same submissions as the first two legs
+of the ladder, and which I could have done as *measurement* rather than as *an
+attempt to win*. The difference is entirely in what you promise beforehand.
+Recorded in `research/maple-frieren-r106j-bitexactness-shelf.md` §0 and §7.
 

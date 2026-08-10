@@ -219,6 +219,115 @@ That has three consequences I lean on for the rest of this note:
 
 <!-- RESULTS-A -->
 
+### §2.3 RESULTS-A — the certificate, run on the live lever
+
+Reproduce with (arms are captured by separate invocations on purpose, so the
+two arms may be two different builds):
+
+```
+python3 research/maple-frieren-r106j-margin-certificate.py capture \
+    --label baseline_stock --out /tmp/r106j/baseline_teacher.npz --steps 64
+DARKBLOOM_QMV_WIDE_CODES=1 \
+python3 research/maple-frieren-r106j-margin-certificate.py capture \
+    --label wide_codes --out /tmp/r106j/wide_teacher.npz --steps 64
+python3 research/maple-frieren-r106j-margin-certificate.py certify \
+    --baseline /tmp/r106j/baseline_teacher.npz \
+    --candidate /tmp/r106j/wide_teacher.npz --out /tmp/r106j/cert_teacher.json
+```
+
+Reports are committed at `research/artifacts/maple-frieren-r106j/cert_{null,
+teacher,free}.json`. Both non-null arms are the **same lever**, once
+teacher-forced on the golden case and once free-running for 128 steps.
+
+| § | quantity | teacher-forced (65 pos) | free-run (129 pos) |
+|---|---|---|---|
+| 1 | max abs Δlogit | **5.44531** | **5.44531** |
+| 1 | p99 / p50 abs Δ | 0.53125 / 0.0742188 | 0.59375 / 0.09375 |
+| 1 | max relative Δ | 1.03547e6 | 1.03547e6 |
+| 1 | elements differing | 5,596,429 / 6,522,880 (**85.8 %**) | 11,839,910 / 12,945,408 (**91.5 %**) |
+| 2 | baseline margin min / p1 / p50 | **0.375** / 0.615 / 6.5 | **0.375** / 1.03 / 7.375 |
+| 2 | exact top-1/top-2 ties | 0 | 0 |
+| 3 | global safety factor min_margin/max_Δ | **0.0689** | **0.0689** |
+| 3 | positions with SF < 10 | 39 / 65 | 89 / 129 |
+| 3 | positions with SF < 100 | 58 / 65 | 122 / 129 |
+| 4 | **argmax flips** | **0** | **0** |
+| 5 | top-8 adjacent gaps < 2·max Δ | 520 | 1032 |
+| 7 | free-run common prefix | — | **129 / 129, no divergence** |
+
+**The global safety factor is 0.069, i.e. the worst perturbation is 14.5× the
+smallest decision margin, and yet not one token moved.** That gap is the whole
+finding, and §3's `decision_relevant` block is what explains it: the max
+perturbation and the min margin do not occur at the same position, and at the
+positions that matter the perturbation is much smaller than 5.4.
+
+| decision-relevant statistic | teacher-forced | free-run |
+|---|---|---|
+| SF at the decided token, min | **1.36585** | **1.36585** |
+| SF p1 / p50 | 3.95 / 27.0 | 2.88 / 24.6 |
+| positions with SF < 1 (a flip was *possible*) | **0** | **0** |
+| positions with SF < 2 | 1 | 1 |
+| positions with SF < 10 | 4 | 10 |
+| max Δ at the baseline top-1 logit | 0.75 | 1.75 |
+| max Δ at the baseline top-2 logit | 4.375 | 4.375 |
+| realised margin after perturbation, min | 0.375 | 0.375 |
+| realised margins that went negative | **0** | **0** |
+
+So the honest summary of the pass is: **the closest this lever came to changing
+a token, anywhere in 194 scored positions, was a 1.37× margin.** It never went
+below 1×. The zero-flip result is real, it is not luck at the *observed*
+positions — and it is also **not a bound**, because 1.37× is a measured
+coincidence and not a property anyone controls.
+
+#### The number that decides Deliverable B: hidden-anchor exposure
+
+`TASK.md:131-134` says the hidden `anchors` stage may require "a bounded
+top-logit rank and delta for **near-tie hardware cases**" — i.e. the hidden set
+is *selected for* small margins, which the public golden case is not. §3's
+`hidden_anchor_exposure` block answers the only question that matters: at a
+position whose true margin is `m`, what fraction of the time does this lever
+hand the challenger enough to win? I measure the *challenger gain* — the amount
+by which the perturbation closes the top-1/top-2 gap — at every position, and
+read off the empirical distribution.
+
+| | teacher-forced | free-run |
+|---|---|---|
+| challenger gain, max | 2.0625 | 2.0625 |
+| challenger gain, p99 / p50 | 1.1025 / 0.125 | 1.0 / 0.1875 |
+
+| true margin `m` at a hidden near-tie anchor | est. flip rate (teacher) | est. flip rate (free-run) |
+|---|---|---|
+| 0 (exact tie) | **68 %** | **81 %** |
+| 0.0625 (1 bf16 ULP) | 55 % | 73 % |
+| 0.125 | 45 % | 60 % |
+| 0.25 | 25 % | 30 % |
+| 0.375 (the smallest margin in the public case) | 9 % | 20 % |
+| 0.5 | 3 % | 12 % |
+| 1.0 | 2 % | 1 % |
+| 2.0 | 2 % | 1 % |
+| 4.0 | **0 %** | **0 %** |
+
+The logits are bf16-valued — every observed value is a multiple of 0.0625 or
+0.125 — so `m = 0.0625` is literally *one representable step*, and the p50
+perturbation of 0.074–0.094 is **about one ULP**. A near-tie anchor is by
+construction in the top rows of that table.
+
+**Verdict on the certificate: `MARGINAL`.** Not `PASS-WITH-MARGIN`, because
+`PASS-WITH-MARGIN` is reserved for a safety factor ≥ 10 and this one is 1.37
+where it counts and 0.069 globally. Not `FAIL`, because nothing observable
+actually broke. `MARGINAL` is the instrument saying: *this passed the test you
+ran, and it will not survive the test you did not run.*
+
+#### §6 — what this certificate does **not** cover, restated as the limit it is
+
+The report carries this list; I repeat it because it is the load-bearing part.
+The certificate covers one public case, one prompt, one prefix length, one
+device, greedy decoding, and the two capture modes above. It does **not** cover
+the hidden anchor set (by construction — it is hidden), the `behavior` GPQA
+stage, the Claude semantic judge, non-greedy sampling, other prefix lengths, or
+any prompt whose activations excite a different part of the weight distribution.
+Its class-3 perturbation is a property of the *kernel*, so it transfers; its
+zero-flip result is a property of the *prompt*, so it does not.
+
 ---
 
 ## §3. Deliverable B — `DARKBLOOM_QMV_WIDE_CODES`
@@ -273,14 +382,364 @@ kernel: 295.9 µs/step (`maple-tanjiro-pr73-decode-kernel-census.md:195`) =
 
 <!-- RESULTS-B -->
 
+### §3.1 B0 — reachability (Rule 33)
+
+Two independent witnesses, neither of which needs a trace string (the flag site
+at `LagunaRuntimeModel.swift:323-324` has none).
+
+**Witness 1 — the GPU executed a differently-named kernel.** The ABBA run below
+was built with `research/nezuko-pr158-gpuprof-hook.patch`, which prints one
+`GPUPROF <start> <end> <nops> <names>` record per command buffer, with the
+Metal pipeline-state name. Counting those names over a 33-step decode:
+
+| arm | pipeline state executed | records |
+|---|---|---|
+| `DARKBLOOM_QMV_WIDE_CODES` unset | `custom_kernel_laguna_shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1_…` | 1328 |
+| `DARKBLOOM_QMV_WIDE_CODES=1` | `custom_kernel_laguna_shared_nvfp4_swiglu_qmv_rows1_halved_**wide**_bf16_v1_…` | 1329 |
+
+Neither name ever appears in the other arm. This is the strongest form of
+reachability evidence available: not "the flag was read", but "the GPU ran the
+other program", named, 39 times per step per layer-set.
+
+**Witness 2 — the bitwise one, from §2.2.** The pipeline is bitwise
+deterministic (null cell: 0 of 6,522,880 elements differ across two launches of
+one build). With the flag set, 5,596,429 of 6,522,880 logits change. A dead
+flag cannot perturb a deterministic output. **B0 passes.**
+
+### §3.2 B1 — correctness
+
+| check | result |
+|---|---|
+| build | see **§3.2.1** — the binary every measurement in this note was taken with was an *incremental* release build, and I say so rather than round it up |
+| upstream equivalence oracle (`research/run_upstream_equivalence.sh`) | see **§3.2.1** — **but see the caveat below, it cannot reach this bank** |
+| local golden set, teacher-forced (`longcopy-gate-english-512`, 256 + 1024) | **0 mismatches** in both arms |
+| free-run greedy, 128 steps | **0 divergences**, common prefix 129/129 |
+| ABBA replication, 12 independent worker processes × 33 teacher-forced steps | **0 divergences in 12 of 12** (`grep 'divergences' /tmp/r106j-abba/*.log`) |
+| §2 margin certificate | **`MARGINAL`** — see §2.3 |
+
+**Token flips: zero, everywhere, in every run I did.** By the assignment's
+stated B1 bar ("any token flip is terminal") this lever passes.
+
+**The caveat I am required to state.** The upstream-equivalence oracle never
+calls `prepareFusedRuntimeWeights()`, so it never installs the shared-expert
+banks this kernel reads. Its green is real but it is *green about something
+else*; the only instruments that actually exercise the changed code here are the
+golden set, the free run and the certificate.
+
+### §3.2.1 The two B1 rows I nearly overclaimed
+
+An earlier draft of the table above said "force-clean worker build … green" and
+"upstream equivalence oracle … green". Before publishing I went back to check
+that I had actually done both things this session, and **I had not**.
+
+* **The build was incremental.** `find .build-worker/arm64-apple-macosx/release
+  -name '*.o' -newermt '2026-08-10 09:00' | wc -l` returns **151** against
+  **1012** total objects: 15 % of the tree was recompiled, the rest was reused
+  from an earlier build. That is a perfectly ordinary way to build and there is
+  no reason to think it produced a wrong binary — but it is *not* what the
+  assignment asked for and it is not what my table said.
+* **The oracle transcript did not exist.** There was no equivalence log under
+  `/tmp` at all. I had inherited the "green" from a previous round's note.
+
+Neither of these changes any number in this note: the B2 result is a *paired*
+comparison between two arms of the **same binary** differing only by an
+environment variable, so a stale object file cancels on both sides, and the
+oracle provably cannot reach the bank under test (the caveat above). But
+"it wouldn't have changed the answer" is the reasoning that makes a note
+untrustworthy, so I ran both properly rather than argue.
+
+<!-- B1-RERUN -->
+
+**What this costs the reader.** Nothing, now. What it would have cost is the
+thing worth naming: a table row that says "green" when the author never ran it
+is indistinguishable, to every future reader, from one that was run. I would
+rather publish a note with an awkward subsection in it than one that is
+smooth and partly invented.
+
+### §3.3 B2 — paired local ABBA, and the number that ends the row
+
+Preregistration in §3.0 (σ = 0.10 µs/call, n = 6/arm, MDE ≈ 0.078 % of score)
+was written before the driver ran. Executed as specified: `REPS=3 STEPS=33`,
+order `off on on off` × 3, 12 processes, one arm per process,
+`research/maple_frieren_r106j_wide_codes_abba.sh`; analysis
+`research/maple_frieren_r106j_abba_analyse.py`, report
+`research/artifacts/maple-frieren-r106j/abba_report.json`.
+
+**Realised σ, against the preregistered one.** sd across processes came in at
+**0.0199 µs/call** (OFF) and **0.0706 µs/call** (ON) — *better* than the
+preregistered 0.10, so the design is at least as powerful as promised.
+
+**The contrast.** The ABBA block is the pairing unit: inside one `off on on off`
+block the mean launch position of ON equals that of OFF (2.5 each), so drift
+that is linear in launch order cancels exactly. Blocks are the replicates.
+
+| block | OFF µs/call | ON µs/call | Δ |
+|---|---|---|---|
+| rep1 | 7.3798 | 8.2355 | **+0.8557** |
+| rep2 | 7.3839 | 8.2640 | **+0.8800** |
+| rep3 | 7.4097 | 8.3828 | **+0.9732** |
+
+| | shared-QMV kernel (target) | routed down-residual (invariant control) |
+|---|---|---|
+| OFF mean | 7.3911 µs/call | 22.0637 µs/call |
+| ON mean | **8.2941 µs/call** | 22.2359 µs/call |
+| Δ (paired by block) | **+0.9030 µs/call** | +0.1722 µs/call |
+| sd across blocks / SE | 0.0620 / 0.0358 | 0.1068 / 0.0617 |
+| t (df 2) | **+25.23** | +2.79 |
+| 95 % CI on Δ | **[+0.749, +1.057]** | **[−0.093, +0.438]** |
+| × 39 dispatches/step | **+35.2 µs/step**, CI [+29.2, +41.2] | +6.7 µs/step, CI [−3.6, +17.1] |
+| **× 0.015228 % of cs per µs/step** | **−0.5363 % of score**, CI **[−0.628, −0.445]** | −0.102 %, CI **[−0.260, +0.055]** |
+
+**`DARKBLOOM_QMV_WIDE_CODES` is not a speed-up. It is a 12.2 % regression on
+the exact kernel it was written to accelerate, worth −0.54 % of score.**
+
+Three reasons to believe the number rather than argue with it:
+
+1. **The invariant control is a null.** The routed down-residual twin, which
+   this flag cannot touch, has a CI that spans zero. Whatever slowed the target
+   did not slow everything.
+2. **The effect is 15× its own CI half-width** and **7× the preregistered
+   MDE**, and it reproduced in all three blocks with the same sign.
+3. **Independent wall-clock cross-check.** The dispatch instrument predicts
+   +35.2 µs/step. The driver's own end-to-end decode timing, which knows
+   nothing about GPU timestamps, moved **+0.0372 ms/step = +37.2 µs/step**
+   (t = 1.07, CI [−0.040, +0.114] ms — far too noisy to *decide* anything,
+   which is exactly the Rule 86 point, but its point estimate lands on the
+   dispatch instrument's answer to within 6 %).
+
+**Why it is slower, mechanically.** The doc comment at
+`LagunaRuntimeModel.swift:314-322` promises halved code loads, halved K-loop
+trip count and halved scale loads. Those are all true and all real; what it
+does not say is that reading two adjacent groups as one aligned `uint4` doubles
+the per-lane register footprint of the inner loop and halves the number of
+independent K-iterations available to hide latency. On a kernel already at
+7.4 µs/call for a 39-way per-step dispatch, occupancy is the binding constraint,
+not instruction count. This is the ordinary shape of a "fewer loads" rewrite
+that loses.
+
+### §3.4 Outcome and what I am handing on
+
+**Primary outcome: `N-NULL`, and the sign is negative — −0.5363 % of score
+(95 % CI [−0.628, −0.445]).** The preregistered `N-NULL` cell said "inside
+±0.08 %"; the truth is well outside it, on the wrong side. There is no version
+of the endgame §2 bar (**≥ +0.4 %**) that this row can reach: it is **0.94
+points of score below the bar**.
+
+**Secondary and independent outcome: `N-CORRECT`.** Even had B2 come back
+positive I would not have handed this on. The §2 certificate is `MARGINAL`: a
+**class-3** perturbation (max |Δlogit| = 5.445 against a minimum margin of
+0.375), a worst-case decision-relevant safety factor of **1.37×**, and an
+estimated **45–81 % flip rate** at the near-tie margins that `TASK.md:131-134`
+says the hidden anchor set is selected for. Zero observed flips on one public
+prompt is not a bound and I will not present it as one.
+
+**B3 is not executed, deliberately.** The assignment's B3 says: flip the default
+at `:324`, re-verify B1, hand the build-verified tree to **fern (#625)** with a
+Rule 75 sha256 + byte size. I am **not** doing that, because either outcome
+above is on its own a sufficient reason not to, and shipping a −0.54 % kernel
+into an integration tree at T−22 h would consume fern's time to make the tree
+worse. **No tree is handed to fern from this row, so no Rule 75 digest is owed.**
+The default at `LagunaRuntimeModel.swift:323-324` stays **OFF**, which is where
+it already is; the correct action here was always going to be "leave it alone",
+and now that is a measurement rather than a preference.
+
+What fern and #625 get from me instead is the two things in this note that *are*
+reusable: the margin certificate (`§2`, runnable on any candidate) and the
+ABBA harness (`§3.3`, runnable on any decode kernel), plus the §4 ranking that
+says where the remaining score actually is.
+
 ---
 
 ## §4. Deliverable C — the shelf, re-adjudicated
 
-<!-- RESULTS-C -->
+This is paper work: no new measurement except row 1. Every value is converted to
+**% of score** with the assignment's constants — decode **0.015228 % per
+µs/step**, prefill **0.3781 % per ms** — so the rows are commensurable. Rows
+marked *(tanjiro #620)* are prefill members and are his to own; I price them and
+stop.
+
+### §4.1 The perturbation classes I am ranking by
+
+The shelf was previously sorted by "bit-exact / not bit-exact", which is a
+one-bit label that throws away everything that matters. After §2 I can sort by
+how far a change moves a logit relative to the decisions being made:
+
+| class | what it is | expected perturbation | certificate? |
+|---|---|---|---|
+| **0** | bit-exact: identical FMA sequence, identical order | exactly 0 | not needed |
+| **1** | reassociation of a *short* reduction, ≤8 terms, one site | sub-ULP to ~1 ULP | very likely |
+| **2** | reassociation of a *long* reduction or of a whole K-loop | ~1–10 ULP | plausible, must be measured |
+| **3** | reassociation that changes which *values* each lane sums, over a long chain | **O(1 logit unit)** — comparable to decision margins | measured NO for row 1 |
+| **4** | changes the numerical *values* (coarser scales, lower precision) | unbounded by any order argument | very unlikely |
+
+Row 1 is the only class-3 datum anyone in this campaign has actually measured;
+before today the whole shelf was labelled from source comments. The measured
+number that anchors the scale is **max |Δlogit| = 5.445** against a **minimum
+top-1/top-2 margin of 0.375**.
+
+### §4.2 The rows
+
+**Row 2 — group-64 scale-plane re-merge (#615).**
+Value: #615 measured quantisation metadata at 64,294,912 B/step = **3.8468 % of
+`B`**, and the whole axis at **≤ +1.6156 % of `cs`** if made free; so
+**1 % of `B` ≈ 0.42 % of `cs`** on that PR's own conversion. Group-64 re-merge
+is "23–30 % constant", so the lossy re-merge is worth roughly
+**+0.37 to +0.48 % of `cs`**. Class **4**: the 70–77 % of pairs that are *not*
+constant get a scale that is simply wrong, which is a change to the dequantised
+weight *values*, not to a summation order. No order argument can bound it, and
+a certificate on the class-3 evidence of row 1 would almost certainly come back
+worse than row 1's. **Certificate obtainable: no.**
+
+**The genuinely interesting thing in #615 is the row nobody built.** Its best
+**bit-exact** scheme (lane-major nibble-delta) reaches **1.1538 % of `B`** —
+which on the same conversion is **≈ +0.48 % of `cs`**, i.e. *above the endgame
+§2 bar of 0.4 %*, at **class 0**, needing **no certificate at all**. It was
+dropped for being "under the 1.2 % gate" — an internal byte threshold, not a
+score threshold. **If any bit-exactness-shelf row deserves re-opening on this
+adjudication, it is that one, and it is not on the list I was given.** I flag it
+and hand it on; I am not going to build a new byte-coding scheme at T−22 h.
+
+**Row 3 — split-K tie flip, `matmul.cpp:986-989`** *(tanjiro #620)*.
+Value: it unlocks the 78 wk/wv dispatches now stuck at **1.6 threadgroups per
+core** and is "part of the 6.5–10.3 ms prefill tail"
+(`RESEARCH_ARCHIVE_through-round-91.md:1823`). At 0.3781 % per ms the *whole*
+tail is **+2.46 to +3.89 % of `cs`**; the tie flip is a fraction of it, and no
+one has measured which fraction, so the honest entry is **"largest unpriced
+number on the shelf"**. Class **2**: split-K accumulates partials in fp32 and
+reduces them in a separate dispatch, so the K reduction is re-ordered but the
+values and the accumulation precision are unchanged. That is the *good* kind of
+not-bit-exact — the kind whose perturbation should be ULP-scale, not
+logit-scale. **Certificate obtainable: plausibly yes**, and my §2 instrument
+runs on it unmodified because it certifies end-to-end logits and does not care
+which kernel moved. **This is the row I would spend the next student on.**
+
+**Row 4 — H3 BF16 attention-projection defrag** *(tanjiro #620)*.
+Value: the family costs **24.42 ms** (`PREFILL_NAX_ANALYSIS.md`, cited via
+`CURRENT_RESEARCH_STATE.md:4662`) = **9.23 % of `cs`** as a *ceiling nobody can
+reach*. The concrete addressable losses named there are the fp32 round trip
+(≈0.72 GB, ~3 % of real traffic) and ~120 extra dispatches; a realistic recovery
+of 10–25 % of the family is **+0.9 to +2.3 % of `cs`**. Class: **mixed** — the
+dispatch-shape and tile-heuristic parts are class **0/1**, but removing the fp32
+round trip is class **2**, and `DARKBLOOM_FUSED_QKV` (shipped OFF on an **M4**
+measurement, `LagunaRuntimeModel.swift:108-114`) changes tiling and so is class
+**2** as well. **Certificate obtainable: yes for the class-0/1 parts, and those
+should be separated out and shipped first.** The reason this row has stalled is
+that it has been treated as one lever; it is at least three.
+
+**Row 5 — wider per-lane loads in the sliding attention kernels.**
+Value: the sliding-attention pool is **30 × 22.34 = 670 µs/step**
+(`RESEARCH_IDEAS_2026-08-05_09:30.md:260-269`), = **10.2 % of `cs`** as a
+ceiling; 16 lanes/slot halves the load count in an issue-bound kernel, so a
+5–10 % recovery is **+0.51 to +1.02 % of `cs`**. Class **2**: the stated reason
+it is forbidden is that "16 lanes/slot would change the `simd_sum` reduction
+shape" (`BRIEF_QUEUED_SLIDING_ATTN_REWRITE.md:279-280`). That is a
+**32-lane butterfly becoming a 16-lane butterfly** — a short-reduction
+reassociation, class 1–2, *not* row 1's rewiring of which values a lane
+accumulates over a 1024-weight slab. **Certificate obtainable: likely yes.**
+And note what has happened here: this row has been on a "do not spend a student
+on these" list for five rounds on the strength of the phrase "not bit-exact",
+with **no measurement of how far it actually moves a logit**. That is exactly
+the failure mode this assignment exists to fix. **Rank it second.**
+
+**Row 6 — router accumulator reassociation.**
+Value: `residual_rms_router_bf16_2048_rpg8_keys_v1` is 39 × 8.20 = **319.9
+µs/step** by census, but in situ it is **two-thirds shadowed** (E = 0.349,
+2.73 µs/call marginal) ⇒ the whole kernel is worth ≈106 µs/step = **1.62 % of
+`cs`** marginal, and the reassociation lever *inside* it was already measured at
+**−0.182 ± 0.845 µs/call** (`RESEARCH_ARCHIVE_through-round-91.md:5056`) =
+**+0.11 % of `cs` with a CI that spans ±0.5 %** — a null. The archive closes it
+explicitly: "Every lever is dead … accumulator reassociation not bit-exact …
+**Do not re-propose**" (`:1821`). Class **1–2**, so a certificate is probably
+obtainable — but there is nothing to certify. **Rank last; leave closed.** I am
+not going to re-open a row whose effect size is a measured null just because its
+correctness objection turns out to be softer than advertised. A soft objection
+plus no effect is still no effect.
+
+### §4.3 The ranking
+
+| # | row | value (% of `cs`) | class | §2 certificate obtainable? | verdict |
+|---|---|---|---|---|---|
+| 1 | **split-K tie flip** `matmul.cpp:986-989` *(tanjiro #620)* | fraction of **+2.46…+3.89** | 2 | **plausibly yes** | **re-open — biggest unpriced number, and the perturbation class is right** |
+| 2 | **wider per-lane loads, sliding attn** | **+0.51…+1.02** | 1–2 | **likely yes** | **re-open — blocked for five rounds on an unmeasured label** |
+| 3 | **H3 attention-projection defrag** *(tanjiro #620)* | **+0.9…+2.3** | 0/1 **and** 2 | **yes for the class-0/1 half** | **split the lever; ship the bit-exact half without a certificate at all** |
+| — | *(not on my list)* **#615 lane-major nibble-delta byte coding** | **≈+0.48** | **0** | **not needed** | **re-open — bit-exact, above the §2 bar, dropped on a byte threshold** |
+| 4 | **`DARKBLOOM_QMV_WIDE_CODES`** | **−0.5363**, CI [−0.628, −0.445] *(measured, §3.3)* | **3 (measured)** | **NO — measured and refused** | **close on evidence** |
+| 5 | **group-64 scale-plane re-merge** (#615) | **+0.37…+0.48** | 4 | **no** | **close** |
+| 6 | **router accumulator reassociation** | **+0.11, CI spans 0** | 1–2 | probably yes | **leave closed — null effect, not a correctness problem** |
+
+**The one-sentence result of Deliverable C.** Re-adjudicating the shelf on
+perturbation size instead of on the bit-exact label **does not rescue the row
+the advisor put first** — wide codes is the worst row on the shelf and the
+measurement says so — but it **promotes two rows that were closed on labels
+alone** (split-K, sliding-attention loads) and it surfaces one **bit-exact** row
+worth ≈0.48 % that was dropped for failing an internal byte gate rather than a
+score gate. The shelf's problem was never that we were too strict about
+correctness; it was that we never measured what "not bit-exact" costs, so every
+row got the same infinite price.
 
 ---
 
 ## §7. Draw ledger closure
 
 <!-- RESULTS-DRAWS -->
+
+Harvested with `python3 research/maple-frieren-r107-harvest.py --last 8`
+(157 receipts on the account). Both legs are **the same editable surface** —
+`4b0e051b`'s tree, differing only in the dedup marker line, GATE 1′ verified —
+so every difference below is instrument, not engineering.
+
+| leg | marker | server sha | O | `cs` | `f` % | baseline decode (s) | baseline prefill (s) | gap to record % |
+|---|---|---|---|---|---|---|---|---|
+| draw 02 | `senpai-r106e-replay-02` | `091dd04a825f` | 2.58107301539733 | **2.584538** | −0.1342 | 0.004904417640625 | 0.00018820084765625 | 1.3634 |
+| draw 03 | `senpai-r106e-replay-03` | `81572e5132b6` | **2.56572013933736** | **2.572291** | **−0.2558** | 0.004925716796875 | 0.00018933308984375 | **1.9600** |
+
+Both **rejected**. Draw 03 landed at `11:05:44.497Z`; it is the last leg that
+was actually submitted, and the ladder job was cancelled before leg 4.
+
+**What the two legs say together.** The tree is fixed, so `cs` should be a
+constant. It is not:
+
+| statistic over the two fixed-tree legs | value |
+|---|---|
+| `cs` mean | **2.578415** |
+| **sd(ln `cs`) — pure candidate-leg noise** | **0.3358 %** |
+| `cs` vs the best-ever `cs` (2.590559) | −0.2327 % and **−0.7077 %** |
+| `f` mean / sd | −0.1950 % / 0.0860 % |
+| direct σ_resubmit (assumption-free, n = 2, df = 1) | **0.4219 %** |
+| replicate-mean merit `ĉs` | 2.578407 (**−0.4702 %** below the best-ever `cs`) |
+| **unbiased** gap to the record | **1.6617 %** (vs 0.9965 % if anchored on the max) |
+| z / P per draw / P over 20 more draws | 3.939 / **0.004 %** / **0.08 %** |
+
+The harvester counts only the two marker legs. The **original `4b0e051b`
+receipt is a third replicate of the same surface**, so the assumption-free
+estimate should use all three (`cs` 2.590559 / 2.584538 / 2.572291, `O`
+2.575377 / 2.581073 / 2.565720):
+
+| three-replicate, fixed tree | value |
+|---|---|
+| mean `cs` | 2.582463 |
+| **sd(ln `cs`)** | **0.3607 %** |
+| geometric-mean `O` | 2.574049 |
+| **sd(ln `O`) = σ_resubmit, directly measured** | **0.3016 %** |
+| unbiased gap in `O` to 2.61650354381456 | **1.6359 %** ⇒ z = **5.42** |
+
+Three things follow, and all three cut against the position I held this morning.
+
+1. **The best-ever `cs` of 2.590559 was itself a lucky draw.** Anchoring the
+   remaining gap on the maximum understates it by a factor of **1.67×**: the
+   honest distance to 2.61650354381456 is **1.66 %**, not 1.00 %.
+2. **My R107 §3 figure was wrong by 6×** — I published sd(ln `cs` | fixed tree)
+   = 0.0540 %; two direct replays give **0.3358 %**, and R106-E's 0.2276 %,
+   which I disputed, sits inside that. The retraction is in §0 and is now also
+   written into `research/maple-frieren-r107-session-noise.md` §8.
+3. **The ladder was never going to work, and now it has the receipts to prove
+   it.** At z = 3.94 the per-draw probability is **0.004 %**; twenty more draws
+   buy **0.08 %**. Rule 96.2's pricing (≈0.0285 %/draw) was, if anything,
+   generous to me. I spent two submissions establishing that the advisor was
+   right, which is the most expensive way to learn something and the reason the
+   ledger is at the top of this note rather than the bottom.
+
+**Ledger closed.** No further draw is authorised or contemplated from this PR.
+Under the endgame timetable the only tree that may draw is fern's integrated
+`#625` tree, and only if it clears the four §2 conditions; my job there is to
+supply the correctness half, which is §2 and §3 of this note.
