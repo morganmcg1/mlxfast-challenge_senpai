@@ -235,18 +235,62 @@ public enum SwiftTransform {
         }
 
         try beforeSidecarGeneration?()
-        // docs/laguna-weight-contract.md forbids derived layouts and metadata
-        // sidecars in the Poolside v2 contract, and the runtime loads exactly
-        // the indexed checkpoint tensors, so no family generates a sidecar:
-        // the output tensor set is the pass-through selection.
-        let outputTensorByteCount = totalTensorByteCount
+        let generatedProjectionMetadata: GeneratedAffineMetadataReport
+        let generatedTiedHeadMetadata: GeneratedAffineMetadataReport
+        switch modelFamily {
+        case .gemma4:
+            generatedProjectionMetadata = try AffineMetadataCoding.writeProjectionSidecar(
+                sourceDirectory: stagingDirectory,
+                index: index,
+                sourceHeaders: stagedHeaders,
+                selectedKeys: textKeys,
+                destinationDirectory: stagingDirectory
+            )
+            generatedTiedHeadMetadata = try TiedHeadMetadataCoding.writeSidecar(
+                sourceDirectory: stagingDirectory,
+                index: index,
+                sourceHeaders: stagedHeaders,
+                selectedKeys: textKeys,
+                destinationDirectory: stagingDirectory
+            )
+        case .laguna:
+            // docs/laguna-weight-contract.md forbids derived layouts and
+            // metadata sidecars in the Poolside v2 contract, and the runtime loads exactly the
+            // indexed checkpoint tensors (its untied lm_head makes the
+            // Gemma tied-head packed13 sidecar meaningless anyway). Emit
+            // nothing beyond the pass-through tensor set.
+            generatedProjectionMetadata = GeneratedAffineMetadataReport(
+                weightMap: [:],
+                tensorByteCount: 0
+            )
+            generatedTiedHeadMetadata = GeneratedAffineMetadataReport(
+                weightMap: [:],
+                tensorByteCount: 0
+            )
+        }
+        let (projectionOutputByteCount, projectionSizeOverflow) =
+            totalTensorByteCount.addingReportingOverflow(
+                generatedProjectionMetadata.tensorByteCount
+            )
+        let (outputTensorByteCount, tiedHeadSizeOverflow) =
+            projectionOutputByteCount.addingReportingOverflow(
+                generatedTiedHeadMetadata.tensorByteCount
+            )
+        guard !projectionSizeOverflow, !tiedHeadSizeOverflow else {
+            throw MLXFastError.invalidInput("transformed tensor byte count overflows Int")
+        }
+        let generatedWeightMap = generatedProjectionMetadata.weightMap.merging(
+            generatedTiedHeadMetadata.weightMap
+        ) { _, _ in
+            preconditionFailure("generated metadata tensor names collide")
+        }
 
         try writeMetadataFiles(metadataSnapshot, to: stagingDirectory)
         try index.writeStripped(
             to: stagingDirectory.appendingPathComponent("model.safetensors.index.json"),
             keeping: textKeys,
             totalTensorByteCount: outputTensorByteCount,
-            additionalWeightMap: [:]
+            additionalWeightMap: generatedWeightMap
         )
 
         try runtimeConfigData.write(
@@ -291,8 +335,12 @@ public enum SwiftTransform {
         return TransformReport(
             referencePath: referenceDirectory.path,
             outputPath: outputDirectory.path,
-            denseTensorCount: copiedTensors,
-            denseShardCount: textKeysByShard.count,
+            denseTensorCount: copiedTensors
+                + generatedProjectionMetadata.tensorCount
+                + generatedTiedHeadMetadata.tensorCount,
+            denseShardCount: textKeysByShard.count
+                + generatedProjectionMetadata.shardCount
+                + generatedTiedHeadMetadata.shardCount,
             configPath: configPath.path,
             indexPath: indexPath.path
         )

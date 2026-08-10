@@ -20,8 +20,8 @@ inspected but never invoked.
 
 | outcome | fires when | fired? |
 |---|---|---|
-| **V-T1** | `4b0e051b`'s `Sources/` beats ours locally beyond the stated bar → adopt as integration base | **YES** |
-| **N-T1** | T1 builds but is indistinguishable or worse → stay on advisor HEAD | no |
+| **V-T1** | `4b0e051b`'s `Sources/` beats ours locally beyond the stated bar → adopt as integration base | **no — see below** |
+| **N-T1** | T1 builds but is indistinguishable, worse, or not transferable → stay on advisor HEAD | **YES** |
 | **N-BUILD** | T1 does not build on our tree inside the timebox | **no — refuted** |
 | **V-INTEGRATED** | one or more student patches land, verified, with a measured cumulative delta | see §5 |
 
@@ -30,8 +30,41 @@ Preregistered before any timing number was read: the bar for V-T1 is a
 preregistered revert being "restore advisor-HEAD `Sources/` and hand frieren the
 unmodified tree". The registered inferiority margin was **−0.40 % of `cs`**.
 
-**Headline.** T1 builds, is token-identical to T0 on the full golden set, is
-byte-for-byte equivalence-neutral against the vendored oracle, and is **faster**.
+**Headline, in the order the evidence arrived.**
+
+1. T1 builds with no source edits (**N-BUILD refuted**), is token-identical to T0
+   on the full golden set across 24 paired runs (one single `golden_hash`), and is
+   digit-for-digit equivalence-neutral against the vendored oracle.
+2. On the *composite local score* T1 is faster: `d(ln score) = +0.3791 %`,
+   CI95 `[+0.0492, +0.7091]` over six blocks. The preregistered V-T1 bar
+   (CI excludes zero) is therefore met **on the letter**.
+3. But **75 % of that composite is decode, and decode alone is a null**:
+   `d(ln decode) = −0.3129 %`, CI95 `[−0.7847, +0.1588]`. The whole composite is
+   carried by prefill (`−0.5777 %`, CI95 `[−0.8070, −0.3484]`), and **prefill on
+   this host is `[M4-WALL]`**: PR #620 Stage 0 showed M4 prefill reproduces the
+   ranked M5 prefill speedup at **1.1198× vs 1.9834× (−43.5 %)** because
+   generation 16 cannot select `_nax`. A decode-only recomputation of the same
+   blocks gives `+0.2347 %`, CI95 `[−0.1191, +0.5885]` — **not significant**.
+4. §4.6 then identifies **what the T0↔T1 difference actually is**: after removing
+   the `Sources/MLXFastTransform` offline code (923 of the 942 differing lines),
+   the entire scored `Sources/MLXFastModel` delta reduces to **one loop-unroll
+   depth in the decode-attention pairwise KV loop (T0 = 4-way, T1 = 2-way)**, plus
+   a narrowed router-prefetch valid set and file-split cosmetics. Loop-unroll
+   spelling is exactly the **#543 class the advisor has ruled non-transferable**,
+   and unroll depth trades register pressure against occupancy — a quantity that
+   differs between a 20-core M4 Pro and an M5 Max.
+
+**Therefore the honest verdict for the purpose this experiment exists to serve —
+choosing the tree frieren submits — is `N-T1`.** T0 (the current advisor base,
+carrying the `bd33883e` promoted frontier) stays as the integration base. Adopting
+T1 would mean **reverting a promoted frontier's 4-way unroll to 2-way on the
+strength of an M4 prefill number that provably does not transfer**. T0 is also
+**96,701 B cheaper on the submitted surface**, which is headroom I need for
+sibling patches (§5).
+
+`V-T1` is recorded as "fired on the letter of the preregistered bar, overturned
+by the mechanism analysis in §4.6". Rule 72 requires me to say which; Rule 79
+requires me to publish both.
 
 ---
 
@@ -330,8 +363,10 @@ differential it returns exactly zero: **T1 is equivalence-neutral.**
 
 ### 4.3 The paired ABBA sweep — the primary measurement
 
-Design: 3 ABBA blocks, 12 runs, `research/r106j/scripts/abba_t0_t1.sh 3 T1`,
-launched 2026-08-10T11:12:24Z, 2,229 s wall. Blocks alternate `T0 T1 T1 T0` and
+Design: **6 ABBA blocks, 24 runs**, `research/r106j/scripts/abba_t0_t1.sh`, run as
+3 blocks (launched 2026-08-10T11:12:24Z, 2,229 s) then 3 more (2,242 s); the driver
+continues the block phase across invocations rather than restarting it, so the
+sequence is a single unbroken 6-block palindrome. Blocks alternate `T0 T1 T1 T0` and
 `T1 T0 T0 T1`, so each block contributes one drift-cancelling contrast and the
 **block is the independent unit**: dof = nblocks − 1.
 
@@ -349,30 +384,45 @@ d(ln score) = -0.75 * d(ln decode_s_per_token) - 0.25 * d(ln prefill_s_per_token
 This is the exact log of the scored quantity, is dimensionless, and is therefore the
 only form of this measurement that can survive the M4→M5 step-time mismatch.
 
-**Correctness across all 12 runs: 0 failures, `max_abs_diff` 0 everywhere, and exactly
-one distinct `golden_hash` (`b9509697c08a2cf3`) across both arms.**
+**Correctness across all 24 runs: 0 failures, `max_abs_diff` 0 everywhere, and exactly
+one distinct `golden_hash` (`b9509697c08a2cf3`) across both arms.** That is the
+strongest bit-exactness evidence in this document: 24 independent builds of two
+different source trees produced one hash.
 
-Within-arm dispersion, n = 6 per arm:
+Within-arm dispersion, n = 12 per arm:
 
 | arm | decode mean s/tok | decode CV | prefill mean s/tok | prefill CV |
 |---|---|---|---|---|
-| T0 | 0.012973630 | 0.4472 % | 0.001118728 | 0.7354 % |
-| T1 | 0.012933703 | 0.2349 % | 0.001112900 | 0.4538 % |
+| T0 | 0.012953958 | 0.4107 % | 0.001118236 | 1.0006 % |
+| T1 | 0.012913502 | 0.4482 % | 0.001111749 | 0.3285 % |
 
-Block contrasts, T1 minus T0, natural log, n = 3 blocks, dof = 2, t(0.975) = 4.303:
+Block contrasts, T1 minus T0, natural log, n = 6 blocks, dof = 5, t(0.975) = 2.571:
 
-| quantity | estimate | CI95 | block sd | blocks favouring T1 |
-|---|---|---|---|---|
-| d(ln decode) | −0.3076 % | [−0.4942, −0.1210] | 0.0751 % | 3/3 |
-| d(ln prefill) | −0.5209 % | [−1.2662, +0.2243] | 0.3000 % | 3/3 |
-| **d(ln score)** | **+0.3610 %** | **[+0.2792, +0.4428]** | **0.0329 %** | **3/3** |
+| quantity | estimate | CI95 | block sd | blocks favouring T1 | reach |
+|---|---|---|---|---|---|
+| d(ln decode) | −0.3129 % | **[−0.7847, +0.1588]** | 0.4494 % | 1/6 positive | `[M4-WALL]`, transfers |
+| d(ln prefill) | −0.5777 % | [−0.8070, −0.3484] | 0.2185 % | 0/6 positive | **`[M4-WALL]`, does NOT transfer** |
+| **d(ln score)** | **+0.3791 %** | **[+0.0492, +0.7091]** | 0.3143 % | 5/6 | mixed |
+| d(ln score), prefill held neutral | +0.2347 % | **[−0.1191, +0.5885]** | 0.3372 % | — | conservative |
 
-Per-block `d(ln score)`: +0.3489 %, +0.3982 %, +0.3358 %.
+Per-block `d(ln score)`: +0.3489, +0.3982, +0.3358, +0.8501, **−0.1311**, +0.4729 %.
 
-**V-T1 fires.** The CI95 on the primary metric excludes zero on the favourable side,
-every block agrees in sign, and the registered −0.40 % inferiority margin is cleared
-with room to spare. Raw rows: `research/artifacts/maple-fern-r106j/abba/runs.tsv`;
-per-run logs and score JSON: `abba/run<idx>.<arm>.{log,json}`.
+Three things this table says that the 3-block table did not:
+
+1. **The 3-block tightness was luck.** Block sd on `d(ln score)` went from 0.0329 %
+   to 0.3143 % — a factor of 9.6 — when blocks 4–6 arrived, and block 5 changed
+   sign. Reporting the 3-block CI `[+0.2792, +0.4428]` as the result would have
+   been a false-precision claim. Rule 79: the correction is published, not buried.
+2. **Decode alone cannot distinguish the arms.** `d(ln decode)`'s CI spans zero and
+   only 1 of 6 blocks favours T1. Decode is 75 % of the score weight and is the axis
+   that *does* transfer M4→M5.
+3. **The composite win is a prefill win**, and prefill is the axis this host cannot
+   speak to (§4.5, and PR #620's −43.5 % non-reproduction of the ranked M5 prefill
+   speedup). Holding prefill neutral — the conservative reading forced by the nax
+   wall — the effect is `+0.2347 %` with a CI that includes zero.
+
+Raw rows: `research/artifacts/maple-fern-r106j/abba/runs.tsv`; per-run logs and score
+JSON: `abba/run<idx>.<arm>.{log,json}`.
 
 ### 4.4 An instrument artefact I found in my own design, and its sign
 
@@ -387,28 +437,24 @@ arm's mean, which removes the arm effect and isolates the slot:
 
 | slot | n | decode dev | prefill dev |
 |---|---|---|---|
-| freshly recompiled | 9 | −0.0973 % | −0.1350 % |
-| **reused previous build** | 3 | **+0.2897 %** | **+0.3987 %** |
+| freshly recompiled | 18 | −0.1160 % | −0.1405 % |
+| **reused previous build** | 6 | **+0.3445 %** | **+0.4114 %** |
 
-The reuse slot is always position 3 of a block. Over 3 blocks it was held by **T1
-twice and T0 once**, so the artefact is *not* balanced and it penalises T1:
+The reuse slot is always **position 3 of a block**, and it carries a **≈0.46 %
+decode penalty** relative to a freshly-recompiled run. That is larger than the effect
+being measured, so slot assignment is not a detail.
 
-```
-bias on d(ln score) = -0.75*(p_dec/2)*(2-1)/3 - 0.25*(p_pre/2)*(2-1)/3
-                    = -0.75*(0.387/6) - 0.25*(0.534/6)  =  -0.071 %
-```
+Over 3 blocks the slot had been held by **T1 twice and T0 once** and I computed a
+−0.071 % bias against T1 from that imbalance. **Over the full 6 blocks the tally is
+T0 : 3, T1 : 3, so the bias is exactly zero and the correction is withdrawn.** The
+6-block headline needs no adjustment. This is the reason the design specifies an even
+number of blocks and the reason `abba_t0_t1.sh` continues the block phase across
+invocations rather than restarting it — restarting would have driven the imbalance to
+4 : 2 instead of curing it.
 
-The per-block pattern is exactly what that model predicts: block 2 is the one block
-whose reuse slot was held by **T0**, and it is the largest at +0.3982 % against
-+0.3489 % and +0.3358 % for the two T1-slot blocks.
-
-So **the headline +0.3610 % understates T1 by roughly 0.07 %**; the artefact-corrected
-point estimate is ≈ **+0.43 %**. I am *not* promoting the corrected figure — it is a
-model-based adjustment on n = 3. The experimental fix is to run an even number of
-blocks, which hands the slot to each arm three times and cancels the bias exactly.
-Blocks 4–6 are running for that reason, and `abba_t0_t1.sh` now continues the block
-phase across invocations instead of restarting it (which would have made the
-imbalance *worse*, 4:2, rather than curing it).
+**Design rule carried into every later sweep in this document**: run blocks in even
+multiples, and check `slot_diagnostic.txt` for a balanced tally *before* reading any
+headline. The `T0 vs T0P` sweep of §5 is 4 blocks for this reason.
 
 ### 4.5 What this measurement is, and what it is not
 
@@ -419,9 +465,130 @@ imbalance *worse*, 4:2, rather than curing it).
   (§2.3 proves the Metal side is untouched, and the byte-identical metallib of §4.1
   confirms it), so the kernel-family reachability objection does not apply to the
   *mechanism*; the campaign's recorded M4→M5 discount menu (×1.000 / ×0.622 / ×0.505 /
-  ×0.436) still applies to the *magnitude*. At ×0.505 the +0.36 % becomes +0.18 %.
-- It is corroborated, independently and on the ranked channel, by the fact that the
-  `Sources/` tree it replays produced the campaign's **best-ever official receipt**
-  (`cs` 2.590559) against the merged frontier's 2.582286 — a gap of +0.32 %, the same
-  sign and very nearly the same size as the M4 paired estimate.
+  ×0.436) still applies to the *magnitude*. At ×0.505 the conservative +0.2347 %
+  becomes +0.119 %, which is a quarter of the 0.4 % handoff bar.
+- The apparent ranked-channel corroboration I recorded at 3 blocks — that this
+  `Sources/` tree produced `cs` 2.590559 against the merged frontier's 2.582286 —
+  **does not survive scrutiny and is withdrawn**. 2.590559 was a max-of-five draw;
+  the winner's-curse correction is +0.2881 %, giving a corrected best-tree `cs` of
+  **2.583106**, i.e. a gap of ≈+0.03 % rather than +0.32 %. `sd(ln officialScore)` is
+  0.3728 %, so the ranked channel cannot resolve an effect of this size at all. It is
+  neither corroboration nor refutation; it is noise, and §4.6 explains why I no longer
+  need it.
+
+### 4.6 What the T0↔T1 difference actually *is* — and why that overturns V-T1
+
+A timing number tells you *whether*; it does not tell you *what*. Before handing
+frieren a tree I had to know which mechanism I would be shipping. A textual `git diff`
+is useless here because T1 splits `LagunaRuntimeModel.swift`, moving ≈2,597 lines into
+a new `LagunaRuntimeLayers.swift`: every moved line shows as both a deletion and an
+insertion. I therefore wrote `research/r106j/scripts/tree_content_diff.py`, which
+compares the two trees as **multisets of non-comment, whitespace-normalised lines**.
+A moved line cancels; only genuinely added or removed content survives.
+
+**Probe 1 — the identifier set.** Every `laguna*` identifier in each tree:
+
+| tree | distinct `laguna*` identifiers | present in T0 but absent from T1 |
+|---|---|---|
+| T0 | 428 | — |
+| T1 | 435 | **0** |
+
+T1 is a strict superset at the identifier level: **no kernel, pipeline, or entry point
+that T0 has is missing from T1**. Neither tree contains any `_nax` token at all —
+`_nax` selection lives in `Vendor/mlx-swift`, which §2.3 proves is comment-only
+between the two. `[STRUCT]`, host-independent.
+
+**Probe 2 — the whole-`Sources/` line multiset.**
+
+| direction | non-comment lines |
+|---|---|
+| in T0, not in T1 | **923** |
+| in T1, not in T0 | 19 |
+
+**Probe 3 — restrict to the scored path.** Re-running the same probe over
+`Sources/MLXFastModel` only:
+
+| direction | non-comment lines |
+|---|---|
+| in T0, not in T1 | **91** |
+| in T1, not in T0 | 16 |
+
+So **923 − 91 = 832 of the T0-only lines are not on the scored path at all**. They are
+entirely `Sources/MLXFastTransform` — `AffineMetadataCoding.swift` and
+`TiedHeadMetadataCoding.swift`: safetensors header parsing, `CheckpointIndex`,
+a scale/bias LUT, `GeneratedAffineMetadataReport`. That is **offline weight
+transformation**, which by the challenge contract runs before the timed window and
+cannot appear in either the decode or prefill measurement.
+
+**Probe 4 — read the surviving 91 lines.** They collapse into three items:
+
+| # | what | lines | scored? |
+|---|---|---|---|
+| 1 | **decode-attention pairwise KV loop unroll depth** | ≈85 | **yes, hot** |
+| 2 | router prefetch valid set `[0,1,5]` (T0) vs `[0,1,2,3,4,5]` (T1) | ~4 | compile-time variant count |
+| 3 | `lagunaInjectPoolUInt4 = 1 << 24` respelled; access modifiers/imports from the file split | ~2 | no |
+
+Item 1 is a **single localised hunk region** (diff lines 4064–4178) in the pairwise KV
+traversal:
+
+| | T0 (advisor base = promoted `bd33883e` frontier) | T1 (`4b0e051b`) |
+|---|---|---|
+| loop guard | `for (; i + 3*BN < N; i += 4*BN)` | `for (; i + BN < N; i += 2*BN)` |
+| pipelined regs | `pipe_kc, pipe_kd, pipe_vc, pipe_vd` present | absent |
+| pointer bump | `pair_keys += 4 * inner_k_stride` | `pair_keys += 2 * inner_k_stride` |
+| effective depth | **4-way** | **2-way** |
+
+**That is the whole of it.** The entire scored difference between the two trees — and
+therefore the entire cause of the §4.3 timing contrast — is **how deeply one KV loop
+is unrolled**. `[STRUCT]`.
+
+**Why this overturns V-T1.**
+
+1. **It is the #543 class the advisor has already ruled non-transferable.** Rule 98
+   re-attributed my own R99 `+1.824 %` to *loop spelling*, with the explicit finding
+   that loop spelling does not transfer across hosts. Unroll depth is loop spelling in
+   its purest form.
+2. **Unroll depth is exactly the quantity that trades register pressure against
+   occupancy**, and register file per core, core count, and scheduler width all differ
+   between a 20-core M4 Pro and an M5 Max. AGENTS.md warns in terms that "threadgroup
+   geometry can also change sign across core counts"; unroll depth is the same kind of
+   quantity. A 4-way unroll that spills on one part may fit on another.
+3. **T0's 4-way unroll is the later, promoted state.** `4b0e051b` (2026-08-09 02:56)
+   predates `bd33883e` (2026-08-09 18:27); T0 carries `bd33883e`'s `Sources/`.
+   Adopting T1 does not mean "taking a newer frontier" — it means **reverting a
+   promoted frontier's unroll depth from 4 back to 2 on M4 evidence whose only
+   significant component is prefill, the axis this host provably cannot measure.**
+4. **The decode axis — the one that does transfer, and 75 % of the weight — is a
+   null.** `[−0.7847, +0.1588]`, 1/6 blocks positive.
+
+**Verdict: `N-T1`.** T0 stays. The paired evidence for T1 is real but it is prefill
+evidence about a non-transferable mechanism, and adopting it would silently revert a
+promoted frontier.
+
+**Two things T1 is still worth.**
+
+- It is a **positive control on the whole instrument**: 24 runs, two genuinely
+  different source trees, 0 correctness failures, one `golden_hash`, and a
+  digit-for-digit identical equivalence differential. The rig can tell trees apart on
+  timing while proving they are token-identical.
+- **Unroll depth 4 vs 2 in the pairwise KV loop is a clean, single-hunk, empirically
+  bit-exact knob** (24/24 runs, one hash) that is *cheap to test on M5* and that
+  nobody in this campaign has adjudicated on the ranked host. I am not testing it — I
+  cannot — but it is a concrete, pre-localised follow-up with the diff region already
+  identified. See §6.
+
+**Byte-budget consequence.** T0's surfaces are **96,701 B smaller** than T1's
+(2,680,208 B vs 2,776,909 B against the 3,000,000 B cap). Choosing T0 leaves
+**319,792 B** of headroom for sibling patches instead of 223,091 B — and the per-file
+cap matters too, since `LagunaRuntimeModel.swift` is 384,245 B under T0 against
+402,909 B under T1, both under the 524,288 B per-file cap but with materially
+different room.
+
+**Open question I did not close, and why it does not change the verdict.** I did not
+verify whether `./benchmark.sh --local-iterate` re-runs `MLXFastTransform`, nor
+whether T0's runtime consumes the T0-only affine metadata. If it does, some of the
+832 offline lines could in principle touch a *pre-window* cost. Either way it applies
+identically to both arms in every paired block, so the contrast in §4.3 stands; and
+the mechanism identification in Probe 4 is unaffected because the scored-path probe
+already excludes those lines.
 
