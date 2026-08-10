@@ -1,0 +1,440 @@
+// R110-B Stage 0/1: isolated timing rig for the NVFP4 gather-GEMM K loop.
+//
+// PR #693 (maple-r110-b-gemm-double-buffer-staging). Research-only: this file
+// is NOT on benchmark.json's editablePaths and is never compiled by a scored
+// build.
+//
+// Build & run:
+//   xcrun swiftc -O research/edward_r110_gemm_db_bench.swift \
+//       -o /tmp/edr110 && /tmp/edr110
+//
+// What it does
+// ------------
+// Reproduces get_gather_qmm_kernel()'s JIT source composition
+// (jit_kernels.cpp:952-975) by extracting the four R"preamble(...)preamble"
+// bodies straight out of Vendor/mlx-swift/Source/Cmlx/mlx-generated/*.cpp in
+// the order utils, quantized_utils, gemm, fp_quantized, then appending the
+// exact get_template_definition() instantiation that quantized.cpp emits for
+// the Laguna prefill MoE call (bm16/bn32/bk32/wm1/wn2, gs16, b4, nt).
+//
+// Variants are produced by *string mutation of that extracted source*, so
+// Stage 0 needs no vendored-file edit and no MLX rebuild:
+//
+//   base   shipped gemm_loop_aligned (2 threadgroup barriers per k-iteration)
+//   nobar  the WAR barrier deleted. NUMERICALLY WRONG -- it is a pure timing
+//          probe for the upper bound on what removing that barrier can buy.
+//   db     real ping-pong double buffering: 2x staging, 1 barrier per
+//          k-iteration, loads for tile k issued before the mma for tile k-1.
+//   null   empty kernel on the same grid -- dispatch/encode floor control.
+//
+// Env knobs:
+//   ED_REPS=<n>      dispatches per command buffer (default 4)
+//   ED_CBS=<n>       timed command buffers per variant slot (default 9)
+//   ED_PAIRS=<n>     ABBA pair count (default 4 -> 8 slots per variant)
+//   ED_SHAPE=gate_up|down|both  (default both)
+
+import Foundation
+import Metal
+
+let stderrHandle = FileHandle.standardError
+
+func log(_ s: String) {
+    print(s)
+    fflush(stdout)
+}
+
+func die(_ s: String) -> Never {
+    stderrHandle.write(("FATAL: " + s + "\n").data(using: .utf8)!)
+    exit(1)
+}
+
+func env(_ k: String) -> String? {
+    guard let v = ProcessInfo.processInfo.environment[k], !v.isEmpty else { return nil }
+    return v
+}
+
+func envInt(_ k: String, _ d: Int) -> Int { Int(env(k) ?? "") ?? d }
+
+func fmt(_ v: Double, _ digits: Int = 3) -> String { String(format: "%.\(digits)f", v) }
+
+func pad(_ s: String, _ w: Int) -> String {
+    s.count >= w ? s : String(repeating: " ", count: w - s.count) + s
+}
+
+func median(_ xs: [Double]) -> Double {
+    precondition(!xs.isEmpty)
+    let s = xs.sorted()
+    return s.count % 2 == 1 ? s[s.count / 2] : 0.5 * (s[s.count / 2 - 1] + s[s.count / 2])
+}
+
+// MARK: - JIT source composition
+
+let repoRoot: String = {
+    var d = FileManager.default.currentDirectoryPath
+    while d != "/" {
+        if FileManager.default.fileExists(atPath: d + "/benchmark.json") { return d }
+        d = (d as NSString).deletingLastPathComponent
+    }
+    die("could not locate repo root (benchmark.json) from cwd")
+}()
+
+let genDir = repoRoot + "/Vendor/mlx-swift/Source/Cmlx/mlx-generated"
+
+func extractPreamble(_ file: String) -> String {
+    guard let text = try? String(contentsOfFile: genDir + "/" + file, encoding: .utf8) else {
+        die("cannot read \(file)")
+    }
+    guard let open = text.range(of: "R\"preamble(") else { die("no preamble open in \(file)") }
+    guard let close = text.range(of: ")preamble\"", range: open.upperBound..<text.endIndex) else {
+        die("no preamble close in \(file)")
+    }
+    return String(text[open.upperBound..<close.lowerBound])
+}
+
+// jit_kernels.cpp:952-975 order.
+let baseSource: String = {
+    var s = ""
+    for f in ["utils.cpp", "quantized_utils.cpp", "gemm.cpp", "fp_quantized.cpp"] {
+        s += "\n// ---- \(f) ----\n"
+        s += extractPreamble(f)
+    }
+    return s
+}()
+
+let kernelName = "nvfp4_gather_qmm_rhs_nt_bfloat16_gs_16_b_4_bm_16_bn_32_bk_32_wm_1_wn_2"
+// get_template_definition(kernels.h:402-424) for the shipped Laguna prefill call.
+let templateDef = """
+
+template [[host_name("\(kernelName)")]] [[kernel]] decltype(
+    fp_gather_qmm_rhs<bfloat16_t, 16, 4, 16, 32, 32, 1, 2, true>)
+    fp_gather_qmm_rhs<bfloat16_t, 16, 4, 16, 32, 32, 1, 2, true>;
+
+[[kernel]] void ed_null_kernel(
+    device float* sink [[buffer(0)]],
+    uint3 tid [[threadgroup_position_in_grid]]) {
+  if (tid.x == 0xffffffu) {
+    sink[0] = 1.0f;
+  }
+}
+
+"""
+
+// MARK: - source mutations
+
+let loopAnchor = "METAL_FUNC void gemm_loop_aligned("
+
+func replaceGemmLoopAligned(_ src: String, with body: String) -> String {
+    guard let a = src.range(of: loopAnchor) else { die("gemm_loop_aligned not found") }
+    guard src.range(of: loopAnchor, range: a.upperBound..<src.endIndex) == nil else {
+        die("gemm_loop_aligned found more than once")
+    }
+    guard let end = src.range(of: "\n}\n", range: a.upperBound..<src.endIndex) else {
+        die("gemm_loop_aligned close brace not found")
+    }
+    return src.replacingCharacters(in: a.lowerBound..<end.upperBound, with: body)
+}
+
+// Shipped body minus the WAR barrier. Numerically wrong (iteration k+1's
+// staging store can race iteration k's mma read) -- timing probe only.
+let nobarBody = """
+METAL_FUNC void gemm_loop_aligned(
+    threadgroup T* As,
+    threadgroup T* Bs,
+    thread mma_t& mma_op,
+    thread loader_a_t& loader_a,
+    thread loader_b_t& loader_b,
+    const int k_iterations) {
+  for (int k = 0; k < k_iterations; k++) {
+    loader_a.load_unsafe();
+    loader_b.load_unsafe();
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    mma_op.mma(As, Bs);
+    loader_a.next();
+    loader_b.next();
+  }
+}
+
+"""
+
+// Ping-pong. `a_tile`/`b_tile` are element counts of one staged tile; the
+// caller must have allocated 2x. Both loaders expose a mutable `dst`, so the
+// buffer flip needs no loader change.
+let dbBody = """
+METAL_FUNC void gemm_loop_aligned(
+    threadgroup T* As,
+    threadgroup T* Bs,
+    thread mma_t& mma_op,
+    thread loader_a_t& loader_a,
+    thread loader_b_t& loader_b,
+    const int k_iterations,
+    const int a_tile,
+    const int b_tile) {
+  if (k_iterations <= 0) {
+    return;
+  }
+
+  loader_a.load_unsafe();
+  loader_b.load_unsafe();
+  loader_a.next();
+  loader_b.next();
+  loader_a.dst += a_tile;
+  loader_b.dst += b_tile;
+  threadgroup_barrier(mem_flags::mem_threadgroup);
+
+  int cur = 0;
+  for (int k = 1; k < k_iterations; k++) {
+    loader_a.load_unsafe();
+    loader_b.load_unsafe();
+    loader_a.next();
+    loader_b.next();
+
+    mma_op.mma(As + cur * a_tile, Bs + cur * b_tile);
+
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    cur ^= 1;
+    loader_a.dst += cur ? a_tile : -a_tile;
+    loader_b.dst += cur ? b_tile : -b_tile;
+  }
+
+  mma_op.mma(As + cur * a_tile, Bs + cur * b_tile);
+  if (cur) {
+    loader_a.dst -= a_tile;
+    loader_b.dst -= b_tile;
+  }
+}
+
+"""
+
+func makeDbSource() -> String {
+    var s = replaceGemmLoopAligned(baseSource, with: dbBody)
+    let stageOld = """
+      threadgroup T Xs[BM * BK_padded];
+      threadgroup T Ws[transpose ? BN * BK_padded : BK * BN_padded];
+    """
+    let stageNew = """
+      constexpr int kATile = BM * BK_padded;
+      constexpr int kBTile = transpose ? BN * BK_padded : BK * BN_padded;
+      threadgroup T Xs[2 * kATile];
+      threadgroup T Ws[2 * kBTile];
+    """
+    guard s.components(separatedBy: stageOld).count == 2 else {
+        die("staging declaration anchor not unique")
+    }
+    s = s.replacingOccurrences(of: stageOld, with: stageNew)
+
+    let callOld = "gemm_loop_aligned(Xs, Ws, mma_op, loader_x, loader_w, K_it);"
+    let callNew = "gemm_loop_aligned(Xs, Ws, mma_op, loader_x, loader_w, K_it, kATile, kBTile);"
+    let n = s.components(separatedBy: callOld).count - 1
+    guard n == 2 else { die("expected 2 gemm_loop_aligned call sites, found \(n)") }
+    return s.replacingOccurrences(of: callOld, with: callNew)
+}
+
+let variantSource: [String: String] = [
+    "base": baseSource,
+    "nobar": replaceGemmLoopAligned(baseSource, with: nobarBody),
+    "db": makeDbSource(),
+]
+
+// MARK: - device setup
+
+guard let device = MTLCreateSystemDefaultDevice() else { die("no Metal device") }
+guard let queue = device.makeCommandQueue() else { die("no command queue") }
+
+log("device: \(device.name)  maxTG=\(device.maxThreadgroupMemoryLength) B")
+
+func buildLibrary(_ tag: String) -> MTLLibrary {
+    let opts = MTLCompileOptions()
+    opts.fastMathEnabled = false // device.cpp:630
+    let src = variantSource[tag]! + templateDef
+    do {
+        return try device.makeLibrary(source: src, options: opts)
+    } catch {
+        let path = "/tmp/edr110_\(tag).metal"
+        try? src.write(toFile: path, atomically: true, encoding: .utf8)
+        die("compile failed for \(tag) (source at \(path)):\n\(error)")
+    }
+}
+
+func makePipeline(_ lib: MTLLibrary, _ name: String, alignAll: Bool) -> MTLComputePipelineState {
+    let fc = MTLFunctionConstantValues()
+    var t = true
+    for idx in [200, 201, 202] {
+        fc.setConstantValue(&t, type: .bool, index: idx)
+    }
+    do {
+        let fn = alignAll ? try lib.makeFunction(name: name, constantValues: fc)
+                          : lib.makeFunction(name: name)!
+        return try device.makeComputePipelineState(function: fn)
+    } catch {
+        die("pipeline failed for \(name): \(error)")
+    }
+}
+
+// MARK: - problem setup
+
+struct Shape {
+    let tag: String
+    let M: Int
+    let K: Int
+    let N: Int
+}
+
+let shapes: [Shape] = {
+    // Prefill of 512 tokens, top-8 of 256 experts -> 4096 gathered rows.
+    // gate_up: K=hidden 2048 -> N=2*moe_intermediate 1024
+    // down:    K=moe_intermediate 512 -> N=hidden 2048
+    let all = [Shape(tag: "gate_up", M: 4096, K: 2048, N: 1024),
+               Shape(tag: "down", M: 4096, K: 512, N: 2048)]
+    switch env("ED_SHAPE") ?? "both" {
+    case "gate_up": return [all[0]]
+    case "down": return [all[1]]
+    default: return all
+    }
+}()
+
+let numExperts = 256
+let groupSize = 16
+
+func makeBuffer(_ bytes: Int, label: String) -> MTLBuffer {
+    guard let b = device.makeBuffer(length: bytes, options: .storageModePrivate) else {
+        die("alloc \(bytes) failed for \(label)")
+    }
+    b.label = label
+    return b
+}
+
+// Sorted routed indices: contiguous expert runs of realistic (noisy) length.
+func sortedIndices(_ M: Int) -> [UInt32] {
+    var counts = [Int](repeating: 0, count: numExperts)
+    var rng = SystemRandomNumberGenerator()
+    for _ in 0..<M {
+        counts[Int(rng.next(upperBound: UInt32(numExperts)))] += 1
+    }
+    var out = [UInt32]()
+    out.reserveCapacity(M)
+    for e in 0..<numExperts {
+        for _ in 0..<counts[e] { out.append(UInt32(e)) }
+    }
+    return out
+}
+
+struct Problem {
+    let shape: Shape
+    let x: MTLBuffer
+    let w: MTLBuffer
+    let scales: MTLBuffer
+    let indices: MTLBuffer
+    let y: MTLBuffer
+    let sink: MTLBuffer
+    let gridX: Int
+    let gridY: Int
+}
+
+func makeProblem(_ s: Shape) -> Problem {
+    let packFactor = 2 // get_pack_factor<8, 4>()
+    let bytesPerPack = 1 // get_bytes_per_pack<8>()
+    let wBytes = numExperts * s.N * (s.K * bytesPerPack / packFactor)
+    let sBytes = numExperts * s.N * (s.K / groupSize)
+    let idx = sortedIndices(s.M)
+    let idxBuf = device.makeBuffer(bytes: idx, length: idx.count * 4, options: .storageModeShared)!
+    return Problem(
+        shape: s,
+        x: makeBuffer(s.M * s.K * 2, label: "x"),
+        w: makeBuffer(wBytes, label: "w"),
+        scales: makeBuffer(sBytes, label: "scales"),
+        indices: idxBuf,
+        y: makeBuffer(s.M * s.N * 2, label: "y"),
+        sink: makeBuffer(1024, label: "sink"),
+        gridX: (s.N + 31) / 32,
+        gridY: (s.M + 15) / 16)
+}
+
+// MARK: - timing
+
+let reps = envInt("ED_REPS", 4)
+let cbs = envInt("ED_CBS", 9)
+let pairs = envInt("ED_PAIRS", 4)
+
+func timeOne(_ pso: MTLComputePipelineState, _ p: Problem, isNull: Bool) -> Double {
+    var M32 = Int32(p.shape.M), N32 = Int32(p.shape.N), K32 = Int32(p.shape.K)
+    var samples = [Double]()
+    for i in 0..<(cbs + 3) {
+        let cb = queue.makeCommandBuffer()!
+        let enc = cb.makeComputeCommandEncoder()!
+        enc.setComputePipelineState(pso)
+        for _ in 0..<reps {
+            if isNull {
+                enc.setBuffer(p.sink, offset: 0, index: 0)
+            } else {
+                enc.setBuffer(p.x, offset: 0, index: 0)
+                enc.setBuffer(p.w, offset: 0, index: 1)
+                enc.setBuffer(p.scales, offset: 0, index: 2)
+                enc.setBuffer(p.indices, offset: 0, index: 3)
+                enc.setBuffer(p.y, offset: 0, index: 4)
+                enc.setBytes(&M32, length: 4, index: 5)
+                enc.setBytes(&N32, length: 4, index: 6)
+                enc.setBytes(&K32, length: 4, index: 7)
+            }
+            enc.dispatchThreadgroups(
+                MTLSize(width: p.gridX, height: p.gridY, depth: 1),
+                threadsPerThreadgroup: MTLSize(width: 32, height: 2, depth: 1))
+        }
+        enc.endEncoding()
+        cb.commit()
+        cb.waitUntilCompleted()
+        if let e = cb.error { die("command buffer error: \(e)") }
+        if i >= 3 {
+            samples.append((cb.gpuEndTime - cb.gpuStartTime) * 1e3 / Double(reps))
+        }
+    }
+    return median(samples)
+}
+
+// MARK: - main
+
+let tags = ["base", "nobar", "db"]
+var libs = [String: MTLLibrary]()
+for t in tags {
+    libs[t] = buildLibrary(t)
+    log("compiled variant \(t)")
+}
+let nullPso = makePipeline(libs["base"]!, "ed_null_kernel", alignAll: false)
+var psos = [String: MTLComputePipelineState]()
+for t in tags {
+    let p = makePipeline(libs[t]!, kernelName, alignAll: true)
+    psos[t] = p
+    log("  \(pad(t, 6)): tgmem=\(p.staticThreadgroupMemoryLength) B  maxTGThreads=\(p.maxTotalThreadsPerThreadgroup)")
+}
+
+for s in shapes {
+    let p = makeProblem(s)
+    log("")
+    log("=== shape \(s.tag): M=\(s.M) K=\(s.K) N=\(s.N)  grid=\(p.gridX)x\(p.gridY) tgs ===")
+
+    var acc = [String: [Double]]()
+    for t in tags { acc[t] = [] }
+    var nullAcc = [Double]()
+
+    nullAcc.append(timeOne(nullPso, p, isNull: true))
+    for _ in 0..<pairs {
+        // ABBA over the variant list: forward then reverse.
+        for t in tags { acc[t]!.append(timeOne(psos[t]!, p, isNull: false)) }
+        for t in tags.reversed() { acc[t]!.append(timeOne(psos[t]!, p, isNull: false)) }
+    }
+    nullAcc.append(timeOne(nullPso, p, isNull: true))
+
+    let nullMs = median(nullAcc)
+    let baseMs = median(acc["base"]!)
+    log(String(format: "null control  : %8.4f ms/dispatch (n=%d)", nullMs, nullAcc.count))
+    for t in tags {
+        let m = median(acc[t]!)
+        let rel = (baseMs - m) / baseMs * 100.0
+        let spread = (acc[t]!.max()! - acc[t]!.min()!) / m * 100.0
+        log(String(format: "%-6s        : %8.4f ms  vs base %+6.2f %%  (n=%d, spread %.1f %%)",
+                   (t as NSString).utf8String!, m, rel, acc[t]!.count, spread))
+    }
+    // Per-layer projection: 39 MoE layers, one dispatch of this shape each.
+    log(String(format: "per-prefill projection (39 layers): base %.1f ms, nobar %.1f ms, db %.1f ms",
+               baseMs * 39, median(acc["nobar"]!) * 39, median(acc["db"]!) * 39))
+}
