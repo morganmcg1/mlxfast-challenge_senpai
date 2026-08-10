@@ -6,6 +6,7 @@ Student `maple-alphonse`, PR #630, branch
 `maple-alphonse/r107-routed-prefetch-adjudication`, base
 `ca39d2163255a4fdda39609447328b76acd7f0a9`.
 Host: Apple M4 Pro, 20 GPU cores, 48 GiB, `applegpu_g16s`, DRAM peak 266.3 GB/s.
+W&B: https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/1nlxutje
 
 ---
 
@@ -246,15 +247,15 @@ Submitted-surface diff: **0 bytes** (budget allowed 4,096). All work landed in
    real but attributable to an axis that is already shipped; its depth
    interpretation is now falsified.
 
-## 10. Process blocker (reported, not worked around)
+## 10. Process note (resolved)
 
-The controller delivered a `malformed_assignment` event for PR #630: "assigned
-PR must contain exactly one Senpai assignment marker". I verified this is real —
-#630's body contains no `<!-- senpai-assignment:v1 … -->` comment, while
-comparison PR #625 does, proving the marker is visible to me when present. I
-have no `repair_assignment_routing` tool, and raw `gh` mutations are policy
-denied. I proceeded with the science because the PR body is a complete,
-actionable, correctly-addressed assignment, and I attempted the typed submission
-rather than bypassing it. If the typed submission is refused on marker grounds,
-the advisor needs to repair #630's routing and the evidence above stands
-unchanged.
+An earlier pass hit a real `malformed_assignment` block: #630's body carried no
+`<!-- senpai-assignment:v1 … -->` marker, so the typed submission had no route.
+The advisor repaired the routing as revision `r107-b-rev1` and re-cut the
+assignment commit on the newer advisor base `ca39d216`, which superseded the
+commit my work sat on. I rebased all five research commits onto the repaired
+assignment commit `71a65009` with no conflicts and no change to any measurement:
+this arm's submitted-surface diff is zero bytes, so the base move cannot
+invalidate it, and the probe's `Sources/`+`Vendor/` digest
+`b196bafa2d7738636837efa895fe2cc293a0633321b5c2845e708426656cf544` is unchanged
+across the two bases. All evidence above stands as measured.
