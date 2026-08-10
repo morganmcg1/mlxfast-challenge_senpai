@@ -1382,3 +1382,166 @@ margin-certificate capture that puts a worker under `/tmp`, `/var`, or
 error that looks like a harness/protocol bug rather than a path bug. Stage
 inside the checkout.
 
+
+## 17. Arm landing status at 22:35Z, and the occupancy law that three arms now agree on
+
+### 17.1 Landing status — edward #684 is a terminal negative with an empty submitted surface
+
+`git ls-remote --heads origin 'refs/heads/maple-*/r109-*'` at 2026-08-10T22:29Z:
+
+| PR | student | branch head | commits above base | submitted surface |
+| --- | --- | --- | ---: | --- |
+| #681 | frieren | `3bba6e17` | 1 (scaffold) | empty |
+| #682 | nezuko | `ed74b1e5` | 1 (scaffold) | empty |
+| #683 | tanjiro | `a8f35a15` | 9 | `LagunaRuntimeModel.swift` +2410 B, **default no-op** |
+| #684 | edward | **`04f525d1`** (was `1fbd5821`) | **16** | **empty** |
+| #685 | alphonse | `b4801745` | 1 (scaffold) | empty |
+
+Edward advanced 15 commits since my 22:08Z check and published a terminal
+result. `python3 research/fern_r109_budget_forensics.py --audit 1a6761bf
+origin/maple-edward/r109-sliding-attn-qk-mma` returns **`VERDICT: EMPTY
+SUBMITTED SURFACE -- nothing to integrate`**: all 71 changed files are
+research-only under `research/edward-r109/`, and `git diff --stat 1a6761bf --
+Sources Vendor` is empty.
+
+His `research/edward-r109/RESULT.md` records `status: complete`, primary metric
+`mma_shaped_qk_tile_kernel_time_delta_pct_k16 = +3.400` (minimize, so a loss),
+and the verdict **"dead hypothesis … the MMA kernel was not written."** The
+preregistered stop rule ("if arm (b) does not beat arm (a) by >=8% of kernel
+time, do not write the MMA kernel") fired at 6.86% (K=32) / 5.13% (K=16).
+
+**So the ranked queue is still empty.** The advisor's comment 6 §4 slate named
+edward as "the most likely single-arm winner" at a 10.8% harvest off the
+627.3 us/step pool. That arm is now closed by its own measurement, and closed
+in a way that also forecloses re-attempts:
+
+| what | harvest % of the 627.3 us pool | us/step | fraction of the 0.378% bar |
+| --- | ---: | ---: | ---: |
+| delete all 8 `simd_sum` QK reductions, K=16 (M5 TG/core ratio) | 5.13% | 32.2 | **0.47x** |
+| delete all 8 QK reductions, K=32 (M4 scored geometry) | 6.86% | 43.0 | 0.64x |
+| delete the reductions **and** the PV accumulate (incorrect; pure lower bound) | 8.82% | 55.3 | 0.82x |
+| delete reductions + PV, K=32 | 9.54% | 59.9 | 0.89x |
+| **required for the whole bar** | **10.8%** | **67.7** | 1.00x |
+| MMA-shaped arm as measured, K=16 / K=32 | -3.40% / -6.05% | -21.3 / -37.9 | negative |
+
+The load-bearing line is the third one. Deleting *both* epilogue mechanisms
+outright — which is not a legal candidate, it just changes the answer — still
+reaches only 82–89% of the bar. No re-expression of this kernel's epilogue can
+clear 0.378% on its own. The 627.3 us pool is not a 68 us pool.
+
+Note edward priced against the advisor's comment-4 constant 0.0056 %/busy-us
+(bar 68 us). That is more conservative still than the comment-6 chain
+(0.00702, bar 53.8 us) and than my measured `--local-iterate` constant
+(0.00758, bar 49.9 us). Even at my least conservative M4 constant the
+free-reduction ideal of 32.2 us reaches 0.24% — the ranking is unchanged by the
+choice of constant, which is what makes this refutation robust.
+
+### 17.2 Edward's threadgroup ladder corrects a campaign constant by 33x
+
+The most valuable thing in edward's stage is not the refutation, it is the
+absolute ladder he measured on the way to it (base kernel only, threadgroup
+1024 threads, K = threadgroups dispatched, 31 rounds x 200 reps, 20 GPU cores):
+
+| K | TG/core | base us | us/K | t(2K)/t(K) |
+| ---: | ---: | ---: | ---: | ---: |
+| 4 | 0.20 | 8.84 | 2.2097 | 1.0506 |
+| 8 | 0.40 | 9.29 | 1.1608 | 1.0168 |
+| 16 | 0.80 | 9.44 | 0.5901 | 1.9706 |
+| 20 | **1.00** | 9.66 | 0.4832 | 1.9867 |
+| 32 | 1.60 | 18.61 | 0.5815 | 1.8403 |
+| 40 | 2.00 | 19.20 | 0.4800 | — |
+| 64 | 3.20 | 34.24 | 0.5350 | — |
+
+Two readings, both campaign-level:
+
+1. **Time is flat from K=4 to K=20** — 5x the threadgroups for +9% wall — and
+   then doubles across each integer threadgroups-per-core boundary. One
+   threadgroup's dependent chain is the whole wave up to 1.0 TG/core.
+2. **The per-dispatch fixed cost fits at 0.12 us**, not the 3.97 us intercept
+   of the constant previously in use. That is a **33x correction downward**.
+
+### 17.3 Cross-validation: my fusion census and edward's ladder are the same result
+
+I reported in §7.6 that B-C — which is exactly and only the norm+QKV fusion —
+measured decode **+0.417% +/- 0.973%**, i.e. deleting 40 norm dispatches, 40
+read-after-write barriers, and the whole 142.3 us/step `rmsbfloat16` kernel is
+net zero-to-negative. At the time I could only say the bespoke fused matmul
+must be ~180 us/step more expensive than stock. Edward's 0.12 us/dispatch
+prices the other side of that ledger for the first time:
+
+* 40 deleted dispatches x 0.12 us = **4.8 us/step = 0.034% of score.**
+
+So the savings side of a fusion is essentially *only* the deleted kernel's own
+time, never the dispatch count. Under the retired 3.97 us constant the same 40
+dispatches would have looked like 158.8 us/step — comparable to the entire
+`rmsbfloat16` pool, and enough to make "fuse to remove dispatches" look like a
+headline mechanism. **It is not one.** This retroactively explains why my B-C
+cell came back at zero rather than at the several-hundred-microsecond win the
+dispatch-count reasoning predicted, and it is an independent second data point
+for edward's number obtained end-to-end on the scored harness rather than in a
+microbenchmark.
+
+### 17.4 The synthesis: this decode path is wave-quantized, not dispatch- or reduction-bound
+
+Four independent measurements from three students now point one way:
+
+| # | measurement | reading |
+| --- | --- | --- |
+| M1 | edward's ladder: flat to 1.0 TG/core, doubling after | occupancy/waves quantize the time |
+| M2 | edward's epilogue ceiling: deleting all cross-lane reduction buys <=6.9% of its kernel | arithmetic/reduction work inside a kernel is not the binding cost |
+| M3 | frieren's Rule 102 wide-codes: one `uint4` instead of two `uint2` doubled per-lane registers, halved independent K-iterations, and cost **+12.2% on its own target kernel** (-0.54% of score) | register footprint dominates instruction count |
+| M4 | my B-C fusion cell: -40 dispatches, -40 barriers, -142.3 us kernel ⇒ net **+0.417%** | dispatch count and barrier count are nearly free |
+
+The consistent model: **cost is set by how many waves of threadgroups have to
+run and by how much state each lane carries, not by dispatch count and not by
+per-lane instruction count.** The actionable corollaries are uncomfortable:
+
+* *Fusing to delete dispatches is worth ~0.12 us each.* Dead as a headline.
+* *Deleting arithmetic inside a kernel is capped at single-digit percent of
+  that kernel*, so no pool below roughly 800 us/step can reach 54 us by
+  getting cheaper per lane.
+* *Anything that raises register or threadgroup-memory footprint loses even
+  when it lowers instruction count* (M3), which is a general veto on
+  wider-load and bigger-tile rewrites.
+* The four largest pools — routed swiglu 1501.4, `oproj_act_h64` 1119.2,
+  routed shared down 861.2, and much of `decode_nvfp4_qkv_h64` 1340.7 — are
+  already at or near the 263 GB/s DRAM ceiling at 235–265 GB/s achieved, so
+  they cannot be made faster by any amount of arithmetic cleverness either.
+
+Squeezed between a bandwidth ceiling above and a single-digit arithmetic
+ceiling below, the remaining lever is the one M1 actually exposes: **change how
+many waves run**, by lowering footprint so more threadgroups are resident, or
+by redistributing work so the total threadgroup count lands just under an
+integer TG/core boundary rather than just over it. Note how brutal that
+boundary is in edward's own table: K=20 is 9.66 us and K=32 is 18.61 us, so a
+kernel sitting at 1.6 TG/core is paying **1.93x for 1.6x the work**. Landing
+work at 1.0 TG/core instead of 1.6 would be worth ~48% of such a kernel — the
+only measured effect size in this whole table that is the right order of
+magnitude for the bar.
+
+I have referred this synthesis, including its weakest joints (whether the
+K=20->32 doubling is really wave quantization, and whether a 0.12 us
+per-dispatch cost measured within a batch of identical kernels legitimately
+generalises across read-after-write barriers), for independent adversarial
+review, and will report the critique separately rather than let the programme
+act on a single unchallenged story.
+
+### 17.5 What this means for the remaining ~13 hours
+
+Stated plainly, because the advisor needs it plainly: **at 22:35Z the ranked
+queue is empty, the arm the advisor ranked first is terminally refuted by its
+own preregistered rule, the arm ranked third (tanjiro #683) has landed only a
+default no-op probe whose commits read "end-to-end refutation" and "occupancy
+null", and the remaining three arms have not landed a byte of submitted
+surface.** Nothing currently in flight has produced a candidate that clears
+`e27f1ce`, and three of the five arms would have to go from scaffold to
+verified win inside the remaining window.
+
+I am not authorized to decide whether to submit, and I am not proposing that we
+do. What I am reporting is that the default outcome — hold `e27f1ce` at
+2.60664969895906 and fire nothing — is now the *likely* outcome unless
+something lands, and that this is the correct outcome if nothing clears the
+bar. Three receipts taken after `e27f1ce` were all worse (2.59380735,
+2.58107302, 2.56572014); a fourth speculative receipt would cost the single
+shared queue slot and, on the evidence above, would be expected to join them.
+
