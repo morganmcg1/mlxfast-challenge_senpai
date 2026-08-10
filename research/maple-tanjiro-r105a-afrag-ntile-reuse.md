@@ -876,13 +876,24 @@ instrument is what showed the ladder is too short.
 |---|---|---|---|---|---|---|---|
 | A0-1 | 5 (default) | `69fb349b` | `51b6c142` | 96.031 ms | 4.16167 ms | 2.57065175986034 | pass, `max_abs_diff=0`, 1344 steps, GPQA 9/9 |
 | A0-2 | 5 (default) | `c7930407` | `fdeb4561` | 96.299 ms | 4.16234 ms | 2.56976261057539 | pass, `max_abs_diff=0`, 1344 steps, GPQA 9/9 |
+| A2-1 | 8 (down-proj bn=128) | `288c7025` | `b4c9b4e4` | 97.183 ms | 4.17110 ms | 2.55214102802847 | pass, `max_abs_diff=0`, 1344 steps, GPQA **8/9** |
+| A0-3 | 5 (default) | `d4a86ffd` | in flight | — | — | — | queued 05:23:27Z |
 
-Receipt budget consumed: **2 / 8**. All arms are bit-identical by construction —
-the only difference between A0 rungs is a comment — so `max_abs_diff = 0` is the
-falsifiable prediction, and any nonzero value would refute the "inert by
-default" claim in §0. Both rungs also passed both `0.95` floors, so the
-`rejected` status on each is a *ranking* verdict (neither beat the current best)
-and not a correctness or floor failure.
+Receipt budget consumed: **4 / 8**. The A0 rungs are bit-identical to each other
+by construction — the only difference between them is a comment — so
+`max_abs_diff = 0` is the falsifiable prediction for those, and any nonzero
+value would refute the "inert by default" claim in §0. Every rung so far passed
+both `0.95` floors, so the `rejected` status on each is a *ranking* verdict
+(none beat the current best) and not a correctness or floor failure.
+
+**Correction.** An earlier version of this paragraph said "all arms are
+bit-identical by construction". That is wrong for the treatment arms and I
+should not have written it. A0 rungs differ only in a comment, but changing the
+`bn` tile changes the reduction geometry of the routed GEMM, so the
+accumulation order changes and low-order bits of the output may differ from
+variant 5. The correctness gate is therefore a real gate for A1 and A2 rather
+than a formality, and `max_abs_diff = 0` on the checked teacher-forced tokens is
+an empirical result for them, not a guarantee. §4.4.4 records where this bit.
 
 ### 4.4.1 The replicate pair overturns §4.2's resolution table
 
@@ -1090,6 +1101,71 @@ was prose with no code behind it and is now the explicit
 small, `NULL-underpowered` becomes *unreachable* — the interval cannot
 simultaneously reach the bar and keep Δ̂ under 2·SE — so an underpowered null is
 a symptom of a loose σ̂, not an inevitable outcome of a short ladder.
+
+### 4.4.4 A2 (down-projection only, variant 8) is slower on both axes
+
+A2-1 landed at 05:24:04Z. It is not a win and not an underpowered null; it is a
+measurable slowdown, and the ladder returns that verdict from a single treatment
+receipt.
+
+| channel | A0 mean (n=2) | A2-1 | Δ̂ (control − arm) | σ̂₁ | SE | z |
+|---|---|---|---|---|---|---|
+| prefill wall | 96.16512 ms | 97.18342 ms | **−1.01829 ms** (−1.059 %) | 0.18950 | 0.23209 | **−4.39** |
+| pure step | 4.162005 ms | 4.171095 ms | **−0.00909 ms** (−0.218 %) | 0.000475 | 0.000582 | **−15.6** |
+
+Applying §4.4.2 at ν = 1, t₀.₉₅ = 6.314: CI90 = [−2.484, **+0.447**]. The upper
+bound is below the 1.35 ms bar, so **A2 is `NULL-bar-excluded`** — a 1.35 ms
+prefill benefit from putting the down projection on bn=128 is ruled out at
+one-sided 95 %. It is not yet a *formal* regression, which needs Δ̂ + t·SE < 0,
+i.e. Δ̂ < −1.466 ms at this ν.
+
+I owe a correction to §4.4.2 here. That table says bar-exclusion at ν = 1
+"needs Δ̂ < −0.12 ms — unattainable". The arithmetic was right and the word was
+wrong: the condition is unattainable only for an arm that *helps*, and it is
+perfectly attainable for an arm that hurts. A2 met it comfortably. What ν = 1
+genuinely cannot do is declare a win.
+
+**The step channel is the more interesting number.** I expected the bm128 staged
+path to be prefill-shaped only, so the honest prediction was that the pure step
+would not move. It moved at z = −15.6. That is not archive noise: the A0 rungs
+differ only by a comment and their step channel scatters by 0.00048 ms, roughly
+nineteen times smaller than A2-1's shift. So flipping the routed down projection
+to bn=128 reaches the single-row decode GEMM as well — either the selector is
+consulted on decode-shaped calls too, or the change perturbs something global
+such as pipeline/kernel-cache residency. Since decode carries 75 % of the score
+weight, a 0.218 % step regression costs more than the 1.06 % prefill regression
+does: `decode_speedup` fell 0.439 % and `prefill_speedup` fell 1.490 %, for a
+0.703 % `officialScore` drop (2.55214 vs the 2.57021 A0 mean).
+
+**The GPQA 8/9 is a real observation, not a rounding artefact.** Both A0 rungs
+scored 9/9; A2-1 scored 8/9 while still reporting `passed_correctness = true`,
+`max_abs_diff = 0` over 1344 checked steps, and both floors passing. These are
+consistent: `max_abs_diff` covers teacher-forced checked tokens, whereas the
+semantic GPQA judge scores a *free* run, where a single near-tie argmax flip can
+propagate. Because variant 8 changes the reduction geometry it is not bit-exact
+against variant 5 (§4.4 correction), so a free-run divergence is a live
+explanation; judge nondeterminism is the other. I cannot separate them from one
+receipt and I am not going to claim the arm is bit-exact. It does not change the
+verdict — the arm is slower on both timing axes — but it does mean a *winning*
+tile change would have needed replicated GPQA evidence before I would trust it.
+
+**Preregistered consequence for the remaining slots**, recorded now, while A1-1
+is queued and unread:
+
+- A0-3 is already in flight, and at ν = 2 (t = 2.92) A2's upper bound becomes
+  −1.018 + 2.92·SE₃. For σ̂₃ anywhere near the pair value that is negative, so
+  **A0-3 will likely upgrade A2 from bar-excluded to a formal regression without
+  spending a treatment slot on it.** This is an unplanned dividend of the
+  §4.4.2 reorder, which I justified purely on making A2 decidable.
+- Slot 6 was reserved for "replicate of the larger |Δ̂|", which is A2. I am
+  overriding that: replicating A2 would only harden a negative that is already
+  bar-excluded and cannot change any shipping decision. Slot 6 goes to whichever
+  arm is still live after A1-1.
+- If A1-1 also comes back bar-excluded or negative, then both treatments are
+  bar-excluded at ν ≥ 2 and §4.4.2's early-stop clause fires: the ladder stops
+  with slots unspent and the verdict is NULL-with-the-bar-excluded for both
+  routed shapes, the default stays at variant 5, and per §5.2 the PR is **not**
+  merged for being harmless.
 
 
 ---
