@@ -265,3 +265,163 @@ the full-surface form of gate 1 would (correctly) fail on the comment-only
 advisor's stated risk — that our `LagunaRuntimeModel.swift` might reference the two
 deleted `MLXFastTransform` files — does not materialise, because T1 replaces that
 file too. No part of the ~2 h N-BUILD timebox was needed.
+
+---
+
+## 4. Stage 1 result — T1 is correctness-neutral and measurably faster
+
+### 4.1 T1 force-clean build and golden set
+
+`research/r106j/scripts/clean_build_and_iterate.sh T1`, job `d29cb081`, rc 0, 305 s.
+The `mlx.metallib` and its `.fingerprint` are preserved across the `rm -rf .build-worker`
+so the AOT kernel set is provably held fixed; everything else is rebuilt from source.
+
+| field | T0 | T1 | reading |
+|---|---|---|---|
+| `passed_correctness` | true | true | — |
+| `max_abs_diff` | 0 | 0 | — |
+| `checked_steps` | 130 | 130 | — |
+| `golden_hash` | `b9509697c08a2cf3…` | `b9509697c08a2cf3…` | **identical** |
+| `harness_hash` | `5cfe4988ee50e923…` | `67c7995898eacb35…` | **differs — positive control** |
+| `peak_ram_gb` | 21 | 21 | — |
+| decode s/token | 0.0129993912734375 | 0.0129027454453125 | T1 faster |
+| prefill s/token | 0.001112037677734375 | 0.001124023681640625 | T0 faster on this single pair |
+
+The pair of hashes is the point. `golden_hash` is a function of the emitted token
+stream; it is unchanged, so **every checked greedy token is identical**. `harness_hash`
+is a function of the submitted surface; it moved, so the harness did observe a
+different tree and the identical `golden_hash` is not a stale-artefact reading.
+
+Rule 75, BINDING, from `research/artifacts/maple-fern-r106j/{T0,T1}.status`:
+
+| artefact | T0 | T1 |
+|---|---|---|
+| `mlxfast-runtime-worker` sha256 | `5cdfa7a1632001117deacbeed599439e5c8f84106cfc53a43bd9806e01a24199` | `ff2939002010fb610998958a8369587f64eb06a173bb6b6db6441e446aaa431e` |
+| worker bytes | 49,185,640 | 49,091,304 (−94,336) |
+| `mlx.metallib` sha256 | `8e8b18afaee1ed5a0190403f79a4cc74b9bebcb52b50c4b67d0ed91dc73097ec` | **identical** |
+| `mlx.metallib` bytes | 158,502,072 | **identical** |
+
+The byte-identical metallib is the empirical confirmation of the §2.3 comment-only
+proof: the two arms differ only in Swift, never in a Metal kernel.
+
+> ⚠️ **A binary hash is not an arm identity.** Across the sweep of §4.3 the worker
+> sha256 took five distinct values on T0 and four on T1 — incremental relinks are not
+> reproducible byte-for-byte. Only a *force-clean* build hash is a binding Rule 75
+> artefact. Arm identity in the sweep is asserted by `git diff --numstat <arm-sha> --`
+> being empty before every run, not by a binary digest.
+
+### 4.2 T1 upstream equivalence — a null differential
+
+`research/run_upstream_equivalence.sh` on T1: job `341f22cf`, exit 1, 40.03 s,
+`EQUIVALENCE_EXACT_STEPS=8`, 1 real test executed.
+
+**The T1 report is digit-for-digit identical to the T0 report of §2.6.** md5 over
+every numeric line of the two reports is `740d5ab196ecaa4f5824175f8769ac3b` in both
+cases; only the wall-clock line differs.
+
+- prefill `maximumAbsoluteLogitError` 0.125, `meanAbsoluteLogitError` 0.011933609 — in **both** arms
+- all 8 decode steps exactly 0.0 — in **both** arms
+- all 9 argmax tokens identical (the 5991/509/902 pattern) — in **both** arms
+
+The oracle exits 1 on this M4 for the *unchanged base too* (§2.6, Rule 83 prior art in
+six campaign documents), so it is usable only as a **differential** instrument. As a
+differential it returns exactly zero: **T1 is equivalence-neutral.**
+`MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT` was never set, at any point, in any run in this report.
+
+### 4.3 The paired ABBA sweep — the primary measurement
+
+Design: 3 ABBA blocks, 12 runs, `research/r106j/scripts/abba_t0_t1.sh 3 T1`,
+launched 2026-08-10T11:12:24Z, 2,229 s wall. Blocks alternate `T0 T1 T1 T0` and
+`T1 T0 T0 T1`, so each block contributes one drift-cancelling contrast and the
+**block is the independent unit**: dof = nblocks − 1.
+
+Arm switching rewrites only the two `Sources/` grants, so every run in the sweep
+shares one identical `Vendor/**` tree and one identical `mlx.metallib`. Before each
+run `git diff --numstat <arm-sha> -- <the two grants>` is asserted empty; a
+non-empty result aborts the sweep.
+
+Estimator (Rule 40, named before the first number was read):
+
+```
+d(ln score) = -0.75 * d(ln decode_s_per_token) - 0.25 * d(ln prefill_s_per_token)
+```
+
+This is the exact log of the scored quantity, is dimensionless, and is therefore the
+only form of this measurement that can survive the M4→M5 step-time mismatch.
+
+**Correctness across all 12 runs: 0 failures, `max_abs_diff` 0 everywhere, and exactly
+one distinct `golden_hash` (`b9509697c08a2cf3`) across both arms.**
+
+Within-arm dispersion, n = 6 per arm:
+
+| arm | decode mean s/tok | decode CV | prefill mean s/tok | prefill CV |
+|---|---|---|---|---|
+| T0 | 0.012973630 | 0.4472 % | 0.001118728 | 0.7354 % |
+| T1 | 0.012933703 | 0.2349 % | 0.001112900 | 0.4538 % |
+
+Block contrasts, T1 minus T0, natural log, n = 3 blocks, dof = 2, t(0.975) = 4.303:
+
+| quantity | estimate | CI95 | block sd | blocks favouring T1 |
+|---|---|---|---|---|
+| d(ln decode) | −0.3076 % | [−0.4942, −0.1210] | 0.0751 % | 3/3 |
+| d(ln prefill) | −0.5209 % | [−1.2662, +0.2243] | 0.3000 % | 3/3 |
+| **d(ln score)** | **+0.3610 %** | **[+0.2792, +0.4428]** | **0.0329 %** | **3/3** |
+
+Per-block `d(ln score)`: +0.3489 %, +0.3982 %, +0.3358 %.
+
+**V-T1 fires.** The CI95 on the primary metric excludes zero on the favourable side,
+every block agrees in sign, and the registered −0.40 % inferiority margin is cleared
+with room to spare. Raw rows: `research/artifacts/maple-fern-r106j/abba/runs.tsv`;
+per-run logs and score JSON: `abba/run<idx>.<arm>.{log,json}`.
+
+### 4.4 An instrument artefact I found in my own design, and its sign
+
+`abba_t0_t1.sh` rewrites `Sources/` before every run, but Swift's incremental build
+is content-addressed: when a run's arm equals the previous run's, nothing recompiles.
+That run therefore also skips ≈40 s of incidental GPU cooldown and **starts hotter**.
+Its wall time drops from ≈195 s to ≈155 s and its measured time rises.
+
+`research/r106j/scripts/abba_slot_diagnostic.py`, output in
+`abba/slot_diagnostic.txt`, expresses every run as a log deviation from its own
+arm's mean, which removes the arm effect and isolates the slot:
+
+| slot | n | decode dev | prefill dev |
+|---|---|---|---|
+| freshly recompiled | 9 | −0.0973 % | −0.1350 % |
+| **reused previous build** | 3 | **+0.2897 %** | **+0.3987 %** |
+
+The reuse slot is always position 3 of a block. Over 3 blocks it was held by **T1
+twice and T0 once**, so the artefact is *not* balanced and it penalises T1:
+
+```
+bias on d(ln score) = -0.75*(p_dec/2)*(2-1)/3 - 0.25*(p_pre/2)*(2-1)/3
+                    = -0.75*(0.387/6) - 0.25*(0.534/6)  =  -0.071 %
+```
+
+The per-block pattern is exactly what that model predicts: block 2 is the one block
+whose reuse slot was held by **T0**, and it is the largest at +0.3982 % against
++0.3489 % and +0.3358 % for the two T1-slot blocks.
+
+So **the headline +0.3610 % understates T1 by roughly 0.07 %**; the artefact-corrected
+point estimate is ≈ **+0.43 %**. I am *not* promoting the corrected figure — it is a
+model-based adjustment on n = 3. The experimental fix is to run an even number of
+blocks, which hands the slot to each arm three times and cancels the bias exactly.
+Blocks 4–6 are running for that reason, and `abba_t0_t1.sh` now continues the block
+phase across invocations instead of restarting it (which would have made the
+imbalance *worse*, 4:2, rather than curing it).
+
+### 4.5 What this measurement is, and what it is not
+
+- It **is** a paired, blocked, drift-cancelled, correctness-gated M4 wall-clock result
+  on a dimensionless log-ratio of the exact scored quantity.
+- It is **not** an M5 result. M4 Pro reports Apple GPU generation 16 and cannot select
+  the `_nax` prefill kernels the ranked M5 uses. The T0→T1 delta is entirely Swift-level
+  (§2.3 proves the Metal side is untouched, and the byte-identical metallib of §4.1
+  confirms it), so the kernel-family reachability objection does not apply to the
+  *mechanism*; the campaign's recorded M4→M5 discount menu (×1.000 / ×0.622 / ×0.505 /
+  ×0.436) still applies to the *magnitude*. At ×0.505 the +0.36 % becomes +0.18 %.
+- It is corroborated, independently and on the ranked channel, by the fact that the
+  `Sources/` tree it replays produced the campaign's **best-ever official receipt**
+  (`cs` 2.590559) against the merged frontier's 2.582286 — a gap of +0.32 %, the same
+  sign and very nearly the same size as the M4 paired estimate.
+
