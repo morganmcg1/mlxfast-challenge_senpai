@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Publish the R106-H channel-economics result to W&B.
 
-Everything logged is parsed from the committed stage-a/b/c JSON, so the run and
+Everything logged is parsed from the committed stage-a/b/c/d JSON, so the run and
 `research/maple-nezuko-r106h-channel-economics.md` cannot disagree.
 
 Usage: nezuko_r106h_wandb_log.py STAGE_A_JSON STAGE_B_JSON STAGE_C_JSON
+                                 STAGE_D_JSON
 """
 import json
 import os
@@ -23,10 +24,11 @@ CORPUS_SHA256 = (
     "d450b5b5dc895f0d2d4de52d790035e88ea2e55255fed1ae04c80a9a7c70c12b")
 
 
-def main(path_a, path_b, path_c):
+def main(path_a, path_b, path_c, path_d):
     a = json.load(open(path_a))
     b = json.load(open(path_b))
     c = json.load(open(path_c))
+    d = json.load(open(path_d))
 
     lnL = a["A1"]["lnL"]
     sig = b["sigma_cs"]
@@ -70,6 +72,12 @@ def main(path_a, path_b, path_c):
         "outcome_V_DRIFT": True,
         "outcome_V_BASELINE": True,
         "outcome_V_COMMON_prefill_beta_zero": True,
+        "stage_d_rule_93_4_verified": True,
+        "stage_d_note_key_over_groups": True,
+        "stage_d_homogeneity_rejected": False,
+        "stage_d_outlier_found": False,
+        "stage_d_R106E_DRAW_receipts_in_corpus":
+            d["D1_draw01_guard"]["n_notes_matching_R106E_DRAW"],
     }
 
     summary = {
@@ -177,6 +185,74 @@ def main(path_a, path_b, path_c):
         "state_doc_sha_cc6ddc12_found": prov["record_sha_cc6ddc12_in_corpus"],
         "n_corpus_receipts_at_or_above_record":
             prov["n_corpus_receipts_at_or_above_record"],
+        # --- Stage D: verification, key adjudication, axes ---
+        "d2_advisor_pool_sd_pct":
+            d["D2_advisor_families"]["pool_from_corpus_matched_values"][
+                "pooled_sd_pct"],
+        "d2_advisor_pool_dof":
+            d["D2_advisor_families"]["pool_from_corpus_matched_values"]["dof"],
+        "d2_max_abs_err_vs_advisor_quote": max(
+            m["abs_err"]
+            for f in d["D2_advisor_families"]["families"].values()
+            for m in f["members"]),
+        "d3_note_key_vs_group_key_F":
+            d["D3_key_adjudication"]["note_key_vs_group_key_F"]["F"],
+        "d3_note_key_vs_group_key_p":
+            d["D3_key_adjudication"]["note_key_vs_group_key_F"]["p_two_sided"],
+        "d3_note_key_vs_member_key_p":
+            d["D3_key_adjudication"]["note_key_vs_member_key_F"]["p_two_sided"],
+        "d3_n_families_disagreeing_with_byte_key": sum(
+            1 for f in d["D3_key_adjudication"]["families_vs_byte_key"]
+            if f["n_members_outside_any_byte_verified_group"] > 0),
+        "d4_bartlett_advisor_families_p":
+            d["D4_homogeneity"]["bartlett_advisor_families"]["p"],
+        "d4_bartlett_byte_verified_p":
+            d["D4_homogeneity"]["bartlett_byte_verified_groups"]["p"],
+        "d4_era_variance_ratio_F": d["D4_homogeneity"]["era_variance_ratio"]["F"],
+        "d4_era_variance_ratio_p":
+            d["D4_homogeneity"]["era_variance_ratio"]["p_two_sided"],
+        "d5_robust_pooled_sd_pct":
+            d["D5_robust_vs_classical"][
+                "robust_pooled_sd_pct_from_centred_deviations"],
+        "d5_max_abs_studentised_deviation":
+            d["D5_robust_vs_classical"]["max_abs_studentised_deviation"],
+        "d5_leave_one_out_lo_pct":
+            d["D5_robust_vs_classical"]["leave_one_out_range_pct"][0],
+        "d5_leave_one_out_hi_pct":
+            d["D5_robust_vs_classical"]["leave_one_out_range_pct"][1],
+        "d6_baseline_sigma_prefill_axis_pct":
+            d["D6_two_axis_reconstruction"]["baseline_axes_all_receipts"][
+                "sigma_prefill_axis_pct"],
+        "d6_baseline_sigma_decode_axis_pct":
+            d["D6_two_axis_reconstruction"]["baseline_axes_all_receipts"][
+                "sigma_decode_axis_pct"],
+        "d6_candidate_sigma_decode_axis_pct":
+            d["D6_two_axis_reconstruction"]["candidate_axes_matched_dof"][
+                "sigma_decode_axis_pct"],
+        "d6_candidate_sigma_prefill_axis_pct":
+            d["D6_two_axis_reconstruction"]["candidate_axes_matched_dof"][
+                "sigma_prefill_axis_pct"],
+        "d6_lottery_prefill_axis_variance_share": (
+            d["D6_two_axis_reconstruction"]["baseline_axes_all_receipts"][
+                "sigma_prefill_axis_pct"]
+            / d["D6_two_axis_reconstruction"]["baseline_axes_all_receipts"][
+                "reconstructed_sd_pct"]) ** 2,
+        "d6_candidate_decode_axis_variance_share": (
+            d["D6_two_axis_reconstruction"]["candidate_axes_matched_dof"][
+                "sigma_decode_axis_pct"]
+            / d["D6_two_axis_reconstruction"]["candidate_axes_matched_dof"][
+                "reconstructed_sd_pct"]) ** 2,
+        "d6_n_minus_1_divisor_bias":
+            d["D6_two_axis_reconstruction"]["candidate_axes_naive_n_minus_1"][
+                "rel_residual"],
+        "d7_maple_sd_lnL_pct":
+            d["D7_launch_partition"]["blocks"]["maple"]["sd_lnL_pct"],
+        "d7_unattributed_sd_lnL_pct":
+            d["D7_launch_partition"]["blocks"]["unattributed"]["sd_lnL_pct"],
+        "d7_maple_vs_unattributed_F":
+            d["D7_launch_partition"]["maple_vs_unattributed"]["F"],
+        "d7_maple_vs_unattributed_p":
+            d["D7_launch_partition"]["maple_vs_unattributed"]["p_two_sided"],
     }
 
     run = wandb.init(entity=ENTITY, project=PROJECT, group=GROUP,

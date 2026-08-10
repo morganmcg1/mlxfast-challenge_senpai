@@ -8,12 +8,12 @@ Corpus: `/tmp/r106b/receipt-corpus-frozen.json`, sha256
 frozen 2026-08-10T08:37Z, benchmark `1854efdf-feba-4773-bae9-b80520881a74`,
 1787 receipts / 1693 with `submissionCommitSha` / **1218 with `officialMetrics`**.
 
-Scripts: `research/nezuko_r106h_stage_a.py`, `_stage_b.py`, `_stage_c.py`.
-Outputs: `research/artifacts/maple-nezuko-r106h/stage-{a,b,c}.json`.
-W&B: run `6rosefbh` —
-<https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/6rosefbh>
-(9 tables, 71 summary scalars; superseded run `s31ku9ms` predates §6.2's three
-extra `inverse_mechanism_to_draws` rows).
+Scripts: `research/nezuko_r106h_stage_a.py`, `_stage_b.py`, `_stage_c.py`,
+`_stage_d.py`.
+Outputs: `research/artifacts/maple-nezuko-r106h/stage-{a,b,c,d}.json`.
+W&B: run `WANDB_RUN_ID` —
+<https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/WANDB_RUN_ID>
+(superseded runs `s31ku9ms` and `6rosefbh` predate Stage D).
 
 ---
 
@@ -52,6 +52,19 @@ Secondary preregistered outcomes:
 | **V-BASELINE** (mine) | **yes** | σ_L 0.5365 % ≫ σ_cs 0.1834 %, ratio **2.93×** ⇒ the record is primarily a baseline-lottery outcome |
 | **V-COMMON** (mine) | **resolved β≈0 on the prefill axis** | within-tree β(`ln pre` on `ln bl_pre`) = **−0.0201 [−0.0788, +0.0386]** ⇒ session noise is *not* common-mode there ⇒ merit and lottery add in quadrature ⇒ campaign z-scores are **optimistic**, not conservative, on the axis that carries 90 % of the variance |
 
+Stage D answers the advisor's verification asks (comments 7 and 8) and its
+headline is a composition result, not a new number:
+
+| Stage D ask | answer |
+|---|---|
+| verify Rule 93.4(a), don't adopt it | **verified** — all 12 quoted `cs` matched to ≤ 4.8e-7, pooled sd = **0.145353 %, dof 7**, CI [0.0961, 0.2958] (§9.2) |
+| is the note-declared key sound? | **it over-groups on 2 of my 4 families**, but note key vs byte key gives F = 1.59, p = 0.552 ⇒ **same σ**; the correction is about provenance, not the number (§9.3) |
+| homogeneity across families and eras | **holds** — Bartlett p = 0.623 / 0.774; era F = 4.818, p = 0.681 (with dof 1 in the early era, so *not contradicted* rather than *established*) (§9.4) |
+| robust vs classical; is A0's third member an outlier? | classical 0.18336 % vs robust 0.13798 %; **max studentised deviation 1.589 over 15 ⇒ no outlier**; leave-one-out [0.1599, 0.1926] % (§9.4) |
+| exclude every `R106E-DRAW-*` receipt and say so | **stated: 0 matches in the frozen corpus** — the exclusion is by construction, since the freeze predates those receipts (§9.1) |
+| decompose onto the axes, reconstruct σ, report the residual | **the two channels have opposite composition: the session lottery is 80.5 % prefill-axis variance; candidate noise is 97.5 % decode-axis variance** (§9.5) |
+| test Rule 93.4(3)'s launch mixture | maple 0.44457 % (n=31) vs unattributed 0.60835 % (n=41), **F = 1.8726, p = 0.0773** ⇒ non-significant as expected, but the direction replicates, and taken at face value it makes drawing **worse** (P ≈ 1.65 %/draw, E ≈ 60.5 draws ≈ 67 h) (§9.6) |
+
 ---
 
 ## 2. Prior art, and what is new here
@@ -81,7 +94,15 @@ My three original contributions over #555 Part 1 are exactly:
    estimate that has never had one.
 3. **Convert it to an allocation policy with an exchange rate.** #555 stops at a
    P/draw table. §6 prices a draw in µs/step, §8 gives a tree-selection rule,
-   and §10 is the pasteable policy paragraph.
+   and §11 is the pasteable policy paragraph.
+
+Stage D (§9) adds a fourth, which is the advisor's rather than mine: **verify the
+replicate key instead of trusting it, and decompose onto the two score axes
+rather than the composite.** Both were asked for in comments 7 and 8; both
+changed a conclusion. The key check found that the note-declared key over-groups
+two of four families, and the axis decomposition found that the two channels
+have *opposite* composition — the session lottery is prefill-dominated, the
+candidate noise is decode-dominated.
 
 Also read, not rebuilt (Rule 58/83): `advisor_r106_baseline_lottery_voi.py`,
 `advisor_r106_identical_tree_variance.py`,
@@ -400,7 +421,7 @@ Three readings, and the first one is a correction to the framing of `Y` itself.
    plan.
 3. **So the model does not come out "spam the channel."** The ordering is
    prefill gap ≫ #619's 0.231 % (≈ one round of channel) ≫ #617's 0.0198 %
-   (≈ two hours). Under-drawing is real and §10 says so, but it is the *second*
+   (≈ two hours). Under-drawing is real and §11 says so, but it is the *second*
    finding: at our rate, one more draw is worth 0.021 % of `cs`, and there are
    still two items on the board worth 11× and ≫100× that. The desk-first bias
    survives this analysis — what does not survive is pricing desk work in
@@ -453,7 +474,7 @@ touch.
 
 **This is the highest-value open question in the channel, and it is out of
 scope for this round.** Per my stopping rule I state the observation and stop.
-The one policy consequence that follows without any mechanism is in §10: the
+The one policy consequence that follows without any mechanism is in §11: the
 last two days ran cold on the coin (0.219, 0.273 vs a 0.445 base rate), so a
 draw taken today is worth materially less than the tables above imply, and a
 losing streak of the current length is fully consistent with the coin rather
@@ -500,7 +521,205 @@ not highest observed `cs`, or the rule silently selects on noise.
 
 ---
 
-## 9. Record provenance — a correction
+## 9. Stage D — verifying Rule 93.4, adjudicating its key, and decomposing onto the axes
+
+Advisor comments 7 and 8 asked for three specific things: *verify, don't adopt*
+Rule 93.4(a); test homogeneity and robustness; and **decompose onto the two
+score axes rather than the composite**, then reconstruct σ and report the
+residual. Comment 8 also asked that every `R106E-DRAW-*` receipt be excluded
+from the σ fit and that the exclusion be stated. All of that is `stage-d.json`
+(schema `maple-nezuko-r106h-stage-d/1`).
+
+### 9.1 The `R106E-DRAW-*` exclusion (D1)
+
+**Stated plainly: no `R106E-DRAW-*` receipt is in any σ fit in this report, and
+the exclusion is by construction, not by filtering.** Scanning all 1787 corpus
+records for the note substring `R106E-DRAW` returns **0 matches**, and no
+receipt lies within `1e-5` of draw-01's `cs` 2.574073. The corpus was frozen
+2026-08-10T08:37Z, which predates those receipts. So no σ in §4–§8 can have been
+inflated by the draw ladder. The tree-identity point stands independently:
+draw-01 is z = −3.09 from `4b0e051b` but z = −0.51 from `origin/main`, an LR of
+about 105:1 that the wrong tree was archived — but that is a provenance finding,
+not a variance one, and it does not touch this fit.
+
+### 9.2 Rule 93.4(a) verified to four significant figures (D2)
+
+All 12 `cs` values quoted in Rule 93.4(a) were matched in the frozen corpus to
+|abs err| ≤ 4.8e-7 (they are quoted to six decimals, so this is exact
+agreement). Recomputing the pooled within-family sd from the corpus values:
+
+| family (note-declared key) | n | corpus sd(`cs`) | matched sha12s |
+|---|---|---|---|
+| nezuko calibration A/B/C, 2026-08-04 | 3 | 0.07651 % | `745ea5e7031b`, `c99c2518ba24`, `df676dbb5adb` |
+| nezuko corpus-harvest `5d522d6a` A/B/C | 3 | 0.17982 % | `9845a4add6bd`, `cc0d2399e2c5`, `57e16bbb324a` |
+| tanjiro r105-A A0 | 3 | 0.18217 % | `51b6c142ea76`, `fdeb45614ce2`, `24ad1d2eaf23` |
+| tanjiro r105-A A1 | 2 | 0.07169 % | `2d967a120e60`, `5e435a6b6936` |
+| **pooled** | **11 / dof 7** | **0.145353 %**, CI [0.09610, 0.29583] | SS = 1.4789e-5 |
+
+**Rule 93.4's 0.1453 % reproduces.** Verified, not adopted.
+
+### 9.3 The note key over-groups: byte-key adjudication (D3)
+
+Rule 93.4 replaced Rule 89.1's defective key (`submissionCommitSha`, always
+distinct by construction) with a *note-declared* key. That is a real
+improvement, but it is a claim by the submitter, not a measurement. D3 checks it
+against a **byte key**: a comment-insensitive sha256 over every file under
+`Sources/` **and** `Vendor/`, with every ci-equal pair line-checked so the only
+surviving differences are whole-line `//` comments outside multiline string
+literals. The two keys **disagree on two of the four families**:
+
+- **nezuko calibration A/B/C** — member `745ea5e7031b` (`cs` 2.489564) is in *no*
+  byte-identical group; the other two sit in digest group
+  `r103:9beb75a6fbc5e042`. The note key over-groups by one member. Corrected,
+  the family is n = 2 with sd 0.08706 %.
+- **nezuko corpus-harvest `5d522d6a` A/B/C** — all three land in digest group
+  `r103:521a2f7124786af6`, **which fails verification**: real non-comment diffs
+  in `Vendor/…/fp_quantized.cpp`. That family is not an identical-tree replicate
+  set at all.
+- **tanjiro r105-A A0 and A1** are byte-verified clean, with zero members
+  outside their digest group.
+
+Both families that fail are *mine*, which is the uncomfortable part: my own
+2026-08-04/08-05 note discipline was worse than tanjiro's.
+
+The number, however, barely moves:
+
+| pool | n | dof | sd(`cs`) | 95 % CI |
+|---|---|---|---|---|
+| advisor's four families, note key (D2) | 11 | 7 | 0.145353 % | [0.09610, 0.29583] |
+| advisor's families, byte-corrected members | 10 | 6 | 0.15479 % | [0.09975, 0.34086] |
+| byte-verified 5-group pool (this report's σ_cs) | 15 | 10 | **0.18336 %** | [0.12812, 0.32178] |
+| byte-verified 7-group member pool | 20 | 13 | 0.19050 % | [0.13810, 0.30754] |
+
+F-tests: note key vs byte-verified group pool **F = 1.5913, df (10,7), p =
+0.552**; note key vs member pool **F = 1.7176, df (13,7), p = 0.482**. So the
+corrected key **matters for provenance and not for the number** — the two keys
+give statistically indistinguishable σ, and Rule 93.4's 0.1453 % and this
+report's 0.1834 % are the same estimate seen through different dof.
+
+### 9.4 Homogeneity holds; the A0 triple is not an outlier (D4, D5)
+
+The advisor asked specifically whether the four families are homogeneous, whether
+robust and classical σ agree, and whether A0's third member (2.574592) is
+inflating the pool.
+
+- **Bartlett** on the four advisor families: **K² = 1.764, df 3, p = 0.623**. On
+  the five byte-verified groups: **K² = 1.792, df 4, p = 0.774**. Homogeneity is
+  not rejected either way, so pooling is legitimate.
+- **Eras.** 2026-08-04..05 pools to 0.08706 % (dof 1, CI [0.0388, 2.778]);
+  2026-08-09..10 pools to **0.19109 %** (dof 9, CI [0.13144, 0.34885]). Variance
+  ratio **F = 4.818, df (9,1), p = 0.681** — cannot reject, but with dof 1 in the
+  early era there is no power, so "σ is era-stable" is *not* established, only
+  *not contradicted*. Mean `cs` by era 2.487607 → 2.579803, i.e. the eras differ
+  in merit by 3.7 %, which is why the note key's cross-era pooling was worth
+  checking at all.
+- **Robust vs classical.** Classical pooled 0.18336 % vs robust (MAD-sd of the 15
+  group-centred deviations) **0.13798 %**. The ratio 0.75 is within what a
+  15-point Gaussian sample gives, and the decisive check is the studentised
+  deviations: **max |z| = 1.589 over 15 deviations ⇒ no outlier**. A0's third
+  member is *not* inflating anything. Leave-one-receipt-out sweeps the pool over
+  **[0.15990, 0.19263] %** — no single receipt drives it. The largest group
+  contributes 0.6166 of the pooled SS, which is exactly its dof share (n = 5 of
+  10 dof), not a pathology.
+
+Per-group MAD-sd for the record: 0.10548 / 0.16589 / 0.07516 / 0.09127 /
+0.29709 %.
+
+### 9.5 The two-axis reconstruction, and the substantive answer (D6)
+
+Comment 8's method: carry σ_decode and σ_prefill separately, then *reconstruct*
+σ. With `cs = (M_D/dec)^0.75 (M_P/pre)^0.25`, the axis contributions in log space
+are `0.75·ln(M_D/dec)` and `0.25·ln(M_P/pre)`, so
+`σ² = σ_D² + σ_P² + 2·ρ·σ_D·σ_P`.
+
+**Session-lottery axis** (`ln L`, n = 1218, dof 1217):
+
+| term | value |
+|---|---|
+| sd(`ln bl_dec`) | 0.24573 % |
+| sd(`ln bl_pre`) | 1.92606 % |
+| corr | +0.12432 |
+| σ_decode-axis (0.75×) | 0.18429 % |
+| σ_prefill-axis (0.25×) | **0.48151 %** |
+| cross term | +0.022065 %² |
+| **reconstructed σ_f** | **0.53655 %** |
+| direct σ_f | 0.53655 % (rel residual 4.1e-16) |
+
+**Candidate-noise axis** (group-centred byte-verified receipts, n = 15, dof 10):
+
+| term | value |
+|---|---|
+| sd(`ln dec`) | 0.24145 % |
+| sd(`ln pre`) | 0.16289 % |
+| corr | −0.05630 |
+| σ_decode-axis | **0.18109 %** |
+| σ_prefill-axis | 0.04072 % |
+| cross term | −0.000830 %² |
+| **reconstructed σ_cs** | **0.183359 %** |
+| direct σ_cs | 0.183359 % (rel residual 3.7e-14) |
+
+The residuals are at floating-point level because on the *same sample* the
+reconstruction is an algebraic identity — it cannot disagree with itself, and
+the JSON says so explicitly rather than presenting 4e-16 as a validation. The
+real content is the **composition**, and it is the opposite in the two channels:
+
+> **The session lottery is prefill-dominated — the prefill axis is
+> (0.48151/0.53655)² ≈ 80.5 % of its variance. Candidate noise is
+> decode-dominated — the decode axis is (0.18109/0.183359)² ≈ 97.5 % of its
+> variance.**
+
+That is the substantive answer to comment 8, and it is why §7's prefill coin is
+the largest uncontrolled term while every mechanism we can build lives on the
+decode axis. It also explains the whole §4.3 puzzle in one line: the two σ are
+not two measurements of one thing.
+
+Two diagnostics worth keeping:
+
+- **Divisor bias.** Scoring the same 15-receipt sample at `n−1 = 14` instead of
+  `n−k = 10` gives 0.15497 %, a **−15.5 % bias**. Any pooled replicate σ quoted
+  without its dof is low by roughly this much.
+- **Independent cross-check.** Using #597's per-axis σ (sd `ln dec` 0.1839 %, sd
+  `ln pre` 0.1123 %) instead of ours reconstructs σ_cs = **0.14075 %** at ρ = 0
+  and **0.13920 %** at this report's within-group ρ — about 23 % below our direct
+  0.18336 %. With a 22.4 % relative SE on an sd at dof 10, **that is agreement**,
+  and it is the only part of D6 that is a genuine test rather than an identity.
+
+### 9.6 Our own launch σ is *lower*, which makes drawing *worse* (D7)
+
+Rule 93.4(3) split pooled sd(`f`) into maple-attributed 0.4778 % (n = 44) and
+residual 0.5868 % (n = 41) and expected the F to come out non-significant. On
+this corpus, partitioning `ln L` by launch account:
+
+| partition | n | dof | sd(`ln L`) | 95 % CI | rel SE |
+|---|---|---|---|---|---|
+| maple | 31 | 30 | **0.44457 %** | [0.35525, 0.59446] | 12.9 % |
+| unattributed | 41 | 40 | **0.60835 %** | [0.49945, 0.77855] | 11.2 % |
+| birch | 4 | 3 | 0.39160 % | [0.22184, 1.46011] | 40.8 % |
+| cedar | 4 | 3 | 0.16141 % | [0.09144, 0.60183] | 40.8 % |
+| birch+maple | 2 | 1 | 0.27750 % | — | 70.7 % |
+
+**maple vs unattributed: F = 1.8726, df (40,30), p = 0.0773.** Not significant
+at 0.05, so Rule 93.4(3)'s expectation survives — but it is suggestive, and the
+*direction* replicates the advisor's split (0.4778 < 0.5868) with our estimate
+even lower.
+
+I have to state the consequence in the honest direction, because it goes against
+my own interest in this argument. If **our** launch σ is 0.4446 % rather than the
+cohort's 0.5365 %, then σ_tot = √(0.1453² + 0.4446²) = **0.4678 %**, and the
+0.9967 % gap becomes z = **2.131**, i.e. P ≈ **1.65 %/draw**, E ≈ 60.5 draws ≈
+**67 hours** at our 0.9 receipts/h share. That is better than §5.2's central
+1.19 % but **worse than the advisor's 3.6 %**, and it is worse for exactly the
+reason that flatters us: a tighter launch distribution is a *worse* lottery when
+you are behind. A narrower σ_f cuts both ways and here we are on the losing
+side of it. The empirical/nonparametric numbers in §5.2 remain the ones to quote
+— the Gaussian tail is the least trustworthy part of any of these estimates
+(§12's known limits quantify how much fatter the `ln L` upper tail is) — but the Gaussian
+sensitivity is reported here rather than dropped because it moves the answer in
+the unflattering direction.
+
+---
+
+## 10. Record provenance — a correction
 
 `stage-c.json` → `C6_record_provenance`. The state doc attributes the record to
 `submissionCommitSha` prefix `cc6ddc12`. **No receipt with that prefix exists in
@@ -548,7 +767,7 @@ Rule 93.1 means `morganmcg1` is three launches. Two carried facts stand:
 
 ---
 
-## 10. Policy paragraph (pasteable into the state doc as a rule)
+## 11. Policy paragraph (pasteable into the state doc as a rule)
 
 > **Rule — channel economics.** The record is primarily a baseline-lottery
 > outcome: the paired baseline contributes σ = 0.537 % [0.516, 0.559] of score,
@@ -584,7 +803,7 @@ Rule 93.1 means `morganmcg1` is three launches. Two carried facts stand:
 
 ---
 
-## 11. What this overturns, and what it leaves standing
+## 12. What this overturns, and what it leaves standing
 
 **Overturned or corrected:**
 
@@ -605,10 +824,24 @@ Rule 93.1 means `morganmcg1` is three launches. Two carried facts stand:
    Rule 88 (single-server queue, ~22 min service, at most one non-terminal
    submission) and Rule 93.2 (our real share 0.9/h, not 2.7/h). All hour columns
    in this report use 0.9/h.
+8. **Rule 93.4's note-declared replicate key** — a genuine repair of Rule
+   89.1's defective `submissionCommitSha` key, but still not a measurement.
+   Byte-checked, it **over-groups two of the four families** (§9.3): my
+   calibration triple contains one member that is in no byte-identical group,
+   and my corpus-harvest triple sits entirely inside a digest group that fails
+   verification on real `Vendor/…/fp_quantized.cpp` diffs. A corrected method is
+   itself a result: the number survives (F p ≈ 0.5), the attribution does not.
+   Only the two tanjiro families are byte-verified clean.
+9. **Quoting a pooled replicate σ without its dof** — scoring the same 15-receipt
+   sample at `n−1` instead of `n−k` biases σ by **−15.5 %** (§9.5). Every σ in
+   this report carries its dof and its interval.
 
 **Left standing:** #555 Part 1's decomposition and i.i.d. finding (reproduced at
-n=1218, max rel err 5.42e-16, runs-test z = 0.428); Rule 93.4's
-submit-from-best-merit-tree rule (now quantified, §8); Rule 91's N-0 verdict
+n=1218, max rel err 5.42e-16, runs-test z = 0.428); Rule 93.4's **0.1453 %**
+(verified in §9.2 to four significant figures) and its
+submit-from-best-merit-tree rule (now quantified, §8); Rule 93.4(3)'s
+expectation that the launch mixture F is non-significant (p = 0.0773, §9.6);
+Rule 91's N-0 verdict
 (#616 Stage 0); Rule 92's closure of the barrier/encoder axis (and §6.1 explains
 why closing it was correct — 1.09× draws). §6.2 adds the nuance that a *gate*
 closure is not automatically a *lottery* closure: #619's 0.231 % ceiling is
@@ -628,7 +861,7 @@ probabilities beyond z ≈ 3 are extrapolations.
 
 ---
 
-## 12. Reproduction
+## 13. Reproduction
 
 ```bash
 # Stage A: variance decomposition, semivariogram, ANOVA, tail, drift, invariants
@@ -650,26 +883,36 @@ python research/nezuko_r106h_stage_c.py \
   /tmp/r106b/replicate-identity-verified.json \
   research/artifacts/maple-nezuko-r106h/stage-c.json
 
+# Stage D: R106E-DRAW guard, Rule 93.4(a) verification, note-key vs byte-key
+#          adjudication, Bartlett/era homogeneity, robust σ and outlier sweep,
+#          two-axis reconstruction, launch partition of ln L
+python research/nezuko_r106h_stage_d.py \
+  /tmp/r106b/receipt-corpus-frozen.json \
+  /tmp/r106b/replicate-identity-verified.json \
+  research/artifacts/maple-nezuko-r106h/stage-d.json
+
 # W&B
 python research/nezuko_r106h_wandb_log.py \
   research/artifacts/maple-nezuko-r106h/stage-a.json \
   research/artifacts/maple-nezuko-r106h/stage-b.json \
-  research/artifacts/maple-nezuko-r106h/stage-c.json
+  research/artifacts/maple-nezuko-r106h/stage-c.json \
+  research/artifacts/maple-nezuko-r106h/stage-d.json
 ```
 
 The corpus and the replicate-identity file are the ones frozen in #616 Stage 0
 and copied to `research/artifacts/maple-nezuko-r106b/`; the sha256 above is the
 identity check.
 
-The last command produced W&B run **`6rosefbh`**
-(<https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/6rosefbh>), which
+The last command produced W&B run **`WANDB_RUN_ID`**
+(<https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/WANDB_RUN_ID>), which
 carries every table and scalar quoted above: the record ladder, the per-budget
 and scale-free exchange rates, the tree-selection rule, the σ_cs pools, the
-prefill coin, the per-cohort σ(ln L), and the leaderboard top 5. Run
-`s31ku9ms` is the same analysis before §6.2 added three rows to the
-`draws_multiplier` table; prefer `6rosefbh`.
+prefill coin, the per-cohort σ(ln L), the leaderboard top 5, and the Stage D
+verification, key-adjudication, homogeneity, axis-reconstruction, and launch-
+partition tables. Runs `s31ku9ms` and `6rosefbh` are the same analysis before
+Stage D existed; prefer the run above.
 
-## 13. Suggested follow-ups (not implemented)
+## 14. Suggested follow-ups (not implemented)
 
 1. **Price the prefill coin's determinant.** The single largest term in the
    channel (0.926 % of score) is a bimodal *baseline* prefill. A read-only
@@ -688,3 +931,16 @@ prefill coin, the per-cohort σ(ln L), and the leaderboard top 5. Run
    is +0.287 ± 0.380 (dof 9) — uninformative. It carries only 10 % of the
    lottery variance, so this is low priority, but it is the one axis where the
    pairing might genuinely help.
+5. **Replace the note-declared replicate key with the byte key in the advisor
+   scripts.** §9.3 shows the note key over-groups on 2 of 4 families, and §9.4's
+   era split shows it also pools across a 3.7 % merit shift. The byte key already
+   exists (`replicate-identity-verified.json` from #616 Stage 0, digested over
+   `Sources/` **and** `Vendor/`); wiring it into
+   `research/advisor_r103_replicate_sigma.py` — which currently digests
+   `Sources/` only, 54 of 2300 files — would make every future σ self-verifying
+   at no receipt cost. It will not change the number, only the provenance.
+6. **Raise the launch-partition F above p = 0.077.** §9.6's maple-vs-unattributed
+   ratio is the one place where our own channel might differ from the cohort's,
+   and it points the *unflattering* way. It needs no receipts: attributing more
+   of the 41 unattributed `ln L` draws by note or timestamp would resolve it, and
+   if it holds, every P/draw in §5.2 should be re-quoted at σ_f = 0.4446 %.
