@@ -38,8 +38,9 @@ that is the absolute ceiling for any down-only change (0.966 % of score, which
 would clear the 1.35 ms 3σ bar). Applying the measured 1.25× resident-
 concurrency gain as a stall-scaling factor to that share puts the mechanism
 estimate at **0.517 ms ⇒ 0.195 % of score**, which fails **both** the
-assignment's 0.4 %-of-score relevance gate and its 1.35 ms 3σ bar. The honest
-answer to the assignment's question is therefore
+assignment's 0.4 %-of-score relevance gate and its 1.35 ms 3σ bar — and stays
+under both across all four byte-budget × bandwidth conventions now on the base
+(0.19–0.30 %, §9.5). The honest answer to the assignment's question is therefore
 **`N-FLOOR` with one live but sub-threshold unmeasured candidate** — and a larger
 prize found on the way: at mean routing only **1 of 4 simdgroups per
 threadgroup does any MMA**, a `BM/WM` waste that `bn` does not touch.
@@ -542,6 +543,56 @@ r100 headline numbers should keep the ≈30× annotation attached to them; the
 ≈7.6 ms residual and 0.3781 %/ms price used in §7.2 come from the assignment's
 M5 calibration, not from any local rung.
 
+### 9.5 Reconciliation with tanjiro's R106-F′, which landed on the base mid-round
+
+The advisor branch advanced to `09525f5c` (merge of #620) while this round was
+in progress. That merge is `research/`-only — it does not touch
+`Vendor/` or `Sources/`, so it cannot change this patch — but two of its
+findings bear directly on §7.2 and I am recording both rather than letting the
+assignment's constants stand unexamined.
+
+**(a) The residual's citation chain is flagged, and my conclusion survives it.**
+`research/maple-tanjiro-r106f-prefill-speedup-decomposition.md:714-723` reports
+that the "19.465 GB ⇒ 35.6 ms floor ⇒ ≈7.6 ms residual" chain cites a
+`PREFILL_NAX_ANALYSIS.md §6.2` that does not exist, and that the arithmetic
+lives only in rule 94.4. The same report gives an independent **trace-bound**
+18.968 GB for this family (`:202`, `:728`) and notes at `:527-533` that 546.2
+GB/s is an *achieved decode* rate, so the true prefill-achievable figure could
+be higher. Both alternatives move the residual *up*, i.e. against my
+conclusion, so I priced all four combinations:
+
+| unique bytes | bandwidth | floor | residual | down share | mechanism est. | % of score |
+| --- | --- | --- | --- | --- | --- | --- |
+| 19.465 GB (assignment) | 546.2 GB/s | 35.64 ms | 7.625 ms | 2.542 ms | 0.514 ms | **0.194 %** |
+| 19.465 GB | 602.7 GB/s (peak) | 32.30 ms | 10.966 ms | 3.655 ms | 0.739 ms | **0.279 %** |
+| 18.968 GB (trace) | 546.2 GB/s | 34.73 ms | 8.535 ms | 2.845 ms | 0.575 ms | **0.218 %** |
+| 18.968 GB | 602.7 GB/s | 31.47 ms | 11.790 ms | 3.930 ms | 0.795 ms | **0.301 %** |
+
+Across every convention the mechanism estimate is **0.19–0.30 % of score and
+0.51–0.80 ms**, i.e. below the 0.4 % relevance gate *and* below the 1.35 ms 3σ
+bar in all four cells. **`N-FLOOR` is not an artefact of the disputed constant.**
+
+**(b) A sign flip that argues against C2a, and a tension with §8.** The same
+report's §6.5 (`:725-733`) measures this family at **51.6 FLOP/B** and observes
+that M4's machine balance is 30.7 FLOP/B while M5's is 63.5–104, so
+`routed_gather_gemm` is **compute-bound on M4 and DRAM-bound on M5** — opposite
+sides of the roofline knee. Two consequences:
+
+1. C2a's mechanism is latency hiding via resident concurrency. On a
+   DRAM-bound M5 that lever is weaker than the occupancy ratio suggests, while
+   the doubled A-operand *request* multiplicity (§7.1) is a bandwidth-side cost.
+   This makes the neutral-to-slightly-negative outcome more likely than the
+   ledger alone implies, and it is a second independent reason not to spend a
+   paired session on C2a alone.
+2. It records **22.64 TFLOP/s achieved on M5** (979.3 GFLOP / 43.2619 ms), which
+   is 40–65 % of the quoted M5 peak. That is hard to reconcile with §8's
+   1-of-4-simdgroups reading if the routed dispatches dominated the FLOPs; the
+   likely resolution is that the shared-expert dispatches run at full `M` and
+   supply most of the FLOPs while the routed ones supply most of the *weight
+   traffic*. **Whoever takes §8 forward should split the family's FLOPs and
+   bytes by routed vs shared before assuming a 4× headroom.** I did not measure
+   this and am flagging it, not claiming it.
+
 ---
 
 ## 10. Verdict
@@ -557,7 +608,7 @@ Preregistered outcomes, resolved:
 | **`N-REACH`** | **YES** — `is_nax_available()` needs gen ≥ 17; this host is gen 16, so no local NAX runtime evidence is possible (§2). |
 | `N-BUILD` | **refuted** — both `BN` variants compile clean (§5.4). |
 | `N-CORRECT` | **not triggered** — no bit-exactness violation found; M5 equivalence still owed. |
-| **`N-FLOOR`** | **YES, with a closing ledger** — the family is at 82 % of its bandwidth roofline with ≈7.6 ms of residual; the down share of that residual is 2.554 ms (a hard ceiling of 0.966 % of score) and the `bn` mechanism model claims only 0.195 % of it, below both the relevance gate and the 3σ bar (§7.2). |
+| **`N-FLOOR`** | **YES, with a closing ledger** — the family is at 82 % of its bandwidth roofline with ≈7.6 ms of residual; the down share of that residual is 2.554 ms (a hard ceiling of 0.966 % of score) and the `bn` mechanism model claims only 0.195 % of it, below both the relevance gate and the 3σ bar (§7.2). Robust: the mechanism estimate stays in **0.19 %–0.30 %** across all four resident-bytes × bandwidth conventions, and the M5 being DRAM-bound is a second, independent argument against the arm's latency-hiding lever (§9.5). |
 
 **Bottom line.** `routed_gather_gemm`'s NAX expert path is at its floor on the
 axis this assignment was allowed to touch. Three of four axes were already
@@ -595,8 +646,13 @@ payload, self-contained and paste-ready for #625.
 > The arm is real, bit-exact by construction, compiles clean, and is a no-op by
 > default — but its own mechanism model prices it at **0.195 % of score**,
 > below the round's 0.4 % relevance gate and well below the 1.35 ms 3σ bar
-> (§7.2). Take it only if you are bundling several sub-threshold down-side
-> changes, and then measure the bundle, not this arm.
+> (§7.2). That price is robust: it stays in **0.19 %–0.30 %** across all four
+> resident-bytes × bandwidth conventions currently in circulation on this base,
+> and the family is **DRAM-bound on M5** (51.6 FLOP/B measured vs an M5 balance
+> of 63.5–104), which is adverse to an arm whose only lever is latency hiding
+> while it doubles A-side requests (§9.5). Take it only if you are bundling
+> several sub-threshold down-side changes, and then measure the bundle, not
+> this arm.
 >
 > **Submitted surface — one file, rule-75 digests (§4).**
 >
