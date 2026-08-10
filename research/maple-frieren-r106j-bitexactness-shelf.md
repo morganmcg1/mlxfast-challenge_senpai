@@ -915,7 +915,7 @@ memory or inherited from an earlier round's summary.
 | B1 — force-clean build re-run | `research/maple_frieren_r106j_b1_rerun.sh` | §3.2.1a, `/tmp/r106j-b1/{build.log,build.err,equivalence.log}` |
 | B1 — metallib rebuild + oracle re-run | `research/maple_frieren_r106j_b1_metallib_oracle.sh` | §3.2.1b/c, `/tmp/r106j-b1b/{metallib.log,metallib.err,equivalence.log}` |
 | B1 — all eight receipts, machine-readable | (transcribed from the two jobs above) | `research/artifacts/maple-frieren-r106j/b1_build_oracle.json` |
-| publication | `research/maple-frieren-r106j-wandb.py` | W&B run **`r106jfrieren`** — <https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/r106jfrieren> |
+| publication | `research/maple-frieren-r106j-wandb.py` | W&B run **`r106jfrieren`** — <https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/r106jfrieren>, published 2026-08-10T12:16:08Z, state `finished`, exit 0 |
 
 The GPU dispatch trace used for B0 and B2 comes from
 `research/nezuko-pr158-gpuprof-hook.patch`, which instruments
