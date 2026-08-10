@@ -304,6 +304,24 @@ the same `checked_steps`, the same `harness_hash`, the same `weights_hash` and t
 string, so guard rail 1 stops being a promise in my shell script and becomes a fact
 recomputable by a sceptic from files I did not write.
 
+### 4.1 What the analyser prints, and why each line exists
+
+Reading this table is enough to use the output; nobody needs my source.
+
+| line | what it is | how to read it |
+| --- | --- | --- |
+| `paired sd` | the **measured** sd of the per-block differences | the instrument's noise. Everything else is downstream of it. |
+| `CI95 half-width` | `t(0.975, n−1) × sd / √n` | rule 105.7's deliverable. |
+| `point estimate` / `CI95 low` / `CI95 high` | each in **three channels**: M4 µs/step, relative decode %, % of `cs` | the `% of cs` column already carries `k`; do not multiply again. |
+| `CI95 covers zero` | the verdict | `YES` on an A/A arm is a pass; `YES` on a candidate arm means *not certified*, not *no effect*. |
+| `sign-flip test` | exact randomisation p over all `2^n` sign patterns | a cross-check on the t-interval's normality assumption. `agrees with the CI` is what you want to see. A disagreement means one block is carrying the result — go look at the per-block rows printed above. |
+| `pairing gain` | within-block correlation `r`, and the factor by which blocking cuts `var(mean diff)` | tells you whether the blocking earned its keep. That factor is also the factor by which blocking cuts the **required run count**. If it prints "NOT buying resolution", the two arms do not share their run-to-run noise and you may as well run them unblocked. |
+| `prefill diag` | paired CI on the prefill difference | guard rail 4 / rule 105.4. Must cover zero, otherwise the decode contrast is contaminated and the number is not a decode number. |
+| `position OLS` | slope of `D` on the within-block position offset | catches "arm 2 is always second, and second is always warmer". Must cover zero. |
+| power curve | half-widths vs block count, in the same three channels | plan campaigns from this, not from a guess. |
+| chi-square band on the sd | CI95 on the sd itself | the power curve is built from an *estimated* sd, and block counts scale as `sd²`. At `dof 11` the band is about `[0.5×, 2.9×]` on the block count. **Plan with the upper sd.** |
+| blocks-needed table | smallest `n` to *resolve* an effect, and for 80 % power | "resolve" ≈ 50 % power: it only says an estimate landing *at* the target would clear zero. Use the 80 % column to actually plan. |
+
 ---
 
 ## 5. Results
