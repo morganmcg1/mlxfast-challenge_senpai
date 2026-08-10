@@ -88,6 +88,9 @@ def main():
     by_block = defaultdict(lambda: defaultdict(list))
     for r in rows:
         by_block[r["block"]][r["arm"]].append(r["dec_us"])
+        # "<arm>p" holds the same row's prefill, used only by the post-hoc
+        # drift control. The pre-registered estimators never read these keys.
+        by_block[r["block"]][r["arm"] + "p"].append(r["pre_us"])
 
     print(f"# R108-K barrier-region price probe — {path}")
     print(f"# usable rows {len(rows)}, voided {len(voided)}")
