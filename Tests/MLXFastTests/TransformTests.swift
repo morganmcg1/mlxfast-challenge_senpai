@@ -824,6 +824,56 @@ func transformVerifierAcceptsFreshSubmittedTransformOutputAndIgnoresLocalCacheMa
 }
 
 @Test
+func transformVerifierRejectsRuntimeSignificantRootSafetensorsDirectory() throws {
+    let fixture = try writeTransformFixture()
+    _ = try SwiftTransform.run(
+        TransformOptions(referencePath: fixture.reference.path, outputPath: fixture.output.path)
+    )
+    try FileManager.default.createDirectory(
+        at: fixture.output.appendingPathComponent("extra.safetensors", isDirectory: true),
+        withIntermediateDirectories: false
+    )
+
+    do {
+        _ = try TransformVerifier.verify(
+            TransformVerificationOptions(
+                referencePath: fixture.reference.path,
+                weightsPath: fixture.output.path,
+                temporaryParentPath: fixture.root.path
+            )
+        )
+        Issue.record("expected runtime-significant root directory to be rejected")
+    } catch let MLXFastError.invalidInput(message) {
+        #expect(message == "transform verification rejects runtime-significant directory extra.safetensors")
+    } catch {
+        Issue.record("expected MLXFastError.invalidInput, got \(error)")
+    }
+}
+
+@Test
+func transformVerifierAcceptsRuntimeInertRootDirectory() throws {
+    let fixture = try writeTransformFixture()
+    _ = try SwiftTransform.run(
+        TransformOptions(referencePath: fixture.reference.path, outputPath: fixture.output.path)
+    )
+    try FileManager.default.createDirectory(
+        at: fixture.output.appendingPathComponent("notes", isDirectory: true),
+        withIntermediateDirectories: false
+    )
+
+    let report = try TransformVerifier.verify(
+        TransformVerificationOptions(
+            referencePath: fixture.reference.path,
+            weightsPath: fixture.output.path,
+            temporaryParentPath: fixture.root.path
+        )
+    )
+
+    #expect(report.fileCount > 0)
+    #expect(report.deterministic)
+}
+
+@Test
 func transformVerifierRejectsOutputThatDiffersFromFreshTransformRun() throws {
     let fixture = try writeTransformFixture()
     _ = try SwiftTransform.run(
