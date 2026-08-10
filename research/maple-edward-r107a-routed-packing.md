@@ -410,6 +410,29 @@ Four facts follow, and they are the reason this arm was worth reviving.
 
 ### 5.2 Parity and fault control
 
+Ninety-six teacher-forced greedy steps per dose, one dose per process, all from
+the same `new` binary:
+
+| probe | S | divergences | token-stream cksum |
+|---|---|---|---|
+| `parity-base` | unset | 0 | 3157477821 |
+| `parity-sg2` | 2 | 0 | 3157477821 |
+| `parity-sg4` | 4 | 0 | 3157477821 |
+| `parity-sg8` | 8 | 0 | 3157477821 |
+
+One distinct checksum across all four, as required. This is a necessary
+condition, not a sufficient one: as at the routed site, a 96-step greedy stream
+is a weak detector because argmax absorbs small numerical differences, so the
+fault control below is what gives the checksum its meaning.
+
+**Store-row fault control.** The `faultqkv` build compiles the `_sgS` pipeline
+from `num_simdgroups = 2` while the host still dispatches `32*S` threads per
+threadgroup, so simdgroups 2..S-1 write rows that belong to another lane block.
+If the parity check above could not see a genuine mis-mapped store, the whole
+Stage-A parity argument would be vacuous.
+
+FAULT_RESULT_PLACEHOLDER
+
 ### 5.3 Full-decode rotated-palindrome timing
 
 ### 5.4 Prefill
