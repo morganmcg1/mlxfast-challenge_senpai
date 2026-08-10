@@ -2024,15 +2024,7 @@ let lagunaFusedFullAttentionKernelWarmupEnabled =
     ProcessInfo.processInfo.environment[
         "DARKBLOOM_FUSED_FULL_ATTN_KERNEL_WARMUP"] != "0"
 
-private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
-    name: "laguna_full_fused_attn_grow_v1",
-    inputNames: [
-        "raw_queries", "raw_keys", "raw_values",
-        "query_weight", "key_weight", "angles",
-        "k_cache", "v_cache", "params", "scale_arr",
-    ],
-    outputNames: ["attended"],
-    source: """
+private let lagunaFullFusedAttentionKernelSource = """
 constexpr uint head_dim = 128;
 constexpr uint gqa = 6;
 constexpr int BN = 32;
@@ -2353,8 +2345,9 @@ if (lane == 0) {
         pair_out1[p] = static_cast<bfloat>(pair_o1[p]);
     }
 }
-""",
-    header: """
+"""
+
+private let lagunaFullFusedAttentionKernelHeader = """
 #define LAGUNA_RESCALE(dst, delta_expr)         \\
   do {                                          \\
     const float db_delta_ = (delta_expr);       \\
@@ -2402,9 +2395,61 @@ if (lane == 0) {
   } while (false)
 
 
-""",
+"""
+
+private let lagunaFullFusedAttentionKernelInputNames = [
+    "raw_queries", "raw_keys", "raw_values",
+    "query_weight", "key_weight", "angles",
+    "k_cache", "v_cache", "params", "scale_arr",
+]
+
+private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
+    name: "laguna_full_fused_attn_grow_v1",
+    inputNames: lagunaFullFusedAttentionKernelInputNames,
+    outputNames: ["attended"],
+    source: lagunaFullFusedAttentionKernelSource,
+    header: lagunaFullFusedAttentionKernelHeader,
     ensureRowContiguous: true
 )
+
+private let lagunaFullFusedAttentionQKProbeMode =
+    ProcessInfo.processInfo.environment["DARKBLOOM_FULL_ATTN_QK_PROBE"] ?? ""
+
+/// Research-only ceiling probe: numerically wrong by construction. It keeps the
+/// per-lane partial QK dot products and all surrounding softmax work but
+/// replaces the cross-lane allreduce with a broadcast of lane 0's partial, so
+/// the score stays lane-uniform and the LAGUNA_RESCALE branch stays uniform.
+/// The measured delta therefore isolates the butterfly ladder instead of also
+/// introducing branch divergence.
+private let lagunaFullFusedAttentionQKBroadcastProbeSource: String = {
+    var src = lagunaFullFusedAttentionKernelSource
+    var replaced = 0
+    for name in ["pair_score0", "pair_score1", "pipeb_score0", "pipeb_score1"] {
+        let needle = "\(name) = simd_sum(\(name));"
+        replaced += src.components(separatedBy: needle).count - 1
+        src = src.replacingOccurrences(
+            of: needle,
+            with: "\(name) = simd_broadcast_first(\(name));")
+    }
+    precondition(replaced == 6, "QK probe expected 6 rewrites, got \(replaced)")
+    return src
+}()
+
+private let lagunaFullFusedAttentionQKBroadcastProbeKernel =
+    MLXFast.metalKernel(
+        name: "laguna_full_fused_attn_grow_qkbcast_probe_v1",
+        inputNames: lagunaFullFusedAttentionKernelInputNames,
+        outputNames: ["attended"],
+        source: lagunaFullFusedAttentionQKBroadcastProbeSource,
+        header: lagunaFullFusedAttentionKernelHeader,
+        ensureRowContiguous: true
+    )
+
+private let lagunaFullFusedAttentionActiveKernel =
+    lagunaFullFusedAttentionQKProbeMode == "bcast"
+    ? lagunaFullFusedAttentionQKBroadcastProbeKernel
+    : lagunaFullFusedAttentionKernel
+
 
 
 
@@ -2446,7 +2491,7 @@ func lagunaFullFusedAttention(
     let params = MLXArray([
         UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity),
     ])
-    return lagunaFullFusedAttentionKernel(
+    return lagunaFullFusedAttentionActiveKernel(
         [
             rawQueries, rawKeys, rawValues,
             queryWeight, keyWeight, angles,
