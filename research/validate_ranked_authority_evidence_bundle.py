@@ -2068,6 +2068,9 @@ CREDENTIAL_VALUE_PATTERNS = (
     re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{20,}\b", re.IGNORECASE),
     re.compile(r"-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----"),
 )
+ARTIFACT_SCAN_CHUNK_BYTES = 64 * 1024
+ARTIFACT_SCAN_OVERLAP_BYTES = 512
+MAX_ARTIFACT_SCAN_BYTES = 64 * 1024 * 1024
 PROCESS_EXECUTABLE_ROLES = {
     "controller": "measure_job",
     "bench": "bench_exec",
@@ -2077,6 +2080,23 @@ PROCESS_EXECUTABLE_ROLES = {
 
 def secret_value_present(value):
     return isinstance(value, str) and any(pattern.search(value) for pattern in CREDENTIAL_VALUE_PATTERNS)
+
+
+def scan_artifact_bytes(file_path):
+    overlap = b""
+    total_bytes = 0
+    with file_path.open("rb") as handle:
+        if os.fstat(handle.fileno()).st_size > MAX_ARTIFACT_SCAN_BYTES:
+            return "size_limit"
+        while chunk := handle.read(ARTIFACT_SCAN_CHUNK_BYTES):
+            total_bytes += len(chunk)
+            if total_bytes > MAX_ARTIFACT_SCAN_BYTES:
+                return "size_limit"
+            window = overlap + chunk
+            if secret_value_present(window.decode("latin-1")):
+                return "secret"
+            overlap = window[-ARTIFACT_SCAN_OVERLAP_BYTES:]
+    return "clean"
 
 
 def scan_for_secret_fields(value, errors, path="$", environment_observation=False):
@@ -2114,7 +2134,18 @@ def validate_artifacts(errors, data, root, missing_role, census_by_role):
     for index, artifact in enumerate(data.get("artifacts", [])):
         try:
             file_path = safe_bundle_path(root, artifact.get("bundle_path"))
-            if file_path.is_file() and secret_value_present(file_path.read_bytes().decode("latin-1")):
+            if not file_path.is_file():
+                continue
+            scan_result = scan_artifact_bytes(file_path)
+            if scan_result == "size_limit":
+                errors.append(
+                    error(
+                        "ARTIFACT_SCAN_SIZE_LIMIT_EXCEEDED",
+                        f"artifacts[{index}].bundle_path.bytes",
+                        f"artifact exceeds the committed {MAX_ARTIFACT_SCAN_BYTES}-byte credential scan limit",
+                    )
+                )
+            elif scan_result == "secret":
                 errors.append(error("SECRET_VALUE_FORBIDDEN", f"artifacts[{index}].bundle_path.bytes", "credential-like artifact bytes are forbidden"))
         except (OSError, TypeError, ValueError):
             continue
@@ -2364,6 +2395,21 @@ def mutate_fixture(name, data, root, trust):
         refresh_derived(data)
         seal_external_trust(data, trust)
         return trust
+    if name in {"artifact_scan_exact_size_boundary", "artifact_scan_one_byte_over_limit"}:
+        artifact = next(item for item in data["artifacts"] if item["role"] == "profile_generator_input")
+        file_path = safe_bundle_path(root, artifact["bundle_path"])
+        size_bytes = MAX_ARTIFACT_SCAN_BYTES + (name == "artifact_scan_one_byte_over_limit")
+        with file_path.open("wb") as handle:
+            handle.truncate(size_bytes)
+        hydrate_fixture(data, root, trust)
+        return trust
+    if name == "artifact_secret_crosses_scan_chunk":
+        artifact = next(item for item in data["artifacts"] if item["role"] == "profile_generator_input")
+        file_path = safe_bundle_path(root, artifact["bundle_path"])
+        secret = fictional_secret("github").encode()
+        file_path.write_bytes(b"." * (ARTIFACT_SCAN_CHUNK_BYTES - 8) + secret + b"\n")
+        hydrate_fixture(data, root, trust)
+        return trust
     if name.startswith("secret_") and name != "secret_leak":
         remainder = name.removeprefix("secret_")
         target = next(
@@ -2386,7 +2432,8 @@ def mutate_fixture(name, data, root, trust):
         else:
             artifact = next(item for item in data["artifacts"] if item["role"] == "profile_generator_input")
             file_path = safe_bundle_path(root, artifact["bundle_path"])
-            file_path.write_bytes(file_path.read_bytes() + b"\n" + secret.encode())
+            with file_path.open("ab") as handle:
+                handle.write(b"\n" + secret.encode())
             hydrate_fixture(data, root, trust)
         return trust
     return _mutate_fixture_v4(name, data, root, trust)

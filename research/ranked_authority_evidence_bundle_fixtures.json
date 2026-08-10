@@ -1,7 +1,7 @@
 {
   "schema_version": "ranked-authority-evidence-fixtures/v5",
   "non_authoritative": true,
-  "description": "Synthetic ranked-authority controls covering external whole-bundle authentication, immutable process births, secret rejection, and deterministic malformed-input handling.",
+  "description": "Synthetic ranked-authority controls covering external whole-bundle authentication, immutable process births, bounded artifact secret scanning, secret rejection, and deterministic malformed-input handling.",
   "files": {
     "artifacts/workflow.yml": {
       "text": "name: synthetic-ranked-workflow\n",
@@ -2192,6 +2192,34 @@
     {
       "id": "secret-private_key-artifact-bytes",
       "mutation": "secret_private_key_artifact_bytes",
+      "expected_state": "INVALID",
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false,
+      "expected_error_codes": [
+        "SECRET_VALUE_FORBIDDEN"
+      ]
+    },
+    {
+      "id": "artifact-scan-exact-size-boundary",
+      "mutation": "artifact_scan_exact_size_boundary",
+      "expected_state": "STATIC_RESUME_READY",
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false,
+      "expected_error_codes": []
+    },
+    {
+      "id": "artifact-scan-one-byte-over-limit",
+      "mutation": "artifact_scan_one_byte_over_limit",
+      "expected_state": "INVALID",
+      "expected_authoritative": false,
+      "expected_resumption_authorized": false,
+      "expected_error_codes": [
+        "ARTIFACT_SCAN_SIZE_LIMIT_EXCEEDED"
+      ]
+    },
+    {
+      "id": "artifact-secret-crosses-scan-chunk",
+      "mutation": "artifact_secret_crosses_scan_chunk",
       "expected_state": "INVALID",
       "expected_authoritative": false,
       "expected_resumption_authorized": false,

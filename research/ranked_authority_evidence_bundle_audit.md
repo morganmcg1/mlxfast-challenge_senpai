@@ -4,11 +4,12 @@
 
 `RANKED_AUTHORITY_EVIDENCE_CONTRACT_READY`
 
-Revision r5 defines a deterministic static evidence contract in which every
-READY-driving observation and linkage is covered by the canonical bundle digest,
-and that digest is authenticated through a separately pinned verifier-owned trust
-document. A bundle may classify as `STATIC_RESUME_READY`, but a synthetic bundle
-never authorizes ranked resumption.
+Revision r6 preserves the r5 deterministic static evidence contract while
+making artifact credential scanning explicitly bounded in both memory and input
+size. Every READY-driving observation and linkage remains covered by the canonical
+bundle digest, which is authenticated through a separately pinned verifier-owned
+trust document. A bundle may classify as `STATIC_RESUME_READY`, but a synthetic
+bundle never authorizes ranked resumption.
 
 This result does **not** upgrade PR #671. Its ranked audit remains
 `RANKED_WEIGHT_PROVENANCE_INDETERMINATE`.
@@ -17,17 +18,22 @@ This result does **not** upgrade PR #671. Its ranked audit remains
 
 - Branch: `cedar-tanjiro/ranked-authority-evidence-contract`
 - Pull request: `#674`
-- Revision: `cedar-tanjiro-ranked-authority-evidence-contract-20260810-r5-observation-attestation-process-birth`
-- Assignment base: `707512704f4d4251aa945aa1bc583a5f010da3c9`
+- Revision: `cedar-tanjiro-ranked-authority-evidence-contract-20260810-r6-bounded-artifact-scan-provenance`
+- Historical r5 required base: `72e6dcc6695dcf2aafd6bad60b785b27b444bbe7`
+- Current r6 required base: `908050254a6c1358c0fafe56459696bcca13eee8`
+- The r6 base was merged by `23c4d2b`; `git merge-base --is-ancestor`
+  confirms `908050254a6c1358c0fafe56459696bcca13eee8` is an ancestor of the result.
 - Bundle schema: `ranked-authority-evidence-bundle/v4`
 - External trust schema: `ranked-authority-external-trust/v2`
 - Fixture schema: `ranked-authority-evidence-fixtures/v5`
 - Authority contract: `pr671-ranked-installed-authority/v4`
-- The diff is limited to the assigned schema, validator, fixtures, and audit.
+- The submission diff changes only the assigned validator, fixtures, and audit;
+  the assigned schema remains unchanged because the evidence shape did not change.
 - This static-only task did not access `/opt`, credentials, secrets, a ranked
   worker, model data, timing data, receipts, or submissions.
 - No build, benchmark, GPU/model execution, ranked job, receipt polling,
-  submission, or W&B run occurred. Runtime and peak memory are not applicable.
+  submission, or W&B run occurred. W&B, model runtime, and peak memory are not
+  applicable.
 
 ## Frozen PR #671 boundary
 
@@ -89,15 +95,29 @@ changed identity, impossible birth times, and lifecycle contradictions are
 ## Secret and malformed-input fail closure
 
 All manifest and external-trust string fields are recursively scanned, and
-artifact bytes are scanned before semantic use. Revision r5 adds a 12-case
-matrix covering fictional GitHub tokens, AWS access keys, bearer credentials,
-and private-key blocks in each of manifest strings, external-trust strings, and
-artifact bytes. Every matrix case returns exact `SECRET_VALUE_FORBIDDEN`. The
-prior fictional secret control also remains; no real credential is present.
+artifact bytes are scanned before semantic use. The r5 12-case matrix covering
+fictional GitHub tokens, AWS access keys, bearer credentials, and private-key
+blocks remains unchanged. Every matrix case returns exact
+`SECRET_VALUE_FORBIDDEN`; no real credential is present.
+
+Revision r6 replaces the artifact scanner's whole-file `read_bytes()` with a
+64-KiB streaming read, a 512-byte overlap, and a committed 64-MiB per-artifact
+input limit. The overlap is larger than the longest explicitly bounded
+credential signature and retains the minimum detectable prefix of unbounded
+bearer signatures across chunk boundaries. At most one chunk plus the overlap
+is decoded at once.
+
+The scanner opens the file before checking `fstat`, so files already larger than
+the limit fail without being read. A cumulative byte counter independently
+catches growth during scanning. A one-byte-over in-root artifact therefore
+returns structured exact `ARTIFACT_SCAN_SIZE_LIMIT_EXCEEDED`, while the exact
+64-MiB boundary remains valid. A fictional GitHub signature split across a
+chunk boundary returns exact `SECRET_VALUE_FORBIDDEN`. All three controls emit
+no stderr and no traceback.
 
 Manifest and trust bytes use the same structured validation entry point.
 Malformed manifest JSON returns exact `MANIFEST_JSON_INVALID`; malformed trust
-JSON returns exact `EXTERNAL_TRUST_JSON_INVALID`. Each direct CLI result is
+JSON returns exact `EXTERNAL_TRUST_JSON_INVALID`. Each direct CLI result remains
 byte-identical across two runs, exits 1, emits no stderr, and has no traceback.
 
 ## Classification and authorization
@@ -115,36 +135,45 @@ bundle, and `synthetic: false`. All fixtures are synthetic and report
 
 ## Deterministic controls
 
-The r5 suite preserves all r4 controls and adds external bundle-digest
-authentication, coherent rewrite, process-birth, secret-matrix, and malformed
-JSON controls. Every case declares the complete exact error-code set and runs
-twice internally.
+The r6 suite preserves all 72 r5 controls and adds exact-limit,
+one-byte-over-limit, and cross-chunk credential controls. Every case declares
+the complete exact error-code set and runs twice internally. The complete suite
+was also invoked twice externally and the aggregate result bytes were identical.
 
 Results:
 
-- 72 of 72 fixture cases pass.
-- 2 cases classify `STATIC_RESUME_READY`, both unauthorized.
+- 75 of 75 fixture cases pass with zero fixture failures.
+- 3 cases classify `STATIC_RESUME_READY`, all unauthorized.
 - 1 case classifies `INCOMPLETE`.
-- 69 cases classify `INVALID`.
+- 71 cases classify `INVALID`.
 - Every case reports deterministic agreement.
+- Exact-limit artifact: `STATIC_RESUME_READY` with no errors.
+- One-byte-over artifact: `INVALID` with sole
+  `ARTIFACT_SCAN_SIZE_LIMIT_EXCEEDED`.
+- Cross-chunk fictional credential: `INVALID` with sole
+  `SECRET_VALUE_FORBIDDEN`.
 - Fixture source SHA-256:
-  `42446bbe632075aa4bd4739a94bd8f825c92b9223b92ed5eecff4ad45afa4b66`.
+  `da704dd2eaaae935dbd540347aebc6e6838af0abc08ab8f905f43330dc9616f5`.
 - Both byte-identical aggregate results have SHA-256:
-  `a39468d6188ba8f5656bd7a707cd4c77cf630782cfc0f25d309a2bcb710d1c2a`.
+  `2286c6e585f4e1cc52463e5c434dec1c0250098c31ebe55263df549840f45e6b`.
+- Full-suite wall times were approximately 13.97 and 13.75 seconds.
 
 ## Reproduction
 
 ```bash
-python3 -c 'import json; json.load(open("research/ranked_authority_evidence_bundle.schema.json")); json.load(open("research/ranked_authority_evidence_bundle_fixtures.json")); print("json-ok")'
 python3 -m py_compile research/validate_ranked_authority_evidence_bundle.py
+python3 -c 'import json; json.load(open("research/ranked_authority_evidence_bundle.schema.json")); json.load(open("research/ranked_authority_evidence_bundle_fixtures.json")); print("json-ok")'
+python3 research/validate_ranked_authority_evidence_bundle.py --help
 python3 research/validate_ranked_authority_evidence_bundle.py \
   --run-fixtures research/ranked_authority_evidence_bundle_fixtures.json \
-  > /tmp/cedar-r5-first.json
+  > /tmp/cedar-r6-first.json
 python3 research/validate_ranked_authority_evidence_bundle.py \
   --run-fixtures research/ranked_authority_evidence_bundle_fixtures.json \
-  > /tmp/cedar-r5-second.json
-cmp -s /tmp/cedar-r5-first.json /tmp/cedar-r5-second.json
-shasum -a 256 /tmp/cedar-r5-first.json /tmp/cedar-r5-second.json
+  > /tmp/cedar-r6-second.json
+cmp -s /tmp/cedar-r6-first.json /tmp/cedar-r6-second.json
+shasum -a 256 research/ranked_authority_evidence_bundle_fixtures.json \
+  /tmp/cedar-r6-first.json /tmp/cedar-r6-second.json
+git diff --check
 ```
 
 A future read-only bundle requires a separate verifier-owned trust document and
