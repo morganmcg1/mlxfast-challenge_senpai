@@ -311,13 +311,13 @@ func lagunaPrefillRouterOrdinalFourRowTiming() {
         }
         return MLXArray(values, [1, rows, 256]).asType(.bfloat16)
     }
-    let correctionBiasByLayer = (0..<callCount).map { layer in
-        MLXArray(
-            (0..<256).map { expert -> Float in
-                Float(((expert * 17 + layer * 13) % 97) - 48) / 256
-            },
-            [256]
-        )
+    var correctionBiasByLayer: [MLXArray] = []
+    correctionBiasByLayer.reserveCapacity(callCount)
+    for layer in 0..<callCount {
+        let values: [Float] = (0..<256).map { expert in
+            Float(((expert * 17 + layer * 13) % 97) - 48) / 256
+        }
+        correctionBiasByLayer.append(MLXArray(values, [256]))
     }
     eval(logitsByLayer + correctionBiasByLayer)
 
