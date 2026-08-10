@@ -38,6 +38,141 @@ func routerRankMapDifferentialMatchesStableGatherSortWhenEnabled() {
     }
 }
 
+@Test
+func routerRankMapIsolatedBenchmark() throws {
+    let environment = ProcessInfo.processInfo.environment
+    guard environment["MLXFAST_RUN_ROUTER_RANK_MAP_BENCHMARK"] == "1" else {
+        return
+    }
+
+    let order = environment["MLXFAST_ROUTER_RANK_MAP_ORDER"] ?? "AB"
+    precondition(order == "AB" || order == "BA")
+    let rows = 512
+    let width = 2_048
+    let warmupPairs = 8
+    let timedPairs = 40
+    let inputs = makeRouterInputs(rows: rows, scenario: .random)
+    let logits = MLXArray(inputs.logits, [1, rows, 256]).asType(.bfloat16)
+    let correctionBias = MLXArray(inputs.bias)
+    let activationValues = (0 ..< rows * width).map {
+        Float(($0 &* 37) % 4_096) / 1_024 - 2
+    }
+    let activations = MLXArray(
+        activationValues, [1, rows, 1, 1, width]
+    ).asType(.bfloat16)
+    eval([logits, correctionBias, activations])
+
+    func evaluateControl() {
+        let router = lagunaPrefillRouterTournamentOrdinalForTesting(
+            logits: logits,
+            correctionBias: correctionBias,
+            rows: rows,
+            normalizing: true
+        )
+        let sorted = gatherSort(x: activations, indices: router.0)
+        eval([router.0, router.1, sorted.0, sorted.1, sorted.2])
+    }
+
+    func evaluateCandidate() {
+        let router = lagunaPrefillRouterTournamentOrdinalRankMapForTesting(
+            logits: logits,
+            correctionBias: correctionBias,
+            rows: rows,
+            normalizing: true
+        )
+        let sorted = lagunaRouterRankMapGatherSortForTesting(
+            activations, rankMap: router.2
+        )
+        eval([
+            router.0, router.1, router.2,
+            sorted.0, sorted.1, sorted.2,
+        ])
+    }
+
+    func measure(_ body: () -> Void) -> Double {
+        let start = DispatchTime.now().uptimeNanoseconds
+        body()
+        return Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000_000
+    }
+
+    for _ in 0 ..< warmupPairs {
+        if order == "AB" {
+            evaluateControl()
+            evaluateCandidate()
+        } else {
+            evaluateCandidate()
+            evaluateControl()
+        }
+    }
+
+    var controlSamples: [Double] = []
+    var candidateSamples: [Double] = []
+    controlSamples.reserveCapacity(timedPairs)
+    candidateSamples.reserveCapacity(timedPairs)
+    for _ in 0 ..< timedPairs {
+        if order == "AB" {
+            controlSamples.append(measure(evaluateControl))
+            candidateSamples.append(measure(evaluateCandidate))
+        } else {
+            candidateSamples.append(measure(evaluateCandidate))
+            controlSamples.append(measure(evaluateControl))
+        }
+    }
+
+    let controlMedian = routerRankMapMedian(controlSamples)
+    let candidateMedian = routerRankMapMedian(candidateSamples)
+    let controlMAD = routerRankMapMedian(
+        controlSamples.map { abs($0 - controlMedian) }
+    )
+    let candidateMAD = routerRankMapMedian(
+        candidateSamples.map { abs($0 - candidateMedian) }
+    )
+    let pooledNormalizedMAD = sqrt(
+        pow(controlMAD / controlMedian, 2)
+            + pow(candidateMAD / candidateMedian, 2)
+    )
+    let report: [String: Any] = [
+        "schema_version": 1,
+        "order": order,
+        "rows": rows,
+        "hidden_width": width,
+        "dtype": "bfloat16",
+        "normalizing": true,
+        "warmup_pairs": warmupPairs,
+        "timed_pairs": timedPairs,
+        "control_seconds": controlSamples,
+        "candidate_seconds": candidateSamples,
+        "control_median_seconds": controlMedian,
+        "candidate_median_seconds": candidateMedian,
+        "control_mad_seconds": controlMAD,
+        "candidate_mad_seconds": candidateMAD,
+        "speedup": controlMedian / candidateMedian,
+        "favorable_delta_fraction": 1 - candidateMedian / controlMedian,
+        "pooled_normalized_mad": pooledNormalizedMAD,
+        "delta_exceeds_2x_pooled_normalized_mad":
+            1 - candidateMedian / controlMedian > 2 * pooledNormalizedMAD,
+        "control_generic_enumerator_calls": warmupPairs + timedPairs,
+        "candidate_specialized_enumerator_calls": warmupPairs + timedPairs,
+        "candidate_generic_enumerator_calls": 0,
+        "materialized_outputs": [
+            "router_indices", "router_weights", "rank_map_candidate_only",
+            "reordered_activations", "row_order", "sorted_indices", "inverse_order",
+        ],
+    ]
+    let data = try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys])
+    print("ROUTER_RANK_MAP_BENCHMARK_JSON=" + String(decoding: data, as: UTF8.self))
+}
+
+private func routerRankMapMedian(_ values: [Double]) -> Double {
+    precondition(!values.isEmpty)
+    let sorted = values.sorted()
+    let middle = sorted.count / 2
+    if sorted.count % 2 == 0 {
+        return (sorted[middle - 1] + sorted[middle]) / 2
+    }
+    return sorted[middle]
+}
+
 private func verifyRouterRankMap(
     rows: Int,
     scenario: RouterRankMapScenario,
