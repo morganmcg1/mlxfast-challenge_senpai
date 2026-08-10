@@ -1,0 +1,254 @@
+benchmark.sh: trusted CLI or participant runtime worker missing or stale; building
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+[0/1] Planning build
+Building for production...
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+Build of product 'mlxfast-swift' complete! (9.46s)
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+[0/1] Planning build
+Building for production...
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+Build of product 'mlxfast-runtime-worker' complete! (9.36s)
+benchmark.sh: reusing weights/ for unchanged transform source
+mlxfast-swift: warning: mlx.metallib at /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-fern/workspace/target/.build-worker/arms/base/mlx.metallib was built from different vendored Metal sources than the ones on disk (recorded f1dfc3f701f0402df0ce4a27133be86e79cac98030b1af3399580e47ff18e222, current 6471573a7a9884afd54518b52a754f9db4dae2c0aa81f2376f1b7f2c53293ae3); rebuild it with tools/build-mlx-metallib.sh (or rerun ./setup.sh) so kernel edits are not masked by a stale metallib
+mlxfast: benchmark elapsed=0.0s local-submit start checked_tokens=1025 decode_steps=1023 repeats=1
+mlxfast: benchmark elapsed=0.0s local-submit baseline prefill_seconds_per_token=0.000368 decode_seconds_per_token=0.013856 (official-runner constants; local speedups are directional)
+mlxfast: benchmark elapsed=0.0s local-submit validation start
+mlxfast: benchmark elapsed=10.2s local-submit weights digest still running phase_seconds=10.2
+mlxfast: benchmark elapsed=20.2s local-submit weights digest still running phase_seconds=20.2
+mlxfast: benchmark elapsed=30.2s local-submit weights digest still running phase_seconds=30.2
+mlxfast: benchmark elapsed=38.7s local-submit weights digest complete files=9 bytes=21568891382
+mlxfast: benchmark elapsed=38.7s local-submit validation complete prompt_tokens=512 seconds=38.7
+mlxfast: benchmark elapsed=38.7s local-submit checked timing start
+mlxfast: benchmark elapsed=82.9s local thermal gate start phase=prefill
+benchmark.sh: GPU cool-down gate passed (current 37.6C, target <=40C, waited 0s)
+mlxfast: benchmark elapsed=85.9s local thermal gate complete phase=prefill
+mlxfast: benchmark elapsed=85.9s local-submit prefill measured start prompt_tokens=512
+mlxfast: benchmark elapsed=86.5s local-submit prefill measured complete seconds=0.6 seconds_per_token=0.001124 prefill_speedup=0.327
+mlxfast-worker: mlxfast: low-memory startup profile active (physical memory 48 GiB is below the 64 GiB full-profile minimum): capping the MLX allocator cache at 6 GiB and clearing free warmup buffers; compiled decode and every other ranked code path stay enabled; set DARKBLOOM_STARTUP_MEMORY_PROFILE=full to opt out
+mlxfast-worker: mlxfast: a machine too small for the model plus the decode working set fails with an out-of-memory error instead of silently skipping ranked code paths; verify on a 64 GiB+ machine or rely on the ranked run
+mlxfast-worker: mlxfast: narrow-scales built lane-major pairwise: qkv
+mlxfast-worker: mlxfast: narrow-scales built lane-major pairwise: oproj
+mlxfast-worker: mlxfast: packed-scales active: shared gate/up halved
+mlxfast-worker: mlxfast: packed-scales active: shared down halved
+mlxfast-worker: mlxfast: packed-scales active: packed routed gate/up bank prepared
+mlxfast-worker: mlxfast: lm_head prune active (coarse copy resident)
+mlxfast-worker: mlxfast: packed-scales inactive: packed routed gate/up prefill scale view consumed
+mlxfast-worker: mlxfast: packed-scales inactive: packed routed down prefill scale view consumed
+mlxfast-worker: mlxfast: packed-scales active: routed swiglu qmv packed dispatch
+mlxfast: benchmark elapsed=128.8s local thermal gate start phase=decode
+benchmark.sh: GPU cool-down gate passed (current 37.7C, target <=40C, waited 0s)
+mlxfast: benchmark elapsed=131.5s local thermal gate complete phase=decode
+mlxfast: benchmark elapsed=131.5s local-submit decode measured start tokens=1023 includes_seed_prefill=true
+mlxfast: benchmark elapsed=132.1s local-submit decode seed prefill complete seconds=0.6 (charged to decode)
+mlxfast: benchmark elapsed=132.1s local-submit checked decode 1/1023 tokens last_step_seconds=0.033865 mean_step_seconds=0.033865 decode_eta_seconds=34.6 projected_decode_seconds_per_token=0.034430 projected_decode_speedup=0.402 projected_score=0.382
+mlxfast: benchmark elapsed=132.2s local-submit checked decode 8/1023 tokens last_step_seconds=0.008413 mean_step_seconds=0.011630 decode_eta_seconds=11.8 projected_decode_seconds_per_token=0.012194 projected_decode_speedup=1.136 projected_score=0.832
+mlxfast: benchmark elapsed=132.2s local-submit checked decode 16/1023 tokens last_step_seconds=0.008285 mean_step_seconds=0.009992 decode_eta_seconds=10.1 projected_decode_seconds_per_token=0.010557 projected_decode_speedup=1.312 projected_score=0.927
+mlxfast: benchmark elapsed=132.3s local-submit checked decode 24/1023 tokens last_step_seconds=0.008277 mean_step_seconds=0.009407 decode_eta_seconds=9.4 projected_decode_seconds_per_token=0.009972 projected_decode_speedup=1.389 projected_score=0.968
+mlxfast: benchmark elapsed=132.4s local-submit checked decode 32/1023 tokens last_step_seconds=0.008286 mean_step_seconds=0.009115 decode_eta_seconds=9.0 projected_decode_seconds_per_token=0.009680 projected_decode_speedup=1.431 projected_score=0.990
+mlxfast: benchmark elapsed=132.4s local-submit checked decode 40/1023 tokens last_step_seconds=0.008374 mean_step_seconds=0.008949 decode_eta_seconds=8.8 projected_decode_seconds_per_token=0.009514 projected_decode_speedup=1.456 projected_score=1.003
+mlxfast: benchmark elapsed=132.5s local-submit checked decode 48/1023 tokens last_step_seconds=0.008163 mean_step_seconds=0.008834 decode_eta_seconds=8.6 projected_decode_seconds_per_token=0.009399 projected_decode_speedup=1.474 projected_score=1.012
+mlxfast: benchmark elapsed=132.6s local-submit checked decode 56/1023 tokens last_step_seconds=0.008327 mean_step_seconds=0.008764 decode_eta_seconds=8.5 projected_decode_seconds_per_token=0.009329 projected_decode_speedup=1.485 projected_score=1.017
+mlxfast: benchmark elapsed=132.6s local-submit checked decode 64/1023 tokens last_step_seconds=0.008438 mean_step_seconds=0.008715 decode_eta_seconds=8.4 projected_decode_seconds_per_token=0.009280 projected_decode_speedup=1.493 projected_score=1.021
+mlxfast: benchmark elapsed=132.7s local-submit checked decode 72/1023 tokens last_step_seconds=0.008341 mean_step_seconds=0.008674 decode_eta_seconds=8.2 projected_decode_seconds_per_token=0.009239 projected_decode_speedup=1.500 projected_score=1.025
+mlxfast: benchmark elapsed=132.8s local-submit checked decode 80/1023 tokens last_step_seconds=0.008380 mean_step_seconds=0.008640 decode_eta_seconds=8.1 projected_decode_seconds_per_token=0.009205 projected_decode_speedup=1.505 projected_score=1.028
+mlxfast: benchmark elapsed=132.8s local-submit checked decode 88/1023 tokens last_step_seconds=0.008416 mean_step_seconds=0.008614 decode_eta_seconds=8.1 projected_decode_seconds_per_token=0.009179 projected_decode_speedup=1.510 projected_score=1.030
+mlxfast: benchmark elapsed=132.9s local-submit checked decode 96/1023 tokens last_step_seconds=0.008409 mean_step_seconds=0.008589 decode_eta_seconds=8.0 projected_decode_seconds_per_token=0.009154 projected_decode_speedup=1.514 projected_score=1.032
+mlxfast: benchmark elapsed=133.0s local-submit checked decode 104/1023 tokens last_step_seconds=0.008275 mean_step_seconds=0.008565 decode_eta_seconds=7.9 projected_decode_seconds_per_token=0.009130 projected_decode_speedup=1.518 projected_score=1.034
+mlxfast: benchmark elapsed=133.0s local-submit checked decode 112/1023 tokens last_step_seconds=0.008259 mean_step_seconds=0.008544 decode_eta_seconds=7.8 projected_decode_seconds_per_token=0.009109 projected_decode_speedup=1.521 projected_score=1.036
+mlxfast: benchmark elapsed=133.1s local-submit checked decode 120/1023 tokens last_step_seconds=0.008256 mean_step_seconds=0.008526 decode_eta_seconds=7.7 projected_decode_seconds_per_token=0.009091 projected_decode_speedup=1.524 projected_score=1.037
+mlxfast: benchmark elapsed=133.2s local-submit checked decode 128/1023 tokens last_step_seconds=0.008285 mean_step_seconds=0.008512 decode_eta_seconds=7.6 projected_decode_seconds_per_token=0.009078 projected_decode_speedup=1.526 projected_score=1.039
+mlxfast: benchmark elapsed=133.2s local-submit checked decode 136/1023 tokens last_step_seconds=0.008282 mean_step_seconds=0.008500 decode_eta_seconds=7.5 projected_decode_seconds_per_token=0.009065 projected_decode_speedup=1.528 projected_score=1.040
+mlxfast: benchmark elapsed=133.3s local-submit checked decode 144/1023 tokens last_step_seconds=0.008282 mean_step_seconds=0.008488 decode_eta_seconds=7.5 projected_decode_seconds_per_token=0.009053 projected_decode_speedup=1.530 projected_score=1.041
+mlxfast: benchmark elapsed=133.4s local-submit checked decode 152/1023 tokens last_step_seconds=0.008326 mean_step_seconds=0.008478 decode_eta_seconds=7.4 projected_decode_seconds_per_token=0.009044 projected_decode_speedup=1.532 projected_score=1.041
+mlxfast: benchmark elapsed=133.4s local-submit checked decode 160/1023 tokens last_step_seconds=0.008260 mean_step_seconds=0.008469 decode_eta_seconds=7.3 projected_decode_seconds_per_token=0.009034 projected_decode_speedup=1.534 projected_score=1.042
+mlxfast: benchmark elapsed=133.5s local-submit checked decode 168/1023 tokens last_step_seconds=0.008265 mean_step_seconds=0.008461 decode_eta_seconds=7.2 projected_decode_seconds_per_token=0.009026 projected_decode_speedup=1.535 projected_score=1.043
+mlxfast: benchmark elapsed=133.6s local-submit checked decode 176/1023 tokens last_step_seconds=0.008275 mean_step_seconds=0.008453 decode_eta_seconds=7.2 projected_decode_seconds_per_token=0.009019 projected_decode_speedup=1.536 projected_score=1.044
+mlxfast: benchmark elapsed=133.6s local-submit checked decode 184/1023 tokens last_step_seconds=0.008359 mean_step_seconds=0.008447 decode_eta_seconds=7.1 projected_decode_seconds_per_token=0.009012 projected_decode_speedup=1.538 projected_score=1.044
+mlxfast: benchmark elapsed=133.7s local-submit checked decode 192/1023 tokens last_step_seconds=0.008275 mean_step_seconds=0.008441 decode_eta_seconds=7.0 projected_decode_seconds_per_token=0.009006 projected_decode_speedup=1.539 projected_score=1.045
+mlxfast: benchmark elapsed=133.8s local-submit checked decode 200/1023 tokens last_step_seconds=0.008271 mean_step_seconds=0.008435 decode_eta_seconds=6.9 projected_decode_seconds_per_token=0.009000 projected_decode_speedup=1.540 projected_score=1.045
+mlxfast: benchmark elapsed=133.8s local-submit checked decode 208/1023 tokens last_step_seconds=0.008267 mean_step_seconds=0.008430 decode_eta_seconds=6.9 projected_decode_seconds_per_token=0.008995 projected_decode_speedup=1.540 projected_score=1.046
+mlxfast: benchmark elapsed=133.9s local-submit checked decode 216/1023 tokens last_step_seconds=0.008351 mean_step_seconds=0.008426 decode_eta_seconds=6.8 projected_decode_seconds_per_token=0.008991 projected_decode_speedup=1.541 projected_score=1.046
+mlxfast: benchmark elapsed=134.0s local-submit checked decode 224/1023 tokens last_step_seconds=0.008305 mean_step_seconds=0.008422 decode_eta_seconds=6.7 projected_decode_seconds_per_token=0.008988 projected_decode_speedup=1.542 projected_score=1.046
+mlxfast: benchmark elapsed=134.0s local-submit checked decode 232/1023 tokens last_step_seconds=0.008312 mean_step_seconds=0.008419 decode_eta_seconds=6.7 projected_decode_seconds_per_token=0.008984 projected_decode_speedup=1.542 projected_score=1.047
+mlxfast: benchmark elapsed=134.1s local-submit checked decode 240/1023 tokens last_step_seconds=0.008302 mean_step_seconds=0.008416 decode_eta_seconds=6.6 projected_decode_seconds_per_token=0.008981 projected_decode_speedup=1.543 projected_score=1.047
+mlxfast: benchmark elapsed=134.2s local-submit checked decode 248/1023 tokens last_step_seconds=0.008293 mean_step_seconds=0.008413 decode_eta_seconds=6.5 projected_decode_seconds_per_token=0.008978 projected_decode_speedup=1.543 projected_score=1.047
+mlxfast: benchmark elapsed=134.2s local-submit checked decode 256/1023 tokens last_step_seconds=0.008316 mean_step_seconds=0.008410 decode_eta_seconds=6.5 projected_decode_seconds_per_token=0.008976 projected_decode_speedup=1.544 projected_score=1.047
+mlxfast: benchmark elapsed=134.3s local-submit checked decode 264/1023 tokens last_step_seconds=0.008302 mean_step_seconds=0.008411 decode_eta_seconds=6.4 projected_decode_seconds_per_token=0.008977 projected_decode_speedup=1.544 projected_score=1.047
+mlxfast: benchmark elapsed=134.4s local-submit checked decode 272/1023 tokens last_step_seconds=0.008303 mean_step_seconds=0.008409 decode_eta_seconds=6.3 projected_decode_seconds_per_token=0.008975 projected_decode_speedup=1.544 projected_score=1.047
+mlxfast: benchmark elapsed=134.4s local-submit checked decode 280/1023 tokens last_step_seconds=0.008322 mean_step_seconds=0.008407 decode_eta_seconds=6.2 projected_decode_seconds_per_token=0.008973 projected_decode_speedup=1.544 projected_score=1.048
+mlxfast: benchmark elapsed=134.5s local-submit checked decode 288/1023 tokens last_step_seconds=0.008310 mean_step_seconds=0.008405 decode_eta_seconds=6.2 projected_decode_seconds_per_token=0.008971 projected_decode_speedup=1.545 projected_score=1.048
+mlxfast: benchmark elapsed=134.6s local-submit checked decode 296/1023 tokens last_step_seconds=0.008328 mean_step_seconds=0.008403 decode_eta_seconds=6.1 projected_decode_seconds_per_token=0.008969 projected_decode_speedup=1.545 projected_score=1.048
+mlxfast: benchmark elapsed=134.6s local-submit checked decode 304/1023 tokens last_step_seconds=0.008324 mean_step_seconds=0.008402 decode_eta_seconds=6.0 projected_decode_seconds_per_token=0.008967 projected_decode_speedup=1.545 projected_score=1.048
+mlxfast: benchmark elapsed=134.7s local-submit checked decode 312/1023 tokens last_step_seconds=0.008362 mean_step_seconds=0.008400 decode_eta_seconds=6.0 projected_decode_seconds_per_token=0.008966 projected_decode_speedup=1.545 projected_score=1.048
+mlxfast: benchmark elapsed=134.8s local-submit checked decode 320/1023 tokens last_step_seconds=0.008321 mean_step_seconds=0.008398 decode_eta_seconds=5.9 projected_decode_seconds_per_token=0.008964 projected_decode_speedup=1.546 projected_score=1.048
+mlxfast: benchmark elapsed=134.8s local-submit checked decode 328/1023 tokens last_step_seconds=0.008329 mean_step_seconds=0.008397 decode_eta_seconds=5.8 projected_decode_seconds_per_token=0.008962 projected_decode_speedup=1.546 projected_score=1.049
+mlxfast: benchmark elapsed=134.9s local-submit checked decode 336/1023 tokens last_step_seconds=0.008334 mean_step_seconds=0.008396 decode_eta_seconds=5.8 projected_decode_seconds_per_token=0.008962 projected_decode_speedup=1.546 projected_score=1.049
+mlxfast: benchmark elapsed=135.0s local-submit checked decode 344/1023 tokens last_step_seconds=0.008333 mean_step_seconds=0.008395 decode_eta_seconds=5.7 projected_decode_seconds_per_token=0.008961 projected_decode_speedup=1.546 projected_score=1.049
+mlxfast: benchmark elapsed=135.0s local-submit checked decode 352/1023 tokens last_step_seconds=0.008332 mean_step_seconds=0.008394 decode_eta_seconds=5.6 projected_decode_seconds_per_token=0.008960 projected_decode_speedup=1.546 projected_score=1.049
+mlxfast: benchmark elapsed=135.1s local-submit checked decode 360/1023 tokens last_step_seconds=0.008339 mean_step_seconds=0.008393 decode_eta_seconds=5.6 projected_decode_seconds_per_token=0.008959 projected_decode_speedup=1.547 projected_score=1.049
+mlxfast: benchmark elapsed=135.2s local-submit checked decode 368/1023 tokens last_step_seconds=0.008436 mean_step_seconds=0.008393 decode_eta_seconds=5.5 projected_decode_seconds_per_token=0.008959 projected_decode_speedup=1.547 projected_score=1.049
+mlxfast: benchmark elapsed=135.2s local-submit checked decode 376/1023 tokens last_step_seconds=0.008362 mean_step_seconds=0.008392 decode_eta_seconds=5.4 projected_decode_seconds_per_token=0.008958 projected_decode_speedup=1.547 projected_score=1.049
+mlxfast: benchmark elapsed=135.3s local-submit checked decode 384/1023 tokens last_step_seconds=0.008343 mean_step_seconds=0.008392 decode_eta_seconds=5.4 projected_decode_seconds_per_token=0.008957 projected_decode_speedup=1.547 projected_score=1.049
+mlxfast: benchmark elapsed=135.4s local-submit checked decode 392/1023 tokens last_step_seconds=0.008346 mean_step_seconds=0.008391 decode_eta_seconds=5.3 projected_decode_seconds_per_token=0.008957 projected_decode_speedup=1.547 projected_score=1.049
+mlxfast: benchmark elapsed=135.4s local-submit checked decode 400/1023 tokens last_step_seconds=0.008357 mean_step_seconds=0.008390 decode_eta_seconds=5.2 projected_decode_seconds_per_token=0.008956 projected_decode_speedup=1.547 projected_score=1.049
+mlxfast: benchmark elapsed=135.5s local-submit checked decode 408/1023 tokens last_step_seconds=0.008375 mean_step_seconds=0.008390 decode_eta_seconds=5.2 projected_decode_seconds_per_token=0.008956 projected_decode_speedup=1.547 projected_score=1.049
+mlxfast: benchmark elapsed=135.6s local-submit checked decode 416/1023 tokens last_step_seconds=0.008359 mean_step_seconds=0.008390 decode_eta_seconds=5.1 projected_decode_seconds_per_token=0.008956 projected_decode_speedup=1.547 projected_score=1.049
+mlxfast: benchmark elapsed=135.6s local-submit checked decode 424/1023 tokens last_step_seconds=0.008334 mean_step_seconds=0.008389 decode_eta_seconds=5.0 projected_decode_seconds_per_token=0.008955 projected_decode_speedup=1.547 projected_score=1.049
+mlxfast: benchmark elapsed=135.7s local-submit checked decode 432/1023 tokens last_step_seconds=0.008370 mean_step_seconds=0.008389 decode_eta_seconds=5.0 projected_decode_seconds_per_token=0.008955 projected_decode_speedup=1.547 projected_score=1.049
+mlxfast: benchmark elapsed=135.8s local-submit checked decode 440/1023 tokens last_step_seconds=0.008366 mean_step_seconds=0.008388 decode_eta_seconds=4.9 projected_decode_seconds_per_token=0.008954 projected_decode_speedup=1.547 projected_score=1.049
+mlxfast: benchmark elapsed=135.8s local-submit checked decode 448/1023 tokens last_step_seconds=0.008396 mean_step_seconds=0.008388 decode_eta_seconds=4.8 projected_decode_seconds_per_token=0.008954 projected_decode_speedup=1.547 projected_score=1.049
+mlxfast: benchmark elapsed=135.9s local-submit checked decode 456/1023 tokens last_step_seconds=0.008382 mean_step_seconds=0.008388 decode_eta_seconds=4.8 projected_decode_seconds_per_token=0.008954 projected_decode_speedup=1.547 projected_score=1.049
+mlxfast: benchmark elapsed=136.0s local-submit checked decode 464/1023 tokens last_step_seconds=0.008391 mean_step_seconds=0.008388 decode_eta_seconds=4.7 projected_decode_seconds_per_token=0.008954 projected_decode_speedup=1.547 projected_score=1.049
+mlxfast: benchmark elapsed=136.0s local-submit checked decode 472/1023 tokens last_step_seconds=0.008424 mean_step_seconds=0.008388 decode_eta_seconds=4.6 projected_decode_seconds_per_token=0.008954 projected_decode_speedup=1.547 projected_score=1.049
+mlxfast: benchmark elapsed=136.1s local-submit checked decode 480/1023 tokens last_step_seconds=0.008408 mean_step_seconds=0.008388 decode_eta_seconds=4.6 projected_decode_seconds_per_token=0.008955 projected_decode_speedup=1.547 projected_score=1.049
+mlxfast: benchmark elapsed=136.2s local-submit checked decode 488/1023 tokens last_step_seconds=0.008399 mean_step_seconds=0.008388 decode_eta_seconds=4.5 projected_decode_seconds_per_token=0.008955 projected_decode_speedup=1.547 projected_score=1.049
+mlxfast: benchmark elapsed=136.3s local-submit checked decode 496/1023 tokens last_step_seconds=0.008407 mean_step_seconds=0.008389 decode_eta_seconds=4.4 projected_decode_seconds_per_token=0.008955 projected_decode_speedup=1.547 projected_score=1.049
+mlxfast: benchmark elapsed=136.3s local-submit checked decode 504/1023 tokens last_step_seconds=0.008439 mean_step_seconds=0.008389 decode_eta_seconds=4.4 projected_decode_seconds_per_token=0.008955 projected_decode_speedup=1.547 projected_score=1.049
+mlxfast: benchmark elapsed=136.4s local-submit checked decode 512/1023 tokens last_step_seconds=0.008431 mean_step_seconds=0.008390 decode_eta_seconds=4.3 projected_decode_seconds_per_token=0.008956 projected_decode_speedup=1.547 projected_score=1.049
+mlxfast: benchmark elapsed=136.5s local-submit checked decode 520/1023 tokens last_step_seconds=0.008382 mean_step_seconds=0.008421 decode_eta_seconds=4.2 projected_decode_seconds_per_token=0.008987 projected_decode_speedup=1.542 projected_score=1.046
+mlxfast: benchmark elapsed=136.5s local-submit checked decode 528/1023 tokens last_step_seconds=0.008342 mean_step_seconds=0.008419 decode_eta_seconds=4.2 projected_decode_seconds_per_token=0.008986 projected_decode_speedup=1.542 projected_score=1.046
+mlxfast: benchmark elapsed=136.6s local-submit checked decode 536/1023 tokens last_step_seconds=0.008320 mean_step_seconds=0.008418 decode_eta_seconds=4.1 projected_decode_seconds_per_token=0.008984 projected_decode_speedup=1.542 projected_score=1.047
+mlxfast: benchmark elapsed=136.7s local-submit checked decode 544/1023 tokens last_step_seconds=0.008348 mean_step_seconds=0.008417 decode_eta_seconds=4.0 projected_decode_seconds_per_token=0.008983 projected_decode_speedup=1.543 projected_score=1.047
+mlxfast: benchmark elapsed=136.7s local-submit checked decode 552/1023 tokens last_step_seconds=0.008329 mean_step_seconds=0.008415 decode_eta_seconds=4.0 projected_decode_seconds_per_token=0.008982 projected_decode_speedup=1.543 projected_score=1.047
+mlxfast: benchmark elapsed=136.8s local-submit checked decode 560/1023 tokens last_step_seconds=0.008346 mean_step_seconds=0.008414 decode_eta_seconds=3.9 projected_decode_seconds_per_token=0.008980 projected_decode_speedup=1.543 projected_score=1.047
+mlxfast: benchmark elapsed=136.9s local-submit checked decode 568/1023 tokens last_step_seconds=0.008360 mean_step_seconds=0.008413 decode_eta_seconds=3.8 projected_decode_seconds_per_token=0.008980 projected_decode_speedup=1.543 projected_score=1.047
+mlxfast: benchmark elapsed=136.9s local-submit checked decode 576/1023 tokens last_step_seconds=0.008361 mean_step_seconds=0.008412 decode_eta_seconds=3.8 projected_decode_seconds_per_token=0.008979 projected_decode_speedup=1.543 projected_score=1.047
+mlxfast: benchmark elapsed=137.0s local-submit checked decode 584/1023 tokens last_step_seconds=0.008364 mean_step_seconds=0.008411 decode_eta_seconds=3.7 projected_decode_seconds_per_token=0.008978 projected_decode_speedup=1.543 projected_score=1.047
+mlxfast: benchmark elapsed=137.1s local-submit checked decode 592/1023 tokens last_step_seconds=0.008343 mean_step_seconds=0.008410 decode_eta_seconds=3.6 projected_decode_seconds_per_token=0.008977 projected_decode_speedup=1.544 projected_score=1.047
+mlxfast: benchmark elapsed=137.1s local-submit checked decode 600/1023 tokens last_step_seconds=0.008455 mean_step_seconds=0.008410 decode_eta_seconds=3.6 projected_decode_seconds_per_token=0.008976 projected_decode_speedup=1.544 projected_score=1.047
+mlxfast: benchmark elapsed=137.2s local-submit checked decode 608/1023 tokens last_step_seconds=0.008332 mean_step_seconds=0.008409 decode_eta_seconds=3.5 projected_decode_seconds_per_token=0.008976 projected_decode_speedup=1.544 projected_score=1.047
+mlxfast: benchmark elapsed=137.3s local-submit checked decode 616/1023 tokens last_step_seconds=0.008361 mean_step_seconds=0.008408 decode_eta_seconds=3.4 projected_decode_seconds_per_token=0.008975 projected_decode_speedup=1.544 projected_score=1.047
+mlxfast: benchmark elapsed=137.3s local-submit checked decode 624/1023 tokens last_step_seconds=0.008366 mean_step_seconds=0.008408 decode_eta_seconds=3.4 projected_decode_seconds_per_token=0.008974 projected_decode_speedup=1.544 projected_score=1.047
+mlxfast: benchmark elapsed=137.4s local-submit checked decode 632/1023 tokens last_step_seconds=0.008364 mean_step_seconds=0.008407 decode_eta_seconds=3.3 projected_decode_seconds_per_token=0.008974 projected_decode_speedup=1.544 projected_score=1.048
+mlxfast: benchmark elapsed=137.5s local-submit checked decode 640/1023 tokens last_step_seconds=0.008352 mean_step_seconds=0.008407 decode_eta_seconds=3.2 projected_decode_seconds_per_token=0.008973 projected_decode_speedup=1.544 projected_score=1.048
+mlxfast: benchmark elapsed=137.5s local-submit checked decode 648/1023 tokens last_step_seconds=0.008364 mean_step_seconds=0.008406 decode_eta_seconds=3.2 projected_decode_seconds_per_token=0.008973 projected_decode_speedup=1.544 projected_score=1.048
+mlxfast: benchmark elapsed=137.6s local-submit checked decode 656/1023 tokens last_step_seconds=0.008354 mean_step_seconds=0.008406 decode_eta_seconds=3.1 projected_decode_seconds_per_token=0.008972 projected_decode_speedup=1.544 projected_score=1.048
+mlxfast: benchmark elapsed=137.7s local-submit checked decode 664/1023 tokens last_step_seconds=0.008329 mean_step_seconds=0.008405 decode_eta_seconds=3.0 projected_decode_seconds_per_token=0.008972 projected_decode_speedup=1.544 projected_score=1.048
+mlxfast: benchmark elapsed=137.7s local-submit checked decode 672/1023 tokens last_step_seconds=0.008368 mean_step_seconds=0.008405 decode_eta_seconds=3.0 projected_decode_seconds_per_token=0.008971 projected_decode_speedup=1.544 projected_score=1.048
+mlxfast: benchmark elapsed=137.8s local-submit checked decode 680/1023 tokens last_step_seconds=0.008343 mean_step_seconds=0.008404 decode_eta_seconds=2.9 projected_decode_seconds_per_token=0.008971 projected_decode_speedup=1.545 projected_score=1.048
+mlxfast: benchmark elapsed=137.9s local-submit checked decode 688/1023 tokens last_step_seconds=0.008360 mean_step_seconds=0.008404 decode_eta_seconds=2.8 projected_decode_seconds_per_token=0.008971 projected_decode_speedup=1.545 projected_score=1.048
+mlxfast: benchmark elapsed=137.9s local-submit checked decode 696/1023 tokens last_step_seconds=0.008378 mean_step_seconds=0.008404 decode_eta_seconds=2.7 projected_decode_seconds_per_token=0.008970 projected_decode_speedup=1.545 projected_score=1.048
+mlxfast: benchmark elapsed=138.0s local-submit checked decode 704/1023 tokens last_step_seconds=0.008402 mean_step_seconds=0.008404 decode_eta_seconds=2.7 projected_decode_seconds_per_token=0.008970 projected_decode_speedup=1.545 projected_score=1.048
+mlxfast: benchmark elapsed=138.1s local-submit checked decode 712/1023 tokens last_step_seconds=0.008378 mean_step_seconds=0.008404 decode_eta_seconds=2.6 projected_decode_seconds_per_token=0.008970 projected_decode_speedup=1.545 projected_score=1.048
+mlxfast: benchmark elapsed=138.1s local-submit checked decode 720/1023 tokens last_step_seconds=0.008366 mean_step_seconds=0.008403 decode_eta_seconds=2.5 projected_decode_seconds_per_token=0.008970 projected_decode_speedup=1.545 projected_score=1.048
+mlxfast: benchmark elapsed=138.2s local-submit checked decode 728/1023 tokens last_step_seconds=0.008371 mean_step_seconds=0.008403 decode_eta_seconds=2.5 projected_decode_seconds_per_token=0.008970 projected_decode_speedup=1.545 projected_score=1.048
+mlxfast: benchmark elapsed=138.3s local-submit checked decode 736/1023 tokens last_step_seconds=0.008362 mean_step_seconds=0.008403 decode_eta_seconds=2.4 projected_decode_seconds_per_token=0.008970 projected_decode_speedup=1.545 projected_score=1.048
+mlxfast: benchmark elapsed=138.3s local-submit checked decode 744/1023 tokens last_step_seconds=0.008376 mean_step_seconds=0.008403 decode_eta_seconds=2.3 projected_decode_seconds_per_token=0.008970 projected_decode_speedup=1.545 projected_score=1.048
+mlxfast: benchmark elapsed=138.4s local-submit checked decode 752/1023 tokens last_step_seconds=0.008370 mean_step_seconds=0.008403 decode_eta_seconds=2.3 projected_decode_seconds_per_token=0.008970 projected_decode_speedup=1.545 projected_score=1.048
+mlxfast: benchmark elapsed=138.5s local-submit checked decode 760/1023 tokens last_step_seconds=0.008362 mean_step_seconds=0.008404 decode_eta_seconds=2.2 projected_decode_seconds_per_token=0.008971 projected_decode_speedup=1.545 projected_score=1.048
+mlxfast: benchmark elapsed=138.5s local-submit checked decode 768/1023 tokens last_step_seconds=0.008375 mean_step_seconds=0.008404 decode_eta_seconds=2.1 projected_decode_seconds_per_token=0.008971 projected_decode_speedup=1.545 projected_score=1.048
+mlxfast: benchmark elapsed=138.6s local-submit checked decode 776/1023 tokens last_step_seconds=0.008412 mean_step_seconds=0.008405 decode_eta_seconds=2.1 projected_decode_seconds_per_token=0.008972 projected_decode_speedup=1.544 projected_score=1.048
+mlxfast: benchmark elapsed=138.7s local-submit checked decode 784/1023 tokens last_step_seconds=0.008418 mean_step_seconds=0.008406 decode_eta_seconds=2.0 projected_decode_seconds_per_token=0.008973 projected_decode_speedup=1.544 projected_score=1.048
+mlxfast: benchmark elapsed=138.7s local-submit checked decode 792/1023 tokens last_step_seconds=0.008394 mean_step_seconds=0.008406 decode_eta_seconds=1.9 projected_decode_seconds_per_token=0.008973 projected_decode_speedup=1.544 projected_score=1.048
+mlxfast: benchmark elapsed=138.8s local-submit checked decode 800/1023 tokens last_step_seconds=0.008405 mean_step_seconds=0.008406 decode_eta_seconds=1.9 projected_decode_seconds_per_token=0.008973 projected_decode_speedup=1.544 projected_score=1.048
+mlxfast: benchmark elapsed=138.9s local-submit checked decode 808/1023 tokens last_step_seconds=0.008413 mean_step_seconds=0.008406 decode_eta_seconds=1.8 projected_decode_seconds_per_token=0.008973 projected_decode_speedup=1.544 projected_score=1.048
+mlxfast: benchmark elapsed=139.0s local-submit checked decode 816/1023 tokens last_step_seconds=0.008425 mean_step_seconds=0.008406 decode_eta_seconds=1.7 projected_decode_seconds_per_token=0.008973 projected_decode_speedup=1.544 projected_score=1.048
+mlxfast: benchmark elapsed=139.0s local-submit checked decode 824/1023 tokens last_step_seconds=0.008421 mean_step_seconds=0.008406 decode_eta_seconds=1.7 projected_decode_seconds_per_token=0.008973 projected_decode_speedup=1.544 projected_score=1.048
+mlxfast: benchmark elapsed=139.1s local-submit checked decode 832/1023 tokens last_step_seconds=0.008464 mean_step_seconds=0.008406 decode_eta_seconds=1.6 projected_decode_seconds_per_token=0.008974 projected_decode_speedup=1.544 projected_score=1.048
+mlxfast: benchmark elapsed=139.2s local-submit checked decode 840/1023 tokens last_step_seconds=0.008452 mean_step_seconds=0.008407 decode_eta_seconds=1.5 projected_decode_seconds_per_token=0.008974 projected_decode_speedup=1.544 projected_score=1.048
+mlxfast: benchmark elapsed=139.2s local-submit checked decode 848/1023 tokens last_step_seconds=0.008417 mean_step_seconds=0.008407 decode_eta_seconds=1.5 projected_decode_seconds_per_token=0.008974 projected_decode_speedup=1.544 projected_score=1.048
+mlxfast: benchmark elapsed=139.3s local-submit checked decode 856/1023 tokens last_step_seconds=0.008422 mean_step_seconds=0.008407 decode_eta_seconds=1.4 projected_decode_seconds_per_token=0.008974 projected_decode_speedup=1.544 projected_score=1.047
+mlxfast: benchmark elapsed=139.4s local-submit checked decode 864/1023 tokens last_step_seconds=0.008421 mean_step_seconds=0.008407 decode_eta_seconds=1.3 projected_decode_seconds_per_token=0.008975 projected_decode_speedup=1.544 projected_score=1.047
+mlxfast: benchmark elapsed=139.4s local-submit checked decode 872/1023 tokens last_step_seconds=0.008424 mean_step_seconds=0.008407 decode_eta_seconds=1.3 projected_decode_seconds_per_token=0.008975 projected_decode_speedup=1.544 projected_score=1.047
+mlxfast: benchmark elapsed=139.5s local-submit checked decode 880/1023 tokens last_step_seconds=0.008432 mean_step_seconds=0.008408 decode_eta_seconds=1.2 projected_decode_seconds_per_token=0.008975 projected_decode_speedup=1.544 projected_score=1.047
+mlxfast: benchmark elapsed=139.6s local-submit checked decode 888/1023 tokens last_step_seconds=0.008424 mean_step_seconds=0.008408 decode_eta_seconds=1.1 projected_decode_seconds_per_token=0.008975 projected_decode_speedup=1.544 projected_score=1.047
+mlxfast: benchmark elapsed=139.6s local-submit checked decode 896/1023 tokens last_step_seconds=0.008436 mean_step_seconds=0.008408 decode_eta_seconds=1.1 projected_decode_seconds_per_token=0.008976 projected_decode_speedup=1.544 projected_score=1.047
+mlxfast: benchmark elapsed=139.7s local-submit checked decode 904/1023 tokens last_step_seconds=0.008448 mean_step_seconds=0.008409 decode_eta_seconds=1.0 projected_decode_seconds_per_token=0.008976 projected_decode_speedup=1.544 projected_score=1.047
+mlxfast: benchmark elapsed=139.8s local-submit checked decode 912/1023 tokens last_step_seconds=0.008389 mean_step_seconds=0.008409 decode_eta_seconds=0.9 projected_decode_seconds_per_token=0.008976 projected_decode_speedup=1.544 projected_score=1.047
+mlxfast: benchmark elapsed=139.8s local-submit checked decode 920/1023 tokens last_step_seconds=0.008427 mean_step_seconds=0.008409 decode_eta_seconds=0.9 projected_decode_seconds_per_token=0.008976 projected_decode_speedup=1.544 projected_score=1.047
+mlxfast: benchmark elapsed=139.9s local-submit checked decode 928/1023 tokens last_step_seconds=0.008395 mean_step_seconds=0.008409 decode_eta_seconds=0.8 projected_decode_seconds_per_token=0.008977 projected_decode_speedup=1.544 projected_score=1.047
+mlxfast: benchmark elapsed=140.0s local-submit checked decode 936/1023 tokens last_step_seconds=0.008431 mean_step_seconds=0.008410 decode_eta_seconds=0.7 projected_decode_seconds_per_token=0.008977 projected_decode_speedup=1.543 projected_score=1.047
+mlxfast: benchmark elapsed=140.0s local-submit checked decode 944/1023 tokens last_step_seconds=0.008435 mean_step_seconds=0.008410 decode_eta_seconds=0.7 projected_decode_seconds_per_token=0.008978 projected_decode_speedup=1.543 projected_score=1.047
+mlxfast: benchmark elapsed=140.1s local-submit checked decode 952/1023 tokens last_step_seconds=0.008450 mean_step_seconds=0.008411 decode_eta_seconds=0.6 projected_decode_seconds_per_token=0.008978 projected_decode_speedup=1.543 projected_score=1.047
+mlxfast: benchmark elapsed=140.2s local-submit checked decode 960/1023 tokens last_step_seconds=0.008442 mean_step_seconds=0.008411 decode_eta_seconds=0.5 projected_decode_seconds_per_token=0.008978 projected_decode_speedup=1.543 projected_score=1.047
+mlxfast: benchmark elapsed=140.2s local-submit checked decode 968/1023 tokens last_step_seconds=0.008486 mean_step_seconds=0.008411 decode_eta_seconds=0.5 projected_decode_seconds_per_token=0.008979 projected_decode_speedup=1.543 projected_score=1.047
+mlxfast: benchmark elapsed=140.3s local-submit checked decode 976/1023 tokens last_step_seconds=0.008499 mean_step_seconds=0.008412 decode_eta_seconds=0.4 projected_decode_seconds_per_token=0.008980 projected_decode_speedup=1.543 projected_score=1.047
+mlxfast: benchmark elapsed=140.4s local-submit checked decode 984/1023 tokens last_step_seconds=0.008511 mean_step_seconds=0.008413 decode_eta_seconds=0.3 projected_decode_seconds_per_token=0.008980 projected_decode_speedup=1.543 projected_score=1.047
+mlxfast: benchmark elapsed=140.4s local-submit checked decode 992/1023 tokens last_step_seconds=0.008472 mean_step_seconds=0.008413 decode_eta_seconds=0.3 projected_decode_seconds_per_token=0.008981 projected_decode_speedup=1.543 projected_score=1.047
+mlxfast: benchmark elapsed=140.5s local-submit checked decode 1000/1023 tokens last_step_seconds=0.008481 mean_step_seconds=0.008413 decode_eta_seconds=0.2 projected_decode_seconds_per_token=0.008981 projected_decode_speedup=1.543 projected_score=1.047
+mlxfast: benchmark elapsed=140.6s local-submit checked decode 1008/1023 tokens last_step_seconds=0.008463 mean_step_seconds=0.008414 decode_eta_seconds=0.1 projected_decode_seconds_per_token=0.008982 projected_decode_speedup=1.543 projected_score=1.047
+mlxfast: benchmark elapsed=140.6s local-submit checked decode 1016/1023 tokens last_step_seconds=0.008440 mean_step_seconds=0.008414 decode_eta_seconds=0.1 projected_decode_seconds_per_token=0.008982 projected_decode_speedup=1.543 projected_score=1.047
+mlxfast: benchmark elapsed=140.7s local-submit checked decode 1023/1023 tokens last_step_seconds=0.008477 mean_step_seconds=0.008415 projected_decode_seconds_per_token=0.008982 projected_decode_speedup=1.543 projected_score=1.047
+mlxfast-worker: mlxfast: low-memory startup profile active (physical memory 48 GiB is below the 64 GiB full-profile minimum): capping the MLX allocator cache at 6 GiB and clearing free warmup buffers; compiled decode and every other ranked code path stay enabled; set DARKBLOOM_STARTUP_MEMORY_PROFILE=full to opt out
+mlxfast-worker: mlxfast: a machine too small for the model plus the decode working set fails with an out-of-memory error instead of silently skipping ranked code paths; verify on a 64 GiB+ machine or rely on the ranked run
+mlxfast-worker: mlxfast: narrow-scales built lane-major pairwise: qkv
+mlxfast-worker: mlxfast: narrow-scales built lane-major pairwise: oproj
+mlxfast-worker: mlxfast: packed-scales active: shared gate/up halved
+mlxfast-worker: mlxfast: packed-scales active: shared down halved
+mlxfast-worker: mlxfast: packed-scales active: packed routed gate/up bank prepared
+mlxfast-worker: mlxfast: lm_head prune active (coarse copy resident)
+mlxfast-worker: mlxfast: packed-scales inactive: packed routed gate/up prefill scale view consumed
+mlxfast-worker: mlxfast: packed-scales inactive: packed routed down prefill scale view consumed
+mlxfast-worker: mlxfast: packed-scales active: routed swiglu qmv packed dispatch
+mlxfast: benchmark elapsed=140.9s local-submit checked timing complete passed=true checked_steps=1025 prefill_seconds_per_token=0.001124 decode_seconds_per_token=0.008982 measured_seconds=9.8 wall_seconds=102.1
+mlxfast: benchmark elapsed=140.9s local-submit summary prefill_seconds_per_token=0.001124 prefill_speedup=0.327
+mlxfast: benchmark elapsed=140.9s local-submit summary decode_seconds_per_token=0.008982 decode_speedup=1.543
+mlxfast: benchmark elapsed=140.9s local-submit summary est_score=1.047 (decode_speedup^0.75 * prefill_speedup^0.25 vs official baseline; published as this run's local estimated score, not a ranked score)
+mlxfast: benchmark elapsed=140.9s local-submit summary decode_bandwidth_gb_per_token=0.000000 peak_ram_gb=20.728
+{
+  "metrics" : {
+    "actual_token" : null,
+    "bandwidth_gb_per_token" : 0,
+    "bandwidth_source" : "ram_resident_model",
+    "baseline_decode_seconds_per_token" : 0.01385621216015625,
+    "baseline_prefill_seconds_per_token" : 0.00036751938916015626,
+    "benchmark_wall_seconds" : 140,
+    "case_count" : 1,
+    "checked_steps" : 1025,
+    "commit" : "3a8cd8a2",
+    "correctness_seconds" : 9.8,
+    "decode_seconds_per_token" : 0.008982427419354838,
+    "decode_speedup" : 1.5425910517573067,
+    "decode_speedup_floor" : 0.95,
+    "error" : "",
+    "expected_token" : null,
+    "expert_bytes_read" : 0,
+    "expert_cache_evictions" : 0,
+    "expert_cache_hits" : 0,
+    "expert_cache_misses" : 0,
+    "expert_hit_rate" : 0,
+    "expert_peak_cached_tensors" : 0,
+    "expert_read_seconds" : 0,
+    "first_failing_case" : null,
+    "first_failing_layer" : null,
+    "first_failing_step" : null,
+    "golden_hash" : "f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2",
+    "gpqa_ttft_case_count" : 0,
+    "gpqa_ttft_max_seconds" : 0,
+    "gpqa_ttft_p50_seconds" : 0,
+    "gpqa_ttft_pass_count" : 0,
+    "gpqa_ttft_passed" : false,
+    "gpqa_ttft_seconds" : 0,
+    "gpqa_ttft_source" : "",
+    "harness_hash" : "5cfe4988ee50e92376db6bfc3e8abd61b5258d31b3424fb0d91958b87873d398",
+    "max_abs_diff" : 0,
+    "num_layers" : 40,
+    "partial_result" : false,
+    "passed_correctness" : true,
+    "passed_decode_speedup_floor" : true,
+    "passed_prefill_speedup_floor" : false,
+    "peak_ram_gb" : 21,
+    "prefill_seconds_per_token" : 0.00112359814453125,
+    "prefill_speedup" : 0.3270914881347374,
+    "prefill_speedup_floor" : 0.95,
+    "preflight_seconds" : 39,
+    "process_resident_memory_gb" : 0.039,
+    "runtime" : "swift-local-submit",
+    "semantic_gpqa_case_count" : 0,
+    "semantic_gpqa_model" : "",
+    "semantic_gpqa_pass_count" : 0,
+    "semantic_gpqa_passed" : false,
+    "timed_benchmark_seconds" : 9.8,
+    "timestamp" : "2026-08-10T22:25:10Z",
+    "weights_byte_count" : 21568891382,
+    "weights_file_count" : 9,
+    "weights_hash" : "aff994300573c5e8589563fc9ff57cdcfb1ef9b49e14898be290a75a6b294b3d"
+  },
+  "passed" : true,
+  "score" : 1.0467800004381667
+}
+benchmark.sh: local-submit summary
+  prefill 0.001124 s/token  speedup 0.327x
+  decode  0.008982 s/token  speedup 1.543x
+  est score 1.047 (decode_speedup^0.75 * prefill_speedup^0.25; official score comes from the ranked runner)

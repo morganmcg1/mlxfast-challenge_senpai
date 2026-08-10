@@ -162,8 +162,14 @@ def load_paired(root=ROOT, tag=None, session=None):
     pre-staged worker binaries, so its slot index -- not a per-family counter --
     is the replicate identity, and the session's warmup arm is simply an arm the
     caller does not name.
+
+    A slot whose worker never ran still gets a score snapshot, but with
+    `decode_seconds_per_token = 0`; averaging that in reads as an infinite
+    speedup, so an unusable slot is quarantined and announced rather than
+    silently changing an arm's mean.
     """
     fams = defaultdict(list)
+    quarantined = []
     for path in sorted((root / PAIRED_DIR).glob("*.json")):
         m = PAIRED_PATTERN.match(path.name)
         if not m:
@@ -174,6 +180,13 @@ def load_paired(root=ROOT, tag=None, session=None):
             continue
         d = json.loads(path.read_text())
         met = d["metrics"]
+        if (
+            met["passed_correctness"] is not True
+            or not met["decode_seconds_per_token"] > 0
+            or not met["prefill_seconds_per_token"] > 0
+        ):
+            quarantined.append((path.name, (met.get("error") or "")[:120]))
+            continue
         fams[m.group(4)].append(
             {
                 "replicate": int(m.group(3)),
@@ -194,6 +207,13 @@ def load_paired(root=ROOT, tag=None, session=None):
         )
     for reps in fams.values():
         reps.sort(key=lambda r: r["replicate"])
+    if quarantined:
+        print(
+            f"!! QUARANTINED {len(quarantined)} unusable slot(s) -- excluded from every mean",
+            file=sys.stderr,
+        )
+        for name, err in quarantined:
+            print(f"!!   {name}: {err or '(no error field)'}", file=sys.stderr)
     return fams
 
 
