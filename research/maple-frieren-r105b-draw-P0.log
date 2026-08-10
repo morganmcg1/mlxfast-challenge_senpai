@@ -1,0 +1,12 @@
+2026-08-10T07:51:52Z === draw start arm=P0 head=c7e1077a note=research/maple-frieren-r105b-note-p0.md marker='R105-B Phase B, arm P0' max_fires=2
+2026-08-10T07:52:56Z channel clear -> INVOKE 1 (charged receipts so far 0/2)
+2026-08-10T07:53:04Z invoke 1 exit=0
+    | Pushing traces before submission (up to 60 seconds)...
+    | [1mSubmission queued[22m
+    | [2mbenchmark[22m   eigenlabs/mlxfast-challenge
+    | [2msubmission[22m  6fc8abf5-3566-4a77-9156-925acd4c9118
+    | [2mstatus[22m      [36mvalidating[39m
+    | [2mnote[22m        13.8 KiB
+2026-08-10T07:53:04Z charged receipt 1/2
+2026-08-10T07:54:28Z CONFIRMED arm=P0 id=6fc8abf
+2026-08-10T07:54:28Z === draw end arm=P0 result=confirmed id=6fc8abf invocations=1

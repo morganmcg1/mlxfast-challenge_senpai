@@ -1,0 +1,139 @@
+{
+ "instrument": "maple-frieren-r106j-margin-certificate.py",
+ "produced_utc": "2026-08-10T11:31:34Z",
+ "baseline_arm": {
+  "label": "baseline_stock",
+  "mode": "teacher",
+  "steps": 64,
+  "top_k": 100352,
+  "full_vocab_rows": 65,
+  "golden": "correctness_prompts/public_longcopy_gate_english_512_1024.json",
+  "case": "longcopy-gate-english-512",
+  "worker_sha256": "8633b6ea9973f154adeac3b5e8b9ffd35485fbf834d15af0e9bfe94a72d5c63b",
+  "darkbloom_env": {},
+  "dispatch_witness": [
+   "DARKBLOOM",
+   "escaped",
+   "fused",
+   "fusion",
+   "inactive",
+   "lane-major"
+  ],
+  "git_head": "83dd800794fbff898c02d6978cc30d4e9045353e",
+  "captured_utc": "2026-08-10T11:21:28Z"
+ },
+ "candidate_arm": {
+  "label": "baseline_replicate2",
+  "mode": "teacher",
+  "steps": 64,
+  "top_k": 100352,
+  "full_vocab_rows": 65,
+  "golden": "correctness_prompts/public_longcopy_gate_english_512_1024.json",
+  "case": "longcopy-gate-english-512",
+  "worker_sha256": "8633b6ea9973f154adeac3b5e8b9ffd35485fbf834d15af0e9bfe94a72d5c63b",
+  "darkbloom_env": {},
+  "dispatch_witness": [
+   "DARKBLOOM",
+   "escaped",
+   "fused",
+   "fusion",
+   "inactive",
+   "lane-major"
+  ],
+  "git_head": "c2a896ad510e9012646a58f812237824228f91c0",
+  "captured_utc": "2026-08-10T11:24:26Z"
+ },
+ "mode": "teacher",
+ "positions_certified": 65,
+ "1_perturbation": {
+  "abs_max": 0.0,
+  "abs_p99": 0.0,
+  "abs_p50": 0.0,
+  "rel_max": 0.0,
+  "rel_p99": 0.0,
+  "rel_p50": 0.0,
+  "bitwise_identical": true,
+  "elements_compared": 6522880,
+  "elements_differing": 0
+ },
+ "2_baseline_margin": {
+  "min": 0.375,
+  "p1": 0.615,
+  "p50": 6.5,
+  "exact_ties": 0,
+  "positions": 65
+ },
+ "3_safety_factor": {
+  "global_safety_factor": Infinity,
+  "per_position_safety_factor_min": Infinity,
+  "per_position_safety_factor_p1": Infinity,
+  "positions_below_10": 0,
+  "positions_below_100": 0,
+  "positions_at_exact_tie": 0,
+  "interpretation": "A candidate whose perturbation were multiplied by the global safety factor would begin to flip a token. Ties (margin == 0) are resolved by LOWER token id in the worker contract, so they are fragile at ANY nonzero perturbation and are counted separately rather than folded into the ratio.",
+  "decision_relevant": {
+   "definition": "margin / (|delta logit at baseline top-1| + |delta logit at baseline top-2|)",
+   "min": Infinity,
+   "p1": Infinity,
+   "p50": Infinity,
+   "positions_below_1": 0,
+   "positions_below_2": 0,
+   "positions_below_10": 0,
+   "realised_margin_min": 0.375,
+   "realised_margin_negative_count": 0,
+   "perturbation_at_baseline_top1_max": 0.0,
+   "perturbation_at_baseline_top2_max": 0.0
+  },
+  "hidden_anchor_exposure": {
+   "definition": "signed ground a baseline top-8 challenger gains on the baseline top-1 at this position; a near-tie anchor with margin m flips iff gain > m",
+   "gain_max": 0.0,
+   "gain_p99": 0.0,
+   "gain_p50": 0.0,
+   "positions": 65,
+   "fraction_of_positions_that_would_flip_at_margin": {
+    "0": 0.0,
+    "0.0625": 0.0,
+    "0.125": 0.0,
+    "0.25": 0.0,
+    "0.375": 0.0,
+    "0.5": 0.0,
+    "1": 0.0,
+    "2": 0.0,
+    "4": 0.0
+   },
+   "note": "This is the extrapolation the required sections cannot make. It reads: IF a hidden anchor sits at a near-tie of margin m in a context whose perturbation looks like ours, it flips with about this probability. It is an estimate, not a bound: the anchor's context is not ours."
+  }
+ },
+ "4_argmax_flips": {
+  "flip_count": 0,
+  "flip_positions": [],
+  "worker_returned_token_flip_count": 0,
+  "worker_returned_token_flip_positions": [],
+  "recomputed_matches_worker_baseline": true,
+  "recomputed_matches_worker_candidate": true
+ },
+ "5_rank_delta_exposure": {
+  "rank_depth": 8,
+  "adjacent_gaps_examined": 520,
+  "gaps_narrower_than_2x_max_perturbation": 0,
+  "positions_with_any_narrow_gap": 0,
+  "min_adjacent_gap": 0.0,
+  "note": "TASK.md:132-134 permits a hidden anchor to require a bounded top-logit RANK and DELTA, not only the argmax. A gap narrower than twice the maximum perturbation is a rank the candidate could in principle reorder at an unseen context."
+ },
+ "7_free_run": {
+  "applicable": false
+ },
+ "verdict": "PASS-BIT-EXACT",
+ "verdict_reasons": [
+  "Arms are bitwise identical over the full vocabulary at every certified position: the change is bit-exact here and no margin argument is needed for these positions."
+ ],
+ "6_what_this_does_NOT_cover": [
+  "COVERAGE. Certified on the public golden case(s) only (longcopy-gate-english-512, 65 positions, mode=teacher). The local tree contains ONE public golden case; the official gate runs private fixtures we cannot see.",
+  "HIDDEN ANCHORS. TASK.md:130-134 allows private `anchors` at selected hidden contexts, including bounded top-logit RANK and DELTA checks. Those contexts are not in our tree, so the margin distribution measured here is a sample from a different (and probably easier) distribution than the one the anchors were chosen from. Anchors are explicitly described as covering 'near-tie hardware cases', i.e. they are SELECTED for small margins. Our minimum margin is therefore an optimistic estimate of theirs.",
+  "FREE RUN. TASK.md:136-138 adds hidden `free_run` greedy continuations. Teacher-forced certification is error-LIMITING (every step restarts from the golden prefix); free_run is error-COMPOUNDING (one flip diverges the whole suffix and is absorbing). Run this instrument a second time with --mode free to cover part of that, but the hidden free_run prompts are still not ours.",
+  "BEHAVIOR / GPQA. TASK.md:139-142 checks GPQA-style answers against precomputed accepted token sequences, and TASK.md:146-155 adds a Claude semantic judge with a baseline-calibrated pass threshold (MLXFastConstants.semanticGPQAMinPassCount). Neither the prompts nor the accepted answers are in this repository. A flip inside an answer span is worth more than a flip in ordinary prose, and we cannot see which spans those are.",
+  "TTFT. TASK.md:157-163 times prefill through the first greedy answer token on the hidden GPQA cases and requires that first token to be accepted. That is a first-token argmax gate on unseen contexts.",
+  "EXTRAPOLATION IS WEAK. This certificate licenses one inference only: 'on the contexts we can see, the candidate is X times smaller than the decisions being made'. It is NOT a proof of gate safety. It converts an unquantified risk into a quantified one. The honest use is a threshold argument: ship only when the safety factor is so large that the unseen distribution would have to be orders of magnitude tighter than the seen one to matter.",
+  "PRIOR EVIDENCE THAT TOKENS ARE BLIND. research/frieren-pr35-r4-gate-blindness.md records 72-75 % of 389,120 rows faulted at mean relative error 0.2311 with ZERO token changes. Token agreement alone is worth very little; the safety factor is the load-bearing number in this report."
+ ]
+}

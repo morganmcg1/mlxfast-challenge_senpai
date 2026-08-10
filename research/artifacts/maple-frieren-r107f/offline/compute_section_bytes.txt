@@ -1,0 +1,5 @@
+dr_shipped applegpu_g16s=4944 applegpu_g17s=5040
+dr_u1 applegpu_g16s=4944 applegpu_g17s=5040
+dr_u2 applegpu_g16s=4944 applegpu_g17s=5040
+dr_opsi8 applegpu_g16s=7088 applegpu_g17s=7296
+dr_opsi16 applegpu_g16s=11360 applegpu_g17s=11872

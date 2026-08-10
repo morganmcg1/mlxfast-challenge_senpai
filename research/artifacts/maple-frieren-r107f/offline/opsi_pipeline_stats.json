@@ -1,0 +1,45 @@
+{
+  "arms" : [
+    {
+      "bindings" : 10,
+      "dispatchable" : true,
+      "function" : "laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6",
+      "label" : "opsi4",
+      "max_total_threads_per_threadgroup" : 1024,
+      "requested_threads" : 288,
+      "static_threadgroup_memory_length" : 80,
+      "thread_execution_width" : 32
+    },
+    {
+      "bindings" : 10,
+      "dispatchable" : true,
+      "function" : "laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6",
+      "label" : "opsi4_unroll",
+      "max_total_threads_per_threadgroup" : 1024,
+      "requested_threads" : 288,
+      "static_threadgroup_memory_length" : 80,
+      "thread_execution_width" : 32
+    },
+    {
+      "bindings" : 10,
+      "dispatchable" : true,
+      "function" : "laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6",
+      "label" : "opsi8",
+      "max_total_threads_per_threadgroup" : 1024,
+      "requested_threads" : 288,
+      "static_threadgroup_memory_length" : 144,
+      "thread_execution_width" : 32
+    },
+    {
+      "bindings" : 10,
+      "dispatchable" : true,
+      "function" : "laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6",
+      "label" : "opsi16",
+      "max_total_threads_per_threadgroup" : 1024,
+      "requested_threads" : 288,
+      "static_threadgroup_memory_length" : 288,
+      "thread_execution_width" : 32
+    }
+  ],
+  "device" : "Apple M4 Pro"
+}

@@ -1,0 +1,24 @@
+worker up in 40.3s ok=True
+diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.715225219726562 mlx_active_gb=33.02 mlx_cache_gb=0.00 mlx_peak_gb=35.33
+decode_begin seed forward: 580.49 ms
+DECODE_PHASE_START
+DECODE_PHASE_END
+teacher-forced greedy tokens: 0 divergences (all match)
+first 8 steps (ms): 12.065 10.017 9.825 9.876 9.844 9.852 9.761 9.764
+decode steps=33 mean=9.870 ms median=9.793 ms p10=9.748 ms p90=9.874 ms min=9.722 ms max=12.065 ms total=0.326 s
+diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.715988159179688 mlx_active_gb=33.10 mlx_cache_gb=0.14 mlx_peak_gb=35.33
+worker stderr -> /tmp/r106j-abba/03-rep1-on.err
+
+profile: 21358 command buffers total, 12992 inside 32 steady steps
+per steady step: wall=9.801 ms gpu_busy_sum=8.544 ms gpu_busy_union=8.542 ms gap=1.259 ms (12.8% of wall) cbs=406.0 dispatches=406.0
+
+  us/step   share  n/step  us/call  kernel
+   1495.9  17.51%   39.00    38.36  routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2
+   1332.9  15.60%   30.00    44.43  decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1
+   1115.5  13.06%   30.00    37.18  oproj_act_h64_v1_lm1_pw1_sc1_se1
+    864.5  10.12%   39.00    22.17  routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6
+    626.8   7.34%   30.00    20.89  sliding_fused_attn_ring_v1
+    422.1   4.94%    1.00   422.07  lmhead_int5_base_coarse_delta_bf16_v1
+    363.1   4.25%   10.00    36.31  decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1
+    320.8   3.75%   39.00     8.23  shared_nvfp4_swiglu_qmv_rows1_halved_wide_bf16_v1
+   2001.9  23.43%                   ... 16 more
