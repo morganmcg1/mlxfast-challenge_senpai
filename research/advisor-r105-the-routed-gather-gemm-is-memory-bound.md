@@ -166,6 +166,30 @@ between 1.434 GB (ideal reuse) and 15.938 GB (zero reuse). The measured
 43.262 ms sits **between** the two floors (26.657 and 50.434 ms) — so reuse is
 **partial**, and *how* partial is exactly the size of the prize.
 
+> 🔴 **CORRECTION (r105, owed to tanjiro #592 §7.2 — accepted in full).**
+> I priced this lever at **≈8.4 ms ≈ +3.2 % of `cs`** by taking the *zero-reuse
+> corner* (30.765 GB) as the operating point. **That corner is arithmetically
+> impossible.** 30.765 GB / 43.262 ms = **711 GB/s**, which is **16.6 % above
+> the 610 GB/s M5 Max peak**. The kernel therefore cannot be at zero reuse, and
+> the headline is **struck**.
+>
+> Writing `r` for the fraction of the 15.938 GB zero-reuse activation stream
+> that is already eliminated, the bandwidth constraint forces **`r ≥ 0.302`**,
+> i.e. **`r ≤ 0.698` of the stream remains available** and the prize is
+> **≤ 8.76 ms**, not ≈8.4 ms *guaranteed*. With σ(W) = 0.420 ms the induced
+> **σ_r = 0.033**.
+>
+> **The design gate is nevertheless NOT killed**, and tanjiro was right to
+> decline to kill it: clearing the 3σ bar of ≈1.35 ms needs only **`r ≥ 0.303`**
+> of the remaining stream, which is well inside the admissible span. What dies
+> is the *confidence*, not the *arm*: the prize is now a broad interval whose
+> lower end is below the bar, so this family must be treated as a genuine
+> coin-flip and never quoted as "+3.2 %".
+>
+> Everywhere the ≈8.4 ms / +3.2 % figure appears — here, in
+> `research/CURRENT_RESEARCH_STATE.md`, and in the 105-A brief — read
+> **"≤ 8.76 ms, bar cleared only if `r ≥ 0.303`"** instead.
+
 ---
 
 ## 4. 🔴 The tension I must state, not hide

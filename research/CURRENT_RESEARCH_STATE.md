@@ -1,5 +1,86 @@
 # SENPAI Research State
 
+> 🔴🔴🔴 **SUBMISSION UNBLOCKED (r105) — `BASE_SHA` IS THE INTEGRATION BASE,
+> NOT YOUR CANDIDATE COMMIT.**
+>
+> **THE CAMPAIGN `BASE_SHA` IS `1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7`**
+> (= current `origin/main`). Every official M5 receipt is submitted with:
+>
+> ```bash
+> bash senpai/submit-official.sh 1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7 [mlxfast submit args...]
+> ```
+>
+> **What went wrong.** Tanjiro (#592 §4.1) reported every official submission
+> refused with `official submit: BASE_SHA submitted snapshot differs from
+> current origin/main`, and I reproduced it. We both passed our *candidate*
+> commit (the advisor-branch head / the PR head) as `BASE_SHA`. That is the
+> wrong argument. The wrapper `senpai/submit-official.sh` **`shift`s `BASE_SHA`
+> off at line 10 and never forwards it to `mlxfast submit` (line 109)** — it is
+> a purely wrapper-side assertion. What actually gets archived and submitted is
+> the **working tree at `HEAD`, restricted to the 97 `editablePaths`**. So
+> `BASE_SHA` never names the candidate; it names the *snapshot you branched
+> from*, and the wrapper's job is to prove you branched from **current** fork
+> main (line 1-2: *"Refuse an official submission unless its recorded base
+> includes current fork main"*).
+>
+> This is exactly `AGENTS.md:137-140`: *"The maintained fork `main` is the
+> integration base… The advisor owns that integration and records its exact
+> commit as `BASE_SHA`; students branch from that recorded base."* `BASE_SHA`
+> **is main's commit**, and it does not move when we merge student work.
+>
+> **Verified, not argued** (advisor, r105, dry-run copy of the wrapper with
+> line 109 replaced by an `echo`, run from the advisor worktree at
+> `5e80b239`):
+>
+> | `BASE_SHA` passed | line 51 ancestor-of-HEAD | line 74 surface == main | result |
+> |---|---|---|---|
+> | `5e80b239…` (advisor head — what we were passing) | pass | **27 files differ** | **REFUSED** |
+> | `1bc1c895…` (origin/main) | pass | 0 differ | **ALL GUARDS PASS** |
+> | `ad39bfc6…` (advisor integration merge) | pass | 0 differ | **ALL GUARDS PASS** |
+>
+> **When the guard first started firing.** Submitted-surface diff against
+> `origin/main`, walked along the ladder (`research/` and other non-editable
+> paths excluded, so this is exactly what line 74 compares):
+>
+> | merge | UTC | files differing from main |
+> |---|---|---|
+> | `ad39bfc6` merge guarded submission workflow | 2026-08-09 14:08 | **0** |
+> | `c6c66344` #540 (R0 frontier root) | 13:59 | **0** |
+> | `d8ee3f67` | 15:24 | **0** |
+> | `2aa2f792` #541 | 15:42 | **0** |
+> | **`2e490fa3` #548 comment-byte reclamation** | **16:00** | **26** ← first break |
+> | `3567695b` #555 (R1) | 16:50 | 27 |
+> | … every later rung … | | 27 |
+>
+> The break is **PR #548**, nezuko's `f720e9e7` *"reclaim 176,468 editable
+> bytes from vendored comment content"* — the commit whose whole purpose was to
+> rewrite 26 vendored editable files. Nothing is wrong with it. It simply means
+> that from 16:00 UTC on 2026-08-09 onward, **no commit on our research
+> lineage can serve as its own `BASE_SHA`** — which is correct behaviour,
+> because a candidate is not a base.
+>
+> **Consequences that are now settled.**
+> 1. **Nothing about the M5 receipt channel is broken.** #592 §4.1's blocker,
+>    and my own reproduction of it, were operator error on the wrapper's
+>    calling convention. Tanjiro was right to refuse to improvise a bypass.
+> 2. Our last receipt `e08d759f` (cs 2.582286, 2026-08-09T18:36:41Z) was taken
+>    **after** the guard was already firing for candidate-as-`BASE_SHA`
+>    (16:00 UTC), so it was submitted with a correct base or without the
+>    wrapper. Either way it does not indicate a defect.
+> 3. `1bc1c895…` stays the recorded `BASE_SHA` **until the organizer promotes a
+>    new frontier onto fork main**. When main moves, the wrapper's own
+>    `git fetch` will start refusing again — that refusal is the signal that the
+>    **advisor** must re-integrate and record a new `BASE_SHA`. Students must
+>    never respond to that refusal by hunting for a SHA that makes it pass.
+> 4. **Standing prohibition (unchanged in force, now precise):** do not pass any
+>    `BASE_SHA` other than the one recorded here. If the recorded `BASE_SHA` is
+>    refused, **stop and report it** — that is an advisor-level integration
+>    event, not a student-level workaround.
+>
+> Full derivation and the line-by-line reading of the wrapper:
+> `research/advisor-r105-base-sha-and-official-submission.md`.
+
+
 > 🔴🔴🔴 **ROUND-105 HEADLINE — READ FIRST. Two instruments disagree about the
 > same dial by ≈41 µs/step, with opposite signs.**
 > `DARKBLOOM_ROUTER_WEIGHT_PREFETCH` (`Sources/MLXFastModel/LagunaRuntimeModel.swift:696-704`,
