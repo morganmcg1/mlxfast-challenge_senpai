@@ -611,6 +611,61 @@ The consequence for this arm's verdict is in §6.2: an M4-only result of this
 magnitude can be neither promoted nor refuted by one M5 probe, so what Stage A can
 honestly deliver is a sign, a mechanism class, and a place in a bundle.
 
+### 5.0b The `-36.9` prior is an argmax, so the replication target is `-29.6` (rule 105.10)
+
+The advisor's rule 105.10 (PR #629 comment `5241786283`) removes the last piece of
+the prior I was working from, and I adopt it in full: **PR #308 never measured L3
+as a pre-specified contrast — it reported the argmax of a sweep.**
+`RESEARCH_ARCHIVE_through-round-91.md:1006-1009` records an *interior* argmax at
+`S = 8` with `{4, 8, 16}` statistically tied and `S = 32` second-worst. A
+maximum over tied arms is biased upward by construction.
+
+The advisor's de-biasing (script `research/advisor_r105_selection_bias.py` on the
+advisor branch) uses
+`bias = sigma_contrast * sqrt(1 - rho) * E[max of m]`, with
+`sigma_contrast = (61.0 - 12.9) / 2 / 1.96 = 12.27 us/step` read off #308's own
+reported interval, `rho = 0.5` for the shared `S = 2` reference leg, and
+`E[max of 3] = 0.8463`:
+
+| quantity | value |
+| --- | --- |
+| #308 reported argmax | `-36.9` M4 us/step |
+| selection bias | `-7.34` M4 us/step (**19.9 %**) |
+| **de-biased replication target** | **`-29.6` M4 us/step** |
+| in %`cs`, alpha = 0.4369 | **0.1966 %** |
+| in %`cs`, alpha = 0.389 | 0.1751 % |
+| sensitivity, m in {2..5} x rho in {0, 0.5} | 0.1506 - 0.2129 % |
+
+Three consequences that bind everything downstream.
+
+1. **Stage A's pre-registered success target is `-29.6`, not `-36.9`.** A Stage-A
+   central estimate short of 36.9 but consistent with 29.6 is a *successful*
+   replication, not a failure. This is stated here before any Stage-A timing was
+   read (§5.2a was committed at 15:28 UTC, this subsection immediately after, with
+   the run still at rep 13 of 16).
+2. **Stage A's own number is the one that may enter a rule-105.5 bar, and the two
+   must not be blended.** Stage A is a single pre-specified contrast on a
+   pre-declared arm, so it carries no selection bias; #308's is an argmax and
+   carries 19.9 %. Pooling an unbiased estimate with a biased one re-imports the
+   bias. The campaign-wide form of this, which I take as binding for every future
+   number I report, is: *an argmax-selected effect size may never enter the draw
+   bar at its selected value.*
+3. **It does not rescue the prior from §5.2a's Consequence 2.** De-biasing shrinks
+   the required per-threadgroup price from `5.34 ns` to `29.6 / 6912 = 4.28 ns`,
+   still **102x** the `<= 0.042 ns` ceiling that §4's routed null imposes. The
+   arithmetic incompatibility between the L3 prior and the measured routed curve
+   survives the correction; only a mechanism that is *not* per-threadgroup
+   overhead can reconcile them.
+
+Rule 105.10 also settles which of two competing readings of #298-vs-#308 is
+right. #298 measured `-35.4` at `S = 16` and #308's argmax was `-36.9` at
+`S = 8`. Read naively that is a flat-topped basin from 8 to 16. Read through
+105.10, both are draws from a distribution whose sd is `12.27 us/step`, and their
+`1.5 us` separation is 0.12 sigma — i.e. the two runs are **uninformative about
+the shape of the basin**, which is precisely why the pre-registered `S = 16` arm
+of §7.0 is the diagnostic worth buying rather than an extra dose of `S = 8`.
+
+
 
 ### 5.1 Reachability (rule 39) and the geometry ledger (rule 77)
 
