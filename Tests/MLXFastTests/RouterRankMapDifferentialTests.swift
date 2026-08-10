@@ -16,14 +16,24 @@ func routerRankMapDifferentialMatchesStableGatherSortWhenEnabled() {
         return
     }
 
-    for rows in [2, 3, 7, 8, 16, 63, 64, 127, 128, 511, 512, 513] {
-        verifyRouterRankMap(rows: rows, scenario: .random, normalizing: false)
-        verifyRouterRankMap(rows: rows, scenario: .random, normalizing: true)
-    }
-    for rows in [2, 64, 512, 513] {
-        for scenario in [RouterRankMapScenario.balanced, .sameEightTie] {
-            verifyRouterRankMap(rows: rows, scenario: scenario, normalizing: false)
-            verifyRouterRankMap(rows: rows, scenario: scenario, normalizing: true)
+    for useBFloat16 in [false, true] {
+        for rows in [2, 3, 7, 8, 16, 63, 64, 127, 128, 511, 512, 513] {
+            verifyRouterRankMap(
+                rows: rows, scenario: .random, normalizing: false,
+                useBFloat16: useBFloat16)
+            verifyRouterRankMap(
+                rows: rows, scenario: .random, normalizing: true,
+                useBFloat16: useBFloat16)
+        }
+        for rows in [2, 64, 512, 513] {
+            for scenario in [RouterRankMapScenario.balanced, .sameEightTie] {
+                verifyRouterRankMap(
+                    rows: rows, scenario: scenario, normalizing: false,
+                    useBFloat16: useBFloat16)
+                verifyRouterRankMap(
+                    rows: rows, scenario: scenario, normalizing: true,
+                    useBFloat16: useBFloat16)
+            }
         }
     }
 }
@@ -31,10 +41,12 @@ func routerRankMapDifferentialMatchesStableGatherSortWhenEnabled() {
 private func verifyRouterRankMap(
     rows: Int,
     scenario: RouterRankMapScenario,
-    normalizing: Bool
+    normalizing: Bool,
+    useBFloat16: Bool
 ) {
     let inputs = makeRouterInputs(rows: rows, scenario: scenario)
-    let logits = MLXArray(inputs.logits, [1, rows, 256])
+    let floatLogits = MLXArray(inputs.logits, [1, rows, 256])
+    let logits = useBFloat16 ? floatLogits.asType(.bfloat16) : floatLogits
     let correctionBias = MLXArray(inputs.bias)
     let control = lagunaPrefillRouterTournamentOrdinalForTesting(
         logits: logits,
@@ -74,10 +86,13 @@ private func verifyRouterRankMap(
             Float(row * 16 + channel) + 0.25
         }
     }
-    let activations = MLXArray(
+    let floatActivations = MLXArray(
         activationValues,
         [1, rows, 1, 1, activationWidth]
     )
+    let activations = useBFloat16
+        ? floatActivations.asType(.bfloat16)
+        : floatActivations
     let generic = gatherSort(x: activations, indices: candidate.0)
     let specialized = lagunaRouterRankMapGatherSortForTesting(
         activations,
@@ -90,7 +105,11 @@ private func verifyRouterRankMap(
         enumeration.0, enumeration.1, enumeration.2,
     ])
 
-    #expect(specialized.0.asArray(Float.self) == generic.0.asArray(Float.self))
+    let genericActivations = generic.0.asType(.float32).asArray(Float.self)
+    let specializedActivations = specialized.0.asType(.float32).asArray(Float.self)
+    #expect(generic.0.dtype == activations.dtype)
+    #expect(specialized.0.dtype == activations.dtype)
+    #expect(specializedActivations == genericActivations)
     #expect(specialized.1.asArray(UInt32.self) == generic.1.asArray(UInt32.self))
     #expect(specialized.2.asArray(UInt32.self) == generic.2.asArray(UInt32.self))
 
@@ -100,13 +119,13 @@ private func verifyRouterRankMap(
     #expect(enumeration.2.asArray(UInt32.self) == expected.inverse)
 
     let genericOutput = syntheticRoutedOutput(
-        sortedActivations: generic.0.asArray(Float.self),
+        sortedActivations: genericActivations,
         sortedExperts: generic.1.asArray(UInt32.self),
         inverseOrder: generic.2.asArray(UInt32.self),
         width: activationWidth
     )
     let specializedOutput = syntheticRoutedOutput(
-        sortedActivations: specialized.0.asArray(Float.self),
+        sortedActivations: specializedActivations,
         sortedExperts: specialized.1.asArray(UInt32.self),
         inverseOrder: specialized.2.asArray(UInt32.self),
         width: activationWidth
