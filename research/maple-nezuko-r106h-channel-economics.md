@@ -10,7 +10,10 @@ frozen 2026-08-10T08:37Z, benchmark `1854efdf-feba-4773-bae9-b80520881a74`,
 
 Scripts: `research/nezuko_r106h_stage_a.py`, `_stage_b.py`, `_stage_c.py`.
 Outputs: `research/artifacts/maple-nezuko-r106h/stage-{a,b,c}.json`.
-W&B: see the run link at the end of this report.
+W&B: run `6rosefbh` —
+<https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/6rosefbh>
+(9 tables, 71 summary scalars; superseded run `s31ku9ms` predates §6.2's three
+extra `inverse_mechanism_to_draws` rows).
 
 ---
 
@@ -657,6 +660,14 @@ python research/nezuko_r106h_wandb_log.py \
 The corpus and the replicate-identity file are the ones frozen in #616 Stage 0
 and copied to `research/artifacts/maple-nezuko-r106b/`; the sha256 above is the
 identity check.
+
+The last command produced W&B run **`6rosefbh`**
+(<https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/6rosefbh>), which
+carries every table and scalar quoted above: the record ladder, the per-budget
+and scale-free exchange rates, the tree-selection rule, the σ_cs pools, the
+prefill coin, the per-cohort σ(ln L), and the leaderboard top 5. Run
+`s31ku9ms` is the same analysis before §6.2 added three rows to the
+`draws_multiplier` table; prefer `6rosefbh`.
 
 ## 13. Suggested follow-ups (not implemented)
 
