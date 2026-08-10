@@ -9,6 +9,27 @@
 
 ---
 
+## Both stages, in one screen
+
+**Stage 1 first, because it changes how Stage 0's headline should be read.** Stage 0 argued M2 was worth
+≈ 2 % of `cs` on a *kernel-time* accounting and said so was the reason to distrust it (§2.3.5). Stage 1 went
+and measured the one term that accounting cannot separate — the price of a decode dispatch — and it is
+**4.1× cheaper than the assignment's assumed 1.890 M4 µs/dispatch**. The dispatch-count half of the M2 prize
+is therefore ≈ 0.15 % of score, not 2 %. Whatever remains of the 2 % must come from fusing *work*, and Stage 1
+has no evidence for that.
+
+| | Stage 1 answer |
+|---|---|
+| **Reported verdict** | **`P-INDETERMINATE`** — the identified per-dispatch price lands inside comment 6's undecided 0.3–0.8 band. One verdict only; §3.3 discloses that the mechanical §5 estimator prints `P-FREE-REGION-CONFIRMED` and §3.2.1 proves why that estimator is degenerate and must not be believed. |
+| **Per-dispatch price** | **`k = 0.460` M4 µs/dispatch, CI95 `[0.381, 0.538]`** from the unchained ladder; `0.467 [0.388, 0.545]` from the chained ladder, *independently*. Two ladders, one number. |
+| **Barrier price** | **≈ 0, at both rungs.** `−0.032 [−0.094, +0.029]` µs/barrier at N=160; `+0.0019` µs/barrier at N=1200. Serialising the injected chain costs nothing measurable — the free-region claim survives, but as a *barrier* claim, not a dispatch claim. |
+| **Merge prize, repriced** | 40 dispatches/step × `k` = **18.4 M4 µs/step = 0.20 % decode = 0.15 % score** (interval 0.13–0.18 %). At the assumed `k = 1.890` it would have been 0.63 %. |
+| **Pre-registered predictions** | 1 of 3 **refuted** (P1, by 3.2×), 1 discriminated as intended (P2: `k = 0` dead at 28.6σ), 1 sign-confirmed and size-wrong (P3). §3.3 scores all three and names the root cause: the pre-registration anchored its fit on a rung that turned out to be off the line. |
+| **Accidental finding** | the intercept is **negative and large**: `c ≈ −4.1` µs *per layer*, i.e. adding one `asyncEval` commit boundary per layer at zero added dispatches would make decode **≈ 164 µs/step (≈ 1.9 %) faster**. That is an order of magnitude more than the merge prize, it contradicts the campaign's ≈ 30–50 µs-*cost*-per-commit folklore, and it is the follow-up I would rank first. It is also an extrapolation to N=0 from rungs at 160 and 1200 with a tape-split confound, so §3.4.1 states it as a lead to test, not a result. |
+| **`Sources/` bytes spent** | **zero.** Both stages are measurement and source reading. |
+
+---
+
 ## Stage 0 verdict, both deliverables, in one screen
 
 | | answer |
@@ -645,7 +666,17 @@ Two source facts make that confound **N-independent**, which is what saves the p
    injected arm and absent in C.
 2. `lagunaInjectShare` (`:12105-12107`) spreads the requested total across all 40 layers
    under `SPREAD=1`, so the *number* of extra eval boundaries is **40 per step for every
-   injected arm**, independent of the injected count `N`.
+   injected arm**, independent of the injected count `N`. The split is the cumulative
+   difference `(layer + 1) * total / layers - layer * total / layers` (`:12091`), which sums
+   to `total` exactly and is nonzero for every layer at both `N = 160` and `N = 1200` — so no
+   layer opts out at the low rung, which is the case that would have broken the cancellation.
+
+Because fact 2 carries the entire rung-difference estimator, I had it re-read from source by
+an independent agent with no knowledge of my hypothesis. It returned the same four readings,
+including the `:12091` arithmetic above, the `:12137` (N appends, unchained) versus `:12140`
+(one append, chained) split, and the confirmation that exactly one `asyncEval` runs per layer
+per step for any nonzero total. That is corroboration of the *source reading*, not of the
+measurement.
 
 So each injected arm measures
 
@@ -691,6 +722,34 @@ amendment §10 together with its out-of-sample predictions, before either high-r
 
 <!--RESULTS-->
 
+### Scoring the pre-registered out-of-sample predictions (amendment §10)
+
+Amendment §10 was committed when the sink held 8 rows, with arms `H` and `J` unrun, and it
+recorded three falsifiable predictions plus the tolerance for calling each one corroborated.
+Scored against the rows that arrived afterwards:
+
+| # | prediction | tolerance declared | measured | verdict |
+|---|---|---|---|---|
+| 1 | `dJ = +1242` µs/step from the gauge-anchored fit | within ±25 %, i.e. `[931, 1553]` | `+389.4` | 🚫 **refuted** |
+| 2 | `dH` discriminates `k`: `−301` / `+59` / `+659` for `k = 0` / `0.3` / `0.8` | discrimination, not a point | `+387.1` | ✅ discriminated; `k = 0` refuted |
+| 3 | `c < 0`, a commit-cadence lever of order `−300` µs/step | sign | `−164` and `−171` µs/step | ✅ sign confirmed, size 45 % low |
+
+**Prediction 1 failed, and it failed for a reason worth recording rather than explaining
+away.** I fitted the two-parameter model using the gauge rung at `N = 2400` — the one rung
+that amendment §3 had explicitly designated liveness-only, precisely because it might not be
+a valid measurement. It was not: the ladder is strongly superlinear above 1200 (§3.4), so
+anchoring on the gauge inflated `k_chained` to `1.286` when the 160→1200 segment says `0.467`.
+Predicting `+1242` where `+389` occurred is a 3.2× error, and the discipline that caught it
+was writing the number down before the run.
+
+The consequence for the report is that **every `k` and `c` I quote now comes from the
+160→1200 segments only**, and the gauge appears nowhere in an estimate. Predictions 2 and 3
+were unaffected because they did not depend on the gauge fit's magnitude: the observed
+`dH = +387` sits between the `k = 0.3` and `k = 0.8` rows whether the row values are computed
+with the refuted `c = −7.54` (`+59` / `+659`) or the corrected `c = −4.11` (`+196` / `+796`),
+and it is `28.6` standard errors from the `k = 0` row. `k = 0` — a free region — is the one
+hypothesis this probe rules out cleanly.
+
 ## §3.4 Why the gauge's `1.157 µs/dispatch` is not an estimate of anything
 
 The gauge arm (2400 chained no-ops) moves decode by roughly +2.8 ms/step, which divides out
@@ -700,59 +759,97 @@ precisely so this could not be retro-fitted into an estimate. That designation s
 the reason it must not be read as a per-dispatch tax is sharper than "the two numbers
 disagree".
 
-Under §3.2.1's `d(N) = N·k + 40·c` the two rungs are not in contradiction at all. Taking the
-two **chained** arms, which share a mechanism, and differencing to cancel `40·c`:
+Under §3.2.1's `d(N) = N·k + 40·c` the low rung's negative shift and a positive `k` are not
+in contradiction: `c < 0` absorbs it. Fitting the model on the two rungs that were designed
+for it, per ladder, gives close agreement across two arms that share no serialization
+mechanism:
 
-```
-k_chained = ( dG(2400) − dS(160) ) / 2240   ⇒  ≈ +1.29 M4 µs/dispatch
-c         = ( dS(160) − 160·k_chained ) / 40 ⇒  ≈ −7.5 M4 µs/layer
-```
+| ladder | rungs used | `k`, M4 µs/dispatch | `c`, µs/layer | `40·c`, µs/step |
+|---|---|---|---|---|
+| unchained (`F`→`H`) | 160, 1200 | `+0.460 [0.381, 0.538]` | `−4.11` | `−164` |
+| chained (`S`→`J`) | 160, 1200 | `+0.467 [0.388, 0.545]` | `−4.27` | `−171` |
 
-So one consistent chained per-dispatch latency of ≈1.29 µs together with a negative
-per-layer eval-boundary term reproduces both the gauge and the 160-dispatch rung. Dividing
-`dG` by 2400 mixes those two terms and is what produces the meaningless `1.16`.
+That the two ladders recover the same `k` **and** the same `c` to within 2 % is the strongest
+internal check in this probe, and it is the reason I am willing to quote `k ≈ 0.46` at all.
 
-`k_chained` is still not the number comment 6 asked for. With `CHAIN=1` the
-`LagunaInjectChain.tail` persists across layers (`:12084`, `:12139`), so the chained arms
-build **one serial critical path** through the whole step rather than 40 independent fans.
-`k_chained` therefore prices *serialized dispatch latency on the critical path*, which has no
-bearing on whether two already-concurrent kernels can be merged. The unchained pair
-`dF(160)`/`dH(1200)` is the arm that speaks to the merge, and its rung difference is reported
-in §3.3.
+**The gauge does not lie on that line, and it must not be fitted with them.** Extrapolating
+the fit to `N = 2400` predicts `dG ≈ 949` µs/step; the measured `dG` is `+2777`. The segment
+from 1200 to 2400 implies `(2777 − 389) / 1200 ≈ 1.99` µs/dispatch, four times the slope of
+the segment below it. Something additional switches on above 1200 injected dispatches —
+plausibly MLX's `needs_commit()` command-buffer splitting, or pressure from holding 2400
+live output arrays — and whatever it is, it is not a regime the ranked path visits. Amendment
+§3 designated the gauge **liveness-only** before any data existed; the data vindicates that
+restriction. Dividing `dG` by 2400 to get `1.16` µs/dispatch mixes three things — `k`, `c`,
+and the superlinear regime — and estimates none of them.
+
+One thing the high rung settles cleanly: `dJ − dH = +2.2` µs/step across 1200 injected
+barriers, i.e. `+0.002` µs/barrier, replicating the low rung's `−0.032 [−0.094, +0.029]`.
+**The barrier itself is free at both rungs**, which is the part of comment 6's reading the
+probe confirms directly. `k` is a dispatch cost, not a synchronization cost.
 
 ### §3.4.1 An accidental finding I am flagging, not claiming
 
-The fitted `c ≈ −7.5 µs/layer` is a side effect of the instrument, but it is a side effect
-**on the ranked decode path**: it says that forcing an extra `asyncEval` — an
-`end_encoding()` + `commit()` pair — after every layer body made decode about `40 × 7.5 ≈
-300 µs/step` *faster*, roughly 3.3 % of a 9000 µs step. If that is real it is a larger lever
-than anything in the merge programme, and it points the opposite way from the usual
-"submit less often" intuition.
+The fitted `c ≈ −4.1` to `−4.3 µs/layer` is a side effect of the instrument, but it is a side
+effect **on the ranked decode path**: it says that forcing an extra `asyncEval` — an
+`end_encoding()` + `commit()` pair — after every layer body made decode about `165–171
+µs/step` *faster*, roughly **1.9 %** of a 9000 µs step. That is an order of magnitude larger
+than the merge's 18 µs, and it points the opposite way from the usual "submit less often"
+intuition.
 
-I am not claiming it. Two reasons for caution, both of which I would want resolved before
-anyone spends bytes on it:
+The evidence for it is better than I expected when I pre-registered it in amendment §10: two
+ladders that share no serialization mechanism recover it independently, at `−4.11` and
+`−4.27`. It is not a fitting artifact of one arm.
 
-* It is fitted from two arms with `n = 1` and `n = 4`, using a model I wrote after seeing the
-  sign of the 160-rung shift. It is exactly the kind of quantity that should be
-  pre-registered and re-measured, not harvested.
+I am still not claiming it, for two reasons I would want resolved before anyone spends bytes:
+
+* The model was written after seeing the sign of the 160-rung shift, and the high rung has
+  `n = 1`. `c` is exactly the kind of quantity that should be pre-registered and re-measured
+  on its own, not harvested from a probe aimed at something else.
 * It sits badly with the independent ≈30–50 µs/commit estimate used elsewhere in this
-  campaign. A commit that costs 30–50 µs cannot also save 7.5 µs when added. **At most one of
+  campaign. A commit that costs 30–50 µs cannot also *save* ≈4 µs when added. **At most one of
   those two numbers is right**, and this probe was not designed to decide which, so I am
   recording the conflict rather than picking a side.
 
-The clean test is a dedicated commit-cadence sweep with no injected kernel at all, which is
-listed in §3.7.
+There is also a confound specific to `c` that the rung difference does *not* remove: the
+injected `asyncEval` does not only add a commit, it also splits the layer's tape at a
+different point, which can change how much work is in flight when the next layer is encoded.
+"Extra commit" and "different tape split" are not separable by this instrument. The clean
+test is a dedicated commit-cadence sweep with no injected kernel at all (§3.7 item 4).
 
 ## §3.5 What this means for the merge programme
 
 The merge programme's premise is that deleting one dispatch per layer per step (40 per
-step, family E — corrected count, see §3.6) buys back real decode time. Two independent
-lines now bound that premise from above:
+step, family E — corrected count, see §3.6) buys back real decode time.
 
-1. **This probe.** Adding dispatches on the same ranked path, with the barrier flag both set
-   and cleared, at 4× and 30× the merge's own dispatch count, does not move decode outside
-   noise once the N-independent eval-boundary term is differenced out (§3.2.2, §3.3). The
-   load-bearing quantity is the rung difference, not any single arm.
+**The probe does not refute the premise. It prices it, and the price is small for a reason
+that has nothing to do with whether dispatches are cheap.** The identified per-dispatch cost
+is `k = 0.46 [0.38, 0.54]` M4 µs/dispatch (§3.3), which is about fifteen standard errors away
+from zero — the region is *not* free. But the merge deletes only 40 dispatches per step, so:
+
+| per-dispatch `k` (M4 µs) | source | merge prize, µs/step | % decode | % score at 0.75 weight |
+|---|---|---|---|---|
+| `1.890` | value the merge was budgeted against | `75.6` | `0.84 %` | `0.63 %` |
+| `0.800` | comment 6's *build* bar | `32.0` | `0.36 %` | `0.27 %` |
+| **`0.460`** | **this probe, identified** | **`18.4`** | **`0.20 %`** | **`0.15 %`** |
+| `0.381`–`0.538` | its interval | `15.2`–`21.5` | `0.17`–`0.24 %` | `0.13`–`0.18 %` |
+| `0.300` | comment 6's *dead* floor | `12.0` | `0.13 %` | `0.10 %` |
+
+So the measurement cuts the expected prize by **4.1×** against the assumption the programme
+was costed on, and lands it at ≈0.15 % of score. Worth noting for calibration: comment 6's
+own build bar of `0.8` corresponds to a 0.27 % score prize, so the decision rule's entire
+`0.3`–`0.8` band spans only 0.10 %–0.27 % of score. The band is a narrow one in prize terms,
+and `k` landing inside it is the reason this section does not pick a side.
+
+Three lines of evidence bound the premise, and they agree less well than a summary would
+suggest, so I am reporting the disagreement:
+
+1. **This probe**, the load-bearing evidence, because it is on the ranked path and paired
+   against its own per-block controls. `k = 0.46 [0.38, 0.54]` M4 µs/dispatch from the
+   unchained rung difference, corroborated by two weaker reads that do not share its
+   assumptions: the naive high-rung slope `dH/1200 = +0.32`, and the prefill-gauge
+   drift-corrected `+0.36`. All three sit inside comment 6's band. Note the direction of the
+   error this corrects: the single-rung arm-F read alone would have said `−0.57` and killed
+   the programme.
 2. **Roofline arithmetic** (independent estimate contributed by a frontier advisory agent
    this session, not a measurement of mine, and labelled as such). Decode streams ≈2.9 GB
    per token at an arithmetic intensity near 2 FLOP/byte against a ridge of ≥25, so the
@@ -768,21 +865,27 @@ lines now bound that premise from above:
    absolute magnitude; and his `0.0872` is a *derived* pricing figure built on #483's
    directly measured `0.108` µs/dispatch, which is a different measurement and should not be
    quoted interchangeably. What survives both caveats is the sign and the order of
-   magnitude: an interval straddling zero, centred two orders of magnitude below the
-   assumption the merge programme was budgeted against.
+   magnitude: an interval straddling zero, centred a factor of ~22 below the assumption the
+   merge programme was budgeted against.
 
-All three agree the region is cheap, by three different routes — a device measurement here,
-a device measurement on the other machine, and arithmetic. The probe is the load-bearing one
-for this assignment because it is on the ranked path and paired against its own controls; the
-roofline and R108-L are corroboration.
+All three agree the prize is **small** — sub-0.25 % of decode — and all three agree it is far
+below the `1.890` the programme was costed on. They do **not** agree on whether dispatches
+are free. My `0.46` is nonzero at fifteen standard errors; R108-L's point estimate is `0.087`
+and its interval contains zero. The overlap is only at the top of his interval (`0.438`) and
+the bottom of mine (`0.381`), and the machines differ. I am not averaging them, and I would
+not describe the region as "free" on this evidence — "cheap, and cheap enough that a
+40-dispatch deletion cannot pay for much" is what both support.
 
-The consequence for rule 105.23(f) is that the merge is not worth the rule-65 price, and
-§2.7's Stage-1 recommendation should be read as superseded on its dispatch-count
-justification. It does **not** follow that the M2 pair is uninteresting — only that
-*dispatch count* is the wrong reason to touch it. Anything that reduces the ≈2.9 GB moved
-per token, or that removes a *false* hazard (see §3.1's `prev_inputs_` note) and so restores
-concurrency the encoder already intended, is priced on a completely different and much
-larger budget line.
+The consequence for rule 105.23(f) is therefore **not** that the merge is refuted. It is that
+the merge's dispatch-count justification is worth ≈0.15 % of score rather than ≈0.63 %, and
+whether that clears the rule-65 price is the advisor's call under comment 6's middle branch.
+§2.7's Stage-1 recommendation should be re-read with `0.15 %` substituted for its assumed
+prize, not discarded.
+
+Separately, and independent of that call: *dispatch count* is not where the budget is.
+Anything that reduces the ≈2.9 GB moved per token, or that removes a *false* hazard (see
+§3.1's `prev_inputs_` note) and so restores concurrency the encoder already intended, or that
+changes commit cadence (§3.4.1, ≈1.9 % if real), is priced on a much larger line than 18 µs.
 
 ## §3.6 Corrections and unavailable knobs, carried forward as instructed
 
@@ -804,11 +907,10 @@ larger budget line.
 Ranked by information per unit of device time:
 
 1. **Count command buffers directly.** A Metal capture, or per-command-buffer
-   `gpuStartTime`/`gpuEndTime` logging, converts the §3.2 ceiling into a real measurement
-   and would let a future probe separate "extra dispatch" from "extra submission". This is
-   the single change that would make a *positive* arm F interpretable, and it also yields
-   the GPU-busy fraction, which is the cheapest discriminator between bandwidth-bound and
-   launch-bound decode.
+   `gpuStartTime`/`gpuEndTime` logging, measures the `c` term of §3.2.1 instead of forcing it
+   to be differenced away, and separates "extra dispatch" from "extra submission". It is the
+   change that would let a single rung identify `k` at all, and it also yields the GPU-busy
+   fraction, the cheapest discriminator between bandwidth-bound and launch-bound decode.
 2. **Finish the sanctioned INT8 attention coverage**, O-projection first (estimated 4–8 %,
    inside the accepted group-32 affine envelope). This is on the bandwidth budget line, not
    the dispatch line.
@@ -816,9 +918,14 @@ Ranked by information per unit of device time:
    tracking against `prev_inputs_` means allocator buffer recycling can serialize kernels
    the encoder marked concurrent. Fixing that recovers concurrency without deleting a
    single dispatch.
-4. **Commit-cadence sweep** around `needs_commit()`, since command-buffer commits price at
-   ≈30–50 µs each — an order of magnitude above a barrier stage.
+4. **Commit-cadence sweep** around `needs_commit()`, with no injected kernel at all. This is
+   now the highest-value item on the list rather than a footnote: §3.4.1's fitted
+   `c ≈ −4` to `−7.5` µs/layer says *more frequent* commits made decode ≈2–3 % faster, while
+   the ≈30–50 µs-per-commit figure says commits are expensive. Those cannot both hold, the
+   probe cannot settle it, and the disagreement is worth ten times the merge's 18 µs.
 
-Items 2–4 come from the same frontier advisory analysis cited in §3.5 and are its ranking,
-not an independent measurement of mine.
+Items 2–4 come from the same frontier advisory analysis cited in §3.5, not from a measurement
+of mine. The list order is that analysis's ranking; I would now promote item 4 above items 2
+and 3 on the strength of §3.4.1, and I have left the numbering alone so the change of view is
+visible rather than silently folded in.
 
