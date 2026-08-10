@@ -2637,6 +2637,31 @@ cross-referenced to the section that establishes it.
   `DARKBLOOM_QMV_WIDE_CODES` **unset** in the environment and unset in the build
   (Rules 102/103 merge-checklist requirement).
 
+#### 7.1.1 Re-verified after the documentation commit, so you are not reading stale evidence
+
+§6's evidence was all gathered against HEAD `2127e436`. Committing this document moved
+HEAD to **`83cfede537a917e4c7f0659b89c8f8e2ca7b94ba`**. Rather than ask you to trust that
+a `research/`-only commit cannot matter, I re-ran every cheap instrument on the new HEAD.
+**Every one returns bit-identical output.** No rebuild was needed and none was done —
+`harness_hash` does not cover `research/`, so the build evidence carries forward
+unchanged.
+
+| instrument | on `2127e436` | on `83cfede5` |
+|---|---|---|
+| `git diff --numstat` vs advisor tip `a30fa5f8`, scored surface | empty | **empty** |
+| `git diff --numstat` vs `2127e436`, scored surface | — | **empty** |
+| `check-editable-budget.sh` vs `origin/main` | `current=2681206/3000000 headroom=318794 growth=-302643/262144 files=142` | **identical** |
+| `check-editable-budget.sh` vs advisor tip | same current/headroom, **`growth=0`** | **identical** |
+| `submit_preconditions.sh` | 12 pass, 0 fail | **12 pass, 0 fail** |
+| `git rev-parse origin/main` | `1bc1c895…` | **`1bc1c895…`** (re-fetched) |
+| `DARKBLOOM_*` / `MLXFAST_LOCAL_ALLOW*` in env | unset | **unset** |
+
+The one predicate whose meaning changed is **7** — `BASE_SHA is an ancestor of HEAD` now
+reports `ancestor of 83cfede5` rather than `2127e436`, which is the expected and correct
+consequence of the commit. Predicate 9 still passes only **trivially** (`BASE_SHA ==
+origin/main`), so §7.4's Trap 3 stands unmodified: re-run it on whatever HEAD you
+actually submit.
+
 ### 7.2 My recommendation, and I want to be unambiguous about it
 
 **Do not spend the draw on anything I produced. Hold our tree.**
