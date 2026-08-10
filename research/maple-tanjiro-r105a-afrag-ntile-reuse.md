@@ -1687,6 +1687,156 @@ N-1 fires on the whole family regardless of which arm took slot 6.
 
 ---
 
+### 4.4.12 A1-2 lands: §4.4.9's prediction is scored, and the replicate settles the family
+
+Slot 6 returned the Amendment-A replicate of variant 7 at 07:05:47Z
+(`submission_id c52994dc-6fa1-49ff-a803-80b9443eb51a`, service commit
+`5e435a6b693635bd1ec8647210673a0ba837f102`, local commit `b705d69a`, queued
+06:42:51Z). Correctness is clean exactly like the other five:
+`max_abs_diff = 0` over `checked_steps = 1344`, semantic GPQA **9/9**,
+`gpqa_ttft_passed = true` at p50 0.081 s, both `0.95` floors passed,
+`error = ""`, `partial_result = false`. `status = rejected` with
+`rejection_reason = "score did not improve current best"` — a ranking verdict,
+not a correctness one.
+
+| quantity | A1-1 | A1-2 |
+|---|---|---|
+| `officialScore` | 2.59235893273017 | **2.55553342334089** |
+| `prefill_ms` | 97.260375 | **97.370500** |
+| `step_ms` | 4.1517109 | **4.1556400** |
+| `decode_speedup` | 2.8203395 | 2.8113076 |
+| `prefill_speedup` | 2.0131511 | 1.9195577 |
+| `baseline_pre` | 0.0003824 (z +11.34) | **0.0003651 (z −1.25)** |
+| `cand_pre` | 0.0001900 | 0.0001902 |
+| semantic GPQA | 9/9 | 9/9 |
+
+**§4.4.9's preregistered prediction, scored line by line.**
+
+| prediction (recorded before this receipt existed) | outcome |
+|---|---|
+| A1-2 draws a `baseline_pre` **inside** the control band | **CONFIRMED.** 0.0003651 vs control 0.0003666 ± 0.0000012, z = −1.25. A1-1's +11.34σ draw did not repeat. |
+| `officialScore` lands near **2.5667** | observed **2.55553**, a −0.0112 miss. I over-predicted: A1-2 also drew the lowest `baseline_dec` of all six receipts (0.0138214), which costs the paired decode ratio. |
+| pooled A1 official Δ ≈ +0.0088, CI90 ≈ [+0.0066, +0.0110], verdict `NULL-bar-excluded` | **verdict class CONFIRMED, magnitude over-predicted ≈ 2.7×.** Observed Δ = **+0.0031981**, SE 0.0009466, ν = 3, CI90 [+0.0009709, +0.0054254], z = +3.38, against bar 0.0131568 → `NULL-bar-excluded`. |
+| falsifier: ≈ +0.021 *with* a normal `baseline_pre` ⇒ variant 7 genuinely wins and Amendment B refused a real winner | **did not fire.** Variant 7 does not win. |
+
+**Pooled A1 (n = 2, ν = 3, t95 = 2.353), every channel:**
+
+| channel | Δ | SE | z | CI90 | verdict |
+|---|---|---|---|---|---|
+| **`prefill_ms`** (Amendment-C primary) | **+1.166229 ms slower** | 0.124887 | **+9.34** | [+0.872369, +1.460089] | **REGRESSION**, CI90 excludes 0 |
+| `step_ms` (Amendment-C null control) | −0.015296 ms | 0.011019 | −1.39 | — | null, as designed |
+| `official_score` | +0.0031981 | 0.0009466 | +3.38 | [+0.0009709, +0.0054254] | NULL-bar-excluded |
+| `hybrid_score` | −0.0092063 | 0.0027753 | −3.32 | [−0.0157367, −0.0026760] | **REGRESSION** (−284.5 % of the official Δ) |
+| `norm_score` | −0.0053958 | 0.0043312 | −1.25 | [−0.0155871, +0.0047955] | NULL-bar-excluded (−166.5 %) |
+| `cand_pre` | +0.0000023 | — | +9.34 | — | candidate-attributable |
+| `cand_dec` | −0.0000062 | — | −0.57 | — | null |
+| `baseline_pre` | +0.0000072 | — | +6.48 | — | SESSION NOISE (A1-1 alone) |
+
+Amendment C's prospective prediction — recorded in §4.4.11 while this receipt was
+still unread — was pooled Δ̂S ≈ +1.1 ms with CI ≈ [+0.82, +1.41], verdict
+`REGRESSION` and bar-excluded. Observed: **+1.166 ms, CI90 [+0.872, +1.460]**.
+That prediction hit, on the channel that was declared primary before the data
+arrived.
+
+**The one genuinely new fact in this receipt is about the instrument, not the
+kernel.** The two variant-7 receipts are the same commit, the same binary, the
+same host, 42 minutes apart — and they disagree by **0.0368 score units**, which
+is **35× the A0 control σ̂ of 0.0010369**. Within-arm sd on `officialScore` is
+0.0260396 for A1, i.e. **25.1× the control σ̂**. On the prefill channel the same
+pair agrees to **0.0779 ms sd, 0.57× the control σ̂ of 0.1368 ms** — *tighter*
+than the controls. So:
+
+> The A0 triple's 0.0403 % score CV is not a general property of the ranked
+> instrument. It is what you get when three receipts happen to draw similar
+> baselines. The score channel's true between-receipt spread for an arbitrary
+> arm is at least an order of magnitude wider, because it carries the baseline
+> draw. Every single-receipt score claim in this campaign — including a promoted
+> one — inherits that spread.
+
+This is the most transferable result of the ladder, and it independently
+vindicates Amendment C: `cand_pre` is measured directly, replicates at 0.57× the
+control σ̂, and is the only channel here that behaves like an instrument.
+
+### 4.4.13 Audit of the score construction — the paired form is exact, and the lottery is 93 % of A1-1's "win"
+
+§4.4.9's entire refusal of A1-1 rests on one claim: that the published score
+carries the *same-session paired* baseline, so a lucky baseline draw can move it.
+While reading A1-2 I briefly doubted this, because A1-1's reported
+`decode_speedup` sat within 1e−5 of `CAL_DEC / cand_dec` — the pinned
+reconstruction. If the ranked wrapper had normalised by pinned constants instead,
+no `baseline_*` limb could have moved the published number and §4.4.8–§4.4.9
+would have been mis-mechanised. That had to be settled from the raw receipts
+before writing a verdict, so `research/r105a_score_probe.py` refetches all six
+and checks the identity directly at full double precision.
+
+| receipt | `officialScore` | `dec_su^0.75 · pre_su^0.25` | ratio | pinned reconstruction | ratio |
+|---|---|---|---|---|---|
+| A0-1 | 2.5706518 | 2.5706518 | **1.000000** | 2.6093200 | 0.985181 |
+| A0-2 | 2.5697626 | 2.5697626 | **1.000000** | 2.6064021 | 0.985943 |
+| A0-3 | 2.5718297 | 2.5718297 | **1.000000** | 2.6000413 | 0.989150 |
+| A2-1 | 2.5521410 | 2.5521410 | **1.000000** | 2.5942542 | 0.983767 |
+| A1-1 | 2.5923589 | 2.5923589 | **1.000000** | 2.6011766 | 0.996610 |
+| A1-2 | 2.5555334 | 2.5555334 | **1.000000** | 2.5985406 | 0.983449 |
+
+Three facts, all 6/6:
+
+1. `officialScore = decode_speedup^0.75 · prefill_speedup^0.25` **exactly**.
+2. `decode_speedup = baseline_decode_seconds_per_token / decode_seconds_per_token`
+   and `prefill_speedup = baseline_prefill_seconds_per_token /
+   prefill_seconds_per_token` **exactly**, at full double precision — the
+   same-session paired form, not the pinned one.
+3. The pinned calibration constants `CAL_DEC`/`CAL_PRE` do **not** enter the
+   published score. They only appear in my own `norm_score`, which sits +1.0 % to
+   +1.7 % above official.
+
+My momentary doubt was a **column mix-up on my side, not an instrument mystery**:
+I compared the API's `decode_speedup` against my own derived `norm_decode_su`
+column, which *is* the pinned ratio by construction, and read the agreement as
+evidence about the wrapper. §4.4.8–§4.4.9 stand unmodified, and the check is
+recorded here rather than deleted because a near-miss of this kind is exactly the
+sort of error a preregistered analysis is supposed to catch late rather than
+never.
+
+One useful by-product: replacing *both* paired baselines by any pair of constants
+gives a score proportional to `norm_score`, so the "fully un-paired" channel and
+`norm_score` are the same statistic up to level. The probe confirms it — control
+CV 0.1821 % and z = −1.25 (A1), −2.01 (A2), digit-for-digit identical to §5 of
+the sigma audit. `norm_score` *is* the candidate-only score channel; the pinned
+constants only set its zero point.
+
+**The lottery, quantified.** With the A0-mean baseline limbs
+(`baseline_dec = 0.013864059247395833`,
+`baseline_pre = 0.00036658740234375`) as a fixed reference, each receipt's
+`ln officialScore` splits into a candidate part and a baseline-draw part
+(`0.75·ln(base_dec/mean) + 0.25·ln(base_pre/mean)`):
+
+| receipt | official | candidate-only score | lottery (ln) | of which prefill limb |
+|---|---|---|---|---|
+| A0-1 | 2.5706518 | 2.5747719 | −0.001601 | −0.000522 |
+| A0-2 | 2.5697626 | 2.5718926 | −0.000829 | +0.000949 |
+| A0-3 | 2.5718297 | 2.5656160 | +0.002419 | −0.000430 |
+| A2-1 | 2.5521410 | 2.5599056 | −0.003038 | −0.000905 |
+| **A1-1** | **2.5923589** | 2.5667364 | **+0.009933** | **+0.010572** |
+| A1-2 | 2.5555334 | 2.5641353 | −0.003360 | −0.001047 |
+
+A1-1's published score sits **+0.998 %** above its own candidate-only score;
+A1-2's sits −0.335 % below. Decomposing the 0.0368-unit gap between the two
+variant-7 receipts:
+
+```
+dln official     = +0.014307
+  lottery part   = +0.013293   (prefill limb +0.011619, decode limb +0.001675)
+  candidate part = +0.001014
+```
+
+**93 % of A1-1's advantage over its own replicate is the baseline draw**, and 81 %
+of it is the prefill baseline limb alone. Amendment B — written before A1-1
+existed, refusing to promote a WIN attributable to a `baseline_*` limb — is
+validated by its first and only application: the winner it refused was 93 %
+lottery.
+
+---
+
 ## 5. Verdict
 
 **Rig-invalid is _not_ the verdict.** The brief's `Rig-invalid` bucket is
@@ -1743,6 +1893,54 @@ merging inert machinery adds surface area to `editablePaths` and future review
 cost for zero ranked gain. The reusable outputs in that case are §4.4.1's σ, the
 two repairs, and the §7 corrections, all of which live in the report and need no
 merge.
+
+### 5.2a The verdict, fired
+
+Six receipts are spent, all resolved, and no pending run can change the
+conclusion. Against the table above:
+
+| arm | Amendment-C primary (`prefill_ms`) | official score channel | bucket |
+|---|---|---|---|
+| **A1** (routed gate/up `bn=128`, n = 2) | **+1.166229 ms slower**, z +9.34, CI90 [+0.872, +1.460] | Δ +0.0031981, CI90 hi **+0.0054 < bar 0.0131568** | **REGRESSION** on the primary channel; `NULL, bar excluded` on the score channel |
+| **A2** (routed down `bn=128`, n = 1) | **+1.034209 ms slower**, z +6.55, CI90 [+0.573, +1.495] | Δ −0.0186070, CI90 hi **−0.0151 < 0** | **REGRESSION** on both channels |
+| **A3** (variant 6, both shapes) | not measured, by design (§4.4.10 item 3) | — | inferred `Δ(6) ≈ Δ(7) + Δ(8)` ≈ +2.2 ms slower |
+
+`WIN` is excluded for both arms on both channels. `NULL, underpowered` is also
+excluded: every interval that matters lies on the far side of zero or of the bar,
+and the decode-side null control (`step_ms`, z −1.39 and +0.15) shows the knob's
+reach is prefill-only rather than merely unresolved. So this is **not a null
+result on the channel the design nominated** — it is a measured, replicated harm
+of ≈ 1 ms of prefill wall per routed shape, ≈ 0.4 % of score in §7.6's units.
+
+**I now fire the brief's N-1, in its own words, with the scope it actually
+earns.** The preregistered sentence is:
+
+> *"the A-operand re-reads are already absorbed by cache, and the routed
+> gather-GEMM has no remaining ranked lever"*
+
+Both halves are supported for the `bn` axis at these two shapes: the first by
+fb2's arithmetic (an A tile per chunk is 256 KiB against a 24 MiB SLC, and fern's
+r105-E ledger measures amplification 1.00 above the SLC), the second by the
+receipts, since all that halving the N-tile count bought was slower prefill.
+**N-2** (occupancy / shared-memory pressure at `bn = 128`: the sole tgmem
+allocation `Ws_storage = BN × BK_padded` doubles 9,232 → 18,448 B while
+threadgroup count halves, `fp_quantized_nax.h:1714`) is the co-explanation, and
+the sign of the harm is what points at it.
+
+§5.2's caveat above is **not withdrawn**: these receipts bound *this* tile change
+on *these* two routed shapes at the measured resolution. They do not prove "no
+lever anywhere in the gather-GEMM", and §7.3's unoffered arm — which separates
+halved A-traffic from `BN = 128` occupancy — remains unrun. What is closed is the
+A-fragment N-tile *reuse thesis* as a route to ranked gain, in both routed shapes
+independently, which is the disposition fb2 asked for.
+
+**Consequences, all already in force.** The compiled default stays at variant 5;
+the tree is byte-inert on the scored path (`max_abs_diff = 0` on all six
+receipts, 1,344 checked tokens each); **the PR must not be merged** (§5.2's merge
+rule, PR #293 precedent, fb2 §5); slots 7 and 8 are **not** spent, because a
+seventh receipt on a z = +9.34 harm buys nothing and variant 6 is arithmetically
+predicted by the two arms already measured.
+
 
 ### 5.3 D5 reachability — stated honestly
 
@@ -2210,3 +2408,153 @@ from a blended price to **`price_seed_forward_ms`**, and quote decode-side work
 in `%`-of-score or in `ms_per_decode_step` (15.2435 %/ms), because those two
 readings differ by 40x and the ambiguity is what produced the wrong section
 above.
+
+## 8. Rev2 evidence contract: what is claimed, and how to re-check each claim
+
+This index exists so a reviewer can audit the rev2 conclusion without rerunning
+the ladder. Eight items; each names the claim, the artefact that carries it, and
+the exact way to falsify it.
+
+### 8.1 Reproduction: the one command that produced every data point
+
+All six ranked receipts were dispatched with this command line, changing only
+the note file (`--note-file research/r105a-notes/{a0-1,a0-2,a2-1,a0-3,a1-1,a1-2}.md`):
+
+```bash
+bash senpai/submit-official.sh 1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7 \
+  --note-file research/r105a-notes/<ARM>.md
+```
+
+Argument 1 is the recorded `origin/main` SHA, not the candidate commit (§4.1a).
+The recorded assignment base is
+`BASE_SHA = 5f7861c0981278929c3ef43d54a6d5bca10a8659`. The arm under test is
+selected before dispatch by `research/r105a-prepare-arm.py`, which sets the
+default variant compiled into the candidate; the ranked run itself takes no
+environment override.
+
+Re-derivation from the published receipts, host-independent, no GPU required:
+
+```bash
+python3 research/r105a-receipts.py       # fetch + derive -> r105a-receipts-resolved.json
+python3 research/r105a-sigma-audit.py    # sigma, channels, per-arm verdicts
+python3 research/r105a_score_probe.py    # score identity + baseline-draw decomposition
+```
+
+### 8.2 The ledger: six receipts, all resolved, all correctness-clean
+
+| # | arm | variant | queued (UTC) | gap | `prefill_ms` | `step_ms` | `officialScore` | GPQA |
+|---|---|---|---|---|---|---|---|---|
+| 1 | A0-1 | 5 | 03:42:32 | - | 96.031125 | 4.1616686 | 2.57065175986034 | 9/9 |
+| 2 | A0-2 | 5 | 04:07:00 | +24m28s | 96.299125 | 4.1623405 | 2.56976261057539 | 9/9 |
+| 3 | A2-1 | 8 | 05:00:24 | +53m24s | 97.183417 | 4.1710950 | 2.55214102802847 | **8/9** |
+| 4 | A0-3 | 5 | 05:23:27 | +23m03s | 96.117375 | 4.1829040 | 2.57182973424995 | 9/9 |
+| 5 | A1-1 | 7 | 06:00:19 | +36m52s | 97.260375 | 4.1517109 | 2.59235893273017 | 9/9 |
+| 6 | A1-2 | 7 | 06:42:51 | +42m32s | 97.370500 | 4.1556400 | 2.55553342334089 | 9/9 |
+
+Span 03:42:32Z -> 07:05:47Z, about 3h23m, mean inter-arrival 36m. All six report
+`passed_correctness = true`, `max_abs_diff = 0`, `checked_steps = 1344`, both
+0.95 floors cleared, `gpqa_ttft_passed = true`, `error = ""`,
+`partial_result = false`. Two of the eight budgeted slots were deliberately not
+spent (§5.2a). Every receipt id, local commit and service commit is in
+`research/r105a-receipts-resolved.json`.
+
+### 8.3 The instrument: measured A0 spread against the advisor's prereg
+
+The brief preregistered `sigma = 0.1588 %` of score. Measured on three A0
+receipts:
+
+| channel | control mean | `sigma` | CV |
+|---|---|---|---|
+| `officialScore` (as published) | 2.5707480 | 0.0010369 | 0.0403 % |
+| `norm_score` (both baselines pinned) | 2.6052544 | 0.0047446 | **0.1821 %** |
+| `prefill_ms` | 96.14921 ms | 0.13681 ms | 0.1423 % |
+| `step_ms` | 4.168971 ms | 0.012071 ms | 0.2895 % |
+
+The prereg is right to within `0.1821 / 0.1588 = 1.15x` **for the candidate-only
+channel**. The published-score CV looks 4.5x tighter only because the paired
+baseline cancels session drift inside one receipt (`r(dec_su, pre_su) = -0.9776`;
+propagated CV with that correlation 0.04031 % against 0.04033 % observed). That
+tightness does **not** transfer across receipts: the two A1 replicates differ by
+0.0368 on `officialScore`, 35x the control `sigma`, because each receipt draws
+its own baseline (§4.4.12). Every single-receipt score claim in this campaign
+inherits that draw.
+
+### 8.4 The measured effects, against the design bar
+
+Sign convention: arm - control, positive = slower/worse. Percentages and score
+units use the corrected seed-forward price `0.379103 %/ms` (§7.6).
+
+| arm | n | `d prefill_ms` | CI90 (ms) | z | `d` % of score | `d` score units |
+|---|---|---|---|---|---|---|
+| A1 (variant 7) | 2 | **+1.166229** | [+0.872371, +1.460088] | +9.34 | -0.44212 % | **-0.011366** |
+| A2 (variant 8) | 1 | **+1.034209** | [+0.572935, +1.495483] | +6.55 | -0.39207 % | **-0.010079** |
+| design bar | - | -1.35 (a win) | - | - | +0.51179 % | +0.0131568 |
+
+Both arms are harms of about 0.8x the bar's magnitude with CI90 excluding zero.
+The `step_ms` null control moves by `-0.015296` ms (A1, z -1.39) and `+0.002124`
+ms (A2, z +0.15): the effect stays on the prefill axis the mechanism touches,
+which is the one clean part of this result. §7.6's table quoted the A1 row at
+n=1 (`+1.111167` ms); the pooled n=2 value above supersedes it and is 0.055 ms
+larger.
+
+The score channel disagrees in sign for A1 (`+0.0031981`, z +3.38) and that
+disagreement is fully explained by A1-1's baseline draw rather than by the
+candidate: 93 % of A1-1's advantage over its own replicate is the paired-baseline
+draw, 81 % the baseline prefill limb alone (§4.4.13). Amendment B therefore
+refuses A1 on the score channel, and Amendment C's primary channel carries the
+verdict.
+
+### 8.5 Bit-exactness: what is and is not claimed
+
+**Not claimed:** these arms are *not* bit-exact with variant 5. Changing `bn`
+changes the accumulation order of the NVFP4 A-fragment reduction, so identical
+outputs are an empirical observation, not an algebraic guarantee.
+
+**Claimed, with evidence:** across 6 receipts x 1,344 checked teacher-forced
+steps, `max_abs_diff = 0` and every checked greedy token matched. The live
+consequence of the weaker claim is receipt 3: A2-1 answered GPQA 8/9 where the
+other five answered 9/9, a free-run divergence on a near-tie continuation, which
+is exactly the failure mode a non-bit-exact reordering predicts.
+
+**What would settle it:** a forced-variant equivalence pass plus a free-run
+comparison on the ranked M5. This host is an M4 Pro reporting Apple GPU
+generation 16 and cannot select the `_nax` kernels the arms modify, so that check
+is unavailable locally and is the single largest gap in this evidence set. Treat
+the arms as behaviour-preserving in expectation only.
+
+### 8.6 Decision rule D5
+
+D5 asked whether the ladder could separate the mechanism's effect from session
+noise. It is **positively satisfied**, in the harmful direction: the effect is
+8.5x the control `sigma` on `prefill_ms`, reproduces in both routed shapes, and
+is absent from the decode null control (§5.3). This is a measured regression, not
+an underpowered null.
+
+### 8.7 Terminal verdict
+
+The family verdict is **N-1**: A-fragment n-tile reuse enlarges the persisted
+`Ws_storage` tile (`BN x BK_padded`, 9,232 -> 18,448 B,
+`fp_quantized_nax.h:1714`), and the resulting occupancy loss costs about 1.1 ms
+of the 96 ms seed forward pass in both routed shapes. The hypothesis is falsified
+in the direction it was posed.
+
+The default variant stays **5**. The candidate is byte-inert on the scored path:
+variants 7 and 8 are reachable only through the compile-time selector and no
+ranked default changes. **This PR must not be merged.** The result is submitted
+as `failed`.
+
+### 8.8 The durable record
+
+W&B run `8t9fn703`, project `wandb-applied-ai-team/mlxfast-maple`, name
+`r105-a-ranked-ladder`, job_type `ranked-receipt-ladder`:
+<https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/8t9fn703>
+
+It carries all six receipts as a table and as per-receipt scalars, the full
+`contrast/*` verdict block for both arms, and a `terminal/*` block holding the
+rev2 conclusion: status, family verdict, both arms' `prefill_ms` deltas with SE,
+z and CI90, the verified score identity, the within-A1 score spread, and the
+baseline-draw shares. `config` pins the assignment, revision, PR, branch,
+`BASE_SHA`, `origin_main_sha`, the design bar, the preregistered `sigma`, the
+calibration constants, and the realised ladder order
+`A0-1,A0-2,A2-1,A0-3,A1-1,A1-2,unspent,unspent`.
+

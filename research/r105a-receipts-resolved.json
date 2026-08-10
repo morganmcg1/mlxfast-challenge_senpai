@@ -169,12 +169,46 @@
    "error": "",
    "partial_result": false,
    "commit_reported": "2d967a120e60a706fca4425545c5f303ad7a9563"
+  },
+  {
+   "arm": "A1-2",
+   "submission_id": "c52994dc-6fa1-49ff-a803-80b9443eb51a",
+   "commit": "b705d69a",
+   "queued_at": "2026-08-10T06:42:51Z",
+   "status": "rejected",
+   "official_score": 2.55553342334089,
+   "rejection_reason": "score did not improve current best",
+   "cand_dec": 0.004916347,
+   "cand_pre": 0.0001901767578125,
+   "prefill_ms": 97.37049999999999,
+   "step_ms": 4.15563996875,
+   "norm_decode_su": 2.8252684360969638,
+   "norm_prefill_su": 2.0218033182534754,
+   "norm_score": 2.5985406462123795,
+   "prefill_price_pct_per_ms": 0.3759327523997096,
+   "baseline_dec": 0.013821363609375,
+   "baseline_pre": 0.0003650552578125,
+   "decode_speedup": 2.8113075845490565,
+   "prefill_speedup": 1.9195576894439281,
+   "max_abs_diff": 0,
+   "passed_correctness": true,
+   "passed_decode_floor": true,
+   "passed_prefill_floor": true,
+   "checked_steps": 1344,
+   "semantic_gpqa": "9/9",
+   "gpqa_ttft_passed": true,
+   "gpqa_ttft_p50_seconds": 0.081,
+   "measured_at": "2026-08-10T06:52:29Z",
+   "service_commit": "5e435a6b693635bd1ec8647210673a0ba837f102",
+   "error": "",
+   "partial_result": false,
+   "commit_reported": "5e435a6b693635bd1ec8647210673a0ba837f102"
   }
  ],
  "contrast": {
   "arm_receipt_counts": {
    "A0": 3,
-   "A1": 1,
+   "A1": 2,
    "A2": 1
   },
   "control_n": 3,
@@ -228,29 +262,29 @@
    "score_cv_pct_observed": 0.04033531615832258
   },
   "A1": {
-   "n": 1,
-   "dof": 2,
-   "t95": 2.92,
-   "se_score": 0.0011973313288243367,
-   "delta_score": 0.021610897834943188,
-   "delta_score_pct": 0.8406462843342778,
+   "n": 2,
+   "dof": 3,
+   "t95": 2.353,
+   "se_score": 0.0009465735282402299,
+   "delta_score": 0.003198143140302978,
+   "delta_score_pct": 0.12440515744411806,
    "ci90_score": [
-    0.018114690354776124,
-    0.02510710531511025
+    0.0009708556283537168,
+    0.005425430652252239
    ],
-   "z_score_vs_zero": 18.049221059105665,
+   "z_score_vs_zero": 3.3786526296046224,
    "bar_score": 0.013156808223064203,
-   "se_ms": 0.15797054929462812,
-   "delta_prefill_ms": -1.1111666666666622,
-   "delta_decode_echo_ms": 1.0981249999999818,
-   "delta_step_ms": 0.01726009114583249,
+   "se_ms": 0.12488668474973255,
+   "delta_prefill_ms": -1.1662291666666675,
+   "delta_decode_echo_ms": 0.7916045000000622,
+   "delta_step_ms": 0.015295575520832827,
    "ci90_ms": [
-    -1.5724406706069762,
-    -0.6498926627263482
+    -1.4600875358827883,
+    -0.8723707974505468
    ],
-   "z_vs_zero": -7.034011539671516,
-   "channels_agree": false,
-   "verdict": "PROMISING-channel-disagreement",
+   "z_vs_zero": -9.3382987065734,
+   "channels_agree": true,
+   "verdict": "NULL-bar-excluded",
    "verdict_is_shippable": false
   },
   "A2": {

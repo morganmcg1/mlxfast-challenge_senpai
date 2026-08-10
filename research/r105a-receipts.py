@@ -89,6 +89,46 @@ BAR_MS = 1.35
 # One-sided 95 % Student-t, indexed by degrees of freedom.
 T95 = {1: 6.314, 2: 2.920, 3: 2.353, 4: 2.132, 5: 2.015, 6: 1.943, 7: 1.895, 8: 1.860}
 
+# Terminal rev2 conclusion, transcribed from the ranked ladder so the W&B run is a
+# self-contained record. Sign convention: arm - control, positive = slower/worse.
+TERMINAL_SUMMARY = {
+    "status": "failed",
+    "verdict_family": "N-1",
+    "verdict_text": "A-fragment n-tile reuse costs prefill time in both routed shapes; not merged",
+    "merged": False,
+    "primary_channel": "prefill_ms (Amendment C)",
+    "receipts_spent": 6,
+    "receipt_slots_unspent": 2,
+    "control_official_score_mean": 2.5707480348952267,
+    "control_official_score_sd": 0.0010369193475088547,
+    "control_prefill_ms_mean": 96.14920833333333,
+    "control_prefill_ms_sd": 0.13680650873892988,
+    "design_bar_prefill_ms": BAR_MS,
+    "design_bar_score_units": 0.0131568,
+    "A1_prefill_ms_delta": 1.166229,
+    "A1_prefill_ms_se": 0.12488668474973255,
+    "A1_prefill_ms_z": 9.34,
+    "A1_prefill_ms_ci90_lo": 0.872371,
+    "A1_prefill_ms_ci90_hi": 1.460088,
+    "A1_official_score_delta": 0.0031981,
+    "A1_official_score_z": 3.38,
+    "A1_verdict": "REGRESSION on prefill_ms; score channel not shippable",
+    "A2_prefill_ms_delta": 1.034209,
+    "A2_prefill_ms_se": 0.15797054929462812,
+    "A2_prefill_ms_z": 6.55,
+    "A2_prefill_ms_ci90_lo": 0.572935,
+    "A2_prefill_ms_ci90_hi": 1.495483,
+    "A2_official_score_delta": -0.01860700686675676,
+    "A2_official_score_z": -15.54,
+    "A2_verdict": "REGRESSION",
+    # Published scores use the same-session paired baseline, verified 6/6 receipts.
+    "score_identity": "officialScore = (baseline_dec/cand_dec)^0.75 * (baseline_pre/cand_pre)^0.25",
+    "within_A1_official_score_sd": 0.0260396,
+    "within_A1_official_score_sd_over_control_sd": 25.1,
+    "A1_1_advantage_share_from_baseline_draw": 0.929,
+    "A1_1_advantage_share_from_baseline_prefill_limb": 0.812,
+}
+
 
 def _sd(xs: list[float]) -> float:
     mean = sum(xs) / len(xs)
@@ -320,7 +360,7 @@ def main() -> int:
                 "assumed_sigma_pct_of_score_prereg": 0.1588,
                 "calibration_decode_seconds_per_token": CAL_DEC,
                 "calibration_prefill_seconds_per_token": CAL_PRE,
-                "ladder_order": "A0-1,A0-2,A2-1,A0-3,A1-1,replicate-leader,replicate-other,combined-or-third",
+                "ladder_order": "A0-1,A0-2,A2-1,A0-3,A1-1,A1-2,unspent,unspent",
             },
         )
         table = wandb.Table(columns=sorted({k for r in records for k in r}))
@@ -341,6 +381,8 @@ def main() -> int:
                     run.summary[f"contrast/{key}/{sub}"] = subvalue
             else:
                 run.summary[f"contrast/{key}"] = value
+        for key, value in TERMINAL_SUMMARY.items():
+            run.summary[f"terminal/{key}"] = value
         print(f"wandb run: {run.url}")
         run.finish()
     return 0
