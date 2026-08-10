@@ -80,11 +80,14 @@ final class LagunaFusionTraceLog: @unchecked Sendable {
     private var seen: Set<String> = []
     private let lock = NSLock()
 
-    func note(_ site: String) {
+    func claim(_ site: String) -> Bool {
         lock.lock()
-        let isNew = seen.insert(site).inserted
-        lock.unlock()
-        if isNew {
+        defer { lock.unlock() }
+        return seen.insert(site).inserted
+    }
+
+    func note(_ site: String) {
+        if claim(site) {
             FileHandle.standardError.write(Data("mlxfast: fusion active: \(site)\n".utf8))
         }
     }
@@ -4320,6 +4323,8 @@ private let lagunaFusedNormGateSoftplusEnabled = ProcessInfo.processInfo.environ
     "DARKBLOOM_FUSED_NORM_GATE_SOFTPLUS"] == "1"
 private let lagunaFusedNormGateCensusEnabled = ProcessInfo.processInfo.environment[
     "DARKBLOOM_FUSED_NORM_GATE_CENSUS"] == "1"
+private let lagunaFusedNormGateDifferentialEnabled = ProcessInfo.processInfo.environment[
+    "DARKBLOOM_FUSED_NORM_GATE_DIFFERENTIAL"] == "1"
 
 private func lagunaFusedNormGateSoftplusSource(heads: Int) -> String {
     """
@@ -5936,6 +5941,41 @@ final class LagunaRuntimeAttention: Module {
                     fusedNormGate = lagunaFusedNormGateSoftplus(
                         residual: input, normWeight: inputNorm.weight,
                         bank: affineGate, heads: nHeads)
+                    if lagunaFusedNormGateDifferentialEnabled,
+                        lagunaTracedFusions.claim("norm-gate differential h\(nHeads)")
+                    {
+                        func check(
+                            _ label: String, _ value: MLXArray,
+                            _ existing: (normalized: MLXArray, gateValues: MLXArray)?
+                        ) {
+                            let controlNorm = inputNorm(value)
+                            guard let controlGate = lagunaGateSoftplus(
+                                input: controlNorm, bank: affineGate, heads: nHeads),
+                                let candidate = existing ?? lagunaFusedNormGateSoftplus(
+                                    residual: value, normWeight: inputNorm.weight,
+                                    bank: affineGate, heads: nHeads)
+                            else { preconditionFailure("norm-gate differential guard declined") }
+                            eval([controlNorm, controlGate, candidate.normalized, candidate.gateValues])
+                            func raw(_ array: MLXArray) -> [UInt16] {
+                                array.view(dtype: .uint16).asArray(UInt16.self)
+                            }
+                            let normMismatch = zip(raw(controlNorm), raw(candidate.normalized))
+                                .reduce(0) { $0 + ($1.0 == $1.1 ? 0 : 1) }
+                            let gateMismatch = zip(raw(controlGate), raw(candidate.gateValues))
+                                .reduce(0) { $0 + ($1.0 == $1.1 ? 0 : 1) }
+                            FileHandle.standardError.write(Data(
+                                "mlxfast: norm-gate differential h\(nHeads) \(label) norm=\(normMismatch) gate=\(gateMismatch)\n".utf8))
+                            precondition(normMismatch == 0 && gateMismatch == 0)
+                        }
+                        check("real", input, fusedNormGate)
+                        let zeros = (0 ..< LagunaConstants.hiddenSize).map {
+                            Float(bitPattern: $0 & 1 == 0 ? 0 : 0x8000_0000)
+                        }
+                        check("signed-zero", MLXArray(zeros).reshaped([1, 1, LagunaConstants.hiddenSize]).asType(.bfloat16), nil)
+                        let pattern: [Float] = [3e18, -3e18, 1e-30, -1e-30, 1, -1, 0.125, -0.125]
+                        let edge = (0 ..< LagunaConstants.hiddenSize).map { pattern[$0 & 7] }
+                        check("finite-edge", MLXArray(edge).reshaped([1, 1, LagunaConstants.hiddenSize]).asType(.bfloat16), nil)
+                    }
                 }
                 // The unchanged NVFP4 projection consumes the device-visible
                 // normalized output when fusion succeeds.
