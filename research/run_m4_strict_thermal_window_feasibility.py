@@ -28,6 +28,7 @@ CSV_LIMIT_BYTES = 4 * 1024
 MODEL_PATTERNS = (
     "mlxfast-runtime-worker",
     "mlxfast-swift benchmark",
+    "benchmark.sh --local-cool-gate-only",
     "swift test",
     "swift build",
     "xcrun metal",
@@ -178,14 +179,21 @@ def fan_status():
     return output.splitlines()[-1].strip() if output else "unreadable"
 
 
-def matching_processes():
+def matching_processes(ignore_pids=()):
     status, output = run_text(["ps", "-axo", "pid=,ppid=,comm=,args="], timeout=10)
     if status != 0:
         return ["process inventory failed"]
-    own_pid = os.getpid()
+    ignored = {os.getpid(), *ignore_pids}
     matches = []
     for line in output.splitlines():
-        if str(own_pid) in line and Path(__file__).name in line:
+        fields = line.strip().split(None, 1)
+        if not fields:
+            continue
+        try:
+            pid = int(fields[0])
+        except ValueError:
+            continue
+        if pid in ignored:
             continue
         lowered = line.lower()
         if any(pattern.lower() in lowered for pattern in MODEL_PATTERNS):
@@ -290,12 +298,12 @@ def terminate_group(process, grace=10):
         process.wait(timeout=5)
 
 
-def monitor_gate(stop_event, records):
+def monitor_gate(stop_event, records, ignore_pids):
     while not stop_event.is_set():
         records.append({
             "utc": utc_now(),
             "fan": fan_status(),
-            "processes": matching_processes(),
+            "processes": matching_processes(ignore_pids),
         })
         stop_event.wait(5)
 
@@ -346,8 +354,6 @@ def run_gate(macmon, attempt, temp_dir):
         )
         monitor_records = []
         stop_event = threading.Event()
-        monitor = threading.Thread(target=monitor_gate, args=(stop_event, monitor_records), daemon=True)
-        monitor.start()
         started_utc = utc_now()
         started = time.monotonic()
         timed_out = False
@@ -361,6 +367,12 @@ def run_gate(macmon, attempt, temp_dir):
                 stderr=subprocess.STDOUT,
                 start_new_session=True,
             )
+            monitor = threading.Thread(
+                target=monitor_gate,
+                args=(stop_event, monitor_records, {gate_process.pid}),
+                daemon=True,
+            )
+            monitor.start()
             try:
                 gate_process.wait(timeout=GATE_TIMEOUT_SECONDS)
             except subprocess.TimeoutExpired:
