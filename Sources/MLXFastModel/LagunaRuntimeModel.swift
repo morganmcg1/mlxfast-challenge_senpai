@@ -10464,8 +10464,8 @@ private let lagunaRouterRankMapEnumerationKernel = MLXFast.metalKernel(
     ensureRowContiguous: true
 )
 
-func lagunaRouterRankMapGatherSortForTesting(
-    _ x: MLXArray, rankMap: MLXArray
+private func lagunaRouterRankMapEnumeration(
+    _ rankMap: MLXArray
 ) -> (MLXArray, MLXArray, MLXArray) {
     precondition(rankMap.dtype == .uint8)
     precondition(rankMap.ndim == 2 && rankMap.dim(1) == 256)
@@ -10477,8 +10477,21 @@ func lagunaRouterRankMapGatherSortForTesting(
         outputShapes: [[n], [n], [n]],
         outputDTypes: [.uint32, .uint32, .uint32]
     )
+    return (outputs[0], outputs[1], outputs[2])
+}
+
+func lagunaRouterRankMapEnumerationForTesting(
+    _ rankMap: MLXArray
+) -> (MLXArray, MLXArray, MLXArray) {
+    lagunaRouterRankMapEnumeration(rankMap)
+}
+
+func lagunaRouterRankMapGatherSortForTesting(
+    _ x: MLXArray, rankMap: MLXArray
+) -> (MLXArray, MLXArray, MLXArray) {
+    let outputs = lagunaRouterRankMapEnumeration(rankMap)
     return (
-        x.flattened(start: 0, end: -3)[outputs[0]], outputs[1], outputs[2]
+        x.flattened(start: 0, end: -3)[outputs.0], outputs.1, outputs.2
     )
 }
 
