@@ -45,8 +45,29 @@ SESSION="$(date -u +%Y%m%dT%H%M%SZ)"
 export MLXFAST_LOCAL_FAN_PROMPT=0
 
 if [ ! -s "$OUT" ]; then
-  printf 'session\tidx\tblock\tarm\tdecode_s_per_token\tprefill_s_per_token\tpassed\twall_s\terror\n' > "$OUT"
+  printf 'session\tidx\tblock\tarm\tkernel\tdecode_s_per_token\tprefill_s_per_token\tpassed\twall_s\terror\n' > "$OUT"
 fi
+
+# Gate provenance. The four sliding-attention kernels are lazily initialised
+# globals, each referenced from exactly one arm of the selection ladder, and
+# each announces its own MLX kernel name once at construction. So the run log
+# names the kernel the process actually compiled -- independent of what this
+# script believes it exported. Arm K is bit-identical to the control in both
+# geometry and output, so this line is the only way to tell a real PACKRED run
+# from a stale binary or a mistyped gate; the campaign fails closed on a
+# mismatch rather than recording a fabricated near-zero paired difference.
+expected_kernel() {
+  case "$1" in
+    K) echo laguna_sliding_fused_attn_ring_packred_v1 ;;
+    H) echo laguna_sliding_fused_attn_ring_h4_v1 ;;
+    P) echo laguna_sliding_fused_attn_ring_noreduce_v1 ;;
+    *) echo laguna_sliding_fused_attn_ring_v1 ;;
+  esac
+}
+observed_kernel() {
+  grep -o 'laguna_sliding_fused_attn_ring[a-z0-9_]*' "$1" 2>/dev/null \
+    | sort -u | paste -sd, -
+}
 
 i=0
 for (( n=0; n<${#ORDER}; n++ )); do
@@ -67,14 +88,22 @@ for (( n=0; n<${#ORDER}; n++ )); do
   rc=$?
   wall=$(( $(date +%s) - t0 ))
   git checkout -q -- Package.resolved 2>/dev/null || true
+  want="$(expected_kernel "$arm")"
+  got="$(observed_kernel "$log")"
+  if [ "$got" != "$want" ]; then
+    echo "FATAL: arm=${arm} idx=${i} gate provenance mismatch:" >&2
+    echo "  expected kernel '${want}' but the run log named '${got:-<none>}'" >&2
+    echo "  see ${log}" >&2
+    exit 1
+  fi
   if [ ! -f score.json ]; then
     # Arm P is a deliberately incorrect attribution instrument. If the harness
     # refuses to emit a score for it, that costs the secondary contrast only and
     # must NOT destroy the primary C-vs-K campaign, so record the miss and go on.
     if [ "$arm" = "P" ]; then
       echo "WARN: arm=P idx=${i} produced no score.json (rc=${rc}); see ${log}" >&2
-      printf '%s\t%d\t%d\t%s\t%s\t%s\t%s\t%d\t%s\n' \
-        "$SESSION" "$i" "$block" "$arm" NA NA NA "$wall" "no-score-json-rc=${rc}" | tee -a "$OUT"
+      printf '%s\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%d\t%s\n' \
+        "$SESSION" "$i" "$block" "$arm" "$got" NA NA NA "$wall" "no-score-json-rc=${rc}" | tee -a "$OUT"
       continue
     fi
     echo "FATAL: arm=${arm} idx=${i} produced no score.json (rc=${rc}); see ${log}" >&2
@@ -86,8 +115,8 @@ for (( n=0; n<${#ORDER}; n++ )); do
   pre=$(jq -r '.metrics.prefill_seconds_per_token // "NA"' "$score")
   pas=$(jq -r '.metrics.passed_correctness // "NA"' "$score")
   err=$(jq -r '.metrics.error // ""' "$score")
-  printf '%s\t%d\t%d\t%s\t%s\t%s\t%s\t%d\t%s\n' \
-    "$SESSION" "$i" "$block" "$arm" "$dec" "$pre" "$pas" "$wall" "$err" | tee -a "$OUT"
+  printf '%s\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%d\t%s\n' \
+    "$SESSION" "$i" "$block" "$arm" "$got" "$dec" "$pre" "$pas" "$wall" "$err" | tee -a "$OUT"
   echo "=== paired arm=${arm} block=${block} idx=${i} done  $(date -u +%H:%M:%S) rc=${rc} wall=${wall}s"
   [ "${KEEP:-0}" = 1 ] || rm -f "$score"
 done

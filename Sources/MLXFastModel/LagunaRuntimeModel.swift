@@ -2034,8 +2034,23 @@ private let lagunaSlidingFusedAttnRingReduceNoReduce = """
 
 """
 
+/// Announces, exactly once and outside every timed dispatch, the sliding
+/// fused-attention kernel name that this process actually compiled.  Each of
+/// the four kernels below is a lazily initialised global referenced from
+/// exactly one arm of the selection ladder in `lagunaSlidingFusedAttention`,
+/// so the line appears in the run log if and only if that arm was taken.
+/// The printed string is the same literal handed to `MLXFast.metalKernel`,
+/// which makes it Rule 33 evidence of distinct kernel identity as well as
+/// gate provenance.  There is no per-call cost: the write happens inside the
+/// one-shot initialiser, never in the decode loop.
+private func lagunaSlidingArmNoted(_ kernelName: String) -> String {
+    FileHandle.standardError.write(
+        Data("mlxfast: sliding fused attn kernel: \(kernelName)\n".utf8))
+    return kernelName
+}
+
 private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
-    name: "laguna_sliding_fused_attn_ring_v1",
+    name: lagunaSlidingArmNoted("laguna_sliding_fused_attn_ring_v1"),
     inputNames: [
         "raw_queries", "raw_keys", "raw_values",
         "query_weight", "key_weight", "angles",
@@ -2049,7 +2064,8 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
 )
 
 private let lagunaSlidingFusedAttentionPackredKernel = MLXFast.metalKernel(
-    name: "laguna_sliding_fused_attn_ring_packred_v1",
+    name: lagunaSlidingArmNoted(
+        "laguna_sliding_fused_attn_ring_packred_v1"),
     inputNames: [
         "raw_queries", "raw_keys", "raw_values",
         "query_weight", "key_weight", "angles",
@@ -2063,7 +2079,8 @@ private let lagunaSlidingFusedAttentionPackredKernel = MLXFast.metalKernel(
 )
 
 private let lagunaSlidingFusedAttentionNoReduceKernel = MLXFast.metalKernel(
-    name: "laguna_sliding_fused_attn_ring_noreduce_v1",
+    name: lagunaSlidingArmNoted(
+        "laguna_sliding_fused_attn_ring_noreduce_v1"),
     inputNames: [
         "raw_queries", "raw_keys", "raw_values",
         "query_weight", "key_weight", "angles",
@@ -2077,7 +2094,7 @@ private let lagunaSlidingFusedAttentionNoReduceKernel = MLXFast.metalKernel(
 )
 
 private let lagunaSlidingFusedAttentionH4Kernel = MLXFast.metalKernel(
-    name: "laguna_sliding_fused_attn_ring_h4_v1",
+    name: lagunaSlidingArmNoted("laguna_sliding_fused_attn_ring_h4_v1"),
     inputNames: [
         "raw_queries", "raw_keys", "raw_values",
         "query_weight", "key_weight", "angles",
