@@ -181,10 +181,13 @@ final class LagunaPackedScalesLog: @unchecked Sendable {
     private let lock = NSLock()
 
     @inline(__always)
-    func note(_ state: @autoclosure () -> String, _ site: @autoclosure () -> String) {
+    func note(_ state: String, _ site: String) {
         guard lagunaPackedScalesLogEnabled else { return }
-        let state = state()
-        let site = site()
+        record(state, site)
+    }
+
+    @inline(never)
+    private func record(_ state: String, _ site: String) {
         lock.lock()
         let isNew = seen.insert(site).inserted
         lock.unlock()
@@ -8782,7 +8785,9 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
         {
             _fusedGateUpScalesHalved = halved
             prepared.append(halved)
-            lagunaPackedScalesLog.note("active", "shared gate/up halved")
+            if lagunaPackedScalesLogEnabled {
+                lagunaPackedScalesLog.note("active", "shared gate/up halved")
+            }
         }
         if let down = downProj as? QuantizedLinear,
             type(of: down) == QuantizedLinear.self,
@@ -8793,7 +8798,9 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
         {
             _sharedDownScalesHalved = halvedDown
             prepared.append(halvedDown)
-            lagunaPackedScalesLog.note("active", "shared down halved")
+            if lagunaPackedScalesLogEnabled {
+                lagunaPackedScalesLog.note("active", "shared down halved")
+            }
         }
         return prepared
     }
@@ -10702,8 +10709,10 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 if lagunaPackedScalesEnabled,
                     let packedBank = _packedRoutedGateUpBank
                 {
-                    lagunaPackedScalesLog.note(
-                        "active", "routed swiglu qmv packed dispatch")
+                    if lagunaPackedScalesLogEnabled {
+                        lagunaPackedScalesLog.note(
+                            "active", "routed swiglu qmv packed dispatch")
+                    }
                     if lagunaRouterPrecomputedKeysEnabled,
                         let routerKeys,
                         routerKeys.dtype == .uint32,
@@ -10729,7 +10738,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                         )
                     }
                 } else {
-                    if lagunaPackedScalesEnabled {
+                    if lagunaPackedScalesEnabled, lagunaPackedScalesLogEnabled {
                         lagunaPackedScalesLog.note(
                             "inactive",
                             "routed swiglu qmv packed (bank missing; stock kernel dispatched)")
@@ -10851,12 +10860,16 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 let pairwiseDownScales =
                     lagunaPrefillExpertPairwiseScalesAdmitted(routedRows: inds.size)
                     ? _routedDownPairwiseScales : nil
-                if lagunaPrefillExpertPairwiseScalesEnabled {
+                if lagunaPrefillExpertPairwiseScalesEnabled,
+                    lagunaPackedScalesLogEnabled
+                {
                     lagunaPackedScalesLog.note(
                         pairwiseScales == nil ? "inactive" : "active",
                         "packed routed gate/up prefill scale view consumed")
                 }
-                if lagunaPrefillExpertDownPairwiseScalesEnabled {
+                if lagunaPrefillExpertDownPairwiseScalesEnabled,
+                    lagunaPackedScalesLogEnabled
+                {
                     lagunaPackedScalesLog.note(
                         pairwiseDownScales == nil ? "inactive" : "active",
                         "packed routed down prefill scale view consumed")
