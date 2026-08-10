@@ -1,0 +1,196 @@
+{
+  "schema_version": 1,
+  "audit": {
+    "assignment_id": "cedar-tanjiro-ranked-weight-load-provenance-audit-20260810",
+    "pull_request": 671,
+    "branch": "cedar-tanjiro/ranked-weight-load-provenance-audit",
+    "base_sha": "5593d8f4a394023e83dfbfe11ef01fa01a5b7f15",
+    "assignment_head_sha": "a9b25254e1b21d5fb56f7beaacf78b1f5735159f",
+    "audited_production_sha": "5593d8f4a394023e83dfbfe11ef01fa01a5b7f15",
+    "generated_at_utc": "2026-08-10T17:01:43Z",
+    "production_changes": false,
+    "wandb_applicable": false
+  },
+  "status": "RANKED_WEIGHT_PROVENANCE_INDETERMINATE",
+  "terminal": true,
+  "scope": "Static, read-only ranked transformed-weight load-provenance audit",
+  "unavailable_authority": {
+    "path": "/opt/bench/bench-exec.sh",
+    "availability": "missing_or_unreadable",
+    "necessary": true,
+    "stop_rule_applied": true,
+    "unresolved_edge": "trusted runner hash -> bridge-mediated reaper/worker launch and sandbox injection -> worker independent pathname opens",
+    "required_facts": [
+      "exact executable bytes",
+      "owner, group, mode, ACL, and immutable provenance",
+      "effective UID, GID, supplementary groups, environment, and working directory",
+      "process and session ancestry across reaper and worker launch",
+      "workspace, weight-tree, mount, and temporary-directory confinement",
+      "exact injected Seatbelt profile or generator and its ownership",
+      "ordering of reaping, sandbox injection, worker creation, and load epoch"
+    ],
+    "later_authorities_evaluated": false,
+    "later_authorities_reason": "Audit stopped at the first necessary unavailable authority."
+  },
+  "phase_dag": [
+    {
+      "id": "transform",
+      "authority": ".github/workflows/benchmark.yml:1074-1115",
+      "observation": "Participant transform is invoked through MLXFAST_BENCH_EXEC and authors the ranked weight tree.",
+      "status": "source_reviewed"
+    },
+    {
+      "id": "trusted_digest",
+      "authority": ".github/workflows/benchmark.yml:1120-1122; .github/scripts/hash-weights-directory.sh:11-59",
+      "observation": "Trusted shell hashes the transformed tree immediately after transform.",
+      "status": "source_reviewed"
+    },
+    {
+      "id": "reap_and_worker_launch",
+      "authority": ".github/workflows/benchmark.yml:1254-1266; /opt/bench/bench-exec.sh",
+      "observation": "Reaping and participant phases cross the unavailable ranked bridge.",
+      "status": "unresolved_stopped"
+    },
+    {
+      "id": "runtime_sandbox",
+      "authority": "benchmark.sh:1510-1565,2060-2075",
+      "observation": "Repository fallback is bypassed when the bridge injects MLXFAST_RUNTIME_WORKER_SANDBOX_PROFILE.",
+      "status": "not_evaluated_after_stop"
+    },
+    {
+      "id": "worker_independent_opens",
+      "authority": "runtime loader",
+      "observation": "Exact path-versus-descriptor behavior and shard/header/payload inventory remain untraced.",
+      "status": "not_evaluated_after_stop"
+    },
+    {
+      "id": "gate_and_timing_parity",
+      "authority": ".github/scripts/overlay-paired-timing.sh:75-107; .github/scripts/validate-benchmark-artifacts.sh:280-313",
+      "observation": "Parent-observed hash/count/bytes comparisons do not alone identify worker-opened bytes.",
+      "status": "source_reviewed_not_decisive"
+    }
+  ],
+  "actor_matrix": [
+    {
+      "actor": "trusted runner shell",
+      "known_capability": "Computes the post-transform digest and controls workflow ordering.",
+      "load_epoch_disposition": "partial_source_evidence"
+    },
+    {
+      "actor": "bench identity transform or survivor process",
+      "known_capability": "Authors transformed outputs; repository reaper warns rather than fails on residual survivors.",
+      "load_epoch_disposition": "unresolved_without_bridge"
+    },
+    {
+      "actor": "runtime worker",
+      "known_capability": "Must read transformed weights through a bridge-injected sandbox.",
+      "load_epoch_disposition": "not_evaluated_after_stop"
+    }
+  ],
+  "file_inventory": {
+    "shell_digest_known_coverage": [
+      "configuration regular files",
+      "index and metadata regular files",
+      "safetensor shard headers",
+      "safetensor shard payload bytes",
+      "all other non-ignored regular files"
+    ],
+    "exact_ignored_files": [
+      ".benchmark-source.sha256",
+      ".gitkeep"
+    ],
+    "worker_open_inventory": "not_evaluated_after_stop"
+  },
+  "digest_evidence": {
+    "shell_authority": ".github/scripts/hash-weights-directory.sh:11-59",
+    "root_must_be_non_symlink_directory": true,
+    "non_regular_entries_rejected": true,
+    "multiply_linked_regular_files_rejected": true,
+    "nul_delimited_sorted_paths": true,
+    "aggregate_tuple": "relative_path_bytes || NUL || raw_sha256(file_bytes) || NUL",
+    "swift_shell_parity": "not_evaluated_after_stop",
+    "worker_observed_byte_identity": "unresolved"
+  },
+  "toctou_windows": [
+    {
+      "window": "transform completion -> trusted digest",
+      "status": "parent_order_visible_actor_lifetime_bridge_dependent"
+    },
+    {
+      "window": "trusted digest -> reaper",
+      "status": "unresolved_at_stopped_bridge_edge"
+    },
+    {
+      "window": "reaper -> worker spawn",
+      "status": "unresolved_at_stopped_bridge_edge"
+    },
+    {
+      "window": "worker spawn -> each independent open",
+      "status": "not_evaluated_after_stop"
+    },
+    {
+      "window": "first open -> last shard/header/payload open",
+      "status": "not_evaluated_after_stop"
+    },
+    {
+      "window": "gates -> timed worker reuse or respawn",
+      "status": "not_evaluated_after_stop"
+    }
+  ],
+  "controls": [
+    {
+      "name": "permission_and_acl_control",
+      "status": "not_executed_after_stop"
+    },
+    {
+      "name": "descriptor_pinning_and_path_replacement_control",
+      "status": "not_executed_after_stop"
+    },
+    {
+      "name": "symlink_hardlink_rename_unlink_swap_control",
+      "status": "not_executed_after_stop"
+    },
+    {
+      "name": "mmap_private_copy_and_forced_partial_read_control",
+      "status": "not_executed_after_stop"
+    }
+  ],
+  "history_search": {
+    "scope": "current authorized ancestry and research directory",
+    "terms": [
+      "weight provenance",
+      "load epoch",
+      "exact worker bytes",
+      "weights hash",
+      "bench-exec"
+    ],
+    "complete_prior_proof_found": false
+  },
+  "commands": [
+    "test -r /opt/bench/bench-exec.sh",
+    "find /opt/bench /opt/bench-runner -maxdepth 3 -type f",
+    "git grep -nE 'bench-exec|MLXFAST_BENCH_EXEC|RUNTIME_WORKER_SANDBOX_PROFILE'",
+    "git grep -nE 'load[- ]epoch|transformed[- ]weight|weights_hash|exact bytes.*worker' research",
+    "git log --all --oneline -- research"
+  ],
+  "prohibited_actions": {
+    "build": false,
+    "transform": false,
+    "worker_or_model_launch": false,
+    "benchmark_or_timing": false,
+    "weight_mutation": false,
+    "cache_mutation": false,
+    "environment_mutation": false,
+    "official_submission": false
+  },
+  "changed_paths": [
+    "research/ranked-weight-load-provenance-audit.md",
+    "research/ranked-weight-load-provenance-manifest.json"
+  ],
+  "nomination": {
+    "pass_gate": false,
+    "defect_gate": false,
+    "reason": "The first necessary ranked-installed authority was unavailable, so participant actor lifetime and capability across the load epoch cannot be proven or disproven."
+  },
+  "next_action": "Provide read-only exact ranked-installed /opt/bench/bench-exec.sh bytes and metadata plus the exact injected worker Seatbelt profile or generator proven to be used for the audited job, then resume at the stopped edge."
+}
