@@ -229,7 +229,7 @@ reduction buys is **0 us/step**, and the data cannot distinguish it from the
 D and X sit at slots {3, 6} and {2, 7}. Both are mid-block, so the D-X contrast
 is free of the slot-1 artifact and does not touch C at all.
 
-- marginal cost **2.339 ns/step per issue slot** (se 0.434), from
+- marginal cost **2.339 us/step per issue slot** (se 0.434), from
   `(13243.83 - 13012.28) / (110 - 11)`
 - two-parameter fit: fixed step cost **+11.63 us/step** (se 33.90), i.e. **not
   distinguishable from zero** — the ruler is **linear within noise**
@@ -564,10 +564,18 @@ I apply the ×1.28 correction as instructed; its derivation is in the omitted
 middle of comment 5246312084 and I have not independently checked it. It does
 not change any sign or any verdict.
 
-**As a share of my 249.5 µs/step pool: the entire QK reduction is 9.1%
-(ruler 95% upper 12.1%). The advisor's own table says I need a 27.2% harvest of
+**As a share of my 249.5 µs/step pool: the entire QK reduction is 11.4%
+(ruler 95% upper 15.1%). The advisor's own table says I need a 27.2% harvest of
 that pool to clear the bar.** The mechanism I was assigned is structurally too
-small by roughly 3×, independent of how well it is implemented.
+small by roughly 2.4×, independent of how well it is implemented.
+
+> **Unit correction (23:05Z).** An earlier draft of this paragraph divided the
+> **wall** saving by the pool and got 9.1%. That mixed units. The advisor's
+> pool is a profiler figure, i.e. **busy** µs/step: `68 / 249.5 = 27.2%` is
+> exactly the quoted required harvest, whereas `54 / 249.5 = 21.6%` is not. So
+> the pool share must use the busy restatement, `22.69 / 0.8 = 28.36`, giving
+> **11.4%**. The `vs 54 µs bar` column in the table above is wall-against-wall
+> and is unaffected. No sign or verdict changes; the shortfall is 2.4×, not 3×.
 
 ### What this verdict is, and what it is not
 
@@ -653,7 +661,7 @@ extra block; it is the cheapest fix available.
 1. **Reduce-vs-load in µs of M4 removed off the 249.5 µs pool** — table above,
    combined n=32. Raw **2268.6 ns/step per issue slot** (se 384.2); ladder
    **22.69 µs/step** wall (95% upper 30.22); **×1.28 corrected 29.04** (upper
-   38.68); **28.36 µs busy** (upper 37.78). **9.1% of the pool against a 27.2%
+   38.68); **28.36 µs busy** (upper 37.78). **11.4% of the pool against a 27.2%
    requirement.** The independent direct-removal probe agrees on the point
    estimate (+6.16 µs/step saved) and is too noisy to bound (95% upper +56.27).
 2. **Params bolt-on, separately** — §"params memo" companion note. It is a
@@ -679,6 +687,130 @@ rewriters, a dose kernel generator, and a selector) plus the params memo, all of
 which are inert when their environment variables are unset.
 
 <!--VERDICT-->
+
+## 7.1 Budget closure: what the ruler says about the *whole* kernel
+
+The ruler is not only a verdict on the ladder. It is a **price for one
+instruction in this kernel's inner loop**, and a static instruction census then
+prices every other stage without another benchmark run. This is the part of the
+result I think is worth more than the assigned hypothesis, so I derive it
+carefully and flag every soft step.
+
+### 7.1.1 The ruler's unit, restated
+
+The dose probe substitutes **6 sites**, of which **4 are inside the key loop**
+(`:2186`, `:2187`, `:2222`, `:2223`); the other two (`:2268`, `:2269`) are in
+the single-row tail that runs at most once per launch and is negligible. Each
+dose rep adds 11 instructions **at every substituted site**. So
+
+```
+1 ruler slot  =  1 instruction at each of the 4 in-loop sites
+              =  4 actual in-loop instructions
+2268.6 ns/step per ruler slot  ⇒  567.15 ns/step per in-loop instruction
+```
+
+The same unit is why the shipped 10-instruction `simd_sum` ladder is priced at
+`10 × 2268.6 ns = 22.69 µs/step` and not at `40 ×` anything: 10 instructions ×
+4 sites is exactly 10 ruler slots.
+
+### 7.1.2 Static census of the inner loop
+
+Counted from `lagunaFullFusedAttentionKernelSource`, loop body `:2161`–`:2249`,
+2 key rows per iteration (pipes A and B), both query heads, per lane:
+
+| stage | lines | instructions / iteration |
+|---|---|---|
+| QK per-lane partial dot product (2 heads × 4 dims × 2 pipes) | 2178–2185, 2214–2221 | 16 |
+| **QK cross-lane ladder** (4 × `simd_sum`, 5 shuffle + 5 add each) | 2186–2187, 2222–2223 | **40** |
+| QK scaling / masking | — | 0 (scale folded into `pair_q*` at 2143–2148) |
+| softmax: max, rescale macro, `exp`, running sum | 2189–2201, 2225–2237 | 32 (incl. 8 `exp`) |
+| AV accumulate (2 heads × 4 v-dims × 2 pipes, mul + FMA) | 2203–2210, 2239–2246 | 32 |
+| addressing, predicates, loop overhead | 2160–2164, 2248–2249 | ≈8 |
+| **total ALU** | | **≈128** |
+| device loads (4 × `vec<bfloat,4>` = 32 B/lane) | 2167–2174 | 4 (memory) |
+
+`head_dim` 128, 32 lanes × 4 dims each; K/V are stored **raw `bfloat16`**
+(`:2569`, `:2369-2371`, `:2387-2389`), so there is **no in-kernel dequantization
+to remove** — a real candidate mechanism that this census rules out for free.
+Plausible band on the total: **112–156** instructions, dominated by whether
+`simd_sum` lowers to the 5-stage butterfly (40) or an Apple hardware reduce
+(≈10), and whether `fast::exp` is one slot or two.
+
+### 7.1.3 The closure
+
+```
+in-loop ALU  ≈ 128 × 567.15 ns  =  72.6 µs/step wall  =  90.8 µs/step busy
+band (112–156)                  =  63.5–88.5 wall     =  79.4–110.6 busy
+```
+
+Against the advisor's **249.5 busy µs/step** pool:
+
+| component | busy µs/step | share of pool | vs the 68 µs busy bar |
+|---|---|---|---|
+| QK reduction ladder (**my assigned mechanism**) | 28.4 | 11.4% | 0.42× |
+| **all** other inner-loop ALU | 62.4 | 25.0% | 0.92× |
+| **all** inner-loop ALU together | 90.8 | 36.4% | **1.34×** |
+| KV DRAM floor (derived below) | ≈86 | ≈35% | 1.27× |
+| residual, if ALU and DRAM did not overlap | ≈72 | ≈29% | 1.07× |
+
+The DRAM floor is arithmetic, not measurement: 10 full-attention layers × 2
+tensors × 8 KV heads × ~576 positions × 128 dims × 2 B = **23.6 MB per decode
+step**; at the M4 Pro's ~273 GB/s that is **≈86 µs/step**, and it is
+irreducible without changing what is read.
+
+**These rows do not add and I am not adding them.** ALU and DRAM overlap by
+design; the honest statement of the last row is *"if the kernel were perfectly
+overlapped, its floor would be `max(90.8, 86) = 91` busy µs/step, and it costs
+249.5 — so **≈63% of the kernel is neither marginal arithmetic nor bytes**"*,
+and if the two did not overlap at all the same residual is ≈29%. The true
+residual is somewhere in **29–63%, i.e. 72–159 busy µs/step**. Every value in
+that range is larger than the 68 µs bar. That is the point of the section: the
+biggest recoverable block in this kernel is the part nobody has measured, and
+even its most pessimistic estimate exceeds the whole requirement.
+
+Three consequences, in descending order of how much they should change what the
+team does next:
+
+1. **Deleting every arithmetic instruction in the full-attention inner loop —
+   QK, softmax, AV, all of it — buys 1.34× the bar.** A mechanism that touches
+   one stage cannot clear it. This is the general form of `N-FULL-QK-CHEAP` and
+   it retires *all* in-loop ALU micro-optimization for this kernel, not just
+   mine.
+2. **Roughly 29% of the kernel is neither marginal ALU nor DRAM bytes.** That
+   residual is the largest single unclaimed block in my pool and nobody is
+   assigned to it.
+3. **The likeliest owner of that residual is threadgroup quantization, and it is
+   arithmetic anyone can check without a benchmark.** The dispatch is
+   `grid ((heads/2)*1024,1,1)`, `threadGroup (1024,1,1)` = **exactly 24
+   threadgroups**, one per head pair, and a threadgroup cannot span cores. On
+   this 20-core M4 Pro, 24 indivisible threadgroups give 4 cores two units of
+   work and 16 cores one, so the makespan is 2 units where the balanced ideal is
+   1.2 — **60% efficiency, 40% of the kernel spent in a nearly empty second
+   wave**. 40% of 249.5 is ≈100 busy µs/step, **1.47× the bar, with no change to
+   a single arithmetic instruction.** On the ranked M5 Max the same 24
+   threadgroups cap utilization at `min(24, cores)/cores`; if that part has more
+   than 24 cores the kernel *cannot* use the rest of the GPU at all.
+
+### 7.1.4 What I am not claiming, and the cheapest test
+
+I did **not** measure the occupancy hypothesis. The evidence for it is (a) a
+sourced static census, (b) a measured marginal-instruction price, (c) a
+subtraction leaving a residual that ALU and DRAM do not explain, and (d) a
+dispatch shape that is arithmetically incapable of filling either machine
+evenly. That is a strong prior, not a result. Two soft steps to be aware of:
+the census is static and the compiler may fuse or elide; and the residual
+inherits the ruler's ±17% slope error plus the 112–156 census band, so it is
+really "≈72 µs/step, plausibly 40–110".
+
+**Geometry changes are explicitly not signed off for me**, so I am not testing
+this and I am not proposing to. The cheapest decisive test for whoever is: keep
+the kernel byte-identical and dispatch it as `2 × (heads/2)` threadgroups of 512
+threads with the key range split in half per head pair, then compare against the
+shipped shape on a host whose core count is known. If the residual is
+quantization, the split shape wins on M4 Pro and wins by more on M5 Max; if it
+is per-threadgroup prologue cost, it loses. One paired ABBA block of 8 runs
+(~25 minutes) settles it, and it is the same probe harness I already have in
+`research/maple-alphonse-r109e-qk-ceiling-abba.sh`.
 
 ## 8. Hand-off to maple-edward
 

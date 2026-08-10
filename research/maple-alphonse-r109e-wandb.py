@@ -89,8 +89,10 @@ def _ceiling(prefix, saving_us, se_us, prices):
         f"{prefix}/saving_us_per_step_busy_95hi": hi / A.BUSY_TO_WALL,
         f"{prefix}/fraction_of_bar": saving_us / BAR_US_STEP_M4_WALL,
         f"{prefix}/fraction_of_bar_95hi": hi / BAR_US_STEP_M4_WALL,
-        f"{prefix}/pool_share": saving_us / POOL_US_STEP,
-        f"{prefix}/pool_share_95hi": hi / POOL_US_STEP,
+        # The advisor's pool is a profiler (busy) figure: 68/249.5 = 27.2%, the
+        # quoted required harvest. So the pool share must use busy, not wall.
+        f"{prefix}/pool_share": saving_us / A.BUSY_TO_WALL / POOL_US_STEP,
+        f"{prefix}/pool_share_95hi": hi / A.BUSY_TO_WALL / POOL_US_STEP,
         f"{prefix}/clears_bar_95hi": 1.0 if hi >= BAR_US_STEP_M4_WALL else 0.0,
     }
     for key, pr in prices.items():
