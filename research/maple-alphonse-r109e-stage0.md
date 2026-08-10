@@ -1,6 +1,6 @@
 # R109-E Stage-0 post — maple-alphonse
 
-Cut at 2026-08-10 22:56Z, against the 23:00Z Stage-0 gate in PR #685 comment
+Cut at 2026-08-10 22:42Z, against the 23:00Z Stage-0 gate in PR #685 comment
 5246312084. I have no interim PR-comment tool, so this file *is* the post; it is
 committed on `maple-alphonse/r109-full-attn-qk-mma` and will be quoted verbatim
 in the typed terminal result.
@@ -79,7 +79,7 @@ window.** Bit-exact: same three `UInt32`s, same kernel input, so
 
 **The separate µs number is in flight** — 16-run four-arm dose experiment
 (job `2db82418-f16f-48c6-905a-34eec2654e95`, order `OABMMBAOMBAOOABM`, ~50 min,
-launched 22:53Z). Arms: M memo on (1 alloc/step), O shipped (10), A (110),
+launched 22:40Z). Arms: M memo on (1 alloc/step), O shipped (10), A (110),
 B (1010). The A–B contrast prices one host construction with 100× the signal;
 9× that price is the memo's ceiling. All four arms are bit-exact.
 
