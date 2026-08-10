@@ -7767,11 +7767,24 @@ private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
 let lagunaRoutedGateUpR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTED_GATEUP_R1"] != "0"
 
-private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
-    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
-    inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
-    outputNames: ["activated"],
-    source: """
+let lagunaRoutedGateUpR1DuplicateSelector = """
+\(lagunaRouterTop8PrecomputedPrelude)
+uint expert = top8_winner;
+"""
+
+let lagunaRoutedGateUpR1SharedSelector = """
+threadgroup uint shared_top8_winner[1];
+if (simd_group == 0u) {
+    \(lagunaRouterTop8PrecomputedPrelude)
+    if (lane == 0u) {
+        shared_top8_winner[0] = top8_winner;
+    }
+}
+threadgroup_barrier(mem_flags::mem_threadgroup);
+uint expert = shared_top8_winner[0];
+"""
+
+let lagunaRoutedGateUpR1CandidateSource = """
 constexpr uint input_width = 2048;
 constexpr uint output_width = 512;
 constexpr uint block_width = 512;
@@ -7792,8 +7805,7 @@ uint tile = group / routed_experts;
 uint simd_group = simdgroup_index_in_threadgroup;
 uint lane = thread_index_in_simdgroup;
 uint logical_row = tile * 2 + simd_group;
-\(lagunaRouterTop8PrecomputedPrelude)
-uint expert = top8_winner;
+\(lagunaRoutedGateUpR1SharedSelector)
 
 const device uint8_t* expert_weight =
     (const device uint8_t*)fused_weight + expert * fused_expert_bytes;
@@ -7876,11 +7888,119 @@ if (lane == 0) {
     activated[expert_slot * output_width + logical_row] =
         bfloat(silu * up);
 }
-""",
+"""
+
+let lagunaRoutedGateUpR1DuplicateSource =
+    lagunaRoutedGateUpR1CandidateSource.replacingOccurrences(
+        of: lagunaRoutedGateUpR1SharedSelector,
+        with: lagunaRoutedGateUpR1DuplicateSelector
+    )
+
+let lagunaR1SelectorExperimentDuplicateSource = """
+uint expert_slot = threadgroup_position_in_grid.x;
+uint simd_group = simdgroup_index_in_threadgroup;
+uint lane = thread_index_in_simdgroup;
+\(lagunaRouterTop8PrecomputedPrelude)
+if (lane == 0u) {
+    winners[expert_slot * 2u + simd_group] = top8_winner;
+}
+"""
+
+let lagunaR1SelectorExperimentSharedSource = """
+uint expert_slot = threadgroup_position_in_grid.x;
+uint simd_group = simdgroup_index_in_threadgroup;
+uint lane = thread_index_in_simdgroup;
+threadgroup uint shared_top8_winner[1];
+if (simd_group == 0u) {
+    \(lagunaRouterTop8PrecomputedPrelude)
+    if (lane == 0u) {
+        shared_top8_winner[0] = top8_winner;
+    }
+}
+threadgroup_barrier(mem_flags::mem_threadgroup);
+if (lane == 0u) {
+    winners[expert_slot * 2u + simd_group] = shared_top8_winner[0];
+}
+"""
+
+private let lagunaR1SelectorExperimentDuplicateKernel = MLXFast.metalKernel(
+    name: "laguna_r1_selector_experiment_duplicate_v1",
+    inputNames: ["router_keys"],
+    outputNames: ["winners"],
+    source: lagunaR1SelectorExperimentDuplicateSource,
+    header: lagunaDecodeRouterOrdinalHeader + "\n" + lagunaRouterTop8PrologueHeader,
+    ensureRowContiguous: true
+)
+
+private let lagunaR1SelectorExperimentSharedKernel = MLXFast.metalKernel(
+    name: "laguna_r1_selector_experiment_shared_v1",
+    inputNames: ["router_keys"],
+    outputNames: ["winners"],
+    source: lagunaR1SelectorExperimentSharedSource,
+    header: lagunaDecodeRouterOrdinalHeader + "\n" + lagunaRouterTop8PrologueHeader,
+    ensureRowContiguous: true
+)
+
+func lagunaR1SelectorExperimentWinners(
+    _ routerKeys: MLXArray,
+    useSharedSelector: Bool
+) -> MLXArray {
+    precondition(routerKeys.dtype == .uint32)
+    precondition(routerKeys.size == LagunaConstants.numExperts)
+    let kernel = useSharedSelector
+        ? lagunaR1SelectorExperimentSharedKernel
+        : lagunaR1SelectorExperimentDuplicateKernel
+    return kernel(
+        [routerKeys],
+        grid: (LagunaConstants.numExpertsPerTok * 64, 1, 1),
+        threadGroup: (64, 1, 1),
+        outputShapes: [[LagunaConstants.numExpertsPerTok * 2]],
+        outputDTypes: [.uint32]
+    )[0]
+}
+
+
+private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
+    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
+    inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
+    outputNames: ["activated"],
+    source: lagunaRoutedGateUpR1CandidateSource,
     header: lagunaSharedSwiGLUQMVHeader + "\n" + lagunaDecodeRouterOrdinalHeader
         + "\n" + lagunaRouterTop8PrologueHeader,
     ensureRowContiguous: true
 )
+
+private let lagunaRoutedSwiGLUQMVPackedTop8R1DuplicateKernel = MLXFast.metalKernel(
+    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_duplicate_selector_bf16_v2",
+    inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
+    outputNames: ["activated"],
+    source: lagunaRoutedGateUpR1DuplicateSource,
+    header: lagunaSharedSwiGLUQMVHeader + "\n" + lagunaDecodeRouterOrdinalHeader
+        + "\n" + lagunaRouterTop8PrologueHeader,
+    ensureRowContiguous: true
+)
+
+func lagunaR1SelectorExperimentGateUp(
+    _ input: MLXArray,
+    fusedWeight: MLXArray,
+    packedScales: MLXArray,
+    routerKeys: MLXArray,
+    useSharedSelector: Bool
+) -> MLXArray {
+    let kernel = useSharedSelector
+        ? lagunaRoutedSwiGLUQMVPackedTop8R1Kernel
+        : lagunaRoutedSwiGLUQMVPackedTop8R1DuplicateKernel
+    return kernel(
+        [input, fusedWeight, packedScales, routerKeys],
+        grid: (LagunaConstants.numExpertsPerTok * 256 * 64, 1, 1),
+        threadGroup: (64, 1, 1),
+        outputShapes: [[
+            1, 1, LagunaConstants.numExpertsPerTok, 1,
+            LagunaConstants.moeIntermediateSize,
+        ]],
+        outputDTypes: [.bfloat16]
+    )[0]
+}
 
 func lagunaRoutedSwiGLUQMVPackedTop8(
     _ input: MLXArray,
