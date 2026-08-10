@@ -267,6 +267,94 @@
 > **campaign and student handle** and state **which executable class** the shot
 > draws from. Attribution guesswork is now a protocol violation, not a nuisance.
 >
+> ### 0P.10 🎯 THE RANKED KERNEL IS **STAGING-BOUND** — AND THAT REORDERS THE PORTFOLIO
+>
+> Two students' round-110 results were audited together on 2026-08-10T23:50Z and
+> they converge on one lever. Both assignments were revised (#692 → `r110-a-rev3`,
+> #693 → `r110-b-rev3`).
+>
+> #### The regime fact
+>
+> Bit-exact perturbations of `nvfp4_gather_qmm_rhs_nax` **on the ranked M5**
+> (`research/artifacts/tanjiro-pr170-receipt-ctrl.json` §3;
+> `research/tanjiro-pr-gather-regime-discriminator.md:10-37`), window
+> W = 43.2619 ms ≈ 44 % of S:
+>
+> | perturbation | Δ | share of W | σ |
+> |---|---:|---:|---:|
+> | **S2** extra staging | +15.961 ms | **36.9 %** | 35σ |
+> | **S3** extra staging, **zero** extra DRAM bytes | +7.853 ms | **18.2 %** | 17.5σ |
+> | M2 double-MMA | +2.046 ms | 4.7 % | 4.5σ |
+> | B2 two extra barriers | +0.841 ms | 1.9 % | — |
+>
+> **The ranked prefill GEMM is staging-bound by ~4× over MMA.** S3 proves it is a
+> latency/occupancy chain, not bandwidth: it adds staging pressure with *zero*
+> extra DRAM bytes and still costs 18.2 %. Any claim that this kernel is
+> "mma-bound" is refuted. B2's ≈0.95 %/barrier independently corroborates the
+> M4-measured 0.83 % barrier magnitude, so M4 rigs measure the right physics on
+> the wrong host.
+>
+> #### What that makes the top two arms
+>
+> **1. Zero-tgmem register prefetch (edward, #693) — ceiling ≈2.4 % score.**
+> Edward's M4 rig measured: `nobar` +0.83 %, `db2` −0.46 %, `dbmem` −2.51 %,
+> `noload` +15.10 %. His preregistered rule `N-GEMM-WAR-BARRIER-FREE` fired on
+> the 0.83 % barrier prize — **but his own `dbmem` control falsifies the rule's
+> premise**: at matched occupancy `db2 − dbmem = +2.06 pp`, i.e. **2.5× the
+> supposed ceiling**. Correct decomposition: barrier ≈0.83 pp **+ overlap
+> ≈1.23 pp**. So the overlap mechanism is real and worth ~1.2 pp; what killed the
+> arm is **threadgroup-memory occupancy rent** (8→4 resident TGs), not a small
+> prize. Finding renamed to **`N-GEMM-TGMEM-DB-OCCUPANCY-RENT`**, scope = tgmem
+> DB / M4 / non-`_nax` only.
+> ⇒ **Register-level pipelining adds ZERO tgmem, so it collects the overlap and
+> pays no occupancy tax.** Precedent that it is implementable: the ranked path
+> already does it with tgmem 9,232 B unchanged (`tanjiro-pr170-receipt-pf1.json`
+> §5-7). Sizing: exposed load chain is ≥15 % of the kernel (M4 `noload`) and ≥18 %
+> on ranked (S3); at 1 ms of S ≈ 0.37 %, capturing a third ≈ **0.75 % score**,
+> ceiling ≈2.4 %.
+>
+> **2. A2 fused-NAX `bn` 128→64 for N≤1024 (tanjiro, #692) — 0.94–2.52 % score.**
+> Tanjiro ranked this **second** behind A1 because he quoted it as an 11.1 %
+> *FLOP* share and never converted to time. His own
+> `research/artifacts/tanjiro-r104c/steel_ms_attribution_m4.json` does: the wk/wv
+> bucket is **29.416 ms = 5.44 % of prefill** (n=78) ⇒ projected **3.922 ms =
+> 4.0 % of S** ⇒ **0.94–2.52 % of score** across admissible apportionments.
+> Promoted to primary. ⚠️ Hard correctness risk: `bn=64, wn=4` ⇒ `SN=16` ⇒
+> **`TN=1`**, and **all 237 tier-1 census dispatches run `TN=2`** — the
+> `TN==1 && TM%2==0` path in `tile_matmad_nax` (`nax.h:972`ff) is **exercised
+> nowhere in this model on this hardware**. Requires a non-zero-test-count
+> equivalence run (Rule 105.15) before any slot is spent.
+>
+> #### Demoted / killed in the same audit
+>
+> - **A1 (down BN 64→32)** — legitimate (never measured: `:6784`) but a
+>   **micro-arm at 0.195 %**, already priced in **merged PR #636**
+>   (`maple-alphonse-r107c-expert-gather-gemm-floor.md:604-647`, robust
+>   0.19–0.30 %, verdict `N-FLOOR`/`V-TILE` not demonstrated). Demoted to patch.
+>   **Not slot-worthy** under §0P.8.
+> - **A3 (egroups 256→128) — KILLED.** `DARKBLOOM_EXPERT_GATHER_GROUPS` is
+>   **CLOSED-POSITIVE** at `:6783`; the simulation
+>   (`pr142-lpt-expert-queue-refutation.md:262-300`) gives **−0.061 ms at C=80**
+>   and **−0.578 ms at C=160** — a loss, 6.7× below the 0.4076 ms detection
+>   threshold. It also **contradicts A1 on the same dispatch** (A1 doubles grid.x
+>   to 16384 TGs; A3 halves grid.y to 4096; composed they cancel to 8192), and its
+>   patch **applies cleanly on top of A1**, silently producing a two-knob build.
+> - Edward's **"do not fund `_nax`" recommendation — WITHDRAWN**; it extrapolated
+>   from a kernel that is never dispatched on the ranked host and has the wrong
+>   sign per the table above.
+>
+> #### Two measurement traps this audit exposed (apply them everywhere)
+>
+> - **Never multiply an M4 share by the M5 elasticity.** M4 `--local-iterate`
+>   elasticity is **0.502**; official-M5 is **0.362**. Edward's score table mixed
+>   them. Publish one column per host.
+> - **Only paired ratios reproduce across runs.** Edward's between-run *absolute*
+>   drift is **±2.2 %** (base `down` 2.5068→2.5610 ms); tanjiro's three inert M4
+>   arms differ by **1.44 %** in prefill. So M4 run-to-run resolution is ~1.5 %,
+>   ≈10× the M5 candidate CV. No cross-run absolute is safe — including kernel
+>   shares. (Corollary corrections: the routed gather-GEMM dispatches **38** times,
+>   not 39 ⇒ share 50.4 %, not 51.8 %.)
+>
 > 🟩🟩🟩 **§0 — ROUND-110 BANNER (2026-08-10T23:05Z). THIS SUPERSEDES EVERY
 > SECTION BELOW IT, INCLUDING THE R109 BANNER, WHERE THEY CONFLICT.**
 >
