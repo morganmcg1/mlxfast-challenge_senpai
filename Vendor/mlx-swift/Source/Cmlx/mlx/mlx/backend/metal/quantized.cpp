@@ -1239,7 +1239,7 @@ int darkbloom_expert_down_bn() {
   static const int v = [] {
     auto s = env::get_var("DARKBLOOM_EXPERT_DOWN_BN", "");
     if (s.empty()) {
-      return 64;
+      return 32;
     }
     const int n = std::atoi(s.c_str());
     return (n == 32 || n == 64) ? n : 64;
