@@ -13,7 +13,7 @@ cd "$REPO_ROOT"
 
 OUT_DIR="research/artifacts/maple-fern-r106j"
 mkdir -p "$OUT_DIR"
-OUT="$OUT_DIR/handoff_certificate.txt"
+OUT="${HANDOFF_OUT:-$OUT_DIR/handoff_certificate.txt}"
 
 git fetch --quiet origin main
 MAIN_SHA="$(git rev-parse FETCH_HEAD)"
