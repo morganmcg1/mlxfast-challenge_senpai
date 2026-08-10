@@ -323,6 +323,45 @@ compatible with a real +12 µs/step regression** and must not be reported as
 "the flip does nothing". The receipt channel can confirm the large effect; it
 cannot exclude the small one.
 
+#### 4.1.1 Independent cross-check of σ_pair from the public receipt list
+
+`σ_pair(T) = 17.08 µs/step` is inherited, so I checked it against the only
+independent sample I can read for free. `mlxfast submissions` lists this
+account's receipts. Taking the 14 consecutive non-outlier receipts (dropping
+the six obviously-worse trees at `cs` 2.04-2.55) gives mean `cs` 2.575792 and
+**relative sd 0.3438 %**, i.e. 22.6 µs/step for a *single* receipt and
+**31.9 µs/step for a difference of two**.
+
+That is **1.9× the assumed σ_pair**, and the two figures bracket the truth from
+opposite sides:
+
+- 0.3438 % is *inflated*, because all 14 receipts are different trees, so it
+  mixes genuine tree differences into the noise term. It is an upper bound.
+- it is also *deflated* by my having dropped the six low outliers, which is a
+  selection on the response. So it is not a clean upper bound either.
+
+Half-widths under the conservative σ_pair = 31.9 µs/step (`z = 1.96`):
+
+| pairs | 95 % half-width, µs/step | resolves +34.58? |
+|---|---|---|
+| 2 | ±44.2 | no |
+| 3 | ±36.1 | no (just) |
+| 4 | ±31.3 | yes |
+| 6 | ±25.5 | yes |
+
+**Consequence I accept before drawing:** the 2 pairs the stopping rule permits
+resolve +34.58 only under the optimistic inherited σ, and not under the
+conservative one. Phase B as budgeted is therefore an M5 *sign and transfer*
+check, not a Phase-B-alone confirmation, and I will report it that way whatever
+comes back. The precise M4 measurement is Phase A; Phase B only asks whether
+the ranked architecture agrees in sign.
+
+One further empirical note from the same listing: every receipt on this
+account is `rejected`, and the best-of-benchmark implied by the reported
+deltas sits near `cs` 2.62. A receipt drawn from this branch is therefore
+science, not a plausible promotion, which removes the temptation to read the
+absolute number.
+
 ## 5. Stopping rule (preregistered)
 
 Stop and write up when the first of these holds:
