@@ -80,14 +80,11 @@ final class LagunaFusionTraceLog: @unchecked Sendable {
     private var seen: Set<String> = []
     private let lock = NSLock()
 
-    func claim(_ site: String) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return seen.insert(site).inserted
-    }
-
     func note(_ site: String) {
-        if claim(site) {
+        lock.lock()
+        let isNew = seen.insert(site).inserted
+        lock.unlock()
+        if isNew {
             FileHandle.standardError.write(Data("mlxfast: fusion active: \(site)\n".utf8))
         }
     }
@@ -4319,238 +4316,6 @@ private let lagunaGatedAffineOProjNVFP4LaneMajorKernels: [Int: MLXFast.MLXFastKe
     return kernels
 }()
 
-private let lagunaFusedNormGateSoftplusEnabled = ProcessInfo.processInfo.environment[
-    "DARKBLOOM_FUSED_NORM_GATE_SOFTPLUS"] == "1"
-private let lagunaFusedNormGateCensusEnabled = ProcessInfo.processInfo.environment[
-    "DARKBLOOM_FUSED_NORM_GATE_CENSUS"] == "1"
-private let lagunaFusedNormGateDifferentialEnabled = ProcessInfo.processInfo.environment[
-    "DARKBLOOM_FUSED_NORM_GATE_DIFFERENTIAL"] == "1"
-private let lagunaFusedNormGateTimingEnabled = ProcessInfo.processInfo.environment[
-    "DARKBLOOM_FUSED_NORM_GATE_TIMING"] == "1"
-
-private struct LagunaNormGateTimingOrderResult {
-    let controlMedian: Double
-    let candidateMedian: Double
-    let savingMedian: Double
-    let savingMAD: Double
-    let savingP10: Double
-    let savingP90: Double
-}
-
-private struct LagunaNormGateTimingShapeResult {
-    let ab: LagunaNormGateTimingOrderResult
-    let ba: LagunaNormGateTimingOrderResult
-}
-
-private final class LagunaNormGateTimingLog: @unchecked Sendable {
-    private var results: [Int: LagunaNormGateTimingShapeResult] = [:]
-    private let lock = NSLock()
-
-    func record(heads: Int, result: LagunaNormGateTimingShapeResult) {
-        lock.lock()
-        results[heads] = result
-        let sliding = results[LagunaConstants.slidingAttentionHeads]
-        let full = results[LagunaConstants.fullAttentionHeads]
-        lock.unlock()
-
-        guard let sliding, let full else { return }
-        for (order, lhs, rhs) in [("AB", sliding.ab, full.ab), ("BA", sliding.ba, full.ba)] {
-            let saving = (10 * lhs.savingMedian + 30 * rhs.savingMedian) / 40
-            let noise = (10 * lhs.savingMAD + 30 * rhs.savingMAD) / 40
-            let ratio = noise == 0 ? Double.infinity : saving / noise
-            FileHandle.standardError.write(Data(String(format:
-                "mlxfast: norm-gate timing weighted order=%@ saving_ns=%.0f noise_mad_ns=%.0f ratio=%.3f census=10/30\n",
-                order, saving, noise, ratio).utf8))
-        }
-    }
-}
-
-private let lagunaNormGateTimingLog = LagunaNormGateTimingLog()
-
-private func lagunaMedian(_ values: [Double]) -> Double {
-    let sorted = values.sorted()
-    return sorted[sorted.count / 2]
-}
-
-private func lagunaPercentile(_ values: [Double], fraction: Double) -> Double {
-    let sorted = values.sorted()
-    return sorted[Int(Double(sorted.count - 1) * fraction)]
-}
-
-@inline(never)
-private func lagunaMeasureNanoseconds(_ outputs: () -> [MLXArray]) -> Double {
-    let arrays = outputs()
-    let start = DispatchTime.now().uptimeNanoseconds
-    eval(arrays)
-    return Double(DispatchTime.now().uptimeNanoseconds - start)
-}
-
-private func lagunaNormGateTimingOrder(
-    controlFirst: Bool,
-    control: () -> [MLXArray],
-    candidate: () -> [MLXArray]
-) -> LagunaNormGateTimingOrderResult {
-    for _ in 0 ..< 12 {
-        if controlFirst {
-            _ = lagunaMeasureNanoseconds(control)
-            _ = lagunaMeasureNanoseconds(candidate)
-        } else {
-            _ = lagunaMeasureNanoseconds(candidate)
-            _ = lagunaMeasureNanoseconds(control)
-        }
-    }
-
-    var controls: [Double] = []
-    var candidates: [Double] = []
-    var savings: [Double] = []
-    controls.reserveCapacity(101)
-    candidates.reserveCapacity(101)
-    savings.reserveCapacity(101)
-    for _ in 0 ..< 101 {
-        let controlTime: Double
-        let candidateTime: Double
-        if controlFirst {
-            controlTime = lagunaMeasureNanoseconds(control)
-            candidateTime = lagunaMeasureNanoseconds(candidate)
-        } else {
-            candidateTime = lagunaMeasureNanoseconds(candidate)
-            controlTime = lagunaMeasureNanoseconds(control)
-        }
-        controls.append(controlTime)
-        candidates.append(candidateTime)
-        savings.append(controlTime - candidateTime)
-    }
-
-    let savingMedian = lagunaMedian(savings)
-    return LagunaNormGateTimingOrderResult(
-        controlMedian: lagunaMedian(controls),
-        candidateMedian: lagunaMedian(candidates),
-        savingMedian: savingMedian,
-        savingMAD: lagunaMedian(savings.map { abs($0 - savingMedian) }),
-        savingP10: lagunaPercentile(savings, fraction: 0.10),
-        savingP90: lagunaPercentile(savings, fraction: 0.90))
-}
-
-private func lagunaReportNormGateTiming(
-    heads: Int,
-    ab: LagunaNormGateTimingOrderResult,
-    ba: LagunaNormGateTimingOrderResult
-) {
-    for (order, result) in [("AB", ab), ("BA", ba)] {
-        FileHandle.standardError.write(Data(String(format:
-            "mlxfast: norm-gate timing h%d order=%@ samples=101 control_ns=%.0f candidate_ns=%.0f saving_ns=%.0f saving_mad_ns=%.0f p10_ns=%.0f p90_ns=%.0f launches=2/1\n",
-            heads, order, result.controlMedian, result.candidateMedian,
-            result.savingMedian, result.savingMAD, result.savingP10, result.savingP90).utf8))
-    }
-    lagunaNormGateTimingLog.record(
-        heads: heads, result: LagunaNormGateTimingShapeResult(ab: ab, ba: ba))
-}
-
-private func lagunaFusedNormGateSoftplusSource(heads: Int) -> String {
-    """
-constexpr uint K=2048,NV=4,V=8,R=4,NG=\(heads)/R,KG=K/32;
-uint lid=thread_position_in_threadgroup.x;
-uint sg=simdgroup_index_in_threadgroup;
-uint lane=thread_index_in_simdgroup;
-\(lagunaNormInvMeanScratch)
-threadgroup float local_sums[32];
-threadgroup bfloat norm_row[K];
-uint base=lid*NV;
-thread float raw[NV];
-float acc=0.0f;
-for(uint i=0;i<NV;++i){
-    raw[i]=float(residual[base+i]);
-    acc+=raw[i]*raw[i];
-}
-acc=simd_sum(acc);
-if(sg==0&&lane>=16) local_sums[lane]=0.0f;
-if(lane==0) local_sums[sg]=acc;
-threadgroup_barrier(mem_flags::mem_threadgroup);
-if(sg==0){
-    acc=simd_sum(local_sums[lane]);
-    if(lane==0) local_inv_mean[0]=metal::precise::rsqrt(acc/float(K)+1.0e-6f);
-}
-threadgroup_barrier(mem_flags::mem_threadgroup);
-float laguna_inv_mean=local_inv_mean[0];
-for(uint i=0;i<NV;++i){
-    bfloat value=norm_weight[base+i]*bfloat(raw[i]*laguna_inv_mean);
-    norm_row[base+i]=value;
-    normalized[base+i]=value;
-}
-threadgroup_barrier(mem_flags::mem_threadgroup);
-if(sg<NG){
-    uint orow=sg*R;
-    const device uint8_t* ws=(const device uint8_t*)packed_codes+orow*K+lane*V;
-    const device bfloat* sc=scales+orow*KG+lane/4;
-    const device bfloat* bs=biases+orow*KG+lane/4;
-    thread float x[V];
-    thread float r[R]={0.0f,0.0f,0.0f,0.0f};
-    uint col=lane*V;
-    for(uint k=0;k<K;k+=256){
-        float sum=0.0f;
-        for(uint i=0;i<V;++i){x[i]=float(norm_row[col+i]);sum+=x[i];}
-        for(uint row=0;row<R;++row){
-            const device uint8_t* wl=ws+row*K;
-            float s=float(sc[row*KG]),b=float(bs[row*KG]),a=0.0f;
-            for(uint i=0;i<V;++i) a+=x[i]*wl[i];
-            r[row]+=s*a+sum*b;
-        }
-        ws+=256;sc+=8;bs+=8;col+=256;
-    }
-    for(uint row=0;row<R;++row){
-        r[row]=simd_sum(r[row]);
-        if(lane==0){
-            float l=float(bfloat(r[row])),g;
-            if(metal::isnan(l)) g=NAN;
-            else {
-                float hi=metal::max(l,0.0f),lo=metal::min(l,0.0f);
-                g=(metal::isinf(lo)||metal::isinf(hi))?hi:hi+log1p(metal::exp(lo-hi));
-            }
-            gate_values[orow+row]=bfloat(g);
-        }
-    }
-}
-"""
-}
-
-private let lagunaFusedNormGateSoftplusKernels: [Int: MLXFast.MLXFastKernel] = {
-    var result: [Int: MLXFast.MLXFastKernel] = [:]
-    for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
-        result[heads] = MLXFast.metalKernel(
-            name: "laguna_norm_gate_sp_bf16_h\(heads)_v3",
-            inputNames: ["residual", "norm_weight", "packed_codes", "scales", "biases"],
-            outputNames: ["normalized", "gate_values"],
-            source: lagunaFusedNormGateSoftplusSource(heads: heads),
-            ensureRowContiguous: true)
-    }
-    return result
-}()
-
-private func lagunaFusedNormGateSoftplus(
-    residual: MLXArray, normWeight: MLXArray,
-    bank: LagunaNativeAffineWeight, heads: Int
-) -> (normalized: MLXArray, gateValues: MLXArray)? {
-    let hidden = LagunaConstants.hiddenSize
-    guard lagunaFusedNormGateSoftplusEnabled,
-        let biases = bank.biases,
-        let kernel = lagunaFusedNormGateSoftplusKernels[heads],
-        residual.dtype == .bfloat16, residual.dims(1, 1, hidden),
-        normWeight.dtype == .bfloat16, normWeight.dims(hidden),
-        bank.mode == .affine, bank.bits == 8, bank.groupSize == 32,
-        bank.originalShape == [heads, hidden],
-        bank.packedCodes.dtype == .uint32, bank.packedCodes.dims(heads, hidden / 4),
-        bank.scales.dtype == .bfloat16, bank.scales.dims(heads, hidden / 32),
-        biases.dtype == .bfloat16, biases.dims(heads, hidden / 32)
-    else { return nil }
-    lagunaTrace("fused norm+gate softplus h\(heads)")
-    let outputs = kernel(
-        [residual, normWeight, bank.packedCodes, bank.scales, biases],
-        grid: (512, 1, 1), threadGroup: (512, 1, 1),
-        outputShapes: [[1, 1, hidden], [1, 1, heads]],
-        outputDTypes: [.bfloat16, .bfloat16])
-    return (outputs[0], outputs[1])
-}
-
 private let lagunaGateSoftplusEnabled = ProcessInfo.processInfo.environment[
     "DARKBLOOM_AFFINE_GATE_SOFTPLUS"] != "0"
 
@@ -6030,103 +5795,14 @@ final class LagunaRuntimeAttention: Module {
                         rows: fusedAffine.originalShape[0])
                 }
 
-                var fusedNormGate:
-                    (normalized: MLXArray, gateValues: MLXArray)? = nil
-                let nativeQKVRows =
-                    (nHeads + 2 * nKVHeads) * LagunaConstants.headDim
-                if fusedQKV == nil, lagunaDecodeNVFP4QKVR1Enabled,
-                    fusedAffine.mode == .nvfp4, fusedAffine.bits == 4,
-                    fusedAffine.groupSize == 16, fusedAffine.biases == nil,
-                    fusedAffine.originalShape
-                        == [nativeQKVRows, LagunaConstants.hiddenSize],
-                    fusedAffine.packedCodes.dtype == .uint32,
-                    fusedAffine.packedCodes.dims(
-                        nativeQKVRows, LagunaConstants.hiddenSize / 8),
-                    fusedAffine.scales.dtype == .uint8,
-                    fusedAffine.scales.dims(
-                        nativeQKVRows, LagunaConstants.hiddenSize / 16),
-                    _nativeAffineQKVGateRows != nHeads,
-                    inputNorm.eps == Float(LagunaConstants.rmsNormEpsilon),
-                    lagunaGateSoftplusEnabled,
-                    lagunaFusedGatedAffineOProjEnabled,
-                    lagunaGatedAffineOProjNVFP4Enabled,
-                    lagunaUseNativeAffineOProj(layer: layerIdx),
-                    let affineWO = _nativeAffineOProj,
-                    affineWO.mode == .nvfp4, affineWO.bits == 4,
-                    affineWO.groupSize == 16,
-                    let affineGate = _nativeAffineGProj
-                {
-                    if lagunaFusedNormGateCensusEnabled {
-                        print("norm-gate census layer=\(layerIdx) heads=\(nHeads) fused=\(lagunaFusedNormGateSoftplusEnabled)")
-                    }
-                    fusedNormGate = lagunaFusedNormGateSoftplus(
-                        residual: input, normWeight: inputNorm.weight,
-                        bank: affineGate, heads: nHeads)
-                    if lagunaFusedNormGateTimingEnabled, fusedNormGate != nil,
-                        lagunaTracedFusions.claim("norm-gate timing h\(nHeads)")
-                    {
-                        func controlOutputs() -> [MLXArray] {
-                            let normalized = inputNorm(input)
-                            guard let gate = lagunaGateSoftplus(
-                                input: normalized, bank: affineGate, heads: nHeads)
-                            else { preconditionFailure("norm-gate timing control guard declined") }
-                            return [normalized, gate]
-                        }
-                        func candidateOutputs() -> [MLXArray] {
-                            guard let candidate = lagunaFusedNormGateSoftplus(
-                                residual: input, normWeight: inputNorm.weight,
-                                bank: affineGate, heads: nHeads)
-                            else { preconditionFailure("norm-gate timing candidate guard declined") }
-                            return [candidate.normalized, candidate.gateValues]
-                        }
-                        let ab = lagunaNormGateTimingOrder(
-                            controlFirst: true,
-                            control: controlOutputs, candidate: candidateOutputs)
-                        let ba = lagunaNormGateTimingOrder(
-                            controlFirst: false,
-                            control: controlOutputs, candidate: candidateOutputs)
-                        lagunaReportNormGateTiming(heads: nHeads, ab: ab, ba: ba)
-                    }
-                    if lagunaFusedNormGateDifferentialEnabled, fusedNormGate != nil,
-                        lagunaTracedFusions.claim("norm-gate differential h\(nHeads)")
-                    {
-                        func check(
-                            _ label: String, _ value: MLXArray,
-                            _ existing: (normalized: MLXArray, gateValues: MLXArray)?
-                        ) {
-                            let controlNorm = inputNorm(value)
-                            guard let controlGate = lagunaGateSoftplus(
-                                input: controlNorm, bank: affineGate, heads: nHeads),
-                                let candidate = existing ?? lagunaFusedNormGateSoftplus(
-                                    residual: value, normWeight: inputNorm.weight,
-                                    bank: affineGate, heads: nHeads)
-                            else { preconditionFailure("norm-gate differential guard declined") }
-                            eval([controlNorm, controlGate, candidate.normalized, candidate.gateValues])
-                            func raw(_ array: MLXArray) -> [UInt16] {
-                                array.view(dtype: .uint16).asArray(UInt16.self)
-                            }
-                            let normMismatch = zip(raw(controlNorm), raw(candidate.normalized))
-                                .reduce(0) { $0 + ($1.0 == $1.1 ? 0 : 1) }
-                            let gateMismatch = zip(raw(controlGate), raw(candidate.gateValues))
-                                .reduce(0) { $0 + ($1.0 == $1.1 ? 0 : 1) }
-                            FileHandle.standardError.write(Data(
-                                "mlxfast: norm-gate differential h\(nHeads) \(label) norm=\(normMismatch) gate=\(gateMismatch)\n".utf8))
-                            precondition(normMismatch == 0 && gateMismatch == 0)
-                        }
-                        check("real", input, fusedNormGate)
-                        let zeros = (0 ..< LagunaConstants.hiddenSize).map {
-                            Float(bitPattern: $0 & 1 == 0 ? 0 : 0x8000_0000)
-                        }
-                        check("signed-zero", MLXArray(zeros).reshaped([1, 1, LagunaConstants.hiddenSize]).asType(.bfloat16), nil)
-                        let pattern: [Float] = [3e18, -3e18, 1e-30, -1e-30, 1, -1, 0.125, -0.125]
-                        let edge = (0 ..< LagunaConstants.hiddenSize).map { pattern[$0 & 7] }
-                        check("finite-edge", MLXArray(edge).reshaped([1, 1, LagunaConstants.hiddenSize]).asType(.bfloat16), nil)
-                    }
-                }
-                // The unchanged NVFP4 projection consumes the device-visible
-                // normalized output when fusion succeeds.
-                let normalized =
-                    fusedNormGate?.normalized ?? fusedQKV ?? inputNorm(input)
+                // The fused tail norm+QKV+gate kernel was removed after the
+                // r=1-regime re-sweep re-measured it +2.7% (its defusion is
+                // the promoted state); the placeholder keeps the downstream
+                // defer/eager gate-activation plumbing unchanged.
+                let fusedTailGateLogits: MLXArray? = nil
+                // Only materialized when the fused kernel declined; the gate
+                // branches below that read it are unreachable when it fired.
+                let normalized = fusedQKV ?? inputNorm(input)
                 let decodeNVFP4QKVR1 =
                     fusedQKV == nil
                     ? lagunaDecodeNVFP4QKVR1(
@@ -6150,9 +5826,11 @@ final class LagunaRuntimeAttention: Module {
                 let gateStart = queryDim + 2 * kvDim
                 let gateLogits: MLXArray
                 var gateProjectionActivated = false
-                if let activated = fusedNormGate?.gateValues {
-                    gateLogits = activated
-                    gateProjectionActivated = true
+                if let fusedTailGateLogits {
+                    // Removed tail-fusion placeholder: always nil since the
+                    // r=1-regime re-sweep; kept so the defer/eager plumbing
+                    // below stays structurally unchanged.
+                    gateLogits = fusedTailGateLogits
                 } else if _nativeAffineQKVGateRows == nHeads {
                     // The gate rows rode the fused bank's single dispatch;
                     // slice them out of its tail. Same row-local math as a
