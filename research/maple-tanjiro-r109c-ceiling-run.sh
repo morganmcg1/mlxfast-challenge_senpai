@@ -25,7 +25,7 @@ grep -E '^ +(128|256|512|1024|2048) +[0-9]|^--- |VERDICT:' "$null_log"
 
 ab_log="${ART}/ceiling-${SESSION}-slots${SLOTS}.txt"
 echo "### A/B CEILING  session=${SESSION} slots=${SLOTS} ###"
-"$BIN" "${ART}/A_base.metal" "${ART}/B_inds.metal" > "$ab_log" 2>&1
+"$BIN" "${ART}/A_base.metal" "${ART}/B_inds.metal" "${ART}/C_sg0.metal" > "$ab_log" 2>&1
 echo "exit=$?  -> ${ab_log}"
 sed -n '/=== pipeline reflection/,/^$/p' "$ab_log"
 sed -n '/=== output equivalence/,/^$/p' "$ab_log"

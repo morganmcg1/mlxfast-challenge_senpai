@@ -1,0 +1,51 @@
+=== device ===
+name                  Apple M4 Pro
+architecture          applegpu_g16s
+gpu cores             20
+kernel                laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2
+mode                  DOSE LADDER
+
+=== pipeline reflection (register/occupancy gate) ===
+  arm                          lines   tgMemB   maxTotalThreads   execWidth
+  A_base     256        0              1024          32
+  B_inds     246        0              1024          32
+
+=== output equivalence gate (bitwise, vs reference) ===
+  TG=1024  reference re-run  diff      0 /  65536 bytes   (reference wrote   4096)
+  TG=1024  B_inds  diff      0 /  65536 bytes
+  TG=2048  reference re-run  diff      0 /  65536 bytes   (reference wrote   8192)
+  TG=2048  B_inds  diff      0 /  65536 bytes
+  VERDICT: all arms bitwise identical to the reference.
+
+=== memory regime (P1.1) ===
+  defeat slots          64
+  weight buffer         335544320 B
+  scale buffer          20910208 B
+  routed winners        [39, 88, 99, 110, 114, 184, 216, 239]
+  winners (slot order)  [184, 239, 110, 88, 99, 216, 39, 114]
+  output_width          512
+  dram_peak_GB_s        266.3  (measured, rule 55)
+  slc_estimate_B        25165824  (M4-Pro-class, label only)
+    TG   rows   uniq_MiB   req_MiB/round   amplif   ref_us   achieved_GB_s   pct_peak   unique_GB_s   slc_fit   regime
+   128     32      17.14          107.35      6.3     4.92           114.4       42.9          18.3   yes   PARTIAL
+   256     64      34.27          213.70      6.2     7.22           155.2       58.3          24.9   no   PARTIAL
+   512    128      68.54          426.39      6.2    13.59           164.5       61.8          26.4   no   PARTIAL
+  1024    256     137.07          851.78      6.2    22.20           201.2       75.6          32.4   no   PARTIAL
+  2048    512     274.14         1702.56      6.2    38.63           231.0       86.8          37.2   no   SATURATED
+
+=== paired per-call cost, 41 alternating rounds of 200 dispatches ===
+delta = variant - reference within a round, so drift cancels. neg = faster.
+spread = max-min of the per-round deltas.
+
+--- B_inds  vs reference A_base ---
+    TG  TG/core    ref_min    var_min    d_mean     d_sd    d_min    d_max   spread    d%_ref    t_paired
+   128     6.40       4.87       3.22    -1.659    0.029    -1.71    -1.57     0.14   -34.087     -369.26
+   256    12.80       7.14       4.93    -2.236    0.037    -2.28    -2.09     0.20   -31.314     -386.62
+   512    25.60      12.43       9.27    -3.504    0.145    -3.74    -3.11     0.63   -28.180     -155.09
+  1024    51.20      21.98      21.11    -0.950    0.192    -1.36    -0.41     0.95    -4.323      -31.77
+  2048   102.40      38.73      37.16    -1.544    0.166    -2.02    -1.15     0.88    -3.986      -59.68
+  per-round delta TG=128: -1.69 -1.67 -1.62 -1.68 -1.62 -1.57 -1.64 -1.64 -1.67 -1.65 -1.67 -1.66 -1.66 -1.57 -1.70 -1.68 -1.64 -1.67 -1.64 -1.68 -1.69 -1.66 -1.65 -1.66 -1.68 -1.67 -1.67 -1.66 -1.65 -1.70 -1.66 -1.68 -1.63 -1.66 -1.64 -1.66 -1.68 -1.71 -1.67 -1.65 -1.68
+  per-round delta TG=256: -2.27 -2.26 -2.25 -2.25 -2.23 -2.28 -2.25 -2.24 -2.26 -2.19 -2.26 -2.27 -2.23 -2.23 -2.22 -2.18 -2.26 -2.27 -2.25 -2.20 -2.24 -2.21 -2.27 -2.23 -2.26 -2.25 -2.21 -2.19 -2.25 -2.24 -2.26 -2.28 -2.19 -2.24 -2.23 -2.27 -2.25 -2.18 -2.09 -2.20 -2.28
+  per-round delta TG=512: -3.49 -3.57 -3.11 -3.42 -3.48 -3.34 -3.57 -3.68 -3.67 -3.56 -3.47 -3.49 -3.32 -3.56 -3.64 -3.53 -3.18 -3.47 -3.69 -3.48 -3.54 -3.59 -3.26 -3.64 -3.54 -3.62 -3.49 -3.51 -3.62 -3.15 -3.54 -3.72 -3.48 -3.58 -3.51 -3.74 -3.49 -3.45 -3.59 -3.49 -3.38
+  per-round delta TG=1024: -1.05 -0.89 -1.05 -1.06 -1.08 -0.95 -1.09 -1.00 -0.85 -0.83 -0.95 -0.99 -0.86 -1.09 -1.22 -0.77 -0.99 -0.94 -1.06 -0.99 -0.97 -1.20 -0.71 -1.36 -1.08 -1.09 -1.24 -0.74 -1.22 -1.02 -1.13 -0.96 -0.71 -0.85 -0.41 -0.77 -0.77 -0.60 -0.90 -0.65 -0.86
+  per-round delta TG=2048: -1.64 -2.02 -1.39 -1.71 -1.36 -1.40 -1.76 -1.47 -1.68 -1.44 -1.60 -1.56 -1.58 -1.72 -1.36 -1.58 -1.53 -1.78 -1.24 -1.73 -1.57 -1.62 -1.35 -1.54 -1.58 -1.68 -1.49 -1.15 -1.55 -1.54 -1.60 -1.50 -1.57 -1.52 -1.38 -1.54 -1.41 -1.32 -1.50 -1.83 -1.52

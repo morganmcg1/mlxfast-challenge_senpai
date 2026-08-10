@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""R109-C stage 0(b): emit the two ceiling-probe arms for the routed gate/up QMV.
+"""R109-C stage 0(b): emit the three ceiling-probe arms for the routed gate/up QMV.
 
 Arm A is the verbatim shipped `laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2`
 text, prologue included.  Arm B deletes the whole
@@ -38,6 +38,23 @@ SPEC.loader.exec_module(fq)
 PROLOGUE_TOKEN = "\\(lagunaRouterTop8PrecomputedPrelude)\nuint expert = top8_winner;"
 DIRECT_READ = "uint expert = router_keys[256u + expert_slot];"
 
+# Arm C keeps the selection in-kernel but runs it in one simdgroup instead of
+# two.  Both simdgroups of a 64-thread threadgroup share `expert_slot` and read
+# the same `router_keys`, so the broadcast value is the one simdgroup 1 would
+# have computed itself; the arm is bit-exact by construction and needs no new
+# buffer, no producer change, and no cross-kernel dependency.
+SG0_BROADCAST = "\n".join(
+    [
+        "threadgroup uint tg_top8_winner;",
+        "if (simd_group == 0u) {",
+        "\\(lagunaRouterTop8PrecomputedPrelude)",
+        "    if (lane == 0u) { tg_top8_winner = top8_winner; }",
+        "}",
+        "threadgroup_barrier(mem_flags::mem_threadgroup);",
+        "uint expert = tg_top8_winner;",
+    ]
+)
+
 OUT = HERE / "artifacts" / "maple-tanjiro-r109c"
 
 
@@ -69,6 +86,7 @@ def main() -> int:
     arms = {
         "A_base": raw,
         "B_inds": raw.replace(PROLOGUE_TOKEN, DIRECT_READ),
+        "C_sg0": raw.replace(PROLOGUE_TOKEN, SG0_BROADCAST),
     }
     for name, body in arms.items():
         text = (
