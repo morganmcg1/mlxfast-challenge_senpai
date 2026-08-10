@@ -221,6 +221,17 @@ def main():
     probes = [a for a in arms if a != control]
     reg = regression(rows, probes) if len(rows) > len(probes) + 3 else {}
 
+    lead_arms = {a for i, (a, _, _, _) in enumerate(rows) if i % BLOCK == 0}
+    reg_lead = {}
+    if len(lead_arms) > 1 and len(rows) > len(probes) + 4:
+        reg_lead = regression(rows, probes, lead=True)
+        spike, sspike = reg_lead["__lead__"]
+        print("\n== block-lead spike is identified (slot 1 held by "
+              f"{'/'.join(sorted(lead_arms))}) ==")
+        print(f"  slot-1 penalty {spike:+8.2f} us/step  se {sspike:6.2f}"
+              f"  95% CI [{spike - 1.96 * sspike:+8.2f},"
+              f" {spike + 1.96 * sspike:+8.2f}]")
+
     for arm in probes:
         pv = [d for a, d, _, _ in rows if a == arm]
         pm, psd, pn = stats(pv)
@@ -249,11 +260,14 @@ def main():
                 + (tpsd * tpsd / tpn if tpn > 1 else 0.0)
             )
             report_delta("no block-lead run (pos>1)", tpm - tcm, tse)
-        best, bse = reg.get(arm, (pm - cm, se))
+        if arm in reg_lead:
+            report_delta("lead-adjusted OLS", *reg_lead[arm])
+        best, bse = reg_lead.get(arm, reg.get(arm, (pm - cm, se)))
         price(-best, cm, "point ceiling (saving = -delta):")
         price(-(best - 1.96 * bse), cm, "optimistic 95% upper ceiling:")
 
-    dose = {a: reg[a] for a in ("D", "X") if a in reg}
+    src = reg_lead or reg
+    dose = {a: src[a] for a in ("D", "X") if a in src}
     if len(dose) == 2:
         slope = (dose["X"][0] - dose["D"][0]) / (SLOTS["X"] - SLOTS["D"])
         sse = math.sqrt(dose["X"][1] ** 2 + dose["D"][1] ** 2) / (

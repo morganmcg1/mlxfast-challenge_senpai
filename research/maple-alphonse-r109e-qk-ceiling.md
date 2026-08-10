@@ -130,10 +130,27 @@ This host has a large one: the first run of a block is markedly slower than the
 rest, and the gap grows across a session. Measured on control C, which is the
 only arm holding slot 1:
 
-| C slot | mean us/step | n |
-|---|---|---|
-| 1 (block lead) | see table in 4.1 | |
-| 8 (block tail) | see table in 4.1 | |
+| arm | slot | mean us/step | sd | n |
+|---|---|---|---|---|
+| C | 1 (block lead) | **13025.43** | 60.22 | 3 |
+| C | 8 (block tail) | **12924.41** | 47.01 | 3 |
+| X | 2 | 13252.47 | 54.37 | 3 |
+| X | 7 | 13235.20 | 53.09 | 3 |
+| D | 3 | 13000.47 | 16.38 | 3 |
+| D | 6 | 13024.09 | 37.17 | 3 |
+| P | 4 | 12925.39 | 24.48 | 3 |
+| P | 5 | 12965.30 | 55.94 | 3 |
+
+The effect is **+101.0 us/step on slot 1 alone**. Every other mirrored pair
+agrees within noise (X 17.3, D -23.6, P -39.9, against per-cell sd 16-56). So
+this is not a smooth within-block ramp that a palindrome would cancel — it is a
+**one-slot step at the head of the block**, which a palindrome cannot cancel and
+which lands entirely on whichever arm is scheduled first. For scale, 101 us/step
+is 3.4x the advisor's whole 30 us/step decision bar.
+
+The lead penalty also grows across the session (C slot 1: 12956.2, 13054.4,
+13065.7 over the three blocks; X slot 2: 13193.8, 13262.4, 13301.2), so it is
+not a single cold-start artifact that a longer warmup would remove.
 
 The consequence for the whole campaign is direct. Six research drivers in this
 tree default to an order that always hands the lead slot to the control arm —
@@ -151,6 +168,104 @@ not affected.
 Everything below therefore reports, alongside the conventional estimators, a
 `no block-lead run (pos>1)` delta that simply drops slot 1 of each block. That
 is the estimate I trust.
+
+### 4.1 Arm means
+
+`CXDPPDXC` x 3, n = 6 per arm, one `./benchmark.sh --local-iterate` per row,
+same binary throughout (arms are selected at runtime by
+`DARKBLOOM_FULL_ATTN_QK_PROBE`, so no rebuild separates them).
+
+| arm | probe | mean us/step | sd | n | correctness |
+|---|---|---|---|---|---|
+| C | shipped kernel (inert control) | 12974.92 | 73.46 | 6 | pass |
+| P | `simd_broadcast_first` (reduction deleted) | 12945.34 | 44.38 | 6 | **fail, by construction** |
+| D | ladder + 1 synthetic slot | 13012.28 | 28.76 | 6 | pass |
+| X | ladder + 10 synthetic slots | 13243.83 | 48.98 | 6 | pass |
+
+### 4.2 Arm P fails the token check, and that is the design
+
+All six P rows report `local-iterate teacher-forced token mismatch`. That is
+expected and is not a defect: P replaces the per-lane cross-lane sum with
+`simd_broadcast_first`, so the QK scores are wrong on purpose. P is a *removal
+probe* that prices the reduction's cost; it was never a shippable candidate.
+
+The timing is still valid and still comparable, because the decode loop is
+teacher-forced and does not branch on the mismatch. In
+`Sources/MLXFastTrustedHarness/LagunaRuntimeLocalIterate.swift:613` the next
+input is `expectedDecodeTokens[decodedStep - 1]`, never the produced token, and
+`:622-628` only *records* `failureStep` — there is no `break`. Every arm runs the
+same 512-token seed plus 128 one-token steps at identical shapes. What differs
+between C and P is the kernel body, which is the thing being priced.
+
+### 4.3 The removal probe: after position correction, deleting the reduction saves nothing
+
+| estimator | P - C, us/step | se | 95% CI |
+|---|---|---|---|
+| unpaired Welch | -29.58 | 35.04 | [-98.25, +39.09] |
+| drift-adjusted OLS | -29.58 | 30.36 | [-89.08, +29.92] |
+| palindromic block | -29.58 | 15.79 | [-60.52, +1.36] |
+| Hodges-Lehmann + bootstrap | -30.54 | — | [-110.72, +43.15] |
+| **drop block-lead run (pos > 1)** | **+20.93** | **32.63** | **[-43.02, +84.89]** |
+
+Every estimator that uses slot 1 says the removal probe is about 30 us/step
+*faster* than control, which would have put it right on the advisor's bar. That
+number is an artifact: it is the +101 us/step lead penalty charged to C and
+divided across the block. Drop the lead run and the sign flips — the arm with
+the reduction deleted is if anything **slower** than the arm that keeps it, and
+the interval spans zero in both directions.
+
+Read literally: the best estimate of what deleting the entire cross-lane QK
+reduction buys is **0 us/step**, and the data cannot distinguish it from the
+30 us/step bar in either direction.
+
+### 4.4 The synthetic ruler: the ladder is linear and worth ~23 us/step
+
+D and X sit at slots {3, 6} and {2, 7}. Both are mid-block, so the D-X contrast
+is free of the slot-1 artifact and does not touch C at all.
+
+- marginal cost **2.339 ns/step per issue slot** (se 0.434), from
+  `(13243.83 - 13012.28) / (110 - 11)`
+- two-parameter fit: fixed step cost **+11.63 us/step** (se 33.90), i.e. **not
+  distinguishable from zero** — the ruler is **linear within noise**
+- the real reduction is a 10-slot ladder (`simd_shuffle_xor` masks 1,2,4,8,16
+  over two pipes), so deleting it is worth
+  **23.39 us/step, 95% upper 31.89 us/step**
+
+This retires the "concave / slack" story from the earlier n=2 look. There is no
+measurable free issue slack in this kernel: added work costs a constant rate,
+and the first slot costs the same as the hundredth.
+
+Two reasons this 23.4 is an **over**-estimate of a real removal:
+
+1. A synthetic *addition* is unconstrained work appended to a live dependency
+   chain; a real *removal* returns issue slots that the surrounding code may not
+   be able to use. Addition prices the slot; removal recovers at most the slot.
+2. X's decode load leaks into the prefill negative control (below), so part of
+   X's +269 us/step is a thermal side-channel rather than issue cost, which
+   inflates the D-X slope.
+
+Both point the same way, and both are consistent with the direct removal probe
+in 4.3 measuring zero.
+
+### 4.5 Prefill negative control
+
+`lagunaFullFusedAttention` is the single-token grow kernel, so no probe should
+move prefill. Per token:
+
+| arm | mean us/token | sd | delta vs C | se | t |
+|---|---|---|---|---|---|
+| C | 1116.11 | 6.08 | — | — | — |
+| D | 1118.62 | 7.33 | +2.51 | 3.89 | +0.65 |
+| P | 1117.94 | 11.21 | +1.83 | 5.20 | +0.35 |
+| X | 1126.15 | 10.45 | +10.04 | 4.94 | **+2.03** |
+
+D and P are clean, which rules out a global thermal or DVFS confound that would
+have made the whole comparison worthless. X is marginal, and there is a
+mechanism: `LagunaRuntimeLocalIterate.swift:559` charges prefill before
+`:583` starts decode *within* a repeat, but with `timingRepeats > 1` the second
+repeat's prefill follows the first repeat's decode. Only X's decode is heavy
+enough (+269 us/step over 128 steps) to heat the die into the next prefill. This
+is a caveat on X, not on the comparison, and it makes 4.4 conservative.
 
 <!--RESULTS-->
 
