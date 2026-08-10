@@ -651,7 +651,31 @@ not an artefact of a blunt instrument.
 
 ### 5.3 Full-decode rotated-palindrome timing
 
-### 5.4 Prefill
+### 5.4 Prefill (rule 17)
+
+**Prefill neutrality is structural, not statistical, and that is the stronger
+claim.** `lagunaDecodeNVFP4QKVR1` opens with
+
+```swift
+guard normalized.dtype == .bfloat16,
+    normalized.dims(1, 1, hidden),        // Sources/.../LagunaRuntimeModel.swift:5035
+```
+
+so the function returns `nil` for any input whose sequence length is not 1. The
+scored prefill axis presents one 512-token tensor, `normalized.dims(1, 512,
+2048)`, the guard fails, and the call site falls through to `quantizedMM`
+(`:5995-5997`). `DARKBLOOM_QKV_LM_SG` is read only inside the lane-major kernel
+set that this function builds, so **no prefill dispatch can observe the selector
+at any value**. nezuko reached the same conclusion for the equivalent knob on an
+older base (`maple-nezuko-pr48-deconfound.md:214-216`: "both knobs are
+**structurally unreachable** during prefill"), so this is a reproduced property of
+the site, not a one-off reading.
+
+Two residual risks are *not* covered by that argument, because they live outside
+the guard, and they are what the empirical check below is for: the selector adds a
+kernel-set construction and a distinct `_sgS` pipeline name, so a lazily JIT-compiled
+library could in principle be paid at a different time, and any such cost would
+show up as a prefill regression even though the prefill dispatch is unchanged.
 
 ## 6. Verdict against the graduation gate
 
