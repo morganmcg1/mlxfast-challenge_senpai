@@ -1,3 +1,4 @@
+import Dispatch
 import Foundation
 import MLX
 import MLXFast
@@ -95,6 +96,81 @@ func lagunaTrace(_ site: @autoclosure () -> String) {
     guard lagunaTraceFusion else { return }
     lagunaTracedFusions.note(site())
 }
+
+private enum LagunaPrefillFenceMode: String {
+    case off
+    case control
+    case bankPlusTail = "bank-plus-tail"
+
+    static let selected = LagunaPrefillFenceMode(
+        rawValue: ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_FENCE_MODE"] ?? "off"
+    ) ?? .off
+}
+
+private struct LagunaPrefillFenceTicket {
+    let measurementStartNs: UInt64?
+}
+
+private final class LagunaPrefillFenceProbe: @unchecked Sendable {
+    private let mode = LagunaPrefillFenceMode.selected
+    private var active = false
+    private var boundaryNs: UInt64 = 0
+    private var measurementNs: UInt64 = 0
+    private var siteCount = 0
+    private var completedSiteCount = 0
+    private var routeCount = 0
+
+    func beginPass(sequenceLength: Int) {
+        active = sequenceLength == 512
+        boundaryNs = 0
+        measurementNs = 0
+        siteCount = 0
+        completedSiteCount = 0
+        routeCount = 0
+    }
+
+    func beginSite(_ inputs: [MLXArray], routeCount: Int) -> LagunaPrefillFenceTicket? {
+        guard active else { return nil }
+        siteCount += 1
+        self.routeCount += routeCount
+        switch mode {
+        case .off:
+            return LagunaPrefillFenceTicket(measurementStartNs: nil)
+        case .control, .bankPlusTail:
+            let boundaryStart = DispatchTime.now().uptimeNanoseconds
+            eval(inputs)
+            boundaryNs += DispatchTime.now().uptimeNanoseconds - boundaryStart
+            let measurementStart = DispatchTime.now().uptimeNanoseconds
+            if mode == .control {
+                eval(inputs)
+                measurementNs += DispatchTime.now().uptimeNanoseconds - measurementStart
+                return LagunaPrefillFenceTicket(measurementStartNs: nil)
+            }
+            return LagunaPrefillFenceTicket(measurementStartNs: measurementStart)
+        }
+    }
+
+    func finishSite(_ output: MLXArray, ticket: LagunaPrefillFenceTicket?) -> MLXArray {
+        guard active, let ticket else { return output }
+        if let measurementStart = ticket.measurementStartNs {
+            eval(output)
+            measurementNs += DispatchTime.now().uptimeNanoseconds - measurementStart
+        }
+        completedSiteCount += 1
+        return output
+    }
+
+    func endPass() {
+        guard active else { return }
+        let record =
+            "mlxfast: prefill-fence {\"mode\":\"\(mode.rawValue)\",\"site_count\":\(siteCount),\"completed_site_count\":\(completedSiteCount),\"route_count\":\(routeCount),\"boundary_ns\":\(boundaryNs),\"measurement_ns\":\(measurementNs)}\n"
+        FileHandle.standardError.write(Data(record.utf8))
+        active = false
+    }
+}
+
+private let lagunaPrefillFenceProbe = LagunaPrefillFenceProbe()
+
 
 // MARK: - Runtime fusion feature flags
 
@@ -10829,6 +10905,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
             // produced, so every consumer below (including the
             // `lagunaPrefillMoETailEnabled` tail fusion) is unaffected by
             // which branch ran.
+            var fenceTicket: LagunaPrefillFenceTicket?
             if lagunaPrefillFusedRoutedGateUpEnabled,
                 let fusedWeight = _fusedRoutedGateUpWeight,
                 let fusedScales = _fusedRoutedGateUpScales,
@@ -10856,6 +10933,8 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                         pairwiseDownScales == nil ? "inactive" : "active",
                         "packed routed down prefill scale view consumed")
                 }
+                fenceTicket = lagunaPrefillFenceProbe.beginSite(
+                    [x, residual ?? x, inds, weights], routeCount: inds.size)
                 let routed = lagunaFusedSortedRoutedGateUp(
                     x,
                     indices: inds,
@@ -10895,13 +10974,14 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 let sharedOut = sharedExpert(x)
                 if sharedOut.dtype == .bfloat16, sharedOut.sameDims(residual) {
                     lagunaTrace("prefill sorted moe tail")
-                    return lagunaPrefillSortedMoETail(
+                    let output = lagunaPrefillSortedMoETail(
                         sortedExpertOutputs: y,
                         inverseOrder: inverseOrder,
                         routerWeights: weights,
                         sharedOutput: sharedOut,
                         residual: residual
                     )
+                    return lagunaPrefillFenceProbe.finishSite(output, ticket: fenceTicket)
                 }
                 // Preserve the stock fallback for an unexpected shared-expert
                 // shape while reusing the already-built shared output.
@@ -11628,6 +11708,7 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
     }
 
     public func callAsFunction(_ inputs: MLXArray, cache: [KVCache]?) -> MLXArray {
+        lagunaPrefillFenceProbe.beginPass(sequenceLength: inputs.dim(1))
         let fullHidden = model(inputs, cache: cache)
         // Every consumer of multi-token logits reads only the LAST
         // position's row. Slice before the row-independent final RMSNorm and
@@ -11662,6 +11743,7 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
         if case .logits = lagunaDecodeAsyncStage, inputs.dims(1, 1) {
             asyncEval(result)
         }
+        lagunaPrefillFenceProbe.endPass()
         return result
     }
 

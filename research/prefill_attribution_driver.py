@@ -15,6 +15,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
+FENCE_PREFIX = "mlxfast: prefill-fence "
+
+
 def utc_now():
     return datetime.now(timezone.utc).isoformat()
 
@@ -140,6 +143,55 @@ def atomic_write_json(path, payload):
     os.replace(temporary, path)
 
 
+def parse_fence_records(path):
+    records = []
+    for line_number, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
+        if not line.startswith(FENCE_PREFIX):
+            continue
+        try:
+            record = json.loads(line[len(FENCE_PREFIX) :])
+        except json.JSONDecodeError as error:
+            raise RuntimeError(
+                f"invalid prefill fence JSON at {path}:{line_number}: {line!r}"
+            ) from error
+        record["stderr_line_number"] = line_number
+        records.append(record)
+    return records
+
+
+def attach_fence_records(warmups, samples, records, expected_mode):
+    requested_count = len(warmups) + len(samples)
+    if len(records) < requested_count:
+        raise RuntimeError(
+            f"found {len(records)} fence records for {requested_count} requested prefills"
+        )
+    initialization_records = records[:-requested_count]
+    request_records = records[-requested_count:]
+    expected_sites = 38
+    for record in request_records:
+        if record.get("mode") != expected_mode:
+            raise RuntimeError(
+                f"fence mode {record.get('mode')!r} does not match {expected_mode!r}"
+            )
+        if record.get("site_count") != expected_sites:
+            raise RuntimeError(
+                f"fence site count {record.get('site_count')} does not match {expected_sites}"
+            )
+        if record.get("completed_site_count") != expected_sites:
+            raise RuntimeError(
+                "fence completed-site count "
+                f"{record.get('completed_site_count')} does not match {expected_sites}"
+            )
+        for field in ("boundary_ns", "measurement_ns"):
+            if not isinstance(record.get(field), int) or record[field] < 0:
+                raise RuntimeError(f"invalid fence field {field}: {record.get(field)!r}")
+        if not isinstance(record.get("route_count"), int) or record["route_count"] <= 0:
+            raise RuntimeError(f"invalid fence route count: {record.get('route_count')!r}")
+    for request, fence in zip([*warmups, *samples], request_records):
+        request["fence"] = fence
+    return initialization_records
+
+
 def read_json_line(process, timeout_seconds, description):
     if process.stdout is None:
         raise RuntimeError("worker stdout pipe is unavailable")
@@ -216,6 +268,277 @@ def close_worker(process):
             return process.wait(timeout=5)
 
 
+def arm_sample_values(arm, metric):
+    if metric == "elapsed_ms":
+        return [sample[metric] for sample in arm["samples"]]
+    if metric == "boundary_ms":
+        return [sample["fence"]["boundary_ns"] / 1_000_000 for sample in arm["samples"]]
+    if metric == "measurement_ms":
+        return [sample["fence"]["measurement_ns"] / 1_000_000 for sample in arm["samples"]]
+    raise ValueError(f"unknown arm metric: {metric}")
+
+
+def balanced_arm_comparison(arms, candidate_mode, metric, bootstrap_samples, seed):
+    baseline_arms = [arm for arm in arms if arm["controls"]["fence_mode"] == "off"]
+    candidate_arms = [
+        arm for arm in arms if arm["controls"]["fence_mode"] == candidate_mode
+    ]
+    if not baseline_arms or len(baseline_arms) != len(candidate_arms):
+        raise ValueError("matrix comparison requires balanced non-empty mode arms")
+
+    baseline_values = [arm_sample_values(arm, metric) for arm in baseline_arms]
+    candidate_values = [arm_sample_values(arm, metric) for arm in candidate_arms]
+    baseline_arm_medians = [statistics.median(values) for values in baseline_values]
+    candidate_arm_medians = [statistics.median(values) for values in candidate_values]
+    baseline_ms = statistics.fmean(baseline_arm_medians)
+    candidate_ms = statistics.fmean(candidate_arm_medians)
+    delta_ms = candidate_ms - baseline_ms
+
+    rng = random.Random(seed)
+    deltas_ms = []
+    for _ in range(bootstrap_samples):
+        resampled_baseline_ms = statistics.fmean(
+            statistics.median(rng.choices(values, k=len(values)))
+            for values in baseline_values
+        )
+        resampled_candidate_ms = statistics.fmean(
+            statistics.median(rng.choices(values, k=len(values)))
+            for values in candidate_values
+        )
+        deltas_ms.append(resampled_candidate_ms - resampled_baseline_ms)
+    ci_lower_ms = percentile(deltas_ms, 0.025)
+    ci_upper_ms = percentile(deltas_ms, 0.975)
+    return {
+        "metric": metric,
+        "baseline_mode": "off",
+        "candidate_mode": candidate_mode,
+        "baseline_arm_count": len(baseline_arms),
+        "candidate_arm_count": len(candidate_arms),
+        "samples_per_arm": [len(values) for values in baseline_values + candidate_values],
+        "baseline_arm_medians_ms": baseline_arm_medians,
+        "candidate_arm_medians_ms": candidate_arm_medians,
+        "balanced_baseline_ms": baseline_ms,
+        "balanced_candidate_ms": candidate_ms,
+        "delta_ms": delta_ms,
+        "perturbation_percent": delta_ms / baseline_ms * 100 if baseline_ms else None,
+        "bootstrap": {
+            "iterations": bootstrap_samples,
+            "seed": seed,
+            "delta_95ci_lower_ms": ci_lower_ms,
+            "delta_95ci_upper_ms": ci_upper_ms,
+            "conservative_half_width_ms": max(
+                delta_ms - ci_lower_ms,
+                ci_upper_ms - delta_ms,
+            ),
+        },
+    }
+
+
+def parse_matrix_order(value):
+    order = [mode.strip() for mode in value.split(",") if mode.strip()]
+    allowed = {"off", "control", "bank-plus-tail"}
+    if any(mode not in allowed for mode in order):
+        raise ValueError(f"matrix order contains unsupported mode: {order}")
+    if len(order) != 8 or order[0] != "off" or len(set(order)) != 2:
+        raise ValueError("matrix order must contain eight arms, begin off, and use two modes")
+    candidate_mode = next(mode for mode in order if mode != "off")
+    expected = [
+        "off",
+        candidate_mode,
+        candidate_mode,
+        "off",
+        candidate_mode,
+        "off",
+        "off",
+        candidate_mode,
+    ]
+    if order != expected:
+        raise ValueError("matrix order must be mirrored A-B-B-A then B-A-A-B")
+    return order, candidate_mode
+
+
+def matrix_child_command(args, mode, arm_index, output_path):
+    command = [
+        sys.executable,
+        str(Path(__file__).resolve()),
+        "--worker",
+        str(args.worker.resolve()),
+        "--weights",
+        str(args.weights.resolve()),
+        "--fixture",
+        str(args.fixture.resolve()),
+        "--case-index",
+        str(args.case_index),
+        "--output",
+        str(output_path),
+        "--label",
+        f"{args.label}-arm{arm_index:02d}-{mode}",
+        "--warmups",
+        str(args.warmups),
+        "--repeats",
+        str(args.repeats),
+        "--expected-prompt-tokens",
+        str(args.expected_prompt_tokens),
+        "--hello-timeout-seconds",
+        str(args.hello_timeout_seconds),
+        "--request-timeout-seconds",
+        str(args.request_timeout_seconds),
+        "--bootstrap-samples",
+        str(args.bootstrap_samples),
+        "--bootstrap-seed",
+        str(args.bootstrap_seed),
+        "--fence-mode",
+        mode,
+    ]
+    if args.required_samples is not None:
+        command.extend(["--required-samples", str(args.required_samples)])
+    if args.expected_token is not None:
+        command.extend(["--expected-token", str(args.expected_token)])
+    if args.cool_gate is not None:
+        command.extend(["--cool-gate", str(args.cool_gate.resolve())])
+    return command
+
+
+def run_matrix(args):
+    started_at_utc = utc_now()
+    output_path = args.output.resolve()
+    fixture = load_fixture(args.fixture, args.case_index)
+    base = {
+        "schema_version": 2,
+        "status": "running",
+        "label": args.label,
+        "started_at_utc": started_at_utc,
+        "command": [sys.executable, *sys.argv],
+        "cwd": str(Path.cwd()),
+        "pid": os.getpid(),
+        "git": run_text(["git", "rev-parse", "HEAD"]),
+        "fixture": {key: value for key, value in fixture.items() if key != "prompt_tokens"},
+        "controls": {
+            "warmups_per_arm": args.warmups,
+            "repeats_per_arm": args.repeats,
+            "bootstrap_samples": args.bootstrap_samples,
+            "bootstrap_seed": args.bootstrap_seed,
+        },
+        "arms": [],
+    }
+    try:
+        if args.inspect_only:
+            raise ValueError("inspect-only is not supported with matrix-order")
+        if args.worker_stderr is not None:
+            raise ValueError("worker-stderr cannot be shared across matrix arms")
+        order, candidate_mode = parse_matrix_order(args.matrix_order)
+        base["controls"].update(
+            {
+                "matrix_order": order,
+                "candidate_mode": candidate_mode,
+                "ordering": "A-B-B-A then B-A-A-B",
+                "fresh_worker_per_arm": True,
+            }
+        )
+        arm_directory = output_path.with_name(output_path.stem + "-arms")
+        arm_directory.mkdir(parents=True, exist_ok=True)
+        arm_timeout_seconds = (
+            args.hello_timeout_seconds
+            + (args.warmups + args.repeats) * args.request_timeout_seconds
+            + 1_200
+        )
+        for arm_index, mode in enumerate(order):
+            arm_output_path = arm_directory / f"{arm_index:02d}-{mode}.json"
+            command = matrix_child_command(args, mode, arm_index, arm_output_path)
+            result = subprocess.run(
+                command,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=arm_timeout_seconds,
+            )
+            arm_record = {
+                "arm_index": arm_index,
+                "mode": mode,
+                "command": command,
+                "returncode": result.returncode,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "output_path": str(arm_output_path),
+            }
+            if arm_output_path.is_file():
+                arm_record["output_sha256"] = sha256_file(arm_output_path)
+                arm_record["result"] = json.loads(arm_output_path.read_text())
+            base["arms"].append(arm_record)
+            atomic_write_json(output_path, base)
+            if result.returncode != 0:
+                raise RuntimeError(f"matrix arm {arm_index} failed with status {result.returncode}")
+
+        results = [arm["result"] for arm in base["arms"]]
+        worker_hashes = {arm["worker"]["sha256"] for arm in results}
+        if len(worker_hashes) != 1:
+            raise RuntimeError(f"matrix arms used different worker binaries: {worker_hashes}")
+        tokens = {sample["token"] for arm in results for sample in arm["samples"]}
+        if len(tokens) != 1:
+            raise RuntimeError(f"matrix arms returned different tokens: {tokens}")
+        route_counts = {
+            sample["fence"]["route_count"]
+            for arm in results
+            for sample in arm["samples"]
+        }
+        if len(route_counts) != 1:
+            raise RuntimeError(f"matrix arms returned different route counts: {route_counts}")
+
+        metrics = ("elapsed_ms", "boundary_ms", "measurement_ms")
+        comparisons = {
+            metric: balanced_arm_comparison(
+                results,
+                candidate_mode,
+                metric,
+                args.bootstrap_samples,
+                args.bootstrap_seed + len(metric),
+            )
+            for metric in metrics
+        }
+        blocks = []
+        for block_index, block in enumerate((results[:4], results[4:])):
+            blocks.append(
+                {
+                    "block_index": block_index,
+                    "order": [arm["controls"]["fence_mode"] for arm in block],
+                    "elapsed_ms": balanced_arm_comparison(
+                        block,
+                        candidate_mode,
+                        "elapsed_ms",
+                        args.bootstrap_samples,
+                        args.bootstrap_seed + 100 + block_index,
+                    ),
+                }
+            )
+        base.update(
+            {
+                "status": "succeeded",
+                "finished_at_utc": utc_now(),
+                "worker_sha256": next(iter(worker_hashes)),
+                "observed_tokens": sorted(tokens),
+                "observed_route_counts": sorted(route_counts),
+                "comparisons": comparisons,
+                "mirrored_blocks": blocks,
+                "statistics": comparisons["elapsed_ms"],
+            }
+        )
+        atomic_write_json(output_path, base)
+        emit_status(base)
+        return 0
+    except Exception as error:
+        base.update(
+            {
+                "status": "failed",
+                "finished_at_utc": utc_now(),
+                "error_type": type(error).__name__,
+                "error": str(error),
+            }
+        )
+        atomic_write_json(output_path, base)
+        emit_status(base, stream=sys.stderr)
+        return 2
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description=(
@@ -246,6 +569,15 @@ def parse_args():
     parser.add_argument("--request-timeout-seconds", type=float, default=300)
     parser.add_argument("--bootstrap-samples", type=int, default=20_000)
     parser.add_argument("--bootstrap-seed", type=int, default=646)
+    parser.add_argument(
+        "--fence-mode",
+        choices=("off", "control", "bank-plus-tail"),
+        default="off",
+    )
+    parser.add_argument(
+        "--matrix-order",
+        help="comma-separated mirrored order; each arm gets its own worker",
+    )
     parser.add_argument("--cool-gate", type=Path)
     parser.add_argument("--inspect-only", action="store_true")
     return parser.parse_args()
@@ -253,6 +585,8 @@ def parse_args():
 
 def main():
     args = parse_args()
+    if args.matrix_order is not None:
+        return run_matrix(args)
     started_at_utc = utc_now()
     output_path = args.output.resolve()
     fixture = load_fixture(args.fixture, args.case_index)
@@ -286,6 +620,7 @@ def main():
             "required_samples": required_samples,
             "warmups": args.warmups,
             "repeats": args.repeats,
+            "fence_mode": args.fence_mode,
         },
     }
     try:
@@ -332,6 +667,8 @@ def main():
             if cool_result.get("returncode") != 0:
                 raise RuntimeError("cool gate failed")
 
+        worker_environment = os.environ.copy()
+        worker_environment["DARKBLOOM_PREFILL_FENCE_MODE"] = args.fence_mode
         with stderr_path.open("w") as worker_stderr:
             process = subprocess.Popen(
                 [str(worker_path), "runtime-worker", "--weights", str(weights_path)],
@@ -340,6 +677,7 @@ def main():
                 stderr=worker_stderr,
                 text=True,
                 bufsize=1,
+                env=worker_environment,
             )
             base["worker"]["pid"] = process.pid
             try:
@@ -385,13 +723,43 @@ def main():
             raise RuntimeError(
                 f"measured sample count {len(samples)} does not match required {required_samples}"
             )
+        fence_records = parse_fence_records(stderr_path)
+        initialization_fence_records = attach_fence_records(
+            warmups,
+            samples,
+            fence_records,
+            args.fence_mode,
+        )
+        route_counts = {sample["fence"]["route_count"] for sample in samples}
+        if len(route_counts) != 1:
+            raise RuntimeError(f"samples returned different route counts: {route_counts}")
         samples_ms = [sample["elapsed_ms"] for sample in samples]
+        boundary_ms = [sample["fence"]["boundary_ns"] / 1_000_000 for sample in samples]
+        measurement_ms = [
+            sample["fence"]["measurement_ns"] / 1_000_000 for sample in samples
+        ]
         base.update(
             {
                 "status": "succeeded",
                 "finished_at_utc": utc_now(),
                 "warmup_records": warmups,
                 "samples": samples,
+                "fence": {
+                    "mode": args.fence_mode,
+                    "record_count": len(fence_records),
+                    "initialization_records": initialization_fence_records,
+                    "observed_route_counts": sorted(route_counts),
+                    "boundary_statistics": summarize(
+                        boundary_ms,
+                        args.bootstrap_samples,
+                        args.bootstrap_seed + 1,
+                    ),
+                    "measurement_statistics": summarize(
+                        measurement_ms,
+                        args.bootstrap_samples,
+                        args.bootstrap_seed + 2,
+                    ),
+                },
                 "statistics": summarize(
                     samples_ms,
                     args.bootstrap_samples,
