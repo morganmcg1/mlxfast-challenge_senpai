@@ -146,8 +146,10 @@ Baseline upstream-equivalence job
 unchanged-base M4 numerical divergence: prefill max/mean absolute logit error
 `0.125/0.011933609`, while runtime and upstream tokens both equaled `5991`;
 decode logits were exact for steps 0–7 and all 9 greedy decode tokens matched.
-The strict zero-tolerance wrapper therefore exited `1`. A post-cleanup rerun is
-recorded in the final commit.
+The strict zero-tolerance wrapper therefore exited `1`. Post-cleanup job
+`0517f618-93b9-41b5-a05f-0320391c43b8` ran 50.469 s and reproduced those exact
+prefill errors, tokens, and exact decode steps before the same expected exit
+`1`, confirming that the scored source was restored to the assignment base.
 
 ## Novelty audit and follow-up
 
