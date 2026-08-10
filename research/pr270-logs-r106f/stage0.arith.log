@@ -1,0 +1,23 @@
+== Stage 0: M4 paired medians (ABBA) ==
+  cand decode   mean     8.1240 ms   AB spread 1.920%
+  base decode   mean    23.0340 ms   AB spread 0.582%
+  cand prefill  mean   546.4080 ms   AB spread 0.829%
+  base prefill  mean   611.8590 ms   AB spread 0.087%
+
+== speedups ==
+  decode   M4  2.8353x   M5  2.8312x   M4/M5  1.0015  (+0.15%)
+  prefill  M4  1.1198x   M5  1.9834x   M4/M5  0.5646  (-43.54%)
+  share of the M5 log-prefill gain visible on M4: 16.5%
+  share of the M5 log-decode  gain visible on M4: 100.1%
+
+== M4 -> M5 hardware factor, per tree ==
+  decode   base  1.663x   cand  1.660x   cand/base  0.999
+  prefill  base  3.208x   cand  5.683x   cand/base  1.771
+
+== scores implied by each host's own paired pair ==
+  M5 (harness)   cs = 2.590188
+  M4 (measured)  cs = 2.247673
+
+== the gap the brief prices ==
+  M5: 0.25*ln(dec/pre) = +8.90% of score
+  M4: 0.25*ln(dec/pre) = +23.23% of score

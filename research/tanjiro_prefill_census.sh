@@ -7,7 +7,7 @@
 # needed: SPLIT=0 alone mis-attributes families by up to 7.6x.
 set -u
 cd "$(dirname "$0")/.."
-OUT=research/pr270-logs
+OUT="${CENSUS_OUT:-research/pr270-logs}"
 mkdir -p "$OUT"
 
 export DARKBLOOM_STARTUP_MEMORY_PROFILE=full
@@ -17,7 +17,8 @@ for SPLIT in 1 0; do
   echo "=============== SPLIT=${SPLIT} ==============="
   DARKBLOOM_GPU_PROFILE_SPLIT="${SPLIT}" \
     python3 research/prefill_probe.py \
-      --reps 6 --profile --profile-top 60 \
+      --reps "${CENSUS_REPS:-6}" --profile \
+      --profile-top "${CENSUS_TOP:-60}" \
       --stderr "${OUT}/split${SPLIT}.worker.err" \
       2>&1 | tee "${OUT}/split${SPLIT}.log"
   echo "exit=${PIPESTATUS[0]}"

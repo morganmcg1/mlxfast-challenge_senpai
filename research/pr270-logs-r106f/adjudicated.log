@@ -1,0 +1,103 @@
+
+profile [replay: all buffers] over 7 request(s)
+  per-request dispatches [1222, 1222, 1222, 1222, 1222, 1222, 1222]
+  wall               548.386 ms/request
+  gpu busy (sum)     606.733 ms (110.6% of wall)
+  gpu busy (union)   545.559 ms ( 99.5% of wall)
+  command buffers     1066.0 /request
+  dispatches          1222.0 /request
+  bound bytes         28.834 GiB/request
+
+  dispatch                                                    n/req  us/call   ms/req  %wall  MB/call    GB/s   %bw             family
+  nvfp4_gather_qmm_rhs_nt                                      76.0   3492.6  265.440   48.4  238.016    71.5    27 routed_gather_gemm
+  steel_gemm_fused_nt_bfloat16_bfloat16_bm64_bn64_bk16_wm2_wn2_has_batch_n_use   82.0   2231.9  183.016   33.4   39.195    18.4     7    steel_gemm_bf16
+  arangeuint32                                                 76.0    750.8   57.057   10.4    0.016     0.0     0       sort_scatter
+  MIXED:steel_gemm_splitk_accum_bfloat16_float32+steel_gemm_splitk_nt_bfloat  310.0    114.9   35.612    6.5    3.636    33.2    13    steel_gemm_bf16
+  steel_attention_bfloat16_bq32_bk16_bd128_wm4_wn1_maskbfloat16_align_Q_t_alig   39.0    720.7   28.106    5.1   16.974    24.7     9     attention_core
+  nvfp4_qmm_t_splitk_fused                                     76.0    176.0   13.377    2.4    3.062    18.2     7    nvfp4_dense_qmm
+  ... 30 more dispatch kinds                                                   24.125    4.4
+
+  family                 n/req   ms/req  %wall    GB/s   %bw
+  routed_gather_gemm      76.0  265.440   48.4    71.5    27
+  steel_gemm_bf16        392.0  218.628   39.9    20.8     8
+  sort_scatter           154.0   59.690   10.9    19.0     7
+  attention_core          40.0   28.133    5.1    24.7    10
+  nvfp4_dense_qmm        116.0   19.998    3.6    32.6    13
+  elementwise            234.0    4.721    0.9   345.7   133
+  qk_norm_rope            41.0    4.197    0.8   182.9    70
+  moe_tail                38.0    2.539    0.5   345.7   133
+  rms_norm                83.0    1.735    0.3   286.6   110
+  router                  40.0    0.673    0.1    18.3     7
+  lm_head                  5.0    0.667    0.1  1437.7   553
+  other                    3.0    0.311    0.1   676.9   260
+
+  overlap-corrected attribution (sums to union busy; raw bracket sum is 111.2% of union)
+  family                fair ms  %wall  excl ms   raw ms  concur  GB bound    GB/s   %bw
+  routed_gather_gemm    242.173   44.2  218.905  265.440    1.10    18.968    78.3    30
+  steel_gemm_bf16       214.513   39.1  212.256  218.628    1.02     4.552    21.2     8
+  sort_scatter           31.139    5.7    2.587   59.690    1.92     1.135    36.5    14
+  attention_core         22.925    4.2   17.716   28.133    1.23     0.696    30.4    12
+  nvfp4_dense_qmm        19.998    3.6   19.998   19.998    1.00     0.652    32.6    13
+  elementwise             4.710    0.9    4.698    4.721    1.00     1.632   346.5   133
+  qk_norm_rope            4.177    0.8    4.158    4.197    1.00     0.768   183.8    71
+  moe_tail                2.539    0.5    2.539    2.539    1.00     0.878   345.7   133
+  rms_norm                1.714    0.3    1.714    1.735    1.01     0.497   290.2   112
+  router                  0.673    0.1    0.673    0.673    1.00     0.012    18.3     7
+  lm_head                 0.667    0.1    0.667    0.667    1.00     0.959  1437.7   553
+  other                   0.311    0.1    0.311    0.311    1.00     0.211   676.9   260
+  MIXED                   0.022    0.0    0.022    0.000    0.00     0.000     0.0     0
+  GPU-idle (unattrib.)    2.826    0.5
+  TOTAL                 548.386  100.0
+
+
+=== adjudicated: dropped 532 fully-covered buffers (arangeuint32) ===
+
+profile [replay: adjudicated] over 7 request(s)
+  per-request dispatches [1146, 1146, 1146, 1146, 1146, 1146, 1146]
+  wall               548.386 ms/request
+  gpu busy (sum)     549.676 ms (100.2% of wall)
+  gpu busy (union)   545.547 ms ( 99.5% of wall)
+  command buffers      990.0 /request
+  dispatches          1146.0 /request
+  bound bytes         28.833 GiB/request
+
+  dispatch                                                    n/req  us/call   ms/req  %wall  MB/call    GB/s   %bw             family
+  nvfp4_gather_qmm_rhs_nt                                      76.0   3492.6  265.440   48.4  238.016    71.5    27 routed_gather_gemm
+  steel_gemm_fused_nt_bfloat16_bfloat16_bm64_bn64_bk16_wm2_wn2_has_batch_n_use   82.0   2231.9  183.016   33.4   39.195    18.4     7    steel_gemm_bf16
+  MIXED:steel_gemm_splitk_accum_bfloat16_float32+steel_gemm_splitk_nt_bfloat  310.0    114.9   35.612    6.5    3.636    33.2    13    steel_gemm_bf16
+  steel_attention_bfloat16_bq32_bk16_bd128_wm4_wn1_maskbfloat16_align_Q_t_alig   39.0    720.7   28.106    5.1   16.974    24.7     9     attention_core
+  nvfp4_qmm_t_splitk_fused                                     76.0    176.0   13.377    2.4    3.062    18.2     7    nvfp4_dense_qmm
+  nvfp4_qmm_t                                                  38.0    173.0    6.573    1.2    3.062    18.6     7    nvfp4_dense_qmm
+  ... 29 more dispatch kinds                                                   17.552    3.2
+
+  family                 n/req   ms/req  %wall    GB/s   %bw
+  routed_gather_gemm      76.0  265.440   48.4    71.5    27
+  steel_gemm_bf16        392.0  218.628   39.9    20.8     8
+  attention_core          40.0   28.133    5.1    24.7    10
+  nvfp4_dense_qmm        116.0   19.998    3.6    32.6    13
+  elementwise            234.0    4.721    0.9   345.7   133
+  qk_norm_rope            41.0    4.197    0.8   182.9    70
+  sort_scatter            78.0    2.633    0.5   430.7   166
+  moe_tail                38.0    2.539    0.5   345.7   133
+  rms_norm                83.0    1.735    0.3   286.6   110
+  router                  40.0    0.673    0.1    18.3     7
+  lm_head                  5.0    0.667    0.1  1437.7   553
+  other                    3.0    0.311    0.1   676.9   260
+
+  overlap-corrected attribution (sums to union busy; raw bracket sum is 100.8% of union)
+  family                fair ms  %wall  excl ms   raw ms  concur  GB bound    GB/s   %bw
+  routed_gather_gemm    265.440   48.4  265.440  265.440    1.00    18.968    71.5    27
+  steel_gemm_bf16       214.513   39.1  212.256  218.628    1.02     4.552    21.2     8
+  attention_core         28.133    5.1   28.133   28.133    1.00     0.696    24.7    10
+  nvfp4_dense_qmm        19.998    3.6   19.998   19.998    1.00     0.652    32.6    13
+  elementwise             4.710    0.9    4.698    4.721    1.00     1.632   346.5   133
+  qk_norm_rope            4.194    0.8    4.191    4.197    1.00     0.768   183.0    70
+  sort_scatter            2.633    0.5    2.633    2.633    1.00     1.134   430.7   166
+  moe_tail                2.539    0.5    2.539    2.539    1.00     0.878   345.7   133
+  rms_norm                1.714    0.3    1.714    1.735    1.01     0.497   290.2   112
+  router                  0.673    0.1    0.673    0.673    1.00     0.012    18.3     7
+  lm_head                 0.667    0.1    0.667    0.667    1.00     0.959  1437.7   553
+  other                   0.311    0.1    0.311    0.311    1.00     0.211   676.9   260
+  MIXED                   0.022    0.0    0.022    0.000    0.00     0.000     0.0     0
+  GPU-idle (unattrib.)    2.839    0.5
+  TOTAL                 548.386  100.0
