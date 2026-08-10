@@ -99,10 +99,12 @@ Each census row pins:
 
 Each snapshot must contain one row for every census row, with no omissions,
 duplicates, or additions. Absence is represented by an explicit row with
-`state: "ABSENT"`, `value_utf8_b64: null`, and `value_length: 0`; it is never
-inferred from omission. Presence is represented by `state: "VALUE"`, exact raw
-UTF-8 bytes encoded in base64, exact byte length, parser profile, normalized
-semantic value, and a recomputable row digest.
+`state: "ABSENT"` and `value_utf8_b64: null`; it is never inferred from
+omission. Presence is represented by `state: "VALUE"`, exact raw UTF-8 bytes
+encoded in base64, parser profile, normalized semantic value, and a
+recomputable row digest. Snapshot rows do not store a value-length field; the
+validator decodes the value and frames its exact byte length when recomputing
+the row digest.
 
 The validator rejects unknown `DARKBLOOM_*` or `MLX_*` names rather than
 accepting a prefix-shaped addition. It also rejects invalid UTF-8, noncanonical
@@ -150,13 +152,14 @@ process classes. No phase-specific override is permitted.
 
 The sole supported exception is structural, not value-based: a selector row
 may exist in only one source revision when the separately trusted revision
-policy records exactly `selector`, `present_revision`, `missing_revision`,
-`present_stable_row_id`, `reason_code`, `allowed_state`,
-`allowed_value_sha256`, and `justification`. `reason_code` must be
-`REVISION_ONLY_NO_CONSUMER`; the present row and allowed state/value digest
-must match the census and snapshots. The validator rejects policy for a name
-present in both censuses, undeclared revision-only names, wrong revisions or
-row IDs, unsupported reason codes, and mismatched allowed values.
+policy records exactly `key`, `present_in_revision`, `missing_from_revision`,
+`reason_code`, `allowed_state`, `allowed_value_sha256`, and `justification`.
+`reason_code` must be `REVISION_ONLY_NO_CONSUMER`; the revision roles must be
+complementary, and the keyed present row and allowed state/value digest must
+match the census and snapshots. The policy carries no stable row identifier.
+The validator rejects policy for a name present in both censuses, undeclared
+revision-only names, wrong revision roles, unsupported reason codes, and
+mismatched allowed states or values.
 
 ## Separate trust boundary
 
