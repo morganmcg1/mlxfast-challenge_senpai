@@ -29,12 +29,14 @@ export DESIGN=rotate
 export REPS="${REPS:-18}"
 export WARMUP_REPS="${WARMUP_REPS:-0}"
 export STEPS="${STEPS:-250}"
-export ARMS="base:new \
-null1:new:DARKBLOOM_ROUTED_GATEUP_SG=1 \
-sg2:new:DARKBLOOM_ROUTED_GATEUP_SG=2 \
-sg4:new:DARKBLOOM_ROUTED_GATEUP_SG=4 \
-sg8:new:DARKBLOOM_ROUTED_GATEUP_SG=8 \
-sg16:new:DARKBLOOM_ROUTED_GATEUP_SG=16"
+# SEL_VAR picks the site: DARKBLOOM_ROUTED_GATEUP_SG is the routed gate/up
+# kernel (stage 1), DARKBLOOM_QKV_LM_SG the decode QKV lane-major kernel
+# (stage A). SG_LIST is the dose ladder; 1 is always the rejected-value null.
+SEL_VAR="${SEL_VAR:-DARKBLOOM_ROUTED_GATEUP_SG}"
+SG_LIST="${SG_LIST:-2 4 8 16}"
+arms="base:new null1:new:${SEL_VAR}=1"
+for s in ${SG_LIST}; do arms="${arms} sg${s}:new:${SEL_VAR}=${s}"; done
+export ARMS="${arms}"
 # abba expands these with ${VAR:-default}, so an empty string silently restores
 # its oldA/oldB defaults and aborts. Every arm here is one binary driven by env,
 # so assert that single-binary invariant and keep cmp itself non-vacuous by

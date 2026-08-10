@@ -17,6 +17,7 @@ set -uo pipefail
 
 SNAP="${SNAP:-/tmp/maple-r107a-snap}"
 OUT="${OUT:-/tmp/maple-r107a/prefill}"
+SEL_VAR="${SEL_VAR:-DARKBLOOM_ROUTED_GATEUP_SG}"
 REPS="${REPS:-8}"
 STEPS="${STEPS:-64}"
 SGS=("$@")
@@ -40,7 +41,7 @@ tree_digest() {
 DIGEST_BEFORE="$(tree_digest)"
 log "head=$(git rev-parse HEAD)"
 log "digest_before=${DIGEST_BEFORE}"
-log "reps=${REPS} steps=${STEPS} sgs=${SGS[*]}"
+log "reps=${REPS} steps=${STEPS} selector=${SEL_VAR} sgs=${SGS[*]}"
 log "host=$(sysctl -n machdep.cpu.brand_string)"
 shasum -a 256 "${WORKER}" | tee -a "${PROV}"
 
@@ -71,7 +72,7 @@ for rep in $(seq 1 "${REPS}"); do
     arm="sg${sg}"; [ "${sg}" = "0" ] && arm="base"
     tag=$(printf "rep%02d-pos%d-%s" "${rep}" "${pos}" "${arm}")
     echo "=== ${tag} ==="
-    env DARKBLOOM_ROUTED_GATEUP_SG="${sg}" \
+    env "${SEL_VAR}=${sg}" \
         DECODE_PROBE_WORKER="${WORKER}" \
       python3 research/decode_probe.py --steps "${STEPS}" --prefill \
         --dump-tokens "${OUT}/${tag}.tokens" \

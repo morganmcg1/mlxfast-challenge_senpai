@@ -245,7 +245,87 @@ on this site should not treat a clean 96-step parity run as strong evidence.
 
 ## 4. Stage 1 — rotated-palindrome full-decode timing
 
-TODO
+Design (rule 40/68/86): one binary, six arms, `DESIGN=rotate` so every rep is a
+rotated palindrome of 12 slots (2 × 6 arms), `STEPS=250` teacher-forced decode
+steps per slot, `REPS=18` = three complete rotation cycles, no warm-up reps
+discarded, thermal gate honoured between slots. Driver
+`research/maple-frieren-r103a-abba.sh` (rule 58: reused, not rebuilt),
+analyzer `research/maple-frieren-r103a-analyze-multi.py`.
+
+```text
+arms = base:new                                    (shipped path, selector unset)
+       null1:new:DARKBLOOM_ROUTED_GATEUP_SG=1      (rejected value -> shipped path)
+       sg2 :new:DARKBLOOM_ROUTED_GATEUP_SG=2       (selector on, S unchanged)
+       sg4 :new:DARKBLOOM_ROUTED_GATEUP_SG=4
+       sg8 :new:DARKBLOOM_ROUTED_GATEUP_SG=8
+       sg16:new:DARKBLOOM_ROUTED_GATEUP_SG=16
+QC: 0 slots rejected, 0 reps voided; 216 timed slots, 54,000 timed steps
+rule 75: digest 9f22da52...b7526b identical before and after the timed run
+head = 81e57aa7 (pre-rebase sha of this branch; Sources/Vendor identical to the
+       post-rebase tree, the advisor-tip delta being docs plus one default-inert
+       env gate in Vendor/.../quantized.cpp)
+```
+
+Per-arm level (median statistic, mean over 18 reps, µs/step):
+
+| arm | level | sd(rep) |
+| --- | --- | --- |
+| base | 8235.4 | 13.3 |
+| null1 | 8232.4 | 13.5 |
+| sg2 | 8232.3 | 8.9 |
+| sg4 | 8237.6 | 12.5 |
+| sg8 | 8240.5 | 6.0 |
+| sg16 | 8298.8 | 7.1 |
+
+Drift-cancelled paired contrasts (later − earlier, µs/step, K = 18):
+
+| contrast | mean | 95 % hw | lo | hi | sign +/− | % of `cs` |
+| --- | --- | --- | --- | --- | --- | --- |
+| base→null1 | −2.91 | 9.80 | −12.72 | +6.89 | 9/9 | −0.044 |
+| base→sg2 | −3.03 | 8.64 | −11.66 | +5.61 | 9/9 | −0.046 |
+| base→sg4 | +2.22 | 8.67 | −6.46 | +10.89 | 11/7 | +0.034 |
+| base→sg8 | +5.15 | 7.64 | −2.49 | +12.79 | 15/3 | +0.078 |
+| **base→sg16** | **+63.49** | **7.83** | **+55.66** | **+71.32** | **18/0** | **+0.967** |
+| sg2→sg4 | +5.24 | 5.87 | −0.63 | +11.12 | 14/4 | +0.080 |
+| sg2→sg8 | +8.18 | 4.97 | +3.21 | +13.15 | 15/3 | +0.125 |
+| sg4→sg8 | +2.94 | 6.17 | −3.24 | +9.11 | 15/3 | +0.045 |
+
+Positive is slower. Cycle-blocked (K = 3) half-widths for the same point
+estimates are 11.9–22.1 µs, and dropping the first rotation cycle (K = 12) moves
+every estimate by less than its own half-width (`base→sg8` +5.15 → +3.18,
+`base→sg16` +63.49 → +60.89). The trimmed-mean statistic reproduces the same
+ordering and the same sign pattern.
+
+Three readings, all preregistered:
+
+1. **The machinery is free.** `base→null1` (identical execution, different
+   environment) is −2.91 [−12.72, +6.89] and `base→sg2` (selector on, same S,
+   different pipeline *name*) is −3.03 [−11.66, +5.61]. Both straddle zero with
+   9/18 signs. The `_sgN` name separation and the extra lazy static cost
+   nothing measurable, so every S≠2 contrast below is attributable to geometry
+   rather than to the selector.
+2. **`N-SITE1`: the shipped S = 2 is at or inside the optimum.** No candidate S
+   is faster. The ordering is monotone in S (sg2 < sg4 < sg8 ≪ sg16) and the
+   two candidate arms are bounded tightly: this design excludes any
+   |base→sg4| > 18.4 µs/step and any |base→sg8| > 17.1 µs/step on M4 Pro, i.e.
+   ±0.28 % and ±0.26 % of `cs`. Under a Bonferroni correction across all 15
+   pairwise contrasts, no pair differs by more than 27.0 µs. The 26 µs/step
+   graduation bar therefore cannot be met at this site by any S in {4, 8}: the
+   *upper* end of the `base→sg8` interval is +12.8 µs on the slow side, and even
+   the most favourable reading of the interval is a 2.5 µs gain, one tenth of
+   the bar.
+3. **PR #48's collapse penalty reproduces here, and it is not site-specific.**
+   `base→sg16` is +63.5 µs/step = +0.967 % of `cs` with 18/18 slower signs — the
+   largest clean single-knob regression measured in this arm. That is the same
+   direction and, allowing for the M4-vs-M5 scale factor, roughly the same size
+   as the −0.1488 % official receipt `285f79fa` charged to #48's 8× collapse.
+   The mechanism is visible in the stage-0 ledger: total simdgroups and
+   rows-per-simdgroup are invariant, only threadgroup count changes, so
+   collapsing threadgroups can only lose — it removes independent scheduling
+   units from a kernel that is already issue-bound (maple-alphonse measured this
+   kernel at 114.2 GB/s = 42.9 % of M4 Pro peak, PR #630). At S = 16 the routed
+   site keeps just 256 threadgroups = 12.8 per GPU core on this host, and the
+   tail of a 256-threadgroup dispatch is no longer hidden.
 
 ## 5. Prefill
 
