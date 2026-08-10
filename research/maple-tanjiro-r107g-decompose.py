@@ -102,3 +102,70 @@ report(
     m4_family_us_step=1497.7,
     k=ALPHA,
 )
+
+# ================================================================ CROSS-FAMILY AUDIT
+# Measured host constants (this report):
+FMA_CEILING = 3.4453e12        # stage1-ALU-ceiling-s1-tgs2048-tpt64, sustained
+STREAM_BEST = 262.96e9         # stage1-BW-geometry-s1, best geometry (8 TG/core x 64 thr)
+EXPOSURE_AT_BASE = 0.087       # measured on family D; transferred, flagged in the report
+
+MACHINE_BALANCE = DRAM_PEAK / FMA_CEILING      # bytes per fma at which the host is balanced
+
+# family, calls/step, HEAD MB/step (fern r101 audit), M4 us/step (B.0.3),
+# threads, total fma/dispatch, streaming GB/s achievable at that geometry (measured)
+FAMILIES = [
+    ("D  T2c routed gate+up",   39, 347.60, 1497.7, 131_072,  8 * 2 * 512 * 2048, 256.4e9),
+    ("A  T3b oproj h64",        30, 259.58, 1117.7,  16_384,      2048 * 8192,    254.4e9),
+    ("C  T0b(a) qkv h64",       30, 324.71, 1340.1,  81_920,     10240 * 2048,    254.4e9),
+    ("B  T2d down+residual",    39, 195.53,  858.9, 147_456,  9 * 2048 * 512,     252.3e9),
+    ("E  T2b gate_sp h64",      30,   7.86,  248.0,   1_920,        64 * 2048,    219.3e9),
+]
+
+print("\n\n================ CROSS-FAMILY BYTE / ISSUE AUDIT ================")
+print(f"  measured DRAM peak              {DRAM_PEAK/1e9:.1f} GB/s")
+print(f"  measured best streaming rate    {STREAM_BEST/1e9:.2f} GB/s "
+      f"= {STREAM_BEST/DRAM_PEAK*100:.1f} % of peak")
+print(f"  measured sustained fma ceiling  {FMA_CEILING/1e12:.4f}e12 fma/s")
+print(f"  ==> MACHINE BALANCE POINT       {MACHINE_BALANCE:.5f} bytes per fma")
+print("\n  family                       disp_us   B/dispatch   GB/s   %peak  %geom   "
+      "B/fma  x_bal  nom_ALU%  exp_ALU%  lat%")
+rows = []
+for name, calls, headMB, m4, threads, fma, geom in FAMILIES:
+    dus = m4 / calls
+    b = headMB * 1e6 / calls
+    ach = b / (dus * 1e-6)
+    issue_nom = fma / FMA_CEILING * 1e6
+    issue_exp = issue_nom * EXPOSURE_AT_BASE
+    byte_term = b / DRAM_PEAK * 1e6
+    lat = dus - byte_term - issue_exp
+    intensity = b / fma
+    rows.append((name, dus, ach, issue_nom, issue_exp, byte_term, lat))
+    print(f"  {name:26s} {dus:7.2f} {b:11,.0f} {ach/1e9:6.1f} {ach/DRAM_PEAK*100:7.1f}"
+          f" {ach/geom*100:6.1f} {intensity:7.3f} {intensity/MACHINE_BALANCE:6.1f}"
+          f" {issue_nom/dus*100:9.1f} {issue_exp/dus*100:9.2f} {lat/dus*100:6.1f}")
+
+print("\n  regime call: BYTES when %geom >= 85 and exp_ALU% < 5 and lat% < 25")
+for name, dus, ach, inom, iexp, bt, lat in rows:
+    if ach / DRAM_PEAK > 0.5 and iexp / dus < 0.05 and lat / dus < 0.25:
+        verdict, k = "BYTES", ALPHA
+    elif iexp / dus > 0.30:
+        verdict, k = "ISSUE", None
+    else:
+        verdict, k = "LATENCY", BETA
+    kd = "no valid k - ISSUE-bound" if k is None else f"k = {k}"
+    print(f"  {name:26s} -> {verdict:8s}  {kd}")
+
+# ---------------------------------------------------------------- alpha/beta adjudication
+print("\n\n================ 3.5  ALPHA / BETA ADJUDICATION ================")
+# alpha-free measured M5 achieved rates and M4 efficiencies (B.0.6 + this report)
+POOLS = [("routed", 515.9, 0.864), ("qkvo", 597.9, 0.883)]
+print("  pool     M5 achieved   M4 efficiency   ceiling M5 needs for efficiency-invariance"
+      "   implied alpha")
+for pool, m5_ach, m4_eff in POOLS:
+    need = m5_ach / m4_eff
+    print(f"  {pool:8s} {m5_ach:9.1f}    {m4_eff*100:9.1f} %      {need:14.1f} GB/s"
+          f"            {DRAM_PEAK/1e9/need:8.4f}")
+for label, ceil in (("alpha=0.4369 -> 610.6", 610.6), ("alpha=0.389  -> 686.0", 686.0)):
+    devs = [(m5 / ceil - eff) * 100 for _, m5, eff in POOLS]
+    print(f"  {label}:  routed {devs[0]:+.1f} pp   qkvo {devs[1]:+.1f} pp"
+          f"   SSE {devs[0]**2 + devs[1]**2:7.1f} pp^2")

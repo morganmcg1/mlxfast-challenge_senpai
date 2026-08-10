@@ -10,13 +10,54 @@ supplies them, and are always marked.
 
 ## VERDICT TABLE (incremental — one row committed as each family's ladder lands)
 
-| family | kernel | regime verdict (measured) | dose slope, exposed µs / fma-per-thread | implied k | 0.4 % bar (instr/thread) | 0.4 % bar (bytes/step) | rule 55 |
-|---|---|---|---|---|---|---|---|
-| D | T2c routed gate+up QMV | **BYTES** (86.4 % of measured DRAM peak; 95.5 % marginal) | 0.003313 (base) → 0.015645 (high dose); pure-ALU slot = 0.038044 | **α = 0.4369** | 465 = 3.64× the whole base ALU load ⇒ unreachable | 15.10 MiB/step = 4.55 % of the family's own bytes | **CONFIRMS CLOSURE** |
-| A | T3b oproj h64 | _pending_ | | | | | |
-| B | T2d routed+shared down+residual | _pending_ | | | | | |
-| C | T0b(a) qkv h64 lane-major | _pending_ | | | | | |
-| E | T2b gate_sp h64 | _pending_ | | | | | |
+| family | kernel | regime verdict | evidence | implied k | 0.4 % bar, instr/thread (exposed / nominal) vs base ALU load | 0.4 % bar, bytes/step | whole non-byte slack, in bars | rule 55 |
+|---|---|---|---|---|---|---|---|---|
+| D | T2c routed gate+up QMV | **BYTES** | **DIRECTLY PROBED** — 86.4 % of measured DRAM peak, 95.5 % marginal; dose slope 0.003313 exposed vs 0.038044 pure-ALU slot ⇒ 8.7 % exposure; reach +1.03 % vs charge | **α = 0.4369** | 466 / 41 vs base 128 ⇒ 3.6× the entire base load | 15.10 MiB/step = 4.55 % of the family's own bytes | **0.62** | **CONFIRMS CLOSURE** |
+| A | T3b oproj h64 | **BYTES** | *inferred* — 87.2 % of peak, 91.3 % of geometry-achievable; dispatch 37.26 µs vs DRAM floor 36.46 µs ⇒ **0.79 µs of total non-byte slack** | **α = 0.4369** | 5,112 / 445 vs base 1024 ⇒ 5.0× | 15.10 MiB/step = 5.8 % of the family's own bytes | **0.40** | **CONFIRMS CLOSURE** |
+| B | T2d routed+shared down+residual | **BYTES** | *inferred* — 85.5 % of peak, 90.2 % of geometry-achievable; dispatch 22.02 µs is **below** the modelled floor 22.80 µs ⇒ slack ≤ 0 | **α = 0.4369** | 466 / 41 vs base 64 ⇒ 7.3× | 15.10 MiB/step = 7.7 % of the family's own bytes | **≤ 0** | **CONFIRMS CLOSURE** |
+| C | T0b(a) qkv h64 lane-major | **BYTES** | *inferred* — 91.0 % of peak, 95.2 % of geometry-achievable (best GEMV rate on M4); dispatch 44.67 µs vs floor 44.62 µs ⇒ **0.06 µs slack** | **α = 0.4369** | 605 / 53 vs base 256 ⇒ 2.4× | 15.10 MiB/step = 4.6 % of the family's own bytes | **0.03** | **CONFIRMS CLOSURE** |
+| E | T2b gate_sp h64 | **LATENCY** (not ISSUE) | *inferred* — 11.9 % of peak; 262 KB in 8.27 µs; byte time is 0.98 µs, so **88 % of the dispatch is neither bytes nor issue** | **β = 0.5** | 529 / 46 vs base ≈68 ⇒ 7.8× | n/a — the whole family only moves 7.9 MiB/step | **1.89** (the only family with real slack) | **CONFIRMS CLOSURE** — the live axis is dispatch-count/fusion, already priced by #48 at −0.1488 % |
+
+**Headline outcome: `N-BYTES-EVERYWHERE`** for the four NVFP4 GEMV families, plus
+**LATENCY** (not ISSUE) for the adversarial low-efficiency target E. No ISSUE lever exists
+anywhere in the decode family pool. The §1.5 machine-balance-point theorem shows this is
+not an accident of the current code — it is forced by two measured host constants.
+
+**Provenance discipline:** family D is *directly probed* (dose ladder + bytes ladder, two
+independent residency-defeated sessions, reach within 1.03 % of the charge). Families A, B,
+C, E are *inferred* from (i) the charge's audited M4 µs/step, (ii) my own byte model
+validated against fern's independent audit to 0.15–2.2 %, and (iii) the two host constants
+measured here. The inference is stated as an inequality wherever it can only be bounded.
+
+## Decision memo for #644 (alphonse) / #597 (frieren) / #629 (edward)
+
+Published **2026-08-10, Stage 1**, ahead of the 21:00Z memo requirement, so that it is
+actionable before the 06:00Z handoff and the 07:00Z integration freeze. Read the one line
+for your issue; §3.3 is the evidence and §3.5 is the pricing caveat.
+
+| for | family | verdict | confidence | why |
+|---|---|---|---|---|
+| **#644 alphonse** | A — T3b oproj h64 | **STOP on the instruction axis; RE-AIM to bytes or stand down** | **high** | A runs at 37.26 µs against a 36.46 µs DRAM floor. Its *entire* non-byte budget — all exposed ALU, all latency, everything — is 0.79 µs/dispatch = 23.8 M4 µs/step = **0.159 % of `cs` = 0.40 of one bar**. No instruction-side change in this kernel can clear 0.4 %, even if it removed every instruction. The bytes axis needs 15.10 MiB/step = 5.8 % of the family's own traffic, which no metadata or packing trick left on the table can supply (#615 already took the metadata; L3 already took the packing default). |
+| **#597 frieren** | B — T2d routed+shared down+residual | **STOP on the instruction axis** | **high** | B is the one family that already runs *at or below* the modelled DRAM floor (22.02 µs measured vs 22.80 µs modelled). Slack ≤ 0 bars. There is nothing to buy on the issue axis and the byte axis would need 15.10 MiB/step = 7.7 % of the family's own traffic. The −0.78 µs discrepancy is itself a finding (see threats): either B.0.3 slightly understates B's M4 cost or the 3.97 µs intercept is smaller at 288 thr/TG. |
+| **#629 edward** | C — T0b(a) qkv h64, and D — T2c routed gate+up | **STOP on the instruction axis for both; C is finished** | **high (C), very high (D — directly probed)** | C: 44.67 µs against a 44.62 µs floor, i.e. **99.9 % of the theoretical best for its byte traffic**. Slack 0.03 bars. D: directly probed; exposed ALU is 1.1 % of the dispatch, the 0.4 % bar is 466 instructions/thread against a base load of 128, so the bar is **3.6× the entire arithmetic content of the kernel**. K-loop staging depth (#630) and `DARKBLOOM_QMV_WIDE_CODES` (−0.5363 %) are both consistent with this. |
+| **adversarial target** | E — T2b gate_sp h64 | **RE-AIM: the regime is LATENCY, not ISSUE and not BYTES** | **medium** (inferred, and the fix is on a deconflicted axis) | 88 % of E's 8.27 µs dispatch is neither bytes (0.98 µs) nor issue (0.04 µs). It is dispatch overhead: rule 65's +2.3403 µs/dispatch plus rule 55's 3.97 µs intercept explain ~6.3 of the missing 7.3 µs. Fusing the dispatch away entirely is worth **1.664 % of `cs` = 4.16 bars** — the largest nameable prize in this census by 6× — but #48 already scored −0.1488 % on the dispatch-count axis, so this needs a *genuine* fusion, not a dispatch merge. |
+| **the campaign** | α / β | **`N-DEGENERATE`, and the resolving experiment is free** | **high** | No single scalar α satisfies efficiency-invariance on both pools: `routed` demands a 597.1 GB/s M5 ceiling, `qkvo` demands 677.1 — **13 % apart** (§3.5). α-free bound: **α < 0.4454**. Run `research/fern_r101_bw_probe.swift` on the official M5: ~7 s, zero receipts. |
+
+**What this memo is *not* saying.** It is not saying these families are cheap — they are the
+four most expensive things in the decode step, 1.13 GB/step between them. It is saying that
+every microsecond in them is already accounted for by bytes moved at 85–91 % of the measured
+DRAM ceiling, so the *only* lever that can move them is moving fewer bytes, and the price of
+that lever is now known: **15.10 MiB/step per 0.4 %**, i.e. 4.5–7.7 % of each family's own
+traffic. Anybody proposing an instruction-count change to A, B, C or D in the remaining hours
+is proposing something that cannot clear the bar even in the limit. That is the useful part.
+
+**Where I would put the campaign's last hours**, in order: (1) the 7-second M5 bandwidth
+probe, because it re-prices every remaining decision and costs nothing; (2) family E's
+fusion, as the only ≥1-bar prize the census located; (3) T3a sliding fused attention, which
+at 32.4 % of peak in fern's audit and `N-ISSUE-BOUND` in my own #642 is the one family in the
+whole decode step whose regime is *not* bytes and which therefore still has a genuine
+instruction axis. Nothing else in the pool is worth a receipt.
+
 
 ## 0. Base-hygiene statement (no rerun, no re-baseline)
 
@@ -71,6 +112,86 @@ Occupancy match for the denominator: both the QMV kernel and the ALU probe repor
 `tgMemB = 0`, `maxTotalThreadsPerThreadgroup = 1024`, `threadExecutionWidth = 32`, and
 both are dispatched at 64 threads/TG. Residual register-pressure differences are the main
 threat to this denominator; see §T.
+
+## 1.5 Instrument: the bandwidth ceiling, and the machine balance point
+
+The second denominator the census needs is the *achievable* streaming rate at each family's
+geometry, because "% of DRAM peak" is only meaningful once you know how much of the peak the
+geometry itself can reach. I reused fern's audited streaming probe unmodified
+(`xcrun swiftc -O research/fern_r101_bw_probe.swift -o /tmp/bwprobe`), swept it, and archived
+the whole 110-line session to
+`research/artifacts/maple-tanjiro-r107g/stage1-BW-geometry-s1.txt`.
+
+Autotune at a 512 MiB working set (well past SLC), GB/s:
+
+| threadgroups | 64 thr/TG | 288 thr/TG |
+|---|---|---|
+| 80 | 219–225 | 256.7–257.4 |
+| 160 | **262.58–262.96 (winner)** | 255.4 |
+| 260 | 254.4 | 254.6 |
+| 520 | 256.4 | 252.3–252.8 |
+
+Best measured streaming rate = **262.96 GB/s = 98.7 % of the 266.3 GB/s ceiling**. The
+geometry penalty is real but small: the worst configuration in the sweep still reaches 82 %
+of the best, and every configuration a decode kernel actually uses reaches 94–99 % of the
+best. So the "% of geometry-achievable" column in §3 is computed against the rate measured
+at each family's own (threadgroups, threads/TG), not against the global best.
+
+SLC ladder, sequential arm at the winning geometry (160 TG × 64 thr, ilp 4):
+
+| working set | GB/s |
+|---|---|
+| 2 MiB | 1820 |
+| 4 MiB | 1521 |
+| 8 MiB | 585 |
+| 12 MiB | 506 |
+| 16 MiB | 300 |
+| 20 MiB | 267 |
+| 24 MiB | 265 |
+| 32 MiB | 263 |
+
+⇒ **effective SLC ≈ 12–16 MiB on this M4 Pro.** This is the number that makes rule 98.9
+non-negotiable for this census: every one of the five families has a per-dispatch unique
+footprint of 0.26–10.8 MiB, i.e. *inside* the SLC. Any un-defeated measurement of any of
+them is measuring cache, not the machine. §2.5 quantifies exactly how badly that misleads.
+
+### The machine balance point (this is the whole census in one line)
+
+Two measured constants:
+
+```
+DRAM ceiling        266.3e9 bytes/s
+sustained fma issue   3.4453e12 fma/s
+------------------------------------------------
+balance point       266.3e9 / 3.4453e12 = 0.07729 bytes per fma
+```
+
+A kernel is ALU-bound iff its arithmetic intensity is *below* the balance point, i.e. iff it
+moves fewer than 0.0773 bytes per fma. The NVFP4 decode GEMV families move **0.516–0.531
+bytes per fma** (§3 table, derived from the shipped packing: 0.5 B/value codes + 0.0625 B/value
+fp8 scales + lane-major nibbles, two fma per value for gate+up or one for a plain projection).
+That is **6.7–6.9× above the balance point**.
+
+Therefore, as an identity and not as a measurement:
+
+> **No NVFP4 decode GEMV on this machine can be issue-bound.** At 0.52 B/fma the memory system
+> is busy 6.7× longer than the ALU pipe for the same work, so ALU occupancy cannot exceed
+> ~13–15 %, and removing *all* arithmetic from the kernel cannot save more than that fraction —
+> and in practice saves far less, because the arithmetic is overlapped (§2.4: only 8.7 % of the
+> nominal ALU cost is exposed at the operating point).
+
+This is why the census outcome is `N-BYTES-EVERYWHERE` rather than a list of five
+independently surprising results, and it is why family D's direct probe generalises: the
+probe measures the *exposure fraction* (8.7 % at base), and the balance point bounds the
+*nominal fraction* (12.4–13.6 %) for every family in the pool without further receipts.
+**Rule 55's closure is therefore confirmed globally for the NVFP4 GEMV pool, from first
+principles, on two host constants I measured myself.**
+
+The one family that escapes the argument is **E (T2b gate_sp h64)** at 1.999 B/fma — but it
+escapes in the *wrong direction*: it is 25.9× above the balance point, so it is even less
+ALU-bound. Its problem is that it moves only 262 KB in 8.27 µs (11.9 % of peak), i.e. it is
+**latency/dispatch-overhead bound**. See §3.4.
+
 
 ## 2. FAMILY D — T2c routed gate+up QMV — regime **BYTES**, k = α = 0.4369
 
@@ -287,3 +408,213 @@ peak, 95.5 % marginal bandwidth, 8.7 % ALU exposure at the operating point), the
 **k = α is the right constant for this family for measured reasons**, and B.0.3's T2c row
 is confirmed rather than merely self-consistent. **No B.0.3 label fails measurement in
 family D.**
+
+## 3. FAMILIES A, B, C, E — the inferred census
+
+### 3.0 Why inference, and what makes it safe
+
+Stage 1 was budgeted for two more *direct* dose ladders. It bought one hard instrument
+instead (the ALU ceiling, §1) because the first family produced an impossible number, and
+that instrument turned out to be worth more than two more ladders: combined with the
+bandwidth ceiling (§1.5) it yields the **machine balance point**, which decides the regime
+of every NVFP4 GEMV family in the pool without a single further dispatch.
+
+So families A, B, C and E are decided by a triangulation whose three legs are all
+independently checkable:
+
+1. **the charge's own audited M4 µs/step** for each family (B.0.3), giving `dispatch_us`;
+2. **my byte model of each kernel**, read off the shipped launcher argument shapes, and
+   validated below against fern's completely independent audit;
+3. **two host constants I measured myself** (266.3 GB/s achievable, 3.4453e12 fma/s
+   sustained), giving the byte term, the issue term and hence the residual.
+
+Everything inferred is labelled *inferred*, and where the inference can only bound a
+quantity I report the bound, not a point estimate.
+
+### 3.1 Byte-model validation against fern's independent audit
+
+fern's `research/fern-r101-decode-pool-model.md` §7 audits per-step bytes for the whole
+decode pool by a different route (counting call sites and weight tensors from the config).
+I built my per-dispatch byte model from the launcher argument shapes at each anchor. The two
+agree:
+
+| family | my model, B/dispatch | × calls | fern's audited MB/step | agreement |
+|---|---|---|---|---|
+| D T2c routed gate+up | 8,925,845 | 39 | 347.60 | **0.15 %** |
+| A T3b oproj h64 (lane-major, **pairwise**) | 8,673,408 | 30 | 259.58 | **0.24 %** |
+| C T0b(a) qkv h64 lane-major | 10,848,256 | 30 | 324.71 | **0.22 %** |
+| B T2d routed+shared down+residual | 4,901,888 | 39 | 195.53 | −2.2 % |
+| E T2b gate_sp h64 | 262,144 | 30 | 7.86 | exact (64 × 2048 × 2 B BF16) |
+
+Three of the five agree to a quarter of a percent by two independent routes. That is the
+licence to use the byte term as a *known* quantity in the decomposition rather than as a fit
+parameter, and it is what makes the residual meaningful.
+
+Two by-products worth recording:
+
+- **Family A ships the pairwise lane-major path.** `nibbleBytes`
+  (`LagunaRuntimeWeights.swift:878`) is `groups/2` normally and `groups/4` when pairwise.
+  Only the pairwise variant lands within 0.24 % of fern's audit; the non-pairwise variant
+  overshoots. Independent confirmation: A's measured achieved rate is 232.2 GB/s; if the
+  launcher's `scales` buffer were *also* being read, the implied rate would exceed the DRAM
+  peak, which is impossible. So the lane-major path ships **and** `scales` is not read on
+  that path. Both facts are needed for A's floor calculation and neither is in B.0.3.
+- **Family E's traffic is exactly one BF16 `g_proj` tensor**, 64 heads × 2048 × 2 B. There is
+  no quantised weight, no scale table, nothing to compress. The byte axis in E is already at
+  its information-theoretic floor for the current numerics.
+
+### 3.2 The cross-family decomposition table
+
+`research/maple-tanjiro-r107g-decompose.py` → `stage1-crossfamily-audit.txt`.
+`disp_us = M4 µs/step ÷ calls`; `GB/s = bytes ÷ disp_us`; `%geom` is against the streaming
+rate measured at that family's own geometry (§1.5); `B/fma` is the family's arithmetic
+intensity; `x_bal` is `B/fma ÷ 0.07729`; `nom_ALU%` is the fraction of the dispatch the
+nominal issue term would occupy; `exp_ALU%` applies family D's measured 8.7 % exposure.
+
+| family | disp µs | B/dispatch | GB/s | % peak | % geom | B/fma | × balance | nom ALU % | exp ALU % | latency % |
+|---|---|---|---|---|---|---|---|---|---|---|
+| D T2c routed gate+up | 38.40 | 8,912,821 | 232.1 | 87.2 | 90.5 | 0.531 | 6.9 | 12.7 | 1.10 | 11.7 |
+| A T3b oproj h64 | 37.26 | 8,652,667 | 232.2 | 87.2 | 91.3 | 0.516 | 6.7 | 13.1 | 1.14 | 11.7 |
+| C T0b(a) qkv h64 | 44.67 | 10,823,667 | 242.3 | 91.0 | 95.2 | 0.516 | 6.7 | 13.6 | 1.19 | 7.8 |
+| B T2d down+residual | 22.02 | 5,013,590 | 227.7 | 85.5 | 90.2 | 0.531 | 6.9 | 12.4 | 1.08 | 13.4 |
+| E T2b gate_sp h64 | 8.27 | 262,000 | 31.7 | 11.9 | 14.5 | 1.999 | 25.9 | 0.5 | 0.04 | 88.1 |
+
+Decision rule, declared before the table was computed: **BYTES** when `%geom ≥ 85` and
+`exp_ALU% < 5` and `latency% < 25`; **ISSUE** when `exp_ALU%` dominates; **LATENCY** when the
+residual dominates; **MIXED** otherwise. Outcome: D, A, C, B → **BYTES**; E → **LATENCY**.
+Nothing in the pool is ISSUE, and nothing is MIXED.
+
+### 3.3 The non-byte slack bound — the strongest form of the result
+
+The regime labels above use exposure fractions carried from family D. There is a stronger
+argument for A, B and C that needs *no* carried exposure fraction at all, and it is the one
+I would defend under cross-examination. `research/maple-tanjiro-r107g-slack.py` →
+`stage1-slack-bound.txt`:
+
+```
+family                     disp_us  bytes_us  floor_us  slack_us  slack/step  max %cs  bars
+D  T2c routed gate+up        38.40    33.469    37.439     0.963       37.6    0.250   0.62
+A  T3b oproj h64             37.26    32.492    36.462     0.794       23.8    0.159   0.40
+C  T0b(a) qkv h64            44.67    40.645    44.615     0.055        1.7    0.011   0.03
+B  T2d down+residual         22.02    18.827    22.797    -0.774      -30.2   -0.201  -0.50
+E  T2b gate_sp h64            8.27     0.984     4.954     3.313       99.4    0.757   1.89
+```
+
+`floor_us = bytes/266.3 GB/s + 3.97 µs`, where 3.97 µs is rule 55's measured per-dispatch
+intercept on M4. **No change that leaves the byte traffic alone can push a dispatch below
+that floor** — and every instruction-side change, which is exactly what this census was
+commissioned to price, leaves the byte traffic alone. So `slack_us` is a *hard ceiling on
+the entire non-byte lever*, exposed ALU and unexplained latency and everything else lumped
+together, and it needs no assumption about overlap.
+
+Read as bars: A = 0.40, C = 0.03, B ≤ 0, D = 0.62. **For all four NVFP4 GEMV families the
+entire non-byte budget is smaller than one 0.4 % bar.** You could delete every arithmetic
+instruction and every source of latency from these four kernels and still not clear the bar
+on any of them. That is the census result, and it is why the outcome is
+`N-BYTES-EVERYWHERE`.
+
+Family C is the sharpest case: at 44.67 µs against a 44.62 µs floor it is running at
+**99.9 % of the theoretical best a kernel with its byte traffic can achieve on this host**.
+Edward's #629 work on C (L3) should be understood as having already finished the job.
+
+Family A is the second sharpest and is worth stating plainly for alphonse: **A sits at the
+rule-55 DRAM floor.** 37.26 µs measured against 36.46 µs ideal is 97.9 % of the floor. There
+is 0.79 µs per dispatch in it, total, for all causes.
+
+### 3.4 Family E — LATENCY, and the only real slack in the pool
+
+E is the assignment's adversarial target: 10.4 % of peak in fern's M5 model, 11.9 % of peak
+in mine, scored 1.69 %. The census says its regime is **LATENCY**, and specifically
+**dispatch overhead**, not ISSUE and not BYTES:
+
+- byte time is **0.98 µs** of an 8.27 µs dispatch (11.9 %);
+- nominal issue time is **0.04 µs** (0.5 %) — the kernel does ~68 fma per thread across
+  ~1,920 threads, which is nothing;
+- so **≈7.3 µs, 88 % of the dispatch, is neither.** Rule 65's measured fixed cost of
+  **+2.3403 µs per additional dispatch** accounts for 2.34 µs of that, and rule 55's
+  intercept for ~3.97 µs; together they explain ~6.3 µs of the 7.3 µs.
+
+E is therefore not a kernel-efficiency problem at all. It is a *dispatch* that costs almost
+exactly what an empty dispatch costs, repeated 30 times per step. The implied prize is large
+and should be stated so that nobody re-derives it: fusing the dispatch away entirely, with
+its bytes moving inside whatever absorbs it, is worth
+**218.5 M4 µs/step = 1.664 % of `cs` = 4.16 bars** at k = β = 0.5.
+
+That is the largest single nameable prize in this census by a factor of six. It is also on
+the one axis the campaign has already priced and lost on: **#48 dispatch-count reduction
+scored −0.1488 %**. My reading is that the prize is real but that the fusion has to be a
+*genuine* fusion (E's 262 KB of `g_proj` read inside the neighbour's dispatch), not a
+dispatch-count reduction that re-materialises the same work with worse locality. I do not
+have the receipts to attempt it in the hours remaining, and rule 105.7 says one unpaired M4
+receipt cannot see a change of this size anyway — but 4.16 bars is worth a paired ABBA if
+anyone has the receipts. **k = β = 0.5 for E**, because T1a/T2b sit in the pool whose two-pool
+map constant is β; and note that at β the bar is 52.5 M4 µs/step, the cheapest bar in the
+model.
+
+### 3.5 α / β adjudication — verdict `N-DEGENERATE`, sharpened
+
+The census cannot be published in `% of cs` without a position on `k`, so here is one.
+
+B.0.6 records the two-pool residual test. The pieces that matter are the **M5 achieved
+bandwidths**, because those are computed from measured M5 times and audited bytes and are
+therefore **independent of α**: only the *ceiling* they are divided by depends on α.
+
+| pool | M4 µs/step | M5 predicted | M5 measured | residual | M5 achieved GB/s | M4 efficiency (mine, measured) |
+|---|---|---|---|---|---|---|
+| routed | 2261.2 | 988.0 | 1010.67 | −2.24 % | **515.9** | 86.4 % (family D, direct) |
+| qkvo | 3122.4 | 1364.3 | 1230.70 | +10.86 % | **597.9** | 88.3 % |
+
+Now apply the principle B.0.6 itself relies on — *a family does not become materially more
+or less efficient just because the host changed* — to **both** pools at once, which B.0.6
+does not do:
+
+| candidate | M5 ceiling | routed: M5 % peak vs M4 86.4 % | qkvo: M5 % peak vs M4 88.3 % | SSE (pp²) |
+|---|---|---|---|---|
+| α = 0.4369 | 610.6 | 84.5 % → **−1.9 pp** ✓ | 97.9 % → **+9.6 pp** ✗ | 96.2 |
+| α = 0.389 | 686.0 | 75.2 % → **−11.2 pp** ✗ | 87.1 % → **−1.1 pp** ✓ | 126.7 |
+
+And inverted — the ceiling each pool *demands* if its efficiency is to be invariant:
+
+| pool | ceiling demanded | implied α |
+|---|---|---|
+| routed | **597.1 GB/s** | 0.4460 |
+| qkvo | **677.1 GB/s** | 0.3933 |
+
+Those two demands are **13 % apart**. So the honest verdict is not "two scalars fit equally
+well" — it is **no single scalar α satisfies efficiency-invariance on both pools**. Outcome
+**`N-DEGENERATE`**, and sharpened: the degeneracy is not a tie between candidates, it is a
+**model misspecification**. Exactly one of the following must be false:
+
+1. the M5 `routed` timing, or
+2. the M5 `qkvo` timing, or
+3. one of the two byte audits, or
+4. **the premise that a single scalar maps M4 → M5 for a whole pool** — which is the one I
+   would bet on, because the two pools have different arithmetic intensities (0.531 vs 0.516
+   B/fma) and, more importantly, different *dispatch counts* per step (117 vs 80), and the
+   per-dispatch fixed cost does **not** scale with the bandwidth ratio.
+
+One α-free consequence that survives regardless: `qkvo` achieves 597.9 GB/s on M5, so
+**M5's achievable peak is strictly greater than 597.9 GB/s, hence α < 0.4454.** That alone
+retires any candidate above 0.4454.
+
+What would actually settle it, in the order I would spend seconds on it:
+
+1. **B.0.6's own proposal**: run `research/fern_r101_bw_probe.swift` on the official M5
+   host. ~7 s of wall clock, **zero receipts**, and it measures the ceiling directly instead
+   of inferring it. I agree with B.0.6 that this is the highest value per second of any
+   experiment currently nameable in the campaign.
+2. **A per-family M5 GPU-timer census** (the M5 analogue of §3.2). Necessary as well as (1),
+   not instead of it: even with the M5 ceiling measured, one of the two pool residuals will
+   remain, and only per-family times can say which pool is mismodelled.
+
+Until (1) lands, everything in this report is published in **both** units — M4 µs/step
+(measured, no α) and `% of cs` at the stated `k` — so that a later revision of α re-prices
+the conclusions without invalidating any measurement.
+
+**Does the α question change any verdict in this census?** No, and that is worth stating.
+The bars at the three live constants are 60.1 (α = 0.4369), 67.5 (α = 0.389) and 52.5
+(β = 0.5) M4 µs/step. The largest non-byte slack among A, B, C, D is family D's 37.6 M4
+µs/step. That is below the *smallest* of the three bars. **The `N-BYTES-EVERYWHERE` verdict
+is invariant to the α controversy.**
+
+

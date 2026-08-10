@@ -1,0 +1,56 @@
+=== bars, all three k values (rule 105) ===
+  alpha=0.4369   0.4 % bar =   60.1 M4 us/step
+  alpha=0.389    0.4 % bar =   67.5 M4 us/step
+  beta=0.5       0.4 % bar =   52.5 M4 us/step
+
+================ FAMILY D  T2c routed gate+up QMV  (2048 TG x 64 thr) ================
+  dispatches/step                39
+  dispatch_us (M4, defeated)     38.800
+  reach: dispatch x count        1513.2 us/step   vs charge 1497.7   (+1.03 %)
+  unique bytes / dispatch        8,925,845 B
+  achieved                       230.0 GB/s  = 86.4 % of measured DRAM peak
+  --- H-REGIME terms -------------------------------------------
+  byte_term_us  (bytes / 266.3)  33.518   (86.4 %)
+  issue_term_us  NOMINAL         4.870   (12.6 %)   [128 fma/thr x 0.038044]
+  issue_term_us  EXPOSED         0.424   (1.1 %)   [128 fma/thr x 0.003313]
+  residual_latency_us            4.858   (12.5 %)
+  ... minus rule-55 intercept    0.888   (2.3 %) UNEXPLAINED
+  exposure fraction at base      8.7 %
+  ALU headroom (nominal/pure)    7.97x
+  --- exchange rates ------------------------------------------
+  1 instr/thread removed         0.12921 us/step M4  = 0.000860 % of cs   (k=0.4369)
+  BAR: instr/thread for 0.4 %    465   (= 3.64x the entire base ALU load)
+  1 MiB/step removed             0.02649 % of cs
+  BAR: MiB/step for 0.4 %        15.10 MiB/step  = 4.55 % of this family's own bytes
+  family bytes/step              332.0 MiB  = 20.8 % of B
+  0.4 % bar in M4 us/step        60.1  = 4.0 % of this family's own M4 cost
+  efficiency ceiling (bytes fixed) 206.0 us/step M4  = 1.371 % of cs  (rule 105-E caps at 1.548 %)
+
+
+================ CROSS-FAMILY BYTE / ISSUE AUDIT ================
+  measured DRAM peak              266.3 GB/s
+  measured best streaming rate    262.96 GB/s = 98.7 % of peak
+  measured sustained fma ceiling  3.4453e12 fma/s
+  ==> MACHINE BALANCE POINT       0.07729 bytes per fma
+
+  family                       disp_us   B/dispatch   GB/s   %peak  %geom   B/fma  x_bal  nom_ALU%  exp_ALU%  lat%
+  D  T2c routed gate+up        38.40   8,912,821  232.1    87.2   90.5   0.531    6.9      12.7      1.10   11.7
+  A  T3b oproj h64             37.26   8,652,667  232.2    87.2   91.3   0.516    6.7      13.1      1.14   11.7
+  C  T0b(a) qkv h64            44.67  10,823,667  242.3    91.0   95.2   0.516    6.7      13.6      1.19    7.8
+  B  T2d down+residual         22.02   5,013,590  227.7    85.5   90.2   0.531    6.9      12.4      1.08   13.4
+  E  T2b gate_sp h64            8.27     262,000   31.7    11.9   14.5   1.999   25.9       0.5      0.04   88.1
+
+  regime call: BYTES when %geom >= 85 and exp_ALU% < 5 and lat% < 25
+  D  T2c routed gate+up      -> BYTES     k = 0.4369
+  A  T3b oproj h64           -> BYTES     k = 0.4369
+  C  T0b(a) qkv h64          -> BYTES     k = 0.4369
+  B  T2d down+residual       -> BYTES     k = 0.4369
+  E  T2b gate_sp h64         -> LATENCY   k = 0.5
+
+
+================ 3.5  ALPHA / BETA ADJUDICATION ================
+  pool     M5 achieved   M4 efficiency   ceiling M5 needs for efficiency-invariance   implied alpha
+  routed       515.9         86.4 %               597.1 GB/s              0.4460
+  qkvo         597.9         88.3 %               677.1 GB/s              0.3933
+  alpha=0.4369 -> 610.6:  routed -1.9 pp   qkvo +9.6 pp   SSE    96.2 pp^2
+  alpha=0.389  -> 686.0:  routed -11.2 pp   qkvo -1.1 pp   SSE   126.7 pp^2
