@@ -23,6 +23,7 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GEN="${GEN_DIR:-${REPO_ROOT}/Vendor/mlx-swift/Source/Cmlx/mlx-generated}"
 BK="${BK:-64}"
+BN="${BN:-64}"
 PROBE="${PROBE:-0}"
 PF="${PF:-0}"
 OUT="${OUT_DIR:-/tmp/nax_msl_check}"
@@ -63,8 +64,9 @@ SRC="${OUT}/unit.metal"
   # quantized.cpp does, so a probe-capable tree and a pre-probe tree produce
   # byte-identical AIR for the shipped kernel (safety-rig inertness check 2).
   for shape in "2048, 1024" "512, 2048"; do
-    targs="bfloat16_t, 16, 4, 64, 64, ${BK}, 4, 1, true, ${shape}, bfloat, 256, true, true"
+    targs="bfloat16_t, 16, 4, 64, ${BN}, ${BK}, 4, 1, true, ${shape}, bfloat, 256, true, true"
     name="fp_gather_qmm_rhs_expert_nax_check_${shape//, /x}_bk${BK}"
+    [ "${BN}" != "64" ] && name="${name}_bn${BN}"
     if [ "${PROBE}" != "0" ] || [ "${PF}" != "0" ]; then
       targs="${targs}, ${PROBE}"
       [ "${PROBE}" != "0" ] && name="${name}_pb${PROBE}"

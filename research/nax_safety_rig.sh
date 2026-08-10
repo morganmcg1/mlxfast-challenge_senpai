@@ -21,9 +21,18 @@
 #   6. twin      -- the mlx-generated/*.cpp copy is what the GPU actually runs.
 #                   A header-only edit passes checks 1-5 and changes nothing.
 #
-# Usage: research/nax_safety_rig.sh [BK ...]        (default: 64 128)
+# Usage: research/nax_safety_rig.sh [VALUE ...]     (default: 64 128)
+#   AXIS=BK|BN       tile axis the values sweep (default BK). BN is the
+#                    round-105 N-tile axis; it scales the loader's n_reads the
+#                    same way BK does (n_reads = BCOLS_PACKED*BROWS/tgp_size,
+#                    and BROWS==BN for the weight loader), so the identical
+#                    silent-fallback mode applies and the same six checks are
+#                    the evidence.
 #   BASE_REV=<rev>   git revision for the inertness baseline (default HEAD;
 #                    must predate the relax or check 2 refuses to run)
+#   DEFINES=<list>   preprocessor defines forwarded to every compile. The
+#                    default mirrors what jit_kernels.cpp emits at runtime;
+#                    omitting them validates a variant that never ships.
 #   KEEP=1           keep scratch dirs
 set -uo pipefail
 
@@ -31,6 +40,15 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CHECK="${REPO_ROOT}/research/nax_msl_compile_check.sh"
 GEN_REL="Vendor/mlx-swift/Source/Cmlx/mlx-generated"
 BASE_REV="${BASE_REV:-HEAD}"
+AXIS="${AXIS:-BK}"
+case "${AXIS}" in
+  BK | BN) ;;
+  *) echo "AXIS must be BK or BN (got '${AXIS}')" >&2; exit 2 ;;
+esac
+# The runtime JIT (jit_kernels.cpp) emits both of these into every _nax
+# compile, so a rig that omits them validates a variant that never ships.
+DEFINES="${DEFINES:-DARKBLOOM_SWIGLU_REGLOCAL DARKBLOOM_BSEARCH_HOIST}"
+
 BKS=("$@")
 [ "${#BKS[@]}" -eq 0 ] && BKS=(64 128)
 RIG="/tmp/nax_safety_rig"
@@ -43,11 +61,11 @@ fail() { printf '  FAIL  %s\n' "$1"; fails=$((fails + 1)); }
 echo "== 1. compile + link =="
 for bk in "${BKS[@]}"; do
   out="${RIG}/bk${bk}"
-  if BK="${bk}" OUT_DIR="${out}" EMIT_LIB=1 EMIT_IR=1 "${CHECK}" \
+  if env "${AXIS}=${bk}" OUT_DIR="${out}" EMIT_LIB=1 EMIT_IR=1 "${CHECK}" ${DEFINES} \
       > "${out}.log" 2>&1; then
-    pass "BK=${bk} compiles, links, emits IR"
+    pass "${AXIS}=${bk} compiles, links, emits IR"
   else
-    fail "BK=${bk}: $(grep -E 'error:|failed' "${out}.log" | head -3 | tr '\n' ' ')"
+    fail "${AXIS}=${bk}: $(grep -E 'error:|failed' "${out}.log" | head -3 | tr '\n' ' ')"
   fi
 done
 
@@ -56,7 +74,7 @@ done
 # Any constant relax gated on a shape BK=64 does not reach must produce
 # identical AIR; a diff means the "inert" claim is false and the arm is
 # confounded.
-echo "== 2. BK=64 inertness vs ${BASE_REV} =="
+echo "== 2. ${AXIS}=64 inertness vs ${BASE_REV} =="
 BASE_GEN="${RIG}/base_gen"
 mkdir -p "${BASE_GEN}"
 missing=0
@@ -82,17 +100,17 @@ else
   # Both sides must compile through the SAME scratch path: AIR embeds the
   # source file name, so two output directories differ for a trivial reason.
   IN="${RIG}/inert"
-  BK=64 OUT_DIR="${IN}" GEN_DIR="${BASE_GEN}" "${CHECK}" \
+  env "${AXIS}=64" OUT_DIR="${IN}" GEN_DIR="${BASE_GEN}" "${CHECK}" ${DEFINES} \
       > "${RIG}/inert_base.log" 2>&1
   cp "${IN}/unit.air" "${RIG}/inert_base.air" 2>/dev/null
-  BK=64 OUT_DIR="${IN}" "${CHECK}" > "${RIG}/inert_head.log" 2>&1
+  env "${AXIS}=64" OUT_DIR="${IN}" "${CHECK}" ${DEFINES} > "${RIG}/inert_head.log" 2>&1
   cp "${IN}/unit.air" "${RIG}/inert_head.air" 2>/dev/null
   if [ ! -f "${RIG}/inert_base.air" ] || [ ! -f "${RIG}/inert_head.air" ]; then
     fail "inertness: one side did not compile"
   elif cmp -s "${RIG}/inert_base.air" "${RIG}/inert_head.air"; then
-    pass "BK=64 AIR byte-identical to ${BASE_REV} ($(wc -c < "${RIG}/inert_head.air") B)"
+    pass "${AXIS}=64 AIR byte-identical to ${BASE_REV} ($(wc -c < "${RIG}/inert_head.air") B)"
   else
-    fail "BK=64 AIR DIFFERS from ${BASE_REV}: the relax is not inert"
+    fail "${AXIS}=64 AIR DIFFERS from ${BASE_REV}: the relax is not inert"
   fi
 fi
 
@@ -103,12 +121,12 @@ fi
 echo "== 3. non-empty MMA body =="
 for bk in "${BKS[@]}"; do
   ll="${RIG}/bk${bk}/unit.ll"
-  [ -f "${ll}" ] || { fail "BK=${bk}: no IR"; continue; }
+  [ -f "${ll}" ] || { fail "${AXIS}=${bk}: no IR"; continue; }
   n=$(grep -cE '@__tensorops_impl_matmul2d_op_run_cooperative' "${ll}")
   if [ "${n}" -gt 0 ]; then
-    pass "BK=${bk}: ${n} cooperative matmul calls"
+    pass "${AXIS}=${bk}: ${n} cooperative matmul calls"
   else
-    fail "BK=${bk}: ZERO matmul calls -- kernel computes nothing"
+    fail "${AXIS}=${bk}: ZERO matmul calls -- kernel computes nothing"
   fi
 done
 
@@ -120,11 +138,12 @@ done
 # path accepts, so a silent scalar fallback is caught by name rather than by
 # guessing at optimized load widths.
 #
-# The accepted set is scraped from kWideLoadShapeOk/kWideLoad8ShapeOk in the
+# The accepted set is scraped from every kWideLoad*ShapeOk predicate in the
 # kernel source, never hardcoded here: a rig carrying its own allow-list tests
-# the author's belief about the predicate instead of the predicate.
+# the author's belief about the predicate instead of the predicate. The glob
+# also picks up predicates added after this rig was written.
 HDR="${REPO_ROOT}/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/fp_quantized_nax.h"
-OKSET=$(sed -n '/kWideLoadShapeOk =/,/;/p;/kWideLoad8ShapeOk =/,/;/p' "${HDR}" \
+OKSET=$(sed -n '/kWideLoad[A-Za-z0-9]*ShapeOk =/,/;/p' "${HDR}" \
   | grep -oE 'kSrcBytes == [0-9]+' | grep -oE '[0-9]+' | sort -un | tr '\n' ' ')
 echo "== 4. widened device load reachable in the emitted loader =="
 if [ -z "${OKSET}" ]; then
@@ -134,10 +153,10 @@ else
 fi
 for bk in "${BKS[@]}"; do
   ll="${RIG}/bk${bk}/unit.ll"
-  [ -f "${ll}" ] || { fail "BK=${bk}: no IR"; continue; }
+  [ -f "${ll}" ] || { fail "${AXIS}=${bk}: no IR"; continue; }
   sigs=$(grep -oE 'QuantizedBlockLoaderI[A-Za-z0-9_]*?(Ls[0-9]+E){7}' "${ll}" \
     | grep -oE '(Ls[0-9]+E){7}' | sort -u)
-  [ -z "${sigs}" ] && { fail "BK=${bk}: no QuantizedBlockLoader in IR"; continue; }
+  [ -z "${sigs}" ] && { fail "${AXIS}=${bk}: no QuantizedBlockLoader in IR"; continue; }
   bad=0
   for sig in ${sigs}; do
     read -r brows bcols dst_ld rdim tgp gs bits <<< \
@@ -152,9 +171,9 @@ for bk in "${BKS[@]}"; do
     fi
   done
   if [ "${bad}" -eq 0 ]; then
-    pass "BK=${bk}: every emitted loader takes the widened device load"
+    pass "${AXIS}=${bk}: every emitted loader takes the widened device load"
   else
-    fail "BK=${bk}: a loader falls back to per-byte scalar device loads"
+    fail "${AXIS}=${bk}: a loader falls back to per-byte scalar device loads"
   fi
 done
 
@@ -171,26 +190,30 @@ NEG="${RIG}/neg_gen"
 mkdir -p "${NEG}"
 cp "${REPO_ROOT}/${GEN_REL}"/{utils,gemm_nax,quantized_utils,fp_quantized_nax}.cpp \
    "${NEG}/" 2>/dev/null
-# Narrow the predicate back to the single 16B case.
-perl -0pi -e 's/kWidenShapeOk && \(\(kSrcBytes == 16\) \|\| \(kSrcBytes == 32\)\)/kWidenShapeOk \&\& (kSrcBytes == 16)/' \
+# Narrow the newest relax back out. Which predicate that is depends on the
+# axis under test, so try each in turn and require exactly one to have fired.
+perl -0pi -e 's/kWideLoad32ShapeOk = kWidenShapeOk && \(kSrcBytes == 32\)/kWideLoad32ShapeOk = false/;
+              s/kWidenShapeOk && \(\(kSrcBytes == 16\) \|\| \(kSrcBytes == 32\)\)/kWidenShapeOk \&\& (kSrcBytes == 16)/' \
   "${NEG}/fp_quantized_nax.cpp"
-if grep -q 'kSrcBytes == 16) || (kSrcBytes == 32' "${NEG}/fp_quantized_nax.cpp"; then
-  fail "negative control: could not narrow kWideLoadShapeOk"
+# A grep for the narrowed text would also match the untouched 16B predicate,
+# so require the substitution itself to have changed the file.
+if cmp -s "${NEG}/fp_quantized_nax.cpp" "${REPO_ROOT}/${GEN_REL}/fp_quantized_nax.cpp"; then
+  fail "negative control: could not narrow any kWideLoad*ShapeOk predicate"
 else
   big=64
   for bk in "${BKS[@]}"; do [ "${bk}" -gt "${big}" ] && big="${bk}"; done
-  if BK=64 OUT_DIR="${RIG}/neg64" GEN_DIR="${NEG}" "${CHECK}" \
+  if env "${AXIS}=64" OUT_DIR="${RIG}/neg64" GEN_DIR="${NEG}" "${CHECK}" ${DEFINES} \
       > "${RIG}/neg64.log" 2>&1; then
-    pass "narrowed predicate still builds BK=64 (relax does not reach it)"
+    pass "narrowed predicate still builds ${AXIS}=64 (relax does not reach it)"
   else
-    fail "narrowed predicate broke BK=64: the relax is NOT inert"
+    fail "narrowed predicate broke ${AXIS}=64: the relax is NOT inert"
   fi
   if [ "${big}" -gt 64 ]; then
-    if BK="${big}" OUT_DIR="${RIG}/negbig" GEN_DIR="${NEG}" "${CHECK}" \
+    if env "${AXIS}=${big}" OUT_DIR="${RIG}/negbig" GEN_DIR="${NEG}" "${CHECK}" ${DEFINES} \
         > "${RIG}/negbig.log" 2>&1; then
-      fail "narrowed predicate STILL built BK=${big}: guard does not fire, a silent scalar fallback would ship"
+      fail "narrowed predicate STILL built ${AXIS}=${big}: guard does not fire, a silent scalar fallback would ship"
     else
-      pass "narrowed predicate rejects BK=${big} at build time ($(grep -c 'static_assert failed' "${RIG}/negbig.log") static_assert errors)"
+      pass "narrowed predicate rejects ${AXIS}=${big} at build time ($(grep -c 'static_assert failed' "${RIG}/negbig.log") static_assert errors)"
     fi
   fi
 fi

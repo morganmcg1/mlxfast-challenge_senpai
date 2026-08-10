@@ -1252,6 +1252,15 @@ int darkbloom_stage_bm128_variant() {
     if (s == "5") {
       return 5;
     }
+    if (s == "6") {
+      return 6;
+    }
+    if (s == "7") {
+      return 7;
+    }
+    if (s == "8") {
+      return 8;
+    }
     return 0;
   }();
   return v;
@@ -1361,6 +1370,9 @@ void gather_qmm_rhs_nax(
 
   int bm = 64, bn = 64, bk = 64;
   int wm = 2, wn = 2;
+  const bool laguna_moe_shape =
+      (K == 2048 && N == 1024) || (K == 512 && N == 2048);
+  const bool laguna_gate_up_shape = (K == 2048 && N == 1024);
   const int bm128 = darkbloom_stage_bm128_variant();
   switch (bm128) {
     case 1: bm = 128; wm = 4; break;
@@ -1368,14 +1380,26 @@ void gather_qmm_rhs_nax(
     case 3: bm = 128; wm = 8; break;
     case 4: bm = 64;  wm = 4; break;
     case 5: bm = 64;  wm = 4; wn = 1; break;
+    // N-tile reuse: BN=128 doubles the outputs each threadgroup produces from
+    // the same A fragments, halving A device-load issues per output. Applied
+    // only to the routed MoE shapes, whose N is a multiple of 128; widening an
+    // arbitrary shape would drop it out of expert_aligned into an untested
+    // generic instantiation. 6 = both projections, 7 = gate/up, 8 = down.
+    case 6: bm = 64; wm = 4; wn = 1;
+      if (laguna_moe_shape) { bn = 128; }
+      break;
+    case 7: bm = 64; wm = 4; wn = 1;
+      if (laguna_gate_up_shape) { bn = 128; }
+      break;
+    case 8: bm = 64; wm = 4; wn = 1;
+      if (laguna_moe_shape && !laguna_gate_up_shape) { bn = 128; }
+      break;
     default: break;
   }
 
   const bool align_M = (M % bm) == 0;
   const bool align_N = (N % bn) == 0;
   const bool align_K = (K % bk) == 0;
-  const bool laguna_moe_shape =
-      (K == 2048 && N == 1024) || (K == 512 && N == 2048);
   const bool expert_aligned =
       darkbloom_expert_aligned_gather() && mode != "affine" && transpose &&
       group_size == 16 && bits == 4 && laguna_moe_shape && M >= 64 &&
