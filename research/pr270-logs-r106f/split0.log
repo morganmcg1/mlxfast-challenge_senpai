@@ -1,0 +1,45 @@
+prompt tokens: 512
+load: 39.7 s
+prefill 0:   545.04 ms  (1064.53 us/token)  cbs=   81 dispatches= 1222  token=5991
+prefill 1:   544.57 ms  (1063.61 us/token)  cbs=   81 dispatches= 1222  token=5991
+prefill 2:   544.11 ms  (1062.71 us/token)  cbs=   81 dispatches= 1222  token=5991
+prefill 3:   544.55 ms  (1063.58 us/token)  cbs=   81 dispatches= 1222  token=5991
+prefill 4:   545.06 ms  (1064.58 us/token)  cbs=   81 dispatches= 1222  token=5991
+prefill 5:   544.37 ms  (1063.23 us/token)  cbs=   81 dispatches= 1222  token=5991
+prefill 6:   545.48 ms  (1065.40 us/token)  cbs=   81 dispatches= 1222  token=5991
+prefill 7:   544.01 ms  (1062.52 us/token)  cbs=   81 dispatches= 1222  token=5991
+peak_ram_gb: 20.719406127929688
+
+prefill warm median: 544.554 ms/forward (1063.58 us/token) over 7 reps
+
+profile [prefill warm] over 7 request(s)
+  per-request dispatches [1222, 1222, 1222, 1222, 1222, 1222, 1222]
+  wall               544.594 ms/request
+  gpu busy (sum)     540.437 ms ( 99.2% of wall)
+  gpu busy (union)   540.437 ms ( 99.2% of wall)
+  command buffers       81.0 /request
+  dispatches          1222.0 /request
+  bound bytes         24.717 GiB/request
+
+  dispatch                                                    n/req  us/call   ms/req  %wall  MB/call    GB/s   %bw             family
+  MIXED:CV2ISigmoidADV2IBroadcastACEV2IBroadcastCAFV2IMultiplyDEGV2IBroadcas 1156.0    463.1  535.362   98.3   19.944    45.2    17        elementwise
+  laguna_prefill_sorted_moe_tail_bf16_v1                       38.0     78.6    2.988    0.5   22.031   293.8   113           moe_tail
+  MIXED:Cf4IAsTypeADf4IBroadcastCBEf4IBroadcastBCFf4ILogAddExpDEGV2OAsTypeF_   19.0     80.6    1.531    0.3   32.638   424.6   163        elementwise
+  MIXED:gather_frontbfloat16_int32_int_2+rmsbfloat16+steel_gemm_splitk_accum    4.0    115.0    0.460    0.1  101.251   922.9   355    steel_gemm_bf16
+  MIXED:laguna_lmhead_coarse_argmax_stage1_v5_float_float_uint32_t+laguna_lm    3.0     28.1    0.084    0.0  130.924  4884.3  1877            lm_head
+  MIXED:argmax_bfloat16+gather_frontbfloat16_int32_int_2        2.0      5.8    0.012    0.0    0.191    34.9    13       sort_scatter
+
+  family                 n/req   ms/req  %wall    GB/s   %bw
+  elementwise           1175.0  536.893   98.6    46.2    18
+  moe_tail                38.0    2.988    0.5   293.8   113
+  steel_gemm_bf16          4.0    0.460    0.1   922.9   355
+  lm_head                  3.0    0.084    0.0  4884.3  1877
+  sort_scatter             2.0    0.012    0.0    34.9    13
+
+  overlap-corrected attribution (sums to union busy; raw bracket sum is 100.0% of union)
+  family                fair ms  %wall  excl ms   raw ms  concur  GB bound    GB/s   %bw
+  MIXED                 537.365   98.7  537.365    0.000    0.00     0.000     0.0     0
+  moe_tail                2.988    0.5    2.988    2.988    1.00     0.878   293.8   113
+  lm_head                 0.084    0.0    0.084    0.084    1.00     0.412  4884.3  1877
+  GPU-idle (unattrib.)    4.157    0.8
+  TOTAL                 544.594  100.0

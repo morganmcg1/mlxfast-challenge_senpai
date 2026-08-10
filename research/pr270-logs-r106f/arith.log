@@ -1,0 +1,78 @@
+== HEADLINE ==
+  steel_gemm*       214.513 ms   39.12%
+  NOT steel_gemm*   333.873 ms   60.88%   <-- headline
+--------------------------------------------------------------------------------------------------------
+== DECOMPOSITION OF THE NON-steel_gemm SHARE ==
+  other matmul (gather-GEMM + nvfp4 dense)    285.438 ms   52.05%
+  attention core (also MMA)                    28.133 ms    5.13%
+  true non-matmul glue                         17.463 ms    3.18%
+  GPU-idle (unattributed)                       2.839 ms    0.52%
+  sum                                         333.873 ms   60.88%
+
+  matmul (3 families)         499.951 ms   91.17%
+  matmul + attention          528.084 ms   96.30%
+  non-MMA glue + idle          20.302 ms    3.70%
+  glue bytes bound              6.091 GB
+--------------------------------------------------------------------------------------------------------
+== MMA ROOFLINE (M4 peak 8.0 TFLOP/s, DRAM 260.2 GB/s, balance 30.7 FLOP/B) ==
+  family                    GFLOP  TFLOP/s   %peak      AI    floor  headroom
+  routed_gather_gemm        979.3     3.69   46.1%    51.6  122.41ms   143.03ms
+  steel_gemm_bf16          1502.8     7.01   87.6%   330.1  187.85ms    26.66ms
+  nvfp4_dense_qmm           122.4     6.12   76.5%   187.7   15.30ms     4.70ms
+  attention_core            156.8     5.57   69.7%   225.2   19.60ms     8.54ms
+  steel_gemm_bf16 (alt GFLOP)   1465.3     6.83   85.4%   321.9  183.16ms    31.35ms
+--------------------------------------------------------------------------------------------------------
+== GLUE ROOFLINE (DRAM-bound; floor = bytes / 260.2 GB/s) ==
+  family                      GB       ms     GB/s   %roof    floor  headroom
+  elementwise              1.632    4.710    346.5    133%    6.27ms     0.00ms
+  qk_norm_rope             0.768    4.194    183.1     70%    2.95ms     1.24ms
+  sort_scatter             1.134    2.633    430.7    166%    4.36ms     0.00ms
+  moe_tail                 0.878    2.539    345.8    133%    3.37ms     0.00ms
+  rms_norm                 0.497    1.714    290.0    111%    1.91ms     0.00ms
+  router                   0.012    0.673     17.8      7%    0.05ms     0.63ms
+  lm_head                  0.959    0.667   1437.8    553%    3.69ms     0.00ms
+  other                    0.211    0.311    678.5    261%    0.81ms     0.00ms
+  MIXED                    0.000    0.022        -       -        -    0.00ms
+
+  nominal headroom (every family to 100% of DRAM roof)    1.87 ms M4
+    less router (bytes negligible -> not DRAM-bounded)     0.63 ms M4
+    DRAM-addressable headroom, all in qk_norm_rope         1.24 ms M4
+    nominal            -> M5 0.89 ms = 0.91% of M5 prefill = 0.231-0.337% of score
+    DRAM-addressable   -> M5 0.59 ms = 0.60% of M5 prefill = 0.153-0.224% of score
+    bar for +0.2% of score: 0.53-0.77 ms of M5 prefill
+--------------------------------------------------------------------------------------------------------
+== M4-ONLY ARTEFACT CORRECTION (lagunaExpertAlignedGatherEnabled == false) ==
+  g2_copybfloat16bfloat16 (76 calls)           1.689 ms  M4-only
+  routed silu-product (38/77 of chain)         0.756 ms  M4-only
+  total glue that does not exist on M5         2.445 ms = 14.0% of measured glue
+  M5-relevant glue (M4 clock)                 15.018 ms
+  M5-relevant glue, bandwidth-scaled           7.154 ms = 7.31% of M5 prefill
+--------------------------------------------------------------------------------------------------------
+== DESK PRICE: top candidate ==
+  TOP: g2_Multiplybfloat16 gate-fold into o_proj prologue
+    M4 1.328 ms -> M5 0.633 ms (0.65% of M5 prefill)
+    score value 0.164% (conservative) .. 0.239% (prospective)
+    vs bar 0.2%: CLEARS only under the prospective rate
+    live on ranked M5: True
+  runner-up: shared-expert silu-product fold
+    M4 0.776 ms -> M5 0.370 ms (0.38% of M5 prefill)
+    score value 0.096% (conservative) .. 0.140% (prospective)
+    vs bar 0.2%: BELOW BAR
+    live on ranked M5: True
+  ceiling: every M5-live byte-deletion lever at once
+    M4 2.104 ms -> M5 1.002 ms (1.02% of M5 prefill)
+    score value 0.260% (conservative) .. 0.379% (prospective)
+    vs bar 0.2%: CLEARS
+    live on ranked M5: True
+  g2_copybfloat16bfloat16 strided-view removal
+    M4 1.689 ms -> M5 0.805 ms (0.82% of M5 prefill)
+    score value 0.209% (conservative) .. 0.304% (prospective)
+    vs bar 0.2%: CLEARS
+    live on ranked M5: False
+--------------------------------------------------------------------------------------------------------
+== VERDICT INPUTS ==
+  matmul+attention share of prefill      96.30%
+  DRAM-addressable glue headroom (M5)    0.59 ms vs bar 0.53-0.77 ms
+  attention core % of MMA peak           69.7%
+  steel_gemm % of MMA peak               87.6%
+  gather-GEMM % of MMA peak              46.1%
