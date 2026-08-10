@@ -342,12 +342,22 @@ func terminalPrefillSlidingQKNormRoPEMatchesStockPipelineWhenRuntimeTestsAreEnab
             let actual = fixture.fused(offset: offset)
             let reference = fixture.stock(offset: offset)
             eval(actual.queries, actual.keys, reference.queries, reference.keys)
+            let queryMaximumError = abs(
+                actual.queries.asType(.float32) - reference.queries.asType(.float32)
+            ).max().item(Float.self)
+            let keyMaximumError = abs(
+                actual.keys.asType(.float32) - reference.keys.asType(.float32)
+            ).max().item(Float.self)
+            print(
+                "TERMINAL_PREFILL_QK_EXACT length=\(length) offset=\(offset) "
+                    + "query_max_abs=\(queryMaximumError) key_max_abs=\(keyMaximumError)"
+            )
             #expect(
-                arrayEqual(actual.queries, reference.queries).item(Bool.self),
+                queryMaximumError == 0,
                 Comment(rawValue: "query mismatch at length=\(length), offset=\(offset)")
             )
             #expect(
-                arrayEqual(actual.keys, reference.keys).item(Bool.self),
+                keyMaximumError == 0,
                 Comment(rawValue: "key mismatch at length=\(length), offset=\(offset)")
             )
         }
@@ -380,11 +390,26 @@ func terminalPrefillSlidingQKNormRoPEIsolatedTimingWhenEnabled() {
     )
 
     for (label, result) in [("A-B-B-A", abba), ("B-A-A-B", baab)] {
-        let speedup = Double(result.stockNanoseconds) / Double(result.fusedNanoseconds)
+        let stock = summarizeTerminalPrefillQKSamples(result.stockSamples)
+        let fused = summarizeTerminalPrefillQKSamples(result.fusedSamples)
+        let speedup = stock.mean / fused.mean
+        let medianSpeedup = stock.median / fused.median
+        let geometricSpeedup = stock.geometricMean / fused.geometricMean
+        let sign = speedup > 1 ? "positive" : "negative"
         print(
             "TERMINAL_PREFILL_QK_TIMING ordering=\(label) repetitions=\(result.repetitions) "
-                + "stock_ns=\(result.stockNanoseconds) fused_ns=\(result.fusedNanoseconds) "
-                + "speedup=\(speedup)"
+                + "synchronization=eval "
+                + "stock_functions=rmsNorm*2+RoPE*2 "
+                + "fused_function=laguna_terminal_prefill_sliding_qk_norm_rope_bf16_128_h1_v1 "
+                + "stock_total_ns=\(stock.total) fused_total_ns=\(fused.total) "
+                + "stock_mean_ns_per_call=\(stock.mean) fused_mean_ns_per_call=\(fused.mean) "
+                + "stock_median_ns_per_call=\(stock.median) fused_median_ns_per_call=\(fused.median) "
+                + "stock_geomean_ns_per_call=\(stock.geometricMean) "
+                + "fused_geomean_ns_per_call=\(fused.geometricMean) "
+                + "stock_range_ns=\(stock.minimum)-\(stock.maximum) "
+                + "fused_range_ns=\(fused.minimum)-\(fused.maximum) "
+                + "speedup=\(speedup) median_speedup=\(medianSpeedup) "
+                + "geometric_speedup=\(geometricSpeedup) sign=\(sign)"
         )
         #expect(
             result.repetitions >= 256,
@@ -458,15 +483,29 @@ private enum TerminalPrefillQKArm {
     case fused
 }
 
+private struct TerminalPrefillQKTimingResult {
+    let stockSamples: [UInt64]
+    let fusedSamples: [UInt64]
+
+    var repetitions: Int { stockSamples.count }
+}
+
+private struct TerminalPrefillQKTimingSummary {
+    let total: UInt64
+    let mean: Double
+    let median: Double
+    let geometricMean: Double
+    let minimum: UInt64
+    let maximum: UInt64
+}
+
 private func measureTerminalPrefillQK(
     fixture: TerminalPrefillQKFixture,
     ordering: [TerminalPrefillQKArm],
     cycles: Int
-) -> (stockNanoseconds: UInt64, fusedNanoseconds: UInt64, repetitions: Int) {
-    var stockNanoseconds: UInt64 = 0
-    var fusedNanoseconds: UInt64 = 0
-    var stockRepetitions = 0
-    var fusedRepetitions = 0
+) -> TerminalPrefillQKTimingResult {
+    var stockSamples: [UInt64] = []
+    var fusedSamples: [UInt64] = []
 
     for _ in 0..<cycles {
         for arm in ordering {
@@ -478,18 +517,41 @@ private func measureTerminalPrefillQK(
             eval(output.queries, output.keys)
             let elapsed = DispatchTime.now().uptimeNanoseconds - start
             switch arm {
-            case .stock:
-                stockNanoseconds += elapsed
-                stockRepetitions += 1
-            case .fused:
-                fusedNanoseconds += elapsed
-                fusedRepetitions += 1
+            case .stock: stockSamples.append(elapsed)
+            case .fused: fusedSamples.append(elapsed)
             }
         }
     }
 
-    #expect(stockRepetitions == fusedRepetitions)
-    return (stockNanoseconds, fusedNanoseconds, stockRepetitions)
+    #expect(stockSamples.count == fusedSamples.count)
+    return TerminalPrefillQKTimingResult(
+        stockSamples: stockSamples,
+        fusedSamples: fusedSamples
+    )
+}
+
+private func summarizeTerminalPrefillQKSamples(
+    _ samples: [UInt64]
+) -> TerminalPrefillQKTimingSummary {
+    let sorted = samples.sorted()
+    let total = samples.reduce(UInt64(0), +)
+    let mean = Double(total) / Double(samples.count)
+    let middle = samples.count / 2
+    let median = samples.count.isMultiple(of: 2)
+        ? (Double(sorted[middle - 1]) + Double(sorted[middle])) / 2
+        : Double(sorted[middle])
+    let geometricMean = Foundation.exp(
+        samples.reduce(0.0) { $0 + Foundation.log(Double($1)) }
+            / Double(samples.count)
+    )
+    return TerminalPrefillQKTimingSummary(
+        total: total,
+        mean: mean,
+        median: median,
+        geometricMean: geometricMean,
+        minimum: sorted[0],
+        maximum: sorted[sorted.count - 1]
+    )
 }
 
 private func patternedBF16(
