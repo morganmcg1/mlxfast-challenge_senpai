@@ -1,20 +1,27 @@
-SENPAI-RESULT: {"terminal":true,"status":"complete","pending_arms":false,"wandb_run_ids":[],"primary_metric":{"name":"same_host_paired_estimate","available":false,"value":null},"test_metric":{"name":"passed_correctness","available":false,"value":null}}
+SENPAI-RESULT: {"terminal":true,"status":"complete","pending_arms":false,"wandb_run_ids":[],"primary_metric":{"name":"mma_shaped_qk_tile_kernel_time_delta_pct_k16","available":true,"value":3.400},"test_metric":{"name":"passed_correctness","available":false,"value":null}}
 
 - Student / PR: maple-edward / #684 (`maple-r109-d-sliding-attn-qk-mma`, rev `r109-d-rev1`)
 - Hypothesis and target cost: replacing the 8 `simd_sum` QK reductions in
   `laguna_sliding_fused_attn_ring_v1` with a `simdgroup_matrix` MMA tile removes
-  the cross-lane reduction cost and speeds up decode. Target: the sliding kernel
-  is ≈6.9–9.0% of M5 decode time; a ~7% kernel win is ≈0.4% of score, against a
-  0.378% deficit to the leader.
-- Decision: **dead hypothesis** (mechanism measured slower than base, bit-exact),
-  with a **live, quantified ceiling** handed back.
+  the cross-lane reduction cost and speeds up decode. Advisor comment 3 fixed the
+  budget: this kernel is **627.3 µs/step = 7.33% of decode busy**, the 0.378%
+  gap to the leader needs **57 µs/step** at the additive-busy constant (23 at
+  alphonse #644's, 186 at tanjiro #663's), and the preregistered stop rule was
+  *if arm (b) does not beat arm (a) by ≥8% of kernel time, do not write the MMA
+  kernel — post `N-ISSUE-BOUND` for the reduction and retarget to load geometry.*
+- Decision: **dead hypothesis.** (b) − (a) = **6.86% at K=32 and 5.13% at the M5
+  threadgroups-per-core ratio**, both below the 8% bar, so the rule fires; and
+  independently the bit-exact MMA-shaped arm measures **slower than base in both
+  occupancy regimes** (+6.05% / +3.40%). The load-geometry retarget the rule
+  pointed at is also refuted by its own diagnostic (arm (c) vs the DRAM floor).
+  The MMA kernel was **not** written.
 - `BASE_SHA` / candidate commit: `1a6761bf46c282fcabd0577b618f0c1206757e6c` /
   see PR head. No submitted-surface file was modified.
 - Submitted candidate files: **none.** Stage 0 was a measurement stage; the Stage 1
   kernel was not built because Stage 0 refuted it.
 - Supporting test or documentation files:
   `research/edward-r109/STAGE0_VERDICT.md` (full write-up),
-  `research/edward-r109/{make_qk_arms.py,census_qk_reduction.py,run_probe.sh,run_stage0.sh,run_stage0c.sh,run_stage0d.sh,mma_price.metal,mma_throughput.metal,mma_throughput.swift,probe_*.txt}`.
+  `research/edward-r109/{make_qk_arms.py,census_qk_reduction.py,run_probe.sh,run_stage0.sh,run_stage0c.sh,run_stage0d.sh,run_stage0e.sh,run_stage0f.sh,mma_price.metal,mma_throughput.metal,mma_throughput.swift,probe_*.txt}`.
 - Official submission `--model` value (planned or used; default `senpai`): n/a —
   nothing to submit; maple-fern is the submission driver for this round.
 - Explicit API model-value rejection, if fallback attribution was required: n/a.
@@ -44,10 +51,21 @@ SENPAI-RESULT: {"terminal":true,"status":"complete","pending_arms":false,"wandb_
   (`FERN_LADDER=32` = scored geometry, `FERN_REPS=200`, `FERN_ROUNDS=101`,
   `FERN_CACHE_COPIES=6`, `FERN_DEFEAT_SLOTS ∈ {64,1}`), supervised job
   `441a04a7-22e3-4ded-9717-5264ba8feae2`.
+  The remaining supervised jobs:
+  - `run_stage0d.sh null qk_bcast0 qk_loadonly null` — arm (c) at K=32, job
+    `8055e34d-bade-4d15-af82-e0aab87116df`
+  - `run_stage0e.sh` — absolute threadgroup ladder
+    (`FERN_LADDER=4,8,16,20,32,40,64`, base kernel only, 31 rounds), job
+    `e8022231-8a19-4aba-8d52-544ed938cfa8`
+  - `run_stage0f.sh 16 null qk_bcast0 qk_loadonly qk_pad4x qk_pad4x_bcast0 null` —
+    re-pricing at the M5 threadgroups-per-core ratio, job
+    `cc71b9f1-3783-4001-9b43-4c26b3e8d781`
+
 - Tests and risk-based checks run, including selected-test count: no numerical
   behaviour was changed on the scored path, so `LagunaUpstreamEquivalence` was not
   required and was not run. Probe validity checks instead: byte-identical `null`
-  arms bracketing every sweep (**≤ ±0.05%** in all cases), two residency regimes
+  arms bracketing every sweep (**≤ ±0.19%** at `slots=64`, **≤ ±0.29%** at
+  `slots=1`, versus effects of 3.4–11.8%), two residency regimes
   (`FERN_DEFEAT_SLOTS` 64 and 1), static instruction census on **both**
   `applegpu_g16s` and `applegpu_g17s`, and a bit-exactness construction for the
   decisive arms (`pad_ * zero_`, `zero_ = U(widx > 0x3fffffffu)`).
@@ -59,50 +77,120 @@ SENPAI-RESULT: {"terminal":true,"status":"complete","pending_arms":false,"wandb_
 - Official ranking status versus correctness/floor status, if submitted: not
   submitted.
 
-Paired kernel timing, `delta = arm − base` within a round, **negative = faster**:
+**The three preregistered arms.** Paired A/B, `delta = arm − base` within a
+round, **negative = faster**, `FERN_DEFEAT_SLOTS=64` (residency-defeated):
+
+| arm | K=32 (M4 scored, 1.60 TG/core) | K=16 (M5 ratio, 0.80 TG/core) |
+| --- | ---: | ---: |
+| **(a)** current, `null` vs itself | +0.190% / +0.082% | −0.116% / −0.051% |
+| **(b)** dummy-reduce `simd_shuffle(x,0)` (`qk_bcast0`) | **−6.857%** (t −39.7, sd 0.287) | **−5.134%** (t −121.9, sd 0.040) |
+| **(c)** load-only, no reduce, no PV (`qk_loadonly`) | **−9.544%** (t −83.2, sd 0.215) | **−8.817%** (t −276.5, sd 0.030) |
+| `qk_pad4x` (bit-exact 4× MACs = the M-padding bill) | **+11.802%** | **+10.200%** (t +258.6) |
+| **`qk_pad4x_bcast0`** (MMA-shaped net) | **+6.047%** | **+3.400%** (t +90.7) |
+
+`(b) − (a)` = 6.86% / 5.13%, **below the preregistered 8% bar in both regimes.**
+
+Supporting arms at K=32 (`slots=64` / `slots=1`):
 
 | Arm (sliding kernel only) | slots=64 | t | slots=1 | t |
 | --- | ---: | ---: | ---: | ---: |
 | `null` (byte-identical bracket) | −0.043% | | −0.290% | |
 | `qk_free` (no reduce at all) | −6.849% | −50.6 | −7.050% | |
-| `qk_bcast0` (reduce → broadcast; **ceiling**) | −6.719% | −33.2 | −7.631% | −51.2 |
+| `qk_bcast0` (earlier sweep) | −6.719% | −33.2 | −7.631% | −51.2 |
 | `qk_ladder2` (W=8 tail) | −4.577% | | −4.677% | |
 | `qk_quad_bcast` (W=4 tail) | −3.540% | −20.2 | −3.937% | |
 | `qk_ladder5` (explicit 5-stage butterfly) | **+1.483%** | +12.9 | **+1.489%** | |
-| `qk_pad4x` (4× MACs, bit-exact) | **+11.802%** | +119.5 | **+11.801%** | +88.2 |
-| **`qk_pad4x_bcast0`** (MMA-shaped: 4× MACs + broadcast epilogue) | **+6.047%** | +24.4 | **+3.239%** | +19.8 |
+| `qk_pad4x` | **+11.802%** | +119.5 | **+11.801%** | +88.2 |
+| `qk_pad4x_bcast0` | **+6.047%** | +24.4 | **+3.239%** | +19.8 |
 | `null` (byte-identical bracket) | +0.019% | | +0.076% | |
+
+**Absolute threadgroup ladder** (base kernel only, slots=64, 31 rounds × 200
+reps) — this is what makes the K=16 column the M5-relevant one:
+
+| K | TG/core | base µs | µs/K | φ = t(2K)/t(K) |
+| ---: | ---: | ---: | ---: | ---: |
+| 4 | 0.20 | 8.84 | 2.2097 | 1.0506 |
+| 8 | 0.40 | 9.29 | 1.1608 | 1.0168 |
+| 16 | 0.80 | 9.44 | 0.5901 | 1.9706 |
+| 20 | 1.00 | 9.66 | 0.4832 | 1.9867 |
+| 32 | 1.60 | 18.61 | 0.5815 | 1.8403 |
+| 40 | 2.00 | 19.20 | 0.4800 | — |
+| 64 | 3.20 | 34.24 | 0.5350 | — |
+
+`t(K)` is flat 8.84 → 9.66 µs from K=4 to K=20 (5× the threadgroups for +9%), so
+one threadgroup's dependent chain is the whole wave. Fitting t(20)/t(40) gives a
+per-dispatch fixed cost of **0.12 µs**, not rule 55's 3.97 µs intercept.
 
 | Metric | Baseline | Candidate | Ratio / delta |
 | --- | ---: | ---: | ---: |
 | decode seconds/token | not measured this stage | not measured | — |
 | prefill seconds/token | not measured this stage | not measured | — |
 | same-host paired estimate | — | not measured | — |
-| MMA-shaped QK tile, sliding-kernel time (bit-exact) | 0.000% | **+6.047%** | **+6.047% slower** |
-| reduce-elimination ceiling, sliding-kernel time | 0.000% | −6.719% | −6.719% |
+| **primary: MMA-shaped QK tile, sliding-kernel time, K=16 (M5 ratio), bit-exact** | 0.000% | **+3.400%** | **+3.400% slower** (minimize) |
+| MMA-shaped QK tile, sliding-kernel time, K=32 | 0.000% | +6.047% | +6.047% slower |
+| M-padding bill alone (bit-exact 4× MACs), K=16 / K=32 | 0.000% | +10.200% / +11.802% | 1.7–2.0× the prize |
+| reduce-elimination ceiling, K=16 / K=32 | 0.000% | −5.134% / −6.857% | 32–43 µs/step busy |
+
+Ceiling in the advisor's units, against the 627.3 µs/step sliding-attention
+budget: **43.0 µs/step busy at K=32, 32.2 at K=16** (34.4 / 25.8 µs/step wall at
+the advisor's 0.8 busy→wall transfer). The 0.378% gap needs 57 µs/step at the
+0.00669 additive-busy constant, 23 at alphonse #644's 0.01642, 186 at tanjiro
+#663's 0.00203 — so the *unreachable ceiling* clears only the most favourable
+constant and straddles the ~30 µs/step `N-QK-REDUCTION-CHEAP` floor.
 
 The paired estimate is a same-host research metric, not an official M5 score; this
-stage produced no end-to-end score at all by design.
+stage produced no end-to-end score at all by design. The primary metric above is
+a kernel-internal paired ratio on a gen-16 host, reported because it is the
+decisive number for the assigned mechanism — not a score claim.
 
 ### Conclusion
 
-- What happened and why: the ceiling the assignment was chasing is **real and
-  bigger than the stop threshold** — deleting the 8 `simd_sum` QK reductions is
-  worth −6.7 to −7.6% of sliding-kernel time (≈0.354–0.461% of normalized score
-  vs a 0.378% deficit). But the assigned **mechanism cannot collect it**. An
-  `simdgroup_matrix<8,8>` QK tile has only 2 useful score rows per pipeline stage
-  (two heads), so it must issue 4× the QK MACs. Priced bit-exact, that padding
-  alone costs **+11.8%** — 1.6–1.8× the entire prize — and the full MMA-shaped arm
-  is net **+6.0% / +3.2% slower than base**.
-- Evidence for or against the mechanism: four independent lines, all against.
-  (1) Bit-exact padding cost +11.8%, replicated in both residency regimes, t up
-  to +119, NULL brackets ≤0.05%. (2) `simdgroup_multiply_accumulate` MAC rate
-  measures **0.87× the measured scalar FMA peak** (3,158 vs 3,470–3,612 GMAC/s),
-  matching the published AGX 102.5-Matrix-FFMA16-vs-128-scalar-FMA ratio; it needs
-  ≥4× to fund the padding. (3) `qk_ladder5` — a hand-written full 5-stage shuffle
-  butterfly, the shape any MMA fragment-reduction tail needs — is **+1.5%
-  slower** than the built-in `simd_sum`, so `simd_sum` is already the cheapest
-  correct 32-wide all-reduce on AGX. (4) Apple Tech Talk 111432 profiles
+- What happened and why: the assignment preregistered a stop rule — "if arm (b)
+  does not beat arm (a) by ≥8% of kernel time, do not write the MMA kernel". It
+  measured **5.13% (K=16) to 6.86% (K=32)**, so **the rule fired** and no MMA
+  kernel was written. Deleting all 8 `simd_sum` QK reductions is worth
+  **32–43 µs/step** of sliding-kernel busy time (26–34 µs/step wall at the 0.8
+  transfer factor) against a ~30 µs/step practical floor and the 57 µs/step
+  needed under the additive-busy constant. The ceiling straddles the floor: it
+  clears only @alphonse's most favourable 0.01642 %/µs constant (23 µs/step) and
+  fails the 0.00669 additive-busy constant (57 µs/step) outright.
+- Evidence for or against the mechanism: three converging refutations, plus four
+  independent supporting lines.
+  **(R1) The preregistered rule fired.** (b)−(a) = 5.13–6.86% < 8%, with the null
+  bracket at ±0.19% (K=32) / ±0.12% (K=16) and t = −39.7 / −121.9. Not a
+  borderline miss of a noisy threshold; the effect is precise and simply too
+  small.
+  **(R2) The MMA-shaped arm is slower than base in *both* occupancy regimes.**
+  `qk_pad4x_bcast0` — the exact net shape an `simdgroup_matrix<8,8>` QK tile
+  produces (4× MACs, reduction free) — is **+6.047% (K=32) / +3.400% (K=16)**
+  slower, i.e. the mechanism loses even when the reduction is granted for free.
+  The bit-exact padding bill alone is **+11.802% / +10.200%**, roughly **2× the
+  entire prize**. This refutation is stronger than the rule, because it does not
+  depend on the 8% threshold at all.
+  **(R3) The offered retarget is also refuted.** The brief said to spend leftover
+  time on load geometry if the reduction failed. Arm (c) `qk_loadonly` leaves
+  **90.5% (K=32) / 91.2% (K=16)** of kernel time standing, and the residual is
+  not DRAM-bound (113 GB/s achieved vs a measured 266.3 GB/s ceiling = 42.6%,
+  `regime=PARTIAL`, 2.1× above the floor) nor launch-bound (fitted per-dispatch
+  fixed cost **0.12 µs**, not rule 55's 3.97 µs). The residual is
+  per-threadgroup critical-path latency at ~1 TG/core, and both candidate fixes
+  are already closed: occupancy-via-threadgroup-memory is refuted (occupancy is
+  flat from 16 B to 32,768 B at 1024 threads —
+  `research/CURRENT_RESEARCH_STATE.md:2186,2292,3607`), and MLP-via-next-trip
+  hoisting is #540's family-specific flat-dose codegen tax on this exact kernel
+  (+4.23/+4.28/+3.80/+4.79%, `CURRENT_RESEARCH_STATE.md:2885–2913,3955`; the
+  line-799 prohibition "stands unqualified"), which the compiler also cannot do
+  on its own because `k_cache`/`v_cache` are written in phase 2 at
+  `LagunaRuntimeModel.swift:1486–1487`.
+  Supporting lines: (1) the +11.8% padding cost replicates in both residency
+  regimes, t up to +258, NULL brackets ≤0.19%. (2)
+  `simdgroup_multiply_accumulate` MAC rate measures **0.87× the measured scalar
+  FMA peak** (3,158 vs 3,470–3,612 GMAC/s), matching the published AGX
+  102.5-Matrix-FFMA16-vs-128-scalar-FMA ratio; it needs ≥4× to fund the padding.
+  (3) `qk_ladder5` — a hand-written full 5-stage shuffle butterfly, the shape any
+  MMA fragment-reduction tail needs — is **+1.5% slower** than the built-in
+  `simd_sum`, so `simd_sum` is already the cheapest correct 32-wide all-reduce on
+  AGX. (4) Apple Tech Talk 111432 profiles
   `simdgroup_matrix` at **0% Neural Accelerator utilization even on M5**; the real
   matrix path is MPP `mpp::tensor_ops::matmul2d` gated on arch gen ≥ 17 /
   macOS 26.2+, gen-1 NA has no bf16, and MLX's own M5-vs-M4 data shows NA helps
@@ -113,34 +201,45 @@ stage produced no end-to-end score at all by design.
   `if (as_type<uint>(delta) == 0u) ... else fast::exp(delta)`): score-perturbing
   arms change how often `fast::exp` executes. Holding the score bit-identical
   flips the sign from −7.9% to +6.0%.
-- Uncertainty or M5 transfer risk: measured on gen-16 M4 Pro. The reduce-cost
-  ratio should transfer in direction (the shuffle network is the same family and
-  the g17s census tracks g16s within 3%), but magnitudes need M5 confirmation. The
-  MMA refutation is *less* M5-sensitive, not more: on M5 the legacy
+- Uncertainty or M5 transfer risk: measured on gen-16 M4 Pro, which is why the
+  three numbers are reported twice — once at the M4-scored K=32 (1.60
+  threadgroups/core) and once at K=16 (0.80 TG/core), the occupancy ratio the
+  ranked ~40-core M5 sees for a 32-threadgroup dispatch. Going from 1.60 to 0.80
+  TG/core makes the prize *smaller* (6.86% → 5.13%) and the mechanism *no better*
+  (+6.05% → +3.40% still slower than base), so the M5 direction moves against the
+  assignment on both axes. The absolute ladder also isolated an M4-only artifact
+  that does **not** transfer: t(32) ≈ t(40) means 32 TGs are billed as 40 on a
+  20-core host, ~20% second-wave idle worth ≈112 µs/step, absent on M5. The MMA
+  refutation is *less* M5-sensitive than the ceiling: on M5 the legacy
   `simdgroup_matrix` intrinsic still misses the Neural Accelerators entirely, and
   the padding term is architecture-independent arithmetic (4× MACs for 2-of-8
   useful rows). Unverified: MPP NVFP4 support (MLX PR #3551 hints at a limit) and
   any direct measurement of legacy `simdgroup_matrix` throughput on M5 silicon.
-  Neither can rescue a tile that must win by 1.6–1.8× to break even.
-- Smallest useful next action: keep the reduce ceiling open as its own item and
-  test the **half-width lane split** — give lanes 0–15 eight dims of head0 and
-  lanes 16–31 eight dims of head1, so one 4-pass 16-wide butterfly plus a single
-  `simd_shuffle_xor(s, 16)` yields both scores in all lanes (5 reduce passes per 2
-  heads instead of 10) at unchanged q/k register count. Expected ≈half the
-  ceiling ⇒ 0.17–0.22% score; non-bit-exact, so it needs a margin certificate.
-  **It requires advisor clearance**: an 8-dims-per-lane layout is a "wider
-  per-lane load", on round 107's banned-re-open list
-  (`research/CURRENT_RESEARCH_STATE.md:3292–3308`). Second choice is the W=4
-  `quad_sum` re-tile (measured −3.5%/−3.9% ⇒ 0.184–0.24%, +56 floats/lane).
-  Note that §7 of the verdict argues this whole area is in fact the *one surviving
-  axis* that closure left open (≈12 issue slots per pipeline stage): each
-  `simd_sum` burns ≈8.4 slot-equivalents, ≈16.8 per stage, ~8× what a static byte
-  census shows — which also suggests the 97.7%-of-peak-issue model underprices
-  cross-lane ops.
-- Recommendation: **close** R109-D as `N-QK-MMA-PADDING-BOUND` (mechanism dead,
-  ceiling quantified and handed back). Nothing to merge — no submitted file
-  changed. Please forward §10 of the verdict to **@alphonse**, whose R109
+  Neither can rescue a tile that must win by ~2× to break even.
+- Smallest useful next action: **none above the floor.** Even the free-reduction
+  ideal (32–43 µs/step busy, 26–34 wall) does not reach the 57 µs/step the
+  additive-busy constant requires, so no partial-reduction variant is worth a
+  stage on its own. The only sub-threshold candidate left is the W=4 `quad_sum`
+  re-tile (measured −3.5% / −3.9% ⇒ **17–22 µs/step**, +56 floats/lane), which is
+  below the ~30 µs floor and should only run bundled with an independent win. The
+  half-width lane split I would have proposed is now **closed for two reasons**:
+  its 8-dims-per-lane layout is a "wider per-lane load" on round 107's
+  banned-re-open list (`research/CURRENT_RESEARCH_STATE.md:3292–3308`), and (R2)
+  shows the reduction is not where the time is anyway. §7 of the verdict does
+  sharpen the surviving-axis model with a corrected calibration: one dynamic
+  `simd_sum` costs **0.214 %/op** versus **0.0307 %/op** for a dynamic FMA, a
+  **≈7.0× ratio**, i.e. ≈14 slot-equivalents per pipeline stage against the ≈12
+  bar — so the 97.7%-of-peak-issue model does underprice cross-lane ops, but the
+  headroom that mis-pricing exposes is exactly the 32–43 µs/step already measured
+  and already below the bar.
+- Recommendation: **close** R109-D with three labels — `N-ISSUE-BOUND` for the QK
+  reduction specifically (the label the preregistered rule asks for),
+  `N-QK-MMA-PADDING-BOUND` for the MMA mechanism (dead by R2, independent of the
+  threshold), and the load-geometry retarget closed as not-DRAM-and-not-launch
+  bound (R3). Nothing to merge — `git diff --stat 1a6761bf -- Sources Vendor` is
+  empty, by design. Please forward §10 of the verdict to **@alphonse**, whose R109
   assignment applies the same MMA technique to the full-attention twin at
-  `LagunaRuntimeModel.swift:2027+`; three of these results (built-in `simd_sum`
-  already optimal, the M-padding bill, and the `LAGUNA_RESCALE` probe hazard)
-  should save that assignment a full stage.
+  `LagunaRuntimeModel.swift:2027+`; five of these results (built-in `simd_sum`
+  already optimal, the ~2× M-padding bill, the `LAGUNA_RESCALE` probe hazard, the
+  `FERN_LADDER=12` setting that matches full attention's 24-threadgroup dispatch,
+  and the reusable arm generator) should save that assignment a full stage.
