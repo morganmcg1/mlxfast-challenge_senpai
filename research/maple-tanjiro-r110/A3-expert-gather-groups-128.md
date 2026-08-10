@@ -65,11 +65,36 @@ BM chunking are computed from the sorted offsets and are therefore unchanged.
 Output addressing (`:1975-1977`, `:2005-2008`, `:2017-2027`) contains **no**
 `expert_groups` term at all, so no output element changes owner and no
 reduction is re-associated. `bounds[]` grows from 2 to 3 ints (`:1741`) — a
-trivial threadgroup-memory change. The WAR barrier between chunks is already
-exercised by the base at `S = 1`, and nothing in the kernel assumes
-`M % expert_groups == 0`.
+trivial threadgroup-memory change. The MMA, staging, and epilogue code is
+byte-identical for any `expert_groups`; only tile grouping changes, so each
+output keeps the same Dtile accumulation order.
+
+The decisive host-side line is `quantized.cpp:1632`:
+
+```cpp
+grid_dims.y = expert_aligned ? egroups : (M + bm - 1) / bm;
+```
+
+On the expert-aligned branch — the one this arm affects — `grid.y` is
+**M-independent**. That settles the "does it partition M?" question directly:
+the M-derived form is the *other* branch. (`grid.x` is unaffected too:
+`xmajor_ct` is hardcoded 0 at `quantized.cpp:1306-1308`.)
+
+Three residual hazards, all checked:
+
+- **`bounds[S]` correctness.** The `DARKBLOOM_BSEARCH_HOIST` prologue
+  (`:1786-1794`) fills `bounds[b] = lower_bound(tid.y * S + b)` for `b <= S`,
+  so `bounds[S]` is `lower_bound(last_expert + 1)` — the correct exclusive end.
+  All 256 threads cover the `b` range for any `S`.
+- **WAR hazard on `Ws` / `gate_up_stage` reuse across the two slots.** Guarded
+  by the same barrier that already opens every k-iteration (`:1888` region,
+  `:1903`), a hazard the base already exercises across BM chunks at `S = 1`.
+- **`M % expert_groups`.** No such assumption exists anywhere in the kernel.
 
 Conclusion: **bit-exact**. The risk in this arm is purely performance.
+
+This was independently re-derived by a separate code-path review, which
+reached the same verdict (SAFE, pure grid partitioning) from the same lines.
 
 ## Mechanism and predicted direction
 
@@ -103,11 +128,19 @@ Both speedup floors must stay >= 0.95.
 
 ## JIT
 
-The kernel is JIT-only, generated from
-`mlx-generated/fp_quantized_nax.cpp:1828-1946`, which is identical to the
-header body apart from one comment. Since only a host-side integer default
-changes and **no kernel body is touched**, the `.cpp` twin and the `.metal`/
-header sources stay consistent automatically. No metallib rebuild is required.
+The kernel is JIT-only: `fp_quantized_nax.metal` carries no `expert_nax`
+instantiation, and `get_qmm_nax_kernel` (`jit_kernels.cpp:1189`) compiles from
+the embedded twin `mlx-generated/fp_quantized_nax.cpp:1828-1946`, which is
+identical to the header body apart from one comment block.
+
+Since only a host-side integer default changes and **no kernel body is
+touched**, the `.cpp` twin and the `.metal`/header sources stay consistent
+automatically — the `AGENTS.md` twin-sync obligation is satisfied trivially.
+No metallib rebuild is required.
+
+`kname` embeds `_eg_N` (`quantized.cpp:1508`), so each value compiles to its
+own cached library: a one-time JIT cost on the first official run, not a
+per-dispatch cost.
 
 ## Local gates
 
