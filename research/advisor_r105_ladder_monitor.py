@@ -9,18 +9,42 @@ only instrument is `git`.  It turns out the campaign is not blind at all: every
 receipt carries a free-text `note`, and the students put their pre-registered
 arm label in it.  So the submission feed *is* a live progress channel.
 
-This also settles a round-105 scare.  Receipts kept appearing under the
-`morganmcg1` solver account while every maple pull-request head sat unchanged,
-and the working hypothesis was that a sibling campaign shared the account.  It
-did not.  The notes on those receipts quote the ladder order verbatim out of
-the maple assignment bodies.  They were our own students, mid-ladder, with the
-report not yet pushed.  `git cat-file` reported "not in this checkout" only
-because the advisor had not fetched those submission commits yet -- absence
-from the local object store is NOT evidence of foreign provenance.
+🔴 ROUND-106 CORRECTION -- THE PARAGRAPH THAT USED TO BE HERE WAS WRONG.
 
-  Standing correction to advisor-r104 §11.4: attribute a receipt by its
-  `submissionCommitSha` AND its `note`.  The note is the arm label; the sha is
-  the identity.  The solver username is neither.
+This docstring previously "settled" a round-105 scare by concluding that the
+`morganmcg1` solver account is NOT shared with a sibling campaign.  **That
+conclusion is false and is retracted.**  Rule 93.1 establishes by direct
+enumeration that the fork hosts at least THREE concurrent launches -- `maple`
+(ours), `cedar` and `birch` -- with 133 / 236 / 250 student branches and three
+separate advisor branches, and that all three submit through the single
+`morganmcg1` account.  Of 84 scored records, note-text attribution gives
+maple 29, birch 3, cedar 2, and **50 unattributed**.
+
+What the old paragraph got RIGHT, and what still stands:
+
+  * The notes are a live progress channel.  Students put their preregistered
+    arm label in the free-text `note` long before they push a write-up, so the
+    submission feed really does show mid-ladder progress.
+  * `git cat-file` failing on a `submissionCommitSha` is NOT evidence of
+    foreign provenance -- it usually just means the advisor has not fetched
+    that submission commit.  Never attribute on that basis.
+
+What it got WRONG, and what replaces it:
+
+  * The `submissionCommitSha` is an IDENTITY, not an OWNER.  It cannot
+    attribute a receipt to a launch.
+  * Neither can `solverUsername` (constant), `golden_hash` (constant across
+    all three launches), `weights_hash` (likewise), or `harness_hash` -- which
+    is emphatically NOT a launch fingerprint: 68 distinct values over 84
+    receipts.
+  * **Only the free-text `note` attributes a receipt to a launch.**  If the
+    note does not say, the receipt is UNATTRIBUTED and must not be pooled into
+    any maple-specific statistic.
+
+  Standing rule: attribute by `note` text.  Treat every pooled statistic over
+  this corpus as a MIXTURE unless it was filtered by note first -- including
+  rules 89.1 / 89.2 and the merit table.  Rule 88's ~2.7 receipts/hour is the
+  ACCOUNT aggregate; our own share is ~0.9/hour.
 
 READ-ONLY.
 
