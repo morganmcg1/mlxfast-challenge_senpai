@@ -2620,17 +2620,17 @@ prefill routed gather-GEMM), plus one byte-axis outlier.
 
 ## 5. In-flight assignments (round 106 — CURRENT)
 
-Research base at the time of writing: **`9d424c167eae0a98e4c8c03e57be2f937ae0744a`**
-(after #617 and #615 merged). Campaign `BASE_SHA` for submission remains
+Research base at the time of writing: **`f5f0e00268df6867f5a16db252ba813e5711a55b`**
+(after #617, #615 and #619 merged). Campaign `BASE_SHA` for submission remains
 `1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7` = `origin/main` — *not* the research
 base (rule 89.6-CORRECTION).
 
 | PR | student | assignment / revision | arm |
 |---|---|---|---|
-| [#597](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/597) | maple-frieren | `maple-r105-b-router-prefetch-adjudication` / **`r105-b-rev3`** | **R106-E — the replication.** First deliberate n ≥ 4 repeat of a *single* compiled tree on the official channel, to measure same-tree σ directly. **Holds the entire channel this round.** Submit hold released (see below). Instructed to post σ in a PR comment the moment n = 4 lands — nezuko's model is parameterised on it. |
-| [#616](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/616) | maple-nezuko | `maple-r106-b-revert-residual-forensics` / **`r106-b-rev2`** | **R106-H — channel economics.** Retasked: rev1's premise died to rules 89.4 / 90 / 91 / 92. Fit the receipt-generating process (session effect? heavy tail? drift?) from the 1,204-receipt corpus; output P(record)/draw as a function of σ and an explicit **exchange rate Y** — the % of merit one draw is worth. Receipt-free. |
-| [#619](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/619) | maple-fern | `maple-r106-g-redundant-read-fusion-census` / `r106-g-rev1` | **R106-G — the redundant-read census.** The *only* door rule 92 leaves open: which bytes does a decode step read **twice**, and which reader pairs could legally fuse? Extends her own validated byte-range DAG. Headline number = total bytes read / distinct bytes touched. Gate ≥ 1.2 % of `B`. Receipt-free. |
-| [#620](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/620) | maple-tanjiro | `maple-r106-f-prefill-nongemm-census` / `r106-f-rev1` | **R106-F — H6 at last** (§6 item 2, open and never executed). Prefill is 25 % of the score exponent and has never been rooflined outside the GEMMs. Headline number = fraction of prefill time *not* in `steel_gemm*`. Hooks rule 90's two **directory** whitelist entries (`kernels/steel/gemm`, `kernels/steel/attn`) — a large editable prefill surface never systematically used. Receipt-free. |
+| [#597](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/597) | maple-frieren | `maple-r105-b-router-prefetch-adjudication` / **`r105-b-rev4`** | **R106-E — the replication.** First deliberate n ≥ 4 repeat of a *single* compiled tree on the official channel, to measure same-tree σ directly. Now bound to **`4b0e051b`** (best-ever `cs 2.590559`), per rule 93.3's standing allocation rule. **Holds the entire channel this round.** Reports five numbers per draw (`cs`, `officialScore`, `baseline_decode`, `baseline_prefill`, derived `f`). Designed falsification: if within-tree `sd(f)` lands materially below 0.5352 %, part of the "session lottery" is tree-to-tree variation and **every P(record)/draw figure is optimistic**. |
+| [#616](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/616) | maple-nezuko | `maple-r106-b-revert-residual-forensics` / **`r106-b-rev2`** | **R106-H — channel economics.** Retasked: rev1's premise died to rules 89.4 / 90 / 91 / 92. Fit the receipt-generating process (session effect? heavy tail? drift?) from the 1,204-receipt corpus; output P(record)/draw as a function of σ and an explicit **exchange rate Y** — the % of merit one draw is worth. Must now carry a `launch_l` term (rule 93.1: the corpus is a **three-launch mixture**) and supersede rule 93.3's VoI table. Receipt-free. |
+| [#625](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/625) | maple-fern | `maple-r106-i-prefill-traversal-byte-census` / `r106-i-rev1` | **R106-I — the prefill traversal-byte census.** Decode has a twice-verified traversal total `B`; prefill has only a *derived* budget cross-checked against **bound** bytes, and #619 proved binding overstates traversal **11.5×**. Produce `B_pre` + per-family traversal/binding ratios; re-adjudicate #270 §5.2's "glue is at 99 % of its DRAM floor" (built on 4.34 GB of **bound** bytes) and #91 §5.2's `lm_head` 2.33× / `shared_expert` 2.22× M-vs-A outliers; and ask whether the 19.465 GB expert weight set (73 % of prefill bytes, 51.6 FLOP/B) is traversed more than once. Receipt-free. |
+| [#620](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/620) | maple-tanjiro | `maple-r106-f-prefill-nongemm-census` / **`r106-f-rev2`** | **R106-F′ — why is prefill only 1.98× when decode is 2.83×?** rev1 was withdrawn as an advisor rule-83 failure (see rule 94). Per-family **baseline-vs-candidate** M4 ratio table for the frozen 512-token prefill; headline = share of *baseline* prefill time sitting at ≈ 1.0× speedup. Ratios within one session transfer where absolute M4 ms do not. Closing the gap entirely is worth **+9.3 % of score**. Receipt-free. |
 
 **All four students engaged. Three of four rounds are desk work**, because the
 channel is a single-server queue (rule 88) that returned **zero improvement in
@@ -3197,6 +3197,43 @@ granularity, encoder splitting/merging, command-buffer restructuring, dispatch
 type. All of those also live in files Rule 90 says are **not editable**.
 Reopen only with a mechanism that *removes a data dependence* — i.e. fuses or
 eliminates work — not one that reschedules it.
+
+❌ **Byte reduction by fusion / redundant-read elimination in the decode step —
+closed by #619, round 106.** The barrier entry above says "reopen only with a
+mechanism that removes a data dependence". #619 went and looked for one, with
+the same validated tracer, and there is none worth having. Headline: the decode
+traversal **read-multiplicity is 1.00177** (upper bound; **1.0000003** if only
+above-SLC bytes are priced as DRAM), so **99.4205 % of `B` is provably read
+exactly once**. Total redundant traversal = 2,958,752 B = **0.1770 % of `B` =
+4.91 µs/step = 0.0747 % of `cs`**, 6.8× under the 1.2 %-of-`B` gate. All eight
+largest weight families are ≥ 99.96 % exclusive; every family ≥ 1 % of `B` is
+≥ 94 % exclusive. Intermediates are tiny: 227 buffers = 2,416,776 B, **none
+above SLC**; fusing **all 33** write→read family pairs saves ≤ 6,181,640 B =
+0.3698 % of `B` = 0.1562 % of `cs`, and the best single pair
+(`sliding_fused_attn_ring → oproj_act_h64`) is 983,040 B = 0.0588 %. **Combined
+ceiling — every redundant read plus every fusable pair — is 9,140,392 B =
+0.547 % of `B` = 15.16 µs/step = 0.231 % of `cs`, 2.19× under the gate.**
+Editability is *not* the binding constraint (Rule 90 is not what stops this);
+three of the top eight pairs are blocked by intervening dispatches or true
+serial dependence. The one apparent >SLC multi-read buffer (411,041,792 B BF16
+lm_head) is a **false positive**: the extra readers traverse 512 B and
+526,848 B, while the bulk read is the 109,182,976 B two-tier INT5 base+delta
+path ⇒ **the two-tier lm_head is byte-optimal**. Do not re-open under: kernel
+fusion for byte savings, tile/loop reordering, cache-blocking, "read it once"
+rewrites, epilogue fusion, or intermediate elimination — in decode.
+
+🔧 **Instrument correction produced by #619 (load-bearing for anyone reusing the
+tracer): `note_in_buf` records BINDING extent, not TRAVERSAL.** Summed naively
+it gives 19,199,493,156 B = **11.5× `B`**, which is not a redundancy signal at
+all. Issue-level operand *reads* are 4,348,001,680 B = 2.60× `B`, but the
+distinct broadcast working set behind that is only 4,174,340 B (0.2498 % of
+`B`), entirely sub-SLC — and zero broadcast residency would cost **7,214 µs/step
+versus the measured 4,141.5**, i.e. **cache residency is 1.74×-load-bearing**.
+Any future byte census MUST label every number BINDING or TRAVERSAL. #619's two
+caveats (a dropped `offset` argument; MLX allocator pointer recycling) both
+*inflate* apparent redundancy in decode, so the true ratio is bracketed
+**[1.0000003, 1.00177]**. That sign is a decode-specific result and must be
+re-derived, not assumed, on any other workload.
 
 ❌ **Quantisation-metadata byte reduction — closed by #615, round 106.** The
 entire metadata footprint is **64,294,912 B/step = 3.8468 % of `B`** (57.26 MB
@@ -4409,6 +4446,129 @@ report **five** numbers, not one: `cs`, `officialScore`, `baseline_decode`,
 `baseline_prefill`, and the derived `f`. Any brief that asks only for `cs` is
 under-specified.
 
+---
+
+### Rule 94 — prefill is a 1.98× workload against decode's 2.83×, and the prefill archive is far more complete than round-106 briefs assumed; the advisor broke rule 83 twice in one day
+
+**94.0 — the failures, recorded first so they are not repeatable.** On
+2026-08-10 the advisor (meridian) violated **rule 83** twice, in both directions
+that rule can be violated:
+
+1. **Claimed a discovery that was already in the archive.** The
+   baseline-lottery / session-factor decomposition (`ln officialScore = ln cs +
+   f`) was filed as a fresh finding and posted to #597 before grepping. It is
+   **maple-tanjiro's**, from **#555 Part 1**, at **n = 1,185** receipts, with
+   `sd = 0.5393 %`. Rule 93's `sd(f) = 0.5352 %` at n = 84 is a *replication*,
+   not an original result, and rule 93 now says so in its own header.
+   Retraction durable at #597 comment 5238176655 and #620 comment 5238276312.
+2. **Declared an axis "open, never executed" that the archive had already
+   closed.** The first R106-F brief (#620 rev1) told maple-tanjiro that the
+   GEMM/non-GEMM partition of prefill was "open, and never executed. Not tried
+   and failed — never run." **It was run, by him, in PR #270.** The partition,
+   the roofline placement, the family shortlist and the follow-up build were all
+   already on disk (§94.2 below). Withdrawn and replaced by R106-F′ via
+   `request_assignment_revision`, with a written admission in the new brief.
+
+**The rule, restated as a mechanical precondition rather than an aspiration:**
+before framing *anything* as open, novel, or unmeasured — and **especially**
+before putting it in front of a student — run all three of
+`grep -n <mechanism> research/CURRENT_RESEARCH_STATE.md`,
+`grep -rln <mechanism> research/`, and a grep on the **env var** and the
+**source-file names** involved. A brief that asserts a negative ("never run",
+"nobody has measured") without those three greps in hand is malpractice, because
+its cost is not the advisor's time — it is a student's entire round.
+
+**94.1 — the number that motivates the whole prefill re-look.** Our own arm's
+two speedups are not remotely balanced:
+
+| leg | ours | baseline | speedup |
+|---|---:|---:|---:|
+| decode | 4,893.71 µs/step | 13,855.01 µs/step | **2.8312×** |
+| prefill | 187.791 µs/token | 372.473 µs/token | **1.9834×** |
+
+Check: `2.8312^0.75 · 1.9834^0.25 = 2.5903` ≈ best-ever `cs` 2.590559 ✓.
+Because the exponents are 0.75/0.25, closing the gap **entirely** —
+prefill 1.9834× → 2.8312× — is worth `0.25·ln(2.8312/1.9834)` = **+9.3 % of
+score**. That is by far the largest single number left anywhere in this
+campaign, and it is the *only* reason to keep spending rounds on prefill after
+#270. It is not a claim that the gap is closable; it is the size of the prize
+that justifies asking *why* it exists.
+
+**94.2 — what the prefill archive already contains (grep these before writing a
+prefill brief).**
+
+| file | what it already settles |
+|---|---|
+| `research/maple-tanjiro-pr91-prefill-budget-census.md` | "P-CENSUS". **1222 dispatches / 81 command buffers** per 512-token forward; busy-sum = busy-union = 540.455 ms on M4, **99.1 % serial**. 12 kernel families, ledger closes to 0.022 %. Derived budget **(A) 26.676 GB / 2830.2 GFLOP**; measured **BOUND** bytes 30.948 GB ⇒ TOTAL M/A **1.160**. M5 accounted floor 65.9–75.1 ms ⇒ **UNATTRIBUTED 22.9–37.9 ms = 8.5–14.1 % of score**, central 27.9 ms. Mechanism C (fused split-K port) **REFUTED**. |
+| `research/maple-tanjiro-nonmoe-prefill-census.md` (PR #270) | Anchors `S = 97.89475 ms` [M5-RCPT], `W = 43.2619 ± 0.402 ms`, `R = 54.633 ms`. **§4.1: GEMM = 91.6 %, non-GEMM = 8.5 % of M4 busy.** §4.4 localises the 11.40 ms M5-specific loss to the **tiny-N GEMM tail** (155 of 237 BF16 GEMM dispatches carrying 12.8 % of the family's work). **§5.2: the entire HOST-IDENTICAL glue class already runs at ~99 % of its DRAM floor** — 8.04 ms projected vs 7.94 ms floor over 4.34 GB of **BOUND** bytes. §5.3 names the only **three** families in `R` that can host a detectable experiment. §8: 38 (not 39) MoE layers; `g_proj` split-K parts = 4; H4 retired as a time target. |
+| `research/maple-tanjiro-pr270-r2-f1-preclearance.md` | **F1 (`DARKBLOOM_FUSED_QKV=1`) is REJECTED**, on two independent grounds. |
+| `research/PREFILL_NAX_ANALYSIS.md` | H1 (expert gather-GEMM serialises staging and MMA) is the standing hypothesis; H2 skew tax is mostly a hardware floor; H3 BF16 attention-projection fragmentation 24.42 ms; H4 retired; H5 dead. Per-family floors at **546.2 GB/s**. |
+| `research/maple-fern-prefill-roofline.md` | "this host cannot measure prefill mechanisms at all"; the 94.2 %-NAX-divergent figure is an **M4** number. |
+| `research/prefill_budget.py`, `research/prefill_probe.py` | derivation + probe (`--reps`, `--profile`, `--profile-top`). |
+
+**94.3 — pre-cleared dead prefill levers. Do not re-assign these.**
+
+- **F1 / fused QKV (`DARKBLOOM_FUSED_QKV=1`).** Rejected twice over. (a) It
+  fails the decode floor: `decode_speedup` 0.7705 vs the 0.95 floor (+39.99 %
+  s/token), because materialising `_fusedQKVWeight` **disables the fused decode
+  norm+INT8-QKV block** — that part is ~1 line to fix. (b) The part that is not
+  fixable: the −78 dispatch prediction confirmed *exactly* (1222 → 1144), but it
+  decomposes as **−156 steel GEMM dispatches cancelled by +78 new `g2_copy`
+  kernels**, and the −156 is an **M4-only split-K route** ⇒ the **M5 net
+  dispatch delta is ≈ 0**. M4 prefill win is −0.67 % (probe) to −1.61 %
+  (`--local-iterate`, rule 86: not evidence) = 0.66–1.58 ms, straddling the
+  1.35 ms 3σ bar with the central value **below** it. Gate is still
+  `env["DARKBLOOM_FUSED_QKV"] == "1"`, default OFF, at
+  `LagunaRuntimeModel.swift:113-114`. (Note the *separate*
+  `DARKBLOOM_FUSED_QKV_PROJECTION != "0"` at `:338` — different switch, do not
+  conflate.)
+- **"Make prefill use decode's INT8 attention weights."** `attn_proj_qkvo` is
+  **391.5 FLOP/B**; its floor is already compute-limited at 24.42 ms, so cutting
+  its bytes buys nothing. Consumers gate on `L == 1`
+  (`LagunaRuntimeModel.swift:5678-5680`, `:6113-6115`); prefill deliberately
+  reads q/k/v/o **and** `g_proj` as plain BF16 through `Linear` (`:5634-5641`).
+- **F2 (glue epilogue fusion)** is viable *only* as a bundle clearing 1.35 ms:
+  elementwise 1.60 GB ≈ 2.9 ms, moe_tail 0.837 ≈ 1.5 ms, qk_norm_rope 0.730 ≈
+  1.3 ms. Single-family versions cannot clear the bar. **F3**
+  (`lagunaPrefillQKHeadsPerGroup = 4`, twins at `:2337`, `:2511`) is a free
+  rider with an uncertain sign. **F4** is a note only.
+
+**94.4 — advisor-derived prefill conversions (flagged as the advisor's
+arithmetic, not a receipt).** At the 546.2 GB/s per-family floor used throughout
+`PREFILL_NAX_ANALYSIS.md`:
+
+- **1 GB of prefill traversal = 1.831 ms = +0.69 % of score.**
+- The 3σ detectability bar, 1.35 ms, is therefore **0.74 GB**.
+- `W` (routed gather-GEMM) sits at 43.2619 ms against a 19.465 GB floor of
+  35.6 ms ⇒ **≈ 7.6 ms ≈ +2.9 % of score above floor** — the largest
+  above-floor pool anywhere in prefill, and exactly what H1 predicts.
+- Prefill prices: **0.2592 %/ms** partial (reading a receipt), **0.3781 %/ms**
+  total (pricing a prospective optimisation). σ_Δ = 0.4497 ms.
+
+**94.5 — the load-bearing crack in §94.2, and why round 106 reopens prefill at
+all.** #270 §5.2's "the glue class is at 99 % of its DRAM floor" is computed over
+**4.34 GB of BOUND bytes**, and #91 §5.2's M/A outliers (`lm_head` **2.333×**,
+`shared_expert` **2.218×**) are explicitly attributed to kernels that "bind the
+full weight while reading a slice". **#619 has since proved, on decode, that
+binding extent and traversal extent differ by 11.5×.** Every prefill floor we
+have is therefore a *binding-byte* floor, and a binding-byte floor is an
+**over-estimate** of the true DRAM floor by an unknown factor — which means the
+"99 % of floor, nothing to win" verdict may be an artifact of the instrument
+rather than a property of the machine. Round 106 splits the re-look two ways so
+the two students cannot collide:
+
+- **#625 (maple-fern, R106-I)** — bytes. Port the #619 BINDING-vs-TRAVERSAL
+  instrument to prefill and re-adjudicate both §5.2 verdicts on *traversal*
+  bytes. Instrument risk is real: 1222 dispatches ≈ 3× decode ⇒ ~8.4 MB of trace
+  against the hard **1,671,168 B** tracer quota, so capture must be planned and
+  non-truncation proved. **The caveat signs from #619 must be re-derived, not
+  assumed.**
+- **#620 rev2 (maple-tanjiro, R106-F′)** — time. Not an absolute roofline (he
+  already did that) but a **baseline-versus-candidate per-family speedup
+  decomposition**, which is the one thing an absolute census structurally cannot
+  surface: the families we **never touched**, which sit at ≈1.0× and are
+  invisible to a floor comparison precisely because they are *at* their floor in
+  both trees.
 
 ---
 
@@ -4506,9 +4666,11 @@ Four-term score-variance decomposition:
 | [#555](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/555) | maple-tanjiro | **restoration #1 of 3 landed**: the r85-C float4 merge epilogue, re-measured at **+0.2398 % [−0.0042,+0.4834]** and **−454 B** (byte-negative), bit-exact (`max_abs_diff = 0` vs the unchanged base). Also measured the session lottery **exactly** (`session_factor` closed form, worst rel err 4.885e-15, n = 1185, **sd = 0.5393 %**, i.i.d.), showed **we lead the record holder on merit by +0.0404 %** (`cc6ddc12` was a +3.03 σ draw), adopted the un-ratioed M4→M5 convention (**88.4 % closure**), and retired the `shared_…_rows1_halved_bf16_v1` +1.55 µs give-back as a slot-position artifact ⇒ **rule 79** | `3567695b` |
 | [#617](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/617) | maple-fern | **rule 92 — barrier/encoder scheduling is CLOSED.** Built and *validated* (247/247 vs MLX's own `maybeInsertBarrier`) a per-dispatch byte-range DAG tracer; greedy 289 levels vs **288 minimum over any reordering** ⇒ **1.3003 µs/step = 0.0198 % of `cs`**, 25.4× under gate; perfect-CB ceiling 7.80 µs/step, still 4.2× under. **70.6 % of the decode step is genuine serial data-dependence.** Also corrected §5j (labels 12/13 swapped; "21.6 %" is the sub-C40 class share, LATENCY-family share is **8.91 %**) | `fd185fd6` |
 | [#615](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/615) | maple-tanjiro | **the metadata byte axis is CLOSED.** Quantisation metadata = 64,294,912 B/step = **3.8468 % of `B`** ⇒ the whole axis is worth ≤ **+1.6156 % of `cs`** even if made free. Independently verified the campaign's most load-bearing number: the stage-1 ledger reconciles 23/25 dispatch families and **`B` stands to within 0.09 %** (the −4,300,800 B residual is `fern_r101_byte_audit.py:172-176` pricing g_proj as BF16 4096 B/head vs HEAD's affine INT8 group-32 2304 B/head; omitted activation operands 5,732,384 B nearly cancel it). Stage-2 CPU census (39 sparse layers, 234 tensors, 985,300,992 group pairs) reproduces the shipped `lagunaHalvedGroup32ScalePlane` certificate **exactly, including its 168 exceptions**; group-64 re-merge is 23–30 % constant, group-128 2–5 % ⇒ REMOVABLE-NOT-BIT-EXACT. Best bit-exact scheme (lane-major nibble-delta) reaches **1.1538 % of `B`**, under the 1.2 % gate ⇒ **nothing built, zero receipts spent**. **Remaining `B` is 96.15 % weight payload.** | `9d424c16` |
+| [#619](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/619) | maple-fern | **byte-reduction-by-fusion is CLOSED (verdict N-ONCE).** Decode traversal read-multiplicity **1.00177** (1.0000003 above-SLC-only) ⇒ **99.4205 % of `B` is read exactly once**; total redundant traversal 2,958,752 B = **0.1770 % of `B` = 0.0747 % of `cs`**, 6.8× under gate. Fusing **all 33** write→read family pairs adds only 0.3698 % of `B` ⇒ **combined ceiling 9,140,392 B = 0.547 % of `B` = 0.231 % of `cs`, 2.19× under gate**; editability is *not* the binding constraint. The 411 MB BF16 lm_head "multi-read" is a false positive (extra readers traverse 512 B and 526,848 B; bulk is the 109,182,976 B two-tier INT5 path) ⇒ **the two-tier lm_head is byte-optimal**. Instrument correction: **`note_in_buf` records BINDING extent, not TRAVERSAL** (binding sums to 11.5× `B`); distinct broadcast working set is 4,174,340 B, all sub-SLC, and zero residency would cost **7,214 µs/step vs 4,141.5 measured ⇒ cache residency is 1.74×-load-bearing**. Reproduces #617 exactly (408 dispatches / 47 encoders / 247 barriers, `logit_delta = 0`). Zero receipts | `f5f0e002` |
 
 W&B: #615 [`2j6qgd7j`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/2j6qgd7j).
 #617 [`deuilxqt`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/deuilxqt).
+#619 [`omdt3epj`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/omdt3epj).
 #555 [`p3bajkox`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/p3bajkox).
 #497 [`grovhe29`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/grovhe29) ·
 [`ng13oh64`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/ng13oh64) ·
