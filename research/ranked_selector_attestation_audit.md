@@ -83,9 +83,9 @@ The schema and validator implement the same closed-world object key sets. The
 validator pins the schema byte digest, validates the schema contract before a
 bundle, rejects unknown fields, enforces selector strings of at most 160
 characters, enforces base64 type and encoded-size bounds, and parses capture
-epochs as real UTC instants. A syntactically shaped impossible date is invalid. Dedicated
-controls cover schema drift, impossible dates, oversized selectors, and wrong
-selector types.
+epochs as real UTC instants. A syntactically shaped impossible date is invalid.
+Dedicated controls cover schema drift, impossible dates, oversized selectors,
+and wrong selector types.
 
 ## Selector row contract
 
