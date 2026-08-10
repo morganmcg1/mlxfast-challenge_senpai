@@ -8641,11 +8641,12 @@ private final class LagunaDenseDownTrace: @unchecked Sendable {
         else { return }
 
         lock.lock()
-        let snapshot = counts
+        let prefill = counts["prefill", default: 0]
+        let decodeSeed = counts["decode_seed", default: 0]
+        let decodeStep = counts["decode_step", default: 0]
         lock.unlock()
-        let line = "{\"prefill\":\(snapshot[\"prefill\", default: 0]),"
-            + "\"decode_seed\":\(snapshot[\"decode_seed\", default: 0]),"
-            + "\"decode_step\":\(snapshot[\"decode_step\", default: 0])}\n"
+        let line = "{\"prefill\":\(prefill),\"decode_seed\":\(decodeSeed),"
+            + "\"decode_step\":\(decodeStep)}\n"
         let data = Data(line.utf8)
         if !FileManager.default.fileExists(atPath: path) {
             _ = FileManager.default.createFile(atPath: path, contents: nil)
