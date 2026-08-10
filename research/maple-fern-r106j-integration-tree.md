@@ -787,10 +787,115 @@ report it next to the effect cell whatever it says. If prefill moves *significan
 either direction, that is evidence of an instrument or thermal problem, not of a prefill
 effect, and it invalidates the block rather than supporting a claim.
 
-#### 5.3.4 Result
+#### 5.3.4 Result — blocks 1–4
 
-_Filled in below from `research/artifacts/maple-fern-r106j/abba_t0_t0p/runs.tsv` once the
-sweep terminates._
+Job `2da318e3-ce34-4635-a247-3594ccf4b77b`, exit 0, 2,509 s, 16 runs, four complete
+blocks in alternating `ABBA`/`BAAB` phase. Artifacts committed at `79d504e5`.
+
+**Acceptance criterion 1 passes, and it is the most valuable thing in this subsection.**
+
+```
+correctness failures : 0 / 16
+distinct golden_hash : 1  -> b9509697c08a2cf3
+max_abs_diff         : 0 on every run of both arms
+```
+
+The `golden_hash` is also the same value Stage 0 recorded for unmodified `T0`
+(`b9509697c08a2cf3…`, §2.5). So the §5.3.1 bit-exactness argument — lane-major
+addressing means `num_simdgroups` only re-labels `out_row → (tile, simd_gid)`, the
+`threads = rows*32` invariant is untouched, and the `rows % 8` guard is unreachable
+because `rows` is always a multiple of 128 — is now an **argument with 8 independent
+confirmations** rather than an argument alone. That result is robust and I report it as
+the durable finding of this arm regardless of what the timing does.
+
+**The timing does not clear the bar, and is not even the right sign.**
+
+| cell | estimate | CI95 | sd/block | blocks positive |
+|---|---|---|---|---|
+| d(ln decode) | −0.0923 % | [−1.0474, +0.8627] | 0.6003 % | 2/4 |
+| d(ln prefill) *(null cell)* | **+0.5193 %** | [−0.0150, +1.0537] | 0.3359 % | **4/4** |
+| **PRIMARY d(ln score)** | **−0.0606 %** | **[−0.8640, +0.7428]** | 0.5050 % | 2/4 |
+| conservative (prefill neutral) | +0.0692 % | [−0.6471, +0.7855] | 0.4502 % | 2/4 |
+
+Per-block d(ln score) %: **+0.3022, −0.3693, −0.6056, +0.4303**.
+
+Criterion 2 (CI excludes zero) fails. Criterion 3 (point ≥ +0.40 %) fails, and fails on
+the *wrong side of zero*: the point estimate is a 0.06 % **regression**, six times the
+distance from the bar in the unhelpful direction.
+
+**The null cell fired, and I am reporting it as preregistered.** d(ln prefill) is
++0.5193 % with 4/4 blocks positive. The patch is three hunks inside
+`lagunaDecodeNVFP4QKVLaneMajorSource(pairwise:)` — a decode-only kernel that the prefill
+pass never dispatches — so a real prefill effect is mechanically impossible and this is
+my instrument talking. Two contributors are identifiable in the raw rows:
+
+1. **A warm-up row.** Run 1, the first run of the whole sweep and a `T0` row, has
+   prefill 0.001125031 against ≈0.001111 for every later `T0` row. That single row
+   inflates block 1's control mean and therefore pushes block 1's prefill contrast
+   positive on its own.
+2. **The slot artefact from §4.4, now visible on the prefill axis.** The worker binary
+   sha256 differs run to run (six distinct prefixes per arm across eight runs — the
+   release build is not byte-reproducible on this host), and consecutive same-arm rows
+   share a binary while the outer pair of an `ABBA` block does not. §4.4 measured this as
+   a decode-side penalty for reused-build slots; the `T0P` sweep shows it also has a
+   prefill-side component, and the palindrome phase alternation is exactly what is
+   supposed to cancel it over an even number of blocks.
+
+Because the null cell is not clean, the *conservative* row (prefill charged as neutral,
+which is also the row the M4 nax wall of Rule 99 demands I quote for anything
+prefill-touching) is the row I weight: **+0.0692 %, CI [−0.6471, +0.7855]**. Still a
+dead null, still nowhere near +0.40 %.
+
+**The prior was wrong before I measured it — a unit audit of #308.**
+
+I did not go looking for this; I went to the source to state the prior fairly in §5.3.2
+and found the arithmetic does not hold. #308's own report
+(`research/maple-tanjiro-threadgroup-packing-curve.md:342-380`) says, verbatim:
+
+> Reference `S=2` absolute mean **8196.8 µs/step**. `%` of score uses the campaign
+> constant 0.015280 % per µs/step of decode.
+
+and `36.9 × 0.015280 = 0.5638`, which reproduces the quoted **+0.56 %** to three
+decimals. But those two numbers are from different machines. `0.015280 % per µs/step` is
+`0.75 / decode_M5_µs_per_step`, an **M5** constant — it is the same object as this
+campaign's "1 % of `cs` = 65.67 µs/step". The `−36.9 µs/step` and the `8196.8 µs/step`
+reference are both **M4 Pro** (#308 declares M4 Pro in its own limitations section).
+Pricing an M4 absolute µs delta with an M5 µs-denominator silently asserts that the two
+hosts have the same per-step time. They do not.
+
+The host-independent route is to stay in relative units, which is what the score formula
+actually consumes:
+
+```
+relative decode delta = 36.9 / 8196.8      = 0.4502 %   (within #308's own session)
+% of cs               = 0.75 x 0.4502      = 0.3376 %
+CI                    = 0.75 x [12.9, 61.0] / 8196.8 = [+0.118 %, +0.558 %]
+```
+
+So the correctly-transferred prior is **+0.338 % of `cs`, CI [+0.118, +0.558]** — under
+the +0.40 % bar *before a single run*, with a CI whose upper end only grazes it. The
+inflation factor is exactly the M4:M5 per-step ratio, ≈1.67×. This assumes only that a
+*relative* decode delta transfers 1:1 M4→M5, which is the one transfer this campaign has
+direct evidence for (Rule 99: my decode ln-ratio reproduced M5's to +0.15 %); every other
+transfer route in the menu (×0.622, ×0.505, ×0.436) discounts it **further**, and the
+bytes-pool route that this kernel actually sits in (×0.4369) lands at ≈+0.245 %.
+
+This does not change the corpus's own posture — `RESEARCH_ARCHIVE:161-171` already labels
+the figure "+0.56 % **undiscounted**", attaches #48's contrary M5 receipt at −0.1488 %
+for the same 8× collapse on the same QKV grid, and `CURRENT_RESEARCH_STATE:3327-3332`
+holds L3 at "**do not assign yet** … geometry neutrality is absolute until #496". What it
+changes is the headline number that a hurried integrator would have read off the queue. I
+am recording the correction because the wrong figure appears in at least four places in
+the corpus and would otherwise be re-inherited by the next round: **the honest ceiling on
+this patch was never 0.562 %, it was 0.338 %, and the bar is 0.400 %.**
+
+**Interim disposition.** §5.3.3 said I had "already decided to extend to eight unless the
+four-block point estimate is so far from the bar that eight cannot move the verdict".
+Eight *can* still move it arithmetically — blocks 5–8 would need to average +0.90 % to
+carry the mean to the bar — so the escape clause does not fire and I extend rather than
+stop, exactly as written. Job `0ca1fee0-a277-4ece-9783-f74fc63c21cf`, launched
+2026-08-10T13:40Z, resumes the *same* `runs.tsv` at row 17 (Rule 58: extend, never
+restart).
 
 #### 5.3.5 Candidate C, held in reserve — `T0U`, the unroll-depth hunk of the T1 contrast
 
@@ -838,6 +943,30 @@ T1 `Sources/` diff, not of this hunk alone; attributing all of it here would be 
 the error §4.6 accused the r99 result of. `T0U` therefore needs its own paired ABBA and
 must clear the bar on its own numbers. It is queued **only** if §5.3 returns `N-PACK`,
 and it is measured, never assumed.
+
+**Materialised 2026-08-10T13:52Z** (while the §5.3 extension runs, so the arm is ready
+the moment the verdict lands). `research/r106j/scripts/make_t0u_patch.py` reads both
+blobs from git objects, keeps only the two hunks anchored at old lines 1636 and 1740,
+replays their bodies onto the base with a per-line context assertion, and emits a
+standalone patch. Round-tripped independently: `git show 446fe987:<TARGET>` into a scratch
+directory, `patch -p1`, re-hash.
+
+| artifact | value |
+|---|---|
+| `research/r106j/t0u_unroll_depth.patch` | 5,424 B, sha256 `6a714fdc5dfb6578137a86973e42c00d18f9e9d20847e1f9c61242e843bec670`, 2 hunks |
+| `T0U` `LagunaRuntimeModel.swift` | sha256 `ebebe3faad9f232f4bb94a62719a80f4cc7d10d47cff8aee09acce0036d57735`, **380,159 B** |
+| vs `T0` (384,245 B) | **−4,086 B** — a net deletion, so Rule 75 headroom is *increased*, not spent |
+
+That sha256 is the arm guard `abba_arms.sh` will check before every `T0U` run, on the
+same footing as the `T0`/`T1`/`T0P` guards.
+
+**One sharpening of the hypothesis, recorded now rather than after the numbers.** §4.6
+found the T0→T1 `Sources/` contrast is not a single mechanism: besides this unroll
+spelling it also widens the router-prefetch valid set from `[0,1,5]` to `[0,1,2,3,4,5]`.
+#597 rev5 has since made the router-prefetch axis terminal-negative (§5.4.2). If that
+component is a drag inside T1, then `T0U` alone is not bounded above by T1's +0.3791 % —
+isolating the helper from the hindrance is precisely why a decomposition is worth
+running. That is a hypothesis, not a claim, and the sweep is what decides it.
 
 ### 5.4 Candidates that did not arrive
 
