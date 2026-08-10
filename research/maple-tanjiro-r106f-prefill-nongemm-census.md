@@ -12,6 +12,10 @@ Verdict: **N-GEMM-DOMINATES**.
 - Base: `9d424c167eae0a98e4c8c03e57be2f937ae0744a`
 - Host: Apple **M4 Pro**, 14 CPU, 48 GiB. Apple GPU **generation 16 ⇒ `nax_available = false`**. macOS 26.5.2.
 - Receipts consumed: **zero** (hard constraint honoured; `senpai/submit-official.sh` never invoked).
+- W&B: [`nyvwbvb1`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/nyvwbvb1)
+  (`wandb-applied-ai-team/mlxfast-maple`, state `finished`) — carries the full
+  family table, the non-GEMM triage table, and every summary number below.
+  Published by `research/r106f_wandb_log.py`.
 - Candidate probes run: **zero of the one allowed** — the census answered the
   question without needing it, so the allowance is returned unspent.
 
