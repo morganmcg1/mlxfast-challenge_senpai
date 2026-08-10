@@ -212,7 +212,11 @@ def main():
               f"delta vs C {m - base:+.3f} ({100 * (m - base) / base:+.3f} %)")
 
     drift_diagnostic(by_block)
-    rung_difference()
+    per_arm = defaultdict(list)
+    for r in rows:
+        if not r.get("voided"):
+            per_arm[r["arm"]].append(r["dec_us"])
+    rung_difference(pooled_scatter(per_arm))
     return rows, voided
 
 
@@ -256,7 +260,29 @@ def drift_diagnostic(by_block):
         RESULTS["drift"][(arm, n)] = ci95(xs)
 
 
-def rung_difference():
+def pooled_scatter(rows):
+    """Pooled within-arm run-to-run SD, for intervals the block bootstrap cannot give.
+
+    The high rung has one block, so the block-paired CI is undefined there. Pooling
+    residuals within (arm, N) across the whole session recovers a variance estimate
+    with usable df. It ASSUMES equal variance across arms and rungs; the high rung
+    injects 30 dispatches/layer against the low rung's 4, so if variance grows with
+    injected work this understates the interval. Reported as scatter-propagated,
+    never as a block bootstrap.
+    """
+    ss, df = 0.0, 0
+    for key, xs in sorted(rows.items()):
+        if len(xs) < 2:
+            continue
+        m = statistics.fmean(xs)
+        ss += sum((x - m) ** 2 for x in xs)
+        df += len(xs) - 1
+    if df == 0:
+        return float("nan"), 0
+    return math.sqrt(ss / df), df
+
+
+def rung_difference(scatter=(float("nan"), 0)):
     """POST-HOC, added after seeing that both injected arms ran FASTER than control.
 
     Not in the amendment, and it does not override the sec 5 verdict. It exists
@@ -292,7 +318,15 @@ def rung_difference():
         hw = (math.sqrt(h1 ** 2 + h2 ** 2) / dn
               if not (math.isnan(h1) or math.isnan(h2)) else float("nan"))
         c = (m1 - 160 * k) / 40
-        print(f"  {what}: k = {fmt(k, hw, ' M4 us/dispatch')}  (B={k1},{k2})")
+        note = ""
+        if math.isnan(hw):
+            sd, df = scatter
+            if df:
+                # each block-paired difference is treat-minus-control, var 2*sd^2;
+                # a B-block mean divides that by B.
+                hw = t975(df) * math.sqrt(2 * sd ** 2 / k2 + 2 * sd ** 2 / k1) / dn
+                note = f"  [scatter-propagated, pooled sd {sd:.1f} us, df {df}]"
+        print(f"  {what}: k = {fmt(k, hw, ' M4 us/dispatch')}  (B={k1},{k2}){note}")
         print(f"    implied eval-boundary term c = {c:+.2f} us per layer "
               f"({40 * c:+.0f} us/step over 40 layers)")
         RESULTS.setdefault("rungdiff", {})[key] = (k, hw, c, min(k1, k2))

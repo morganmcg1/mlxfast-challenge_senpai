@@ -627,51 +627,121 @@ never true. Its arithmetic is negligible by construction, so what it prices is d
 overhead, not work. Nothing is elided: `CustomKernel::eval_gpu` dispatches unconditionally
 (`.../metal/custom_kernel.cpp:117`) and the guard is a runtime device read.
 
-**The instrument's ceiling, recorded in amendment §9 before any verdict.**
+### §3.2.1 The confound, recorded in amendment §9 before any device time
+
 `lagunaInjectLayerWork` is invoked at `:11715`, after the layer body, and ends in its own
 `asyncEval(pending)` at `:12143`. An MLX eval boundary runs `gpu::finalize`, i.e.
 `end_encoding()` then `commit()` (`.../metal/eval.cpp:71-77`, `device.cpp:456-465`,
 `:526-529`), and the injected roots depend only on pre-evaluated inputs, so the injected
 tape is encoded **alone**. `DARKBLOOM_INJECT_EMPTY_SPREAD` defaults to 1 (`:11971-11972`),
 so with 40 layers injecting, the knob adds up to 40 extra encoders *and command buffers*
-per step. It therefore prices "an extra dispatch **plus** its share of a fresh encoder and
-submission", which is an **upper bound** on the marginal cost of one more dispatch inside
-an encoder that already exists.
+per step.
 
-This makes the evidence deliberately asymmetric, and it **narrows comment 6's decision
-rule**:
+Two source facts make that confound **N-independent**, which is what saves the probe:
 
-* A **null** arm F kills the merge programme, because the instrument inflates the
-  available saving three separate ways — extra encoder, extra command buffer, and arm F
-  alone appending `N` roots to `pending` (`:12137`) where the chained arms append one
-  (`:12140`) — and a null survives all three.
-* A **positive** arm F does **not** license the merge, because the effect could be entirely
-  encoder/command-buffer overhead that an in-encoder merge cannot recover.
+1. `lagunaInjectLayerWork` opens with `guard !pending.isEmpty else { return }` (`:12142`),
+   so the control arm **never reaches** `asyncEval` at all. The eval boundary is not a
+   shared cost that differences away between C and an injected arm; it is present in every
+   injected arm and absent in C.
+2. `lagunaInjectShare` (`:12105-12107`) spreads the requested total across all 40 layers
+   under `SPREAD=1`, so the *number* of extra eval boundaries is **40 per step for every
+   injected arm**, independent of the injected count `N`.
 
-So comment 6's "≥ 0.8 ⇒ build the merge" branch is **not reachable from this instrument**.
-The "≲ 0.3 ⇒ programme dead" branch is fully supported.
+So each injected arm measures
+
+```
+d(N)  =  N · k  +  40 · c
+```
+
+where `k` is the wanted per-dispatch tax and `c` is the per-layer eval-boundary term. That
+is one equation in two unknowns: **the pre-registered single-rung estimator is degenerate.**
+
+### §3.2.2 🚫 Self-correction — I assumed the confound's sign, and the data refuted it
+
+Amendment §9 and the first draft of this section asserted that `40 · c > 0`, i.e. that the
+extra encoder and command buffer *inflate* the measured cost, making a single rung an
+**upper bound** on `k`. On that reading a null arm F would have killed the merge programme
+outright.
+
+**That was wrong, and it is the one claim in this report I am retracting rather than
+defending.** Both 160-dispatch arms measure *faster than control* (§3.3), by about
+`-90 µs/step`. No positive per-dispatch tax and no positive encoder cost can produce a
+negative total, so `c < 0`: adding an eval boundary per layer **helps** decode on this host.
+Session drift is measured at only about `-11.5 µs/run` (§3.3), which accounts for roughly an
+eighth of the gap, and the blocks are not physically separated, so this is structural, not
+positional.
+
+The consequence is a genuine narrowing of what a single rung can conclude:
+
+* A **null** arm F no longer kills the programme. With `c < 0`, `d(160) ≈ 0` is equally
+  consistent with `k = 0` and with a real positive `k` masked by the negative boundary term.
+* A **positive** arm F still does not license the merge, for the original reason: the effect
+  could be encoder/command-buffer overhead that an in-encoder merge cannot recover.
+
+Both of comment 6's branches are therefore unreachable from one rung, which is why the probe
+carries a second rung at 1200 and why the **rung difference**
+
+```
+k  =  ( d(1200) − d(160) ) / 1040
+```
+
+is the decisive estimator: the `40 · c` term is identical at both rungs and cancels exactly,
+without needing to know its sign or size. It was pre-registered as a post-hoc estimator in
+amendment §10 together with its out-of-sample predictions, before either high-rung arm ran.
 
 <!--RESULTS-->
 
 ## §3.4 Why the gauge's `1.157 µs/dispatch` is not an estimate of anything
 
 The gauge arm (2400 chained no-ops) moves decode by roughly +2.8 ms/step, which divides out
-to about `1.16` M4 µs/dispatch. The 160-dispatch rungs show nothing. A per-dispatch tax
-cannot be simultaneously `1.16` and `0`, so at least one of the two is not measuring a
-per-dispatch tax. Amendment §3 designated the gauge a **liveness check only**, before any
-data existed, precisely so this could not be retro-fitted into an estimate.
+to about `1.16` M4 µs/dispatch. The 160-dispatch rungs show a small *negative* shift.
+Amendment §3 designated the gauge a **liveness check only**, before any data existed,
+precisely so this could not be retro-fitted into an estimate. That designation stands, but
+the reason it must not be read as a per-dispatch tax is sharper than "the two numbers
+disagree".
 
-The mechanism I believe explains the sign: with `CHAIN=1` the `LagunaInjectChain.tail`
-persists across layers (`:12084`, `:12139`), so the chained arms build **one serial
-critical path** through the whole step rather than 40 independent fans. What the gauge
-prices is therefore *serialized dispatch latency on the critical path* — a quantity with no
-bearing on whether two already-concurrent kernels can be merged. It is also strongly
-superlinear in `N` for that reason, which is exactly the pattern observed. MLX's
-`needs_commit()` buffer split (≈50 ops per command buffer on arch `s`) adds command buffers
-in both chained and unchained arms and so cannot explain a sign difference between them.
+Under §3.2.1's `d(N) = N·k + 40·c` the two rungs are not in contradiction at all. Taking the
+two **chained** arms, which share a mechanism, and differencing to cancel `40·c`:
 
-The `N=1200` rung exists to bridge this gap, and the measured `dH`/`dJ` pair is the only
-part of the design that speaks to it.
+```
+k_chained = ( dG(2400) − dS(160) ) / 2240   ⇒  ≈ +1.29 M4 µs/dispatch
+c         = ( dS(160) − 160·k_chained ) / 40 ⇒  ≈ −7.5 M4 µs/layer
+```
+
+So one consistent chained per-dispatch latency of ≈1.29 µs together with a negative
+per-layer eval-boundary term reproduces both the gauge and the 160-dispatch rung. Dividing
+`dG` by 2400 mixes those two terms and is what produces the meaningless `1.16`.
+
+`k_chained` is still not the number comment 6 asked for. With `CHAIN=1` the
+`LagunaInjectChain.tail` persists across layers (`:12084`, `:12139`), so the chained arms
+build **one serial critical path** through the whole step rather than 40 independent fans.
+`k_chained` therefore prices *serialized dispatch latency on the critical path*, which has no
+bearing on whether two already-concurrent kernels can be merged. The unchained pair
+`dF(160)`/`dH(1200)` is the arm that speaks to the merge, and its rung difference is reported
+in §3.3.
+
+### §3.4.1 An accidental finding I am flagging, not claiming
+
+The fitted `c ≈ −7.5 µs/layer` is a side effect of the instrument, but it is a side effect
+**on the ranked decode path**: it says that forcing an extra `asyncEval` — an
+`end_encoding()` + `commit()` pair — after every layer body made decode about `40 × 7.5 ≈
+300 µs/step` *faster*, roughly 3.3 % of a 9000 µs step. If that is real it is a larger lever
+than anything in the merge programme, and it points the opposite way from the usual
+"submit less often" intuition.
+
+I am not claiming it. Two reasons for caution, both of which I would want resolved before
+anyone spends bytes on it:
+
+* It is fitted from two arms with `n = 1` and `n = 4`, using a model I wrote after seeing the
+  sign of the 160-rung shift. It is exactly the kind of quantity that should be
+  pre-registered and re-measured, not harvested.
+* It sits badly with the independent ≈30–50 µs/commit estimate used elsewhere in this
+  campaign. A commit that costs 30–50 µs cannot also save 7.5 µs when added. **At most one of
+  those two numbers is right**, and this probe was not designed to decide which, so I am
+  recording the conflict rather than picking a side.
+
+The clean test is a dedicated commit-cadence sweep with no injected kernel at all, which is
+listed in §3.7.
 
 ## §3.5 What this means for the merge programme
 
@@ -679,10 +749,10 @@ The merge programme's premise is that deleting one dispatch per layer per step (
 step, family E — corrected count, see §3.6) buys back real decode time. Two independent
 lines now bound that premise from above:
 
-1. **This probe.** Adding dispatches on the same path, with the barrier flag both set and
-   cleared, at 4× and 30× the merge's own dispatch count, does not move decode outside
-   noise — while the instrument is simultaneously charging the workload for extra encoders
-   and extra command buffers that a real merge would never save.
+1. **This probe.** Adding dispatches on the same ranked path, with the barrier flag both set
+   and cleared, at 4× and 30× the merge's own dispatch count, does not move decode outside
+   noise once the N-independent eval-boundary term is differenced out (§3.2.2, §3.3). The
+   load-bearing quantity is the rung difference, not any single arm.
 2. **Roofline arithmetic** (independent estimate contributed by a frontier advisory agent
    this session, not a measurement of mine, and labelled as such). Decode streams ≈2.9 GB
    per token at an arithmetic intensity near 2 FLOP/byte against a ridge of ≥25, so the
