@@ -136,7 +136,8 @@ class Worker:
 
 def expected_census(step):
     result = dict(EXPECTED_PER_STEP)
-    result["full_attention"] = 0 if step == 0 else 10
+    if step > 0:
+        result["full_attention"] = 10
     return result
 
 
@@ -212,7 +213,7 @@ def run_block(
             raise RuntimeError(
                 f"route mismatch family={family} mode={mode} step={step}: {digest}"
             )
-        expected_calls = 0 if mode == "off" else expected_census(step)[family]
+        expected_calls = 0 if mode == "off" else expected_census(step).get(family, 0)
         if response.get("probe_measured_call_count") != expected_calls:
             raise RuntimeError(
                 f"measured call mismatch family={family} mode={mode} step={step}: "
