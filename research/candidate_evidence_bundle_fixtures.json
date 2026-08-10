@@ -1,0 +1,346 @@
+{
+  "fixture_schema_version": 1,
+  "artifact_files": {
+    "isolated": {
+      "path": "artifacts/isolated-rows.txt",
+      "content": "synthetic isolated rows evidence\n"
+    },
+    "whole_model": {
+      "path": "artifacts/whole-model-rows.txt",
+      "content": "synthetic whole model evidence\n"
+    },
+    "ranked_receipt": {
+      "path": "artifacts/ranked-m5-receipt.txt",
+      "content": "synthetic ranked m5 receipt evidence\n"
+    },
+    "censored_isolated": {
+      "path": "artifacts/censored-isolated-rows.txt",
+      "content": "synthetic censored isolated evidence\n"
+    }
+  },
+  "positive_fixtures": [
+    {
+      "id": "censored-valid",
+      "profile": "CENSORED",
+      "expected_classification": "CENSORED_VALID",
+      "assignment_id": "synthetic-assignment",
+      "revision_id": "synthetic-revision-censored",
+      "mechanism_id": "synthetic-mechanism",
+      "family_id": "synthetic-family",
+      "base_sha": "1111111111111111111111111111111111111111",
+      "candidate_sha": "2222222222222222222222222222222222222222",
+      "benchmark_contract_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "configuration_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "fixture_id": "synthetic-fixture-v1",
+      "window_id": "laguna-xs-2.1-serial-v2-window-v1",
+      "isolated_component_id": "isolated-synthetic-kernel",
+      "prefill_component_id": "prefill-window-512",
+      "decode_component_id": "decode-seed-512-steps-128",
+      "surface_files": [
+        {
+          "path": "Sources/MLXFastModel/Synthetic.swift",
+          "size": 123,
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ]
+    },
+    {
+      "id": "isolated-only",
+      "profile": "ISOLATED_ONLY",
+      "expected_classification": "ISOLATED_COMPLETE",
+      "assignment_id": "synthetic-assignment",
+      "revision_id": "synthetic-revision-isolated",
+      "mechanism_id": "synthetic-mechanism",
+      "family_id": "synthetic-family",
+      "base_sha": "1111111111111111111111111111111111111111",
+      "candidate_sha": "2222222222222222222222222222222222222222",
+      "benchmark_contract_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "configuration_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "fixture_id": "synthetic-fixture-v1",
+      "window_id": "laguna-xs-2.1-serial-v2-window-v1",
+      "isolated_component_id": "isolated-synthetic-kernel",
+      "prefill_component_id": "prefill-window-512",
+      "decode_component_id": "decode-seed-512-steps-128",
+      "surface_files": [
+        {
+          "path": "Sources/MLXFastModel/Synthetic.swift",
+          "size": 123,
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ]
+    },
+    {
+      "id": "local-m4-whole-model",
+      "profile": "WHOLE_MODEL_LOCAL",
+      "expected_classification": "WHOLE_MODEL_COMPLETE",
+      "assignment_id": "synthetic-assignment",
+      "revision_id": "synthetic-revision-local-whole",
+      "mechanism_id": "synthetic-mechanism",
+      "family_id": "synthetic-family",
+      "base_sha": "1111111111111111111111111111111111111111",
+      "candidate_sha": "2222222222222222222222222222222222222222",
+      "benchmark_contract_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "configuration_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "fixture_id": "synthetic-fixture-v1",
+      "window_id": "laguna-xs-2.1-serial-v2-window-v1",
+      "isolated_component_id": "isolated-synthetic-kernel",
+      "prefill_component_id": "prefill-window-512",
+      "decode_component_id": "decode-seed-512-steps-128",
+      "surface_files": [
+        {
+          "path": "Sources/MLXFastModel/Synthetic.swift",
+          "size": 123,
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ]
+    },
+    {
+      "id": "ranked-margin-just-above",
+      "profile": "RANKED_JUST_ABOVE_MARGIN",
+      "expected_classification": "RANKED_MARGIN_COMPLETE",
+      "assignment_id": "synthetic-assignment",
+      "revision_id": "synthetic-revision-ranked",
+      "mechanism_id": "synthetic-mechanism",
+      "family_id": "synthetic-family",
+      "base_sha": "1111111111111111111111111111111111111111",
+      "candidate_sha": "2222222222222222222222222222222222222222",
+      "benchmark_contract_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "configuration_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "fixture_id": "synthetic-fixture-v1",
+      "window_id": "laguna-xs-2.1-serial-v2-window-v1",
+      "isolated_component_id": "isolated-synthetic-kernel",
+      "prefill_component_id": "prefill-window-512",
+      "decode_component_id": "decode-seed-512-steps-128",
+      "surface_files": [
+        {
+          "path": "Sources/MLXFastModel/Synthetic.swift",
+          "size": 123,
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ]
+    }
+  ],
+  "negative_mutations": [
+    {
+      "id": "reject-base-sha-drift",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "set",
+      "path": "identity.base_sha",
+      "value": "3333333333333333333333333333333333333333",
+      "expected_error_code": "IDENTITY_MISMATCH"
+    },
+    {
+      "id": "reject-candidate-sha-drift",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "set",
+      "path": "identity.candidate_sha",
+      "value": "4444444444444444444444444444444444444444",
+      "expected_error_code": "IDENTITY_MISMATCH"
+    },
+    {
+      "id": "reject-payload-surface-digest-drift",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "set",
+      "path": "identity.submitted_surface.canonical_sha256",
+      "value": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "expected_error_code": "SURFACE_DIGEST_MISMATCH"
+    },
+    {
+      "id": "reject-benchmark-contract-digest-drift",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "set",
+      "path": "identity.benchmark_contract_sha256",
+      "value": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "expected_error_code": "IDENTITY_MISMATCH"
+    },
+    {
+      "id": "reject-configuration-digest-drift",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "set",
+      "path": "identity.configuration_sha256",
+      "value": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "expected_error_code": "IDENTITY_MISMATCH"
+    },
+    {
+      "id": "reject-actual-artifact-byte-mutation",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "artifact_bytes",
+      "artifact_index": 0,
+      "expected_error_code": "ARTIFACT_HASH_MISMATCH"
+    },
+    {
+      "id": "reject-artifact-manifest-hash-drift",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "set",
+      "path": "artifact_manifest.0.sha256",
+      "value": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "expected_error_code": "ARTIFACT_HASH_MISMATCH"
+    },
+    {
+      "id": "reject-artifact-manifest-size-drift",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "set",
+      "path": "artifact_manifest.0.size",
+      "value": 34,
+      "expected_error_code": "ARTIFACT_SIZE_MISMATCH"
+    },
+    {
+      "id": "reject-artifact-path-escape",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "set",
+      "path": "artifact_manifest.0.path",
+      "value": "../outside.txt",
+      "expected_error_code": "ARTIFACT_PATH_ESCAPE"
+    },
+    {
+      "id": "reject-artifact-symlink",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "artifact_symlink",
+      "artifact_index": 0,
+      "expected_error_code": "ARTIFACT_SYMLINK"
+    },
+    {
+      "id": "reject-duplicate-artifact-role-and-path",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "append_copy",
+      "path": "artifact_manifest",
+      "source_index": 0,
+      "expected_error_code": "ARTIFACT_DUPLICATE_ROLE"
+    },
+    {
+      "id": "reject-artifact-unit-drift",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "set",
+      "path": "artifact_manifest.0.canonical_units",
+      "value": "dimensionless_speedup",
+      "expected_error_code": "ARTIFACT_UNIT_MISMATCH"
+    },
+    {
+      "id": "reject-ranked-hardware-class-drift",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "set",
+      "path": "phases.ranked_m5.environment.hardware_class",
+      "value": "OTHER",
+      "expected_error_code": "RANKED_HARDWARE_REQUIRED"
+    },
+    {
+      "id": "reject-fixture-identity-drift",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "set",
+      "path": "identity.fixture_id",
+      "value": "synthetic-fixture-v2",
+      "expected_error_code": "IDENTITY_MISMATCH"
+    },
+    {
+      "id": "reject-window-identity-drift",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "set",
+      "path": "identity.window.id",
+      "value": "laguna-xs-2.1-serial-v2-window-v2",
+      "expected_error_code": "IDENTITY_MISMATCH"
+    },
+    {
+      "id": "reject-checked-token-count-zero",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "set",
+      "path": "phases.ranked_m5.correctness.checked_token_count",
+      "value": 0,
+      "expected_error_code": "CHECKED_TOKENS_INVALID"
+    },
+    {
+      "id": "reject-correctness-failure",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "set",
+      "path": "phases.ranked_m5.correctness.exactness_status",
+      "value": "FAIL",
+      "expected_error_code": "CORRECTNESS_FAILED"
+    },
+    {
+      "id": "reject-abba-sequence-drift",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "set",
+      "path": "phases.isolated.orders.0.rows.0.arm",
+      "value": "CANDIDATE",
+      "expected_error_code": "ORDER_SEQUENCE_INVALID"
+    },
+    {
+      "id": "reject-baab-label-reuse",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "set",
+      "path": "phases.isolated.orders.1.label",
+      "value": "ABBA",
+      "expected_error_code": "ORDER_SET_INVALID"
+    },
+    {
+      "id": "reject-missing-isolated-uncertainty",
+      "source_fixture": "isolated-only",
+      "operation": "delete",
+      "path": "phases.isolated.uncertainty",
+      "expected_error_code": "UNCERTAINTY_MISSING"
+    },
+    {
+      "id": "reject-component-floor-failure",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "ranked_floor_failure",
+      "expected_error_code": "COMPONENT_FLOOR_FAILED"
+    },
+    {
+      "id": "reject-exact-ranked-margin-tie",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "ranked_exact_tie",
+      "expected_error_code": "RANKED_MARGIN_NOT_STRICT"
+    },
+    {
+      "id": "reject-censored-fabricated-numeric-summary",
+      "source_fixture": "censored-valid",
+      "operation": "set",
+      "path": "phases.isolated.summary",
+      "value": {
+        "base_seconds": "0.0100",
+        "candidate_seconds": "0.0102",
+        "factor": "0.9803921568627450980392156863"
+      },
+      "expected_error_code": "CENSORED_NUMERIC_FABRICATION"
+    },
+    {
+      "id": "reject-reused-ranked-receipt-under-revision",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "set",
+      "path": "phases.ranked_m5.receipt.revision_id",
+      "value": "synthetic-revision-other",
+      "expected_error_code": "RECEIPT_IDENTITY_MISMATCH"
+    },
+    {
+      "id": "reject-reused-candidate-artifact-under-revision",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "set",
+      "path": "artifact_manifest.0.binding.revision_id",
+      "value": "synthetic-revision-other",
+      "expected_error_code": "IDENTITY_MISMATCH"
+    },
+    {
+      "id": "reject-memory-gate-failure",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "set",
+      "path": "phases.ranked_m5.correctness.peak_memory.status",
+      "value": "FAIL",
+      "expected_error_code": "MEMORY_GATE_FAILED"
+    },
+    {
+      "id": "reject-hidden-gate-failure",
+      "source_fixture": "ranked-margin-just-above",
+      "operation": "set",
+      "path": "phases.ranked_m5.correctness.gates.3.status",
+      "value": "FAIL",
+      "expected_error_code": "CORRECTNESS_FAILED"
+    },
+    {
+      "id": "reject-terminal-claim-drift",
+      "source_fixture": "local-m4-whole-model",
+      "operation": "set",
+      "path": "terminal.state",
+      "value": "RANKED_MARGIN_COMPLETE",
+      "expected_error_code": "TERMINAL_CONTRADICTION"
+    }
+  ]
+}
