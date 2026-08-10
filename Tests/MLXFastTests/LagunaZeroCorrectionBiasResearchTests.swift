@@ -181,18 +181,22 @@ struct LagunaZeroCorrectionBiasResearchTests {
     private func makeFusedInputs() -> (
         MLXArray, MLXArray, MLXArray, MLXArray, MLXArray
     ) {
-        let residual = MLXArray((0..<hidden).map {
-            Float(($0 * 13) % 97 - 48) / 16
-        }, [1, 1, hidden]).asType(.bfloat16)
-        let branch = MLXArray((0..<hidden).map {
-            Float(($0 * 19 + 3) % 89 - 44) / 32
-        }, [1, 1, hidden]).asType(.bfloat16)
-        let weight = MLXArray((0..<hidden).map {
-            Float(96 + ($0 * 7) % 33) / 112
-        }).asType(.bfloat16)
-        let routerWeight = MLXArray((0..<(experts * hidden)).map {
-            Float(($0 * 23 + $0 / hidden * 11) % 61 - 30) / 128
-        }, [experts, hidden]).asType(.bfloat16)
+        let residualValues: [Float] = (0..<hidden).map { index in
+            Float((index * 13) % 97 - 48) / 16
+        }
+        let branchValues: [Float] = (0..<hidden).map { index in
+            Float((index * 19 + 3) % 89 - 44) / 32
+        }
+        let weightValues: [Float] = (0..<hidden).map { index in
+            Float(96 + (index * 7) % 33) / 112
+        }
+        let routerWeightValues: [Float] = (0..<(experts * hidden)).map { index in
+            Float((index * 23 + index / hidden * 11) % 61 - 30) / 128
+        }
+        let residual = MLXArray(residualValues, [1, 1, hidden]).asType(.bfloat16)
+        let branch = MLXArray(branchValues, [1, 1, hidden]).asType(.bfloat16)
+        let weight = MLXArray(weightValues).asType(.bfloat16)
+        let routerWeight = MLXArray(routerWeightValues, [experts, hidden]).asType(.bfloat16)
         let bias = MLXArray([Float](repeating: 0, count: experts))
         return (residual, branch, weight, routerWeight, bias)
     }
