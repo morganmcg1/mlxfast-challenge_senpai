@@ -1460,6 +1460,99 @@ fresh same-session pair is cleaner. My answer is that §4.1.1 already shows one
 pair is a sign check either way, so the cheaper draw dominates: spend the saved
 receipt on a second pair instead of on a control that already exists.
 
+## 13. Phase B execution log, and the submission-channel facts I had to discover
+
+### 13.1 Three undocumented constraints on the official channel
+
+`senpai/submit-official.sh` and `mlxfast submit` are documented in `AGENTS.md`
+and in fb1 (§6.4.1). Three further constraints are enforced by the service and
+are documented nowhere I could find; each one cost me an attempt, so I record
+them for whoever submits next.
+
+**(a) The submission note has a minimum length of 5,120 bytes.** My first
+attempt carried a 1,299-byte note and was rejected outright with a demand for
+"a complete, reproducible reasoning narrative: initial context and goal,
+environment and setup, prior work or baseline, hypotheses, approach selection
+and tradeoffs, implementation and files or logic changed, exact commands,
+experiments, failures and course corrections, measured results, caveats,
+learning, and next steps." This is a *content* requirement enforced by a
+*length* floor, so a terse but complete note fails. The notes I ultimately used
+are 9,312 B (T1) and 13,054 B (T0), organised under exactly those headings.
+
+**(b) One submission may be in flight per account at a time.**
+
+```
+{"error":{"code":"conflict","message":"account already has 1 submission(s)
+ in flight for this benchmark (limit 1)"}}
+```
+
+**(c) There is a shared per-account rate limit**, reported as
+`Rate limit reached. Try again in <n> seconds.` with `n` observed between 759
+and 973.
+
+Both (b) and (c) are **account-wide and shared with every other campaign role**.
+While I was submitting, another role was drawing receipts on a roughly 23-minute
+cadence (`69fb349` at 03:42Z, `c793040` at 04:06Z, `d5f2b4c` at 04:29Z), so the
+single in-flight slot was usually occupied. A paired design therefore cannot be
+submitted back to back on demand: the two halves are separated by however long
+the queue takes to drain, which is one more reason §4.1.1 treats a single pair
+as a sign check rather than a measurement.
+
+The consequence for automation is that a submission must be run under a retry
+loop that (i) parses the rate-limit delay and waits it out, (ii) treats the
+in-flight conflict as retryable, and (iii) confirms success **positively**,
+never by an exit code. Getting (iii) right took me two tries, and both failures
+are instructive:
+
+- **False positive 1 — trusting the exit status.** The first wrapper reported
+  `ACCEPTED` on an attempt that had actually been rate-limited. No submission
+  existed. `senpai/submit-official.sh` `exec`s the CLI, and a throttled CLI call
+  is not distinguishable from a successful one by exit code alone at that layer.
+- **False positive 2 — trusting "the newest id changed".** The second wrapper
+  recorded the newest id before attempting and declared success when the tail of
+  `mlxfast submissions` changed. It duly reported `ACCEPTED: new submission
+  288c702` — but `mlxfast submission-note 288c702` prints
+  `# r105-A ladder receipt A2-1`. That receipt belongs to **another campaign
+  role**. The submission account is shared, so "the newest id changed" is
+  satisfied by *anyone's* submission and is an unsound predicate on this
+  channel.
+
+The only sound predicate I found is **content identification**: put a unique
+marker string in the note, then after each attempt scan the recent ids from
+`mlxfast submissions` and require `mlxfast submission-note <id>` to contain that
+marker. My markers were `R105-B Phase B, arm T1` and `R105-B Phase B, arm T0`.
+Scanning several recent ids rather than only the newest matters for the same
+reason: another role's receipt can land between my submission and my check.
+
+This also means the wrapper is idempotent and safe to re-run: it checks for the
+marker *before* the first attempt and exits without submitting if the receipt
+already exists. That property is worth more than it sounds, because a
+half-confirmed submission is otherwise indistinguishable from a missing one, and
+guessing wrong in either direction costs a scarce receipt.
+
+**Also worth recording: do not pass `--model`.** `senpai/submit-official.sh`
+lines 18-23 refuse any `--model` argument, because line 109 already execs
+`mlxfast submit --model senpai "$@"`. The working invocation is
+
+```bash
+export PATH="${HOME}/.local/bin:${PATH}"
+bash senpai/submit-official.sh 1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7 \
+     --note-file /tmp/r105b-note-t1.md
+```
+
+### 13.2 Ordering hazard the design has to respect
+
+The wrapper archives the **`HEAD` worktree at the moment of invocation**,
+restricted to the 97 `editablePaths`. Because my retry loop sleeps out the rate
+limit inside the same process, the arm that is eventually uploaded is whatever
+`HEAD` says when the *retry* fires, not when the job was launched. Applying the
+T0 flip while the T1 job was sleeping would therefore have silently submitted
+T0 twice and produced no control — a failure mode that leaves two receipts and
+no contrast, and that no error message would reveal. The protocol I followed is
+to hold the flip until the T1 receipt is *confirmed by marker*, and only then
+apply it. Any future paired submission must serialise the same way, or snapshot
+each arm into a private worktree before invoking the wrapper.
+
 ---
 
 *(Nothing in §§0-5 is edited after the first Phase-A launch except to fix a
