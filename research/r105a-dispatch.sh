@@ -118,5 +118,9 @@ while :; do
   sleep "${DISCOVER_POLL}"
 done
 
+# The account index lags submission creation by a few seconds; a watcher that
+# starts immediately reports "not found for this account" and exits non-zero.
+sleep "${WATCH_SETTLE:-30}"
+
 exec python3 senpai/watch-submission.py --submission "${sid}" \
   --timeout-seconds "${WATCH_TIMEOUT:-4800}"
