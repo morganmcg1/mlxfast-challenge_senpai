@@ -1,5 +1,22 @@
 # SENPAI Research State
 
+> 🔴🔴🔴 **ROUND-105 HEADLINE — READ FIRST. Two instruments disagree about the
+> same dial by ≈41 µs/step, with opposite signs.**
+> `DARKBLOOM_ROUTER_WEIGHT_PREFETCH` (`Sources/MLXFastModel/LagunaRuntimeModel.swift:696-704`,
+> shipped default `1`) measures **−6.39 µs/step FASTER** on the per-kernel-label
+> (`SPLIT=1`) census (12/12 negative) and **+34.58 µs/step SLOWER** end-to-end
+> on frieren's #571 three-arm rotated palindrome (same binary, one env var
+> apart, 7/7 cycles, 21/21 reps, p = 2⁻²⁰). `E = 0.349` cannot reconcile them.
+> Consequences, all live in §A below: the **"#558 free rider" paragraph is
+> retracted pending adjudication**; **Rule 82 is QUALIFIED** (82a: a label win
+> is not sufficient; 82b: every `SPLIT=1` price is an upper bound with an
+> unguaranteed sign); and **no label-only arm may draw a receipt without an
+> end-to-end confirmation.** Full argument, mechanism list and pricing:
+> **`research/advisor-r105-the-label-instrument-mis-ranks.md`**. Adjudication:
+> **PR #597** (maple-frieren, 105-B). The flip is one line and bit-exact, and
+> is priced at **+0.23 %…+0.53 % of `cs`** — 2.4×–5.6× the 0.095 % baseline
+> draw value, i.e. the best-priced single dial we have found this round.
+
 - **2026-08-09 — round 103.** Campaign `mlxfast-maple-20260804`.
   Advisor branch `codex/mlxfast-maple-20260804-advisor`.
   Base = **`10005c80bfcf35c25bac998fbaaf7ff5c8ac2a29`** (merge of frieren's #566
@@ -176,6 +193,44 @@
   measured a different codebase on a weaker instrument. rpg retiling, sub-8,
   the 64-thread tree, top-8 fusion and non-bit-exact transforms **stay
   closed**. Cost 4,186 B of LRM.
+  🔴 **(r105) The −6.3917 µs/step number above is a per-kernel-label
+  (`SPLIT=1`) measurement whose sign is contradicted end-to-end by +34.58
+  µs/step (#571, 7/7 cycles, 21/21 reps). Do not carry it into any ledger
+  until PR #597 adjudicates — see the 🔴 banner below and
+  `research/advisor-r105-the-label-instrument-mis-ranks.md`. The AIR/pipeline
+  stats quoted here are from the r89-era 1024-thread kernel; HEAD's router is
+  512 threads/TG, so they must be redone at HEAD.**
+
+- 🟠 **QUALIFIED (r105) — read this before applying Rule 82 below.** Rule 82 is
+  **not withdrawn**, but its evidentiary base is one per-kernel-label
+  measurement whose sign is now contradicted end-to-end (see the 🔴 banner
+  further down this section and
+  `research/advisor-r105-the-label-instrument-mis-ranks.md`). Two amendments,
+  effective immediately:
+  **(82a)** *A per-kernel-label win is not sufficient to claim the codegen tax
+  is absent for a family. The claim requires an end-to-end confirmation in the
+  overlapped régime.* The −6.39 µs/step router-GEMV label win that Rule 82 was
+  built on coexists with a +34.58 µs/step end-to-end regression on the same
+  contrast.
+  **(82b)** *Any price quoted from the `SPLIT=1` per-kernel-label instrument is
+  an upper bound with an unguaranteed sign.* `SPLIT=1` serialises dispatch and
+  removes the overlap that 408 decode / 1222 prefill dispatches per step
+  normally provide; a kernel that gets locally faster can still lengthen the
+  step. Label-only arms may not draw a receipt without an end-to-end
+  confirmation. This is a **strengthening of a rule we already had**: the
+  r93-C census below (`:411-421`) measured the wall−busy gap at 302 µs/step
+  `off@nosplit` vs 1261 µs/step under `SPLIT=1` — **≈960 µs/step (≈4.2×) of
+  profiler-imposed serialization** — and instructed that any arm sized against
+  the `SPLIT=1` number over-promises by ≈4×. 82b generalises that from *gap*
+  arms to *all* arms and from "over-promises" to "may report the wrong sign":
+  the removed overlap (≈960 µs/step) is 23× the 41 µs/step disagreement it
+  would have to hide.
+  **What still stands unqualified:** Rule 82's *procedural* advice — settle
+  N-B/N-C with a static compile (AIR/MSL read, pipeline stats) **before** any
+  GPU time — and the sliding-attention prohibition from #540, which was itself
+  established end-to-end. This qualification does **not** retract tanjiro's
+  #586 §6A millisecond ledger, which is a within-instrument decomposition and
+  is used as such.
 
 - 🆕 **Rule 82 (new, from #558): the prefetch/hoist codegen tax is
   family-specific, not universal.** (Numbered 82, not 81 — 81 is already the
@@ -190,7 +245,32 @@
   of #558 (static AIR read) cost no GPU time and would have settled N-B/N-C
   alone — make that the standard first step for any codegen-restructuring arm.
 
+- 🔴 **RETRACTED / UNDER CHALLENGE (r105).** The paragraph immediately below
+  ("#558 ships as a free rider…") is under formal challenge and must not be
+  cited as settled. See `research/advisor-r105-the-label-instrument-mis-ranks.md`.
+  In one line: **frieren's #571 three-arm rotated-palindrome end-to-end measurement
+  puts the *same* pf1-vs-pf0 contrast at +34.58 µs/step SLOWER**, CI
+  [+26.39, +42.77], 7/7 cycles and 21/21 reps (p = 2⁻²⁰), same binary, one env
+  var apart — while the per-kernel-label census puts it at −6.39 µs/step FASTER,
+  12/12 negative. **The two instruments disagree by ≈41 µs/step with opposite
+  signs.** E = 0.349 cannot reconcile them: +34.58 µs/step end-to-end would
+  require the router kernel to be ~99 µs/step slower, which the label census
+  excludes 12/12. Therefore every clause of the paragraph below is in doubt:
+  the **sign** is possibly wrong, the **magnitude** is wrong by ~40×, and
+  "free … no risk … worth carrying" is exactly the conclusion the end-to-end
+  instrument inverts. What survives unchallenged: bit-exactness
+  (`max_abs_diff 0`, oracle byte-identical `pf0 == pf1`) and the 4,186 B cost.
+  Adjudication is PR #597 (frieren, 105-B): A/A ⇒ σ_launch, a 3-arm
+  {pf0, pf1, pf5=`_pf1c`} placement control, and ranked M5 pairs on the one-line
+  default flip at `Sources/MLXFastModel/LagunaRuntimeModel.swift:696-704`
+  (`return 1` → `return 0`). Priced at **+0.53 % of `cs`** at transfer ×1.000 and
+  **+0.23 %** at ×0.436 — 2.4×–5.6× the 0.095 % baseline draw value. **Until #597
+  reports, do not treat the router-prefetch default as settled in either
+  direction, and do not carry the −6.39 µs/step number into any ledger.**
+
 - ⚠️ **#558 ships as a free rider and must never draw its own receipt.**
+  *(🔴 SUPERSEDED PENDING #597 — see the banner immediately above. Retained
+  verbatim for the record; do not cite without the banner.)*
   Frieren's marginal-cost ledger gives the router family a shadowing factor
   **E = 0.349**, so the −6.3917 µs/step census win is worth
   6.3917 × 0.349 = **2.2307 µs/step chained ⇒ +0.016 % decode ⇒ +0.012 % of
