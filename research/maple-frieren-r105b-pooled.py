@@ -4,13 +4,15 @@
 P1 and P1B are byte-identical code (DARKBLOOM_ROUTER_WEIGHT_PREFETCH=1), so
 pooling them is a legitimate 2x-precision estimate of the same quantity.
 """
+import json
 import math
 import statistics
 import sys
 from pathlib import Path
 
-OUT = Path(sys.argv[1] if len(sys.argv) > 1 else "/tmp/maple-r105b/phaseA")
-WARMUP = int(sys.argv[2] if len(sys.argv) > 2 else 2)
+ARGS = [a for a in sys.argv[1:] if not a.startswith("--")]
+OUT = Path(ARGS[0] if ARGS else "/tmp/maple-r105b/phaseA")
+WARMUP = int(ARGS[1]) if len(ARGS) > 1 else 2
 
 
 def slot_median(tag):
@@ -57,29 +59,46 @@ for r in reps:
     singleb.append(xb - p0)
     p5.append(statistics.mean(a["P5"]) - p0)
 
+SERIES = (("pooled(P1,P1B) - P0", pooled), ("P1  - P0", single1),
+          ("P1B - P0", singleb), ("P5  - P0", p5))
+
+
+def cell(xs):
+    n, m, sd, hw = ci(xs)
+    pos = sum(1 for v in xs if v > 0)
+    return {"k": n, "mean": m, "sd": sd, "half_width": hw,
+            "lo": m - hw, "hi": m + hw, "pos": pos, "neg": n - pos}
+
+
+def cycles(xs, width=4):
+    return [statistics.mean(xs[i:i + width])
+            for i in range(0, len(xs) - width + 1, width)]
+
+
+def show(name, c):
+    print(f"{name:28s} {c['k']:3d} {c['mean']:+8.2f} {c['sd']:7.2f} "
+          f"{c['half_width']:7.2f} {c['lo']:+8.2f} {c['hi']:+8.2f}  "
+          f"{c['pos']}/{c['neg']}")
+
+
+if "--json" in sys.argv:
+    print(json.dumps({
+        "reps_analysed": len(reps), "warmup": WARMUP,
+        "per_repetition": {name: cell(xs) for name, xs in SERIES},
+        "cycle_blocked": {name: cell(cycles(xs)) for name, xs in SERIES},
+    }, indent=2))
+    raise SystemExit(0)
+
 print(f"reps analysed: {len(reps)}  (warmup {WARMUP})")
 print(f"{'contrast':28s} {'K':>3s} {'mean':>8s} {'sd':>7s} {'95% hw':>7s} "
       f"{'lo':>8s} {'hi':>8s}  signs")
-for name, xs in (("pooled(P1,P1B) - P0", pooled),
-                 ("P1  - P0", single1),
-                 ("P1B - P0", singleb),
-                 ("P5  - P0", p5)):
-    n, m, sd, hw = ci(xs)
-    pos = sum(1 for v in xs if v > 0)
-    print(f"{name:28s} {n:3d} {m:+8.2f} {sd:7.2f} {hw:7.2f} "
-          f"{m - hw:+8.2f} {m + hw:+8.2f}  {pos}/{n - pos}")
+for name, xs in SERIES:
+    show(name, cell(xs))
 
 print()
 print("cycle-blocked (4 reps per rotation cycle, the primary estimator):")
-for name, xs in (("pooled(P1,P1B) - P0", pooled),
-                 ("P1  - P0", single1),
-                 ("P1B - P0", singleb),
-                 ("P5  - P0", p5)):
-    cyc = [statistics.mean(xs[i:i + 4]) for i in range(0, len(xs) - 3, 4)]
-    n, m, sd, hw = ci(cyc)
-    pos = sum(1 for v in cyc if v > 0)
-    print(f"{name:28s} {n:3d} {m:+8.2f} {sd:7.2f} {hw:7.2f} "
-          f"{m - hw:+8.2f} {m + hw:+8.2f}  {pos}/{n - pos}")
+for name, xs in SERIES:
+    show(name, cell(cycles(xs)))
 
 n, m, sd, hw = ci(pooled)
 CS_US_PER_PCT = 65.67

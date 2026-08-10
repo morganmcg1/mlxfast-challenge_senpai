@@ -21,7 +21,9 @@ Usage: maple-frieren-r105b-wandb.py PHASEA_DIR [R571_RUNG2_DIR]
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -109,15 +111,32 @@ def flat(prefix: str, p: dict) -> dict:
     return {f"{prefix}/{k}": p[k] for k in keep if k in p}
 
 
-def distinct_checksums(path: Path) -> int:
-    if not path.exists():
-        return -1
-    return len({ln.split()[0] for ln in path.read_text().split("\n")
-                if ln.strip()})
+def distinct_token_streams(outdir: Path) -> tuple[int, int]:
+    """Count distinct greedy-token files. 1 distinct stream == correctness gate.
+
+    The harness writes one `*.tokens` per timed slot but no checksum manifest,
+    so the digests are recomputed here rather than parsed.
+    """
+    files = sorted(outdir.glob("*.tokens"))
+    if not files:
+        return -1, 0
+    digests = {hashlib.sha256(f.read_bytes()).hexdigest() for f in files}
+    return len(digests), len(files)
 
 
 def excludes_zero(p: dict) -> bool:
     return p["lo"] * p["hi"] > 0
+
+
+def pooled_report(outdir: Path, warmup: int) -> dict | None:
+    """Post-hoc pooled contrast, delegated to the committed pooled script."""
+    script = Path(__file__).with_name("maple-frieren-r105b-pooled.py")
+    if not script.exists():
+        return None
+    out = subprocess.run([sys.executable, str(script), str(outdir),
+                          str(warmup), "--json"],
+                         capture_output=True, text=True, check=True)
+    return json.loads(out.stdout)
 
 
 def a0_verdict(null: dict | None) -> tuple[str, str]:
@@ -178,6 +197,7 @@ def log_block(run, tag: str, m: dict, prov: dict, outdir: Path) -> dict:
     med = m["stats"]["median"]
     prim_name = m.get("primary_estimator", "contrasts")
     prim = med.get("cycle_contrasts") or med["contrasts"]
+    n_distinct, n_files = distinct_token_streams(outdir)
     s: dict = {
         f"{tag}/reps_analysed": m["reps"],
         f"{tag}/warmup_reps": m["warmup"],
@@ -189,8 +209,8 @@ def log_block(run, tag: str, m: dict, prov: dict, outdir: Path) -> dict:
         f"{tag}/precision_pass": m["precision"]["pass"],
         f"{tag}/n2_fires": m["n2_fires"],
         f"{tag}/n5_fires": m["n5_fires"],
-        f"{tag}/token_checksums_distinct":
-            distinct_checksums(outdir / "tokens.cksum"),
+        f"{tag}/token_streams_distinct": n_distinct,
+        f"{tag}/token_streams_total": n_files,
         f"{tag}/digest_before": prov.get("digest_before"),
         f"{tag}/digest_after": prov.get("digest_after"),
     }
@@ -252,15 +272,21 @@ def main() -> None:
         "pr": 597,
         "branch": "maple-frieren/r105-router-prefetch-adjudication",
         "base_sha": "ed1ca05fa48307c45780b31c5d88218480aa9441",
-        "campaign_base_sha": "768bb9d4adfc2baac7d74c0008afc92d010329da",
+        "campaign_base_sha": "1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7",
+        "campaign_base_sha_stated_in_assignment":
+            "768bb9d4adfc2baac7d74c0008afc92d010329da (refuses: 9 protected "
+            "files differ from origin/main; see report S6.4.1)",
         "code_sha": sh(["git", "rev-parse", "HEAD"]),
         "host": sh(["sysctl", "-n", "machdep.cpu.brand_string"]),
         "host_mem_bytes": sh(["sysctl", "-n", "hw.memsize"]),
         "hypothesis": "the shipped DARKBLOOM_ROUTER_WEIGHT_PREFETCH=1 default "
                       "is a net end-to-end decode regression of about "
-                      "+34.6 us/step that the per-kernel SPLIT=1 instrument "
-                      "cannot see, because the instrument reports the same "
-                      "change as 6.39 us/step faster",
+                      "+28 to +35 us/step that the per-kernel SPLIT=1 "
+                      "instrument cannot see, because that instrument reports "
+                      "the same change as 6.39 us/step faster; and the cost "
+                      "belongs to hoisting the prefetch above the five "
+                      "threadgroup barriers rather than to the loads "
+                      "themselves, which prefetch=5 places below them",
         "arm_definitions": ARM_DEFINITIONS,
         "design": "4-arm rotated palindrome block, 8 slots per repetition, "
                   "rotation period 4 repetitions",
@@ -277,7 +303,7 @@ def main() -> None:
         "a0_median_trigger_us": A0_MEDIAN_TRIGGER_US,
         "a0_precision_target_us": A0_PRECISION_TARGET_US,
         "a1_placement_prediction_us": A1_PLACEMENT_PREDICTION_US,
-        "receipts_spent": 0,
+        "receipts_spent": int(os.environ.get("R105B_RECEIPTS_SPENT", "0")),
         "official_submission_base_sha":
             "1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7",
         "official_submission_note":
@@ -332,6 +358,45 @@ def main() -> None:
         summary["phaseA/a1_prediction_residual_us"] = \
             -place["mean"] - A1_PLACEMENT_PREDICTION_US
 
+    pooled = pooled_report(pa, m["warmup"])
+    if pooled:
+        tbl = wandb.Table(columns=["contrast", "estimator", "k", "mean_us",
+                                   "sd", "half_width", "lo", "hi", "pos",
+                                   "neg", "excludes_zero", "cs_pct",
+                                   "sigma_multiples"])
+        for est in ("cycle_blocked", "per_repetition"):
+            for name, c in pooled[est].items():
+                cs = c["mean"] * CS_PCT_PER_US
+                tbl.add_data(name.replace("  ", " "), est.replace("_", "-"),
+                             c["k"], c["mean"], c["sd"], c["half_width"],
+                             c["lo"], c["hi"], c["pos"], c["neg"],
+                             excludes_zero(c), cs, cs / SESSION_SIGMA_PCT)
+        run.log({"phaseA/pooled_post_hoc": tbl})
+        head = pooled["cycle_blocked"]["pooled(P1,P1B) - P0"]
+        per = pooled["per_repetition"]["pooled(P1,P1B) - P0"]
+        summary.update({
+            "phaseA/pooled_headline_us": head["mean"],
+            "phaseA/pooled_headline_half_width_us": head["half_width"],
+            "phaseA/pooled_headline_lo": head["lo"],
+            "phaseA/pooled_headline_hi": head["hi"],
+            "phaseA/pooled_headline_pos": head["pos"],
+            "phaseA/pooled_per_rep_half_width_us": per["half_width"],
+            "phaseA/pooled_clears_precision_target":
+                head["half_width"] <= A0_PRECISION_TARGET_US,
+            "phaseA/pooled_cs_pct": head["mean"] * CS_PCT_PER_US,
+            "phaseA/pooled_sigma_multiples":
+                head["mean"] * CS_PCT_PER_US / SESSION_SIGMA_PCT,
+            "phaseA/pooled_r571_reproduction_ratio":
+                head["mean"] / A1_PLACEMENT_PREDICTION_US,
+            "phaseA/pooled_is_preregistered": False,
+            "phaseA/pooled_note":
+                "P1 and P1B are byte-identical binaries, so averaging them "
+                "before differencing against P0 is a 2x-precision estimate of "
+                "one quantity. This pooling was decided AFTER the data were "
+                "drawn and is reported as post-hoc; the preregistered A1 "
+                "verdict keys off the single P0->P1 leg only.",
+        })
+
     # Marker metric. Lower is better; the shipped default is the candidate and
     # prefetch=0 is the reference, so a positive delta is a shipped regression.
     if main_leg:
@@ -383,8 +448,12 @@ def main() -> None:
         summary["r571/slot_seconds"] = 44.53
 
     art = wandb.Artifact("r105b-evidence", type="measurement")
+    if pooled:
+        pooled_json = pa / "pooled-post-hoc.json"
+        pooled_json.write_text(json.dumps(pooled, indent=2))
+        art.add_file(str(pooled_json), name="phaseA-pooled-post-hoc.json")
     for p in [pa / "analysis-multi.json", pa / "provenance.txt",
-              pa / "index.tsv", pa / "tokens.cksum",
+              pa / "index.tsv",
               pa / "position-matched.txt", pa / "stepwise.txt",
               Path("/tmp/maple-r105b/phaseA-build.txt")]:
         if p.exists():
