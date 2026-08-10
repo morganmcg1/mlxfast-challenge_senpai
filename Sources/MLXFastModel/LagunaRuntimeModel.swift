@@ -7912,11 +7912,10 @@ private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
 let lagunaRoutedGateUpR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTED_GATEUP_R1"] != "0"
 
-private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
-    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
-    inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
-    outputNames: ["activated"],
-    source: """
+/// Rows per threadgroup is `simdgroupsPerGroup`; the grid keeps 4096 total
+/// simdgroups, so only the row-ownership stride changes with `sg`.
+private func lagunaRoutedSwiGLUQMVPackedTop8R1Source(_ sg: Int) -> String {
+    """
 constexpr uint input_width = 2048;
 constexpr uint output_width = 512;
 constexpr uint block_width = 512;
@@ -7936,7 +7935,7 @@ uint expert_slot = group % routed_experts;
 uint tile = group / routed_experts;
 uint simd_group = simdgroup_index_in_threadgroup;
 uint lane = thread_index_in_simdgroup;
-uint logical_row = tile * 2 + simd_group;
+uint logical_row = tile * \(sg) + simd_group;
 \(lagunaRouterTop8PrecomputedPrelude)
 uint expert = top8_winner;
 
@@ -8021,11 +8020,45 @@ if (lane == 0) {
     activated[expert_slot * output_width + logical_row] =
         bfloat(silu * up);
 }
-""",
+"""
+}
+
+private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
+    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
+    inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
+    outputNames: ["activated"],
+    source: lagunaRoutedSwiGLUQMVPackedTop8R1Source(2),
     header: lagunaSharedSwiGLUQMVHeader + "\n" + lagunaDecodeRouterOrdinalHeader
         + "\n" + lagunaRouterTop8PrologueHeader,
     ensureRowContiguous: true
 )
+
+/// Research selector (unset or 0 keeps the shipped 2-simdgroup dispatch and its
+/// original pipeline name). Each value gets its own `_sgN` pipeline name so the
+/// MLX JIT library cache is not keyed on a name whose source changed.
+let lagunaRoutedGateUpPackingSimdgroups: Int = {
+    guard
+        let raw = ProcessInfo.processInfo.environment[
+            "DARKBLOOM_ROUTED_GATEUP_SG"],
+        let value = Int(raw), [2, 4, 8, 16, 32].contains(value)
+    else { return 0 }
+    return value
+}()
+
+private let lagunaRoutedSwiGLUQMVPackedTop8SGKernel: MLXFastKernel? = {
+    let sg = lagunaRoutedGateUpPackingSimdgroups
+    guard sg > 0 else { return nil }
+    return MLXFast.metalKernel(
+        name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2_sg\(sg)",
+        inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
+        outputNames: ["activated"],
+        source: lagunaRoutedSwiGLUQMVPackedTop8R1Source(sg),
+        header: lagunaSharedSwiGLUQMVHeader + "\n"
+            + lagunaDecodeRouterOrdinalHeader + "\n"
+            + lagunaRouterTop8PrologueHeader,
+        ensureRowContiguous: true
+    )
+}()
 
 func lagunaRoutedSwiGLUQMVPackedTop8(
     _ input: MLXArray,
@@ -8041,6 +8074,20 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
     precondition(routerKeys.dtype == .uint32)
     precondition(routerKeys.size == LagunaConstants.numExperts)
 
+    if let packedKernel = lagunaRoutedSwiGLUQMVPackedTop8SGKernel,
+        lagunaRoutedGateUpR1Enabled
+    {
+        return packedKernel(
+            [input, fusedWeight, packedScales, routerKeys],
+            grid: (LagunaConstants.numExpertsPerTok * 256 * 64, 1, 1),
+            threadGroup: (32 * lagunaRoutedGateUpPackingSimdgroups, 1, 1),
+            outputShapes: [[
+                1, 1, LagunaConstants.numExpertsPerTok, 1,
+                LagunaConstants.moeIntermediateSize,
+            ]],
+            outputDTypes: [.bfloat16]
+        )[0]
+    }
     if lagunaRoutedGateUpR1Enabled {
         return lagunaRoutedSwiGLUQMVPackedTop8R1Kernel(
             [input, fusedWeight, packedScales, routerKeys],
