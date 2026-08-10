@@ -360,12 +360,14 @@ extension LagunaRuntime {
             try resetRuntimeWorkerAllocatorForPhaseStart()
             let model = try weightCache.requireLibraryModel()
             let cache = model.newCache(parameters: nil)
+            lagunaSetDenseDownTracePhase("prefill")
             let logits = try lagunaLogits(
                 inputIDs: inputIDsArray(promptTokens),
                 model: model,
                 cache: cache,
                 positionOffset: 0
             )
+            lagunaSetDenseDownTracePhase("none")
             eval(logits)
             let token = try LagunaCorrectness.greedyToken(from: logits)
             return RuntimeWorkerResponse(
@@ -397,12 +399,14 @@ extension LagunaRuntime {
             // reset above separately removes allocator free-buffer state.
             let model = try weightCache.requireLibraryModel()
             let cache = model.newCache(parameters: nil)
+            lagunaSetDenseDownTracePhase("decode_seed")
             let logits = try lagunaLogits(
                 inputIDs: inputIDsArray(seedTokens),
                 model: model,
                 cache: cache,
                 positionOffset: 0
             )
+            lagunaSetDenseDownTracePhase("none")
             let token = try LagunaCorrectness.greedyToken(from: logits)
             let seedToken = token
             materializeLagunaCacheState(cache)
@@ -433,12 +437,14 @@ extension LagunaRuntime {
             // "I am being scored now", which lets it serve a slow/correct
             // path while checked and a cheap path while timed. Keep
             // trusted->editable calls phase-agnostic.
+            lagunaSetDenseDownTracePhase("decode_step")
             let logits = try lagunaLogits(
                 inputIDs: inputIDsArray([inputToken]),
                 model: try weightCache.requireLibraryModel(),
                 cache: cache,
                 positionOffset: state.decodeSeedTokenCount + state.decodeStep
             )
+            lagunaSetDenseDownTracePhase("none")
             let token = try LagunaCorrectness.greedyToken(from: logits)
             state.decodeStep += 1
             return RuntimeWorkerResponse(
@@ -454,6 +460,7 @@ extension LagunaRuntime {
             let mlxActiveMemoryBytes = Memory.activeMemory
             let mlxCacheMemoryBytes = Memory.cacheMemory
             let mlxPeakMemoryBytes = Memory.peakMemory
+            lagunaReportDenseDownTrace()
             Memory.clearCache()
             return RuntimeWorkerResponse(
                 id: request.id,
