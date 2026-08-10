@@ -405,7 +405,7 @@ private func decode(
                 threadGroup: (1024, 1, 1),
                 outputShapes: [[1, heads, 1, headDim]],
                 outputDTypes: [.bfloat16],
-                stream: stream
+                stream: .stream(stream)
             )[0]
             outputs.append(output)
         }
@@ -462,7 +462,7 @@ private func prefill(
                 [1, kvHeads, fixtures.prefillLength, headDim],
             ],
             outputDTypes: [.bfloat16, .bfloat16],
-            stream: stream
+            stream: .stream(stream)
         ))
     }
     eval(outputs)
@@ -694,7 +694,7 @@ private func run() throws {
     let packed = Kernels(sources: packedSources, abi: .packed)
 
     MLXRandom.seed(613)
-    let stream = MLX.Stream()
+    let stream = MLX.Stream.gpu
     let fixtures = makeFixtures(quick: options.quick)
     let firstBank = fixtures.decodeLayers[0].weights.bank
     let firstQuery = fixtures.decodeLayers[0].weights.query
