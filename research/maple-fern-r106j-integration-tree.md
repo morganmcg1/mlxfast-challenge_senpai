@@ -616,19 +616,33 @@ There is a fourth, weaker rule that only applies to sub-threshold patches:
 > and nothing else; flipping its default without a measurement is exactly the move
 > this campaign has repeatedly punished.
 
-### 5.1 The queue as of 2026-08-10T13:05Z
+### 5.1 The queue as of 2026-08-10T13:30Z
 
 | # | student | charge | state at my freeze check | disposition |
 | --- | --- | --- | --- | --- |
 | #636 | alphonse | expert gather-GEMM floor (`C2a`, `DARKBLOOM_EXPERT_DOWN_BN`) | **terminated `N-FLOOR`, merged to advisor `main`** | **carried, inert** (§5.2) |
 | #642 | tanjiro | decode fused attention, prologue prefetch hoist | **terminated `N-ISSUE-BOUND` at 12:57Z, `succeeded`, submitted diff is ZERO BYTES** | **nothing to integrate** (§5.4.1) |
-| #629 | edward | routed gate/up packing; Stage A settles L3 | open, draft, head `526881c4`, no verdict at 13:05Z | L3 measured independently by me (§5.3) |
-| #616 | nezuko | round-103 revert residual | open, head `c8f2c87d`, no result marker at 13:05Z | pending |
-| #597 | frieren | bit-exactness shelf + margin-certificate script; also owns the pf-default adjudication | open, head `95a0ef9e`, no result marker at 13:05Z | I *consume* the certificate script; the pf0 flip is a §5.4.2 standing arm |
+| #629 | edward | routed gate/up packing; Stage A settles L3 | open, draft, head `526881c4`, no marker at 13:30Z | L3 measured independently by me (§5.3) |
+| #616 | nezuko | round-103 revert residual | open, head `c8f2c87d`, no marker at 13:30Z | pending |
+| #597 | frieren | bit-exactness shelf + margin-certificate script; also owns the pf-default adjudication | **terminated `r105-b-rev5` at head `95a0ef9e`, status `failed`, NO SHIP** | **nothing to integrate** — "Rule 75: nothing owed" (§5.4.2) |
 
 Only the `senpai-result:v1` marker in a PR comment counts as termination for this
-table. I re-read all five PR bodies and every comment at 13:05Z; #636 and #642 are
-the only two carrying one.
+table.
+
+**Correction to my own 13:05Z reading.** At 13:05Z I recorded #597 as carrying no
+result marker. That was wrong, and the error was mine rather than the clock's: the
+`r105-b-rev5` marker sits at head `95a0ef9e`, which was already #597's head when I
+looked, so it was visible and I missed it. The 13:30Z re-poll found three markers on
+#597 (rev1 `inconclusive`, rev4 `succeeded`, rev5 `failed`) and the last is terminal.
+I am flagging the miss rather than silently overwriting the row, because §5.0's
+acceptance rule keys on exactly this signal and an integrator who mis-reads it once
+should say so.
+
+**Consequence: the slate is closed.** Three of the five siblings are terminal and all
+three hand the integrator zero bytes (#636 inert, #642 zero-byte diff, #597 "nothing
+owed"). The two still open at 13:30Z — #629 and #616 — have produced no marker with
+~17 h to my freeze. So the integrated tree is `T0` plus, at most, the one candidate I
+am measuring myself: the §5.3 packing flip.
 
 ### 5.2 Candidate A — alphonse's `C2a`: carried as merged, deliberately left inert
 
@@ -845,6 +859,49 @@ disagree by 41 µs/step *with opposite signs* on this exact lever, and the per-k
 instrument says pf1 is **faster**. A tree-level ABBA of my own would not resolve that;
 it would just add a sixth row to a five-row contradiction table. That is the second
 reason I am content to wait for the owner's verdict rather than produce a duplicate.
+
+**RESOLVED 2026-08-10T13:30Z — the precondition did not fire, so pf0 is not integrated.**
+I re-polled #597 and it has now terminated. Head `95a0ef9eb148a6d5c707811cd4e84498b39577ba`,
+revision `r105-b-rev5`, marker status **`failed`**, primary metric
+`wide_codes_score_delta_pct_of_cs = −0.5363`, verdict **NO SHIP** with outcome cells
+`N-CORRECT` and `N-NULL` both firing on the `DARKBLOOM_QMV_WIDE_CODES` lever. Two lines of
+that result bind me directly:
+
+- **"Rule 75: nothing owed. No tree is handed on, the flag stays false at
+  `LagunaRuntimeModel.swift:323-324`."** frieren hands the integrator zero bytes. Combined
+  with #642's zero-byte closure (§5.4.1) and C2a's inertness (§5.2), the packing patch of
+  §5.3 is now the *only* live candidate on the entire slate.
+- The router-prefetch lever was never the rev5 charge. The advisor's rev5 assignment §8
+  states it explicitly: *"rev4's Phase A (A0/A1/M2, pf0/pf1/pf5) stays **suspended, not
+  withdrawn**; your §8 already made the router-prefetch verdict terminal-negative and I am
+  not asking you to revisit it."*
+
+So the arm I pre-specified above is decided by its own stated condition. I required
+`V-CONFIRM` from #597 before composing `T0 + packing + pf0`. #597 terminated `failed`, on a
+different lever, with the pf0 lever standing as *suspended and terminal-negative* by both
+its owner's §8 and the advisor's ruling. **`V-CONFIRM` did not fire ⇒ pf0 does not enter my
+tree.** I am recording this rather than quietly dropping it, because the honest summary is
+uncomfortable: rev4's own A1 leg measured pooled(P1,P1B) − P0 = **+28.00 µs/step
+[+22.23, +33.77] = +0.426 % of `cs`**, bit-exact across 144 slots (one distinct token
+sha256), and that number would clear the advisor's +0.40 % ship bar on its own.
+
+I am still not taking it, for three reasons I want on the record so a future round can
+reopen it deliberately rather than by accident:
+
+1. **It is not mine to adjudicate.** The owner's §8 called it terminal-negative and the
+   advisor affirmed that in writing. An integrator who overrides a terminal verdict from
+   the lever's owner on the strength of a leg the owner themselves de-rated is not
+   integrating, they are re-litigating — at T−17 h, with one draw left in the campaign.
+2. **The contradiction in §1 above is unresolved, not resolved.** Five rows, two
+   instruments, 41 µs/step apart with opposite signs. `+0.426 %` is one reading of that
+   table, not its conclusion.
+3. **Composition risk is asymmetric here.** Adding an unadjudicated second lever to the
+   one candidate that does have a clean bit-exactness argument puts the *whole* payload
+   behind the weaker of the two claims, and there is no second draw to recover from that.
+
+If a future round wants it, the cheapest correct next step is stated in rev4's own
+summary: it is a one-line source default flip, bit-exact, and it needs one paired
+tree-level ABBA composed against the then-current tree — not a re-run of Phase A.
 
 ### 5.5 The byte budget of the integrated tree, and a headroom discrepancy I resolved
 
