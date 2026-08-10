@@ -875,6 +875,86 @@ for bytes in [1 << 26, 1 << 28] {
             st.med, gbs))
 }
 
+// Exploratory (not preregistered): the split-minus-fused gap is either per-dispatch
+// ramp/drain or the implicit inter-dispatch barrier of a serial encoder.  A concurrent
+// encoder with and without an explicit buffer barrier separates the two.
+enum EncMode: String { case serial, concurrent, concurrentBarrier }
+
+func timeSplitEnc(_ a: Arm, calls: Int, resident: Bool, mode: EncMode) -> Double {
+    let c = Cell(arm: a, calls: calls, resident: resident, split: true)
+    let cb = queue.makeCommandBuffer()!
+    let enc: MTLComputeCommandEncoder =
+        mode == .serial
+        ? cb.makeComputeCommandEncoder()!
+        : cb.makeComputeCommandEncoder(dispatchType: .concurrent)!
+    enc.setComputePipelineState(pipes[a.name]!.pso)
+    let tpt = MTLSize(width: a.threadsPerTG, height: 1, depth: 1)
+    for k in 0..<calls {
+        if mode == .concurrentBarrier && k > 0 { enc.memoryBarrier(scope: .buffers) }
+        bind(enc, c, callOffset: k)
+        enc.dispatchThreadgroups(
+            MTLSize(width: a.tgPerCall, height: 1, depth: 1), threadsPerThreadgroup: tpt)
+    }
+    enc.endEncoding()
+    cb.commit()
+    cb.waitUntilCompleted()
+    return (cb.gpuEndTime - cb.gpuStartTime) * 1e6
+}
+
+func timeEmptyEnc(dispatches: Int, tg: Int, mode: EncMode) -> Double {
+    let cb = queue.makeCommandBuffer()!
+    let enc: MTLComputeCommandEncoder =
+        mode == .serial
+        ? cb.makeComputeCommandEncoder()!
+        : cb.makeComputeCommandEncoder(dispatchType: .concurrent)!
+    enc.setComputePipelineState(emptyPipe.pso)
+    enc.setBuffer(sink, offset: 0, index: 0)
+    for k in 0..<dispatches {
+        if mode == .concurrentBarrier && k > 0 { enc.memoryBarrier(scope: .buffers) }
+        enc.dispatchThreadgroups(
+            MTLSize(width: tg, height: 1, depth: 1),
+            threadsPerThreadgroup: MTLSize(width: 288, height: 1, depth: 1))
+    }
+    enc.endEncoding()
+    cb.commit()
+    cb.waitUntilCompleted()
+    return (cb.gpuEndTime - cb.gpuStartTime) * 1e6
+}
+
+print("")
+print("== exploratory: encoder serialisation tax, a0 cold calls=\(scoredCalls) ==")
+let a0Arm = arms.first { $0.name == "a0" }!
+for mode in [EncMode.serial, .concurrent, .concurrentBarrier] {
+    var raw: [Double] = []
+    var rawEmpty: [Double] = []
+    for r in 0..<(rounds + discard) {
+        let us = timeSplitEnc(a0Arm, calls: scoredCalls, resident: false, mode: mode)
+        let ue = timeEmptyEnc(dispatches: scoredCalls, tg: a0Arm.tgPerCall, mode: mode)
+        if r >= discard {
+            raw.append(us)
+            rawEmpty.append(ue)
+        }
+    }
+    let st = stat(raw)
+    let se = stat(rawEmpty)
+    recs.append(
+        """
+        {"kind":"encmode","mode":\(jstr(mode.rawValue)),"calls":\(scoredCalls),\
+        "tg_per_call":\(a0Arm.tgPerCall),"n":\(st.n),"us_med":\(jnum(st.med)),\
+        "us_mad":\(jnum(st.mad)),"us_ci_lo":\(jnum(st.ciLo)),"us_ci_hi":\(jnum(st.ciHi)),\
+        "us_per_call":\(jnum(st.med / Double(scoredCalls))),\
+        "empty_us_med":\(jnum(se.med)),"empty_us_per_dispatch":\(jnum(se.med / Double(scoredCalls))),\
+        "samples":[\(raw.map(jnum).joined(separator: ","))],\
+        "empty_samples":[\(rawEmpty.map(jnum).joined(separator: ","))]}
+        """)
+    let label = mode.rawValue.padding(toLength: 18, withPad: " ", startingAt: 0)
+    print(
+        "encmode   \(label)"
+            + String(
+                format: "%8.2f us  %7.3f us/call | empty %8.2f us  %7.3f us/dispatch", st.med,
+                st.med / Double(scoredCalls), se.med, se.med / Double(scoredCalls)))
+}
+
 let header = """
 {"probe":"maple-frieren-r107f-stage1-t2d","revision":2,\
 "device":\(jstr(device.name)),"rounds":\(rounds),"discard":\(discard),\
