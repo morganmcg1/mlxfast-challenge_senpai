@@ -4,165 +4,6 @@ import MLXFast
 import MLXLMCommon
 import MLXNN
 
-public struct LagunaResearchProbeSnapshot: Sendable {
-    public let durationNS: UInt64
-    public let measuredCallCount: Int
-    public let census: [String: Int]
-    public let routeIndices: [UInt32]
-    public let routeWeightBits: [UInt32]
-    public let routeLayerCount: Int
-}
-
-private struct LagunaResearchProbeToken {
-    let active: Bool
-    let measuresOutput: Bool
-    let startNS: UInt64
-}
-
-private final class LagunaResearchProbeState: @unchecked Sendable {
-    private static let families: Set<String> = [
-        "sliding_attention", "full_attention", "o_proj", "routed_gate_up",
-        "shared_gate_up", "down_residual", "lm_head",
-    ]
-    private static let modes: Set<String> = ["off", "control", "family"]
-
-    private let lock = NSLock()
-    private var selectedFamily = "lm_head"
-    private var mode = "off"
-    private var stepActive = false
-    private var durationNS: UInt64 = 0
-    private var measuredCallCount = 0
-    private var census: [String: Int] = [:]
-    private var routes: [(indices: MLXArray, weights: MLXArray)] = []
-
-    func configure(family: String, mode: String) -> Bool {
-        guard Self.families.contains(family), Self.modes.contains(mode) else {
-            return false
-        }
-        lock.lock()
-        selectedFamily = family
-        self.mode = mode
-        stepActive = false
-        durationNS = 0
-        measuredCallCount = 0
-        census = [:]
-        routes = []
-        lock.unlock()
-        return true
-    }
-
-    func beginStep() {
-        lock.lock()
-        stepActive = true
-        durationNS = 0
-        measuredCallCount = 0
-        census = [:]
-        routes = []
-        lock.unlock()
-    }
-
-    func recordRoute(indices: MLXArray, weights: MLXArray) {
-        lock.lock()
-        if stepActive {
-            routes.append((indices: indices, weights: weights))
-        }
-        lock.unlock()
-    }
-
-    func begin(family: String, inputs: [MLXArray]) -> LagunaResearchProbeToken {
-        lock.lock()
-        guard stepActive else {
-            lock.unlock()
-            return LagunaResearchProbeToken(active: false, measuresOutput: false, startNS: 0)
-        }
-        census[family, default: 0] += 1
-        let active = family == selectedFamily && mode != "off"
-        let measuresOutput = mode == "family"
-        lock.unlock()
-
-        guard active else {
-            return LagunaResearchProbeToken(active: false, measuresOutput: false, startNS: 0)
-        }
-        for input in inputs {
-            asyncEval(input)
-        }
-        Stream.gpu.synchronize()
-        return LagunaResearchProbeToken(
-            active: true,
-            measuresOutput: measuresOutput,
-            startNS: DispatchTime.now().uptimeNanoseconds)
-    }
-
-    func end(_ token: LagunaResearchProbeToken, output: MLXArray) {
-        guard token.active else { return }
-        if token.measuresOutput {
-            asyncEval(output)
-        }
-        Stream.gpu.synchronize()
-        let elapsed = DispatchTime.now().uptimeNanoseconds - token.startNS
-        lock.lock()
-        durationNS += elapsed
-        measuredCallCount += 1
-        lock.unlock()
-    }
-
-    func snapshot() -> LagunaResearchProbeSnapshot {
-        lock.lock()
-        let capturedDurationNS = durationNS
-        let capturedMeasuredCallCount = measuredCallCount
-        let capturedCensus = census
-        let capturedRoutes = routes
-        stepActive = false
-        routes = []
-        lock.unlock()
-
-        var routeIndices: [UInt32] = []
-        var routeWeightBits: [UInt32] = []
-        for route in capturedRoutes {
-            routeIndices.append(contentsOf: route.indices.asArray(UInt32.self))
-            routeWeightBits.append(
-                contentsOf: route.weights.view(dtype: .uint32).asArray(UInt32.self))
-        }
-        return LagunaResearchProbeSnapshot(
-            durationNS: capturedDurationNS,
-            measuredCallCount: capturedMeasuredCallCount,
-            census: capturedCensus,
-            routeIndices: routeIndices,
-            routeWeightBits: routeWeightBits,
-            routeLayerCount: capturedRoutes.count)
-    }
-}
-
-private let lagunaResearchProbeState = LagunaResearchProbeState()
-
-public func lagunaResearchProbeConfigure(family: String, mode: String) -> Bool {
-    lagunaResearchProbeState.configure(family: family, mode: mode)
-}
-
-public func lagunaResearchProbeBeginStep() {
-    lagunaResearchProbeState.beginStep()
-}
-
-public func lagunaResearchProbeSnapshot() -> LagunaResearchProbeSnapshot {
-    lagunaResearchProbeState.snapshot()
-}
-
-private func lagunaResearchProbeRecordRoute(indices: MLXArray, weights: MLXArray) {
-    lagunaResearchProbeState.recordRoute(indices: indices, weights: weights)
-}
-
-private func lagunaResearchProbeBegin(
-    _ family: String, inputs: MLXArray...
-) -> LagunaResearchProbeToken {
-    lagunaResearchProbeState.begin(family: family, inputs: inputs)
-}
-
-private func lagunaResearchProbeEnd(
-    _ token: LagunaResearchProbeToken, output: MLXArray
-) {
-    lagunaResearchProbeState.end(token, output: output)
-}
-
 // Correctness-first Laguna XS 2.1 runtime, behavior-checked against the
 // vendored reference implementation and specialized by guarded fast paths.
 
@@ -6175,7 +6016,7 @@ final class LagunaRuntimeAttention: Module {
             // One dispatch replaces the QK-norm+RoPE kernel, both cache
             // slice-assign dispatches, and sdpa_vector; see the kernel doc.
             // The clock advance below mirrors updateInPlace(tokenCount: 1).
-            let researchAttention = lagunaSlidingFusedAttention(
+            fusedAttended = lagunaSlidingFusedAttention(
                 rawQueries: queries,
                 rawKeys: keys,
                 rawValues: values,
@@ -6187,10 +6028,6 @@ final class LagunaRuntimeAttention: Module {
                 writeIdx: ring.writeIdx,
                 scale: _fusedAttnScale
             )
-            let researchProbe = lagunaResearchProbeBegin(
-                "sliding_attention", inputs: queries, keys, values)
-            lagunaResearchProbeEnd(researchProbe, output: researchAttention)
-            fusedAttended = researchAttention
             rotating.fusedRingAdvance()
             qkNormRoPEFused = true
         } else if lagunaFusedFullAttentionEnabled,
@@ -6205,7 +6042,7 @@ final class LagunaRuntimeAttention: Module {
             // the second decode step (the first step's growth concat stays
             // stock). The clock advance mirrors the stock single-token
             // update.
-            let researchAttention = lagunaFullFusedAttention(
+            fusedAttended = lagunaFullFusedAttention(
                 rawQueries: queries,
                 rawKeys: keys,
                 rawValues: values,
@@ -6217,10 +6054,6 @@ final class LagunaRuntimeAttention: Module {
                 writeIdx: append.writeIdx,
                 scale: _fusedAttnScale
             )
-            let researchProbe = lagunaResearchProbeBegin(
-                "full_attention", inputs: queries, keys, values)
-            lagunaResearchProbeEnd(researchProbe, output: researchAttention)
-            fusedAttended = researchAttention
             simple.fusedAppendAdvance()
             qkNormRoPEFused = true
         } else if useFusedFullQKNormYaRN, let qkRoPEAngles {
@@ -6376,9 +6209,6 @@ final class LagunaRuntimeAttention: Module {
                         indexedMetadata: affineWO.indexedMetadata,
                         heads: nHeads)
                 {
-                    let researchProbe = lagunaResearchProbeBegin(
-                        "o_proj", inputs: output, projectedGate)
-                    lagunaResearchProbeEnd(researchProbe, output: fusedProjection)
                     return fusedProjection
                 }
                 if lagunaFusedGatedAffineOProjEnabled, !gateIsActivated,
@@ -6393,9 +6223,6 @@ final class LagunaRuntimeAttention: Module {
                         biases: affineBiases,
                         heads: nHeads)
                 {
-                    let researchProbe = lagunaResearchProbeBegin(
-                        "o_proj", inputs: output, projectedGate)
-                    lagunaResearchProbeEnd(researchProbe, output: fusedProjection)
                     return fusedProjection
                 }
                 if lagunaFusedGatedAffineOProjEnabled,
@@ -6412,9 +6239,6 @@ final class LagunaRuntimeAttention: Module {
                         heads: nHeads,
                         gateIsActivated: true)
                 {
-                    let researchProbe = lagunaResearchProbeBegin(
-                        "o_proj", inputs: output, projectedGate)
-                    lagunaResearchProbeEnd(researchProbe, output: fusedProjection)
                     return fusedProjection
                 }
                 if lagunaFusedGatedAffineOProjEnabled,
@@ -6430,9 +6254,6 @@ final class LagunaRuntimeAttention: Module {
                         laneMajorScales: affineWO.laneMajorScales,
                         heads: nHeads)
                 {
-                    let researchProbe = lagunaResearchProbeBegin(
-                        "o_proj", inputs: output, projectedGate)
-                    lagunaResearchProbeEnd(researchProbe, output: fusedProjection)
                     return fusedProjection
                 }
                 // Raw logits + fused kernel: one dispatch reproduces the
@@ -6458,7 +6279,7 @@ final class LagunaRuntimeAttention: Module {
                         .reshaped(B, L, -1)
                 }
                 lagunaTrace("native affine gated output projection h\(nHeads)")
-                let projection = quantizedMM(
+                return quantizedMM(
                     gated,
                     affineWO.packedCodes,
                     scales: affineWO.scales,
@@ -6468,10 +6289,6 @@ final class LagunaRuntimeAttention: Module {
                     bits: affineWO.bits,
                     mode: affineWO.mode
                 )
-                let researchProbe = lagunaResearchProbeBegin(
-                    "o_proj", inputs: gated)
-                lagunaResearchProbeEnd(researchProbe, output: projection)
-                return projection
             }
             if lagunaFusedGatedOutputProjectionEnabled,
                 gateIsActivated, gatePerHead, L == 1, B == 1, wo.bias == nil,
@@ -6489,9 +6306,6 @@ final class LagunaRuntimeAttention: Module {
                     heads: nHeads
                 )
                 if let projection {
-                    let researchProbe = lagunaResearchProbeBegin(
-                        "o_proj", inputs: output, projectedGate)
-                    lagunaResearchProbeEnd(researchProbe, output: projection)
                     return projection
                 }
             }
@@ -6499,11 +6313,7 @@ final class LagunaRuntimeAttention: Module {
                 gatePerHead && projectedGate.dtype == output.dtype,
                 L == 1, wo.bias == nil, MLXHardwareInfo.isCompiledDecodeSupported
             {
-                let projection = attentionGateProjection(output, projectedGate, wo.weight)
-                let researchProbe = lagunaResearchProbeBegin(
-                    "o_proj", inputs: output, projectedGate)
-                lagunaResearchProbeEnd(researchProbe, output: projection)
-                return projection
+                return attentionGateProjection(output, projectedGate, wo.weight)
             }
             let gate =
                 gateIsActivated
@@ -6520,10 +6330,7 @@ final class LagunaRuntimeAttention: Module {
             }
         }
 
-        let projection = wo(output)
-        let researchProbe = lagunaResearchProbeBegin("o_proj", inputs: output)
-        lagunaResearchProbeEnd(researchProbe, output: projection)
-        return projection
+        return wo(output)
     }
 
     /// Prefill-only final-layer attention when the caller consumes just the
@@ -9042,20 +8849,13 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
         downScales: MLXArray
     )? {
         guard let banks = fusedSharedBankGuard(x) else { return nil }
-        let activated: MLXArray
-        if let sharedActivation {
-            activated = sharedActivation
-        } else {
-            let sharedResult = lagunaSharedSwiGLUQMV(
+        let activated =
+            sharedActivation
+            ?? lagunaSharedSwiGLUQMV(
                 x,
                 fusedWeight: banks.gateUpWeight,
                 fusedScales: banks.gateUpScales
             )
-            let researchProbe = lagunaResearchProbeBegin(
-                "shared_gate_up", inputs: x)
-            lagunaResearchProbeEnd(researchProbe, output: sharedResult)
-            activated = sharedResult
-        }
         return (activated, banks.downWeight, banks.downScales)
     }
 
@@ -10858,7 +10658,6 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
         routerKeys: MLXArray? = nil
     ) -> MLXArray {
         let (inds, weights) = gate(x, logits: routerLogits)
-        lagunaResearchProbeRecordRoute(indices: inds, weights: weights)
         var y: MLXArray
         var routedAlreadyReduced = false
         var sortedTailInverseOrder: MLXArray?
@@ -10881,8 +10680,6 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
             // fully stock sorted gather-GEMM path and never see the fused
             // bank.
             let activated: MLXArray
-            let routedGateUpProbe = lagunaResearchProbeBegin(
-                "routed_gate_up", inputs: x, inds)
             // Set when the routed and shared gate/up QMVs were issued as one
             // dispatch below, so the shared half of that same dispatch is
             // handed to the down projection instead of being issued again.
@@ -10957,7 +10754,6 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 activated = lagunaInterleavedSwiGLU(
                     gateUp, split: _fusedRoutedGateUpSplit)
             }
-            lagunaResearchProbeEnd(routedGateUpProbe, output: activated)
             if lagunaFusedRoutedSharedDownResidualEnabled,
                 let residual,
                 let downWeight = _routedDownWeight,
@@ -10979,7 +10775,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 residual.dims(1, 1, LagunaConstants.hiddenSize)
             {
                 lagunaTrace("routed+shared down residual")
-                let downResult = lagunaRoutedSharedDownResidual(
+                return lagunaRoutedSharedDownResidual(
                     routedActivated: activated,
                     routedDownWeight: downWeight,
                     routedDownScales: downScales,
@@ -10990,11 +10786,6 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                     sharedDownScales: sharedInputs.downScales,
                     residual: residual
                 )
-                let researchProbe = lagunaResearchProbeBegin(
-                    "down_residual",
-                    inputs: activated, weights, sharedInputs.activated, residual)
-                lagunaResearchProbeEnd(researchProbe, output: downResult)
-                return downResult
             } else if lagunaFusedRoutedDownReduceEnabled,
                 let downWeight = _routedDownWeight,
                 let downScales = _routedDownScales,
@@ -11848,7 +11639,6 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
         }
 
         let result: MLXArray
-        let lmHeadProbe = lagunaResearchProbeBegin("lm_head", inputs: hidden)
         if let lmHead {
             if let pruner = lmHeadPruner,
                 inputs.dims(1, 1) || lagunaLmHeadPrunePrefillEnabled
@@ -11869,7 +11659,6 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
         } else {
             result = model.embedTokens.asLinear(hidden)
         }
-        lagunaResearchProbeEnd(lmHeadProbe, output: result)
         if case .logits = lagunaDecodeAsyncStage, inputs.dims(1, 1) {
             asyncEval(result)
         }
