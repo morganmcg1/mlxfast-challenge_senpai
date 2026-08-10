@@ -614,6 +614,45 @@ Four facts follow, and they are the reason this arm was worth reviving.
    25.6 threadgroups per core remain, which the routed sweep confirms
    empirically down to that point. §7 lists the measurement that would close it.
 
+6. **Kernel-structure audit — which mechanisms are structurally absent.** The
+   argument above lists three surviving mechanisms; the kernel source lets me
+   delete two more candidates outright rather than argue about them.
+   `lagunaDecodeNVFP4QKVLaneMajorSource` (`LagunaRuntimeModel.swift:4922`)
+   declares no `threadgroup` address-space storage, contains no `barrier` or
+   `simdgroup_barrier`, and its only reduction is the intra-simdgroup
+   `simd_sum(result)` at the store. Row ownership is
+   `out_row = tile * num_simdgroups + simd_gid`. Three consequences:
+
+   - **Bit-exactness is by construction, not by luck.** Every output row is
+     still reduced by exactly one simdgroup over the same 32 lanes in the same
+     order and the same `values_per_thread = 16` slices; `S` changes only which
+     threadgroup that simdgroup is packaged into. There is no path by which a
+     partial sum crosses a different boundary. §5.2's four identical checksums
+     are the confirmation of that, not the reason for believing it.
+   - **Threadgroup-memory pressure is exactly zero at every S.** So the
+     mechanism tanjiro's 1..48 scan *did* find transferring — bytes in flight per
+     thread, tested at 9,216 B against 17,920 B of threadgroup memory — is not
+     the mechanism operating here, and no static threadgroup-memory occupancy
+     limit can bind at any S in this sweep.
+   - **No cross-simdgroup synchronisation.** The usual reason a wider
+     threadgroup *loses* is that it couples stragglers through a barrier and
+     delays the whole group's retirement. That cost is absent by construction,
+     which is why the shipped 64-thread default has no structural advantage to
+     defend here.
+
+   What survives is: per-threadgroup launch and scheduling cost, the
+   resident-threadgroup cap `N_r`, and the dispatch tail. Only the last of the
+   three is core-count dependent, and it is worth being precise about how it
+   maps across hosts. The tail penalty scales roughly as the reciprocal of
+   threadgroups per core, so it is a **supply-side** quantity: M5 at S = 8 has
+   the same 32 threadgroups per core as M4 at S = 16, and therefore inherits
+   M4-at-S = 16's tail profile. `N_r` binding and intra-threadgroup locality are
+   **shape-side**: they depend on S itself, which is identical on both machines,
+   so M5 at S = 8 inherits M4-at-S = 8's shape profile. Both profiles are
+   therefore measurable on this host — which is the argument for adding the
+   S = 16 arm (§7), since together the two existing M4 operating points bracket
+   the M5 one for both mechanism classes.
+
 ### 5.2 Parity and fault control
 
 Ninety-six teacher-forced greedy steps per dose, one dose per process, all from
