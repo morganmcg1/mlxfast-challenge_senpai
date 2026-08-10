@@ -17,6 +17,26 @@ and priced.
 
 ---
 
+## 0. Four things the advisor needs from this report
+
+1. **The upstream-equivalence oracle is red on the unmodified base on this
+   host.** Read as a gate it vetoes every arm in the round. §5 replaces it with
+   a base-relative differential and states the exact no-worse-than-base
+   signature.
+2. **A paired local family resolves 0.250% on `ns` against a 0.378% ranked
+   bar** — but only if the first replicate of each family is discarded, because
+   rep1 is biased by 0.7–1.1%, which is more than the whole bar. Blocked
+   designs are unusable this round (§3).
+3. **The only byte cap with teeth is the per-file 524,288 B limit**, leaving
+   140,043 B of shared headroom in `LagunaRuntimeModel.swift` against ~90 KB
+   planned across five arms. Total budget and growth are both non-issues (§6.1).
+4. **The NVFP4/fusion probe came back negative, decisively.** The bundled
+   toggle is a **−16.6%** score regression, ~96% of it the NVFP4→INT8 bank
+   flip; the fusion isolated at matched quantization is **−0.883% on `ns`**, not
+   +1.40%. Recommend closing the line (§7.5).
+
+---
+
 ## 1. Verdict summary
 
 | # | Preflight gate | Command | Verdict on the unmodified tree |
@@ -337,9 +357,10 @@ Terminal statuses: `rejected`, `accepted`, `failed`, `promoted`, `superseded`.
 
 The advisor asked for a paired `DARKBLOOM_NATIVE_AFFINE_NVFP4=0` probe on the
 grounds that ~40 removable serialization points are worth ≈ 85.5 µs/step ≈
-**1.40% of score**. I verified the mechanism in source, and it is real but
-broader than described; I also have decisive prior evidence that the **prize is
-about 2.6× smaller** than that model.
+**1.40% of score**. I verified the mechanism in source — it is real, but broader
+than described — then decomposed the toggle and measured it. The answer is that
+the prize is **negative**, and the bundled toggle costs 16.6% of score. §7.1–7.4
+establish the mechanism and the design; §7.5 has the numbers.
 
 ### 7.1 The fusion is dead on the shipped default
 
@@ -423,11 +444,11 @@ quantization change, so `B − A` alone cannot attribute anything. I split it:
 Driver: `research/fern_r109f_nvfp4_fusion_abba.sh` (`ORDER`/`TAG`
 env-overridable, writes
 `research/artifacts/fern-r109f/nvfp4-fusion/${TAG}-${slot}-${arm}.{json,log}`,
-emits one JSONL record per slot, does not stop on non-zero exit). Pilot
-`ORDER="W B C A"` confirms B and C emit usable timing; the main design is
-palindromic `A B C C B A` × 3 = 18 slots, 6 per arm.
+emits one JSONL record per slot, does not stop on non-zero exit). Analysis:
+`research/fern_r109f_nvfp4_fusion_analyze.py`.
 
-Why arms B and C yield usable timing despite failing correctness: in
+Why arms B and C were expected to yield usable timing even if they failed
+correctness: in
 `--local-iterate` the **timing phase runs before the correctness check**
 (`Sources/MLXFastTrustedHarness/LagunaRuntimeLocalIterate.swift:115-199`), and
 `localModeFailedPayloadWithEstimatedScore` (`:921-955`) still publishes real
@@ -436,8 +457,68 @@ exits 0; `benchmark.sh` exits 1 after `jq -e '.passed == true'`, but the copy to
 `SCORE_PATH` happens first. `MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT=1` is therefore
 not needed, and I am not setting it.
 
+In the event that did not matter: **all four pilot arms passed correctness**,
+130/130 checked steps, with an identical
+`golden_hash b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63`.
+So the INT8-g32 QKV/o_proj bank is greedy-identical to the NVFP4 default on
+this prompt, even though it is numerically different. Two notes on that, both
+important: per §5.1 a matching golden hash on one prompt is *not* a correctness
+claim, and separately, group-32 affine INT8 for `q_proj`/`k_proj`/`v_proj`/
+`o_proj` is precisely what the accepted envelope (`TASK.md:78-92`) permits — so
+the archive's "never submittable" note may be over-strict about legality. It is
+moot, because the direction is catastrophically wrong (§7.5).
+
+### 7.5 Pilot result: the fusion is worth **less than nothing**
+
+`ORDER="W B C A"`, one replicate per arm, sign convention *positive seconds =
+slower*, *positive `ns` = better*:
+
+| Contrast | What it isolates | decode | prefill | `ns` |
+|---|---|---|---|---|
+| **C − A** | NVFP4 → INT8 bank flip (the confound) | **+26.433%** | −1.139% | **−15.890%** |
+| **B − C** | **the fusion, at matched quantization** | **+0.346%** | **+2.543%** | **−0.883%** |
+| **B − A** | the bundled toggle, as proposed | +26.870% | +1.375% | **−16.632%** |
+
+Three findings:
+
+1. **The bundled toggle is a 16.6% score regression, not a 1.40% gain.**
+   Roughly 96% of that is the bank flip, which is exactly what a
+   bandwidth-bound decode should do when the QKV and o_proj weights double in
+   width from 4-bit to 8-bit and the NVFP4 kernels
+   (`lagunaGatedAffineOProjNVFP4`, the lane-major scale banks) are taken out of
+   service.
+2. **The fusion in isolation is negative.** `B − C` is −0.883% on `ns`: the
+   decode axis is 0.35% *slower* and prefill is 2.5% *slower*. Even the most
+   generous reading of a single replicate bounds the fusion well away from a
+   +1.40%, or even a +0.378%, gain — the sign is wrong on both axes.
+3. **The fusion is specifically a prefill pessimization.** Prefill is
+   insensitive to the bank flip (`C − A` is −1.1%, i.e. prefill is compute-bound
+   rather than weight-bandwidth-bound here) but `B − C` costs 2.5%. The fused
+   norm+affine QKV kernel is decode-shaped; with 512 rows it loses to a plain
+   RMSNorm plus a batched quantized matmul. Anyone who ever wanted this fusion
+   would have to gate it to decode only.
+
+This is exactly why the third arm was worth adding. Without C the only
+observable is "the bundle is 26% slower on decode", which is compatible with
+"the fusion is worth +1.4% but is masked by a 27% quantization penalty". With C
+we can say the fusion itself is worth approximately zero, and if anything
+negative.
+
+The result agrees with my R91-A prior (§7.3): point estimate ≈0.13%, 95% upper
+bound 0.535%, i.e. indistinguishable from zero at this resolution. It disagrees
+with the 1.40% model by both magnitude and sign.
+
+A main palindromic design `W A B C C B A A B C C B A` (13 slots, 4 replicates
+per arm, warmup discarded) is running to put a 2σ band on `B − C`. Given the
+Stage-0 dispersion, n=4 per arm bounds the decode contrast to roughly ±0.34%,
+which is enough to exclude a gain at the ranked bar; it is not enough, and does
+not need to be enough, to resolve 0.35% from zero.
+
 This probe is a **positive control for sizing only**. It cannot displace the
-composition harness and it will never touch the submission slot.
+composition harness and it will never touch the submission slot. My
+recommendation is to close the fusion line: it is dead code whose revival is
+worth ≤0 even before the 26% quantization penalty that currently gates access
+to it.
 
 ---
 
@@ -539,4 +620,13 @@ post-`e27f1ce` receipts already show what that costs.
 * `research/fern_r109_budget_forensics.py` — committed-vs-worktree budget
   reconciliation
 * `research/fern_r109f_nvfp4_fusion_abba.sh` — decomposed A/B/C probe driver
+* `research/fern_r109f_nvfp4_fusion_analyze.py` — three-contrast analyser
+* `research/artifacts/fern-r109f/nvfp4-fusion/` — per-slot score JSON and logs
 * `research/fern_r109_wandb_log.py` — W&B publisher for paired families
+
+Reproduce the probe:
+
+```bash
+ORDER="W B C A" TAG=pilot bash research/fern_r109f_nvfp4_fusion_abba.sh
+python3 research/fern_r109f_nvfp4_fusion_analyze.py pilot main
+```
