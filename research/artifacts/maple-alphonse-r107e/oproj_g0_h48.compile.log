@@ -1,0 +1,10 @@
+research/artifacts/maple-alphonse-r107e/oproj_g0_h48.metal:18:16: warning: unused variable 'out_vec_size' [-Wunused-variable]
+constexpr uint out_vec_size = 2048;
+               ^
+research/artifacts/maple-alphonse-r107e/oproj_g0_h48.metal:19:16: warning: unused variable 'gate_heads' [-Wunused-variable]
+constexpr uint gate_heads = 48;
+               ^
+research/artifacts/maple-alphonse-r107e/oproj_g0_h48.metal:30:6: warning: unused variable 'lid' [-Wunused-variable]
+uint lid = thread_position_in_threadgroup.x;
+     ^
+3 warnings generated.

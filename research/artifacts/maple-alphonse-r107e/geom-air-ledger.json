@@ -1,0 +1,194 @@
+{
+  "arms": {
+    "g0": {
+      "grid_threads": 16384,
+      "heads": {
+        "h48": {
+          "alloca": 2,
+          "barr": 0,
+          "br": 15,
+          "compiled": true,
+          "const_ld": 0,
+          "dev_ld": 5,
+          "dev_st": 1,
+          "fadd": 2,
+          "fmul": 5,
+          "ir_lines": 359,
+          "k_blocks": 12,
+          "phi": 16,
+          "products_per_thread": 768,
+          "simd_sum": 2,
+          "tg_ld": 0,
+          "tg_st": 0
+        },
+        "h64": {
+          "alloca": 2,
+          "barr": 0,
+          "br": 15,
+          "compiled": true,
+          "const_ld": 0,
+          "dev_ld": 5,
+          "dev_st": 1,
+          "fadd": 2,
+          "fmul": 5,
+          "ir_lines": 359,
+          "k_blocks": 16,
+          "phi": 16,
+          "products_per_thread": 1024,
+          "simd_sum": 2,
+          "tg_ld": 0,
+          "tg_st": 0
+        }
+      },
+      "num_simdgroups": 2,
+      "results_per_simdgroup": 4,
+      "rows_per_threadgroup": 8,
+      "threadgroups": 256,
+      "threads_per_threadgroup": 64
+    },
+    "g1": {
+      "grid_threads": 8192,
+      "heads": {
+        "h48": {
+          "alloca": 2,
+          "barr": 0,
+          "br": 15,
+          "compiled": true,
+          "const_ld": 0,
+          "dev_ld": 5,
+          "dev_st": 1,
+          "fadd": 2,
+          "fmul": 5,
+          "ir_lines": 359,
+          "k_blocks": 12,
+          "phi": 16,
+          "products_per_thread": 1536,
+          "simd_sum": 2,
+          "tg_ld": 0,
+          "tg_st": 0
+        },
+        "h64": {
+          "alloca": 2,
+          "barr": 0,
+          "br": 15,
+          "compiled": true,
+          "const_ld": 0,
+          "dev_ld": 5,
+          "dev_st": 1,
+          "fadd": 2,
+          "fmul": 5,
+          "ir_lines": 359,
+          "k_blocks": 16,
+          "phi": 16,
+          "products_per_thread": 2048,
+          "simd_sum": 2,
+          "tg_ld": 0,
+          "tg_st": 0
+        }
+      },
+      "num_simdgroups": 2,
+      "results_per_simdgroup": 8,
+      "rows_per_threadgroup": 16,
+      "threadgroups": 128,
+      "threads_per_threadgroup": 64
+    },
+    "g2": {
+      "grid_threads": 8192,
+      "heads": {
+        "h48": {
+          "alloca": 2,
+          "barr": 0,
+          "br": 15,
+          "compiled": true,
+          "const_ld": 0,
+          "dev_ld": 5,
+          "dev_st": 1,
+          "fadd": 2,
+          "fmul": 5,
+          "ir_lines": 358,
+          "k_blocks": 12,
+          "phi": 16,
+          "products_per_thread": 1536,
+          "simd_sum": 2,
+          "tg_ld": 0,
+          "tg_st": 0
+        },
+        "h64": {
+          "alloca": 2,
+          "barr": 0,
+          "br": 15,
+          "compiled": true,
+          "const_ld": 0,
+          "dev_ld": 5,
+          "dev_st": 1,
+          "fadd": 2,
+          "fmul": 5,
+          "ir_lines": 358,
+          "k_blocks": 16,
+          "phi": 16,
+          "products_per_thread": 2048,
+          "simd_sum": 2,
+          "tg_ld": 0,
+          "tg_st": 0
+        }
+      },
+      "num_simdgroups": 1,
+      "results_per_simdgroup": 8,
+      "rows_per_threadgroup": 8,
+      "threadgroups": 256,
+      "threads_per_threadgroup": 32
+    },
+    "g3": {
+      "grid_threads": 16384,
+      "heads": {
+        "h48": {
+          "alloca": 2,
+          "barr": 0,
+          "br": 15,
+          "compiled": true,
+          "const_ld": 0,
+          "dev_ld": 5,
+          "dev_st": 1,
+          "fadd": 2,
+          "fmul": 5,
+          "ir_lines": 359,
+          "k_blocks": 12,
+          "phi": 16,
+          "products_per_thread": 768,
+          "simd_sum": 2,
+          "tg_ld": 0,
+          "tg_st": 0
+        },
+        "h64": {
+          "alloca": 2,
+          "barr": 0,
+          "br": 15,
+          "compiled": true,
+          "const_ld": 0,
+          "dev_ld": 5,
+          "dev_st": 1,
+          "fadd": 2,
+          "fmul": 5,
+          "ir_lines": 359,
+          "k_blocks": 16,
+          "phi": 16,
+          "products_per_thread": 1024,
+          "simd_sum": 2,
+          "tg_ld": 0,
+          "tg_st": 0
+        }
+      },
+      "num_simdgroups": 4,
+      "results_per_simdgroup": 4,
+      "rows_per_threadgroup": 16,
+      "threadgroups": 128,
+      "threads_per_threadgroup": 128
+    }
+  },
+  "base_sha": "2454cc01ea3afabac067f0a271e36901fea7d21c",
+  "g0_emission_identical_to_base": {
+    "h48": true,
+    "h64": true
+  },
+  "host_note": "static AIR ledger; no timing measured"
+}
