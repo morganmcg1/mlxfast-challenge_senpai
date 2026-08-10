@@ -1,0 +1,440 @@
+#!/usr/bin/env python3
+"""Paired analysis of an N-arm palindromic within-session timing run (PR #571).
+
+Written for the advisor amendment r103-a-fb2, which replaces the two-arm
+OLD/NEW contrast with three arms:
+
+    A = 30f752df  Arm R receipt tree      (7ce1262d, cs 2.589321)
+    B = e17bdeb1  frontier receipt tree   (e08d759f, cs 2.582286)
+    C = 0f6862d0  assignment base = B + R3 (#558), never measured officially
+
+and demotes the +20.15 us/step "missing microseconds" figure from a target to a
+falsification candidate. The deliverable is therefore no longer a verdict about
+a known effect; it is an *exclusion bound*: "this experiment excludes effects
+larger than X us/step", with X attached, for every pair of arms.
+
+Design assumption: each repetition runs the arms in a palindrome, e.g.
+
+    pos    1  2  3  4  5  6
+    arm    A  B  C  C  B  A
+
+so every arm's per-rep estimate is the mean of two slots placed symmetrically
+about the rep midpoint. Linear session drift therefore cancels to first order
+in *every* pairwise contrast, not just one privileged pair. The within-arm
+difference (later slot - earlier slot) is a rule-79 identical-code null at a
+known position separation, and the set of separations {1, 3, 5} measures the
+drift-versus-separation curve directly - which is the calibration the two-arm
+design could not supply.
+
+This analyzer is design-agnostic: it reads index.tsv, groups by repetition,
+and emits a contrast for every arm pair and a null for every arm that appears
+more than once per repetition. It therefore also runs on the original 4-slot
+`oldA old new oldB` layout as a cross-check.
+
+    python3 research/maple-frieren-r103a-analyze-multi.py OUTDIR [WARMUP_REPS]
+"""
+from __future__ import annotations
+
+import importlib.util
+import itertools
+import json
+import math
+import statistics
+import sys
+from collections import defaultdict
+from pathlib import Path
+
+_HERE = Path(__file__).resolve().parent
+_spec = importlib.util.spec_from_file_location(
+    "r103a_analyze", _HERE / "maple-frieren-r103a-analyze.py")
+_base = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_base)  # type: ignore[union-attr]
+slot_stats, paired, t95 = _base.slot_stats, _base.paired, _base.t95
+
+# M5->M4 magnitude transfer, R1 (see doc section 1.5d "bar sensitivity"): a
+# delta of d us/step on M5 is expected to appear as d/0.622 on M4. Valid only
+# within one mechanism class; reported alongside the three alternative
+# assumptions so the reader can see how much the conversion carries.
+TRANSFER = {
+    "fixed-overhead (x1.000)": 1.000,
+    "R1 empirical (x0.622)": 0.622,
+    "proportional (x0.505)": 4141.540 / 8200.0,
+    "bandwidth-ratio (x0.436)": 266.3 / 610.0,
+}
+
+# Rung 1's independent estimate of the same A->C contrast (median statistic,
+# K = 24 repetitions, 4-slot oldA/old/new/oldB layout, separate session):
+# mean and 95% half-width in us/step. Used only for a replication check.
+RUNG1_AC = (27.84, 9.15)
+R1 = 0.622
+# The two reference magnitudes this arm was sent to test, in M5 us/step of T.
+REF_M5 = {"A->B  'missing microseconds'": 20.149, "B->C  R3 (#558)": 0.0}
+# The median is primary because the host is not a clean room, but it is blind
+# to step 0 and to any sub-majority tail, and both are inside the official
+# 128-step mean. mean_first128 is the official analog and governs when it
+# disagrees in sign with the median (see doc S 1.12 A4).
+STATS = ("median", "trimmed", "mean", "mean_first128", "step0")
+QC_P99_RATIO = 1.30
+# The retracted M5 claim expressed on this host: 20.149 / 0.622.
+TOST_MARGIN = 32.4
+# z(1 - 0.05/6) / z(1 - 0.05/2) = 2.394 / 1.960, applied to the t half-width.
+BONFERRONI_3 = 1.2214
+
+
+def load(out: Path, warmup: int):
+    """reps[rep][arm] = [(position, stats), ...], warm-up reps dropped."""
+    reps: dict[int, dict[str, list]] = defaultdict(lambda: defaultdict(list))
+    dropped: list[str] = []
+    bad: set[int] = set()
+    for line in (out / "index.tsv").read_text().splitlines()[1:]:
+        rep_s, pos_s, arm, tag = line.split("\t")
+        rep = int(rep_s)
+        if rep < warmup:
+            continue
+        p = out / f"{tag}.steps"
+        if not p.exists() or not p.read_text().strip():
+            dropped.append(f"{tag} (missing or empty)")
+            bad.add(rep)
+            continue
+        st = slot_stats(p)
+        why = qc_reject(out / f"{tag}.log", st)
+        if why:
+            dropped.append(f"{tag} ({why})")
+            bad.add(rep)
+            continue
+        reps[rep][arm].append((int(pos_s), st))
+    # A rejected slot invalidates its whole repetition: every contrast here is
+    # within-repetition, so a repetition missing one arm cannot contribute.
+    for rep in bad:
+        reps.pop(rep, None)
+    print(f"  QC: {len(dropped)} slot(s) rejected, {len(bad)} rep(s) voided"
+          + ("; " + ", ".join(dropped) if dropped else ""))
+    return reps
+
+
+def qc_reject(log: Path, st: dict[str, float]) -> str:
+    """Pre-registered slot QC (doc S 1.12 A9). Empty string means keep."""
+    if log.exists():
+        for ln in log.read_text().splitlines():
+            if "divergences" in ln and not ln.split()[3].startswith("0"):
+                return ln.strip()
+    if st["p99"] > QC_P99_RATIO * st["median"]:
+        return f"p99/median={st['p99'] / st['median']:.3f}"
+    return ""
+
+
+def arm_estimates(reps, stat: str):
+    """rep -> arm -> mean of that arm's slot statistics in that repetition."""
+    est: dict[int, dict[str, float]] = {}
+    for rep, byarm in sorted(reps.items()):
+        est[rep] = {a: statistics.mean(s[stat] for _, s in occ)
+                    for a, occ in byarm.items()}
+    return est
+
+
+def nulls(reps, stat: str):
+    """(arm, separation) -> [later - earlier per repetition].
+
+    Kept per separation, never pooled: under the rotated palindrome an arm
+    visits several lags and drift grows with lag, so a pooled null would
+    average a quiet short lag against a noisy long one (doc S 1.12 A2).
+    """
+    vals: dict[tuple[str, int], list[float]] = defaultdict(list)
+    for _, byarm in sorted(reps.items()):
+        for arm, occ in byarm.items():
+            if len(occ) < 2:
+                continue
+            occ = sorted(occ)
+            vals[(arm, occ[-1][0] - occ[0][0])].append(
+                occ[-1][1][stat] - occ[0][1][stat])
+    return vals
+
+
+def layout(byarm) -> tuple:
+    """Canonical signature of one repetition's arm->slot-position assignment."""
+    return tuple(sorted((a, tuple(sorted(p for p, _ in occ)))
+                        for a, occ in byarm.items()))
+
+
+def cycles(reps):
+    """Group repetitions into complete rotation cycles.
+
+    Rung 1 measured a +17 us/step interior-versus-exterior position artefact
+    (doc S 4.4a). The rung-2 rotation cancels it only in aggregate: within one
+    repetition the arm sitting at the interior slot pair is biased hot relative
+    to the arm at the exterior pair, so a per-repetition contrast carries a
+    deterministic phase term with the period of the rotation. Averaging one
+    repetition of each phase removes that term exactly instead of leaving it in
+    the residual, where it would inflate every half-width.
+
+    Returns a list of lists of repetition indices, one complete cycle each, and
+    the list of leftover repetitions that could not be balanced.
+    """
+    byphase: dict[tuple, list[int]] = defaultdict(list)
+    for rep, byarm in sorted(reps.items()):
+        byphase[layout(byarm)].append(rep)
+    phases = sorted(byphase, key=lambda k: byphase[k][0])
+    if len(phases) < 2:
+        return [], sorted(reps)
+    n = min(len(byphase[p]) for p in phases)
+    blocks = [[byphase[p][i] for p in phases] for i in range(n)]
+    used = {r for b in blocks for r in b}
+    return blocks, sorted(set(reps) - used)
+
+
+def band(p: dict[str, float]) -> float:
+    """Largest true effect this contrast is consistent with, in magnitude."""
+    return max(abs(p["lo"]), abs(p["hi"]))
+
+
+def main() -> None:
+    out = Path(sys.argv[1])
+    warmup = int(sys.argv[2]) if len(sys.argv) > 2 else 1
+    reps = load(out, warmup)
+    if not reps:
+        sys.exit("no usable repetitions")
+    arms = sorted({a for byarm in reps.values() for a in byarm})
+    layout = sorted({(p, a) for byarm in reps.values()
+                     for a, occ in byarm.items() for p, _ in occ})
+    print(f"# rung 1B multi-arm paired analysis  ({out})")
+    print(f"warm-up repetitions discarded: {warmup}")
+    print(f"repetitions analysed: {len(reps)}   arms: {' '.join(arms)}")
+    print("slot layout (position -> arm): "
+          + "  ".join(f"{p}:{a}" for p, a in layout))
+
+    report: dict = {"outdir": str(out), "warmup": warmup,
+                    "reps": len(reps), "arms": arms,
+                    "layout": [[p, a] for p, a in layout], "stats": {}}
+
+    for stat in STATS:
+        est = arm_estimates(reps, stat)
+        print(f"\n########## statistic: {stat} (us/step) ##########")
+        print("\nper-arm level, mean over repetitions:")
+        for a in arms:
+            xs = [e[a] for e in est.values() if a in e]
+            print(f"  {a:>5}  {statistics.mean(xs):10.1f}"
+                  f"   sd(rep) {statistics.stdev(xs) if len(xs) > 1 else float('nan'):7.2f}")
+
+        print("\nrule-79 identical-code nulls (same arm, two slots, one rep):")
+        print(f"  {'arm':>5} {'sep':>4} {'K':>3} {'mean':>9} {'95% hw':>9}"
+              f" {'lo':>9} {'hi':>9}  sign +/-")
+        null_out = {}
+        nv = nulls(reps, stat)
+        for (arm, sep), diffs in sorted(nv.items()):
+            p = paired(diffs)
+            null_out[f"{arm}@sep{sep}"] = dict(p, separation=sep, arm=arm)
+            print(f"  {arm:>5} {sep:>4} {p['k']:>3} {p['mean']:9.2f}"
+                  f" {p['half_width']:9.2f} {p['lo']:9.2f} {p['hi']:9.2f}"
+                  f"   {p['pos']}/{p['neg']}")
+        # Every cell at one separation is an identical-code within-repetition
+        # difference between the same mirrored slot pair, so under the design's
+        # own null they are exchangeable across arms and pool legitimately.
+        # Each per-arm cell is small; pooling is what gives the rule-79 null
+        # enough power to be worth quoting against the contrasts.
+        bysep: dict[int, list[float]] = defaultdict(list)
+        for (arm, sep), diffs in nv.items():
+            bysep[sep].extend(diffs)
+        for sep, diffs in sorted(bysep.items()):
+            if len(diffs) < 2:
+                continue
+            p = paired(diffs)
+            null_out[f"pooled@sep{sep}"] = dict(p, separation=sep, arm="pooled")
+            print(f"  {'pool':>5} {sep:>4} {p['k']:>3} {p['mean']:9.2f}"
+                  f" {p['half_width']:9.2f} {p['lo']:9.2f} {p['hi']:9.2f}"
+                  f"   {p['pos']}/{p['neg']}")
+        print("  (drift scales with separation; the palindrome cancels drift in")
+        print("   the contrasts below, so these are a conservative upper bound.)")
+
+        print("\npaired contrasts, drift-cancelled (later arm - earlier arm):")
+        print(f"  {'contrast':>10} {'K':>3} {'mean':>9} {'95% hw':>9}"
+              f" {'lo':>9} {'hi':>9} {'excl>':>9}  sign +/-")
+        con_out = {}
+        for x, y in itertools.combinations(arms, 2):
+            diffs = [e[y] - e[x] for e in est.values() if x in e and y in e]
+            p = paired(diffs)
+            b = band(p)
+            con_out[f"{x}->{y}"] = dict(p, excludes_above_m4=b,
+                                        excludes_above_m5_r1=b * R1)
+            print(f"  {x:>4}->{y:<4} {p['k']:>3} {p['mean']:9.2f}"
+                  f" {p['half_width']:9.2f} {p['lo']:9.2f} {p['hi']:9.2f}"
+                  f" {b:9.2f}   {p['pos']}/{p['neg']}")
+
+        blocks, leftover = cycles(reps)
+        cyc_out = {}
+        if blocks:
+            print(f"\ncycle-blocked contrasts ({len(blocks)} complete rotation"
+                  f" cycles of {len(blocks[0])} reps"
+                  + (f"; {len(leftover)} rep(s) unbalanced and dropped:"
+                     f" {leftover}" if leftover else "") + "):")
+            print(f"  {'contrast':>10} {'K':>3} {'mean':>9} {'95% hw':>9}"
+                  f" {'lo':>9} {'hi':>9} {'excl>':>9}  sign +/-")
+            for x, y in itertools.combinations(arms, 2):
+                diffs = []
+                for blk in blocks:
+                    d = [est[r][y] - est[r][x] for r in blk
+                         if r in est and x in est[r] and y in est[r]]
+                    if len(d) == len(blk):
+                        diffs.append(statistics.mean(d))
+                if len(diffs) < 2:
+                    continue
+                p = paired(diffs)
+                b = band(p)
+                cyc_out[f"{x}->{y}"] = dict(p, excludes_above_m4=b,
+                                            excludes_above_m5_r1=b * R1)
+                print(f"  {x:>4}->{y:<4} {p['k']:>3} {p['mean']:9.2f}"
+                      f" {p['half_width']:9.2f} {p['lo']:9.2f} {p['hi']:9.2f}"
+                      f" {b:9.2f}   {p['pos']}/{p['neg']}")
+            print("  (identical point estimates to the rows above when the"
+                  " design is balanced; the")
+            print("   half-widths differ because the position artefact is"
+                  " removed from the residual.)")
+
+        report["stats"][stat] = {"nulls": null_out, "contrasts": con_out,
+                                 "cycle_contrasts": cyc_out,
+                                 "levels": {a: statistics.mean(
+                                     [e[a] for e in est.values() if a in e])
+                                     for a in arms}}
+
+    # Everything below reads the primary statistic only (section 1.5a).
+    est = arm_estimates(reps, "median")
+    # Pre-specified before unblinding rung 2 (doc S 4.5a): when the rotation
+    # closes into at least two complete cycles the cycle-blocked estimator is
+    # primary, because it removes the measured position artefact from the
+    # residual rather than carrying it. Otherwise the per-repetition estimator
+    # is primary. The rule is fixed by the design, not chosen by the width.
+    cyc = report["stats"]["median"].get("cycle_contrasts") or {}
+    if len(cyc) == len(report["stats"]["median"]["contrasts"]) and cyc:
+        prim, prim_name = cyc, "cycle-blocked"
+        alt, alt_name = report["stats"]["median"]["contrasts"], "per-repetition"
+    else:
+        prim, prim_name = report["stats"]["median"]["contrasts"], "per-repetition"
+        alt, alt_name = cyc, "cycle-blocked"
+    report["primary_estimator"] = prim_name
+    print(f"\nprimary estimator: {prim_name}"
+          + (f"; secondary ({alt_name}) reported alongside" if alt else ""))
+    for name, p in sorted(alt.items()):
+        print(f"  [{alt_name}] {name}: {p['mean']:+.2f}"
+              f" [{p['lo']:+.2f}, {p['hi']:+.2f}] hw {p['half_width']:.2f}")
+
+    print("\n########## exclusion bounds (primary statistic: median) ##########")
+    print("Reporting discipline (advisor fb2): never 'neutral' without an X.")
+    print("Signed interval first; X is quoted only when the interval covers 0")
+    print("(doc S 1.12 A5: 'excludes > hi' is absurd for a non-null estimate).")
+    for name, p in prim.items():
+        b = p["excludes_above_m4"]
+        se = p["half_width"] / t95(p["k"] - 1)
+        mde = (t95(p["k"] - 1) + 0.842) * se
+        covers0 = p["lo"] <= 0.0 <= p["hi"]
+        tost = "PASS" if b < TOST_MARGIN else "fail"
+        print(f"  {name}: 95% CI [{p['lo']:+.2f}, {p['hi']:+.2f}] us/step M4"
+              f"  (point {p['mean']:+.2f})")
+        if covers0:
+            print(f"      covers 0; excludes |true effect| > {b:.1f} M4"
+                  f" = {b * R1:.1f} M5-equivalent at the R1 factor")
+        else:
+            side = "positive" if p["lo"] > 0 else "negative"
+            print(f"      EXCLUDES 0 ({side}); this is an effect, not a null"
+                  f"  -- X is not the right summary here")
+        print(f"      80%-power MDE {mde:.1f} M4 (what it could reliably"
+              f" detect; the CI half-width {p['half_width']:.1f} overstates it)")
+        print(f"      TOST vs the {TOST_MARGIN:.1f} M4 margin"
+              f" (the retracted M5 claim on this host): {tost}")
+    # A->B + B->C = A->C holds to floating point by construction, so there is
+    # no internal additivity residual to report. The informative reconciliation
+    # is against rung 1, which measured the same A->C contrast in a separate
+    # session under a different slot layout.
+    if "A->C" in prim and RUNG1_AC is not None:
+        p = prim["A->C"]
+        m1, h1 = RUNG1_AC
+        se = math.hypot(p["half_width"] / t95(p["k"] - 1), h1 / t95(24 - 1))
+        d = p["mean"] - m1
+        print(f"\n  rung-1 replication of A->C: rung 1 {m1:+.2f} +/- {h1:.2f},"
+              f" rung 2 {p['mean']:+.2f} +/- {p['half_width']:.2f}")
+        print(f"      difference {d:+.2f} us/step, ~{abs(d) / se:.2f} sd of the"
+              f" difference (se {se:.2f}) -- "
+              + ("consistent" if abs(d) < 1.96 * se else
+                 "NOT consistent: the two sessions disagree"))
+
+    # Three pairwise intervals at per-pair 95% give roughly 86% joint coverage,
+    # so a single "no pair differs by more than X" claim needs an adjustment.
+    bonf = max(p["half_width"] for p in prim.values()) * BONFERRONI_3
+    print(f"\n  joint (Bonferroni m=3, normal-quantile approximation):"
+          f" no pair differs by more than {bonf:.1f} us/step M4"
+          f" = {bonf * R1:.1f} M5-equivalent at the R1 factor")
+    # The median cannot see step 0 or any sub-majority tail, both of which the
+    # official 128-step mean scores. Where the two disagree in sign, the
+    # official analog is the one the score is made of (doc S 1.12 A4).
+    print("\n########## median vs official analog (mean_first128) ##########")
+    offi = report["stats"]["mean_first128"]["contrasts"]
+    for name, p in prim.items():
+        o = offi[name]
+        flag = ("DISAGREE -- official analog governs"
+                if p["mean"] * o["mean"] < 0 else "agree in sign")
+        print(f"  {name}: median {p['mean']:+8.2f} [{p['lo']:+.2f},"
+              f" {p['hi']:+.2f}]   official-analog {o['mean']:+8.2f}"
+              f" [{o['lo']:+.2f}, {o['hi']:+.2f}]   {flag}")
+    s0 = report["stats"]["step0"]["contrasts"]
+    print("  step-0 contrast, which enters official T at weight 1/128:")
+    for name, p in s0.items():
+        print(f"    {name}: {p['mean']:+9.1f} us [{p['lo']:+.1f},"
+              f" {p['hi']:+.1f}]  -> {p['mean'] / 128.0:+.2f} us/step of T")
+
+    print("\n  M5-equivalent of the achieved half-width under four transfer")
+    print("  assumptions (a scalar factor is only valid within one mechanism")
+    print("  class; this is the sensitivity, not four estimates):")
+    for name, p in prim.items():
+        hw = p["half_width"]
+        row = "  ".join(f"{lbl.split()[0]} {hw * f:5.1f}"
+                        for lbl, f in TRANSFER.items())
+        print(f"    {name:<28} hw {hw:6.2f} M4  ->  {row}")
+
+    print("\n########## precision check ##########")
+    worst = max(p["half_width"] for p in prim.values())
+    print(f"  worst contrast half-width {worst:.2f} us/step M4"
+          f"  (target < 8.00, advisor fb2 'the number that decides the round')")
+    print("  PASS" if worst < 8.0 else "  MISS: underpowered against the target")
+    report["precision"] = {"worst_half_width_m4": worst, "target": 8.0,
+                           "pass": bool(worst < 8.0)}
+
+    print("\n########## N-2: is the null quiet? ##########")
+    nl = report["stats"]["median"]["nulls"]
+    for arm, p in sorted(nl.items()):
+        flag = "" if p["lo"] <= 0 <= p["hi"] else "  <-- EXCLUDES ZERO"
+        print(f"  {arm} (sep {p['separation']}): [{p['lo']:.2f},"
+              f" {p['hi']:.2f}]{flag}")
+    n2 = any(not (p["lo"] <= 0 <= p["hi"]) for p in nl.values())
+    print("  N-2 fires (drift comparable to a contrast): "
+          + ("YES - downgrade every contrast to inconclusive" if n2 else "no"))
+    report["n2_fires"] = bool(n2)
+
+    print("\n########## N-5: are all arms mutually indistinguishable? ##########")
+    n5 = all(p["lo"] <= 0 <= p["hi"] for p in prim.values())
+    print("  " + ("YES: every pairwise CI contains zero. Report the achieved"
+                  " half-widths above and stop (advisor fb2)."
+                  if n5 else
+                  "no: at least one contrast excludes zero; see the table."))
+    report["n5_fires"] = bool(n5)
+
+    print("\n########## reference magnitudes ##########")
+    for label, m5 in REF_M5.items():
+        if m5:
+            print(f"  {label}: {m5:.2f} us/step M5 = {m5 / R1:.1f} M4-equivalent")
+        else:
+            print(f"  {label}: no official same-base receipt exists; there is"
+                  " no prior magnitude to test against.")
+
+    print("\n########## diagnostics (not decision variables) ##########")
+    for key in ("step0", "mean_first128", "tail_excess", "spike_count",
+                "spike_mass"):
+        e = arm_estimates(reps, key)
+        row = "  ".join(
+            f"{a} {statistics.mean([x[a] for x in e.values() if a in x]):9.2f}"
+            for a in arms)
+        print(f"  {key:>14}: {row}")
+
+    (out / "analysis-multi.json").write_text(json.dumps(report, indent=2))
+    print(f"\nwrote {out / 'analysis-multi.json'}")
+
+
+if __name__ == "__main__":
+    main()
