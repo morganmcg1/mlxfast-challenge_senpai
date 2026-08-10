@@ -575,3 +575,81 @@ Preregistered before any timing run (extending §0, and not extendable afterward
   (2) confirmation that ≈3,200 B in `LagunaRuntimeModel.swift` is within my allocation; (3) go/no-go for
   Stage 2. Absent (1), my fallback is **M3**, which touches nothing edward owns but is class 2 and worth
   roughly a quarter as much.
+
+---
+
+# §3 Stage 1 — the barrier-region price probe (advisor #660 comment 6; reported 19:00Z)
+
+**§2.7 is withdrawn as an action.** Comment 6 said *stop before you build*, and the probe it
+ordered has now run. This section replaces the Stage-1 build with the measurement, and its
+conclusion is that the merge should **not** be built.
+
+## §3.1 What comment 6 asked, and what I confirm
+
+The advisor's mechanism claim was that MLX encoders are created
+`DispatchTypeConcurrent` and that barriers fire only on a true RAW hazard, so
+`lagunaGateSoftplus` and `lagunaDecodeNVFP4QKVR1` — two siblings that both read
+`normalized` and neither of which reads the other's output — **already overlap**, and M2
+would therefore remove a dispatch that costs nothing while risking PR #48's
+register-allocation-union occupancy loss.
+
+**I confirm the advisor's `device.cpp` reading at source level. It is correct, and I am
+not disputing it.** The encoder is created with `MTL::DispatchTypeConcurrent`
+(`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp:545-548`);
+`set_input_array` raises `needs_barrier_` only when the input is found in
+`prev_outputs_` (`:319-325`); `maybeInsertBarrier` emits
+`memoryBarrier(BarrierScopeBuffers)` only when that flag is set, and on emitting it does
+`prev_outputs_ = std::move(next_outputs_)`, so the previous generation is dropped
+(`:363-375`). For the M2 pair the hazard set never contains the sibling's output, so **no
+barrier is emitted between QKV and gate_sp**. One detail comment 6 omitted, which does not
+change the conclusion: `register_output_array` also tracks a WAR hazard against
+`prev_inputs_`, so buffer *recycling* by the allocator can serialize two logically
+independent kernels. That is a hazard-management bug class, not a dispatch-count one.
+
+## §3.2 The instrument, and the one thing it cannot do
+
+Arms, all via `./benchmark.sh --local-submit` (rule 86 forbids `--local-iterate` as
+evidence), fixed order `GCFSCSFCHJCFSCSFCJH`, six control-anchored blocks of three:
+
+| arm | injected no-ops/step | `CHAIN` | meaning |
+|---|---|---|---|
+| `C` | 0 | — | control anchor, one per block |
+| `F` | 160 | 0 | **concurrent** extra dispatches, no barrier |
+| `S` | 160 | 1 | **serialized** extra dispatches, RAW chain ⇒ barrier each |
+| `H` | 1200 | 0 | concurrent, high rung |
+| `J` | 1200 | 1 | serialized, high rung |
+| `G` | 2400 | 1 | gauge / liveness only (amendment §3) |
+
+The injected kernel is `laguna_inject_empty_dispatch_v1`
+(`Sources/MLXFastModel/LagunaRuntimeModel.swift:12037-12049`): 8 threadgroups × 256
+threads, whose body is one buffer load and a comparison against `0xFFFFFFFFu` that is
+never true. Its arithmetic is negligible by construction, so what it prices is dispatch
+overhead, not work. Nothing is elided: `CustomKernel::eval_gpu` dispatches unconditionally
+(`.../metal/custom_kernel.cpp:117`) and the guard is a runtime device read.
+
+**The instrument's ceiling, recorded in amendment §9 before any verdict.**
+`lagunaInjectLayerWork` is invoked at `:11715`, after the layer body, and ends in its own
+`asyncEval(pending)` at `:12143`. An MLX eval boundary runs `gpu::finalize`, i.e.
+`end_encoding()` then `commit()` (`.../metal/eval.cpp:71-77`, `device.cpp:456-465`,
+`:526-529`), and the injected roots depend only on pre-evaluated inputs, so the injected
+tape is encoded **alone**. `DARKBLOOM_INJECT_EMPTY_SPREAD` defaults to 1 (`:11971-11972`),
+so with 40 layers injecting, the knob adds up to 40 extra encoders *and command buffers*
+per step. It therefore prices "an extra dispatch **plus** its share of a fresh encoder and
+submission", which is an **upper bound** on the marginal cost of one more dispatch inside
+an encoder that already exists.
+
+This makes the evidence deliberately asymmetric, and it **narrows comment 6's decision
+rule**:
+
+* A **null** arm F kills the merge programme, because the instrument inflates the
+  available saving three separate ways — extra encoder, extra command buffer, and arm F
+  alone appending `N` roots to `pending` (`:12137`) where the chained arms append one
+  (`:12140`) — and a null survives all three.
+* A **positive** arm F does **not** license the merge, because the effect could be entirely
+  encoder/command-buffer overhead that an in-encoder merge cannot recover.
+
+So comment 6's "≥ 0.8 ⇒ build the merge" branch is **not reachable from this instrument**.
+The "≲ 0.3 ⇒ programme dead" branch is fully supported.
+
+<!--RESULTS-->
+
