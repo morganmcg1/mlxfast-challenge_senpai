@@ -151,6 +151,27 @@ def main():
         )
 
     control = os.environ.get("CTRL", "C")
+
+    # Negative control.  The probed kernel is dispatched only for single-token
+    # decode queries, so no arm can reach prefill.  A systematic prefill shift
+    # would mean a global thermal / DVFS / host confound is contaminating every
+    # decode delta, and the decode numbers below could not be trusted.
+    print("\n== prefill negative control (must be arm-independent) ==")
+    pref_ctrl = [p * 1e6 for a, _, p, _ in rows if a == control]
+    pcm, pcsd, pcn = stats(pref_ctrl)
+    for arm in arms:
+        pv = [p * 1e6 for a, _, p, _ in rows if a == arm]
+        m, sd, n = stats(pv)
+        if arm == control:
+            print(f"  arm {arm} : mean {m:9.2f} us/token  sd {sd:6.2f}  n {n}")
+        else:
+            se = math.sqrt(pcsd * pcsd / pcn + sd * sd / n)
+            t = (m - pcm) / se if se > 0 else float("nan")
+            print(
+                f"  arm {arm} : mean {m:9.2f} us/token  sd {sd:6.2f}  n {n}  "
+                f"delta {m - pcm:+7.2f}  se {se:5.2f}  t {t:+5.2f}"
+            )
+
     ctrl = [d for a, d, _, _ in rows if a == control]
     cm, csd, cn = stats(ctrl)
     probes = [a for a in arms if a != control]
@@ -182,6 +203,22 @@ def main():
         print(
             f"  marginal cost {slope * 1000:+8.3f} ns/step per added issue slot"
             f"  (se {sse * 1000:.3f})"
+        )
+        # Two-parameter fit: a fixed cost F charged once at any dose > 0 plus a
+        # marginal slope.  A latency-slack model is convex (per-slot cost rises
+        # with dose); F > 0 means the curve is concave, which slack cannot
+        # produce, and which disqualifies "issue slots" as a linear ruler.
+        step_cost = dose["D"][0] - slope * SLOTS["D"]
+        first = dose["D"][0] / SLOTS["D"]
+        print(
+            f"  first-dose cost {first * 1000:+8.3f} ns/step per slot -> "
+            f"fixed step cost {step_cost:+.2f} us/step at any dose > 0"
+        )
+        print(
+            "  curve is "
+            + ("CONCAVE (first > marginal): fixed cost or clock response, "
+               "not slack" if first > slope else
+               "convex (first < marginal): consistent with saturating slack")
         )
         ladder = slope * LADDER_SLOTS
         hi = (slope + 1.96 * sse) * LADDER_SLOTS
