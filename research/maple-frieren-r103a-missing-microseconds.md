@@ -2036,12 +2036,447 @@ stored rung-1 value.
 
 ## § 5 Rung 2 — three-arm rotated block, decomposing A→C into A→B and B→C
 
-_Executing. Design and preregistered n in § 4.5, analysis amendments in
-§ 4.5a; results here._
+Design and preregistered n in § 4.5, analysis amendments in § 4.5a.
+
+### 5.1 Provenance and gates
+
+Job `e5822dad-1107-408e-ac01-044e04ec4b29`, exit 0, 6,232 s, launched at branch
+head `ea0286d3f84aab58fb022dd0fad8e0b33d454877`. Command as recorded in § 4.5:
+24 repetitions × 6 slots = **144 slots**, `DESIGN=rotate`, `STEPS=250`,
+`WARMUP_REPS=3`, `K = 21` analysed.
+
+| Gate | Result |
+| --- | --- |
+| G0.2 output identity | **PASS.** All 144 `.tokens` files hash to the single value `aaf1cccc923270801a1e16da07012bc822d9f85eb33ce6e2039fb38f407e51d8` (250 tokens each). Every slot emitted the *identical* token sequence. |
+| Teacher-forced divergences | **PASS.** `0 divergences (all match)` in 144 of 144 slot logs. |
+| Rule 75 (tree unchanged) | **PASS.** `digest_before = digest_after = c3fafd30…d385f492`. |
+| Binary identity | **PASS.** `new` = `32d0a3d4…81ddb`, `old`/`oldA`/`oldB` = `d36a981f…4a911e`, unchanged from rung 0. |
+| `ASSERT_DIFFER=old:new` | **PASS.** |
+| QC (p99/median ratio ≤ 1.30) | **PASS.** 0 slots rejected, 0 repetitions voided. |
+| Rotation closure | **PASS.** 3 phases × 7 complete cycles = 21 reps, so the cycle-blocked estimator is primary per § 4.5a(i); `primary_estimator: cycle-blocked` in `analysis-multi.json`. |
+
+So the behavioural claim is airtight: **all three arms are output-identical**, and
+nothing in this section is a correctness trade.
+
+### 5.2 Primary result — the composed effect lives entirely in the router leg
+
+Primary statistic: per-slot median of steps 1…249. Primary estimator:
+cycle-blocked over 7 complete rotation cycles. Arm levels A 8245.4, B 8233.0,
+C 8267.6 µs/step.
+
+| Leg | Mechanism | Estimate (µs/step, M4) | 95 % CI | Cycle signs | Layout-exposed? |
+| --- | --- | --- | --- | --- | --- |
+| **A→B** | #565 attention pipeline 2→4 **+ binary layout** | **−12.39** (faster) | [−24.64, −0.14] | 0/7 | **yes, fully** |
+| **B→C** | #558 / R3 router weight-prefetch peel, alone | **+34.58** (slower) | [+26.39, +42.77] | 7/0 | **no — one binary** |
+| A→C | both, composed | +22.19 | [+16.94, +27.45] | 7/0 | yes, fully |
+
+Three things follow, in descending order of how much I trust them.
+
+**(a) A→C replicates rung 1.** Rung 1 gave +27.84 ± 9.15 in a different session
+under a different slot layout with a different estimator; rung 2 gives
++22.19 ± 5.26. The difference is −5.65 µs/step, ≈ 1.15 sd of the difference
+(se 4.92) — **consistent**. The A-versus-C binary-level difference on this host
+is a real, repeatable phenomenon, and rung 2's half-width of **5.26 clears fb2's
+< 8 µs/step precision bar** for this contrast.
+
+**(b) The whole composed effect, and more, is the router leg — and that leg is
+the one immune to the layout confound.** B→C = +34.58 is *larger* than the
+composed A→C = +22.19, because A→B runs the other way. Since B and C are the
+same binary at the same addresses selected by an environment variable, § 4.4b's
+pre-committed rule lands on its favourable branch: **B→C large and A→B small
+⇒ the router peel carries it and the conclusion is safe.** B→C is also the most
+robust number in this whole document — positive in **21/21 repetitions** (sign
+test p = 2⁻²⁰ ≈ 9.5 × 10⁻⁷), in 7/7 cycles, at all three slot-position pairs
+(§ 5.3), and on all four statistics: median +34.58, trimmed +36.15, mean +35.96,
+official-analog `mean_first128` +38.74 [+24.68, +52.80].
+
+**(c) A→B is directionally faster but I am not claiming it.** Its CI barely
+excludes zero (upper bound −0.14) and under the Bonferroni m = 3 adjustment
+required for a joint three-leg claim (×1.2214 ⇒ hw 14.96) it **covers zero**:
+[−27.35, +2.57]. § 5.4 then shows its layout contamination is maximal, and
+fb4 § 3's two-wave argument says an M4 attention-kernel result cannot rank
+mechanisms for the ranked host anyway. A→B is reported, not claimed.
+
+Step-0 contrasts, which enter official `T` at weight 1/128, are all
+insignificant and small in step-equivalent terms (A→B −5.55, A→C −2.26,
+B→C +3.29 µs/step of `T`).
+
+### 5.3 Position-matched cross-check (`research/maple-frieren-r103a-position-matched.py`)
+
+Cycle-blocking removes the slot-position artefact by averaging. This script
+removes it a second, more literal way, with an independently written parser:
+it compares arms **only at the same slot-position pair**, using the one
+repetition per cycle in which each arm occupies that pair. Three position-matched
+estimates per leg, K = 7 each.
+
+| Leg | at {3,4} | at {2,5} | at {1,6} | mean | spread | same sign? | primary |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| A→B | −8.32 | −12.19 | −16.91 | −12.47 | 8.59 | yes | −12.39 |
+| A→C | +21.00 | +23.74 | +21.62 | +22.12 | 2.74 | yes | +22.19 |
+| B→C | +29.32 (7/0) | +35.94 (7/0) | +38.53 (7/0) | +34.59 | 9.21 | yes | +34.58 |
+
+The independent parser reproduces every primary point estimate to within
+0.1 µs/step, and **no leg changes sign at any slot position**. B→C is positive in
+7/7 cycles at each of the three pairs separately. The effects are not artefacts
+of where in the block a slot ran.
+
+### 5.4 Static layout check — the confound is real, maximal, and confined to the legs I am not claiming
+
+Read-only comparison of the two workers (`/tmp/maple-r103a/layout/`), deliberately
+run only after the timing job terminated. Segment map: `__TEXT` 22,953,984 →
+23,019,520, `__text` 18,976,616 → **19,040,936 (+64,320 B)**, `__cstring`
+1,560,409 → 1,568,025 (+7,616 B, consistent with the two edited MSL source
+strings), no section added or removed.
+
+`nm -n` address comparison over 142,976 common symbols:
+
+| Symbol subset | n | identical address | same 16 KiB page offset | same cache-line offset |
+| --- | --- | --- | --- | --- |
+| all | 142,976 | 26.62 % | 33.65 % | 56.17 % |
+| **`laguna` (scored runtime)** | 3,024 | **0.03 % (1 symbol)** | **4.53 %** | 11.77 % |
+| **`mlxfastmodel`** | 2,182 | **0.00 % (none)** | 6.46 % | 11.92 % |
+| `mlx_dispatch` | 4,964 | 67.95 % | 81.75 % | 95.23 % |
+| `quantized` | 1,508 | 15.72 % | 21.88 % | 54.64 % |
+
+The dominant address deltas are +64,320 (×26,981), +65,256, +65,536, +64,496,
++66,160 — i.e. roughly 64 KiB bulk shifts. 64,320 ≡ 0 (mod 64) but
+≡ 15,168 (mod 16,384), which is exactly why cache-line offsets survive for most
+symbols while **page offsets do not**; the other deltas are not multiples of 64
+either. There are 154 symbols only in OLD and 295 only in NEW, and the private
+mangling discriminator differs (`_6D73F25D…` vs `_31416BEF…`), confirming two
+genuinely independent builds rather than one image plus a patch.
+
+The conclusion is blunt and it goes against my own rung-1 headline: **the scored
+Swift runtime is essentially 100 % relocated between arm A and arms B/C.** Not
+one `MLXFastModel` symbol keeps its address and fewer than 5 % of `laguna`
+symbols keep even their page offset. R2's arithmetic — 68 ns × 408 dispatches per
+step = 27.7 µs/step — is therefore not a hypothetical; the displacement needed to
+manufacture the entire A→C effect is present, and I have no way to bound its
+contribution from static data alone. **Every A→B and A→C number in this document
+is a statement about two binaries, not about the #565 source edit.**
+
+The same check exonerates B→C completely: one binary, one image, one set of
+addresses, one process-start environment read (§ 2.6.7: `lagunaRouterWeightPrefetch`
+is a process-once `let`). There is no layout term in B→C to bound.
+
+This is the outcome the pre-committed rule in § 4.4b was written for, and I want
+to be explicit that the rule was fixed before these data existed: had A→B been
+the large leg, this section would be saying the round produced an uninterpretable
+result.
+
+### 5.5 The preregistered N-2 trigger fired; here is the trigger and here is the multiplicity
+
+**N-2 fires as literally specified.** One of the nine per-`(arm, separation)`
+identical-code nulls excludes zero: `B@sep1 = +8.81 [+0.67, +16.95]`, sign 7/0.
+Under the preregistered rule that downgrades **every** contrast to inconclusive,
+and the precision check also **MISSES** (worst half-width 12.25 > 8.00, set by
+A→B). I am not overriding the preregistration; the preregistered verdict is
+recorded as such in § 6.
+
+I owe the advisor the quantitative basis for reading it more softly, and equally
+the reasons not to.
+
+*Why the trigger is probably multiplicity.* The nine cells are three arms ×
+three position pairs, and the three arms at a given pair are three estimates of
+**one physical quantity** — the position-4-minus-position-3 term does not depend
+on which arm measures it. Those three estimates are A +7.56, B +8.81, C −3.90;
+B is not an outlier against A. Pooled across arms at fixed separation — the more
+powerful summary § 4.5a(ii) added for exactly this purpose — **all three
+separations cover zero**: sep 1 +4.15 [−2.58, +10.89], sep 3 +5.23
+[−11.14, +21.60], sep 5 −12.18 [−29.29, +4.92]. With nine cells at α = 0.05 the
+family-wise chance of at least one spurious exclusion is 1 − 0.95⁹ ≈ 37 %, and
+the expected count is 0.45. Observing one is unremarkable.
+
+*Why it does not touch the contrasts even if real.* These nulls are not an
+instrument noise floor; each is a **deterministic slot-position contrast** (sep 1
+is the interior pair {3,4}, sep 3 is {2,5}, sep 5 is the exterior pair {1,6}).
+The cycle-blocked estimator removes that term by construction, and § 5.3
+demonstrates empirically that it is removed: every leg keeps its sign and
+magnitude at each position pair taken separately. A non-zero position term
+inflated the per-repetition residual — which is precisely the defect § 4.5a(i)
+was written to fix — rather than biasing any contrast.
+
+*Why I still report the trigger.* The largest pooled null, sep 5 at
+−12.18 ± 17.10, is comparable in magnitude to the A→B leg. So for **A→B**, N-2's
+concern is live on its own terms and independently confirmed by § 5.4. For
+**B→C** at +34.58, the widest null interval in the entire table reaches 78.13 in
+one under-powered cell but the pooled bounds are ±29 at worst, and B→C's
+robustness across four statistics, 21/21 repetitions, seven cycles and three
+position pairs is not something a drift term reproduces.
+
+Net: I treat the N-2 trigger as **disqualifying for A→B** and as **not
+disqualifying for B→C**, and I flag that as my judgement layered on top of a
+preregistered rule that says otherwise, so the advisor can discount it.
+
+### 5.6 Decision relevance of the B→C leg, in fb3's units
+
+Arm C is the **shipped default** (`DARKBLOOM_ROUTER_WEIGHT_PREFETCH=1` at base
+`0f6862d0`); arm B is `=0`, which § 2.6.7 and fb4 § 1 together identify as
+selecting `_rpg8_keys_v1` — the *same* router kernel the pre-#558 revision A
+uses. So B→C = +34.58 says, on this host: **the shipped router weight-prefetch
+peel costs 34.58 µs/step, 0.418 % of the decode step, relative to not doing it,
+at the current base.** My analyzer also records that there is **no official
+same-base receipt for this leg** — #558 was promoted at an earlier base and the
+pf0-versus-pf1 comparison has never been measured on the ranked host.
+
+R1 withdrew scalar transfer as *evidence*, and I am not reinstating it. What
+follows is a sensitivity, presented only to answer fb3's question "is this worth
+anyone's attention", using fb3's own conversion Δcs % = ΔT / 65.7:
+
+| Transfer assumption | ΔT on M5 | Δcs | P(accept) from fb3's table |
+| --- | --- | --- | --- |
+| fixed overhead (×1.000) | 34.58 | +0.53 % | ≈ 2.2 % |
+| R1 decode-step ratio (×0.622) | 21.51 | +0.33 % | ≈ 0.8 % |
+| proportional (×0.505) | 17.46 | +0.27 % | ≈ 0.6 % |
+| bandwidth ratio (×0.436) | 15.08 | +0.23 % | ≈ 0.5 % |
+
+Against the Δcs = 0 floor of 0.095 %, that is a **5× to 23× improvement in
+acceptance odds**, and three of the four assumptions clear the +0.25 % row.
+I want to state the defensible version precisely: **this is the first contrast
+in this round whose M4 magnitude is large enough that no transfer factor in the
+menu makes it decision-irrelevant.** That is a claim about magnitudes, not a
+prediction of the M5 result, and § 6 says what would actually settle it.
+
+Two caveats I have not resolved. First, fb4 § 3's wave argument was established
+for the fused-attention kernels' 32 threadgroups; **I have not measured the
+router kernel's threadgroup geometry**, so I cannot rule out that B→C is also
+occupancy-structured and therefore host-specific. tanjiro's
+`research/r103b/scripts/compare_dispatch.py` could establish this without any
+timing. Second, the direction is a *regression of a promoted change*, which is
+the pattern one expects from stale-frontier interaction rather than from a
+mistake in #558 — the peel may well have won at its own base.
 
 ## § 6 Verdicts on N-1 … N-5
 
-_Pending._
+### 6.0 The preregistered verdict first, before my reading of it
+
+§ 1.11's decision rule is ordered, and taken literally it terminates before it
+reaches any localisation claim. I am recording that outcome in full before I
+argue with it, because the whole point of preregistering was to stop me
+selecting a favourable branch after seeing the numbers.
+
+**Literal preregistered outcome.** Rule 4 fires: a per-cell null CI
+(`B@sep1 = +8.81 [+0.67, +16.95]`, 7/7 signs) excludes zero at a magnitude
+comparable to the A→B contrast (−12.39). Rule 4 is **OUTCOME 5 / N-2**:
+drift contaminates, and no contrast from this block is trustworthy. The
+precision gate independently reads **MISS** (worst half-width 12.25 > 8.00,
+set by A→B), which under § 1.11's rung-1 wording is **OUTCOME 4,
+inconclusive-underpowered**. Either route ends at "not trustworthy" or "not
+precise enough", and **neither route licenses a localisation**. So the honest
+one-line preregistered answer to the assignment's question — *which kernel
+holds the missing ~19 µs/step* — is **it is not localised to a kernel by this
+round**.
+
+**N-5 does not fire.** The § 1.11 rule-5 trigger is "all three contrasts
+contain 0". B→C = +34.58 [+26.39, +42.77] does not contain 0 and neither does
+A→C = +22.19 [+16.94, +27.45], so the analyzer prints `n5_fires: no: at least
+one contrast excludes zero`. fb3 called N-5 "the expected and most welcome
+outcome"; I have to report that it is not what happened, and § 6.5 says what I
+think the welcome-outcome-shaped part of this actually is.
+
+### 6.1 N-1 — receipt noise. Verdict: **fires, and fb2 was right**
+
+fb2 retracted +20.149 as a target on the basis of an identical-code replicate
+(sd(T) = 14.272, trimmed pooled 12.079 on 14 dof ⇒ two-receipt σ 17.1–20.2,
+z = 1.00–1.18). Nothing in rungs 1–2 rehabilitates it. My rung-2 A→B leg —
+the contrast that corresponds to the #565 edit that the +20.149 receipt pair
+straddles — comes out **−12.39 µs/step (faster)**, i.e. the *opposite sign*
+from the M5 receipt delta, with a Bonferroni-corrected interval
+[−27.35, +2.57] that covers zero. The frontier reviewer's arithmetic on fb2's
+own numbers (z ≈ 1.1, p ≈ 0.14) is the correct summary: **the ~20 µs/step
+"missing microseconds" is not established to exist.** I am not claiming I
+disproved it either — see § 6.2 — I am claiming the target was never a
+measurement.
+
+This is the single most consequential verdict in the round and it retires the
+assignment's premise rather than answering its question.
+
+### 6.2 N-2 — thermal / session drift. Verdict: **fires; disqualifying for A→B, and I argue not for B→C**
+
+The trigger and the multiplicity accounting are in § 5.5. The short version:
+
+* One of **nine** per-`(arm, separation)` nulls excludes zero. Family-wise
+  P(≥1 of 9) ≈ 37 % under a true global null, so a single exclusion is close
+  to the modal outcome and is weak evidence of real drift.
+* Every **pooled-at-fixed-separation** null covers zero: sep 1 +4.15
+  [−2.58, +10.89], sep 3 +5.23 [−11.14, +21.60], sep 5 −12.18 [−29.29, +4.92].
+  The pooled statistics are the ones with the sample size to see drift, and
+  they are quiet.
+* But the sep-5 pooled null's half-width (17.10) is **larger than the entire
+  A→B leg** (12.39). Whatever drift exists is not measurably smaller than the
+  A→B effect, so A→B is unrecoverable from this block regardless of how I read
+  the trigger.
+* B→C (+34.58, half-width 8.19, 7/7 cycles, 21/21 reps, p = 2⁻²⁰) is 2.0× the
+  worst pooled-null half-width and 3.9× the largest per-cell null point
+  estimate. § 5.3's position-matched cross-check reproduces it with the same
+  sign at all three position pairs (+29.32, +35.94, +38.53, each 7/0) using an
+  independent parser, which is exactly the structure drift cannot manufacture:
+  drift is a function of position, and this contrast is estimated *within*
+  position.
+
+**Verdict I am acting on:** N-2 disqualifies A→B and does not disqualify B→C.
+**Verdict the preregistration says:** N-2 disqualifies everything.
+I am flagging the gap rather than hiding it, and I would rather the advisor
+discount my judgement than not see that I exercised it.
+
+### 6.3 N-3 — diffuse rather than one kernel. Verdict: **cannot be evaluated as written; superseded**
+
+N-3's thresholds were defined against the corrected M5 target of 20.15 µs/step
+(single kernel counts as localised above 5.04; residual above 10.1 means
+diffuse). Three separate things broke the question:
+
+1. **The target is retired** (§ 6.1), so the denominator of both thresholds no
+   longer exists.
+2. **N-3 presumed a `--profile` reconciliation of per-kernel time against the
+   e2e delta.** I never reached that step: the round's budget went into
+   getting a three-arm contrast that could survive its own nulls, and by the
+   time A→B was disqualified there was nothing left to reconcile *to*. This is
+   a work item I did not do, not a finding.
+3. fb4 § 1 already answered the structural half of N-3 better than a profile
+   could, and without timing: **101 of 103 JIT Metal libraries are
+   byte-identical OLD vs NEW**, OLD→MID is a single MSL edit at line 1280, and
+   there are **408 dispatches per decode step at every revision** with zero
+   non-equal opcodes across 11,247 rows. So the OLD→NEW delta is *already*
+   localised at the source level to two kernels. What is not established is
+   that either of them costs anything.
+
+The one thing I can say that N-3 was reaching for: **the composed A→C effect
+does not distribute across the two mechanisms.** A→C = +22.19 and B→C = +34.58
+with A→B = −12.39, so the router leg carries more than the whole composed
+effect and the attention leg partially cancels it. If there is a real cost in
+this OLD→NEW range on *this* host, it is in the router prefetch peel, not in
+the K/V pipeline depth.
+
+### 6.4 N-4 — the vendored comment carve. Verdict: **does not fire; excluded by two independent routes**
+
+§ 2's static pre-read established the carve (`f720e9e7`, 176,468 B) touches
+only `.swift` comment text and cannot change AOT codegen. #575 then closed it
+empirically: a comment-only LRM strip produced a **byte-identical
+`MLXFastModel.o`** across four forced-clean builds. fb4 § 1's finding that
+101/103 JIT libraries are byte-identical OLD vs NEW is a third, independent
+confirmation from the Metal side. N-4 is closed.
+
+### 6.5 N-5 — all arms mutually indistinguishable. Verdict: **does not fire, but fb3's underlying prediction was half-right**
+
+The trigger is not met (§ 6.0). I want to be careful about what that means,
+because "N-5 did not fire" reads like "I found something", and only one of the
+two legs supports that reading.
+
+* On the leg fb3 was talking about — the ±20 µs/step A↔B contrast fb3 called
+  "decision-irrelevant" — **fb3's prediction held**. A→B is −12.39 with a
+  corrected interval covering zero, and it is additionally disqualified by
+  N-2 and structurally uninformative on M4 by fb4 § 3's two-wave argument.
+  Even the point estimate maps to |Δcs| ≈ 0.19 %, below the 0.25 % row of
+  fb3's table. That leg is exactly the N-5-shaped result fb3 expected.
+* On the leg nobody had preregistered — **B↔C, which fb2 promoted to co-equal
+  and fb4 § 2 pointed out needs no rebuild** — the arms are *not*
+  indistinguishable, and § 5.6 shows the magnitude survives every transfer
+  factor in the menu.
+
+So the accurate summary is: **the round found N-5 on the assigned contrast and
+a candidate signal on the contrast that was added later.**
+
+### 6.6 What I am and am not claiming, in one place
+
+**Claiming, at scope "these two binaries, this M4 host, this session":**
+
+* `DARKBLOOM_ROUTER_WEIGHT_PREFETCH=1` (the shipped default at base
+  `0f6862d0`) is **+34.58 µs/step slower** than `=0`, 0.418 % of the decode
+  step, half-width 8.19, 7/7 cycles, 21/21 reps, reproduced at all three
+  position pairs by an independent parser.
+* The composed A→C effect (+22.19, half-width 5.26) **replicates rung 1**
+  (+27.84 ± 9.15; difference −5.65 ≈ 1.15 sd) and is **entirely accounted for
+  by the router leg**.
+* Nothing in this round localises a cost to the #565 K/V pipeline-depth edit,
+  and the sign of the A→B point estimate is opposite to the M5 receipt delta.
+
+**Not claiming:**
+
+* Not claiming the ~20 µs/step exists. Not claiming it does not — N-1 says the
+  target was a difference of two single receipts and my A→B leg is disqualified
+  by N-2, so **both directions are unsupported**.
+* Not claiming A→B or A→C is a statement about the #565 *source edit*. § 5.4
+  proves ~100 % relocation of the scored Swift symbols between the two
+  binaries (`laguna` subset: 0.03 % identical addresses, 4.53 % same page
+  offset; `mlxfastmodel`: 0.00 % / 6.46 %; `__text` +64,320 B), so those two
+  legs are statements about two *binaries*. The frontier reviewer's
+  displacement arithmetic — 68 ns × 408 dispatches = 27.7 µs — is the same
+  order as the composed effect, and I did not build the size-matched placebo
+  that would bound it.
+* Not claiming B→C transfers to the ranked host. It is immune to the layout
+  confound (same binary, one env var, § 5.4's confound cannot apply), which is
+  a different and much stronger property than transferring.
+* Not writing "neutral", "null", or "unchanged" anywhere without an attached
+  X. The three X's for this round are: A→B not distinguishable from 0 at
+  ±14.96 (Bonferroni), pooled drift nulls not distinguishable from 0 at
+  ±6.74 / ±16.37 / ±17.10, and no pair differing by more than 15.0 µs/step M4
+  jointly.
+* Not claiming a sum-masked exoneration. A→B ≈ 0 does **not** exonerate the
+  #565 edit: it is one aggregate over a two-wave-structured kernel on the
+  wrong core count.
+
+### 6.7 Follow-ups I did not implement, in priority order
+
+**(a) Paired pf0-vs-pf1 probe on the ranked M5 host. Highest value by a wide
+margin.** This is the one experiment that would convert § 5.6 from a
+sensitivity into a decision. It needs **no rebuild** (fb4 § 2), **zero
+submitted bytes** for the probe itself, and it is a single env-var toggle
+across two runs of the same binary, so it is immune to § 5.4's layout
+confound by construction. fb4 § 2's interleaved paired ABBA is the right
+design (archive within-process σ ≈ 19.5 vs ≈ 48 cross-process). If pf0 wins
+there, the receipt-generating change is a **one-line default flip** at
+`Sources/MLXFastModel/LagunaRuntimeModel.swift:686-704` — the default in the
+`ProcessInfo` read — which is a few submitted bytes against 140,043 B of LRM
+per-file headroom. I did not do this because I have no M5 host and zero
+receipts in scope.
+
+**(b) Router-kernel threadgroup geometry, via tanjiro's
+`research/r103b/scripts/compare_dispatch.py`.** § 5.6's first unresolved
+caveat. fb4 § 3's two-wave argument was established for the fused-attention
+kernels' 32 threadgroups; if the router kernel also dispatches ≤ 32
+threadgroups then B→C is occupancy-structured and my M4 magnitude does not
+rank it for a ≥32-core host either. **This costs no timing and no GPU
+allocation** and should gate (a) rather than follow it.
+
+**(c) Size-matched placebo build of revision A**, padding `__text` by
++64,320 B with dead code, to bound the layout-displacement term in A→B and
+A→C. This is the Curtsinger & Berger *Stabilizer* remedy adapted to a single
+draw. It would tell us how much of the composed A→C is displacement rather
+than mechanism. Lower priority than (a)/(b) because A→B is already
+disqualified by N-2 and structurally uninformative on M4, so the term it
+bounds only matters if someone wants to resurrect the A legs.
+
+**(d) A depth sweep on M5 to resolve fb4 § 4's sign contradiction.**
+`RESEARCH_ARCHIVE_through-round-91.md:4894-4896` (PR #103) has K/V pipeline
+depth 4 at **−1.039 % (faster) on M4** and depth 8 at +0.485 %, noise ±0.73 %;
+the M5 receipts put depth 4 at +20.15 (+0.30 %) **worse**; and **no depth has
+ever been measured on M5**. My A→B leg is a third M4 draw at −12.39 (−0.15 %),
+which sits between the two archive M4 numbers and is consistent with the
+archive's noise band. So the M4 evidence is now 2-of-2 "depth 4 is not slower"
+and the M5 evidence is one unreplicated receipt pair. Somebody with M5 access
+should measure depth directly.
+
+**(e) `pf5` as a placement control.** `LagunaRuntimeModel.swift:1127` builds a
+`_pf1c` variant and § 2.6.7 records `5` as a documented **PLACEMENT CONTROL**;
+all 21 router variants are built eagerly at `:1120-1145`, so this is a third
+arm at zero build cost. If pf5 lands with pf0 rather than pf1, the +34.58 is
+about *where* the prefetch is placed relative to the active-simdgroup guard
+(fb4 § 1's MID→NEW mechanism) rather than about prefetching at all. That is a
+mechanism question and it would sharpen (a)'s interpretation, but it does not
+gate it.
+
+### 6.8 Cost of the round, for the advisor's budgeting
+
+Three supervised jobs plus two short gates: rung 0 165 s, G2.1 170 s, rung 1
+≈ 4,600 s (104 slots), rung 2 6,232 s (144 slots). Slot cost ≈ 44.2 s of
+which ≈ 42.5 s is model load, so **96 % of wall-clock was process startup**
+and the fixture caps a slot at ~250 steps. Any future round on this instrument
+should use fb4 § 2's within-process interleaving instead: the archive's within-
+process σ ≈ 19.5 against ≈ 48 cross-process means the same precision is
+reachable at a small fraction of the wall-clock. My cross-process design was
+chosen because A and B are different binaries; **B↔C does not have that
+constraint and should never have been run cross-process.** That is the main
+methodological thing I would do differently.
 
 ## § Reply
 
@@ -2051,7 +2486,73 @@ reply that do not depend on any rung-2 number, and were written while job
 
 ### R0 Headline
 
-_Pending § 5._
+**The assigned effect does not reproduce, and the round's one real finding is on
+the leg fb2 added: the shipped router weight-prefetch default is slower than
+turning it off, on this host, at this base.**
+
+Three arms, 144 slots, rotated blocks, every gate green (single token hash
+`aaf1cccc…` across all 144 slots, 144/144 `0 divergences`, tree digest
+unchanged before and after, QC 0 rejected):
+
+| leg | mechanism | Δ µs/step (median, cycle-blocked, K=7) | 95 % CI | cycle signs |
+| --- | --- | --- | --- | --- |
+| **A→B** | #565 K/V pipeline 2-way → 4-way | **−12.39** (faster) | [−24.64, −0.14]; Bonferroni [−27.35, **+2.57**] | 0/7 |
+| **B→C** | #558 router weight-prefetch peel (pf0→pf1) | **+34.58** (slower) | [+26.39, +42.77], hw 8.19 | 7/7, reps 21/21 |
+| **A→C** | both, composed | **+22.19** | [+16.94, +27.45], hw **5.26** | 7/0 |
+
+**1. N-1 fires; the ~20 µs/step target is retired.** fb2 was right to retract
+it, and my A→B leg is not just insignificant but **opposite in sign** to the M5
+receipt delta. Combined with fb4 § 4's archive finding that depth 4 measured
+**−1.039 % (faster) on M4** in PR #103, the M4 evidence is now 2-of-2 "depth 4
+is not slower" against one unreplicated M5 receipt pair. I am not claiming I
+disproved the M5 delta — I am claiming it was never a measurement.
+
+**2. I accept fb3's ruling on the A legs, and § 5.4 gives a second, independent
+reason to.** A ±20 µs/step A↔B contrast is decision-irrelevant, and fb4 § 3's
+32-threadgroup two-wave argument makes an M4 A↔B result structurally unable to
+rank mechanisms for a ≥32-core host. On top of that, my static layout check
+found the two binaries share **0.03 % identical addresses** in the `laguna`
+symbol subset and **0.00 %** in `mlxfastmodel` (`__text` +64,320 B). The
+frontier reviewer's displacement arithmetic, 68 ns × 408 dispatches = **27.7 µs**,
+is the same order as the whole composed effect. **A→B and A→C are statements
+about two binaries, not about the #565 source edit.** I did not build the
+size-matched placebo that would bound this.
+
+**3. B→C is the leg that escapes all of that, and it is the one that moved.**
+Same binary, one env var, so § 5.4's confound cannot apply and no rebuild was
+needed (fb4 § 2). +34.58 µs/step = **0.418 % of the M4 decode step**, half-width
+8.19, 7/7 cycles, 21/21 reps (p = 2⁻²⁰), and § 5.3's independent parser
+reproduces it at all three position pairs (+29.32 / +35.94 / +38.53, each 7/0)
+— a within-position structure that drift cannot manufacture. In fb3's units,
+**every** transfer factor in the menu lands at or above the +0.25 % row
+(+0.53 % / +0.33 % / +0.27 % / +0.23 %), i.e. 5×–23× the Δcs = 0 acceptance
+floor. The defensible claim is narrow: **this is the first contrast this round
+whose M4 magnitude is large enough that no transfer factor makes it
+decision-irrelevant.** There is **no official same-base M5 receipt** for
+pf0-vs-pf1; #558 was promoted at an earlier base.
+
+**4. N-2 fired and I am flagging that I overrode it for one leg.** One of nine
+per-cell drift nulls excludes zero (`B@sep1 = +8.81 [+0.67, +16.95]`);
+family-wise that is ≈ 37 % under a true global null, and all three
+pooled-at-fixed-separation nulls cover zero. Taken literally, § 1.11's rule 4
+disqualifies **every** contrast in the block, and the precision gate
+independently reads MISS (worst hw 12.25 > 8.00, set by A→B). I judge N-2
+disqualifying for A→B and not for B→C, and I have recorded both the
+preregistered verdict and my override in § 6.0 and § 6.2 so it can be
+discounted. **N-5 does not fire** — B→C and A→C both exclude zero — but fb3's
+prediction held on the leg fb3 was actually talking about.
+
+**5. The single highest-value follow-up costs no rebuild and no submitted
+bytes: a paired pf0-vs-pf1 probe on the ranked M5 host** (§ 6.7a), gated by a
+zero-timing check of the router kernel's threadgroup geometry using tanjiro's
+`compare_dispatch.py` (§ 6.7b) in case B→C is occupancy-structured too. If pf0
+wins on M5, the receipt-generating change is a one-line default flip at
+`LagunaRuntimeModel.swift:686-704`. I did not do this: no M5 host, zero
+receipts in scope.
+
+Contract kept: **zero submitted bytes** (everything under `research/`), **zero
+receipts**, no rebase or merge of the advisor branch, arms pinned at
+`30f752df` / `e17bdeb1` / `0f6862d0` as instructed by fb3.
 
 ### R1 I withdraw two claims I made about rung 1
 
@@ -2203,3 +2704,47 @@ the answer is no. I am recording it as the right experiment, not requesting it.
   worse.
 - I have not written "neutral", "null", or "unchanged" anywhere without an
   attached exclusion bound X (fb2).
+
+### R8 Where the evidence lives
+
+**W&B run** (single run, both rungs, all gate outcomes, all artifacts):
+
+- `r103a-three-arm-m4`, id `happqffd`
+- <https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/happqffd>
+
+Logged summary keys mirror this document rather than paraphrasing it: rung-2
+contrast point estimates, half-widths, sign counts and Bonferroni-widened
+intervals under `rung2/`; rung-1 under `rung1/`; the retraction flag
+`m5_target_retracted=True`; fb3's conversion constants
+(`cs_pct_per_us = 1/65.7`, `cs_effort_threshold_us = 32.8`) so the
+decision-relevance arithmetic of § 5.6 can be recomputed without reading prose;
+`n2_fires=True`, `n5_fires=False`, `precision=MISS`.
+
+Uploaded artifacts, sufficient to re-derive every number here without the box:
+
+| artifact | what it pins |
+|---|---|
+| rung-2 `analysis-multi.json` | all five statistics × contrasts/levels/nulls |
+| rung-2 `provenance.txt` | tree digests before/after, binary hashes per arm |
+| rung-2 `index.tsv` | the realised 144-slot `rep position arm tag` layout |
+| rung-2 `tokens.cksum` | the single token-stream hash shared by all 144 slots |
+| `position-matched.txt` | independent-parser cross-check (§ 5.3) |
+| `layout.json` | the `nm -n` symbol displacement census (§ 5.4) |
+
+**Exact reproduction.** Rung 2, the primary block, is one command against the
+snapshot tree built by rung 0:
+
+```bash
+SNAP=/tmp/maple-r103a-snap OUT=/tmp/maple-r103a/rung2 \
+DESIGN=rotate REPS=24 STEPS=250 WARMUP_REPS=3 \
+ARMS="A:old B:new:DARKBLOOM_ROUTER_WEIGHT_PREFETCH=0 C:new:DARKBLOOM_ROUTER_WEIGHT_PREFETCH=1" \
+ASSERT_DIFFER="old:new" ASSERT_SAME="" \
+  bash research/maple-frieren-r103a-abba.sh
+python3 research/maple-frieren-r103a-analyze-multi.py /tmp/maple-r103a/rung2 3
+python3 research/maple-frieren-r103a-position-matched.py /tmp/maple-r103a/rung2 3
+python3 research/maple-frieren-r103a-wandb.py   # needs WANDB_API_KEY
+```
+
+Cost, for whoever repeats it: 144 slots × ≈ 43 s ≈ 6,232 s wall on this host,
+of which ≈ 42.5 s per slot is model load. Nothing in the chain takes the
+benchmark lock, consumes a receipt, or touches a submitted path.
