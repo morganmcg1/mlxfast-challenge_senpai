@@ -51,10 +51,14 @@ TG64, TG32 = 9232, 4624
 occ_ratio_mean = occ_mean[TG32] / occ_mean[TG64]
 occ_ratio_max = occ_max[TG32] / occ_max[TG64]
 
-# Optimistic harvest bound: the whole above-roofline residual on the down share
-# of the family scales with the measured occupancy gain.
-harvest_ms_best = RESIDUAL_MS * DOWN_SHARE_OF_FAMILY_WEIGHTS * (
-    1.0 - 1.0 / occ_ratio_mean)
+# Two bounds, both anchored on the family's above-roofline residual.
+# Ceiling: any down-only change can at most delete the down share of that
+# residual. Mechanism estimate: stall time scales inversely with the measured
+# resident-concurrency gain.
+residual_down_ms = RESIDUAL_MS * DOWN_SHARE_OF_FAMILY_WEIGHTS
+harvest_ms_ceiling = residual_down_ms
+harvest_pct_ceiling = harvest_ms_ceiling * PREFILL_PCT_PER_MS
+harvest_ms_best = residual_down_ms * (1.0 - 1.0 / occ_ratio_mean)
 harvest_pct_best = harvest_ms_best * PREFILL_PCT_PER_MS
 
 run = wandb.init(
@@ -135,8 +139,12 @@ summary = {
     "primary/tg_bytes_ratio": TG32 / TG64,
     "primary/harvest_ms_best_case": harvest_ms_best,
     "primary/harvest_pct_of_score_best_case": harvest_pct_best,
+    "primary/harvest_ms_down_only_ceiling": harvest_ms_ceiling,
+    "primary/harvest_pct_of_score_down_only_ceiling": harvest_pct_ceiling,
     "primary/clears_relevance_gate": int(harvest_pct_best >= RELEVANCE_GATE_PCT),
     "primary/clears_three_sigma_bar": int(harvest_ms_best >= 3 * SIGMA_DELTA_MS),
+    "primary/ceiling_clears_three_sigma_bar": int(
+        harvest_ms_ceiling >= 3 * SIGMA_DELTA_MS),
     "primary/family_fraction_of_roofline": FAMILY_ROOFLINE_MS / FAMILY_MS_M5,
     "primary/family_above_roofline_residual_ms": RESIDUAL_MS,
 
@@ -206,25 +214,20 @@ for b in sorted(census):
     occ_table.add_data(b, len(v), st.mean(v), st.stdev(v), min(v), max(v), tag)
 run.log({"occupancy_census": occ_table})
 
-air_table = wandb.Table(columns=["quantity", "bn64", "bn32", "ratio"])
-for k in air["64"]:
-    a, b = air["64"][k], air["32"][k]
-    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
-        air_table.add_data(k, a, b, (b / a) if a else None)
-    else:
-        air_table.add_data(k, str(a), str(b), None)
-run.log({"air_census": air_table})
 
-led_table = wandb.Table(columns=["quantity", "bn64", "bn32", "ratio"])
-for k in L64:
-    if k == "bn":
-        continue
-    a, b = L64[k], L32[k]
-    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
-        led_table.add_data(k, a, b, (b / a) if a else None)
-    else:
-        led_table.add_data(k, str(a), str(b), None)
-run.log({"byte_ledger": led_table})
+def contrast_table(d64, d32, skip=()):
+    t = wandb.Table(columns=["quantity", "bn64", "bn32", "ratio"])
+    for k in d64:
+        if k in skip:
+            continue
+        a, b = d64[k], d32[k]
+        numeric = isinstance(a, (int, float)) and isinstance(b, (int, float))
+        t.add_data(k, str(a), str(b), (b / a) if numeric and a else None)
+    return t
+
+
+run.log({"air_census": contrast_table(air["64"], air["32"])})
+run.log({"byte_ledger": contrast_table(L64, L32, skip=("bn",))})
 
 stage0 = wandb.Table(columns=["axis", "status", "citation"])
 stage0.add_data("darkbloom_stage_bm128_variant 4 vs 5", "CLOSED (official-M5 absolutes)",

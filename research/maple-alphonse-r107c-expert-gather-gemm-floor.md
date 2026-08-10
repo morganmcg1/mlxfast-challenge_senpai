@@ -7,9 +7,11 @@
 - Host: Apple **M4 Pro**, `applegpu_g16s`, Apple GPU **generation 16**, 20 GPU
   cores, 14 CPUs, 48 GiB unified (low-memory startup profile), macOS 26.5.2
   (25F84), `Apple metal version 32023.883`.
+- W&B: [`yljdcwmc`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/yljdcwmc)
+  (artifact `maple-alphonse-r107c-ledger`)
 - Verdict: **`N-REACH` + `N-XMAJOR-CLOSED` + `N-BUILD` refuted + a live but
-  marginal C2a candidate handed off unmeasured.** No millisecond is claimed on
-  this host. See [§10 Verdict](#10-verdict).
+  sub-threshold C2a candidate handed off unmeasured.** No millisecond is claimed
+  on this host. See [§10 Verdict](#10-verdict).
 
 ---
 
@@ -30,11 +32,15 @@ resident-threadgroup occupancy census. The ledger says `bn = 32` halves per-
 threadgroup threadgroup memory (9232 B → 4624 B) and buys **1.25× ± 0.04** more
 co-resident threadgroups, holds total weight traffic and MMA work exactly
 invariant, and doubles A-operand *request* multiplicity (32× → 64× over a
-4 MiB/layer footprint that should stay SLC-resident). Best-case harvest is
-≈1.3 ms of the family's ≈7.6 ms above-roofline residual ⇒ **≈0.49 % of score**,
-which clears the assignment's 0.4 % relevance gate but sits **below** its
-1.35 ms 3σ bar. The honest answer to the assignment's question is therefore
-**`N-FLOOR` with one live, marginal, unmeasured candidate** — and a larger
+4 MiB/layer footprint that should stay SLC-resident). The family has only
+≈7.6 ms of above-roofline residual, of which the down share is **2.554 ms**;
+that is the absolute ceiling for any down-only change (0.966 % of score, which
+would clear the 1.35 ms 3σ bar). Applying the measured 1.25× resident-
+concurrency gain as a stall-scaling factor to that share puts the mechanism
+estimate at **0.517 ms ⇒ 0.195 % of score**, which fails **both** the
+assignment's 0.4 %-of-score relevance gate and its 1.35 ms 3σ bar. The honest
+answer to the assignment's question is therefore
+**`N-FLOOR` with one live but sub-threshold unmeasured candidate** — and a larger
 prize found on the way: at mean routing only **1 of 4 simdgroups per
 threadgroup does any MMA**, a `BM/WM` waste that `bn` does not touch.
 
@@ -469,19 +475,30 @@ The family's own roofline is the binding constraint. Per the assignment: family
 calibrated 546.2 GB/s ⇒ a **35.6 ms floor**, so only **≈7.6 ms** of
 stall-driven residual exists — the family is already at **82 %** of its
 bandwidth roofline. Down is roughly a third of the family's weight bytes
-(0.5625 / 1.6875 MiB). If the 1.25× occupancy gain converts to latency-hiding
-improvement at the same proportion on that third:
+(0.5625 / 1.6875 MiB), so the down share of the residual is
+7.6619 / 3 = **2.554 ms**.
 
-- best case ≈ **1.3 ms** ⇒ 1.3 × 0.3781 %/ms ≈ **0.49 % of score**;
-- that **clears** the assignment's 0.4 %-of-score relevance gate;
-- it **fails** the 3σ bar: σ_Δ = 0.4497 ms ⇒ 3σ = **1.35 ms**.
+Two bounds, both anchored on that number:
 
-So even the optimistic case lands *just* under the noise bar. A realistic case
-(latency hiding capturing, say, half the residual on the down third) is
-≈0.6 ms ≈ 0.23 % of score and is unresolvable in one paired session.
-**Honest expectation: plausible, marginal, and needing either a multi-session
-paired measurement or combination with a second down-side win to be
-demonstrable.**
+| bound | model | ms | % of score | ≥ 0.4 % gate | ≥ 1.35 ms (3σ) |
+| --- | --- | --- | --- | --- | --- |
+| **ceiling** | a down-only change deletes the *entire* down share of the residual | **2.554** | **0.966** | yes | yes |
+| **mechanism estimate** | stall time ∝ 1 / resident concurrency ⇒ ×(1 − 1/1.2535) | **0.517** | **0.195** | **no** | **no** |
+
+The ceiling is what the arm would be worth if `bn = 32` removed *all* remaining
+stall on the down shape; it is not a prediction, it is the largest number the
+roofline permits and it exists only to show the arm is not absurd. The
+mechanism estimate is the defensible one: the measured lever is
+resident-concurrency, the measured gain is 1.2535× (§6.2), and stall time that
+is hidden by concurrency scales as its inverse. **0.195 % of score fails both
+the assignment's 0.4 % relevance gate and its 1.35 ms 3σ bar** (σ_Δ = 0.4497 ms).
+
+Even the ceiling would need the mechanism to be ~5× more effective than the
+occupancy model says. **Honest expectation: real but sub-threshold. C2a is not
+independently rankable and should not consume a paired M5 session on its own;
+it is only worth carrying as a component of a bundle, or as evidence that the
+`bn` axis is exhausted.** This is what makes `N-FLOOR` the reported outcome
+rather than a marginal `V-TILE`.
 
 ---
 
@@ -533,21 +550,22 @@ Preregistered outcomes, resolved:
 
 | outcome | status |
 | --- | --- |
-| `V-TILE` | **not demonstrated.** C2a is implemented, bit-exact by construction, and static-ledger-positive, but unmeasurable here and only ≈0.49 % of score at best. |
+| `V-TILE` | **not demonstrated.** C2a is implemented, bit-exact by construction, and static-ledger-positive, but unmeasurable here and worth only ≈0.195 % of score on its own mechanism model — below the 0.4 % relevance gate (§7.2). |
 | `V-XMAJOR` | **no.** |
 | `V-EGROUPS` | **no** — already closed-positive at 256 and shipped. |
 | **`N-XMAJOR-CLOSED`** | **YES** — C2b closed by archive + external negative (§1 Q2). |
 | **`N-REACH`** | **YES** — `is_nax_available()` needs gen ≥ 17; this host is gen 16, so no local NAX runtime evidence is possible (§2). |
 | `N-BUILD` | **refuted** — both `BN` variants compile clean (§5.4). |
 | `N-CORRECT` | **not triggered** — no bit-exactness violation found; M5 equivalence still owed. |
-| **`N-FLOOR`** | **YES, with a closing ledger** — the family is at 82 % of its bandwidth roofline with ≈7.6 ms of residual; the best remaining `bn` lever is worth ≈0.49 % of score at its optimistic bound, i.e. under the 3σ bar (§7.2). |
+| **`N-FLOOR`** | **YES, with a closing ledger** — the family is at 82 % of its bandwidth roofline with ≈7.6 ms of residual; the down share of that residual is 2.554 ms (a hard ceiling of 0.966 % of score) and the `bn` mechanism model claims only 0.195 % of it, below both the relevance gate and the 3σ bar (§7.2). |
 
-**Bottom line.** `routed_gather_gemm`'s NAX expert path is close to its floor on
-the axis this assignment was allowed to touch. Three of four axes were already
-closed; the fourth is admissible only on the down shape, is genuinely a real
-(if modest) occupancy improvement, and is too small to certify in one paired
-M5 session. The larger remaining prize is the `BM`/`WM` simdgroup-idling
-deficit in §8, which no `bn` change can reach.
+**Bottom line.** `routed_gather_gemm`'s NAX expert path is at its floor on the
+axis this assignment was allowed to touch. Three of four axes were already
+closed; the fourth is admissible only on the down shape, is a genuine but small
+occupancy improvement, and its own mechanism model puts it below the
+assignment's relevance gate — the down shape simply does not own enough
+above-roofline residual for a `bn` change to matter. The larger remaining prize
+is the `BM`/`WM` simdgroup-idling deficit in §8, which no `bn` change can reach.
 
 ---
 
@@ -563,9 +581,11 @@ edward #629 = decode threadgroup packing; nezuko #616 = r103 revert residual.
 `DARKBLOOM_EXPERT_DOWN_BN=32`; confirm the emitted kernel name contains
 `_bn_32_` (rule 33 / rule 77 reachability evidence). (2) Run
 `research/run_upstream_equivalence.sh` — expected bit-exact. (3) Paired
-contemporaneous alternating whole-model A/B; expect a **sub-3σ** prefill delta,
-so budget more than one session or treat it as a component of a bundle. (4)
-Check the down-shape dispatches specifically for an A-side cache regression
+contemporaneous alternating whole-model A/B — but note §7.2: the mechanism model
+predicts ≈0.5 ms, well under the 1.35 ms 3σ bar, so **do not spend a paired
+session on C2a alone**; carry it only inside a bundle, or measure the
+`routed_gather_gemm` down dispatches directly rather than whole-model prefill.
+(4) Check the down-shape dispatches specifically for an A-side cache regression
 (§7.1).
 
 **Follow-ups I did not implement.**
