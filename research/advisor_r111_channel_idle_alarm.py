@@ -18,6 +18,7 @@ import sys
 import time
 
 NON_TERMINAL = ("validating", "queued", "running", "pending", "evaluating")
+TERMINAL = ("rejected", "accepted", "failed", "scored", "completed", "promoted")
 
 
 def poll() -> tuple[str, str]:
@@ -51,11 +52,23 @@ def main() -> int:
 
     while time.time() < deadline:
         row, status = poll()
-        busy = status in NON_TERMINAL
-        idle_streak = 0 if busy else idle_streak + 1
+        if status in NON_TERMINAL:
+            idle_streak = 0
+        elif status in TERMINAL:
+            idle_streak += 1
+        else:
+            # Unrecognised status (e.g. an auth failure) is NOT evidence of an
+            # idle queue. Do not raise a false alarm on it.
+            print(
+                f"[{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}] "
+                f"UNUSABLE POLL status={status} | {row}",
+                flush=True,
+            )
+            time.sleep(args.interval)
+            continue
         print(
             f"[{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}] "
-            f"status={status} busy={busy} idle_streak={idle_streak} | {row}",
+            f"status={status} idle_streak={idle_streak} | {row}",
             flush=True,
         )
         if idle_streak >= args.idle_exit_polls:
