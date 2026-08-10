@@ -1,0 +1,71 @@
+{
+  "_comment": "R108-P per-decode-step dispatch-count deltas for the removal (de-fusion) ladder. Hand-audited against Sources/MLXFastModel/LagunaRuntimeModel.swift at merge commit f3c7944a (submitted surface byte-identical to base 705484b9). Positive dn = extra dispatches per decode step relative to the fully fused default. The removal price is measured in the -dn direction (fused minus de-fused).",
+  "model_shape": {
+    "num_hidden_layers": 40,
+    "mlp_only_layers": [0],
+    "moe_layers": 39,
+    "num_experts": 256,
+    "num_experts_per_tok": 8,
+    "norm_topk_prob": true,
+    "native_affine_qkv_layers": 40
+  },
+  "dn": {
+    "d0": 0,
+    "e0": 0,
+    "e78": 78,
+    "e156": 156,
+    "e158": 158,
+    "e198": 198,
+    "e276": 276,
+    "dR": 117,
+    "dQ": 40,
+    "d4": 158
+  },
+  "dn_uncertainty": {
+    "d4": {"low": 119, "high": 197, "point": 158},
+    "dR": {"low": 78, "high": 156, "point": 117},
+    "dQ": {"low": 40, "high": 40, "point": 40}
+  },
+  "audit": {
+    "DARKBLOOM_FUSED_ROUTER_CAST=0": {
+      "delta_per_use": 3,
+      "uses_per_step": 39,
+      "total": 117,
+      "confidence": "high",
+      "on_path": "LagunaRuntimeModel.swift:10277-10292 -- lagunaDecodeRouterTop8Enabled && lagunaDecodeRouterCastSinkEnabled && softcap==0 && projectedLogits.dtype==.bfloat16 && size==256 && topK==8 && bias.size==256 -> lagunaDecodeRouterTop8(logits: bf16, correctionBias: bias.asType(.float32), normalizing: sinkNormalization); with normTopkProb=true and FUSED_ROUTER_NORM default on, sinkNormalization=true and the function returns early at :10297. Dispatches: bias.asType(1) + fused top8 (1) = 2.",
+      "off_path": "LagunaRuntimeModel.swift:10300-10318 else branch -> projectedLogits.asType(.float32) (1) + lagunaDecodeRouterTop8Enabled sub-branch: bias.asType(.float32) (1) + fused top8 without normalizing (1); then falls through to :10324 weights / weights.sum(axis:-1,keepDims:true) = reduce (1) + divide (1). Dispatches: 5.",
+      "delta_derivation": "5 - 2 = +3 per router call; bias.asType cancels between branches.",
+      "bytes": "projectedLogits.asType: read 256 bf16 (512 B) write 256 f32 (1024 B); sum: read 8 f32 write 4 B; divide: read 8+1 write 8 f32. ~1.6 kB/layer/step -> ~62 kB/step, 0.4% of the 15.10 MiB/step decode byte budget. Treated as byte-neutral.",
+      "fp_risk": "none: the fused cast sink already computes in f32 internally; the off path materialises the same f32 logits. Normalisation is a divide by the top-8 sum in both cases."
+    },
+    "DARKBLOOM_FUSED_ROUTER_NORM=0": {
+      "delta_per_use": 2,
+      "uses_per_step": 39,
+      "total": 78,
+      "confidence": "high",
+      "note": "Standalone rung (with FUSED_ROUTER_CAST left on): sinkNormalization becomes false at :10286, the early return at :10297 is skipped, and the tail :10324 adds reduce + divide. NOT additive with FUSED_ROUTER_CAST=0: when CAST=0 the whole guarded if at :10277 already fails, so ROUTER_NORM=0 contributes 0 extra. Arm d4 therefore counts the router group once, as +117."
+    },
+    "DARKBLOOM_FUSED_RESIDUAL_RMS=0": {
+      "delta_per_use": 1,
+      "uses_per_step": 1,
+      "total": 1,
+      "confidence": "high",
+      "note": "Effectively a no-op. LagunaRuntimeModel.swift:11172-11215 tries lagunaFusedResidualRMSNormRouterEnabled first, which requires `mlp as? LagunaRuntimeSparseMoEBlock`; that holds for the 39 MoE layers and is NOT gated by DARKBLOOM_FUSED_RESIDUAL_RMS. Only layer 0 (mlp_only_layers=[0], dense MLP) reaches the lagunaFusedResidualRMSNormEnabled branch, where ON = lagunaResidualRMSNorm (1 dispatch) and OFF = add (1) + RMSNorm (1) = 2."
+    },
+    "DARKBLOOM_FUSED_NORM_AFFINE_QKV=0": {
+      "delta_per_use": 1,
+      "uses_per_step": 40,
+      "total": 40,
+      "confidence": "high",
+      "on_path": "LagunaRuntimeModel.swift:5916-5936 -> lagunaNormAffineQKV(residual:normWeight:codes:scales:biases:indexedMetadata:rows:) = 1 dispatch producing the normalised-and-projected QKV(+per-head gate) block.",
+      "off_path": "LagunaRuntimeModel.swift:5949-5955 -> inputNorm(input) (MLXFast.rmsNorm, 1 dispatch) + lagunaDecodeNVFP4QKVR1 (1 dispatch; falls back to quantizedMM, also 1) = 2 dispatches.",
+      "coverage": "lagunaNativeAffineQKVLayerCount defaults to 40 (LagunaRuntimeModel.swift:340-347), lagunaNativeAffineCovers returns layer < 40 -> all 40 layers.",
+      "bytes": "OFF materialises the intermediate normalised hidden state: 2048 bf16 = 4 kB written + 4 kB read per layer = 320 kB/step = 2.0% of the 15.10 MiB/step budget = ~1.4 us/step at 227 GB/s. Subtracted as a bytes correction in the report."
+    }
+  },
+  "independence": {
+    "d4_is_not_the_sum_of_singletons": true,
+    "explanation": "FUSED_ROUTER_CAST=0 subsumes FUSED_ROUTER_NORM=0 (same guarded if). FUSED_RESIDUAL_RMS and FUSED_NORM_AFFINE_QKV are independent of the router group and of each other. d4 = 117 (router group) + 1 (residual RMS, layer 0) + 40 (norm-affine QKV) = 158."
+  },
+  "why_no_empirical_counter": "MLX's per-buffer dispatch counter buffer_ops_ lives in Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.h:113, and neither device.cpp nor eval.cpp is in benchmark.json editablePaths (only matmul.cpp, jit_kernels.cpp, kernels.h and kernels/**). dn is therefore an audited source census carrying its own stated uncertainty, not a measured count."
+}
