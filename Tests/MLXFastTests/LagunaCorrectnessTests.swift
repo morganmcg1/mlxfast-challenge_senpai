@@ -1,4 +1,5 @@
 import Foundation
+import Dispatch
 import CryptoKit
 import MLX
 import MLXFastCore
@@ -277,6 +278,91 @@ func lagunaPrefillRouterOrdinalFourRowMatchesCurrent() {
     #expect(exercisedCorruptionControl)
 }
 
+@Test
+func lagunaPrefillRouterOrdinalFourRowTiming() {
+    guard ProcessInfo.processInfo.environment["MLXFAST_RUN_PREFILL_ROUTER_TIMING"] == "1" else {
+        return
+    }
+
+    let rows = 512
+    let callCount = LagunaConstants.numHiddenLayers - 2
+    let controlThreadgroups = callCount * rows
+    let candidateThreadgroups = callCount * rows / 4
+    let removedThreadgroups = controlThreadgroups - candidateThreadgroups
+    let decodeCandidateCalls =
+        lagunaPrefillRouterOrdinalRowsPerThreadgroupForTesting(rows: 1) == 4 ? callCount : 0
+    #expect(callCount == 38)
+    #expect(controlThreadgroups == 19_456)
+    #expect(candidateThreadgroups == 4_864)
+    #expect(removedThreadgroups == 14_592)
+    #expect(decodeCandidateCalls == 0)
+    print(
+        "PREFILL_ROUTER_CENSUS {\"candidate_calls\":\(callCount),"
+            + "\"control_threadgroups\":\(controlThreadgroups),"
+            + "\"candidate_threadgroups\":\(candidateThreadgroups),"
+            + "\"removed_threadgroups\":\(removedThreadgroups),"
+            + "\"threads_per_threadgroup\":256,"
+            + "\"decode_candidate_calls\":\(decodeCandidateCalls)}"
+    )
+
+    let logitsByLayer = (0..<callCount).map { layer in
+        let values = (0..<(rows * 256)).map { offset -> Float in
+            Float(((offset * 37 + layer * 101) % 4_093) - 2_046) / 256
+        }
+        return MLXArray(values, [1, rows, 256]).asType(.bfloat16)
+    }
+    let correctionBiasByLayer = (0..<callCount).map { layer in
+        MLXArray(
+            (0..<256).map { expert -> Float in
+                Float(((expert * 17 + layer * 13) % 97) - 48) / 256
+            },
+            [256]
+        )
+    }
+    eval(logitsByLayer + correctionBiasByLayer)
+
+    func runSequence(useRows4: Bool) -> UInt64 {
+        let start = DispatchTime.now().uptimeNanoseconds
+        var outputs: [MLXArray] = []
+        outputs.reserveCapacity(callCount * 2)
+        for layer in 0..<callCount {
+            let result = lagunaPrefillRouterTournamentOrdinalForTesting(
+                logits: logitsByLayer[layer],
+                correctionBias: correctionBiasByLayer[layer],
+                rows: rows,
+                normalizing: true,
+                useRows4: useRows4
+            )
+            outputs.append(result.0)
+            outputs.append(result.1)
+        }
+        eval(outputs)
+        return DispatchTime.now().uptimeNanoseconds - start
+    }
+
+    for _ in 0..<4 {
+        _ = runSequence(useRows4: false)
+        _ = runSequence(useRows4: true)
+    }
+
+    let orders: [(name: String, arms: [Bool])] = [
+        ("ABBA", [false, true, true, false]),
+        ("BAAB", [true, false, false, true]),
+    ]
+    for order in orders {
+        for cycle in 0..<12 {
+            for (position, useRows4) in order.arms.enumerated() {
+                let nanoseconds = runSequence(useRows4: useRows4)
+                let arm = useRows4 ? "candidate" : "control"
+                print(
+                    "PREFILL_ROUTER_TIMING {\"order\":\"\(order.name)\","
+                        + "\"cycle\":\(cycle),\"position\":\(position),"
+                        + "\"arm\":\"\(arm)\",\"nanoseconds\":\(nanoseconds)}"
+                )
+            }
+        }
+    }
+}
 
 @Test
 func lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled() throws {
