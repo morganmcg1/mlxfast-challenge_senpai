@@ -10447,131 +10447,9 @@ private func lagunaPrefillSortedMoETailInputRMSNorm(
     return (outputs[0], outputs[1])
 }
 
-private final class Gate1State: @unchecked Sendable {
-    var boundary = 0
-    var handoff = 0
-}
-private let lagunaPrefillSortedMoEGate1Enabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_SORTED_MOE_GATE1"] == "1"
-private let gate1State = Gate1State()
-
-private func lagunaPrefillSortedMoEGate1(
-    sortedExpertOutputs: MLXArray, inverseOrder: MLXArray,
-    routerWeights: MLXArray, sharedOutput: MLXArray, residual: MLXArray,
-    norm: RMSNorm
-) -> (output: MLXArray, normalized: MLXArray) {
-    let state = gate1State
-    guard lagunaPrefillSortedMoEGate1Enabled, state.boundary < 38 else {
-        return lagunaPrefillSortedMoETailInputRMSNorm(
-            sortedExpertOutputs: sortedExpertOutputs, inverseOrder: inverseOrder,
-            routerWeights: routerWeights, sharedOutput: sharedOutput,
-            residual: residual, normWeight: norm.weight)
-    }
-    state.boundary += 1
-    let boundary = state.boundary
-    precondition(norm.eps == 1.0e-6)
-
-    func run(_ fused: Bool, _ expert: MLXArray = sortedExpertOutputs,
-        _ weights: MLXArray = routerWeights, _ shared: MLXArray = sharedOutput,
-        _ residualInput: MLXArray = residual
-    ) -> (output: MLXArray, normalized: MLXArray) {
-        if fused {
-            return lagunaPrefillSortedMoETailInputRMSNorm(
-                sortedExpertOutputs: expert, inverseOrder: inverseOrder,
-                routerWeights: weights, sharedOutput: shared,
-                residual: residualInput, normWeight: norm.weight)
-        }
-        let output = lagunaPrefillSortedMoETail(
-            sortedExpertOutputs: expert, inverseOrder: inverseOrder,
-            routerWeights: weights, sharedOutput: shared, residual: residualInput)
-        return (output, norm(output))
-    }
-    func mismatches(
-        _ a: (output: MLXArray, normalized: MLXArray),
-        _ b: (output: MLXArray, normalized: MLXArray)
-    ) -> (Int, Int) {
-        let output = a.output.asData(access: .copy).data == b.output.asData(access: .copy).data
-        let normalized = a.normalized.asData(access: .copy).data
-            == b.normalized.asData(access: .copy).data
-        return (output ? 0 : 1, normalized ? 0 : 1)
-    }
-
-    let stock = run(false)
-    let fused = run(true)
-    eval([stock.output, stock.normalized, fused.output, fused.normalized])
-    let real = mismatches(stock, fused)
-    var edges: [String: [Int]] = [:]
-    if boundary == 1 {
-        let rows = routerWeights.dim(1)
-        for (label, e, w, s, r) in [
-            ("zero", Float(0), Float(0), Float(0), Float(0)),
-            ("near_zero", 0.0001, 0.125, -0.0002, 0.0003),
-            ("high_dynamic", 1024, 0.125, -128, 64),
-        ] {
-            let expert = MLXArray.full(
-                [rows * LagunaConstants.numExpertsPerTok, LagunaConstants.hiddenSize],
-                values: MLXArray(e), dtype: .bfloat16)
-            let weights = MLXArray.full(
-                [1, rows, LagunaConstants.numExpertsPerTok],
-                values: MLXArray(w), dtype: .float32)
-            let shared = MLXArray.full(
-                residual.shape, values: MLXArray(s), dtype: .bfloat16)
-            let residualInput = MLXArray.full(
-                residual.shape, values: MLXArray(r), dtype: .bfloat16)
-            let mismatch = mismatches(
-                run(false, expert, weights, shared, residualInput),
-                run(true, expert, weights, shared, residualInput))
-            edges[label] = [mismatch.0, mismatch.1]
-        }
-    }
-
-    func timed(_ useFused: Bool) -> UInt64 {
-        let start = DispatchTime.now().uptimeNanoseconds
-        let value = run(useFused)
-        eval(value.output, value.normalized)
-        return DispatchTime.now().uptimeNanoseconds - start
-    }
-    let warmStock = run(false)
-    let warmFused = run(true)
-    eval([warmStock.output, warmStock.normalized, warmFused.output, warmFused.normalized])
-    var abbaA: [UInt64] = [], abbaB: [UInt64] = []
-    var baabA: [UInt64] = [], baabB: [UInt64] = []
-    for _ in 0..<30 {
-        abbaA.append(timed(false)); abbaB.append(timed(true))
-        abbaB.append(timed(true)); abbaA.append(timed(false))
-    }
-    for _ in 0..<30 {
-        baabB.append(timed(true)); baabA.append(timed(false))
-        baabA.append(timed(false)); baabB.append(timed(true))
-    }
-    func json(_ values: [UInt64]) -> String {
-        "[" + values.map(String.init).joined(separator: ",") + "]"
-    }
-    let edgeJSON = edges.keys.sorted().map {
-        "\"\($0)\":[\(edges[$0]![0]),\(edges[$0]![1])]"
-    }.joined(separator: ",")
-    let message = """
-    {"gate":"gate1","boundary":\(boundary),"rows":\(routerWeights.dim(1)),"eps":\(norm.eps),"real_output_mismatch":\(real.0),"real_normalized_mismatch":\(real.1),"edge_mismatches":{\(edgeJSON)},"abba_a_ns":\(json(abbaA)),"abba_b_ns":\(json(abbaB)),"baab_a_ns":\(json(baabA)),"baab_b_ns":\(json(baabB))}
-    """
-    FileHandle.standardError.write(Data((message + "\n").utf8))
-    precondition(real.0 == 0 && real.1 == 0 && edges.values.flatMap { $0 }.allSatisfy { $0 == 0 })
-    return fused
-}
-
-private func lagunaPrefillSortedMoEGate1CheckHandoff(
-    output: MLXArray, normalized: MLXArray, norm: RMSNorm
-) {
-    let state = gate1State
-    guard lagunaPrefillSortedMoEGate1Enabled, state.handoff < 38 else { return }
-    let stock = norm(output)
-    eval(stock, normalized)
-    let mismatch = stock.asData(access: .copy).data == normalized.asData(access: .copy).data ? 0 : 1
-    state.handoff += 1
-    let message = "{\"gate\":\"gate1_handoff\",\"boundary\":\(state.handoff),\"mismatch\":\(mismatch)}\n"
-    FileHandle.standardError.write(Data(message.utf8))
-    precondition(mismatch == 0)
-}
-
+/// Reconstructs the stock SwiGLU result from the retained bank's physical
+/// `[gate32, up32]` tile order. This is the correctness-preserving fallback
+/// when the expert-aligned backend is disabled.
 private func lagunaInterleavedSwiGLU(
     _ gateUp: MLXArray,
     split: Int
@@ -10592,6 +10470,17 @@ private func lagunaInterleavedSwiGLU(
     return compiledSiluProduct(gate, up)
 }
 
+/// Prefill (multi-token, SORTED-regime) counterpart to the decode-only fused
+/// gate/up dispatch in `LagunaRuntimeSparseMoEBlock.forward`. One gather-QMM
+/// consumes the retained `[gate32, up32]`-interleaved NVFP4 bank in place of
+/// `SwitchGLU`'s separate `gate_proj` and `up_proj` calls. On the ranked
+/// expert-aligned path the backend also applies the same rounded-BF16 SiLU
+/// product and packs the 512-wide activation into the first half of the
+/// nominal 1024-wide output allocation, avoiding that intermediate's device
+/// round trip. Sorting and unsorting remain the stock calls. The down
+/// projection also remains argument-for-argument stock unless the separately
+/// certified zero-copy down-scale marker is present, in which case the same
+/// `gatherQuantizedMM` call is issued directly with that marker.
 private func lagunaFusedSortedRoutedGateUp(
     _ x: MLXArray,
     indices: MLXArray,
@@ -11128,13 +11017,13 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                         nextInputNorm.weight.dims(LagunaConstants.hiddenSize)
                     {
                         lagunaTrace("prefill sorted moe tail + next input rmsnorm")
-                        let fused = lagunaPrefillSortedMoEGate1(
+                        let fused = lagunaPrefillSortedMoETailInputRMSNorm(
                             sortedExpertOutputs: y,
                             inverseOrder: inverseOrder,
                             routerWeights: weights,
                             sharedOutput: sharedOut,
                             residual: residual,
-                            norm: nextInputNorm)
+                            normWeight: nextInputNorm.weight)
                         return (fused.output, fused.normalized)
                     }
                     lagunaTrace("prefill sorted moe tail")
@@ -11861,12 +11750,6 @@ final class LagunaRuntimeModelInner: Module {
                     nextInputNorm: layers[i + 1].inputLayerNorm)
                 h = result.output
                 preNormalizedInput = result.nextNormalized
-                if let preNormalizedInput {
-                    lagunaPrefillSortedMoEGate1CheckHandoff(
-                        output: h,
-                        normalized: preNormalizedInput,
-                        norm: layers[i + 1].inputLayerNorm)
-                }
                 if lagunaPrefillAsyncLadderStride > 0,
                     (i + 1) % lagunaPrefillAsyncLadderStride == 0
                 {
