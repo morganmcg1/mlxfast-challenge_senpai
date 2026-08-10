@@ -4942,225 +4942,6 @@ private func lagunaDecodeNVFP4QKVGateSibling(
     return (outputs[0], outputs[1])
 }
 
-private let lagunaQKVGateDiagnosticEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_QKV_GATE_DIAGNOSTIC"] == "1"
-
-private let lagunaQKVGateDiagnosticState = LagunaQKVGateDiagnosticState()
-
-private final class LagunaQKVGateDiagnosticState: @unchecked Sendable {
-    private let lock = NSLock()
-    private var diagnosedHeads: Set<Int> = []
-    private var seenPaths: Set<String> = []
-    private var timingDeltas: [Int: [Double]] = [:]
-
-    func claim(heads: Int) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return diagnosedHeads.insert(heads).inserted
-    }
-
-    func notePath(phase: String, layer: Int, heads: Int, combined: Bool) {
-        let key = "\(phase)-\(layer)"
-        lock.lock()
-        let fresh = seenPaths.insert(key).inserted
-        lock.unlock()
-        guard fresh else { return }
-        lagunaQKVGateDiagnosticLog(
-            "census phase=\(phase) layer=\(layer) heads=\(heads) "
-                + "combined=\(combined ? 1 : 0) standalone_gate=\(combined ? 0 : 1)")
-    }
-
-    func recordTiming(heads: Int, deltas: [Double]) {
-        lock.lock()
-        timingDeltas[heads] = deltas
-        let full = timingDeltas[LagunaConstants.fullAttentionHeads]
-        let sliding = timingDeltas[LagunaConstants.slidingAttentionHeads]
-        lock.unlock()
-        guard let full, let sliding else { return }
-        let fullLower = full.min()!
-        let slidingLower = sliding.min()!
-        let projected = 10.0 * fullLower + 30.0 * slidingLower
-        lagunaQKVGateDiagnosticLog(String(
-            format: "isolated projected_lower_bound_us_per_token=%.3f h48_min_us=%.3f h64_min_us=%.3f",
-            projected, fullLower, slidingLower))
-    }
-}
-
-private func lagunaQKVGateDiagnosticLog(_ message: String) {
-    FileHandle.standardError.write(Data("QKV_GATE_DIAGNOSTIC \(message)\n".utf8))
-}
-
-private func lagunaQKVGateDiagnosticBits(_ array: MLXArray) -> [UInt16] {
-    array.view(dtype: .uint16).asArray(UInt16.self)
-}
-
-private func lagunaQKVGateDiagnosticCompare(
-    _ actual: MLXArray, _ expected: MLXArray,
-    label: String, heads: Int
-) {
-    eval(actual, expected)
-    let actualBits = lagunaQKVGateDiagnosticBits(actual)
-    let expectedBits = lagunaQKVGateDiagnosticBits(expected)
-    guard actualBits.count == expectedBits.count else {
-        fatalError(
-            "QKV_GATE_DIAGNOSTIC count mismatch label=\(label) heads=\(heads) "
-                + "actual=\(actualBits.count) expected=\(expectedBits.count)")
-    }
-    if let mismatch = actualBits.indices.first(where: {
-        actualBits[$0] != expectedBits[$0]
-    }) {
-        fatalError(
-            "QKV_GATE_DIAGNOSTIC mismatch label=\(label) heads=\(heads) "
-                + "index=\(mismatch) actual=\(actualBits[mismatch]) expected=\(expectedBits[mismatch])")
-    }
-    lagunaQKVGateDiagnosticLog(
-        "bitwise_pass label=\(label) heads=\(heads) elements=\(actualBits.count)")
-}
-
-private func lagunaQKVGateDiagnosticOutputs(
-    combined: Bool,
-    normalized: MLXArray,
-    qkvBank: LagunaNativeAffineWeight,
-    gateBank: LagunaNativeAffineWeight,
-    heads: Int
-) -> [MLXArray] {
-    if combined {
-        guard let outputs = lagunaDecodeNVFP4QKVGateSibling(
-            normalized: normalized, qkvBank: qkvBank,
-            gateBank: gateBank, heads: heads)
-        else { fatalError("QKV_GATE_DIAGNOSTIC combined guard declined h\(heads)") }
-        return [outputs.qkv, outputs.gateValues]
-    }
-    guard let qkv = lagunaDecodeNVFP4QKVR1(
-        normalized: normalized, bank: qkvBank, heads: heads),
-        let gate = lagunaGateSoftplus(
-            input: normalized, bank: gateBank, heads: heads)
-    else { fatalError("QKV_GATE_DIAGNOSTIC sequential guard declined h\(heads)") }
-    return [qkv, gate]
-}
-
-private func lagunaQKVGateDiagnosticTiming(
-    normalized: MLXArray,
-    qkvBank: LagunaNativeAffineWeight,
-    gateBank: LagunaNativeAffineWeight,
-    heads: Int
-) -> [Double] {
-    eval(normalized)
-    for combined in [false, true, true, false] {
-        eval(lagunaQKVGateDiagnosticOutputs(
-            combined: combined, normalized: normalized,
-            qkvBank: qkvBank, gateBank: gateBank, heads: heads))
-    }
-
-    let iterations = 24
-    func measure(combined: Bool) -> Double {
-        let start = DispatchTime.now().uptimeNanoseconds
-        for _ in 0..<iterations {
-            eval(lagunaQKVGateDiagnosticOutputs(
-                combined: combined, normalized: normalized,
-                qkvBank: qkvBank, gateBank: gateBank, heads: heads))
-        }
-        return Double(DispatchTime.now().uptimeNanoseconds - start)
-            / Double(iterations) / 1_000.0
-    }
-
-    let order = [false, true, true, false, true, false, false, true]
-    let samples = order.enumerated().map { index, combined in
-        let value = measure(combined: combined)
-        let arm = combined ? "combined" : "sequential"
-        lagunaQKVGateDiagnosticLog(
-            "isolated heads=\(heads) block=\(index) arm=\(arm) "
-                + String(format: "us=%.3f", value))
-        return value
-    }
-    var deltas: [Double] = []
-    for start in [0, 4] {
-        let quartet = start..<(start + 4)
-        let sequential = quartet.filter { !order[$0] }.map { samples[$0] }
-        let combined = quartet.filter { order[$0] }.map { samples[$0] }
-        let delta = sequential.reduce(0, +) / Double(sequential.count)
-            - combined.reduce(0, +) / Double(combined.count)
-        deltas.append(delta)
-        lagunaQKVGateDiagnosticLog(String(
-            format: "isolated heads=%d pair=%d saved_us=%.3f",
-            heads, start / 4, delta))
-    }
-    return deltas
-}
-
-private func lagunaQKVGateDiagnose(
-    normalized: MLXArray,
-    qkvBank: LagunaNativeAffineWeight,
-    gateBank: LagunaNativeAffineWeight,
-    combined: (qkv: MLXArray, gateValues: MLXArray),
-    heads: Int
-) {
-    guard lagunaQKVGateDiagnosticEnabled,
-        lagunaQKVGateDiagnosticState.claim(heads: heads)
-    else { return }
-
-    guard let referenceQKV = lagunaDecodeNVFP4QKVR1(
-        normalized: normalized, bank: qkvBank, heads: heads),
-        let referenceGate = lagunaGateSoftplus(
-            input: normalized, bank: gateBank, heads: heads)
-    else { fatalError("QKV_GATE_DIAGNOSTIC real reference declined h\(heads)") }
-    lagunaQKVGateDiagnosticCompare(
-        combined.qkv, referenceQKV, label: "real_qkv", heads: heads)
-    lagunaQKVGateDiagnosticCompare(
-        combined.gateValues, referenceGate, label: "real_gate", heads: heads)
-
-    let hidden = LagunaConstants.hiddenSize
-    let patterns: [(String, [Float])] = [
-        ("zero", Array(repeating: 0.0, count: hidden)),
-        ("near_zero", (0..<hidden).map { $0.isMultiple(of: 2) ? 1.0 / 1024.0 : -1.0 / 1024.0 }),
-        ("unit_alternating", (0..<hidden).map { $0.isMultiple(of: 2) ? 1.0 : -1.0 }),
-        ("quant_extrema", (0..<hidden).map { $0.isMultiple(of: 2) ? 127.0 : -128.0 }),
-        ("large_finite", (0..<hidden).map { $0.isMultiple(of: 4) ? 1024.0 : -1024.0 }),
-    ]
-    for (name, values) in patterns {
-        let input = MLXArray(values).reshaped(1, 1, hidden).asType(.bfloat16)
-        let fused = lagunaQKVGateDiagnosticOutputs(
-            combined: true, normalized: input,
-            qkvBank: qkvBank, gateBank: gateBank, heads: heads)
-        let sequential = lagunaQKVGateDiagnosticOutputs(
-            combined: false, normalized: input,
-            qkvBank: qkvBank, gateBank: gateBank, heads: heads)
-        lagunaQKVGateDiagnosticCompare(
-            fused[0], sequential[0], label: "\(name)_qkv", heads: heads)
-        lagunaQKVGateDiagnosticCompare(
-            fused[1], sequential[1], label: "\(name)_gate", heads: heads)
-    }
-
-    let qkvWords = qkvBank.packedCodes.asArray(UInt32.self)
-    var qkvMin = UInt32.max
-    var qkvMax: UInt32 = 0
-    for word in qkvWords {
-        for shift in stride(from: 0, to: 32, by: 4) {
-            let code = (word >> UInt32(shift)) & 0xF
-            qkvMin = min(qkvMin, code)
-            qkvMax = max(qkvMax, code)
-        }
-    }
-    let gateWords = gateBank.packedCodes.asArray(UInt32.self)
-    var gateMin = UInt32.max
-    var gateMax: UInt32 = 0
-    for word in gateWords {
-        for shift in stride(from: 0, to: 32, by: 8) {
-            let code = (word >> UInt32(shift)) & 0xFF
-            gateMin = min(gateMin, code)
-            gateMax = max(gateMax, code)
-        }
-    }
-    lagunaQKVGateDiagnosticLog(
-        "weight_code_range heads=\(heads) qkv_nvfp4=\(qkvMin)...\(qkvMax) "
-            + "gate_int8=\(gateMin)...\(gateMax)")
-
-    let deltas = lagunaQKVGateDiagnosticTiming(
-        normalized: normalized, qkvBank: qkvBank,
-        gateBank: gateBank, heads: heads)
-    lagunaQKVGateDiagnosticState.recordTiming(heads: heads, deltas: deltas)
-}
-
 private func lagunaDecodeNVFP4QKVR1(
     normalized: MLXArray,
     bank: LagunaNativeAffineWeight,
@@ -6046,10 +5827,6 @@ final class LagunaRuntimeAttention: Module {
         qkRoPEOffsets: MLXArray? = nil
     ) -> MLXArray {
         let (B, L) = (input.dim(0), input.dim(1))
-        if lagunaQKVGateDiagnosticEnabled, !(B == 1 && L == 1) {
-            lagunaQKVGateDiagnosticState.notePath(
-                phase: "prefill", layer: layerIdx, heads: nHeads, combined: false)
-        }
 
         // One dispatch for the input RMSNorm and all three projections when
         // the decode preconditions hold; otherwise normalize separately and
@@ -6122,17 +5899,6 @@ final class LagunaRuntimeAttention: Module {
                         gateBank: affineGate, heads: nHeads)
                 } else {
                     siblingQKVGate = nil
-                }
-                if lagunaQKVGateDiagnosticEnabled {
-                    lagunaQKVGateDiagnosticState.notePath(
-                        phase: "decode", layer: layerIdx, heads: nHeads,
-                        combined: siblingQKVGate != nil)
-                    if let siblingQKVGate, let affineGate = _nativeAffineGProj {
-                        lagunaQKVGateDiagnose(
-                            normalized: normalized, qkvBank: fusedAffine,
-                            gateBank: affineGate, combined: siblingQKVGate,
-                            heads: nHeads)
-                    }
                 }
                 let decodeNVFP4QKVR1 =
                     fusedQKV == nil && siblingQKVGate == nil
@@ -6672,10 +6438,6 @@ final class LagunaRuntimeAttention: Module {
     func callLastPrefillRow(_ x: MLXArray, cache: KVCache?) -> MLXArray {
         let (B, L) = (x.dim(0), x.dim(1))
         precondition(L > 1)
-        if lagunaQKVGateDiagnosticEnabled {
-            lagunaQKVGateDiagnosticState.notePath(
-                phase: "prefill", layer: layerIdx, heads: nHeads, combined: false)
-        }
 
         let lastInput = lagunaLastTokenHidden(x)
         var queries: MLXArray
@@ -11934,7 +11696,6 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
     /// set `DARKBLOOM_LM_HEAD_PRUNE=0` to disable) and the coarse copy built
     /// cleanly; the stock full pass is used otherwise.
     private var lmHeadPruner: LagunaLmHeadPruner?
-    private var qkvGateDiagnosticPrepared = false
 
     public init(_ config: LagunaConfig) {
         self.configuration = config
@@ -11963,10 +11724,6 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
     }
 
     public func callAsFunction(_ inputs: MLXArray, cache: [KVCache]?) -> MLXArray {
-        if lagunaQKVGateDiagnosticEnabled, !qkvGateDiagnosticPrepared {
-            prepareFusedRuntimeWeights()
-            qkvGateDiagnosticPrepared = true
-        }
         let fullHidden = model(inputs, cache: cache)
         // Every consumer of multi-token logits reads only the LAST
         // position's row. Slice before the row-independent final RMSNorm and
