@@ -579,9 +579,6 @@ private let lagunaTerminalPrefillFusionEnabled =
 let lagunaFusedResidualRMSNormRouterEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_RESIDUAL_RMS_ROUTER"] != "0"
 
-let lagunaPackedNormRouterBankEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_PACKED_NORM_ROUTER_BANK"] != "0"
-
 let lagunaFusedFullQKNormYaRNEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_FULL_QK_NORM_YARN"] != "0"
 
@@ -900,9 +897,7 @@ private let lagunaNormReductionTailQKV = lagunaNormReductionTail(
 /// is no tail. The `normalized_row` coefficients are read inline rather than
 /// staged: at one row per thread both cost `n_reads` threadgroup reads per
 /// block, so staging would buy nothing and cost 16 registers per unroll step.
-private func lagunaResidualRMSNormRouterSource(
-    rowsPerGroup: Int, packed: Bool = false
-) -> String {
+private func lagunaResidualRMSNormRouterSource(rowsPerGroup: Int) -> String {
     let simdGroups = 512 / 32
     let rowsPerThread = rowsPerGroup >= simdGroups ? rowsPerGroup / simdGroups : 1
     let activeSimdGroups = rowsPerGroup / rowsPerThread
@@ -910,8 +905,6 @@ private func lagunaResidualRMSNormRouterSource(
     let guardOpen = activeSimdGroups < simdGroups
         ? "        if (simd_group < active_simd_groups) {\n" : ""
     let guardClose = activeSimdGroups < simdGroups ? "        }\n" : ""
-    let normWeight = packed ? "norm_router_weight" : "weight"
-    let routerWeight = packed ? "norm_router_weight + axis_size" : "router_weight"
     let routerStore = lagunaRouterPrecomputedKeysEnabled
         ? """
         bfloat logit = bfloat(router_result[r]);
@@ -933,7 +926,7 @@ private func lagunaResidualRMSNormRouterSource(
             for (uint u = 0; u < 4; ++u) {
                 const device vec<bfloat, 4>* row_values =
                     (const device vec<bfloat, 4>*)(
-                        \(routerWeight) + router_row * axis_size +
+                        router_weight + router_row * axis_size +
                             column + u * block_width);
                 rw[u] = row_values[0];
             }
@@ -959,7 +952,7 @@ private func lagunaResidualRMSNormRouterSource(
             for (uint r = 0; r < rows_per_thread; ++r) {
                 const device vec<bfloat, 4>* row_values =
                     (const device vec<bfloat, 4>*)(
-                        \(routerWeight) + (router_row + r) * axis_size +
+                        router_weight + (router_row + r) * axis_size +
                             column);
                 const vec<bfloat, 4> rw = row_values[0];
                 for (uint i = 0; i < n_reads; ++i) {
@@ -1008,7 +1001,7 @@ acc = simd_sum(acc);
 
 for (uint i = 0; i < n_reads; ++i) {
     bfloat value =
-        \(normWeight)[base + i] *
+        weight[base + i] *
         bfloat(float(values[i]) * laguna_inv_mean);
     normalized_row[base + i] = value;
     if (tile == 0) {
@@ -1037,38 +1030,32 @@ if (simd_lane == 0) {
 """
 }
 
-/// One kernel per supported `rows_per_group`, with distinct packed cache names.
-private func makeLagunaResidualRMSNormRouterKernels(
-    packed: Bool
-) -> [Int: MLXFast.MLXFastKernel] {
-    let weights = packed ? ["norm_router_weight"] : ["weight", "router_weight"]
-    return Dictionary(
+/// One kernel per supported `rows_per_group`, all built eagerly so that every
+/// arm of an ablation is served by the same binary (`notes/00`'s one-binary
+/// rule). MLX keys its JIT library cache by name and clears it when a name's
+/// source changes (`custom_kernel.cpp:58-68`), so the variant MUST be in the
+/// name or four sources would thrash one cache entry.
+private let lagunaResidualRMSNormRouterKernels: [Int: MLXFast.MLXFastKernel] =
+    Dictionary(
         uniqueKeysWithValues: [1, 2, 4, 8, 16, 32, 64].map { rowsPerGroup in
             (
                 rowsPerGroup,
                 MLXFast.metalKernel(
                     name: "laguna_residual_rms_router_bf16_2048_rpg\(rowsPerGroup)_"
-                        + (packed ? "packed_" : "")
                         + (lagunaRouterPrecomputedKeysEnabled ? "keys_v1" : "v2"),
-                    inputNames: ["residual", "branch"] + weights
-                        + (lagunaRouterPrecomputedKeysEnabled ? ["correction_bias"] : []),
+                    inputNames: lagunaRouterPrecomputedKeysEnabled
+                        ? ["residual", "branch", "weight", "router_weight", "correction_bias"]
+                        : ["residual", "branch", "weight", "router_weight"],
                     outputNames: lagunaRouterPrecomputedKeysEnabled
                         ? ["summed", "normalized", "router_logits", "router_keys"]
                         : ["summed", "normalized", "router_logits"],
-                    source: lagunaResidualRMSNormRouterSource(
-                        rowsPerGroup: rowsPerGroup, packed: packed),
+                    source: lagunaResidualRMSNormRouterSource(rowsPerGroup: rowsPerGroup),
                     header: lagunaRouterPrecomputedKeysEnabled
                         ? lagunaDecodeRouterOrdinalHeader : "",
                     ensureRowContiguous: true
                 )
             )
         })
-}
-
-private let lagunaResidualRMSNormRouterKernels =
-    makeLagunaResidualRMSNormRouterKernels(packed: false)
-private let lagunaPackedResidualRMSNormRouterKernels =
-    makeLagunaResidualRMSNormRouterKernels(packed: true)
 
 /// Residual add + RMSNorm for the layers whose MLP is not a sparse block
 /// (layer 0) and for any shape the router fusion above declines.
@@ -1114,8 +1101,7 @@ for (uint i = 0; i < n_reads; ++i) {
 
 func lagunaResidualRMSNormRouter(
     residual: MLXArray, branch: MLXArray, weight: MLXArray,
-    routerWeight: MLXArray, correctionBias: MLXArray,
-    packedWeight: MLXArray? = nil
+    routerWeight: MLXArray, correctionBias: MLXArray
 ) -> (summed: MLXArray, normalized: MLXArray, routerLogits: MLXArray,
     routerKeys: MLXArray?) {
     let hidden = LagunaConstants.hiddenSize
@@ -1131,20 +1117,20 @@ func lagunaResidualRMSNormRouter(
     precondition(routerWeight.dims(experts, hidden))
     precondition(correctionBias.dims(experts))
 
-    let packed = packedWeight.flatMap {
-        $0.dtype == .bfloat16 && $0.dims(experts + 1, hidden) ? $0 : nil
-    }
+    // `rows_per_group` router rows per threadgroup, so 256 / rows_per_group
+    // tiles. Divides exactly for 64/32/16/8/4/2/1 (4..256 tiles), so no partial
+    // tile is dispatched and no row is computed twice or missed. The 512-thread
+    // threadgroup and `n_reads == 4` are NOT knobs: they are load-bearing for
+    // the `rms_single_row` correspondence (each thread squares its own
+    // contiguous four elements), and moving either regroups the FP32 RMS
+    // summation and forfeits bit-exactness.
     let rowsPerGroup = lagunaRouterRowsPerGroup
     let tiles = experts / rowsPerGroup
-    lagunaTrace("residual+rmsnorm+router rpg\(rowsPerGroup)"
-        + (packed == nil ? "" : " packed"))
-    let weights = packed.map { [$0] } ?? [weight, routerWeight]
-    let inputs = [residual, branch] + weights
-        + (lagunaRouterPrecomputedKeysEnabled ? [correctionBias] : [])
-    let kernels = packed == nil
-        ? lagunaResidualRMSNormRouterKernels
-        : lagunaPackedResidualRMSNormRouterKernels
-    let outputs = kernels[rowsPerGroup]!(
+    lagunaTrace("residual+rmsnorm+router rpg\(rowsPerGroup)")
+    let inputs = lagunaRouterPrecomputedKeysEnabled
+        ? [residual, branch, weight, routerWeight, correctionBias]
+        : [residual, branch, weight, routerWeight]
+    let outputs = lagunaResidualRMSNormRouterKernels[rowsPerGroup]!(
         inputs,
         grid: (tiles * 512, 1, 1),
         threadGroup: (512, 1, 1),
@@ -11000,9 +10986,6 @@ final class LagunaRuntimeDecoderLayer: Module {
     @ModuleInfo(key: "post_attention_layernorm") var postAttentionLayerNorm: RMSNorm
 
     let attentionType: LagunaLayerType
-    var _packedNormRouterWeight: MLXArray?
-    var _packedNormRouterNormSource: MLXArray?
-    var _packedNormRouterGateSource: MLXArray?
 
     init(_ config: LagunaConfig, layerIdx: Int) {
         self._selfAttn.wrappedValue = LagunaRuntimeAttention(config, layerIdx: layerIdx)
@@ -11020,34 +11003,6 @@ final class LagunaRuntimeDecoderLayer: Module {
             dimensions: config.hiddenSize, eps: Float(config.rmsNormEps))
 
         self.attentionType = config.layerType(forLayer: layerIdx)
-    }
-
-    func preparePackedNormRouterWeight() -> MLXArray? {
-        guard lagunaPackedNormRouterBankEnabled, _packedNormRouterWeight == nil,
-            let sparse = mlp as? LagunaRuntimeSparseMoEBlock
-        else { return nil }
-        let norm = postAttentionLayerNorm.weight
-        let gate = sparse.gate.weight
-        let hidden = LagunaConstants.hiddenSize
-        guard norm.dtype == .bfloat16, gate.dtype == .bfloat16,
-            norm.dims(hidden), gate.dims(LagunaConstants.numExperts, hidden)
-        else { return nil }
-        let packed = concatenated([norm.reshaped([1, hidden]), gate], axis: 0)
-        _packedNormRouterWeight = packed
-        _packedNormRouterNormSource = norm
-        _packedNormRouterGateSource = gate
-        return packed
-    }
-
-    func packedNormRouterWeight(for sparse: LagunaRuntimeSparseMoEBlock) -> MLXArray? {
-        guard lagunaPackedNormRouterBankEnabled,
-            let packed = _packedNormRouterWeight,
-            _packedNormRouterNormSource === postAttentionLayerNorm.weight,
-            _packedNormRouterGateSource === sparse.gate.weight,
-            packed.dtype == .bfloat16,
-            packed.dims(LagunaConstants.numExperts + 1, LagunaConstants.hiddenSize)
-        else { return nil }
-        return packed
     }
 
     func callAsFunction(
@@ -11082,8 +11037,7 @@ final class LagunaRuntimeDecoderLayer: Module {
                 branch: r,
                 weight: postAttentionLayerNorm.weight,
                 routerWeight: sparse.gate.weight,
-                correctionBias: sparse.gate.eScoreCorrectionBias,
-                packedWeight: packedNormRouterWeight(for: sparse))
+                correctionBias: sparse.gate.eScoreCorrectionBias)
             h = fused.summed
             normalized = fused.normalized
             routerLogits = fused.routerLogits
@@ -11753,9 +11707,6 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
             }
             fusedArrays.append(
                 contentsOf: layer.selfAttn.prepareLastPrefillProjectionWeights())
-            if let packed = layer.preparePackedNormRouterWeight() {
-                fusedArrays.append(packed)
-            }
             if let sparse = layer.mlp as? LagunaRuntimeSparseMoEBlock {
                 if lagunaFusedSharedGateUpEnabled {
                     fusedArrays.append(contentsOf: sparse.sharedExpert.prepareFusedSharedGateUp())
