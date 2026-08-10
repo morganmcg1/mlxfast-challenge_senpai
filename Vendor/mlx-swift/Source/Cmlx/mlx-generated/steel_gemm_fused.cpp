@@ -248,10 +248,10 @@ template <
 
     if (laguna_qkv) {
       const uint h = c_col / 128;
-      const int ld = h < 56 ? 128 : 512;
+      const int ld = h < 56 ? 128 : 1024;
       device T* x = h < 56
           ? D0 + (h * 512 + c_row) * 128
-          : D0 + 56 * 512 * 128 + c_row * 512 + (h - 56) * 128;
+          : D0 + 56 * 512 * 128 + c_row * 1024 + (h - 56) * 128;
       mma_op.store_result(x, ld);
       if (h < 56) {
         threadgroup_barrier(mem_flags::mem_device);
