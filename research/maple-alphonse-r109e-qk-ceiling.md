@@ -37,16 +37,17 @@ pipeb_score0 = simd_sum(pipeb_score0); pipeb_score1 = simd_sum(pipeb_score1);
 
 `LagunaRuntimeModel.swift` now hoists the kernel literal into
 `lagunaFullFusedAttentionKernelSource` / `...KernelHeader` (byte-identical
-content) and derives two research kernels from it by textual substitution,
+content) and derives three research kernels from it by textual substitution,
 selected by `DARKBLOOM_FULL_ATTN_QK_PROBE`:
 
 | arm | env | substitution | slots/site | correctness |
 |-----|-----|--------------|-----------|-------------|
 | `C` | unset | none — shipped `laguna_full_fused_attn_grow_v1` | 0 | must pass |
 | `P` | `bcast` | `simd_sum(x)` → `simd_broadcast_first(x)` | ≈ −10 | must **fail** |
-| `D` | `dose` | `simd_sum(x)*2^-5` then a 5-stage doubling butterfly | ≈ +11 | must **pass** |
+| `D` | `dose1` | `simd_sum`, then ×2^-5 and a 5-stage doubling butterfly | ≈ +11 | must **pass** |
+| `X` | `dose10` | the same butterfly ten times over | ≈ +110 | must **pass** |
 
-Three design points matter.
+Four design points matter.
 
 **(a) `bcast`, not delete.** nezuko's R106-B `NOREDUCE` arm on the *sliding*
 kernel simply dropped the reduction. That makes the score lane-*non*-uniform,
@@ -72,7 +73,25 @@ kernel is not issue-bound at this site and no QK-reduction rewrite — MMA,
 shuffle-ladder shortening, or blocked softmax — can pay. That is a decisive
 result either way, and it is the check the single-sided R106-B arm lacked.
 
-**(c) Geometry is untouched.** `grid ((heads/2)*1024,1,1)`, `threadGroup
+**(c) `dose1` vs `dose10` is a dose-response ruler, not just a sanity arm.**
+A single `D` arm can only say "adding ~11 slots costs Δ". Because Δ at this
+magnitude is comparable to run-to-run noise, one point cannot separate "slots
+are cheap" from "the measurement is too noisy to see anything". Two doses on the
+same axis can: the *slope*
+
+```
+slope [µs/step per issue slot] = (Δ_X − Δ_D) / (110 − 11)
+```
+
+is estimated from a 10× lever, so its noise is divided by 99 rather than 11, and
+it is immune to any fixed per-arm offset (recompilation, kernel-name length,
+pipeline-cache placement) that both dose arms share. Multiplying the slope by
+the ~10 slots the ladder actually costs gives a *marginal* price for the QK
+reduction that never depends on the failing `P` arm at all. It is a deliberately
+conservative ceiling: the butterfly prices issue slots **plus** shuffle latency,
+so it over-states what deleting the ladder could return.
+
+**(d) Geometry is untouched.** `grid ((heads/2)*1024,1,1)`, `threadGroup
 (1024,1,1)`, `inputNames`, and dispatch are byte-identical across arms; only the
 six statements differ. Swift globals are lazy, so with the env var unset the
 probe kernels are never even constructed and arm `C` is the shipped path.
@@ -82,13 +101,14 @@ probe kernels are never even constructed and arm `C` is the shipped path.
 24 `./benchmark.sh --local-iterate` runs, `MLXFAST_LOCAL_FAN_PROMPT=0`, order
 
 ```
-DCPPCD DCPPCD DCPPCD DCPPCD
+CXDPPDXC CXDPPDXC CXDPPDXC
 ```
 
-Each 6-run block is a palindrome, so a linear drift cancels inside the block.
+Each 8-run block is a palindrome, so a linear drift cancels inside the block.
 Estimators reported: unpaired Welch, an OLS fit of
-`decode ~ 1 + linear-time + dummy(P) + dummy(D)`, and the mean of the four
-per-block deltas. Every run re-enters the 40 °C thermal gate.
+`decode ~ 1 + linear-time + dummy(P) + dummy(D) + dummy(X)`, the mean of the
+three per-block deltas, and the dose-response slope. Every run re-enters the
+40 °C thermal gate.
 
 Driver `research/maple-alphonse-r109e-qk-ceiling-abba.sh`,
 analysis `research/maple-alphonse-r109e-analyze.py`.
@@ -191,9 +211,12 @@ same six-statement structure at 1681/1717/…):
 
 1. Use `simd_broadcast_first`, not deletion, for a reduction ceiling probe;
    deletion adds `LAGUNA_RESCALE` branch divergence and confounds the delta.
-2. Add the bit-exact `dose` arm. It is the only cheap way to tell "the ladder is
-   free" from "my instrument is broken", and it keeps `passed_correctness=true`
-   so a failed correctness check is a real signal.
+2. Add **two** bit-exact `dose` arms (`dose1` and `dose10`), not one. A single
+   dose only tells "the ladder is free" from "my instrument is broken"; two
+   doses on the same axis give a slope with a 10× lever, cancel any fixed
+   per-arm offset, and price the ladder without relying on the failing `bcast`
+   arm. Both keep `passed_correctness=true`, so a correctness failure there is a
+   real signal, not an expected one.
 3. Fragment layout for MMA is *not* specified by Apple; MLX steel hard-codes it
    (`steel/gemm/mma.h:46, 49-55, 205`). Mixed bf16×bf16→fp32 8×8×8 does lower to
    a native AIR intrinsic, so precision is not the obstacle — tile occupancy is.
