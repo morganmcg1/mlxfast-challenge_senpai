@@ -10312,6 +10312,141 @@ private func lagunaPrefillMoETail(
     )[0]
 }
 
+private final class LagunaPrefillSortedMoEGate0State {
+    var boundary = 0
+}
+
+private let lagunaPrefillSortedMoEGate0State = LagunaPrefillSortedMoEGate0State()
+
+private func lagunaPrefillSortedMoETailDispatch(
+    sortedExpertOutputs: MLXArray,
+    inverseOrder: MLXArray,
+    routerWeights: MLXArray,
+    sharedOutput: MLXArray,
+    residual: MLXArray,
+    threadGroupWidth: Int
+) -> MLXArray {
+    let rows = routerWeights.dim(1)
+    return lagunaPrefillSortedMoETailKernel(
+        [
+            sortedExpertOutputs, inverseOrder, routerWeights, sharedOutput,
+            residual,
+        ],
+        grid: (LagunaConstants.hiddenSize / 4, rows, 1),
+        threadGroup: (threadGroupWidth, 1, 1),
+        outputShapes: [[1, rows, LagunaConstants.hiddenSize]],
+        outputDTypes: [.bfloat16]
+    )[0]
+}
+
+private func lagunaPrefillSortedMoEGate0(
+    sortedExpertOutputs: MLXArray,
+    inverseOrder: MLXArray,
+    routerWeights: MLXArray,
+    sharedOutput: MLXArray,
+    residual: MLXArray
+) {
+    let state = lagunaPrefillSortedMoEGate0State
+    guard state.boundary < 38 else { return }
+    state.boundary += 1
+    let boundary = state.boundary
+
+    let inputs = [
+        sortedExpertOutputs, inverseOrder, routerWeights, sharedOutput, residual,
+    ]
+    eval(inputs)
+
+    func dispatch(_ width: Int, _ expert: MLXArray = sortedExpertOutputs,
+        _ weights: MLXArray = routerWeights, _ shared: MLXArray = sharedOutput,
+        _ residualInput: MLXArray = residual
+    ) -> MLXArray {
+        lagunaPrefillSortedMoETailDispatch(
+            sortedExpertOutputs: expert,
+            inverseOrder: inverseOrder,
+            routerWeights: weights,
+            sharedOutput: shared,
+            residual: residualInput,
+            threadGroupWidth: width)
+    }
+
+    func mismatchCount(_ lhs: MLXArray, _ rhs: MLXArray) -> Int {
+        let lhsData = lhs.asData(access: .copy).data
+        let rhsData = rhs.asData(access: .copy).data
+        return lhsData == rhsData ? 0 : 1
+    }
+
+    let realMismatches = mismatchCount(dispatch(256), dispatch(512))
+    var edgeMismatches: [String: Int] = [:]
+    if boundary == 1 {
+        let rows = routerWeights.dim(1)
+        func edge(_ label: String, expertValue: Float, weightValue: Float,
+            sharedValue: Float, residualValue: Float
+        ) {
+            let expert = MLXArray.full(
+                [rows * LagunaConstants.numExpertsPerTok, LagunaConstants.hiddenSize],
+                values: MLXArray(expertValue), dtype: .bfloat16)
+            let weights = MLXArray.full(
+                [1, rows, LagunaConstants.numExpertsPerTok],
+                values: MLXArray(weightValue), dtype: .float32)
+            let shared = MLXArray.full(
+                [1, rows, LagunaConstants.hiddenSize],
+                values: MLXArray(sharedValue), dtype: .bfloat16)
+            let residualInput = MLXArray.full(
+                [1, rows, LagunaConstants.hiddenSize],
+                values: MLXArray(residualValue), dtype: .bfloat16)
+            edgeMismatches[label] = mismatchCount(
+                dispatch(256, expert, weights, shared, residualInput),
+                dispatch(512, expert, weights, shared, residualInput))
+        }
+        edge("zero", expertValue: 0, weightValue: 0, sharedValue: 0, residualValue: 0)
+        edge(
+            "near_zero", expertValue: 0.0001, weightValue: 0.125,
+            sharedValue: -0.0002, residualValue: 0.0003)
+        edge(
+            "high_dynamic", expertValue: 1024, weightValue: 0.125,
+            sharedValue: -128, residualValue: 64)
+    }
+
+    eval(dispatch(256), dispatch(512))
+    func timed(_ width: Int) -> UInt64 {
+        let started = DispatchTime.now().uptimeNanoseconds
+        eval(dispatch(width))
+        return DispatchTime.now().uptimeNanoseconds - started
+    }
+    var abbaA: [UInt64] = []
+    var abbaB: [UInt64] = []
+    var baabA: [UInt64] = []
+    var baabB: [UInt64] = []
+    abbaA.reserveCapacity(60)
+    abbaB.reserveCapacity(60)
+    baabA.reserveCapacity(60)
+    baabB.reserveCapacity(60)
+    for _ in 0..<30 {
+        abbaA.append(timed(256))
+        abbaB.append(timed(512))
+        abbaB.append(timed(512))
+        abbaA.append(timed(256))
+    }
+    for _ in 0..<30 {
+        baabB.append(timed(512))
+        baabA.append(timed(256))
+        baabA.append(timed(256))
+        baabB.append(timed(512))
+    }
+
+    func json(_ values: [UInt64]) -> String {
+        "[" + values.map(String.init).joined(separator: ",") + "]"
+    }
+    let edgeJSON = edgeMismatches.keys.sorted().map {
+        "\"\($0)\":\(edgeMismatches[$0]!)"
+    }.joined(separator: ",")
+    let message = """
+    {"gate":"gate0","boundary":\(boundary),"rows":\(routerWeights.dim(1)),"real_mismatches":\(realMismatches),"edge_mismatches":{\(edgeJSON)},"abba_a_ns":\(json(abbaA)),"abba_b_ns":\(json(abbaB)),"baab_a_ns":\(json(baabA)),"baab_b_ns":\(json(baabB))}
+    """
+    FileHandle.standardError.write(Data((message + "\n").utf8))
+    precondition(realMismatches == 0 && edgeMismatches.values.allSatisfy { $0 == 0 })
+}
+
 private func lagunaPrefillSortedMoETail(
     sortedExpertOutputs: MLXArray,
     inverseOrder: MLXArray,
@@ -10333,16 +10468,23 @@ private func lagunaPrefillSortedMoETail(
     precondition(residual.dtype == .bfloat16)
     precondition(residual.dims(1, rows, LagunaConstants.hiddenSize))
 
-    return lagunaPrefillSortedMoETailKernel(
-        [
-            sortedExpertOutputs, inverseOrder, routerWeights, sharedOutput,
-            residual,
-        ],
-        grid: (LagunaConstants.hiddenSize / 4, rows, 1),
-        threadGroup: (256, 1, 1),
-        outputShapes: [[1, rows, LagunaConstants.hiddenSize]],
-        outputDTypes: [.bfloat16]
-    )[0]
+    if rows == 512,
+        ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_SORTED_MOE_GATE0"] == "1"
+    {
+        lagunaPrefillSortedMoEGate0(
+            sortedExpertOutputs: sortedExpertOutputs,
+            inverseOrder: inverseOrder,
+            routerWeights: routerWeights,
+            sharedOutput: sharedOutput,
+            residual: residual)
+    }
+    return lagunaPrefillSortedMoETailDispatch(
+        sortedExpertOutputs: sortedExpertOutputs,
+        inverseOrder: inverseOrder,
+        routerWeights: routerWeights,
+        sharedOutput: sharedOutput,
+        residual: residual,
+        threadGroupWidth: 256)
 }
 
 /// Reconstructs the stock SwiGLU result from the retained bank's physical
