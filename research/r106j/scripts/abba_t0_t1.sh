@@ -39,16 +39,24 @@ select_arm() {
   return 0
 }
 
+# A run whose arm equals the previous run's skips the Swift recompile, so it
+# also skips ~40 s of incidental GPU cooldown and measures systematically
+# slower. That slot sits at position 3 of every block, so the block phase must
+# continue across invocations or the slot is handed to one arm more often than
+# the other.
+done_rows=$(($(wc -l < "$tsv") - 1))
+phase=$(((done_rows / 4) % 2))
+
 seq_arms=()
 for ((b = 0; b < blocks; b++)); do
-  if (( b % 2 == 0 )); then
+  if (( (b + phase) % 2 == 0 )); then
     seq_arms+=(T0 T1 T1 T0)
   else
     seq_arms+=(T1 T0 T0 T1)
   fi
 done
 
-idx=0
+idx=$done_rows
 for arm in "${seq_arms[@]}"; do
   idx=$((idx + 1))
   sha="$T0_SHA"
@@ -107,5 +115,8 @@ restore_sha="$T1_SHA"
 [ "$restore_arm" = "T0" ] && restore_sha="$T0_SHA"
 select_arm "$restore_sha" || exit 7
 git checkout -- Package.resolved 2>/dev/null
+# select_arm stages its checkout; without this the index re-adds paths the
+# restored arm deletes and a later `git commit -a` would silently revive them.
+git reset -q
 echo "[abba] restored arm=$restore_arm"
 column -t -s $'\t' "$tsv"
