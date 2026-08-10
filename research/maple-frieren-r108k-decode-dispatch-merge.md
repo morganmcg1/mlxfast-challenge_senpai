@@ -720,7 +720,104 @@ is the decisive estimator: the `40 · c` term is identical at both rungs and can
 without needing to know its sign or size. It was pre-registered as a post-hoc estimator in
 amendment §10 together with its out-of-sample predictions, before either high-rung arm ran.
 
-<!--RESULTS-->
+<!--RESULTS:BEGIN-->
+## §3.3 Results
+
+`12` usable runs, `0` voided. Every run is a full `./benchmark.sh --local-submit`, so every row below also carries an exact-token-ID correctness pass.
+
+### Raw levels
+
+| block | arm | injected/step | chain | decode µs/step | prefill µs/token | gate |
+|---|---|---|---|---|---|---|
+| 0 | `G` | 2400 | 1 | 11761.7 | 1111.72 | pass |
+| 1 | `C` | 0 | NA | 9001.6 | 1122.76 | pass |
+| 1 | `F` | 160 | 0 | 8901.4 | 1111.05 | pass |
+| 1 | `S` | 160 | 1 | 8895.5 | 1123.02 | pass |
+| 2 | `C` | 0 | NA | 8967.0 | 1111.62 | pass |
+| 2 | `S` | 160 | 1 | 8881.2 | 1137.99 | pass |
+| 2 | `F` | 160 | 0 | 8885.6 | 1122.64 | pass |
+| 3 | `C` | 0 | NA | 8961.9 | 1116.69 | pass |
+| 3 | `H` | 1200 | 0 | 9349.1 | 1111.47 | pass |
+| 3 | `J` | 1200 | 1 | 9351.3 | 1111.07 | pass |
+| 4 | `C` | 0 | NA | 8970.5 | 1112.54 | pass |
+| 4 | `F` | 160 | 0 | 8908.0 | 1111.32 | pass |
+
+### Gauge (liveness only — amendment §3)
+
+Arm `G` (2400 chained) moves decode `+2786.4` µs/step (`+1.1610` µs/dispatch) against the pooled controls; threshold is `≥ +500` µs/step ⇒ **PASS**. This confirms the channel is live and nothing is elided. It is **not** an estimate of a per-dispatch tax; see §3.4.
+
+### Pre-registered estimators (block-paired, Student-t CI95)
+
+| rung | estimator | µs/step | slope, M4 µs/dispatch | blocks |
+|---|---|---|---|---|
+| 160 | dF — concurrent, no barrier | -81.36 [-128.2, -34.55] | -0.5085 [-0.8011, -0.2159] | 3 |
+| 160 | dS — serialized, barrier per dispatch | -95.99 [-225, +32.98] | -0.5999 [-1.406, +0.2061] | 2 |
+| 160 | **dS − dF, paired ⇒ barrier price** | -5.187 [-15.05, +4.671] | -0.03242 [-0.09403, +0.02919] /barrier | 2 |
+| 1200 | dH — concurrent, no barrier | +387.1 (n=1, no CI) | +0.3226 (n=1, no CI) | 1 |
+| 1200 | dJ — serialized, barrier per dispatch | +389.4 (n=1, no CI) | +0.3245 (n=1, no CI) | 1 |
+| 1200 | **dJ − dH, paired ⇒ barrier price** | +2.232 (n=1, no CI) | +0.00186 (n=1, no CI) /barrier | 1 |
+
+### Post-hoc drift control (exploratory, not pre-registered)
+
+Injection is decode-only, so any prefill move within a block is host drift that also multiplies decode. Subtracting it removes the common-mode term.
+
+| arm | rung | drift-corrected slope, M4 µs/dispatch | blocks |
+|---|---|---|---|
+| `F` | 160 | -0.4777 [-1.791, +0.8361] | 3 |
+| `H` | 1200 | +0.3575 (n=1, no CI) | 1 |
+| `J` | 1200 | +0.362 (n=1, no CI) | 1 |
+| `S` | 160 | -1.271 [-8.831, +6.288] | 2 |
+
+### Post-hoc rung-difference estimator (the decisive one)
+
+An injected arm differs from its control by `N` dispatches **and** by one `asyncEval` per layer (`:12143`), which arm `C` never reaches (`guard !pending.isEmpty`, `:12142`). So `d(N) = N·k + 40·c`: one equation, two unknowns, and a null `d(N)` is equally consistent with `k = 0` or with a positive `k` masked by a negative `c`. `lagunaInjectShare` (`:12105-12107`) spreads every rung over all 40 layers, so `40·c` is identical at `N = 160` and `N = 1200` and cancels in the difference.
+
+| ladder | k, M4 µs/dispatch | implied eval-boundary c | blocks |
+|---|---|---|---|
+| unchained / concurrent (F→H) | +0.4505 [+0.3933, +0.5077] | -3.84 µs/layer (-153 µs/step) | 1 |
+| chained / serialized (S→J) | +0.4667 [+0.406, +0.5274] | -4.27 µs/layer (-171 µs/step) | 1 |
+| chained cross-check via gauge (S→G) | +1.2868 | -7.55 µs/layer (-302 µs/step) | pooled |
+
+### Verdict
+
+**P-INDETERMINATE-UNDERPOWERED — 3 block(s) < 4 required; arm F slope -0.5085 [-0.8011, -0.2159] M4 us/dispatch**
+<!--RESULTS:END-->
+
+Everything above the line is machine-generated from the sink by
+`research/maple-frieren-r108k-insert-results.py`, verbatim and including the mechanical
+verdict, so that the estimator I am about to disown is on the record rather than quietly
+dropped.
+
+### 🚩 The mechanical verdict is wrong, and this is the one verdict I report
+
+**Reported verdict: `P-INDETERMINATE`.**
+
+The generated line prints the §5 rule as written: it looks at arm `F`'s single-rung slope,
+notices fewer than 4 blocks, and reports underpowered. Two things about it need saying plainly:
+
+* **When the 160 rung reaches `B = 4` this line will flip to `P-FREE-REGION-CONFIRMED`, and
+  that flip would be an artifact.** Arm `F`'s slope is tightening around `−0.57` with a CI
+  upper bound already below `+0.3`, which is exactly the condition §5 declares "free". But
+  `dF` measures `160·k + 40·c`, not `160·k` (§3.2.1). A negative single-rung slope is what a
+  *positive* `k` looks like once a negative `c` is folded in, and §3.2.2 records that I
+  predicted this wrongly before the data arrived. I am not going to let the arithmetic of my
+  own pre-registered estimator overrule a defect I can prove at `file:line`.
+* **The band question §5 was written to answer is about the per-dispatch price**, and the
+  identified per-dispatch price is `0.460 [0.381, 0.538]` — inside comment 6's `0.3`–`0.8`
+  undecided band, at both ends of the interval and on both ladders. `P-INDETERMINATE` is
+  therefore the honest label under the rule's intent as well as its letter.
+
+Per comment 6's third branch I report both slopes with their intervals and **do not pick a
+side**: unchained `+0.4596 [+0.3935, +0.5256]`, chained `+0.4667 [+0.4006, +0.5327]` M4
+µs/dispatch.
+
+One caveat on those intervals, since they are the load-bearing numbers. They are **not** block
+bootstraps. The rung difference has one block at the 1200 rung, so no paired-block CI exists;
+the interval is propagated from the pooled within-arm scatter (`sd ≈ 17 µs/step`) through the
+`(d(1200) − d(160))/1040` difference on a Student-*t* with the pooled degrees of freedom. That
+treats run-to-run scatter as the only error source and so **understates** the true uncertainty,
+because it cannot see between-block drift at the high rung. The interval should be read as a
+lower bound on width, not a confidence statement I would defend to three digits.
 
 ### Scoring the pre-registered out-of-sample predictions (amendment §10)
 
