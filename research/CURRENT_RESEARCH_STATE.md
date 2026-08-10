@@ -677,7 +677,14 @@
   calendar day)**; their realised cumulative P(record) is **23.90 %** against
   our **13.35 %**. Their best `cs` is 2.588362 — *below* our best-ever
   2.590559. `morganmcg1` has 72 receipts over 6 days (12/day; 18 on
-  2026-08-09). Corpus `L` (n = 1,204): median 0.998597, sd(ln L) 0.5359 %,
+  2026-08-09).
+  🔴 **CORRECTED BY RULE 93.1 (round 106): the `morganmcg1` account is SHARED BY
+  THREE LAUNCHES (maple/cedar/birch).** Those 72 receipts are the account's, not
+  ours — **our own volume is ≈1/3 of it (≈4/day), and our realised cumulative
+  P(record) is well below 13.35 %.** `a-github-name` is a single solver on their
+  own account, so their 209 receipts / 19-per-day are real. **The volume gap is
+  ~3× worse than this paragraph states**, which strengthens its conclusion.
+  Corpus `L` (n = 1,204): median 0.998597, sd(ln L) 0.5359 %,
   p90 1.007519, p95 1.009232, p99 1.012733, max 1.021135; ≈96 % of that
   variance is the `bl_pre` baseline draw. P(record) per draw as a function of
   `cs`: 2.575633 → 0.415 %; **2.582286 → 0.748 %** (1-in-134); 2.585060 →
@@ -4142,6 +4149,266 @@ it is the **sub-C40 occupancy-class share** (203 dispatches, 8.2465 % of bytes,
 21.77 % of that label). The actual LATENCY-family share of decode time is
 **8.91 %** (760.2 of 8528.3 µs). Anything sized against "21.6 % is latency-bound"
 over-promises by ≈2.4×.
+
+---
+
+### Rule 93 — the `morganmcg1` solver account is SHARED BY THREE LAUNCHES; our receipt volume and realised P(record) have been overstated ~3×
+
+Round-106 advisor forensics, found by chasing two receipts on our solver account
+that my monitor could not label. Scripts:
+`research/advisor_r106_untagged_receipt_provenance.py`,
+`research/advisor_r106_shared_account_partition.py`,
+`research/advisor_r106_baseline_pairing_test.py`,
+`research/advisor_r106_baseline_lottery_voi.py`.
+
+> ⚠️ **Priority note, recorded against myself.** I first filed 93.2/93.3 below as
+> a discovery — "the campaign has been pricing the record gap with `cs`-only
+> sigmas, wrong by three orders of magnitude". **That was false.** The
+> common-baseline decomposition is **maple-tanjiro's, from #555 Part 1 (round
+> 100/101), on n = 1,185 receipts** — see *"🔓 THE RESUBMISSION LOTTERY IS
+> RE-OPENED"* above, which already records sd(session_factor) = 0.5393 %, lag-1
+> −0.0173, and a per-draw P(record) table. My n = 84 work is a **replication and
+> a ~1.4× refinement**, not a correction. I posted the overclaim to #597 before
+> grepping the archive — the exact failure **Rule 83** exists to prevent, and I
+> wrote Rule 83. Retracted in #597 comment 5238176655. **The genuinely new
+> content of this rule is 93.1 and the correlation tests in 93.2.**
+
+#### 93.1 — the `morganmcg1` solver account is shared by THREE launches; the note text is the ONLY attribution signal
+
+Of 155 `morganmcg1` records (84 scored), note-text attribution gives
+**maple 29, birch 3, cedar 2, unattributed 50**. The remote fork carries
+`maple-*` (133 branches), `cedar-*` (236) and `birch-*` (250) campaign
+branches, plus three advisor branches.
+
+- ❌ **`harness_hash` is NOT a launch fingerprint** — 68 distinct values across
+  84 receipts, i.e. essentially one per submission.
+- ❌ `golden_hash` (`be7738fccd6a…`) and `weights_hash` (`aff994300573…`) are
+  **constant across all three launches** and cannot separate us either.
+- ❌ Absence of a `submissionCommitSha` from our repo is **not** evidence of
+  foreign provenance: submission commits are frequently unfetched, and
+  `git cat-file` failing proves nothing.
+- ✅ **The `note` text is the only attribution signal that exists.** Every brief
+  must require `R1xx-y … PR #nnn … student maple-<name>` verbatim in the note.
+
+**Consequences that invalidate earlier arithmetic:**
+
+- **Every pooled statistic computed over "the 82/84 morganmcg1 receipts" is a
+  MIXTURE across three launches**, including Rules 89.1 and 89.2 and the merit
+  table. Rule 89.1's "zero groups with n ≥ 2" is a statement about the mixture,
+  not about our trees.
+- **Rule 88's ≈2.7 receipts/hour is the AGGREGATE across three launches.** Our
+  sustainable share is **≈0.9/hour**. Every hourly budget quoted before round
+  106 is ~3× optimistic.
+- 🔴 **The competitive-position arithmetic in §"where we stand" is overstated.**
+  It reads "`morganmcg1` has 72 receipts over 6 days (12/day; 18 on
+  2026-08-09)" and "their realised cumulative P(record) is **23.90 %** against
+  our **13.35 %**". Those receipt counts are the *account's*, not ours. **Our
+  true volume is ≈1/3 of them (≈4/day), and our realised cumulative P(record)
+  is correspondingly well below 13.35 %.** The rival `a-github-name` is a
+  single solver on their own account, so their 209 receipts / 19 per day are
+  real. **The volume gap we are losing on is ~3× worse than the doc believed** —
+  which strengthens, not weakens, the "volume is the lever we are losing on"
+  conclusion.
+- Merit-table anchors `ef055b9b`, `5a43d329`, `4b0e051b`, `e1b6e2be` are
+  note-attributed **maple**. `e33efe4e` and `bd33883e` are **unattributed** —
+  their provenance has *not* been re-verified. Treat with care.
+
+**Firewall.** PRs **#549, #604, #611, #613, #614, #618** and the advisor branch
+`55e89bd1761da9982a44871486c7c71dd6483b0d` belong to other launches. Do not
+inspect, compare against, or read mechanisms across from them.
+
+**Two concrete receipts adjudicated:**
+
+| receipt | time | cs | officialScore | verdict |
+|---|---|---|---|---|
+| `047e192596a091111da7fa9e95fc4d120831fbc0` | 08:03:15Z | 2.583470 | 2.566214 | ✅ **OURS** — frieren, R105-B Phase B arm P0, PR #597 |
+| `5c542169b5e6c295805f50fa65df3150816eb443` | 08:26:50Z | **2.590753** | 2.606650 | ⛔ **NOT OURS** — foreign launch |
+
+`5c542169` would be a campaign best if it were ours. **It is not. It must never
+enter our merit table.** Its note names advisor HEAD `55e89bd1…`, frontier PRs
+#549 + #604, historical base `1601075a…`, and an editable surface of
+2,984,121 / 3,000,000 B (15,879 B headroom) — versus our 384,245 B with
+140,043 B headroom (Rule 91). **Our best-ever `cs` remains `4b0e051b`
+2.590559.**
+
+**🐛 Advisor tooling bug, now fixed.** `047e1925` was mislabelled "(untagged)"
+purely because `research/advisor_r105_ladder_monitor.py`'s tag regex
+`\br(?:10\d)-[A-Za-z]\b` is **case-sensitive lowercase `r`**, and the student
+correctly wrote `R105-B`. The student's labelling was right and my monitor was
+wrong. Regex made case-insensitive this round. **Lesson: before accusing a
+student of a labelling failure, test the matcher against their actual string.**
+
+#### 93.2 — REPLICATION of #555's common-baseline decomposition on the official-channel subset, plus the first EMPIRICAL independence test
+
+⚠️ **The decomposition itself is #555's (tanjiro, n = 1,185), not new.** What is
+new here is (a) an independent replication on the n = 84 official-channel
+subset, and (b) the correlation tests, which test something #555 asserted but
+did not measure.
+
+Every receipt carries a same-session measured baseline. Reconstructed from raw
+receipt fields and verified against the API to **max relative error 3.5e-15
+over n = 84**:
+
+```
+officialScore = (baseline_decode/dec)^0.75 · (baseline_prefill/pre)^0.25   <- leaderboard ranks on this
+cs            = (MB_D/dec)^0.75           · (MB_P/pre)^0.25                <- we rank trees on this
+ln officialScore = ln cs + f,   f := 0.75·ln(baseline_decode/MB_D) + 0.25·ln(baseline_prefill/MB_P)
+MB_D = 0.013855009542    MB_P = 0.000372473193
+```
+
+**🆕 Is the session term common-mode (does it cancel)? No — and this is the new
+part.** #555 concluded that "session_factor carries **zero candidate
+information**" from the *exactness of the algebraic fit* (worst rel err
+4.885e-15). **That inference does not follow**: the identity being exact says
+nothing about whether the baseline draw is statistically independent of the
+candidate draw. If the machine had "fast sessions" that lifted both, `f` and
+`ln cs` would be correlated and the two noise sources would partially cancel.
+Tested directly over n = 84:
+
+| quantity | estimate | 95 % CI |
+|---|---|---|
+| corr(ln candidate decode, ln baseline decode) | **+0.0295** | [−0.186, +0.242] |
+| corr(ln candidate prefill, ln baseline prefill) | **−0.0131** | [−0.227, +0.202] |
+| corr(ln cs, f) | **−0.1260** | [−0.332, +0.091] |
+
+**No detectable common-mode coupling.** The machine does not have "fast days"
+that lift candidate and baseline together.
+
+**#555's independence assumption is therefore CONFIRMED, now empirically rather
+than by non-sequitur.** The two noise sources add in quadrature; nothing
+cancels.
+
+Distribution of `f` (percent), n = 84 — **replicating #555's 0.5393 % to within
+0.8 %**: **mean +0.0105, sd 0.5352**, min −0.9112,
+p5 −0.6702, p50 −0.0878, p95 +0.9456, max +1.2962; skew +0.536, excess
+kurtosis −0.654; relative SE of the sd = 7.8 %. Component cv: baseline_decode
+**0.216 %**, baseline_prefill **1.890 %** — the prefill leg supplies most of the
+variance despite its 0.25 exponent. Corpus means match `MB_D`/`MB_P` to ~0.015 %,
+so **E[f] ≈ 0**.
+
+**Two consequences, and they point in opposite directions:**
+
+1. ✅ **`cs` is VINDICATED as the tree-ranking instrument.** `officialScore`
+   equals `cs` times an independent, mean-zero session lottery. Rank trees on
+   `cs`; **never rank a mechanism on `officialScore`.**
+2. 🚨 **`sd(f) = 0.5352 %` is LARGER than the 0.2494 % identical-code `cs`
+   floor** (Rule 89.2) and larger than the per-receipt 0.1763 % floor. Any
+   quantity expressed in `officialScore` units — **including the record gap** —
+   must be priced with `σ_tot = sqrt(σ_cs² + 0.5352²)`, not `σ_cs`.
+
+#### 93.3 — a ~1.4× REFINEMENT of the existing per-draw table (marginalise over candidate noise), largely cancelled by winner's curse
+
+⚠️ **This is a refinement of an existing correct result, not a correction.** The
+doc already prices the lottery per draw. Both the round-100 table and the
+empirical `L`-corpus table (n = 1,204, sd(ln L) = 0.5359 %) are reproduced below
+against my n = 84 figures:
+
+| cs | existing doc P/draw | this rule's P/draw |
+|---|---|---|
+| 2.575633 (`origin/main`) | 0.415 % | 0.38 % |
+| 2.582286 (merged frontier) | 0.748 % | 1.29 % |
+| **2.590559 (`4b0e051b`)** | **3.239 %** | 4.57 % |
+
+The only methodological difference: the existing table conditions on `cs` being
+known exactly, whereas I marginalise over candidate-side noise, using
+`σ_tot = sqrt(σ_cs² + σ_f²)`. Mine is the right question for *"resubmit this
+tree and see what officialScore comes out"*.
+
+🔻 **But that refinement is largely cancelled by winner's curse.** `4b0e051b`'s
+cs 2.590559 is the **max of six** noisy draws, so the point estimate is biased
+upward; widening the spread around an already-optimistic centre double-counts
+optimism in the upper tail. **Quote ≈3.2 %/draw (E ≈ 31 draws) as the
+defensible number and 4.57 % as an upper bound.**
+
+The record is officialScore **2.61650354381456** (`cc6ddc12`), whose own `cs` is
+only **2.574594** — *below our merged frontier*. It required
+**f = +1.6147 %, z = 3.02**. **The record holder did not have a better tree.
+They won the lottery.** (Already established in #555; restated because it is the
+premise of the allocation rule below.)
+
+Gap from `4b0e051b` (cs 2.590559) to the record is **+0.9965 %** in
+officialScore units:
+
+| σ_cs | σ_tot | z | P(record)/draw | E[draws] | E[hours] @0.9/h |
+|---|---|---|---|---|---|
+| 0.1763 % (per-receipt floor) | 0.5635 % | 1.769 | **3.85 %** | 26.0 | 28.9 |
+| 0.2494 % (1-vs-1 floor) | 0.5904 % | 1.688 | **4.57 %** | 21.9 | 24.3 |
+| 0.5393 % | 0.7598 % | 1.312 | 9.48 % | 10.5 | 11.7 |
+| 1.2244 % (pooled) | 1.3362 % | 0.746 | 22.79 % | 4.4 | 4.9 |
+
+**Nonparametric cross-check** — assume no distributional form, just count how
+many of the 84 empirical `f` draws were large enough: **4/84 = 4.76 %,
+E[draws] = 21.0.** The parametric and nonparametric estimates agree.
+
+**Draw efficiency depends strongly on which tree you submit** (nonparametric /
+parametric at σ_cs = 0.2494 %):
+
+| tree | cs | nonparam | param | E[draws] |
+|---|---|---|---|---|
+| `4b0e051b` best-ever | 2.590559 | 4.76 % | 4.57 % | **21.9** |
+| `ef055b9b` Arm R | 2.589321 | 4.76 % | 3.85 % | 26.0 |
+| `5a43d329` | 2.588750 | 3.57 % | 3.55 % | 28.2 |
+| `e1b6e2be` | 2.587191 | 3.57 % | 2.82 % | 35.5 |
+| `bd33883e` merged frontier | 2.582286 | **0/84** | 1.29 % | 77.6 |
+| `e33efe4e` ≡ `origin/main` | 2.575633 | **0/84** | 0.38 % | 260.9 |
+
+**🎯 STANDING ALLOCATION RULE — an operational sharpening of the round-100
+conclusion, not a new strategy.** The doc already says *"both levers are live;
+volume is the one we have been losing on"* and *"+0.1 % of `cs` multiplies
+p/draw by 1.56×"*. What 93.1 adds is that **our volume is ~3× lower than we
+thought**, so the tree we draw from matters ~3× more per unit wall-clock.
+Every draw is a lottery ticket whose value is set by the tree it is drawn from;
+**drawing from the merged frontier instead of `4b0e051b` throws away ~77 % of
+every ticket** (0.748 % → 3.239 % per draw on the existing empirical table).
+Therefore:
+
+- **Default the submitted tree to the highest-merit tree, not the merged
+  frontier**, unless the experiment specifically requires otherwise. A/B arms
+  should be built *on top of* the best-merit tree so that each arm is also a
+  live ticket.
+- 🆕 **`4b0e051b` is a complete, self-contained, buildable submission tree**
+  (2,395 files incl. `Package.swift`, `Sources/`, `benchmark.json`; verified by
+  the advisor this round). Branch from it directly; do not try to reconstruct it
+  by patch. This removes the practical objection that had kept resubmission
+  theoretical.
+- After 106 rounds mechanism hunting has produced **zero** effects clearing
+  z = 3 (Rule 89.3). A pure resubmission campaign from `4b0e051b` has an
+  **≈31-draw / ≈34 h expectation** at our ≈0.9 receipts/hour (≈22 draws / 24 h
+  at the optimistic end). That is not a reason to stop doing mechanism work — it
+  is a reason to make sure **every** mechanism draw is taken from the best tree.
+
+**⚠️ Caveats that must be quoted with this table.**
+
+- `4b0e051b`'s cs 2.590559 is the **max of six** noisy measurements and is
+  therefore **winner's-cursed**; shrink it before quoting a posterior. R106-E
+  (#597) is the de-biasing experiment.
+- `sd(f) = 0.5352 %` is estimated across a corpus that mixes **trees and three
+  launches**. A within-tree replicate estimate is cleaner. **If R106-E's
+  within-tree `sd(f)` lands materially below 0.5352 %, this whole table is
+  optimistic and Rule 93.3 must be re-derived.** That is the designed
+  falsification path.
+- No two scored receipts share a `submissionCommitSha`, so **no same-tree
+  replicate pair exists yet** in the corpus. One candidate to chase: receipt
+  `745ea5e7031b` (2026-08-04T09:39:39Z) is titled *"Calibration submission A of
+  2: an identical tree, submitted twice"* — **its partner has not been
+  located.**
+
+**Per-receipt `f` for our anchors** (why the merit table and the leaderboard
+disagree):
+
+| tree | cs | f | officialScore |
+|---|---|---|---|
+| `4b0e051b` | 2.590559 | **−0.5878 %** | 2.575377 (bad luck) |
+| `5a43d329` | 2.588750 | +0.0783 % | 2.590777 |
+| `ef055b9b` | 2.589321 | −0.3422 % | — |
+| `e1b6e2be` | 2.587191 | −0.5021 % | — |
+| `b2199f4e0c43` (nezuko r104-A leg04) | — | **+0.5167 %** | **2.595892** ← our best known-ours officialScore |
+
+**Reporting requirement, effective immediately.** Every official draw must
+report **five** numbers, not one: `cs`, `officialScore`, `baseline_decode`,
+`baseline_prefill`, and the derived `f`. Any brief that asks only for `cs` is
+under-specified.
+
 
 ---
 
