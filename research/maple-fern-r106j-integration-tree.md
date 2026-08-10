@@ -616,15 +616,19 @@ There is a fourth, weaker rule that only applies to sub-threshold patches:
 > and nothing else; flipping its default without a measurement is exactly the move
 > this campaign has repeatedly punished.
 
-### 5.1 The queue as of 2026-08-10T12:50Z
+### 5.1 The queue as of 2026-08-10T13:05Z
 
 | # | student | charge | state at my freeze check | disposition |
 | --- | --- | --- | --- | --- |
 | #636 | alphonse | expert gather-GEMM floor (`C2a`, `DARKBLOOM_EXPERT_DOWN_BN`) | **terminated `N-FLOOR`, merged to advisor `main`** | **carried, inert** (§5.2) |
-| #629 | edward | routed gate/up packing; Stage A settles L3 | open, draft, no verdict at 12:44Z | L3 measured independently by me (§5.3) |
-| #642 | tanjiro | decode fused attention, prologue prefetch hoist | open, no handoff | **not delivered** |
-| #616 | nezuko | round-103 revert residual | open, no handoff | **not delivered** |
-| #597 | frieren | bit-exactness shelf + margin-certificate script | open; frieren is the channel owner | I *consume* the certificate script, I do not integrate #597 |
+| #642 | tanjiro | decode fused attention, prologue prefetch hoist | **terminated `N-ISSUE-BOUND` at 12:57Z, `succeeded`, submitted diff is ZERO BYTES** | **nothing to integrate** (§5.4.1) |
+| #629 | edward | routed gate/up packing; Stage A settles L3 | open, draft, head `526881c4`, no verdict at 13:05Z | L3 measured independently by me (§5.3) |
+| #616 | nezuko | round-103 revert residual | open, head `c8f2c87d`, no result marker at 13:05Z | pending |
+| #597 | frieren | bit-exactness shelf + margin-certificate script; also owns the pf-default adjudication | open, head `95a0ef9e`, no result marker at 13:05Z | I *consume* the certificate script; the pf0 flip is a §5.4.2 standing arm |
+
+Only the `senpai-result:v1` marker in a PR comment counts as termination for this
+table. I re-read all five PR bodies and every comment at 13:05Z; #636 and #642 are
+the only two carrying one.
 
 ### 5.2 Candidate A — alphonse's `C2a`: carried as merged, deliberately left inert
 
@@ -697,6 +701,59 @@ handoffs are due ~06:00Z, seventeen hours later. It is a statement about **what 
 integrated tree could possibly contain at this timestamp**, which is the thing a reader
 of this report needs in order to interpret §6. If later handoffs arrive before my
 07:00Z freeze I extend §5 and re-measure the composed tree; I do not sum deltas.
+
+#### 5.4.1 The largest pot on the slate closed at zero bytes
+
+At 12:57:27Z tanjiro published a `succeeded` result on #642 with verdict
+**`N-ISSUE-BOUND`** and a **zero-byte submitted diff** (`git diff --numstat` against base
+over `Sources/`, `Vendor/`, `benchmark.json` = 0 lines). That retires the single largest
+line item on the slate — 424.35 µs/step ≡ **6.46 % of `cs`** of decode fused-attention
+time — as *not slack*. The load-bearing datum is an instruction dose-response measured
+through a cache-defeated A/B probe that extracts the exact `source:`/`header:` literals
+out of `LagunaRuntimeModel.swift`, so both arms compile the MSL the ranked path
+compiles: 0.008255 µs per fma-per-thread on the sliding kernel, which is **97.7 % of the
+host's peak issue rate**, with a byte term contributing only 41.8 % of the 18.82 µs
+`N=512` dispatch.
+
+For me as integrator the consequence is arithmetic, not rhetorical. Of the 6.46 % pot,
+tanjiro's own pricing leaves P2 at 0.063 % of `cs` at *full critical-path weight*
+(0.006 % throughput-weighted) and P3 at 0.036 %. Both are 6×–60× under the 0.4 % bar,
+so there is no tree in which they are worth the build. **My integration queue lost its
+biggest nominal contributor and gained a certainty**: whatever tree I hand over will not
+contain a decode-attention change, and nobody should spend the endgame looking for one.
+
+I record one caveat against over-reading it. The dose-response and the threadgroup
+ladder are M4 Pro numbers, and issue-boundedness is an occupancy-relative property: the
+M5 Max has roughly twice the cores at similar clock, so the same kernel at the same
+dispatch geometry sits at a different point on the issue/DRAM balance. Tanjiro's
+conclusion is safe *for what it forbids* (do not expect hoists to pay here) and weaker
+*for what it asserts about M5*. It does not change my disposition either way, because in
+both readings there is no patch.
+
+#### 5.4.2 The pf0 default flip is a standing arm I have deliberately not measured
+
+frieren's #597 carries the one item on the board whose *nominal* value exceeds the
+packing patch: flipping `DARKBLOOM_ROUTER_WEIGHT_PREFETCH`'s default from `1` to `0` at
+`LagunaRuntimeModel.swift:696-704`, priced from his own merged #571 B→C leg at
+**+34.58 µs/step = +0.53 % of `cs`** on M4 with 7/7 cycles and 21/21 reps. It is a
+one-line, bit-exact change and it is independent of the packing patch — different
+kernel family (fused residual+RMSNorm+router GEMV vs the routed QKV lane-major QMV),
+different dispatch, no shared state.
+
+I am not measuring it, and the reason is a scope rule rather than a technical one: the
+advisor's slate makes frieren the sole owner of that adjudication, and the composition
+rule is *nobody composes before both sides terminate*. #597 has no result marker. If it
+terminates `V-CONFIRM` before my 07:00Z freeze, the composed arm `T0 + packing + pf0` is
+pre-specified here and I run it as a fresh paired ABBA against the then-current tree —
+**composed, never summed**, because two independent-looking levers in the same decode
+step share the same command stream and the same memory system, and this campaign has
+already been burned once by adding µs across arms.
+
+I flag one integration risk in advance. #597's own §1 shows two instruments that
+disagree by 41 µs/step *with opposite signs* on this exact lever, and the per-kernel
+instrument says pf1 is **faster**. A tree-level ABBA of my own would not resolve that;
+it would just add a sixth row to a five-row contradiction table. That is the second
+reason I am content to wait for the owner's verdict rather than produce a duplicate.
 
 ### 5.5 The byte budget of the integrated tree, and a headroom discrepancy I resolved
 
