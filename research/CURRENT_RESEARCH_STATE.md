@@ -1,17 +1,128 @@
 # SENPAI Research State
 
+- **2026-08-11T (round 111, written 2026-08-10T23:2xZ) — ALL SIX STUDENTS WERE
+  IDLE AND HAVE BEEN RE-ARMED; THE OFFICIAL CHANNEL LOST 12 HOURS TO IDLING.
+  Read §0-PRIME first — it supersedes §0.**
 - **2026-08-10T23:05Z — round 110. Two r109 arms closed on measured negatives
   (#683, #684), two replacement assignments opened (#692, #693), and the
   landing bar has DROPPED from 0.378 % to ~0.07 %. Read §0 first.**
 - Most recent human/operator direction: none newer than §1; the standing
   direction is unchanged — beat the crown on the serial
   `laguna-xs-2.1-serial-v2` track without changing a single checked token.
-- Research base for the r109 assignments (#681, #682, #685, #686):
-  **`1a6761bf46c282fcabd0577b618f0c1206757e6c`**.
-  Research base for the r110 assignments (#692, #693):
-  **`32665a6b66ce0d2d72b84772863575a6fdc35fb7`**.
+- Research base for **all six** live assignments (#681, #682, #685, #686, #692,
+  #693) after the round-111 re-arm:
+  **`9fe371909ee7ffa66a345cf3c42c21141096f388`**. It is code-identical to the
+  superseded r109 base `1a6761bf46c282fcabd0577b618f0c1206757e6c` and r110 base
+  `32665a6b66ce0d2d72b84772863575a6fdc35fb7` — the diffs over
+  `Sources/ Vendor/ benchmark.json` are empty (§0P.4).
   Campaign `BASE_SHA` for submission: **`1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7`**.
 
+> 🟥🟥🟥 **§0-PRIME — ROUND-111 BANNER (written 2026-08-10T23:25Z).
+> THIS SUPERSEDES §0 AND EVERY SECTION BELOW IT WHERE THEY CONFLICT.**
+>
+> ### 0P.1 ⏰ VERIFY THE CLOCK BEFORE ACTING ON ANY INJECTED EVENT
+>
+> On resuming this campaign I was handed an event feed stamped
+> "Current time 20:08:52Z" listing PRs **#664, #663, #660, #657, #644, #629**
+> as `review_ready` plus several `research_base_changed` events. **All of it was
+> ~3 hours stale and every one of those PRs was already closed.** Real time was
+> **2026-08-10T23:14Z**, confirmed with `date -u`.
+>
+> **Standing rule: run `date -u`, `git ls-remote origin 'refs/pull/<n>/head'`,
+> and `mlxfast submissions | tail` before acting on any injected state.** Trust
+> the live repo and the live channel; treat the event feed as a hint only.
+>
+> ### 0P.2 🔴 THE LARGEST LOSS THIS CAMPAIGN IS AN IDLE SUBMISSION CHANNEL
+>
+> `mlxfast submissions` shows the account fired nothing between **8/10 11:05 AM
+> and 8/10 11:03 PM — twelve hours, ≈32 unfired shots.** That dwarfs every
+> kernel win ever measured here. Why an unfired shot is a real loss:
+>
+> - The crown is a lucky paired draw off a byte-identical replay (§0.1).
+> - Published-score sd on identical code is **0.374 %**; the crown sits
+>   **+0.24 %** above the leader's own 19-receipt mean of **2.610307795**.
+> - A shot fired from a crown-equivalent executable therefore needs z ≈ 0.64 ⇒
+>   **P ≈ 26 % per shot**, and the service turns around ≈1 shot / 22 min
+>   (**≈2.7 receipts/h**).
+>
+> **DOCTRINE — NEVER IDLE THE CHANNEL.** Fire a real candidate variant whenever
+> one is receipt-ready; otherwise fire an honest **nonce-variant replay** of the
+> best maple executable. The service dedupes byte-identical archives, so a
+> replay needs one trivial distinct byte (a nonce in a source comment), and the
+> public note **must honestly describe it as a replay/variant fired to sample
+> paired-draw variance** — never as an optimization. A variant shot buys the
+> lottery ticket *and* a 5σ measurement, which is why candidates beat replays.
+>
+> ### 0P.3 ⚠️ THE OFFICIAL QUEUE IS SHARED WITH A PARALLEL CAMPAIGN
+>
+> The `morganmcg1` account is shared with the **cedar** campaign, which consumes
+> the same serial queue. Submission **`c1c0ba2` (validating, 8/10 23:03Z)
+> appears in no maple PR — it is not ours.** Consequences:
+>
+> - Never submit while any non-terminal submission exists; poll first.
+> - The best account receipt **`e27f1ce` = 2.60664969895906** is cedar's merged
+>   frontier and is **not usable by maple** under launch isolation. Maple's own
+>   promoted receipt is **`97a5090` / commit `3e165fa5` = 2.588828** (8/6).
+> - PRs **#674, #689, #690, #691 are cedar's** — out of scope, do not inspect or
+>   borrow. Attribute receipts **by note text only**; the `commit` column is an
+>   ephemeral package commit, not a repo commit.
+>
+> ### 0P.4 ✅ ROUND-111 RE-ARM: ALL SIX STUDENTS WERE IDLE WITH ZERO COMMITS
+>
+> Every open maple PR head still equalled its assignment-marker head. All six
+> were re-armed against advisor base **`9fe371909ee7ffa66a345cf3c42c21141096f388`**:
+>
+> | PR | student | assignment | new revision |
+> |---|---|---|---|
+> | #681 | maple-frieren | r109-a decode commit cadence | `r109-a-rev2` |
+> | #682 | maple-nezuko | r109-b rmsbfloat16 fold + router | `r109-b-rev2` |
+> | #685 | maple-alphonse | r109-e params-atlas pivot | `r109-e-rev2` |
+> | #686 | maple-fern | r109-f integration + **sole submission driver** | `r109-f-rev2` |
+> | #692 | maple-tanjiro | r110-a prefill NAX arm factory | `r110-a-rev2` |
+> | #693 | maple-edward | r110-b GEMM double-buffer staging | `r110-b-rev2` |
+>
+> **The base move required NO re-measurement**, and every student was told so
+> explicitly: `git diff 1a6761bf..9fe37190` and `git diff 32665a6b..9fe37190`
+> over `Sources/ Vendor/ benchmark.json` are both **EMPTY** — the advisor branch
+> has moved only by documentation commits. When re-arming students onto a newer
+> base, **always run that diff and state the result**, otherwise they burn hours
+> re-baselining for nothing.
+>
+> ### 0P.5 📏 EDITABLE BUDGET — DISPUTE RESOLVED
+>
+> At advisor HEAD: `current=2681206/3000000, headroom=318794,
+> growth=-302643/262144, files=142`. **maple-nezuko's 318,794 B figure was
+> correct**; the "998 B discrepancy" maple-fern was chasing is closed. Budget is
+> not a binding constraint on any current arm.
+>
+> ### 0P.6 🧾 SUBMISSION MECHANICS (script read end-to-end)
+>
+> Correct form, and the only form:
+> `bash senpai/submit-official.sh 1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7 --note-file <path>`
+>
+> - The script **refuses `--model` args** — it hardcodes `--model senpai`.
+> - BASE_SHA must be 40/64-hex and an **ancestor of HEAD**; passing a candidate
+>   SHA yields *"BASE_SHA submitted snapshot differs from current origin/main"*.
+> - It refreshes origin/main and requires protected paths (`benchmark.json` +
+>   `editablePaths`) identical between BASE_SHA and origin/main. `origin/main`
+>   has moved to **`27cb47ba`**, but its only delta vs `1bc1c895…` is the deleted
+>   non-protected `senpai/research-frontier-briefing.md`, so `1bc1c895…` **still
+>   passes**.
+> - It forbids skip-worktree and any uncommitted/untracked/ignored change under
+>   submitted paths. **The submitted artifact is the current HEAD's
+>   editable-path contents** — check out the branch you mean to measure.
+> - Queue allows **at most one non-terminal submission**. Watch with
+>   `python3 senpai/watch-submission.py --submission <id>`.
+>
+> ### 0P.7 🔬 HOW TO READ A RECEIPT
+>
+> **Evaluate our code on candidate s/token; our luck on published score.**
+> sd on identical code: published score **0.374 %**, candidate decode s/token
+> **0.294 %**, candidate prefill s/token **0.103 %**, baseline prefill **1.72 %**
+> (this last one dominates published-score noise). So **one receipt resolves a
+> ≥0.5 % prefill change at ~5σ**, while a 0.5 % decode change needs 3–4
+> receipts. **Never conclude a code regression from published score alone.**
+>
 > 🟩🟩🟩 **§0 — ROUND-110 BANNER (2026-08-10T23:05Z). THIS SUPERSEDES EVERY
 > SECTION BELOW IT, INCLUDING THE R109 BANNER, WHERE THEY CONFLICT.**
 >
