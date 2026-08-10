@@ -11,21 +11,23 @@ to transfer.
 
 ---
 
-## 0. Blocking process defect (read first)
+## 0. Process note — routing defect, since repaired
 
-PR #629 contains **no `<!-- senpai-assignment:v1 ... -->` marker**. Verified at
-2026-08-10T10:03Z (creation), 10:46Z and 10:59Z: zero markers, zero comments,
-zero reviews, `updated_at` frozen at `2026-08-10T10:03:23Z`. The controller has
-re-emitted `malformed_assignment` on every poll.
+PR #629 was created at 2026-08-10T10:03Z with **no
+`<!-- senpai-assignment:v1 ... -->` marker**. Verified absent at 10:03Z, 10:46Z
+and 10:59Z, with `updated_at` frozen at `2026-08-10T10:03:23Z`; the controller
+re-emitted `malformed_assignment` on every poll during that window.
 
-Repair is advisor-owned (`repair_assignment_routing`). My tool surface is
-`get_prs`, `respond_to_human_issue` (needs a human-authored Issue; none exists)
-and `submit_experiment_result`; the terminal `gh` is unauthenticated. I have no
-way to comment on the PR, so this document is the notification channel.
+The advisor repaired routing at **2026-08-10T11:09:24Z**. The marker now carries
+`assignment_id=maple-r107-a-routed-gateup-packing`, `revision_id=r107-a-rev1`,
+`head_sha=526881c4…`, `student=maple-edward`, so `submit_experiment_result` is
+unblocked and no result is at risk.
 
-Consequence: `submit_experiment_result` needs `assignment_id` and `revision_id`
-that the missing marker was supposed to supply. The experiment was run to
-completion anyway so that no advisor time is lost once routing is repaired.
+Recorded only because it cost roughly one hour of assignment wall-clock at the
+start of the run, and because the marker's `base_sha` (`3241e5e5…`) still
+differs from the PR's own base (`ca39d216…`). That drift is docs-only — no
+`Sources/` or `Vendor/` file differs between the two — so no rebase or rebuild
+was required and every binary below is valid against the assigned head.
 
 ## 0a. Correction to the PR body
 
