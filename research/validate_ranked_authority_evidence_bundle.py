@@ -738,15 +738,28 @@ def validate_confinement(errors, data, artifacts, phases, missing_role):
         errors.append(error("PATH_DESCRIPTOR_CONTRADICTION", "confinement.weights_root", "pathname access cannot claim an immutable descriptor manifest"))
 
     capability_by_phase = {}
-    for index, capability in enumerate(confinement.get("capabilities", [])):
+    capabilities = confinement.get("capabilities", [])
+    for index, capability in enumerate(capabilities if isinstance(capabilities, list) else []):
         if not isinstance(capability, dict):
             errors.append(error("CAPABILITY_TYPE", f"confinement.capabilities[{index}]", "capability must be an object"))
             continue
         phase_name = capability.get("phase")
+        if phase_name in capability_by_phase:
+            errors.append(error("DUPLICATE_CAPABILITY_PHASE", f"confinement.capabilities[{index}].phase", "capability phases must be unique"))
+        else:
+            capability_by_phase[phase_name] = capability
         phase = phases.get(phase_name)
         if phase is None or capability.get("actor_id") != phase.get("actor_id"):
             errors.append(error("CAPABILITY_ACTOR_CONTRADICTION", f"confinement.capabilities[{index}]", "capability actor contradicts phase actor"))
-        capability_by_phase[phase_name] = capability
+    if set(capability_by_phase) != set(EXPECTED_CAPABILITIES) or len(capability_by_phase) != len(EXPECTED_CAPABILITIES):
+        errors.append(error("CAPABILITY_CENSUS_MISMATCH", "confinement.capabilities", "capabilities must equal the closed-world ranked phase census"))
+    for phase_name, expected in EXPECTED_CAPABILITIES.items():
+        capability = capability_by_phase.get(phase_name)
+        if capability is None:
+            continue
+        actual = tuple(capability.get(field) for field in ("actor_id", "read", "write", "rename", "unlink"))
+        if actual != expected:
+            errors.append(error("CAPABILITY_RIGHTS_CONTRADICTION", f"confinement.capabilities[{phase_name}]", "capability actor or rights contradict the ranked phase contract"))
     load_capability = capability_by_phase.get("worker_load_epoch")
     if load_capability is None:
         errors.append(error("LOAD_CAPABILITY_MISSING", "confinement.capabilities", "worker load epoch capability is absent"))
@@ -754,16 +767,23 @@ def validate_confinement(errors, data, artifacts, phases, missing_role):
         errors.append(error("LOAD_IMMUTABILITY_CONTRADICTION", "confinement.capabilities[worker_load_epoch]", "load epoch rights contradict immutable read-only weights"))
 
     profile_role = confinement.get("sandbox_profile_role")
+    generator_role = confinement.get("profile_generator_role")
+    input_roles = confinement.get("profile_generator_input_roles", [])
+    if (profile_role, generator_role, input_roles) != (
+        "worker_sandbox_profile",
+        "worker_sandbox_profile_generator",
+        ["profile_generator_input"],
+    ):
+        errors.append(error("PROFILE_CONFINEMENT_ROLE_DRIFT", "confinement", "profile output, generator, and input roles must match the ranked authority contract"))
     profile = artifacts.get(profile_role)
     if profile is None:
         if profile_role != missing_role:
             errors.append(error("PROFILE_ARTIFACT_MISSING", "confinement.sandbox_profile_role", "sandbox profile artifact is absent"))
     elif confinement.get("sandbox_profile_sha256") != profile.get("sha256"):
         errors.append(error("PROFILE_HASH_MISMATCH", "confinement.sandbox_profile_sha256", "sandbox profile hash does not match the physical profile artifact"))
-    generator_role = confinement.get("profile_generator_role")
     if generator_role not in artifacts and generator_role != missing_role:
         errors.append(error("PROFILE_GENERATOR_MISSING", "confinement.profile_generator_role", "profile generator artifact is absent"))
-    for index, role in enumerate(confinement.get("profile_generator_input_roles", [])):
+    for index, role in enumerate(input_roles if isinstance(input_roles, list) else []):
         if role not in artifacts and role != missing_role:
             errors.append(error("PROFILE_GENERATOR_INPUT_MISSING", f"confinement.profile_generator_input_roles[{index}]", "profile generator input artifact is absent"))
 
@@ -832,28 +852,61 @@ def validate_crypto(errors, data, artifacts, missing_role):
             errors.append(error(codes[field], f"crypto_linkage.{field}", "cryptographic linkage digest is incorrect"))
 
     capture = data.get("capture_identity", {})
+    confinement = data.get("confinement", {})
+    events = {item.get("id"): item for item in data.get("events", []) if isinstance(item, dict)}
+    expected_roles = ("worker_sandbox_profile", "worker_sandbox_profile_generator", ["profile_generator_input"])
+    expected_argv = [
+        MANDATORY_INSTALLED_PATHS["worker_sandbox_profile_generator"],
+        MANDATORY_INSTALLED_PATHS["profile_generator_input"],
+        MANDATORY_INSTALLED_PATHS["worker_sandbox_profile"],
+    ]
     for index, link in enumerate(crypto.get("generation_links", [])):
+        path = f"crypto_linkage.generation_links[{index}]"
         if not isinstance(link, dict):
-            errors.append(error("GENERATION_LINK_TYPE", f"crypto_linkage.generation_links[{index}]", "generation link must be an object"))
+            errors.append(error("GENERATION_LINK_TYPE", path, "generation link must be an object"))
             continue
-        roles = [link.get("output_role"), link.get("generator_role")] + list(link.get("input_roles", []))
-        if missing_role in roles:
-            continue
+        linked_roles = (link.get("output_role"), link.get("generator_role"), link.get("input_roles"))
+        if linked_roles != expected_roles:
+            errors.append(error("GENERATION_ROLE_DRIFT", path, "generation output, generator, and input roles contradict the ranked authority contract"))
+        confinement_roles = (
+            confinement.get("sandbox_profile_role"),
+            confinement.get("profile_generator_role"),
+            confinement.get("profile_generator_input_roles"),
+        )
+        if linked_roles != confinement_roles:
+            errors.append(error("GENERATION_ROLE_DRIFT", path, "generation link roles contradict confinement evidence"))
+
+        event_id = link.get("event_id")
+        generation_event = events.get(event_id)
+        event_command = generation_event.get("command", {}) if generation_event else {}
+        if (
+            event_id != "profile-generated"
+            or generation_event is None
+            or link.get("generated_at") != generation_event.get("timestamp")
+            or event_command.get("artifact_role") != "worker_sandbox_profile_generator"
+            or event_command.get("argv") != expected_argv
+        ):
+            errors.append(error("GENERATION_EVENT_DRIFT", path, "generation link does not exactly match the canonical profile-generated event"))
+
         output = artifacts.get(link.get("output_role"))
         generator = artifacts.get(link.get("generator_role"))
-        inputs = [artifacts.get(role) for role in link.get("input_roles", [])]
-        if output is None or generator is None or any(item is None for item in inputs):
-            errors.append(error("GENERATION_ARTIFACT_MISSING", f"crypto_linkage.generation_links[{index}]", "generation link references an absent artifact"))
-            continue
-        if link.get("output_sha256") != output.get("sha256") or link.get("generator_sha256") != generator.get("sha256"):
-            errors.append(error("GENERATION_HASH_MISMATCH", f"crypto_linkage.generation_links[{index}]", "generation output/generator hash is not linked to the artifact set"))
-        if link.get("input_sha256") != [item.get("sha256") for item in inputs]:
-            errors.append(error("GENERATION_INPUT_HASH_MISMATCH", f"crypto_linkage.generation_links[{index}].input_sha256", "generation input hashes are not linked to the artifact set"))
+        input_roles = link.get("input_roles", [])
+        inputs = [artifacts.get(role) for role in input_roles] if isinstance(input_roles, list) else []
+        roles = [link.get("output_role"), link.get("generator_role")] + (input_roles if isinstance(input_roles, list) else [])
+        absent_roles = [role for role, artifact in zip(roles, [output, generator] + inputs) if artifact is None]
+        undeclared_absent = [role for role in absent_roles if role != missing_role]
+        if undeclared_absent:
+            errors.append(error("GENERATION_ARTIFACT_MISSING", path, f"generation link references absent artifacts: {undeclared_absent}"))
+        if output is not None and generator is not None:
+            if link.get("output_sha256") != output.get("sha256") or link.get("generator_sha256") != generator.get("sha256"):
+                errors.append(error("GENERATION_HASH_MISMATCH", path, "generation output/generator hash is not linked to the artifact set"))
+        if all(item is not None for item in inputs) and link.get("input_sha256") != [item.get("sha256") for item in inputs]:
+            errors.append(error("GENERATION_INPUT_HASH_MISMATCH", f"{path}.input_sha256", "generation input hashes are not linked to the artifact set"))
         for field in ("base_sha", "workflow_sha", "run_id", "job_id"):
             if link.get(field) != capture.get(field):
-                errors.append(error("GENERATION_IDENTITY_DRIFT", f"crypto_linkage.generation_links[{index}].{field}", "generation context does not match the ranked capture"))
+                errors.append(error("GENERATION_IDENTITY_DRIFT", f"{path}.{field}", "generation context does not match the ranked capture"))
         if link.get("link_sha256") != digest_value(generation_payload(link)):
-            errors.append(error("GENERATION_LINK_DIGEST_MISMATCH", f"crypto_linkage.generation_links[{index}].link_sha256", "generation link digest is incorrect"))
+            errors.append(error("GENERATION_LINK_DIGEST_MISMATCH", f"{path}.link_sha256", "generation link digest is incorrect"))
 
     if crypto.get("authority_link_sha256") != digest_value(authority_payload(data)):
         errors.append(error("AUTHORITY_LINK_DIGEST_MISMATCH", "crypto_linkage.authority_link_sha256", "top-level authority linkage digest is incorrect"))
@@ -869,9 +922,14 @@ def validate_bundle(data, root):
             "missing_authority": None,
             "authoritative": False,
         }
+    errors.extend(validate_committed_schema(data))
+    scan_for_secret_fields(data, errors)
     if data.get("schema_version") != SCHEMA_VERSION:
         errors.append(error("SCHEMA_VERSION", "schema_version", f"expected {SCHEMA_VERSION}"))
+    if data.get("authority_contract_version") != AUTHORITY_CONTRACT_VERSION:
+        errors.append(error("AUTHORITY_CONTRACT_VERSION", "authority_contract_version", f"expected {AUTHORITY_CONTRACT_VERSION}"))
     required_top = {
+        "schema_version", "authority_contract_version", "installed_path_census_sha256",
         "authority", "target_identity", "capture_identity", "required_artifact_roles", "artifacts",
         "environment", "actors", "phases", "events", "event_edges", "survivor_policy",
         "confinement", "crypto_linkage", "missing_authority",
@@ -888,14 +946,17 @@ def validate_bundle(data, root):
         if missing_declaration.get("kind") != "artifact_role" or not all(missing_declaration.get(key) for key in ("role", "fact", "reason")):
             errors.append(error("MISSING_AUTHORITY_INVALID", "missing_authority", "missing authority must identify exactly one artifact role and fact"))
 
-    compare_identity(errors, data.get("target_identity", {}), data.get("capture_identity", {}))
-    started, finished = validate_capture_window(errors, data)
-    artifacts, _ = validate_artifacts(errors, data, root, missing_role)
-    validate_environment(errors, data)
-    actors, phases = validate_actors_and_phases(errors, data, artifacts)
-    validate_events(errors, data, artifacts, actors, started, finished, missing_role)
-    validate_confinement(errors, data, artifacts, phases, missing_role)
-    validate_crypto(errors, data, artifacts, missing_role)
+    try:
+        compare_identity(errors, data.get("target_identity", {}), data.get("capture_identity", {}))
+        started, finished = validate_capture_window(errors, data)
+        artifacts, _ = validate_artifacts(errors, data, root, missing_role)
+        validate_environment(errors, data)
+        actors, phases = validate_actors_and_phases(errors, data, artifacts)
+        validate_events(errors, data, artifacts, actors, started, finished, missing_role)
+        validate_confinement(errors, data, artifacts, phases, missing_role)
+        validate_crypto(errors, data, artifacts, missing_role)
+    except (AttributeError, KeyError, TypeError, ValueError) as exception:
+        errors.append(error("VALIDATOR_INPUT_UNSAFE", "$", f"malformed input prevented semantic validation: {type(exception).__name__}"))
 
     errors = sorted(errors, key=lambda item: (item["code"], item["path"], item["message"]))
     if errors:
@@ -905,17 +966,25 @@ def validate_bundle(data, root):
     else:
         state = "STATIC_RESUME_READY"
     authority = data.get("authority", {})
+    is_authoritative = (
+        state == "STATIC_RESUME_READY"
+        and isinstance(authority, dict)
+        and bool(authority.get("authoritative"))
+        and not bool(authority.get("synthetic"))
+    )
     return {
         "state": state,
         "bundle_digest_sha256": digest_value(data),
         "errors": errors,
         "missing_authority": missing_declaration,
-        "authoritative": bool(authority.get("authoritative")) and not bool(authority.get("synthetic")),
+        "authoritative": is_authoritative,
     }
 
 
 def refresh_derived(data, artifacts_by_role=None):
     artifacts_by_role = artifacts_by_role or {item["role"]: item for item in data.get("artifacts", [])}
+    data["authority_contract_version"] = AUTHORITY_CONTRACT_VERSION
+    data["installed_path_census_sha256"] = digest_value(installed_path_census_payload())
     environment = data["environment"]
     environment["policy_sha256"] = digest_value(environment["policy"])
     environment["observed_sha256"] = digest_value(environment["observed"])
