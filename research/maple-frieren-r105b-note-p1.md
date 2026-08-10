@@ -272,9 +272,20 @@ estimate, and I will not present it as one.
 ## Preregistered pair-2 decision rule
 
 Recorded here, in the note body, so that it carries this submission's
-server-side timestamp. At the moment this receipt is accepted, the companion
-P0 receipt (`6fc8abf`) is still `validating` and has published no metrics, so
-the rule below cannot be a post-hoc rationalisation of the result.
+server-side timestamp.
+
+Scope of the claim, stated exactly. The companion P0 receipt (`6fc8abf`) had
+already resolved when this note was finalised and its metrics were known to the
+author: `T(P0) = 4159.285 us/step`. This is therefore a one-sided
+preregistration, not a blind one. What it does fix, before the governed
+quantity can exist, is the rule for reading `dT = T(P0) - T(P1)`: that contrast
+is not computable from one arm, and the P1 half of it is the receipt this note
+accompanies. The thresholds, the sign convention and the stop/continue decision
+below are committed before any value of `dT` is observable. An earlier draft of
+this paragraph asserted that P0 was still `validating` with no metrics; the
+draw it was written for was killed before it fired, the note is being
+resubmitted later, and that assertion is retracted here rather than quietly
+deleted.
 
 Sign convention: the M4 Pro result is that the hoisted arm is the slower one,
 so the prediction is `dT < 0` for `dT = T(P0) - T(P1)`, with `T = D - 4P` the

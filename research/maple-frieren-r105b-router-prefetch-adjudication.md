@@ -1751,6 +1751,64 @@ randomised interval with a published mean would at least remove the incentive
 to poll fastest. I have not implemented either; both are campaign-level
 decisions.
 
+### 14.5 A fifth constraint, discovered the hard way: a long-lived drawer is not survivable
+
+The P0 draw fired 72 seconds after it started, because the channel happened to
+be free. The P1 draw did not, and what happened to it is worth recording,
+because it is a property of the environment rather than of my script.
+
+The P1 drawer started at 07:56:05 and polled normally, logging `channel busy`
+every ~57 s until 08:09:23. It then went silent. I initially read that silence
+as "it is mid-submit", because the only other thing the script does is invoke
+the wrapper, and for P0 that invocation had taken about 70 s. That reading was
+wrong, and the cost of being wrong was ten minutes of waiting for a submission
+that was never going to appear.
+
+The actual state was visible only in `ps`: both the drawer and its `sleep 50`
+child were in state `T`, **stopped**, not running. Something had sent the
+process group a stop signal at ~08:09:30. When I resumed it with `SIGCONT` it
+died instantly with exit `-15` and no further log output. That is the classic
+signature of a **pending `SIGTERM` delivered on continue**: the terminate had
+been queued while the process was stopped, and `SIGCONT` released it. So the
+drawer was doomed from 08:09:30 onward and my resume merely revealed it.
+
+Three operational lessons, all cheap and all general:
+
+1. **Silence in a poller's log is ambiguous and must never be read as
+   progress.** `channel busy` lines stopping means only that the loop stopped
+   logging. Distinguishing "submitting" from "stopped" from "dead" takes one
+   `ps` call and no API budget, and I should have made it at 08:11 rather than
+   08:20.
+2. **A drawer that waits tens of minutes is a liability.** A supervised job
+   that spends 25 minutes in a `sleep`/poll loop is indistinguishable, from
+   outside, from a hung job, and this environment terminates it. The
+   fire-and-confirm work is ~70 s; only the waiting is long. The right shape is
+   therefore a *short* job launched when the channel is already near-free, not
+   a long job that owns the wait.
+3. **`SIGCONT` on a stopped job is not a repair.** If a supervised job is
+   found stopped, the safe move is to treat it as terminal, let the supervisor
+   record it, and relaunch — precisely because a queued terminate may be
+   waiting behind the stop.
+
+The cost of the incident was one lost slot, not one lost receipt: because the
+drawer never invoked the wrapper, no submission was created and no rate-limit
+budget was consumed. The slot it would have taken was claimed at 08:18:49 by a
+sibling arm, which is the contention of §14.3 acting exactly as described. The
+P1 draw was relaunched at 08:28:47 against the same HEAD surface.
+
+One further consequence, and it is a correctness point rather than a
+scheduling one. Because the note file is read by the wrapper at invocation
+time and not at drawer start, the resubmission would have carried a paragraph
+asserting that the companion P0 receipt was "still `validating` and has
+published no metrics". That was true when the first draw was armed and false
+by the time the second one fired. I corrected the note in place before the
+relaunched drawer reached its invocation, and the correction retracts the old
+sentence explicitly instead of deleting it, so the submitted note now states
+the weaker and true thing: the preregistration is **one-sided**, fixing the
+decision rule for `dT` before the P1 half of that contrast exists, with P0's
+value already known. A blind preregistration is what I intended to record; a
+one-sided one is what I actually have, and §16.3 is worded accordingly.
+
 ## 15. The two verdicts rev2 asked for, explicitly
 
 rev2 required a plain verdict on two standing claims rather than a discussion
@@ -1935,18 +1993,35 @@ resolves the transfer coefficient, and no number of receipts inside a
 restate it here so that no reader mistakes a one-pair result for a measurement
 of the transfer.
 
-### 16.3 Pair-2 decision rule (preregistered before P1 resolved)
+### 16.3 Pair-2 decision rule (one-sided preregistration, fixed before P1 resolved)
 
 A preregistration that lives only in a file I control is worth very little, so
 this one is **embedded in the P1 submission note itself** and therefore carries
-the official channel's own server-side timestamp. It was written while
-`6fc8abf` (P0) was still `validating` with no published metrics and before P1
-had fired, so it is verifiable from the outside — `mlxfast submission-note`
-on the P1 receipt shows the rule and the receipt shows when it was accepted —
-rather than resting on my assertion about when I typed it.
+the official channel's own server-side timestamp. `mlxfast submission-note` on
+the P1 receipt shows the rule, and the receipt shows when the channel accepted
+it, so the ordering does not rest on my assertion about when I typed it.
 
-(It is deliberately *not* committed before the draw. Committing would move
-`HEAD` under a live drawer job, and §14.2 rule 4 says not to do that: the
+**It is one-sided, and I have to say so plainly.** I had intended it to be
+blind: the rule was first drafted while `6fc8abf` (P0) was still `validating`
+with no published metrics. That draw was then killed before it ever fired
+(§14.5), and by the time the relaunched drawer reached its invocation P0 had
+resolved and I had read `T(P0) = 4159.285 µs/step`. The submitted note says
+this in its own words and retracts the earlier "still validating" sentence
+rather than deleting it.
+
+What survives the demotion is the part that matters for this design. The
+governed quantity is the *contrast* `ΔT = T(P0) − T(P1)`, and a contrast is not
+computable from one arm: knowing `T(P0)` alone constrains `ΔT` not at all,
+because `T(P1)` is the receipt the note accompanies and had not been drawn.
+The thresholds, the sign convention, and the stop/continue decision are
+therefore fixed before any value of `ΔT` is observable. What is *lost* is
+protection against a subtler bias — I could in principle have chosen the
+±17.08 band knowing where `T(P0)` sat. I did not (17.08 is `σ_pair` from the
+independent 14-receipt corpus, fixed in §16.2 before either draw), but the note
+can no longer prove that, and a reader is entitled to discount it accordingly.
+
+(The rule is deliberately *not* committed before the draw. Committing would
+move `HEAD` under a live drawer job, and §14.2 rule 4 says not to do that: the
 wrapper archives the worktree at fire time, so the receipt would then record a
 commit sha that is not the arm I named. The note body is the honest place for
 a timestamp anyway.)
