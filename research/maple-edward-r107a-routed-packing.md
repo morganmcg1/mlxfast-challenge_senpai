@@ -802,6 +802,51 @@ start costing tail latency, which is exactly the flat-then-cliff shape measured.
 
 ## 7. Suggested follow-ups (not implemented)
 
+### 7.0 Directly implied by this arm
+
+Ranked by information per unit of host time. All four are cheap and none of them
+needs an M5.
+
+1. **Run the QKV S = 16 arm.** This is the single highest-value missing cell and
+   it costs one short block: `SG_LIST="16"` with the existing Stage-A driver is
+   three arms (base, `null1`, sg16), six slots per rep at ~45 s, so K = 12 is
+   under an hour. It buys two things at once. (a) It directly replicates PR
+   #298's arm `G-0` (-35.4 us/step, CI [-62.8, -8.0]), which was measured at
+   S = 16 on this same kernel on an M4 - so a matching Stage-A S = 16 contrast
+   would turn "two independent M4 replications" into a third under a design with
+   the paired drift-cancelling structure neither predecessor used. (b) Per §5.1
+   point 6, M4 at S = 16 is the *supply-side* stand-in for M5 at S = 8: both are
+   32 threadgroups per core. The decision rule is worth stating in advance:
+   S = 16 no worse than base means the tail/supply risk for M5 at S = 8 is
+   bounded by measurement rather than by argument; S = 16 regressing means the
+   win is supply-fragile and no S should be promoted to M5 without an M5 probe.
+2. **Measure `N_r` and `T_r` for this pipeline.** §5.1 point 5's wave-count
+   argument turns on a resident-threadgroup cap that is currently *inferred*
+   from a different kernel's scan. `MTLComputePipelineState` exposes
+   `maxTotalThreadsPerThreadgroup`, `threadExecutionWidth` and
+   `staticThreadgroupMemoryLength`; logging those three per `_sgS` pipeline is
+   minutes of work if the MLX kernel wrapper can be made to surface the pipeline
+   object. Expected reading is 1024 / 32 / 0 at every S, which would confirm that
+   register pressure and threadgroup memory are not the S-dependent term and
+   leave launch cost and `N_r` as the only live mechanisms.
+3. **Row-count contrast as an M5 occupancy emulator.** Re-run the paired S sweep
+   against a half-height dummy weight (a pure timing probe, off the scored
+   surface): 2560/1280/640/320 threadgroups reproduces M5's 128/64/32/16
+   threadgroups per core exactly. If the win halves, the mechanism is per-core
+   launch cost and M5 should see roughly half the microseconds; if it is
+   unchanged, the cost is global and transfers near 1:1; if the argmax moves to
+   S = 4, the site is supply-limited and M5's optimum is below S = 8. This is the
+   sharpest M5 emulation available without an M5.
+4. **Recover a geometry-specific M4 -> M5 transfer factor from the archive.**
+   §5.0 establishes that no such factor exists in the record - every named factor
+   traces to PR #137's router-weight prefetch. `RESEARCH_ARCHIVE_through-round-91.md`
+   around receipt `285f79fa` may carry the raw M5 `decode_seconds_per_token` for
+   that submission and its control `c3ce66ec`; if it does, subtracting them gives
+   the first M5 microseconds-per-step figure for a threadgroup-geometry change and
+   turns the transfer question from qualitative to quantitative.
+
+### 7.1 Record-mined leads for the wider programme
+
 Produced by a read-only mining pass over `research/CURRENT_RESEARCH_STATE.md`
 (CRS), `research/RESEARCH_ARCHIVE_through-round-91.md` (ARCH) and
 `research/advisor-r105-the-routed-gather-gemm-is-memory-bound.md` (R105). None
