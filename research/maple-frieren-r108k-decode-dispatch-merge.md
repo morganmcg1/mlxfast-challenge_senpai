@@ -1039,9 +1039,9 @@ Ranked by information per unit of device time:
    single dispatch.
 4. **Commit-cadence sweep** around `needs_commit()`, with no injected kernel at all. This is
    now the highest-value item on the list rather than a footnote: §3.4.1's fitted
-   `c ≈ −4` to `−7.5` µs/layer says *more frequent* commits made decode ≈2–3 % faster, while
-   the ≈30–50 µs-per-commit figure says commits are expensive. Those cannot both hold, the
-   probe cannot settle it, and the disagreement is worth ten times the merge's 18 µs.
+   `c ≈ −4` µs/layer says *more frequent* commits made decode ≈1.8 % faster, while the
+   ≈30–50 µs-per-commit figure says commits are expensive. Those cannot both hold, the probe
+   cannot settle it, and the disagreement is worth ten times the merge's own prize.
 
 Items 2–4 come from the same frontier advisory analysis cited in §3.5, not from a measurement
 of mine. The list order is that analysis's ranking; I would now promote item 4 above items 2
