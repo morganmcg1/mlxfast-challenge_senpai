@@ -44,6 +44,21 @@ and the cost is measured, not inferred.
   by the family's own 26.87 % time-weighted issue utilisation leaves a ceiling of
   **0.1107 %`cs` = 16.6 µs/step M4** — 3.61× short of the solo bar and 1.84×
   short of the summand bar. The lever cannot reach the bar even if it were free.
+- **Regime verdict for T3b/T3c, from this instrument (§3, §5).** #648 comment
+  5241940175 ranks `T3b oproj` as the second family whose regime verdict the
+  campaign most needs, and asks for it *measured*, never read off §B.0.3's
+  derived M5 column. This experiment answers it for T3b and T3c without waiting
+  on #648: **BYTES-bound, `k = α`.** Evidence, all M4 Pro census-class:
+  achieved **232.25 GB/s = 87.05 %** (T3b) and **215.05 GB/s = 80.60 %** (T3c)
+  of the *measured* 266.80 GB/s host ceiling, against an issue-slot occupancy of
+  only **27.30 %** / **25.28 %** of measured issue peak. A family cannot be
+  ISSUE-bound at a quarter of issue peak, and rule 100's proven ISSUE-bound
+  comparator sits at 97.7 %. So the 0.4 % bar for this family is
+  **60.1 µs/step M4** (α = 0.4369; 67.5 at α = 0.389), which is **5.4 %** of
+  T3b's own 1117.7 µs/step M4 census — reproducing the advisor's orientation
+  figure from independent local data rather than from §B.0.3. The regime label
+  in §B.0.3 row 3 is **confirmed** by measurement, not merely by the
+  tautological M4↔M5 column agreement that rule 105.2 warns about.
 - **Premise refuted independently (§5).** The residual-scaling test predicts an
   h48:h64 fixed-overhead ratio of 1.3333 if the residual were per-row issue work;
   the observed ratio is **0.8242**, `observed_sign = "OPPOSITE"`, and dispersion
@@ -387,6 +402,40 @@ entirely on the ABBA-paired sessions.
 the **same arm at the same schedule position in two sessions differs by ~1 %**,
 which is 2.5× the shippability bar. This is why nothing in §2 is estimated
 across sessions; all contrasts are within-session, within-half.
+
+### Variance structure: only position-balanced contrasts reach the noise floor
+
+The six contrasts in the same 16 runs do not share one noise level, and the
+pattern is systematic rather than incidental. Backing σ out of each reported
+half-width:
+
+| contrast class | example | implied σ (µs/step M4) | mde (µs/step M4) |
+|---|---|---:|---:|
+| position-balanced within a half | `A_amortisation` | **≈ 14** | **22.2** |
+| single-arm difference within a half | `g1_vs_g0`, `g2_vs_g0`, `g3_vs_g0` | ≈ 130–150 | 165–309 |
+
+The cause is visible in the raw rows: adjacent same-arm runs drift by far more
+than any effect of interest — `abba1.p01.g0` vs `abba1.p08.g0` differ by
+**252 µs/step**, and `p04.g3` vs `p05.g3` by **209 µs/step**, both ≈4–11× the
+30.6 µs/step summand bar. A contrast that leans on one run per arm inherits that
+wander; a contrast whose two sides have the **same mean schedule position inside
+one half** cancels it. In the `g0 g1 g2 g3 | g3 g2 g1 g0` half, factor A's two
+sides both average position 2.5, so a linear session drift cancels exactly and
+only curvature survives — which the mirrored second block then removes.
+
+**This is why the headline is factor A and not `g1_vs_g0`.** The two estimates
+agree in point value (+110.60 vs +149.71 µs/step) but differ 10× in resolution,
+and only the balanced one is powered against the bar. It is also the binding
+constraint on any follow-up: a two-arm comparison must be run as a **4-run ABBA
+quartet per half** (`g0 g4 g4 g0`, both arms at mean position 2.5) and mirrored
+in the block's second half, never as adjacent pairs.
+
+The estimator was checked against this claim on synthetic rows carrying a known
++0.02 %/run linear drift and an injected −0.500 % arm effect: it returned
+**−0.518 %, CI [−0.564, −0.472]** on the decode axis and exactly **+0.000 %** on
+a drift-only placebo axis, confirming that the balanced half removes the drift
+rather than absorbing it into the effect
+(`research/maple-alphonse-r107e-analyse.py --design occ2`).
 
 ### Power: a null is only worth reporting if it could have seen the bar
 
