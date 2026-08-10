@@ -7539,6 +7539,105 @@ tells you what a *certified* number is worth; it says nothing about what a
 hoped-for number is worth.
 
 
+#### 105.22 ⭐⭐⭐ Draw scheduling — the marginal percent is worth **5.9× more at the coin flip than at the arming threshold**, certification precision beyond ten blocks is worth **~1/30 of a tenth of a percent of gain**, and the two draws must **never be split**
+
+Generator: `research/advisor_r105_22_draw_scheduling.py`. Same model as 105.21
+(`p(x) = Φ(−(g0 − x)/σ)`, `g0 = 1.6359 %`, `σ = 0.3016 %`), same self-checks
+(`g0/σ = 5.42`; `p(0.1966 %) = 9.1e−07`), differentiated and scheduled. Four
+results, each with a direct operational consequence.
+
+**(a) Where a marginal +0.10 % of certified gain is worth most.** The model is a
+Gaussian CDF, so its derivative is a bell curve centred on the coin flip
+`x = g0 = 1.6359 %`. Per +0.10 % of certified gain:
+
+| standing at x % | p(1 draw) | P(≥1 of 2) | ΔP(≥1 of 2) per +0.10 % |
+|---|---|---|---|
+| 0.756 (105.20 route C) | 0.0018 | 0.0035 | **+0.004** |
+| 1.000 (arming threshold) | 0.0175 | 0.0347 | +0.028 |
+| 1.069 (105.20 route A) | 0.0301 | 0.0593 | +0.044 |
+| 1.250 | 0.1004 | 0.1906 | +0.105 |
+| 1.500 | 0.3261 | 0.5459 | **+0.161** ← peak |
+| 1.636 (coin flip) | 0.5001 | 0.7501 | +0.132 |
+| 1.690 (105.20 route B) | 0.5712 | 0.8161 | +0.112 |
+| 1.888 | 0.7984 | 0.9594 | +0.038 |
+| 2.190 (frieren §11.4 low) | 0.9669 | 0.9989 | +0.002 |
+
+For a single draw the marginal value at the coin flip is **5.85×** its value at
+route A; for two draws the peak sits slightly *below* the coin flip, at
+`x ≈ 1.50 %`, because the second draw's marginal contribution decays as the
+first becomes likely to succeed. **Consequence:** effort spent moving the tree
+from 1.0 % to 1.1 % buys 2.8 points; the same effort spent moving it from 1.4 %
+to 1.5 % buys 16 points. The campaign is *not* in the flat part of the curve —
+it is on the steep flank, which is exactly why 105.20's 2.5× route disagreement
+is the most expensive open question we have.
+
+**(b) Certification precision is nearly worthless; gain is everything.** Our
+certified `x` is itself an estimate, so the predictive probability integrates
+over it and the effective sigma becomes `sqrt(σ² + sd_x²)`:
+
+| instrument | CI95 half-width | sd_x | σ_eff | inflation |
+|---|---|---|---|---|
+| nezuko paired `--local-submit` | 0.1178 | 0.0601 | 0.3075 | **+2.0 %** |
+| fern score-level ABBA | 0.2666 | 0.1360 | 0.3309 | +9.7 % |
+| fern decode cell | 0.3235 | 0.1651 | 0.3438 | +14.0 % |
+
+Doubling the block count 10 → 20 (halving `sd_x²`) changes `P(≥1 of 2)` by
+**−0.0025 at x = 1.069, −0.0026 at x = 1.469, +0.0006 at x = 1.690** — against
+**+0.044 / +0.161 / +0.112** for a mere +0.10 % of extra gain. A second
+certification pass is worth between 1/17 and 1/60 of one tenth of a percent of
+real improvement. **Consequence: ten blocks on nezuko's instrument is enough.
+Every remaining student-hour belongs to search and integration, not to
+re-measurement.** (This is a statement about *precision* only. Correctness
+certification — rule 105.15's exact token-ID gate at `Golden.swift:387/:535` —
+is a hard pass/fail gate and is not tradeable against anything.)
+
+🪤 **Note the signs.** Tightening the estimate *reduces* our odds at
+`x = 1.069` and only helps above the coin flip. Below `g0` we are betting on a
+tail, and variance is our ally; above `g0` we are defending a lead, and variance
+is our enemy. Do not "clean up" the draw channel while we are behind, and do not
+reach for the noisier instrument while we are ahead.
+
+**(c) Never split the two draws — break-even needs an 86–94 % chance of losing
+the late window.** Suppose the tree stands at `x1` at the early slot and reaches
+`x2` by the late slot. Spending one draw early yields
+`1 − (1−p₁)(1−p₂)`; holding both yields `1 − (1−p₂)²`. Since `p₂ ≥ p₁`, holding
+strictly dominates:
+
+| x1 → x2 | split | hold both | cost of splitting | break-even q* |
+|---|---|---|---|---|
+| 0.756 → 1.069 | 0.032 | 0.059 | −0.028 | 0.940 |
+| 1.069 → 1.469 | 0.311 | 0.496 | −0.185 | 0.860 |
+| **1.069 → 1.690** | 0.584 | **0.816** | **−0.232** | **0.885** |
+| 1.469 → 1.690 | 0.696 | 0.816 | −0.121 | 0.294 |
+| 1.690 → 1.690 | 0.816 | 0.816 | 0 | — |
+
+`q*` is the probability that the late window is lost *entirely* at which
+splitting breaks even. In the case that actually describes tonight — frieren's
+merge landing between the freeze and the draw, `1.069 → 1.690` — splitting costs
+**23 percentage points** and only repays if there is an 88.5 % chance the late
+window evaporates. The official log shows a stable channel (13 consecutive draws
+today at a 23–26 minute cadence), so `q` is small.
+
+**The scheduling rule that follows:** take both draws **as late as the schedule
+safely permits and both against the same, best tree**. With an observed ~25
+minute cadence and a 09:00Z hard stop, 08:00Z and 08:25Z is the plan, with 35
+minutes of slack. The *only* reason to draw earlier is that the tree is already
+final — and note the last row: once nothing further will land, `x1 = x2`, holding
+buys nothing and waiting is pure schedule risk, so **the moment the tree is final,
+draw immediately.**
+
+**(d) 🚨 Correction to 105.21's arming threshold — 1.0 % is not a veto on the
+button.** A rejected draw carries no penalty. Therefore drawing weakly dominates
+not drawing at *every* value of `x`, including 0.756 % (3.5e−03) and 0.400 %
+(4.2e−05). The 1.0 % threshold is an **effort-allocation** threshold, not a
+submission gate: it is the level above which paying the 07:00Z integration
+freeze — which ends all search three hours before the deadline — is worth what
+it costs. Below 1.0 % we keep searching and still draw at the end with whatever
+we have; above 1.0 % we freeze early and protect the draw. Read 105.21's "below
+1.0 %, no draw" as "below 1.0 %, no *early freeze*". **Under no circumstances
+does the campaign end with unused draws.**
+
+
 ## 9. σ table (rule 40 — pick your estimator, then quote its floor)
 
 🚨 **SUPERSESSION (rule 101, round 107).** The score-channel entries below are
