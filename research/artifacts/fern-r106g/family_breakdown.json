@@ -1,0 +1,257 @@
+{
+  "B_step": 1671402432,
+  "traversal_provably_read_once": 1661717366.4861512,
+  "pct_provably_read_once": 99.42054257380374,
+  "rows": [
+    {
+      "family": "routed_nvfp4_swiglu_qmv_packed_top8keys",
+      "traversal_bytes": 347602944,
+      "pct_of_B": 20.797082578374518,
+      "single_reader_bind_bytes": 11123299200,
+      "shared_bind_bytes": 199680,
+      "exclusive_fraction": 0.9999820488137632,
+      "traversal_provably_read_once": 347596704.1148158,
+      "touches_above_slc_buffer": true
+    },
+    {
+      "family": "nvfp4_qkv_h64",
+      "traversal_bytes": 324710400,
+      "pct_of_B": 19.42742177366893,
+      "single_reader_bind_bytes": 364032000,
+      "shared_bind_bytes": 122880,
+      "exclusive_fraction": 0.9996625611607896,
+      "traversal_provably_read_once": 324600830.09954447,
+      "touches_above_slc_buffer": false
+    },
+    {
+      "family": "oproj_act_h64",
+      "traversal_bytes": 259584000,
+      "pct_of_B": 15.530909554162955,
+      "single_reader_bind_bytes": 291532800,
+      "shared_bind_bytes": 3840,
+      "exclusive_fraction": 0.9999868284137459,
+      "traversal_provably_read_once": 259580580.86695382,
+      "touches_above_slc_buffer": false
+    },
+    {
+      "family": "routed_shared_nvfp4_down_residual",
+      "traversal_bytes": 195526656,
+      "pct_of_B": 11.698358950335667,
+      "single_reader_bind_bytes": 5583382272,
+      "shared_bind_bytes": 521664,
+      "exclusive_fraction": 0.999906577189368,
+      "traversal_provably_read_once": 195508389.350243,
+      "touches_above_slc_buffer": true
+    },
+    {
+      "family": "lmhead_int5_base_coarse_delta",
+      "traversal_bytes": 109182976,
+      "pct_of_B": 6.532416963720201,
+      "single_reader_bind_bytes": 102760448,
+      "shared_bind_bytes": 6426624,
+      "exclusive_fraction": 0.9411411636718311,
+      "traversal_provably_read_once": 102756593.0857936,
+      "touches_above_slc_buffer": true
+    },
+    {
+      "family": "nvfp4_qkv_h48",
+      "traversal_bytes": 86589440,
+      "pct_of_B": 5.1806458063117145,
+      "single_reader_bind_bytes": 97075200,
+      "shared_bind_bytes": 40960,
+      "exclusive_fraction": 0.9995782370307887,
+      "traversal_provably_read_once": 86552919.78068326,
+      "touches_above_slc_buffer": false
+    },
+    {
+      "family": "dense_gate_up_swiglu",
+      "traversal_bytes": 67108864,
+      "pct_of_B": 4.01512303172238,
+      "single_reader_bind_bytes": 67108864,
+      "shared_bind_bytes": 4096,
+      "exclusive_fraction": 0.9999389685688129,
+      "traversal_provably_read_once": 67104768.24998474,
+      "touches_above_slc_buffer": true
+    },
+    {
+      "family": "oproj_act_h48",
+      "traversal_bytes": 64901120,
+      "pct_of_B": 3.883033718117744,
+      "single_reader_bind_bytes": 72888608,
+      "shared_bind_bytes": 672,
+      "exclusive_fraction": 0.9999907805372752,
+      "traversal_provably_read_once": 64900521.64654336,
+      "touches_above_slc_buffer": false
+    },
+    {
+      "family": "sliding_fused_attn_ring",
+      "traversal_bytes": 62914560,
+      "pct_of_B": 3.764177842239732,
+      "single_reader_bind_bytes": 62930040,
+      "shared_bind_bytes": 629880,
+      "exclusive_fraction": 0.9900899812334566,
+      "traversal_provably_read_once": 62291075.52971118,
+      "touches_above_slc_buffer": false
+    },
+    {
+      "family": "shared_nvfp4_swiglu_qmv_rows1_halved",
+      "traversal_bytes": 43450368,
+      "pct_of_B": 2.5996353222968147,
+      "single_reader_bind_bytes": 43455360,
+      "shared_bind_bytes": 159744,
+      "exclusive_fraction": 0.9963374155888749,
+      "traversal_provably_read_once": 43291227.35950555,
+      "touches_above_slc_buffer": false
+    },
+    {
+      "family": "residual_rms_router",
+      "traversal_bytes": 40894464,
+      "pct_of_B": 2.4467155974558255,
+      "single_reader_bind_bytes": 41054208,
+      "shared_bind_bytes": 359424,
+      "exclusive_fraction": 0.991321118611379,
+      "traversal_provably_read_once": 40539545.797492765,
+      "touches_above_slc_buffer": false
+    },
+    {
+      "family": "dense_down_residual",
+      "traversal_bytes": 33554432,
+      "pct_of_B": 2.00756151586119,
+      "single_reader_bind_bytes": 33570816,
+      "shared_bind_bytes": 4096,
+      "exclusive_fraction": 0.999878004147859,
+      "traversal_provably_read_once": 33550338.498475052,
+      "touches_above_slc_buffer": true
+    },
+    {
+      "family": "full_fused_attn_grow",
+      "traversal_bytes": 23592960,
+      "pct_of_B": 1.4115666908398994,
+      "single_reader_bind_bytes": 31626280,
+      "shared_bind_bytes": 2680,
+      "exclusive_fraction": 0.9999152675269752,
+      "traversal_provably_read_once": 23590960.910153225,
+      "touches_above_slc_buffer": false
+    },
+    {
+      "family": "gate_sp_h64",
+      "traversal_bytes": 7864320,
+      "pct_of_B": 0.4705222302799665,
+      "single_reader_bind_bytes": 4423680,
+      "shared_bind_bytes": 122880,
+      "exclusive_fraction": 0.972972972972973,
+      "traversal_provably_read_once": 7651770.810810811,
+      "touches_above_slc_buffer": false
+    },
+    {
+      "family": "gate_sp_h48",
+      "traversal_bytes": 1966080,
+      "pct_of_B": 0.11763055756999162,
+      "single_reader_bind_bytes": 1105920,
+      "shared_bind_bytes": 40960,
+      "exclusive_fraction": 0.9642857142857143,
+      "traversal_provably_read_once": 1895862.8571428573,
+      "touches_above_slc_buffer": false
+    },
+    {
+      "family": "lmhead_exact_fused_int5_sparse_refine",
+      "traversal_bytes": 526848,
+      "pct_of_B": 0.03152131347383369,
+      "single_reader_bind_bytes": 25690116,
+      "shared_bind_bytes": 418070528,
+      "exclusive_fraction": 0.05789183053375955,
+      "traversal_provably_read_once": 30500.19513305015,
+      "touches_above_slc_buffer": true
+    },
+    {
+      "family": "rmsbfloat16",
+      "traversal_bytes": 503808,
+      "pct_of_B": 0.030142830377310352,
+      "single_reader_bind_bytes": 167936,
+      "shared_bind_bytes": 167936,
+      "exclusive_fraction": 0.5,
+      "traversal_provably_read_once": 251904.0,
+      "touches_above_slc_buffer": false
+    },
+    {
+      "family": "gather_front",
+      "traversal_bytes": 401408,
+      "pct_of_B": 0.024016238837206622,
+      "single_reader_bind_bytes": 4,
+      "shared_bind_bytes": 401412,
+      "exclusive_fraction": 9.96472487394623e-06,
+      "traversal_provably_read_once": 3.9999202822010083,
+      "touches_above_slc_buffer": false
+    },
+    {
+      "family": "lmhead_coarse_argmax_stage1",
+      "traversal_bytes": 229376,
+      "pct_of_B": 0.013723565049832355,
+      "single_reader_bind_bytes": 0,
+      "shared_bind_bytes": 401408,
+      "exclusive_fraction": 0.0,
+      "traversal_provably_read_once": 0.0,
+      "touches_above_slc_buffer": false
+    },
+    {
+      "family": "vn_copy",
+      "traversal_bytes": 200704,
+      "pct_of_B": 0.012008119418603311,
+      "single_reader_bind_bytes": 0,
+      "shared_bind_bytes": 200704,
+      "exclusive_fraction": 0.0,
+      "traversal_provably_read_once": 0.0,
+      "touches_above_slc_buffer": false
+    },
+    {
+      "family": "prefill_router_tournament",
+      "traversal_bytes": 62400,
+      "pct_of_B": 0.0037333917197507104,
+      "single_reader_bind_bytes": 0,
+      "shared_bind_bytes": 59904,
+      "exclusive_fraction": 0.0,
+      "traversal_provably_read_once": 0.0,
+      "touches_above_slc_buffer": false
+    },
+    {
+      "family": "residual_rms_bf16_2048_v1",
+      "traversal_bytes": 16384,
+      "pct_of_B": 0.0009802546464165967,
+      "single_reader_bind_bytes": 4096,
+      "shared_bind_bytes": 8192,
+      "exclusive_fraction": 0.3333333333333333,
+      "traversal_provably_read_once": 5461.333333333333,
+      "touches_above_slc_buffer": false
+    },
+    {
+      "family": "embedding_rope_atlas",
+      "traversal_bytes": 9216,
+      "pct_of_B": 0.0005513932386093357,
+      "single_reader_bind_bytes": 414187524,
+      "shared_bind_bytes": 4,
+      "exclusive_fraction": 0.9999999903425387,
+      "traversal_provably_read_once": 9215.999910996838,
+      "touches_above_slc_buffer": true
+    },
+    {
+      "family": "argmax",
+      "traversal_bytes": 8192,
+      "pct_of_B": 0.0004901273232082984,
+      "single_reader_bind_bytes": 200704,
+      "shared_bind_bytes": 0,
+      "exclusive_fraction": 1.0,
+      "traversal_provably_read_once": 8192.0,
+      "touches_above_slc_buffer": false
+    },
+    {
+      "family": "lmhead_exact_winner",
+      "traversal_bytes": 512,
+      "pct_of_B": 3.063295770051865e-05,
+      "single_reader_bind_bytes": 0,
+      "shared_bind_bytes": 411046912,
+      "exclusive_fraction": 0.0,
+      "traversal_provably_read_once": 0.0,
+      "touches_above_slc_buffer": true
+    }
+  ]
+}
