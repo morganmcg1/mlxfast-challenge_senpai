@@ -850,27 +850,6 @@ void qmm_splitk(
   while (split_k > 1 && (K % (split_k * k_align) != 0)) {
     split_k--;
   }
-  const char* shared_gate_up_trace = getenv("DARKBLOOM_SHARED_GATE_UP_TRACE");
-  bool shared_gate_up_shape =
-      !biases && x.dtype() == bfloat16 && w.dtype() == uint32 &&
-      scales.dtype() == uint8 && mode == "nvfp4" && group_size == 16 &&
-      bits == 4 && K == 2048 && (N == 512 || N == 1024) && w.ndim() == 2 &&
-      w.shape(0) == N && w.shape(1) == 256 && scales.ndim() == 2 &&
-      scales.shape(0) == N && scales.shape(1) == 128;
-  if (shared_gate_up_trace && shared_gate_up_trace[0] == '1' &&
-      shared_gate_up_trace[1] == '\0' && shared_gate_up_shape) {
-    fprintf(
-        stderr,
-        "SHARED_GATE_UP_QMM M=%d N=%d K=%d physical_n_tiles=%d "
-        "selector_n_tiles=%d split_k=%d selector_engaged=%d\n",
-        M,
-        N,
-        K,
-        n_tiles,
-        selector_n_tiles,
-        split_k,
-        fused_laguna_shared_gate_up ? 1 : 0);
-  }
   if (split_k <= 1) {
     return qmm(
         x, w, scales, biases, out, true, group_size, bits, M, N, K, d, s, mode);
