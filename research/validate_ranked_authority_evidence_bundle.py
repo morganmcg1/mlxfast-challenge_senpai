@@ -2053,6 +2053,433 @@ def run_fixture_suite(fixture_path):
     }
 
 
+_scan_for_secret_fields_v4 = scan_for_secret_fields
+_event_graph_payload_v4 = event_graph_payload
+_collector_attestation_payload_v4 = collector_attestation_payload
+_validate_artifacts_v4 = validate_artifacts
+_validate_bundle_v4 = validate_bundle
+_mutate_fixture_v4 = mutate_fixture
+_seal_external_trust_v4 = seal_external_trust
+
+CREDENTIAL_VALUE_PATTERNS = (
+    re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{20,255}|github_pat_[A-Za-z0-9_]{20,255})\b"),
+    re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b"),
+    re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{20,}\b", re.IGNORECASE),
+    re.compile(r"-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----"),
+)
+PROCESS_EXECUTABLE_ROLES = {
+    "controller": "measure_job",
+    "bench": "bench_exec",
+    "worker": "runtime_worker",
+}
+
+
+def secret_value_present(value):
+    return isinstance(value, str) and any(pattern.search(value) for pattern in CREDENTIAL_VALUE_PATTERNS)
+
+
+def scan_for_secret_fields(value, errors, path="$", environment_observation=False):
+    if isinstance(value, dict):
+        for key, child in value.items():
+            child_path = f"{path}.{key}"
+            if SECRET_KEY_PATTERN.search(key):
+                errors.append(error("SECRET_FIELD_FORBIDDEN", child_path, "secret-bearing field names are forbidden"))
+            if key == "value" and environment_observation and isinstance(child, str) and value.get("redacted") is not True:
+                policy_secret = value.get("name", "").upper().endswith(("SECRET", "TOKEN", "PASSWORD", "KEY"))
+                if policy_secret:
+                    errors.append(error("SECRET_VALUE_FORBIDDEN", child_path, "secret-like environment values are forbidden"))
+            if secret_value_present(child):
+                errors.append(error("SECRET_VALUE_FORBIDDEN", child_path, "credential-like string values are forbidden"))
+            scan_for_secret_fields(child, errors, child_path, path.endswith(".observed") or environment_observation)
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            scan_for_secret_fields(child, errors, f"{path}[{index}]", path.endswith(".observed") or environment_observation)
+
+
+def event_graph_payload(data):
+    payload = _event_graph_payload_v4(data)
+    payload["process_births"] = sorted(data.get("process_births", []), key=lambda item: (item.get("pid", -1), item.get("actor_id", "")))
+    return payload
+
+
+def collector_attestation_payload(data, trust):
+    payload = _collector_attestation_payload_v4(data, trust)
+    payload["expected_bundle_sha256"] = trust.get("expected_bundle_sha256")
+    return payload
+
+
+def validate_artifacts(errors, data, root, missing_role, census_by_role):
+    by_role = _validate_artifacts_v4(errors, data, root, missing_role, census_by_role)
+    for index, artifact in enumerate(data.get("artifacts", [])):
+        try:
+            file_path = safe_bundle_path(root, artifact.get("bundle_path"))
+            if file_path.is_file() and secret_value_present(file_path.read_bytes().decode("latin-1")):
+                errors.append(error("SECRET_VALUE_FORBIDDEN", f"artifacts[{index}].bundle_path.bytes", "credential-like artifact bytes are forbidden"))
+        except (OSError, TypeError, ValueError):
+            continue
+    return by_role
+
+
+def validate_events(errors, data, artifacts, actors, started, finished, missing_role, policies, census):
+    by_id, by_type = _validate_events_v2(errors, data, artifacts, actors, started, finished, missing_role)
+    births = data.get("process_births", [])
+    births_by_actor = {}
+    birth_pid_indices = {}
+    for index, birth in enumerate(births if isinstance(births, list) else []):
+        if not isinstance(birth, dict):
+            continue
+        path = f"process_births[{index}]"
+        actor_id = birth.get("actor_id")
+        pid = birth.get("pid")
+        if actor_id in births_by_actor:
+            errors.append(error("PROCESS_BIRTH_ACTOR_DUPLICATE", path, "each actor must have exactly one immutable process birth"))
+        else:
+            births_by_actor[actor_id] = birth
+        if pid in birth_pid_indices:
+            errors.append(error("PROCESS_BIRTH_PID_DUPLICATE", path, "each PID must have exactly one immutable process birth"))
+        else:
+            birth_pid_indices[pid] = index
+        actor = actors.get(actor_id)
+        role = PROCESS_EXECUTABLE_ROLES.get(actor_id)
+        artifact = artifacts.get(role)
+        expected = (
+            actor_id,
+            actor.get("pid") if actor else None,
+            actor.get("ppid") if actor else None,
+            actor.get("parent_actor_id") if actor else None,
+            role,
+            census.get(role, {}).get("installed_path"),
+            artifact.get("sha256") if artifact else None,
+        )
+        actual = (
+            birth.get("actor_id"), birth.get("pid"), birth.get("ppid"), birth.get("parent_actor_id"),
+            birth.get("executable_role"), birth.get("executable_path"), birth.get("executable_sha256"),
+        )
+        if actual != expected:
+            errors.append(error("PROCESS_BIRTH_IDENTITY_MISMATCH", path, "process birth differs from actor, executable, or verifier-owned census"))
+        parent_actor_id = birth.get("parent_actor_id")
+        parent_actor = actors.get(parent_actor_id)
+        if parent_actor_id is not None and parent_actor is not None and birth.get("ppid") != parent_actor.get("pid"):
+            errors.append(error("PROCESS_PARENT_ACTOR_PID_MISMATCH", f"{path}.ppid", "process parent PID differs from the declared parent actor PID"))
+        birth_started = parse_timestamp(birth.get("started_at"))
+        observed = parse_timestamp(birth.get("observed_at"))
+        if birth_started is not None and observed is not None and birth_started > observed:
+            errors.append(error("PROCESS_BIRTH_TIME_INVALID", path, "process birth start must not follow its observation"))
+
+    if set(births_by_actor) != set(actors):
+        errors.append(error("PROCESS_BIRTH_CENSUS_MISMATCH", "process_births", "process births must cover every actor exactly once"))
+    for actor_id, birth in births_by_actor.items():
+        parent = births_by_actor.get(birth.get("parent_actor_id"))
+        child_started = parse_timestamp(birth.get("started_at"))
+        parent_started = parse_timestamp(parent.get("started_at")) if parent else None
+        if child_started is not None and parent_started is not None and child_started < parent_started:
+            errors.append(error("PROCESS_BIRTH_LIFECYCLE_ORDER_INVALID", f"process_births[{actor_id}]", "child process birth precedes its parent birth"))
+        observed = parse_timestamp(birth.get("observed_at"))
+        first_event = min(
+            (
+                parse_timestamp(event_item.get("timestamp"))
+                for event_item in data.get("events", [])
+                if policies.get(event_item.get("type"), {}).get("process_actor_id") == actor_id
+                and parse_timestamp(event_item.get("timestamp")) is not None
+            ),
+            default=None,
+        )
+        if observed is not None and first_event is not None and observed > first_event:
+            errors.append(error("PROCESS_BIRTH_LIFECYCLE_ORDER_INVALID", f"process_births[{actor_id}].observed_at", "process birth observation follows the first event using that process"))
+
+    for index, event_item in enumerate(data.get("events", [])):
+        command = event_item.get("command", {})
+        role = command.get("artifact_role")
+        artifact = artifacts.get(role)
+        trusted_path = census.get(role, {}).get("installed_path")
+        policy = policies.get(event_item.get("type"))
+        path = f"events[{index}].command"
+        if policy is None:
+            continue
+        if policy.get("event_actor_id") != event_item.get("actor_id") or policy.get("primary_role") != role:
+            errors.append(error("COMMAND_POLICY_BINDING_MISMATCH", path, "event actor or primary role differs from external trust"))
+        if artifact is None and role == missing_role:
+            continue
+        if artifact is None:
+            continue
+        if command.get("artifact_sha256") != artifact.get("sha256"):
+            errors.append(error("EVENT_COMMAND_HASH_MISMATCH", f"{path}.artifact_sha256", "primary executable hash differs from captured artifact"))
+        if command.get("executable_path") != artifact.get("installed_path") or command.get("executable_path") != trusted_path:
+            errors.append(error("COMMAND_EXECUTABLE_PATH_MISMATCH", f"{path}.executable_path", "primary executable path differs from verifier-owned census"))
+        argv = command.get("argv", [])
+        if not argv or argv[0] != command.get("executable_path"):
+            errors.append(error("COMMAND_ARGV0_MISMATCH", f"{path}.argv[0]", "argv[0] must equal the bound executable path"))
+        argv_digest = digest_value(argv)
+        if command.get("argv_sha256") != argv_digest or policy.get("argv_sha256") != argv_digest:
+            errors.append(error("COMMAND_ARGV_DIGEST_MISMATCH", f"{path}.argv_sha256", "argv differs from the externally trusted command"))
+        chain = command.get("exec_chain", [])
+        chain_roles = [item.get("artifact_role") for item in chain if isinstance(item, dict)]
+        if chain_roles != policy.get("exec_chain_roles"):
+            errors.append(error("COMMAND_CHAIN_POLICY_MISMATCH", f"{path}.exec_chain", "launcher/worker chain differs from external trust"))
+        for chain_index, item in enumerate(chain):
+            chain_role = item.get("artifact_role") if isinstance(item, dict) else None
+            chain_artifact = artifacts.get(chain_role)
+            trusted_chain_path = census.get(chain_role, {}).get("installed_path")
+            if chain_artifact is None:
+                errors.append(error("COMMAND_CHAIN_ARTIFACT_MISSING", f"{path}.exec_chain[{chain_index}]", "chain artifact is absent"))
+                continue
+            if (
+                item.get("installed_path") != chain_artifact.get("installed_path")
+                or item.get("installed_path") != trusted_chain_path
+                or item.get("artifact_sha256") != chain_artifact.get("sha256")
+            ):
+                errors.append(error("COMMAND_CHAIN_IDENTITY_MISMATCH", f"{path}.exec_chain[{chain_index}]", "chain identity differs from captured artifacts or verifier-owned census"))
+        process_actor_id = policy.get("process_actor_id")
+        birth = births_by_actor.get(process_actor_id)
+        if birth is None or command.get("process_birth_pid") != birth.get("pid"):
+            errors.append(error("PROCESS_BIRTH_REFERENCE_MISMATCH", f"{path}.process_birth_pid", "event command does not reference the immutable birth of its trusted process actor"))
+    return by_id, by_type
+
+
+def seal_bundle_commands(data):
+    artifacts = {item["role"]: item for item in data.get("artifacts", [])}
+    actors = {item["id"]: item for item in data.get("actors", [])}
+    for birth in data.get("process_births", []):
+        actor = actors.get(birth.get("actor_id"))
+        if actor:
+            birth["pid"] = actor["pid"]
+            birth["ppid"] = actor["ppid"]
+            birth["parent_actor_id"] = actor["parent_actor_id"]
+        artifact = artifacts.get(birth.get("executable_role"))
+        if artifact:
+            birth["executable_path"] = artifact["installed_path"]
+            birth["executable_sha256"] = artifact["sha256"]
+    for event_item in data.get("events", []):
+        command = event_item["command"]
+        primary = artifacts.get(command["artifact_role"])
+        if primary:
+            command["artifact_sha256"] = primary["sha256"]
+            command["executable_path"] = primary["installed_path"]
+        command["argv_sha256"] = digest_value(command["argv"])
+        for entry in command["exec_chain"]:
+            artifact = artifacts.get(entry["artifact_role"])
+            if artifact:
+                entry["installed_path"] = artifact["installed_path"]
+                entry["artifact_sha256"] = artifact["sha256"]
+
+
+def seal_external_trust(data, trust):
+    _seal_external_trust_v4(data, trust)
+    trust["expected_bundle_sha256"] = digest_value(data)
+    trust["collector_attestation_sha256"] = digest_value(collector_attestation_payload(data, trust))
+
+
+def validate_bundle(data, root, external_trust=None, expected_external_trust_sha256=None):
+    result = _validate_bundle_v4(data, root, external_trust, expected_external_trust_sha256)
+    if not result["errors"] and isinstance(external_trust, dict):
+        if external_trust.get("expected_bundle_sha256") != result["bundle_digest_sha256"]:
+            result["errors"] = [error("TRUST_BUNDLE_DIGEST_MISMATCH", "$external_trust.expected_bundle_sha256", "canonical bundle differs from the externally authenticated digest")]
+            result["state"] = "INVALID"
+            result["authoritative"] = False
+            result["resumption_authorized"] = False
+    return result
+
+
+def shifted_timestamp(value, seconds=10):
+    parsed = parse_timestamp(value)
+    return (parsed + timedelta(seconds=seconds)).isoformat().replace("+00:00", "Z")
+
+
+def fictional_secret(kind):
+    if kind == "github":
+        return "gh" + "p_" + "F" * 36
+    if kind == "aws":
+        return "AK" + "IA" + "F" * 16
+    if kind == "bearer":
+        return "Bear" + "er " + "fake" * 8
+    if kind == "private_key":
+        return "-----BEGIN " + "PRIVATE KEY-----"
+    raise ValueError(f"unknown fictional secret kind: {kind}")
+
+
+def mutate_fixture(name, data, root, trust):
+    if name == "coherent_whole_bundle_rewrite":
+        old_to_new = {actor["pid"]: actor["pid"] + 1000 for actor in data["actors"]}
+        for actor in data["actors"]:
+            actor["pid"] = old_to_new[actor["pid"]]
+            actor["ppid"] = old_to_new.get(actor["ppid"], actor["ppid"])
+            actor["pgid"] = old_to_new.get(actor["pgid"], actor["pgid"])
+            actor["sid"] = old_to_new.get(actor["sid"], actor["sid"])
+        for birth in data["process_births"]:
+            birth["pid"] = old_to_new[birth["pid"]]
+            birth["ppid"] = old_to_new.get(birth["ppid"], birth["ppid"])
+            birth["started_at"] = shifted_timestamp(birth["started_at"])
+            birth["observed_at"] = shifted_timestamp(birth["observed_at"])
+        for event_item in data["events"]:
+            event_item["timestamp"] = shifted_timestamp(event_item["timestamp"])
+            event_item["command"]["process_birth_pid"] = old_to_new[event_item["command"]["process_birth_pid"]]
+        for phase in data["phases"]:
+            phase["started_at"] = shifted_timestamp(phase["started_at"])
+            phase["finished_at"] = shifted_timestamp(phase["finished_at"])
+        data["capture_window"]["started_at"] = shifted_timestamp(data["capture_window"]["started_at"])
+        data["capture_window"]["finished_at"] = shifted_timestamp(data["capture_window"]["finished_at"])
+        seal_bundle_commands(data)
+        refresh_derived(data)
+        return trust
+    if name == "duplicate_process_birth":
+        data["process_births"].append(copy.deepcopy(data["process_births"][0]))
+        refresh_derived(data)
+        seal_external_trust(data, trust)
+        return trust
+    if name == "process_birth_start_after_observation":
+        birth = next(item for item in data["process_births"] if item["actor_id"] == "worker")
+        birth["started_at"] = shifted_timestamp(birth["observed_at"])
+        refresh_derived(data)
+        seal_external_trust(data, trust)
+        return trust
+    if name == "process_birth_observed_after_first_event":
+        birth = next(item for item in data["process_births"] if item["actor_id"] == "worker")
+        first = next(item for item in data["events"] if item["type"] == "worker_spawn")
+        birth["observed_at"] = shifted_timestamp(first["timestamp"])
+        refresh_derived(data)
+        seal_external_trust(data, trust)
+        return trust
+    if name == "process_identity_drift":
+        event_item = next(item for item in data["events"] if item["type"] == "worker_spawn")
+        event_item["command"]["process_birth_pid"] += 1
+        refresh_derived(data)
+        seal_external_trust(data, trust)
+        return trust
+    if name == "coherent_parent_ppid_drift":
+        worker = next(item for item in data["actors"] if item["id"] == "worker")
+        worker["ppid"] += 1
+        birth = next(item for item in data["process_births"] if item["actor_id"] == "worker")
+        birth["ppid"] = worker["ppid"]
+        refresh_derived(data)
+        seal_external_trust(data, trust)
+        return trust
+    if name.startswith("secret_") and name != "secret_leak":
+        remainder = name.removeprefix("secret_")
+        target = next(
+            value
+            for value in ("external_trust", "artifact_bytes", "manifest")
+            if remainder.endswith("_" + value)
+        )
+        kind = remainder[: -(len(target) + 1)]
+        secret = fictional_secret(kind)
+        if target == "manifest":
+            data["environment"]["observed"][0]["value"] = secret
+            refresh_derived(data)
+            seal_external_trust(data, trust)
+        elif target == "external_trust":
+            data["authority"]["collector_authority"] = secret
+            trust["expected_authority"] = copy.deepcopy(data["authority"])
+            trust["trusted_collector"]["authority"] = secret
+            refresh_derived(data)
+            seal_external_trust(data, trust)
+        else:
+            artifact = next(item for item in data["artifacts"] if item["role"] == "profile_generator_input")
+            file_path = safe_bundle_path(root, artifact["bundle_path"])
+            file_path.write_bytes(file_path.read_bytes() + b"\n" + secret.encode())
+            hydrate_fixture(data, root, trust)
+        return trust
+    return _mutate_fixture_v4(name, data, root, trust)
+
+
+def invalid_json_result(code, path, raw):
+    return {
+        "state": "INVALID",
+        "bundle_digest_sha256": hashlib.sha256(raw).hexdigest(),
+        "errors": [error(code, path, "input is not valid JSON")],
+        "missing_authority": None,
+        "authoritative": False,
+        "resumption_authorized": False,
+    }
+
+
+def validate_serialized_bundle(manifest_bytes, root, trust_bytes, trust_pin):
+    try:
+        data = json.loads(manifest_bytes)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return invalid_json_result("MANIFEST_JSON_INVALID", "$manifest", manifest_bytes)
+    try:
+        trust = json.loads(trust_bytes)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return invalid_json_result("EXTERNAL_TRUST_JSON_INVALID", "$external_trust", trust_bytes)
+    return validate_bundle(data, root, trust, trust_pin)
+
+
+def run_fixture_suite(fixture_path):
+    fixture_document = json.loads(fixture_path.read_text())
+    if fixture_document.get("schema_version") != FIXTURE_VERSION or fixture_document.get("non_authoritative") is not True:
+        raise ValueError("fixture document must be explicitly synthetic and non-authoritative")
+    results = []
+    failures = []
+    for case in fixture_document["cases"]:
+        with tempfile.TemporaryDirectory(prefix="ranked-authority-fixture-") as temporary:
+            root = Path(temporary)
+            for relative, specification in fixture_document["files"].items():
+                destination = safe_bundle_path(root, relative)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(specification["text"].encode())
+                destination.chmod(int(specification["mode"], 8))
+            data = copy.deepcopy(fixture_document["base_bundle"])
+            trust = copy.deepcopy(fixture_document["base_external_trust"])
+            hydrate_fixture(data, root, trust)
+            pre_mutation_pin = digest_value(trust)
+            trust = mutate_fixture(case["mutation"], data, root, trust)
+            pin_mode = case.get("external_trust_pin", "current")
+            if pin_mode == "missing":
+                trust_pin = None
+            elif pin_mode == "invalid":
+                trust_pin = "A" * 64
+            elif pin_mode == "mismatch":
+                trust_pin = ZERO_SHA256
+            elif pin_mode == "pre_mutation":
+                trust_pin = pre_mutation_pin
+            elif pin_mode == "current":
+                trust_pin = digest_value(trust) if isinstance(trust, dict) else pre_mutation_pin
+            else:
+                raise ValueError(f"unknown external trust pin mode: {pin_mode}")
+            manifest_bytes = canonical_bytes(data)
+            trust_bytes = canonical_bytes(trust)
+            malformed = case.get("malformed_input")
+            if malformed == "manifest":
+                manifest_bytes = b"{"
+            elif malformed == "external_trust":
+                trust_bytes = b"{"
+            first = validate_serialized_bundle(manifest_bytes, root, trust_bytes, trust_pin)
+            second = validate_serialized_bundle(manifest_bytes, root, trust_bytes, trust_pin)
+        deterministic = first == second
+        result = first
+        actual_codes = sorted({item["code"] for item in result["errors"]})
+        expected_codes = sorted(case["expected_error_codes"])
+        passed = (
+            deterministic
+            and result["state"] == case["expected_state"]
+            and actual_codes == expected_codes
+            and result["authoritative"] is case["expected_authoritative"]
+            and result["resumption_authorized"] is case["expected_resumption_authorized"]
+        )
+        case_result = {
+            "id": case["id"], "state": result["state"], "bundle_digest_sha256": result["bundle_digest_sha256"],
+            "error_codes": actual_codes, "authoritative": result["authoritative"],
+            "resumption_authorized": result["resumption_authorized"], "deterministic": deterministic, "passed": passed,
+        }
+        if result["state"] == "INCOMPLETE":
+            case_result["missing_authority"] = result["missing_authority"]
+        results.append(case_result)
+        if not passed:
+            failures.append({
+                "id": case["id"], "expected_state": case["expected_state"], "actual_state": result["state"],
+                "expected_error_codes": expected_codes, "actual_error_codes": actual_codes,
+                "expected_authoritative": case["expected_authoritative"], "actual_authoritative": result["authoritative"],
+                "expected_resumption_authorized": case["expected_resumption_authorized"],
+                "actual_resumption_authorized": result["resumption_authorized"], "deterministic": deterministic,
+            })
+    return {
+        "schema_version": "ranked-authority-evidence-fixture-results/v5",
+        "fixture_source_sha256": digest_file(fixture_path), "non_authoritative": True,
+        "case_count": len(results), "passed": not failures, "results": results, "failures": failures,
+    }
+
+
+
 def main():
     parser = argparse.ArgumentParser(description="Validate a ranked installed-authority evidence bundle")
     parser.add_argument("--bundle-root", type=Path, help="directory containing physical evidence files")
@@ -2075,11 +2502,16 @@ def main():
         parser.error("--bundle-root is required unless --run-fixtures is used")
     root = args.bundle_root.resolve()
     manifest = (args.manifest or root / "bundle.json").resolve()
-    data = json.loads(manifest.read_text())
-    external_trust = None
+    manifest_bytes = manifest.read_bytes()
+    trust_bytes = b"null"
     if args.external_trust is not None:
-        external_trust = json.loads(args.external_trust.resolve().read_text())
-    output = validate_bundle(data, root, external_trust, args.external_trust_sha256)
+        trust_bytes = args.external_trust.resolve().read_bytes()
+    output = validate_serialized_bundle(
+        manifest_bytes,
+        root,
+        trust_bytes,
+        args.external_trust_sha256,
+    )
     sys.stdout.buffer.write(canonical_bytes(output))
     return 0 if output["resumption_authorized"] else 1
 
