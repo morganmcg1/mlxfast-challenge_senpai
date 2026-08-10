@@ -86,8 +86,13 @@ def slope_ci(rows: list[dict], drift: bool) -> dict:
     resid = y - x @ beta
     dof = len(rows) - x.shape[1]
     sigma2 = float(resid @ resid) / dof
-    cov = sigma2 * np.linalg.inv(x.T @ x)
-    se = math.sqrt(cov[1, 1])
+    # pinv, plus the variance guard, so a degenerate bootstrap resample (all
+    # runs of one arm drawn at the same run order) is skipped instead of raising.
+    cov = sigma2 * np.linalg.pinv(x.T @ x)
+    var = float(cov[1, 1])
+    if not var > 0.0:
+        return {"n": len(rows), "slope": None, "ci": None}
+    se = math.sqrt(var)
     # Student-t two sided 95 percent; table for the small dof we actually hit.
     tcrit = {1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447,
              7: 2.365, 8: 2.306, 9: 2.262, 10: 2.228}.get(dof, 2.13)
