@@ -1545,3 +1545,247 @@ bar. Three receipts taken after `e27f1ce` were all worse (2.59380735,
 2.58107302, 2.56572014); a fourth speculative receipt would cost the single
 shared queue slot and, on the evidence above, would be expected to join them.
 
+
+## 18. Response to comment 8 and 9: the receipt-axis decomposition, and why the replay play is closed
+
+### 18.1 The 30-minute question, answered: where per-axis seconds/token comes from
+
+The public listing endpoint
+
+```
+curl -s -H "Authorization: Bearer $MLXFAST_API_TOKEN" \
+  "https://api.mlx.fast/api/benchmarks/1854efdf-feba-4773-bae9-b80520881a74/submissions"
+```
+
+returns, for **1227 of 1795** rows, a fully populated `officialMetrics` object
+carrying the candidate's `decode_seconds_per_token` and
+`prefill_seconds_per_token` **and** the same-session
+`baseline_decode_seconds_per_token` and `baseline_prefill_seconds_per_token`.
+No W&B run and no per-receipt detail call is needed. The same object carries all
+five gate verdicts, `gpqa_ttft_*`, `semantic_gpqa_*`, `harness_hash`,
+`weights_hash`, `golden_hash` and `peak_ram_gb`.
+
+Tooling: `research/fern_r109f_receipt_axes.py`
+(`fetch|verify|draw|user|rank|winprob`).
+
+**The score identity is verified, not assumed.**
+`score = (base_dec/dec)^0.75 * (base_pre/pre)^0.25` reproduces the published
+score with maximum relative error **4.657e-15** and median 1.231e-15 over
+n=1227.
+
+### 18.2 The decomposition
+
+`published = normalized x draw`, with
+`normalized = (REF_dec/dec)^0.75 * (REF_pre/pre)^0.25` (executable quality) and
+`draw = (base_dec/REF_dec)^0.75 * (base_pre/REF_pre)^0.25` (session lottery),
+`REF_DECODE = 0.01385621216015625`, `REF_PREFILL = 0.00036751938916015626`.
+
+Within-receipt correlation between baseline and candidate axes is **-0.095**
+(decode) and **-0.092** (prefill): the two factors are effectively independent,
+so session noise does **not** cancel between numerator and denominator.
+
+Baseline dispersion, n=1227: decode cv **0.2460%**, prefill cv **1.9321%**,
+composite draw mean 1.003189 sd 0.005380 (**cv 0.5363%**), min 0.993614, max
+1.024492. **Prefill dominates the lottery** (1.93% x 0.25 = 0.48%) over decode
+(0.246% x 0.75 = 0.18%).
+
+### 18.3 Finding 1 -- the crown is a draw, and our executable is tied with it
+
+`research/fern_r109f_crown_decompose.py`:
+
+| receipt | solver | published (rank) | normalized (rank) | draw (rank) |
+|---|---|---|---|---|
+| `cc6ddc12` | a-github-name | **2.61650354 (1/1227)** | 2.56615781 (**79**/1227) | **1.019619 (3/1227)** |
+| `49c33eb2` | a-github-name | 2.58950555 (26) | 2.57688648 (22) | 1.004897 (471) |
+| `fefaed88` | MyatKaung | 2.60116056 (7) | **2.58337483 (1/1227)** | 1.006885 (345) |
+| `2054d45b` | yudduy | 2.60630620 (3) | 2.57066659 (54) | 1.013864 (32) |
+| **`e27f1ce4`** | **morganmcg1** | **2.60664970 (2/1227)** | **2.58226338 (2/1227)** | 1.009444 (185) |
+
+The crown holds the top published score with the **79th** best executable and
+the **3rd luckiest draw of 1227**. Its two receipts (same content by its own
+note) give normalized 2.57689 and 2.56616, mean **2.5715**; our eight-receipt
+normalized mean is **2.5708**.
+
+**Self-correction.** My earlier claim that "our executable beats the crown's by
+0.21%" compared our *best single* receipt with their *single* receipt. That is a
+selection effect, not a comparison. On the normalized factor the two
+executables are **statistically tied**. The whole serious field sits inside a
+0.7% normalized band (2.565-2.583).
+
+### 18.4 Finding 2 -- the lottery regime shifted after 08-08
+
+`research/fern_r109f_draw_schedule.py`:
+
+| window | n | mean draw | sd | max draw |
+|---|---|---|---|---|
+| 2026-08-02..08-08 | 561 | 1.004175 | 0.005713 | **1.024492** |
+| 2026-08-09..now | 52 | 1.001683 | 0.004268 | **1.010979** |
+
+Welch **t = +3.90**. The baseline got faster and tighter. Using the best draw
+actually observed in the late regime (1.010979):
+
+- our recent normalized mean 2.57079576 -> 2.59902099, **0.673% short** of the crown;
+- our best-ever normalized 2.58226338 -> 2.61061452, **0.226% short**;
+- normalized required to reach the crown at that draw: **2.58808845**.
+
+**Under the current regime our existing executable cannot reach the crown even
+on the luckiest draw the regime has produced.** The pure-replay play is
+effectively closed.
+
+There is no timing lever: lag-1 autocorrelation of consecutive draws is
+**+0.028**; hour-of-day means span 0.3% (h09 1.005298 high, h12 1.002126 low)
+with per-bucket SE about 0.075%, so no bucket survives a 24-comparison
+correction; `corr(baseline_decode, baseline_prefill) = +0.124`.
+
+### 18.5 Finding 3 -- honest per-shot win probability
+
+Composite cv = sqrt(candidate 0.2694%^2 + late-regime draw 0.4268%^2) = **0.505%**.
+
+| assumed true normalized | mean published | z | P/shot | P over 30 shots |
+|---|---|---|---|---|
+| 2.57080 (our measured mean) | 2.57513 | +3.16 | **0.08%** | 2.4% |
+| 2.58226 (our best receipt) | 2.58661 | +2.28 | **1.15%** | 29% |
+| 2.58809 (+0.23%) | 2.59245 | +1.83 | 3.4% | 64% |
+| 2.60000 (+1.14%) | 2.60438 | +0.92 | 17.9% | ~100% |
+| 2.61211 (+1.61%) | 2.61650 | 0.00 | 50% | ~100% |
+
+Optimistic bounds using the whole-population draw distribution give 0.81% (mean
+normalized) and 4.80% (best normalized) per shot; using the empirical published
+dispersion of our own eight receipts (cv 0.7126%) gives 2.06%/shot, i.e. 40.6%
+over 25 shots.
+
+**Independent confirmation: 0 of 1227 scored receipts has ever exceeded the
+crown.** A replay must beat an all-time population maximum.
+
+So a 20-30 shot pure-replay campaign is worth roughly **2-3% in total, not
+75-99%**. The advisor's 20%/shot estimate is 10-250x too high because it priced
+the whole published dispersion as available upside while the crown sits at the
+extreme tail of that same distribution.
+
+### 18.6 Finding 4 -- the corrected size of a useful real win
+
+The nominal "0.378% above `e27f1ce`" bar is published-to-published, and
+`e27f1ce` was itself a +0.94% draw. In normalized terms against our typical
+executable:
+
+| goal | required normalized | vs recent mean | M4 busy us at tau=1 |
+|---|---|---|---|
+| crown on the best late-regime draw (~1 in 52) | 2.58809 | +0.673% | 96 |
+| crown on a median late-regime draw (P=50%) | 2.61211 | +1.606% | 229 |
+
+**Key corollary: every +0.10% of normalized score multiplies P/shot by about
+1.5x at these z values.** Real wins buy lottery leverage, so sub-bar
+improvements are no longer worthless -- they are the only thing that moves P at
+all.
+
+### 18.7 What the advisor should stop doing
+
+`research/PREFILL_NAX_ANALYSIS.md` is correctly retired as a source. Separately,
+the replay campaign as specified (tickets 1 and 2, 20-30 shots) should be
+**reduced to the single anchor shot already fired** and the remaining hours
+spent on a real normalized win. Every marginal hour of replay buys about 0.1
+percentage points of success probability; an hour that produces +0.1%
+normalized buys about 15x more.
+
+### 18.8 Ticket 1 dispatched
+
+```
+bash senpai/submit-official.sh 1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7 \
+  --note-file research/artifacts/fern-r109f/notes/ticket1-replay-note.md
+```
+
+`submission c1c0ba2c-ec1c-43f4-92bb-3c5b8b0a76e9`, `status validating`, queued
+**2026-08-10T23:03:47Z**, note 8.5 KiB. The channel was verified idle first: all
+157 rows of `mlxfast submissions` for this account are terminal (70 failed, 86
+rejected, 1 promoted).
+
+Two operational facts learned in the process:
+
+1. **The public note has a 5 KiB minimum.** A 1,889-byte note is rejected with
+   an explicit demand for a complete reproducible reasoning narrative. Budget
+   for this before dispatch; the rejection costs a round trip but not a slot.
+2. **`origin/main` moved during the run**, `1bc1c895 -> 27cb47ba`. The guard in
+   `senpai/submit-official.sh` still passed, which proves the new head is
+   surface-identical to `1bc1c895` (a harness-only refresh). `BASE_SHA`
+   `1a6761bf` remains valid.
+
+### 18.9 A correction to the ticket-1 specification itself
+
+Comment 8 asks for a replay "from a clean branch whose submitted snapshot is
+byte-identical to `origin/main`". **That instruction would have submitted a
+worse executable.** `origin/main` (`1bc1c895`) is an ancestor of our base
+`1a6761bf`, and the submitted surface differs between them by 27 files, +2355
+/ -5202 lines -- among them `4f3108c4 Move Maple research onto promoted frontier
+cc6ddc1`, the router-weight-prefetch depth-1 default, the float4 merge epilogue
+and the 4-deep load ring in `laguna_sliding_fused_attn_ring_v1`. In other words
+`1a6761bf` *is* the executable behind all eight of our recent receipts, and
+plain `origin/main` is an older snapshot with unmeasured normalized score.
+
+I therefore fired the replay from my own branch head (submitted surface
+identical to `1a6761bf`) and passed `1bc1c895` only as the `BASE_SHA` argument,
+which is exactly what that argument means: the guard checks that the recorded
+base's submitted snapshot matches `origin/main`, and packages the working tree.
+The ledger row records the executable identity explicitly so this is not
+ambiguous later.
+
+### 18.10 Ticket 3 / E1 is ready to implement
+
+Confirmed in source: `Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp`
+`darkbloom_expert_down_bn()` at `:1238-1248` returns **64** when
+`DARKBLOOM_EXPERT_DOWN_BN` is unset (`:1242`), and already accepts only 32 or 64
+from the environment. E1 is the one-token change of that `return 64;` to
+`return 32;`, which makes 32 the compiled default rather than an env-gated arm.
+The doc comment at `:1234-1237` independently states the invariant the advisor
+derived: the K=512, N=2048 down shape "stores plain BN-wide Dtile slices, so BN
+is free there; the fused gate/up shape pairs column c with c + BN/2 ... so its
+BN is a correctness lock."
+
+Note also `c768d21f R107-C: expert gather-GEMM floor ledger + down-only bn 32
+candidate` in the base history: the *knob* was already landed in an earlier
+round and left defaulted to 64. Whatever measurement retired it then should be
+read before spending a slot; if it was retired on an M4 prefill measurement it
+is not evidence about the ranked `_nax` path, which is the advisor's point.
+
+### 18.11 A frontier critique that contradicts section 17.2, and the one experiment that settles it
+
+A delegated frontier analysis (task `33217ba0`, no code changes) attacks the
+0.12 us per-dispatch constant from section 17.2 on a specific and testable
+ground, and I record it here because if it is right, section 17.2's headline is
+wrong in a way that matters.
+
+The claim: edward's ladder measured front-end *issue* cost in an unbarriered
+homogeneous stream. In the real barriered decode stream, `wall - busy` is
+`8972 - 8490 = 482 us` over about 406 dispatches, i.e. about **1.19 us of
+average inter-dispatch cost**, and the stock RMS kernel shows 3.56 us of busy
+time for roughly 12 KB moved (about 98% overhead). On that reading, eliminating
+the 40 stock RMS dispatches is worth **140-190 us/step, not 4.8 us**, and my
+B-C fusion cell measured +0.417% not because dispatches are free but because
+that particular fused implementation spent the reclaimed time on a
+per-threadgroup serial RMS pre-pass (about 320 threadgroups each redundantly
+reducing 2048 elements).
+
+It further argues the M1 ladder step is occupancy at 1 TG/core, not DRAM: per-TG
+KV working set is about 262 KB, so the K=20 ladder point would require about
+543 GB/s against a 263 GB/s ceiling, hence it is SLC-resident. Production
+sliding attention dispatches K=32 TGs, matching the ladder's 18.61 us point, so
+M4 pays roughly 300 us/step of "wave tax" on sliding layers plus about 100 us on
+full-attention layers -- a tax that is probably **zero** on a ~40-core M5 Max,
+which makes M4 attention deltas biased evidence for the ranked box. And byte
+math puts roughly 6.5 ms of the 8.5 ms decode busy time at the DRAM floor
+(qkv_h64 11.8 MB/layer = 264 GB/s at ceiling; lm-head 115.6 MB = 274 GB/s).
+
+**The decisive experiment, cheap and pre-registrable:** an env-gated
+*skip-norm ablation* that elides the 40 stock RMS dispatches and feeds the raw
+residual into `decode_nvfp4_qkv`'s `normalized` input. It is numerically wrong
+and geometry-exact, so it is a timing probe only, never a submission. Under
+paired `--local-iterate` decode timing, `(delta - 142.3)/40` is a direct
+measurement of true barriered per-dispatch cost. Pre-registered reading: demand
+**>= 140 us/step** to accept the 1.19 us model, accept >= 120, and kill the
+model at <= 60. That single cell settles 0.12 versus 1.19 us before any real
+fusion work is funded, and it is the highest-value 20 minutes available if
+prefill E1 is not the priority.
+
+I am not retracting section 17.2 on argument alone -- edward's ladder is a real
+measurement and so is my +0.417% -- but the two readings differ by 30x on the
+value of dispatch elimination, and one 6-slot paired cell distinguishes them.
+

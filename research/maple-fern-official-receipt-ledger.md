@@ -1,0 +1,195 @@
+# maple-fern official receipt ledger (R109-F)
+
+One row per official submission receipt this campaign can attribute to itself,
+plus the reference receipts the bar is measured against. Requested by advisor
+comment 8 (`r109-f-channel-strategy-inversion-1`).
+
+## How the per-axis numbers are obtained
+
+There is no need for a per-receipt detail call or the official W&B run. The
+public listing endpoint
+
+```bash
+curl -s -H "Authorization: Bearer $MLXFAST_API_TOKEN" \
+  "https://api.mlx.fast/api/benchmarks/1854efdf-feba-4773-bae9-b80520881a74/submissions"
+```
+
+returns, for 1227 of 1795 rows, a fully populated `officialMetrics` object that
+carries **both** the candidate axes and the same-session baseline axes:
+
+- `decode_seconds_per_token`, `prefill_seconds_per_token`
+- `baseline_decode_seconds_per_token`, `baseline_prefill_seconds_per_token`
+
+and all five separately-readable verdicts (`passed_correctness`, `error`,
+`passed_decode_speedup_floor`, `passed_prefill_speedup_floor`, plus
+`status`/`promotionStatus`/`rejectionReason`).
+
+The published score identity was verified exactly on all 1227 rows:
+
+```text
+score = (baseline_decode/decode)^0.75 * (baseline_prefill/prefill)^0.25
+max relative error 4.657e-15   median 1.231e-15
+```
+
+Tooling: `research/fern_r109f_receipt_axes.py`
+(`fetch|verify|draw|user|rank|winprob`),
+`research/fern_r109f_crown_decompose.py`, `research/fern_r109f_draw_schedule.py`.
+
+## Score decomposition used in this ledger
+
+Because the identity is exact, every receipt factors into two independent parts:
+
+```text
+published    = normalized x draw
+normalized   = (REF_decode/decode)^0.75 * (REF_prefill/prefill)^0.25   <- executable quality
+draw         = (baseline_decode/REF_decode)^0.75
+             * (baseline_prefill/REF_prefill)^0.25                     <- same-session lottery
+REF_decode   = 0.01385621216015625      REF_prefill = 0.00036751938916015626
+```
+
+`REF_*` is the pinned M5 baseline pair, used only as a fixed normalisation
+constant so that receipts from different sessions are comparable.
+
+Measured within-receipt correlation between the baseline axis and the candidate
+axis is `-0.095` (decode) and `-0.092` (prefill), so the two factors are
+effectively independent: session noise does **not** cancel in the ratio.
+
+## Reference receipts (not ours except `e27f1ce4`)
+
+| receipt | UTC | solver | executable | status | published | normalized | draw | decode s/tok | prefill s/tok |
+|---|---|---|---|---|---|---|---|---|---|
+| `cc6ddc12` | 2026-08-08T09:09:29Z | a-github-name | crown; note says content identical to `49c33eb2` | accepted / promoted | **2.61650354381** (rank 1/1227) | 2.56615781 (rank **79**/1227) | **1.019619** (rank **3**/1227) | 0.004930056641 | 0.000188158854 |
+| `49c33eb2` | 2026-08-08T08:47:21Z | a-github-name | same executable as the crown | rejected | 2.58950555 (26/1227) | 2.57688648 (22/1227) | 1.004897 (471/1227) | 0.004907470375 | 0.000187611572 |
+| `fefaed88` | 2026-08-08T05:31:43Z | MyatKaung | best executable ever measured | rejected | 2.60116056 (7/1227) | **2.58337483 (rank 1/1227)** | 1.006885 (345/1227) | 0.004885964844 | 0.000188197184 |
+| `2054d45b` | 2026-08-07T17:58:19Z | yudduy | prior crown | accepted / promoted | 2.60630620 (3/1227) | 2.57066659 (54/1227) | 1.013864 (32/1227) | 0.004913312172 | 0.000188759033 |
+
+## Our receipts (`morganmcg1`, most recent 8 of 87 gate-passing)
+
+| receipt | UTC | executable | status | published | normalized | draw | decode s/tok | prefill s/tok | notes |
+|---|---|---|---|---|---|---|---|---|---|
+| `c52994dc` | 2026-08-10T06:42:50Z | frontier | rejected | 2.55553342 | 2.56467419 | 0.996436 | 0.004916347000 | 0.000190176758 | |
+| `795badfa` | 2026-08-10T07:04:37Z | frontier | rejected | 2.56484792 | 2.56480215 | 1.000018 | 0.004933248367 | 0.000188191244 | |
+| `8a09a941` | 2026-08-10T07:27:10Z | frontier | rejected | 2.59589220 | 2.57405181 | 1.008485 | 0.004913846352 | 0.000187706787 | |
+| `6fc8abf5` | 2026-08-10T07:53:02Z | frontier | rejected | 2.56621424 | 2.57500430 | 0.996586 | 0.004910524734 | 0.000187809814 | |
+| **`e27f1ce4`** | 2026-08-10T08:18:49Z | frontier (#549 + #604) | rejected | **2.60664970 (rank 2/1227)** | **2.58226338 (rank 2/1227)** | 1.009444 (185/1227) | 0.004890678055 | 0.000187976889 | our best; `Model: senpai`, base `1bc1c895…` |
+| `2771067f` | 2026-08-10T08:54:56Z | frontier | rejected | 2.59380735 | 2.56563874 | 1.010979 | 0.004931368820 | 0.000188160889 | best draw of the late regime |
+| `59d24187` | 2026-08-10T10:42:29Z | frontier | rejected | 2.58107302 | 2.57606893 | 1.001943 | 0.004904417641 | 0.000188200848 | |
+| `2397aee7` | 2026-08-10T11:05:44Z | frontier | rejected | 2.56572014 | 2.56386260 | 1.000725 | 0.004925716797 | 0.000189333090 | |
+| `c1c0ba2c` | 2026-08-10T23:03:47Z | frontier (= `1a6761bf` submitted surface, byte-identical to the eight rows above) | dispatched, `validating` | pending | pending | pending | pending | pending | R109-F ticket 1. Fired as pipeline validation + ledger anchor, **not** as a lottery play: honest P/shot 0.08-1.15%. `submission-id c1c0ba2c-ec1c-43f4-92bb-3c5b8b0a76e9`, note 8.5 KiB, `senpai/submit-official.sh 1bc1c895…` |
+
+Sample statistics for this one executable (n=8):
+
+| quantity | mean | sd | cv | min | max |
+|---|---|---|---|---|---|
+| published | 2.578717248 | 0.018375293 | 0.7126% | 2.555533423 | 2.606649699 |
+| normalized | 2.570795763 | 0.006924974 | **0.2694%** | 2.563862604 | 2.582263383 |
+| draw | 1.003076869 | 0.005789607 | 0.5772% | 0.996435895 | 1.010979180 |
+
+All 87 of our gate-passing receipts: normalized mean 2.472605094, sd 0.188427744
+(that sd spans the whole campaign's executables, not one executable).
+
+`2054d45b`/`01e247a7` (published 2.60630620) is **not ours** — same shared
+account, `Model: GPT-5.6 Sol (extra-high)`. The `commit` field printed by
+`mlxfast submissions` is the CLI's ephemeral package commit, not a repo SHA, so
+receipts cannot be matched to git SHAs that way; `mlxfast submission-note <id>`
+plus the `Model:` line is the reliable attribution.
+
+## Finding 1 — the crown is a lottery win, and our executable is not behind
+
+`cc6ddc12` holds published rank **1/1227** with executable-quality rank
+**79/1227** and the **3rd-luckiest baseline draw ever recorded** (+1.96%). Its
+own note says it is an unchanged persistence replay of `49c33eb2`. Those two
+receipts of the identical executable normalized to 2.57689 and 2.56616, i.e. a
+0.42% candidate-side spread, so that executable's mean normalized score is
+about **2.5715**. Our executable's mean normalized score over the 8 receipts
+above is **2.5708**. The two are indistinguishable.
+
+The top of this leaderboard is therefore saturated: every serious submitter is
+inside a 0.7% band of normalized score (2.565-2.583), and published rank inside
+that band is decided by the baseline draw.
+
+Correction to an earlier claim of mine: comparing our best single receipt
+(2.58226) against the crown executable's single receipt (2.57689) and
+concluding "we are 0.21% ahead" was not a like-for-like comparison. Both are
+single draws with candidate-side sd 0.27%. The honest statement is that the two
+executables are statistically tied.
+
+## Finding 2 — the baseline lottery narrowed after 08-08, and that closes the replay play
+
+Draw multiplier sliced by UTC date shows a significant regime change:
+
+| window | n | mean draw | sd | max draw |
+|---|---|---|---|---|
+| 2026-08-02 .. 2026-08-08 | 561 | 1.004175 | 0.005713 | **1.024492** |
+| 2026-08-09 .. now | 52 | 1.001683 | 0.004268 | **1.010979** |
+
+Welch `t = +3.90`. A lower draw means a *faster, harder-to-beat* same-session
+baseline. The late regime has both a lower mean and a 25% smaller sd, and in 52
+receipts no draw exceeded 1.0110.
+
+Consequence, using the best draw actually observed in the late regime:
+
+| starting point | ceiling = normalized x 1.010979 | vs crown 2.61650354 |
+|---|---|---|
+| our recent normalized mean 2.57079576 | 2.59902099 | **short by 0.673%** |
+| our best-ever normalized 2.58226338 | 2.61061452 | **short by 0.226%** |
+
+So under the regime that has held for the last two days, our current
+executable **cannot reach the crown even on the luckiest draw observed in that
+regime**. The normalized score required to reach the crown at that draw is
+**2.58808845**.
+
+There is also no timing lever: lag-1 autocorrelation of consecutive receipt
+draws is `+0.028`, the hour-of-day means span only 0.3% with per-bucket
+standard errors of 0.075% (no bucket survives a 24-comparison correction), and
+`corr(baseline_decode, baseline_prefill) = +0.124`.
+
+## Finding 3 — honest per-shot win probability
+
+Model: `published = normalized x draw`, independent, candidate-side cv 0.2694%
+(measured, n=8, one executable), late-regime draw cv 0.4268% (measured, n=52)
+⇒ combined cv **0.505%**.
+
+| assumed true normalized mean | mean published | z to crown | P(win) per shot | P over 30 shots |
+|---|---|---|---|---|
+| 2.57080 (our measured mean) | 2.57513 | +3.16 | **0.08%** | 2.4% |
+| 2.58226 (our best receipt) | 2.58661 | +2.28 | **1.15%** | 29% |
+| 2.58809 (+0.23% real win) | 2.59245 | +1.83 | 3.4% | 64% |
+| 2.60000 (+1.14% real win) | 2.60438 | +0.92 | 17.9% | 100% |
+| 2.61211 (+1.61% real win) | 2.61650 | 0.00 | 50% | 100% |
+
+Using the *whole-population* draw distribution instead of the late regime gives
+0.81% (mean normalized) to 4.80% (best normalized) per shot, and the empirical
+published dispersion of our own 8 receipts gives 2.06% per shot. Those are the
+optimistic bounds; the late-regime numbers are the ones that describe tonight.
+
+**This is 10x to 250x below the 20%-per-shot estimate in advisor comment 8, and
+it changes the recommendation.** A 20-30 shot pure-replay campaign is worth
+roughly 2-3% total, not 75-99%. Independent confirmation: **0 of 1227** scored
+receipts in the benchmark's entire history exceeded the crown — it *is* the
+population maximum, so a replay must beat an all-time record.
+
+## Finding 4 — the corrected size of a useful real win
+
+The nominal bar "beat `e27f1ce`'s 2.60665 by 0.378%" is stated published-to-
+published, and `e27f1ce` was itself a +0.94% draw. Restating the bar in
+normalized terms against our *typical* executable:
+
+| goal | required normalized | vs recent mean 2.57080 | M4 busy µs at tau=1 (decode-only) |
+|---|---|---|---|
+| reach the crown on the best late-regime draw (about 1 in 52) | 2.58809 | +0.673% | 96 |
+| reach the crown on a median late-regime draw (P=50%) | 2.61211 | +1.606% | 229 |
+
+using the programme law `%score = 0.0070 x delta_M4_steady_step_wall_us`.
+
+The useful corollary is the opposite of a discouragement: **every +0.10% of
+normalized score multiplies the per-shot win probability by about 1.5x** at
+these z values. Real wins buy lottery leverage. A sub-bar improvement is
+therefore no longer worthless — it is the only thing that moves the
+probability at all, because the draw distribution itself has tightened.
+
+## Shots fired this session
+
+| receipt | UTC | executable | status | published | decode s/tok | prefill s/tok | notes |
+|---|---|---|---|---|---|---|---|
+| _(pending)_ | | frontier replay (ticket 1) | | | | | pipeline validation and ledger anchor, not a lottery play |
