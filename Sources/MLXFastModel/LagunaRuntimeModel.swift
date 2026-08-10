@@ -2380,7 +2380,7 @@ func lagunaWarmFullFusedAttentionKernel() {
 ///    absolute position — values the stock RoPE kernel computed, not a
 ///    re-derivation. The decode twin (`laguna_sliding_qk_norm_rope_bf16_128_v1`)
 ///    consumes the same table with the same expression.
-private let lagunaPrefillSlidingQKNormRoPEKernel = MLXFast.metalKernel(
+let lagunaPrefillSlidingQKNormRoPEKernel = MLXFast.metalKernel(
     name: "laguna_prefill_sliding_qk_norm_rope_bf16_128_v2",
     inputNames: [
         "raw_queries", "raw_keys", "query_weight", "key_weight", "angles",
@@ -2465,7 +2465,7 @@ if (lane < 16) {
 /// many heads share a threadgroup. This matches the proven DECODE shape
 /// (`lagunaSlidingQKNormRoPEKernel`, one SIMD/head, the project's largest
 /// single win); the prefill `*4` was an unaudited divergence from it.
-private let lagunaPrefillSlidingQKNormRoPEH1Kernel = MLXFast.metalKernel(
+let lagunaPrefillSlidingQKNormRoPEH1Kernel = MLXFast.metalKernel(
     name: "laguna_prefill_sliding_qk_norm_rope_bf16_128_h1_v2",
     inputNames: [
         "raw_queries", "raw_keys", "query_weight", "key_weight", "angles",
@@ -2542,7 +2542,7 @@ if (lane < 16) {
 
 /// Four-token strip twin. Each 32-lane SIMDgroup retains the H1 row mapping;
 /// the 32x4 launch groups adjacent tokens for one head.
-private let lagunaPrefillSlidingQKNormRoPETokenStrip4Kernel = MLXFast.metalKernel(
+let lagunaPrefillSlidingQKNormRoPETokenStrip4Kernel = MLXFast.metalKernel(
     name: "laguna_prefill_sliding_qk_norm_rope_bf16_128_t4_v1",
     inputNames: [
         "raw_queries", "raw_keys", "query_weight", "key_weight", "angles",
@@ -2635,7 +2635,7 @@ if (lane < 16) {
 /// `fl(fl(1/mscale) * mscale) == 1.0f`, so the atlas carries pure cos/sin);
 /// and the tail elements 64…127 written verbatim, matching the values the
 /// stock pre-RoPE copy leaves behind.
-private let lagunaPrefillFullQKNormYaRNKernel = MLXFast.metalKernel(
+let lagunaPrefillFullQKNormYaRNKernel = MLXFast.metalKernel(
     name: "laguna_prefill_full_qk_norm_yarn_bf16_128_v2",
     inputNames: [
         "raw_queries", "raw_keys", "query_weight", "key_weight", "angles",
@@ -2726,7 +2726,7 @@ if (lane < 8) {
 /// partner shuffle, the mscale round-trip) is SIMD-local, so grouping one head
 /// per threadgroup instead of four changes only launch count/occupancy, not any
 /// head's output value. Matches the proven decode shape.
-private let lagunaPrefillFullQKNormYaRNH1Kernel = MLXFast.metalKernel(
+let lagunaPrefillFullQKNormYaRNH1Kernel = MLXFast.metalKernel(
     name: "laguna_prefill_full_qk_norm_yarn_bf16_128_h1_v2",
     inputNames: [
         "raw_queries", "raw_keys", "query_weight", "key_weight", "angles",
@@ -2812,7 +2812,7 @@ if (lane < 8) {
 
 /// Four-token strip twin. Each 32-lane SIMDgroup retains the H1 row mapping;
 /// the 32x4 launch groups adjacent tokens for one head.
-private let lagunaPrefillFullQKNormYaRNTokenStrip4Kernel = MLXFast.metalKernel(
+let lagunaPrefillFullQKNormYaRNTokenStrip4Kernel = MLXFast.metalKernel(
     name: "laguna_prefill_full_qk_norm_yarn_bf16_128_t4_v1",
     inputNames: [
         "raw_queries", "raw_keys", "query_weight", "key_weight", "angles",
