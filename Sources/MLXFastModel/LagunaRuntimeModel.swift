@@ -8145,10 +8145,15 @@ private func lagunaRoutedSharedDownResidualSource(
     let stagedScaleLoad =
         sharedHalved
         ? """
-            uint pair_sb = (lane & 1) == 0 ? uint(scale[0]) : 0u;
+            uint pair_sb = 0u;
+            if ((lane & 1) == 0) {
+                pair_sb = uint(scale[0]);
+            }
+            uint8_t broadcast_sb = uint8_t(
+                simd_shuffle(pair_sb, ushort(lane & ~1)));
             row_sb[row] =
                 \(patch)
-                : uint8_t(simd_shuffle(pair_sb, ushort(lane & ~1)));
+                : broadcast_sb;
             """
         : """
             row_sb[row] =
