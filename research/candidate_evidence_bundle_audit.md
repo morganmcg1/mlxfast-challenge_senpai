@@ -17,7 +17,7 @@ The contract consists of:
 - `validate_candidate_evidence_bundle.py`, a standard-library fail-closed
   validator and deterministic self-test runner;
 - `candidate_evidence_bundle_fixtures.json`, four positive fixture profiles,
-  45 negative mutations, and 30 filesystem-boundary controls; and
+  45 negative mutations, and 31 filesystem-boundary controls; and
 - this audit.
 
 No model code, build, inference, benchmark, W&B run, live receipt, or official
@@ -84,20 +84,25 @@ and rejoins that digest to every phase and artifact claim.
 
 Candidate and artifact traversal requires an integer `O_RDONLY`, nonzero
 `O_CLOEXEC`, `O_DIRECTORY`, `O_NOFOLLOW`, and `O_NONBLOCK`, descriptor-relative
-`open`, `stat`, and `readlink`, and descriptor-based directory enumeration. If
-any safety primitive is absent, the validator emits only
-`DESCRIPTOR_SAFETY_UNAVAILABLE` at `$verifier.filesystem` and performs no
-filesystem traversal. Each root is opened exactly once; root and nested
-objects are checked with no-follow metadata, descriptor identity, and directory
-snapshots before and after their work. Symlinks are classified only from
-no-follow metadata, and `readlink` is used solely for lexical escape reporting;
-symlink targets are never resolved or followed. File bytes are opened
-component-by-component relative to parent descriptors with no-follow and
-nonblocking flags, checked again with `fstat`, and read from that descriptor.
-All tracked descriptors close on success and every structured or unexpected
-exception path. These checks turn root, nested-directory, and file replacement
-races into deterministic disappearance, identity-change, scan-change,
-unreadable, non-regular, symlink, inspection-failed, or read-failed errors.
+`open`, `stat`, and `readlink`, descriptor-based directory enumeration, and the
+`os.stat in os.supports_follow_symlinks` capability signal required for
+`stat(dir_fd=..., follow_symlinks=False)`. If any safety primitive is absent,
+the validator emits only `DESCRIPTOR_SAFETY_UNAVAILABLE` at
+`$verifier.filesystem` and performs no filesystem traversal. A deterministic
+capability override proves the exact message
+`required descriptor safety is unavailable: stat(dir_fd,follow_symlinks=False)`,
+that no filesystem hook fired, and that zero descriptors were opened. Each root
+is opened exactly once; root and nested objects are checked with no-follow
+metadata, descriptor identity, and directory snapshots before and after their
+work. Symlinks are classified only from no-follow metadata, and `readlink` is
+used solely for lexical escape reporting; symlink targets are never resolved or
+followed. File bytes are opened component-by-component relative to parent
+descriptors with no-follow and nonblocking flags, checked again with `fstat`,
+and read from that descriptor. All tracked descriptors close on success and
+every structured or unexpected exception path. These checks turn root,
+nested-directory, and file replacement races into deterministic disappearance,
+identity-change, scan-change, unreadable, non-regular, symlink,
+inspection-failed, or read-failed errors.
 
 ### Physical and semantic artifacts
 
@@ -186,19 +191,21 @@ The 45 negative mutations cover:
 - ranked receipt reuse under another revision; and
 - terminal classification contradiction.
 
-The 30 filesystem controls require exact error-code and JSON-path sets,
+The 31 filesystem controls require exact error-code and JSON-path sets,
 `INVALID` classification, and exit code 1 for missing, symlink, regular-file,
 and FIFO roots; listed directory, FIFO, and symlink entries; deterministic
-disappearance and unreadability at the read boundary; and absence of each
-required nonzero descriptor-safety flag. Real filesystem hooks replace
-candidate and artifact roots after inspection and after opening, and replace
-nested directories and files during candidate and artifact traversal. Each race
-fixture asserts that its hook fired, every descriptor opened during that case
-was closed, and only the declared stable error set was emitted. The harness
-separately proves that `NotADirectoryError`, `PermissionError`, and generic
-`OSError` are converted to stable filesystem errors while injected reader and
-schema `ValueError` exceptions still propagate and close all tracked
-descriptors.
+disappearance and unreadability at the read boundary; absence of each required
+nonzero descriptor-safety flag; and unavailable no-follow `stat` capability.
+The capability control asserts the exact stable code, path, and message before
+traversal, plus no hook invocation, zero opened descriptors, and no descriptor
+leak. Real filesystem hooks replace candidate and artifact roots after
+inspection and after opening, and replace nested directories and files during
+candidate and artifact traversal. Each race fixture asserts that its hook fired,
+every descriptor opened during that case was closed, and only the declared
+stable error set was emitted. The harness separately proves that
+`NotADirectoryError`, `PermissionError`, and generic `OSError` are converted to
+stable filesystem errors while injected reader and schema `ValueError`
+exceptions still propagate and close all tracked descriptors.
 
 Each negative fixture declares at least one expected stable error code. The
 self-test requires every case to contain every declared code while also proving
@@ -212,10 +219,10 @@ The focused static checks are:
 
 ```bash
 python3 -m py_compile research/validate_candidate_evidence_bundle.py
-python3 research/validate_candidate_evidence_bundle.py --self-test > /tmp/candidate-evidence-r2-run1.json
-python3 research/validate_candidate_evidence_bundle.py --self-test > /tmp/candidate-evidence-r2-run2.json
-cmp /tmp/candidate-evidence-r2-run1.json /tmp/candidate-evidence-r2-run2.json
-shasum -a 256 /tmp/candidate-evidence-r2-run1.json /tmp/candidate-evidence-r2-run2.json
+python3 research/validate_candidate_evidence_bundle.py --self-test > /tmp/candidate-evidence-r3-run1.json
+python3 research/validate_candidate_evidence_bundle.py --self-test > /tmp/candidate-evidence-r3-run2.json
+cmp /tmp/candidate-evidence-r3-run1.json /tmp/candidate-evidence-r3-run2.json
+shasum -a 256 /tmp/candidate-evidence-r3-run1.json /tmp/candidate-evidence-r3-run2.json
 ```
 
 A standalone bundle validation requires the external candidate, artifact, and
@@ -231,18 +238,18 @@ python3 research/validate_candidate_evidence_bundle.py BUNDLE.json \
 
 Both external self-test invocations are byte-identical, and each invocation
 executes the legacy and filesystem suites twice internally. The result reports
-`deterministic: true`, contains 79 cases (49 legacy and 30 filesystem), and
+`deterministic: true`, contains 80 cases (49 legacy and 31 filesystem), and
 uses schema ID
 `https://mlxfast.invalid/schemas/candidate-evidence-bundle-v3.json`.
 
 ```text
 legacy_results_digest:     75d8e716d4887e3b4aaac08499d44da281923d7de465ecf35de500bffc444124
-filesystem_results_digest: 33c3cded45453db59079c43850abd54cf2e3cc71b65fcae7778c59a0d5575578
-results_digest:            fc7b2134c8e43373d0757c00ae3f343487e2a997045e6253ddfc869f7dc4198c
-self-test output SHA-256:   069907a6c95d2d0b828e92ab9d242b7a63d79c49be09a30e24a8efe4fdbd95b4
+filesystem_results_digest: cb332c7404080972b267b98016b369ca910634ad7f7aa5a29ecd4c7d958f306d
+results_digest:            fc755da02c8fcd3691b9d92dc49678557e7489d56c632b8c85798f6e49d29919
+self-test output SHA-256:   c2fd27c00228da6683a278e904ddbc099523a44ccd019de884bd355558968582
 ```
 
-All 79 cases pass. All seven exception-boundary assertions are true:
+All 80 cases pass. All seven exception-boundary assertions are true:
 `descriptor_root_available`, `exception_descriptors_closed`,
 `reader_not_a_directory`, `reader_os_error`, `reader_permission_error`,
 `reader_value_error`, and `schema_value_error`. Every case reports all opened
@@ -251,11 +258,11 @@ status is `CANDIDATE_EVIDENCE_ROOTS_FAIL_CLOSED`.
 
 ## Research-base non-overlap
 
-The assignment remains based on `35cdae136ffb5cfd1c8a8a3796bc74dff20b7be1`.
-A later research-base change, `f94cde18`, modifies only transform-verification
-Swift sources and tests plus research-state briefing documents. It does not
-overlap the validator, fixture manifest, or this audit, so no base refresh was
-needed for this revision.
+The required assignment base is
+`185bbee7f2fd9eb2e08a3a384806eace0f26fa83` and is merged into this revision.
+The intervening base changes do not overlap the validator, fixture manifest, or
+this audit. The exact-base diff remains scoped to these three assigned research
+files.
 
 ## Limitations
 

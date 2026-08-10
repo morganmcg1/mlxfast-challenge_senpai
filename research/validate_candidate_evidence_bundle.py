@@ -275,6 +275,7 @@ def path_is_safe(relative_path):
 
 
 REQUIRED_DESCRIPTOR_FLAGS = ("O_CLOEXEC", "O_DIRECTORY", "O_NOFOLLOW", "O_NONBLOCK")
+REQUIRED_DESCRIPTOR_CAPABILITIES = ("stat(dir_fd,follow_symlinks=False)",)
 
 
 class NonRegularFileError(OSError):
@@ -322,8 +323,9 @@ def stable_file_identity(metadata):
     )
 
 
-def descriptor_open_flags(overrides=None):
+def descriptor_open_flags(overrides=None, capability_overrides=None):
     overrides = overrides or {}
+    capability_overrides = capability_overrides or {}
     missing = []
     values = {}
     for name in REQUIRED_DESCRIPTOR_FLAGS:
@@ -342,10 +344,18 @@ def descriptor_open_flags(overrides=None):
     capabilities = (
         (os.open in getattr(os, "supports_dir_fd", ()), "open(dir_fd)"),
         (os.stat in getattr(os, "supports_dir_fd", ()), "stat(dir_fd)"),
+        (
+            os.stat in getattr(os, "supports_follow_symlinks", ()),
+            "stat(dir_fd,follow_symlinks=False)",
+        ),
         (os.readlink in getattr(os, "supports_dir_fd", ()), "readlink(dir_fd)"),
         (os.scandir in getattr(os, "supports_fd", ()), "scandir(fd)"),
     )
-    missing.extend(name for available, name in capabilities if not available)
+    missing.extend(
+        name
+        for available, name in capabilities
+        if not capability_overrides.get(name, available)
+    )
     if missing:
         return None, sorted(missing)
     common = os.O_RDONLY | values["O_CLOEXEC"] | values["O_NOFOLLOW"] | values["O_NONBLOCK"]
@@ -1092,6 +1102,7 @@ def validate_bundle(
     schema,
     filesystem_hook=None,
     descriptor_flag_overrides=None,
+    descriptor_capability_overrides=None,
     descriptor_tracker=None,
     byte_reader=read_relative_regular_file,
 ):
@@ -1105,7 +1116,10 @@ def validate_bundle(
     errors = []
     check_surface(bundle["identity"], errors)
     check_trusted_context(bundle, trusted_context, trusted_bytes, expected_context_sha256, errors)
-    flags, missing_descriptor_safety = descriptor_open_flags(descriptor_flag_overrides)
+    flags, missing_descriptor_safety = descriptor_open_flags(
+        descriptor_flag_overrides,
+        descriptor_capability_overrides,
+    )
     if missing_descriptor_safety:
         errors.append(
             issue(
@@ -1624,6 +1638,15 @@ def one_shot_filesystem_hook(event_name, action, relative=None):
     return hook, state
 
 
+def filesystem_event_recorder():
+    state = {"fired": False}
+
+    def hook(_event, _context):
+        state["fired"] = True
+
+    return hook, state
+
+
 def replace_directory(path, control_id):
     backup = path.with_name(f"{path.name}.{control_id}.original")
     path.rename(backup)
@@ -1640,7 +1663,12 @@ def replace_regular_file(path, control_id):
 def mutate_filesystem_control(control, root, artifact_root, candidate_root, bundle, candidate_files):
     scope = control["scope"]
     operation = control["operation"]
-    mutation = {"descriptor_flag_overrides": None, "filesystem_hook": None, "hook_state": None}
+    mutation = {
+        "descriptor_flag_overrides": None,
+        "descriptor_capability_overrides": None,
+        "filesystem_hook": None,
+        "hook_state": None,
+    }
     if scope in {"candidate_root", "artifact_root"}:
         if operation not in {"missing", "symlink", "regular", "fifo"}:
             raise ValueError(f"unknown root filesystem control operation: {operation}")
@@ -1675,6 +1703,16 @@ def mutate_filesystem_control(control, root, artifact_root, candidate_root, bund
         if operation != "missing_flag" or control.get("flag") not in REQUIRED_DESCRIPTOR_FLAGS:
             raise ValueError(f"unknown descriptor safety control: {operation}")
         mutation["descriptor_flag_overrides"] = {control["flag"]: None}
+    elif scope == "descriptor_capability":
+        capability = control.get("capability")
+        if operation != "missing_capability" or capability not in REQUIRED_DESCRIPTOR_CAPABILITIES:
+            raise ValueError(f"unknown descriptor capability control: {operation}")
+        hook, state = filesystem_event_recorder()
+        mutation.update(
+            descriptor_capability_overrides={capability: False},
+            filesystem_hook=hook,
+            hook_state=state,
+        )
     elif scope in {"candidate_root_race", "artifact_root_race"}:
         if operation not in {"replace_after_inspection", "replace_after_open"}:
             raise ValueError(f"unknown root race operation: {operation}")
@@ -1765,19 +1803,37 @@ def execute_filesystem_control_suite(fixtures, schema):
                 schema,
                 filesystem_hook=mutation["filesystem_hook"],
                 descriptor_flag_overrides=mutation["descriptor_flag_overrides"],
+                descriptor_capability_overrides=mutation["descriptor_capability_overrides"],
                 descriptor_tracker=descriptors,
             )
             descriptors_closed = descriptors_are_closed(descriptors)
-            hook_fired = mutation["hook_state"] is None or mutation["hook_state"]["fired"]
+            hook_fired = mutation["hook_state"] is not None and mutation["hook_state"]["fired"]
         actual_errors = sorted((entry["code"], entry["path"]) for entry in result["errors"])
         expected_errors = sorted((entry["code"], entry["path"]) for entry in control["expected_errors"])
+        actual_messages = {
+            (entry["code"], entry["path"]): entry["message"]
+            for entry in result["errors"]
+        }
+        expected_messages = {
+            (entry["code"], entry["path"]): entry["message"]
+            for entry in control["expected_errors"]
+            if "message" in entry
+        }
+        messages_match = all(actual_messages.get(key) == message for key, message in expected_messages.items())
+        descriptor_count_matches = len(descriptors) == control.get("expected_descriptor_count", len(descriptors))
+        if "expected_hook_fired" in control:
+            hook_expectation_met = hook_fired == control["expected_hook_fired"]
+        else:
+            hook_expectation_met = mutation["hook_state"] is None or hook_fired
         exit_code = result_exit_code(result)
         passed = (
             result["classification"] == "INVALID"
             and exit_code == 1
             and actual_errors == expected_errors
+            and messages_match
             and descriptors_closed
-            and hook_fired
+            and descriptor_count_matches
+            and hook_expectation_met
         )
         results.append(
             {

@@ -591,6 +591,21 @@
       "expected_errors": [{"code": "DESCRIPTOR_SAFETY_UNAVAILABLE", "path": "$verifier.filesystem"}]
     },
     {
+      "id": "reject-missing-stat-nofollow-capability",
+      "scope": "descriptor_capability",
+      "operation": "missing_capability",
+      "capability": "stat(dir_fd,follow_symlinks=False)",
+      "expected_hook_fired": false,
+      "expected_descriptor_count": 0,
+      "expected_errors": [
+        {
+          "code": "DESCRIPTOR_SAFETY_UNAVAILABLE",
+          "path": "$verifier.filesystem",
+          "message": "required descriptor safety is unavailable: stat(dir_fd,follow_symlinks=False)"
+        }
+      ]
+    },
+    {
       "id": "reject-candidate-root-replaced-after-inspection",
       "scope": "candidate_root_race",
       "operation": "replace_after_inspection",
