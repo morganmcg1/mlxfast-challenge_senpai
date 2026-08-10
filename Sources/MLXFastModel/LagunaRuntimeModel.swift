@@ -8613,16 +8613,16 @@ func lagunaDenseGateUpSwiGLU(
 }
 
 private let lagunaDenseDownResidualKernel = MLXFast.metalKernel(
-    name: "laguna_dense_down_residual_bf16_r8_v1",
+    name: "laguna_dense_down_residual_bf16_v1",
     inputNames: ["activated", "down_weight", "residual"],
     outputNames: ["output"],
     source: """
 constexpr uint in_vec_size = 8192;
-constexpr uint rows_per_thread = 8;
+constexpr uint rows_per_thread = 4;
 constexpr uint values_per_thread = 4;
 constexpr uint block_width = 128;
 constexpr uint blocks = in_vec_size / block_width;
-constexpr uint rows_per_group = 32;
+constexpr uint rows_per_group = 16;
 
 uint tile = threadgroup_position_in_grid.x;
 uint simd_group = simdgroup_index_in_threadgroup;
@@ -8630,8 +8630,7 @@ uint lane = thread_index_in_simdgroup;
 
 uint row_base = tile * rows_per_group + simd_group * rows_per_thread;
 
-thread float result[rows_per_thread] = {
-    0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+thread float result[rows_per_thread] = {0.0f, 0.0f, 0.0f, 0.0f};
 thread float coefficients[values_per_thread];
 
 uint column = lane * values_per_thread;
@@ -8684,7 +8683,7 @@ func lagunaDenseDownResidual(
 
     return lagunaDenseDownResidualKernel(
         [activated, downWeight, residual],
-        grid: ((LagunaConstants.hiddenSize / 32) * 128, 1, 1),
+        grid: ((LagunaConstants.hiddenSize / 16) * 128, 1, 1),
         threadGroup: (128, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
         outputDTypes: [.bfloat16]
