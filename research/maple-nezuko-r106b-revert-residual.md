@@ -91,11 +91,13 @@ Families already closed and **not** reopened:
 One family is **narrowly and deliberately reopened**, and I flag it rather than
 bury it: "ALU-side levers on M4 — decode is not ALU-bound on this host". That
 closure was reached on the projection/matmul kernels, where the question was
-arithmetic op count and precision. Stage B section C.2 below produces direct
-evidence that the *sliding decode-attention* kernel is instruction-issue-bound
-on cross-lane shuffles, which is a different cost and a different kernel. The
-reopening is therefore scoped to "cross-lane reduction instruction count in
-`laguna_sliding_fused_attn_ring_v1`" and to nothing else.
+arithmetic op count and precision. The *sliding decode-attention* kernel is a
+different kernel with a different cost: §C.2 shows it runs at ~10 % of ALU peak
+with a 4x-redundant, cache-served request stream, which leaves cross-lane
+instruction issue as the live candidate. Whether that candidate is real is the
+question §C tests, not a premise it assumes. The reopening is therefore scoped to
+"cross-lane reduction instruction count in `laguna_sliding_fused_attn_ring_v1`"
+and to nothing else.
 
 Deconfliction against live channels: frieren #597 owns bit-exactness and the
 margin-certificate instrument; fern #625 owns the integration tree; tanjiro #620
@@ -226,6 +228,86 @@ Two hygiene consequences that are load-bearing for the rest of this report:
    control silently broken for the paired campaign. That is an argument for
    Rule 68's contemporaneous control as a **build** check and not only as a
    timing control.
+
+---
+
+# §C — the paired A/B
+
+## C.1 Design of record (Amendment 2), fixed before the first evidence run
+
+Full text in `research/maple-nezuko-r106b-stageb-amendment2.md`. Summary:
+
+| item | value |
+|---|---|
+| design | control-anchored, position-balanced block design |
+| block | 4 runs: `C` first, then a permutation of `K`, `H`, `P` |
+| blocks | 6, order `C K P H \| C P H K \| C H K P \| C K H P \| C P K H \| C H P K` |
+| pairing | every candidate run differences against the `C` run of **its own block** |
+| declared dof | **5** per contrast; `t(0.975, 5) = 2.5706` |
+| evidence path | `./benchmark.sh --local-submit`, 1023 decode steps |
+| primary metric | `decode_us_per_step`, converted at 0.015228 % of `cs` per us/step |
+| stopping | none: all 24 runs execute; no arm dropped mid-campaign |
+| runner | `research/maple-nezuko-r106b-packred-paired.sh` |
+
+Three properties of this design are load-bearing and each answers a specific
+way the round-103 measurements went wrong.
+
+1. **The control is interleaved, not borrowed.** Every difference is against a
+   control run measured minutes away on the same binary, same weights, same
+   thermal state. Stage 0's residual was a contrast between two runs 17.47 hours
+   apart with n = 1 per arm, which is exactly why its CI was 75 us/step wide.
+2. **Position inside the block is balanced.** Each of `K`, `H`, `P` occupies
+   block positions 2, 3 and 4 exactly twice across the six blocks, so a monotone
+   within-block drift (thermal soak, page-cache warming) cannot be mistaken for
+   an arm effect. The block-difference estimator removes any per-block additive
+   offset exactly; the position balance removes the first-order within-block
+   trend.
+3. **One binary, gate-selected.** All four arms are separate Metal kernel names
+   in one build (§D.2), so alternating arms costs no rebuild and no arm can be
+   confounded by a differing compile.
+
+**Why the design was upgraded.** Amendment 1 allowed me to close on a cheap
+`--local-iterate` gate. I retired that gate unexercised because its threshold
+(2 x 15 us/step) is smaller than the realised control-vs-control spread of the
+instrument in this session (118 us/step between two runs of the *same* binary
+with all gates unset). Under Rule 86 no `--local-iterate` number appears in any
+conclusion here; the two control runs are quoted in Amendment 2 as evidence
+about the instrument, which is the only role triage may play. The deviation costs
+~100 minutes of otherwise idle host time and buys an evidence-grade answer for
+all three contrasts, including the H4 arm that had previously been refuted on
+triage alone.
+
+## C.2 What the candidate is supposed to move, stated before the numbers
+
+The sliding decode-attention kernel costs 22.34 us/call x 30 calls =
+**670 us/step**, i.e. 10.2 % of `cs` — 35x the residual under investigation, so
+it is the right place to look even though the residual itself is unresolvable.
+Two independent counts say it is not limited by the thing a kernel of this shape
+is usually limited by:
+
+* **Arithmetic:** ~0.75 TFLOP/s against this host's ~7.2 TFLOP/s peak, i.e.
+  ~10 % of peak. Not ALU-throughput-bound.
+* **Bandwidth:** 8 MiB requested per call against 2 MiB unique, a request rate of
+  ~375 GB/s against ~273 GB/s of DRAM. The 4x redundancy is therefore
+  cache-served, and under Rule 98.9 that cache-resident figure is **not** quoted
+  as a saving anywhere in this report.
+
+What is left is instruction issue, and the kernel issues **229 cross-lane
+shuffle/lane-read operations per lane per call** (§B.3). PACKRED halves that to
+109 without changing a single load, store, FMA, barrier, or the dispatch
+geometry (§D.1). So the campaign is a clean single-variable test of one
+proposition:
+
+> **Is the sliding decode-attention kernel's cost sensitive to cross-lane
+> reduction instruction count on this host?**
+
+`K` answers it for a *correct* halving. `P` answers the stronger question by
+deleting the row-loop reduction outright and accepting wrong output: `-D_P`
+bounds what **any** lever targeting that reduction could ever recover, PACKRED
+and the Stage C `P-ROWLANE` proposal included. The forward reference in §A.4 to
+"direct evidence that the kernel is instruction-issue-bound" is therefore a
+question this section answers, not an assumption it relies on; §C.3 records
+which way it went.
 
 ---
 
