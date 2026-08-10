@@ -882,3 +882,440 @@ metal-backend files are `matmul.cpp`, `jit_kernels.cpp`, `kernels.h`,
 either the merge or the concurrent encoder is spending it on a priced-at-zero
 axis. If Stage-1 needs a dispatch-side idea, it needs a *different* one.
 
+
+---
+
+# Part 2 — decode overlap audit (revision `r108-l-rev2`, comment 5243081668)
+
+## 14. Headline: the questions are answerable, but not with the instrument named
+
+Five questions were asked. Four are answered from **existing measured
+artifacts** with instruments strictly better than the one proposed; Q1's named
+instrument is **retired programme-wide as structurally blind** and I refuse to
+report a number from it.
+
+| Q | asked for | verdict | answer |
+|---|---|---|---|
+| **Q1** | busy-sum vs busy-**union** ratio, overlap in µs/step and %`cs` | **REFUSED as posed** — instrument retired; substitute supplied | union/sum ≡ **1.000 by construction, zero information**. Real overlap, from a valid A/B: **382–448 µs/step = 4.5–5.3 % of `cs`**, and it is **already 100 % harvested** |
+| **Q2** | barrier map for one decode layer | **ANSWERED, measured** | **7 waves / 10 dispatches** per sparse layer. Advisor's *count* is exactly right; **three of seven placements are wrong** |
+| **Q3** | `region_wall_time` vs `sum(member durations)` | **ANSWERED, measured** | exposure factor `E`: shadowed members **E = 0.10 [0.00, 0.25]**; every large member **E = 0.999–1.013** |
+| **Q4** | reprice §5 with region structure | **ANSWERED** | max independent removal **0.2599 % → 0.1439 %**; now **2.8× under the 0.4 % bar** (was 1.5×) |
+| **Q5** | largest exposed critical-path residue | **ANSWERED** | `FUSED_QKV_PROJECTION`, **E = 0.999**, **3379.3 µs/step** — family D. Nothing in the ledger touches it |
+
+**Consequence for the terminal verdict.** `N-NO-MERGEABLE-PAIR` is unchanged and
+now **over-determined**. Part 1 refused on the per-dispatch price
+(`k_measured = 0.0872 µs`, CI spanning zero). Part 2 refuses independently on
+region structure: the smaller member of the two genuinely co-scheduled `NONE`
+pairs is **already ~90 % free**, so removing its dispatch cannot refund what it
+does not cost. Two unrelated instruments, same answer.
+
+### 14.0 One correction to Part 1 that I owe the advisor
+
+§13.4 retracted §9's concurrent-encoder recommendation on a *source* argument
+(every encoder is already `DispatchTypeConcurrent`). That retraction is correct
+but I reached it for a weaker reason than the record supports, and in the
+previous session I was about to defend it with a **wrong** number — #158's
+"hidden concurrency ≤ 60 µs/step" bound. That bound is **retracted**:
+
+> "**#158 conflated the per-command-buffer cost `c` with destroyed concurrency
+> `D`.**" — `research/RESEARCH_ARCHIVE_through-round-91.md:3628-3641`
+
+| constant | #158 | corrected by #174 |
+|---|---|---|
+| per-CB cost | 1.588 µs/CB | **0.540 µs/CB** |
+| census de-inflation | 1.412 µs/call | **+0.939 µs/call** (opposite sign) |
+| hidden concurrency | ≤ 60 µs/step | **382–448 µs/step** |
+
+#158's CB-cap sweep destroys only **inter**-CB overlap; #174 showed the real
+overlap is **intra**-CB and therefore invisible to that control. Anyone still
+citing "≤60 µs/step of hidden decode overlap" — I nearly did — is citing an
+arithmetic error. **§9's 240.5 µs/step is not refuted for being absent; it is
+refuted for being already collected.**
+
+---
+
+## 15. Q1 — the busy-union instrument is retired, and here is what to use instead
+
+### 15.1 Why I will not report a union ratio
+
+`gpu_busy_union` is computed **per command buffer** from a CB completion handler
+(`research/decode_probe.py:147-192`, merge at `:177-186`; prefill twin
+`research/prefill_probe.py:148-165`). MLX packs 20–50 ops per CB onto one queue,
+so:
+
+> "`union == sum` is *guaranteed by construction* and carries zero information."
+> — `RESEARCH_ARCHIVE_through-round-91.md:2918-2926`
+>
+> "**`gpu_busy_union` is RETIRED programme-wide.**" — `:2941-2945`
+>
+> "⚠️ **RETIRED FALSIFIER — do not check `gpu_busy_union < gpu_busy_sum`.**"
+> — `:6883-6903`
+
+The killing control is decisive. `concurrent_1cb` — two kernels *known* to be
+co-resident — reports union-overlap **0.000000** while its wall clock proves
+perfect hiding:
+
+| arm | sum (ms) | union (ms) | 1−union/sum | wall (ms) |
+|---|---:|---:|---:|---:|
+| `two_queue` | 27.586 | 13.798 | 0.4998 | 13.986 |
+| `two_cb` | 27.586 | 13.799 | 0.4998 | 13.979 |
+| `two_cb_serial` | 27.586 | 27.586 | **0.000000** | 27.959 |
+| `concurrent_1cb` | 13.793 | 13.793 | **0.000000** | **13.954** |
+
+`research/tanjiro-pr157-result.md:122-131`. Rows 3 and 4 are indistinguishable
+on the metric and differ **2.00×** on the wall clock. A metric that scores
+perfect overlap and zero overlap identically cannot be used to measure overlap.
+
+Three prior claims were withdrawn on exactly this basis
+(`nezuko-decode-roofline.md:193-202`, `nezuko-terminal-report.md:221-225`,
+`maple-tanjiro-pr73-decode-kernel-census.md:721`). **A fourth withdrawal is
+mine:** my own prefill census
+(`research/maple-tanjiro-pr91-prefill-budget-census.md`) reports
+`busy-sum = busy-union = 540.455 ms` and concludes "99.1 % serial". That
+sentence is void by the same rule. I am withdrawing it here rather than waiting
+to be told.
+
+There is a second, independent reason Q1 is unanswerable as posed: **my R107-G
+census is a dose/isolation instrument, not a per-dispatch timeline.** Its
+artifacts contain per-kernel durations and geometry, not `[start, end)`
+intervals. There is nothing in them to union.
+
+### 15.2 The valid substitute, and the number
+
+The overlap was measured directly by **forcing serial dispatch at the shipped
+45-CB split** with CB count and dispatch count held *exactly* constant (16 runs,
+ABBA-ABBA, 0 token divergences) — `RESEARCH_ARCHIVE_through-round-91.md:3630-3648`:
+
+| quantity | Δ (serial − concurrent) | p |
+|---|---:|---:|
+| wall | **+420.9 µs/step** | .057 |
+| `gpu_busy_sum` | **+448.0 µs/step** | .086 |
+| wall − busy gap | −21 µs | .63 |
+| CBs/step, dispatches/step | **0** | — |
+
+The gap is flat, so this is not wall-vs-busy accounting; the destroyed overlap
+is **intra-CB**. Replicated across three sessions and five arms:
+**421 / 448 / 456 / 490 / 580 µs/step**. Nezuko's pre-registered k=1 tripwire
+fired (+66.5 µs against a 50 µs limit), so `D(0)` is carried honestly as a
+**range, 382–448 µs/step** — not a point estimate.
+
+**Answer to Q1, in the units requested:** decode intra-command-buffer overlap is
+**382–448 µs/step**, i.e. **4.5–5.3 % of the 8.45 ms step**. The union ratio for
+that same overlap is **1.000**, which is why the metric had to be retired.
+
+### 15.3 The part that closes the family
+
+> "The overlap is real (382–448 µs/step) and MLX's concurrent encoder **already
+> harvests all of it**; there is nothing left to win by changing dispatch type,
+> dispatch granularity, CB count, or the CB split."
+> — `RESEARCH_ARCHIVE_through-round-91.md:6300-6310`
+
+Corroborated three ways: `≥ 68.4 %` of the nominal 955 µs dispatch tax must
+already be overlapped by conservation (`CURRENT_RESEARCH_STATE.md:267-272`);
+#158's per-dispatch coefficient is **NULL, −0.12 ± 0.22 µs**; and the
+dispatch-count axis is recorded CLOSED (`:1465-1477`).
+
+---
+
+## 16. Q2 — the barrier map, measured rather than predicted
+
+### 16.1 Instrument
+
+PR #268 patched `DbSiteTrace` into `device.cpp`/`device.h` (research-only, never
+submitted; it breaks the vendored-Metal fingerprint at
+`Sources/MLXFastTrustedHarness/VendoredMetalFingerprint.swift:19-21`, so it runs
+the raw worker only). Every dispatch emits
+`DBSITE ep= cb= ord= bar= gap= raw= war= grid= tg= k=`, where `raw=`/`war=` are
+**the producing ordinals MLX actually resolved** — the real dependency edges,
+not a static guess. Reduced artifacts: `research/artifacts/fern_sites.*`.
+
+An independent tracer replaying `maybeInsertBarrier` on the recorded trace
+reproduces **247 of 247 barriers, 0 mismatches**, but only after modelling
+`end_encoding()`'s hazard-state reset (`CURRENT_RESEARCH_STATE.md:4302-4306`).
+That is the bar any future scheduling instrument must clear.
+
+### 16.2 The map — 7 waves, 10 dispatches, one sparse layer
+
+Measured chain (`maple-fern-decode-barrier-site-census.md:76-96`):
+
+```text
+down+residual(prev) -E1-> inputNorm -E2-> qkv -E3-> attn -E4-> o_proj
+      -E5-> postNorm+router -E6-> shared_swiglu -E7-> down+residual
+```
+
+with **three off-chain free riders**: `gate_softplus` rides in **`attn`'s** wave;
+`router_top8` and `routed_swiglu` ride together, **collapsed onto E7's single
+fence**.
+
+| wave | members | dispatches | note |
+|---|---|---:|---|
+| W1 | `inputNorm` (MLX `rms_norm`) | 1 | |
+| W2 | `qkv` | 1 | |
+| W3 | `attn` **+ `gate_softplus`** | 2 | E4 = 2 producers, 1 fence |
+| W4 | `o_proj` | 1 | |
+| W5 | `postNorm+router` | 1 | residual add is **fused in**, not a dispatch |
+| W6 | `shared_swiglu` | 1 | E6 = 1 producer, 3 consumers, 1 fence |
+| W7 | `down+residual` **+ `router_top8` + `routed_swiglu`** | 3 | E7 = 3 producers, 1 fence |
+| | **total** | **10** | chain depth **7** |
+
+Cross-checked against source this session, independently: 10 dispatches per
+non-layer-0 sliding layer, 9 custom `laguna_*` + 1 MLX `rms_norm`, dispatch
+sites `LagunaRuntimeModel.swift` `6047 / 5023 / 4539 / 1963 / 4620 / 1219 /
+10180 / 8045 / 7220 / 8634`. The residual stream is written only at W5
+(`summed → h`) and W7, and read at W5 and W7 — **there is no standalone residual
+add dispatch anywhere on the decode path.**
+
+### 16.3 Where the advisor's expected map is wrong
+
+Advisor's expectation was
+`norm | QKV+gate_sp | attn | oproj | residual+router | shared+routed gate_up | down`.
+
+| | advisor | measured | status |
+|---|---|---|---|
+| wave count | 7 | **7** | ✅ exactly right |
+| dispatch count | — | 10 | — |
+| `gate_sp` | with **QKV** | with **`attn`** | ❌ one wave later |
+| `router_top8` | with `residual+router` | with **`down+residual` + `routed_swiglu`** (W7) | ❌ five waves later |
+| `routed gate_up` | with `shared` (W6) | with **W7** | ❌ one wave later |
+| `residual` | its own region member | **fused into W5 and W7 kernels** | ❌ not a dispatch |
+
+The `gate_sp` placement is not a contradiction of the source-level prediction
+that `qkv ∥ gate_sp` is barrier-free — both are true. `gate_sp` reads only
+`normalized`, so it aliases neither `qkv`'s nor `attn`'s outputs; MLX's
+**accumulate** branch (`device.cpp:363-376`, the `else` arm, which the advisor's
+Fact 3 omitted) carries its hazard state forward across two dispatches, and the
+fence lands at E4 where `o_proj` finally reads both producers. `gate_sp`'s wave
+therefore **spans W2–W3**, and the wave it is *timed against* is `attn`.
+
+### 16.4 Barriers per layer, and the absorption mechanism
+
+| per decode step | low (128 MB/64 ops) | **ranked / full (320 MB/128 ops)** | Δ |
+|---|---:|---:|---:|
+| dispatches | 406 | 406 | 0 |
+| CB switches | 44 | 29 | −15 |
+| **charged barriers** | **247** | **258** | **+11** |
+| total fences (barriers + CB boundaries) | 291 | 287 | −4 |
+| **sparse fences / layer** | 7.103 | **7.000** | −0.103 |
+
+> "**`barrier ∧ cb = 0` in both regimes.** MLX never charges a `memoryBarrier`
+> at a command-buffer boundary — the commit already provides the ordering."
+> — `maple-fern-decode-barrier-site-census.md:133-140`
+
+Chain depth is 7 in **both** profiles; the profile only decides *which* of the 7
+edges gets its fence free. Per-edge charge counts out of 39 sparse layers:
+
+| edge | dependency | charged (low) | **charged (ranked)** |
+|---|---|---:|---:|
+| E1 | down+residual(prev) → inputNorm | 31 | 33 |
+| **E2** | **inputNorm → qkv** | 39 | **39** |
+| E3 | qkv → attn | 24 | 39 |
+| E4 | attn + gate_softplus → o_proj | 39 | 39 |
+| **E5** | **o_proj → postNorm+router** | 27 | **39** |
+| E6 | postNorm+router → shared_swiglu | 39 | 39 |
+| E7 | routed + top8 + shared → down+residual | 39 | **20** |
+
+**This host is 48 GiB ⇒ `low`; the ranked M5 at 128 GB runs `full`.** Two of my
+ledger's edges (E2 = row 3, E5 = row 5) are **39/39 charged under the ranked
+profile** — there is no absorption on them to give back, so the ranked side is
+*less* favourable than a local measurement suggests, not more.
+
+MLX already collapses multi-producer/multi-consumer edges: a naïve
+one-fence-per-pair model predicts 468 sparse barriers/step; measured is
+**238–248**, so MLX is **already refunding ~48 %**. *Price any candidate against
+238–248, never against 468.*
+
+### 16.5 Three caveats I have to attach
+
+1. **WAR hazards also barrier.** `register_output_array` (`device.cpp:338-349`)
+   sets `needs_barrier_ |= (buf ∈ prev_inputs_)`. A fused kernel that writes
+   where a recent sibling read gains a fence it did not have. The #268 trace
+   captures this (`war=` field) and the reordering result is invariant to
+   RAW+WAR vs RAW-only, so the effect is real but not load-bearing here.
+2. **Buffer recycling can alias.** MLX reuses device buffers, so a *fresh*
+   output can land on a pointer still sitting in `prev_inputs_`/`prev_outputs_`
+   and take a spurious barrier. This is not statically predictable from
+   `LagunaRuntimeModel.swift`; it is one reason the measured `raw=`/`war=` trace
+   outranks any source-level barrier prediction, including mine.
+3. **Not every serialization point is a barrier.** Per-layer `asyncEval(h)`
+   (`LagunaRuntimeModel.swift:11695`, `:11709`; stage at `:11776`, `:11800`)
+   commits command buffers. Those are hard boundaries between dispatch groups
+   and they are invisible to a barrier census.
+
+---
+
+## 17. Q3 — critical path per region: the exposure factor `E`
+
+`region_wall_time` vs `sum(member durations)` is exactly the **exposure factor**
+`E` that PR #174 measured by nested-group composition. For a wave with members
+{A, B}, `E_B = (T_wave − T_A)/T_B`: `E ≈ 1` means fully exposed (additive),
+`E ≈ 0` means fully hidden.
+
+| member | wave | µs/call × calls | nominal µs/step | **E** | CI |
+|---|---|---|---:|---:|---|
+| `gate_sp_h64` | W3 (under `attn`) | 6.64 × 30 | 199.2 | **0.10** | [0.00, 0.25] |
+| `gate_sp_h48` | W3 (under `attn`) | 6.31 × 10 | 63.1 | **0.10** | pooled |
+| `shared_nvfp4_swiglu_qmv_rows1` | W6/W7 | 6.09 × 39 | 237.5 | **0.10** | pooled |
+| `FUSED_QKV_PROJECTION` | W2 | — × 140 | **3379.3** | **0.999** | [0.87, 1.14] |
+| `sliding_fused_attn_ring_v1` | W3 | — | — | **≥ 0.90** | — |
+| `oproj_act_h64` | W4 | — | — | **≥ 0.94** | — |
+| 11 remaining census rows | — | — | 4113.5 | **1.013** | pooled |
+
+Design power on the exposed arm was ample: `ΔI = +4955.2 µs/step = 33×` the
+design floor.
+
+> **NEW DOCTRINE RULE.** "*A §2.b census row is not exposed cost until it has an
+> exposure factor. Small hazard-free kernels sitting beside 35–43 µs/call
+> matvecs have E ≈ 0.10 and are worth approximately nothing.*"
+> — `RESEARCH_ARCHIVE_through-round-91.md:3662-3668`
+
+The re-pricing moves **574 µs/step of nominal cost down to 57 µs/step of real
+cost**, and the top-15 census rows barely move (max |Δrank| = 2).
+
+### 17.1 A conservation check nobody has published, and it passes
+
+The three shadowed kernels total `199.2 + 63.1 + 237.5 = 499.8 µs/step`
+nominal. At `E = 0.10` the hidden part is `499.8 × 0.90 = 450 µs/step`.
+Independently measured total intra-CB overlap: `D(0) = 382–448 µs/step`.
+
+**450 vs 382–448.** Two instruments with nothing in common — a nested-group
+composition census and a serial-dispatch A/B — agree to within the CI. The
+*entire* measured decode overlap is therefore accounted for by exactly three
+small kernels hiding under three big matvecs. There is no fourth unexplained
+pool of concurrency, and so no residue for a fusion to harvest.
+
+### 17.2 One genuine tension I am not resolving
+
+#268's wave map puts `shared_swiglu` **alone** on chain edge E6 (1 producer, 3
+consumers), which implies `E ≈ 1`. #174 measures
+`shared_nvfp4_swiglu_qmv_rows1` at **`E = 0.10`**, which requires a large
+sibling — presumably `routed_swiglu` on W7. The two reconcile only if the encode
+order places shared and routed swiglu in the same wave, which #268's low-profile
+trace does not show. #174 ran a 45-CB configuration; #268 ran 45 (low) and 30
+(ranked). **Unresolved.** It changes no conclusion below, because both readings
+are used only to *lower* a candidate's price and §18 takes the conservative
+branch where it matters. Cheapest resolution: re-reduce
+`research/artifacts/fern_sites.sitemap.tsv.gz` and read the wave index of
+`shared_nvfp4_swiglu_qmv_rows1` directly — no GPU required.
+
+---
+
+## 18. Q4 — repricing §5 against region structure
+
+**Direct answer to the question asked: yes, the smaller member of the two
+genuinely co-scheduled `NONE` pairs is hidden under the larger — `E = 0.10`.**
+That does not help the ledger; it is what kills it. An `E = 0.10` dispatch costs
+10 % of its nominal, so removing it can refund at most 10 %.
+
+The repricing multiplies each row's Part-1 EV by its member's measured `E`:
+
+| # | pair | wave relationship (measured) | member `E` | EV @ k=0.0872 (Part 1) | **EV × E (repriced)** |
+|---|---|---|---:|---:|---:|
+| 1 | routed ∥ shared gate+up | different waves (W7 vs W6); **§17.2 tension** | 0.10 | +0.0682 % | **+0.0068 %** |
+| 2 | QKV → gate_sp | **not adjacent**: W2 vs W3 | 0.10 | +0.0699 % | **+0.0070 %** |
+| 3 | input RMSNorm → QKV | E2, **39/39 charged (ranked)** | 1.013 | +0.0741 % | **+0.0751 %** |
+| 4 | gate_sp ∥ attention | **the real co-schedule** (E4, 2 producers, 1 fence) | 0.10 | +0.0658 % | **+0.0066 %** |
+
+Row 2's premise is now measurably wrong twice over: the pair is **not** in one
+wave (the advisor's Fact-3 placement), *and* its smaller member is already free.
+Row 4 replaces it as the genuinely co-scheduled pair — and is worth **10× less**.
+
+### 18.1 Maximum independent removal, repriced
+
+| removed | n | Part 1 @ k=0.0872 | **`E`** | **repriced** |
+|---|---:|---:|---:|---:|
+| `gate_sp` (row 2 **or** 4) | 40 | 0.0658 % | 0.10 | **0.0066 %** |
+| input RMSNorm (row 3) | 40 | 0.0658 % | 1.013 | **0.0667 %** |
+| shared gate+up (row 1) | 39 | 0.0641 % | 0.10 | **0.0064 %** |
+| router top-8 (row 7) | 39 | 0.0642 % | — (unmeasured; kept at 1.0) | **0.0642 %** |
+| **total** | **158** | **0.2599 %** | | **0.1439 %** |
+
+**The entire removable pool falls from 0.2599 % to 0.1439 %** — from 1.5× under
+the 0.4 % bar to **2.8× under it**, and from 1.9× to **3.5× under fern's 0.5 %
+bar**. Row 7 is carried at `E = 1.0` purely because it has no measured exposure
+factor; #218 independently bounds that family at **0.00 ± 0.12 µs/call** and
+#204 deleted it for **−0.9 ± 12.1 µs**, so the realistic total is nearer
+**0.080 %**, i.e. **5× under bar**.
+
+Only **row 3** survives repricing with its value intact — and row 3 is
+**PR #483, already CLOSED** at ≤0.533 %, ≈0.13 % after transfer. The one row the
+region structure does not demote is the one row already spent.
+
+---
+
+## 19. Q5 — largest exposed critical-path residue
+
+| rank | family | kernel | exposed µs/step | `E` | in this ledger? |
+|---:|---|---|---:|---:|---|
+| 1 | **D** | `FUSED_QKV_PROJECTION` | **3379.3** | 0.999 | no |
+| 2 | — | 11 pooled census rows | 4113.5 (pooled) | 1.013 | partly |
+| 3 | attention | `sliding_fused_attn_ring_v1` | — | ≥ 0.90 | row 4 (as the *hider*) |
+| 4 | — | `oproj_act_h64` | — | ≥ 0.94 | row 5 (0 effective) |
+| — | E / shared | `gate_sp_h64/h48`, `shared_swiglu` | **57 total** (from 574 nominal) | 0.10 | rows 1, 2, 4 |
+
+**Family D (QKV) carries by far the largest exposed residue, and no row in this
+ledger touches it.** Every live ledger row targets the `E = 0.10` pool. That is
+the structural reason the ledger cannot clear a bar: it is enumerated over
+precisely the dispatches that are already free.
+
+Where the residue is *addressable* is a different question, and the roofline
+answers it (M4 Pro, 273 GB/s, 20 cores;
+`RESEARCH_ARCHIVE_through-round-91.md:3686-3700`):
+
+| pool | effective µs/step | % step | byte floor | **headroom** | headroom % score |
+|---|---:|---:|---:|---:|---:|
+| NVFP4/bf16 weight streaming | 5920 | 70.1 | 5582 | 338 | 4.94 |
+| **attention (2 kernels)** | 881 | 10.4 | 317 | **564** | **8.26** |
+| glue (kB operands) | 641 | 7.6 | 152 | 489 | 7.16 |
+
+Family D is exposed but **bandwidth-saturated**: `decode_nvfp4_qkv_h64` runs at
+**268.2 GB/s = 98.2 % of peak**, `qkv_h48` 96.2 %, `oproj_act_h64` 94.1 %. Its
+3379 µs is exposed *and* nearly incompressible. The **attention pool** holds the
+largest compressible headroom (564 µs, 8.26 % of score) — and PR #642 already
+owns those kernels.
+
+**Rule 41's last live reading is retired by the same round.** Over the recorded
+408-dispatch / 247-barrier trace, greedy 289 levels → optimal 288 levels =
+**1 group = 1.3003 µs/step = 0.0198 % of `cs`** against a 33 µs/step viability
+gate ⇒ **25.4× short**; the fantasy ceiling where CB boundaries align perfectly
+with the DAG is 7.80 µs/step, still **4.2× short**. Invariant to granularity
+(pointer *and* byte-range) and to hazard model (RAW+WAR *and* RAW-only).
+**70.6 % of the decode step is genuine serial data-dependence**
+(`CURRENT_RESEARCH_STATE.md:4308-4321`). No barrier removal, no
+`start_concurrent()`, no CB restructuring reaches it — and no Swift call site
+uses a concurrent context in the first place (`grep` over
+`Sources/MLXFastModel/` returns nothing; only vendor C++ hits at
+`device.h:88` and `slicing.cpp:35`, and neither file is in `editablePaths`).
+
+---
+
+## 20. Part 2 caveats
+
+1. **Everything in §15–§19 is M4 Pro** (20 cores, `applegpu_g16s`, 48 GiB). No
+   `_nax` kernel is reachable. Directional for the ranked M5 only.
+2. The **residency ceiling doubles** on M5 Max (~480 → ~960 concurrent TGs,
+   `RESEARCH_ARCHIVE_through-round-91.md:2906-2909`), so low-occupancy overlap
+   should be *more* available on the ranked host. If anything, `E` for the small
+   kernels is **lower** on M5 and §18's repricing is **conservative**.
+3. **`E` transfer is untested.** The exposure factors are one host, one round.
+4. The §17.2 shared-swiglu wave tension is unresolved; §18 row 1 would return to
+   +0.0682 % if `E = 1` there. That single row cannot move the verdict: even at
+   the un-repriced 0.2599 %, the pool is 1.5× under bar.
+5. `D(0)` is a **range** (382–448 µs/step) because #174's pre-registered k=1
+   tripwire fired. I have not treated it as a point estimate anywhere.
+6. **Zero receipts, zero GPU seconds, zero submitted bytes** in Part 2. Every
+   number is a re-read of an existing measured artifact, with file:line.
+
+## 21. Part 2 provenance
+
+| source | what it supplies |
+|---|---|
+| `RESEARCH_ARCHIVE_through-round-91.md:2906-2945`, `:6883-6903` | union retirement, residency law |
+| `RESEARCH_ARCHIVE_through-round-91.md:3601-3700` (§4.12, PR #174) | `D(0)`, `E`, #158 retraction, roofline pools |
+| `research/tanjiro-pr157-result.md:122-131` | the four-arm control that kills the union metric |
+| `research/nezuko-pr158-decode-dead-time.md:285-307` | the CB sweep whose headline is retracted |
+| `research/maple-fern-decode-barrier-site-census.md:1-235` (PR #268) | wave map, per-edge charge table, two-profile fences |
+| `research/maple-fern-r106c-decode-serialisation-ledger.md:10-360` | independent 247-barrier reproduction |
+| `CURRENT_RESEARCH_STATE.md:258-275`, `:4290-4325` | conservation bound, barrier-reorder negative |
+| `Sources/MLXFastModel/LagunaRuntimeModel.swift` (dispatch sites in §16.2) | source-side confirmation of the 10-dispatch layer |
+| `Vendor/mlx-swift/…/backend/metal/device.cpp:315-349`, `:363-391`, `:545-548` | barrier semantics incl. the WAR and accumulate branches |
+
