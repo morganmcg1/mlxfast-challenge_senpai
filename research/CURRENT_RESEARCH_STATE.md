@@ -1,12 +1,238 @@
 # SENPAI Research State
 
-- **2026-08-10T20:35Z — round 109 (endgame). ~24 h to the deadline.**
+- **2026-08-10T21:25Z — round 109 (endgame), mid-round re-allocation done.**
 - Most recent human/operator direction: none newer than §1; the standing
   direction is unchanged — beat the crown on the serial
   `laguna-xs-2.1-serial-v2` track without changing a single checked token.
 - Current research base (all six live assignments):
   **`1a6761bf46c282fcabd0577b618f0c1206757e6c`**.
   Campaign `BASE_SHA` for submission: **`1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7`**.
+
+> 🟥🟥🟥 **R109 MID-ROUND — FOUR THINGS CHANGED AT 21:20Z. READ THIS BEFORE
+> ANYTHING BELOW IT; WHERE IT CONTRADICTS AN OLDER SECTION, THIS WINS.**
+>
+> ### A. The single "% of score per M4 µs" constant is RETRACTED. It is an 8× bracket.
+>
+> Three independent programme estimates of the same quantity disagree by 8×
+> and have never been reconciled:
+>
+> | source | % score per M4 busy µs/step | 0.378 % needs |
+> |---|---:|---:|
+> | additive-busy model `(µs/8972) × 0.8 transfer × 0.75 decode weight` | 0.00669 | **57 µs/step** |
+> | alphonse #644 host-unit conversion | 0.01642 | 23 µs/step |
+> | tanjiro #663 repriced dispatch axis (158 disp ≈ 70.8 µs ⇒ 0.1439 %) | 0.00203 | **186 µs/step** |
+>
+> First-principles and now canonical: removing Δ µs of M4 decode **wall** per
+> token is worth `0.75 × Δ/8972` = **0.00836 %/µs**. Busy→wall transfer was
+> measured at **0.93** (E0: −69.71 ± 36.21 µs busy for −64.71 ± 116.43 µs wall)
+> with a very wide CI; **plan at 0.8** ⇒ **0.00669 %/µs of busy**.
+>
+> **Standing instruction to all six students: report ceilings and results in
+> MICROSECONDS of decode busy removed, alongside `ns`. Do not convert to
+> percent with any single constant. The advisor converts centrally.** Two
+> earlier notes of mine were arithmetically wrong and are corrected here:
+> "0.378 % = 565 µs/step" (10× too big; the additive-model figure is 57 µs) and
+> "a fully harvested 413 µs gap ⇒ 0.28 %" (never derived; first principles say
+> **3.45 %**, and the only reason 0.28 % is nearer the truth is #663's finding
+> that the slack is already spent).
+>
+> **Open programme question, assigned to tanjiro as second priority:** reconcile
+> #644 (0.01642) against #663 (0.00203).
+>
+> ### B. The additive-busy model is confirmed. Kernels are serialized; only in-kernel µs move the clock.
+>
+> From tanjiro r87a (`research/r87a-runs/ceiling.json`, 7 paired M4 runs;
+> renderer `research/tanjiro-r87a-kernel-table.py`):
+>
+> - arm A0 wall **9816.6 ± 71.2 µs/step** (profiled), busy_sum **8559.4 ± 13.2**,
+>   busy_union **8558.7**, gap **1257.9**, 406 command buffers/dispatches (sd 0).
+> - arm E0 wall 9751.9, busy_sum 8489.7, busy_union 8489.1, gap 1262.7, 406.
+> - E0 deltas: `subtotal_touched_us` −83.64, `subtotal_untouched_us` +14.13.
+>
+> `busy_sum ≈ busy_union` ⇒ **kernels do not overlap**. Unprofiled decode wall
+> ≈ **8972 M4 µs/step** ≈ 8560 µs serialized busy + **~413 µs gap**, and the
+> 413 µs matches #663's independently measured 382–448 µs/step intra-command-
+> buffer slack, which #663 declared **already fully harvested**. Two methods
+> agree: ~4.6 % non-busy slack, already spent. **Removing in-kernel busy µs is
+> the only lever that moves the wall clock.**
+>
+> ### C. CANONICAL PER-KERNEL DECODE BUDGET (M4, arm E0, 97.86 % covered, ≥1 % cutoff)
+>
+> | µs/step | share | kernel | status |
+> |---:|---:|---|---|
+> | 1501.4 | 17.54 % | `routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2` | DRAM ceiling — closed |
+> | 1340.7 | 15.66 % | `decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1` | nezuko fusion target |
+> | 1119.2 | 13.08 % | `oproj_act_h64_v1_lm1_pw1_sc1_se1` | DRAM ceiling — closed |
+> |  861.2 | 10.06 % | `routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6` | DRAM ceiling — closed |
+> |  **627.3** | **7.33 %** | `sliding_fused_attn_ring_v1` | **edward #684** |
+> |  422.3 |  4.93 % | `lmhead_int5_base_coarse_delta_bf16_v1` | closed |
+> |  363.5 |  4.25 % | `decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1` | nezuko fusion target |
+> |  320.1 |  3.74 % | `residual_rms_router_bf16_2048_rpg8_keys_v1` | **frieren #681** (rpg sweep) |
+> |  302.9 |  3.54 % | `oproj_act_h48_v1_lm1_pw1_sc1_se1` | DRAM ceiling — closed |
+> |  284.9 |  3.33 % | `shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1` | off-ceiling — **UNSTAFFED** |
+> |  269.4 |  3.15 % | `dense_gate_up_swiglu_bf16_v1` | closed |
+> |  250.7 |  2.93 % | `gate_sp_h64_v1` | **tanjiro #683** |
+> |  **249.5** | **2.92 %** | `full_fused_attn_grow_v1` | **alphonse #685** |
+> |  186.2 |  2.18 % | `prefill_router_tournament_ordinal_norm_active64_v2` | de-staffed |
+> |  142.3 |  1.66 % | `rmsbfloat16` | **nezuko #682** |
+> |  134.5 |  1.57 % | `dense_down_residual_bf16_v1` | closed |
+>
+> Corrections this forces: the §12-derived "decode attention ≈ 424 µs/step" was
+> **LOW**. The measured attention pool is **876.8 µs/step (10.25 %)** = sliding
+> 627.3 + full 249.5, and alphonse had been under-quoted **2.2×** (114.85 µs
+> quoted vs 249.5 measured).
+>
+> **Bandwidth separation (new, decisive).** Every large QMV/GEMV kernel moves
+> 19–22 MB per share-% = **235–265 GB/s** against a 263.29 GB/s measured M4 Pro
+> read ceiling — pinned to DRAM, closed. **Both fused attention kernels move
+> ~8.1–8.6 MB per share-% ≈ 100 GB/s = 38 % of ceiling** — a compute/latency
+> signature. That flips the previously "mixed" prior **in favour of** edward's
+> and alphonse's MMA arms. `residual_rms_router` ≈ 11 MB/share-% ≈ 128 GB/s
+> (~2× under); `gate_sp_h64` ≈ 15 GB/s (6 % of ceiling);
+> `shared_nvfp4_swiglu` ≈ 13 MB/share-%.
+>
+> ### D. The NVFP4 migration silently disabled the whole INT8-era fusion suite. ~455 µs/step is orphaned.
+>
+> Verified in source at `1a6761bf` (LRM = `Sources/MLXFastModel/LagunaRuntimeModel.swift`).
+> Three fusions all guard on `mode == .affine, bits == 8, groupSize == 32`:
+>
+> - `lagunaNormAffineQKV` (LRM:5488-5545; body 5097-5237; guard 5926-5930)
+> - `foldGateIntoBank` (LRM:5713-5714; sets `_nativeAffineQKVGateRows = nHeads` 5724; consumed 5979-5981)
+> - `lagunaGateSoftplus` (LRM:4525-4551, guard 4528)
+>
+> `lagunaNativeAffineNVFP4From` (LRM:3048-3054) returns 0 unless
+> `DARKBLOOM_NATIVE_AFFINE_NVFP4 == "0"`, so LRM:3101-3113 re-quantizes Q/K/V/O
+> to **NVFP4 g16, bits == 4** from layer 0. `bits == 8` is therefore never true,
+> `fusedQKV` is always nil (LRM:5950), and `let fusedTailGateLogits: MLXArray? = nil`
+> is hard-coded at LRM:5947.
+>
+> The orphaned work now costs **≈455 µs/step ≈ 5.1 % of decode busy**:
+> `rmsbfloat16` 142.3 (41 dispatches × 3.47 µs; a 2048-element RMS over 4 KB
+> with a genuine RAW hazard into `lagunaDecodeNVFP4QKVR1(normalized:)`
+> LRM:5951-5955, strictly serial 40×/step) + `gate_sp_h64` 250.7 +
+> `gate_sp_h48` ≈ 62.
+>
+> Port targets: `lagunaDecodeNVFP4QKVR1Source` LRM:4810-4879;
+> `inputNames = ["normalized","weight_codes","weight_scales"]` LRM:4889-4891.
+> QKV already dispatches 5120 TGs (h64) / 4096 (h48), each already re-reading
+> the full 2048-element input row, so folding the RMS reduction in is **pure ALU
+> on resident data with no extra DRAM traffic**.
+>
+> ### E. The geometry rule is AMENDED (programme law).
+>
+> PR #7's ban (+7.32 % M4 → ~0 % M5) has a **wave-quantization** mechanism, so
+> it binds only for kernels that already fill the machine. **It does not apply
+> to a kernel dispatching fewer threadgroups than either machine has cores.** A
+> geometry change is permitted when the PR states (a) the current TG count,
+> (b) that it is below 20, and (c) the new count. **A new count above ~40
+> (M5 Max cores) must be flagged to the advisor before landing.**
+>
+> Applies to `gate_sp_h64` (**8 TGs**; h48 = 6) and `residual_rms_router`
+> (**32 TGs**). Explicitly does **not** apply to the attention kernels (sliding
+> 32 TGs × 1024 threads, full 24 × 1024 — M4/M5 anti-correlated); U3-style
+> attention geometry stays an M5-only option, unstaffed.
+>
+> ### F. Zero-code sweep available: router `rpg`/prefetch (frieren's pivot).
+>
+> `lagunaResidualRMSNormRouterKernels` (LRM:1119-1146) builds **21 kernels at
+> startup**: `rowsPerGroup ∈ {1,2,4,8,16,32,64}` × `prefetch ∈ {0,1,5}`.
+> Selection is env-only: `DARKBLOOM_ROUTER_ROWS_PER_GROUP` (LRM:676-684,
+> default **8**), `DARKBLOOM_ROUTER_WEIGHT_PREFETCH` (LRM:696-703, default
+> **1**, accepts {0,1,5}). Dispatch LRM:1217-1235: grid `(tiles*512,1,1)`,
+> threadgroup `(512,1,1)`, `tiles = 256/rowsPerGroup`.
+>
+> | rpg | tiles (TGs) | threads/row |
+> |---:|---:|---:|
+> | 32 | 8 | 16 |
+> | 16 | 16 | 32 (exactly one simdgroup ⇒ pure `simd_sum`, no TG reduction) |
+> | **8** | **32** | **64 ← current default** |
+> | 4 | 64 | 128 |
+> | 2 | 128 | 256 |
+>
+> rpg 16 is unambiguously safe and is tried first. rpg 4/2 are reportable but
+> **not landable without advisor sign-off** (>40 TGs). The kernel is **not
+> bit-exact across rpg**, so each candidate needs its own correctness gate, and
+> the winner must land as a **compiled default** in a new
+> `LagunaResidualRmsRouterDefaults.swift` — an env flip is not a submission.
+>
+> ### G. Submission-surface unlock: `editablePaths` contains DIRECTORY entries.
+>
+> `Sources/MLXFastModel` and `Sources/MLXFastTransform` are directory entries
+> (97 entries → 142 files). A brand-new `.swift` file under either is
+> automatically in the submitted surface, passes
+> `senpai/validate-assignment-scope.sh` (verified exit 0 for a not-yet-existing
+> path), and compiles under SwiftPM with no manifest edit. Metal kernels are
+> embedded Swift string literals, so relocating one to a sibling file in the
+> same module is trivially safe. **Every r109 arm therefore writes its own new
+> file** — near-zero merge conflict surface for fern's composition.
+>
+> Byte facts (settled): `current=2681206/3000000 headroom=318794
+> growth=-302643/262144 files=142`. Growth is a non-issue this round. The only
+> cap with teeth is **per-file 524,288 B**; `LagunaRuntimeModel.swift` is
+> 384,245 B (140,043 B headroom). `Sources/MLXFastModel/LagunaRuntimeLayers.swift`
+> **does not exist** — a path I circulated earlier was stale.
+>
+> ### H. Adjudicated and killed — do not re-staff.
+>
+> **U2** ("flip `lagunaGateSoftplusEnabled` to fuse softplus into o_proj") is
+> wrong. The env var is `DARKBLOOM_AFFINE_GATE_SOFTPLUS` (LRM:4464-4465,
+> default **ON**); setting `0` pushes `gateLogits` down the generic
+> `quantizedMM` fallback (LRM:6000-6010) — a loss. The real `gate_sp`
+> opportunity is **occupancy** (tanjiro #683).
+>
+> The **timing half** of fern's NVFP4-flag probe is **withdrawn**: the flag
+> doubles Q/K/V/O weight bytes on a 3126.3 µs DRAM-pinned pool (≈ +3100 µs)
+> against a 455 µs fusion signal — 7:1 confounded. It is replaced by a 20-minute
+> **structural dispatch-census diff with no timing claim**.
+>
+> ### I. R109 re-allocation map as it now stands
+>
+> | PR | student | arm (after mid-round re-allocation) | new file |
+> |---|---|---|---|
+> | #681 | frieren | cadence Stage-0 (2 masks) → **router `rpg` sweep** | `LagunaResidualRmsRouterDefaults.swift` |
+> | #682 | nezuko | **RMSNorm → NVFP4 QKV fusion** (Arm G rung 1) | `LagunaNormFusedNVFP4QKV.swift` |
+> | #683 | tanjiro | **`gate_sp` occupancy 8 → 64 TGs** | `LagunaGateSoftplusOccupancy.swift` |
+> | #684 | edward | sliding attention QK MMA | `LagunaSlidingAttnQKMMA.swift` |
+> | #685 | alphonse | full attention QK MMA + params-atlas | `LagunaFullAttnQKMMA.swift` |
+> | #686 | fern | integration, verification, **sole submission driver** | — |
+>
+> Priced against the bracket: tanjiro ~236 µs = **0.48 %–1.58 %** — the only arm
+> that clears the 0.378 % bar under **all three** constants, so it is the
+> highest-priority arm. frieren's rpg pivot = 0.32 %–1.07 %. nezuko's
+> `rmsbfloat16` = 0.29 %–0.95 %, straddling the bar; nezuko must report the
+> `rmsbfloat16` µs removed **and** the QKV kernel's own delta separately,
+> because >~40 µs of QKV growth means the fused layout is wrong.
+>
+> **Two escalation triggers I am watching for at the 23:00Z/23:30Z Stage-0
+> checkpoint:**
+>
+> 1. **fern's dispatch census.** If `rmsbfloat16` and `gate_sp_h*` do **not**
+>    vanish under `DARKBLOOM_NATIVE_AFFINE_NVFP4=0`, my guard reading in §D is
+>    wrong and nezuko stops immediately.
+> 2. **frieren's cadence masks.** If either preregistered mask shows ≥ ~1 %,
+>    frieren does **not** pivot — that would reopen a 3.45 %-class lever and
+>    partially invalidate #663's "slack already harvested" conclusion.
+>
+> ### J. Composition hazards fern must plan for now
+>
+> 1. nezuko (rung 1) and tanjiro (`gate_sp` occupancy) attack two halves of the
+>    same dead fusion suite. They are additive **today**, but a future **Arm G
+>    rung 2** — folding the INT8 `g_proj` bank into the NVFP4 QKV kernel as
+>    extra output columns with in-kernel softplus — would **supersede**
+>    tanjiro's rather than compose with it.
+> 2. **Three of five arms are non-bit-exact** (frieren's rpg, both MMA arms), so
+>    any composite needs a **fresh full gate run**, not inherited gates. Budget
+>    the wall clock.
+> 3. **Only two arms are bit-exact by construction**: alphonse's params-atlas
+>    and, if reduction order is preserved, tanjiro's rung 1. A bit-exact-only
+>    composite must be pre-built and pre-gated as the low-risk fallback.
+> 4. Per-file cap 524,288 B; one new sibling file per arm should stop it
+>    binding, but verify per composite.
+>
+> ### K. Still unstaffed and worth a free student
+>
+> `shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1` — **284.9 µs/step (3.33 %)**,
+> ≈13 MB per share-%, i.e. **off** the DRAM ceiling. No arm owns it.
 
 > 🔴🔴🔴 **ROUND-109 HEADLINE — WE SPENT A WHOLE ROUND BUILDING NOTHING.
 > EVERY BRIEF NOW REQUIRES A NON-EMPTY SUBMITTED-SURFACE DIFF.**
