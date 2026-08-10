@@ -1,11 +1,23 @@
 // Copyright © 2025 Apple Inc.
 
+// port of https://github.com/ml-explore/mlx-lm/blob/main/mlx_lm/models/laguna.py
+//
+// Laguna (Poolside Laguna XS 2.1): a Mixture-of-Experts decoder with GQA,
+// per-head QK-norm, per-head softplus attention output gating, a mix of
+// sliding-window and full-attention layers (each with its own RoPE), a sigmoid
+// top-k router with an `e_score_correction_bias`, and a shared expert. The
+// released checkpoints are NVFP4 (4-bit) quantized on the expert / shared-expert
+// projections; every other projection stays full precision. Quantization mode,
+// group size and bits are read from `config.json` and applied by the loader to
+// any module that ships a matching `.scales` tensor, so no model-side handling
+// of the quantization format is required here.
 
 import Foundation
 import MLX
 import MLXLMCommon
 import MLXNN
 
+// MARK: - Attention
 
 private class LagunaAttention: Module {
     let nHeads: Int
@@ -52,6 +64,9 @@ private class LagunaAttention: Module {
         self._qNorm.wrappedValue = RMSNorm(dimensions: headDim, eps: config.rmsNormEps)
         self._kNorm.wrappedValue = RMSNorm(dimensions: headDim, eps: config.rmsNormEps)
 
+        // Per-layer-type RoPE: full-attention layers use YaRN with a partial
+        // rotary factor, sliding-attention layers use plain RoPE over the full
+        // head. The base and partial factor come from the per-type sub-dict.
         let ropeConfig = config.ropeParameters(forLayer: layerIdx)
         let base = ropeConfig?["rope_theta"]?.asFloat() ?? config.ropeTheta
         let partial = ropeConfig?["partial_rotary_factor"]?.asFloat() ?? 1.0
@@ -95,6 +110,8 @@ private class LagunaAttention: Module {
         .reshaped(B, L, -1)
 
         if gatingEnabled, let gProj {
+            // Per-head softplus gate computed in float32, then broadcast across
+            // the head dimension (or applied elementwise for a per-element gate).
             let gate = softplus(gProj(x).asType(.float32)).asType(output.dtype)
             if gatePerHead {
                 output =
@@ -109,6 +126,7 @@ private class LagunaAttention: Module {
     }
 }
 
+// MARK: - Dense MLP (also used as the shared expert)
 
 private class LagunaMLP: Module, UnaryLayer {
     @ModuleInfo(key: "gate_proj") var gateProj: Linear
@@ -126,6 +144,7 @@ private class LagunaMLP: Module, UnaryLayer {
     }
 }
 
+// MARK: - MoE
 
 private class LagunaMoEGate: Module {
     let topK: Int
@@ -193,6 +212,7 @@ private class LagunaSparseMoeBlock: Module, UnaryLayer {
     }
 }
 
+// MARK: - Decoder Layer
 
 private class LagunaDecoderLayer: Module {
     @ModuleInfo(key: "self_attn") var selfAttn: LagunaAttention
@@ -230,6 +250,7 @@ private class LagunaDecoderLayer: Module {
     }
 }
 
+// MARK: - Model
 
 private class LagunaModelInner: Module {
     @ModuleInfo(key: "embed_tokens") var embedTokens: Embedding
@@ -293,6 +314,17 @@ public class LagunaModel: Module, LLMModel, KVCacheDimensionProvider {
         }
         super.init()
 
+        // The checkpoint stores NVFP4 only on the MoE expert and shared-expert
+        // projections; attention, the router gate, embeddings, the LM head and the
+        // dense layer-0 MLP stay full precision. Quantize those modules here, once
+        // per sparse decoder layer. This is a bounded pass (at most num_hidden_layers
+        // iterations) and allocates nothing eagerly: MLX is lazy, so the freshly
+        // initialized expert weights are never materialized -- `loadWeights`
+        // overwrites these parameters with the checkpoint tensors before the first
+        // `eval`, so peak memory is just the model loaded once. Doing it per sparse
+        // layer also keeps the loader's own whole-model `quantize(model:)` pass from
+        // descending a decoder layer that contributes no quantized submodule (the
+        // dense layer 0), which the module updater rejects.
         if let groupSize = config.quantGroupSize, let bits = config.quantBits {
             let mode = config.quantMode ?? .affine
             for layer in model.layers where layer.mlp is LagunaSparseMoeBlock {
@@ -320,6 +352,7 @@ public class LagunaModel: Module, LLMModel, KVCacheDimensionProvider {
         if config.tieWordEmbeddings {
             weights["lm_head.weight"] = nil
         }
+        // Drop precomputed rotary tables if a checkpoint ships them.
         return weights.filter { !$0.key.contains("rotary_emb.inv_freq") }
     }
 
@@ -332,6 +365,7 @@ public class LagunaModel: Module, LLMModel, KVCacheDimensionProvider {
     }
 }
 
+// MARK: - LoRA
 
 extension LagunaModel: LoRAModel {
     public var loraLayers: [Module] {
@@ -339,7 +373,10 @@ extension LagunaModel: LoRAModel {
     }
 }
 
+// MARK: - Configuration
 
+/// Attention output gating mode. In `config.json` this is either a bool
+/// (`true` enables per-head gating) or a string (`"per-head"` / `"per-element"`).
 public enum LagunaGating: Codable, Sendable {
     case disabled
     case perHead
@@ -422,6 +459,7 @@ public struct LagunaConfiguration: Codable, Sendable {
 
     var gating: LagunaGating
 
+    // MoE
     var numExperts: Int
     var numExpertsPerTok: Int
     var moeIntermediateSize: Int
@@ -457,6 +495,7 @@ public struct LagunaConfiguration: Codable, Sendable {
         return numExperts > 0 && (i + 1) % max(decoderSparseStep, 1) == 0
     }
 
+    /// RoPE parameters for a layer, resolved from the per-type mapping when present.
     func ropeParameters(forLayer i: Int) -> [String: StringOrNumber]? {
         guard let ropeParametersByType else { return nil }
         return ropeParametersByType[layerType(forLayer: i)]

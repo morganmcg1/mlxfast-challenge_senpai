@@ -1,3 +1,5 @@
+// CompiledDecode: whole-step compiled decode helper.
+// See notes/MLXLMCommon-CompiledDecode.notes.md#line26
 
 import Foundation
 import MLX
@@ -9,6 +11,7 @@ private let tieredCompiledAttentionEnabled =
 
 public enum CompiledDecode {
 
+    /// Host-side selector between two compiled graphs over shared cache state.
     private final class TieredForward: @unchecked Sendable {
         let fastAttentionLength: Int
         var logicalOffset: Int
@@ -49,6 +52,9 @@ public enum CompiledDecode {
         }
     }
 
+    /// Compiled decode is ON by default. Set `DARKBLOOM_COMPILED_DECODE=0`
+    /// to disable. Guards in GenerationBatch ensure it only activates for
+    /// B=1 solo decode with supported cache types (no MTP, no SSM).
     public static let isEnabled: Bool = {
         if let raw = ProcessInfo.processInfo.environment["DARKBLOOM_COMPILED_DECODE"] {
             return !["0", "false", "no", "off"].contains(raw.lowercased())
@@ -56,6 +62,8 @@ public enum CompiledDecode {
         return true
     }()
 
+    /// True iff every layer is a compilable cache type and thus
+    /// compile-traceable by ``compileForward(model:cacheRef:)``.
     public static func eligible(_ cache: [KVCache]) -> Bool {
         !cache.isEmpty && cache.allSatisfy {
             $0 is CompilableKVCache || $0 is CompilableRotatingKVCache
@@ -63,6 +71,8 @@ public enum CompiledDecode {
         }
     }
 
+    /// Build a compiled forward closure for a decode step.
+    /// See notes/MLXLMCommon-CompiledDecode.notes.md#compileforward
     public static func compileForward(
         model: any LanguageModel,
         cacheRef: [KVCache]
@@ -87,6 +97,18 @@ public enum CompiledDecode {
         }
     }
 
+    /// Attempt to set up compiled decode for a model + cache pair.
+    ///
+    /// This converts eligible cache layers to their compilable equivalents
+    /// and builds a compiled forward closure. Per-layer promotion handles
+    /// heterogeneous caches (e.g. Gemma4 with mixed KVCacheSimple +
+    /// RotatingKVCache layers).
+    ///
+    /// The conversion is only performed when ALL of these conditions hold:
+    /// - `DARKBLOOM_COMPILED_DECODE=1` env var is set
+    /// - `MLXHardwareInfo.isCompiledDecodeSupported` is true
+    /// - Every cache layer is either `KVCacheSimple` or `RotatingKVCache`
+    ///
     public static func setupCompiledDecode(
         model: any LanguageModel,
         cache: inout [KVCache],
@@ -98,6 +120,7 @@ public enum CompiledDecode {
             return nil
         }
 
+        // Validate all layers are promotable before doing any conversion.
         for layer in cache {
             if !(layer is KVCacheSimple) && !(layer is RotatingKVCache) {
                 compiledDecodeLog.info(
@@ -106,6 +129,7 @@ public enum CompiledDecode {
             }
         }
 
+        // Materialize all pending cache operations before conversion.
         eval(cache)
 
         let currentOffset = cache.map(\.offset).max() ?? 0
@@ -121,19 +145,24 @@ public enum CompiledDecode {
             return nil
         }
 
+        // Per-layer promotion: each layer type gets its compilable equivalent.
         var simpleCount = 0
         var rotatingCount = 0
         for i in 0..<cache.count {
             if let rotating = cache[i] as? RotatingKVCache {
+                // RotatingKVCache → CompilableRotatingKVCache
+                // (uses its own maxCacheSize, not maxCacheLength)
                 cache[i] = CompilableRotatingKVCache.promote(from: rotating, maxLength: maxCacheLength)
                 rotatingCount += 1
             } else if let simple = cache[i] as? KVCacheSimple {
+                // KVCacheSimple → CompilableKVCache
                 cache[i] = CompilableKVCache.promote(
                     from: simple, maxLength: maxCacheLength)
                 simpleCount += 1
             }
         }
 
+        // Materialize the new compilable cache buffers
         eval(cache)
 
         let layerCount = cache.count
@@ -161,6 +190,9 @@ public enum CompiledDecode {
         return { owner($0) }
     }
 
+    /// Choose the shortest attention view that preserves the long-cache
+    /// vector-SDPA reduction partition.
+    /// See notes/MLXLMCommon-CompiledDecode.notes.md#initialattentionlength
     static func initialAttentionLength(
         currentOffset: Int,
         growthStep: Int,
@@ -191,6 +223,8 @@ public enum CompiledDecode {
         return capacity
     }
 
+    /// Set up compiled decode for batched caches (B >= 1).
+    /// See notes/MLXLMCommon-CompiledDecode.notes.md#setupbatchcompileddecode
     public static func setupBatchCompiledDecode(
         model: any LanguageModel,
         cache: inout [any BatchedCache],
@@ -202,9 +236,10 @@ public enum CompiledDecode {
             return nil
         }
 
+        // Validate all layers are promotable.
         for layer in cache {
             if layer is CompilableBatchKVCache || layer is CompilableBatchRotatingKVCache {
-                continue
+                continue  // Already compilable
             }
             if !(layer is BatchKVCache) && !(layer is BatchRotatingKVCache) {
                 compiledDecodeLog.info(
@@ -213,12 +248,15 @@ public enum CompiledDecode {
             }
         }
 
+        // Materialize all pending cache operations before conversion.
         eval(cache)
 
+        // Per-layer promotion.
         var fullCount = 0
         var rotatingCount = 0
         for i in 0..<cache.count {
             if cache[i] is CompilableBatchKVCache || cache[i] is CompilableBatchRotatingKVCache {
+                // Already compilable — count it.
                 if cache[i] is CompilableBatchKVCache { fullCount += 1 }
                 else { rotatingCount += 1 }
                 continue
@@ -235,12 +273,14 @@ public enum CompiledDecode {
             }
         }
 
+        // Materialize the new compilable cache buffers.
         eval(cache)
 
         let layerCount = cache.count
         compiledDecodeLog.info(
             "Batch compiled decode enabled: \(layerCount) layers (\(fullCount) full + \(rotatingCount) rotating), maxLength=\(maxCacheLength)")
 
+        // Build compiled forward with the caches cast to [KVCache].
         let cacheRef = cache.map { $0 as any KVCache }
         return compileForward(model: model, cacheRef: cacheRef)
     }

@@ -1,4 +1,9 @@
-// Copyright © 2024 Apple Inc.
+// Vendored upstream MLXLMCommon generation API, unreachable from the scored
+// Laguna worker (`GenerateParameters` survives only as an ignored protocol
+// parameter) and partly forbidden by the serial non-speculative track. All of
+// its upstream DocC prose is relocated verbatim, block by block, to
+// notes/MLXLMCommon-Evaluate.notes.md so it does not spend submitted bytes.
+
 
 import Foundation
 import MLX
@@ -654,7 +659,7 @@ public struct SpeculativeTokenIterator: TokenIteratorProtocol {
             return
         }
 
-        var draftProcessor = processor
+        var draftProcessor = processor  // Copy to discard later
         var draftTokens = [MLXArray]()
         for _ in 0 ..< numDraft {
             let draftResult = draftModel(draftY[text: .newAxis], cache: draftCache, state: nil)
