@@ -1,7 +1,9 @@
 # 105-A — A-fragment N-tile reuse in `fp_gather_qmm_rhs_expert_nax` (BN 64 → 128)
 
-**Assignment:** `maple-r105-a-afrag-ntile-reuse`, revision `r105-a-rev1`, PR #592
-**Base:** `bad6941c8d5a9294108eb65f91e3d0cb62e0b28c`
+**Assignment:** `maple-r105-a-afrag-ntile-reuse`, revision `r105-a-rev2`, PR #592
+**Base:** `5f7861c0981278929c3ef43d54a6d5bca10a8659` (rev2; rev1 was
+`bad6941c8d5a9294108eb65f91e3d0cb62e0b28c`, whose submission channel was closed —
+§4.1)
 **Branch:** `maple-tanjiro/r105-afrag-ntile-reuse`
 **Student:** maple-tanjiro
 **Local host:** Apple **M4 Pro**, 48 GiB unified memory (low-memory startup profile)
@@ -39,14 +41,21 @@ This is not a caveat bolted on at the end. It is why Stage 1 was built the way
 it was, and why §7 spends as much space on what the brief got wrong as on what
 it got right.
 
-**And the second fact, which is why this report is terminal without a verdict:
-that M5 receipt ladder could not be started.** `senpai/submit-official.sh` —
-mandated by `AGENTS.md` for every official submission from this campaign —
-refuses every submission from this base, because `origin/main` is an *ancestor*
-of `BASE_SHA` and the script requires their submitted snapshots to be identical.
-This is an integration gap above the assignment, not something a student can fix
-from inside it. Full diagnosis and three unblock options: **§4.1**. Receipts
-consumed: **0 / 8**.
+**In rev1 that ladder could not be started at all.**
+`senpai/submit-official.sh` refused every submission from the rev1 base, because
+`origin/main` was an *ancestor* of `BASE_SHA` and the script requires their
+submitted snapshots to be identical. The advisor re-based the assignment onto
+`5f7861c0`, which resolved it (§4.1a), and the ladder is now running against
+`origin/main = 1bc1c895`.
+
+**The most valuable thing the ladder has produced so far is not about this
+kernel at all.** The two A0 control rungs are the first same-code ranked
+replicate pair in the campaign's public history, and they show the official
+instrument's within-tree per-receipt σ on candidate prefill is **0.190 ms
+(0.197 %)** — about **10× tighter** than the 1,208-receipt cross-submission
+spread implies. Every power calculation in this campaign that inferred σ from
+that public spread, including my own §4.2, overestimated it by an order of
+magnitude. See **§4.4.1**.
 
 ---
 
@@ -933,18 +942,7 @@ reserved for "D6 fails, or `expert_aligned` drops, or the twin check disagrees."
 None of those happened: D6's regression is real but **repaired** (§1 D6),
 `expert_aligned` holds (§1 D1), and the twin is byte-identical (§1 D7).
 
-**No terminal verdict against §4 of the brief is available.** P, N-1 and N-2 are
-all statements about M5 receipts, and no receipt could be dispatched (§4.1).
-Specifically:
-
-* I am **not** claiming N-1. The preregistered sentence — *"the A-operand
-  re-reads are already absorbed by cache, and the routed gather-GEMM has no
-  remaining ranked lever"* — is written here only to record that it remains
-  unclaimed. Asserting it without receipts would close the campaign's largest
-  open family on zero evidence.
-* I am **not** claiming P, and **not** claiming N-2.
-
-What Stage 1 does deliver, terminally:
+### 5.1 Terminal now, independent of any receipt
 
 1. The lever is **implementable and expert-aligned** at `BN = 128` for both
    Laguna MoE shapes (D1, D2, D3).
@@ -955,19 +953,67 @@ What Stage 1 does deliver, terminally:
    AIR.
 3. The prize is **materially smaller than the brief's headline**, and bounded
    by arithmetic rather than by opinion (§7.2).
+4. The submitted candidate is **inert at its default** on both A0 rungs:
+   `max_abs_diff = 0` over 1,344 checked greedy tokens, GPQA 9/9, both `0.95`
+   floors passed, twice. Whatever the treatment rungs say, the repaired
+   `BN = 128` machinery does not perturb the shipped path when it is not
+   selected.
+5. The ranked instrument's within-tree per-receipt σ on candidate prefill is
+   **0.190 ms (0.197 %)**, ~10× tighter than the cross-submission spread implies
+   (§4.4.1). That number is reusable by every future student who wants to know
+   what a single official receipt can resolve, and it is the first time the
+   campaign has measured rather than assumed it.
 
-### 5.1 Exactly what is needed to finish this
+### 5.2 The three-way verdict against §4 of the brief
 
-The candidate is committed, clean, in scope and inside budget. Once §4.1 is
-resolved the remaining work is mechanical and needs no new design:
+The brief's buckets are P (positive), N-1 (the family is closed) and N-2. I will
+report exactly one of the following, by the §4.4.2 rule, and nothing stronger:
 
-| step | content |
-|---|---|
-| 1 | three A0 control commits (`Sources/` byte-identical to base; SHA differs via an inert comment inside one of the three submitted vendor files, because the archive contains only `editablePaths` and the service dedupes byte-identical archives) |
-| 2 | A1 commit: default variant `5 → 7` (gate/up only) |
-| 3 | A2 commit: default variant `5 → 8` (down only) |
-| 4 | A3 commit: default variant `5 → 6` (both), only if A1 or A2 is positive |
-| 5 | interleaved ladder, 786 s minimum inter-arrival. Brief's §3.2 order: A0-1, A1-1, A0-2, A1-2, A0-3, A2-1, A2-2, spare. **I recommend A0-1, A0-2, A2-1, A1-1, A0-3, A1-2, A2-2, spare instead — see the arm-ordering dissent in §7.3.** Advisor's call; no receipt is committed either way. |
+| verdict | condition | what it licenses |
+|---|---|---|
+| **WIN** | some arm has Δ̂ − t₀.₉₅,ν·SE > 1.35 ms at n ≥ 2 with D1–D5 passing | flip the compiled default for that arm; slot 8 tests variant 6 first if both arms win |
+| **NULL, bar excluded** | every arm has Δ̂ + t₀.₉₅,ν·SE < 1.35 ms | supports N-1 *for the BN axis at these shapes*, at the measured resolution — not "no lever anywhere in the gather-GEMM" |
+| **NULL, underpowered** | anything between | no claim about the family; report the shortfall and the receipts it would take |
+| **REGRESSION** | Δ̂ + t₀.₉₅,ν·SE < 0 | separate finding, never folded into null |
+
+**I am not claiming N-1 in the brief's own words.** The preregistered sentence
+— *"the A-operand re-reads are already absorbed by cache, and the routed
+gather-GEMM has no remaining ranked lever"* — is broader than any receipt I can
+buy. Even a clean bar-excluded null bounds *this* tile change on *these* two
+shapes; §7.3's unoffered arm separates halved-A-traffic from BN=128 and has not
+been run.
+
+**Merge rule, stated in advance.** If the treatments are null, the candidate is
+a *research artifact*, not a shipment: the compiled default stays at variant 5,
+the tree is byte-inert on the scored path, and the PR must **not** be merged
+merely because it is correct and harmless. That is the PR #293 precedent —
+merging inert machinery adds surface area to `editablePaths` and future review
+cost for zero ranked gain. The reusable outputs in that case are §4.4.1's σ, the
+two repairs, and the §7 corrections, all of which live in the report and need no
+merge.
+
+### 5.3 D5 reachability — stated honestly
+
+D5 asks whether the modified kernel is reachable on ranked hardware. My local
+host is an **M4 Pro (Apple GPU generation 16, 48 GiB)**, which does not select
+the `_nax` prefill kernels the ranked M5 uses. So my reachability evidence is
+**code reading plus the ranked receipts themselves**, not local dispatch:
+
+- the selector at `quantized.cpp:1234` is compiled into the archive and its
+  `s.empty()` branch is what the ranked box executes, since the harness sets no
+  `DARKBLOOM_STAGE_BM128`;
+- the JIT twin (`fp_quantized_nax.cpp`) is consistent with the header, checked
+  by `research/nax_twin_check.py` (§1 D7);
+- the A0 receipts prove the archive builds and runs on the M5 with the selector
+  present.
+
+What they do **not** prove is that variant 8's threadgroup geometry is the one
+the M5 actually launches — only a treatment receipt with a nonzero Δ̂ proves
+that positively. A null treatment receipt is therefore ambiguous between "the
+tile change does nothing" and "the tile change was not reached", and I will say
+so rather than reporting the stronger reading. §7.4's rig defect is the reason
+this ambiguity exists at all: the local rig was validating a variant that never
+ships.
 
 ---
 
@@ -1105,7 +1151,7 @@ p = 2⁻²⁰). I am asked to state the caveat explicitly. Stating it:
 
 So `r ≤ 0.698` survives intact. What fb1 *does* add is a **third independent
 reason** to distrust any per-kernel pricing of this arm, which is why the Stage-2
-ladder in §5.1 is receipt-only end-to-end from the first arm and contains no
+ladder in §4.3 is receipt-only end-to-end from the first arm and contains no
 label→end-to-end inference step anywhere. The advisor's "add an end-to-end
 confirmation before you spend a receipt" instruction therefore has no target
 here: there is nothing to confirm, because nothing in the design was priced off
@@ -1140,7 +1186,7 @@ resolves `r` to ±0.033 in a single clean pair. It is an argument that **A2
 (`LagunaRuntimeModel.swift:696-704`) and the sliding-attention k-loop
 (`:1638-1817`) are untouched on this branch, and the tile-variant default
 remains `5`, so the branch is behaviourally identical to base until an arm
-commit flips it. The §5.1 ladder already specifies distinct commit SHAs per
+commit flips it. The §4.3 ladder already specifies distinct commit SHAs per
 receipt with the SHA made to differ outside `Sources/`. Since **0 receipts were
 dispatched (§4.2)**, no commit of mine can collide with nezuko (#584),
 frieren (#597) or fern (#598).
