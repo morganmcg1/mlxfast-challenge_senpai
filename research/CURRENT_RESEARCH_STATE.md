@@ -4554,12 +4554,53 @@ differs.
 **Requirement on every replication brief, effective immediately:** state the
 replay recipe and require **both `--numstat` outputs verbatim in the report**.
 Without them a "replication" cannot be distinguished from an accidental
-resubmission of `origin/main`. Live case: the #597 R106-E draw-1 receipt
-`dbd0b684c9ab` landed at `cs` 2.574073 — **z = −3.62 from `4b0e051b`, but
-z = −0.34 from `origin/main`** — a Gaussian likelihood ratio of ≈**660 : 1**
-that the wrong tree was archived. Plausible mechanism: the `--is-ancestor` gate
-forced a merge of `origin/main` into a branch off `4b0e051b`, and the merge
-resolved the editable files in `origin/main`'s favour.
+resubmission of `origin/main`.
+
+**Live case, decomposed onto the axis where the two trees actually differ.**
+The #597 R106-E draw-1 receipt `dbd0b684c9ab` (2026-08-10T09:04:53Z) landed at
+`cs` 2.574073. `cs` is a composite and therefore a blunt discriminator, so
+`research/advisor_r106_draw01_tree_identity.py` pulls the raw axes and scores
+the draw against every anchor tree this campaign has itself submitted
+(z is in **score** units: decode carries 0.75 of the exponent at a per-receipt
+sd of 0.1839 %, prefill 0.25 at 0.1123 %):
+
+| anchor | Δ cs % | z(cs) | Δ decode % | **z(decode)** | Δ prefill % | z(prefill) |
+|---|---|---|---|---|---|---|
+| `4b0e051b` (the replication target) | −0.6384 | −4.39 | +0.7583 | **−3.09** | +0.2787 | −0.62 |
+| `ef055b9b` | −0.5906 | −4.06 | +0.7666 | −3.13 | +0.0628 | −0.14 |
+| `5a43d329` | −0.5685 | −3.91 | +0.6600 | −2.69 | +0.2942 | −0.65 |
+| `e1b6e2be` | −0.5083 | −3.50 | +0.6274 | −2.56 | +0.1509 | −0.34 |
+| `bd33883e` (merged frontier) | −0.3186 | −2.19 | +0.3708 | −1.51 | +0.1618 | −0.36 |
+| **`e33efe4e` ≡ `origin/main`** | **−0.0606** | **−0.42** | **+0.1241** | **−0.51** | −0.1299 | +0.29 |
+
+Draw-1 raw: decode **4931.369 µs/step**, prefill **188.1609 µs/token**,
+baseline_decode 13869.300, baseline_prefill 382.8416, **f = +0.7637 %**.
+
+Gaussian likelihood ratios for "the archived surface was `origin/main`" against
+"it was `4b0e051b`": **≈14,266 : 1 on `cs`**, **≈105 : 1 on the decode axis
+alone**. Quote the **105 : 1**. The cs figure divides by the within-tree
+σ(cs) = 0.1453 % of (a), which is a compile-and-measure noise estimate and is
+too small to price a decode-axis displacement; the decode figure uses the
+campaign's own per-receipt decode sd and is the conservative one. Both axes
+agree in direction, which is the test that matters.
+
+🔑 **Coherence check that makes this more than a coincidence:** the prefill axis
+is uninformative — every anchor sits within |z| < 0.7 of the draw. That is
+exactly what should happen. `4b0e051b` and `origin/main` differ in
+**decode-side** machinery, so a wrong-tree event must show up in decode and must
+*not* show up in prefill. It does, and it does not.
+
+Plausible mechanism: the `--is-ancestor` gate forced a merge of `origin/main`
+into a branch off `4b0e051b`, and the merge resolved the editable files in
+`origin/main`'s favour.
+
+⚠️ **This is probabilistic evidence, not a verdict.** The dispositive test is
+the pair of `--numstat` outputs. If they show the editable surface really was
+`4b0e051b`, then this entry is wrong and the draw is a genuine −3.09σ decode
+observation — which would be a far more interesting result, because it would
+mean within-tree decode dispersion is several times larger than 93.4(a)'s
+σ(cs) = 0.1453 % implies, and every VoI number in 93.3 and 93.4 would need
+re-cutting. Rule 79: that null cell gets reported either way.
 
 
 ---
