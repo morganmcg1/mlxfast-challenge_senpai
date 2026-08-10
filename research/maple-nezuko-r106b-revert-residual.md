@@ -292,7 +292,19 @@ is usually limited by:
   cache-served, and under Rule 98.9 that cache-resident figure is **not** quoted
   as a saving anywhere in this report.
 
-What is left is instruction issue, and the kernel issues **229 cross-lane
+Both counts are weaker than they look, and the report states the weakness before
+it uses them. The arithmetic count is FLOP-based, so it prices multiplies and
+adds and prices nothing else — bf16 converts, address arithmetic, shuffles,
+branches and predication all issue and none appear in 0.75 TFLOP/s; issue-slot
+utilisation can be several times the FLOP figure. The bandwidth count excludes
+**DRAM** and only DRAM: 375 GB/s of *requests* still has to be serviced by each
+core's L1 and by L2 at finite width, so "cache-served" is not "free". Neither
+count is load-bearing for what follows. The load-bearing datum is arm P, which is
+a measurement rather than a ratio, and §C.5 records what it does and does not
+close.
+
+What that leaves for *this* campaign to test is instruction issue, and the kernel
+issues **229 cross-lane
 shuffle/lane-read operations per lane per call** (§B.3). PACKRED halves that to
 109 without changing a single load, store, FMA, barrier, or the dispatch
 geometry (§D.1). So the campaign is a clean single-variable test of one
@@ -561,7 +573,7 @@ Exactly **one** file under `Sources/` is touched.
 |---|---|
 | base `446fe9875d1f95b1216628b5809a99da844e5c79` sha256 | `a736b50f66b08b9004a807ff38226aaeb95ba836e6e833b51a8e862466d850c4` |
 | base bytes | 384245 |
-| candidate `86539cf9` sha256 | `c11c453b6b9e4f3f0bebb1c11e43ee48595314a7000c4eda10412998d6269aed` |
+| candidate sha256 (`86539cf9`, unchanged at `ec76a7dd` and later) | `c11c453b6b9e4f3f0bebb1c11e43ee48595314a7000c4eda10412998d6269aed` |
 | candidate bytes | **410245** |
 | per-file cap | 524288 |
 | headroom under the per-file cap | 114043 B (78.2 % of cap used) |
@@ -711,6 +723,21 @@ The cheapest solution is
 | threadgroups per dispatch | 32 | **40** |
 | core-slots used on 20 cores | 2 (for 1.6 of work) | **2 (for 2.0 of work)** |
 
+**Why 40 and not some other multiple, and the one way this proposal escapes the
+cross-machine geometry rule.** AGENTS.md forbids justifying a threadgroup
+geometry from M4 timings precisely because the right shape depends on core count.
+That objection is fatal to most geometry retunes and it is worth spelling out why
+it is survivable here: **40 is an exact multiple of both 20 (this M4 Pro host) and
+40 (the ranked M5 Max)**. Control on 40 cores runs its 32 threadgroups in a
+single wave of `t`, wasting 8 idle cores; the proposal runs 40 threadgroups of
+`0.8t` in a single wave, so the predicted saving is the same 20 % on both hosts,
+for the same reason, by two different arithmetic routes. No other cheap solution
+of `nTG ≡ 0 (mod 20)` has that property — `nTG = 20` is one wave on M4 and half a
+wave on M5, and `nTG = 60` is three waves on M4 and two on M5. The proposal is
+still not *proved* transferable, because per-threadgroup work does not scale
+perfectly and M5's per-core resources differ, but it is the one geometry in the
+family whose sign does not flip between the research host and the ranked host.
+
 **The prize, and why it is not a headline.** Removing the idle tail is worth up
 to 20 % of the sliding-attention kernel's own time. That kernel is a
 **kernel-local** 670 µs/step figure (22.34 µs/call x 30 calls), so 20 % of it is
@@ -760,3 +787,91 @@ Neither of these is about the sliding kernel; both cost a round to learn.
    whose threshold was computed on evidence-scale noise can never be cleared by
    triage-scale data. Compute the screen's threshold in the screen's own units,
    or do not screen.
+
+## G.5 What arm P does *not* close, and the pre-specified campaign that would close it
+
+This section exists because I asked for an adversarial review of §G.3's mechanism
+before writing the verdict, from an agent given the shipped kernel source and no
+access to this round's history or my conclusions. It independently reconstructed
+the wave-quantisation model in §G.3 — including the recommendation to falsify the
+one-threadgroup-per-core premise by shrinking threadgroup memory below 16 KiB
+before building any combine — which is the strongest corroboration §G.3 is going
+to get on this host. It also found two mechanisms this round's two probes leave
+completely untouched, and I record them here rather than quietly inheriting them.
+
+**Arm P's scope, stated precisely.** Arm P deletes the row-loop cross-lane
+reduction and keeps *every load, every FMA, every `exp`, every barrier, the ring
+write and the dispatch geometry*. Its null therefore closes exactly one family:
+levers whose mechanism is "issue fewer cross-lane reduction instructions". It is
+silent on loads, on transcendentals, and on residency. Two specific things it does
+**not** license:
+
+1. **"The load path is not the limiter."** §C.2 excluded *DRAM* bandwidth, not the
+   per-core load pipes and L1/L2 service that the same 8 MiB of requests still has
+   to cross. 256 KiB per threadgroup at a plausible 32-64 B/cycle/core is single-
+   digit microseconds of pure load-slot time per call — the right order of
+   magnitude to matter — and no arm in this round removed a single load.
+2. **"The arithmetic is not the limiter."** The ~32 unavoidable `fast::exp` per
+   lane per call sit on the *serial* online-softmax dependency chain
+   (score → max → exp → rescale, 16 sequential blocks per simdgroup), and
+   transcendentals do not issue at ALU rate. A FLOP-percentage argument cannot
+   price either the special-function pipe or a serial chain.
+
+**A correction to how this round's own arms should be quoted.** Arm K *adds*
+~1.3-1.6 µs/call of butterfly instructions and (§C.5) does not come out ahead, so
+issue slots are not literally free; the defensible statement is "the hardware
+`simd_sum` is already at or near optimal for this reduction, and the reduction is
+a small enough slice of the kernel that removing all of it is not measurable" —
+not "cross-lane reductions are free". Similarly, the H4 arm must not be recorded
+as evidence against KV request redundancy: §G.3's own model says H4's geometry
+could not have moved the clock whatever the bytes did, so H4 tested "does halving
+threadgroup count below core count hurt" and answered yes.
+
+**The campaign that would close the two open mechanisms.** Same shape that worked
+this round — one binary, gate-selected arms, one interleaved `--local-submit`
+campaign, Latin square per §G.4.1 rather than control-first blocks. It is
+**described and not implemented**: it is a diagnostic set whose only bit-exact
+member has small ranked upside, it needs ~2 h of exclusive box time, and the box
+is wanted for PR #625 integration ahead of the freeze. Dispatching it is the
+advisor's call, not mine.
+
+| arm | change | output | prices |
+|---|---|---|---|
+| A | control | correct | reference |
+| B | in `T_LOAD_K`/`T_LOAD_V`, replace device reads with constants; keep the substitution branches, all FMAs, reduces, `exp`s, barriers and the ring write | **wrong by design** | the per-core load path |
+| C | replace both `fast::exp` sites in the block update with `x + 1.0f`, keeping the `LAGUNA_RESCALE` branch shape | **wrong by design** | special-function pipe + softmax chain |
+| D | stage the epilogue transpose in float2 halves, dropping threadgroup memory from ~18.4 KiB to <10 KiB; geometry, math and combine order unchanged | **bit-exact** | residency (and is submittable if it wins) |
+
+Read-out fixed in advance:
+
+- **B large** (≥ ~150 µs/step, i.e. ≥ 5 µs/call) → load-path-bound. The fix is a
+  wide-load restructure (16 B/lane loads covering two K rows, half a simdgroup per
+  row, segmented 16-lane reduction): same bytes, half the load instructions,
+  bit-exact but fiddly. This transfers *better* to M5, where one threadgroup per
+  core means even less latency hiding.
+- **C large** → special-function/chain-bound. The only real lever is a batched-max
+  or deferred-rescale reassociation, which is **not bit-exact**, needs the
+  equivalence oracle plus the 64-step tripwire, and carries near-tie argmax risk
+  on M5. Spend hours there only deliberately.
+- **D large** → residency-capped, which is the §G.3 premise confirmed; note
+  honestly that D's own ranked upside is small because 32 threadgroups already fit
+  one M5 wave, so D is a tie-safe freebie rather than a headline.
+- **All small** → the kernel is at its dispatch/fence floor. Record sliding decode
+  attention as locally optimal on this tree and stop spending rounds on it.
+
+Priors from the reviewer, recorded so the outcome can embarrass them or me:
+residency/wave ≈ 35 %, load path ≈ 30 %, `exp`/chain ≈ 15 %, dispatch floor
+≈ 20 %.
+
+**One unrelated lead found while reading the reduction sites, handed over
+untouched.** The shipped NVFP4 projection QMV epilogues at
+`Sources/MLXFastModel/LagunaRuntimeModel.swift:4102` and `:4382` reduce with a
+hand-rolled full 32-lane `simd_shuffle_down` ladder (`delta = 16 → 1`) that is
+semantically `simd_sum`; the same pattern appears at `:1103` and `:4057` (router
+and gate — frieren's fence) and at nine sites in
+`Sources/MLXFastModel/LagunaLmHeadPrune.swift`. This round's arm K is a warning
+rather than an encouragement here: swapping a hand ladder for `simd_sum` changes
+the summation *order*, so it is **not bit-exact** and needs the oracle, and arm K
+shows that the reduction slice of a kernel like this can be too small to measure.
+It is recorded for tanjiro (#620) and fern (#625) as a lead with a cost, not as a
+recommendation, and I did not touch those lines — they are outside my fence.

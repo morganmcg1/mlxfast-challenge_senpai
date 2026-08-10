@@ -186,6 +186,36 @@ def main():
         print("%-10s %+9.3f  95%% CI [%+8.3f, %+8.3f]"
               % (nm, beta[i], beta[i] - t * se, beta[i] + t * se))
 
+    # --- 4b. position-balanced candidate-vs-candidate contrasts --------------
+    # Every candidate arm occupies each of positions 2, 3 and 4 exactly twice
+    # over the six blocks, so two candidate arms have *identical* position
+    # marginals.  A within-block difference between two candidate arms is
+    # therefore free of any additive position effect, whatever its shape --
+    # unlike a candidate-minus-control difference, where the control is pinned
+    # to position 1.  These contrasts carry no position bias but they also have
+    # no absolute reference: they say which arm is faster, not by how much
+    # either differs from the shipped kernel.
+    print("\n--- position-balanced candidate contrasts (no control involved) ---")
+    byba = {}
+    for r in cand:
+        byba.setdefault(r["block"], {})[r["arm"]] = r["us"]
+    for i, a in enumerate(arml):
+        for b in arml[i + 1:]:
+            d = [v[a] - v[b] for v in byba.values() if a in v and b in v]
+            if len(d) < 2:
+                continue
+            m = float(np.mean(d))
+            sd = float(np.std(d, ddof=1))
+            se = sd / math.sqrt(len(d))
+            t = T975[len(d) - 1]
+            posa = sorted(r["pos"] for r in cand if r["arm"] == a)
+            posb = sorted(r["pos"] for r in cand if r["arm"] == b)
+            print("%s - %s: n=%d  %+8.3f  sd %6.3f  95%% CI [%+8.3f, %+8.3f]"
+                  "  positions %s vs %s%s"
+                  % (a, b, len(d), m, sd, m - t * se, m + t * se,
+                     "".join(map(str, posa)), "".join(map(str, posb)),
+                     "" if posa == posb else "  ** NOT BALANCED **"))
+
     # --- 5. resolution actually achieved ------------------------------------
     print("\n--- achieved resolution of the preregistered design ---")
     for a, st in prereg.items():
