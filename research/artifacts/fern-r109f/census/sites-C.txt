@@ -1,0 +1,22 @@
+attention projection async rung layer 0
+decode embedding+rope atlas
+decode router top8 (cast sink + norm sink)
+dense down GEMV + residual
+dense gate/up GEMV + SwiGLU
+full fused attention
+full qk norm+yarn
+gated affine oproj qmv h48 indexed
+gated affine oproj qmv h64 indexed
+last prefill Q+gate / K+V projection banks
+lmhead-int5-winner-coarse-v5
+prefill full qk norm+yarn
+prefill fused routed gate/up
+prefill residual+rmsnorm
+prefill router tournament
+prefill sliding qk norm+rope
+prefill sorted moe tail
+residual+rmsnorm
+residual+rmsnorm+router rpg8 pf1
+routed gate/up QMV + SwiGLU (packed, producer keys)
+routed+shared down residual
+sliding fused attention

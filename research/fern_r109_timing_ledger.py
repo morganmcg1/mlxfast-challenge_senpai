@@ -44,6 +44,75 @@ PREFILL_W = 0.25
 NS_DECODE_REF = 0.013890
 NS_PREFILL_REF = 0.0003845
 
+# Score axes.  One scored window is a 512-token prefill plus 128 one-token
+# decode steps, so the prefill cost enters the decode budget as S/128.
+PREFILL_TOKENS = 512
+DECODE_STEPS = 128
+
+# Official-M5 frontier operating point (research/maple-fern-terminal-report.md
+# section 4).  The elasticities are an identity of the score formula at a given
+# operating point, not a regression fit.
+M5_ELAST_S = 0.362
+M5_ELAST_T = 0.638
+
+# Bar to clear: the successor must beat official receipt e27f1ce (2.60664969
+# at commit 5c542169) by this weighted factor.
+BAR_WEIGHTED_RATIO = 1.003780272
+
+
+def axes(decode_s, prefill_s):
+    """Split a (decode, prefill) seconds/token pair into the two score axes.
+
+    `S` is whole-prefill milliseconds, `D` is per-decode-step milliseconds and
+    `T = D - S/128` is the steady per-step cost that carries no prefill share.
+    `sigma` is the prefill fraction of one decode step; both elasticities are
+    fixed by it.
+    """
+    S = PREFILL_TOKENS * 1000.0 * prefill_s
+    D = 1000.0 * decode_s
+    T = D - S / DECODE_STEPS
+    sigma = (S / DECODE_STEPS) / D
+    return {
+        "S_ms": S,
+        "D_ms": D,
+        "T_ms": T,
+        "sigma": sigma,
+        "elast_S": 0.25 + 0.75 * sigma,
+        "elast_T": 0.75 * (1.0 - sigma),
+    }
+
+
+def m5_projection(base, cand, tau=1.0):
+    """Re-price a local paired result with the official-M5 elasticities.
+
+    A local harness reports its own `ns` ratio at its own operating point, so
+    the same physical saving scores differently on `--local-iterate`
+    (sigma~34%, elast_T 0.498) than on `--local-submit` (sigma~6%, elast_T
+    0.706) than on the ranked M5 (sigma~15%, elast_T 0.638).  Projecting the
+    measured fractional moves along S and T through the M5 elasticities
+    removes that 1.42x harness swing; `tau` is the mechanism-class transfer
+    factor (~1.0 dispatch-overhead, ~1.06 DRAM-traffic, unknown for
+    threadgroup-geometry changes, which can flip sign).
+    """
+    b = axes(base["decode_median"], base["prefill_median"])
+    c = axes(cand["decode_median"], cand["prefill_median"])
+    dln_S = math.log(c["S_ms"] / b["S_ms"])
+    dln_T = math.log(c["T_ms"] / b["T_ms"])
+    ln_ratio = -tau * (M5_ELAST_S * dln_S + M5_ELAST_T * dln_T)
+    projected = math.exp(ln_ratio)
+    return {
+        "tau": tau,
+        "base_sigma": b["sigma"],
+        "base_elast_T": b["elast_T"],
+        "base_T_ms": b["T_ms"],
+        "cand_T_ms": c["T_ms"],
+        "delta_T_us": (b["T_ms"] - c["T_ms"]) * 1000.0,
+        "delta_S_ms": b["S_ms"] - c["S_ms"],
+        "harness_normalization": M5_ELAST_T / b["elast_T"],
+        "projected_m5_ratio": projected,
+        "beats_bar": projected > BAR_WEIGHTED_RATIO,
+    }
+
 
 def load_families(root=ROOT, drop_first=False):
     """`drop_first` discards each family's lowest-numbered replicate.
@@ -218,6 +287,13 @@ def main():
     )
     ap.add_argument("--tag", help="restrict --paired to one campaign tag")
     ap.add_argument("--session", help="restrict --paired to one session stamp")
+    ap.add_argument(
+        "--tau",
+        type=float,
+        default=1.0,
+        help="M4->M5 mechanism-class transfer factor: 1.0 dispatch overhead, "
+        "1.06 DRAM traffic, unknown (can flip sign) for threadgroup geometry",
+    )
     args = ap.parse_args()
 
     if args.paired:
@@ -251,7 +327,11 @@ def main():
         if len(names) >= 2:
             base = summaries[names[0]]
             out["pairs"] = {
-                n: paired(base, summaries[n]) for n in names[1:]
+                n: {
+                    **paired(base, summaries[n]),
+                    "m5": m5_projection(base, summaries[n], tau=args.tau),
+                }
+                for n in names[1:]
             }
         print(json.dumps(out, indent=2))
         return 0
@@ -297,13 +377,31 @@ def main():
 
     if len(names) >= 2:
         base = summaries[names[0]]
+        bx = axes(base["decode_median"], base["prefill_median"])
         print(f"=== paired ratios vs {names[0]} (>1 means candidate faster) ===")
+        print(
+            f"  baseline operating point: S={bx['S_ms']:.1f}ms "
+            f"T={bx['T_ms']:.4f}ms sigma={bx['sigma'] * 100:.1f}% "
+            f"elast_S={bx['elast_S']:.3f} elast_T={bx['elast_T']:.3f}"
+        )
+        print(
+            f"  harness normalization vs M5 (pure steady-step win): "
+            f"x{M5_ELAST_T / bx['elast_T']:.3f}"
+        )
         for n in names[1:]:
             pr = paired(base, summaries[n])
+            m5 = m5_projection(base, summaries[n], tau=args.tau)
             print(
                 f"  {n}: decode x{pr['decode_ratio']:.6f}  "
                 f"prefill x{pr['prefill_ratio']:.6f}  "
                 f"weighted x{pr['weighted_ratio']:.6f}"
+            )
+            print(
+                f"      dT={m5['delta_T_us']:+.1f}us dS={m5['delta_S_ms']:+.3f}ms "
+                f"-> M5 projected x{m5['projected_m5_ratio']:.6f} "
+                f"(tau={m5['tau']:.2f}) "
+                f"bar x{BAR_WEIGHTED_RATIO:.6f} "
+                f"{'CLEARS' if m5['beats_bar'] else 'below'}"
             )
     return 0
 
