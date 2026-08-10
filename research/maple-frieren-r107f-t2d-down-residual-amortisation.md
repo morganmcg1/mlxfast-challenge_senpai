@@ -28,6 +28,20 @@ falsifier, so the whole family is dead, not just A1). Stage 2 is not warranted,
 The permitted vocabulary was fixed in §2.7 before any timing run and was not
 extended after the fact.
 
+> 🔧 **Addendum, 15:30Z — read §11 before quoting any `% of cs` figure from
+> §3–§8.** Rule 105.13 (advisor, `bde79502`) landed after this report was
+> finished. Every `% of cs` in §3–§8 is priced **bare** (an M4 µs treated at the
+> M5 price) — rule 105.12 category (c). §11 re-prices all of them with `k`. The
+> corrected headlines: `a1` costs **−0.30 % (β) / −0.26 % (α)**, not −0.60 %;
+> the family ceiling is **0.29–0.33× the bar**, not 0.65×; the ship bar in this
+> kernel's units is **1.35–1.54 µs/call**, not 0.6736; and the §4.6 barrier
+> drain is **0.80–0.92 %**, not 1.83 %. Bare pricing over-states, so a closure
+> priced bare stays closed: **the verdict is unchanged and every correction
+> hardens it.** §11.4 also adds the summand I never priced — the per-layer
+> *dispatch* removal beside the drain, worth **+1.390 %** on its own.
+> **§12** records priority A: the margin certificate is now a documented,
+> re-validated service (`research/maple-frieren-margin-certificate-service.md`).
+
 ---
 
 ## §1 Stage-0 receipt (rev6 §1) — DONE
@@ -1204,6 +1218,14 @@ faster by issuing fewer instructions.
    real, large, and expensive lever, and it is the single biggest number I found
    in this kernel. If anyone gets a Stage-3 slot for decode, this is where I
    would spend it, not on amortisation.
+   🔧 **Re-priced in §11.3–§11.4 under rule 105.13.** The drain is
+   **0.80–0.92 %** of `cs`, not the bare 1.830 % printed above (it converts in
+   the execution regime, `k ∈ [α, β]`, *not* at `k_dispatch`=1.89 — §11.3 proves
+   this from the mode-invariant empty-kernel cost). But the merge also removes
+   **one dispatch per layer**, which 105.13 prices at **+1.390 % [1.352, 1.428]**
+   independently and additively, so **one merge is worth +2.19–2.31 %** and the
+   dispatch part alone survives even if the fused kernel must re-import a
+   device-wide barrier. **Read §11.4 before sizing this lever.**
 2. **Prefill.** Everything above is one-token-per-call by construction and says
    nothing about prefill. This host is Apple GPU generation 16, below the
    generation-17 floor, so `nax_available=false` and I **cannot** reach the
@@ -1252,3 +1274,201 @@ worth **+0.158 % of `cs`** — under half the ship bar — and buying it costs
 Counter-evidence #85 and #513/#525 point the same way. A lever whose *entire
 reachable* upside is 0.4× the bar is not a lever; it is a footnote, and it now
 reads as one.
+
+---
+
+## §11 Rule 105.13 landed after my verdict. I re-price my own report against it.
+
+Added 2026-08-10T15:30Z, after the advisor pushed `bde79502` (rule 105.13) to
+the campaign branch. Arithmetic: `research/maple_frieren_r107f_r10513_repricing.py`
+(runs in 0.1 s, prints every number below). Nothing in §0–§10 above has been
+edited; this section states what those numbers should have said.
+
+### §11.1 The correction I owe: every `% of cs` in this report is **bare**
+
+§4.2 and §8.5 price with `1 µs/call = 0.593892 % of cs`, i.e.
+`39 × 0.015228`. That is the **M5** price applied to an **M4** measurement with
+no `k` — rule 105.12 category (c), the exact error the advisor corrected in
+nezuko's R106-B §C.5 in 105.13(f). I made it too, in every table, and I am
+correcting it here rather than waiting to be told. `k` belongs in all of them:
+
+| arm / quantity | Δ M4 µs/step | as published (bare) | correct (β=0.5) | correct (α=0.4369) | preferred family |
+|---|---|---|---|---|---|
+| `a1` opsi 4→8, mean | +39.468 | **−0.601 %** | **−0.301 %** | −0.263 % | latency (issue-bound) |
+| `a1`, CI low end | +35.958 | −0.548 | −0.274 | −0.239 | |
+| `a1`, CI high end | +43.134 | −0.657 | −0.328 | −0.287 | |
+| `a1_wide` | +36.056 | −0.549 | −0.275 | −0.240 | latency |
+| `a3` opsi 4→16 | +49.939 | −0.760 | −0.380 | −0.332 | latency |
+| `a2` control | −1.073 | +0.016 | +0.008 | +0.007 | latency |
+| `a0_wide` (WAL) | +0.039 | −0.001 | −0.000 | −0.000 | bytes |
+| `a0_act0` **family ceiling** | −17.180 | +0.262 | +0.131 | **+0.114 %** | bytes (deletes loads) |
+| `a0_act0_min` **family ceiling** | −21.840 | +0.333 | +0.166 | **+0.145 %** | bytes |
+| barrier drain (§4.6) | +120.159 | 1.830 | **0.915** | 0.799 | execution, see §11.3 |
+
+Two derived statements in the body are wrong in the same way and are hereby
+restated:
+
+- **The ship bar in this kernel's own units.** §4.2/§8.5 give
+  `0.4 % = 0.6736 µs/call`. Bare. Correctly the bar is **1.347 µs/call**
+  (latency) or **1.542 µs/call** (bytes) — an arm has to be **2.0–2.3× larger**
+  than I said to matter.
+- **§3.6's difficulty framing.** "The entire efficiency headroom is
+  2.83 µs/call = 110.4 µs/step; the bar is 26.27 µs/step, so an efficiency-only
+  lever must capture **23.8 %** of the gap." That divides an M4 numerator by an
+  M5 bar. The M4 bar is 52.5 (latency) / 60.1 (bytes) µs/step, so the required
+  capture is **47.6 % – 54.4 %**. The honest framing is *twice* as discouraging
+  as the already-discouraging one I published: you must capture more than half
+  of the total distance to the measured DRAM ceiling.
+
+### §11.2 What this moves: nothing, and that is the point
+
+Rule 105.12's one-sidedness theorem says bare pricing over-states, so bare
+verdicts can only be **false positives** — a closure priced bare stays closed
+when it is priced correctly. This revision's verdict is a closure
+(`N-T2D-ISSUE-BOUND`, nothing ships), so every correction above **hardens** it:
+
+- `a1` is still harmful, still sign-consistent, still CI-excluding-zero. Its
+  magnitude halves (−0.60 → −0.30 %), which is *worse* for the lever, not
+  better: it was never a candidate, and now the case that it is invisible-and-
+  harmful rather than visible-and-harmful is stronger.
+- The **family ceiling is the number that matters** and it falls from 0.65× the
+  bar to **0.29× (bytes) / 0.33× (latency)**. Deleting *every* activation load
+  in the kernel — which no correct kernel can do — is now measured at under a
+  third of the draw bar. `N-T2D-ISSUE-BOUND` was the right verdict for a
+  slightly wrong reason; the right reason is stronger.
+- Rule 105.7's detection-floor point also sharpens. The floor is ≈80 M4 µs/step
+  for a single receipt. `a1`'s harm is 39.5 M4 µs/step (2.0× below the floor) and
+  the whole family's *ceiling* is 17.2 M4 µs/step (**4.6× below it**), so no
+  receipt could ever have adjudicated this row in either direction. The CI was
+  the only possible deliverable, exactly as the brief said.
+
+### §11.3 The drain is **not** in the dispatch regime, and I can prove it from §4.6
+
+105.13(d) warns that dispatch-family quantities priced bare were *under*-valued
+by 1.89×. If my 3.081 µs/call barrier drain were dispatch-family it would be
+worth **3.458 % of cs**, not 1.830 %, and it would be the largest single number
+in this campaign. It is not, and §4.6 already contains the discriminating
+measurement:
+
+> the empty-kernel launch cost is **6.297–6.606 µs/dispatch and mode-invariant**
+> across serial, `.concurrent`, and `.concurrent`+explicit-barrier, while the
+> 3.081 µs/call gap appears and disappears with the barrier.
+
+Dispatch cost is the thing that did **not** move. So the drain is disjoint from
+the dispatch regime by construction. Physically it is the GPU waiting for the
+last threadgroup of call *n* to retire — **GPU-resident occupancy tail**,
+whereas 105.13(c) defines the `k≈1.89` regime as "host/driver-resident work that
+does not shrink when you add GPU cores". A retirement tail *does* shrink when
+you add cores: more cores → the final wave completes sooner. So the drain
+converts in the execution regime, `k ∈ [α, β]`, and its corrected value is
+**0.799 – 0.915 % of `cs`** (M4-measured, converted; `marginal`).
+
+That is still **2.0–2.3× the 0.4 % draw bar**, so §8.8's conclusion survives:
+it remains the largest unclaimed number I found. §8.8's advertised range
+"0.6 to 1.8 %" brackets the corrected value at its lower end, so no reader was
+misled about the order of magnitude; the point estimate should read **0.9 %,
+not 1.8 %**.
+
+### §11.4 What 105.13 adds that I did not price: the dispatch summand *beside* the drain
+
+Because the drain and the dispatch cost are disjoint (§11.3), a kernel merge
+collects **both**, additively. I priced only the drain. Rule 105.13(e) supplies
+the other half, and it is bigger than mine:
+
+| component of one per-layer kernel merge | M5 µs/step | % of `cs` | basis |
+|---|---|---|---|
+| 39 dispatches removed | 91.27 [88.79, 93.76] | **+1.390 % [1.352, 1.428]** | rule 65 marginal, already M5 — no conversion |
+| barrier drain removed (this kernel's boundary) | 60.1 – 68.8 | **+0.799 – 0.915 %** | §4.6, M4-measured, converted |
+| **one merge, total** | 151 – 160 | **+2.19 – 2.31 %** | sum of two disjoint families |
+| three-kernel merge, dispatch part only (2 boundaries) | 182.5 | +2.780 % | rule 65 × 2 × 39 |
+
+⚠ Three caveats, or this becomes the kind of headroom pool rule 105.8 forbids:
+1. Rule 65's 2.3403 µs is the marginal cost of an **added** dispatch. Removal
+   symmetry is an assumption, not a measurement.
+2. I measured the drain at **one** boundary (down-residual's own). The other two
+   boundaries of the `residual_rms_router → routed_swiglu_qmv → down_residual`
+   chain are unmeasured; do not multiply my number by three.
+3. **The merged kernel may have to re-import the barrier.** The next layer's RMS
+   is a whole-row reduction, so a fused kernel needs a device-wide
+   synchronisation somewhere; if it cannot be made threadgroup-local, the drain
+   part evaporates and only the 1.390 % dispatch part survives. That is still
+   3.5× the bar, which is why the merge is worth a Stage-3 slot even under the
+   pessimistic reading.
+
+### §11.5 Why 120 µs/step does not contradict rule 92's 1.3003 µs/step cap
+
+A reader who knows rule 92 (barrier/encoder/command-buffer family capped at
+1.3003 µs/step) will think my 120.159 µs/step drain falsifies it. It does not,
+and the distinction is the same one 105.13(e) draws:
+
+- **Rule 92 caps the "same dispatch set, encoded better" family.** Reordering,
+  merging command buffers, changing encoder scope. My §4.6 probe *is* an
+  instance of that family, and it agrees with rule 92: `.concurrent` looked like
+  a 3.081 µs/call win until the required barrier was put back, at which point it
+  came out **slightly worse than serial** (23.324 vs 22.611 µs/call). Net
+  encoder-level win: zero. Rule 92 stands, measured again, independently.
+- **The drain is only reachable by changing the dispatch set**, i.e. a genuine
+  kernel merge, which is a source-level rewrite and not in rule 92's family at
+  all.
+
+So the two numbers are about different interventions and both are correct. Rule
+92 remains closed for encoder work; the merge lever remains open and is now
+priced at 2.2 % rather than 1.8 %.
+
+### §11.6 One more standing hazard 105.13(b) names, checked against this report
+
+"Never divide a local `--local-submit` level by a receipt level." I did not do
+this: every contrast in §4 is a **paired** M4 delta on one harness, and the two
+*levels* I quote (unique-byte floor 19.107 µs/call, in-situ anchor 22.07
+µs/call) are compared only to each other and to a DRAM ceiling measured on the
+same host in the same run. For anyone tempted to quote them as shares of `cs`:
+the anchor is **5.73 % (α) / 6.55 % (β)** of `cs`, not the 13.1 % that the bare
+price would give, and neither figure is a headroom pool — 86.6 % of it is a
+unique-byte DRAM floor that no rewrite can remove.
+
+---
+
+## §12 Priority A delivered: the margin certificate is a service, not a one-off
+
+The round-107 brief's priority A was to make the R106-J certificate instrument
+usable by anyone without me. Done:
+**`research/maple-frieren-margin-certificate-service.md`** — the standing SOP.
+It contains the decision tree, the perturbation-class table, the request
+contract (what a requester must hand over, including a reachability witness and
+a class self-declaration with `file:line`), the fully self-serve command
+sequence, the verdict/exit-code contract, and the eight limits a green
+certificate does **not** cover.
+
+**The service is verified up, not asserted up.** I ran a timed null cell on the
+current tree (`research/maple_frieren_r107f_sop_dress_rehearsal.sh`, job
+`89ba759c`, 15:18Z, artifact
+`research/artifacts/maple-frieren-r107f/sop/cert_rehearsal_null.json`):
+
+- verdict **`PASS-BIT-EXACT`**, 0 of 6,522,880 elements differing, 0 argmax
+  flips, exit 0;
+- **capture 50 s + 49 s, certify <1 s, total 99 s** — so the honest SLA is
+  ≈**25–35 min** request→verdict including a 131 s force-clean candidate build
+  and the write-up, of which **under 8 minutes is machine time**;
+- the baseline margin distribution reproduced **min 0.375, p1 0.615, p50 6.5,
+  0 exact ties**, identical to the 11:21Z R106-J capture at tree `83dd8007`.
+  Since R107-F ships nothing, that is an independent logit-level confirmation
+  that the submitted surface has not moved between the two trees; and it promotes
+  **min margin = 0.375** to a reusable constant for sizing any future
+  certificate (`census` on this fixture — a property of the prompt, not of a
+  candidate).
+
+Costs zero official receipts, so it stays available through the 07:00Z
+integration freeze. Standing offer and its narrow endgame role are in §10 of the
+SOP: rule 105.5 requires bit-exact summands, so the certificate's job in the
+last hours is specifically to let a **non**-bit-exact summand be argued for at
+all — most usefully for tanjiro's split-K reassociation (#648/#642), which is
+class 2 by construction and therefore the textbook case.
+
+### §12.1 Priority C, honestly
+
+Priority C (re-adjudicating the paper shelf) has **not** happened and I do not
+expect to start it. I would rather leave a correct §11 and a working service
+than a third shelf pass. If a successor wants it, §4.1–§4.3 of
+`research/maple-frieren-r106j-bitexactness-shelf.md` is the state of the art and
+the class table in §3 of the SOP is the sorting key.
+
