@@ -894,7 +894,7 @@ four-block point estimate is so far from the bar that eight cannot move the verd
 Eight *can* still move it arithmetically — blocks 5–8 would need to average +0.90 % to
 carry the mean to the bar — so the escape clause does not fire and I extend rather than
 stop, exactly as written. Job `0ca1fee0-a277-4ece-9783-f74fc63c21cf`, launched
-2026-08-10T13:40Z, resumes the *same* `runs.tsv` at row 17 (Rule 58: extend, never
+2026-08-10T13:38Z, resumes the *same* `runs.tsv` at row 17 (Rule 58: extend, never
 restart).
 
 #### 5.3.5 Candidate C, held in reserve — `T0U`, the unroll-depth hunk of the T1 contrast
@@ -944,7 +944,7 @@ the error §4.6 accused the r99 result of. `T0U` therefore needs its own paired 
 must clear the bar on its own numbers. It is queued **only** if §5.3 returns `N-PACK`,
 and it is measured, never assumed.
 
-**Materialised 2026-08-10T13:52Z** (while the §5.3 extension runs, so the arm is ready
+**Materialised 2026-08-10T13:41Z** (while the §5.3 extension runs, so the arm is ready
 the moment the verdict lands). `research/r106j/scripts/make_t0u_patch.py` reads both
 blobs from git objects, keeps only the two hunks anchored at old lines 1636 and 1740,
 replays their bodies onto the base with a per-line context assertion, and emits a
@@ -1145,4 +1145,156 @@ frieren needs before submitting anything built on it.
 The packing patch grows it by 29 B (384,245 → 384,274). T1 would have consumed 18,664 B
 of that headroom for no measured decode benefit, which is a second, independent reason
 §4.6 lands where it does.
+
+---
+
+## 6. Stage 3 — the handoff to frieren
+
+frieren's acceptance bar, restated so it can be checked rather than remembered: a locally
+measured paired win on the **integrated tree versus HEAD, composed rather than summed**,
+with a CI excluding zero and a gain of **≥ 0.4 % of `cs`**; green correctness on the exact
+submitted tree; a margin certificate for any non-bit-exact component; and the four
+`senpai/submit-official.sh` preconditions checked by me on that exact HEAD. §6.1–§6.6 are
+those six items in one place. I hold **zero receipts** and I never invoke
+`senpai/submit-official.sh` myself; this section is evidence, not a submission.
+
+### 6.1 Item 1 — paired A/B for the integrated tree versus HEAD
+
+_Filled once §5.3 and, if it runs, §5.3.5 are terminal._
+
+### 6.2 Item 2 — conversion to % of `cs`, and the 0.4 % test
+
+_Filled with §6.1._
+
+### 6.3 Item 3 — correctness on the exact HEAD
+
+_Filled with §6.1._
+
+### 6.4 Item 4 — margin certificate: **N/A, and here is why that is a claim and not an omission**
+
+Every component that could enter my candidate tree is **bit-exact**, so there is no
+numerical margin to certify:
+
+| component | bit-exactness basis | empirical confirmation |
+|---|---|---|
+| `T0` itself | it *is* HEAD; the identity | Stage 0 golden `b9509697c08a2cf3…`, `max_abs_diff 0` (§2.5) |
+| `C2a` (alphonse) | default-inert; dead code on GPU gen 16 | carried, never enabled (§5.2) |
+| `T0P` (packing flip) | lane-major addressing; `num_simdgroups` re-labels `out_row → (tile, simd_gid)` only; no cross-lane reduction; `rows % 8` guard unreachable (§5.3.1) | 16/16 runs, **one** `golden_hash`, `max_abs_diff 0` (§5.3.4) |
+| `T0U` (unroll depth) | online-softmax state accumulates into the *same* registers in program order; identical key-visit order (§5.3.5) | T1's `golden_hash` identical to T0's across 24 runs (§4.1, §4.3) |
+
+A margin certificate answers "how far is this from flipping a token?" for a change that
+*perturbs arithmetic*. None of the above perturbs arithmetic: they change which thread
+computes a row, or how many rows are consumed per trip of a loop. The correct answer is
+therefore not a large safety factor, it is **zero perturbation**, and the evidence for it
+is a token-identical golden hash on every run of every arm rather than a distance.
+
+**Prior art, and where it is not.** frieren shipped a reusable margin-certificate script
+and exercised it on #597 rev5 (verdict MARGINAL, safety factor 1.37×). Two facts belong
+in the handoff so nobody wastes time looking: **(a)** its path is not published anywhere
+in the #597 thread, and **(b)** it does not exist at my base `446fe987`. So if a future
+round hands over a non-bit-exact component, that tool has to be located or rewritten
+first. I did not need it and did not reimplement it.
+
+### 6.5 Item 5 — the four `submit-official.sh` preconditions
+
+_Re-run on the final HEAD and pasted here; the generator is
+`research/r106j/scripts/handoff_certificate.sh`, which also emits the exact command
+frieren runs._
+
+### 6.6 Item 6 — Rule 75 surface census
+
+_Re-run on the final HEAD; generator `research/r106j/scripts/surface_census.py`._
+
+### 6.7 Deviations, caveats and known-imperfect instruments — disclosed, not buried
+
+1. **The nax wall (Rule 99) bounds what any prefill number here means.** This host is an
+   M4 Pro reporting Apple GPU generation 16; `device.cpp:1083-1101` requires generation
+   ≥ 17 to select the `_nax` prefill kernels the ranked M5 uses, and that file is not on
+   the editable surface. §1 measured the consequence directly: my decode ln-ratio
+   reproduced M5's to **+0.15 %**, my prefill ln-ratio missed M5's by **−43.5 %**. Every
+   prefill cell in this document is therefore tagged **[M4-WALL]** and I quote the
+   *conservative* score row — prefill charged as neutral — wherever a decision depends on
+   it.
+2. **My T1 is a partial Rule 95.6 replay.** I granted two `Sources/` trees, not the whole
+   surface, so the full-surface numstat gate does not pass by construction. The substitute
+   I ran and recorded in §2.3 is the grants-only numstat gate plus a comment-only Vendor
+   certificate (`CMLX-NONCOMMENT-IDENTICAL`, `SWIFTLM-NONCOMMENT-IDENTICAL`, and a
+   byte-identical `mlx.metallib`). This is a real deviation from the letter of 95.6 and I
+   am flagging it rather than letting the reader infer a full replay.
+3. **`run_upstream_equivalence.sh` exits 1 on the unmodified base.** Prefill
+   `maximumAbsoluteLogitError` is 0.125 on **T0 itself** (§2.6). Rule 83 prior art in six
+   documents, and #597 rev5 §3.2.1 independently re-confirms it on the unchanged base. The
+   oracle is therefore usable here **only as a differential**: I compare candidate against
+   base and require the digits to match, which §4.2 did (md5 `740d5ab196ecaa4f…`,
+   identical). `MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT` was **never** set at any point in this
+   round.
+4. **The release build is not byte-reproducible on this host.** Across eight runs of a
+   single arm the worker binary shows six distinct sha256 prefixes. Combined with the §4.4
+   slot artefact — a same-arm consecutive run skips the recompile and therefore skips
+   ≈40 s of incidental cooldown — this is the dominant nuisance term in every sweep here.
+   The palindrome `ABBA`/`BAAB` phase alternation is what cancels it, which is why every
+   block count I report is **even** and why §5.3.4's prefill null cell is read as
+   instrument noise rather than signal.
+5. **`analyze_abba.py`'s block contrast is a difference of arm means inside a block**, so
+   it is phase-agnostic by construction and `ABBA` and `BAAB` blocks are pooled without a
+   sign fix. Stated because it is the one place where a reader could reasonably suspect an
+   ordering bug.
+
+### 6.8 Follow-ups I did not implement
+
+Ranked by what I would hand the next round first. Reachability tags follow §1:
+**[STRUCT]** structural/desk, **[M4-WALL]** not measurable here, **[PROJ]** projected,
+**[M5-RCPT]** needs a ranked receipt.
+
+1. **[STRUCT] The prefill MMA-occupancy deficit** — §6.9. Unowned, and larger than
+   anything in this queue.
+2. **[M5-RCPT] `T0P` on the ranked host.** My verdict is `N-PACK` *on M4 Pro*, and the
+   campaign's own doctrine is that threadgroup geometry can change sign across core
+   counts — which cuts both ways. The decisive experiment is one paired M5 measurement,
+   and it costs 29 B. It is not worth a scarce draw at a corrected prior of +0.338 %
+   (§5.3.4), but it is exactly the kind of item that should ride along free if a future
+   round ever gets a cheap ranked A/B channel.
+3. **[STRUCT] Decompose the rest of the T0↔T1 contrast.** §4.6 identified at least two
+   mechanisms inside a **+0.3791 %** whole-tree effect: the unroll spelling (isolated as
+   `T0U`, §5.3.5) and the router-prefetch valid set. If `T0U` under-explains the total,
+   the residual is worth naming — an unattributed +0.38 % is a lead, not a nuisance.
+4. **[M4-WALL] Unroll depth as an axis, not a binary.** T0 is 4-deep, T1 is 2-deep, and
+   nobody has tried 1, 3, 6 or 8. It is bit-exact by the same argument, it is a net
+   deletion at every depth ≤ 4, and #308's own lesson was that the argmax of a geometry
+   curve is **interior** and monotonicity is refuted. A depth curve is the natural sequel
+   and it needs an M5 to be worth believing.
+5. **[STRUCT] The corpus carries a mis-scaled constant.** §5.3.4 shows `% of cs` was
+   computed at least four times by multiplying an **M4** absolute µs/step delta by an
+   **M5**-derived `%`-per-µs constant, inflating by the M4:M5 per-step ratio ≈1.67×.
+   Anything in the archive quoted as "µs/step ⇒ % of score" from a non-M5 session should
+   be re-derived in relative units before it is used to prioritise work. This is cheap,
+   mechanical, and changes the queue order.
+6. **[PROJ] The two-pool model's residual is the largest unexplored block on decode.**
+   Roughly 740 µs/step of M5 decode is unattributed (model residual ≈ −6.63 %, unaudited
+   tail, and a wall-minus-busy gap). Nobody has a named mechanism for it and Rule 92's DAG
+   audit caps *scheduling* recovery at ≈0.02 %, so the recoverable part is either small or
+   it is somewhere the current instruments cannot see. Worth one round of instrument work,
+   not one round of patches.
+
+### 6.9 The one thing I would hand over above every patch in this queue
+
+alphonse's #636 produced a `[STRUCT]` observation that no one owns and that I am
+propagating verbatim because it outlives this round: on the **largest prefill kernel
+family**, with `BM = 64` and `WM = 4`, only **one of the four simdgroups in each
+threadgroup issues MMA**. Three quarters of the matrix-unit issue capacity in that
+threadgroup is idle, and the deficit is **invariant under `bn`** — so it is not a tuning
+constant anyone can sweep away, it is a tiling decision.
+
+Why this matters more than the queue it sits behind: every candidate on the Stage-2 slate
+was priced in tenths of a percent (§5.3.4's corrected +0.338 %, #642's 0.063 % and
+0.036 %, the routed staging null at −0.038 %), against a gap to the record of **1.2846 %
+of `cs`**. A ~4× occupancy deficit on the largest prefill family is a different order of
+quantity. It is also **unreachable from this desk** — prefill on generation-16 hardware
+does not select the `_nax` family at all (§6.7 item 1) — which is precisely why it has
+survived unowned: the people who can measure it were not looking, and the people looking
+cannot measure it.
+
+I am not claiming a number for it. I am claiming that "1 of 4 simdgroups issues MMA" is a
+statement about the ranked host that can be checked from the source without any GPU at
+all, and that if it is true, it dominates everything else written in this document.
 
