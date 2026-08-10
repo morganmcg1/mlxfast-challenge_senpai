@@ -3,11 +3,37 @@
 **For: maple-fern (sole submission driver).**
 From: maple-tanjiro, PR #692, branch
 `maple-tanjiro/r110-prefill-nax-arm-factory`.
-Assignment base_sha: `32665a6b66ce0d2d72b84772863575a6fdc35fb7`.
+Assignment base_sha: `9fe371909ee7ffa66a345cf3c42c21141096f388`.
 Campaign submission BASE_SHA: `1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7`.
 
 This deliverable is a **queue of arms**, not a timing result. No local timing
 number here is evidence for or against any arm — see "Read this first".
+
+## Rebase provenance — why the gate evidence below still binds
+
+This branch was rebased from `adfca1e5` onto the live base `9fe37190` after the
+arms were built and gated. **The gates were not re-run, and do not need to be**,
+for a checkable reason rather than an assurance:
+
+```
+$ git diff --numstat adfca1e5 9fe37190 -- Sources Vendor benchmark.json Package.swift
+(empty)                       # the base moved by documentation commits only
+
+$ git ls-tree -r <rev> -- Sources Vendor benchmark.json Package.swift | shasum -a 256
+b8c8a395 (gated tree): 165121fe3d9d94e5e1baae54396b36fae9b9129c6f9ed9204ec21d51948cecd4
+HEAD     (this tree):  165121fe3d9d94e5e1baae54396b36fae9b9129c6f9ed9204ec21d51948cecd4
+```
+
+The whole submitted surface is **byte-identical** before and after the rebase,
+so job `1dce4167` measured this exact tree and a rebuild would be reproducing a
+known-identical binary. GATES.md and `A1-expert-down-bn32.md` still cite the old
+base `32665a6b` in their command transcripts; that is deliberate historical
+record of what was actually executed, and it is equivalent because of the empty
+diff above.
+
+Note the rebase also dropped a stale copy of `research/CURRENT_RESEARCH_STATE.md`
+that the pre-rebase branch would have reverted three advisor commits' worth of
+edits to. Nothing on the submitted surface was involved.
 
 ## Read this first — why there is no local number
 
@@ -83,7 +109,7 @@ the A2 patch applies cleanly either to the assignment base or to this branch.
 To keep one knob per run, apply it to a **clean base branch**:
 
 ```bash
-git checkout -b maple-fern/r110-a2 32665a6b66ce0d2d72b84772863575a6fdc35fb7
+git checkout -b maple-fern/r110-a2 9fe371909ee7ffa66a345cf3c42c21141096f388
 git apply --check research/maple-tanjiro-r110/A2-fused-nax-bn64-n1024.patch
 git apply           research/maple-tanjiro-r110/A2-fused-nax-bn64-n1024.patch
 git commit -am "R110-A2: fused-NAX bn 128->64 for prefill N<=1024"
@@ -92,7 +118,7 @@ git commit -am "R110-A2: fused-NAX bn 128->64 for prefill N<=1024"
 Verify the isolation before firing:
 
 ```bash
-git --no-pager diff --numstat 32665a6b66ce0d2d72b84772863575a6fdc35fb7 HEAD
+git --no-pager diff --numstat 9fe371909ee7ffa66a345cf3c42c21141096f388 HEAD
 # expect exactly: 14  0  Vendor/mlx-swift/.../metal/matmul.cpp
 ```
 
@@ -104,7 +130,7 @@ A3 touches **`quantized.cpp`**, the same file as A1 but a different function.
 It **must** be branched from the base, not stacked on A1:
 
 ```bash
-git checkout -b maple-fern/r110-a3 32665a6b66ce0d2d72b84772863575a6fdc35fb7
+git checkout -b maple-fern/r110-a3 9fe371909ee7ffa66a345cf3c42c21141096f388
 git apply --check research/maple-tanjiro-r110/A3-expert-gather-groups-128.patch
 git apply           research/maple-tanjiro-r110/A3-expert-gather-groups-128.patch
 git commit -am "R110-A3: expert gather groups 256->128"
@@ -113,7 +139,7 @@ git commit -am "R110-A3: expert gather groups 256->128"
 Verify:
 
 ```bash
-git --no-pager diff --numstat 32665a6b66ce0d2d72b84772863575a6fdc35fb7 HEAD
+git --no-pager diff --numstat 9fe371909ee7ffa66a345cf3c42c21141096f388 HEAD
 # expect exactly: 1  1  Vendor/mlx-swift/.../metal/quantized.cpp
 ```
 
