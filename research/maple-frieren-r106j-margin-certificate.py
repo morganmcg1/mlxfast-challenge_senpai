@@ -63,11 +63,37 @@ binary.  For a shipping change the candidate arm is a REBUILD with the source
 default flipped, not an environment variable, because the official harness does
 not set our environment.
 
-Exit codes:
-    0  certificate produced (see "verdict" in the report; may still be FAIL)
-    2  worker binary or golden fixture missing
-    3  protocol/consistency error -- the certificate is not trustworthy
-    4  certify found a TOKEN FLIP (terminal for the candidate)
+Exit codes (v2 contract -- see CHANGELOG at the bottom of this docstring):
+    0  PASS-BIT-EXACT or PASS-WITH-MARGIN.  Safe to `cert && ship`.
+    2  worker binary, mlx.metallib or golden fixture missing (capture refused)
+    3  VOID -- protocol/consistency/build-identity error.  The certificate says
+       NOTHING about the candidate.  Never ship on 3.
+    4  FAIL -- a token flip, or free-run divergence.  Terminal for the candidate.
+    5  MARGINAL -- no flip here, but the safety factor is under 10x.  A human
+       must read the report before this ships.
+
+Because 0 is now reserved for the two PASS verdicts, `cert && ship` is a safe
+idiom.  Under the v1 contract MARGINAL and VOID both exited 0, so `cert && ship`
+would have shipped an untrustworthy or under-margin candidate.
+
+CHANGELOG
+    v2 (2026-08-10)  Three defects fixed after the instrument was published:
+       (1) BUILD IDENTITY GUARD.  v1 *recorded* worker_sha256 in each arm's
+           metadata and then never COMPARED the two -- provenance that is
+           written down but never checked.  A forgotten rebuild therefore
+           produced PASS-BIT-EXACT -- the *strongest* verdict -- for a candidate
+           that was never built.  This is the same failure class as PR #575's
+           incremental-rebuild false pass.  `certify` now VOIDs symmetrically:
+           the arms are the same experiment but were not declared identical, or
+           were declared identical (--expect-identical-build) but differ.
+           `capture` additionally records the build tree's git HEAD and dirty
+           flag, and hard-errors (exit 2) if the worker or its mlx.metallib is
+           missing instead of failing later and less clearly.
+       (2) mlx.metallib was not fingerprinted at all, so an AOT-kernel-only
+           change -- or a stale metallib, trap 1 in the service SOP -- was
+           invisible in the provenance block.
+       (3) VOID and MARGINAL exited 0.  See the exit codes above.
+    v1 (2026-08-09)  Original R106-J instrument.
 
 MODES
 -----
@@ -99,6 +125,17 @@ GOLDEN = os.path.join(
 )
 VOCAB_SIZE = 100_352
 
+# Verdict -> process exit code.  Only the two PASS verdicts exit 0, so
+# `cert && ship` is a safe idiom.  An unknown verdict maps to 3 (VOID): if this
+# table and _verdict ever disagree, the safe answer is "not trustworthy".
+EXIT_FOR_VERDICT = {
+    "PASS-BIT-EXACT": 0,
+    "PASS-WITH-MARGIN": 0,
+    "VOID": 3,
+    "FAIL": 4,
+    "MARGINAL": 5,
+}
+
 # Fusion/dispatch witnesses, so "the candidate path actually ran" is recorded
 # in the same artifact as the numbers rather than asserted separately (Rule 33).
 TRACE_RE = re.compile(r"^.*(fusion|fused|DARKBLOOM|wide-codes|narrow-scales|"
@@ -109,9 +146,21 @@ TRACE_RE = re.compile(r"^.*(fusion|fused|DARKBLOOM|wide-codes|narrow-scales|"
 # capture
 # --------------------------------------------------------------------------
 def capture(args) -> int:
-    if not os.path.exists(WORKER):
-        print(f"missing worker binary {WORKER}; build with ./benchmark.sh --local-iterate",
+    worker = os.path.abspath(args.worker)
+    if not os.path.exists(worker):
+        print(f"missing worker binary {worker}; build with ./benchmark.sh --local-iterate",
               file=sys.stderr)
+        return 2
+    # The worker resolves mlx.metallib from the directory holding the
+    # executable. A stale metallib is invisible in the worker's own sha256 and
+    # is the single most dangerous failure mode of this instrument (an
+    # AOT-kernel change lives ENTIRELY in the metallib), so it is fingerprinted
+    # here and a missing one is a hard error rather than a silent wrong answer.
+    metallib = os.path.join(os.path.dirname(worker), "mlx.metallib")
+    if not os.path.exists(metallib):
+        print(f"missing {metallib}; run `bash tools/build-mlx-metallib.sh` in "
+              "the tree that produced this worker. swift build does NOT "
+              "regenerate it.", file=sys.stderr)
         return 2
     if not os.path.exists(args.golden):
         print(f"missing golden fixture {args.golden}", file=sys.stderr)
@@ -142,7 +191,7 @@ def capture(args) -> int:
     t_launch = time.perf_counter()
     with open(err_path, "wb") as errfh:
         proc = subprocess.Popen(
-            [WORKER, "runtime-worker", "--weights", args.weights],
+            [worker, "runtime-worker", "--weights", args.weights],
             cwd=REPO, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=errfh, env=env, text=True,
         )
@@ -215,10 +264,19 @@ def capture(args) -> int:
         "full_vocab_rows": int(filled.sum()),
         "golden": os.path.relpath(args.golden, REPO),
         "case": case.get("name"),
-        "worker_sha256": _sha256(WORKER),
+        "worker_path": worker,
+        "worker_sha256": _sha256(worker),
+        "worker_bytes": os.path.getsize(worker),
+        "metallib_path": metallib,
+        "metallib_sha256": _sha256(metallib),
+        "metallib_bytes": os.path.getsize(metallib),
         "darkbloom_env": darkbloom,
         "dispatch_witness": witness,
         "git_head": _git_head(),
+        # With --worker pointing into a scratch worktree these are the arm's
+        # OWN provenance; "git_head" above is only the service tree's.
+        "build_tree_git_head": _git_head(os.path.dirname(worker)),
+        "build_tree_dirty": _git_dirty(os.path.dirname(worker)),
         "captured_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
     np.savez_compressed(
@@ -248,10 +306,24 @@ def _sha256(path):
     return h.hexdigest()
 
 
-def _git_head():
+def _git_head(cwd=None):
     try:
-        return subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO,
-                                       text=True).strip()
+        return subprocess.check_output(["git", "rev-parse", "HEAD"],
+                                       cwd=cwd or REPO, text=True).strip()
+    except Exception:
+        return None
+
+
+def _git_dirty(cwd=None):
+    """True if the tree that produced a binary had uncommitted changes.
+
+    A certificate against a dirty tree is not reproducible by anyone else, so
+    the fact is recorded rather than left to be remembered.
+    """
+    try:
+        out = subprocess.check_output(["git", "status", "--porcelain"],
+                                      cwd=cwd or REPO, text=True)
+        return bool(out.strip())
     except Exception:
         return None
 
@@ -265,6 +337,114 @@ def _load(path):
     return z["logits"], z["tokens"], z["expected"], meta
 
 
+def _build_identity(b_meta, c_meta, expect_identical):
+    """Did the two arms actually come from two different builds?
+
+    ⚠ THE DEFECT THIS CLOSES. Until 2026-08-10 this instrument returned
+    PASS-BIT-EXACT whenever the two logit tensors were bitwise equal -- which
+    is exactly what happens when the candidate was never rebuilt. The most
+    likely operator error in the whole procedure (rebuild the worker, forget
+    `tools/build-mlx-metallib.sh`, which `swift build` never regenerates)
+    therefore produced the *strongest possible* verdict. #575 records the same
+    class of error giving a false PASS in the equivalence oracle.
+
+    The guard is symmetric, because both directions are operator error:
+      * arms declared different but identical  -> the candidate never got built;
+      * arms declared identical (a null cell) but different -> the "null" cell
+        is not null and the reproducibility claim it exists to support is void.
+
+    An env-var-only arm (same binaries, different DARKBLOOM_*) is legitimate
+    and is NOT voided -- but it is flagged, because the official harness does
+    not set our environment, so an env arm never certifies a shipping change.
+    """
+    worker_known = (b_meta.get("worker_sha256") is not None
+                    and c_meta.get("worker_sha256") is not None)
+    same_worker = b_meta.get("worker_sha256") == c_meta.get("worker_sha256")
+    # Older captures (pre-2026-08-10) have no metallib field. Absent on BOTH
+    # sides means "unknown", and unknown must not be silently read as "same".
+    b_ml, c_ml = b_meta.get("metallib_sha256"), c_meta.get("metallib_sha256")
+    metallib_known = b_ml is not None and c_ml is not None
+    same_metallib = (b_ml == c_ml) if metallib_known else None
+    same_env = b_meta.get("darkbloom_env") == c_meta.get("darkbloom_env")
+
+    identical = bool(same_worker and (same_metallib is not False) and same_env)
+    r = {
+        "baseline_worker_sha256": b_meta.get("worker_sha256"),
+        "candidate_worker_sha256": c_meta.get("worker_sha256"),
+        "baseline_metallib_sha256": b_ml,
+        "candidate_metallib_sha256": c_ml,
+        "worker_fingerprints_available": worker_known,
+        "metallib_fingerprints_available": metallib_known,
+        "same_worker": same_worker,
+        "same_metallib": same_metallib,
+        "same_darkbloom_env": same_env,
+        "arms_are_the_same_experiment": identical,
+        "declared_identical": bool(expect_identical),
+        "baseline_build_tree_git_head": b_meta.get("build_tree_git_head"),
+        "candidate_build_tree_git_head": c_meta.get("build_tree_git_head"),
+        "baseline_build_tree_dirty": b_meta.get("build_tree_dirty"),
+        "candidate_build_tree_dirty": c_meta.get("build_tree_dirty"),
+        "env_only_arm": bool(same_worker and (same_metallib is not False)
+                             and not same_env),
+        "void_reason": None,
+        "caveats": [],
+    }
+    if r["env_only_arm"]:
+        r["caveats"].append(
+            "ENV-ONLY ARM. The arms share a binary and differ only in "
+            "DARKBLOOM_*. That is a valid mechanism probe, but the official "
+            "harness does not set our environment, so this certificate does "
+            "NOT certify a shipping change. Re-certify against a rebuild with "
+            "the default flipped in source before anyone ships it.")
+    if not metallib_known and not same_worker:
+        r["caveats"].append(
+            "METALLIB NOT FINGERPRINTED (arm captured before 2026-08-10). The "
+            "worker binaries differ, so a rebuild did happen, but an AOT Metal "
+            "kernel change lives entirely in mlx.metallib and a stale one "
+            "cannot be excluded from these captures. Recapture with the "
+            "current instrument if any part of the change touches kernels/ or "
+            "mlx-generated/.")
+    if b_meta.get("build_tree_dirty") or c_meta.get("build_tree_dirty"):
+        r["caveats"].append(
+            "DIRTY BUILD TREE. At least one arm was built from a tree with "
+            "uncommitted changes, so nobody else can reproduce this "
+            "certificate from a commit sha.")
+    if not worker_known and not expect_identical:
+        # Both arms predate the v2 provenance block. "No fingerprint" is not
+        # evidence of sameness and must not be read as evidence of difference
+        # either: the honest verdict is that this pair cannot be adjudicated.
+        r["void_reason"] = (
+            "NEITHER arm carries a worker fingerprint, so both were captured "
+            "with the v1 instrument (before 2026-08-10). Whether the candidate "
+            "was ever rebuilt is unknowable from these files, and that is "
+            "precisely the question a certificate has to answer. Recapture both "
+            "arms with the current instrument. (If you know the pair is a "
+            "deliberate null cell, --expect-identical-build records that claim "
+            "as YOURS rather than the instrument's.)")
+    elif identical and not expect_identical:
+        r["void_reason"] = (
+            "The two arms are the SAME worker binary"
+            + (", the same mlx.metallib" if same_metallib
+               else " (mlx.metallib not fingerprinted on both arms)")
+            + " and the same DARKBLOOM_* environment. This certificate therefore "
+            "contains no information about any candidate change; any verdict it "
+            "would print (including PASS-BIT-EXACT) is vacuous. Most likely the "
+            "candidate was never rebuilt, or only `swift build` was rerun and "
+            "`tools/build-mlx-metallib.sh` was not. Pass "
+            "--expect-identical-build only when you INTEND a null cell.")
+    elif expect_identical and not identical:
+        r["void_reason"] = (
+            "--expect-identical-build was passed, so this was declared a null "
+            "cell, but the arms differ in "
+            + ", ".join(
+                n for n, same in (("worker binary", same_worker),
+                                  ("mlx.metallib", same_metallib is not False),
+                                  ("DARKBLOOM_* env", same_env)) if not same)
+            + ". A null cell that is not null cannot support the "
+              "reproducibility claim it exists to make.")
+    return r
+
+
 def certify(args) -> int:
     b_log, b_tok, b_exp, b_meta = _load(args.baseline)
     c_log, c_tok, c_exp, c_meta = _load(args.candidate)
@@ -275,6 +455,8 @@ def certify(args) -> int:
     if b_meta["mode"] != c_meta["mode"]:
         print("arms captured in different modes; refusing", file=sys.stderr)
         return 3
+
+    build = _build_identity(b_meta, c_meta, args.expect_identical_build)
     if b_meta["full_vocab_rows"] != b_log.shape[0] or \
        c_meta["full_vocab_rows"] != c_log.shape[0]:
         print("WARNING: an arm was captured with top_k < vocab; the "
@@ -473,6 +655,13 @@ def certify(args) -> int:
                           f"{free_run['total_steps']}: the greedy prefix does "
                           f"not match, which a hidden `free_run` gate "
                           f"(TASK.md:136-138) checks exactly.")
+    # The build-identity guard is applied LAST and outranks every other
+    # verdict, including FAIL: if the arms are not two different experiments,
+    # nothing measured here can be attributed to a candidate change -- not a
+    # pass, and not a failure either.
+    if build["void_reason"]:
+        verdict = "VOID"
+        reasons.insert(0, "BUILD IDENTITY: " + build["void_reason"])
 
     report = {
         "instrument": "maple-frieren-r106j-margin-certificate.py",
@@ -481,6 +670,7 @@ def certify(args) -> int:
         "candidate_arm": c_meta,
         "mode": b_meta["mode"],
         "positions_certified": int(n_pos),
+        "0_build_identity": build,
         "1_perturbation": pert,
         "2_baseline_margin": marg,
         "3_safety_factor": safety,
@@ -497,7 +687,7 @@ def certify(args) -> int:
 
     _print_human(report)
     print(f"\nwrote {args.out}")
-    return 4 if argmax["flip_count"] or argmax["worker_returned_token_flip_count"] else 0
+    return EXIT_FOR_VERDICT.get(verdict, 3)
 
 
 def _argmax_tiebreak(a):
@@ -598,6 +788,27 @@ def _print_human(r):
           f"{r['candidate_arm']['label']}   mode={r['mode']}   "
           f"positions={r['positions_certified']}")
     print("=" * 74)
+    b = r.get("0_build_identity")
+    if b:
+        def _sh(v):
+            return v[:12] if isinstance(v, str) else "unknown"
+        ml = ("unknown" if b["same_metallib"] is None
+              else ("same" if b["same_metallib"] else "DIFFER"))
+        print(f"0 build identity worker {_sh(b['baseline_worker_sha256'])} -> "
+              f"{_sh(b['candidate_worker_sha256'])}  "
+              f"({'same' if b['same_worker'] else 'DIFFER'})")
+        print(f"                 metallib {_sh(b['baseline_metallib_sha256'])} "
+              f"-> {_sh(b['candidate_metallib_sha256'])}  ({ml})")
+        print(f"                 same experiment={b['arms_are_the_same_experiment']}"
+              f"   declared identical={b['declared_identical']}"
+              f"   env-only arm={b['env_only_arm']}")
+        print(f"                 build tree "
+              f"{_sh(b['baseline_build_tree_git_head'])}"
+              f"{'+dirty' if b['baseline_build_tree_dirty'] else ''} -> "
+              f"{_sh(b['candidate_build_tree_git_head'])}"
+              f"{'+dirty' if b['candidate_build_tree_dirty'] else ''}")
+        for cav in b["caveats"]:
+            print(f"   ⚠ CAVEAT: {cav.split('.')[0]}.")
     print(f"1 perturbation |cand-base|   max {p['abs_max']:.6g}   "
           f"p99 {p['abs_p99']:.6g}   p50 {p['abs_p50']:.6g}")
     print(f"                 relative     max {p['rel_max']:.6g}   "
@@ -664,6 +875,11 @@ def main() -> int:
     c = sub.add_parser("capture", help="run one arm and store its logits")
     c.add_argument("--label", required=True)
     c.add_argument("--out", required=True)
+    c.add_argument("--worker", default=WORKER,
+                   help="worker binary to capture from. Point this at a scratch "
+                        "worktree's .build-worker/release/mlxfast-runtime-worker "
+                        "to capture two arms from two different builds in one "
+                        "session. mlx.metallib must sit beside it.")
     c.add_argument("--steps", type=int, default=64,
                    help="gate positions after step 0 (official gate uses 64)")
     c.add_argument("--top-k", type=int, default=VOCAB_SIZE)
@@ -678,6 +894,12 @@ def main() -> int:
     v.add_argument("--candidate", required=True)
     v.add_argument("--out", required=True)
     v.add_argument("--rank-depth", type=int, default=8)
+    v.add_argument("--expect-identical-build", action="store_true",
+                   help="declare that the two arms are deliberately the SAME "
+                        "build (a null cell / instrument self-test). Without "
+                        "this flag, two arms with the same worker fingerprint "
+                        "are VOID, because the usual cause is a forgotten "
+                        "rebuild. With it, two arms that DIFFER are VOID.")
     v.set_defaults(func=certify)
 
     args = ap.parse_args()

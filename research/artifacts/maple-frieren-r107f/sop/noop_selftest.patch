@@ -1,0 +1,13 @@
+diff --git a/Sources/MLXFastRuntimeWorkerCLI/main.swift b/Sources/MLXFastRuntimeWorkerCLI/main.swift
+index bc51e709..cc62ce76 100644
+--- a/Sources/MLXFastRuntimeWorkerCLI/main.swift
++++ b/Sources/MLXFastRuntimeWorkerCLI/main.swift
+@@ -76,6 +76,8 @@ private enum ParticipantWorkerCLI {
+               mlxfast-runtime-worker preflight [--weights PATH]
+ 
+             Participant-side MLX runtime worker for mlxfast-swift.
++            (cert-from-patch self-test marker: reached only from printUsage,
++             which the runtime-worker protocol never calls.)
+             """
+         )
+     }
