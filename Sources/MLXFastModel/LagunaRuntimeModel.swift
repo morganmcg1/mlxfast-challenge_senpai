@@ -5923,7 +5923,8 @@ final class LagunaRuntimeAttention: Module {
                     let affineGate = _nativeAffineGProj
                 {
                     if lagunaFusedNormGateCensusEnabled {
-                        print("norm-gate census layer=\(layerIdx) heads=\(nHeads) fused=\(lagunaFusedNormGateSoftplusEnabled)")
+                        FileHandle.standardError.write(
+                            Data("norm-gate census layer=\(layerIdx) heads=\(nHeads) fused=\(lagunaFusedNormGateSoftplusEnabled)\n".utf8))
                     }
                     fusedNormGate = lagunaFusedNormGateSoftplus(
                         residual: input, normWeight: inputNorm.weight,
