@@ -208,7 +208,7 @@ arms decompose the dial into two orthogonal halves:
 | Contrast | Isolates | Kernel-label value (archive) |
 |---|---|---|
 | `P5 − P0` | the **local hoist**: 4×`vec<bfloat,4>` batched into registers just before use, same side of the barriers — pure ILP | `+0.05` µs/step (`pf1c−pf0b` = −0.0083, the Rule-79 null) |
-| `P1 − P5` | the **cross-barrier hoist**: the same 8 live 32-bit registers carried *across* 5 threadgroup barriers, and the ≈1 MB `router_weight` burst issued *before* the norm's own traffic instead of after | `−6.38` µs/step (pf1 313.51 vs pf1c 319.89) |
+| `P1 − P5` | the **cross-barrier hoist**: the same 8 live 32-bit registers carried *across* 5 threadgroup barriers, and a **256 KB** `router_weight` salvo issued *before* the norm's own traffic instead of after [ERRATUM E1] | `−6.38` µs/step (pf1 313.51 vs pf1c 319.89) |
 | `P1 − P0` | both together | `−6.39` µs/step |
 
 The kernel label therefore credits **100 % of its −6.39 win to the cross-barrier
@@ -220,7 +220,7 @@ price of the same structural feature the label rewards, then
 
 | Verdict | Condition | Reading |
 |---|---|---|
-| **V-PLACEMENT** | `P5 ≈ P0` (inside the A0 band) and `P1 − P5` CI excludes 0 upward | Confirms the prediction. The cross-barrier hoist buys −6.4 µs/step inside the router label and pays ≫ that outside it. #558's decision row is **sign-inverted end to end**, not merely attenuated, and `prefetch = 5` is a strictly better default than `1` — a *cheaper* fix than `0` because it keeps the label's ILP win. |
+| **V-PLACEMENT** | `P5 ≈ P0` (inside the A0 band) and `P1 − P5` CI excludes 0 upward | Confirms the prediction. The cross-barrier hoist buys −6.4 µs/step inside the router label and pays ≫ that outside it. #558's decision row is **sign-inverted end to end**, not merely attenuated, and both `5` and `0` are better defaults than `1`. Choosing between `5` and `0` is then a separate question settled in §10.2, **not** by any label win [ERRATUM E2]. |
 | **V-PEEL** | `P5 ≈ P1`, both slower than `P0` | The cost tracks the loads themselves, not their placement. Then `0` is the only fix, and the label's Rule-79 null cell (`pf1c−pf0b` ≈ 0) is itself label-blind. |
 | **V-MIXED** | both `P5 − P0` and `P1 − P5` CIs exclude 0 upward | Two additive costs; report the split. |
 | **V-NEITHER** | all three within the A0 null band | No end-to-end effect of any placement at this power. The +34.58 does not reproduce. |
@@ -629,9 +629,269 @@ instructions** and differ only in placement relative to the 5 threadgroup
 barriers, so they are a matched pair for attributing any cost to placement
 rather than to the loads.
 
+## 11. Adversarial review of §§0-5, and the four corrections it forced
+
+While the Phase-A window was open I ran an independent review pass over §§0-5
+with no access to my own reasoning chain, specifically asked to attack the
+framing rather than agree with it. It found four defects. I verified all four
+myself from source and from the surviving data, and all four are recorded here
+rather than silently patched, because §§0-5 are preregistration text. **No
+preregistered trigger condition in §3.1 or §3.2 is changed by any of them.**
+
+### 11.1 E1 — the prefetch salvo is 256 KB per invocation, not ~1 MB
+
+My §3.2 said pf1 issues "a ~1 MB `router_weight` burst". That is 4x too high.
+From `research/msl/r100c_rpg8_pf1.metal`, which §6.2 committed:
+
+| quantity | value | source |
+|---|---|---|
+| `axis_size` | 2048 | kernel constant |
+| `block_width` | 128 | kernel constant |
+| `router_blocks` | 2048 / 128 = 16 | derived |
+| `rows_per_group`, `rows_per_thread` | 8, 1 | shipped geometry |
+| prefetch block | `:75-86`, 4 x `vec<bfloat,4>` per thread | read |
+| consumer peel | `column += 4 * block_width` | first **4 of 16** blocks = 1/4 row |
+
+Per threadgroup the peel covers 8 rows x 4 blocks x 128 cols x 2 B = 8 KB.
+Threadgroups = 256 rows / 8 = 32, so **262,144 B = 256 KiB per invocation**,
+exactly one quarter of the 1 MiB router weight (256 x 2048 x 2 B = 1,048,576).
+
+Two independent confirmations of the invocation count fell out of this:
+`LagunaConfig.swift:542` requires `mlp_layer_types` to be "dense at layer 0 and
+sparse at layers 1-39", so there are **39 routed layers**, and 39 x 1 MiB =
+40.89 MB/step — exactly the router-GEMV traffic figure in
+`CURRENT_RESEARCH_STATE.md:158-170`. So 39 router invocations per decode step.
+
+The load-bearing consequence is one I had missed entirely: **pf1 does not move
+more bytes than pf0.** The prefetch and the peel read precisely the bytes the
+unpeeled loop would have read. Every mechanism of the form "pf1 costs more
+because it transfers more" is therefore unavailable a priori. Only *when* the
+256 KiB is requested differs.
+
+Applied inline as `[ERRATUM E1]` at §3.2.
+
+### 11.2 Per-invocation accounting
+
+At 39 invocations/step:
+
+| quantity | per step | per invocation |
+|---|---|---|
+| end-to-end penalty (#571 primary) | +34.58 us | **+0.887 us** |
+| kernel-label credit (`SPLIT=1`) | -6.39 us | **-0.164 us** |
+| implied cost outside the measured kernel | +40.97 us | **+1.051 us** |
+| time to stream 256 KiB at M4 Pro's 266.3 GB/s | — | 0.984 us |
+
+The implied out-of-kernel cost is 1.07x the time the salvo would take to drain
+at nominal peak bandwidth with nothing else running. I am deliberately not
+calling that identification: 266.3 GB/s is nominal rather than achieved, the
+arithmetic assumes all 39 invocations pay equally, and a ratio near 1 is
+suggestive at best. What it does establish is a **scale check**: the residual is
+the right order of magnitude for "the salvo is effectively serialised against
+the rest of the step", and it is two to three orders of magnitude too large for
+a register-pressure or occupancy story — which §6.2's static read had already
+ruled out independently.
+
+### 11.3 E2 — `prefetch = 5` does not retain the kernel-label win
+
+My §3.2 claimed pf1c "keeps the label's ILP win". It does not. Label values from
+nezuko-r100c via `CURRENT_RESEARCH_STATE.md:158-167`:
+
+| variant | label us/step | vs pf0 | Rule-79 same-arm null |
+|---|---|---|---|
+| pf0 | 319.8417 | — | pf1c - pf0b = -0.0083 [-0.9698, +0.9531] |
+| pf0b | 319.9000 | +0.058 | (the null cell itself) |
+| pf1 | 313.5083 | **-6.333** | |
+| pf1c | 319.8917 | +0.050 | inside the null |
+
+pf1c is label-neutral. Since §6.2 established that pf1 and pf1c emit the
+**identical** 12-line load block and differ only in its position relative to the
+five `threadgroup_barrier`s, the label credits **100 % of its -6.39 win to the
+cross-barrier hoist and 0 % to the block itself**. Applied inline as
+`[ERRATUM E2]`. This does not touch the A1 prediction table; it changes which
+question §10.2 has to answer, and it is why §10.2 exists.
+
+### 11.4 E3 — the "+41 us elsewhere" claim locates nothing
+
+The arithmetic is right (34.58 + 6.39 = 40.97 us/step; 36.81 with the
+doctrinal deflator). The *location* claim — that the residual lands in
+identifiable other kernels — rested on a `SPLIT=1` per-kernel census. That
+census serialises the command stream in order to attribute time per kernel,
+which destroys precisely the overlap any arbitration or scheduling mechanism
+lives in. **A serialised census cannot locate a cost that only exists when
+kernels overlap.** I am downgrading +40.97 us/step to an accounting residual
+with no attributed location, and the mechanism ranking in §11.7 stands without
+it.
+
+### 11.5 E4 — my "growth" claim was overstated, and testing it properly refuted it
+
+The review flagged an internal inconsistency in my growth statistics. It was
+real, and the correct treatment is worse for me than the criticism was.
+
+First the honest description. The step-window medians of `C-B` are +32.23
+(window 0-1), then a dip to +24.56 at 10-25, then a rise to +33.63 at 200-250.
+That is **not monotone**. And the window-profile mean (+28.45) is not the
+primary contrast (+34.58) because the primary is a difference of per-slot
+medians, not a mean of per-step medians.
+
+Rather than defend "growth", I tested the model that would explain it. Because
+step index *is* KV length here, a gap proportional to KV length is a sharp
+hypothesis, and it has a strong mechanistic implication: the router GEMV never
+touches KV, so a KV-proportional cost could only be produced by *interaction*
+with the attention stream. Sections 5-7 of
+`research/maple-frieren-r105b-stepwise.py` now test it three ways.
+
+**Section 5 — fit the pooled window profile.** This looks excellent:
+
+| contrast | dial flipped? | mean us | prop R^2 | affine R^2 | us/KV-tok | elasticity |
+|---|---|---|---|---|---|---|
+| `B-A` (rebuild only, pf0 both sides) | no | -5.85 | **-0.546** | +0.051 | +0.00406 | -0.41 |
+| `C-A` (rebuild + pf0->pf1) | yes | +22.60 | **+0.804** | +0.811 | +0.04265 | +1.11 |
+| `C-B` (pf0->pf1) | yes | +28.45 | **+0.793** | +0.848 | +0.03859 | +0.79 |
+
+Reference model is a constant gap (R^2 = 0 by construction). Both contrasts that
+flip the dial are well described by proportionality through the origin, the
+contrast that does not flip the dial is described *worse than by its own mean*,
+and the elasticities straddle 1. It even has an apparent specificity control.
+
+**Sections 6 and 7 — give that fit an interval, and it dies.** Section 6 fits
+one slope per repetition and takes a paired t interval; section 7 bootstraps
+repetitions (2,000 draws) and refits the pooled median profile, so section 5's
+own estimator finally gets an interval:
+
+| contrast | per-rep slope (S6) | bootstrap pooled slope (S7) | bootstrap haircut 128/250 |
+|---|---|---|---|
+| `B-A` | +0.00433 +- 0.04221 | +0.00504 [-0.02931, +0.03475] | +1.0365 [+0.7170, +1.2257] |
+| `C-A` | +0.01680 +- 0.04529 | +0.02547 [-0.00831, +0.06165] | +0.9378 [+0.8165, +1.0187] |
+| `C-B` | +0.01247 +- 0.03979 | +0.02099 [-0.00963, +0.05789] | +0.9616 [+0.8932, +1.0172] |
+
+**Every slope interval covers zero.** The section-5 point estimate (+0.0386) is
+inside the bootstrap interval, but so is 0. The R^2 = 0.79 was the classic
+artefact of fitting nine highly correlated aggregates: averaging away the
+rep-to-rep variance before fitting produces a tight-looking line whose slope is
+not actually resolved. The "specificity control" is equally unresolved, since
+`B-A`'s slope interval also covers zero and overlaps `C-B`'s.
+
+So I am retracting the KV-proportionality inference. It is the single most
+attractive new idea I had this session — it would have promoted one mechanism
+above all others and given the effect a physical story — and the correct
+estimator does not support it. **Status: underpowered, not refuted.** The point
+estimates lean positive and the effect may well be real; this dataset cannot
+resolve a slope of ~0.02 us/KV-token against zero. §12.1 is the design that can.
+
+### 11.6 Consequence: the headline number is quoted unhaircut, and that is not a free pass
+
+I had derived a scored-window haircut of 576/637 = 0.9042 from the section-5
+fit, which would have moved the claim to +31.27 us/step and 0.88 sigma. The
+bootstrap haircut for `C-B` is **+0.9616 [+0.8932, +1.0172]**, which covers 1.0,
+and the paired estimator puts the gap at +35.95 +- 6.88 at KV 636 versus
++35.19 +- 7.71 at KV 575 — a 2 % difference, not 10 %. **The haircut is not
+licensed, so §1.1's +34.58 us/step and 0.527 % of `cs` stand as written.**
+
+I am recording this the honest way round: the headline survived because the
+correction could not be established, not because I checked and it was absent.
+The interval admits a haircut as large as 0.89, i.e. a true scored-window
+effect as small as ~+30.8 us/step. That is inside the band §4.1 already
+described as underpowered.
+
+### 11.7 Mechanism ranking after all of the above
+
+| rank | mechanism | status |
+|---|---|---|
+| 1= | bandwidth / arbitration interaction with the attention KV stream | consistent with §11.2's scale check. **Not** promoted on KV-proportionality, which §11.5 retracted. |
+| 1= | DVFS / power-arbitration response to salvo burstiness | untested; predicts a frequency signature, which `powermetrics` per arm would show cheaply (§12.2). |
+| 3 | in-kernel in-stream stall interaction | cannot be the whole effect: the label says the kernel is *faster*, so the cost is not inside the measured kernel. |
+| 4 | occupancy / register pressure | argued down by §6.2's static read: identical `maxTotalThreadsPerThreadgroup` (1024), execution width (32) and static threadgroup memory (4240 B) across pf0/pf1/pf1c, and the launch geometry is 512 threads, so the 8 extra live registers are non-binding (§9.2). |
+| 5 | SLC pollution | argued down on magnitude: 256 KiB per invocation against a last-level cache in the tens of MB, and the same kernel reads those bytes moments later regardless. |
+
+Ranks 1= are not separated by any evidence I hold. I am not going to pretend
+otherwise, and §12.2 is the cheapest thing that would separate them.
+
+### 11.8 Artefact ranking, with the falsifier for each
+
+| artefact | falsifier | status |
+|---|---|---|
+| A1 arm side effects / arm-label mismatch | A0 (`P1` vs `P1B`), plus the `P5` arms | Phase A |
+| A2 residual misattributed to specific kernels | — | conceded in §11.4 |
+| A3 drift aliasing | disjoint slot-median supports and the 6/6 position table (§6.1); A0 retests on the fresh tree | already strong |
+| A4 tree specificity | Phase A rebuilds the tree (§2). If `P0->P1` does not reproduce ~+30, the #571 effect was specific to the stale tree | Phase A |
+
+### 11.9 M5 transfer
+
+Sign is likely preserved but attenuated if DVFS contributes, since the M5 Max
+has more power and bandwidth headroom. Nothing compiler-dependent transfers
+reliably at all: the review put the risk that pf1c is *worse* than pf0 on M5 at
+10-20 %, via a backend that hoists the loads anyway and then pays the same
+placement cost. That is decisive for §10.2 and is why the recommended fallback
+is `0` rather than `5`. I cannot draw the M5 pair that would settle it (§6.4).
+
+## 12. Follow-ups I did not implement
+
+### 12.1 Seed-length x arm sweep — the experiment that resolves §11.5
+
+Varying the **step count** is degenerate for this question: it moves
+time-in-slot and mean KV length together, so a thermal or DVFS drift term and a
+KV term are not separable. Vary the **seed** instead, holding step count fixed
+at the scored 128, so every slot has identical duration and identical step
+count while mean KV length moves by an order of magnitude.
+
+| design | k range | sd(k) | lever vs #571 | slope CI half-width | resolution of a 0.021 slope |
+|---|---|---|---|---|---|
+| #571 as run (seed 512, 250 steps) | 513-761 | 71.9 | 1.00x | 0.0338 | 0.6 sigma |
+| seeds {512, 1024} x 128 | 513-1151 | 258.6 | 3.60x | 0.0094 | 2.2 sigma |
+| **seeds {128, 512, 1024, 2048} x 128** | 129-2175 | 721.5 | **10.0x** | **0.0034** | **6.2 sigma** |
+| seeds {128, 512, 1024, 2048, 3072} x 128 | 129-3199 | 1073.4 | 14.9x | 0.0023 | 9.3 sigma |
+
+Cost for the recommended row: 2 arms x 4 seeds = 8 cells, rotate palindrome
+gives 16 slots per repetition, ~44.8 s per slot, so 9 repetitions is ~1.8 h —
+one session, the same budget Phase A is spending now. The power comes from the
+lever, not from more repetitions, which is why this is worth doing and why
+adding repetitions to the current design is not.
+
+The design is also **discriminating**, not merely powerful. The 1-full:3-sliding
+schedule (`LagunaConfig.swift:539`) pins 30 of 40 layers' KV at 512 positions,
+so total KV traffic and unbounded position index diverge past seed 512:
+
+- cost tracks **total KV traffic** => visible knee at seed 512, slope falls to
+  roughly a quarter beyond it;
+- cost tracks the **unbounded position index** (i.e. the 10 full-attention
+  layers) => straight line throughout;
+- cost is a **fixed per-step constant** => slope zero, and §11.5's lean is noise.
+
+Caveat to design in: changing the seed changes prefill work, so the prefill
+phase of each slot changes length. The decode measurement is separate, but slot
+duration is not constant across cells, so the rotation must be balanced over
+seeds as well as arms.
+
+### 12.2 Frequency and trace instrumentation — the cheapest mechanism separator
+
+Ranks 1= in §11.7 are unseparated. Two additions would separate them for
+approximately no GPU time:
+
+- `powermetrics` GPU frequency and power sampled per slot, logged alongside the
+  per-step dump. A DVFS mechanism predicts a measurable frequency or residency
+  difference between `P0` and `P1`; a pure arbitration mechanism predicts none.
+- one Instruments Metal System Trace per arm, which shows command-buffer and
+  kernel overlap directly, and would reveal a serialisation that the `SPLIT=1`
+  census destroys by construction (§11.4).
+
+Neither is a timing run, so neither competes with the receipt budget. I did not
+add them because instrumenting the slot loop during an open preregistered
+window would have changed the measured configuration.
+
+### 12.3 What I am explicitly not proposing
+
+- No further `SPLIT=1` census as *evidence for location*. §11.4 explains why the
+  instrument cannot answer the question; running it again would produce another
+  regime-invalid number.
+- No re-opening of rpg retiling (§7).
+- No step-count sweep (§12.1's first paragraph).
+
 ---
 
 *(Nothing in §§0-5 is edited after the first Phase-A launch except to fix a
-typo, and any such edit is called out in the commit message. §6 was written
-before launch from zero-GPU-cost evidence and says so. §9 verdicts 9.1/9.2 are
-argued from evidence already in hand and are marked where they depend on A0.)*
+typo or to carry an explicitly marked `[ERRATUM]`, and every such edit is called
+out in the commit message and restated in §11. §6 was written before launch from
+zero-GPU-cost evidence and says so. §9 verdicts 9.1/9.2 are argued from evidence
+already in hand and are marked where they depend on A0. §§11-12 were written
+during the open Phase-A window from the surviving #571 data and from source
+reads only, and touched no file under `Sources/` or `Vendor/`.)*
