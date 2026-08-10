@@ -78,16 +78,24 @@ def solve(matrix, rhs):
     return [row[-1] for row in aug], [row[n:2 * n] for row in aug]
 
 
-def regression(rows, arms):
-    """decode ~ intercept + linear drift + one dummy per probe arm."""
+def regression(rows, arms, lead=False):
+    """decode ~ intercept + linear drift [+ block-lead spike] + arm dummies.
+
+    The lead term is only identifiable once at least one block runs a swapped
+    arm order; in a single repeated palindrome it is collinear with the arm
+    that owns slot 1 and the fit silently attributes the spike to that arm.
+    """
     n = len(rows)
     design = []
     for i, (arm, _, _, _) in enumerate(rows):
         row = [1.0, (i - (n - 1) / 2) / max(n - 1, 1)]
+        if lead:
+            row.append(1.0 if i % BLOCK == 0 else 0.0)
         row += [1.0 if arm == a else 0.0 for a in arms]
         design.append(row)
     y = [r[1] for r in rows]
     p = len(design[0])
+    base = 3 if lead else 2
     xtx = [
         [sum(design[i][a] * design[i][b] for i in range(n)) for b in range(p)]
         for a in range(p)
@@ -96,10 +104,13 @@ def regression(rows, arms):
     beta, inv = solve(xtx, xty)
     resid = [y[i] - sum(beta[a] * design[i][a] for a in range(p)) for i in range(n)]
     sigma2 = sum(r * r for r in resid) / (n - p)
-    return {
-        a: (beta[2 + j], math.sqrt(sigma2 * inv[2 + j][2 + j]))
+    out = {
+        a: (beta[base + j], math.sqrt(sigma2 * inv[base + j][base + j]))
         for j, a in enumerate(arms)
     }
+    if lead:
+        out["__lead__"] = (beta[2], math.sqrt(sigma2 * inv[2][2]))
+    return out
 
 
 def block_delta(rows, arm):
