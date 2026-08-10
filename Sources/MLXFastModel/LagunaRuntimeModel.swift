@@ -9530,6 +9530,9 @@ private let lagunaPrefillMoETailEnabled =
 /// weighted reduction order.
 private let lagunaPrefillSortedMoETailEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_SORTED_MOE_TAIL"] != "0"
+private let lagunaPrefillSortedMoETailThreadGroupWidth =
+    ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_SORTED_MOE_TAIL_TG"] == "256"
+        ? 256 : 512
 
 /// Batched top-8 selection for multi-token (prefill) routing.
 ///
@@ -10312,13 +10315,15 @@ private func lagunaPrefillMoETail(
     )[0]
 }
 
-private func lagunaPrefillSortedMoETail(
+func lagunaPrefillSortedMoETail(
     sortedExpertOutputs: MLXArray,
     inverseOrder: MLXArray,
     routerWeights: MLXArray,
     sharedOutput: MLXArray,
-    residual: MLXArray
+    residual: MLXArray,
+    threadGroupWidth: Int
 ) -> MLXArray {
+    precondition(threadGroupWidth == 256 || threadGroupWidth == 512)
     let rows = routerWeights.dim(1)
     precondition(sortedExpertOutputs.dtype == .bfloat16)
     precondition(
@@ -10339,7 +10344,7 @@ private func lagunaPrefillSortedMoETail(
             residual,
         ],
         grid: (LagunaConstants.hiddenSize / 4, rows, 1),
-        threadGroup: (256, 1, 1),
+        threadGroup: (threadGroupWidth, 1, 1),
         outputShapes: [[1, rows, LagunaConstants.hiddenSize]],
         outputDTypes: [.bfloat16]
     )[0]
@@ -10900,7 +10905,8 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                         inverseOrder: inverseOrder,
                         routerWeights: weights,
                         sharedOutput: sharedOut,
-                        residual: residual
+                        residual: residual,
+                        threadGroupWidth: lagunaPrefillSortedMoETailThreadGroupWidth
                     )
                 }
                 // Preserve the stock fallback for an unexpected shared-expert
