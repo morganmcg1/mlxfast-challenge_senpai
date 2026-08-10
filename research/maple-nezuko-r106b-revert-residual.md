@@ -651,7 +651,56 @@ broken fails.
 
 ## G.1 What is being handed to whom
 
-<!-- FILLED AFTER §C.5 -->
+**The recommendation to #625 and to main is zero source bytes.** Nothing in §B is
+proposed for adoption. That is the whole of the shipping advice, and the rest of
+this subsection exists so that a reader can tell the difference between "this was
+not tried" and "this was tried, measured against a preregistered design, and
+found not to pay".
+
+What is handed over is therefore knowledge, in three pieces of decreasing
+strength:
+
+1. **A closed direction (strong).** Cross-lane reduction cost in the sliding
+   decode-attention kernel is not a lever on this host. Arm K halves the
+   shuffle/lane-read count 229 -> 109 per lane per call and does not win; arm P
+   deletes the row-loop reduction outright — roughly 70 % of the shuffles, and
+   an *upper bound* on any lever of this kind — and does not win either (§C.5).
+   Anyone who later proposes a cheaper reduction for this kernel is proposing
+   something already bounded to near zero, and should be asked to explain why
+   arm P's bound does not apply to them.
+2. **A withdrawn Stage C proposal, with its refutation (medium).** `P-ROWLANE` is
+   dead by arm P (§G.3). The wave-quantisation proposal that replaced it is
+   withdrawn against this tree's own prior art, and §G.3.2-G.3.4 record why,
+   including the measured result that 32 threadgroups is a *local optimum* on
+   this host rather than an oversubscription bug.
+3. **Two harness facts and one build trap (immediately reusable).** The
+   `--local-iterate` / `--local-submit` 1.44x scale factor and its fixed-cost
+   derivation (§C.3), the position-audit method that showed the fixed-control
+   position was harmless here (§C.4), and the `metal_kernel.cpp` missing-newline
+   trap that turns a header without a trailing newline into a program-scope
+   syntax error blamed on `utils.h` (§B.6). The last one cost me a build cycle
+   and will cost the next person the same unless they read it.
+
+**Why the measurement kernels stay in the tree.** The three gated kernels of §B
+remain, all gates defaulting **off**, and this is deliberate: the source digest
+in §E.1 is the digest of the binary that produced every number in §C.5, so
+deleting the probe now would leave the report quoting figures no one could
+reproduce from the shipped tree. They are instruments, not candidates. If the
+integrator prefers a clean surface over a reproducible one, the correct action is
+a single revert of the §B commits — not a partial strip, which would leave the
+header macros without their consumers.
+
+**Explicitly not claimed.** The H4 arm's regression is *geometry*, not bytes: it
+halves the threadgroup count from 32 to 16 on 20 cores, which §G.3.3 measures as
+a losing move on its own. H4 must therefore not be cited as evidence about KV
+request redundancy, and it is not cited that way anywhere here. Arm P is silent
+on the per-core load path and on the serial `fast::exp` softmax chain; §G.5 states
+what it does not close and preregisters the campaign that would close it.
+
+**Governance.** No official submission was made in this round and **zero receipts
+were consumed**; every number here comes from `./benchmark.sh --local-submit` or
+`--local-iterate` on this host. The Stage 0 result N-RESIDUAL stands as published
+(§A.2). The handoff has no GitHub comment id for the reason given in §G.2.
 
 ## G.2 The channel problem, stated because it changes what a reader should expect
 
