@@ -408,7 +408,56 @@ Three readings, all preregistered:
    units from a kernel that is already issue-bound (maple-alphonse measured this
    kernel at 114.2 GB/s = 42.9 % of M4 Pro peak, PR #630). At S = 16 the routed
    site keeps just 256 threadgroups = 12.8 per GPU core on this host, and the
-   tail of a 256-threadgroup dispatch is no longer hidden.
+   tail of a 256-threadgroup dispatch is no longer hidden. §4a tests that
+   tail reading against the alternative and rejects it.
+
+### 4a Mechanism diagnostic — the `sg16` penalty is a stationary level shift with no dispersion inflation
+
+§5.2a pre-registered two competing explanations for a collapse penalty and gave
+them different observable signatures. This subsection runs that test on the
+stage-1 data at zero extra GPU cost
+(`research/maple-edward-r107a-stationarity.py`). Each test-arm slot is
+differenced against the mean of its own rep's `base` slots at the same step
+index, which cancels rep-level drift; the 249 timed steps are then split into
+five blocks of 49.
+
+| contrast | all-block mean [M4-WALL] | 95 % hw | block-mean spread | per-slot sd ratio (median) |
+| --- | --- | --- | --- | --- |
+| `base -> sg2` (identical code) | −1.58 | 6.79 | 6.87 | 0.964 |
+| `base -> sg4` | +5.18 | 8.00 | 11.17 | 0.981 |
+| `base -> sg8` | +9.20 | 8.12 | 9.54 | 1.061 |
+| `base -> sg16` | **+64.33** | 5.95 | **6.48** | **0.986** |
+
+Two readings, both against the tail hypothesis.
+
+- **The penalty is stationary.** `sg16`'s spread across the five step blocks is
+  6.48 µs against a 64.33 µs level — and the identical-code `base -> sg2` null
+  produces a 6.87 µs block spread of its own, so `sg16`'s spread is entirely
+  block-level measurement noise. The penalty is a flat shift present in every
+  part of the run, not a ramp, a warm-up artefact, or a bimodal stall.
+- **The penalty does not widen the per-step distribution.** The median-over-slots
+  per-step sd is 38.4 µs at `sg16` against 38.9 µs at `base`, a ratio of 0.986,
+  and every arm sits in 0.96–1.06. (Means over slots are useless here: they run
+  1.08–1.57 because per-slot sd is heavy-tailed — the worst single slot in the
+  study has sd 643 µs against a median of 41 µs — which is why the QC p99 filter
+  exists and why the median is the right aggregate.)
+
+§5.2a's residency/packing-quantization signature is "uniform shift, unchanged
+variance"; its tail/load-imbalance signature is "inflated per-step spread". The
+data match the first and not the second, so the pre-registered falsifier fires
+against tail imbalance at this site. The residual caveat is honest: a tail whose
+cost is identical on every step — every dispatch losing the same fraction of a
+wave — is not separable from quantization by this test, and per-dispatch
+attribution needs the in-situ profiler (`PROFILE=1 SPLIT=1`), which is not free.
+
+This matters beyond bookkeeping. §5.2a notes that on the ranked M5 Max's 40 cores
+every threadgroups-per-core figure halves, which roughly doubles a tail cost but
+leaves a quantization cost unchanged. Reading the routed cliff as quantization
+therefore predicts the same ≈+0.42 %`cs` penalty on M5, where reading it as tail
+would predict roughly double. Either way it is a regression, so the routed
+`N-SITE1` verdict does not depend on which reading is right; but any future
+threadgroup-geometry arm on this programme should carry this diagnostic, because
+it is the cheapest available discriminator for ranked-host transfer risk.
 
 ## 5. Stage A — the decode QKV lane-major width flip ("L3")
 
