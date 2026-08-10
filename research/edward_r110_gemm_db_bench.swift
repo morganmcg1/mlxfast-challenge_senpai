@@ -494,7 +494,13 @@ struct Problem {
     let segsPerTile: Double
 }
 
-let idxMode = env("ED_IDX") ?? "multinomial"
+let idxModes: [String] = {
+    switch env("ED_IDX") ?? "multinomial" {
+    case "both": return ["multinomial", "aligned"]
+    case let m: return [m]
+    }
+}()
+let idxMode = idxModes[0]
 
 func makeProblem(_ s: Shape) -> Problem {
     let packFactor = 2 // get_pack_factor<8, 4>()
@@ -574,35 +580,60 @@ for t in tags {
     log("  \(pad(t, 6)): tgmem=\(p.staticThreadgroupMemoryLength) B  maxTGThreads=\(p.maxTotalThreadsPerThreadgroup)")
 }
 
-for s in shapes {
-    let p = makeProblem(s)
-    log("")
-    log("=== shape \(s.tag): M=\(s.M) K=\(s.K) N=\(s.N)  grid=\(p.gridX)x\(p.gridY) tgs ===")
-    log("routing: ED_IDX=\(idxMode)  K-loop executions per BM=16 tile = \(fmt(p.segsPerTile, 3))")
+// Same weight/activation buffers, different routed-index vector.
+func reroute(_ p: Problem, _ mode: String) -> Problem {
+    let idx = sortedIndices(p.shape.M, mode: mode)
+    return Problem(
+        shape: p.shape, x: p.x, w: p.w, scales: p.scales,
+        indices: device.makeBuffer(bytes: idx, length: idx.count * 4, options: .storageModeShared)!,
+        y: p.y, sink: p.sink, gridX: p.gridX, gridY: p.gridY,
+        segsPerTile: segmentsPerTile(idx))
+}
 
+for s in shapes {
+    let p0 = makeProblem(s)
+    let probs = idxModes.map { (mode: $0, p: reroute(p0, $0)) }
+    log("")
+    log("=== shape \(s.tag): M=\(s.M) K=\(s.K) N=\(s.N)  grid=\(p0.gridX)x\(p0.gridY) tgs ===")
+    for e in probs {
+        log("routing \(pad(e.mode, 12)): K-loop executions per BM=16 tile = \(fmt(e.p.segsPerTile, 3))")
+    }
+
+    // Key "<mode>|<tag>"; modes are interleaved inside the ABBA sweep so host
+    // drift cannot masquerade as a routing effect.
     var acc = [String: [Double]]()
-    for t in tags { acc[t] = [] }
+    let slots = probs.flatMap { e in tags.map { (key: "\(e.mode)|\($0)", pso: psos[$0]!, p: e.p) } }
+    for sl in slots { acc[sl.key] = [] }
     var nullAcc = [Double]()
 
-    nullAcc.append(timeOne(nullPso, p, isNull: true))
+    nullAcc.append(timeOne(nullPso, p0, isNull: true))
     for _ in 0..<pairs {
-        // ABBA over the variant list: forward then reverse.
-        for t in tags { acc[t]!.append(timeOne(psos[t]!, p, isNull: false)) }
-        for t in tags.reversed() { acc[t]!.append(timeOne(psos[t]!, p, isNull: false)) }
+        for sl in slots { acc[sl.key]!.append(timeOne(sl.pso, sl.p, isNull: false)) }
+        for sl in slots.reversed() { acc[sl.key]!.append(timeOne(sl.pso, sl.p, isNull: false)) }
     }
-    nullAcc.append(timeOne(nullPso, p, isNull: true))
+    nullAcc.append(timeOne(nullPso, p0, isNull: true))
 
-    let nullMs = median(nullAcc)
-    let baseMs = median(acc["base"]!)
-    log(String(format: "null control  : %8.4f ms/dispatch (n=%d)", nullMs, nullAcc.count))
-    for t in tags {
-        let m = median(acc[t]!)
-        let rel = (baseMs - m) / baseMs * 100.0
-        let spread = (acc[t]!.max()! - acc[t]!.min()!) / m * 100.0
-        log(String(format: "%-6s        : %8.4f ms  vs base %+6.2f %%  (n=%d, spread %.1f %%)",
-                   (t as NSString).utf8String!, m, rel, acc[t]!.count, spread))
+    log(String(format: "null control  : %8.4f ms/dispatch (n=%d)", median(nullAcc), nullAcc.count))
+    for e in probs {
+        let baseMs = median(acc["\(e.mode)|base"]!)
+        for t in tags {
+            let a = acc["\(e.mode)|\(t)"]!
+            let m = median(a)
+            log(String(format: "%-12s %-6s: %8.4f ms  vs base %+6.2f %%  (n=%d, spread %.1f %%)",
+                       (e.mode as NSString).utf8String!, (t as NSString).utf8String!,
+                       m, (baseMs - m) / baseMs * 100.0, a.count,
+                       (a.max()! - a.min()!) / m * 100.0))
+        }
+        // Per-layer projection: 39 MoE layers, one dispatch of this shape each.
+        let proj = tags.map { "\($0) \(fmt(median(acc["\(e.mode)|\($0)"]!) * 39, 1))" }.joined(separator: ", ")
+        log("  \(e.mode) per-prefill projection (39 layers, ms): " + proj)
     }
-    // Per-layer projection: 39 MoE layers, one dispatch of this shape each.
-    let proj = tags.map { "\($0) \(fmt(median(acc[$0]!) * 39, 1))" }.joined(separator: ", ")
-    log("per-prefill projection (39 layers, ms): " + proj)
+    if idxModes.count > 1 {
+        let mm = median(acc["multinomial|base"]!)
+        let am = median(acc["aligned|base"]!)
+        let segRatio = probs[0].p.segsPerTile / probs[1].p.segsPerTile
+        log(String(format:
+            "SEGMENT-RESTART TAX: base %.4f -> %.4f ms aligned = %.2f %% of kernel time; K-loop ratio %.3fx",
+            mm, am, (mm - am) / mm * 100.0, segRatio))
+    }
 }
