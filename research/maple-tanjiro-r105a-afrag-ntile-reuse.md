@@ -806,13 +806,123 @@ instrument is what showed the ladder is too short.
 
 | arm | variant | submission | commit | prefill wall | pure step | `officialScore` | correctness |
 |---|---|---|---|---|---|---|---|
-| A0-1 | 5 (default) | `69fb349b` | `51b6c142` | 96.031 ms | 4.1617 ms | 2.57065175986034 | pass, `max_abs_diff=0`, 1344 steps |
+| A0-1 | 5 (default) | `69fb349b` | `51b6c142` | 96.031 ms | 4.16167 ms | 2.57065175986034 | pass, `max_abs_diff=0`, 1344 steps, GPQA 9/9 |
+| A0-2 | 5 (default) | `c7930407` | `fdeb4561` | 96.299 ms | 4.16234 ms | 2.56976261057539 | pass, `max_abs_diff=0`, 1344 steps, GPQA 9/9 |
 
-Receipt budget consumed: **2 / 8** dispatched (A0-2 in flight at time of
-writing). All arms are bit-identical by construction — the only difference
-between A0 rungs is a comment — so `max_abs_diff = 0` is the falsifiable
-prediction, and any nonzero value would refute the "inert by default" claim in
-§0.
+Receipt budget consumed: **2 / 8**. All arms are bit-identical by construction —
+the only difference between A0 rungs is a comment — so `max_abs_diff = 0` is the
+falsifiable prediction, and any nonzero value would refute the "inert by
+default" claim in §0. Both rungs also passed both `0.95` floors, so the
+`rejected` status on each is a *ranking* verdict (neither beat the current best)
+and not a correctness or floor failure.
+
+### 4.4.1 The replicate pair overturns §4.2's resolution table
+
+A0-1 and A0-2 are the first same-code ranked replicate pair in this campaign's
+public history. §4.2 had to *assume* the per-receipt σ from the 1,208-receipt
+cross-submission baseline spread, because nobody had ever paid for two receipts
+of one tree. The pair says that assumption was wrong by an order of magnitude.
+
+| channel | A0-1 | A0-2 | relative Δ | σ̂₁ = \|Δ\|/√2 | §4.2 assumed σ₁ |
+|---|---|---|---|---|---|
+| candidate prefill `pre` | 1.87560791e-4 | 1.88084229e-4 | **+0.279 %** | **0.197 %** = 0.190 ms | 1.936 % = 1.86 ms |
+| candidate decode `dec` | 4.91191178e-3 | 4.91467741e-3 | +0.0563 % | 0.0398 % = 0.250 ms-eq | 0.246 % |
+| pure step (decode less prefill) | 4.16167 ms | 4.16234 ms | +0.0161 % | 0.0114 % | — |
+| baseline prefill | 3.65822592e-4 | 3.67981527e-4 | +0.588 % | 0.416 % | 1.936 % |
+| baseline decode | 1.38441214e-2 | 1.38312409e-2 | −0.0931 % | 0.0658 % | 0.246 % |
+| `prefill_speedup` | 1.95042146 | 1.95647200 | +0.310 % | 0.219 % | — |
+| `decode_speedup` | 2.81847925 | 2.81427238 | −0.1493 % | 0.106 % | — |
+| `officialScore` | 2.57065176 | 2.56976261 | −0.0346 % | 0.0245 % | — |
+
+Four things follow, and the third is the one that matters.
+
+1. **The instrument is ~10× tighter than assumed on its scored axis.** Candidate
+   prefill moved 0.279 % between two independent official sessions of the same
+   bytes. Under σ₁ = 1.936 % the difference of two receipts has SD 2.74 %, so
+   P(\|Δ\| ≤ 0.279 %) = 0.081; the candidate decode channel independently gives
+   0.129. Jointly ≈1 % on the two candidate channels alone. Luck is possible but
+   strongly disfavoured, and the same conclusion falls out of all four channels
+   agreeing at once.
+2. **The historical spread is between-session/between-host, not within-tree.**
+   §4.2's variogram found white noise from 15 minutes to 30 days and I read that
+   as "no structure to exploit". The correct reading is that the public feed is
+   not ordered by host or session, so a time-domain variogram *cannot* see a
+   session/host component — it smears it into the white floor. Two back-to-back
+   submissions do not sample that component, which is exactly why they agree.
+   This is a real limit on the calibration method, not a lucky draw.
+3. **The ladder is overpowered, not underpowered.** Inverse-variance combining
+   the two candidate channels gives σ₁,comb = (0.190⁻² + 0.250⁻²)^(−1/2) =
+   **0.151 ms**. A single treatment receipt against the two-receipt A0 mean has
+   SE = 0.151·√(1 + 1/2) = **0.185 ms**, so the 1.35 ms bar sits **7.3 SE** away.
+   §4.3.1 stopped the ladder early because the SE was believed to be 1.25–2.0 ms
+   and the bar unreachable. It is reachable at n = 1 per arm.
+4. **Pairing is still the wrong endpoint, for a new reason.** §4.3 rejected the
+   paired `prefill_speedup` because §4.2 measured σ_session ≤ 0. The pair shows
+   there *is* positive common mode — Δln(speedup) = 0.310 % = 0.588 − 0.279
+   exactly, i.e. the two levels moved the same way — but the baseline channel is
+   noisier than the candidate channel (0.416 % vs 0.197 %), so dividing by it
+   *adds* variance. The preregistered candidate-only endpoint survives; §4.2's
+   stated reason for it does not.
+
+The honest limit on all of this is dof. σ̂₁ rests on 1 degree of freedom, whose
+CV is 76 %; the one-sided 95 % upper bound multiplies σ̂ by √(1/χ²₀.₀₅,₁) = 15.9,
+giving σ₁ ≤ 3.0 ms — which does not exclude the §4.2 value on its own. The point
+estimate plus the joint-improbability argument is the evidence; the interval at
+1 dof is nearly vacuous. A third A0 receipt takes the multiplier from 15.9 to
+4.4, which is why it is promoted in the revised plan below rather than left at
+slot 7.
+
+I am not deleting §4.2 or §4.3.1. They were the best available reasoning before
+two receipts existed, and the failure mode they walked into — trusting a
+cross-submission spread as a within-tree σ — is the most transferable thing in
+this report.
+
+### 4.4.2 Revised stopping rule — recorded while A2-1 is still unsubmitted
+
+§4.3.1's screen threshold (\|Δ̂\| ≥ 3 ms) was written in absolute ms under
+σ₁ = 1.37 ms. At the measured σ it is ~16 SE and would discard a true 1.35 ms
+win as "not suggestive". Restating it in SE units is not optional, and it has to
+happen now: A2-1 is committed and its note is written, but nothing has been
+submitted, so no treatment number can be influencing this. Timestamp is the
+commit that carries this paragraph.
+
+**Binding decision rule.** Δ̂ = prefill-wall saving of the arm mean against the
+A0 mean on the §4.3 combined candidate endpoint, positive = faster. Because σ is
+*estimated*, the interval uses Student-t at the dof actually available when the
+call is made, not z:
+
+| receipts | ν | SE | t₀.₉₅,ν | WIN needs Δ̂ > | bar-excluded needs Δ̂ < |
+|---|---|---|---|---|---|
+| 2 A0, 1 arm | 1 | 0.185 ms | 6.31 | 2.52 ms | 0.18 ms |
+| 3 A0, 1 arm | 2 | 0.175 ms | 2.92 | 1.86 ms | 0.84 ms |
+| 3 A0, 2 arm | 3 | 0.151 ms | 2.35 | 1.70 ms | 1.00 ms |
+
+- **WIN**: Δ̂ − t₀.₉₅,ν·SE > 1.35 ms, with n ≥ 2 for that arm and all of D1–D5
+  passing. A single receipt never ships, unchanged from §4.3.
+- **NULL, bar excluded**: Δ̂ + t₀.₉₅,ν·SE < 1.35 ms.
+- **REGRESSION**: Δ̂ + t₀.₉₅,ν·SE < 0.
+- **NULL, underpowered**: anything else. At ν ≥ 2 this window is narrow, which
+  is the whole change from §4.3.1.
+
+**Revised slot plan.** Slot 5 becomes A0-3, because lifting ν from 1 to 2 shrinks
+every threshold above by more than any treatment replicate does. Then:
+
+| slot | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|
+| arm | A2-1 | A1-1 | A0-3 | replicate of the larger \|Δ̂\| | replicate of the other | combined (variant 6) or 3rd replicate |
+
+- Any arm with Δ̂ > 2·SE gets a replicate before it is called anything. n = 1 is
+  a screen, never a decision.
+- Slot 8 stays as §4.3 preregistered it: variant 6 if both treatments clear the
+  bar at n ≥ 2, since the two projections' tile effects need not be additive;
+  otherwise a third replicate of the leader.
+- Mean slot under this plan: A0 {1,2,5} → 2.67, A2 {3,6 or 7}, A1 {4,7 or 6} —
+  the treatments stay within one slot of each other, so the drift-balance
+  property §4.3 paid for is preserved.
+- Stopping early is still allowed, but only in the direction §4.3.1 could not
+  reach: if both treatments are bar-excluded at ν = 2 the remaining slots buy
+  nothing and the verdict is NULL-with-the-bar-excluded, which is a *stronger*
+  result than the underpowered null §4.3.1 expected to report.
 
 ---
 
