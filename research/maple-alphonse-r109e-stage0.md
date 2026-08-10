@@ -13,10 +13,19 @@ Evidence: `research/maple-alphonse-r109e-qk-ceiling.md` (§4.6, §7),
 ## Headline
 
 **`N-FULL-QK-CHEAP`.** The QK reduction in the full fused attention decode
-kernel is ~9% of my 249.5 µs/step pool. The advisor's own slate says I need a
-27.2% harvest of that pool to clear the 0.378 %score bar. The mechanism is
-structurally ~3× too small, so I am stopping R109-E before writing any MMA
+kernel is **11.4%** of my 249.5 µs/step pool. The advisor's own slate says I need
+a 27.2% harvest of that pool to clear the 0.378 %score bar. The mechanism is
+structurally **2.4×** too small, so I am stopping R109-E before writing any MMA
 kernel — and landing the params-atlas bolt-on as instructed.
+
+The stronger statement is in **§7.1 of the ceiling memo**: a sourced static
+instruction census plus the ruler prices *all* in-loop ALU in this kernel at
+≈90.8 busy µs/step = 36.4% of the pool = **1.34× the bar**. Deleting every
+arithmetic instruction in the hot loop — not just the reduction — would barely
+clear it. That retires in-loop ALU micro-optimization for this kernel as a
+class, and it points the residual 29–63% of the pool at something that is not
+arithmetic. §7.1.4 names threadgroup quantization (the dispatch is exactly 24
+threadgroups) as the leading unmeasured suspect and gives an 8-run test.
 
 ## Item 1 — reduce-vs-load, µs of M4 removed off the 249.5 µs pool
 
@@ -35,8 +44,14 @@ The ×1.28 correction is applied as instructed. Its derivation is in the omitted
 middle of comment 5246312084; I have not independently checked it, and it
 changes no sign and no verdict.
 
-**As a share of the pool: 9.1%, ruler 95% upper 12.1%, against a 27.2%
+**As a share of the pool: 11.4%, ruler 95% upper 15.1%, against a 27.2%
 requirement.**
+
+Unit note, because I got this wrong in an earlier draft: the 249.5 µs/step pool
+the advisor handed me is in **busy** units (68/249.5 = 27.2% reproduces the
+slate's harvest exactly, 54/249.5 = 21.6% does not). So the pool share must be
+computed from the **busy** column, 28.36/249.5 = 11.4%, not from the wall column,
+22.69/249.5 = 9.1%. The verdict is unchanged; the shortfall is 2.4×, not 3×.
 
 Two instruments, deliberately independent:
 
@@ -150,6 +165,12 @@ Also, for the record: `FERN_DEFEAT_SLOTS` does **not** exist on the
 `benchmark.sh` path. It appears only in `research/fern_r99_qmv_probe.swift`.
 Any campaign note that treats it as a live knob on the scored path is wrong.
 
+And one candidate mechanism is ruled out for free by the §7.1 census: **K and V
+reach this kernel as raw `bfloat16`** (`LagunaRuntimeModel.swift:2569`,
+`:2369-2371`, `:2387-2389`). There is no in-kernel dequantization in the full
+fused attention path, so "remove the dequant from the KV read" is not an
+available saving here. Anyone scoping that should stop before building it.
+
 ## What I recommend instead of Stage 1 on this mechanism
 
 **Occupancy, not arithmetic.** This kernel launches 24 threadgroups, one per
@@ -160,3 +181,18 @@ lever than anything inside the inner loop, and it is measurable *before* it is
 implemented: one M5 GPU-counter capture on a single decode step settles it. It
 needs the grid carve-out I was not granted, which is exactly why it should be an
 advisor decision rather than a student one.
+
+The size argument, from §7.1.4 and stated as a prior rather than a measurement:
+24 threadgroups are indivisible, so on 20 cores the makespan is 2 scheduling
+units where the ideal is 1.2 — **60% efficiency, 40% wasted ≈ 100 busy µs/step
+≈ 1.47× the bar**, from one launch-shape change and no arithmetic at all. On an
+M5 Max the same quantization caps utilization at `min(24, cores)/cores`. That
+single hypothesis is larger than the entire in-loop ALU budget (1.34× bar) that
+R109-E was scoped to attack, and it is the only thing I found that is both big
+enough and untested.
+
+Cheapest decisive test, which needs no new kernel: dispatch `2 × (heads/2)`
+threadgroups of 512 threads with the key range split per head pair, then one
+ABBA block of 8 runs (~25 min) on the existing harness. If the launch-shape
+change alone moves decode by ≳100 µs/step, the residual is occupancy and the
+programme should spend Stage 1 there.
