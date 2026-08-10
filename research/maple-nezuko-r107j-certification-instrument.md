@@ -322,6 +322,39 @@ Reading this table is enough to use the output; nobody needs my source.
 | chi-square band on the sd | CI95 on the sd itself | the power curve is built from an *estimated* sd, and block counts scale as `sd²`. At `dof 11` the band is about `[0.5×, 2.9×]` on the block count. **Plan with the upper sd.** |
 | blocks-needed table | smallest `n` to *resolve* an effect, and for 80 % power | "resolve" ≈ 50 % power: it only says an estimate landing *at* the target would clear zero. Use the 80 % column to actually plan. |
 
+### 4.2 Required preflight, run before any timing
+
+**Byte budget.** The brief required me to paste the output of the editable-budget check against
+`1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7`. Verbatim:
+
+    editable budget OK: current=2681206/3000000 bytes headroom=318794 growth=-302643/262144 files=142 (base=142)
+
+Headroom **318,794 B**; growth is *negative*, so the growth cap is not a constraint from this
+base. fern independently reported 319,792 B, a 998 B disagreement that is consistent with our
+two working trees differing by a research file, not by anything submitted. Two agreeing readings
+of the binding number is what matters, and both clear.
+
+My own six files add **0 B** to that surface: everything I wrote this round is under
+`research/`, which is not in `editablePaths`.
+
+**The tree I am characterising is the tree that will be certified.** This is worth stating
+because it is the one thing that could have invalidated the whole A/A design after the fact:
+
+    git diff --name-only fc66172b..705484b9   -> research/ only
+    git diff --name-only fc66172b..1264d70c   -> research/ only
+
+`fc66172b` is my assignment base, `705484b9` is the Part-2 integration base (tanjiro #648
+merged), `1264d70c` is the current advisor head. All three are **byte-identical on the submitted
+surface**; they differ only in `research/`. Two consequences, both load-bearing:
+
+1. The A/A null below characterises the *exact* binary that a family-E certificate would be
+   differenced against, so its measured `sd(D)` transfers to that certificate without an
+   argument about tree drift.
+2. Reconciling my branch onto `705484b9` is a **no-op on Sources/Vendor**. The 15:55Z brief asked
+   me to record whether I rebased or merged; the honest answer is that the distinction has no
+   effect on anything timed here, and I record it as such rather than dressing a no-op up as a
+   custody step.
+
 ---
 
 ## 5. Results
@@ -330,10 +363,104 @@ Reading this table is enough to use the output; nobody needs my source.
 
 ---
 
-## 7. Part 2: the certification targets do not exist yet
+## 6. Two-tree certification — the gap that would have stopped Part 2, and its fix
 
-Part 2 asked me to certify edward's (#629) or alphonse's (#644) candidate, then the sum on the
-combined tree, and to report the fact if neither had pushed. Neither has. Checked directly
+### 6.1 The gap
+
+Everything in §1–§5 differentiates arms by **environment gates on one binary**. That is the
+right shape for a knob, and it was the right shape for the void R107-J flip. It is the *wrong*
+shape for every Part-2 target I was actually re-aimed onto at 15:55Z. Frieren's family-E
+candidate (#660) is a **source transplant** — `lagunaGateSoftplus` (:4525) folded into
+`lagunaDecodeNVFP4QKVR1` (:5002), ~+3,200 B. There is no env var that turns it on.
+
+The obvious workaround is to ask the author to put her change behind a gate. **I am not going
+to ask for that, because it would produce a weaker certificate, not a more convenient one.**
+Rule 105.22(b) requires ten paired blocks *on the exact tree being submitted*. A default-off
+gate means the arm I time is not the tree that ships: the shipped tree would carry a branch
+the certified arm never executed, and the certified arm would carry a branch the shipped tree
+never executes. Certifying a gated stand-in for a source change is exactly the "local-only
+override as evidence that a candidate is rankable" that the challenge guide lists as a wrong
+strategy.
+
+### 6.2 The fix, and why it is legitimate rather than a trick
+
+`benchmark.sh` already hands out the lever, in the trusted (non-editable) harness:
+
+| line | mechanism |
+| --- | --- |
+| `benchmark.sh:212` | `RUNTIME_WORKER_BIN="${MLXFAST_RUNTIME_WORKER_EXECUTABLE:-.build-worker/release/mlxfast-runtime-worker}"` |
+| `benchmark.sh:213` | `MLX_METALLIB="${MLXFAST_MLX_METALLIB:-$(dirname "${RUNTIME_WORKER_BIN}")/mlx.metallib}"` |
+| `benchmark.sh:1543,1551` | the worker sandbox profile exec-allows exactly that absolute path |
+
+Because the metallib is resolved *relative to the worker binary*, a directory containing
+`{mlxfast-runtime-worker, mlx.metallib, mlx.metallib.fingerprint, *.bundle}` is a complete,
+self-contained, immutable timing artifact — a **staged tree**. `research/maple-nezuko-r107j-stage-tree.sh`
+builds the current working tree exactly as `benchmark.sh:2011-2023` does (`--scratch-path
+.build-worker`, which is not optional: a bare `swift build -c release` writes `.build/release`
+and the CLI deliberately prefers the `.build-worker` twin), then snapshots those artifacts and
+writes a `SHA256SUMS` + `MANIFEST` recording head SHA, dirty-input count, and a **tree
+fingerprint** over `git ls-files -s` plus `git diff HEAD` of `Package.*`, `Sources`, `Vendor`.
+
+Certification then needs **no change at all** to `maple-nezuko-r107j-certify.sh`: arms are
+already arbitrary `NAME=VALUE` assignments handed to `env` (`certify.sh:205`), so a tree *is*
+an arm:
+
+    research/maple-nezuko-r107j-certify.sh --blocks 10 \
+        BASE:MLXFAST_RUNTIME_WORKER_EXECUTABLE=/tmp/r107j-stage/BASE/mlxfast-runtime-worker \
+        CAND:MLXFAST_RUNTIME_WORKER_EXECUTABLE=/tmp/r107j-stage/CAND/mlxfast-runtime-worker
+
+Both arms are then real compiled trees, timed back to back inside one ABBA session, under one
+thermal gate, with **no build between arms**. This is strictly stronger than gating: the
+candidate arm executes the candidate's own default path, and the certificate attaches to a
+binary whose sha256 is recorded.
+
+### 6.3 Why staged copies must be *copies*, and three guard rails
+
+Plain `cp` gives each staged artifact an mtime of *now*, newer than every build input. That is
+load-bearing rather than incidental: it holds `swift_build_required()` (`benchmark.sh:1972`)
+and `metallib_rebuild_required()` (`benchmark.sh:1937`) quiet for the whole campaign, so no arm
+can silently rebuild and time a *third* binary mid-session. Build both trees first, stage
+second, and the freshness gates stay closed.
+
+Three guard rails, all encoded in the tool rather than left to my memory:
+
+1. **`--diff-guard REF` refuses the shortcut where it is unfaithful.** `weights/` is
+   regenerated from `Package.*`, `Sources/MLXFastCore`, `Sources/MLXFastTransform`
+   (`source_hash()`, `benchmark.sh:~1585`), and both arms share **one** `weights/` directory.
+   A transform-side candidate timed by worker swap would run the candidate binary against the
+   *wrong* weights. The tool exits 3 and says so. Verified against a ref that does change those
+   inputs (it lists `Package.swift`, `Sources/MLXFastCore/…`) and against `705484b9`, which
+   does not — the latter reports `two-tree staging LEGAL`.
+2. **AOT metallib changes are legal but noisy.** Each staged tree carries its own metallib, so
+   an AOT-touching candidate *is* certifiable this way; but the trusted CLI will warn that the
+   overridden metallib does not match the checked-out sources. The tool prints that the warning
+   is expected, so nobody reads it as a defect — and, equally, so nobody dismisses a *real*
+   fingerprint warning by reflex.
+3. **Custody is rechecked, not assumed.** `--verify LABEL` re-runs `shasum -c` after the
+   campaign. A certificate over a binary that changed under me is not a certificate.
+
+The tool never runs `git`-mutating commands. The operator arranges the tree (checkout, merge,
+cherry-pick) and then stages it, so tree custody stays auditable and the tool is never in the
+business of restoring someone else's work tree.
+
+### 6.4 What this does not fix
+
+Staging costs one build per tree, which is minutes, and ~208 MB of scratch per tree. It cannot
+certify a transform-side candidate (guard rail 1). And it does not make a two-tree comparison
+*paired at the source level*: if the two trees differ in more than the one mechanism under
+test, the interval is honest about the pair of trees and silent about which of their
+differences caused it. That is a property of the trees, not of the instrument, so the operator
+must state the diff. `--diff-guard` prints it.
+
+---
+
+## 7. Part 2: status of the certification targets
+
+Part 2 was re-aimed twice. As originally written it asked me to certify edward's (#629) or
+alphonse's (#644) candidate and then the sum on the combined tree; the 15:55Z re-aim stood
+edward's T2c packing and alphonse's oproj amortisation down and pointed me at frieren's
+family-E merge (#660) and alphonse's removal-symmetry ladder (#644) instead. The original
+finding is preserved below because it is the reason the slot was free at all. Checked directly
 against the remote, not inferred:
 
 | branch | remote head | what is on it |
@@ -360,7 +487,58 @@ reference in one interleaved session, so the summand CIs and the sum CI share a 
 history and a block structure. Summing two separately-run point estimates and adding their
 variances would be the cheaper thing to do and would be wrong: it assumes the two levers do
 not interact, which is exactly the claim rule 105.5's "on the same integrated tree" wording
-exists to stop anyone assuming.
+exists to stop anyone assuming. With §6 in hand the same argument holds for trees: the
+four-arm form generalises to `BASE / A-tree / B-tree / merged-tree`, four staged directories,
+one session.
+
+### 7.1 The re-aimed targets, as of this session
+
+| target | state | can I certify it, and how |
+| --- | --- | --- |
+| frieren family-E, #660 | head `c46b3934`, base `705484b9`. Advisor told her at 16:31Z **not to build yet** and to run a ~45-min barrier-region price probe (arm F free-region vs arm S serialising no-ops, `N ∈ {0,10,20,40,80}`) reporting **19:00Z**. So there is no candidate binary to certify yet, by instruction. | Yes — §6 two-tree. `--diff-guard 705484b9` already reports **LEGAL**: her mechanism is in `Sources/MLXFastModel`, not in the weights-generating inputs. Her head is not in my object store yet, so staging it needs one `git fetch` first. |
+| alphonse removal-symmetry ladder, #644 | no candidate on the branch as of the last remote read. | Yes, same mechanism, subject to the same `--diff-guard`. |
+
+Two facts from her Stage 0 change what a certificate would even be *for*, and I record them
+because they bear on my own arithmetic rather than only on hers:
+
+1. Her Stage 0 drove the per-removal dispatch-glue ceiling to **≤1.1937 M5 µs/dispatch**,
+   `k_removal ∈ [0, 0.964]`. `k = 1.0` is *above* that ceiling, so **no candidate may be
+   justified by dispatch count alone** any more. Certification by measurement is therefore not
+   a nicety for family E; it is the only remaining route.
+2. The advisor's correction that family E's n is **40, not 30** makes every earlier family-E
+   figure 33 % low, and her §11.4 "+2.19–2.31 %" double-counts. I have deliberately not
+   re-derived her number: my job this round is to supply the interval, not to supply a second
+   prediction to be disappointed by.
+
+Set against tanjiro's R108-L (`874e4917`), which priced removal at `k = 0.0872`, CI
+[−0.221, +0.438] and returned `N-NO-MERGEABLE-PAIR`, the honest prior on family E is weak. That
+is precisely the regime where a 2.25×-tighter instrument earns its keep: a weak prior plus a
+wide instrument yields nothing, while a weak prior plus a **half-width ≈0.118 % of `cs`** at ten
+blocks either clears the rule-105.21 arming threshold of a certified **+1.0 % of `cs`** or rules
+it out in a single session.
+
+### 7.2 Standing readiness, and the hand-off constraint
+
+Concretely, on this host, from the moment a candidate tree exists:
+
+| step | cost |
+| --- | --- |
+| `--diff-guard` the candidate against its base | seconds |
+| stage base tree, stage candidate tree (two builds) | ~10–20 min |
+| ten paired ABBA blocks, `--local-submit`: 20 runs × ~198 s | **~66 min** |
+| analyser + `--verify` custody on both trees | seconds |
+
+So a full two-tree certificate is **~1.5 h wall-clock**. The timed part is identical to a gated
+ten-block run — both are 20 `--local-submit` runs — so two-tree buys a stronger certificate for
+the price of exactly two builds. Against the draw schedule (student hand-offs to fern **06:00Z**, integration freeze **07:00Z**,
+draws **08:00Z / 08:25Z**, hard stop **09:00Z**) that means a candidate tree must exist by
+roughly **04:15Z** for a certificate to reach the 06:00Z hand-off with any margin. It does
+**not** fit if a tree lands after the freeze, and I will not certify a post-freeze tree by
+shortening the block count — rule 105.22(b) fixes ten, and a six-block interval is a different,
+wider instrument wearing the same name.
+
+If nothing lands by **22:00Z** the brief tells me to report and stand down, and I will do that
+rather than manufacture a target.
 
 ---
 
