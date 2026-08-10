@@ -5965,7 +5965,10 @@ final class LagunaRuntimeAttention: Module {
                 } else {
                     fusedNormGate = nil
                 }
-                let normalized = fusedQKV ?? fusedNormGate?.normalized ?? inputNorm(input)
+                let fusedNormalized =
+                    lagunaNormFusedGateSoftplusPublishesNormalized
+                    ? fusedNormGate?.normalized : nil
+                let normalized = fusedQKV ?? fusedNormalized ?? inputNorm(input)
                 let decodeNVFP4QKVR1 =
                     fusedQKV == nil
                     ? lagunaDecodeNVFP4QKVR1(

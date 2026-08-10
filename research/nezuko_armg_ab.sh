@@ -33,6 +33,7 @@ for arm in "$@"; do
   case "${arm}" in
     C) knob="" ;;
     A) knob="DARKBLOOM_NORM_FUSED_GATE_SP=0" ;;
+    W) knob="DARKBLOOM_NORM_FUSED_GATE_SP=2" ;;
     *) echo "unknown arm ${arm}" >&2; exit 2 ;;
   esac
   tag="$(printf 'p%02d-%s' "${pos}" "${arm}")"

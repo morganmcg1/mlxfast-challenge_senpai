@@ -10,6 +10,7 @@ median step time (decode weight 0.75, prefill unchanged).
 import glob
 import json
 import os
+import random
 import statistics
 import sys
 
@@ -53,15 +54,45 @@ def main(block_dir):
             "spread_pct": 100.0 * (max(med) - min(med)) / statistics.median(med),
         }
 
+    names = sorted(out["arms"])
+    out["contrasts"] = {}
+    for i, left in enumerate(names):
+        for right in names[i + 1:]:
+            out["contrasts"][f"{left}-{right}"] = contrast(
+                out["arms"][left]["medians_ms"], out["arms"][right]["medians_ms"]
+            )
     if {"A", "C"} <= set(out["arms"]):
-        a = out["arms"]["A"]["median_of_medians_ms"]
-        c = out["arms"]["C"]["median_of_medians_ms"]
-        out["delta_ms"] = a - c
-        out["delta_us"] = 1000.0 * (a - c)
-        out["decode_speedup"] = a / c
-        out["score_ratio"] = (a / c) ** 0.75
-        out["score_pct"] = 100.0 * ((a / c) ** 0.75 - 1.0)
+        c = out["contrasts"]["A-C"]
+        out["delta_ms"] = c["delta_ms"]
+        out["delta_us"] = c["delta_us"]
+        out["decode_speedup"] = c["ratio"]
+        out["score_pct"] = c["score_pct"]
     print(json.dumps(out, indent=2))
+
+
+def contrast(left, right, draws=20000, seed=20260810):
+    lm = statistics.median(left)
+    rm = statistics.median(right)
+    rng = random.Random(seed)
+    deltas = []
+    for _ in range(draws):
+        a = statistics.median([rng.choice(left) for _ in left])
+        b = statistics.median([rng.choice(right) for _ in right])
+        deltas.append(a - b)
+    deltas.sort()
+    lo = deltas[int(0.025 * (draws - 1))]
+    hi = deltas[int(0.975 * (draws - 1))]
+    return {
+        "delta_ms": lm - rm,
+        "delta_us": 1000.0 * (lm - rm),
+        "ci95_us": [1000.0 * lo, 1000.0 * hi],
+        "ratio": lm / rm,
+        "score_pct": 100.0 * ((lm / rm) ** 0.75 - 1.0),
+        "score_pct_ci95": [
+            100.0 * (((rm + lo) / rm) ** 0.75 - 1.0),
+            100.0 * (((rm + hi) / rm) ** 0.75 - 1.0),
+        ],
+    }
 
 
 if __name__ == "__main__":

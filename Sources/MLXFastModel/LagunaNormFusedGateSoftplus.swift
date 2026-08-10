@@ -17,8 +17,16 @@ import MLXFast
 /// ~8.7 us. `(NS, R)` moves gate rows between threadgroups at constant
 /// arithmetic, so NS=8 simdgroups with one row each keeps the tile count at
 /// `heads / 8` while quadrupling the threads available to the reduction.
-private let lagunaNormFusedGateSoftplusEnabled = ProcessInfo.processInfo.environment[
-    "DARKBLOOM_NORM_FUSED_GATE_SP"] != "0"
+private let lagunaNormFusedGateSoftplusMode = ProcessInfo.processInfo.environment[
+    "DARKBLOOM_NORM_FUSED_GATE_SP"] ?? "1"
+private let lagunaNormFusedGateSoftplusEnabled = lagunaNormFusedGateSoftplusMode != "0"
+
+/// Mode `2` runs the fused kernel and its `normalized` store but leaves the
+/// standalone pre-norm dispatch in place, so `normalized` still reaches the QKV
+/// matvec from `rmsbfloat16`. That measures the added prologue work without the
+/// new `gate_sp -> QKV` dependency edge the shipped fusion introduces, which is
+/// the only way to attribute a paired delta between the two.
+let lagunaNormFusedGateSoftplusPublishesNormalized = lagunaNormFusedGateSoftplusMode != "2"
 
 /// Simdgroups per threadgroup and gate rows per simdgroup. The reduction, the
 /// matvec, and the dispatch geometry are all written against these.
