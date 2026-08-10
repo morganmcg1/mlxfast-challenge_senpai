@@ -2494,11 +2494,18 @@ if (head < query_heads) {
 }
 
 uint base = lane * 4;
+bfloat4 raw;
+if ((reinterpret_cast<ulong>(input + base) & 7ul) == 0) {
+    raw = *reinterpret_cast<const device bfloat4*>(input + base);
+} else {
+    raw = bfloat4(
+        input[base], input[base + 1], input[base + 2], input[base + 3]);
+}
 thread bfloat normalized[4];
 float sum = 0.0f;
 #pragma clang loop unroll(full)
 for (uint i = 0; i < 4; ++i) {
-    float value = float(input[base + i]);
+    float value = float(raw[i]);
     sum += value * value;
 }
 sum = simd_sum(sum);
@@ -2508,7 +2515,7 @@ float inverse_rms = metal::precise::rsqrt(sum / 128.0f + 1.0e-6f);
 for (uint i = 0; i < 4; ++i) {
     normalized[i] =
         weight[base + i] *
-        bfloat(float(input[base + i]) * inverse_rms);
+        bfloat(float(raw[i]) * inverse_rms);
 }
 
 thread float paired[4];
@@ -2675,11 +2682,18 @@ if (head < query_heads) {
 }
 
 uint base = lane * 4;
+bfloat4 raw;
+if ((reinterpret_cast<ulong>(input + base) & 7ul) == 0) {
+    raw = *reinterpret_cast<const device bfloat4*>(input + base);
+} else {
+    raw = bfloat4(
+        input[base], input[base + 1], input[base + 2], input[base + 3]);
+}
 thread bfloat normalized[4];
 float sum = 0.0f;
 #pragma clang loop unroll(full)
 for (uint i = 0; i < 4; ++i) {
-    float value = float(input[base + i]);
+    float value = float(raw[i]);
     sum += value * value;
 }
 sum = simd_sum(sum);
@@ -2689,7 +2703,7 @@ float inverse_rms = metal::precise::rsqrt(sum / 128.0f + 1.0e-6f);
 for (uint i = 0; i < 4; ++i) {
     normalized[i] =
         weight[base + i] *
-        bfloat(float(input[base + i]) * inverse_rms);
+        bfloat(float(raw[i]) * inverse_rms);
 }
 
 thread float paired[4];
