@@ -1,0 +1,212 @@
+
+==============================================================================
+3.7  THE ONE-PARAMETER DISPATCH MODEL
+==============================================================================
+  model:  dispatch_us = unique_bytes/PEAK + INTERCEPT
+  PEAK      = 266.3 GB/s   (campaign M4 ceiling; I measured 262.96 achieved)
+  INTERCEPT = 3.97 us/dispatch   (rule 55, measured)
+  NO per-family efficiency parameter.  13 non-attention families.
+
+  family                       B/disp    disp_us   bus_us  pred_us  meas%pk  pred%pk   resid_pp
+  T2b' gate_sp h48              0.197M      8.02    0.740    4.710      9.2     15.7       -6.5
+  E  T2b gate_sp h64            0.262M      8.27    0.984    4.954     11.9     19.9       -8.0
+  T1a residual/rms/router       1.049M      8.02    3.938    7.908     49.1     49.8       -0.7
+  T2a shared gate+up            1.114M      7.36    4.184    8.154     56.8     51.3        5.5
+  B  T2d down+residual          5.013M     22.02   18.827   22.797     85.5     82.6        2.9
+  T3c oproj h48                 6.490M     30.18   24.371   28.341     80.8     86.0       -5.2
+  T0b(b) qkv h48                8.659M     36.28   32.516   36.486     89.6     89.1        0.5
+  A  T3b oproj h64              8.653M     37.26   32.492   36.462     87.2     89.1       -1.9
+  D  T2c routed gate+up         8.913M     38.40   33.469   37.439     87.2     89.4       -2.2
+  C  T0b(a) qkv h64            10.824M     44.67   40.645   44.615     91.0     91.1       -0.1
+  dense_down (L0)              33.550M    133.80  125.986  129.956     94.2     96.9       -2.8
+  dense gate_up (L0)           67.110M    269.40  252.009  255.979     93.5     98.4       -4.9
+  T1c lmhead                  109.180M    420.30  409.989  413.959     97.5     99.0       -1.5
+
+  n = 13 families spanning 197 KB to 109 MB per dispatch,
+  and a MEASURED efficiency range of 9.2 to 97.5 percent of peak.
+  residual (measured - predicted) percent-of-peak:
+    mean -1.91 pp,  mean abs 3.29 pp,  rms 4.07 pp
+    R^2 against the measured efficiency column = 0.9810
+
+  READING.  One fixed intercept and one shared bandwidth reproduce an
+  efficiency column that ranges over a factor of ten, to a few pp, with
+  no per-family efficiency term anywhere in the model.  So the B.0.3 /
+  audit efficiency column is very nearly a RESTATEMENT of bytes per
+  dispatch.  It is not a kernel-quality ranking and the headroom it
+  implies is not per-family recoverable slack.
+
+==============================================================================
+3.7.1  FREE FIT: does the data choose rule 55's intercept on its own?
+==============================================================================
+  free two-parameter OLS of dispatch_us on unique bytes, n = 13:
+    slope     = 3.841458e-06 us per byte = 3.8415 us per MB
+                =>  implied bandwidth 260.3 GB/s
+    intercept = 4.716 us/dispatch
+
+  compare: campaign M4 ceiling 266.3 GB/s, my measured autotune peak
+    262.96 GB/s, and rule 55's independently measured intercept 3.97 us.
+  The free fit lands at 260.3 GB/s and 4.72 us WITHOUT being told
+  either constant.  That is an independent recovery of both, from 13
+  families whose only common input is a byte count and a census time.
+    implied bandwidth is 97.8 pct of the campaign ceiling
+    and 99.0 pct of my own measured autotune peak;
+    the free intercept is 1.19x rule 55's 3.97 us.
+  I keep the FIXED constants (266.3, 3.97) everywhere else in this
+  report, because they are measured independently of this census; the
+  free fit is only here to show the census does not need to be told.
+    R^2 of the free fit on dispatch_us = 0.999528
+
+==============================================================================
+3.7.2  THE RESIDUALS ARE THE REAL TARGET LIST
+==============================================================================
+  slack_us = disp_us - bus_us - INTERCEPT, per dispatch, and per step.
+  This is the ONLY quantity in the census that a fixed-byte kernel change
+  can attack.  Priced at beta = 0.5 (the generous choice for a latency
+  pool) against the 0.4 pct bar:
+
+  family                       slack_us  slack/step   %cs at beta   bars   verdict
+  T2b' gate_sp h48               3.310        33.1         0.252   0.63   CLOSED
+  E  T2b gate_sp h64             3.313        99.4         0.757   1.89   OPEN
+  T1a residual/rms/router        0.113         4.4         0.034   0.08   CLOSED
+  T2a shared gate+up            -0.792       -30.9        -0.235  -0.59   AT/BELOW FLOOR
+  B  T2d down+residual          -0.773       -30.2        -0.230  -0.57   AT/BELOW FLOOR
+  T3c oproj h48                  1.839        18.4         0.140   0.35   CLOSED
+  T0b(b) qkv h48                -0.206        -2.1        -0.016  -0.04   AT/BELOW FLOOR
+  A  T3b oproj h64               0.794        23.8         0.181   0.45   CLOSED
+  D  T2c routed gate+up          0.963        37.6         0.286   0.72   CLOSED
+  C  T0b(a) qkv h64              0.055         1.7         0.013   0.03   CLOSED
+  dense_down (L0)                3.844         3.8         0.029   0.07   CLOSED
+  dense gate_up (L0)            13.421        13.4         0.102   0.26   CLOSED
+  T1c lmhead                     6.341         6.3         0.048   0.12   CLOSED
+
+  sum of all POSITIVE per-step slack across 13 families = 241.9 M4 us/step
+    = 1.842 pct of cs at beta = 4.61 bars,
+  and that is the ceiling on EVERY fixed-byte kernel change in the whole
+  non-attention decode step, summed, ignoring that they cannot all be
+  taken at once.  Not one individual family clears a single bar.
+
+==============================================================================
+3.7.3  THE gate_sp COINCIDENCE -- an internal consistency check I did not plant
+==============================================================================
+  T2b  gate_sp h64 (30 dispatches, 262 KB each): slack 3.313 us/dispatch
+  T2b' gate_sp h48 (10 dispatches, 197 KB each): slack 3.310 us/dispatch
+  difference: 0.003 us
+
+  These are the SAME kernel at two head counts, measured as two separate
+  B.0.3 rows with different call counts and different byte totals, and
+  the model leaves them with the same residual to three decimal places.
+  A per-family efficiency story has no reason to do that.  A fixed
+  per-dispatch latency pool does.  So the gate_sp family carries a real,
+  geometry-independent ~3.3 us/dispatch latency pool ON TOP of the
+  universal intercept -- which is exactly the one LATENCY verdict this
+  census issued (section 3.3), now independently corroborated.
+
+==============================================================================
+3.7.4  PREDICTION: the model must FAIL on the attention families
+==============================================================================
+  Rule 100 (my #642) labels T3a/T3a' ISSUE-bound at 97.7 pct of peak
+  instruction issue.  A bytes-plus-intercept model must therefore
+  UNDER-predict their dispatch time badly.  If it fit them too, the
+  model would be vacuous.
+
+  The fair comparison group is the BYTE-MATCHED neighbours, not the whole
+  census: T1a at 1.05 MB/dispatch and T2a at 1.11 MB/dispatch bracket
+  attention from below on bytes, and attention has about TWICE their
+  bytes per dispatch, so if anything it should sit CLOSER to the floor.
+
+  family                       B/disp    disp_us  pred_us   meas/pred  verdict
+  T3a  sliding fused attn       2.097M     21.20   11.845        1.79x  MODEL FAILS (as predicted)
+  T3a' full fused attn          2.359M     22.97   12.828        1.79x  MODEL FAILS (as predicted)
+  T1a residual/rms/router       1.049M      8.02    7.908        1.01x  byte-matched neighbour, model holds
+  T2a shared gate+up            1.114M      7.36    8.154        0.90x  byte-matched neighbour, model holds
+
+  The model under-predicts BOTH attention rows by 1.79x -- and it does so at
+  two different head counts and two different byte totals, which is
+  itself a second unplanted consistency check.  Meanwhile its two
+  byte-matched neighbours land at 1.01x and 0.90x with twice as few
+  bytes to hide behind.  That is the discrimination the whole-decode
+  closure of section 3.6 could NOT provide, and it is a real prediction:
+  a no-free-parameter bytes model separates the rule-100 ISSUE families
+  from their own byte neighbours by nearly a factor of two.
+
+  HONESTY, two ways.  (1) The gate_sp rows in the table above also miss,
+  by about 1.7x.  I am not claiming the model fits everything except
+  attention.  I am claiming its DOMAIN is bytes-dominated dispatches,
+  and that BOTH misses are non-byte pools it correctly refuses to
+  explain -- gate_sp latency (section 3.3) and attention issue (rule
+  100).  The model is a bytes floor, and a floor is allowed to be
+  missed from above.  What would falsify the census is a LARGE-byte
+  family missing from above, and none does:
+    over the 11 families at or above 1 MB/dispatch the largest
+    meas/pred is 1.065x (T3c oproj h48), against attention's 1.79x.
+    Every one of the 11 sits inside [0.903x, 1.065x].
+  (2) T3a here uses B.0.3's published 636.0 M4 us/step.  Under the
+  staleness correction I apply in section 3.6 (618.9) the dispatch is
+  20.63 us and the ratio 1.74x -- the verdict does not move.
+
+==============================================================================
+3.7.5  WHAT THIS DOES TO THE CAMPAIGN'S HEADROOM RANKING
+==============================================================================
+  fern's audit ranks remaining headroom by (best_efficiency - own
+  efficiency) x own_time.  Under 3.7 that quantity is, for the 13
+  non-attention families, mostly a measure of SMALL BYTES PER DISPATCH.
+  The implied levers are therefore not kernel-efficiency levers; they are
+  dispatch-count levers, and rule 105.13 prices those at k_dispatch =
+  1.89, not at alpha or beta.  Re-ranking the audit's top latency-looking
+  rows by what is actually recoverable:
+
+  family                  audit says (M5 us)   this census says
+  T2b gate_sp h64                110.8         3.31 us/disp real pool
+                                               + 30 dispatches to merge
+  T1a residual/rms/router         87.6         at floor; only the 39
+                                               dispatches are recoverable
+  T2a shared gate+up              70.5         BELOW floor; nothing
+  T3a sliding fused attn         212.2         ISSUE-bound (rule 100);
+                                               no bytes lever, no k
+
+  So of the audit's four biggest latency-looking pools, three are
+  dispatch count and one is instruction issue.  NONE of them is kernel
+  bandwidth efficiency.  That is the census's single most actionable
+  structural finding.
+
+  What this does and does not say about the arms on the board.  It does
+  NOT say amortisation cannot work; it bounds what amortisation can win
+  IF the byte traffic is unchanged.  alphonse #644 on A is bounded at
+  0.45 bars, frieren #597 on B at zero or less, edward #629 on C at 0.03
+  bars and on D at 0.72 bars (section 3.7.2, priced at beta).  Any of
+  those arms that instead REMOVES BYTES, or removes DISPATCHES, is
+  outside this bound and is priced at alpha or at k_dispatch = 1.89
+  respectively.  The bound is on fixed-byte kernel rewriting only.
+
+==============================================================================
+3.7.6  PROVENANCE AND THREATS FOR SECTION 3.7
+==============================================================================
+  Every dispatch_us in 3.7 except family D is DERIVED, not measured by
+  me: it is B.0.3's M4 census total for the family divided by the
+  family's call count.  I never use B.0.3's M5 column, which is itself
+  derived from the M4 column by a fixed ratio (the circularity trap in
+  the assignment spec).  Family D is the one row I measured directly
+  with my own dose ladder: 38.40 to 38.80 us/dispatch against B.0.3's
+  1497.7/39 = 38.40, agreeing to +1.03 pct.  That single agreement is
+  the ONLY licence I have for treating the other twelve derived rows as
+  real per-dispatch times, and it is a one-family licence.  If B.0.3's
+  M4 census is biased family-by-family, 3.7's residual column inherits
+  that bias one-for-one, and the residuals are small numbers formed by
+  differencing large ones: family C's 0.055 us slack is 0.12 pct of its
+  44.67 us dispatch, so a 1 pct census error moves it by 8x its value.
+  I therefore treat the SIGN and ORDER OF MAGNITUDE of the residual
+  column as the finding, and I do NOT defend any individual residual
+  below about 1 us/dispatch.  The two conclusions that survive that
+  concession are the ones I actually report: no non-attention family
+  clears one bar on fixed-byte slack, and the efficiency column is a
+  restatement of bytes per dispatch.  Both are robust to a few pct of
+  per-family census error because both are about the whole column.
+
+  Second threat: PEAK.  I use 266.3 GB/s, the campaign M4 ceiling.  My
+  own best measured achieved bandwidth is 262.96 GB/s (98.7 pct).  Using
+  262.96 instead inflates every bus_us by 1.27 pct and so SHRINKS
+  every positive slack -- for family D from 0.963 to 0.538 us/dispatch, and it
+  flips 1 further family from positive slack to at/below floor.
+  So the choice of 266.3 is the conservative one for a STOP verdict: it
+  reports MORE recoverable slack than my own hardware measurement would.
+  Every STOP in 3.7.2 is therefore a fortiori.

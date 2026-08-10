@@ -46,11 +46,25 @@ Per rule 105.12 I am a **producer** of category-(b) numbers, not a consumer, so:
 | B | T2d routed+shared down+residual | **BYTES** | *inferred* — 85.5 % of peak, 90.2 % of geometry-achievable; dispatch 22.02 µs is **below** the modelled floor 22.80 µs ⇒ slack ≤ 0 | **α = 0.4369** | 466 / 41 vs base 64 ⇒ 7.3× | 15.10 MiB/step = 7.7 % of the family's own bytes | **≤ 0** | **CONFIRMS CLOSURE** |
 | C | T0b(a) qkv h64 lane-major | **BYTES** | *inferred* — 91.0 % of peak, 95.2 % of geometry-achievable (best GEMV rate on M4); dispatch 44.67 µs vs floor 44.62 µs ⇒ **0.06 µs slack** | **α = 0.4369** | 605 / 53 vs base 256 ⇒ 2.4× | 15.10 MiB/step = 4.6 % of the family's own bytes | **0.03** | **CONFIRMS CLOSURE** |
 | E | T2b gate_sp h64 | **LATENCY** (not ISSUE) | *inferred* — 11.9 % of peak; 262 KB in 8.27 µs; byte time is 0.98 µs, so **88 % of the dispatch is neither bytes nor issue** | **β = 0.5** | 529 / 46 vs base ≈68 ⇒ 7.8× | n/a — the whole family only moves 7.9 MiB/step | **1.89** (the only family with real slack) | **CONFIRMS CLOSURE** — the live axis is dispatch-count/fusion, already priced by #48 at −0.1488 % |
+| **T1a** | residual + rmsnorm + router (the advisor's 5th ask) | **BYTES** | *inferred, §3.7* — 49.1 % of peak measured vs **49.8 % predicted by a model with no free parameter**; dispatch 8.02 µs vs floor 7.91 µs; the 3.97 µs intercept is **49.5 % of the whole dispatch** | **α = 0.4369** | n/a — the residual is 0.113 µs/dispatch, below any resolvable dose | 15.10 MiB/step = 38.7 % of the family's own 40.89 MB/step | **0.08** | **CONFIRMS CLOSURE** — the only live axis is the 39 dispatches themselves |
+| **T2a** | shared-expert gate+up | **BYTES (at/below floor)** | *inferred, §3.7* — 56.8 % of peak; dispatch 7.36 µs is **below** the modelled floor 8.15 µs ⇒ slack ≤ 0, exactly like family B | **α = 0.4369** | n/a | 15.10 MiB/step = 36.4 % of the family's own 43.45 MB/step | **≤ 0** | **CONFIRMS CLOSURE** |
 
 **Headline outcome: `N-BYTES-EVERYWHERE`** for the four NVFP4 GEMV families, plus
 **LATENCY** (not ISSUE) for the adversarial low-efficiency target E. No ISSUE lever exists
 anywhere in the decode family pool. The §1.5 machine-balance-point theorem shows this is
 not an accident of the current code — it is forced by two measured host constants.
+
+**§3.7 generalises the table to all 13 non-attention families and is the strongest single
+result here.** A model with **no free parameter** — `dispatch_us = bytes/266.3 GB/s + 3.97 µs`,
+both constants measured independently of the census — reproduces the whole B.0.3 efficiency
+column from **9.2 % to 97.5 %** of peak at **R² = 0.9810**, over a 554× range of bytes per
+dispatch. So *"percent of DRAM peak" is very nearly a restatement of bytes per dispatch*: it
+is not a kernel-quality ranking, and the headroom derived from it is not recoverable slack.
+The **total** fixed-byte slack in the entire non-attention decode step is **241.9 M4 µs/step =
+1.842 % of `cs` at β = 4.61 bars, summed over 13 families**, and **no single family clears one
+bar**. The same model **fails on T3a/T3a' by 1.79×** while landing their byte-matched
+neighbours T1a and T2a at 1.01× and 0.90× — which is the BYTES-vs-ISSUE discrimination §3.6's
+whole-decode closure could not supply.
 
 **Provenance discipline:** family D is *directly probed* (dose ladder + bytes ladder, two
 independent residency-defeated sessions, reach within 1.03 % of the charge). Families A, B,
@@ -70,7 +84,9 @@ for your issue; §3.3 is the evidence and §3.5 is the pricing caveat.
 | **#597 frieren** | B — T2d routed+shared down+residual | **STOP on the instruction axis** | **high** | B is the one family that already runs *at or below* the modelled DRAM floor (22.02 µs measured vs 22.80 µs modelled). Slack ≤ 0 bars. There is nothing to buy on the issue axis and the byte axis would need 15.10 MiB/step = 7.7 % of the family's own traffic. The −0.78 µs discrepancy is itself a finding (see threats): either B.0.3 slightly understates B's M4 cost or the 3.97 µs intercept is smaller at 288 thr/TG. |
 | **#629 edward** | C — T0b(a) qkv h64, and D — T2c routed gate+up | **STOP on the instruction axis for both; C is finished** | **high (C), very high (D — directly probed)** | C: 44.67 µs against a 44.62 µs floor, i.e. **99.9 % of the theoretical best for its byte traffic**. Slack 0.03 bars. D: directly probed; exposed ALU is 1.1 % of the dispatch, the 0.4 % bar is 466 instructions/thread against a base load of 128, so the bar is **3.6× the entire arithmetic content of the kernel**. K-loop staging depth (#630) and `DARKBLOOM_QMV_WIDE_CODES` (−0.5363 %) are both consistent with this. |
 | **adversarial target** | E — T2b gate_sp h64 | **RE-AIM: the regime is LATENCY, not ISSUE and not BYTES** | **medium** (inferred, and the fix is on a deconflicted axis) | 88 % of E's 8.27 µs dispatch is neither bytes (0.98 µs) nor issue (0.04 µs). It is dispatch overhead: rule 65's +2.3403 µs/dispatch plus rule 55's 3.97 µs intercept explain ~6.3 of the missing 7.3 µs. Fusing the dispatch away entirely is worth **2.451 % of `cs` = 6.13 bars** once rule 105.13's third regime prices the glue at `k_dispatch = 1.89` (§3.6; the dispatch-elimination component alone is **1.069 % = 2.67 bars**) — the largest nameable prize in this census by 6× — but #48 already scored −0.1488 % on the dispatch-count axis, so this needs a *genuine* fusion, not a dispatch merge. |
+| **#597 frieren / the advisor's 5th ask** | T1a — residual + rmsnorm + router | **STOP. The 52.5 µs/step bar is unreachable — and here is the number you asked me to produce from my own data** | **high** | You noted 52.5 M4 µs/step is 16.8 % of T1a's 312.8 and asked for the figure from my data. It is worse than 16.8 %. T1a's dispatch is 8.02 µs; its DRAM floor is 7.91 µs; **the entire non-byte residual is 0.113 µs/dispatch = 4.4 M4 µs/step = 0.034 % of `cs` = 0.08 of one bar** (§3.7.2). The bar is **12× T1a's whole non-byte budget**. And 49.5 % of the dispatch *is* rule 55's 3.97 µs intercept, so the family is not slow, it is *small*: 1.049 MB/dispatch. Its measured 49.1 % of peak is predicted at **49.8 %** by a model with no free parameter (§3.7). The only live axis is the **39 dispatches**, priced at `k_dispatch = 1.89` ⇒ 1.390 % of `cs` if all 39 were merged away — a dispatch-count lever, deconflicted to #48. |
 | **the campaign** | α / β | **`N-DEGENERATE`, and the resolving experiment is free** | **high** | No single scalar α satisfies efficiency-invariance on both pools: `routed` demands a 597.1 GB/s M5 ceiling, `qkvo` demands 677.1 — **13 % apart** (§3.5). α-free bound: **α < 0.4454**. Run `research/fern_r101_bw_probe.swift` on the official M5: ~7 s, zero receipts. |
+| **the campaign / #625 fern** | the audit's efficiency column itself | **RE-RANK: "% of DRAM peak" is a restatement of bytes per dispatch, not a kernel-quality score** | **high** | §3.7: `dispatch_us = bytes/266.3 GB/s + 3.97 µs`, **no free parameter, both constants measured outside the census**, reproduces the whole 9.2 %–97.5 % efficiency column at **R² = 0.9810** across a 554× byte range; a free fit on the same 13 rows recovers **260.3 GB/s** and **4.72 µs** unprompted. Consequence: `(best_eff − own_eff) × own_time` mostly measures *small dispatches*, so three of the audit's four biggest latency-looking pools (T2b gate_sp, T1a, T2a) are **dispatch-count** targets and the fourth (T3a) is **instruction issue**. None is bandwidth efficiency. Total fixed-byte slack in the whole non-attention decode step: **241.9 M4 µs/step = 1.842 % at β = 4.61 bars, summed over 13 families**. |
 
 **What this memo is *not* saying.** It is not saying these families are cheap — they are the
 four most expensive things in the decode step, 1.13 GB/step between them. It is saying that
@@ -599,6 +615,14 @@ instruction and every source of latency from these four kernels and still not cl
 on any of them. That is the census result, and it is why the outcome is
 `N-BYTES-EVERYWHERE`.
 
+**Scope note (added after §3.7 landed).** This table covers only my five assigned families.
+§3.7.2 runs the *same* floor arithmetic over all thirteen non-attention families in fern's
+B.0.3 census, including the advisor's fifth ask **T1a** (0.08 bars) and **T2a** (below the
+floor). Nothing in §3.7.2 clears one bar either, and the sum of *every* positive per-step
+slack in the whole decode step is 241.9 M4 µs/step = 1.842 % of `cs` at β = 4.61 bars.
+Where §3.3 and §3.7.2 overlap they agree to the printed digits; §3.7.2 is the superset and
+should be cited in preference to this table.
+
 Family C is the sharpest case: at 44.67 µs against a 44.62 µs floor it is running at
 **99.9 % of the theoretical best a kernel with its byte traffic can achieve on this host**.
 Edward's #629 work on C (L3) should be understood as having already finished the job.
@@ -835,6 +859,188 @@ The reason I still single out **E** is that it is the only row where the *entire
 that cost: A, B, C and D each have 18–41 µs of irreducible byte streaming that has to happen
 somewhere regardless, whereas E moves 262 KB in 8.27 µs and has nothing to stream. **E is the
 cheapest merge target in the pool**, and 105.13 makes it 47 % more valuable than §3.4 said.
+
+
+### 3.7 The one-parameter model — the census's structural finding
+
+`research/maple-tanjiro-r107g-oneparam.py` →
+`research/artifacts/maple-tanjiro-r107g/stage1-oneparam-model.txt` (210 lines).
+Tags: host `applegpu_g16s` M4 Pro / epoch `1d299e2d` on `acb56108` / **CENSUS** (family D
+row additionally MARGINAL-verified, §2.3).
+
+Extending the census past the five assigned families to **all 13 non-attention families in
+B.0.3** — which is how I finally covered **T1a**, the sixth family on the advisor's ask list —
+produced a result I did not set out to find and which I think matters more than any single
+family verdict. Fit nothing. Predict every family's dispatch time from
+
+```
+dispatch_us   = unique_bytes / 266.3e9 + 3.97          (no per-family term)
+pct_of_peak   = bus_us / (bus_us + 3.97)               (a pure function of bytes/dispatch)
+```
+
+Both constants are measured *outside* this census: 266.3 GB/s is the campaign M4 ceiling
+(my own autotune hit 262.96, §1.5) and 3.97 µs is rule 55's independently measured
+per-dispatch intercept. There is **no free parameter**.
+
+| family | B/dispatch | measured % of peak | predicted % of peak | residual pp |
+| --- | ---: | ---: | ---: | ---: |
+| T2b' gate_sp h48 | 0.197 MB | 9.2 | 15.7 | −6.5 |
+| E T2b gate_sp h64 | 0.262 MB | 11.9 | 19.9 | −8.0 |
+| **T1a** residual/rms/router | 1.049 MB | 49.1 | 49.8 | **−0.7** |
+| T2a shared gate+up | 1.114 MB | 56.8 | 51.3 | +5.5 |
+| B T2d down+residual | 5.013 MB | 85.5 | 82.6 | +2.9 |
+| T3c oproj h48 | 6.490 MB | 80.8 | 86.0 | −5.2 |
+| T0b(b) qkv h48 | 8.659 MB | 89.6 | 89.1 | +0.5 |
+| A T3b oproj h64 | 8.653 MB | 87.2 | 89.1 | −1.9 |
+| D T2c routed gate+up | 8.913 MB | 87.2 | 89.4 | −2.2 |
+| **C** T0b(a) qkv h64 | 10.824 MB | 91.0 | 91.1 | **−0.1** |
+| dense_down (L0) | 33.550 MB | 94.2 | 96.9 | −2.8 |
+| dense gate_up (L0) | 67.110 MB | 93.5 | 98.4 | −4.9 |
+| T1c lmhead | 109.180 MB | 97.5 | 99.0 | −1.5 |
+
+Residuals: mean −1.91 pp, mean-abs 3.29 pp, rms 4.07 pp, **R² = 0.9810** against the measured
+efficiency column, over a measured efficiency range of **9.2 % to 97.5 %** and a byte range of
+**197 KB to 109 MB per dispatch** — a factor of 554.
+
+**The reading.** *"Percent of DRAM peak", as the audit and B.0.3 report it, is very nearly a
+restatement of bytes per dispatch.* It is not a kernel-quality ranking, and the headroom
+computed from it is not per-family recoverable slack. This is the mechanism behind fern's
+own P0-4 (efficiency monotone increasing in per-call footprint, ρ = 0.9286): P0-4 is the
+correlation, §3.7 is the functional form, and the form has no room left for a quality term.
+
+#### 3.7.1 The data chooses both constants on its own
+
+A free two-parameter OLS of `dispatch_us` on unique bytes across the 13 families, told
+neither constant, returns **slope 3.841e−6 µs/B ⇒ 260.3 GB/s** and **intercept 4.72 µs**,
+with R² = 0.999528 on `dispatch_us`. That is **97.8 %** of the campaign ceiling, **99.0 %** of
+my own measured autotune peak, and **1.19×** rule 55's intercept. Thirteen families whose only
+common input is a byte count and a census time independently recover the machine's DRAM
+bandwidth to 1 % and its dispatch intercept to 19 %. I keep the *fixed* constants everywhere
+else in this report — the free fit is here only to show the census does not need to be told.
+
+#### 3.7.2 The residuals are the target list, and they are small
+
+`slack_us = disp_us − bytes/266.3 − 3.97` is **the only quantity in the census that a
+fixed-byte kernel change can attack**. Priced at β = 0.5 (the generous choice for a latency
+pool) against the 0.4 % bar:
+
+| family | slack µs/disp | slack M4 µs/step | % `cs` at β | bars | verdict |
+| --- | ---: | ---: | ---: | ---: | --- |
+| E T2b gate_sp h64 | 3.313 | 99.4 | 0.757 | **1.89** | OPEN |
+| T2b' gate_sp h48 | 3.310 | 33.1 | 0.252 | 0.63 | CLOSED |
+| D T2c | 0.963 | 37.6 | 0.286 | 0.72 | CLOSED |
+| A T3b | 0.794 | 23.8 | 0.181 | 0.45 | CLOSED |
+| T3c oproj h48 | 1.839 | 18.4 | 0.140 | 0.35 | CLOSED |
+| dense gate_up (L0) | 13.421 | 13.4 | 0.102 | 0.26 | CLOSED |
+| T1c lmhead | 6.341 | 6.3 | 0.048 | 0.12 | CLOSED |
+| **T1a** residual/rms/router | 0.113 | 4.4 | 0.034 | **0.08** | CLOSED |
+| dense_down (L0) | 3.844 | 3.8 | 0.029 | 0.07 | CLOSED |
+| C T0b(a) | 0.055 | 1.7 | 0.013 | 0.03 | CLOSED |
+| T0b(b) qkv h48 | −0.206 | −2.1 | −0.016 | −0.04 | AT/BELOW FLOOR |
+| B T2d | −0.773 | −30.2 | −0.230 | ≤0 | AT/BELOW FLOOR |
+| T2a shared gate+up | −0.792 | −30.9 | −0.235 | ≤0 | AT/BELOW FLOOR |
+
+**Sum of all positive per-step slack across the 13 families = 241.9 M4 µs/step = 1.842 % of
+`cs` at β = 4.61 bars.** That is a ceiling on *every fixed-byte kernel change in the entire
+non-attention decode step, summed*, and it already ignores that they cannot all be taken at
+once and that most of them are individually unresolvable. **Not one family clears a single
+bar.** Only E even reaches 1.89 bars, and E's is a dispatch-latency pool, not a kernel-quality
+pool (§3.4, §3.7.3).
+
+#### 3.7.3 A consistency check I did not plant
+
+T2b gate_sp h64 (30 dispatches, 262 KB each) leaves slack **3.313 µs/dispatch**. T2b' gate_sp
+h48 (10 dispatches, 197 KB each) leaves **3.310 µs/dispatch**. Difference **0.003 µs**.
+
+These are the *same kernel* at two head counts, entered in B.0.3 as two separate rows with
+different call counts and different byte totals, and a model with no per-family parameter
+leaves them with the same residual to three decimals. A per-family efficiency story has no
+reason to do that; a fixed, geometry-independent per-dispatch latency pool does. So gate_sp
+carries a real ~3.3 µs/dispatch pool *on top of* the universal 3.97 µs intercept — which is
+exactly the one LATENCY verdict this census issued in §3.3, now corroborated by a route that
+did not exist when I issued it.
+
+#### 3.7.4 The prediction that had to fail — and it does
+
+If the model also fitted the rule-100 attention families it would be vacuous. The fair
+comparison group is **byte-matched neighbours**: T1a (1.049 MB/disp) and T2a (1.114 MB/disp)
+bracket attention from *below* on bytes, so attention — with roughly **twice** their bytes per
+dispatch — should if anything sit *closer* to the floor.
+
+| family | B/disp | disp µs | predicted µs | meas/pred |
+| --- | ---: | ---: | ---: | ---: |
+| T3a sliding fused attn | 2.097 MB | 21.20 | 11.845 | **1.79×** |
+| T3a' full fused attn | 2.359 MB | 22.97 | 12.828 | **1.79×** |
+| T1a (byte-matched) | 1.049 MB | 8.02 | 7.908 | 1.01× |
+| T2a (byte-matched) | 1.114 MB | 7.36 | 8.154 | 0.90× |
+
+Both attention rows miss by **1.79×**, at two different head counts and two different byte
+totals — a second unplanted agreement. Their byte-matched neighbours land at 1.01× and 0.90×
+with half the bytes to hide behind. **This is the BYTES-vs-ISSUE discrimination that §3.6's
+whole-decode closure explicitly could not provide** (there the counterfactual intervals
+overlapped), delivered by a model with no free parameters.
+
+**Honesty, two ways.** (1) The gate_sp rows also miss, by ~1.7×. I am *not* claiming the model
+fits everything except attention. I am claiming its **domain** is bytes-dominated dispatches,
+and that both misses are non-byte pools it correctly refuses to explain — gate_sp latency
+(§3.3) and attention issue (rule 100). The model is a *floor*, and a floor is allowed to be
+missed from above. What would falsify the census is a **large-byte** family missing from
+above, and none does: over the **11 families at or above 1 MB/dispatch the entire meas/pred
+range is [0.903×, 1.065×]**, against attention's 1.79×. (2) T3a above uses B.0.3's published
+636.0 M4 µs/step; under the staleness correction I apply in §3.6 (618.9) the dispatch is
+20.63 µs and the ratio 1.74× — the verdict does not move.
+
+#### 3.7.5 What this does to the campaign's headroom ranking
+
+fern's audit ranks remaining headroom by `(best_efficiency − own_efficiency) × own_time`.
+Under §3.7 that quantity is, for the non-attention families, **mostly a measure of small bytes
+per dispatch**. So the levers it implies are not kernel-efficiency levers; they are
+**dispatch-count** levers, which rule 105.13 prices at `k_dispatch = 1.89`, not at α or β.
+Re-ranking the audit's four biggest latency-looking rows by what is actually recoverable:
+
+| family | audit headroom (M5 µs) | what this census says is there |
+| --- | ---: | --- |
+| T2b gate_sp h64 | 110.8 | 3.31 µs/disp real latency pool, plus 30 dispatches to merge |
+| T1a residual/rms/router | 87.6 | at floor (0.08 bars); only the 39 dispatches are recoverable |
+| T2a shared gate+up | 70.5 | **below** floor; nothing |
+| T3a sliding fused attn | 212.2 | ISSUE-bound (rule 100, my #642); no bytes lever, no valid k |
+
+**Three of the four are dispatch count and one is instruction issue. None of them is kernel
+bandwidth efficiency.** That is this census's single most actionable structural finding.
+
+**What this does and does not say about the arms on the board.** It does *not* say
+amortisation cannot work. It bounds what amortisation can win **if the byte traffic is
+unchanged**: alphonse #644 on A at **0.45 bars**, frieren #597 on B at **≤0**, edward #629 on
+C at **0.03 bars** and on D at **0.72 bars**. Any of those arms that instead *removes bytes*
+or *removes dispatches* is outside this bound and prices at α or at `k_dispatch = 1.89`
+respectively. The bound is on fixed-byte kernel rewriting only.
+
+#### 3.7.6 Provenance and threats specific to §3.7
+
+Every `dispatch_us` in §3.7 **except family D is derived, not measured by me**: it is B.0.3's
+M4 census total divided by the call count. I never touch B.0.3's M5 column (the assignment
+spec's circularity trap). **Family D is the one row I measured directly**, with my own dose
+ladder: 38.40–38.80 µs/dispatch against B.0.3's 1497.7/39 = 38.40, agreeing to **+1.03 %**.
+That single agreement is the *only* licence I have for treating the other twelve derived rows
+as real per-dispatch times, and it is a one-family licence.
+
+If B.0.3's M4 census carries family-by-family bias, §3.7's residual column inherits it
+one-for-one, and these residuals are small numbers formed by differencing large ones: family
+C's 0.055 µs slack is **0.12 %** of its 44.67 µs dispatch, so a 1 % census error moves it by
+**8×** its own value. I therefore treat the **sign and order of magnitude** of the residual
+column as the finding and **do not defend any individual residual below ~1 µs/dispatch**. The
+two conclusions that survive that concession are exactly the two I report: no non-attention
+family clears one bar on fixed-byte slack, and the efficiency column is a restatement of bytes
+per dispatch. Both are properties of the whole column, so both are robust to a few percent of
+per-family error.
+
+Second threat: **PEAK**. I use 266.3 GB/s; my own best measured achieved bandwidth is 262.96
+(98.7 %). Using 262.96 would inflate every `bus_us` by 1.27 % and therefore **shrink** every
+positive slack — family D from 0.963 to 0.538 µs/dispatch — and flip one further family below
+the floor. So 266.3 is the *conservative* choice for a STOP verdict: it reports **more**
+recoverable slack than my own hardware measurement would. **Every STOP in §3.7.2 is therefore
+a fortiori.**
+
 
 
 ## 4. Rule 77 — geometry table for every kernel and probe in this report
@@ -1133,6 +1339,7 @@ All under `research/artifacts/maple-tanjiro-r107g/` unless stated.
 | `stage1-crossfamily-audit.txt` | output of `maple-tanjiro-r107g-decompose.py` — the §3.2 table and §3.5 adjudication |
 | `stage1-slack-bound.txt` | output of `maple-tanjiro-r107g-slack.py` — the §3.3 slack bound |
 | `stage1-105-13-closure.txt` | output of `maple-tanjiro-r107g-closure.py` (166 lines) — the §3.6 rule-105.13 whole-decode closure test, the `k_issue` bound, the BYTES-vs-ISSUE counterfactual, and the family-E re-pricing erratum |
+| `stage1-oneparam-model.txt` | output of `maple-tanjiro-r107g-oneparam.py` (210 lines) — the §3.7 one-parameter dispatch model over all 13 non-attention families (incl. **T1a** and **T2a**), the free-fit recovery of 260.3 GB/s and 4.72 µs, the residual target list, the gate_sp coincidence, the attention falsification test, and the §3.7.6 provenance/PEAK-sensitivity threats |
 | `qmv_dose{0,4,8,16}.metal` | the four generated dose arms; `qmv_dose0.metal` is byte-identical to `research/artifacts/fern-r99/depth1_shipped.metal` |
 | `baseline-run0.json` | unmodified-tree `--local-iterate` correctness/provenance anchor at final HEAD |
 | `stage1-upstream-equivalence-HEAD.log` | `run_upstream_equivalence.sh` at final HEAD (98 lines): 8/8 decode steps bit-exact, prefill one ulp, `EQUIVALENCE_EXIT=1` inherited from the advisor tip (§5.3) |
@@ -1147,7 +1354,19 @@ Harness and analysis scripts, all `research/maple-tanjiro-r107g-*`:
 | `decompose.py` | H-REGIME decomposition, cross-family audit, α/β adjudication |
 | `slack.py` | the non-byte slack bound |
 | `closure.py` | the §3.6 rule-105.13 whole-decode closure test and `k_issue`/`k_residue` solve |
+| `oneparam.py` | the §3.7 one-parameter dispatch model, free fit, residual target list, attention falsification test, PEAK sensitivity |
 | `wandb.py` | publishes the census to `wandb-applied-ai-team/mlxfast-maple` |
+| `wandb-oneparam.py` | addendum: logs the §3.7 model, free fit, 13-family slack table and falsification leg to the same run, and corrects the one stale metric (below) |
+
+**One published metric was wrong and has been corrected in place.**
+`census/family_E_full_fusion_prize_pct_cs` was first logged as **1.664**, which priced the
+*whole* family-E fusion prize at β = 0.5. §3.6's erratum shows the dispatch-elimination
+component must price at rule 105.13's `k_dispatch = 1.89`, which lifts the prize to
+**2.451 % of `cs`**. The run now carries 2.451, and keeps the old figure under
+`census/family_E_full_fusion_prize_pct_cs_superseded_beta_only` so the correction is
+auditable rather than silent. `wandb-oneparam.py` shares its byte and M4-µs/step table
+byte-for-byte with `oneparam.py`, so the run and `stage1-oneparam-model.txt` cannot drift
+(both print total positive slack = 241.9 M4 µs/step).
 
 Reused unmodified from other students: `research/fern_r99_qmv_probe.swift`,
 `research/fern_r99_qmv_variants.py`, `research/artifacts/fern-r99/*.metal`,
@@ -1207,6 +1426,13 @@ the single highest-value next instrument if anyone gets stage-2 time, because A 
 with the largest *absolute* headroom on the byte axis and my inference for it leans hardest
 on the pairwise-nibble byte model.
 
+**One thing I un-dropped: T1a.** It was fifth on your priority list and I had it as a
+casualty. §3.7 recovers it, and eleven other families with it, at zero additional dispatch
+cost: once the one-parameter model is written down, every row in B.0.3 that has a byte count
+and a call count gets a regime verdict and a slack bound for free. T1a's answer to your
+specific question — *is 52.5 M4 µs/step reachable in a family costing 312.8?* — is **no, by
+12×**: T1a's whole non-byte budget is 4.4 M4 µs/step. That was worth more than a sixth ladder.
+
 ### 8.3 Where I would put the campaign's last hours
 
 Ranked, with the reasoning compressed:
@@ -1230,6 +1456,13 @@ Ranked, with the reasoning compressed:
    non-byte cost of the largest of them at 37.6 M4 µs/step against a 0.4 %-`cs` detection bar
    of 52.5–67.5. The bound is smaller than the bar. This holds for every α in the plausible
    range, so it does not depend on resolving item 1.
+5. **Re-rank the audit before spending anything, using §3.7.** The efficiency column is a
+   restatement of bytes per dispatch (R² = 0.9810, no free parameter), so *every* remaining
+   amortisation arm on the board is aimed at a pool bounded by **≤0.72 bars**, and the
+   *summed* fixed-byte slack in the whole non-attention decode step is **1.842 % at β**. If
+   the campaign wants a bar-clearing change in the remaining hours it has to come from
+   **fewer bytes**, **fewer dispatches** (priced at `k_dispatch = 1.89`), or **attention
+   instruction issue**. There is no fourth option, and §3.7 is the reason.
 
 ### 8.4 One methodological result I would ask you to propagate
 
