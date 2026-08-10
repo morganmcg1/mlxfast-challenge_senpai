@@ -2501,6 +2501,46 @@ private let lagunaFullFusedAttentionActiveKernel: MLXFast.MLXFastKernel = {
 
 
 
+private enum LagunaFullParamsMemoStore {
+    nonisolated(unsafe) static var writeIdx = -1
+    nonisolated(unsafe) static var capacity = -1
+    nonisolated(unsafe) static var entry: MLXArray?
+    nonisolated(unsafe) static var sink: MLXArray?
+}
+
+let lagunaFullParamsMemoEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_FULL_PARAMS_MEMO"] != "0"
+
+let lagunaFullParamsDose =
+    Int(ProcessInfo.processInfo.environment["DARKBLOOM_FULL_PARAMS_DOSE"] ?? "")
+    ?? 0
+
+private func lagunaFullFusedAttentionParams(
+    writeIdx: Int, capacity: Int
+) -> MLXArray {
+    for _ in 0..<lagunaFullParamsDose {
+        LagunaFullParamsMemoStore.sink = MLXArray([UInt32(writeIdx)])
+    }
+    guard lagunaFullParamsMemoEnabled else {
+        return MLXArray([
+            UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity),
+        ])
+    }
+    if let entry = LagunaFullParamsMemoStore.entry,
+        LagunaFullParamsMemoStore.writeIdx == writeIdx,
+        LagunaFullParamsMemoStore.capacity == capacity
+    {
+        return entry
+    }
+    let entry = MLXArray([
+        UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity),
+    ])
+    LagunaFullParamsMemoStore.writeIdx = writeIdx
+    LagunaFullParamsMemoStore.capacity = capacity
+    LagunaFullParamsMemoStore.entry = entry
+    return entry
+}
+
 func lagunaFullFusedAttention(
     rawQueries: MLXArray,
     rawKeys: MLXArray,
@@ -2535,9 +2575,8 @@ func lagunaFullFusedAttention(
     precondition(scale.dtype == .float32 && scale.size == 1)
 
     lagunaTrace("full fused attention")
-    let params = MLXArray([
-        UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity),
-    ])
+    let params = lagunaFullFusedAttentionParams(
+        writeIdx: writeIdx, capacity: capacity)
     return lagunaFullFusedAttentionActiveKernel(
         [
             rawQueries, rawKeys, rawValues,
