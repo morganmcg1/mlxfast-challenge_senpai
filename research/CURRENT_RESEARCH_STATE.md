@@ -7336,6 +7336,147 @@ verdicts were **too permissive** and a closed family may deserve re-opening; if
 lower, they were conservative and everything stays closed.
 
 
+#### 105.20 ⭐⭐⭐ The family-E merge is already half-built in the tree, its refusal is a *quantisation-format accident*, and it may be worth 1.7 %, not 1.07 %
+
+Advisor source read of `Sources/MLXFastModel/LagunaRuntimeModel.swift` at
+`705484b9` / `1eda2174` (compiled paths identical). Unverified by a student at
+time of writing; relayed to frieren (#660, `5242802672`) and tanjiro (#663,
+`5242807697`) with an explicit instruction to re-verify. Recorded here because
+it is the campaign's only remaining path to the 1.6359 % record gap.
+
+##### (a) `laguna_gate_sp` has dependency scope **NONE** on the QKV projection
+
+`lagunaGateSoftplusSource` (`:4467`) and `lagunaDecodeNVFP4QKVLaneMajorSource`
+(`:4922`) read the **same** `normalized` `[1,1,2048]` bf16 binding — confirmed
+at the call site, `:5953` passes it to `lagunaDecodeNVFP4QKVR1` and `:5993`
+passes it to `lagunaGateSoftplus`. Each writes a disjoint output against its own
+bank. This is not producer→consumer; it is two independent row-blocks of the
+same GEMV. **`dep_scope = NONE`** — a category strictly better than TG-LOCAL:
+no intermediate to stage, no barrier to re-import, `intermediate_bytes = 0`. Of
+105.17's three unverified assumptions only **removal symmetry** applies.
+
+##### (b) The fold already exists and is refused for a *format* reason
+
+`:5711`: `let foldGateIntoBank = gate != nil && q.groupSize == 32 && q.bits == 8
+&& q.mode == .affine`. When true the gate rows are `concatenated` onto the Q/K/V
+codes, `_nativeAffineQKVGateRows = nHeads`, and `:5979` slices
+`gateLogits = qkv[.ellipsis, gateStart ..< (gateStart + nHeads)]` — **zero extra
+dispatches, live today for affine-8/group-32**. Our decode path runs Q as
+nvfp4/4-bit/group-16 (the *faster* path), the fold is refused, and we fall back
+to a standalone `laguna_gate_sp` per layer. **We pay 30 dispatches/step for a
+merge the tree already knows how to do in a different numeric format.**
+
+⚠️ **Generalisation worth more than the instance:** a merge can be stranded by a
+quantisation-format predicate rather than by dependency structure. Grep for
+`groupSize ==`, `bits ==`, `mode == .affine`, `fold…Into…`, `_native…Rows` and
+ask whether any *other* decode segment is stranded the same way. Assigned to
+tanjiro, #663.
+
+##### (c) Multi-output + early-tile `return` on a QKV kernel is precedented
+
+`lagunaFusedQKVProjectionSource` / `laguna_fused_norm_qkv_projection_bf16_h*_v3`
+(`:3526`) declares `outputNames: ["queries","keys","values","gate_values"]` and
+has an early-tile branch doing the gate GEMV + simd reduction + softplus +
+`return`, with the `max/min/log1p(exp(lo-hi))` formulation character-identical
+to `lagunaGateSoftplusSource`. The nvfp4 path is missing the feature the bf16
+path already has.
+
+##### (d) Geometry — the merge is a 0.16 % grid growth with no intra-TG divergence
+
+| | QKV lane-major (`:5045`) | gate_sp (`:4545`) |
+|---|---|---|
+| grid | `((rows/2)*64, 1, 1)` | `((heads/8)*64, 1, 1)` |
+| threadGroup | `(64,1,1)` = 2 simdgroups | `(64,1,1)`, NS=2, R=4 |
+| rows/TG | 2 (1 per simdgroup) | 8 |
+| h64 | rows = (64+16)·128 = 10240 ⇒ **5120 TGs** | **8 TGs** (512 threads) |
+| h48 | rows = 8192 ⇒ **4096 TGs** | **6 TGs** |
+
+`rows` is always even and `heads ∈ {48,64}` is divisible by 8, so appending the
+gate tiles to the QKV grid splits **exactly at threadgroup boundaries**: every
+threadgroup is wholly QKV or wholly gate, and the early-`return` branch costs
+nothing in divergence. **8 threadgroups appended to 5120 = 0.16 % grid growth.**
+
+##### (e) The landing site is a dead hook, already wired — and it has two landmines
+
+`:5946` `let fusedTailGateLogits: MLXArray? = nil`, consumed at `:5975`
+`if let fusedTailGateLogits { gateLogits = fusedTailGateLogits }`.
+`git log -S fusedTailGateLogits` shows it arrived already stubbed in `99b974c1`
+("Sync promoted frontier afcb832") — **no prior attempt in our history; the stub
+is not a tombstone.**
+
+1. 🚨 The `if let fusedTailGateLogits` branch **does not set
+   `gateProjectionActivated = true`**, but the `lagunaGateSoftplus` branch
+   (`:5996`) does. That flag selects `lagunaActivatedOProjLaneMajorKernels`
+   (pre-activated gate) versus the plain gated o-proj. Routing through the hook
+   without setting it applies softplus twice or not at all — a silent numeric
+   change.
+2. 🚨 The `gateProjectionActivated = true` path is guarded by
+   `lagunaFusedGatedAffineOProjEnabled && lagunaGatedAffineOProjNVFP4Enabled &&
+   lagunaUseNativeAffineOProj(layer:) && affineWO.mode == .nvfp4 && bits == 4 &&
+   groupSize == 16`. A merged path must reproduce that **entire** guard set or
+   it flips which o-proj kernel runs on some layer — a different arithmetic
+   path, not a merge.
+
+##### (f) 105.15 class: **IDENTICAL**, if the body is copied character-for-character
+
+Preserve `float l = float(bfloat(r[row]))` (the bfloat round-trip), the `isnan`
+branch, `hi = max(l,0)`, `lo = min(l,0)`,
+`(isinf(lo)||isinf(hi)) ? hi : hi + log1p(exp(lo-hi))`, and the `simd_sum`
+reduction order. Then the source-level argument under rule 102 as amended is
+available and **no margin certificate is needed** — 25–35 minutes of wall clock
+saved at the freeze. Change one operand order and the certificate is owed.
+
+##### (g) 🚨 Three price routes that disagree by 2.5× — the open question
+
+| route | construction | value |
+|---|---|---|
+| **A — dispatch count** | 30 × rule 65's 2.3403 M5 µs (already M5) = 70.2 M5 µs/step | **1.069 %** |
+| **B — family-cost recovery** | §B.0.3 T2b = 124.0 M5 µs/step, less the gate bank's irreducible ≈7.3 M5 µs/step of DRAM | **1.69–1.78 %** |
+| **C — 105.16 measured slack** | family E non-byte slack = 1.89 bars | **0.756 %** |
+
+Route B in full, because it is new and because it reveals something about the
+whole census:
+
+- The byte price 15.10 MiB/step per 0.4 % ⇒ **0.5748 MiB per M5 µs/step ⇒
+  ≈603 GB/s effective**, which independently reproduces 105.19's measured
+  597.1 GB/s routed-pool demand. **The byte model is self-consistent.**
+- Gate bank traffic: 64 × 2048 × 1 B codes + 64 × 64 × 2 B × 2 (bf16 scales and
+  biases) ≈ **0.14 MiB per layer-step**, × 30 = **4.2 MiB/step** =
+  **7.3 M5 µs/step**.
+- Family E costs **124.0 M5 µs/step**. ⇒ **gate_sp runs at ~6 % of the DRAM
+  ceiling** — the one family in the census nowhere near its byte wall, which is
+  exactly why 105.16's N-BYTES-EVERYWHERE verdict does not close it.
+- Tanjiro's dose data agrees from the other side: E's 8.27 M4 µs/dispatch =
+  0.98 bytes + 0.04 issue + **88 % other**.
+- 124.0/30 = **4.13 M5 µs per dispatch**, bracketed by rule 65's 2.3403 M5
+  added-dispatch price and frieren's §11.3 empty-kernel floor of 6.30–6.61 M4
+  (≈3.1–3.3 M5 at β). **Family E essentially *is* its dispatch overhead.**
+- Cross-check: frieren's §11.4 drain term scaled 39 → 30 dispatches is
+  0.61–0.70 %, and A + drain = **1.68–1.77 % = route B**. Two independent
+  constructions agree at ≈1.7 %.
+
+**Route C is the outlier and must be reconciled** (assigned to tanjiro, #663).
+The candidate explanation is a conversion factor: E's non-byte time is
+(8.27 − 0.98 − 0.04) × 30 = **217.5 M4 µs/step**, which is 4.14 bars at β = 0.5
+and 2.21 bars at `k_issue` = 0.267; 1.89 bars implies k ≈ 0.23 for a family
+classified **LATENCY**. If that is the error, C collapses into B.
+
+**Reporting discipline until it is reconciled:** headline **0.756 %**, quote
+**1.069 %** as the dispatch-count central, and state **1.7–1.8 %** as the
+recovery ceiling with its byte floor. At 1.7 % this single merge is within one
+further lever of the record gap; at 0.756 % no draw should be planned around it.
+
+##### (h) The one risk not resolvable from source
+
+The Metal compiler allocates the **union** of the two branches' register
+maxima. QKV holds `x_thread[16]` + `sb[4]`; gate holds `x[8]` + `r[4]`. If the
+union lowers QKV occupancy you lose on 5120 threadgroups to win on 8 — a
+catastrophic asymmetry. **Measure QKV-tile time and reflection register/spill
+counts before and after**, and treat a register increase as a stop-and-redesign
+signal, not a cost to absorb.
+
+
+
 
 ## 9. σ table (rule 40 — pick your estimator, then quote its floor)
 
