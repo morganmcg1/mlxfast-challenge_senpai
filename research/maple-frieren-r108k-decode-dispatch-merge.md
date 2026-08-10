@@ -999,10 +999,11 @@ not describe the region as "free" on this evidence — "cheap, and cheap enough 
 40-dispatch deletion cannot pay for much" is what both support.
 
 The consequence for rule 105.23(f) is therefore **not** that the merge is refuted. It is that
-the merge's dispatch-count justification is worth ≈0.15 % of score rather than ≈0.63 %, and
-whether that clears the rule-65 price is the advisor's call under comment 6's middle branch.
-§2.7's Stage-1 recommendation should be re-read with `0.15 %` substituted for its assumed
-prize, not discarded.
+the merge's dispatch-count justification is worth roughly a quarter of the ≈0.63 % of score
+the assumption implied (§3.5 for the measured figure and its interval), and whether that
+clears the rule-65 price is the advisor's call under comment 6's middle branch. §2.7's
+Stage-1 recommendation should be re-read with the measured prize substituted for the assumed
+one, not discarded.
 
 Separately, and independent of that call: *dispatch count* is not where the budget is.
 Anything that reduces the ≈2.9 GB moved per token, or that removes a *false* hazard (see
