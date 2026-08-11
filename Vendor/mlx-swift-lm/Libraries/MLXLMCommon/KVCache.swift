@@ -354,6 +354,7 @@ public class KVCacheSimple: BaseKVCache, CustomDebugStringConvertible {
             self.keys = keys
             self.values = values
             self.offset = tokenCount
+            fusedAppendBackingKnownContiguous = false
             return (keys, values)
         }
 
@@ -386,6 +387,7 @@ public class KVCacheSimple: BaseKVCache, CustomDebugStringConvertible {
                 self.keys = newK
                 self.values = newV
             }
+            fusedAppendBackingKnownContiguous = true
         }
 
         self.offset += tokenCount
@@ -408,13 +410,9 @@ public class KVCacheSimple: BaseKVCache, CustomDebugStringConvertible {
     // for one more row (i.e. after the first decode step's stock growth
     // concat), so the growth/reset branches above are provably not taken.
 
-    /// Tracks the one-time contiguization of the backing arrays; in-place
-    /// kernel writes require row-contiguous backings (a non-contiguous
-    /// backing would be copied per step by `ensureRowContiguous` and the
-    /// slot writes lost). After the first decode step's growth concat the
-    /// backings are concat outputs and already contiguous; `contiguous()`
-    /// is then an identity-value op.
-    private var fusedAppendContiguized = false
+    /// Internal allocations and concatenations produce row-contiguous
+    /// backings. Restored or directly retained arrays remain untrusted.
+    private var fusedAppendBackingKnownContiguous = false
 
     /// Append state for the fused decode attention kernel, or nil when the
     /// backing has no spare row (growth would be required — the stock path
@@ -426,10 +424,10 @@ public class KVCacheSimple: BaseKVCache, CustomDebugStringConvertible {
             offset + 1 <= currentKeys.dim(2),
             currentValues.dim(2) == currentKeys.dim(2)
         else { return nil }
-        if !fusedAppendContiguized {
+        if !fusedAppendBackingKnownContiguous {
             keys = contiguous(currentKeys)
             values = contiguous(currentValues)
-            fusedAppendContiguized = true
+            fusedAppendBackingKnownContiguous = true
         }
         return (keys!, values!, offset)
     }
@@ -459,6 +457,7 @@ public class KVCacheSimple: BaseKVCache, CustomDebugStringConvertible {
             self.keys = newValue[0]
             self.values = newValue[1]
             self.offset = self.keys!.dim(2)
+            fusedAppendBackingKnownContiguous = false
         }
     }
 
