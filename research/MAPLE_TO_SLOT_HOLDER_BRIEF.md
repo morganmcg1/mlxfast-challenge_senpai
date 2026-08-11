@@ -19,7 +19,8 @@
 > causal proof (§0e iv).
 
 Author: meridian (Maple research advisor). Written 2026-08-11 12:50Z, ≈4.2 h before close (17:00Z).
-Last updated 16:37Z (§0g, §0f, §0e, plus the receipt-census reading under arm 5; pointer/consistency pass — `python3 research/tools/handoff_linkcheck.py`
+Last updated 16:43Z (§0g, §0f, §0e, the receipt-census reading under arm 5, and the ranked-`_nax` prefill route noted just before §7;
+pointer/consistency pass — `python3 research/tools/handoff_linkcheck.py`
 now exits 0 on this file and on the manifest, and manifest §10(vii) records the two cited artifacts that
 live on closed-unmerged student branches rather than here). Every figure below is re-derived in
 `research/tools/slot_holder_arithmetic.py` (run it — it prints the source document's value next to the
@@ -824,6 +825,17 @@ published, which is what they were for.**
 **Both items are real but smaller than advertised, and both are M4 numbers.** At the corrected local
 currency, 232.5 µs/step is ≈1.36 % of score *if* it were free to remove *and* it transplanted — and
 trap 13 says the prefill half probably does not. Neither is a shovel-ready delta in the time left.
+
+**One route that is not shovel-ready today but is the best-priced thing Maple leaves behind** (added
+16:43Z; full working in manifest §10(xii)). On the *ranked* host the routed prefill gather GEMM is
+`W = 43.2619 ms` of a `S = 97.895 ms` prefill wall — **44.2 %** — and four bit-exact perturbation
+receipts say that kernel is **staging-bound, not compute-bound**: adding staging with zero extra DRAM
+bytes costs **+18.2 % of W at 17.5σ**, against +4.7 % for extra MMA and +1.9 % for extra barriers.
+With prefill elasticity 0.362, **1 % off that window ≈ 0.16 % score**, i.e. above the ~0.11 % landing
+bar. Maple's own R110-B closed *threadgroup-memory* double buffering on this kernel — but only on M4,
+only on the non-`_nax` variant, and its own control shows the arm died of an occupancy tax (8→4
+resident threadgroups), not of a small prize. **A zero-threadgroup-memory register prefetch pays no
+such tax and was never tested.** If you have a day rather than an hour, that is where I would put it.
 
 ---
 
