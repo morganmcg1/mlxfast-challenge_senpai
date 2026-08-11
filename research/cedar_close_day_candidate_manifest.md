@@ -1,28 +1,43 @@
 # Cedar close-day candidate manifest
 
-Status: **INCONCLUSIVE — C3 composition claim falsified; no official submission dispatched**
+Status: **INCONCLUSIVE — C1/C2/C3 are historical and superseded; C3 composition claim remains falsified; no official submission dispatched**
 
-This manifest freezes the three close-day candidates named by the assignment. It is an audit record, not permission to bypass the official queue. C3 fails the assignment's exact composition predicate and is not safe to dispatch from this manifest.
+This manifest preserves the three close-day candidate identities named by the assignment. N1 is now the live official leader, so C1, C2, and C3 are historical, superseded, and non-dispatchable. This audit record is not dispatch authority and cannot authorize any candidate or bypass frontier synchronization and queue controls.
 
-## Authoritative bases
+## Authoritative bases and cutoff
 
-- Frozen official comparison base: `1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7`
+- Frozen official comparison base used by the historical audit: `1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7`
   - tree: `99cd398dc28b424c1e2bb766d210affa58f17d54`
-- Assigned advisor base: `60dcb0e765608f4f0ca0ec1bb7bfae1a957fe0a4`
+- Assigned advisor base used by the historical audit: `60dcb0e765608f4f0ca0ec1bb7bfae1a957fe0a4`
   - tree: `687dd28a4b82afe6335108d39251da22230c627a`
-- Current ranked leader: `cc6ddc1`, score `2.61650354381456`
+- Current fetched advisor ref at the r3 cutoff: `56627049c538474747297c8345a3a59260bf5226`
+  - tree: `0eb8732a0a2d6469ac6139a3cf48a346eca575a3`
+- Live official leader N1:
+  - receipt: `cdcd0918-0002-45b0-a14b-81f34c40a398`
+  - organizer commit: `4ea72c3b28873fca23b12b6f33193a2eeb5042f8`
+  - score: `2.6195531094824`
+  - decode: `203.93695 tok/s`, `2.823562x`
+  - prefill: `5314.29504 tok/s`, `2.091784x`
 
-Submitted-surface deltas and budgets below are measured against the frozen official base. The submission contract is identical at both bases, but the advisor base already changes submitted `LagunaRuntimeModel.swift`: atlas kernel `v2` becomes `v3_tg128`, its copy/dispatch geometry changes from 512 to 128 threads, and `decodeAtlasPosition` is computed once and reused. It also contains comment-only byte reclaim plus non-submitted research, harness-verification, and test changes. Candidate mechanism ownership therefore must be judged in advisor-base context; frozen-base comparison alone includes inherited atlas executable work.
+Submitted-surface deltas and budgets below are historical measurements against the frozen official base. The submission contract was identical at the frozen and assigned bases, but the assigned advisor base already changed submitted `LagunaRuntimeModel.swift`: atlas kernel `v2` became `v3_tg128`, its copy/dispatch geometry changed from 512 to 128 threads, and `decodeAtlasPosition` was computed once and reused. It also contained comment-only byte reclaim plus non-submitted research, harness-verification, and test changes. Historical mechanism ownership therefore must be judged in assigned-advisor-base context; frozen-base comparison alone includes inherited atlas executable work.
 
-## Candidate inventory
+## N1 frontier and authority boundary
 
-| Candidate | PR | Immutable head | Tree | Submitted delta from frozen base | Budget verdict |
+N1's promoted snapshot changes seven submitted files. That snapshot must be adopted whole, and only after the reviewed fork-main synchronization lands. This r3 documentation correction does not import, reconstruct, validate, or authorize that snapshot; the named organizer object was not available in this checkout during the bounded static check. No official submission from any stale base is permitted.
+
+N1 is executable-identical to an earlier rejected official receipt except for a comment. The accepted N1 receipt is therefore authoritative ranking evidence, but the official outcome variance is not clean causal proof that the comment or any executable mechanism caused the promotion.
+
+C1/C2/C3 deterministic audit work has no W&B run. Ranked context remains [`7ep17pqq`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/7ep17pqq) and [`ut3wdjct`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/ut3wdjct). N1 has official receipt evidence only and no W&B run.
+
+## Historical candidate inventory — superseded and non-dispatchable
+
+| Candidate | PR | Historical immutable head | Tree | Submitted delta from frozen base | Budget verdict |
 |---|---:|---|---|---|---|
 | C1 | #720 | `aa152d6102b191adaaa9e95e8374d08e5a5e83c2` | `4eb3888cf226e184b0d512319183896ef638df60` | `Sources/MLXFastModel/LagunaRuntimeModel.swift` | PASS: 2,984,323 / 3,000,000 bytes; 15,677 headroom; +474 / 262,144 growth; 142 files |
 | C2 | #721 | `5b5e73a469a636f28f37a8857b3f58c3bc27f620` | `e266fb28a3db32af72ea0e8a27784d1e2988c18d` | C1 file plus `Sources/MLXFastModel/LagunaLmHeadPrune.swift` | PASS: 2,997,654 / 3,000,000 bytes; 2,346 headroom; +13,805 / 262,144 growth; 142 files |
 | C3 | #722 | `fb8b4194d669e9122bf93f2d985439001abb31dc` | `a453d532f6d8b46d384a442b7cd89135e4e62c59` | C2 files plus `Sources/MLXFastModel/LagunaOProjGeometry.swift` | PASS: 2,999,925 / 3,000,000 bytes; 75 headroom; +16,076 / 262,144 growth; 143 files |
 
-The r2 read-only head check found PR #720 at `aa152d6102b191adaaa9e95e8374d08e5a5e83c2`, PR #721 at `5b5e73a469a636f28f37a8857b3f58c3bc27f620`, and PR #722 at `fb8b4194d669e9122bf93f2d985439001abb31dc`. C1 implementation commit `3d4b6bfeef2f68b4976d9a7c84561bb771377e8b` is superseded as the PR/dispatch head, although its submitted runtime payload remains the verified C1 payload. All submitted files satisfy the 524,288-byte per-file ceiling; the largest is the C1/C2 runtime at 511,892 bytes.
+The r2 read-only head check found PR #720 at `aa152d6102b191adaaa9e95e8374d08e5a5e83c2`, PR #721 at `5b5e73a469a636f28f37a8857b3f58c3bc27f620`, and PR #722 at `fb8b4194d669e9122bf93f2d985439001abb31dc`. C1 implementation commit `3d4b6bfeef2f68b4976d9a7c84561bb771377e8b` is superseded as the PR head, although its submitted runtime payload remains the verified historical C1 payload. All submitted files satisfy the 524,288-byte per-file ceiling; the largest is the C1/C2 runtime at 511,892 bytes. These preserved identities are audit evidence, not live dispatch candidates.
 
 ## Submitted-file identities
 
@@ -35,7 +50,7 @@ The r2 read-only head check found PR #720 at `aa152d6102b191adaaa9e95e8374d08e5a
 | C3 | `Sources/MLXFastModel/LagunaLmHeadPrune.swift` | 60,069 | `3068171860a61e3d6de611215922866babe77d6b5f59acb061d59c2e48907db4` | `7738d670b5570159284aae626b5a5b63c08f371e` |
 | C3 | `Sources/MLXFastModel/LagunaOProjGeometry.swift` | 7,035 | `6145acfbfd3c08aed9850ef0d87327d80875467a8bee33cfcb5d0140cf8bfadb` | `ae47f9911a7d8372cd14eecaaaaf58425fb32ea2` |
 
-Tree hashes and SHA-256 values are the dispatch identities. A dispatcher must not rebuild, cherry-pick, amend, or otherwise synthesize a replacement candidate.
+Tree hashes and SHA-256 values preserve the historical audit identities. They do not authorize dispatch, reconstruction, cherry-picking, amendment, or synthesis of a replacement candidate.
 
 ## Composition audit
 
@@ -54,7 +69,7 @@ Current C1 commit `aa152d6102b191adaaa9e95e8374d08e5a5e83c2` is a two-parent mer
 
 Verdict: **PASS — C2 is exactly C1 plus organizer row-32 on the submitted surface.**
 
-Routing caveat: the immutable C2 is not a synthesized “row-32-only” candidate; it retains C1's shared-R1 runtime. Do not remove shared-R1 or create a new commit under this manifest. Dispatch C2 only when the advisor's Gate B decision explicitly selects this exact head.
+Historical routing caveat: the immutable C2 was not a synthesized “row-32-only” candidate; it retained C1's shared-R1 runtime, and its prior Gate B route required the exact audited head. N1 now supersedes that route: do not dispatch C2, remove shared-R1, or create a replacement commit under this manifest.
 
 ### C3: exact composition claim falsified
 
@@ -84,53 +99,48 @@ git diff --name-status 1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7..<candidate-head
 
 Frozen-base payload hashes and budgets remain valid, but executable ownership must be assessed against advisor base `60dcb0e765608f4f0ca0ec1bb7bfae1a957fe0a4`.
 
-## External gates and dispatch checklists
+## Historical gate context and no-dispatch checklist
 
-Global prerequisites for every candidate:
+Global disposition:
 
-- [ ] The official queue explicitly authorizes this exact candidate.
-- [ ] The PR head still equals the immutable head in this manifest.
-- [ ] The commit tree still equals the recorded tree.
-- [ ] Every submitted file matches the recorded SHA-256 identity.
-- [ ] The budget remains PASS against frozen base `1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7`.
-- [ ] The dispatcher submits the existing commit without amendment, reconstruction, or additional files.
+- [x] N1 is the live official leader; C1, C2, and C3 are historical and superseded.
+- [x] This manifest is evidence only and is not dispatch authority.
+- [x] No official submission from the frozen base, assigned advisor base, or any other stale base is permitted.
+- [ ] N1's seven submitted files may be adopted only as one reviewed snapshot after fork-main synchronization lands; this manifest does not complete that work.
+- [ ] Any later candidate requires a fresh assignment base, current-frontier validation, and independent queue authorization outside this manifest.
 
-### C1 / PR #720
+### Historical C1 / PR #720
 
-- Purpose: Gate B shared-R1 measurement candidate.
-- External gate: none beyond queue authorization for measuring Gate B; its resulting raw decode determines the next route.
-- Decision threshold: raw candidate decode `<= ~4.867 ms/token` selects the C1 lineage.
-- [ ] Global prerequisites complete.
-- [ ] Queue authorization explicitly names C1 / PR #720 / head `aa152d6102b191adaaa9e95e8374d08e5a5e83c2`.
+- Prior purpose: Gate B shared-R1 measurement candidate.
+- Prior decision threshold: raw candidate decode `<= ~4.867 ms/token` would have selected the C1 lineage.
+- Preserved head: `aa152d6102b191adaaa9e95e8374d08e5a5e83c2`.
 
-Dispatch verdict: **structurally safe only after the checklist passes.**
+Current disposition: **SUPERSEDED — do not dispatch.**
 
-### C2 / PR #721
+### Historical C2 / PR #721
 
-- Purpose: held exact C1-plus-row-32 fallback.
-- External gate: Gate B routing must explicitly select this exact C2 head; parity language must not be interpreted as permission to synthesize a row-32-only variant.
-- [ ] Global prerequisites complete.
-- [ ] Gate B result and advisor route explicitly name C2 / PR #721.
-- [ ] Queue authorization explicitly names head `5b5e73a469a636f28f37a8857b3f58c3bc27f620`.
+- Prior purpose: held exact C1-plus-row-32 fallback.
+- Prior routing condition: Gate B parity would have selected this exact C2 head, never a synthesized row-32-only variant.
+- Preserved head: `5b5e73a469a636f28f37a8857b3f58c3bc27f620`.
 
-Dispatch verdict: **structurally safe only when the exact-head routing caveat and checklist pass.**
+Current disposition: **SUPERSEDED — do not dispatch.**
 
-### C3 / PR #722
+### Historical C3 / PR #722
 
-- Intended purpose: selected C2 lineage plus Maple o_proj.
-- External Gate A (`<= 4.905 ms/token`) and lineage selection cannot cure the failed exact-composition predicate.
-- [x] Hard stop: C3 retains default-on `gate_sp` and contains unrelated submitted-source churn.
-- [ ] Do not authorize or dispatch C3 from this manifest, even if the immutable head, hashes, budget, queue, and external gates otherwise pass.
+- Prior intended purpose: selected C2 lineage plus Maple o_proj after external Gate A (`<= 4.905 ms/token`).
+- Preserved head: `fb8b4194d669e9122bf93f2d985439001abb31dc`.
+- [x] Independent hard stop: C3 retains default-on `gate_sp` and contains unrelated submitted-source churn.
 
-Dispatch verdict: **NOT SAFE — the assignment's C3 composition predicate is false.**
+Current disposition: **FAIL AND SUPERSEDED — do not dispatch regardless of gates or queue state.**
 
 ## Stopping conditions and evidence limits
 
-- The falsified C3 composition claim triggered the assignment's hard stop; the overall result is inconclusive and this manifest grants no dispatch authorization.
-- C1 and C2 payload identities remain documented, including the C2 full-tree and ancestry caveats, but their external routing gates and official queue authorization remain unresolved here.
+- The falsified C3 composition claim triggered the original assignment's hard stop; that FAIL remains preserved.
+- N1's accepted receipt supersedes C1, C2, and C3. Their exact payload identities, budgets, composition evidence, and ancestry caveats remain historical audit evidence only.
+- This manifest grants no dispatch authorization. A request to submit any C1/C2/C3 head, use a stale base, extract only part of N1's seven-file snapshot, or reconstruct a candidate is a hard stop.
+- N1 adoption requires the complete promoted snapshot through reviewed fork-main synchronization, followed by fresh current-frontier assignment and validation outside this manifest.
 - No official candidate was submitted while producing this manifest.
-- No model benchmark, W&B run, or GPU job was required or launched; this assignment is an immutable source/tree/budget audit.
-- A failed external gate, moved PR head, hash mismatch, budget failure, missing queue authorization, false composition claim, or request to reconstruct a candidate is a hard stop.
-- Official M5 correctness and timing remain authoritative; this manifest records verified identities and the failed C3 predicate, not hidden-gate success or performance.
+- No model benchmark, W&B run, or GPU job was required or launched; this assignment is a static source/tree/budget and authority audit.
+- Official M5 correctness and timing remain authoritative. N1's accepted receipt establishes the live ranking cutoff, but variance from its executable-identical rejected predecessor is not clean causal evidence.
 
 _This audit record was generated by an AI agent (OpenHands) on behalf of the Senpai research campaign._
