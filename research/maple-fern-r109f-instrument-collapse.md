@@ -1069,9 +1069,21 @@ public receipt list; nothing here is a transcribed number I cannot regenerate.
 
 | run | what it holds |
 |---|---|
-| [`fern-r109f-instrument-collapse`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/ye5blpir) | per-leg mean/sd/cv, the 0.1649 % code-spread ceiling, the receipts-per-arm power table, and all three retractions with corrected numbers |
-| [`fern-r109f-crown-lottery`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/fwgg927q) | the draw-factor CDF, p(crown)/shot, crown code-rank vs luck-rank, and the elasticity table |
-| [`fern-r109f-arms`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/nljka6ol) | the local 2×2 arm ledger and every ranked receipt with normalized score and draw factor in separate columns |
+| [`fern-r109f-instrument-collapse`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/0u4takrf) | per-leg **robust** median/sd/cv with the plain moments and a `tail_inflation_x` column beside them (§5.3i), the 0.2393 % robust code-spread ceiling *and* the 1.7131 % plain one it replaced, the k=3 identical-executable gauge to 3 df with receipts-per-arm on every leg (`leg_gauge_k3`), the `MLX_SDPA_BLOCKS` local sweep, the host-drift control, the receipts-per-arm power table on both estimators, and **seven** retractions/corrections with corrected numbers |
+| [`fern-r109f-crown-lottery`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/s3a9sx43) | the draw-factor CDF, p(crown)/shot, crown code-rank vs luck-rank, and the elasticity table |
+| [`fern-r109f-arms`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/rs84aixl) | the local 2×2 arm ledger and every ranked receipt with normalized score and draw factor in separate columns |
+
+> **On run ids.** `wandb.init(name=…)` with no fixed `id` mints a fresh run on
+> every publication, so these URLs are the *current* triple and supersede two
+> earlier ones (`ye5blpir`/`fwgg927q`/`nljka6ol`, then `b7wax52n`/`113mldwe`/`c5wmpui4`).
+> The project also contains one crashed run, `f9wyuoxq`: it died in
+> `wandb.Table.add_data` because the host-drift dict mixes numbers with a verdict
+> string, and a table column is strongly typed by its first row. Fixed by
+> splitting `value` into `value_num`/`value_text` (and by making the
+> `mlx_sdpa_blocks` column text, since its first two rows leave the env var
+> unset and a `None` first row types the column as `NoneType`). I am naming the
+> dead run rather than deleting it because the ids in this table are only
+> trustworthy if the ones that failed are accounted for too.
 
 **Tools.** The three runs are all produced by
 `research/fern_r109f_wandb_campaign.py`, which recomputes from the receipt cache
@@ -1100,6 +1112,22 @@ matter most, so their provenance is spelled out):
 | `research/artifacts/fern-r109f/ab/score.sdpablocks-*.json` (8 files) | the sealed local sweep behind CORRECTION 5 (local decode cv ≈0.35 %) and behind the `MLX_SDPA_BLOCKS` null; every file carries `passed: true` and golden `b9509697c08a2cf3` |
 | `research/artifacts/fern-r109f/notes/ticket7-preregistered-note.md` | the ticket-7 prediction, registered *before* the receipt was fired |
 | git tags `pkg-t1`…`pkg-t6` | the identical-executable claim, verifiable offline: `git diff pkg-t4 pkg-t5` and `git diff pkg-t5 pkg-t6` add **zero** non-comment lines |
+
+**Local-only git objects, and what should happen to them.** Three things exist
+in this worktree that a reviewer cloning the branch will *not* see, so they are
+listed here rather than left as folklore:
+
+| object | contents | disposition |
+|---|---|---|
+| tags `pkg-t1`…`pkg-t6`, `pkg-e27f1ce`, `pkg-25e1f18`, `pkg-myat` | the exact package commits the official submitter built, fetched by full sha from `origin` | **keep** — they are what makes the comment-only-delta claim checkable, and they are cheap. A reviewer can recreate any of them with `git fetch origin <sha> && git tag pkg-tN <sha>` using the shas in `research/maple-fern-official-receipt-ledger.md` |
+| tag `senpai-recovery/maple-fern-r109-premerge-20260811-0324` | my line's tip immediately before merging `origin/maple-fern/r109-integration-and-submission` back in | **keep until the branch is published**, then disposable. It exists only so the merge is reversible |
+| branches `fern-r109f-ab-forkmain` (`8fdfb2a1`), `fern-r109f-ab-atlasv3` (`6d7d6671`) | the two local A/B arms of §5.2's 2×2 ledger — fork-main-as-of-`1bc1c895`, and atlas v3 with `lagunaRouterWeightPrefetch` varied | **do not merge, do not publish.** Their *numbers* are already in the 2×2 table and their sealed `score.local-iterate.json` outputs are archived under `research/artifacts/fern-r109f/ab/`. The branches themselves are throwaway build scaffolding, and one of them (`fern-r109f-ab-forkmain`) deliberately *reverts* the shipped package to fork main, so merging it would be a regression. The only arm worth carrying forward — atlas v3 — is already on the submission line as `pkg-t4`…`pkg-t6` |
+
+I am recording this explicitly because "there is a branch somewhere with the
+good version on it" is exactly the kind of claim that survives a campaign and
+then wastes somebody's afternoon. There isn't one. Everything shippable is on
+`maple-fern/r109-integration-and-submission`, and everything else is a
+measurement.
 
 **A note on separating the two columns.** The single most useful habit this
 campaign produced is refusing to log a published score without logging its

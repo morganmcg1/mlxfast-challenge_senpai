@@ -711,13 +711,27 @@ def run_instrument_collapse(wandb, rows, cache, dry):
             a["receipts_at_0.30pct"],
             a["receipts_at_0.50pct"],
         )
+    # `mlx_sdpa_blocks` is text, not a number: the first two rows leave the env
+    # var unset, and a wandb.Table column whose first row is None types itself as
+    # NoneType and then rejects every later integer.
     stab = wandb.Table(columns=["label", "mlx_sdpa_blocks", "decode_us", "delta_pct"])
     base_us = LOCAL_SWEEP[0][2]
     for label, blocks, us in LOCAL_SWEEP:
-        stab.add_data(label, blocks, us, 100.0 * (us - base_us) / base_us)
-    dtab = wandb.Table(columns=["quantity", "value"])
+        stab.add_data(
+            label,
+            "unset" if blocks is None else str(blocks),
+            us,
+            100.0 * (us - base_us) / base_us,
+        )
+    # NOTE: a wandb.Table column is strongly typed by its first row, so a dict
+    # that mixes numbers with a verdict string cannot share one `value` column.
+    # Keep them apart rather than stringifying the numbers away.
+    dtab = wandb.Table(columns=["quantity", "value_num", "value_text"])
     for k, v in DRIFT.items():
-        dtab.add_data(k, v)
+        if isinstance(v, (int, float)):
+            dtab.add_data(k, float(v), "")
+        else:
+            dtab.add_data(k, None, str(v))
     run.log(
         {
             "leg_noise": lt,
