@@ -1,8 +1,8 @@
 # Cedar close-day candidate manifest
 
-Status: **audit complete; no official submission dispatched**
+Status: **INCONCLUSIVE — C3 composition claim falsified; no official submission dispatched**
 
-This manifest freezes the three close-day candidates named by the assignment. It is an audit record, not permission to bypass the official queue. Every dispatch still requires explicit queue authorization and the applicable external gate below.
+This manifest freezes the three close-day candidates named by the assignment. It is an audit record, not permission to bypass the official queue. C3 fails the assignment's exact composition predicate and is not safe to dispatch from this manifest.
 
 ## Authoritative bases
 
@@ -12,7 +12,7 @@ This manifest freezes the three close-day candidates named by the assignment. It
   - tree: `687dd28a4b82afe6335108d39251da22230c627a`
 - Current ranked leader: `cc6ddc1`, score `2.61650354381456`
 
-Submitted-surface deltas and budgets below are measured against the frozen official base. The assigned advisor base contains research/support changes and a comment-only byte reclaim, so branch ancestry alone is not used as composition evidence.
+Submitted-surface deltas and budgets below are measured against the frozen official base. The submission contract is identical at both bases, but the advisor base already changes submitted `LagunaRuntimeModel.swift`: atlas kernel `v2` becomes `v3_tg128`, its copy/dispatch geometry changes from 512 to 128 threads, and `decodeAtlasPosition` is computed once and reused. It also contains comment-only byte reclaim plus non-submitted research, harness-verification, and test changes. Candidate mechanism ownership therefore must be judged in advisor-base context; frozen-base comparison alone includes inherited atlas executable work.
 
 ## Candidate inventory
 
@@ -48,37 +48,40 @@ C1 changes exactly one submitted file relative to the frozen official base: `Lag
 - C1 and C2 have byte-identical runtime files.
 - The complete submitted-surface C1-to-C2 diff is one file: `LagunaLmHeadPrune.swift` (`+354/-14`).
 - C2's `LagunaLmHeadPrune.swift` is byte-identical to organizer row-32 commit `0101733e2d3c2629a04d86c24f236a43ef38bc33` (same git blob `7738d670b5570159284aae626b5a5b63c08f371e`).
+- The full-repository C1-to-C2 diff additionally changes non-submitted `research/CURRENT_RESEARCH_STATE.md`.
+- C1 is not an ancestor of C2; C2 is a separate merge commit. The composition verdict concerns submitted payload identity, not literal lineage or whole-tree identity.
 
 Verdict: **PASS — C2 is exactly C1 plus organizer row-32 on the submitted surface.**
 
 Routing caveat: the immutable C2 is not a synthesized “row-32-only” candidate; it retains C1's shared-R1 runtime. Do not remove shared-R1 or create a new commit under this manifest. Dispatch C2 only when the advisor's Gate B decision explicitly selects this exact head.
 
-### C3: C2 plus Maple o_proj, with audited byte reclaim
+### C3: exact composition claim falsified
 
-- C3 retains C2's exact row-32 file.
-- C3's `LagunaOProjGeometry.swift` is byte-identical to the Maple PR #707 source candidate.
-- The complete submitted-surface C2-to-C3 diff touches only `LagunaRuntimeModel.swift` and the added `LagunaOProjGeometry.swift`.
-- Every executable runtime hunk is attributable to Maple o_proj geometry: o_proj rows-per-simdgroup/simdgroup constants and result initialization, pipeline suffix selection, and matching gated/activated o_proj guard tiles, grids, and threadgroups.
-- The other runtime differences are comment deletion or blank-line preservation from the advisor's 5,310-byte comment-only reclaim (2,892-byte receipt nonce ledger plus 2,418 bytes of catalogued comments). They do not alter executable behavior.
-- An explicit scan found no `gate_sp` mechanism in C3.
+- The complete C2-to-C3 tree delta contains exactly two submitted paths: added `LagunaOProjGeometry.swift` (135 lines) and modified `LagunaRuntimeModel.swift` (`+89/-79`).
+- The o_proj geometry mechanism is present and defaults to rows-per-simdgroup `2` and simdgroups `2`, but remains environment-tunable rather than exclusively pinned.
+- Contrary to the required predicate, `gate_sp` remains present and default-on in C3 through `DARKBLOOM_AFFINE_GATE_SOFTPLUS`; the scored attention path invokes its dispatcher, and activated-o_proj selection depends on it. This mechanism was inherited from C2 rather than newly added by C3, but C3 therefore does not satisfy “no gate_sp mechanism.”
+- The runtime delta also removes 68 comment lines and adds 69 blank lines outside the substantive geometry edits, including allocation documentation, an official replay nonce, and the active64 receipt history. This is non-executable churn, but it is unrelated submitted-source delta.
+- No unrelated executable mechanism was apparent in the direct C2-to-C3 diff.
 
-Verdict: **PASS at executable/source-hunk level — C3 is C2 plus Maple o_proj, with disclosed comment-only byte reclaim and no hidden gate_sp mechanism.** Exact byte-level patch replay from Maple's older base is not claimed because the base contexts differ.
+Verdict: **FAIL — C3 is not an exact clean C2-plus-Maple-o_proj snapshot under the assignment predicate.** The stopping rule applies regardless of external Gate A or queue state.
 
-## Inherited non-submitted changes
+## Inherited advisor-base changes
 
-All three candidates inherit the same non-submitted executable/support changes relative to the frozen base:
+All three candidates inherit a submitted runtime change relative to the frozen base in `Sources/MLXFastModel/LagunaRuntimeModel.swift`: the atlas kernel moves from `v2` to `v3_tg128`, copy/dispatch geometry moves from 512 to 128 threads, and `decodeAtlasPosition` is computed once and reused. This executable work belongs to the advisor base, not C1/C2/C3.
+
+They also inherit common non-submitted support changes in:
 
 - `Sources/MLXFastHarness/TransformVerification.swift`
 - `Sources/MLXFastTrustedHarness/TransformVerification.swift`
 - `Tests/MLXFastTests/TransformTests.swift`
 
-They also inherit research-only evidence under `research/` and `senpai/research-frontier-briefing.md`. That material includes current-state and idea ledgers; candidate audit reports, manifests, and validators; host census and M4/M5 calibration evidence; decode vector-lifetime and local Amdahl studies; ranked promotion, payload, environment, weight, AOT, authority, and selector audits; prefill attribution; submitted-surface reclamation; and transform-coverage records.
-
-These files are outside the submitted surface and do not change the candidate payloads. The exact inherited research/support inventory remains mechanically recoverable with:
+Research-only evidence under `research/` and `senpai/research-frontier-briefing.md` is likewise non-submitted. The exact inherited research/support inventory remains mechanically recoverable with:
 
 ```bash
 git diff --name-status 1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7..<candidate-head> -- research/ senpai/ Sources/MLXFastHarness/ Sources/MLXFastTrustedHarness/ Tests/MLXFastTests/
 ```
+
+Frozen-base payload hashes and budgets remain valid, but executable ownership must be assessed against advisor base `60dcb0e765608f4f0ca0ec1bb7bfae1a957fe0a4`.
 
 ## External gates and dispatch checklists
 
@@ -113,21 +116,20 @@ Dispatch verdict: **structurally safe only when the exact-head routing caveat an
 
 ### C3 / PR #722
 
-- Purpose: selected C2 lineage plus Maple o_proj.
-- External Gate A: Maple o_proj raw candidate decode must be `<= 4.905 ms/token`.
-- External lineage gate: the advisor must have selected the C2 lineage before C3 dispatch.
-- [ ] Global prerequisites complete.
-- [ ] Gate A passes at `<= 4.905 ms/token`.
-- [ ] The C2 lineage is explicitly selected.
-- [ ] Queue authorization explicitly names C3 / PR #722 / head `fb8b4194d669e9122bf93f2d985439001abb31dc`.
+- Intended purpose: selected C2 lineage plus Maple o_proj.
+- External Gate A (`<= 4.905 ms/token`) and lineage selection cannot cure the failed exact-composition predicate.
+- [x] Hard stop: C3 retains default-on `gate_sp` and contains unrelated submitted-source churn.
+- [ ] Do not authorize or dispatch C3 from this manifest, even if the immutable head, hashes, budget, queue, and external gates otherwise pass.
 
-Dispatch verdict: **structurally safe only after Gate A, lineage selection, and the checklist pass.**
+Dispatch verdict: **NOT SAFE — the assignment's C3 composition predicate is false.**
 
 ## Stopping conditions and evidence limits
 
+- The falsified C3 composition claim triggered the assignment's hard stop; the overall result is inconclusive and this manifest grants no dispatch authorization.
+- C1 and C2 payload identities remain documented, including the C2 full-tree and ancestry caveats, but their external routing gates and official queue authorization remain unresolved here.
 - No official candidate was submitted while producing this manifest.
 - No model benchmark, W&B run, or GPU job was required or launched; this assignment is an immutable source/tree/budget audit.
-- A failed external gate, moved PR head, hash mismatch, budget failure, missing queue authorization, or request to reconstruct a candidate is a hard stop.
-- Official M5 correctness and timing remain authoritative; this manifest proves composition and payload identity, not hidden-gate success or performance.
+- A failed external gate, moved PR head, hash mismatch, budget failure, missing queue authorization, false composition claim, or request to reconstruct a candidate is a hard stop.
+- Official M5 correctness and timing remain authoritative; this manifest records verified identities and the failed C3 predicate, not hidden-gate success or performance.
 
 _This audit record was generated by an AI agent (OpenHands) on behalf of the Senpai research campaign._
