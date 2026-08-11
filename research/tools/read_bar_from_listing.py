@@ -106,6 +106,13 @@ def main(argv):
 
     if not readings:
         print("no adjudicated rows parsed from %s -- nothing to recover" % path)
+        print("  three things produce this, in descending order of likelihood:")
+        print("  1. the file is still being written (I hit this at 16:53Z reading a listing")
+        print("     one second after launching the command that produced it) -- re-read it;")
+        print("  2. every row is still in flight or `failed`, so no row carries a diff;")
+        print("  3. the column layout changed and the regex above needs updating.")
+        print("  %d line(s) scanned, %d row(s) matched as in-flight."
+              % (len(lines), len(in_flight)))
         return 2
 
     total = sum(status_counts.values())
