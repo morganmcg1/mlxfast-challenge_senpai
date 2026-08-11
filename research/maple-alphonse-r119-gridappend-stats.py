@@ -159,6 +159,8 @@ def main() -> int:
         if r and c:
             blocks.append(statistics.mean(c) - statistics.mean(r))
     interval(blocks, f"block deltas (one per pass of {args.passlen} runs)")
+    print("    individual blocks (us): "
+          + " ".join(f"{b*1e3:+.1f}" for b in blocks))
 
     print("  per-order breakdown (even pass = forward, odd pass = mirror):")
     for name, keep in (("forward", 0), ("mirror", 1)):

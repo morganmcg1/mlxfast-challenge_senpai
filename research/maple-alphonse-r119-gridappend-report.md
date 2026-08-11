@@ -39,10 +39,10 @@ Three results are worth more than the negative itself:
    `MTL::DispatchTypeConcurrent`
    (`Vendor/mlx-swift/.../backend/metal/device.cpp:548`), with barriers only on
    tracked hazards (`:315–375`). The router tournament and the two SwiGLU
-   kernels are true siblings with `dep_scope = NONE`, so **they already overlap
-   in hardware**. Grid-append therefore removes a *dispatch record*, not a
-   *serialization point*. §10b develops this into the proposed law
-   `L-ABSORPTION-NEEDS-AN-IDLE-HOST` and predicts the sign of the residual.
+   kernels are true siblings with `dep_scope = NONE`, so **no serialization
+   point sits between them**. Grid-append therefore removes a *dispatch record*,
+   not a *serialization point*. §10b develops this into the proposed law
+   `L-ABSORPTION-NEEDS-A-REAL-BARRIER` and predicts the sign of the residual.
 3. **Archive row C3 was right and its constant was right.** C3
    (`RESEARCH_ARCHIVE_through-round-91.md:4686`) de-staffed this exact fusion
    at 4.8 µs/step / 0.1231 µs per removed dispatch. The advisor's comment 4
@@ -380,6 +380,61 @@ Therefore I do **not** declare instrument failure. All headline estimators in
 negative control brackets zero, which is the direct empirical check that the
 tail is not confounding the comparison.
 
+### 7.2b Robustness — block structure and an estimator-free sign test
+
+A fair critic reading §7 will notice the most awkward fact in the table and I
+want to state it before anyone else has to: **on the block estimator the
+negative control's point estimate (+15.2) is larger than every single-instance
+treatment (F +10.0, H +7.3), and the joint arm's CI [+9.5, +17.7] lies entirely
+inside the control's CI [−16.9, +47.3].** Taken at face value that says my
+treatments are indistinguishable from a day when nothing changed.
+
+The resolution is visible in the individual block deltas, which I now print
+(`research/maple-alphonse-r119-gridappend-stats.py:162`):
+
+| arm | block deltas (µs/step, one per pass) | blocks > 0 | median of blocks |
+|---|---|---|---|
+| **N** | −6.7, −0.6, **+73.1**, −5.6, +6.3, +24.7 | 3/6 | +2.9 |
+| **F** | +10.0, +1.4, +1.8, +4.1, +6.0, **+36.8** | 6/6 | +5.1 |
+| **H** | +14.9, +19.0, +3.7, −1.4, +6.5, +1.3 | 5/6 | +5.1 |
+| **G** | +16.8, +11.9, +20.0, +11.2, +10.6, +10.9 | 6/6 | +11.6 |
+| **E** | +44.2, +46.1, +41.8, +30.8, +60.6, +41.5 | 6/6 | +43.0 |
+
+Two things follow.
+
+**The control's width is one block, not a property of the rig.** N's mean is
++15.2 only because of a single +73.1 block (the run-53 session); the other five
+average +3.6 and its median-of-blocks is +2.9. F carries a similar single
+excursion (+36.8). This is the mean/median gap the block estimator cannot see,
+and it is why the two robust estimators — median-of-blocks and the bootstrap
+median of per-run medians — agree closely and with each other across every arm
+(N +2.9/+2.2, F +5.1/+6.7, H +5.1/+4.4, G +11.6/+12.6, E +43.0/+41.1) while the
+mean-based block and Welch estimators do not. **I therefore nominate the robust
+pair as the headline for every arm uniformly, and keep block/adjacent-pair/Welch
+as the contract-required sensitivity analysis.** Applying a robust estimator to
+the control and a mean to the treatments would be exactly the cherry-pick this
+paragraph exists to forbid.
+
+**The sign test settles it without any estimator at all.** Under the null of no
+effect each block delta is positive with probability ½, so 6/6 positive is
+two-sided p = 2/64 = **0.031** and 5/6 is p = 0.22. G (6/6, minimum block
++10.6) and E (6/6, minimum +30.8) are distinguishable from null by this
+distribution-free test; **N (3/6, p = 1.0) is not**, and neither H (5/6) nor F
+(6/6 but with a min of +1.4 and one dominant block) carries an interesting
+magnitude. The joint arm is a real, small, consistently reproduced regression;
+the control is not.
+
+Robust headline picture, then: **null ≈ +3, each instance alone ≈ +5, joint
+≈ +12, positive control ≈ +43 µs/step.** Joint-minus-null is ≈ **+9 µs/step**,
+which remains a regression and remains ~74 µs/step away from the predicted
+−65.5.
+
+**Materiality.** +12 µs/step against the 12 876 µs/token ranked decode step
+measured on this host is **+0.09 % decode**, i.e. about −0.07 % of score at the
+0.75 decode weight. This is a small effect measured carefully, not a large one;
+the reason it matters is that the *prediction* was 5× larger and of the opposite
+sign, and that asymmetry is what the negative verdict rests on.
+
 ### 7.3 Pass 2 — decomposition (arm R) and the host-widening gate (arm W)
 
 **Source-level prediction, registered before reading the numbers.** MLX is
@@ -481,8 +536,11 @@ layer-2 C/E pair on the same `./benchmark.sh --local-iterate` instrument.
 This is the part of the result worth keeping regardless of the arm's fate,
 because it is a property of the MLX dispatch layer, not of my kernel.
 
-**MLX already runs true siblings concurrently, so there is no bubble to
-recover.** Verified in the vendored source in this checkout:
+**No serialization point sits between the sibling dispatches, so there is no
+bubble to recover.** I deliberately state it that way rather than "they already
+overlap in hardware": temporal co-residency is plausible but I did not observe
+it, and the weaker graph-structural claim is all the conclusion needs. Verified
+in the vendored source in this checkout:
 
 - `Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp:548` creates
   the encoder as
@@ -496,9 +554,16 @@ recover.** Verified in the vendored source in this checkout:
 The five decode MoE kernels therefore form barrier-delimited *stages*: a
 barrier before K2/K3/K4 (their input `normalized` was just written by K1), then
 **no barrier among K2, K3 and K4** because they share inputs and write disjoint
-outputs, then a barrier before K5. So **K2, K3 and K4 were already overlapping
-in hardware before I fused anything.** Grid-append removed a dispatch record,
-not a serialization point.
+outputs, then a barrier before K5. So **nothing separated K2, K3 and K4 before I
+fused anything.** Grid-append removed a dispatch record, not a serialization
+point.
+
+An independent corroboration worth stating: the fused arms pass the drift
+tripwire with `divergences=0` in all 60 runs. Metal guarantees no ordering
+between threadgroups of one grid, so a correct fused kernel that computes the
+router in tile 0 and the routed experts in tiles 1…256 is *itself* proof that K2
+and K3 have no ordering dependence — otherwise the fused arm would produce wrong
+tokens, not merely slow ones.
 
 That is precisely the `dep_scope = NONE` property from §3, and it cuts both
 ways: the sibling-only rule that makes the append *legal* is the same property
@@ -522,10 +587,14 @@ A simple model fits both R114-E and R119-A:
 | R119-A **F** (instance 2, same host) | **256** | 512 | +10.0 µs/step = **+0.256 µs/layer** | S ≈ 0 ⇒ p ≈ 0.50 ns/TG |
 | R119-A **G** (joint) | **256** | 513 | +13.6 µs/step = **+0.349 µs/layer** | S ≈ 0 ⇒ p ≈ 0.68 ns/TG |
 
-The three R119-A arms agree on a per-threadgroup fusion tax of roughly
-**0.5–0.7 ns/TG**, which is reassuringly consistent across three different
-fused grid sizes and is *small*. That consistency is the important part,
-because it isolates which term actually killed the arm.
+The three R119-A arms agree on a per-threadgroup fusion tax of **order 1 ns/TG**.
+I deliberately quote one significant figure. The implied values (0.50, 0.68,
+0.73) look precise but they are ratios of ~10 µs effects to a noise floor whose
+own control excursions reach 73 µs, and the positive control recovers only ~58 %
+of a nominal 76.8 µs effect — a rig that attenuates a known large effect by 40 %
+has not earned two significant figures on a small one. The load-bearing content
+is the *sign and order of magnitude*: the tax is small and positive, and it is
+not what killed the arm.
 
 **It is not the tax. It is `S`.** If the tax were the story, break-even
 against a real R114-E-sized bubble (`S ≈ 1.97 µs/layer`) would be
@@ -546,6 +615,65 @@ left 20 cores nearly idle, whereas R119-A absorbed a *sibling that was already
 running concurrently* into a host that already saturates the machine — so the
 numerator `S` went to zero while the denominator's tax stayed positive.
 
+**Why the 1.2382 µs/dispatch constant should never have been used as a floor.**
+This is the single most transferable thing in the report, so I want it stated
+sharply. A "per-dispatch cost" is not one number; it is a mixture of at least
+four terms with completely different recoverability:
+
+| term | scale | recovered by removing a dispatch? |
+|---|---|---|
+| CPU graph-build + encode | ~0.3–1 µs/op | only when the step is encode/submission-bound |
+| front-end issue + PSO switch | small | only in issue-bound regimes (many tiny kernels) |
+| **barrier drain/fill bubble** | µs-scale | per removed **barrier**, not per removed dispatch |
+| the kernel's own execution | whatever it is | never — grid-append relocates it, it does not delete it |
+
+R114-E's site maximised the third term *and* the fill gain (a real barrier, an
+8-TG host leaving 20 cores nearly idle). R119-A's site has neither. Dividing
+R114-E's lumpy win by its dispatch count produced 1.2382 µs/dispatch, which is
+therefore a **per-structure** quantity, not a per-dispatch one — and using a
+best-case structure's value as a *minimum* for a structurally worse one inverts
+the logic. That inversion, not any measurement, is where the −48.3 µs/step floor
+came from.
+
+The corollary I owe the advisor honestly: this experiment mostly **re-attributes
+the earlier R114-E win** (to barrier removal into an idle machine) rather than
+discovering a new anomaly. That re-attribution is the durable knowledge.
+
+There is also a physical reason to expect `S ≈ 0` here specifically: the K3∥K4
+span is expert-weight-bandwidth-bound at decode, and dispatch count does not
+change the bytes moved. Removing a dispatch cannot speed up an interval whose
+duration is set by DRAM traffic.
+
+**Alternatives I have not excluded, ranked by how much they would change the
+story.** I list them because the conclusion is a negative and a negative is only
+as strong as its alternative set.
+
+1. **Nothing was actually removed** (lazy elision did not fire). Then +7.3 is
+   added work, not net-of-savings, and the floor is untested rather than refuted.
+   §7.3 closes this at source level and arm R closes it empirically; it is the
+   one alternative I considered load-bearing enough to spend a 96-run pass on.
+2. **CPU-encode savings are real but off the critical path.** 39 fewer encoded
+   ops save perhaps 10–40 µs of *CPU* time; if encoding runs ahead of the GPU,
+   wall time does not move. Observationally identical to my story, and it changes
+   the generalisation from "sibling absorption never pays" to "it pays only when
+   encode-bound". Cheap discriminator: sum per-command-buffer
+   `gpuStartTime → gpuEndTime` and compare against wall step time.
+3. **Command-buffer split relocation.** If MLX splits command buffers by op
+   count, deleting 39–78 ops shifts every downstream split point, and splits act
+   as global barriers. This could mask a real local saving.
+4. **Offsetting large effects** (`S ≈ 35`, tax ≈ 48) rather than (`S ≈ 0`, tax
+   ≈ 13). My data cannot separate these, and they have opposite implications for
+   future fusions. The clone ladder in §11 is the discriminator.
+5. **One-time PSO compilation contamination** of candidate arms. The control's
+   own +73.1 µs block is the right size for this class of event.
+
+**M4 → M5 transfer.** The graph-structural conclusion — a `dep_scope = NONE`
+sibling has no serialization point to remove, because the encoder logic is CPU
+side and identical — transfers to M5. The *magnitude and even the sign* of the
+per-TG tax need not: core count, `_nax` kernel selection, and Dynamic Caching
+behaviour all differ. Nothing here should be read as an M5 verdict on the tax;
+it is an M5-relevant verdict on `S`.
+
 Proposed law, offered for the archive:
 
 > **`L-ABSORPTION-NEEDS-A-REAL-BARRIER`** (renamed from the working title
@@ -554,7 +682,7 @@ Proposed law, offered for the archive:
 > guest sits across a **genuine barrier-delimited stage boundary**. Under MLX's
 > `DispatchTypeConcurrent` encoder a `dep_scope = NONE` sibling is *already*
 > overlapped in hardware, so absorbing it recovers `S = 0` while still charging
-> a per-host-threadgroup tax (~0.5–0.7 ns/TG measured here) and the guest
+> a per-host-threadgroup tax (order 1 ns/TG measured here) and the guest
 > tile's load-balance tail. Screen on **barrier adjacency first**, host
 > threadgroup count second, and the guest's own µs/step not at all: a guest can
 > be large, hot, and frequently called and still be worth exactly zero to
@@ -577,28 +705,60 @@ lose something the host had.
 
 ## 11. Follow-ups I did not implement
 
-1. **Zero-guest-tile control.** Compile the *fused* pipeline but dispatch only
+Ordered by decisiveness per unit of effort. The first three are the ones I would
+run next if the advisor wants the mechanism nailed rather than merely believed.
+
+1. **Instrument the vendored encoder** (`device.cpp` is on the editable
+   surface). Count, per step, dispatches by pipeline name, `memoryBarrier`
+   insertions, and command-buffer commits. One cheap change resolves *three*
+   load-bearing assumptions at once: whether the tournament PSO's count really
+   drops by exactly 39 (elision), whether K2/K3/K4 really encode barrier-free
+   (the §10b premise), and whether split points moved (alternative 3). No GPU
+   profiler needed — and GPUPROF is not compiled into this checkout, so this is
+   the only route to that evidence.
+2. **Clone ladder.** Encode k ∈ {0, 8, 32} *extra* live standalone router
+   dispatches with distinct outputs, consumed by one checked scalar so they
+   cannot be elided, inside the same concurrent region. The slope of step time
+   against k is the **measured** marginal cost of one concurrent sibling
+   dispatch on this exact topology. Slope ≈ 0 proves "already free"
+   quantitatively and replaces the 1.2382 µs/dispatch constant with a locally
+   calibrated one; a positive slope × 39 says what removal should have bought.
+   This is the single experiment that would separate `S ≈ 0, tax ≈ 13` from
+   `S ≈ 35, tax ≈ 48` (alternative 4).
+3. **Poison-liveness test.** In the fused build, make the standalone router
+   write garbage. Green correctness gates ⇒ its result is dead in the evaluated
+   graph, which is the necessary condition for elision. The same poison applied
+   to arm R verifies that R's "kept live" consumption is *actually* live and not
+   itself folded away — a failure mode that would silently invalidate the
+   decomposition.
+4. **Delete the standalone call at source level** rather than relying on
+   elision, if the API threading permits. Constructive removal; arguably this
+   should have been the primary arm rather than arm R.
+5. **Zero-guest-tile control.** Compile the *fused* pipeline but dispatch only
    host tiles, leaving the guests as their own dispatches. Output stays correct
    because no work is dropped. If the regression persists, the cost is
    compilation-side (register/preamble tax on the host body); if it disappears,
    the cost is guest-tile scheduling. This is the one diagnostic that would
    split mechanisms cleanly, and it is ~20 lines.
-2. **Pipeline reflection.** Log
+6. **Pipeline reflection.** Log
    `MTLComputePipelineState.maxTotalThreadsPerThreadgroup`,
    `threadExecutionWidth`, and `staticThreadgroupMemoryLength` for fused vs
    unfused pipelines. A drop in the first is direct evidence of register
    pressure. Needs a hook where MLX creates pipelines (`Device::get_kernel`).
-3. **Add `[[max_total_threads_per_threadgroup(64)]]` to the Laguna GEMV-family
+7. **Add `[[max_total_threads_per_threadgroup(64)]]` to the Laguna GEMV-family
    kernels.** Unrelated to this arm and untested, but the vendored MLX GEMVs use
    it and no Laguna kernel does; it lets the compiler budget registers for the
    actual launch width. Cheap to try, plausibly helps the *unfused* baseline.
-4. **Retarget the technique by barrier adjacency, not guest occupancy.** Scan
+8. **Retarget the technique by barrier adjacency, not guest occupancy.** Scan
    the per-layer op stream for barrier-delimited stages that contain a *single
    small dispatch* on an under-occupied host — that is the R114-E shape, and
-   `L-ABSORPTION-NEEDS-AN-IDLE-HOST` says those are the only places left where
+   `L-ABSORPTION-NEEDS-A-REAL-BARRIER` says those are the only places left where
    this technique can pay.
-5. **The advisor's host-widening question is still open.** Widening the shared
-   SwiGLU host from TG (64,1,1)/256 tiles to TG (256,1,1)/64 tiles was never
-   A/B'd here. Note that the model above predicts widening is *itself*
-   interesting independent of fusion: it cuts `N_host` 4×, which reduces any
-   per-threadgroup tax and may change scheduling tail behaviour.
+9. **Host widening as an optimization in its own right.** Arm W measures
+   widening the shared SwiGLU host from TG (64,1,1)/256 tiles to TG (256,1,1)/64
+   tiles *as a standalone change* (§7.3), which is the advisor's comment-3 gate.
+   What I did **not** do is pursue widening as an optimization decoupled from
+   fusion: the model above predicts it is interesting on its own, because it cuts
+   `N_host` 4× and so reduces any per-threadgroup cost and changes the scheduling
+   tail. If arm W is neutral or better, that is a free simplification the fusion
+   agenda does not need.
