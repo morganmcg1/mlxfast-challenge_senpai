@@ -87,6 +87,78 @@ Hardcoded copies of the 97.9 ms constant that inherit the same caveat:
 **Consequence for P2: none on the target.** The budget still has to close
 against a ~96–98 ms H-M5 forward, so I proceeded to P2.
 
+### 1.2 The prefill/decode fidelity asymmetry — checked, and it points the other way
+
+The advisor asked whether the +1.8 % prefill agreement combined with a claimed
+1.809× local decode miss means *"prefill work here is trustworthy and decode
+work here is not"*. Checked: **no — the premise is void, and the real asymmetry
+runs in the opposite direction.**
+
+Primary sources, quoted rather than taken from the manifest
+(`research/advisor-r103-submission-tree-provenance-and-replicate-noise.md:142`
+`mean P = 187.872  sd(P) = 0.1931 us/tok`, same block `:141`
+`mean D = 4910.925  sd(D) = 14.431 us/step`;
+`research/r93-runs/RESULTS.md:243` candidate prefill `187.872 | 0.1929 | 0.1027 %`,
+`:244` baseline decode `13851.503`, `:245` baseline prefill `369.088`).
+
+**Why the premise is void.** The 97.9 ms was never a local measurement, so it
+cannot certify a local host against anything. It is itself H-M5-receipt-derived
+(§1: `512 × 1000 × 0.000191201 = 97.895 ms`, receipt `97a5090c`). The
+"97.89475/512 = 191.2 vs 187.872 = +1.8 %" comparison is therefore **two H-M5
+receipts differing by 1.8 %**, which is unremarkable: it sits well inside the
+M5 per-group population spread of 187.872–204.238 µs/tok already tabulated in
+§1. It says nothing about H-M4B.
+
+**The measurable version of the question.** My base contains the promoted
+frontier, so the ranked candidate figures above and my H-M4B figures are the
+*same code on two hosts* — a legitimate cross-host ratio, subject to the
+`_nax` caveat below.
+
+| axis | H-M4B measured | ranked H-M5 | ratio | apples-to-apples? |
+| --- | --- | --- | --- | --- |
+| prefill | 574.654 ms / 512 = **1122.37 µs/tok** | **187.872** µs/tok (`replicate-noise.md:142`) | **5.97×** | yes — both are one 512-tok forward divided by 512 |
+| decode | steady step **8402 µs/step** (`ablation-stats.txt`, sd 37 µs) | **4910.925** µs/step (`:141`) | **≥ 1.71×** | lower bound only — see below |
+
+The decode ratio is a *lower bound*: ranked `D` averages the 1023-step official
+window (`Constants.swift:109`) whose later steps carry a longer KV, while my
+figure averages the 128-step local window (`:117-118`). Correcting to a common
+window can only raise ranked-M5's per-step time relative to a 128-step window,
+which makes my host's true decode ratio **larger** than 1.71×, not smaller.
+Even so it stays far below the prefill ratio.
+
+**Reading.** The asymmetry is real and roughly **3.5× in magnitude**
+(5.97 / 1.71), but it is **decode that tracks the ranked host closely and
+prefill that does not** — the inverse of the hypothesis. Both directions are
+explicable and neither implies a broken harness:
+
+- Decode at batch 1 is bandwidth-bound; it streams the weights once per step.
+  The census prices H-M5 at 546.2 GB/s (`census.md:310`); an M4 Pro part is
+  about half that [SPEC, not receipted], predicting ~2×. Observed ≥ 1.71× is
+  in that neighbourhood, so decode behaves like the hardware ratio.
+- Prefill at 512 tokens is MMA/compute-bound, and on top of a core-count
+  deficit this host reports Apple GPU generation 16 and therefore **never
+  selects the `_nax` prefill kernels the ranked M5 uses** (`AGENTS.md`,
+  "Official Hardware"). A ~6× gap is a *different kernel family*, not a
+  scaled version of the same one.
+
+**Consequence for what Maple probes may claim** — the opposite of the
+advisor's provisional reading:
+
+1. An H-M4B **prefill** result is weak evidence for H-M5. It is 6× off, and
+   the gap is a kernel-family substitution rather than a uniform slowdown, so
+   even the *sign* of a threadgroup or dispatch change need not carry over.
+   This is exactly the `_nax` warning in `AGENTS.md`, now with a measured
+   magnitude attached.
+2. An H-M4B **decode** result is the more transferable of the two, tracking a
+   plain bandwidth ratio.
+3. Neither licenses an absolute-time claim; only candidate-vs-fresh-baseline
+   on one host is directional.
+
+This also disposes of the "1.809×" figure: I could not source `8882 µs/step`
+to any receipt or artifact in the tree (`rg 8882` over `research/` returns only
+unrelated digit substrings). H-M4B's measured steady step is **8402 µs**, and
+the ratio against ranked is 1.711×, not 1.809×.
+
 ---
 
 ## 2. H-R128-P2 — summing the claimed budget, and what the residual actually is
@@ -170,10 +242,13 @@ floor on both hosts for different reasons.
 **Corrected floor sum: Σ' = 70.07 + 5.45 = 75.52 ms**, leaving a corrected
 residual of **97.95 − 75.52 = 22.43 ms (22.9 % of S)**. This is the largest
 concrete correction available to the claimed budget, and it is arithmetic on
-numbers already inside the census rather than a new mechanism. It also lands
-essentially on the census's own undiscounted low end (22.87 ms,
-`…census.md:642-657`), which is reassuring about the direction.
+numbers already inside the census rather than a new mechanism.
 **Summing check: 75.52 + 22.43 = 97.95 ✓.**
+
+It lands just below the published undiscounted low end of 22.87 ms
+(`research/maple-tanjiro-pr91-prefill-budget-census.md:645`). That proximity is
+a coincidence of two orthogonal mechanisms and is **not** corroboration — see
+§2.5, which spells out why.
 
 ### 2.3 How optimistic is this roofline method? Measured on H-M4A
 
@@ -262,6 +337,64 @@ unattributed to a named *non-kernel* cause; 17.40 ms `[PROJ]` is attributed to
 sub-roofline execution of already-priced kernels and is measurable on H-M5 only
 with per-kernel instrumentation that does not exist
 (`research/PREFILL_LEDGER_INSTRUMENT.md:7-14`).**
+
+### 2.5 Answering the band question directly
+
+The advisor's framing is correct and worth restating in his own terms: 27.88 ms
+is `[PROJ]`, not a receipt (`census.md:635`), and the same document widens it to
+**21.4 – 56.0 ms** once the per-stage floors are allowed to move
+(`census.md:638`). A ×2.6-wide target cannot be "closed".
+
+He offered two options. **This report takes option (b), not option (a)** — it
+tightens the band rather than attributing the central value:
+
+| step | Σ per-stage | residual | basis |
+| --- | ---: | ---: | --- |
+| PR91 as published | 70.07 | **27.88** `[PROJ]`, band 21.4–56.0 | per-stage **floors** |
+| after §2.2 re-pricing | **75.52** | **22.43** | three families priced from **measured** bytes (2.979 GB, `census.md:583`) rather than from a floor |
+
+That 5.45 ms is the only part of this report that removes width by measurement:
+it replaces an analytic figure that priced 0.13 % of the bytes those dispatches
+actually move with the measured byte count.
+
+**Where 22.43 sits, stated carefully.** It is *below* the published band's low
+end of 22.87 (`pr91-census.md:645`), and the near-miss is **not**
+corroboration — the two numbers come from different mechanisms and must not be
+read as agreeing. The published 22.9–37.9 band is swept by the **bandwidth
+divisor** (485 → 610 GB/s) and a zero-row discount at a fixed Σ
+(`pr91-census.md:645-655`); my correction holds the divisor at the measured
+546.2 GB/s and instead **raises Σ** by pricing bytes the sweep never priced.
+The two are orthogonal, so 22.43 is not "the low end confirmed" — it is a new
+value that falls outside the published band because the published band never
+considered that three kernel families were missing rows. Applying both effects
+together would push the residual lower still.
+
+Fraction of the band the named causes cover, stated as asked:
+
+- of the **corrected 22.43 ms**: named non-kernel causes **5.03 ms = 22.4 %**;
+  remainder **17.40 ms = 77.6 %**.
+- of the **original 27.88 ms central**: measured re-pricing **5.45 ms (19.5 %)**,
+  named non-kernel causes **5.03 ms (18.0 %)**, remainder **17.40 ms (62.4 %)**.
+- no single named cause reaches the advisor's ≥ 5 ms-per-cause bar; the largest
+  is encoder/command-buffer + CPU gaps at ≤ 3.55 ms. That is why option (a) was
+  not attempted.
+
+**So the honest terminal answer is the one the advisor said he would bank:**
+the residual is not 27.88 ms and is not a mechanism. It is ≈ 22.4 ms, of which
+roughly three quarters is floor-estimation error distributed across rows that
+already exist — §2.3 shows the same roofline method under-predicts by 5.7× on
+H-M4A — and the remaining quarter is ordinary encoder overhead plus a first-use
+term small enough that this study's n=5 could not separate it from noise.
+Closing the last 17.40 ms requires H-M5 per-kernel instrumentation that does
+not exist (`PREFILL_LEDGER_INSTRUMENT.md:7-14`), not another projection.
+
+**On the "31.28 vs 27.88" question the advisor raised:** they are not the same
+number re-derived. 31.28 ms (`PREFILL_LEDGER_INSTRUMENT.md:15-19`) is a
+*different* residual against the same 97.89 ms total, i.e. a different Σ; the
+one I previously closed as unsourced was its accompanying per-stage claim, not
+the total. Three values (31.28, 27.88, 22.43) now exist for one quantity
+because each uses a different Σ, which is the point of §2.1: the residual is a
+function of how many kernels you priced, not a constant.
 
 ---
 
@@ -484,6 +617,14 @@ two-sided α = 0.05, power = 0.80, MDE = (t₀.₉₇₅,₄ + t₀.₈₀,₄) 
    pursued: it is a decode question and this assignment is prefill attribution
    — but as a fraction of its own window it is far larger than anything in
    §2.4, and it is the follow-up I would run next.
+7. **Calibrate the H-M4→H-M5 transfer factor per axis, and write it into the
+   probe rules.** §1.2 measures 5.97× on prefill against ≥ 1.71× on decode for
+   the *same* code. If that holds up, the campaign should stop treating "an M4
+   result" as one thing: an M4 decode delta is worth roughly what it says,
+   while an M4 prefill delta crosses a kernel-family boundary (`_nax`) and may
+   not even preserve sign. Cheap version: re-run this two-axis ratio on any
+   other available M4/M5 pair and see whether 5.97 / 1.71 reproduces. Not
+   pursued: needs a second host, which I do not have.
 
 ---
 
