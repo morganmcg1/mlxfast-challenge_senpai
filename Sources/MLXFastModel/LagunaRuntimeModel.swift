@@ -10369,8 +10369,7 @@ private func lagunaInterleavedSwiGLU(
 }
 
 private struct LagunaGatherLHSShape: Hashable {
-    let outer: Int
-    let inner: Int
+    let dimensions: [Int]
 }
 
 private final class LagunaGatherLHSIndicesCache: @unchecked Sendable {
@@ -10383,11 +10382,12 @@ private final class LagunaGatherLHSIndicesCache: @unchecked Sendable {
         if let value = values[shape] {
             return value
         }
-        let count = shape.outer * shape.inner
-        let value = MLXArray(UInt32(0) ..< UInt32(count), [shape.outer, shape.inner])
+        let count = shape.dimensions.reduce(1, *)
+        let value = MLXArray(UInt32(0) ..< UInt32(count), shape.dimensions)
         values[shape] = value
         if lagunaTraceFusion {
-            lagunaTracedFusions.note("prefill gather lhs \(shape.outer)x\(shape.inner)")
+            lagunaTracedFusions.note(
+                "prefill gather lhs \(shape.dimensions.map { String($0) }.joined(separator: "x"))")
         }
         return value
     }
@@ -10434,7 +10434,7 @@ private func lagunaFusedSortedRoutedGateUp(
         (sortedX, idx, inverseOrder) = gatherSort(x: sortedX, indices: indices)
     }
     let lhsShape = LagunaGatherLHSShape(
-        outer: sortedX.dim(-4), inner: sortedX.dim(-3))
+        dimensions: Array(sortedX.shape.dropLast(2)))
     let lhsIndices = lagunaGatherLHSIndicesCache.indices(for: lhsShape)
     // Fused counterpart of SwitchGLU's separate-bank branch:
     //   xUp = upProj(x, idx, sortedIndices: doSort)
