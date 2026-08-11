@@ -10368,6 +10368,33 @@ private func lagunaInterleavedSwiGLU(
     return compiledSiluProduct(gate, up)
 }
 
+private struct LagunaGatherLHSShape: Hashable {
+    let outer: Int
+    let inner: Int
+}
+
+private final class LagunaGatherLHSIndicesCache: @unchecked Sendable {
+    private var values: [LagunaGatherLHSShape: MLXArray] = [:]
+    private let lock = NSLock()
+
+    func indices(for shape: LagunaGatherLHSShape) -> MLXArray {
+        lock.lock()
+        defer { lock.unlock() }
+        if let value = values[shape] {
+            return value
+        }
+        let count = shape.outer * shape.inner
+        let value = MLXArray(UInt32(0) ..< UInt32(count), [shape.outer, shape.inner])
+        values[shape] = value
+        if lagunaTraceFusion {
+            lagunaTracedFusions.note("prefill gather lhs \(shape.outer)x\(shape.inner)")
+        }
+        return value
+    }
+}
+
+private let lagunaGatherLHSIndicesCache = LagunaGatherLHSIndicesCache()
+
 /// Prefill (multi-token, SORTED-regime) counterpart to the decode-only fused
 /// gate/up dispatch in `LagunaRuntimeSparseMoEBlock.forward`. One gather-QMM
 /// consumes the retained `[gate32, up32]`-interleaved NVFP4 bank in place of
@@ -10406,6 +10433,9 @@ private func lagunaFusedSortedRoutedGateUp(
     if doSort {
         (sortedX, idx, inverseOrder) = gatherSort(x: sortedX, indices: indices)
     }
+    let lhsShape = LagunaGatherLHSShape(
+        outer: sortedX.dim(-4), inner: sortedX.dim(-3))
+    let lhsIndices = lagunaGatherLHSIndicesCache.indices(for: lhsShape)
     // Fused counterpart of SwitchGLU's separate-bank branch:
     //   xUp = upProj(x, idx, sortedIndices: doSort)
     //   xGate = gateProj(x, idx, sortedIndices: doSort)
@@ -10422,6 +10452,7 @@ private func lagunaFusedSortedRoutedGateUp(
         fusedWeight,
         scales: pairwiseScales ?? fusedScales,
         biases: nil,
+        lhsIndices: lhsIndices,
         rhsIndices: idx,
         transpose: true,
         groupSize: 16,
@@ -10452,6 +10483,7 @@ private func lagunaFusedSortedRoutedGateUp(
             downWeight,
             scales: downPairwiseScales,
             biases: nil,
+            lhsIndices: lhsIndices,
             rhsIndices: idx,
             transpose: true,
             groupSize: 16,
