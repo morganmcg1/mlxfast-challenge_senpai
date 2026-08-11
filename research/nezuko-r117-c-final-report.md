@@ -31,7 +31,7 @@ Host: Apple M4 Pro, 20 GPU cores, 48 GiB. All levels are `--local-submit`, 1023 
 
 ### 0b. Corrections log — things I published and then had to take back
 
-Eight of them. I am listing them together, in one place, because a campaign that only ever
+Nine of them. I am listing them together, in one place, because a campaign that only ever
 publishes numbers that survive is a campaign that is not checking its own numbers.
 
 | # | what was wrong | direction of the error | where |
@@ -44,13 +44,17 @@ publishes numbers that survive is a campaign that is not checking its own number
 | C6 | **"the shipped geometry leaves 128 threadgroups and `rps=2` refills it to 256."** Off by exactly 2×. `tiles = outVec / (simdgroups × rowsPerSimdgroup)` = 2048/8 = **256** for the reference, **512** for `rps=2`. | against me in the sense that the reference is *less* starved than I claimed, so the occupancy story had to be re-argued on simdgroups-per-core rather than a bare threadgroup count | §5.4, §5.5 |
 | C7 | **C6 was applied to the prose but not to the §5.4 design table, the knob's doc comment, or the "longest wall clock in the array (167 s)" claim** (the array maximum is `C` block 5 at 169 s). Three stale artefacts of my own correction, found by a commissioned red-team pass, not by me. | neutral arithmetically; against me procedurally — a corrections log is worthless if the correction is not propagated | §5.4, `LagunaOProjGeometry.swift` |
 | C8 | **§5.6's headroom arithmetic was priced from a re-derived 354 MB/step DRAM ledger on *stock* scale planes**, which is incoherent with the shipped pairwise tree: it implies ~254 GB/s achieved next to a quoted 90.9 %, and leaves ~39 µs of headroom — *less than the 79.4 µs win it was supposed to justify*. Withdrawn; re-based on Stage 0 §0e's own published 76.5 µs (sibling parity) / 153.6 µs (peak). | **strongly against me**: the version I first wrote was self-refuting. The re-based version is also *better* evidence, because 79.4 µs matches a pre-ladder Stage-0 figure to 4 % | §5.6 |
+| C9 | **Achieved-bandwidth mislabel.** The plane time 101.8 µs/step is `24.02/236.0`, not `24.02/235.6` (= 101.95); the C3 factor is `256.7/236.0 = 1.088`, not 1.090. 235.6 is the *escape-free* census (735.8 MB), 236.0 the escape-corrected one (737.1 MB) — same kernels, same 3123.3 µs/step. | **no reported digit moves**; the τ-ceilings are evaluated at peak and contain no achieved rate at all. Logged anyway because a silently-wrong scale label is exactly how C2 grew into C3 one document later. | note in §1.2 above, vs `nezuko-r117-stage0b-byte-dose-ruler.md:372` |
+
 
 They do not all point the same way, which is the point. **C1 and C4 cut against me**: C1 made
 the surviving plane bigger than I first claimed (more nominal headroom, so a weaker floor
 argument), and C4 destroyed the premise of my own Stage-1 arm. **C3 cuts for me**: the ceiling
 is lower than I published, so `N-ATTN-BYTE-FLOOR` is stronger than the version I first wrote
-down. If I were only correcting errors that flattered me, C1 and C4 would not be on this list;
-if I were only correcting errors that embarrassed me, C3 would not be.
+down. **C9 cuts neither way** — it moves no published digit at all. If I were only correcting
+errors that flattered me, C1 and C4 would not be on this list; if I were only correcting errors
+that embarrassed me, C3 would not be; and if I were only logging corrections that changed a
+number, C9 would not be.
 
 The one number that never moved is the estimator output itself: **τ = +0.780 [+0.727, +0.833]**
 is defined on the 256.7 GB/s peak scale (`BW=256.7`) and was correct as first published — the
@@ -92,7 +96,7 @@ Target family = `decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1` (1342.1 µs/step, 3
 
 The family runs at **91.9 % of peak bandwidth**. There is no compute slack to trade against.
 
-> **Note (C4) — 236.0 vs 235.6 GB/s, and a mislabel I am correcting here.** Two
+> **Note (C9) — 236.0 vs 235.6 GB/s, and a mislabel I am correcting here.** Two
 > achieved-bandwidth numbers appear across these documents. They are the *same* kernels over
 > the *same* 3123.3 µs/step; only the byte total differs, because §0b's census was published
 > twice:

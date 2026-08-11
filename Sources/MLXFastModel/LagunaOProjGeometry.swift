@@ -8,7 +8,7 @@ import Foundation
 /// projection's 5120 threadgroups at 32 B/thread. The o_proj kernels also run
 /// 9.1 % (h64) and 16.6 % (h48) further from the machine's 256.7 GB/s
 /// asymptotic DRAM peak than their QKV siblings, on a byte total that is
-/// 96.9 % irreducible NVFP4 payload (see
+/// 96.74 % irreducible NVFP4 payload (see
 /// `research/nezuko-r117-stage0-attn-byte-floor.md`). Geometry is the only
 /// unpinned term left in the family.
 ///
@@ -19,8 +19,11 @@ import Foundation
 /// setting is bit-identical to the default -- unlike a load-width widening,
 /// which repartitions the per-lane chain and is not bit-exact.
 ///
-/// `DARKBLOOM_OPROJ_ROWS_PER_SIMDGROUP` accepts 1, 2, 4 (default, shipped),
-/// 8 or 16. Anything else falls back to 4. 16 is included so the ladder can
+/// `DARKBLOOM_OPROJ_ROWS_PER_SIMDGROUP` accepts 1, 2 (default, shipped since
+/// R117-C), 4 (the historical default), 8 or 16. Anything else falls back to 2
+/// -- so `=4` is the way to reproduce the pre-R117-C shipped geometry, and it is
+/// exactly what the `G4` control arm of the certifying ladder did.
+/// 16 is included so the ladder can
 /// show an interior optimum rather than only an edge: at 16 rows the o_proj
 /// dispatch is 4096 threads in 64 threadgroups, which is certainly too few
 /// threads to fill a 20-core GPU even though its in-flight load count is
