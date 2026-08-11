@@ -27,6 +27,7 @@ Host: Apple M4 Pro, 20 GPU cores, 48 GiB. All levels are `--local-submit`, 1023 
 | F5 | order artefacts land in the **intercept**, not the slope, on a rotation design | methodological | proven by self-test |
 | F6 | byte→time transfer τ = **+0.780 [+0.727, +0.833]** (honest band [0.73, 1.08]) | reusable calibration | measured, 35 runs |
 | F7 | o_proj activation re-read geometry / `B_act` | <!--F7-STATUS--> | <!--F7-STATUS2--> |
+| F8 | `sliding_fused_attn_ring_v1` dispatches **32 threadgroups on 20 cores** | hand-off, static + profile evidence | proven by dispatch dump, unmeasured |
 
 ### 0b. Corrections log — things I published and then had to take back
 
@@ -351,7 +352,109 @@ never-yet-measured `R2` arm at **−66.8 µs/step**.
 
 ---
 
-## 6. What I did not do, and why
+## 6. F8 — `sliding_fused_attn_ring_v1`: the threadgroup count, printed next to the null
+
+The advisor asked me to treat this kernel as the biggest remaining headroom on the board
+(610.0 µs/step cost, **373.4 µs/step headroom**, 38.8 % of peak, 30.3 calls/step,
+20.13 µs/call, 2.131 MB/call — alphonse `maple-alphonse-r109e-qk-ceiling.md:1384`), and
+alphonse's campaign law says to print the threadgroup count next to any null. I had no GPU
+budget left to run an arm on it, so this section is a **hand-off**: static facts, an
+independent profile confirmation, and one named, falsifiable lever. It is not a measurement
+of a candidate and it is not claimed as one.
+
+### 6.1 The dispatch geometry — measured, not inferred
+
+`LagunaRuntimeModel.swift:1970-1971` dispatches
+
+```
+grid:        ((heads / 2) * 1024, 1, 1)   // heads = 64  ->  32768
+threadGroup: (1024, 1, 1)
+```
+
+with `LagunaConstants.slidingAttentionHeads = 64` (`LagunaConfig.swift:26`). That is
+
+| quantity | value |
+|---|---|
+| threadgroups per dispatch | **32** |
+| threads per threadgroup | 1024 (= 32 simdgroups) |
+| GPU cores on this host | **20** |
+| waves | 32 / 20 = **1.60** |
+
+Independently confirmed from a profile dump I did not produce — maple-frieren's
+`research/artifacts/fern-r106g/dispatch_raw.tsv:10610` records this dispatch as
+`threads 32768x1x1`, `threadgroup 1024x1x1`. 32768 / 1024 = 32.
+
+**So, stated in the form alphonse's third cell requires: 32 threadgroups ≥ 20 cores, therefore
+this kernel is NOT an absorption candidate.** It does not launch fewer threadgroups than the
+machine has cores. Whatever is costing 373.4 µs/step here, it is not thread starvation of the
+kind that cell is designed to catch.
+
+### 6.2 What the byte axis can and cannot say here
+
+The atlas `MB/call = 2.131` is a **static unique-buffer footprint**, not a measured DRAM
+counter — it is reproduced to 0.2 % by summing the buffer list in that same dispatch dump
+(16384 + 2048 + 2048 + 256 + 256 + 512 + 1048576 + 1048576 + 4 + 4 + 16384 = 2,135,048 B).
+So "38.8 % of peak" must not be read as "the kernel moves its bytes at 38.8 % efficiency";
+that would be circular. The honest statement needs the *logical* traffic:
+
+- `kv_head = head0 / gqa` with `gqa = 8` and 2 heads per threadgroup ⇒ **4 threadgroups share
+  each kv_head**, and each of them walks all 512 window positions (`i = sg`, stride `4*BN`,
+  4 iterations ⇒ 32 simdgroups × 16 positions = 512).
+- Each threadgroup therefore reads 128 KiB of K and 128 KiB of V. Logical total
+  = 32 × 256 KiB = **8.39 MB/call**, against a 2.10 MB unique KV footprint: a **4× logical
+  re-read**.
+- But 20.13 µs/call at the 256.7 GB/s peak admits at most **5.17 MB/call** of real DRAM
+  traffic. Since 8.43 > 5.17, **at least 39 % of the logical re-read is already being served
+  from cache**; the effective redundancy factor is bounded above by 2.42×.
+
+That bound is the useful part: it says a "stop re-reading KV" rewrite has at most ~2.4× of
+2.10 MB to win back, and the obvious way to get it — one threadgroup per kv_head, so 8
+threadgroups — would drop the launch to **8 threadgroups on 20 cores** and walk straight into
+the absorption cell from the wrong side. That trade is not worth taking.
+
+### 6.3 The two structural causes that are visible in the source
+
+**(a) Wave quantisation.** 32 tiles on 20 cores costs two wave-times to do 1.60 waves of work:
+wave efficiency `tiles / (20 * ceil(tiles/20))` = 32/40 = **80 %**. An upper bound on what
+perfect packing could return is `610.0 * (1 - 0.80)` = **122 µs/step**. Retiling by heads
+alone cannot fix it — the tile count is `64 / heads_per_tg`, always a power of two, and no
+power of two is a multiple of 20 (1 head/TG gives 64/80 = 80 %, the same number). Getting to
+100 % needs a tile count that is a multiple of 20, which requires splitting the *window*
+dimension into unequal chunks (e.g. 160 tiles = 32 head-pairs × 5 window ranges of 102/103)
+plus a cross-tile softmax combine. Real, but a rewrite, not a knob.
+
+**(b) A barrier that is stronger than the data dependence.** The preamble
+(`LagunaRuntimeModel.swift:1533-1578`) runs on `sg < 3` (RMS-norm → `simd_sum` → `rsqrt` →
+`simd_shuffle` → RoPE) and `sg == 3` (V staging), then `sg == 0` writes the new K/V into the
+ring at `widx`, then `threadgroup_barrier`. **28 of 32 simdgroups (87.5 %) do nothing but wait**,
+and they wait through a long *dependent scalar* chain, so the memory pipe is idle for its
+duration.
+
+They do not have to. The main loop's addresses (`:1608-1613`) are
+`k_cache + kv_head*(window*head_dim) + sg*head_dim + lane*qk_per_thread` — functions of
+`kv_head`, `sg`, `lane` only, all known at kernel entry. The *only* slot the preamble mutates
+is `widx`, and the loop already special-cases exactly that slot: `T_LOAD_K`/`T_LOAD_V`
+(`:1884-1918`) take the value from threadgroup memory `tg_k`/`tg_v` when
+`substitute` is true and issue a plain `device vec<bfloat,4>` load otherwise, with
+`sub_a..sub_d = (uint(i + kBN) == widx)` and `widx = params[0]` available immediately.
+
+⇒ **The first pipeline stage's device K/V loads, for all 511 non-`widx` positions, are provably
+independent of the barrier and can be hoisted above it.** That overlaps 28/32 simdgroups'
+memory issue with the preamble's dependent chain instead of serialising behind it. It is a
+pure reordering: the substitute path is untouched, so the `widx` race the barrier exists to
+prevent is still prevented by the same mechanism that prevents it today.
+
+### 6.4 Why I am handing this off rather than doing it
+
+`LagunaRuntimeModel.swift:1507-1975` is **edward's region** (#704). I did not edit a line of
+it; everything above is read-only analysis. The lever in 6.3(b) is a ~20-line change inside a
+kernel string and is exactly the kind of thing that should be certified with a gated arm and
+a byte-identical control, which is the instrument in `research/maple-nezuko-r107j-certify.sh`
+and is free for anyone to reuse. Predicted sign: negative (faster). Predicted size: I will not
+guess one, because 6.2 shows I cannot price it from bytes, and F7 (§5) shows that on this
+machine an occupancy-limited kernel does not obey the byte model at all.
+
+## 7. What I did not do, and why
 
 - **I did not build a 5-bit or 6-bit encoder.** §1.3 shows both add bytes against the shipped
   plane. Building one to measure a known-negative would have burned the round.
@@ -359,12 +462,16 @@ never-yet-measured `R2` arm at **−66.8 µs/step**.
   `lagunaHalvedGroup32ScalePlane` are his (#704). All my source work is in a new file,
   `Sources/MLXFastModel/LagunaOProjGeometry.swift`, plus anchored edits in
   `LagunaRuntimeModel.swift` that are inert at default gate values.
-- **I did not stop the ladder early.** Block counts were pre-registered
+- **I did not stop a ladder early to pick a number.** Block counts were pre-registered
   (`research/nezuko-r117-oproj-geometry-preregistration.md`, amendments 9/10/11 timestamped
-  before each launch) and run to completion.
+  before each launch). One qualification, recorded because it matters: the first Stage-1
+  ladder (5 arms × 5 blocks) was **killed by the runtime after block 1**, not by me and not
+  because of what block 1 said. I did not analyse block 1 as if it were the campaign; I
+  re-registered a better design (amendment 14, §5.4) and re-ran it. Block 1's four rows are
+  published verbatim in §5.4 anyway so that the decision can be audited.
 - **The prefill view `lagunaPackedPrefillScaleView` is untouched and bit-identical.**
 
-## 7. Reproduction
+## 8. Reproduction
 
 ```
 research/maple-nezuko-r107j-certify.sh --blocks 7 \

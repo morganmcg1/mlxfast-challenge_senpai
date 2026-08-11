@@ -437,3 +437,103 @@ not less.
 
 Original text above is left verbatim, as pre-registered.
 
+
+
+---
+
+## Amendment 14 — the Stage-1 ladder is re-designed around a byte-identical control (2026-08-11 05:19Z)
+
+**Filed 4 minutes after the replacement campaign was launched (job start 05:14:57Z) and
+BEFORE any row of it was read.** The design is fixed by the launch argv, which is recorded
+immutably in the job record; this text only explains it. At filing time exactly one run of
+the 24 had completed and I had not opened the TSV. I state that plainly because the whole
+value of this amendment is that it was not written to fit a number.
+
+### 14.1 What happened to the pre-registered 5 x 5 ladder
+
+The Stage-1 ladder registered in Amendment 11 (`C: R1: R2: R8: N4:`, 5 blocks, 25 runs) was
+launched at 04:54:58Z and **killed by the runtime at 05:08Z, after block 1 and 4 of its 25
+runs**. It was not stopped by me, and not stopped because of what block 1 contained.
+
+Block 1's four rows, published verbatim so this decision can be audited
+(`/tmp/r117-stage1-ladder-20260811T045458Z.tsv`, head `dd838231`, golden `f49e4c2c...`, all
+`passed=true`), as us/token deltas against the ungated reference `C`:
+
+| arm | gates | s/token | delta vs C (us) |
+|---|---|---|---|
+| C | *(none)* | 0.008966474 | -- |
+| R1 | `...ROWS_PER_SIMDGROUP=1` | 0.008922896 | -43.6 |
+| R2 | `...ROWS_PER_SIMDGROUP=2` | 0.008893379 | -73.1 |
+| R8 | `...ROWS_PER_SIMDGROUP=8` | 0.009095609 | +129.1 |
+
+n = 1 block. No CI. Nothing is claimed from it.
+
+### 14.2 Why the design had to change anyway — the confound is the size of the effect
+
+Amendment 11's ladder differences every gated arm against an **ungated** reference `C`. F3 /
+R114 (`research/nezuko-r114-closure-correction.md`) establishes that on this harness a gated
+arm and an ungated arm differ by a **~ -40 us/step intercept that is present even when the
+gate does nothing**, because `certify.sh:203-208` invokes gated arms through `env` and the
+reference directly. R1 above reads -43.6 us: numerically indistinguishable from that
+intercept. R2 reads -73.1 us. **The confound and the effect are the same order of
+magnitude, so the Amendment 11 ladder cannot separate them, whatever its block count.**
+
+That is a defect in the registered design, and it is mine. The kill is what let me fix it.
+
+### 14.3 The replacement design
+
+The shipped default is `rowsPerSimdgroup = 4` (`LagunaOProjGeometry.swift:22`, "4 (default,
+shipped)"). Therefore `DARKBLOOM_OPROJ_ROWS_PER_SIMDGROUP=4` selects **exactly the shipped
+code path** while still travelling the `env` invocation route. It is a **byte-identical
+negative control** in the sense the advisor requires: same binary, same kernels, same
+geometry, differing only in that the harness reached it through `env`.
+
+```
+research/maple-nezuko-r107j-certify.sh --blocks 8 \
+  G4:DARKBLOOM_OPROJ_ROWS_PER_SIMDGROUP=4 \
+  R2:DARKBLOOM_OPROJ_ROWS_PER_SIMDGROUP=2 \
+  C:
+```
+
+3 arms x 8 blocks = 24 runs, position-rotated per block, `--local-submit`, reference = **G4**
+(first arm), ~66 min.
+
+### 14.4 The two contrasts, and what each one settles
+
+**Primary — `R2 - G4`.** Both arms are gated, so the invocation intercept cancels. This is
+the *shippable* delta: the difference between the shipped geometry and the candidate
+geometry, with nothing else varying. This, and only this, is what a ship recommendation may
+be based on.
+
+**Secondary — `C - G4`.** Byte-identical control. Under the null "the harness does not care
+how it was invoked" its CI95 contains 0.
+
+- If it contains 0: the R114 intercept is **not** an invocation artefact, F3's decisive open
+  question is answered in the direction of a real effect, and the `R2 - C` = -73 us reading
+  of block 1 would have been real.
+- If it excludes 0 near -40 us: the intercept **is** an instrument artefact, every
+  gated-vs-ungated number this campaign and R114 produced carries it, and the honest
+  shippable size of R2 is the primary contrast, not the -73 us.
+
+Either answer is worth the GPU time, which is why C is retained as a third arm rather than
+dropped.
+
+### 14.5 Decision rule, fixed now
+
+1. Recommend R2 for shipping **only if** the `R2 - G4` bootstrap CI95 on the block-median
+   difference **excludes 0**, is **negative**, and its point estimate is **>= 10 us/step** in
+   magnitude (the Rule 105.12 landing bar ~ 0.07 % of score).
+2. If the CI includes 0 -> **negative result**, reported as such. No pooling with block 1 of
+   the dead ladder, no extension of block count to chase significance.
+3. Block 1 of the Amendment 11 ladder is **not pooled** with this campaign under any
+   outcome: different reference arm, different design.
+4. `passed=true` and golden `f49e4c2c...` are required on every row; any row failing either
+   voids its block, not the campaign.
+
+### 14.6 Out-of-sample prediction, recorded before the read
+
+Amendment 12's fit predicted **R2 = -66.8 us/step against C**. If 14.4's secondary contrast
+finds an invocation intercept of magnitude *i*, the fit's implied primary contrast is
+`-66.8 - i`. With *i* ~ -40 that is **~ -27 us/step for `R2 - G4`** — above the landing bar,
+but not by much, and the CI will decide it rather than the point estimate.
+
