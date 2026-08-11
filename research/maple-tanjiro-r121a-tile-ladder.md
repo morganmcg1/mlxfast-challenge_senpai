@@ -591,3 +591,80 @@ risk, because `_nax` is dead on gen-16 — the union test exercised none of it.
 Given `passed_correctness: false` forfeits the whole ticket, **draw arm 3 last,
 and never bundle it with a rung you actually want measured.** Its −2.68 ms is
 also the most substitutable prediction on the ladder.
+
+## 11. Bit-identity classification for every arm (advisor request, 09:12Z)
+
+All line citations are
+`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp` at `cd047c00`.
+
+Decision rule used: an arm may ride a lottery ticket **iff, for every output
+element, the ordered sequence of fp32 accumulation events on the ranked host is
+unchanged.** This is strictly stronger than mathematical equivalence.
+
+| arm | what the patch writes | verdict | deciding line |
+|---|---|---|---|
+| 1 | `bm` 64 → 32 when `N <= 1024`, regular `_nax` | **BIT-IDENTICAL** | `:242` — `align_K` is a function of `bk` alone, and `bk` is untouched |
+| 2 | `bm` 64 → 32 (`bn` stays 64), splitk small-shape branch | **BIT-IDENTICAL** | `:687` — `split_k_partitions = ceil(K / split_k_partition_size)`, and `:667`,`:679-684` make `split_k_partition_size` a function of **K alone** ⇒ independent of `bm`/`bn`/`bk`/`wm`/`wn` |
+| 3 | `split_k_partition_size` 1024 → 512 | **NOT BIT-IDENTICAL** | `:687-691` — partitions 2 → 4, so `C_split` gains two slices and the second reduction kernel sums four partials instead of two |
+| 4 | `bm` 64 → 128 when `N >= 4096`, regular `_nax` | **BIT-IDENTICAL** | same as arm 1; the regular path has no `C_split` at all, so each element is one sequential register accumulation |
+| 5 | darkbloom default ON → OFF ⇒ `bm`/`bn` 64 → 128, `wm`/`wn` 2 → 4 | **BIT-IDENTICAL** | `:665` sets `bk = 512` and the darkbloom branch `:675-678` does **not** write `bk`; `split_k_partition_size` is untouched, so both `split_k_partitions` (`:687`) and `bk_iters_per_partition` (`:688`) are unchanged |
+| 6 | 1 + 2 + 3 | **NOT BIT-IDENTICAL** | inherits arm 3 |
+
+**The load-bearing mechanical fact: no arm in this ladder writes `bk`.** `bk` is
+assigned at exactly three sites — `:213` / `:218` (regular) and `:665` / `:673`
+(splitk) — and no arm patch touches any of them. `bk` is the only axis that can
+re-segment the per-element K loop, so it is untouched everywhere.
+
+### 11.1 Your arms 1/2 derivation is correct. I checked all three paths you named, and one you did not.
+
+1. **Swizzling — real bm dependence, but dead on the ranked host.** `:283` is
+   `int swizzle_log = tm <= 3 ? 0 : 1;` with `tm = ceil(M/bm)` (`:281`), so
+   `swizzle_log` genuinely *is* bm-dependent. But `:284-286` then overrides it to
+   `2` unconditionally when `devc ∈ {'s','c','d'}`, which is the ranked M5. So on
+   the ranked host arms 1 and 4 cannot move `swizzle_log` at all. And even where
+   it does vary, `:303-305` uses it only to remap tid → tile; each output tile is
+   still computed by one threadgroup running the same K loop.
+2. **`align_K` — cannot be reached by `bm`.** `:242` (regular) and `:697`
+   (splitk) are both `(K % bk) == 0`. Function of `bk` alone. Likewise
+   `gemm_k_iterations_aligned = (K / bk)` at `:298`.
+3. **The axpby epilogue — no.** `:238-239` derives `use_out_source` and
+   `do_axpby` from `alpha`/`beta` only, and the epilogue applies once per output
+   element after the K loop closes.
+4. **The path you did not name: `align_M` / `align_N` DO flip with `bm`/`bn`.**
+   Function constants 200/201 at `:240-241`,`:246-247` (regular) and
+   `:695-696`,`:699-701` (splitk). Changing `bm` therefore changes which compiled
+   specialization runs — an arm can switch kernel variant silently. It is still
+   bit-identical, because that masking is on the **M and N axes**: it decides
+   which output elements exist, never which K terms enter a valid element, so
+   zero-padded rows/columns produce outputs that are discarded. For our shapes
+   `M = 512` and every `bm ∈ {32, 64, 128}` divides it, so `align_M` stays true
+   regardless.
+
+**Consequence for what you have loaded.** Arms 1+2 on `7bef942f` are safe to
+ride. Arm 4 is safe to swap in **for** arm 1 (not with it — §7.1). Arm 5 is safe
+to compose with arms 1 or 2. **Arms 3 and 6 must never ride a ticket.** If arm
+3's −2.68 ms is ever wanted, it needs a draw where forfeiting the ticket is
+priced in, or an M5 correctness-only run first.
+
+### 11.2 Concession: my Finding 3 was wrong; your §7 correction stands.
+
+`darkbloom_steel_prefill_tile()` has one call site, inside
+`steel_gemm_splitk_axpby_nax`, which gen-16 never enters because `use_nax` is
+false. So `DARKBLOOM_STEEL_PREFILL_TILE=0` is **inert on this host** and a null
+result from it is evidence that nothing ran, not evidence about the wave model.
+The "free falsification test" is withdrawn. What survives is narrower: the env
+var means arm 5's *ranked* behaviour is reproducible without a code edit, and the
+shipped existence of the override is evidence that a tile change on this exact
+path has already passed ranked correctness.
+
+### 11.3 Correction to my own §10.2
+
+§10.2 said `bk` changes are "bit-identical by construction". Withdraw that: no
+arm here changes `bk`, so the claim was never tested, and it is not obviously
+true. A `bk` change flips `align_K` (`:242`,`:697`), changes
+`gemm_k_iterations_aligned` (`:298`) and `bk_iters_per_partition` (`:688`), and
+re-segments the K loop. **Any future `bk` arm needs its own bit-identity
+argument before it may ride a ticket.** The correct general statement is: only
+`bm`, `bn`, `wm`, `wn` are safe by construction; `bk` and
+`split_k_partition_size` are not.
+
