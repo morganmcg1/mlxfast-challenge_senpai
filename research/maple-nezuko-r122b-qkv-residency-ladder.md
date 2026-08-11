@@ -163,6 +163,56 @@ instrument failure ⇒ stop). Raw per-run TSV committed under `research/`.
 Correctness gate: `max_abs_diff == 0` and a single unchanged golden hash in
 every arm proposed for shipping.
 
+### 1.7 Pre-data addendum (committed 09:17Z, before any run had finished)
+
+Written while the Q1/Q8 campaign was in flight and **before any TSV row
+existed** — the git history is the proof of order. I am adding it rather than
+editing §1.2 because it makes a *sharper and differently-shaped* prediction than
+I first wrote, and burying that would defeat the point of pre-registering.
+
+Working through the arithmetic against tanjiro's independently measured
+grantable ceiling of **96 simdgroups/core**
+(`research/tanjiro-pr-gathergemm-coresidency.md:445-452`), the residency account
+has a **discrete** form I did not state in §1.2. Per-core residency is
+`512/rps` for h64 and `409.6/rps` for h48, so the number of sequential grantable
+waves is `ceil(residency / 96)`:
+
+| arm | h64 /core | h64 waves | h48 /core | h48 waves | both fit one wave? |
+|---|---:|---:|---:|---:|---|
+| Q1 | 512.0 | **6** | 409.6 | **5** | no |
+| Q2 | 256.0 | 3 | 204.8 | 3 | no |
+| Q4 | 128.0 | 2 | 102.4 | **2** (only just — 102.4 vs 96) | no |
+| Q8 | 64.0 | **1** | 51.2 | **1** | **yes** |
+| Q16 | 32.0 | 1 | 25.6 | 1 | yes |
+
+This reframes my own R117-C result. I reported an "interior optimum near
+51.2/core". The wave arithmetic says something more specific: my `R1` arm sat at
+**102.4/core, i.e. just above 96**, so it needed two waves where `R2` at 51.2
+needed one. **The better description of my R117-C finding is therefore not "an
+optimum at 51.2" but "the largest residency that still fits inside a single
+grantable wave", and 51.2 is simply where the o_proj ladder happened to land.**
+That unifies my constant with tanjiro's instead of leaving two unexplained
+numbers, and it is falsifiable here.
+
+Three consequences I pre-commit to:
+
+1. **The Q4 → Q8 step should be the largest single step on the ladder**, because
+   it is the only step that crosses from two waves to one for both head counts.
+   The Q1 → Q2 → Q4 steps should each be smaller and roughly consistent with
+   halving a wave count (6 → 3 → 2).
+2. **Q16 ≈ Q8, not worse.** Q16 has the *same* wave count as Q8, so a pure
+   wave-count model predicts no further gain and no reversal — only whatever
+   register-pressure cost the extra 8 accumulators carry. This is a **third
+   shape**, distinct from both shapes in §1.3: interior optimum (Q16 worse),
+   monotone volume (Q16 better), wave-count (Q16 flat).
+3. **What refutes the wave-count account:** a large, clean Q1 → Q4 gain with
+   little left for Q4 → Q8, or a Q16 that is substantially *better* than Q8.
+   Either would say the mechanism is smooth in simdgroup count (or in re-read
+   volume) and not stepped at 96.
+
+This addendum makes my prediction strictly harder to satisfy than §1.2 did,
+which is the direction a pre-registration should be revised in.
+
 ---
 
 ## §2. The code change
