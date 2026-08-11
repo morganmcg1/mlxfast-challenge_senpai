@@ -264,6 +264,52 @@ pre-fusion generation. Applying either to the other tree fails or, worse, applie
 - PR #333 / note `7e267f3` "grid over-dispatch" — source-refuted: `dispatch_threads` takes total
   threads, and the proposed fix hard-fails exact tokens.
 - The R119 grid-append family — terminal.
+- **Threadgroup widening on the routed expert QMV family — refuted (#731, maple-edward, W&B
+  `lv9kmuzw`, closed 11:2xZ).** TG=128 median −3.77 µs/step, CI95 [−11.26, +23.40] covers zero, sign
+  p=0.2188 ⇒ null, and inside his own A-vs-A envelope (median −3.21, CI95 [−43.00, +3.50], max |null|
+  67.13). TG=256 median **+23.12** µs/step, CI95 [+15.77, +38.31] excludes zero, 0 neg / 6 pos, sign
+  p=0.0312, **−0.282 % score** ⇒ regression. 0 divergences over 36/36 runs × 512 checked greedy
+  tokens; default stays TG=64 and the default build is byte-identical.
+  **The transferable law, and the most reusable sentence of the round: TG widening pays only where a
+  threadgroup's rows map into one contiguous weight region.** Shared expert = one contiguous stream ⇒
+  it widens (delta 1). Routed expert slots are interleaved mod-8 (`LagunaRuntimeModel.swift:8078-8079`)
+  ⇒ each extra row lands ~1 MiB away in a different expert, multiplying concurrent DRAM streams to
+  save only L2→L1 activation re-fetch, which cannot be the bottleneck at 232.0 GB/s = 90.4 % of
+  measured peak. Follow-up left un-run by choice: reindex-then-widen (make an expert's rows
+  contiguous offline, then re-run the ladder).
+- **Routed/shared down-GEMM output tile BN 64→128 — refuted, and it refuted my pricing too (#732,
+  maple-tanjiro, W&B `1nd4yw9s`, closed 11:2xZ).** BN is **not a single lever**: `QuantizedBlockLoader`
+  derives `n_reads = (BCOLS_PACKED*BROWS)/tgp_size = BN/4`
+  (`Vendor/mlx-swift/…/kernels/fp_quantized_nax.h:215-216`) and `kSrcBytes = n_reads*bytes_per_pack`
+  (:428), but vectorized weight-staging bodies exist only for `kSrcBytes == 16` (:438) and `== 8`
+  (:444), both behind `if constexpr` (:502, :512), with a per-byte scalar fallback (:522-527). BN=128
+  ⇒ kSrcBytes = 32 ⇒ **both vector bodies compile out** and the ~151 MB/layer weight stream degrades
+  to per-byte device loads while the kernel name still advertises `_wl_1`. IR census at rungs
+  32/64/128: Wide* symbols 21/27/**0**, device 16 B memcpy 0/1/**0**, threadgroup 16 B memcpy
+  1/1/**0**, plus a 32 B `sb[]` alloca and 8 scalar threadgroup stores only at 128.
+  **Standing screen for any future tile-width change on this family: run the Wide*/memcpy IR census
+  first.** He also corrected my pool arithmetic — addressable x re-read is ~2.4 ms of the 97.9 ms
+  window, not 3.91 ms, and η=1 is unreachable (floor ~11.98 ms) — which reprices the fixed-loader
+  version of this lever at ≈+0.17 % prefill ⇒ **≈+0.04 % score**, i.e. below the cost of a draw.
+  Decode neutrality holds by construction (gate needs M ≥ 64 and `bm==64 && wm==4 && (wn==2||wn==1)`,
+  `quantized.cpp:1400-1404`) and was confirmed by paired A/B (ratio 0.997987, `max_abs_diff` 0).
+- **★ Advisor retraction, issued within the hour (11:3xZ): I briefly endorsed tanjiro's follow-up
+  pointer to the "SM=16 row-padding BM/WM lever (~11 ms)" in the #732 close note. That endorsement is
+  withdrawn — the item is already struck in our own archive and I failed to check before writing.**
+  (1) Formal retraction of the "+1.9–2.6 % row-padding prize" at
+  `RESEARCH_ARCHIVE_through-round-91.md:6423`: `453,120 = Σ ceil(n_e/16)·16` *is* the floor, not a
+  target; retired with it, "1 of 4 simdgroups active" (traced to `fbc1371`, reasoned, never measured).
+  (2) The axis was already swept and shipped at its optimum (`quantized.cpp:1413-1487` doc,
+  `:1491-1510` selector, `:1659-1667` table; BM64/WM4/WN1 = shipped default; BM ∈ {16,32,64,128} gives
+  372.6/263.2/**220.5**/207.9 chunks per layer with idle TGs pinned at 51.9 for every BM, and 64→128
+  buys −5.7 %). (3) **SM < 16 is arithmetically impossible**: `SM = BM/WM` (`:1634`), `TM = SM/16`
+  integer-divides to 0 ⇒ zero MMA (`:1637`, `kFragRows = 16`), host guard `:1662` pins
+  `bm==64 && wm==4`; WM=8 is expressible but useless. (4) Row-lane masking is structurally barred —
+  a 16-row predicate is thread-varying while `tile_matmad_nax` is simdgroup-collective
+  (`:1439-1443`), the same reason FRAGSKIP was rejected. (5) The residue was chased onto the staging
+  axis and measured null there (fern #40: `Ws` double-buffer +0.1150 ms, register prefetch +0.4626 ms,
+  both wrong sign, inside σ = 0.2536). The ~11 ms is real, unowned, and has **no surviving
+  mechanism** (`RESEARCH_STATE_ARCHIVE_through-round-21.md:2148`). Do not re-commission it.
 - Closed families: WAR-barrier GEMM staging, attention nibble-delta, compiled-defaults sweeps of the
   old form, router top-8 absorption, certified router-gate screens, grouped SDPA (SLC-absorbed),
   allocator-cache bump.
@@ -343,6 +389,71 @@ with a known one-sided bias, did not test its central assumption, and overrode a
 better-instrumented 28.0 min median with it. The fix cost twenty minutes of tooling
 (`queue_cycle_stats.py`, `queue_probe.py` — mind the ANSI colour codes in the CLI output, which
 silently made every row invisible to the first parser) and should have preceded the broadcast.
+
+### 6.4 Directly measured service times, and the fire deadlines they imply
+
+§6.2 estimated service indirectly, from *inter-arrival* gaps of the same solver. At 11:10Z I started a
+direct instrument instead — `senpai/tools/queue_probe.py --minutes 27 --interval 75`, which snapshots
+the full non-terminal set every 75 s, so a submission's **departure** from that set is observed to
+within one interval. Creation times come from the listing, so service = departure − creation, bounded
+by ±75 s. This is the first *unbiased* service measurement the campaign has had.
+
+| submission | solver | created | departed (observed window) | service |
+|---|---|---|---|---|
+| `eabd21f` | uu0vg7 | 10:18Z | 11:22:35–11:23:52Z | **≈ 65.5 min** |
+| `a5f5368` | uee9b6 | 10:26Z | 11:27:47–11:29:05Z | **≈ 62.9 min** |
+| `bbb49bc` | DawgZter | 08:28Z | 11:29:05–11:30:22Z | **≈ 182 min** |
+| `4b8ab50` | ooo9cj | 10:03Z | ≤ 11:06Z (listing) | **≤ 63.2 min** |
+| `4be372f` | morganmcg1 (ours) | 09:20Z | ~11:0xZ (listing) | **≈ 100 min** |
+
+Five direct samples: median ≈ **65 min**, spread **63 → 182 min**. Three structural facts fall out of
+the same trace and each one changes how the channel should be driven:
+
+1. **The service is concurrent, not a single server.** Ten submissions from ten distinct solvers sat
+   non-terminal simultaneously at 11:10Z. The single-concurrency limit is **per solver account**, not
+   per benchmark. So a campaign's throughput is set by *its own* fire-the-moment-it-clears discipline
+   and not by contention — congestion shows up as longer service, not as blocking.
+2. **Non-FIFO, confirmed by departure order.** Departures ran 10:18Z, then 10:26Z, then 08:28Z, while
+   08:53Z, 09:01Z and 09:45Z were still pending. A 3× service spread at equal queue position means an
+   individual receipt's ETA cannot be predicted; only the distribution can. Plan on the p75, never on
+   the median.
+3. **Zero arrivals between 11:08Z and 11:30Z with 7–10 in flight.** Every active solver in the fleet
+   was waiting on its own single slot — the closed-loop assumption of §6.2 is now observed directly,
+   not inferred.
+4. **Rivals re-fire within minutes of clearing, which is the competitive standard we are being held
+   to.** The probe caught both halves of the loop for two accounts. `uu0vg7` departed in the
+   11:22:35–11:23:52Z bracket and its next receipt `c0542e8` was created 11:32Z (≤ 9 min turnaround);
+   `uee9b6` departed 11:27:47–11:29:05Z and re-fired as `7a7a773` at 11:32Z (≤ 4 min). Pending count
+   went 7 → 9 on that one poll. Both accounts are therefore running a *pipeline*: prepare the next
+   candidate while the current one is in service, and fire on the resolution edge. At ≈65 min service
+   and ≈5 min turnaround those two accounts each get ~4 further draws before 17:00Z. Any campaign that
+   instead prepares its next candidate *after* the slot frees pays the preparation time twice — once in
+   wall clock and once in a forgone draw. **The scheduling discipline, not the queue, is the binding
+   constraint.**
+
+**Fire deadlines, from the direct samples.** At the 65 min median a draw fired at time *T* resolves at
+*T*+65; at the 100 min p75, *T*+100; the 182 min tail is real and unpredictable. Against the hard
+17:00Z close:
+
+- Last fire that resolves at the **median**: ≈ **15:55Z**.
+- Last fire that resolves at the **p75**: ≈ **15:20Z** — this is the number to plan on.
+- Fired back-to-back from 11:35Z at p75: terminals ≈ 13:15Z, 14:55Z, 16:35Z ⇒ **3 more draws**; at the
+  median, 4.
+- **Unresolved and worth flagging to the organizers rather than guessing: whether a submission created
+  before 17:00Z but resolving after it still counts.** Every deadline above assumes it does not.
+
+**The cost of an idle slot, priced.** Our shared account's last fire was `4be372f` at 09:20Z; it went
+terminal ~11:0xZ, and as of the 11:26Z listing nothing had been fired into the free slot — **≥ 25 min
+idle**. At p75 service, one draw costs 100 min of wall clock and the campaign has ~5.5 h left, so an
+idle slot burns draws at **0.25 draw per 25 min**. That is the single most expensive number in this
+document: a quarter of a draw is worth more than any measurement any of the six students can produce
+in the same 25 minutes, because the arm that needs a draw (delta 1, +0.38 %) is already measured and
+sitting in a patch file. **Whoever owns the slot should fire the best available tree immediately on
+every clear, and treat "nothing ready" as an emergency rather than a wait.**
+
+Method note for reuse: the probe is 30 lines and it should have existed on day one. Direct
+event-based measurement of a shared resource beat two rounds of increasingly careful inference from
+aggregates — and it also cost nothing, because it ran read-only next to the real work.
 
 ---
 
