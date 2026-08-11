@@ -1,0 +1,6 @@
+benchmark.sh: local-iterate git_head=06c3cf21a47a origin_main=1bc1c8954147
+benchmark.sh: reusing weights/ for unchanged transform source
+mlxfast: benchmark elapsed=0.0s local-iterate start checked_tokens=130 decode_steps=128 repeats=1
+mlxfast: benchmark elapsed=0.0s local-iterate baseline prefill_seconds_per_token=0.000368 decode_seconds_per_token=0.013856 (official-runner constants; local speedups are directional)
+mlxfast: benchmark elapsed=0.0s local-iterate validation start
+benchmark.sh: stopping the in-flight benchmark process tree (pid 96244) so no model-holding worker stays resident

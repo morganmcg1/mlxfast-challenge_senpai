@@ -1,0 +1,33 @@
+benchmark.sh: local-iterate git_head=130f6c6304db origin_main=1bc1c8954147
+benchmark.sh: reusing weights/ for unchanged transform source
+mlxfast: benchmark elapsed=0.0s local-iterate start checked_tokens=130 decode_steps=128 repeats=1
+mlxfast: benchmark elapsed=0.0s local-iterate baseline prefill_seconds_per_token=0.000368 decode_seconds_per_token=0.013856 (official-runner constants; local speedups are directional)
+mlxfast: benchmark elapsed=0.0s local-iterate validation start
+mlxfast: benchmark elapsed=10.3s local-iterate weights digest still running phase_seconds=10.3
+mlxfast: benchmark elapsed=20.2s local-iterate weights digest still running phase_seconds=20.2
+mlxfast: benchmark elapsed=30.2s local-iterate weights digest still running phase_seconds=30.2
+mlxfast: benchmark elapsed=38.9s local-iterate weights digest complete files=9 bytes=21568891382
+mlxfast: benchmark elapsed=38.9s local-iterate validation complete prompt_tokens=512 seconds=38.9
+mlxfast: benchmark elapsed=38.9s local-iterate checked timing start
+mlxfast: benchmark elapsed=82.2s local thermal gate start phase=prefill
+benchmark.sh: waiting for GPU to cool down before timing (current 41.2C, target <=40C, waited 0s)...
+benchmark.sh: GPU cool-down gate passed (current 39.9C, target <=40C, waited 10s)
+mlxfast: benchmark elapsed=97.9s local thermal gate complete phase=prefill
+mlxfast: benchmark elapsed=97.9s local-iterate prefill measured start prompt_tokens=512
+mlxfast: benchmark elapsed=98.4s local-iterate prefill measured complete seconds=0.6 seconds_per_token=0.001112 prefill_speedup=0.331
+mlxfast-worker: mlxfast: low-memory startup profile active (physical memory 48 GiB is below the 64 GiB full-profile minimum): capping the MLX allocator cache at 6 GiB and clearing free warmup buffers; compiled decode and every other ranked code path stay enabled; set DARKBLOOM_STARTUP_MEMORY_PROFILE=full to opt out
+mlxfast-worker: mlxfast: a machine too small for the model plus the decode working set fails with an out-of-memory error instead of silently skipping ranked code paths; verify on a 64 GiB+ machine or rely on the ranked run
+mlxfast-worker: mlxfast: narrow-scales built lane-major pairwise: qkv
+mlxfast-worker: mlxfast: narrow-scales built lane-major pairwise: oproj
+mlxfast-worker: mlxfast: packed-scales active: shared gate/up halved
+mlxfast-worker: mlxfast: packed-scales active: shared down halved
+mlxfast-worker: mlxfast: packed-scales active: packed routed gate/up bank prepared
+mlxfast-worker: mlxfast: lm_head prune active (coarse copy resident)
+mlxfast-worker: mlxfast: packed-scales inactive: packed routed gate/up prefill scale view consumed
+mlxfast-worker: mlxfast: packed-scales inactive: packed routed down prefill scale view consumed
+mlxfast-worker: mlxfast: packed-scales active: routed swiglu qmv packed dispatch
+mlxfast: benchmark elapsed=141.3s local thermal gate start phase=decode
+benchmark.sh: waiting for GPU to cool down before timing (current 41.4C, target <=40C, waited 0s)...
+benchmark.sh: stopping the in-flight benchmark process tree (pid 64282) so no model-holding worker stays resident
+benchmark.sh: waiting for GPU to cool down before timing (current 40.1C, target <=40C, waited 10s)...
+benchmark.sh: GPU cool-down gate passed (current 39.5C, target <=40C, waited 20s)
