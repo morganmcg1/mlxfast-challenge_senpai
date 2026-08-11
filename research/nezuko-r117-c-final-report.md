@@ -864,6 +864,8 @@ machine an occupancy-limited kernel does not obey the byte model at all.
 
 ## 8. Reproduction
 
+**F6/F2/F5 — the byte-dose ruler (§2):**
+
 ```
 research/maple-nezuko-r107j-certify.sh --blocks 7 \
   C: OP:DARKBLOOM_ATTN_SCALE_PAIRWISE_OPROJ=0 \
@@ -876,4 +878,59 @@ python3 research/nezuko-r117-ruler-tau.py <tsv> \
 
 python3 research/nezuko-r117-ruler-tau.py --selftest        # estimator validation
 python3 research/nezuko-r117-ruler-tau.py --selftest-order  # F5 calibration
+```
+
+**F7 Stage 1 — the certifying ladder (§5.4).** `G4` is the byte-identical
+negative control; it supplies the shipped-at-the-time default *through the env
+route*, so `R2 − G4` cancels any cost of env gating and `C − G4` must contain
+zero:
+
+```
+bash research/maple-nezuko-r107j-certify.sh --blocks 8 \
+  C: \
+  G4:DARKBLOOM_OPROJ_ROWS_PER_SIMDGROUP=4 \
+  R2:DARKBLOOM_OPROJ_ROWS_PER_SIMDGROUP=2
+# -> research/data/nezuko-r117-stage1-oproj-ladder-20260811T051314Z.tsv
+
+REF=G4 python3 research/maple-nezuko-r117-block-bootstrap.py \
+  research/data/nezuko-r117-stage1-oproj-ladder-20260811T051314Z.tsv
+python3 research/maple-nezuko-r107j-paired-ci.py \
+  research/data/nezuko-r117-stage1-oproj-ladder-20260811T051314Z.tsv
+```
+
+Note: since `rps=2` is now the compiled default, a re-run of this command has
+`C` and `R2` as the *same* pipeline and `G4` as the odd one out. To reproduce the
+original contrast, read `C` as `G4` and `G4` as the historical geometry — or use
+the Stage-2 command below, whose four arms are all env-gated and therefore
+default-independent.
+
+**F7 Stage 2 — the mechanism ladder (§5.7).** `N42` is the discriminator:
+
+```
+bash research/maple-nezuko-r107j-certify.sh --blocks 6 \
+  C4:DARKBLOOM_OPROJ_ROWS_PER_SIMDGROUP=4 \
+  R2:DARKBLOOM_OPROJ_ROWS_PER_SIMDGROUP=2 \
+  R1:DARKBLOOM_OPROJ_ROWS_PER_SIMDGROUP=1 \
+  N42:DARKBLOOM_OPROJ_ROWS_PER_SIMDGROUP=2,DARKBLOOM_OPROJ_SIMDGROUPS=4
+
+REF=C4 python3 research/maple-nezuko-r117-block-bootstrap.py <stage2.tsv>
+```
+
+**Correctness — the zero-tolerance upstream-equivalence oracle** (Rule 105.15).
+This compares the Laguna runtime against vendored upstream over 8 decode steps at
+`maximumAbsoluteLogitError = 0`, and it does **not** skip on a non-M5 host, so it
+genuinely exercises the changed o_proj decode path. A valid pass must report a
+non-zero selected-test count — a mismatched Swift-Testing filter selects zero
+tests and still exits 0, which the script detects by requiring the report marker:
+
+```
+bash research/run_upstream_equivalence.sh
+# -> EQUIVALENCE_EXACT_STEPS=<n>   EQUIVALENCE_EXIT=0
+```
+
+**W&B publication** (raw per-run rows plus every ordered pairwise contrast):
+
+```
+REF_ARM=G4 python3 research/maple-nezuko-r117c-wandb-log.py <stage1.tsv>
+REF_ARM=C4 python3 research/maple-nezuko-r117c-wandb-log.py <stage2.tsv>
 ```
