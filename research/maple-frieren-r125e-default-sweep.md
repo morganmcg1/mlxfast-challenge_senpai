@@ -73,7 +73,7 @@ unless noted):
 | `NORM_AFFINE_QKV_PF` | 4 | 5342 | **no** — the `laguna_norm_affine_qkv_qmv_i8g32_*` family (dispatch 5638/5653) needs affine i8/g32 QKV; the shipped path prepares NVFP4 g16 (3048, 5803) and decodes via `lagunaDecodeNVFP4QKVGate/R1` (6078) | yes (inert) |
 | `NORM_AFFINE_QKV_STAGE` | off | 5322 | **no** — same dead family; also forces `pf=0` (5542) | yes (inert) |
 | `L5_UNROLL` | 2 | 3813 | **no** — call site 6583 sits after the default-taken native-affine NVFP4 o_proj branch, which always returns at 6514/6530 | yes (inert) |
-| `ROUTER_WEIGHT_PREFETCH` | 1 | 696 | **yes** — router kernel dispatch 1224, decode-only; inert unless rowsPerThread==1, true at default rowsPerGroup 8 | yes |
+| `ROUTER_WEIGHT_PREFETCH` | 1 | 696 | **ACTIVE** (audit below) | yes |
 | `NVFP4_NIBBLE_SPLIT` | 1 | 6787 | **yes** — header at 6915 feeds 17 decode QMV/down dispatches; widest blast radius | yes |
 | `DECODE_ASYNC_STAGE` | `at:0,1,7,15,23,31,39` | 744 | **yes** — `decodeFireMask` 11689/11722 → `asyncEval` 11939/11951; submission boundaries only | yes |
 | `OPROJ_ROWS_PER_SIMDGROUP` | 2 | `LagunaOProjGeometry.swift:53` | **yes** — dispatch 4641/4656 on the default-live gated-affine NVFP4 o_proj | yes |
@@ -96,6 +96,37 @@ Consequence for the run budget: three briefed knobs (`NORM_AFFINE_QKV_PF`,
 **structurally inert** on the shipped path — a knob on an unused fallback is not
 a timing experiment. They are screened last and at reduced n, with the
 prediction "delta indistinguishable from 0" recorded here in advance.
+
+## `ROUTER_WEIGHT_PREFETCH` reachability, settled by reading the dispatch
+
+My first table stated both "reachable" and "inert unless rowsPerThread==1"
+without resolving which side the shipped configuration lands on. Resolved by
+static read, not timing — verdict **ACTIVE**, three separately compiled kernels:
+
+- Guard: `lagunaRouterPrefetchGroups(rowsPerThread:prefetch:)` at
+  `LagunaRuntimeModel.swift:876-879` returns `0` unless `rowsPerThread == 1`.
+- At `:929-931`, `simdGroups = 512/32 = 16` and
+  `rowsPerThread = rowsPerGroup >= simdGroups ? rowsPerGroup/simdGroups : 1`.
+  Shipped `rowsPerGroup = 8` (`:676-682`) ⇒ `8 >= 16` is false ⇒
+  `rowsPerThread = 1`, so the guard **passes**. Prefetch is inert only at
+  `rowsPerGroup` 32/64; live at 1, 2, 4, 8, 16.
+- `prefetchGroups` = 0 / 1 / 1 for prefetch 0 / 1 / 5, and the emitted kernel
+  name differs per level (`:1127`, suffix `""` / `_pf1` / `_pf1c`), so the table
+  built at `:1119-1148` (21 pairs, key `rowsPerGroup*8 + prefetch`; shipped key
+  `65`) holds three distinct MSL texts.
+- Level 0 vs 1 differs by a hoisted 4-register load block (`:937-950`) plus a
+  rewritten accumulator (`:971-1001` vs `:1003-1023`). Level 1 vs 5 is the same
+  block moved from before the norm reduction (`:1082`) to after the
+  `threadgroup_barrier` (`:1095`) — pure load scheduling.
+- Enclosing decode branch is default-taken: `:11417-11423` requires
+  `x.dims(1,1,2048)` (the one-token decode shape) and the flag defaults on at
+  `:579-580`. Launch geometry is prefetch-independent (`:1226-1227`,
+  `grid = tiles*512`, `threadGroup = 512`), and the prefetch loads use the same
+  addresses in the same ascending order, so numerics are bit-exact.
+- Independent corroboration: `research/maple-tanjiro-r103b-kernel-text-differential.md:645`
+  records `DARKBLOOM_ROUTER_WEIGHT_PREFETCH=0` reproducing the pre-prefetch
+  kernel byte-identically at the shipped geometry.
+
 
 ## Kernel-level reachability trace: attempted, no usable output
 
