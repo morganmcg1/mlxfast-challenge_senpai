@@ -737,6 +737,39 @@ reported explicitly.
 The prefill `0.125 / 0.011933609 / 5991==5991` triple under `EQUIVALENCE_EXIT=1`
 is a **documented pre-existing M4 artifact** and is cited, not re-derived.
 
+## 9a. Shipped default flip
+
+Throughout the measurement campaign the shipped default of
+`DARKBLOOM_GRID_APPEND` at `Sources/MLXFastModel/LagunaRuntimeModel.swift:8241`
+was `"23"`, i.e. the **joint append arm G was the default path**. That was
+deliberate: it makes an un-instrumented `./benchmark.sh` invocation exercise the
+candidate rather than the control, so an accidental default-path run cannot
+silently produce a control number that gets mistaken for a candidate one.
+
+Because §0's verdict is negative — arm G costs `+13.6 µs/step` at layer 1 and
+`+27.0 µs/step` at layer 2, with no interval reaching a win — the submitted
+commit must not ship that path on by default. The final pre-submission edit
+therefore flips `:8241` from `"23"` to `"0"`, restoring the control path
+(neither guest appended) as the shipped behaviour. Every arm remains reachable
+by environment variable for a future round, which is the point of keeping one
+binary with ≥3 states.
+
+Properties of this edit, stated so the §4 table and every file:line citation in
+this report stay valid at the submitted commit:
+
+- it replaces one string literal token on one line;
+- it adds and removes no lines, so **no line number in this report shifts**;
+- it changes no kernel source, no dispatch shape, and no numerical path;
+- with the default at `"0"`, the shipped decode path is byte-identical to the
+  `BASE_SHA` control, which is what makes this branch safe to merge-or-close
+  without a re-measurement.
+
+The post-flip binary was rebuilt with
+`swift build -c release --scratch-path .build-worker --product
+mlxfast-runtime-worker --force-resolved-versions`, followed by
+`git checkout -- Package.resolved`, and the control-path trace was re-confirmed
+before the submission commit.
+
 ## 10. Answering the advisor's status ask (comment 1)
 
 **(i) Where am I on (ii)?** The honest answer at the time the question was
