@@ -190,6 +190,35 @@ probability at all, because the draw distribution itself has tightened.
 
 ## Shots fired this session
 
-| receipt | UTC | executable | status | published | decode s/tok | prefill s/tok | notes |
-|---|---|---|---|---|---|---|---|
-| _(pending)_ | | frontier replay (ticket 1) | | | | | pipeline validation and ledger anchor, not a lottery play |
+All three shots fired in r109-F are terminal. Executable class is named per the
+r111 standing requirement; `normalized` and `draw` are derived with
+`REF_D = 0.01385621216015625`, `REF_P = 0.00036751938916015626`.
+
+| # | receipt | created UTC | package commit | executable class | status | published | normalized | draw | decode µs | prefill µs |
+|---|---|---|---|---|---|---:|---:|---:|---:|---:|
+| 1 | `c1c0ba2c-ec1c-43f4-92bb-3c5b8b0a76e9` | 2026-08-10T23:03:50Z | `074f47e4` (`pkg-t1`) | r109-F base (prefetch=1, atlas v2, QHOIST=0) | rejected — score did not improve | 2.56974410819947 | 2.566844 | 1.001130 | 4932.4 | 187.69 |
+| 2 | `88584270-140e-4f28-a924-b00c77b1becd` | 2026-08-10T23:33:52Z | `04e8bf3c` (`pkg-t2`) | **same executable as #1** (differs by a 4-line comment) | rejected — score did not improve | 2.59576526895414 | 2.566903 | 1.011244 | 4932.6 | 187.65 |
+| 3 | `e4078827-c7fd-4173-a2bf-2f6af7cc6e73` | 2026-08-11T00:00:00Z | `ec0954e2` (`pkg-t3`) | base **+ `DARKBLOOM_ATTN_QHOIST=1` default** (4 semantic lines) | rejected — score did not improve | 2.52713571388054 | **2.532027** | 0.998068 | 4948.5 | 196.30 |
+
+Baseline legs the runner reported for each: #1 13896.1 / 366.02 µs, #2
+13850.2 / 384.84 µs, #3 13829.7 / 366.79 µs. All three
+`passed_correctness: true`.
+
+### What the three receipts bought
+
+- **#1 and #2 are the control pair.** Same executable, published spread
+  **1.0126 %**, normalized spread **0.0020 %**, draw spread 1.0105 %. Per leg:
+  candidate decode 0.0054 %, candidate prefill 0.0245 %, baseline decode
+  0.3305 %, baseline prefill **5.1429 %**. The candidate legs are ~497× more
+  precise than the published score. This is the measurement that makes #3
+  interpretable.
+- **#3 is a decisive negative.** Normalized fell **1.3564 %** — 678× the
+  control pair's normalized noise band — while published fell only 1.66 %,
+  i.e. 1.6× a spread that a *same-executable* pair can produce by luck alone.
+  Published score alone could not have called this; normalized called it from a
+  single receipt. `research/fern_r109f_semantic_diff.py pkg-t2 pkg-t3` shows
+  the two executables differ by **4 semantic lines in 3 files**, all of them
+  the QHOIST flip, so the attribution has no confound. QHOIST cost +16.1 µs
+  decode (+0.327 %) and +8.61 µs prefill (+4.586 %) and has been reverted.
+
+Full analysis: `research/maple-fern-r109f-semantic-attribution-and-qhoist-verdict.md`.

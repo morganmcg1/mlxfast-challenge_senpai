@@ -1303,22 +1303,14 @@ MTL::ComputePipelineState* get_steel_attention_kernel(
 namespace {
 
 const char* darkbloom_attn_qhoist_define() {
-  // DEFAULT ON for the ranked candidate (maple-fern, round 109-F). The hoist
-  // is a pure staging change -- same pointer, same offsets, same bounds
-  // predicate, and no float arithmetic is touched -- so the kernel output is
-  // bit-identical either way; see the exactness argument in
-  // kernels/steel/attn/kernels/steel_attention_nax.h. Set
-  // DARKBLOOM_ATTN_QHOIST=0 for an emergency opt-out, which prepends an
-  // explicit `#define DARKBLOOM_ATTN_QHOIST 0` and recovers the stock in-loop
-  // Q reload.
   static const bool enabled = [] {
-    const bool v = env::get_var("DARKBLOOM_ATTN_QHOIST", "1") != "0";
+    const bool v = env::get_var("DARKBLOOM_ATTN_QHOIST", "") == "1";
     if (env::get_var("DARKBLOOM_ATTN_TRACE", "") == "1") {
       fprintf(stderr, "mlxfast: attn qhoist: enabled=%d\n", int(v));
     }
     return v;
   }();
-  return enabled ? "" : "\n#define DARKBLOOM_ATTN_QHOIST 0\n";
+  return enabled ? "\n#define DARKBLOOM_ATTN_QHOIST 1\n" : "";
 }
 
 const char* darkbloom_attn_qblock_major_define() {
