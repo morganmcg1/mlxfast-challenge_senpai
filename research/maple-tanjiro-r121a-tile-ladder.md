@@ -524,3 +524,70 @@ Two further deviations, both deliberate:
 2. **Arms 1 and 4 are mutually exclusive**, not stackable — they edit the same
    `devc` block and arm 4 fails to apply on top of arm 1 (§7.1). The assignment
    implied a stackable ladder; it is stackable only as 1+2+3.
+
+## 10. The two questions the assignment asked me to answer directly
+
+### 10.1 "Is your Arm 3 the same thing as the closed `_nax` N-tile arm?" (§5)
+
+**Your Arm 3 is exactly the closed arm. Mine is not your Arm 3.** Two separate
+answers, because the label collided.
+
+Your Arm 3 as written (`bn=128, wn=4` → `bn=64, wn=2`) is *literally* the lever
+named in your own closed list: "**narrowing an `_nax` N-tile**"
+(`CURRENT_RESEARCH_STATE.md:6053-6055`). Same dimension, same function, same
+`matmul.cpp` site. So I dropped it and did **not** put an N-tile arm on the
+ladder. Verified mechanically: across all five patches the only tile symbol any
+arm assigns is `bm`. `bn` and `wn` are never written. (Arm 2's diff *mentions*
+`bn = 64` only because it splits the shipped `bm = bn = 64;` into two statements
+to change `bm` alone; `bn` keeps its pre-existing value.) The rung I labelled
+"arm 3" is `split_k_partition_size` — a K-depth change, a different mechanism at
+a different line.
+
+**But your closure rationale is stale, and that matters more than the label.**
+The parenthetical in the closed list is "(both dead by construction, rule 68)".
+That justification was **struck as factually false** in round 104
+(`CURRENT_RESEARCH_STATE.md:6337-6345`, Rule 85, fern #585 §4.1/§14.4): bn=64 is
+already in the AOT list, and the compiled path is JIT so the AOT list bounds
+nothing. My §1 (PROVEN-JIT) re-derives that independently and from different
+evidence, so treat the strike as confirmed twice.
+
+Net effect: the N-tile arm is still **closed, but only on measurement**, never
+by construction — rule 68 / #527's paired M5 receipt is **+0.639 ms, CI
+[+0.325, +0.953], t = 4.43 on 12 dof, −0.242 % of score**, i.e. a real
+regression; and swizzle depth at the same site measured a no-op (−0.0141 ms,
+t = −0.098). One caveat worth holding: #527 is confounded by a weight-bank size
+change (33.55 → 41.94 MB), so it is suggestive rather than decisive *as evidence
+that occupancy is irrelevant*. It is still decisive that **this** edit lost.
+
+### 10.2 "Verify the admissibility reasoning" (§5, Forbidden)
+
+Your reasoning was: a tile change is admissible because
+`darkbloom_steel_prefill_tile` proves tile changes already pass ranked
+correctness. **It is correct for four of my five arms and wrong for one — and
+the one it is wrong about is mine, not yours.**
+
+Correct part, and it is stronger than "it passed once": a change to
+`bm`/`bn`/`wm`/`wn` only reassigns *which* simdgroup computes which output tile.
+The K-reduction stays a single sequential fp32 accumulation in increasing `k`,
+so the result is **bit-identical by construction**, not merely
+empirically-passing. That covers arms 1, 2, 4 and 5 (arm 5 is the
+`darkbloom_steel_prefill_tile` default itself). `bk` is also safe for the same
+reason: it changes the block count of that sequential loop, not its order.
+
+Where it breaks: **split-K partition count is not a tile parameter.**
+`matmul.cpp:691` allocates `C_split({split_k_partitions, M, N}, float32)` and a
+second kernel sums those partials. Changing the partition count changes the
+*association* of an fp32 reduction — `(p0+p1)` becomes `((p0+p1)+(p2+p3))` — so
+the output is **not bit-identical**. My arm 3 raises the K ≤ 2048 partition
+count from 2 to 4 and therefore sits in a different correctness class from every
+other rung. `darkbloom_steel_prefill_tile` is *not* precedent for it, because
+that override leaves `bk` and the partition count untouched.
+
+**Consequence for the draw order, which I am flagging against my own arm:**
+arms 1, 2, 4, 5 cannot fail ranked correctness through numerics, so they are
+safe on a lottery ticket. Arm 3 carries a nonzero (small, un-quantified) risk of
+flipping a greedy token, and §7.4's equivalence pass does **not** retire that
+risk, because `_nax` is dead on gen-16 — the union test exercised none of it.
+Given `passed_correctness: false` forfeits the whole ticket, **draw arm 3 last,
+and never bundle it with a rung you actually want measured.** Its −2.68 ms is
+also the most substitutable prediction on the ladder.
