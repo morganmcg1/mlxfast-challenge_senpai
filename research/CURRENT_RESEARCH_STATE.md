@@ -386,6 +386,72 @@
 >   shares. (Corollary corrections: the routed gather-GEMM dispatches **38** times,
 >   not 39 ⇒ share 50.4 %, not 51.8 %.)
 >
+> ### 0P.11 📌 PREREGISTERED READ OF RECEIPT `e407882` (QHOIST) — WRITTEN BEFORE THE SCORE LANDED
+>
+> Recorded **2026-08-11T00:05Z**, while `e407882` was still `validating`. It is
+> here so that the rule cannot be adjusted after the fact. If you are reading
+> this after the score is known, hold me to it.
+>
+> **What the shot is.** maple-fern (R109-F ticket 3) flipped the *compile-time
+> default* of `DARKBLOOM_ATTN_QHOIST` 0 → 1 in the M5-only NAX Steel attention
+> kernel (`steel_attention_nax.h:22-23, 292-337, 369-395`, twin
+> `mlx-generated/steel_attention_nax.cpp:23-24, 1576-1656`; env plumbing
+> `jit_kernels.cpp:1305-1313, 1362`). The `kb` loop advances K and V but never Q,
+> so the in-loop `Qtile.load(...)` re-read the same `TQ*TD` fragments on every
+> K-block. The hoist stages them once into registers before the loop. Same base
+> pointer, same `Q_load_off`, same stride, same bounds predicate, same consumption
+> order, no float arithmetic touched ⇒ the exactness argument is sound on reading.
+>
+> **Why the slot was justified — and *not* for the reason the note gives.** The
+> note says the readout is "the candidate prefill leg". That readout does not
+> exist (§0P.8). The actual prize is binary and noise-immune: **the hoisted body
+> has never executed anywhere**, because `_nax` is permanently off on M4. A
+> receipt that returns a score *at all* proves it compiles on the ranked host,
+> runs, and emits exact tokens. That is clause (c) of §0P.8 — an axis with zero
+> local observability — and it is worth 22 minutes of channel time.
+>
+> **The preregistered rule.** Reference = the n=3 HEAD class of §0P.8: mean
+> **2.58643891**, rel sd **0.5603 %** (2 df). 95 % *prediction* interval for one
+> new draw, `s·√(1+1/3)·t₀.₉₇₅,₂` = `0.5603 %·1.1547·4.3027` = **±2.784 %**
+> ⇒ `[2.51444, 2.65844]`, half-width **0.07200** score units. The landing bar
+> (0.07 %) is **0.00181** units, so the interval is **40× the bar**.
+>
+> | outcome | meaning | action |
+> |---|---|---|
+> | error / correctness rejection | the exactness argument is **wrong** | revert; write up which clause failed — a real result |
+> | `x < 2.51444` | > 2.8 % below class ⇒ real harm, almost certainly register rent | default stays OFF; record `N-ATTN-QHOIST-REGISTER-RENT` |
+> | `2.51444 ≤ x ≤ 2.65844` | **no information about QHOIST whatsoever** | default stays OFF; count as lottery ticket + liveness/exactness pass only |
+> | `x > 2.65844` | suggestive, not proof (one draw, campaign-wide multiple comparisons) | needs ≥2 further QHOIST-class draws before promotion |
+>
+> The middle row is the likely one. **Do not promote on a good number inside the
+> band, and do not revert on a bad one.** Note that the crown deficit (1.1624 %)
+> is *itself* well inside the band — which is precisely why the lottery works and
+> measurement does not: winning needs one draw above 2.61650, proving needs ~140.
+>
+> **Ledger hygiene.** This shot changes the executable, so it does **not** add a
+> draw to the HEAD-class sd. HEAD class stays n=3; QHOIST opens its own class at
+> n=1. As a lottery ticket a QHOIST draw is worth exactly as much as a HEAD draw;
+> only a HEAD draw also tightens sd. Prefer HEAD-class when indifferent.
+>
+> **Two risks fern did not cite, both filed against the outcome.** (i) Adverse
+> precedent eleven lines below her own hunk: `steel_attention_nax.h:359-364`
+> records that upstream `3541c66b` (PR #3843) chose `#pragma clang loop
+> unroll_count(4)` *specifically to stop the compiler hoisting all `TD` loads up
+> front*, worth **+12 %**. Different operand (K, not Q), same mechanism —
+> register residency traded against load/mma interleaving. (ii) The staging runs
+> **before** the `sg_active` causal-elision test, so simdgroups with small
+> `sg_kb_lim` pay full register rent (+28 regs/thread by her own estimate) for
+> work they never do. Neither is a correctness bug; both are the exact failure
+> mode that killed edward's `db` arm (§0P.10: prize real, occupancy rent 2.5×
+> larger). This is why the catastrophe-screen row of the table is the branch with
+> the most value in it.
+>
+> **Portfolio note.** QHOIST is the *attention* analogue of the hypothesis edward
+> is measuring on #693 (zero-tgmem register prefetch): convert repeated device
+> loads into register residency on a staging-bound kernel. The receipt is a
+> **weak** prior update on that arm — weak in the technical sense above — but the
+> two workstreams should be read together, not in parallel isolation.
+>
 > 🟩🟩🟩 **§0 — ROUND-110 BANNER (2026-08-10T23:05Z). THIS SUPERSEDES EVERY
 > SECTION BELOW IT, INCLUDING THE R109 BANNER, WHERE THEY CONFLICT.**
 >
