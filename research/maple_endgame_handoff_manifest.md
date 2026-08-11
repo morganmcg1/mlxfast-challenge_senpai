@@ -7,9 +7,12 @@ stand-down by inspection, hands over the one packet worth a slot
 (`DARKBLOOM_STEEL_PREFILL_TILE=0`), retracts a receipt-to-mechanism attribution of mine as **error
 10** (GATE A has no ranked reading), records the frontier's move to `4ea72c3` — which makes every
 frozen-base *level* in this file stale while leaving dispersion valid — banks four static
-audits, and closes with §10(vi): the last live channel read (16:06:41Z — slot free, bar unchanged
-across three independent readings, with the era-step control that makes that falsifiable).
-Rules 21 and 22 are its generalisation. Read §10 before acting on any level in §1–§7.**
+audits, records in §10(vi) the last live channel read (16:06:41Z — slot free, bar unchanged
+across three independent readings, with the era-step control that makes that falsifiable), and closes
+with §10(vii) = **error 11**: two artifacts this file cites live on closed-unmerged student branches,
+not in your checkout, and `git branch -r` in this clone is a stale cache that will lie to you about
+that. Rules 21 and 22 are its generalisation. Read §10 before acting on any level in §1–§7.
+Run `python3 research/tools/handoff_linkcheck.py` after any edit to this file or the brief.**
 Previously revised: 2026-08-11 ~15:58Z — **All sixteen fleet arms are
 closed (§9). Three further errors of mine (6, 7, 8) are recorded at the end of §0. The last result to
 land, §6.7, prices the *target* rather than the channel and retires the fleet-wide misreading of
@@ -31,7 +34,7 @@ Where I was previously wrong, the correction is stated as a correction rather th
 
 ---
 
-## 0. READ THIS FIRST — ten of my own errors (1–5 below, 6–8 in §0a, 9 in rule 20, 10 in §10), and the third one changed the plan
+## 0. READ THIS FIRST — eleven of my own errors (1–5 below, 6–8 in §0a, 9 in rule 20, 10 in §10(ii), 11 in §10(vii)), and the third one changed the plan
 
 **Delta 1 (shared SwiGLU QMV threadgroup 64 → 256, advertised in earlier revisions of this document at
 `+0.38 %` of score, "the same order as the entire remaining gap to the bar") does not exist. It is a
@@ -1396,6 +1399,13 @@ producing a bound that appeared to get **worse** after a clean observation. Rule
     makes it a *rule* rather than a caution — **the same evidence class that cannot prove a positive
     cannot prove a negative**, which is exactly why error 10 above is a retraction of an *exclusion*.
     One noise process, two directions, one discipline.
+23. **An absence claim inherits the completeness of the index you searched, and most indexes are
+    caches.** I searched all 1281 remote-tracking refs in this clone for `epoch_gate.py`, found
+    nothing, and nearly published "it exists nowhere in the repository". The refspec here fetches
+    exactly one branch, so `git branch -r` is a snapshot with an unstated age — `git ls-remote` found
+    the file in one command (§10(vii), error 11). Before writing "X does not exist", name the index
+    you searched and say when it was last refreshed. This is rule 21 pointed at your tooling instead
+    of at a benchmark: a *listing* is evidence about the moment it was produced, not about now.
 
 ---
 
@@ -1556,7 +1566,7 @@ unsourced numbers** — 204.90 / 201.64 / 198.00 µs/token do not appear in `qua
 1.053 acceptance-band advice **contradicts `TASK.md:38-48`**. Treat that document as unsourced until
 re-derived; it is the last unaudited artifact I know of in this tree, and I am flagging it rather than
 fixing it because a rushed fix at 16:07Z would be exactly the unverified-number failure this manifest
-spends ten errors documenting.
+spends eleven errors documenting.
 
 ### (vi) The last live channel read, 16:06:41Z — slot free, bar unchanged, and how you can tell
 
@@ -1586,6 +1596,59 @@ and a stale bar silently rescales the whole document.
 
 Practical consequence for whoever holds the slot: the §1 gap of **+0.4950 %** and the
 **44 / 85 µs/step** ladder in §1 were still the correct targets as of the last evidence Maple could buy.
+
+### (vii) Error 11 — half this manifest's tool pointers do not resolve on the advisor branch
+
+Found at 16:15Z by `research/tools/handoff_linkcheck.py` (new; run it, it is three seconds), which checks
+every backticked `research/...` path in this file and in the brief against the tree, and every `§N`
+cross-reference against the headings that exist. **Two cited artifacts are not on this branch:**
+
+| cited as | actually lives on | at commit | why it is not here |
+|---|---|---|---|
+| `research/tools/epoch_gate.py` (§9 nezuko row, brief §5) | `maple-nezuko/r129-g-preflight-validity-gates` | `c472f6e58efd8f81bcdc913e077f71863ad73330` | PR #746 **closed unmerged** — tooling arm, nothing lands on the scored path |
+| `research/fern-r109f-interim-1200Z.md` (§6) | `maple-fern/r109-integration-and-submission` | `bd47570461dce7471c15a7f7997a93988ff11b5c` | PR #686 closed unmerged |
+
+The same branch also carries `preflight_gates.sh`, `preflight_negative_controls.sh`,
+`failure_clustering.py`, `receipt_commit_forensics.py`, `diff_column_semantics.py` and the
+`r129g-*.log` controls — i.e. the *evidence* for §9's clustering and ≤5.7 % lines. **Nothing is lost;
+it is one `git fetch` away.** The general rule: Maple's student arms were tooling/measurement arms
+closed unmerged by design, so **every artifact they produced lives only on its student branch**. A
+citation of the form `research/…` in this manifest means "in the Maple campaign", not "in your
+checkout".
+
+**The trap that produced this error, and it will bite you too.** This clone's fetch refspec is
+restricted to the advisor branch alone:
+
+```
+$ git config --get-all remote.origin.fetch
++refs/heads/codex/mlxfast-maple-20260804-advisor:refs/remotes/origin/codex/mlxfast-maple-20260804-advisor
+```
+
+so `git branch -r` lists ~1281 **stale** remote-tracking refs that `git fetch` never updates, and
+student branches created after the clone are simply absent. I scanned all 1281 of them for
+`epoch_gate.py`, got zero hits, and was one step from publishing "this artifact exists nowhere in the
+repository" — which is false. `git ls-remote origin` found it immediately. **Use `git ls-remote`, not
+`git branch -r`, for any existence claim about a branch in this tree**, and fetch explicitly:
+
+```
+git fetch origin '+refs/heads/maple-nezuko/r129-g-preflight-validity-gates:refs/remotes/chk/nezuko-r129g'
+git ls-tree -r --name-only refs/remotes/chk/nezuko-r129g | grep research/tools
+```
+
+Generalisation, and the reason this is error 11 rather than a typo: **an absence claim inherits the
+completeness of the index you searched, and a git remote-tracking ref set is not an index — it is a
+cache with an unstated staleness.** This is rule 21 (a receipt is evidence about the tree that produced
+it) applied to version control instead of to benchmarks: I read a *cache* and reported it as a *census*.
+The two dangling `§4b`/`§4c` pointers the same checker found in the brief (retargeted to §1a/§0f and to
+manifest §5 in the same commit) are the harmless version of the same failure — sections renamed while
+editing, references not re-checked. Nobody re-ran a link check on a document that had been rewritten
+eleven times in a day, because the document *looked* finished.
+
+**For the inheritor:** `python3 research/tools/handoff_linkcheck.py` exits 0 iff every path cited in
+the two handoff documents exists, every `§N` resolves in one of them, and the load-bearing constants
+(bar `2.6195531094824`, best receipt `2.60664969895906`, gap `0.4950 %`, both currencies, frontier
+`4ea72c3`) are spelled exactly one way in both. If you edit either document, re-run it before you
+trust it.
 
 ---
 

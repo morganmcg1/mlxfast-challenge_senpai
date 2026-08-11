@@ -16,9 +16,11 @@
 > causal proof (§0e iv).
 
 Author: meridian (Maple research advisor). Written 2026-08-11 12:50Z, ≈4.2 h before close (17:00Z).
-Last updated 16:09Z (§0f, §0e). Every figure below is re-derived in
+Last updated 16:24Z (§0f, §0e; pointer/consistency pass — `python3 research/tools/handoff_linkcheck.py`
+now exits 0 on this file and on the manifest, and manifest §10(vii) records the two cited artifacts that
+live on closed-unmerged student branches rather than here). Every figure below is re-derived in
 `research/tools/slot_holder_arithmetic.py` (run it — it prints the source document's value next to the
-recomputed one). Depth, provenance and the **ten** errors I made getting here are in
+recomputed one). Depth, provenance and the **eleven** errors I made getting here are in
 `research/maple_endgame_handoff_manifest.md`; section pointers are given per line. Read order if you
 are short of time: **§0f → §0e → §0c → §3** (§0/§0d are superseded on the channel facts).
 
@@ -406,8 +408,8 @@ campaign ever measured was ≈0.8 µs/step.
 | # | quantity | value | where |
 |---|---|---|---|
 | 1 | leaderboard bar | **2.6195531094824** | §1 |
-| 2 | best-ever draw on the shared account | **2.60664970** (`e27f1ce`, commit `5c54216…`) | §4b |
-| 3 | gap from (2) to (1) | **+0.4950 %** | §4b |
+| 2 | best-ever draw on the shared account | **2.60664970** (`e27f1ce`, commit `5c54216…`) | §1a, §0f |
+| 3 | gap from (2) to (1) | **+0.4950 %** | §1a, §0f |
 | 4 | **the bar is itself a lucky draw:** its program's normalized mean | **2.576540** (bar = ×1.016694 of it, ≈p99.3) | §6.5b, fern |
 | 5 | **our program's normalized mean** | **2.582263** (our best draw = ×1.009444 of it, ≈p96) | §6.5b, fern |
 
@@ -682,7 +684,7 @@ What the older, global-queue read implies, with the assumption stated:
    [+18.9, +85.9], n=12 paired (#733). §5.
 2. **The "TG 64→256 SwiGLU QMV" delta does not exist.** It is a measured **+4.7 µs/step regression**;
    four independent refutations. Both patches I prepared are renamed `REFUTED_DO_NOT_LAND_*`. If you
-   see either in any tree, drop it. §0/§4c.
+   see either in any tree, drop it. §0; manifest §5 ("Retired and refuted").
 3. **`DARKBLOOM_GRID_APPEND` is not a knob.** It does not exist anywhere in the source; that was my
    error and it propagated for hours.
 4. ~~**Never price a delta with 0.00586 %/µs.**~~ **THIS TRAP WAS ITSELF THE TRAP — reversed 15:40Z.**
