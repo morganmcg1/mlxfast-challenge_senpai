@@ -41,16 +41,22 @@ Three results are worth more than the negative itself:
    tracked hazards (`:315–375`). The router tournament and the two SwiGLU
    kernels are true siblings with `dep_scope = NONE`, so **no serialization
    point sits between them**. Grid-append therefore removes a *dispatch record*,
-   not a *serialization point*. §10b develops this into the proposed law
-   `L-ABSORPTION-NEEDS-A-REAL-BARRIER` and predicts the sign of the residual.
+   not a *serialization point*. **This is necessary but not sufficient**, and
+   §10b.1 records that I initially over-claimed here: R114-E is itself a
+   sibling append with no barrier between its halves and it pays −44.2 µs/step,
+   so "no barrier" cannot be the discriminator. §10b.2 replaces it with
+   `L-APPEND-NEEDS-A-CHEAP-GUEST`, calibrated on those two points.
 3. **Archive row C3 was right and its constant was right.** C3
    (`RESEARCH_ARCHIVE_through-round-91.md:4686`) de-staffed this exact fusion
    at 4.8 µs/step / 0.1231 µs per removed dispatch. The advisor's comment 4
    called that "under-priced by 16×" against R114-E's 1.92 µs/dispatch. The
-   measurement says the opposite: on a saturated host the recoverable value per
-   removed dispatch is at or below C3's constant, and R114-E's 1.92 µs/dispatch
-   is **not transferable** to a sibling-append on a busy host. Naming a refuted
-   constant is a result; here the refuted constant is the re-priced one.
+   measurement says the opposite: for *these two guests* the recoverable value
+   per removed dispatch is at or below C3's constant — in fact negative
+   (−0.13 to −0.26 µs/dispatch, §10b.2). R114-E's per-dispatch constant is real
+   (I re-measure it at **+1.11 µs/dispatch**, 89 % of Rule 57) but it is
+   **conditional on a guest that is ~0.15 % of the host grid**, and neither
+   R119-A instance is remotely that. Naming a refuted constant is a result;
+   here the refuted object is not the constant but its **scope**.
 
 ## 1. What was built, and how it diverges from the advisor's plan of record
 
@@ -565,9 +571,49 @@ magnitude, at roughly 56 % of the M5 SPLIT=0 magnitude on a different
 instrument, split and machine.* None of those three gaps is evidence of
 regression; each is a known scaling factor.
 
+**On the advisor's comment-6 transfer disclosure.** Comment 6 reports that two
+official draws from R114-E-containing bases sit at **−0.063 %** against a
+predicted **+0.45 %**, and that at n ≥ 8 post-gate draws a normalized shift
+below +0.10 % would refute ranked-host transfer at ~2.7σ. My arm-E result is
+directly relevant, so three things I can contribute:
+
+1. **At n = 2 this is not yet evidence of non-transfer.** The gap is ~0.51
+   percentage points; two draws can only resolve it if the per-draw standard
+   deviation of the normalized shift is well under ~0.25 pp. I do not know that
+   dispersion, and I think it is the single most useful number to publish
+   alongside the mean — without it, "−0.063 % vs +0.45 %" and "the effect is
+   real but the instrument is noisy at n = 2" are indistinguishable. My local
+   arm E is unambiguously alive at 6/6 blocks and p = 0.031, which is at least a
+   reason not to write the change off on two ranked draws.
+2. **If it does hold at n ≥ 8, `L-APPEND-NEEDS-A-CHEAP-GUEST` supplies a
+   mechanism for machine-dependent non-transfer that is specific to this
+   technique.** Recovery depends on how much the guest lengthens the host's
+   *per-core* critical path, and per-core queue depth falls as core count rises.
+   R114-E appends 6–8 guest tiles onto a 4096–5120-tile host; on M4 Pro's 20
+   cores that host is ~205–256 tiles deep per core, on a larger M5 Max it is
+   roughly half that. The dispatch saving is core-count-independent, but the
+   guest's marginal occupancy cost is not, so the *ratio* — and therefore the
+   recovery — should degrade monotonically with core count. That predicts
+   exactly the observed shape (a clear M4 win, a null on M5) without invoking
+   measurement error, and it is falsifiable.
+3. **A cheap, shippable test of (2) that does not require new theory.** If the
+   guest's serial tile latency is the problem, split R114-E's guest finer at
+   constant total work: `laguna_gate_tiles = heads / 8` gives 6–8 fat tiles;
+   `heads / 1` would give 48–64 thin ones, same arithmetic, ~8× lower per-tile
+   latency and ~8× better load-balance granularity. That is a one-constant
+   change at `Sources/MLXFastModel/LagunaRuntimeModel.swift:5092` plus the
+   matching stride in `lagunaGateSoftplusSource`. If the M4 win survives and the
+   M5 draws move toward the prediction, (2) is confirmed and the fix ships with
+   it. If M4 is unchanged and M5 is unchanged, (2) is dead and the honest
+   conclusion is that R114-E's ranked value is smaller than modelled.
+
+I did not run this — it is outside the assignment's edit scope for R119-A and
+touches a merged, shipped kernel — but it is the highest-value item I found and
+it is listed as follow-up 10.
+
 <!-- FILL: layer-2 C/E delta and verdict -->
 
-## 10b. Mechanism — why sibling grid-append cannot pay on a saturated host
+## 10b. Mechanism — what makes a sibling grid-append pay, and what does not
 
 This is the part of the result worth keeping regardless of the arm's fate,
 because it is a property of the MLX dispatch layer, not of my kernel.
@@ -710,27 +756,106 @@ per-TG tax need not: core count, `_nax` kernel selection, and Dynamic Caching
 behaviour all differ. Nothing here should be read as an M5 verdict on the tax;
 it is an M5-relevant verdict on `S`.
 
-Proposed law, offered for the archive:
+### 10b.1 I have to retract my own proposed law before I state one
 
-> **`L-ABSORPTION-NEEDS-A-REAL-BARRIER`** (renamed from the working title
-> `L-ABSORPTION-NEEDS-AN-IDLE-HOST` once the full-n fit showed `S`, not the
-> per-TG tax, is the decisive term) — grid-append absorption pays only when the
-> guest sits across a **genuine barrier-delimited stage boundary**. Under MLX's
-> `DispatchTypeConcurrent` encoder a `dep_scope = NONE` sibling is *already*
-> overlapped in hardware, so absorbing it recovers `S = 0` while still charging
-> a per-host-threadgroup tax (order 1 ns/TG measured here) and the guest
-> tile's load-balance tail. Screen on **barrier adjacency first**, host
-> threadgroup count second, and the guest's own µs/step not at all: a guest can
-> be large, hot, and frequently called and still be worth exactly zero to
-> absorb.
+I drafted this section around a law called `L-ABSORPTION-NEEDS-A-REAL-BARRIER`:
+that a `dep_scope = NONE` sibling is already overlapped by MLX's
+`DispatchTypeConcurrent` encoder, so absorbing it recovers nothing, and that
+legality and payoff are therefore anti-correlated for this technique.
+
+**That law is false, and my own positive control refutes it.** While preparing
+the arm-E answer for status ask (ii) I read the R114-E kernel I had been
+treating as an unrelated merged change, and it is *itself a sibling
+grid-append of exactly this family*:
+
+```swift
+// Sources/MLXFastModel/LagunaRuntimeModel.swift:5092-5098
+constexpr uint laguna_gate_tiles = \(heads / 8);
+if (threadgroup_position_in_grid.x < laguna_gate_tiles) {
+\(gateBody)
+    return;
+}
+\(lagunaDecodeNVFP4QKVLaneMajorSource(pairwise: pairwise, tileOffset: "laguna_gate_tiles"))
+```
+
+dispatched at `:5163-5167` as
+`grid: ((heads / 8 + rows / 2) * 64, 1, 1)`, `threadGroup: (64, 1, 1)`.
+
+That is the same construction I was assigned: a guest body occupying the
+**leading tiles** of a decode host's grid, at matched threadgroup shape, behind
+a tile-index branch. The two bodies are siblings — the gate projection and the
+QKV projection both read `normalized` and neither reads the other, so
+`dep_scope = NONE` there too. And it pays **−44.2 µs/step** (§10 (ii)).
+
+So a sibling append with no barrier between the two halves *can* recover close
+to the full nominal dispatch cost. The barrier-adjacency screen is refuted, and
+with it the "legality is anti-correlated with payoff" corollary I was about to
+put in the archive. I would rather retract it here than have it cited later.
+
+### 10b.2 What actually separates the win from the two losses
+
+The refutation is useful, because R114-E and R119-A now form a two-point
+calibration of the *same* technique on the *same* host machine, instrument and
+step — and they differ by three orders of magnitude in one parameter.
+
+`heads` is 48 or 64 per layer (`weights/config.json`,
+`num_attention_heads_per_layer`), and `rows` is the fused QKV width
+`heads·128 + 2·8·128` = 8192 or 10240. So R114-E's grid is:
+
+| | guest TGs (`heads/8`) | host TGs (`rows/2`) | guest share of grid |
+|---|---|---|---|
+| sliding layers (`heads = 48`) | 6 | 4096 | **0.15 %** |
+| full-attention layers (`heads = 64`) | 8 | 5120 | **0.16 %** |
+
+Against that, the two R119-A instances, using the guest and host per-call times
+the advisor and frieren supplied in PR comments 2 and 6:
+
+| append | guest | guest TGs | guest µs/call | host TGs | host µs/call | guest ÷ host duration | dispatches removed/step | measured Δ µs/step | recovered µs/dispatch |
+|---|---|---|---|---|---|---|---|---|---|
+| **R114-E** (shipped) | `gate_softplus` | 6–8 | not measured; 0.15 % of grid | 4096–5120 | — | **≈ 0.0015** (grid-share proxy) | 40 | **−44.2** | **+1.11** (89 % of Rule 57's 1.2382) |
+| R119-A i2 (arm F) | shared SwiGLU | 256 | 7.32 | 256 | ≥ 7.32 | **≈ 1.0** | 39 | +10.0 / +5.1 robust | −0.26 to −0.13 |
+| R119-A i3 (arm H) | router tournament | 1 | 4.78 | 256 | ≥ 7.32 | **≤ 0.65** | 39 | +7.3 / +5.1 robust | −0.19 to −0.13 |
+
+Two notes on the host column, both conservative against my own conclusion. The
+7.32 µs/call host figure the advisor quoted is
+`shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1`; my implementation appends onto
+the **routed** SwiGLU host instead (§1), which has the same 256-tile shape but
+strictly more work (256 experts with a top-8 gather, versus one shared expert),
+so its true per-call duration is ≥ 7.32 µs. A *longer* host makes a fixed guest
+easier to hide, so the ratios above are upper bounds and the recovery figures
+are the most favourable reading available to the append. It still lost.
+
+Proposed law, offered for the archive in place of the retracted one:
+
+> **`L-APPEND-NEEDS-A-CHEAP-GUEST`** — a sibling grid-append recovers the
+> removed dispatch cost in proportion to how little the guest lengthens the
+> host kernel's critical path. Screen on **guest kernel duration ÷ host kernel
+> duration** (equivalently guest tiles ÷ host tiles when tile costs are
+> comparable), not on barrier adjacency and not on the guest's µs/step.
+> Two measured points on one machine: ratio ≈ 0.0015 recovers ≈ 89 % of the
+> nominal 1.2382 µs/dispatch; ratio ≥ 0.65 recovers a *negative* amount. The
+> zero crossing is unmeasured, so a screening threshold of **ratio ≤ 0.05** is
+> the widest rule the two points support.
 >
-> Corollary, and the practical trap: the sibling-only safety rule that makes an
-> append *legal* (`dep_scope = NONE`) is the same property that makes it
-> *worthless*. Legality and payoff are anti-correlated for this technique.
+> Corollary: the guest's own µs/step is the wrong headline number. A big, hot,
+> frequently called guest is the *worst* append candidate precisely because it
+> is big — its serial tile latency is charged to the host's tail. The right
+> candidate is a guest that is frequently called and individually trivial.
 
-This subsumes and sharpens `L-THIRD-CELL-NEEDS-CALL-COUNT`: the guest's TG
-count and call count identify a *candidate*, but the **host's** TG count and
-the guest's **barrier adjacency** decide whether it can pay.
+This inverts, rather than sharpens, `L-THIRD-CELL-NEEDS-CALL-COUNT`. Call count
+still identifies a candidate — the saving is `calls × per-dispatch recovery` —
+but the second factor is *small guest*, not *large guest*. Under the old
+reading, a 186 µs/step guest looked like the best target in the model; under
+this one it was disqualified before I wrote a line of code, and R114-E's
+~6-threadgroup softplus was the exemplar the family should have been screened
+against.
+
+I want to be explicit about the status of this law: it is a **two-point fit**
+with an unmeasured crossing, and the mechanism (guest tile latency charged to
+the host's load-balance tail) is inferred, not observed. Follow-up 1 (encoder
+instrumentation) and follow-up 2 (the clone ladder, which sweeps guest tile
+count on a fixed host and would locate the crossing directly) are the two
+experiments that would turn it from a fit into a measurement.
 
 One hypothesis I was able to eliminate cheaply: the regression is **not** a
 dropped `[[max_total_threads_per_threadgroup]]` attribute. `grep -c` over
@@ -785,11 +910,15 @@ run next if the advisor wants the mechanism nailed rather than merely believed.
    kernels.** Unrelated to this arm and untested, but the vendored MLX GEMVs use
    it and no Laguna kernel does; it lets the compiler budget registers for the
    actual launch width. Cheap to try, plausibly helps the *unfused* baseline.
-8. **Retarget the technique by barrier adjacency, not guest occupancy.** Scan
-   the per-layer op stream for barrier-delimited stages that contain a *single
-   small dispatch* on an under-occupied host — that is the R114-E shape, and
-   `L-ABSORPTION-NEEDS-A-REAL-BARRIER` says those are the only places left where
-   this technique can pay.
+8. **Retarget the technique by guest cost, not by guest prominence.** Scan the
+   per-layer op stream for dispatches whose *own* kernel duration is ≲ 5 % of a
+   sibling host's duration and rank them by call count — that is the R114-E
+   shape (6 threadgroups appended onto 4096) and, per
+   `L-APPEND-NEEDS-A-CHEAP-GUEST`, the only shape left where this technique can
+   pay. Concretely: enumerate every decode dispatch with ≥ 39 calls/step and
+   grid ≤ 16 threadgroups, and append each onto whichever saturated sibling is
+   adjacent. Those candidates were invisible under the profile-by-total-cost
+   screen that selected instances 2 and 3.
 9. **Host widening as an optimization in its own right.** Arm W measures
    widening the shared SwiGLU host from TG (64,1,1)/256 tiles to TG (256,1,1)/64
    tiles *as a standalone change* (§7.3), which is the advisor's comment-3 gate.
@@ -798,3 +927,13 @@ run next if the advisor wants the mechanism nailed rather than merely believed.
    `N_host` 4× and so reduces any per-threadgroup cost and changes the scheduling
    tail. If arm W is neutral or better, that is a free simplification the fusion
    agenda does not need.
+10. **Split R114-E's own guest finer and re-draw on M5 — the highest-value item
+    I found.** Detailed in §10 (ii) item 3. `laguna_gate_tiles = heads / 8`
+    (`Sources/MLXFastModel/LagunaRuntimeModel.swift:5092`) gives 6–8 fat guest
+    tiles; `heads / 1` gives 48–64 thin ones at identical arithmetic, ~8× lower
+    per-tile latency and ~8× finer load-balance granularity. Under
+    `L-APPEND-NEEDS-A-CHEAP-GUEST` this should be neutral-to-positive on M4 and
+    *more* positive on a higher-core-count M5, which is exactly the direction
+    the comment-6 transfer gap needs. It is a one-constant change to a merged,
+    shipped kernel, so it is cheap to try and cheap to revert — but it is
+    outside R119-A's scope and I did not touch it.
