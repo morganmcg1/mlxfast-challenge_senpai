@@ -8,7 +8,7 @@ Host: Apple M4 Pro, 20 GPU cores, 48 GiB. All levels are `--local-submit`, 1023 
 > attention NVFP4 scale plane from 8-bit to 5-bit or 6-bit codes and priced those at
 > **+0.560 %** and **+0.374 %**. Both prices were computed against a **stock 8-bit plane
 > that does not exist in this tree**. The narrow/pairwise/lane-major encoders shipped
-> before this round already removed **66.38 MB/step (+2.37 %)**; the *surviving* plane is
+> before this round already removed **66.38 MB/step (+2.16 % at τ=1)**; the *surviving* plane is
 > **24.02 MB/step = 3.26 %** of family traffic. Against the surviving plane, 5-bit and
 > 6-bit codes **ADD** bytes. The correct entries in the ledger are **negative**.
 > Everything below is the evidence for that, plus the reusable instrument I built to
@@ -79,11 +79,11 @@ Target family = `decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1` (1342.1 µs/step, 3
 | quantity | value |
 |---|--:|
 | family traffic | **737.1 MB/step** |
-| family time | **3123.5 µs/step** |
+| family time | **3123.3 µs/step** (1342.1 + 1114.7 + 363.5 + 303.0) |
 | achieved bandwidth | **236.0 GB/s = 91.9 % of 256.7 GB/s peak** |
 | surviving scale plane | **24.02 MB/step = 3.26 %** |
 | payload (irreducible) | **96.74 %** |
-| already banked by shipped encoders | **66.38 MB/step = +2.37 %** |
+| already banked by shipped encoders | **66.38 MB/step = +2.16 %** (τ=1, C3-corrected; +1.69 % at τ=0.780) |
 | whole-plane-vanishes ceiling at τ=1 | **93.6 µs/step = +0.782 %** |
 
 The family runs at **91.9 % of peak bandwidth**. There is no compute slack to trade against.
@@ -94,7 +94,7 @@ The family runs at **91.9 % of peak bandwidth**. There is no compute slack to tr
 139,264 rows, all 40 layers. Written up as the ADDENDUM at line 337 of
 `research/nezuko-r117-stage0-attn-byte-floor.md`.
 
-- ≤15 span eligibility: **96.0–99.2 %** ⇒ escape rate **1.0–4.0 %**
+- ≤15 span eligibility: **96.0–99.2 %** ⇒ escape rate **0.8–4.0 %**
   (contrast: edward's routed-expert planes escape at 0.02–0.16 % — routed and attention
   planes are **not** the same statistical object, and the assignment treated them as one)
 - break-even escape rate: **7.7–7.8 %**
@@ -346,7 +346,7 @@ on the `ns=2` arms, and **tests it out of sample**: fitted on the pre-flight sin
 alone it gives `a = −135.3 µs/doubling`, `tau_act = +0.056`, and predicts the
 never-yet-measured `R2` arm at **−66.8 µs/step**.
 
-### 5.4 Ladder result (5 arms × 5 blocks = 25 runs, pre-registered)
+### 5.4 Ladder result (amendment 14: 3 arms × 8 blocks = 24 runs, pre-registered)
 
 <!--F7-LADDER-->
 
@@ -357,8 +357,16 @@ never-yet-measured `R2` arm at **−66.8 µs/step**.
 The advisor asked me to treat this kernel as the biggest remaining headroom on the board
 (610.0 µs/step cost, **373.4 µs/step headroom**, 38.8 % of peak, 30.3 calls/step,
 20.13 µs/call, 2.131 MB/call — alphonse `maple-alphonse-r109e-qk-ceiling.md:1384`), and
-alphonse's campaign law says to print the threadgroup count next to any null. I had no GPU
-budget left to run an arm on it, so this section is a **hand-off**: static facts, an
+alphonse's campaign law says to print the threadgroup count next to any null.
+
+*One scale note on the imported row, so it is not silently mixed with mine:* alphonse's
+"38.8 % of peak" is computed against a ~273 GB/s peak (2.131 MB ÷ 20.13 µs = 105.9 GB/s;
+105.9 / 0.388 = 272.9). Every "% of peak" elsewhere in this report uses the 256.7 GB/s
+asymptotic figure, on which the same row reads **41.2 % of peak** and **358.5 µs/step** of
+nominal headroom rather than 373.4. I quote alphonse's numbers unchanged below because they
+are his; the two scales differ by 6.3 % and must not be averaged.
+
+I had no GPU budget left to run an arm on it, so this section is a **hand-off**: static facts, an
 independent profile confirmation, and one named, falsifiable lever. It is not a measurement
 of a candidate and it is not claimed as one.
 
@@ -389,6 +397,12 @@ this kernel is NOT an absorption candidate.** It does not launch fewer threadgro
 machine has cores. Whatever is costing 373.4 µs/step here, it is not thread starvation of the
 kind that cell is designed to catch.
 
+**Caveat, stated because it is load-bearing and I do not want it read as universal:** this
+verdict is evaluated **on this 20-core M4 Pro host**. The third cell is a *core-count*
+comparison, so its sign — and the 80 % wave-efficiency figure and the 122 µs/step bound in
+§6.3 — must be re-stated for the ranked machine before anyone uses this section to close the
+lever. On a machine with more than 32 cores the same dispatch *is* an absorption candidate.
+
 ### 6.2 What the byte axis can and cannot say here
 
 The atlas `MB/call = 2.131` is a **static unique-buffer footprint**, not a measured DRAM
@@ -404,8 +418,9 @@ that would be circular. The honest statement needs the *logical* traffic:
   = 32 × 256 KiB = **8.39 MB/call**, against a 2.10 MB unique KV footprint: a **4× logical
   re-read**.
 - But 20.13 µs/call at the 256.7 GB/s peak admits at most **5.17 MB/call** of real DRAM
-  traffic. Since 8.43 > 5.17, **at least 39 % of the logical re-read is already being served
-  from cache**; the effective redundancy factor is bounded above by 2.42×.
+  traffic. Since 8.39 > 5.17, **at least 38 % of the logical re-read is already being served
+  from cache**; the effective redundancy factor is bounded above by **2.46×**
+  (5.17 MB admissible ÷ 2.097 MB unique).
 
 That bound is the useful part: it says a "stop re-reading KV" rewrite has at most ~2.4× of
 2.10 MB to win back, and the obvious way to get it — one threadgroup per kv_head, so 8
@@ -467,8 +482,12 @@ machine an occupancy-limited kernel does not obey the byte model at all.
   before each launch). One qualification, recorded because it matters: the first Stage-1
   ladder (5 arms × 5 blocks) was **killed by the runtime after block 1**, not by me and not
   because of what block 1 said. I did not analyse block 1 as if it were the campaign; I
-  re-registered a better design (amendment 14, §5.4) and re-ran it. Block 1's four rows are
-  published verbatim in §5.4 anyway so that the decision can be audited.
+  re-registered a better design (amendment 14, §5.4) and re-ran it. Only 4 of that ladder's
+  25 runs completed (the `N4` arm never ran at all). Those four rows are preserved verbatim,
+  unpooled, in `research/data/nezuko-r117-stage1-ladder-block1-killed.tsv` and quoted in
+  amendment 14 of `research/nezuko-r117-oproj-geometry-preregistration.md`, so the decision
+  to discard rather than pool them can be audited. They are **not** combined with the
+  replacement ladder anywhere.
 - **The prefill view `lagunaPackedPrefillScaleView` is untouched and bit-identical.**
 
 ## 8. Reproduction
