@@ -1,0 +1,215 @@
+=== r107j-certify session=20260811T022107Z
+===   head=47d296615a0cbc41da2b3fa85400110ac3132566 dirty_files=0 mode=--local-submit blocks=4 arms=4
+===   arm[0] label=C gates='<none>'   <-- REFERENCE
+===   arm[1] label=S1 gates='DARKBLOOM_INJECT_DECODE_EMPTY=40,DARKBLOOM_INJECT_EMPTY_TG=8,DARKBLOOM_INJECT_EMPTY_CHAIN=0,DARKBLOOM_INJECT_EMPTY_SPREAD=1'
+===   arm[2] label=A1 gates='DARKBLOOM_INJECT_DECODE_EMPTY=1,DARKBLOOM_INJECT_EMPTY_TG=8,DARKBLOOM_INJECT_EMPTY_CHAIN=0,DARKBLOOM_INJECT_EMPTY_SPREAD=0'
+===   arm[3] label=L1 gates='DARKBLOOM_DECODE_ASYNC_STAGE=ladder1'
+===   rows -> /tmp/r107j-certify-20260811T022107Z.tsv
+=== run idx=1 block=1 pos=1 arm=C start 02:21:07
+20260811T022107Z	1	1	1	C	none	none	0.00897927769599218	0.001111975421875	true	f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2	151	47d296615a0c	
+=== run idx=1 done 02:23:38 rc=0 wall=151s
+=== run idx=2 block=1 pos=2 arm=S1 start 02:23:38
+20260811T022107Z	2	1	2	S1	DARKBLOOM_INJECT_DECODE_EMPTY=40,DARKBLOOM_INJECT_EMPTY_TG=8,DARKBLOOM_INJECT_EMPTY_CHAIN=0,DARKBLOOM_INJECT_EMPTY_SPREAD=1	none	0.008911378299120233	0.001111292236328125	true	f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2	174	47d296615a0c	
+=== run idx=2 done 02:26:32 rc=0 wall=174s
+=== run idx=3 block=1 pos=3 arm=A1 start 02:26:32
+20260811T022107Z	3	1	3	A1	DARKBLOOM_INJECT_DECODE_EMPTY=1,DARKBLOOM_INJECT_EMPTY_TG=8,DARKBLOOM_INJECT_EMPTY_CHAIN=0,DARKBLOOM_INJECT_EMPTY_SPREAD=0	none	0.008930050342130989	0.00112298738671875	true	f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2	163	47d296615a0c	
+=== run idx=3 done 02:29:15 rc=0 wall=163s
+=== run idx=4 block=1 pos=4 arm=L1 start 02:29:15
+20260811T022107Z	4	1	4	L1	DARKBLOOM_DECODE_ASYNC_STAGE=ladder1	none	0.008924338872922776	0.001138119548828125	true	f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2	178	47d296615a0c	
+=== run idx=4 done 02:32:13 rc=0 wall=178s
+=== run idx=5 block=2 pos=1 arm=S1 start 02:32:13
+20260811T022107Z	5	2	1	S1	DARKBLOOM_INJECT_DECODE_EMPTY=40,DARKBLOOM_INJECT_EMPTY_TG=8,DARKBLOOM_INJECT_EMPTY_CHAIN=0,DARKBLOOM_INJECT_EMPTY_SPREAD=1	none	0.008895273093841641	0.0011230595703125	true	f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2	156	47d296615a0c	
+=== run idx=5 done 02:34:49 rc=0 wall=156s
+=== run idx=6 block=2 pos=2 arm=A1 start 02:34:49
+20260811T022107Z	6	2	2	A1	DARKBLOOM_INJECT_DECODE_EMPTY=1,DARKBLOOM_INJECT_EMPTY_TG=8,DARKBLOOM_INJECT_EMPTY_CHAIN=0,DARKBLOOM_INJECT_EMPTY_SPREAD=0	none	0.00893196672336266	0.00111098681640625	true	f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2	156	47d296615a0c	
+=== run idx=6 done 02:37:25 rc=0 wall=156s
+=== run idx=7 block=2 pos=3 arm=L1 start 02:37:25
+20260811T022107Z	7	2	3	L1	DARKBLOOM_DECODE_ASYNC_STAGE=ladder1	none	0.008942018206256109	0.00111696573828125	true	f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2	156	47d296615a0c	
+=== run idx=7 done 02:40:01 rc=0 wall=156s
+=== run idx=8 block=2 pos=4 arm=C start 02:40:01
+20260811T022107Z	8	2	4	C	none	none	0.00896135699706745	0.00111136141015625	true	f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2	168	47d296615a0c	
+=== run idx=8 done 02:42:49 rc=0 wall=168s
+=== run idx=9 block=3 pos=1 arm=A1 start 02:42:49
+20260811T022107Z	9	3	1	A1	DARKBLOOM_INJECT_DECODE_EMPTY=1,DARKBLOOM_INJECT_EMPTY_TG=8,DARKBLOOM_INJECT_EMPTY_CHAIN=0,DARKBLOOM_INJECT_EMPTY_SPREAD=0	none	0.008930334351906159	0.001121838296875	true	f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2	156	47d296615a0c	
+=== run idx=9 done 02:45:25 rc=0 wall=156s
+=== run idx=10 block=3 pos=2 arm=L1 start 02:45:25
+20260811T022107Z	10	3	2	L1	DARKBLOOM_DECODE_ASYNC_STAGE=ladder1	none	0.008931156077223851	0.001111074787109375	true	f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2	168	47d296615a0c	
+=== run idx=10 done 02:48:13 rc=0 wall=168s
+=== run idx=11 block=3 pos=3 arm=C start 02:48:13
+20260811T022107Z	11	3	3	C	none	none	0.00896941002737048	0.001138689859375	true	f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2	156	47d296615a0c	
+=== run idx=11 done 02:50:49 rc=0 wall=156s
+=== run idx=12 block=3 pos=4 arm=S1 start 02:50:49
+20260811T022107Z	12	3	4	S1	DARKBLOOM_INJECT_DECODE_EMPTY=40,DARKBLOOM_INJECT_EMPTY_TG=8,DARKBLOOM_INJECT_EMPTY_CHAIN=0,DARKBLOOM_INJECT_EMPTY_SPREAD=1	none	0.008909817041055718	0.001122757080078125	true	f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2	168	47d296615a0c	
+=== run idx=12 done 02:53:37 rc=0 wall=168s
+=== run idx=13 block=4 pos=1 arm=L1 start 02:53:37
+20260811T022107Z	13	4	1	L1	DARKBLOOM_DECODE_ASYNC_STAGE=ladder1	none	0.008935679537634408	0.00112368505859375	true	f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2	168	47d296615a0c	
+=== run idx=13 done 02:56:25 rc=0 wall=168s
+=== run idx=14 block=4 pos=2 arm=C start 02:56:25
+20260811T022107Z	14	4	2	C	none	none	0.00897888872629521	0.001111388751953125	true	f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2	156	47d296615a0c	
+=== run idx=14 done 02:59:01 rc=0 wall=156s
+=== run idx=15 block=4 pos=3 arm=S1 start 02:59:01
+20260811T022107Z	15	4	3	S1	DARKBLOOM_INJECT_DECODE_EMPTY=40,DARKBLOOM_INJECT_EMPTY_TG=8,DARKBLOOM_INJECT_EMPTY_CHAIN=0,DARKBLOOM_INJECT_EMPTY_SPREAD=1	none	0.008895514784946237	0.001121411296875	true	f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2	155	47d296615a0c	
+=== run idx=15 done 03:01:37 rc=0 wall=155s
+=== run idx=16 block=4 pos=4 arm=A1 start 03:01:37
+20260811T022107Z	16	4	4	A1	DARKBLOOM_INJECT_DECODE_EMPTY=1,DARKBLOOM_INJECT_EMPTY_TG=8,DARKBLOOM_INJECT_EMPTY_CHAIN=0,DARKBLOOM_INJECT_EMPTY_SPREAD=0	none	0.00892402109775171	0.001122086181640625	true	f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2	167	47d296615a0c	
+=== run idx=16 done 03:04:24 rc=0 wall=167s
+--- /tmp/r107j-certify-20260811T022107Z.tsv ---
+session	idx	block	pos	arm	gates	kernels	decode_s_per_token	prefill_s_per_token	passed	golden	wall_s	head	error
+20260811T022107Z	1	1	1	C	none	none	0.00897927769599218	0.001111975421875	true	f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2	151	47d296615a0c	
+20260811T022107Z	2	1	2	S1	DARKBLOOM_INJECT_DECODE_EMPTY=40,DARKBLOOM_INJECT_EMPTY_TG=8,DARKBLOOM_INJECT_EMPTY_CHAIN=0,DARKBLOOM_INJECT_EMPTY_SPREAD=1	none	0.008911378299120233	0.001111292236328125	true	f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2	174	47d296615a0c	
+20260811T022107Z	3	1	3	A1	DARKBLOOM_INJECT_DECODE_EMPTY=1,DARKBLOOM_INJECT_EMPTY_TG=8,DARKBLOOM_INJECT_EMPTY_CHAIN=0,DARKBLOOM_INJECT_EMPTY_SPREAD=0	none	0.008930050342130989	0.00112298738671875	true	f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2	163	47d296615a0c	
+20260811T022107Z	4	1	4	L1	DARKBLOOM_DECODE_ASYNC_STAGE=ladder1	none	0.008924338872922776	0.001138119548828125	true	f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2	178	47d296615a0c	
+20260811T022107Z	5	2	1	S1	DARKBLOOM_INJECT_DECODE_EMPTY=40,DARKBLOOM_INJECT_EMPTY_TG=8,DARKBLOOM_INJECT_EMPTY_CHAIN=0,DARKBLOOM_INJECT_EMPTY_SPREAD=1	none	0.008895273093841641	0.0011230595703125	true	f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2	156	47d296615a0c	
+20260811T022107Z	6	2	2	A1	DARKBLOOM_INJECT_DECODE_EMPTY=1,DARKBLOOM_INJECT_EMPTY_TG=8,DARKBLOOM_INJECT_EMPTY_CHAIN=0,DARKBLOOM_INJECT_EMPTY_SPREAD=0	none	0.00893196672336266	0.00111098681640625	true	f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2	156	47d296615a0c	
+20260811T022107Z	7	2	3	L1	DARKBLOOM_DECODE_ASYNC_STAGE=ladder1	none	0.008942018206256109	0.00111696573828125	true	f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2	156	47d296615a0c	
+20260811T022107Z	8	2	4	C	none	none	0.00896135699706745	0.00111136141015625	true	f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2	168	47d296615a0c	
+20260811T022107Z	9	3	1	A1	DARKBLOOM_INJECT_DECODE_EMPTY=1,DARKBLOOM_INJECT_EMPTY_TG=8,DARKBLOOM_INJECT_EMPTY_CHAIN=0,DARKBLOOM_INJECT_EMPTY_SPREAD=0	none	0.008930334351906159	0.001121838296875	true	f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2	156	47d296615a0c	
+20260811T022107Z	10	3	2	L1	DARKBLOOM_DECODE_ASYNC_STAGE=ladder1	none	0.008931156077223851	0.001111074787109375	true	f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2	168	47d296615a0c	
+20260811T022107Z	11	3	3	C	none	none	0.00896941002737048	0.001138689859375	true	f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2	156	47d296615a0c	
+20260811T022107Z	12	3	4	S1	DARKBLOOM_INJECT_DECODE_EMPTY=40,DARKBLOOM_INJECT_EMPTY_TG=8,DARKBLOOM_INJECT_EMPTY_CHAIN=0,DARKBLOOM_INJECT_EMPTY_SPREAD=1	none	0.008909817041055718	0.001122757080078125	true	f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2	168	47d296615a0c	
+20260811T022107Z	13	4	1	L1	DARKBLOOM_DECODE_ASYNC_STAGE=ladder1	none	0.008935679537634408	0.00112368505859375	true	f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2	168	47d296615a0c	
+20260811T022107Z	14	4	2	C	none	none	0.00897888872629521	0.001111388751953125	true	f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2	156	47d296615a0c	
+20260811T022107Z	15	4	3	S1	DARKBLOOM_INJECT_DECODE_EMPTY=40,DARKBLOOM_INJECT_EMPTY_TG=8,DARKBLOOM_INJECT_EMPTY_CHAIN=0,DARKBLOOM_INJECT_EMPTY_SPREAD=1	none	0.008895514784946237	0.001121411296875	true	f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2	155	47d296615a0c	
+20260811T022107Z	16	4	4	A1	DARKBLOOM_INJECT_DECODE_EMPTY=1,DARKBLOOM_INJECT_EMPTY_TG=8,DARKBLOOM_INJECT_EMPTY_CHAIN=0,DARKBLOOM_INJECT_EMPTY_SPREAD=0	none	0.00892402109775171	0.001122086181640625	true	f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2	167	47d296615a0c	
+
+=== paired CI ===
+==============================================================================
+R107-J' paired local decode certification -- host=M4-Pro epoch=R107
+tags      : per-arm LEVELS are CENSUS; all D / CI / sd / power are MARGINAL
+instrument: ./benchmark.sh --local-submit (1023 decode steps), blocked+interleaved
+sessions  : 20260811T022107Z
+head      : 47d296615a0c
+rows      : 16 over 4 arms; reference arm = C
+==============================================================================
+
+--- per-arm within-arm description (us/token, local-submit) ---
+arm       n         mean        sd      cv%  gates                      passed/golden
+C         4     8972.233     8.567    0.095  none                       true / f49e4c2cbc0d3ceee9
+S1        4     8902.996     8.802    0.099  DARKBLOOM_INJECT_DECODE_EM true / f49e4c2cbc0d3ceee9
+A1        4     8929.093     3.485    0.039  DARKBLOOM_INJECT_DECODE_EM true / f49e4c2cbc0d3ceee9
+L1        4     8933.298     7.451    0.083  DARKBLOOM_DECODE_ASYNC_STA true / f49e4c2cbc0d3ceee9
+   arm C    kernels: none
+   arm S1   kernels: none
+   arm A1   kernels: none
+   arm L1   kernels: none
+correctness failures: 0
+
+------------------------------------------------------------------------------
+PAIRED CONTRAST  S1 - C   (positive = S1 SLOWER than C)
+------------------------------------------------------------------------------
+  block 1    S1=  8911.378  C=  8979.278  D=  -67.899 us  dpos=+1  dprefill=   -0.683 us
+  block 2    S1=  8895.273  C=  8961.357  D=  -66.084 us  dpos=-3  dprefill=  +11.698 us
+  block 3    S1=  8909.817  C=  8969.410  D=  -59.593 us  dpos=+1  dprefill=  -15.933 us
+  block 4    S1=  8895.515  C=  8978.889  D=  -83.374 us  dpos=+1  dprefill=  +10.023 us
+
+  n_blocks=4  dof=3  t(0.975,3)=3.182
+  paired sd        =    10.076 us/token   (MEASURED, not inferred)
+  standard error   =     5.038 us/token
+  CI95 half-width  =    16.031 us/token
+  t statistic      =   -13.743
+  reference level  =  8972.233 us/token
+  k (headline)     = alpha=0.4369 (bytes) ; % of cs = us x k x 0.015228
+  point estimate     -69.238 us/token    -0.7717 % decode    -0.4606 % cs(a)    -0.5272 % cs(b)
+  CI95 low           -85.269 us/token    -0.9504 % decode    -0.5673 % cs(a)    -0.6492 % cs(b)
+  CI95 high          -53.206 us/token    -0.5930 % decode    -0.3540 % cs(a)    -0.4051 % cs(b)
+  CI95 covers zero : NO
+  sign-flip test   : p=0.1250 (exact, 16 patterns) -> DISAGREES with the CI -- distrust the normal assumption
+  pairing gain     : within-block r=+0.327 -> blocking cuts the variance of the mean diff 1.49x
+                     (variance win: 1.49x fewer runs for the same half-width)
+  prefill diag     : d=+1.276 us/token CI95 [-18.955, +21.508] -> neutral (covers 0)
+  position OLS     : slope=-1.051 us/position CI95 [-16.043, +13.941] -> no ordering confound
+  position-adjusted intercept at dpos=0: -69.238 us/token
+
+------------------------------------------------------------------------------
+PAIRED CONTRAST  A1 - C   (positive = A1 SLOWER than C)
+------------------------------------------------------------------------------
+  block 1    A1=  8930.050  C=  8979.278  D=  -49.227 us  dpos=+2  dprefill=  +11.012 us
+  block 2    A1=  8931.967  C=  8961.357  D=  -29.390 us  dpos=-2  dprefill=   -0.375 us
+  block 3    A1=  8930.334  C=  8969.410  D=  -39.076 us  dpos=-2  dprefill=  -16.852 us
+  block 4    A1=  8924.021  C=  8978.889  D=  -54.868 us  dpos=+2  dprefill=  +10.697 us
+
+  n_blocks=4  dof=3  t(0.975,3)=3.182
+  paired sd        =    11.257 us/token   (MEASURED, not inferred)
+  standard error   =     5.629 us/token
+  CI95 half-width  =    17.910 us/token
+  t statistic      =    -7.665
+  reference level  =  8972.233 us/token
+  k (headline)     = alpha=0.4369 (bytes) ; % of cs = us x k x 0.015228
+  point estimate     -43.140 us/token    -0.4808 % decode    -0.2870 % cs(a)    -0.3285 % cs(b)
+  CI95 low           -61.050 us/token    -0.6804 % decode    -0.4062 % cs(a)    -0.4648 % cs(b)
+  CI95 high          -25.230 us/token    -0.2812 % decode    -0.1679 % cs(a)    -0.1921 % cs(b)
+  CI95 covers zero : NO
+  sign-flip test   : p=0.1250 (exact, 16 patterns) -> DISAGREES with the CI -- distrust the normal assumption
+  pairing gain     : within-block r=-0.690 -> blocking cuts the variance of the mean diff 0.68x
+                     (no variance win: the arms do not share their run-to-run noise, so pairing buys DRIFT PROTECTION (see position OLS), not resolution -- keep the blocking, do not expect it to shrink the interval)
+  prefill diag     : d=+1.121 us/token CI95 [-19.720, +21.962] -> neutral (covers 0)
+  position OLS     : slope=-4.454 us/position CI95 [-10.482, +1.575] -> no ordering confound
+  position-adjusted intercept at dpos=0: -43.140 us/token
+
+------------------------------------------------------------------------------
+PAIRED CONTRAST  L1 - C   (positive = L1 SLOWER than C)
+------------------------------------------------------------------------------
+  block 1    L1=  8924.339  C=  8979.278  D=  -54.939 us  dpos=+3  dprefill=  +26.144 us
+  block 2    L1=  8942.018  C=  8961.357  D=  -19.339 us  dpos=-1  dprefill=   +5.604 us
+  block 3    L1=  8931.156  C=  8969.410  D=  -38.254 us  dpos=-1  dprefill=  -27.615 us
+  block 4    L1=  8935.680  C=  8978.889  D=  -43.209 us  dpos=-1  dprefill=  +12.296 us
+
+  n_blocks=4  dof=3  t(0.975,3)=3.182
+  paired sd        =    14.820 us/token   (MEASURED, not inferred)
+  standard error   =     7.410 us/token
+  CI95 half-width  =    23.578 us/token
+  t statistic      =    -5.255
+  reference level  =  8972.233 us/token
+  k (headline)     = alpha=0.4369 (bytes) ; % of cs = us x k x 0.015228
+  point estimate     -38.935 us/token    -0.4340 % decode    -0.2590 % cs(a)    -0.2965 % cs(b)
+  CI95 low           -62.513 us/token    -0.6967 % decode    -0.4159 % cs(a)    -0.4760 % cs(b)
+  CI95 high          -15.357 us/token    -0.1712 % decode    -0.1022 % cs(a)    -0.1169 % cs(b)
+  CI95 covers zero : NO
+  sign-flip test   : p=0.1250 (exact, 16 patterns) -> DISAGREES with the CI -- distrust the normal assumption
+  pairing gain     : within-block r=-0.710 -> blocking cuts the variance of the mean diff 0.59x
+                     (no variance win: the arms do not share their run-to-run noise, so pairing buys DRIFT PROTECTION (see position OLS), not resolution -- keep the blocking, do not expect it to shrink the interval)
+  prefill diag     : d=+4.107 us/token CI95 [-32.187, +40.402] -> neutral (covers 0)
+  position OLS     : slope=-5.335 us/position CI95 [-20.982, +10.313] -> no ordering confound
+  position-adjusted intercept at dpos=0: -38.935 us/token
+
+==============================================================================
+POWER CURVE of this instrument -- paired sd = 14.820 us/token (measured, arm L1)
+host=M4-Pro epoch=R107; half-widths are MARGINAL; reference CENSUS level 8972.233 us/token; k=alpha=0.4369 (bytes)
+the sd is itself an estimate: chi-square CI95 on sd (dof 3) = [8.395, 55.256] us/token
+  -> block counts scale as sd^2, so the planning numbers below carry
+     a factor [0.32x, 13.90x] of their own. Plan with the UPPER sd.
+==============================================================================
+blocks  dof   t.975  hw us/token  hw %decode   hw %cs(a)   hw %cs(b)   runs(2 arms)
+     3    2   4.303       36.817      0.4103      0.2449      0.2803             6
+     4    3   3.182       23.578      0.2628      0.1569      0.1795             8
+     5    4   2.776       18.398      0.2051      0.1224      0.1401            10
+     6    5   2.571       15.555      0.1734      0.1035      0.1184            12
+     7    6   2.447       13.706      0.1528      0.0912      0.1044            14
+     8    7   2.365       12.392      0.1381      0.0824      0.0943            16
+     9    8   2.306       11.391      0.1270      0.0758      0.0867            18
+    10    9   2.262       10.601      0.1181      0.0705      0.0807            20
+    11   10   2.228        9.955      0.1110      0.0662      0.0758            22
+    12   11   2.201        9.416      0.1049      0.0626      0.0717            24
+    13   12   2.179        8.956      0.0998      0.0596      0.0682            26
+    14   13   2.160        8.555      0.0954      0.0569      0.0651            28
+    15   14   2.145        8.208      0.0915      0.0546      0.0625            30
+    16   15   2.131        7.895      0.0880      0.0525      0.0601            32
+    17   16   2.120        7.620      0.0849      0.0507      0.0580            34
+    18   17   2.110        7.370      0.0821      0.0490      0.0561            36
+    19   18   2.101        7.143      0.0796      0.0475      0.0544            38
+    20   19   2.093        6.936      0.0773      0.0461      0.0528            40
+    24   23   2.069        6.259      0.0698      0.0416      0.0477            48
+    30   29   2.045        5.533      0.0617      0.0368      0.0421            60
+
+BLOCKS NEEDED to certify a summed effect of a given size (CI excluding zero).
+"resolve" = smallest n with CI95 half-width < the effect, i.e. an observed
+  point estimate AT the target would have a CI that excludes zero (~50 % power).
+"80 % power" = smallest n with effect >= (t.975 + t.80) * sd / sqrt(n).
+   target     M4 us k=a     M4 us k=b   resolve        runs  80%power        runs
+    0.40%         60.12         52.53    3/3        6/6        3/3        6/6    
+    0.30%         45.09         39.40    3/3        6/6        4/4        8/8    
+    0.25%         37.58         32.83    3/4        6/8        4/4        8/8    
+    0.20%         30.06         26.27    4/4        8/8        5/5       10/10   
+(resolve / 80%power columns are printed as  k=alpha / k=beta;
+ runs columns are the same numbers x 2 arms. ~198 s per run on this host,
+ so runs x 198 s is the wall clock: 20 runs ~= 66 min, 24 runs ~= 79 min.)
