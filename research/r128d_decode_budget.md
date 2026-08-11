@@ -185,3 +185,88 @@ is larger than the ~350 µs residual manifest item 2 reports as a finding.** A
 wall-minus-busy subtraction is only meaningful when both terms come from one
 apparatus, one binary, and one window; item 2 satisfies none of the three.
 
+## D2 — Method: the instrument-overhead ladder
+
+The only defensible way to price non-busy time is to measure busy and wall in
+**one session, one binary, one window**, and to separately measure what the
+instrument itself costs. `research/alphonse-r128d-campaign.py` runs four arms
+strictly serially — only one model-holding process is ever alive:
+
+| arm | binary | env | runs × steps |
+| --- | --- | --- | --- |
+| `clean-recheck` | `w-clean` (unpatched) | none | 2 × 200 |
+| `hook-off` | `w-hook` (patched) | none | 6 × 1023 |
+| `hook-on` | `w-hook` | `DARKBLOOM_GPU_PROFILE=1` | 6 × 1023 |
+| `hook-split` | `w-hook` | `+ DARKBLOOM_GPU_PROFILE_SPLIT=1` | 2 × 200 |
+
+`w-hook` is the base tree plus `research/patches/INSTRUMENT_ONLY_r128d_gpuprof_hook.patch`
+(a verbatim copy of `research/nezuko-pr158-gpuprof-hook.patch`, which
+`git apply --check`s cleanly on the base). It touches only
+`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.{cpp,h}` and installs
+a command-buffer completion handler that prints
+`GPUPROF <gpu_start_s> <gpu_end_s> <n_dispatches> <pipeline names>` to stderr.
+`GPUStartTime`/`GPUEndTime` are host-timebase seconds on the same clock as the
+probe's `CLOCK_UPTIME_RAW` spans, so the alignment is direct.
+
+**This patch must never land.** It is stored under `research/patches/` with the
+`INSTRUMENT_ONLY_` prefix; the vendor tree was reverted with
+`git checkout -- Vendor/` immediately after building, and the landing-diff check
+at the end of this document confirms an empty `Sources/`+`Vendor/` diff against
+the base.
+
+The ladder isolates three separately meaningful costs:
+
+- `hook-off` − `clean-recheck` — cost of the patch merely being compiled in.
+- `hook-on` − `hook-off` — cost of the instrument actually running. This is
+  `instrument_overhead_us_per_step`.
+- `hook-split` − `hook-on` — cost of command-buffer fission, i.e. the specific
+  distortion the R87-A control ran under.
+
+## D3 — Method: decomposing the gap, and the gates that keep it honest
+
+For each steady step the probe supplies `t0` (immediately before the request
+write) and `t1` (immediately after the response line is read). From the GPUPROF
+records that fall inside `[t0, t1]`:
+
+- `busy_sum` = Σ (end − start) over command buffers;
+- `busy_union` = length of the union of those intervals;
+- `LEAD` = first GPU start − `t0`;
+- `TRAIL` = `t1` − last GPU end;
+- `INTERNAL_IDLE` = idle between consecutive command-buffer intervals;
+- `gap` = `wall` − `busy_union`, **computed per step and then medianed**, never
+  as a difference of two medians.
+
+By construction `LEAD + INTERNAL_IDLE + TRAIL = gap`. That identity is an
+arithmetic tautology and proves nothing about causes, so
+`research/alphonse-r128d-gap.py` also runs four gates:
+
+- **G1 identity** — `max |LEAD+INTERNAL+TRAIL − gap| < 1 µs`. Fails if records
+  were dropped or intervals mishandled.
+- **G2 overlap** — `median(busy_sum − busy_union)` and the count of steps with
+  >1 µs overlap. Nonzero overlap means concurrent command buffers, and a
+  single-timeline attribution is then invalid.
+- **G3 RTT floor** — number of steps where `LEAD + TRAIL` is *below* the
+  measured null-request RTT. Expected 0: the protocol leg cannot be cheaper
+  than a no-op round trip, and whatever the null RTT costs belongs to the
+  harness, not to the model.
+- **G4 trend** — slope of `gap` against step index, so a median cannot hide a
+  KV-growth or thermal drift.
+
+What each component can and cannot mean, stated before looking at the numbers:
+
+- `LEAD` is *not* "the GPU was slow to start". `GPUStartTime` excludes host-side
+  JSON parse, MLX graph evaluation, encoding, commit, driver validation and
+  queue latency — all of which land in `LEAD`. In serial single-token decode
+  this host work is genuinely on the critical path (step N's input depends on
+  step N−1's output, so it cannot be hidden behind earlier GPU work), so it is
+  *potentially recoverable*, but it is CPU cost, not GPU idle.
+- `INTERNAL_IDLE` is only recoverable if it is a genuine commit-gap bubble. It
+  is also the component most contaminated by instrumentation, because every
+  extra command buffer manufactures another gap.
+- `TRAIL` mixes recoverable host cost (logits readback/sync, sampling,
+  serialization) with instrument-only cost (completion-handler wake, stderr
+  writes) that does not exist in an unpatched run.
+- Command-buffer-level timestamps bracket the whole buffer, so bubbles *inside*
+  a command buffer are counted as busy. `busy_union` is therefore an **upper
+  bound** on useful GPU work, and the gap is a **lower bound** on non-busy time.
+
