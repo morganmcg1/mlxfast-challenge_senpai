@@ -9,7 +9,7 @@ dashboard is evidence-linked rather than transcribed:
      two baseline legs execute identical reference code for every solver on
      every submission, so they are a free zero-code-variance noise gauge.  Logs
      per-leg mean/sd/cv, the implied ceiling on between-package code variance,
-     the receipts-per-arm power table, and the three self-retractions.
+     the receipts-per-arm power table, and the eight self-retractions.
 
   2. ``fern-r109f-crown-lottery``
      The draw-factor order statistic.  ``published = normalized x draw``; the
@@ -387,7 +387,17 @@ def local_sweep_stats():
         # the two replicated arms: how far apart did the SAME config land?
         "replicate_gap_default_us": abs(12965.0 - 12934.7),
         "replicate_gap_blocks256_us": abs(12934.0 - 12850.0),
-        "verdict": "MLX_SDPA_BLOCKS is null; local decode cv is ~0.35 %/run",
+        "verdict": (
+            "MLX_SDPA_BLOCKS is a STRUCTURAL ZERO (correction 8), not a null: "
+            "its env read at scaled_dot_product_attention.cpp:477 is inside "
+            "sdpa_vector_2pass, which the benchmark never dispatches "
+            "(router :749 needs k.shape(2)>=1024; scored decode runs KV "
+            "512->640) and which the model never reaches anyway (fused "
+            "attention intercepts at LagunaRuntimeModel.swift:6152/:6178). "
+            "These 8 runs therefore measure the local host noise floor: "
+            "decode cv ~0.35 %/run."
+        ),
+        "reachable": 0,
     }
 
 
@@ -598,10 +608,11 @@ def run_instrument_collapse(wandb, rows, cache, dry):
             "solvers share a submissionCommitSha -- give a per-axis pooled instrument "
             "sd with 3 df. The axes span 28x, which reverses the campaign's own "
             "advice: a 0.30% arm costs 77 receipts on officialScore but 2 on the "
-            "candidate-prefill leg. Adjudicate arms per leg. Also logged: the null "
-            "MLX_SDPA_BLOCKS sweep whose by-product killed the 'local repeats to "
-            "0.05-0.10%' claim, and the drift control that cleared a monotone "
-            "3-receipt slide as coincidence."
+            "candidate-prefill leg. Adjudicate arms per leg. Also logged: the "
+            "MLX_SDPA_BLOCKS sweep -- now known to be a STRUCTURAL ZERO on an "
+            "undispatched kernel (correction 8), though its by-product still killed "
+            "the 'local repeats to 0.05-0.10%' claim -- and the drift control that "
+            "cleared a monotone 3-receipt slide as coincidence."
         ),
         config=cfg,
         reinit=True,
@@ -692,6 +703,29 @@ def run_instrument_collapse(wandb, rows, cache, dry):
         "while the baseline-decode leg is inflated x0.95 (no tail at all), which "
         "is exactly the signature of broken candidates rather than a noisy host.",
     )
+    rtab.add_data(
+        "DARKBLOOM_AOT_SDPA_2PASS_PLANES=1 is the one genuinely open decode arm, "
+        "and this host's arch suffix 's' routes all decode through the 2-pass kernel",
+        "RETRACTED",
+        "the clamp arithmetic is right (1 sits below o_planes=min(PLANES,D/BD=4)) "
+        "but the reachability is wrong twice. (1) The router at "
+        "scaled_dot_product_attention.cpp:749 needs k.shape(2)>=1024 for devc in "
+        "{d,s}; the scored decode window is a 512-token seed "
+        "(Constants.swift:123) walked 128 steps (:109), i.e. KV 512->640, so "
+        "sdpa_vector_2pass is never dispatched on ANY host -- only --local-submit "
+        "(1023 steps) would cross 1024, and that gate is unscored. (2) The model "
+        "never calls the library SDPA on decode at all: fused sliding/full "
+        "attention at LagunaRuntimeModel.swift:6152/:6178 intercept it (both "
+        "default-on, both observed live in census/sites-A.txt) and "
+        "'grep -rn scaledDotProductAttention Sources/' is empty. Corollary: the "
+        "MLX_SDPA_BLOCKS null is a STRUCTURAL ZERO -- its env read at :477 is "
+        "inside sdpa_vector_2pass -- and DARKBLOOM_AOT_SDPA_PLANES is a fossil on "
+        "an unreached path. Replacement arm: the prefill full-attention family "
+        "(kernels/steel/attn, scaled_dot_product_attention.metal, both editable), "
+        "adjudicable in 2 receipts on the candidate-prefill leg. New screening "
+        "question: do the benchmark's shapes reach the branch, and does the model "
+        "call that library function at all?",
+    )
     gtab = wandb.Table(
         columns=[
             "axis",
@@ -732,6 +766,7 @@ def run_instrument_collapse(wandb, rows, cache, dry):
             dtab.add_data(k, float(v), "")
         else:
             dtab.add_data(k, None, str(v))
+    summary["retractions/count"] = len(rtab.data)
     run.log(
         {
             "leg_noise": lt,

@@ -665,6 +665,21 @@ and `kernels/sdpa_vector.h` are — so a block-count change could only reach the
 ranked host by `setenv` from editable Swift, which is a rules question for the
 advisor and not something to ship quietly.
 
+> **CORRECTION 8 (in place, upgrade not reversal).** Calling this a "null" was
+> too generous to my own experiment. It is a **structural zero**: the env read at
+> `scaled_dot_product_attention.cpp:477` lives *inside* `sdpa_vector_2pass`
+> (function opens at `:418`), and that function is never dispatched by this
+> benchmark on any host — the router at `:749` demands `k.shape(2) >= 1024` while
+> the scored decode window runs KV 512→640, and in any case the Laguna model
+> intercepts all decode attention with its own fused kernels
+> (`LagunaRuntimeModel.swift:6152/:6178`, both observed live in
+> `research/artifacts/fern-r109f/census/sites-A.txt`; `grep -rn
+> scaledDotProductAttention Sources/` is empty). So the eight runs above measured
+> the host noise floor eight times, which is exactly what they look like. Full
+> derivation in `maple-fern-r109f-nax-observability-gap.md` §10. The practical
+> difference matters: a null invites a bigger sweep, a structural zero closes the
+> file.
+
 ### 5.3g Adjudicate arms on the *leg*, not on the score
 
 This is the most actionable result in the document, and it reverses §5.1.
@@ -1145,16 +1160,24 @@ retracted noise floor, and they stand:
    first~~ **on the ranked candidate-prefill leg — 2 receipts each — because they
    are locally unmeasurable by construction (§8 rec-2)**.
 6. **Treat the acceptance band as non-existent** in all planning.
-7. **The one genuinely open *decode* arm on the kernel this host actually runs is
-   `DARKBLOOM_AOT_SDPA_2PASS_PLANES`.** The no-op audit
-   (`maple-fern-r109f-nax-observability-gap.md` §8) found that it defaults to **1**
-   while its own clamp `o_planes = min(PLANES, D/BD = 4)` in `sdpa_vector_2pass_2`
-   permits 4 — unlike `DARKBLOOM_AOT_SDPA_PLANES`, which is already pinned at its
-   cap. Local host's arch suffix `'s'` routes all decode through the 2-pass kernel,
-   so this is on the hot path here *and* plausibly on ranked. It needs a metallib +
-   swift rebuild, and at 0.35 % local noise a 0.1 % effect needs ~42 replicates, so
-   prefer 2–4 ranked receipts read on the candidate-**decode** leg (20 receipts for
-   0.30 %, so only worth it if the predicted effect is ≥ 0.5 %).
+7. ~~**The one genuinely open *decode* arm … is `DARKBLOOM_AOT_SDPA_2PASS_PLANES`.**~~
+   **RETRACTED — CORRECTION 8**, see `maple-fern-r109f-nax-observability-gap.md`
+   §10. The clamp arithmetic in that recommendation is correct (default 1,
+   `o_planes = min(PLANES, D/BD = 4)` permits 4). The *reachability* claim —
+   "local host's arch suffix `'s'` routes all decode through the 2-pass kernel" —
+   is false, and so is the ranked half. `scaled_dot_product_attention.cpp:749`
+   requires `k.shape(2) >= 1024` for `devc ∈ {'d','s'}`; the scored decode window
+   is a 512-token seed (`Constants.swift:123`) walked 128 steps (`:109`), i.e.
+   **KV length 512→640**, so `sdpa_vector_2pass` is never dispatched on any host.
+   Worse, the model never calls the library SDPA on decode at all: the fused
+   sliding and full attention kernels at `LagunaRuntimeModel.swift:6152/:6178`
+   intercept it (both default-on, both observed live in `census/sites-A.txt`), and
+   `grep -rn scaledDotProductAttention Sources/` returns **nothing**. Replacement
+   recommendation: the only attention surface the scored run touches is the
+   **prefill** full-attention family (`kernels/steel/attn`,
+   `kernels/scaled_dot_product_attention.metal`, both editable), which is
+   NAX-forked and therefore locally unmeasurable but sits on the tightest leg in
+   the campaign — 2 receipts at 0.30 % (§5.3g), the same leg as #692 A2.
 8. **`MLX_SDPA_BLOCKS` is a null and is not shippable anyway.** Eight local runs
    (default ×2, 16, 32, 128, 256 ×2, 512) all correct on golden
    `b9509697c08a2cf3`; the apparent −0.65 % win at 256 did not replicate (12850 →
@@ -1189,7 +1212,7 @@ public receipt list; nothing here is a transcribed number I cannot regenerate.
 
 | run | what it holds |
 |---|---|
-| [`fern-r109f-instrument-collapse`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/0u4takrf) | per-leg **robust** median/sd/cv with the plain moments and a `tail_inflation_x` column beside them (§5.3i), the 0.2393 % robust code-spread ceiling *and* the 1.7131 % plain one it replaced, the k=3 identical-executable gauge to 3 df with receipts-per-arm on every leg (`leg_gauge_k3`), the `MLX_SDPA_BLOCKS` local sweep, the host-drift control, the receipts-per-arm power table on both estimators, and **seven** retractions/corrections with corrected numbers |
+| [`fern-r109f-instrument-collapse`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/0u4takrf) | per-leg **robust** median/sd/cv with the plain moments and a `tail_inflation_x` column beside them (§5.3i), the 0.2393 % robust code-spread ceiling *and* the 1.7131 % plain one it replaced, the k=3 identical-executable gauge to 3 df with receipts-per-arm on every leg (`leg_gauge_k3`), the `MLX_SDPA_BLOCKS` local sweep, the host-drift control, the receipts-per-arm power table on both estimators, and **eight** retractions/corrections with corrected numbers |
 | [`fern-r109f-crown-lottery`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/s3a9sx43) | the draw-factor CDF, p(crown)/shot, crown code-rank vs luck-rank, and the elasticity table |
 | [`fern-r109f-arms`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/rs84aixl) | the local 2×2 arm ledger and every ranked receipt with normalized score and draw factor in separate columns |
 

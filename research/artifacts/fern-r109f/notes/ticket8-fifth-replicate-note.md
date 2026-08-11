@@ -126,10 +126,17 @@ suffix `back() == 's'`), which matters twice:
   locally and observable only through ranked receipts. Decode (matvec) is not
   gated; prefill (matmul) is. Decode carries 0.638 of the score elasticity, so
   the observable half is the larger half.
-- the same suffix picks the decode attention kernel at
-  `scaled_dot_product_attention.cpp:747-752`: with `devc == 's'` and
-  `k.shape(2) >= 1024` this host always runs `sdpa_vector_2pass`, so every local
-  decode number here describes the 2-pass path specifically.
+- the same suffix appears at `scaled_dot_product_attention.cpp:747-752`, where it
+  picks between `sdpa_vector` and `sdpa_vector_2pass`. Neither is on the scored
+  path: the 2-pass branch needs `k.shape(2) >= 1024` while the scored decode
+  window runs a 512-token seed out to 640, and the Laguna model never calls the
+  library SDPA on decode at all — its own fused kernels intercept
+  (`LagunaRuntimeModel.swift:6152` sliding, `:6178` full, both default-on and
+  both observed live in the census below), and
+  `grep -rn scaledDotProductAttention Sources/` is empty. Local decode numbers
+  here therefore describe the *fused* attention path, not the library one.
+  (This is correction 8; it retracted a next-step recommendation I had already
+  published, see below.)
 
 Local recipe: `--local-iterate` = 128 decode steps + a 512-token prefill,
 `timingRepeats = 1`, golden gate
@@ -149,9 +156,9 @@ bash    research/fern_r109f_fusion_census.sh       # the census above
 bash    research/fern_r109f_env_bench.sh <label> VAR=VAL   # local env A/B
 ```
 
-## Seven self-corrections this campaign carries
+## Eight self-corrections this campaign carries
 
-Two were forced by new data, two were caught before publication, and all seven
+Two were forced by new data, two were caught before publication, and all eight
 are recorded in place with the wrong number still visible:
 
 1. "normalized is a 0.002 % instrument" — **retracted**; it was one lucky pair.
@@ -173,6 +180,19 @@ are recorded in place with the wrong number still visible:
    ×0.95): that is the signature of a few broken candidate packages, not a noisy
    host. The robust estimator moved 0.224 % → 0.239 % over the same refresh and
    is now the default; the plain moments are still logged beside it, unquoted.
+8. "`DARKBLOOM_AOT_SDPA_2PASS_PLANES` is the one genuinely open decode arm" —
+   **retracted**, and it is the one I am least happy about because the ticket-7
+   note published it as a next step. The clamp arithmetic was right; the
+   *reachability* was wrong twice. `sdpa_vector_2pass` needs `k.shape(2) >= 1024`
+   and the scored decode window is KV 512→640, so it is never dispatched on any
+   host; and the model never calls the library SDPA on decode anyway (fused
+   interception at `LagunaRuntimeModel.swift:6152`/`:6178`, and zero
+   `scaledDotProductAttention` call sites in `Sources/`). Corollary: the
+   `MLX_SDPA_BLOCKS` null below is a *structural zero* — its env read sits inside
+   the undispatched function — and `DARKBLOOM_AOT_SDPA_PLANES` is a fossil on the
+   same unreached path. This one cost nothing to find (static reading plus census
+   artifacts already on disk) and would have cost a rebuild plus ~20 receipts to
+   discover the expensive way.
 
 Two operational failures belong here too. A ticket-7 launch was rejected at
 07:25Z because submission notes must be **≥5 KiB** and mine was 3 676 bytes; the
@@ -190,16 +210,38 @@ receipt terminating and the next user claiming the channel; the interval is now
   caps a decode arm at ~0.168 % of score), and a local A/B of the same constant
   measured −0.0260 % at a 0.35 % noise floor. Atlas v3 ships because it is not
   worse and costs nothing.
-* `MLX_SDPA_BLOCKS` is a **null**: eight local runs, all correct, spread
-  −0.65 %…+0.65 % with no monotone trend, and the dispatch site that consumes it
-  is not in `editablePaths` anyway.
+* `MLX_SDPA_BLOCKS` is a **structural zero**, which is stronger than the "null"
+  I first filed: eight local runs, all correct, spread −0.65 %…+0.65 % with no
+  monotone trend — because the variable is read *inside* `sdpa_vector_2pass`, a
+  function this benchmark never dispatches (correction 8). The eight runs measure
+  the host noise floor. The dispatch site is also outside `editablePaths`, so it
+  was never shippable either way.
 * The published-score axis is 0.5169 % sd, so a single receipt — including this
   one — cannot adjudicate anything on its own. That is the point of the series.
 
 ## Next steps
 
-`DARKBLOOM_AOT_SDPA_2PASS_PLANES = 1` is the one knob in a ~40-knob census that
-is genuinely below its clamp (`o_planes = min(PLANES, D/BD = 4)` in
-`sdpa_vector_2pass_2`) on the kernel this host actually runs. It needs a metallib
-plus Swift rebuild, and at a 0.35 % local floor it needs ~42 local replicates —
-or ~20 ranked receipts on the candidate decode leg, which is the cheaper read.
+The ticket-7 note in this series named `DARKBLOOM_AOT_SDPA_2PASS_PLANES = 1` as
+the one knob in a ~40-knob census sitting genuinely below its clamp, and
+recommended spending a rebuild plus ~20 ranked receipts on it. **That
+recommendation is withdrawn** (correction 8 above): the clamp reading was right,
+but the kernel is never dispatched by this benchmark and the model never calls
+the library SDPA on decode at all.
+
+What replaces it is the only attention surface the scored run actually touches:
+the **prefill** full-attention family — `kernels/steel/attn` and
+`kernels/scaled_dot_product_attention.metal`, both inside `editablePaths`. Two
+properties make it the right target. It is NAX-forked
+(`sdpa_full_self_attention_nax`), so it cannot be timed on this host at all and
+must be read from ranked receipts. And it lands on the leg with the tightest
+instrument measured anywhere in this campaign — pooled candidate-prefill sd
+**0.0750 %** over 3 df — so a 0.30 % effect is adjudicable in **2 receipts**
+against 78 on the published score, a 38× discount. That is the same leg that
+unblocks the fused-NAX blocking arm in the sibling assignment.
+
+The general lesson, which is cheaper than any of the arms: before spending a
+build, ask five questions of a candidate constant — where is it consumed, is it
+clamped, is its kernel host-gated, is its path shadowed by a better default, and
+do the benchmark's own shapes reach the branch at all? Questions one, two and
+five are free. All five together would have screened out most of the eight
+corrections above.

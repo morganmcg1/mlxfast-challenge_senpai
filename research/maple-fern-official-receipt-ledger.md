@@ -345,4 +345,29 @@ value must not be read as evidence for or against the atlas v3 change.
   prints, the prediction is on the record first —
   `research/artifacts/fern-r109f/notes/ticket7-preregistered-note.md`.
 
+### Disclosure: the ticket-7 note carries a claim I retracted while it was in flight
+
+The ticket-7 note was frozen and handed to the submit poller before **correction
+8** was found. At its lines 87 and 220–221 it states that
+`DARKBLOOM_AOT_SDPA_2PASS_PLANES = 1` is the campaign's one genuinely open decode
+arm and that this host "always runs `sdpa_vector_2pass`". Both halves of the
+reachability claim are **false**: `scaled_dot_product_attention.cpp:749` requires
+`k.shape(2) >= 1024` while the scored decode window is a 512-token seed
+(`Constants.swift:123`) walked 128 steps (`:109`) to KV 640, and the Laguna model
+never calls the library SDPA on decode at all — its fused sliding and full
+attention kernels intercept at `LagunaRuntimeModel.swift:6152`/`:6178` (both
+default-on, both observed live in
+`research/artifacts/fern-r109f/census/sites-A.txt`), and
+`grep -rn scaledDotProductAttention Sources/` returns nothing. The clamp
+arithmetic in that note is still correct.
+
+I did **not** cancel the poller to fix it. The note's error is confined to a
+forward-looking recommendation; its measurements, its pre-registration and its
+class arithmetic are unaffected, and the shot itself is what the standing order
+asks for. Trading a scarce channel slot — median 25 min, p90 120 min per shot
+today, see `maple-fern-r109f-instrument-collapse.md` §7 — for one corrected
+paragraph is a bad trade. So the correction is disclosed here and in the
+ticket-8 note instead, and the derivation is
+`maple-fern-r109f-nax-observability-gap.md` §10.
+
 Full analysis: `research/maple-fern-r109f-semantic-attribution-and-qhoist-verdict.md`.

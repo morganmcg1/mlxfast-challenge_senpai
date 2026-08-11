@@ -52,8 +52,10 @@ Six consequences, in descending order of how much work they cancel:
    on `d.get_architecture().back()` — the trailing letter of the architecture
    string, `'s'` here. One of them,
    `scaled_dot_product_attention.cpp:747`, chooses between `sdpa_vector_2pass`
-   and `sdpa_vector` on that letter alone, with no NAX involvement. Every local
-   decode measurement in this campaign therefore ran the 2-pass kernel; the
+   and `sdpa_vector` on that letter alone, with no NAX involvement.
+   ~~Every local decode measurement in this campaign therefore ran the 2-pass
+   kernel;~~ **wrong — the same `if` also tests `k.shape(2) >= 1024`, and the
+   scored decode window never gets there; see §10 (CORRECTION 8).** The
    ranked host's letter is unknown, so it may be running the other one. Consequence:
    decode edits split into *quantised-GEMV* (best transfer) and
    *attention* (medium transfer — real local signal, sign may not carry). §7.2
@@ -63,10 +65,12 @@ Six consequences, in descending order of how much work they cancel:
 5. **The no-op audit (§8).** Two portfolio knobs are arithmetically inert
    because they are already pinned at a shape-derived clamp: A1's
    `darkbloom_expert_down_bn`, and `DARKBLOOM_AOT_SDPA_PLANES` (4, capped at
-   `v_per_thread = V/BD = 4`). One knob is genuinely open:
+   `v_per_thread = V/BD = 4`). ~~One knob is genuinely open:
    `DARKBLOOM_AOT_SDPA_2PASS_PLANES = 1` against a cap of 4, on the 2-pass
-   kernel this host actually runs. The generalisable rule: before spending a
-   build or a slot on a tunable, read the expression that *consumes* it.
+   kernel this host actually runs.~~ **RETRACTED in §10 — that knob is
+   unclamped but unreachable, which is worse.** The generalisable rule: before
+   spending a build or a slot on a tunable, read the expression that
+   *consumes* it — and then check that anything ever calls it.
 6. **The fusion census (§9): the INT8 fused norm+affine QKV suite is
    *shadowed*, not dead.** A `DARKBLOOM_TRACE_FUSION=1` census over three
    configurations (24 / 26 / 22 distinct dispatch sites) shows the suite's four
@@ -80,6 +84,25 @@ Six consequences, in descending order of how much work they cancel:
    JIT-minted at `LagunaRuntimeModel.swift:4512-4522`, and it is shadowed twice
    over. This adds a fourth question to §8's checklist: *is the path shadowed at
    runtime by a better path that is on by default?*
+
+7. **CORRECTION 8 (§10): the SDPA *vector* family is not on the scored path at
+   all, and consequence 5's "one genuinely open knob" is retracted.** Two
+   independent gates, either one sufficient. (a) *Shape.* The scored decode
+   window is a 512-token seed prefill plus 128 steps
+   (`Constants.swift:123`, `:109`), so the KV length runs 512 -> 640, while the
+   2-pass branch at `sdpa.cpp:748-749` needs `k.shape(2) >= 1024` on a `'d'`/`'s'`
+   device or `>= 4096` under GQA. 640 < 1024 on **every** host, whatever its
+   architecture letter. (b) *Interception.* Decode attention never leaves the
+   model: `LagunaRuntimeModel.swift:6152`/`:6178` serve it with the fused
+   `laguna_sliding_fused_attn_ring_v1` / full-attention ring kernels, and the
+   §9 trace census confirms both fire in the shipped configuration
+   (`sliding fused attention`, `full fused attention` in `sites-A.txt`). MLX's
+   `MLXFast.scaledDotProductAttention` is reached only through the `??` fallback
+   at `:6276`, i.e. on **prefill**, where `q.shape(2) = 512 > 8` routes to the
+   *full self-attention* family instead. Corollary, and the reason this is worth
+   a section: the `MLX_SDPA_BLOCKS` null reported in §7.2 was not a weak effect,
+   it was a **structural zero** — that env read lives at `sdpa.cpp:477`, inside
+   `sdpa_vector_2pass`, a function this benchmark never calls.
 
 ---
 
@@ -525,21 +548,30 @@ Nor does lowering it buy anything: `exchange_planes` is forced to 4 whenever
 a smaller `v_planes` only lengthens the reduction loop at `:476-502`. The knob is
 a no-op upward and a pessimisation downward.
 
-**The one that is actually open.** `DARKBLOOM_AOT_SDPA_2PASS_PLANES`
-(`sdpa_vector.h:12`) is defined as **1**, and its clamp in `sdpa_vector_2pass_2`
-(template `:670`) is
+**~~The one that is actually open.~~ RETRACTED — see §10 (CORRECTION 8).**
+The paragraph below stood here for several hours and is wrong. Everything it
+says about the *clamp* is still true; everything it says about *reachability* is
+not. Kept in place, struck through, because the mistake is the whole point of
+this section.
 
-```
-o_planes = min(PLANES, elem_per_thread = D / BD = 4)
-```
+> ~~`DARKBLOOM_AOT_SDPA_2PASS_PLANES` (`sdpa_vector.h:12`) is defined as **1**,
+> and its clamp in `sdpa_vector_2pass_2` (template `:670`) is
+> `o_planes = min(PLANES, elem_per_thread = D / BD = 4)`, so 1 sits **below**
+> its bound. 1 -> 2 or 1 -> 4 is a genuinely open decode-side arm. ... it acts
+> on the *2-pass* kernel, which is the one our `'s'` host actually runs, so it
+> is locally measurable at full resolution.~~
 
-so 1 sits **below** its bound. 1 -> 2 or 1 -> 4 is a genuinely open decode-side
-arm. It is a header, so it needs the metallib plus swift rebuild
-(`bash tools/build-mlx-metallib.sh`, then the worker build; ~150 s warm via
-`research/fern_r109f_ab_rebuild.sh`), and -- usefully -- it acts on the *2-pass*
-kernel, which is the one our `'s'` host actually runs, so it is locally
-measurable at full resolution. Its transfer is category 2 of §7.1: if the ranked
-host does not take the 2-pass branch, the arm is inert there.
+The clamp reading is correct: `elem_per_thread = D / BD = 128 / 32 = 4`, so
+`PLANES = 1` really is below its bound, and raising it really would collapse the
+reduction at `sdpa_vector.h:744-754` (four stores, seven threadgroup barriers)
+into the one-barrier form at `:724-743`, for 4 KiB -> 16 KiB of threadgroup
+memory. What is wrong is the sentence after it. `sdpa_vector_2pass` is **never
+dispatched in the scored window on any host**, and the shipped model does not
+call MLX's SDPA *vector* family in decode at all. §10 proves both, and takes
+`MLX_SDPA_BLOCKS`'s measured null with it as a corollary. I passed questions 1
+and 2 of the checklist below and then failed to ask the one that mattered —
+which is exactly the failure this section was written to prevent, committed by
+its own author, one section later.
 
 **Generalise it.** The failure mode is cheap to prevent and expensive to hit. It
 cost this workspace two promoted arms:
@@ -548,7 +580,8 @@ cost this workspace two promoted arms:
 > expression that consumes it and check whether the value is already pinned at
 > its effective bound.
 
-Three questions, all answerable by `grep` in under a minute:
+Three questions, all answerable by `grep` in under a minute (§9.6 adds a fourth
+and §10.5 a fifth — the fifth is the one that caught me):
 1. Where is the constant *consumed*, not just defined?
 2. Is it wrapped in a `min`/`max`/clamp against a shape-derived quantity?
 3. Is the code path that consumes it reachable on the host doing the measuring
@@ -743,4 +776,229 @@ them, and it costs one `DARKBLOOM_TRACE_FUSION=1` run.
 
 Cost of this section: three local runs (~7.5 min), zero source changes, zero
 submission slots.
+
+
+## 10. CORRECTION 8: the SDPA *vector* family is off the scored path entirely
+
+This section retracts the last live arm in §8 and, more usefully, explains three
+separate null results that I had filed as independent mysteries. It cost zero
+builds and zero submission slots: everything below is static reading of code I
+had already opened, plus the fusion census artifacts from §9 that were already
+on disk.
+
+The claim being retracted:
+
+> `DARKBLOOM_AOT_SDPA_2PASS_PLANES` = 1 sits below its clamp, therefore
+> 1 -> 2 or 1 -> 4 is a genuinely open decode-side arm.
+
+The clamp arithmetic is right. The *reachability* is wrong, twice over, and
+either error alone is fatal.
+
+### 10.1 Gate one: the benchmark's KV length never reaches 1024
+
+The 2-pass variant is not the default decode kernel. It is selected by an
+explicit length test in the dispatcher
+(`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/scaled_dot_product_attention.cpp:744-753`),
+quoted verbatim:
+
+```cpp
+    // We route to the 2 pass fused attention if
+    // - The device is large and the sequence length long
+    // - The sequence length is even longer and we have gqa
+    bool do_causal = do_causal_ && q.shape(2) > 1;
+    char devc = d.get_architecture().back();
+    if (((devc == 'd' || devc == 's') && k.shape(2) >= 1024) ||
+        (k.shape(1) < q.shape(1) && k.shape(2) >= 4096)) {
+      sdpa_vector_2pass(s, d, q, k, v, o, scale_, do_causal, mask, sinks);
+    } else {
+      sdpa_vector(s, d, q, k, v, o, scale_, do_causal, mask, sinks);
+    }
+```
+
+`devc` is the `d.get_architecture().back()` value — the ninth of the nine
+arch-suffix fork sites catalogued in §7. Note that the *else* branch is the
+plain `sdpa_vector`: 2-pass is the exception, not the default, and the
+upstream comment says so.
+
+So the kernel needs a **key sequence length of at least 1024** on this host
+family. What does the scored benchmark actually feed it?
+`Sources/MLXFastCore/Constants.swift`:
+
+| constant | line | value |
+|---|---|---|
+| `benchmarkPrefillPromptTokens` | 94 | 512 |
+| `benchmarkDecodeSteps` | 109 | **128** |
+| `benchmarkDecodeSeedTokens` | 123 | 512 |
+| `localSubmitBenchmarkDecodeSteps` | 117 | 1023 |
+
+The scored decode run therefore starts from a 512-token cache and walks it to
+**640**. Even if a cache implementation over-allocated in 256-step blocks, the
+padded length would top out at 768. `640 < 1024`, with 384 tokens of margin.
+
+Consequences, in order of how much they hurt:
+
+1. **`sdpa_vector_2pass` is never dispatched in the scored window.** Not on the
+   ranked host, not locally, not on any arch letter — the `'d'/'s'` branch needs
+   1024 and the fallback branch needs 4096. (The fallback's GQA precondition is
+   satisfied — 8 KV heads against 48 or 64 query heads, §9's row arithmetic —
+   but 4096 is even further away.)
+2. The only configuration that crosses 1024 is `--local-submit`
+   (`localSubmitBenchmarkDecodeSteps = 1023`, so 512 -> 1535), which is the
+   unscored pre-submit correctness gate. And even there only the *full*-attention
+   layers could qualify: the sliding layers hold a `RotatingKVCache(maxSize: 512)`
+   whose `k.shape(2)` is pinned at 512 forever.
+3. Therefore the retracted arm could at best have moved a kernel that runs in a
+   gate nobody scores. Tuning it would have produced a clean 0.00 % A/B and I
+   would have filed it as "no effect", which is the *wrong* conclusion. The right
+   one is "not executed".
+
+### 10.2 Gate two: the model does not call the library's SDPA on the decode path at all
+
+Even at 1024+ tokens the dispatcher above would not be reached, because the
+Laguna decode path never gets there. Two fused kernels intercept it in
+`Sources/MLXFastModel/LagunaRuntimeModel.swift`:
+
+| site | line | requires | kernel |
+|---|---|---|---|
+| sliding fused attention | 6152 | `cache as? RotatingKVCache`, `maxSize == slidingWindow`, `values.dims == (1, 1, nKVHeads*headDim)` | `laguna_sliding_fused_attn_ring_v1` |
+| full fused attention | 6178 | `cache as? KVCacheSimple`, `fusedAppendPrepare()` succeeds | fused full-attention path |
+
+and the dispatch at `:6276` is
+
+```
+fusedAttended ?? attentionWithCacheUpdate(...)
+```
+
+i.e. the library call is the *fallback*, taken only when both fused forms
+decline. Both are on by default — `DARKBLOOM_FUSED_SLIDING_ATTN != "0"` at
+`:1504` and `DARKBLOOM_FUSED_FULL_ATTN != "0"` at `:2010`.
+
+The census from §9 already proved they fire in the shipped configuration:
+`research/artifacts/fern-r109f/census/sites-A.txt` (arm A = defaults, the
+configuration we submit) contains both
+
+```
+sliding fused attention
+full fused attention
+```
+
+so this is not a reading of the flags, it is a runtime observation I had
+collected two sections earlier and failed to connect to the arm I was defending
+one section above.
+
+And the strongest single check, which takes one command:
+
+```
+$ grep -rn 'scaledDotProductAttention' Sources/
+$        # (no output)
+```
+
+**Zero call sites in the entire editable model.** The only reference is in the
+vendored library helper
+(`Vendor/mlx-swift-lm/Libraries/MLXLMCommon/AttentionUtils.swift:48-49`), which
+the model reaches only through the fall-through in §10.4.
+
+### 10.3 What the two gates explain
+
+Three separate nulls collapse into one cause.
+
+**(a) The `MLX_SDPA_BLOCKS` sweep was a structural zero, not a null result.**
+§7 records eight local runs (16/32/128/256/512 plus replays) spanning
+12850–13019 µs decode, all correct, all inside the 0.35 % host band, and I filed
+it as "the knob does nothing". The env read is at
+`scaled_dot_product_attention.cpp:477` — which is *inside* `sdpa_vector_2pass`
+(function opens at `:418`, block ladder `:443-479`). A function that is never
+dispatched cannot respond to its own tuning parameter. The eight runs measured
+the host's noise floor eight times, which is exactly what they look like in
+hindsight: cv ≈0.35 %, no trend, no ordering by block size.
+
+That is a much better outcome than "null". A null invites a bigger sweep. A
+structural zero closes the file.
+
+**(b) `DARKBLOOM_AOT_SDPA_PLANES` is a fossil on an unreached path.** §8 already
+showed it is pinned at its cap (`v_planes = min(PLANES, V/BD = 4)`,
+`sdpa_vector.h:90`, with `PLANES = 4` at `:8`). Now the containing function
+(`sdpa_vector`, dispatched from `sdpa.cpp:329`) is also known to be unreachable
+from the model. Two independent reasons to leave it alone.
+
+**(c) The retracted arm.** `DARKBLOOM_AOT_SDPA_2PASS_PLANES`
+(`sdpa_vector.h:11-13`, value 1, clamp `o_planes = min(PLANES, elem_per_thread =
+D/BD = 4)` at `:688`, template at `:670`) is unclamped and unreachable. For the
+record, so nobody has to re-derive it: at PLANES=1 the kernel takes the serial
+reduction at `:744-754` (4 stores, 7 barriers, 4 KiB threadgroup memory); at
+PLANES=4 it takes the parallel form at `:724-743` (1 barrier, 16 KiB). That
+really is a plausible win. It is a plausible win in a kernel this benchmark does
+not run.
+
+Unclamped-but-unreachable is *worse* than clamped-at-cap, because a clamp is
+visible in three lines of arithmetic in the file you are already reading, and
+reachability is not visible anywhere in that file.
+
+### 10.4 The corrected map of the attention surface
+
+Where attention actually happens on the scored path:
+
+| L (query length) | cache | who serves it | editable? | locally observable? |
+|---|---|---|---|---|
+| 1 (decode, sliding layers) | `RotatingKVCache(maxSize: 512)` | `laguna_sliding_fused_attn_ring_v1`, LRM `:6152` | yes (`Sources/MLXFastModel`) | yes |
+| 1 (decode, full layers) | `KVCacheSimple` | fused full attention, LRM `:6178` | yes | yes |
+| 512 (prefill) | fresh | `MLXFast.scaledDotProductAttention` -> `sdpa_full_self_attention_nax` (`sdpa.cpp:177`, body `:18`) on NAX; `_metal` (`:166`) locally | kernels only (`kernels/steel/attn`, `kernels/scaled_dot_product_attention.metal`) | **no** (NAX fork, §2) |
+| never | — | `sdpa_vector` (`:329`), `sdpa_vector_2pass` (`:418`) | `kernels/sdpa_vector.h` is editable | irrelevant |
+
+The prefill fall-through is worth spelling out, because it is the only surviving
+consumer of the library entry point. At L=512 the fused sliding form fails its
+`values.dims(1, 1, ·)` shape test and the fused full form is not offered a
+`KVCacheSimple`, so `:6276` falls to `attentionWithCacheUpdate`
+(`AttentionUtils.swift:5`). The continuous-batching branch at `:13` (protocol in
+`MLXLMCommon/ContinuousBatchingV2/CBv2Contracts.swift:352`) does not apply,
+because `newCache` (`LagunaRuntimeModel.swift:11815-11821`) hands back plain
+`StandardKVCache()` / `RotatingKVCache(maxSize: slidingWindow, keep: 0)`. So
+`:48-49` runs `cache.update` and then `MLXFast.scaledDotProductAttention`, and
+`q.shape(2) = 512 > 8` fails the vector-dispatch test at `sdpa.cpp:634`, routing
+to the full self-attention family.
+
+**The honest replacement arm.** If someone wants an attention arm, it is that
+prefill full-attention family — `kernels/steel/attn` and
+`kernels/scaled_dot_product_attention.metal`, both in `editablePaths`. Its
+awkward property is the §2 one: it is the NAX-forked path, so it cannot be timed
+here at all. Its attractive property is that it lands on the leg with by far the
+tightest instrument in this campaign: pooled candidate-prefill sd **0.0750 %**
+over 3 df, so a 0.30 % effect is adjudicable in **2 receipts**, against 78 on the
+published score. That is the same leg that unblocks maple-tanjiro's A2 (#692),
+and it is the one forward-looking recommendation I would carry out of this
+document.
+
+### 10.5 The fifth question, and the consolidated checklist
+
+§8 asked three questions of a candidate knob; §9.6 added a fourth. This section
+adds the fifth, and it is the one that caught me:
+
+> **5. Do the benchmark's actual shapes reach the branch — and does the model
+> call that library function at all?**
+
+The full checklist, in the order that costs least to answer:
+
+1. **Where is the constant consumed?** `grep` for it; read the enclosing
+   function, not the `#define`.
+2. **Is it clamped?** Print the bound next to the value. (Killed
+   `DARKBLOOM_AOT_SDPA_PLANES` and A1's `darkbloom_expert_down_bn`, §8.)
+3. **Is the enclosing kernel host-gated?** `is_nax_available()`, arch suffix.
+   (§2, §7 — makes an arm real but locally unmeasurable.)
+4. **Is the path shadowed at runtime by a better default?** One
+   `DARKBLOOM_TRACE_FUSION=1` run. (§9 — the fused norm+affine QKV suite.)
+5. **Do the benchmark's shapes reach the branch, and does the model call the
+   library at all?** Read the dispatch predicate against `Constants.swift`, then
+   `grep -rn <library entry point> Sources/`. (This section.)
+
+Questions 1, 2 and 5 are free — they are reading, not running. Question 4 costs
+one local run. Question 3 costs a probe you write once. I spent the campaign's
+scarce resources (builds and submission slots) on arms that questions 1–5 would
+have screened out in minutes, and the pattern across the retraction ledger is now
+hard to miss: most of my eight self-corrections were claims I could have
+falsified before measuring anything, and did not. The cheap questions are cheap
+precisely because they are boring.
+
+Cost of this section: zero builds, zero runs, zero submission slots. It retracts
+one arm, converts one null into a closed file, and promotes the prefill kernel
+family from "third-ranked transfer risk" to the only attention arm worth having.
 
