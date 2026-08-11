@@ -6664,6 +6664,31 @@ let lagunaNvfp4NibbleSplit: Int = {
 
 
 
+// R118-A research-only attribution instrument for the shared-expert gate+up QMV
+// (`laguna_shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1`).  One binary, one env
+// var, four arms, all AOT in this source:
+//
+//   ship  the shipped kernel, unchanged text and unchanged name (default)
+//   ctl   byte-identical clone of the shipped text under a different kernel
+//         name.  MLX caches Metal libraries by kernel name, so this forces an
+//         independent compile of identical source: the negative control.
+//   d2    reads 2 of the 4 512-wide K blocks
+//   d1    reads 1 of the 4 512-wide K blocks
+//
+// The `d*` arms are a BYTE DOSE, not candidates: they deliberately compute the
+// wrong activation so that the weight/scale/input bytes for the skipped blocks
+// are never fetched.  They exist to measure d(wall)/d(byte) for this kernel in
+// situ, which is a wall-clock quantity and therefore needs no tau correction.
+// Never ship anything but `ship`.  `run_upstream_equivalence.sh` and the golden
+// tests only pass on `ship`.
+let lagunaSharedQMVArm: String = {
+    guard
+        let raw = ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_QMV_ARM"],
+        ["ship", "ctl", "d2", "d1"].contains(raw)
+    else { return "ship" }
+    return raw
+}()
+
 let lagunaNvfp4ScaleCarry: Bool =
     ProcessInfo.processInfo.environment["DARKBLOOM_NVFP4_SCALE_CARRY"] != "0"
 
@@ -6992,7 +7017,13 @@ for (uint row = 0; row < 2; ++row) {
 
 
 
-private func lagunaSharedSwiGLUQMVRows1Source(halved: Bool) -> String {
+private func lagunaSharedSwiGLUQMVRows1Source(
+    halved: Bool, doseBlocks: Int = 4
+) -> String {
+    // `doseBlocks == 4` reproduces the shipped text byte for byte (the loop
+    // bound stays the `input_width` identifier).  Lower values are the R118-A
+    // byte dose and compute a deliberately wrong activation.
+    let loopBound = doseBlocks == 4 ? "input_width" : "\(doseBlocks * 512)u"
     let scaleRowBytes = halved ? 64 : 128
     let patch =
         halved
@@ -7034,7 +7065,7 @@ thread float gate_result = 0.0f;
 thread float up_result = 0.0f;
 thread float input_values[values_per_lane];
 
-for (uint block = 0; block < input_width; block += block_width) {
+for (uint block = 0; block < \(loopBound); block += block_width) {
     const device vec<bfloat, 4>* input_vectors =
         (const device vec<bfloat, 4>*) (
             input + block + lane * values_per_lane);
@@ -7080,14 +7111,23 @@ private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
     ensureRowContiguous: true
 )
 
-private let lagunaSharedSwiGLUQMVRows1HalvedKernel = MLXFast.metalKernel(
-    name: "laguna_shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1",
-    inputNames: ["input", "fused_weight", "fused_scales"],
-    outputNames: ["activated"],
-    source: lagunaSharedSwiGLUQMVRows1Source(halved: true),
-    header: lagunaSharedSwiGLUQMVHeader,
-    ensureRowContiguous: true
-)
+// R118-A: `ship` keeps both the shipped name and the shipped source text.  The
+// other three arms only exist when DARKBLOOM_SHARED_QMV_ARM is set, and each
+// gets its own kernel name because MLX keys its Metal library cache on the
+// name (Vendor/mlx-swift/.../metal/device.cpp:602,770).
+private let lagunaSharedSwiGLUQMVRows1HalvedKernel: MLXFast.MLXFastKernel = {
+    let arm = lagunaSharedQMVArm
+    let blocks = arm == "d2" ? 2 : (arm == "d1" ? 1 : 4)
+    let suffix = arm == "ship" ? "" : "_r118\(arm)"
+    return MLXFast.metalKernel(
+        name: "laguna_shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1" + suffix,
+        inputNames: ["input", "fused_weight", "fused_scales"],
+        outputNames: ["activated"],
+        source: lagunaSharedSwiGLUQMVRows1Source(halved: true, doseBlocks: blocks),
+        header: lagunaSharedSwiGLUQMVHeader,
+        ensureRowContiguous: true
+    )
+}()
 
 
 
