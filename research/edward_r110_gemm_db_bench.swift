@@ -790,6 +790,76 @@ func makeProblem(_ s: Shape) -> Problem {
         segsPerTile: segmentsPerTile(idx))
 }
 
+// MARK: - bit-exactness check
+//
+// The timing problems use uninitialised private buffers, which is fine for
+// timing but says nothing about values. This runs every variant once on a
+// small deterministic shared-memory problem and compares the output bytes
+// against the first tag. regstage/pf/pf2 must be bit-exact with base; the
+// nobar/noload/nomma probes are expected to differ.
+
+func verifyVariants(_ tags: [String], _ psos: [String: MTLComputePipelineState]) {
+    let M = 256, K = 256, N = 64
+    var state: UInt64 = 0xDEAD_BEEF_CAFE_F00D
+    func rnd() -> UInt64 {
+        state = state &* 6364136223846793005 &+ 1442695040888963407
+        return state >> 33
+    }
+
+    var xBytes = [UInt8](repeating: 0, count: M * K * 2)
+    for i in stride(from: 0, to: xBytes.count, by: 2) {
+        xBytes[i] = UInt8(rnd() & 0xFF)
+        xBytes[i + 1] = UInt8(0x3C + (rnd() & 3)) // finite bf16, |x| in [2^-7, 2)
+    }
+    var wBytes = [UInt8](repeating: 0, count: numExperts * N * K / 2)
+    for i in 0..<wBytes.count { wBytes[i] = UInt8(rnd() & 0xFF) }
+    var sBytes = [UInt8](repeating: 0, count: numExperts * N * (K / groupSize))
+    for i in 0..<sBytes.count { sBytes[i] = UInt8(rnd() % 0x7F) } // finite e4m3
+    let idx = sortedIndices(M, mode: "aligned")
+
+    let xB = device.makeBuffer(bytes: xBytes, length: xBytes.count, options: .storageModeShared)!
+    let wB = device.makeBuffer(bytes: wBytes, length: wBytes.count, options: .storageModeShared)!
+    let sB = device.makeBuffer(bytes: sBytes, length: sBytes.count, options: .storageModeShared)!
+    let iB = device.makeBuffer(bytes: idx, length: idx.count * 4, options: .storageModeShared)!
+    let yB = device.makeBuffer(length: M * N * 2, options: .storageModeShared)!
+
+    var M32 = Int32(M), N32 = Int32(N), K32 = Int32(K)
+    var ref = [UInt8]()
+    for t in tags {
+        memset(yB.contents(), 0, M * N * 2)
+        let cb = queue.makeCommandBuffer()!
+        let enc = cb.makeComputeCommandEncoder()!
+        enc.setComputePipelineState(psos[t]!)
+        enc.setBuffer(xB, offset: 0, index: 0)
+        enc.setBuffer(wB, offset: 0, index: 1)
+        enc.setBuffer(sB, offset: 0, index: 2)
+        enc.setBuffer(iB, offset: 0, index: 3)
+        enc.setBuffer(yB, offset: 0, index: 4)
+        enc.setBytes(&M32, length: 4, index: 5)
+        enc.setBytes(&N32, length: 4, index: 6)
+        enc.setBytes(&K32, length: 4, index: 7)
+        enc.dispatchThreadgroups(
+            MTLSize(width: (N + 31) / 32, height: (M + 15) / 16, depth: 1),
+            threadsPerThreadgroup: MTLSize(width: 32, height: 2, depth: 1))
+        enc.endEncoding()
+        cb.commit()
+        cb.waitUntilCompleted()
+        if let e = cb.error { die("verify command buffer error: \(e)") }
+        let out = [UInt8](UnsafeBufferPointer(
+            start: yB.contents().assumingMemoryBound(to: UInt8.self), count: M * N * 2))
+        if t == tags[0] {
+            ref = out
+            let nz = out.filter { $0 != 0 }.count
+            log("verify reference \(t): \(nz) / \(out.count) non-zero output bytes")
+        } else {
+            let diff = zip(ref, out).filter { $0 != $1 }.count
+            log("verify \(pad(t, 8)): "
+                + (diff == 0 ? "BIT-EXACT vs \(tags[0])"
+                             : "\(diff) / \(out.count) output bytes differ"))
+        }
+    }
+}
+
 // MARK: - timing
 
 let reps = envInt("ED_REPS", 4)
@@ -845,8 +915,9 @@ var psos = [String: MTLComputePipelineState]()
 for t in tags {
     let p = makePipeline(libs[t]!, kernelName, alignAll: true)
     psos[t] = p
-    log("  \(pad(t, 6)): tgmem=\(p.staticThreadgroupMemoryLength) B  maxTGThreads=\(p.maxTotalThreadsPerThreadgroup)")
+    log("  \(pad(t, 8)): tgmem=\(p.staticThreadgroupMemoryLength) B  maxTGThreads=\(p.maxTotalThreadsPerThreadgroup)")
 }
+if (env("ED_VERIFY") ?? "1") != "0" { verifyVariants(tags, psos) }
 
 // Same weight/activation buffers, different routed-index vector.
 func reroute(_ p: Problem, _ mode: String) -> Problem {
@@ -892,9 +963,10 @@ for s in shapes {
                        m, (baseMs - m) / baseMs * 100.0, a.count,
                        (a.max()! - a.min()!) / m * 100.0))
         }
-        // Per-layer projection: 39 MoE layers, one dispatch of this shape each.
-        let proj = tags.map { "\($0) \(fmt(median(acc["\(e.mode)|\($0)"]!) * 39, 1))" }.joined(separator: ", ")
-        log("  \(e.mode) per-prefill projection (39 layers, ms): " + proj)
+        // 38 routed gather-GEMM dispatches of this shape per 512-token prefill
+        // (39 decoder layers, layer 0 is dense).
+        let proj = tags.map { "\($0) \(fmt(median(acc["\(e.mode)|\($0)"]!) * 38, 1))" }.joined(separator: ", ")
+        log("  \(e.mode) per-prefill projection (38 dispatches, ms): " + proj)
     }
     if idxModes.count > 1 {
         let mm = median(acc["multinomial|base"]!)
