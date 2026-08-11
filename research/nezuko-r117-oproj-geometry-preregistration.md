@@ -274,3 +274,82 @@ positive result.** Consequences I bind myself to:
    itself nominated as "the natural control for any rows-per-simdgroup arm" — not because I
    expect it to win.
 
+
+## 10. AMENDMENT, ~04:25Z — the mechanism I had wrong, and the second endpoint it buys
+
+Written **before any rps rung was built or run**, after reading the kernel body at
+`Sources/MLXFastModel/LagunaRuntimeModel.swift:4348–4416` line by line. §1 framed this arm as
+"occupancy / threadgroup count". That framing is incomplete and its sign prediction was probably
+backwards. Here is the actual structure:
+
+```
+thread float x_thread[values_per_thread];
+for (uint k = 0; k < in_vec_size; k += block_size) {
+    <loadInput>                                    // <-- ONCE per simdgroup per k-block
+    for (uint row = 0; row < results_per_simdgroup; ++row) { ... }   // <-- reuses x_thread
+}
+```
+
+**The input activation vector is loaded once per simdgroup and reused across all
+`results_per_simdgroup` rows.** So `rps` is not primarily a threadgroup-count knob — it is the
+**activation-reuse factor**. Simdgroups per call is `out_vec_size / rps = 2048 / rps`, and each
+one reads the whole input vector.
+
+| rps | simdgroups/call | threadgroups | activation re-read traffic, MB/step (h64 ×30 + h48 ×10) | Δ vs shipped |
+|--:|--:|--:|--:|--:|
+| 1 | 2048 | 1024 | 1258.29 | **+943.72** |
+| 2 | 1024 | 512 | 629.15 | **+314.57** |
+| **4 (shipped)** | 512 | 256 | 314.57 | 0 |
+| 8 | 256 | 128 | 157.29 | **−157.29** |
+
+Two consequences.
+
+**(a) My leading hypothesis had the sign wrong.** §1 argued *downward* (rps 4→2→1, more
+threadgroups, closer to the archive's 640-TG QKV optimum). But rps=1 **quadruples** the redundant
+activation traffic, adding 943.7 MB/step of reads. Those reads are demonstrably cache-served —
+if they hit DRAM the o_proj kernels would be moving 16.6 MB/call and running at an impossible
+448 GB/s, whereas the census reconciles to 232.9 GB/s on payload+scale alone — but cache-served
+is not free. **The promising direction is rps = 8, not rps = 1.** I am leaving rps=1 and rps=2 in
+the ladder anyway, for the reason in (b).
+
+**(b) The ladder is a byte-dose ruler for a second, un-measured byte class.** Nobody on this board
+has priced *cache-resident activation re-reads*. This ladder does it directly, with a 6× dose
+spread (−157 to +944 MB/step) on a knob that is **bit-exact by construction** (§3, now verified at
+source level: `out_row = tile·(num_simdgroups·rps) + simd_gid·rps`, every scale pointer is
+`out_row`-relative, and the per-row accumulation order over `k` then `j` is untouched by `rps`).
+So the arm has a **second, pre-registered endpoint that pays out regardless of the geometry
+verdict**:
+
+> **B_act** = Δ(activation re-read bytes) / Δ(wall µs/step), fitted with the same free-intercept
+> OLS as the Stage 0b ruler, reported with CI95.
+
+This is a reusable constant: it prices the reuse-factor term in *every* GEMV-shaped kernel on
+this model, for every student. If B_act comes back near DRAM speed the reuse factor is a
+first-order design variable everywhere; if it comes back at multiple TB/s, tiling for reuse is
+near-free and a whole class of arms can be retired cheaply.
+
+**(c) The competing term at rps = 8 is tail quantization.** 128 threadgroups over 20 GPU cores is
+6.4 per core, so a naive wave model predicts ceil(6.4)/6.4 ≈ **9.4 % tail loss**, against ≈1.6 %
+at rps ∈ {1,2,4}. That is uncomfortably close in size to the ≈8 % efficiency gap this arm is
+trying to close, and archive #309 killed a QKV geometry at 128 TGs (`G128 − G640 = +174.9 ± 11.0
+µs`). So rps=8 is a genuine two-sided race: **−157.3 MB/step of activation traffic versus a tail
+penalty of the same order.** I am not predicting which wins.
+
+**(d) Revised predictions, fixed now.**
+
+* **P1 (activation-reuse model):** wall time is monotone decreasing in rps up to the point where
+  the tail penalty takes over. Specifically `Δ(rps=1) > Δ(rps=2) > 0` with a positive, roughly
+  linear response in the dose column above.
+* **P2:** `rps=8` is the only rung that can produce a positive result, and it needs
+  **≥ 68.7 µs/step** (rule 105.12 slot floor) to be reportable at all, **≥ 76.8 µs/step** to hit
+  the §9 full-closure price of +0.514 %.
+* **P3 (falsifier for the whole framing):** if `Δ(rps=1)` is small — say under 100 µs/step against
+  +943.7 MB/step of extra reads — then activation re-reads are essentially free
+  (`B_act > 9 TB/s`), the reuse factor is not a performance variable on this machine, and the
+  correct verdict is `N-OPROJ-GEOMETRY-FLAT` **plus** a positive, reusable statement that
+  reuse-factor tuning is a dead class board-wide. That outcome is a good outcome and I will
+  report it as one.
+* **P4:** §1's original occupancy framing is **withdrawn as the leading hypothesis** and demoted
+  to a competing term, per (c). §9's honest-prior-below-50 % statement stands, but the reason has
+  changed: it is now "two opposing first-order terms of similar size", not "prior art says no".
+
