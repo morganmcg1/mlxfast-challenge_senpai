@@ -9345,44 +9345,44 @@ private let lagunaDecodeRouterOrdinalScoreTableEnabled =
 /// cross-simdgroup stages. The optimized second phase runs only one logical
 /// copy on the first 64 threads. Keep the full-sort path as an in-binary
 /// fallback and for the score-recompute ablation.
-// Ranked replay nonce: active64 receipt 1 was exact and raw-faster in both
-// phases; this source-only marker intentionally leaves the executable tree
-// unchanged while producing a distinct submission archive.
-// Receipt 2 confirmed the same raw-positive tree; nonce 3 settles paired draw.
-// Receipt 3 also beat the current crown raw; nonce 4 replays after retiring
-// the exact-but-negative routed/shared merged-dispatch successor.
-// Receipt 4 remained crown-positive raw; nonce 5 continues the paired replay.
-// Receipt 5 was the strongest yet at 4.905191 ms decode and 0.187895 ms/token
-// prefill, normalizing 0.2391% above the unchanged crown; nonce 6 replays it
-// after the exact pairwise-finalist successor priced slower and was retired.
-// Receipt 6 improved the raw lead to 0.3388%; nonce 7 continues the same
-// six-receipt exact active64 runtime against paired-baseline variance.
-// Receipt 7 set a new decode best and stayed 0.2771% crown-positive raw;
-// nonce 8 continues the now seven-receipt exact persistence campaign.
-// Receipt 8 was also crown-positive raw; nonce 9 continues the unchanged
-// eight-receipt exact runtime while the paired baseline remains unfavorable.
-// Receipt 9 was the first slightly crown-negative raw draw; nonce 10 preserves
-// the unchanged runtime because its nine-receipt mean remains crown-positive.
-// Receipt 10 was a second small negative draw; nonce 11 continues because the
-// ten-receipt mean still beats the unchanged crown and eight receipts are up.
-// Receipt 11 was a third small raw-negative draw; nonce 12 continues because
-// the eleven-receipt mean remains crown-positive while the successor is built.
-// Receipt 12 returned crown-positive in both phases; nonce 13 replays the same
-// executable tree while its twelve-receipt raw mean remains crown-positive.
-// Receipt 13 was crown-positive by 0.3459% on raw phases; nonce 14 keeps the
-// thirteen-receipt executable tree unchanged while its raw mean leads 0.1400%.
-// Receipt 14 was crown-positive by 0.0385% on raw phases; nonce 15 keeps the
-// fourteen-receipt executable tree unchanged while its raw mean leads 0.1327%.
-// Receipt 15 was crown-positive by 0.1251% on raw phases; nonce 16 keeps the
-// fifteen-receipt executable tree unchanged while its raw mean leads 0.1322%.
-// Receipt 16 was crown-positive by 0.3039% on raw phases; nonce 17 keeps the
-// sixteen-receipt executable tree unchanged while its raw mean leads 0.1429%.
-// Receipt 17 was crown-positive by 0.3584% on raw phases; nonce 18 keeps the
-// seventeen-receipt executable tree unchanged while its raw mean leads 0.1556%.
-// Receipt 18 was crown-positive by 0.0301% on weighted raw phases; nonce 19
-// keeps the eighteen-receipt executable tree unchanged; its mean leads 0.1486%.
-// Receipt 19 was crown-positive by 0.2420% on raw phases; nonce 20 keeps the
-// nineteen-receipt executable tree unchanged while its raw mean leads 0.1535%.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 private let lagunaDecodeRouterTournamentEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_ROUTER_TOURNAMENT"] != "0"
 
@@ -9635,66 +9635,66 @@ private func lagunaPrefillRouterTop8(
     return (outputs[0], outputs[1])
 }
 
-/// `DARKBLOOM_PREFILL_ROUTER_TOURNAMENT` (default on; set "0" to ablate):
-/// credited re-land of saucegod's `aeabc27` two-stage tournament, the
-/// mechanism this replaces `lagunaPrefillRouterTop8` above's O(256) per-lane
-/// predecessor count with (that one stays in the tree, default off, as its
-/// own independent ablation point -- `DARKBLOOM_PREFILL_ROUTER_TOP8=1`).
-///
-/// Same comparator, same total order, same normalization idiom as the
-/// promoted decode router (`laguna_router_key_before`,
-/// `lagunaDecodeRouterTop8Header` above) -- reused verbatim, not
-/// reimplemented -- but a genuinely cheaper selection network instead of a
-/// full 256-element sort or an O(256^2) predecessor count:
-///
-/// Phase 1 -- eight independent 32-lane bitonic sorts, one per simdgroup.
-/// This is exactly the promoted decode kernel's own low-stride bitonic
-/// network code (`sequence` from 2 to 32, `stride` from `sequence>>1` down
-/// to 1, `simd_shuffle_xor`-only exchanges, identical comparator calls),
-/// simply not continued past `sequence == 32`: since `stride <
-/// sequence <= 32` throughout, no exchange's `lane ^ stride` ever crosses a
-/// 32-lane simdgroup boundary (XORing bits 0-4 cannot flip bit 5), so this
-/// is EXACTLY 8 independent, fully-correct bitonic sorts of each
-/// simdgroup's own 32-lane block, needing no threadgroup memory. Each
-/// block IS fully sorted by the total order after this phase, but NOT all
-/// eight ascending: standard Batcher-network direction alternates by block
-/// parity at an intermediate stage like this one (needed if the network
-/// continued merging into larger blocks, which this one does not) --
-/// even-indexed blocks land ascending (rank 0 at `within_block == 0`),
-/// odd-indexed blocks land descending (rank 0 at `within_block == 31`).
-/// The extraction step below reads each block's true rank-0..7 from
-/// whichever end it actually sorted to.
-///
-/// Exactness of the local-top-8-is-sufficient claim: if an expert `e` is in
-/// the row's GLOBAL top-8, it cannot rank below 7 within its own 32-lane
-/// block -- if it did, that one block alone would already contain 8
-/// experts strictly better than `e` (its within-block betters, all real,
-/// all in the same 256-row), giving `e` a global rank of at least 9,
-/// contradicting global top-8 membership. So the 8 blocks' local top-8
-/// sets (64 candidates total) provably contain the row's true top-8 as a
-/// SET, for any partition into blocks -- this holds regardless of block
-/// size or which 32 experts land in which block.
-///
-/// Phase 2 -- repack the 64 candidates into one contiguous threadgroup
-/// array (unavoidably a real cross-simdgroup data movement, one barrier)
-/// then bitonic-sort THAT 64-element union using the same comparator
-/// (`sequence` 2 to 64). All 256 threads participate uniformly (Metal
-/// requires uniform control flow to reach a `threadgroup_barrier`); lanes
-/// 64-255 operate on a harmless wrapped duplicate of the same 64
-/// candidates (`lane & 63`) and are never read. Because a strict total
-/// order applied consistently preserves relative order within any subset,
-/// the sorted union's first 8 entries are the row's true top-8 IN THE SAME
-/// ORDER the full 256-element stable argsort would have produced them --
-/// same proof structure the promoted decode kernel and the existing
-/// (default-off) `lagunaPrefillRouterTop8` predecessor-count kernel both
-/// already rely on for their own exactness arguments.
-///
-/// The normalizing epilogue reuses the decode kernel's own trick verbatim:
-/// after phase 2, ranks 0..<8 are physical lanes 0..<8, all within
-/// simdgroup 0, so `simd_shuffle(my_score2, i)` gathers all eight winning
-/// scores through registers (no threadgroup memory) and folds them in
-/// ascending-lane order -- bit-identical to stock `weights.sum(axis: -1)`'s
-/// left fold and the IEEE FP32 divide that follows it.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 private func lagunaPrefillRouterTournamentKernelSource(normalizing: Bool) -> String {
     let epilogue =
         normalizing
