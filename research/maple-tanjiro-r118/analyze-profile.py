@@ -125,9 +125,14 @@ def main():
         print(f"== {label}  ({kern})")
         print(f"   busy/call  4 blocks (ship) = {b4:7.3f} us")
         print(f"   busy/call  1 block  ({dose_arm:>4s}) = {b1:7.3f} us")
-        print(f"   marginal   m = {m:7.3f} us per K block "
-              f"({mb_blk / n:.4f} MB/call -> "
-              f"{mb_blk / n / (m * 1e-6) / 1e3:6.1f} GB/s marginal)")
+        if abs(m) < 1e-6:
+            print(f"   marginal   m = {m:7.3f} us per K block "
+                  f"({mb_blk / n:.4f} MB/call -> marginal rate undefined: the "
+                  f"profiler reports NO busy response to a 3-block dose)")
+        else:
+            print(f"   marginal   m = {m:7.3f} us per K block "
+                  f"({mb_blk / n:.4f} MB/call -> "
+                  f"{mb_blk / n / (m * 1e-6) / 1e3:6.1f} GB/s marginal)")
         print(f"   FIXED      c = {c:7.3f} us per call "
               f"({100.0 * c / b4:.1f} % of the shipped per-call cost)")
         print(f"   4m + c     = {4 * m + c:7.3f} us  (identity check vs {b4:.3f})")
@@ -146,7 +151,13 @@ def main():
         if wall:
             print(f"   delta wall  for this dose = {wall:8.1f} us/step "
                   f"(SPLIT=0 campaign)")
-            print(f"   ==> tau({label}) = {wall / dbusy:.3f}")
+            if abs(dbusy) < 1e-6:
+                print(f"   ==> tau({label}) undefined: the profiler saw no "
+                      f"busy change for a dose that moved {wall:.1f} us of "
+                      f"wall.  That is a statement about the profiler, and it "
+                      f"is reported rather than divided by.")
+            else:
+                print(f"   ==> tau({label}) = {wall / dbusy:.3f}")
         print()
 
     for arm in sorted(caps):
