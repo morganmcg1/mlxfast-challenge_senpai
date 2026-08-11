@@ -1,0 +1,120 @@
+--- a/Sources/MLXFastModel/LagunaRuntimeModel.swift
++++ b/Sources/MLXFastModel/LagunaRuntimeModel.swift
+@@ -324,6 +324,27 @@
+ let lagunaSharedQMVWideCodesEnabled =
+     ProcessInfo.processInfo.environment["DARKBLOOM_QMV_WIDE_CODES"] == "1"
+ 
++/// Threadgroup width of the shared-expert SwiGLU QMV, in threads.
++///
++/// The R119-C ladder measured this at pinned total residency (512 simdgroups in
++/// every arm, so occupancy is controlled rather than confounded): TG=64
++/// 289.83 +/- 1.42, TG=128 290.38 +/- 1.07 (not separable from 64), TG=256
++/// 294.50 +/- 0.85 tok/s over 18 interleaved runs, bit-identical outputs. That
++/// is 64.8-65.5 us/step, i.e. **+0.38 % score** at 1 us/step = 0.00586 %.
++///
++/// The default is **256**, not the historical 64: a knob measured as a win and
++/// left defaulting to the old value is worth exactly zero on the scored path,
++/// because the submitted tree runs with none of our environment. `=64`
++/// reproduces the shipped geometry exactly and is the control arm; `=128` is
++/// the intermediate rung.
++let lagunaSharedSwiGLUQMVThreadgroupWidth: Int = {
++    switch ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_QMV_TG"] {
++    case "64": return 64
++    case "128": return 128
++    default: return 256
++    }
++}()
++
+ /// Folds the per-head softplus gate into the output projection's GEMV (see
+ /// `lagunaGatedOutputProjectionSource`), with one kernel variant per attention
+ /// family. Set `DARKBLOOM_FUSED_GATED_OUTPUT=0` to ablate.
+@@ -6847,7 +6868,9 @@
+ /// and each lane issues one scale load per two it issued before. The fused
+ /// plane concatenates gate over up, so the only two pairs the quantizer can
+ /// leave unequal are gate row 0 and up row 0, carried in header slots 0 and 1.
+-private func lagunaSharedSwiGLUQMVRows1Source(halved: Bool) -> String {
++private func lagunaSharedSwiGLUQMVRows1Source(
++    halved: Bool, simdgroupsPerThreadgroup: Int = 2
++) -> String {
+     let scaleRowBytes = halved ? 64 : 128
+     let patch =
+         halved
+@@ -6872,7 +6895,7 @@
+ uint tile = threadgroup_position_in_grid.x;
+ uint simd_group = simdgroup_index_in_threadgroup;
+ uint lane = thread_index_in_simdgroup;
+-uint row = tile * 2 + simd_group;
++uint row = tile * \(simdgroupsPerThreadgroup) + simd_group;
+ 
+ const device uint8_t* gate_row_weight =
+     (const device uint8_t*)fused_weight +
+@@ -6940,10 +6963,33 @@
+     inputNames: ["input", "fused_weight", "fused_scales"],
+     outputNames: ["activated"],
+     source: lagunaSharedSwiGLUQMVRows1Source(halved: true),
++    header: lagunaSharedSwiGLUQMVHeader,
++    ensureRowContiguous: true
++)
++
++// R119-C threadgroup-granularity arms: identical per-row arithmetic, wider
++// threadgroups. MLX caches compiled libraries by kernel name, so each geometry
++// needs its own name or the first-built geometry is silently measured for all.
++private let lagunaSharedSwiGLUQMVRows1HalvedTG128Kernel = MLXFast.metalKernel(
++    name: "laguna_shared_nvfp4_swiglu_qmv_rows1_halved_tg128_bf16_v1",
++    inputNames: ["input", "fused_weight", "fused_scales"],
++    outputNames: ["activated"],
++    source: lagunaSharedSwiGLUQMVRows1Source(
++        halved: true, simdgroupsPerThreadgroup: 4),
+     header: lagunaSharedSwiGLUQMVHeader,
+     ensureRowContiguous: true
+ )
+ 
++private let lagunaSharedSwiGLUQMVRows1HalvedTG256Kernel = MLXFast.metalKernel(
++    name: "laguna_shared_nvfp4_swiglu_qmv_rows1_halved_tg256_bf16_v1",
++    inputNames: ["input", "fused_weight", "fused_scales"],
++    outputNames: ["activated"],
++    source: lagunaSharedSwiGLUQMVRows1Source(
++        halved: true, simdgroupsPerThreadgroup: 8),
++    header: lagunaSharedSwiGLUQMVHeader,
++    ensureRowContiguous: true
++)
++
+ /// Wide-codes twin of the halved R1 kernel: two adjacent groups per lane, one
+ /// `uint4` code load and one shared scale byte per pair, two K iterations
+ /// instead of four. The pair's second group reuses `laguna_nvfp4_qdot_codes_16`
+@@ -7065,19 +7111,31 @@
+                 LagunaConstants.hiddenSize / 16))
+     }
+ 
++    let widened =
++        halved && !lagunaSharedQMVWideCodesEnabled
++        && lagunaSharedSwiGLUQMVThreadgroupWidth != 64
+     let kernel =
+         halved
+         ? (lagunaSharedQMVWideCodesEnabled
+             ? lagunaSharedSwiGLUQMVRows1WideKernel
+-            : lagunaSharedSwiGLUQMVRows1HalvedKernel)
++            : (lagunaSharedSwiGLUQMVThreadgroupWidth == 256
++                ? lagunaSharedSwiGLUQMVRows1HalvedTG256Kernel
++                : (lagunaSharedSwiGLUQMVThreadgroupWidth == 128
++                    ? lagunaSharedSwiGLUQMVRows1HalvedTG128Kernel
++                    : lagunaSharedSwiGLUQMVRows1HalvedKernel)))
+         : (lagunaSharedSwiGLUQMVRows1Enabled
+             ? lagunaSharedSwiGLUQMVRows1Kernel
+             : lagunaSharedSwiGLUQMVKernel)
+-    let tiles = lagunaSharedSwiGLUQMVRows1Enabled ? 256 : 128
++    let threads = widened ? lagunaSharedSwiGLUQMVThreadgroupWidth : 64
++    let rowsPerThreadgroup = threads / 32
++    let tiles =
++        lagunaSharedSwiGLUQMVRows1Enabled
++        ? LagunaConstants.sharedExpertIntermediateSize / rowsPerThreadgroup
++        : 128
+     return kernel(
+         [input, fusedWeight, fusedScales],
+-        grid: (tiles * 64, 1, 1),
+-        threadGroup: (64, 1, 1),
++        grid: (tiles * threads, 1, 1),
++        threadGroup: (threads, 1, 1),
+         outputShapes: [[1, 1, LagunaConstants.sharedExpertIntermediateSize]],
+         outputDTypes: [.bfloat16]
+     )[0]

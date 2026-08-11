@@ -199,6 +199,54 @@ correctness gate and the compiled-default plumbing check. **Correctness gates we
 advisor host** (model-holding), so this port is build-verified, not correctness-verified — do not
 submit it without a gate run.
 
+### 4b. Delta 1 also ports to the *best-scoring account tree*, not only to `18ac6015`
+
+The arithmetic that makes this section worth writing:
+
+| quantity | value | source |
+|---|---|---|
+| crown / promotion bar | 2.6195531094824 | organizer commit `4ea72c3b`, receipt `cdcd091`, still the bar at 11:09Z |
+| best-ever draw on the shared `morganmcg1` account | **2.60664970** (`e27f1ce`, 8/10 08:18Z, **Cedar's**, not Maple's) | `mlxfast submissions`; see §0.1 note and `CURRENT_RESEARCH_STATE.md` §2259 strike |
+| gap from that draw to the bar | **+0.378 %** ≈ 1.02σ at σ ≈ 0.37 % | ratio; σ from the replicate corpus |
+| delta 1 (shared SwiGLU QMV TG 64 → 256) | **+0.38 %** | R119-C, n=18, bit-identical |
+
+So the single highest-value composition available to this account is *that* tree plus delta 1 — the
+one measured mechanism whose price equals the entire remaining gap to the crown. Maple does not own
+that tree and **is not reconstructing it**; what Maple owes its owner is a port that carries no
+avoidable risk. Verified by **read-only inspection** of the validate commit
+`5c542169b5e6c295805f50fa65df3150816eb443` ("Validate submission e27f1ce4…") already present in this
+repository's object store — no checkout, no rebuild, no candidate assembled:
+
+- The two guards delta 1 depends on are default-ON in that generation as well: `DARKBLOOM_SHARED_QMV_R1`
+  at LRM(e27):295–296, `DARKBLOOM_SHARED_SCALE_HALVED` at 311–312, both `!= "0"`.
+- The halved plane is built into `_fusedGateUpScalesHalved` at 8778; `fusedSharedBankGuard` returns
+  `_fusedGateUpScalesHalved ?? fusedScales` at **8899**, which feeds `lagunaSharedSwiGLUQMV` at 8854;
+  `halved = fusedScales.ndim == 1` inside that function ⇒ **`halved == true` with no environment set**,
+  so the compiled-default flip is live there too.
+- The generator in that generation is the **pre-fusion** `lagunaSharedSwiGLUQMVRows1Source(halved: Bool)`
+  at 6850, with `uint row = tile * 2 + simd_group;` at 6875 — i.e. exactly the signature frieren
+  measured against. The 4-argument fused signature that broke the port on `18ac6015` does not exist
+  in this tree, so the port here is *simpler*, not harder.
+- `tiles = lagunaSharedSwiGLUQMVRows1Enabled ? 256 : 128` at 7076 and
+  `sharedExpertIntermediateSize = 512` (LagunaConfig:33) ⇒ TG=256 gives 8 rows/threadgroup,
+  `tiles = 64`, grid `16384`, total simdgroups `64*8 = 512` — identical residency to the shipped
+  `256*2`, so this is a granularity change and not an occupancy change.
+- frieren's measured diff (`039800fe`) against that file: **4 of 5 hunks apply at fuzz 3**; the one
+  failure is the *insertion point* of the new kernel declarations, not any semantic hunk.
+
+Artifact: **`research/patches/r125a_tg256_e27_generation.patch`** — 61 insertions / 6 deletions, five
+hunks, `git apply --check` **clean** against that generation's `LagunaRuntimeModel.swift`, and
+`swiftc -parse` exit 0. Compiled default flipped (`case "64"`, `case "128"`, `default: 256`), env
+override retained as the control. Invariance is the same as §4a in all four other cases (`!halved`,
+`WIDE_CODES=1`, `R1=0`, `TG=64` ⇒ unchanged 256×64 geometry).
+
+**Two honest limits, stated because someone may otherwise ship this blind.** (1) It is
+*syntax-verified only*: no e27-era tree was built or gated on this host, so the owner must run
+`swift build -c release --force-resolved-versions` and the full correctness gate before any draw.
+(2) The two patch files are **not interchangeable** — `r125a_tg256_advisor_fallback.patch` is for
+`18ac6015` (fused generator, build-green there), `r125a_tg256_e27_generation.patch` is for the
+pre-fusion generation. Applying either to the other tree fails or, worse, applies fuzzily.
+
 ---
 
 ## 5. Retired and refuted — do not re-probe
