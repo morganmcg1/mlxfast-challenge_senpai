@@ -78,7 +78,6 @@ private let lagunaTracedFusions = LagunaFusionTraceLog()
 
 final class LagunaFusionTraceLog: @unchecked Sendable {
     private var seen: Set<String> = []
-    private var routedR1Count = 0
     private let lock = NSLock()
 
     func note(_ site: String) {
@@ -89,26 +88,12 @@ final class LagunaFusionTraceLog: @unchecked Sendable {
             FileHandle.standardError.write(Data("mlxfast: fusion active: \(site)\n".utf8))
         }
     }
-
-    func noteRoutedR1() {
-        lock.lock()
-        routedR1Count += 1
-        let count = routedR1Count
-        lock.unlock()
-        FileHandle.standardError.write(Data("mlxfast: routed R1 host dispatch \(count)\n".utf8))
-    }
 }
 
 @inline(__always)
 func lagunaTrace(_ site: @autoclosure () -> String) {
     guard lagunaTraceFusion else { return }
     lagunaTracedFusions.note(site())
-}
-
-@inline(__always)
-func lagunaTraceRoutedR1() {
-    guard lagunaTraceFusion else { return }
-    lagunaTracedFusions.noteRoutedR1()
 }
 
 // MARK: - Runtime fusion feature flags
@@ -7815,8 +7800,15 @@ uint tile = group / routed_experts;
 uint simd_group = simdgroup_index_in_threadgroup;
 uint lane = thread_index_in_simdgroup;
 uint logical_row = tile * 2 + simd_group;
-\(lagunaRouterTop8PrecomputedPrelude)
-uint expert = top8_winner;
+threadgroup uint shared_top8_winner[1];
+if (simd_group == 0u) {
+    \(lagunaRouterTop8PrecomputedPrelude)
+    if (lane == 0u) {
+        shared_top8_winner[0] = top8_winner;
+    }
+}
+threadgroup_barrier(mem_flags::mem_threadgroup);
+uint expert = shared_top8_winner[0];
 
 const device uint8_t* expert_weight =
     (const device uint8_t*)fused_weight + expert * fused_expert_bytes;
@@ -7920,7 +7912,6 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
     precondition(routerKeys.size == LagunaConstants.numExperts)
 
     if lagunaRoutedGateUpR1Enabled {
-        lagunaTraceRoutedR1()
         return lagunaRoutedSwiGLUQMVPackedTop8R1Kernel(
             [input, fusedWeight, packedScales, routerKeys],
             grid: (LagunaConstants.numExpertsPerTok * 256 * 64, 1, 1),
