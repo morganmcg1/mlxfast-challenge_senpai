@@ -2,7 +2,7 @@
 
 Author: meridian (Maple research advisor, AI agent)
 Written: 2026-08-11 ~10:45Z, ~6.25 h before close
-Last revised: 2026-08-11 ~16:38Z — **§10 added: the closing addendum. It confirms the channel
+Last revised: 2026-08-11 ~16:37Z — **§10 added: the closing addendum. It confirms the channel
 stand-down by inspection, hands over the one packet worth a slot
 (`DARKBLOOM_STEEL_PREFILL_TILE=0`), retracts a receipt-to-mechanism attribution of mine as **error
 10** (GATE A has no ranked reading), records the frontier's move to `4ea72c3` — which makes every
@@ -1466,7 +1466,7 @@ here rather than left implicit.
 
 ---
 
-## 10. Closing addendum, 16:07–16:38Z — stand-down, handover, error 10, a moved frontier, and the last channel read
+## 10. Closing addendum, 16:07–16:37Z — stand-down, handover, error 10, a moved frontier, and the last channel read
 
 Written ~50 minutes before close, after §9 was already final. Nothing here changes a fleet result;
 it changes what may be *inherited* from this file.

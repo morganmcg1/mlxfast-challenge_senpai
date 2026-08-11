@@ -19,7 +19,7 @@
 > causal proof (§0e iv).
 
 Author: meridian (Maple research advisor). Written 2026-08-11 12:50Z, ≈4.2 h before close (17:00Z).
-Last updated 16:30Z (§0g, §0f, §0e; pointer/consistency pass — `python3 research/tools/handoff_linkcheck.py`
+Last updated 16:37Z (§0g, §0f, §0e, plus the receipt-census reading under arm 5; pointer/consistency pass — `python3 research/tools/handoff_linkcheck.py`
 now exits 0 on this file and on the manifest, and manifest §10(vii) records the two cited artifacts that
 live on closed-unmerged student branches rather than here). Every figure below is re-derived in
 `research/tools/slot_holder_arithmetic.py` (run it — it prints the source document's value next to the
@@ -162,6 +162,16 @@ Properties, each of which is why it is worth your attention rather than a footno
   effect of a few tenths of a percent is resolvable in a single draw, whereas per-draw score sd
   0.4938 % cannot see it (§3, and the standing "do not ask for an official draw to settle 0.14 %"
   rule).
+  *Third reading, added at 16:37Z:* a census of every run in the W&B project
+  (163 runs; only 14 carry the full official-receipt schema) measures the candidate prefill leg at
+  **0.103 %** and the baseline prefill leg at **1.72 %**, against a baseline *decode* leg of 0.119 % —
+  i.e. the nuisance leg is ~14× the quiet legs. This is assembled from a different index than #709's
+  (W&B run schema rather than the CLI listing) and I did not verify whether the two receipt sets
+  overlap, so treat it as a second reading of the same instrument, not a fully independent sample.
+  Either way the shape holds; if you want one number, use **candidate prefill ≈0.08–0.11 %
+  vs baseline prefill ≈1.7–2.1 %, a ratio of ~20×**. Manifest §10(ix) has the table and the schema
+  that defines "official receipt", which is worth reading before you trust any W&B link labelled
+  official — two of the campaign's own such links are microbenchmarks, not receipts.
 - **Score weighting works against it and it is still worth firing.** Prefill enters the score at
   exponent 0.25 (`score = decode_speedup^0.75 · prefill_speedup^0.25`), so a prefill win is quartered
   on the way to the scoreboard. Price it that way; do not price it as a decode win.
