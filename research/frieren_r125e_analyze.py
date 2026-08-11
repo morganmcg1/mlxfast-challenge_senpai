@@ -100,8 +100,12 @@ def confirm(arm, runs, iters=20000, seed=20260811):
     for _ in range(iters):
         boot.append(statistics.fmean([rng.choice(deltas) for _ in deltas]))
     boot.sort()
-    lo = boot[int(0.025 * iters)]
-    hi = boot[int(0.975 * iters)]
+
+    def ci(alpha):
+        return boot[int(alpha / 2 * iters)], boot[int((1 - alpha / 2) * iters)]
+
+    lo, hi = ci(0.05)
+    blo, bhi = ci(0.05 / 3)  # Bonferroni over the pre-registered k=3 confirm family
     point = statistics.fmean(deltas)
     csd = statistics.stdev([r["median"] for r in c]) * US_PER_MS if len(c) > 1 else float("nan")
     print(f"arm={arm} n_arm={len(a)} n_ctrl={len(c)}")
@@ -111,7 +115,11 @@ def confirm(arm, runs, iters=20000, seed=20260811):
     print(f"  point {point:+.1f} us/step  95% CI [{lo:+.1f}, {hi:+.1f}]  "
           f"score {-point * PCT_SCORE_PER_US:+.3f} % "
           f"[{-hi * PCT_SCORE_PER_US:+.3f}, {-lo * PCT_SCORE_PER_US:+.3f}]")
-    print(f"  control run-to-run sd: {csd:.1f} us/step")
+    print(f"  Bonferroni k=3 (98.3%) CI [{blo:+.1f}, {bhi:+.1f}] us/step  "
+          f"score [{-bhi * PCT_SCORE_PER_US:+.3f}, {-blo * PCT_SCORE_PER_US:+.3f}] %")
+    print(f"  control run-to-run sd: {csd:.1f} us/step  "
+          f"achieved floor 2sd/sqrt(n) = {2 * csd / len(a) ** 0.5:.1f} us/step "
+          f"= {2 * csd / len(a) ** 0.5 * PCT_SCORE_PER_US:.3f} % score")
 
 
 def main():
