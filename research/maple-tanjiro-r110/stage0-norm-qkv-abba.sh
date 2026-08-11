@@ -41,6 +41,19 @@ mkdir -p "${OUT}"
 TSV="${OUT}/abba.tsv"
 printf 'idx\tarm\tmean_ms\tmedian_ms\tp10_ms\tp90_ms\tdiverg\tload_s\n' > "${TSV}"
 
+# decode_probe.py runs the prebuilt worker and never builds it, so refresh it
+# here the way benchmark.sh does; otherwise a stale binary can silently answer.
+echo "=== build worker t=$(date -u +%H:%M:%S)"
+mkdir -p .build-worker/clang-module-cache
+CLANG_MODULE_CACHE_PATH="${PWD}/.build-worker/clang-module-cache" \
+  swift build -c release --force-resolved-versions \
+    --scratch-path .build-worker --product mlxfast-runtime-worker \
+    > "${OUT}/build.log" 2>&1
+rc=$?
+git checkout -- Package.resolved 2>/dev/null
+[ ${rc} -ne 0 ] && { echo "build failed rc=${rc}"; tail -40 "${OUT}/build.log"; exit 3; }
+echo "=== build ok t=$(date -u +%H:%M:%S)"
+
 for (( n=0; n<${#ORDER}; n++ )); do
   arm="${ORDER:$n:1}"
   i=$((n+1))
