@@ -7792,15 +7792,8 @@ uint tile = group / routed_experts;
 uint simd_group = simdgroup_index_in_threadgroup;
 uint lane = thread_index_in_simdgroup;
 uint logical_row = tile * 2 + simd_group;
-threadgroup uint shared_top8_winner[1];
-if (simd_group == 0u) {
-    \(lagunaRouterTop8PrecomputedPrelude)
-    if (lane == 0u) {
-        shared_top8_winner[0] = top8_winner;
-    }
-}
-threadgroup_barrier(mem_flags::mem_threadgroup);
-uint expert = shared_top8_winner[0];
+\(lagunaRouterTop8PrecomputedPrelude)
+uint expert = top8_winner;
 
 const device uint8_t* expert_weight =
     (const device uint8_t*)fused_weight + expert * fused_expert_bytes;
