@@ -31,7 +31,9 @@ thermal() {
 pos=0
 for arm in "$@"; do
   case "${arm}" in
-    C) knob="" ;;
+    # Mode 1 must now be requested explicitly: the shipped default moved from
+    # "1" to "0" once b5 refuted mode 1, so an empty knob is arm A, not arm C.
+    C) knob="DARKBLOOM_NORM_FUSED_GATE_SP=1" ;;
     A) knob="DARKBLOOM_NORM_FUSED_GATE_SP=0" ;;
     W) knob="DARKBLOOM_NORM_FUSED_GATE_SP=2" ;;
     N) knob="DARKBLOOM_NORM_FUSED_GATE_SP=3" ;;

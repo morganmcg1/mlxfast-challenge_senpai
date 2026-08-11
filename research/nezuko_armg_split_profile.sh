@@ -78,7 +78,8 @@ git diff --stat -- Vendor Package.resolved
 
 knob_for() {
   case "$1" in
-    C) echo "" ;;
+    # Explicit since the shipped default moved from "1" to "0" after b5.
+    C) echo "DARKBLOOM_NORM_FUSED_GATE_SP=1" ;;
     A) echo "DARKBLOOM_NORM_FUSED_GATE_SP=0" ;;
     W) echo "DARKBLOOM_NORM_FUSED_GATE_SP=2" ;;
     N) echo "DARKBLOOM_NORM_FUSED_GATE_SP=3" ;;
