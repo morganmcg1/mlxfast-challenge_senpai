@@ -304,13 +304,127 @@ the *intercept*, not the *slope*. The ABBA/BAAB slope-sign-disagreement rule is 
 the sensitive statistic; the between-half intercept contrast is. The analyser prints both so a
 reader can apply either rule, but the intercept line should be read first.
 
-<!--RESULTS-ORDER-->
+### 4.1 Measured on the real campaign
+
+| half | n | τ | intercept c |
+|---|--:|--:|--:|
+| rung measured **before** its block's control | 14 | +0.874 | −29.16 µs/step |
+| rung measured **after** its block's control | 14 | +0.702 | +1.61 µs/step |
+
+| contrast | value | block-bootstrap CI95 | fires? |
+|---|--:|---|---|
+| Δτ (slope, the ABBA rule) | −0.171 | [−0.587, +0.011] | **no** — same sign, CI covers 0 |
+| Δc (intercept, the sensitive statistic) | +30.77 µs/step | [−0.87, +72.70] | **no** — CI covers 0 |
+
+**No order artefact is detected by either rule.** The one number worth extracting is a bound
+rather than a point estimate. `--selftest-order` calibrated the intercept contrast against a
+*known* drift: a pure +15 µs/position drift produces Δc = +67.42. The observed Δc is +30.77 with
+an upper bound of +72.70, so the campaign is consistent with anything from **zero drift up to
+about 16 µs/position**, and its point estimate corresponds to **≈ 6.8 µs/position** — under
+0.08 % of the 8975 µs step. The rotation did its job.
+
+I note the asymmetry honestly: Δτ's interval is [−0.587, +0.011], which is wide, and its upper
+end sits a hair below zero. If I had used the slope contrast as the primary order guard I would
+have been within noise of declaring a violation. That is the practical face of §4's argument —
+the slope contrast on a rotation design is a noisy statistic that mostly re-measures the
+sampling error of τ, whereas the intercept contrast is the one with power against the artefact
+it is supposed to catch.
 
 ---
 
 ## 5. What τ does and does not authorise
 
-<!--RESULTS-IMPLICATIONS-->
+### 5.1 The gate passes. The encoder still does not exist.
+
+The 02:42Z instruction was explicit: *proceed to an encoder only if τ ≥ 0.6 with CI95 excluding
+0.3.* Measured τ = +0.780 [+0.727, +0.833]. **The gate is passed.** I want that stated plainly
+before I explain why I am not going to build the encoder, so it is clear the refusal is not a
+failed gate.
+
+Stage 0 (`research/nezuko-r117-stage0-attn-byte-floor.md`) established, from the shipped source
+and from an escape-corrected byte census that reproduces edward's atlas bandwidths to within
+0.04 %, that:
+
+* the 4-bit pairwise lane-major nibble-delta scale plane the assignment asks me to *build* is
+  **already shipped and on by default** (`DARKBLOOM_ATTN_SCALE_NARROW*`, `…_PAIRWISE_*`,
+  `…_LANEMAJOR`), worth **66.38 MB/step ≈ +2.37 %** already banked;
+* what remains of the plane is **24.02 MB/step, 3.26 %** of the family's 737.1 MB/step, against
+  **96.74 % irreducible NVFP4 payload**;
+* the measured span histogram (139 264 rows, all 40 layers) puts escape rates at 1.0–4.0 %,
+  comfortably inside the 7.7–7.8 % break-even, so **b = 4 is the family optimum**: b = 3 is
+  strictly negative and b = 5 / b = 6 — the assignment's own fallbacks — *add* bytes relative to
+  what is already running.
+
+τ prices that residue. It does not create any.
+
+### 5.2 The ceiling, priced at the measured τ
+
+Conversion: `%score = 100 × 0.75 × τ × pred_µs / 8972`, where `pred_µs` is the byte delta at the
+256.7 GB/s asymptote. The whole-plane-vanishes bound is 24.02 MB/step = **101.8 µs/step** at
+τ = 1.
+
+| τ used | source | ceiling if the entire scale plane vanished |
+|---|---|--:|
+| 1.000 | physical | +0.855 % |
+| **0.780** | **primary, this campaign** | **+0.667 %** |
+| 0.727 / 0.833 | primary CI95 | +0.622 % / +0.712 % |
+| 0.968 | `OP`-dropped sensitivity | +0.828 % |
+
+Now run it backwards against the two things this slot must clear:
+
+| requirement | plane bytes that must be deleted, at τ = 0.780 | at τ = 0.968 |
+|---|--:|--:|
+| **+0.406 %** verified score bar | 16.0 MB/step = **66.6 % of the entire remaining plane** | 12.9 MB = 53.6 % |
+| **68.7 µs/step** rule-105.12 slot floor | 22.6 MB/step = **94.1 % of the entire remaining plane** | 18.2 MB = 75.8 % |
+
+So even at the optimistic end of the honest τ band, clearing the slot floor means deleting
+**three quarters of every scale byte the attention family reads** — from a plane that the span
+histogram says is already at its representable minimum. There is no encoder that does this.
+`N-ATTN-BYTE-FLOOR` survives contact with its own ruler, and it survives it *quantitatively*
+rather than by assertion: I now have a measured exchange rate, and the exchange rate says the
+residue is too small to matter no matter how favourable it is.
+
+### 5.3 Re-pricing the assignment's own table
+
+The assignment offered 5-bit at **+0.560 %** and 6-bit at **+0.374 %**. Both were computed
+against a *stock* 1-byte-per-group scale plane. That baseline does not exist on this tree — it
+was retired before R117 opened. Measured against what actually ships, a 5-bit plane replaces a
+~34.2 B/row encoding with a ~41 B/row encoding; both fallbacks therefore **cost** bytes, and τ
+does not rescue them, it makes them worse in exact proportion. The correct entry for both rows
+of that table is **negative**.
+
+This is the single most consequential thing in the R117-C assignment folder and it is a
+bookkeeping error, not a physics error: the pricing table was written against a snapshot of the
+tree that had already moved.
+
+### 5.4 What τ *does* authorise
+
+Two things, and I am spending the remaining time on the second.
+
+1. **It transfers.** τ ≈ 0.78–0.97 on attention versus cedar's [0.27, 0.43] on the routed class
+   is a **2.3×** difference in the value of a byte, measured on the same host with the same
+   estimator family. Anyone pricing an attention-side byte change with cedar's band will
+   under-price it by more than a factor of two, and anyone pricing a routed-class change with
+   mine will over-price it by the same factor. τ is not a machine constant; it is a
+   *per-family* constant, and §3.3–3.4 say it is not even quite that.
+2. **It re-frames the `o_proj` geometry arm as a byte experiment.** The shipped `o_proj` QMV
+   accumulates `results_per_simdgroup = 4` rows per simdgroup, so each of its 512 simdgroups
+   re-reads the entire input activation vector: **314.6 MB/step of activation traffic**, which
+   is *42 % as large again as the whole family's weight+scale stream*. Doubling reuse to
+   `rps = 8` deletes **157.3 MB/step** — six and a half times the size of the entire scale
+   plane this assignment was about.
+
+   If those re-reads were DRAM-resident, τ would price that at **+4.0 %**, which is absurd on
+   its face: the measured `o_proj` kernels only spend ~1 418 µs/step in total, and 157.3 MB at
+   the DRAM asymptote is 613 µs. They are therefore *mostly* cache-served — and **nobody on this
+   board has measured how much they cost.** That is the second pre-registered endpoint of Stage 1:
+   `B_act = Δ(activation bytes) / Δ(wall µs)`, the effective bandwidth of a cache-resident
+   activation re-read on this host. The ruler makes it interpretable, because it supplies the
+   DRAM-side reference point (τ ≈ 0.78–0.97) that `B_act` has to be compared against.
+
+   I hold an honest prior below 50 % that the geometry arm pays the bar (§9 of the
+   pre-registration prices full closure of `o_proj` to the QKV bandwidth at +0.514 %, and
+   partial closure cannot pay). I am running it because `B_act` is worth having either way.
 
 ---
 

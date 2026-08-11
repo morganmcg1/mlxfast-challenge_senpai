@@ -353,3 +353,59 @@ penalty of the same order.** I am not predicting which wins.
   to a competing term, per (c). §9's honest-prior-below-50 % statement stands, but the reason has
   changed: it is now "two opposing first-order terms of similar size", not "prior art says no".
 
+---
+
+## 11. AMENDMENT, 04:45Z — the arm list is frozen here, with the control §10 showed I needed
+
+§10 established that `rowsPerSimdgroup` moves **two** things at once: activation re-use (bytes)
+and threadgroup count (tail quantization across 20 GPU cores). A pure `rps` ladder therefore
+cannot attribute its own result — exactly the failure mode the byte-dose ruler ran into with its
+`OP` rung (`nezuko-r117-stage0b-byte-dose-ruler.md` §3.3), and I would rather pay for the control
+up front this time than apologise for its absence afterwards.
+
+So the kernel now carries a **second** knob, `DARKBLOOM_OPROJ_SIMDGROUPS` (`ns`, simdgroups per
+threadgroup, default 2 = shipped), and the design is a 2×2 with one cell dropped:
+
+| arm | `rps` | `ns` | simdgroups | **threadgroups** | **activation MB/step** | Δ act vs C |
+|---|--:|--:|--:|--:|--:|--:|
+| `C` | 4 | 2 | 512 | 256 | 314.57 | 0 |
+| `R1` | 1 | 2 | 2048 | 1024 | 1258.29 | **+943.72** |
+| `R2` | 2 | 2 | 1024 | 512 | 629.15 | **+314.57** |
+| `R8` | 8 | 2 | 256 | 128 | 157.29 | **−157.29** |
+| `N4` | 4 | 4 | 512 | **128** | 314.57 | **0** |
+
+**`R8` and `N4` are the whole point.** Both collapse the dispatch to 128 threadgroups. Only `R8`
+changes activation traffic. Therefore:
+
+* `R8` moves, `N4` flat ⇒ the effect is **activation re-use**; `B_act` is measurable and the
+  §10 byte framing is right.
+* `R8` and `N4` move **together** ⇒ the effect is **tail quantization / occupancy**, has nothing
+  to do with bytes, and `B_act` is not identified. §1's original framing would be revived, but
+  on a mechanism I could not have distinguished without `N4`.
+* neither moves ⇒ `N-OPROJ-GEOMETRY-FLAT` (P3), and the reusable statement is that neither
+  reuse-factor nor threadgroup-count tuning is a live class on this kernel.
+
+`N4` is a **zero-dose** arm. It is therefore *not* a rung of the `B_act` regression — a
+zero-dose point carries no slope information and including it would only inflate the apparent
+precision. It is analysed as a **separate paired contrast against `C`**, and the `B_act` fit uses
+`R1`, `R2`, `R8` only, with the same free-intercept estimator and the same per-block pairing as
+the byte-dose ruler (`DOSES="R1=943.72,R2=314.57,R8=-157.29"`).
+
+**Design:** 5 arms × 5 blocks = 25 runs, ≈ 155 s/run ≈ **65 min**. Rotation of arm order within
+block, SPLIT=0, per-arm kernel-set stability, `Package.resolved` restored per run.
+
+**Pre-flight, run before the campaign and reported with it:** every arm must produce the
+shipped golden hash `f49e4c2cbc0d3ceee9…`. §3's bit-exactness claim is a source-level argument
+(the geometry re-assigns rows to simdgroups but leaves each row's k-then-j accumulation order
+and its closing `simd_sum` untouched); the pre-flight is what turns it into evidence. If any arm
+misses the hash, the ladder does not run.
+
+**Rule 33** is satisfied at the source level: `lagunaOProjRowsPerSimdgroupSuffix` is appended to
+all four o_proj kernel-name literals and is distinct for every `(rps, ns)` pair
+(`_rps1ns2`, `_rps2ns2`, `_rps8ns2`, `_rps4ns4`; shipped `rps=4, ns=2` keeps the bare name), so
+no two arms can collide in MLX's name-keyed pipeline cache.
+
+**`ns = 1` is deliberately not offered.** The gated-affine prologue fills a threadgroup array
+under `if (lid < gate_heads)`; a 32-thread threadgroup would leave the upper gate entries
+uninitialised and corrupt output silently rather than fail a hash check.
+
