@@ -110,6 +110,24 @@ the construction argument: all nine screen arms, including these three,
 published the identical golden hash
 `b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63`.
 
+## What a null will be allowed to claim (computed while blind)
+
+`python3 research/frieren_r116_mde.py` turns each arm's screen between-block
+scatter into the effect the `|t| >= 3` rule can resolve, so a null is reported
+as a bound rather than as "no effect". For the three confirmation arms:
+
+| arm | paired SD (us) | MDE at 18 blocks (local us) | true us (x1.28) | share of score |
+| --- | --- | --- | --- | --- |
+| `qmvse0` | 11.9 | 8.4 | 10.7 | 0.090 % |
+| `sc0` | 26.5 | 18.8 | 24.0 | 0.202 % |
+| `qmvsc0` | 29.0 | 20.5 | 26.3 | 0.221 % |
+
+Two consequences are accepted in advance. First, a fixed `|t|` threshold buys a
+different physical resolution per arm, so each null is reported with its own
+bound and never as one campaign-wide statement. Second, every SD here comes
+from two degrees of freedom, so these bounds are themselves wide; the
+confirmation's own 17-df SD replaces them in the terminal report.
+
 ## What is *not* claimed by this stage
 
 The five arms dropped after the screen (`ns0`, `ns2`, `qse0`, `sd0`, `sfd1`)
