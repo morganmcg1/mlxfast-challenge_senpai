@@ -13,11 +13,17 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 PROBE = os.path.join(HERE, "alphonse-r128d-probe.py")
 
+# Copies must live beside the original executable: the worker resolves its
+# resource bundle relative to its own path, so a /tmp copy dies at startup.
+CLEAN = os.path.join(HERE, os.pardir, ".build-worker", "release", "w-clean")
+HOOK = os.path.join(HERE, os.pardir, ".build-worker", "release", "w-hook")
+
 # (name, worker, extra env, runs, steps, rtt)
 CONFIGS = [
-    ("hook-off", "/tmp/w-hook", {}, 6, 1023, 200),
-    ("hook-on", "/tmp/w-hook", {"DARKBLOOM_GPU_PROFILE": "1"}, 6, 1023, 200),
-    ("hook-split", "/tmp/w-hook",
+    ("clean-recheck", CLEAN, {}, 2, 200, 50),
+    ("hook-off", HOOK, {}, 6, 1023, 200),
+    ("hook-on", HOOK, {"DARKBLOOM_GPU_PROFILE": "1"}, 6, 1023, 200),
+    ("hook-split", HOOK,
      {"DARKBLOOM_GPU_PROFILE": "1", "DARKBLOOM_GPU_PROFILE_SPLIT": "1"},
      2, 200, 50),
 ]

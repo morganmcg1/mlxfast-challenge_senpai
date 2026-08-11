@@ -110,3 +110,78 @@ Other numbers close to 8567 that are explicitly **not** the source:
 `research/r85b-logs-rebased/contrasts.log:91` ("8548 of 8567 us/step") is
 downstream prose, not a primary paired measurement.
 
+## D1 — What the decode wall actually is on this host
+
+Apparatus: `research/alphonse-r128d-probe.py`. It launches the runtime worker
+directly, sends `decode_begin` with the 512-token seed from the public golden
+`correctness_prompts/public_longcopy_gate_english_512_256.json`, then issues
+teacher-forced one-token `decode_step` requests, recording absolute
+`CLOCK_UPTIME_RAW` spans per step. Every run also takes a `phase_diagnostics`
+null-request round-trip census before and after decode, so the probe's own
+protocol cost is measured rather than assumed. All runs reported 0 token
+mismatches.
+
+**J1 — unpatched worker** (`/tmp/w-clean`, sha256 `5993c62e1a01994a…`), 6 runs
+× 1023 steps, no `DARKBLOOM_*` set. Host: this M4 Pro.
+
+| quantity | n | median | IQR | sd | min | max |
+| --- | --- | --- | --- | --- | --- | --- |
+| seed forward (ms) | 6 | 547.9 | 0.9 | 0.5 | 547.1 | 548.3 |
+| step, 1023-step window (µs) | 6 | **8296.3** | 8.5 | 16.7 | 8284.1 | 8332.0 |
+| step, first-128 window (µs) | 6 | **8171.1** | 4.6 | 3.1 | 8167.6 | 8175.8 |
+| null-request RTT (µs) | 2400 | 45.1 | 34.6 | 351.3 | 20.4 | 10114.6 |
+
+Post-decode null-RTT per-run medians were 21.5–22.0 µs; the pre-decode medians
+(49.6–57.1 µs) still carry first-touch cost, so 21.7 µs is the honest steady
+protocol figure and the 45.1 µs pooled median is inflated by that warm-up plus
+a small number of large scheduler outliers.
+
+**Detection floor (Rule 11).** From per-run medians: first-128 window
+sd = 3.1 µs, n = 6 ⇒ SEM 1.27 µs ⇒ 95 % CI **±3.3 µs/step** (t₅ = 2.571).
+Full 1023-step window: sd = 16.7 ⇒ **±17.5 µs/step**. At the 8882 µs currency
+(0.00845 %/µs) the floor is **0.03 % of score** on the 128-step window. Every
+estimate below is quoted against this floor.
+
+### KV growth explains a large part of the cross-report spread
+
+Measured **KV-growth slope = 259.9 µs per 1000 decode steps**. The 1023-step
+median step is 8296.3 µs versus 8171.1 µs over the first 128 steps, i.e.
+**+125.2 µs purely from window length**. Predicted from the slope, the median
+step of a 1023-step window sits at step ≈ 511 and the median of the first 128 at
+step ≈ 64, giving (511−64)/1000 × 259.9 = **116.2 µs** — consistent with the
+observed 125.2 µs.
+
+This matters directly for reading other reports. `--local-iterate` runs 128
+decode steps; `--local-submit` runs 1023. So roughly **125 µs of any
+`--local-submit`-vs-`--local-iterate` difference is window length, not code**.
+It is a standing confound between nezuko #730's 8882 µs `--local-submit` figure
+and 128-step numbers, and it is on the same order as the entire residual
+manifest item 2 claims to have discovered.
+
+### The apparatus itself moves the "wall" by more than the claimed residual
+
+`Sources/MLXFastTrustedHarness/LagunaRuntimeBenchmark.swift:966-1013` defines
+the scored decode metric as `(decode_begin + Σ decode_step)/decodeSteps`, i.e.
+`includes_seed_prefill=true`. This host's `--local-iterate` run (commit
+`492acc7d`, `2026-08-11T12:44:37Z`, `passed_correctness true`,
+`max_abs_diff 0`, decode_speedup 1.075) reported
+`decode_seconds_per_token = 0.012867255`, so seed + Σ128 steps = 1.647009 s.
+
+Solving for the implied steady step depends on which seed cost you charge:
+
+| assumed seed forward | implied harness step, 128-step window |
+| --- | --- |
+| 547.9 ms (probe-measured, this host) | 8586.8 µs |
+| 575.1 ms (= 512 × this run's `prefill_seconds_per_token`) | 8374.3 µs |
+
+So the trusted harness's implied step over its own 128-step window is
+**8374–8587 µs**, while the direct probe measures **8171.1 ± 3.3 µs** over the
+nominally identical window. The apparatus gap is **+203 to +416 µs**, priced at
+0.00845 %/µs as **1.7 % to 3.5 % of score**.
+
+That is the headline of D1: **choosing a different measuring apparatus for the
+same 128 decode steps on the same host moves the "wall" by up to ~416 µs, which
+is larger than the ~350 µs residual manifest item 2 reports as a finding.** A
+wall-minus-busy subtraction is only meaningful when both terms come from one
+apparatus, one binary, and one window; item 2 satisfies none of the three.
+
