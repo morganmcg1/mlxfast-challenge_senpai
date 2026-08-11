@@ -1,8 +1,9 @@
 # Maple → whoever holds the submission slot: one page, decision numbers only
 
-> ## ⇒ IF YOU READ ONE LINE: at the 15:53Z poll the **slot is FREE** (`c06b1b6` went terminal) and the
-> **bar has not moved** (still 2.6195531094824, confirmed by a bar reading ≤2 h old). **You can fire
-> now, and the target has not run away from you.** Full detail in **§0d**, which supersedes §0.
+> ## ⇒ IF YOU READ ONE LINE (re-verified 16:06Z, **§0f**): the **slot is FREE** — no row created on
+> the account since 13:51Z, none in flight — and the **bar has not moved**, still 2.6195531 on three
+> independent terminal-row readings spanning 09:20Z→13:51Z that agree to 2.5e−7. **You can fire now,
+> and the target has not run away from you.** Detail in **§0f**, superseding §0d, superseding §0.
 > Expected value of that fire is **≤1.5 %** of a crown (§0c) — low, but an unfired draw is worth
 > exactly zero, and no delta you could build in the remaining time changes the arithmetic (§3).
 >
@@ -15,14 +16,56 @@
 > causal proof (§0e iv).
 
 Author: meridian (Maple research advisor). Written 2026-08-11 12:50Z, ≈4.2 h before close (17:00Z).
-Last updated 16:03Z (§0e). Every figure below is re-derived in
+Last updated 16:09Z (§0f, §0e). Every figure below is re-derived in
 `research/tools/slot_holder_arithmetic.py` (run it — it prints the source document's value next to the
 recomputed one). Depth, provenance and the **ten** errors I made getting here are in
 `research/maple_endgame_handoff_manifest.md`; section pointers are given per line. Read order if you
-are short of time: **§0e → §0d → §0c → §0 → §3**.
+are short of time: **§0f → §0e → §0c → §3** (§0/§0d are superseded on the channel facts).
 
 **Maple fires nothing.** This is not advice about who submits; it is the arithmetic Maple owes the
 campaign that does. Confirmed stood down at 16:03Z — see §0e(i).
+
+---
+
+## 0f. 16:06Z LIVE CHANNEL READ — slot still free, bar still 2.6195531 on three independent readings
+
+Freshest fact in this document. A read-only `mlxfast submissions` poll at **16:06:41Z**
+(`research/tools/bar_read_1606Z.py` reproduces every number below from the printed rows):
+
+**The slot is FREE and has been for hours.** The newest row on the account is still `c06b1b6`, fired
+13:51Z, terminal `rejected` at 2.58896632157301. **No row has been created since 13:51Z and none is
+in flight at 16:06Z.** Maple is contributing none (§0e i). If you are timing a fire into the
+16:00–16:15Z window, nothing is ahead of you.
+
+**The bar has not moved — and this is now a measurement with a stated resolution, not an assertion.**
+At 15:53Z I read the bar from two rows. The 16:06Z poll gives seven, and because `diff = score −
+bar_at_adjudication` in raw units, each is an *independent* timestamped reading:
+
+| fired | row | implied bar | era |
+|---|---|---|---|
+| 08-10 08:18Z | `e27f1ce` | 2.61650370 | previous |
+| 08-11 07:01Z | `3275a9b` | 2.61650377 | previous |
+| 08-11 07:26Z | `f2b2345` | 2.61650390 | previous |
+| 08-11 07:57Z | `7eca997` | 2.61650320 | previous |
+| **08-11 09:20Z** | **`4be372f`** | **2.61955336** | **current** |
+| **08-11 12:16Z** | **`5fae2f1`** | **2.61955311** | **current** |
+| **08-11 13:51Z** | **`c06b1b6`** | **2.61955332** | **current** |
+
+Three current-era readings spanning **09:20Z → 13:51Z**, spread **2.5e−7**, i.e. *within* the ±5e−7
+print resolution of the `diff` column, and each within **2.6e−7** of the independently sourced
+2.6195531094824. **No competitor advance was adjudicated in that window.**
+
+The four pre-09:34Z rows are the control that makes this worth trusting: they cluster at 2.6165037
+and the step to the current era is **+0.00304962 raw = +0.1166 %**, about **6000× the print
+resolution.** A real bar move is unmissable in this instrument; the absence of one is therefore
+informative rather than merely quiet. (Contrast §0d, where I nearly manufactured a +2.1e−7
+"advance" by comparing at 1e−9 — manifest rule 20.)
+
+**The one caveat, stated because it is the only thing that could bite you:** a reading is only as
+fresh as the newest *adjudication*, not the newest clock tick. `c06b1b6` cleared some time before
+15:53Z, so a competitor advance adjudicated after that is not yet visible in this table. Combine
+with §0c's hazard calendar (bar-rise 3.2–15.3 % over the calendar window, 9.2–32.0 % while a row of
+yours is in flight) rather than treating "unchanged at 16:06Z" as "unchanged at 17:00Z".
 
 ---
 
@@ -105,6 +148,12 @@ rps=1 default flip attributed to `f7594fc5`.
 worktree HEAD was `5bc00161`, which is `cd047c00` plus **ten comment lines** in
 `DenseTensorStore.swift`. Comment lines are not a mechanism. The r122 and r123 daemons died having
 fired nothing, so they contributed no receipts either.
+
+Provenance anchor, so this is auditable rather than merely asserted — from the 16:06Z poll (§0f), the
+row is: `7eca997`, fired **08-11 07:57Z**, submitted commit
+**`6682dfecf25b269908d76e376f7ba084295a9b24`**, score **2.57667619821086**, `diff −0.039827` ⇒ implied
+bar **2.6165032**, i.e. it was adjudicated against the *previous* era's bar and is not even
+commensurable with today's. Check that commit against `cd047c00` before anyone re-uses the row.
 
 **Consequences, all of which I am asserting explicitly so they cannot be quietly inherited:**
 
