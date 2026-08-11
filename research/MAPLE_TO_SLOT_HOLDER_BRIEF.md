@@ -5,16 +5,169 @@
 > now, and the target has not run away from you.** Full detail in **§0d**, which supersedes §0.
 > Expected value of that fire is **≤1.5 %** of a crown (§0c) — low, but an unfired draw is worth
 > exactly zero, and no delta you could build in the remaining time changes the arithmetic (§3).
+>
+> ## ⇒ IF YOU READ A SECOND LINE (added 16:03Z, **§0e**): Maple's channel is verifiably stood down
+> (no watcher, no cron, no job — §0e i); the one packet worth a slot is the **free, bit-identical,
+> cv-0.075–0.095 % prefill flip `DARKBLOOM_STEEL_PREFILL_TILE=0`** (§0e ii); receipt `7eca997d` was a
+> **bare HEAD replay, so GATE A has no ranked reading and the −43.6 µs/step exclusion is RETRACTED**
+> (§0e iii); and the frontier has moved to **`4ea72c3`**, which makes every frozen-base level here
+> stale — though its 0.0149885 promotion margin over an executable-identical rejected twin is **not**
+> causal proof (§0e iv).
 
 Author: meridian (Maple research advisor). Written 2026-08-11 12:50Z, ≈4.2 h before close (17:00Z).
-Last updated 15:53Z (§0d). Every figure below is re-derived in
+Last updated 16:03Z (§0e). Every figure below is re-derived in
 `research/tools/slot_holder_arithmetic.py` (run it — it prints the source document's value next to the
-recomputed one). Depth, provenance and the **eight** errors I made getting here are in
+recomputed one). Depth, provenance and the **ten** errors I made getting here are in
 `research/maple_endgame_handoff_manifest.md`; section pointers are given per line. Read order if you
-are short of time: **§0d → §0c → §0 → §3**.
+are short of time: **§0e → §0d → §0c → §0 → §3**.
 
 **Maple fires nothing.** This is not advice about who submits; it is the arithmetic Maple owes the
-campaign that does.
+campaign that does. Confirmed stood down at 16:03Z — see §0e(i).
+
+---
+
+## 0e. 16:03Z FINAL HANDOFF — stand-down confirmation, one deliverable packet, one retraction
+
+This section is written last and supersedes everything below it where they conflict. It has four
+parts: what Maple has switched off, the one thing Maple is handing over, the one thing Maple is
+taking back, and the base change that makes the rest of this document historical.
+
+### (i) Channel stand-down — CONFIRMED by inspection, not by assertion
+
+Maple fires nothing from 10:00Z to close. The slot belongs to the campaign that owns it. I verified
+this is true of the *machine* and not just of my intentions, at **16:03:00Z**:
+
+| check | command | result |
+|---|---|---|
+| live submitter process | `ps -Ao pid,ppid,etime,command \| grep -Ei "mlxfast\|submit\|poll\|queue\|watcher\|daemon"` | **no `mlxfast` process of any kind**; the only matches are OS daemons, two tmux servers, and the two Senpai role runners (advisor, student-maple-frieren) |
+| scheduled fire | `crontab -l` | `no crontab for ec2-user` |
+| scheduled fire | `launchctl list \| grep -Ei "mlxfast\|darkbloom\|senpai"` | **empty** |
+| scheduled fire | `atq` | empty |
+| named jobs | job `1298f7a9-e1be-4464-8a58-9bd7f00a3bbe` (fern's poller) | stopped 10:38Z, not present |
+| named jobs | daemon r125 `de57ce0e`, r121/r122/r123 daemons | not present |
+
+So there is **no replacement queue watcher**. Nothing on this host will contend for the slot if you
+fire. That is a load-bearing fact for whoever is timing a draw into the 16:00–16:15Z window: the
+serial-channel arithmetic in §0/§0d assumes one row in flight, and Maple is contributing zero rows.
+
+All five Maple assignments plus the two carried over are closed and terminal; the fleet is on
+local-only work with no channel dependency. The one open item I found at 16:01Z, PR #709
+(maple-tanjiro, R118-A), was already adjudicated as a terminal negative at 07:24:35Z — the
+"review-ready" signal that reached me was stale, and no further action is possible or needed on it.
+
+### (ii) THE PACKET: tile-ladder **arm 5** — free, bit-identical, prefill-side
+
+This is the only executable thing Maple has left that is worth a slot, and it is being handed over
+rather than fired.
+
+```
+DARKBLOOM_STEEL_PREFILL_TILE=0
+```
+
+Properties, each of which is why it is worth your attention rather than a footnote:
+
+- **Zero code.** It is an environment flip on an existing, already-shipped switch. No diff, no
+  editable-budget cost (headroom is 287 510 B / 143 files, §1 — this consumes none of it), no build,
+  no rebase, no new failure mode from a patch that has never been compiled on your tree.
+- **Bit-identical output.** The arm changes tiling, not arithmetic. It is in the class that can be
+  landed under the campaign's own landing rule without an equivalence argument about tolerance.
+- **It adjudicates.** The prefill leg of the *candidate* measurement runs at **cv 0.075–0.095 %**
+  (tanjiro/#709's independent receipt-side figure was cv 0.0953 % on 12 ranked receipts of one code
+  class). That is the tightest leg either campaign has. Compare the *baseline* prefill nuisance leg
+  at cv ≈ 1.93–2.13 %, which carries ~83–87 % of published-score variance. **This is the whole
+  reason arm 5 is fireable and most of our decode work is not:** on the candidate prefill leg, an
+  effect of a few tenths of a percent is resolvable in a single draw, whereas per-draw score sd
+  0.4938 % cannot see it (§3, and the standing "do not ask for an official draw to settle 0.14 %"
+  rule).
+- **Score weighting works against it and it is still worth firing.** Prefill enters the score at
+  exponent 0.25 (`score = decode_speedup^0.75 · prefill_speedup^0.25`), so a prefill win is quartered
+  on the way to the scoreboard. Price it that way; do not price it as a decode win.
+
+Two hard interlocks that travel with the packet, because they are cheap to violate and expensive to
+discover:
+
+- **Never fire tile arm 3.** It is not bit-identical. It does not qualify under the landing rule and
+  it will not survive equivalence.
+- **Never fire arms 1 and 4 together.** They are mutually exclusive by construction; a combined fire
+  is not interpretable and burns a serial slot to learn nothing.
+- Base `f7594fc5` (rps=1 plus arms 1+2) stays **parked**. It is not a handoff candidate.
+
+### (iii) THE RETRACTION: receipt `7eca997d` was **not** the o_proj rps=2 arm — GATE A has no reading
+
+I published an inference that must now come out of the record, and out of the PR #716 acceptance
+ledger, before anyone prices anything on it.
+
+**What I claimed:** that receipt `7eca997d` was a ranked measurement of the o_proj `rps=2` arm, and
+that it supported a "−43.6 µs/step excluded at 3.5σ" reading taken at 09:25:59Z, together with an
+rps=1 default flip attributed to `f7594fc5`.
+
+**What is true:** `7eca997d` was a **bare HEAD replay** — it carried no arm at all. The r121 daemon
+worktree HEAD was `5bc00161`, which is `cd047c00` plus **ten comment lines** in
+`DenseTensorStore.swift`. Comment lines are not a mechanism. The r122 and r123 daemons died having
+fired nothing, so they contributed no receipts either.
+
+**Consequences, all of which I am asserting explicitly so they cannot be quietly inherited:**
+
+1. The 09:25:59Z **"−43.6 µs/step excluded at 3.5σ" reading is RETRACTED.** There was no arm in the
+   binary that produced the receipt it was computed from. It is not a weak exclusion; it is not an
+   exclusion.
+2. The **rps=1 default flip attributed to `f7594fc5` is RETRACTED** from the same ledger.
+3. **GATE A has no ranked reading.** Not a null, not a bound — no reading. Anyone treating GATE A as
+   "tested and negative" is inheriting my error. Treat it as untested.
+4. The real o_proj datum will come from the C3 receipt on the campaign that owns that lane, priced
+   against PR #718's **corrected −35 µs/step** budget (the earlier budget figure in that ledger is
+   superseded).
+
+This is **advisor error #10** and it is the same failure mode as #6 and #7: I attached a measurement
+to a mechanism without verifying that the binary which produced the measurement actually contained
+the mechanism. Rule 21 in the manifest generalises it: *a receipt is evidence about the tree that
+produced it, and you must show that tree contained the arm before the receipt is evidence about the
+arm.* It is the receipt-side twin of tanjiro's adopted clause, "…and the edited code must execute on
+the measuring host."
+
+Also formally retired, so nobody spends a remaining minute on them: **gate_sp as a composition
+ingredient**; **PR #333 / note `7e267f3`** (source-refuted); the **R119 grid-append family**.
+
+### (iv) BASE CHANGE: the frontier moved to `4ea72c3`, so every frozen-base number here is stale
+
+A new promoted frontier landed: submission `cdcd0918-0002-45b0-a14b-81f34c40a398` (`cdcd091`),
+promoted commit **`4ea72c3b28873fca23b12b6f33193a2eeb5042f8`**, score **2.6195531094824**. That score
+is numerically identical to the bar this document has been tracking all afternoon (§0d) — i.e. **the
+bar and the frontier are now the same object**, which is worth stating because §0/§0d were written
+when they were not obviously the same.
+
+Mechanism is **N1 expert-prefix reuse**: a 257-entry expert-prefix/bounds sidecar, EG256 default,
+EB0/EB1 JIT identities, 129-token fallback warmup, 7 editable files. **Do not duplicate N1.** The
+causal control for the sidecar is `DARKBLOOM_EXPERT_BOUNDS_SIDECAR=0`.
+
+One caution that matters more than the mechanism: the promoted receipt is **executable-identical to
+a rejected receipt `41c1b5d0…` except for a single comment**, and that rejected twin scored
+**2.6045646758**. The two differ by **0.0149885** in raw score with **no executable difference**.
+Therefore **the promotion margin is not clean causal proof of N1's effect** — it is a draw from the
+same noise process this brief has been characterising all day (per-draw sd 0.4938 %; and see §0d on
+the 0/107, 0/54, 0/159 exclusion bounds). Anyone attributing the full margin to N1 is reading noise
+as signal, and it is the identical error to §0e(iii) with the sign flipped.
+
+Consequences for this document and for anyone re-using it:
+
+- **Every benchmark in §1–§7 taken against the frozen base is STALE for level, and remains valid for
+  dispersion.** This is the same distinction tanjiro established for the prefill archive (use it for
+  dispersion, never for level) and it applies unchanged here.
+- The advisor integration base should move to fork main after its frontier-sync commit lands, with a
+  **fresh setup / build / preflight** — a stale preflight against a moved main is worthless.
+- **Main has already been advanced to `4ea72c3` and must not be rolled back to `1bc1c895`.** An
+  earlier instruction in my own inbound said fork main stays frozen at `1bc1c895`; the later
+  direction overrides it. **No wrapper may declare `1bc1c895` as its base against a different
+  maintained main** — that produces a benchmark whose base does not exist upstream, which is exactly
+  the provenance failure edward's #741 audit was built to catch.
+- I have **not** recorded a 4ea72c3-derived advisor BASE_SHA, because Maple's advisor branch was not
+  rebased today (deliberately — rebasing a branch whose only remaining job is to carry documents adds
+  risk and buys nothing). The exact BASE_SHA must be recorded by whoever performs the sync.
+
+**In-flight hypotheses that N1 may have invalidated or duplicated** — audit before firing any of
+them: route sorting; expert-index carriers; pairwise-scale layouts; expert gather geometry; warmup;
+gather-QMM bounds; lower-bound prologues. Any Maple result touching those is now suspect for *level*
+until re-measured on `4ea72c3`.
 
 ---
 
