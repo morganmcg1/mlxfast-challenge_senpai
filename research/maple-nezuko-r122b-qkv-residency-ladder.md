@@ -434,11 +434,192 @@ _Placeholder at the pre-registration commit._
 
 ## §5. Mechanism
 
-_Placeholder at the pre-registration commit._
+### 5.1 The port walks the axis in the wrong direction, and I should have seen that first
+
+R117-C's win was `results_per_simdgroup` **4 → 2** on the o_proj NVFP4 QMV:
+fewer rows per simdgroup, therefore *more* simdgroups for the same output,
+therefore more concurrent requests in flight. The win was "move toward the
+`rps = 1` end of the axis".
+
+The decode QKV lane-major kernel **already sits at `rps = 1`**. It is
+already at the most-simdgroups end of the same axis. So the brief's ladder
+`Q2 → Q4 → Q8 → Q16` does not port R117-C's move; it explores the only
+direction R117-C's own result says is worse. The ladder is a
+one-sided walk away from the incumbent, and a one-sided walk away from the
+incumbent has one likely outcome.
+
+This is not hindsight from the numbers. It is derivable from the
+parameterization in §2 plus the R117-C direction, both of which existed
+before the first run. Stating it as the headline is the honest reading:
+the experiment was mis-specified as a "port", and the corrected statement
+of what it measured is *how steeply the QKV kernel degrades as residency
+is removed*. That is a real measurement — §5.4 gets a mechanism constraint
+out of it — but it was never going to be a win.
+
+The faithful port of R117-C to QKV would have to go **below** `rps = 1`,
+i.e. split one output row across more than one simdgroup. That is not
+expressible in this parameterization at all; it is the `ns`/split-K axis
+that §3.1 deliberately designed out (D1) and that §8 item 5 proposes.
+
+### 5.2 The null was predictable from a number in my own file
+
+`decode_nvfp4_qkv_h64` moves 1342.1 µs/step at **242.1 GB/s = 94.3 % of
+this host's 256.7 GB/s measured streaming peak**
+(`research/nezuko-r117-stage0-attn-byte-floor.md:110-116`, re-derived in
+`research/nezuko-r117-c-final-report.md:87-90`). `qkv_h48` is at 92.8 %.
+
+Two consequences, both available pre-registration:
+
+1. The entire remaining inefficiency in this kernel is ≤ 5.7 % of its own
+   time, i.e. ≤ 77 µs/token even if a change captured *all* of it. The
+   brief's `-60 … -200 µs` predicted band had its upper half outside what
+   the byte floor permits, and I signed that band in §1.2 anyway.
+2. `rps` cannot reduce weight bytes — the weight stream is read exactly
+   once per row regardless of rung (§1.5). It can only reduce **activation
+   re-reads**, and §1.5 argues those are ~77 % cache-served. So the
+   mechanism available to `rps` acts on a fraction of a fraction.
+
+The correct prior was therefore ≈ 0 expected gain with real downside, and
+the correct recommendation was to not spend twelve runs on it. The number
+that says so was in a file I wrote myself, three experiments earlier. This
+is the single most useful thing in this report and it is a criticism of my
+own selection, not of the brief.
+
+The contrast with o_proj is the whole story: `oproj_act_h48` sits at
+**83.4 %** of peak and `oproj_act_h64` at **90.7 %**. o_proj had
+headroom to recover; QKV does not. "Same kernel family, same
+parameterization, therefore same opportunity" is exactly the inference
+that achieved-bandwidth accounting exists to block.
+
+### 5.3 Why o_proj had that headroom — the in-flight-bytes floor
+
+Sustaining ~230 GB/s per part against a 400–600 ns loaded LPDDR latency
+requires roughly **4.6–7 KB in flight per core** (Little's law on the
+measured rate and latency). At `rps = 4` the o_proj QMV offered about
+25.6 simdgroups/core, which at ~0.86 load duty and 256 B per outstanding
+request is ≈ 5.6 KB/core — around 80 % of the low end of that band.
+Halving rows per simdgroup doubled the offered simdgroups and cleared it.
+Predicted recovery from that account is ≈ 65 µs/token; measured was
+−82.4 µs/token. Same order, right sign.
+
+So the "optimum at 51.2 simdgroups/core" I reported in R117-C was a
+**floor, not an optimum**: 51.2/core was the first rung that cleared the
+in-flight requirement, and rungs further along would have cleared it too.
+§7.2 already recorded that correction; the R122-B data sharpen it, because
+QKV's `rps = 1` offers 512 simdgroups/core — ten times the R117-C constant
+— and is nonetheless the best rung on the ladder.
+
+### 5.4 What the ladder's *shape* falsifies, including my own replacement model
+
+Offered simdgroups per core, this host (20 GPU cores, `h64` grid of
+10240 rows, 2 simdgroups per threadgroup, `2·rps` rows per threadgroup):
+
+| rung | threadgroups | TGs/core | simdgroups/core offered | resident, cap 96/core |
+| --- | --- | --- | --- | --- |
+| Q1 | 5120 | 256 | 512 | 96 |
+| Q2 | 2560 | 128 | 256 | 96 |
+| Q4 | 1280 | 64 | 128 | 96 |
+| Q8 | 640 | 32 | 64 | **64** |
+| Q16 | 320 | 16 | 32 | **32** |
+
+The grantable ceiling of ≈ 96 simdgroups/core is tanjiro's independently
+measured constant (`research/tanjiro-pr-gathergemm-coresidency.md:443-452`).
+
+**Offered is not resident.** Q1, Q2 and Q4 all saturate the same 96/core
+ceiling. Any model in which time is a function of *resident* simdgroups
+therefore predicts **Q1 = Q2 = Q4, flat**, with the first regression at
+Q8. My §1.7 single-wave model is exactly such a model, and it is worse
+than that: its constant was 51.2/core, which Q8's 64/core still clears, so
+it predicted **no regression anywhere on the ladder**.
+
+The data:
+
+- Q8 regresses hard, ~+190 µs/token. The 51.2/core model is refuted; the
+  96/core ceiling correctly locates *where* the cliff falls — Q8 is the
+  first rung whose offered simdgroups drop below the ceiling.
+- Q2 and Q4 are **not flat**. Both lose ~+50 µs/token, and they lose by
+  nearly the same amount as each other. A residency-only account cannot
+  produce that step, because nothing about residency changes between Q1,
+  Q2 and Q4.
+
+So the shape is a **step then a cliff**, and it needs two mechanisms, not
+one:
+
+1. A small, rung-insensitive penalty (~+50 µs/token, ~+2.9 % of the
+   family's 1705 µs/step) that appears as soon as `rps > 1` and does not
+   grow from 2 to 4. Candidates: the extra `ws += block_size/2` stride
+   arithmetic and `sb[rps][4]` scale/bias staging in the inner loop, and
+   the loss of whatever the compiler was doing with the single-accumulator
+   form. This is a *code-shape* penalty, not a machine-occupancy one.
+2. A large penalty at Q8 (~+140 µs/token beyond the step) that coincides
+   exactly with residency dropping below the ceiling — but which is
+   **not separable by these data** from register pressure. At `rps = 8`
+   the per-thread state is `result[8]` plus `sb[8][4]`, an estimated
+   55–75 registers against 25–35 at `rps = 1`. Spill traffic on the order
+   of 2.6 MB/call against a 10.5 MB weight stream predicts +10–15 % kernel
+   time; the observed family regression is +11 %. Both accounts fit.
+
+I did not run the ISA dump that would separate them, and I am not going to
+claim one over the other from a monotone curve. §8 item 1 is the
+experiment that does separate them, and it costs no timing runs to start.
+
+### 5.5 What this hands the campaign
+
+- **A negative constraint with a threshold, not just a null.** Do not
+  spend draws on `rps` ladders for decode kernels already above ~90 % of
+  measured streaming peak; the achievable band is smaller than the
+  code-shape penalty the parameterization itself introduces. The two QKV
+  kernels (94.3 %, 92.8 %) are in that class. The advisor's decision to
+  decline `F8 sliding_fused_attn_ring_v1` because it already sits at
+  51.2 sgs/core reached the right answer, but 51.2 is a floor and not the
+  right test; achieved bandwidth is.
+- **A corrected reading of R117-C.** The o_proj win was recovery of an
+  in-flight-bytes deficit on a kernel with 9–17 % of headroom, not the
+  discovery of a residency sweet spot that generalizes. Kernels with no
+  headroom have nothing to recover.
+- **The axis for QKV, if anyone wants one, is split-K, not `rps`.** It is
+  the only direction on this axis that R117-C's result actually endorses,
+  and it is blocked today only by the shared gate/QKV threadgroup size
+  (§3.1).
 
 ## §6. C=40 extrapolation
 
-_Placeholder at the pre-registration commit._
+The ranked host is an M5 Max. I did not measure it and I did not measure
+its GPU core count; the extrapolation below is model-based and is the
+weakest claim in this report.
+
+Offered simdgroups per core scale as `512 / (rps · C/20)`. Holding the
+96/core grantable ceiling as a per-core property:
+
+| rung | offered/core at C=20 | offered/core at C=40 | resident at C=40 |
+| --- | --- | --- | --- |
+| Q1 | 512 | 256 | 96 |
+| Q2 | 256 | 128 | 96 |
+| Q4 | 128 | 64 | **64** |
+| Q8 | 64 | 32 | **32** |
+
+The cliff **moves one rung earlier**, from Q8 to Q4. Combined with the
+code-shape step of §5.4 item 1, which is core-count independent, the
+falsifiable prediction for a 40-core part is:
+
+1. Every rung still loses. There is no `rps > 1` rung that wins on a wider
+   part, because wider parts underfill sooner.
+2. Q2 loses by approximately the same ~+50 µs/token step as here, since
+   both Q1 and Q2 remain ceiling-saturated at C=40.
+3. Q4 crosses from "step" to "cliff" and should regress markedly more than
+   the ~+50 µs/token measured here — the Q4/Q2 gap is the sharp test.
+4. Q8 is worse than here.
+
+Two honest caveats. First, prediction 3 is the only one that discriminates
+this model from "any `rps > 1` is just worse", and it needs ranked-host
+data to test. Second, if the Q8 cliff is register spill rather than
+underfill (§5.4, unresolved), the extrapolation is wrong in its
+interesting part: spill is core-count independent, so Q4 would stay at the
+step and only the constants would move.
+
+The actionable consequence does not depend on which is true: **no ranked
+draw should be spent on this ladder.** Every rung loses on the measured
+host, and both surviving mechanisms predict the ranked host is no kinder.
 
 ## §7. Deviations and corrections log
 
@@ -449,7 +630,9 @@ _Placeholder at the pre-registration commit._
 | D1 | The `num_simdgroups` (`ns`) axis, offered by the brief as D44, is **not** in this experiment. `ns` is a pinned `constexpr 2`. | It is the sole source of hazard (b). Designing the hazard out beat guarding it under a 10:30Z deadline. §3.1, §8 item 5. |
 | D2 | The ladder was **not** run as a single 5-arm campaign. | Arm count multiplies wall clock directly at ~183 s/run and the deadline admits roughly 12 runs. §4.1 records the arms actually run and why that subset. |
 | D3 | Added a pre-data addendum (§1.7) that the brief did not ask for. | It reconciles my own R117-C constant with tanjiro's independently measured grantable ceiling and turns a loose "interior optimum" prior into a rung-level prediction. Committed before any run finished (`b02f7965`) so it is falsifiable rather than retrofitted. |
-| D4 | Added the shape test and the null-work discriminator proposal (§1.3, §8 item 2), which the brief did not request. | The brief's ladder cannot distinguish residency from activation re-read volume. Saying so explicitly is worth more than reporting a ladder as if it were clean. |
+| D4 | Added the shape test and the null-work discriminator proposal (§1.3, §8 item 4), which the brief did not request. | The brief's ladder cannot distinguish residency from activation re-read volume. Saying so explicitly is worth more than reporting a ladder as if it were clean. |
+| D5 | The arm set changed **mid-campaign**, at 09:23Z after block 1 of campaign 1, from `Q1/Q8` bracket-first to the full `Q1/Q2/Q4/Q8` ladder; `Q16` was dropped. | Block 1 showed Q8 losing by +186 µs, which refuted my own §1.4 refuter #2 and made the bracket's purpose (find the interior optimum between Q1 and Q8) moot. The interesting question became the *shape* between Q1 and Q8, so the runs went there. Logged in §1.8 before any further data. Q16's decline is re-argued in §8 item 5. |
+| D6 | §8's pre-registration item 1 — "settle C=40 with one paired ranked draw" — was **withdrawn**, and §8 now opens with an explicit instruction not to spend a ranked draw on this ladder. | A ranked draw is worth spending to choose between rungs that might win. Once every rung lost locally, and once both surviving mechanisms predicted the ranked host is no kinder (§6), the draw buys nothing. Recording the withdrawal rather than quietly deleting the item. |
 
 ### 7.2 Corrections to my own earlier claims
 
@@ -461,6 +644,18 @@ _Placeholder at the pre-registration commit._
   and — unlike a bare constant — makes a rung-level prediction for a kernel
   I had not yet touched. Note the direction of this correction: it makes my
   previous result *less* special, not more.
+- **My §1.7 replacement model is refuted too, and by its own arithmetic.**
+  §1.7 predicted an argmax at Q8 from a single-wave `ceil(residency/96)`
+  story built on the R117-C constant of 51.2 simdgroups/core. Two errors.
+  (i) I wrote residency where I meant *offered* simdgroups: `rps = 1`
+  offers 512/core on this host, and with a 96/core grantable ceiling the
+  resident count is 96 at Q1, Q2 **and** Q4 alike. Offered is not resident,
+  and confusing them is what made a flat region look like a ramp. (ii) With
+  51.2/core as the threshold, Q8's 64/core still clears it, so the model
+  predicted no regression at any rung — while Q8 loses ~190 µs/token. §5.4
+  works through both. The salvageable part is that the 96/core ceiling
+  correctly locates *where* the cliff falls; the constant I contributed
+  myself does not.
 - **Prefill on this host is not evidence for anything on the ranked host.**
   Recorded again rather than assumed: this is an Apple GPU generation 16
   part, it does not select the `_nax` prefill kernels the ranked M5 uses,
@@ -475,56 +670,90 @@ _Placeholder at the pre-registration commit._
   20 GPU cores.
 - No `ns` variation, hence no coverage of the threadgroup-size axis.
 - No ISA/register-pressure inspection, so the top-of-ladder register
-  confound (§2.4, §1.3) remains open rather than excluded.
+  confound (§2.4, §1.3) remains open rather than excluded. This is the one
+  omission that materially weakens the report: it leaves the Q8 cliff
+  attributable to either underfill or spill (§5.4), and those two accounts
+  disagree about the ranked host (§6). §8 item 1 is the fix.
+- No row-sequential control at `rps = 8` geometry, which is the cheap
+  experiment that would have separated them (§8 item 1). It was identified
+  too late in the window to build and time.
+- No null-work arm, so the residency/re-read collinearity of §1.3 stands
+  as conceded rather than broken.
 - I fired no official submission, per the assignment's explicit
   reservation of that channel to the advisor.
+
 
 ## §8. What I would do with two more hours
 
 Ordered by expected value per hour, and written so the advisor can hand any
 one of them to another student without reading the rest of this report.
 
-1. **Close the C=40 question directly instead of extrapolating.** §6 is the
-   weakest part of this report and it is weak for a structural reason: the
-   wave model's prediction changes *rung* between 20 and 40 cores, so the
-   local argmax is not the ranked argmax under the model's own logic. The
-   cheap resolution is not more M4 data — it is one paired ranked draw of
-   the two candidate rungs. Whoever owns the ranked channel can settle in
-   two draws what I cannot settle in two hours here.
-2. **Break the simdgroup/re-read collinearity with a null-work arm.** §1.3
+Item 0, stated first because it is a *don't*: **do not spend a ranked draw
+on any rung of this ladder.** §6 gives the reasoning. An earlier draft of
+this section proposed exactly that draw; the completed ladder makes it a
+waste, since every rung loses locally and both surviving mechanisms predict
+the ranked host is no kinder.
+
+1. **Separate underfill from register spill with a row-sequential control
+   at `rps = 8` geometry.** This is the one experiment that resolves the
+   §5.4 ambiguity, and it is cheap. Keep the `rps = 8` dispatch exactly —
+   640 threadgroups, 64 threads, 8 consecutive rows per simdgroup — but
+   process those 8 rows *one at a time* with the verbatim `rps = 1` inner
+   loop: reload the activation tile per row, one accumulator, one
+   `simd_sum` per row. Register pressure returns to the `rps = 1` level
+   while occupancy stays at the `rps = 8` level. It is structurally
+   bit-identical for the reason §2.4 gives.
+   - If `t(seq-8) ≈ t(rps = 1)`, the geometry is innocent and the fused
+     inner loop is guilty: the Q8 cliff is register pressure, §6's
+     interesting prediction is wrong, and the campaign learns that
+     `rps > 1` costs registers rather than occupancy.
+   - If `t(seq-8) ≈ t(rps = 8)`, the underfill account survives and §6's
+     Q4-crossing prediction becomes worth a ranked test after all.
+
+   Corroborate for free with the ISA dump
+   (`research/maple-nezuko-r100c-dump-msl.sh`), reading off spill/reload
+   ops, load batching and code size per rung. The dump costs a build and no
+   timing runs, so it should be started first.
+2. **Replace residency with achieved bandwidth as the campaign's
+   kernel-selection filter, and publish the table.** §5.2 is a
+   selection-process failure, not a measurement failure: the number that
+   predicted this null was already written down in my own earlier report.
+   The fix is one table over every decode kernel — bytes/step, µs/step,
+   GB/s, and percent of the 256.7 GB/s measured streaming peak — used as a
+   gate before any geometry experiment is assigned. Kernels above ~90 % are
+   off the list for bandwidth-shaped changes; the headroom is not there.
+   The census rows for the four attention QMVs already exist
+   (`research/nezuko-r117-stage0-attn-byte-floor.md:110-116`); extending
+   them across MoE and MLP is mechanical and would reprice the remaining
+   draw budget. Note the ledger hazard while doing it: a superseded,
+   roughly 9 %-high variant of these numbers exists at
+   `research/maple-frieren-r94-decode-residue-ledger.md:177-180`.
+3. **Take the QKV kernel down the axis instead of up it — split-K.** §5.1:
+   `rps = 1` is already the most-simdgroups end, so the only direction
+   R117-C's result endorses is splitting one output row across several
+   simdgroups. That is the `ns` axis this experiment designed out (D1,
+   §3.1), blocked today only because the fused gate and QKV dispatches
+   share a threadgroup size. Splitting the fused dispatch into two
+   dispatches frees `ns` at the cost of one extra command-buffer entry.
+   Whether that trade is net-positive is measurable, and the R122-A
+   busy-vs-gap decomposition alphonse is running is precisely the
+   instrument that prices the extra command — so this item is worth much
+   more *after* R122-A reports than before. Temper the expectation with
+   §5.2: with 94.3 % of peak already achieved, even a perfect split-K
+   result is bounded at a few tens of µs/token.
+4. **Break the simdgroup/re-read collinearity with a null-work arm.** §1.3
    concedes that every rung changes residency and activation re-read volume
-   together. The clean discriminator is an arm that keeps the shipped
-   geometry but reads the activation tile `rps` times into a discarded
-   accumulator — same bytes, same residency, no useful work removed. If
-   that arm reproduces the ladder's shape, the mechanism is bytes; if it is
-   flat, the mechanism is residency. This is the R117-C `N42` move
-   transplanted to the byte axis, and it is the single experiment that
-   would most improve the causal claim.
-3. **Apply the same parameterization to the remaining decode QMV kernels
-   and rank them by residency, not by time.** The §1.7 wave model makes a
-   sharp prediction that is testable without any new kernel: kernels whose
-   current residency already sits at or below one grantable wave should
-   show no gain from an `rps` ladder, and kernels far above it should. The
-   advisor's own decision to decline `F8 sliding_fused_attn_ring_v1` on the
-   grounds that it already sits at 51.2 sgs/core is exactly this prediction
-   used as a filter. Turning that filter into a table over every decode
-   kernel would let the campaign spend its remaining draws on the kernels
-   the model says are still mispriced, and would falsify the model quickly
-   if a low-residency kernel *did* respond.
-4. **Test the register-pressure confound at the top of the ladder
-   deliberately.** §1.3's shape test is limited because a Q16 regression is
-   ambiguous between "past the residency optimum" and "spilling". Dumping
-   the compiled ISA per rung (the `r100c-dump-msl` path already exists) and
-   reading off register counts and spill traffic would disambiguate it for
-   the cost of a build, no timing runs at all. If Q16 spills and Q8 does
-   not, the interior-optimum reading of the ladder is safe; if neither
-   spills, a Q16 regression is real evidence about residency.
-5. **Re-examine whether `ns` is genuinely unavailable or only awkward.** I
-   designed hazard (b) out rather than solving it (§3.1), which was right
-   under this deadline but leaves a real axis unexplored. The hazard is
-   that gate and QKV share a threadgroup size. Splitting the fused
-   dispatch back into two dispatches would free `ns` at the cost of one
-   extra command; whether that trade is net-positive is measurable, and the
-   R122-A busy-vs-gap decomposition alphonse is running is exactly the
-   instrument that would price the extra command. That sequencing matters:
-   this item is worth much more *after* R122-A reports than before.
+   together. The clean discriminator keeps the shipped geometry but reads
+   the activation tile `rps` times into a discarded accumulator — same
+   bytes, same residency, no useful work removed. Demoted from its
+   pre-registration priority because item 1 is strictly more informative
+   about the cliff and cheaper; keep this one only if item 1 comes back
+   ambiguous.
+5. **Re-examine whether a Q16 rung would have added anything.** I declined
+   it in §1.8 on clock, and I still think that was right: with Q2, Q4 and
+   Q8 all losing, a fourth losing rung buys one more point on a curve whose
+   sign is already settled, and its interpretation is confounded between
+   "further past the ceiling" and "spilling harder". If item 1 resolves the
+   cliff's mechanism, Q16 becomes a clean test of that mechanism's
+   extrapolation and is worth 3 runs then — not now.
+
