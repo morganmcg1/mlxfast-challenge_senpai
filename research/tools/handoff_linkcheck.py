@@ -36,16 +36,20 @@ SUBSECT_RE = re.compile(r"^###\s*\(([ivx]+)\)", re.M)
 
 # Constants that must be spelled exactly one way wherever they appear.
 OFF_BRANCH = {
-    # Cited artifact -> (student branch, commit) it actually lives on. These student PRs
-    # were closed unmerged by design, so the file is real but not in this checkout.
-    # See manifest §10(vii). Verified with `git ls-remote` + explicit fetch, NOT `git branch -r`.
+    # Cited artifact -> (student branch, commit, vendored verbatim copy) it actually lives on. These
+    # student PRs were closed unmerged by design, so the file is real but not at the cited path here.
+    # See manifest §10(vii) and §10(xvii). Verified with `git ls-remote` + an explicit-refspec fetch,
+    # NOT with `git branch -r`. Since 17:43Z each one also has a byte-identical local copy under
+    # research/imported/ (checksums in research/imported/README.md), so the citation is openable.
     "research/tools/epoch_gate.py": (
         "maple-nezuko/r129-g-preflight-validity-gates",
         "c472f6e58efd8f81bcdc913e077f71863ad73330",
+        "research/imported/epoch_gate.py",
     ),
     "research/fern-r109f-interim-1200Z.md": (
         "maple-fern/r109-integration-and-submission",
         "bd47570461dce7471c15a7f7997a93988ff11b5c",
+        "research/imported/fern-r109f-interim-1200Z.md",
     ),
 }
 
@@ -81,8 +85,16 @@ def check_paths(name: str, text: str, notes: list[str]) -> list[str]:
         if (ROOT / m).exists():
             continue
         if m in OFF_BRANCH:
-            branch, sha = OFF_BRANCH[m]
-            notes.append(f"{name}: OFF-BRANCH `{m}` -> {branch} @ {sha[:8]} (manifest 10(vii))")
+            branch, sha, vendored = OFF_BRANCH[m]
+            # The vendored copy is the whole point of the exemption: if it went missing, the
+            # citation is unopenable again and that is a failure, not a note.
+            if not (ROOT / vendored).exists():
+                bad.append(f"{name}: OFF-BRANCH `{m}` lost its vendored copy `{vendored}`")
+                continue
+            notes.append(
+                f"{name}: OFF-BRANCH `{m}` -> {branch} @ {sha[:8]}"
+                f"; verbatim copy `{vendored}` (manifest 10(vii), 10(xvii))"
+            )
             continue
         bad.append(f"{name}: missing path `{m}`")
     return bad
@@ -153,7 +165,7 @@ def main() -> int:
               f"{len(subs)} roman subsections {subs if subs else ''}")
 
     if notes:
-        print("\nNOTES (real artifacts, not in this checkout):")
+        print("\nNOTES (cited path is off-branch; a verbatim copy is vendored here):")
         for n in notes:
             print(f"  - {n}")
 

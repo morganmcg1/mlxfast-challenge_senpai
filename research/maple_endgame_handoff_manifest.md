@@ -16,7 +16,11 @@ clean and executes zero MMA. Both subsections also record the final PR state (**
 out-of-bounds Cedar campaign) and that every late base-change event names a strict *ancestor* of the
 published head, while every late job signal is another conversation's. That PR correction is itself
 **error fourteen**: at 17:16Z I wrote "all seven Maple-facing PRs" about the seven that had emitted
-events into my inbox, which is a sample and not a census.**
+events into my inbox, which is a sample and not a census. §10(xvii) adds the last two verified facts:
+a replayed event's `head_sha` is stale too (five of six were 6–21 commits behind the live head, all
+strict ancestors — the `expected_pr_head_sha` lease is what makes that harmless), and the two cited
+artifacts that error 11 could only point at are now **vendored byte-for-byte** into
+`research/imported/` with checksums, so every citation in this file is openable (rule 28).**
 Previously revised: 2026-08-11 ~16:44Z — **§10 added: the closing addendum. Its last subsection (xiii) is the
 final channel read: the slot is no longer free, one submission `60cd9ca` is in flight from 16:27Z, it is
 not Maple's, and its `diff` will be the only bar reading available after 13:51Z. The rest confirms the channel
@@ -1476,6 +1480,12 @@ producing a bound that appeared to get **worse** after a clean observation. Rule
     seven Maple-facing PRs" from seven event notifications when an index query returns ≈180 (all
     closed). Rule 23 says an absence claim inherits its index; this is the same debt on a *presence*
     count. Earned by error fourteen — §10(xvi).
+28. **A citation the reader cannot open is a claim, not evidence.** If you cite an artifact that lives
+    outside your published branch, vendor a verbatim copy with its source branch, commit and
+    checksum, or state plainly that the reader must fetch it and give the command. A clone's narrow
+    default refspec is not a limit on retrieval: `git fetch origin refs/heads/<branch>:refs/tmp/x`
+    reaches anything the server still has. Documenting a gap (error 11) is not closing it — §10(xvii),
+    `research/imported/README.md`.
 
 ---
 
@@ -1685,6 +1695,12 @@ cross-reference against the headings that exist. **Two cited artifacts are not o
 |---|---|---|---|
 | `research/tools/epoch_gate.py` (§9 nezuko row, brief §5) | `maple-nezuko/r129-g-preflight-validity-gates` | `c472f6e58efd8f81bcdc913e077f71863ad73330` | PR #746 **closed unmerged** — tooling arm, nothing lands on the scored path |
 | `research/fern-r109f-interim-1200Z.md` (§6) | `maple-fern/r109-integration-and-submission` | `bd47570461dce7471c15a7f7997a93988ff11b5c` | PR #686 closed unmerged |
+
+[*Updated 17:43Z — **both are now readable in this checkout.** Byte-identical copies live at
+`research/imported/epoch_gate.py` and `research/imported/fern-r109f-interim-1200Z.md`, with source
+commits and sha256 checksums in `research/imported/README.md`; `handoff_linkcheck.py` now fails if
+either copy disappears. The paragraph below ("nothing is lost; it is one `git fetch` away") was true
+but left the work to the reader — see §10(xvii) and rule 28.*]
 
 The same branch also carries `preflight_gates.sh`, `preflight_negative_controls.sh`,
 `failure_clustering.py`, `receipt_commit_forensics.py`, `diff_column_semantics.py` and the
@@ -2389,6 +2405,58 @@ is the expensive one — an event stream is a *sample* of a population, and ever
 inbox in six hours of this campaign inherited that bias. **§8 rule 27, added now: never state a
 population count that came from an event stream. If you write "all N of the X", the N must come from
 a query whose text you can paste; otherwise write "the N that reached me".**
+
+### (xvii) 17:43Z: the event stream is stale on the *head* axis too — and the two off-branch citations are now openable
+
+Two things I could still verify after close, both cheap, both changing what a future reader can do.
+
+**1. A replayed event's `head_sha` is not the PR's head.** §10(xvi) established that late
+`research_base_changed` events name base SHAs that are strict *ancestors* of the published advisor
+head. The same is true of the head field, which I had not checked. Comparing each late event's
+`head_sha` against the live head in the PR index (and against `git ls-remote`, which agrees exactly):
+
+| PR | event `head_sha` | live head | relation |
+| --- | --- | --- | --- |
+| #719 | `dbefd500` | `dbefd500` | identical |
+| #729 | `12693d12` | `556a95e0` | strict ancestor, **21 commits behind** |
+| #730 | `1065bb3b` | `530dcf36` | strict ancestor, **20 behind** |
+| #731 | `5219d080` | `38e17ea5` | strict ancestor, **10 behind** |
+| #732 | `ff51ac2c` | `df6c9bfb` | strict ancestor, **6 behind** |
+| #733 | `f03dffc3` | `a36b96ae` | strict ancestor, **16 behind** |
+
+Verified with `git merge-base --is-ancestor` + `git rev-list --count` after fetching each branch
+explicitly (see 2). So an event payload is a **snapshot of two axes at emission time**, and both can be
+old: base *and* head. The operational consequence is the reassuring one — every mutation tool here
+takes `expected_pr_head_sha`, so keying a mutation off an event field would have *failed the
+precondition* rather than acted on a stale tree. That lease is doing real work, not ceremony: it is
+what converts "my inbox is behind" from a wrong action into a refused one. Corollary to rule 27: an
+event is evidence about the moment it was emitted, exactly like a listing (rule 21) or a `git branch
+-r` cache (rule 23) — three instances of one law, and this is the third axis it showed up on.
+All six PRs are **closed**, confirmed in the same index read, so nothing here was actionable either way.
+
+**2. The two off-branch artifacts of §10(vii) (error 11) are now vendored, byte-for-byte.** The
+closed-unmerged student branches are still on the remote, and this clone's narrow default refspec is
+not a limit on retrieval — an **explicit refspec** fetches any of them:
+
+```
+git fetch --no-tags origin refs/heads/maple-nezuko/r129-g-preflight-validity-gates:refs/tmp/r129g
+git show refs/tmp/r129g:research/tools/epoch_gate.py > research/imported/epoch_gate.py
+```
+
+`research/imported/` now holds `epoch_gate.py` (nezuko R129-G, `c472f6e5`, 6552 B, sha256
+`b177f6a6…`) and `fern-r109f-interim-1200Z.md` (fern R109-F, `bd475704`, 36632 B, sha256
+`968bd854…`), with the full provenance table, the re-derivation commands and both checksums in
+`research/imported/README.md`. `handoff_linkcheck.py` now *fails* if a vendored copy disappears
+instead of merely noting the off-branch citation, and `run_all_tools_smoke.sh` extends its
+channel-safety scan over the new directory while deliberately **not** executing anything in it — the
+imported tool sits outside the `research/tools/*.py` glob so no suite can run code I did not write.
+`epoch_gate.py` is read-only by construction (it parses a saved `mlxfast submissions` dump via
+`--dump`; no `subprocess`, no `os.system`, no shell-out in its 153 lines; `--help` exits 0).
+
+**Rule 28, added now** (§8): **a citation the reader cannot open is a claim, not evidence.** If you
+cite an artifact that lives outside your published branch, vendor a verbatim copy with its source
+branch, commit and checksum — or say plainly that the reader must fetch it and give the command. Error
+11 documented the hole honestly and left the work undone; documenting a gap is not closing it.
 
 ---
 

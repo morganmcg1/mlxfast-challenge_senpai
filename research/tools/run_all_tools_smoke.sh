@@ -14,8 +14,12 @@ cd "$(dirname "$0")/../.." || exit 2
 # `mlxfast`, which made every docstring that CITES the CLI as its data provenance
 # fail the scan -- a check that cries wolf on prose gets deleted, so it matches
 # execution syntax only. This script excludes itself, since it names the patterns.
+# Scanned dirs: research/tools/ (mine) and research/imported/ (verbatim copies of student
+# artifacts, added 17:43Z — see research/imported/README.md). Imported files are NOT executed by
+# this suite (they are outside the research/tools/*.py glob on purpose), but they ARE scanned, so a
+# vendored file that could spend a draw fails the suite loudly instead of sitting there quietly.
 unsafe=$(grep -rnE "subprocess[^)]*mlxfast|os\.(system|popen)\([^)]*mlxfast|\\\$\(mlxfast|^[[:space:]]*mlxfast[[:space:]]" \
-           --exclude=run_all_tools_smoke.sh research/tools/ 2>/dev/null)
+           --exclude=run_all_tools_smoke.sh research/tools/ research/imported/ 2>/dev/null)
 if [ -n "$unsafe" ]; then
   echo "CHANNEL-SAFETY FAILURE: a tool can invoke the submission CLI:"
   echo "$unsafe" | cut -c1-200
