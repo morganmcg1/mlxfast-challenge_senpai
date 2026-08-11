@@ -1,0 +1,22 @@
+--- a/research/MAPLE_TO_SLOT_HOLDER_BRIEF.md
++++ b/research/MAPLE_TO_SLOT_HOLDER_BRIEF.md
+@@ -178,9 +178,16 @@
+    see either in any tree, drop it. §0/§4c.
+ 3. **`DARKBLOOM_GRID_APPEND` is not a knob.** It does not exist anywhere in the source; that was my
+    error and it propagated for hours.
+-4. **Never price a delta with 0.00586 %/µs.** That currency is UNSOURCED and implies a 12798 µs step
+-   that no harness we ran reproduces. Measured currencies: **0.01527 %/µs** ranked (4910.9 µs/step),
+-   **0.00845 %/µs** local `--local-submit` (8882), **0.00913 %/µs** bench host (8213). §6.6.
++4. **Price a delta in the currency of the harness *and the step count* that produced it.** All four
++   published currencies are one formula — decode's score weight over the scored denominator,
++   `0.75 / D` — evaluated at four different `D`: **0.01527 %/µs** ranked (`D` = 4910.9 µs/step);
++   **0.00586 %/µs** local `--local-submit` at the scored **128**-step setting (`D₁₂₈` = 512/128 × S + T
++   ≈ 12798 µs); **0.00845 %/µs** the same local harness at **1023** decode steps (`D₁₀₂₃` ≈ 8882 µs — a
++   step count the score never uses); **0.00913 %/µs** bench host divided by a step-only `T` (8213 µs),
++   i.e. with the 512-token seed dropped. 0.00586 is **sourced**, not "UNSOURCED": `D = S/decodeSteps + T`
++   with `includes_seed_prefill=true` is `LagunaRuntimeLocalIterate.swift:767-769,776`. Retracting it and
++   screening local µs/step at 0.00845 sets the bar **≈30 % too low, in the flattering direction**:
++   +0.26 % / +0.50 % / +1.26 % of score need **44 / 85 / 215** local µs/step, not 31 / 59. §6.6, #741 F1.
+ 5. **Only `DARKBLOOM_STARTUP_MEMORY_PROFILE=full` restores the ranked startup profile.** §1.
+ 6. **Wider threadgroups are a debit, not a credit,** at `staticThreadgroupMemoryLength = 0`: ≈+0.79
+    µs/step per extra simdgroup (`L-TG-WIDTH-IS-A-DEBIT-AT-tgMem-0`, §5).

@@ -12,8 +12,12 @@ the other half of that same widening** — the three round archives — adding F
 from an independent 12-program corpus. **§12 adds no findings**: it is the applier's work order,
 collapsing every recommended edit from §6, §8.3, §9.3, §10.4 and §11.4 into one ordered table of 25
 rows, each target verified still present at its cited line at head by
-`research/tools/r127a_s12_edit_target_check.py` (25/25 PASS). Line
-references inside §8-§12 are
+`research/tools/r127a_s12_edit_target_check.py` (25/25 PASS). **§13** ships that work order as an
+executable, guard-checked applier and found three more copies of the F19 bracket while doing so.
+**§14 adds F22**: `research/MAPLE_TO_SLOT_HOLDER_BRIEF.md` — the one-page handover, outside every
+earlier section's scope — carries F1 as a *prescription* ("never price a delta with 0.00586 %/µs",
+`:181-183`), which sets local screening bars ≈30 % too low; rows B1–B6 take the applier to 34 rows.
+Line references inside §8-§14 are
 head lines (`CRS:####` = `research/CURRENT_RESEARCH_STATE.md` at that head); §1-§7 line references are
 `67396bb6` lines, with the head equivalents tabulated in §8.1.
 
@@ -1420,6 +1424,11 @@ depends on is now measured on 12 programs and 11 dof rather than 5 receipts and 
 findings and audits nothing new — it is the work order for applying everything above, with all 25 edit
 targets re-verified at head.)
 
+**Updated after §14: 22 findings, F1–F22**, and **four** remain decision-grade — F22 is F1 restated as
+an instruction ("never price a delta with 0.00586 %/µs") on the one page a successor reads first,
+`research/MAPLE_TO_SLOT_HOLDER_BRIEF.md`, which was outside every earlier section's scope. The work
+order is 34 rows after §14 (28 A-rows + B1–B6).
+
 ---
 
 ## 12. Applier's work order — every recommended edit in one place, each target verified present at head
@@ -1512,11 +1521,12 @@ one, F16).
 
 ## §13 The work order as an executable, verified patch
 
-§12 is prose, and prose work orders decay: the next reader has to re-find 28 spans by hand in two
+§12 is prose, and prose work orders decay: the next reader has to re-find 34 spans by hand in three
 documents plus a script, at line numbers that move the first time anybody edits above them. So §12 is
 also shipped as a **data-driven applier** with baked-in content guards.
 
-`research/tools/r127a_s13_apply_work_order.py` — 28 rows, one per §12 edit, each carrying the tier
+`research/tools/r127a_s13_apply_work_order.py` — **34 rows**: 28 A-rows, one per §12 edit, plus six
+B-rows (B1–B6) added by §14 for `research/MAPLE_TO_SLOT_HOLDER_BRIEF.md`. Each row carries the tier
 (D/C/P), the finding it discharges, the target `file:line`, the exact replacement text, and an **md5 of
 the text it expects to find** at advisor head `6778867dc8579eff3302d49d064c2bc0cf60ead2`. Two edit
 kinds: `span` (replace whole lines) and `subs` (exact substring replacements on one named line). It is
@@ -1524,30 +1534,32 @@ idempotent — a row whose target already reads as the replacement reports `alre
 `DRIFT` — and it applies per file in descending line order, so line drift between rows cannot happen.
 
 ```
-python3 research/tools/r127a_s13_apply_work_order.py            # --check: verify all 28 guards
+python3 research/tools/r127a_s13_apply_work_order.py            # --check: verify all 34 guards
 python3 research/tools/r127a_s13_apply_work_order.py --emit-patch > wo.patch
 python3 research/tools/r127a_s13_apply_work_order.py --emit-patch --tiers D          # decision-grade only
 python3 research/tools/r127a_s13_apply_work_order.py --emit-patch --only A2,A3,A4    # minimum useful set
+python3 research/tools/r127a_s13_apply_work_order.py --emit-patch --only B1          # one row, biggest reader
 python3 research/tools/r127a_s13_apply_work_order.py --apply --root /path/to/worktree
 python3 research/tools/r127a_s13_apply_work_order.py --print-guards                  # re-bake after drift
 ```
 
 `--apply` refuses to run without an explicit `--root`, because this branch does not own
-`maple_endgame_handoff_manifest.md`, `CURRENT_RESEARCH_STATE.md` or `slot_holder_arithmetic.py`. The
-three pre-emitted patches are committed instead:
+`maple_endgame_handoff_manifest.md`, `CURRENT_RESEARCH_STATE.md`, `slot_holder_arithmetic.py` or
+`MAPLE_TO_SLOT_HOLDER_BRIEF.md`. The four pre-emitted patches are committed instead:
 
 | artifact | rows | lines | what it is |
 |---|---|---|---|
-| `research/artifacts/r127a/work_order_all.patch` | 28 (13 D, 11 C, 4 P) | 373 | the whole work order |
-| `research/artifacts/r127a/work_order_D_tier.patch` | 13 | 228 | decision-grade only (F1, F19, F20, F21, F17) |
+| `research/artifacts/r127a/work_order_all.patch` | 34 (16 D, 12 C, 6 P) | 477 | the whole work order |
+| `research/artifacts/r127a/work_order_D_tier.patch` | 16 | 310 | decision-grade only (F1, F19, F20, F21, F17) |
 | `research/artifacts/r127a/work_order_A2_A3_A4.patch` | 3 | 54 | the minimum useful set: stop screening against a bar ≈30 % too low |
+| `research/artifacts/r127a/work_order_B1_brief_trap.patch` | 1 | 22 | if you fix one thing: the brief's trap 4, which is F1 as an instruction (§14) |
 
 **Verification performed** (worktree `git worktree add --detach /tmp/r127a_head 6778867d…`, i.e. a
-pristine advisor head, then removed):
+pristine advisor head, then removed; re-run in full after the B-rows landed):
 
-1. `--check` → **28/28 targets verified** against the baked guards.
-2. `git apply --check -p1` → **CLEAN** for all three patches independently.
-3. Full patch applied; `git status` showed exactly the three intended files modified.
+1. `--check` → **34/34 targets verified** against the baked guards.
+2. `git apply --check -p1` → **CLEAN** for all four patches independently.
+3. Full patch applied; `git status` showed exactly the four intended files modified.
 4. The patched `research/tools/slot_holder_arithmetic.py` **runs** and prints the corrected block:
    `z (measured official sd) 3.383 -> normal p = 0.036 %` beside fern's `z = 2.344 -> 0.95 %` and the
    12-programme `z = 2.265 -> 1.18 %`. Section E's `ratio of odds ours/theirs: 3.3x` still means what
@@ -1582,7 +1594,87 @@ prose work order silently gets wrong:
   the moment the patch lands** (it moves to 3521). Replaced with a content-based reference.
 
 **What this does not do.** It does not touch `Sources/`, `Vendor/` or `benchmark.json`; it runs no
-build, no benchmark and no GPU; and it does not write to the three target files from this branch. If
+build, no benchmark and no GPU; and it does not write to the four target files from this branch. If
 the advisor branch has moved past `6778867d`, `--check` will name every drifted row rather than apply a
 stale edit, and `--print-guards` re-bakes the guards in one pass.
+
+## §14 Fifth addendum, 15:20Z — F22: the one page a successor reads first was never audited
+
+Everything above audits the manifest, `CURRENT_RESEARCH_STATE.md`, the archives and
+`slot_holder_arithmetic.py`. It does not audit `research/MAPLE_TO_SLOT_HOLDER_BRIEF.md` (219 lines at
+head `6778867d`) — and that is the document whose entire purpose is to be read first by whoever holds
+the slot. Auditing it now gives **F22**, which is not a new error so much as the worst *form* of two
+already-found ones: in the brief, F1 appears as a **prescription**.
+
+**F22 (decision-grade). `MAPLE_TO_SLOT_HOLDER_BRIEF.md:181-183` instructs the reader to price local
+measurements ≈30 % too low, in the flattering direction.** Verbatim at head:
+
+```
+4. **Never price a delta with 0.00586 %/µs.** That currency is UNSOURCED and implies a 12798 µs step
+   that no harness we ran reproduces. Measured currencies: **0.01527 %/µs** ranked (4910.9 µs/step),
+   **0.00845 %/µs** local `--local-submit` (8882), **0.00913 %/µs** bench host (8213). §6.6.
+```
+
+Every number in that trap is real; the inference is inverted. All four currencies are the *same*
+formula — decode's score weight over the scored denominator, `0.75 / D` — evaluated at four different
+`D`, which is checkable in one line each: `0.75/4910.9 = 0.01527`, `0.75/12798 = 0.00586`,
+`0.75/8882 = 0.00845`, `0.75/8213 = 0.00913`. So the question is only *which `D` the score divides
+by*, and §2/F1 answered it from source: `D = S/decodeSteps + T` with `includes_seed_prefill=true`
+(`LagunaRuntimeLocalIterate.swift:767-769,776`), at the scored **128**-step setting ⇒
+`D₁₂₈ ≈ 12 798 µs` locally. 8882 µs is the same harness at **1023** decode steps — a step count the
+score never uses — and 8213 µs is a step-only `T` with the 512-token seed dropped. 0.00586 is
+therefore the *correct* local currency and is sourced; "UNSOURCED" is exactly backwards.
+
+The cost of the instruction, not of the belief: a reader who obeys trap 4 screens local µs/step wins
+at 0.00845 %/µs and so demands **31 / 59** local µs/step for +0.26 % / +0.50 % of score, where the
+truth is **44 / 85** (and 215 for +1.26 %). That is a bar ≈30 % too low on the side that lets a
+candidate through — the one direction that costs a draw. This is the same arithmetic as F1/A2–A4 in
+the manifest, but the manifest states it as a belief a reader may check, while the brief states it as
+a rule a reader is asked to obey without checking. Row **B1** and
+`research/artifacts/r127a/work_order_B1_brief_trap.patch` (22 lines, one row) rewrite the trap into
+"price a delta in the currency of the harness *and the step count* that produced it", with all four
+`0.75/D` values and both requirement columns.
+
+**F22b. The brief's §2 and §3 price draws on the pooled σ (F19/F21 again), and §3 is a screening
+table.** `:30-34` is the per-draw table (`≈0 %` from a replicate sd of `cs`, `0.95 %` from fern's
+pooled 0.538 %, `1.48 %` "← upper bound, carries between-program leakage") followed at `:36` by
+**"Plan against `[≈0 %, 1.5 %]` per draw."** — the **fifth** copy of the bracket that §13/A18–A19d
+retired, restated a sixth time at `:151` as "that draw is worth ≤1.5 %", and both of them in the
+highest-traffic document in the tree. `:85-91` then prices candidate gains from the same pooled σ:
+
+| real gain | brief `:85-91` (pooled sd 0.538 %) | measured σ 0.3728 %, n = 5 (F19) | optimism |
+|---|---|---|---|
+| 0 (re-fire) | 0.95 % (emp. 1.48 %) | **0.04 %** | 24× |
+| +0.26 % | 3.2 % | **0.38 %** | 8.4× |
+| +0.50 % | 8.0 % | **2.1 %** | 3.7× |
+| +1.00 % | 31.7 % | **24.6 %** | 1.3× |
+| +1.26 % | 50.0 % | **50.1 %** | 1.0× |
+
+(Same formula the patched `slot_holder_arithmetic.py` uses: `z = (need/(1+g) / DRAW_MEDIAN − 1)/σ`,
+`need = 2.6195531094824/2.582263 = 1.014441`, `DRAW_MEDIAN = 1.001830`. The re-fire row reproduces the
+tool's `p = 0.036 %`.) The two tables agree exactly where a candidate is already big enough to be even
+money and diverge by up to 24× where the real decisions are — small gains and bare re-fires. The
+brief's own closing line, `Do not let anyone tell you a +0.5 % candidate is a coin flip; it is 8 %`
+(`:94`), is right in spirit and 3.7× optimistic in fact: it is 2 %. Rows **B2** (`:30-36`), **B5**
+(`:85-94`, which also adds the missing **local** µs/step column 44 / 85 / 171 / 215 so the table can be
+used against a local harness at all), **B3** (`:97`) and **B4** (`:65`) discharge it; **B6** (`:151`)
+re-prices the last draw's value in the "must not skip the gates" argument. Note what does *not*
+change: every conclusion the brief draws from these numbers — gates over draws, handover over
+candidates, a draw-count change worth more than anything else on the page — survives, and three of the
+six rows only *harden* it, because a draw worth 0.04 % is even less worth gambling than one worth 1.5 %.
+
+**Clean in the brief, checked here** (so a successor does not re-litigate it): `:17`'s bar
+`2.6195531094824` is already the re-anchored crown, i.e. F20 landed here before it landed in
+`CURRENT_RESEARCH_STATE.md`; §3's ranked-host column **17 / 32 / 65 / 82** is correct
+(`1.00/0.01527 = 65.5`); the model-free **0/106 official draws ⇒ P(one draw ≥ bar) ≤ 2.83 %**
+(rule of three, `:64`) is assumption-free and F19's 0.04 % sits comfortably inside it; `:74-79`'s
+"gate insurance is worth ≤7.5 %" is expressed as a *fraction of one draw's value* and so is invariant
+to the per-draw re-pricing above; and `:215`'s note that the 8919 µs figure has no primary source is
+alphonse's open item (#744), not mine to close.
+
+**Why this is the last finding rather than the first.** The brief is 219 lines and reads as a summary,
+so it was easy to treat as derived from the manifest and therefore already covered. It is not derived:
+it is *edited*, independently, and the editing is what converted F1 from a mispriced constant into a
+"never do this" rule. The general lesson for the next audit, and it is cheap: **audit the shortest
+document first**, because errors are compressed there, stated imperatively, and read by everyone.
 

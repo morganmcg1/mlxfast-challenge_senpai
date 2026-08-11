@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
-"""R127-A §13 — executable form of the §12 applier's work order (edits A1–A25).
+"""R127-A §13 — executable form of the §12 applier's work order (A1–A25 + B1–B4).
 
 Why this exists: #741 is read-only by assignment, so the 25 corrections in §12 of
 `research/r127a_provenance_audit.md` were shipped as prose. Prose does not survive a
-2-hour handover with five students. This script carries the same 25 edits as *data*
+2-hour handover with five students. This script carries the same edits as *data*
 (exact spans / exact substrings, each guarded by an md5 of the text it expects to find
 at the audited advisor head) and can either emit a `git apply`-able patch or write the
 files in a checkout that the operator owns.
 
-It edits three files this branch does **not** own — the manifest, the state file and
-`slot_holder_arithmetic.py` — which is why the default mode is `--check` and why
-`--apply` refuses to run without an explicit `--root`.
+The four B rows were added after §13: §14/F22 found that
+`research/MAPLE_TO_SLOT_HOLDER_BRIEF.md` — the one page a successor is most likely to
+read *first* — carries F1 in prescriptive form ("never price a delta with
+0.00586 %/µs", trap #4), which instructs the reader to set local bars ≈30 % too low.
+
+It edits four files this branch does **not** own — the manifest, the state file,
+`slot_holder_arithmetic.py` and the slot-holder brief — which is why the default mode
+is `--check` and why `--apply` refuses to run without an explicit `--root`.
 
 No GPU, no build, no benchmark, no network. Pure text.
 
@@ -21,6 +26,9 @@ Usage
 
   # 2. the minimum useful patch (A2+A3+A4: stops screening against a bar ~30 % low)
   python3 research/tools/r127a_s13_apply_work_order.py --emit-patch --only A2,A3,A4
+
+  # 2b. if you fix only one thing, fix the page a successor reads first (§14/F22)
+  python3 research/tools/r127a_s13_apply_work_order.py --emit-patch --only B1
 
   # 3. everything, or one tier
   python3 research/tools/r127a_s13_apply_work_order.py --emit-patch
@@ -44,6 +52,7 @@ REF = "6778867dc8579eff3302d49d064c2bc0cf60ead2"  # codex/mlxfast-maple-20260804
 MAN = "research/maple_endgame_handoff_manifest.md"
 CRS = "research/CURRENT_RESEARCH_STATE.md"
 TOOL = "research/tools/slot_holder_arithmetic.py"
+BRIEF = "research/MAPLE_TO_SLOT_HOLDER_BRIEF.md"  # the one-page handover; B-rows, #741 §14/F22
 
 # ---------------------------------------------------------------------------
 # The work order. Two edit kinds:
@@ -245,6 +254,58 @@ A25_NEW = [
     "> same conclusion entirely in-tree. **The conclusion survives; the citation does not.**",
 ]
 
+B1_NEW = [
+    "4. **Price a delta in the currency of the harness *and the step count* that produced it.** All four",
+    "   published currencies are one formula — decode's score weight over the scored denominator,",
+    "   `0.75 / D` — evaluated at four different `D`: **0.01527 %/µs** ranked (`D` = 4910.9 µs/step);",
+    "   **0.00586 %/µs** local `--local-submit` at the scored **128**-step setting (`D₁₂₈` = 512/128 × S + T",
+    "   ≈ 12798 µs); **0.00845 %/µs** the same local harness at **1023** decode steps (`D₁₀₂₃` ≈ 8882 µs — a",
+    "   step count the score never uses); **0.00913 %/µs** bench host divided by a step-only `T` (8213 µs),",
+    "   i.e. with the 512-token seed dropped. 0.00586 is **sourced**, not \"UNSOURCED\": `D = S/decodeSteps + T`",
+    "   with `includes_seed_prefill=true` is `LagunaRuntimeLocalIterate.swift:767-769,776`. Retracting it and",
+    "   screening local µs/step at 0.00845 sets the bar **≈30 % too low, in the flattering direction**:",
+    "   +0.26 % / +0.50 % / +1.26 % of score need **44 / 85 / 215** local µs/step, not 31 / 59. §6.6, #741 F1.",
+]
+
+B2_NEW = [
+    "| method | P(one draw ≥ bar) |",
+    "|---|---|",
+    "| **measured `sd(ln official) = 0.3728 %`** over the 5 official draws of *this* program (group `dc437b0e`), centred on `DRAW_MEDIAN = 1.001830` ⇒ z = 3.383 | **≈0.04 %** ← the predictive σ; use this row |",
+    "| draw component over 1280 official rows, sd 0.538 %, normal (z = 2.344) | 0.95 % — a *pooled* sd, not this program's |",
+    "| same decomposition, empirical tail | 1.48 % |",
+    "| ~~within-program replicate σ = 0.186–0.228 %~~ | **not a rail at all**: that is a replicate sd of `cs`, and `need = BAR/cs` is a *draw factor* |",
+    "",
+    "**Plan against ≈0.04 % per draw, and quote the honest interval as `[≈0 %, 12 %]`** — the σ behind it",
+    "has 4 dof, so one more draw is a lottery ticket either way (#741 F19). The 1.48 % row is **not**",
+    "inflated by \"between-program leakage\": the between-program sd is separately `sd(ln L) = 0.5568 %`,",
+    "11 dof, 95 % CI [0.394 %, 0.945 %] over 12 programs",
+    "(`RESEARCH_STATE_ARCHIVE_through-round-21.md:5684-5695`), and `corr(ln cs, ln L)` is indistinguishable",
+    "from zero, so fern's 0.538 % is confirmed rather than discounted (#741 F21). (§6.5c; the earlier claims of 15.6 % and of \"~1–1.5 %",
+]
+
+B5_NEW = [
+    "| real gain | P(one draw ≥ bar) | 3 draws *(hypothetical — see §2/§4, we do not have 3)* | ranked-host µs/step to buy it | local `--local-submit` µs/step, 128 steps |",
+    "|---|---|---|---|---|",
+    "| 0 (re-fire) | **0.04 %** | 0.11 % | — | — |",
+    "| +0.26 % | **0.38 %** | 1.1 % | 17 | 44 |",
+    "| +0.50 % | **2.1 %** | 6.3 % | 32 | 85 |",
+    "| +1.00 % | 24.6 % | 57.1 % | 65 | 171 |",
+    "| **+1.26 %** | **50.1 %** | 87.6 % | **82** | **215** |",
+    "",
+    "Priced on the **measured** predictive σ — `sd(ln official) = 0.3728 %` (n = 5, this program, group",
+    "`dc437b0e`) — against the re-anchored bar **2.6195531094824** (#741 F19/F20). The 0.95 % / 3.2 % /",
+    "8.0 % / 31.7 % / 50.0 % column this table carried earlier came from the *pooled* 0.538 % draw sd and",
+    "is optimistic by 2–6× at exactly the small gains that are actually on offer. That σ has 4 dof, so",
+    "read the column as an order of magnitude: at the 95 % upper end of σ (1.07 %) a re-fire is 12 %, at",
+    "the lower end (0.22 %) it is ≈0 %. The two µs/step columns are the same gain in two currencies",
+    "(0.01527 %/µs ranked, 0.00586 %/µs local at 128 scored steps — see trap 4 in §4, #741 F1); a local",
+    "measurement screened against the ranked column passes candidates that are ≈2.6× too small.",
+    "",
+    "Even money costs **≈82 µs/step on the ranked host** (≈215 local). Maple's largest measured per-knob",
+    "effect all campaign was **≈0.8 µs/step**. Do not let anyone tell you a +0.5 % candidate is a coin",
+    "flip; on the measured σ it is **2 %**.",
+]
+
 EDITS = [
     # id, tier, finding, path, kind, payload, guard
     dict(id="A1", tier="D", finding="F1", path=MAN, kind="span", start=999, end=1004,
@@ -325,6 +386,26 @@ EDITS = [
          new=A24_NEW, guard="dff58e43c0a60e8296b92b825ea416c7", note="tool — right σ, right centre (four lines become a block)"),
     dict(id="A25", tier="P", finding="F17", path=MAN, kind="span", start=872, end=872,
          new=A25_NEW, guard="7740d122c7d0f8d9f1a3d5c4d467f77b", note="§6.5b — primary source not in tree; conclusion survives"),
+    # --- B rows: the one-page brief (#741 §14 / F22). Same two findings, but here in
+    #     *prescriptive* form: trap #4 is F1 turned into an instruction.
+    dict(id="B1", tier="D", finding="F1", path=BRIEF, kind="span", start=181, end=183,
+         new=B1_NEW, guard="0e7671345489e877d50c013a2fb69aa6", note="brief trap #4 — 'never price with 0.00586' instructs a bar ≈30 % low"),
+    dict(id="B2", tier="D", finding="F19+F21", path=BRIEF, kind="span", start=30, end=36,
+         new=B2_NEW, guard="9a60a4ff6d044822f34cf5d34343326f", note="brief §2 table + bracket — predictive σ is the measured 0.3728 %"),
+    dict(id="B3", tier="C", finding="F19", path=BRIEF, kind="subs", line=97,
+         subs=[("One extra draw is worth ~1.5 %;",
+                "One extra draw is worth **≈0.04 %** (measured `sd(ln official) = 0.3728 %`, n = 5; honest 95 % interval [≈0 %, 12 %]; #741 F19 — the ~1.5 % here is the retired pooled figure, so the conclusion only hardens);")],
+         guard="fe727b5d65211f656eec57d74c832c89", note="brief §4 policy 1 — same conclusion, correct price"),
+    dict(id="B4", tier="P", finding="F19", path=BRIEF, kind="subs", line=65,
+         subs=[("* The model's **0.95 %–1.48 % sits inside that bound.**",
+                "* The model's **0.95 %–1.48 % sits inside that bound**, and so does the directly measured **≈0.04 %** (#741 F19).")],
+         guard="77414f133091075ec9e6b2494dd15322", note="brief §2 rule-of-three — note the measured figure also clears the bound"),
+    dict(id="B5", tier="D", finding="F19+F1", path=BRIEF, kind="span", start=85, end=94,
+         new=B5_NEW, guard="60a5b9b22ca0e03fec39d546ee3c292c", note="brief §3 screening table — measured σ, plus the local µs/step column"),
+    dict(id="B6", tier="P", finding="F19", path=BRIEF, kind="subs", line=151,
+         subs=[("that draw is worth ≤1.5 %",
+                "that draw is worth ≈0.04 % on the measured σ (model-free ceiling ≤2.83 %, rule of three on 0/106)")],
+         guard="a44fc7c109503789054b04db8fe27e15", note="brief §5 — same conclusion, price the last draw honestly"),
 ]
 
 APPLY_ORDER_NOTES = """
@@ -334,6 +415,9 @@ A18, A19, A19b, A19c, A19d, A23, A24 are one edit in seven places (F19 + F21); A
 are the second, third and fourth copies of the [~0 %, 1.5 %] bracket and of the
 'between-program leakage' discount, found while checking that the patched document did not
 contradict itself four lines below A18's table. Apply the whole F19/F21 group or none of it.
+B1 is F1 in the slot-holder brief and B2/B3/B4 are F19/F21 there (§14). B1 is the single
+highest-value row in the table: it is the only place where a wrong currency is written as an
+instruction ("never price a delta with 0.00586 %/µs") on the page a successor reads first.
 This tool applies per file in descending line order, so ordering is handled for you.
 """
 
@@ -442,7 +526,7 @@ def main() -> int:
     args = ap.parse_args()
 
     if args.apply and not args.root:
-        sys.exit("--apply needs an explicit --root: these three files are owned by others (usage error)")
+        sys.exit("--apply needs an explicit --root: these four files are owned by others (usage error)")
     edits = select(args)
     paths = sorted({e["path"] for e in edits})
     source = (lambda p: read_root(args.root, p)) if args.root else read_ref
