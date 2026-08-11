@@ -14,4 +14,11 @@ group: r116a-screen
   sd0      b5qelrba  https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/b5qelrba
   sfd1     pywdzqmw  https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/pywdzqmw
 
-stage: confirm (4 arms x 18 blocks, ABBA order reversal) -- appended when complete
+
+stage: confirm (4 arms, 6 of 9 blocks at submission, ABBA/BAAB order reversal)
+group: r116a-confirm
+  summary  sbjz855m  https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/sbjz855m
+  ctl      pfp6q8p0  https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/pfp6q8p0
+  qmvsc0   uxgln2l8  https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/uxgln2l8
+  qmvse0   hjrzz0cy  https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/hjrzz0cy
+  sc0      xyunit31  https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/xyunit31
