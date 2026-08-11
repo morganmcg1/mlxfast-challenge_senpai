@@ -96,3 +96,38 @@ Consequence for the run budget: three briefed knobs (`NORM_AFFINE_QKV_PF`,
 **structurally inert** on the shipped path — a knob on an unused fallback is not
 a timing experiment. They are screened last and at reduced n, with the
 prediction "delta indistinguishable from 0" recorded here in advance.
+
+## Kernel-level reachability trace: attempted, no usable output
+
+`research/frieren_r125e_trace.sh` ran arms C and FUS with
+`DARKBLOOM_GPU_PROFILE=1` and `decode_probe.py --profile --profile-top 80`
+(10:47-10:49Z). Both arms completed (rc=0, 0 divergences) but the probe reported
+`profile: no GPUPROF records (was DARKBLOOM_GPU_PROFILE=1 set?)`, i.e. the
+worker exposes no per-kernel record under this env name in the current tree.
+The reachability conclusions above therefore rest on the static call-graph audit
+plus the behavioural facts that are available: the FUSED arm moves timing (so
+its chain is live) and the inert arms are predicted not to (screened below).
+Worker stderr does confirm the shipped composition on this host:
+`narrow-scales lane-major pairwise: qkv/oproj`, `packed-scales active: shared
+gate/up halved`, `shared down halved`, `packed routed gate/up bank prepared`,
+`lm_head prune active`, `routed swiglu qmv packed dispatch`.
+
+## Default-flip anchors (for whichever arm wins)
+
+| knob | file:line of the default | current | flip form |
+|---|---|---|---|
+| `ROUTER_WEIGHT_PREFETCH` | `Sources/MLXFastModel/LagunaRuntimeModel.swift:696-703` | `return 1` | `return 0` or `return 5` |
+| `DECODE_ASYNC_STAGE` | `Sources/MLXFastModel/LagunaRuntimeModel.swift:744-747` | `?? "at:0,1,7,15,23,31,39"` | replace the literal |
+| `NVFP4_NIBBLE_SPLIT` | `Sources/MLXFastModel/LagunaRuntimeModel.swift:6787-6792` | `else { return 1 }` | `return 0` or `return 2` |
+| `OPROJ_ROWS_PER_SIMDGROUP` | `Sources/MLXFastModel/LagunaOProjGeometry.swift:53-62` | `return 2` | `return 1` / `return 4` |
+| `OPROJ_SIMDGROUPS` | `Sources/MLXFastModel/LagunaOProjGeometry.swift:93-102` | `return 2` | `return 4` |
+
+Each flip is a one-token edit inside an existing `else` branch on an already
+editable file, so the portable hunk for a winner is 1 line and the env override
+stays available for the reverse probe. Note the two o_proj geometry knobs carry
+a prior from nezuko R117-C recorded in the doc comment at
+`LagunaOProjGeometry.swift:45-52`: `rps=1` measured *worse* on a 20-core M4
+(-54.7 vs -83.8 us) but is the M5-relevant point because it reproduces the same
+~51 simdgroups/core ratio on 40 cores. My screen re-measures all three on the
+**current** composition; a local `rps=1` loss is expected and is not by itself
+evidence against the M5 case.
