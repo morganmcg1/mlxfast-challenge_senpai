@@ -851,6 +851,84 @@ Two rules out of this, both now enforced in code rather than in prose:
    significant figure; the ceiling was not in that check, which is exactly why it
    slipped. The check is now part of the dry-run output.
 
+### 5.3j You cannot buy significance by replicating only the arm you like
+
+This one came out of tooling rather than out of the leaderboard, and it is the
+cheapest transferable result in the document, because it costs nothing to check
+and it changes how you spend slots.
+
+The campaign has two executable classes on the code axis:
+
+    r109F-base     k=2
+    r109F-atlasv3  k=3   (and k=4 after ticket 7, k=5 after ticket 8)
+
+Every ranked shot after ticket 4 has gone into the atlas-v3 class, for the good
+reason that the atlas-v3 tree is the tree that must ship, so a replicate of it
+is simultaneously a lottery ticket *and* a degree of freedom on the instrument.
+The tempting inference is that if the +0.31 % class gap is not yet significant,
+more atlas-v3 replicates will eventually make it so. They will not.
+
+The reason is that a two-sample statistic moves both of its parts. Adding a
+replicate `x` to the large class lifts that class mean by `(x − m_a)/(k_a+1)`,
+but it also feeds the *pooled* within-class sd, which is the denominator shared
+by both classes. Write it out:
+
+    sigma(x) = (mean(atlasv3 ∪ {x}) − mean(base))
+               / ( sd_pooled(base, atlasv3 ∪ {x}) · sqrt(1/k_b + 1/(k_a+1)) )
+
+For large `|x − m_a|` the numerator grows like `x/(k_a+1)` while `sd_pooled`
+grows like `x·sqrt(k_a/((k_a+1)(df+1)))`, so the ratio tends to a **constant**.
+`sigma(x)` is not monotone: it rises, peaks about one pooled sd above the class
+mean, and then falls back. `research/fern_r109f_t8_prereg.py` scans it and
+reports the peak. On a smoke-test standing in for ticket 7, the ceiling for any
+single fifth atlas-v3 replicate was **≈1.43 σ**, reached at ≈ +1.03 sd above the
+class mean — from a starting point of 1.12 σ. No value of a fifth same-class
+shot reaches 2 σ. The question cannot be answered by the design being used.
+
+The arithmetic that says where the money actually is:
+
+| design | `sqrt(1/k_b + 1/k_a)` | relative se(diff) |
+|---|---|---|
+| base 2, atlasv3 5 | 0.837 | 1.000 |
+| base 2, atlasv3 20 | 0.742 | 0.887 |
+| base 2, atlasv3 ∞ | 0.707 | 0.845 |
+| **base 3, atlasv3 5** | **0.730** | **0.872** |
+| base 4, atlasv3 4 | 0.707 | 0.845 |
+
+Two things fall out. First, se(diff) is **floored by the small side**: with the
+base class pinned at k=2, an *infinite* number of atlas-v3 replicates buys a
+15.5 % reduction in se(diff), and the first three of them buy most of it. A
+single third *base* replicate buys 12.7 % on its own — more than the next
+fifteen atlas-v3 shots combined (going from 5 to 20 atlas-v3 shots buys only
+11.4 %). Second, the balanced design `base 4, atlasv3 4`
+is exactly as good as `base 2, atlasv3 ∞`, using eight shots instead of
+infinitely many.
+
+I did not take the third base replicate, and the reason is operational rather
+than statistical: the tree that must be published at the end of this campaign is
+the atlas-v3 tree, a base replicate requires reverting an editable `Sources`
+change and then re-applying it, and doing that twice near a deadline on a
+single-slot shared channel is the larger risk. That is a defensible trade, but
+it is a trade, and the cost of it is **the class comparison stays unclaimable
+for the rest of the campaign** — which is why the 1.76 σ (now smaller) gap is
+reported in every note as *not claimed* rather than as a soft positive.
+
+The general form, for anyone else running arms on this benchmark:
+
+> Before spending a shot on a replicate, compute `sqrt(1/k_A + 1/k_B)` for the
+> design you will have *after* the shot. If the shot goes into the class that is
+> already larger, look at how little that number moves. Significance lives in
+> the smaller group. And if you are replicating only the arm you hope is
+> better, you are not testing it — you are only making its mean more precise
+> while the comparison stands still.
+
+The honest counterweight, recorded because it is why the choice was still the
+right one overall: an atlas-v3 replicate is not *only* a degree of freedom. It
+is also a lottery ticket drawn from the class with the better mean, which needs
+a draw of ≈1.0171 to reach the crown against ≈1.0193 for the base class. On the
+empirical draw distribution that is ≈0.48 %/shot against ≈0.32 %/shot. The slot
+was bought for two purposes and it delivers one of them fully.
+
 ### 5.4 Where the leverage actually is
 
 *(Note: an earlier draft of this section said "only a change ≥ +1.6 % moves the
@@ -1056,6 +1134,18 @@ retracted noise floor, and they stand:
    **not** in `editablePaths` (only the `.metal` and `sdpa_vector.h` files are), so
    changing the default would require a `setenv` from editable Swift — a rules
    question for the advisor before anyone spends a slot on it.
+9. **Spend replicates on the *smaller* class, not the favoured one** (§5.3j).
+   `se(diff) ∝ sqrt(1/k_A + 1/k_B)` is floored by the small side: with a k=2
+   control, an *infinite* number of treatment replicates buys only a 15.5 %
+   reduction, while a single third control replicate buys 12.7 %. Worse, `sigma`
+   as a function of the next same-class replicate is **not monotone** — it peaks
+   about one pooled sd above the class mean and falls back, because a high
+   replicate inflates the shared pooled sd as fast as it lifts the class mean.
+   In this campaign's design no value of a fifth atlas-v3 shot reaches 2 σ
+   (ceiling ≈1.43 σ). `research/fern_r109f_t8_prereg.py` computes and prints that
+   ceiling, so the check costs nothing. Anyone who is "waiting for more
+   replicates to make the arm significant" while only replicating the arm should
+   run it first.
 
 ---
 
