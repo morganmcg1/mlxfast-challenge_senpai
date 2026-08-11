@@ -268,15 +268,24 @@ So if the wk/wv GEMMs vanished entirely, the score would move **1.45 %**. The
 2.52 % figure exceeds the family's total cost by 74 %; the 0.94 % figure requires
 capturing **65 %** of the whole family from a packing change.
 
-**Honest ceiling.** Fern's probe measures 8 sg/TG at 1.4613× the cost of 4 sg/TG
-at fixed total simdgroups, i.e. a **31.6 %** reduction (`1 − 1/1.4613`) if the
-mechanism transferred perfectly to M5. That is `0.316 × 3.922 = 1.24 ms`
-≈ **0.46 % of score**, and that is the *ceiling*, not the estimate.
+**Honest ceiling — two independent derivations, both under 0.5 %.**
 
-**Realistic estimate: 0.2–0.3 % of score (0.5–0.8 ms).** The family already runs
-at 87.5 % of a hardware reference (§4 fact 3), fern explicitly refuses to
-transfer the band location from M4 to M5, and M5 has 40 cores against this
-host's core count, which moves the occupancy quantum.
+- *Packing-probe bound.* Fern's probe measures 8 sg/TG at 1.4613× the cost of
+  4 sg/TG at fixed total simdgroups, i.e. a **31.6 %** reduction
+  (`1 − 1/1.4613`) if the mechanism transferred perfectly to M5:
+  `0.316 × 3.922 = 1.24 ms` ≈ **0.46 % of score**.
+- *Family-efficiency bound.* Driving the wk/wv slice from its share of the
+  87.5 %-efficient family to a 60 TFLOP/s reference is worth **≈ 0.93 ms**
+  ≈ **0.35 % of score** (`A2-fused-nax-bn64-n1024.md` §5).
+
+The two disagree because they bound different inefficiencies — 87.5 % is a
+family *average* over buckets, and this bucket's 1.6 TG/core occupancy waste is
+not visible in that average. Take the ceiling as **0.9–1.24 ms ≈ 0.35–0.46 %**
+and note that both bounds are *ceilings*, not estimates.
+
+**Realistic estimate: 0.3–0.8 ms ≈ 0.11–0.30 % of score.** Fern explicitly
+refuses to transfer the band location from M4 to M5, and M5's 40 cores move the
+occupancy quantum relative to this host, so partial capture is the expectation.
 
 **This does not change the firing decision.** A2 still goes first, because the
 argument for it was never its magnitude — it is zero correctness risk, a measured
@@ -485,9 +494,9 @@ fixed.
 5. **σ was mislabelled** as 0.103 % when the stored numbers give **0.1388 %**
    (§3). Every "how many σ is this" judgement made against the old label was
    ~35 % too generous.
-6. **A2's price was overstated by 2–6×** (§5.3). The quoted 0.94–2.52 % of score
+6. **A2's price was overstated by 3–8×** (§5.3). The quoted 0.94–2.52 % of score
    exceeds what the entire wk/wv family costs on M5 (3.922 ms ≈ 1.45 %). The
-   honest ceiling is 0.46 % and the realistic estimate is 0.2–0.3 %.
+   honest ceiling is 0.35–0.46 % and the realistic estimate is 0.11–0.30 %.
 
 Items 5 and 6 do not change any arm's disposition, but they do change what a slot
 spent here is worth, which is the number the leaderboard framing actually turns

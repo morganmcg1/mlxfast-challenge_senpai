@@ -1,10 +1,18 @@
 # A2 — fused-NAX `bn` 128 → 64 **and** `wn` 4 → 2 for prefill `N <= 1024`
 
-Status: **delivered as a patch, magnitude-capped, requires Rule-83 disclosure
-before anyone spends an M5 slot on it.** Not live on this branch.
+Status (rev3): **live on the branch head and first in the firing order.**
+Magnitude-capped, and still requires the Rule-83 disclosure in §6 before an M5
+slot is spent.
 
-Patch: `research/maple-tanjiro-r110/A2-fused-nax-bn64-n1024.patch`
-(`17 0 Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp`).
+Live on this branch as
+`17 0 Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp`; the patch
+file `research/maple-tanjiro-r110/A2-fused-nax-bn64-n1024.patch` is retained for
+provenance and is byte-equivalent to the head hunk.
+
+**Direct answer to the `TN == 1` concern raised at rev3:** the shipped arm keeps
+`TN = 2`, identical to the incumbent, because `bn` and `wn` are halved together
+so `SN = bn/wn` is invariant at 32. The `TN == 1` risk belongs to the
+**discarded** `bn`-only version. Full geometry in §2.
 
 This document was rewritten after the first version of the arm was found to be
 wrong in a way the local gate could not see. Read §2 before §5.
@@ -129,6 +137,30 @@ Maple's deficit to the crown is ~1.4 % of real speed, ≈ 3.8 ms of prefill at
 realistic value, under a tenth.** It is a tidy, cheap, bit-exact probe. It is
 not a round-winner and must not be described as one.
 
+### 5.1 Hard upper bound from the M5 attribution artifact
+
+The bound above is derived from a GFLOP share. There is a stricter and more
+direct one. `research/artifacts/tanjiro-r104c/steel_ms_attribution_m4.json`,
+bucket `K=2048, N=1024, n=78`, records `m5_proj_b_ms = 3.922`,
+`gflop = 167.505`, `m5_tg_per_core = 1.6`.
+
+**3.922 ms is the entire cost of every dispatch A2 can touch.** At 0.37 %/ms
+that is **1.45 % of score if the family vanished completely**. Any price quoted
+for A2 above 1.45 % is therefore impossible, and any price above ~0.46 % — the
+31.6 % packing-probe ceiling, `1 − 1/1.4613` of 3.922 ms = 1.24 ms — requires a
+mechanism stronger than the only one measured.
+
+Reconciling the two ceilings: the packing bound (1.24 ms) is larger than the
+family-efficiency bound (0.93 ms) because 87.5 % is an *average over buckets*,
+and this bucket's 1.6 TG/core occupancy waste is invisible in that average. Read
+the ceiling as **0.9–1.24 ms ≈ 0.35–0.46 % of score**, and the realistic value
+as **0.3–0.8 ms ≈ 0.11–0.30 %**.
+
+The 0.94 %–2.52 % band quoted for this arm in review is not reachable: 2.52 %
+exceeds the family's total cost by 74 %, and 0.94 % would require capturing 65 %
+of the whole family from a change that only repacks simdgroups onto
+threadgroups.
+
 ## 6. Rule-83 disclosure — this is the *third* visit to this site
 
 Anyone scheduling A2 must be told this up front.
@@ -208,9 +240,12 @@ statement of what this gate is worth for this arm.
 
 ## 9. Reproduce
 
+A2 is the branch head at rev3, so there is nothing to apply — checking out the
+branch is the whole procedure:
+
 ```bash
-git apply research/maple-tanjiro-r110/A2-fused-nax-bn64-n1024.patch
-git apply --numstat research/maple-tanjiro-r110/A2-fused-nax-bn64-n1024.patch
+git --no-pager diff --numstat 30904ecbf180aa05d7ddf5cc957e83155fbfc6f4 HEAD \
+    -- Sources Vendor benchmark.json Package.swift
 #   expect exactly: 17  0  Vendor/.../metal/matmul.cpp
 ```
 

@@ -1,18 +1,24 @@
 # R110-A arm A1 — routed/shared down-projection NAX tile `BN` 64 -> 32
 
-Branch: `maple-tanjiro/r110-prefill-nax-arm-factory` (this branch, at its head).
-Arm is **live on the branch**: the branch head *is* the A1 candidate. Nothing
-else has to be applied.
+Branch: `maple-tanjiro/r110-prefill-nax-arm-factory`.
+
+Status (rev3): **delivered as a patch, second in the firing order.** A1 was the
+branch head at rev2; rev3 promoted A2 to the head and demoted A1 to
+`research/maple-tanjiro-r110/A1-expert-down-bn32.patch`. Apply it to the
+assignment base — see `READY.md` §6 for the exact commands. `git apply --check`
+and `git apply --numstat` were both re-run against the current head after the
+swap: the patch applies cleanly and produces exactly
+`1 1 Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp`.
 
 Base: `32665a6b66ce0d2d72b84772863575a6fdc35fb7`.
 
-> **That base is the *gate-time* base, not the live one.** This branch was later
-> rebased onto `9fe371909ee7ffa66a345cf3c42c21141096f388`, and the numstat
-> commands below still reference the old base. The A1 diff is byte-identical
-> across the rebase and the submitted surface against the live base is still
-> `1 1 Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp`.
-> `READY.md` §1 carries the full rebase provenance and the argument for why the
-> gate evidence still binds. Verify against `9fe37190`, not `32665a6b`.
+> **That base is the *gate-time* base, not the live one.** The live assignment
+> base is `30904ecbf180aa05d7ddf5cc957e83155fbfc6f4`, and the numstat commands
+> below still reference the old one. All of `32665a6b`, `adfca1e5`, `9fe37190`
+> and `30904ecb` are **surface-identical** (`git diff --numstat <a> <b> --
+> Sources Vendor benchmark.json Package.swift` is empty for every pair), so the
+> A1 diff and its gate evidence carry across unchanged. Verify against
+> `30904ecb`.
 
 ## The diff
 
