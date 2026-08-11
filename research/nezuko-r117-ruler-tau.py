@@ -71,6 +71,19 @@ DOSE_MB = {
     "QN": 36.966,
     "AN": 66.375,
 }
+
+# The same estimator is reused for the Stage 1 o_proj rows-per-simdgroup ladder,
+# whose dose column is *activation re-read* bytes rather than scale-plane bytes
+# (see nezuko-r117-oproj-geometry-preregistration.md Sec. 10b). Doses there can be
+# negative, which the free-intercept OLS handles without modification. Override with
+#   DOSES="R1=943.72,R2=314.57,R8=-157.29"
+_DOSES_ENV = os.environ.get("DOSES", "").strip()
+if _DOSES_ENV:
+    DOSE_MB = {}
+    for _item in _DOSES_ENV.split(","):
+        _k, _v = _item.split("=")
+        DOSE_MB[_k.strip()] = float(_v)
+
 BW = float(os.environ.get("BW", "256.7"))  # GB/s = 1e9 B/s
 
 
@@ -334,7 +347,16 @@ def main():
             passes.add(row.get("passed", ""))
             heads.add(row.get("head", ""))
 
-    rungs = [a for a in ("OP", "ON", "QN", "AN") if any(a in v for v in lvl.values())]
+    # Arms present in the file, ordered by dose so the ladder prints monotonically.
+    # Any arm without a declared dose is dropped loudly rather than crashing: the
+    # estimator is reused across experiments (scale-plane ruler, o_proj rps ladder)
+    # and DOSES= may legitimately describe only a subset of a file's arms.
+    seen = {a for v in lvl.values() for a in v if a != "C"}
+    undosed = sorted(seen - set(DOSE_MB))
+    if undosed:
+        print(f"NOTE: arms present in the file but absent from DOSE_MB, dropped: "
+              f"{', '.join(undosed)}")
+    rungs = sorted(seen & set(DOSE_MB), key=lambda a: DOSE_MB[a])
     # keep only blocks that are COMPLETE (control + every rung present)
     blocks = sorted(b for b, v in lvl.items() if "C" in v and all(r in v for r in rungs))
     dropped = sorted(set(lvl) - set(blocks))
