@@ -452,22 +452,29 @@ and `ns`.
 
 ### 4.4 Reconciling my ladder with `L-TG-WIDTH-IS-A-DEBIT-AT-tgMem-0`, and the power arithmetic I should have done first
 
-**Step 1 — what the fleet law predicts for my rungs.** My QKV kernel has
-`staticThreadgroupMemoryLength = 0 B` (§1.8, read out of the compiled pipeline,
-not assumed), so it is inside the law's stated domain. At
-**≈ +0.79 µs/step (minimize) per extra simdgroup per threadgroup**:
+**Step 1 — the quantitative cross-kernel scaling, done three ways.** My QKV
+kernel has `staticThreadgroupMemoryLength = 0 B` (§1.8, read out of the compiled
+pipeline, not assumed), so it is inside the law's stated domain. The transfer is
+*not* a single number, because frieren's kernel and mine differ in both call
+count and call cost, and the law does not yet say which the debit rides on.
+Her primary record (#714, verbatim in advisor comment 4) supplies both
+denominators: **7.432 µs/call, 39.0 calls/step**, debit **+4.67 µs/step** for
+6 extra simdgroups. Mine (atlas): `decode_nvfp4_qkv_h64` 1342.1 µs/step over
+40 calls = **33.6 µs/call**; h48 363.5 µs/step over 40 calls = **9.1 µs/call**;
+**80 calls/step** total, 1705.6 µs/step.
 
-| rung | simdgroups/TG | extra vs N2 | `PREDICTED` debit, µs/step (minimize) | as % of 8,870 µs/step decode |
-|------|--------------:|------------:|--------------------------------------:|-----------------------------:|
-| N2 | 2 | 0 | 0 (reference) | — |
-| N4 | 4 | 2 | **+1.6** `PREDICTED` | +0.018 % |
-| N8 | 8 | 6 | **+4.7** `PREDICTED` | +0.053 % |
+| scaling hypothesis | unit of the debit | value fitted on #714 | N8 prediction for QKV, µs/step (minimize) | N4 prediction, µs/step (minimize) |
+|--------------------|-------------------|---------------------:|------------------------------------------:|----------------------------------:|
+| **S1** per *step*, per extra simdgroup (alphonse's headline form) | µs/step/sg | +0.79 | **+4.7** `PREDICTED` | **+1.6** `PREDICTED` |
+| **S2** per *call* (fixed launch/occupancy overhead) | µs/call | +4.67 / 39.0 = **+0.120** | **+9.6** `PREDICTED` (80 calls) | **+3.2** `PREDICTED` |
+| **S3** proportional to kernel time (a % slowdown) | % of kernel µs/step | **+1.61 %** | **+27.5** `PREDICTED` (1.61 % × 1705.6) | **+3.3** `PREDICTED` (0.19 %) |
 
-One transfer caveat, stated rather than hidden: alphonse's constant was fitted
-on a kernel dispatched once per layer, while decode QKV is dispatched **twice**
-per layer (`h64` and `h48`), so if the debit is per *dispatch* rather than per
-*kernel family per step* the N8 prediction doubles to **≈ +9.5 µs/step
-`PREDICTED`**. My data cannot separate those two scalings — see step 2 for why.
+All three are `PREDICTED`; none is measured here. They span **+4.7 → +27.5
+µs/step** for N8, a 5.8× range, and they are physically distinguishable: S2 says
+the debit is a per-launch tax (so it scales with *dispatch count*), S3 says it
+is an occupancy tax on the work itself (so it scales with *kernel duration*).
+Discriminating them is the interesting fleet question, and it needs a per-kernel
+microbench with SPLIT=1, not a whole-model ladder — step 2 says why mine cannot.
 
 **Step 2 — what my instrument can resolve.** This is the number I owe the
 fleet, and I should have computed it in §1.6 instead of after the fact.
@@ -479,15 +486,19 @@ block delta therefore carries σ ≈ 27 × √2 ≈ **38 µs/step**, and with
 
 | quantity | value, µs/step (minimize) |
 |----------|--------------------------:|
-| predicted N8 debit (fleet law) | +4.7 to +9.5 `PREDICTED` |
+| predicted N8 debit, S1 – S3 | +4.7 to +27.5 `PREDICTED` |
 | my CI95 half-width at B = 4 | **± ≈ 47** |
-| ratio (resolution ÷ effect) | **5× to 10× too coarse** |
-| blocks needed to resolve +4.7 at 95 % | **≈ (2 × 38 / 4.7)² ≈ 260** |
+| ratio (resolution ÷ effect) | **1.7× (S3) to 10× (S1) too coarse** |
+| blocks needed to resolve S1 (+4.7) at 95 % | **≈ (2 × 38 / 4.7)² ≈ 260** |
+| blocks needed to resolve S3 (+27.5) at 95 % | **≈ (2 × 38 / 27.5)² ≈ 8** |
 
-260 blocks × 3 arms × 160 s ≈ **35 hours**. The effect is real, it is in the
-predicted direction, and it is **structurally invisible to the ranking
-instrument** — which is exactly why alphonse's dedicated per-kernel microbench
-is the right tool for pricing it and a whole-model paired ladder is not.
+260 blocks × 3 arms × 160 s ≈ **35 hours** for S1; even the most generous
+hypothesis (S3) needs **8 blocks**, i.e. double what the 13:30Z deadline
+allowed. So the ladder is under-powered against every candidate scaling, and
+the honest reading of §3.2 is not "the debit is X" but "the debit is smaller
+than my floor, and it is not a win" — which is exactly why alphonse's dedicated
+per-kernel microbench is the right tool for pricing this effect and a
+whole-model paired ladder is not.
 
 **Step 3 — so what does my ladder actually establish?** Not the debit's value:
 an *upper bound on any win*. Whatever the sign of the point estimate in §3.2,
