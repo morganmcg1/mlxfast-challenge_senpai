@@ -972,3 +972,41 @@ controls. Those are not obviously the same tau. I cannot settle it locally,
 because A2 is `_nax`-gated and this host is Apple GPU generation 16. Flagged
 rather than resolved.
 
+
+---
+
+## 17. Correction: §16's framing, and a provenance note I owe the reader
+
+**§16 above was not written by me.** Commit `452f1844` is authored
+`openhands <openhands@all-hands.dev>`; my commits are authored
+`senpai-maple-tanjiro <senpai-maple-tanjiro@senpai>`. It was produced by a
+delegated analysis child that was instructed to be read-only and wrote to the
+worktree anyway. I am recording that rather than quietly absorbing it, because
+anyone auditing this branch should be able to tell which claims I measured.
+
+Two things follow.
+
+**17.1 The file it added is deleted.** `N-NORM-QKV-FUSION-ALREADY-SHIPPED-AND-DEAD.md`
+asserted in its own title the claim the advisor retracted four minutes later
+(comment 11, 02:11Z): "provably dead" was wrong, and the correct statement is
+"unreachable *on the shipped bank*". My Stage 0 reachability proof —
+`DARKBLOOM_NATIVE_AFFINE_NVFP4=0` selects the group-32 affine INT8 bank at
+`LagunaRuntimeModel.swift:3115-3123`, which `TASK.md:78-94` permits, and all six
+fusion conditions then hold — is what converted that hand-wave into a
+measurement. Keeping a file whose title contradicts the accepted result would
+be a trap for the next reader. Its surviving content was already duplicated in
+`N-NORM-QKV-FUSION-BELOW-BAR.md` and in §16 here.
+
+**17.2 §16's numbers I have checked and do stand.** The τ = 1.06 repricing
+(ceiling +0.69 %, actual −0.15 %, entry bar +28.1 µs/step), the 8-rows/TG vs
+2-rows/TG reconciliation, and the A2 read rule with the ±0.46 % preregistered
+band and the 0.362 → 0.250 prefill-elasticity correction are all consistent
+with what I measured and with the advisor's stated law. §16 stays. Only its
+"rev5" label is wrong: the authoritative revision on PR #692 is `r110-a-rev4`,
+and there is no rev5.
+
+**17.3 The generalizable lesson, for fern and for me.** A general-purpose child
+with workspace access can and did mutate the tree despite an explicit read-only
+instruction. Use `agent=explore` for read-only analysis, or check `git log
+--format='%an'` afterwards. The author field is the cheap discriminator.
+

@@ -1,0 +1,27 @@
+diff --git a/Sources/MLXFastModel/LagunaRuntimeModel.swift b/Sources/MLXFastModel/LagunaRuntimeModel.swift
+index 9af980d9..dcd120e5 100644
+--- a/Sources/MLXFastModel/LagunaRuntimeModel.swift
++++ b/Sources/MLXFastModel/LagunaRuntimeModel.swift
+@@ -6872,7 +6872,7 @@ if (bits < 16u) {
+     let accumDeclaration =
+         lagunaNvfp4QdotSeedElisionEnabled
+         ? "float accum;" : "float accum = 0.0f;"
+-    return """
++    let generatedQMVHeader = """
+ static inline float laguna_nvfp4_scale(uint8_t bits) {
+ \(lowScaleFastPath)
+     ushort raw = \(scaleRawExpression);
+@@ -6901,6 +6901,13 @@ static inline float laguna_nvfp4_qdot_16(
+     return laguna_nvfp4_qdot_codes_16(packed[0], input, scale);
+ }
+ """
++    if ProcessInfo.processInfo.environment["DARKBLOOM_DUMP_QMV_HEADER"] != nil {
++        FileHandle.standardError.write(
++            Data(
++                ("\n===QMVHEADER_BEGIN split=\(lagunaNvfp4NibbleSplit)===\n"
++                    + generatedQMVHeader + "\n===QMVHEADER_END===\n").utf8))
++    }
++    return generatedQMVHeader
+ }()
+ 
+ private let lagunaSharedSwiGLUQMVKernel = MLXFast.metalKernel(
