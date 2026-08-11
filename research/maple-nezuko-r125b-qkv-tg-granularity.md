@@ -11,21 +11,27 @@ Host: Apple M4 Pro, 20 GPU cores, 48 GiB, `applegpu_g16s`, macOS 26.5.2.
 **REFUTED, and nothing lands. Landing branch: none — deliberately.**
 
 The `ns` (simdgroups-per-threadgroup) axis on decode QKV at `rps = 1` does not
-pay. Both candidate rungs came back on the **slow** side of the shipped `ns = 2`
-control, bit-identical throughout, so the assignment's landing rule
-(bit-identical **and** a paired interval excluding zero *in the improving
-direction*) fails on its second conjunct and I land nothing. **The winning rung
-is N2 — which is already the compiled default — so the correct landing hunk is
-the empty hunk** (§7).
+pay. Widening the threadgroup from 64 to 128 or 256 threads at pinned total
+simdgroups is bit-identical and, at this instrument's resolution, **indistinguishable
+from zero** — with the point estimates on the slow side and every interval
+comfortably containing the debit predicted by the fleet's `tgMem = 0` law
+(§4.4). The assignment's landing rule needs bit-identity **and** a paired
+interval excluding zero *in the improving direction*; the second conjunct fails,
+so I land nothing. **The winning rung is N2 — which is already the compiled
+default — so the correct landing hunk is the empty hunk** (§7).
 
 PLACEHOLDER_VERDICT_TABLE
 
 Four things this episode produced that are worth more than the null:
 
-1. **A third independent confirmation of `L-TG-WIDTH-IS-A-DEBIT-AT-tgMem-0`**,
-   on a *different* kernel (decode NVFP4 QKV, 19.9 % of decode busy) from
-   frieren's #714 and alphonse's #729. My sign agrees with theirs; my magnitude
-   is consistent with all three candidate scalings (§4.4 step 1).
+1. **A third site consistent with `L-TG-WIDTH-IS-A-DEBIT-AT-tgMem-0`**, on a
+   *different* kernel (decode NVFP4 QKV, 19.9 % of decode busy) from frieren's
+   #714 and alphonse's #729. Stated precisely, because the distinction matters:
+   my ladder does **not** independently confirm the debit — my interval contains
+   zero *and* contains all three candidate magnitudes (§4.4 step 1). What it
+   does do is **exclude the win** that the (retracted) prior demanded: the
+   +50…+250 µs/step improvement the assignment pre-registered is ruled out by a
+   wide margin, in the direction the law predicts.
 2. **An achieved detection floor, stated as arithmetic** (§4.4 step 2): this
    instrument's CI95 half-width at B = 4 is **≈ ±47 µs/step**, so it is
    **1.7×–10× too coarse** to price the predicted debit. That is the number my
