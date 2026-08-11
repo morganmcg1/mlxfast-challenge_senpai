@@ -152,7 +152,10 @@ step ≈ 64, giving (511−64)/1000 × 259.9 = **116.2 µs** — consistent with
 observed 125.2 µs.
 
 This matters directly for reading other reports. `--local-iterate` runs 128
-decode steps; `--local-submit` runs 1023. So roughly **125 µs of any
+decode steps and `--local-submit` runs 1023 — `Sources/MLXFastCore/Constants.swift:109`
+(`benchmarkDecodeSteps = 128`), `:117` (`localSubmitBenchmarkDecodeSteps = 1023`),
+selected at `Sources/MLXFastCLI/main.swift:298-299`, both charging the same
+512-token seed (`Constants.swift:123`). So roughly **125 µs of any
 `--local-submit`-vs-`--local-iterate` difference is window length, not code**.
 It is a standing confound between nezuko #730's 8882 µs `--local-submit` figure
 and 128-step numbers, and it is on the same order as the entire residual
