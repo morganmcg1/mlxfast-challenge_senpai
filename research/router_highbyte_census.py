@@ -27,6 +27,7 @@ def index_serializer(raw, data):
         lambda value: json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode() + b"\n",
         lambda value: json.dumps(value, ensure_ascii=False, indent=2).encode(),
         lambda value: json.dumps(value, ensure_ascii=False, indent=2).encode() + b"\n",
+        lambda value: json.dumps(value, ensure_ascii=False, indent=4).encode(),
         lambda value: json.dumps(
             value, ensure_ascii=False, indent=2, separators=(",", " : ")
         ).encode(),
