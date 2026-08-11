@@ -162,11 +162,11 @@ predicted. Command-buffer count is unchanged, so the removal is purely
 within-command-buffer and does not perturb the batching policy.
 
 The paired GPU-busy delta is **−20.9 µs/step, 95 % CI [−31.2, −10.6]** over 118
-steady steps per arm (§3.6), a marginal price of **0.54 µs per removed
+steady steps per arm (§3.7), a marginal price of **0.54 µs per removed
 dispatch** on this host. Note that the gap column *grew* by 37 µs while busy
 fell 21 µs, which is why the single-pair wall delta is +16 µs — the wrong sign.
 I treat that wall figure as unresolvable rather than as a regression: one pair
-of processes cannot resolve 16 µs on an 8.2 ms step. §3.7 is the ranked answer.
+of processes cannot resolve 16 µs on an 8.2 ms step. §3.8 is the ranked answer.
 
 ### 3.3 Register/occupancy characteristics of the fused kernel
 
@@ -253,7 +253,50 @@ removes one dispatch inside a region that was already encoded concurrently —
 the cheapest boundary class that exists in this runtime. That is the physical
 reason the realized saving is far below an additive dispatch price.
 
-### 3.6 Two axes, with intervals, against the pre-registered fork
+### 3.6 Bytes ledger: the routed leg has no bandwidth to donate
+
+The ceiling half of the pricing fork assumes the host QMV has spare memory
+bandwidth into which the guest's traffic can be absorbed. That is checkable from
+the source without any GPU time. Per decode token, per sparse layer
+(hidden 2048, intermediate 512, 256 experts, top-8 —
+`Sources/MLXFastModel/LagunaConfig.swift:17,30-33`):
+
+| buffer | guest (shared) | host (routed top-8) |
+| --- | --- | --- |
+| `fused_weight` uint32 NVFP4 codes | 1,048,576 B | 8 × 1,048,576 = 8,388,608 B |
+| scales, uint8, one per 32 codes after halving | 65,538 B | 8 × 65,536 = 524,288 B |
+| `router_keys` uint32[256] | — | 1,024 B |
+| input row `x` bf16[2048] | 4,096 B | 4,096 B (same buffer) |
+| **unique bytes read** | **1,118,210** | **8,918,016** |
+
+Bytes per threadgroup are identical in both kernels, 4,352 B (4,096 code bytes +
+256 scale bytes), which is the invariant that makes grid-append legitimate:
+256 × 4,352 = 1.11 MB and 2,048 × 4,352 = 8.91 MB. `halved` in the guest kernel
+name refers to the *scale plane* only — the checkpoint is group-16 and
+`lagunaHalvedGroup32ScalePlane` drops the redundant odd byte of each group-16
+pair, keeping 168 first-pair exceptions in a 128-byte header
+(`Sources/MLXFastModel/LagunaRuntimeWeights.swift:1053-1094`) — so weight bytes
+are unchanged.
+
+Two conclusions:
+
+- **Fusion saves no bytes.** The only buffer the two kernels share is the 4,096-B
+  input row. Unfused 10,040,320 B versus fused 10,036,224 B, a 0.041 % byte
+  reduction. Whatever this change wins, it cannot be bandwidth.
+- **There is no headroom to absorb into.** The host reads 8,918,016 B in
+  38.43 µs = **232 GB/s achieved, 85 % of the M4 Pro's 273 GB/s peak**. Spare
+  bandwidth is ~41 GB/s, and streaming the guest's 1.12 MB through only that
+  spare capacity would take 27 µs — far longer than the host's whole 38 µs call.
+  The ceiling branch needed 105 µs/step = 2.69 µs/call of saving, i.e. the
+  guest's traffic becoming nearly free. That is not physically available here.
+
+For completeness: the observed +3.53 µs/call of host growth implies a marginal
+1.12 MB at 317 GB/s, above the DRAM peak, so some of the guest's codes or scales
+are being served from cache, or the SPLIT=1 per-call average overstates the
+host's own steady-state rate. Either way the guest's traffic is paid, not
+absorbed.
+
+### 3.7 Two axes, with intervals, against the pre-registered fork
 
 | axis | Δ GPU busy per step (95 % CI) | µs per removed dispatch | n/arm |
 | --- | --- | --- | --- |
@@ -280,6 +323,6 @@ The bandwidth-absorption half of the hypothesis fails separately: the guest's
 streaming work reappears as +3.53 µs/call of host-leg growth (§3.4), so the
 routed QMV had no bandwidth headroom to donate to the shared QMV.
 
-### 3.7 Ranked end-to-end campaign
+### 3.8 Ranked end-to-end campaign
 
 *(campaign in flight; filled in when it lands)*
