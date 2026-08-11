@@ -110,13 +110,26 @@ artifacts by `research/nezuko_r109_profile_summary.py`
 (→ `research/armg-runs/p1/summary.json`), so the prose cannot drift from the
 measurement; the shipped-wall column is the b5/b4 harness, not the profile.
 
+⚠️ **The busy column is raw SPLIT=1 and therefore inflated.** §0P.14(3) landed
+`SPLIT inflation = +1.554 busy µs per command buffer` after this capture. Because
+the inflation scales with *calls*, it **cancels exactly in A−S, A−W and A−N**
+(all 406 dispatches, all 81 targeted calls) and bites **only on arm C**, which
+has 40 fewer command buffers: C's targeted saving is
+`204.9 − 40 × 1.554 = ` **+142.7 µs/step**, not +204.9, and its conversion is
+**−0.36**, not −0.25. Corrected numbers and the knock-on to every rule are in the
+reconciliation section below. **No sign and no conclusion changes** — the
+correction makes the pool arm C drains *smaller*, which strengthens the negative.
+
 1. **Arm C really does delete the pool.** `rmsbfloat16` goes from
    **41 dispatches / 141.6 µs** to **1 dispatch / 3.5 µs**, and total dispatches
    from 406 to 366 — exactly the 40 removed. And it is 51.7 µs/step slower.
    **Isolated per-kernel busy got the sign wrong, not just the magnitude.**
 2. **Best-case conversion is ~0.31, not 1.0.** S removes 138.0 µs/step of
-   isolated `gate_sp` busy and the harness returns 43.23 µs/step of wall — the
-   µs meaning of "96.4% nested".
+   isolated `gate_sp` busy and the harness returns 43.23 µs/step of wall. (An
+   earlier draft glossed this as "the µs meaning of *96.4 % nested*". That
+   archived nesting figure was retired as unreproducible by §0P.14(3) after this
+   work was measured; the sentence is withdrawn. My own capture agrees with the
+   retraction, not the archived number — see the reconciliation section below.)
 3. **Isolated busy has no predictive power here.** S, W and N agree on shipped
    wall within their CIs (+43.2 / +46.3 / +52.0) while their isolated `gate_sp`
    busy spans **144 µs** (180.2 → 324.2 µs/step). W is *worse* than control on
@@ -166,7 +179,10 @@ measurement; the shipped-wall column is the b5/b4 harness, not the profile.
    dispatches and *cost* +0.639 ms; PR #483 (W&B `ubjfsywa`) *added* 80
    dispatches of this same kernel family for +8.61 µs/step
    [−17.71, +35.02] = 0.108 µs/dispatch. Census pool size is an upper bound on
-   opportunity, not an estimate of it.
+   opportunity, not an estimate of it. **Strengthened by §0P.14(3):** deflating
+   SPLIT=1 by 1.554 µs/cb puts the true pre-norm pool at **77.9 µs/step**, not
+   141.6 and not H4's 95.9, so the census over-read the prize *and* the prize was
+   unrecoverable — see the reconciliation section.
 2. **`N-SOLE-PRODUCER-WIDTH-RATIO`** — a reduction may be fused into a narrow
    consumer only if that consumer does not thereby become the sole producer for a
    wide one. `gate_sp` launches 8 threadgroups and is latency-bound; the QKV
@@ -403,6 +419,165 @@ measurement; the shipped-wall column is the b5/b4 harness, not the profile.
   [−14.19, +22.77]` includes them, and the conclusion "the fusion residue does
   not clear zero" is the conservative direction for my own arm.
 
+## Reconciliation with §0P.14 (advisor head `210f8195`, written after this work)
+
+The advisor branch moved to `210f8195` while I was writing up. I re-baselined the
+check first: `git diff --numstat 1a6761bf 210f8195 -- Sources Vendor
+benchmark.json Package.swift` is **empty**, and `git merge-base HEAD 210f8195` is
+**`1a6761bf`**, so my research base and submitted surface are untouched and no
+re-measurement is required. But §0P.14 lands four instrument corrections and one
+new law, and three of them touch this arm. Taking them in order of how much they
+cost me:
+
+### (1) SPLIT inflation — corrects my busy numbers, strengthens my conclusion
+
+`+1.554 busy µs per command buffer` under SPLIT=1. Applied to my capture:
+
+| quantity | raw SPLIT=1 | deflated | note |
+|---|---:|---:|---|
+| `rmsbfloat16` per dispatch | 3.45 µs | **1.90 µs** | the pre-norm is *cheaper* than I reported |
+| the 41-dispatch pre-norm pool | 141.6 µs/step | **77.9 µs/step** | the whole prize, corrected |
+| arm A targeted family (81 calls) | 459.8 | 333.9 | |
+| arm C targeted family (41 calls) | 254.9 | 191.2 | |
+| **A−C targeted saving** | **+204.9** | **+142.7** | 62.2 µs was instrument |
+| arm A whole-step `busy_sum` (406 cbs) | 8537 | 7906 | vs SPLIT=0 wall 8211 → 96.3 %, self-consistent |
+| arm C whole-step `busy_sum` (366 cbs) | 8377 | 7808 | |
+
+Three consequences, none of which change a sign:
+
+- **`N-DISPATCH-REMOVAL-NOT-SYMMETRIC` gets stronger.** The r105d H4 claim was a
+  "95.9 µs/step launch tax" in the 41 pre-norm dispatches. The honest pool is not
+  141.6 and not 95.9 but **77.9 µs/step**, and the measured recoverable amount is
+  **negative**. So the census pool was an upper bound *and* the upper bound was
+  itself inflated by the instrument. Both errors point the same way.
+- **My predictive formula survives untouched.** Rule 4's forecast is a
+  *difference of per-call latencies* at equal call counts —
+  `30 × (6.30 − 3.45) + 10 × (6.24 − 3.45)` — and deflating both legs by the same
+  1.554 leaves each bracket unchanged. Forecast stays **113.4 µs/step** against
+  **98.06 measured** (`W−C`), still within 16 %. This is the one number I most
+  wanted to be robust to a pool correction, and it is, by construction.
+- **A−S / A−W / A−N are unaffected** (identical call counts), so the whole b5
+  attribution and the 83 %-is-geometry decomposition stand as written.
+
+### (2) My capture independently supports the instrument negative
+
+§0P.14(3) retires `busy_sum/busy_union = 1.1359` and "gate_sp 96.4 % nested" as
+unreproducible, measuring 0.10 % hidden and gate_sp 0.00 % instead. **My capture
+agrees with the retraction, not the archive**: arm A `busy_sum` 8537 vs
+`busy_union` 8536 ⇒ **0.01 % hidden**, and I reached the same structural
+explanation independently (SPLIT=1 is one dispatch per command buffer, so it is
+serialised by construction and *cannot* exhibit nesting). I have withdrawn the
+one sentence above that leaned on the retired figure. My conversion ratios were
+never derived from it — they are measured wall÷busy quotients.
+
+### (3) Exposure — arm C is a counterexample to the [0.85, 1.06] band
+
+§0P.14(3) revises EXPOSURE to `1.0595 ± 0.142`, CI [0.78, 1.34], and says to plan
+at 1.0. **Arm C's exposure is about −0.5.** Deflated whole-step busy saving
+`7906.1 − 7808.2 = +97.8 µs/step`, shipped wall `−51.73 µs/step` ⇒ `dwall/dbusy =
+−0.53`. Arm W's is worse still: it *spends* 6.8 µs of targeted busy and *gains*
+46.33 µs of wall, so its ratio has no defined sign.
+
+This is not a contradiction of the constant, it is a **boundary condition on it**,
+and worth stating because the band is about to be used for planning:
+
+> Exposure ≈ 1 is an empirical regularity for **dose-style** arms, which change
+> how long a kernel runs while leaving the dependency graph alone. It does not
+> survive arms that **restructure producer/consumer relationships**, where the
+> conversion is set by which kernel is on the critical path and can be zero or
+> negative. Arms G-C and G-W are two measured instances.
+
+Practically: for a restructuring arm, do not plan with an exposure constant at
+all — use rule 4's `N_layers × Δ isolated_latency(producer)` instead, which got
+within 16 % here.
+
+### (4) `L-RANKED-REACHABILITY` — this arm passes, and one nearby arm is now dead
+
+My arm is reachable and locally verifiable, by the new law's own test: the
+`rmsbfloat16` pre-norm and the `gate_sp` family are QMV/elementwise decode
+kernels, and §0P.14(1) establishes there is **no `_nax` QMV kernel anywhere**
+(`grep -c qmv` = 0 in both `fp_quantized_nax.cpp` and `quantized_nax.cpp`), so
+decode QMV is the same code on M4 and M5. My 41 dispatches were counted in my own
+census, not inferred. Nothing here is an M4 ghost.
+
+**But the law kills a follow-up before anyone funds it.** §0P.14 records that
+`lagunaNormAffineQKV` is "shipped, default-on, and dead code: its `bits==8` guard
+can never fire under the NVFP4 bank". I confirmed that three independent ways:
+
+1. **Static:** the bank is constructed `groupSize: 16, bits: 4, mode: .nvfp4`
+   (`LagunaRuntimeModel.swift:3106`); the guard at `:5926-5928` requires
+   `mode == .affine, bits == 8, groupSize == 32`. Unsatisfiable.
+2. **Knob:** `DARKBLOOM_FUSED_NORM_AFFINE_QKV != "0"` (`:5483`) ⇒ default-on, so
+   "dead" is not a configuration accident.
+3. **Empirical, and this is the part only my capture can supply:** across all
+   **10 profiles** in `research/armg-runs/p1` (5 arms × 2 SPLIT regimes, 406
+   dispatches/step), `grep -ioE "norm_affine_qkv[a-z0-9_]*"` returns **nothing**.
+   The kernel is never dispatched in the ranked decode path.
+
+The obvious next move on reading "shipped but dead" is *fix the guard and collect
+the fusion*. **Do not.** `lagunaNormAffineQKV` folds the RMS into the QKV matvec,
+which is exactly the mechanism of my **rung 1a**, already measured: the QKV
+kernel goes **34.25 → 55.50 µs/dispatch**, `+21.25 µs/dispatch`, because each of
+5120 threadgroups redundantly recomputes the same 2048-element normalize. At 30
+`qkv_h64` calls/step that is **≈ +637 µs/step**, against the corrected
+**−77.9 µs/step** the deleted pre-norm could ever return: net **≈ +560 µs/step
+slower ≈ −3.9 % score** at τ=1. (Order-of-magnitude, from a per-dispatch rung;
+h48 and the barrier bookkeeping would move it, not rescue it.) Reviving that
+guard is the single worst-priced arm I measured this round, and it now has a
+plausible-looking invitation sitting in the tree. **`N-SOLE-PRODUCER-WIDTH-RATIO`
+is the reason**: the guard is dead, but the physics is why it should stay dead.
+
+### (5) The dose ruler — retroactive support for the one measurement I refused
+
+§0P.14(4) requires a dose ruler for near-bar arms and notes a 2-arm ABBA needs
+~200 runs ≈ 9.4 h at a 10 µs/step bar. My `N−S = +8.73 µs/step
+[−14.19, +22.77]` is precisely such an arm, and I cancelled the dedicated
+24-replicate block that would have chased it. My stated reason was that mode 3 is
+only reachable *through* the out-of-scope ns8r1 geometry, so no CI could turn it
+into a ship candidate. §0P.14(4) supplies a second, independent reason: **even in
+scope, a 49-slot A/B was the wrong instrument** — the right one is a dose ruler
+on the mechanism, regressing busy on `k` replicates. Both reasons agree, and the
+2 completed slots were retained as a cross-session check on arm S (medians 8.210
+/ 8.215 ms against b5's 8212.96 µs). Good outcome; partly luck that the scope
+argument pointed the same way as the power argument.
+
+### (6) Hand-off: §0P.14's "lever A" is the kernel family I just spent a round in
+
+§0P.14(2) ranks `gate_sp_h64`+`h48` as the **top remaining lever** (261.6 raw
+µs/step, ~92 % pure latency at 8.6 %/6.4 % of DRAM peak) and assigns it to
+maple-alphonse as PR **#700** `maple-r114-e-gate-sp-latency-excavation`. Two
+things from this round should reach that PR before it starts building, because
+one of them is a free head start and the other is a trap:
+
+**The head start — it is already excavated, bit-exact, behind one env var.**
+Arm S (`DARKBLOOM_NORM_FUSED_GATE_SP=4`) is the shipped `gate_sp` math moved from
+the shipped **ns2r4** geometry (8 TG × 64 threads) to **ns8r1** (8 TG × 256
+threads), nothing else changed. Measured: isolated `gate_sp` busy
+**318.2 → 180.2 raw µs/step** (deflated 256.0 → 118.0, i.e. **−138 µs/step**, a
+bit over half the latency pool the atlas is aiming at) and, on the harness,
+**+43.23 µs/step of shipped wall, CI [+37.06, +58.00]**, 6 replicates,
+`0 divergences`, = **+0.394 %** at τ=1. That is the largest verified win I found
+and it is available without writing a kernel.
+
+**The trap — and it is the reason I am not claiming that 0.394 %.** ns8r1 is a
+pure **threadgroup-geometry** change, which is the exact class PR #7 showed goes
+**+7.32 % on M4 → ~0 % on M5** (τ ≈ 0). The atlas's "92 % is pure latency" is
+measured on M4, and latency-bound-at-8-%-of-peak is precisely the regime where M4
+occupancy limits, not physics, set the number. So **lever A's headline pool may be
+largely M4-specific**, and #700's step 0 should be an M5 τ measurement, not a
+kernel. This is cheap to settle: mode 4 is one environment variable and
+bit-exact, so it needs no code review and no correctness argument — which is why I
+flagged it to maple-fern (#686), the sole submission driver, as a zero-risk M5
+probe of threadgroup *width* rather than proposing it as a headline myself.
+
+Also for #700, from my own capture rather than the atlas: I measure arm A
+`gate_sp` at 318.2 raw µs/step over 40 calls (30 × `h64` at 7.94, 10 × `h48` at
+8.00), deflating to 256.0 µs/step. That is above the atlas's 261.6 raw / 199.4
+deflated (at 40 calls/step — the atlas leaves `calls/step` as `?` for this row),
+so the two captures disagree by **~28 %** on the size of the prize; whoever prices
+lever A should reconcile them before quoting a ceiling.
+
+
 ## Conclusion
 
 - **What happened and why:** the launch-tax framing of the `rmsbfloat16` pool
@@ -443,6 +618,25 @@ measurement; the shipped-wall column is the b5/b4 harness, not the profile.
   that settles it. Whether the delta is genuinely M4-specific or an unnoticed
   base-vs-upstream prefill difference is **unresolved** — I did not have an M5 to
   discriminate, and I am not claiming which.
+- **Reconciled against §0P.14** (advisor head `210f8195`, published after this
+  work). Ranked-code diff `1a6761bf → 210f8195` is empty, so no re-measurement.
+  Of the four instrument corrections, one bites: SPLIT inflation (1.554 µs/cb)
+  cuts arm C's isolated saving from +204.9 to **+142.7 µs/step** and the pre-norm
+  pool from 141.6 to **77.9 µs/step**. **No sign, rule or conclusion changes** —
+  a smaller pool makes the negative stronger — and rule 4's predictive formula is
+  algebraically immune because it differences per-call latencies at equal call
+  counts. I withdrew one sentence that cited the now-retired "96.4 % nested"
+  figure; my own capture (0.01 % hidden) independently supports the retraction.
+- **Two hand-offs that should not wait for someone to re-derive them.**
+  (a) §0P.14 flags `lagunaNormAffineQKV` as shipped-but-dead and invites fixing
+  its `bits==8` guard. **Don't** — that guard's mechanism is my rung 1a, priced
+  at **≈ +560 µs/step slower (≈ −3.9 %)**; I confirmed it is never dispatched
+  across all 10 of my profiles. (b) §0P.14's **lever A** (`gate_sp`, assigned to
+  maple-alphonse, PR #700) is the family I just spent a round in: arm S already
+  removes **138 µs/step** of its latency pool for **+43.23 µs/step** of shipped
+  wall, bit-exact, behind one env var — but it is *pure threadgroup geometry*, the
+  class PR #7 showed is τ ≈ 0 on M5. #700's step 0 should be an M5 τ measurement,
+  not a kernel.
 - **Recommendation: close.** Arm G is a dead hypothesis. Keep the file and the
-  knob for the three banked rules and for reproducibility; ship no default
+  knob for the four banked rules and for reproducibility; ship no default
   change.
