@@ -178,3 +178,37 @@ including the N2 control. Consequence, registered now: the N2 control is the
 shipped *geometry* but not the shipped *dispatch*, so a win for N8 over N2 is
 **not** by itself a licence to land — landing additionally requires beating the
 shipped appended configuration, which is a second, separate campaign.
+
+### 1.8 Amendment, still before any timing: the mechanism is probably already saturated
+
+Added after 1.1–1.7 and before the first arm ran, so it is part of the
+pre-registration and not a post-hoc rescue. It sharpens the prediction from
+"probably null" to "null for a stated structural reason".
+
+R122-B's AGX forensics on this exact kernel established
+`staticThreadgroupMemoryLength = 0 B`, and the source contains **no
+`threadgroup` declaration and no `threadgroup_barrier`**. There is therefore no
+threadgroup-scoped storage in this kernel at all: raising `ns` does not create
+any explicit sharing between simdgroups. Whatever reuse exists is *implicit*,
+in the per-core data cache.
+
+That changes the arithmetic in §1.4 qualitatively. Apple GPU threadgroups are
+resident on one core, so simdgroups within a threadgroup are guaranteed to share
+that core's L1; simdgroups in different threadgroups are not. But at `ns = 2`
+this kernel already launches **5120 threadgroups over 20 cores = 256
+threadgroups per core** (h64), and every one of them reads the *same* 4096-byte
+activation row. So the row is L1-resident on every core after the first
+threadgroup touches it, in every arm of the ladder. The true L2 → L1 activation
+traffic is on the order of *one row per core per invocation* — 20 × 4096 B =
+**80 KB**, not the 15.7 MB the fetch-count model assigns to `ns = 2`.
+
+Pre-registered consequence: the fetch-count model of §1.4 overcounts by
+~200×, the shared-L1 headroom on this kernel is ~0, and the expected result is
+**N8 ≈ N2 ≈ N4, all CIs containing zero**, with any residual movement
+attributable to dispatch/launch-tail effects rather than cache reuse. If instead
+a large win appears, this paragraph is wrong and the interesting question
+becomes *what* is L1-resident that I think is.
+
+This also predicts where frieren's win must come from: not from the shared
+activation row (which is equally L1-resident at 64 and 256 threads/TG on that
+kernel too), but from something `ns`-sensitive that is *not* cache reuse.
