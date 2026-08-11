@@ -11,6 +11,12 @@
 #   G = DARKBLOOM_GRID_APPEND=23   both appended
 #   E = DARKBLOOM_GRID_APPEND=0 + DARKBLOOM_DECODE_QKV_GATE_FUSED=0
 #       R114-E reproduction probe on the merged head (gate->QKV fusion off)
+#   R = DARKBLOOM_GRID_APPEND=5    router guest appended, guest result dropped,
+#       so the standalone tournament dispatch stays live. R - H prices the
+#       39 removed dispatch chains; R - C prices the fusion tax alone.
+#   W = DARKBLOOM_GRID_APPEND=0 + DARKBLOOM_SHARED_QMV_WIDE8=1
+#       shared-expert SwiGLU host widened to TG (256,1,1) / 64 tiles, nothing
+#       appended: the host-widening neutrality gate
 #
 # Each run is one isolated worker process driven by research/decode_probe.py:
 # a 512-token seed forward followed by --steps single-token decode steps, with
@@ -32,10 +38,11 @@ mkdir -p "$OUTDIR"
 
 arm_mode() {
   case "$1" in
-    C|N|E) echo 0 ;;
+    C|N|E|W) echo 0 ;;
     F) echo 2 ;;
     H) echo 3 ;;
     G) echo 23 ;;
+    R) echo 5 ;;
     *) echo "unknown arm $1" >&2; exit 2 ;;
   esac
 }
@@ -50,13 +57,16 @@ for (( n=0; n<${#ORDER}; n++ )); do
   mode=$(arm_mode "$arm")
   qkv=1
   [[ "$arm" == "E" ]] && qkv=0
+  wide8=0
+  [[ "$arm" == "W" ]] && wide8=1
   DARKBLOOM_GRID_APPEND="$mode" DARKBLOOM_DECODE_QKV_GATE_FUSED="$qkv" \
+    DARKBLOOM_SHARED_QMV_WIDE8="$wide8" \
     python3 research/decode_probe.py \
     --steps "$STEPS" --dump-steps "$csv" \
     --stderr "$OUTDIR/${tag}.worker.err" > "$log" 2>&1
   rc=$?
   div=$(grep -o 'teacher-forced greedy tokens: [0-9]* divergences' "$log" | awk '{print $4}')
   med=$(grep -o 'median=[0-9.]*' "$log" | head -1 | cut -d= -f2)
-  printf '%d\t%s\tmode=%s\trc=%d\tdivergences=%s\tmedian_ms=%s\n' \
-    "$i" "$arm" "$mode" "$rc" "${div:-NA}" "${med:-NA}"
+  printf '%d\t%s\tmode=%s\twide8=%s\trc=%d\tdivergences=%s\tmedian_ms=%s\n' \
+    "$i" "$arm" "$mode" "$wide8" "$rc" "${div:-NA}" "${med:-NA}"
 done

@@ -7124,7 +7124,8 @@ private func lagunaSharedSwiGLUQMVRows1Source(
     weightName: String = "fused_weight",
     scalesName: String = "fused_scales",
     outputName: String = "activated",
-    tileExpr: String = "threadgroup_position_in_grid.x"
+    tileExpr: String = "threadgroup_position_in_grid.x",
+    rowsPerTile: Int = 2
 ) -> String {
     let scaleRowBytes = halved ? 64 : 128
     let patch =
@@ -7150,7 +7151,7 @@ constexpr uint values_per_lane = 16;
 uint tile = \(tileExpr);
 uint simd_group = simdgroup_index_in_threadgroup;
 uint lane = thread_index_in_simdgroup;
-uint row = tile * 2 + simd_group;
+uint row = tile * \(rowsPerTile) + simd_group;
 
 const device uint8_t* gate_row_weight =
     (const device uint8_t*)\(weightName) +
@@ -7221,6 +7222,21 @@ private let lagunaSharedSwiGLUQMVRows1HalvedKernel = MLXFast.metalKernel(
     header: lagunaSharedSwiGLUQMVHeader,
     ensureRowContiguous: true
 )
+
+/// Same 512 output rows as the halved kernel, packed into 64 threadgroups of
+/// 256 threads instead of 256 threadgroups of 64, so a guest tile appended to
+/// this host can be a full 256-thread threadgroup.
+private let lagunaSharedSwiGLUQMVRows1Halved8Kernel = MLXFast.metalKernel(
+    name: "laguna_shared_nvfp4_swiglu_qmv_rows1_halved_wide8_bf16_v1",
+    inputNames: ["input", "fused_weight", "fused_scales"],
+    outputNames: ["activated"],
+    source: lagunaSharedSwiGLUQMVRows1Source(halved: true, rowsPerTile: 8),
+    header: lagunaSharedSwiGLUQMVHeader,
+    ensureRowContiguous: true
+)
+
+let lagunaSharedQMVWide8Enabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_QMV_WIDE8"] == "1"
 
 
 
@@ -7343,19 +7359,26 @@ func lagunaSharedSwiGLUQMV(
                 LagunaConstants.hiddenSize / 16))
     }
 
+    let wide8 = halved && !lagunaSharedQMVWideCodesEnabled && lagunaSharedQMVWide8Enabled
+    if wide8 {
+        lagunaTrace("shared gate/up QMV + SwiGLU (wide8 host)")
+    }
     let kernel =
         halved
         ? (lagunaSharedQMVWideCodesEnabled
             ? lagunaSharedSwiGLUQMVRows1WideKernel
-            : lagunaSharedSwiGLUQMVRows1HalvedKernel)
+            : (wide8
+                ? lagunaSharedSwiGLUQMVRows1Halved8Kernel
+                : lagunaSharedSwiGLUQMVRows1HalvedKernel))
         : (lagunaSharedSwiGLUQMVRows1Enabled
             ? lagunaSharedSwiGLUQMVRows1Kernel
             : lagunaSharedSwiGLUQMVKernel)
-    let tiles = lagunaSharedSwiGLUQMVRows1Enabled ? 256 : 128
+    let threads = wide8 ? 256 : 64
+    let tiles = wide8 ? 64 : (lagunaSharedSwiGLUQMVRows1Enabled ? 256 : 128)
     return kernel(
         [input, fusedWeight, fusedScales],
-        grid: (tiles * 64, 1, 1),
-        threadGroup: (64, 1, 1),
+        grid: (tiles * threads, 1, 1),
+        threadGroup: (threads, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.sharedExpertIntermediateSize]],
         outputDTypes: [.bfloat16]
     )[0]
@@ -8210,11 +8233,16 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
 }
 
 /// `"0"` off, `"2"` shared-expert SwiGLU appended, `"3"` router top-8 appended,
-/// `"23"` both. The appended tiles lead the routed grid.
+/// `"23"` both. The appended tiles lead the routed grid. `"5"` is an attribution
+/// arm only: it appends the router guest exactly as `"3"` does but drops the
+/// guest's result, so the standalone tournament dispatch stays live and the
+/// `"5"` minus `"3"` difference isolates that dispatch chain's wall cost.
 let lagunaGridAppendMode =
     ProcessInfo.processInfo.environment["DARKBLOOM_GRID_APPEND"] ?? "23"
 let lagunaGridAppendSharedEnabled = lagunaGridAppendMode.contains("2")
-let lagunaGridAppendRouterEnabled = lagunaGridAppendMode.contains("3")
+let lagunaGridAppendRouterDiscardEnabled = lagunaGridAppendMode.contains("5")
+let lagunaGridAppendRouterEnabled =
+    lagunaGridAppendMode.contains("3") || lagunaGridAppendRouterDiscardEnabled
 
 private let lagunaSharedAppendTiles = 256
 private let lagunaRouterAppendTiles = 1
@@ -11231,7 +11259,9 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                         if let appended {
                             activated = appended.routed
                             mergedSharedActivated = appended.shared
-                            if let gateOut = appended.gate {
+                            if let gateOut = appended.gate,
+                                !lagunaGridAppendRouterDiscardEnabled
+                            {
                                 inds = gateOut.0
                                 weights = gateOut.1
                             }
