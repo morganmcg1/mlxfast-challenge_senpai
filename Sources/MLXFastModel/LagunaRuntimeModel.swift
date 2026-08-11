@@ -8212,14 +8212,87 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
 /// `"0"` off, `"2"` shared-expert SwiGLU appended, `"3"` router top-8 appended,
 /// `"23"` both. The appended tiles lead the routed grid.
 let lagunaGridAppendMode =
-    ProcessInfo.processInfo.environment["DARKBLOOM_GRID_APPEND"] ?? "2"
+    ProcessInfo.processInfo.environment["DARKBLOOM_GRID_APPEND"] ?? "23"
 let lagunaGridAppendSharedEnabled = lagunaGridAppendMode.contains("2")
+let lagunaGridAppendRouterEnabled = lagunaGridAppendMode.contains("3")
 
 private let lagunaSharedAppendTiles = 256
+private let lagunaRouterAppendTiles = 1
 
-/// The shared expert and the routed experts both read the normalized row and
-/// neither consumes the other, so the shared grid is appended as leading tiles
-/// onto the routed dispatch instead of paying a second dispatch.
+/// Reproduces `laguna_prefill_router_tournament_ordinal_norm` for one decode row
+/// from the producer's `router_keys`, in one 64-thread tile instead of its own
+/// single-threadgroup dispatch. The eight extraction rounds return the same slot
+/// ordering the routed SwiGLU kernel already relies on, and the score epilogue is
+/// byte-identical to the tournament kernel's.
+private let lagunaRouterTop8AppendGuestSource = """
+    uint rt_lane = thread_position_in_threadgroup.x;
+    if (rt_lane < 32u) {
+        thread uint rt_keys[8];
+        for (uint j = 0; j < 8; ++j) {
+            rt_keys[j] = router_keys[rt_lane + 32u * j];
+        }
+        uint rt_mask = 0u;
+        uint rt_index = 0u;
+        for (uint r = 0; r < 8; ++r) {
+            uint winner = laguna_router_top8_extract_round(
+                rt_keys, rt_mask, rt_lane);
+            if (rt_lane == r) {
+                rt_index = winner;
+            }
+        }
+        float rt_score = 0.0f;
+        if (rt_lane < 8u) {
+            float rt_x = float(router_logits[rt_index]);
+            float rt_y = 1.0f / (1.0f + metal::exp(metal::abs(rt_x)));
+            rt_score = rt_x < 0.0f ? rt_y : 1.0f - rt_y;
+        }
+        float rt_total = 0.0f;
+        for (uint i = 0; i < 8; ++i) {
+            rt_total = simd_shuffle(rt_score, ushort(i)) + rt_total;
+        }
+        if (rt_lane < 8u) {
+            router_indices[rt_lane] = rt_index;
+            router_scores[rt_lane] = rt_score / rt_total;
+        }
+    }
+    return;
+"""
+
+/// The router top-8, the shared expert and the routed experts all read only the
+/// producer's outputs and none consumes another, so their grids are appended as
+/// leading tiles onto the routed dispatch instead of paying separate dispatches.
+private func lagunaRoutedGridAppendSource(shared: Bool, router: Bool) -> String {
+    var body = ""
+    var offset = 0
+    if router {
+        body += """
+if (threadgroup_position_in_grid.x < \(lagunaRouterAppendTiles)u) {
+\(lagunaRouterTop8AppendGuestSource)
+}
+
+"""
+        offset += lagunaRouterAppendTiles
+    }
+    if shared {
+        body += """
+if (threadgroup_position_in_grid.x < \(offset + lagunaSharedAppendTiles)u) {
+\(lagunaSharedSwiGLUQMVRows1Source(
+    halved: true,
+    weightName: "shared_weight",
+    scalesName: "shared_scales",
+    outputName: "shared_activated",
+    tileExpr: "threadgroup_position_in_grid.x - \(offset)u"))
+    return;
+}
+
+"""
+        offset += lagunaSharedAppendTiles
+    }
+    return body + lagunaRoutedSwiGLUQMVPackedTop8R1Source(tileOffset: offset)
+}
+
+private let lagunaRoutedGridAppendHeader = lagunaRoutedSwiGLUQMVPackedTop8R1Header
+
 private let lagunaRoutedSharedAppendKernel = MLXFast.metalKernel(
     name: "laguna_routed_shared_append_swiglu_qmv_bf16_v1",
     inputNames: [
@@ -8227,75 +8300,127 @@ private let lagunaRoutedSharedAppendKernel = MLXFast.metalKernel(
         "shared_weight", "shared_scales",
     ],
     outputNames: ["activated", "shared_activated"],
-    source: """
-constexpr uint laguna_shared_append_tiles = \(lagunaSharedAppendTiles);
-if (threadgroup_position_in_grid.x < laguna_shared_append_tiles) {
-\(lagunaSharedSwiGLUQMVRows1Source(
-    halved: true,
-    weightName: "shared_weight",
-    scalesName: "shared_scales",
-    outputName: "shared_activated"))
-    return;
-}
-\(lagunaRoutedSwiGLUQMVPackedTop8R1Source(tileOffset: lagunaSharedAppendTiles))
-""",
-    header: lagunaRoutedSwiGLUQMVPackedTop8R1Header,
+    source: lagunaRoutedGridAppendSource(shared: true, router: false),
+    header: lagunaRoutedGridAppendHeader,
     ensureRowContiguous: true
 )
 
-func lagunaRoutedSharedAppendSwiGLU(
+private let lagunaRoutedRouterAppendKernel = MLXFast.metalKernel(
+    name: "laguna_routed_router_append_swiglu_qmv_bf16_v1",
+    inputNames: [
+        "input", "fused_weight", "packed_scales", "router_keys", "router_logits",
+    ],
+    outputNames: ["activated", "router_indices", "router_scores"],
+    source: lagunaRoutedGridAppendSource(shared: false, router: true),
+    header: lagunaRoutedGridAppendHeader,
+    ensureRowContiguous: true
+)
+
+private let lagunaRoutedSharedRouterAppendKernel = MLXFast.metalKernel(
+    name: "laguna_routed_shared_router_append_swiglu_qmv_bf16_v1",
+    inputNames: [
+        "input", "fused_weight", "packed_scales", "router_keys", "router_logits",
+        "shared_weight", "shared_scales",
+    ],
+    outputNames: [
+        "activated", "shared_activated", "router_indices", "router_scores",
+    ],
+    source: lagunaRoutedGridAppendSource(shared: true, router: true),
+    header: lagunaRoutedGridAppendHeader,
+    ensureRowContiguous: true
+)
+
+private func lagunaSharedAppendBanksUsable(
+    _ sharedWeight: MLXArray, _ sharedScales: MLXArray
+) -> Bool {
+    lagunaSharedSwiGLUQMVRows1Enabled
+        && !lagunaSharedQMVWideCodesEnabled
+        && sharedWeight.dtype == .uint32
+        && sharedWeight.dims(
+            2 * LagunaConstants.sharedExpertIntermediateSize,
+            LagunaConstants.hiddenSize / 8)
+        && sharedScales.dtype == .uint8
+        && sharedScales.ndim == 1
+        && sharedScales.size == lagunaScalePatchHeaderBytes
+            + 2 * LagunaConstants.sharedExpertIntermediateSize
+            * (LagunaConstants.hiddenSize / 32)
+}
+
+func lagunaRoutedGridAppendSwiGLU(
     _ input: MLXArray,
     fusedWeight: MLXArray,
     packedScales: MLXArray,
     routerKeys: MLXArray,
-    sharedWeight: MLXArray,
-    sharedScales: MLXArray
-) -> (routed: MLXArray, shared: MLXArray)? {
-    guard lagunaGridAppendSharedEnabled,
-        lagunaRoutedGateUpR1Enabled,
-        lagunaSharedSwiGLUQMVRows1Enabled,
-        !lagunaSharedQMVWideCodesEnabled,
+    sharedBanks: (gateUpWeight: MLXArray, gateUpScales: MLXArray)?,
+    routerLogits: MLXArray?
+) -> (routed: MLXArray, shared: MLXArray?, gate: (MLXArray, MLXArray)?)? {
+    guard lagunaRoutedGateUpR1Enabled,
         input.dtype == .bfloat16,
         input.dims(1, 1, LagunaConstants.hiddenSize),
         fusedWeight.dtype == .uint32,
         packedScales.dtype == .uint8,
         packedScales.size == lagunaPackedRoutedGateUpScaleBytes,
         routerKeys.dtype == .uint32,
-        routerKeys.size == LagunaConstants.numExperts,
-        sharedWeight.dtype == .uint32,
-        sharedWeight.dims(
-            2 * LagunaConstants.sharedExpertIntermediateSize,
-            LagunaConstants.hiddenSize / 8),
-        sharedScales.dtype == .uint8,
-        sharedScales.ndim == 1,
-        sharedScales.size == lagunaScalePatchHeaderBytes
-            + 2 * LagunaConstants.sharedExpertIntermediateSize
-            * (LagunaConstants.hiddenSize / 32)
+        routerKeys.size == LagunaConstants.numExperts
     else {
         return nil
     }
+    let shared: (gateUpWeight: MLXArray, gateUpScales: MLXArray)? =
+        lagunaGridAppendSharedEnabled
+        ? sharedBanks.flatMap {
+            lagunaSharedAppendBanksUsable($0.gateUpWeight, $0.gateUpScales)
+                ? $0 : nil
+        } : nil
+    let logits: MLXArray? =
+        lagunaGridAppendRouterEnabled
+        ? routerLogits.flatMap {
+            $0.dtype == .bfloat16 && $0.size == LagunaConstants.numExperts
+                ? $0 : nil
+        } : nil
+    guard shared != nil || logits != nil else { return nil }
 
-    lagunaTrace("routed+shared gate/up QMV + SwiGLU (grid append)")
-    let outputs = lagunaRoutedSharedAppendKernel(
-        [
-            input, fusedWeight, packedScales, routerKeys, sharedWeight,
-            sharedScales,
-        ],
-        grid: (
-            (lagunaSharedAppendTiles + LagunaConstants.numExpertsPerTok * 256)
-                * 64, 1, 1
-        ),
+    let tiles =
+        (shared == nil ? 0 : lagunaSharedAppendTiles)
+        + (logits == nil ? 0 : lagunaRouterAppendTiles)
+        + LagunaConstants.numExpertsPerTok * 256
+    let routedShape = [
+        1, 1, LagunaConstants.numExpertsPerTok, 1,
+        LagunaConstants.moeIntermediateSize,
+    ]
+    let sharedShape = [1, 1, LagunaConstants.sharedExpertIntermediateSize]
+    let gateShape = [1, 1, LagunaConstants.numExpertsPerTok]
+
+    lagunaTrace("routed gate/up QMV + SwiGLU (grid append \(lagunaGridAppendMode))")
+    var inputs = [input, fusedWeight, packedScales, routerKeys]
+    if let logits { inputs.append(logits) }
+    if let shared { inputs += [shared.gateUpWeight, shared.gateUpScales] }
+    var shapes = [routedShape]
+    var dtypes: [DType] = [.bfloat16]
+    if shared != nil {
+        shapes.append(sharedShape)
+        dtypes.append(.bfloat16)
+    }
+    if logits != nil {
+        shapes += [gateShape, gateShape]
+        dtypes += [.uint32, .float32]
+    }
+    let kernel =
+        shared == nil
+        ? lagunaRoutedRouterAppendKernel
+        : (logits == nil
+            ? lagunaRoutedSharedAppendKernel : lagunaRoutedSharedRouterAppendKernel)
+    let outputs = kernel(
+        inputs,
+        grid: (tiles * 64, 1, 1),
         threadGroup: (64, 1, 1),
-        outputShapes: [
-            [
-                1, 1, LagunaConstants.numExpertsPerTok, 1,
-                LagunaConstants.moeIntermediateSize,
-            ],
-            [1, 1, LagunaConstants.sharedExpertIntermediateSize],
-        ],
-        outputDTypes: [.bfloat16, .bfloat16]
+        outputShapes: shapes,
+        outputDTypes: dtypes
     )
-    return (outputs[0], outputs[1])
+    let sharedOut = shared == nil ? nil : outputs[1]
+    let gateOut =
+        logits == nil
+        ? nil : (outputs[outputs.count - 2], outputs[outputs.count - 1])
+    return (outputs[0], sharedOut, gateOut)
 }
 
 private let lagunaRoutedDownReduceKernel = MLXFast.metalKernel(
@@ -11035,7 +11160,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
         _ x: MLXArray, residual: MLXArray?, routerLogits: MLXArray?,
         routerKeys: MLXArray? = nil
     ) -> MLXArray {
-        let (inds, weights) = gate(x, logits: routerLogits)
+        var (inds, weights) = gate(x, logits: routerLogits)
         var y: MLXArray
         var routedAlreadyReduced = false
         var sortedTailInverseOrder: MLXArray?
@@ -11085,20 +11210,31 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                         gate.routerLogitSoftcapping == 0,
                         gate.eScoreCorrectionBias.size == LagunaConstants.numExperts
                     {
-                        let appended = sharedExpert.fusedSharedBanks(x).flatMap {
-                            banks in
-                            lagunaRoutedSharedAppendSwiGLU(
-                                x,
-                                fusedWeight: fusedWeight,
-                                packedScales: packedBank,
-                                routerKeys: routerKeys,
-                                sharedWeight: banks.gateUpWeight,
-                                sharedScales: banks.gateUpScales
-                            )
-                        }
+                        let routerAppendable =
+                            gate.normTopkProb
+                            && lagunaDecodeRouterTop8Enabled
+                            && lagunaDecodeRouterCastSinkEnabled
+                            && lagunaDecodeRouterNormSinkEnabled
+                            && lagunaDecodeRouterOrdinalEnabled
+                            && lagunaDecodeRouterOrdinalScoreTableEnabled
+                            && lagunaDecodeRouterTournamentEnabled
+                        let appended = lagunaRoutedGridAppendSwiGLU(
+                            x,
+                            fusedWeight: fusedWeight,
+                            packedScales: packedBank,
+                            routerKeys: routerKeys,
+                            sharedBanks: sharedExpert.fusedSharedBanks(x).map {
+                                (gateUpWeight: $0.gateUpWeight, gateUpScales: $0.gateUpScales)
+                            },
+                            routerLogits: routerAppendable ? routerLogits : nil
+                        )
                         if let appended {
                             activated = appended.routed
                             mergedSharedActivated = appended.shared
+                            if let gateOut = appended.gate {
+                                inds = gateOut.0
+                                weights = gateOut.1
+                            }
                         } else {
                             lagunaTrace(
                                 "routed gate/up QMV + SwiGLU (packed, producer keys)")
