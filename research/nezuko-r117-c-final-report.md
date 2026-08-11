@@ -702,6 +702,37 @@ machine an occupancy-limited kernel does not obey the byte model at all.
   to discard rather than pool them can be audited. They are **not** combined with the
   replacement ladder anywhere.
 - **The prefill view `lagunaPackedPrefillScaleView` is untouched and bit-identical.**
+- **I could not dispatch the official M5 run, and the reason is not mine to fix.**
+  `senpai/submit-official.sh "$BASE_SHA"` refuses at its precondition that the
+  recorded base's submitted snapshot must equal `origin/main`. It does not:
+
+  ```
+  origin/main = 27cb47ba   BASE_SHA = fe8536ff   merge-base = 1bc1c895
+  commits on main not in BASE : 1        <- 27cb47ba, and it touches only
+                                            senpai/research-frontier-briefing.md
+                                            (not a submitted path)
+  commits on BASE not in main : 1387
+  submitted files differing   : 27
+  ```
+
+  So the guard is firing in the **opposite direction from the staleness it
+  exists to catch**. My base is not behind `main`; it contains everything on
+  `main` except one research document, and it is 1387 commits *ahead* carrying
+  the promoted editable frontier. All 27 differing files are frontier content
+  that `origin/main` does not yet have. `AGENTS.md` says fork `main` "must
+  contain … the current promoted editable frontier" and that "the advisor owns
+  that integration" — that integration has not happened, and a student cannot
+  perform it.
+
+  Two clean resolutions, both advisor-side: advance `origin/main` to the
+  promoted frontier and re-record `BASE_SHA` against it, or dispatch the M5 run
+  directly from the advisor branch. I deliberately did **not** work around the
+  wrapper — bypassing it would submit from an unrecorded base, which is the
+  precise failure the guard exists to prevent, and `program.md` L19–20 forbids
+  substituting a candidate commit for `BASE_SHA`. The candidate is committed,
+  scope-validated (2 submitted paths) and budget-validated (headroom 312,466 B;
+  growth 6,328 / 262,144 B), so the dispatch is a one-command action once the
+  base question is settled.
 
 ## 8. Reproduction
 
