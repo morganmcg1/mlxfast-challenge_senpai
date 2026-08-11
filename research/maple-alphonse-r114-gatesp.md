@@ -427,6 +427,219 @@ reasoned. If that pushes the QKV path over an occupancy cliff and spills
 main way the arm can come back **correct but slower**, and it is exactly what
 the paired ABBA measures.
 
+### 3.4 The paired ABBA: **−76.8 µs/step, 95 % CI [−102.2, −51.4]**
+
+**Instrument.** `research/maple-alphonse-r114-gatesp-fusion-abba.sh`, 36 runs of
+`./benchmark.sh --local-iterate` in order `CFFC` × 9, SPLIT=0 (uninstrumented),
+`MLXFAST_LOCAL_FAN_PROMPT=0`, M4 Pro / 20 GPU cores / 48 GiB. **Both arms come
+from one build**; the selector is `DARKBLOOM_DECODE_QKV_GATE_FUSED`, read once
+per worker process, so no rebuild can confound the comparison. All 36 runs
+report `passed_correctness: true`. Raw data
+`/tmp/r114-gatesp-fusion.tsv` (12) and `/tmp/r114-gatesp-fusion-2.tsv` (24);
+statistics `research/maple-alphonse-r114-gatesp-abba-stats.py`.
+
+Palindromic `CFFC` blocking is the answer to the **+53.59 µs/step block-lead
+spike (se 29.9)** the brief warns about: control never occupies slot 1 alone,
+and a linear drift cancels inside each block.
+
+| arm | n | mean decode s/token | run-to-run sd |
+|---|---:|---|---:|
+| C — shipped two-dispatch path | 18 | 0.0129820197 | 46.5 µs (0.36 %) |
+| F — fused grid-append | 18 | 0.0129052344 | 43.2 µs (0.34 %) |
+
+**Point estimate F − C = −76.8 µs/step = −0.591 %.** Three estimators, and
+because the design is balanced they share that point estimate exactly and
+differ only in the variance model:
+
+| estimator | n / df | sd | se | 95 % CI (µs/step) | sign |
+|---|---:|---:|---:|---|---|
+| block (per `CFFC` quadruple) | 9 | 33.1 | 11.0 | **[−102.2, −51.4]** | 9/9 negative |
+| adjacent (disjoint C/F pairs) | 18 | 43.2 | 10.2 | **[−98.3, −55.3]** | 17/18 negative |
+| unpaired Welch (pairing discarded) | 33 | — | 15.0 | **[−106.1, −47.5]** | — |
+
+**All three exclude zero and all three clear the 36 µs/step bar.** The
+unpaired interval is the conservative one — it throws away the blocking
+entirely — and it still clears. I report the **block** interval as the headline
+because it is the estimator whose assumptions the design was built to satisfy.
+
+Prefill moves −2.5 µs/token (−0.224 %), C sd 11.5 µs vs F sd 8.8 µs. I do not
+claim prefill: the fused kernel is a decode-path kernel and the 12-run subset
+gave −5.0 µs, so this is drift, not signal. It is reported because prefill is
+scored and the sign is not adverse.
+
+**Growth path for the interval.** The 12-run subset gave −65.4 µs with a block
+CI of [−209.6, +78.7] (straddling) and an adjacent CI of [−123.6, −7.3]. Going
+to 36 runs moved the point estimate by 11 µs and cut the block se from 33.5 to
+11.0. The two estimators, which disagreed at n=12 about whether zero was
+excluded, now agree. That convergence is the reason I did not stop at 12.
+
+#### What it is worth
+
+At the corrected price of **0.0084 %/wall-µs** (`%score = 0.75 · Δ/8972`):
+
+| transfer model | assumption | score |
+|---|---|---:|
+| absolute | the µs saved on M4 are saved on M5 | **+0.64 %** |
+| relative | the −0.591 % fraction carries to M5 | **+0.45 %** |
+
+Both are far above the campaign's +0.25 % threshold (+18.5 pp of crown
+probability). The absolute model is the more apt one for a dispatch-shaped
+saving — per-dispatch host cost does not scale with GPU throughput — but the
+M5's host side is faster than this M4's, so I quote the **relative +0.45 %** as
+the number I would defend, and note that neither model is measurable here.
+
+#### The point estimate slightly exceeds its own ceiling
+
+§1.4 priced the dispatch-shaped pool at **74.6 µs/step** (50.0 glue + 24.6
+unattributed residual). The measured −76.8 µs is **2.2 µs above** it, well
+inside the block interval's ±25 µs. Two readings, and §3.5 is built to separate
+them:
+
+1. the ceiling is simply 2.2 µs low — the residual row is a balancing term and
+   absorbs everyone else's error; or
+2. part of the saving is **not** dispatch-shaped at all: the 8 gate tiles, once
+   appended to a 5120-tile grid, are co-scheduled onto cores that the
+   DRAM-bound QKV tiles leave idle, so some of `gate_sp`'s 186.9 µs/step of
+   in-kernel latency is now *hidden* rather than merely un-dispatched.
+
+Reading 2 matters a great deal for τ_xfer: hidden real work is τ ≈ 1-class,
+not τ ≈ 0.01-class. I do not assume it. §3.5 measures it.
+
+**§3.5 resolves this in favour of reading 2**, and by a wide margin: the fused
+kernel absorbs 93.8 % of `gate_sp`'s serialized GPU busy time. The ceiling was
+built for a dispatch-only mechanism and does not bind this arm.
+
+### 3.5 Busy attribution: **reading 2 is correct — 93.8 % of `gate_sp`'s busy is absorbed, not un-dispatched**
+
+`research/maple-alphonse-r114-gatesp-split1-arms.sh` applies the PR-91 GPUPROF
+hook, builds **one** instrumented worker, and takes three `decode_probe`
+captures at `MLXFAST_GPUPROF_SPLIT=1` × 200 steps in the order **C1, F1, C2**.
+The control is captured on both sides of the fused arm so the control repeat
+price bounds drift for every quantity that gets differenced. Raw logs:
+`/tmp/r114-split1-arms/{C1,F1,C2}.log`, job `221137e5`, wall clock 03:07–03:10Z.
+Arithmetic: `research/maple-alphonse-r114-gatesp-split1-attrib.py`.
+
+Both instrumented arms reported `teacher-forced greedy tokens: 0 divergences`.
+
+**Control repeat price (C2 − C1), µs/step:** wall −3.0, busy +4.0, gap −7.0,
+`gate_sp` −0.6, `qkv` +0.2. Every difference below is 30–500× that.
+
+| µs/step | C (mean of C1,C2) | F1 | Δ |
+|---|---|---|---|
+| `gate_sp_h64` + `gate_sp_h48` busy | 317.3 | 0 (gone) | |
+| `decode_nvfp4_qkv_h64/h48` busy | 1706.2 | 1725.8 (fused) | |
+| **targeted busy total** | **2023.5** | **1725.8** | **−297.7** |
+| total GPU busy | 8556.0 | 8242.0 | −314.0 |
+| gap (all dispatches) | 1218.5 | 990.0 | −228.5 |
+| **probe wall** | **9773.5** | **9232.0** | **−541.5** |
+| dispatches/step | 406 | 366 | **−40** |
+
+`Δwall = Δbusy + Δgap` closes to +1.0 µs. Dispatches fall by **exactly 40**,
+confirming the fusion removes the 40 `gate_sp` launches and nothing else.
+
+Per call, this is the whole story:
+
+| | gate alone | qkv alone | sum | fused | qkv grew by |
+|---|---|---|---|---|---|
+| h64 (30/step) | 7.90 | 44.77 | 52.67 | **45.24** | **+0.47** |
+| h48 (10/step) | 8.02 | 36.31 | 44.33 | **36.85** | **+0.54** |
+
+Appending the 8 gate threadgroups to the QKV grid costs **0.47–0.54 µs/call**.
+Running those same threadgroups as their own dispatch costs **7.90–8.02
+µs/call**. **93.8 % of `gate_sp`'s serialized GPU busy time disappears** —
+19.6 µs/step of added busy against 317.3 µs/step standalone.
+
+Per-kernel nesting confirms the accounting basis: within each arm
+`laguna_gate_sp` shows 0.70–0.92 % nesting and `laguna_decode_nvfp4_qkv`
+0.17–0.19 %, i.e. at `SPLIT=1` the two target kernels are effectively
+serialized and `busy_sum` for them is additive. (The tool's global
+`busy_sum/busy_union = 1.09–1.10` and its "NOT SPLIT=1" warning come from
+0.8 % of command buffers carrying more than one dispatch — prefill and lmhead
+work outside the two kernels of interest. It does not touch the rows above.)
+
+**Verdict — `N-GRIDAPPEND-ABSORBS-LATENCY`.** The saving is *not* purely
+dispatch-shaped. It has two mechanisms, and at `SPLIT=1` the larger one is
+in-kernel: 55 % of the serialized Δwall is absorbed busy (−297.7 of −541.5) and
+42 % is gap. §3.4's "2.2 µs above the ceiling" is therefore not an arithmetic
+paradox and not measurement error: the 74.6 µs/step dispatch-shaped pool was
+computed for a dispatch-only mechanism, and this arm has a second source the
+ceiling never counted. **The ceiling does not bind this arm.**
+
+The mechanism is the one §1.5/§1.6 predicted. `gate_sp` launches 8
+threadgroups onto 20 cores and reaches 51.3 GB/s — 47 % of what 8 threadgroups
+can attain — because it is memory-*latency* bound, not bandwidth bound. Its
+cost is mostly idle cores waiting on DRAM. Appended to a grid whose QKV tiles
+are themselves waiting on DRAM, those 8 tiles issue their loads into slots that
+were already stalled, and the union of the two is barely longer than the QKV
+tiles alone. This also disposes of the independent review's flagged risk
+(§3.3): if the fused kernel's register allocation — the union over both
+branches — had cost occupancy, the QKV portion would have slowed down. It grew
+by 1.0 % (h64) and 1.5 % (h48), which is the gate tiles' own execution plus any
+occupancy loss, jointly immaterial.
+
+#### 3.5.1 `N-ATLAS-SPLIT1-OVERSTATES-OVERLAPPABLE` — the atlas needs a discount
+
+The same three captures calibrate the tool the whole round is being steered by,
+and this is the finding with the longest shelf life.
+
+Deflating the SPLIT=1 Δwall by the atlas's own per-dispatch instrumentation
+constant (40 × 1.554 = 62.2 µs) gives a **serialized-world saving of 479.3
+µs/step**. The scored `SPLIT=0` measurement is **76.8 µs/step**. So:
+
+- **16.0 %** of the serialized saving survives into the real pipeline. The other
+  84 % is work MLX's existing `SPLIT=0` dispatch pipelining *already* overlaps,
+  and which forced serialization credits to the fusion by construction.
+- Against the R109-E atlas entry for `gate_sp` (261.6 µs/step, already
+  SPLIT-corrected per §0.1), the realized wall is **29.4 %**.
+
+This arm is close to the best case for that atlas row — it removes 100 % of the
+kernel's dispatches and 93.8 % of its serialized busy — and it returns under a
+third of the row. The reason is structural, not a bug: **`SPLIT1_INFLATION_US`
+corrects for per-dispatch instrumentation overhead only. It does not correct
+for the loss of dispatch overlap that `SPLIT=1` also imposes.** For a large
+kernel that saturates the machine on its own, that omission is harmless,
+because there was little overlap to lose. For a small, latency-bound,
+overlappable kernel it is the dominant error, and the atlas overstates
+recoverable wall — here by **3.4×**.
+
+Practical rule for picking the next lever off that table: an atlas row's
+realizable wall should be discounted by how overlappable the kernel is. The
+cheap proxy is threadgroup count — a row whose kernel launches fewer
+threadgroups than the machine has cores is a row whose atlas figure is mostly
+already hidden at `SPLIT=0`. All three §5 follow-ups are of exactly this shape,
+so their ≈80–108 µs/step estimates should be read as **≈25–30 µs/step** each
+until measured. That reduces the combined §5 ceiling from ≈−215 µs/step to
+≈−60 µs/step, which is barely above this round's 36 µs bar, and is the single
+most decision-relevant number in this note.
+
+#### 3.5.2 What this does to the τ_xfer argument
+
+§4.3 argues the M4→M5 transfer risk as a risk. §3.5 sharpens it by splitting
+the surviving 76.8 µs/step into two mechanisms with different transfer
+behaviour:
+
+- **Gap / dispatch glue** — host- and driver-side, roughly independent of GPU
+  throughput. The M5's host side is faster, so this component likely shrinks in
+  absolute µs.
+- **Absorbed in-kernel latency** — depends on there being idle cores for the
+  appended tiles. The M5 Max has *more* GPU cores than this M4 Pro's 20, so a
+  standalone 8-threadgroup `gate_sp` is *even more* under-occupied there, while
+  8 appended tiles remain at least as free. Directionally this component should
+  not weaken, and may strengthen as a fraction.
+
+I cannot measure either on this host, so I claim neither. The point is only
+that the arm is no longer a pure τ ≈ 0.01-class dispatch-count change, which is
+the class the round's prior was most sceptical of; a majority of its
+`SPLIT=1` mechanism is real work being hidden, and hidden work is the
+τ ≈ 1-class category. This is an argument that the transfer risk is *lower*
+than §4.3 assumes, not evidence that it is zero.
+
+One loose end I am not claiming: non-targeted busy also fell by 16.3 µs/step,
+almost all of it `sliding_fused_attn_ring_v1` (−13.3 µs/step against a control
+repeat drift of −0.8). That is larger than drift and I have no mechanism for
+it. It is 2 % of the total busy delta and I have left it unattributed rather
+than folded into the result.
+
 ## Stage 4 — τ, and a definitional problem with it
 
 Feedback `r116-e-tau-filter-and-0p15` asks me to attach a measured τ, defined as
@@ -468,22 +681,36 @@ measurement, and treat τ_xfer as an argued risk, never as a measured number.**
 
 ### 4.2 Why τ_bw is the wrong gate for *this* arm, and what the right one is
 
-This arm removes **no busy work at all**. The gate tiles execute the identical
-instruction stream on the identical bytes; they are merely appended to a grid
-that was already being dispatched. So the honest prediction is
-`D_busy ≈ 0`, which makes τ_bw = `D_wall / ~0` — unbounded, undefined, and
-useless as a filter.
+I wrote this section before §3.5 ran, and predicted that this arm removes **no
+busy work at all** — the gate tiles execute the identical instruction stream on
+the identical bytes and are merely appended to a grid that was already being
+dispatched, so `D_busy ≈ 0` and τ_bw = `D_wall / ~0` is undefined.
 
-That is not an evasion, it is the point. The τ_bw filter exists to catch arms
-that *claim* a wall win from a measured busy win. This arm never measures busy;
-its Δ is measured **directly on the scored wall clock, at SPLIT=0, paired**.
-There is no conversion step to be sceptical of. The applicable gate is
-therefore not τ_bw but:
+**§3.5 refuted that prediction.** Measured `D_busy = −314.0 µs/step` at
+`SPLIT=1`, of which −297.7 is the targeted kernels: the appended tiles cost
+0.47–0.54 µs/call instead of 7.90–8.02, because their DRAM latency now hides
+behind the QKV tiles' stalls. The instruction stream is indeed identical; what
+changed is that it no longer needs its own serialized slot. I was wrong that
+"same instructions on same bytes" implies "same busy".
 
-1. **is the wall interval real?** — §3.4, paired ABBA, SPLIT=0;
-2. **is it the mechanism I claim?** — §3.5, SPLIT=1 attribution: if fused busy
-   ≈ QKV busy + gate busy, the saving is dispatch-side, as predicted;
-3. **does it survive on M5?** — τ_xfer, §4.3, argued not measured.
+That leaves τ_bw computable but still the wrong gate, for a different reason
+than I gave. Taking the SPLIT=0 wall Δ over the SPLIT=1 busy Δ gives
+`76.8 / 314.0 = 0.24`, and that ratio is a mongrel: numerator and denominator
+come from different dispatch regimes. Within `SPLIT=1` alone the conversion is
+`541.5 / 314.0 = 1.72`, which exceeds 1 only because removing dispatches also
+removed 228.5 µs of gap. Neither number is the "did busy convert to wall"
+quantity the filter was designed to test, because `SPLIT=1` manufactures the
+very serialization whose removal it is being asked to price (§3.5.1).
+
+So the applicable gates remain:
+
+1. **is the wall interval real?** — §3.4, paired ABBA, SPLIT=0, three intervals;
+2. **is it the mechanism I claim?** — §3.5, SPLIT=1 attribution: **answered,
+   and not the mechanism I predicted**;
+3. **does it survive on M5?** — τ_xfer, §4.3 and §3.5.2, argued not measured.
+
+The Δ that is being claimed is still measured **directly on the scored wall
+clock, at SPLIT=0, paired**, with no busy→wall conversion step in it.
 
 ### 4.3 The τ_xfer argument, stated as a risk and not as a result
 
@@ -533,13 +760,19 @@ law: *add* a dispatch and wall grows. This arm removes 40 dispatches/step
 ```
 
 and §1.4's dispatch-shaped ceiling, glue plus the unattributed in-situ
-residual, is **74.6 µs/step**. The 12-run ABBA measures **−65.4 µs/step**:
-above the symmetric Rule 57 prediction, below the ceiling, at **88 % of the
-ceiling** and **132 % of the naive prediction**. The 16 µs by which it beats
-Rule 57 sits inside the 24.6 µs unattributed residual, which is where a
-per-command-buffer term that does not scale with dispatch count would live. I
-do not claim to have separated those two; I claim the total is bracketed by the
-two independent estimates that §1.4 produced before the arm existed.
+residual, is **74.6 µs/step**. The 36-run ABBA measures **−76.8 µs/step
+[−102.2, −51.4]**: **155 % of the symmetric Rule 57 prediction** and **103 % of
+the ceiling**, with both reference values sitting inside the interval. The
+27 µs by which it beats Rule 57 is the size of the 24.6 µs unattributed
+residual, which is where a per-command-buffer term that does not scale with
+dispatch count would live. I do not claim to have separated those; I claim the
+saving is bracketed by two independent estimates that §1.4 produced before the
+arm existed, which is the strongest statement the data supports.
+
+Removal is therefore **not merely symmetric with Rule 57 — it over-delivers by
+about 55 %**. A dispatch costs more to have than its marginal add-one price
+suggests, which is what you would expect if part of the cost is per-command-
+buffer rather than per-dispatch.
 
 That is the reason this arm is worth running even if it were not shippable.
 `N-DISPATCH-REMOVAL-NOT-SYMMETRIC` currently rests on a single counter-example
@@ -559,6 +792,17 @@ the price to 0.0084 %/wall-µs. At the revised price, 36 µs/step is +0.30 % and
 stricter 60.0 µs/step figure as the one that has to be cleared before I call
 this shippable rather than merely non-zero.
 
+§3.5 settles *which* of the two Rule 105.12 floors is the right one. The arm
+moves no bytes — the appended tiles read the identical `g_proj` weights the
+standalone kernel read — and its measured mechanism is absorbed memory
+*latency*. It is therefore a **latency-bound** change, so the applicable floor
+is **60.0 µs/step**. The point estimate of −76.8 µs/step clears it by 28 %.
+The honest qualifier is unchanged: the upper bounds of all three intervals
+(−51.4 block, −55.3 adjacent, −47.5 Welch) sit below 60.0, so the *interval*
+clears the 36 µs landing bar but not the stricter floor. What I claim is a
+point estimate above the floor with an interval that excludes zero, not an
+interval entirely above the floor.
+
 ---
 
 ## Stage 5 — where grid-append goes next (not implemented here)
@@ -571,15 +815,26 @@ magnitude bigger than the one measured here.
 
 1. **Shared-expert SwiGLU into the routed SwiGLU grid.** The plumbing already
    exists: `mergedSharedActivated` at `LagunaRuntimeModel.swift:10958` is the
-   half-built version of exactly this merge. Ceiling ≈ 80–108 µs/step.
+   half-built version of exactly this merge. Atlas ceiling ≈ 80–108 µs/step.
 2. **Router top-8 retiled to 64 threads and appended to that same grid.**
-   Ceiling ≈ 80–108 µs/step; combined with (1) the family ceiling is roughly
-   −215 µs/step. Critically it must *not* be appended into the down-projection
-   or residual dispatch, which would create a real producer→consumer edge and
-   pay the +2.55 µs/layer = +102 µs/step penalty.
+   Atlas ceiling ≈ 80–108 µs/step. Critically it must *not* be appended into the
+   down-projection or residual dispatch, which would create a real
+   producer→consumer edge and pay the +2.55 µs/layer = +102 µs/step penalty.
 3. **`inputNorm` folded into the QKV+gate kernel.** Same ceiling, but it needs
    an 8-rows-per-threadgroup retile and it *is* a producer of `normalized`, so
    it is the risky one and should be attempted last.
+
+**Apply the §3.5.1 discount before believing any of those three ceilings.**
+They are read off the same R109-E atlas whose `gate_sp` row returned 29.4 % of
+its face value, and all three are the same shape that causes the overstatement:
+few threadgroups, latency-bound, already partly overlapped at `SPLIT=0`. At
+this round's realized ratio each is worth **≈25–30 µs/step**, and (1)+(2)
+together ≈ **−60 µs/step**, not the −215 µs/step the raw atlas suggests. That
+still clears the 36 µs bar as a pair, but neither clears it alone, and the
+`0.95` prefill floor has to be re-checked for a SwiGLU-grid change because that
+grid is also on the prefill path. My recommendation is to sequence (1) and (2)
+as one assignment with a shared ABBA, rather than as two arms that each look
+like noise.
 
 The offline alternative — folding the gate weight matrix onto the QKV weight
 matrix in `Sources/MLXFastTransform/` so the gate is just extra output rows of

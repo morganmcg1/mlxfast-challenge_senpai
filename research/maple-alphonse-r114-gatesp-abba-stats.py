@@ -106,6 +106,27 @@ def adjacent_deltas(rows):
     return out
 
 
+def welch(rows, unit_us):
+    """Unpaired Welch interval: throws the pairing away as a robustness check."""
+    c = [r[1] for r in rows if r[0] == "C"]
+    f = [r[1] for r in rows if r[0] == "F"]
+    if len(c) < 2 or len(f) < 2:
+        return
+    vc, vf = statistics.variance(c) / len(c), statistics.variance(f) / len(f)
+    mean = (statistics.fmean(f) - statistics.fmean(c)) * unit_us
+    se = (vc + vf) ** 0.5 * unit_us
+    df = int((vc + vf) ** 2 / (vc ** 2 / (len(c) - 1) + vf ** 2 / (len(f) - 1)))
+    crit = t_crit(df)
+    lo, hi = mean - crit * se, mean + crit * se
+    verdict = "excludes zero" if hi < 0 or lo > 0 else "INCLUDES ZERO"
+    bar = "clears bar" if hi < -BAR_US else "does not clear bar"
+    print(
+        f"  {'unpaired':9s} df={df:2d}  mean={mean:+8.1f} us  {' ' * 12}"
+        f"se={se:5.1f}  95% CI [{lo:+8.1f}, {hi:+8.1f}]  "
+        f"({verdict}, {bar})"
+    )
+
+
 def interval(name, deltas, unit_us):
     n = len(deltas)
     if n < 2:
@@ -142,6 +163,7 @@ def main():
     print("\npaired interval estimators on decode us/step")
     interval("block", block_deltas(rows), 1e6)
     interval("adjacent", adjacent_deltas(rows), 1e6)
+    welch(rows, 1e6)
 
 
 if __name__ == "__main__":
