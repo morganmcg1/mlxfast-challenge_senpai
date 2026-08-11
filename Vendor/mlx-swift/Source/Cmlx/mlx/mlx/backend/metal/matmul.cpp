@@ -87,7 +87,7 @@ ensure_batch_contiguous(const array& x, metal::Device& d, const Stream& s) {
 static bool darkbloom_steel_prefill_tile() {
   static bool enabled = []() {
     const char* value = getenv("DARKBLOOM_STEEL_PREFILL_TILE");
-    return value == nullptr || atoi(value) != 0;
+    return value != nullptr && atoi(value) != 0;
   }();
   return enabled;
 }
