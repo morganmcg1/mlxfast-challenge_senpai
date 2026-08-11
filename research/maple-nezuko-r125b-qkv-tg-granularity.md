@@ -12,15 +12,24 @@ Host: Apple M4 Pro, 20 GPU cores, 48 GiB, `applegpu_g16s`, macOS 26.5.2.
 
 The `ns` (simdgroups-per-threadgroup) axis on decode QKV at `rps = 1` does not
 pay. Widening the threadgroup from 64 to 128 or 256 threads at pinned total
-simdgroups is bit-identical and, at this instrument's resolution, **indistinguishable
-from zero** — with the point estimates on the slow side and every interval
-comfortably containing the debit predicted by the fleet's `tgMem = 0` law
-(§4.4). The assignment's landing rule needs bit-identity **and** a paired
-interval excluding zero *in the improving direction*; the second conjunct fails,
-so I land nothing. **The winning rung is N2 — which is already the compiled
-default — so the correct landing hunk is the empty hunk** (§7).
+simdgroups is bit-identical and, at this instrument's resolution, **dead flat**:
+both paired medians sit within **0.3 µs/step of zero on an 8,884 µs/step level**
+(that is 3 parts in 100,000), each block splits **2 wins / 2 losses**, and both
+intervals comfortably contain zero *and* every debit the fleet's `tgMem = 0` law
+predicts (§4.4). The assignment's landing rule needs bit-identity **and** a
+paired interval excluding zero *in the improving direction*; the second conjunct
+fails, so I land nothing. **The winning rung is N2 — which is already the
+compiled default — so the correct landing hunk is the empty hunk** (§7).
 
-PLACEHOLDER_VERDICT_TABLE
+| arm | `ns` | threads/TG | paired median Δ vs N2, µs/step (minimize) | bootstrap CI95, µs/step | covers 0 | blocks won | bit-identical | lands? |
+|---|---:|---:|---:|---|---|---:|---|---|
+| N2 (ref, shipped) | 2 | 64 | — (level **8882.814**) | — | — | — | — | already default |
+| N4 | 4 | 128 | **+0.23** | [−25.34, +47.05] | YES | 2 / 4 | yes (`max_abs_diff = 0`) | **no** |
+| N8 | 8 | 256 | **−0.07** | [−31.58, +24.15] | YES | 2 / 4 | yes (`max_abs_diff = 0`) | **no** |
+
+Sign-test p = **1.0000** on both contrasts (2 negative / 2 positive). Every one
+of the 12 timed runs returned `passed_correctness = true` and the *same* golden
+hash `f49e4c2c…702b03d2`.
 
 Four things this episode produced that are worth more than the null:
 
@@ -32,16 +41,21 @@ Four things this episode produced that are worth more than the null:
    does do is **exclude the win** that the (retracted) prior demanded: the
    +50…+250 µs/step improvement the assignment pre-registered is ruled out by a
    wide margin, in the direction the law predicts.
-2. **An achieved detection floor, stated as arithmetic** (§4.4 step 2): this
-   instrument's CI95 half-width at B = 4 is **≈ ±47 µs/step**, so it is
-   **1.7×–10× too coarse** to price the predicted debit. That is the number my
-   §1.6 should have carried and did not; I am publishing it as the deliverable
-   rather than pretending the ladder resolved something.
+2. **An achieved detection floor, stated as arithmetic and now as a *measured*
+   paired sd** (§4.4 step 2): the paired block sd is **22.94 µs/step (N8)** and
+   **34.11 µs/step (N4)**, so this instrument's CI95 half-width at B = 4 is
+   **±36.5 to ±54.3 µs/step** — **1.3×–11.6× too coarse** to price the predicted
+   debit (+4.7 … +27.5 µs/step). That is the number my §1.6 should have carried
+   and did not; I am publishing it as the deliverable rather than pretending the
+   ladder resolved something.
 3. **A bound that closes the axis regardless of the debit's exact size**
-   (§4.4 step 3): the most generous corner of my own interval is a win of
-   ≈ 47 µs/step = **0.44 % of the step**, below σ(officialScore) = **0.49 %**.
-   So no `ns` setting on this kernel can produce a receipt-visible change, and
-   the axis needs no further blocks from anyone.
+   (§4.4 step 3): the most generous corner of either *measured* interval is a win
+   of **31.6 µs/step** (N8's lower edge) = **0.36 % of decode** =
+   **0.21 – 0.24 % of `cs`**; even the pessimistic reading — the full ±54.3
+   µs/step half-width of the noisier contrast — is **0.36 – 0.41 % of `cs`**.
+   Both are below σ(officialScore) = **0.49 %**. So no `ns` setting on this kernel
+   can produce a receipt-visible change, and the axis needs no further blocks
+   from anyone.
 4. **A byte-level pre-screen that beat the ladder to the answer.** §1.8 —
    committed **before any timing and before the advisor's retraction** — killed
    the shared-L1 upside from `staticThreadgroupMemoryLength = 0 B` alone. §4.4
@@ -401,11 +415,61 @@ ladder (§1.7). Raw rows: `research/r125b-runs/r125b-certify.tsv`.
 so µs/step and µs/token are the same quantity on this instrument, and this is
 the same unit frieren and alphonse report in.
 
-PLACEHOLDER_LEVELS
+Both tables below are **generated** from that TSV by
+`research/maple-nezuko-r125b-table.py` (committed), so every number here traces
+to a row rather than to my typing.
 
-PLACEHOLDER_CONTRASTS
+**Levels.** Geometry columns are §3.0 arithmetic; the level columns are
+measured. Total simdgroups are pinned at 10240 (h64) across the ladder, so
+simdgroups/core does not move — only the packaging does.
 
-PLACEHOLDER_NOTES
+| arm | `ns` | threads/TG | TGs h64 | TGs/core C=20 | TGs/core C=40 | simdgroups/core C=20 | simdgroups/core C=40 | n runs | mean level, µs/step (minimize) | sd, µs/step | cv |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| N2 (ref, shipped) | 2 | 64 | 5120 | 256.0 | 128.0 | 512 | 256 | 4 | **8882.814** | 29.59 | 0.333 % |
+| N4 | 4 | 128 | 2560 | 128.0 | 64.0 | 512 | 256 | 4 | **8888.359** | 14.22 | 0.160 % |
+| N8 | 8 | 256 | 1280 | 64.0 | 32.0 | 512 | 256 | 4 | **8880.924** | 13.21 | 0.149 % |
+
+**Paired contrasts.** Each block contributes one delta (same block, same
+thermal state, rotated slot). Positive = candidate is SLOWER = worse;
+the landing rule needs a CI strictly below zero.
+
+| contrast | per-block Δ, µs/step (minimize) | median Δ | mean Δ | bootstrap CI95 (B=20000) | covers 0 | blocks with Δ<0 (a win) | sign-test p | Δ as % of step |
+|---|---|---:|---:|---|---|---:|---:|---:|
+| **N4 − N2** | +47.05, −19.22, −25.33, +19.68 | **+0.23** | +5.55 | [−25.33, +47.05] | YES | 2 / 4 | 1.0000 | +0.0026 % |
+| **N8 − N2** | +24.14, +2.50, −31.58, −2.63 | **−0.07** | −1.89 | [−31.58, +24.14] | YES | 2 / 4 | 1.0000 | −0.0007 % |
+
+Grand mean level across all 12 runs: **8884.0 µs/step (minimize)**.
+
+**Notes, in the order a reviewer would ask for them.**
+
+1. **Correctness and append state held across every timed run.**
+   `passed_correctness = true` on 12/12; exactly **one** distinct golden hash
+   observed, `f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2`;
+   the `kernels` column reads `none` for all three arms, i.e. no arm appended a
+   fused `qkv+gate` kernel (§1.7's hazard held, as designed, because every arm
+   carried `DARKBLOOM_DECODE_QKV_GATE_FUSED=0`).
+2. **The paired sd is now measured, not inferred:** **22.94 µs/step** on the
+   N8 − N2 contrast and **34.11 µs/step** on N4 − N2
+   (`research/r125b-runs/paired-ci.txt`). At B = 4 (dof 3, t = 3.182) those give
+   CI95 half-widths of **±36.5** and **±54.3 µs/step**. Both measured medians are
+   two-plus orders of magnitude smaller than their own half-width (**234×** for
+   N4, **562×** for N8), which is the signature of a null rather than of an
+   under-powered near-miss.
+3. **Order balance.** The rotation means each arm sat in slot 1, 2 and 3 once
+   over blocks 1–3; restricting to that one complete rotation moves the N4
+   median to **−19.22 µs/step** and the N8 median to **+2.50 µs/step** — i.e. the
+   sign of the point estimate is set by which subset you look at, which is the
+   cleanest possible statement that there is no effect here to attribute.
+4. **The largest single block delta (+47.05 µs/step, N4 in block 1) is a
+   reference artifact, not an N4 effect:** block 1's N2 run (8840.469) is the
+   fastest of the 12 runs and 42 µs below the N2 arm mean, and it sat in slot 1
+   of the first block, i.e. the coldest slot of the campaign. This is exactly the
+   drift that the mirrored design is there to absorb, and it is why the median
+   rather than the mean is the pre-registered point estimate (§1.6).
+5. **Raw artifacts:** `research/r125b-runs/r125b-certify.tsv` (12 rows,
+   14 columns), `research/r125b-runs/bootstrap.txt` (block bootstrap,
+   `REF=N2 B=20000 SEED=125`), `research/r125b-runs/paired-ci.txt` (paired sd +
+   power curve). Campaign head recorded in the TSV: `d8b104da0e1f`.
 
 ---
 
@@ -479,6 +543,20 @@ Pre-registration §1.3 named four refutations. Scoring them against §3.2:
   premise; the pre-registration's arithmetic caught the absurdity
   (12× a hard ceiling) without needing the retraction.
 
+Scored against the measured ladder, with the numbers rather than the intent:
+
+| refutation | fires? | the number that decides it |
+|------------|--------|----------------------------|
+| **R1** flat ladder | **YES** | both medians within 0.3 µs/step of zero; both CI95 contain zero; 2 / 4 blocks each way; sign-test p = 1.0000 |
+| **R2** wrong shape | **YES** | pre-registered N4 : N8 = 0.667. Measured medians are +0.23 and −0.07 µs/step, so the ratio is **−3.6** — not a number, a division of two zeros. On means (+5.55 / −1.89) it is **−2.9**. Either way, nowhere near 0.667, and non-monotone. |
+| **R3** wrong sign | **partly — and it does not matter** | N8's median is nominally on the *fast* side (−0.07), N4's on the slow side (+0.23), both ≈ 0. So I cannot claim a reproducible loss *from my own data*; I also cannot claim any gain. §4.0's three external measurements are what supply the sign. |
+| **R4** cross-kernel constant off by > 3× | **YES** | §1.4 predicted ≈ **1230 µs/token** `PREDICTED`; measured \|median\| ≤ 0.23 µs/token — off by **> 5000×**, and 12× my own bandwidth ceiling in the first place |
+
+Three of the four pre-registered refutations fire outright and the fourth
+(R3) is indeterminate in the only way a true null can be. The shared-L1 account
+of this kernel is dead, and it is dead for the reason §1.8 and §4.2 give — there
+is nothing shared to amortise when `tgMem = 0 B`.
+
 ### 4.2 Why a kernel at 94 % of measured peak has only downside left
 
 The mechanical reading, stated in §1.8 before any timing and unchanged by it:
@@ -513,7 +591,7 @@ geometry experiments on the same family of kernels:
 |--------|--------------------------------:|-----------------|-----------------|
 | o_proj, R117-C (#707, merged) | 83.4 – 90.7 % | rps 4→2 **and** ns 4→2 | **−79.4 µs/token** Stage 1, −82.4 mean Stage 2, CI95 [−98.6, −66.3] |
 | decode QKV, R122-B (#719) | 92.8 – 94.3 % | rps 1→2,4,8 | monotone **worse** (Q8 +205.9 µs) |
-| decode QKV, R125-B (this) | 92.8 – 94.3 % | ns 2→4→8 | see §3.2 |
+| decode QKV, R125-B (this) | 92.8 – 94.3 % | ns 2→4→8 | **null**: N4 +0.23, N8 −0.07 µs/step, both CI95 covering zero (§3.2) |
 
 Read as a gate: **the only kernel that paid is the one with ≥ 9 points of
 headroom to measured peak; the kernel at ≤ 6 points has now refused two
@@ -556,45 +634,71 @@ microbench with SPLIT=1, not a whole-model ladder — step 2 says why mine canno
 **Step 2 — what my instrument can resolve.** This is the number I owe the
 fleet, and I should have computed it in §1.6 instead of after the fact.
 `--local-submit` has a decode leg cv of **0.30 %** (R117-C, R122-B, and this
-campaign all agree), i.e. σ ≈ **0.0030 × 8,870 ≈ 27 µs/step** per run. A paired
-block delta therefore carries σ ≈ 27 × √2 ≈ **38 µs/step**, and with
-**B = 4 blocks** the standard error of the mean paired delta is
-38 / √4 ≈ **19 µs/step**, so the CI95 half-width is ≈ **±47 µs/step**:
+campaign all agree), i.e. σ ≈ **0.0030 × 8,880 ≈ 27 µs/step** per run, so a
+paired block delta should carry σ ≈ 27 × √2 ≈ **38 µs/step** — that was the
+pre-hoc estimate. The campaign **measured** it (§3.2 note 2,
+`research/r125b-runs/paired-ci.txt`): paired sd = **22.94 µs/step** on N8 − N2
+and **34.11 µs/step** on N4 − N2, i.e. the estimate was right to within 1.1–1.7×
+and slightly pessimistic. With **B = 4 blocks** (dof 3, t.975 = 3.182) the CI95
+half-width is therefore **±36.5 µs/step (N8)** to **±54.3 µs/step (N4)**:
 
 | quantity | value, µs/step (minimize) |
 |----------|--------------------------:|
 | predicted N8 debit, S1 – S3 | +4.7 to +27.5 `PREDICTED` |
-| my CI95 half-width at B = 4 | **± ≈ 47** |
-| ratio (resolution ÷ effect) | **1.7× (S3) to 10× (S1) too coarse** |
-| blocks needed to resolve S1 (+4.7) at 95 % | **≈ (2 × 38 / 4.7)² ≈ 260** |
-| blocks needed to resolve S3 (+27.5) at 95 % | **≈ (2 × 38 / 27.5)² ≈ 8** |
+| my **measured** CI95 half-width at B = 4 | **±36.5 (N8)** … **±54.3 (N4)** |
+| ratio (resolution ÷ effect), N8 contrast | **1.3× (S3) to 7.8× (S1) too coarse** |
+| blocks to resolve S1 (+4.7) at 95 %, N8 sd | **94** (282 runs ≈ **12.5 h**) |
+| blocks to resolve S2 (+9.6) at 95 %, N8 sd | **25** (75 runs ≈ **3.3 h**) |
+| blocks to resolve S3 (+27.5) at 95 %, N8 sd | **6** (18 runs ≈ **0.8 h**) |
 
-260 blocks × 3 arms × 160 s ≈ **35 hours** for S1; even the most generous
-hypothesis (S3) needs **8 blocks**, i.e. double what the 13:30Z deadline
-allowed. So the ladder is under-powered against every candidate scaling, and
-the honest reading of §3.2 is not "the debit is X" but "the debit is smaller
-than my floor, and it is not a win" — which is exactly why alphonse's dedicated
-per-kernel microbench is the right tool for pricing this effect and a
-whole-model paired ladder is not.
+(Block counts are the smallest *n* with `t.975(n−1) · sd / √n < effect`, i.e.
+≈ 50 % power — the honest floor, not a power-80 plan; at 80 % power multiply by
+≈ 2. On the noisier N4 contrast the same three numbers are **203 / 51 / 9**
+blocks.) So even the most generous scaling hypothesis needed **6 blocks** where
+I had 4, and the S1 form the fleet actually banked needs **94** —
+12.5 hours on a 13:30Z deadline. The ladder is under-powered against every
+candidate scaling, and the honest reading of §3.2 is therefore not "the debit is
+X" but "**any effect here is smaller than my floor, and it is not a win**" —
+which is exactly why alphonse's dedicated per-kernel microbench is the right
+tool for pricing this effect and a whole-model paired ladder is not.
 
 **Step 3 — so what does my ladder actually establish?** Not the debit's value:
-an *upper bound on any win*. Whatever the sign of the point estimate in §3.2,
-its CI95 upper edge in the improving direction is ≈ **−47 µs/step** at best,
-i.e. **0.53 % of decode**, i.e. ≈ **0.44 % of the 10.6 ms/token end-to-end
-step**. σ(officialScore) is **0.49 %**. So even in the most generous corner of
-my own interval, the `ns` axis on decode QKV **cannot produce a change a
-ranked receipt could distinguish from noise**. Combined with §4.0's three
-independent measurements that the true sign is a *debit*, the axis is closed
-for this kernel: there is nothing to land, and no amount of local blocks would
-change that verdict.
+an *upper bound on any win*, and it is now a measured one. The improving-side
+edges of the two measured intervals are **−25.33 µs/step** (N4) and
+**−31.58 µs/step** (N8). Converting through the harness's own coefficients
+(`research/r125b-runs/paired-ci.txt`: 54.263 µs/step ≡ 0.6109 % of decode ≡
+0.3610 % of `cs` at k = α = 0.4369 ≡ 0.4132 % at k = β = 0.5):
+
+| bound on a win | µs/step (minimize) | % of decode | % of `cs`, k = α | % of `cs`, k = β |
+|----------------|-------------------:|------------:|-----------------:|-----------------:|
+| N4 interval edge | −25.33 | 0.285 % | 0.169 % | 0.193 % |
+| N8 interval edge | −31.58 | 0.356 % | 0.210 % | 0.240 % |
+| pessimistic: full ±54.3 half-width | −54.26 | 0.611 % | 0.361 % | 0.413 % |
+| **σ(officialScore) for comparison** | — | — | **0.49 %** | **0.49 %** |
+
+Every row is **below** σ(officialScore). So even in the most generous corner of
+my own interval — and even if I inflate the bound to the noisier contrast's full
+half-width — the `ns` axis on decode QKV **cannot produce a change a ranked
+receipt could distinguish from noise**. Combined with §4.0's three independent
+measurements that the true sign is a *debit*, the axis is closed for this kernel:
+there is nothing to land, and no amount of local blocks would change that
+verdict. (The `cs` conversion is the right channel for that comparison because
+officialScore is scored on `cs`, not on the decode leg in isolation; both
+k-conventions are shown because the fleet has not settled on one.)
 
 **Step 4 — the generalisable rule I am adding to the fleet's pre-screen.**
 Before building a geometry ladder, compute
-`effect_predicted / (2 × cv × level / √blocks)`. If that ratio is < 1, the
-ladder cannot adjudicate its own hypothesis and the honest move is either a
-dedicated microbench (alphonse's route) or a byte-level argument (§1.8's
-route) — **not** a whole-model campaign. Two of my four rungs were spent
-learning this; it is cheap for everyone else to reuse.
+`effect_predicted / (t.975 · cv · level · √2 / √blocks)`. Worked for this
+experiment *with the numbers I had before building anything* — cv = 0.30 %,
+level = 8,880 µs/step, blocks = 4 — the denominator is 60 µs/step and the ratio
+is **0.08 (S1) / 0.16 (S2) / 0.46 (S3)**; with the sd I actually measured it is
+**0.13 / 0.26 / 0.75**. All six are **< 1**, and a ratio < 1 means the ladder
+cannot adjudicate its own hypothesis — so the pre-screen would have said "do not
+build this ladder" before a single block ran, using only numbers already in hand.
+When it fires, the honest move is either a dedicated microbench (alphonse's
+route) or a byte-level argument (§1.8's route) — **not** a whole-model campaign.
+Two of my four rungs were spent learning this; it is cheap for everyone else to
+reuse.
 
 ---
 
@@ -673,12 +777,13 @@ Ranked by information per minute, given what §3 and §4 now say:
    gate half needs its own tile mapping (`laguna_gate_tiles = heads/8` assumes
    64 threads/TG). That is a real code change, not a knob, and it is only worth
    writing if item 1 or 2 says the axis pays somewhere.
-4. **Not worth buying:** more blocks on this ladder. §4.4 prices it exactly —
-   ≈ **260 blocks (≈ 35 h)** to resolve the predicted +4.7 µs/step debit, for a
-   quantity that σ(officialScore) ≈ 0.49 % could not adjudicate even if I had
-   it. Local blocks would narrow my interval but could not change the landing
-   decision, which is governed by the bandwidth ceiling and by `tgMem = 0`, not
-   by noise.
+4. **Not worth buying:** more blocks on this ladder. §4.4 step 2 prices it from
+   the *measured* paired sd — **94 blocks ≈ 12.5 h** of wall clock to resolve the
+   predicted +4.7 µs/step debit at 50 % power (≈ 25 h at 80 %) — for a quantity
+   that σ(officialScore) ≈ 0.49 % could not adjudicate even if I had it (§4.4
+   step 3: every corner of my interval is ≤ 0.24 % of `cs`). Local blocks would
+   narrow my interval but could not change the landing decision, which is
+   governed by the bandwidth ceiling and by `tgMem = 0`, not by noise.
 
 ---
 
@@ -691,13 +796,15 @@ The assignment's landing rule has two conjuncts. Scored honestly:
 | conjunct | verdict | evidence |
 |----------|---------|----------|
 | bit-identical output at every rung | **PASS** | §3.1: `max_abs_diff = 0` and golden `b9509697…` for S/N2/N4/N8 at 128 steps; §3.2: golden `f49e4c2c…` for all 12 timed runs at 1023 steps |
-| paired interval excludes zero **in the improving direction** | **FAIL** | §3.2: the point estimate for both candidate rungs is on the *slow* side of N2 and the CI95 contains zero |
+| paired interval excludes zero **in the improving direction** | **FAIL** | §3.2: N4 median **+0.23** CI95 [−25.33, +47.05]; N8 median **−0.07** CI95 [−31.58, +24.14] — both contain zero, both split 2 / 4 blocks, sign-test p = 1.0000 |
 
 Conjunction false ⇒ **land nothing**, per the rule. I am not stretching a null
-into a claim: the candidate arms are *not faster*, and §4.0's three independent
-measurements say the true effect is a **debit** of ≈ +0.79 µs/step per extra
-simdgroup. A branch off advisor head carrying `ns = 8` would be a knowing
-regression.
+into a claim in either direction: the candidate arms are *not faster* (that is
+what the rule asks and the answer is no), and they are not measurably slower
+*here* either — §4.0's three independent measurements, not my ladder, are what
+say the true effect is a **debit** of ≈ +0.79 µs/step per extra simdgroup. A
+branch off advisor head carrying `ns = 8` would therefore be a knowing
+regression bought with no evidence of gain.
 
 ### 7.2 What the smallest-hunk diff contains, and its predicted score
 
@@ -708,7 +815,7 @@ with symbol and line anchors in §2. Its status:
 | property | value |
 |----------|-------|
 | compiled default | `lagunaDecodeQKVSimdgroups = 2` — **the shipped geometry**, byte-identical Metal source (§2.1) |
-| winning rung in the ladder | **N2** — i.e. the value that is *already* the compiled default |
+| winning rung in the ladder | **N2** — i.e. the value that is *already* the compiled default. "Winning" under the pre-registered decision rule: no candidate rung produced an interval excluding zero in the improving direction, so the reference holds. (Stated honestly: N8's *mean level* is nominally 1.89 µs/step faster, which is 0.02 % — 19× inside its own noise, and its paired median is −0.07 µs/step. That is not a win, it is zero.) |
 | predicted Δ, µs/step (minimize) | **0.000** — by construction, not by measurement: at `ns = 2` the generated kernel source, name, threadgroup size and grid are byte-for-byte what `main` emits |
 | predicted Δ officialScore | **0.000 %** |
 | env override retained? | yes, `DARKBLOOM_QKV_SIMDGROUPS ∈ {1,2,4,8,16}`, and it is **instrumentation only** |

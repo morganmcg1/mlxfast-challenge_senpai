@@ -1,0 +1,55 @@
+==============================================================================
+R117 block bootstrap -- CI95 on the MEDIAN of the paired block difference
+files      : research/r125b-runs/r125b-certify.tsv
+reference  : N2    arms: N2, N4, N8
+B          : 20000   seed: 125   unit of resampling: BLOCK
+correctness: 0 failed runs; distinct golden hashes: 1
+             golden f49e4c2cbc0d3ceee90195a3
+==============================================================================
+
+------------------------------------------------------------------------------
+PAIRED CONTRAST  N4 - N2   (negative = N4 FASTER)
+------------------------------------------------------------------------------
+  block 1   N4=  8887.521  N2=  8840.469   D=  +47.052 us
+  block 2   N4=  8874.171  N2=  8893.392   D=  -19.221 us
+  block 3   N4=  8883.790  N2=  8909.125   D=  -25.335 us
+  block 4   N4=  8907.957  N2=  8888.272   D=  +19.684 us
+
+  n_blocks        = 4
+  median D        =    +0.232 us/token   <-- POINT ESTIMATE
+  mean   D        =    +5.545 us/token
+  bootstrap CI95  = [  -25.335,   +47.052] us/token
+  covers zero     : YES
+  |median| >= 10  : NO
+  sign test       : 2 negative / 2 positive, exact two-sided p=1.0000
+  relative        : +0.0026 % of decode wall
+  order-balanced  : first 3 of 4 blocks (1 complete rotations) median D =   -19.221 us
+
+------------------------------------------------------------------------------
+PAIRED CONTRAST  N8 - N2   (negative = N8 FASTER)
+------------------------------------------------------------------------------
+  block 1   N8=  8864.613  N2=  8840.469   D=  +24.145 us
+  block 2   N8=  8895.888  N2=  8893.392   D=   +2.497 us
+  block 3   N8=  8877.549  N2=  8909.125   D=  -31.575 us
+  block 4   N8=  8885.645  N2=  8888.272   D=   -2.627 us
+
+  n_blocks        = 4
+  median D        =    -0.065 us/token   <-- POINT ESTIMATE
+  mean   D        =    -1.890 us/token
+  bootstrap CI95  = [  -31.575,   +24.145] us/token
+  covers zero     : YES
+  |median| >= 10  : NO
+  sign test       : 2 negative / 2 positive, exact two-sided p=1.0000
+  relative        : -0.0007 % of decode wall
+  order-balanced  : first 3 of 4 blocks (1 complete rotations) median D =    +2.497 us
+
+------------------------------------------------------------------------------
+POSITION DIAGNOSTIC (level by within-block slot, all arms pooled)
+------------------------------------------------------------------------------
+  slot 1: n= 4  mean=  8870.115 us/token
+  slot 2: n= 4  mean=  8900.123 us/token
+  slot 3: n= 4  mean=  8881.860 us/token
+  arm-by-slot occupancy (an unbalanced table means order is confounded):
+    N2   slot1=2  slot2=1  slot3=1
+    N4   slot1=1  slot2=2  slot3=1
+    N8   slot1=1  slot2=1  slot3=2
