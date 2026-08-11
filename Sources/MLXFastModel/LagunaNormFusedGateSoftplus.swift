@@ -17,8 +17,16 @@ import MLXFast
 /// ~8.7 us. `(NS, R)` moves gate rows between threadgroups at constant
 /// arithmetic, so NS=8 simdgroups with one row each keeps the tile count at
 /// `heads / 8` while quadrupling the threads available to the reduction.
+/// Default `0` — the shipped control. b5 (`research/nezuko-r109-armg-b5-attribution.md`)
+/// refuted the arm this file was built to test: mode `1`, the only mode that
+/// actually deletes the pre-norm dispatch, is 51.7 us/step *slower*, and the
+/// 43.23 us/step that modes `2`/`3`/`4` do win is 83% attributable to
+/// threadgroup geometry (A-S), which PR #7 showed does not transfer off M4.
+/// The preregistered ship rule was "mode 3 only if S-N clears zero"; it did not
+/// (`N-S = -8.73 us [-14.19, +22.77]`), so the default changes nothing and the
+/// modes below remain available as a measurement instrument.
 private let lagunaNormFusedGateSoftplusMode = ProcessInfo.processInfo.environment[
-    "DARKBLOOM_NORM_FUSED_GATE_SP"] ?? "1"
+    "DARKBLOOM_NORM_FUSED_GATE_SP"] ?? "0"
 private let lagunaNormFusedGateSoftplusEnabled = lagunaNormFusedGateSoftplusMode != "0"
 
 /// Only mode `1` lets the fused kernel be the sole producer of `normalized`.
