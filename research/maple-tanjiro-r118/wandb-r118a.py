@@ -12,7 +12,12 @@ Usage:
     python research/maple-tanjiro-r118/wandb-r118a.py \
         research/maple-tanjiro-r118/evidence/orderA/summary-orderA.json \
         research/maple-tanjiro-r118/evidence/orderB/summary-orderB.json \
-        research/maple-tanjiro-r118/evidence/control/summary-control.json
+        research/maple-tanjiro-r118/evidence/control/summary-control.json \
+        research/maple-tanjiro-r118/evidence/profile/attribution.json \
+        research/maple-tanjiro-r118/evidence/diverg/divfree.json
+
+The last two are optional side files, written by `analyze-profile.py --json`
+and `divfree.py --json`, and are recognised by their file names.
 """
 import json
 import os
@@ -48,6 +53,15 @@ def main() -> int:
     if not paths:
         print("usage: wandb-r118a.py <summary.json> ...", file=sys.stderr)
         return 2
+    # The two optional side files are recognised by name: the SPLIT=1
+    # attribution written by analyze-profile.py --json and the divergence-free
+    # subset written by divfree.py --json.  Both are derived from logs that are
+    # committed next to them; neither is typed in here.
+    prof_path = next((p for p in paths if p.endswith("attribution.json")), None)
+    divf_path = next((p for p in paths if p.endswith("divfree.json")), None)
+    paths = [p for p in paths if p not in (prof_path, divf_path)]
+    prof = json.load(open(prof_path)) if prof_path else None
+    divf = json.load(open(divf_path)) if divf_path else None
     sums = []
     for p in paths:
         with open(p) as fh:
@@ -75,7 +89,8 @@ def main() -> int:
             "is_nax_available": False,
             "design": "mirrored randomised-block; order B is the exact time-reversal of order A; one binary, env-var arms",
             "env_var": "DARKBLOOM_SHARED_QMV_ARM",
-            "split": 0,
+            "split_campaign": 0,
+            "split_profile": 1,
             "bar_us_step": BAR_US_STEP,
             "threadgroups_target": 256,
             "threadgroups_per_core_target": 12.8,
@@ -159,6 +174,51 @@ def main() -> int:
     if k_shared and k_routed:
         run.summary["headline/shared_over_routed_conversion"] = \
             k_shared / k_routed
+
+    # --- SPLIT=1 attribution (never a ranking; busy time, not wall) ----------
+    if prof:
+        pcols = ["family", "kernel", "calls_per_step", "busy_us_call_shipped",
+                 "busy_us_call_1block", "marginal_us_per_k_block",
+                 "marginal_gbps", "fixed_us_call", "fixed_pct_of_call",
+                 "fixed_us_step", "byte_us_step", "delta_busy_us_step",
+                 "delta_wall_us_step", "tau"]
+        ptbl = wandb.Table(columns=pcols)
+        for label, r in sorted(prof["families"].items()):
+            ptbl.add_data(
+                label, r["kernel"], r["calls_per_step"],
+                r["busy_us_call_4blocks_ship"], r["busy_us_call_1block"],
+                r["marginal_us_per_k_block"], r["marginal_gbps"],
+                r["fixed_us_call"], r["fixed_pct_of_shipped_call"],
+                r["fixed_us_step"], r["byte_us_step"],
+                r["delta_busy_us_step"], r["delta_wall_us_step"], r["tau"])
+            k = "profile/" + ("shared" if "shared" in label else "routed")
+            for f in ("fixed_us_call", "fixed_pct_of_shipped_call",
+                      "fixed_us_step", "byte_us_step", "marginal_gbps",
+                      "delta_busy_us_step", "delta_wall_us_step", "tau",
+                      "in_situ_excess_us_step_busy",
+                      "in_situ_excess_us_step_wall_at_tau"):
+                if r.get(f) is not None:
+                    run.summary[f"{k}/{f}"] = r[f]
+        run.log({"r118a/profile_attribution": ptbl})
+        for arm, v in sorted(prof["whole_step_busy_us"].items()):
+            run.summary[f"profile/whole_step_busy_us/{arm}"] = v
+
+    # --- divergence-free subset: same-token steps only -----------------------
+    if divf:
+        for sub in ("same_token", "all_steps"):
+            for f, v in sorted(divf[sub].items()):
+                run.summary[f"divfree/{sub}/{f}"] = v
+        run.summary["divfree/block_len"] = divf["block"]
+
+    # The decision quantity: the most generous end of the most generous
+    # interval the target's own best dose ever produced, over both mirrored
+    # orders.  Everything the target could pay for has to fit under this.
+    ubs = [d["paired_saving_ms"]["d1"]["ci_hi"] * 1e3 for d in sums
+           if d["family"] == "shared" and "d1" in d["paired_saving_ms"]]
+    if ubs:
+        run.summary["headline/d1_interior_saving_us_step_95pct_ub"] = max(ubs)
+        run.summary["headline/margin_vs_bar_us_step"] = max(ubs) - BAR_US_STEP
+        run.summary["headline/pct_of_score_at_ub"] = max(ubs) * PRICE
 
     run.summary["headline/excess_us_step"] = EXCESS_US_STEP
     run.summary["headline/bar_us_step"] = BAR_US_STEP

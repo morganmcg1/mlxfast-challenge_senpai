@@ -35,6 +35,7 @@ usage: analyze-profile.py <PROFILE_DIR> [--wall-shared US] [--wall-routed US]
 """
 import argparse
 import glob
+import json
 import os
 import re
 import statistics as st
@@ -75,7 +76,13 @@ def main():
                     help="campaign SPLIT=0 wall saving for d1, us/step")
     ap.add_argument("--wall-routed", type=float, default=None,
                     help="campaign SPLIT=0 wall saving for rd1, us/step")
+    ap.add_argument("--json", default=None,
+                    help="also write the derived quantities here, so that the "
+                         "W&B run and this log cannot disagree")
     a = ap.parse_args()
+    out = {"dir": a.dir, "wall_shared_us_step": a.wall_shared,
+           "wall_routed_us_step": a.wall_routed, "families": {},
+           "whole_step_busy_us": {}}
 
     caps = {}
     for path in sorted(glob.glob(os.path.join(a.dir, "p*_*.log"))):
@@ -148,6 +155,27 @@ def main():
         dbusy = (b4 - b1) * n
         print(f"   delta busy for this dose = {dbusy:8.1f} us/step")
         wall = a.wall_shared if kern == SHARED else a.wall_routed
+        rec = {
+            "kernel": kern, "dose_arm": dose_arm, "calls_per_step": n,
+            "busy_us_call_4blocks_ship": b4, "busy_us_call_1block": b1,
+            "marginal_us_per_k_block": m, "mb_per_call": mb_blk / n,
+            "marginal_gbps": (mb_blk / n / (m * 1e-6) / 1e3)
+            if abs(m) > 1e-6 else None,
+            "fixed_us_call": c, "fixed_pct_of_shipped_call": 100.0 * c / b4,
+            "fixed_us_step": c * n, "byte_us_step": 4 * m * n,
+            "standalone_cold_us_call": standalone,
+            "in_situ_excess_us_call": (b4 - standalone)
+            if standalone is not None else None,
+            "in_situ_excess_us_step_busy": (b4 - standalone) * n
+            if standalone is not None else None,
+            "delta_busy_us_step": dbusy,
+            "delta_wall_us_step": wall,
+            "tau": (wall / dbusy) if (wall and abs(dbusy) > 1e-6) else None,
+        }
+        if rec["tau"] and rec["in_situ_excess_us_step_busy"] is not None:
+            rec["in_situ_excess_us_step_wall_at_tau"] = \
+                rec["in_situ_excess_us_step_busy"] * rec["tau"]
+        out["families"][label] = rec
         if wall:
             print(f"   delta wall  for this dose = {wall:8.1f} us/step "
                   f"(SPLIT=0 campaign)")
@@ -164,6 +192,12 @@ def main():
         bs = busy_step(arm)
         if bs:
             print(f"whole-step busy, arm {arm}: {bs * 1e3:.1f} us/step")
+            out["whole_step_busy_us"][arm] = bs * 1e3
+
+    if a.json:
+        with open(a.json, "w") as fh:
+            json.dump(out, fh, indent=1, sort_keys=True)
+        print(f"\nwrote {a.json}")
 
 
 if __name__ == "__main__":
