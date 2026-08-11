@@ -521,6 +521,44 @@ glue were zero, this arm would be worth zero.** It is not a geometry arm, it is
 not a busy-census arm, and it introduces no dependency edge, so it is not
 covered by any of the three negatives the τ filter is built from.
 
+### 4.4 The arithmetic consistency check, and what this arm tests about `N-DISPATCH-REMOVAL-NOT-SYMMETRIC`
+
+Rule 57's M4 marginal dispatch cost, **1.2382 [1.2237, 1.2518] µs/dispatch**,
+was fitted on **wall**, not on busy. It is the forward half of the asymmetry
+law: *add* a dispatch and wall grows. This arm removes 40 dispatches/step
+(one `gate_sp` per layer), so Rule 57 predicts
+
+```
+40 x 1.2382 = 49.5 [49.0, 50.1] us/step   if removal were exactly symmetric
+```
+
+and §1.4's dispatch-shaped ceiling, glue plus the unattributed in-situ
+residual, is **74.6 µs/step**. The 12-run ABBA measures **−65.4 µs/step**:
+above the symmetric Rule 57 prediction, below the ceiling, at **88 % of the
+ceiling** and **132 % of the naive prediction**. The 16 µs by which it beats
+Rule 57 sits inside the 24.6 µs unattributed residual, which is where a
+per-command-buffer term that does not scale with dispatch count would live. I
+do not claim to have separated those two; I claim the total is bracketed by the
+two independent estimates that §1.4 produced before the arm existed.
+
+That is the reason this arm is worth running even if it were not shippable.
+`N-DISPATCH-REMOVAL-NOT-SYMMETRIC` currently rests on a single counter-example
+in which dispatch removal was **confounded with** a new dependency edge and a
+threadgroup-geometry change worth 83 % of the observed regression. This arm
+removes the same 40 dispatches on the same kernel with neither confound. If its
+interval excludes zero, the law does not fall — it **sharpens**, to something
+like: *dispatch removal converts to wall only when it adds no dependency edge
+and changes no threadgroup geometry.* If the interval straddles zero, the law
+stands in its current strong form and I will say so.
+
+**Which floor applies.** The brief set the landing bar at **36 µs/step**
+(+0.25 % of score at 0.0070 %/µs); the τ-filter comment restates Rule 105.12's
+floors as **68.7 µs/step bytes-bound / 60.0 µs/step latency-bound** and revises
+the price to 0.0084 %/wall-µs. At the revised price, 36 µs/step is +0.30 % and
+60 µs/step is +0.50 %. I report the interval against **both**, and treat the
+stricter 60.0 µs/step figure as the one that has to be cleared before I call
+this shippable rather than merely non-zero.
+
 ---
 
 ## Stage 5 — where grid-append goes next (not implemented here)
