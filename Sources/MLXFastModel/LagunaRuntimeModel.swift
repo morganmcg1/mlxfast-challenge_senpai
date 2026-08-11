@@ -4353,8 +4353,8 @@ constexpr uint group_size = 16;
 constexpr uint values_per_thread = 16;
 constexpr uint codes_per_thread = values_per_thread / 8;
 constexpr uint block_size = values_per_thread * 32;
-constexpr uint results_per_simdgroup = 4;
-constexpr uint num_simdgroups = 2;
+constexpr uint results_per_simdgroup = \(lagunaOProjRowsPerSimdgroup);
+constexpr uint num_simdgroups = \(lagunaOProjSimdgroups);
 constexpr uint in_vec_size_g = in_vec_size / group_size;
 
 uint tile = threadgroup_position_in_grid.x;
@@ -4373,7 +4373,7 @@ const device uint32_t* ws =
 const device bfloat* xp = attention_output + simd_lid * values_per_thread;
 
 thread float x_thread[values_per_thread];
-thread float result[results_per_simdgroup] = {0.0f, 0.0f, 0.0f, 0.0f};
+thread float result[results_per_simdgroup] = {\(lagunaOProjResultInit)};
 
 uint column = simd_lid * values_per_thread;
 for (uint k = 0; k < in_vec_size; k += block_size) {
@@ -4423,7 +4423,8 @@ private let lagunaGatedAffineOProjNVFP4Kernels: [Int: MLXFast.MLXFastKernel] = {
         kernels[heads] = MLXFast.metalKernel(
             name: "laguna_gated_affine_oproj_nvfp4_qmv_h\(heads)_v1"
                 + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
-                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
+                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : "")
+                + lagunaOProjRowsPerSimdgroupSuffix,
             inputNames: [
                 "attention_output", "gate_logits", "weight_codes",
                 "weight_scales",
@@ -4446,7 +4447,8 @@ private let lagunaGatedAffineOProjNVFP4LaneMajorKernels: [Int: MLXFast.MLXFastKe
             name: "laguna_gated_affine_oproj_nvfp4_qmv_h\(heads)_v1_lm1"
                 + (lagunaAttnScalePairwiseOProjEnabled ? "_pw1" : "")
                 + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
-                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
+                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : "")
+                + lagunaOProjRowsPerSimdgroupSuffix,
             inputNames: [
                 "attention_output", "gate_logits", "weight_codes",
                 "scale_nibbles", "scale_bases", "weight_scales",
@@ -4550,7 +4552,8 @@ private let lagunaActivatedOProjKernels: [Int: MLXFast.MLXFastKernel] = {
         result[heads] = MLXFast.metalKernel(
             name: "laguna_oproj_act_h\(heads)_v1"
                 + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
-                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
+                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : "")
+                + lagunaOProjRowsPerSimdgroupSuffix,
             inputNames: [
                 "attention_output", "gate_values", "weight_codes",
                 "weight_scales",
@@ -4569,7 +4572,8 @@ private let lagunaActivatedOProjLaneMajorKernels: [Int: MLXFast.MLXFastKernel] =
             name: "laguna_oproj_act_h\(heads)_v1_lm1"
                 + (lagunaAttnScalePairwiseOProjEnabled ? "_pw1" : "")
                 + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
-                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
+                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : "")
+                + lagunaOProjRowsPerSimdgroupSuffix,
             inputNames: [
                 "attention_output", "gate_values", "weight_codes",
                 "scale_nibbles", "scale_bases", "weight_scales",
@@ -4606,6 +4610,12 @@ func lagunaGatedAffineOProjNVFP4(
         return nil
     }
 
+    // R117-C: the compiled kernel and the dispatch grid must agree on
+    // rows-per-threadgroup; fall back to the generic path if they cannot.
+    guard let tiles = lagunaOProjTiles(outVec: outVec) else {
+        return nil
+    }
+
     if let lane = laneMajorScales,
         lane.pairwise == lagunaAttnScalePairwiseOProjEnabled,
         lane.nibbles.dtype == .uint8, lane.nibbles.dims(outVec, lane.nibbleBytes),
@@ -4622,8 +4632,8 @@ func lagunaGatedAffineOProjNVFP4(
                 attentionOutput, gateLogits, codes, lane.nibbles, lane.bases,
                 scales,
             ],
-            grid: ((outVec / 8) * 64, 1, 1),
-            threadGroup: (64, 1, 1),
+            grid: (tiles * lagunaOProjThreads, 1, 1),
+            threadGroup: (lagunaOProjThreads, 1, 1),
             outputShapes: [[1, 1, outVec]],
             outputDTypes: [.bfloat16]
         )[0]
@@ -4637,8 +4647,8 @@ func lagunaGatedAffineOProjNVFP4(
     lagunaNarrowScaleLog.noteDispatch("inactive", "oproj h\(heads)")
     return kernel(
         [attentionOutput, gateLogits, codes, scales],
-        grid: ((outVec / 8) * 64, 1, 1),
-        threadGroup: (64, 1, 1),
+        grid: (tiles * lagunaOProjThreads, 1, 1),
+        threadGroup: (lagunaOProjThreads, 1, 1),
         outputShapes: [[1, 1, outVec]],
         outputDTypes: [.bfloat16]
     )[0]
