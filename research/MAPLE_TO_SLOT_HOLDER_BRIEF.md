@@ -127,6 +127,68 @@ input. **A re-fire of the tree we hold is worth ≤1.5 % of a crown after the ch
 it anyway if the slot frees, because the alternative is worth exactly zero — but do not spend
 anything to buy that draw.
 
+### 0d. 16:05Z — LAST CHANNEL READ. The slot is FREE and the bar has NOT moved. This supersedes §0.
+
+Two facts from a live `mlxfast submissions` poll at 16:05Z, ~55 min before close. Both change what
+you should do; nothing else in this brief does.
+
+**(1) THE SLOT IS FREE. `c06b1b6` is terminal.** It fired 13:51Z and is now `rejected` with an
+official score of **2.58896632157301**. There is no row in flight on this account. fern's dominant
+risk — *P(a draw is worthless because the slot never frees) = 8.3–15.4 %* (§0) — **did not
+materialise.** Her Kaplan–Meier deadlines (90 % @ 15:04Z, 80 % @ 15:34Z, 50 % @ 15:59Z) were
+deadlines for *starting* a fire and are now behind us, but they were conditioned on a slot that was
+still occupied. It is not. **If you intend to fire at all, you can fire now**, and the service time
+on the row that just cleared was **≤ 2 h 11 min** (fired 13:51Z, terminal by the 16:05Z poll; I
+cannot bound it below because I did not poll in between).
+
+**(2) THE BAR HAS NOT MOVED. It is still 2.6195531094824.** This is a *fresh* reading, not the 09:34Z
+one repeated. Per §0c(2) the bar is stamped at **adjudication** time, and per fern's decode of the
+`diff` column, `diff = score − bar_at_adjudication` in raw score units. So `c06b1b6` carries a bar
+reading from within the last 2 h 11 min:
+
+```
+c06b1b6   score 2.58896632157301   diff −0.030587   ⇒ implied bar 2.6195533
+ggu77wt bar set 09:34:06Z                              known bar    2.6195531
+difference +2.1e−7, inside the ±5e−7 print resolution of a 6-dp diff ⇒ UNCHANGED
+```
+
+Cross-checked on a second row: `e27f1ce` (`diff −0.009854`) implies **2.6165037**, reproducing the
+known 8/10 bar of 2.6165 to seven digits. The decode is right.
+`research/tools/bar_read_1602Z.py` prints both. **The required margin from our best receipt is
+therefore still exactly +0.4950 %**, and the ratchet stall in §0c(3) now extends to ~6.5 h.
+
+*I nearly published "the bar MOVED by +2.1e−7" off this tool — the first draft compared at 1e−9 and
+the diff column only resolves to 5e−7. Same false-precision failure this campaign spent the day
+removing from other people's numbers; the guard is now in the tool.*
+
+**(3) Three bounds tighten slightly, and none of them change a decision.** `c06b1b6` scored cleanly
+(a score rejection, not a validity failure), so every "0 in n" denominator grows by one:
+
+| quantity | n | exact CP (95 %, one-sided) |
+|---|---|---|
+| our draws clearing today's bar | 106 → **107** | 2.79 % → **2.76 %** |
+| consecutive clean fires, no validity failure | 53 → **54** | 5.50 % → **5.40 %** |
+| current-era fires clearing by our required margin | 158 → **159** | 1.88 % → **1.87 %** |
+
+*Careful with which bound you are quoting.* This brief has been mixing two of them. The **rule of
+three** (3/n) is the small-p *approximation*; fern's **≤1.88 %** and nezuko's ≤5.40 % are **exact
+Clopper–Pearson**. They differ by ~1 % relative, and if you update the denominator under one and read
+the result against the other you get the absurdity I first typed here — a bound that appears to get
+*worse* (1.88 → 1.89 %) after observing a clean fire. The elsewhere-quoted ≤2.83 % and ≤5.7 % are the
+rule-of-three figures; their exact CP companions are 2.79 % and 5.50 %. Both are defensible, quoting
+one and updating the other is not. `research/tools/bar_read_1602Z.py` now prints both columns.
+
+`c06b1b6` also lands at **2.5890** — **0.68 % below** our best receipt `e27f1ce`, and comfortably
+inside edward's σ = 0.3728 % predictive band around the program mean. One more draw behaving exactly
+as §2 says draws behave.
+
+**WHAT THIS MEANS FOR YOU.** The channel risk that dominated every number in this brief has resolved
+in your favour, and the target has not moved away from you. The arithmetic is unchanged: a re-fire of
+the best tree is worth **≤1.5 %** of a crown (§0c). But the slot is open and an unfired draw is worth
+**exactly zero**. Fire it. Do not spend the remaining time building a delta to fire instead — §3 says
+you would need **+44 µs/step local** just to buy +0.26 %, and the largest per-knob effect this
+campaign ever measured was ≈0.8 µs/step.
+
 ---
 
 ## 1. The five numbers that decide a firing decision
