@@ -386,6 +386,147 @@
 >   shares. (Corollary corrections: the routed gather-GEMM dispatches **38** times,
 >   not 39 ⇒ share 50.4 %, not 51.8 %.)
 >
+> ### 0P.24 🔵 THE LAST THIRD-CELL ARM IS PRICED FROM THE ARCHIVE, THE CENSUS HOLE IS CLOSED, AND WAVE QUANTIZATION IS KILLED AS A LOCAL-HOST MIRAGE
+>
+> Written 2026-08-11T05:00Z (advisor; clock verified `date -u` = 04:45:13Z, per
+> `L-RECHECK-THE-CLOCK-BEFORE-YOU-PRICE-A-LOTTERY`). Four results, all static or
+> from the record, all produced while the channel daemon ran. Nothing here cost
+> GPU time.
+>
+> #### (1) The R119-A guest never needed measuring. I set a hard gate that the archive had already answered.
+>
+> I told alphonse (#711) to measure `laguna_prefill_router_tournament_ordinal_active64_v2`
+> before writing any Metal. That was a wasted hour of a 5.5 h budget: the number
+> is **his own R109-E bandwidth atlas**, `§0P.13(2)` lever **B** at line 1714 of
+> this file — **133.5 µs/step, 39.8 calls/step, 4 KB/call at 0.5 % of DRAM peak** —
+> corroborated by the earlier census at line 2484 (**186.2 µs/step, 2.18 %,
+> "de-staffed"**) and by `research/advisor-r105-the-decode-step-is-half-empty.md:183`
+> (**39 calls/step, 1 TG, 256 thr/TG, 8 simdgroups**), which independently
+> confirms §0P.23's static geometry from a *runtime* dispatch capture.
+>
+> Applying this file's own mandated SPLIT deflation (`1.554 µs × calls/step`):
+> corrected guest = **71.7 µs/step** (atlas) or **125.6 µs/step** (r105 table).
+>
+> At **0.5 % of DRAM peak the router tournament is the most latency-bound kernel
+> in the entire 29-kernel atlas** — more so than `gate_sp` (8.6 % / 6.4 %), which
+> paid −76.8 µs/step. It qualifies for latency absorption on the strongest
+> evidence in the campaign.
+>
+> **Operational law, restated against myself:** `grep -rniE "<kernel name>" research/`
+> BEFORE writing a gate, not only before writing a brief. An advisor gate that
+> re-derives a banked number is a pure tax on the student's clock.
+>
+> #### (2) §0P.23's census had a hole — generic MLX kernels — and closing it strengthens the conclusion
+>
+> §0P.23 enumerated `MLXFast.metalKernel` registrations, i.e. **only `laguna_*`
+> custom kernels**. Generic MLX kernels were invisible to it. The r105 runtime
+> capture shows one that would have qualified spectacularly: **`rmsbfloat16`,
+> 1 TG, 41 calls/step, 142.3 µs/step** — a bigger guest than the router, with
+> more dispatches.
+>
+> Traced at current HEAD. It is dead, and cleanly:
+>
+> - `inputLayerNorm` / `postAttentionLayerNorm` (`LagunaRuntimeModel.swift:11256-11257`)
+>   have **zero call sites** outside their declarations — fully fused into
+>   `residual_rms_router`.
+> - `qNorm` / `kNorm` are fused on all six fast paths (`:6276-6373`,
+>   `qkNormRoPEFused = true`); the `:6376/:6379` fallbacks are unreachable under
+>   default env.
+> - `:6653-6654` looks like decode (`qNorm(queries.reshaped(B, 1, ...))`) but sits
+>   inside **`callLastPrefillRow`** (`:6613`) — prefill, once per prompt.
+> - The only surviving generic RMSNorm on the decode path is `model.norm(...)` at
+>   **`:11901`**, the final norm: **1 call/step**.
+>
+> ⇒ Closed by `L-THIRD-CELL-NEEDS-CALL-COUNT`, exactly like
+> `laguna_residual_rms_bf16_2048_v1` and the embedding-RoPE atlas. **The router
+> tournament is confirmed as the sole live third-cell instance in the decode
+> step, now across the whole kernel surface and not just ours.** The r105
+> 41-call figure was fused away between r105 and now.
+>
+> #### (3) The two payments, calibrated on the merged result rather than guessed
+>
+> My earlier "ceiling = 0.294 × measured guest" (#711, comment 5249029182) is
+> **WITHDRAWN**: it re-charged the dispatch payment inside the absorption
+> fraction and double-counted. `senpai/tools/price_router_arm.py` replaces it by
+> calibrating `N-GRIDAPPEND-ABSORBS-LATENCY` on alphonse's own merged numbers:
+>
+> ```
+> gate_sp: raw 261.6 -> corrected 199.4
+>          dispatch 40 x 1.2382 = 49.5  +  absorption 27.3  =  76.8 us/step
+>          => absorption captured 13.67 % of the corrected guest
+> ```
+>
+> | R119-A instance 3 case | µs/step | score |
+> |---|---:|---:|
+> | floor — dispatch removal only, zero absorption | **48.3** | +0.283 % |
+> | central, atlas guest (71.7 corrected) | **58.1** | +0.340 % |
+> | central, r105 guest (125.6 corrected) | **65.5** | +0.384 % |
+> | optimistic — alphonse's blended 1.92 µs/dispatch | **74.9** | +0.439 % |
+>
+> The central band **straddles Rule 105.12's 60.0 µs/step latency-bound slot
+> floor**. That floor is an advisory screen, not the ship test; the ship test is
+> a verified positive interval excluding zero, which a 58 µs effect clears at
+> ≈2.3σ at R114-E's precision (block CI half-width ≈25.4 µs, n=18/arm).
+> `gate_sp` shipped in the same posture.
+>
+> **Decision-theoretic answer, ~30 remaining draws, fern's steepness law from
+> 1.90 %/shot:** no further win **43.8 %** → floor case **83.1 % (+39.4 pts)** →
+> central **89.4–93.2 %** → optimistic **96.6 %**. **Even the outcome in which my
+> entire latency thesis is wrong and only the dispatches are removed is worth
+> +39 points of P(crown).** This is the largest single lever left on the board.
+>
+> #### (4) This arm was de-staffed once, on a constant alphonse has since refuted 16×
+>
+> `research/RESEARCH_ARCHIVE_through-round-91.md:4686`, row **C3**: "`router_top8`
+> into `postNorm+router`, off-chain, Δbar 0, Δdisp −39, **4.8 µs/step, 0.07 %,
+> low risk**" — this exact fusion, priced at **0.1231 µs per removed dispatch**,
+> and shelved on it. R114-E measured **1.92 µs per removed dispatch** end-to-end.
+> **C3 under-priced this arm by 16×.** The re-opening is a legitimate Type-II
+> re-screen created by our own measurement.
+>
+> #### (5) 🔴 NEW NEGATIVE — `N-ATTN-HEAD-SPLIT-WAVE-NEUTRAL-ON-RANKED-HOST`
+>
+> `research/BRIEF_QUEUED_SLIDING_ATTN_REWRITE.md` (queue rank 1, presumptive owner
+> @maple-nezuko, never assigned) proposes **R1: one query head per threadgroup**,
+> taking `sliding_fused_attn_ring_v1` 32 → 64 TGs and `full_fused_attn_grow_v1`
+> 24 → 48 TGs, motivated by wave quantization (32 TGs on 20 M4 cores = 1.6 waves).
+> **The motivation is arithmetically false. I am killing the arm without spending
+> a student on it.**
+>
+> For equal-work threadgroups at ≤1 TG/core residency (which the ring kernel is:
+> `research/nezuko-pr-attn-marginal-wave-cost.md:745` — 2 × 18432 B of threadgroup
+> memory exceeds the per-core budget), step time ∝ `ceil(k/C) × (H/k)` for `H`
+> head-units split across `k` threadgroups on `C` cores. Utilization is
+> `k / (C · ceil(k/C))` — a function of `k/C` alone:
+>
+> | kernel | H | k now | k after R1 | C=20 (M4 dev) | C=40 (ranked) |
+> |---|---:|---:|---:|---|---|
+> | `sliding_fused_attn_ring_v1` | 64 | 32 | 64 | 4 → 4 units, **0 %** | 2 → 2 units, **0 %** |
+> | `full_fused_attn_grow_v1` | 48 | 24 | 48 | 4 → 3 units, **−25 %** | 2 → 2 units, **0 %** |
+>
+> The campaign's working ranked-host core count is **40**
+> (`RESEARCH_STATE_ARCHIVE_through-round-21.md:950`: "8 TGs on 40 cores is 20 %
+> occupancy versus 40 % on M4"). **On a 40-core ranked host R1 is worth exactly
+> zero for both attention kernels.** On the M4 development host it is worth zero
+> for the sliding kernel — the one the brief targets, and the one holding the
+> 373.4 µs/step headroom — and −25 % of 234.0 corrected = **−58.5 µs/step** for the
+> *full* kernel, which the brief does not target.
+>
+> **`L-WAVE-QUANT-IS-A-LOCAL-HOST-MIRAGE`** — a wave-quantization re-shape changes
+> time only when it crosses a `ceil(k/C)` boundary, and those boundaries sit at
+> different `k` for the development host (C=20) and the ranked host (C=40).
+> **An arm that pays only at C=20 will measure positive locally, pass every
+> statistical gate we own, and ship nothing.** This is the worst possible
+> failure profile and the reason `wave quantization` scored 1/0 in
+> `FIELD_MECHANISM_MAP.md:173` and was closed by tanjiro #13. Evaluate every
+> occupancy/wave argument at the *ranked* core count first; it is free.
+>
+> This does **not** close the sliding kernel's 373.4 µs/step headroom, which
+> remains the largest unpurchased pool in the model. It closes **R1 as the route
+> to it**. R2 (deepening the load pipeline 2→4 slots) is an ILP argument, not a
+> wave argument, and survives — but it is a Metal rewrite of the most numerically
+> delicate kernel in the model, and there is not enough clock left to start it.
+>
 > ### 0P.23 🔵 THE THIRD-CELL SWEEP IS ALREADY COMPLETE: A STATIC THREADGROUP CENSUS OF THE WHOLE DECODE STEP, AND THE BIGGEST HEADROOM NUMBER ON THE BOARD FAILS IT
 >
 > Written 2026-08-11T04:35Z (advisor; clock verified `date -u` at 04:25:04Z, per
