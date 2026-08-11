@@ -18,14 +18,22 @@
 # Step 0 blocks until the ABBA campaign's worker processes are gone.  Only one
 # model-holding process may run at a time on this host (~21 GB RSS each) and a
 # second one would corrupt the campaign's timings, which are the primary result.
+#
+# Usage: finish-r118a.sh [stage]   stage in {part1, part2, all}; default all.
+#   part1 = steps 0, 1, 1b   (no build, ~20 min)
+#   part2 = steps 2, 3       (two builds, ~35 min)
+# The split exists because the supervised-job wall clock killed the first
+# campaign job at ~63 min; keeping each job well under an hour is cheap
+# insurance.
 set -u
 cd "$(dirname "$0")/../.."
 OUT="research/maple-tanjiro-r118/evidence"
 mkdir -p "${OUT}"
+STAGE="${1:-all}"
 
 echo "############ 0. waiting for the ABBA campaign to release the GPU  t=$(date -u +%H:%M:%S)"
 waited=0
-while pgrep -f 'run-r118a.sh|mlxfast-runtime-worker' > /dev/null 2>&1; do
+while pgrep -f 'run-r118a.sh|resume-orderB.sh|mlxfast-runtime-worker' > /dev/null 2>&1; do
   sleep 20
   waited=$((waited + 20))
   if [ $((waited % 300)) -eq 0 ]; then
@@ -38,6 +46,8 @@ done
 echo "############ campaign quiet after ${waited}s  t=$(date -u +%H:%M:%S)"
 sleep 15
 
+if [ "${STAGE}" = "all" ] || [ "${STAGE}" = "part1" ]; then
+
 echo "############ 1. equivalence oracle, default arm  t=$(date -u +%H:%M:%S)"
 env -u DARKBLOOM_SHARED_QMV_ARM bash research/run_upstream_equivalence.sh \
   > "${OUT}/equivalence.log" 2>&1
@@ -49,6 +59,10 @@ echo "log bytes: $(wc -c < "${OUT}/equivalence.log")"
 echo "############ 1b. divergence-cost addendum (needs the CLEAN worker)  t=$(date -u +%H:%M:%S)"
 bash research/maple-tanjiro-r118/divergence-cost.sh 160
 echo "diverg rc=$?"
+
+fi
+
+if [ "${STAGE}" = "all" ] || [ "${STAGE}" = "part2" ]; then
 
 echo "############ 2. SPLIT=1 attribution  t=$(date -u +%H:%M:%S)"
 bash research/maple-tanjiro-r118/qmv-dose-profile.sh \
@@ -67,4 +81,6 @@ echo "############ git status of never-editable paths (must be empty):"
 git status --porcelain -- \
   Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp \
   Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.h
-echo "############ done  t=$(date -u +%H:%M:%S)"
+
+fi
+echo "############ done stage=${STAGE}  t=$(date -u +%H:%M:%S)"

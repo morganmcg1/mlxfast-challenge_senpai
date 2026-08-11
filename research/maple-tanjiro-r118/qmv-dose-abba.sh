@@ -22,13 +22,20 @@
 # are analysed and reported SEPARATELY: agreement between the two mirrored
 # orders is the credibility check, disagreement is a finding.
 #
-#   research/maple-tanjiro-r118/qmv-dose-abba.sh <ORDER> <OUT_DIR> [STEPS]
+#   research/maple-tanjiro-r118/qmv-dose-abba.sh <ORDER> <OUT_DIR> [STEPS] [OFFSET]
+#
+# OFFSET (default 0) is added to the run index, so a truncated order can be
+# resumed into the same directory without renaming anything: the analyser keys
+# on the numeric run index, not on the tsv.  It exists because the first orderB
+# attempt was killed by a job wall-clock deadline after 22 of 40 runs; see
+# HOST-HYGIENE.md.
 set -u
 cd "$(dirname "$0")/../.."
 
 ORDER="${1:?ORDER string of arm digits required}"
 OUT="${2:?output dir required}"
 STEPS="${3:-200}"
+OFFSET="${4:-0}"
 mkdir -p "${OUT}"
 TSV="${OUT}/abba.tsv"
 if [ ! -f "${TSV}" ]; then
@@ -50,7 +57,7 @@ for (( n=0; n<${#ORDER}; n++ )); do
     6) arm=rd1 ;;
     *) echo "unknown arm digit ${d}"; exit 2 ;;
   esac
-  i=$((n+1))
+  i=$((n+1+OFFSET))
   log="${OUT}/run${i}_${arm}.log"
   echo "=== run ${i} arm ${arm} t=$(date -u +%H:%M:%S)"
   DARKBLOOM_SHARED_QMV_ARM="${arm}" python3 research/decode_probe.py \

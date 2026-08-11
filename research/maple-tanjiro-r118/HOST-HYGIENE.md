@@ -11,8 +11,8 @@ committing three more hours to it:
 
 | time (UTC) | what | cost |
 |---|---|---|
-| ~04:37 | `analyze-dose.py --boot 4000` on partial orderA | a few seconds of multi-core CPU |
-| ~04:34 | same, `--boot 20000`, earlier partial read | a few seconds of multi-core CPU |
+| ~04:34 | `analyze-dose.py --boot 20000` on partial orderA | a few seconds of multi-core CPU |
+| ~04:37 | same, `--boot 4000`, second partial read | a few seconds of multi-core CPU |
 
 Both landed **inside the orderA measurement window**. Neither touched the GPU and
 neither started a second model-holding process, so the 21 GB/40 °C constraints
@@ -35,6 +35,38 @@ check is therefore available in the data rather than by argument:
 
 The control block was run *between* the two orders and no analysis was run during
 it or during orderB.
+
+## Second disclosure: order B was interrupted and resumed
+
+The campaign ran as one supervised job with a wall-clock deadline. **The deadline
+fired at 05:16:05Z, in the middle of order B's run 23 of 40**, after order A had
+completed 40/40 (04:12:56–04:41:47Z) and the control block 24/24
+(04:41:47–04:59:34Z). The kill was a `SIGTERM` to the process group from the job
+supervisor, not a crash of the measurement: the last completed run, 22, is
+`d2 8.214 / 8.203`, entirely ordinary. Run 23 left a `.log` and a `.err` and **no
+`.steps` file**, so no partial or truncated run entered the data; the analyser
+keys on `.steps` files only.
+
+What I did about it: `resume-orderB.sh` continues the **same pre-registered
+`ORDER_B` string from position 23**, with the run index offset so the files land
+under the names the analyser expects. No order was re-drawn, no arm was
+re-assigned, and runs 1–22 were not touched. The cost is a gap of roughly ten
+minutes in the middle of order B's session, between run 22 and run 23.
+
+Why I judge it harmless, and what would show it was not:
+
+- The block contrast is *within* a block of four consecutive runs. The gap falls
+  between blocks 5 and 6 of order B (runs 1–20 are five complete blocks; runs 21
+  and 22 open block 6), so at most one block straddles it, and that block is
+  re-run in full by the resume because runs 21–22 are `ship` and `d2` and the
+  resume supplies `d1` and `ctl` for the same block a few minutes later.
+- Order B's mirror property is a property of the *sequence*, which is unchanged.
+- The falsifier is the same one as above: order A and order B are reported
+  separately and their agreement (or not) is the check.
+
+Had I to do it again I would have sized the job's deadline from the measured
+44 s/run rather than from an optimistic estimate, and split it into stages —
+which is what `finish-r118a.sh part1|part2` now does.
 
 ## Standing rule I am adopting for myself
 
