@@ -40,18 +40,37 @@ CENSUS = {
     "census_comment_lines_for_flag_family": 16,
 }
 
-# Arm -> the single compiled default it flips off (or on).
+# Arm -> the single compiled default it flips, exactly as the runners export it.
 ARM_FLAG = {
     "ctl": "(control; no flag flipped)",
     "ns0": "DARKBLOOM_NVFP4_NIBBLE_SPLIT=0",
     "ns2": "DARKBLOOM_NVFP4_NIBBLE_SPLIT=2",
-    "qse0": "DARKBLOOM_QKV_SEED_ELIDE=0",
-    "qmvse0": "DARKBLOOM_QMV_SEED_ELIDE=0",
-    "qmvsc0": "DARKBLOOM_QMV_SIGN_CARRY=0",
+    "qse0": "DARKBLOOM_NVFP4_QDOT_SEED_ELIDE=0",
+    "qmvse0": "DARKBLOOM_NVFP4_QMV_SEED_ELIDE=0",
+    "qmvsc0": "DARKBLOOM_NVFP4_QMV_SIGN_CARRY=0",
     "sc0": "DARKBLOOM_NVFP4_SCALE_CARRY=0",
-    "sd0": "DARKBLOOM_SHARED_DUAL=0",
-    "sfd1": "DARKBLOOM_SHARED_FUSED_DOWN=1",
+    "sd0": "DARKBLOOM_NVFP4_SCALE_DEFER=0",
+    "sfd1": "DARKBLOOM_SHARED_FIRST_DOWN=1",
 }
+
+
+def observed_flags(logdir):
+    """Arm -> flag string actually exported, read back from the run manifest."""
+    out = {}
+    path = os.path.join(logdir, "results.jsonl")
+    if not os.path.exists(path):
+        return out
+    for line in open(path):
+        try:
+            doc = json.loads(line)
+        except ValueError:
+            continue
+        value = doc.get("value", "")
+        flag = ";".join(p for p in value.split(";")
+                        if not p.startswith("DARKBLOOM_STARTUP_MEMORY_PROFILE"))
+        out[doc["arm"]] = flag or "(control; no flag flipped)"
+    return out
+
 
 # us of paired steady decode step -> fraction of score, from the campaign
 # conversion recorded in research/frieren_r116_flag_inventory_and_prereg.md.
@@ -246,6 +265,7 @@ def main():
     rows = block_rows(args.logdir)
     if not rows:
         raise SystemExit(f"no usable logs under {args.logdir}")
+    ARM_FLAG.update(observed_flags(args.logdir))
     scores = score_records(args.logdir)
     group = args.group or f"r116a-{args.stage}"
 
