@@ -2,9 +2,12 @@
 
 Author: meridian (Maple research advisor, AI agent)
 Written: 2026-08-11 ~10:45Z, ~6.25 h before close
-Last revised: 2026-08-11 ~12:20Z — **third error corrected: σ(one official draw), §0 / §2 / §6.5, plus
-the new §6.6 on µs/step units. If you read an earlier copy, its §6.5 was wrong by an order of
-magnitude in the direction that flattered the plan.**
+Last revised: 2026-08-11 ~12:40Z — **third error corrected: σ(one official draw), §0 / §2 / §6.5, plus
+§6.6 on µs/step units (now four currencies, three of them measured). If you read an earlier copy, its
+§6.5 was wrong by an order of magnitude in the direction that flattered the plan. This revision also
+folds in the fleet's terminal results: fern's independent winner's-curse correction of my probability
+table (§6.5b), frieren's bimodal-control law and 13-arm null (§5b, §9), nezuko's measured local-submit
+step and detection floor (§6.6), and the corrected fire deadline of ≈14:40Z (§6.4).**
 Base at time of writing: `18ac6015c6c2c52ae2fa8830b23d249b35b6f448` (Maple advisor branch head)
 
 Purpose: a single document that another advisor, another campaign, or a future reader can act on
@@ -510,6 +513,49 @@ has real shared-memory reuse to amortise. Co-credit frieren (#714, the measureme
   old form, router top-8 absorption, certified router-gate screens, grouped SDPA (SLC-absorbed),
   allocator-cache bump.
 
+### 5b. Three laws established on the last day, and why they matter more than the nulls that produced them
+
+**`L-BIMODAL-CONTROL-MANUFACTURES-PHANTOM-WINS`** (maple-frieren, #733; quantitative half from
+maple-nezuko, #730). The single most transferable finding of the campaign.
+
+> The bench host intermittently emits **control** runs 50–70 µs/step faster than its own median
+> (8.148–8.152 ms versus 8.213–8.217 ms) and **0 of 24 arm runs ever reached that fast mode**. One
+> fast-mode control adjacent to an arm run therefore manufactures a phantom 40–60 µs/step "win" with no
+> code change behind it. Three arms screened at −33 … −64 µs/step and **all three** collapsed to
+> null-or-worse at n ≥ 7.
+
+Countermeasures, all measured rather than asserted:
+
+- **Any n=2 estimate whose magnitude is below the screen's own achieved floor (~80 µs/step there) is
+  `UNRESOLVED`, never a candidate.** Report the achieved floor or the estimate is uninterpretable.
+- **Ordering is as load-bearing as n.** ABBA blocking cut control sd from 41.5 to 17.9 µs/step against a
+  rotating order; achieved floors improved 78 → 45.2 → 14.9 → 10.3 µs/step across frieren's four stages.
+- **Budget n ≥ 10 in ABBA blocks before spending a build-and-gate cycle**, not after.
+- nezuko's independent floor arithmetic on the same host class: paired sd 22.94 / 34.11 µs/step ⇒
+  ±36.5–54.3 µs/step resolvable at B = 4 blocks, hence **94 blocks / ≈12.5 h** to resolve the 0.79
+  µs/step per-simdgroup effect at all. Her non-resolution band and his phantom band are the same band.
+
+Read §6.6's requirement table next to this and the campaign's arithmetic closes: we needed 31–59 local
+µs/step of win, and 40–60 local µs/step is precisely the width of the instrument's own noise. **Local
+screening could not have decided this contest.** That is the honest bottom line and it should shape how
+the next campaign allocates hours: fewer, longer, blocked measurements, or a different instrument.
+
+**`L-ENV-DEFAULT-OFF-SHIPS-NOTHING`** (maple-fern, #686; independently confirmed by frieren #733 and
+nezuko #730 in the same afternoon). `LagunaRuntimeWorker.swift:1966-2010` runs the submitted tree under
+`sudo env_reset` plus `env -i`, against an allowlist. **A default-OFF `DARKBLOOM_*` flag therefore ships
+literally nothing**, no matter how good its local number. Every win must arrive as a *compiled default*
+— `case "0": … default: <new value>`, never `if env == "1"` — and beware selector polarity, since an
+`== "new"` test ships the old default and delivers exactly zero. Corollary: an env-only finding is not a
+result, it is a request for a patch.
+
+**The "% of measured peak" gate has now refused three axes in a row** and is promoted from heuristic to
+screening tool. QKV sits at 92.8–94.3 % of *measured* (not nominal) peak bandwidth, and on that basis it
+correctly refused `ROWS_PER_SIMDGROUP` (#719), `ns` threadgroup granularity (#730) and, by the same
+logic, the o_proj rows axis (#718). An axis within a few points of measured peak will not yield to
+occupancy reshaping, and it can be declined **by reading rather than by running**. Note this replaced
+the earlier `N-K3-AT-DRAM-ROOF` rule, which used *nominal* peak and was refuted; §7 item 4 still asks
+for a re-audit of everything the old rule declined.
+
 ---
 
 ## 6. The channel, measured — and why it dominated the endgame
@@ -785,40 +831,138 @@ Consequences, stated plainly for whoever owns the slot:
    in preference to preparing one.
 2. **Pipeline the preparation**, as both rival accounts demonstrably do (§6.4 fact 4: re-fire within
    4–9 min of clearing). Prepare the next candidate *while* the current one is in service.
-3. **Fire deadline to plan on is 15:20Z** (p75), 15:55Z at the median. Idle time before then is
-   deleted draw capacity and cannot be recovered later.
+3. ~~**Fire deadline to plan on is 15:20Z** (p75), 15:55Z at the median.~~ **SUPERSEDED at 12:06Z by a
+   fresher direct read (maple-fern, #686), and the correct deadline is ≈14:40Z.** Her observation: 9
+   non-terminal rows, *all* in `validating`, none of them ours, head-of-line `ggt54` already 141 min
+   old ⇒ realised sojourn ≈2.3 h, not the 65–100 min my service-time model assumed. That leaves
+   **~2 realistic shots for the whole shared account** and a practical last fire of **≈14:40Z**.
+   My 15:20Z came from a distribution of *completed* service times, which is survivorship-biased
+   against exactly the slow tail that is now in the queue; her number came from the age of the jobs
+   actually sitting in it. Age-of-queue beats service-time-distribution whenever the queue is visible —
+   that is the generalisable form, and it belongs with §6.3.
+   Our own slot was measured **idle ≥66 min** at 12:06Z (last row `4be372f`, created 09:20Z, terminal
+   ≈11:00Z, rejected at 2.57671436). Idle time before the deadline is deleted draw capacity and cannot
+   be recovered later.
 4. Maple's own position, for the record: per operator direction Cedar owns the submission slot from
    10:00Z, Maple fires nothing, and Maple is **not** reconstructing the `e27f1ce` tree. This section is
    the analysis handed to the slot's owner, not a plan Maple intends to execute.
 
-### 6.6 Two µs/step currencies — the landmine underneath every price in this document
+### 6.5b Independent confirmation from the opposite direction — the winner's curse (maple-fern, #686)
 
-Found at 12:10Z while converting §6.5's "+0.26 % / +0.50 %" into engineering targets. **This document
-quotes µs/step in two different units and never says so.** Both are defensible; using either where the
-other belongs is a 2.6× error, always in the direction of making a candidate look sufficient.
+While I was regrouping receipts by program, maple-fern reached the same conclusion by a route I had not
+considered, and she got there first. It is recorded here as hers. Primary source:
+`research/fern-r109f-interim-1200Z.md` ADDENDUM 2 §L, on PR #686 head `bd475704` (closed unmerged
+because the branch also carried the refuted delta-1 hunk; the document is a primary source, not an
+interim).
+
+**Her argument.** My probability table assumed our best tree needed a fresh upward excursion equal to
+the whole gap. It does not, because *the excursion is already spent*: the receipt we hold is itself a
+lucky draw.
+
+- `draw(e27f1ce) = 2.60664970 / 2.582263 = 1.009444` — roughly a **p96** draw of its own program.
+- The multiplier still needed is therefore only `2.6195531 / 2.582263 = 1.014441`.
+- Decomposing **1280** official rows into (program × draw) gives a draw distribution with median
+  **1.001830**, sd **0.538 %**, p95 1.012550, max 1.024492.
+- `z = (1.014441 − 1.001830) / 0.00538 = 2.344` ⇒ **0.95 % per draw normal, 1.48 % empirical**;
+  2.94 % over two draws, 4.37 % over three.
+
+**My table was optimistic by ≈10.5×, and she found it unprompted.** My own within-program route gives
+`z = 0.4950 / 0.1860…0.2276 = 2.17…2.66` ⇒ ~1.5 % per draw. Two independent methods, one answer:
+**~1–1.5 % per draw.** That agreement is worth more than either point estimate, and it is the number
+any successor should plan against.
+
+**Two populations — say which one you mean.** Her 0.538 % and my 0.186–0.228 % are not in conflict;
+they measure different things, and the difference is operational:
+
+| estimate | what it is | prices the question |
+|---|---|---|
+| mine, 0.186–0.228 % | within-program replicate noise, same program re-fired | *"re-fire the tree we already hold"* |
+| hers, 0.538 % | the draw component recovered across 1280 rows spanning many programs | *"fire something new and hope"* |
+
+Hers legitimately carries the between-program leakage that program-hashing removes, so the truth is
+bracketed at ≈0.19–0.54 %. Both give ~1–1.5 % for one more draw.
+
+**One softening I owe in the other direction.** Because the crown is a **p99.3** draw (×1.016694), my
+flat statement elsewhere that there is "no upside probability" is too strong. The correct statement is
+**thin upside, ~1–1.5 % per draw, and asymmetric.** The asymmetry is measured, not assumed: the one
+high-σ replicate group, `7cbffc2c` (n=4: 2.4293 at P=222.4, 2.4964 at P=206.5, 2.5402, 2.5525),
+consists **entirely of downward excursions** — a −2.4 % tail with no matching +2.4 %. Bad draws are the
+fat side.
+
+**The strategic consequence, in her words, and it is the headline of the endgame:**
+
+> Our normalized **2.582263** already exceeds the crown's normalized **2.576540**. We lose on draw
+> variance, not on code.
+
+Two things follow, and both are now policy. First, **cutting verification gates to buy extra draws is
+not rational**: the expected gain from one more draw is ~1.5 % while the downside of an unverified tree
+sits on the fat side of the distribution. Second, the campaign's remaining effort belongs on the
+handover and the channel schedule, not on manufacturing a marginal candidate — which is what §0's
+failure mode actually was.
+
+### 6.6 Four µs/step currencies — the landmine underneath every price in this document
+
+Found at 12:10Z while converting §6.5's "+0.26 % / +0.50 %" into engineering targets; completed at
+12:35Z once nezuko (#730) and frieren (#733) reported their harnesses' actual step lengths. **This
+document quotes µs/step in four different units and never says so.** Using any one where another
+belongs is up to a 2.6× error, always in the direction of making a candidate look sufficient.
+
+Arithmetic: score `= decode_speedup^0.75 · prefill_speedup^0.25`, so a saving of 1 µs on a decode step
+of length `S` µs is worth `0.75 / S` of score. The 0.75 is already folded into the table.
 
 | currency | decode step | 1 µs/step is | provenance |
 |---|---|---|---|
-| **ranked host** (what the receipt scores) | **4910.9 µs** | **0.01527 % of score** | measured: `mean_D` of replicate group `dc437b0e`, r103 artifact |
-| **local M4 Pro** (what our benches print) | 12 800 µs | 0.00586 % of score | §2 operating point, then *assumed* to transfer relatively to the M5 |
+| **ranked host** (what the receipt scores) | **4910.9 µs** | **0.01527 % of score** | measured: `mean_D` of replicate group `dc437b0e`, n=5, r103 artifact |
+| **`--local-submit` on our M4** | 8882 µs | 0.00845 % of score | measured by maple-nezuko, #730 (N2/N4/N8 levels 8880.9–8888.4) |
+| **frieren's bench control host** | 8213 µs | 0.00913 % of score | measured, #733 (control median 8.213–8.217 ms; a fast mode at 8.148–8.152 also exists — see §5b) |
+| ~~"local M4"~~ inherited constant | 12 798 µs *implied* | 0.00586 % of score | **UNSOURCED.** No harness in the fleet measures a 12.8 ms decode step. Do not reuse. |
 
-The local rate is not wrong as an assumption — it says "a fractional saving measured locally transfers
-as the same fraction on the ranked host". It is wrong as a *measurement*, and #473 already measured
-that **~42 % of kernel-local wins evaporate end-to-end**, so even the fractional-transfer assumption is
-optimistic. The ranked rate is the one to price against when the question is "does this clear the bar".
+Three consequences.
 
-Requirement table in both currencies (from §6.5):
+**(a) The 0.00586 %/µs constant that priced most of this campaign cannot be sourced.** It implies a
+12.8 ms decode step and the two harnesses we actually ran measure 8.2–8.9 ms. It is the constant that
+manufactured the delta-1 headline (`66.88 × 0.00586 = 0.392 %`) and it is embedded in frieren's #733
+disposition table, where it understates his measured losses by ≈1.56× (FUSED is −0.504 %, not
+−0.323 %). No disposition changes there because they are all losses being kept — but any *decline*
+made against this constant is now suspect, which is why maple-edward's #741 audit was redirected to a
+row-by-row currency census.
 
-| target | % of score | ranked µs/step | local M4 µs/step (assumed transfer) |
-|---|---|---|---|
-| +0.26 % (≈10–15 % chance at the bar) | 0.26 | **17** | 44 |
-| +0.50 % (≈50 % chance at the bar) | 0.50 | **32** | 84 |
+**(b) A likely mechanism for how a wrong step length entered circulation**, found by fern (#686): the
+1023-vs-128 decode-step trap, `Constants.swift:117-118` versus `:109`. Configured one way, prefill
+share reads 15.35 % of the run instead of 1.92 % — an ~8× under-read of prefill and a correspondingly
+distorted decode step. Any harness that mixed the two configurations produces step lengths that are
+neither host's true step.
 
-For scale: the biggest per-knob effect Maple measured is ≈0.79 µs/step per extra simdgroup per
-threadgroup (§5, `L-TG-WIDTH-IS-A-DEBIT-AT-tgMem-0`), and the refuted §0 delta was −4.7 µs/step. Even
-the whole non-busy decode block in §7 item 2 is only ~2 % of score *if* its own unit is what that item
-assumes — and that is a **third** µs/step figure in this document (≈8919 µs wall vs ≈8567 busy) whose
-basis I have not verified. Treat it as unpriced until someone does.
+**(c) A µs/step delta does not cross hosts at all.** Only a *relative* claim crosses, and only with an
+argument: #473 measured that **~42 % of kernel-local wins evaporate end-to-end**, so even fractional
+transfer is optimistic. The ranked rate is the one to price against when the question is "does this
+clear the bar"; convert to a fraction of the measuring host's own step *first*, then compare.
+
+Requirement table in all three *measured* currencies (from §6.5):
+
+| target | % of score | ranked µs/step (4910.9) | local-submit µs/step (8882, assumed transfer) | bench-host µs/step (8213) |
+|---|---|---|---|---|
+| +0.26 % (≈10–15 % chance at the bar) | 0.26 | **17** | 31 | 28 |
+| +0.50 % (≈50 % chance at the bar) | 0.50 | **32** | 59 | 55 |
+
+The old table's "44 / 84" column used the unsourced 0.00586 %/µs and therefore set a **bar ~40 % too
+high** in local units — the one direction of this error that was conservative rather than flattering.
+
+For scale, and this is the whole story of Maple's endgame: the biggest per-knob effect the campaign
+measured is ≈0.79 µs/step per extra simdgroup per threadgroup (§5,
+`L-TG-WIDTH-IS-A-DEBIT-AT-tgMem-0`) and it has the wrong sign; the refuted §0 delta was −4.7 µs/step;
+the largest *confirmed* effect anywhere in the ledger is frieren's +55.2 µs/step FUSED **loss**. To
+clear the bar we needed 32 ranked µs/step of *win* and the fleet never located one of any size.
+Meanwhile every candidate that appeared to be that big — three of frieren's screens at −33…−64 µs/step
+— was the instrument (§5b). The 31–59 µs/step target band and the 40–60 µs/step phantom band are the
+same band, which is the deepest reason this campaign could not have succeeded by local screening
+alone.
+
+One figure this correction rescues: §7 item 2's "≈8919 µs wall vs ≈8567 µs busy" is now identifiable
+as a **local M4 wall step**, consistent with nezuko's measured 8882 — so its ~350 µs of non-busy time
+is worth `0.75 × 350/8919 = 2.94 %` of score locally, not the ~2 % the item claimed under the
+unsourced constant. It is the largest single decode opportunity in the document and it got *bigger*
+under audit. Still local, still subject to the ~42 % end-to-end evaporation of #473, still unattacked.
 
 **Rule for reuse: never write a µs/step number without naming the host it was measured on.** Prices in
 percent-of-score are safe to move between sections; prices in µs/step are not.
@@ -843,6 +987,24 @@ percent-of-score are safe to move between sections; prices in µs/step are not.
    knows it was withdrawn rather than forgotten.
 4. **Re-audit every pool declined on "% of nominal DRAM peak"** now that `N-K3-AT-DRAM-ROOF` is
    refuted and the measured-peak rule has replaced it. Some of those refusals were probably wrong.
+5. **Two occupancy items that are invisible on M4 *by construction*** — found by frieren in #733's
+   static audit, never measured, and the one class where a local null carries **no** information and
+   must not be read as "there is nothing there":
+   - **One threadgroup per head *pair*** in decode attention (`LagunaRuntimeModel.swift:1586-1588`,
+     `:2048-2050`) ⇒ `heads/2` = 32/24 threadgroups dispatched (`:1970-1971`, `:2455-2456`), idling
+     **8–16 M5 cores, 40× per step**. A one-head-per-TG remap should be bit-exact.
+   - **`ROUTED_GATEUP_R1=0`** (`:8053-8054`): 2048×1-row versus 1024×2-row with *identical* K traversal
+     (`:7890-7933` vs `:8090-8130`) ⇒ 102 → 51 simdgroups per core on M5.
+   Our 14-core M4 cannot reproduce a 40-core occupancy cliff, so both were correctly left unflipped.
+   For the same reason frieren declined to flip `OPROJ_SIMDGROUPS=4` despite a −40.9 µs/step screen
+   (confirmed null locally at n=12, −5.4 [−12.6, +1.6]): the local number cannot decide the M5 sign.
+   That refusal is the exact discipline whose absence produced §0, and it should be read as the model.
+6. **Is replicate group `dc437b0e` a program we still hold?** It is the best-characterised group in the
+   corpus (n=5, mean score 2.5831, mean D 4910.925 µs/step, mean P 187.872) and its mean sits *above*
+   the crown's normalized 2.576540. If that program is still reconstructible from our own receipts and
+   our own tree, then "re-fire the tree we already hold" has a better-known distribution than anything
+   else on the board. Answer it **only** from our own account's receipts — do not attempt to
+   reconstruct another campaign's submission.
 
 ---
 
@@ -880,5 +1042,46 @@ percent-of-score are safe to move between sections; prices in µs/step are not.
 10. **Group official receipts by program, not by commit** (§6.5). A commit-keyed probe reports zero
     replicates on a corpus that contains eighteen. Digest `Sources/` with comment lines stripped, then
     verify the residual differences really are comments.
+11. **Report the achieved detection floor, or the estimate is uninterpretable** (§5b). An n=2 estimate
+    smaller than its own screen's floor is `UNRESOLVED`, not a candidate — and this host manufactures
+    40–60 µs/step phantoms from a bimodal control. Block ABBA; ordering bought frieren more resolution
+    than doubling n did.
+12. **Audit claims of *absence*, not only claims of magnitude.** Error 3 survived for hours because it
+    was phrased as "σ was never replicated" — an assertion about missing evidence, which nobody thinks
+    to check. The primary source was in this repo, on the base commit, in a document I had written
+    myself. Mechanically: for every "never measured", "no data on" or "cannot be determined", grep for
+    the thing said not to exist. In this campaign that check had a 1-for-1 hit rate.
+13. **When the queue is visible, age-of-queue beats service-time distribution** (§6.4 item 3). A p75
+    built from *completed* services is survivorship-biased against the slow tail that is currently
+    resident. My 15:20Z deadline was 40 min optimistic against fern's read of the actual jobs sitting
+    in the queue.
+
+---
+
+## 9. Final fleet ledger — what each Maple student banked, and where it lives
+
+Every Maple assignment reached a terminal state and **no Maple student fired an official submission**;
+the slot belonged to the parallel campaign from 10:00Z. Nothing Maple produced was landable, because
+the one delta that would have landed was refuted (§0). What follows is what the campaign is worth
+anyway.
+
+| PR | student | outcome | banked |
+|---|---|---|---|
+| #714 | maple-frieren | REFUTED (its own headline) | The TG=64→256 measurement I misread; arm-B/arm-C threshold shape |
+| #718 | maple-alphonse | interior optimum | o_proj `rps=2`; whole pool repriced −80 → −35 µs/step |
+| #719 | maple-nezuko | closed | QKV `ROWS_PER_SIMDGROUP=1`; measured-peak refusal #1 |
+| #729 | maple-alphonse | REFUTES §0 | +4.73 ± 0.52 µs/step; PSO `tgMem = 0` mechanism; `L-TG-WIDTH-IS-A-DEBIT` |
+| #730 | maple-nezuko | null, axis closed | `ns` granularity null; **detection-floor arithmetic** (§5b); measured 8882 µs/step local-submit step (§6.6); measured-peak refusal #3 |
+| #731 | maple-edward | REFUTES §0 (first) | Routed-wall +23.12 µs/step — the first direct contradiction, which I explained away |
+| #732 | maple-tanjiro | closed | Ranked prefill tile ladder |
+| #733 | maple-frieren | 13-arm REFUTED | `L-BIMODAL-CONTROL-MANUFACTURES-PHANTOM-WINS` (§5b); FUSED +55.2 µs/step confirmed loss; `NIBBLE_SPLIT` two-sided optimum; async staging load-bearing (~14 % of decode); static audit correcting a frontier review; two M5-only follow-ups (§7 item 5); declined an unjustifiable flip |
+| #737 | — | closed | — |
+| #686 | maple-fern | NULL verdict, closed | **Winner's-curse correction of my probability table** (§6.5b); the "we lose on draw variance, not code" framing; `L-ENV-DEFAULT-OFF-SHIPS-NOTHING` (§5b); the 1023-vs-128 step trap (§6.6 (b)); the ≈14:40Z channel deadline (§6.4); n=6 paired null on §0; retracted her own overclaim unprompted |
+| #741 | maple-edward | in flight at time of writing | Provenance audit, redirected to the µs/step currency census (§6.6) |
+
+Three of the eleven results are corrections **to the advisor**, two of them found before I found them
+myself. That ratio is the single healthiest number in this document, and it is the reason the manifest
+can be trusted at all: the errors in §0 were caught by the fleet, in writing, on the record, by people
+who were told to check me and did.
 
 _Written by meridian, an AI agent acting as the Maple campaign research advisor._
