@@ -207,31 +207,10 @@ def boot_p_at(sample, budget, trials=600, seed=23):
     return (vals[int(0.05 * trials)], vals[int(0.95 * trials)])
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("snapshot")
-    ap.add_argument("--window", type=float, default=15.0,
-                    help="minutes of ambient depth a fresh row is judged by")
-    ap.add_argument("--close", default="17:00")
-    ap.add_argument("--bucket", type=int, default=8,
-                    help="d_create floor for the slope experiment")
-    a = ap.parse_args()
-
-    rows, asof = load(a.snapshot)
+def build(rows, asof, W):
+    """Per-row depth covariates.  Single source of truth: the W&B publisher
+    imports this rather than re-deriving (or worse, pasting) any of it."""
     D = Depth(rows, asof)
-    hh, mm = (int(x) for x in a.close.split(":"))
-    close = asof.replace(hour=hh, minute=mm, second=0, microsecond=0)
-    W = a.window
-
-    print("=" * 78)
-    print("R129-Q  DEPTH-BIAS CORRECTION -- measuring the caveat I published")
-    print("=" * 78)
-    print(f"snapshot           : {a.snapshot}")
-    print(f"snapshot as-of     : {asof.isoformat()}   rows {len(rows)}")
-    print(f"close              : {close.isoformat()}")
-    print(f"ambient window W   : {W:.0f} min")
-
-    # ---- per-row covariates -------------------------------------------------
     recs, dropped_edge = [], 0
     for r in rows:
         c = ts(r["createdAt"])
@@ -245,12 +224,54 @@ def main():
             dropped_edge += 1
             continue                      # ambient window not fully observed
         self_share = min(soj, W) / W      # self counted while alive inside window
-        d_create = D.before(c)
-        d_win = D.mean(c, wend) - self_share
-        d_life = (D.mean(c, u) - 1.0) if soj > 0 else float(d_create)
-        slope = D.at(wend) - D.at(c)
-        recs.append(dict(id=r["id"][:8], c=c, soj=soj, done=term, d_create=d_create,
-                         d_win=d_win, d_life=d_life, slope=slope))
+        recs.append(dict(id=r["id"][:8], c=c, soj=soj, done=term,
+                         d_create=D.before(c),
+                         d_win=D.mean(c, wend) - self_share,
+                         d_life=(D.mean(c, u) - 1.0) if soj > 0 else float(D.before(c)),
+                         slope=D.at(wend) - D.at(c)))
+    return D, recs, dropped_edge
+
+
+def today_sample(rows, asof):
+    """[(sojourn_min, completed)] for rows created on the snapshot's own date."""
+    out = []
+    for r in rows:
+        c = ts(r["createdAt"])
+        if c.date() != asof.date():
+            continue
+        term = r.get("status") in TERMINAL
+        u = ts(r["updatedAt"]) if term else asof
+        soj = (u - c).total_seconds() / 60.0
+        if soj >= 0:
+            out.append((soj, term))
+    return out
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("snapshot")
+    ap.add_argument("--window", type=float, default=15.0,
+                    help="minutes of ambient depth a fresh row is judged by")
+    ap.add_argument("--close", default="17:00")
+    ap.add_argument("--bucket", type=int, default=8,
+                    help="d_create floor for the slope experiment")
+    a = ap.parse_args()
+
+    rows, asof = load(a.snapshot)
+    hh, mm = (int(x) for x in a.close.split(":"))
+    close = asof.replace(hour=hh, minute=mm, second=0, microsecond=0)
+    W = a.window
+
+    print("=" * 78)
+    print("R129-Q  DEPTH-BIAS CORRECTION -- measuring the caveat I published")
+    print("=" * 78)
+    print(f"snapshot           : {a.snapshot}")
+    print(f"snapshot as-of     : {asof.isoformat()}   rows {len(rows)}")
+    print(f"close              : {close.isoformat()}")
+    print(f"ambient window W   : {W:.0f} min")
+
+    # ---- per-row covariates -------------------------------------------------
+    D, recs, dropped_edge = build(rows, asof, W)
     done = [x for x in recs if x["done"] and x["soj"] > 0]
     print(f"usable rows        : {len(recs)} ({len(done)} completed), "
           f"{dropped_edge} dropped because [created, created+W] runs past the snapshot")
@@ -408,16 +429,7 @@ def main():
     # rising-queue caveat I actually published, in the opposite direction.
     print()
     print("-- TODAY-ONLY curve: the population the next fire actually joins ------")
-    today = []
-    for r in rows:
-        c = ts(r["createdAt"])
-        if c.date() != asof.date():
-            continue
-        term = r.get("status") in TERMINAL
-        u = ts(r["updatedAt"]) if term else asof
-        soj = (u - c).total_seconds() / 60.0
-        if soj >= 0:
-            today.append((soj, term))
+    today = today_sample(rows, asof)
     ncen = sum(1 for _, t in today if not t)
     kd = km(today)
     print(f"  rows created {asof.date()}: n={len(today)} ({ncen} still resident, "
