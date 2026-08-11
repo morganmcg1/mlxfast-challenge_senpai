@@ -986,6 +986,27 @@ def run_crown_lottery(wandb, rows, cache, dry):
     summary.update({f"channel/{k}": v for k, v in CHANNEL.items()})
     summary.update({f"channel_oos/{k}": v for k, v in CHANNEL_OOS.items()})
 
+    # Tickets fired versus tickets scored.  Six receipts are terminal and carry
+    # metrics; tickets 7 and 8 are on the channel and cannot be pooled yet, so
+    # every instrument figure in this run is still the k=3 / 3 df estimate.  This
+    # is recorded so a reader cannot mistake "eight tickets prepared" for "eight
+    # receipts measured", and so the two draws lost today stay visible.
+    summary.update(
+        {
+            "tickets/prepared": 8,
+            "tickets/terminal_with_metrics": 6,
+            "tickets/in_flight": 2,
+            "tickets/lost_to_channel_rules": 2,
+            "tickets/t7_id": "4be372f9-bb17-4857-9252-b84c71bc3c1a",
+            "tickets/t7_created_utc": "2026-08-11T09:20:20.768Z",
+            "tickets/t7_slot_contested_wait_min": 81.0,
+            "tickets/t8_armed": 1,
+            "tickets/t8_prereg_sealed_while_t7_in_flight": 1,
+            "tickets/poll_interval_s": 15,
+            "tickets/note_min_bytes": 5120,
+        }
+    )
+
     # Shot budget: how many more draws the *channel* will physically allow before
     # the campaign deadline, which is now the binding constraint rather than any
     # property of the code.  Reported at both the measured median and the

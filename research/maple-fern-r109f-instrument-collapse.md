@@ -1254,6 +1254,92 @@ refuses a mutable job on a dirty tree — which is the real reason the §10.6
 documentation commit went in *before* the relaunch rather than after. Relaunched
 as `57c75849` at 09:08Z, same 15 s interval, `--max-wait 10500`.
 
+### 7.2 The censoring prediction, tested out of sample 13 minutes later
+
+§7.1 did not only report a median. It made a falsifiable claim: because the
+eleven rows still in flight at 09:06Z had a median lower bound (≥38.5 min) that
+*exceeded* the completed median for the same regime (35.5 min), the completed
+sample had to be biased fast, and the honest current service time was **"≥45–50
+min and rising"**. That is a prediction with a direction and a number, written
+before the data that could refute it existed.
+
+It was tested almost immediately, and by accident rather than by design. A
+thirteenth snapshot (`/tmp/subs_p14.json`, mtime **09:19:15Z**, 1849 rows) was
+fetched only to check whether the slot had freed. Re-running the identical
+estimator over the thirteen snapshots — no re-tuning, no new method, one more
+observation time — moved the numbers as follows:
+
+| quantity | 09:06Z (n=19) | 09:19Z (n=20) | change |
+|---|---|---|---|
+| bracket midpoint median | 27.98 min | **29.61 min** | +5.8 % |
+| bracket p90 | 83.18 min | **96.10 min** | +15.5 % |
+| censored median (lower bound) | ≥38.50 min | **≥50.56 min** | +31.3 % |
+| censored rows | 11 | 11 | — |
+| completed brackets | 19 | 20 | +1 |
+
+One row completed inside the interval: `c0b9b65b` (fjrth66, created 07:42:44Z),
+bracketed **83.8–96.5 min**. That is the longest genuine service time in the
+entire record — the 309 min bracket in the table is an artifact of the 4.8 h
+observation hole between 02:16Z and 07:03Z, not a service time, and it is the
+reason the bracket *mean* is useless and the median is quoted instead.
+
+**The prediction entered its own band from below.** The censored median went from
+≥38.50 to ≥50.56, i.e. straight through the predicted 45–50 min and out the top,
+in 12.7 minutes of wall clock. Meanwhile `7eca997d` — the submission that held
+the shared account's slot and blocked my ticket 7 — was still `validating` at
+**82.0 min**, having been at 69.3 min when §7.1 was written. A queue at steady
+state does not do this. A degrading one does.
+
+Two methodological points, because this is the only genuinely out-of-sample
+evidence in the section and it would be easy to spend it badly:
+
+1. **The point estimate is deliberately not updated.** `CHANNEL` in
+   `research/fern_r109f_wandb_campaign.py` still carries the 09:06Z numbers, and
+   `MIN_PER_SHOT` is still 27.98. Overwriting them with the 09:19Z values would
+   convert a test back into a fit and destroy the very thing that makes §7.2 worth
+   reading. The newer figures live in a separate `CHANNEL_OOS` dict, logged under
+   `channel_oos/*`, explicitly labelled as the confirmation and not the basis.
+2. **The direction was not chosen after the fact.** "Rising" was in the artifact
+   before `p14` was fetched, committed in `8cae79c7`. The commit order is checkable
+   in git, which is the whole reason to write predictions into commits rather than
+   into a final report.
+
+The practical consequence is that the shot budget is now the campaign's binding
+constraint and it is *tightening*: 641 min remained at 09:19Z, giving 7.2 shots at
+the bracket median and **2.2 at the p90**, against 7.8 and 2.6 measured thirteen
+minutes earlier. Every headline in §7.1 that depended on the service time should
+therefore be read as an optimistic bound, including the "2.6–7.8 shots" figure and
+the ≈2.5 % P(crown) that follows from it.
+
+### 7.3 Ticket 7 fired, and the interval fix is now confirmed rather than argued
+
+At **09:20:12Z** the slot freed and the poller took it on attempt 1: ticket 7 is
+submission **`4be372f9-bb17-4857-9252-b84c71bc3c1a`** (`createdAt`
+09:20:20.768Z), the fourth run of the atlas-v3 executable, note 11.6 KiB.
+
+This closes the loop on the second of the two draws lost earlier today. That loss
+(07:57:16Z) happened because `7eca997d` claimed the slot roughly 22 seconds after
+the previous row went terminal, which a 120 s polling loop cannot win; the interval
+was cut to 15 s in response. The same 15 s poller has now won a contested slot
+after waiting out **81 minutes** of that very submission's validation. One win is
+not a rate, but it does move the interval change from "argued from the arithmetic
+of a 22 s margin" to "argued from the arithmetic *and* demonstrated once".
+
+The honest caveat: winning a slot race is not the same as creating capacity. §7.1's
+first inference — that service time ≈ inter-arrival gap, so idle ≈ 0 — says the
+channel is continuously busy and a faster poller only changes *who* gets the next
+slot, never how many slots exist. Ticket 7 was won from other students and from the
+advisor sharing the `morganmcg1` account, not from the queue.
+
+Ticket 8 was armed behind it in the same minute (`38cd7894`), and its
+pre-registration block is **sealed by the channel's own timestamps**: the note was
+written and submitted while `4be372f9` was still `validating`, so the API record
+itself proves the prediction predates the result. That is strictly better than the
+original plan, which was to wait for ticket 7's verdict and paste it in — a
+"prediction" written after the fact would have had no evidentiary force at all.
+`submissionCommitSha` is `None` until a row goes terminal, so the `pkg-t7` tag and
+the ticket-7 row of the receipt ledger are necessarily deferred.
+
 
 
 ---

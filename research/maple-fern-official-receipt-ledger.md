@@ -202,7 +202,16 @@ with `REF_D = 0.01385621216015625`, `REF_P = 0.00036751938916015626`.
 | 4 | `ed40f3ee-b76b-45de-b751-d02b013ea113` | 2026-08-11T01:07:24Z | `d567a72a` (`pkg-t4`) | base **+ atlas `v3_tg128`**, QHOIST reverted — *best-believed package draw, not an arm probe* | rejected — score did not improve | 2.55785830244444 | 2.567970 ← best code *at the time*; superseded by #6 | **0.996062** ← 3rd percentile of the field | 4928.2 | 187.84 |
 | 5 | `0531544b-a426-4f26-821a-d7f642f6c101` | 2026-08-11T01:31:01Z | `0a81e48b` (`pkg-t5`) | **same executable as #4** (comment-only nonce replay) | rejected — score did not improve | 2.57278074829225 | 2.576759 | 0.998456 | 4907.1 | 187.69 |
 | 6 | `cb4de9e0-b083-4061-8e2b-3fa3f055c1e9` | 2026-08-11T01:54:46Z | `fe610f60` (`pkg-t6`) | **same executable as #4** (comment-only nonce replay) | rejected — score did not improve | 2.57646292274507 | **2.579556** ← best code of the campaign | 0.998801 | 4897.1 | 188.03 |
-| 7 | armed 2026-08-11T07Z, fires on the next free account slot | HEAD at fire time (nonce `lottery-r109f-t7-nonce-5b3ce1d7-d`) | **same executable as #4** (comment-only nonce replay), fired as a **pre-registered test** — see `research/artifacts/fern-r109f/notes/ticket7-preregistered-note.md` | — | — | — | — | — | — |
+| 7 | `4be372f9-bb17-4857-9252-b84c71bc3c1a` | 2026-08-11T09:20:20Z | pending (`submissionCommitSha` is `None` until terminal, so `pkg-t7` is deferred) | **same executable as #4** (comment-only nonce `lottery-r109f-t7-nonce-5b3ce1d7-d`), fired as a **pre-registered test** — see `research/artifacts/fern-r109f/notes/ticket7-preregistered-note.md` | **in flight** (`validating`) | — | — | — | — | — |
+| 8 | armed 2026-08-11T09:27Z, poller `1298f7a9`, fires on the next free account slot | HEAD at fire time (nonce `lottery-r109f-t8-nonce-9c4f1ab2-e`, commit `38cd7894`) | **same executable as #4** (comment-only nonce replay), fifth atlas-v3 replicate; its note's prediction block is **sealed while #7 was still `validating`** — see `research/artifacts/fern-r109f/notes/ticket8-fifth-replicate-note.md` | — | — | — | — | — | — |
+
+**Ticket 7's slot was contested and won.** The poller waited out 81 minutes of
+`7eca997d` (another `morganmcg1` submission, not mine) and took the slot on
+attempt 1 at 09:20:12Z with a 15 s interval. The draw lost at 07:57Z was lost to
+that same submission by roughly 22 seconds on a 120 s interval — so the interval
+fix is now demonstrated once, not merely argued. See §7.3 of
+`research/maple-fern-r109f-instrument-collapse.md`, and the caveat there that
+winning a slot race redistributes capacity rather than creating it.
 
 Baseline legs the runner reported for each: #1 13896.1 / 366.02 µs, #2
 13850.2 / 384.84 µs, #3 13829.7 / 366.79 µs, #4 13825.1 / 364.21 µs, #5
