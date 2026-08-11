@@ -7739,28 +7739,113 @@ METAL_FUNC uint laguna_router_top8_extract_round(
 }
 """
 
+let lagunaRouterHybridT5Header = """
+METAL_FUNC uint2 laguna_router_hybrid_reduce(uint2 best_pair) {
+    for (ushort offset = 16; offset > 0; offset >>= 1) {
+        const uint2 other_pair = simd_shuffle_xor(best_pair, offset);
+        if (laguna_router_ordinal_before(
+            other_pair.x, other_pair.y, best_pair.x, best_pair.y)) {
+            best_pair = other_pair;
+        }
+    }
+    return best_pair;
+}
+
+METAL_FUNC void laguna_router_hybrid_swap(
+    thread uint* ordinals, thread uint* indices, uint a, uint b) {
+    if (laguna_router_ordinal_before(
+        ordinals[b], indices[b], ordinals[a], indices[a])) {
+        uint ordinal = ordinals[a];
+        uint index = indices[a];
+        ordinals[a] = ordinals[b];
+        indices[a] = indices[b];
+        ordinals[b] = ordinal;
+        indices[b] = index;
+    }
+}
+
+METAL_FUNC void laguna_router_hybrid_top8(
+    thread uint* ordinals, thread uint2* top8_pairs, uint lane) {
+    uint mask = 0u;
+    for (uint r = 0; r < 5; ++r) {
+        uint winner = laguna_router_top8_extract_round(ordinals, mask, lane);
+        uint winner_ordinal = simd_shuffle(
+            ordinals[winner >> 5u], ushort(winner & 31u));
+        top8_pairs[r] = uint2(winner_ordinal, winner);
+    }
+
+    thread uint indices[8];
+    for (uint j = 0; j < 8; ++j) {
+        if ((mask & (1u << j)) != 0u) {
+            ordinals[j] = 0xFFFFFFFFu;
+            indices[j] = 256u;
+        } else {
+            indices[j] = lane + 32u * j;
+        }
+    }
+
+    laguna_router_hybrid_swap(ordinals, indices, 0, 2);
+    laguna_router_hybrid_swap(ordinals, indices, 1, 3);
+    laguna_router_hybrid_swap(ordinals, indices, 4, 6);
+    laguna_router_hybrid_swap(ordinals, indices, 5, 7);
+    laguna_router_hybrid_swap(ordinals, indices, 0, 4);
+    laguna_router_hybrid_swap(ordinals, indices, 1, 5);
+    laguna_router_hybrid_swap(ordinals, indices, 2, 6);
+    laguna_router_hybrid_swap(ordinals, indices, 3, 7);
+    laguna_router_hybrid_swap(ordinals, indices, 0, 1);
+    laguna_router_hybrid_swap(ordinals, indices, 2, 3);
+    laguna_router_hybrid_swap(ordinals, indices, 4, 5);
+    laguna_router_hybrid_swap(ordinals, indices, 6, 7);
+    laguna_router_hybrid_swap(ordinals, indices, 2, 4);
+    laguna_router_hybrid_swap(ordinals, indices, 3, 5);
+    laguna_router_hybrid_swap(ordinals, indices, 1, 4);
+    laguna_router_hybrid_swap(ordinals, indices, 3, 6);
+    laguna_router_hybrid_swap(ordinals, indices, 1, 2);
+    laguna_router_hybrid_swap(ordinals, indices, 3, 4);
+    laguna_router_hybrid_swap(ordinals, indices, 5, 6);
+
+    uint head = 0u;
+    for (uint r = 5; r < 8; ++r) {
+        uint2 best_pair = laguna_router_hybrid_reduce(
+            uint2(ordinals[head], indices[head]));
+        top8_pairs[r] = best_pair;
+        if ((best_pair.y & 31u) == lane) {
+            ++head;
+        }
+    }
+}
+"""
+
 private let lagunaRouterTop8PrecomputedPrelude = """
-thread uint top8_keys[8];
+uint top8_winner = 0u;
+{
+    thread uint top8_keys[8];
     for (uint j = 0; j < 8; ++j) {
         top8_keys[j] = router_keys[lane + 32u * j];
     }
-    uint top8_mask = 0u;
-    uint top8_winner = 0u;
-    for (uint r = 0; r <= expert_slot; ++r) {
-        top8_winner = laguna_router_top8_extract_round(
-            top8_keys, top8_mask, lane);
+    if (expert_slot < 5u) {
+        uint top8_mask = 0u;
+        for (uint r = 0; r <= expert_slot; ++r) {
+            top8_winner = laguna_router_top8_extract_round(
+                top8_keys, top8_mask, lane);
+        }
+    } else {
+        thread uint2 top8_pairs[8];
+        laguna_router_hybrid_top8(top8_keys, top8_pairs, lane);
+        top8_winner = top8_pairs[expert_slot].y;
     }
+}
 """
 
 private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
-    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_bf16_v1",
+    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_hybrid_t5_bf16_v2",
     inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
     outputNames: ["activated"],
     source: lagunaRoutedSwiGLUQMVPackedSelectedSource(
         prologue: lagunaRouterTop8PrecomputedPrelude,
         expertExpression: "top8_winner"),
     header: lagunaSharedSwiGLUQMVHeader + "\n" + lagunaDecodeRouterOrdinalHeader
-        + "\n" + lagunaRouterTop8PrologueHeader,
+        + "\n" + lagunaRouterTop8PrologueHeader + "\n" + lagunaRouterHybridT5Header,
     ensureRowContiguous: true
 )
 
@@ -7776,7 +7861,7 @@ let lagunaRoutedGateUpR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTED_GATEUP_R1"] != "0"
 
 private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
-    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
+    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_hybrid_t5_r1_bf16_v3",
     inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
     outputNames: ["activated"],
     source: """
@@ -7886,7 +7971,7 @@ if (lane == 0) {
 }
 """,
     header: lagunaSharedSwiGLUQMVHeader + "\n" + lagunaDecodeRouterOrdinalHeader
-        + "\n" + lagunaRouterTop8PrologueHeader,
+        + "\n" + lagunaRouterTop8PrologueHeader + "\n" + lagunaRouterHybridT5Header,
     ensureRowContiguous: true
 )
 
@@ -9348,11 +9433,94 @@ private let lagunaDecodeRouterOrdinalEnabled =
 private let lagunaDecodeRouterOrdinalScoreTableEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTER_ORDINAL_SCORE_TABLE"] != "0"
 
-/// The two-phase 32 -> 64 tournament produces the same globally ordered top
-/// eight as the full 256-entry bitonic network while avoiding its repeated
-/// cross-simdgroup stages. The optimized second phase runs only one logical
-/// copy on the first 64 threads. Keep the full-sort path as an in-binary
-/// fallback and for the score-recompute ablation.
+/// Extract the first five winners with the accepted rescan, then sort each
+/// lane's remaining candidates and merge the three smallest lane heads.
+private func lagunaDecodeRouterHybridT5KernelSource(normalizing: Bool) -> String {
+    let epilogue = normalizing
+        ? """
+uint selected_index = top8_pairs[lane & 7u].y;
+float selected_score = lane < 8u ? original_scores[selected_index] : 0.0f;
+float total = 0.0f;
+for (uint i = 0; i < 8; ++i) {
+    total = simd_shuffle(selected_score, ushort(i)) + total;
+}
+if (lane < 8u) {
+    router_indices[lane] = selected_index;
+    router_scores[lane] = selected_score / total;
+}
+"""
+        : """
+if (lane < 8u) {
+    uint selected_index = top8_pairs[lane].y;
+    router_indices[lane] = selected_index;
+    router_scores[lane] = original_scores[selected_index];
+}
+"""
+    return """
+uint lane = thread_position_in_threadgroup.x;
+threadgroup uint all_ordinals[256];
+threadgroup float original_scores[256];
+
+float x = float(logits[lane]);
+float y = 1.0f / (1.0f + metal::exp(metal::abs(x)));
+float score = x < 0.0f ? y : 1.0f - y;
+original_scores[lane] = score;
+float key = -(score + float(correction_bias[lane]));
+all_ordinals[lane] = laguna_router_key_ordinal(key);
+threadgroup_barrier(mem_flags::mem_threadgroup);
+
+if (lane < 32u) {
+    thread uint ordinals[8];
+    for (uint j = 0; j < 8; ++j) {
+        ordinals[j] = all_ordinals[lane + 32u * j];
+    }
+    thread uint2 top8_pairs[8];
+    laguna_router_hybrid_top8(ordinals, top8_pairs, lane);
+    \(epilogue)
+}
+"""
+}
+
+private let lagunaDecodeRouterHybridT5Kernel = MLXFast.metalKernel(
+    name: "laguna_decode_router_top8_ordinal_hybrid_t5_v1",
+    inputNames: ["logits", "correction_bias"],
+    outputNames: ["router_indices", "router_scores"],
+    source: lagunaDecodeRouterHybridT5KernelSource(normalizing: false),
+    header: lagunaDecodeRouterOrdinalHeader + "\n" + lagunaRouterTop8PrologueHeader
+        + "\n" + lagunaRouterHybridT5Header,
+    ensureRowContiguous: true
+)
+
+private let lagunaDecodeRouterHybridT5NormalizingKernel = MLXFast.metalKernel(
+    name: "laguna_decode_router_top8_ordinal_hybrid_t5_norm_v1",
+    inputNames: ["logits", "correction_bias"],
+    outputNames: ["router_indices", "router_scores"],
+    source: lagunaDecodeRouterHybridT5KernelSource(normalizing: true),
+    header: lagunaDecodeRouterOrdinalHeader + "\n" + lagunaRouterTop8PrologueHeader
+        + "\n" + lagunaRouterHybridT5Header,
+    ensureRowContiguous: true
+)
+
+func lagunaDecodeRouterHybridT5ForTesting(
+    logits: MLXArray, correctionBias: MLXArray, normalizing: Bool = false
+) -> (MLXArray, MLXArray) {
+    precondition(logits.dtype == .bfloat16 || logits.dtype == .float32)
+    precondition(correctionBias.dtype == .float32)
+    precondition(logits.size == 256)
+    precondition(correctionBias.size == 256)
+
+    let kernel =
+        normalizing ? lagunaDecodeRouterHybridT5NormalizingKernel : lagunaDecodeRouterHybridT5Kernel
+    let outputs = kernel(
+        [logits, correctionBias],
+        grid: (256, 1, 1),
+        threadGroup: (256, 1, 1),
+        outputShapes: [[1, 1, 8], [1, 1, 8]],
+        outputDTypes: [.uint32, .float32]
+    )
+    return (outputs[0], outputs[1])
+}
+
 
 
 
@@ -9463,10 +9631,9 @@ private func lagunaDecodeRouterTop8(
     if lagunaDecodeRouterOrdinalEnabled {
         if lagunaDecodeRouterOrdinalScoreTableEnabled {
             if lagunaDecodeRouterTournamentEnabled {
-                return lagunaPrefillRouterTournamentOrdinalForTesting(
+                return lagunaDecodeRouterHybridT5ForTesting(
                     logits: logits,
                     correctionBias: correctionBias,
-                    rows: 1,
                     normalizing: normalizing
                 )
             }
