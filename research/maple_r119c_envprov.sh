@@ -18,10 +18,12 @@ git checkout -- Package.resolved 2>/dev/null || true
 # Cell 2: an export the low-memory policy is expected to discard, which is the
 # failure mode the law warns about.
 for cell in default exported; do
-  extra=()
-  [ "$cell" = exported ] && extra=(MLX_MAX_OPS_PER_BUFFER=200 MLX_MAX_MB_PER_BUFFER=200 MLX_BFS_MAX_WIDTH=50)
+  extra=(DARKBLOOM_ENV_READBACK=1)
+  if [ "$cell" = exported ]; then
+    extra+=(MLX_MAX_OPS_PER_BUFFER=200 MLX_MAX_MB_PER_BUFFER=200 MLX_BFS_MAX_WIDTH=50)
+  fi
   echo "=== cell=$cell ==="
-  env "${extra[@]}" DARKBLOOM_ENV_READBACK=1 \
+  env "${extra[@]}" \
     python3 research/decode_probe.py --steps 3 \
       --stderr "$OUT/$cell.err" > "$OUT/$cell.log" 2>&1
   echo "rc=$?"
