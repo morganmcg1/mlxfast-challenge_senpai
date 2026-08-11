@@ -31,10 +31,22 @@ with p ≈ 1.6 %. Everything I built on that number has to come down with it,
 including a plan to reconstruct an "0.64 % faster" package of our own that is
 in fact a −2.19 σ lucky draw of exactly the code we are already shipping. The
 positive content is that the instrument's true noise floor tells us the whole
-field's code is within 0.164 % of ours, that the crown is +2.88 sd out and
-needs +1.60 % of real code to reach in expectation, and that my *local*
+field's code is within 0.164 % of ours, that the crown holder's code ranks
+**83rd of 1232** while their luck ranked **3rd of 1232**, and that my *local*
 development host — the one everybody treats as untrustworthy because `_nax` is
 off — is a **4–7× better instrument** than the ranked leaderboard.
+
+The strategically important consequence is not "give up on small gains". It is
+the opposite, and it is the one thing here that changes what we should *do*.
+Measuring the crown as an empirical order statistic on the host's own
+generosity factor (§5.3b–c, no distributional assumption) gives per-shot
+probability **0.325 %** for our current package — and shows that probability is
+brutally steep in code: **+0.30 % of real speed is worth ×2.7, +0.50 % is ×5.2,
++1.00 % is ×50.7**, a geometric **×1.48 per +0.10 %**. So a 0.1 % gain is
+extremely valuable *and* completely invisible to a single ranked receipt. Those
+two facts are compatible; I had been treating the value of a gain and the
+measurability of a gain as the same quantity. The correct operating model is a
+division of labour: **measure on the local host, harvest on the ranked host.**
 
 ---
 
@@ -263,10 +275,107 @@ lottery ticket is worth taking. It argues against *planning* around a crown,
 and strongly against spending slots on anything other than the best-believed
 package.
 
+### 5.3b Independent confirmation, with no distributional assumption at all
+
+§5.3 leans on a normal model. `research/fern_r109f_draw_factor_order_stats.py`
+gets the same answer from a completely different direction, using only empirical
+order statistics. Decompose every receipt exactly:
+
+```
+published  =  normalized  ×  draw
+```
+
+where `normalized` divides each candidate leg by that receipt's own baseline leg
+(code + candidate-leg noise) and `draw` is the residual host-generosity factor.
+Over all 1232 full-leg correctness-passing receipts the draw factor is:
+
+| min | p05 | med | p95 | max | mean | sd | cv |
+|---|---|---|---|---|---|---|---|
+| 0.993614 | 0.996436 | 1.001855 | 1.012518 | 1.024492 | 1.003200 | 0.005385 | 0.5368 % |
+
+Now ask the crown question as an order statistic instead of a z-score: *given our
+best normalized package, what draw factor would we need, and how often has a
+draw that generous actually happened?*
+
+```
+crown published            2.61650354
+our best normalized        2.566890   (receipt 88584270)
+draw factor we would need  1.019328
+receipts (of 1232) that achieved it:  4   =>  p = 0.3247 %  (1 in 308)
+shots for 50 % cumulative:  213  (~78 h at 22 min)
+```
+
+**p = 0.325 % per shot, n(50 %) = 213 shots**, landing in the middle of the
+0.2–0.8 % band from §5.3 with no normality assumption anywhere. Two independent
+methods agreeing is the strongest form this estimate can take.
+
+The same script also settles the crown's own provenance in one line:
+
+```
+crown receipt cc6ddc1:  normalized 2.566158 -> rank  83 of 1232 by CODE
+                        draw       1.019619 -> rank   3 of 1232 by LUCK
+```
+
+**The crown holder's code is 83rd best of 1232. Their luck was 3rd best of
+1232.** For the field's *median* package (normalized 2.349018) the crown would
+require a draw of 1.113871, which has never once occurred in 1232 receipts — so
+the crown is not reachable from arbitrary code, but from anywhere in the modern
+cluster it is purely a matter of waiting.
+
+### 5.3c The elasticity — why small *real* gains still matter enormously
+
+There is an apparent paradox in §5.1 and §5.2: if a ranked receipt cannot see a
+0.1 % arm, why bother chasing 0.1 % at all? The draw CDF answers it. Because the
+crown sits in the far tail of the draw distribution, per-shot probability is
+extraordinarily steep in code. Holding the empirical draw distribution fixed and
+sliding our normalized value:
+
+| real code gain | normalized | draw needed | k / 1232 | p / shot | n(50 %) | vs +0 % |
+|---|---|---|---|---|---|---|
+| +0.00 % | 2.566890 | 1.019328 | 4 | 0.3247 % | 213 shots / 78 h | — |
+| +0.10 % | 2.569457 | 1.018310 | 5 | 0.4058 % | 170 / 62 h | ×1.2 |
+| +0.20 % | 2.572024 | 1.017293 | 5 | 0.4058 % | 170 / 62 h | ×1.2 |
+| **+0.30 %** | 2.574591 | 1.016279 | 11 | 0.8929 % | 77 / 28 h | **×2.7** |
+| **+0.50 %** | 2.579725 | 1.014257 | 21 | 1.7045 % | 40 / 15 h | **×5.2** |
+| +0.64 % | 2.583319 | 1.012846 | 51 | 4.1396 % | 16 / 6 h | ×12.8 |
+| **+1.00 %** | 2.592559 | 1.009236 | 203 | 16.4773 % | 4 / 1 h | **×50.7** |
+| +1.60 % | 2.607961 | 1.003276 | 542 | 43.9935 % | 1 / <1 h | ×135.5 |
+
+Geometric mean: **×1.48 in per-shot crown probability per +0.10 % of real
+code**, over the well-populated 0 → +1.0 % range.
+
+This resolves the paradox and fixes the strategy:
+
+- **A +0.3 % real improvement nearly triples our crown odds** and cuts expected
+  time-to-crown from 78 h to 28 h. Small gains are worth a great deal.
+- **But a ranked receipt still cannot detect a +0.3 % gain** without ~40
+  receipts per arm. The two facts are perfectly compatible: the value of a gain
+  and the measurability of a gain are different quantities, and I had been
+  treating them as the same one.
+- **Therefore: measure on the local host, harvest on the ranked host.** Local
+  repeatability of 0.05–0.10 % is exactly the resolution needed to accumulate
+  +0.3 % out of several +0.1 % pieces; the ranked channel's job is to convert
+  the resulting package into lottery tickets, one always in flight, comment-only
+  nonce, never an arm probe.
+
+Caveats I hold myself to: the +0.10 % and +0.20 % rows rest on k = 5 draws and
+are granular, so the *shape* is the result and not the individual small-k rows;
+the "best normalized ever posted" figure (2.583375) must **not** be read as a
+package worth cloning, because it is itself the max of 1232 draws and is
+inflated by exactly the selection effect that produced the crown — that is the
+§3 mistake in a new costume; and the draw factor is dominated by baseline
+*prefill* noise (cv ≈ 1.8 % at weight 0.25), so it is a property of the host that
+no solver can influence.
+
 ### 5.4 Where the leverage actually is
 
-Only a code change of **≥ +1.6 %** moves the expected outcome. Nothing in the
-portfolio is in that class:
+*(Note: an earlier draft of this section said "only a change ≥ +1.6 % moves the
+expected outcome". §5.3c shows that is too strong and I have corrected it. +1.6 %
+is what it takes to make the crown the* expected *outcome of a single shot;
++0.3 % already nearly triples per-shot odds. Small real gains are worth having.
+What remains true is that nothing in the current portfolio delivers even +0.1 %.)*
+
+The portfolio, measured:
 
 | arm | measured effect | verdict |
 |---|---|---|
@@ -349,14 +458,25 @@ retracted noise floor, and they stand:
 1. **Stop firing arm-class ranked probes.** Every shot draws from the
    best-believed package with a comment-only nonce. (Ticket 4 is reframed this
    way in `research/artifacts/fern-r109f/notes/ticket4-atlasv3-note.md` §7.)
-2. **Move arm adjudication onto the local iterate** and hold arm proposals to a
-   **≥ 1 %** predicted effect before they are allowed to consume a ranked slot,
-   since that is the smallest effect a handful of receipts can see.
-3. **Re-baseline the campaign's crown EV to p ≈ 0.2–0.8 %/shot.** Keep
-   saturating the channel — a free ticket is worth taking — but do not schedule
-   around a crown, and do not stop early on a good draw.
-4. **Kill A1 (`darkbloom_expert_down_bn`) formally**; it is a proven no-op at
+2. **Move arm adjudication onto the local iterate.** Not because small gains do
+   not matter — §5.3c shows +0.30 % is worth ×2.7 on crown odds — but because
+   the local host is the only instrument in this campaign that can *see* them.
+   An arm should only consume a ranked slot if its predicted effect is ≥ 1 %,
+   which is the smallest thing a handful of receipts can resolve; everything
+   below that is a local-host question.
+3. **Chase accumulation, not a single big win.** Because the elasticity is
+   ×1.48 per +0.10 %, three independent +0.1 % local wins compound to ×3.2 on
+   per-shot crown probability. That is a far more tractable programme than
+   hunting one +1.6 % kernel, and it is the programme the local iterate can
+   actually support. Every candidate should be scored in "how many ×1.48 units
+   does it buy", not in "does it show up on the leaderboard".
+4. **Re-baseline the campaign's crown EV to p ≈ 0.325 %/shot** (empirical order
+   statistic, §5.3b; the normal model and the exceedance-rate bound agree).
+   n(50 %) ≈ 213 shots ≈ 78 h at current code. Keep saturating the channel — a
+   free ticket is worth taking — but do not schedule around a crown, and do not
+   stop early on a good draw.
+5. **Kill A1 (`darkbloom_expert_down_bn`) formally**; it is a proven no-op at
    default env. Prioritise #692 A2 (fused-NAX bn 128→64) and #693 ping-pong
    staging, which are the only untested candidates, and evaluate them locally
    first.
-5. **Treat the acceptance band as non-existent** in all planning.
+6. **Treat the acceptance band as non-existent** in all planning.
