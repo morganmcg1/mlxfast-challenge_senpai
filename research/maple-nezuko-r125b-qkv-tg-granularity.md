@@ -612,7 +612,19 @@ learning this; it is cheap for everyone else to reuse.
    it is also why §2.1's byte-identity of the default matters so much — the
    shipped path is unchanged at the source level, so there is nothing for an
    equivalence run to protect.
-3. Everything else ran as pre-registered: same instrument
+3. **The advisor's comment-4 pre-screen arrived at 11:40:27Z, when the timed
+   campaign was already 8 of 12 runs in** (started 11:28:26Z). Its instruction —
+   read `staticThreadgroupMemoryLength`, and if it is 0 report a predicted debit
+   with two rungs at the existing block size and stop — was **already satisfied
+   by construction**: §1.8 read that field (0 B) and committed the conclusion
+   before any timing, and the campaign was already scoped to 4 blocks × {N2, N4,
+   N8}, i.e. the "two rungs at existing block size" budget plus one ladder-fill
+   arm. So no arm was added or removed in response; I let the running campaign
+   finish (it cost nothing extra) and spent the retraction on §4.0, §4.4 and the
+   units/`PREDICTED` discipline instead. Being able to absorb a mid-campaign
+   retraction of the *motivating prior* without changing a single arm is the
+   payoff of pre-registering the mechanism rather than the hoped-for result.
+4. Everything else ran as pre-registered: same instrument
    (`--local-submit`, 1023 scored steps), same reference arm (N2), same
    append state for all arms, same decision rule, and the analysis scripts were
    the ones named in §1.6 with their seeds fixed in advance.
