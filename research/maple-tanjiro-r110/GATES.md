@@ -205,12 +205,32 @@ gate at `quantized.cpp:1393-1397`.
 The gate evidence below is real and was collected before the arm was audited
 against prior art. It is retained as an accurate record of what was executed.
 
-**The arm itself is withdrawn.** The group-count sweep is a closed experiment:
-`research/maple-alphonse-r107c-expert-gather-gemm-floor.md:86-91` records 256 as
-already optimal and notes "Stage A arm 3 dropped" for this exact reason, with
-the same conclusion in `research/nezuko-r99b/rung1-comment-strip.patch:7381-7394`
-and `research/PREFILL_NAX_ANALYSIS.md:56-60`. A green local gate does not make a
-re-run of a settled question worth an M5 slot. See `READY.md` §7.
+**The arm itself is withdrawn.** The group-count sweep is a closed experiment,
+and A3 moves *backwards* along it. The tree default is already 256
+(`quantized.cpp:1226`). Two independent receipts say so:
+
+1. **An M5 measurement.** The comment stripped in
+   `research/nezuko-r99b/rung1-comment-strip.patch:7390-7393` reads: "Measured
+   on M5 Max against the promoted 64 schedule, 128 captures roughly two-thirds
+   of the 256 schedule's prefill gain ... 256 measures closer to the acceptance
+   ceiling." 128 is the *weaker* of the two on the ranked machine.
+2. **A queue simulation.** `research/pr142-lpt-expert-queue-refutation.md:274`
+   ("Simulating it refutes the idea") through `:293` concludes the "**current
+   default `egroups = 256` is optimal**", and `:296` calls the knob
+   "**ambiguous, not dominant**, worth at most ~0.5 ms, and sign-uncertain".
+
+`research/maple-alphonse-r107c-expert-gather-gemm-floor.md:92` records the
+resulting "⇒ Stage A arm 3 dropped".
+
+**Citation retraction.** An earlier draft of this file also cited
+`research/PREFILL_NAX_ANALYSIS.md:56-60`. That document is **retracted as
+unsourced** — `research/CURRENT_RESEARCH_STATE.md:123-125` states "Its egroups
+claim (`:56-60`) carries no numbers or receipts". It is removed here and must
+not be re-cited. The drop still holds on the two receipts above, which are
+independent of it.
+
+A green local gate does not make a re-run of a settled question worth an M5
+slot. See `READY.md` §7.
 
 ### Scope and budget
 

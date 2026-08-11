@@ -109,8 +109,17 @@ coverage by ~2×. Coverage is **78 dispatches, not 155.**
 ## 5. Honest ceiling — this arm cannot win the round
 
 The wk/wv slice is 167.5 GFLOP, **11.1 % of the ~1.5 TFLOP prefill dense-GEMM
-total.** Prefill dense GEMM already runs at ~52.5 TFLOP/s = **87.5 % of the
-reference peak**, so the headroom inside that slice is small by construction.
+total.** The `steel_gemm_bf16` family already runs at **1502.8 GFLOP / 28.6 ms
+= ~52.5 TFLOP/s, 87.5 % of a 60 TFLOP/s reference**
+(`research/maple-tanjiro-r104c-prefill-steel-census.md:217`, restated at
+`research/advisor-r104-the-receipt-is-the-instrument.md:1375` and
+`research/fern-r104b-wkwv-tile-regroup.md:1026`), so the headroom inside that
+slice is small by construction.
+
+*Scope warning:* that 87.5 % is a **dense-steel-family efficiency**, not a
+whole-prefill number. Do not conflate it with the 27.88 ms unattributed block
+quoted in §4 of `READY.md`, which comes from a different census at a different
+granularity.
 
 * absolute ceiling if wk/wv went to 100 % efficiency: **≈ 0.93 ms ≈ +0.35 % score**
 * realistic packing-only gain: **≈ 0.29 ms ≈ +0.11 % score**
@@ -125,9 +134,11 @@ not a round-winner and must not be described as one.
 Anyone scheduling A2 must be told this up front.
 
 1. **PR #293 — `DARKBLOOM_STEEL_REGULAR_SKINNY_TILE`.** Same site, same
-   `bn=64, wn=2`. Merged **inert (default-OFF)** and later deleted by resync
-   `99b974c`. **Zero M5 receipts were ever taken.** Its status is *queued and
-   never run*, not *refuted*.
+   `bn=64, wn=2`. Introduced by `c2812d1c` (2026-08-07 14:29), merged **inert
+   (default-OFF)** as PR #293 via `31f64154` (2026-08-07 18:34), and removed by
+   `6ada66c9` "Adopt organizer promoted frontier c5b0a13c as research base"
+   (2026-08-08 20:37). **Zero M5 receipts were ever taken.** Its status is
+   *queued and never run*, not *refuted*.
 2. **PR #585 / fern R104-B — `DARKBLOOM_NAX_SKINNY_TILE`.** Same site.
    Self-retracted with "failed — hypothesis refuted a priori", i.e. also
    without an M5 measurement of this geometry.
@@ -142,8 +153,10 @@ arguing the rule is wrong; I am recording that the rule's evidence base for
 queue entries.
 
 For it — and this is the only reason A2 survived at all: **fern's own M4 probe
-(fern §7, job `0c4e2817-f311-4933-ba80-b6487d6eb9dd`) measured that at a fixed
-total of 512 simdgroups, 8 sg/TG costs 1.4613× what 4 sg/TG costs.** Fern's
+(`research/fern-r104b-wkwv-tile-regroup.md` §7.1, job
+`0c4e2817-f311-4933-ba80-b6487d6eb9dd` at `:566`) measured that at a fixed
+total of 512 simdgroups, 8 sg/TG costs 1.4613× what 4 sg/TG costs** — `:575`
+reads `| 8 | 64 | 256 | 762.2 | 1.4613 |` against 521.6 µs for 4 sg/TG. Fern's
 §7.2 causal control shows this is a pure packing/occupancy-quantization effect,
 and that 512 total simdgroups sits in **the worst band fern observed**. A2 moves
 exactly that variable — 8 sg/TG → 4 sg/TG at fixed total 512 — on a dispatch
@@ -152,7 +165,7 @@ regime.
 
 **Fern explicitly refuses to extrapolate the band location from M4 to M5, and I
 am not extrapolating it either.** M4 Pro reports GPU generation 16 and never
-selects `_nax`, so fern §7 measures the *mechanism*, not this kernel. The
+selects `_nax`, so fern §7.1 measures the *mechanism*, not this kernel. The
 correct reading is: a real, measured, causally-isolated packing effect of the
 right sign and a large magnitude — on the wrong machine and the wrong kernel
 family.

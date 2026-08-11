@@ -20,8 +20,8 @@ The queue shipped four candidate arms. After a prior-art and magnitude audit,
 |---|---|---|
 | **A1** — expert down `bn` 64 → 32 | **FIRE. Live on this branch head.** | Genuinely never measured; the only arm here with an un-audited hypothesis. |
 | **A2** — fused-NAX `bn` 128 → 64 **+ `wn` 4 → 2**, prefill `N ≤ 1024` | **Patch delivered; do NOT spend a standalone M5 slot.** | Ceiling ≈ 0.93 ms ≈ +0.35 % score. Third visit to this site. Ride along only. |
-| **A3** — expert gather groups 256 → 128 | **DROPPED.** | Prior art already measured 256 as optimal. Firing it re-runs a closed experiment. |
-| **A4** — split-K `partition_size` halving for narrow `N` | **DEAD END, documented so nobody re-derives it.** | Not bit-exact; 0.42 ms analytic floor; already ranked last as H5; Rule 99.6 forbids assigning it. |
+| **A3** — expert gather groups 256 → 128 | **DROPPED.** | An M5 receipt and a queue simulation both put 256 ahead of 128; A3 moves the wrong way down a closed sweep. |
+| **A4** — split-K `partition_size` halving for narrow `N` | **DEAD END, documented so nobody re-derives it.** | Not bit-exact; 0.42 ms analytic floor; already ranked last as H5; §99.6 forbids assigning it. |
 
 If fern has exactly one slot for this queue: **fire A1, ignore the rest.**
 
@@ -113,16 +113,28 @@ Three structural facts that repeatedly mislead people, including me:
    in `matmul.cpp`'s steel tile selection is **structurally prefill-only**.
    This kills the "A2 decode twin" follow-up that an earlier version of this
    file proposed — there is no decode steel dispatch to retile.
-3. **Prefill dense GEMM already runs at ~52.5 TFLOP/s ≈ 87.5 % of reference
-   peak** on ~1.5 TFLOP of work. There is roughly 0.2 ms of total slack in the
-   whole dense-GEMM budget at realistic efficiencies. Any brief whose premise is
-   "prefill matmul is inefficient" is refuted before it starts.
+3. **The `steel_gemm_bf16` family already runs at 1502.8 GFLOP / 28.6 ms ≈
+   52.5 TFLOP/s, i.e. 87.5 % of a 60 TFLOP/s reference**
+   (`research/maple-tanjiro-r104c-prefill-steel-census.md:217`; restated at
+   `research/advisor-r104-the-receipt-is-the-instrument.md:1375` and
+   `research/fern-r104b-wkwv-tile-regroup.md:1026`). There is roughly 0.2 ms of
+   total slack in that budget at realistic efficiencies. Any brief whose premise
+   is "prefill matmul is inefficient" is refuted before it starts.
 
 The corollary is the most useful thing in this document: **~27.88 ms (28.5 %) of
-prefill is unattributed to dense GEMM at all.** That block — norms, RoPE, SDPA,
-routing top-k/sort, gather/scatter, casts, copies, transposes, sync points — is
-the only target on the map large enough to cover a 3.8 ms deficit. Every arm in
-this queue is fishing in the 87.5 %-efficient pond.
+prefill is unattributed to dense GEMM at all**
+(`research/CURRENT_RESEARCH_STATE.md:123` and `:5163`, sourced from
+`research/maple-tanjiro-pr91-prefill-budget-census.md:648,658`). That block —
+norms, RoPE, SDPA, routing top-k/sort, gather/scatter, casts, copies,
+transposes, sync points — is the only target on the map large enough to cover a
+3.8 ms deficit. Every arm in this queue is fishing in the 87.5 %-efficient pond.
+
+> **Do not conflate these two numbers.** 87.5 % is an *efficiency of the dense
+> steel family against a hardware reference*. 28.5 % is a *share of the whole
+> prefill wall-clock that is not dense GEMM*. They are different scopes from
+> different censuses at different granularity, and they are not two views of one
+> quantity. The pair is only meaningful as: the dense part is nearly maxed out,
+> and the non-dense part is where the unclaimed time lives.
 
 ## 5. Arm A1 — FIRE. Live on this branch head.
 
@@ -168,8 +180,10 @@ git --no-pager diff --numstat 9fe371909ee7ffa66a345cf3c42c21141096f388 HEAD
 ```
 
 **Rule-83 disclosure — this is the third visit to this site.** PR #293
-(`DARKBLOOM_STEEL_REGULAR_SKINNY_TILE`, same `bn=64, wn=2`) was merged inert and
-deleted by resync `99b974c` with **zero M5 receipts**; PR #585 / fern R104-B
+(`DARKBLOOM_STEEL_REGULAR_SKINNY_TILE`, same `bn=64, wn=2`) was introduced by
+`c2812d1c`, merged inert via `31f64154`, and removed by `6ada66c9` ("Adopt
+organizer promoted frontier c5b0a13c as research base", 2026-08-08) with **zero
+M5 receipts**; PR #585 / fern R104-B
 (`DARKBLOOM_NAX_SKINNY_TILE`) self-retracted a priori, also unmeasured. The
 campaign replacement rule (`research/CURRENT_RESEARCH_STATE.md:4120-4130`)
 rejects narrow-`_nax`-tile briefs on the measured **+0.639 ms M5 regression from
@@ -178,9 +192,11 @@ PR #527 (Rule 68)** and on magnitude. A2 is inside the class that rule names.
 **Magnitude.** wk/wv is 167.5 GFLOP = 11.1 % of prefill dense GEMM. Ceiling
 **≈ 0.93 ms ≈ +0.35 % score**; realistic ≈ 0.29 ms ≈ +0.11 %.
 
-**The one piece of positive evidence.** Fern's M4 probe (fern §7, job
-`0c4e2817-f311-4933-ba80-b6487d6eb9dd`) measured that at a fixed total of 512
-simdgroups, **8 sg/TG costs 1.4613× what 4 sg/TG costs**, with a §7.2 causal
+**The one piece of positive evidence.** Fern's M4 probe
+(`research/fern-r104b-wkwv-tile-regroup.md` §7.1, job
+`0c4e2817-f311-4933-ba80-b6487d6eb9dd` at `:566`) measured that at a fixed total
+of 512 simdgroups, **8 sg/TG costs 1.4613× what 4 sg/TG costs** (`:575`,
+`| 8 | 64 | 256 | 762.2 | 1.4613 |` vs 521.6 µs), with a §7.2 causal
 control isolating it as pure packing/occupancy quantization, and 512 sitting in
 the worst band fern observed. A2 moves exactly that variable on a dispatch family
 at 1.60 TG/core. **Fern refuses to extrapolate the band location to M5 and so do
@@ -197,12 +213,31 @@ Details and the full geometry table: `A2-fused-nax-bn64-n1024.md`.
 The patch file `A3-expert-gather-groups-128.patch` remains in this directory for
 provenance only.
 
-**It is a closed experiment.** `research/maple-alphonse-r107c-expert-gather-gemm-floor.md:86-91`
-records the group-count sweep with **256 already optimal** and notes "Stage A
-arm 3 dropped" for exactly this reason. The same conclusion appears in
-`research/nezuko-r99b/rung1-comment-strip.patch:7381-7394` and
-`research/PREFILL_NAX_ANALYSIS.md:56-60`. Firing A3 would spend an M5 slot
-re-measuring a known answer.
+**It is a closed experiment, and A3 points the wrong way down it.** The tree
+default is already 256 (`quantized.cpp:1226`); A3 would move to the setting that
+two independent receipts call worse:
+
+1. **An M5 measurement.** The comment stripped in
+   `research/nezuko-r99b/rung1-comment-strip.patch:7390-7393` reads: "Measured
+   on M5 Max against the promoted 64 schedule, 128 captures roughly two-thirds
+   of the 256 schedule's prefill gain ... 256 measures closer to the acceptance
+   ceiling."
+2. **A queue simulation.** `research/pr142-lpt-expert-queue-refutation.md:274`
+   through `:293` concludes the "**current default `egroups = 256` is
+   optimal**"; `:296` calls the knob "**ambiguous, not dominant**, worth at most
+   ~0.5 ms, and sign-uncertain in `C`". Even its best case is under the landing
+   bar.
+
+`research/maple-alphonse-r107c-expert-gather-gemm-floor.md:92` records the
+resulting "⇒ Stage A arm 3 dropped". Firing A3 would spend an M5 slot
+re-measuring a known answer in the losing direction.
+
+**Retracted citation, removed.** An earlier draft of this section also cited
+`research/PREFILL_NAX_ANALYSIS.md:56-60`. That document is **retracted as
+unsourced**: `research/CURRENT_RESEARCH_STATE.md:123-125` records that "Its
+egroups claim (`:56-60`) carries no numbers or receipts". I have removed it and
+re-checked that the drop stands on the two receipts above without it. It does.
+Do not re-cite that file for this or any other egroups claim.
 
 I did not find this before building and gating it. That is my error, and the
 correction is worth more to fern than the arm was.
@@ -230,10 +265,11 @@ them.
    (`research/RESEARCH_IDEAS_steel-gemm-prefill.md:45-46`) — below the landing
    bar even at 100 % capture.
 3. **Already enumerated.** It exists as hypothesis **H5** at
-   `research/RESEARCH_IDEAS_steel-gemm-prefill.md:200-207`, ranked **last**.
-4. **Explicitly forbidden as an experiment.** Rule 99.6
-   (`research/CURRENT_RESEARCH_STATE.md:6218-6231`) says do not assign it as a
-   timed experiment.
+   `research/RESEARCH_IDEAS_steel-gemm-prefill.md:200`, and `:209` reads
+   "Rank last."
+4. **Explicitly forbidden as an experiment.** §99.6
+   (heading at `research/CURRENT_RESEARCH_STATE.md:6210`) says "do not assign as
+   a timed experiment" at `:6229`.
 
 I am recording it in full because the reasoning chain that produces it —
 "g_proj is at 0.40 TG/core, that is terrible, split-K partition size is the
@@ -292,3 +328,39 @@ Related, and unexplored: the expert-path `BK` is hardcoded to `64` at
 `quantized.cpp:1378` and, unlike `bm`/`wm`/`wn`, is **never re-checked by the
 accept gate** at `quantized.cpp:1404-1407`. Its constraints are `BK >= 56` and
 `BK % 32 == 0`. Nobody in the campaign appears to have touched it.
+
+## 13. Citation audit — what an independent re-check changed
+
+Every prior-art claim in this directory was re-verified against the cited file
+and line before hand-off. Four things were wrong and are now fixed. They are
+listed because a reader who checked my earlier draft against the tree would have
+found the discrepancies and reasonably stopped trusting the rest.
+
+1. **PR #293's removal commit was wrong.** I had written that it was "deleted by
+   resync `99b974c`". `99b974c1` is dated **2026-08-03, four days before the
+   variable existed**, so that claim was impossible. The real chain is
+   `c2812d1c` (introduced, 08-07 14:29) → `31f64154` (merged as #293, 08-07
+   18:34) → `6ada66c9` (removed, 08-08 20:37). The substance — merged inert,
+   zero M5 receipts — survives; only the commit id was wrong.
+2. **A retracted source was propping up the A3 drop.**
+   `research/PREFILL_NAX_ANALYSIS.md` is retracted as unsourced
+   (`CURRENT_RESEARCH_STATE.md:123-125`: its egroups claim "carries no numbers or
+   receipts"). I had cited its `:56-60` in both §7 here and in `GATES.md`.
+   Removed. **I then re-tested whether A3's drop still holds without it, because
+   a conclusion resting on a retracted source has to be re-earned rather than
+   assumed.** It holds, on two receipts I had not previously read closely: the
+   M5 measurement embedded in the stripped comment at
+   `nezuko-r99b/rung1-comment-strip.patch:7390-7393`, and the queue simulation
+   at `pr142-lpt-expert-queue-refutation.md:274-296`. The drop is now better
+   evidenced than when I made it.
+3. **Two efficiency numbers were being conflated.** 87.5 % (dense steel family
+   vs a 60 TFLOP/s reference) and 28.5 % (share of whole prefill not attributed
+   to dense GEMM) come from different censuses at different granularity. §4 now
+   carries an explicit warning against reading them as one quantity.
+4. **Line-number drift.** fern's sg/TG probe is §7.1 (`:566`, `:575`), not §7;
+   r107c's "Stage A arm 3 dropped" is `:92`; H5's "Rank last." is `:209`; and
+   the split-K prohibition is `§99.6` (heading `:6210`, prohibition `:6229`),
+   which is a section number and not a rule number.
+
+Nothing in this audit changed an arm's disposition. A1 still fires, A2 is still
+a ride-along, A3 is still dropped, A4 is still dead.
