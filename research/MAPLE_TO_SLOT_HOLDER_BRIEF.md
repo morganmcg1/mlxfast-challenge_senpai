@@ -33,9 +33,16 @@ A fresh draw of the tree we already hold must come in at **×1.014441** of its p
 | draw component over 1280 official rows, sd 0.538 %, normal (z = 2.344) | **0.95 %** |
 | same decomposition, empirical tail | **1.48 %** ← upper bound, carries between-program leakage |
 
-**Plan against `[≈0 %, 1.5 %]` per draw. Three draws ⇒ ≤4.4 %.** (§6.5c; the earlier claims of 15.6 %
-and of "~1–1.5 % confirmed by two independent methods" are both retracted — the second was a spurious
-agreement produced by applying the winner's-curse correction to one method and not the other.)
+**Plan against `[≈0 %, 1.5 %]` per draw.** (§6.5c; the earlier claims of 15.6 % and of "~1–1.5 %
+confirmed by two independent methods" are both retracted — the second was a spurious agreement
+produced by applying the winner's-curse correction to one method and not the other.)
+
+**Multiply that by the draws that actually remain, not by three.** §4 says **1, maybe 2**, and one of
+those is `5fae2f1`, already in flight and already committed to whatever tree it carries. So the
+campaign's *total* remaining probability of clearing the bar, with the code we hold, is **≈1–3 %** —
+and per the table below no lever Maple ever measured moves that number by more than a point or two.
+Read that as a planning fact, not as despair: it means the expected value of protecting the last
+draw's validity is larger than the expected value of improving what it carries.
 
 The tails are **asymmetric against us**: the one high-σ replicate group (`7cbffc2c`, n=4) is composed
 entirely of *downward* excursions to −2.4 %. There is no matching +2.4 % population. §6.5.
@@ -44,7 +51,7 @@ entirely of *downward* excursions to −2.4 %. There is no matching +2.4 % popul
 
 Priced from the program mean against the measured draw distribution (§6.5c):
 
-| real gain | P(one draw ≥ bar) | 3 draws | ranked-host µs/step to buy it |
+| real gain | P(one draw ≥ bar) | 3 draws *(hypothetical — see §2/§4, we do not have 3)* | ranked-host µs/step to buy it |
 |---|---|---|---|
 | 0 (re-fire) | 0.95 % (emp. 1.48 %) | 2.8 % (4.4 %) | — |
 | +0.26 % | **3.2 %** | 9.2 % | 17 |
