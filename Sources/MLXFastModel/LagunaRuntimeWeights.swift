@@ -415,7 +415,10 @@ public final class LagunaRuntimeWeightCache {
         // keeps tiny unit-test configurations from paying a full-size
         // warmup.
         if let model = libraryModel, config.numHiddenLayers >= 16 {
-            Self.warmLibraryModel(model)
+            // R128-P TEMPORARY RESEARCH INSTRUMENTATION -- REVERT BEFORE SUBMIT.
+            if ProcessInfo.processInfo.environment["DARKBLOOM_R128P_SKIP_WARMUP"] != "1" {
+                Self.warmLibraryModel(model)
+            }
             if startupMemoryPolicy?.clearAllocatorCacheAfterWarmup == true {
                 // Pipeline state is process-lifetime state, while free
                 // warmup allocations are exactly the pressure a low-memory

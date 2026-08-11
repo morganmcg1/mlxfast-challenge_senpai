@@ -1,0 +1,239 @@
+benchmark.sh: mlx.metallib is stale (vendored kernel sources changed after it was built); rebuilding with tools/build-mlx-metallib.sh
+-- Building MLX for arm64 processor on Darwin
+-- Metal found /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/Metal.framework
+-- Building on macOS 26.5.2
+-- Building with macOS 26.5 SDK
+-- Metal version: 400
+-- Accelerate found /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/Accelerate.framework
+-- Downloading json
+-- Using the multi-header code from /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/workspace/target/Vendor/mlx-swift/Source/Cmlx/json/include/
+-- Downloading json for JACCL
+-- {fmt} version: 12.1.0
+-- Build type: Release
+-- Configuring done (0.3s)
+-- Generating done (0.2s)
+-- Build files have been written to: /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/workspace/target/.build-worker/mlx-metal
+[  4%] Building fp_quantized_nax.air
+In file included from /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/workspace/target/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/fp_quantized_nax.metal:8:
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/workspace/target/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/fp_quantized_nax.h:1712:17: warning: unused variable 'BN_padded' [-Wunused-variable]
+  constexpr int BN_padded = BN + 16 / sizeof(Wtype);
+                ^
+1 warning generated.
+[  4%] Building mlx.metallib
+[100%] Built target mlx-metallib
+build-mlx-metallib.sh: wrote /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/workspace/target/.build-worker/release/mlx.metallib
+benchmark.sh: trusted CLI or participant runtime worker missing or stale; building
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+[0/1] Planning build
+Building for production...
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+Build of product 'mlxfast-swift' complete! (9.82s)
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+[0/1] Planning build
+Building for production...
+[0/3] Write sources
+[1/7] Write swift-version--58304C5D6DBC2206.txt
+[2/7] Write sources
+[3/7] Compiling fp_quantized_nax.cpp
+[4/7] Compiling quantized.cpp
+[5/7] Compiling jit_kernels.cpp
+[7/8] Compiling MLX ArrayAt.swift
+[8/9] Compiling MLXFast MLXFast.swift
+[9/10] Compiling MLXLMCommon DoRA+Layers.swift
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1178:52: warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+ 128 | /// Incremental per-request detokenizer with UTF-8 + stop-string holdback.
+ 129 | /// See CONTRACT-ISSUES-B-scheduler.md §3.
+ 130 | public protocol CBv2IncrementalDetokenizer: AnyObject {
+     |                 `- note: protocol 'CBv2IncrementalDetokenizer' does not conform to the 'Sendable' protocol
+ 131 |     /// Append confirmed tokens; returns text now safe to emit.
+ 132 |     func push(_ tokens: [Int]) -> String
+     :
+1176 |                 stream?.reserveEmission()
+1177 |                 detokQueue.async {
+1178 |                     let text = isStopToken ? "" : (detokenizer?.push([token]) ?? "")
+     |                                                    `- warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+1179 |                     stream?.emit(
+1180 |                         .delta(text: text, tokens: [token], logprobs: logprobs),
+
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1279:32: warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+ 128 | /// Incremental per-request detokenizer with UTF-8 + stop-string holdback.
+ 129 | /// See CONTRACT-ISSUES-B-scheduler.md §3.
+ 130 | public protocol CBv2IncrementalDetokenizer: AnyObject {
+     |                 `- note: protocol 'CBv2IncrementalDetokenizer' does not conform to the 'Sendable' protocol
+ 131 |     /// Append confirmed tokens; returns text now safe to emit.
+ 132 |     func push(_ tokens: [Int]) -> String
+     :
+1277 |         if rec.request.stopStrings.isEmpty {
+1278 |             detokQueue.async {
+1279 |                 let trailing = detokenizer?.flush() ?? ""
+     |                                `- warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+1280 |                 if !trailing.isEmpty {
+1281 |                     stream?.emit(.delta(text: trailing, tokens: [], logprobs: nil))
+
+[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+[10/11] Compiling MLXLLM LLMModel.swift
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/DeepseekV4.swift:758:27: warning: immutable value 'D' was never used; consider replacing with '_' or removing it [#no-usage]
+ 756 | 
+ 757 |     func callAsFunction(_ x: MLXArray, poolCache: PoolingCache?, offset: Int) -> MLXArray {
+ 758 |         let B = x.dim(0), D = x.dim(2)
+     |                           `- warning: immutable value 'D' was never used; consider replacing with '_' or removing it [#no-usage]
+ 759 |         let kv = wkv(x)    // [B, S, out_dim]
+ 760 |         let gate = wgate(x) // [B, S, out_dim]
+
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/DeepseekV4.swift:1401:9: warning: switch must be exhaustive
+1399 |         // Local scores: [B, H, L, localLen]
+1400 |         let localScores: MLXArray
+1401 |         switch localMask {
+     |         |- warning: switch must be exhaustive
+     |         `- note: add missing case: '.arrays(_)'
+1402 |         case .none, .causal:
+1403 |             localScores = qScaled.matmul(localKV.transposed(0, 1, 3, 2))
+
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/DeepseekV4.swift:1513:13: warning: variable 'h' was never mutated; consider changing to 'let' constant
+1511 |         }
+1512 | 
+1513 |         var h = hcPost(x: attnOut, residual: residual, post: postAttn, comb: combAttn)
+     |             `- warning: variable 'h' was never mutated; consider changing to 'let' constant
+1514 | 
+1515 |         // FFN sub-block
+[11/12] Compiling MLXFastModel DenseTensorStore.swift
+[12/14] Compiling MLXFastRuntimeWorkerSupport BenchmarkSupport.swift
+[13/15] Compiling MLXFastRuntimeWorkerCLI main.swift
+[13/15] Write Objects.LinkFileList
+[14/15] Linking mlxfast-runtime-worker
+Build of product 'mlxfast-runtime-worker' complete! (71.64s)
+benchmark.sh: local-iterate git_head=6115822486f1 origin_main=1bc1c8954147
+benchmark.sh: reusing weights/ for unchanged transform source
+benchmark.sh: local baseline to beat (score.local-iterate.baseline.json): prefill 0.001136 s/token, decode 0.013134 s/token, est score 0.785
+mlxfast: benchmark elapsed=0.0s local-iterate start checked_tokens=130 decode_steps=128 repeats=1
+mlxfast: benchmark elapsed=0.0s local-iterate baseline prefill_seconds_per_token=0.000368 decode_seconds_per_token=0.013856 (official-runner constants; local speedups are directional)
+mlxfast: benchmark elapsed=0.0s local-iterate validation start
+mlxfast: benchmark elapsed=8.4s local-iterate weights digest complete files=9 bytes=21568891382
+mlxfast: benchmark elapsed=8.4s local-iterate validation complete prompt_tokens=512 seconds=8.4
+mlxfast: benchmark elapsed=8.4s local-iterate checked timing start
+mlxfast: benchmark elapsed=19.2s local thermal gate start phase=prefill
+benchmark.sh: waiting for GPU to cool down before timing (current 41.9C, target <=40C, waited 0s)...
+benchmark.sh: GPU cool-down gate passed (current 39.8C, target <=40C, waited 10s)
+mlxfast: benchmark elapsed=34.8s local thermal gate complete phase=prefill
+mlxfast: benchmark elapsed=34.8s local-iterate prefill measured start prompt_tokens=512
+mlxfast: benchmark elapsed=35.4s local-iterate prefill measured complete seconds=0.6 seconds_per_token=0.001116 prefill_speedup=0.329
+mlxfast-worker: mlxfast: low-memory startup profile active (physical memory 48 GiB is below the 64 GiB full-profile minimum): capping the MLX allocator cache at 6 GiB and clearing free warmup buffers; compiled decode and every other ranked code path stay enabled; set DARKBLOOM_STARTUP_MEMORY_PROFILE=full to opt out
+mlxfast-worker: mlxfast: a machine too small for the model plus the decode working set fails with an out-of-memory error instead of silently skipping ranked code paths; verify on a 64 GiB+ machine or rely on the ranked run
+mlxfast-worker: mlxfast: narrow-scales built lane-major pairwise: qkv
+mlxfast-worker: mlxfast: narrow-scales built lane-major pairwise: oproj
+mlxfast-worker: mlxfast: packed-scales active: shared gate/up halved
+mlxfast-worker: mlxfast: packed-scales active: shared down halved
+mlxfast-worker: mlxfast: packed-scales active: packed routed gate/up bank prepared
+mlxfast-worker: mlxfast: lm_head prune active (coarse copy resident)
+mlxfast-worker: mlxfast: packed-scales inactive: packed routed gate/up prefill scale view consumed
+mlxfast-worker: mlxfast: packed-scales inactive: packed routed down prefill scale view consumed
+mlxfast-worker: mlxfast: packed-scales active: routed swiglu qmv packed dispatch
+mlxfast: benchmark elapsed=74.5s local thermal gate start phase=decode
+benchmark.sh: waiting for GPU to cool down before timing (current 40.3C, target <=40C, waited 0s)...
+benchmark.sh: GPU cool-down gate passed (current 38.7C, target <=40C, waited 10s)
+mlxfast: benchmark elapsed=90.0s local thermal gate complete phase=decode
+mlxfast: benchmark elapsed=90.0s local-iterate decode measured start tokens=128 includes_seed_prefill=true
+mlxfast: benchmark elapsed=90.5s local-iterate decode seed prefill complete seconds=0.6 (charged to decode)
+mlxfast: benchmark elapsed=90.6s local-iterate checked decode 1/128 tokens last_step_seconds=0.040018 mean_step_seconds=0.040018 decode_eta_seconds=5.1 projected_decode_seconds_per_token=0.044466 projected_decode_speedup=0.312 projected_score=0.316
+mlxfast: benchmark elapsed=90.6s local-iterate checked decode 8/128 tokens last_step_seconds=0.008172 mean_step_seconds=0.012277 decode_eta_seconds=1.5 projected_decode_seconds_per_token=0.016725 projected_decode_speedup=0.828 projected_score=0.658
+mlxfast: benchmark elapsed=90.7s local-iterate checked decode 16/128 tokens last_step_seconds=0.008204 mean_step_seconds=0.010232 decode_eta_seconds=1.1 projected_decode_seconds_per_token=0.014681 projected_decode_speedup=0.944 projected_score=0.725
+mlxfast: benchmark elapsed=90.8s local-iterate checked decode 24/128 tokens last_step_seconds=0.008191 mean_step_seconds=0.009547 decode_eta_seconds=1.0 projected_decode_seconds_per_token=0.013996 projected_decode_speedup=0.990 projected_score=0.752
+mlxfast: benchmark elapsed=90.8s local-iterate checked decode 32/128 tokens last_step_seconds=0.008163 mean_step_seconds=0.009202 decode_eta_seconds=0.9 projected_decode_seconds_per_token=0.013651 projected_decode_speedup=1.015 projected_score=0.766
+mlxfast: benchmark elapsed=90.9s local-iterate checked decode 40/128 tokens last_step_seconds=0.008154 mean_step_seconds=0.008996 decode_eta_seconds=0.8 projected_decode_seconds_per_token=0.013445 projected_decode_speedup=1.031 projected_score=0.775
+mlxfast: benchmark elapsed=91.0s local-iterate checked decode 48/128 tokens last_step_seconds=0.008141 mean_step_seconds=0.008859 decode_eta_seconds=0.7 projected_decode_seconds_per_token=0.013308 projected_decode_speedup=1.041 projected_score=0.781
+mlxfast: benchmark elapsed=91.0s local-iterate checked decode 56/128 tokens last_step_seconds=0.008164 mean_step_seconds=0.008761 decode_eta_seconds=0.6 projected_decode_seconds_per_token=0.013210 projected_decode_speedup=1.049 projected_score=0.785
+mlxfast: benchmark elapsed=91.1s local-iterate checked decode 64/128 tokens last_step_seconds=0.008162 mean_step_seconds=0.008686 decode_eta_seconds=0.6 projected_decode_seconds_per_token=0.013136 projected_decode_speedup=1.055 projected_score=0.789
+mlxfast: benchmark elapsed=91.2s local-iterate checked decode 72/128 tokens last_step_seconds=0.008184 mean_step_seconds=0.008631 decode_eta_seconds=0.5 projected_decode_seconds_per_token=0.013081 projected_decode_speedup=1.059 projected_score=0.791
+mlxfast: benchmark elapsed=91.2s local-iterate checked decode 80/128 tokens last_step_seconds=0.008167 mean_step_seconds=0.008586 decode_eta_seconds=0.4 projected_decode_seconds_per_token=0.013036 projected_decode_speedup=1.063 projected_score=0.793
+mlxfast: benchmark elapsed=91.3s local-iterate checked decode 88/128 tokens last_step_seconds=0.008165 mean_step_seconds=0.008551 decode_eta_seconds=0.3 projected_decode_seconds_per_token=0.013002 projected_decode_speedup=1.066 projected_score=0.795
+mlxfast: benchmark elapsed=91.4s local-iterate checked decode 96/128 tokens last_step_seconds=0.008188 mean_step_seconds=0.008521 decode_eta_seconds=0.3 projected_decode_seconds_per_token=0.012971 projected_decode_speedup=1.068 projected_score=0.796
+mlxfast: benchmark elapsed=91.4s local-iterate checked decode 104/128 tokens last_step_seconds=0.008195 mean_step_seconds=0.008495 decode_eta_seconds=0.2 projected_decode_seconds_per_token=0.012946 projected_decode_speedup=1.070 projected_score=0.797
+mlxfast: benchmark elapsed=91.5s local-iterate checked decode 112/128 tokens last_step_seconds=0.008187 mean_step_seconds=0.008474 decode_eta_seconds=0.1 projected_decode_seconds_per_token=0.012925 projected_decode_speedup=1.072 projected_score=0.798
+mlxfast: benchmark elapsed=91.6s local-iterate checked decode 120/128 tokens last_step_seconds=0.008203 mean_step_seconds=0.008458 decode_eta_seconds=0.1 projected_decode_seconds_per_token=0.012909 projected_decode_speedup=1.073 projected_score=0.799
+mlxfast: benchmark elapsed=91.6s local-iterate checked decode 128/128 tokens last_step_seconds=0.008242 mean_step_seconds=0.008443 projected_decode_seconds_per_token=0.012894 projected_decode_speedup=1.075 projected_score=0.800
+mlxfast-worker: mlxfast: low-memory startup profile active (physical memory 48 GiB is below the 64 GiB full-profile minimum): capping the MLX allocator cache at 6 GiB and clearing free warmup buffers; compiled decode and every other ranked code path stay enabled; set DARKBLOOM_STARTUP_MEMORY_PROFILE=full to opt out
+mlxfast-worker: mlxfast: a machine too small for the model plus the decode working set fails with an out-of-memory error instead of silently skipping ranked code paths; verify on a 64 GiB+ machine or rely on the ranked run
+mlxfast-worker: mlxfast: narrow-scales built lane-major pairwise: qkv
+mlxfast-worker: mlxfast: narrow-scales built lane-major pairwise: oproj
+mlxfast-worker: mlxfast: packed-scales active: shared gate/up halved
+mlxfast-worker: mlxfast: packed-scales active: shared down halved
+mlxfast-worker: mlxfast: packed-scales active: packed routed gate/up bank prepared
+mlxfast-worker: mlxfast: lm_head prune active (coarse copy resident)
+mlxfast-worker: mlxfast: packed-scales inactive: packed routed gate/up prefill scale view consumed
+mlxfast-worker: mlxfast: packed-scales inactive: packed routed down prefill scale view consumed
+mlxfast-worker: mlxfast: packed-scales active: routed swiglu qmv packed dispatch
+mlxfast: benchmark elapsed=91.8s local-iterate checked timing complete passed=true checked_steps=130 prefill_seconds_per_token=0.001116 decode_seconds_per_token=0.012894 measured_seconds=2.2 wall_seconds=83.4
+mlxfast: benchmark elapsed=91.8s local-iterate summary prefill_seconds_per_token=0.001116 prefill_speedup=0.329
+mlxfast: benchmark elapsed=91.8s local-iterate summary decode_seconds_per_token=0.012894 decode_speedup=1.075
+mlxfast: benchmark elapsed=91.8s local-iterate summary est_score=0.800 (decode_speedup^0.75 * prefill_speedup^0.25 vs official baseline; published as this run's local estimated score, not a ranked score)
+mlxfast: benchmark elapsed=91.8s local-iterate summary decode_bandwidth_gb_per_token=0.000000 peak_ram_gb=20.714
+{
+  "metrics" : {
+    "actual_token" : null,
+    "bandwidth_gb_per_token" : 0,
+    "bandwidth_source" : "ram_resident_model",
+    "baseline_decode_seconds_per_token" : 0.01385621216015625,
+    "baseline_prefill_seconds_per_token" : 0.00036751938916015626,
+    "benchmark_wall_seconds" : 92,
+    "case_count" : 1,
+    "checked_steps" : 130,
+    "commit" : "61158224",
+    "correctness_seconds" : 2.2,
+    "decode_seconds_per_token" : 0.01289376725,
+    "decode_speedup" : 1.0746441975797454,
+    "decode_speedup_floor" : 0.95,
+    "error" : "",
+    "expected_token" : null,
+    "expert_bytes_read" : 0,
+    "expert_cache_evictions" : 0,
+    "expert_cache_hits" : 0,
+    "expert_cache_misses" : 0,
+    "expert_hit_rate" : 0,
+    "expert_peak_cached_tensors" : 0,
+    "expert_read_seconds" : 0,
+    "first_failing_case" : null,
+    "first_failing_layer" : null,
+    "first_failing_step" : null,
+    "golden_hash" : "b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63",
+    "gpqa_ttft_case_count" : 0,
+    "gpqa_ttft_max_seconds" : 0,
+    "gpqa_ttft_p50_seconds" : 0,
+    "gpqa_ttft_pass_count" : 0,
+    "gpqa_ttft_passed" : false,
+    "gpqa_ttft_seconds" : 0,
+    "gpqa_ttft_source" : "",
+    "harness_hash" : "5dd1e672d32468b0f9ddd38aa4a6e148c9c01219f462add7b67c6699d3a3a524",
+    "max_abs_diff" : 0,
+    "num_layers" : 40,
+    "partial_result" : false,
+    "passed_correctness" : true,
+    "passed_decode_speedup_floor" : true,
+    "passed_prefill_speedup_floor" : false,
+    "peak_ram_gb" : 21,
+    "prefill_seconds_per_token" : 0.001115707357421875,
+    "prefill_speedup" : 0.3294048270949858,
+    "prefill_speedup_floor" : 0.95,
+    "preflight_seconds" : 8.4,
+    "process_resident_memory_gb" : 0.035,
+    "runtime" : "swift-local-iterate",
+    "semantic_gpqa_case_count" : 0,
+    "semantic_gpqa_model" : "",
+    "semantic_gpqa_pass_count" : 0,
+    "semantic_gpqa_passed" : false,
+    "timed_benchmark_seconds" : 2.2,
+    "timestamp" : "2026-08-11T12:55:09Z",
+    "weights_byte_count" : 21568891382,
+    "weights_file_count" : 9,
+    "weights_hash" : "aff994300573c5e8589563fc9ff57cdcfb1ef9b49e14898be290a75a6b294b3d"
+  },
+  "passed" : true,
+  "score" : 0.7996151489008092
+}
+benchmark.sh: local-iterate summary
+  prefill 0.001116 s/token  speedup 0.329x
+  decode  0.012894 s/token  speedup 1.075x
+  est score 0.8 (decode_speedup^0.75 * prefill_speedup^0.25; official score comes from the ranked runner)
+benchmark.sh: vs score.local-iterate.baseline.json (negative s/token deltas = faster)
+    prefill 0.001136 -> 0.001116 s/token (-1.8%)
+    decode  0.013134 -> 0.012894 s/token (-1.8%)
+    est score 0.785 -> 0.8 (+1.9%)

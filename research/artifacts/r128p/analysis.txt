@@ -1,0 +1,13 @@
+run 1: timed_prefill=571.242 ms  decode_seed=569.698 ms  delta=+1.544 ms (+0.271 %)
+run 2: timed_prefill=569.171 ms  decode_seed=576.249 ms  delta=-7.078 ms (-1.228 %)
+run 3: timed_prefill=575.454 ms  decode_seed=575.004 ms  delta=+0.449 ms (+0.078 %)
+run 4: timed_prefill=574.598 ms  decode_seed=570.273 ms  delta=+4.325 ms (+0.758 %)
+run 5: timed_prefill=582.805 ms  decode_seed=569.750 ms  delta=+13.055 ms (+2.291 %)
+timed_prefill: mean=574.654 sd=5.215 sem=2.332 cv=0.907%
+decode_seed: mean=572.195 sd=3.172 sem=1.418 cv=0.554%
+delta: mean=2.459 sd=7.273 sem=3.253 cv=295.759%
+
+paired delta 95% CI: +2.459 +/- 9.029 ms -> [-6.570, +11.488]
+paired MDE   (alpha .05 two-sided, power .80, n=5): 12.090 ms = 2.104 % of the timed prefill
+unpaired MDE (same test, timed prefill alone, n=5): 8.669 ms = 1.509 %
+H-M5-equivalent unpaired MDE at the same relative floor: 1.478 ms
