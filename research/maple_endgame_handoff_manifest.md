@@ -1947,10 +1947,33 @@ Three things follow, in decreasing order of how sure I am.
 latency in §5. Until it terminates, nothing else can be fired. Anyone reading this manifest after close
 and wondering why Maple has no final row: this is the mechanical reason on top of the deliberate one.
 
+I re-polled at 16:45:10Z, 16:46:47Z and 16:47:32Z: still `validating` at **20.5 minutes elapsed**, i.e.
+into the upper half of the §5 band with 12 minutes left on the clock. Two consequences for anyone
+planning a last fire in a future campaign, and I want them stated as the operational lesson rather than
+as trivia. (a) **A fire placed inside the last ~25 minutes is not guaranteed to adjudicate before
+close** — it can end the campaign as an `n/a` row that scores nothing and, because the channel is
+serial, also denies the slot to everything behind it. The effective last-useful-fire time is close minus
+the *upper* end of the latency band, not the median. (b) The 16:27Z placement is therefore roughly the
+last defensible one, and I would treat 16:35Z as past the point of no return. §5's band was measured on
+a quiet channel; I have no evidence about how it behaves under an end-of-campaign rush, and one sample
+at 20.5 min is not evidence of a slowdown either — it is inside the band. Do not over-read it.
+
 **2. Maple did not fire it (certain, and this is the auditable claim).** §10(xi) is the 16:37Z local
 stand-down: no crontab, empty `atq`, no launchd agent, no `mlxfast` process on this host — taken *ten
-minutes after* 16:27Z, so it also serves as an alibi for this row. No Maple student was running; all six
-are idle with terminal assignments (§9). The row is the slot holder's, per the operator's 10:00Z
+minutes after* 16:27Z, so it also serves as an alibi for this row. Re-run at 16:46Z, same verdict.
+
+One reproducibility warning about that check, because I tripped over it myself on the re-run: `ps -eo
+pid,command | grep -i mlxfast` matches the **campaign directory name** `mlxfast-maple-20260804`, which
+appears in the path of every ordinary role process. On the 16:46Z re-run it returned four hits, all
+infrastructure, none of them the submission CLI: two `tmux -Lopenhands` session servers (advisor and
+`student-maple-frieren`, both hours old) and two `caffeinate -is python .../k8s/native.py run-role`
+role runners (advisor, `student-maple-frieren`). §10(xi) named only two benign false positives; these
+are four more. The check that actually discriminates is matching the **executable**, e.g. the process
+whose argv starts with the `mlxfast` binary — no such process existed at 16:37Z or 16:46Z. Do not read
+"a `maple` role process is alive" as "a Maple submission is running"; the role runner being up is the
+normal state of an idle role.
+
+No Maple student was running any experiment; all six are idle with terminal assignments (§9). The row is the slot holder's, per the operator's 10:00Z
 direction that the submission slot is theirs from 10:00Z to close. I have not verified its commit and I
 am not going to guess at it — `commit` prints `-` while validating.
 
