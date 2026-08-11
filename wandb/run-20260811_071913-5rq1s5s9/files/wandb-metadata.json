@@ -1,0 +1,37 @@
+{
+  "os":  "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+  "python":  "CPython 3.13.14",
+  "startedAt":  "2026-08-11T07:19:13.389916Z",
+  "args":  [
+    "--out",
+    "/tmp/r119b",
+    "--prof",
+    "/tmp/edward-r119b-prof",
+    "--correct",
+    "/tmp/r119b-correct",
+    "--name",
+    "r119b-gridappend-shared-routed-qmv"
+  ],
+  "program":  "/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/research/edward_r119b_wandb.py",
+  "codePath":  "research/edward_r119b_wandb.py",
+  "codePathLocal":  "research/edward_r119b_wandb.py",
+  "git":  {
+    "remote":  "https://github.com/morganmcg1/mlxfast-challenge_senpai.git",
+    "commit":  "27eede567fc9ef2aba25f403d4afc515946a0e37"
+  },
+  "root":  "/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target",
+  "host":  "ip-10-231-2-12.ec2.internal",
+  "executable":  "/Users/ec2-user/.senpai/venv/bin/python3",
+  "cpu_count":  14,
+  "cpu_count_logical":  14,
+  "disk":  {
+    "/":  {
+      "total":  "268225699840",
+      "used":  "160692908032"
+    }
+  },
+  "memory":  {
+    "total":  "51539607552"
+  },
+  "writerId":  "b5alfotqqnvqk4dhiwf1sg4gv6bmiu24"
+}
