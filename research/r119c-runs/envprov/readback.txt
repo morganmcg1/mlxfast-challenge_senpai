@@ -1,0 +1,4 @@
+ENV_READBACK: MLX_MAX_OPS_PER_BUFFER=64 MLX_MAX_MB_PER_BUFFER=128 MLX_BFS_MAX_WIDTH=<unset> low_memory=true
+mlxfast: low-memory startup profile active (physical memory 48 GiB is below the 64 GiB full-profile minimum): capping the MLX allocator cach
+ENV_READBACK: MLX_MAX_OPS_PER_BUFFER=64 MLX_MAX_MB_PER_BUFFER=128 MLX_BFS_MAX_WIDTH=50 low_memory=true
+mlxfast: low-memory startup profile active (physical memory 48 GiB is below the 64 GiB full-profile minimum): capping the MLX allocator cach
