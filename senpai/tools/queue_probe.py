@@ -33,13 +33,25 @@ CREATED = re.compile(r"(\d+/\d+/\d+,\s+\d+:\d+\s+[AP]M)\s*$")
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 
+# A poller that cannot see the channel must say so. On 2026-08-11 this script was
+# first run under a job runner whose environment could not invoke the CLI; it
+# reported "pending=0" for five consecutive polls while 11 submissions were in
+# flight. Zero parsed rows is now a hard error, never a quiet zero.
+MIN_PLAUSIBLE_ROWS = 100
+
+
 def poll() -> dict[str, dict[str, str]]:
-    out = subprocess.run(
+    proc = subprocess.run(
         ["mlxfast", "submissions", "--all"],
         capture_output=True,
         text=True,
         timeout=240,
-    ).stdout
+    )
+    out = proc.stdout
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"mlxfast exited {proc.returncode}; stderr={proc.stderr[:400]!r}"
+        )
     rows: dict[str, dict[str, str]] = {}
     for line in out.splitlines():
         m = ROW.match(ANSI.sub("", line).strip())
@@ -52,6 +64,11 @@ def poll() -> dict[str, dict[str, str]]:
             "status": status,
             "created": c.group(1) if c else "",
         }
+    if len(rows) < MIN_PLAUSIBLE_ROWS:
+        raise RuntimeError(
+            f"parsed only {len(rows)} rows from {len(out)} bytes of CLI output; "
+            "refusing to report a queue state derived from a blind poll"
+        )
     return rows
 
 
@@ -78,6 +95,7 @@ def main() -> int:
                 rows = poll()
             except Exception as exc:  # noqa: BLE001
                 fh.write(json.dumps({"t": now.isoformat(), "error": str(exc)}) + "\n")
+                print(f"{now:%H:%M:%S}Z BLIND_POLL {exc}", flush=True)
                 time.sleep(args.interval)
                 continue
 

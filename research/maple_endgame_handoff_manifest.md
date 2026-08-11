@@ -154,6 +154,51 @@ Priced in score terms at 1 µs/step = 0.00586 %.
 **none** of our environment. An env-gated win left defaulting to the old value is worth exactly zero.
 A landing is a **compiled-default flip** with the env override retained as an escape hatch.
 
+### 4a. Delta 1 is ported, default-flipped and build-green — reachability chain verified
+
+An env-gated research arm can be measured honestly and still land as a **no-op**, because the arm's
+guard may only fire on a path the shipped default never takes. Nobody had checked this for delta 1:
+frieren measured it under `DARKBLOOM_SHARED_QMV_TG=256`, and his guard is
+`widened = halved && !WIDE_CODES && TG != 64` — so the whole +0.38 % depends on `halved` being the
+shipped default. It is, and here is the chain on `18ac6015`:
+
+- `lagunaSharedScaleHalvedEnabled = env["DARKBLOOM_SHARED_SCALE_HALVED"] != "0"` (LRM:319) ⇒ default true.
+- `lagunaSharedSwiGLUQMVRows1Enabled = env["DARKBLOOM_SHARED_QMV_R1"] != "0"` (LRM:303) ⇒ default true.
+- Under both guards the halved group-32 scale plane is built into `_fusedGateUpScalesHalved`, LRM:9148–9163.
+- `fusedSharedBankGuard` returns `_fusedGateUpScalesHalved ?? fusedScales` at **LRM:9281**, reaching
+  `lagunaSharedSwiGLUQMV` through `fusedSharedDownInputs` (LRM:9236).
+
+⇒ `halved == true` with no environment set, so the compiled-default flip does change the dispatched
+kernel. **Generalise this:** for every future landing, cite the `file:line` where the shipped default
+reaches the changed code. "The knob measured a win" is not evidence that flipping its default pays.
+
+frieren's diff (`039800fe`, based on `cd047c00`) **does not apply** to `18ac6015`: hunk #1 lands at
+offset +8, hunk #2 fails at LRM:7118 because the generator is now
+`lagunaSharedSwiGLUQMVRows1Source(halved:weightName:scalesName:outputName:)` under edward's fused
+work. The port adds a **fifth defaulted** parameter `simdgroupsPerThreadgroup: Int = 2` and replaces
+the hardcoded `uint row = tile * 2 + simd_group;` with `tile * \(simdgroupsPerThreadgroup)`, which
+leaves the FUSED generator call (~LRM:8203), the non-halved kernel (7223) and the Wide kernel (7247,
+own inline source) byte-identical. Two new **distinct kernel names** are required
+(`..._halved_tg128_bf16_v1`, `..._halved_tg256_bf16_v1`): MLX caches compiled libraries by name, so
+reusing a name with changed source is a stale-library hazard.
+
+Geometry: `sharedExpertIntermediateSize = 512` (LagunaConfig.swift:33). TG=256 ⇒ 8 rows/threadgroup ⇒
+`tiles = 64`, grid `16384`, total simdgroups `64*8 = 512`, identical to the shipped `256*2`; rows
+`tile*8 + simd_group` cover 0…511 exactly once, so no bounds guard and no aliasing. Invariance holds
+in all four other cases: `!halved` ⇒ tiles 256; `WIDE_CODES=1` ⇒ tiles 256; `SHARED_QMV_R1=0` ⇒
+tiles 128; `DARKBLOOM_SHARED_QMV_TG=64` ⇒ exact old geometry. The selector must be
+`case "64"/"128"`, `default: 256`, so that **unset ⇒ 256**; an `== "256"` test would ship the old
+default and deliver zero.
+
+Advisor fallback port: local branch `advisor-r125-tg256-fallback`, commit `b74bc80c`, patch text at
+`research/patches/r125a_tg256_advisor_fallback.patch`, **53 insertions / 6 deletions in
+`LagunaRuntimeModel.swift` only**, `swift build -c release --force-resolved-versions` **exit 0** (97 s
+real recompile, `Package.resolved` untouched). It exists as schedule insurance for the highest-priced
+delta in the fleet; the student landing in PR #729 is preferred because it also carries the
+correctness gate and the compiled-default plumbing check. **Correctness gates were not run on the
+advisor host** (model-holding), so this port is build-verified, not correctness-verified — do not
+submit it without a gate run.
+
 ---
 
 ## 5. Retired and refuted — do not re-probe
