@@ -426,6 +426,19 @@ re-runs on every publication.
 
 ### 5.3e The campaign proved its own thesis on itself (four receipts)
 
+> **CORRECTION 4 (in place, 2026-08-11T07Z).** Two more receipts of the same
+> executable landed after this section was written, and they kill its headline
+> number. The **×33.4 amplification** below is wrong: it was computed from a
+> 3-receipt sample in which the *within-class* code variation happened to be
+> almost zero. With t5 and t6 added, the identical-executable code spread is
+> **0.4504 %**, not 0.0441 %, and the true ratio of luck noise to code noise is
+> **×2.7**, not ×33.4 and certainly not ×494.9. The narrative of this section
+> survives intact — best code still published worst, luck still dominates a
+> single draw — but every amplification figure in it must be read from §5.3f
+> instead. This is the *third* time in this document that a ratio computed
+> against a small denominator turned out to be a fluke of that denominator
+> (§2 was the first, ×494.9 here was the second); the lesson is recorded in §7.
+
 Everything above is an argument about a field of 1235 receipts. By the time
 ticket 4 came back the campaign had spent four of its own slots, and those four
 receipts turn out to be the cleanest single demonstration of the whole document.
@@ -488,6 +501,188 @@ t4's talk us out of shipping the best code we have. Retraction 2 (§3) was
 precisely the failure mode of reading a draw as a verdict, and t4 is the same
 trap wearing the opposite sign.
 
+
+### 5.3f The prediction that verified — a real gauge, with three degrees of freedom
+
+§2 retracted the claim that the normalized axis is a "0.002 % instrument". The
+retraction rested on an argument, not on data: a two-point sample agreeing to
+0.015 σ is a 1.6 %-probability coincidence, so the agreement was luck and the
+next replay of the same executable should disagree by ~0.2–0.4 %. That was a
+falsifiable prediction, and two more replays have now tested it.
+
+| shot | class | created | published | normalized (code) | draw | cand decode µs | cand prefill µs |
+|---|---|---|---|---|---|---|---|
+| t1 `c1c0ba2c` | base | 23:03Z | 2.569744 | 2.566855 | 1.001126 | 4932.37 | 187.69 |
+| t2 `88584270` | base **(= t1)** | 23:33Z | **2.595765** | 2.566887 | **1.011250** | 4932.64 | 187.65 |
+| t3 `e4078827` | +QHOIST=1 | 00:00Z | 2.527136 | 2.532027 | 0.998068 | 4948.52 | 196.30 |
+| t4 `ed40f3ee` | +atlas v3 | 01:07Z | 2.557858 | 2.567960 | **0.996066** | 4928.23 | 187.84 |
+| t5 `0531544b` | **(= t4)** | 01:31Z | 2.572781 | 2.576759 | 0.998456 | 4907.11 | 187.69 |
+| t6 `cb4de9e0` | **(= t4)** | 01:54Z | 2.576463 | **2.579556** | 0.998801 | 4897.05 | 188.03 |
+
+**The prediction verified.** The t1/t2 identical pair differed by 0.0020 % on the
+code axis; the t4/t5 identical pair differed by **0.3416 %** — 171× more — and
+the full t4/t5/t6 group spans **0.4504 %**. The tight pair was luck, exactly as
+§2 argued from first principles before any of this data existed.
+
+This also produces the first **k = 3 identical-executable group** measured
+anywhere on this benchmark. That matters more than the correction it forces:
+`fern_r109f_same_sha_repeatability.py` confirms that **0 of 1196** full-leg
+receipts in the whole dataset share a `submissionCommitSha` — every submission
+mints a fresh package commit, so no other solver has ever replayed a package and
+these five receipts are the *only* instrument gauge that exists. Pooled to 3
+degrees of freedom (`python3 research/fern_r109f_leg_instrument.py`):
+
+| axis | base pair (k=2) | atlas-v3 group (k=3) | **pooled instrument sd** |
+|---|---|---|---|
+| candidate decode | 0.0038 % | 0.3240 % | **0.2646 %** |
+| **candidate prefill** | 0.0173 % | 0.0910 % | **0.0750 %** |
+| reference decode | 0.2341 % | 0.1702 % | **0.1939 %** |
+| reference prefill | 3.5454 % | 0.5933 % | **2.1035 %** |
+| published score | 0.7124 % | 0.3835 % | **0.5169 %** |
+| normalized | 0.0014 % | 0.2348 % | **0.1917 %** |
+
+Two independent checks say this gauge is right. The pooled published sd of
+0.5169 % matches the field's own published cv of **0.555 %** (n = 48 modern
+receipts, §5.3), and the pooled candidate-decode sd of 0.2646 % matches the
+within-solver decode cv of **0.2921 %** for the most prolific solver in the
+window. A gauge built from 5 receipts reproducing two field-scale numbers it was
+not fitted to is the strongest validation this campaign has.
+
+> **CORRECTION 5 (in place).** §5.2 and four other documents state that the local
+> `--local-iterate` harness "repeats to 0.05–0.10 %". That is wrong under
+> sustained load. An 8-run `MLX_SDPA_BLOCKS` sweep on this host (archived at
+> `research/artifacts/fern-r109f/ab/score.sdpablocks-*.json`, all 8 correct
+> against golden `b9509697c08a2cf3`) gives a local decode cv of **~0.35 %**:
+> 8-run sd ≈ 49 µs on a 12931.6 µs mean, and the two replicated arms disagree by
+> 30.3 µs and 84 µs. So *per observation* the local instrument is **not** quieter
+> than the ranked normalized axis (0.1917 %) — it is roughly 1.8× noisier. §5.2's
+> conclusion still stands, but for a different and weaker reason: a local
+> observation costs 155 s on a machine we own outright, while a ranked
+> observation costs ~22 min through a single account-wide slot shared with every
+> other student. That is about **one order of magnitude** of throughput
+> advantage, not the 10²–10³× claimed. Resolving a 0.30 % decode effect locally
+> needs ≈ 42 runs per arm (~1.8 h), not the "3 replicates ≈ 15 min" asserted
+> earlier. Two consequences: the atlas-v3 −0.0260 % local decode "win" is
+> **unresolvable** — it is 1 run vs 1 run at 0.35 % noise — and the per-package
+> "decode signatures" tabulated by `/tmp/fern_armprobe.sh` (4886.0 / 4890.7 /
+> 4894.1 / 4932.4 / 4932.6 / 4948.5 / 4928.2 µs) all sit inside ±0.4 %, so those
+> attributions are **not** distinguishable and must not be read as arm effects.
+
+**The `MLX_SDPA_BLOCKS` knob itself is null.** Eight runs, no rebuild, all
+correct: default 12934.7 / 12965 µs, 16 → 13019, 32 → 12926, 128 → 12935,
+256 → 12850 then 12934 on replay, 512 → 12889. The apparent −0.65 % win at 256
+did not replicate. Only `16` is plausibly worse (+0.68 %, ~1.8 σ). And it would
+not be shippable anyway: the dispatch site that reads the variable
+(`Vendor/mlx-swift/.../backend/metal/scaled_dot_product_attention.cpp:475-477`)
+is **not in `editablePaths`** — only `kernels/scaled_dot_product_attention.metal`
+and `kernels/sdpa_vector.h` are — so a block-count change could only reach the
+ranked host by `setenv` from editable Swift, which is a rules question for the
+advisor and not something to ship quietly.
+
+### 5.3g Adjudicate arms on the *leg*, not on the score
+
+This is the most actionable result in the document, and it reverses §5.1.
+
+§5.1 concluded that ranked A/B is unusable below ~1 % because the published score
+carries 0.36–0.55 % of noise. That is true *of the published score*. But every
+receipt reports **four timings**, not one, and an arm that changes the candidate
+does not have to be read on a composite that also inherits the reference
+prefill leg's 2.1 % noise:
+
+| leg to read | instrument sd | receipts to resolve 0.30 % | to resolve 0.20 % |
+|---|---|---|---|
+| **candidate prefill** | **0.0750 %** | **2** | **4** |
+| reference decode | 0.1939 % | 11 | 24 |
+| normalized | 0.1917 % | 11 | 24 |
+| candidate decode | 0.2646 % | 20 | 45 |
+| published score | 0.5169 % | **77** | 174 |
+| reference prefill | 2.1035 % | 1278 | 2876 |
+
+(two-sample, α = .05, power = .95, n = 26·(sd/δ)².)
+
+**A 0.30 % prefill arm is a 2-receipt measurement on
+`officialMetrics.prefill_seconds_per_token` and a 77-receipt measurement on
+`officialScore`.** The arm never got harder; the instrument was being read in the
+wrong place. Concretely this **unblocks** work I had declared dead:
+
+* **#692 A2** (fused-NAX `bn` 128→64) was ruled "unadjudicable, ~280 receipts
+  ≈ 205 h". It is a prefill arm. On the prefill leg it is **1–2 receipts**.
+* **#693's `_nax` port** inherits the same reprieve, subject to asking which
+  kernel family it targets.
+* the standing advice "arms are decided locally, ranked shots are pure lottery
+  tickets" — written into three receipt nonces — is **half wrong**. Ranked shots
+  can be experiments, provided the read-out is a leg and not the score.
+
+Two caveats, both mandatory when quoting the table. First, k = 3 df: the sd
+column has wide confidence intervals and the candidate-prefill figure in
+particular rests on differences of 0.0173 % and 0.0910 %. Second — and this is a
+self-correction made *before* publishing — I initially concluded from these
+numbers that **prefill is the bigger code lever in the field**, because the plain
+candidate-prefill cv (0.68–0.92 %) dwarfs the decode one. A robust estimator
+reverses that:
+
+| estimator | decode code × 0.75 | prefill code × 0.25 | bigger lever |
+|---|---|---|---|
+| plain cv | 0.75 × 0.224 = 0.168 % | 0.25 × 0.678 = 0.169 % | tie |
+| **robust cv (MAD)** | 0.75 × 0.224 = **0.168 %** | 0.25 × 0.158 = **0.040 %** | **decode, by ×4** |
+
+The plain prefill cv is inflated by a handful of blow-ups — our own QHOIST
+receipt sat at 196.30 µs against a 188 µs population — so the robust column is
+the one to believe and the "prefill is the bigger lever" claim is **withdrawn
+here rather than published and retracted later**. What survives estimator choice
+is the *instrument* column, which is what the table above is actually built on:
+candidate prefill is the quietest axis on this host by 7×, so it is the cheapest
+place to adjudicate an arm regardless of how much the field's packages differ.
+
+### 5.3h Is the host drifting? No — and that un-confounds our class comparison
+
+The t4→t5→t6 candidate decode leg slid **monotonically**: 4928.23 → 4907.11 →
+4897.05 µs, −0.63 % in one direction over 47 minutes. If the host drifts on an
+hour scale, receipts close in time are correlated, our class comparison (base at
+23:03–23:33Z, atlas-v3 at 01:07–01:54Z) is confounded with wall-clock, and the
+right protocol is to *interleave* arms rather than run them in blocks. So this
+had to be settled. `python3 research/fern_r109f_host_drift.py` uses the field as
+the control — every other solver's receipts run on the same host, so if the host
+drifted, their legs drifted too:
+
+* **field control, same 22:30–03:00Z window, 10 other-solver receipts**: candidate
+  decode Spearman ρ vs time **+0.103**, late-minus-early **+0.033 %**; baseline
+  decode ρ **+0.273**, **+0.086 %**. Flat.
+* **lag-1 autocorrelation of the baseline decode leg** (same trusted harness every
+  run, so it is a pure host probe): **r1 = +0.008** over 51 receipts since 08-10
+  and **+0.080** over 213 since 08-06, against a 95 % white-noise band of ±0.280
+  and ±0.137. White noise.
+* **hourly baseline decode means** across 19 hours: 13830–13885 µs, no trend.
+
+**Verdict: no drift.** The monotone trio is the 1-in-6 coincidence it looks like.
+The protocol implication is the reassuring one — blocked ranked A/B is fine, no
+interleaving needed — and the class comparison is legitimate:
+
+    r109F-base    k=2  mean normalized 2.566871
+    r109F-atlasv3 k=3  mean normalized 2.574758
+    difference +0.3073 %, se 0.1750 %  =>  1.76 sigma
+
+**And I am not going to claim it.** A plausibility guard rejects it, using two
+measurements that do not depend on our five receipts at all:
+
+1. the field's entire decode-leg **code** differentiation is **0.224 %** (robust
+   cv 0.3466 % de-convolved with the 0.2646 % instrument), which at the 0.75
+   decode weight caps *any* decode-only arm at **0.168 % of score**. A single
+   threadgroup-size constant cannot move more code than the whole field spans.
+2. the local A/B of exactly this constant measured **−0.0260 %** of decode
+   (= +0.0166 % of score), and per correction 5 the local noise is 0.35 %, so it
+   saw nothing either way.
+
+The likelier explanation for 1.76 σ is that the base pair's freak 0.0014 %
+internal agreement — the same sample that produced retraction 1 — is making `se`
+look small. **Ticket 7 is armed as a pre-registered test**: same executable a
+fourth time, predicting **P(normalized < 2.574758) = 73.9 %** under the null
+against 50.0 % under the alternative, with the gap expected to fall to ~1.67 σ
+and reaching 2 σ again only on a +1.16 σ draw (p = 12.4 %). Recorded in
+`research/artifacts/fern-r109f/notes/ticket7-preregistered-note.md` and in the
+ticket-7 nonce **before** the shot was fired.
+
+Ship atlas v3 because it is not worse and costs nothing, not because of this.
 
 ### 5.4 Where the leverage actually is
 
