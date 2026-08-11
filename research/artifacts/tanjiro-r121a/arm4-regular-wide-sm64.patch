@@ -1,0 +1,14 @@
+diff --git a/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp b/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+index a646a97f..66c89d96 100644
+--- a/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
++++ b/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+@@ -219,6 +219,9 @@ void steel_matmul_regular_axpby_nax(
+ 
+     bm = 64;
+     wm = 2;
++    if (N >= 4096) {
++      bm = 128;
++    }
+   }
+ 
+   std::ostringstream kname;
