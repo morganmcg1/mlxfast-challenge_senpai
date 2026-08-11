@@ -12,17 +12,44 @@ LISTING SCOPE: BOTH scopes exist and we have been mixing them.
          that reproduces the global scope; we have never passed it.
 DRAWS REMAINING (incl. the row now in flight): 2  (range 1-4), because a fresh row
          `c06b1b6d` was created on the account at 13:51:13Z and under a cap of 1 the next
-         fire cannot be admitted until it goes terminal (expected 14:37Z-15:30Z).
-LAST FIRE FOR A 17:00Z ADJUDICATION: 15:20Z, spread 15:06Z-15:37Z, from age-of-queue:
-         the oldest row resident in the channel at 13:52Z had age 65.0 min and our own last
-         three terminal rows took 82.8 / 99.4 / 46.3 min (NOT the 22.7 min the account ran
-         all morning, and NOT the 2.3 h the brief's 14:30Z window rests on).
+         fire cannot be admitted until it goes terminal (residual forecast below: median
+         15:21Z, p90 15:42Z, still `validating` at the 15:05:05Z poll, age 73.9 min).
+LAST FIRE FOR A 17:00Z ADJUDICATION: >=80% odds up to 15:33Z; >=50% up to 15:59Z.
+         CORRECTED at 15:08Z - the "15:20Z, spread 15:06Z-15:37Z" that stood here (and in my
+         first four results) is a ~95% CONFIDENCE FLOOR, not the point of indifference. Do
+         NOT read it as "after 15:20Z, don't bother": a flip at 15:40Z is still worth firing
+         (74%) and 15:55Z carries 62%. Kaplan-Meier on global sojourns bucketed by in-flight
+         depth at creation (depth>=10, n=94, median 60.6 min, p90 111.3) gives P(adjudicated
+         before 17:00Z | fire time): 14:55Z 94.6% / 15:15Z 88.0% / 15:35Z 80.4% /
+         15:45Z 72.8% / 15:55Z 63.0% / then a CLIFF to 34.8% at 16:05Z and 6.5% at 16:35Z.
+         Underlying age-of-queue evidence unchanged: oldest resident row at 13:52Z was
+         65.0 min, our last three terminal rows took 82.8 / 99.4 / 46.3 min (NOT the 22.7 min
+         the account ran all morning, and NOT the 2.3 h the brief's 14:30Z window rests on).
+         See research/r129q_adjudication_odds.py; W&B pnltvn22.
+OPERATIONAL RULE: FIRE THE INSTANT `c06b1b6d` FLIPS. Not because the deadline is imminent -
+         the slope near the flip is shallow (+10 min costs 3.9 pts) - but because of the
+         16:00Z cliff, and because the draw is i.i.d. so waiting buys nothing.
+RESIDUAL FORECAST for `c06b1b6d` (filed 15:06Z, BEFORE the outcome): it was admitted at
+         global depth 5, so its comparable population is rows admitted at depth 4-7 (n=477).
+         Conditioned on having already waited 75 min: p25 flip 15:10Z, median 15:21Z,
+         p75 15:34Z, p90 15:42Z. P(my registered 14:30-15:35Z band holds) = 77.1%, so there
+         is a 22.9% chance it MISSES HIGH (33.6% on all depths, 46.2% on the depth>=10
+         bucket). Recorded before the flip so it cannot be re-authored afterwards.
+         See research/r129q_residual_flip_forecast.py; W&B 6lpeg7oa.
+VALUE OF THE REMAINING DRAW: E[P(next fire adjudicated)] = 79.6% (69.7-79.6% across
+         populations), E[crown] 1.19-1.59%. P(draw effectively worthless because the slot
+         frees after ~15:59Z or not at all) = 8.3-15.4%. The dominant risk is NOT firing
+         late; it is the slot never freeing in time to fire at all.
 WHAT WOULD FLIP THIS VERDICT: one row created on any account while another row of the same
          account was still observed non-terminal. Zero such pairs exist in 1880 rows / 1785
          consecutive same-account fire pairs / 89 accounts / 18 days.
 POLLS TAKEN: 12:06:00Z, 12:22Z, 12:50Z, 12:55Z, 13:03Z, 13:10Z (global API snapshots, files
          under research/), 13:52:07.035876Z (fresh global API poll, this document),
-         13:52:08.4Z (CLI `--help` text, no API call).
+         13:52:08.4Z (CLI `--help` text, no API call), 14:02:12Z, 14:16:07Z, 14:44:39Z
+         (global API polls), then a read-only watcher every ~2 min from 14:54:49Z
+         (research/r129q_flip_watch.py, exits the instant `c06b1b6d` goes terminal):
+         14:54:52Z, 14:56:55Z, 14:58:58Z, 15:01:00Z, 15:03:04Z, 15:05:05Z - all
+         `validating`, global in-flight 12, exactly ONE own row live at every poll.
 ```
 
 **I fired nothing.** No `mlxfast submit`, no `senpai/submit-official.sh`, no `--official`, no
