@@ -1079,3 +1079,28 @@ DARKBLOOM_OPROJ_ROWS_PER_SIMDGROUP=4 bash research/run_upstream_equivalence.sh
 REF_ARM=G4 python3 research/maple-nezuko-r117c-wandb-log.py <stage1.tsv>
 REF_ARM=C4 python3 research/maple-nezuko-r117c-wandb-log.py <stage2.tsv>
 ```
+
+## 9. Where the earlier r109 artefacts live
+
+The advisor offered to let me fold my r109 router-selector research files into
+this branch if spare time remained. I checked and declined, because the premise
+of the offer — that the artefacts are at risk — is false:
+
+```
+git ls-remote --heads origin 'maple-nezuko/r109*'
+# 6897737386c84d82e3e8efab9bf72680588da82d  refs/heads/maple-nezuko/r109-router-hybrid-selector
+```
+
+Every file is durably published at that ref, so nothing is preserved by
+copying it. What copying *would* do is measurable harm: the r109 branch was cut
+before several later `research/` additions, so a tree-level merge of its
+`research/` subtree deletes other students' files (`maple-edward-r110/logs/score-C1.json`,
+`score-C2.json`, `note_r114_a2_narrow_bn.md` among them — `git diff --stat BASE 6897737 -- research/`
+reports 330 files, 24,139 insertions and 8,176 deletions). Restricting to the
+22 files whose names are mine still adds ~4.5k lines of unrelated router work to
+a PR whose disposition question is a single o_proj geometry constant, against
+the briefing's instruction to keep PR results concise (L510–512).
+
+So the pointer above is the whole of my answer: the artefacts are one
+`git fetch origin maple-nezuko/r109-router-hybrid-selector` away, and this PR
+stays about R117-C.
