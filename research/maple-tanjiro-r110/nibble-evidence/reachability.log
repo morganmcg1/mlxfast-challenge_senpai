@@ -1,0 +1,59 @@
+=== apply dump patch t=02:18:21
+=== build instrumented worker t=02:18:21
+=== build ok t=02:18:39
+=== dump split=0 t=02:18:39
+split=0 header_lines=80
+=== dump split=1 t=02:18:47
+split=1 header_lines=80
+=== dump split=2 t=02:19:28
+split=2 header_lines=80
+
+=== sha256 of the exact string handed to MLX ===
+9c03666f36cf60f09a312cd04ade26e8f6f9a07390d5db84cb889191eb511e41  /tmp/r116b-reach/header_split0.metal
+7f0387756fcf7877e04f7578d06a33886858b4cc937e324cf5132b4a9bb7d138  /tmp/r116b-reach/header_split1.metal
+20b1f8d879357ac3badf0731ec72745c517496abc430b0639360ad6ca7085ef1  /tmp/r116b-reach/header_split2.metal
+
+=== pairwise distinctness ===
+split0 vs split1 : 34 differing lines
+split0 vs split2 : 18 differing lines
+split1 vs split2 : 34 differing lines
+
+=== extract block per arm (the only intended difference) ===
+--- split=0
+        const uint c = codes.x;
+        const uint p0 =
+            ((c & 0x00070007u) << 9) | ((c & 0x00080008u) << 12);
+        const uint p1 =
+            ((c & 0x00700070u) << 5) | ((c & 0x00800080u) << 8);
+        const uint p2 =
+            ((c & 0x07000700u) << 1) | ((c & 0x08000800u) << 4);
+        const uint p3 =
+            ((c & 0x70007000u) >> 3) | (c & 0x80008000u);
+--- split=1
+        const uint c = codes.x;
+        const uint xe = c & 0x0F0F0F0Fu;
+        const uint ge = xe | (xe << 3);
+        const uint yo = c & 0xF0F0F0F0u;
+        const uint go = yo | (yo >> 3);
+        const uint p0 = (ge << 9) & 0x8E008E00u;
+        const uint p1 = (go << 8) & 0x8E008E00u;
+        const uint p2 = (ge << 1) & 0x8E008E00u;
+        const uint p3 = go & 0x8E008E00u;
+--- split=2
+        const uint c = codes.x;
+        const uint p0 =
+            ((c << 9) & 0x0E000E00u) | ((c << 12) & 0x80008000u);
+        const uint p1 =
+            ((c << 5) & 0x0E000E00u) | ((c << 8) & 0x80008000u);
+        const uint p2 =
+            ((c << 1) & 0x0E000E00u) | ((c << 4) & 0x80008000u);
+        const uint p3 =
+            ((c >> 3) & 0x0E000E00u) | (c & 0x80008000u);
+
+=== marker lines (confirms the flag was parsed in-process) ===
+===QMVHEADER_BEGIN split=0===
+===QMVHEADER_BEGIN split=1===
+===QMVHEADER_BEGIN split=2===
+=== done t=02:20:09
+=== patch reverted t=02:20:09
+?? research/maple-tanjiro-r110/nibble-split-abba.sh
