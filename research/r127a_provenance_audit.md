@@ -4,6 +4,11 @@
 (added 12:10Z, completed 12:35Z). The manifest at that commit is 1087 lines; every `L####` below is a
 line in that revision.
 
+**Addenda:** §8 re-targets every finding to branch head `6778867d` (manifest 1198 lines) against the
+advisor's 11:53Z feedback; §9 answers the 12:29Z and 12:44Z feedback and adds F16-F18. Line references
+inside §8 and §9 are head lines; §1-§7 line references are `67396bb6` lines, with the head equivalents
+tabulated in §8.1.
+
 **Instruments:** `git show`, `grep`, PR bodies/comments/results, trusted-harness source, arithmetic.
 No GPU, no build, no benchmark, no W&B run. Nothing under `Sources/`, `Vendor/`, or `benchmark.json`
 is modified — harness source is *read* as a primary source, not edited.
@@ -657,4 +662,265 @@ cleared it.
 - **F1 remains the one decision-grade item**, and it is now propagating: at head it has been written
   into §6.5 (L818-820) and into a new claim at L1036-1037 that the retired 44/84 column "set a bar
   ~40 % too high", when the arithmetic says that column was right and its replacement is ~30 % low.
+
+---
+
+## 9. Second addendum — advisor feedback of 12:29Z and 12:44Z
+
+### 9.0 Timing, and what this addendum adds
+
+Both comments were **created at 12:29Z and 12:44Z and delivered to me at 13:24Z**, i.e. after I had
+already published the terminal result at commit `494b6df3`. There is still no channel by which I could
+have known earlier (§8 preamble: `gh` unauthenticated, `respond_to_human_issue` rejects PR targets,
+`git push` blocked outside `submit_experiment_result`). This section is therefore a **second terminal
+submission on the same branch**, not an interim.
+
+Three of the four asks were already answered in the body of this audit and I have not rewritten them:
+
+| ask | where it already is |
+|---|---|
+| the µs/step currency census, with `correct % / as banked / discrepancy factor` | **§2.4**, 13 rows, exactly the requested column layout; verdict in §2.5 |
+| the census's disposition consequence | §2.5 and §3 (F1-F3); re-stated and extended in **§9.4** |
+| do not audit delta 1 itself | §7 bullet 1: delta 1 appears only as a *price* row, never as a post-mortem |
+
+What is new below: the currency identity is now **proved from the ranked host's own receipt fields**
+(§9.1), Rule 14 violations are **named, including mine** (§9.2), claims of absence are **tested by
+grepping for the thing they say does not exist** (§9.3), every decline is **re-priced** (§9.4), and
+§7 item 6 is **answered from our own receipts, with a mechanism that was not on the board** (§9.5).
+
+Everything below is read-only: `git show`, `git grep`, `git ls-tree`, `git cat-file -t` against
+`6778867d` and five in-tree receipt JSONs. No build, no benchmark, no draw, no W&B run.
+
+### 9.1 The currency census, closed from the ranked host's own receipts
+
+§2 derived the currency identity `rate = 0.75 / D` from our source (`Score.swift:4-7`,
+`LagunaRuntimeLocalIterate.swift:767-769,776,864`). That was the *local* side. The **official** side is
+now closed too, from five receipts that have been sitting in the tree since round 93
+(`research/r93-runs/receipts/null-{1..5}.json`):
+
+```
+officialScore  = decode_speedup^0.75 * prefill_speedup^0.25      exact, 0 ppm residual, all 5
+decode_speedup = baseline_decode_seconds_per_token / decode_seconds_per_token     exact, all 5
+```
+
+So `d ln(officialScore) / d D_candidate = -0.75 / D_candidate` **identically**, on the ranked host, for
+whatever `D_candidate` that harness reports. Every row of §6.6 is an instance of one identity, and the
+only live question is which `D` each quoted µs/step figure actually is. Provenance test of all four:
+
+| §6.6 row | D | §6.6's label | what the tree says | verdict |
+|---|---|---|---|---|
+| ranked official | 4910.9 | measured | = mean candidate decode of the five receipts above (4894.114, 4931.226, 4900.524, 4916.141, 4912.621 ⇒ mean 4910.9253); also `research/r93-runs/log_wandb.py:24` `NULL_DECODE_US = 4910.9253`, `research/r93-runs/RESULTS.md:1123,242` | **safe.** `0.75/4910.9 = 0.015272 %/µs` is *exact*, not approximate |
+| `--local-submit` | 8882 | "measured, nezuko #730" | **8882 as a µs/step figure occurs nowhere in the tree.** Boundary-aware grep over `research/ senpai/ Sources/` at head returns 7 hits, all coincidental (a dispatch row index, a UUID fragment, an LRM line-range heading, a stripped-comment line number, a receipt-corpus digest) plus `MAPLE_TO_SLOT_HOLDER_BRIEF.md:183,215`, which cite "§6.6". I read #730 in full: its decode figures are 8918.96 / 8950.29 / 8975.75 / 9124.84 µs/step and it prices against "the 8,567 µs decode busy budget" | **attribution unsupported.** Nearest #730 number is 8918.96 ⇒ `0.75/8918.96 = 0.008409`, 0.4 % off the printed 0.00845 |
+| bench control | 8213 | "measured, frieren #733" | in-tree, exactly one real hit: **one single token step out of 765** in `research/frieren_r116_raw_steps.csv:357` (`confirm,C7,ABBA,ctl,26,8213.0`). The ctl-arm *medians* are **8189.0** (confirm, n=105) and **8192.0** (screen, n=45). In #733's typed result 8.213-8.217 ms is named explicitly as the **slow mode of a bimodal control**, against 8.148-8.152 ms | **mislabelled in kind.** It is a wall-clock step time, the slow mode, not a median and not a decode denominator. At the median: `0.75/8189 = 0.009158` (+0.3 %) |
+| manifest inherited | 12798 implied | "**UNSOURCED — I cannot establish it. Do not reuse.**" | `0.00586` has **two hits outside the manifest and outside advisor-authored files**: `research/frieren_r116_router_top8_number.md:154` derives it from a *realized ranked outcome* — "alphonse's merged #700 turned −76.8 µs/step into +0.45 % score, i.e. 0.00586 % score per µs/step" (0.45/76.8 = 0.005859) — and `research/patches/REFUTED_DO_NOT_LAND_r125a_tg256_e27_generation.patch:40` applies it (64.8 µs/step ⇒ +0.38 %; 0.38/64.8 = 0.005864). Add §2.2's ~40 in-repo local D measurements, 12 775-12 972 µs | **the row branded unsourced is the best-sourced of the four**, and it is the only one with an *outcome* anchor rather than a harness-internal one |
+
+**F16 (new, decision-grade).** Of the four §6.6 currencies, one is safe (4910.9), one is unsupported in
+its attribution (8882), one is mislabelled (8213), and the one branded UNSOURCED has two independent
+in-tree derivations, one of which is a realized ranked promotion. The labels are, in provenance terms,
+close to inverted. The three *rates* `0.01527`, `0.00845`, `0.00913` have **zero** in-tree occurrences
+outside `MAPLE_TO_SLOT_HOLDER_BRIEF.md`, which cites "§6.6" — they are new to §6.6, derived, not
+measured, which is fine, but they should not be labelled "measured currencies" (`BRIEF:182`).
+
+One trap for whoever fixes this: the ranked host's **baseline** decode is 13 819-13 871 µs/step (the
+five receipts). That is ~8 % from 12 798 and it is *not* a source for it. 12 798 is a candidate-side
+local D; 13 845 is the reference model on the ranked host. Do not join them.
+
+### 9.2 Rule 14 violations, named
+
+Rule 14: *when you correct a reference point, recompute every row that shares it, in a script, in one
+pass.* Five violations, in descending consequence. Two are the manifest's, two are inherited, one is
+mine.
+
+1. **§6.6 itself, twice — the largest.** §6.6 replaced the local currency with rates 1.44-1.56× larger
+   and did not recompute two rows that share that reference point: **§7 item 2** (banked "~2 % of
+   score" for ~350 µs/step; §6.6 restates it as 2.94 %; correct at 0.00586 is **2.05 %**, factor
+   **1.44×**) and **FUSED** (banked −0.504 %; #733 measured +55.2 µs/step ⇒ **−0.323 %**, factor
+   **1.56×**). The second is live: the advisor's disposition comment on #733 *instructed* frieren to
+   reprice 1.56× larger. §2.4, §6.1-6.5.
+2. **§6.6's own requirement column.** 31 / 59 / 149 µs/step replaced 44 / 85; the replacement is
+   `0.75/8882`-consistent but the *question* is a local-harness question, so the correct column is
+   **44 / 85** and the printed one is ~30 % lenient. §6.6 then asserts at L1035-1036 that the retired
+   column was "~40 % too high … conservative rather than flattering", which is backwards. F1/F2.
+3. **§5 o_proj (L456-457)** still carries **−82 µs/step** where the cited source measures **−35**
+   (factor **2.34×**). §4c corrected this reference point; §5 was not recomputed. F5.
+4. **§4 row 4 (L230) and §5 (L470) on my own #731.** Both print **−0.282 %**, which is the *fractional
+   decode slowdown* 23.12/8199.68 misread as a score delta; §4c L405 prices the same delta correctly at
+   **−0.14 %**. Factor **2.09×**, two rows sharing one reference, only one recomputed. Related: §4c
+   L399 (64.8) against L414 (41.4) is **1.57×** inside a single paragraph. F4, F8.
+5. **Mine.** Two, and I will name both. (a) **F10** — my first-pass σ note took the wrong reference
+   population; corrected in §8.3, and the correction is mine, not prompted. (b) §2.4's discrepancy
+   factors were computed against the `095499f4` text and then re-targeted to head **by hand** in §8.1
+   rather than by one scripted pass, which is exactly the shape Rule 14 forbids. §9.1 repairs it: the
+   identity is now re-derived from receipts, and **no factor in §2.4 moved**.
+
+The unifying mechanism is worth stating once: substituting 0.00845/0.00913 for 0.00586 multiplies
+**every** price in the document by 1.44-1.56× away from zero. Credit-side rows therefore inflate the
+value of marginal work (§7 item 2, o_proj, the requirement column) and debit-side rows inflate the cost
+of the things already declined (#731, FUSED). Both directions are wrong by the same factor from the
+same cause, which is why one scripted pass fixes all of them.
+
+### 9.3 Check 5 — claims of absence, and rows whose only citation is this document
+
+Method: for each claim of absence, grep the tree for the thing the claim says does not exist; for each
+row of §6.6 and §7 (**excluding §7 item 2, `≈8919 µs wall / ≈8567 µs busy`, which is maple-alphonse's
+in #744**), grep for any citation outside the manifest family. Boundary-aware: BSD grep has no `-P`, so
+`(?<![0-9.])tok(?![0-9])` is enforced in Python after `git grep --fixed-strings`, which is what
+separates `8882` from `2.58882784` and `8213` from `dd7b1236a8213ff…`.
+
+| claim of absence | test | result |
+|---|---|---|
+| §6.6: `0.00586` is "UNSOURCED — I cannot establish it" | grep `0.00586` | **falsified.** Two independent hits outside the manifest family (§9.1) |
+| §6.6: "no harness we ran reproduces" the 12 798 step (`BRIEF:182`) | grep `12798`, `12,798` | literally true of the *string* (1 hit, advisor's own brief) but the *quantity* is measured ~40 times in-repo at 12 775-12 972 µs (§2.2), so the claim is true only of the digits, not of the step |
+| §6.4: the `queue_probe_1110` JSONL, "if it is still present" | grep `queue_probe_1110` | **absent.** Manifest already hedges; hedge is correct |
+| §7 item 5: "never measured" occupancy items | resolve all five source coordinates in `LagunaRuntimeModel.swift` at head | **substance verified, coordinates stale.** `heads/2` dispatch is at **L1978 and L2463** (`grid: ((heads / 2) * 1024, 1, 1)`), not `:1970-1971`/`:2455-2456`; `ROUTED_GATEUP_R1` is at **L8062** (`DARKBLOOM_ROUTED_GATEUP_R1`), not `:8053-8054`; `:1586-1588` lands on rotary math and `:2048-2050` on a `constexpr` block. Off by 8-9 lines in a 12 431-line file. Fix by citing tokens, not lines |
+| §7 item 4: re-audit against `N-K3-AT-DRAM-ROOF` | grep the label | **zero hits anywhere in the tree outside the manifest**, and the item names no PR. This is the clean instance of the advisor's own test: *a row whose only citation is another row of this document* |
+| §7 item 3: `L-TG-WIDTH-IS-A-DEBIT-AT-tgMem-0`, "≈0.79 µs/step per extra simdgroup" | grep label, grep `0.79 us/step` | label self-cited only (1 hit, advisor's brief), but the **number is independently sourced** — `research/patches/REFUTED_DO_NOT_LAND_r125a_tg256_advisor_fallback.patch:11` and `…_e27_generation.patch:15`. Row stands; relabel to cite the patches |
+| §7 item 1: "~27.88 ms of the 97.9 ms prefill seed forward is unattributed" | grep `27.88`, `97.89` | **sourced.** `maple-fern-r106i-prefill-traversal-census.md:635` ("central 27.88 ms [PROJ]"), `maple-tanjiro-nonmoe-prefill-census.md:64`; `S = 97.89475 ms` at `RESEARCH_ARCHIVE_through-round-91.md:1284` |
+| §7 item 6: `dc437b0e`, "if that program is still reconstructible" | grep `dc437b0e` | **41 hits / 12 files, and the answer is yes** — §9.5 |
+| §6.5b: "Primary source: `research/fern-r109f-interim-1200Z.md` ADDENDUM 2 §L" | `git ls-tree` the path; grep `r109f` | **the named primary source is not in the tree at head, and no file matching `r109f` exists at all** — including the two `maple-fern-r109f-*.md` paths that `CURRENT_RESEARCH_STATE.md:631-632` names |
+
+**F17 (new).** §6.5b's entire numeric core — `2.576540`, `2.582263`, `1.016694`, `1.009444`,
+`1.001830`, `1.012550`, `1.024492` — occurs in the tree **only** in `MAPLE_TO_SLOT_HOLDER_BRIEF.md`
+(which cites "§6.5b, fern") and `research/tools/slot_holder_arithmetic.py:10-14` (whose comments cite
+"6.5b"). `1.012550` and `1.024492` occur **nowhere at all**. `CURRENT_RESEARCH_STATE.md:785` records the
+same work as decomposing **1230** official rows where §6.5b says **1280**, and that cannot be
+adjudicated from the tree. This is not misconduct — #686 closed unmerged, so the file legitimately
+never landed — but it means the manifest's **most load-bearing strategic claim** ("our normalized
+2.582263 already exceeds the crown's normalized 2.576540 … we lose on draw variance, not on code",
+which is the stated basis for the policy that cutting gates to buy draws is irrational) is, in the
+repository a successor will actually receive, **self-cited only**. Recommended edit: mark §6.5b
+"primary source not in tree (PR #686, closed unmerged; numbers not independently reproducible)" and
+point at §9.5, whose route to the same conclusion is entirely in-tree. The conclusion survives; the
+citation does not.
+
+A second class worth flagging: several §7 figures are sourced to **PR comment bodies** rather than to
+files — the −40.9 µs/step OPROJ screen and its local null "−5.4 [−12.6, +1.6] at n=12" are in #733's
+typed result and nowhere in the tree. For a document whose purpose is handover with the repo, that is a
+provenance gap even though the numbers are real.
+
+### 9.4 Was any decline decided against an inflated price?
+
+Yes, twice. Neither flips. Full re-pricing at the corrected local currency (0.00586 %/(µs/step)):
+
+| decision | banked price | correct price | factor | does the disposition change? |
+|---|---|---|---|---|
+| **#731 routed TG=256 — not indicated** | −0.282 % (§4, L230; §5, L470) | **−0.135 %** (+23.12 µs/step; §4c L405 already says −0.14 %) | 2.09× inflated debit | **No.** Still a debit, and 0.36σ of one official draw (§9.5). Decline stands |
+| **FUSED family (#733) — terminal** | −0.504 % | **−0.323 %** (+55.2 µs/step) | 1.56× inflated debit | **No.** Still a debit. But the 1.56× is a *live instruction* to frieren and should be withdrawn |
+| **delta 2 prefill — EXCLUDED** | +0.04 % | **+0.062 %** (+0.17 % prefill × 0.25 axis weight ÷ …; §2.4) | 0.65×, i.e. banked *too small* | **No.** 0.062 % is 0.17σ of one draw. Decline stands, and for a better reason than the one recorded |
+| **OPROJ_SIMDGROUPS=4 — declined (frieren)** | −40.9 µs/step screen, local null −5.4 [−12.6, +1.6] n=12 | n/a — refusal was on M4→M5 non-transferability, not on price | n/a | **No, and correctly so.** §7 item 5 is right that this refusal is the model. No repricing can touch it |
+| **delta 1 — refuted** | +4.73 µs/step ⇒ −0.028 % | same | 1.00× | **No.** Isolated and safe; §4c is a complete post-mortem and I did not re-audit it |
+
+Inflated *credits*, which are the more dangerous direction because they invite spending a draw:
+§7 item 2 at 2.94 % where 2.05 % is correct (1.44×); §5 o_proj at −82 µs/step where −35 is measured
+(2.34×, i.e. an o_proj win is worth +0.205 %, not +0.48 %); and §6.6's requirement column at 31/59
+where 44/85 is correct, which would pass a 40 µs/step delta as clearing the +0.26 % bar when it does
+not. **No disposition anywhere in the manifest flips on any of this.** The exposure is prospective: a
+successor pricing new work off §6.6 would over-value it by 1.44-2.34× depending on the row.
+
+### 9.5 §7 item 6 — `dc437b0e`: yes, we hold it, and it answers a larger question
+
+**Answer: yes.** From our own account's receipts and our own tree only, no reconstruction of anyone
+else's submission.
+
+The group is `senpai-r93-null-1..5`: **maple-tanjiro**, assignment `maple-r93-a-m5-receipt-channel`,
+revision `r93-a-rev1`, arm A true null, five replicates whose trees differ by **exactly one comment
+line** — `// senpai-r93-null-N` at `LagunaRuntimeModel.swift:9474`
+(`research/maple-frieren-r106e-replication.md:1174`; `CURRENT_RESEARCH_STATE.md:7578`; advisor-r103
+§5.2). `research/artifacts/maple-nezuko-r106b/replicate-identity-verified.json` group
+`r103:dc437b0e0b918c86` records `n = 5`, `n_distinct_strict = 5`, `problems: []`,
+`verified_inert_only: true`, `changed_files_vs_reference: {LagunaRuntimeModel.swift: 4}`.
+
+Chain of custody, all in-tree:
+
+| null | commit sha12 | receipt id | account TSV | officialScore | status |
+|---|---|---|---|---|---|
+| 1 | `4b0e051bf3cd` | `25e1f18e` | 8/9/26 2:56 AM | 2.57537675806293 | rejected |
+| 2 | `d6a5f9e7346e` | `d11026c9` | 8/9/26 3:18 AM | **2.59319614607077** | rejected |
+| 3 | `e1b6e2be2792` | `05dd8bbf` | 8/9/26 4:06 AM | 2.57423407186536 | rejected |
+| 4 | `ca91d86c904c` | `ab6a15a1` | 8/9/26 4:55 AM | 2.56861545123952 | rejected |
+| 5 | `5d9060aa0d36` | `4fec8e2d` | 8/9/26 5:44 AM | 2.57166224186903 | rejected |
+
+All five are on `morganmcg1` in `research/receipts/account_submissions_1254Z.tsv`, all rejected with
+`rejectionReason: "score did not improve current best"`, and the raw receipts are in-tree at
+`research/r93-runs/receipts/null-{1..5}.json`. `research/artifacts/advisor-r103/tree-identity-map.json`
+carries `sub_sha 4b0e051bf3cd9777bd6d2be64e172c490705f9a5` and `sources_tree 85ba1a2f4d9a…`.
+
+Two honest qualifications. (a) **Neither the submission commits nor their trees are git objects in our
+repository** — `git cat-file -t 4b0e051bf3cd9777bd6d2be64e172c490705f9a5` and the two arm digests
+`ef055b9b…` / `bd33883e…` all return `could not get object info`. "Still hold it" is true at the
+receipt-and-description level, not at the retrievable-object level. (b) That is sufficient anyway,
+because the program is described exactly enough to rebuild, **and it has already been rebuilt once**:
+frieren replayed it at r106e by rewriting the marker (`maple-frieren-r106e-amendment3.md:183`,
+`senpai-r93-null-1 (= 4b0e051b)` → `senpai-r106e-replay-NN`), and the script that does the rewrite is
+in-tree at `research/r106e_draw.sh:46`.
+
+**Correction to §7 item 6's own numbers.** "mean score 2.5831" is the mean **`cs`**, not the mean
+official score. I verified that `cs` is *exactly* `K · D^-0.75 · P^-0.25` with `K = 5610.207` constant
+to 1.2 × 10⁻⁶ across all five receipts — i.e. `cs` is a deterministic function of the receipt's own
+candidate metrics. The mean **official** score of the group is **2.576617**. So "its mean sits above
+the crown's normalized 2.576540" compares a candidate-only score to a program-normalized official one,
+and on the closest matching quantity the margin is **+0.0030 %, not +0.26 %**. The row's motivation is
+weaker than printed — but there is a much better reason to care about this group.
+
+**F18 (new, and the most consequential thing in this addendum).** The receipts carry
+`baseline_decode_seconds_per_token` and `baseline_prefill_seconds_per_token`, and **the baseline is
+re-measured on every submission**:
+
+| null | candidate D µs/step | baseline D µs/step | candidate P µs/tok | baseline P µs/tok | officialScore |
+|---|---|---|---|---|---|
+| 1 | 4894.114 | 13819.365 | 187.637 | 366.640 | 2.57537676 |
+| 2 | **4931.226** | 13845.108 | 187.734 | **383.584** | **2.59319615** |
+| 3 | 4900.524 | 13857.327 | 187.877 | 364.885 | 2.57423407 |
+| 4 | 4916.141 | 13864.993 | 188.117 | 365.037 | 2.56861545 |
+| 5 | 4912.621 | 13870.722 | 187.994 | 365.293 | 2.57166224 |
+
+Read null-2. It has the group's **slowest** candidate decode (+0.758 % vs null-1) and the group's
+**highest** official score (+0.692 % vs null-1). The official score is **not monotone in our own
+metrics**, and the reason is in the table: its baseline prefill came in at 383.584 against ~365 µs/tok
+for the other four, +4.6 %, which at the 0.25 axis weight is worth +1.13 % of score. Decomposing
+`ln(officialScore)` over the five replicates of this one fixed program:
+
+```
+sd(ln candidate decode)  = 0.2938 %     sd(ln baseline decode)  = 0.1471 %
+sd(ln candidate prefill) = 0.1027 %     sd(ln baseline prefill) = 2.1725 %   <-- dominant term
+candidate-only component = 0.2276 %  (== advisor-r103's printed sd(ln cs) = 0.2276 %, exactly)
+baseline-only component  = 0.5263 %   corr(candidate, baseline) = -0.79
+sd(ln officialScore)     = 0.3728 %   (reconstructed to 4 digits from the four fields)
+```
+
+Three consequences, and I am deliberately *not* re-deriving the closed rows:
+
+1. **"Draw luck" has a mechanism, and it is the harness's own baseline measurement, chiefly baseline
+   prefill.** fern's cross-program draw σ of **0.538 %** (§6.5b) and this group's baseline-side σ of
+   **0.5263 %** agree to two digits. That is a receipt-level corroboration of §6.5b's conclusion by a
+   route that does **not** depend on the primary source missing from the tree (§9.3, F17). It also
+   suggests fern's 0.538 % is not mainly "between-program leakage" at all.
+2. **A Rule-14 flag on §6.5/§6.5c's σ input, for its owner.** 0.186-0.228 % is a **`cs`** σ and
+   therefore structurally excludes *all* baseline-side variance; the within-program **official** σ is
+   **0.3728 %**, 95 % CI [0.223 %, 1.071 %] (n = 5, χ², dof 4). Substituting it into §6.5c's own z
+   takes z from 6.34 to 3.87 and P(one draw clears from the program mean) from ≈0 to **0.005 %** —
+   still ≈0, so **the disposition and the no-buy-draws policy do not change**, and the bracket the
+   manifest states as `[≈0 %, 1.5 %]` reads `[0.005 %, 0.36 %]` when both ends use the program mean as
+   reference. Notably, the advisor's own closed σ(one official draw) of 0.49 % sits *inside* that CI
+   and is much closer to 0.373 % than to 0.19-0.23 %, which is independent support for the relabelling.
+   The row is its owner's; I am flagging the input, not rewriting the table.
+3. **A free instrument for the successor.** Every receipt carries its own baseline, so any two
+   receipts can be compared on candidate metrics alone — that is `cs` — at σ **0.228 %** instead of
+   **0.373 %**. Dividing by a re-measured baseline *injects* noise rather than removing it (the
+   correlation is −0.79). Never A/B two official scores when both receipts' candidate metrics are in
+   hand; and never read a single official score as evidence about a program, because 0.69 % of it can
+   be the harness's baseline having a slow morning.
+
+### 9.6 Net effect of this addendum
+
+No previously banked finding is withdrawn. Three new ones: **F16** (the §6.6 provenance labels are
+close to inverted), **F17** (§6.5b's numeric core is self-cited only and its named primary source is
+absent from the tree), **F18** (the official score's within-program variance is majority baseline-side,
+mechanism identified, and it re-labels the σ input of §6.5/§6.5c without changing its disposition).
+Rule 14 violations are named in §9.2, including two of mine. Every decline is re-priced in §9.4 and
+**none flips**. §7 item 6 is answered **yes** in §9.5, with one correction to the row's own arithmetic.
+
+F1 remains the single decision-grade item and its recommended replacement text is unchanged (§6.1).
+The highest-value single edit is still §6.6's currency table; the second is withdrawing the 1.56×
+reprice instruction issued to frieren on #733.
 
