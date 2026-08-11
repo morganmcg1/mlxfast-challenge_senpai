@@ -32,7 +32,16 @@ Landing TG=256 alone therefore pays the debit and collects nothing.
 (`DARKBLOOM_SHARED_QMV_TG`, default `64`), so the submitted surface is
 behaviourally and dispatch-identical to the base unless the variable is set.
 
-*(measurement summary filled in from §1)*
+**My replication (§1), 12 mirrored slots on this base:** TG=64 `289.88 ± 0.48`
+µs/step vs TG=256 `294.62 ± 0.46` µs/step, paired
+**Δ = +4.73 ± 0.52 µs/step, CI95 [+2.50, +6.96], +1.63 %, 3/3 blocks positive**.
+frieren measured `+4.67 ± 0.68` on a different base. Two independent instruments
+agree that TG=256 is the *slower* geometry.
+
+**What should be submitted:** nothing from this branch. The current best
+(`2.6195531094824` at organizer commit `4ea72c3`) should stand; landing TG=256
+would ship a measured regression on the strength of a misread column. I fired no
+official submission, per the assignment.
 
 ## 0b. The portable hunk
 
@@ -122,7 +131,87 @@ unchanged.
 
 ## 1. Replication on the maple base
 
-*(pending)*
+`research/maple_r125a_atlas.sh` → `/tmp/maple-r125a-atlas`, analysed by
+`research/maple_r125a_analyze.py`. Host: M4 Pro, 20 GPU cores, 48 GiB, Apple GPU
+generation 16 (never selects `_nax`), low-memory startup profile. 13 slots =
+1 warm-up + 3 blocks of mirrored `64 256 256 64`, 200 decode steps each,
+`DARKBLOOM_GPU_PROFILE=1 DARKBLOOM_GPU_PROFILE_SPLIT=1`,
+`DARKBLOOM_SHARED_ROUTED_QMV_FUSED=0` throughout, 40 °C thermal gate re-armed
+before every slot (`gpu_at_start` 37.1–39.3 °C, so no slot started hot). All 13
+slots exit 0.
+
+### Per-slot shared-QMV cost (`laguna_shared_nvfp4_swiglu_qmv_rows1_halved`)
+
+| block | slot | TG | µs/step | calls/step | step busy ms |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 1 | 64 | 291.50 | 39.00 | 8.282 |
+| 1 | 2 | 256 | 294.10 | 39.00 | 8.204 |
+| 1 | 3 | 256 | 294.50 | 39.00 | 8.225 |
+| 1 | 4 | 64 | 289.00 | 39.00 | 8.200 |
+| 2 | 1 | 64 | 290.10 | 39.00 | 8.202 |
+| 2 | 2 | 256 | 294.00 | 39.00 | 8.219 |
+| 2 | 3 | 256 | 293.70 | 39.00 | 8.209 |
+| 2 | 4 | 64 | 288.80 | 39.00 | 8.203 |
+| 3 | 1 | 64 | 291.00 | 39.00 | 8.242 |
+| 3 | 2 | 256 | 296.80 | 39.00 | 8.263 |
+| 3 | 3 | 256 | 294.60 | 39.00 | 8.204 |
+| 3 | 4 | 64 | 288.90 | 39.00 | 8.205 |
+
+### Result
+
+| arm | n | mean µs/step | sem |
+| --- | --- | --- | --- |
+| TG=64 (default) | 6 | **289.88** | 0.48 |
+| TG=256 | 6 | **294.62** | 0.46 |
+
+Within-block paired deltas: `+4.05`, `+4.40`, `+5.75` µs/step.
+
+> **Δ(TG256 − TG64) = +4.73 ± 0.52 µs/step, CI95 [+2.50, +6.96], = +1.63 % of the
+> TG=64 kernel cost. 3/3 blocks positive, 6/6 slot-pairs positive.**
+
+TG=256 is **slower**, decisively, on this base. The sign is not ambiguous: the
+CI95 excludes zero by a factor of ~5 in sem units, and the mirrored `64 256 256 64`
+ordering means slot position cannot produce it.
+
+### Agreement with frieren R119-C
+
+| quantity | frieren R119-C | this replication |
+| --- | --- | --- |
+| arm A / TG=64 | 289.83 ± 1.42 | 289.88 ± 0.48 |
+| arm C / TG=256 | 294.50 ± 0.85 | 294.62 ± 0.46 |
+| Δ | +4.67 ± 0.68 | +4.73 ± 0.52 |
+
+Both arm means agree to better than 0.05 % and the deltas agree to 1.3 % of
+themselves. This is an independent instrument on a different base reproducing
+frieren's numbers essentially exactly, which retires the question: frieren's
+`+4.67` is a **cost**, and TG=256 pays it.
+
+### Controls
+
+- **Mechanism reaches the scored path.** The TG=256 slots dispatch
+  `custom_kernel_laguna_shared_nvfp4_swiglu_qmv_rows1_halved_tg256_bf16_v1`
+  (`maxThreads=1024 execWidth=32`), the TG=64 slots dispatch
+  `…_rows1_halved_bf16_v1`. Distinct PSO names in `*.pso` confirm the new kernel
+  is compiled and executed rather than silently aliased to the cached one.
+- **Token identity.** 9/9 comparison slots are byte-identical to their block's
+  `s1_tg64` token stream (`TOKENS_IDENTICAL`), and the warm-up teacher-forced
+  golden reports **0 divergences**.
+- **Negative control.** Of 21 untouched kernels, 6 exceed the ±0.655 µs/step atlas
+  resolution, all small and mostly *negative* (largest `-1.85` µs/step = −0.14 %
+  of a 1357 µs kernel; largest positive `+0.72` = +0.25 %). Nothing untouched
+  moves anywhere near +1.63 % of its own cost, so the shared-QMV delta is not a
+  session-wide drift artefact.
+- **Whole-step diagnostic.** GPU-busy sum is 8.222 ± 0.014 ms/step (TG=64) vs
+  8.221 ± 0.009 ms/step (TG=256). The +4.73 µs is ~0.058 % of a decode step, i.e.
+  well below whole-step resolution on this instrument. That is the honest
+  magnitude statement: the regression is real and cleanly measured *at the kernel
+  level*, and it is small in absolute end-to-end terms — but it is a debit with no
+  credit attached, which is enough to decline it.
+
+SPLIT=1 serialises dispatches, so the measured +4.73 µs/step is an **upper bound**
+on the un-overlapped cost — the same caveat frieren recorded. Since the sign is
+what the decision turns on, and SPLIT=1 can only exaggerate a cost rather than
+invent one, no SPLIT=0 paired-wall A/B was needed to reject the landing.
 
 ## 2. Conflict resolution: where the `+0.38 %` premise came from
 
@@ -201,7 +290,78 @@ its sign is not favourable, and nothing supports a decode gain.
 
 ## 4. Mechanism and cross-kernel prediction
 
-*(pending)*
+### Why a wider threadgroup is pure debit here
+
+The shared expert's fused gate/up projection produces
+`LagunaConstants.sharedExpertIntermediateSize` = 512 output rows, and the rows1
+kernel assigns **exactly one row per simdgroup** (`uint row = tile *
+simdgroupsPerThreadgroup + simd_group;`). Both arms therefore launch the same
+512 simdgroups and issue the same arithmetic and the same weight traffic; the
+only thing the selector changes is how those simdgroups are *packaged*:
+
+| arm | threads/TG | simdgroups/TG | threadgroups | simdgroups |
+| --- | --- | --- | --- | --- |
+| TG=64 | 64 | 2 | 256 | 512 |
+| TG=256 | 256 | 8 | 64 | 512 |
+
+So the +4.73 µs/step is entirely a scheduling effect, not extra work. Two
+mechanisms account for its sign, and the profile evidence discriminates between
+them:
+
+1. **The dispatchable-unit count collapses 4×.** The GPU schedules
+   *threadgroups* onto cores, so the arm with 64 units has far less freedom to
+   keep 20 (locally) or 40 (ranked) cores busy as they drain, and its tail
+   quantises worse. §5 tabulates this exactly.
+2. **A 256-thread threadgroup is pinned to one core.** Its 8 simdgroups
+   contend for that single core's issue slots while each streams a *different*
+   packed NVFP4 weight row; at 2 simdgroups/TG the same 8 rows can be spread
+   across up to 4 cores. This kernel is weight-streaming bound, so the
+   contention is directly on the critical resource.
+
+The decisive structural fact is in the PSO line itself: **`tgMem=0`**. The
+kernel allocates no threadgroup memory, because there is no cross-simdgroup
+reduction and no shared tile — every simdgroup reads a disjoint weight row and
+writes a disjoint output element. The *only* things a wider threadgroup can buy
+in a Metal kernel are threadgroup-memory reuse and cheaper cross-simdgroup
+reduction, and this kernel needs neither. There is therefore no credit side to
+the ledger at all: widening the threadgroup here can only cost. That is the
+general reason `L-LOAD-BALANCE-GRANULARITY` was refuted rather than merely
+unconfirmed, and it is why I would not expect a different answer on the ranked
+host.
+
+### Cost coefficient
+
+Per additional simdgroup-per-threadgroup (2 → 8, i.e. 6 increments):
+
+- this replication: `+4.73 / 6 = +0.79 µs/step` per increment
+  (`+0.020 µs/call` at 39.00 calls/step);
+- frieren's three-arm through-origin fit over 2/4/8 simdgroups
+  (`0`, `+0.55`, `+4.67`): `+0.73 µs/step` per increment.
+
+Two independent instruments on different bases agree on the coefficient to
+within 8 %. The relationship is convex, not linear — TG=128 is statistically
+indistinguishable from TG=64 (frieren: `+0.55 ± 0.73`, NS) while TG=256 is
+clearly positive — which is what mechanism 1 predicts, since quantisation loss
+only bites once the threadgroup count drops near the core count.
+
+### Falsifiable predictions
+
+1. **Any QMV-family kernel with `tgMem=0` and one output row per simdgroup will
+   show the same sign under TG widening.** The shared rows1 kernel and the
+   routed top-8 QMV (same `row = tile * 2 + simd_group` idiom, LRM:7263 on
+   `18ac6015`) are both in this class. Predicted magnitude ≈ `+0.02 µs` per call
+   per additional simdgroup-per-TG.
+2. **A kernel with a genuine cross-simdgroup reduction (`tgMem > 0`) is the only
+   place TG widening could pay.** None of the shared or routed QMV kernels are
+   in that class, so this family is closed as an optimisation target — which is
+   the transferable result here.
+3. **The ranked M5 does not flip the sign.** §5's quantisation model says the
+   40-core host shrinks the *relative* penalty by ~1.6× versus this 20-core
+   host, giving a ranked-equivalent ≈ `+2.9 µs/step`, still strictly positive.
+   The debit shrinks; it does not invert. This prediction is host-portable
+   because it depends only on threadgroup-count quantisation against core
+   count, not on any `_nax` kernel selection, so gen-16 unreachability of
+   `_nax` does not weaken it.
 
 ## 5. Ranked-host quantisation
 
