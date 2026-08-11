@@ -5,6 +5,9 @@ revision `r125-b-rev1`, PR #730.
 Branch `maple-nezuko/r125-b-qkv-tg-granularity-ladder`, base
 `a9de9e8f21188715f6d80ada4b581bcd50d4ec81`.
 Host: Apple M4 Pro, 20 GPU cores, 48 GiB, `applegpu_g16s`, macOS 26.5.2.
+W&B (one run, all 12 rows):
+[`fwgtejl5`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/fwgtejl5).
+No official receipt was spent by this experiment.
 
 ## §0 Verdict
 
@@ -470,6 +473,16 @@ Grand mean level across all 12 runs: **8884.0 µs/step (minimize)**.
    14 columns), `research/r125b-runs/bootstrap.txt` (block bootstrap,
    `REF=N2 B=20000 SEED=125`), `research/r125b-runs/paired-ci.txt` (paired sd +
    power curve). Campaign head recorded in the TSV: `d8b104da0e1f`.
+6. **W&B:** one run, `fwgtejl5` —
+   <https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/fwgtejl5> — logged
+   by `research/maple-nezuko-r125b-wandb.sh` (a thin env wrapper over the
+   R117-C logger, unchanged), with the TSV attached as a run artifact.
+   **Sign-convention warning for anyone reading that run:** the R117-C logger
+   names its contrasts `reference_minus_arm`, so W&B shows
+   `contrast/N2_minus_N4/median_us = −0.23` where this document's §3.2 table
+   shows `N4 − N2 = +0.23`. Same measurement, opposite subtraction order. This
+   document's convention is the one the assignment asks for — **arm minus
+   reference, positive = candidate slower = worse, minimize.**
 
 ---
 
