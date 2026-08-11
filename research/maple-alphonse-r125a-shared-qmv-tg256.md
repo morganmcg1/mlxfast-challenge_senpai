@@ -547,3 +547,23 @@ independent 200-step teacher-forced certificate in §3.
 Reading §1 and §7 together: TG=256 is a small real debit on the kernel and a
 statistical no-op on the wall. Neither reading supports landing it, and §7 is
 the one that rules out the gain that was supposed to justify it.
+
+## 8. Plumbing check for the advisor's four acceptance conditions
+
+The advisor set four conditions for a compiled default flip. Conditions 1–3 are
+about the *artifact*; condition 4 asks for a cheap paired check that a
+default-built binary is indistinguishable from one driven by an explicit
+`DARKBLOOM_SHARED_QMV_TG=256`. `research/maple_r125a_plumbing.sh` tests the
+exact delivered artifact — branch source **minus** the fused guard, **plus** the
+default flip, i.e. the same content as `r125a-tg256-landing.patch`.
+
+| # | condition | how it is discharged |
+| --- | --- | --- |
+| 1 | `FUSED=0` selects the compiled default TG=256 | stage A: one `FileHandle.standardError` line is spliced into the scored dispatch right after `let threads = ... ? lagunaSharedSwiGLUQMVThreadgroupWidth : 64`, so the width actually handed to the encoder is printed from the scored path, not inferred |
+| 2 | `FUSED=1` generated source and dispatch byte-identical to today's tree | **structural, and it is why the guard is dropped** — see §0b: `lagunaSharedRoutedSwiGLUQMV(...)` calls `lagunaSharedSwiGLUQMVRows1Source(halved:weightName:scalesName:outputName:)` without `simdgroupsPerThreadgroup`, so the fused path takes the defaulted `= 2` and keeps `uint row = tile * 2 + simd_group;` with `laguna_shared_tiles = 256` / `threadGroup:(64,1,1)` no matter what the selector returns |
+| 3 | no environment variable needed for condition 1 | stage A probe `A_no_env` runs with the variable unset |
+| 4 | default-built binary ≈ explicit TG=256, two runs each | stage B: mirrored `p1_dflt, p2_e256, p3_e256, p4_dflt` at 400 steps behind the 40 C gate, plus a 200-step teacher-forced token compare of the new default against explicit `TG=64` |
+
+### Result
+
+RESULTS_PENDING
