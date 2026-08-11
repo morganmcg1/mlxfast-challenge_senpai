@@ -205,6 +205,14 @@ def main() -> None:
             summary["probe/split0_marginal_dispatch_price_us"] = 1000 * (b_off - b_on) / (
                 d_off - d_on
             )
+    g_off = summary.get("probe/s0_off/gap_ms")
+    g_on = summary.get("probe/s0_on/gap_ms")
+    if g_off and g_on:
+        summary["probe/split0_gap_delta_us_per_step"] = 1000 * (g_on - g_off)
+    w_off = summary.get("probe/s0_off/wall_ms")
+    w_on = summary.get("probe/s0_on/wall_ms")
+    if w_off and w_on:
+        summary["probe/split0_wall_delta_us_per_step"] = 1000 * (w_on - w_off)
 
     # SPLIT=1 per-kernel attribution: the separately measured host-only leg.
     def kern(tag, needle):
@@ -248,6 +256,11 @@ def main() -> None:
         summary[f"busy_ci/{label}/delta_us"] = w["delta"]
         summary[f"busy_ci/{label}/lo_us"] = w["lo"]
         summary[f"busy_ci/{label}/hi_us"] = w["hi"]
+        # busy_ci deltas are candidate-minus-baseline; campaign deltas are
+        # baseline-minus-candidate. saving_us is positive-is-faster everywhere.
+        summary[f"busy_ci/{label}/saving_us"] = -w["delta"]
+        summary[f"busy_ci/{label}/saving_lo_us"] = -w["hi"]
+        summary[f"busy_ci/{label}/saving_hi_us"] = -w["lo"]
         summary[f"busy_ci/{label}/p"] = w["p"]
         summary[f"busy_ci/{label}/excludes_zero"] = bool(w["lo"] * w["hi"] > 0)
         summary[f"busy_ci/{label}/dispatches_baseline"] = amode
