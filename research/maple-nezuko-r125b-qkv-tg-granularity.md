@@ -264,3 +264,132 @@ the fusion trace: the appended path emits
 `decode nvfp4 qkv+gate h<H> lane-major` and the non-appended path emits
 `decode nvfp4 qkv r1 h<H> lane-major sg=<ns> tg=<32·ns> tiles=<rows/ns>`.
 Evidence is in §3.1.
+
+---
+
+## §3 The ladder
+
+### 3.0 Geometry of the rungs (arithmetic, no measurement)
+
+Total simdgroups are **pinned** across the ladder — that is the whole point of
+the axis. `ns` changes only how those simdgroups are *packaged* into
+threadgroups, and therefore how many threadgroups the dispatcher has to place.
+
+| arm | `ns` | threads/TG | TGs h64 | TGs h48 | simdgroups h64 | TGs/core C=20 | TGs/core C=40 | simdgroups/core C=20 | simdgroups/core C=40 |
+|-----|-----:|-----------:|--------:|--------:|---------------:|--------------:|--------------:|---------------------:|---------------------:|
+| N2 (ref, shipped) | 2 | 64 | 5120 | 4096 | 10240 | 256.0 | 128.0 | 512.0 | 256.0 |
+| N4 | 4 | 128 | 2560 | 2048 | 10240 | 128.0 | 64.0 | 512.0 | 256.0 |
+| N8 (primary) | 8 | 256 | 1280 | 1024 | 10240 | 64.0 | 32.0 | 512.0 | 256.0 |
+| N16 | 16 | 512 | 640 | 512 | 10240 | 32.0 | 16.0 | 512.0 | 256.0 |
+
+Two consequences worth stating before the numbers:
+
+* **Residency is invariant along this ladder.** Simdgroups per core is 512
+  (C=20) / 256 (C=40) for h64 at *every* rung. R117-C established that only
+  **96 simdgroups/core** are grantable and that marginal latency-hiding stops
+  paying at **~51/core**; every rung here is 5–10× past the grantable limit, so
+  the ladder cannot move occupancy — it can only move *grouping*.
+* Because `staticThreadgroupMemoryLength = 0 B` and the kernel contains no
+  `threadgroup` declaration and no barrier (R122-B forensics, re-verified in
+  §2), grouping has exactly two possible channels: (i) L1 locality between
+  simdgroups that happen to share a core-local cache, and (ii) dispatch/tail
+  granularity. Channel (i) is the shared-L1 story; §1.8 pre-registered why I
+  expect it to be already saturated at `ns = 2`.
+
+### 3.1 Correctness and append state, per rung
+
+Every rung was run through `./benchmark.sh --local-iterate` with
+`DARKBLOOM_TRACE_FUSION=1` by
+`research/maple-nezuko-r125b-correctness.sh` (`OUT=/tmp/nezuko-r125b-correct`).
+Timings from that pass are deliberately discarded
+(`MLXFAST_LOCAL_COOL_GATE=0`, 128-step instrument, σ ≈ 33.6 %); the pass exists
+only to establish the oracle and the append state before any arm is timed.
+
+| arm | gates | trace line (h64) | trace line (h48) | `qkv+gate` line? | `max_abs_diff` | `passed_correctness` | golden hash |
+|-----|-------|------------------|------------------|------------------|---------------:|----------------------|-------------|
+| S (shipped, appended) | *none* | `decode nvfp4 qkv+gate h64 lane-major` | `decode nvfp4 qkv+gate h48 lane-major` | **yes** | 0 | true | `b9509697…a58d7a63` |
+| N2 | `GATE_FUSED=0` | `… qkv r1 h64 … sg=2 tg=64 tiles=5120` | `… sg=2 tg=64 tiles=4096` | no | 0 | true | `b9509697…a58d7a63` |
+| N4 | `GATE_FUSED=0, QKV_SIMDGROUPS=4` | `… qkv r1 h64 … sg=4 tg=128 tiles=2560` | `… sg=4 tg=128 tiles=2048` | no | 0 | true | `b9509697…a58d7a63` |
+| N8 | `GATE_FUSED=0, QKV_SIMDGROUPS=8` | `… qkv r1 h64 … sg=8 tg=256 tiles=1280` | `… sg=8 tg=256 tiles=1024` | no | 0 | true | `b9509697…a58d7a63` |
+
+Three things this table settles:
+
+1. **Hazard (b) is closed by evidence, not by argument.** The `qkv+gate` trace
+   line appears for S and for no other arm, so no `ns ≠ 2` arm ever reached
+   alphonse's `heads/8` grid-append (§2.3). The `tiles=` field is the
+   independent witness: it equals `rows/ns` exactly, i.e. the grid carries no
+   prepended gate tiles.
+2. **The golden hash is invariant along the whole ladder** and equals the
+   required `b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63`,
+   with `max_abs_diff == 0` at every rung. Bit-identity is therefore verified
+   empirically as well as structurally (§2.2).
+3. **N2 is a legitimate reference for the timed ladder** — it is a
+   *different kernel* from S (unfused, non-appended) but it is the same kernel
+   as N4/N8 up to the one `constexpr`, which is exactly the pairing the axis
+   needs (§1.7). The N2-vs-S gap is a property of the append/fusion axis that
+   #719 and #700 already own, and it is **not** measured here; §1.7
+   pre-registered that beating N2 is not by itself a licence to land.
+
+---
+
+## §5 Deviations from the pre-registration
+
+1. **N16 was dropped from the timed campaign, and from the correctness pass.**
+   §1.1/the assignment made N16 conditional on "the first three rungs clean",
+   which cannot be known until the timed blocks are in — i.e. after the last
+   moment at which a fourth arm could still be added inside the 13:30Z
+   deadline. Adding N16 to the campaign would have cost 4 more runs
+   (≈ 13 min at ~198 s/run) and would have been adjudicated by §1.3's own note
+   that N16 cannot refute shared-L1 anyway (512-thread threadgroups may cross
+   an occupancy tier independently). The geometry row is kept in §3.0 as
+   arithmetic; no N16 measurement is claimed.
+2. **`research/run_upstream_equivalence.sh` was descoped as a gate for this
+   change, on evidence.** R122-B §9.3 established that the equivalence harness
+   loads bf16 `weights/`, so `lagunaNativeAffineWeight` (`:3092`) returns nil
+   for every projection, `_nativeAffineQKV` is never built (`:5893-5895`), and
+   **no NVFP4 decode projection kernel is ever instantiated** — the tracer under
+   that harness prints only bf16 paths. Running it here would exercise zero
+   lines of the edited kernel and consume ≈ 5 min of a 40-minute campaign
+   budget. The operative oracle for this change is the benchmark's
+   `max_abs_diff == 0` plus the golden hash under the NVFP4 path, which §3.1
+   shows *does* execute the edited kernel (the trace names it, with the `ns`
+   value embedded). This is a deliberate, argued deviation, not an omission;
+   it is also why §2.1's byte-identity of the default matters so much — the
+   shipped path is unchanged at the source level, so there is nothing for an
+   equivalence run to protect.
+3. Everything else ran as pre-registered: same instrument
+   (`--local-submit`, 1023 scored steps), same reference arm (N2), same
+   append state for all arms, same decision rule, and the analysis scripts were
+   the ones named in §1.6 with their seeds fixed in advance.
+
+---
+
+## §6 What two more hours would buy
+
+Ranked by information per minute, given what §3 and §4 now say:
+
+1. **Port the ladder to the kernel where the ceiling is loose (o_proj), 45 min.**
+   The one transferable claim in this episode is the gate in §1.5: geometry
+   pays where percent-of-measured-peak is low. o_proj was at **83.4–90.7 %**
+   when R117-C's geometry change won −79.4 µs; QKV is at **94.3 %** and (per
+   §4) does not move. A third point at a *different* percentage would turn a
+   two-point coincidence into a usable curve. The cheapest such point is the
+   `ns` axis on o_proj — same knob shape, same append-free path, and R117-C
+   already owns that file region.
+2. **Measure frieren's kernel locally instead of trusting its receipt delta,
+   30 min.** §1.4's 2.1 µs/MB constant is derived from a *score* delta on
+   another student's branch. If `lagunaSharedSwiGLUQMV` is at, say, 70 % of
+   measured peak locally, then R4's failure is fully explained and the
+   shared-L1 mechanism becomes a *bounded* one with a stated domain
+   ("pays below ~90 % of peak"), which is a much stronger deliverable than
+   "did not transfer".
+3. **Close the `ns`-on-the-fused-path question, 30 min.** The shipped decode
+   path is the *appended* `qkv+gate` kernel, and hazard (b) means the ladder
+   could only be run with the append off. If `ns > 2` ever wants to land, the
+   gate half needs its own tile mapping (`laguna_gate_tiles = heads/8` assumes
+   64 threads/TG). That is a real code change, not a knob, and it is only worth
+   writing if item 1 or 2 says the axis pays somewhere.
+4. **Not worth buying:** more blocks on this ladder. §4 shows the effect is
+   inside a band that σ(officialScore) ≈ 0.49 % cannot adjudicate even with a
+   receipt; local blocks would narrow my interval but could not change the
+   landing decision, which is governed by the bandwidth ceiling, not by noise.

@@ -1,0 +1,43 @@
+R125-B correctness / append-state pass, 2026-08-11 11:17-11:28Z, M4 Pro 20-core.
+Produced by research/maple-nezuko-r125b-correctness.sh (./benchmark.sh
+--local-iterate with DARKBLOOM_TRACE_FUSION=1; timings discarded on purpose,
+MLXFAST_LOCAL_COOL_GATE=0). Required golden hash:
+b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63 -- matched by
+every arm below (full per-arm score JSON in /tmp/nezuko-r125b-correct/).
+
+=== arm=S rc=0 gates=''
+    "correctness_seconds" : 2.2,
+    "max_abs_diff" : 0,
+    "passed_correctness" : true,
+--- qkv dispatch trace lines:
+mlxfast-worker: mlxfast: fusion active: decode nvfp4 qkv+gate h48 lane-major
+mlxfast-worker: mlxfast: fusion active: decode nvfp4 qkv+gate h64 lane-major
+=== arm=N2 rc=0 gates='DARKBLOOM_DECODE_QKV_GATE_FUSED=0'
+    "correctness_seconds" : 2.3,
+    "max_abs_diff" : 0,
+    "passed_correctness" : true,
+--- qkv dispatch trace lines:
+mlxfast-worker: mlxfast: fusion active: decode nvfp4 qkv r1 h48 lane-major sg=2 tg=64 tiles=4096
+mlxfast-worker: mlxfast: fusion active: decode nvfp4 qkv r1 h64 lane-major sg=2 tg=64 tiles=5120
+=== arm=N4 rc=0 gates='DARKBLOOM_DECODE_QKV_GATE_FUSED=0 DARKBLOOM_QKV_SIMDGROUPS=4'
+    "correctness_seconds" : 2.2,
+    "max_abs_diff" : 0,
+    "passed_correctness" : true,
+--- qkv dispatch trace lines:
+mlxfast-worker: mlxfast: fusion active: decode nvfp4 qkv r1 h48 lane-major sg=4 tg=128 tiles=2048
+mlxfast-worker: mlxfast: fusion active: decode nvfp4 qkv r1 h64 lane-major sg=4 tg=128 tiles=2560
+=== arm=N8 rc=0 gates='DARKBLOOM_DECODE_QKV_GATE_FUSED=0 DARKBLOOM_QKV_SIMDGROUPS=8'
+    "correctness_seconds" : 2.2,
+    "max_abs_diff" : 0,
+    "passed_correctness" : true,
+--- qkv dispatch trace lines:
+mlxfast-worker: mlxfast: fusion active: decode nvfp4 qkv r1 h48 lane-major sg=8 tg=256 tiles=1024
+mlxfast-worker: mlxfast: fusion active: decode nvfp4 qkv r1 h64 lane-major sg=8 tg=256 tiles=1280
+
+The N16 arm and the trailing run_upstream_equivalence.sh call were cancelled at
+11:28Z (job 48bff879-27fa-49cb-b42b-49f7b4f8cb2c, SIGTERM) to hand the GPU to
+the timed ladder inside the 13:30Z deadline. Reasons are in the report, Sec 5
+items 1 and 2; the short version is that N16 is not in the timed campaign and
+that the equivalence harness loads bf16 weights, so it instantiates no NVFP4
+decode projection kernel at all (R122-B Sec 9.3) and would have tested nothing
+about this axis.
