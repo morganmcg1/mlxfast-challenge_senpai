@@ -42,6 +42,11 @@ this full-model ruler even though the instrument differs):
   --csv PATH   writes the tidy per-observation array (one row per measured
                arm-in-block, with its control, its dose and its residual) so a
                reader can re-derive every number here without this script.
+               Each row also carries the golden hash of BOTH members of the
+               pair, a golden_match flag and both passed flags, so a reader can
+               confirm from the published array alone that no rung bought its
+               bytes by changing the answer. Without those columns that claim
+               would rest on my prose.
 
 Usage:  python3 research/nezuko-r117-ruler-tau.py ROWS.tsv [--csv OUT.csv]
 Env:    BW=256.7   assumed peak GB/s used to convert bytes to us at tau=1.
@@ -307,6 +312,8 @@ def main():
     # block -> arm -> decode us/token ; also collect integrity fields
     lvl = defaultdict(dict)
     posn = defaultdict(dict)          # block -> arm -> within-block position
+    gold = defaultdict(dict)          # block -> arm -> golden hash (truncated)
+    pas = defaultdict(dict)           # block -> arm -> passed flag
     goldens, passes, heads = set(), set(), set()
     with open(path) as fh:
         for row in csv.DictReader(fh, delimiter="\t"):
@@ -321,6 +328,8 @@ def main():
                 posn[int(row["block"])][row["arm"]] = int(row.get("pos", "0"))
             except ValueError:
                 pass
+            gold[int(row["block"])][row["arm"]] = row.get("golden", "")[:16]
+            pas[int(row["block"])][row["arm"]] = row.get("passed", "")
             goldens.add(row.get("golden", "")[:18])
             passes.add(row.get("passed", ""))
             heads.add(row.get("head", ""))
@@ -597,11 +606,15 @@ def main():
             w.writerow(["block", "arm", "pos", "control_pos", "order",
                         "control_us_per_step", "arm_us_per_step", "delta_us",
                         "dose_MB_per_step", "pred_us_at_tau1",
-                        "fitted_us", "residual_us"])
+                        "fitted_us", "residual_us",
+                        "control_golden", "arm_golden", "golden_match",
+                        "control_passed", "arm_passed"])
             for i, b in enumerate(blocks):
                 pc = posn.get(b, {}).get("C", "")
+                gc = gold.get(b, {}).get("C", "")
                 for a in rungs:
                     pa = posn.get(b, {}).get(a, "")
+                    ga = gold.get(b, {}).get(a, "")
                     order = ("" if pc == "" or pa == ""
                              else ("before" if pa < pc else "after"))
                     fit = sc[0] + st[0] * pred[a]
@@ -609,7 +622,10 @@ def main():
                                 f"{lvl[b]['C']:.3f}", f"{lvl[b][a]:.3f}",
                                 f"{D[a][i]:.3f}", f"{DOSE_MB[a]:.3f}",
                                 f"{pred[a]:.3f}", f"{fit:.3f}",
-                                f"{D[a][i]-fit:.3f}"])
+                                f"{D[a][i]-fit:.3f}",
+                                gc, ga, "yes" if (gc and ga and gc == ga) else "NO",
+                                pas.get(b, {}).get("C", ""),
+                                pas.get(b, {}).get(a, "")])
         print(f"\n  raw per-observation array written to {csv_out} "
               f"({len(blocks)*len(rungs)} rows)")
 
