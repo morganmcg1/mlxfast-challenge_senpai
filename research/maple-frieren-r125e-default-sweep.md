@@ -310,3 +310,80 @@ change. The reviewer expects fused to still lose on M5 (~+20-30 µs/step) becaus
 both variants stay deep in the many-wave regime, and notes these are
 `MLXFast.metalKernel` string kernels, so `_nax` selection is irrelevant to this
 comparison.
+
+## 4. Confirm pass `cf2`: the screen's top three, 25 scored runs
+
+Design fixed before the run (prereg addendum): 25 runs at STEPS=224 in a
+counterbalanced order giving n = C 8 / RP0 7 / NS2 6 / ASSPA 4, one process per
+run, drift-corrected against the interpolated control, paired bootstrap, and a
+Bonferroni k=3 (98.3 %) interval because three arms are tested at once.
+0 divergences in all 25 runs.
+
+| arm | knob | screen point | confirm point | confirm 95 % CI | Bonferroni 98.3 % | % score | verdict |
+|---|---|---|---|---|---|---|---|
+| `RP0` | `ROUTER_WEIGHT_PREFETCH=0` | -55.3 | **+5.6** | [-17.3, +29.0] | [-21.4, +34.1] | -0.033 | **not reproduced, no effect** |
+| `NS2` | `NVFP4_NIBBLE_SPLIT=2` | +25.3 | **+24.0** | [-1.2, +49.7] | [-6.7, +54.7] | -0.141 | **loss, reproduced twice** |
+| `ASSPA` | `DECODE_ASYNC_STAGE=at:0,1,15,31` | -33.0 | +73.5 raw / -36.7 trimmed | [-59.3, +288.7] | [-60.3, +305.1] | - | **undecided, one outlier run** |
+
+Units are us/step; negative is faster. Control run-to-run sd in this pass was
+41.5 us/step, so the achieved floor 2sd/sqrt(n) was 31.4 / 33.9 / 41.5 us/step
+for n = 7 / 6 / 4.
+
+- **`RP0` is dead.** The screen's -55.3 us/step was noise: seven fresh paired
+  runs give +5.6 us/step with the interval straddling zero, and the per-pass
+  deltas scatter from -39 to +57 with no structure. The knob is genuinely
+  reachable (audit above) and bit-exact, but its shipped default 1 is already
+  the right choice. **No default flip is warranted.**
+- **`NS2` is a reproduced loss.** +25.3 then +24.0 us/step across two
+  independent passes; combined that is a real ~+24 us/step (-0.14 % score)
+  penalty for the two-nibble split. With `NS0` also +55.6 in the screen, the
+  shipped `NVFP4_NIBBLE_SPLIT=1` is a local optimum on both sides. This closes
+  the advisor's priority-1 knob: **keep the default.**
+- **`ASSPA` needs its own pass.** Three of its four paired runs are -61.3,
+  -57.2 and +8.5 us/step; the fourth is +404 because run 14's median jumped to
+  8.606 ms while its immediate neighbours (C 8.220, NS2 8.252) were normal, an
+  environmental spike rather than an arm property. Trimming it is post-hoc, so
+  the honest statement is "undecided", and this arm is worth the remaining
+  probe budget.
+
+### Why sparse async staging is a physically plausible win
+
+The `DECODE_ASYNC_STAGE` arms line up monotonically in the number of staged
+layers, which is what a per-stage-point cost with a saturating benefit looks
+like:
+
+| stage points | arm | delta us/step |
+|---|---|---|
+| 0 (`off`) | `ASOFF` | +1140.5 |
+| `norm` only | `ASNRM` | +1158.9 |
+| 4, `at:0,1,15,31` | `ASSPA` | -33.0 (screen), -36.7 trimmed (cf2) |
+| 7, shipped `at:0,1,7,15,23,31,39` | `C` | 0 |
+| 12, `at:0,1,3,7,...,39` | `ASDEN` | +12.0 |
+| `ladder8` | `ASLAD` | +193.0 |
+
+Staging is clearly load-bearing: removing it entirely costs ~1.15 ms/step,
+about 14 % of decode. But past a handful of well-placed points each extra point
+adds cost without adding cover. If that shape is real, the shipped 7 points sit
+slightly past the optimum and 4 points is the better default.
+
+## 5. Confirm pass `cf3`: sparse async staging at full power
+
+Two arms only, `C` vs `ASSPA`, 24 runs in six ABBA blocks
+(`C ASSPA ASSPA C` x 6) so linear drift cancels inside each block, n = 12 each.
+At the pass-`cf2` control sd that is an achieved floor of 24 us/step, enough to
+resolve a -35 us/step effect. One hypothesis, so no multiplicity correction is
+needed and the bar is the plain 95 % interval upper bound < 0 with a point
+estimate <= -10 us/step.
+
+Flip hunk if it clears the bar, verified on my base and on the advisor head:
+
+| where | line | current | flip |
+|---|---|---|---|
+| base `a9de9e8f` `LagunaRuntimeModel.swift` | `747` | `?? "at:0,1,7,15,23,31,39"` | `?? "at:0,1,15,31"` |
+| advisor head `18ac6015`, same file | `755` | identical | identical |
+
+Symbol anchor `private let lagunaDecodeAsyncStage: LagunaDecodeAsyncStage = {`
+(base :744, advisor head :752). The literal is parsed by the `at:` branch at
+base :761-767 into an `.explicit(mask)`, so the flip changes only which layers
+stage, never any arithmetic.
+
