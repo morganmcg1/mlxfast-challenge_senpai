@@ -16,19 +16,20 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import wandb  # noqa: E402
 
 from r129q_outcome_taxonomy import (  # noqa: E402
-    SCORED, TERMINAL, family, load, metrics, span,
+    SCORED, TERMINAL, era_table, family, load, metrics, span,
 )
 
 
 def main():
     snap = sys.argv[1]
     track = sys.argv[2] if len(sys.argv) > 2 else "c06b1b6d"
+    suffix = sys.argv[3] if len(sys.argv) > 3 else ""
     m = metrics(snap, track=track)
     rows, asof = load(snap)
 
     run = wandb.init(
         entity="wandb-applied-ai-team", project="mlxfast-maple",
-        name="r129q-outcome-taxonomy",
+        name="r129q-outcome-taxonomy" + suffix,
         job_type="analysis",
         notes=("Two holes in my own R129-Q work, found by reading status x "
                "rejectionReason instead of re-modelling sojourn: (1) my SERIAL "
@@ -62,6 +63,14 @@ def main():
         tbl.add_data(k, of[k], round(op, 2), rf[k], round(rp, 2),
                      round(op / rp, 2) if rp else None)
     wandb.log({"outcome_families_ours_vs_rest": tbl})
+
+    # era check: the all-time gate-failure share is a CLOSED episode, and
+    # publishing it without this table would misdescribe today.
+    et = wandb.Table(columns=["day", "n", "pbg", "scored", "other_fail",
+                              "live", "pbg_pct"])
+    for row in era_table(rows):
+        et.add_data(*row[:6], round(row[6], 2))
+    wandb.log({"era_check_ours_by_day": et})
 
     # timeout budget table: the reaper is sharp, which is what makes the ceiling
     soj = []

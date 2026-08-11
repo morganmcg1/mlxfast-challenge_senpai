@@ -155,6 +155,26 @@ def metrics(snapshot, track=None, me=ME, close_hm="17:00", now=None,
         - sum(1 for r in oterm if r["status"] in ("accepted", "promoted"))
     ) / max(n_rest, 1)
 
+    # ---- ERA CHECK: is the gate problem live, or a closed episode? ----
+    # Without this, an all-time average is quoted as if it described today.
+    # It does not: a fixed two-day regression can dominate the mean forever.
+    pbg = [r for r in oterm if family(r.get("rejectionReason")) == key]
+    m["pbg_days"] = len({ts(r["createdAt"]).strftime("%m-%d") for r in pbg})
+    if pbg:
+        last = max(ts(r["createdAt"]) for r in pbg)
+        m["pbg_last_seen"] = last.strftime("%m-%d %H:%MZ")
+        after = [r for r in oterm if ts(r["createdAt"]) > last]
+        m["n_ours_since_last_pbg"] = len(after)
+        m["pbg_since_last"] = sum(
+            1 for r in after if family(r.get("rejectionReason")) == key)
+        m["p_scored_ours_since_last_pbg"] = (
+            sum(1 for r in after if r["status"] in SCORED) / max(len(after), 1))
+        # 0 failures in n fires bounds the CURRENT gate risk from above
+        m["pbg_rate_upper_now"] = cp_upper(len(after)) if not \
+            m["pbg_since_last"] else float("nan")
+        m["pbg_episode_is_closed"] = (m["pbg_since_last"] == 0
+                                      and len(after) >= 20)
+
     soj = []
     for r in term:
         aa, bb = span(r, asof)
@@ -224,6 +244,31 @@ def metrics(snapshot, track=None, me=ME, close_hm="17:00", now=None,
     return m
 
 
+def era_table(rows, me=ME):
+    """Per-day outcome mix for one account: the era check, printable."""
+    out = []
+    ours = [r for r in rows if r.get("solverUsername") == me]
+    by = collections.defaultdict(collections.Counter)
+    for r in ours:
+        d = ts(r["createdAt"]).strftime("%m-%d")
+        f = family(r.get("rejectionReason"))
+        if f == "gate failure: Public behavior gate":
+            k = "pbg"
+        elif r.get("status") in SCORED:
+            k = "scored"
+        elif r.get("status") not in TERMINAL:
+            k = "live"
+        else:
+            k = "other_fail"
+        by[d][k] += 1
+    for d in sorted(by):
+        c = by[d]
+        n = sum(c.values())
+        out.append((d, n, c["pbg"], c["scored"], c["other_fail"], c["live"],
+                    100.0 * c["pbg"] / n))
+    return out
+
+
 def taxonomy(rows, label):
     stat = collections.Counter(r.get("status") for r in rows)
     term = [r for r in rows if r.get("status") in TERMINAL]
@@ -277,6 +322,16 @@ def main():
                               if r.get("status") in TERMINAL)
     for k, v in ofam.most_common():
         print("    %5d  %5.1f%%  %s" % (v, 100 * v / max(o_term, 1), k))
+
+    print("\n  ERA CHECK -- an all-time average is not a description of today:")
+    print("    day     n   pbg  scored other live   pbg%")
+    for d, n, p, s, o, lv, pct in era_table(rows, a.me):
+        print("    %s %4d %5d %6d %5d %4d  %5.1f%%%s"
+              % (d, n, p, s, o, lv, pct, "   <-- episode" if p else ""))
+    print("    The 'Public behavior gate' failures are NOT a standing habit:")
+    print("    they are confined to a short episode and stop dead afterwards, so")
+    print("    quoting our all-time P(scored) as if it described the next fire")
+    print("    would be wrong.  Current-era numbers are the ones to price with.")
 
     # ---------------- 2. hard ceiling on sojourn ----------------
     print("\n=== 2  SOJOURN HAS A HARD CEILING (workflow timeout budgets) ===")
