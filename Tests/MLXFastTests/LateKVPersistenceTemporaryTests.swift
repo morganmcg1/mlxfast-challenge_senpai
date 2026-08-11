@@ -316,3 +316,126 @@ func lateKVPersistencePoisonedRowsMatchReferenceWhenEnabled() {
         lateKVRunFull(length: length, writeIdx: writeIdx)
     }
 }
+
+private struct LateKVTimingInputs {
+    let queries: MLXArray
+    let keys: MLXArray
+    let values: MLXArray
+    let queryWeight: MLXArray
+    let keyWeight: MLXArray
+    let angles: MLXArray
+    let cacheKeys: MLXArray
+    let cacheValues: MLXArray
+    let scale: MLXArray
+}
+
+private func lateKVTimingInputs(
+    heads: Int,
+    capacity: Int,
+    salt: Int,
+    rotaryPairs: Int
+) -> LateKVTimingInputs {
+    let inputs = lateKVInputs(heads: heads, salt: salt, rotaryPairs: rotaryPairs)
+    let timing = LateKVTimingInputs(
+        queries: inputs.queries,
+        keys: inputs.keys,
+        values: inputs.values,
+        queryWeight: inputs.queryWeight,
+        keyWeight: inputs.keyWeight,
+        angles: inputs.angles,
+        cacheKeys: lateKVPattern(
+            [1, lateKVHeads, capacity, lateKVHeadDim], salt: salt + 5),
+        cacheValues: lateKVPattern(
+            [1, lateKVHeads, capacity, lateKVHeadDim], salt: salt + 6),
+        scale: inputs.scale
+    )
+    eval([
+        timing.queries, timing.keys, timing.values,
+        timing.queryWeight, timing.keyWeight, timing.angles,
+        timing.cacheKeys, timing.cacheValues, timing.scale,
+    ])
+    Stream.gpu.synchronize()
+    return timing
+}
+
+private func lateKVTimedBatch(
+    family: String,
+    length: Int,
+    writeIdx: Int,
+    makeOutput: () -> MLXArray
+) {
+    let batchSize = 128
+    for _ in 0..<2 {
+        let outputs = (0..<batchSize).map { _ in makeOutput() }
+        eval(outputs)
+        Stream.gpu.synchronize()
+    }
+
+    let outputs = (0..<batchSize).map { _ in makeOutput() }
+    let start = DispatchTime.now().uptimeNanoseconds
+    eval(outputs)
+    Stream.gpu.synchronize()
+    let elapsed = DispatchTime.now().uptimeNanoseconds - start
+    print(
+        "LATE_KV_TIMING,family=\(family),N=\(length),widx=\(writeIdx),kernels=\(batchSize),ns=\(elapsed),ns_per_kernel=\(Double(elapsed) / Double(batchSize))"
+    )
+}
+
+@Test
+func lateKVIsolatedTiming() {
+    guard ProcessInfo.processInfo.environment["MLXFAST_RUN_LATE_KV_TIMING"] == "1" else {
+        return
+    }
+
+    let slidingWriteIdx = LagunaConstants.slidingWindow - 1
+    let sliding = lateKVTimingInputs(
+        heads: LagunaConstants.slidingAttentionHeads,
+        capacity: LagunaConstants.slidingWindow,
+        salt: 2_000,
+        rotaryPairs: lateKVHeadDim / 2
+    )
+    lateKVTimedBatch(
+        family: "sliding",
+        length: LagunaConstants.slidingWindow,
+        writeIdx: slidingWriteIdx
+    ) {
+        lagunaSlidingFusedAttention(
+            rawQueries: sliding.queries,
+            rawKeys: sliding.keys,
+            rawValues: sliding.values,
+            queryWeight: sliding.queryWeight,
+            keyWeight: sliding.keyWeight,
+            angles: sliding.angles,
+            cacheKeys: sliding.cacheKeys,
+            cacheValues: sliding.cacheValues,
+            writeIdx: slidingWriteIdx,
+            scale: sliding.scale
+        )
+    }
+
+    let fullWriteIdx = 639
+    let full = lateKVTimingInputs(
+        heads: LagunaConstants.fullAttentionHeads,
+        capacity: 768,
+        salt: 3_000,
+        rotaryPairs: lateKVHeadDim / 4
+    )
+    lateKVTimedBatch(
+        family: "full",
+        length: fullWriteIdx + 1,
+        writeIdx: fullWriteIdx
+    ) {
+        lagunaFullFusedAttention(
+            rawQueries: full.queries,
+            rawKeys: full.keys,
+            rawValues: full.values,
+            queryWeight: full.queryWeight,
+            keyWeight: full.keyWeight,
+            angles: full.angles,
+            cacheKeys: full.cacheKeys,
+            cacheValues: full.cacheValues,
+            writeIdx: fullWriteIdx,
+            scale: full.scale
+        )
+    }
+}
