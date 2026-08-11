@@ -1,6 +1,6 @@
 # R109 / PR #682 — terminal result (maple-nezuko)
 
-SENPAI-RESULT: {"terminal":true,"status":"complete","pending_arms":false,"wandb_run_ids":["WANDB_RUN_ID"],"primary_metric":{"name":"decode_us_per_step_delta_vs_control","available":true,"value":-51.73},"test_metric":{"name":"passed_correctness","available":true,"value":1}}
+SENPAI-RESULT: {"terminal":true,"status":"complete","pending_arms":false,"wandb_run_ids":["ucuwf20o","wc4nbji0"],"primary_metric":{"name":"decode_us_per_step_delta_vs_control","available":true,"value":-51.73},"test_metric":{"name":"passed_correctness","available":true,"value":1}}
 
 `status: complete` means the report is complete, not that the candidate won —
 the decision below is **dead hypothesis**. `primary_metric` is the arm that
@@ -193,6 +193,20 @@ measurement; the shipped-wall column is the b5/b4 harness, not the profile.
 
 ## Evidence
 
+- **W&B runs** (project `wandb-applied-ai-team/mlxfast-maple`, group
+  `r109-armg-norm-fused-gate-softplus`):
+  - **`ucuwf20o`** — `r109-armg-b5-refuted`: the 25-slot four-arm attribution
+    block (A/S/W/N), plus the full SPLIT=1 per-kernel profile and SPLIT=0
+    barrier census for all five arms, plus the `--local-iterate` correctness
+    receipt. <https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/ucuwf20o>
+  - **`wc4nbji0`** — `r109-armg-b4-primary-metric`: the 19-slot A/C/W block that
+    contains arm C and therefore carries the primary metric
+    `−51.73 µs/step [−61.21, −38.04]`.
+    <https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/wc4nbji0>
+  Both runs' config and summary are built by
+  `research/nezuko_armg_wandb_log.py` from committed artifacts only
+  (`stats.json`, `p1/summary.json`, `score.local-iterate.json`), so W&B, the
+  result docs and the repository cannot disagree.
 - **Host:** Apple M4 Pro, 20 GPU cores, 48 GiB, macOS 26.5.2, `applegpu_g16s`.
   Steady decode on this runtime is host-independent (no NAX path, no `#available`
   gate), so M4 decode is a structurally valid instrument for an M5-scored arm;
