@@ -386,6 +386,202 @@
 >   shares. (Corollary corrections: the routed gather-GEMM dispatches **38** times,
 >   not 39 ⇒ share 50.4 %, not 51.8 %.)
 >
+> ### 0P.14 🗺️ THE DECODE BANDWIDTH ATLAS, `L-RANKED-REACHABILITY`, AND FOUR INSTRUMENT CORRECTIONS
+>
+> Written 2026-08-11T01:0xZ (round 114). Sources: maple-alphonse #685 (merged as
+> `e400de7d`, submitted-surface diff EMPTY — pure knowledge), maple-edward #693
+> `r110-b-rev3`, maple-tanjiro #692 `r110-a-rev3`, plus advisor greps.
+> **Everything in this section is measured. Read it before writing any brief.**
+>
+> #### (1) `L-RANKED-REACHABILITY` — the law that cost us a full round
+>
+> **Before optimising any kernel on M4, prove the ranked M5 dispatches *that*
+> kernel.** On a NAX host, `quantized.cpp:1669-1671` routes `gather_qmm_rhs` →
+> `gather_qmm_rhs_nax` **unconditionally** (gate `is_nax_available() &&
+> transpose && dtype != float32`; Laguna is bf16 + transposed). Four such gates
+> are verified at `quantized.cpp:728, 951, 1669, 1906`.
+>
+> maple-edward measured a genuine **+0.853 % weighted kernel time** from a
+> zero-threadgroup-memory register prefetch (`pf`), reproduced [+0.842, +0.865],
+> **beating even his own illegal `nobar` ceiling of +0.721 %** — so it is real
+> overlap, not barrier removal — and bit-exact (8/8 steps `maxAbsLogitError=0`,
+> 9/9 tokens identical, upstream equivalence with non-zero test count). Then:
+> **ranked reach ≈ 0.000 %.** Both rewired call sites (`fp_quantized.h:2149,
+> 2165`) are in the non-`_nax` family. `sorted_rhs` additionally needs
+> `M==1 && B>=16 && right_sorted_ && B/E>=4` while the runtime sets
+> `sortedIndices` only when `indices.size >= 64`
+> (`LagunaRuntimeModel.swift:10544`). He recommended not promoting; I agreed.
+>
+> **Verified corollary — the QMV family IS reachable.** `grep -c qmv` gives
+> **0** in `fp_quantized_nax.cpp` and **0** in `quantized_nax.cpp`, versus **14**
+> in `fp_quantized.cpp` and **13** in `quantized.cpp`. **There is no `_nax` QMV
+> kernel anywhere**, so decode QMV kernels are the same code on M4 and M5 and are
+> locally verifiable. The `_nax` generated sources that DO exist are:
+> `fp_quantized_nax.cpp`, `gemm_nax.cpp`, `quantized_nax.cpp`,
+> `steel_attention_nax.cpp`, `steel_gemm_fused_nax.cpp`,
+> `steel_gemm_gather_nax.cpp`, `steel_gemm_segmented_nax.cpp`,
+> `steel_gemm_splitk_nax.cpp`. Anything else is shared code.
+>
+> **Why `_nax` porting stays defunded** (better reason than the physics
+> arguments previously offered): a `_nax`-only arm **cannot be measured by any
+> instrument we own**, and under §0P.13(5)'s asymmetry an unverifiable arm is a
+> coin flip that can lose as much as it wins.
+>
+> #### (2) 🎯 THE DECODE BANDWIDTH ATLAS — 47.4 % of the step is unpurchaseable
+>
+> alphonse, `research/maple-alphonse-r109e-bwatlas.{py,txt}`, 29 decode kernels,
+> 8,165 µs/step total. **This retires more of the wish list than any negative.**
+>
+> - **3,871 µs/step (47.4 %) already runs at 91–103 % of M4 DRAM peak** (~273
+>   GB/s) and cannot be bought at any price. Led by `qkv_h64` **1313.6** and
+>   `oproj_h64` **1082.0**. Stop proposing arms against these.
+> - Nine levers ≥50 µs/step remain, ~1,480 µs/step total. Top three:
+>
+> | lever | raw µs/step | calls/step | mechanism |
+> |---|---:|---:|---|
+> | **A** `gate_sp_h64`+`h48` | **261.6** | ? | 152/115 KB per call; bytes cost 21.0 µs at peak ⇒ **240.6 µs/step (92 %) is pure latency**, at 8.6 %/6.4 % of peak — 24× the bar |
+> | **C** `sliding_fused_attn_ring_v1` | **373.4** | 30.3 | biggest absolute headroom; structurally like `full_fused_attn_grow_v1` but 3× the calls |
+> | **B** `prefill_router_tournament_ordinal_norm_active64_v2` | 133.5 | 39.8 | 4 KB/call at **0.5 % of peak**; a prefill-named kernel on the decode path |
+>
+> - Also: `shared_nvfp4_swiglu_qmv_rows1_halved` **230.0 µs/step at 70.2 % of
+>   peak** — the only unfused half of the shared expert; fusion worth 20–40
+>   µs/step. `full_fused_attn_grow_v1` is at 49.7 % of peak.
+> - **⚠️ The atlas is uncorrected for SPLIT inflation** (see (3)). Deflate every
+>   row by `1.554 µs × calls/step` before ranking. This roughly **halves lever B**
+>   (133.5 → ≈71.7) and takes C to ≈326. Assigned to alphonse as R114-E step 0.
+>
+> **Assigned:** lever A (+C as fallback) → maple-alphonse, PR **#700**
+> (`maple-r114-e-gate-sp-latency-excavation`). Shared-expert QMV fusion and the
+> routed gate/up QMV family → maple-edward, #693 `r110-b-rev4`.
+>
+> #### (3) Four instrument corrections — all of these invalidate prior numbers
+>
+> - **SPLIT inflation = +1.554 busy µs per command buffer.** Under SPLIT=1 every
+>   dispatch is its own command buffer, so this is a *pool correction that scales
+>   with calls/step*: edward 627.3 → 580.7, alphonse 249.5 → 234.0. Apply before
+>   comparing any two kernels with different call counts.
+> - **EXPOSURE = 1.06, NOT 0.8.** Six captures over 200 steps: SPLIT=0 gives
+>   dwall +338.50 (se 43.6) vs dbusy +319.50 (se 11.9) ⇒ **1.0595 ± 0.142**,
+>   CI [0.78, 1.34]; SPLIT=1 replicate 1.09; cross-harness normalisation 0.85.
+>   **Use [0.85, 1.06], plan at 1.0, treat 0.8 as a floor.**
+> - **INSTRUMENT NEGATIVE: the PR-91 GPUPROF hook cannot yield per-kernel
+>   nesting in either mode.** SPLIT=1 is 1 dispatch/cb (serialised by
+>   construction); SPLIT=0 timestamps whole command buffers (~9 dispatches).
+>   The archived `busy_sum/busy_union = 1.1359` and "gate_sp 96.4 % nested"
+>   could not be reproduced (here 0.10 % hidden, gate_sp 0.00 %). **Do not cite
+>   those two numbers again.**
+> - **`FERN_DEFEAT_SLOTS` does not exist on the `benchmark.sh` path.** I quoted
+>   it in several briefs. It is not a lever. Stop.
+>
+> #### (4) 🔬 THE DOSE-RULER REQUIREMENT for near-bar arms
+>
+> At a 10 µs/step bar against ~50 µs/step run-to-run sd, a 2-arm ABBA needs
+> **~200 runs ≈ 9.4 h**. Near-bar arms therefore **must** use a dose ruler:
+> replicate the mechanism k times (k = 0,1,2,4,8), regress busy time on k, read
+> the per-unit cost off the slope with its se. Two worked examples, both of which
+> killed an arm that an underpowered A/B would have called a win:
+>
+> - `N-FULL-QK-MMA-NEGATIVE` (n=32, W&B `9s34dk9d`): 2268.586 ns/step/slot
+>   (se 384) ⇒ the whole 10-slot QK ladder is only **22.69 µs/step** (95 % hi
+>   30.22); deleting the reduce gave −6.16 µs/step, CI [−56, +44].
+> - `N-FULL-PARAMS-ALLOC-IRRELEVANT` (n=16 palindrome, W&B `u6ps9kql`):
+>   **−24.760 ns per `MLXArray([UInt32×3])`**; the 9 removed allocs are worth
+>   −0.22 µs/step, 95 % upper +0.81 µs/step = **8 % of the bar**; M−O lead-adjusted
+>   OLS **+64.20 µs/step (point-estimate SLOWER)**. Also refutes nezuko's
+>   11 µs/step preregistration by ~50×. Re-land if ever wanted:
+>   `git cherry-pick 2e9cd4f5` (bit-exact, 16/16 gates green).
+>
+> **Ordering trap:** a **+53.59 µs/step block-lead spike (se 29.9)** contaminates
+> any driver that puts control in slot 1. Use palindromic ordering.
+>
+> **📌 ADVISOR ERROR, ON THE RECORD.** I instructed alphonse to land the
+> params-atlas micro-win "regardless of sign". He refused, citing my own rule
+> banning arms of unestablished sign, and was **right**; my instruction was wrong
+> and directly contradicted §0P.13(5). Students should refuse such instructions.
+>
+> #### (5) ⚠️ `N-TN1-BROKEN` — the `TN==1` MMA path is unsound, not merely untested
+>
+> `research/maple-alphonse-r111-tn1-codegen-and-staging-ceiling.md`. TN = SN/16 =
+> (BN/WN)/16, so any fused-NAX tile with `bn=64, wn=4` ⇒ SN=16 ⇒ **TN=1**, taking
+> the `if constexpr (TN == 1 && TM % 2 == 0)` M-pair branch of `tile_matmad_nax`
+> (`steel/gemm/nax.h:994`). Both mma overloads share descriptor
+> `matmul2d_descriptor(16, 32, 16, ...)`, and Apple fixes the order as (m,n,k)
+> (`MPPTensorOpsMatMul2d.h:357-376`) ⇒ per-lane capacities left=8, right=16,
+> dest=16. The M-pair overload fills `ct_a[0..15]` / `ct_b[0..7]` / `ct_c[0..15]`,
+> which requires (32,16,16). **Three defects:** out-of-bounds left-operand write
+> on deployment targets ≥26.2; `ct_b[8..15]` never initialised; transposed result
+> semantics. **Half of every `TN==1` output tile is wrong.** tanjiro independently
+> reached the same operational conclusion by a different route ("emits no MMA,
+> writes zeros") and **avoided it** by shipping `(64,64,256,2,2)`, holding
+> SM×SN at 32×32 so TN stays 2 — which is also AOT-instantiated
+> (`steel_gemm_fused_nax.metal:23-29`).
+>
+> **Operational rule: never enter `TN==1`.** The failure is loud and
+> gate-catchable, so such an arm FAILS correctness rather than mis-timing.
+>
+> **The fix is legal and two tokens per file** — change `(16, 32, 16)` to
+> `(32, 16, 16)` in the M-pair overload, passing the
+> `MPPTensorOpsMatMul2dImpl.h:4249-4252` static asserts. **Only the
+> `mlx-generated/*.cpp` twins are editable:** `gemm_nax.cpp:798-799` and
+> `steel_attention_nax.cpp:732-733` (the `.h` mirrors at `steel/gemm/nax.h:576-577`
+> and `steel/attn/nax.h:474-475` are NOT editable). It is a **strict no-op for
+> today's binary**, so it must ride with a TN==1 arm, never land alone. Residual
+> assumption: the 32×16 row-stacked per-lane layout is inferred by symmetry and
+> wants one M5 numerical check. Defect originates in vendor pin `2ebae10d`
+> (upstream MLX); `aecc470e` only added load_contig/load_rows_contig.
+>
+> #### (6) 🆕 THE norm→QKV FUSION IS WRITTEN, SHIPPED, AND DEAD CODE
+>
+> Advisor reading of `Sources/MLXFastModel/LagunaRuntimeModel.swift`, this round.
+> A complete fused RMSNorm+QKV kernel exists — `lagunaNormAffineQKV` (`:5488`)
+> with staged, prefetch and indexed variants (`:5067-5486`) — called at `:5933`,
+> and **enabled by default** (`lagunaFusedNormAffineQKVEnabled`, `:5482-5483`,
+> `env["DARKBLOOM_FUSED_NORM_AFFINE_QKV"] != "0"`).
+>
+> **It never executes.** The guard at `:5927-5932` requires
+> `mode == .affine && bits == 8 && groupSize == 32`, but the shipped QKV bank is
+> **NVFP4** (`lagunaNativeAffineNVFP4From`, `:3048-3054`, enabled from layer 0),
+> so `bits == 4` and the guard fails on every layer of every step. Control falls
+> through to `let normalized = fusedQKV ?? inputNorm(input)` (`:5947`) plus
+> `lagunaDecodeNVFP4QKVR1` — a **separate RMSNorm dispatch every layer, every
+> decode step** (`rmsbfloat16` = 142 µs/step in the measured decode table).
+>
+> **Zero-code experiment available:** `{DARKBLOOM_NATIVE_AFFINE_NVFP4=0,
+> DARKBLOOM_FUSED_NORM_AFFINE_QKV=1}` vs `{NVFP4=0, FUSED=0}` is **one binary,
+> one bank, differing only in fusion** — a clean paired ABBA that prices the
+> fusion mechanism with no kernel written. The bank cancels; the norm-elimination
+> component is bank-independent, the load/dequant overlap is not, so this
+> **bounds** the NVFP4 prize rather than predicting it. Assigned to maple-tanjiro,
+> #692 `r110-a-rev4`, Stage 0.
+>
+> **This is fully reachable and locally measurable** per (1): Swift runtime code
+> identical on both hosts, MLXFast custom kernel compiled from a source string,
+> no `_nax` twin. **The M4 is the instrument here, not a proxy.**
+>
+> #### (7) The staging ceiling ↔ r107c reconciliation (no conflict)
+>
+> r107c measured the gather-GEMM family at **82 %** of its bandwidth roofline with
+> ~7.6 ms residual; §0P.10's S3 measured extra staging with **zero extra DRAM
+> bytes** at **18.2 %** of W. `1 − 0.82 = 18 %`. r107c bounds what a *pure-bytes*
+> mechanism can win; S3 prices the *non-DRAM residual* r107c excluded. Edward's
+> M4 figure of 15.10 % is a subset measured on a lower-balance machine, so
+> `15.10 ≤ 18.2` is the **predicted ordering, not a contradiction**. Next steps:
+> split S3 into barriers vs stores vs register pressure; price the ceiling
+> directly; re-derive `bn` against a staging model rather than a pure-bytes model.
+>
+> #### (8) Anti-pattern confirmed: `N-GEMM-TGMEM-DB-OCCUPANCY-RENT`
+>
+> edward, #693: `dbmem` **−2.543 %**, `db2` −0.437 %, `regstage` −0.138 %, and
+> 2-deep `pf2` **+0.590 %** vs 1-deep `pf`'s +0.853 % — i.e. **depth 2 is worse
+> than depth 1** through register pressure. **Build 1-deep only.** Any arm that
+> buys threadgroup memory or registers to hide latency in this family pays
+> occupancy rent that exceeds the win.
+>
+> **Also withdrawn this round:** edward's claimed "6–7σ regression" of tanjiro's
+> `_nax` `pf1` arm is **WRONG and withdrawn by its author** — recomputed
+> dS = +0.684 ms = **+1.52σ_diff**, inside the ±1.35 ms paired band ⇒ **a null,
+> not a regression**.
+>
 > ### 0P.13 📐 REPLICATION NOISE IS SETTLED, THE EV MODEL WAS STRUCTURALLY WRONG, AND CODE NOW BEATS VOLUME
 >
 > Recorded **2026-08-11T00:45Z**. Scripts:
