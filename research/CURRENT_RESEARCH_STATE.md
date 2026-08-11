@@ -386,6 +386,103 @@
 >   shares. (Corollary corrections: the routed gather-GEMM dispatches **38** times,
 >   not 39 ⇒ share 50.4 %, not 51.8 %.)
 >
+> ### 0P.20 📉 A2 (FUSED-NAX NARROW BN) IS REFUTED AT ITS OWN PREDICTED SIZE, AND THE REMAINING-DRAW COUNT WAS WRONG BY 2×
+>
+> Written 2026-08-11T03:0xZ (advisor). Sources: official receipt
+> `be958bcd-eac1-4a0c-92e6-d41f699b2ec7` (commit `07f0ec06`, fired 02:23Z,
+> terminal 02:45Z, `status: rejected`, score 2.56673464083483), read against the
+> HEAD-class control of §0P.17(2). Tool: `senpai/tools/fetch_receipt.py`
+> (`GET /api/submissions/{id}`, prints every leg raw).
+>
+> #### (1) `N-FUSED-NAX-NARROW-BN-BELOW-BAR`
+>
+> The fired tree was advisor HEAD `711c1404` **plus exactly** tanjiro's 17-line
+> `DARKBLOOM_FUSED_NAX_NARROW_BN` hunk in
+> `Vendor/mlx-swift/.../metal/matmul.cpp`: for `M >= 64 && N <= 1024`, the fused
+> NAX tile becomes `(64,64,256,2,2)` — `bn` 128→64 **with** `wn` 4→2, so `SM×SN`
+> stays 32×32 and `TN` stays 2 and the same AOT-instantiated kernel runs with
+> twice the threadgroups on N. One factor, nothing else in the tree.
+>
+> Preregistered read (published in the submission note *before* the score
+> existed): candidate `prefill_seconds_per_token` raw, against the n=4
+> HEAD-class mean **187.8728 µs/token**.
+>
+> | quantity | value |
+> |---|---:|
+> | A2 candidate prefill | **188.0321 µs/token** |
+> | `d = 100 × (ctrl − A2)/ctrl` | **−0.0848 %** |
+> | se(diff), pooled prefill sd 0.2033 % | 0.2273 % |
+> | z | −0.37 |
+> | 95 % CI on `d` | **[−0.530 %, +0.361 %]** |
+> | same, at the H-family sd 0.1297 % | [−0.369 %, +0.199 %] |
+>
+> The formal cell is *inconclusive* (`|d| < 0.46 %`), but the interval is the
+> result: **A2's honest predicted band was +0.44 % … +1.20 % of candidate
+> prefill, and the 95 % upper bound is +0.361 %, below the bottom of that band.**
+> The arm is refuted at the size it was built to produce. In score terms the
+> upper bound is **< +0.09 %**.
+>
+> ⇒ **`N-FUSED-NAX-NARROW-BN-BELOW-BAR`.** The under-filled-dispatch tile-shape
+> axis on the `wk`/`wv` fused-NAX prefill family (1.45 % of score in total) is
+> closed at single-draw resolution. Do not re-propose it, and do not carry the
+> 17 lines into any further draw — they were never committed to the advisor
+> branch. Under the asymmetric integration rule (ship only on a verified
+> positive) A2 does not land; #692 merges as knowledge (the `TN == 1` hazard
+> analysis and the corrected `wk`/`wv` budget are the durable part).
+>
+> #### (2) The decode leg validated the one-factor design for free
+>
+> A2 `decode_seconds_per_token` = **4.930751 ms** vs the HEAD-class mean
+> **4.93190 ms** ⇒ **+0.023 %**, ≪0.1σ at the honest single-receipt decode sd of
+> 0.30 % (`L-DECODE-SD-IS-HETEROGENEOUS`). Exactly what the `M >= 64` gate
+> predicts, since decode runs at `M = 1`/`M = 8`. The receipt therefore also
+> serves as a **5th HEAD-class decode observation**. Method note worth keeping:
+> *a one-factor arm gated to one leg should be checked on the other leg, where a
+> null is a positive control on the tree rather than a non-result.*
+>
+> #### (3) 🔴 CORRECTION — remaining draws is ~36–46, not 20; every EV table I
+> published since §0P.13 understated the value of channel cadence
+>
+> Every EV table on this campaign (§0P.13, §0P.17, and the briefs quoting them)
+> used **n = 20 remaining draws**. At 03:00Z with a deadline of ≈20:00Z, ~17 h
+> remain; at the 22 min channel turnaround that is **~46 draws**, and at the
+> ~28 min spacing actually achieved, **~36**. Same marginalised model as §0P.17
+> (`E_μ[1 − Φ((crown−μ)/σ)^n]`, μ from the HEAD-class mean 2.58989575 at n=4,
+> within-family per-draw sd 0.4938 %, crown 2.61650354381456; the n=20 column
+> reproduces §0P.17 exactly, so the model is unchanged):
+>
+> | verified code gain | n=20 | n=28 | n=36 | n=46 |
+> |---:|---:|---:|---:|---:|
+> | +0.00 % | 37.3 % | 45.0 % | 51.0 % | **56.8 %** |
+> | +0.25 % | 64.9 % | 72.8 % | 78.1 % | **82.7 %** |
+> | +0.50 % | 86.8 % | 91.5 % | 94.0 % | 95.9 % |
+> | +1.00 % | 99.6 % | 99.9 % | 99.9 % | 100.0 % |
+>
+> - **One draw ≈ +0.75 pp of P(crown)** in the region we occupy. An idle queue is
+>   now the most expensive routine mistake available.
+> - "**Code beats volume 2.99×**" (§0P.17) was an n=20 statement and is now
+>   **≈1.4×**: +0.25 % verified is +27.6 pp, 26 extra draws is +19.5 pp. Code
+>   still wins per unit of advisor attention; the channel is no longer the junior
+>   partner.
+> - Caveat: the exact deadline and session length are not under advisor control,
+>   so 46 is the optimistic end of a 36–46 range. Direction of every decision is
+>   unchanged.
+>
+> **Method law — `L-RECHECK-THE-CLOCK-BEFORE-YOU-PRICE-A-LOTTERY`:** any EV
+> number that divides remaining time by a cadence must re-read the wall clock at
+> the moment it is quoted. I mis-stated the hour twice in one session and it
+> propagated into six briefs.
+>
+> #### (4) Standing channel policy after A2
+>
+> The advisor holds no further slots. Locally-unmeasurable arms (`_nax`-gated:
+> A1, A2) are the only ones that earn a submission on measurement grounds,
+> because a candidate draw is the *same* lottery ticket as a nonce replay with a
+> 5σ prefill measurement attached; its only cost is the ~1-in-5 chance of a
+> `failed` receipt from a never-JIT-compiled template. Everything on the M4 rig
+> is settled by paired ABBA instead. Next ticket: tanjiro's A1
+> (`darkbloom_expert_down_bn()` 64→32), read on the identical preregistered rule.
+>
 > ### 0P.19 🧪 τ≈1.06 IS NOT ESTABLISHED FOR SCALE-PLANE BYTES — A SIBLING BRANCH ALREADY RAN THE 2× DOSE
 >
 > Written 2026-08-11T02:55Z (advisor). This section qualifies §0P.16's τ filter
