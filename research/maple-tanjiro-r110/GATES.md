@@ -90,39 +90,50 @@ and agrees exactly.
 The control also confirms the second-order point: **A1 is inert on this host**,
 which is exactly what the `_nax`-only gate predicts.
 
-## A2 — fused-NAX `bn` 128 -> 64 for prefill `N <= 1024` (delivered as patch)
+## A2 — fused-NAX `bn` 128 -> 64 **and** `wn` 4 -> 2, prefill `N <= 1024`
 
-### Scope and budget
+**This arm was corrected and re-gated after its first gate.** The section below
+documents the shipped (`bn=64, wn=2`) form. The superseded forms are kept at the
+end because what they prove about the *gate* is more useful than what they
+proved about the arm.
+
+### Scope and budget (corrected 17-line form)
 
 ```
 $ senpai/validate-assignment-scope.sh 1bc1c895... \
     Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
-assignment scope OK: 1 submitted path(s)
+assignment scope OK: 1 submitted path(s) against BASE_SHA=1bc1c895...
 
 $ senpai/check-editable-budget.sh 1bc1c895...
-editable budget OK: current=2681625/3000000 headroom=318375 growth=-302224/262144 files=142
+editable budget OK: current=2681871/3000000 bytes headroom=318129
+                    growth=-301978/262144 files=142
 ```
 
-### Diff footprint
+Growth is negative, so the 262,144-byte per-review growth cap is not at risk.
+
+### Diff footprint — validated **in isolation**
+
+A1's knob was reverted to the base value so the gated tree carried the A2 hunk
+and nothing else:
 
 ```
-$ git diff --numstat 32665a6b... 38152ae8 -- Sources Vendor
-14	0	Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+$ git checkout 9fe37190 -- Vendor/.../metal/quantized.cpp
+$ git --no-pager diff --numstat 9fe37190 HEAD -- Sources Vendor benchmark.json Package.swift
+17	0	Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
 ```
 
-`matmul.cpp` is byte-identical between the assignment base and the A1 head, so
-`A2-fused-nax-bn64-n1024.patch` (generated against the base) contains the A2
-knob and nothing else. Verified with `git apply --check` against a base-state
-`matmul.cpp` after the A2 source was reverted from this branch:
+The patch file is byte-for-byte what produced this tree:
 
 ```
-A2 PATCH APPLIES CLEANLY TO BASE-STATE matmul.cpp
+$ git apply --check research/maple-tanjiro-r110/A2-fused-nax-bn64-n1024.patch   # exit 0
+$ git apply --numstat research/maple-tanjiro-r110/A2-fused-nax-bn64-n1024.patch
+17	0	Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
 ```
 
-### `./benchmark.sh --local-iterate` — GREEN
+### `./benchmark.sh --local-iterate` — GREEN (A2 in isolation)
 
-Job `050988cf-efda-4dbf-95bb-f9466b45a4b2`, exit 0, 203 s,
-`"timestamp": "2026-08-10T23:14:47Z"`, worker commit `38152ae8`.
+Job `1deaab28-3176-4bb8-ac35-8c9d36ee3d47`, exit 0, 203 s,
+`"timestamp": "2026-08-11T00:09:56Z"`, worker commit `dcf03b2d`.
 
 ```
 "passed" : true
@@ -133,26 +144,73 @@ Job `050988cf-efda-4dbf-95bb-f9466b45a4b2`, exit 0, 203 s,
 "weights_hash" : "aff994300573c5e8589563fc9ff57cdcfb1ef9b49e14898be290a75a6b294b3d"
 "num_layers" : 40
 "peak_ram_gb" : 21
-prefill 0.001127 s/token   decode 0.012973 s/token   est score 0.794
+prefill 0.001139 s/token   decode 0.013032 s/token
 ```
 
-### Note on the guard
+### Composed A1+A2 sanity run — also GREEN
 
-An earlier, **unguarded** form of this arm (`N <= 1024` with no `M` condition)
-also ran green here — job `71744112-6fd0-447f-9f1b-8a94591c5a02`, exit 0,
-`"timestamp": "2026-08-10T23:10:49Z"`, `"passed": true`,
-`passed_correctness: true`, `max_abs_diff: 0`. It was **discarded anyway**,
-because decode wk/wv (`M=8, N=1024, K=2048`) does not divert to split-k at
-`matmul.cpp:922-925` and therefore reaches the same regular fused-NAX entry as
-prefill. The unguarded form would have silently retiled a decode GEMM carrying
-75 % of the score. The shipped form adds `M >= 64`, mirroring the existing
+Run before the isolation re-gate, on a tree carrying **both** knobs
+(`1 1 quantized.cpp` + `17 0 matmul.cpp`). Job
+`65f1ed26-9868-4f66-81d6-227b0f283757`, exit 0, 229 s,
+`"timestamp": "2026-08-11T00:05:35Z"`, worker commit `315b9fc6`,
+`"passed": true`, `passed_correctness: true`, `max_abs_diff: 0`, identical hash
+triple, prefill 0.001112 / decode 0.013095.
+
+Recorded for completeness only. **A1 and A2 must never be fired composed on M5**
+— one knob per official run. Neither temp commit (`315b9fc6`, `dcf03b2d`) is on
+the branch; both were discarded after their gate, and the branch head is
+`35575f28` carrying A1 alone.
+
+### Superseded forms — and what they prove about this gate
+
+Two earlier forms of A2 were gated green here and then discarded:
+
+| Form | Job | Verdict | Why discarded |
+|---|---|---|---|
+| `N <= 1024`, no `M` guard, `bn=64` only | `71744112-6fd0-447f-9f1b-8a94591c5a02` | `passed` true, `max_abs_diff` 0 | thought to retile decode (see correction below) |
+| `M >= 64 && N <= 1024`, `bn=64` only | `050988cf-efda-4dbf-95bb-f9466b45a4b2` (worker `38152ae8`) | `passed` true, `max_abs_diff` 0 | leaves `wn=4`, so `SN` 32 -> 16 |
+
+The second one is the important one. Setting `bn=64` without `wn` gives
+`SN = bn/wn = 16`, which (a) raises per-simdgroup operand traffic ~50 %,
+(b) doubles total simdgroups from 512 to 1024, (c) emits `(64,64,256,2,4)`,
+which is **absent** from the AOT instantiation list at
+`kernels/steel/gemm/kernels/steel_gemm_fused_nax.metal:23-29` and so would be
+JIT-compiled, and (d) selects the `TN == 1` branch of `tile_matmad_nax`
+(`kernels/steel/gemm/nax.h:972-1029`) instead of the `TN % 2 == 0` branch.
+
+**All three forms are indistinguishable on this host: green, `passed` true,
+`max_abs_diff: 0`.** That is the single clearest statement of what these gates
+are worth for `_nax` arms. See the closing section.
+
+### Correction to the earlier `M >= 64` justification
+
+The first version of this file justified the `M >= 64` guard by claiming decode
+wk/wv runs at `M = 8` through the regular fused-NAX entry. **That is wrong.**
+`Matmul::eval_gpu` short-circuits at `matmul.cpp:1269-1270`:
+
+```cpp
+if (std::min(M, N) == 1) {
+  return gemv(...);
+}
+```
+
+Teacher-forced decode is 128 one-token steps, so `M = 1` and every dense
+projection exits through `gemv` before any steel tile is selected. Decode
+reaches **zero** dense steel GEMMs. The guard is therefore **free rather than
+load-bearing**; it is retained because it costs nothing and mirrors the prefill
 gate at `quantized.cpp:1393-1397`.
 
-That this host cannot tell the two forms apart (both green, both bit-exact) is
-itself a demonstration of the caveat below: the local gate has no visibility
-into `_nax` geometry at all.
+## A3 — `darkbloom_expert_gather_groups()` 256 -> 128 — **DROPPED, do not fire**
 
-## A3 — `darkbloom_expert_gather_groups()` 256 -> 128 (delivered as patch)
+The gate evidence below is real and was collected before the arm was audited
+against prior art. It is retained as an accurate record of what was executed.
+
+**The arm itself is withdrawn.** The group-count sweep is a closed experiment:
+`research/maple-alphonse-r107c-expert-gather-gemm-floor.md:86-91` records 256 as
+already optimal and notes "Stage A arm 3 dropped" for this exact reason, with
+the same conclusion in `research/nezuko-r99b/rung1-comment-strip.patch:7381-7394`
+and `research/PREFILL_NAX_ANALYSIS.md:56-60`. A green local gate does not make a
+re-run of a settled question worth an M5 slot. See `READY.md` §7.
 
 ### Scope and budget
 
@@ -200,9 +258,9 @@ public golden.
 
 ## What these local gates do and do not prove
 
-`is_nax_available()` is false here, so no `_nax` kernel is ever selected. All
-three arms (A1, A2, A3) change only `_nax` tile/geometry selection. The local
-green therefore proves:
+`is_nax_available()` is false here, so no `_nax` kernel is ever selected. Every
+arm in this queue changes only `_nax` tile/geometry selection. The local green
+therefore proves:
 
 * the tree compiles and links,
 * the harness, weights, and public golden are healthy,
@@ -210,6 +268,18 @@ green therefore proves:
 * the change cannot break a non-M5 build.
 
 It does **not** prove `_nax` numerics, `_nax` JIT pipeline creation, or any
-timing claim. The M5 receipt is the first real test of every arm in this queue.
-Local prefill/decode seconds in this file are host bookkeeping, not evidence
-for or against any arm.
+timing claim. The M5 receipt is the first real test of every arm here. Local
+prefill/decode seconds in this file are host bookkeeping, not evidence for or
+against any arm.
+
+**This round supplied a concrete demonstration rather than a caveat.** Three
+materially different versions of A2 were gated on this host — one that would
+have retiled an unguarded shape, one that silently drove `SN` to 16 and fell off
+the AOT instantiation list into a JIT build on a different `tile_matmad_nax`
+branch, and the corrected traffic-neutral form. **All three returned `passed:
+true`, `passed_correctness: true`, `max_abs_diff: 0`, and the same
+`golden_hash` / `harness_hash` / `weights_hash` triple.** The defect in the
+second form was found by reading the kernel's instantiation list and matmad
+branches, not by any gate available on this machine.
+
+Treat a green M4 gate on an `_nax` arm as a build check. It is not a review.

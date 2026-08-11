@@ -1,205 +1,204 @@
-# Arm A2 — fused-NAX `bn` 128 -> 64 for prefill `N <= 1024`
+# A2 — fused-NAX `bn` 128 → 64 **and** `wn` 4 → 2 for prefill `N <= 1024`
 
-Status: **ready to fire**, delivered as a patch (`A2-fused-nax-bn64-n1024.patch`).
-Owner surface: `Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp` (tanjiro).
-Single knob. Does not touch `quantized.cpp`, so it is independent of arm A1.
+Status: **delivered as a patch, magnitude-capped, requires Rule-83 disclosure
+before anyone spends an M5 slot on it.** Not live on this branch.
 
-## Diff
+Patch: `research/maple-tanjiro-r110/A2-fused-nax-bn64-n1024.patch`
+(`17 0 Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp`).
 
-One helper plus one guarded assignment inside
-`steel_matmul_regular_axpby_nax` (declaration at `matmul.cpp:185-186`, tile
-block at `matmul.cpp:213-222` in the base).
+This document was rewritten after the first version of the arm was found to be
+wrong in a way the local gate could not see. Read §2 before §5.
+
+---
+
+## 1. What the arm does
+
+`steel_matmul_regular_axpby_nax()` picks the fused-NAX tile at
+`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp:213-231`. On an
+M5 (`devc == 's'`) the incumbent selection is
+
+```
+bk = (K >= 8192 && K > (M + N)) ? 64 : 256;
+bm = 64;
+wm = 2;
+// bn and wn keep their generic values: bn = 128, wn = 4
+```
+
+A2 adds one guarded override:
 
 ```cpp
-static bool darkbloom_fused_nax_narrow_bn() {
-  static bool enabled = []() {
-    const char* value = getenv("DARKBLOOM_FUSED_NAX_NARROW_BN");
-    return value == nullptr || atoi(value) != 0;
-  }();
-  return enabled;
+if (darkbloom_fused_nax_narrow_bn() && M >= 64 && N <= 1024) {
+  bn = 64;
+  wn = 2;
 }
 ```
 
-```cpp
-  char devc = d.get_architecture().back();
-  if (devc == 's' || devc == 'c' || devc == 'd') {
-    bk = (K >= 8192 && K > (M + N)) ? 64 : 256;
+`DARKBLOOM_FUSED_NAX_NARROW_BN=0` restores the incumbent exactly, so fern can
+run a paired A/B from one binary.
 
-    bm = 64;
-    wm = 2;
-    // SN = bn / wn must stay a positive multiple of 16, so 64 with wn = 4 is
-    // the narrowest legal column tile here. Decode reaches this same path, so
-    // M >= 64 keeps the change confined to prefill.
-    if (darkbloom_fused_nax_narrow_bn() && M >= 64 && N <= 1024) {
-      bn = 64;
-    }
-  }
+## 2. Why `wn` moves with `bn` — the correction that matters
+
+The first version of this arm set `bn = 64` **only**, leaving `wn = 4`. That is
+wrong, and the M4 gate cannot detect it because `is_nax_available()` is false
+here. The geometry:
+
+| | incumbent | `bn=64` only (**discarded**) | A2 as shipped |
+|---|---|---|---|
+| `bm, bn, bk` | 64, 128, 256 | 64, **64**, 256 | 64, **64**, 256 |
+| `wm, wn` | 2, 4 | 2, 4 | 2, **2** |
+| simdgroups / TG | 8 | 8 | **4** |
+| `SM = bm/wm` | 32 | 32 | 32 |
+| `SN = bn/wn` | 32 | **16** | 32 |
+| per-simdgroup A+B operand rows | 32+32 | 32+16 → **+50 % traffic per output** | 32+32 |
+| TGs for `N=1024` | 8 | 16 | 16 |
+| total simdgroups | 512 | 1024 | **512** |
+| emitted tuple | `(64,128,256,2,4)` | `(64,64,256,2,4)` | `(64,64,256,2,2)` |
+| AOT-instantiated? | **yes** | **no → JIT** | **yes** |
+| `tile_matmad_nax` branch | `TN % 2 == 0` | `TN == 1` | `TN % 2 == 0` |
+
+Evidence for the AOT rows:
+`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/gemm/kernels/steel_gemm_fused_nax.metal:23-29`
+lists exactly six instantiated `(bm,bn,bk,wm,wn)` tuples. `(64,64,256,2,2)` is
+the first entry; `(64,128,256,2,4)` is the third. `(64,64,256,2,4)` is absent.
+
+Evidence for the matmad rows:
+`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/gemm/nax.h:972-1029`
+has a `TN == 1 && TM % 2 == 0` arm and a `TN % 2 == 0` arm and **no else**.
+`SN = 16` gives `TN = 1`, which is a live but far less travelled branch.
+
+So the shipped form is a **pure packing change**: identical per-simdgroup
+operand traffic, identical total simdgroup count (512), identical `gemm_loop`
+template, identical matmad branch, identical AOT-vs-JIT status. Only the
+mapping of simdgroups onto threadgroups changes: 64 TG × 8 sg → 128 TG × 4 sg.
+
+## 3. Bit-exactness
+
+The accumulation order inside a simdgroup tile is unchanged, `bk` is unchanged,
+and there is no split-K reduction on this path (`steel_matmul_regular_*` writes
+each output element from exactly one simdgroup). Two GEMMs that differ only in
+how output columns are partitioned across threadgroups produce bit-identical
+results. A2 is **bit-exact by construction**, not merely "expected to be close".
+
+This is a real distinction: it is precisely why A4 (see `READY.md` §6) was
+killed.
+
+## 4. What the arm actually reaches
+
+Prefill dense-GEMM census, per forward pass, `M = 512` throughout (full table in
+`READY.md` §4):
+
+| count | shape | entry point | TGs (incumbent) |
+|---|---|---|---|
+| **78** | wk/wv `N=1024 K=2048` | `steel_gemm_fused_nax` (regular) | **64 → 1.60/core** |
+| 31 | wq `N=8192 K=2048` | regular nax | 512 |
+| 10 | wq `N=6144 K=2048` | regular nax | 384 |
+| 1 | layer-39 `[K;V] N=2048 K=2048` | regular nax | 128 |
+| 38 | router `N=256 K=2048` | **splitk** nax | 64 |
+| 29 | g_proj `N=64 K=2048` | **splitk** nax | 16 |
+| 10 | g_proj `N=48 K=2048` | **splitk** nax | 16 |
+| 30 | wo `N=2048 K=8192` | **splitk** nax | 512 |
+| 10 | wo `N=2048 K=6144` | **splitk** nax | 512 |
+
+`N <= 1024` in `steel_matmul_regular_axpby_nax` reaches **only the 78 wk/wv
+dispatches.** Router and g_proj are `N <= 1024` too, but they never enter this
+function — they are routed to `steel_gemm_splitk_axpby_nax`, whose tile block is
+a separate piece of code at `matmul.cpp:665-684`. Anyone reading "N ≤ 1024" and
+mentally adding the 77 router/g_proj dispatches will overestimate this arm's
+coverage by ~2×. Coverage is **78 dispatches, not 155.**
+
+## 5. Honest ceiling — this arm cannot win the round
+
+The wk/wv slice is 167.5 GFLOP, **11.1 % of the ~1.5 TFLOP prefill dense-GEMM
+total.** Prefill dense GEMM already runs at ~52.5 TFLOP/s = **87.5 % of the
+reference peak**, so the headroom inside that slice is small by construction.
+
+* absolute ceiling if wk/wv went to 100 % efficiency: **≈ 0.93 ms ≈ +0.35 % score**
+* realistic packing-only gain: **≈ 0.29 ms ≈ +0.11 % score**
+
+Maple's deficit to the crown is ~1.4 % of real speed, ≈ 3.8 ms of prefill at
+0.37 %/ms. **A2 at its theoretical ceiling covers a quarter of that; at its
+realistic value, under a tenth.** It is a tidy, cheap, bit-exact probe. It is
+not a round-winner and must not be described as one.
+
+## 6. Rule-83 disclosure — this is the *third* visit to this site
+
+Anyone scheduling A2 must be told this up front.
+
+1. **PR #293 — `DARKBLOOM_STEEL_REGULAR_SKINNY_TILE`.** Same site, same
+   `bn=64, wn=2`. Merged **inert (default-OFF)** and later deleted by resync
+   `99b974c`. **Zero M5 receipts were ever taken.** Its status is *queued and
+   never run*, not *refuted*.
+2. **PR #585 / fern R104-B — `DARKBLOOM_NAX_SKINNY_TILE`.** Same site.
+   Self-retracted with "failed — hypothesis refuted a priori", i.e. also
+   without an M5 measurement of this geometry.
+3. **A2 (this arm).** Same site again.
+
+Against it: the campaign **replacement rule**
+(`research/CURRENT_RESEARCH_STATE.md:4120-4130`) rejects narrow-`_nax`-tile
+briefs, citing the measured **+0.639 ms M5 regression from PR #527 (Rule 68)**
+and citing magnitude. A2 is squarely inside the class that rule names. I am not
+arguing the rule is wrong; I am recording that the rule's evidence base for
+*this specific geometry* is one adjacent regression and two never-measured
+queue entries.
+
+For it — and this is the only reason A2 survived at all: **fern's own M4 probe
+(fern §7, job `0c4e2817-f311-4933-ba80-b6487d6eb9dd`) measured that at a fixed
+total of 512 simdgroups, 8 sg/TG costs 1.4613× what 4 sg/TG costs.** Fern's
+§7.2 causal control shows this is a pure packing/occupancy-quantization effect,
+and that 512 total simdgroups sits in **the worst band fern observed**. A2 moves
+exactly that variable — 8 sg/TG → 4 sg/TG at fixed total 512 — on a dispatch
+family sitting at 64 TG = 1.60 TG/core, i.e. deep in the quantization-sensitive
+regime.
+
+**Fern explicitly refuses to extrapolate the band location from M4 to M5, and I
+am not extrapolating it either.** M4 Pro reports GPU generation 16 and never
+selects `_nax`, so fern §7 measures the *mechanism*, not this kernel. The
+correct reading is: a real, measured, causally-isolated packing effect of the
+right sign and a large magnitude — on the wrong machine and the wrong kernel
+family.
+
+**Recommendation to fern: do not spend a standalone M5 slot on A2.** If a
+wk/wv-family slot is ever scheduled for another reason, A2 is the cheapest
+rider available — one env var, one binary, bit-exact, AOT-instantiated.
+
+## 7. Correction to this document's earlier `M >= 64` justification
+
+The previous version justified the `M >= 64` guard by claiming decode wk/wv runs
+at `M = 8` through the same regular fused-NAX entry, so an unguarded arm would
+retile a decode GEMM carrying 75 % of the score.
+
+**That justification is wrong.** `Matmul::eval_gpu` short-circuits at
+`matmul.cpp:1269-1270`:
+
+```cpp
+if (std::min(M, N) == 1) {
+  return gemv(...);
+}
 ```
 
-The env var is the **control switch only**. `DARKBLOOM_FUSED_NAX_NARROW_BN=0`
-restores the base tile byte-for-byte; unset or non-zero selects the arm. The
-shipped default is the arm, so the official channel measures the arm without
-any override — the local-only override exists purely so a follow-up can prove
-the diversion is the cause.
+Teacher-forced decode is 128 **one-token** steps, so `M = 1` and every dense
+projection leaves through `gemv` before any steel tile is chosen. Decode reaches
+**zero** dense steel GEMMs, which also matches fern's independent finding.
 
-`darkbloom_fused_nax_narrow_bn()` is modelled on the existing
-`darkbloom_steel_prefill_tile()` helper at `matmul.cpp:82-88`, which is applied
-on the split-k path at `matmul.cpp:674-677`. Same idiom, same file, same style.
+The guard is therefore **free rather than load-bearing**. I kept it: it costs
+nothing, it mirrors the existing prefill gate at `quantized.cpp:1393-1397`, and
+it keeps the arm honest if the decode path is ever batched. It must not be
+presented as the thing that makes the arm safe.
 
-## Why `M >= 64` is load-bearing
+## 8. Local gate
 
-This is the correction that matters most for attribution. The fused-NAX
-*regular* path is **not** prefill-only. At decode the wk/wv projection is
-`M=8, N=1024, K=2048`, and the split-k diversion at `matmul.cpp:922-925` does
-**not** fire for it:
+See `GATES.md` §A2. The gate is green and proves compilation, link, harness and
+golden health, and non-perturbation of the non-NAX path. `is_nax_available()` is
+false on this host, so **it proves nothing about `_nax` numerics or timing.**
+The discarded `bn=64`-only form gated green here too — that is the clearest
+statement of what this gate is worth for this arm.
 
-```cpp
-if (use_nax && batch_size_out == 1 &&
-    (K >= 3 * std::max(M, N) ||
-     (std::max(M, N) <= 1024 && K > 2 * std::max(M, N)))) {
+## 9. Reproduce
+
+```bash
+git apply research/maple-tanjiro-r110/A2-fused-nax-bn64-n1024.patch
+git apply --numstat research/maple-tanjiro-r110/A2-fused-nax-bn64-n1024.patch
+#   expect exactly: 17  0  Vendor/.../metal/matmul.cpp
 ```
 
-With `max(M, N) = 1024`:
-
-- `K >= 3 * max(M, N)` -> `2048 >= 3072` is false;
-- `max(M, N) <= 1024` is true, but `K > 2 * max(M, N)` -> `2048 > 2048` is
-  false.
-
-(The prefill shape `M=512, N=1024, K=2048` has the same `max(M, N) = 1024` and
-so evaluates identically — both regimes land on the regular path.)
-
-So decode wk/wv lands on the same `steel_matmul_regular_axpby_nax` entry as
-prefill wk/wv. An unguarded `N <= 1024` condition would therefore have
-retiled a decode GEMM as well, and decode carries **75 %** of the score. That
-would have made a prefill arm silently a decode arm and destroyed causal
-attribution on a paired M5 receipt.
-
-`M >= 64` mirrors the existing `M >= 64` guard used by the A1 gate at
-`quantized.cpp:1393-1397` and cleanly separates the two regimes: prefill is
-`M=512`, decode is `M=8`.
-
-The decode-side variant (`M < 64 && N <= 1024`, which would take that shape
-from 32 to 64 threadgroups) is a **separate, plausible arm** and is listed in
-"Suggested follow-ups". It is deliberately **not** implemented here.
-
-## Mechanism
-
-`bn` is a pure launch-geometry parameter on this path:
-
-- `align_N` (`matmul.cpp:241`, function constant 201);
-- `tn = (N + bn - 1) / bn` (`matmul.cpp:280`);
-- swizzle_log = 2 -> `tm = (tm + 3) / 4; tn = tn * 4` (`matmul.cpp:303-305`);
-- `group_dims = (32, wn, wm)`, `grid_dims = (tn, tm, batch)`
-  (`matmul.cpp:307-308`, dispatched at `matmul.cpp:342`).
-
-There is no accept-gate, no correctness predicate, and no numerical constant
-keyed on `bn` anywhere on this path.
-
-### Legality
-
-`SN = BN / WN` must be a positive multiple of 16
-(`steel_gemm_fused_nax.h:151-155`, `gemm_nax.h:35-37`). With `bn = 64` and
-`wn = 4`, `SN = 16` — legal, and 64 is the **narrowest legal** column tile for
-`wn = 4`. Then `TN = SN / 16 = 1` and `TM = (bm / wm) / 16 = 32 / 16 = 2`, which
-selects the `TN == 1 && TM % 2 == 0` branch of `tile_matmad_nax`
-(`nax.h:972`ff) — an already-exercised branch, not a new code path.
-
-The NAX `gemm_loop` (`gemm_nax.h:20-90`) reads A and B straight from device
-memory with no threadgroup staging, so there is no shared-memory budget to
-violate when `BN` changes. The cost of halving `BN` is that each A tile is
-re-read twice as often; the benefit is 2x the threadgroup count.
-
-### Bit-exactness
-
-Accumulation order along `K` is unchanged (`bk` is untouched). Splitting the
-`N` axis into more tiles partitions **disjoint output columns** — no output
-element is summed across tiles, so no reduction order changes. This is a pure
-partition of the output, hence bit-exact.
-
-### JIT
-
-The AOT `.metal` instantiation list (`steel_gemm_fused_nax.metal:23-29`) does
-not include a `bn64_wn4` tile, but `jit_kernels.cpp:977-1008` JIT-compiles any
-requested tile, and `Package.swift:284` excludes `nojit_kernels.cpp`, so JIT is
-live. Cost is a one-time runtime compile of one extra kernel. No metallib
-rebuild is required (`tools/build-mlx-metallib.sh` is **not** needed).
-
-## Target dispatches and threadgroup accounting
-
-From the tier-1 (derived-M5Max) steel census
-`research/artifacts/tanjiro-r104c/steel_census_237.json` (base_sha
-`9527bb72...`, 237 dispatches per prefill, 1502.8 GFLOP total):
-
-| dispatches | shape | tile | TGs | TG/core | share of prefill dense GEMM |
-|---|---|---|---|---|---|
-| **78** | **regular M=512 N=1024 K=2048** | bm64 bn128 wm2 wn4 | **64** | **1.6** | **11.1 %** |
-| 31 | regular N=8192 K=2048 | bm64 bn128 | 512 | 12.8 | 35.4 % |
-| 10 | regular N=6144 K=2048 | bm64 bn128 | 384 | 9.6 | 8.6 % |
-| 1 | regular N=2048 K=2048 (layer-39 [K;V] bank) | bm64 bn128 | 128 | 3.2 | — |
-
-The 78 dispatches are the attention **wk / wv** (K and V) projections across
-all 40 layers, and they are the **only** `N <= 1024` shapes on the regular
-fused-NAX path — so the guard selects exactly this family and nothing else.
-
-At 1.6 TG/core these are **6-8x less filled** than their sibling regular-path
-shapes (9.6-12.8 TG/core) on the very same kernel. With `bn = 64`:
-`tn` 8 -> 16, `tm = 2` after swizzle, giving **128 TGs = 3.2 TG/core** — a 2x
-occupancy improvement on 11.1 % of prefill dense-GEMM FLOPs.
-
-## Predicted direction and discriminator
-
-Predicted: prefill wall-clock **down**. The shape is launch-bound, not
-bandwidth-bound; doubling resident threadgroups on a 1.6 TG/core dispatch
-should recover a meaningful fraction of the tail on those 78 dispatches.
-
-Risk: doubling A re-reads could offset the occupancy win if the shape is closer
-to bandwidth-bound than the TG/core figure suggests. That is exactly what the
-paired M5 receipt resolves.
-
-Discriminator on the M5 receipt:
-- **Win** — `prefill_seconds_per_token` drops below
-  `1.87812e-4 - 3 * 2.607e-7 = 1.87030e-4` s/token.
-- **Null** — inside `1.87812e-4 ± 3 * 2.607e-7`; the shape was not launch-bound
-  and A re-read cost cancelled the occupancy gain.
-- **Loss** — above the band; A re-read traffic dominates, and the decode-side
-  follow-up should not be fired either.
-
-Given prefill elasticity 0.362 and S ≈ 97.9 ms, 1 ms of S is 0.37 % of score.
-Removing >= 0.3 ms of S is worth landing under the withdrawn 0.378 % bar.
-`decode_seconds_per_token` must be **unchanged** — the `M >= 64` guard makes
-any decode movement a red flag, not a result.
-
-## Local gates
-
-See `GATES.md`. `./benchmark.sh --local-iterate` is green with
-`passed_correctness: true`, `max_abs_diff: 0`.
-
-## M4 correctness caveat
-
-**This host cannot validate this arm.** The host is `Mac16,11` (M4 Pro, Apple
-GPU generation 16) and `is_nax_available()` is `false`, so
-`steel_matmul_regular_axpby_nax` is never entered here — the function is behind
-the `use_nax` gate at `matmul.cpp:894-898`. Independently, on M4 the
-`M=512 N=1024 K=2048` shape takes the **split-k** path rather than the regular
-path, so even a NAX-capable M4 would not exercise the retiled dispatch.
-
-Therefore the local green run proves **build soundness, harness health, and
-that the non-NAX path is unperturbed** — nothing more. It does **not** validate
-`_nax` numerics or geometry, and **local timing is not evidence for or against
-this arm in either direction**.
-
-To be explicit about a point raised during assignment: the local gates are
-**not** more meaningful for A2 than for A1 or A3. All three arms are M5-only.
-Only the official M5 channel can measure or falsify them.
-
-`MLX_METAL_GPU_ARCH` was **not** set at any point; forcing `_nax` on M4 is
-forbidden by the assignment and was not attempted.
-
-## Suggested follow-ups (not implemented)
-
-1. **Decode-side twin**: `M < 64 && N <= 1024` -> `bn = 64`, taking the decode
-   wk/wv dispatch from 32 to 64 threadgroups. Decode is 75 % of score, so this
-   is the higher-leverage half of the idea — but it must be fired as its own
-   arm on its own branch, never composed with A2.
-2. `N = 2048` (the single layer-39 [K;V] bank dispatch, 3.2 TG/core) is the
-   next-least-filled regular shape if A2 wins.
+Paired A/B from one binary: `DARKBLOOM_FUSED_NAX_NARROW_BN=1` (default) vs `=0`.
