@@ -162,3 +162,81 @@ a prior from nezuko R117-C recorded in the doc comment at
 ~51 simdgroups/core ratio on 40 cores. My screen re-measures all three on the
 **current** composition; a local `rps=1` loss is expected and is not by itself
 evidence against the M5 case.
+
+## Which QKV decode kernel actually runs (settles a contradicting review)
+
+A frontier review of this branch concluded that the shipped decode QKV path is
+`lagunaNormAffineQKV` (affine INT8 g32) and that the NVFP4 QKV kernels are dead.
+That is **backwards** on this composition, and the deciding line is a default:
+
+- `LagunaRuntimeModel.swift:3048-3055`: `lagunaNativeAffineNVFP4From` is enabled
+  unless `DARKBLOOM_NATIVE_AFFINE_NVFP4 == "0"`, and its layer threshold
+  `DARKBLOOM_NATIVE_AFFINE_NVFP4_FROM` defaults to **`"0"`**.
+- `:3100-3116`: with `from = 0`, `(layer ?? 0) >= from` holds for **all 40
+  layers**, so `lagunaNativeAffineWeight` returns `groupSize 16, bits 4,
+  mode .nvfp4` for wq/wk/wv every time. The affine INT8 g32 return at
+  `:3117-3125` is never reached on the default path.
+- Consequences inside `prepareNativeAffineQKVWeight` (`:5803-5885`):
+  `foldGateIntoBank` requires `q.groupSize == 32 && q.bits == 8 && q.mode ==
+  .affine` (`:5828-5829`) ⇒ false ⇒ `_nativeAffineGProj = gate` and
+  `_nativeAffineQKVGateRows` stays `0 != nHeads`. The nvfp4-only lane-major
+  scale bank at `:5871-5883` is taken instead, which is exactly the
+  `narrow-scales lane-major pairwise: qkv/oproj` line the worker prints.
+- Therefore at the decode guard `:6042-6049` the clause
+  `fusedAffine.mode == .affine, bits == 8, groupSize == 32` is **false**, so
+  `fusedQKV == nil`, and `:6068-6078` takes `lagunaDecodeNVFP4QKVGate`
+  (`_nativeAffineQKVGateRows != nHeads` plus the NVFP4 o_proj clauses), with
+  `lagunaDecodeNVFP4QKVR1` as its fallback (`:6079-6084`).
+
+So my original inertness verdict stands: `NORM_AFFINE_QKV_PF` and
+`NORM_AFFINE_QKV_STAGE` gate a kernel family that no layer selects. Two
+corrections for whoever picks up the review's list:
+
+- its proposed "hardcoded rows/8 per TG in `lagunaNormAffineQKV` (`:5638-5657`)"
+  geometry experiment is on that same dead family and is **not** a timing
+  experiment as written;
+- its exclusion of `DECODE_NVFP4_QKV_R1` (`:4823-4824`) and
+  `DECODE_QKV_GATE_FUSED` (`:5087-5088`) as "not on the default path" is
+  inverted — those are precisely the live decode QKV knobs, and they are the
+  ones worth screening next on this axis.
+
+## Follow-ups I did not implement (from a frontier code review, unmeasured)
+
+Ranked by the reviewer's 20→40-core argument; all are bit-identical
+row-ownership/geometry changes, none is measured here:
+
+1. **Decode attention threadgroup starvation (highest value).** Both fused
+   decode-attention kernels bake one threadgroup per *head pair*
+   (`head0 = pair_tg*2`, `:1586-1588` sliding, `:2048-2050` full) and dispatch
+   `heads/2` TGs of 1024 threads (`:1970-1971`, `:2455-2456`) — 32 TGs sliding
+   (64 heads), 24 TGs full (48 heads). On a 20-core M4 Pro that is ≥1 TG/core;
+   on 40 M5 cores it leaves 8-16 cores idle with one resident TG each, so the
+   kernel's ~2.1-2.6 MB/layer KV stream cannot use the extra bandwidth.
+   Remapping to one head per TG (48/64 TGs) leaves each head's 32-simdgroup ×
+   16-row partial-sum tree untouched, so it should stay bit-exact. Runs 40×/step.
+   This axis is invisible to local M4 timing by construction — it needs an M5
+   probe.
+2. **`DARKBLOOM_ROUTED_GATEUP_R1=0`** (default ON, `:8053-8054`): 2048 TGs × 1
+   row/simdgroup versus 1024 TGs × 2 rows, identical K-block traversal
+   (`:7890-7933` vs `:8090-8130`) ⇒ bit-identical. Resident simdgroups/core goes
+   102 (M5, R1) → 51 (M5, non-R1), and 51/core is the interior optimum the
+   o_proj sweep found. Cheap one-env A/B, second-largest decode byte block.
+3. Minor / no expected sign change with core count: the 288-thread fused
+   down+residual TG (`:8875-8876`), the LM-head argmax stages
+   (`LagunaLmHeadPrune.swift:959-967`), layer-0 dense grids (`:8982-8983`,
+   `:9060-9061`).
+
+The same review also offers a mechanism for my confirmed FUSED loss: unfused
+routed (2048 TGs) and shared (256 TGs) have no data dependency and are encoded
+between the same barriers (`:11141-11143`), so they already co-schedule as one
+~2304-TG pool — the fused kernel's grid (`:8245-8246`) is the same size. What
+fusion adds is a runtime branch (`if (tg.x < 256) shared; else routed`,
+`:8186-8208`) whose compiled pipeline carries the union of both register
+footprints, applied to all 2304 TGs including the 2048 bandwidth-bound routed
+ones, plus the author's deliberate shared-first ordering (`:8180-8185`) that
+displaces 256 routed TGs into the drain tail. +1.42 µs/layer over 39 layers is
+~3% of the gate+up phase — the scale of an occupancy notch, not a serialization
+change. The reviewer expects fused to still lose on M5 (~+20-30 µs/step) because
+both variants stay deep in the many-wave regime, and notes these are
+`MLXFast.metalKernel` string kernels, so `_nax` selection is irrelevant to this
+comparison.
