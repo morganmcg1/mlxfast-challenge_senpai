@@ -18,11 +18,11 @@ Submitted-surface deltas and budgets below are measured against the frozen offic
 
 | Candidate | PR | Immutable head | Tree | Submitted delta from frozen base | Budget verdict |
 |---|---:|---|---|---|---|
-| C1 | #720 | `3d4b6bfeef2f68b4976d9a7c84561bb771377e8b` | `38c71ec131bc7cd330cdcf42d1c5e8d7b4e6518b` | `Sources/MLXFastModel/LagunaRuntimeModel.swift` | PASS: 2,984,323 / 3,000,000 bytes; 15,677 headroom; +474 / 262,144 growth; 142 files |
+| C1 | #720 | `aa152d6102b191adaaa9e95e8374d08e5a5e83c2` | `4eb3888cf226e184b0d512319183896ef638df60` | `Sources/MLXFastModel/LagunaRuntimeModel.swift` | PASS: 2,984,323 / 3,000,000 bytes; 15,677 headroom; +474 / 262,144 growth; 142 files |
 | C2 | #721 | `5b5e73a469a636f28f37a8857b3f58c3bc27f620` | `e266fb28a3db32af72ea0e8a27784d1e2988c18d` | C1 file plus `Sources/MLXFastModel/LagunaLmHeadPrune.swift` | PASS: 2,997,654 / 3,000,000 bytes; 2,346 headroom; +13,805 / 262,144 growth; 142 files |
 | C3 | #722 | `fb8b4194d669e9122bf93f2d985439001abb31dc` | `a453d532f6d8b46d384a442b7cd89135e4e62c59` | C2 files plus `Sources/MLXFastModel/LagunaOProjGeometry.swift` | PASS: 2,999,925 / 3,000,000 bytes; 75 headroom; +16,076 / 262,144 growth; 143 files |
 
-The recorded PR heads matched these immutable commits at audit time. All submitted files satisfy the 524,288-byte per-file ceiling; the largest is the C1/C2 runtime at 511,892 bytes.
+The r2 read-only head check found PR #720 at `aa152d6102b191adaaa9e95e8374d08e5a5e83c2`, PR #721 at `5b5e73a469a636f28f37a8857b3f58c3bc27f620`, and PR #722 at `fb8b4194d669e9122bf93f2d985439001abb31dc`. C1 implementation commit `3d4b6bfeef2f68b4976d9a7c84561bb771377e8b` is superseded as the PR/dispatch head, although its submitted runtime payload remains the verified C1 payload. All submitted files satisfy the 524,288-byte per-file ceiling; the largest is the C1/C2 runtime at 511,892 bytes.
 
 ## Submitted-file identities
 
@@ -41,15 +41,16 @@ Tree hashes and SHA-256 values are the dispatch identities. A dispatcher must no
 
 ### C1: shared-R1 lineage
 
-C1 changes exactly one submitted file relative to the frozen official base: `LagunaRuntimeModel.swift`. Its submitted snapshot is pinned by the head, tree, size, SHA-256, and blob above.
+C1 changes exactly one submitted file relative to the frozen official base: `LagunaRuntimeModel.swift`. Its submitted snapshot is pinned by the current PR/dispatch head, tree, size, SHA-256, and blob above.
+
+Current C1 commit `aa152d6102b191adaaa9e95e8374d08e5a5e83c2` is a two-parent merge with tree `4eb3888cf226e184b0d512319183896ef638df60`: first parent `3d4b6bfeef2f68b4976d9a7c84561bb771377e8b`, the superseded r1 implementation commit, and second parent `60dcb0e765608f4f0ca0ec1bb7bfae1a957fe0a4`, the assigned advisor base. The merge changes only non-submitted `research/CURRENT_RESEARCH_STATE.md` relative to `3d4b6bfe...`; its submitted runtime remains blob `ae9acf9034c5fd2509a61fb4861f24e9e252c95c` and SHA-256 `c57aef4397d40efd982d13f5cca97a789113af09230f0faeacebe5e5c566a07b`.
 
 ### C2: exact C1 plus organizer row-32
 
-- C1 and C2 have byte-identical runtime files.
-- The complete submitted-surface C1-to-C2 diff is one file: `LagunaLmHeadPrune.swift` (`+354/-14`).
+- Current C1 and C2 have byte-identical runtime files.
+- The complete full-repository current-C1-to-C2 diff is one submitted file: `LagunaLmHeadPrune.swift` (`+354/-14`); there is no additional research-only delta between these audited heads.
 - C2's `LagunaLmHeadPrune.swift` is byte-identical to organizer row-32 commit `0101733e2d3c2629a04d86c24f236a43ef38bc33` (same git blob `7738d670b5570159284aae626b5a5b63c08f371e`).
-- The full-repository C1-to-C2 diff additionally changes non-submitted `research/CURRENT_RESEARCH_STATE.md`.
-- C1 is not an ancestor of C2; C2 is a separate merge commit. The composition verdict concerns submitted payload identity, not literal lineage or whole-tree identity.
+- Current C1 is not an ancestor of C2; C2 is a separate merge commit. The composition verdict concerns submitted payload identity, not literal lineage or whole-tree identity.
 
 Verdict: **PASS — C2 is exactly C1 plus organizer row-32 on the submitted surface.**
 
@@ -100,7 +101,7 @@ Global prerequisites for every candidate:
 - External gate: none beyond queue authorization for measuring Gate B; its resulting raw decode determines the next route.
 - Decision threshold: raw candidate decode `<= ~4.867 ms/token` selects the C1 lineage.
 - [ ] Global prerequisites complete.
-- [ ] Queue authorization explicitly names C1 / PR #720 / head `3d4b6bfeef2f68b4976d9a7c84561bb771377e8b`.
+- [ ] Queue authorization explicitly names C1 / PR #720 / head `aa152d6102b191adaaa9e95e8374d08e5a5e83c2`.
 
 Dispatch verdict: **structurally safe only after the checklist passes.**
 
