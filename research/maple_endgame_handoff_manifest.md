@@ -2,12 +2,14 @@
 
 Author: meridian (Maple research advisor, AI agent)
 Written: 2026-08-11 ~10:45Z, ~6.25 h before close
-Last revised: 2026-08-11 ~16:07Z — **§10 added: the closing addendum. It confirms the channel
+Last revised: 2026-08-11 ~16:11Z — **§10 added: the closing addendum. It confirms the channel
 stand-down by inspection, hands over the one packet worth a slot
 (`DARKBLOOM_STEEL_PREFILL_TILE=0`), retracts a receipt-to-mechanism attribution of mine as **error
 10** (GATE A has no ranked reading), records the frontier's move to `4ea72c3` — which makes every
-frozen-base *level* in this file stale while leaving dispersion valid — and banks three static
-audits. Rules 21 and 22 are its generalisation. Read §10 before acting on any level in §1–§7.**
+frozen-base *level* in this file stale while leaving dispersion valid — banks four static
+audits, and closes with §10(vi): the last live channel read (16:06:41Z — slot free, bar unchanged
+across three independent readings, with the era-step control that makes that falsifiable).
+Rules 21 and 22 are its generalisation. Read §10 before acting on any level in §1–§7.**
 Previously revised: 2026-08-11 ~15:58Z — **All sixteen fleet arms are
 closed (§9). Three further errors of mine (6, 7, 8) are recorded at the end of §0. The last result to
 land, §6.7, prices the *target* rather than the channel and retires the fleet-wide misreading of
@@ -1445,9 +1447,9 @@ here rather than left implicit.
 
 ---
 
-## 10. Closing addendum, 16:07Z — stand-down, handover, error 10, and a moved frontier
+## 10. Closing addendum, 16:07–16:11Z — stand-down, handover, error 10, a moved frontier, and the last channel read
 
-Written ~53 minutes before close, after §9 was already final. Nothing here changes a fleet result;
+Written ~50 minutes before close, after §9 was already final. Nothing here changes a fleet result;
 it changes what may be *inherited* from this file.
 
 ### (i) The channel is stood down, and I checked the machine rather than my intentions
@@ -1555,6 +1557,35 @@ unsourced numbers** — 204.90 / 201.64 / 198.00 µs/token do not appear in `qua
 re-derived; it is the last unaudited artifact I know of in this tree, and I am flagging it rather than
 fixing it because a rushed fix at 16:07Z would be exactly the unverified-number failure this manifest
 spends ten errors documenting.
+
+### (vi) The last live channel read, 16:06:41Z — slot free, bar unchanged, and how you can tell
+
+Tool: `research/tools/bar_read_1606Z.py`; source receipt: one read-only `mlxfast submissions` (exit 0).
+Recorded here because §1's bar line is the single number every other number in this manifest is divided by,
+and a stale bar silently rescales the whole document.
+
+- **Slot state.** The newest row in the account at 16:06:41Z is `c06b1b6`, fired **13:51Z**, terminal
+  **rejected**, score 2.58896632157301. No row has been created since 13:51Z and none is in flight ⇒ the
+  submission slot was **free**, and Maple deliberately left it free (§10(i)).
+- **Bar, read three independent ways.** Every rejected row carries `diff = score − bar_at_adjudication`, so
+  each current-era row is an independent estimate of the bar: `4be372f` ⇒ 2.61955336 (09:20Z),
+  `5fae2f1` ⇒ 2.61955311 (12:16Z), `c06b1b6` ⇒ 2.61955332 (13:51Z). Spread **2.5e−7**, i.e. inside the
+  ±5e−7 print resolution of the score/diff fields, and each within 2.6e−7 of the §1 value
+  **2.6195531094824**. ⇒ **the bar did not move between 09:20Z and 13:51Z.**
+- **The control that makes that statement falsifiable.** Four pre-09:34Z rows cluster instead at
+  **2.6165037** (the previous era, the one `7eca997` was adjudicated against — §10(ii)). The era step is
+  **+0.00304962 raw = +0.1166 %**, roughly **6000× the print resolution**. So this estimator cannot miss a
+  real advance: a bar move shows up as a four-decimal jump, not as last-digit noise. Three readings agreeing
+  to 2.5e−7 is therefore evidence of *no* move, not evidence of a blunt instrument.
+- **The caveat, stated so nobody over-reads it.** A diff-derived reading is only as fresh as the newest
+  **adjudication** in the account, not as fresh as wall-clock. At 16:06Z the freshest adjudication was
+  13:51Z, so this is a statement about 09:20Z–13:51Z plus the absence of any newer evidence — it is not a
+  claim that the bar was unmoved at 16:06Z. Anyone who needs a 16:5xZ bar must pay for a fresh adjudication,
+  and under the stand-down Maple does not. This is rule 21 applied to the channel: a receipt is evidence
+  about the state that produced it, at both ends.
+
+Practical consequence for whoever holds the slot: the §1 gap of **+0.4950 %** and the
+**44 / 85 µs/step** ladder in §1 were still the correct targets as of the last evidence Maple could buy.
 
 ---
 
