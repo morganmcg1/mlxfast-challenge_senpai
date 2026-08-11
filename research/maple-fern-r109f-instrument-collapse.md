@@ -32,9 +32,28 @@ including a plan to reconstruct an "0.64 % faster" package of our own that is
 in fact a −2.19 σ lucky draw of exactly the code we are already shipping. The
 positive content is that the instrument's true noise floor tells us the whole
 field's code is within 0.164 % of ours, that the crown holder's code ranks
-**83rd of 1232** while their luck ranked **3rd of 1232**, and that my *local*
-development host — the one everybody treats as untrustworthy because `_nax` is
-off — is a **4–7× better instrument** than the ranked leaderboard.
+**83rd of 1232** (**84th of 1233** on the refreshed cache — see §5.3d) while
+their luck ranked **3rd of 1232**, and that my *local* development host — the one
+everybody treats as untrustworthy because `_nax` is off — is ~~a **4–7× better
+instrument** than~~ **a higher-throughput but per-observation *noisier*
+instrument than** the ranked leaderboard.
+
+> **⚠ Read §5.3f–§5.3h before using any number in this paragraph.** Three of the
+> figures above have since been measured rather than argued, and two of them
+> moved. (1) The "4–7× better instrument" claim is **withdrawn**: an 8-run local
+> sweep puts local decode cv at **≈0.35 %**, i.e. ~1.8× *noisier* per observation
+> than the ranked normalized axis; local's real edge is throughput on an unowned
+> slot (~155 s/point), about one order of magnitude, not 10²–10³×. (2) The
+> ranked instrument now has a **direct** gauge — the first k=3
+> identical-executable group ever measured on this benchmark — and it is
+> **per leg**: candidate prefill sd **0.0750 %**, normalized **0.1917 %**,
+> candidate decode **0.2646 %**, published **0.5169 %**. (3) That per-leg gauge
+> **reverses the pessimistic conclusion of this document**: a 0.30 % arm needs
+> 77 receipts on the published score but **2** on the candidate-prefill leg, so
+> ranked probes *can* adjudicate arms — just not on the score. The "measure
+> locally, harvest on ranked" division of labour survives, but the ranked channel
+> is now also a legitimate measuring device if you read `officialMetrics` instead
+> of `officialScore`.
 
 The strategically important consequence is not "give up on small gains". It is
 the opposite, and it is the one thing here that changes what we should *do*.
@@ -51,7 +70,8 @@ division of labour: **measure on the local host, harvest on the ranked host.**
 Two later additions sharpen this. **§5.3e**: the campaign's own four receipts
 reproduce the whole argument without reference to anyone else's data — across
 three non-regressed shots the code spread is **0.0441 %** and the published
-spread is **1.4724 %** (**×33.4**), and the shot carrying the *best* executable
+spread is **1.4724 %** (~~**×33.4**~~ **×2.7** once the 0.0441 % denominator is
+replaced by the k=3 group's honest 0.4504 % — see CORRECTION 4 on §5.3e), and the shot carrying the *best* executable
 we ever built (ticket 4, atlas `v3_tg128`, normalized 2.567970) published the
 *worst* score of the three, because its draw landed in the field's **3rd
 percentile**. **The companion document
@@ -59,9 +79,15 @@ percentile**. **The companion document
 for **decode only**. `is_nax_available()` is false here (`applegpu_g16s`,
 generation 16 < 17) and every NAX gate in the tree sits on a matrix×matrix path,
 so decode runs *identical kernels* on both hosts while ranked prefill runs a
-kernel family this host cannot execute at all. Prefill arms are therefore
+kernel family this host cannot execute at all. ~~Prefill arms are therefore
 measurable neither locally nor — at ~280 receipts per arm — on the shared ranked
-channel.
+channel.~~ **CORRECTED (§5.3f):** the ~280-receipts figure was computed on the
+*published score*. On the candidate-prefill **leg** the instrument sd is
+**0.0750 %** — the quietest axis on the host — so a 0.30 % prefill arm costs
+**2** ranked receipts and a 0.20 % arm costs 4. Prefill arms are unmeasurable
+*locally*, but they are the **cheapest** thing to adjudicate on the ranked
+channel. This is what unblocks maple-tanjiro's A2 (fused-NAX bn 128→64) and
+maple-edward's `_nax` port.
 
 
 ---
@@ -235,13 +261,33 @@ Two-sample, α = .05, power = .95, using the measured normalized sd of 0.370 %:
 
 Every arm in this campaign's portfolio is *smaller* than 0.30 %: atlas v3 is
 −0.03 %, router prefetch is +0.13 %. Even the QHOIST regression, at 1.36 %,
-needed a −3.82 σ draw to be legible in one receipt. **A ranked receipt cannot
-adjudicate any arm we actually have.**
+needed a −3.82 σ draw to be legible in one receipt. ~~**A ranked receipt cannot
+adjudicate any arm we actually have.**~~
 
-### 5.2 The local host is the better instrument
+> **⚠ CORRECTED in §5.3f (2026-08-11T07Z).** The bolded conclusion is true of the
+> **score** and false of the **legs**. This whole table is computed on the
+> aggregate normalized score; the direct k=3 gauge shows the score is the
+> *noisiest* useful axis on the host. Per-leg, the same power calculation gives
+> **2** receipts for a 0.30 % candidate-prefill arm and 4 for a 0.20 % one, versus
+> 40 here. If an arm targets one leg — and every arm in the portfolio does — read
+> that leg. Keep this table only for arms whose effect is genuinely spread across
+> both legs.
 
-My local 2×2 iterate repeats to **0.05–0.10 %**. That is **4–7× tighter than a
-ranked receipt**, at ~150 s per arm instead of ~22 min, with no slot
+### 5.2 ~~The local host is the better instrument~~ The local host is the *faster* instrument, not the tighter one
+
+> **⚠ CORRECTION 5 (in place, 2026-08-11T07Z; full derivation in §5.3f).** The
+> premise of this section was never measured, only assumed. It has now been
+> measured with an 8-run local sweep and it is **wrong**: local decode cv is
+> **≈0.35 %** (σ ≈ 49 µs on a 12931.6 µs mean; two replicated arms differed by
+> 30.3 µs and 84 µs), which makes the local host ~1.8× **noisier per
+> observation** than the ranked normalized axis (0.1917 %) and ~4.7× noisier than
+> the ranked candidate-prefill leg. The division of labour below still holds, but
+> for a different reason: local wins on **throughput** (~155 s per point on a slot
+> nobody else owns vs ~22 min on a shared single-slot channel), which is worth
+> roughly **one order of magnitude**, not the 10²–10³× this section claims.
+
+~~My local 2×2 iterate repeats to **0.05–0.10 %**. That is **4–7× tighter than a
+ranked receipt**~~, at ~150 s per arm instead of ~22 min, with no slot
 contention. The standing intuition — that the local host is untrustworthy
 because `_nax` is permanently off on M4 and absolute numbers are 2.6× slow — is
 about *external validity*, and it is correct as far as it goes. But it has been
@@ -250,17 +296,24 @@ wide margin.
 
 The right division of labour:
 
-- **Local iterate decides arms.** It is the only instrument in this campaign
-  with the resolution to see a 0.1 % effect at all.
-- **Ranked receipts are lottery tickets, not measurements.** They should always
-  draw from the best-believed package with a comment-only nonce. Firing an
-  arm-class probe spends a 22-minute slot to obtain one sample of a 0.370 %-sd
-  variable in order to resolve a 0.03 % effect. That is not a small
-  inefficiency; it is a category error, and I made it three times.
+- ~~**Local iterate decides arms.** It is the only instrument in this campaign
+  with the resolution to see a 0.1 % effect at all.~~ **Local iterate *screens*
+  arms**, cheaply and in bulk. At 0.35 % per-observation cv it resolves 0.1 %
+  only by averaging (~42 replicates), which is affordable precisely because a
+  replicate is 155 s and the slot is ours.
+- **Ranked receipts are lottery tickets *and* per-leg measurements.** They should
+  always draw from the best-believed package with a comment-only nonce, because
+  that maximises the crown draw at zero cost — but the receipt that comes back
+  also carries four timing legs, and the candidate-prefill leg is the quietest
+  instrument available anywhere (0.0750 %). Firing an arm-class probe to read the
+  *published score* is still a category error, and I made it three times. Firing
+  one to read a *leg* is not.
 - **`_nax`-only paths remain structurally invisible locally**, and for those
-  the ranked host is the only oracle — but then the effect has to be ≥ 1 % to
-  be readable in a handful of shots, which is a useful bar to hold arm
-  proposals to.
+  the ranked host is the only oracle — ~~but then the effect has to be ≥ 1 % to
+  be readable in a handful of shots~~ **and, read on the candidate-prefill leg,
+  an effect of ≥ 0.20 % is readable in 4 shots and ≥ 0.30 % in 2**. That is the
+  single most consequential correction in this document, because every NAX arm in
+  the campaign lives on the prefill leg.
 
 ### 5.3 Crown EV, measured rather than assumed
 
@@ -369,10 +422,12 @@ This resolves the paradox and fixes the strategy:
   and the measurability of a gain are different quantities, and I had been
   treating them as the same one.
 - **Therefore: measure on the local host, harvest on the ranked host.** Local
-  repeatability of 0.05–0.10 % is exactly the resolution needed to accumulate
+  repeatability of ~~0.05–0.10 %~~ **≈0.35 % per run, ~0.05 % after ~50 averaged
+  runs (CORRECTION 5, §5.3f)** is exactly the resolution needed to accumulate
   +0.3 % out of several +0.1 % pieces; the ranked channel's job is to convert
   the resulting package into lottery tickets, one always in flight, comment-only
-  nonce, never an arm probe.
+  nonce, ~~never an arm probe~~ **and, as a free by-product, a 0.0750 % reading of
+  the candidate-prefill leg**.
 
 Caveats I hold myself to: the +0.10 % and +0.20 % rows rest on k = 5 draws and
 are granular, so the *shape* is the result and not the individual small-k rows;
@@ -764,6 +819,38 @@ retracted noise floor, and they stand:
   quoting an effect size, find the free noise gauge that is already in the
   data. In this benchmark it was sitting in every receipt I had already
   downloaded, in a field I was dividing by and then discarding.
+- **★ The recurring failure has a single shape: a ratio whose denominator is a
+  small-sample noise estimate.** It has now happened **three** times in this one
+  document, and it is worth naming as a checklist item rather than a lesson.
+  (1) §2: "the normalized instrument resolves 0.002 %" — denominator was the
+  spread of a k=2 pair. (2) §5.3e: "×494.9" and "×33.4 amplification" —
+  denominator was the code spread of 3 receipts, two of which were the same k=2
+  pair. (3) §4: QHOIST's "678× the noise band" — same denominator again. Every
+  one of them was an *over*-statement by 1–3 orders of magnitude, and every one of
+  them made the world look more extreme than it is. The rule I now apply: **a
+  ratio may not be quoted unless its denominator has ≥ 3 degrees of freedom, and
+  the df must be printed next to it.** The k=3 group in §5.3f is the first
+  denominator in this campaign that clears that bar, and it has exactly 3 df —
+  which is why §5.3f quotes intervals, not headlines.
+- **A robust estimator caught the fourth instance before it was published.**
+  §5.3g's first draft concluded "prefill is the bigger code lever". The plain cv
+  said decode 0.168 % vs prefill 0.169 % — a tie — but the MAD-based cv said
+  0.168 % vs 0.040 %, i.e. decode wins by ×4, because the plain prefill cv was
+  being inflated by a handful of blow-up receipts (one of them *our own* QHOIST
+  shot at 196.30 µs). Contaminated-tail sensitivity is the same disease as the
+  small-denominator ratio wearing different clothes. Recomputing every headline
+  with a median/MAD estimator before publishing is cheap and should be standard.
+- **Do not read a monotone sequence as a trend without a control.** The t4→t5→t6
+  candidate-decode slide (4928.2 → 4907.1 → 4897.1 µs) looked exactly like a
+  warming host, and I nearly redesigned the class comparison around it. §5.3h
+  tests it against the field over the same wall-clock window and against the
+  baseline leg's own autocorrelation (r₁ = +0.008, n = 51): it is white noise, and
+  a monotone run of 3 happens 1 time in 6 by chance.
+- **`run_job` does not inherit the shell's environment.** The ticket-7 poller
+  failed instantly with `FATAL: MLXFAST_API_TOKEN not in env` even though the
+  token is present in the interactive terminal; supervised jobs must request
+  credentials explicitly via `secret_env`. Cost: one wasted launch and ~10 minutes
+  of channel idle time, which on a saturated single-slot channel is a real loss.
 - I could not deliver any of this through PR comments — `respond_to_human_issue`
   does not work on PR #686 and the `gh` CLI is unauthenticated — so it arrives
   as committed files plus the `submit_experiment_result` summary.
@@ -775,12 +862,33 @@ retracted noise floor, and they stand:
 1. **Stop firing arm-class ranked probes.** Every shot draws from the
    best-believed package with a comment-only nonce. (Ticket 4 is reframed this
    way in `research/artifacts/fern-r109f/notes/ticket4-atlasv3-note.md` §7.)
-2. **Move *decode* arm adjudication onto the local iterate.** Not because small
-   gains do not matter — §5.3c shows +0.30 % is worth ×2.7 on crown odds — but
-   because the local host is the only instrument in this campaign that can *see*
-   them. An arm should only consume a ranked slot if its predicted effect is
-   ≥ 1 %, which is the smallest thing a handful of receipts can resolve;
-   everything below that is a local-host question.
+2. **Adjudicate every arm on the `officialMetrics` leg it targets, and never on
+   `officialScore`.** *(This recommendation replaces the original rec-2, which
+   said "move decode arm adjudication onto the local iterate … an arm should only
+   consume a ranked slot if its predicted effect is ≥ 1 %". Both halves were
+   wrong; the original text is kept below for the record.)* From the k=3 gauge
+   (§5.3f), receipts per arm at α .05 / power .95:
+
+   | axis to read | instrument sd | 0.20 % arm | 0.30 % arm |
+   |---|---:|---:|---:|
+   | **candidate prefill** | **0.0750 %** | **4** | **2** |
+   | normalized score | 0.1917 % | 24 | 11 |
+   | candidate decode | 0.2646 % | 46 | 20 |
+   | published score | 0.5169 % | 174 | 77 |
+   | baseline prefill | 2.1035 % | 2876 | 1278 |
+
+   A prefill arm is therefore **38× cheaper** to decide than the same arm read on
+   the published score. Concretely: maple-tanjiro's A2 (fused-NAX `bn` 128→64) and
+   maple-edward's `_nax` port are **unblocked** — 2 ranked receipts each, which the
+   saturated channel produces in under an hour — provided the verdict is read on
+   `officialMetrics.prefill_seconds_per_token` and not on the score. Local iterate
+   remains the right screen for *decode* arms, for throughput reasons (§5.2), and
+   remains structurally blind to every NAX path.
+
+   > *Original rec-2, superseded:* "Move decode arm adjudication onto the local
+   > iterate. … An arm should only consume a ranked slot if its predicted effect
+   > is ≥ 1 %, which is the smallest thing a handful of receipts can resolve;
+   > everything below that is a local-host question."
 
    > ⚠ **Scope correction, added after this section was written.** This applies
    > to the **decode** leg only. `maple-fern-r109f-nax-observability-gap.md`
@@ -796,8 +904,10 @@ retracted noise floor, and they stand:
    > family* that this GPU cannot execute (hence the 6.0× prefill ratio). A
    > local A/B of a prefill-NAX arm returns 0.00 % **by construction** — not a
    > small effect, no measurement. That kills arm A2 (fused-NAX `bn` 128→64) as
-   > a measurement dead end, and it means the "local iterate is a 4–7× better
-   > instrument" claim in §5.2 is a *decode* result that does not transfer.
+   > a *local* measurement dead end (**it is alive again on the ranked channel at
+   > 2 receipts — see the table above**), and it means the ~~"local iterate is a
+   > 4–7× better instrument"~~ claim in §5.2 is a *decode* result that does not
+   > transfer — and that claim has since been withdrawn outright (CORRECTION 5).
 3. **Chase accumulation, not a single big win.** Because the elasticity is
    ×1.48 per +0.10 %, three independent +0.1 % local wins compound to ×3.2 on
    per-shot crown probability. That is a far more tractable programme than
@@ -811,9 +921,29 @@ retracted noise floor, and they stand:
    stop early on a good draw.
 5. **Kill A1 (`darkbloom_expert_down_bn`) formally**; it is a proven no-op at
    default env. Prioritise #692 A2 (fused-NAX bn 128→64) and #693 ping-pong
-   staging, which are the only untested candidates, and evaluate them locally
-   first.
+   staging, which are the only untested candidates, and evaluate them ~~locally
+   first~~ **on the ranked candidate-prefill leg — 2 receipts each — because they
+   are locally unmeasurable by construction (§8 rec-2)**.
 6. **Treat the acceptance band as non-existent** in all planning.
+7. **The one genuinely open *decode* arm on the kernel this host actually runs is
+   `DARKBLOOM_AOT_SDPA_2PASS_PLANES`.** The no-op audit
+   (`maple-fern-r109f-nax-observability-gap.md` §8) found that it defaults to **1**
+   while its own clamp `o_planes = min(PLANES, D/BD = 4)` in `sdpa_vector_2pass_2`
+   permits 4 — unlike `DARKBLOOM_AOT_SDPA_PLANES`, which is already pinned at its
+   cap. Local host's arch suffix `'s'` routes all decode through the 2-pass kernel,
+   so this is on the hot path here *and* plausibly on ranked. It needs a metallib +
+   swift rebuild, and at 0.35 % local noise a 0.1 % effect needs ~42 replicates, so
+   prefer 2–4 ranked receipts read on the candidate-**decode** leg (20 receipts for
+   0.30 %, so only worth it if the predicted effect is ≥ 0.5 %).
+8. **`MLX_SDPA_BLOCKS` is a null and is not shippable anyway.** Eight local runs
+   (default ×2, 16, 32, 128, 256 ×2, 512) all correct on golden
+   `b9509697c08a2cf3`; the apparent −0.65 % win at 256 did not replicate (12850 →
+   12934 µs), and only 16 is plausibly *worse* (+0.68 %, ~1.8 σ at the corrected
+   0.35 % noise). Independently of the null: the dispatch site
+   `Vendor/mlx-swift/…/backend/metal/scaled_dot_product_attention.cpp:475-477` is
+   **not** in `editablePaths` (only the `.metal` and `sdpa_vector.h` files are), so
+   changing the default would require a `setenv` from editable Swift — a rules
+   question for the advisor before anyone spends a slot on it.
 
 ---
 
@@ -845,6 +975,19 @@ scope correction), `fern_r109f_band_audit.py` (§6, the phantom band),
 `fern_r109f_decode_regime.py` (host stability), `fern_r109f_semantic_diff.py`
 (attribution), and `fern_r109f_submit_when_free.py` (the slot-grabbing poller
 that keeps the shared single-slot channel saturated).
+
+**Added with §5.3f–§5.3h** (these three sections carry the corrections that
+matter most, so their provenance is spelled out):
+
+| tool / artifact | what it establishes |
+|---|---|
+| `research/fern_r109f_leg_instrument.py` | the whole k=3 gauge: per-leg pooled sd to 3 df, the receipts-per-arm table, the robust (MAD) field code residuals of §5.3g including the printed warning about the corollary it reversed, and the §5 class comparison with its plausibility guard |
+| `research/fern_r109f_host_drift.py` | §5.3h — field control over the same wall-clock window, per-axis Spearman ρ and late−early deltas, baseline-decode lag-1 autocorrelation at n=51 and n=213, and hourly baseline means |
+| `research/fern_r109f_same_sha_repeatability.py` | that **0 of 1196** full-leg receipts in the dataset share a `submissionCommitSha`, i.e. that our 5 receipts are the only identical-executable gauge in existence here |
+| `research/fern_r109f_own_shots.py` | the six-shot table with code and luck in separate columns, §D per-class means, §E per-class crown probability |
+| `research/artifacts/fern-r109f/ab/score.sdpablocks-*.json` (8 files) | the sealed local sweep behind CORRECTION 5 (local decode cv ≈0.35 %) and behind the `MLX_SDPA_BLOCKS` null; every file carries `passed: true` and golden `b9509697c08a2cf3` |
+| `research/artifacts/fern-r109f/notes/ticket7-preregistered-note.md` | the ticket-7 prediction, registered *before* the receipt was fired |
+| git tags `pkg-t1`…`pkg-t6` | the identical-executable claim, verifiable offline: `git diff pkg-t4 pkg-t5` and `git diff pkg-t5 pkg-t6` add **zero** non-comment lines |
 
 **A note on separating the two columns.** The single most useful habit this
 campaign produced is refusing to log a published score without logging its

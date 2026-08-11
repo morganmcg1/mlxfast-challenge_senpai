@@ -58,7 +58,8 @@ Five consequences, in descending order of how much work they cancel:
    decode edits split into *quantised-GEMV* (best transfer) and
    *attention* (medium transfer — real local signal, sign may not carry). §7.2
    also isolates `MLX_SDPA_BLOCKS`, a run-time decode-path knob needing no
-   rebuild — the cheapest remaining local experiment here.
+   rebuild — ~~the cheapest remaining local experiment here~~ **which has now been
+   run and is a NULL; see the box in §7.2**.
 5. **The no-op audit (§8).** Two portfolio knobs are arithmetically inert
    because they are already pinned at a shape-derived clamp: A1's
    `darkbloom_expert_down_bn`, and `DARKBLOOM_AOT_SDPA_PLANES` (4, capped at
@@ -199,6 +200,28 @@ improvement, and local decode repeatability is 0.05–0.10 %, so three replicate
 per arm resolve it at high confidence in about 15 minutes of local wall clock.
 **The instrument for decode work is roughly 10²–10³× cheaper than the instrument
 for prefill work**, and the decode term is the bigger one.
+
+> **⚠ BOTH halves of the comparison above are now measured, and both moved —
+> in opposite directions. Net effect: the conclusion inverts.**
+>
+> *Prefill got cheaper, by a lot.* The "~280 receipts per arm" figure was computed
+> on the **published score**. Six own receipts — including the first k=3
+> identical-executable group ever measured here — give a **per-leg** gauge, and
+> the candidate-prefill leg is the *quietest* axis on the host: instrument sd
+> **0.0750 %** versus 0.5169 % for the published score. A 0.30 % prefill arm read
+> on `officialMetrics.prefill_seconds_per_token` costs **2 receipts**, not 280.
+> A2 is adjudicable after all — in under an hour of channel time. See
+> `maple-fern-r109f-instrument-collapse.md` §5.3f and §8 rec-2.
+>
+> *Local decode got noisier.* An 8-run local sweep (§7.2) measures local decode cv
+> at **≈0.35 %**, not 0.05–0.10 %. Three replicates do **not** resolve a 0.47 %
+> decode change at high confidence; ~42 replicates resolve 0.1 %.
+>
+> So the "10²–10³× cheaper" claim is withdrawn. The honest statement: **decode is
+> screened locally because local throughput is ~10× the ranked channel's, and
+> prefill is adjudicated on the ranked channel because its leg is the quietest
+> instrument either host provides.** Each host is best at the leg the other cannot
+> measure, which is a much better situation than this section describes.
 
 ---
 
@@ -367,6 +390,47 @@ against the atlas-v3 baseline of `0.0129499915312` s/token, without touching the
 build or spending a submission slot. It is the cheapest remaining decode
 experiment in the workspace. (Its *transfer* is category 2 above: worth knowing,
 not worth betting a ranked receipt on by itself.)
+
+> **★ RESULT (2026-08-11T06Z): the sweep was run and it is a NULL — and it also
+> produced the campaign's noise correction as a by-product.**
+>
+> Eight runs, all `passed: true` on golden `b9509697c08a2cf3`, sealed as
+> `research/artifacts/fern-r109f/ab/score.sdpablocks-*.json`. Decode µs/token:
+>
+> | `MLX_SDPA_BLOCKS` | decode µs | vs default |
+> |---|---:|---:|
+> | default (ladder → 128) | 12934.7 | — |
+> | default, replay | 12965.0 | +0.23 % |
+> | 16 | 13019 | +0.65 % |
+> | 32 | 12926 | −0.07 % |
+> | 128 | 12935 | +0.00 % |
+> | 256 | 12850 | **−0.65 %** |
+> | 256, replay | 12934 | +0.00 % |
+> | 512 | 12889 | −0.35 % |
+>
+> The −0.65 % at 256 is the only interesting number and **it did not replicate**:
+> the same command 155 s later returned 12934 µs. Only 16 is plausibly *worse*
+> (+0.65 %, ~1.8 σ). Verdict: **no setting beats the ladder**, which is
+> unsurprising — the ladder already picks 128 for this shape and someone tuned it.
+>
+> **The by-product matters more than the result.** These 8 runs are the first
+> replicated local measurements in the campaign, and they gauge the *local*
+> instrument: σ ≈ 49 µs on a 12931.6 µs mean, i.e. **local decode cv ≈ 0.35 %**,
+> with the two replicated pairs differing by 30.3 µs and 84 µs. That falsifies the
+> "local iterate repeats to 0.05–0.10 %" premise that this document and
+> `maple-fern-r109f-instrument-collapse.md` §5.2 both leaned on (see CORRECTION 5
+> there): local is ~1.8× *noisier per observation* than the ranked normalized axis
+> and ~4.7× noisier than the ranked candidate-prefill leg. Local's advantage is
+> **throughput on an unowned slot**, ~1 order of magnitude, not 10²–10³×.
+>
+> **And it would not have been shippable even if it had won.** The dispatch site
+> that reads the variable —
+> `Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/scaled_dot_product_attention.cpp:475-477`
+> — is **not in `benchmark.json`'s `editablePaths`**; only
+> `kernels/scaled_dot_product_attention.metal` and `kernels/sdpa_vector.h` are.
+> Changing the default would mean calling `setenv` from editable Swift, which is a
+> rules question for the advisor and not a kernel result. Recording that here so
+> nobody re-derives the ladder and then discovers the file is frozen.
 
 ## 8. The no-op audit: check the clamp before you spend the build
 

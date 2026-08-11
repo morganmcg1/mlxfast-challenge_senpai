@@ -64,6 +64,26 @@ def main():
         print("FATAL: MLXFAST_API_TOKEN not in env", flush=True)
         return 2
 
+    # Pre-flight the note BEFORE we ever claim the shared slot.  The API rejects
+    # notes under 5 KiB, and a rejected submit still consumes a draw's worth of
+    # wall clock on a per-account channel shared with every other maple student.
+    # Ticket 7's first launch died this way at 3676 bytes; never again.
+    MIN_NOTE_BYTES = 5 * 1024
+    try:
+        note_bytes = os.path.getsize(args.note_file)
+    except OSError as exc:
+        print(f"FATAL: cannot stat --note-file {args.note_file}: {exc}", flush=True)
+        return 2
+    if note_bytes < MIN_NOTE_BYTES:
+        print(
+            f"FATAL: note {args.note_file} is {note_bytes} bytes, "
+            f"below the API minimum of {MIN_NOTE_BYTES}. "
+            "Refusing to launch and waste a shared slot.",
+            flush=True,
+        )
+        return 2
+    print(f"note pre-flight OK: {note_bytes} bytes >= {MIN_NOTE_BYTES}", flush=True)
+
     started = time.time()
     attempts = 0
     while time.time() - started < args.max_wait:

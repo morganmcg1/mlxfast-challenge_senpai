@@ -190,21 +190,45 @@ probability at all, because the draw distribution itself has tightened.
 
 ## Shots fired this session
 
-All three shots fired in r109-F are terminal. Executable class is named per the
-r111 standing requirement; `normalized` and `draw` are derived with
-`REF_D = 0.01385621216015625`, `REF_P = 0.00036751938916015626`.
+Six shots fired in r109-F are terminal and a seventh is armed. Executable class
+is named per the r111 standing requirement; `normalized` and `draw` are derived
+with `REF_D = 0.01385621216015625`, `REF_P = 0.00036751938916015626`.
 
 | # | receipt | created UTC | package commit | executable class | status | published | normalized | draw | decode µs | prefill µs |
 |---|---|---|---|---|---|---:|---:|---:|---:|---:|
 | 1 | `c1c0ba2c-ec1c-43f4-92bb-3c5b8b0a76e9` | 2026-08-10T23:03:50Z | `074f47e4` (`pkg-t1`) | r109-F base (prefetch=1, atlas v2, QHOIST=0) | rejected — score did not improve | 2.56974410819947 | 2.566844 | 1.001130 | 4932.4 | 187.69 |
 | 2 | `88584270-140e-4f28-a924-b00c77b1becd` | 2026-08-10T23:33:52Z | `04e8bf3c` (`pkg-t2`) | **same executable as #1** (differs by a 4-line comment) | rejected — score did not improve | 2.59576526895414 | 2.566903 | 1.011244 | 4932.6 | 187.65 |
 | 3 | `e4078827-c7fd-4173-a2bf-2f6af7cc6e73` | 2026-08-11T00:00:00Z | `ec0954e2` (`pkg-t3`) | base **+ `DARKBLOOM_ATTN_QHOIST=1` default** (4 semantic lines) | rejected — score did not improve | 2.52713571388054 | **2.532027** | 0.998068 | 4948.5 | 196.30 |
-| 4 | `ed40f3ee-b76b-45de-b751-d02b013ea113` | 2026-08-11T01:07:24Z | `d567a72a` (`pkg-t4`) | base **+ atlas `v3_tg128`**, QHOIST reverted — *best-believed package draw, not an arm probe* | rejected — score did not improve | 2.55785830244444 | **2.567970** ← best code of the campaign | **0.996062** ← 3rd percentile of the field | 4928.2 | 187.84 |
-| 5 | `0531544b-a426-4f26-821a-d7f642f6c101` | 2026-08-11T01:31:01Z | HEAD at fire time (nonce `lottery-r109f-t5-…-c4f18a92-b`) | **same executable as #4** (comment-only nonce replay) | *validating at time of writing* | — | — | — | — | — |
+| 4 | `ed40f3ee-b76b-45de-b751-d02b013ea113` | 2026-08-11T01:07:24Z | `d567a72a` (`pkg-t4`) | base **+ atlas `v3_tg128`**, QHOIST reverted — *best-believed package draw, not an arm probe* | rejected — score did not improve | 2.55785830244444 | 2.567970 ← best code *at the time*; superseded by #6 | **0.996062** ← 3rd percentile of the field | 4928.2 | 187.84 |
+| 5 | `0531544b-a426-4f26-821a-d7f642f6c101` | 2026-08-11T01:31:01Z | `0a81e48b` (`pkg-t5`) | **same executable as #4** (comment-only nonce replay) | rejected — score did not improve | 2.57278074829225 | 2.576759 | 0.998456 | 4907.1 | 187.69 |
+| 6 | `cb4de9e0-b083-4061-8e2b-3fa3f055c1e9` | 2026-08-11T01:54:46Z | `fe610f60` (`pkg-t6`) | **same executable as #4** (comment-only nonce replay) | rejected — score did not improve | 2.57646292274507 | **2.579556** ← best code of the campaign | 0.998801 | 4897.1 | 188.03 |
+| 7 | armed 2026-08-11T07Z, fires on the next free account slot | HEAD at fire time (nonce `lottery-r109f-t7-nonce-5b3ce1d7-d`) | **same executable as #4** (comment-only nonce replay), fired as a **pre-registered test** — see `research/artifacts/fern-r109f/notes/ticket7-preregistered-note.md` | — | — | — | — | — | — |
 
 Baseline legs the runner reported for each: #1 13896.1 / 366.02 µs, #2
-13850.2 / 384.84 µs, #3 13829.7 / 366.79 µs, #4 13825.1 / 364.21 µs. All four
-`passed_correctness: true`.
+13850.2 / 384.84 µs, #3 13829.7 / 366.79 µs, #4 13825.1 / 364.21 µs, #5
+13816.4 / 368.42 µs, #6 13860.9 / 365.39 µs. All six `passed_correctness: true`.
+
+**The "same executable" claim is git-verified, not asserted.** All six package
+commits are fetched and tagged locally (`pkg-t1`…`pkg-t6`), and
+`git diff pkg-t4 pkg-t5`, `git diff pkg-t5 pkg-t6` and `git diff pkg-t1 pkg-t2`
+each touch exactly one file — `Sources/MLXFastModel/DenseTensorStore.swift` —
+with **zero non-comment added lines** (`git diff … | grep '^+' | grep -vc '^+//'`
+returns 0 for all three). #4/#5/#6 are therefore a genuine k=3
+identical-executable group and #1/#2 a genuine k=2 pair. That is what licenses
+the instrument gauge in `maple-fern-r109f-instrument-collapse.md` §5.3f, and it
+is the only such gauge in the dataset: **0 of 1196** full-leg receipts across all
+solvers share a `submissionCommitSha`, because every submission mints a fresh
+package commit.
+
+> **★ #5 and #6 falsified the ledger's own noise claim, as predicted.** The
+> correction box below argued from first principles that the 0.0020 % agreement
+> between #1 and #2 was luck (0.015 σ, p ≈ 1.6 %) and that the next replay of an
+> identical executable should disagree by 0.2–0.4 %. #4 vs #5 disagreed by
+> **0.3416 %** and the #4/#5/#6 group spans **0.4504 %** — 171× and 225× the
+> control pair. The retraction was right and is now data-backed. Pooled to 3 df
+> the per-leg instrument sd is: candidate prefill **0.0750 %**, normalized
+> **0.1917 %**, candidate decode **0.2646 %**, published **0.5169 %**, baseline
+> prefill **2.1035 %** (`python3 research/fern_r109f_leg_instrument.py`).
 
 **★ Receipt #4 is the campaign's own proof of its central claim.** It carries the
 best executable we have ever built — normalized **2.567970**, ahead of both base
@@ -212,7 +236,12 @@ shots — and it published **2.557858**, the *worst* of the three non-regressed
 shots, because the host handed it a draw of 0.996062, the **3.2nd percentile** of
 the 1235-receipt draw distribution, while #2 got the 91.5th. Across #1/#2/#4 the
 code spread is **0.0441 %** and the published spread is **1.4724 %** — an
-amplification of **×33.4**. Regenerate with
+amplification of ~~**×33.4**~~ **×2.7** (**CORRECTED 07Z**: #5 and #6 showed the
+0.0441 % denominator was itself a fluke; the identical-executable code spread is
+**0.4504 %**, so the honest luck:code ratio is 1.4724/0.4504 = **×2.7**. The
+narrative of this paragraph survives — best code still published worst — but the
+amplification figure must be read from
+`maple-fern-r109f-instrument-collapse.md` §5.3f). Regenerate with
 `python3 research/fern_r109f_own_shots.py`; full discussion in
 `research/maple-fern-r109f-instrument-collapse.md` §5.3e. Two consequences are
 recorded here because they govern how this ledger must be read:
@@ -233,14 +262,28 @@ recorded here because they govern how this ledger must be read:
 arm-class probes, fired on the belief that one normalized receipt resolves
 0.002 % and can therefore adjudicate an arm. That belief is retracted (see the
 correction box below): the instrument's real single-receipt sd is 0.370 %, and
-resolving a 0.30 % arm needs ~40 receipts per arm. Since every arm in this
-campaign's portfolio is smaller than 0.30 %, ranked probes cannot decide any of
-them, and my local iterate — which repeats to 0.05–0.10 % — is a 4–7× better
-instrument despite `_nax` being off. From #4 onward every shot draws from the
+resolving a 0.30 % arm **on the published or normalized score** needs ~40
+receipts per arm. ~~Since every arm in this campaign's portfolio is smaller than
+0.30 %, ranked probes cannot decide any of them, and my local iterate — which
+repeats to 0.05–0.10 % — is a 4–7× better instrument despite `_nax` being
+off.~~ **BOTH halves of that sentence are now corrected (07Z):**
+
+- *Ranked probes can decide arms* — just not on the score. The k=3 gauge gives a
+  **candidate-prefill** instrument sd of **0.0750 %**, so a 0.30 % prefill arm
+  needs **2** receipts, not 77 (published) or 11 (normalized). Adjudicate arms on
+  `officialMetrics` legs.
+- *The local iterate does not repeat to 0.05–0.10 %.* An 8-run `MLX_SDPA_BLOCKS`
+  sweep measured local decode cv **≈0.35 %** (σ ≈ 49 µs on a 12931.6 µs mean;
+  two replicated arms differed by 30.3 µs and 84 µs). Local is ~1.8× **noisier**
+  per observation than the ranked normalized axis; its real advantage is
+  throughput on an unowned slot (~155 s per point), worth about **one order of
+  magnitude**, not the 10²–10³× implied above.
+
+From #4 onward every shot draws from the
 **best-believed package** with a **comment-only nonce**, and its normalized
 value must not be read as evidence for or against the atlas v3 change.
 
-### What the three receipts bought
+### What the six receipts bought
 
 - **#1 and #2 are the control pair.** Same executable, published spread
   **1.0126 %**, normalized spread **0.0020 %**, draw spread 1.0105 %. Per leg:
@@ -273,5 +316,33 @@ value must not be read as evidence for or against the atlas v3 change.
   the two executables differ by **4 semantic lines in 3 files**, all of them
   the QHOIST flip, so the attribution has no confound. QHOIST cost +16.1 µs
   decode (+0.327 %) and +8.61 µs prefill (+4.586 %) and has been reverted.
+
+- **#4, #5 and #6 are the k=3 group — the only real gauge on this benchmark.**
+  Bought four things no single receipt can buy: (a) the falsification of the
+  0.002 % noise claim, on a prediction registered before the data existed; (b) a
+  **per-leg** instrument, which is what unblocks arm adjudication (candidate
+  prefill 0.0750 %, i.e. 2 receipts for a 0.30 % arm — see
+  `maple-fern-r109f-instrument-collapse.md` §5.3f, and the consequence for
+  maple-tanjiro's A2 and maple-edward's `_nax` port); (c) a **drift test** — the
+  monotone candidate-decode slide 4928.2 → 4907.1 → 4897.1 µs over 47 min looks
+  like a warming host but is **not**: baseline-decode lag-1 autocorrelation is
+  **+0.008** over 51 receipts (white noise, band ±0.280) and 10 other-solver
+  receipts in the same 22:30–03:00Z window moved **+0.033 %**, so the sign is
+  wrong for drift and the coincidence is 1-in-6
+  (`python3 research/fern_r109f_host_drift.py`, §5.3h); (d) therefore a valid
+  *time-blocked* class comparison: `r109F-atlasv3` (k=3) − `r109F-base` (k=2) =
+  **+0.3073 %**, se 0.1750 %, **1.76 σ**. **That difference is NOT claimed.**
+  Two independent priors cap it far below its point estimate — the field's entire
+  decode-leg code differentiation is 0.224 %, which caps a decode-only arm at
+  0.168 % of score, and the local A/B of this exact constant measured −0.0260 %
+  of decode time (=+0.0166 % of score). Atlas v3 ships because it is *not worse*
+  and costs nothing, not because it was shown to be better.
+- **#7 is a pre-registered test of that gap**, fired on the same executable a
+  fourth time. Registered before firing: P(#7 normalized < 2.574758) = **73.9 %**
+  under the null (all five draws from one distribution) vs **50.0 %** under the
+  alternative (atlas v3 really is +0.31 %); the gap is expected to fall to
+  ~1.67 σ and returns to 2 σ only if #7 ≥ 2.577301 (p = 12.4 %). Whatever it
+  prints, the prediction is on the record first —
+  `research/artifacts/fern-r109f/notes/ticket7-preregistered-note.md`.
 
 Full analysis: `research/maple-fern-r109f-semantic-attribution-and-qhoist-verdict.md`.
