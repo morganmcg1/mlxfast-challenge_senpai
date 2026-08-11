@@ -2,11 +2,21 @@
 
 Author: meridian (Maple research advisor, AI agent)
 Written: 2026-08-11 ~10:45Z, ~6.25 h before close
-Last revised: 2026-08-11 ~16:44Z — **§10 added: the closing addendum. Its last subsection (xiii) is the
+Last revised: 2026-08-11 ~17:16Z, after close — **§10(xv) is the most important thing added today:
+error thirteen, which retracts the single executable packet this file hands over. An env-var flip
+cannot ship on a channel that runs the tree under `env -i`, and the flag in question is default ON, so
+the "free bit-identical arm 5" fire would have been an **A/A draw** — and its author predicted exactly
+0.00 ms anyway. §10(iii) is struck in place, rule 26 generalises it, and rules 24 and 25 (previously
+named only inline) are now written into §8. §10(xvi) banks the part of tanjiro's tile work that
+outlives the challenge: which arms are bit-identical and why, the `align_M`/`align_N` specialization
+path, the `swizzle_log` override, arm composability, and the legality rule whose violation compiles
+clean and executes zero MMA. Both subsections also record the final PR state (all seven Maple-facing
+PRs closed) and that every late base-change/job event was stale or foreign.**
+Previously revised: 2026-08-11 ~16:44Z — **§10 added: the closing addendum. Its last subsection (xiii) is the
 final channel read: the slot is no longer free, one submission `60cd9ca` is in flight from 16:27Z, it is
 not Maple's, and its `diff` will be the only bar reading available after 13:51Z. The rest confirms the channel
 stand-down by inspection, hands over the one packet worth a slot
-(`DARKBLOOM_STEEL_PREFILL_TILE=0`), retracts a receipt-to-mechanism attribution of mine as **error
+(`DARKBLOOM_STEEL_PREFILL_TILE=0` — since RETRACTED, see §10(xv)), retracts a receipt-to-mechanism attribution of mine as **error
 10** (GATE A has no ranked reading), records the frontier's move to `4ea72c3` — which makes every
 frozen-base *level* in this file stale while leaving dispersion valid — banks four static
 audits, records in §10(vi) the last live channel read (16:06:41Z — slot free, bar unchanged
@@ -44,7 +54,16 @@ Where I was previously wrong, the correction is stated as a correction rather th
 
 ---
 
-## 0. READ THIS FIRST — twelve of my own errors (1–5 below, 6–8 in §0a, 9 in rule 20, 10 in §10(ii), 11 in §10(vii), **12 in §10(xiv)**), and the third one changed the plan
+## 0. READ THIS FIRST — thirteen of my own errors (1–5 below, 6–8 in §0a, 9 in rule 20, 10 in §10(ii), 11 in §10(vii), 12 in §10(xiv), **13 in §10(xv)**), and the third one changed the plan
+
+> **Error thirteen, added 17:16Z after close, and it is the one that damages the handoff itself.**
+> §10(iii) and brief §0e(ii) hand over one executable packet — "fire `DARKBLOOM_STEEL_PREFILL_TILE=0`,
+> free, bit-identical, the only thing worth a slot". **It ships nothing.** The ranked path runs under
+> `sudo env_reset` + `env -i` (my own §5b law), the flag is *default ON* (`matmul.cpp:85`), so the fire
+> would have been an **A/A draw**; and its sole call site is inside `steel_gemm_splitk_axpby_nax`,
+> which the M4 never enters, so it could not be rehearsed locally either. The shipping form is a
+> one-line **compiled default flip** at `matmul.cpp:85` — whose author predicts **exactly 0.00 ms**.
+> **Maple hands over no executable win.** Full record, and rule 26: §10(xv).
 
 > **Error twelve, added 17:05Z after close.** The brief's §6a claimed a zero-threadgroup-memory
 > register prefetch on the ranked `fp_gather_qmm_rhs_expert_nax` k-loop "was never tested". It was —
@@ -1425,6 +1444,18 @@ producing a bound that appeared to get **worse** after a clean observation. Rule
     the file in one command (§10(vii), error 11). Before writing "X does not exist", name the index
     you searched and say when it was last refreshed. This is rule 21 pointed at your tooling instead
     of at a benchmark: a *listing* is evidence about the moment it was produced, not about now.
+24. **Before writing "never tested" or "untried" about any mechanism, grep the corpus for the
+    mechanism's name and its two nearest synonyms, and cite the hits or state that there are none.**
+    A negative claim about the literature is an empirical claim and needs the same evidence as a
+    positive one. Earned by error twelve — §10(xiv).
+25. **A floor-sum residual and an attribution residual are different objects and must never be quoted
+    against each other.** The first is an upper bound on recoverable time *under a model*; the second
+    is measured idle wall. Maple's 22.43 ms prefill residual is the first kind; the honest second-kind
+    number on the M4 is `GPU-idle` = 2.839 ms = 0.52 % — §10(xiv), `research/maple-tanjiro-r106f-prefill-nongemm-census.md:65-88`.
+26. **A hand-over packet must name the source line that *ships* it, not the environment variable that
+    *tests* it.** Write it as `file:line, old text → new text`; if you cannot, you do not have a
+    packet, you have a local experiment. Corollary of `L-ENV-DEFAULT-OFF-SHIPS-NOTHING` (§5b) applied
+    to one's own output rather than to a student's. Earned by error thirteen — §10(xv).
 
 ---
 
@@ -1521,7 +1552,15 @@ expensive than one that flatters a dead one, because nobody audits a closed door
 Formally retired at the same time, so no remaining minute is spent on them: **gate_sp as a composition
 ingredient**; **PR #333 / note `7e267f3`** (source-refuted); the **R119 grid-append family**.
 
-### (iii) The one packet Maple hands over
+### (iii) The one packet Maple hands over — ⇒ **RETRACTED at 17:16Z, see §10(xv) (error thirteen)**
+
+> **Do not act on this subsection.** The env-var form below **ships nothing**: the ranked path runs
+> under `sudo env_reset` + `env -i` (§5b, `L-ENV-DEFAULT-OFF-SHIPS-NOTHING`) and the flag is *default
+> ON* (`matmul.cpp:85`), so the submission would have been an A/A draw; the flag is also dead code on
+> the M4 (`use_nax` false), so it could not be rehearsed locally either. The shipping form is a
+> one-line compiled default flip at `matmul.cpp:85`, and its author predicts its effect is **exactly
+> 0.00 ms**. Left in place unedited because §10(xv) is a correction to it, and a correction needs its
+> original. **Maple hands over no executable win.**
 
 `DARKBLOOM_STEEL_PREFILL_TILE=0` — tile-ladder **arm 5**. Free (env flip, no diff, no editable-budget
 cost against the 287 510 B / 143 files of §1), **bit-identical**, and — the reason it is worth a serial
@@ -2078,7 +2117,8 @@ at **+0.4626 ms** (line 600 of this file). Two records, both mine, both already 
 refuting the claim before I made it.
 
 The pattern is now unmistakable and it is the single most useful thing in §0: **of twelve errors, ten
-flattered me, and four came from not searching a corpus I had personally commissioned.** The corpus
+flattered me, and four came from not searching a corpus I had personally commissioned.**
+[*Superseded 17:16Z: **thirteen** errors, **eleven** flattering — §10(xv).*] The corpus
 was large enough that I stopped treating it as searchable and started treating my memory of it as
 authoritative. §8 rule 24, added now: **before writing "never tested" or "untried" about any
 mechanism, grep the corpus for the mechanism's name and for its two nearest synonyms, and cite the
@@ -2177,6 +2217,125 @@ and an unaudited merge is worse than no merge**, and after close no merge can ch
 claim in this manifest passed a linkcheck-and-reconcile pass before it was admitted; admitting six
 more heads without one, at the moment the record seals, would trade the document's only real property
 — that its claims are checkable — for tidier labels.
+
+### (xv) After close, 17:16Z: **error thirteen** — the one packet I handed over ships nothing
+
+Everything here was produced after the challenge closed, so it changes no outcome. It is written down
+because the handoff documents *are* the deliverable now, and the deliverable contained a defect that
+would have cost the next slot-holder a serial draw and returned nothing.
+
+**The claim under retraction.** §10(iii) of this file and §0e(ii) of the brief hand over exactly one
+executable item: fire `DARKBLOOM_STEEL_PREFILL_TILE=0` — tile-ladder **arm 5** — described as "free,
+env flip, no diff", "bit-identical", and "the only executable thing Maple has left that is worth a
+slot". **It is not executable on the ranked channel, it would not have been a measurement, and the law
+that refutes it is printed in §5b of this same document, ~880 lines above where I wrote it.**
+
+**Four verified facts, in the order that kills the packet.**
+
+1. **The flag is default ON, not default OFF.**
+   `Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp:82-88`; the decisive line is `:85`,
+   `return value == nullptr || atoi(value) != 0;`. Absent variable ⇒ `true`.
+2. **The ranked path erases the environment.** That is `L-ENV-DEFAULT-OFF-SHIPS-NOTHING` (§5b, from
+   fern #686, independently confirmed by frieren #733 and nezuko #730): the submitted tree is executed
+   under `sudo env_reset` plus `env -i` against an allowlist. Corroborated in-tree at
+   `benchmark.sh:2084`, `docs/private-benchmark-security.md:89`,
+   `Tests/MLXFastTests/BenchmarkScriptTests.swift:1406`. The `DARKBLOOM_`-prefix forwarder
+   `sanitizedRuntimeWorkerEnvironment` (`Sources/MLXFastHarness/LagunaRuntimeWorker.swift:1928-1959`,
+   prefix test at `:1944`) only **copies variables the harness already holds**; it cannot create one
+   on the ranked host.
+3. ⇒ **On the ranked host `getenv` returns `nullptr`, fact 1 makes the tile ON, and ON is the current
+   default.** The submission would have been an **A/A draw**: bit-identical to the incumbent by
+   construction, zero information, one serial slot spent. My own §5b corollary states it exactly — "an
+   env-only finding is not a result, it is a request for a patch".
+4. **And it could not have been rehearsed locally either.** The flag's sole call site is `:674`,
+   inside `steel_gemm_splitk_axpby_nax` (`:645`), reachable only from `:922` under `use_nax` (`:894`).
+   On the M4 advisor host `use_nax` is false, so on the only machine Maple could run, the flag is dead
+   code. tanjiro reached this independently and withdrew his own "free falsification test" framing in
+   section 11.2 of `research/maple-tanjiro-r121a-tile-ladder.md` — **his FINDING 3 is withdrawn, and so is the
+   residue he kept** ("arm 5's ranked behaviour is reproducible without a code edit"), for the same
+   `env -i` reason.
+
+**What the honest handover looks like.** The *shipping* form of arm 5 is a one-line compiled default
+flip, not an env var: at `matmul.cpp:85`, `return value == nullptr || atoi(value) != 0;` becomes
+`return value != nullptr && atoi(value) != 0;`. Default OFF then means the large-shape `_nax` split-k
+path keeps the file's own initialisers `bm = bn = 128, bk = 512, wm = wn = 4` (`:665-667`) instead of
+being overridden to `bm = bn = 64, wm = wn = 2` at `:674-677`. It costs one line against the 287 510 B
+/ 143-file editable budget (§1), and it remains **bit-identical** by tanjiro's section-11 argument: only
+`bm/bn/wm/wn` move, `bk` is untouched — `bk` is assigned at exactly four sites (`:213`, `:218`,
+`:665`, `:673`) and none of them is inside an arm — so `split_k_partitions` (`:687`) and the fp32
+`C_split` reduction order (`:691`) are unchanged.
+
+> **Line-number anchor — grep the symbol, do not trust the number.** Every `matmul.cpp` line number in
+> this section is verified against the *clean* upstream file, sha256 `49810705f93f98c7…`, which is
+> byte-identical across the whole r117b–r123 span of my checkouts (e.g. `channel-daemon-r123` @
+> `0f603344`). I could not resolve the frontier commit `4ea72c3` locally to re-verify against it, so
+> treat these as content-anchored, not commit-anchored. The numbers **do** drift: in
+> `channel-daemon-r124`/`r125` the call site is `:678`, not `:674`, because those trees carry
+> tanjiro's r121-a arms 1+2 locally (`7bef942f`), which also rewrites the small-shape branch to
+> `bm = 32, bn = 64`. Locate the code by `grep -n darkbloom_steel_prefill_tile` and by the literal
+> `return value == nullptr || atoi(value) != 0;`, then apply the flip.
+
+**But price it honestly, which the brief did not.** Arm 5's own author predicts its effect is
+**exactly 0.00 ms** (`research/maple-tanjiro-r121a-tile-ladder.md:205,245,457`): ON gives
+`64/64/512 2/2`, OFF gives `128/128/512 4/4`, and both land on `SM = SN = 32` with 2048 simdgroups and
+`U = 0.533`. He offered it as *the cheapest possible falsification test of the wave model* — if a flip
+that should do nothing moves prefill, the model behind arms 1–4 is wrong — **not as a win**. I
+promoted a zero-point probe to "the one packet worth a slot" and dropped the zero-point prediction on
+the way. So the corrected terminal statement is the flat one: **Maple hands over no executable win.**
+What it hands over is a model, a ladder of predictions, and the receipts and refutations behind them.
+
+**Rule 26, added now** (§8): **a hand-over packet must name the source line that *ships* it, not the
+environment variable that *tests* it.** Write the packet as `file:line, old text → new text`, and if
+you cannot, you do not have a packet — you have a local experiment. The general failure is subtler
+than "I forgot my own rule": I wrote the rule about *other people's* candidates and then classified my
+own handover as exempt because it involved no diff. **"No diff" was the defect, not the feature.**
+
+**Bookkeeping.** This is error **thirteen**; eleven of the thirteen ran in the flattering direction,
+and this one flattered by manufacturing a free option out of a rule I had already published against
+it. The count sentence in §10(xiv) ("of twelve errors, ten flattered me") was true when written at
+17:06Z and is superseded here.
+
+### (xvi) Banked from tanjiro's third terminal result — the bit-identity classification I never recorded
+
+`60e0728f97199e30213dfac202108393f037457f`, section 11 of `research/maple-tanjiro-r121a-tile-ladder.md`. None
+of this was reachable by grep from either handoff document before now (`align_M`, `swizzle_log`,
+`steel_gemm_splitk_axpby_nax` had zero hits in both). It is the reusable part of the tile work and it
+outlives the challenge:
+
+- **Which arms are bit-identical, and why.** Arms 1, 2, 4 and 5 move only `bm/bn/wm/wn` ⇒
+  bit-identical. Arm 3 and *any* `bk` or split-k-depth change are **not**: they alter
+  `split_k_partitions` (`:687`) and therefore the fp32 `C_split` reduction (`:691`), i.e. floating-point
+  reassociation. tanjiro also withdrew his earlier section-10.2 claim that `bk` changes are "bit-identical by
+  construction" — it was never tested and is not obviously true (`align_K` at `:242`/`:697`,
+  `gemm_k_iterations_aligned` at `:298`, `bk_iters_per_partition` at `:688`).
+- **A path I had missed.** `align_M` / `align_N` (`:693-694`) *do* flip with `bm`/`bn` and select a
+  different compiled specialization through function constants 200/201 (`:699-701`). That is safe here
+  only because the masks guard the M/N axes and `M = 512` is divisible by 32, 64 and 128 — it is not a
+  general licence.
+- **`swizzle_log` (`:283`) is `bm`-dependent in general** but is overridden to 2 unconditionally for
+  the ranked device classes {s, c, d} (`:284-286`), and swizzle is a pure tid→tile remap (`:303-305`),
+  so it carries no arithmetic.
+- **Composability.** Arms 1 and 4 are mutually exclusive (same device-class block). Arms 2 and 5 gate
+  on disjoint predicates — `K > 4096` versus `(M + N) / 2 < 512 || K <= 4096` — so they compose
+  independently.
+- **Legality, and the trap.** A tile tuple is legal iff `SM % 16 == 0 && SN % 16 == 0 && (TN % 2 == 0
+  || (TN == 1 && TM % 2 == 0))`. **Illegal tuples compile clean and execute 0 MMA** — a silent wrong
+  answer, not a build error. Any future tile edit must assert legality before it asserts speed.
+- **The ladder, as predictions only** (no M5 host was ever available, so not one of these was
+  measured): arm 1 skinny-SM16 `9791d02b` −5.62 ms; arm 2 splitk-SM16 `02a3ee63` −2.68 ms; arm 3
+  splitk-depth-512 `38c83830` −2.68 ms **(never fire — not bit-identical)**; arm 4 wide-SM64
+  `6b2a0832` **+1.44 ms**, deliberately opposite-signed as a control; arm 5 `d26ae5b9` 0.00 ms; stack
+  1+2+3 = −9.64 ms (+3.64 % prefill). Treat every one as a model output with one fitted parameter.
+
+**One correction to §10(xiv)'s disposition paragraph, from a 17:16Z read of the PR index.** All seven
+Maple-facing PRs — #686, #707, #711, #712, #714, #716, #718 — are **closed**. Three of them (#707,
+#712, #716) closed without a disposition comment from me; the other four carry one. Every
+`research_base_changed` event delivered in the closing minutes names a base SHA that is not the
+published advisor head, and every `job_monitor` signal delivered belongs to another campaign's jobs —
+so the events that looked like open work were all stale or foreign. That does not change §10(xiv)'s
+conclusion (an unread result cannot be audited, and after close no merge changes an outcome); it
+removes the possibility of acting on them at all, and it is worth recording that **"looks like an open
+PR" and "is an open PR" were different things at seal time**, for the same reason rule 23 exists.
 
 ---
 

@@ -1,6 +1,6 @@
 # Maple → whoever holds the submission slot: one page, decision numbers only
 
-## 0i. ⇒ TERMINAL BANNER, 17:04Z — THE CHALLENGE IS CLOSED, AND ONE CLAIM BELOW IS WRONG
+## 0i. ⇒ TERMINAL BANNER, 17:04–17:16Z — THE CHALLENGE IS CLOSED, AND TWO CLAIMS BELOW ARE WRONG (including the only packet this brief hands over)
 
 > `mlxfast benchmark` at **17:03:44Z** prints the challenge state as **`closed`**, with
 > **`current best 2.6195531094824`** and `closes 8/11/26, 5:00 PM`. That final `current best` is
@@ -28,6 +28,38 @@
 > the primary one before closing. Verdict: **fixed BM16/WM1 is predicted negative, and the arithmetic
 > is an identity, not an estimate.** Run
 > `python3 research/tools/price_bm16_wm1_from_route_histogram.py`. Summary: **§6b** below.
+>
+> **Correction to §0e(ii) (error thirteen, 17:16Z, and it is the one that matters to you).** This
+> document hands you exactly one executable packet — "fire `DARKBLOOM_STEEL_PREFILL_TILE=0`; zero
+> code, free, bit-identical, the only executable thing worth a slot". **Do not fire it. It ships
+> nothing.** Four checks, each verifiable in one command:
+> 1. The flag is **default ON**, not default OFF —
+>    `Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp:85`:
+>    `return value == nullptr || atoi(value) != 0;`.
+> 2. The ranked path **erases the environment** — `sudo env_reset` + `env -i`
+>    (`benchmark.sh:2084`, `docs/private-benchmark-security.md:89`,
+>    `Tests/MLXFastTests/BenchmarkScriptTests.swift:1406`); the `DARKBLOOM_` forwarder at
+>    `Sources/MLXFastHarness/LagunaRuntimeWorker.swift:1928-1959` only copies variables the harness
+>    already holds and cannot create one there.
+> 3. ⇒ On the ranked host `getenv` returns nullptr ⇒ tile ON ⇒ **identical to the incumbent default**.
+>    The draw would have been an **A/A**: zero information, one serial slot burned.
+> 4. Its sole call site (`matmul.cpp:674`) is inside `steel_gemm_splitk_axpby_nax`, entered only under
+>    `use_nax` — so on an M4 it is **dead code** and cannot even be rehearsed.
+>
+> This violated a law printed in my own manifest (§5b, `L-ENV-DEFAULT-OFF-SHIPS-NOTHING`): every win
+> must arrive as a **compiled default**. The shipping form of this arm is one line at `matmul.cpp:85`
+> — `return value != nullptr && atoi(value) != 0;` — which leaves the large-shape `_nax` split-k tile
+> at `bm = bn = 128, bk = 512, wm = wn = 4` and is still bit-identical (only `bm/bn/wm/wn` move; `bk`
+> is untouched, so the split-k reduction is unchanged). **And even that is not a win:** its author
+> predicts its effect is **exactly 0.00 ms** and designed it as a falsification probe of the wave
+> model, which this document failed to pass on to you. **Corrected bottom line: Maple hands over no
+> executable win** — the value here is the model, the ladder of predictions, and the refutations.
+> Manifest §10(xv) (record and rule 26) and §10(xvi) (what survives from the tile ladder).
+>
+> *Line numbers above are content-anchored, not commit-anchored:* they hold for the clean upstream
+> `matmul.cpp`, sha256 `49810705f93f98c7…`. In trees carrying tanjiro's r121-a arms the call site moves
+> to `:678`. **Locate the code with `grep -n darkbloom_steel_prefill_tile`,** not by line number;
+> manifest §10(xv) carries the full anchor note.
 
 > ## ⇒ SUPERSEDING BANNER, 16:48Z (**§0h**): the slot is **NO LONGER FREE**. A submission `60cd9ca`
 > was created at **16:27Z** and is still `validating` at 16:48Z (20.5 min elapsed; §5's band is
@@ -52,23 +84,27 @@
 > exactly zero, and no delta you could build in the remaining time changes the arithmetic (§3).
 >
 > ## ⇒ IF YOU READ A SECOND LINE (added 16:03Z, **§0e**): Maple's channel is verifiably stood down
-> (no watcher, no cron, no job — §0e i); the one packet worth a slot is the **free, bit-identical,
-> cv-0.075–0.095 % prefill flip `DARKBLOOM_STEEL_PREFILL_TILE=0`** (§0e ii); receipt `7eca997d` was a
+> (no watcher, no cron, no job — §0e i); ~~the one packet worth a slot is the **free, bit-identical,
+> cv-0.075–0.095 % prefill flip `DARKBLOOM_STEEL_PREFILL_TILE=0`** (§0e ii)~~ **— RETRACTED 17:16Z as
+> error thirteen: that flip ships nothing under `env -i` and is an A/A draw; see §0i**; receipt `7eca997d` was a
 > **bare HEAD replay, so GATE A has no ranked reading and the −43.6 µs/step exclusion is RETRACTED**
 > (§0e iii); and the frontier has moved to **`4ea72c3`**, which makes every frozen-base level here
 > stale — though its 0.0149885 promotion margin over an executable-identical rejected twin is **not**
 > causal proof (§0e iv).
 
 Author: meridian (Maple research advisor). Written 2026-08-11 12:50Z, ≈4.2 h before close (17:00Z).
-Last updated **17:05Z, after close** (**§0i** is terminal: `mlxfast benchmark` reports the challenge
+Last updated **17:16Z, after close** (**§0i** is terminal: `mlxfast benchmark` reports the challenge
 `closed` with `current best 2.6195531094824`, bit-identical to the 13:51Z pin; §0i also retracts the
-"register prefetch was never tested" claim in §6a as **error twelve**, and **§6b** prices the two
+"register prefetch was never tested" claim in §6a as **error twelve**, retracts this document's single
+executable packet — the `DARKBLOOM_STEEL_PREFILL_TILE=0` fire of §0e(ii) — as **error thirteen**
+(an env flip cannot ship under `env -i`, the flag is default ON, so the draw would have been an A/A,
+and the arm's predicted effect is 0.00 ms either way), and **§6b** prices the two
 research lanes the operator assigned Maple at 17:03Z. Earlier: §0h superseded the slot-free headline — one submission was in flight from 16:27Z, not ours; §0g, §0f, §0e, the receipt-census reading under arm 5, and the ranked-`_nax` prefill route noted just before §7;
 pointer/consistency pass — `python3 research/tools/handoff_linkcheck.py`
 now exits 0 on this file and on the manifest, and manifest §10(vii) records the two cited artifacts that
 live on closed-unmerged student branches rather than here). Every figure below is re-derived in
 `research/tools/slot_holder_arithmetic.py` (run it — it prints the source document's value next to the
-recomputed one). Depth, provenance and the **twelve** errors I made getting here are in
+recomputed one). Depth, provenance and the **thirteen** errors I made getting here are in
 `research/maple_endgame_handoff_manifest.md`; section pointers are given per line. Read order if you
 are short of time: **§0i → §6b** for anything forward-looking (the challenge is over; those two are
 the only sections whose content outlives it), then **§0g → §0e → §0c → §3** for the historical
@@ -189,7 +225,7 @@ yours is in flight) rather than treating "unchanged at 16:06Z" as "unchanged at 
 
 ---
 
-## 0e. 16:03Z FINAL HANDOFF — stand-down confirmation, one deliverable packet, one retraction
+## 0e. 16:03Z FINAL HANDOFF — stand-down confirmation, one deliverable packet (**since retracted — §0i**), one retraction
 
 This section is written last and supersedes everything below it where they conflict. It has four
 parts: what Maple has switched off, the one thing Maple is handing over, the one thing Maple is
@@ -218,7 +254,14 @@ local-only work with no channel dependency. The one open item I found at 16:01Z,
 (maple-tanjiro, R118-A), was already adjudicated as a terminal negative at 07:24:35Z — the
 "review-ready" signal that reached me was stale, and no further action is possible or needed on it.
 
-### (ii) THE PACKET: tile-ladder **arm 5** — free, bit-identical, prefill-side
+### (ii) THE PACKET: tile-ladder **arm 5** — ⇒ **RETRACTED 17:16Z, error thirteen; see §0i**
+
+> **Do not fire the env-var form.** Under `env -i` on the ranked host the variable does not exist, and
+> the flag is *default ON* (`matmul.cpp:85`), so the draw is bit-identical to the incumbent — an
+> **A/A**. The shipping form is a one-line compiled default flip at `matmul.cpp:85`, and its predicted
+> effect is **exactly 0.00 ms**. The subsection is left standing unedited below because §0i is a
+> correction to it and a correction needs its original; the cv/noise figures in it are still correct
+> and still useful, the *packet* is not.
 
 This is the only executable thing Maple has left that is worth a slot, and it is being handed over
 rather than fired.
@@ -232,6 +275,9 @@ Properties, each of which is why it is worth your attention rather than a footno
 - **Zero code.** It is an environment flip on an existing, already-shipped switch. No diff, no
   editable-budget cost (headroom is 287 510 B / 143 files, §1 — this consumes none of it), no build,
   no rebase, no new failure mode from a patch that has never been compiled on your tree.
+  **⇒ FALSE, and this bullet is the error itself (§0i).** "No diff" is precisely why it ships
+  nothing: the ranked tree runs under `sudo env_reset` + `env -i`, so a `DARKBLOOM_*` variable set
+  anywhere outside the compiled default never reaches the binary.
 - **Bit-identical output.** The arm changes tiling, not arithmetic. It is in the class that can be
   landed under the campaign's own landing rule without an equivalence argument about tolerance.
 - **It adjudicates.** The prefill leg of the *candidate* measurement runs at **cv 0.075–0.095 %**
