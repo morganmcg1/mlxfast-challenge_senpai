@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+"""Apply the R117-C o_proj rows-per-simdgroup knob to LagunaRuntimeModel.swift.
+
+Line-range scoped so that identical text in sibling kernels is never touched.
+Asserts exactly one hit per scope; refuses to write anything on any miss.
+"""
+import shutil
+import sys
+
+ROOT = "/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-nezuko/workspace/target"
+if len(sys.argv) > 1:
+    ROOT = sys.argv[1]
+SRC = ROOT + "/Sources/MLXFastModel/LagunaRuntimeModel.swift"
+NEWFILE = ROOT + "/Sources/MLXFastModel/LagunaOProjGeometry.swift"
+
+lines = open(SRC).read().split("\n")
+
+
+def anchor(needle, lo, hi):
+    """1-based inclusive search for the unique line containing needle."""
+    hits = [i for i in range(lo - 1, min(hi, len(lines))) if needle in lines[i]]
+    if len(hits) != 1:
+        sys.exit(f"FAIL anchor {needle!r} in [{lo},{hi}]: {len(hits)} hits {[h+1 for h in hits]}")
+    return hits[0]
+
+
+# ---- 0. locate the scopes by declaration, not by frozen line numbers --------
+def decl(needle):
+    hits = [i for i in range(len(lines)) if lines[i].startswith(needle)]
+    if len(hits) != 1:
+        sys.exit(f"FAIL decl {needle!r}: {len(hits)} hits")
+    return hits[0] + 1  # 1-based
+
+
+d_src = decl("func lagunaGatedAffineOProjNVFP4Source(")
+d_k1 = decl("private let lagunaGatedAffineOProjNVFP4Kernels")
+d_k2 = decl("private let lagunaGatedAffineOProjNVFP4LaneMajorKernels")
+d_k3 = decl("private let lagunaActivatedOProjKernels")
+d_k4 = decl("private let lagunaActivatedOProjLaneMajorKernels")
+d_disp = decl("func lagunaGatedAffineOProjNVFP4(")
+print(f"scopes: src={d_src} k1={d_k1} k2={d_k2} k3={d_k3} k4={d_k4} disp={d_disp}")
+
+edits = []
+
+# ---- 1. the two Metal-source constants -------------------------------------
+i = anchor("constexpr uint results_per_simdgroup = 4;", d_src, d_k1)
+edits.append((i, lines[i].replace(
+    "constexpr uint results_per_simdgroup = 4;",
+    "constexpr uint results_per_simdgroup = \\(lagunaOProjRowsPerSimdgroup);")))
+
+i = anchor("thread float result[results_per_simdgroup] = {0.0f, 0.0f, 0.0f, 0.0f};", d_src, d_k1)
+edits.append((i, lines[i].replace(
+    "= {0.0f, 0.0f, 0.0f, 0.0f};", "= {\\(lagunaOProjResultInit)};")))
+
+i = anchor("constexpr uint num_simdgroups = 2;", d_src, d_k1)
+edits.append((i, lines[i].replace(
+    "constexpr uint num_simdgroups = 2;",
+    "constexpr uint num_simdgroups = \\(lagunaOProjSimdgroups);")))
+
+# ---- 2. the four kernel-name literals --------------------------------------
+NAME_TAIL = '+ (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),'
+for lo, hi in ((d_k1, d_k2), (d_k2, d_k3), (d_k3, d_k4), (d_k4, d_disp)):
+    i = anchor(NAME_TAIL, lo, hi)
+    indent = lines[i][: len(lines[i]) - len(lines[i].lstrip())]
+    edits.append((i, lines[i].replace(NAME_TAIL, NAME_TAIL[:-1])
+                  + "\n" + indent + "+ lagunaOProjRowsPerSimdgroupSuffix,"))
+
+# ---- 3. the two dispatch grids ---------------------------------------------
+grid_hits = [i for i in range(d_disp - 1, len(lines))
+             if "grid: ((outVec / 8) * 64, 1, 1)," in lines[i]]
+grid_hits = grid_hits[:2]
+if len(grid_hits) != 2:
+    sys.exit(f"FAIL: expected 2 dispatch grids, found {len(grid_hits)}")
+for i in grid_hits:
+    edits.append((i, lines[i].replace("grid: ((outVec / 8) * 64, 1, 1),",
+                                      "grid: (tiles * lagunaOProjThreads, 1, 1),")))
+
+# ---- 3b. the two dispatch threadgroup sizes --------------------------------
+tg_hits = [i for i in range(d_disp - 1, len(lines))
+           if "threadGroup: (64, 1, 1)," in lines[i]]
+tg_hits = tg_hits[:2]
+if len(tg_hits) != 2:
+    sys.exit(f"FAIL: expected 2 dispatch threadgroups, found {len(tg_hits)}")
+for i in tg_hits:
+    edits.append((i, lines[i].replace("threadGroup: (64, 1, 1),",
+                                      "threadGroup: (lagunaOProjThreads, 1, 1),")))
+
+# ---- 4. the guard that binds the grid to the compiled geometry -------------
+i2 = anchor("        return nil", d_disp, grid_hits[0])
+indent = "    "
+edits.append((i2, lines[i2] + "\n    }\n\n"
+              + indent + "// R117-C: the compiled kernel and the dispatch grid must agree on\n"
+              + indent + "// rows-per-threadgroup; fall back to the generic path if they cannot.\n"
+              + indent + "guard let tiles = lagunaOProjTiles(outVec: outVec) else {\n"
+              + indent + "    return nil"))
+
+# ---- apply ------------------------------------------------------------------
+seen = set()
+for i, _ in edits:
+    if i in seen:
+        sys.exit(f"FAIL: duplicate edit on line {i+1}")
+    seen.add(i)
+for i, text in edits:
+    print(f"  line {i+1}: {lines[i].strip()[:70]!r}")
+    lines[i] = text
+
+import os
+
+STAGED = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                      "LagunaOProjGeometry.swift.staged")
+if not os.path.exists(STAGED):
+    sys.exit(f"FAIL: staged geometry file missing at {STAGED}")
+
+if os.environ.get("DRY") == "1":
+    print(f"DRY RUN: would apply {len(edits)} edits and install {STAGED} -> {NEWFILE}")
+    sys.exit(0)
+
+shutil.copyfile(SRC, "/tmp/LagunaRuntimeModel.swift.pre-rps")
+open(SRC, "w").write("\n".join(lines))
+shutil.copyfile(STAGED, NEWFILE)
+print(f"applied {len(edits)} edits; backup at /tmp/LagunaRuntimeModel.swift.pre-rps")

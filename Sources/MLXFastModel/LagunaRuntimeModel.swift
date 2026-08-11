@@ -227,7 +227,15 @@ let lagunaPrefillFusedRoutedGateUpEnabled =
 let lagunaPrefillExpertPairwiseScalesEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_EXPERT_PAIRWISE_SCALES"] != "0"
 
+/// Producer-supplied exact expert prefixes for the two fused sorted routed
+/// prefill QMMs. The sorter and consumer identities encode the selected arm;
+/// zero restores the ordinary sorted-key payload exactly.
+let lagunaExpertBoundsSidecarEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_EXPERT_BOUNDS_SIDECAR"] != "0"
 
+// Independent DawgZter N1 persistence receipt; executable behavior is unchanged.
+// Independent fifth-slot continuation; executable behavior remains identical.
+// Official paired-M5 replay nonce 20260807T0236Z; executable source unchanged.
 let lagunaPrefillExpertDownPairwiseScalesEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_EXPERT_DOWN_PAIRWISE_SCALES"] != "0"
 
@@ -4353,8 +4361,8 @@ constexpr uint group_size = 16;
 constexpr uint values_per_thread = 16;
 constexpr uint codes_per_thread = values_per_thread / 8;
 constexpr uint block_size = values_per_thread * 32;
-constexpr uint results_per_simdgroup = 4;
-constexpr uint num_simdgroups = 2;
+constexpr uint results_per_simdgroup = \(lagunaOProjRowsPerSimdgroup);
+constexpr uint num_simdgroups = \(lagunaOProjSimdgroups);
 constexpr uint in_vec_size_g = in_vec_size / group_size;
 
 uint tile = threadgroup_position_in_grid.x;
@@ -4373,7 +4381,7 @@ const device uint32_t* ws =
 const device bfloat* xp = attention_output + simd_lid * values_per_thread;
 
 thread float x_thread[values_per_thread];
-thread float result[results_per_simdgroup] = {0.0f, 0.0f, 0.0f, 0.0f};
+thread float result[results_per_simdgroup] = {\(lagunaOProjResultInit)};
 
 uint column = simd_lid * values_per_thread;
 for (uint k = 0; k < in_vec_size; k += block_size) {
@@ -4423,7 +4431,8 @@ private let lagunaGatedAffineOProjNVFP4Kernels: [Int: MLXFast.MLXFastKernel] = {
         kernels[heads] = MLXFast.metalKernel(
             name: "laguna_gated_affine_oproj_nvfp4_qmv_h\(heads)_v1"
                 + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
-                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
+                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : "")
+                + lagunaOProjRowsPerSimdgroupSuffix,
             inputNames: [
                 "attention_output", "gate_logits", "weight_codes",
                 "weight_scales",
@@ -4446,7 +4455,8 @@ private let lagunaGatedAffineOProjNVFP4LaneMajorKernels: [Int: MLXFast.MLXFastKe
             name: "laguna_gated_affine_oproj_nvfp4_qmv_h\(heads)_v1_lm1"
                 + (lagunaAttnScalePairwiseOProjEnabled ? "_pw1" : "")
                 + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
-                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
+                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : "")
+                + lagunaOProjRowsPerSimdgroupSuffix,
             inputNames: [
                 "attention_output", "gate_logits", "weight_codes",
                 "scale_nibbles", "scale_bases", "weight_scales",
@@ -4464,7 +4474,13 @@ private let lagunaGatedAffineOProjNVFP4LaneMajorKernels: [Int: MLXFast.MLXFastKe
 private let lagunaGateSoftplusEnabled = ProcessInfo.processInfo.environment[
     "DARKBLOOM_AFFINE_GATE_SOFTPLUS"] != "0"
 
-private func lagunaGateSoftplusSource(heads: Int) -> String {
+private func lagunaGateSoftplusSource(
+    heads: Int,
+    inputName: String = "input",
+    codesName: String = "packed_codes",
+    scalesName: String = "scales",
+    biasesName: String = "biases"
+) -> String {
     """
 constexpr uint K=\(LagunaConstants.hiddenSize),GS=32,V=8;
 constexpr uint BK=V*32,R=4,NS=2,KG=K/GS,SS=GS/V;
@@ -4472,16 +4488,16 @@ uint tile=threadgroup_position_in_grid.x;
 uint sg=simdgroup_index_in_threadgroup;
 uint lane=thread_index_in_simdgroup;
 uint orow=tile*(NS*R)+sg*R;
-const device uint8_t* ws=(const device uint8_t*)packed_codes+orow*K+lane*V;
-const device bfloat* sc=scales+orow*KG+lane/SS;
-const device bfloat* bs=biases+orow*KG+lane/SS;
+const device uint8_t* ws=(const device uint8_t*)\(codesName)+orow*K+lane*V;
+const device bfloat* sc=\(scalesName)+orow*KG+lane/SS;
+const device bfloat* bs=\(biasesName)+orow*KG+lane/SS;
 thread float x[V];
 thread float r[R]={0.0f,0.0f,0.0f,0.0f};
 uint col=lane*V;
 for(uint k=0;k<K;k+=BK){
     float sum=0.0f;
     for(uint i=0;i<V;++i){
-        x[i]=float(input[col+i]);
+        x[i]=float(\(inputName)[col+i]);
         sum+=x[i];
     }
     for(uint row=0;row<R;++row){
@@ -4550,7 +4566,8 @@ private let lagunaActivatedOProjKernels: [Int: MLXFast.MLXFastKernel] = {
         result[heads] = MLXFast.metalKernel(
             name: "laguna_oproj_act_h\(heads)_v1"
                 + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
-                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
+                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : "")
+                + lagunaOProjRowsPerSimdgroupSuffix,
             inputNames: [
                 "attention_output", "gate_values", "weight_codes",
                 "weight_scales",
@@ -4569,7 +4586,8 @@ private let lagunaActivatedOProjLaneMajorKernels: [Int: MLXFast.MLXFastKernel] =
             name: "laguna_oproj_act_h\(heads)_v1_lm1"
                 + (lagunaAttnScalePairwiseOProjEnabled ? "_pw1" : "")
                 + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
-                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
+                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : "")
+                + lagunaOProjRowsPerSimdgroupSuffix,
             inputNames: [
                 "attention_output", "gate_values", "weight_codes",
                 "scale_nibbles", "scale_bases", "weight_scales",
@@ -4606,6 +4624,12 @@ func lagunaGatedAffineOProjNVFP4(
         return nil
     }
 
+    // R117-C: the compiled kernel and the dispatch grid must agree on
+    // rows-per-threadgroup; fall back to the generic path if they cannot.
+    guard let tiles = lagunaOProjTiles(outVec: outVec) else {
+        return nil
+    }
+
     if let lane = laneMajorScales,
         lane.pairwise == lagunaAttnScalePairwiseOProjEnabled,
         lane.nibbles.dtype == .uint8, lane.nibbles.dims(outVec, lane.nibbleBytes),
@@ -4622,8 +4646,8 @@ func lagunaGatedAffineOProjNVFP4(
                 attentionOutput, gateLogits, codes, lane.nibbles, lane.bases,
                 scales,
             ],
-            grid: ((outVec / 8) * 64, 1, 1),
-            threadGroup: (64, 1, 1),
+            grid: (tiles * lagunaOProjThreads, 1, 1),
+            threadGroup: (lagunaOProjThreads, 1, 1),
             outputShapes: [[1, 1, outVec]],
             outputDTypes: [.bfloat16]
         )[0]
@@ -4637,8 +4661,8 @@ func lagunaGatedAffineOProjNVFP4(
     lagunaNarrowScaleLog.noteDispatch("inactive", "oproj h\(heads)")
     return kernel(
         [attentionOutput, gateLogits, codes, scales],
-        grid: ((outVec / 8) * 64, 1, 1),
-        threadGroup: (64, 1, 1),
+        grid: (tiles * lagunaOProjThreads, 1, 1),
+        threadGroup: (lagunaOProjThreads, 1, 1),
         outputShapes: [[1, 1, outVec]],
         outputDTypes: [.bfloat16]
     )[0]
@@ -4919,8 +4943,13 @@ private let lagunaDecodeNVFP4QKVR1NarrowKernels: [Int: MLXFast.MLXFastKernel] = 
 
 
 
-private func lagunaDecodeNVFP4QKVLaneMajorSource(pairwise: Bool) -> String {
-    """
+private func lagunaDecodeNVFP4QKVLaneMajorSource(
+    pairwise: Bool, tileOffset: String? = nil
+) -> String {
+    let tileExpr =
+        tileOffset.map { "threadgroup_position_in_grid.x - \($0)" }
+        ?? "threadgroup_position_in_grid.x"
+    return """
 constexpr uint axis_size = 2048;
 constexpr uint num_simdgroups = 2;
 constexpr uint values_per_thread = 16;
@@ -4929,7 +4958,7 @@ constexpr uint in_vec_size_w = axis_size / 2;
 constexpr uint in_vec_size_g = axis_size / 16;
 constexpr uint blocks_per_row = in_vec_size_g / 32;
 
-uint tile = threadgroup_position_in_grid.x;
+uint tile = \(tileExpr);
 uint simd_gid = simdgroup_index_in_threadgroup;
 uint simd_lid = thread_index_in_simdgroup;
 uint out_row = tile * num_simdgroups + simd_gid;
@@ -5061,6 +5090,102 @@ private func lagunaDecodeNVFP4QKVR1(
         outputShapes: [[1, 1, rows]],
         outputDTypes: [.bfloat16]
     )[0]
+}
+
+private let lagunaDecodeNVFP4QKVGateFusedEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_QKV_GATE_FUSED"] != "0"
+
+/// QKV and `g_proj` both read the same normalized row and neither consumes the
+/// other, so the two grids are appended into one dispatch instead of adding a
+/// dependency edge. The `heads / 8` gate tiles lead so they are scheduled in
+/// the first wave rather than in the QKV drain tail.
+private func lagunaDecodeNVFP4QKVGateSource(pairwise: Bool, heads: Int) -> String {
+    let gateBody = lagunaGateSoftplusSource(
+        heads: heads,
+        inputName: "normalized",
+        codesName: "gate_codes",
+        scalesName: "gate_scales",
+        biasesName: "gate_biases")
+    return """
+constexpr uint laguna_gate_tiles = \(heads / 8);
+if (threadgroup_position_in_grid.x < laguna_gate_tiles) {
+\(gateBody)
+    return;
+}
+\(lagunaDecodeNVFP4QKVLaneMajorSource(
+    pairwise: pairwise, tileOffset: "laguna_gate_tiles"))
+"""
+}
+
+private let lagunaDecodeNVFP4QKVGateKernels: [Int: MLXFast.MLXFastKernel] = {
+    var kernels: [Int: MLXFast.MLXFastKernel] = [:]
+    for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
+        kernels[heads] = MLXFast.metalKernel(
+            name: "laguna_decode_nvfp4_qkv_gate_h\(heads)_r1_v1_lm1"
+                + (lagunaAttnScalePairwiseQKVEnabled ? "_pw1" : "")
+                + (lagunaTailNVFP4QKVSeedElisionEnabled ? "_se1" : "")
+                + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : ""),
+            inputNames: [
+                "normalized", "weight_codes", "scale_nibbles", "scale_bases",
+                "weight_scales", "gate_codes", "gate_scales", "gate_biases",
+            ],
+            outputNames: ["projected", "gate_values"],
+            source: lagunaDecodeNVFP4QKVGateSource(
+                pairwise: lagunaAttnScalePairwiseQKVEnabled, heads: heads),
+            header: lagunaTailNVFP4QMVHeader,
+            ensureRowContiguous: true)
+    }
+    return kernels
+}()
+
+private func lagunaDecodeNVFP4QKVGate(
+    normalized: MLXArray,
+    bank: LagunaNativeAffineWeight,
+    gateBank: LagunaNativeAffineWeight,
+    heads: Int
+) -> (qkv: MLXArray, gate: MLXArray)? {
+    guard lagunaDecodeNVFP4QKVGateFusedEnabled,
+        lagunaDecodeNVFP4QKVR1Enabled,
+        lagunaGateSoftplusEnabled
+    else { return nil }
+    let rows = (heads + 2 * LagunaConstants.numKeyValueHeads) * LagunaConstants.headDim
+    let hidden = LagunaConstants.hiddenSize
+    guard normalized.dtype == .bfloat16,
+        normalized.dims(1, 1, hidden),
+        bank.mode == .nvfp4, bank.bits == 4, bank.groupSize == 16,
+        bank.biases == nil,
+        bank.originalShape == [rows, hidden],
+        bank.packedCodes.dtype == .uint32,
+        bank.packedCodes.dims(rows, hidden / 8),
+        bank.scales.dtype == .uint8,
+        bank.scales.dims(rows, hidden / 16),
+        rows % 2 == 0,
+        let lane = bank.laneMajorScales,
+        lane.pairwise == lagunaAttnScalePairwiseQKVEnabled,
+        lane.nibbles.dtype == .uint8,
+        lane.nibbles.dims(rows, hidden / (lane.pairwise ? 64 : 32)),
+        lane.bases.dtype == .uint8, lane.bases.dims(rows),
+        gateBank.mode == .affine, gateBank.bits == 8, gateBank.groupSize == 32,
+        let gateBiases = gateBank.biases,
+        gateBank.packedCodes.dims(heads, hidden / 4),
+        gateBank.scales.dims(heads, hidden / 32),
+        gateBiases.dims(heads, hidden / 32),
+        heads % 8 == 0,
+        let kernel = lagunaDecodeNVFP4QKVGateKernels[heads]
+    else { return nil }
+    lagunaTrace("decode nvfp4 qkv+gate h\(heads) lane-major")
+    lagunaNarrowScaleLog.noteDispatch("lane-major", "qkv+gate h\(heads)")
+    let outputs = kernel(
+        [
+            normalized, bank.packedCodes, lane.nibbles, lane.bases, bank.scales,
+            gateBank.packedCodes, gateBank.scales, gateBiases,
+        ],
+        grid: ((heads / 8 + rows / 2) * 64, 1, 1),
+        threadGroup: (64, 1, 1),
+        outputShapes: [[1, 1, rows], [1, 1, heads]],
+        outputDTypes: [.bfloat16, .bfloat16]
+    )
+    return (outputs[0], outputs[1])
 }
 
 
@@ -5948,10 +6073,26 @@ final class LagunaRuntimeAttention: Module {
 
 
                 let normalized = fusedQKV ?? inputNorm(input)
+                var fusedQKVGate: (qkv: MLXArray, gate: MLXArray)?
+                if fusedQKV == nil,
+                    _nativeAffineQKVGateRows != nHeads,
+                    lagunaFusedGatedAffineOProjEnabled,
+                    lagunaGatedAffineOProjNVFP4Enabled,
+                    lagunaUseNativeAffineOProj(layer: layerIdx),
+                    let affineGate = _nativeAffineGProj,
+                    let affineWO = _nativeAffineOProj,
+                    affineWO.mode == .nvfp4, affineWO.bits == 4,
+                    affineWO.groupSize == 16
+                {
+                    fusedQKVGate = lagunaDecodeNVFP4QKVGate(
+                        normalized: normalized, bank: fusedAffine,
+                        gateBank: affineGate, heads: nHeads)
+                }
                 let decodeNVFP4QKVR1 =
                     fusedQKV == nil
-                    ? lagunaDecodeNVFP4QKVR1(
-                        normalized: normalized, bank: fusedAffine, heads: nHeads)
+                    ? (fusedQKVGate?.qkv
+                        ?? lagunaDecodeNVFP4QKVR1(
+                            normalized: normalized, bank: fusedAffine, heads: nHeads))
                     : nil
                 let qkv =
                     fusedQKV
@@ -5985,7 +6126,10 @@ final class LagunaRuntimeAttention: Module {
 
 
 
-                    if lagunaFusedGatedAffineOProjEnabled,
+                    if let fusedGate = fusedQKVGate?.gate {
+                        gateLogits = fusedGate
+                        gateProjectionActivated = true
+                    } else if lagunaFusedGatedAffineOProjEnabled,
                         lagunaGatedAffineOProjNVFP4Enabled,
                         lagunaUseNativeAffineOProj(layer: layerIdx),
                         let affineWO = _nativeAffineOProj,
@@ -6992,19 +7136,24 @@ for (uint row = 0; row < 2; ++row) {
 
 
 
-private func lagunaSharedSwiGLUQMVRows1Source(halved: Bool) -> String {
+private func lagunaSharedSwiGLUQMVRows1Source(
+    halved: Bool,
+    weightName: String = "fused_weight",
+    scalesName: String = "fused_scales",
+    outputName: String = "activated"
+) -> String {
     let scaleRowBytes = halved ? 64 : 128
     let patch =
         halved
         ? "constexpr uint scale_patch_bytes = \(lagunaScalePatchHeaderBytes);\n" : ""
-    let base = halved ? "fused_scales + scale_patch_bytes" : "fused_scales"
+    let base = halved ? "\(scalesName) + scale_patch_bytes" : scalesName
     let laneTerm = halved ? "(lane >> 1)" : "lane"
     let blockDiv = halved ? 32 : 16
     func value(_ pointer: String, _ slot: Int) -> String {
         let read = "\(pointer)[block / \(blockDiv)]"
         guard halved else { return read }
         return "(row == 0 && block == 0 && lane == 1)"
-            + " ? fused_scales[\(slot)] : \(read)"
+            + " ? \(scalesName)[\(slot)] : \(read)"
     }
     return """
 constexpr uint input_width = 2048;
@@ -7020,10 +7169,10 @@ uint lane = thread_index_in_simdgroup;
 uint row = tile * 2 + simd_group;
 
 const device uint8_t* gate_row_weight =
-    (const device uint8_t*)fused_weight +
+    (const device uint8_t*)\(weightName) +
     row * packed_row_bytes + lane * 8;
 const device uint8_t* up_row_weight =
-    (const device uint8_t*)fused_weight +
+    (const device uint8_t*)\(weightName) +
     (row + output_width) * packed_row_bytes + lane * 8;
 const device uint8_t* gate_row_scale =
     \(base) + row * scale_row_bytes + \(laneTerm);
@@ -7066,7 +7215,7 @@ if (lane == 0) {
     bfloat y = bfloat(1) / denominator;
     bfloat sigmoid = gate < bfloat(0) ? y : bfloat(1) - y;
     bfloat silu = bfloat(gate * sigmoid);
-    activated[row] = bfloat(silu * up);
+    \(outputName)[row] = bfloat(silu * up);
 }
 """
 }
@@ -7912,11 +8061,10 @@ private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
 let lagunaRoutedGateUpR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTED_GATEUP_R1"] != "0"
 
-private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
-    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
-    inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
-    outputNames: ["activated"],
-    source: """
+private func lagunaRoutedSwiGLUQMVPackedTop8R1Source(
+    groupExpression: String = "threadgroup_position_in_grid.x"
+) -> String {
+    """
 constexpr uint input_width = 2048;
 constexpr uint output_width = 512;
 constexpr uint block_width = 512;
@@ -7931,7 +8079,7 @@ constexpr uint scale_kblock_bytes = scale_sub_bytes;
 constexpr uint scale_tile_bytes = 4 * scale_kblock_bytes;
 constexpr uint packed_expert_bytes = 128 * scale_tile_bytes;
 
-uint group = threadgroup_position_in_grid.x;
+uint group = \(groupExpression);
 uint expert_slot = group % routed_experts;
 uint tile = group / routed_experts;
 uint simd_group = simdgroup_index_in_threadgroup;
@@ -8021,11 +8169,100 @@ if (lane == 0) {
     activated[expert_slot * output_width + logical_row] =
         bfloat(silu * up);
 }
+"""
+}
+
+private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
+    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
+    inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
+    outputNames: ["activated"],
+    source: lagunaRoutedSwiGLUQMVPackedTop8R1Source(),
+    header: lagunaSharedSwiGLUQMVHeader + "\n" + lagunaDecodeRouterOrdinalHeader
+        + "\n" + lagunaRouterTop8PrologueHeader,
+    ensureRowContiguous: true
+)
+
+let lagunaFusedSharedRoutedQMVEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_ROUTED_QMV_FUSED"] == "1"
+
+/// The shared-expert and routed-expert gate/up QMVs read the same normalized
+/// row and neither consumes the other, so their grids are appended into one
+/// dispatch instead of paying two encodes. Both bodies already use 64-thread
+/// threadgroups, so no reshape is needed; the 256 shared tiles lead so they are
+/// not scheduled in the routed drain tail.
+private let lagunaSharedRoutedSwiGLUQMVKernel = MLXFast.metalKernel(
+    name: "laguna_shared_routed_nvfp4_swiglu_qmv_top8keys_r1_bf16_v1",
+    inputNames: [
+        "input", "shared_weight", "shared_scales", "fused_weight",
+        "packed_scales", "router_keys",
+    ],
+    outputNames: ["shared_activated", "activated"],
+    source: """
+constexpr uint laguna_shared_tiles = 256;
+if (threadgroup_position_in_grid.x < laguna_shared_tiles) {
+\(lagunaSharedSwiGLUQMVRows1Source(
+    halved: true,
+    weightName: "shared_weight",
+    scalesName: "shared_scales",
+    outputName: "shared_activated"))
+    return;
+}
+\(lagunaRoutedSwiGLUQMVPackedTop8R1Source(
+    groupExpression: "threadgroup_position_in_grid.x - laguna_shared_tiles"))
 """,
     header: lagunaSharedSwiGLUQMVHeader + "\n" + lagunaDecodeRouterOrdinalHeader
         + "\n" + lagunaRouterTop8PrologueHeader,
     ensureRowContiguous: true
 )
+
+func lagunaSharedRoutedSwiGLUQMV(
+    _ input: MLXArray,
+    sharedWeight: MLXArray,
+    sharedScales: MLXArray,
+    fusedWeight: MLXArray,
+    packedScales: MLXArray,
+    routerKeys: MLXArray
+) -> (shared: MLXArray, routed: MLXArray)? {
+    guard lagunaFusedSharedRoutedQMVEnabled,
+        lagunaSharedSwiGLUQMVRows1Enabled,
+        lagunaRoutedGateUpR1Enabled,
+        !lagunaSharedQMVWideCodesEnabled,
+        input.dtype == .bfloat16,
+        input.dims(1, 1, LagunaConstants.hiddenSize),
+        sharedWeight.dtype == .uint32,
+        sharedWeight.dims(
+            2 * LagunaConstants.sharedExpertIntermediateSize,
+            LagunaConstants.hiddenSize / 8),
+        sharedScales.dtype == .uint8,
+        sharedScales.ndim == 1,
+        sharedScales.size == lagunaScalePatchHeaderBytes
+            + 2 * LagunaConstants.sharedExpertIntermediateSize
+            * (LagunaConstants.hiddenSize / 32),
+        fusedWeight.dtype == .uint32,
+        packedScales.dtype == .uint8,
+        packedScales.size == lagunaPackedRoutedGateUpScaleBytes,
+        routerKeys.dtype == .uint32,
+        routerKeys.size == LagunaConstants.numExperts
+    else { return nil }
+    lagunaTrace("shared+routed gate/up QMV (grid-append, packed, producer keys)")
+    let outputs = lagunaSharedRoutedSwiGLUQMVKernel(
+        [
+            input, sharedWeight, sharedScales, fusedWeight, packedScales,
+            routerKeys,
+        ],
+        grid: ((256 + LagunaConstants.numExpertsPerTok * 256) * 64, 1, 1),
+        threadGroup: (64, 1, 1),
+        outputShapes: [
+            [1, 1, LagunaConstants.sharedExpertIntermediateSize],
+            [
+                1, 1, LagunaConstants.numExpertsPerTok, 1,
+                LagunaConstants.moeIntermediateSize,
+            ],
+        ],
+        outputDTypes: [.bfloat16, .bfloat16]
+    )
+    return (outputs[0], outputs[1])
+}
 
 func lagunaRoutedSwiGLUQMVPackedTop8(
     _ input: MLXArray,
@@ -10549,7 +10786,21 @@ private func lagunaFusedSortedRoutedGateUp(
 
 
     if doSort {
-        (sortedX, idx, inverseOrder) = gatherSort(x: sortedX, indices: indices)
+        // N1: only this dedicated fused routed-prefill chain requests the
+        // exact 257-entry expert-bounds payload. The same zero-stride-marked idx
+        // view flows unchanged through both fused gate/up and down QMMs.
+        // `=0` is the exact control and restores ordinary sorted keys.
+        (sortedX, idx, inverseOrder) = gatherSort(
+            x: sortedX,
+            indices: indices,
+            expertBoundsSidecar: lagunaExpertBoundsSidecarEnabled
+                && lagunaExpertAlignedGatherEnabled
+                && pairwiseScales != nil
+                && downWeight != nil
+                && downPairwiseScales != nil
+                && lagunaPrefillExpertPairwiseScalesAdmitted(
+                    routedRows: indices.size)
+        )
     }
 
 
@@ -10852,13 +11103,29 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                         gate.routerLogitSoftcapping == 0,
                         gate.eScoreCorrectionBias.size == LagunaConstants.numExperts
                     {
-                        lagunaTrace("routed gate/up QMV + SwiGLU (packed, producer keys)")
-                        activated = lagunaRoutedSwiGLUQMVPackedTop8(
-                            x,
-                            fusedWeight: fusedWeight,
-                            packedScales: packedBank,
-                            routerKeys: routerKeys
-                        )
+                        if lagunaFusedSharedRoutedQMVEnabled,
+                            let sharedBanks = sharedExpert.fusedSharedBanks(x),
+                            let merged = lagunaSharedRoutedSwiGLUQMV(
+                                x,
+                                sharedWeight: sharedBanks.gateUpWeight,
+                                sharedScales: sharedBanks.gateUpScales,
+                                fusedWeight: fusedWeight,
+                                packedScales: packedBank,
+                                routerKeys: routerKeys
+                            )
+                        {
+                            mergedSharedActivated = merged.shared
+                            activated = merged.routed
+                        } else {
+                            lagunaTrace(
+                                "routed gate/up QMV + SwiGLU (packed, producer keys)")
+                            activated = lagunaRoutedSwiGLUQMVPackedTop8(
+                                x,
+                                fusedWeight: fusedWeight,
+                                packedScales: packedBank,
+                                routerKeys: routerKeys
+                            )
+                        }
                     } else {
                         lagunaTrace("routed gate/up QMV + SwiGLU (packed scales)")
                         activated = lagunaRoutedSwiGLUQMVPacked(
@@ -11732,6 +11999,23 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
     @ModuleInfo(key: "model") var model: LagunaRuntimeModelInner
     @ModuleInfo(key: "lm_head") var lmHead: Linear?
 
+    /// Research-only readback of the MLX command-buffer environment as it is visible to this
+    /// process after weight loading has applied the startup memory profile. Off unless
+    /// `DARKBLOOM_ENV_READBACK=1`, so the scored path is unchanged.
+    private static func reportCommandBufferEnvironmentIfRequested() {
+        guard let flag = getenv("DARKBLOOM_ENV_READBACK"), String(cString: flag) == "1" else {
+            return
+        }
+        let names = ["MLX_MAX_OPS_PER_BUFFER", "MLX_MAX_MB_PER_BUFFER", "MLX_BFS_MAX_WIDTH"]
+        let fields = names.map { name -> String in
+            let value = getenv(name).map { String(cString: $0) } ?? "<unset>"
+            return "\(name)=\(value)"
+        }
+        let profile = getenv("DARKBLOOM_STARTUP_MEMORY_PROFILE").map { String(cString: $0) } ?? "<unset>"
+        fputs("ENVREADBACK DARKBLOOM_STARTUP_MEMORY_PROFILE=\(profile) \(fields.joined(separator: " "))\n", stderr)
+        fflush(stderr)
+    }
+
     public let configuration: LagunaConfig
 
 
@@ -11747,6 +12031,7 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
             self._lmHead.wrappedValue = Linear(config.hiddenSize, config.vocabSize, bias: false)
         }
         super.init()
+        LagunaRuntimeModel.reportCommandBufferEnvironmentIfRequested()
 
 
 
@@ -12142,6 +12427,5 @@ func lagunaInjectLayerWork(layer: Int, isSingleTokenDecode: Bool) {
     guard !pending.isEmpty else { return }
     asyncEval(pending)
 }
-
 
 

@@ -1,0 +1,130 @@
+benchmark.sh: local-iterate git_head=f80377231b42 origin_main=1bc1c8954147
+benchmark.sh: reusing weights/ for unchanged transform source
+mlxfast: benchmark elapsed=0.0s local-iterate start checked_tokens=130 decode_steps=128 repeats=1
+mlxfast: benchmark elapsed=0.0s local-iterate baseline prefill_seconds_per_token=0.000368 decode_seconds_per_token=0.013856 (official-runner constants; local speedups are directional)
+mlxfast: benchmark elapsed=0.0s local-iterate validation start
+mlxfast: benchmark elapsed=10.2s local-iterate weights digest still running phase_seconds=10.2
+mlxfast: benchmark elapsed=20.2s local-iterate weights digest still running phase_seconds=20.2
+mlxfast: benchmark elapsed=30.2s local-iterate weights digest still running phase_seconds=30.2
+mlxfast: benchmark elapsed=38.6s local-iterate weights digest complete files=9 bytes=21568891382
+mlxfast: benchmark elapsed=38.6s local-iterate validation complete prompt_tokens=512 seconds=38.6
+mlxfast: benchmark elapsed=38.6s local-iterate checked timing start
+mlxfast: benchmark elapsed=82.8s local thermal gate start phase=prefill
+benchmark.sh: waiting for GPU to cool down before timing (current 41.0C, target <=40C, waited 0s)...
+benchmark.sh: GPU cool-down gate passed (current 39.8C, target <=40C, waited 10s)
+mlxfast: benchmark elapsed=98.4s local thermal gate complete phase=prefill
+mlxfast: benchmark elapsed=98.4s local-iterate prefill measured start prompt_tokens=512
+mlxfast: benchmark elapsed=99.0s local-iterate prefill measured complete seconds=0.6 seconds_per_token=0.001187 prefill_speedup=0.310
+mlxfast-worker: mlxfast: narrow-scales built lane-major pairwise: qkv
+mlxfast-worker: mlxfast: narrow-scales built lane-major pairwise: oproj
+mlxfast-worker: mlxfast: packed-scales active: shared gate/up halved
+mlxfast-worker: mlxfast: packed-scales active: shared down halved
+mlxfast-worker: mlxfast: packed-scales active: packed routed gate/up bank prepared
+mlxfast-worker: mlxfast: lm_head prune active (coarse copy resident)
+mlxfast-worker: mlxfast: packed-scales inactive: packed routed gate/up prefill scale view consumed
+mlxfast-worker: mlxfast: packed-scales inactive: packed routed down prefill scale view consumed
+mlxfast-worker: mlxfast: packed-scales active: routed swiglu qmv packed dispatch
+mlxfast: benchmark elapsed=142.1s local thermal gate start phase=decode
+benchmark.sh: waiting for GPU to cool down before timing (current 41.1C, target <=40C, waited 0s)...
+benchmark.sh: GPU cool-down gate passed (current 39.8C, target <=40C, waited 10s)
+mlxfast: benchmark elapsed=157.7s local thermal gate complete phase=decode
+mlxfast: benchmark elapsed=157.7s local-iterate decode measured start tokens=128 includes_seed_prefill=true
+mlxfast: benchmark elapsed=158.3s local-iterate decode seed prefill complete seconds=0.6 (charged to decode)
+mlxfast: benchmark elapsed=158.3s local-iterate checked decode 1/128 tokens last_step_seconds=0.039812 mean_step_seconds=0.039812 decode_eta_seconds=5.1 projected_decode_seconds_per_token=0.044582 projected_decode_speedup=0.311 projected_score=0.310
+mlxfast: benchmark elapsed=158.4s local-iterate checked decode 8/128 tokens last_step_seconds=0.008493 mean_step_seconds=0.013026 decode_eta_seconds=1.6 projected_decode_seconds_per_token=0.017797 projected_decode_speedup=0.779 projected_score=0.618
+mlxfast: benchmark elapsed=158.4s local-iterate checked decode 16/128 tokens last_step_seconds=0.008264 mean_step_seconds=0.010692 decode_eta_seconds=1.2 projected_decode_seconds_per_token=0.015463 projected_decode_speedup=0.896 projected_score=0.687
+mlxfast: benchmark elapsed=158.5s local-iterate checked decode 24/128 tokens last_step_seconds=0.008257 mean_step_seconds=0.009895 decode_eta_seconds=1.0 projected_decode_seconds_per_token=0.014666 projected_decode_speedup=0.945 projected_score=0.715
+mlxfast: benchmark elapsed=158.6s local-iterate checked decode 32/128 tokens last_step_seconds=0.008228 mean_step_seconds=0.009478 decode_eta_seconds=0.9 projected_decode_seconds_per_token=0.014250 projected_decode_speedup=0.972 projected_score=0.730
+mlxfast: benchmark elapsed=158.6s local-iterate checked decode 40/128 tokens last_step_seconds=0.008208 mean_step_seconds=0.009227 decode_eta_seconds=0.8 projected_decode_seconds_per_token=0.013999 projected_decode_speedup=0.990 projected_score=0.740
+mlxfast: benchmark elapsed=158.7s local-iterate checked decode 48/128 tokens last_step_seconds=0.008213 mean_step_seconds=0.009061 decode_eta_seconds=0.7 projected_decode_seconds_per_token=0.013833 projected_decode_speedup=1.002 projected_score=0.747
+mlxfast: benchmark elapsed=158.8s local-iterate checked decode 56/128 tokens last_step_seconds=0.008197 mean_step_seconds=0.008941 decode_eta_seconds=0.6 projected_decode_seconds_per_token=0.013713 projected_decode_speedup=1.010 projected_score=0.752
+mlxfast: benchmark elapsed=158.8s local-iterate checked decode 64/128 tokens last_step_seconds=0.008215 mean_step_seconds=0.008851 decode_eta_seconds=0.6 projected_decode_seconds_per_token=0.013624 projected_decode_speedup=1.017 projected_score=0.755
+mlxfast: benchmark elapsed=158.9s local-iterate checked decode 72/128 tokens last_step_seconds=0.008239 mean_step_seconds=0.008780 decode_eta_seconds=0.5 projected_decode_seconds_per_token=0.013553 projected_decode_speedup=1.022 projected_score=0.758
+mlxfast: benchmark elapsed=159.0s local-iterate checked decode 80/128 tokens last_step_seconds=0.008254 mean_step_seconds=0.008725 decode_eta_seconds=0.4 projected_decode_seconds_per_token=0.013498 projected_decode_speedup=1.027 projected_score=0.761
+mlxfast: benchmark elapsed=159.0s local-iterate checked decode 88/128 tokens last_step_seconds=0.008253 mean_step_seconds=0.008680 decode_eta_seconds=0.3 projected_decode_seconds_per_token=0.013453 projected_decode_speedup=1.030 projected_score=0.763
+mlxfast: benchmark elapsed=159.1s local-iterate checked decode 96/128 tokens last_step_seconds=0.008271 mean_step_seconds=0.008647 decode_eta_seconds=0.3 projected_decode_seconds_per_token=0.013420 projected_decode_speedup=1.033 projected_score=0.764
+mlxfast: benchmark elapsed=159.2s local-iterate checked decode 104/128 tokens last_step_seconds=0.008270 mean_step_seconds=0.008616 decode_eta_seconds=0.2 projected_decode_seconds_per_token=0.013390 projected_decode_speedup=1.035 projected_score=0.765
+mlxfast: benchmark elapsed=159.2s local-iterate checked decode 112/128 tokens last_step_seconds=0.008233 mean_step_seconds=0.008589 decode_eta_seconds=0.1 projected_decode_seconds_per_token=0.013363 projected_decode_speedup=1.037 projected_score=0.766
+mlxfast: benchmark elapsed=159.3s local-iterate checked decode 120/128 tokens last_step_seconds=0.008226 mean_step_seconds=0.008565 decode_eta_seconds=0.1 projected_decode_seconds_per_token=0.013339 projected_decode_speedup=1.039 projected_score=0.768
+mlxfast: benchmark elapsed=159.4s local-iterate checked decode 128/128 tokens last_step_seconds=0.008222 mean_step_seconds=0.008546 projected_decode_seconds_per_token=0.013320 projected_decode_speedup=1.040 projected_score=0.768
+mlxfast-worker: mlxfast: narrow-scales built lane-major pairwise: qkv
+mlxfast-worker: mlxfast: narrow-scales built lane-major pairwise: oproj
+mlxfast-worker: mlxfast: packed-scales active: shared gate/up halved
+mlxfast-worker: mlxfast: packed-scales active: shared down halved
+mlxfast-worker: mlxfast: packed-scales active: packed routed gate/up bank prepared
+mlxfast-worker: mlxfast: lm_head prune active (coarse copy resident)
+mlxfast-worker: mlxfast: packed-scales inactive: packed routed gate/up prefill scale view consumed
+mlxfast-worker: mlxfast: packed-scales inactive: packed routed down prefill scale view consumed
+mlxfast-worker: mlxfast: packed-scales active: routed swiglu qmv packed dispatch
+mlxfast: benchmark elapsed=159.5s local-iterate checked timing complete passed=true checked_steps=130 prefill_seconds_per_token=0.001187 decode_seconds_per_token=0.013321 measured_seconds=2.3 wall_seconds=120.9
+mlxfast: benchmark elapsed=159.5s local-iterate summary prefill_seconds_per_token=0.001187 prefill_speedup=0.310
+mlxfast: benchmark elapsed=159.5s local-iterate summary decode_seconds_per_token=0.013321 decode_speedup=1.040
+mlxfast: benchmark elapsed=159.5s local-iterate summary est_score=0.768 (decode_speedup^0.75 * prefill_speedup^0.25 vs official baseline; published as this run's local estimated score, not a ranked score)
+mlxfast: benchmark elapsed=159.5s local-iterate summary decode_bandwidth_gb_per_token=0.000000 peak_ram_gb=20.719
+{
+  "metrics" : {
+    "actual_token" : null,
+    "bandwidth_gb_per_token" : 0,
+    "bandwidth_source" : "ram_resident_model",
+    "baseline_decode_seconds_per_token" : 0.01385621216015625,
+    "baseline_prefill_seconds_per_token" : 0.00036751938916015626,
+    "benchmark_wall_seconds" : 160,
+    "case_count" : 1,
+    "checked_steps" : 130,
+    "commit" : "f8037723",
+    "correctness_seconds" : 2.3,
+    "decode_seconds_per_token" : 0.013320634765625,
+    "decode_speedup" : 1.04020659705447,
+    "decode_speedup_floor" : 0.95,
+    "error" : "",
+    "expected_token" : null,
+    "expert_bytes_read" : 0,
+    "expert_cache_evictions" : 0,
+    "expert_cache_hits" : 0,
+    "expert_cache_misses" : 0,
+    "expert_hit_rate" : 0,
+    "expert_peak_cached_tensors" : 0,
+    "expert_read_seconds" : 0,
+    "first_failing_case" : null,
+    "first_failing_layer" : null,
+    "first_failing_step" : null,
+    "golden_hash" : "b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63",
+    "gpqa_ttft_case_count" : 0,
+    "gpqa_ttft_max_seconds" : 0,
+    "gpqa_ttft_p50_seconds" : 0,
+    "gpqa_ttft_pass_count" : 0,
+    "gpqa_ttft_passed" : false,
+    "gpqa_ttft_seconds" : 0,
+    "gpqa_ttft_source" : "",
+    "harness_hash" : "204f03460034352d0f35c63633393ab55a8f418c0f101e432ee70e7b94835480",
+    "max_abs_diff" : 0,
+    "num_layers" : 40,
+    "partial_result" : false,
+    "passed_correctness" : true,
+    "passed_decode_speedup_floor" : true,
+    "passed_prefill_speedup_floor" : false,
+    "peak_ram_gb" : 21,
+    "prefill_seconds_per_token" : 0.001187332681640625,
+    "prefill_speedup" : 0.3095336251102999,
+    "prefill_speedup_floor" : 0.95,
+    "preflight_seconds" : 39,
+    "process_resident_memory_gb" : 0.025,
+    "runtime" : "swift-local-iterate",
+    "semantic_gpqa_case_count" : 0,
+    "semantic_gpqa_model" : "",
+    "semantic_gpqa_pass_count" : 0,
+    "semantic_gpqa_passed" : false,
+    "timed_benchmark_seconds" : 2.3,
+    "timestamp" : "2026-08-11T00:42:03Z",
+    "weights_byte_count" : 21568891382,
+    "weights_file_count" : 9,
+    "weights_hash" : "aff994300573c5e8589563fc9ff57cdcfb1ef9b49e14898be290a75a6b294b3d"
+  },
+  "passed" : true,
+  "score" : 0.7682749293050047
+}
+benchmark.sh: local-iterate summary
+  prefill 0.001187 s/token  speedup 0.31x
+  decode  0.013321 s/token  speedup 1.04x
+  est score 0.768 (decode_speedup^0.75 * prefill_speedup^0.25; official score comes from the ranked runner)
+benchmark.sh: no local baseline at research/r109-cadence/stage2/score-a_w20_cb64-b1.baseline.json; run 'cp research/r109-cadence/stage2/score-a_w20_cb64-b1.json research/r109-cadence/stage2/score-a_w20_cb64-b1.baseline.json' to compare future runs

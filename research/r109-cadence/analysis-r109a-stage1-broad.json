@@ -1,0 +1,86 @@
+{
+  "summary": {
+    "control": "ctl",
+    "n_blocks": 1,
+    "n_arms": 4,
+    "sigma_contrast_pct": NaN,
+    "sem_pct": NaN,
+    "rho": 0.5,
+    "expected_max": 1.0306950949636842,
+    "argmax_bias_pct": NaN,
+    "raw_argmax_arm": "a01",
+    "raw_argmax_ns_pct": -2.9575459846648333,
+    "debiased_argmax_ns_pct": NaN,
+    "all_arms_correct": true
+  },
+  "arms": [
+    {
+      "arm": "a0",
+      "value": "at:0",
+      "n": 1,
+      "mean_ns_pct": -3.400286402476027,
+      "sd_ns_pct": NaN,
+      "mean_decode_pct": -4.782162722875871,
+      "mean_prefill_pct": 0.8668402629931737,
+      "mean_decode_spt": 0.01365823828125,
+      "mean_prefill_spt": 0.0011123447265625,
+      "mean_ns": 0.7765061619706809,
+      "all_correct": true
+    },
+    {
+      "arm": "a01",
+      "value": "at:0,1",
+      "n": 1,
+      "mean_ns_pct": -2.9575459846648333,
+      "sd_ns_pct": NaN,
+      "mean_decode_pct": -3.8225291368128134,
+      "mean_prefill_pct": -0.3156400888343236,
+      "mean_decode_spt": 0.0135219599609375,
+      "mean_prefill_spt": 0.0011255396328125,
+      "mean_ns": 0.7800650820728279,
+      "all_correct": true
+    },
+    {
+      "arm": "a1",
+      "value": "at:1",
+      "n": 1,
+      "mean_ns_pct": -4.039732453431766,
+      "sd_ns_pct": NaN,
+      "mean_decode_pct": -4.991855822474989,
+      "mean_prefill_pct": -1.1257287187762643,
+      "mean_decode_spt": 0.01368838346875,
+      "mean_prefill_spt": 0.0011347613125,
+      "mean_ns": 0.7713660452941065,
+      "all_correct": true
+    },
+    {
+      "arm": "ctl",
+      "value": "at:0,1,7,15,23,31,39",
+      "n": 1,
+      "mean_ns_pct": 0.0,
+      "sd_ns_pct": NaN,
+      "mean_decode_pct": 0.0,
+      "mean_prefill_pct": 0.0,
+      "mean_decode_spt": 0.0130050791015625,
+      "mean_prefill_spt": 0.001121986978515625,
+      "mean_ns": 0.8038389898400115,
+      "all_correct": true
+    },
+    {
+      "arm": "off",
+      "value": "off",
+      "n": 1,
+      "mean_ns_pct": -6.207237442324065,
+      "sd_ns_pct": NaN,
+      "mean_decode_pct": -8.162884048788166,
+      "mean_prefill_pct": -0.08686166394255013,
+      "mean_decode_spt": 0.01416102734375,
+      "mean_prefill_spt": 0.00112296240234375,
+      "mean_ns": 0.7539427950866627,
+      "all_correct": true
+    }
+  ],
+  "blocks": [
+    1
+  ]
+}

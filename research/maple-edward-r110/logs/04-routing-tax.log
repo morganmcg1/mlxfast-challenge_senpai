@@ -1,0 +1,29 @@
+device: Apple M4 Pro  maxTG=32768 B
+compiled variant base
+compiled variant noload
+    base: tgmem=3840 B  maxTGThreads=1024
+  noload: tgmem=3840 B  maxTGThreads=1024
+
+=== shape gate_up: M=4096 K=2048 N=1024  grid=32x256 tgs ===
+routing  multinomial: K-loop executions per BM=16 tile = 1.961
+routing      aligned: K-loop executions per BM=16 tile = 1.000
+null control  :   0.0274 ms/dispatch (n=2)
+multinomial  base  :   5.1815 ms  vs base  +0.00 %  (n=8, spread 0.3 %)
+multinomial  noload:   4.3807 ms  vs base +15.45 %  (n=8, spread 0.3 %)
+  multinomial per-prefill projection (39 layers, ms): base 202.1, noload 170.8
+aligned      base  :   2.6630 ms  vs base  +0.00 %  (n=8, spread 0.0 %)
+aligned      noload:   2.2340 ms  vs base +16.11 %  (n=8, spread 0.0 %)
+  aligned per-prefill projection (39 layers, ms): base 103.9, noload 87.1
+SEGMENT-RESTART TAX: base 5.1815 -> 2.6630 ms aligned = 48.60 % of kernel time; K-loop ratio 1.961x
+
+=== shape down: M=4096 K=512 N=2048  grid=64x256 tgs ===
+routing  multinomial: K-loop executions per BM=16 tile = 1.961
+routing      aligned: K-loop executions per BM=16 tile = 1.000
+null control  :   0.0250 ms/dispatch (n=2)
+multinomial  base  :   2.5882 ms  vs base  +0.00 %  (n=8, spread 0.7 %)
+multinomial  noload:   2.2091 ms  vs base +14.65 %  (n=8, spread 0.7 %)
+  multinomial per-prefill projection (39 layers, ms): base 100.9, noload 86.2
+aligned      base  :   1.3467 ms  vs base  +0.00 %  (n=8, spread 0.4 %)
+aligned      noload:   1.1381 ms  vs base +15.49 %  (n=8, spread 0.1 %)
+  aligned per-prefill projection (39 layers, ms): base 52.5, noload 44.4
+SEGMENT-RESTART TAX: base 2.5882 -> 1.3467 ms aligned = 47.97 % of kernel time; K-loop ratio 1.961x
