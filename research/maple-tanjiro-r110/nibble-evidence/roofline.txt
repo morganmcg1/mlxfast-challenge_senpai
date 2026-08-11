@@ -1,0 +1,10 @@
+40 layers, 39 MoE (dense: [0]), top-8 of 256
+NVFP4: 524288 code bytes + 65536 scale bytes per expert gate_proj => group size 16, 4.0 bit/code, 0.5625 byte/weight all-in
+
+  MB/step   us/step     GB/s  % peak  kernel group
+    368.1    1502.1    245.0   89.8%  routed gate+up
+    207.0     862.0    240.2   88.0%  routed+shared down
+     46.0     288.7    159.4   58.4%  shared gate+up
+    621.1    2652.8    234.1   85.8%  FAMILY
+
+if 'shared gate+up' reached its sibling's 245.0 GB/s it would take 187.8 us/step instead of 288.7 => 100.9 us/step on this M4 = 0.391 % of score (bar 0.27 %)

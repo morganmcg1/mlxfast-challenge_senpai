@@ -1,0 +1,26 @@
+pool slots: 40 (42 MiB)
+# coverage check (all arms must write 512 rows and match the shipped arm):
+#   v0_shipped: reference(zeros=83)
+#   v1_r1_tg256: zeros=83 maxrel=0.00e+00
+#   v2_r1_tg1024: zeros=83 maxrel=0.00e+00
+#   v3_r2_tg64: zeros=83 maxrel=0.00e+00
+#   v4_r4_tg64: zeros=83 maxrel=0.00e+00
+#   v5_ks2_tg128: zeros=83 maxrel=0.00e+00
+#   v6_ks4_tg256: zeros=83 maxrel=0.00e+00
+#   v7_ks8_tg256: zeros=83 maxrel=0.00e+00
+#   c0_wide_known_bad: zeros=83 maxrel=0.00e+00
+# dvfs warmup rounds: 811
+variant             us/call   us/step     GB/s  us/call_min  spread%    thr
+v0_shipped     5.637    219.83    197.7     5.587      8.03   16384
+v1_r1_tg256     6.170    240.62    180.6     5.904      6.13   16384
+v2_r1_tg1024     5.766    224.87    193.2     5.591      9.57   16384
+v3_r2_tg64     5.752    224.33    193.7     5.692     10.36    8192
+v4_r4_tg64     6.644    259.13    167.7     6.173      9.83    4096
+v5_ks2_tg128     5.843    227.88    190.7     5.660      9.68   32768
+v6_ks4_tg256     7.294    284.46    152.7     7.091      7.52   65536
+v7_ks8_tg256    14.939    582.62     74.6    13.601     13.42  131072
+c0_wide_known_bad     5.672    221.21    196.4     5.628      9.11   16384
+s0_stream_16k_8B     4.975    194.04    223.9     4.955      5.76   16384
+s1_stream_16k_16B     4.929    192.25    226.0     4.906      6.27   16384
+s2_stream_64k_16B     4.907    191.38    227.0     4.885      9.14   65536
+s3_stream_8k_16B     4.960    193.46    224.6     4.936      6.26    8192

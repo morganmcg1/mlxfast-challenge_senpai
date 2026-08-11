@@ -1,0 +1,35 @@
+diff --git a/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp b/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+index a646a97f..0aab97b4 100644
+--- a/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
++++ b/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+@@ -87,6 +87,14 @@ static bool darkbloom_steel_prefill_tile() {
+   return enabled;
+ }
+ 
++static bool darkbloom_fused_nax_narrow_bn() {
++  static bool enabled = []() {
++    const char* value = getenv("DARKBLOOM_FUSED_NAX_NARROW_BN");
++    return value == nullptr || atoi(value) != 0;
++  }();
++  return enabled;
++}
++
+ 
+ static bool darkbloom_steel_trace() {
+   static bool v = []() {
+@@ -219,6 +227,15 @@ void steel_matmul_regular_axpby_nax(
+ 
+     bm = 64;
+     wm = 2;
++    // Halving bn together with wn keeps SM x SN at 32 x 32, so the emitted
++    // kernel is the AOT-instantiated (64, 64, 256, 2, 2) tuple running the same
++    // gemm_loop template as the incumbent: same per-simdgroup operand traffic,
++    // same tile_matmad_nax branch, twice the threadgroups. M >= 64 confines the
++    // change to prefill.
++    if (darkbloom_fused_nax_narrow_bn() && M >= 64 && N <= 1024) {
++      bn = 64;
++      wn = 2;
++    }
+   }
+ 
+   std::ostringstream kname;
