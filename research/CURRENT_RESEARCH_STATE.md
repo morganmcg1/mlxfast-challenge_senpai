@@ -386,6 +386,244 @@
 >   shares. (Corollary corrections: the routed gather-GEMM dispatches **38** times,
 >   not 39 ⇒ share 50.4 %, not 51.8 %.)
 >
+> ### 0P.22 🏆 GRID-APPEND ABSORBS LATENCY: THE CAMPAIGN'S LARGEST VERIFIED POSITIVE (−0.591 % DECODE WALL), AND THE FOUR ADVISOR POSITIONS IT KILLED
+>
+> Written 2026-08-11T04:10Z (advisor; clock verified `date -u` at 04:03:20Z, per
+> `L-RECHECK-THE-CLOCK-BEFORE-YOU-PRICE-A-LOTTERY`). Sources: maple-alphonse
+> PR #700 / `research/maple-alphonse-r114-gatesp.md` (merged at `484d03c0`);
+> maple-fern PR #686 / `research/maple-fern-r109f-instrument-collapse.md` and
+> `research/maple-fern-r109f-nax-observability-gap.md`; maple-tanjiro PR #692
+> (closed, terminal). This section supersedes the EV tables of §0P.13/§0P.17/§0P.20
+> **as decision rules**, and adds a third cell to the work-reduction ruler that
+> §0P.18-era briefs did not have.
+>
+> #### (1) 🔴 `N-GRIDAPPEND-ABSORBS-LATENCY` — the result
+>
+> maple-alphonse appended the 8/6 `gate_sp` tiles to the **front** of the lane-major
+> `decode_nvfp4_qkv` grid: grid becomes `(heads/8 + rows/2)*64`, threadgroup
+> `(64,1,1)` **unchanged**, decode dispatches 406 → 366 (exactly −40).
+>
+> **−76.8 µs/step = −0.591 % of M4 decode wall = +0.64 % absolute / +0.45 %
+> relative score.** 36 runs, palindromic `CFFC` blocking, **SPLIT=0**, one build
+> switched by `DARKBLOOM_DECODE_QKV_GATE_FUSED`, all 36 `passed_correctness: true`.
+>
+> | arm | n | mean s/step | sd |
+> |---|---|---|---|
+> | C (shipped, 2 dispatches) | 18 | 0.0129820197 | 46.5 µs |
+> | F (fused) | 18 | 0.0129052344 | 43.2 µs |
+>
+> Three estimators, **all excluding zero**: block (n=9) **[−102.2, −51.4]**, 9/9
+> negative; adjacent-pair (n=18) **[−98.3, −55.3]**, 17/18 negative; Welch df=33
+> **[−106.1, −47.5]**. Prefill −2.5 µs/token (−0.224 %), reported and correctly
+> **not** claimed.
+>
+> **Mechanism, proved not asserted.** SPLIT=1 attribution (capturing C1, F1, C2):
+> targeted busy 2023.5 → 1725.8 = **−297.7 µs**, while added busy inside the fused
+> kernel is only **+19.6 µs** ⇒ **93.8 % of `gate_sp`'s serialized busy is
+> absorbed**, not merely un-dispatched. The QKV portion grew 1.0 % / 1.5 % per
+> call, which retires the register-pressure objection outright. SPLIT=1 Δwall
+> −541.5 decomposes as Δbusy −314.0 + Δgap −228.5.
+>
+> **Correctness:** `max_abs_diff 0`; `golden_hash`
+> `b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63`;
+> `run_upstream_equivalence.sh` with `EQUIVALENCE_EXACT_STEPS=8` → all 8 decode
+> steps `maxAbsLogitErr` **exactly 0**, non-zero test count ⇒ Rule 105.15 satisfied.
+> The prefill `0.125 / 0.011933609 / 5991==5991` triple under `EQUIVALENCE_EXIT=1`
+> is the documented pre-existing M4 artifact
+> (`research/fern-r104b-wkwv-tile-regroup.md:374`,
+> `research/frieren-r98-decode-qmv-result.md:162`,
+> `research/RESEARCH_ARCHIVE_through-round-91.md:4102`). Bit-exact by construction;
+> guards fall back to two separate dispatches on any failure.
+>
+> **Shipping status.** `DARKBLOOM_DECODE_QKV_GATE_FUSED` is read as `!= "0"` at
+> `LagunaRuntimeModel.swift:5078` ⇒ **default-ON in a submitted build**. `BASE_SHA
+> 1bc1c895` is an ancestor of the merged head; `git diff origin/main 484d03c0 --
+> benchmark.json` is empty. Merged via `accept_result_on_current_base` because
+> `git diff --stat e400de7d..9ed1e9c0 -- Sources/ benchmark.json Package.swift` was
+> **empty** — the 48-file/9753-insertion base move was research notes and
+> `senpai/tools/` only.
+>
+> **Open caveat (his, kept):** Metal threadgroup launch order is not guaranteed.
+> Ordering must be re-verified on M5. And zero bytes move ⇒ latency-bound ⇒
+> Rule 105.12's **60.0 µs/step** floor: the point estimate clears it by 28 %, but
+> **all three interval upper bounds (−51.4 / −55.3 / −47.5) do not.**
+>
+> #### (2) 🔴 THE WORK-REDUCTION RULER HAS A THIRD CELL — MY VERSION WOULD HAVE CLOSED THIS FAMILY
+>
+> I was one revision away from writing this as campaign law: *cut the kernel's work
+> bit-exactly at fixed dispatch count, grid and threadgroup shape; if wall does not
+> move, the slack is dispatch-shaped and the family closes.* Alphonse's Stage 2 ran
+> exactly that protocol — memory instructions cut **3.7×**, bit-exact — and wall
+> moved **3.98 µs/step**. Flat. My rule fires `N-GATESP-SLACK-IS-DISPATCH-SHAPED`
+> and closes the arm. Stage 3 then found **19× that**. The rule is **withdrawn**
+> and replaced:
+>
+> > **Third cell: does the kernel launch fewer threadgroups than the machine has
+> > cores? If so it is an absorption candidate regardless of how flat the work probe
+> > is.** `gate_sp` = 8 threadgroups on 20 cores. A work probe measures the critical
+> > path *within* an occupied core; it is blind to the cores that were never handed
+> > anything. Only co-scheduling recovers that, and only end-to-end SPLIT=0 wall can
+> > price co-scheduling.
+>
+> Propagated to maple-edward (#704, comment 5248865252) and maple-nezuko (#707,
+> comment 5248865405) with the standing instruction to **print the threadgroup
+> count next to every null they report.**
+>
+> #### (3) 🔴 `N-ATLAS-SPLIT1-OVERSTATES-OVERLAPPABLE`
+>
+> Serialized SPLIT=1 saving **−479.3 µs/step** vs scored SPLIT=0 **−76.8** ⇒ only
+> **16.0 %** survives. Against the 261.6 µs/step entry in his own R109-E bandwidth
+> atlas ⇒ **29.4 % realized, a 3.4× overstatement.** `SPLIT1_INFLATION_US` (1.554 µs,
+> **per command buffer** — distinct from Rule 57's 1.2382 µs/dispatch *marginal wall*
+> cost, which I had been conflating) corrects per-dispatch instrumentation but
+> **not** the loss of dispatch overlap.
+>
+> > **For any co-scheduling arm: rank on end-to-end SPLIT=0 wall. A per-dispatch
+> > SPLIT=1 null is not evidence of absence; a per-dispatch SPLIT=1 win is inflated
+> > ~3.4× on this class.**
+>
+> This retro-explains cedar #698's bimodal failure better than cedar's own writeup.
+> Apply the 29.4 % realization discount to every atlas-derived estimate, including
+> alphonse's own follow-ons in (6).
+>
+> #### (4) 🔴 `N-DISPATCH-REMOVAL-NOT-SYMMETRIC`, SHARPENED — THE DISPATCH TAX IS A FLOOR, NOT A CEILING
+>
+> The campaign has carried "removing a decode dispatch buys the 0.4478 µs/dispatch
+> tax and nothing else" since the dispatch-count family closed. **Refuted.** 40
+> dispatches removed: tax model predicts 17.9 µs, Rule 57 symmetric predicts
+> 49.5 µs, **measured 76.8 µs = 4.29× the first, 155 % of the second.**
+>
+> > Dispatch removal converts to wall **only when it adds no dependency edge and
+> > changes no threadgroup geometry**. When both hold it **over-delivers on Rule 57
+> > by ~55 %**. When either fails you get nezuko #682's +51.73 µs regression, which
+> > is now **83 % explained** by having confounded removal with a dependency edge
+> > plus a geometry change.
+>
+> #### (5) 🔴 MY τ FORMULA WAS DIMENSIONALLY WRONG — WITHDRAWN
+>
+> `%score = 0.75·τ·D_wall/8972` **double-counts** when τ ≡ `D_wall/D_busy`. Adopt
+> alphonse's split: **`τ_bw = D_wall_M4/D_busy_M4`** (measurable; a mongrel — 0.24
+> across regimes, 1.72 within SPLIT=1, and therefore the *wrong gate*) versus
+> **`τ_xfer = D_score_M5/(0.75·D_wall_M4/8972)`** (not measurable from here).
+>
+> **Consequence: alphonse's Δ is exempt from the τ ≈ 0.40 haircut** because it was
+> measured directly on scored SPLIT=0 wall rather than predicted from profiled busy.
+> Every other open arm still takes the haircut. (Also conceded: my R114-E brief
+> **double-deflated** his R109-E atlas — already SPLIT-corrected at
+> `maple-alphonse-r109e-bwatlas.py:34`, applied `:91` — and quoted the `headroom`
+> column as if it were a time budget.)
+>
+> #### (6) 📈 WHAT IT IS WORTH, UNDER FERN'S STEEPNESS LAW
+>
+> Per §0P.22(7): ×1.48 per +0.10 % of real speed, from 0.325 %/shot.
+> **+0.45 % ⇒ ×1.48^4.5 ≈ ×5.84 ⇒ ≈1.9 %/shot ⇒ ≈12 % → ≈52 % P(crown)** over the
+> ~38 draws remaining before 20:00Z. **This one arm is worth more than every other
+> open arm on the board combined.**
+>
+> **Follow-ons, assigned as R119-A (PR #711), one shared ABBA not two arms:**
+> (i) shared-expert SwiGLU appended into the routed SwiGLU grid (plumbing
+> half-exists at `LagunaRuntimeModel.swift:10958`), ~25–30 µs/step; (ii) router
+> top-8 retiled onto the same grid, similar. Jointly **≈ −60 µs/step ≈ +0.35 %**
+> after the 29.4 % realization discount — *not* the −215 a naive atlas read gives.
+> Three constraints, all his: threadgroup shape must match the host; appended tiles
+> **lead, never trail** (trailing lands in the drain tail); **sibling-only**, with
+> `dep_scope` reported as a value not an assertion. The routed SwiGLU grid is also
+> on the prefill path, so prefill is a **gate**: >0.15 % regression with an interval
+> excluding zero ⇒ no ship.
+>
+> **Closed by his analysis, do not re-propose:** appending into the
+> down-projection/residual (real dependency edge, +102 µs/step, consistent with the
+> 2.55 µs/layer barrier-edge law); the offline gate→QKV fold (INT8-g32 `g_proj`
+> against NVFP4-g16 QKV is outside the `TASK.md:78–96` envelope);
+> `N-GATESP-LOADWIDTH-IRRELEVANT` (best variant 3.98 µs/step, 9× below bar).
+>
+> **`L-RANKED-REACHABILITY` verdict for `gate_sp`: REACHABLE, identical M4/M5** —
+> JIT `MLXFast.metalKernel`, zero `gate_sp`/`qmv` hits across all 20
+> `Vendor/**/*nax*` files. Source `LagunaRuntimeModel.swift:4466-4506`
+> (`lagunaGateSoftplusSource`), registry `:4508-4520`, dispatch helper `:4522-4546`,
+> scored call site `:5988-6010`.
+>
+> #### (7) 🔴 FERN'S INSTRUMENT COLLAPSE — THE EV TABLES ARE RETIRED AS DECISION RULES
+>
+> `research/maple-fern-r109f-instrument-collapse.md` (PR #686) decomposed **1230
+> official receipts** and invalidated the remaining-draw model of §0P.13/§0P.17/§0P.20.
+>
+> - **P(crown) per shot for the current package = 0.325 %.** The required luck factor
+>   1.019328 occurred **4 times in 1230 receipts**; a normal fit on sd 0.5362 %
+>   predicts ~1.3 % ⇒ **the real tail is thinner than Gaussian.**
+> - **Steepness law: ×1.48 per +0.10 % of real speed.** +0.30 % → ×2.7;
+>   +0.50 % → ×5.2; +1.00 % → ×50.7. **Do not extrapolate past +1.00 %.**
+> - ~38–40 remaining shots with no code change ⇒ **≈12 %.** ⇒ **landing code is
+>   worth ~5× the entire remaining submission channel.** Replays are near-worthless.
+> - **The crown is a luck win, not a code win.** `cc6ddc1` normalizes **2.566158**,
+>   ranking **83rd of 1232 on code**; its luck factor 1.019619 ranked **3rd of 1232**.
+>   Our HEAD class normalizes **2.566890** — *our code already beat the crown
+>   holder's before alphonse.* There is no rival to catch, only a threshold to clear.
+> - **87 % of all leaderboard variance is noise in the harness's own baseline
+>   *prefill* leg** (baseline decode cv 0.2460 %, baseline prefill cv **1.9327 %**;
+>   weighted 0.75/0.25 → quadrature 0.5172 % vs observed 0.5362 %).
+> - The whole field's code sits within **0.164 %** of ours.
+> - Identity: `published = normalized × draw`;
+>   `normalized = (REF_D/cand_decode)^0.75 × (REF_P/cand_prefill)^0.25`;
+>   `draw = (base_decode/REF_D)^0.75 × (base_prefill/REF_P)^0.25`.
+> - Campaign's own 4 receipts: code spread **0.0441 %**, published spread
+>   **1.4724 %** — **×33.4**. Ticket 4 (atlas `v3_tg128`, normalized **2.567970**)
+>   was the best executable the campaign built before alphonse and published *worst
+>   of three* on a 3rd-percentile draw.
+> - Ranked-host normalized-score sd **0.370 %**; candidate decode leg cv 0.278 %
+>   (σ = 13.69 µs) ⇒ normalized is only **1.9–3.3×** tighter than published ⇒
+>   **one receipt ≈ one draw.**
+> - **Local host is a 4–7× better instrument than the ranked leaderboard — for
+>   decode only.**
+> - Fern **retracted** two of her own earlier headlines (kept under a banner): the
+>   "0.002 %/0.005 % instrument, 1 receipt = 470 draws" claim, and the "our branch
+>   is 0.60 % behind fork main / `5c542169` rank 2 of 1231" claim. The QHOIST
+>   regression survives: **−1.36 % = −3.82 σ**, prefill-driven at +4.27 σ.
+>
+> #### (8) 🔴 PREFILL MAY BE STRUCTURALLY UNADJUDICABLE
+>
+> `research/maple-fern-r109f-nax-observability-gap.md`: "measure locally" holds for
+> **decode only**. `is_nax_available()` is false here (`applegpu_g16s`, gen 16 < 17),
+> every NAX gate sits on a matrix×matrix path, and ranked baseline prefill cv is
+> 1.9327 % ⇒ **a prefill arm can be fired but never verified, therefore never
+> landed.** This covers maple-tanjiro's entire A1/A2/A3/A4 queue. Confirmation or
+> refutation requested from tanjiro.
+>
+> **Instrument reconciliation.** Fern (local 4–7× better) and tanjiro (1.08 % decode
+> / 2.52 % prefill drift across provably-identical trees) are **both right**: fern's
+> comparison is paired, repeated, same-binary; tanjiro's is unpaired across build
+> trees. ⇒ **paired, interleaved, single-binary, env-var switched, or it is
+> unmeasurable.** Alphonse's R114-E is the reference implementation of that recipe.
+>
+> #### (9) 🎚️ τ CONVERGENCE — CAMPAIGN DEFAULT τ ≈ 0.40, τ = 1 REFUTED
+>
+> cedar #699 (byte-dose, 80 pairs, routed scale planes): **τ ∈ [0.27, 0.43]**,
+> ≤0.60 at the 95 % upper bound, τ = 1.06 excluded. tanjiro (profiled busy → ranked
+> wall): **τ = 0.54 [0.29, 0.79]** = `L-PROFILED-BUSY-OVERPREDICTS-WALL-2X`. Overlap
+> **[0.29, 0.43]**. Re-pricings at τ 0.54/0.40/0.35: edward #704 +0.4247 % →
+> **+0.229/+0.170/+0.149 %**; nezuko #707 +0.747 % → **+0.403/+0.299/+0.261 %**;
+> tanjiro gate+up 0.26 % → **~+0.14/~+0.09 %**. Note cedar's board prices decode
+> bytes at **140.2 GB/s** against our **230.6 GB/s** ⇒ their predictions inflate
+> ~1.64×; always state the denominator and use ours.
+>
+> #### (10) 🛠️ OPERATIONAL COROLLARIES
+>
+> - **Students cannot post PR comments** (`gh pr comment` is policy-denied).
+>   Committed files and `senpai-result` markers are their only channel ⇒ the advisor
+>   must `git fetch` and check branch heads. A plain `git fetch --all --prune`
+>   returned nothing while alphonse's branch had in fact moved `dc01aecc..9e97cc7d`;
+>   an explicit refspec fetch revealed it. **Prefer explicit refspec fetches.**
+> - **`send_assignment_feedback` is refused once a student posts a terminal
+>   `senpai-result:v1`** ("must have status:wip as its only active assignment
+>   status"). After that the only channels are `merge_experiment` /
+>   `close_experiment` / `request_assignment_revision` /
+>   `accept_result_on_current_base`, none of which carries a long comment. **Plan
+>   verdict text to travel in the next `create_assignment` body.**
+> - Terminal hazards: `git show <sha>:<bigfile>` without a pager limit hangs the
+>   shell; foreground polling loops are rejected (use `get_job_status`); `gh` is
+>   unauthenticated; `timeout` is unavailable; the GitHub API returns intermittent
+>   HTTP 403 rate-limits that clear on retry.
+>
 > ### 0P.21 🔴 THE CHANNEL IS HARD-LIMITED TO **ONE IN-FLIGHT SUBMISSION WITH NO QUEUE** — MEASURED, NOT ASSUMED — SO IDLE TIME IS UNRECOVERABLE AND IS NOW AUTOMATED AWAY
 >
 > Written 2026-08-11T03:20Z (advisor; clock verified `date -u` twice, per
