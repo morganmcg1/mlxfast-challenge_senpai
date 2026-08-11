@@ -10,7 +10,36 @@ before the first ruler row was read).
 
 ## TL;DR
 
-<!--RESULTS-TLDR-->
+**τ = +0.780, CI95 [+0.727, +0.833]** (7 blocks, 35 runs, 4 dose rungs spanning 6.75×,
+free-intercept OLS per block, t-interval on 6 dof; bootstrap median +0.776 [+0.714, +0.826]).
+Every run passed with the same golden hash `f49e4c2cbc0d3ceee9…`.
+
+The advisor's encoder gate — *τ ≥ 0.6 with CI95 excluding 0.3* — **passes**, and passes with
+room: the interval excludes 0.3, excludes 0, and also excludes 1.0. So a scale-plane byte on
+the decode attention family costs **78 % of what a perfectly-streaming DRAM byte costs** at the
+256.7 GB/s asymptote, or **85 %** restated against the 235.6 GB/s this family actually achieves.
+Cedar's routed-class band [0.27, 0.43] does **not** transfer to attention: attention bytes are
+roughly **2.3× more expensive** than the routed-expert bytes cedar priced.
+
+Three results I did not pre-register and would not have found without the ladder:
+
+1. **The byte class is not a scalar.** Per-rung τ after removing each block's own intercept:
+   `ON` +0.648 [+0.566, +0.731], `QN` +0.695 [+0.613, +0.777], `AN` +0.823 [+0.764, +0.882],
+   `OP` +1.203 [+0.999, +1.408]. These intervals do not overlap. The marginal cost of a byte
+   depends on which kernel owns it.
+2. **The dose is super-additive.** `AN` is `ON` + `QN` *to the byte*, but costs
+   **+38.4 µs/step more** than their sum (intercept-adjusted, CI95 [+17.3, +59.4], excludes
+   zero). Two small byte insults are cheaper than one large one — the family sits close enough
+   to the DRAM asymptote that the marginal cost of a byte rises with the dose.
+3. **The R114 offset class did not reproduce.** c = **−10.58 µs/step** [−24.16, +3.00], covering
+   zero, against the ~−40 µs/step R114 predicted. The offset is instrument-state-dependent, not
+   a fixed property of `env`-prefixed invocation — which is precisely why the intercept had to
+   be free rather than assumed.
+
+**Caveat, found after launch and stated first because it bounds everything above:** no rung is a
+*pure* byte dose (§3.3). Dropping the worst offender (`OP`) moves the estimate to
+**τ = +0.968 [+0.860, +1.076]**. The honest headline is therefore **τ ∈ [0.73, 1.08]**, and
+every price below is quoted at both ends.
 
 ---
 
@@ -143,7 +172,112 @@ first-class result because it is the R114 offset class measured on a second inst
 
 ## 3. Results
 
-<!--RESULTS-BODY-->
+Campaign `20260811T030551Z`, launched 03:05:51Z, finished 04:38:22Z. 35 runs, 7 complete blocks,
+tree at `516afccd`. **Integrity: all 35 runs `passed=true`, all 35 golden hashes identical
+(`f49e4c2cbc0d3ceee9…`), one kernel set per arm.** Raw rows:
+`research/data/nezuko-r117-byte-dose-ruler.tsv`; tidy per-observation array (28 paired
+differences with their bit-exactness receipts):
+`research/data/nezuko-r117-byte-dose-ruler-array.csv`; full analyser output:
+`research/data/nezuko-r117-byte-dose-ruler-report.txt`.
+
+### 3.1 Paired differences, µs/step, each rung against its own block's control
+
+| block | `OP` | `ON` | `QN` | `AN` | C level |
+|---|--:|--:|--:|--:|--:|
+| 1 | 28.34 | 57.82 | 90.68 | 204.66 | 8975.82 |
+| 2 | 41.33 | 61.57 | 116.89 | 210.59 | 8956.19 |
+| 3 | 49.59 | 73.94 | 97.90 | 233.28 | 8970.43 |
+| 4 | 26.47 | 74.35 | 86.41 | 182.01 | 8978.38 |
+| 5 | 62.60 | 63.06 | 91.88 | 210.83 | 8965.99 |
+| 6 | 30.03 | 76.62 | 91.60 | 197.53 | 8976.50 |
+| 7 | 10.16 | 38.63 | 51.37 | 176.54 | 9002.70 |
+| **mean** | **35.50** | **63.71** | **89.53** | **202.21** | 8975.15 |
+| sd | 15.89 | 12.25 | 18.09 | 17.73 | 13.9 |
+
+Every one of the 28 paired differences is **positive**: adding scale-plane bytes always made
+decode slower, on every rung, in every block. That alone falsifies the null that the plane is
+free.
+
+### 3.2 Primary endpoint
+
+| quantity | value | CI95 |
+|---|--:|---|
+| **τ (free-intercept OLS slope)** | **+0.780** | **[+0.727, +0.833]** (sd 0.057, n = 7) |
+| intercept c | −10.58 µs/step | [−24.16, +3.00] (sd 14.68) |
+| bootstrap median τ (20 000 reps) | +0.776 | [+0.714, +0.826] |
+| τ restated at the family's achieved 235.6 GB/s | +0.850 | — |
+| *(rejected)* through-origin slope | +0.723 | — |
+
+Per-block τ: 0.826, 0.804, 0.864, 0.709, 0.714, 0.768, 0.776 — a 0.155 spread across seven
+independent blocks, with no block negative and none above 1.
+
+**Bimodality: none.** The Monte-Carlo-calibrated gap statistic on the raw paired differences
+gives p = 0.69 (`OP`), 0.44 (`ON`), 0.98 (`QN`), and the residuals about the fit are likewise
+unimodal. I record the honest power caveat the test prints for itself: against a 3-sd
+two-component split at n = 7 its power is only **0.44**, so "no bimodality" here means "no
+evidence of it", not "excluded".
+
+The intercept deserves a line of its own. R114's OFFSET CLASS predicted every gated arm would
+sit ~40 µs/step below the un-gated reference for reasons unrelated to what it changes. On this
+instrument the offset is **−10.6 µs/step and statistically indistinguishable from zero**. Two
+readings are consistent with the data: the R114 offset was partly a property of that
+campaign's machine state, or it is real but smaller than R114's own CI suggested. Either way
+the decision to free the intercept cost nothing (the estimate barely moved) and would have
+bought a great deal had the offset been 40 µs — so it was the right pre-registration amendment
+even though it turned out not to matter.
+
+### 3.3 The confound I found after launch, and why I am reporting it loudly
+
+**No rung is a pure byte dose.** Every kill switch that resizes the scale plane also changes how
+the plane is *addressed*:
+
+* `PAIRWISE_OPROJ=0` makes 32 lanes read 32 distinct scale bytes where the shipped kernel has
+  lanes 2j and 2j+1 share one byte — it changes the access pattern *and* the compiled kernel
+  name, not only the byte count;
+* `NARROW_*=0` swaps a nibble walk for a strided byte read.
+
+This is why `OP` — the *smallest* dose — returns τ_a = **+1.203**, above the physical ceiling
+for a pure byte effect. Bytes cannot cost more than bytes; the excess is mechanism.
+
+Two consequences, and I want both on the record:
+
+* **The ruler is not a clean byte-count instrument and must not be quoted as one.** Dropping
+  `OP` and refitting the three lane-major rungs gives **τ = +0.968 [+0.860, +1.076]** — an
+  interval that *covers* 1.0. Read literally, the clean subset says these bytes stream at
+  essentially full DRAM speed.
+* **The ruler is nevertheless ecologically valid for pricing an encoder,** because an encoder
+  change buys exactly this bundle: fewer bytes *and* a different access pattern. A number that
+  isolates the byte term would price a thing nobody can build.
+
+I did not discover this until the campaign was running, and pre-registration means I do not get
+to retro-fit the estimator. The pre-registered primary endpoint stands at **+0.780**; the
+`OP`-dropped fit is reported as a labelled post-hoc sensitivity. The band that honestly covers
+both is **τ ∈ [0.73, 1.08]**.
+
+### 3.4 Additivity — the check the ladder carried for free, and it failed
+
+`AN` restores both planes; `ON` and `QN` restore one each; the doses add to the byte
+(29.409 + 36.966 = 66.375 MB/step). If the byte class were a single linear resource:
+
+| quantity | value | CI95 |
+|---|--:|---|
+| raw `AN` − (`ON` + `QN`) | +48.96 µs/step | [+27.92, +70.00] |
+| **intercept-adjusted** (the correct one) | **+38.38 µs/step** | **[+17.34, +59.42]** |
+
+The intercept-adjusted contrast should cover zero if the doses add. It does not — it is
+**super-additive by 38 µs/step**, about 19 % of the `AN` effect.
+
+**Finding `N-ATTN-BYTE-DOSE-SUPERADDITIVE`:** on the decode attention projection family, the
+wall-clock cost of restoring both scale planes exceeds the sum of the costs of restoring each
+alone by +38.4 µs/step [+17.3, +59.4]. Equivalently, τ rises with dose: 0.65–0.70 on the
+single-plane rungs, 0.82 on the double. This is the signature of a family already pressed
+against its bandwidth asymptote — Stage 0 measured it at **91.9 % of the 256.7 GB/s peak** —
+where the last increment of demand is served worse than the first.
+
+It also has a direct practical corollary, and it is the opposite of the usual one:
+**savings on this family will be *sub*-additive.** A byte you remove is the *cheapest* byte in
+the stream, not the average one. Anyone pricing an attention-side byte reduction by multiplying
+its size by τ = 0.78 is quoting an upper bound.
 
 ---
 
