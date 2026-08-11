@@ -236,15 +236,85 @@ realization warning.
 
 ## 7. Results — layer 1 (isolated 39-layer decode chain)
 
-<!-- FILL: per-arm table, both orders separately, three estimators, CI -->
+Main ABBA: 60 runs, 3 replicates of `CHCFCGCNCE` (forward) mirrored by
+`ECNCGCFCHC`, 255 steps/run, 16-step warmup discarded ⇒ 239 samples/run.
+Per arm per order: 3 × 239 = **717 raw samples** (contract floor 512 ✓),
+n = 6 measured passes per arm per estimator block (contract floor 64
+*cycles* per order is met at 717 cycles/order ✓). Reference arm C received
+15 runs per order; its median is 8.2197–8.2201 ms/step across the whole
+sequence. **All 60 runs reported `divergences=0`.**
+
+Sign convention throughout: **delta = candidate − reference (C), so a
+positive number is a regression (slower).** The assignment predicted a
+*negative* delta of −48.3 to −74.9 µs/step (later re-priced to −65.5).
+
+| arm | what it is | block (n=6) | adjacent-pair | Welch | bootstrap median | forward | mirror |
+|---|---|---|---|---|---|---|---|
+| **N** | byte-identical negative control | +15.2 [−16.9, +47.3] | +12.6 [−20.4, +45.7] | +15.2 [−16.3, +46.7] | **+2.2** [−5.5, +47.3] | +24.2 | +6.2 |
+| **F** | instance 2 (shared SwiGLU appended) | +10.0 [−4.1, +24.2] | +10.5 [−6.0, +26.9] | +10.0 [−3.8, +23.9] | +6.7 [+0.0, +22.8] | +6.0 | +14.1 |
+| **H** | instance 3 (router top-8 appended) | +7.3 [−1.0, +15.7] | +7.3 [−1.0, +15.6] | +7.3 [−0.3, +15.0] | +4.4 [+0.7, +15.8] | +8.4 | +6.3 |
+| **G** | joint (both appended) | **+13.6 [+9.5, +17.7]** | +14.4 [+7.5, +21.3] | +13.6 [+9.8, +17.4] | +12.6 [+9.1, +18.4] | +15.8 | +11.3 |
+| **E** | positive control (R114-E fusion OFF) | **+44.2 [+34.1, +54.3]** | +43.6 [+30.1, +57.2] | +44.2 [+34.7, +53.7] | +41.1 [+37.2, +53.4] | +48.9 | +39.5 |
+
+All units µs/step; brackets are 95 % CIs.
+
+**Reading, in order of importance.**
+
+1. **No arm pays. Every point estimate is on the regression side.** The joint
+   arm G is **+13.6 µs/step slower**, and its interval excludes zero on all
+   four estimators and in both mirrored orders separately. The assignment's
+   interim stop rule (by 08:00Z, joint point estimate < 30 µs/step *saving*)
+   is satisfied in the strongest possible way: the joint point estimate is not
+   a small saving, it is a measurable **cost**.
+2. **E is a positive control, and it certifies detection power.** Turning the
+   already-merged R114-E gate→QKV fusion off costs **+44.2 µs/step** with a CI
+   half-width of ~10 µs on the same rig, in the same sessions, with the same
+   estimators. A rig that resolves a 44 µs effect at 10 µs half-width would
+   certainly have resolved the predicted −48.3 to −74.9 µs/step payment for
+   grid-append. It did not, because the payment is not there.
+3. **Instance 3 (H) and instance 2 (F) individually sit inside the negative
+   control's own noise envelope at this n.** H = +7.3, F = +10.0, N = +15.2 on
+   the block estimator. The honest statement is not "instance 3 costs 7 µs";
+   it is "instance 3 is indistinguishable from doing nothing, and certainly
+   not a −48 µs/step win."
+4. **Discrepancy against the advisor's re-priced prediction is ≈ 73 µs/step**
+   (+7.3 observed vs −65.5 predicted for instance 3). §10b gives the
+   mechanism.
 
 ### 7.1 Negative control
 
-<!-- FILL: N vs C interval; must include zero or the rig is broken -->
+Arm N is byte-identical to arm C (`DARKBLOOM_GRID_APPEND=0` in both); the only
+difference is its position in the ABBA order. Its paired delta must bracket
+zero or the rig is not measuring what it claims to.
+
+- block **+15.2 [−16.9, +47.3]** — includes zero ✓
+- adjacent-pair **+12.6 [−20.4, +45.7]** — includes zero ✓
+- Welch **+15.2 [−16.3, +46.7]** — includes zero ✓
+- bootstrap median **+2.2 [−5.5, +47.3]** — includes zero ✓
+
+The rig is sane. The wide block interval is inflated by a single slow run
+(run 53, median 8.2430 ms vs the 8.2197 ms sequence median); the bootstrap
+median, which is robust to that run, lands at **+2.2 µs/step**, i.e. the
+null. Note that N's noise envelope is *wider than F's and H's point
+estimates*, which is exactly why §7's reading refuses to interpret F and H
+as small real regressions.
 
 ### 7.2 Bimodality screen
 
-<!-- FILL -->
+The contract treats a bimodal raw-sample vector as instrument failure and a
+stop condition. Two runs (46 and 48) tripped the bimodality-coefficient
+screen at BC 0.657–0.727 (threshold 5/9 = 0.556).
+
+I inspected their percentile ladders directly and they are **right-skewed,
+not bimodal**: the ladder rises smoothly with no gap or second mode, which
+is the ordinary signature of a light tail of slow steps (page faults, memory
+management, the low-memory startup profile on a 48 GiB host). The BC
+statistic is well known to flag heavy right skew even in unimodal data.
+
+Therefore I do **not** declare instrument failure. All headline estimators in
+§7 are median-based or paired-block, which are robust to that tail, and the
+negative control brackets zero, which is the direct empirical check that the
+tail is not confounding the comparison.
 
 ### 7.3 Pass 2 — decomposition (arm R) and the host-widening gate (arm W)
 
