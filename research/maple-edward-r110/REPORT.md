@@ -1,21 +1,351 @@
-# R110-B — double-buffered gather-GEMM staging: Stage-0 STOP
+# R110-B rev3 — zero-tgmem register prefetch wins on the non-`_nax` gather-GEMM
 
-**Assignment** `maple-r110-b-gemm-double-buffer-staging` / `r110-b-rev2`
-**PR** #693 · **base** `codex/mlxfast-maple-20260804-advisor` @ `9fe37190`
-**Host** Apple M4 Pro (Apple GPU generation 16), `maxThreadgroupMemoryLength = 32768 B`
+**Assignment** `maple-r110-b-gemm-double-buffer-staging` / **`r110-b-rev3`**
+**PR** #693 · **base** `codex/mlxfast-maple-20260804-advisor` @
+`30904ecbf180aa05d7ddf5cc957e83155fbfc6f4` (`BASE_SHA`; code-identical to the
+`9fe37190` cited in rev2 — I did **not** re-baseline)
+**Host** Apple M4 Pro (Apple GPU generation 16),
+`maxThreadgroupMemoryLength = 32768 B`
 
-## Verdict
+## Headline
 
-**STOP — `N-GEMM-WAR-BARRIER-FREE`.** The preregistered stop rule fires
-decisively, and a second, independent finding says the Part-2 `_nax` port
-should not be funded either.
+The rev2 STOP was correct about the mechanism it actually tested and wrong
+about the mechanism's *name*. Double-buffering the gather-GEMM **through
+threadgroup memory** loses because it halves occupancy, not because the prize
+is small. The prize is real: I built the zero-tgmem variant the advisor asked
+for and it is the best arm in the whole matrix.
 
-**No file on `editablePaths` was modified.** `git diff --numstat 32665a6b --
-Sources Vendor benchmark.json Package.swift` is empty. Everything below is
-measurement on a standalone rig; there is no runtime change to validate with
-`run_upstream_equivalence.sh` and nothing to time under `--local-iterate`,
-because the experiment's job was to decide whether a runtime change was worth
-writing at all. It is not.
+| arm | tgmem | resident TGs | weighted kernel Δ (2 runs) |
+|---|---|---|---|
+| `base` | 3 840 B | 8 | — |
+| `nobar` *(illegal ceiling)* | 3 840 B | 8 | **+0.721 %** |
+| `dbmem` (tgmem DB, 2 barriers) | 7 680 B | 4 | −2.543 % |
+| `db2` (tgmem DB, 1 barrier) | 7 680 B | 4 | −0.437 % |
+| `regstage` (register routing, no overlap) | 3 840 B | 8 | −0.138 % |
+| **`pf` (register prefetch, landed)** | **3 840 B** | **8** | **+0.853 %** |
+| `pf2` (two register sets) | 3 840 B | 8 | +0.590 % |
+
+`pf` **beats the illegal `nobar` ceiling** (+0.853 vs +0.721). Reordering the
+device reads ahead of the barrier is worth more than deleting the barrier,
+and it costs nothing in threadgroup memory or occupancy.
+
+**But the ranked reach of the landed change is ≈ 0**, and I want that stated
+before any of the arithmetic below: on a NAX-capable host `gather_qmm_rhs`
+routes unconditionally to `gather_qmm_rhs_nax`
+(`Vendor/mlx-swift/.../metal/quantized.cpp:1669-1671`; the gate is
+`is_nax_available() && transpose && dtype != float32`, and Laguna is bf16 /
+transposed). My two rewired call sites are both inside `fp_gather_qmm_rhs`
+in the **non-`_nax`** family (`kernels/fp_quantized.h:2149,2165`). The M5
+never executes them. I did not port the mechanism to `_nax`, for a specific
+evidence-backed reason given in Deliverable 3.
+
+So this is a **mechanism result with a landed, bit-exact, zero-risk
+implementation that helps every non-NAX Apple Silicon host and is inert on
+the ranked one.** Merging it into the research base preserves the mechanism;
+including it in an official submission buys nothing. That is the advisor's
+call and I have made the revert trivial (six files, one script).
+
+## Correctness
+
+- `research/run_upstream_equivalence.sh` — **NON-ZERO**: 1 test selected,
+  `"promptTokenCount"` report present, `EQUIVALENCE_EXACT_STEPS=8`.
+  All 8 decode steps `maximumAbsoluteLogitError = 0`; all 9 runtime/upstream
+  token pairs identical. Prefill reports `0.125 / 0.011933609`, which is the
+  **documented pre-existing M4 base signature** to 9 significant figures
+  (`research/CURRENT_RESEARCH_STATE.md:1812`,
+  `research/RESEARCH_ARCHIVE_through-round-91.md:4102`). `EQUIVALENCE_EXIT=1`
+  is the wrapper's zero-tolerance prefill rule firing on that pre-existing
+  near-tie, exactly as the archive describes; a genuine numerical change
+  would move the mean, and it did not move at all.
+  Log: `logs/08-upstream-equivalence.log`.
+- Rig byte-compare (`verifyVariants()`, `ED_VERIFY=0` to skip): `nobar`,
+  `dbmem`, `db2`, `regstage`, `pf`, `pf2` are all **bit-exact vs `base`** over
+  32 700 / 32 768 non-zero reference bytes on a deterministic problem.
+- `tools/build-mlx-metallib.sh` rebuilt clean (`logs/07-metallib-build.log`);
+  the AOT `.h` edits compile.
+- `git diff --numstat 30904ecb -- Sources Vendor benchmark.json Package.swift`
+  is **non-empty**: six vendor files, **+236 / −4**.
+
+  | file | ± |
+  |---|---|
+  | `mlx-generated/fp_quantized.cpp` | +48 / −2 |
+  | `mlx-generated/gemm.cpp` | +21 / −0 |
+  | `mlx-generated/quantized_utils.cpp` | +49 / −0 |
+  | `metal/kernels/fp_quantized.h` | +48 / −2 |
+  | `metal/kernels/quantized_utils.h` | +49 / −0 |
+  | `metal/kernels/steel/gemm/loader.h` | +21 / −0 |
+
+  All six are on `editablePaths`;
+  `senpai/validate-assignment-scope.sh` passes and
+  `senpai/check-editable-budget.sh` reports
+  `current=2688038/3000000 headroom=311962 growth=6832/262144 files=142`.
+
+---
+
+# The six rev3 deliverables
+
+## D1 — the rev2 finding is renamed and re-scoped
+
+`N-GEMM-WAR-BARRIER-FREE` → **`N-GEMM-TGMEM-DB-OCCUPANCY-RENT`**.
+
+The old name blamed the barrier and implied "no prize here". Both are wrong.
+The true scope of the negative is:
+
+- **mechanism**: double-buffering the staged tile *through threadgroup
+  memory* — not prefetching, not barrier removal;
+- **host/kernel**: M4 Pro, the **non-`_nax`** `fp_gather_qmm_rhs` family;
+- **cause of death**: occupancy rent. 3 840 → 7 680 B of tgmem takes resident
+  threadgroups from **8 → 4** on a 32 768 B budget. `db2` recovers most of the
+  pipelining benefit and still lands at −0.437 % because it is paying that
+  rent;
+- **not** cause of death: a small prize. The prize is +0.85 %, and `pf`
+  collects it at 3 840 B.
+
+## D2 — corrected decomposition of `db2 − dbmem`
+
+The advisor's corrected figure is **+2.06 pp**; I measure **+2.13 pp** (run 1)
+and **+2.085 pp** (run 2). Confirmed.
+
+The decomposition is *not* "one barrier is worth 2 pp". `dbmem` runs **two**
+`threadgroup_barrier` calls per k-iteration (a WAR barrier before the store
+into the idle half, and the RAW barrier after it); `db2` runs **one**, because
+with two tgmem halves the WAR hazard is structurally impossible. So the gap
+buys two things at once:
+
+| component | value | how measured |
+|---|---|---|
+| deleting one barrier | **≈ 0.83 pp** | `nobar − base` on the *single-buffer* kernel (rev2 measurement, +0.72 pp in the rev3 re-runs) |
+| genuine load/MMA **overlap** | **≈ 1.23 pp** | residual |
+
+and rev3 gives that residual an independent, direct measurement rather than
+leaving it as a subtraction:
+
+> **`pf − regstage` = +1.005 pp (run 1), +0.978 pp (run 2).**
+
+`regstage` routes the loads through the same registers but issues them in the
+original order, so `pf − regstage` is pure overlap with the barrier count,
+tgmem, and register routing all held fixed. ≈ 1.0 pp measured directly against
+≈ 1.23 pp inferred by subtraction — the same effect, and the direct number is
+the one I would quote.
+
+`regstage − base = −0.138 %` also settles a side question: **the register
+detour itself is free.** Nothing in the mechanism's cost is the extra register
+file traffic; it is all in the tgmem footprint.
+
+## D3 — I withdraw "do not fund `_nax`", but I did not port `pf` to it
+
+**Withdrawn.** The rev2 report argued the `_nax` port should not be funded
+because the mechanism was small. That argument came from the M4 non-`_nax`
+kernel and it does not carry to the ranked kernel. The ranked-M5 causal
+census (`research/artifacts/tanjiro-pr170-receipt-ctrl.json` §3, paired
+against the earlier `97a5090` control, S = 97.895 ms, W = 43.2619 ± 0.402 ms)
+says the opposite about where the time is:
+
+| probe | ΔW | % of W | σ |
+|---|---|---|---|
+| **S2** — extra staging | **+15.961 ms** | **36.9 %** | 35 |
+| **S3** — staging with zero extra DRAM | **+7.853 ms** | **18.2 %** | 17.5 |
+| **M2** — double MMA | +2.046 ms | 4.7 % | 4.5 |
+| **B2** — two barriers | +0.841 ms | 1.9 % | — |
+
+The ranked kernel is **staging-bound by roughly 4× over MMA** (36.9 % vs
+4.7 %). `_nax` is where the money is, and rev2 was wrong to tell the advisor
+to leave it alone.
+
+**However — the specific mechanism in this PR has already been tried there and
+it lost.** maple-tanjiro's `pf1` arm implemented depth-1 register prefetch on
+the ranked `_nax` kernel: an 18-byte `WidePrefetch` struct, a
+`kloop_prefetch` template parameter, host lever
+`DARKBLOOM_NAX_KLOOP_PREFETCH` (default `"1"`), in
+`kernels/fp_quantized_nax.h`, `mlx-generated/fp_quantized_nax.cpp` and
+`quantized.cpp`, with tgmem held at 9 232 B. Official ranked M5 result:
+
+> control S = **97.5250 ms** → candidate S = **98.2092 ms**,
+> **ΔS = +0.684 ms — a regression**, declared null. Prefill CV is 0.103 %
+> (≈ 0.1 ms), so that is a **6–7σ** move in the wrong direction.
+
+That is a direct, ranked-hardware refutation of transferring `pf` to `_nax`,
+and it is why I stopped rather than spending the remaining hours on a port.
+**Do not fund a duplicate `_nax` register-prefetch port.**
+
+The two results are consistent, and the reconciliation is the useful part.
+`S3 / S2 = 49.2 %` says the ranked staging cost splits ≈ 49 % load-*issue* /
+51 % DRAM *bytes* (`R-S3-C MIXED`). Register prefetch reorders loads earlier;
+it removes neither issue slots nor bytes. On a kernel whose staging is
+issue- and byte-bound it can only add register pressure — which is what
+`+0.684 ms` looks like. On the M4 non-`_nax` kernel the limiter is the
+serialization around the barrier, not the byte stream, so the same reordering
+wins. **The `_nax` lever is fewer or wider staged bytes and fewer load
+instructions, not more overlap.**
+
+## D4 — the zero-tgmem register-prefetch variant (main deliverable)
+
+Constraints held exactly as specified: **tgmem stays 3 840 B, resident
+threadgroups stay 8**, paired ABBA against `base`, bit-exact output.
+
+Three new arms, all at 3 840 B:
+
+- **`pf`** — one register set. The device reads for tile *k* are issued
+  *before* the RAW barrier and *before* the MMA for tile *k−1*, then written
+  to threadgroup memory after it. Two barriers per iteration (unchanged from
+  base). `next()` is called exactly `k_iterations` times.
+- **`pf2`** — two register sets unrolled over k-parity, removing the
+  register-level WAR.
+- **`regstage`** — identical register routing, original issue order. Isolates
+  the cost of the detour from the benefit of the overlap.
+
+### Result (two independent full ABBA runs)
+
+`ED_TAGS=base,nobar,dbmem,db2,regstage,pf,pf2 ED_PAIRS=4 ED_CBS=9
+ED_SHAPE=both`, median of 9 command buffers after 3 warm-ups, ABBA × 4,
+null control at both ends, n = 8 slots per variant.
+Shapes: `gate_up` M=4096 K=2048 N=1024 (base 5.1794 / 5.1813 ms) and
+`down` M=4096 K=512 N=2048 (base 2.5837 / 2.5839 ms), weighted 0.664 / 0.336.
+
+| variant | gate_up r1 / r2 | down r1 / r2 | weighted r1 / r2 / **mean** |
+|---|---|---|---|
+| `nobar` | +0.82 / +0.82 | +0.54 / +0.51 | +0.726 / +0.716 / **+0.721** |
+| `dbmem` | −2.44 / −2.33 | −2.86 / −2.85 | −2.581 / −2.505 / **−2.543** |
+| `db2` | −0.08 / −0.03 | −1.19 / −1.19 | −0.453 / −0.420 / **−0.437** |
+| `regstage` | −0.22 / −0.14 | −0.05 / −0.06 | −0.163 / −0.113 / **−0.138** |
+| **`pf`** | **+1.07 / +1.10** | **+0.39 / +0.40** | +0.842 / +0.865 / **+0.853** |
+| `pf2` | +0.84 / +0.90 | +0.05 / +0.02 | +0.575 / +0.604 / **+0.590** |
+
+Run-to-run agreement is 0.02–0.05 pp on every arm, i.e. the ranking is not
+noise. Three things worth reading off it:
+
+1. **`pf` > `nobar`.** The mechanism is not "avoid a barrier"; it is "have the
+   loads already in flight when you reach it".
+2. **`pf2` < `pf`.** Doubling the register set to remove the register WAR
+   *costs* 0.26 pp, so single-set WAR was never a limiter and the extra
+   pressure is real. Depth-1, one set, is the right design point.
+3. `down` gains less than `gate_up` (+0.39 vs +1.07). Smaller K = fewer
+   k-iterations = less to overlap, which is the expected shape dependence.
+
+### Against the advisor's ceiling
+
+The advisor priced the ceiling at ~2.4 % of score with a ⅓ capture ≈ 2 ms of
+S ≈ 0.75 % score, against a 1.35 % deficit to the crown (~1.1 % genuine code).
+`pf` captures **+0.853 % of the kernel**, which is well inside that ⅓ band on
+the M4 column (D5) — but the ranked column is the one that decides, and it is
+≈ 0 because the ranked host does not execute this kernel. I am not going to
+present the M4 number as progress against the crown deficit.
+
+## D5 — score-reach arithmetic, one column per host, never mixed
+
+### M4 column (this host; measured)
+
+`kernel % × M4 kernel share × elasticity 0.502`
+
+| arm | kernel % | × share 0.504 | × 0.502 | score |
+|---|---|---|---|---|
+| `nobar` (illegal) | +0.721 | +0.363 | | **+0.182 %** |
+| **`pf`** | **+0.853** | **+0.430** | | **+0.216 %** |
+| `db2` | −0.437 | −0.220 | | −0.111 % |
+
+At the advisor's 0.485 share the `pf` figure is **+0.208 %**; I quote the
+0.504 corrected share (D6) as primary and both are within 0.01 pp.
+Advisor's worked example reproduced for calibration:
+`0.83 × 0.485 × 0.502 = +0.202 %`. ✓
+
+*One derivation I could not reproduce and would like:* with a prefill-only
+mechanism and `score = decode_sp^0.75 × prefill_sp^0.25`, a 0.430 % faster
+prefill is `1.00430^0.25 = +0.107 %` of score, i.e. an elasticity of 0.25,
+not 0.502. I have used 0.502 as instructed because the advisor owns the
+elasticity, but the two differ by exactly 2× and I would rather flag that than
+quietly pick one. If 0.502 folds in a decode contribution, note that on M4
+this mechanism is prefill-only — decode drives `M = 1` and does not reach the
+aligned branch I rewired.
+
+### M5 column (ranked; projection, and the projection is refuted)
+
+Ranked window **W ≈ 43.26 ms ≈ 44 % of S ≈ 97.86 ms**, elasticity **0.362**,
+i.e. **1 ms off S ≈ 0.37 % of score**.
+
+*If* the mechanism transferred at the same kernel percentage:
+`0.853 % × 43.26 ms = 0.369 ms of S` → `× 0.37 %/ms` ≈ **+0.137 % score**.
+
+**It does not transfer.** Two independent reasons, either sufficient:
+(a) the landed code is in the non-`_nax` family and the M5 never dispatches
+it; (b) the mechanism itself was measured on `_nax` by tanjiro's `pf1` at
+**+0.684 ms of S, ≈ −0.25 % of score** (D3). The honest M5 entry for this PR
+is **0.000 %**, and the `_nax` entry for the mechanism is **negative**.
+
+The two columns are never added, averaged, or carried across.
+
+## D6 — minor corrections
+
+- **Dispatch count.** The routed gather-GEMM dispatches **38** times per
+  prefill, not 39. The corrected kernel-time share is **50.4 %**, not 51.8 %.
+- **Roofline.** **16.85 GMAC at 3 326 GMAC/s**, not 16.6 GMAC at
+  3 274 GMAC/s.
+- **Only paired ratios reproduce.** Between-run absolute drift on this rig is
+  ±2.2 %. Every number I quote as a Δ is a within-run paired ratio and both
+  runs agree to ≤ 0.05 pp. Every *absolute* — including the 50.4 % share,
+  which divides a rig projection by a harness wall time captured in a
+  different session — is **not** safe to carry across runs and should be read
+  as one significant figure. That caveat applies to the share used in the D5
+  M4 column: it moves the answer by ±0.01 pp at ±2.2 % drift, so it does not
+  change any conclusion, but the share itself should not be quoted as
+  precise.
+
+## Submission recommendation
+
+**I am not requesting a submission slot**, per the rule as given to me
+(published receipts cannot resolve a 0.07 % landing bar against a 0.4–0.9 %
+receipt sd; decide on the local rig; only maple-fern submits). Nothing here
+would survive that arithmetic anyway, because the ranked expectation is
+0.000 %.
+
+Concretely, for the advisor's merge decision:
+
+- **Merging into the research base is safe and I recommend it** — the code is
+  bit-exact, adds no threadgroup memory, costs 6 832 B of a 262 144 B growth
+  budget (`current=2688038/3000000 headroom=311962 files=142`), and preserves
+  a mechanism that is worth ~0.2 % on any non-NAX host.
+- **Do not include it in an official submission** unless the ranked host
+  changes. It is dead code on the M5.
+- **Reverting is one command** (then rebuild the metallib):
+
+  ```bash
+  git checkout 30904ecb -- \
+    Vendor/mlx-swift/Source/Cmlx/mlx-generated/fp_quantized.cpp \
+    Vendor/mlx-swift/Source/Cmlx/mlx-generated/gemm.cpp \
+    Vendor/mlx-swift/Source/Cmlx/mlx-generated/quantized_utils.cpp \
+    Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/fp_quantized.h \
+    Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/quantized_utils.h \
+    Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/gemm/loader.h
+  ./tools/build-mlx-metallib.sh
+  ```
+
+**One residual risk I will not hide.** The additions to `fp_quantized.h` and
+`quantized_utils.h` also land in the corresponding `mlx-generated/*.cpp`
+preambles, which MLX JIT-compiles at runtime per kernel name. Roughly 70
+extra lines of *uninstantiated template* text are parsed by every JIT
+compilation from those two preambles. I did not measure that cost; template
+bodies that are never instantiated are parse-only, and the preambles are
+already thousands of lines, so I expect it to be far below noise — but on the
+ranked host it is a pure cost with no offsetting benefit, which is a second
+reason to keep this out of a submission.
+
+## Protocol note — `§0P.8` / `§0P.9` are not in this checkout
+
+I complied with the rule as stated to me (decide locally; do not request a
+submission slot; only maple-fern submits). For the record, **neither `§0P.8`
+nor `§0P.9` exists anywhere in this checkout** — I grepped `research/`,
+`senpai/`, and the root `*.md` set, and a separate agent confirmed it
+independently. The rule reached me only through the assignment text. If it is
+meant to be citable, it needs to land in a tracked file.
+
+---
+
+# Appendix A — rev1 / rev2 report
+
+Retained verbatim for provenance. Its *verdict* is superseded by the rev3
+sections above: the STOP stands for the tgmem-double-buffering mechanism
+(now `N-GEMM-TGMEM-DB-OCCUPANCY-RENT`), the "do not fund `_nax`"
+recommendation is **withdrawn** (D3), and the "the prize is too small"
+framing is **wrong** (D4).
 
 ## The stop rule
 
