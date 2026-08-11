@@ -286,7 +286,41 @@ its sign is not favourable, and nothing supports a decode gain.
 
 ## 3. Correctness certificate
 
-*(pending)*
+`research/maple_r125a_correctness.sh`, hook-free release worker built from this
+branch's `LagunaRuntimeModel.swift`, job `12d3186e-027a-4b92-98c6-00844f3a8f22`,
+exit 0 in 305 s. Every leg was run at **both** widths from the *same* binary,
+so the only difference is the `DARKBLOOM_SHARED_QMV_TG` environment value.
+
+| leg | TG=64 | TG=256 |
+|---|---|---|
+| teacher-forced 512-seed golden, 200 steps | **0 divergences** | **0 divergences** |
+| free run, 64 self-fed steps | hash `005195dea7a52563`, distinct=3, cycle=3 | hash `005195dea7a52563`, distinct=3, cycle=3 |
+| upstream-equivalence oracle | 8 steps `maxAbsLogitError = 0`, 1 step `0.125` | 8 steps `maxAbsLogitError = 0`, 1 step `0.125` |
+
+Direct token-stream comparison of the dumped token files:
+
+```
+tf: TG64 == TG256 TOKENS_IDENTICAL
+fr: TG64 == TG256 TOKENS_IDENTICAL
+```
+
+The free run is the stronger of the two token checks: it feeds the model its own
+argmax, so a single divergent step at any position would fork the sequence and
+change the hash. The hashes are equal, so every one of the 64 argmaxes agreed.
+
+The single `maximumAbsoluteLogitError = 0.125` step is the **pre-existing
+Apple-GPU-generation-16 prefill divergence of this host**, not a regression from
+this branch. It is identical at both widths, it is present with the selector
+compiled in but inactive, and frieren confirmed the same 0.125 on the unmodified
+base in #714. `MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT` was never set, and
+`research/run_upstream_equivalence.sh` was used so a zero-test invocation could
+not be mistaken for a pass (the wrapper's non-zero exit is that one prefill step,
+with `EQUIVALENCE_EXACT_STEPS=8` recorded at both widths).
+
+Bit-identity is expected rather than lucky: the arms partition the same 512
+output rows into threadgroups differently but assign one row per simdgroup in
+both cases, and no reduction crosses a simdgroup boundary (`tgMem = 0`, §4). No
+accumulation order changes, so no output value can change.
 
 ## 4. Mechanism and cross-kernel prediction
 
