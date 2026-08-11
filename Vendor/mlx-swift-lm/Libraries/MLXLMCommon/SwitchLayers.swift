@@ -253,7 +253,7 @@ private func makeRouteFusedScatterKernel(
     let expertBoundsValue = expertBoundsSidecar ? "true" : "false"
     let expertBoundsSuffix = expertBoundsSidecar ? "_eb_1" : ""
     return MLXFast.metalKernel(
-        name: "mlx_lm_route_csort_scatter_fused_m\(m)_u32_v4\(expertBoundsSuffix)",
+        name: "mlx_lm_route_csort_scatter_fused_m\(m)_u32_v5\(expertBoundsSuffix)",
         inputNames: ["keys"],
         outputNames: ["row_order", "sorted_keys", "inverse_order"],
         source: """
@@ -268,6 +268,47 @@ private func makeRouteFusedScatterKernel(
             uint simd_id = k / 32;
             uint lane = k % 32;
             uint n = keys_shape[0];
+            if (EXPERT_BOUNDS_SIDECAR) {
+                threadgroup atomic_uint tg_count[256];
+                threadgroup atomic_uint tg_cursor[256];
+                atomic_store_explicit(&tg_count[k], 0u, memory_order_relaxed);
+                threadgroup_barrier(mem_flags::mem_threadgroup);
+                for (uint idx = k; idx < n; idx += 256) {
+                    atomic_fetch_add_explicit(
+                        &tg_count[keys[idx]], 1u, memory_order_relaxed);
+                }
+                threadgroup_barrier(mem_flags::mem_threadgroup);
+                uint count = atomic_load_explicit(
+                    &tg_count[k], memory_order_relaxed);
+                uint lane_excl = simd_prefix_exclusive_sum(count);
+                threadgroup uint simd_totals[8];
+                if (lane == 31) {
+                    simd_totals[simd_id] = lane_excl + count;
+                }
+                threadgroup_barrier(mem_flags::mem_threadgroup);
+                uint global_base = lane_excl;
+                for (uint s = 0; s < simd_id; ++s) {
+                    global_base += simd_totals[s];
+                }
+                sorted_keys[SORTED_KEYS_OFFSET + k] = global_base;
+                if (k == 255) {
+                    sorted_keys[SORTED_KEYS_OFFSET + 256] = n;
+                }
+                atomic_store_explicit(
+                    &tg_cursor[k], global_base, memory_order_relaxed);
+                threadgroup_barrier(mem_flags::mem_threadgroup);
+                for (uint idx = k; idx < n; idx += 256) {
+                    uint key = keys[idx];
+                    uint off = atomic_fetch_add_explicit(
+                        &tg_cursor[key], 1u, memory_order_relaxed);
+                    row_order[off] = idx / M;
+                    if (off > 256) {
+                        sorted_keys[SORTED_KEYS_OFFSET + off] = key;
+                    }
+                    inverse_order[idx] = off;
+                }
+                return;
+            }
             // In-threadgroup histograms replace both the standalone hist
             // dispatch and the scan dispatch: one cooperative pass counts
             // every key (totals) and every key in earlier tiles (before),
@@ -307,34 +348,13 @@ private func makeRouteFusedScatterKernel(
                 simd_base += simd_totals[s];
             }
             uint global_base = simd_base + lane_excl;
-            // Only the designated sorter threadgroup publishes the global
-            // 257-entry expert-prefix table. Every threadgroup computes the
-            // same integer totals, but restricting writes to t==0 avoids a
-            // multi-threadgroup race. The first 16 physical words remain an
-            // unused 64-byte structural marker; the returned logical view
-            // begins immediately after them.
-            if (EXPERT_BOUNDS_SIDECAR && t == 0) {
-                sorted_keys[SORTED_KEYS_OFFSET + k] = global_base;
-                if (k == 255) {
-                    sorted_keys[SORTED_KEYS_OFFSET + 256] = n;
-                }
-            }
-            // Rank base for key k in tile t: global base + earlier tiles.
             uint off = global_base +
                 atomic_load_explicit(&tg_before[k], memory_order_relaxed);
-            // Walk this tile's slice in input order: stability by
-            // construction, exactly the stock scatter's write order.
             for (uint i = 0; i < TILE; ++i) {
                 uint idx = t * TILE + i;
                 if (keys[idx] == k) {
                     row_order[off] = idx / M;
-                    // In sidecar mode logical entries 0...256 belong to the
-                    // exact bounds table. Retain ordinary sorted keys for
-                    // the remainder so the payload stays diagnostic without
-                    // overlapping the authoritative table.
-                    if (!EXPERT_BOUNDS_SIDECAR || off > 256) {
-                        sorted_keys[SORTED_KEYS_OFFSET + off] = k;
-                    }
+                    sorted_keys[SORTED_KEYS_OFFSET + off] = k;
                     inverse_order[idx] = off;
                     ++off;
                 }
@@ -366,7 +386,7 @@ private func routeCountingSortFused(
         : routeFusedScatterKernel
     let outputs = kernel(
         [indices],
-        grid: (tiles * 256, 1, 1),
+        grid: (expertBoundsSidecar ? 256 : tiles * 256, 1, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[n], [n + sortedKeysMarkerWords], [n]],
         outputDTypes: [.uint32, .uint32, .uint32]
