@@ -161,10 +161,12 @@ QMV encode for each of the 39 MoE layers, which is the count the assignment
 predicted. Command-buffer count is unchanged, so the removal is purely
 within-command-buffer and does not perturb the batching policy.
 
-The paired GPU-busy delta is **−21 µs/step**, a marginal price of
-**0.54 µs per removed dispatch** on this host. The single-pair wall delta is
-+16 µs, i.e. the wrong sign, but a single pair of processes cannot resolve
-16 µs on an 8.2 ms step; §3.5 is the ranked answer.
+The paired GPU-busy delta is **−20.9 µs/step, 95 % CI [−31.2, −10.6]** over 118
+steady steps per arm (§3.6), a marginal price of **0.54 µs per removed
+dispatch** on this host. Note that the gap column *grew* by 37 µs while busy
+fell 21 µs, which is why the single-pair wall delta is +16 µs — the wrong sign.
+I treat that wall figure as unresolvable rather than as a regression: one pair
+of processes cannot resolve 16 µs on an 8.2 ms step. §3.7 is the ranked answer.
 
 ### 3.3 Register/occupancy characteristics of the fused kernel
 
@@ -181,10 +183,11 @@ pressure is what lowers it.
 
 The union kernel keeps the same 1024-thread ceiling as both parents and still
 declares no static threadgroup memory, and both bodies run at 64 threads per
-threadgroup — 16× below the ceiling. So the register union does not cost
-occupancy on this host, and the `N-GRIDAPPEND-REGISTER-UNION-COSTS-HOST` stop
-condition does not fire. §3.4 confirms this on timing as well as on the
-declared limit.
+threadgroup — 16× below the ceiling. `maxTotalThreadsPerThreadgroup` is a
+compile-time register-pressure ceiling, not achieved occupancy, so the precise
+claim is that **the register-pressure ceiling did not drop**. That is exactly
+what the `N-GRIDAPPEND-REGISTER-UNION-COSTS-HOST` stop condition needs, and it
+does not fire. §3.4 confirms it on timing as well as on the declared limit.
 
 ### 3.4 Separately measured host-only leg (SPLIT=1 attribution)
 
@@ -201,38 +204,82 @@ buffer overhead. It is attribution only, never a ranking axis.
 Derived per call:
 
 - host-leg growth when the guest is appended: 41.96 − 38.43 = **+3.53 µs**;
-- guest work absorbed: 7.39 − 3.53 = **3.86 µs**, i.e. **52 % of the guest's
-  isolated cost**;
-- the guest adds 256 tiles to 2048 host tiles, +12.5 %; a perfectly
-  proportional host would have grown 4.80 µs, so at 3.53 µs the host leg is
-  *cheaper* than proportional. The host does not regress.
+- the two unfused command buffers together cost 38.43 + 7.39 = 45.82 µs/call
+  against 41.96 µs/call fused, so the isolated saving is **3.86 µs/call**. In
+  this regime each dispatch also pays one command-buffer commit/schedule, so a
+  large part of that 3.86 µs is the *isolation regime's own* per-command-buffer
+  overhead, which the shipped build never pays. I therefore do **not** claim
+  "52 % of the guest's work was absorbed". The defensible statement is: fusion
+  removed the guest's launch and command-buffer overhead, and the guest's
+  streaming work reappeared almost in full as +3.53 µs of host-leg growth.
+- The guest adds 256 tiles to the host's 2048, +12.5 %; scaling the host's
+  *average* 38.43 µs/call gives 4.80 µs, so +3.53 µs looks "cheaper than
+  proportional". I am flagging that comparison as weak rather than using it:
+  the host's average per-tile cost includes its own launch ramp and drain, so
+  its *marginal* per-tile cost is legitimately below its average and +3.53 µs
+  may be exactly marginal-proportional. It is evidence that the host does not
+  regress; it is not evidence of scheduler-level absorption.
 
 Whole-step SPLIT=1 numbers agree: kernel-sum delta
 1498.9 + 288.2 − 1636.2 = **150.9 µs/step**, GPU-busy delta
-8.225 − 8.083 = **142 µs/step**, wall delta 9.258 − 9.024 = **234 µs/step**.
+**−142.9 µs/step, 95 % CI [−151.1, −134.7]** (Welch on 118 steady steps per
+arm, `research/edward_r119b_busy_ci.py`), wall delta 9.258 − 9.024 =
+**234 µs/step**. SPLIT=1 wall runs at 9.0–9.3 ms against 8.2 ms shipped, so
+µs/call is not directly comparable across SPLIT modes; the clock and pacing
+differ.
 
-### 3.5 The absorption result, before any ranking
+### 3.5 Mechanism: which boundary class this fusion removes
 
-The two axes disagree by a factor of seven, and that disagreement is the
-finding:
+Two facts from the vendored MLX source and from the command-buffer traces
+explain the size of the end-to-end result, and they do not depend on this host.
 
-| axis | Δ per step | interpretation |
-| --- | --- | --- |
-| SPLIT=1 isolated kernel time | −151 µs | what the guest dispatch costs when it runs alone in its own command buffer |
-| SPLIT=0 GPU busy, shipped batching | **−21 µs** | what removing it actually saves inside the shipped command buffers |
+1. MLX opens every compute encoder with `MTL::DispatchTypeConcurrent`
+   (`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp:548`), and
+   inserts a barrier only when a new dispatch has a read/write hazard against an
+   unfenced previous output (`device.cpp:311`–`374`). The guest and the host are
+   a fan-out off one producer (§1.2), so no barrier separated them before the
+   change.
+2. The trace shows the guest and the host inside the **same** command buffer,
+   next to their neighbours. The dominant per-step command-buffer signature in
+   `s0_off.log` is
+   `residual_rms_router… | shared_nvfp4_swiglu_qmv_rows1_halved… |
+   prefill_router_tournament_ordinal_norm_active64_v2 |
+   routed_nvfp4_swiglu_qmv_packed_top8keys_r1… |
+   routed_shared_nvfp4_down_residual…`, and the command-buffer count is
+   **45.0/step in both arms** (§3.2).
 
-So **93 % of the shared QMV's isolated cost is already absorbed** by the shipped
-batched pipeline before this experiment does anything. The assignment's floor,
-48.3 µs/step from an additive M5 dispatch price of 1.2382 µs × 39, assumes the
-dispatch price *is* additive under the shipped batching. On this host it is not:
-the measured marginal price is 0.54 µs, 2.3× below the assumed one, and the
-realized GPU-time saving is below the assignment's own refutation floor.
+So this fusion removes neither a barrier nor a command-buffer boundary. It
+removes one dispatch inside a region that was already encoded concurrently —
+the cheapest boundary class that exists in this runtime. That is the physical
+reason the realized saving is far below an additive dispatch price.
 
-The assignment's SPLIT overstatement constant of 3.4× is also too small for this
-particular fusion. 3.4× is presumably calibrated on larger kernels; the shared
-QMV is a 7.4 µs, 256-threadgroup dispatch that the scheduler can hide almost
-entirely behind its neighbours in the same command buffer.
+### 3.6 Two axes, with intervals, against the pre-registered fork
 
-### 3.6 Ranked end-to-end campaign
+| axis | Δ GPU busy per step (95 % CI) | µs per removed dispatch | n/arm |
+| --- | --- | --- | --- |
+| SPLIT=1, one dispatch per command buffer | −142.9 [−151.1, −134.7] | 3.66 | 118 |
+| **SPLIT=0, shipped batching** | **−20.9 [−31.2, −10.6]** | **0.536 [0.272, 0.800]** | 118 |
+
+Both intervals exclude zero (p = 1e-4 for SPLIT=0), and the two intervals are
+disjoint. Three consequences:
+
+1. **The isolation regime overstates this fusion by 6.8×**, not by the
+   assignment's 3.4×. Serializing dispatches into one command buffer each is not
+   a neutral magnifier for a 7.4 µs, 256-threadgroup dispatch.
+2. **The 1.2382 µs marginal dispatch price does not hold at this boundary
+   class.** The measured shipped-regime price is 0.536 µs/dispatch with a 95 %
+   upper bound of 0.800 µs, which excludes 1.2382 µs. The calibration is not
+   wrong in general; it is *boundary-type dependent*, and this experiment
+   removed 39 co-encoded, unbarriered, same-command-buffer boundaries.
+3. **The realized GPU-time saving is below the assignment's refutation floor.**
+   The floor is 48.3 µs/step. The entire 95 % CI of the measured saving,
+   [10.6, 31.2] µs/step, lies below it. This is a resolved refutation, not an
+   underpowered null.
+
+The bandwidth-absorption half of the hypothesis fails separately: the guest's
+streaming work reappears as +3.53 µs/call of host-leg growth (§3.4), so the
+routed QMV had no bandwidth headroom to donate to the shared QMV.
+
+### 3.7 Ranked end-to-end campaign
 
 *(campaign in flight; filled in when it lands)*
