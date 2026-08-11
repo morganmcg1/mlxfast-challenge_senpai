@@ -1,0 +1,10 @@
+worker up in 41.7s ok=True
+diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.718063354492188 mlx_active_gb=33.02 mlx_cache_gb=0.00 mlx_peak_gb=36.11
+decode_begin seed forward: 545.44 ms
+DECODE_PHASE_START
+DECODE_PHASE_END
+teacher-forced greedy tokens: 0 divergences (all match)
+first 8 steps (ms): 9.357 8.354 8.250 8.249 8.235 8.231 8.236 8.336
+decode steps=40 mean=8.262 ms median=8.231 ms p10=8.202 ms p90=8.306 ms min=8.148 ms max=9.357 ms total=0.330 s
+diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.71905517578125 mlx_active_gb=33.10 mlx_cache_gb=1.08 mlx_peak_gb=36.11
+worker stderr -> research/maple-tanjiro-r118/evidence/smoke2/run2_rctl.err
