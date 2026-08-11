@@ -6675,19 +6675,48 @@ let lagunaNvfp4NibbleSplit: Int = {
 //   d2    reads 2 of the 4 512-wide K blocks
 //   d1    reads 1 of the 4 512-wide K blocks
 //
-// The `d*` arms are a BYTE DOSE, not candidates: they deliberately compute the
-// wrong activation so that the weight/scale/input bytes for the skipped blocks
-// are never fetched.  They exist to measure d(wall)/d(byte) for this kernel in
-// situ, which is a wall-clock quantity and therefore needs no tau correction.
-// Never ship anything but `ship`.  `run_upstream_equivalence.sh` and the golden
-// tests only pass on `ship`.
+// and three more that apply the IDENTICAL dose mechanism to the routed gate+up
+// QMV (`laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2`), which is
+// the largest decode kernel on this host (1520 us/step profiled, 17.7%, and
+// ~8.4 MB of weights per call against a ~215 GB/s streaming ceiling):
+//
+//   rctl  byte-identical clone of the routed kernel under a different name
+//   rd2   routed kernel reads 2 of the 4 512-wide K blocks
+//   rd1   routed kernel reads 1 of the 4 512-wide K blocks
+//
+// `rd2`/`rd1` are the POSITIVE CONTROL.  They remove ~163 / ~245 MB per decode
+// step, which at the measured streaming ceiling must show up as ~0.76 / ~1.14
+// ms per step of wall.  If the rig cannot see that, no null result on the small
+// shared kernel means anything; if it can, a null on the shared kernel is a
+// statement about the shared kernel and not about the instrument.
+//
+// The `d*`/`rd*` arms are a BYTE DOSE, not candidates: they deliberately compute
+// the wrong activation so that the weight/scale/input bytes for the skipped
+// blocks are never fetched.  They exist to measure d(wall)/d(byte) for these
+// kernels in situ, which is a wall-clock quantity and therefore needs no tau
+// correction.  Never ship anything but `ship`.
+// `run_upstream_equivalence.sh` and the golden tests only pass on `ship`.
 let lagunaSharedQMVArm: String = {
     guard
         let raw = ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_QMV_ARM"],
-        ["ship", "ctl", "d2", "d1"].contains(raw)
+        ["ship", "ctl", "d2", "d1", "rctl", "rd2", "rd1"].contains(raw)
     else { return "ship" }
     return raw
 }()
+
+// Number of 512-wide K blocks the named kernel actually reads under the current
+// arm, and the kernel-name suffix that arm needs (MLX keys its Metal library
+// cache on the kernel name, so any changed text needs a changed name).
+private func lagunaR118Dose(_ target: String) -> (blocks: Int, suffix: String) {
+    let arm = lagunaSharedQMVArm
+    let mine = target == "shared"
+        ? ["ctl", "d2", "d1"]
+        : ["rctl", "rd2", "rd1"]
+    guard mine.contains(arm) else { return (4, "") }
+    let blocks = (arm == "d2" || arm == "rd2") ? 2
+        : ((arm == "d1" || arm == "rd1") ? 1 : 4)
+    return (blocks, "_r118\(arm)")
+}
 
 let lagunaNvfp4ScaleCarry: Bool =
     ProcessInfo.processInfo.environment["DARKBLOOM_NVFP4_SCALE_CARRY"] != "0"
@@ -7116,14 +7145,13 @@ private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
 // gets its own kernel name because MLX keys its Metal library cache on the
 // name (Vendor/mlx-swift/.../metal/device.cpp:602,770).
 private let lagunaSharedSwiGLUQMVRows1HalvedKernel: MLXFast.MLXFastKernel = {
-    let arm = lagunaSharedQMVArm
-    let blocks = arm == "d2" ? 2 : (arm == "d1" ? 1 : 4)
-    let suffix = arm == "ship" ? "" : "_r118\(arm)"
+    let dose = lagunaR118Dose("shared")
     return MLXFast.metalKernel(
-        name: "laguna_shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1" + suffix,
+        name: "laguna_shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1" + dose.suffix,
         inputNames: ["input", "fused_weight", "fused_scales"],
         outputNames: ["activated"],
-        source: lagunaSharedSwiGLUQMVRows1Source(halved: true, doseBlocks: blocks),
+        source: lagunaSharedSwiGLUQMVRows1Source(
+            halved: true, doseBlocks: dose.blocks),
         header: lagunaSharedSwiGLUQMVHeader,
         ensureRowContiguous: true
     )
@@ -7952,8 +7980,15 @@ private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
 let lagunaRoutedGateUpR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTED_GATEUP_R1"] != "0"
 
-private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
-    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
+// R118-A positive control.  `lagunaR118Dose("routed")` returns (4, "") unless
+// DARKBLOOM_SHARED_QMV_ARM names one of the routed arms, so on every other arm
+// -- including the default -- the name and the generated MSL below are the
+// shipped ones, byte for byte.
+private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel: MLXFast.MLXFastKernel = {
+let r118 = lagunaR118Dose("routed")
+let loopBound = r118.blocks == 4 ? "input_width" : "\(r118.blocks * 512)u"
+return MLXFast.metalKernel(
+    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2" + r118.suffix,
     inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
     outputNames: ["activated"],
     source: """
@@ -8009,7 +8044,7 @@ uint8_t up_sb;
         expert_weight + up_row * fused_row_bytes + lane * 8);
 }
 
-for (uint block = 0; block < input_width; block += block_width) {
+for (uint block = 0; block < \(loopBound); block += block_width) {
     const device vec<bfloat, 4>* input_vectors =
         (const device vec<bfloat, 4>*) (
             input + block + lane * values_per_lane);
@@ -8026,7 +8061,7 @@ for (uint block = 0; block < input_width; block += block_width) {
     const uint8_t cur_gate_sb = gate_sb;
     const uint8_t cur_up_sb = up_sb;
     const uint next_block = block + block_width;
-    if (next_block < input_width) {
+    if (next_block < \(loopBound)) {
         const device uint8_t* next_scales =
             row_scales + (next_block / block_width) * scale_kblock_bytes
             + sub * 2 * scale_row_bytes + (lane >> 1);
@@ -8066,6 +8101,7 @@ if (lane == 0) {
         + "\n" + lagunaRouterTop8PrologueHeader,
     ensureRowContiguous: true
 )
+}()
 
 func lagunaRoutedSwiGLUQMVPackedTop8(
     _ input: MLXArray,
