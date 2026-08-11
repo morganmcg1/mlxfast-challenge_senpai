@@ -9,6 +9,8 @@
 #   F = DARKBLOOM_GRID_APPEND=2    shared-expert SwiGLU appended (instance 2)
 #   H = DARKBLOOM_GRID_APPEND=3    router top-8 appended (instance 3)
 #   G = DARKBLOOM_GRID_APPEND=23   both appended
+#   E = DARKBLOOM_GRID_APPEND=0 + DARKBLOOM_DECODE_QKV_GATE_FUSED=0
+#       R114-E reproduction probe on the merged head (gate->QKV fusion off)
 #
 # Each run is one isolated worker process driven by research/decode_probe.py:
 # a 512-token seed forward followed by --steps single-token decode steps, with
@@ -19,14 +21,14 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-ORDER="${1:-CFFCCFFC}"
+ORDER="${1:-CNHFGE}"
 OUTDIR="${2:-/tmp/r119-gridappend}"
 STEPS="${3:-640}"
 mkdir -p "$OUTDIR"
 
-arm_env() {
+arm_mode() {
   case "$1" in
-    C|N) echo 0 ;;
+    C|N|E) echo 0 ;;
     F) echo 2 ;;
     H) echo 3 ;;
     G) echo 23 ;;
@@ -41,8 +43,11 @@ for (( n=0; n<${#ORDER}; n++ )); do
   tag=$(printf '%s_%02d_%s' "$(basename "$OUTDIR")" "$i" "$arm")
   csv="$OUTDIR/${tag}.steps.csv"
   log="$OUTDIR/${tag}.log"
-  mode=$(arm_env "$arm")
-  DARKBLOOM_GRID_APPEND="$mode" python3 research/decode_probe.py \
+  mode=$(arm_mode "$arm")
+  qkv=1
+  [[ "$arm" == "E" ]] && qkv=0
+  DARKBLOOM_GRID_APPEND="$mode" DARKBLOOM_DECODE_QKV_GATE_FUSED="$qkv" \
+    python3 research/decode_probe.py \
     --steps "$STEPS" --dump-steps "$csv" \
     --stderr "$OUTDIR/${tag}.worker.err" > "$log" 2>&1
   rc=$?
