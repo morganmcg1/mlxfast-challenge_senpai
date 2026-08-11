@@ -849,6 +849,27 @@ private let lagunaNormReductionTailQKV = lagunaNormReductionTail(
     lane: "lane", simdGroup: "simd_group",
     denominator: "float(in_vec_size)", epsilon: "norm_eps")
 
+private let lagunaCompactRouterHeader = """
+METAL_FUNC bfloat laguna_router_value(
+    const device uchar* data, const device uint* offsets,
+    uint row, uint column
+) {
+    uint tagged = offsets[row];
+    uint base = tagged & 0x7fffffffu;
+    ushort bits;
+    if ((tagged & 0x80000000u) != 0u) {
+        bits = ushort(data[base + 2 * column]) |
+            (ushort(data[base + 2 * column + 1]) << 8);
+    } else {
+        uchar packed = data[base + 2048 + (column >> 1)];
+        uchar index = (column & 1) != 0 ? (packed >> 4) : (packed & 15);
+        bits = ushort(data[base + column]) |
+            (ushort(data[base + 3072 + index]) << 8);
+    }
+    return as_type<bfloat>(bits);
+}
+"""
+
 private func lagunaResidualRMSNormRouterSource(rowsPerGroup: Int) -> String {
     let simdGroups = 512 / 32
     let rowsPerThread = rowsPerGroup >= simdGroups ? rowsPerGroup / simdGroups : 1
@@ -917,25 +938,6 @@ private func lagunaResidualRMSNormRouterSource(rowsPerGroup: Int) -> String {
     }
 
     return """
-METAL_FUNC bfloat laguna_router_value(
-    const device uchar* data, const device uint* offsets,
-    uint row, uint column
-) {
-    uint tagged = offsets[row];
-    uint base = tagged & 0x7fffffffu;
-    ushort bits;
-    if ((tagged & 0x80000000u) != 0u) {
-        bits = ushort(data[base + 2 * column]) |
-            (ushort(data[base + 2 * column + 1]) << 8);
-    } else {
-        uchar packed = data[base + 2048 + (column >> 1)];
-        uchar index = (column & 1) != 0 ? (packed >> 4) : (packed & 15);
-        bits = ushort(data[base + column]) |
-            (ushort(data[base + 3072 + index]) << 8);
-    }
-    return as_type<bfloat>(bits);
-}
-
 constexpr uint axis_size = 2048;
 constexpr uint n_reads = 4;
 constexpr uint simd_size = 32;
@@ -1021,8 +1023,9 @@ private let lagunaResidualRMSNormRouterKernels: [Int: MLXFast.MLXFastKernel] =
                         ? ["summed", "normalized", "router_logits", "router_keys"]
                         : ["summed", "normalized", "router_logits"],
                     source: lagunaResidualRMSNormRouterSource(rowsPerGroup: rowsPerGroup),
-                    header: lagunaRouterPrecomputedKeysEnabled
-                        ? lagunaDecodeRouterOrdinalHeader : "",
+                    header: lagunaCompactRouterHeader
+                        + (lagunaRouterPrecomputedKeysEnabled
+                            ? "\n" + lagunaDecodeRouterOrdinalHeader : ""),
                     ensureRowContiguous: true
                 )
             )
