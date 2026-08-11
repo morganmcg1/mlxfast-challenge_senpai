@@ -627,4 +627,56 @@ path takes a different route — and either would invalidate stage A's reading.
 Slots are mirrored `p1_dflt, p2_e256, p3_e256, p4_dflt` at 400 steps behind the
 40 C gate, so the two mirror pairs `p2−p1` and `p3−p4` cancel monotone drift.
 
-STAGE_B_WALL_PENDING
+For the record, `git diff --stat` against the branch while stage B was in flight
+reported **1 insertion, 2 deletions** in `LagunaRuntimeModel.swift`: the flip
+(`return 64` → `return 256`) and the removal of the guard line. That is the
+entire landing delta on top of the branch, and it is what
+`r125a-tg256-landing.patch` folds into the core patch.
+
+| slot | order | environment | median µs/step | mean µs/step | SEM | n |
+| --- | --- | --- | --- | --- | --- | --- |
+| `p1_dflt` | 1 | *(nothing set)* | 8201.96 | 8207.22 | 3.42 | 384 |
+| `p2_e256` | 2 | `DARKBLOOM_SHARED_QMV_TG=256` | 8195.90 | 8194.58 | 3.00 | 384 |
+| `p3_e256` | 3 | `DARKBLOOM_SHARED_QMV_TG=256` | 8196.75 | 8197.21 | 2.93 | 384 |
+| `p4_dflt` | 4 | *(nothing set)* | 8197.12 | 8206.31 | 3.56 | 384 |
+
+Mirror-paired `explicit − default`:
+
+| pair | median Δ | mean Δ |
+| --- | --- | --- |
+| `p2 − p1` | −6.06 | −12.64 |
+| `p3 − p4` | −0.37 | −9.10 |
+| **average** | **−3.22** | **−10.87** |
+
+All three comparison slots dumped **`TOKENS_IDENTICAL`** greedy tokens against
+the `p1_dflt` reference, and the harness's own restore step reported
+`### restored: 0 dirty source paths`, so the tree the timings came from is the
+tree that is described here.
+
+**Condition 4 holds, but read the evidence in the right order.** The
+discriminating evidence is stage A: the probe printed the width that actually
+reached the encoder on every dispatch of a real 512-token prefill plus decode,
+and with nothing set it printed 256. The wall table above is a *consistency*
+check layered on top of that, and it is honest to say it has almost no
+discriminating power on its own — precisely because §7 found the SPLIT=0 wall
+cannot resolve 64 from 256 at all. If the compiled default were silently
+falling back to 64, this table would look much the same.
+
+What the table does do is rule out a *gross* plumbing fault. Both mirror pairs
+land at −3.2 µs/step (median) and −10.9 µs/step (mean), i.e. 0.04 % and 0.13 %
+of an 8.20 ms step, both inside §7's block-paired noise band (median CI95
+[−19.33, +17.86]; mean CI95 [−21.24, +23.23]). The sign is also the wrong one
+for the failure mode being excluded: a default that silently ran at 64 would
+make the `_dflt` slots the *cheaper* configuration by §1's +4.73 µs/step debit,
+so the explicit-256 slots should have come out slower. They came out nominally
+faster instead, which is what a null plus drift looks like, not what a
+fallback looks like.
+
+So: **condition 1 holds** (compiled default is 256 with `FUSED=0`),
+**condition 3 holds** (no environment variable is needed to reach it),
+**condition 4 holds** (default and explicit-256 are the same configuration by
+direct probe, with no wall anomaly), and **condition 2 is structural** — see
+the guard discussion above: the fused-path guard must *not* ship with the flip,
+because the fused call site inherits `simdgroupsPerThreadgroup = 2` and is
+already byte-identical at any selector value, so adding the guard would turn
+`FUSED=1` into a silent fallback rather than an identity.
