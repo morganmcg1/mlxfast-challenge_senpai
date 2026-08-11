@@ -112,7 +112,12 @@ H3 is the honest default. I am pre-committing to it as a live outcome.
 ## 5. Design
 
 * Instrument: `research/maple-nezuko-r107j-certify.sh`, unchanged.
-* Arms, control first: `C` (no gate, shipped `rps=4`), `R1`, `R2`, `R8`.
+* Arms, control first: `C` (no gate, shipped `rps=4`), `R1`, `R2`, `R8`,
+  `R16`. `R16` was added by the §8 amendment: with `rps ∈ {1,2,4,8,16}` the
+  shipped value sits in the **interior** of the ladder, so the design can
+  distinguish a plateau from an optimum instead of only reporting an edge.
+  Threadgroup counts are 1024 / 512 / 256 / 128 / 64 and dispatched thread
+  counts are 65,536 / 32,768 / 16,384 / 8,192 / 4,096.
 * Blocks: **5**, position-balanced by the harness's `(b−1) mod NARM`
   rotation, interleaved so drift is charged to every arm equally.
 * Reference: each arm is differenced against **its own block's control**.
@@ -160,3 +165,70 @@ running it anyway for two reasons, and neither of them is "maybe τ is wrong".
 I cannot measure τ for the geometry class on this machine, and I will not
 quote the Stage 0 byte-class ruler as if it licensed this arm. It does not.
 The Stage 0 ruler prices **bytes**. This arm moves **none**.
+
+---
+
+## 8. AMENDMENT, ~04:05Z — prior art found after §1–7 were written, and it
+## argues against my own leading hypothesis
+
+I ran the Rule 69 archive grep *after* committing §1–7. It changed my priors
+enough that leaving §4 as written would be dishonest. The design, the endpoint
+and the decision rule in §5–6 are **unchanged**; only the ranking of the
+hypotheses moves, and it moves against me.
+
+**(a) The archive explicitly flags this arm as untested and invites it.**
+`RESEARCH_ARCHIVE_through-round-91.md` §4.10b, the decode GEMV geometry census
+of 2026-08-07, ends: *"o_proj is the geometric outlier at 4 rows/simdgroup and
+512 B/thread, 8–16× every other kernel. Whether that is good or bad is
+**untested**; it is the natural control for any rows-per-simdgroup arm."*
+That is a green light, and it is the reason I am still running the ladder.
+
+**(b) The same census kills the naive occupancy reading, and corrects an
+error I had been carrying.** MLX's `metalKernel` `grid:` is a **total-thread**
+count, not a threadgroup count
+(`Vendor/mlx-swift/.../custom_kernel.cpp:116-117`). So `grid: ((outVec/8)*64)`
+= 16,384 **threads** in 256 threadgroups. My patch's
+`grid: (tiles * 64, 1, 1)` is correct under that reading — `rps=1` dispatches
+65,536 threads in 1024 threadgroups — but the census's own verdict on the
+5120-threadgroup QKV kernel was *"there is no occupancy starvation; §4.10a
+mechanism (a) is withdrawn as stated; do not assign it."*
+
+**(c) A previous rows-per-simdgroup win went the OTHER WAY.**
+`research/maple-occupancy-quantization.md` §4 records that *"nezuko's
+rows-per-simdgroup win took a kernel from 42 % to 89 % of the measured
+260.2 GB/s DRAM ceiling by raising memory in flight per barrier-bounded
+threadgroup."* Coarser was better there. `o_proj` at `rps=4` is already the
+coarsest projection in the pool, i.e. it is already the *beneficiary* of that
+optimisation, not a victim of it.
+
+**(d) The census also shows thread count alone cannot be the explanation.**
+The shared gate/up kernel (:6802) has the *same* 16,384 threads in the *same*
+256 threadgroups as `o_proj`, at 1 row/simdgroup instead of 4. If 16k threads
+were simply too few, both would be equally starved and rows/simdgroup would be
+irrelevant.
+
+**New hypothesis H0-inflight, and it is now the one I consider most likely.**
+Let the machine hold on the order of 20 k concurrent threads. At `rps=4` all
+16,384 dispatched threads are resident and each carries **4 independent row
+load streams**, so ≈65,536 loads can be in flight. At `rps=1` there are 65,536
+threads but only ≈20 k resident, each with **1** stream, so ≈20 k loads are in
+flight — a ~3× loss of memory-level parallelism for the same work. Under this
+model the ladder is **monotone in the opposite direction to H1**: `rps=1`
+worst, `rps=8` equal-or-better than the shipped `rps=4`, and the shipped value
+already sits on the plateau.
+
+**Consequences I am pre-committing to.**
+
+1. H1 (finer is better) is demoted to the **least** likely of the four
+   outcomes. H0-inflight is promoted to first. I would rather write that down
+   now than discover it in the data and pretend I expected it.
+2. `rps=8` stops being the throwaway "clearly worse" arm of §4 and becomes a
+   **serious candidate**; it is the only rung that H0-inflight allows to win.
+3. The §0e headroom figure of −76.5 µs/step is an estimate of the *gap to the
+   QKV pool's bandwidth*, not a promise that this knob can reach it. If the
+   ladder is flat, the gap is real and this knob simply is not the lever; that
+   is `N-OPROJ-GEOMETRY-FLAT` and it retires the mechanism, not just the arm.
+4. The §0e paragraph in `research/nezuko-r117-stage0-attn-byte-floor.md` that
+   attributes o_proj's shortfall to occupancy starvation is hereby marked
+   **weakened by (b) and (d)**; it should be read as "the geometry is the last
+   unpinned term", not as "the geometry is starved".
