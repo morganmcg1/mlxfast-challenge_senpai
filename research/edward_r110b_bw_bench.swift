@@ -43,6 +43,22 @@ kernel void stream_u4(device const uint4 *src [[buffer(0)]],
     if (acc.x == 0xFFFFFFFFu && acc.y == 0xFFFFFFFFu) { dst[tid] = acc; }
 }
 
+// Windowed variant for the short-dispatch ceiling. `off4` rotates the window
+// across a working set far larger than the SLC, so a 5-11 MB dispatch never
+// re-reads what the previous dispatch left cached -- the same situation a
+// decode QMV faces, where consecutive dispatches touch different experts and
+// different layers.
+kernel void stream_win(device const uint4 *src [[buffer(0)]],
+                       device uint4 *dst [[buffer(1)]],
+                       constant uint &n4 [[buffer(2)]],
+                       constant uint &off4 [[buffer(3)]],
+                       uint tid [[thread_position_in_grid]],
+                       uint nthreads [[threads_per_grid]]) {
+    uint4 acc = uint4(0);
+    for (uint i = tid; i < n4; i += nthreads) { acc += src[off4 + i]; }
+    if (acc.x == 0xFFFFFFFFu && acc.y == 0xFFFFFFFFu) { dst[tid] = acc; }
+}
+
 // Same traffic, four independent accumulators: separates a bandwidth floor
 // from a load-issue/latency floor.
 kernel void stream_u4x4(device const uint4 *src [[buffer(0)]],
@@ -179,4 +195,64 @@ for c in cases {
     let gbMed = Double(c.bytesMoved) / med / 1e9
     log(String(format: "%-14s  best %7.3f ms -> %7.1f GB/s   median %7.3f ms -> %7.1f GB/s",
                (c.name as NSString).utf8String!, best * 1e3, gbBest, med * 1e3, gbMed))
+}
+
+// MARK: - short-dispatch ceiling at the real decode geometries
+//
+// A 5-11 MB dispatch is not a 512 MiB stream: wave launch and the tail drain
+// are a much larger fraction of it. The fair comparator for a decode QMV is a
+// pure read of the same byte count with the same grid, not the asymptotic
+// stream above.
+
+struct Geom {
+    let name: String
+    let bytes: Int
+    let threads: Int
+    let tg: Int
+}
+
+let geoms = [
+    Geom(name: "K1 routed_gate_up", bytes: 8_918_016, threads: 131_072, tg: 64),
+    Geom(name: "K2 qkv_h64", bytes: 10_827_776, threads: 327_680, tg: 64),
+    Geom(name: "K3 oproj_h64", bytes: 8_669_312, threads: 16_384, tg: 64),
+    Geom(name: "K4 down_residual", bytes: 5_026_880, threads: 147_456, tg: 288),
+    Geom(name: "K3' oproj @128k", bytes: 8_669_312, threads: 131_072, tg: 64),
+]
+
+guard let winFn = lib.makeFunction(name: "stream_win") else { die("no stream_win") }
+let winPso: MTLComputePipelineState
+do { winPso = try device.makeComputePipelineState(function: winFn) }
+catch { die("pipeline stream_win: \(error)") }
+
+log("")
+log("short-dispatch read ceiling (window rotates over the \(mib) MiB set):")
+for g in geoms {
+    let n = UInt32(g.bytes / 16)
+    let windows = max(1, n4 / Int(n))
+    var samples: [Double] = []
+    for r in 0..<(reps + 2) {
+        var nn = n
+        var off = UInt32((r % windows) * Int(n))
+        guard let cb = queue.makeCommandBuffer(),
+              let enc = cb.makeComputeCommandEncoder() else { die("encoder") }
+        enc.setComputePipelineState(winPso)
+        enc.setBuffer(src, offset: 0, index: 0)
+        enc.setBuffer(dst, offset: 0, index: 1)
+        enc.setBytes(&nn, length: 4, index: 2)
+        enc.setBytes(&off, length: 4, index: 3)
+        enc.dispatchThreadgroups(MTLSize(width: g.threads / g.tg, height: 1, depth: 1),
+                                 threadsPerThreadgroup: MTLSize(width: g.tg, height: 1, depth: 1))
+        enc.endEncoding()
+        cb.commit()
+        cb.waitUntilCompleted()
+        if let e = cb.error { die("stream_win failed: \(e)") }
+        if r >= 2 { samples.append(cb.gpuEndTime - cb.gpuStartTime) }
+    }
+    samples.sort()
+    let best = samples.first!
+    let med = samples[samples.count / 2]
+    log(String(format: "%-18s %9d B  %7d thr tg=%3d   best %7.2f us -> %6.1f GB/s   median %7.2f us -> %6.1f GB/s",
+               (g.name as NSString).utf8String!, g.bytes, g.threads, g.tg,
+               best * 1e6, Double(g.bytes) / best / 1e9,
+               med * 1e6, Double(g.bytes) / med / 1e9))
 }
