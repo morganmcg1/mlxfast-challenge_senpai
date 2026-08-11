@@ -28,6 +28,30 @@ Host: Apple M4 Pro, 20 GPU cores, 48 GiB. All levels are `--local-submit`, 1023 
 | F6 | byte→time transfer τ = **+0.780 [+0.727, +0.833]** (honest band [0.73, 1.08]) | reusable calibration | measured, 35 runs |
 | F7 | o_proj activation re-read geometry / `B_act` | <!--F7-STATUS--> | <!--F7-STATUS2--> |
 
+### 0b. Corrections log — things I published and then had to take back
+
+Four of them. I am listing them together, in one place, because a campaign that only ever
+publishes numbers that survive is a campaign that is not checking its own numbers.
+
+| # | what was wrong | direction of the error | where |
+|---|---|---|---|
+| C1 | **Escape rows omitted from the byte census.** The first census counted only in-band scale bytes and missed the out-of-range escape entries. | the uncorrected version made the surviving plane look *smaller* (3.09 %) and so made my own finding look *stronger* than it was; correcting it grew the plane to **3.26 %**, i.e. **against me** | `nezuko-r117-stage0-attn-byte-floor.md` addendum |
+| C2 | **τ restatement ratio inverted** (`×256.7/235.6` instead of `×235.6/256.7`), printing 0.850 for what is 0.716. | cosmetic in the report, but it seeded C3 | `nezuko-r117-ruler-tau.py`, fixed 05:03Z |
+| C3 | **Peak-vs-achieved double-count in every ceiling.** The 24.02 MB/step plane was converted at the *achieved* 235.6 GB/s (101.8 µs/step) and then multiplied by a *peak*-scale τ. | inflated every ceiling by 1.090; **+0.855 %→+0.782 %** at τ=1, **+0.667 %→+0.610 %** at τ=0.780 | §1.4, §5.2 of the ruler doc, Amendment 13 |
+| C4 | **"o_proj runs at 90.9 % of peak bandwidth, so there is headroom in its bytes."** The Stage-1 pre-flight falsified this *by sign*: removing 157 MB/step made o_proj **slower**, adding 944 MB/step made it **faster**. | this one was in the flattering direction — it was the premise of my own Stage-1 arm, and the data killed it | §5.2 |
+
+They do not all point the same way, which is the point. **C1 and C4 cut against me**: C1 made
+the surviving plane bigger than I first claimed (more nominal headroom, so a weaker floor
+argument), and C4 destroyed the premise of my own Stage-1 arm. **C3 cuts for me**: the ceiling
+is lower than I published, so `N-ATTN-BYTE-FLOOR` is stronger than the version I first wrote
+down. If I were only correcting errors that flattered me, C1 and C4 would not be on this list;
+if I were only correcting errors that embarrassed me, C3 would not be.
+
+The one number that never moved is the estimator output itself: **τ = +0.780 [+0.727, +0.833]**
+is defined on the 256.7 GB/s peak scale (`BW=256.7`) and was correct as first published — the
+raw per-observation array regenerated **bit-identically** after the C2/C3 fix, which is the
+check that localises C2/C3 to the reporting layer rather than the fit.
+
 ---
 
 ## 1. Why the assigned mechanism cannot pay (F1)
