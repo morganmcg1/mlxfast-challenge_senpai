@@ -356,3 +356,73 @@ inside the QKV bank) and the activated-o-proj preconditions hold, which is
 exactly the configuration in which `gate_sp` is dispatched today. The fused
 gate output is pre-activated, so it sets `gateProjectionActivated = true` —
 the landmine noted above.
+
+### 3.2 Correctness gates on the fused build
+
+Both gates were run at commit `a7a780de` with the fused path **default on**.
+
+**`./benchmark.sh --local-iterate`** (job `c80c4f8e`, 2026-08-11T01:23:32Z):
+
+```
+passed_correctness : true      max_abs_diff : 0      passed : true
+golden_hash b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63
+```
+
+The Metal JIT compiles and the fused kernel produces the checked 130-token
+greedy stream exactly. No `MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT` override was used
+or needed.
+
+**`research/run_upstream_equivalence.sh`** (job `df421a01`):
+
+| step | maxAbsLogitErr | meanAbsLogitErr | runtime tok | upstream tok |
+|---|---|---|---|---|
+| prefill | 0.125 | 0.011933609 | 5991 | 5991 |
+| decode-0 … decode-7 | **0** | **0** | 509/902/5991/… | identical |
+
+`EQUIVALENCE_EXACT_STEPS=8`, `EQUIVALENCE_EXIT=1`.
+
+The non-zero exit is the **pre-existing M4 artifact**, not a regression. The
+`0.125 / 0.011933609 / token 5991 == 5991` triple is the same value recorded
+for the *unmodified base* on this host in `research/fern-r104b-wkwv-tile-regroup.md:374`,
+`research/frieren-r98-decode-qmv-result.md:162` and
+`research/RESEARCH_ARCHIVE_through-round-91.md:4102`; the wrapper compares
+against a `0.0` tolerance and so exits 1 on the base too. The signal that
+belongs to this change is the decode column, and **all eight decode steps are
+exactly zero** — the fused kernel is bit-identical to the two-dispatch path on
+the scored decode axis.
+
+### 3.3 Independent review of the fusion
+
+A read-only reviewer checked the diff against seven specific failure modes and
+returned SAFE-TO-MEASURE. The load-bearing confirmations, with the evidence it
+cited:
+
+- MLX binds custom-kernel inputs **positionally**, in `input_names` order
+  (`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/common/metal_kernel.cpp:94-112`);
+  names matter only for presence in the source and for `*_shape/_strides/_ndim`
+  synthesis (`:214-220`). The fused argument order is the QKV five followed by
+  the gate three, matching both call sites.
+- The synthesised `[[...]]` attributes are emitted once per *unique* name from a
+  fixed table (`metal_kernel.cpp:222-250`), so `threadgroup_position_in_grid`,
+  `simdgroup_index_in_threadgroup` and `thread_index_in_simdgroup` are declared
+  once even though two bodies use them.
+- Every buffer exceeds `max_constant_array_size = 8` (`metal_kernel.cpp:19`),
+  so all of them stay in the `device` address space in the fused kernel exactly
+  as in the two originals — the `(const device uint8_t*)` casts remain legal.
+- The branch is threadgroup-uniform, so the `simd_sum` in each body is fully
+  converged.
+- The fused guard set is the exact intersection of the two old paths; it adds
+  only `heads % 8 == 0`, which the old gate path assumed implicitly.
+- `??` is `@autoclosure`, so the unfused QKV dispatch is not evaluated when the
+  fused result is non-nil; there is no double dispatch on either axis.
+- MLX invalidates a cached JIT library when the source behind a name changes
+  (`custom_kernel.cpp:56-68`), and the fused kernel name is distinct anyway, so
+  there is no stale-library hazard between the two ABBA arms.
+
+It raised one *performance* risk that my §3.1 claim 4 had dismissed too
+quickly: register allocation for a fused kernel is the union over both branches
+as the compiler sees it, not the max of the two branches' live sets as I
+reasoned. If that pushes the QKV path over an occupancy cliff and spills
+`x_thread[16]`, the fusion loses more than the 111.5 µs it can win. This is the
+main way the arm can come back **correct but slower**, and it is exactly what
+the paired ABBA measures.
