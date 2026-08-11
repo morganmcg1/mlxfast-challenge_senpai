@@ -238,8 +238,7 @@ private func routeCountingSort(_ indices: MLXArray) -> MLXArray? {
 /// `indices[order[off]]`, and `off` is the inverse permutation entry for
 /// `idx`. Emitting all three here removes the standalone floorDivide, the
 /// `indices[order]` take, and the inverse-permutation dispatch from the
-/// serial sort->gather dependency chain, with byte-identical integer
-/// outputs by construction (same values, same producers' input-order walk).
+/// serial sort->gather dependency chain.
 /// DEFAULT ON; `DARKBLOOM_ROUTE_FUSED_SCATTER=0` restores the stock chain.
 private let routeFusedScatterEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTE_FUSED_SCATTER"] != "0"
@@ -253,7 +252,7 @@ private func makeRouteFusedScatterKernel(
     let expertBoundsValue = expertBoundsSidecar ? "true" : "false"
     let expertBoundsSuffix = expertBoundsSidecar ? "_eb_1" : ""
     return MLXFast.metalKernel(
-        name: "mlx_lm_route_csort_scatter_fused_m\(m)_u32_v4\(expertBoundsSuffix)",
+        name: "mlx_lm_route_csort_scatter_fused_m\(m)_u32_v5\(expertBoundsSuffix)",
         inputNames: ["keys"],
         outputNames: ["row_order", "sorted_keys", "inverse_order"],
         source: """
@@ -319,25 +318,28 @@ private func makeRouteFusedScatterKernel(
                     sorted_keys[SORTED_KEYS_OFFSET + 256] = n;
                 }
             }
-            // Rank base for key k in tile t: global base + earlier tiles.
-            uint off = global_base +
-                atomic_load_explicit(&tg_before[k], memory_order_relaxed);
-            // Walk this tile's slice in input order: stability by
-            // construction, exactly the stock scatter's write order.
-            for (uint i = 0; i < TILE; ++i) {
-                uint idx = t * TILE + i;
-                if (keys[idx] == k) {
-                    row_order[off] = idx / M;
-                    // In sidecar mode logical entries 0...256 belong to the
-                    // exact bounds table. Retain ordinary sorted keys for
-                    // the remainder so the payload stays diagnostic without
-                    // overlapping the authoritative table.
-                    if (!EXPERT_BOUNDS_SIDECAR || off > 256) {
-                        sorted_keys[SORTED_KEYS_OFFSET + off] = k;
-                    }
-                    inverse_order[idx] = off;
-                    ++off;
+            // Each tile owns a disjoint expert subsegment, so only its local
+            // threads contend on these cursors.
+            threadgroup atomic_uint tg_cursor[256];
+            atomic_store_explicit(
+                &tg_cursor[k],
+                global_base + atomic_load_explicit(
+                    &tg_before[k], memory_order_relaxed),
+                memory_order_relaxed);
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            if (k < TILE) {
+                uint idx = t * TILE + k;
+                uint key = keys[idx];
+                uint off = atomic_fetch_add_explicit(
+                    &tg_cursor[key], 1u, memory_order_relaxed);
+                row_order[off] = idx / M;
+                // In sidecar mode logical entries 0...256 belong to the
+                // exact bounds table. Retain ordinary sorted keys for the
+                // remainder without overlapping the authoritative table.
+                if (!EXPERT_BOUNDS_SIDECAR || off > 256) {
+                    sorted_keys[SORTED_KEYS_OFFSET + off] = key;
                 }
+                inverse_order[idx] = off;
             }
             """,
         ensureRowContiguous: false
