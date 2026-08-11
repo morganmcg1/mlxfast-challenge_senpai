@@ -60,6 +60,17 @@ order.)*
 
 ## §1 Pre-registration (written before any arm was timed)
 
+> **Preserved verbatim.** Nothing in §1 has been edited since its own commit
+> (`51c596c1`, plus amendment `4d31462c`), both of which precede every code and
+> data commit on this branch. Two of §1's *inherited premises* were retracted at
+> source afterwards, at 11:40:27Z: the "+0.38 % win from TG = 256" (§1.2, §1.4)
+> and the "2.1 µs per saved MB" constant derived from it (§1.4, → the
+> `≈ 1230 µs/token` figure, which was always tagged as a prediction and is now
+> tagged `PREDICTED`). **§4.0 carries the correction.** I am deliberately not
+> back-editing the pre-registration to look smarter than it was — the whole
+> point of committing it first is that it records what I actually believed, and
+> §1.8 is only interesting *because* §1.2 is still sitting above it unrevised.
+
 ### 1.1 The axis and the ladder
 
 The decode QKV projection runs one output row per simdgroup (`rps = 1`, closed
