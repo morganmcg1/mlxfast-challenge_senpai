@@ -1017,68 +1017,6 @@ private let lagunaLmHeadRefinedExactRow32Kernel = MLXFast.metalKernel(
     header: lagunaLmHeadPruneHeader,
     ensureRowContiguous: true
 )
-
-func lagunaLmHeadAssembleForTesting(
-    coarse: MLXArray,
-    delta: MLXArray,
-    threshold: MLXArray,
-    lmHeadWeight: MLXArray,
-    hidden: MLXArray,
-    useRow32: Bool,
-    refinement: (codesBit: MLXArray, scales: MLXArray)? = nil
-) -> MLXArray {
-    precondition(coarse.shape == [lagunaLmHeadPruneVocab])
-    precondition(coarse.dtype == .float32)
-    precondition(delta.shape == [lagunaLmHeadPruneVocab])
-    precondition(delta.dtype == .bfloat16)
-    precondition(threshold.shape == [1])
-    precondition(threshold.dtype == .float32)
-    precondition(
-        lmHeadWeight.shape == [lagunaLmHeadPruneVocab, lagunaLmHeadPruneHidden]
-    )
-    precondition(lmHeadWeight.dtype == .bfloat16)
-    precondition(hidden.shape == [lagunaLmHeadPruneHidden])
-    precondition(hidden.dtype == .bfloat16)
-
-    let kernel: MLXFast.MLXFastKernel
-    let inputs: [MLXArray]
-    if let refinement {
-        precondition(
-            refinement.codesBit.shape
-                == [lagunaLmHeadPruneVocab, lagunaLmHeadPruneHidden / 8]
-        )
-        precondition(refinement.codesBit.dtype == .uint8)
-        precondition(
-            refinement.scales.shape
-                == [lagunaLmHeadPruneVocab, lagunaLmHeadPruneHidden / 32]
-        )
-        precondition(refinement.scales.dtype == .uint8)
-        kernel = useRow32
-            ? lagunaLmHeadRefinedExactRow32Kernel
-            : lagunaLmHeadRefinedExactKernel
-        inputs = [
-            coarse, delta, threshold, lmHeadWeight, hidden,
-            refinement.codesBit, refinement.scales,
-        ]
-    } else {
-        kernel = useRow32
-            ? lagunaLmHeadInlineExactDeltaBF16Row32Kernel
-            : lagunaLmHeadInlineExactDeltaBF16Kernel
-        inputs = [coarse, delta, threshold, lmHeadWeight, hidden]
-    }
-
-    let gridThreads = useRow32
-        ? lagunaLmHeadPruneVocab
-        : lagunaLmHeadPruneVocab / 32 * 256
-    return kernel(
-        inputs,
-        grid: (gridThreads, 1, 1),
-        threadGroup: (256, 1, 1),
-        outputShapes: [[lagunaLmHeadPruneVocab]],
-        outputDTypes: [.bfloat16]
-    )[0]
-}
-
 /// Init-time int5 coarse copy of lm_head plus the pruned final-row forward.
 /// Built once (untimed init) by
 /// `LagunaRuntimeModel.prepareFusedRuntimeWeights` when
