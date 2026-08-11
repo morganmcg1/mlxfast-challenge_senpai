@@ -1,6 +1,18 @@
 import MLX
+import MLXFast
 import MLXLMCommon
 import Testing
+
+private let physicalSidecarPrefixesKernel = MLXFast.metalKernel(
+    name: "route_sorter_physical_sidecar_prefixes_test_v1",
+    inputNames: ["sidecar"],
+    outputNames: ["prefixes"],
+    source: """
+    uint offset = thread_position_in_grid.x;
+    prefixes[offset] = sidecar[offset];
+    """,
+    ensureRowContiguous: false
+)
 
 @Suite(.serialized)
 struct RouteSorterPropertyTemporaryTests {
@@ -34,7 +46,13 @@ struct RouteSorterPropertyTemporaryTests {
         let indices = MLXArray(keys).reshaped(1, rows, topK)
         let (sortedX, sidecar, inverse) = gatherSort(
             x: x, indices: indices, expertBoundsSidecar: true)
-        let physicalPrefixes = asStrided(sidecar, [257], strides: [1])
+        let physicalPrefixes = physicalSidecarPrefixesKernel(
+            [sidecar],
+            grid: (257, 1, 1),
+            threadGroup: (256, 1, 1),
+            outputShapes: [[257]],
+            outputDTypes: [.uint32]
+        )[0]
         let restored = sortedX[inverse]
         eval(sortedX, physicalPrefixes, inverse, restored)
 
