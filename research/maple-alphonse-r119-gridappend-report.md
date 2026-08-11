@@ -255,7 +255,7 @@ resolve an effect the size of the advisor's predicted 48.3–74.9 µs/step payme
 Arms **R** and **W** were added in a second pass. **R** exists because the whole
 48.3 µs/step floor rests on an unproven premise — that dropping the guest's
 result on the floor actually causes MLX to elide the standalone router
-dispatch. In mode 3 the `gate()` call at `LagunaRuntimeModel.swift:11163` still
+dispatch. In mode 3 the `gate()` call at `LagunaRuntimeModel.swift:11191` still
 executes eagerly in Swift; only lazy-graph dead-code elimination removes the
 39 tournament dispatches. Mode 5 runs the **identical** fused kernel but keeps
 the standalone dispatch alive, so:
@@ -265,12 +265,22 @@ the standalone dispatch alive, so:
 - `R − C` = fusion tax alone (host penalty from carrying the guest body);
 - identity check: `H − C ≡ (R − C) − (R − H)`.
 
-Order: 3 replicates of the palindromic reference-interleaved pair
+Order, pass 1: 3 replicates of the palindromic reference-interleaved pair
 `CHCFCGCNCE` (forward) + `ECNCGCFCHC` (mirror) = **60 runs**. Even pass index =
 forward, odd = mirror; both orders reported separately, never pooled.
 
-Per arm per order: 3 runs × 239 measured samples = **717 raw samples**
-(≥512 required ✓); C gets 15 runs per order. Warm-up: first 16 steps of each
+Order, pass 2: 6 replicates of `CWCRCHCN` (forward) + `NCHCRCWC` (mirror) =
+**96 runs**, analyzed with `--passlen 8`. This buys **n = 12 measured passes
+per order (24 per arm)** for W, R, H and N — exactly the pre-registered
+`n ≥ 24/arm` floor from comment 5 — and n = 36/order for the reference C.
+H and N are re-measured in pass 2 so the new arms are compared against a
+reference *and* a previously-characterised arm carried through the same
+sequence; agreement between the pass-1 and pass-2 H estimates is itself a
+between-session reproducibility check.
+
+Per arm per order: pass 1 gives 3 runs × 239 measured samples = **717 raw
+samples**, pass 2 gives 12 × 239 = **2 868** (≥512 required ✓); C gets 15
+runs/order in pass 1 and 36/order in pass 2. Warm-up: first 16 steps of each
 run discarded (the first sample is the only warm-up outlier; within-run sd is
 14–32 µs ⇒ per-run median SE ≈1.4 µs).
 
@@ -395,7 +405,23 @@ is a **documented pre-existing M4 artifact** and is cited, not re-derived.
 
 ## 10. Answering the advisor's status ask (comment 1)
 
-**(i) Where am I on (ii)?** <!-- FILL -->
+**(i) Where am I on (ii)?** The honest answer at the time the question was
+asked (04:25Z) was "not started, because the R119-A build did not yet exist".
+The sequence I actually ran, and the reason (ii) landed late in it:
+
+| when | what | why before (ii) |
+|---|---|---|
+| — | build both guests + 8 env-switched arms, verify all reach the scored decode path by trace | (ii) needs an E arm that is *known* to be on the scored path; a stale or unreached E answers nothing |
+| — | pass-1 layer-1 ABBA, 60 runs, ~62 min | E rides in this sequence as the **positive control**; running it standalone would have cost a second sequence for no extra information |
+| — | pass-2 layer-1 ABBA, 96 runs, ~73 min | pre-registered `n ≥ 24/arm` for the comment-5 widening gate |
+| last | layer-2 `./benchmark.sh --local-iterate` C/E pair | this is the **only** instrument that produced −76.8, so it is the only one that can answer (ii); it is also the most expensive per data point (~5–8 min/run), so it goes last |
+
+The ordering is deliberate rather than a slip: (ii) is a *confirmation* question
+on an already-merged change, whereas the assignment's own decision — fuse or
+write the negative — was gated on arms G/H/W. I resolved the decision first and
+the confirmation second, and both are answered in this report. The cost of that
+choice is that (ii) rests on a smaller layer-2 n than R114-E's original 36-run
+ABBA; that limitation is stated explicitly below rather than papered over.
 
 **(ii) Does merged head `206cf037c9de07f5e938c67f37bf863c5719741c` reproduce
 R114-E's −76.8 µs/step at SPLIT=0?**
