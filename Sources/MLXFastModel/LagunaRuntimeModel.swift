@@ -7118,19 +7118,24 @@ for (uint row = 0; row < 2; ++row) {
 
 
 
-private func lagunaSharedSwiGLUQMVRows1Source(halved: Bool) -> String {
+private func lagunaSharedSwiGLUQMVRows1Source(
+    halved: Bool,
+    weightName: String = "fused_weight",
+    scalesName: String = "fused_scales",
+    outputName: String = "activated"
+) -> String {
     let scaleRowBytes = halved ? 64 : 128
     let patch =
         halved
         ? "constexpr uint scale_patch_bytes = \(lagunaScalePatchHeaderBytes);\n" : ""
-    let base = halved ? "fused_scales + scale_patch_bytes" : "fused_scales"
+    let base = halved ? "\(scalesName) + scale_patch_bytes" : scalesName
     let laneTerm = halved ? "(lane >> 1)" : "lane"
     let blockDiv = halved ? 32 : 16
     func value(_ pointer: String, _ slot: Int) -> String {
         let read = "\(pointer)[block / \(blockDiv)]"
         guard halved else { return read }
         return "(row == 0 && block == 0 && lane == 1)"
-            + " ? fused_scales[\(slot)] : \(read)"
+            + " ? \(scalesName)[\(slot)] : \(read)"
     }
     return """
 constexpr uint input_width = 2048;
@@ -7146,10 +7151,10 @@ uint lane = thread_index_in_simdgroup;
 uint row = tile * 2 + simd_group;
 
 const device uint8_t* gate_row_weight =
-    (const device uint8_t*)fused_weight +
+    (const device uint8_t*)\(weightName) +
     row * packed_row_bytes + lane * 8;
 const device uint8_t* up_row_weight =
-    (const device uint8_t*)fused_weight +
+    (const device uint8_t*)\(weightName) +
     (row + output_width) * packed_row_bytes + lane * 8;
 const device uint8_t* gate_row_scale =
     \(base) + row * scale_row_bytes + \(laneTerm);
@@ -7192,7 +7197,7 @@ if (lane == 0) {
     bfloat y = bfloat(1) / denominator;
     bfloat sigmoid = gate < bfloat(0) ? y : bfloat(1) - y;
     bfloat silu = bfloat(gate * sigmoid);
-    activated[row] = bfloat(silu * up);
+    \(outputName)[row] = bfloat(silu * up);
 }
 """
 }
@@ -8038,11 +8043,10 @@ private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
 let lagunaRoutedGateUpR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTED_GATEUP_R1"] != "0"
 
-private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
-    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
-    inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
-    outputNames: ["activated"],
-    source: """
+private func lagunaRoutedSwiGLUQMVPackedTop8R1Source(
+    groupExpression: String = "threadgroup_position_in_grid.x"
+) -> String {
+    """
 constexpr uint input_width = 2048;
 constexpr uint output_width = 512;
 constexpr uint block_width = 512;
@@ -8057,7 +8061,7 @@ constexpr uint scale_kblock_bytes = scale_sub_bytes;
 constexpr uint scale_tile_bytes = 4 * scale_kblock_bytes;
 constexpr uint packed_expert_bytes = 128 * scale_tile_bytes;
 
-uint group = threadgroup_position_in_grid.x;
+uint group = \(groupExpression);
 uint expert_slot = group % routed_experts;
 uint tile = group / routed_experts;
 uint simd_group = simdgroup_index_in_threadgroup;
@@ -8147,11 +8151,100 @@ if (lane == 0) {
     activated[expert_slot * output_width + logical_row] =
         bfloat(silu * up);
 }
+"""
+}
+
+private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
+    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
+    inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
+    outputNames: ["activated"],
+    source: lagunaRoutedSwiGLUQMVPackedTop8R1Source(),
+    header: lagunaSharedSwiGLUQMVHeader + "\n" + lagunaDecodeRouterOrdinalHeader
+        + "\n" + lagunaRouterTop8PrologueHeader,
+    ensureRowContiguous: true
+)
+
+let lagunaFusedSharedRoutedQMVEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_ROUTED_QMV_FUSED"] == "1"
+
+/// The shared-expert and routed-expert gate/up QMVs read the same normalized
+/// row and neither consumes the other, so their grids are appended into one
+/// dispatch instead of paying two encodes. Both bodies already use 64-thread
+/// threadgroups, so no reshape is needed; the 256 shared tiles lead so they are
+/// not scheduled in the routed drain tail.
+private let lagunaSharedRoutedSwiGLUQMVKernel = MLXFast.metalKernel(
+    name: "laguna_shared_routed_nvfp4_swiglu_qmv_top8keys_r1_bf16_v1",
+    inputNames: [
+        "input", "shared_weight", "shared_scales", "fused_weight",
+        "packed_scales", "router_keys",
+    ],
+    outputNames: ["shared_activated", "activated"],
+    source: """
+constexpr uint laguna_shared_tiles = 256;
+if (threadgroup_position_in_grid.x < laguna_shared_tiles) {
+\(lagunaSharedSwiGLUQMVRows1Source(
+    halved: true,
+    weightName: "shared_weight",
+    scalesName: "shared_scales",
+    outputName: "shared_activated"))
+    return;
+}
+\(lagunaRoutedSwiGLUQMVPackedTop8R1Source(
+    groupExpression: "threadgroup_position_in_grid.x - laguna_shared_tiles"))
 """,
     header: lagunaSharedSwiGLUQMVHeader + "\n" + lagunaDecodeRouterOrdinalHeader
         + "\n" + lagunaRouterTop8PrologueHeader,
     ensureRowContiguous: true
 )
+
+func lagunaSharedRoutedSwiGLUQMV(
+    _ input: MLXArray,
+    sharedWeight: MLXArray,
+    sharedScales: MLXArray,
+    fusedWeight: MLXArray,
+    packedScales: MLXArray,
+    routerKeys: MLXArray
+) -> (shared: MLXArray, routed: MLXArray)? {
+    guard lagunaFusedSharedRoutedQMVEnabled,
+        lagunaSharedSwiGLUQMVRows1Enabled,
+        lagunaRoutedGateUpR1Enabled,
+        !lagunaSharedQMVWideCodesEnabled,
+        input.dtype == .bfloat16,
+        input.dims(1, 1, LagunaConstants.hiddenSize),
+        sharedWeight.dtype == .uint32,
+        sharedWeight.dims(
+            2 * LagunaConstants.sharedExpertIntermediateSize,
+            LagunaConstants.hiddenSize / 8),
+        sharedScales.dtype == .uint8,
+        sharedScales.ndim == 1,
+        sharedScales.size == lagunaScalePatchHeaderBytes
+            + 2 * LagunaConstants.sharedExpertIntermediateSize
+            * (LagunaConstants.hiddenSize / 32),
+        fusedWeight.dtype == .uint32,
+        packedScales.dtype == .uint8,
+        packedScales.size == lagunaPackedRoutedGateUpScaleBytes,
+        routerKeys.dtype == .uint32,
+        routerKeys.size == LagunaConstants.numExperts
+    else { return nil }
+    lagunaTrace("shared+routed gate/up QMV (grid-append, packed, producer keys)")
+    let outputs = lagunaSharedRoutedSwiGLUQMVKernel(
+        [
+            input, sharedWeight, sharedScales, fusedWeight, packedScales,
+            routerKeys,
+        ],
+        grid: ((256 + LagunaConstants.numExpertsPerTok * 256) * 64, 1, 1),
+        threadGroup: (64, 1, 1),
+        outputShapes: [
+            [1, 1, LagunaConstants.sharedExpertIntermediateSize],
+            [
+                1, 1, LagunaConstants.numExpertsPerTok, 1,
+                LagunaConstants.moeIntermediateSize,
+            ],
+        ],
+        outputDTypes: [.bfloat16, .bfloat16]
+    )
+    return (outputs[0], outputs[1])
+}
 
 func lagunaRoutedSwiGLUQMVPackedTop8(
     _ input: MLXArray,
@@ -10978,13 +11071,28 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                         gate.routerLogitSoftcapping == 0,
                         gate.eScoreCorrectionBias.size == LagunaConstants.numExperts
                     {
-                        lagunaTrace("routed gate/up QMV + SwiGLU (packed, producer keys)")
-                        activated = lagunaRoutedSwiGLUQMVPackedTop8(
-                            x,
-                            fusedWeight: fusedWeight,
-                            packedScales: packedBank,
-                            routerKeys: routerKeys
-                        )
+                        if let sharedBanks = sharedExpert.fusedSharedBanks(x),
+                            let merged = lagunaSharedRoutedSwiGLUQMV(
+                                x,
+                                sharedWeight: sharedBanks.gateUpWeight,
+                                sharedScales: sharedBanks.gateUpScales,
+                                fusedWeight: fusedWeight,
+                                packedScales: packedBank,
+                                routerKeys: routerKeys
+                            )
+                        {
+                            mergedSharedActivated = merged.shared
+                            activated = merged.routed
+                        } else {
+                            lagunaTrace(
+                                "routed gate/up QMV + SwiGLU (packed, producer keys)")
+                            activated = lagunaRoutedSwiGLUQMVPackedTop8(
+                                x,
+                                fusedWeight: fusedWeight,
+                                packedScales: packedBank,
+                                routerKeys: routerKeys
+                            )
+                        }
                     } else {
                         lagunaTrace("routed gate/up QMV + SwiGLU (packed scales)")
                         activated = lagunaRoutedSwiGLUQMVPacked(
