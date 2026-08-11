@@ -31,7 +31,7 @@ sit exactly on the matrix–matrix paths and never on the matrix–vector paths:
 score is the observable half — which is lucky, and which should decide where the
 remaining effort goes.
 
-Five consequences, in descending order of how much work they cancel:
+Six consequences, in descending order of how much work they cancel:
 
 1. **Arm A2 (fused-NAX `bn` 128→64, `matmul.cpp:213-218`) has zero local
    observability.** It edits `steel_matmul_regular_axpby_nax`, reached only from
@@ -67,6 +67,19 @@ Five consequences, in descending order of how much work they cancel:
    `DARKBLOOM_AOT_SDPA_2PASS_PLANES = 1` against a cap of 4, on the 2-pass
    kernel this host actually runs. The generalisable rule: before spending a
    build or a slot on a tunable, read the expression that *consumes* it.
+6. **The fusion census (§9): the INT8 fused norm+affine QKV suite is
+   *shadowed*, not dead.** A `DARKBLOOM_TRACE_FUSION=1` census over three
+   configurations (24 / 26 / 22 distinct dispatch sites) shows the suite's four
+   sites are absent from the shipped configuration and appear only once the
+   NVFP4 bank is disabled — which costs **+25.4 % local decode**, the largest
+   effect measured anywhere in this campaign. So
+   `DARKBLOOM_FUSED_NORM_AFFINE_QKV` is a no-op at default settings, and the
+   suite should be neither retired nor tuned. §9.4 also corrects the kernel
+   names in circulation: `rmsbfloat16` / `gate_sp_h64_v1` / `gate_sp_h48_v1`
+   are **not in this tree**; the real symbol is `laguna_gate_sp_h{48,64}_v1`,
+   JIT-minted at `LagunaRuntimeModel.swift:4512-4522`, and it is shadowed twice
+   over. This adds a fourth question to §8's checklist: *is the path shadowed at
+   runtime by a better path that is on by default?*
 
 ---
 
@@ -547,4 +560,187 @@ of the editable sources found ~40 `DARKBLOOM_*`/`LAGUNA_*` environment knobs
 `DARKBLOOM_ATTN_QHOIST` 11, `DARKBLOOM_TRACE_FUSION` 9,
 `DARKBLOOM_RESCALE_FACTOR` 9). Each is a candidate arm and each deserves the
 three questions before it deserves a slot.
+
+§9 adds a fourth question, which the first three miss.
+
+---
+
+## 9. The fusion census: the INT8 fused norm+affine QKV suite is *shadowed*, not dead
+
+The advisor asked whether the fused norm+affine QKV suite is dead code that
+should be retired, and whether the kernels named `rmsbfloat16`,
+`gate_sp_h64_v1` and `gate_sp_h48_v1` are worth reviving. The timing half of
+that request was later withdrawn (correctly — see §5 and the companion's §5.1:
+this tree cannot resolve a sub-1 % decode arm at n=1). The **structural** half
+is answerable exactly, with `grep` and three no-source-change runs, and the
+answer is not the one the question expects.
+
+**The suite is not dead. It is shadowed.** Its dispatch sites do not appear at
+all in the shipped configuration, and they appear the moment a *different*,
+better-performing bank is switched off. "Dead" would license deleting it;
+"shadowed" means it is the fallback path, and that editing it is a guaranteed
+0.00 % — for a reason completely different from A2's hardware gate in §3.
+
+### 9.1 Method
+
+Zero source change. `DARKBLOOM_TRACE_FUSION=1` flips `lagunaTraceEnabled`
+(`LagunaRuntimeModel.swift:76`), which makes `lagunaTrace()` (`:94`) emit one
+`mlxfast: fusion active: <site>` line per distinct dispatch site reached. Driver
+`research/fern_r109f_fusion_census.sh`, differ
+`research/fern_r109f_fusion_census_diff.py`, artifacts
+`research/artifacts/fern-r109f/census/{census,sites}-{A,B,C}.{log,txt}`.
+Three arms, each a single `./benchmark.sh --local-iterate` (~150 s):
+
+| arm | environment | bank actually loaded |
+|---|---|---|
+| **A** | default (both flags unset) | NVFP4 g16 |
+| **B** | `DARKBLOOM_NATIVE_AFFINE_NVFP4=0` | INT8 g32 affine, fused QKV live |
+| **C** | B + `DARKBLOOM_FUSED_NORM_AFFINE_QKV=0` | INT8 g32 affine, fused QKV off |
+
+The two flags are read once each: `lagunaNativeAffineNVFP4From`
+(`:3044-3050` — returns `nil` for `"0"`, which removes the NVFP4 bank from every
+layer) and `lagunaFusedNormAffineQKVEnabled` (`:5482`), consumed by
+`lagunaNormAffineQKV` (`:5488`).
+
+`--local-iterate` is used only because it is the cheapest invocation that runs
+the real `prepareFusedRuntimeWeights` path. **No score claim is made from it.**
+
+### 9.2 What the census found
+
+Distinct dispatch sites: **A = 24, B = 26, C = 22.**
+
+A → B (four sites leave, six arrive):
+
+| direction | site | emitter |
+|---|---|---|
+| −A | `decode nvfp4 qkv r1 h48 lane-major` | `:5028` |
+| −A | `decode nvfp4 qkv r1 h64 lane-major` | `:5028` |
+| −A | `gated affine oproj nvfp4 qmv h48 lane-major` | `:4618` |
+| −A | `gated affine oproj nvfp4 qmv h64 lane-major` | `:4618` |
+| +B | `norm+affine qkv qmv r8240 pf4` | `:5535` |
+| +B | `norm+affine qkv qmv r8240 pf4 indexed` | `:5521` |
+| +B | `norm+affine qkv qmv r10304 pf4` | `:5535` |
+| +B | `norm+affine qkv qmv r10304 pf4 indexed` | `:5521` |
+| +B | `gated affine oproj qmv h48 indexed` | `:4197` |
+| +B | `gated affine oproj qmv h64 indexed` | `:4197` |
+
+B → C: the four `norm+affine qkv qmv r{8240,10304} pf4[ indexed]` sites leave;
+the two INT8 `gated affine oproj qmv h{48,64} indexed` sites stay. 22 remain.
+
+Two conclusions follow immediately:
+
+1. **`DARKBLOOM_FUSED_NORM_AFFINE_QKV` is a no-op in the shipped
+   configuration.** Its four sites are absent from arm A's trace; the flag only
+   changes behaviour once the NVFP4 bank is already off. Anyone A/B-ing that
+   flag on default settings is measuring nothing, on any host, at any n.
+2. **The o-proj site is one site with two banks**, not two features:
+   `gated affine oproj … nvfp4 … lane-major` (A) and `gated affine oproj …
+   indexed` (B, C) are the NVFP4 and INT8 realisations of the same dispatch.
+
+### 9.3 The row counts prove the fused kernel absorbs the gate projection
+
+`r8240` and `r10304` are output row counts, and they decode exactly. With
+`headDim = 128`, `numKeyValueHeads = 8` (`LagunaConfig.swift:21-22`),
+`fullAttentionHeads = 48` and `slidingAttentionHeads = 64` (`:24`, `:26` —
+note the naming is the reverse of the intuitive one):
+
+* h48 (full-attention layers): 48·128 + 2·(8·128) + **48** = 6144 + 2048 + 48 = **8240**
+* h64 (sliding layers): 64·128 + 2·(8·128) + **64** = 8192 + 2048 + 64 = **10304**
+
+The trailing `+nHeads` is the gate projection. The fused norm+affine QKV kernel
+emits Q, K, V *and* the attention-gate rows in one dispatch — which is what makes
+§9.4's finding inevitable.
+
+### 9.4 The name correction: `gate_sp_h*_v1` is not in this tree, and its real namesake is shadowed twice over
+
+`rmsbfloat16`, `gate_sp_h64_v1` and `gate_sp_h48_v1` **do not appear anywhere in
+`Sources/`, `kernels/` or `Vendor/`.** They appear only in *other students'*
+notes and logs in this repo — `research/pr270-logs/*`,
+`research/tanjiro-r87a-kernel-table.py:58` (`NEIGHBOUR="gate_sp_h64_v1"`),
+`research/nezuko-pr158-gap.log`,
+`research/artifacts/maple-frieren-r107f/stage0_gpupso.txt`, and
+`research/maple-frieren-r94-decode-residue-ledger.md:122`, which spells it
+correctly as `laguna_gate_sp_h64_v1`. The name in circulation is a truncation.
+
+The real symbol is `laguna_gate_sp_h\(heads)_v1`, a JIT `MLXFast.metalKernel`
+minted in `lagunaGateSoftplusKernels` (`:4512-4522`, name at `:4516`) for
+`heads ∈ {slidingAttentionHeads, fullAttentionHeads} = {64, 48}`, from
+`lagunaGateSoftplusSource(heads:)` (`:4467`), behind
+`lagunaGateSoftplusEnabled = DARKBLOOM_AFFINE_GATE_SOFTPLUS != "0"` (`:4464`,
+i.e. **on by default**).
+
+It is nonetheless unreachable in both A and B, and the guards say why:
+
+* `lagunaGateSoftplus(input:bank:heads:)` (`:4525-4546`) requires
+  `bank.mode == .affine`, `bank.bits == 8`, `bank.groupSize == 32`, non-`nil`
+  `biases`, bf16 input and exact dims — i.e. an **INT8-g32** gate bank. Under
+  arm A the bank is NVFP4-g16, so the first guard clause fails and it returns
+  `nil`.
+* Its only call site (`:5994`) sits in the **third** branch of the gate-logits
+  selection at `:5974-5988`: branch 1 takes `fusedTailGateLogits`, branch 2 takes
+  the gate rows out of the fused QKV output when
+  `_nativeAffineQKVGateRows == nHeads`, and only branch 3 calls the softplus
+  kernel. §9.3 shows the fused QKV output *contains* those `nHeads` gate rows in
+  both A (r1 NVFP4 path) and B (r8240 / r10304), so branch 2 wins in both arms.
+* That same call site additionally demands `affineWO.mode == .nvfp4`,
+  `bits == 4`, `groupSize == 16` for the **o-proj** bank (`:5990-5993`). So the
+  configuration that would run `laguna_gate_sp_h*_v1` is a *mixed* one — NVFP4
+  o-proj bank with an INT8-g32 gate bank and no fused gate rows — which neither
+  A, nor B, nor C produces.
+
+`lagunaGateSoftplusEnabled` is not idle, though: it also gates the pre-activated
+o-proj kernels at `:4615` (`lagunaActivatedOProjLaneMajorKernels`) and `:4633`
+(`lagunaActivatedOProjKernels`, names `laguna_oproj_act_h\(heads)_v1` plus
+`_sc1`/`_se1` suffixes from `lagunaNvfp4QmvSignCarryEnabled` /
+`lagunaNvfp4QmvSeedElisionEnabled`). Those *are* in arm A's trace. So the flag
+is live, the softplus kernel behind it is not, and "is the flag referenced?" was
+never the right question.
+
+### 9.5 Correctness, and the one magnitude statement that survives the noise floor
+
+All three arms report `passed: true`, `passed_correctness: true`, and
+`max_abs_diff: 0` — the three dispatch configurations produce **identical**
+outputs on the local golden set. The shadowed path is not merely present, it is
+correct. It is only slower:
+
+| arm | local decode s/tok | vs A | local decode floor |
+|---|---|---|:-:|
+| A (NVFP4) | 0.013036 | — | **passed** |
+| B (INT8, fused QKV live) | 0.016344 | **+25.4 %** | failed |
+| C (INT8, fused QKV off) | 0.016405 | +25.8 % (**+0.37 % vs B**) | failed |
+
+Read this the way the companion document's correction 5 demands. The local
+per-run decode cv is ≈0.35 %, so:
+
+* **A → B, +25.4 %, is ≈70 σ.** The local instrument resolves this without
+  argument, and it does *not* need the ranked host: the NVFP4 bank is worth
+  roughly a quarter of the decode leg. That is the single largest measured
+  effect in this whole campaign, and it is already switched on.
+* **B → C, +0.37 %, is ≈1 σ at n = 1 and is therefore not resolved.** The fused
+  norm+affine QKV suite is worth somewhere between nothing and ~0.4 % of decode
+  *inside a configuration that is already 25 % behind*. Resolving it would take
+  ~40 local replicates to buy information about a path that ships disabled.
+
+So the honest verdict on the advisor's question is: **do not retire it, and do
+not tune it.** It is the correct, slower fallback for a bank we do not ship. The
+only thing worth carrying forward is the shadowing fact itself.
+
+### 9.6 The fourth question for §8's checklist
+
+§8 asks whether a constant is consumed, whether it is clamped, and whether its
+path is reachable *on the measuring host*. This census adds:
+
+> **4. Is the path shadowed at runtime by a better path that is enabled by
+> default?**
+
+A2 (§3) is unreachable because of the *hardware*: `is_nax_available()` is false
+here and true on the ranked host, so the arm is real but unmeasurable locally.
+The fused QKV suite is unreachable because of *software preference*: it is
+unmeasurable **and** unshippable, on every host, until someone deliberately
+turns off a 25 % win. Those two failure modes look identical in a local A/B —
+both print 0.00 % — and they have opposite consequences. Question 4 separates
+them, and it costs one `DARKBLOOM_TRACE_FUSION=1` run.
+
+Cost of this section: three local runs (~7.5 min), zero source changes, zero
+submission slots.
 
