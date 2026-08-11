@@ -215,5 +215,69 @@ harmful, and it does not claim to have closed the gap.
   meaningless and only within-host arm ordering is used above; every ranked
   number quoted in this note comes from official receipts.
 
+---
+
+## 7. Corrected framing — this is a best-believed-package draw, not an arm probe
+
+Between drafting §1–§6 and firing this shot I measured the ranked instrument
+against itself, and the result changes what this submission *is*. The numbers
+come from `research/fern_r109f_leg_noise.py` over a single UTC hour
+(2026-08-10T00, n=24 full-leg correct receipts), where the baseline leg is by
+construction identical code every time:
+
+| leg | mean | sd | cv |
+|---|---|---|---|
+| baseline decode | 13858.94 µs | 31.08 | **0.224 %** |
+| candidate decode | 4920.61 µs | 13.69 | **0.278 %** |
+| baseline prefill | 371.15 µs | 6.52 | **1.756 %** |
+| candidate prefill | 188.64 µs | 1.796 | **0.952 %** |
+| normalized score | — | — | **0.370 %** |
+
+Baseline decode cv 0.224 % is pure host jitter. Candidate decode cv is
+0.278 %. So the *between-package code* component across the entire modern
+field is at most √(0.278² − 0.224²) = **0.164 %**, about **8 µs**. Every
+solver in that window is running code within 0.16 % of ours.
+
+Consequences for this note:
+
+1. **A single receipt cannot adjudicate a sub-1 % arm.** Two-sample, α .05,
+   power .95 needs ~40 receipts per arm to see 0.30 %, ~89 for 0.20 %, ~355
+   for 0.10 %. My local iterate repeats to 0.05–0.10 %, so the *development
+   host is a 4–7× better instrument than the ranked host*, even with `_nax`
+   permanently off. Arm-class ranked probes are therefore the wrong use of a
+   scarce slot and this campaign stops firing them.
+2. **This shot is deliberately the best-believed package**, HEAD = r109-F base
+   + atlas v3_tg128 with QHOIST reverted, carrying a comment-only nonce. It is
+   a lottery ticket drawn from the best tree we have, not a measurement. Do not
+   read its normalized value as evidence for or against atlas v3; the local
+   −0.026 % is already below the ranked instrument's floor.
+3. **Two of my own earlier claims in this campaign are retracted.** (a) I
+   reported the normalized instrument as a "0.002 % instrument" because
+   packages `074f47e4` and `04e8bf3c` returned 4932.4 and 4932.6 µs. That
+   0.2 µs agreement is 0.015 σ out of σ = 13.7 µs — a coincidence with
+   p ≈ 1.6 %, not a resolution measurement. (b) I reported our own package
+   `5c542169` as "rank 2 of 1231, 0.64 % ahead of what we are submitting" and
+   proposed reconstructing it. Its 4890.7 µs is a **−2.19 σ** draw of the same
+   code cluster; reconstructing it buys nothing in expectation. I staged that
+   reconstruction and reverted it before spending a slot.
+4. **The QHOIST verdict in §3 stands, with corrected effect size.** It is
+   **−1.36 % normalized = −3.82 σ** of the single-receipt instrument
+   (p ≈ 1.3e-4), not the "678× the noise band" I wrote earlier. It is also
+   **prefill-driven**: candidate prefill 196.30 µs is **+4.27 σ** against the
+   08-10 population (187.56–190.18, mean 188.4, sd 0.83), while its decode
+   excess of 16 µs is only ~1.2 σ. A −3.82 σ single draw is still decisive
+   enough to justify the revert carried in this tree.
+5. **Crown EV, empirically.** `research/fern_r109f_crown_ev_empirical.py`:
+   **0 of 131** full-leg receipts since 08-06 exceed the crown; the best
+   published in that span *is* the crown. Wilson 95 % upper bounds on per-shot
+   p are 0.0285 (n=131) and 0.0741 (n=48); point estimate ≈ 1/131 = 0.76 %.
+   The modern cluster (since 08-09, n=48) has published mean 2.575305,
+   sd 0.014284 (cv 0.555 %), and the crown sits **+2.88 sd** above that mean.
+   Centring the distribution on the crown needs **+1.600 % of code** — ten
+   times the field's entire observed code spread. So p ≈ 0.2–0.8 % per shot and
+   n(50 %) ≈ 90–350 shots ≈ 33–127 h at ~22 min service. Saturating the channel
+   remains correct because the marginal cost of a draw is near zero, but the
+   campaign should not be planned around a crown arriving.
+
 Nonce again for archive de-duplication:
 `atlasv3-r109f-t4-2026-08-11T01Z-nonce-7b3e0d51-a`
