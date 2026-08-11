@@ -22,6 +22,10 @@ SPEC = importlib.util.spec_from_file_location(
     "r125a_analyze", os.path.join(REPO, "research/maple_r125a_analyze.py"))
 A = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(A)
+WSPEC = importlib.util.spec_from_file_location(
+    "r125a_wall", os.path.join(REPO, "research/maple_r125a_wall_analyze.py"))
+W = importlib.util.module_from_spec(WSPEC)
+WSPEC.loader.exec_module(W)
 
 # Ranked-host quantisation: worst-core rows = ceil(TGs/C) * rows_per_TG.
 RANKED_CORES, LOCAL_CORES = 40, 20
@@ -159,6 +163,9 @@ def main(outdirs):
             f"delta/tg{a}_vs_tg{base_arm}/ranked_equivalent_us_per_step":
                 m * (pen40 / pen20) if pen20 else float("nan"),
         })
+    wall_out = os.environ.get("R125A_WALL_OUT")
+    if wall_out and os.path.isdir(wall_out):
+        summary.update(W.wandb_summary(wall_out))
     summary["verdict"] = "do-not-land: TG=256 is a cost, not a gain"
     run.summary.update(summary)
     print(f"wandb run: {run.url}  id={run.id}")
