@@ -2,7 +2,7 @@
 
 Author: meridian (Maple research advisor, AI agent)
 Written: 2026-08-11 ~10:45Z, ~6.25 h before close
-Last revised: 2026-08-11 ~16:38Z — **§10 added: the closing addendum. It confirms the channel
+Last revised: 2026-08-11 ~16:43Z — **§10 added: the closing addendum. It confirms the channel
 stand-down by inspection, hands over the one packet worth a slot
 (`DARKBLOOM_STEEL_PREFILL_TILE=0`), retracts a receipt-to-mechanism attribution of mine as **error
 10** (GATE A has no ranked reading), records the frontier's move to `4ea72c3` — which makes every
@@ -1466,7 +1466,7 @@ here rather than left implicit.
 
 ---
 
-## 10. Closing addendum, 16:07–16:38Z — stand-down, handover, error 10, a moved frontier, and the last channel read
+## 10. Closing addendum, 16:07–16:43Z — stand-down, handover, error 10, a moved frontier, and the last channel read
 
 Written ~50 minutes before close, after §9 was already final. Nothing here changes a fleet result;
 it changes what may be *inherited* from this file.
@@ -1834,10 +1834,92 @@ evidence — the process table *and* the channel's own row count, which is what 
 `ps` that returns "nothing" is one bug in a filter away from returning "nothing" while a draw is in
 flight.
 
-Final state at close: tree clean, remote head equal to local HEAD (the commit before this one was
-`5b2c7615`; this paragraph's own commit is the last),
+Final state at close: tree clean, remote head equal to local HEAD (`5b2c7615` at the moment of
+writing; §10(xii) was appended after it and is the last thing in this file),
 `handoff_linkcheck.py` and `run_all_tools_smoke.sh` both green, channel untouched by Maple since
 13:51Z, and the slot left free for Cedar exactly as the operator directed.
+
+### (xii) R110-B's negative is real but narrower than its name, and it points at the one prefill route still open
+
+An audit of maple-edward's R110-B (PR #693, `maple-edward/r110-gemm-double-buffer-staging`) landed
+after close of business. The assignment is terminal and I am changing no routing; this is here because
+the result is good, its *scope* is smaller than its label, and the correction it triggers is the most
+actionable prefill statement in this file. **I verified the ranked half of this against the artifacts
+in this checkout** (see below); the M4 half I am reporting as received.
+
+**What he measured (M4 Pro, gen 16, `maxThreadgroupMemoryLength` 32768 B).** A standalone Swift+Metal
+rig that lifts the shipped JIT preambles and instantiates the real prefill kernel
+`nvfp4_gather_qmm_rhs_nt_..._bm_16_bn_32_bk_32_wm_1_wn_2`, then swaps only `gemm_loop_aligned`.
+Median of ABBA sweeps on GPU timestamps, null-kernel bracketed, weighted 0.664/0.336 across
+`gate_up`/`down`:
+
+| variant | tgmem | weighted vs base |
+| --- | --- | --- |
+| `nobar` (illegal, no WAR barrier) | 3840 B | **+0.83 %** |
+| `db` (runtime parity) | 7680 B | −3.11 % |
+| `db2` (unrolled parity) | 7680 B | −0.46 % |
+| `dbmem` (2× allocation, base schedule) | 7680 B | −2.51 % |
+| `noload` (whole load chain deleted) | 3840 B | +15.10 % |
+
+Against a preregistered rule — *if deleting the WAR barrier alone is worth <3 % of kernel time, the
+honest double-buffered version cannot exceed that; stop* — 0.83 % fires the stop with 3.6× margin.
+
+**Why the name overstates it, by his own control.** `dbmem` allocates the doubled tile but keeps the
+*base* schedule, and costs −2.51 % purely from occupancy (8→4 resident threadgroups). So
+`db2 − dbmem = +2.06 pp`: at matched occupancy the double-buffered schedule is worth **2.5× the
+0.83 % that was supposed to be its ceiling**. The premise of the rule is therefore false — the barrier
+prize does not bound the pipelining prize — and the arm actually dies of the **footprint tax**, not of
+a small prize. That distinction matters because a mechanism with *zero* threadgroup-memory cost pays
+no such tax. (The +2.06 pp also decomposes: `dbmem` runs two barriers per iteration and `db2` runs
+one, so ≈0.83 pp of it is just the barrier again and only ≈1.23 pp is overlap.) What the result
+honestly closes: **threadgroup-memory double buffering, on the non-`_nax` kernel, on M4.** Three
+qualifiers, all load-bearing.
+
+**The score-reach table mixes hosts.** It multiplies a 48.5 %-of-**M4**-prefill kernel share by the
+0.362 **M5** elasticity to get +0.146 % score. Self-consistently on M4 (local elasticity 0.502) it is
++0.202 %; self-consistently on M5 it is **0**, because §2 and §10(x) say gen 16's kernel is not the
+kernel the M5 dispatches. Do not carry +0.146 % forward as a ranked number.
+
+**The part I checked, and the part that reverses his recommendation.** He recommends not funding the
+`_nax` port on the argument that `_nax` is "more mma-bound and less load-bound". Our own ranked-M5
+receipts say the opposite, and I opened them: `research/tanjiro-pr-gather-regime-discriminator.md`
+(lines 10–37) with `research/artifacts/tanjiro-pr170-receipt-ctrl.json`. On the promoted control,
+prefill wall `S = 97.895 ms` and the routed gather GEMM `W = 43.2619 ± 0.402 ms`. Four bit-exact
+perturbation receipts:
+
+| arm | axis added | Δ (ms) | % of W | σ |
+| --- | --- | --- | --- | --- |
+| M2 | MMA (+ALU) | +2.046 | 4.7 % | 4.5 |
+| B2 | barriers | +0.841 | 1.9 % | 1.9 |
+| **S3** | **staging, 0 extra DRAM bytes** | **+7.853** | **18.2 %** | **17.5** |
+| S2 | staging + 5.89 GB | +15.961 | 36.9 % | 35 |
+
+On the ranked host that kernel is **staging-bound**: `ΔS3` is 3.8× `ΔM2` and 9.3× `ΔB2`, at 17.5σ.
+`ΔS3/ΔS2 = 49.2 %` splits the constraint into ~49 % load-*issue* / ~51 % DRAM bytes, with 49 % an
+upper bound on the issue share. So the extrapolation behind "don't fund Part 2" has the wrong sign,
+and the defunding should not be inherited as fact. Note the pleasing cross-host agreement that does
+survive: B2's two barriers cost 1.9 % of W ⇒ ≈0.95 % per barrier on M5, against his 0.83 % on M4.
+
+**The conversion the inheritor actually wants.** `W/S = 43.2619/97.895 = 44.2 %` of the prefill wall,
+and prefill enters the score with elasticity 0.362 — which I cross-checked independently inside this
+branch, where closing 1.4 % is priced at ≈3.8 ms off `S` (3.8/97.895 = 3.88 %; 3.88 × 0.362 = 1.405 %,
+so 0.362 is right). Therefore **1 % off the ranked gather-GEMM window ≈ 0.16 % score** — above the
+~0.11 % landing bar. That is the arithmetic that makes this kernel worth another campaign's attention.
+
+**What is still open, and it is exactly the shape R110-B did not test:** register-level software
+pipelining that adds **zero** threadgroup memory (the ranked path already carries one such change with
+tgmem unchanged at 9,232 B, per `research/artifacts/tanjiro-pr170-receipt-pf1.json`). It pays no
+occupancy tax, so the only measured reason the arm died does not apply to it, and it aims at the ~49 %
+load-issue share of a 43.26 ms window. Also genuinely banked from R110-B and worth keeping: the
+**48.6 % segment-restart tax** (multinomial vs aligned routing, identical bytes and useful MACs,
+1.961 vs 1.000 K-loop executions per BM=16 tile), which is a real saved assignment.
+
+**Three smaller corrections from the same audit, recorded so nobody re-derives them:** the 39-layer
+projection should be **38** (layer 0 is dense, the last takes the M=1 GEMV shortcut), moving the local
+share 51.8 % → 50.4 %; the roofline GMAC figure is ~1.5 % low (16.85, not 16.6 GMAC ⇒ 3,326 GMAC/s);
+and "reproduced across two independent full runs" is true of the **paired ratios** only — absolute
+times drifted ±2.2 % between runs, so no cross-run absolute from that rig should be quoted. This is
+rule 20 and rule 21 again, from a third direction.
 
 **For the inheritor:** `python3 research/tools/handoff_linkcheck.py` exits 0 iff every path cited in
 the two handoff documents exists, every `§N` resolves in one of them, and the load-bearing constants
