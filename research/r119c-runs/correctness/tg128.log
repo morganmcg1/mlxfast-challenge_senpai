@@ -1,0 +1,10 @@
+worker up in 39.8s ok=True
+diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.71826171875 mlx_active_gb=33.02 mlx_cache_gb=0.00 mlx_peak_gb=36.11
+decode_begin seed forward: 548.17 ms
+DECODE_PHASE_START
+DECODE_PHASE_END
+free-run tokens: n=64 hash=1d94c56de672c486 distinct=49 cycle=0 first16=[367, 83, 350, 378, 83367, 28819, 268, 20896, 2206, 395, 340, 14486, 81, 572, 340, 24721]
+first 8 steps (ms): 9.394 8.422 8.220 8.260 8.223 8.201 8.182 8.269
+decode steps=64 mean=8.242 ms median=8.223 ms p10=8.190 ms p90=8.259 ms min=8.166 ms max=9.394 ms total=0.527 s
+diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.719512939453125 mlx_active_gb=33.10 mlx_cache_gb=1.08 mlx_peak_gb=36.11
+worker stderr -> research/r119c-runs/correctness/tg128.err
