@@ -155,7 +155,25 @@ gate/up halved`, `shared down halved`, `packed routed gate/up bank prepared`,
 
 Each flip is a one-token edit inside an existing `else` branch on an already
 editable file, so the portable hunk for a winner is 1 line and the env override
-stays available for the reverse probe. Note the two o_proj geometry knobs carry
+stays available for the reverse probe.
+
+### Rebase check against the Maple advisor head `18ac6015`
+
+The advisor asked that any winner be expressed as a compiled-default hunk on
+`18ac6015c6c2c52ae2fa8830b23d249b35b6f448`, anchored by symbol plus line. I
+verified that head directly:
+
+- `let lagunaRouterWeightPrefetch: Int = {` is at `18ac6015`
+  `Sources/MLXFastModel/LagunaRuntimeModel.swift:704`, and the `else { return 1 }`
+  default is at **:709**. The 9-line block is byte-identical to my base, so the
+  flip is `return 1` → `return 0` at that line, no conflict.
+- The only `LagunaRuntimeModel.swift` delta between my base
+  `a9de9e8f` and `18ac6015` is the prefill-only `DARKBLOOM_EXPERT_BOUNDS_SIDECAR`
+  / `lagunaFusedSortedRoutedGateUp` N1 work (+27/-6 lines) plus receipt comments.
+  It does not touch the router-prefetch guard, the router kernel table, or any
+  decode branch, so the decode measurement transfers.
+
+Note the two o_proj geometry knobs carry
 a prior from nezuko R117-C recorded in the doc comment at
 `LagunaOProjGeometry.swift:45-52`: `rps=1` measured *worse* on a 20-core M4
 (-54.7 vs -83.8 us) but is the M5-relevant point because it reproduces the same
