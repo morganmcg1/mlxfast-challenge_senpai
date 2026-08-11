@@ -867,3 +867,122 @@ Two caveats on all of the above: threadgroup **launch order is not guaranteed**
 by Metal, so "gate tiles lead" is a scheduling expectation and not a contract,
 and it must be re-verified on the M5 Max; and every µs/step projection in this
 section rests on the M4 Pro per-dispatch fixed-cost decomposition of §1.4.
+
+## Stage 6 — reconciliation with the sibling results, and a warning about the proposed ruler
+
+Written after the terminal result was published, in response to the advisor's
+02:17Z / 02:45Z / 03:07Z comments on #700. No new measurement; this section only
+reconciles work already banked here with work banked on `cedar`.
+
+### 6.1 The proposed 04:30Z ruler would have closed this family by mistake
+
+The 02:45Z and 03:07Z comments specify a two-point discriminator: vary the work
+inside the two `gate_sp` dispatches while holding **dispatch count, grid and
+threadgroup shape fixed**; if wall scales with work the slack is real, if wall is
+flat write `N-GATESP-SLACK-IS-DISPATCH-SHAPED` and close the family.
+
+**Stage 2 is very nearly that experiment, and it returned "flat."** It held
+dispatch count, grid and threadgroup shape exactly fixed and cut memory
+instructions per thread 3.7×, bit-exactly. Wall moved **3.98 µs/step**, 2.3 % of
+the kernel. The one difference from the specified ruler is that Stage 2
+varied *memory-instruction count* rather than *arithmetic per thread*; on a
+kernel whose §1.4 decomposition is 102.9 µs/step of weight-code loading against
+36.9 µs/step of fixed cost, that is the more relevant of the two axes, not the
+less.
+
+Applying the stated decision rule to that result closes the family.
+
+**Then Stage 3 measured −76.8 µs/step on the same kernel** — 19× the Stage 2
+effect, on a 36-run ABBA with three interval constructions all excluding zero.
+
+So the ruler's binary is incomplete. It has two cells:
+
+1. wall scales with in-kernel work → recoverable;
+2. wall flat → dispatch-shaped, worthless.
+
+This kernel is in neither. Its cost is **real in-kernel latency that is invisible
+to a work-reduction probe and recoverable only by co-scheduling it against other
+work** (`N-GRIDAPPEND-ABSORBS-LATENCY`, §3.5). Doing less work per thread does
+not help, because the kernel is not issue-limited — it is under-occupied, 8
+threadgroups on 20 cores. Removing the launch entirely, by appending its tiles
+to a grid that is already resident, recovers 93.8 % of its serialized busy time.
+
+**Recommendation before this ruler is pointed at edward's or nezuko's arms:** add
+a third outcome. "Wall flat against in-kernel work" is necessary but not
+sufficient for "dispatch-shaped." The disambiguating question is whether the
+kernel launches fewer threadgroups than the machine has cores; if it does, it is
+an absorption candidate regardless of how flat the work probe is.
+
+### 6.2 Why cedar #698 could not measure a change of this class and this could
+
+cedar #698 fused an exact group-32 affine `g_proj` into a disjoint subset of the
+existing decode NVFP4 QKV R1 threadgroups: bit-identical, grids held fixed at
+4,096 / 5,120, dispatches 2 → 1. It could not resolve a win — H48 67.8 µs
+CI [−2.7, +138.3], H64 1.5 µs CI [−30.8, +33.8], and a conservative weighted
+lower bound of −952 µs/token on a family costing a few hundred µs/step.
+
+Two differences, and I can only defend the second from my own data:
+
+**Mechanism (hypothesis, not measured here).** cedar folded the work into
+threadgroups that were *already launched*, holding the grid exactly fixed. That
+adds instructions to resident threads' instruction streams. This arm instead
+**appends new tiles to the grid** — grid goes from `(rows/2)*64` to
+`(heads/8 + rows/2)*64` with threadgroup shape `(64,1,1)` unchanged — so the
+added tiles are independent units the scheduler can overlap against the QKV
+tiles rather than serialize behind them. Absorption is the thing being bought,
+and only the second shape can buy it. I did not run cedar's variant, so this
+is a mechanism hypothesis that would need its own two-arm test.
+
+**Instrument (this I did measure).** A win that is partly overlap cannot be seen
+by a per-dispatch-instrumented timer, because the instrumentation removes the
+overlap it is trying to price. That is exactly
+`N-ATLAS-SPLIT1-OVERSTATES-OVERLAPPABLE` (§3.5): in the serialized SPLIT=1 world
+this arm looks like −479.3 µs/step, and only 16.0 % of that survives to the
+scored SPLIT=0 wall. The advisor's own correction — "SPLIT=1 mis-ranks arms,
+SPLIT=0 for ranking" — is the same statement. cedar #698's bimodal per-kernel
+nanosecond arrays are a per-dispatch instrument being asked to rank an
+overlap-derived effect. Ranking on end-to-end SPLIT=0 decode wall over 36 paired
+runs is what made this arm resolve at ±11 µs/step.
+
+**Generalization worth carrying:** for any arm whose payoff is co-scheduling,
+rank on end-to-end wall and use per-kernel timing only for attribution. A null
+from a per-dispatch instrument is not evidence of absence for this class.
+
+### 6.3 The "0.4478 µs/dispatch tax and nothing else" position is too strong
+
+The 03:07Z comment states the campaign position that removing a decode dispatch
+buys the 0.4478 µs/dispatch tax and nothing else, and can cost more if
+threadgroup geometry shifts underneath.
+
+The second clause is right and is exactly why this arm held threadgroup shape
+fixed — it is the documented cause of 83 % of nezuko #682's +51.73 µs/step
+regression.
+
+The first clause is refuted by this arm's data. 40 dispatches/step removed:
+
+| model | predicted saving | measured |
+|---|---:|---:|
+| pure dispatch tax, 0.4478 µs × 40 | 17.9 µs/step | |
+| Rule 57 symmetric, 1.2382 µs × 40 (§4.4) | 49.5 µs/step | |
+| **measured, 36-run ABBA** | | **76.8 µs/step** |
+
+The realized saving is **4.29× the dispatch-tax prediction** and 155 % of the
+Rule 57 symmetric prediction. §3.5 says where the excess comes from: only 42 %
+of the serialized Δwall is gap, and 55 % is *absorbed busy time*. The dispatch
+tax is a floor on this class of change, not a ceiling.
+
+### 6.4 If bytes are sub-unity, this is the mechanism that is left
+
+cedar #699 puts the routed NVFP4 scale-plane byte pool at τ ≈ 0.21–0.34 with
+τ = 1.06 excluded at 95 %. This arm moves **zero bytes**, so it is orthogonal to
+that finding and unaffected by it: its −76.8 µs/step is measured end-to-end wall,
+not a byte count multiplied by an assumed elasticity.
+
+If the byte mechanism does re-price downward, grid-append latency absorption is
+the largest live mechanism I can evidence, and §5 lists the next two instances of
+it — shared-expert SwiGLU into the routed SwiGLU grid, and router top-8 retiled
+onto the same grid. Both must be sized with the **29.4 % realization discount**
+from §3.5, which is the reason I estimate them jointly at ≈ −60 µs/step rather
+than the ≈ −215 µs/step their raw atlas entries suggest, and the reason I
+recommend one assignment with a shared ABBA rather than two separately
+underpowered arms.
