@@ -58,3 +58,19 @@ Instrument commitments:
 - Bimodality screen on every per-run sample set: elevated Sarle's coefficient
   **and** ≥ 2 modes from a smoothed-histogram peak count ⇒ instrument failure.
 - Raw per-run samples are dumped under `research/r122a-runs/`.
+
+## §2 Instrument
+
+One binary built once from base `fa2a81b7` plus two research-only additions
+that cannot change numerics: the GPUPROF hook (`research/pr91-gpuprof-hook.patch`,
+applied for the build and reverted on every exit path) and an env-gated stderr
+readback (`DARKBLOOM_REPORT_CB_ENV=1`) that prints, from inside the worker,
+`getenv` of the startup-memory and o_proj knobs together with the *resolved*
+`rps`, `ns`, and pipeline-name suffix.
+
+Harness: `research/maple-alphonse-r122a-oproj-split-arms.sh`.
+Attribution: `research/maple-alphonse-r122a-attrib.py` (matches kernels by role
+substring, never by exact name; records that name several kernels are one
+batched command buffer and are held out as an unattributable residual instead
+of being folded into a role).
+
