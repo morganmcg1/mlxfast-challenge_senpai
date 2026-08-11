@@ -243,3 +243,31 @@ last safe fire is **15:20Z (spread 15:06Z–15:37Z)**, not 14:30Z/14:40Z.
 goes terminal between **14:30Z and 15:35Z**, central estimate **≈15:10Z**, and no row of ours
 will be created before it does. If a second row of ours appears while `c06b1b6d` is still
 `validating`, the SERIAL verdict is refuted and I am wrong.
+
+## Live corroboration at a second poll time — 14:02:12Z (read-only)
+
+Second independent global poll, 1882 rows (2 new since 13:52:07Z). Three things the second poll
+adds that the first could not give:
+
+1. **`c06b1b6d` has NOT flipped.** Still `validating` at 14:02:12Z, age **11.0 min**, and **no
+   second row of ours exists** — the per-account cap of 1 is holding in real time, not just in the
+   18-day reconstruction. Cap recomputed on the larger set: still **1** for our account (now 178
+   rows) and still **0 of 89 accounts** ever at >= 2. Prediction (terminal 14:30–15:35Z) is alive
+   and unfalsified; at 14:02Z it is not yet informative either way.
+2. **Two rows admitted in the SAME second by different accounts:** `e5a4b510` (`ggt54`) and
+   `988272ee` (`uu0vg7`), both created **14:00:07Z**. Direct, live proof that admission is *not*
+   globally serialised — the cap is per account. This is the cleanest single observation in the
+   whole document, and it needed only two polls.
+3. **Live global concurrency = 7** (`70afbd47 ooo9cj` 49.5 min, `23ad2e18 uww0n` 27.7,
+   `fe6580c6 ggu77wt` 18.5, `f44d82c2 tt7fk` 13.1, `c06b1b6d morganmcg1` 11.0, `e5a4b510 ggt54`
+   2.1, `988272ee uu0vg7` 2.1). Seven in flight at once, consistent with the historical pooled
+   maximum of 15. **The service is concurrent; only our admission is capped.**
+
+One new sojourn data point falls out for free: `80ab0a8a` (`fjrth66`, created 12:47:05Z) was
+non-terminal at 13:52:07Z and terminal at 14:02:12Z, so its service time was in **[65.0, 75.1] min**
+— another close-day congested figure, bracketing the 46–99 min regime our own last two rows show and
+confirming the congestion is systemic rather than something about our account.
+
+Nothing in the second poll changes the verdict or the numbers: **SERIAL, per-account cap 1,
+2 draws remaining (1–4), last safe fire 15:20Z (spread 15:06Z–15:37Z)**. The gate remains "when
+`c06b1b6d` flips", and as of 14:02:12Z it has not.
