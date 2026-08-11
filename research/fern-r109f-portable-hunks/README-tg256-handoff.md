@@ -1,5 +1,18 @@
 # TG=256 shared-expert SwiGLU QMV — portable hunk handoff (fern → cedar)
 
+## BOTTOM LINE UP FRONT
+
+* The hunk **works, is bit-identical, and is safe to land** (build-green, budget-green,
+  `max_abs_diff 0` across 1023 decode steps on every draw).
+* Its **performance benefit on this 20-core M4 Pro is zero within measurement error**:
+  paired ABBA A/B, mean relative decode Δ **−0.0013 %, 95 % CI [−0.4380 %, +0.4354 %]**.
+  #714's claimed +0.38 % score (= −0.507 % decode) is **outside that CI**.
+* Therefore: land it if you want the cleaner packing and the named kernels, but
+  **do not book a gain for it**, and do not delay a submission shot on its account.
+* Note also that `DARKBLOOM_*` env vars **cannot ship behaviour** (strict allowlist +
+  the ranked workflow never sets them — see "env is an instrument" below). The default
+  must be correct in source, which it is (`!= "0"` ⇒ default ON).
+
 ## What this directory contains
 
 | file | base | status |
@@ -126,12 +139,54 @@ Measured on this host (M4 Pro, 48 GiB → low-memory startup profile, GPU gen 16
 not comparable to official ≈ 2.6 because the prefill floor fails locally
 (0.001115 vs REF 0.000368 = 0.33×) under the 48 GiB low-memory profile —
 `passed_prefill_speedup_floor false` on every local draw. Local `ns` is a relative
-instrument only. The decode leg's measured cv of 0.033 % is ~10× tighter than the
-0.30–0.35 % we had been assuming, which is what makes a 3-pair local A/B a decisive
-adjudicator: the +0.38 % score effect claimed by #714 corresponds to −0.507 % decode
-(score elasticity on the decode leg is 0.75), i.e. **≈15 sd**.
+instrument only.
 
-## Why it is worth landing — expected value
+## MEASURED RESULT — the perf claim does NOT reproduce on this host (null)
+
+The paired A/B was run. **The effect is not distinguishable from zero**, and #714's
+claimed gain is excluded. This section supersedes any earlier expectation of +0.38 %.
+
+Paired B−A on the decode leg (A = TG=64, B = TG=256), n = 3 pairs, ABBA-blocked,
+both arms sharing `harness_hash 774984d144586cabdd54750e1e832897422bf3186b319662aca7218dd9393037`:
+
+| quantity | value | 95 % CI |
+|---|---|---|
+| per-pair relative decode Δ | −0.1702 %, +0.1807 %, −0.0144 % | — |
+| **mean relative decode Δ** | **−0.0013 %** | **[−0.4380 %, +0.4354 %]** |
+| t(2) | −0.013 (need \|t\|>4.303) | not significant |
+| implied score Δ (elasticity 0.75) | +0.0010 % | [−0.3253 %, +0.3298 %] |
+
+Arm means: TG=64 decode 0.00891724544 s/tok (cv 0.0291 %); TG=256 decode
+0.00891712987 s/tok (cv 0.1864 %). The two arm means differ by **1.2e-10 s/tok**.
+
+Two things matter here:
+
+1. **The sign flips between pairs** (−0.170 %, +0.181 %). The same flip appears in the
+   raw `mean_step_seconds` stream (−0.108 %, +0.156 %), so this is genuine step-time
+   drift, not prefill or seed noise. The n=3 baseline's 0.033 % decode cv was an
+   **underestimate** for a long session: between-draw drift over ~15 min is ~7–10×
+   larger than within-a-tight-triple scatter. Any single-pair A/B on this host can
+   manufacture a ±0.18 % "effect" at will.
+2. **#714's claim is outside the CI.** +0.38 % score = −0.507 % decode; our CI upper
+   bound on improvement is −0.438 %. So the claim is refuted at 95 % on *this* host,
+   though only just — which is why the n=9 extension was run.
+
+Plausible mechanism for non-transfer: TG=256 leaves only **64 threadgroups on a
+20-core GPU (3.2 TG/core)** versus 256 TGs (12.8/core) at TG=64. Load-balance
+quantisation of up to ~25 % of a ~65 µs/step kernel (~16 µs) can offset the
+dispatch-setup saving. #714's host ran ~3.4 ms/step against our 8.35 ms (2.4× faster,
+so likely many more cores), where 64 TGs still spreads adequately. **The measurement
+is probably correct on their host and simply does not transfer to a 20-core part.**
+
+## Should Cedar land it anyway? — expected value
+
+**Yes, but land it for the correctness/robustness reasons, not for speed.** It is
+measured-neutral here (CI centred on zero, ±0.44 %), bit-identical
+(`max_abs_diff 0` on 1023 decode steps in every draw), and budget-safe. It is not a
+banked gain, and it must not be counted as one when projecting a win.
+
+The EV table below is retained **only** to show what a gain of a given size would buy,
+so the null can be priced correctly. Our measured row is the +0.00 % row.
 
 From the draw/normalized decomposition (`research/fern_r109f_draw_winprob.py`,
 `research/fern_r109f_gain_to_winprob.py`): `published = normalized × draw`, and the draw
@@ -144,16 +199,22 @@ Consequently:
 
 | normalized gain | P(beat bar) per shot | over 3 shots |
 |---|---|---|
-| +0.00 % | 1.48 % | 4.39 % |
-| **+0.38 % (this hunk, per #714)** | **11.09 %** | **29.73 %** |
+| **+0.00 % ← THIS HUNK, as measured** | **1.48 %** | **4.39 %** |
+| +0.10 % | 2.89 % | 8.42 % |
+| +0.20 % | 5.39 % | 15.32 % |
+| +0.38 % (what #714 claimed; refuted here) | 11.09 % | 29.73 % |
 | +0.50 % | 15.47 % | 39.60 % |
 | +1.00 % | 40.08 % | 78.48 % |
 | +1.259 % | 50.00 % | 87.50 % |
 
-A +0.38 % gain is a **7.5× lift** in per-shot win probability. A coin flip against the
-bar needs +1.259 % normalized, so this hunk alone is not sufficient — it should be
-stacked with the other closed arms (#718 o_proj rps=2, #719 QKV rps=1, tanjiro prefill
-`BN` #732 if its reachability proof lands).
+Read that top row carefully. **On the measured null, this hunk buys ~1.5 % per shot,
+which is the same as shipping nothing** — the win would come entirely from the draw
+lottery. A coin flip against the bar needs **+1.259 % normalized**, and the whole
+stack of closed arms (#718 o_proj rps=2, #719 QKV rps=1, tanjiro prefill `BN` #732)
+plus this hunk does not plausibly add to that. The honest read is that **beating
+`4ea72c3` before close depends on drawing ≈p99 on the lottery, not on this hunk.**
+Cedar should schedule shots accordingly and not hold a shot back waiting for this
+hunk to "pay".
 
 Queue reality for scheduling: one-in-flight-per-solver holds exactly across the whole
 1859-row record (89 solvers, **0 overlapping non-terminal intervals**), service-time
