@@ -80,13 +80,38 @@ Target family = `decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1` (1342.1 µs/step, 3
 |---|--:|
 | family traffic | **737.1 MB/step** |
 | family time | **3123.3 µs/step** (1342.1 + 1114.7 + 363.5 + 303.0) |
-| achieved bandwidth | **236.0 GB/s = 91.9 % of 256.7 GB/s peak** |
+| achieved bandwidth | **236.0 GB/s = 91.9 % of 256.7 GB/s peak** (see note) |
 | surviving scale plane | **24.02 MB/step = 3.26 %** |
 | payload (irreducible) | **96.74 %** |
 | already banked by shipped encoders | **66.38 MB/step = +2.16 %** (τ=1, C3-corrected; +1.69 % at τ=0.780) |
 | whole-plane-vanishes ceiling at τ=1 | **93.6 µs/step = +0.782 %** |
 
 The family runs at **91.9 % of peak bandwidth**. There is no compute slack to trade against.
+
+> **Note (C4) — 236.0 vs 235.6 GB/s, and a mislabel I am correcting here.** Two
+> achieved-bandwidth numbers appear across these documents. They are the *same* kernels over
+> the *same* 3123.3 µs/step; only the byte total differs, because §0b's census was published
+> twice:
+>
+> | | family bytes | ÷ 3123.3 µs | where |
+> |---|--:|--:|---|
+> | escape-free plane minimum | 735.8 MB/step | **235.58 → 235.6 GB/s** | `nezuko-r117-stage0-attn-byte-floor.md:115` |
+> | escape-**corrected** plane (Finding 4) | 737.1 MB/step | **236.00 → 236.0 GB/s** | same doc `:398`, and the table above |
+>
+> 236.0 is the one to use: charging escaped rows at the stock plane is what pulls the census
+> onto edward's atlas to +0.040 % / −0.003 %, against +0.08 % / +0.21 % before. The 0.18 %
+> gap is well inside the per-kernel timing spread, so no conclusion turns on the choice.
+>
+> Two consequences worth stating rather than quietly absorbing. **(a)** The published plane
+> time **101.8 µs/step** is `24.02 × 1000 / 236.0 = 101.78`; it is *not* `/235.6`, which gives
+> 101.95. `nezuko-r117-stage0b-byte-dose-ruler.md:372` attributes it to 235.6 — that
+> attribution is wrong by one rounding step and the number itself is right. **(b)** The C3
+> correction factor is therefore **256.7/236.0 = 1.088**, not the 1.090 recorded in the C3 row
+> of §0; on the τ=1 ceiling that is a 0.2 % relative shift, i.e. none of the reported digits
+> move. And the ceilings themselves are immune either way: the τ=1 bound
+> `24.02 × 1000 / 256.7 = 93.6 µs/step` is evaluated at **peak**, so it does not contain an
+> achieved rate at all. That immunity is the whole point of the C3 fix — the bug was mixing
+> the two scales, and the repair was to stop doing so, not to pick a better achieved number.
 
 ### 1.3 The span histogram kills the fallbacks
 
@@ -306,8 +331,17 @@ simdgroup owns *which* output row. For a fixed row the accumulation is still 32 
 | `R8` | 8 | 2 | 256 | 128 | **−157.29** | 9090.93 | **+101.03** |
 | `N4` | 4 | 4 | 512 | **128** | **0** | 9012.83 | **+22.93** |
 
-**All four `passed=true`; exactly one distinct golden hash** (`f49e4c2cbc0d3ceee9…`),
-so the bit-exactness argument holds empirically across the whole geometry family.
+**All four `passed=true`; exactly one distinct golden hash** (`f49e4c2cbc0d3ceee9…`).
+
+Scope of that claim, stated precisely: the *tested* settings are `(rps,ns) ∈ {(4,2), (1,2),
+(8,2), (4,4)}` at n=1 each here, plus **`(2,2)` at n=8 and `(4,2)` at n=8 in §5.4** — every
+one of those 28 runs emits the same golden `f49e4c2cbc0d3ceee9…`. That is direct evidence
+for five of the ten accepted `(rps, ns)` combinations, and it is the *shipping-relevant*
+five. It is **not** a proof over the whole family: `rps=16` and `ns ∈ {1,8}` were never
+built. The a-priori argument in `LagunaOProjGeometry.swift:15–20` — geometry only re-assigns
+which simdgroup owns which output row, leaving the 32-lane × 16-value serial FP32 chain and
+its closing `simd_sum` intact — is what covers the untested cells, and it is an argument,
+not a measurement.
 
 **The byte model is falsified by sign.** At the Stage 0b τ = 0.780 a pure byte model
 predicts `R1` at **+2868 µs/step** and `R8` at **−478 µs/step**. Observed: **−65.2** and

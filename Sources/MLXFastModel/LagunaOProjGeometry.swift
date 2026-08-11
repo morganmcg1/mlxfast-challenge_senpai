@@ -25,10 +25,17 @@ import Foundation
 /// dispatch is 4096 threads in 64 threadgroups, which is certainly too few
 /// threads to fill a 20-core GPU even though its in-flight load count is
 /// unchanged. The value is baked into the Metal
-/// function name (`_rps1ns2`, `_rps2ns2`, `_rps8ns2`, ...; the shipped
-/// `rps=4, ns=2` keeps the shipped name) because MLX caches compiled pipelines
-/// by name and a sweep whose arms share one name silently measures the
-/// first-built geometry every time.
+/// function name (`_rps1ns2`, `_rps2ns2`, `_rps8ns2`, ...) because MLX caches
+/// compiled pipelines by name and a sweep whose arms share one name silently
+/// measures the first-built geometry every time.
+///
+/// The default is 2, not the historical 4: on a 20-core M4 Pro a blocked,
+/// interleaved 8-block ladder measured 2 at -79.4 us/token, CI95 [-87.8,
+/// -71.1], against a byte-identical control whose interval covered zero. The
+/// kernel is occupancy-limited here, not bandwidth-limited -- halving the rows
+/// per simdgroup doubles the threadgroup count to 256 and adds activation
+/// re-reads, and it still wins, which is why the byte model predicted the
+/// wrong sign. See research/nezuko-r117-c-final-report.md F7.
 let lagunaOProjRowsPerSimdgroup: Int = {
     guard
         let raw = ProcessInfo.processInfo.environment[
@@ -36,7 +43,7 @@ let lagunaOProjRowsPerSimdgroup: Int = {
         let value = Int(raw),
         [1, 2, 4, 8, 16].contains(value)
     else {
-        return 4
+        return 2
     }
     return value
 }()
@@ -79,9 +86,14 @@ let lagunaOProjSimdgroups: Int = {
 /// Threads per o_proj threadgroup: 32 lanes per simdgroup.
 let lagunaOProjThreads: Int = 32 * lagunaOProjSimdgroups
 
-/// Metal function-name suffix for the selected geometry. Empty at the shipped
-/// default so baseline kernel names, and every atlas string built from them,
-/// are unchanged.
+/// Metal function-name suffix for the selected geometry.
+///
+/// The empty-suffix case is pinned to `rps=4, ns=2` -- the *historical* shipped
+/// geometry -- and deliberately not moved to the new `rps=2` default. Keeping
+/// it here means the shipped configuration emits `_rps2ns2`, which is the exact
+/// function the certified R2 arm measured, so the landed default and the
+/// evidence for it are the same compiled pipeline rather than merely the same
+/// source.
 let lagunaOProjRowsPerSimdgroupSuffix: String =
     (lagunaOProjRowsPerSimdgroup == 4 && lagunaOProjSimdgroups == 2)
     ? ""
