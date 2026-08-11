@@ -33,9 +33,18 @@ def get(path: str) -> dict:
 
 def main(argv: list[str]) -> int:
     out = argv[0]
-    bench = get("/api/benchmarks/" + urllib.parse.quote(BENCH, safe=""))["benchmark"]
-    bid = bench["id"]
-    print(f"benchmark id={bid} ref={BENCH}")
+    # The ref-based lookup (/api/benchmarks/mlxfast-challenge) 404s; the UUID
+    # is the only working handle, as already recorded in the receipt ledger.
+    bid = os.environ.get(
+        "MLXFAST_BENCHMARK_ID", "1854efdf-feba-4773-bae9-b80520881a74")
+    bench = {"id": bid}
+    try:
+        bench = get("/api/benchmarks/" + urllib.parse.quote(BENCH, safe=""))["benchmark"]
+        bid = bench["id"]
+    except Exception as exc:  # noqa: BLE001
+        print(f"ref lookup {BENCH!r} failed ({exc}); using pinned id {bid}",
+              file=sys.stderr)
+    print(f"benchmark id={bid}")
     data = get(f"/api/benchmarks/{bid}/submissions")
     rows = data.get("submissions", [])
     print(f"fetched {len(rows)} submissions")
