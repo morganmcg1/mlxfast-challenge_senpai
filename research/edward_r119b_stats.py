@@ -139,6 +139,33 @@ def sarle(x: np.ndarray) -> float:
     return float((g1 ** 2 + 1.0) / (g2 + 3.0))
 
 
+def mode_count(x: np.ndarray, bin_ms: float = 0.005, rel_height: float = 0.10) -> int:
+    """Count separated peaks in a smoothed histogram.
+
+    Sarle's coefficient is inflated by skew alone, so a heavy right tail on a
+    single-peaked latency distribution can exceed 0.555 with no second mode.
+    This counts peaks directly so the two cases can be told apart.
+    """
+    if x.size < 64:
+        return 0
+    edges = np.arange(np.min(x), np.max(x) + bin_ms, bin_ms)
+    if edges.size < 5:
+        return 1
+    h, _ = np.histogram(x, bins=edges)
+    k = np.ones(5) / 5.0
+    s = np.convolve(h.astype(float), k, mode="same")
+    thresh = rel_height * s.max()
+    peaks = 0
+    i = 1
+    while i < s.size - 1:
+        if s[i] >= thresh and s[i] > s[i - 1] and s[i] >= s[i + 1]:
+            peaks += 1
+            i += 3
+        else:
+            i += 1
+    return peaks
+
+
 def load(paths):
     rows = []
     for p in paths:
@@ -253,9 +280,18 @@ def main() -> None:
                 [np.asarray(per_run_samples[(tag, r)]) for r in runs if run_meta[(tag, r)][1] == arm]
             )
             bc = sarle(pooled)
-            flag = "SUSPECT-BIMODAL" if bc > 0.555 else "unimodal"
+            lo98, hi98 = np.percentile(pooled, [1.0, 99.0])
+            core = pooled[(pooled >= lo98) & (pooled <= hi98)]
+            bc_core = sarle(core)
+            modes = mode_count(pooled)
+            if bc > 0.555 and modes >= 2:
+                flag = "SUSPECT-BIMODAL"
+            elif bc > 0.555:
+                flag = "unimodal-skewed (Sarle inflated by right tail)"
+            else:
+                flag = "unimodal"
             print(f"  raw arm {arm}: samples={pooled.size} median={np.median(pooled):.4f} "
-                  f"bimodality={bc:.3f} {flag}")
+                  f"bimodality={bc:.3f} core98={bc_core:.3f} modes={modes} {flag}")
 
 
 if __name__ == "__main__":

@@ -28,6 +28,12 @@ _spec = importlib.util.spec_from_file_location(
 S = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(S)
 
+_bspec = importlib.util.spec_from_file_location(
+    "r119b_busy_ci", os.path.join(REPO, "research/edward_r119b_busy_ci.py")
+)
+B = importlib.util.module_from_spec(_bspec)
+_bspec.loader.exec_module(B)
+
 # Assignment pricing fork (PR #712 section 4): measured M5 dispatch price
 # 1.2382 us x 39 removed dispatches per step.
 DISPATCH_PRICE_US = 1.2382
@@ -111,10 +117,13 @@ def estimators(paths, base="C", cand="F", pool=False):
 
     for arm, arr in ((base, b), (cand, c)):
         pooled = np.concatenate([np.asarray(samples[r]) for r in runs if meta[r][1] == arm])
+        lo98, hi98 = np.percentile(pooled, [1.0, 99.0])
         out[f"raw_{arm}"] = dict(
             samples=int(pooled.size),
             median_ms=float(np.median(pooled)),
             bimodality=S.sarle(pooled),
+            bimodality_core98=S.sarle(pooled[(pooled >= lo98) & (pooled <= hi98)]),
+            modes=S.mode_count(pooled),
         )
     return out, samples, meta, med
 
@@ -216,11 +225,38 @@ def main() -> None:
         summary["split1/guest_only_us_per_call"] = guest_call
         summary["split1/fused_us_per_call"] = fused_call
         summary["split1/host_leg_growth_us_per_call"] = fused_call - host_call
-        summary["split1/guest_absorbed_us_per_call"] = guest_call - (fused_call - host_call)
-        summary["split1/guest_absorbed_fraction"] = (
-            guest_call - (fused_call - host_call)
-        ) / guest_call
+        summary["split1/isolated_saving_us_per_call"] = guest_call - (fused_call - host_call)
         summary["split1/delta_us_per_step"] = host_step + guest_step - fused_step
+
+    # Welch intervals on per-step GPU busy time, both split regimes.
+    for label, off, on in (
+        ("split0", "s0_off", "s0_on"),
+        ("split1", "s1_off", "s1_on"),
+    ):
+        pa = os.path.join(args.prof, f"{off}.err")
+        pb = os.path.join(args.prof, f"{on}.err")
+        if not (os.path.exists(pa) and os.path.exists(pb)):
+            continue
+        a, amode = B.steady_modal(pa, drop_lo=1)
+        b, bmode = B.steady_modal(pb, drop_lo=1)
+        if len(a) < 8 or len(b) < 8:
+            continue
+        w = B.welch(a, b, 0.95)
+        summary[f"busy_ci/{label}/n_per_arm"] = min(len(a), len(b))
+        summary[f"busy_ci/{label}/baseline_us"] = w["baseline_mean"]
+        summary[f"busy_ci/{label}/candidate_us"] = w["candidate_mean"]
+        summary[f"busy_ci/{label}/delta_us"] = w["delta"]
+        summary[f"busy_ci/{label}/lo_us"] = w["lo"]
+        summary[f"busy_ci/{label}/hi_us"] = w["hi"]
+        summary[f"busy_ci/{label}/p"] = w["p"]
+        summary[f"busy_ci/{label}/excludes_zero"] = bool(w["lo"] * w["hi"] > 0)
+        summary[f"busy_ci/{label}/dispatches_baseline"] = amode
+        summary[f"busy_ci/{label}/dispatches_candidate"] = bmode
+        if amode != bmode:
+            n_removed = amode - bmode
+            summary[f"busy_ci/{label}/price_per_dispatch_us"] = -w["delta"] / n_removed
+            summary[f"busy_ci/{label}/price_lo_us"] = -w["hi"] / n_removed
+            summary[f"busy_ci/{label}/price_hi_us"] = -w["lo"] / n_removed
 
     # --- ranked end-to-end campaign ----------------------------------------
     tbl = wandb.Table(columns=["order", "block", "run", "arm", "n", "median_ms", "mean_ms"])
@@ -270,8 +306,10 @@ def main() -> None:
                 summary[f"{name}/raw_{arm}/samples"] = est[k]["samples"]
                 summary[f"{name}/raw_{arm}/median_ms"] = est[k]["median_ms"]
                 summary[f"{name}/raw_{arm}/bimodality"] = est[k]["bimodality"]
+                summary[f"{name}/raw_{arm}/bimodality_core98"] = est[k]["bimodality_core98"]
+                summary[f"{name}/raw_{arm}/modes"] = est[k]["modes"]
                 summary[f"{name}/raw_{arm}/suspect_bimodal"] = bool(
-                    est[k]["bimodality"] > 0.555
+                    est[k]["bimodality"] > 0.555 and est[k]["modes"] >= 2
                 )
         summary[f"{name}/ref_us"] = ref_us
         summary[f"{name}/n_base"] = est.get("n_base")

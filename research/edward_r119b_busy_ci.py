@@ -42,6 +42,22 @@ def steady(values: list[float], drop_lo: int, drop_hi: int) -> list[float]:
     return values[drop_lo:len(values) - drop_hi] if drop_hi else values[drop_lo:]
 
 
+def steady_modal(path: str, drop_lo: int = 0) -> tuple[list[float], int]:
+    """Per-step busy times for the trailing run of modal-dispatch-count steps.
+
+    The decode phase is preceded by prefill/seed command buffers that also end
+    with the winner kernel, so only the trailing homogeneous run is comparable.
+    """
+    busy, disp = per_step(path)
+    if not busy:
+        return [], 0
+    want = max(set(disp), key=disp.count)
+    keep: list[float] = []
+    for b, d in zip(busy, disp):
+        keep = keep + [b] if abs(d - want) <= 1 else []
+    return steady(keep, drop_lo, 0), want
+
+
 def mean_sd(xs: list[float]) -> tuple[float, float]:
     n = len(xs)
     m = sum(xs) / n
@@ -140,26 +156,8 @@ def main() -> None:
     ap.add_argument("--label", default="gpu_busy_us_per_step")
     args = ap.parse_args()
 
-    base_busy, base_disp = per_step(args.baseline)
-    cand_busy, cand_disp = per_step(args.candidate)
-    # The decode phase is preceded by prefill/seed command buffers that also
-    # end with the winner kernel; keep only the trailing run of 45-CB steps.
-    def tail(busy, disp, want):
-        keep_b, keep_d = [], []
-        for b, d in zip(busy, disp):
-            if abs(d - want) <= 1:
-                keep_b.append(b)
-                keep_d.append(d)
-            else:
-                keep_b, keep_d = [], []
-        return keep_b, keep_d
-
-    bmode = max(set(base_disp), key=base_disp.count)
-    cmode = max(set(cand_disp), key=cand_disp.count)
-    base_busy, base_disp = tail(base_busy, base_disp, bmode)
-    cand_busy, cand_disp = tail(cand_busy, cand_disp, cmode)
-    base_busy = steady(base_busy, args.drop_lo, 0)
-    cand_busy = steady(cand_busy, args.drop_lo, 0)
+    base_busy, bmode = steady_modal(args.baseline, args.drop_lo)
+    cand_busy, cmode = steady_modal(args.candidate, args.drop_lo)
     if not base_busy or not cand_busy:
         print("no steady steps recovered", file=sys.stderr)
         raise SystemExit(2)
