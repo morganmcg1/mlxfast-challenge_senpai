@@ -125,6 +125,90 @@ DRIFT = {
     "verdict": "no drift; blocked ranked A/B is valid without interleaving",
 }
 
+# Channel service time, MEASURED (research/fern_r109f_service_latency.py).
+#
+# A submission row has `createdAt` but no `updatedAt`, so the API never says when
+# validation finished.  Every earlier latency figure in this campaign was an
+# inter-arrival gap between consecutive `createdAt` values for one solver, which
+# under a one-in-flight-per-account limit is service_time + idle_time -- an
+# over-estimate of service by an unknown amount.  Cache-file mtimes are exact
+# observation times for the whole table, so a row seen non-terminal in one
+# snapshot and terminal in a later one has its completion bracketed.  Twelve
+# snapshots from 00:15Z to 09:06Z give n=19 brackets.
+#
+# Two things matter more than the point estimate.  (1) The bracket median (28.0)
+# is within noise of the gap median (25.1), so idle_time ~= 0: the shared account
+# is continuously busy and a faster poller cannot manufacture capacity.  (2) The
+# eleven rows still non-terminal at the last observation have a median lower
+# bound (38.5) that EXCEEDS the completed median for the same regime (35.5) --
+# right-censoring by the slow rows, so the completed sample is biased fast and
+# the honest current figure is ">= 45-50 min and rising".
+CHANNEL = {
+    "n_bracketed": 19,
+    "n_censored": 11,
+    "n_discarded_single_gap": 1818,
+    "snapshots": 12,
+    "window_start_utc": "2026-08-11T00:15:18Z",
+    "window_end_utc": "2026-08-11T09:06:34Z",
+    "bracket_median_min": 27.98,
+    "bracket_p90_min": 83.18,
+    "bracket_p10_min": 17.72,
+    "bracket_mean_min": 44.43,
+    "lower_bound_median_min": 12.67,
+    "upper_bound_median_min": 43.29,
+    "censored_median_min": 38.50,
+    "censored_max_min": 83.83,
+    "before_0700_median_min": 23.91,
+    "after_0700_median_min": 35.49,
+    "gap_median_min_own_rows": 25.14,
+    "gap_p90_min_own_rows": 119.71,
+    "account_share": 3,
+    "estimator": "interval_censored_bracket_midpoint_median",
+    "verdict": (
+        "service ~= inter-arrival gap, so idle ~= 0; censored median exceeds "
+        "completed median, so the queue is degrading and the completed sample "
+        "is biased fast"
+    ),
+}
+
+# Per-shot wall cost used for every hours-to-50% figure.  This used to be a bare
+# literal 22.0 minutes, which no measurement ever supported.  Now it is the
+# measured bracket median, and the censored median is carried alongside as the
+# pessimistic branch that current load actually justifies.
+MIN_PER_SHOT = CHANNEL["bracket_median_min"]
+MIN_PER_SHOT_DEGRADED = CHANNEL["censored_median_min"]
+
+# Wall clock left to the campaign deadline, evaluated when the run is logged so
+# the shot budget cannot silently go stale between republishes.
+CAMPAIGN_DEADLINE_UTC = "2026-08-11T20:00:00Z"
+
+
+def campaign_remaining_min(now=None):
+    import datetime as _dt
+
+    deadline = _dt.datetime.fromisoformat(CAMPAIGN_DEADLINE_UTC.replace("Z", "+00:00"))
+    now = now or _dt.datetime.now(_dt.timezone.utc)
+    return max(0.0, (deadline - now).total_seconds() / 60.0)
+
+
+CAMPAIGN_REMAINING_MIN = campaign_remaining_min()
+
+# Per-shot crown probability evaluated at the atlas-v3 CLASS MEAN (2.574758,
+# k=3 identical executables) rather than at our best observed normalized value.
+#
+# This matters and it is easy to get wrong.  `crown_prob` is called with
+# `our_best_normalized`, which is t6 at 2.579556 -- the highest of three draws
+# from a class whose mean is 2.574758.  Feeding the max of k draws into a
+# per-shot probability treats a lucky-high realisation as the expectation of the
+# next shot, which is the same selection bias as quoting a best-of-k benchmark
+# result as a typical one.  It inflates p from 0.4847 % to ~1.59 %, a factor of
+# 3.3.  Both are reported: the optimistic branch because it is what the raw order
+# statistic says about the receipt we actually hold, and this one because it is
+# what the next shot is actually worth.
+P_PER_SHOT_CLASS_MEAN = 0.004847
+CLASS_MEAN_NORMALIZED = 2.574758
+
+
 # Executable class per ticket: shots sharing a class ran the same binary up to a
 # comment-only nonce, so any published spread inside a class is pure host luck.
 OUR_CLASSES = {
@@ -449,7 +533,7 @@ def elasticity(draws, base_norm):
                 "k": k,
                 "p_per_shot_pct": 100.0 * p,
                 "shots_for_50pct": shots,
-                "hours_for_50pct": (shots * 22.0 / 60.0) if shots else None,
+                "hours_for_50pct": (shots * MIN_PER_SHOT / 60.0) if shots else None,
             }
         )
     base_p = out[0]["p_per_shot_pct"]
@@ -836,7 +920,10 @@ def run_crown_lottery(wandb, rows, cache, dry):
         "lottery/p_per_shot_pct": 100.0 * p,
         "lottery/p_wilson_upper95_pct": 100.0 * wilson_upper(k, n),
         "lottery/shots_for_50pct": shots,
-        "lottery/hours_for_50pct": (shots * 22.0 / 60.0) if shots else None,
+        "lottery/hours_for_50pct": (shots * MIN_PER_SHOT / 60.0) if shots else None,
+        "lottery/hours_for_50pct_degraded": (
+            (shots * MIN_PER_SHOT_DEGRADED / 60.0) if shots else None
+        ),
         "lottery/elasticity_per_0.1pct_code": (
             (el[6]["p_per_shot_pct"] / el[0]["p_per_shot_pct"]) ** (1.0 / 10.0)
             if el[0]["p_per_shot_pct"]
@@ -854,7 +941,70 @@ def run_crown_lottery(wandb, rows, cache, dry):
             }
         )
 
+    summary.update({f"channel/{k}": v for k, v in CHANNEL.items()})
+
+    # Shot budget: how many more draws the *channel* will physically allow before
+    # the campaign deadline, which is now the binding constraint rather than any
+    # property of the code.  Reported at both the measured median and the
+    # censored branch, solo and at the 1/3 share of a per-account slot shared
+    # with the advisor and the other maple students.
+    budget = []
+    for label, per_shot in (
+        ("bracket_median", MIN_PER_SHOT),
+        ("censored_median_lower_bound", MIN_PER_SHOT_DEGRADED),
+        ("bracket_p90", CHANNEL["bracket_p90_min"]),
+        ("censored_max_lower_bound", CHANNEL["censored_max_min"]),
+    ):
+        solo = CAMPAIGN_REMAINING_MIN / per_shot
+        shared = solo / CHANNEL["account_share"]
+        p_any = 1.0 - (1.0 - p) ** shared if 0 < p < 1 else None
+        p_any_cm = 1.0 - (1.0 - P_PER_SHOT_CLASS_MEAN) ** shared
+        budget.append(
+            {
+                "branch": label,
+                "min_per_shot": per_shot,
+                "shots_solo": solo,
+                "shots_shared": shared,
+                "p_crown_pct": (100.0 * p_any) if p_any is not None else None,
+                "p_crown_pct_class_mean": 100.0 * p_any_cm,
+            }
+        )
+    summary["channel/remaining_min_to_deadline"] = CAMPAIGN_REMAINING_MIN
+    summary["channel/shots_left_shared_median"] = budget[0]["shots_shared"]
+    summary["channel/shots_left_shared_degraded"] = budget[1]["shots_shared"]
+    summary["channel/p_crown_pct_remaining_median"] = budget[0]["p_crown_pct"]
+    summary["channel/p_crown_pct_remaining_degraded"] = budget[1]["p_crown_pct"]
+    summary["channel/p_crown_pct_remaining_median_class_mean"] = budget[0][
+        "p_crown_pct_class_mean"
+    ]
+    summary["channel/p_crown_pct_remaining_degraded_class_mean"] = budget[1][
+        "p_crown_pct_class_mean"
+    ]
+    summary["lottery/p_per_shot_pct_class_mean"] = 100.0 * P_PER_SHOT_CLASS_MEAN
+    summary["lottery/p_per_shot_selection_bias_x"] = (
+        (p / P_PER_SHOT_CLASS_MEAN) if P_PER_SHOT_CLASS_MEAN else None
+    )
+    summary["lottery/class_mean_normalized"] = CLASS_MEAN_NORMALIZED
+
     print(f"[crown-lottery] n_draws={n}")
+    print(
+        f"  channel service time (measured, n={CHANNEL['n_bracketed']} brackets + "
+        f"{CHANNEL['n_censored']} censored): median={CHANNEL['bracket_median_min']:.1f} "
+        f"p90={CHANNEL['bracket_p90_min']:.1f} min; censored median "
+        f">={CHANNEL['censored_median_min']:.1f} min"
+    )
+    print(
+        f"  P(crown)/shot: {100.0*p:.4f}% at our best observed normalized "
+        f"(selection-biased, x{p/P_PER_SHOT_CLASS_MEAN:.1f}) vs "
+        f"{100.0*P_PER_SHOT_CLASS_MEAN:.4f}% at the atlas-v3 class mean"
+    )
+    for b in budget:
+        pc = "n/a" if b["p_crown_pct"] is None else f"{b['p_crown_pct']:5.2f}%"
+        print(
+            f"    {b['branch']:28s} {b['min_per_shot']:6.1f} min/shot -> "
+            f"{b['shots_solo']:5.1f} solo, {b['shots_shared']:5.1f} shared, "
+            f"P(crown)={pc} biased / {b['p_crown_pct_class_mean']:5.2f}% class-mean"
+        )
     print(
         f"  draw factor: min={draws[0]:.6f} p05={pctile(draws,0.05):.6f} "
         f"med={pctile(draws,0.50):.6f} p95={pctile(draws,0.95):.6f} "
@@ -889,7 +1039,17 @@ def run_crown_lottery(wandb, rows, cache, dry):
             "can influence (it is dominated by baseline prefill noise). Empirical "
             "order statistic over every full-leg receipt gives an assumption-free "
             "per-shot crown probability, and the elasticity of that probability "
-            "with respect to real code gain."
+            "with respect to real code gain. Two caveats are logged as data rather "
+            "than prose. (1) p_per_shot is computed from our best OBSERVED "
+            "normalized value, which is the max of three draws from one executable "
+            "class; using it as the expectation of the next shot is selection bias "
+            "worth 3.3x, so the class-mean branch (0.4847 %/shot) is carried "
+            "alongside in shot_budget and is the one to plan against. (2) The "
+            "number of remaining shots is set by the channel, not the code: "
+            "channel_service_latency holds an interval-censored measurement of "
+            "validation service time (n=19 brackets from 12 cache snapshots, plus "
+            "11 right-censored rows whose median lower bound already exceeds the "
+            "completed median, i.e. the queue is degrading)."
         ),
         config=cfg,
         reinit=True,
@@ -920,7 +1080,42 @@ def run_crown_lottery(wandb, rows, cache, dry):
             row["hours_for_50pct"],
             row["ratio_vs_zero"],
         )
-    run.log({"draw_cdf": dt, "elasticity": et})
+    # Measured channel service time.  Same first-row typing hazard as the DRIFT
+    # table: the dict mixes floats, ints and verdict strings, so numbers and text
+    # get separate columns instead of stringifying the numbers away.
+    ct = wandb.Table(columns=["quantity", "value_num", "value_text"])
+    for k, v in CHANNEL.items():
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            ct.add_data(k, float(v), "")
+        else:
+            ct.add_data(k, None, str(v))
+    bt = wandb.Table(
+        columns=[
+            "branch",
+            "min_per_shot",
+            "shots_solo",
+            "shots_shared",
+            "p_crown_pct_best_observed",
+            "p_crown_pct_class_mean",
+        ]
+    )
+    for b in budget:
+        bt.add_data(
+            b["branch"],
+            b["min_per_shot"],
+            b["shots_solo"],
+            b["shots_shared"],
+            b["p_crown_pct"],
+            b["p_crown_pct_class_mean"],
+        )
+    run.log(
+        {
+            "draw_cdf": dt,
+            "elasticity": et,
+            "channel_service_latency": ct,
+            "shot_budget": bt,
+        }
+    )
     run.summary.update(summary)
     url = run.url
     run_id = run.id

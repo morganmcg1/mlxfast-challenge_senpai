@@ -1209,6 +1209,23 @@ same number. At 0.4847 % crown probability per atlas-v3 shot, five shots is
 **P(crown) ≈ 2.4 %**, and the 0.8 % end of the published range is the one to plan
 against. Both levers — code and luck — stay capped where §5 and §6 put them.
 
+**Two things this fixed in the published artifact, not just in the prose.** Both
+`22.0`-minute-per-shot literals in `research/fern_r109f_wandb_campaign.py` (the
+elasticity table and `lottery/hours_for_50pct`) were invented, not measured; they
+now read the bracket median, with the censored median carried as
+`*_degraded`. And writing the shot budget out forced me to look at which
+per-shot probability the W&B run was actually publishing as its headline: `p` is
+computed from `our_best_normalized`, i.e. **t6 at 2.579556 — the maximum of three
+draws from a class whose mean is 2.574758**. Using the max of *k* as the
+expectation of shot *k+1* is the same selection bias as quoting a best-of-*k*
+benchmark number as a typical one, and here it is worth **×3.3**: 1.5860 %/shot
+against the class-mean 0.4847 %/shot. The run now logs both, labelled, with
+`lottery/p_per_shot_selection_bias_x` so the gap is a number rather than a
+footnote. Over the remaining budget the two branches give **11.6 % / 8.6 % /
+4.1 %** (best-observed) versus **3.7 % / 2.7 % / 1.3 %** (class mean) at the
+median / censored-median / p90 service times. The class-mean column is the one to
+plan against, and it agrees with the ≈2.4 % five-shot figure above.
+
 **Operational note: a launched poller is not a running poller.** The first
 ticket-7 poller (`cb202346`) did not expire; it was **SIGTERM'd** (exit −15) at
 08:58:43Z after 33.6 min of its 175-min budget, without my asking, and I found
