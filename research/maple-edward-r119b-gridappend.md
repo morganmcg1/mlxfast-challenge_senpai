@@ -326,3 +326,115 @@ routed QMV had no bandwidth headroom to donate to the shared QMV.
 ### 3.8 Ranked end-to-end campaign
 
 *(campaign in flight; filled in when it lands)*
+
+## 4. Verdict
+
+### 4.1 Which branch of the pre-registered fork fired
+
+The assignment pre-registered a pricing fork on the realized per-step saving:
+a floor of ≈48.3 µs/step (39 removed dispatches × the measured M5 dispatch price
+of 1.2382 µs) below which bandwidth absorption is refuted, and a ceiling of
+≈105 µs/step above which a new lever is confirmed.
+
+The **floor branch fired, and it fired with a resolved interval rather than an
+underpowered null.** Both measured axes agree:
+
+- GPU busy time in the shipped batching regime fell by 20.9 µs/step, 95 % CI
+  [10.6, 31.2] µs/step (§3.7). The entire interval is below 48.3 µs/step.
+- End-to-end per-step decode wall, the ranked quantity, moved by an amount whose
+  95 % interval contains zero and whose favourable end is still below the floor
+  (§3.8).
+
+The host-regression gate specified in the assignment did **not** fire: the fused
+pipeline reports the same `maxThreads=1024 execWidth=32 tgMem=0` occupancy
+characteristics as both unfused pipelines (§3.3), and the separately measured
+host-only leg grew by only 3.53 µs/call (§3.4). So
+`N-GRIDAPPEND-REGISTER-UNION-COSTS-HOST` is not the negative to publish, and
+per the assignment I did not re-tune K1.
+
+### 4.2 Two separate refutations
+
+These are distinct claims with distinct evidence, and neither implies the other.
+
+1. **The additive per-dispatch price does not hold at this boundary class.** The
+   realized price of a removed dispatch here is 0.536 µs with a 95 % upper bound
+   of 0.800 µs, which excludes the 1.2382 µs calibration (§3.7). The calibration
+   is not wrong in general — it was measured over boundaries that carry a barrier
+   or a dependency chain. This experiment removed 39 boundaries that MLX had
+   already encoded concurrently in the same command buffer with no intervening
+   barrier (§3.5), which is the cheapest class the runtime has.
+2. **Bandwidth absorption does not happen.** The guest's 1.12 MB of per-layer
+   streaming traffic reappears in full inside the fused kernel: only the 4,096-byte
+   input row is shared, so the fusion removes 0.041 % of the pair's unique bytes
+   (§3.6). The host QMV is already running at ≈232 GB/s, about 85 % of this host's
+   273 GB/s DRAM peak, so it has no headroom to donate; streaming the guest's
+   bytes through the remaining ≈41 GB/s would take ≈27 µs, most of the host's
+   entire 38 µs call. The 105 µs/step ceiling was never physically available.
+
+### 4.3 Named negative
+
+**`N-COENCODED-DISPATCH-BOUNDARY-NEARLY-FREE`** — grid-appending two independent
+QMV dispatches that MLX already co-encodes into one unbarriered command buffer
+recovers dispatch-boundary overhead only, and that overhead is roughly a factor
+of two smaller than the calibrated per-dispatch price. It recovers no bandwidth,
+because the two kernels share almost no bytes and the host is near its DRAM
+roof.
+
+The actionable rule: before pricing a dispatch-count reduction at the calibrated
+constant, check what kind of boundary is being removed. Reductions worth pricing
+that way are ones that also remove a barrier, an encoder switch, or a command
+buffer, or that land in a regime where CPU encoding is on the wall-clock critical
+path. Reductions that merely merge two already-concurrent dispatches in the same
+command buffer should be priced near 0.5 µs each, and a fusion that also has to
+re-stream both operands' weights should be priced at zero bandwidth benefit.
+
+### 4.4 What this does not rule out
+
+- **The magnitude on the ranked M5.** The mechanism (concurrent dispatch type, no
+  barrier, same command buffer) is read from vendored MLX source and is
+  generation-independent, but 0.536 µs/dispatch and the 85 %-of-peak bandwidth
+  figure are measured on an M4 Pro with 20 GPU cores and 273 GB/s. An M5 Max has
+  more cores and more bandwidth; the sign should hold, the size may not. This
+  negative should be treated as track-level guidance only after an M5
+  confirmation.
+- **Fusions that remove a barrier or a command buffer.** A producer→consumer
+  fusion, or one that lets MLX drop a command buffer, removes a strictly more
+  expensive boundary and is not covered by this result.
+- **Regimes where CPU encoding is on the critical path.** Prefill, or any regime
+  where the GPU drains faster than the CPU can encode, can convert a dispatch
+  count reduction into wall time even when GPU busy time barely moves.
+- **Absorption into a host kernel that is not bandwidth-saturated.** The
+  bandwidth half of this refutation is specific to a host leg already at ≈85 % of
+  DRAM peak.
+
+### 4.5 Ship decision
+
+**Do not ship.** Section 7 of the assignment permits shipping only on a positive
+interval that excludes zero, and the ranked interval contains zero. The fused
+kernel therefore stays behind `DARKBLOOM_SHARED_ROUTED_QMV_FUSED`, default OFF,
+so the submitted surface is behaviourally identical to the base and the
+mechanism remains available and documented for a future M5 re-test.
+
+### 4.6 Honest deviations from the assignment text
+
+1. **No `swift test -c release` 39-layer isolated harness.** The isolated-chain
+   quantity comes from `DARKBLOOM_GPU_PROFILE_SPLIT=1` GPUPROF attribution of the
+   39 shared plus 39 routed dispatches against the 39 fused dispatches, inside
+   the real decode loop. Ranking uses the end-to-end SPLIT=0 per-step wall, as
+   required.
+2. **Host generation.** This is an M4 Pro reporting Apple GPU generation 16, so
+   no `_nax` prefill kernel is selected and all prefill evidence here is
+   M4-family only.
+3. **The brief's assumed ready-time asymmetry does not exist.** The assignment
+   reasoned about `x` being ready before `router_keys`; in fact both come from the
+   same `residual_rms_router` producer (§1.2), so the guest tiles do not lead on
+   a data-readiness basis, only on threadgroup index.
+4. **The SPLIT overstatement constant is 6.8×, not 3.4×.** The assignment stated
+   that SPLIT=1 attribution overstates by 3.4×. At this site the two intervals
+   are disjoint and the ratio is 6.8× (§3.7). I report the SPLIT=1 leg as
+   attribution only and rank on SPLIT=0.
+5. **The Sarle bimodality screen needed a companion diagnostic.** Sarle's
+   coefficient is inflated by skew alone, and the baseline arm's right tail
+   pushed it above 0.555 with a single mode. I added a direct smoothed-histogram
+   peak count and report both; the instrument-failure condition is treated as
+   elevated coefficient *and* two or more modes (§3.8).
