@@ -7767,52 +7767,11 @@ private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
 let lagunaRoutedGateUpR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTED_GATEUP_R1"] != "0"
 
-private let lagunaNvfp4CodeAlphabetHeader: String = {
-    let weightScale = lagunaNvfp4ScaleFoldEnabled ? "" : " * 16384.0f"
-    let accum = lagunaNvfp4QdotSeedElisionEnabled ? "float accum;" : "float accum = 0.0f;"
-    let firstOp = lagunaNvfp4QdotSeedElisionEnabled ? "=" : "+="
-    return """
-#define LAGUNA_NVFP4_ROW(H) (H)|0x00000000u,(H)|0x00000200u,(H)|0x00000400u,(H)|0x00000600u,(H)|0x00000800u,(H)|0x00000a00u,(H)|0x00000c00u,(H)|0x00000e00u,(H)|0x00008000u,(H)|0x00008200u,(H)|0x00008400u,(H)|0x00008600u,(H)|0x00008800u,(H)|0x00008a00u,(H)|0x00008c00u,(H)|0x00008e00u
-constant uint laguna_nvfp4_code_alphabet[256] = {
-    LAGUNA_NVFP4_ROW(0x00000000u), LAGUNA_NVFP4_ROW(0x02000000u),
-    LAGUNA_NVFP4_ROW(0x04000000u), LAGUNA_NVFP4_ROW(0x06000000u),
-    LAGUNA_NVFP4_ROW(0x08000000u), LAGUNA_NVFP4_ROW(0x0a000000u),
-    LAGUNA_NVFP4_ROW(0x0c000000u), LAGUNA_NVFP4_ROW(0x0e000000u),
-    LAGUNA_NVFP4_ROW(0x80000000u), LAGUNA_NVFP4_ROW(0x82000000u),
-    LAGUNA_NVFP4_ROW(0x84000000u), LAGUNA_NVFP4_ROW(0x86000000u),
-    LAGUNA_NVFP4_ROW(0x88000000u), LAGUNA_NVFP4_ROW(0x8a000000u),
-    LAGUNA_NVFP4_ROW(0x8c000000u), LAGUNA_NVFP4_ROW(0x8e000000u),
-};
-#undef LAGUNA_NVFP4_ROW
-
-static inline float laguna_nvfp4_qdot_codes_16_table(
-    uint2 codes, const thread float* input, float scale
-) {
-    \(accum)
-    {
-        const uint c = codes.x;
-        const float2 v01 = float2(as_type<half2>(laguna_nvfp4_code_alphabet[c & 255u]))\(weightScale);
-        const float2 v23 = float2(as_type<half2>(laguna_nvfp4_code_alphabet[(c >> 8) & 255u]))\(weightScale);
-        const float2 v45 = float2(as_type<half2>(laguna_nvfp4_code_alphabet[(c >> 16) & 255u]))\(weightScale);
-        const float2 v67 = float2(as_type<half2>(laguna_nvfp4_code_alphabet[c >> 24]))\(weightScale);
-        accum \(firstOp) (input[0] * v01.x + input[1] * v01.y + input[2] * v23.x + input[3] * v23.y);
-        accum += (input[4] * v45.x + input[5] * v45.y + input[6] * v67.x + input[7] * v67.y);
-    }
-    {
-        const uint c = codes.y;
-        const float2 v01 = float2(as_type<half2>(laguna_nvfp4_code_alphabet[c & 255u]))\(weightScale);
-        const float2 v23 = float2(as_type<half2>(laguna_nvfp4_code_alphabet[(c >> 8) & 255u]))\(weightScale);
-        const float2 v45 = float2(as_type<half2>(laguna_nvfp4_code_alphabet[(c >> 16) & 255u]))\(weightScale);
-        const float2 v67 = float2(as_type<half2>(laguna_nvfp4_code_alphabet[c >> 24]))\(weightScale);
-        accum += (input[8] * v01.x + input[9] * v01.y + input[10] * v23.x + input[11] * v23.y);
-        accum += (input[12] * v45.x + input[13] * v45.y + input[14] * v67.x + input[15] * v67.y);
-    }
-    return scale * accum;
-}
-"""
-}()
-
-private let lagunaRoutedSwiGLUQMVPackedTop8R1Source = """
+private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
+    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
+    inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
+    outputNames: ["activated"],
+    source: """
 constexpr uint input_width = 2048;
 constexpr uint output_width = 512;
 constexpr uint block_width = 512;
@@ -7896,10 +7855,10 @@ for (uint block = 0; block < input_width; block += block_width) {
             + next_block / 2 + lane * 8);
     }
 
-    gate_result += laguna_nvfp4_qdot_codes_16_table(
+    gate_result += laguna_nvfp4_qdot_codes_16(
         cur_gate_codes, input_values,
         laguna_nvfp4_scale(cur_gate_sb));
-    up_result += laguna_nvfp4_qdot_codes_16_table(
+    up_result += laguna_nvfp4_qdot_codes_16(
         cur_up_codes, input_values,
         laguna_nvfp4_scale(cur_up_sb));
 }
@@ -7917,61 +7876,11 @@ if (lane == 0) {
     activated[expert_slot * output_width + logical_row] =
         bfloat(silu * up);
 }
-"""
-
-private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
-    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
-    inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
-    outputNames: ["activated"],
-    source: lagunaRoutedSwiGLUQMVPackedTop8R1Source,
-    header: lagunaSharedSwiGLUQMVHeader + "\n" + lagunaNvfp4CodeAlphabetHeader
-        + "\n" + lagunaDecodeRouterOrdinalHeader + "\n" + lagunaRouterTop8PrologueHeader,
+""",
+    header: lagunaSharedSwiGLUQMVHeader + "\n" + lagunaDecodeRouterOrdinalHeader
+        + "\n" + lagunaRouterTop8PrologueHeader,
     ensureRowContiguous: true
 )
-
-private let cedarGate1LagunaRoutedSwiGLUQMVPackedTop8R1ControlKernel = MLXFast.metalKernel(
-    name: "cedar_gate1_laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_control",
-    inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
-    outputNames: ["activated"],
-    source: lagunaRoutedSwiGLUQMVPackedTop8R1Source,
-    header: lagunaSharedSwiGLUQMVHeader
-        + "\n#define laguna_nvfp4_qdot_codes_16_table laguna_nvfp4_qdot_codes_16\n"
-        + lagunaDecodeRouterOrdinalHeader + "\n" + lagunaRouterTop8PrologueHeader,
-    ensureRowContiguous: true
-)
-
-func cedarGate1LagunaRoutedSwiGLUQMVPackedTop8(
-    _ input: MLXArray,
-    fusedWeight: MLXArray,
-    packedScales: MLXArray,
-    routerKeys: MLXArray,
-    useTable: Bool
-) -> MLXArray {
-    precondition(input.dtype == .bfloat16)
-    precondition(input.dims(1, 1, LagunaConstants.hiddenSize))
-    precondition(fusedWeight.dtype == .uint32)
-    precondition(packedScales.dtype == .uint8)
-    precondition(packedScales.size == lagunaPackedRoutedGateUpScaleBytes)
-    precondition(routerKeys.dtype == .uint32)
-    precondition(routerKeys.size == LagunaConstants.numExperts)
-
-    let inputs = [input, fusedWeight, packedScales, routerKeys]
-    let grid = (LagunaConstants.numExpertsPerTok * 256 * 64, 1, 1)
-    let outputShapes = [[
-        1, 1, LagunaConstants.numExpertsPerTok, 1,
-        LagunaConstants.moeIntermediateSize,
-    ]]
-    let kernel = useTable
-        ? lagunaRoutedSwiGLUQMVPackedTop8R1Kernel
-        : cedarGate1LagunaRoutedSwiGLUQMVPackedTop8R1ControlKernel
-    return kernel(
-        inputs,
-        grid: grid,
-        threadGroup: (64, 1, 1),
-        outputShapes: outputShapes,
-        outputDTypes: [.bfloat16]
-    )[0]
-}
 
 func lagunaRoutedSwiGLUQMVPackedTop8(
     _ input: MLXArray,
