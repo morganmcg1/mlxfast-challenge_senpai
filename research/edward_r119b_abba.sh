@@ -31,6 +31,14 @@ SUM="${OUT}/${TAG}_runs.tsv"
 printf 'order_tag,block,run,arm,step,ms\n' > "${CSV}"
 printf 'order_tag\tblock\trun\tarm\tsteps\tmedian_ms\tmean_ms\tdivergences\n' > "${SUM}"
 
+if [ "${WARMUP:-1}" = "1" ]; then
+  echo "### unscored warm-up (page-in + thermal ramp)"
+  DARKBLOOM_SHARED_ROUTED_QMV_FUSED=1 \
+    python3 research/decode_probe.py --steps "${STEPS}" \
+      --stderr "${OUT}/${TAG}_warmup.err" >"${OUT}/${TAG}_warmup.log" 2>&1
+  echo "### warm-up exit=$? $(grep -o 'median=[0-9.]*' "${OUT}/${TAG}_warmup.log" | tail -1)"
+fi
+
 for (( n=0; n<${#ORDER}; n++ )); do
   arm="${ORDER:$n:1}"
   run=$((n+1))

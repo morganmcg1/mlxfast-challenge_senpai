@@ -11071,7 +11071,8 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                         gate.routerLogitSoftcapping == 0,
                         gate.eScoreCorrectionBias.size == LagunaConstants.numExperts
                     {
-                        if let sharedBanks = sharedExpert.fusedSharedBanks(x),
+                        if lagunaFusedSharedRoutedQMVEnabled,
+                            let sharedBanks = sharedExpert.fusedSharedBanks(x),
                             let merged = lagunaSharedRoutedSwiGLUQMV(
                                 x,
                                 sharedWeight: sharedBanks.gateUpWeight,
