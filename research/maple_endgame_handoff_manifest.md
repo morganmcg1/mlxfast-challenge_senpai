@@ -1645,6 +1645,23 @@ manifest §5 in the same commit) are the harmless version of the same failure �
 editing, references not re-checked. Nobody re-ran a link check on a document that had been rewritten
 eleven times in a day, because the document *looked* finished.
 
+**Every tool cited here was then executed, 16:19Z** (`bash research/tools/run_all_tools_smoke.sh`,
+read-only; none of the ten tools invokes `mlxfast`, checked by grep before running them):
+
+```
+OK    account_draw_record.py      OK    bar_read_1553Z.py        OK    bar_read_1606Z.py
+OK    handoff_linkcheck.py        OK    reprice_draw_1535Z.py    OK    slot_holder_arithmetic.py
+OK    recompute_replicate_sigma_and_draw_odds.py
+ARGS  extract_results.py <substr> [limit]   ARGS  extract_submission_corpus.py <src> <dst>
+ARGS  sigma_pseudoreplicate_probe.py <path>          (filters; no-arg run fails by design)
+```
+
+Seven report-style tools reproduce their published numbers from data already in this tree; the three
+`ARGS` entries are filters, not reports. **One portability defect found and left as-is:**
+`extract_results.py` hardcodes an absolute host path (`/Users/ec2-user/.senpai/native/…`), so it will
+need one line changed on any other machine. A "the numbers are reproducible" claim is worth exactly as
+much as the last time someone ran the script, which is the same rule again.
+
 **For the inheritor:** `python3 research/tools/handoff_linkcheck.py` exits 0 iff every path cited in
 the two handoff documents exists, every `§N` resolves in one of them, and the load-bearing constants
 (bar `2.6195531094824`, best receipt `2.60664969895906`, gap `0.4950 %`, both currencies, frontier
