@@ -5735,10 +5735,11 @@ final class LagunaRuntimeAttention: Module {
         inputNorm: RMSNorm,
         mask: MLXFast.ScaledDotProductAttentionMaskMode,
         cache: KVCache?,
+        isSingleTokenDecode: Bool = false,
         qkRoPEAngles: MLXArray? = nil,
         qkRoPEOffsets: MLXArray? = nil
     ) -> MLXArray {
-        let (B, L) = (input.dim(0), input.dim(1))
+        let (B, L) = isSingleTokenDecode ? (1, 1) : (input.dim(0), input.dim(1))
 
         // One dispatch for the input RMSNorm and all three projections when
         // the decode preconditions hold; otherwise normalize separately and
@@ -8941,11 +8942,11 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
     /// caller falls back to the fully stock `let r2 = mlp(normalized); return
     /// h + r2` path.
     func fusedDenseDownResidual(
-        _ x: MLXArray, residual: MLXArray
+        _ x: MLXArray, residual: MLXArray, isSingleTokenDecode: Bool = false
     ) -> MLXArray? {
         let hidden = LagunaConstants.hiddenSize
         let intermediate = LagunaConstants.denseIntermediateSize
-        guard x.dim(1) == 1,
+        guard (isSingleTokenDecode || x.dim(1) == 1),
             x.dtype == .bfloat16,
             x.dims(1, 1, hidden),
             residual.dtype == .bfloat16,
@@ -10648,14 +10649,16 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
 
     func callAsFunction(
         _ x: MLXArray, residual: MLXArray, routerLogits: MLXArray? = nil,
-        routerKeys: MLXArray? = nil
+        routerKeys: MLXArray? = nil, isSingleTokenDecode: Bool = false
     ) -> MLXArray {
-        forward(x, residual: residual, routerLogits: routerLogits, routerKeys: routerKeys)
+        forward(
+            x, residual: residual, routerLogits: routerLogits, routerKeys: routerKeys,
+            isSingleTokenDecode: isSingleTokenDecode)
     }
 
     private func forward(
         _ x: MLXArray, residual: MLXArray?, routerLogits: MLXArray?,
-        routerKeys: MLXArray? = nil
+        routerKeys: MLXArray? = nil, isSingleTokenDecode: Bool = false
     ) -> MLXArray {
         let (inds, weights) = gate(x, logits: routerLogits)
         var y: MLXArray
@@ -10664,7 +10667,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
         if let fusedWeight = _fusedRoutedGateUpWeight,
             let fusedScales = _fusedRoutedGateUpScales,
             let downProj = _routedDownProj,
-            x.dim(1) == 1, inds.size < 64
+            (isSingleTokenDecode || x.dim(1) == 1), inds.size < 64
         {
             // DECODE-ONLY fused gate/up: replicate exactly SwitchGLU's
             // unsorted small-batch path (`indices.size < 64`, so no
@@ -11009,6 +11012,7 @@ final class LagunaRuntimeDecoderLayer: Module {
         _ x: MLXArray,
         mask: MLXFast.ScaledDotProductAttentionMaskMode,
         cache: KVCache?,
+        isSingleTokenDecode: Bool = false,
         qkRoPEAngles: MLXArray? = nil,
         qkRoPEOffsets: MLXArray? = nil
     ) -> MLXArray {
@@ -11017,6 +11021,7 @@ final class LagunaRuntimeDecoderLayer: Module {
             inputNorm: inputLayerNorm,
             mask: mask,
             cache: cache,
+            isSingleTokenDecode: isSingleTokenDecode,
             qkRoPEAngles: qkRoPEAngles,
             qkRoPEOffsets: qkRoPEOffsets
         )
@@ -11081,14 +11086,14 @@ final class LagunaRuntimeDecoderLayer: Module {
         {
             return sparse(
                 normalized, residual: h, routerLogits: routerLogits,
-                routerKeys: routerKeys)
+                routerKeys: routerKeys, isSingleTokenDecode: isSingleTokenDecode)
         }
         // Multi-token prefill: hand the residual to the sparse block so the
         // prefill MoE tail kernel can fold the final residual add. When any
         // guard inside declines, the block computes `residual + (y + shared)`
         // itself — the identical stock ops this call site would otherwise
         // issue.
-        if lagunaPrefillMoETailEnabled,
+        if lagunaPrefillMoETailEnabled, !isSingleTokenDecode,
             x.dim(1) > 1,
             let sparse = mlp as? LagunaRuntimeSparseMoEBlock
         {
@@ -11099,7 +11104,8 @@ final class LagunaRuntimeDecoderLayer: Module {
         // Layer-0-only decode fusion: `fusedDenseDownResidual` returns nil off
         // layer 0's decode shape (or if a guard declines); stock path then runs.
         if let dense = mlp as? LagunaRuntimeMLP,
-            let fused = dense.fusedDenseDownResidual(normalized, residual: h)
+            let fused = dense.fusedDenseDownResidual(
+                normalized, residual: h, isSingleTokenDecode: isSingleTokenDecode)
         {
             return fused
         }
@@ -11241,10 +11247,11 @@ private func lagunaDecodeEmbeddingRoPEAtlas(
     embeddingWeight: MLXArray,
     fullAtlas: MLXArray,
     slidingAtlas: MLXArray,
-    position: Int
+    position: Int,
+    isSingleTokenDecode: Bool
 ) -> (hidden: MLXArray, fullAngles: MLXArray, slidingAngles: MLXArray)? {
     guard tokens.dtype == .int32,
-        tokens.dims(1, 1),
+        isSingleTokenDecode,
         embeddingWeight.dtype == .bfloat16,
         embeddingWeight.dims(LagunaConstants.vocabSize, LagunaConstants.hiddenSize),
         fullAtlas.dtype == .float32,
@@ -11388,13 +11395,13 @@ final class LagunaRuntimeModelInner: Module {
     /// Exact runtime type checks deliberately exclude compilable subclasses,
     /// whose compatibility `offset` getter may synchronize a graph value.
     private func decodeRoPEAtlasPosition(
-        inputs: MLXArray, cache: [KVCache]?
+        inputs: MLXArray, cache: [KVCache]?, isSingleTokenDecode: Bool
     ) -> Int? {
         guard lagunaRoPEAngleAtlasEnabled || lagunaRoPEAtlasViewsEnabled,
             lagunaFusedFullQKNormYaRNEnabled,
             lagunaFusedSlidingQKNormRoPEEnabled,
             inputs.dtype == .int32,
-            inputs.dims(1, 1),
+            isSingleTokenDecode,
             _fullRoPEAngleAtlas != nil,
             _slidingRoPEAngleAtlas != nil,
             let cache,
@@ -11435,12 +11442,15 @@ final class LagunaRuntimeModelInner: Module {
         return attention.rope(seed, offset: cache?.offset ?? 0)
     }
 
-    func callAsFunction(_ inputs: MLXArray, cache: [KVCache]? = nil) -> MLXArray {
+    func callAsFunction(
+        _ inputs: MLXArray, cache: [KVCache]? = nil, isSingleTokenDecode: Bool
+    ) -> MLXArray {
         var h: MLXArray
         var fullRoPEAngles: MLXArray?
         var slidingRoPEAngles: MLXArray?
         var qkRoPEOffsets: MLXArray?
-        let decodeAtlasPosition = decodeRoPEAtlasPosition(inputs: inputs, cache: cache)
+        let decodeAtlasPosition = decodeRoPEAtlasPosition(
+            inputs: inputs, cache: cache, isSingleTokenDecode: isSingleTokenDecode)
         if lagunaRoPEAngleAtlasEnabled,
             let position = decodeAtlasPosition,
             let fullAtlas = _fullRoPEAngleAtlas,
@@ -11450,7 +11460,8 @@ final class LagunaRuntimeModelInner: Module {
                 embeddingWeight: embedTokens.weight,
                 fullAtlas: fullAtlas,
                 slidingAtlas: slidingAtlas,
-                position: position)
+                position: position,
+                isSingleTokenDecode: isSingleTokenDecode)
         {
             h = atlasOutputs.hidden
             fullRoPEAngles = atlasOutputs.fullAngles
@@ -11474,7 +11485,6 @@ final class LagunaRuntimeModelInner: Module {
             // Verbatim stock fallback for prefill, unsupported caches and
             // positions outside the precomputed atlas.
             h = embedTokens(inputs)
-            let isSingleTokenDecode = h.dim(0) == 1 && h.dim(1) == 1
             fullRoPEAngles =
                 lagunaFusedFullQKNormYaRNEnabled && isSingleTokenDecode
                 ? ropeAngleTable(
@@ -11529,7 +11539,7 @@ final class LagunaRuntimeModelInner: Module {
                 h: h, cache: cache?[slidingAttentionIdx], windowSize: slidingWindow)
             : .none
 
-        let isSingleTokenDecode = inputs.dims(1, 1)
+        let isMultiToken = isSingleTokenDecode ? false : h.dim(1) > 1
 
         // One cos/sin table per attention family per decode step, shared by
         // every layer of that family (their caches advance in lockstep). Each
@@ -11541,7 +11551,7 @@ final class LagunaRuntimeModelInner: Module {
             let isFull = layerTypes[i] == .full
             let mask = isFull ? fullMask : slidingMask
             let qkRoPEAngles = isFull ? fullRoPEAngles : slidingRoPEAngles
-            if i == layers.count - 1, h.dim(1) > 1 {
+            if i == layers.count - 1, isMultiToken {
                 if case .causal = mask {
                     h = layer.callLastPrefillRow(h, cache: cache?[i])
                 } else {
@@ -11549,6 +11559,7 @@ final class LagunaRuntimeModelInner: Module {
                         h,
                         mask: mask,
                         cache: cache?[i],
+                        isSingleTokenDecode: isSingleTokenDecode,
                         qkRoPEAngles: qkRoPEAngles,
                         qkRoPEOffsets: qkRoPEOffsets
                     )
@@ -11561,13 +11572,14 @@ final class LagunaRuntimeModelInner: Module {
                     h,
                     mask: mask,
                     cache: cache?[i],
+                    isSingleTokenDecode: isSingleTokenDecode,
                     qkRoPEAngles: qkRoPEAngles,
                     qkRoPEOffsets: qkRoPEOffsets
                 )
                 if isSingleTokenDecode, (decodeFireMask >> UInt64(i)) & 1 == 1 {
                     asyncEval(h)
                 }
-                if lagunaPrefillAsyncLadderStride > 0, h.dim(1) > 1,
+                if lagunaPrefillAsyncLadderStride > 0, isMultiToken,
                     (i + 1) % lagunaPrefillAsyncLadderStride == 0
                 {
                     asyncEval(h)
@@ -11628,20 +11640,26 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
     }
 
     public func callAsFunction(_ inputs: MLXArray, cache: [KVCache]?) -> MLXArray {
-        let fullHidden = model(inputs, cache: cache)
+        let isSingleTokenDecode = inputs.dims(1, 1)
+        let fullHidden = model(
+            inputs,
+            cache: cache,
+            isSingleTokenDecode: isSingleTokenDecode)
         // Every consumer of multi-token logits reads only the LAST
-        // position's row. Slice before the row-independent final RMSNorm and
-        // vocabulary head so prefill neither normalizes nor projects the
-        // preceding rows. For single-token decode the slice is a no-op.
-        let hidden = model.norm(lagunaLastTokenHidden(fullHidden))
-        if case .norm = lagunaDecodeAsyncStage, inputs.dims(1, 1) {
+        // position's row. Slice prefill before the row-independent final
+        // RMSNorm and vocabulary head so it neither normalizes nor projects
+        // preceding rows; decode already contains exactly one row.
+        let lastHidden =
+            isSingleTokenDecode ? fullHidden : lagunaLastTokenHidden(fullHidden)
+        let hidden = model.norm(lastHidden)
+        if case .norm = lagunaDecodeAsyncStage, isSingleTokenDecode {
             asyncEval(hidden)
         }
 
         let result: MLXArray
         if let lmHead {
             if let pruner = lmHeadPruner,
-                inputs.dims(1, 1) || lagunaLmHeadPrunePrefillEnabled
+                isSingleTokenDecode || lagunaLmHeadPrunePrefillEnabled
             {
                 // Certified two-pass final-row head (notes/68): full BF16
                 // logits, bit-identical to stock in every argmax-reachable
@@ -11652,14 +11670,14 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
                 result = pruner.logits(
                     hidden: hidden,
                     lmHeadWeight: lmHead.weight,
-                    useFusedRefinement: inputs.dims(1, 1))
+                    useFusedRefinement: isSingleTokenDecode)
             } else {
                 result = lmHead(hidden)
             }
         } else {
             result = model.embedTokens.asLinear(hidden)
         }
-        if case .logits = lagunaDecodeAsyncStage, inputs.dims(1, 1) {
+        if case .logits = lagunaDecodeAsyncStage, isSingleTokenDecode {
             asyncEval(result)
         }
         return result
