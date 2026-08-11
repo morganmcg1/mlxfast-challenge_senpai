@@ -20,7 +20,7 @@
 # second one would corrupt the campaign's timings, which are the primary result.
 #
 # Usage: finish-r118a.sh [stage]   stage in {part1, part2, all}; default all.
-#   part1 = steps 0, 1, 1b   (no build, ~20 min)
+#   part1 = steps 0, 1a, 1b  (divergence cost, then equivalence; ~20 min)
 #   part2 = steps 2, 3       (two builds, ~35 min)
 # The split exists because the supervised-job wall clock killed the first
 # campaign job at ~63 min; keeping each job well under an hour is cheap
@@ -48,17 +48,22 @@ sleep 15
 
 if [ "${STAGE}" = "all" ] || [ "${STAGE}" = "part1" ]; then
 
-echo "############ 1. equivalence oracle, default arm  t=$(date -u +%H:%M:%S)"
+# 1a before 1b on purpose: 1a is a timing measurement and must run on a host in
+# the same state the campaign left it in.  The equivalence oracle runs `swift
+# test`, which compiles, and a compile is exactly the CPU-heavy work my own
+# hygiene rule forbids next to a live timing run.  So the measurement goes first
+# and the build goes after it.
+echo "############ 1a. divergence-cost addendum (needs the CLEAN worker)  t=$(date -u +%H:%M:%S)"
+bash research/maple-tanjiro-r118/divergence-cost.sh 160
+echo "diverg rc=$?"
+
+echo "############ 1b. equivalence oracle, default arm  t=$(date -u +%H:%M:%S)"
 env -u DARKBLOOM_SHARED_QMV_ARM bash research/run_upstream_equivalence.sh \
   > "${OUT}/equivalence.log" 2>&1
 echo "equivalence rc=$?"
 grep -E 'EQUIVALENCE_EXACT_STEPS=|EQUIVALENCE_EXIT=|Test run with|error:' \
   "${OUT}/equivalence.log" | tail -20
 echo "log bytes: $(wc -c < "${OUT}/equivalence.log")"
-
-echo "############ 1b. divergence-cost addendum (needs the CLEAN worker)  t=$(date -u +%H:%M:%S)"
-bash research/maple-tanjiro-r118/divergence-cost.sh 160
-echo "diverg rc=$?"
 
 fi
 
