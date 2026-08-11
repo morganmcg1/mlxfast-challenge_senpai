@@ -298,3 +298,34 @@ show, so the congestion is systemic, not an artefact of our account.
 Verdict and numbers unchanged: **SERIAL, per-account cap 1, 2 draws remaining (1–4), last safe fire
 15:20Z** — and after this poll I would advise the slot holder to plan on the **15:06Z floor** rather
 than the 15:37Z ceiling. Prediction still alive: terminal 14:30–15:35Z, centre ~15:10Z.
+
+## Fourth poll — 14:44:39Z (read-only): the queue is filling faster than it drains
+
+1891 rows. **`c06b1b6d` is still `validating`, age 53.4 min** — inside the 46–99 min congested band,
+still short of the prediction's 15:35Z ceiling, and now firmly in the region where the morning
+regime is irrelevant. Still no second row of ours (cap of 1 has held across **four** polls).
+
+**Global in-flight count: 6 (13:52:07Z) -> 7 (14:02:12Z) -> 9 (14:16:07Z) -> 12 (14:44:39Z).**
+That is +6 rows in 52 min, ~0.12 rows/min of net accumulation, i.e. arrivals are outrunning
+completions as the field rushes the close. Live set at 14:44:39Z: `f44d82c2 tt7fk` 55.5 min,
+`c06b1b6d morganmcg1` 53.4, `988272ee uu0vg7` 44.5, `972e32c5 a-github-name` 34.7,
+`cf9802d2 uee9b6` 32.2, `7313e81f uu6f8` 32.2, `61c82b30 ooo9cj` 21.4, `f94e59a0 fjrth66` 18.5,
+`632a66ba DawgZter` 10.7, `f8ad8157 uww0n` 7.3, `44c71f96 ggu77wt` 7.3, `9ccebec5 ggt54` 7.3.
+Two more same-second cross-account admissions (`44c71f96` and `9ccebec5`, both 14:37:21Z) — the
+per-account/global distinction is now observed at four separate instants.
+
+**What this changes operationally.** Sojourn is a function of queue depth, and depth is growing, so
+every estimate built on today's *earlier* sojourns is an optimistic lower bound for a row fired now.
+The decision rule therefore tightens from "last safe fire 15:20Z" to:
+
+> **Fire the instant `c06b1b6d` flips, without deliberation, and treat that fire as possibly the
+> last one.** Waiting has no upside — the draw is i.i.d. (autocorr lags 1–5 in [-0.003, +0.056],
+> previous-5-median forecast r2 = 0.000), so a later shot is not a better shot, only a riskier one.
+
+Arithmetic behind that: if `c06b1b6d` clears at 60–70 min (14:51Z–15:01Z) and a row fired then takes
+70–90 min at depth 12+, it lands 16:01Z–16:31Z — inside the 17:00Z close, but a *third* fire would
+not be. So the honest count stays **2 draws total including `c06b1b6d`**, i.e. **~2.9 %** chance of
+taking the crown (2 x 1.48 %/draw), and the second of those two must be launched on the flip rather
+than at a clock time.
+
+Verdict unchanged and now quadruply witnessed: **SERIAL, per-account cap 1, concurrent service.**
