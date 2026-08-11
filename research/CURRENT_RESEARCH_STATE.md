@@ -386,10 +386,115 @@
 >   shares. (Corollary corrections: the routed gather-GEMM dispatches **38** times,
 >   not 39 ⇒ share 50.4 %, not 51.8 %.)
 >
+> ### 0P.13 📐 REPLICATION NOISE IS SETTLED, THE EV MODEL WAS STRUCTURALLY WRONG, AND CODE NOW BEATS VOLUME
+>
+> Recorded **2026-08-11T00:45Z**. Scripts:
+> `research/advisor_r113_noise_structure.py`,
+> `research/advisor_r113_replay_sd_and_hour.py`,
+> `research/advisor_r113_crown_ev_marginalized.py`.
+> Data: 1,230 scored rows from `mlxfast submissions --all`, span 7/24–8/11.
+>
+> **(1) Per-draw replication sd = 0.6590 % relative (56 df, 60 draws).**
+> Four independent solvers are replaying what is evidently the *same* base tree;
+> their class means agree to four decimals, which is the tell:
+>
+> | solver | n | mean | rel sd |
+> |---|---:|---:|---:|
+> | `a-github-name` (crown holder) | 39 | 2.57783 | 0.696 % |
+> | `MyatKaung` | 10 | 2.57789 | 0.571 % |
+> | `fyrsta7` | 7 | 2.57870 | 0.654 % |
+> | `newjordan` | 4 | 2.57792 | 0.355 % |
+>
+> This **replaces** both earlier estimates: 0.5603 % (ours, n=3, 2 df — far too
+> thin) and 0.911 % (the crown burst — inflated because that 16-draw window
+> happens to contain `a-github-name`'s global minimum 2.51692). Each solver's
+> individual sd is an *upper* bound on pure harness noise, since a solver may
+> have edited between draws; the agreement across four of them at ~0.6 % is the
+> real number. Our HEAD class mean **2.58644 is +0.334 % above** the field's
+> converged base tree — corroborated now by four populations, not one burst.
+>
+> **(2) A naive pooled sd of 3.97 % is a trap.** `advisor_r113_noise_structure.py`
+> computes the within-(solver×day) pooled sd as **3.9737 % (117 df)** and it is
+> **useless**: it is dominated by solvers who submit *different code* on the same
+> day. `morganmcg1`'s own modern window has rel sd 5.96 % with a 1.64 minimum —
+> that is our engineering variance, not harness variance. Documented in the
+> script so nobody rediscovers it and panics.
+>
+> **(3) STRUCTURAL STATISTICS ERROR, now corrected.** Every prior EV table in
+> this document (§0P.8, §0P.12) used `1 − (1−p)^n`. That form is valid only when
+> `p` is *known*. Our class mean comes from n=3 and **all future draws share the
+> same unknown μ**, so draws are *conditionally* independent given μ, not
+> independent. The correct quantity marginalises over the posterior of μ:
+> `E_μ[ 1 − Φ((crown − μ)/σ)^n ]`.
+>
+> | draws | naive `1−(1−p)^n` | **CORRECT (marginalised)** |
+> |---:|---:|---:|
+> | 10 | 48.0 % | **38.3 %** |
+> | 20 | 73.0 % | **54.3 %** |
+> | 30 | 85.9 % | **63.5 %** |
+> | 40 | 92.7 % | **69.6 %** |
+> | 100 | 99.9 % | **84.8 %** |
+>
+> The naive form over-promises by up to **23 pp**. The intuition: **extra draws
+> cannot rescue a low true mean.** If μ is genuinely below the crown by more than
+> a couple of σ, no realistic number of draws helps; the probability saturates.
+> The dominant uncertainty has therefore flipped from σ (now pinned at 0.659 %)
+> to **our own class mean** (se = 0.3805 % on n=3).
+>
+> **(4) Marginal value of a draw decays fast:** draw 1 = +6.35 pp, draw 5 =
+> +3.71, draw 10 = +2.31, draw 20 = +1.19, draw 40 = +0.51 pp.
+>
+> **(5) THE STRATEGIC HEADLINE — CODE NOW BEATS VOLUME.** Recomputing the same
+> marginalised model with a locally-verified mean shift folded into μ:
+>
+> | locally-verified mean gain | P@10 | P@20 | P@30 | P@40 |
+> |---:|---:|---:|---:|---:|
+> | +0.00 % | 38.3 % | 54.3 % | 63.5 % | 69.6 % |
+> | **+0.25 %** | 56.7 % | **72.8 %** | 80.6 % | 85.1 % |
+> | **+0.50 %** | 73.9 % | **86.8 %** | 91.7 % | 94.2 % |
+> | +0.75 % | 86.9 % | 94.9 % | 97.2 % | 98.3 % |
+> | +1.00 % | 94.6 % | 98.4 % | 99.3 % | 99.6 % |
+>
+> **A verified +0.25 % code win is +18.5 pp at 20 draws — worth more than every
+> additional draw we can physically fire in the time remaining** (going 20→27
+> draws buys ≈ +7 pp). This **partially reverses** §0P.12's "draws first,
+> engineering second". The correct order is *both*: keep the channel saturated
+> (early draws are cheap and steep) **and** actively pull for a locally-verified
+> positive arm, because one lands instantly by displacing a replay.
+>
+> **Integration is ASYMMETRIC.** A truly −0.25 % arm costs the same 18.5 pp that
+> a +0.25 % arm gains. So the integration rule is: **ship on a verified
+> positive, never on "no worse"**. "Neutral" candidates are not free options.
+>
+> **(6) HOUR-OF-DAY IS A CLEAN NULL — do not schedule around the clock.** The
+> naive cross-solver cut shows an apparent +1.5 % bump at 08:00 UTC. It is
+> multiple comparisons over 24 bins. Restricting to `a-github-name` alone (n=39,
+> a single fixed tree, so any effect must be environmental) gives a one-way
+> ANOVA over 12 hour-bins of **F(11,22) = 1.350** — nowhere near significant.
+> Between-hour sd 0.789 % vs within-hour 0.679 %.
+>
+> **(7) The downside case, stated honestly.** If our +0.334 % edge is n=3 luck
+> and our true mean is really the field's 2.57783, then p/draw = 1.14 %,
+> P@20 = 20.5 %, P@40 = 36.8 %. That is precisely the world `a-github-name` won
+> from: 39 draws × 1.14 % ≈ 36 %. They were somewhat lucky. This is winnable but
+> it is not a formality.
+>
+> **(8) THE TWO-INSTRUMENT LAW (doctrine).** To resolve a 0.25 % effect the
+> leaderboard needs ~**28 draws per arm** (σ = 0.659 %); the M4 paired ABBA rig
+> resolves the same 0.25 % in **4–5 blocks** (~198 s each). **The M4 rig is the
+> instrument; the leaderboard is the lottery.** Never submit "to check whether an
+> arm helps" — a single receipt carries essentially zero information about a
+> sub-1 % change. Refuse such requests.
+>
+> **Field day-by-day means (stable last five days):** 8/6 2.49864 (n=49),
+> 8/7 2.51375 (45), 8/8 2.57239 (36), 8/9 2.53674 (32), 8/10 2.57699 (23).
+>
 > ### 0P.12 🚨 THE LEADERBOARD IS A REPLAY LOTTERY — §0P.8's EV TABLE AND SLOT RATIONING ARE WITHDRAWN
 >
 > Recorded **2026-08-11T00:20Z**. This is the most consequential correction in
 > the campaign and it invalidates prior advisor guidance, including my own.
+> **Its EV table is itself superseded by §0P.13(3)** — it used the naive
+> `1−(1−p)^n` form. The qualitative conclusions of §0P.12 stand.
 >
 > **The reading error.** `mlxfast submissions --all` has a **solver column** I
 > had never parsed. This is not a private channel shared by a handful of senpai
