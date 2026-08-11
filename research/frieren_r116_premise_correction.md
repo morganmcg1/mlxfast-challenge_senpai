@@ -14,21 +14,45 @@ mechanism it points at is already staffed on another PR.
 > 153.1 GB/s = 58 % of the bandwidth ceiling, leaving ~119 us/step of slack,
 > worth about +1.0 % of score.
 
-## What the ranked-M5 evidence actually says
+## Correction 0 (2026-08-11 04:45Z): I mislabelled the comparison, and the
+## real error is bigger than the one I first reported
 
-`research/maple-alphonse-r109e-qk-ceiling.md:~1451` and the digest at
-`research/CURRENT_RESEARCH_STATE.md:590-593`:
+The first revision of this file called the 230.0 us row "ranked-M5 evidence"
+and concluded that the assignment had quoted M4 numbers against an M5 truth.
+**That label was wrong and I retract it.** Both numbers are M4 Pro.
 
-> `shared_nvfp4_swiglu_qmv_rows1_halved` **230.0 us/step at 70.2 % of peak** —
-> the only unfused half of the shared expert; fusion worth **20-40 us/step**.
+The atlas denominator is a literal in the generator:
 
-Full M5 row: 230.0 us/step corrected, 2.8 % of decode, 39.4 calls/step,
-5.84 us/call, 1.119 MB/call, **191.7 GB/s = 70.2 % of peak**, raw headroom
-**68.5 us/step**.
+> `research/maple-alphonse-r109e-bwatlas.py:38`
+> `M4_PRO_PEAK_GB_S = 273.0`
+> `# M4 Pro spec DRAM bandwidth. ... treat >=95% as "at the ceiling".`
 
-So the 284.9 us / 153.1 GB/s / 58 % / 119 us figures are this M4 Pro
-development host, not the machine that decides the score. Correction 1:
-119 -> 68.5 us/step of raw headroom.
+`191.7 / 273.0 = 70.2 %` and `153.1 / 273.0 = 56.1 %` both reproduce against
+that constant, so every "% of peak" figure in the atlas -- the assignment's and
+mine alike -- is denominated against **M4 Pro**, and the label sums it is built
+from are M4 Pro captures (`research/fern_r105e_ledger.py:31`, "M4 Pro
+(applegpu_g16s, 20 GPU cores) per-step label sums"). The 284.9-vs-230.0 gap is
+a within-host capture/correction difference, not a host difference.
+
+The actual defect in the assignment's premise is therefore **not** that it used
+the wrong host's numbers. It is that it applied **no host map at all**, and the
+digest makes carrying one mandatory:
+
+> `research/CURRENT_RESEARCH_STATE.md:3229-3239` (B.0.2, the two-pool M4->M5 map)
+> `alpha = 266.80 / 610.6 = 0.4369` for **bytes**-regime families,
+> `beta = 0.5` for **latency**-regime families, residual -6.63 %.
+> "**Mandatory label for every M5 figure derived from this:** *M4 x0.4369
+> bandwidth-pool / x0.5 latency-pool two-pool map, residual -6.63 %, #561*."
+
+Neither the assignment nor my first revision carried that label. This one does.
+
+Full M4 row for the kernel: 230.0 us/step, 2.8 % of decode, 39.4 calls/step,
+5.84 us/call, 1.119 MB/call, **191.7 GB/s = 70.2 % of M4 Pro peak**, raw
+headroom **68.5 us/step** (`research/maple-alphonse-r109e-qk-ceiling.md:~1451`,
+digest `:590-593`). The memo's own fusion estimate is **20-40 us/step**.
+
+Correction 1: the assignment's ~119 us/step of M4 slack is 68.5 us/step on the
+same host once the atlas row is read correctly.
 
 ## Correction 2: the SPLIT=1 deflation has not been applied
 
@@ -54,14 +78,69 @@ alone cannot fund this round.
 
 ## Reconciled prize
 
-| source | prize |
-| ------ | ----- |
-| assignment framing (M4, uncorrected) | ~119 us/step ~= 1.0 % of score |
-| research state's own estimate | 20-40 us/step ~= 0.17-0.34 % |
-| SPLIT-corrected in-kernel + dispatch | ~7 + ~4.3 = **~11 us/step ~= 0.09 %** |
+All rows are M4 us/step. The score column carries the mandatory B.0.2 label:
+*M4 x0.4369 bandwidth-pool / x0.5 latency-pool two-pool map, residual -6.63 %,
+#561*, converted against the mapped M5 step of **4141.5 us** (`:3245-3254`) at
+the 0.75 decode weight.
 
-The honest range is **10-40 us/step, i.e. 0.09-0.34 % of score** — about
-3-11x smaller than the assignment states.
+| source | M4 us/step | mapped M5 us/step | % of score |
+| ------ | ---------: | ----------------: | ---------: |
+| assignment framing (M4, no host map) | ~119 | — | claimed ~1.0 % |
+| research state's own fusion estimate | 20-40 | 8.7-17.5 (bytes) | 0.16-0.32 % |
+| SPLIT-corrected in-kernel + dispatch | ~7 + ~4.3 = ~11 | ~5.2 (latency beta) | 0.09 % |
+
+The assignment's ~1.0 % is unreachable under the digest's own map by every
+route: the optimistic route (take the memo's fusion estimate at face value)
+lands at **+0.16-0.32 %**, and the corrected route lands at **+0.09 %**.
+
+## Correction 3: tau and alpha may be the same quantity, and several memos
+## apply both
+
+This is the part I want the advisor to rule on, because it is worth a factor of
+~2.4 on every M4-sourced estimate in the campaign, including the three rows
+above.
+
+The campaign carries two conversion constants that were derived independently:
+
+| constant | value | what it maps | source |
+| -------- | ----: | ------------ | ------ |
+| `tau` | ~0.4 (cedar [0.27, 0.43]; tanjiro 0.54 [0.29, 0.79]) | local measured wall saving -> ranked score | receipts, advisor comment 2026-08-11T03:50Z |
+| `alpha` / `beta` | 0.4369 / 0.5 | M4 busy us -> M5 busy us | digest B.0.2 `:3229-3239` |
+
+They are conceptually different -- one is an end-to-end receipt-measured
+conversion, the other a host-to-host ceiling ratio -- but they are numerically
+almost identical, and `tau`'s measured interval brackets `alpha` at its top end.
+tanjiro's alpha-free bound is `alpha < 0.4454`
+(`research/maple-tanjiro-r107g-decode-family-regime-census.md:73`), which sits
+inside cedar's tau interval.
+
+That coincidence has a practical consequence. A memo that takes an M4 atlas row,
+maps it to M5 with `alpha`, and *then* prices the result at `tau = 0.4` has
+discounted the same host difference twice. Worked on the middle row above:
+
+- host map only: 20-40 M4 us -> **+0.16-0.32 %** of score
+- host map then tau: -> **+0.06-0.13 %** of score
+
+The advisor's +0.25 % screening threshold falls *between* those two answers, so
+this is not bookkeeping -- it decides whether the shared-expert fusion lever is
+carried or dropped, and the same question applies to every other M4-sourced
+estimate now in flight.
+
+I cannot resolve it here: measuring `tau` needs ranked receipts and measuring
+`alpha` needs the official M5, and this host is an M4 Pro with no `_nax` kernels
+(`is_nax_available()` is false). I am flagging it, not asserting an answer.
+
+**And the resolving experiment for the alpha half is already written, free, and
+has been named three times without being run**: `research/fern_r101_bw_probe.swift`
+on the official M5. ~7 seconds, zero submitted-surface change, no receipt
+consumed. The digest calls it "the highest value per second of any experiment
+currently nameable" (`:3336-3345`), fern re-proposes it at
+`research/fern-r101-decode-pool-model.md:646`, and tanjiro re-proposes it at
+`research/maple-tanjiro-r107g-decode-family-regime-census.md:1214`. Until it
+runs, B.0.6's degeneracy stands: `alpha = 0.389` (M5 ceiling 686, "per-family
+efficiency work pays") and `alpha = 0.437` (M5 ceiling 610.6, "only bytes pay")
+fit equally well and **imply opposite research programmes**, and every
+headroom-derived ranking in B.0.3 is provisional.
 
 ## The mechanism is already staffed
 

@@ -194,27 +194,74 @@ deeper reason is `L-NVFP4-ALU-CONVERTS-AT-5-PERCENT`, not luck.
 I would rather be pointed at something live than sharpen this null. Ranked, with
 citations, and with what I already know about who owns what:
 
-1. **`residual_rms_router_bf16_2048_rpg8_keys_v1_pf1`** — 256.4 µs/step, 60.3 %
-   of peak bandwidth, ≈ 40 µs of corrected headroom, `LagunaRuntimeModel.swift:1131`.
-   Genuinely byte-side (it is 40 % off the roofline, so there is traffic to
-   remove), and I believe unstaffed. This is the best fit to "that leaves bytes".
-2. **`rmsbfloat16`** — 88.7 µs/step at 9.1 % of peak. Small and
+1. **Run `research/fern_r101_bw_probe.swift` on the official M5.** ~7 seconds,
+   zero submitted-surface change, **no receipt and no submission slot consumed**,
+   so it does not compete with the queue fern owns. It resolves the B.0.6 α/β
+   degeneracy, which the digest itself calls "the highest value per second of any
+   experiment currently nameable" (`research/CURRENT_RESEARCH_STATE.md:3336-3345`)
+   and which fern (`research/fern-r101-decode-pool-model.md:646`) and tanjiro
+   (`research/maple-tanjiro-r107g-decode-family-regime-census.md:1214`) have each
+   independently re-proposed without it being run. The two surviving fits —
+   `α = 0.389` (M5 ceiling 686, "per-family efficiency work pays") and
+   `α = 0.437` (M5 ceiling 610.6, "only bytes pay") — **imply opposite research
+   programmes**, and until one is eliminated every headroom-derived ranking in
+   B.0.3, including items 2–6 below, is provisional by ~12 %. It also bears
+   directly on the τ/α double-count question in
+   `research/frieren_r116_premise_correction.md` §"Correction 3". I cannot run it:
+   it needs the ranked M5.
+2. ~~**`residual_rms_router_bf16_2048_rpg8_keys_v1_pf1`**~~ — **withdrawn, dead.**
+   I proposed this at 04:30Z as the best fit to "that leaves bytes" and then had
+   it checked. Three independent kills:
+   - The "60.3 % of peak" is an M4-denominated artifact: 40.89 MB/step ÷ 256.4 µs
+     = 159.5 GB/s, and `159.5 / 273.0 = 58 %` against
+     `research/maple-alphonse-r109e-bwatlas.py:38`'s `M4_PRO_PEAK_GB_S = 273.0`.
+     Against the ranked M5's 610.6 GB/s the kernel sits at ≈26 % of peak. It is
+     **latency-bound, not bandwidth-bound**, reproducing the round-36 diagnosis
+     that "a DRAM roofline does not bind this kernel"
+     (`research/RESEARCH_ARCHIVE_through-round-91.md:5020-5072`). My "≈40 µs of
+     corrected headroom" was that artifact and I retract it.
+   - The byte ceiling is arithmetically below the bar. Removing **every**
+     non-router-weight unique byte (24,064 B/call × 39 ≈ 0.94 MB/step) buys
+     ≈3.6 µs/step busy at 264 GB/s — ~8× under the 30 µs minimum shippable
+     effect from §1, before any τ or exposure correction. Meeting the bar needs
+     ≥19.7 MB/step removed, i.e. half the router weight matrix, i.e. a router
+     dtype shrink, which the accepted envelope forbids.
+   - My stated hypothesis was factually wrong. The `keys` are an **output** — a
+     u32 sort ordinal of −(sigmoid(logit)+bias), `LagunaRuntimeModel.swift:9418-9441`,
+     consumed by `lagunaRoutedSwiGLUQMVPackedTop8` at `:10847-10861`. There is no
+     loop-invariant key *table* being re-read per step. The redundancy I guessed
+     at does not exist.
+   - The only lever that ever moved wall time here (the `pf1`→`pf0` flip,
+     +28 µs/step on M4) was already adjudicated a **hard null on ranked M5**:
+     Δdecode +0.402 µs/step, z = +0.19, receipts `4b0e051b` vs `ef055b9b`
+     (`research/CURRENT_RESEARCH_STATE.md:2057-2065, 5440-5476`).
+3. **`rmsbfloat16`** — 88.7 µs/step at 9.1 % of peak. Small and
    latency-bound rather than byte-bound, so it is a weaker fit to the advisor's
    own framing, but it is cheap to attack.
-3. **Not** `laguna_gate_sp_h64_v1`/`_h48_v1` (≈ 178 µs corrected headroom, the
+4. **Not** `laguna_gate_sp_h64_v1`/`_h48_v1` (≈ 178 µs corrected headroom, the
    largest single target I found) — already assigned to maple-alphonse on #700.
-4. **Not** shared-expert QMV fusion or the routed gate/up QMV family — assigned
+5. **Not** shared-expert QMV fusion or the routed gate/up QMV family — assigned
    to maple-edward on #693 (`r110-b-rev4`).
-5. **Not** attention. `laguna_sliding_fused_attn_ring_v1` and
+6. **Not** attention. `laguna_sliding_fused_attn_ring_v1` and
    `full_fused_attn_grow_v1` are closed at round 107 / PR #642 as
    `N-ISSUE-BOUND` at 97.7 % of peak instruction issue; sliding QK-MMA is doubly
    closed (`N-ISSUE-BOUND` + `N-QK-MMA-PADDING-BOUND`).
-6. **Not** the 91–103 %-of-peak cohort (3,871 µs/step, 47.4 % of the step).
-   It is at the bandwidth roofline, and the only lever is fewer weight bytes.
-   The accepted envelope permits group-32 affine INT8 for Q/K/V/O, but this
-   checkpoint is already NVFP4 g16/b4 — 4 bits plus a scale per 16 is
-   *narrower* than INT8 plus a scale per 32, so the sanctioned re-quantization
-   would **add** bytes. There is no byte to buy there inside the envelope.
+7. **Not** the 91–103 %-of-peak cohort (3,871 µs/step, 47.4 % of the step) —
+   though my first reason for excluding it was wrong and the corrected reason is
+   narrower. I originally wrote that it "is at the bandwidth roofline". Those
+   percentages are against **M4 Pro's** 273 GB/s
+   (`research/maple-alphonse-r109e-bwatlas.py:38`); against the ranked 610.6 GB/s
+   the same cohort is at ~41–46 %, so it is *not* at the M5 roofline and this
+   exclusion cannot rest on saturation. It rests instead on the envelope: the
+   only byte lever on a weight-dominated family is fewer weight bytes, the
+   accepted envelope permits only group-32 affine INT8 for Q/K/V/O and per-head
+   `g_proj`, and this checkpoint is already NVFP4 g16/b4 — 4 bits plus a scale
+   per 16 is *narrower* than INT8 plus a scale per 32, so the sanctioned
+   re-quantization would **add** bytes. There is no byte to buy inside the
+   envelope regardless of where the roofline sits. (Note that the digest's own
+   B.0.6 measurement has `qkvo` at **97.9 % of the 610.6 GB/s M5 peak** —
+   i.e. the M4→M5 map's prediction for this cohort is exactly the quantity the
+   free bw_probe in item 1 would settle.)
 
 The advisor knows the global staffing picture and I do not; treat the ordering
 as evidence, not as a request.
