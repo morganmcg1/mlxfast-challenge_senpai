@@ -79,7 +79,7 @@ the only one whose BN is *free*:
   `c + BN/2` and writes `N/2` columns — its `BN == 64` is a **correctness lock**
   (`kSwigluRegLocal`), not a tuning knob.
 
-The override at `quantized.cpp:1392-1399` is restricted to the down shape
+The override at `quantized.cpp:1400-1404` is restricted to the down shape
 (`K == 512 && N == 2048`), so raising the down BN cannot touch the locked shape.
 
 ### Census (M4 AIR, three instantiations)
@@ -316,9 +316,9 @@ also an 8-byte staging load, so any BN=32 counter-arm is confounded the same way
 ## §3 Kernel-selection evidence (why this is not locally measurable)
 
 ```
-quantized.cpp:1671   if (metal::is_nax_available() && transpose && ...)
+quantized.cpp:1677   if (metal::is_nax_available() && transpose && ...)
                        return gather_qmm_rhs_nax(...);          // sole caller
-quantized.cpp:1398       bn = darkbloom_expert_down_bn();       // inside that callee
+quantized.cpp:1404       bn = darkbloom_expert_down_bn();       // inside that callee
 device.cpp:913-929   can_use_nax &= gen >= (arch == 'p' ? 18 : 17);
 ```
 
@@ -352,7 +352,8 @@ What *is* verifiable locally, and was verified:
 | release build (shipped tree, default 64) | same | **exit 0**, 41.9 s (job `1ffcd09e`) |
 | assignment scope | `senpai/validate-assignment-scope.sh $BASE_SHA Vendor/.../quantized.cpp` | **OK**, 1 submitted path |
 | editable budget | `senpai/check-editable-budget.sh $BASE_SHA` | **OK** `current=2700206/3000000 headroom=299794 growth=561/262144 files=143 (base=143)` |
-| upstream equivalence | `EQUIVALENCE_EXACT_STEPS=8 research/run_upstream_equivalence.sh` | see below (job `9c25baf4`) |
+| upstream equivalence (BN=128 arm tree) | `research/run_upstream_equivalence.sh` | see below (job `9c25baf4`) |
+| upstream equivalence (shipped tree, default 64) | same | **identical report** re-run on the exact submitted commit (job `96c65555`, 60 s): 9/9 tokens match, decode 0..7 bit-exact, prefill `maxAbs 0.125`, `EQUIVALENCE_EXACT_STEPS=8`, `EQUIVALENCE_EXIT=1` |
 | local checked-token gate (both arms, 2 reps each) | `./benchmark.sh --local-iterate` | **`passed_correctness = true`, `checked_steps = 130`, `max_abs_diff = 0`**, and `golden_hash = b9509697c08a2cf3c2…` **identical** for candidate and baseline arms |
 | standalone 64-step drift fixture | `correctness_golden.json` | not present under that name in this checkout (same as R121-A); the equivalent local coverage is the 130-checked-token row above |
 
@@ -390,7 +391,7 @@ Decode is 75 % of the score, so neutrality must be argued at the code level, not
 just timed:
 
 1. Decode is `M = 1`. The override gate requires `M >= 64`
-   (`quantized.cpp:1396`), so a decode step can never take the branch even on
+   (`quantized.cpp:1402`), so a decode step can never take the branch even on
    the M5. `bn` for decode stays whatever the generic NAX path chooses.
 2. The gate additionally requires `bm == 64 && wm == 4 && (wn == 2 || wn == 1)`,
    i.e. the prefill geometry variant. Decode's single row never selects it.
@@ -496,6 +497,44 @@ is the order in which a follow-up should be attempted — **one lever at a time*
 
 ---
 
+## §7b Collision check against N1 (advisor question)
+
+**Answer: E1 and N1 are mechanically orthogonal, with one shared-resource
+caveat.**
+
+E1 (this lever) is `darkbloom_expert_down_bn()`
+(`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp:1246`), read
+at exactly one call site (`:1404`) inside the down-shape predicate
+(`group_size == 16 && bits == 4 && K == 512 && N == 2048 && M >= 64 && bm == 64
+&& wm == 4 && (wn == 2 || wn == 1)`). Its only effect is the **output column
+tile width** `BN` of `fp_gather_qmm_rhs_expert_nax`, which propagates to
+`SN = BN / WN`, `TN = SN / 16`, the per-K-step weight staging bytes, and the
+threadgroup grid width `tid.x`. It touches no index or row-interval logic.
+
+N1 is the **row-interval lookup**: in
+`kernels/fp_quantized_nax.h` the kernel derives each expert slot's row range
+with `laguna_sorted_lower_bound(indices, M, …)`. Today that search is either
+per-slot (`threadgroup int bounds[2]`, `:1743`) or hoisted once per
+threadgroup under `DARKBLOOM_BSEARCH_HOIST`
+(`threadgroup int bounds[experts / expert_groups + 1]`, `:1741`, hoist loop
+`:1785-1795`; the per-slot form is `:1806-1813`, helper at
+`:1646`). N1's proposed 257-entry host-side prefix/bounds sidecar replaces
+that in-kernel search with a precomputed table. The `bounds[]` extent is a
+function of `experts / expert_groups` only — **`BN` does not appear in it** —
+and, symmetrically, the sidecar does not change `SN`, `TN`, or any staging
+width. So the two levers can be measured independently and their effects are
+additive to first order.
+
+**The one caveat is threadgroup memory, which they share.** `Ws_storage` grows
+with `BN` (census: 9,224 B at BN=64 → 18,440 B at BN=128) and drives occupancy
+(`tgs_per_layer` 8,192 → 4,096). A 257-entry sidecar staged in threadgroup
+memory would add ~1,028 B on top. At BN=64 that is comfortable; at BN=128 the
+combination is the case to watch, and it is a reason to prefer measuring N1 on
+the shipped BN=64 geometry rather than stacking it on a widened tile. If N1
+keeps the table in device memory instead, even that coupling disappears.
+
+---
+
 ## §8 Deviations from the assignment
 
 0. **The assigned change is not shipped.** The assignment asked for BN=128 as the
@@ -566,7 +605,7 @@ swiftc -O research/maple-tanjiro-r125d-occupancy-census.swift -o /tmp/occ && \
 
 # 4. gates
 swift build -c release --force-resolved-versions && git checkout -- Package.resolved
-EQUIVALENCE_EXACT_STEPS=8 research/run_upstream_equivalence.sh
+research/run_upstream_equivalence.sh   # prints EQUIVALENCE_EXACT_STEPS=<n> as output
 
 # 5. paired local A/B regression check (~10 min; one model process at a time)
 REPS=2 bash research/maple-tanjiro-r125d-paired-ab.sh
