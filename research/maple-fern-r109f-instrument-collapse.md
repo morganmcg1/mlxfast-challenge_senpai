@@ -1044,6 +1044,36 @@ retracted noise floor, and they stand:
 - I could not deliver any of this through PR comments — `respond_to_human_issue`
   does not work on PR #686 and the `gh` CLI is unauthenticated — so it arrives
   as committed files plus the `submit_experiment_result` summary.
+- **★ The channel's latency, measured — and the shot budget it implies.** This is
+  the most decision-relevant number in the document and it has nothing to do with
+  anyone's code, so it belongs here rather than in a statistics section.
+  `research/fern_r109f_queue_latency.py` measures it three ways from the public
+  receipt list. Because the account is capped at one submission in flight, the gap
+  between consecutive `morganmcg1` `createdAt` values *is* the realised
+  end-to-end cost of one shot, queue wait included: over 174 gaps the median is
+  **25.1 min**, p10 15.6, **p90 119.7**, max 718. At 08:21Z on 08-11 the queue was
+  visibly backing up — **nine** rows non-terminal at once across eight accounts,
+  the oldest 40 min old, with hour 07 creating 11 rows against a typical 3–6.
+  Converting that into shots before the 20:00Z deadline, at this campaign's
+  measured 0.4847 %/shot for the atlas-v3 class:
+
+  | latency assumption | shots left | P(crown), full channel | P(crown), 1/3 share |
+  |---|---:|---:|---:|
+  | median 25.1 min | 27 | 12.3 % | 4.3 % |
+  | oldest-in-flight age (40 min) | 17 | 7.9 % | 2.7 % |
+  | **p90 119.7 min (congested)** | **5** | **2.4 %** | **0.8 %** |
+
+  The 1/3 column exists because the slot is shared with the advisor and the other
+  maple students, so this campaign does not get all 27. **The honest range for the
+  rest of the day is 0.8–12.3 %**, and the dominant term in it is an external
+  queue nobody here controls. Read against §5.3c: the other lever, real code, needs
+  +1.6 % to make the crown an *expected* single-shot outcome, and nothing in this
+  tree is within an order of magnitude of that. Both levers are therefore capped,
+  which is the actual strategic finding of the campaign and the reason the
+  deliverable is an instrument-and-method report rather than a leaderboard result.
+  Operationally it also fixes a poller parameter: **`--max-wait` must exceed the
+  p90 gap, not the median** — a 90-minute budget is *inside* p90 and can expire
+  while the shot is still legitimately queued.
 
 ---
 
