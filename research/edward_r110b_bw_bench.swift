@@ -90,6 +90,39 @@ kernel void stream_u1(device const uint *src [[buffer(0)]],
     if (acc == 0xFFFFFFFFu) { dst[tid] = acc; }
 }
 
+// Same byte traffic and grid as the routed gate/up QMV, plus a representative
+// NVFP4 dequantize-and-accumulate body. The point is not bit-exactness with the
+// production kernel but to price the arithmetic that necessarily sits on top of
+// the read floor.
+constant float nvfp4_lut[16] = {
+    0.0f, 0.5f, 1.0f, 1.5f, 2.0f, 3.0f, 4.0f, 6.0f,
+    -0.0f, -0.5f, -1.0f, -1.5f, -2.0f, -3.0f, -4.0f, -6.0f
+};
+
+kernel void qmv_emul(device const uint2 *codes [[buffer(0)]],
+                     device const uchar *scales [[buffer(1)]],
+                     device float *dst [[buffer(2)]],
+                     constant uint &code_off [[buffer(3)]],
+                     constant uint &scale_off [[buffer(4)]],
+                     uint tid [[thread_position_in_grid]],
+                     uint lane [[thread_index_in_simdgroup]]) {
+    float acc = 0.0f;
+    uint cbase = code_off + tid * 8;
+    uint sbase = scale_off + tid * 4;
+    float x = float(lane) * 0.001f + 1.0f;
+    for (uint i = 0; i < 8; ++i) {
+        uint2 c = codes[cbase + i];
+        // One scale byte per two code words: the "halved" routed-MoE plane.
+        float s = float(scales[sbase + (i >> 1)]);
+        float a = 0.0f;
+        for (uint k = 0; k < 8; ++k) { a = fma(nvfp4_lut[(c.x >> (4 * k)) & 0xFu], x, a); }
+        for (uint k = 0; k < 8; ++k) { a = fma(nvfp4_lut[(c.y >> (4 * k)) & 0xFu], x, a); }
+        acc = fma(a, s, acc);
+    }
+    float r = simd_sum(acc);
+    if (r == 1234.5678f) { dst[tid] = r; }
+}
+
 // Two streams in the NVFP4 ratio: 32 weight bytes per 2 scale bytes, i.e. the
 // dual-stream footprint of a real quantized mat-vec. `w` is uint4 (16 B),
 // `s` is uchar; one scale byte per 16 values = per 8 weight bytes.
@@ -256,3 +289,44 @@ for g in geoms {
                best * 1e6, Double(g.bytes) / best / 1e9,
                med * 1e6, Double(g.bytes) / med / 1e9))
 }
+
+// MARK: - read floor plus representative dequantize arithmetic
+
+guard let emulFn = lib.makeFunction(name: "qmv_emul") else { die("no qmv_emul") }
+let emulPso: MTLComputePipelineState
+do { emulPso = try device.makeComputePipelineState(function: emulFn) }
+catch { die("pipeline qmv_emul: \(error)") }
+
+let emulThreads = 131_072
+let emulCodeBytes = emulThreads * 64
+let emulScaleBytes = emulThreads * 4
+let emulBytes = emulCodeBytes + emulScaleBytes
+let emulWindows = max(1, bytes / emulCodeBytes)
+var emulSamples: [Double] = []
+for r in 0..<(reps + 2) {
+    var co = UInt32((r % emulWindows) * (emulCodeBytes / 8))
+    var so = UInt32((r % emulWindows) * emulScaleBytes)
+    guard let cb = queue.makeCommandBuffer(),
+          let enc = cb.makeComputeCommandEncoder() else { die("encoder") }
+    enc.setComputePipelineState(emulPso)
+    enc.setBuffer(src, offset: 0, index: 0)
+    enc.setBuffer(scales, offset: 0, index: 1)
+    enc.setBuffer(dst, offset: 0, index: 2)
+    enc.setBytes(&co, length: 4, index: 3)
+    enc.setBytes(&so, length: 4, index: 4)
+    enc.dispatchThreadgroups(MTLSize(width: emulThreads / 64, height: 1, depth: 1),
+                             threadsPerThreadgroup: MTLSize(width: 64, height: 1, depth: 1))
+    enc.endEncoding()
+    cb.commit()
+    cb.waitUntilCompleted()
+    if let e = cb.error { die("qmv_emul failed: \(e)") }
+    if r >= 2 { emulSamples.append(cb.gpuEndTime - cb.gpuStartTime) }
+}
+emulSamples.sort()
+log("")
+log(String(format: "qmv_emul (dequant+FMA)  %d B  %d thr tg=64   best %7.2f us -> %6.1f GB/s   median %7.2f us -> %6.1f GB/s",
+           emulBytes, emulThreads,
+           emulSamples.first! * 1e6, Double(emulBytes) / emulSamples.first! / 1e9,
+           emulSamples[emulSamples.count / 2] * 1e6,
+           Double(emulBytes) / emulSamples[emulSamples.count / 2] / 1e9))
+log("occupancy: qmv_emul maxTotalThreadsPerThreadgroup=\(emulPso.maxTotalThreadsPerThreadgroup)")
