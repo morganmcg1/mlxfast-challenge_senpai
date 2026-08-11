@@ -387,3 +387,62 @@ Symbol anchor `private let lagunaDecodeAsyncStage: LagunaDecodeAsyncStage = {`
 base :761-767 into an `.explicit(mask)`, so the flip changes only which layers
 stage, never any arithmetic.
 
+
+### `cf3` result: sparse staging is a small loss, not a win
+
+24 runs, 0 divergences, exit 0. The host was quieter than in `cf2`: control
+run-to-run sd 25.8 us/step, so the achieved floor was **14.9 us/step**
+(0.087 % score), the tightest of the campaign.
+
+| estimator | delta us/step | % score |
+|---|---|---|
+| paired mean (drift-corrected) | **+11.1** | -0.065 |
+| 95 % bootstrap CI | **[+2.1, +21.3]** | [-0.125, -0.012] |
+| paired median (robust) | +7.0 | -0.041 |
+| plain median-of-medians (8.216 vs 8.213 ms) | +3.0 | -0.018 |
+
+Per-pair deltas: `[18.7, 46.3, -10.3, -5.7, -0.7, 2.7, 41.7, 20.3, 5.0, 9.0,
+10.0, -4.0]`, sd 17.9 us/step.
+
+**`ASSPA` fails the bar in the wrong direction.** The 95 % interval excludes
+zero on the positive side, so at this power the honest reading is a small real
+regression of +3 to +11 us/step, and certainly not the -35 us/step the two
+low-n passes hinted at. Every estimator agrees on the sign.
+
+The low-n hints were driven by control *fast-mode* runs, and `cf3` makes that
+visible: the control produced two runs at 8.148 and 8.152 ms while the arm's
+best of twelve was 8.206 ms (0 of 12 arm runs below 8.19 ms versus 2 of 12
+control runs). A pass that catches one of those control runs next to an arm run
+manufactures a 40-60 us/step "win" for whatever arm sits beside it. That is
+exactly what happened to `ASSPA` in the screen and in `cf2`, and it is the same
+mechanism that produced `RP0`'s -55.3 us/step mirage.
+
+Cross-pass summary for `ASSPA`, best-powered pass last:
+
+| pass | n | point | note |
+|---|---|---|---|
+| screen | 2 | -33.0 | floor ~78 us/step, uninformative |
+| `cf2` | 4 | +73.5 raw / -36.7 trimmed | one +404 environmental spike |
+| **`cf3`** | **12** | **+11.1, 95 % [+2.1, +21.3]** | **floor 14.9 us/step, decisive** |
+
+**Conclusion: keep `DECODE_ASYNC_STAGE=at:0,1,7,15,23,31,39`.** No flip was
+applied, so this branch ships zero source changes to the scored surface.
+
+## 6. Final disposition of every screened knob
+
+| knob | arm(s) | best evidence | verdict |
+|---|---|---|---|
+| `SHARED_ROUTED_QMV_FUSED=1` | `FUS` | +55.2 us/step, 95 % [+18.9, +85.9], n=6 | **confirmed loss**, keep default 0 |
+| `NVFP4_NIBBLE_SPLIT` | `NS0`, `NS2` | +55.6 (0) and +24.0 (2), reproduced | **default 1 is a two-sided optimum** |
+| `DECODE_ASYNC_STAGE` | `ASOFF ASNRM ASSPA ASDEN ASLAD` | sparse +11.1 [+2.1, +21.3]; all others worse | **shipped 7-point mask is the optimum** |
+| `ROUTER_WEIGHT_PREFETCH` | `RP0`, `RP5` | 0: +5.6 [-17.3, +29.0]; 5: +25.4 | **default 1 is best**, reachable and bit-exact |
+| `OPROJ_ROWS_PER_SIMDGROUP` | `OPR1`, `OPR4` | -64.2 and +1.7 at n=2, floor ~78 | replication only; axis closed by #718/#719 |
+| `OPROJ_SIMDGROUPS` | `OPSG4` | -40.9 at n=2, floor ~78 | **unresolved**, below floor; see follow-ups |
+| `DECODE_QKV_GATE_FUSED`, `NORM_AFFINE_QKV_*` | `PF*`, `STG*` | static audit | **inert on this composition**, dead branch |
+| `L5_UNROLL` | `U1 U4 U8` | static audit + n=2 | **inert**, no reachable dispatch difference |
+
+Nine shipped defaults were probed on the live composition and every one of them
+is already at or better than its neighbours. The two seemingly promising screen
+hits both evaporated under a properly powered paired confirm, and the mechanism
+for the mirage is now identified and documented.
+
