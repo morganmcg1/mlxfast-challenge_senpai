@@ -83,6 +83,33 @@ Output directory is **outside the git checkout**
 4. Escalate immediately, before validating, if any bit-exact flag moves the
    paired steady step by >= 50 us.
 
+## Landing readiness, checked before the result is known
+
+So that rule 2 cannot be delayed by a static-review surprise, the submission
+surface was validated against the campaign base
+`1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7` while the confirmation was still
+running:
+
+```
+assignment scope OK: 1 submitted path(s)   # Sources/MLXFastModel/LagunaRuntimeModel.swift
+editable budget OK: current=2681206/3000000 headroom=318794 growth=-302643/262144
+```
+
+The flip itself is byte-neutral (`!= "0"` and `== "1"` are the same length), so
+a landing consumes none of the 262,144 B growth allowance. The three literals
+that rule 2 would edit are:
+
+| arm | line | current literal |
+| --- | --- | --- |
+| `qmvsc0` | `LagunaRuntimeModel.swift:4131` | `environment["DARKBLOOM_NVFP4_QMV_SIGN_CARRY"] != "0"` |
+| `qmvse0` | `LagunaRuntimeModel.swift:4159` | `environment["DARKBLOOM_NVFP4_QMV_SEED_ELIDE"] != "0"` |
+| `sc0` | `LagunaRuntimeModel.swift:6668` | `environment["DARKBLOOM_NVFP4_SCALE_CARRY"] != "0"` |
+
+Bit-exactness of the three flips already has direct evidence rather than only
+the construction argument: all nine screen arms, including these three,
+published the identical golden hash
+`b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63`.
+
 ## What is *not* claimed by this stage
 
 The five arms dropped after the screen (`ns0`, `ns2`, `qse0`, `sd0`, `sfd1`)
