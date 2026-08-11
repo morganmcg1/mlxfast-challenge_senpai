@@ -933,7 +933,7 @@ final class LagunaLmHeadPruner {
         let x = hidden.reshaped([lagunaLmHeadPruneHidden])
         let refine = useFusedRefinement && lagunaLmHeadFusedRefinementEnabled
         if refine, capturedDecodeHiddenRows < 2,
-            let path = ProcessInfo.processInfo.environment["MLXFAST_LMHEAD_CAPTURE_PATH"]
+            let path = ProcessInfo.processInfo.environment["DARKBLOOM_LMHEAD_CAPTURE_PATH"]
         {
             let data = x.asData(access: .copy).data
             try? data.write(
