@@ -590,4 +590,22 @@ which is what the other two rows show.
 
 ### Result — stage B (condition 4)
 
-STAGE_B_PENDING
+Stage B rebuilds the same delivered artifact *without* the instrumentation line,
+so everything below is measured on a binary whose only difference from today's
+tree is the compiled default width.
+
+**Teacher-forced correctness of the flipped default.** Two 200-step
+teacher-forced runs behind a 512-token prefill:
+
+| run | environment | divergences |
+| --- | --- | --- |
+| `tf_default` | *(nothing set — compiled default 256)* | **0 (all match)** |
+| `tf_tg64` | `DARKBLOOM_SHARED_QMV_TG=64` | **0 (all match)** |
+
+and the two token dumps compare **`TOKENS_IDENTICAL`**. So the default flip is
+token-neutral: shipping 256 changes no greedy token relative to the width the
+tree ships today. This is the same conclusion as §3, but reached on the
+*compiled default* rather than on an environment override, which is what the
+advisor's condition 1 was really asking about.
+
+STAGE_B_WALL_PENDING
