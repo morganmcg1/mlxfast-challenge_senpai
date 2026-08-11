@@ -297,3 +297,62 @@ That is the arm I take to the 07:30Z milestone. Documented landmine to respect:
 the `fusedTailGateLogits` path at `:5946` (consumed at `:5975`) does **not** set
 `gateProjectionActivated = true`, which silently double-applies or drops the
 softplus.
+
+### 3.1 The implemented arm: grid-append fusion
+
+Shipped as `lagunaDecodeNVFP4QKVGate` in `Sources/MLXFastModel/LagunaRuntimeModel.swift`.
+
+The scored decode QKV projection is `laguna_decode_nvfp4_qkv_h{64,48}_r1_v1_lm1_pw1_se1_sd1`
+(the lane-major branch of `lagunaDecodeNVFP4QKVR1`), dispatched as
+
+| | h64 | h48 |
+|---|---|---|
+| `rows = (heads + 2·8)·128` | 10240 | 8192 |
+| QKV threadgroups (`rows/2`) | 5120 | 4096 |
+| `gate_sp` threadgroups (`heads/8`) | 8 | 6 |
+| grid growth | **+0.156 %** | **+0.146 %** |
+| weight bytes/call | 10.49 MB | 8.39 MB |
+| gate bytes/call | 0.152 MB | 0.115 MB |
+| byte growth | **+1.45 %** | **+1.37 %** |
+
+Both use `threadGroup (64,1,1)`, so the two grids are directly concatenable.
+The fused kernel is one JIT source with a threadgroup-uniform branch:
+
+```metal
+constexpr uint laguna_gate_tiles = heads/8;
+if (threadgroup_position_in_grid.x < laguna_gate_tiles) {  // gate_sp body
+    ...; return;
+}
+uint tile = threadgroup_position_in_grid.x - laguna_gate_tiles;  // QKV body
+```
+
+Four properties make this the right shape:
+
+1. **No new dependency edge.** QKV and `g_proj` are siblings, not producer and
+   consumer, so this is a *grid* merge and not an encoder serialisation. The
+   assignment's +2.55 µs/layer edge penalty does not apply.
+2. **Gate tiles lead, not trail.** Appending them at the end would schedule
+   them into the QKV drain tail, where the machine is emptying and their whole
+   duration lands on the critical path. Leading, they are issued in the first
+   wave and are hidden by 5120 following threadgroups.
+3. **Bit-exact by construction.** Both bodies are the shipped sources verbatim
+   (the two generators grew buffer-name / tile-offset parameters whose defaults
+   reproduce the old text byte-for-byte). No cross-threadgroup interaction
+   exists in either body, so scheduling order cannot change a value.
+4. **No register-pressure regression.** QKV holds `x_thread[16]` floats plus
+   `sb[4]`; the gate branch holds `x[8]` plus `r[4]`. The gate branch cannot
+   raise the kernel's max live-register allocation, so QKV occupancy is
+   unchanged.
+
+Arm selector for the paired test is `DARKBLOOM_DECODE_QKV_GATE_FUSED`, read
+once per worker process, so both ABBA arms come from a **single build** and the
+only difference is dispatch shape. `=0` reproduces the two-dispatch base path.
+
+Guards mirror the union of `lagunaDecodeNVFP4QKVR1`'s lane-major branch and
+`lagunaGateSoftplus`; any failure falls back to the two separate dispatches.
+The call site takes the fused path only when
+`_nativeAffineQKVGateRows != nHeads` (i.e. the gate rows are *not* already
+inside the QKV bank) and the activated-o-proj preconditions hold, which is
+exactly the configuration in which `gate_sp` is dispatched today. The fused
+gate output is pre-activated, so it sets `gateProjectionActivated = true` —
+the landmine noted above.
