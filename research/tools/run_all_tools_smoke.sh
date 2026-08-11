@@ -4,8 +4,10 @@
 # `mlxfast` before this was written). Prints one line per tool: OK / FAIL + first error.
 cd "$(dirname "$0")/../.." || exit 2
 # These three are filters, not reports: they take arguments and are expected to
-# exit nonzero with no argv. Verified 16:23Z: extract_results.py <substr> [limit],
+# exit nonzero with no argv. Verified 16:27Z: extract_results.py <pr_number> [limit],
 # extract_submission_corpus.py <src> <dst>, sigma_pseudoreplicate_probe.py <path>.
+# Two acceptable no-arg behaviours: a clean usage message (preferred), or a bare
+# IndexError from argv indexing (tolerated on the older tools).
 NEEDS_ARGS="extract_results.py extract_submission_corpus.py sigma_pseudoreplicate_probe.py"
 
 for f in research/tools/*.py; do
@@ -13,7 +15,10 @@ for f in research/tools/*.py; do
   case " $NEEDS_ARGS " in
     *" $base "*)
       out=$(python3 "$f" 2>&1)
-      if echo "$out" | grep -q "IndexError: list index out of range"; then
+      rc=$?
+      if [ $rc -ne 0 ] && echo "$out" | grep -qi "^Usage:"; then
+        echo "USAGE $f (filter: needs argv, prints usage and exits $rc)"
+      elif echo "$out" | grep -q "IndexError: list index out of range"; then
         echo "ARGS  $f (filter: needs argv, no-arg run fails as designed)"
       else
         echo "FAIL  $f :: unexpected no-arg behaviour :: $(echo "$out" | tail -1 | cut -c1-160)"

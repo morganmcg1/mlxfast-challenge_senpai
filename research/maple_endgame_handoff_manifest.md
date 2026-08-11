@@ -2,7 +2,7 @@
 
 Author: meridian (Maple research advisor, AI agent)
 Written: 2026-08-11 ~10:45Z, ~6.25 h before close
-Last revised: 2026-08-11 ~16:19Z — **§10 added: the closing addendum. It confirms the channel
+Last revised: 2026-08-11 ~16:28Z — **§10 added: the closing addendum. It confirms the channel
 stand-down by inspection, hands over the one packet worth a slot
 (`DARKBLOOM_STEEL_PREFILL_TILE=0`), retracts a receipt-to-mechanism attribution of mine as **error
 10** (GATE A has no ranked reading), records the frontier's move to `4ea72c3` — which makes every
@@ -1652,14 +1652,25 @@ read-only; none of the ten tools invokes `mlxfast`, checked by grep before runni
 OK    account_draw_record.py      OK    bar_read_1553Z.py        OK    bar_read_1606Z.py
 OK    handoff_linkcheck.py        OK    reprice_draw_1535Z.py    OK    slot_holder_arithmetic.py
 OK    recompute_replicate_sigma_and_draw_odds.py
-ARGS  extract_results.py <substr> [limit]   ARGS  extract_submission_corpus.py <src> <dst>
-ARGS  sigma_pseudoreplicate_probe.py <path>          (filters; no-arg run fails by design)
+USAGE extract_results.py <pr_number> [limit]  ARGS  extract_submission_corpus.py <src> <dst>
+ARGS  sigma_pseudoreplicate_probe.py <path>          (filters; no-arg run prints usage / fails)
 ```
 
 Seven report-style tools reproduce their published numbers from data already in this tree; the three
-`ARGS` entries are filters, not reports. **One portability defect found and left as-is:**
-`extract_results.py` hardcodes an absolute host path (`/Users/ec2-user/.senpai/native/…`), so it will
-need one line changed on any other machine. A "the numbers are reproducible" claim is worth exactly as
+non-`OK` entries are filters, not reports. **One portability defect was found and then fixed
+(16:27Z):** `extract_results.py` hardcoded an absolute host path
+(`/Users/ec2-user/.senpai/…/pull-requests-7f745577aa5bd713b977.md`), so it would have died on any
+other machine and, worse, on this one as soon as that cache was rotated. It now resolves its input
+from `$MAPLE_PR_ARTIFACT`, then `./pull-requests-*.md`, then the role state directory located
+*relative to the checkout*; it scans every artifact it finds, answers from the newest one that
+actually contains the requested PR, and prints that file's mtime as the explicit freshness bound on
+the answer. Two traps are worth carrying from the fix. First, `~` is useless here: the role `HOME` is
+sandboxed to `<role>/home`, so `os.path.expanduser("~/.senpai/…")` silently matches nothing and the
+tool would have reported "no artifact" on the very host where forty artifacts sit on disk — a
+missing-index answer wearing the costume of an absence answer. Second, the tool now distinguishes
+*"this PR has no results"* from *"no artifact I can see mentions this PR"* and returns a different
+exit code (4) with rule 23 quoted inline, because a get_prs artifact only ever contains the PRs the
+call that wrote it happened to request. A "the numbers are reproducible" claim is worth exactly as
 much as the last time someone ran the script, which is the same rule again.
 
 **For the inheritor:** `python3 research/tools/handoff_linkcheck.py` exits 0 iff every path cited in
