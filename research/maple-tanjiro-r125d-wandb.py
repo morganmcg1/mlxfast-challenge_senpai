@@ -45,9 +45,13 @@ def main():
     ab_path = os.path.join(D, "paired-ab.json")
     ab = json.load(open(ab_path)) if os.path.exists(ab_path) else None
 
+    resume_id = os.environ.get("R125D_WANDB_RUN_ID")
     run = wandb.init(
         entity="wandb-applied-ai-team",
         project="mlxfast-maple",
+        id=resume_id,
+        resume="must" if resume_id else None,
+        allow_val_change=True,
         name="r125d-routed-down-bn128",
         job_type="prefill-routed-down-bn",
         group="r125-d",
@@ -57,9 +61,9 @@ def main():
             pr_number=732,
             branch="maple-tanjiro/r125-d-prefill-routed-down-bn",
             base_sha="a9de9e8f21188715f6d80ada4b581bcd50d4ec81",
-            code_commit="965f2f4b",
+            code_commit=os.environ.get("R125D_CODE_COMMIT", "965f2f4b"),
             lever="darkbloom_expert_down_bn",
-            candidate_bn=128,
+            candidate_bn=128,  # censused arm; the shipped default is baseline_bn
             baseline_bn=64,
             shape="down K=512 N=2048 eg=256 bm=64 bk=64 wm=4 wn=1",
             host="Apple M4 Pro (Apple GPU gen 16, is_nax_available()==false)",
@@ -105,7 +109,35 @@ def main():
                       round(BEST_RECEIPT * (1 + pct / 100.0), 6))
     run.log({"score_prediction": pred})
 
+    # kSrcBytes = n_reads * bytes_per_pack with n_reads = BN/4 for this shape;
+    # QuantizedBlockLoader only emits a vector body for 16 or 8 bytes, so BN=128
+    # (32 bytes) falls into the scalar byte loop that voids the prediction above.
+    wl = wandb.Table(columns=["bn", "n_reads", "k_src_bytes", "wide_body_emitted",
+                              "ir_wide_symbols", "ir_dev_memcpy16",
+                              "ir_tg_memcpy16", "ir_dev_load8", "ir_sb32_alloca"])
+    for bn, nr, ksb, ok, w, dm, tm, l8, sb in (
+            (32, 8, 8, True, 21, 0, 1, 1, False),
+            (64, 16, 16, True, 27, 1, 1, 0, False),
+            (128, 32, 32, False, 0, 0, 0, 0, True)):
+        wl.add_data(bn, nr, ksb, ok, w, dm, tm, l8, sb)
+    run.log({"wide_load_census": wl})
+
     summary = dict(
+        verdict="do_not_ship_bn128",
+        shipped_default_bn=64,
+        behavioural_diff_vs_base="none",
+        loader_wide_load_regression=True,
+        prediction_status="void_pending_loader_fix",
+        blocker="QuantizedBlockLoader kSrcBytes==32 at BN=128 emits no vector "
+                "weight-load body (fp_quantized_nax.h:438-444)",
+        k_src_bytes_bn32=8,
+        k_src_bytes_bn64=16,
+        k_src_bytes_bn128=32,
+        corrected_dram_floor_ms=11.98,
+        corrected_addressable_pool_ms=2.44,
+        followup="chunked 2x16B kSrcBytes==32 loader path, then re-run the BN "
+                 "rung with load width held fixed; preferred alternative is the "
+                 "SM=16 row-padding BM/WM lever (~11 ms)",
         down_shape_ms=DOWN_MS,
         dram_floor_ms=DRAM_FLOOR_MS,
         addressable_pool_ms=round(pool_ms, 3),

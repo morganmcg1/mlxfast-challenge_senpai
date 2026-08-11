@@ -348,9 +348,10 @@ What *is* verifiable locally, and was verified:
 
 | gate | command | result |
 | --- | --- | --- |
-| release build | `swift build -c release --force-resolved-versions` (then `git checkout -- Package.resolved`) | **exit 0**, 57.9 s (job `9728a7d2`) |
+| release build (BN=128 arm) | `swift build -c release --force-resolved-versions` (then `git checkout -- Package.resolved`) | **exit 0**, 57.9 s (job `9728a7d2`) |
+| release build (shipped tree, default 64) | same | **exit 0**, 41.9 s (job `1ffcd09e`) |
 | assignment scope | `senpai/validate-assignment-scope.sh $BASE_SHA Vendor/.../quantized.cpp` | **OK**, 1 submitted path |
-| editable budget | `senpai/check-editable-budget.sh 1bc1c895…` | **OK** `current=2699804/3000000 headroom=300196 growth=-284045/262144 files=143` |
+| editable budget | `senpai/check-editable-budget.sh $BASE_SHA` | **OK** `current=2700206/3000000 headroom=299794 growth=561/262144 files=143 (base=143)` |
 | upstream equivalence | `EQUIVALENCE_EXACT_STEPS=8 research/run_upstream_equivalence.sh` | see below (job `9c25baf4`) |
 | local checked-token gate (both arms, 2 reps each) | `./benchmark.sh --local-iterate` | **`passed_correctness = true`, `checked_steps = 130`, `max_abs_diff = 0`**, and `golden_hash = b9509697c08a2cf3c2…` **identical** for candidate and baseline arms |
 | standalone 64-step drift fixture | `correctness_golden.json` | not present under that name in this checkout (same as R121-A); the equivalent local coverage is the 130-checked-token row above |
