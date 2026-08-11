@@ -2,7 +2,7 @@
 
 Author: meridian (Maple research advisor, AI agent)
 Written: 2026-08-11 ~10:45Z, ~6.25 h before close
-Last revised: 2026-08-11 ~16:31Z — **§10 added: the closing addendum. It confirms the channel
+Last revised: 2026-08-11 ~16:38Z — **§10 added: the closing addendum. It confirms the channel
 stand-down by inspection, hands over the one packet worth a slot
 (`DARKBLOOM_STEEL_PREFILL_TILE=0`), retracts a receipt-to-mechanism attribution of mine as **error
 10** (GATE A has no ranked reading), records the frontier's move to `4ea72c3` — which makes every
@@ -13,7 +13,12 @@ with §10(vii) = **error 11**: two artifacts this file cites live on closed-unme
 not in your checkout, and `git branch -r` in this clone is a stale cache that will lie to you about
 that. Rules 21 and 22 are its generalisation. **§10(viii) is the last word: a 16:27Z pre-close read —
 178 rows, nothing in flight, no acceptance ever, bar unchanged — with the freshness asymmetry spelled
-out (slot-free is observed *now*; the bar is inferred and only 13:51Z-fresh).** Read §10 before acting
+out (slot-free is observed *now*; the bar is inferred and only 13:51Z-fresh).** §10(ix) and §10(x)
+bank two late studies that change no decision but are measurements worth keeping: a census of all 163
+W&B runs (only 14 are real receipts, all one student's, all rejected) that re-derives the candidate-
+vs-baseline prefill noise ratio arm 5 depends on and corrects two mislabelled "official" run links;
+and a source audit showing the M4 can never be an instrument for the M5 `_nax` kernel, with the exact
+gate line and the reason the obvious override is a trap. Read §10 before acting
 on any level in §1–§7.
 Run `python3 research/tools/handoff_linkcheck.py` after any edit to this file or the brief.**
 Previously revised: 2026-08-11 ~15:58Z — **All sixteen fleet arms are
@@ -1461,7 +1466,7 @@ here rather than left implicit.
 
 ---
 
-## 10. Closing addendum, 16:07–16:31Z — stand-down, handover, error 10, a moved frontier, and the last channel read
+## 10. Closing addendum, 16:07–16:38Z — stand-down, handover, error 10, a moved frontier, and the last channel read
 
 Written ~50 minutes before close, after §9 was already final. Nothing here changes a fleet result;
 it changes what may be *inherited* from this file.
@@ -1676,7 +1681,7 @@ exit code (4) with rule 23 quoted inline, because a get_prs artifact only ever c
 call that wrote it happened to request. A "the numbers are reproducible" claim is worth exactly as
 much as the last time someone ran the script, which is the same rule again.
 
-### §10(viii) Final pre-close read, 16:27Z — slot still free, bar still 2.6195531, stand-down still holds
+### (viii) Final pre-close read, 16:27Z — slot still free, bar still 2.6195531, stand-down still holds
 
 Thirty-three minutes before close I spent one read-only `mlxfast submissions` listing (no draw; the
 listing is free) to make the handoff's last line a measurement rather than a twenty-one-minute-old
@@ -1722,6 +1727,93 @@ directions: clean tree passes, and planted violations in Python and in shell are
 earlier version of the same check also flagged a literal backtick before `mlxfast`, which made every
 docstring that merely *cites* the CLI as its data provenance fail — a check that cries wolf on prose
 gets deleted by the next person, so it now matches execution syntax only.
+
+### (ix) The receipt census — an independent re-derivation of the two numbers arm 5 rests on, plus one pointer correction
+
+Two studies I commissioned earlier landed after the campaign was already stood down. Neither changes
+a decision — we are firing nothing — but both are *measurements*, and measurements outlive campaigns,
+so they go in the record rather than in a lost scrollback.
+
+The first walked the whole W&B project (`wandb-applied-ai-team/mlxfast-maple`, **163 runs**) and asked
+a narrow question: which runs actually carry an official receipt, and what is the dispersion between
+receipts of *identical code*? The schema that identifies a real receipt is
+`summary.score` + `decode_seconds_per_token` + `prefill_seconds_per_token` +
+`baseline_decode_seconds_per_token` + `baseline_prefill_seconds_per_token` + `decode_speedup` +
+`prefill_speedup` + `config.submission_id` + `config.source_commit` +
+`config.host = "official M5 Max (ranked)"`. **Exactly 14 of the 163 runs carry all of it.** All 14 are
+`student=maple-tanjiro`, and all 14 are rejected — which is just the 0/107 story of §4 seen from the
+W&B side rather than the CLI side, and is worth knowing because it means *the project's own run list
+is not a sample of wins; it is a sample of one student's losses.*
+
+What the 14 give you is identical-code dispersion, and it reproduces §6.5 from a different direction:
+
+| quantity | census value | where §6.5/§1a already stood |
+| --- | --- | --- |
+| score sd, `r93-null-1..5` (n=5) | **0.374 %** | 0.3728 % predictive on the same five nulls — same number |
+| score sd, 8 null-equivalent receipts | **0.350 %** | consistent; the wider n does not inflate it |
+| candidate decode s/tok | 0.27–0.29 % | — |
+| **candidate prefill s/tok** | **0.103 %** | 0.075–0.095 % (arm-5 leg). Same order, slightly wider |
+| **baseline prefill s/tok** | **1.72 %** | 1.93–2.13 % (nuisance leg). Same order, slightly tighter |
+| baseline decode s/tok | 0.119 % | — |
+| `prefill_speedup` cv | 1.78 % | dominated by the baseline leg, as expected |
+
+The load-bearing line is the ratio: **the baseline prefill leg is ≈14× noisier than the baseline
+decode leg**, and it therefore supplies ~80 % of the session-factor variance. That is the same 0.805
+share logged independently by `x5nontxm` (r106e: `sd_session_factor_pct` 0.537, `sd_ln_official_pct`
+0.373) and `xuncd3kc` (r106h: `sigma_L_pct` 0.537, `sigma_cs_pct` 0.183, `e8_mde_3sigma_cs_pct`
+0.778), and it is *why* the arm-5 recommendation in §7 is phrased as "fire it on the candidate prefill
+leg": the candidate leg is the quiet one, the baseline leg is the loud one, and a paired candidate-side
+comparison never has to pay the loud leg's variance. Note the two small disagreements in the table
+above (0.103 vs 0.075–0.095, 1.72 vs 1.93–2.13). They are different receipt subsets, not a
+contradiction, and the honest summary is **candidate prefill ≈0.08–0.11 %, baseline prefill
+≈1.7–2.1 %** — a ratio of ~20×, which is the number to quote if you must quote one.
+
+**Pointer correction for anyone chasing links.** `research/nezuko-r85-ladder-result.md` (line 492) and
+frieren's r106e submission note both present `7ep17pqq` (and `ut3wdjct` as its "dispatch context") as
+*official* runs. They are not: neither carries the receipt schema above; both are local ladder
+microbenchmarks. Nothing downstream depended on that mislabel as far as I can tell — the numbers used
+elsewhere came from the CLI's `diff` column, not from those runs — but if you open those links
+expecting an M5 receipt you will be reading M4 ladder timings, which is exactly the class of mistake
+error 2 in §0 was.
+
+### (x) Can the M4 be made to answer an M5 `_nax` question? No — and here is the exact line that says so
+
+The second study asked whether the local M4 Pro could be turned into an instrument for the `_nax`
+prefill kernel that actually runs on the ranked M5. The answer is a clean no, with a specific
+mechanism, and it closes a line of speculation that has recurred all campaign.
+
+The gate is `mlx::core::metal::is_nax_available()` in `device.cpp:913-931`; the decisive line is
+**`:926`**, `gen >= (arch == 'p' ? 18 : 17)`. M4 Pro reports `g16`, so it fails the test permanently —
+this is not a runtime toggle or a capability probe that could be satisfied by a driver or a build flag.
+Two further facts kill the workarounds:
+
+1. `device.cpp`, `device.h`, `mlx/utils.h` and `jit_kernels.cpp` are **not in `benchmark.json`
+   `editablePaths`**, so the gate cannot be edited inside a legal submission anyway.
+2. `MLX_METAL_GPU_ARCH` *can* forge `gen=17` and open the gate. **Do not.** It makes the compiler emit
+   NAX intrinsics for hardware that has none; you get a crash or, worse, silent garbage that looks
+   like a timing result. This is a trap of the same shape as the golden-hash and `mlxfast sync` traps
+   in §8 — an override that "works" right up until it silently invalidates everything downstream.
+
+The study is still useful for a *different* target, so the map it produced is recorded here. The M4's
+actual quantized-matmul kernel is `nvfp4_gather_qmm_rhs_nt` → `fp_gather_qmm_rhs`
+(`fp_quantized.h:1994`; threadgroup staging at `:2037-2038`; K-loop in `quantized_utils.h:14-29`). The
+loader's `dst` is a mutable member (`fp_quantized.h:360`), so double-buffering the stage is a small
+local edit rather than a rewrite. **The single highest-value fact in the report:** the runtime actually
+compiles the *embedded twins* `mlx-generated/quantized_utils.cpp:20` and
+`mlx-generated/fp_quantized.cpp:2151` — both editable — so **editing only the `.h` changes nothing you
+can measure.** Anyone who has ever "optimised" a header here and measured exactly zero was not
+measuring noise; they were measuring an unbuilt file. The non-`_nax` tile shape is hardcoded at
+`quantized.cpp:1708` (`bm=16, bn=32, bk=32`) and is the natural place for a `darkbloom_*` knob.
+
+And the reason it stays a *different* target: the two paths are structurally unlike. `_nax` stages
+only W, hoisting A into registers (`fp_quantized_nax.h:1876-1888`), while the non-`_nax` path stages
+both `Xs` and `Ws`; tile geometry differs by 4–16×; and `gemm_loop_aligned` is shared with the affine
+path, so a change there is not even isolated to the quantized case. A win on the M4 kernel is a valid
+standalone result. It is **weak evidence** about the M5 `_nax` kernel, and §2's structural finding —
+gen 16 never selects `_nax`, and 94.2 % of M4 prefill GPU time goes to kernels the M5 never runs —
+applies with full force. The gate line `:926` is now the *mechanism* behind that percentage, which is
+the only thing this study really adds to §2: we knew M4 prefill did not transplant, and now we know
+why, and that no build flag fixes it.
 
 **For the inheritor:** `python3 research/tools/handoff_linkcheck.py` exits 0 iff every path cited in
 the two handoff documents exists, every `§N` resolves in one of them, and the load-bearing constants
