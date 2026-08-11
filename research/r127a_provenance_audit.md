@@ -1507,3 +1507,82 @@ manifest, names no PR, F17); the `1.012550 / 1.024492` pair (appear nowhere, F17
 tree digests (not local git objects — the tree needs the r106e rebuild, §9.5); and `8882`'s attribution
 to a *scored* denominator (the figure is real and nezuko's, the 1023-step denominator is not a scored
 one, F16).
+
+---
+
+## §13 The work order as an executable, verified patch
+
+§12 is prose, and prose work orders decay: the next reader has to re-find 28 spans by hand in two
+documents plus a script, at line numbers that move the first time anybody edits above them. So §12 is
+also shipped as a **data-driven applier** with baked-in content guards.
+
+`research/tools/r127a_s13_apply_work_order.py` — 28 rows, one per §12 edit, each carrying the tier
+(D/C/P), the finding it discharges, the target `file:line`, the exact replacement text, and an **md5 of
+the text it expects to find** at advisor head `6778867dc8579eff3302d49d064c2bc0cf60ead2`. Two edit
+kinds: `span` (replace whole lines) and `subs` (exact substring replacements on one named line). It is
+idempotent — a row whose target already reads as the replacement reports `already applied`, not
+`DRIFT` — and it applies per file in descending line order, so line drift between rows cannot happen.
+
+```
+python3 research/tools/r127a_s13_apply_work_order.py            # --check: verify all 28 guards
+python3 research/tools/r127a_s13_apply_work_order.py --emit-patch > wo.patch
+python3 research/tools/r127a_s13_apply_work_order.py --emit-patch --tiers D          # decision-grade only
+python3 research/tools/r127a_s13_apply_work_order.py --emit-patch --only A2,A3,A4    # minimum useful set
+python3 research/tools/r127a_s13_apply_work_order.py --apply --root /path/to/worktree
+python3 research/tools/r127a_s13_apply_work_order.py --print-guards                  # re-bake after drift
+```
+
+`--apply` refuses to run without an explicit `--root`, because this branch does not own
+`maple_endgame_handoff_manifest.md`, `CURRENT_RESEARCH_STATE.md` or `slot_holder_arithmetic.py`. The
+three pre-emitted patches are committed instead:
+
+| artifact | rows | lines | what it is |
+|---|---|---|---|
+| `research/artifacts/r127a/work_order_all.patch` | 28 (13 D, 11 C, 4 P) | 373 | the whole work order |
+| `research/artifacts/r127a/work_order_D_tier.patch` | 13 | 228 | decision-grade only (F1, F19, F20, F21, F17) |
+| `research/artifacts/r127a/work_order_A2_A3_A4.patch` | 3 | 54 | the minimum useful set: stop screening against a bar ≈30 % too low |
+
+**Verification performed** (worktree `git worktree add --detach /tmp/r127a_head 6778867d…`, i.e. a
+pristine advisor head, then removed):
+
+1. `--check` → **28/28 targets verified** against the baked guards.
+2. `git apply --check -p1` → **CLEAN** for all three patches independently.
+3. Full patch applied; `git status` showed exactly the three intended files modified.
+4. The patched `research/tools/slot_holder_arithmetic.py` **runs** and prints the corrected block:
+   `z (measured official sd) 3.383 -> normal p = 0.036 %` beside fern's `z = 2.344 -> 0.95 %` and the
+   12-programme `z = 2.265 -> 1.18 %`. Section E's `ratio of odds ours/theirs: 3.3x` still means what
+   it meant — the added σ is reported separately and does **not** displace fern's σ in the sections
+   that consume it downstream.
+5. Patched prose read end-to-end at §0 L62, §1, §4/§4a/§4b/§4c, §5, §6.5/§6.5b/§6.5c, §6.6, §7 and
+   `CRS:3505-3525` for self-contradiction.
+
+**Step 5 found three more copies**, now rows A19b/A19c/A19d, which is the point of doing this
+mechanically rather than by hand:
+
+- **A19b** (`manifest:958-962`) — a *second* statement of the "between-program leakage" discount and of
+  the `[≈0 %, 1.5 %]` bracket, four lines below A18's table. Patching only A18 left §6.5c retracting
+  the bracket in a table and re-asserting it in the paragraph underneath.
+- **A19c** (`manifest:896-898`) — the §6.5b retraction still told a successor to "plan against
+  `[≈0 %, 1.5 %]`".
+- **A19d** (`manifest:62`) — §0's executive summary carried a *third* copy, and §0 is the one section a
+  successor is guaranteed to read.
+
+That is F19's own lesson turned on itself: a bracket quoted in four places is four edits, and the only
+reliable way to find copies two through four is to patch, read the result, and look for the document
+contradicting itself. It is also rule 14 (§6.5c: "when you correct a reference point, recompute every
+row that shares it, in a script, in one pass") applied to prose rather than to arithmetic.
+
+**Two coherence fixes made while doing this**, both worth naming because they are the kind of thing a
+prose work order silently gets wrong:
+
+- A24's first draft replaced fern's σ with the measured one in the module-level constant, which
+  silently changed section E's odds ratio and section F's cumulative table. Fixed: `p_norm` still comes
+  from `DRAW_SD`, and the measured-σ figure is reported as a separate line.
+- A21's first draft cited the elasticity sentence as `CRS:3515`, which is correct at head and **wrong
+  the moment the patch lands** (it moves to 3521). Replaced with a content-based reference.
+
+**What this does not do.** It does not touch `Sources/`, `Vendor/` or `benchmark.json`; it runs no
+build, no benchmark and no GPU; and it does not write to the three target files from this branch. If
+the advisor branch has moved past `6778867d`, `--check` will name every drifted row rather than apply a
+stale edit, and `--print-guards` re-bakes the guards in one pass.
+

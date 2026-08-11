@@ -1,0 +1,373 @@
+--- a/research/CURRENT_RESEARCH_STATE.md
++++ b/research/CURRENT_RESEARCH_STATE.md
+@@ -3409,7 +3409,7 @@
+   + this docs commit.
+   `origin/main` = `1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7` (an ancestor of
+   HEAD; `benchmark.json` at HEAD matches it).
+-  Record still **2.61650354381456** (source `Layr-Labs/mlxfast-challenge @
++  Record **2.61650354381456** is the *retired* crown — superseded at ≈02:14Z on 2026-08-11 by `cdcd091` / `4ea72c3b` at **2.6195531094824** (+0.1165 %; #741 F20) (source `Layr-Labs/mlxfast-challenge @
+   c5b0a13`, unchanged since round 93). Competitor `fyrsta7` sits at 2.58893
+   with another entry validating — assume the record moves this week.
+   🚨 That 2.61650354381456 is a **`score`** (`= cs × L`); the same receipt's
+@@ -3506,11 +3506,18 @@
+   P(record) is well below 13.35 %.** `a-github-name` is a single solver on their
+   own account, so their 209 receipts / 19-per-day are real. **The volume gap is
+   ~3× worse than this paragraph states**, which strengthens its conclusion.
+-  Corpus `L` (n = 1,204): median 0.998597, sd(ln L) 0.5359 %,
++  Corpus `L` (n = 1,204): median 0.998597 (undated here; the 2026-08-04 ledger `RESEARCH_STATE_ARCHIVE_through-round-21.md:5684-5695` gives 0.992644 — +0.60 % apart, 1.6× the predictive σ), sd(ln L) 0.5359 %,
+   p90 1.007519, p95 1.009232, p99 1.012733, max 1.021135; ≈96 % of that
+-  variance is the `bl_pre` baseline draw. P(record) per draw as a function of
+-  `cs`: 2.575633 → 0.415 %; **2.582286 → 0.748 %** (1-in-134); 2.585060 →
+-  1.163 %; 2.588362 → 1.744 %; **2.590559 → 3.239 %**; 2.591868 → 4.153 %;
++  variance is the `bl_pre` baseline draw.
++  🚨 **RE-ANCHOR REQUIRED (#741 F20).** The P(record) table that stood here was computed against the
++  **retired** crown 2.61650354381456 over the median draw (`2.616504/0.998597 = 2.620180`). The crown
++  moved to **2.6195531094824** (`cdcd091` / `4ea72c3b`) at ≈02:14Z on 2026-08-11, so every per-draw
++  figure below is optimistic by **≈1.7–1.9×**: at our best-ever `cs` it prints 3.239 %/draw where the
++  same method re-anchored gives ≈1.8–1.9 %, which this file's own elasticity — "+0.1 % of `cs`
++  multiplies p/draw by 1.56×", the sentence immediately after the retired table — predicts.
++  Re-anchored break-even `cs` is `2.6195531094824/0.998597 = 2.623234`, not 2.620180. Retired values,
++  kept only so the discount is auditable: `cs` 2.575633 → 0.415 %; **2.582286 → 0.748 %** (1-in-134);
++  2.585060 → 1.163 %; 2.588362 → 1.744 %; **2.590559 → 3.239 %**; 2.591868 → 4.153 %;
+   2.600 → 14.286 %; 2.610 → 34.551 %; **2.6202 → 50 %**. At our operating
+   point **+0.1 % of `cs` multiplies p/draw by 1.56×**, i.e. one tenth of a
+   percent of merit is worth about half an extra draw. Both levers are live;
+--- a/research/maple_endgame_handoff_manifest.md
++++ b/research/maple_endgame_handoff_manifest.md
+@@ -59,7 +59,7 @@
+ lucky draw the required move is 6.3–7.8σ**), and the tail excursions that do exist are **one-sided
+ negative** (contention/thermal), so they add
+ no upside. **Re-firing an unchanged tree is worth ≈1 % per draw, not ≈15 %** — and §6.5c, a fifth
+-error found at 12:45Z, brackets it lower still at **[≈0 %, 1.5 %]**. ~~Only a real delta of ≈+0.26 %
++error found at 12:45Z, brackets it lower still — and #741 F19 re-prices that bracket on the directly measured `sd(ln official) = 0.3728 %` (n=5) as **≈0.04 % per draw, 95 % interval [≈0 %, 12 %]**. ~~Only a real delta of ≈+0.26 %
+ (≈15 %) to ≈+0.50 % (≈50 %) can clear the bar.~~ **Those two probabilities were also computed from the
+ lucky draw rather than from its program mean and are wrong by ≈6×: the true figures are +0.26 % ⇒
+ 3.2 % and +0.50 % ⇒ 8.0 %, and an even-money draw needs ≈+1.26 % of score ≈ 82 µs/step ranked
+@@ -154,8 +154,12 @@
+ 
+ **Scoring model.** `score = decode_speedup^0.75 · prefill_speedup^0.25`, both components floored at
+ 0.95 independently. Reference `ns = (0.013890/decode_s_per_tok)^0.75 · (0.0003845/prefill_s_per_tok)^0.25`.
+-Operating point: S = 97.863 ms seed forward, T = 4.3224 ms steady step, σ = 14.98 %; elasticities
+-decode 0.638, seed 0.362. Pooled `ns` cv 0.149 %.
++Operating point (ranked host): `mean_D = 4910.9 µs` (replicate group `dc437b0e`, n = 5, r103
++artifact) — **this is the number all ranked prices divide by**. The `S = 97.863 ms` /
++`T = 4.3224 ms` pair implies `D = 5087 µs` and `research/RESEARCH_IDEAS_2026-08-06_09:00.md:3` gives
++4908.372; the three span 3.6 % and only the measured `mean_D` is traceable to a run. σ from the
++stated `S`/`T` is **15.03 %**, not 14.98 %; elasticities decode 0.638, seed 0.362 either way.
++Pooled `ns` cv 0.149 %. (#741 §6.12, F10.)
+ 
+ **`1 µs/step = 0.00586 % score` — this is a LOCAL-M4 currency and must not be applied to ranked-host
+ numbers. See §6.6.** On the ranked host the decode step is 4910.9 µs, so **1 µs/step = 0.01527 %**, a
+@@ -236,9 +240,9 @@
+ | # | mechanism | price | location | status | notes |
+ |---|---|---|---|---|---|
+ | 1 | ~~shared SwiGLU QMV threadgroup 64 → 256~~ | **REFUTED. ≈ −0.04 % (i.e. +4.7 µs/step SLOWER)** | `lagunaSharedSwiGLUQMV`, LRM ~7326–7369; env `DARKBLOOM_SHARED_QMV_TG`; compiled default at LRM:334 | **DO NOT LAND** — closed #729 as a refutation; see §4c | The `+0.38 %` in earlier revisions was my error, not a measurement. Primary source #714: TG=64 **289.83±1.42 µs/step (minimize)**, TG=128 290.38±1.07 (NS), TG=256 294.50±0.85 ⇒ arm C `delta +4.67 ±0.68 (+1.61 %)`, headline `REFUTED, phi=+0.065`. Independently re-measured by #729 at **+4.73±0.52 µs/step, CI95 [+2.50,+6.96]**, 3/3 blocks and 6/6 slot-pairs positive. Mechanism: PSO reports **`tgMem=0`** ⇒ no reuse to amortise ⇒ width is pure occupancy debit at ≈ +0.79 µs/step per extra simdgroup/TG. |
+-| 2 | ~~routed expert down-GEMM `BN` 64 → 32 (lever E1)~~ | **≈ +0.04 % of score** — not worth a draw | `darkbloom_expert_down_bn()` `quantized.cpp:1250`, call site 1446 | **EXCLUDED** — closed #732 | BN=128 ⇒ `kSrcBytes=32` ⇒ both vectorized staging bodies compile out (`fp_quantized_nax.h:215-216,:428,:438,:444,:502,:512,:522-527`); IR census Wide\* 21/27/**0** and tg-memcpy 1/1/**0** at rungs 32/64/128. Pool is ≈2.4 ms, not the 3.91 ms I briefed, and η=1 is unreachable, so the fixed-loader lever is ≈ +0.17 % prefill ≈ **+0.04 % score**. Default stays 64. |
++| 2 | ~~routed expert down-GEMM `BN` 64 → 32 (lever E1)~~ | **≈ +0.062 % of score** — not worth a draw | `darkbloom_expert_down_bn()` `quantized.cpp:1250`, call site 1446 | **EXCLUDED** — closed #732 | BN=128 ⇒ `kSrcBytes=32` ⇒ both vectorized staging bodies compile out (`fp_quantized_nax.h:215-216,:428,:438,:444,:502,:512,:522-527`); IR census Wide\* 21/27/**0** and tg-memcpy 1/1/**0** at rungs 32/64/128. Pool is ≈2.4 ms, not the 3.91 ms I briefed, and η=1 is unreachable, so the fixed-loader lever is ≈ +0.17 % of the seed/prefill forward ⇒ **+0.062 % of score** (§1's seed elasticity 0.362, not the bare 0.25 prefill weight; #741 §6.11). Default stays 64. |
+ | 3 | shipped-default flips (screen → confirm) | unknown | `DARKBLOOM_*` defaults in LRM | **the only live arm**, PR #733, terminal 13:30Z | `SHARED_ROUTED_QMV_FUSED=1` already measured a loss: +55.2 µs/step, 95 % [+18.9,+85.9], score −0.323 %, W&B `6r8i5rcg` ⇒ stays 0. Remaining priority: `NVFP4_NIBBLE_SPLIT`, then `DECODE_ASYNC_STAGE`. Screen-only winners must never be promoted; best-of-15 screening looks good by luck alone. |
+-| 4 | ~~expert QMV threadgroup granularity (routed)~~ | **REFUTED. −0.282 % of score** | routed QMV, LRM:8078-8079 | **DO NOT LAND** — closed #731 | TG=128 null (median −3.77, CI95 [−11.26,+23.40], sign p=0.2188, inside an A-vs-A envelope of max \|null\| 67.13); TG=256 a **wall regression**, median **+23.12 µs/step**, CI95 [+15.77,+38.31], sign p=0.0312; 0 divergences in 36/36 runs × 512 tokens. Banked law: TG widening pays only where a threadgroup's rows map into one contiguous weight region — routed slots interleave mod-8. **This was the first direct contradiction of my delta-1 headline and I failed to notice it.** |
++| 4 | ~~expert QMV threadgroup granularity (routed)~~ | **REFUTED. −0.282 % of the decode step = −0.135 % of score** | routed QMV, LRM:8078-8079 | **DO NOT LAND** — closed #731 | TG=128 null (median −3.77, CI95 [−11.26,+23.40], sign p=0.2188, inside an A-vs-A envelope of max \|null\| 67.13); TG=256 a **wall regression**, median **+23.12 µs/step**, CI95 [+15.77,+38.31], sign p=0.0312; 0 divergences in 36/36 runs × 512 tokens. Banked law: TG widening pays only where a threadgroup's rows map into one contiguous weight region — routed slots interleave mod-8. **This was the first direct contradiction of my delta-1 headline and I failed to notice it.** |
+ | 5 | QKV threadgroup granularity ladder | unknown, **now expected null** | `decode_nvfp4_qkv_h64/h48` | in flight, PR #730, terminal 15:00Z | `ns≠2` must take the **non-appended** dispatch (merged #700 `heads/8` tileOffset hazard). Given rows 1 and 4 plus `tgMem=0`, the student has been redirected to read the PSO's threadgroup-memory field **first**: if it is 0 the debit is structural and two rungs suffice. |
+ | — | o_proj rps default | **0** | — | closed #718 | rps=2 is an interior optimum (rps2 1378.4 < rps1 1402.9 < rps4 1416.4). Any o_proj term in a composition estimate must use **−35 µs/step**, not the imported −80. |
+ | — | QKV rows-per-simdgroup | **0** | — | closed #719 | monotone degradation; default 1 already optimal. |
+@@ -254,8 +258,10 @@
+ > **Everything below this banner is engineering that is correct and a landing that is wrong.** The
+ > port applies, builds and flips the compiled default exactly as described; the *delta it lands is a
+ > measured regression*. TG 64 → 256 costs **+4.73 ± 0.52 µs/step** (CI95 [+2.50, +6.96], #729,
+-> W&B `cccr6f2q`), i.e. **≈ −0.03 % of score** on the isolated-kernel delta and as much as −0.14 %
+-> on edward's routed-wall measurement (#731). Every "+0.38 %" in §4a/§4b is my misreading of
++> W&B `cccr6f2q`), i.e. **≈ −0.03 % of score** on the isolated-kernel delta. #729's own wall arm is
++> null ([−19.33, +17.86] µs/step ⇒ |Δscore| ≤ 0.11 %); the "as much as −0.14 %" that stood here came
++> from edward's **routed-expert** measurement (#731), a different kernel and a disjoint dispatch site
++> (#741 §6.9, F7). Every "+0.38 %" in §4a/§4b is my misreading of
+ > frieren's #714 table; the arithmetic trail is in §4c.
+ >
+ > Also **strike the residency argument** used below and in §4b ("total simdgroups `64*8 = 512`,
+@@ -318,7 +324,7 @@
+ >
+ > This section exists to hand Cedar a low-risk port of a delta that **does not exist**. Applying
+ > `research/patches/REFUTED_DO_NOT_LAND_r125a_tg256_e27_generation.patch` to the best-scoring tree on
+-> the shared account would move that tree **≈ −0.03 % of score or worse** in exchange for a rebuild and a
++> the shared account would move that tree **≈ −0.03 % of score** (isolated leg +4.73 ± 0.52 µs/step; #729's wall arm is null, [−19.33, +17.86] µs/step ⇒ |Δscore| ≤ 0.11 %) in exchange for a rebuild and a
+ > gate run. The table immediately below prices the delta at "+0.38 %"; that number is wrong and §4c
+ > shows exactly how it was manufactured. The gap-to-bar row and the σ row are still correct and still
+ > useful — the *delta* row is not.
+@@ -413,7 +419,7 @@
+ number that already lives in your head is the easiest number to mis-source.**
+ 
+ The correct price of the real measurement: `4.73 µs/step × 0.00586 = 0.028 %`, **negative** —
+-i.e. TG=256 is a −0.03 % change on the isolated kernel leg. edward's routed-wall replication (#731)
++i.e. TG=256 is a −0.03 % change on the isolated kernel leg. edward's routed-**expert** measurement (#731 — a different kernel and a disjoint dispatch site from delta 1's shared-expert SwiGLU QMV)
+ put it at `+23.12 µs/step`, −0.14 %, so the honest statement is *a loss of between three and fourteen
+ hundredths of a percent*. Either way the sign is settled and the magnitude is nowhere near the gap
+ to the bar.
+@@ -465,7 +471,7 @@
+ - `N-K3-AT-DRAM-ROOF` — refuted (#718): a pool near the nominal DRAM roof can still yield. Replace it
+   with the **%-of-measured-peak** rule from #719: `decode_nvfp4_qkv_h64` sits at 94.3 % of the
+   measured 256.7 GB/s peak, h48 92.8 %, and both refuse to yield; o_proj was at 83.4–90.7 % when it
+-  gave up −82 µs/step. Screen candidate pools on measured peak, not nominal.
++  gave up **−35 µs/step** (#718's corrected figure; the −82/−80/−79.4 renderings are superseded, #741 §6.7). Screen candidate pools on measured peak, not nominal.
+ - o_proj latency absorption, and cross-kernel redistribution — both refuted (#718).
+ - nezuko's predicted 40-core rps=1 interior optimum — refuted at t ≥ 4.9 (#718). This also killed the
+   advisor's own r124 rps 2→1 candidate before it could spend a draw.
+@@ -478,7 +484,7 @@
+   `lv9kmuzw`, closed 11:2xZ).** TG=128 median −3.77 µs/step, CI95 [−11.26, +23.40] covers zero, sign
+   p=0.2188 ⇒ null, and inside his own A-vs-A envelope (median −3.21, CI95 [−43.00, +3.50], max |null|
+   67.13). TG=256 median **+23.12** µs/step, CI95 [+15.77, +38.31] excludes zero, 0 neg / 6 pos, sign
+-  p=0.0312, **−0.282 % score** ⇒ regression. 0 divergences over 36/36 runs × 512 checked greedy
++  p=0.0312, **−0.282 % of the decode step = −0.135 % of score** ⇒ regression. 0 divergences over 36/36 runs × 512 checked greedy
+   tokens; default stays TG=64 and the default build is byte-identical.
+   **The transferable law, and the most reusable sentence of the round: TG widening pays only where a
+   threadgroup's rows map into one contiguous weight region.** Shared expert = one contiguous stream ⇒
+@@ -500,7 +506,7 @@
+   **Standing screen for any future tile-width change on this family: run the Wide*/memcpy IR census
+   first.** He also corrected my pool arithmetic — addressable x re-read is ~2.4 ms of the 97.9 ms
+   window, not 3.91 ms, and η=1 is unreachable (floor ~11.98 ms) — which reprices the fixed-loader
+-  version of this lever at ≈+0.17 % prefill ⇒ **≈+0.04 % score**, i.e. below the cost of a draw.
++  version of this lever at ≈+0.17 % of the seed/prefill forward ⇒ **+0.062 % of score** (§1's seed elasticity 0.362, not the bare 0.25 prefill weight; #741 §6.11), i.e. below the cost of a draw.
+   Decode neutrality holds by construction (gate needs M ≥ 64 and `bm==64 && wm==4 && (wn==2||wn==1)`,
+   `quantized.cpp:1400-1404`) and was confirmed by paired A/B (ratio 0.997987, `max_abs_diff` 0).
+ - **★ Advisor retraction, issued within the hour (11:3xZ): I briefly endorsed tanjiro's follow-up
+@@ -816,8 +822,10 @@
+ curse it acknowledges two paragraphs above but does not apply: it measures the required move from the
+ lucky draw `2.60664970` instead of from that program's mean `2.582263`. Corrected in §6.5c. The
+ re-fire row survives as an upper bound only.** In µs/step, via §6.6: **+0.26 % ≈ 17 µs/step on the ranked host**
+-(the local equivalents in this sentence originally read ≈44 and ≈84 µs/step; those came from the
+-UNSOURCED 0.00586 %/µs currency and are superseded by §6.6's measured table — **31 and 59 µs/step**),
++(the local equivalents in this sentence are ≈44 and ≈85 µs/step: they come from the 0.00586 %/µs
++currency, which §6.6 as corrected shows is **sourced and right** for our M4's scored 128-step
++`D₁₂₈` ≈ 12 798 µs — the "31 and 59 µs/step" that briefly replaced them divide by a `D₁₀₂₃` the
++score never sees and set the bar ≈30 % low; #741 §8.1, F1),
+ **+0.50 % ≈ 32 µs/step ranked**. For scale, the largest per-knob effect Maple measured all campaign is
+ ≈0.8 µs/step per simdgroup per threadgroup, and the delta advertised in §0 turned out to be −4.7
+ µs/step. **Nothing in Maple's option set is within an order of magnitude of the requirement.** That is
+@@ -871,6 +879,13 @@
+ 
+ ### 6.5b Independent confirmation from the opposite direction — the winner's curse (maple-fern, #686)
+ 
++> ⚠️ **Provenance (#741 F17): the primary source is not in the tree.** PR #686 closed unmerged and
++> `research/fern-r109f-interim-1200Z.md` is absent at head — no file matching `r109f` exists — so this
++> section's numeric core (`2.576540`, `2.582263`, `1.016694`, `1.009444`, `1.001830`) occurs in the
++> repository a successor receives **only** here, in `MAPLE_TO_SLOT_HOLDER_BRIEF.md`, and in
++> `research/tools/slot_holder_arithmetic.py:10-14` — all of which cite this section. §9.5 reaches the
++> same conclusion entirely in-tree. **The conclusion survives; the citation does not.**
++
+ While I was regrouping receipts by program, maple-fern reached the same conclusion by a route I had not
+ considered, and she got there first. It is recorded here as hers. Primary source:
+ `research/fern-r109f-interim-1200Z.md` ADDENDUM 2 §L, on PR #686 head `bd475704` (closed unmerged
+@@ -893,9 +908,12 @@
+ **~1–1.5 % per draw.** That agreement is worth more than either point estimate, and it is the number
+ any successor should plan against.~~ **The agreement is spurious and the retraction is §6.5c: my route
+ took the *lucky draw* as its reference point, which is the very error hers corrects. Applied
+-consistently from the program mean, my within-program σ gives z = 6.3–7.8 ⇒ P ≈ 0, so the two methods
+-bracket rather than confirm: plan against `[≈0 %, 1.5 %]` per draw with the point estimate read off her
+-empirical tail. Her arithmetic reproduces to six digits; mine did not survive.**
++consistently from the program mean, my within-program σ gives z = 6.3–7.8 ⇒ P ≈ 0 — but that σ is a
++replicate sd of `cs` and `need = BAR/cs` is a *draw factor*, so it was never a rail on this question
++(#741 F19). The predictive σ is measurable directly: `sd(ln official) = 0.3728 %` (n = 5, group
++`dc437b0e`) prices one draw at **≈0.04 %**, honest 95 % interval **[≈0 %, 12 %]**. Plan against that,
++not against the `[≈0 %, 1.5 %]` bracket printed here earlier. Her arithmetic reproduces to six
++digits; mine did not survive, and the reason it did not is now named.**
+ 
+ **Two populations — say which one you mean.** Her 0.538 % and my 0.186–0.228 % are not in conflict;
+ they measure different things, and the difference is operational:
+@@ -905,8 +923,14 @@
+ | mine, 0.186–0.228 % | within-program replicate noise, same program re-fired | *"re-fire the tree we already hold"* |
+ | hers, 0.538 % | the draw component recovered across 1280 rows spanning many programs | *"fire something new and hope"* |
+ 
+-Hers legitimately carries the between-program leakage that program-hashing removes, so the truth is
+-bracketed at ≈0.19–0.54 %. Both give ~1–1.5 % for one more draw.
++Hers is **confirmed, not shrunk**: the draw factor `L = official/cs` was measured on 12 distinct
++programs in the 2026-08-04 ledger (`RESEARCH_STATE_ARCHIVE_through-round-21.md:5684-5695`) at
++`sd(ln L) = 0.5568 %`, 11 dof, 95 % CI [0.394 %, 0.945 %]; `cs` spans 8.8 % across those programs and
++`corr(ln cs, ln L)` is not distinguishable from zero, so there is no between-program leakage to
++discount. The 0.1860–0.2276 % replicate sd of `cs` is not a rail on the draw factor at all. The
++predictive σ for one more official run of a program we hold is measured directly:
++`sd(ln official) = 0.3728 %` (n=5, group `dc437b0e`) ⇒ **≈0.04 % per draw, 95 % interval
++[≈0 %, 12 %]** (#741 §10.3/§11.2, F19/F21).
+ 
+ **One softening I owe in the other direction.** Because the crown is a **p99.3** draw (×1.016694), my
+ flat statement elsewhere that there is "no upside probability" is too strong. The correct statement is
+@@ -951,15 +975,20 @@
+ 
+ | method | reference point | P(one more draw of the tree we hold ≥ bar) |
+ |---|---|---|
+-| within-program σ 0.1860–0.2276 %, normal | program mean (correct) | **≈0 %** (z = 6.3–7.8) |
++| ~~within-program σ 0.1860–0.2276 %~~ — **not a rail at all** | — | `need = BAR/cs` is a *draw factor*; a replicate sd of `cs` cannot be its σ (#741 F19) |
++| **measured `sd(ln official) = 0.3728 %`, n = 5** — the predictive σ | program mean **2.586989** (correct) | **0.037 %** (z = 3.38); honest n=5 interval **[≈0 %, 12 %]** |
+ | fern's draw component, sd 0.538 %, normal | program mean (correct) | **0.95 %** (z = 2.344) |
+ | fern's draw component, **empirical tail** | program mean (correct) | **1.48 %** (her figure; 1.48 % of 1280 rows ⇒ ≈19 rows at or above 1.014441, which is what a tail count of her decomposition would give — attributed to her, not re-derived here) |
+ 
+-The empirical 1.48 % is the **upper** bound: fern's 0.538 % legitimately carries between-program
+-leakage that program-hashing removes, so the tail it counts is inflated by code differences that a
+-re-fire of one fixed tree does not get. **Plan against `[≈0 %, 1.5 %]` per draw, and read the point
+-estimate off the empirical tail, not off any normal model.** Nothing about the endgame conclusion
+-changes except its strength: re-firing is worth even less than the previous revision said.
++The empirical 1.48 % is an **upper** bound because it is a tail count, not because of leakage:
++fern's 0.538 % is measured *across* programs, and the draw factor's own sd is 0.5568 % when measured
++on 12 distinct programs whose `cs` spans 8.8 % (#741 F21), so there is nothing to discount away. The
++rail that governs *"re-fire the tree we hold"* is the directly measured `sd(ln official) = 0.3728 %`
++(n = 5, group `dc437b0e`), which prices one draw at **≈0.04 %** with an honest 95 % interval of
++**[≈0 %, 12 %]** (#741 F19). Plan against that, not against `[≈0 %, 1.5 %]`: that bracket's lower
++rail was a replicate sd of `cs` — not a draw factor at all — and its upper rail was an empirical tail
++wrongly assumed inflated. Nothing about the endgame conclusion changes except its strength: at
++≈0.04 % per draw, re-firing is worth less again than the previous revision said.
+ 
+ **(b) The delta table — the one that decides whether building a delta is worth the hours — was
+ computed from the lucky draw and is wrong by ≈6× in the flattering direction.** Repriced from the
+@@ -996,22 +1025,37 @@
+ Arithmetic: score `= decode_speedup^0.75 · prefill_speedup^0.25`, so a saving of 1 µs on a decode step
+ of length `S` µs is worth `0.75 / S` of score. The 0.75 is already folded into the table.
+ 
++There are not four currencies. There are **two hosts** × **two quantities**, and only one of the
++four combinations is the scored denominator. Score divides by `decode_seconds_per_token`, and
++`LagunaRuntimeLocalIterate.swift:767-769` charges the 512-token seed forward into it
++(`includes_seed_prefill=true`, `:776`), so the denominator is `D = S/decodeSteps + T`, **not** the
++step-only time `T`. `Constants.swift:113` fixes the scored config at 128 steps; `:117` runs
++`--local-submit` at 1023, which shrinks the seed's share ~8× and produces a *different* `D` on the
++*same* host. A µs/step delta in `T` moves `D` one-for-one, so the only correct rate is `0.75 / D`
++at 128 steps. Every row below is labelled by (host, harness, step count).
++
+ | currency | decode step | 1 µs/step is | provenance |
+ |---|---|---|---|
+-| **ranked host** (what the receipt scores) | **4910.9 µs** | **0.01527 % of score** | measured: `mean_D` of replicate group `dc437b0e`, n=5, r103 artifact |
+-| **`--local-submit` on our M4** | 8882 µs | 0.00845 % of score | measured by maple-nezuko, #730 (N2/N4/N8 levels 8880.9–8888.4) |
+-| **frieren's bench control host** | 8213 µs | 0.00913 % of score | measured, #733 (control median 8.213–8.217 ms; a fast mode at 8.148–8.152 also exists — see §5b) |
+-| ~~"local M4"~~ inherited constant | 12 798 µs *implied* | 0.00586 % of score | **UNSOURCED.** No harness in the fleet measures a 12.8 ms decode step. Do not reuse. |
++| **ranked host `D₁₂₈`** (what the receipt scores) | **4910.9 µs** | **0.01527 % of score** | measured: `mean_D` of replicate group `dc437b0e`, n=5, r103 artifact |
++| **our M4 `D₁₂₈`** — the scored local denominator | **≈12 798 µs** | **0.00586 % of score** | measured by `./benchmark.sh --local-iterate`, the 128-step harness: `research/maple-alphonse-r114-gatesp.md:432-434,:444-446` (36 runs, arm means 0.0129820 / 0.0129052 s/tok); `research/maple-edward-r110/REPORT.md:294-297` (12 775–12 972 µs) |
++| ~~our M4 `--local-submit`~~ **`D₁₀₂₃`, not a scored denominator** | 8882 µs | — | measured by maple-nezuko, #730 (N2/N4/N8 levels 8880.9–8888.4). 1023 steps (`Constants.swift:117`) ⇒ the seed is amortised ~8× thinner than the scored config. Do not price against it. |
++| ~~frieren's bench control host~~ **step-only `T`, not a `D`** | 8213 µs | — | measured, #733 (control median 8.213–8.217 ms; a fast mode at 8.148–8.152 also exists — see §5b). `LagunaRuntimeLocalIterate.swift:631` reports `totalStepOnlySeconds` as a *separate* field from the scored `secondsPerToken` (`:864`). Add `S/128` before pricing. |
++
++Cross-check, from the trusted brief: `senpai/program.md:216-221` states `--local-iterate` carries
++`sigma = 33.6 %` of prefill share against `--local-submit`'s "about 5.9 %". With `T ≈ 8470 µs` that
++puts `D₁₂₈` at 12 369–13 376 µs (12 798 sits mid-band) and predicts `D₁₀₂₃ ≈ 9024 µs` at
++σ = 6.1 % — closing on nezuko's 8882 and program.md's 5.9 %. (#741 §6.1, F1.)
+ 
+ Three consequences.
+ 
+-**(a) The 0.00586 %/µs constant that priced most of this campaign cannot be sourced.** It implies a
+-12.8 ms decode step and the two harnesses we actually ran measure 8.2–8.9 ms. It is the constant that
+-manufactured the delta-1 headline (`66.88 × 0.00586 = 0.392 %`) and it is embedded in frieren's #733
+-disposition table, where it understates his measured losses by ≈1.56× (FUSED is −0.504 %, not
+-−0.323 %). No disposition changes there because they are all losses being kept — but any *decline*
+-made against this constant is now suspect, which is why maple-edward's #741 audit was redirected to a
+-row-by-row currency census.
++**(a) The 0.00586 %/µs constant is correct, and the reason it looked unsourceable is the same trap
++as (b).** It implies a 12.8 ms decode step, which is exactly what the *scored* 128-step harness
++measures on our M4; the 8.2–8.9 ms figures are a step-only time and a 1023-step denominator. The
++constant did **not** manufacture the delta-1 headline: §4c already establishes that the headline came
++from a column misread (sign) and from pricing a `+66.88` counterfactual instead of the `+4.67`
++measurement (14×). `66.88 × 0.00586 = 0.392 %` is the *correct* price of a +66.88 µs/step local
++delta; the input was wrong, not the exchange rate. Frieren's #733 prices therefore stand as banked:
++FUSED is **−0.323 %**, not −0.504 %. (#741 §6.2, F1.)
+ 
+ **(b) A likely mechanism for how a wrong step length entered circulation**, found by fern (#686): the
+ 1023-vs-128 decode-step trap, `Constants.swift:117-118` versus `:109`. Configured one way, prefill
+@@ -1024,16 +1068,19 @@
+ transfer is optimistic. The ranked rate is the one to price against when the question is "does this
+ clear the bar"; convert to a fraction of the measuring host's own step *first*, then compare.
+ 
+-Requirement table in all three *measured* currencies (from §6.5):
+-
+-| target | % of score | ranked µs/step (4910.9) | local-submit µs/step (8882, assumed transfer) | bench-host µs/step (8213) |
+-|---|---|---|---|---|
+-| +0.26 % (**3.2 %** chance at the bar, §6.5c; the "≈10–15 %" printed here earlier was error 5) | 0.26 | **17** | 31 | 28 |
+-| +0.50 % (**8.0 %** chance at the bar, §6.5c; the "≈50 %" printed here earlier was error 5) | 0.50 | **32** | 59 | 55 |
+-| +1.26 % (**50 %** chance at the bar — the real even-money delta, §6.5c) | 1.26 | **82** | 149 | 138 |
+-
+-The old table's "44 / 84" column used the unsourced 0.00586 %/µs and therefore set a **bar ~40 % too
+-high** in local units — the one direction of this error that was conservative rather than flattering.
++Requirement table in the two *scored* denominators (from §6.5) — each host's own `D₁₂₈`:
++
++| target | % of score | ranked µs/step (`D` = 4910.9) | local µs/step (`D₁₂₈` ≈ 12 798) |
++|---|---|---|---|
++| +0.26 % (**3.2 %** chance at the bar, §6.5c; the "≈10–15 %" printed here earlier was error 5) | 0.26 | **17** | **44** |
++| +0.50 % (**8.0 %** chance at the bar, §6.5c; the "≈50 %" printed here earlier was error 5) | 0.50 | **32** | **85** |
++| +1.26 % (**50 %** chance at the bar — the real even-money delta, §6.5c) | 1.26 | **82** | **215** |
++
++The old table's "44 / 84" local column was **right to within rounding** (`0.26/0.005860 = 44.4`,
++`0.50/0.005860 = 85.3`), and the "31 / 59" that replaced it sets the bar **≈30 % too low — the
++flattering direction**, because it divides by a `D₁₀₂₃` the score never sees. There is no separate
++bench-host column: convert a step-only `T` delta into the measuring host's `D₁₂₈` first, then divide.
++(#741 §6.3/§8.1, F1.)
+ 
+ For scale, and this is the whole story of Maple's endgame: the biggest per-knob effect the campaign
+ measured is ≈0.79 µs/step per extra simdgroup per threadgroup (§5,
+@@ -1041,18 +1088,21 @@
+ the largest *confirmed* effect anywhere in the ledger is frieren's +55.2 µs/step FUSED **loss**. To
+ clear the bar we needed 32 ranked µs/step of *win* and the fleet never located one of any size.
+ Meanwhile every candidate that appeared to be that big — three of frieren's screens at −33…−64 µs/step
+-— was the instrument (§5b). The 31–59 µs/step target band and the 40–60 µs/step phantom band are the
+-same band, which is the deepest reason this campaign could not have succeeded by local screening
+-alone.
+-
+-One figure this correction rescues: §7 item 2's "≈8919 µs wall vs ≈8567 µs busy" is now identifiable
+-as a **local M4 wall step**, consistent with nezuko's measured 8882 — so its ~350 µs of non-busy time
+-is worth `0.75 × 350/8919 = 2.94 %` of score locally, not the ~2 % the item claimed under the
+-unsourced constant. It is the largest single decode opportunity in the document and it got *bigger*
+-under audit. Still local, still subject to the ~42 % end-to-end evaporation of #473, still unattacked.
+-
+-**Rule for reuse: never write a µs/step number without naming the host it was measured on.** Prices in
+-percent-of-score are safe to move between sections; prices in µs/step are not.
++— was the instrument (§5b). The +0.50 % target needs **85 local µs/step** and the phantom band tops
++out at ≈64, so every candidate that looked big enough to matter was, at its own screen's face value,
++*still not big enough* — and then turned out to be the instrument as well. That is the deepest reason
++this campaign could not have succeeded by local screening alone. (#741 §6.4, F1.)
++
++One figure this correction rescues: §7 item 2's "≈8919 µs wall vs ≈8567 µs busy" is a **local M4 wall
++step** measured under the 1023-step harness (consistent with nezuko's 8882), so its ~350 µs of
++non-busy time is worth `0.75 × 350/12798 =` **2.05 %** of score locally against the scored `D₁₂₈`,
++not the `0.75 × 350/8919 = 2.94 %` a `D₁₀₂₃` denominator would suggest. It remains the largest single
++decode opportunity in the document, still local, still subject to the ~42 % end-to-end evaporation of
++#473, still unattacked. (#741 §6.5, F1.)
++
++**Rule for reuse: never write a µs/step number without naming the host, the harness, and the decode
++step count.** One host has two step lengths (`T` and `D`) and two denominators (128 and 1023 steps).
++Prices in percent-of-score are safe to move between sections; prices in µs/step are not.
+ 
+ ---
+ 
+--- a/research/tools/slot_holder_arithmetic.py
++++ b/research/tools/slot_holder_arithmetic.py
+@@ -32,16 +32,33 @@
+       "=", pct(OUR_PROGRAM / BAR_PROGRAM - 1), "-> our code is AHEAD")
+ 
+ print("D. what one more draw of our own program must deliver")
++# `need` is a DRAW FACTOR, not a score ratio: OUR_PROGRAM is a program-normalized `cs` and BAR is an
++# *official* score (= cs x L), so `need` asks "what draw multiplier must one more official run of our
++# own program deliver?". That is why WITHIN_SD -- a replicate sd of `cs` -- is not its sigma (741 F19).
+ need = BAR / OUR_PROGRAM
+ print("    multiplier needed      ", f"{need:.6f}", "(6.5b: 1.014441)")
+-z = (need - DRAW_MEDIAN) / DRAW_SD
+-p_norm = 1.0 - 0.5 * (1.0 + math.erf(z / math.sqrt(2.0)))
+-print("    z (between-program sd) ", f"{z:.3f}", "-> normal p =", f"{p_norm*100:.2f} %",
++# 741 F19: the predictive sigma of a draw factor is measurable directly -- sd(ln official) over our
++# own program's replicate group -- and every row below is centred on that program's mean draw
++# (DRAW_MEDIAN), never on 1.0. WITHIN_SD is deliberately no longer used in this comparison: it is a
++# replicate sd of `cs`, and `need` is a draw factor (see the comment above), so it is not a rail here.
++OFFICIAL_SD = 0.003728         # 741 10.3, measured sd(ln official), n=5, group dc437b0e
++DRAW_SD_12PROG = 0.005568      # 741 11.2, sd(ln L) over 12 programs, 11 dof, CI [0.394 %, 0.945 %]
++
++
++def p_draw(sd, centre=DRAW_MEDIAN):
++    zz = (need - centre) / sd
++    return zz, 1.0 - 0.5 * (1.0 + math.erf(zz / math.sqrt(2.0)))
++
++
++z_off, p_off = p_draw(OFFICIAL_SD)
++print("    z (measured official sd) ", f"{z_off:.3f}", "-> normal p =", f"{p_off*100:.3f} %",
++      "(741 F19: 0.037 % taken in logs, 0.036 % in this ratio form; honest n=5 CI [~0 %, 12 %])")
++z, p_norm = p_draw(DRAW_SD)    # fern's draw component; p_norm feeds sections E and F below
++print("    z (fern draw component)  ", f"{z:.3f}", "-> normal p =", f"{p_norm*100:.2f} %",
+       "(6.5b: z=2.344, 0.95 % normal / 1.48 % empirical)")
+-for name, sd in (("within-program low", WITHIN_SD[0]), ("within-program high", WITHIN_SD[1])):
+-    zz = (need - 1.0) / sd
+-    pp = 1.0 - 0.5 * (1.0 + math.erf(zz / math.sqrt(2.0)))
+-    print(f"    z ({name:<19}) {zz:.3f} -> normal p = {pp*100:.2f} %")
++z_12, p_12 = p_draw(DRAW_SD_12PROG)
++print("    z (draw factor, 12 progs)", f"{z_12:.3f}", "-> normal p =", f"{p_12*100:.2f} %",
++      "(741 F21: measured on 12 distinct programs, so it is not between-program leakage)")
+ 
+ print("E. same question for re-firing the bar-setter's program instead")
+ need_bar = BAR / BAR_PROGRAM

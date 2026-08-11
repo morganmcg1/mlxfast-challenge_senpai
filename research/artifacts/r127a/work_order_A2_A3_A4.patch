@@ -1,0 +1,54 @@
+--- a/research/maple_endgame_handoff_manifest.md
++++ b/research/maple_endgame_handoff_manifest.md
+@@ -1005,13 +1005,14 @@
+ 
+ Three consequences.
+ 
+-**(a) The 0.00586 %/µs constant that priced most of this campaign cannot be sourced.** It implies a
+-12.8 ms decode step and the two harnesses we actually ran measure 8.2–8.9 ms. It is the constant that
+-manufactured the delta-1 headline (`66.88 × 0.00586 = 0.392 %`) and it is embedded in frieren's #733
+-disposition table, where it understates his measured losses by ≈1.56× (FUSED is −0.504 %, not
+-−0.323 %). No disposition changes there because they are all losses being kept — but any *decline*
+-made against this constant is now suspect, which is why maple-edward's #741 audit was redirected to a
+-row-by-row currency census.
++**(a) The 0.00586 %/µs constant is correct, and the reason it looked unsourceable is the same trap
++as (b).** It implies a 12.8 ms decode step, which is exactly what the *scored* 128-step harness
++measures on our M4; the 8.2–8.9 ms figures are a step-only time and a 1023-step denominator. The
++constant did **not** manufacture the delta-1 headline: §4c already establishes that the headline came
++from a column misread (sign) and from pricing a `+66.88` counterfactual instead of the `+4.67`
++measurement (14×). `66.88 × 0.00586 = 0.392 %` is the *correct* price of a +66.88 µs/step local
++delta; the input was wrong, not the exchange rate. Frieren's #733 prices therefore stand as banked:
++FUSED is **−0.323 %**, not −0.504 %. (#741 §6.2, F1.)
+ 
+ **(b) A likely mechanism for how a wrong step length entered circulation**, found by fern (#686): the
+ 1023-vs-128 decode-step trap, `Constants.swift:117-118` versus `:109`. Configured one way, prefill
+@@ -1024,16 +1025,19 @@
+ transfer is optimistic. The ranked rate is the one to price against when the question is "does this
+ clear the bar"; convert to a fraction of the measuring host's own step *first*, then compare.
+ 
+-Requirement table in all three *measured* currencies (from §6.5):
+-
+-| target | % of score | ranked µs/step (4910.9) | local-submit µs/step (8882, assumed transfer) | bench-host µs/step (8213) |
+-|---|---|---|---|---|
+-| +0.26 % (**3.2 %** chance at the bar, §6.5c; the "≈10–15 %" printed here earlier was error 5) | 0.26 | **17** | 31 | 28 |
+-| +0.50 % (**8.0 %** chance at the bar, §6.5c; the "≈50 %" printed here earlier was error 5) | 0.50 | **32** | 59 | 55 |
+-| +1.26 % (**50 %** chance at the bar — the real even-money delta, §6.5c) | 1.26 | **82** | 149 | 138 |
+-
+-The old table's "44 / 84" column used the unsourced 0.00586 %/µs and therefore set a **bar ~40 % too
+-high** in local units — the one direction of this error that was conservative rather than flattering.
++Requirement table in the two *scored* denominators (from §6.5) — each host's own `D₁₂₈`:
++
++| target | % of score | ranked µs/step (`D` = 4910.9) | local µs/step (`D₁₂₈` ≈ 12 798) |
++|---|---|---|---|
++| +0.26 % (**3.2 %** chance at the bar, §6.5c; the "≈10–15 %" printed here earlier was error 5) | 0.26 | **17** | **44** |
++| +0.50 % (**8.0 %** chance at the bar, §6.5c; the "≈50 %" printed here earlier was error 5) | 0.50 | **32** | **85** |
++| +1.26 % (**50 %** chance at the bar — the real even-money delta, §6.5c) | 1.26 | **82** | **215** |
++
++The old table's "44 / 84" local column was **right to within rounding** (`0.26/0.005860 = 44.4`,
++`0.50/0.005860 = 85.3`), and the "31 / 59" that replaced it sets the bar **≈30 % too low — the
++flattering direction**, because it divides by a `D₁₀₂₃` the score never sees. There is no separate
++bench-host column: convert a step-only `T` delta into the measuring host's `D₁₂₈` first, then divide.
++(#741 §6.3/§8.1, F1.)
+ 
+ For scale, and this is the whole story of Maple's endgame: the biggest per-knob effect the campaign
+ measured is ≈0.79 µs/step per extra simdgroup per threadgroup (§5,
