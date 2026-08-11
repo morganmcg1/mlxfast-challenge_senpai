@@ -26,11 +26,18 @@ import random
 import re
 import statistics as st
 
-ARMS = ["ship", "ctl", "d2", "d1"]
-# device bytes each arm actually reads from the shared gate+up QMV weights,
-# per call, from the source: 4 K-blocks of width 512 over 1024 output rows.
-BLOCKS_READ = {"ship": 4, "ctl": 4, "d2": 2, "d1": 1}
+SHARED_ARMS = ["ship", "ctl", "d2", "d1"]
+ROUTED_ARMS = ["ship", "rctl", "rd2", "rd1"]
+# K blocks each arm actually reads.  Both kernels run a 4-block K loop; the
+# dose truncates the loop bound, so d2/rd2 read 2 blocks and d1/rd1 read 1.
+BLOCKS_READ = {"ship": 4, "ctl": 4, "d2": 2, "d1": 1,
+               "rctl": 4, "rd2": 2, "rd1": 1}
+# unique weight+scale bytes one K block moves, per decode step, from PREREG.md
+MB_PER_BLOCK_STEP = {"shared": 10.86, "routed": 86.9}
 CALLS_PER_STEP = 39.0
+# Rule 105.12 landing bar, expressed on this M4 Pro: +30 us/step of M5 wall
+# is +68.7 us/step here (0.251 % of score at tau = 1).
+BAR_US_STEP = 68.7
 
 
 def load(d):
@@ -57,40 +64,86 @@ def boot_ci(vals, nboot, stat, lo=2.5, hi=97.5, seed=118):
     return (draws[int(lo / 100 * nboot)], draws[min(nboot - 1, int(hi / 100 * nboot))])
 
 
-def bimodality(vals, nbin=48):
-    """Coarse two-mode screen.  Returns (report_lines, is_bimodal)."""
-    lo, hi = min(vals), max(vals)
+def _pct(sorted_vals, q):
+    if not sorted_vals:
+        return float("nan")
+    i = min(len(sorted_vals) - 1, max(0, int(q * (len(sorted_vals) - 1))))
+    return sorted_vals[i]
+
+
+def bimodality(vals, nbin=40):
+    """Two-mode screen on the pooled per-step samples.
+
+    The R118-A method note says a bimodal step-time distribution means the
+    instrument (or the machine) is switching states and the run must be thrown
+    away.  What it does NOT mean is "the histogram has a sparse bin in it", so
+    the test is deliberately conservative and must clear four hurdles at once:
+
+      1. two smoothed local maxima, each holding >= 10 % of the peak height;
+      2. separated by >= 5 bins;
+      3. with a valley between them below 35 % of the smaller peak;
+      4. the two clusters separated by >= 3 robust sigma (1.4826 * MAD) AND
+         each side of the valley holding >= 15 % of the samples.
+
+    Returns (report_lines, is_bimodal).
+    """
+    sv = sorted(vals)
+    n = len(sv)
+    med = st.median(sv)
+    mad = st.median([abs(v - med) for v in sv]) or 1e-9
+    sigma = 1.4826 * mad
+    lo, hi = _pct(sv, 0.005), _pct(sv, 0.995)   # trim so tails do not squash
     if hi <= lo:
         return (["  degenerate (all samples equal)"], False)
     w = (hi - lo) / nbin
     counts = [0] * nbin
-    for v in vals:
-        counts[min(nbin - 1, int((v - lo) / w))] += 1
-    peak = max(counts)
-    # find the two largest local maxima separated by a valley below 50% of both
-    idx_sorted = sorted(range(nbin), key=lambda i: -counts[i])
-    p1 = idx_sorted[0]
-    bimodal = False
-    detail = ""
-    for p2 in idx_sorted[1:]:
-        if abs(p2 - p1) < 4:
+    out = 0
+    for v in sv:
+        if v < lo or v > hi:
+            out += 1
             continue
-        if counts[p2] < 0.20 * peak:
-            break
-        a, b = sorted((p1, p2))
-        valley = min(counts[a + 1:b]) if b > a + 1 else counts[a]
-        if valley < 0.50 * min(counts[a], counts[b]):
+        counts[min(nbin - 1, int((v - lo) / w))] += 1
+    sm = [sum(counts[max(0, i - 1):i + 2]) / 3.0 for i in range(nbin)]
+    peak = max(sm)
+
+    bimodal, detail = False, ""
+    peaks = [i for i in range(1, nbin - 1)
+             if sm[i] >= sm[i - 1] and sm[i] >= sm[i + 1] and sm[i] >= 0.10 * peak]
+    peaks.sort(key=lambda i: -sm[i])
+    for j, p2 in enumerate(peaks):
+        for p1 in peaks[:j]:
+            if abs(p2 - p1) < 5:
+                continue
+            a, b = sorted((p1, p2))
+            valley_i = min(range(a + 1, b), key=lambda i: sm[i])
+            valley = sm[valley_i]
+            if valley >= 0.35 * min(sm[a], sm[b]):
+                continue
+            cut = lo + (valley_i + 0.5) * w
+            left = sum(1 for v in sv if v < cut)
+            if min(left, n - left) < 0.15 * n:
+                continue
+            if abs((lo + (b + .5) * w) - (lo + (a + .5) * w)) < 3 * sigma:
+                continue
             bimodal = True
-            detail = (f"  modes at {lo + (a + .5) * w:.3f} / "
-                      f"{lo + (b + .5) * w:.3f} ms, valley {valley} vs "
-                      f"{min(counts[a], counts[b])}")
-        break
+            detail = (f"  BIMODAL: modes at {lo + (a + .5) * w:.4f} / "
+                      f"{lo + (b + .5) * w:.4f} ms (sep "
+                      f"{((b - a) * w) / sigma:.1f} sigma), valley "
+                      f"{valley:.1f} vs {min(sm[a], sm[b]):.1f}, mass split "
+                      f"{left}/{n - left}")
+            break
+        if bimodal:
+            break
+
     lines = []
     for i in range(nbin):
         if counts[i] == 0 and (i == 0 or counts[i - 1] == 0):
             continue
-        bar = "#" * max(0, int(60 * counts[i] / peak))
-        lines.append(f"  {lo + i * w:8.3f} |{bar} {counts[i]}")
+        bar = "#" * max(0, int(60 * counts[i] / max(counts)))
+        lines.append(f"  {lo + i * w:8.4f} |{bar} {counts[i]}")
+    if out:
+        lines.append(f"  ({out} samples outside the 0.5-99.5 pct histogram "
+                     f"range, kept in every statistic)")
     if detail:
         lines.append(detail)
     return (lines, bimodal)
@@ -109,6 +162,15 @@ def main():
     runs = load(a.dir)
     if not runs:
         raise SystemExit(f"no run*.steps under {a.dir}")
+
+    seen = {r["arm"] for r in runs}
+    if seen & set(ROUTED_ARMS[1:]):
+        ARMS, family, ctl_arm = ROUTED_ARMS, "routed", "rctl"
+    else:
+        ARMS, family, ctl_arm = SHARED_ARMS, "shared", "ctl"
+    mb_blk = MB_PER_BLOCK_STEP[family]
+    print(f"# kernel family: {family} gate+up QMV; arms {ARMS}; "
+          f"one K block = {mb_blk} MB/step")
 
     print(f"### R118-A dose analysis -- order {label}")
     print(f"# {len(runs)} runs, warmup {a.warmup} steps/run discarded, "
@@ -178,8 +240,14 @@ def main():
     print()
 
     # ---- verdicts
-    if "ctl" in results:
-        _, _, lo, hi = results["ctl"]
+    if len(good) < 3:
+        print(f"NOTE: only {len(good)} complete block(s) -- the block "
+              f"bootstrap is degenerate here and no")
+        print("      interval below may be quoted.  This is a shakedown "
+              "directory, not a campaign order.")
+        return
+    if ctl_arm in results:
+        _, _, lo, hi = results[ctl_arm]
         if lo > 0 or hi < 0:
             print("!! NEGATIVE CONTROL FAILED: the byte-identical arm differs "
                   "from ship at 95%.")
@@ -193,34 +261,54 @@ def main():
         print("\nVERDICT: instrument failure -- see above.")
         return
 
-    # ---- byte-response fit  t_call = c + nblocks * m
-    if "d2" in results and "d1" in results:
-        s2, s1 = results["d2"][0], results["d1"][0]     # ms/step saved
-        # per-call microseconds saved
-        u2, u1 = s2 * 1e3 / CALLS_PER_STEP, s1 * 1e3 / CALLS_PER_STEP
-        # ship reads 4 blocks; d2 reads 2 (saves 2), d1 reads 1 (saves 3)
-        m2 = u2 / 2.0
-        m1 = u1 / 3.0
-        # least-squares slope through (4, T4), (2, T4-u2), (1, T4-u1)
-        xs = [4.0, 2.0, 1.0]
-        ys = [0.0, -u2, -u1]        # relative to ship
+    # ---- byte-response fit  t_step(nblocks) = c + nblocks * k * MB_per_block
+    a2, a1 = ARMS[2], ARMS[3]
+    if a2 in results and a1 in results:
+        s2, s1 = results[a2][0], results[a1][0]         # ms/step saved
+        u2, u1 = s2 * 1e3, s1 * 1e3                     # us/step saved
+        # ship reads 4 blocks; *d2 reads 2 (removes 2 blocks), *d1 reads 1 (3)
+        mb2, mb1 = 2 * mb_blk, 3 * mb_blk
+        print("\nBYTE-RESPONSE FIT   saving(us/step) = k * MB removed/step")
+        print(f"  {a2}: -{mb2:6.2f} MB/step -> {u2:+8.2f} us/step  "
+              f"=> k = {u2 / mb2:+7.3f} us per MB/step")
+        print(f"  {a1}: -{mb1:6.2f} MB/step -> {u1:+8.2f} us/step  "
+              f"=> k = {u1 / mb1:+7.3f} us per MB/step")
+        # least-squares slope through the three points (0,0), (mb2,u2), (mb1,u1)
+        xs, ys = [0.0, mb2, mb1], [0.0, u2, u1]
         xb, yb = sum(xs) / 3, sum(ys) / 3
-        slope = sum((x - xb) * (y - yb) for x, y in zip(xs, ys)) / \
+        k = sum((x - xb) * (y - yb) for x, y in zip(xs, ys)) / \
             sum((x - xb) ** 2 for x in xs)
-        print("\nBYTE-RESPONSE FIT  t_call(nblocks) = c + nblocks * m")
-        print(f"  per-call saving  d2 (-2 blocks): {u2:8.4f} us  "
-              f"-> m = {m2:7.4f} us/block")
-        print(f"  per-call saving  d1 (-3 blocks): {u1:8.4f} us  "
-              f"-> m = {m1:7.4f} us/block")
-        print(f"  LS slope m = {slope:.4f} us/block")
-        # each K block = 1024 rows * 128 packed bytes + 1024 * 16 scale bytes
-        mb_per_block = (1024 * 128 + 1024 * 16) / 1e6
-        if slope > 0:
-            print(f"  block moves {mb_per_block:.4f} MB unique -> "
-                  f"marginal rate {mb_per_block / (slope * 1e-6) / 1e9:.1f} GB/s")
-        print("  reference: 225 GB/s measured streaming ceiling for a ~1.2 MB "
-              "dispatch (R110 F2);")
-        print("             159 GB/s is this kernel's own in-situ average rate.")
+        print(f"  LS slope k = {k:+.4f} us of decode wall per MB/step removed")
+        if k > 0:
+            print(f"             = {1.0 / k * 1e3:.0f} GB/s marginal "
+                  f"streaming rate")
+        print("  smoke calibration on the routed family: k = +2.61 us per "
+              "MB/step (383 GB/s marginal).")
+        if family == "shared":
+            print(f"  byte model would predict {2.61 * mb2:.0f} us ({a2}) and "
+                  f"{2.61 * mb1:.0f} us ({a1}) at that k.")
+
+        # ---- the pre-registered decision rule, applied verbatim
+        print("\nDECISION RULE (pre-registered in PREREG.md, "
+              "before any of this data existed)")
+        if family == "shared":
+            hi1 = results[a1][3]
+            print(f"  d1 removes 75 % of this kernel's weight traffic -- more "
+                  f"than any correct")
+            print(f"  rewrite could ever remove -- and its 95 % upper bound on "
+                  f"the saving is")
+            print(f"  {hi1 * 1e3:+.1f} us/step against a landing bar of "
+                  f"{BAR_US_STEP:.1f} us/step.")
+            if hi1 * 1e3 < BAR_US_STEP:
+                print("  => TERMINAL NEGATIVE on the byte side of this target: "
+                      "even deleting three")
+                print("     quarters of the reads cannot reach the bar.  "
+                      "Do not land; publish the law.")
+            else:
+                print("  => the byte side is NOT closed by this test; report "
+                      "the interval and the")
+                print("     fraction of the 68 us/step excess it would "
+                      "actually recover.")
 
 
 if __name__ == "__main__":

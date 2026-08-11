@@ -1029,6 +1029,11 @@ to a byte-identical metallib, so it is a binary knob wearing a ternary label.
   nibble-extraction instruction — impossible in practice — buys 0.21 % of score
   against a 0.27 % bar. Any future proposal of the form "unpack NVFP4 more
   cleverly" is below the bar before it is written.
+  *Scope note added R118-A (see `N-NIBBLE-SPLIT-DEFAULT-IS-OPTIMAL.md` §6.0.1):
+  the law says the work is not the constraint, not that the time is
+  unrecoverable. Below ~1 threadgroup per core the time is still an absorption
+  candidate — that is how R114-E's `gate_sp` (8 TGs) paid +0.45 %. Print the
+  threadgroup count next to every null from this law.*
 - **`L-PROFILED-BUSY-OVERPREDICTS-WALL-2X`.** The same treatment measures
   +46.9 µs/step of GPU-busy under `DARKBLOOM_GPU_PROFILE_SPLIT=1` and
   +25.5 µs/step of wall in the ranking configuration: a **54 % conversion**

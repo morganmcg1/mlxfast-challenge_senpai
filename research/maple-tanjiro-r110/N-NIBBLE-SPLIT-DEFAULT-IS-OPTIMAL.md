@@ -432,6 +432,39 @@ wall by about 2×, and the leaderboard is scored on wall. **The ceiling is close
 in the ranking configuration and only appears open in a configuration proven to
 over-predict.**
 
+### 6.0.1 Scope note (added R118-A, after alphonse's R114-E)
+
+**Scope note (R118-A, after alphonse's R114-E).** This law says the *work* is not the
+constraint on the NVFP4 families; it does **not** say the *time* is unrecoverable. On
+any kernel in this family that launches fewer threadgroups than the machine has cores
+(20 here), the time remains an absorption candidate — recoverable by appending the
+dispatch to a neighbouring kernel's grid rather than by making the kernel cheaper —
+and the flat work probe is not evidence against that. Always print the threadgroup
+count next to a null from this law.
+
+Why the amendment was needed. R114-E landed +0.45 % by appending `gate_sp` (**8**
+threadgroups, 0.4 per core) to the front of the lane-major QKV decode grid. `gate_sp`
+is in the family this law covers, and this law had already returned a null on it: its
+work was not the constraint, exactly as stated. What the null did not license was the
+inference that its 76.8 µs/step were unreachable. They were reachable, just not through
+the kernel text — through the *dispatch structure*, which §6's own closing sentence
+already named as one of the three places the other 95 % lives. The law was right and
+the reading of it was wrong, which is precisely the failure mode a scope note fixes.
+
+The threadgroup count is the cheap discriminator, so quote it every time. Measured from
+the dispatch sites on this branch, on a 20-core M4 Pro:
+
+| kernel | threadgroups | per core | absorption candidate? |
+|---|---|---|---|
+| `gate_sp` (R114-E, landed) | 8 | 0.4 | **yes** — and it paid |
+| `shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1` (R118-A target) | 256 | 12.8 | no |
+| `routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2` | 2048 | 102.4 | no |
+
+So the R118-A target does **not** inherit the R114-E remedy: at 12.8 threadgroups per
+core it already fills the machine, and appending it to a neighbour's grid buys nothing
+that the scheduler is not already getting. That is a statement about *this* kernel, made
+with the number printed, and it is the form every future null under this law should take.
+
 ---
 
 ## 6.1 Where the 95 % actually goes — exact bytes from the scored checkpoint
