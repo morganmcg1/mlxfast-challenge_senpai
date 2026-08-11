@@ -37,10 +37,14 @@ PY
 
 for gate in 0 1; do
     echo "### local-iterate gate=${gate} $(date -u +%H:%M:%SZ)"
-    DARKBLOOM_SHARED_ROUTED_QMV_FUSED="${gate}" ./benchmark.sh --local-iterate \
-        > "${OUT}/iter_${gate}.log" 2>&1
+    # The trace log is de-duplicated per site, so it proves the gate reached the
+    # scored harness worker without adding per-call work.
+    DARKBLOOM_SHARED_ROUTED_QMV_FUSED="${gate}" DARKBLOOM_TRACE_FUSION=1 \
+        ./benchmark.sh --local-iterate > "${OUT}/iter_${gate}.log" 2>&1
     rc=$?
     echo "### local-iterate gate=${gate} exit=${rc}"
+    echo "GATE gate${gate} fusion_sites:"
+    grep -o 'fusion active: .*' "${OUT}/iter_${gate}.log" | sort -u | sed 's/^/GATE /'
     if [ -f score.local-iterate.json ]; then
         cp -f score.local-iterate.json "${OUT}/score_${gate}.json"
         report_score "gate${gate}" "${OUT}/score_${gate}.json"
