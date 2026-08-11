@@ -155,24 +155,55 @@ process is sufficient; no stale-library risk across runs.
 
 ---
 
-## 3. ISA comparison (pending)
+## 3. ISA comparison — arms 0 and 2 are the *same program* (complete)
 
 Source-level distinctness does not imply machine-code distinctness. The Metal
-front end is LLVM-based and its demanded-bits analysis may canonicalise all
-three forms to the same AIR. `nibble-split-isa.sh` wraps each dumped header in a
-minimal kernel, compiles with the same toolchain MLX JITs with
-(`metal -std=metal3.1 -O3 -ffast-math`), and diffs AIR text and instruction
-mix.
+front end is LLVM-based and its demanded-bits analysis may canonicalise
+different-looking bit manipulation to the same AIR. `nibble-split-isa.sh` wraps
+each dumped header in a minimal kernel, compiles it offline with the same
+toolchain MLX JITs with (`xcrun metal -std=metal3.1 -O3 -ffast-math`,
+toolchain 32023.883), and diffs AIR text and instruction mix.
 
-If the AIR is identical, the null is **proven** and no wall-clock interval is
-needed to support it. Deferred until the ABBA finishes so the compile cannot
-perturb timing.
+Result:
+
+```
+arm0 metallib sha256 f3d48f2007cecb8205e154a0b64cabb62b9c6325025403b3c882db84ed13168f
+arm1 metallib sha256 ce43d632d40e998fc9d2c4cc96047b3105af825dbfe043e7696a4a43f314157d
+arm2 metallib sha256 f3d48f2007cecb8205e154a0b64cabb62b9c6325025403b3c882db84ed13168f
+
+AIR bitwise op mix (and / or / shl / lshr, total AIR lines)
+  arm0   16   8   15   2     260
+  arm1   12   4   11   2     248
+  arm2   16   8   15   2     260   (cmp vs arm0: IDENTICAL modulo module ID + source filename)
+```
+
+Two conclusions, both load-bearing.
+
+**(a) Arms 0 and 2 compile to a byte-identical metallib.** Mask-then-shift and
+shift-then-mask are canonicalised to the same AIR; the only textual differences
+are the LLVM module identifier and the source file name. So `[0 − 2]` is a
+**built-in negative control**: two arms that are provably the same machine code,
+measured through the entire rig — env var, JIT, dispatch, 200 decode steps,
+process teardown. Any interval `[0 − 2]` produces that excludes zero is pure rig
+noise, and it calibrates how much of any `[0 − 1]` or `[2 − 1]` signal to
+believe. Almost no A/B rig in this campaign has had one.
+
+**(b) Arm 1 is genuinely a different program**, and different in exactly the
+predicted direction and magnitude: 29 bitwise ops versus 41, i.e. 12 fewer, the
+same 2 × 6 saving hand-counted in §1.3 from the shared `xe/ge/yo/go`
+subexpressions. The source-level op count is not being optimised away, so the
+wall-clock experiment is measuring a real ALU delta rather than a no-op.
+
+Because arms 0 and 2 are the same program, they may legitimately be **pooled**
+into a single treatment arm `P` with double the sample size, giving the
+contrast `[P − 1]` roughly √2 tighter than either raw pair. `nibble-split-analyze.py`
+does this and separately prints and validates the negative control.
 
 ---
 
 ## 4. Paired ABBA (deliverable due 07:30Z — pending)
 
-Job `0b7c3a6d`. 36 runs = 12 blocks of 3, each block a permutation of {0,1,2};
+Job `05bd1725`. 36 runs = 12 blocks of 3, each block a permutation of {0,1,2};
 each arm appears exactly once per block and occupies each within-block position
 exactly 4 times, which balances first-in-block warm-up. SPLIT=0 (no profile
 hook) — **ranking only**, per the standing rule that the SPLIT=1 profile hook
@@ -193,11 +224,49 @@ underpowered.
 
 ## 5. Attribution (pending)
 
-Three profiled runs, one per arm, `decode_probe.py --profile --profile-top 40`,
-to answer: do the three family kernels actually move, and by how much each?
-Achieved GB/s per arm computed against ~43.6 MB/step for the named target
-(153.1 GB/s × 284.9 µs). **Attribution only — never ranked on a profiled run.**
+`nibble-split-profile.sh` + `nibble-split-profile-diff.py`. Six profiled runs in
+the palindrome order `012210`, so each arm's two reps are symmetric about the
+session midpoint and linear drift cancels within each arm's mean. The GPUPROF
+hook lives in `research/pr91-gpuprof-hook.patch` (it touches `device.cpp`/`.h`,
+which are **not** editable paths); the script applies it, builds one
+instrumented worker, captures every arm from that single build, and reverts on
+every exit path.
+
+Question: the ABBA contrast is a whole-process number. Does the arm delta land
+on the NVFP4 QMV family — the 16 registrations of `lagunaSharedSwiGLUQMVHeader`
+— in proportion to each registration's share, or somewhere else? If it does not,
+the §1 ceiling is computed against the wrong denominator and must be redone.
+
+Arms 0 and 2 are the same metallib, so the row-by-row `|0 − 2|` spread is the
+profiler's own reproducibility floor and a `[P − 1]` row only counts if it
+clears that floor. **Attribution only — never ranked on a profiled run.**
 
 ---
 
-## 6. Verdict (pending)
+## 6. The reusable finding: ALU→wall conversion efficiency (pending)
+
+The point of this section is that the interesting output of this assignment is
+not the flag verdict. It is the exchange rate between removed ALU work and
+removed wall time in the NVFP4 QMV family, which no other measurement in the
+campaign has pinned down.
+
+The arms give it directly, because §1.3 and §3 agree on exactly how much ALU the
+flag moves and §4 measures exactly what that is worth in wall time. Formally:
+
+```
+predicted_if_ALU_bound = family_us_per_step × (Δops_per_uint2 / ops_arm1)
+efficiency             = measured_Δ / predicted_if_ALU_bound
+```
+
+with `family_us_per_step = 2652.8`, `ops_arm1 = 58`, `Δops = 12`. Numbers filled
+in once §4 lands.
+
+The consequence is a bound on a whole class of future work: given `efficiency`,
+the ALU that must be deleted from this family to clear the +68.7 µs/step M4 bar
+is `58 × 68.7 / (2652.8 × efficiency)` ops per packed `uint2`, against a budget
+of only 26 extraction ops (the 16 `half2→float2` conversions and 16 FMAs are the
+dot product itself and cannot be removed at all).
+
+---
+
+## 7. Verdict (pending)
