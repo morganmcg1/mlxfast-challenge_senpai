@@ -205,6 +205,46 @@ a ranked verdict.
 and prefill moved 0.001139 → 0.001121, i.e. **1.6 %**. Both arms' entire
 predicted effect is roughly a tenth of that.
 
+### `research/run_upstream_equivalence.sh` on the branch head — pre-existing near-tie, non-zero tests
+
+Run on the promoted head tree (A2 live, A1 demoted to a patch). Job
+`55fb8d61-a93c-4802-9b66-a7fb10324a78`, exit 1, 62 s.
+
+```
+EQUIVALENCE_EXACT_STEPS=8
+EQUIVALENCE_EXIT=1
+prefill    maximumAbsoluteLogitError 0.125   mean 0.011933609   token 5991 == 5991
+decode-0..7                                0   mean 0           tokens all ==
+```
+
+One test executed (`lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled`), so
+this satisfies the wrapper's non-zero-test requirement.
+
+#### Control proving the divergence is not ours
+
+Re-ran the identical wrapper with `DARKBLOOM_FUSED_NAX_NARROW_BN=0`, which
+restores the incumbent `(64,128,256,2,4)` tile selection without touching the
+tree. Job `3179bf11-d633-4d91-887c-188c131b5f95`, exit 1, 17.7 s, one test
+executed.
+
+The report is **byte-identical**: prefill `0.125` / `0.011933609` /
+`5991 == 5991`, decode-0..7 exactly `0` with matching tokens,
+`EQUIVALENCE_EXACT_STEPS=8`, `EQUIVALENCE_EXIT=1`.
+
+This is the same long-documented ~1 bf16 ULP prefill near-tie recorded for A1
+above, with the same prior art
+(`research/RESEARCH_ARCHIVE_through-round-91.md:4102`,
+`research/frieren-host-cpu-budget.md:471`,
+`research/fern-r104b-wkwv-tile-regroup.md:366`). Both arms now have a confirmed
+non-zero-test equivalence run plus a matching env control, and all four reports
+are byte-identical to each other.
+
+The control also confirms the second-order point: **A2 is inert on this host**,
+because `is_nax_available()` is false on Apple GPU generation 16, so neither
+tile ever reaches a `_nax` kernel here. A2's correctness argument is therefore
+the `SM x SN` invariance proof in `A2-fused-nax-bn64-n1024.md` §5.1, not this
+gate.
+
 ### Composed A1+A2 sanity run — also GREEN
 
 Run before the isolation re-gate, on a tree carrying **both** knobs
@@ -216,8 +256,9 @@ triple, prefill 0.001112 / decode 0.013095.
 
 Recorded for completeness only. **A1 and A2 must never be fired composed on M5**
 — one knob per official run. Neither temp commit (`315b9fc6`, `dcf03b2d`) is on
-the branch; both were discarded after their gate, and the branch head is
-`35575f28` carrying A1 alone.
+the branch; both were discarded after their gate. At the time of this run the
+branch head was `35575f28` carrying A1 alone; after the rev3 promotion the head
+carries **A2 alone** and A1 ships as a patch file.
 
 ### Superseded forms — and what they prove about this gate
 

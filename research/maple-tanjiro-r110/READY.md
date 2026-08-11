@@ -326,11 +326,20 @@ git commit -am "R110-A1: expert down bn 64->32 for prefill"
 git --no-pager diff --numstat 30904ecbf180aa05d7ddf5cc957e83155fbfc6f4 HEAD \
     -- Sources Vendor benchmark.json Package.swift
 #   expect exactly: 1  1  Vendor/mlx-swift/.../metal/quantized.cpp
+
+# REQUIRED second check — numstat alone cannot tell A1 from A3 (see §7):
+git --no-pager diff -U0 30904ecbf180aa05d7ddf5cc957e83155fbfc6f4 HEAD \
+    -- Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp \
+  | grep '^[-+][^-+]'
+#   expect exactly:  -      return 64;
+#                    +      return 32;
 ```
 
 `git apply --check` and `git apply --numstat` were both run against the current
 head before hand-off; the patch applies cleanly and touches exactly one file
-with `1  1`.
+with `1  1`. **Do not treat that `1  1` as sufficient on its own** — the A3
+patch produces the identical numstat on this head, so the content check above is
+what actually identifies A1.
 
 **Why it is genuinely unmeasured.** `research/CURRENT_RESEARCH_STATE.md:6784`
 records that this knob has no receipt. Priced **0.195–0.30 %** by
@@ -374,11 +383,38 @@ receipts above without it.
 I built and gated A3 before finding this prior art. That is my error, and the
 correction is worth more to fern than the arm was.
 
-> **Trap that survives the removal.** A3's hunk is at `quantized.cpp:1223` and
-> A1's is at `:1239`, so `git apply` of the A3 patch **succeeds on the A1
-> branch**, silently producing a two-knob build. `git apply --check` does **not**
-> catch this. Only `--numstat` does — a stacked build shows `2  2`, a clean one
-> shows `1  1`.
+> **Trap that survives the removal — and it got worse in rev3.** A3's hunk is at
+> `quantized.cpp:1223` and A1's is at `:1239`, far enough apart that `git apply`
+> of either **succeeds** wherever the other has already landed. There are now two
+> distinct failure modes, and they are not caught by the same check:
+>
+> 1. **Stacking** (A1 *and* A3 applied): shows `2  2 quantized.cpp`. `--numstat`
+>    catches this.
+> 2. **Substitution** (A3 applied *instead of* A1): shows `1  1 quantized.cpp` —
+>    **identical to a correct A1 build.** `--numstat` does **not** catch this.
+>    Before rev3 the head carried A1, so any stray `quantized.cpp` edit had to
+>    stack and was visible. Now the head carries A2 and `quantized.cpp` is clean,
+>    so a wrong-patch build is numerically indistinguishable from the right one.
+>
+> Both patches are a single one-line `return N;` change in the same file, so the
+> **only** sound discriminator is the changed content. After applying A1, this
+> must print exactly two lines:
+>
+> ```bash
+> git diff -U0 -- Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp \
+>   | grep '^[-+][^-+]'
+> # -      return 64;
+> # +      return 32;
+> ```
+>
+> `return 256;` → `return 128;` means you applied **A3**. Stop and reset.
+> Patch digests (`shasum -a 256`, first 16): A1 `6c55ca15f0081d34`,
+> A3 `7a9d4892e3b1e1bf`.
+>
+> A2 needs no such check: it is live on the head, and its patch file
+> **deliberately no longer applies** there (`patch failed ... matmul.cpp:219`).
+> If `A2-fused-nax-bn64-n1024.patch` ever applies cleanly, you are not on the
+> intended head.
 
 ## 8. Arm A4 — designed, then refuted. Recorded as a dead end.
 
@@ -438,15 +474,30 @@ Each arm submits exactly one path; both checks pass.
 
 Growth is **negative** for both, so there is no submission-review byte risk.
 
+Both checks were re-run against the campaign `BASE_SHA`
+`1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7` on the **final** branch head and
+returned the A2 figures above unchanged. `research/` files are not on the
+submitted surface, so this queue's documentation cannot move the byte budget.
+
 ## 11. Gate evidence
 
 See `GATES.md` for full transcripts. Read §2 before giving any of it weight.
 
 Both arms have a green `./benchmark.sh --local-iterate` with
 `max_abs_diff: 0` and an upstream-equivalence run with a **confirmed non-zero
-test count** (Rule 105.15). A1 additionally has a `DARKBLOOM_EXPERT_DOWN_BN=64`
-control proving its lone prefill near-tie is pre-existing and not caused by the
-arm.
+test count** (Rule 105.15). Both also have an env-var control that restores the
+base value of the one thing the arm changes without touching the tree —
+`DARKBLOOM_EXPERT_DOWN_BN=64` for A1, `DARKBLOOM_FUSED_NAX_NARROW_BN=0` for A2.
+
+All four equivalence reports are **byte-identical**: prefill
+`0.125 / 0.011933609 / 5991 == 5991`, decode-0..7 exactly `0` with matching
+tokens. That pair is the documented pre-existing non-M5 near-tie, so neither
+arm causes it, and the arm-vs-control identity is the direct proof.
+
+A2's gate evidence is on the **branch head as it will be fired** — job
+`55fb8d61` for the equivalence run, job `d7984b40` for the local-iterate green.
+A1's is on the tree it occupied before the rev3 promotion; its patch has since
+been re-verified with `git apply --check` and `--numstat` on the current head.
 
 **Residual risk, stated plainly:** all of that exercises the **non-NAX
 fallback**. Neither arm's actual kernel has ever executed anywhere. The
@@ -472,7 +523,7 @@ accept gate** at `quantized.cpp:1404-1407`. Its constraints are `BK >= 56` and
 ## 13. Citation and arithmetic audit — what re-checking changed
 
 Every prior-art and numeric claim in this directory was re-verified against the
-cited file, line, or artifact before hand-off. Six things were wrong and are now
+cited file, line, or artifact before hand-off. Seven things were wrong and are now
 fixed.
 
 1. **PR #293's removal commit.** I had written "deleted by resync `99b974c`".
@@ -497,7 +548,15 @@ fixed.
 6. **A2's price was overstated by 3–8×** (§5.3). The quoted 0.94–2.52 % of score
    exceeds what the entire wk/wv family costs on M5 (3.922 ms ≈ 1.45 %). The
    honest ceiling is 0.35–0.46 % and the realistic estimate is 0.11–0.30 %.
+7. **The A3 compose-trap check was silently invalidated by rev3 itself** (§7).
+   The documented discriminator was "`2  2` means stacked, `1  1` means clean".
+   That held only while A1 was live on the head. Now that the head carries A2
+   and `quantized.cpp` is untouched, applying A3 *instead of* A1 also yields
+   `1  1` — the wrong build and the right build are indistinguishable by the
+   check I had written. §6 and §7 now require a content check on the changed
+   line. Found by re-running the trap against the new head rather than trusting
+   the note I had already written about it.
 
 Items 5 and 6 do not change any arm's disposition, but they do change what a slot
 spent here is worth, which is the number the leaderboard framing actually turns
-on.
+on. Item 7 is the one that could have cost a slot outright.

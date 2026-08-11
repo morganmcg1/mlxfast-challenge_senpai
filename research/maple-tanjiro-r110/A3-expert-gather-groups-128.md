@@ -25,10 +25,18 @@
 > **for provenance only** — they record what was built and gated before the
 > prior-art audit. See `READY.md` §7 and `GATES.md`.
 >
-> **Trap if anyone revives this:** the A3 hunk sits at `quantized.cpp:1223` and
-> A1's at `:1239`, so `git apply` of this patch *succeeds* on the A1 branch and
-> silently produces a two-knob build. `--check` will not catch it; only
-> `--numstat` will (`2 2` instead of `1 1`).
+> **Trap if anyone revives this — updated for rev3.** The A3 hunk sits at
+> `quantized.cpp:1223` and A1's at `:1239`, so `git apply` of this patch
+> *succeeds* wherever A1 has landed, silently producing a two-knob build.
+> `--check` never catches it; `--numstat` catches only that case (`2 2`).
+>
+> Since the rev3 promotion the head carries A2 and leaves `quantized.cpp`
+> clean, so applying **this patch instead of A1** yields `1 1 quantized.cpp` —
+> byte-for-byte the same numstat a correct A1 build produces. `--numstat` is no
+> longer a sufficient check. The discriminator is the changed line itself:
+> A1 is `return 64;` → `return 32;`, A3 is `return 256;` → `return 128;`.
+> Digests (`shasum -a 256`, first 16): A1 `6c55ca15f0081d34`,
+> A3 `7a9d4892e3b1e1bf`. See `READY.md` §6 for the copy-pasteable check.
 
 Original status when written: ready to fire, delivered as a patch
 (`A3-expert-gather-groups-128.patch`). Lowest-priority arm of the three.

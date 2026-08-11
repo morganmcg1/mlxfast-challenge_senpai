@@ -10,6 +10,12 @@ and `git apply --numstat` were both re-run against the current head after the
 swap: the patch applies cleanly and produces exactly
 `1 1 Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp`.
 
+> **`1 1` is necessary but no longer sufficient.** The dropped A3 patch produces
+> the identical numstat on the rev3 head, so it cannot tell a correct A1 build
+> from a wrong-patch build. Confirm the changed line reads `return 64;` →
+> `return 32;` (A3 reads `return 256;` → `return 128;`). `READY.md` §6 has the
+> exact command; §13 item 7 explains how this check came to be wrong.
+
 Base: `32665a6b66ce0d2d72b84772863575a6fdc35fb7`.
 
 > **That base is the *gate-time* base, not the live one.** The live assignment
