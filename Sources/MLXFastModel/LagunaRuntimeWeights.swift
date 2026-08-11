@@ -46,6 +46,8 @@ public struct LagunaWeightLoader {
 
     public func validateRequiredMetadata(config: LagunaConfig) throws {
         let tensorNames = denseStore.tensorNames
+        let sparseLayerCount = (0..<config.numHiddenLayers).filter { config.isSparse(layer: $0) }.count
+        let inventoryTensorCount = LagunaConstants.tensorCount + sparseLayerCount
         let forbiddenSuffixes = [
             ".weight_packed",
             ".input_global_scale",
@@ -62,10 +64,10 @@ public struct LagunaWeightLoader {
                     + "FP8 KV-scale, or affine-bias tensor \(forbiddenName)"
             )
         }
-        guard tensorNames.count == LagunaConstants.tensorCount else {
+        guard tensorNames.count == inventoryTensorCount else {
             throw MLXFastError.invalidInput(
                 "Poolside Laguna tensor inventory contains \(tensorNames.count) tensors; "
-                    + "expected exactly \(LagunaConstants.tensorCount)"
+                    + "expected exactly \(inventoryTensorCount)"
             )
         }
         var dtypeCounts: [String: Int] = [:]
@@ -76,10 +78,10 @@ public struct LagunaWeightLoader {
             dtypeCounts[record.dtype, default: 0] += 1
         }
         let expectedDTypeCounts = [
-            "BF16": LagunaConstants.bfloat16TensorCount,
+            "BF16": LagunaConstants.bfloat16TensorCount - sparseLayerCount,
             "F32": LagunaConstants.float32TensorCount,
-            "U32": LagunaConstants.packedUInt32TensorCount,
-            "U8": LagunaConstants.e4m3ScaleUInt8TensorCount,
+            "U32": LagunaConstants.packedUInt32TensorCount + sparseLayerCount,
+            "U8": LagunaConstants.e4m3ScaleUInt8TensorCount + sparseLayerCount,
         ]
         guard dtypeCounts == expectedDTypeCounts else {
             throw MLXFastError.invalidInput(
@@ -147,11 +149,10 @@ public struct LagunaWeightLoader {
             }
 
             if config.isSparse(layer: layerIndex) {
-                // Poolside keeps routing in full precision; only expert
-                // projections carry NVFP4 companions.
-                try validateBFloat16ProjectionMetadata(
+                try validateRouterMetadata(
                     named: LagunaWeightNames.mlp(layerIndex, "gate.weight"),
-                    expectedShape: [config.numExperts, config.hiddenSize]
+                    experts: config.numExperts,
+                    hidden: config.hiddenSize
                 )
                 try validateDenseTensorMetadata(
                     named: LagunaWeightNames.mlp(layerIndex, "gate.e_score_correction_bias"),
@@ -202,23 +203,18 @@ public struct LagunaWeightLoader {
             }
         }
 
-        var expectedTensorCount = config.tieWordEmbeddings ? 2 : 3
+        var computedTensorCount = config.tieWordEmbeddings ? 2 : 3
         for layerIndex in 0..<config.numHiddenLayers {
-            // Layer norms (2), q/k/v/o projections (4), q/k norms (2),
-            // and the Poolside per-head gate projection (1).
-            expectedTensorCount += 8
+            computedTensorCount += 8
             if config.gateProjectionOutputDim(forLayer: layerIndex) != nil {
-                expectedTensorCount += 1
+                computedTensorCount += 1
             }
-            // Sparse layers have two router tensors plus six NVFP4
-            // projections, each represented by weight + scales. Layer 0 is
-            // the sole dense three-projection MLP.
-            expectedTensorCount += config.isSparse(layer: layerIndex) ? 14 : 3
+            computedTensorCount += config.isSparse(layer: layerIndex) ? 15 : 3
         }
-        guard expectedTensorCount == LagunaConstants.tensorCount else {
+        guard computedTensorCount == inventoryTensorCount else {
             throw MLXFastError.invalidInput(
-                "internal Poolside Laguna tensor contract computed \(expectedTensorCount) tensors; "
-                    + "expected \(LagunaConstants.tensorCount)"
+                "internal Poolside Laguna tensor contract computed \(computedTensorCount) tensors; "
+                    + "expected \(inventoryTensorCount)"
             )
         }
     }
@@ -236,6 +232,36 @@ public struct LagunaWeightLoader {
             throw MLXFastError.invalidInput(
                 "tensor \(name) dtype/shape \(record.dtype) \(record.shape) does not match expected \(expectedDType) \(expectedShape)"
             )
+        }
+    }
+
+    private func validateRouterMetadata(
+        named name: String,
+        experts: Int,
+        hidden: Int
+    ) throws {
+        guard hidden.isMultiple(of: 2), let record = denseStore.record(named: name) else {
+            throw MLXFastError.invalidInput("compact router tensor not found: \(name)")
+        }
+        let compactBytes = experts * (hidden + hidden / 2 + 16)
+        let rawBytes = experts * hidden * 2
+        guard record.dtype == "U8", record.shape == [record.byteLength],
+              record.byteLength >= compactBytes, record.byteLength <= rawBytes
+        else {
+            throw MLXFastError.invalidInput("compact router \(name) has invalid payload metadata")
+        }
+        let offsetsName = name + "_row_offsets"
+        guard let offsets = denseStore.record(named: offsetsName),
+              offsets.dtype == "U32", offsets.shape == [experts],
+              offsets.byteLength == experts * 4
+        else {
+            throw MLXFastError.invalidInput("compact router \(name) has invalid row offsets")
+        }
+        for suffix in ["scales", "biases"] {
+            let companion = Self.companionName(for: name, suffix: suffix)
+            guard denseStore.record(named: companion) == nil else {
+                throw MLXFastError.invalidInput("compact router \(name) must not contain \(companion)")
+            }
         }
     }
 

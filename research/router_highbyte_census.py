@@ -53,9 +53,119 @@ def target_layer(name, metadata):
     return int(match.group(1))
 
 
+def load_index(weights):
+    return json.loads((weights / "model.safetensors.index.json").read_bytes())
+
+
+def read_tensor(weights, index, name, dtype, shape=None):
+    shard = weights / index["weight_map"][name]
+    header_size, _, header = read_header(shard)
+    metadata = header[name]
+    if metadata.get("dtype") != dtype:
+        raise ValueError(f"unexpected dtype for {name}: {metadata.get('dtype')}")
+    if shape is not None and metadata.get("shape") != shape:
+        raise ValueError(f"unexpected shape for {name}: {metadata.get('shape')}")
+    start, end = metadata["data_offsets"]
+    with shard.open("rb") as handle:
+        handle.seek(8 + header_size + start)
+        tensor = handle.read(end - start)
+    if len(tensor) != end - start:
+        raise ValueError(f"truncated tensor data for {name}")
+    return tensor, metadata
+
+
+def verify_roundtrip(reference, transformed):
+    reference_index = load_index(reference)
+    transformed_index = load_index(transformed)
+    tensor_names = sorted(
+        (name for name in reference_index["weight_map"] if GATE_PATTERN.fullmatch(name)),
+        key=lambda name: int(GATE_PATTERN.fullmatch(name).group(1)),
+    )
+    layers = [int(GATE_PATTERN.fullmatch(name).group(1)) for name in tensor_names]
+    if layers != list(range(1, 40)):
+        raise ValueError(f"expected sparse layers 1...39, found {layers}")
+
+    compact_rows = 0
+    fallback_rows = 0
+    reconstructed_words = 0
+    for name in tensor_names:
+        raw, _ = read_tensor(reference, reference_index, name, "BF16", [ROWS, COLUMNS])
+        payload, payload_metadata = read_tensor(
+            transformed, transformed_index, name, "U8"
+        )
+        if payload_metadata.get("shape") != [len(payload)]:
+            raise ValueError(f"unexpected payload shape for {name}: {payload_metadata.get('shape')}")
+        offsets, _ = read_tensor(
+            transformed,
+            transformed_index,
+            f"{name}_row_offsets",
+            "U32",
+            [ROWS],
+        )
+        tagged_offsets = struct.unpack(f"<{ROWS}I", offsets)
+        cursor = 0
+        for row, tagged_offset in enumerate(tagged_offsets):
+            fallback = tagged_offset & 0x80000000 != 0
+            start = tagged_offset & 0x7FFFFFFF
+            next_start = (
+                tagged_offsets[row + 1] & 0x7FFFFFFF if row + 1 < ROWS else len(payload)
+            )
+            expected_size = RAW_ROW_BYTES if fallback else COMPACT_ROW_BYTES
+            if start != cursor or next_start - start != expected_size:
+                raise ValueError(
+                    f"invalid row span for {name} row {row}: "
+                    f"start={start}, next={next_start}, expected={expected_size}"
+                )
+
+            raw_row = raw[row * RAW_ROW_BYTES : (row + 1) * RAW_ROW_BYTES]
+            high_bytes = raw_row[1::2]
+            palette_values = sorted(set(high_bytes))
+            if fallback:
+                if len(palette_values) <= 16:
+                    raise ValueError(f"unnecessary fallback for {name} row {row}")
+                reconstructed = payload[start:next_start]
+                fallback_rows += 1
+            else:
+                if len(palette_values) > 16:
+                    raise ValueError(f"ineligible compact row for {name} row {row}")
+                lows = payload[start : start + COLUMNS]
+                packed = payload[start + COLUMNS : start + COLUMNS + COLUMNS // 2]
+                palette = payload[start + COLUMNS + COLUMNS // 2 : next_start]
+                expected_palette = bytes(palette_values + [0] * (16 - len(palette_values)))
+                if palette != expected_palette:
+                    raise ValueError(f"noncanonical palette for {name} row {row}")
+                reconstructed = bytearray(RAW_ROW_BYTES)
+                reconstructed[0::2] = lows
+                reconstructed[1::2] = bytes(
+                    palette[(packed[column // 2] >> (4 * (column & 1))) & 0xF]
+                    for column in range(COLUMNS)
+                )
+                compact_rows += 1
+            if reconstructed != raw_row:
+                raise ValueError(f"roundtrip mismatch for {name} row {row}")
+            reconstructed_words += COLUMNS
+            cursor = next_start
+        if cursor != len(payload):
+            raise ValueError(f"unreferenced payload bytes for {name}: {len(payload) - cursor}")
+
+    return {
+        "reference": str(reference),
+        "transformed": str(transformed),
+        "layers": len(tensor_names),
+        "rows": len(tensor_names) * ROWS,
+        "compact_rows": compact_rows,
+        "fallback_rows": fallback_rows,
+        "reconstructed_bf16_words": reconstructed_words,
+        "all_words_exact": True,
+        "row_spans_contiguous": True,
+        "palettes_canonical": True,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--weights", type=Path, default=Path("weights"))
+    parser.add_argument("--transformed", type=Path)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
 
@@ -239,6 +349,8 @@ def main():
             "tree_at_most_25_gib": projected_tree_bytes <= 25 * 1024**3,
         },
     }
+    if args.transformed:
+        result["roundtrip"] = verify_roundtrip(weights, args.transformed.resolve())
     rendered = json.dumps(result, indent=2, sort_keys=True) + "\n"
     if args.output:
         args.output.write_text(rendered)
