@@ -232,3 +232,45 @@ already sits on the plateau.
    attributes o_proj's shortfall to occupancy starvation is hereby marked
    **weakened by (b) and (d)**; it should be read as "the geometry is the last
    unpinned term", not as "the geometry is starved".
+
+## 9. AMENDMENT, ~04:20Z — the arm is now priced against a *measured* τ, and the margin is thin
+
+§1 priced the redirect at "+0.647 %" using τ = 1. The Stage 0b byte-dose ruler has since measured
+τ for this exact family on the full model (see `research/nezuko-r117-stage0b-byte-dose-ruler.md`).
+Re-pricing before the ladder runs, so the goalposts are fixed in advance:
+
+| quantity | value |
+|---|--:|
+| o_proj_h64 busy | 37.16 µs/call × 30 = 1114.7 µs/step at 232.9 GB/s |
+| o_proj_h48 busy | 30.30 µs/call × 10 = 303.0 µs/step at 214.2 GB/s |
+| QKV reference efficiency | 241.9 GB/s (h64), 238.2 GB/s (h48) |
+| **full closure to 242 GB/s** | h64 −1.40 µs/call ⇒ −42.0 µs/step; h48 −3.48 µs/call ⇒ −34.8 µs/step; **total −76.8 µs/step** |
+| rule 105.12 slot floor | 68.7 µs/step |
+| score at τ = 0.80 | `0.75 × 0.80 × 76.8 / 8972` = **+0.514 %** |
+| crown bar | **+0.406 %** |
+
+So the arm's *ceiling* — every microsecond of o_proj's bandwidth shortfall recovered — is
+**+0.514 %**, clearing the bar by 0.108 pp and the slot floor by 8.1 µs. That is a **26 % margin
+on the score bar and a 12 % margin on the slot floor**, both against a ceiling that assumes
+*perfect* closure.
+
+**This is stated now, before the ladder runs, because it changes the honest reading of any
+positive result.** Consequences I bind myself to:
+
+1. **Partial closure does not pay.** Recovering half the gap is +0.257 %, which fails the bar.
+   There is no "encouraging partial win" outcome available here: the ladder either recovers
+   essentially all of o_proj's efficiency shortfall, or it produces a negative.
+2. **The §6 decision threshold is unchanged**, but I add the explicit note that a rung landing at,
+   say, −40 µs/step is a **falsification of the arm's usefulness** even if it is a real and
+   statistically clean effect. It gets reported as `N-OPROJ-GEOMETRY-SUBSCALE`, not as progress.
+3. **τ enters the price linearly and is now the tightest external dependency.** At the ruler's
+   CI95 lower bound the full-closure ceiling is +0.447 %; at the upper bound +0.582 %. The arm
+   clears the bar across the whole measured τ interval *only under full closure* — precisely the
+   outcome §7 and §8 already argued was unlikely.
+4. Combined with §8 (archive #298/#309 and rule 32: the QKV optimum sits near 640 TGs and both
+   directions away from an optimum are worse), the honest prior on this arm is now **clearly
+   below 50 %**. I am running it because it is the last unpinned term in a family that is
+   otherwise closed, and because a clean `N-OPROJ-GEOMETRY-FLAT` retires a mechanism the archive
+   itself nominated as "the natural control for any rows-per-simdgroup arm" — not because I
+   expect it to win.
+
