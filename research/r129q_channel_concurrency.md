@@ -26,6 +26,27 @@ LAST FIRE FOR A 17:00Z ADJUDICATION: >=80% odds up to 15:33Z; >=50% up to 15:59Z
          65.0 min, our last three terminal rows took 82.8 / 99.4 / 46.3 min (NOT the 22.7 min
          the account ran all morning, and NOT the 2.3 h the brief's 14:30Z window rests on).
          See research/r129q_adjudication_odds.py; W&B pnltvn22.
+CURVE AUDITED (15:16Z) - the deadline above survived a deliberate attempt to break it, so
+         nobody needs to re-plan around it. (i) The caveat I had been attaching to it
+         ("depth is measured at creation, so the curve is mildly optimistic") is MEASURED
+         and negligible: at equal admission depth, rows whose queue ROSE over their first
+         15 min took only +2.9 min longer at the median than rows whose queue was flat
+         (n_rising=12, permutation p=0.54), and today's queue is not rising - global
+         in-flight read 12 at nine consecutive polls 14:54:52Z-15:11:09Z, then 11 at
+         15:15:15Z. Stop quoting that hedge. (ii) Depth AT CREATION is the best of three
+         depth covariates (Spearman with sojourn +0.737, vs +0.714 for mean depth over the
+         first 15 min and +0.709 over the whole life), so the bucketing already published
+         was the right one. (iii) A TRAP: bucketing by ambient depth instead looked like a
+         big favourable correction (98.0% vs 87.0% at a 15:19Z fire; >=90% deadline moving
+         15:04Z -> 15:29Z; disjoint bootstrap intervals) but 48 of its 50 rows come from a
+         single day, 07-29, where its median is IDENTICAL to the published bucket
+         (60.6 vs 60.6 min) - it only looks better because it excludes today's 12 slow
+         deep-queue rows (median 91.1 min). Rejected. Bootstrap intervals measure sampling
+         noise and cannot see confounding. (iv) The TODAY-ONLY curve - the population the
+         next fire actually joins, n=93 with 12 rows censored at their current age - is
+         indistinguishable from the published one (86.3% [79.1, 92.3] vs 87.0%) and gives
+         the IDENTICAL >=90% (15:04Z) and >=80% (15:34Z) deadlines.
+         See research/r129q_depth_bias_correction.py.
 OPERATIONAL RULE: FIRE THE INSTANT `c06b1b6d` FLIPS. Not because the deadline is imminent -
          the slope near the flip is shallow (+10 min costs 3.9 pts) - but because of the
          16:00Z cliff, and because the draw is i.i.d. so waiting buys nothing.
