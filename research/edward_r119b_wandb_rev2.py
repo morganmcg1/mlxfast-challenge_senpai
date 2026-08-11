@@ -25,6 +25,8 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import wandb  # noqa: E402
 
+import edward_r119b_stats as S  # noqa: E402
+from edward_r119b_interaction import block_deltas, paths_for  # noqa: E402
 from edward_r119b_wandb import estimators, sh  # noqa: E402
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -128,6 +130,9 @@ def main() -> None:
             summary[f"wall/{profile}/{order}/baseline_us_per_step"] = base["mean_us"]
             summary[f"wall/{profile}/{order}/candidate_us_per_step"] = cand["mean_us"]
             for key, e in row["est"].items():
+                if not isinstance(e, dict):
+                    summary[f"wall/{profile}/{order}/{key}"] = e
+                    continue
                 if key.startswith("raw_"):
                     summary[f"wall/{profile}/{order}/{key}/samples"] = e["samples"]
                     summary[f"wall/{profile}/{order}/{key}/median_ms"] = e["median_ms"]
@@ -158,6 +163,20 @@ def main() -> None:
             summary[f"interaction/{order}/{key}/delta_full_minus_auto_us"] = inter
             tbl.add_data(order, key, a["delta_us"], f["delta_us"], inter)
     run.log({"profile_gate_interaction": tbl})
+
+    # Interval on the interaction itself: Welch over the two cells' per-block deltas.
+    for order in list(ORDERS) + ["pooled"]:
+        pa, poola = paths_for(args.auto, order)
+        pf, poolf = paths_for(args.full, order)
+        if not all(os.path.exists(p) for p in pa + pf):
+            continue
+        da, df = block_deltas(pa, poola), block_deltas(pf, poolf)
+        inter, lo, hi, p, dof = S.welch(df, da)
+        summary[f"interaction/{order}/block_ci/delta_us"] = inter
+        summary[f"interaction/{order}/block_ci/lo_us"] = lo
+        summary[f"interaction/{order}/block_ci/hi_us"] = hi
+        summary[f"interaction/{order}/block_ci/p"] = p
+        summary[f"interaction/{order}/block_ci/df"] = dof
 
     for order in list(ORDERS) + ["pooled"]:
         a = cells["auto"].get(order, {}).get("means", {}).get("C", {}).get("mean_us")

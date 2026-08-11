@@ -1,9 +1,11 @@
 # R119-B — shared+routed gate/up QMV grid-append
 
 PR #712 · student `maple-edward` · assignment `maple-r119-b-shared-routed-qmv-gridappend`
-rev `r119-b-rev1` · base `codex/mlxfast-maple-20260804-advisor` @
+rev `r119-b-rev2` · base `codex/mlxfast-maple-20260804-advisor` @
 `f8cb5c5be3a0480799088a8f7efd5808553dc20a`
-Host: Apple M4 Pro (20 GPU cores, 48 GiB, low-memory startup profile).
+Host: Apple M4 Pro (20 GPU cores, 48 GiB). Rev1 measured under the automatic
+low-memory startup profile; rev2 adds the same A/B under the M5-like full profile
+(§3.8b, §3.8c).
 Apple GPU generation 16 — **no `_nax` prefill kernel family on this host**, so
 every prefill number below is M4-family evidence only.
 
@@ -19,6 +21,18 @@ mirrored, n=36/arm), an order of magnitude below the 48.3 µs/step floor that
 bandwidth absorption would have required. Named negative
 `N-COENCODED-DISPATCH-BOUNDARY-NEARLY-FREE`; do not ship; the kernel stays
 behind a default-OFF gate.
+
+**Rev2 in one line:** repeating that A/B under the ranked M5's command-buffer
+configuration (`DARKBLOOM_STARTUP_MEMORY_PROFILE=full`, verified 200 / 200 / 50
+per worker) turns the marginal 5.4 µs/step regression into
+**−93.5 µs/step (−1.14 %)**, 95 % CI [−98.6, −88.5], reproduced in both mirrored
+orders — so the auto profile was hiding a real dispatch-structure effect by 17×,
+and the effect it was hiding is a loss. Second named negative,
+`N-LOWMEM-PROFILE-HIDES-DISPATCH-STRUCTURE`: an auto-profile M4 null on a
+dispatch-count axis is not evidence of a null. Rev2 W&B run: `aqy1qdg3` —
+<https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/aqy1qdg3> — carries the
+2×2 profile × gate walls, every estimator interval, the profile × gate interaction
+table, and the environment-readback guard counts (see §3.8c).
 
 ---
 
@@ -456,6 +470,121 @@ proves the values are process-visible before the model is built; it does not by
 itself prove no earlier call already latched a different value. The absolute-wall
 comparison in §3.8c is the behavioural check on that.
 
+### 3.8c Rev2 — the full-profile cells, beside the auto cells
+
+Only the SPLIT=0 paired wall A/B was repeated, with
+`DARKBLOOM_STARTUP_MEMORY_PROFILE=full` and `DARKBLOOM_ENV_READBACK=1` exported
+for every worker. Same binary at this HEAD, same one-env-switch design
+(`DARKBLOOM_SHARED_ROUTED_QMV_FUSED`), same 256-step runs with step 0 discarded,
+same block structure: `abba` = `CFFC` × 9 preceded by one unscored warm-up,
+`baab` = `FCCF` × 9 with none. 72 timed runs, 18 per arm per order. The auto
+cells in §3.8 are unchanged and are *not* replaced. Driver:
+`research/edward_r119b_fullprofile.sh`; per-cell arithmetic:
+`research/edward_r119b_interaction.py`; W&B run `aqy1qdg3`
+(<https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/aqy1qdg3>), logged by
+`research/edward_r119b_wandb_rev2.py`. Nothing else from rev1 was re-run.
+
+**Cell validity.** Every worker printed the readback line, and every line read
+the full-profile values:
+
+| phase | ENVREADBACK lines | value seen by the worker | low-memory notices |
+| --- | --- | --- | --- |
+| `abba` | 37 (36 timed + warm-up) | `full` / 200 / 200 / 50 | 0 |
+| `baab` | 36 | `full` / 200 / 200 / 50 | 0 |
+
+`uniq -c` collapses all 73 lines to a single distinct string, so no worker in
+either phase ran with a different command-buffer configuration, and the
+low-memory branch never executed. The auto cells are the mirror image: 89 of 89
+stderr files carry the notice.
+
+**The 2 × 2.** Mean of per-run medians, µs/step, M4 wall, no score conversion.
+Δ is baseline minus candidate, so **positive = candidate faster**:
+
+| startup profile | ops/MB/BFS | gate 0 (C) | gate 1 (F) | Δ pooled | Δ `abba` | Δ `baab` |
+| --- | --- | --- | --- | --- | --- | --- |
+| auto (low-memory) | 64 / 128 / unset | 8203.069 | 8208.485 | **−5.42** | −7.34 | −3.49 |
+| full (M5-like) | 200 / 200 / 50 | 8225.825 | 8319.354 | **−93.53** | −93.03 | −94.02 |
+
+Full-profile intervals, reported per mirrored order exactly as §3.8 does:
+
+| order | n(C)/n(F) | raw samples/arm | estimator | Δ µs/step | 95 % CI | p | verdict |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `abba` | 18 / 18 | 4,590 | block (9) | −93.0 | [−103.1, −83.0] | 2.4e-08 | excludes zero |
+| `abba` | 18 / 18 | 4,590 | adjacent-pair (18) | −93.0 | [−101.5, −84.6] | 2.6e-14 | excludes zero |
+| `abba` | 18 / 18 | 4,590 | Welch (df 30.8) | −93.0 | [−100.8, −85.2] | 1.3e-21 | excludes zero |
+| `baab` | 18 / 18 | 4,590 | block (9) | −94.0 | [−99.2, −88.8] | 1.2e-10 | excludes zero |
+| `baab` | 18 / 18 | 4,590 | adjacent-pair (18) | −94.0 | [−106.8, −81.2] | 1.9e-11 | excludes zero |
+| `baab` | 18 / 18 | 4,590 | Welch (df 21.2) | −94.0 | [−105.1, −82.9] | 3.9e-14 | excludes zero |
+| pooled | 36 / 36 | 9,180 | block (18) | −93.5 | [−98.6, −88.5] | 4.1e-18 | excludes zero |
+| pooled | 36 / 36 | 9,180 | adjacent-pair (36) | −93.5 | [−100.8, −86.2] | 1.7e-24 | excludes zero |
+| pooled | 36 / 36 | 9,180 | Welch (df 60.3) | −93.5 | [−100.1, −87.0] | 8.0e-37 | excludes zero |
+
+Relative: −1.131 % (`abba`), −1.143 % (`baab`), −1.137 % pooled.
+
+**Profile × gate interaction**, Welch over per-block deltas:
+
+| order | Δ auto | Δ full | interaction (full − auto) | 95 % CI | p |
+| --- | --- | --- | --- | --- | --- |
+| `abba` | −7.34 | −93.03 | −85.69 | [−98.67, −72.71] | 2.2e-10 |
+| `baab` | −3.49 | −94.02 | −90.53 | [−98.81, −82.26] | 6.2e-13 |
+| pooled | −5.42 | −93.53 | −88.11 | [−95.32, −80.90] | 3.0e-23 |
+
+The interaction is 16× the auto-cell effect it modifies, agrees to within 5 µs
+across the two mirrored orders, and its interval is nowhere near zero.
+
+**Behavioural check on the static-latching caveat (§3.8b).** If the two cells had
+in fact latched the same MLX configuration, the profile could not move the two
+arms by different amounts. It moves them by very different amounts:
+
+| arm | auto | full | shift | relative |
+| --- | --- | --- | --- | --- |
+| C (gate 0) | 8203.069 | 8225.825 | +22.76 | +0.277 % |
+| F (gate 1) | 8208.485 | 8319.354 | +110.87 | +1.351 % |
+
+A 4.9× difference in the profile's cost between two arms of the *same binary*
+cannot be produced by an inert environment variable, and the shift is reproduced
+independently in both orders (C +25.4/+20.2, F +111.0/+110.7). Together with the
+readback, the vanished notice, and `mlx_cache_gb` 0.00 → 2.49, I take the full
+cell as behaviourally distinct and valid. The baseline arm's own +0.28 % shift is
+small, so the full profile is not simply a slower machine state; it is a state in
+which this candidate is much more expensive.
+
+**Instrument health and correctness.** `modes=1` for all four full-profile
+arm/order combinations; the two Sarle coefficients above 0.555 (`baab` arm C
+0.677, pooled arm C 0.578) fall to 0.174 and 0.352 on the central 98 %, i.e. the
+same one-sided right tail as rev1, not a second mode. Zero divergences in all 72
+runs. All 72 full-profile token dumps are byte-identical to each other **and to
+all 88 auto-profile dumps** — 160 dumps, one md5 class (`08542fa8…`) across both
+profiles and both gate states.
+
+**Read, against the pre-registered rev2 fork.** Neither pre-registered branch
+fired cleanly. The full cells did not reproduce the null, and they did not win:
+they turn the auto cells' marginal 5.4 µs/step regression into a
+93.5 µs/step (−1.14 %) regression that every estimator and both mirrored orders
+exclude zero on. So the negative does strengthen — much more sharply than the
+"null reproduces" branch anticipated — and the "major new lever" branch is
+closed on this axis. Two consequences worth separating:
+
+1. **About this candidate.** Grid-appending the shared and routed gate/up QMV is
+   not merely nearly free; under the command-buffer configuration that matches
+   the ranked M5 it is a clear, reproducible regression, ~1.1 % of decode wall.
+   The 39 removed dispatches are worth ≈21 µs/step of GPU busy time (§3.7) and
+   cost ≈93 µs/step of wall in this configuration.
+2. **About the instrument, which is the more transferable finding.** On this
+   sub-64 GiB host the auto profile *suppressed* a real dispatch-structure effect
+   by a factor of 17 and left it inside the noise band. Any future R-series
+   experiment whose mechanism is dispatch count, command-buffer occupancy, or
+   graph width must set `DARKBLOOM_STARTUP_MEMORY_PROFILE=full` and prove it with
+   a readback; an auto-profile M4 null on such an axis is not evidence of a null.
+   This is the same axis frieren's R109 hit from the other side (§3.8b).
+
+Honest limit: this is still an M4 Pro with 20 GPU cores. The full profile matches
+the M5's *command-buffer structure*, not its core count or bandwidth, and
+threadgroup-geometry effects can change sign across core counts. What the full
+cells license is "the auto cells were measured in a regime that hides this axis,
+and in the regime that does not hide it the candidate loses" — not a quantitative
+M5 prediction.
+
 ### 3.9 Correctness gates (`--local-iterate`, both gate states)
 
 `research/edward_r119b_correctness.sh` ran the scored harness twice on this host
@@ -591,6 +720,17 @@ host-only leg grew by only 3.53 µs/call (§3.4). So
 `N-GRIDAPPEND-REGISTER-UNION-COSTS-HOST` is not the negative to publish, and
 per the assignment I did not re-tune K1.
 
+**Rev2 does not move which branch fired; it removes the last way out of it.** The
+only route by which the floor branch could have been an artifact of this host was
+the low-memory startup profile, which pins the command-buffer structure to
+64 ops / 128 MB and is exactly the axis a dispatch-count change should move
+(§3.8b). Repeating the ranked A/B with that structure set to the M5's
+200 / 200 / 50 does not rescue the candidate: the wall regression grows from
+5.4 to 93.5 µs/step, all nine full-profile intervals exclude zero on the
+regression side, and both mirrored orders agree to within 1 µs/step (§3.8c). The
+ceiling branch is closed under both command-buffer configurations available on
+this host.
+
 ### 4.2 Two separate refutations
 
 These are distinct claims with distinct evidence, and neither implies the other.
@@ -626,6 +766,29 @@ margin and the freed GPU time was reabsorbed by scheduling. I have an interval o
 busy and on wall but only one measurement of the gap, so I offer the gap as the
 plausible mechanism rather than as an established one.
 
+**Rev2 sharpens this negative and adds a second, separable one.** Under the
+M5-like command-buffer configuration the fusion is not "nearly free" at all: it
+costs 93.5 µs/step of wall, −1.14 %, with every estimator and both mirrored
+orders excluding zero (§3.8c). The GPU-busy recovery of ≈21 µs/step is unchanged
+by the profile, so the fusion buys ≈21 µs of busy time and pays ≈93 µs of wall.
+The reabsorption mechanism proposed above becomes the more likely reading, not the
+less: with 200 ops per command buffer and `MLX_BFS_MAX_WIDTH=50`, MLX has more
+room to overlap the two independent QMV dispatches, and collapsing them into one
+grid removes concurrency that the wider graph was actually exploiting. I have an
+interval on the effect and a mechanism consistent with it; I do not have a
+per-dispatch trace under the full profile, so I state the concurrency reading as
+the plausible mechanism.
+
+The second negative is about measurement, not about this kernel:
+**`N-LOWMEM-PROFILE-HIDES-DISPATCH-STRUCTURE`** — on a sub-64 GiB host the
+automatic low-memory startup profile compresses dispatch-structure effects by
+roughly a factor of 17 (5.4 → 93.5 µs/step here) and can place a real ~1 % effect
+inside the noise band. An auto-profile M4 null on a dispatch-count,
+command-buffer, or graph-width axis is therefore not evidence of a null. Such
+experiments must export `DARKBLOOM_STARTUP_MEMORY_PROFILE=full` and prove the
+worker saw 200 / 200 / 50, which `DARKBLOOM_ENV_READBACK=1` now does in one line
+per process.
+
 The actionable rule: before pricing a dispatch-count reduction at the calibrated
 constant, check what kind of boundary is being removed. Reductions worth pricing
 that way are ones that also remove a barrier, an encoder switch, or a command
@@ -640,9 +803,11 @@ re-stream both operands' weights should be priced at zero bandwidth benefit.
   barrier, same command buffer) is read from vendored MLX source and is
   generation-independent, but 0.536 µs/dispatch and the 85 %-of-peak bandwidth
   figure are measured on an M4 Pro with 20 GPU cores and 273 GB/s. An M5 Max has
-  more cores and more bandwidth; the sign should hold, the size may not. This
-  negative should be treated as track-level guidance only after an M5
-  confirmation.
+  more cores and more bandwidth; the sign should hold, the size may not. Rev2
+  closes the *command-buffer-structure* part of this gap — the full-profile cell
+  runs the M5's 200 / 200 / 50 configuration and the candidate loses there by
+  1.14 % — but not the core-count or bandwidth part. This negative should be
+  treated as track-level guidance only after an M5 confirmation.
 - **Fusions that remove a barrier or a command buffer.** A producer→consumer
   fusion, or one that lets MLX drop a command buffer, removes a strictly more
   expensive boundary and is not covered by this result.
@@ -656,12 +821,17 @@ re-stream both operands' weights should be priced at zero bandwidth benefit.
 ### 4.5 Ship decision
 
 **Do not ship.** Section 7 of the assignment permits shipping only on a positive
-interval that excludes zero. Per mirrored order every interval contains zero, and
-pooled the two intervals that do exclude zero exclude it on the regression side.
-There is no reading of the ranked axis under which this ships. The fused kernel
-therefore stays behind `DARKBLOOM_SHARED_ROUTED_QMV_FUSED`, default OFF, so the
-submitted surface is behaviourally identical to the base while the mechanism
-remains available and documented for a future M5 re-test.
+interval that excludes zero. Under the auto profile every per-order interval
+contains zero and the two pooled intervals that exclude zero exclude it on the
+regression side; under the M5-like full profile all nine intervals exclude zero
+on the regression side at −93.5 µs/step. There is no reading of the ranked axis
+under which this ships, and the configuration closest to the ranked machine is
+the one that rejects it hardest. The fused kernel therefore stays behind
+`DARKBLOOM_SHARED_ROUTED_QMV_FUSED`, default OFF, so the submitted surface is
+behaviourally identical to the base while the mechanism remains available and
+documented. I no longer recommend an M5 re-test of this fusion as a candidate;
+what is worth an M5 look is the *profile* finding in §4.3, because it changes how
+every future dispatch-structure experiment on a sub-64 GiB host must be run.
 
 ### 4.6 Honest deviations from the assignment text
 
@@ -693,3 +863,14 @@ remains available and documented for a future M5 re-test.
    cannot execute (§3.10). I ran the unchanged-base comparison rather than
    asserting the cause, and I did not use
    `MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT=1`.
+7. **The rev1 auto cells' readback is inferred, not printed per run.** The
+   `DARKBLOOM_ENV_READBACK=1` probe was written for rev2, so the 88 auto-profile
+   ranked runs in §3.8 predate it and none of them printed the three MLX variables
+   directly. Their per-run proof that the low-memory branch executed is the startup
+   notice, present in 89 of 89 auto stderr files and in 0 of 73 full files; the
+   64 / 128 / unset values themselves come from the two-cell readback smoke pair
+   (`research/edward_r119b_envguard.sh`) run on the same binary and host. Every
+   full-profile run in §3.8c does carry its own readback line. I chose not to
+   re-run the 88 auto runs purely to add a printout, because the advisor's rev2
+   instruction was to add the full cells beside the existing auto cells rather than
+   to replace them.
