@@ -24,7 +24,9 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
 
 OUT="${OUT:-/tmp/r125c-ladder}"
-ORDER="${ORDER:-ABDDBA}"
+# Six palindromic blocks. Each arm holds the {1,6}, {2,5} and {3,4} slot pair
+# exactly twice across the campaign, so slot occupancy is balanced per arm.
+ORDER="${ORDER:-ABDDBABDAADBDABBADADBBDADBAABDBADDAB}"
 STEPS="${STEPS:-512}"
 BLOCK="${BLOCK:-6}"
 TAG="${TAG:-ladder}"
