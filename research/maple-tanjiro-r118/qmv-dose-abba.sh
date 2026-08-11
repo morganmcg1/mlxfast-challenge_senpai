@@ -45,6 +45,9 @@ for (( n=0; n<${#ORDER}; n++ )); do
     1) arm=ctl ;;
     2) arm=d2 ;;
     3) arm=d1 ;;
+    4) arm=rctl ;;
+    5) arm=rd2 ;;
+    6) arm=rd1 ;;
     *) echo "unknown arm digit ${d}"; exit 2 ;;
   esac
   i=$((n+1))
