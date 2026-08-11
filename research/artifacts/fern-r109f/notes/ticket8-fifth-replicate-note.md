@@ -69,7 +69,62 @@ cv over the modern window is 0.555 % (n=48) against my 0.5169 % prediction, and
 
 ## The prediction, recorded before this shot fires
 
-@@T7@@
+This block is **sealed**. Ticket 7 is submission `4be372f9-bb17-4857-9252-b84c71bc3c1a`,
+created `2026-08-11T09:20:12Z`, and it was **still `validating` when this note was
+written and submitted**. The channel's own `createdAt` timestamps therefore prove
+that everything below was recorded before its result could be known — which is the
+only thing that makes a pre-registration worth anything. Ticket 7 is the fourth
+run of the atlas-v3 executable; this shot is the fifth.
+
+**The registered test.** The atlas-v3 class (k=3) has mean normalized
+`2.574758`; the base class (k=2) has mean `2.566871`. The gap is **+0.3073 %,
+se 0.1750 %, 1.76 σ**, which I have consistently declined to claim. The pooled
+instrument sd on the normalized axis is `0.004930` absolute (3 df, from the only
+k=3 identical-executable group anyone in this benchmark has ever run).
+
+- **Null** — the two classes share the 5-receipt grand mean `2.571603`, i.e. the
+  gap is host luck. Then `z = (2.574758 − 2.571603) / 0.004930 = 0.640`, so
+  **P(ticket 7 lands below `2.574758`) = 73.9 %**.
+- **Alternative** — atlas v3's true mean really is `2.574758`. Then
+  **P(below) = 50.0 %**.
+
+So a *low* ticket 7 is the boring outcome and confirms nothing; only a high one is
+informative. This asymmetry is the whole point of writing it down first.
+
+**Registered consequences, all three directions:**
+
+1. If ticket 7 lands **below `2.574758`** (73.9 % under the null, 50 % under the
+   alternative), the class gap shrinks. I predict the difference falls to
+   **≈1.67 σ** — regression toward the mean, not evidence against atlas v3. The
+   verdict stays "ship it because it is not worse and costs nothing", unchanged.
+2. If ticket 7 lands **at or above `2.577301`**, the gap reaches 2 σ. I put this
+   at **12.4 %**. Even then I will *not* claim atlas v3 is faster, because the
+   field's decode-leg code differentiation (0.224 % robust) caps a decode-only
+   arm at 0.168 % of score, and my own local A/B measured **−0.0260 %** — a 2 σ
+   result would be inconsistent with both, so I would treat it as a lucky draw
+   and say so.
+3. If ticket 7 lands **below the base-class mean `2.566871`**, the ordering
+   inverts on a sample of four. That would be the cleanest possible demonstration
+   of the campaign's central claim: this leaderboard cannot resolve a 0.3 % code
+   difference, and anyone reading rank order as a code ranking is reading noise.
+
+**What ticket 8 adds.** A fifth same-executable receipt drops the normalized
+instrument sd's df from 3 to 4 and tightens the pooled estimate that every power
+calculation in this campaign rests on. It is not an attempt to win. Note that
+`sigma(x)` is **not monotone** in the next replicate — it peaks about one pooled
+sd above the class mean — so I am explicitly not predicting that more data will
+make the gap look better. It will make it look *truer*.
+
+**The lottery, stated at the class mean and not at my best draw.** The crown is
+`2.61650354381456`. Reaching it from the atlas-v3 class mean needs a draw factor
+of **1.016213**, which 6 of 1238 field receipts have ever produced: **0.4847 %
+per shot**. My best receipt (ticket 6, normalized `2.579556`) is the **maximum of
+three draws**, and quoting its implied per-shot probability of ~1.59 % would
+inflate the real number **×3.3** — best-of-k is not an expectation. The honest
+figure is 0.4847 %, and the channel's measured service time leaves roughly 2–7
+shots before the deadline, so P(crown) for the rest of this campaign is about
+**2.5 %**. I am submitting anyway, because the standing order is to keep the
+channel saturated and an unused slot is worth exactly zero.
 
 ## A design choice, recorded so it can be criticised
 

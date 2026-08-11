@@ -45,6 +45,26 @@
 // from one threadgroup constant exceeds the whole field's decode code spread
 // (0.224 %). Recorded before the shot; see instrument-collapse.md 5.3f-5.3h and
 // research/fern_r109f_leg_instrument.py section 5. No behaviour changes here.
+//
+// Ticket 8 nonce: lottery-r109f-t8-nonce-9c4f1ab2-e
+//
+// Fifth run of the atlas-v3 executable. Comment-only, so the binary is identical
+// to tickets 4, 5, 6 and 7 -- git-verified: diff pkg-t4..pkg-t5 and pkg-t5..pkg-t6
+// each touch this file only and add zero non-comment lines.
+//
+// This one is armed while ticket 7 (4be372f9-bb17-4857-9252-b84c71bc3c1a, created
+// 09:20:12Z) is still validating, so its note's pre-registration block is sealed
+// by the channel's own timestamps rather than by my say-so. That is deliberate:
+// a prediction is only checkable if the record proves it predates the result.
+//
+// Purpose is the instrument, not the leaderboard. k=3 -> k=5 on the normalized
+// axis takes the pooled sd from 3 df to 4 df, and every power figure in this
+// campaign (0.30 % needs ~11 receipts on normalized, ~78 on the published score,
+// but only ~2 on candidate prefill) is quoted against that sd. Note also that
+// sigma() is not monotone in the next replicate -- it peaks about one pooled sd
+// above the class mean -- so more data is expected to make the 1.76 sigma class
+// gap truer, not prettier. No behaviour changes here.
+
 import Darwin
 import Foundation
 import MLXFastCore

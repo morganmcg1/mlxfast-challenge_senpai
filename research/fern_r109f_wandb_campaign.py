@@ -171,6 +171,48 @@ CHANNEL = {
     ),
 }
 
+# OUT-OF-SAMPLE CHECK on the censoring inference above.
+#
+# The 09:06Z measurement did not just report a median, it made a falsifiable
+# prediction: because the censored rows were slower than the completed ones, the
+# honest current service time was ">= 45-50 min and rising".  Re-running the same
+# estimator against a 13th snapshot taken 12.7 min later tests that prediction
+# without re-fitting anything, and the direction was not chosen after the fact.
+#
+# It held, and from below.  One row completed in the interval -- c0b9b65b,
+# bracketed 83.8-96.5 min, the longest genuine bracket in the record (the 309 min
+# outlier is an artifact of the 4.8 h observation hole, not a service time).  The
+# censored median rose 38.50 -> 50.56, i.e. straight into the predicted band, and
+# the bracket p90 rose 83.18 -> 96.10.  A prediction that lands inside its own
+# interval in 13 minutes is evidence the queue is degrading, not that the point
+# estimate was unlucky.
+#
+# The point estimate is deliberately NOT updated to the newer value.  CHANNEL is
+# the measurement that generated the prediction; overwriting it with the data
+# that confirmed it would convert a test back into a fit and destroy the only
+# out-of-sample evidence in the section.
+CHANNEL_OOS = {
+    "observed_at_utc": "2026-08-11T09:19:15Z",
+    "minutes_after_measurement": 12.7,
+    "n_bracketed": 20,
+    "n_censored": 11,
+    "new_bracket_id": "c0b9b65b",
+    "new_bracket_lo_min": 83.83,
+    "new_bracket_hi_min": 96.50,
+    "bracket_median_min": 29.61,
+    "bracket_p90_min": 96.10,
+    "censored_median_min": 50.56,
+    "censored_max_min": 82.03,
+    "predicted_band_min_low": 45.0,
+    "predicted_band_min_high": 50.0,
+    "prediction_held": 1,
+    "verdict": (
+        "predicted >=45-50 min and rising; 12.7 min later the censored median "
+        "was 50.56 and the bracket p90 had risen 15.5 % -- prediction entered "
+        "its own band from below, so the degradation is real and ongoing"
+    ),
+}
+
 # Per-shot wall cost used for every hours-to-50% figure.  This used to be a bare
 # literal 22.0 minutes, which no measurement ever supported.  Now it is the
 # measured bracket median, and the censored median is carried alongside as the
@@ -942,6 +984,7 @@ def run_crown_lottery(wandb, rows, cache, dry):
         )
 
     summary.update({f"channel/{k}": v for k, v in CHANNEL.items()})
+    summary.update({f"channel_oos/{k}": v for k, v in CHANNEL_OOS.items()})
 
     # Shot budget: how many more draws the *channel* will physically allow before
     # the campaign deadline, which is now the binding constraint rather than any
