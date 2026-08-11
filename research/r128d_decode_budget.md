@@ -315,3 +315,213 @@ future comparison, independently of item 2:
 Both corrections are individually comparable to, or larger than, the ~350 µs
 that item 2 reports as a discovered inefficiency.
 
+## D2 — Results: the instrument does not cost anything; fission costs 1016 µs
+
+Campaign `research/alphonse-r128d-campaign.py`, job `3176f209`, exit 0, 800 s,
+all arms 0 token mismatches. Every arm ran the same golden, same 512-token seed,
+same host: **this Apple M4 Pro (14 CPU, 48 GiB, macOS 26.5.2, GPU gen 16 — never
+selects `_nax`)**. Arm medians are medians of per-run medians.
+
+| arm | binary | env | runs × steps | full-window µs | sd | 128-window µs | sd |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `clean` (J1) | `w-clean` `5993c62e…` | — | 6 × 1023 | 8296.3 | 16.7 | 8171.1 | 3.1 |
+| `clean-recheck` | `w-clean` `5993c62e…` | — | 2 × 200 | 8171.4 | 6.8 | 8111.0 | 73.5 |
+| `hook-off` | `w-hook` `4aded8e0…` | — | 6 × 1023 | 8293.4 | 4.6 | 8161.8 | 9.7 |
+| `hook-on` | `w-hook` `4aded8e0…` | `GPU_PROFILE=1` | 6 × 1023 | 8289.8 | 18.2 | 8158.7 | 6.1 |
+| `hook-split` | `w-hook` `4aded8e0…` | `+ SPLIT=1` | 2 × 200 | 9179.4 | 4.1 | 9174.7 | 7.4 |
+
+`clean-recheck`'s 128-window sd of 73.5 is a two-run artifact (one run at 8059
+still carrying warm-up); its 200-step figure of 8171.4 µs is the trustworthy one
+and it reproduces J1's 8171.1 µs across sessions and across a renamed binary.
+
+Ladder rungs (`research/alphonse-r128d-ladder.py`, 95 % t intervals from
+run-to-run spread):
+
+| rung | 128-step window | own window |
+| --- | --- | --- |
+| hook compiled in but **disabled** (`hook-off` − `clean`) | **−9.4 ± 10.7 µs** | −2.9 ± 18.2 µs (1023) |
+| **`instrument_overhead_us_per_step`** (`hook-on` − `hook-off`) | **−3.1 ± 12.1 µs** | −3.6 ± 19.7 µs (1023) |
+| command-buffer **fission** (`hook-split` − `hook-on`) | **+1016.0 ± 73.9 µs** | +1008.0 ± 71.3 µs (200) |
+
+Three things follow.
+
+1. **The GPUPROF hook is free.** Both merely compiling it in and actually
+   running it are indistinguishable from zero at a ±12 µs floor. A completion-
+   handler that reads `GPUStartTime`/`GPUEndTime` and writes to stderr does not
+   perturb a 8.2 ms step. So `busy` and `wall` measured *inside one hooked run*
+   are legitimately comparable to an unpatched run.
+2. **`SPLIT=1` is catastrophic.** Forcing one command buffer per dispatch costs
+   **+1016 µs/step**, which is **2.9× the entire ~350 µs** item 2 reports as a
+   finding. Anything measured under `SPLIT=1` describes a different program.
+3. Therefore the defect in item 2 is not that the hook is intrusive. It is that
+   the busy term was harvested from the fission-distorted program while the wall
+   term was not.
+
+## D3 — Results: where the non-busy time actually goes
+
+Per-step paired decomposition, `research/alphonse-r128d-gap.py`. Every quantity
+below is computed **per step and then medianed**.
+
+| quantity | `hook-on` (n=6132 steps) | `hook-split` (n=398 steps) |
+| --- | --- | --- |
+| wall | 8297.2 (IQR 146.0) | 9178.5 (IQR 57.0) |
+| `gpu_busy_sum` | 8076.2 | 8196.3 |
+| `gpu_busy_union` | **8076.2** (IQR 179.9) | **8196.3** (IQR 36.1) |
+| **gap = wall − busy_union** | **232.5** (IQR 49.7) | **982.7** (IQR 44.5) |
+| LEAD (t0 → first GPU) | 100.8 (IQR 13.9) | 85.8 (IQR 3.8) |
+| INTERNAL_IDLE | 83.9 (IQR 31.2) | 834.2 (IQR 40.3) |
+| TRAIL (last GPU → t1) | 43.9 (IQR 6.7) | 60.2 (IQR 4.3) |
+| command buffers / step | **45** | **366** |
+| dispatches / step | 366 | 366 |
+
+Gates:
+
+| gate | `hook-on` | `hook-split` | verdict |
+| --- | --- | --- | --- |
+| G1 identity `max\|LEAD+INT+TRAIL−gap\|` | 0.000 µs | 0.000 µs | pass |
+| G2 overlap `median(busy_sum−busy_union)`; steps >1 µs | 0.0 µs; 0/6132 | 0.0 µs; 0/398 | pass — command buffers are strictly serial, so a single-timeline attribution is valid |
+| G3 `LEAD+TRAIL` below null-RTT floor | 0/6132 | 0/398 | pass |
+| G4 gap trend | −1.5 µs/1000 steps | −24.2 µs/1000 | pass — the gap is flat, so the 232.5 µs figure is not a window artefact and applies to the 128-step window too |
+
+`SPLIT=1` converts 45 command buffers/step into 366 — exactly one per dispatch —
+and **all** of the extra cost lands in `INTERNAL_IDLE` (83.9 → 834.2 µs).
+The implied per-boundary cost is 1.91 µs/boundary un-split and 2.29 µs/boundary
+split; R87-A's control, at 406 cbs/step, implies 3.07 µs of gap per command
+buffer against my 2.68. Same regime, different host.
+
+### The independent cross-check that closes the case
+
+The R87-A control's *own* paired numbers give
+`gap = 9814.667 − 8567.333 = 1247.3 µs`. Removing the fission cost measured here:
+
+```
+R87-A own paired gap        1247.3 us   (cbs = 406)
+minus measured fission cost 1016.0 +/- 73.9 us
+= implied un-fissioned gap   231.3 us
+directly measured (hook-on)  232.5 us
+agreement                      1.2 us
+```
+
+Two independent routes — subtracting a separately measured fission cost from
+R87-A's own gap, and directly measuring a non-fissioned hooked run on this host —
+land **1.2 µs apart**. This is a cross-host, cross-revision comparison, so the
+precision of the agreement is partly luck; but it is strong evidence that the
+gap model is right and that **~1016 of R87-A's 1247 µs was instrumentation.**
+
+It also shows what item 2 actually did: it discarded R87-A's own 9814.7 µs wall
+(which would have reported 1247 µs) and substituted an unsourced 8919, producing
+352 µs. The resulting number is not a smaller, more careful estimate of the same
+quantity. It is the difference of two numbers from two different programs, and
+its proximity to the true 232.5 µs residual is a coincidence.
+
+## D5 — The answer: what the decode residual is on this host
+
+**`residual_us_per_step` = 232.5 µs/step** (IQR 49.7, n = 6132 paired steps,
+6 runs, this M4 Pro, hooked worker with instrument overhead measured at
+−3.1 ± 12.1 µs, i.e. free). Detection floor achieved: **±3.3 µs/step** on the
+unpatched 128-step wall, **±12.1 µs/step** on the ladder differences.
+
+Priced (Rule 9 — the residual is an M4 Pro measurement and is priced only with
+M4-class currencies; it is **not** transplantable to the ranked M5):
+
+| currency | source | `residual_pct_of_score` |
+| --- | --- | --- |
+| 0.00845 %/µs @ 8882 | nezuko #730 `--local-submit` | **1.96 %** |
+| 0.00913 %/µs @ 8213 | frieren #733 control | **2.12 %** |
+
+Attribution, with the honest caveat attached to each line:
+
+| cause | µs/step | IQR | recoverable? |
+| --- | --- | --- | --- |
+| LEAD — host encode/commit before first GPU work | 100.8 | 13.9 | Partly. This is CPU on the serial critical path (step N depends on N−1), so it cannot hide behind GPU work. It is **not** GPU idle. |
+| INTERNAL_IDLE — 44 inter-command-buffer boundaries @ 1.91 µs | 83.9 | 31.2 | Partly. Recoverable only by issuing fewer command buffers per step; 45/step for 366 dispatches. |
+| TRAIL — completion → response, incl. ≈21.7 µs probe-only protocol RTT | 43.9 | 6.7 | ≈22 µs is **my probe's own pipe**, absent from the scored harness. The rest is readback/sampling. |
+| unattributed (non-additivity of medians; per-step identity is exact, G1 = 0.000 µs) | 3.9 | — | — |
+
+Netting out the probe's own protocol leg, the **model-attributable non-busy time
+is ≈210.8 µs/step (≈1.78 % of score at 0.00845 %/µs)**. Two further caveats
+bound this from both sides:
+
+- `busy_union` is an **upper bound** on useful GPU work, because command-buffer
+  timestamps bracket the whole buffer and count intra-buffer bubbles as busy.
+  The gap is correspondingly a **lower bound** on non-busy time.
+- The trusted harness's own implied step on this host is 8374–8587 µs against
+  the probe's 8171.1 µs (D1). The harness therefore carries **another
+  203–416 µs** of non-busy time that this probe never sees. Any attempt to
+  convert the 232.5 µs into a score improvement must first establish which
+  apparatus the ranked measurement uses.
+
+## D6 — Verdict on manifest item 2
+
+`manifest_item_2_verdict = unsourced-withdrawn`.
+
+`research/maple_endgame_handoff_manifest.md:977` states "Decode wall ≈ 8919 µs
+vs busy ≈ 8567 µs ⇒ ~350 µs (~2 % of score)", re-priced at 2.94 % in §6.6
+(lines 961–964). Findings:
+
+1. **8919 has no primary record anywhere** in the tree or in history (D0). It
+   enters already-uncited at commit `9ef3bfcb`; commit `77580a48` contains the
+   author's own admission that the basis "has not been verified… Treat it as
+   unpriced until someone does."
+2. **8567 is real but is not a wall-comparable busy figure.** It is
+   `busy_union_us.mean` of arm `A0` in `research/r87a-runs/control.json`, an
+   arm that `research/tanjiro-r87a-campaign.sh:64-66` ran under
+   `DARKBLOOM_GPU_PROFILE=1 DARKBLOOM_GPU_PROFILE_SPLIT=1`. Its own paired wall
+   was **9814.7 µs** and its own gap **1247.3 µs**.
+3. **The subtraction crosses two programs.** Fission costs **+1016 ± 74 µs/step**
+   (D2), 2.9× the claimed finding. Item 2 subtracts a fission-inflated busy from
+   a wall of unknown provenance.
+4. **The correct number is 232.5 µs/step on this host, not 350** — reached both
+   directly and by removing the measured fission cost from R87-A's own gap
+   (agreement 1.2 µs).
+5. **~350 µs is not even the right order once apparatus is controlled.** Window
+   length alone is worth ~125 µs and apparatus choice up to ~416 µs on this host
+   (D1); both are confounds larger than the claimed effect.
+
+Item 2 should be **withdrawn as stated and replaced** by the D5 entry, with its
+host, binary, window, apparatus and detection floor attached. The underlying
+intuition — that decode leaves a couple of percent of non-busy time on the
+table — survives; the specific number, its provenance and its 2.94 % price do
+not.
+
+Note that D5's 232.5 µs is itself an M4 Pro figure. The ranked M5 runs at
+4910.9 µs/step; its LEAD and per-command-buffer costs are host properties that
+must be measured there, not scaled. Reproducing this ladder on the ranked host
+is the obvious follow-up and is **not** something this experiment did.
+
+
+## D7 — Scope and landing-diff verification
+
+This experiment is instrumentation-only. It proposes no runtime change and its
+branch carries no landing hunk.
+
+```
+$ git diff --stat 67396bb6283cf2765a388b05ce4ac64174bb8ef6..HEAD -- Sources/ Vendor/
+(no output)
+```
+
+`landing_diff_sources_vendor_empty = true`.
+
+Every path added by this branch relative to
+`BASE_SHA = 67396bb6283cf2765a388b05ce4ac64174bb8ef6`:
+
+| path | role |
+|---|---|
+| `research/alphonse-r128d-probe.py` | direct worker probe: seed forward + per-step wall, null-request RTT |
+| `research/alphonse-r128d-campaign.py` | five-arm driver; copies the worker binary beside the original exe per arm |
+| `research/alphonse-r128d-gap.py` | per-step wall/busy pairing, LEAD/INTERNAL_IDLE/TRAIL split, gates G1–G4 |
+| `research/alphonse-r128d-ladder.py` | ladder deltas: hook-compiled-in, hook-on, fission |
+| `research/patches/INSTRUMENT_ONLY_r128d_gpuprof_hook.patch` | the profiling hook, never applied to the submitted surface |
+| `research/r128d_decode_budget.md` | this report |
+
+The patch is held under `research/patches/` with the `INSTRUMENT_ONLY_` prefix
+and is applied only to a scratch worktree to produce the `w-hook` binary. The
+scored surface (`Sources/`, `Vendor/`) is byte-identical to the base on this
+branch, so nothing here can change a ranked score. The two binaries used for
+timing are recorded by hash in D2 so the comparison can be re-made:
+
+- `.build-worker/release/w-clean` — sha256 `5993c62e1a01994a…` (base, unpatched)
+- `.build-worker/release/w-hook` — sha256 `4aded8e038a8f413…` (patched)
+
+No official submission was attempted or dispatched from this branch.
+
