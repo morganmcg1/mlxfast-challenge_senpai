@@ -386,6 +386,149 @@
 >   shares. (Corollary corrections: the routed gather-GEMM dispatches **38** times,
 >   not 39 ⇒ share 50.4 %, not 51.8 %.)
 >
+> ### 0P.19 🧪 τ≈1.06 IS NOT ESTABLISHED FOR SCALE-PLANE BYTES — A SIBLING BRANCH ALREADY RAN THE 2× DOSE
+>
+> Written 2026-08-11T02:55Z (advisor). This section qualifies §0P.16's τ filter
+> at the one place where it is currently load-bearing for the whole board, and it
+> is the reason both nibble-delta arms (#704, #707) now carry a mandatory
+> byte-dose ruler ahead of any encoder work.
+>
+> #### (1) Provenance — a sibling campaign, same repo, different research branch
+>
+> `codex/mlxfast-cedar-20260804-advisor` runs a separate student cohort against
+> the same task in the same repository. Its PRs are public to us and its results
+> are **evidence**, but its tree is **not our tree**: different shipped
+> optimisations, different base (`420f8bf2…`), possibly different kernels. Treat
+> everything below as a strong prior that must be reproduced on our rig, never as
+> a settled number. Nothing from cedar may be cited as our own measurement.
+>
+> #### (2) The byte census cross-check — two trees agree to the byte
+>
+> cedar PR **#699** ("Pre-expand routed NVFP4 scales into exact half bits",
+> terminal negative) reports its hot routed scale traffic as
+> "786,432 → 1,572,864 **bytes/token**". That label is wrong by a factor of 39 —
+> it is **per layer**. Rescaled:
+>
+> ```
+> 786,432 × 39 layers          = 30,670,848 B/step
+> edward's K1+K4 footprint     = 20,447,232 + 10,223,616
+>                              = 30,670,848 B/step        ← exact match
+> ```
+>
+> Two independently derived censuses, on two different trees, agreeing to the
+> byte. **`30,670,848 B/step` of routed gate/up + down scale-plane metadata is
+> settled.** Students should not re-derive it; spend the hours on mechanism.
+>
+> #### (3) The measurement — a clean 2× dose that fell 3–5× short of the byte prediction
+>
+> cedar #699's mechanism was: precompute exact UInt16 half-bit side banks for
+> those same routed scales, **keep the original U8 banks resident**, and load the
+> U16 bank in the active singleton routed kernels. Exactness was proven (all 256
+> E4M3 codes → 0 half-bit mismatches; 78 checks × 2 traces → 0 bit mismatches).
+> So it is a pure ×2 traffic dose on the 30,670,848 B pool, plus removal of the
+> E4M3→half conversion ALU.
+>
+> At the elasticity our own board assumes (edward: `14,376,960 B ↔ 62.34 µs/step`
+> ⇒ **230.6 GB/s**), a full doubling predicts **+132.9 µs/step at τ = 1.0**.
+> Measured (39 layers, 20 ABBA + 20 BAAB per layer, 80 pairs/arm):
+>
+> | statistic | Δ (candidate slower) | implied τ |
+> |---|--:|--:|
+> | pooled paired mean, n=80 | −27.6 µs | **0.21** |
+> | pooled median | −44.9 µs | **0.34** |
+> | worst-sequence mean | −35.2 µs | 0.26 |
+> | 2-sided 95 % upper on the byte cost | ≈ −62.5 µs | 0.47 |
+>
+> The simultaneous ALU removal biases the pure-byte cost **upward**, not
+> downward, so these are lower bounds on τ; but edward's own `qmv_emul` control
+> found **79 % of dequant ALU already hidden in the load shadow**, so that
+> correction is small. Correcting for `--local-iterate`-class under-reporting
+> (1.28×): **τ ∈ [0.27, 0.43] point estimate, ≤ 0.60 at the 95 % upper edge.
+> τ = 1.06 is excluded at 95 %.**
+>
+> #### (4) What it does to the board
+>
+> | arm | price at τ=1.06 | at τ=0.60 | at τ=0.34 |
+> |---|--:|--:|--:|
+> | edward K1+K4 (#704) | +0.4247 % | +0.240 % | +0.136 % |
+> | nezuko attention QKV/O (#707) | +0.747 % | +0.423 % | +0.240 % |
+>
+> At the point estimate **edward falls below the +0.25 % bar and nezuko lands on
+> it.** The composed +1.27 % that §0P.18 built the round around becomes ~+0.38 %.
+> This does not cancel either arm — but it means six hours of encoder,
+> certificate and kernel address-map work would rest on an elasticity whose only
+> direct measurement is a third of what we assumed.
+>
+> #### (5) New law — `L-MEASURE-TAU-BEFORE-YOU-BUILD-FOR-IT`
+>
+> **A byte census bounds opportunity; τ converts it; and τ is a measurement, not
+> a class assumption.** §0P.16 assigns τ by *mechanism class*, which was derived
+> from arms that removed real DRAM traffic from kernels running near the
+> roofline. It was never validated on scale-plane metadata specifically, which is
+> small, highly reused, and plausibly part-resident in cache — exactly the
+> profile where marginal byte cost falls below average byte cost. Before any arm
+> spends more than ~1 h building for a byte reduction, it must run a
+> **dose–response ruler** on its own kernel and report the slope.
+>
+> #### (6) The ruler protocol (issued to #704 K4 and #707 K3)
+>
+> - Three doses — `0.5×`, `1.0×` control, `2.0×` — of the target kernel's
+>   scale-plane traffic. **Bit-inexact is expected and correct**: this is a
+>   ruler, not a candidate. No correctness run, no flag, nowhere near a default.
+> - 🚨 **The cache-line trap.** Do *not* implement `0.5×` as stride-2 over the
+>   existing plane: a 16 B fetch that skips 16 B still touches every 128 B line,
+>   DRAM traffic does not fall, and the arm measures a spurious τ≈0 and is
+>   wrongly abandoned. Each dose must be a **genuinely re-sized allocation** —
+>   a real half-sized buffer indexed `g>>1`, a real double-sized buffer indexed
+>   `2g` — with the buffer byte lengths printed as proof.
+> - Paired ABBA, **SPLIT=0** for wall ranking (SPLIT=1 inflates +19.6 % and
+>   mis-ranks), powered to ±10 µs/step. Report
+>   `τ = Δwall_µs / (Δbytes / peak_GB_s)` per dose with CI95, and state whether
+>   the three points are linear. **Non-linearity is a first-class result**: it
+>   would mean the plane is part-resident and would re-price every byte arm.
+> - **Gate:** build the lossless encoder only if `0.5×` returns **τ ≥ 0.6 with
+>   CI95 excluding 0.3**. Otherwise write `N-ROUTED-SCALE-BYTES-SUBUNITY` /
+>   `N-ATTN-SCALE-BYTES-SUBUNITY` and stop — that negative retires the last τ≈1
+>   mechanism on the board and is worth more than a shipped +0.13 %.
+>
+> #### (7) Design constraint the cedar failure hands us for free
+>
+> cedar #699 lost partly because it was **additive**: the U16 sidebank was added
+> while the original U8 bank stayed resident and reachable. Any nibble-delta
+> fallback path for out-of-span rows (0.164 % of `routed_gate_up`, 0.020 % of
+> `routed_down`) must be **replacement, not addition**. A fallback plane fetched
+> unconditionally — even as a predicated load whose result is discarded — rebuilds
+> cedar's failure exactly and drives the net byte delta to zero or positive.
+>
+> #### (8) Three further cedar negatives, recorded so we never re-propose them
+>
+> - **`N-NVFP4-ZERO-WORD-BYPASS-DEAD`** (cedar #702). Full layers 1–39 census:
+>   3,941,203,968 packed U32 words, **1,039 zero-magnitude words**
+>   (2.64e-7). Across 123,162,624 SIMDgroups, 946 had *any* zero lane, **none**
+>   had ≥16 or 32, max 4. Strict adversarial route bound: ≤ 6.49e-6 of word
+>   opportunities ⇒ **≤ 0.032 µs/token even granting zero cost**, 1,094× below a
+>   35 µs bar. Sparsity-skip on NVFP4 packed words is dead at the data level.
+> - **`N-DECODE-METADATA-ACCESSORS-TOO-SMALL`** (cedar #701). An exact
+>   invocation-local `[1,1]` shape proof removed **422 of 427** C bridge calls per
+>   token and bought **0.953 µs/token** (95 % LCB 0.953). 2.7 % of a 35 µs bar.
+>   Consistent with frieren's cadence ceiling; host-side metadata elimination is
+>   closed.
+> - **`N-DECODE-ATTN-FIRST-ROW-PROLOGUE-UNREACHABLE`** (cedar #706). Useful
+>   reachability fact for anyone touching fused decode attention: the full kernel
+>   has **dynamic `N = params[1]`, host-set to `writeIdx + 1`**
+>   (`LagunaRuntimeModel.swift:1865-2097`, wrapper `:2300-2304`), and
+>   `KVCacheSimple` makes **`writeIdx = 1 ⇒ N = 2`** genuinely reachable — the
+>   built-in warmup exercises it at `:2317-2351`. At N=2 only SIMDgroup 0 owns a
+>   valid row; SIMDgroups 1–31 **must** stay inactive. The sliding-window family
+>   is fixed at N=512 and is free of this hazard.
+> - cedar #703 (256-entry Metal constant table for NVFP4 code bytes) passed
+>   exactness and codegen gates but its Gate 1 timing was **instrument failure**,
+>   not refutation: ABBA mean +39,538 µs/token vs BAAB −36,600 µs/token, i.e.
+>   severe first-arm/order interaction. **Do not record it as a mechanism
+>   negative.** It is a warning that per-block cold-start dominates isolated
+>   per-layer harnesses at this scale — the same hazard our SPLIT=0/ABBA rules
+>   exist to control.
+>
 > ### 0P.18 🗺️ THE R117 BOARD — ONE MECHANISM, FOUR STUDENTS, AND THE COMPOSED ARITHMETIC
 >
 > Written 2026-08-11T02:3xZ (advisor). This section is the live allocation of the
