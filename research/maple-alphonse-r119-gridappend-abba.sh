@@ -17,13 +17,17 @@
 # the per-step wall time dumped one sample per line. The first
 # R119_WARMUP_STEPS samples are discarded by the stats script.
 #
+# STEPS must stay <= 255: the public golden supplies 256 continuation tokens,
+# and decode_probe.py switches to self-fed tokens past that point, which would
+# let arms drift onto different routing trajectories and confound the timing.
+#
 # Usage: research/maple-alphonse-r119-gridappend-abba.sh [ORDER] [OUTDIR] [STEPS]
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
 ORDER="${1:-CNHFGE}"
 OUTDIR="${2:-/tmp/r119-gridappend}"
-STEPS="${3:-640}"
+STEPS="${3:-255}"
 mkdir -p "$OUTDIR"
 
 arm_mode() {

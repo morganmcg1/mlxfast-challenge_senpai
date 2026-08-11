@@ -25,7 +25,7 @@ import re
 import statistics
 import sys
 
-WARMUP = int(os.environ.get("R119_WARMUP_STEPS", "128"))
+WARMUP = int(os.environ.get("R119_WARMUP_STEPS", "16"))
 # The R114-E QKV+gate_sp append absorbed 76.8 us/step. The advisor's joint
 # point estimate for instances 2 and 3 is 60 us/step and the interim stop rule
 # is 30 us/step.
