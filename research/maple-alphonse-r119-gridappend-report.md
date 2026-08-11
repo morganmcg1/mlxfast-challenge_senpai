@@ -1091,7 +1091,11 @@ run next if the advisor wants the mechanism nailed rather than merely believed.
    quantitatively and replaces the 1.2382 µs/dispatch constant with a locally
    calibrated one; a positive slope × 39 says what removal should have bought.
    This is the single experiment that would separate `S ≈ 0, tax ≈ 13` from
-   `S ≈ 35, tax ≈ 48` (alternative 4).
+   `S ≈ 35, tax ≈ 48` (alternative 4). Run the ladder twice — once with the
+   clones as free siblings, once with a forced dependency between them — and the
+   two slopes are `D(dep_scope = NONE)` and `D(dep_scope ≠ NONE)`. That pair of
+   constants is what follow-up 8 needs to price any future append, and neither
+   is currently known for this machine.
 3. **Poison-liveness test.** In the fused build, make the standalone router
    write garbage. Green correctness gates ⇒ its result is dead in the evaluated
    graph, which is the necessary condition for elision. The same poison applied
@@ -1116,15 +1120,23 @@ run next if the advisor wants the mechanism nailed rather than merely believed.
    kernels.** Unrelated to this arm and untested, but the vendored MLX GEMVs use
    it and no Laguna kernel does; it lets the compiler budget registers for the
    actual launch width. Cheap to try, plausibly helps the *unfused* baseline.
-8. **Retarget the technique by guest cost, not by guest prominence.** Scan the
-   per-layer op stream for dispatches whose *own* kernel duration is ≲ 5 % of a
-   sibling host's duration and rank them by call count — that is the R114-E
-   shape (6 threadgroups appended onto 4096) and, per
-   `L-APPEND-NEEDS-A-CHEAP-GUEST`, the only shape left where this technique can
-   pay. Concretely: enumerate every decode dispatch with ≥ 39 calls/step and
-   grid ≤ 16 threadgroups, and append each onto whichever saturated sibling is
-   adjacent. Those candidates were invisible under the profile-by-total-cost
-   screen that selected instances 2 and 3.
+8. **Retarget the technique by serialization, not by guest prominence or guest
+   cost.** §10b.3 changes the screen. The primary filter is *not* "cheap guest"
+   — that is only a screen on the `+g` term — it is `dep_scope ≠ NONE`: a pair
+   the encoder actually separates with a `memoryBarrier`, so removing the
+   dispatch boundary removes real serialization rather than a boundary that cost
+   nothing. Concretely: instrument `device.cpp` (follow-up 1) to dump, per step,
+   which dispatch pairs receive a barrier; rank those pairs by call count;
+   *then* apply the cheap-guest screen to the survivors. Both instances in this
+   round, and R114-E, are `dep_scope = NONE`, so this whole candidate class is
+   untouched by the family so far. Note the honest tension flagged in §10b.3:
+   the barrier-separated pairs are exactly the ones whose merge is hardest to
+   prove correct, so expect the correctness argument, not the timing, to be the
+   binding constraint. Candidates in the ≥ 39-calls/step, grid ≤ 16-threadgroup
+   band remain worth enumerating as a secondary screen, since they were
+   invisible under the profile-by-total-cost screen that selected instances 2
+   and 3 — but on this round's evidence a cheap guest alone predicts ≈ break-even,
+   not a win.
 9. **Host widening as an optimization in its own right.** Arm W measures
    widening the shared SwiGLU host from TG (64,1,1)/256 tiles to TG (256,1,1)/64
    tiles *as a standalone change* (§7.3), which is the advisor's comment-3 gate.
