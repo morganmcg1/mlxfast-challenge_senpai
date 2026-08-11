@@ -1,0 +1,194 @@
+{
+  "summary": {
+    "control": "c_w50_cb200",
+    "n_blocks": 4,
+    "n_arms": 7,
+    "sigma_contrast_pct": 1.145927646619941,
+    "sem_pct": 0.5729638233099705,
+    "rho": 0.663686210683766,
+    "expected_max": 1.352096099364672,
+    "argmax_bias_pct": 0.4492696681248784,
+    "raw_argmax_arm": "c_w20_cb64",
+    "raw_argmax_ns_pct": -0.23740518244339537,
+    "debiased_argmax_ns_pct": -0.6866748505682738,
+    "raw_argmax_decode_us": -6.6040839843753485,
+    "all_arms_correct": true,
+    "distinct_golden_hashes": 1
+  },
+  "arms": [
+    {
+      "arm": "a_w20_cb200",
+      "value": "DARKBLOOM_STARTUP_MEMORY_PROFILE=full;MLX_BFS_MAX_WIDTH=20;MLX_MAX_OPS_PER_BUFFER=200;MLX_MAX_MB_PER_BUFFER=200;DARKBLOOM_DECODE_ASYNC_STAGE=at:0,7",
+      "n": 4,
+      "mean_ns_pct": -5.040411229441075,
+      "sd_ns_pct": 1.0971827335055426,
+      "t_ns": -9.187915696297479,
+      "decode_saving_us": -927.7356757812502,
+      "decode_saving_us_sem": 84.67322875373256,
+      "golden_hashes": [
+        "b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63"
+      ],
+      "mean_decode_pct": -6.607618310289004,
+      "sd_decode_pct": 1.1879215832107064,
+      "t_decode": -11.124670859889553,
+      "mean_prefill_pct": -0.16282545927976955,
+      "mean_decode_spt": 0.014033346029296874,
+      "mean_prefill_spt": 0.0011564255371093748,
+      "mean_ns": 0.7535643260165352,
+      "all_correct": true
+    },
+    {
+      "arm": "a_w20_cb64",
+      "value": "DARKBLOOM_STARTUP_MEMORY_PROFILE=full;MLX_BFS_MAX_WIDTH=20;MLX_MAX_OPS_PER_BUFFER=64;MLX_MAX_MB_PER_BUFFER=128;DARKBLOOM_DECODE_ASYNC_STAGE=at:0,7",
+      "n": 4,
+      "mean_ns_pct": -0.9705214482194885,
+      "sd_ns_pct": 0.6255806673056504,
+      "t_ns": -3.1027859361430825,
+      "decode_saving_us": -84.00211523437555,
+      "decode_saving_us_sem": 35.26998424426379,
+      "golden_hashes": [
+        "b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63"
+      ],
+      "mean_decode_pct": -0.6376232826248357,
+      "sd_decode_pct": 0.5371798168883849,
+      "t_decode": -2.3739658958829457,
+      "mean_prefill_pct": -1.9575121433320604,
+      "mean_decode_spt": 0.013189612468749999,
+      "mean_prefill_spt": 0.0011774278559570314,
+      "mean_ns": 0.7858894972959465,
+      "all_correct": true
+    },
+    {
+      "arm": "a_w50_cb200",
+      "value": "DARKBLOOM_STARTUP_MEMORY_PROFILE=full;MLX_BFS_MAX_WIDTH=50;MLX_MAX_OPS_PER_BUFFER=200;MLX_MAX_MB_PER_BUFFER=200;DARKBLOOM_DECODE_ASYNC_STAGE=at:0,7",
+      "n": 4,
+      "mean_ns_pct": -5.3110697845497965,
+      "sd_ns_pct": 0.8381735775711318,
+      "t_ns": -12.672959221502234,
+      "decode_saving_us": -1002.3570937500004,
+      "decode_saving_us_sem": 90.68003915281435,
+      "golden_hashes": [
+        "b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63"
+      ],
+      "mean_decode_pct": -7.101773276277787,
+      "sd_decode_pct": 1.2623867958226338,
+      "t_decode": -11.251342773511693,
+      "mean_prefill_pct": 0.2821084881124952,
+      "mean_decode_spt": 0.014107967447265626,
+      "mean_prefill_spt": 0.0011511238608398438,
+      "mean_ns": 0.7514184946793667,
+      "all_correct": true
+    },
+    {
+      "arm": "a_w50_cb64",
+      "value": "DARKBLOOM_STARTUP_MEMORY_PROFILE=full;MLX_BFS_MAX_WIDTH=50;MLX_MAX_OPS_PER_BUFFER=64;MLX_MAX_MB_PER_BUFFER=128;DARKBLOOM_DECODE_ASYNC_STAGE=at:0,7",
+      "n": 4,
+      "mean_ns_pct": -1.2582199073870648,
+      "sd_ns_pct": 1.78197449990772,
+      "t_ns": -1.4121637626713759,
+      "decode_saving_us": -137.80712890625045,
+      "decode_saving_us_sem": 124.68627679894188,
+      "golden_hashes": [
+        "b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63"
+      ],
+      "mean_decode_pct": -1.0277753004563406,
+      "sd_decode_pct": 1.8630738995275458,
+      "t_decode": -1.103311361634096,
+      "mean_prefill_pct": -1.9301478637065161,
+      "mean_decode_spt": 0.013243417482421875,
+      "mean_prefill_spt": 0.0011774478359375,
+      "mean_ns": 0.783539710939329,
+      "all_correct": true
+    },
+    {
+      "arm": "c_w20_cb200",
+      "value": "DARKBLOOM_STARTUP_MEMORY_PROFILE=full;MLX_BFS_MAX_WIDTH=20;MLX_MAX_OPS_PER_BUFFER=200;MLX_MAX_MB_PER_BUFFER=200",
+      "n": 4,
+      "mean_ns_pct": -0.3762096143120508,
+      "sd_ns_pct": 1.301502663811823,
+      "t_ns": -0.5781157807394928,
+      "decode_saving_us": -31.371988281250765,
+      "decode_saving_us_sem": 58.256979837645005,
+      "golden_hashes": [
+        "b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63"
+      ],
+      "mean_decode_pct": -0.23979579727527456,
+      "sd_decode_pct": 0.889326863175876,
+      "t_decode": -0.5392748317956788,
+      "mean_prefill_pct": -0.7730826342579544,
+      "mean_decode_spt": 0.013136982341796876,
+      "mean_prefill_spt": 0.0011638404331054688,
+      "mean_ns": 0.7905608057848951,
+      "all_correct": true
+    },
+    {
+      "arm": "c_w20_cb64",
+      "value": "DARKBLOOM_STARTUP_MEMORY_PROFILE=full;MLX_BFS_MAX_WIDTH=20;MLX_MAX_OPS_PER_BUFFER=64;MLX_MAX_MB_PER_BUFFER=128",
+      "n": 4,
+      "mean_ns_pct": -0.23740518244339537,
+      "sd_ns_pct": 1.2285447310243236,
+      "t_ns": -0.38648195128467816,
+      "decode_saving_us": -6.6040839843753485,
+      "decode_saving_us_sem": 99.13819726116587,
+      "golden_hashes": [
+        "b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63"
+      ],
+      "mean_decode_pct": -0.04350476200871145,
+      "sd_decode_pct": 1.5118511076097418,
+      "t_decode": -0.05755164882273771,
+      "mean_prefill_pct": -0.8120401162671903,
+      "mean_decode_spt": 0.0131122144375,
+      "mean_prefill_spt": 0.0011638020424804688,
+      "mean_ns": 0.7916823266689397,
+      "all_correct": true
+    },
+    {
+      "arm": "c_w50_cb200",
+      "value": "DARKBLOOM_STARTUP_MEMORY_PROFILE=full;MLX_BFS_MAX_WIDTH=50;MLX_MAX_OPS_PER_BUFFER=200;MLX_MAX_MB_PER_BUFFER=200",
+      "n": 4,
+      "mean_ns_pct": 0.0,
+      "sd_ns_pct": 0.0,
+      "t_ns": NaN,
+      "decode_saving_us": 0.0,
+      "decode_saving_us_sem": 0.0,
+      "golden_hashes": [
+        "b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63"
+      ],
+      "mean_decode_pct": 0.0,
+      "sd_decode_pct": 0.0,
+      "t_decode": NaN,
+      "mean_prefill_pct": 0.0,
+      "mean_decode_spt": 0.013105610353515623,
+      "mean_prefill_spt": 0.0011543475546875,
+      "mean_ns": 0.793612501288503,
+      "all_correct": true
+    },
+    {
+      "arm": "c_w50_cb64",
+      "value": "DARKBLOOM_STARTUP_MEMORY_PROFILE=full;MLX_BFS_MAX_WIDTH=50;MLX_MAX_OPS_PER_BUFFER=64;MLX_MAX_MB_PER_BUFFER=128",
+      "n": 4,
+      "mean_ns_pct": -0.8683621907164429,
+      "sd_ns_pct": 0.7181160578273392,
+      "t_ns": -2.4184452673114523,
+      "decode_saving_us": -92.35668945312571,
+      "decode_saving_us_sem": 51.07377082068859,
+      "golden_hashes": [
+        "b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63"
+      ],
+      "mean_decode_pct": -0.7012042781678135,
+      "sd_decode_pct": 0.7780335501611916,
+      "t_decode": -1.8025039614873657,
+      "mean_prefill_pct": -1.3621928210309941,
+      "mean_decode_spt": 0.01319796704296875,
+      "mean_prefill_spt": 0.0011703244218750001,
+      "mean_ns": 0.7866817506685633,
+      "all_correct": true
+    }
+  ],
+  "blocks": [
+    1,
+    2,
+    3,
+    4
+  ]
+}

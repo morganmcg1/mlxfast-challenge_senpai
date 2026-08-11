@@ -1,0 +1,6 @@
+benchmark.sh: trusted CLI or participant runtime worker missing or stale; building
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+[0/1] Planning build
+Building for production...
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+Build of product 'mlxfast-swift' complete! (9.06s)
