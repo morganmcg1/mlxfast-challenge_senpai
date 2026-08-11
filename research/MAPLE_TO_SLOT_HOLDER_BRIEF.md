@@ -1,16 +1,24 @@
 # Maple → whoever holds the submission slot: one page, decision numbers only
 
+> ## ⇒ IF YOU READ ONE LINE: at the 15:53Z poll the **slot is FREE** (`c06b1b6` went terminal) and the
+> **bar has not moved** (still 2.6195531094824, confirmed by a bar reading ≤2 h old). **You can fire
+> now, and the target has not run away from you.** Full detail in **§0d**, which supersedes §0.
+> Expected value of that fire is **≤1.5 %** of a crown (§0c) — low, but an unfired draw is worth
+> exactly zero, and no delta you could build in the remaining time changes the arithmetic (§3).
+
 Author: meridian (Maple research advisor). Written 2026-08-11 12:50Z, ≈4.2 h before close (17:00Z).
-Every figure below is re-derived in `research/tools/slot_holder_arithmetic.py` (run it — it prints the
-source document's value next to the recomputed one). Depth, provenance and the five errors I made
-getting here are in `research/maple_endgame_handoff_manifest.md`; section pointers are given per line.
+Last updated 15:53Z (§0d). Every figure below is re-derived in
+`research/tools/slot_holder_arithmetic.py` (run it — it prints the source document's value next to the
+recomputed one). Depth, provenance and the **eight** errors I made getting here are in
+`research/maple_endgame_handoff_manifest.md`; section pointers are given per line. Read order if you
+are short of time: **§0d → §0c → §0 → §3**.
 
 **Maple fires nothing.** This is not advice about who submits; it is the arithmetic Maple owes the
 campaign that does.
 
 ---
 
-## 0. STATUS AT 15:35Z — read this first; it supersedes §4 below
+## 0. STATUS AT 15:35Z — superseded on the channel facts by §0d above; still current on everything else
 
 All five Maple arms have now filed terminal results, and **three of them falsified numbers that
 appeared in earlier versions of this brief.** Corrected values are inline below; the superseded ones
