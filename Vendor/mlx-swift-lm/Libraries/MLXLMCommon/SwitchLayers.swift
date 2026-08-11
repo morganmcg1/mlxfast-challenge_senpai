@@ -246,6 +246,21 @@ private let routeFusedScatterEnabled =
 
 private let routeFusedScatterTopK = 8
 
+private final class F322RouteCaptureState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var didCapture = false
+
+    func take() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !didCapture else { return false }
+        didCapture = true
+        return true
+    }
+}
+
+private let f322RouteCaptureState = F322RouteCaptureState()
+
 private func makeRouteFusedScatterKernel(
     expertBoundsSidecar: Bool
 ) -> MLXFast.MLXFastKernel {
@@ -409,11 +424,12 @@ public func gatherSort(
 ) -> (MLXArray, MLXArray, MLXArray) {
     let m = indices.dim(-1)
     if indices.size == 4096,
-        let path = ProcessInfo.processInfo.environment["F322_ROUTE_KEYS_PATH"],
-        !FileManager.default.fileExists(atPath: path)
+        ProcessInfo.processInfo.environment["F322_ROUTE_KEYS_CAPTURE"] == "1",
+        f322RouteCaptureState.take()
     {
-        let keys = indices.asArray(UInt32.self).map(String.init).joined(separator: ",")
-        try? keys.write(toFile: path, atomically: true, encoding: .utf8)
+        let bytes = indices.asArray(UInt32.self).map { UInt8(truncatingIfNeeded: $0) }
+        let encoded = Data(bytes).base64EncodedString()
+        FileHandle.standardError.write(Data("F322_ROUTE_KEYS_BASE64=\(encoded)\n".utf8))
     }
     let indices = indices.flattened()
     if let fused = routeCountingSortFused(
