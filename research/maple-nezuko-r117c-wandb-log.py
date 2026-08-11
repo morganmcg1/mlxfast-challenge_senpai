@@ -71,10 +71,14 @@ def main():
     for r in rows:
         if r["arm"] not in arms:
             arms.append(r["arm"])
-        b = int(r["block"])
+        # Block identity must carry the session: two ladders both number their
+        # blocks from 1, and pairing across sessions would be a silent lie.
+        b = (r.get("session", ""), int(r["block"]))
         tab.setdefault(b, {})[r["arm"]] = float(r["decode_s_per_token"]) * 1e6
         pos.setdefault(b, {})[r["arm"]] = int(r["pos"])
-    ref = arms[0]
+    ref = os.environ.get("REF_ARM") or arms[0]
+    if ref not in arms:
+        raise SystemExit(f"REF_ARM={ref!r} not among arms {arms}")
 
     n_fail = sum(1 for r in rows if r.get("passed") != "true")
     goldens = sorted({r["golden"] for r in rows if r.get("golden")})
