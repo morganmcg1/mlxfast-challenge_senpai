@@ -89,6 +89,17 @@ already stated and which the primary source now confirms:
    threadgroups of its own. Making that work is a kernel rewrite, not a grid edit.
 
 So the honest form is: *the interior of this kernel is closed at the bar, and the
-only remaining lever is dispatch absorption, whose upper bound is 75 µs/step
-core-count-invariant and whose realistic value is unknown and probably a fraction
-of that.* That is a scoping statement for a follow-on assignment, not a claim.
+only remaining lever is dispatch structure, whose audited realisable rate is
+0.4478 µs/dispatch = **17.5 µs/step**, ~4× below the bar.*  That is a scoping
+statement for a follow-on assignment, not a claim.
+
+**(Retraction, in the file that made the error.)** An earlier version of this
+sentence said the upper bound was **75 µs/step**, obtained by dividing alphonse's
+realised −76.8 µs/step by his 40 removed dispatches (1.92 µs each) and multiplying
+by my 39. That is wrong and #700 §6.3 refutes it directly: the audited dispatch
+tax is 0.4478 µs/dispatch (17.9 µs over his 40) and his measured 76.8 was **4.29×**
+that, the surplus being grid-append absorption available only to a kernel that
+launches fewer threadgroups than the machine has cores (his 8 on 20; mine 256).
+75 µs/step would have been *above* the 68.7 bar, i.e. the error pointed at a
+follow-on that does not exist. Every downstream use of 75 has been corrected;
+see `RESULT.md` §5 and `CO-SCHEDULING-BLIND-SPOT.md`.

@@ -46,14 +46,26 @@ not touched.
 | `ctl` | **negative control**: identical MSL, name suffix `_r118ctl` only | 0 |
 | `d2` | dose 2 on the shared family | 21.72 MB/step |
 | `d1` | dose 1 on the shared family | 32.58 MB/step (75 % of its traffic) |
-| `rctl`/`rd2`/`rd1` | same three on the routed family (positive control) | 15x larger range |
+| `rctl`/`rd2`/`rd1` | same three on the routed family (positive control) | 0 / 174 / 261 MB/step, an 8x larger range |
 
 Design (pre-registered in `PREREG.md` before any of this data existed, method in
-`METHOD.md`): mirrored ABBA orders, >=64 measured cycles per order, >=512 raw
-samples, both orders reported **separately**, block-bootstrap CI on the **median**
-paired saving with the mean reported alongside, byte-identical negative control
-with a stop rule, raw samples dumped to CSV, and a bimodality check that would
-have condemned the rig.
+`METHOD.md`): mirrored orders, both reported **separately**, block-bootstrap CI on
+the **median** paired saving with the mean reported alongside, byte-identical
+negative control with a stop rule, raw samples dumped to CSV, and a bimodality
+check that would have condemned the rig.
+
+### As-run vs pre-registered, with the deviations named
+
+| item | pre-registered (`PREREG.md`, 04:08:02Z, `a9b41336`) | as run | note |
+|---|---|---|---|
+| blocks per shared order | 6 | **10** | fixed in `run-r118a.sh` at `b0d6bec0`, **04:12:49Z — 7 s before the first run at 04:12:56Z**, so the block count was frozen in code before any data existed. Not optional stopping. `METHOD.md` (04:31:40Z) merely records it. |
+| order construction | Latin-square-ish randomised blocks | 10 independent random permutations of the 4 arms (seed 118), and **order B is the exact time-reversal of order A** | the mean run index of every arm over the pair is identical (19.5), so monotone session drift cancels across the pair |
+| steps per run | 400 | **160** | 8 discarded as warm-up ⇒ **1520 measured steps/arm/order**, ~3x the >=512 raw-sample floor |
+| positive control | 6 blocks, routed family | 6 blocks of {`ship`,`rctl`,`rd2`,`rd1`}, run **between** the two shared orders | this "control block" is named in `run-r118a.sh` but was not named in `PREREG.md`; its position between the orders is deliberate (it dates the rig at the campaign midpoint) |
+| "mirrored ABBA" | — | the design is a **mirrored randomised-block** design, not a literal ABBA | earlier drafts of this file said ABBA; that was loose language and is corrected here |
+| ">=64 measured cycles per order" | asked by the charge | **10 blocks/order, 20 across the pair** | **this is a shortfall against a literal reading and I am not going to paper over it.** A "cycle" here is one block = one run of each arm, and one run costs a 41 s model load for 1.3 s of decode, so 64 blocks/order is 3 h/order — outside the window. What I bought instead is depth: 1520 measured steps per arm per order. The block-level analysis is therefore backed by an exact sign test on the 10 paired block differences as well as the bootstrap (§2), and the effect the control has to resolve is ~450-680 µs/step against a block-to-block spread of a few µs. |
+
+Every number below comes from the as-run design, not the pre-registered one.
 
 ---
 
@@ -71,10 +83,34 @@ TBD-ORDERB-TABLE
 ### control block
 TBD-CONTROL-TABLE
 
-**Negative control: TBD-CTL-VERDICT.** The byte-identical arm's interval
-contains zero in every block, so the rig is not manufacturing a difference out of
-the switching machinery itself. Per the pre-registered stop rule, had it excluded
-zero I would have stopped and reported the rig instead of the result.
+**Negative control: TBD-CTL-VERDICT.** `ctl` is the same MSL text as `ship` with
+`_r118ctl` appended to the kernel name, so its true saving is exactly zero. Its
+95 % interval is reported per order above; the criterion is that **each order's
+`ctl` interval contains zero** (one interval per order, not per block — a block
+holds one run per arm and supports no interval of its own). Per the pre-registered
+stop rule, had either excluded zero I would have stopped and reported the rig
+instead of the result. The routed byte-identical arm `rctl` is a second, independent
+instance of the same check in the control block.
+
+**Positive control, and how it failed its pre-registered band.** `PREREG.md:109-112`
+set P0 at *"rd2 saves 700-900 us/step and rd1 saves 1050-1350 us/step"*, and said
+that if it did not hold "nothing else in the report counts". **It did not hold.**
+The shakedown measured −456 / −678 us/step, 0.60x the band, and that miss is
+recorded in `SMOKE.md:30-46` at the time rather than quietly retuned. What the
+prereg got wrong was the *level*, not the *shape*: it priced the routed doses at a
+DRAM-only streaming rate and ignored that part of the removed traffic is
+cache-resident. The two registered outcomes were "in band ⇒ valid" and "null ⇒
+blind"; the observed outcome — **large, highly significant, and linear in bytes
+removed, at 0.60x the predicted slope** — was a third one, and I am adjudicating it
+post hoc. My reason for calling the rig valid anyway is that the *inference the
+rig has to support is a null on the shared family*, and for that the only thing
+P0 must establish is that the ruler is not blind to bytes. A 456 us/step response
+that is linear in dose over an 8x range establishes exactly that, whatever its
+absolute slope. If you disagree, the honest reading is "P0 failed as written; the
+shared-family null is supported by a recalibrated positive control", and the
+verdict is unchanged because a *smaller*-than-expected byte response makes the
+shared family's flatness easier, not harder, to explain away — which is why I also
+report the routed slope and its interval rather than only its sign.
 
 **No arm is bimodal** in any block; histograms are in the analyser output and the
 raw per-step samples are in `raw-steps-<label>.csv`.
@@ -84,6 +120,45 @@ raw per-step samples are in `raw-steps-<label>.csv`.
 Pooled sample contrast, us/step:
 
 TBD-POOLED-TABLE
+
+### The confound this creates, and why it does not rescue the target
+
+A dose arm changes the shared expert's output numerically, so the router's logits
+change, so on some steps the MoE top-8 *selection* differs. This is the one way my
+arms are not a clean ablation, and it cuts **against** the candidate's own upper
+bound: if re-routing costs time, `d1`'s measured saving *understates* the value of
+deleting the interior, and the 95 % UB I am comparing to the bar is biased low.
+That has to be bounded, not waved at.
+
+Four things bound it.
+
+1. **The trajectory is identical across arms by construction.** `decode_probe.py`
+   is teacher-forced (`decode_probe.py:175`, `token = expected[i+1]`), so every arm
+   decodes the same token sequence for the same number of steps. The `diverg` column
+   in `abba.tsv` counts steps where the arm's *greedy argmax* differed from golden;
+   it does not mean the arm walked a different path.
+2. **Dispatch shapes are identical.** Top-8 is top-8 whichever experts win, so the
+   arm-to-arm difference is *which* expert rows are gathered, not how many kernels
+   run or at what shape. `PREREG.md:77-78` ("identical dispatch shapes; only the
+   bytes differ") is therefore still true as written; what it did not anticipate is
+   a change of *addresses*, which is a cache-locality effect.
+3. **Divergence is not necessary for a large, clean response.** In the control
+   block `rd2` removes 174 MB/step, saves ~456 us/step, and records **zero**
+   divergences, while `rd1` records some. The ruler's headline sensitivity is
+   demonstrated on an arm with no routing perturbation at all.
+4. **Direct test.** Within the `d1` arm the per-run divergence count varies
+   run-to-run, so I regress each run's median step time on its divergence count.
+   If re-routing costs time, that slope is positive and I can price the bias
+   directly: TBD-DIVERG-REGRESSION
+
+Finally, the arithmetic of the escape route. `d2` (fewer bytes removed, and the
+lower-divergence arm) shows the *larger* median saving of the two doses. For the
+confound to rescue the target it would have to be costing `d1` **more than
+(60.0 − TBD-D1-UB) us/step at the median** against the most permissive published
+bar, and more than (68.7 − TBD-D1-UB) against the standard one — i.e. an effect
+comparable to everything the dose itself buys, while leaving `d2` almost
+untouched. And even granting that, the corrected `d1` would land near `d2`'s
+saving, which is itself under the bar.
 
 The **mean disagrees with the median at `d1`** and I am not going to hide that.
 The dose arms perturb the numerics, which changes MoE top-8 routing on some
@@ -97,9 +172,31 @@ candidate, not better.
 ## 3. Why this is a terminal negative and not a null
 
 The dose arms are not a proposed optimisation. They scale bytes, FMAs, loop
-iterations and latency down **together**, so any arm's saving is a **strict upper
-bound on every possible rewrite of the kernel interior** — no correct rewrite can
-beat deleting the work.
+iterations and latency down **together**, so any arm's saving is an **upper bound
+on every correctness-preserving rewrite of the kernel interior at fixed dispatch
+count, fixed grid and fixed threadgroup shape**.
+
+That scope is deliberate and I state its premises rather than assume them, because
+"deleting work bounds every rewrite" is not a theorem:
+
+1. A rewrite that raises *per-work efficiency* (better effective bandwidth, more
+   ILP) on all four K-blocks could in principle beat deleting three of them. It is
+   excluded here only by an external measurement, not by logic: R110 F5b found this
+   kernel's text already at the sibling frontier and the in-situ excess *not* in the
+   kernel text (`PREREG.md:19-22`). If you reject that premise, my bound weakens to
+   "no rewrite that only removes work".
+2. Geometry changes (split-K, other TG shapes) are neither interior-at-fixed-grid
+   nor co-scheduling, so they are outside this ruler. They were closed separately by
+   R110 F1 (eight geometry arms → `N-SHARED-QMV-GEOMETRY-IS-OPTIMAL`), but that
+   campaign was **standalone-cold**, and the excess is by construction an *in-situ*
+   phenomenon. An in-situ-only geometry effect is therefore closed by neither
+   experiment, and I am not claiming it is.
+3. The dose scales *reads*, FMAs and iterations. It does not scale output writes.
+   This is a **rows=1 QMV**: each output element costs 2 B written against K/2 B of
+   NVFP4 weight read, so the write side is smaller than the read side by the
+   reduction depth — three orders of magnitude here. A write-side rewrite has
+   nothing to win. That is a structural argument, not something the arms measured.
+4. Co-scheduling is outside the ruler entirely; see the blind-spot section below.
 
 **The dose curve saturates.** `d1` removes 1.5x the bytes of `d2` and saves no
 more:
@@ -107,15 +204,26 @@ more:
 TBD-SATURATION-LINE
 
 If the excess were bandwidth-side, saving would be linear in bytes removed. On
-the routed family — same instrument, same host, same session — it *is* linear to
-three digits over a 15x larger range (k = 2.61 +/- 0.02 us per MB/step, 383 GB/s
-marginal). So the instrument can see a byte effect when there is one. On the
-shared family it sees k = TBD-K-SHARED us/MB and then a plateau.
+the routed family — same instrument, same host, same campaign, run in the block
+*between* the two shared-family orders — it *is* linear (k = TBD-K-ROUTED us per
+MB/step). The routed doses remove 174 / 261 MB/step against the shared doses'
+21.7 / 32.6, an **8x larger** byte range. So the instrument can see a byte effect
+when there is one. On the shared family it sees k = TBD-K-SHARED us/MB and then a
+plateau.
+
+*(Provenance note: an earlier draft quoted k = 2.61 +/- 0.02 us/MB and called it
+"same session". That number came from the two n=1 shakedown runs in `SMOKE.md`,
+which `SMOKE.md` itself says are "not the campaign" and "nothing here is quoted as
+a result", and the +/-0.02 was the half-spread of two point estimates, not an
+interval. The number above is the campaign control block with a bootstrap
+interval, and the smoke value is retained only as the prior it was.)*
 
 The pre-registered decision rule therefore fires: **`d1`'s 95 % upper bound
-(TBD-D1-UB us/step) is below the 68.7 us/step landing bar.** Deleting three
-quarters of this kernel's reads does not reach the bar, so nothing that preserves
-correctness can.
+(TBD-D1-UB us/step, the worse of the two mirrored orders) is below the
+68.7 us/step landing bar.** Deleting three quarters of this kernel's reads does
+not reach the bar, so no **interior** rewrite at fixed dispatch/grid/threadgroup
+shape can — which is the scope stated above, not a claim about the kernel's
+neighbourhood.
 
 ### The verdict does not depend on the disputed core-scaling constant
 

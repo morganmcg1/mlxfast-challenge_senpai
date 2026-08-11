@@ -4,6 +4,9 @@
 #   1. correctness gate (Rule 105.15): the vendored-upstream equivalence oracle
 #      at the DEFAULT arm, which is the shipped binary.  Must report a non-zero
 #      exact-step count; zero selected tests is not a pass.
+#   1b. divergence-cost addendum: paired per-step-index contrast of ship vs d1
+#      split by whether the dose arm's token diverged, to price the routing
+#      confound directly.  Needs the CLEAN worker, so it runs before step 2.
 #   2. attribution: SPLIT=1 capture of ship / d1 / rd1 so tau can be measured
 #      for this family instead of assumed.  Leaves an INSTRUMENTED worker.
 #   3. rebuild the clean release worker so the branch is left rankable.
@@ -42,6 +45,10 @@ echo "equivalence rc=$?"
 grep -E 'EQUIVALENCE_EXACT_STEPS=|EQUIVALENCE_EXIT=|Test run with|error:' \
   "${OUT}/equivalence.log" | tail -20
 echo "log bytes: $(wc -c < "${OUT}/equivalence.log")"
+
+echo "############ 1b. divergence-cost addendum (needs the CLEAN worker)  t=$(date -u +%H:%M:%S)"
+bash research/maple-tanjiro-r118/divergence-cost.sh 160
+echo "diverg rc=$?"
 
 echo "############ 2. SPLIT=1 attribution  t=$(date -u +%H:%M:%S)"
 bash research/maple-tanjiro-r118/qmv-dose-profile.sh \

@@ -27,8 +27,10 @@ The shipped kernel reads 4 K blocks. Removing 2 buys one amount of wall.
 Removing 3 buys **no more, and by the median slightly less**. The response is
 flat between half and three quarters removed. A kernel whose wall time were set
 by its interior would show a monotone, roughly proportional curve — that is
-exactly what the routed positive control shows over a 15× larger byte range,
-linear to three digits at 2.61 µs per MB/step.
+exactly what the routed positive control shows over an 8× larger byte range
+(0 / 174 / 261 MB/step against 0 / 21.7 / 32.6), linear in bytes removed. The
+campaign slope with its interval is in `RESULT.md` §3; the 2.61 µs/MB quoted in
+`SMOKE.md` is the n=1 shakedown prior, not a campaign result.
 
 So the shared gate+up QMV has a **floor** that its own interior does not reach.
 Extrapolating the flat segment, deleting the kernel's interior entirely would buy
@@ -90,7 +92,8 @@ before it is priced. The target's 288.0 µs/step is **GPU-busy** measured under
 this host and mis-ranks arms; my own `L-PROFILED-BUSY-OVERPREDICTS-WALL-2X` puts
 the busy→wall conversion at τ = 0.54, CI [0.29, 0.79], and cedar's #699 puts it
 at [0.27, 0.43], overlapping at [0.29, 0.43]. So the target's *wall* share is
-288.0 × τ ≈ 84–156 µs/step, not 288. The campaign default τ ≈ 0.40 gives
+288.0 × τ ≈ **84–124 µs/step** on the overlap interval [0.29, 0.43] (or 84–228 on
+my own wider [0.29, 0.79]), not 288. The campaign default τ ≈ 0.40 gives
 115 µs/step. **The measured d1 saving is well under even the low end of that**,
 which is the third independent statement that the interior is not where the time
 is — and note that this comparison is made after the τ correction, not before it.
@@ -107,8 +110,12 @@ where a *busy* number is being converted.
   **from inside this kernel**, which is what the charge asked and what the arms
   can support.
 * I am not claiming a dispatch-absorption win exists. `PRICING-NOTE.md` bounds it
-  at 75 µs/step core-count-invariant using alphonse's realised rate and gives two
-  concrete reasons that number is optimistic.
+  at **17.5 µs/step** (39 × the audited 0.4478 µs/dispatch), ~4× below the bar,
+  and gives two concrete reasons even that is optimistic. *(An earlier draft said
+  75 µs/step here, from alphonse's realised rate divided by his dispatch count.
+  That is retracted — #700 §6.3 refutes it himself; the surplus over the audited
+  tax was grid-append absorption, which needs TG count below core count and this
+  target launches 256 TGs on 20 cores.)*
 * I am not quoting anything from `SPLIT=1` as a ranking.
 * The extrapolation in §2 from "d1 is flat" to "a free interior would not clear
   the bar" is an extrapolation of one segment. The measured statement, which
