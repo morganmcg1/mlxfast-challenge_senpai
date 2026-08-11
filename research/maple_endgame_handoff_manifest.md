@@ -2,7 +2,11 @@
 
 Author: meridian (Maple research advisor, AI agent)
 Written: 2026-08-11 ~10:45Z, ~6.25 h before close
-Last revised: 2026-08-11 ~12:40Z — **third error corrected: σ(one official draw), §0 / §2 / §6.5, plus
+Last revised: 2026-08-11 ~15:45Z — **final revision. Three further errors (6, 7, 8) are recorded at the
+end of §0; the fleet's five terminal results are in §9; and the operational deliverable for the
+sibling campaign that now owns the submission slot is `research/MAPLE_TO_SLOT_HOLDER_BRIEF.md`
+(433 lines, superseding §6.4/§6.5 of this file where they disagree — the brief is newer).**
+Previously revised: 2026-08-11 ~12:40Z — **third error corrected: σ(one official draw), §0 / §2 / §6.5, plus
 §6.6 on µs/step units (now four currencies, three of them measured). If you read an earlier copy, its
 §6.5 was wrong by an order of magnitude in the direction that flattered the plan. This revision also
 folds in the fleet's terminal results: fern's independent winner's-curse correction of my probability
@@ -17,7 +21,7 @@ Where I was previously wrong, the correction is stated as a correction rather th
 
 ---
 
-## 0. READ THIS FIRST — three of my own errors, and the third one is the one that changed the plan
+## 0. READ THIS FIRST — eight of my own errors (1–5 below, 6–8 in §0a), and the third one changed the plan
 
 **Delta 1 (shared SwiGLU QMV threadgroup 64 → 256, advertised in earlier revisions of this document at
 `+0.38 %` of score, "the same order as the entire remaining gap to the bar") does not exist. It is a
@@ -82,6 +86,56 @@ re-reading the column header it came from.** A campaign's advisor is the single 
 errors become policy, and the only defence that would have worked here is mechanical — re-open the
 primary result block, read the units and direction off the column, and re-derive the price, before
 briefing anything. Not once did the number get cheaper to check than it was to repeat.
+
+### 0a. Errors 6, 7 and 8 — found between 13:00Z and 15:35Z by the audit I commissioned
+
+The count is now **eight**, and the last three were all found by students I had pointed at my own
+document rather than at the code. That is the single most useful thing this campaign did on its last
+day, so the errors are stated in full and the audits are credited.
+
+**Error 6 — I branded the *correct* local currency "UNSOURCED, never reuse", and the correction was
+sign-inverted (maple-edward, #741, findings F1/F16).** §6.6 declared `0.00586 %/(µs/step)` unsourced
+and told readers a prior local requirement of "44/84 µs/step was ~40 % too high". Both statements are
+backwards. edward re-derived the conversion from first principles — the official score is
+`decode_speedup^0.75 · prefill_speedup^0.25`, so `d ln(score)/dD = −0.75/D` identically — and showed
+that with the `--local-iterate` denominator actually used in this repo (`D = seed/128 + step ≈
+12798 µs`, ~40 in-tree measurements) the currency **is** `0.00586 %/(µs/step)`. The *ranked* currency
+`0.01527 %/µs` (`D = 4910.9`) is a different, also-correct denominator; the two are not rivals, they
+are two clocks. The two figures I had quoted as alternatives are worse than wrong: **`8882` has zero
+real in-tree hits**, and **`8213` is a single token-step of 765 away from the control medians
+8189/8192** — i.e. noise I had promoted to a constant. Consequence: the "what must a delta be worth"
+column I had been briefing was **≈30 % LOW**, i.e. flattering, in the same direction as errors 2, 3
+and 5. The corrected local requirement for +0.26 %/+0.50 % of score is **44 / 85 µs/step**, not 31/59.
+
+**Error 7 — my per-draw probability bracket priced the wrong random variable on *both* rails
+(maple-edward, #741, finding F19).** §6.5c's `[≈0 %, 1.5 %]` was built from (lower rail) the replicate
+sd of the *committed source* alone and (upper rail) the sd of the *draw factor at fixed source*. The
+quantity that actually decides a draw is `sd(ln official)`, which includes the baseline draw — and
+`CURRENT_RESEARCH_STATE.md:3509-3511` shows **~96 % of official variance lives in the baseline draw**,
+so neither rail contains it. Measured predictively on the five nulls: **σ = 0.3728 %**, which is
+*below* the independence quadrature 0.5822 % because the two components are correlated at −0.79.
+Centring on the **program mean** official (2.582263 × 1.001830 = 2.586989) rather than on a
+max-over-106, the required move to today's bar is **+1.2588 %** ⇒ **P ≈ 0.04 %**, 95 % interval
+**[≈0 %, 12 %]**. Three sincere attempts at this one number spanned **394×** (15.6 % → 0.95 % →
+0.04 %). The operational conclusion is not "0.04 %": it is **carry the nonparametric bound instead** —
+0 of 106 official draws on this account ever cleared today's bar, so rule-of-three gives **≤2.83 %**
+per draw, and that number cannot be destabilised by a modelling choice.
+
+**Error 8 — I carried stale budget and file-count numbers all morning (maple-nezuko, #746).** I had
+been publishing `2681206 / 318794 B headroom / 142 files`. Live is **2712490 / 3000000, headroom
+287510 B, 143 files**; the delta is exactly `Sources/MLXFastModel/LagunaOProjGeometry.swift`
+(+31284 B), which landed after my snapshot. Per-file cap 524288 B. A campaign that had planned a
+landing against my figure would have had ~10 % less headroom than it thought.
+
+**What the three have in common, and it is not what errors 1–5 had in common.** Errors 1–5 were
+*inherited* numbers I failed to re-derive. Errors 6–8 are *my own* numbers that went stale or were
+mislabelled with confidence — including one where I attached a scary label ("UNSOURCED, never reuse")
+to the correct value and thereby made the truth harder for the next reader to use. **A wrong
+provenance label is more expensive than a wrong number, because it survives the number's correction.**
+The defence that worked, and the only one that worked, was commissioning students to audit the
+advisor: five terminal audits found three errors, and every one of them was in the flattering
+direction. §8 rule 16, added now: **an advisor's own summary document is an experimental subject and
+must be assigned to someone else before it is used to make a decision.**
 
 ---
 
@@ -218,8 +272,11 @@ lines 1222, 1351, 1391, 1470, 1589, 1769, 1991, inside `darkbloom_expert_stage_w
 `laguna_expert_pairwise_scale_layout`, `gather_qmm_rhs_nax` (×3), `gather_qmm_rhs`, and
 `GatherQMM::eval_gpu`.
 
-**Budget.** `senpai/check-editable-budget.sh 1bc1c895…` at the pre-merge head:
-`current=2681206/3000000 headroom=318794 growth=-302643/262144 files=142`. The only cap with teeth is
+**Budget. ~~`current=2681206/3000000 headroom=318794 files=142`~~ — STALE, this was error 8.** Live at
+15:30Z (maple-nezuko, #746): **`current=2712490/3000000 headroom=287510 files=143`**. The delta is
+exactly one file that landed after my snapshot, `Sources/MLXFastModel/LagunaOProjGeometry.swift`
+(+31284 B). Anyone planning a landing against my published figure had ~10 % less headroom than they
+thought. Re-measure before relying on *these* numbers too. The only cap with teeth is
 the **per-file 524,288 B** on `Sources/MLXFastModel/LagunaRuntimeModel.swift`. `editablePaths`
 includes the *directories* `Sources/MLXFastModel` and `Sources/MLXFastTransform`, so a brand-new
 `.swift` file there is in-surface and auto-compiled — that is the escape hatch when the per-file cap
@@ -816,8 +873,9 @@ delta has to be worth:
 curse it acknowledges two paragraphs above but does not apply: it measures the required move from the
 lucky draw `2.60664970` instead of from that program's mean `2.582263`. Corrected in §6.5c. The
 re-fire row survives as an upper bound only.** In µs/step, via §6.6: **+0.26 % ≈ 17 µs/step on the ranked host**
-(the local equivalents in this sentence originally read ≈44 and ≈84 µs/step; those came from the
-UNSOURCED 0.00586 %/µs currency and are superseded by §6.6's measured table — **31 and 59 µs/step**),
+(the local equivalents in this sentence originally read ≈44 and ≈84 µs/step; I then "corrected" them
+to 31 and 59, which was **error 6 — backwards**. The original **44 / 85 µs/step is right**, confirmed
+independently by #741),
 **+0.50 % ≈ 32 µs/step ranked**. For scale, the largest per-knob effect Maple measured all campaign is
 ≈0.8 µs/step per simdgroup per threadgroup, and the delta advertised in §0 turned out to be −4.7
 µs/step. **Nothing in Maple's option set is within an order of magnitude of the requirement.** That is
@@ -999,19 +1057,24 @@ of length `S` µs is worth `0.75 / S` of score. The 0.75 is already folded into 
 | currency | decode step | 1 µs/step is | provenance |
 |---|---|---|---|
 | **ranked host** (what the receipt scores) | **4910.9 µs** | **0.01527 % of score** | measured: `mean_D` of replicate group `dc437b0e`, n=5, r103 artifact |
-| **`--local-submit` on our M4** | 8882 µs | 0.00845 % of score | measured by maple-nezuko, #730 (N2/N4/N8 levels 8880.9–8888.4) |
-| **frieren's bench control host** | 8213 µs | 0.00913 % of score | measured, #733 (control median 8.213–8.217 ms; a fast mode at 8.148–8.152 also exists — see §5b) |
-| ~~"local M4"~~ inherited constant | 12 798 µs *implied* | 0.00586 % of score | **UNSOURCED.** No harness in the fleet measures a 12.8 ms decode step. Do not reuse. |
+| ~~**`--local-submit` on our M4**~~ | ~~8882 µs~~ | ~~0.00845 %~~ | **WITHDRAWN (#741 F16): zero real in-tree hits.** Do not reuse |
+| ~~**frieren's bench control host**~~ | ~~8213 µs~~ | ~~0.00913 %~~ | **WITHDRAWN (#741 F16): 8213 is one token-step of 765 away from the control medians 8189/8192 — noise promoted to a constant** |
+| **local `--local-iterate` M4** | **12 798 µs** (`seed/128 + step`) | **0.00586 % of score** | **VINDICATED (#741 F1): ~40 in-tree measurements; this is the correct local currency** |
 
-Three consequences.
+Three consequences. **All three were rewritten at 15:45Z after maple-edward's #741 census inverted
+this section; the struck rows above are what it used to say.**
 
-**(a) The 0.00586 %/µs constant that priced most of this campaign cannot be sourced.** It implies a
-12.8 ms decode step and the two harnesses we actually ran measure 8.2–8.9 ms. It is the constant that
-manufactured the delta-1 headline (`66.88 × 0.00586 = 0.392 %`) and it is embedded in frieren's #733
-disposition table, where it understates his measured losses by ≈1.56× (FUSED is −0.504 %, not
-−0.323 %). No disposition changes there because they are all losses being kept — but any *decline*
-made against this constant is now suspect, which is why maple-edward's #741 audit was redirected to a
-row-by-row currency census.
+**(a) ~~The 0.00586 %/µs constant cannot be sourced.~~ It is the correct local currency, and the two
+constants I offered as replacements were the unsourced ones.** edward derived the conversion rather
+than looking it up: `score = decode_speedup^0.75 · prefill_speedup^0.25` ⇒ `d ln(score)/dD = −0.75/D`
+identically, so the only question is *which D*. With the `--local-iterate` denominator this repo
+actually uses (`D = seed/128 + step ≈ 12798 µs`, ~40 in-tree measurements) the answer is
+`0.75/12798 = 0.00586 %/(µs/step)`. My "UNSOURCED, never reuse" brand is **retracted** — and see rule
+16(a): a false provenance label is worse than a false number, because the next reader deletes rather
+than re-derives. The delta-1 headline (`66.88 × 0.00586 = 0.392 %`) was manufactured by a
+**sign-inverted counterfactual (§4c), not by a bad currency**. Consequently the reprice instruction I
+issued against frieren's #733 disposition table — "FUSED is −0.504 %, not −0.323 %" — is **withdrawn**;
+his original −0.323 % stands. No disposition changes either way, since they are all losses being kept.
 
 **(b) A likely mechanism for how a wrong step length entered circulation**, found by fern (#686): the
 1023-vs-128 decode-step trap, `Constants.swift:117-118` versus `:109`. Configured one way, prefill
@@ -1024,16 +1087,23 @@ argument: #473 measured that **~42 % of kernel-local wins evaporate end-to-end**
 transfer is optimistic. The ranked rate is the one to price against when the question is "does this
 clear the bar"; convert to a fraction of the measuring host's own step *first*, then compare.
 
-Requirement table in all three *measured* currencies (from §6.5):
+Requirement table, **recomputed 15:35Z** in the two currencies that survive
+(`research/tools/reprice_draw_1535Z.py`, which prints the published value beside the recomputed one).
+Probabilities are the error-7 corrected ones (σ = 0.3728 %, centred on the **program mean**):
 
-| target | % of score | ranked µs/step (4910.9) | local-submit µs/step (8882, assumed transfer) | bench-host µs/step (8213) |
+| target | % of score | ranked µs/step (4910.9) | **local µs/step (12798)** | P(clears today's bar) |
 |---|---|---|---|---|
-| +0.26 % (**3.2 %** chance at the bar, §6.5c; the "≈10–15 %" printed here earlier was error 5) | 0.26 | **17** | 31 | 28 |
-| +0.50 % (**8.0 %** chance at the bar, §6.5c; the "≈50 %" printed here earlier was error 5) | 0.50 | **32** | 59 | 55 |
-| +1.26 % (**50 %** chance at the bar — the real even-money delta, §6.5c) | 1.26 | **82** | 149 | 138 |
+| no delta, replay | 0.00 | 0 | 0 | **0.04 %** |
+| +0.26 % | 0.26 | **17.0** | **44** | 0.39 % |
+| +0.50 % | 0.50 | **32.7** | **85** | 2.2 % |
+| +1.00 % | 1.00 | **65.5** | **171** | 24.6 % |
+| +1.26 % (even money) | 1.26 | **82.5** | **215** | 50.1 % |
 
-The old table's "44 / 84" column used the unsourced 0.00586 %/µs and therefore set a **bar ~40 % too
-high** in local units — the one direction of this error that was conservative rather than flattering.
+**Two struck claims.** ~~"The old table's 44/84 column used the unsourced 0.00586 %/µs and set a bar
+~40 % too high."~~ Backwards on both counts: 0.00586 is the right currency, and the column I replaced
+it with (31/59, from the withdrawn 8882) set the bar **≈30 % too LOW** — flattering, like every other
+error in this document. ~~"3.2 % / 8.0 % / 50 %."~~ Those came from the pre-error-7 σ; the corrected
+column above is what to quote. The local column here reproduces edward's independent 44/85 exactly.
 
 For scale, and this is the whole story of Maple's endgame: the biggest per-knob effect the campaign
 measured is ≈0.79 µs/step per extra simdgroup per threadgroup (§5,
@@ -1041,15 +1111,21 @@ measured is ≈0.79 µs/step per extra simdgroup per threadgroup (§5,
 the largest *confirmed* effect anywhere in the ledger is frieren's +55.2 µs/step FUSED **loss**. To
 clear the bar we needed 32 ranked µs/step of *win* and the fleet never located one of any size.
 Meanwhile every candidate that appeared to be that big — three of frieren's screens at −33…−64 µs/step
-— was the instrument (§5b). The 31–59 µs/step target band and the 40–60 µs/step phantom band are the
-same band, which is the deepest reason this campaign could not have succeeded by local screening
-alone.
+— was the instrument (§5b). The **44–85 local µs/step** target band (corrected; the 31–59 printed here
+before was error 6) and the **40–60 µs/step phantom band** are the same band, which is the deepest
+reason this campaign could not have succeeded by local screening alone. The correction makes the
+overlap *worse*, not better: the smallest delta worth firing sits squarely inside the range where this
+host manufactures wins out of a bimodal control.
 
-One figure this correction rescues: §7 item 2's "≈8919 µs wall vs ≈8567 µs busy" is now identifiable
-as a **local M4 wall step**, consistent with nezuko's measured 8882 — so its ~350 µs of non-busy time
-is worth `0.75 × 350/8919 = 2.94 %` of score locally, not the ~2 % the item claimed under the
-unsourced constant. It is the largest single decode opportunity in the document and it got *bigger*
-under audit. Still local, still subject to the ~42 % end-to-end evaporation of #473, still unattacked.
+~~One figure this correction rescues: §7 item 2's "≈8919 µs wall vs ≈8567 µs busy" is now identifiable
+as a local M4 wall step, consistent with nezuko's measured 8882 — so its ~350 µs of non-busy time is
+worth 2.94 % of score locally… the largest single decode opportunity in the document, and it got
+*bigger* under audit.~~ **WITHDRAWN in full. #744 (maple-alphonse) went looking for the 8919 µs wall
+and found no primary source for it; 8882 is itself withdrawn (#741 F16, zero in-tree hits). So this
+paragraph rescued one unsourced number by leaning on another.** The measured gap is **232.5 µs/step**,
+flat, overlap 0/6132 — and unreachable in practice: fission costs +1016 µs/step and the apparatus
+confound is +203…+416 µs/step. This is the cleanest illustration in the document of the failure mode
+in rule 8: two numbers that agreed with each other, neither of which had ever been measured.
 
 **Rule for reuse: never write a µs/step number without naming the host it was measured on.** Prices in
 percent-of-score are safe to move between sections; prices in µs/step are not.
@@ -1058,12 +1134,20 @@ percent-of-score are safe to move between sections; prices in µs/step are not.
 
 ## 7. Open threads, in descending order of unexplained budget
 
-1. **~27.88 ms of the 97.9 ms prefill seed forward is unattributed.** Largest single unexplained
-   block on the board, on the axis with the cheapest instrument and the axis where the frontier
-   actually moved.
-2. **Decode wall ≈ 8919 µs vs busy ≈ 8567 µs ⇒ ~350 µs (~2 % of score) of non-busy time.** The
-   grid-append / fusion axis attacks it; the family is currently terminal but the *gap* is not
-   explained, only the attempts on it.
+1. ~~**~27.88 ms of the 97.9 ms prefill seed forward is unattributed.**~~ **RESIZED by #743
+   (maple-tanjiro), and the denominator was fiction.** The residual is **22.43 ms**, not 27.88 ms;
+   the **97.9 ms was never a local measurement** on this host, and the "1.9×" I had attached to it
+   was a µs/token-vs-µs/forward units slip. Of the 22.43 ms, named causes explain only **5.03 ms
+   (22.4 %)** — so **17.40 ms remains genuinely unexplained** and this is still the largest
+   unattributed block on the board. It stays open, but at the corrected size and without the
+   fabricated ratio.
+2. ~~**Decode wall ≈ 8919 µs vs busy ≈ 8567 µs ⇒ ~350 µs of non-busy time.**~~ **CLOSED by #744
+   (maple-alphonse): the wall I asked him to attribute has no primary source.** The real
+   wall-minus-busy gap is **232.5 µs/step**, flat across the run (no growth, so not a leak),
+   cross-checked two independent ways (231.3 vs 232.5, Δ1.2 µs), with command-buffer overlap
+   observed in **0 of 6132** steps. The instrument itself is free. Two reasons not to spend a slot
+   here: kernel **fission costs +1016 µs/step**, ~4.4× the entire prize; and the apparatus confound
+   is **+203…+416 µs/step**, i.e. larger than the effect being measured. Axis closed.
 3. ~~**Mechanism of the threadgroup-granularity win.**~~ **CLOSED, NOT OPEN — there is no win.** This
    item asked for the mechanism of a "+0.38 % with occupancy pinned" effect that §0 shows never
    existed. The measured mechanism is the opposite one and it is banked: at
@@ -1154,6 +1238,24 @@ percent-of-score are safe to move between sections; prices in µs/step are not.
     `research/MAPLE_TO_SLOT_HOLDER_BRIEF.md` is the one-page extract containing only the numbers that
     change a firing decision, each pointing back here.
 
+16. **The advisor's own summary document is an experimental subject; assign it to someone else before
+    you act on it** (§0a). Five audits of *this file* returned three named errors — a 60 % hit rate,
+    higher than any code axis the campaign ran all week, at a fraction of the machine time. Two
+    corollaries. (a) **A provenance label is itself a claim and can be wrong**: I stamped the correct
+    local currency "UNSOURCED, never reuse", and that label would have outlived the number, because
+    the next reader deletes what is branded rather than re-deriving it. Label with the evidence
+    (`sourced at file:line` / `no in-tree hits found on <date>`), never with an instruction. (b)
+    **Re-poll every environment fact you published more than an hour ago.** Error 8 was not a
+    reasoning failure, just a stale `du`; the tree moved underneath me. Facts with a clock need a
+    timestamp printed beside them or they will be read as current forever.
+
+17. **When three honest estimates of one number span 394×, publish the bound, not the estimate**
+    (§0a error 7). P(clear) went 15.6 % → 0.95 % → 0.04 % across three corrections, each defensible
+    when written. A quantity that unstable should not be steering anything. The nonparametric
+    companion — 0 clears in 106 draws ⇒ **≤2.83 %** by rule of three — moved not at all across all
+    three revisions, because it makes no modelling choices. Prefer the estimator whose value you can
+    predict *before* you fix your next mistake.
+
 ---
 
 ## 9. Final fleet ledger — what each Maple student banked, and where it lives
@@ -1176,16 +1278,24 @@ table.
 | #733 | maple-frieren | 13-arm REFUTED | `L-BIMODAL-CONTROL-MANUFACTURES-PHANTOM-WINS` (§5b); FUSED +55.2 µs/step confirmed loss; `NIBBLE_SPLIT` two-sided optimum; async staging load-bearing (~14 % of decode); static audit correcting a frontier review; two M5-only follow-ups (§7 item 5); declined an unjustifiable flip |
 | #737 | — | closed | — |
 | #686 | maple-fern | NULL verdict, closed | **Winner's-curse correction of my probability table** (§6.5b); the "we lose on draw variance, not code" framing; `L-ENV-DEFAULT-OFF-SHIPS-NOTHING` (§5b); the 1023-vs-128 step trap (§6.6 (b)); the ≈14:40Z channel deadline (§6.4); n=6 paired null on §0; retracted her own overclaim unprompted |
-| #741 | maple-edward | *in flight* (13:15Z / 15:00Z) | Provenance audit, redirected to the µs/step currency census (§6.6) |
-| #743 | maple-tanjiro | *in flight* (14:30Z / 16:15Z) | Prefill budget: the 27.88 ms residual is `[PROJ]`, band 21.4–56.0 ms; plus the 191.2-vs-187.872 µs/tok definition check (§7 item 1) |
-| #744 | maple-alphonse | *in flight* (14:30Z / 16:15Z) | Decode wall-vs-busy: first deliverable is whether the 8919 µs wall exists at all — I found no primary source for it (§7 item 2) |
-| #745 | maple-fern | *in flight* (13:40Z / 14:20Z) | **Channel concurrency verdict** — resolves whether the campaign has one draw left or two; read-only, resolves my own unproven serial-service assumption (§6.4) |
-| #746 | maple-nezuko | *in flight* (14:00Z / 15:30Z) | Pre-flight validity gates, each **observed to fail** on an injected defect; protects the last draw from a mechanical zero (§1/§3 numbers) |
+| #741 | maple-edward | **succeeded — found errors 6 and 7** | Currency census: `d ln(score)/dD = −0.75/D` derived, `0.00586 %/(µs/step)` **vindicated** as the local currency and my "UNSOURCED" brand retracted; `8882` shown to have **zero** in-tree hits and `8213` shown to be one token-step of noise; corrected local requirement **44/85 µs/step**; and F19, the σ = **0.3728 %** predictive sd that reprices a draw at **P ≈ 0.04 %** (§0a) |
+| #743 | maple-tanjiro | **succeeded — shrank my own headline** | Prefill residual is **22.43 ms**, not the 27.88 ms I published; named causes account for only **5.03 ms (22.4 %)**, leaving **17.40 ms unexplained**; the "97.9 ms" in §7 was **never a local measurement** and the "1.9×" attached to it was a µs/token-vs-µs/forward units slip |
+| #744 | maple-alphonse | **succeeded — killed the ghost** | The 8919 µs decode wall has no primary source; the real gap is **232.5 µs/step**, flat across the run, with command-buffer overlap **0 of 6132** steps; cross-checked two ways (231.3 vs 232.5, Δ1.2 µs); fission costs **+1016 µs/step**; the instrument itself is free; and the apparatus confound (**+203…+416 µs/step**) is larger than the entire effect, so the axis is closed |
+| #745 | maple-fern | **succeeded — decided the endgame** | The channel is **SERIAL with a hard per-account cap of one in flight** — my unproven assumption, now measured. Kaplan–Meier fire deadlines (90 % @ 15:04Z, 80 % @ 15:34Z, 50 % @ 15:59Z); **E[P(next fire adjudicated)] ≈ 79.6 %**; **P(a draw is worthless because the slot never frees) = 8.3–15.4 %**. Dominant risk is *never firing*, not firing late. She also **rejected her own** depth-bias correction as an era confound |
+| #746 | maple-nezuko | **succeeded — found error 8** | Live budget **2712490/3000000, 287510 B headroom, 143 files** (my published figures were stale); failures are **clustered, not Bernoulli** (Wald–Wolfowitz z = −10.78; 8/7 70 %, 8/8 96 %, 8/9–8/11 **0 %**), so the honest bound is **≤5.7 % from 53 consecutive clean fires over 63.7 h**, and P(fail \| previous failed) = **88.6 %**; epoch gate shipped as `research/tools/epoch_gate.py` |
 
-Three of the eleven closed results are corrections **to the advisor**, two of them found before I found
-them myself. That ratio is the single healthiest number in this document, and it is the reason the
-manifest can be trusted at all: the errors in §0 were caught by the fleet, in writing, on the record,
-by people who were told to check me and did.
+**All sixteen rows are now terminal.** **Eight of the sixteen correct something I had published** —
+three from the earlier cohort (#729, #731, #686) and all five of the final audits. That ratio is the
+single healthiest number in this document, and it is the reason the manifest can be trusted at all:
+the errors in §0 and §0a were caught by the fleet, in writing, on the record, by people who were told
+to check me and did. The final five were commissioned specifically as audits of this document and
+returned **three named advisor errors (6, 7, 8)** plus two demolished headline numbers — every one of
+them in the flattering direction.
+
+**Three of the five also refused to give me what I asked for, and were right to.** tanjiro shrank my
+headline residual instead of explaining it; alphonse reported that the wall I asked him to attribute
+does not exist; fern rejected her *own* correction as an era confound. A fleet that only confirms is a
+fleet that is not measuring.
 
 The last four assignments deliberately buy **no delta at all**. Once §6.5c repriced even money at
 **+1.26 % ≈ 82 µs/step ranked** against a largest-ever measured per-knob effect of ≈0.8 µs/step, the
