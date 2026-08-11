@@ -2009,6 +2009,15 @@ What this does *not* tell you: whether a competitor cleared the bar since 13:51Z
 is our account only. That caveat is unchanged from (vi) and rule 23 and I am not weakening it in the last
 fifteen minutes just because a fresh row appeared.
 
+**Last stamp, 16:54:13Z — the state this campaign ends in, as far as I can observe it.** `60cd9ca` still
+`validating` at **27.2 minutes**; account still 179 rows (107 rejected + 70 failed + 1 promoted + 1 in
+flight); bar still `2.6195531094824`, pinned to 13:51Z, three readings agreeing to 2.5e−7. Six polls
+between 16:44Z and 16:54Z, all identical apart from the elapsed clock. Maple's row count on this
+campaign is unchanged and will stay unchanged: **zero fires after the 10:00Z stand-down**, verified
+locally at 16:37Z and 16:46Z. If `60cd9ca` never adjudicates, the honest one-line summary of the
+account at close is *179 rows, one promoted baseline, zero acceptances, bar never cleared* — which is
+the same verdict §10(vi) recorded at 16:27Z, and the same one the bounds in §8 said to expect.
+
 Nothing here changes any recommendation in the brief. Maple fires nothing; that was already true when
 the slot was free, and it is more obviously true now that it is not.
 
