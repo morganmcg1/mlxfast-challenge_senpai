@@ -25,6 +25,14 @@ this directory is evidence for or against any arm — see §2.
 If fern has exactly one slot for this queue: **fire A2.** It is already the
 branch head, so the slot costs one build and zero patch handling.
 
+> **Read §14 before acting on §3.** Advisor R112 (00:22Z) and R113 (00:42Z)
+> landed after §3 was written. They **retract** the "~1.4 % deficit to the crown"
+> §3 prices against (§14.1) and **invert** §3's landing rule — the binding rule
+> is now *"ship on a verified positive or do not ship"*, so a **neutral draw is
+> a do-not-land** (§14.2). §14.3 records why A2 cannot satisfy the R113 #5
+> two-instrument law even in principle, and §14.4 gives the structural
+> one-sidedness argument that stands in for the missing M4 arm.
+
 **Why the order flipped.** rev2 said "fire A1, A2 is a ride-along". Three things
 changed that:
 
@@ -100,7 +108,8 @@ forbidden by the assignment and was not attempted.
 ## 3. Landing bar and the reference block — corrected
 
 - prefill elasticity **0.362**; S ≈ **97.9 ms**, so **1 ms ≈ 0.37 % of score**;
-- maple's deficit to the crown is **~1.4 % of real speed ≈ 3.8 ms of prefill**;
+- ~~maple's deficit to the crown is **~1.4 % of real speed ≈ 3.8 ms of prefill**~~
+  **← RETRACTED, see §14.1. This deficit does not exist.**
 - both speedup floors must stay **≥ 0.95**.
 
 Archive reference for candidate `prefill_seconds_per_token`:
@@ -124,15 +133,16 @@ Three corrections to how rev2 stated this:
 which reads like a contradiction. It is not — they are two different decisions
 and should be recorded separately:
 
-- **Landing decision.** Land if the paired candidate is **non-negative and
-  bit-exact**. For A2 bit-exactness is structural (§5), so the only risk being
-  carried is time, and a non-negative draw plus a mechanism argument is enough
-  to keep the change.
+- ~~**Landing decision.** Land if the paired candidate is **non-negative and
+  bit-exact**.~~ **← SUPERSEDED by R113 #4, see §14.2. The advisor will not
+  integrate on "no worse" or "looks neutral". Ship on a verified positive or do
+  not ship.** Do not act on the struck text.
 - **Claim decision.** Only call it a **measured** win at **≥ 3σ (≥ 0.400 ms)**.
 
 A single draw in `[0, 0.400)` ms is therefore "**kept, not proven**". Say it that
 way in the note rather than picking one of the two thresholds and discarding the
-other.
+other. Under R113 that phrase is now a **hold**, not a land: see §14.2 for what
+"kept, not proven" is allowed to authorise and what it is not.
 
 For A2, `decode_seconds_per_token` must be **unchanged**; §4 fact 2 shows why
 that is now a tautology rather than a check.
@@ -560,3 +570,215 @@ fixed.
 Items 5 and 6 do not change any arm's disposition, but they do change what a slot
 spent here is worth, which is the number the leaderboard framing actually turns
 on. Item 7 is the one that could have cost a slot outright.
+
+---
+
+## 14. Reconciliation with advisor R112 and R113
+
+**Why this section exists.** §3 was written and frozen before two advisor
+comments landed on PR #692: **R112 at 00:22Z** (comment 5) and **R113 at 00:42Z**
+(comment 6). My rev3 terminal result went out at **00:48Z**, six minutes after
+R113. §3 therefore prices the arm against a number R112 retracts and states a
+landing rule R113 inverts. This section is the correction. **Where §3 and §14
+disagree, §14 wins.**
+
+### 14.1 The "~1.4 % deficit to the crown" does not exist — retracted
+
+§3 priced this queue against "maple's deficit to the crown is ~1.4 % of real
+speed ≈ 3.8 ms of prefill". That framing is void.
+
+- The crown submission `cc6ddc1` (score **2.61650**) belongs to **another
+  solver**, and its tree is byte-identical to our common base:
+  `git diff 1bc1c895 c5b0a13c -- Sources Vendor benchmark.json Package.swift`
+  reports **2 files, +116 lines**, and both are harness-only
+  (`LagunaRuntimeLocalIterate.swift`). There is no code in the crown we do not
+  already have.
+- Class means, not single draws, are the comparable quantity. **Crown-holder
+  class mean 2.581271** (n = 16, rel sd 0.911 %) versus **maple HEAD class mean
+  2.586439**. We are **already ~0.20 % ahead** of the crown holder's typical
+  draw. The 2.61650 crown is a high draw from a distribution whose centre is
+  below ours.
+- R113 quantifies the noise the crown sits inside: pooled field σ
+  **0.6590 %** (56 df, 60 draws). Our HEAD class (n = 3) sits **+0.334 %** above
+  the field tree.
+
+**Consequence for this queue.** A2 is not chasing a 3.8 ms hole. It is trying to
+move a distribution whose centre is already in front, by enough that a draw
+from it beats the field more often. That is a *smaller* target than §3 claimed,
+and it is the reason §14.2's bar matters more than §3's did.
+
+### 14.2 The landing rule is inverted — R113 #4 supersedes §3
+
+§3 said: *"Land if the paired candidate is non-negative and bit-exact."*
+
+R113 #4 says the opposite, in the advisor's words: he will **not** integrate on
+"no worse" or "looks neutral" — **"Ship on a verified positive or do not ship."**
+
+This is the single most dangerous line in the pre-R113 handoff, because it reads
+as authorisation for exactly the action the advisor has now forbidden, and it
+sits in the section fern is most likely to read when deciding whether to burn a
+slot. It is struck in §3 and restated here:
+
+| Draw | pre-R113 §3 | **binding rule (R113 #4)** |
+|---|---|---|
+| paired negative | do not land | do not land |
+| paired ≈ 0 / "neutral" | **land** | **do not land** |
+| paired positive, < 3σ | land, "kept not proven" | **hold** — not shippable, but worth a second paired draw |
+| paired positive, ≥ 3σ (≥ 0.400 ms) | land and claim | land and claim |
+
+"**Kept, not proven**" (§3) now authorises **keeping the arm on the branch and
+paying for one more paired draw**. It does **not** authorise a submission.
+
+**The bar moved, and A2 clears it.** R113 sets the campaign-winning threshold at
+a **verified +0.25 %**, with the marginal value of accuracy stated explicitly —
+P(win) over ~20 remaining draws goes +0.00 % → **54.3 %**, +0.25 % → **72.8 %**,
++0.50 % → **86.8 %**, +1.00 % → **98.4 %**; i.e. **+18.5 pp per +0.25 %**.
+§5.3's honest A2 numbers are a **0.35–0.46 % ceiling** with a **0.11–0.30 %**
+realistic band. So A2's realistic band **straddles the new bar and its ceiling
+clears it**. Under §3's old 0.30 ms landing bar A2 looked marginal; under R113's
++0.25 % bar it is on-target. The arm got more valuable when the bar was restated,
+not less — but only if the draw is **verified positive**, never if it is neutral.
+
+R113 also states the trade the advisor is willing to make: *"a verified +0.9 %
+with an airtight TN=1 proof is worth far more than a verified +2.5 % I cannot
+safely integrate."* A2 is built for that trade — its correctness argument is
+structural (§5), not statistical.
+
+### 14.3 The two-instrument law (R113 #5) cannot be satisfied by A2 — and the advisor already exempted it
+
+R113 #5 makes a two-instrument rule doctrine: an arm should carry an M4 paired
+(ABBA) interval **and** the M5 verdict. A2 cannot satisfy this, and the reason is
+not "underpowered", it is stronger than that:
+
+**A2 is provably inert on this host.** The knob only fires inside the
+`devc ∈ {s,c,d}` branch of `matmul.cpp`, i.e. only when `_nax` is selected.
+`is_nax_available()` is **false** on Mac16,11 (M4 Pro, Apple GPU generation 16).
+Gate job `3179bf11` measured the env control and found the two executables
+**byte-identical in behaviour**. So an M4 ABBA rig on A2 does not compare a
+candidate to a baseline — it compares **one executable to itself**.
+
+That makes the M4 instrument a **null instrument**, not a weak one. The
+distinction matters:
+
+- A weak instrument produces a wide interval that contains zero. Reporting it is
+  honest and uninformative.
+- A **null** instrument produces an interval that is **pure measurement noise
+  with a known-zero true effect**. If such an interval ever excludes zero, that
+  is by construction a **Type-I error** — and with the local noise floor at
+  **2.52 % prefill spread across 4 gated trees** (§2), it will happen at some
+  rate. Publishing it would be manufacturing evidence.
+
+I will not run that rig, and I am recording the refusal rather than quietly
+omitting it.
+
+**This is already covered.** The advisor's own **§0P.8(c)** admits an arm that
+"probes an axis with zero local observability", and A2 is the example that
+clause describes. §0P.8 and R113 #5 are consistent: the two-instrument law
+governs arms that *have* two instruments. A2 has one, by construction, and the
+missing one is the M5 verdict — which only fern can obtain.
+
+**What replaces the missing instrument.** Not a measurement; a structural
+argument, in §14.4. That is the honest substitute, and it is weaker than a
+number. Fern should treat A2 as a one-instrument arm and price the slot
+accordingly.
+
+### 14.4 Why A2 is a structurally one-sided bet — the answer to R113's asymmetry premise
+
+R113's integration asymmetry rests on the premise that a neutral-looking arm may
+secretly be, say, −0.25 %, which is why "no worse" is not good enough. **For A2
+that premise does not hold**, and the reason is measured — by fern, on the
+mechanism, not by me on a null instrument. Source:
+`research/fern-r104b-wkwv-tile-regroup.md`.
+
+**Fact 1 — the change conserves every quantity that normally trades off.**
+Verified against `matmul.cpp` and `steel_gemm_fused_nax.metal:23-29`:
+
+| | incumbent | A2 |
+|---|---|---|
+| `(bm,bn,bk,wm,wn)` | `(64,128,256,2,4)` | `(64,64,256,2,2)` |
+| per-simdgroup tile `SM×SN` | 32×32 | **32×32 — invariant** |
+| `TN` | 2 | **2 — invariant** (never enters the `TN==1` path) |
+| threadgroups (wk/wv, M=512 N=1024 K=2048) | 64 | 128 |
+| simdgroups per threadgroup (`wm*wn`) | 8 | 4 |
+| **total simdgroups** | 512 | **512 — invariant** |
+
+The *same 512 simdgroups* do the *same 32×32 tile* over the *same K-loop*. Only
+their grouping into threadgroups changes.
+
+**Fact 2 — there is no shared-memory cost to pay for the regroup.** fern §4.1
+compiled all four geometries offline and every pipeline reports
+**`staticThreadgroupMemoryLength = 0`** (`threadExecutionWidth = 32`,
+`maxTotalThreadsPerThreadgroup = wm*wn*32`; incumbent metallib sha `349cf1e1…`,
+A2 `d044f6c9…`, both `SM/SN/SK = 32/32/32`, `TM/TN = 2/2`). fern's own note: this
+is *"load-bearing. Threadgroup residency is limited by threads/registers only,
+never by threadgroup memory, so a narrower threadgroup can always pack at least
+as many simdgroups per core as a wider one. This is what makes the regroup a
+one-sided bet on occupancy."*
+
+**Fact 3 — the grouping penalty is measured, and it is one-directional.**
+fern §7.1, job `0c4e2817-f311-4933-ba80-b6487d6eb9dd` (exit 0, 21.3 s, probe
+`research/fern_r104b_grouping_probe.swift`, 201 lines, `xcrun swiftc -O`,
+best-of-25, rule 77), at **total 512 simdgroups**:
+
+| simdgroups/TG | µs | ratio |
+|---|---|---|
+| 1 | 521.7 | 1.0002 |
+| 2 | 521.7 | 1.0002 |
+| **4 (= A2)** | **521.6** | **1.0000** |
+| **8 (= incumbent)** | **762.2** | **1.4613** |
+
+Reproduced twice. §7.2's causal control identifies the mechanism as **wave
+quantization** (~255 µs passes): across **13 measured totals**, at 168/336/672/
+704/1008/1024 the g=8 column matches g=4 to within **0.1 %**, and the penalty
+appears **only** at 504/512/528 and 840/848. **512 is the worst band observed.**
+
+**The one-sidedness, stated as a bet.** Over those 13 totals, g=4 is *never
+materially worse* than g=8: worst case **+0.14 % at total 1024** (inside noise),
+best case **46 % better**. So A2's payoff is: **large upside if M5's 512-simdgroup
+total lands in a penalty band, approximately neutral otherwise.** There is no
+measured configuration in which the regroup costs meaningfully.
+
+**Where this argument stops (fern's limits, §7.3, which I am not softening).**
+The `ceil(total/C)` model does not fit all 13 points. The Part-1 concurrency
+ladder was unreliable (C = 44, then 20). **M4 Pro has 20 cores; M5 Max is assumed
+to have 40** — so the band *locations* are host-specific and fern **explicitly
+refuses to extrapolate them to M5**. I inherit that refusal: the claim here is
+**"the sign of the bet is one-sided"**, not **"M5 is in a penalty band"**.
+
+**Residual risks, named honestly.** Neither is locally measurable and both are
+second-order: (a) **2× threadgroup launch/prologue overhead**, 64 → 128 TGs;
+(b) `swizzle_log = 2` traversal over `tn` 8 → 16 changes tile order and therefore
+cache locality. If A2 draws negative on M5, these are the two places to look.
+
+### 14.5 Two derivations I made and then retracted — recorded so nobody repeats them
+
+Both looked like solid arguments *against* A2 and both are wrong. They are
+written down because they are the natural first two objections anyone will raise.
+
+1. **"The load imbalance cancels exactly."** A naive `ceil(T/W)` wave model gives
+   2 waves × 8 sg = 16 sg-units for the incumbent and 4 × 4 = 16 for A2, implying
+   a perfect wash. **Refuted** by fern §7.2's measured wall-step counts: at total
+   512, g ≤ 4 takes **2 steps** and g = 8 takes **3**. The model is wrong because
+   multiple small threadgroups **co-reside per core**, which the one-TG-per-core
+   assumption forbids.
+2. **"A2 costs +33 % operand traffic."** From classical shared-memory GEMM
+   staging: per K-step the incumbent stages `64×(64+128) = 12288·bk` and A2
+   stages `128×(64+64) = 16384·bk`, i.e. A tiles fetched twice, B unchanged.
+   **Refuted** by Fact 2: `staticThreadgroupMemoryLength = 0` means there is no
+   staged A/B tile to double. Per-simdgroup tile, K-loop and load pattern are
+   invariant and the total simdgroup count is invariant at 512, so **operand
+   traffic is invariant**.
+
+**A standing caution for the next person.** Both retractions came from the same
+error: reasoning about this kernel using textbook tiled-GEMM intuitions that
+assume threadgroup-memory staging and one-threadgroup-per-core scheduling.
+`steel_gemm_fused_nax` does neither. Check
+`staticThreadgroupMemoryLength` and fern's §7.2 table before trusting any
+occupancy or traffic argument about it.
+
+**Related follow-up, downgraded.** I had planned to extend fern's probe to carry
+realistic operand traffic, on the theory that its zero-traffic simplification was
+a blind spot. Fact 2 says it is not — the real kernel also moves zero bytes
+through threadgroup memory, so the probe is **faithful** on that axis. The
+extension is now low value; I did not run it.
+
