@@ -26,37 +26,54 @@ discrepancy is ≈ **73 µs/step**, and it is not a power problem: the same rig,
 in the same sessions, resolved the R114-E positive control at **+44.2
 [+34.1, +54.3] µs/step**.
 
-Three results are worth more than the negative itself:
+Four results are worth more than the negative itself. The first is the one to
+read if you read only one.
 
-1. **The advisor's comment-5 §5 fallback has already been measured, and it
-   does not pay.** That fallback — "narrow the guest to 64 lanes and append to
-   the untouched host, still collecting −39 dispatches = 48.3 µs/step floor" —
-   is structurally my **arm H** (32-lane guest, untouched TG-64/256-tile host,
-   no widening). At full n it measures **+7.3 µs/step**, not −48.3. The
-   48.3 µs/step "fixed floor" from removing 39 dispatches is **not a floor**.
-2. **Grid-append cannot collect Rule 57 dispatch cost on a host that already
-   saturates the machine.** The MLX Metal encoder is created with
+1. **The 48.3 µs/step floor has been measured directly, and it is
+   +2.1 µs/step.** A second 96-run session added arm **R** — the guest appended
+   exactly as in arm H, but with the standalone router dispatch deliberately
+   *kept alive* by discarding the appended result. `R − H` therefore isolates the
+   value of the 39 removed dispatches with guest cost held fixed. It is
+   **+2.1 µs/step, 95 % CI [−10.4, +14.6]**, median +0.2, 6/12 blocks positive
+   ⇒ `D ≤ 0.374 µs/dispatch` at 95 % against Rule 57's **1.2382**. The floor was
+   literally `39 × 1.2382 = 48.29`; **Rule 57's price is excluded at 95 % for
+   this pair, by 3.3× at the bound and 23× at the point estimate.** The floor is
+   not merely unreached — the one quantity it is made of has now been measured
+   (§7.3, §10b.3, `L-SIBLING-DISPATCH-IS-ALREADY-FREE`).
+2. **`dep_scope = NONE` is not the precondition that makes an append legal and
+   profitable; it is the condition that makes it worthless.** MLX encodes with
    `MTL::DispatchTypeConcurrent`
-   (`Vendor/mlx-swift/.../backend/metal/device.cpp:548`), with barriers only on
-   tracked hazards (`:315–375`). The router tournament and the two SwiGLU
-   kernels are true siblings with `dep_scope = NONE`, so **no serialization
-   point sits between them**. Grid-append therefore removes a *dispatch record*,
-   not a *serialization point*. **This is necessary but not sufficient**, and
-   §10b.1 records that I initially over-claimed here: R114-E is itself a
-   sibling append with no barrier between its halves and it pays −44.2 µs/step,
-   so "no barrier" cannot be the discriminator. §10b.2 replaces it with
-   `L-APPEND-NEEDS-A-CHEAP-GUEST`, calibrated on those two points.
-3. **Archive row C3 was right and its constant was right.** C3
-   (`RESEARCH_ARCHIVE_through-round-91.md:4686`) de-staffed this exact fusion
-   at 4.8 µs/step / 0.1231 µs per removed dispatch. The advisor's comment 4
-   called that "under-priced by 16×" against R114-E's 1.92 µs/dispatch. The
-   measurement says the opposite: for *these two guests* the recoverable value
-   per removed dispatch is at or below C3's constant — in fact negative
-   (−0.13 to −0.26 µs/dispatch, §10b.2). R114-E's per-dispatch constant is real
-   (I re-measure it at **+1.11 µs/dispatch**, 89 % of Rule 57) but it is
-   **conditional on a guest that is ~0.15 % of the host grid**, and neither
-   R119-A instance is remotely that. Naming a refuted constant is a result;
-   here the refuted object is not the constant but its **scope**.
+   (`Vendor/mlx-swift/.../backend/metal/device.cpp:548`) and barriers only on
+   tracked hazards (`:315–375`). Sibling kernels are therefore *already
+   overlapped*, so their dispatch cost is already off the critical path and
+   fusion has nothing to recover, while the guest's serial tile latency is newly
+   charged to the host's tail. Expected net effect of a sibling grid-append is
+   **`+g`, not `−k·D`** — which is exactly what all three appended arms measure.
+3. **R114-E's win is real but is not dispatch recovery, which resolves the
+   comment-6 transfer anomaly.** Unfusing R114-E costs **+44.2 [+34.1, +54.3]
+   µs/step**, but at most +15.0 of that (40 × the 0.374 bound) can come from
+   dispatch count, so **≥66 %, and in point estimate 95 %, is operand reuse** —
+   one kernel streaming `normalized` and its weights once instead of two doing it
+   twice. A dispatch-overhead win should transfer across Apple Silicon
+   generations nearly unchanged; an operand-reuse win scales with cache and
+   bandwidth per unit of work. So the two official draws landing at −0.063 %
+   against a predicted +0.45 % is the *expected* behaviour of an operand-reuse
+   win moving to a wider, better-fed machine, not an anomaly. §10b.1 also records
+   that I had to retract my own first law here — R114-E is itself a barrier-free
+   sibling append, so "no barrier" was never the discriminator.
+4. **The comment-3/§5 host-widening gate passes, and the §5 fallback was
+   already measured.** Arm **W** (shared-expert SwiGLU host widened to TG
+   (256,1,1) / 64 tiles, nothing appended) measures **−1.5 µs/step
+   [−15.4, +12.5]**, worst-estimator CI upper **+15.7**, inside the
+   pre-registered `≤ +25 ⇒ fuse` threshold; 10/12 blocks negative, sign test
+   p = 0.039. The load-balance-granularity hazard is not realized at 20 GPU
+   cores — host widening is free. Separately, the comment-5 §5 fallback
+   ("narrow the guest to 64 lanes, append to the untouched host, still collect
+   the 48.3 µs/step floor") is structurally my **arm H**, which measures
+   **+7.3 µs/step (pass 1) and +6.4 (pass 2)**, not −48.3. Archive row C3
+   (`RESEARCH_ARCHIVE_through-round-91.md:4686`) was right to de-staff this at
+   0.1231 µs per removed dispatch; comment 4's "under-priced by 16×" is the
+   claim that fails.
 
 ## 1. What was built, and how it diverges from the advisor's plan of record
 
@@ -476,7 +493,135 @@ alternative outcome, `R − H ≈ 0`, would mean the dispatches were never remov
 and H's +7.3 is pure fusion tax with the floor still untested. Arm R is
 designed so those two worlds cannot be confused.
 
-<!-- FILL: R-C, R-H, H-C identity check, W-C with the pre-registered +25 rule -->
+**Design.** `research/maple-alphonse-r119-gridappend-abba.sh
+"CWCRCHCNNCHCRCWC"×6 /tmp/r119-pass2 255`, 96 runs, analysed at `--passlen 8`
+so every 8-run window is one block containing each arm exactly once. That gives
+**n = 12 paired blocks per arm** (12 measured runs × 239 samples = 2 868 raw
+samples per arm; C carries 48 runs). Correctness: **96/96 runs report
+`divergences (all match)`**, zero nonzero-divergence lines.
+
+*Pre-registration shortfall, disclosed.* Comment 5 registered n ≥ 24/arm. This
+pass delivers n = 12 blocks/arm (arm H reaches 18 runs when pooled with pass 1).
+Reaching 24 needed 192 runs ≈ 2.5 h, which did not fit the window alongside the
+layer-2 and correctness gates. I flag it rather than round it up. It does not
+change any verdict direction below, because every decision here turns on a
+**confidence-interval upper bound**, and more data can only narrow it.
+
+**Arm W — host widening, nothing appended (the comment-3/§5 gate).**
+
+| estimator | Δ (µs/step) | 95 % CI |
+|---|---|---|
+| block (n=12) | **−1.5** | [−15.4, +12.5] |
+| adjacent-pair | +2.4 | [−10.9, +15.7] |
+| Welch | −1.5 | [−14.4, +11.4] |
+| bootstrap median | −5.2 | [−9.7, −1.3] |
+
+Forward −7.9, mirror +4.9 µs/step. Median-of-blocks −4.35, **10/12 blocks
+negative** (sign test two-sided p = 0.039). The worst upper bound across the
+four estimators is **+15.7 µs/step**, comfortably inside the pre-registered
+`≤ +25 ⇒ fuse` threshold. **The gate passes**: widening the shared-expert
+SwiGLU host to TG (256,1,1) / 64 tiles is free on this host and, if anything,
+mildly *faster*. The load-balance-granularity hazard raised in comment 5 is not
+realized at 20 GPU cores. This is a clean positive result and it is independent
+of everything else here — it says the *host preparation* comment 3 asked for is
+safe, whatever happens to the append itself.
+
+**Arms R and H — the decomposition.**
+
+| arm | block | adjacent-pair | Welch | bootstrap median | fwd | mirror | median-of-blocks |
+|---|---|---|---|---|---|---|---|
+| R (append, standalone kept live) | +8.5 [−1.7, +18.7] | +12.4 [+2.5, +22.4] | +8.5 [−0.9, +17.9] | +6.9 [+3.5, +11.6] | +7.6 | +9.4 | +5.8 (10/12 +, p = 0.039) |
+| H (append, standalone elided) | +6.4 [−3.0, +15.8] | −3.4 [−23.2, +16.4] | +6.4 [−2.0, +14.9] | +6.5 [+2.9, +10.5] | +7.2 | +5.6 | +8.1 (9/12 +) |
+| N (null) | +2.5 [−9.9, +14.8] | −1.9 [−20.1, +16.3] | +2.5 [−9.4, +14.3] | −2.0 [−4.1, +5.7] | +9.1 | −4.2 | +1.0 (7/12 +, p = 0.77) |
+
+Two instrument checks pass before interpretation. The **null is centred on
+zero** in this pass (bootstrap −2.0 [−4.1, +5.7] includes zero; 7/12 blocks
+positive), which fixes the noise floor at roughly ±10–15 µs/step on a block CI
+at n = 12. And **arm H replicates across passes**: pass 1 gave block
++7.3 [−1.0, +15.7] / bootstrap +4.4, pass 2 gives +6.4 [−3.0, +15.8] /
+bootstrap +6.5 — agreement within ~1 µs/step on an independent 96-run session.
+
+**The paired contrast `R − H`, computed block by block** (both arms are
+referenced to C inside the same block, so C and the per-dispatch term cancel):
+
+```
+per block (µs/step): -39.5 -3.3 -8.1 -0.3 +28.7 -7.4 +3.6 -6.2 +4.5 +0.7 +12.7 +39.5
+mean +2.08   sd 19.67   se 5.68   95 % CI [-10.4, +14.6]
+median +0.20   positive blocks 6/12 (sign test p = 1.0)
+```
+
+`R − H` is the wall-clock cost of *keeping* the 39 standalone router-tournament
+dispatches alive, i.e. exactly the `D·k` term of the §10b model. It is
+**+2.1 µs/step, 95 % CI [−10.4, +14.6], median +0.2, indistinguishable from
+zero.** The internal identity holds exactly: `(R−C) − (R−H) = 8.5 − 2.1 = 6.4
+≡ H−C`.
+
+**This is the result the experiment was for.** Dividing by k = 39:
+
+| quantity | value |
+|---|---|
+| measured per-dispatch recovery `D`, point | **0.053 µs/dispatch** |
+| measured `D`, 95 % upper bound | **0.374 µs/dispatch** |
+| Rule 57 price used to build the floor | 1.2382 µs/dispatch |
+| ratio (Rule 57 ÷ measured point) | **23×** |
+| ratio (Rule 57 ÷ measured 95 % upper) | 3.3× |
+
+Rule 57's per-dispatch price is **excluded at 95 %** for this dispatch pair. And
+note what the honest floor actually was: 39 × 1.2382 = 48.29 ≈ the quoted
+**48.3 µs/step**. The floor *is* `k·D` at Rule 57's price. Arm R measures `k·D`
+directly and bounds it at +14.6 µs/step. So the floor is not merely unreached —
+the single quantity it is made of has now been measured, and it is 23× smaller
+than assumed.
+
+The source-level prediction registered above was therefore **half right and
+half wrong in an informative way**. Elision is real — the escape routes are
+closed in this file and 39 dispatches per step genuinely disappear in arm H —
+but removing them recovers ≈0 µs, so H's +6.4 µs/step is very nearly pure
+fusion tax. Both branches of my registered dichotomy assumed `R − H ≈ 0` could
+only mean "the dispatches were never removed"; the third world, *removed and
+worthless*, is the one that occurred, and it is the world the mechanism below
+predicts.
+
+**Mechanism.** MLX creates its compute encoder with
+`MTL::DispatchTypeConcurrent`
+(`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp:548`) and
+inserts barriers only on tracked hazards (`:315–375`). Both instances here have
+`dep_scope = NONE` (§3), so **no barrier separates guest from host and the GPU
+already overlaps them.** The router tournament is a 1-threadgroup kernel sharing
+a 20-core GPU with a 256-threadgroup sibling; it was never on the critical path.
+A dispatch that is already free cannot be recovered by fusing it, and fusing it
+*adds* the guest's serialized contribution `g` to the host's critical path.
+Net effect: `+g`. Rule 57's 1.2382 µs/dispatch is a price for **serialized,
+barrier-separated** dispatches; applying it to `dep_scope = NONE` siblings
+over-prices the saving by at least 3.3× and in point estimate by 23×.
+
+**Consequence for R114-E, which reconciles the last loose end.** Pass 1 measured
+`E − C = +44.2 µs/step`: unfusing R114-E costs 44 µs/step, so the fusion is
+genuinely worth that much. But at most +15.0 µs/step of it (k ≈ 40 × the 0.374
+µs/dispatch upper bound) can be dispatch-count recovery. So **at least 66 %, and
+in point estimate 95 %, of R114-E's win is not dispatch-count recovery at all.**
+It is the operand-reuse and kernel-quality difference between one fused
+gate+QKV kernel and two separate kernels that each stream `normalized` and
+their own weights. R114-E is therefore **not** evidence for the
+"grid-append recovers dispatches" thesis; it is evidence for operand-reuse
+fusion that happens to be implemented as a grid append.
+
+That reclassification also gives a mechanism for the transfer anomaly disclosed
+in comment 6 (two official draws at −0.063 % against a predicted +0.45 %). A
+dispatch-overhead win is a property of the command encoder and should transfer
+between Apple Silicon generations nearly unchanged. An operand-reuse win is a
+property of the memory system, and its size depends on cache capacity and DRAM
+bandwidth per unit of work — which differ sharply between a 20-core M4 Pro and
+an M5 Max. Under the operand-reuse reading, **weaker transfer to the wider,
+better-fed machine is the expected outcome**, not an anomaly. I did not set out
+to explain that disclosure; arm R produced the explanation.
+
+*Bimodality audit.* 2 of 96 runs flagged (88 at 0.745, 90 at 0.615). Both are
+single-mode with a thin upper tail: run 88 has p10/median/p90 =
+8.180/8.219/8.280 ms with a p99 of 8.473, an upper/lower tail ratio of 1.61
+against 1.08–1.23 for unflagged runs. Right skew from occasional scheduling
+interference, not the two-population signature that would indicate instrument
+failure. The pass-1 finding stands and the stop rule is not triggered.
 
 ## 8. Results — layer 2 (ranked shape) and the prefill gate
 
@@ -859,12 +1004,64 @@ this one it was disqualified before I wrote a line of code, and R114-E's
 ~6-threadgroup softplus was the exemplar the family should have been screened
 against.
 
-I want to be explicit about the status of this law: it is a **two-point fit**
-with an unmeasured crossing, and the mechanism (guest tile latency charged to
-the host's load-balance tail) is inferred, not observed. Follow-up 1 (encoder
-instrumentation) and follow-up 2 (the clone ladder, which sweeps guest tile
-count on a fixed host and would locate the crossing directly) are the two
-experiments that would turn it from a fit into a measurement.
+**Correction to the last column of that table, forced by arm R.** The
+"+1.11 recovered µs/dispatch" attributed to R114-E is computed by dividing its
+whole −44.2 µs/step win by its 40 removed dispatches, i.e. by *assuming* the win
+is dispatch recovery. Arm R measures the per-dispatch recovery directly and
+bounds it at 0.374 µs/dispatch (§7.3), so that attribution is wrong: R114-E
+recovers at most 15 of its 44 µs/step from dispatch count, and in point estimate
+about 2. The number stays in the table as the *apparent* recovery under the
+assumption it tests, not as a measurement. This is the second thing I have had
+to retract, and it matters more than the first, because the whole family was
+staffed on it.
+
+I want to be explicit about the status of `L-APPEND-NEEDS-A-CHEAP-GUEST`: it is
+a **two-point fit** with an unmeasured crossing, and one of its two points has
+just been shown to be driven by a different mechanism. It survives as a
+*screening heuristic* — a cheap guest is still the only kind that can win —
+but it is no longer the primary explanation. §10b.3 states that.
+
+### 10b.3 The law the measurement actually supports
+
+Arm R replaces inference with measurement. It isolates `D·k` — the wall-clock
+value of the removed dispatches, with the guest cost held fixed — at
+**+2.1 µs/step for 39 dispatches, 95 % CI [−10.4, +14.6]**, hence
+`D ≤ 0.374 µs/dispatch` at 95 % against a Rule 57 price of 1.2382.
+
+> **`L-SIBLING-DISPATCH-IS-ALREADY-FREE`** — Rule 57's ~1.24 µs/dispatch is a
+> price for *serialized* dispatches. MLX encodes with
+> `MTL::DispatchTypeConcurrent`
+> (`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp:548`) and
+> barriers only on tracked hazards (`:315–375`), so two kernels with
+> `dep_scope = NONE` are *already overlapped* and their dispatch cost is already
+> off the critical path. Fusing them by grid-append therefore recovers
+> ≈0.05 µs/dispatch (≤0.374 at 95 %), while adding the guest's serialized
+> contribution `g` to the host's tail. **Expected net effect of a sibling
+> grid-append is `+g`, not `−k·D`.**
+>
+> Practical consequence: `dep_scope = NONE`, which the family treated as the
+> *enabling* precondition for a legal append, is precisely the condition under
+> which the append has nothing to recover. The profitable case is the opposite
+> one — a *barrier-separated* pair, where the dispatch really is serialized —
+> and there the merge is harder to prove correct.
+>
+> Corollary for pricing any future append: never price it as
+> `calls × 1.2382 µs`. Price it as `calls × D_measured(dep_scope)` and measure
+> `D` with a discard arm before staffing the work. A discard arm costs one flag
+> and one extra ABBA arm; it would have priced this family at ≈+2 µs/step
+> instead of ≈−48 and saved the round.
+
+This supersedes the reasoning behind the honest band in comment 1, and it
+subsumes `L-THIRD-CELL-NEEDS-CALL-COUNT`: call count multiplies a per-dispatch
+recovery that is ~0 for siblings, so for a `dep_scope = NONE` pair, *no* call
+count is large enough. It also explains why R114-E is not a counterexample —
+§7.3 shows its win is operand reuse, which grid-append merely happens to be the
+vehicle for.
+
+Follow-up 1 (encoder instrumentation) and follow-up 2 (the clone ladder) remain
+worthwhile, but their target has changed: the question is no longer "where is the
+guest-cost crossing" but "which dispatch pairs in this model are genuinely
+serialized", because those are the only ones where an append can pay at all.
 
 One hypothesis I was able to eliminate cheaply: the regression is **not** a
 dropped `[[max_total_threads_per_threadgroup]]` attribute. `grep -c` over
