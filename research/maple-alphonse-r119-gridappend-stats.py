@@ -103,6 +103,8 @@ def main() -> int:
     ap.add_argument("outdir")
     ap.add_argument("--arm", default="F")
     ap.add_argument("--ref", default="C")
+    ap.add_argument("--passlen", type=int, default=10,
+                    help="runs per pass through the arm sequence")
     args = ap.parse_args()
 
     paths = sorted(glob.glob(os.path.join(args.outdir, "*.steps.csv")))
@@ -144,16 +146,29 @@ def main() -> int:
         return 2
 
     print("\nestimators on per-run medians (candidate minus reference):")
-    # Block deltas: mirrored quadruples in run order.
+    # Block deltas: one block per pass through the arm sequence. Consecutive
+    # passes alternate between the forward order and its mirror, so a block
+    # delta is immune to drift that is linear across a pass.
     order = [(idx, arm) for idx, arm, _, _ in sel]
+    all_idx = sorted(idx for idx, _, _, _ in runs)
+    pass_of = {idx: (n // args.passlen) for n, idx in enumerate(all_idx)}
     blocks = []
-    for start in range(0, len(order) - 3, 4):
-        quad = order[start:start + 4]
-        r = [med[i] for i, a in quad if a == args.ref]
-        c = [med[i] for i, a in quad if a == args.arm]
+    for p in sorted(set(pass_of.values())):
+        r = [med[i] for i, a in order if a == args.ref and pass_of[i] == p]
+        c = [med[i] for i, a in order if a == args.arm and pass_of[i] == p]
         if r and c:
             blocks.append(statistics.mean(c) - statistics.mean(r))
-    interval(blocks, "block deltas (mirrored quadruples)")
+    interval(blocks, f"block deltas (one per pass of {args.passlen} runs)")
+
+    print("  per-order breakdown (even pass = forward, odd pass = mirror):")
+    for name, keep in (("forward", 0), ("mirror", 1)):
+        r = [med[i] for i, a in order if a == args.ref and pass_of[i] % 2 == keep]
+        c = [med[i] for i, a in order if a == args.arm and pass_of[i] % 2 == keep]
+        if r and c:
+            d = (statistics.mean(c) - statistics.mean(r)) * 1e3
+            print(f"    {name}: nref={len(r)} ncand={len(c)} "
+                  f"ref_median={statistics.median(r):.4f} ms "
+                  f"cand_median={statistics.median(c):.4f} ms delta={d:+.1f} us")
 
     # Adjacent disjoint reference/candidate pairs.
     pairs = []
