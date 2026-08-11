@@ -33,7 +33,7 @@ import Foundation
 /// interleaved 8-block ladder measured 2 at -79.4 us/token, CI95 [-87.8,
 /// -71.1], against a byte-identical control whose interval covered zero. The
 /// kernel is occupancy-limited here, not bandwidth-limited -- halving the rows
-/// per simdgroup doubles the threadgroup count to 256 and adds activation
+/// per simdgroup doubles the threadgroup count from 256 to 512 and adds activation
 /// re-reads, and it still wins, which is why the byte model predicted the
 /// wrong sign. See research/nezuko-r117-c-final-report.md F7.
 let lagunaOProjRowsPerSimdgroup: Int = {
