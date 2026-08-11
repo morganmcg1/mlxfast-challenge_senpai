@@ -1,0 +1,12 @@
+diff --git a/Sources/MLXFastModel/LagunaRuntimeModel.swift b/Sources/MLXFastModel/LagunaRuntimeModel.swift
+--- a/Sources/MLXFastModel/LagunaRuntimeModel.swift
++++ b/Sources/MLXFastModel/LagunaRuntimeModel.swift
+@@ -339,7 +339,7 @@ let lagunaSharedSwiGLUQMVThreadgroupWidth: Int = {
+     guard
+         let raw = ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_QMV_TG"],
+         let width = Int(raw), width == 64 || width == 128 || width == 256
+-    else { return 64 }
++    else { return 256 }
+     return width
+ }()
+ 

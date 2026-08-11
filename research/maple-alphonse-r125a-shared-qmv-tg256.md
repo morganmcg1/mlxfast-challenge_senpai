@@ -55,6 +55,16 @@ touch only `Sources/MLXFastModel/LagunaRuntimeModel.swift`.
 | `research/r125a-tg256-core.patch` | trees **with** #712 (current frontier) | `18ac6015` — 5/5 hunks, offset `+8` | 103 |
 | `research/r125a-tg256-core-pre712.patch` | trees **without** #712 | `29a79361^` — 5/5 hunks, offset `0` | 109 |
 | `research/r125a-tg256-fused-guard.patch` | **only** trees with #712 | `18ac6015` — 1/1 hunk, offset `-35` | 12 |
+| `research/r125a-tg256-default-flip.patch` | on top of either core patch | `18ac6015` + core — 1/1 hunk | 10 |
+
+The fourth file is the advisor's requested compiled-default flip, kept **separate
+and unapplied** on this branch. It is a one-line change of `else { return 64 }`
+to `else { return 256 }` inside `lagunaSharedSwiGLUQMVThreadgroupWidth`, so the
+advisor can land TG=256 in seconds if they overrule my recommendation, and the
+`DARKBLOOM_SHARED_QMV_TG=64` escape hatch still restores the shipped geometry.
+All four patches were verified to apply in sequence on `18ac6015`
+(core → flip → guard, every hunk fuzz `0`). **I recommend against applying the
+flip**; the evidence is in §1 and §2.
 
 `git apply --check` was run for each row above; the two core patches were also
 applied for real and the resulting file inspected. Every hunk lands with fuzz `0`.
