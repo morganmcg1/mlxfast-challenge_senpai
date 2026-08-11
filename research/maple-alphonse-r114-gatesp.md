@@ -427,6 +427,102 @@ reasoned. If that pushes the QKV path over an occupancy cliff and spills
 main way the arm can come back **correct but slower**, and it is exactly what
 the paired ABBA measures.
 
+## Stage 4 — τ, and a definitional problem with it
+
+Feedback `r116-e-tau-filter-and-0p15` asks me to attach a measured τ, defined as
+
+```
+tau = D_wall_per_step / D_targeted_busy_per_step
+```
+
+with `D_wall` from a paired ABBA at SPLIT=0 and `D_busy` from SPLIT=1. I will
+report that number, but the τ table in that comment mixes **two different
+ratios**, and my arm sits exactly on the seam, so I have to separate them
+before the number means anything.
+
+### 4.1 There are two τ's, and only one of them is measurable on this host
+
+| | definition | what it answers | measurable here? |
+|---|---|---|---|
+| **τ_bw** | `D_wall_M4 / D_busy_M4` | did removing GPU busy time actually shorten the step? | **yes** — SPLIT=0 ABBA over SPLIT=1 attribution |
+| **τ_xfer** | `D_score_M5 / (0.75 · D_wall_M4 / 8972)` | does an M4 wall win survive on the ranked M5? | **no** — needs an M5 |
+
+The table's rows are not the same quantity:
+
+- "removes real DRAM traffic → τ ≈ 1.06, evidence: byte-census arms track wall
+  1:1" is **τ_bw**.
+- "threadgroup geometry → τ ≈ 0, evidence: PR #7 +7.32 % on M4 → ~0 % on M5"
+  is **τ_xfer**. Nothing about that row says busy did not convert to wall on
+  M4; it says the M4 wall win did not exist on M5.
+- "pure dispatch → τ ≈ 0.01, evidence: frieren's 100 % harvest of the
+  413 µs/step host gap = +0.035 % of score" is neither: it is a **census-pool
+  ceiling**, i.e. the very quantity `N-DISPATCH-REMOVAL-NOT-SYMMETRIC` says
+  bounds opportunity but never estimates it.
+
+The scoring formula in the same comment,
+`%score = 0.75 · tau · D_wall / 8972`, applies τ to `D_wall`. If τ is τ_bw
+(`D_wall/D_busy`) that expression divides the wall saving by the busy saving
+and then multiplies by the wall saving again, which is dimensionally wrong. The
+formula only makes sense with τ_xfer. **I therefore report τ_bw as the
+measurement, and treat τ_xfer as an argued risk, never as a measured number.**
+
+### 4.2 Why τ_bw is the wrong gate for *this* arm, and what the right one is
+
+This arm removes **no busy work at all**. The gate tiles execute the identical
+instruction stream on the identical bytes; they are merely appended to a grid
+that was already being dispatched. So the honest prediction is
+`D_busy ≈ 0`, which makes τ_bw = `D_wall / ~0` — unbounded, undefined, and
+useless as a filter.
+
+That is not an evasion, it is the point. The τ_bw filter exists to catch arms
+that *claim* a wall win from a measured busy win. This arm never measures busy;
+its Δ is measured **directly on the scored wall clock, at SPLIT=0, paired**.
+There is no conversion step to be sceptical of. The applicable gate is
+therefore not τ_bw but:
+
+1. **is the wall interval real?** — §3.4, paired ABBA, SPLIT=0;
+2. **is it the mechanism I claim?** — §3.5, SPLIT=1 attribution: if fused busy
+   ≈ QKV busy + gate busy, the saving is dispatch-side, as predicted;
+3. **does it survive on M5?** — τ_xfer, §4.3, argued not measured.
+
+### 4.3 The τ_xfer argument, stated as a risk and not as a result
+
+The ceiling this arm can harvest is exactly the dispatch-shaped part of §1.4:
+
+```
+74.6 us/step = 50.0 MLX per-dispatch glue + 24.6 unattributed in-situ residual
+```
+
+Nothing else in the table is touched — weight loading (102.9), the rest of the
+K loop (47.2) and the in-kernel fixed cost (36.9) are all still executed, byte
+for byte, by the appended tiles.
+
+The nearest prior is **nezuko's #682**, and the contrast is the whole argument.
+She also removed **40 dispatches/step** (406 → 366) on **this same kernel**, and
+her wall went **up** +51.73 µs/step. Two things separate the arms:
+
+| | nezuko #682 | this arm |
+|---|---|---|
+| dispatches removed / step | 40 | 40 |
+| new dependency edge | **yes** — `gate_sp` became the sole producer of `normalized` | **no** — `gate_sp` and QKV are siblings, both consume `normalized`; `dep_scope = NONE` |
+| threadgroup geometry | **changed**; arm S alone, bit-exact, cost +43.23 µs = 83 % of the regression | **unchanged** — both tile families keep `threadGroup (64,1,1)` |
+| busy removed | −204.9 µs/step (the pre-norm deleted) | ≈ 0 by construction |
+
+Her regression is 83 % geometry, and geometry is the row with τ_xfer ≈ 0. This
+arm changes no geometry, so the single largest term in the only prior that
+refutes dispatch removal **does not apply to it**. What remains is the honest
+residual risk: the M5's per-dispatch glue may simply be cheaper than the M4's
+1.2382 µs, in which case the same structural change harvests proportionally
+less. That shrinks the win; it does not invert it, because there is no
+mechanism here that trades a dispatch for added work.
+
+I cannot measure τ_xfer. I state the exposure plainly: **if M5 per-dispatch
+glue were zero, this arm would be worth zero.** It is not a geometry arm, it is
+not a busy-census arm, and it introduces no dependency edge, so it is not
+covered by any of the three negatives the τ filter is built from.
+
+---
+
 ## Stage 5 — where grid-append goes next (not implemented here)
 
 Grid-append is a *family*, and `gate_sp` is its smallest member. I asked for an
