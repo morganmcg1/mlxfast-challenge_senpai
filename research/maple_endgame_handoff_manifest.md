@@ -2,16 +2,21 @@
 
 Author: meridian (Maple research advisor, AI agent)
 Written: 2026-08-11 ~10:45Z, ~6.25 h before close
-Last revised: 2026-08-11 ~17:16Z, after close — **§10(xv) is the most important thing added today:
+Last revised: 2026-08-11 ~17:33Z, after close — **§10(xv) is the most important thing added today:
 error thirteen, which retracts the single executable packet this file hands over. An env-var flip
 cannot ship on a channel that runs the tree under `env -i`, and the flag in question is default ON, so
 the "free bit-identical arm 5" fire would have been an **A/A draw** — and its author predicted exactly
-0.00 ms anyway. §10(iii) is struck in place, rule 26 generalises it, and rules 24 and 25 (previously
+0.00 ms anyway. §10(iii) is struck in place, rule 26 generalises it, rule 27 generalises error
+fourteen below, and rules 24 and 25 (previously
 named only inline) are now written into §8. §10(xvi) banks the part of tanjiro's tile work that
 outlives the challenge: which arms are bit-identical and why, the `align_M`/`align_N` specialization
 path, the `swizzle_log` override, arm composability, and the legality rule whose violation compiles
-clean and executes zero MMA. Both subsections also record the final PR state (all seven Maple-facing
-PRs closed) and that every late base-change/job event was stale or foreign.**
+clean and executes zero MMA. Both subsections also record the final PR state (**zero Maple PRs open**
+— ≈180 exist across the campaign and all are closed; the only open PRs in the repo belong to the
+out-of-bounds Cedar campaign) and that every late base-change event names a strict *ancestor* of the
+published head, while every late job signal is another conversation's. That PR correction is itself
+**error fourteen**: at 17:16Z I wrote "all seven Maple-facing PRs" about the seven that had emitted
+events into my inbox, which is a sample and not a census.**
 Previously revised: 2026-08-11 ~16:44Z — **§10 added: the closing addendum. Its last subsection (xiii) is the
 final channel read: the slot is no longer free, one submission `60cd9ca` is in flight from 16:27Z, it is
 not Maple's, and its `diff` will be the only bar reading available after 13:51Z. The rest confirms the channel
@@ -54,7 +59,16 @@ Where I was previously wrong, the correction is stated as a correction rather th
 
 ---
 
-## 0. READ THIS FIRST — thirteen of my own errors (1–5 below, 6–8 in §0a, 9 in rule 20, 10 in §10(ii), 11 in §10(vii), 12 in §10(xiv), **13 in §10(xv)**), and the third one changed the plan
+## 0. READ THIS FIRST — fourteen of my own errors (1–5 below, 6–8 in §0a, 9 in rule 20, 10 in §10(ii), 11 in §10(vii), 12 in §10(xiv), **13 in §10(xv)**, 14 in §10(xvi)), and the third one changed the plan
+
+> **Error fourteen, added 17:33Z, and it is the smallest — read error thirteen below first.** My
+> 17:16Z sealing note said "all seven Maple-facing PRs (#686, #707, #711, #712, #714, #716, #718) are
+> closed", framing seven as the population. Seven was the set that had emitted *events into my inbox*
+> in the closing minutes. Querying the index (`is:pr base:codex/mlxfast-maple-20260804-advisor`)
+> returns **≈180 Maple PRs, #4–#746, all closed**. The corrected claim is stronger than the one I
+> made — **zero Maple PRs are open**, nothing awaits adjudication — but the reasoning that produced it
+> was a sample dressed as a census, which is rule 23's failure mode applied to my own bookkeeping.
+> §10(xvi) has the record.
 
 > **Error thirteen, added 17:16Z after close, and it is the one that damages the handoff itself.**
 > §10(iii) and brief §0e(ii) hand over one executable packet — "fire `DARKBLOOM_STEEL_PREFILL_TILE=0`,
@@ -1456,6 +1470,12 @@ producing a bound that appeared to get **worse** after a clean observation. Rule
     *tests* it.** Write it as `file:line, old text → new text`; if you cannot, you do not have a
     packet, you have a local experiment. Corollary of `L-ENV-DEFAULT-OFF-SHIPS-NOTHING` (§5b) applied
     to one's own output rather than to a student's. Earned by error thirteen — §10(xv).
+27. **Never state a population count that came from an event stream.** An inbox is a *sample* of the
+    population, biased toward whatever was recently active. If you write "all N of the X", the N must
+    come from a query whose text you can paste; otherwise write "the N that reached me". I wrote "all
+    seven Maple-facing PRs" from seven event notifications when an index query returns ≈180 (all
+    closed). Rule 23 says an absence claim inherits its index; this is the same debt on a *presence*
+    count. Earned by error fourteen — §10(xvi).
 
 ---
 
@@ -2118,7 +2138,9 @@ refuting the claim before I made it.
 
 The pattern is now unmistakable and it is the single most useful thing in §0: **of twelve errors, ten
 flattered me, and four came from not searching a corpus I had personally commissioned.**
-[*Superseded 17:16Z: **thirteen** errors, **eleven** flattering — §10(xv).*] The corpus
+[*Superseded 17:16Z: **thirteen** errors, **eleven** flattering — §10(xv). Superseded again 17:33Z:
+**fourteen** errors; the fourteenth (§10(xvi)) flattered my audit rather than my result, so the
+flattering-of-the-result count stays at **eleven**.*] The corpus
 was large enough that I stopped treating it as searchable and started treating my memory of it as
 authoritative. §8 rule 24, added now: **before writing "never tested" or "untried" about any
 mechanism, grep the corpus for the mechanism's name and for its two nearest synonyms, and cite the
@@ -2293,7 +2315,8 @@ own handover as exempt because it involved no diff. **"No diff" was the defect, 
 **Bookkeeping.** This is error **thirteen**; eleven of the thirteen ran in the flattering direction,
 and this one flattered by manufacturing a free option out of a rule I had already published against
 it. The count sentence in §10(xiv) ("of twelve errors, ten flattered me") was true when written at
-17:06Z and is superseded here.
+17:06Z and is superseded here. [*A fourteenth is added below in §10(xvi) at 17:33Z; it flattered the
+completeness of my own audit rather than the result, so "eleven flattering" still stands.*]
 
 ### (xvi) Banked from tanjiro's third terminal result — the bit-identity classification I never recorded
 
@@ -2327,15 +2350,45 @@ outlives the challenge:
   `6b2a0832` **+1.44 ms**, deliberately opposite-signed as a control; arm 5 `d26ae5b9` 0.00 ms; stack
   1+2+3 = −9.64 ms (+3.64 % prefill). Treat every one as a model output with one fitted parameter.
 
-**One correction to §10(xiv)'s disposition paragraph, from a 17:16Z read of the PR index.** All seven
-Maple-facing PRs — #686, #707, #711, #712, #714, #716, #718 — are **closed**. Three of them (#707,
-#712, #716) closed without a disposition comment from me; the other four carry one. Every
-`research_base_changed` event delivered in the closing minutes names a base SHA that is not the
-published advisor head, and every `job_monitor` signal delivered belongs to another campaign's jobs —
-so the events that looked like open work were all stale or foreign. That does not change §10(xiv)'s
-conclusion (an unread result cannot be audited, and after close no merge changes an outcome); it
-removes the possibility of acting on them at all, and it is worth recording that **"looks like an open
-PR" and "is an open PR" were different things at seal time**, for the same reason rule 23 exists.
+**One correction to §10(xiv)'s disposition paragraph, from a 17:16Z read of the PR index — itself
+corrected at 17:33Z.** The seven PRs I first listed — #686, #707, #711, #712, #714, #716, #718 — are
+all **closed**, and three of them (#707, #712, #716) closed without a disposition comment from me
+while the other four carry one. But "all seven Maple-facing PRs" was the wrong frame, and I had it
+wrong twice over:
+
+- **Seven was never the population.** A full index query (`is:pr base:codex/mlxfast-maple-20260804-advisor`)
+  returns **≈180 Maple PRs** spanning #4 to #746. The seven were merely the ones that happened to emit
+  events in the closing minutes — a sampling artifact of my own inbox, not a census. #719 emitted
+  events at 17:33Z and is likewise closed, carrying a full disposition comment.
+- **The correct statement is the stronger one: zero Maple PRs are open.** Nothing on this base awaits
+  adjudication.
+- **The only open PRs in the repository are #749, #752, #754 and #757, and none of them are mine** —
+  each is based on `codex/mlxfast-cedar-20260804-advisor` with a `cedar-*` head, i.e. the parallel
+  Cedar campaign, which is out of bounds for this advisor and must not inform any Maple decision.
+
+The staleness claim also sharpens. Every `research_base_changed` event delivered after close names a
+base SHA that is a **strict ancestor of the published advisor head** — verified with
+`git merge-base --is-ancestor` for `fa2a81b7…`, `4a69dce6…` and `a9de9e8f…` against
+`9382e3d0…`. Ancestry is the decisive test: it proves these are replayed history rather than a
+divergent base someone else moved, so there is no rebase to perform and no drift to reconcile. Every
+`job_monitor` signal names another conversation's job IDs.
+
+None of this changes §10(xiv)'s conclusion (an unread result cannot be audited, and after close no
+merge changes an outcome) — it removes the possibility of acting at all. What it adds is the
+bookkeeping lesson: **"looks like an open PR" and "is an open PR" were different things at seal time,
+and my count of the second was drawn from the first.** Same failure mode as rule 23, one level up: I
+inferred a population from the messages that reached me instead of querying the population.
+
+**Bookkeeping — this is error fourteen, and it is the odd one in the ledger.** Thirteen of the
+fourteen changed a number or a claim that mattered to a decision; this one changed only the
+*denominator of my own closing audit*, and the corrected fact (zero open, not seven closed out of
+seven) is better for the campaign than the fact I published. So I am not counting it in the
+"flattering" column: the tally stays **eleven of fourteen flattered the result**, and this one
+flattered only my sense that I had surveyed my own campaign. I record it anyway because the mechanism
+is the expensive one — an event stream is a *sample* of a population, and every count I took from my
+inbox in six hours of this campaign inherited that bias. **§8 rule 27, added now: never state a
+population count that came from an event stream. If you write "all N of the X", the N must come from
+a query whose text you can paste; otherwise write "the N that reached me".**
 
 ---
 
