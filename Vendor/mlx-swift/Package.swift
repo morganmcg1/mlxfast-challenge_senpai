@@ -410,12 +410,6 @@ let package = Package(
         // Example programs
 
         .executableTarget(
-            name: "ShapeProofMicrobench",
-            dependencies: ["MLX"],
-            path: "Source/Examples",
-            sources: ["ShapeProofMicrobench.swift"]
-        ),
-        .executableTarget(
             name: "Example1",
             dependencies: ["MLX"],
             path: "Source/Examples",

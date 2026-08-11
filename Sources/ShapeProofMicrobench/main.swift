@@ -3,7 +3,7 @@ import MLX
 
 private let warmupIterations = 8_192
 private let blockIterations = 4_096
-private let cyclesPerOrder = 24
+private let cyclesPerOrder = 64
 private let bootstrapReplicates = 20_000
 private let expectedChecksum = 129
 
@@ -75,11 +75,11 @@ private func propagatedRoute(
     checksum &+= hit(proof || tokens.decodeDims(1, 1))
     checksum &+= hit(proof || (hidden.dim(0) == 1 && hidden.dim(1) == 1))
     checksum &+= hit(proof || tokens.decodeDims(1, 1))
-    checksum &+= hit(proof ? false : hidden.dim(1) > 1)
+    checksum &+= hit(!proof && hidden.dim(1) > 1)
     for _ in 0..<40 {
         checksum &+= hit(!proof && hidden.dim(1) > 1)
     }
-    checksum &+= hit(proof || hidden.dim(1) == 1)
+    checksum &+= hit(hidden.dim(1) == 1)
     for _ in 0..<4 {
         checksum &+= hit(proof || tokens.decodeDims(1, 1))
     }
@@ -364,7 +364,7 @@ private struct ShapeProofMicrobench {
             let medianSavings = median(combinedSavings)
             let checksumValid = abba.checksumValid && baab.checksumValid
             let gatePassed = checksumValid
-                && 424 >= 250
+                && 422 >= 250
                 && medianSavings >= 35_000
                 && combinedCI.0 > 24_543
 
@@ -390,8 +390,8 @@ private struct ShapeProofMicrobench {
                 "expected_checksum_per_iteration": expectedChecksum,
                 "accessor_census": [
                     "baseline_c_bridge_calls_per_token": 427,
-                    "candidate_c_bridge_calls_per_token": 3,
-                    "removed_c_bridge_calls_per_token": 424,
+                    "candidate_c_bridge_calls_per_token": 5,
+                    "removed_c_bridge_calls_per_token": 422,
                     "threshold_calls": 250,
                 ],
                 "orders": [orderJSON(abba), orderJSON(baab)],

@@ -97,6 +97,12 @@ let package = Package(
                 "MLXFastRuntimeWorkerSupport",
             ]
         ),
+        .executableTarget(
+            name: "ShapeProofMicrobench",
+            dependencies: [
+                .product(name: "MLX", package: "mlx-swift")
+            ]
+        ),
         .testTarget(
             name: "MLXFastTests",
             dependencies: [

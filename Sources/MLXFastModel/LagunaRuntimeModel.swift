@@ -11539,19 +11539,16 @@ final class LagunaRuntimeModelInner: Module {
                 h: h, cache: cache?[slidingAttentionIdx], windowSize: slidingWindow)
             : .none
 
-        let isMultiToken = isSingleTokenDecode ? false : h.dim(1) > 1
-
         // One cos/sin table per attention family per decode step, shared by
         // every layer of that family (their caches advance in lockstep). Each
         // table is produced by running the family's own RoPE layer over a
         // seed row, so the angles are the exact floats that layer's kernel
         // would have computed rather than a re-derivation.
-
         for (i, layer) in layers.enumerated() {
             let isFull = layerTypes[i] == .full
             let mask = isFull ? fullMask : slidingMask
             let qkRoPEAngles = isFull ? fullRoPEAngles : slidingRoPEAngles
-            if i == layers.count - 1, isMultiToken {
+            if i == layers.count - 1, !isSingleTokenDecode && h.dim(1) > 1 {
                 if case .causal = mask {
                     h = layer.callLastPrefillRow(h, cache: cache?[i])
                 } else {
@@ -11579,7 +11576,8 @@ final class LagunaRuntimeModelInner: Module {
                 if isSingleTokenDecode, (decodeFireMask >> UInt64(i)) & 1 == 1 {
                     asyncEval(h)
                 }
-                if lagunaPrefillAsyncLadderStride > 0, isMultiToken,
+                if lagunaPrefillAsyncLadderStride > 0,
+                    !isSingleTokenDecode && h.dim(1) > 1,
                     (i + 1) % lagunaPrefillAsyncLadderStride == 0
                 {
                     asyncEval(h)
@@ -11649,8 +11647,7 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
         // position's row. Slice prefill before the row-independent final
         // RMSNorm and vocabulary head so it neither normalizes nor projects
         // preceding rows; decode already contains exactly one row.
-        let lastHidden =
-            isSingleTokenDecode ? fullHidden : lagunaLastTokenHidden(fullHidden)
+        let lastHidden = lagunaLastTokenHidden(fullHidden)
         let hidden = model.norm(lastHidden)
         if case .norm = lagunaDecodeAsyncStage, isSingleTokenDecode {
             asyncEval(hidden)
