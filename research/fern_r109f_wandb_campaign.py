@@ -47,6 +47,9 @@ CROWN_RECEIPT = "cc6ddc1"
 CROWN_SOLVER = "a-github-name"
 
 CACHES = [
+    "/tmp/subs_p10.json",
+    "/tmp/subs_p9.json",
+    "/tmp/subs_p8.json",
     "/tmp/subs_p7.json",
     "/tmp/subs_p6.json",
     "/tmp/subs_p5.json",
@@ -65,7 +68,62 @@ OUR_RECEIPTS = [
     ("e4078827-c7fd-4173-a2bf-2f6af7cc6e73", "t3", "base + QHOIST=1 ec0954e2"),
     ("ed40f3ee-b76b-45de-b751-d02b013ea113", "t4", "base + atlas v3, QHOIST reverted"),
     ("0531544b-a426-4f26-821a-d7f642f6c101", "t5", "same-exe replay of t4 (atlas v3)"),
+    ("cb4de9e0-b083-4061-8e2b-3fa3f055c1e9", "t6", "3rd shot of the atlas v3 executable"),
 ]
+
+# Identical-executable replay groups.  Every member of a group is the SAME
+# compiled executable -- verified with `git diff pkg-tN pkg-tM`, which touches
+# only Sources/MLXFastModel/DenseTensorStore.swift and adds zero non-comment
+# lines -- so all within-group variance is instrument, not code.  These 5
+# receipts are the only replicated packages anywhere in the dataset: 0 of 1196
+# full-leg receipts from other solvers share a submissionCommitSha.
+REPLAY_GROUPS = [
+    ("base_t1_t2", ["c1c0ba2c", "88584270"]),
+    ("atlasv3_t4_t5_t6", ["ed40f3ee", "0531544b", "cb4de9e0"]),
+]
+
+# Package commit per ticket, tagged locally as pkg-t1 .. pkg-t6.
+PKG_COMMITS = {
+    "t1": "074f47e48fe5",
+    "t2": "04e8bf3c861539369fac081b9433025d01208cd7",
+    "t3": "ec0954e28ff59515389b659cb33343658acad84b",
+    "t4": "d567a72a3b02d936ed37d909ece0b2cb1dca3163",
+    "t5": "0a81e48b91c2617fdba30243ddf0f99e3a1fae0a",
+    "t6": "fe610f60ecaa41dd93b0e6cf2994eba6ba1586f3",
+}
+
+# 8-run MLX_SDPA_BLOCKS sweep on the local host (all correct, golden
+# b9509697c08a2cf3).  The arm is NULL; its value was the by-product -- a real
+# measurement of local decode repeatability under sustained load, which killed
+# the campaign's "local repeats to 0.05-0.10 %" claim (CORRECTION 5).
+LOCAL_SWEEP = [
+    ("default", None, 12934.7),
+    ("default-replay", None, 12965.0),
+    ("blocks16", 16, 13019.0),
+    ("blocks32", 32, 12926.0),
+    ("blocks128", 128, 12935.0),
+    ("blocks256", 256, 12850.0),
+    ("blocks256-replay", 256, 12934.0),
+    ("blocks512", 512, 12889.0),
+]
+
+# Host-drift control (research/fern_r109f_host_drift.py).  The monotone
+# t4->t5->t6 candidate-decode slide of -0.63 % over 47 min is NOT drift: the
+# field control over the same window is flat and the baseline decode leg is
+# white noise at lag 1.
+DRIFT = {
+    "field_cand_decode_spearman": 0.103,
+    "field_cand_decode_late_minus_early_pct": 0.033,
+    "field_base_decode_spearman": 0.273,
+    "field_base_decode_late_minus_early_pct": 0.086,
+    "base_decode_lag1_autocorr_n51": 0.008,
+    "base_decode_lag1_band_n51": 0.280,
+    "base_decode_lag1_autocorr_n213": 0.080,
+    "base_decode_lag1_band_n213": 0.137,
+    "our_slide_pct": -0.63,
+    "our_slide_minutes": 47,
+    "verdict": "no drift; blocked ranked A/B is valid without interleaving",
+}
 
 # Executable class per ticket: shots sharing a class ran the same binary up to a
 # comment-only nonce, so any published spread inside a class is pure host luck.
@@ -75,6 +133,7 @@ OUR_CLASSES = {
     "t3": "r109F-qhoist",
     "t4": "r109F-atlasv3",
     "t5": "r109F-atlasv3",
+    "t6": "r109F-atlasv3",
 }
 
 # Local 2x2, from research/fern_r109f_ab_rebuild.sh / fern_r109f_env_bench.sh.
@@ -138,6 +197,25 @@ def cv(xs):
     return mu, sd, 100.0 * sd / mu
 
 
+def robust_cv(xs):
+    """Median / MAD-based cv, scaled to be a consistent sd estimator at normality.
+
+    The plain cv of a candidate leg is NOT a noise estimate: the field posts
+    genuinely broken packages, and a handful of 2-10x blow-ups dominate a
+    second-moment statistic.  Concretely, widening this campaign's window from
+    n=28 to n=54 receipts moved the plain candidate-decode cv from 0.2836 % to
+    1.7266 % and the derived "field code spread ceiling" from 0.1788 % to
+    1.7131 % -- a 10x swing driven by a few rows, in a number the campaign was
+    about to publish. The robust version barely moves, because the median and the
+    MAD ignore the tail. This is the fifth time in this campaign that a plain
+    moment estimator has produced a headline that a robust one refuted, so it is
+    now the default and the plain value is kept only for comparison.
+    """
+    med = statistics.median(xs)
+    mad = statistics.median([abs(x - med) for x in xs])
+    return med, 1.4826 * mad, 100.0 * 1.4826 * mad / med
+
+
 # --------------------------------------------------------------------------
 # run 1: the instrument collapse
 # --------------------------------------------------------------------------
@@ -164,22 +242,45 @@ def leg_noise(rows):
         ],
     }
     norms = [normalized(r["officialMetrics"]) for r in win]
+    legs["normalized_score"] = norms
     out = {"n": len(win), "window": NOISE_WINDOW, "legs": {}}
     for name, xs in legs.items():
         mu, sd, c = cv(xs)
-        out["legs"][name] = {"mean": mu, "sd": sd, "cv_pct": c}
-    mu, sd, c = cv(norms)
-    out["legs"]["normalized_score"] = {"mean": mu, "sd": sd, "cv_pct": c}
+        med, rsd, rc = robust_cv(xs)
+        # ROBUST IS THE DEFAULT.  `mean`/`sd`/`cv_pct` below are the robust
+        # (median / 1.4826*MAD) figures; the plain moments are kept beside them
+        # under plain_* purely so a reader can see how far the tail drags them.
+        # See robust_cv()'s docstring for the n=28 -> n=54 blow-up that forced
+        # this change *before* these numbers were published.
+        out["legs"][name] = {
+            "mean": med,
+            "sd": rsd,
+            "cv_pct": rc,
+            "plain_mean": mu,
+            "plain_sd": sd,
+            "plain_cv_pct": c,
+            "tail_inflation_x": (c / rc) if rc > 0 else None,
+        }
 
     # The candidate decode leg carries baseline decode noise PLUS whatever real
-    # code spread exists across the field.  Subtract in quadrature.
-    cb = out["legs"]["baseline_decode_us"]["cv_pct"]
-    cc = out["legs"]["candidate_decode_us"]["cv_pct"]
-    resid = cc * cc - cb * cb
-    out["code_spread_ceiling_cv_pct"] = math.sqrt(resid) if resid > 0 else 0.0
+    # code spread exists across the field.  Subtract in quadrature.  Both the
+    # robust and the plain version are reported, because the plain one is the
+    # number that swung 0.1788 % -> 1.7131 % when the window grew by 26 rows.
+    def _ceiling(key):
+        cb = out["legs"]["baseline_decode_us"][key]
+        cc = out["legs"]["candidate_decode_us"][key]
+        resid = cc * cc - cb * cb
+        return math.sqrt(resid) if resid > 0 else 0.0
+
+    out["code_spread_ceiling_cv_pct"] = _ceiling("cv_pct")
     out["code_spread_ceiling_us"] = (
         out["code_spread_ceiling_cv_pct"] / 100.0
         * out["legs"]["candidate_decode_us"]["mean"]
+    )
+    out["code_spread_ceiling_plain_cv_pct"] = _ceiling("plain_cv_pct")
+    out["code_spread_ceiling_plain_us"] = (
+        out["code_spread_ceiling_plain_cv_pct"] / 100.0
+        * out["legs"]["candidate_decode_us"]["plain_mean"]
     )
     return out
 
@@ -194,6 +295,100 @@ def power_table(cv_pct):
             {"effect_pct": effect, "receipts_per_arm": math.ceil(n), "n_exact": n}
         )
     return rows
+
+
+def receipts_for(cv_pct, effect_pct):
+    """Single scalar from the same power model as power_table()."""
+    z = 1.959963985 + 1.644853627
+    return math.ceil(2.0 * (z * cv_pct / effect_pct) ** 2)
+
+
+# Axes of a receipt, in the order they are reported.  `None` key means the axis
+# is derived rather than read straight out of officialMetrics.
+GAUGE_AXES = [
+    ("candidate_prefill", "prefill_seconds_per_token"),
+    ("normalized", None),
+    ("candidate_decode", "decode_seconds_per_token"),
+    ("published", None),
+    ("reference_decode", "baseline_decode_seconds_per_token"),
+    ("reference_prefill", "baseline_prefill_seconds_per_token"),
+]
+
+
+def leg_gauge(rows):
+    """The campaign's central instrument measurement.
+
+    Pools the within-group cv of every identical-executable replay group by
+    degrees of freedom, giving a per-axis instrument sd with 3 df (k=2 base pair
+    contributes 1, k=3 atlas-v3 group contributes 2).  Because the executables
+    inside a group are git-verified identical, this sd is the *floor* on what a
+    single ranked receipt can resolve on that axis -- and the axes differ by a
+    factor of 28, which is the whole point: an arm must be judged on the leg it
+    targets, not on the published score.
+    """
+    # Only full-leg, correctness-passing receipts carry all four legs; a queued
+    # or failed row has officialMetrics == None and must not enter the gauge.
+    by_id = {r["id"][:8]: r for r in rows if full_leg(r)}
+
+    def axis_value(r, name, key):
+        m = r["officialMetrics"]
+        if key is not None:
+            return m[key]
+        return r["officialScore"] if name == "published" else normalized(m)
+
+    out = {"axes": [], "groups": {}, "n_receipts": 0, "df": 0}
+    seen = set()
+    for gname, ids in REPLAY_GROUPS:
+        got = [i for i in ids if i in by_id]
+        out["groups"][gname] = {"k": len(got), "members": got}
+        seen.update(got)
+    out["n_receipts"] = len(seen)
+
+    for name, key in GAUGE_AXES:
+        ss, df, cells = 0.0, 0, {}
+        for gname, ids in REPLAY_GROUPS:
+            got = [by_id[i] for i in ids if i in by_id]
+            if len(got) < 2:
+                continue
+            vals = [axis_value(r, name, key) for r in got]
+            c = 100.0 * statistics.stdev(vals) / statistics.fmean(vals)
+            cells[gname] = c
+            ss += (len(vals) - 1) * c * c
+            df += len(vals) - 1
+        if df == 0:
+            continue
+        sd = (ss / df) ** 0.5
+        out["df"] = df
+        out["axes"].append(
+            {
+                "axis": name,
+                "pooled_sd_pct": sd,
+                "df": df,
+                "receipts_at_0.20pct": receipts_for(sd, 0.20),
+                "receipts_at_0.30pct": receipts_for(sd, 0.30),
+                "receipts_at_0.50pct": receipts_for(sd, 0.50),
+                **{f"cv_{g}_pct": v for g, v in cells.items()},
+            }
+        )
+    return out
+
+
+def local_sweep_stats():
+    """Local decode repeatability, measured as a by-product of the null sweep."""
+    vals = [v for _, _, v in LOCAL_SWEEP]
+    mean = statistics.fmean(vals)
+    sd = statistics.stdev(vals)
+    return {
+        "n": len(vals),
+        "mean_us": mean,
+        "sd_us": sd,
+        "cv_pct": 100.0 * sd / mean,
+        "range_pct": 100.0 * (max(vals) - min(vals)) / mean,
+        # the two replicated arms: how far apart did the SAME config land?
+        "replicate_gap_default_us": abs(12965.0 - 12934.7),
+        "replicate_gap_blocks256_us": abs(12934.0 - 12850.0),
+        "verdict": "MLX_SDPA_BLOCKS is null; local decode cv is ~0.35 %/run",
+    }
 
 
 # --------------------------------------------------------------------------
@@ -294,11 +489,21 @@ def run_instrument_collapse(wandb, rows, cache, dry):
 
     summary = {}
     for name, s in ln["legs"].items():
+        # robust (median / 1.4826*MAD) is the headline; plain moments beside it
         summary[f"noise/{name}/mean"] = s["mean"]
         summary[f"noise/{name}/sd"] = s["sd"]
         summary[f"noise/{name}/cv_pct"] = s["cv_pct"]
+        summary[f"noise/{name}/plain_mean"] = s["plain_mean"]
+        summary[f"noise/{name}/plain_sd"] = s["plain_sd"]
+        summary[f"noise/{name}/plain_cv_pct"] = s["plain_cv_pct"]
+        summary[f"noise/{name}/tail_inflation_x"] = s["tail_inflation_x"]
     summary["noise/code_spread_ceiling_cv_pct"] = ln["code_spread_ceiling_cv_pct"]
     summary["noise/code_spread_ceiling_us"] = ln["code_spread_ceiling_us"]
+    summary["noise/code_spread_ceiling_plain_cv_pct"] = ln[
+        "code_spread_ceiling_plain_cv_pct"
+    ]
+    summary["noise/code_spread_ceiling_plain_us"] = ln["code_spread_ceiling_plain_us"]
+    summary["noise/estimator"] = "robust_median_mad"
 
     norm_cv = ln["legs"]["normalized_score"]["cv_pct"]
     pt = power_table(norm_cv)
@@ -306,20 +511,74 @@ def run_instrument_collapse(wandb, rows, cache, dry):
         summary[f"power/receipts_per_arm_at_{row['effect_pct']:.2f}pct"] = row[
             "receipts_per_arm"
         ]
+    # and the plain-cv power table, so the cost of the estimator choice is visible
+    for row in power_table(ln["legs"]["normalized_score"]["plain_cv_pct"]):
+        summary[
+            f"power/plain_cv_receipts_per_arm_at_{row['effect_pct']:.2f}pct"
+        ] = row["receipts_per_arm"]
 
-    print(f"[instrument-collapse] n={ln['n']} window={NOISE_WINDOW}")
-    for name, s in ln["legs"].items():
-        print(f"  {name:<22} mean={s['mean']:.4f} sd={s['sd']:.4f} cv={s['cv_pct']:.4f}%")
     print(
-        f"  between-package code spread ceiling: "
+        f"[instrument-collapse] n={ln['n']} window={NOISE_WINDOW} "
+        f"estimator=robust(median/1.4826*MAD), plain shown for comparison"
+    )
+    for name, s in ln["legs"].items():
+        print(
+            f"  {name:<22} med={s['mean']:.4f} sd={s['sd']:.4f} "
+            f"cv={s['cv_pct']:.4f}%   | plain cv={s['plain_cv_pct']:.4f}% "
+            f"(tail inflation x{s['tail_inflation_x']:.2f})"
+        )
+    print(
+        f"  between-package code spread ceiling (robust): "
         f"{ln['code_spread_ceiling_cv_pct']:.4f}% "
         f"({ln['code_spread_ceiling_us']:.2f} us)"
+    )
+    print(
+        f"  between-package code spread ceiling (plain, NOT quoted): "
+        f"{ln['code_spread_ceiling_plain_cv_pct']:.4f}% "
+        f"({ln['code_spread_ceiling_plain_us']:.2f} us)"
     )
     for row in pt:
         print(
             f"  power: detect {row['effect_pct']:.2f}% -> "
             f"{row['receipts_per_arm']} receipts/arm"
         )
+
+    # ---- the k=3 identical-executable gauge, and the per-leg reversal -------
+    lg = leg_gauge(rows)
+    for a in lg["axes"]:
+        summary[f"gauge/{a['axis']}/pooled_sd_pct"] = a["pooled_sd_pct"]
+        summary[f"gauge/{a['axis']}/receipts_at_0.30pct"] = a["receipts_at_0.30pct"]
+    summary["gauge/df"] = lg["df"]
+    summary["gauge/n_receipts"] = lg["n_receipts"]
+    by_axis = {a["axis"]: a for a in lg["axes"]}
+    if "published" in by_axis and "candidate_prefill" in by_axis:
+        summary["gauge/prefill_leg_cheaper_than_score_x"] = (
+            by_axis["published"]["receipts_at_0.30pct"]
+            / by_axis["candidate_prefill"]["receipts_at_0.30pct"]
+        )
+    print(
+        f"  gauge: {lg['n_receipts']} replayed receipts, {lg['df']} df "
+        f"(groups: "
+        + ", ".join(f"{g}=k{v['k']}" for g, v in lg["groups"].items())
+        + ")"
+    )
+    for a in lg["axes"]:
+        print(
+            f"    {a['axis']:<18} sd={a['pooled_sd_pct']:.4f}%  "
+            f"receipts@0.30%={a['receipts_at_0.30pct']}"
+        )
+
+    ls = local_sweep_stats()
+    for k, v in ls.items():
+        summary[f"local_sweep/{k}"] = v
+    print(
+        f"  local sweep: n={ls['n']} cv={ls['cv_pct']:.4f}% "
+        f"(sd {ls['sd_us']:.1f} us) -- {ls['verdict']}"
+    )
+    for k, v in DRIFT.items():
+        summary[f"drift/{k}"] = v
+    print(f"  drift: {DRIFT['verdict']}")
+
     if dry:
         return None
 
@@ -330,17 +589,46 @@ def run_instrument_collapse(wandb, rows, cache, dry):
         job_type="analysis",
         tags=["r109-F", "maple-fern", "instrument", "noise-gauge", "retraction"],
         notes=(
-            "Baseline-leg noise gauge. The two baseline legs of every ranked receipt "
-            "run identical reference code for every solver, so they are a free "
-            "zero-code-variance instrument. Result: the ranked host is a 0.37%-sd "
-            "lottery and field-wide between-package code spread is at most 0.164%."
+            "Instrument gauge for the ranked host, from two directions. (1) The two "
+            "baseline legs of every receipt run identical reference code for every "
+            "solver, so they are a free zero-code-variance instrument: the host is a "
+            "0.37%-sd lottery and field-wide between-package code spread is at most "
+            "0.164%. (2) This campaign's 5 replayed receipts -- the ONLY replicated "
+            "packages in the dataset, since 0 of 1196 full-leg receipts from other "
+            "solvers share a submissionCommitSha -- give a per-axis pooled instrument "
+            "sd with 3 df. The axes span 28x, which reverses the campaign's own "
+            "advice: a 0.30% arm costs 77 receipts on officialScore but 2 on the "
+            "candidate-prefill leg. Adjudicate arms per leg. Also logged: the null "
+            "MLX_SDPA_BLOCKS sweep whose by-product killed the 'local repeats to "
+            "0.05-0.10%' claim, and the drift control that cleared a monotone "
+            "3-receipt slide as coincidence."
         ),
         config=cfg,
         reinit=True,
     )
-    lt = wandb.Table(columns=["leg", "mean", "sd", "cv_pct"])
+    lt = wandb.Table(
+        columns=[
+            "leg",
+            "robust_median",
+            "robust_sd",
+            "robust_cv_pct",
+            "plain_mean",
+            "plain_sd",
+            "plain_cv_pct",
+            "tail_inflation_x",
+        ]
+    )
     for name, s in ln["legs"].items():
-        lt.add_data(name, s["mean"], s["sd"], s["cv_pct"])
+        lt.add_data(
+            name,
+            s["mean"],
+            s["sd"],
+            s["cv_pct"],
+            s["plain_mean"],
+            s["plain_sd"],
+            s["plain_cv_pct"],
+            s["tail_inflation_x"],
+        )
     ptab = wandb.Table(columns=["effect_pct", "receipts_per_arm", "n_exact"])
     for row in pt:
         ptab.add_data(row["effect_pct"], row["receipts_per_arm"], row["n_exact"])
@@ -366,7 +654,80 @@ def run_instrument_collapse(wandb, rows, cache, dry):
         "candidate prefill 196.30us is +4.27 sigma; decode excess only ~1.2 "
         "sigma. Revert stands.",
     )
-    run.log({"leg_noise": lt, "power_table": ptab, "retractions": rtab})
+    rtab.add_data(
+        "luck amplifies code by x33.4 (and x494.9 on the base pair)",
+        "RETRACTED",
+        "both ratios had a denominator with 1 df. With the k=3 gauge the honest "
+        "figure is published sd 0.5169% over normalized sd 0.1917% = x2.7. New "
+        "standing rule: no ratio may be quoted unless its denominator has >=3 df, "
+        "and the df must be printed.",
+    )
+    rtab.add_data(
+        "the local iterate repeats to 0.05-0.10%, a 4-7x better instrument",
+        "RETRACTED",
+        "an 8-run local sweep measures decode cv ~0.35%/run, WORSE than the "
+        "ranked candidate-decode sd of 0.2646%. Local's advantage is throughput "
+        "(~155s, unowned slot) ~ one order of magnitude, not resolution.",
+    )
+    rtab.add_data(
+        "a ranked receipt cannot adjudicate any arm we actually have",
+        "CORRECTED",
+        "true of officialScore (sd 0.5169% -> 77 receipts for a 0.30% arm), false "
+        "of the legs. Candidate prefill sd is 0.0750% -> 2 receipts, 38x cheaper. "
+        "Adjudicate every arm on the officialMetrics leg it targets.",
+    )
+    rtab.add_data(
+        "the field's decode code-spread ceiling is 0.1788% (28-receipt window)",
+        "CAUGHT BEFORE PUBLICATION",
+        "refreshing the receipt cache grew the same window to n=54 and the PLAIN "
+        "cv figures exploded: candidate decode 0.2836%->1.7266%, normalized "
+        "0.3478%->1.1851%, and the derived ceiling 0.1788%->1.7131% (84.47us) -- "
+        "a ~10x swing from a handful of broken-package blow-ups, in a headline "
+        "this run was about to log. Plain moments are not noise estimates when "
+        "the field posts genuinely broken packages. leg_noise() now reports "
+        "median/1.4826*MAD as the default and keeps the plain moments only for "
+        "comparison. Across the SAME cache refresh the robust ceiling moved "
+        "0.2240% (n=51) -> 0.2393% (n=54), i.e. +6.8%, while the plain one moved "
+        "~10x; and the robust candidate-decode leg is inflated x5.2 by the tail "
+        "while the baseline-decode leg is inflated x0.95 (no tail at all), which "
+        "is exactly the signature of broken candidates rather than a noisy host.",
+    )
+    gtab = wandb.Table(
+        columns=[
+            "axis",
+            "pooled_sd_pct",
+            "df",
+            "receipts_at_0.20pct",
+            "receipts_at_0.30pct",
+            "receipts_at_0.50pct",
+        ]
+    )
+    for a in lg["axes"]:
+        gtab.add_data(
+            a["axis"],
+            a["pooled_sd_pct"],
+            a["df"],
+            a["receipts_at_0.20pct"],
+            a["receipts_at_0.30pct"],
+            a["receipts_at_0.50pct"],
+        )
+    stab = wandb.Table(columns=["label", "mlx_sdpa_blocks", "decode_us", "delta_pct"])
+    base_us = LOCAL_SWEEP[0][2]
+    for label, blocks, us in LOCAL_SWEEP:
+        stab.add_data(label, blocks, us, 100.0 * (us - base_us) / base_us)
+    dtab = wandb.Table(columns=["quantity", "value"])
+    for k, v in DRIFT.items():
+        dtab.add_data(k, v)
+    run.log(
+        {
+            "leg_noise": lt,
+            "power_table": ptab,
+            "retractions": rtab,
+            "leg_gauge_k3": gtab,
+            "local_sdpa_blocks_sweep": stab,
+            "host_drift_control": dtab,
+        }
+    )
     run.summary.update(summary)
     url = run.url
     run_id = run.id

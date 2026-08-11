@@ -31,7 +31,7 @@ with p ≈ 1.6 %. Everything I built on that number has to come down with it,
 including a plan to reconstruct an "0.64 % faster" package of our own that is
 in fact a −2.19 σ lucky draw of exactly the code we are already shipping. The
 positive content is that the instrument's true noise floor tells us the whole
-field's code is within 0.164 % of ours, that the crown holder's code ranks
+field's code is within ~~0.164 %~~ **0.24 %** (robust estimator, §5.3i) of ours, that the crown holder's code ranks
 **83rd of 1232** (**84th of 1233** on the refreshed cache — see §5.3d) while
 their luck ranked **3rd of 1232**, and that my *local* development host — the one
 everybody treats as untrustworthy because `_nax` is off — is ~~a **4–7× better
@@ -123,20 +123,37 @@ receipts that passed correctness. `research/fern_r109f_leg_noise.py`:
 
 Two things fall straight out.
 
-### 1.1 The whole field's code is within 0.164 % of ours
+### 1.1 The whole field's code is within ~~0.164 %~~ 0.24 % of ours
+
+> ⚠ **CORRECTED — see §5.3i.** The arithmetic below is right; the *inputs* were
+> plain coefficients of variation over a heterogeneous population, and they are
+> not stable. When the receipt cache refresh grew this window from n = 28 to
+> n = 54, the plain candidate-decode cv went 0.2836 % → 1.7266 % and this ceiling
+> went **0.1788 % → 1.7131 %** — a ×9.6 swing driven by a handful of genuinely
+> broken packages in the new rows. The correct estimator is the robust
+> (median / 1.4826·MAD) one, which gives **0.2393 % ≈ 11.8 µs** and moved only
+> +6.8 % across the same refresh. **Use 0.22–0.24 % / ~12 µs, not 0.164 % / 8 µs
+> and emphatically not 1.71 %.** The qualitative conclusion is unchanged and in
+> fact strengthened, because the robust figure is the one that holds still.
 
 Candidate decode variance = host variance + between-package code variance.
-Host variance is measured by the baseline leg. So
+Host variance is measured by the baseline leg. So, with robust cvs at n = 54:
 
 ```
-cv_code  ≤  sqrt(0.278² − 0.224²)  =  0.164 %   ≈  8 µs on a 4920 µs leg
+cv_code  ≤  sqrt(0.3293² − 0.2263²)  =  0.2393 %   ≈  11.8 µs on a 4916 µs leg
 ```
 
-Twenty-four submissions from ~a dozen different solvers, all supposedly
+Fifty-four submissions from ~a dozen different solvers, all supposedly
 competing on kernel engineering, and the *entire* code-attributable spread
-between them is 8 microseconds. This is the single most important fact I have
-found this campaign. The leaderboard is not sorting code quality. It is
-sorting draws.
+between the ones that work is ~12 microseconds. This is the single most
+important fact I have found this campaign. The leaderboard is not sorting code
+quality. It is sorting draws.
+
+Two independent cross-checks agree, which is why I am willing to keep leaning on
+it: the k = 3 identical-executable gauge of §5.3f puts pure instrument noise on
+the candidate decode leg at 0.2646 %, i.e. the *same order* as the whole
+candidate-leg robust spread — there is almost no room left for code — and the
+morganmcg1 within-solver candidate-decode cv is 0.2921 %.
 
 ### 1.2 The normalized instrument is barely better than the published score
 
@@ -454,7 +471,7 @@ So I re-ran the whole analysis against a refreshed cache (`/tmp/subs_p7.json`,
 |---|---|---|---|
 | baseline decode cv | 0.2240 % | 0.2227 % | 0.0013 pp |
 | candidate decode cv | 0.2780 % | 0.2771 % | 0.0009 pp |
-| **code-spread ceiling** | **0.164 % / ~8 µs** | **0.1649 % / 8.11 µs** | ~0 |
+| **code-spread ceiling** | **0.164 % / ~8 µs** | **0.1649 % / 8.11 µs** | ~0 ⚠ **this row is a false negative — see below** |
 | normalized score cv | 0.3700 % | 0.3571 % | 0.013 pp |
 | draw factor min / med / max | 0.993614 / 1.001855 / 1.024492 | *identical* | 0 |
 | draw factor cv | 0.5368 % | 0.5369 % | 0.0001 pp |
@@ -478,6 +495,20 @@ The retracted claims rested on **two** points (§2) or **one** point (§3); thes
 rest on 26 and 1233, and they are reproducible from a committed script rather
 than transcribed into prose. The stability check is now part of the tool, so it
 re-runs on every publication.
+
+> ⚠ **This section over-claimed, and the code-spread-ceiling row is why.** The
+> refresh audited here added **3** rows (1801 → 1804). A later refresh added
+> **27** (1804 → 1831), and it moved that "stable to ~0" ceiling from 0.1788 % to
+> **1.7131 %** — see §5.3i. A 3-row refresh is not a stability test for a
+> *second-moment* statistic; it is a stability test for the *first* moments and
+> the order statistics, which is where all the other rows in the table live and
+> which is why they really were stable. The lesson is that the two kinds of
+> quantity need different checks: means, medians and ranks over n ≥ 1000 are
+> stable against anything; variances over n ≈ 30 of a heterogeneous population
+> are stable against nothing, and must be estimated robustly or replaced by a
+> replicated gauge (§5.3f). I have left the row and this box in rather than
+> quietly editing the table, because a stability check that passes for the wrong
+> reason is a more instructive artefact than a corrected number.
 
 ### 5.3e The campaign proved its own thesis on itself (four receipts)
 
@@ -738,6 +769,87 @@ and reaching 2 σ again only on a +1.16 σ draw (p = 12.4 %). Recorded in
 ticket-7 nonce **before** the shot was fired.
 
 Ship atlas v3 because it is not worse and costs nothing, not because of this.
+
+### 5.3i A headline that swung ×10 between two cache refreshes — caught before it was logged
+
+This is the fifth time in this campaign that a plain moment estimator produced a
+number I was about to publish and a robust one refuted it. It is worth writing
+down in full because the failure mode is completely generic and I keep walking
+into it.
+
+`leg_noise()` in `research/fern_r109f_wandb_campaign.py` computes per-leg
+coefficients of variation over every full-leg, correctness-passing receipt in a
+time window, and then derives a **"field code-spread ceiling"** by subtracting
+the baseline-decode cv from the candidate-decode cv in quadrature. The idea is
+sound: the candidate leg carries host noise *plus* whatever real differences
+exist between the field's packages, and the baseline leg carries host noise
+alone, so the residual bounds how much code can possibly matter. That ceiling is
+one of the campaign's load-bearing numbers — §5.4 and recommendation 3 both lean
+on it, because it is what says a decode-only arm cannot be worth more than
+~0.17 % of score.
+
+Refreshing the receipt cache from 1808 to 1831 rows grew the same window from
+**n = 28 to n = 54** receipts. Nothing about the host, the window start, or the
+code changed. The plain-cv figures moved like this:
+
+| quantity | n = 28 | n = 54 | move |
+|---|---|---|---|
+| candidate decode cv | 0.2836 % | **1.7266 %** | ×6.1 |
+| normalized score cv | 0.3478 % | **1.1851 %** | ×3.4 |
+| baseline decode cv | 0.2201 % | 0.2154 % | −2 % |
+| candidate prefill cv | 0.8874 % | 0.6641 % | −25 % |
+| **derived code-spread ceiling** | **0.1788 %** | **1.7131 % (84.47 µs)** | **×9.6** |
+
+A ~10× move in a headline, from adding 26 rows. The cause is not subtle once you
+look: the field posts genuinely broken packages, and a handful of 2–10× decode
+blow-ups landed inside the new rows. A second-moment statistic is dominated by
+them. Note the diagnostic asymmetry in the last column — the *baseline* decode
+leg barely moved, because every receipt runs the same reference model, so its
+tail is real host noise. Only the *candidate* legs exploded. That asymmetry is
+the signature of broken candidates, not of a noisy instrument, and it is visible
+without any distributional assumption.
+
+The fix is `robust_cv(xs)` = `median(xs)` and `1.4826 × MAD(xs)`, which is a
+consistent sd estimator at normality and ignores the tail. **It is now the
+default**; the plain moments are still computed and logged beside it under
+`plain_*`, together with a `tail_inflation_x = plain_cv / robust_cv` column,
+purely so that a reader can see how far the tail drags each leg. At n = 54:
+
+| leg | robust median | robust cv | plain cv | tail inflation |
+|---|---|---|---|---|
+| baseline decode | 13851.21 µs | 0.2263 % | 0.2154 % | **×0.95** |
+| candidate decode | 4915.73 µs | 0.3293 % | 1.7266 % | ×5.24 |
+| baseline prefill | 367.32 µs | 0.7736 % | 1.9449 % | ×2.51 |
+| candidate prefill | 187.98 µs | 0.1681 % | 0.6641 % | ×3.95 |
+| normalized score | 2.5720 | 0.2752 % | 1.1851 % | ×4.31 |
+
+The baseline-decode leg's ×0.95 is the control: that is the one leg with no
+package variation in it, and it is the one leg where the two estimators agree.
+
+The robust ceiling is **0.2393 % (11.76 µs)**, and — the point of the whole
+exercise — it is *stable*. Across the same cache refresh that moved the plain
+ceiling ×9.6, the robust one moved 0.2240 % (n = 51) → 0.2393 % (n = 54), i.e.
+**+6.8 %**. So the conclusion the campaign actually needed survives untouched:
+the field's decode code differentiation is ~0.22–0.24 %, which caps a
+decode-only arm at ~0.17 % of score (elasticity 0.638×0.24 %). Had I published
+1.71 %, I would have told five sibling students that a decode arm could be worth
+1.1 % of score — roughly three times the advisor's bar — and every one of them
+would have spent their remaining hours chasing it.
+
+Two rules out of this, both now enforced in code rather than in prose:
+
+1. **A cv over a heterogeneous population is not a noise estimate.** Use the
+   median/MAD form, or better, use a genuinely replicated gauge. §5.3f's k = 3
+   identical-executable gauge is the gold standard here precisely because every
+   receipt in it is the *same executable*, so there is no population spread to
+   contaminate — and reassuringly its normalized sd (0.1917 %) and the robust
+   window figure (0.2752 %) are the same order, while the plain window figure
+   (1.1851 %) is not.
+2. **Any statistic that feeds a published claim must be recomputed on a refreshed
+   cache before it is published, and the two values printed side by side.**
+   §5.3d did this for the headline numbers and found them stable to the third
+   significant figure; the ceiling was not in that check, which is exactly why it
+   slipped. The check is now part of the dry-run output.
 
 ### 5.4 Where the leverage actually is
 
