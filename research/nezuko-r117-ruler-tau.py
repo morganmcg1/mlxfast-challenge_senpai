@@ -525,6 +525,56 @@ def main():
     print("  raw tau is biased by c/dbytes -- large on small rungs. Read RESIDUALS")
     print("  for linearity, not the raw column.")
 
+    # ---------------- SECONDARY (POST-HOC, NOT PRE-REGISTERED)
+    # Per-rung tau after removing that block's own fitted intercept:
+    #     tau_a^b = (D[a][b] - c_b) / pred_a
+    # This is the only fair way to compare rungs, because the raw ratio carries
+    # the +c/pred_a bias that is 8x larger on the smallest rung than the
+    # largest. It is a POST-HOC decomposition: it was NOT in the
+    # pre-registration, it re-uses the same data as the primary endpoint, and
+    # its per-rung intervals are NOT multiplicity-corrected. It is reported to
+    # expose structure for the NEXT experiment, never to license a decision.
+    print("\n" + "-" * 78)
+    print("SECONDARY (POST-HOC) -- per-rung tau after removing the block's own c")
+    print("-" * 78)
+    print(f"{'arm':<5}{'owner of the added bytes':>28}{'tau_a (CI95)':>30}")
+    owner = {"OP": "o_proj plane (pairwise)",
+             "ON": "o_proj plane (lane-major)",
+             "QN": "qkv plane (lane-major)",
+             "AN": "both planes"}
+    for a in rungs:
+        per = [(D[a][i] - cs[i]) / pred[a] for i in range(len(blocks))]
+        sa = summarise(per)
+        print(f"{a:<5}{owner.get(a, ''):>28}{fmt_ci(sa):>30}")
+    print("  If these rungs do not share one tau, then 'the byte class' is not a")
+    print("  scalar: the marginal cost of a byte depends on WHICH kernel owns it")
+    print("  and on how far that kernel already sits from the DRAM asymptote.")
+    print("  Treat any ordering here as a hypothesis to be tested on new data.")
+    print("  CONFOUND, found after launch and not pre-registered: no rung is a")
+    print("  PURE byte dose. Every kill switch that resizes the plane also")
+    print("  changes how the plane is addressed -- PAIRWISE=0 makes 32 lanes")
+    print("  read 32 distinct scale bytes where the shipped kernel has lane 2j")
+    print("  and 2j+1 share one byte, and NARROW=0 swaps a nibble walk for a")
+    print("  strided byte read. That is why OP can exceed 1. It is also exactly")
+    print("  the bundle an encoder change would buy, so the ruler stays")
+    print("  ecologically valid for pricing an encoder -- it is just not a")
+    print("  clean byte-count instrument, and must not be quoted as one.")
+
+    # sensitivity: drop the rung whose addressing change is largest
+    if all(a in D for a in ("ON", "QN", "AN")) and "OP" in D:
+        sub = ["ON", "QN", "AN"]
+        xs2 = [pred[a] for a in sub]
+        xb2 = sum(xs2) / len(xs2)
+        sxx2 = sum((x - xb2) ** 2 for x in xs2)
+        t2 = []
+        for i in range(len(blocks)):
+            ys = [D[a][i] for a in sub]
+            yb = sum(ys) / len(ys)
+            t2.append(sum((x - xb2) * (y - yb)
+                          for x, y in zip(xs2, ys)) / sxx2)
+        print(f"\n  SENSITIVITY, OP dropped (3 rungs, 1 dof/block):"
+              f" tau = {fmt_ci(summarise(t2))}")
+
     # ---------------- CHECK: additivity
     if all(a in D for a in ("AN", "ON", "QN")):
         raw_add = [D["AN"][i] - D["ON"][i] - D["QN"][i] for i in range(len(blocks))]
