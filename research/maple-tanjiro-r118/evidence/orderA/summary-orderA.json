@@ -1,0 +1,71 @@
+{
+  "arms": {
+    "ctl": {
+      "bimodal": false,
+      "mean_ms": 8.253471534210526,
+      "median_ms": 8.2484795,
+      "n": 1520,
+      "pooled_dmean_us": 2.522939473685426,
+      "pooled_dmedian_us": 2.7500000000006963,
+      "sd_ms": 0.045404603575665135
+    },
+    "d1": {
+      "bimodal": false,
+      "mean_ms": 8.27430765263158,
+      "median_ms": 8.214936999999999,
+      "n": 1520,
+      "pooled_dmean_us": -18.31317894736806,
+      "pooled_dmedian_us": 36.29250000000184,
+      "sd_ms": 0.14855485929879883
+    },
+    "d2": {
+      "bimodal": false,
+      "mean_ms": 8.216651649342106,
+      "median_ms": 8.205021,
+      "n": 1520,
+      "pooled_dmean_us": 39.34282434210523,
+      "pooled_dmedian_us": 46.20850000000054,
+      "sd_ms": 0.072286433424206
+    },
+    "ship": {
+      "bimodal": false,
+      "mean_ms": 8.255994473684211,
+      "median_ms": 8.2512295,
+      "n": 1520,
+      "sd_ms": 0.04427293429517149
+    }
+  },
+  "bar_us_step": 68.7,
+  "boot": 20000,
+  "complete_blocks": 10,
+  "csv": "research/maple-tanjiro-r118/evidence/orderA/raw-steps-orderA.csv",
+  "dir": "research/maple-tanjiro-r118/evidence/orderA",
+  "family": "shared",
+  "k_ls_us_per_mb": 1.3437993291239028,
+  "label": "orderA",
+  "mb_per_block_step": 10.86,
+  "paired_saving_ms": {
+    "ctl": {
+      "ci_hi": 0.0076459999999993755,
+      "ci_lo": -0.004531500000000577,
+      "mean": 0.0031623999999998986,
+      "median": 0.0038432500000000758
+    },
+    "d1": {
+      "ci_hi": 0.041197750000000255,
+      "ci_lo": 0.02030224999999941,
+      "mean": 0.031997750000000026,
+      "median": 0.03865599999999958
+    },
+    "d2": {
+      "ci_hi": 0.05716650000000101,
+      "ci_lo": 0.03517725000000027,
+      "mean": 0.04188110000000016,
+      "median": 0.04968724999999985
+    }
+  },
+  "raw_samples_measured": 6080,
+  "raw_samples_total": 6400,
+  "runs": 40,
+  "warmup": 8
+}

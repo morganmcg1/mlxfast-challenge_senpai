@@ -1,0 +1,10 @@
+worker up in 41.6s ok=True
+diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.718673706054688 mlx_active_gb=33.02 mlx_cache_gb=0.00 mlx_peak_gb=36.11
+decode_begin seed forward: 547.95 ms
+DECODE_PHASE_START
+DECODE_PHASE_END
+teacher-forced greedy tokens: 0 divergences (all match)
+first 8 steps (ms): 9.419 8.341 8.271 8.268 8.204 8.263 8.214 8.249
+decode steps=160 mean=8.265 ms median=8.251 ms p10=8.214 ms p90=8.322 ms min=8.143 ms max=9.419 ms total=1.322 s
+diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.721527099609375 mlx_active_gb=33.10 mlx_cache_gb=1.08 mlx_peak_gb=36.11
+worker stderr -> research/maple-tanjiro-r118/evidence/control/run20_ship.err

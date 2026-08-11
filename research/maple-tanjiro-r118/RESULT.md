@@ -7,6 +7,9 @@ standalone-cold, i.e. the ~68 us/step "excess" the charge asked me to adjudicate
 Verdict: **TERMINAL NEGATIVE — do not land.** The negative control passes, the rig
 is clean, and the excess is *not* addressable from inside the kernel.
 
+W&B run (every number below is in its summary, read out of the analyser JSON, not
+retyped): <https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/9siru9ak>
+
 Three numbers carry it:
 
 1. **Deleting three quarters of the kernel's reads is worth at most

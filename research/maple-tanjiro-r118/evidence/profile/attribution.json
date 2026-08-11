@@ -1,0 +1,53 @@
+{
+ "dir": "evidence/profile",
+ "families": {
+  "routed gate+up QMV": {
+   "busy_us_call_1block": 23.115000000000002,
+   "busy_us_call_4blocks_ship": 38.565,
+   "byte_us_step": 803.3999999999997,
+   "calls_per_step": 39.0,
+   "delta_busy_us_step": 602.5499999999998,
+   "delta_wall_us_step": 654.5,
+   "dose_arm": "rd1",
+   "fixed_pct_of_shipped_call": 46.58368987423832,
+   "fixed_us_call": 17.965000000000003,
+   "fixed_us_step": 700.6350000000001,
+   "in_situ_excess_us_call": null,
+   "in_situ_excess_us_step_busy": null,
+   "kernel": "routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
+   "marginal_gbps": 432.66118994274353,
+   "marginal_us_per_k_block": 5.149999999999999,
+   "mb_per_call": 2.2282051282051283,
+   "standalone_cold_us_call": null,
+   "tau": 1.0862169114596303
+  },
+  "shared gate+up QMV": {
+   "busy_us_call_1block": 3.8,
+   "busy_us_call_4blocks_ship": 7.43,
+   "byte_us_step": 188.76,
+   "calls_per_step": 39.0,
+   "delta_busy_us_step": 141.57,
+   "delta_wall_us_step": 51.9,
+   "dose_arm": "d1",
+   "fixed_pct_of_shipped_call": 34.85868102288022,
+   "fixed_us_call": 2.59,
+   "fixed_us_step": 101.00999999999999,
+   "in_situ_excess_us_call": 1.7930000000000001,
+   "in_situ_excess_us_step_busy": 69.927,
+   "in_situ_excess_us_step_wall_at_tau": 25.635454545454547,
+   "kernel": "shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1",
+   "marginal_gbps": 230.1335028607756,
+   "marginal_us_per_k_block": 1.21,
+   "mb_per_call": 0.2784615384615384,
+   "standalone_cold_us_call": 5.637,
+   "tau": 0.36660309387582113
+  }
+ },
+ "wall_routed_us_step": 654.5,
+ "wall_shared_us_step": 51.9,
+ "whole_step_busy_us": {
+  "d1": 8535.499999999998,
+  "rd1": 7969.0,
+  "ship": 8586.0
+ }
+}
