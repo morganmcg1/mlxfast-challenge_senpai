@@ -139,6 +139,44 @@ All three are conservative for H1 and anti-conservative for H3. **If τ comes ou
 is real; if it comes out low, I must not over-claim.** I am writing that here, before the
 first run, precisely so I cannot decide it afterwards.
 
+## AMENDMENT, 03:07Z — logged after the ruler launched, before any ruler row was read
+
+The R114 campaign finished at 03:05Z, four minutes before this ruler started, and its final
+numbers force one change to the analysis plan. I am recording the change now, while the
+ruler TSV contains a single incomplete row, so that it cannot be a post-hoc choice.
+
+R114's three arms came in at **S1 −69.2 µs [−85.3, −53.2]**, **A1 −43.1 µs [−61.1, −25.2]**,
+**L1 −38.9 µs [−62.5, −15.4]** — all *faster* than control, 12/12 blocks negative. L1 injects
+no GPU work whatsoever. So on this instrument there exists an **offset class**: an arm can
+sit ~40 µs/step away from the no-gate reference for reasons that have nothing to do with the
+quantity under test. (Mechanically the reference is also the only arm invoked as
+`./benchmark.sh` rather than `env VAR=val ./benchmark.sh`; `env` itself cannot cost 40 µs of
+per-step decode, but I cannot presently name the cause, and an unnamed cause is exactly the
+kind I must design around rather than argue away.)
+
+**Consequence for τ.** If a constant offset `c` contaminates every non-reference arm, then a
+per-rung estimate is biased by `c / Δbytes_rung` — which is enormous on the small rungs and
+mild on the large ones. That bias masquerades precisely as *saturating non-linearity*, the
+signature I would otherwise have read as "small doses are cache-absorbed". I would have
+drawn a confident and completely wrong conclusion.
+
+**So the primary endpoint is now the OLS slope of Δµs on Δbytes fitted WITH A FREE
+INTERCEPT**, and τ is read from that slope alone. The intercept is reported, not suppressed:
+it is the direct estimate of the offset class, and R114 predicts it lands near −40 µs. The
+four rungs give 2 residual degrees of freedom for the slope, which is thin but real, and the
+6.75× dose spread is what makes the slope identifiable in the presence of `c`.
+
+Per-rung τ values are demoted to a **diagnostic**: they test linearity *conditional* on the
+intercept, i.e. I will read the residuals about the fitted line, not the raw ratios. The
+additivity check `AN` vs `ON + QN` is unaffected in the slope channel but *is* offset-biased
+in raw form — `ON + QN` carries `2c` while `AN` carries `c`, so the raw comparison should
+show `AN − (ON+QN) ≈ +c ≈ +40 µs` under a pure-offset model with perfect additivity. I will
+test additivity after subtracting the fitted intercept, and I will state both numbers.
+
+**The decision rule is unchanged and still keyed to τ** (CI95 lower > 0.6 confirm; upper <
+0.6 ⇒ `N-ATTN-SCALE-BYTES-SUBUNITY`; straddling ⇒ refuse to pick) — but τ now means the
+slope, not any rung's ratio.
+
 **A fourth risk, from my own R114.** I have just finished an experiment in which injecting
 *empty* GPU dispatches made decode measurably **faster**, with the effect strongly
 sublinear in dose — 1 injected dispatch produced most of the effect of 40. That is an
