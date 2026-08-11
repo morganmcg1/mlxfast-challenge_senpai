@@ -1,0 +1,28 @@
+-- Building MLX for arm64 processor on Darwin
+-- Metal found /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/Metal.framework
+-- Building on macOS 26.5.2
+-- Building with macOS 26.5 SDK
+-- Metal version: 400
+-- Accelerate found /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/Accelerate.framework
+-- Downloading json
+-- Using the multi-header code from /Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift/Source/Cmlx/json/include/
+-- Downloading json for JACCL
+-- {fmt} version: 12.1.0
+-- Build type: Release
+-- Configuring done (0.3s)
+-- Generating done (0.2s)
+-- Build files have been written to: /Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/.build-worker/mlx-metal
+[  0%] Building steel_gemm_fused.air
+[  0%] Building steel_gemm_splitk.air
+[  4%] Building steel_gemm_gather.air
+[  4%] Building steel_attention.air
+[  4%] Building steel_gemm_segmented.air
+[  9%] Building steel_conv_general.air
+[ 13%] Building steel_conv_3d.air
+[ 18%] Building steel_gemm_masked.air
+[ 18%] Building steel_conv.air
+[ 18%] Building fp_quantized.air
+[ 18%] Building quantized.air
+[ 18%] Building mlx.metallib
+[100%] Built target mlx-metallib
+build-mlx-metallib.sh: wrote /Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/.build-worker/release/mlx.metallib

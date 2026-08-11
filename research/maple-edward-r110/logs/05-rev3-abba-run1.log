@@ -1,0 +1,46 @@
+device: Apple M4 Pro  maxTG=32768 B
+compiled variant base
+compiled variant nobar
+compiled variant dbmem
+compiled variant db2
+compiled variant regstage
+compiled variant pf
+compiled variant pf2
+      base: tgmem=3840 B  maxTGThreads=1024
+     nobar: tgmem=3840 B  maxTGThreads=1024
+     dbmem: tgmem=7680 B  maxTGThreads=1024
+       db2: tgmem=7680 B  maxTGThreads=1024
+  regstage: tgmem=3840 B  maxTGThreads=1024
+        pf: tgmem=3840 B  maxTGThreads=1024
+       pf2: tgmem=3840 B  maxTGThreads=1024
+verify reference base: 32700 / 32768 non-zero output bytes
+verify    nobar: BIT-EXACT vs base
+verify    dbmem: BIT-EXACT vs base
+verify      db2: BIT-EXACT vs base
+verify regstage: BIT-EXACT vs base
+verify       pf: BIT-EXACT vs base
+verify      pf2: BIT-EXACT vs base
+
+=== shape gate_up: M=4096 K=2048 N=1024  grid=32x256 tgs ===
+routing  multinomial: K-loop executions per BM=16 tile = 1.961
+null control  :   0.0274 ms/dispatch (n=2)
+multinomial  base  :   5.1794 ms  vs base  +0.00 %  (n=8, spread 0.3 %)
+multinomial  nobar :   5.1367 ms  vs base  +0.82 %  (n=8, spread 0.3 %)
+multinomial  dbmem :   5.3057 ms  vs base  -2.44 %  (n=8, spread 0.3 %)
+multinomial  db2   :   5.1835 ms  vs base  -0.08 %  (n=8, spread 0.2 %)
+multinomial  regstage:   5.1906 ms  vs base  -0.22 %  (n=8, spread 0.3 %)
+multinomial  pf    :   5.1240 ms  vs base  +1.07 %  (n=8, spread 0.3 %)
+multinomial  pf2   :   5.1357 ms  vs base  +0.84 %  (n=8, spread 0.3 %)
+  multinomial per-prefill projection (38 dispatches, ms): base 196.8, nobar 195.2, dbmem 201.6, db2 197.0, regstage 197.2, pf 194.7, pf2 195.2
+
+=== shape down: M=4096 K=512 N=2048  grid=64x256 tgs ===
+routing  multinomial: K-loop executions per BM=16 tile = 1.961
+null control  :   0.0250 ms/dispatch (n=2)
+multinomial  base  :   2.5837 ms  vs base  +0.00 %  (n=8, spread 0.1 %)
+multinomial  nobar :   2.5697 ms  vs base  +0.54 %  (n=8, spread 0.0 %)
+multinomial  dbmem :   2.6577 ms  vs base  -2.86 %  (n=8, spread 0.0 %)
+multinomial  db2   :   2.6144 ms  vs base  -1.19 %  (n=8, spread 0.1 %)
+multinomial  regstage:   2.5850 ms  vs base  -0.05 %  (n=8, spread 0.0 %)
+multinomial  pf    :   2.5737 ms  vs base  +0.39 %  (n=8, spread 0.0 %)
+multinomial  pf2   :   2.5824 ms  vs base  +0.05 %  (n=8, spread 0.0 %)
+  multinomial per-prefill projection (38 dispatches, ms): base 98.2, nobar 97.6, dbmem 101.0, db2 99.3, regstage 98.2, pf 97.8, pf2 98.1

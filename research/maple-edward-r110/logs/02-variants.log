@@ -1,0 +1,33 @@
+device: Apple M4 Pro  maxTG=32768 B
+compiled variant base
+compiled variant nobar
+compiled variant db
+compiled variant db2
+compiled variant noload
+compiled variant nomma
+    base: tgmem=3840 B  maxTGThreads=1024
+   nobar: tgmem=3840 B  maxTGThreads=1024
+      db: tgmem=7680 B  maxTGThreads=1024
+     db2: tgmem=7680 B  maxTGThreads=1024
+  noload: tgmem=3840 B  maxTGThreads=1024
+   nomma: tgmem=0 B  maxTGThreads=1024
+
+=== shape gate_up: M=4096 K=2048 N=1024  grid=32x256 tgs ===
+null control  :   0.0272 ms/dispatch (n=2)
+base          :   5.0661 ms  vs base  +0.00 %  (n=8, spread 0.3 %)
+nobar         :   5.0169 ms  vs base  +0.97 %  (n=8, spread 0.2 %)
+db            :   5.2104 ms  vs base  -2.85 %  (n=8, spread 0.1 %)
+db2           :   5.0692 ms  vs base  -0.06 %  (n=8, spread 0.1 %)
+noload        :   4.2863 ms  vs base +15.39 %  (n=8, spread 0.2 %)
+nomma         :   0.1820 ms  vs base +96.41 %  (n=8, spread 0.4 %)
+per-prefill projection (39 layers, ms): base 197.6, nobar 195.7, db 203.2, db2 197.7, noload 167.2, nomma 7.1
+
+=== shape down: M=4096 K=512 N=2048  grid=64x256 tgs ===
+null control  :   0.0248 ms/dispatch (n=2)
+base          :   2.5068 ms  vs base  +0.00 %  (n=8, spread 0.0 %)
+nobar         :   2.4941 ms  vs base  +0.51 %  (n=8, spread 0.1 %)
+db            :   2.5995 ms  vs base  -3.70 %  (n=8, spread 0.0 %)
+db2           :   2.5394 ms  vs base  -1.30 %  (n=8, spread 0.1 %)
+noload        :   2.1422 ms  vs base +14.55 %  (n=8, spread 0.0 %)
+nomma         :   0.1543 ms  vs base +93.84 %  (n=8, spread 0.1 %)
+per-prefill projection (39 layers, ms): base 97.8, nobar 97.3, db 101.4, db2 99.0, noload 83.5, nomma 6.0

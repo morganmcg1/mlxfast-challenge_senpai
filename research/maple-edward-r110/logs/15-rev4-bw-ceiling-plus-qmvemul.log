@@ -1,0 +1,18 @@
+device: Apple M4 Pro
+recommendedMaxWorkingSetSize: 38338 MiB
+working set: 1024 MiB   threads: 262144   tg: 256   reps: 40
+
+stream_u4       best   4.129 ms ->   260.0 GB/s   median   4.179 ms ->   256.9 GB/s
+stream_u4x4     best   4.267 ms ->   251.6 GB/s   median   4.292 ms ->   250.2 GB/s
+stream_u1       best   4.191 ms ->   256.2 GB/s   median   4.215 ms ->   254.7 GB/s
+stream_nvfp4    best   4.763 ms ->   253.6 GB/s   median   4.794 ms ->   252.0 GB/s
+
+short-dispatch read ceiling (window rotates over the 1024 MiB set):
+K1 routed_gate_up    8918016 B   131072 thr tg= 64   best   35.33 us ->  252.4 GB/s   median   36.25 us ->  246.0 GB/s
+K2 qkv_h64          10827776 B   327680 thr tg= 64   best   42.38 us ->  255.5 GB/s   median   42.88 us ->  252.5 GB/s
+K3 oproj_h64         8669312 B    16384 thr tg= 64   best   34.63 us ->  250.4 GB/s   median   35.38 us ->  245.1 GB/s
+K4 down_residual     5026880 B   147456 thr tg=288   best   21.04 us ->  238.9 GB/s   median   21.37 us ->  235.2 GB/s
+K3' oproj @128k      8669312 B   131072 thr tg= 64   best   34.50 us ->  251.3 GB/s   median   34.96 us ->  248.0 GB/s
+
+qmv_emul (dequant+FMA)  8912896 B  131072 thr tg=64   best   44.83 us ->  198.8 GB/s   median   46.62 us ->  191.2 GB/s
+occupancy: qmv_emul maxTotalThreadsPerThreadgroup=1024
