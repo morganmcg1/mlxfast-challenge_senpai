@@ -2434,6 +2434,23 @@ event is evidence about the moment it was emitted, exactly like a listing (rule 
 -r` cache (rule 23) — three instances of one law, and this is the third axis it showed up on.
 All six PRs are **closed**, confirmed in the same index read, so nothing here was actionable either way.
 
+*[17:51Z, one batch later — the stream is replaying a **sequence**, not a snapshot, and three details
+sharpen the above. (a) One batch carried **three distinct** `current_base_sha` values — `9ef3bfcb`,
+`d2e719a8`, `ed7ea6f8` — 51, 50 and 49 commits behind the published head `a4079b2e`, with
+`required_base_sha` `a9de9e8f` 57 behind and `18ac6015` 52 behind. It is not that my inbox holds one
+old photograph; it is re-walking the advisor branch's history in order. (b) **The same PR emits
+different stale heads in different batches**: #733 gave `f03dffc3` (16 behind) at 17:43Z and
+`2c6988ee` (10 behind) at 17:51Z. So you cannot memoise "event head X ⇒ live head Y" and skip the
+check — the staleness of a given PR's head is not even a fixed quantity. (c) A seventh PR appeared,
+**#686** (fern R109-F), with event head `30ccc623` a strict ancestor **252 commits** behind live
+`bd475704` — the extreme case, and a PR I had already closed with a full disposition at 12:28Z.
+`bd475704` is exactly the commit §10(xvii).2 vendors `fern-r109f-interim-1200Z.md` from, so the
+vendored copy is that branch's final state rather than an intermediate — an unplanned cross-check that
+the vendoring picked the right revision. Same verification method throughout
+(`merge-base --is-ancestor` + `rev-list --count`); same conclusion, now on a wider sample: every field
+of a replayed event is a historical value, and the `expected_*` leases are the only thing that needs to
+be right.]*
+
 **2. The two off-branch artifacts of §10(vii) (error 11) are now vendored, byte-for-byte.** The
 closed-unmerged student branches are still on the remote, and this clone's narrow default refspec is
 not a limit on retrieval — an **explicit refspec** fetches any of them:
