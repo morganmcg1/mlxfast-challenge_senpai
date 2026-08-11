@@ -54,6 +54,63 @@ def pct_of_score(d_m4_us: float) -> float:
     return 0.75 * TAU * (d_m4_us * M4_TO_M5) / M5_DECODE_US * 100.0
 
 
+# Offline ISA proof (nibble-split-isa.sh, evidence in nibble-evidence/): arms 0
+# and 2 compile to a BYTE-IDENTICAL metallib, differing only in module ID and
+# source filename.  Two consequences the analysis must respect:
+#   * [0 - 2] is a NEGATIVE CONTROL.  It compares a program with itself, so its
+#     interval must contain zero.  If it does not, the rig is mis-stating its
+#     own resolution and no other interval here can be believed.
+#   * arms 0 and 2 may be POOLED into one arm P, which is the honest treatment
+#     contrast (P vs 1) at 2x the samples.
+CONTROL_PAIR = ("0", "2")
+POOL = {"0": "P", "2": "P", "1": "1"}
+
+
+def pair_report(rows, a, b, col, block_len, control=False):
+    xa = [r[col] * 1e3 for r in rows if r[1] == a]
+    xb = [r[col] * 1e3 for r in rows if r[1] == b]
+    if len(xa) < 2 or len(xb) < 2:
+        return
+    ma, mb = statistics.mean(xa), statistics.mean(xb)
+    sa, sb = statistics.stdev(xa), statistics.stdev(xb)
+    se = (sa * sa / len(xa) + sb * sb / len(xb)) ** 0.5
+    df = welch_df(sa, len(xa), sb, len(xb))
+    h = t95(df) * se
+    d = ma - mb
+    tag = "  <== NEGATIVE CONTROL (same machine code)" if control else ""
+    print(f"\n  [{a} - {b}]{tag}")
+    print(f"    unpaired {d:+7.1f} us/step "
+          f"[{d - h:+7.1f}, {d + h:+7.1f}] (Welch, df={df:.1f})")
+
+    blocks = []
+    for start in range(0, len(rows), block_len):
+        chunk = rows[start:start + block_len]
+        ca = [r[col] * 1e3 for r in chunk if r[1] == a]
+        cb = [r[col] * 1e3 for r in chunk if r[1] == b]
+        if ca and cb:
+            blocks.append(statistics.mean(ca) - statistics.mean(cb))
+    if len(blocks) < 2:
+        return
+    md = statistics.mean(blocks)
+    sd = statistics.stdev(blocks)
+    hb = t95(len(blocks) - 1) * sd / len(blocks) ** 0.5
+    print(f"    blocked  {md:+7.1f} us/step "
+          f"[{md - hb:+7.1f}, {md + hb:+7.1f}] "
+          f"(k={len(blocks)} blocks of {block_len}, sd={sd:.1f})")
+    if control:
+        ok = (md - hb) <= 0.0 <= (md + hb)
+        print(f"    -> control interval {'CONTAINS' if ok else 'EXCLUDES'} zero"
+              f" -- rig {'validated' if ok else 'NOT TRUSTWORTHY'};"
+              f" measured half-width {hb:.1f} us/step is this rig's true"
+              f" resolution on a known-null contrast")
+        return
+    win = -md   # positive when arm b is faster than arm a
+    print(f"    -> switching {a} -> {b} saves {win:+7.1f} us/step "
+          f"= {pct_of_score(win):+.3f} % of score; "
+          f"bar {BAR_M4_US:.1f}; "
+          f"{'CLEARS' if win - hb > BAR_M4_US else 'below bar'}")
+
+
 def main() -> int:
     tsv = sys.argv[1]
     block_len = int(sys.argv[2]) if len(sys.argv) > 2 else 3
@@ -84,39 +141,18 @@ def main() -> int:
                   f"  min={min(x):8.1f}  max={max(x):8.1f}")
 
         for a, b in itertools.combinations(arms, 2):
-            xa = [r[col] * 1e3 for r in rows if r[1] == a]
-            xb = [r[col] * 1e3 for r in rows if r[1] == b]
-            if len(xa) < 2 or len(xb) < 2:
-                continue
-            ma, mb = statistics.mean(xa), statistics.mean(xb)
-            sa, sb = statistics.stdev(xa), statistics.stdev(xb)
-            se = (sa * sa / len(xa) + sb * sb / len(xb)) ** 0.5
-            df = welch_df(sa, len(xa), sb, len(xb))
-            h = t95(df) * se
-            d = ma - mb
-            print(f"\n  [{a} - {b}]")
-            print(f"    unpaired {d:+7.1f} us/step "
-                  f"[{d - h:+7.1f}, {d + h:+7.1f}] (Welch, df={df:.1f})")
+            pair_report(rows, a, b, col, block_len,
+                        control=(a, b) == CONTROL_PAIR)
 
-            blocks = []
-            for start in range(0, len(rows), block_len):
-                chunk = rows[start:start + block_len]
-                ca = [r[col] * 1e3 for r in chunk if r[1] == a]
-                cb = [r[col] * 1e3 for r in chunk if r[1] == b]
-                if ca and cb:
-                    blocks.append(statistics.mean(ca) - statistics.mean(cb))
-            if len(blocks) >= 2:
-                md = statistics.mean(blocks)
-                sd = statistics.stdev(blocks)
-                hb = t95(len(blocks) - 1) * sd / len(blocks) ** 0.5
-                print(f"    blocked  {md:+7.1f} us/step "
-                      f"[{md - hb:+7.1f}, {md + hb:+7.1f}] "
-                      f"(k={len(blocks)} blocks of {block_len}, sd={sd:.1f})")
-                win = -md   # positive when arm b is faster than arm a
-                print(f"    -> switching {a} -> {b} saves {win:+7.1f} us/step "
-                      f"= {pct_of_score(win):+.3f} % of score; "
-                      f"bar {BAR_M4_US:.1f}; "
-                      f"{'CLEARS' if win - hb > BAR_M4_US else 'below bar'}")
+        if set(arms) == set(POOL):
+            pooled = [(r[0], POOL[r[1]], r[2], r[3], r[4]) for r in rows]
+            print("\n  ---- arms 0 and 2 pooled as P (byte-identical metallib);"
+                  " P vs 1 is the treatment contrast ----")
+            for arm in ("P", "1"):
+                x = [r[col] * 1e3 for r in pooled if r[1] == arm]
+                print(f"  arm {arm}: n={len(x)} {statistics.mean(x):8.1f}"
+                      f" us/step  sd={statistics.stdev(x):6.1f}")
+            pair_report(pooled, "P", "1", col, block_len)
     return 0
 
 
