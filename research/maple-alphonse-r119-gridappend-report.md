@@ -270,6 +270,105 @@ layer-2 C/E pair on the same `./benchmark.sh --local-iterate` instrument.
 
 <!-- FILL: layer-1 E arm directional number; layer-2 C/E delta and verdict -->
 
+## 10b. Mechanism — why sibling grid-append cannot pay on a saturated host
+
+This is the part of the result worth keeping regardless of the arm's fate,
+because it is a property of the MLX dispatch layer, not of my kernel.
+
+**MLX already runs true siblings concurrently, so there is no bubble to
+recover.** Verified in the vendored source in this checkout:
+
+- `Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp:548` creates
+  the encoder as
+  `buffer_->computeCommandEncoder(MTL::DispatchTypeConcurrent)`.
+- Barriers are inserted **only on tracked buffer hazards**
+  (`device.cpp:315–375`): `set_input_array` raises `needs_barrier_` only when
+  an input is in `prev_outputs_` (RAW), and `register_output_array` raises it
+  only when an output is in `prev_inputs_` (WAR/WAW). A `memoryBarrier` is
+  emitted only `if (needs_barrier_)`.
+
+The five decode MoE kernels therefore form barrier-delimited *stages*: a
+barrier before K2/K3/K4 (their input `normalized` was just written by K1), then
+**no barrier among K2, K3 and K4** because they share inputs and write disjoint
+outputs, then a barrier before K5. So **K2, K3 and K4 were already overlapping
+in hardware before I fused anything.** Grid-append removed a dispatch record,
+not a serialization point.
+
+That is precisely the `dep_scope = NONE` property from §3, and it cuts both
+ways: the sibling-only rule that makes the append *legal* is the same property
+that makes it *worthless* here.
+
+**The cost side is charged per host threadgroup.** The fused binary pays a
+small fixed per-threadgroup tax — longer preamble (both bodies' bindings are
+resident), the tile-selection branch, and the `tgid.x − guestTiles` offset
+entering every host address computation, which weakens constant folding. That
+tax multiplies by the host's threadgroup count.
+
+A simple model fits both R114-E and R119-A:
+
+> **ΔT_layer = p · N_host − S**, where `S` is the serialization actually
+> removed and `p` is the per-threadgroup fusion tax.
+
+| arm | host TGs | measured | implied |
+| --- | --- | --- | --- |
+| R114-E (QKV host) | **8** | −76.8 µs/step = −1.97 µs/layer | S ≈ 2.0 µs/layer, cost ≈ 8p ≈ 0.07 µs |
+| R119-A (routed SwiGLU host) | **256** | <!-- FILL --> µs/step | S ≈ 0, cost ≈ 256p |
+
+Joint fit gives **p ≈ 9 ns/TG** and break-even **N\* ≈ 230 threadgroups** *if a
+real bubble exists*. When `S ≈ 0` — the sibling case — there is no break-even
+at all and fusion is a strict loss of `p · N_host`.
+
+**Why R114-E won and R119-A lost, in one sentence:** dispatch overhead is
+*exposed* when the host leaves the machine idle (8 TGs on 20 cores) and
+*hidden* when the host saturates it (256 TGs), so on a saturated host the
+saving vanishes at exactly the point where the per-threadgroup tax is largest.
+Both terms move against you together.
+
+Proposed law, offered for the archive:
+
+> **`L-ABSORPTION-NEEDS-AN-IDLE-HOST`** — grid-append absorption pays only when
+> the host is under-occupied (`N_host` well below ~200 TGs on a 20-core part)
+> **and** the guest occupies a genuinely serialized stage. Under MLX's
+> `DispatchTypeConcurrent` encoder, a `dep_scope = NONE` sibling is already
+> overlapped, so absorbing it recovers nothing while taxing every host
+> threadgroup. Screen on host threadgroup count *and* barrier adjacency, not on
+> the guest's occupancy.
+
+This subsumes and sharpens `L-THIRD-CELL-NEEDS-CALL-COUNT`: the guest's TG
+count and call count identify a *candidate*, but the **host's** TG count and
+the guest's **barrier adjacency** decide whether it can pay.
+
+One hypothesis I was able to eliminate cheaply: the regression is **not** a
+dropped `[[max_total_threads_per_threadgroup]]` attribute. `grep -c` over
+`Sources/MLXFastModel/LagunaRuntimeModel.swift` returns **0** — no Laguna
+kernel, fused or unfused, carries that attribute (the vendored MLX GEMV family
+does, at `Vendor/.../kernels/gemv.h:494,570,640`). So the fused kernel did not
+lose something the host had.
+
 ## 11. Follow-ups I did not implement
 
-<!-- FILL -->
+1. **Zero-guest-tile control.** Compile the *fused* pipeline but dispatch only
+   host tiles, leaving the guests as their own dispatches. Output stays correct
+   because no work is dropped. If the regression persists, the cost is
+   compilation-side (register/preamble tax on the host body); if it disappears,
+   the cost is guest-tile scheduling. This is the one diagnostic that would
+   split mechanisms cleanly, and it is ~20 lines.
+2. **Pipeline reflection.** Log
+   `MTLComputePipelineState.maxTotalThreadsPerThreadgroup`,
+   `threadExecutionWidth`, and `staticThreadgroupMemoryLength` for fused vs
+   unfused pipelines. A drop in the first is direct evidence of register
+   pressure. Needs a hook where MLX creates pipelines (`Device::get_kernel`).
+3. **Add `[[max_total_threads_per_threadgroup(64)]]` to the Laguna GEMV-family
+   kernels.** Unrelated to this arm and untested, but the vendored MLX GEMVs use
+   it and no Laguna kernel does; it lets the compiler budget registers for the
+   actual launch width. Cheap to try, plausibly helps the *unfused* baseline.
+4. **Retarget the technique by barrier adjacency, not guest occupancy.** Scan
+   the per-layer op stream for barrier-delimited stages that contain a *single
+   small dispatch* on an under-occupied host — that is the R114-E shape, and
+   `L-ABSORPTION-NEEDS-AN-IDLE-HOST` says those are the only places left where
+   this technique can pay.
+5. **The advisor's host-widening question is still open.** Widening the shared
+   SwiGLU host from TG (64,1,1)/256 tiles to TG (256,1,1)/64 tiles was never
+   A/B'd here. Note that the model above predicts widening is *itself*
+   interesting independent of fusion: it cuts `N_host` 4×, which reduces any
+   per-threadgroup tax and may change scheduling tail behaviour.
