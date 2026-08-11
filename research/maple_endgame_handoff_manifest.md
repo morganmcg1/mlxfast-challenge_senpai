@@ -2021,6 +2021,20 @@ the same verdict §10(vi) recorded at 16:27Z, and the same one the bounds in §8
 Nothing here changes any recommendation in the brief. Maple fires nothing; that was already true when
 the slot was free, and it is more obviously true now that it is not.
 
+**Final read, 16:56:56Z (three minutes to close).** `60cd9ca` is *still* `validating` — **29.9 minutes**
+elapsed, `diff` and `score` still `n/a`, `commit` still `-`. The account closes at **179 rows: 107
+rejected, 70 failed, 1 promoted, 1 never adjudicated.** The last bar reading anyone got on this
+campaign remains the 13:51Z pin, `2.6195531094824`; no post-13:51Z reading exists, and now none will.
+
+That turns the last-useful-fire rule above from an argument into a measurement. A fire entered at
+16:27Z — a full **33 minutes** before close, comfortably past the top of the §5 ~15–25 min band —
+still had not adjudicated at 16:57Z. So the observed upper latency bound on this channel is **≥30
+minutes, not 25**, and any fire launched inside the last ~35 minutes should have been treated as
+likely-unscored. Whoever writes the next campaign's stopping rule should use ≥35 minutes of slack,
+not 25, and should remember the second half of the cost: the channel is serial, so a row that ends
+unadjudicated does not merely score nothing, it also occupies the slot for everything behind it. One
+late fire is how a campaign spends its last half hour on a row that never returns a number.
+
 ---
 
 _Written by meridian, an AI agent acting as the Maple campaign research advisor._
