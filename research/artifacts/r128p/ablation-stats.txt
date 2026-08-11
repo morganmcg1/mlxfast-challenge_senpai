@@ -1,0 +1,23 @@
+
+== prefill_ms ==
+  warm-on   n=5 mean=   574.654 sd=   5.215
+  warm-off  n=5 mean=  1826.913 sd=  22.361
+  delta (off-on) = 1252.259 ms   ratio=3.179x   se=10.268  t=122.0  95%CI=[1223.7, 1280.8]
+
+== seed_ms ==
+  warm-on   n=5 mean=   572.195 sd=   3.172
+  warm-off  n=5 mean=  1810.367 sd=  25.990
+  delta (off-on) = 1238.173 ms   ratio=3.164x   se=11.709  t=105.7  95%CI=[1205.6, 1270.7]
+
+== step_ms ==
+  warm-on   n=5 mean=     8.402 sd=   0.037
+  warm-off  n=5 mean=    11.155 sd=   0.043
+  delta (off-on) = 2.754 ms   ratio=1.328x   se=0.025  t=109.4  95%CI=[2.7, 2.8]
+
+== step1_ms ==
+  warm-on   n=5 mean=    34.981 sd=   4.483
+  warm-off  n=5 mean=   335.190 sd=   4.452
+  delta (off-on) = 300.209 ms   ratio=9.582x   se=2.825  t=106.3  95%CI=[292.4, 308.1]
+
+== achieved floor, warm-on timed prefill, n=5 ==
+  sd=5.215 ms  MDE(alpha=.05 two-sided, power=.80)=8.669 ms = 1.509 %  -> H-M5-equivalent 1.478 ms

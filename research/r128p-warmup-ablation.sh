@@ -7,7 +7,7 @@
 # kernel JIT, first-touch page-in) cost the warmup keeps out of scored windows.
 # DARKBLOOM_ is the only participant-visible prefix the runtime worker's strict
 # environment allowlist forwards to the child process
-# (Sources/MLXFastTrustedHarness/LagunaRuntimeWorker.swift:2010-2016).
+# (Sources/MLXFastTrustedHarness/LagunaRuntimeWorker.swift:2008-2015).
 # Research-only; the source gate is reverted before the result commit.
 set -u
 N="${1:-5}"
