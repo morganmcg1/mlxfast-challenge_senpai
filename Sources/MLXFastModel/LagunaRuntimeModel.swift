@@ -303,6 +303,22 @@ let lagunaSwiGLUQMVRows1Enabled =
 let lagunaSharedSwiGLUQMVRows1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_QMV_R1"] != "0"
 
+// Shared-expert SwiGLU QMV threadgroup granularity. The rows1 kernel assigns one
+// output row per simdgroup, so the total simdgroup count (512) is fixed by the
+// 2 * 512-row fused gate/up matrix and is independent of how those simdgroups are
+// packed into threadgroups. Packing 8 simdgroups per threadgroup (256 threads)
+// instead of 2 (64 threads) issues 64 threadgroups instead of 256 for the same
+// 16384 threads, which cuts per-threadgroup dispatch setup on the decode step.
+// Set DARKBLOOM_SHARED_QMV_TG256=0 to restore the 64-thread threadgroup exactly.
+let lagunaSharedSwiGLUQMVThreadgroup256Enabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_QMV_TG256"] != "0"
+
+// Simdgroups per threadgroup for the rows1 shared SwiGLU QMV kernels. This is the
+// row-index stride inside the kernel source and the threadgroup width at dispatch;
+// the two must agree or rows are double-covered.
+let lagunaSharedSwiGLUQMVRows1SimdgroupsPerTile =
+    (lagunaSharedSwiGLUQMVRows1Enabled && lagunaSharedSwiGLUQMVThreadgroup256Enabled) ? 8 : 2
+
 
 
 
@@ -7166,7 +7182,7 @@ constexpr uint values_per_lane = 16;
 uint tile = threadgroup_position_in_grid.x;
 uint simd_group = simdgroup_index_in_threadgroup;
 uint lane = thread_index_in_simdgroup;
-uint row = tile * 2 + simd_group;
+uint row = tile * \(lagunaSharedSwiGLUQMVRows1SimdgroupsPerTile) + simd_group;
 
 const device uint8_t* gate_row_weight =
     (const device uint8_t*)\(weightName) +
@@ -7260,7 +7276,7 @@ constexpr uint values_per_lane = 32;
 uint tile = threadgroup_position_in_grid.x;
 uint simd_group = simdgroup_index_in_threadgroup;
 uint lane = thread_index_in_simdgroup;
-uint row = tile * 2 + simd_group;
+uint row = tile * \(lagunaSharedSwiGLUQMVRows1SimdgroupsPerTile) + simd_group;
 
 const device uint8_t* gate_row_weight =
     (const device uint8_t*)fused_weight +
@@ -7367,11 +7383,19 @@ func lagunaSharedSwiGLUQMV(
         : (lagunaSharedSwiGLUQMVRows1Enabled
             ? lagunaSharedSwiGLUQMVRows1Kernel
             : lagunaSharedSwiGLUQMVKernel)
-    let tiles = lagunaSharedSwiGLUQMVRows1Enabled ? 256 : 128
+    // One simdgroup per output row under rows1, so total simdgroups is pinned at
+    // 512 (= 2 * sharedExpertIntermediateSize / 2 rows per gate/up pair) and only
+    // the threadgroup packing varies. grid is total threads, not threadgroups.
+    let simdgroupsPerTile =
+        lagunaSharedSwiGLUQMVRows1Enabled ? lagunaSharedSwiGLUQMVRows1SimdgroupsPerTile : 2
+    let tiles =
+        lagunaSharedSwiGLUQMVRows1Enabled
+        ? LagunaConstants.sharedExpertIntermediateSize / simdgroupsPerTile : 128
+    let threadsPerTile = simdgroupsPerTile * 32
     return kernel(
         [input, fusedWeight, fusedScales],
-        grid: (tiles * 64, 1, 1),
-        threadGroup: (64, 1, 1),
+        grid: (tiles * threadsPerTile, 1, 1),
+        threadGroup: (threadsPerTile, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.sharedExpertIntermediateSize]],
         outputDTypes: [.bfloat16]
     )[0]
