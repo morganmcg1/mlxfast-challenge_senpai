@@ -1480,18 +1480,24 @@ public receipt list; nothing here is a transcribed number I cannot regenerate.
 
 | run | what it holds |
 |---|---|
-| [`fern-r109f-instrument-collapse`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/6k281dtr) | per-leg **robust** median/sd/cv with the plain moments and a `tail_inflation_x` column beside them (§5.3i), the 0.2393 % robust code-spread ceiling *and* the 1.7131 % plain one it replaced, the k=3 identical-executable gauge to 3 df with receipts-per-arm on every leg (`leg_gauge_k3`), the `MLX_SDPA_BLOCKS` local sweep, the host-drift control, the receipts-per-arm power table on both estimators, and **eight** retractions/corrections with corrected numbers |
-| [`fern-r109f-crown-lottery`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/7ea6kejp) | the draw-factor CDF, p(crown)/shot, crown code-rank vs luck-rank, and the elasticity table |
-| [`fern-r109f-arms`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/57g6hy56) | the local 2×2 arm ledger and every ranked receipt with normalized score and draw factor in separate columns |
+| [`fern-r109f-instrument-collapse`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/xtvnzjtr) | per-leg **robust** median/sd/cv with the plain moments and a `tail_inflation_x` column beside them (§5.3i), the 0.2393 % robust code-spread ceiling *and* the 1.7131 % plain one it replaced, the k=3 identical-executable gauge to 3 df with receipts-per-arm on every leg (`leg_gauge_k3`), the `MLX_SDPA_BLOCKS` local sweep, the host-drift control, the receipts-per-arm power table on both estimators, the measured channel service time (`channel_service_latency`, §7.1) with its out-of-sample confirmation under `channel_oos/*` (§7.2), the `tickets/*` block separating eight tickets *prepared* from six receipts *measured*, and **eight** retractions/corrections with corrected numbers |
+| [`fern-r109f-crown-lottery`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/jrwlrn2k) | the draw-factor CDF, p(crown)/shot at **both** our best observed normalized value and the atlas-v3 class mean with the ×3.3 selection-bias factor between them, crown code-rank vs luck-rank, the elasticity table now divided by the *measured* 27.98 min/shot instead of the invented 22.0, and the `shot_budget` table |
+| [`fern-r109f-arms`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/aiwlu7z6) | the local 2×2 arm ledger and every ranked receipt with normalized score and draw factor in separate columns |
 
 > **On run ids.** `wandb.init(name=…)` with no fixed `id` mints a fresh run on
-> every publication, so these URLs are the *current* triple and supersede three
+> every publication, so these URLs are the *current* triple and supersede five
 > earlier ones (`ye5blpir`/`fwgg927q`/`nljka6ol`, then
 > `b7wax52n`/`113mldwe`/`c5wmpui4`, then `0u4takrf`/`s3a9sx43`/`rs84aixl` —
-> that last one republished at 08:53Z only to carry the eighth retraction row,
+> that one republished at 08:53Z only to carry the eighth retraction row,
 > the `MLX_SDPA_BLOCKS` **structural-zero** verdict with its new
 > `"reachable": 0` key, and a `retractions/count` summary scalar so the count in
-> this document and the count in the dashboard cannot silently disagree).
+> this document and the count in the dashboard cannot silently disagree — then
+> `6k281dtr`/`7ea6kejp`/`57g6hy56` just before 09:08Z, and
+> `ea6ykgvn`/`68pm0uz5`/`unt2dgf5` at 09:19Z, which carried the §7.1 channel
+> tables and the selection-bias fix but predate §7.2's out-of-sample check and
+> the `tickets/*` block). Every triple is named rather than quietly dropped for
+> the same reason the crashed run below is named: a table of ids is only
+> trustworthy if the superseded ones are accounted for.
 > The project also contains one crashed run, `f9wyuoxq`: it died in
 > `wandb.Table.add_data` because the host-drift dict mixes numbers with a verdict
 > string, and a table column is strongly typed by its first row. Fixed by
