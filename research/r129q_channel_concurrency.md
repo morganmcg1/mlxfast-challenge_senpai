@@ -271,3 +271,30 @@ confirming the congestion is systemic rather than something about our account.
 Nothing in the second poll changes the verdict or the numbers: **SERIAL, per-account cap 1,
 2 draws remaining (1–4), last safe fire 15:20Z (spread 15:06Z–15:37Z)**. The gate remains "when
 `c06b1b6d` flips", and as of 14:02:12Z it has not.
+
+## Third poll — 14:16:07Z (read-only): the fast regime is now formally dead
+
+1885 rows. **`c06b1b6d` is still `validating`, age 24.9 min.** That single number settles the
+regime question the advisor's hypothesis (a) raised: 24.9 min is **past the top of the entire
+morning plateau** (16 rows, 22.1–23.2 min), so the ~25 min service time is *excluded* for this row,
+not merely unlikely. The live budget is the congested one (46–99 min), which is exactly what the
+draws-remaining table was built on. **No second row of ours exists** at 24.9 min of waiting — the
+cap of 1 has now held across three independent polls (13:52:07Z, 14:02:12Z, 14:16:07Z); cap
+recomputed on 1885 rows is still 1 for our account and still **0 of 89 accounts** at >= 2.
+
+**Global concurrency is climbing into the close:** 6 rows in flight at 13:52:07Z, 7 at 14:02:12Z,
+**9 at 14:16:07Z** (`23ad2e18 uww0n` 41.6 min, `fe6580c6 ggu77wt` 32.5, `f44d82c2 tt7fk` 27.0,
+`c06b1b6d morganmcg1` 24.9, `e5a4b510 ggt54` 16.0, `988272ee uu0vg7` 16.0,
+`972e32c5 a-github-name` 6.1, `cf9802d2 uee9b6` 3.7, `7313e81f uu6f8` 3.7). Two more same-second
+admissions from different accounts (`cf9802d2` 14:12:25Z / `7313e81f` 14:12:26Z, one second apart).
+Rising load is the mechanism behind the 22.7 -> 46-99 min drift, and it argues for taking the
+**earlier** end of the last-safe-fire spread.
+
+Two fresh sojourns for other accounts, bracketed by consecutive polls: `80ab0a8a` (`fjrth66`,
+created 12:47:05Z) terminal in **[65.0, 75.1] min**; `70afbd47` (`ooo9cj`, created 13:12:43Z)
+terminal in **[49.5, 63.4] min**. Both sit inside the 46–99 min congested band our own last two rows
+show, so the congestion is systemic, not an artefact of our account.
+
+Verdict and numbers unchanged: **SERIAL, per-account cap 1, 2 draws remaining (1–4), last safe fire
+15:20Z** — and after this poll I would advise the slot holder to plan on the **15:06Z floor** rather
+than the 15:37Z ceiling. Prediction still alive: terminal 14:30–15:35Z, centre ~15:10Z.
