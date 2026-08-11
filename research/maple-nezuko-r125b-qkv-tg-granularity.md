@@ -332,6 +332,78 @@ Three things this table settles:
 
 ---
 
+## §4 Mechanism
+
+### 4.1 What the ladder shape says about shared-L1 reuse
+
+Pre-registration §1.3 named four refutations. Scoring them against §3.2:
+
+* **R1 (flat ladder)** — see the CI column in §3.2. A ladder whose rungs sit
+  inside a CI that contains zero, or on the *slow* side of the reference, means
+  the L1-fetch-count channel is not the binding constraint on this kernel.
+* **R2 (wrong shape)** — the shared-L1 story has exactly one free parameter
+  (fetches avoided), so the effect must scale as the *saved* fetch fraction
+  relative to `ns = 2`: `1/2 − 1/4 = 0.25` for N4 and `1/2 − 1/8 = 0.375` for
+  N8, hence **N4 = ⅔ · N8** — the ratio §1.2 pre-registered. A ladder that is
+  non-monotone, or whose N4 : N8 ratio is far from 0.667, is moving on a
+  different axis than fetch count.
+* **R3 (wrong sign)** — N8 slower than N2. Reuse cannot cost time, so a
+  reproducible loss localises the effect in dispatch/scheduling, not in L1.
+* **R4 (cross-kernel constant off by >3×)** — §1.4 predicted **≈ 1230 µs/token**
+  from frieren's 2.1 µs-per-saved-MB constant. That is 12× my own bandwidth
+  ceiling of **102 µs/step**, so R4 was pre-committed to fire for any measured
+  effect ≲ 100 µs.
+
+### 4.2 Why a kernel at 94 % of measured peak has only downside left
+
+The mechanical reading, stated in §1.8 before any timing and unchanged by it:
+
+* `staticThreadgroupMemoryLength = 0 B`, no `threadgroup` declaration, no
+  barrier. Nothing is *shared* between the simdgroups of a threadgroup by
+  construction; the only sharing available is incidental L1 residency.
+* The activation row is 4096 B and **every** simdgroup on the machine reads the
+  same row. With 20 cores that is ≈ 20 × 4096 B = **80 KB** of real L2 → L1
+  activation traffic per invocation regardless of `ns`, because the second and
+  subsequent readers on a core hit in L1 whether or not they are in the same
+  threadgroup. The fetch-count model of §1.4 counts *requests*, not *misses*,
+  and therefore overcounts the traffic by ≈ 200×.
+* Weight traffic — which is what actually saturates the kernel — is untouched:
+  every simdgroup reads its own disjoint rows in both geometries.
+
+So the byte-level model says the candidate mechanism is already saturated at
+`ns = 2`, and the measured ladder is then a measurement of the residual
+channels only — and those are all costs: coarser dispatch units give the
+scheduler less freedom to balance 20 cores, and a bandwidth-saturated kernel
+converts any perturbation of the DRAM access interleave directly into time.
+That is the asymmetry worth remembering: **at 94 % of peak, geometry has no
+upside left and still has downside.**
+
+### 4.3 Does percent-of-measured-peak gate this axis?
+
+This is the transferable deliverable, and the ladder is a real test of it
+because it was pre-registered as such (§1.5). The evidence now spans three
+geometry experiments on the same family of kernels:
+
+| kernel | % of measured peak (256.7 GB/s) | geometry change | measured effect |
+|--------|--------------------------------:|-----------------|-----------------|
+| o_proj, R117-C (#707, merged) | 83.4 – 90.7 % | rps 4→2 **and** ns 4→2 | **−79.4 µs/token** Stage 1, −82.4 mean Stage 2, CI95 [−98.6, −66.3] |
+| decode QKV, R122-B (#719) | 92.8 – 94.3 % | rps 1→2,4,8 | monotone **worse** (Q8 +205.9 µs) |
+| decode QKV, R125-B (this) | 92.8 – 94.3 % | ns 2→4→8 | see §3.2 |
+
+Read as a gate: **the only kernel that paid is the one with ≥ 9 points of
+headroom to measured peak; the kernel at ≤ 6 points has now refused two
+independent geometry axes** (`rps` in #719, `ns` here). That is a cheap,
+computable pre-filter — measured
+bytes ÷ measured time ÷ measured peak — and it is the thing I would apply to
+the next geometry proposal before spending 40 minutes of ladder on it.
+
+Two honest limits on that claim: (i) three points, two kernels, so it is a
+gate, not a curve; (ii) it is a *necessary*-condition gate only — o_proj having
+headroom did not by itself guarantee the win, it was a joint change of `rps`
+and `ns`.
+
+---
+
 ## §5 Deviations from the pre-registration
 
 1. **N16 was dropped from the timed campaign, and from the correctness pass.**
