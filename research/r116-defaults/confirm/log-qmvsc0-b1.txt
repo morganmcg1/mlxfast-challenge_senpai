@@ -1,0 +1,120 @@
+benchmark.sh: trusted CLI or participant runtime worker missing or stale; building
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+[0/1] Planning build
+Building for production...
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+Build of product 'mlxfast-swift' complete! (9.86s)
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+[0/1] Planning build
+Building for production...
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+Build of product 'mlxfast-runtime-worker' complete! (9.28s)
+benchmark.sh: local-iterate git_head=8b969d453c2d origin_main=1bc1c8954147
+benchmark.sh: reusing weights/ for unchanged transform source
+mlxfast: benchmark elapsed=0.0s local-iterate start checked_tokens=130 decode_steps=128 repeats=1
+mlxfast: benchmark elapsed=0.0s local-iterate baseline prefill_seconds_per_token=0.000368 decode_seconds_per_token=0.013856 (official-runner constants; local speedups are directional)
+mlxfast: benchmark elapsed=0.0s local-iterate validation start
+mlxfast: benchmark elapsed=10.2s local-iterate weights digest still running phase_seconds=10.2
+mlxfast: benchmark elapsed=20.2s local-iterate weights digest still running phase_seconds=20.2
+mlxfast: benchmark elapsed=30.2s local-iterate weights digest still running phase_seconds=30.2
+mlxfast: benchmark elapsed=40.2s local-iterate weights digest still running phase_seconds=40.2
+mlxfast: benchmark elapsed=40.7s local-iterate weights digest complete files=9 bytes=21568891382
+mlxfast: benchmark elapsed=40.7s local-iterate validation complete prompt_tokens=512 seconds=40.7
+mlxfast: benchmark elapsed=40.7s local-iterate checked timing start
+mlxfast: benchmark elapsed=87.3s local thermal gate start phase=prefill
+benchmark.sh: waiting for GPU to cool down before timing (current 41.4C, target <=40C, waited 0s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 41.6C, target <=40C, waited 10s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 41.9C, target <=40C, waited 20s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 42.2C, target <=40C, waited 30s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 41.7C, target <=40C, waited 40s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 42.2C, target <=40C, waited 50s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 42.4C, target <=40C, waited 60s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 42.5C, target <=40C, waited 70s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 42.6C, target <=40C, waited 80s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 42.7C, target <=40C, waited 90s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 42.8C, target <=40C, waited 100s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 42.9C, target <=40C, waited 110s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 42.9C, target <=40C, waited 120s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 42.9C, target <=40C, waited 130s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 42.9C, target <=40C, waited 140s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 42.9C, target <=40C, waited 150s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 42.9C, target <=40C, waited 160s)...
+benchmark.sh: waiting for GPU to cool down before timing (current 43.0C, target <=40C, waited 170s)...
+benchmark.sh: ERROR: GPU is hot and not cooling down (current 43.0C, min seen 41.4C, target <=40C, waited 180s).
+benchmark.sh: something else appears to be loading the GPU. Close GPU-heavy
+benchmark.sh: processes (other benchmarks, ML jobs, games, video encodes),
+benchmark.sh: let the machine cool, and rerun. To debug without the gate, set
+benchmark.sh: MLXFAST_LOCAL_COOL_GATE=0 (hot-start timings are not comparable).
+mlxfast-worker: mlxfast: narrow-scales built lane-major pairwise: qkv
+mlxfast-worker: mlxfast: narrow-scales built lane-major pairwise: oproj
+mlxfast-worker: mlxfast: packed-scales active: shared gate/up halved
+mlxfast-worker: mlxfast: packed-scales active: shared down halved
+mlxfast-worker: mlxfast: packed-scales active: packed routed gate/up bank prepared
+mlxfast-worker: mlxfast: lm_head prune active (coarse copy resident)
+mlxfast-worker: mlxfast: packed-scales inactive: packed routed gate/up prefill scale view consumed
+mlxfast-worker: mlxfast: packed-scales inactive: packed routed down prefill scale view consumed
+mlxfast-worker: mlxfast: packed-scales active: routed swiglu qmv packed dispatch
+mlxfast: benchmark elapsed=315.6s local-iterate failed error=local GPU cool-down gate failed for prefill with status 1
+{
+  "metrics" : {
+    "actual_token" : null,
+    "bandwidth_gb_per_token" : 0,
+    "bandwidth_source" : "",
+    "baseline_decode_seconds_per_token" : 0.01385621216015625,
+    "baseline_prefill_seconds_per_token" : 0.00036751938916015626,
+    "benchmark_wall_seconds" : 320,
+    "case_count" : 0,
+    "checked_steps" : 0,
+    "commit" : "8b969d45",
+    "correctness_seconds" : 0,
+    "decode_seconds_per_token" : 0,
+    "decode_speedup" : 0,
+    "decode_speedup_floor" : 0.95,
+    "error" : "local GPU cool-down gate failed for prefill with status 1",
+    "expected_token" : null,
+    "expert_bytes_read" : 0,
+    "expert_cache_evictions" : 0,
+    "expert_cache_hits" : 0,
+    "expert_cache_misses" : 0,
+    "expert_hit_rate" : 0,
+    "expert_peak_cached_tensors" : 0,
+    "expert_read_seconds" : 0,
+    "first_failing_case" : null,
+    "first_failing_layer" : null,
+    "first_failing_step" : null,
+    "golden_hash" : "",
+    "gpqa_ttft_case_count" : 0,
+    "gpqa_ttft_max_seconds" : 0,
+    "gpqa_ttft_p50_seconds" : 0,
+    "gpqa_ttft_pass_count" : 0,
+    "gpqa_ttft_passed" : false,
+    "gpqa_ttft_seconds" : 0,
+    "gpqa_ttft_source" : "",
+    "harness_hash" : "204f03460034352d0f35c63633393ab55a8f418c0f101e432ee70e7b94835480",
+    "max_abs_diff" : 0,
+    "num_layers" : 40,
+    "partial_result" : false,
+    "passed_correctness" : false,
+    "passed_decode_speedup_floor" : false,
+    "passed_prefill_speedup_floor" : false,
+    "peak_ram_gb" : 0,
+    "prefill_seconds_per_token" : 0,
+    "prefill_speedup" : 0,
+    "prefill_speedup_floor" : 0.95,
+    "preflight_seconds" : 41,
+    "process_resident_memory_gb" : 0.022,
+    "runtime" : "swift-local-iterate",
+    "semantic_gpqa_case_count" : 0,
+    "semantic_gpqa_model" : "",
+    "semantic_gpqa_pass_count" : 0,
+    "semantic_gpqa_passed" : false,
+    "timed_benchmark_seconds" : 0,
+    "timestamp" : "2026-08-11T03:46:25Z",
+    "weights_byte_count" : 21568891382,
+    "weights_file_count" : 9,
+    "weights_hash" : "aff994300573c5e8589563fc9ff57cdcfb1ef9b49e14898be290a75a6b294b3d"
+  },
+  "passed" : false,
+  "score" : null
+}
+benchmark.sh: benchmark produced a failing score; see /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-frieren/workspace/r116-confirm/score-qmvsc0-b1.json

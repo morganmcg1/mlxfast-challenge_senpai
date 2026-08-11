@@ -3,6 +3,33 @@
 Student: maple-frieren. PR #705, assignment `maple-r116-a-shipped-defaults-audit`,
 revision `r116-a-rev1`. Host: Apple M4 Pro (`Mac16,11`), 48 GB.
 
+## 0. STATUS (as of 2026-08-11T05:00Z)
+
+**The §0P.23 gating deliverable is answered:
+[`research/frieren_r116_router_top8_number.md`](frieren_r116_router_top8_number.md).
+`prefill_router_tournament_ordinal_norm_active64_v2`, **186.263 ± 0.214
+µs/step** (n=8), 4.775 µs/call × 39 calls, **≈0.12 % of DRAM peak**, raw
+SPLIT=1. Alphonse is unblocked.** It needed no GPU time: the number was already
+in committed captured data in exactly the requested regime.
+
+**Why this branch looked silent for three hours.** It was not. Roughly sixteen
+commits of finished work have existed locally since 01:49Z. This role has no
+PR-comment tool and no GitHub credential, and `submit_experiment_result` — a
+*terminal* action — performs the only push available to me. So nothing I do is
+visible to the advisor until the moment I submit, and submitting is the same
+action as declaring the experiment finished. That coupling, not idleness, is the
+whole gap. Noted here as a process defect worth fixing: a student with no
+incremental publish channel is forced to choose between visibility and
+completeness. I have resolved it in favour of visibility and am submitting early.
+
+**What ran:** the 27-run screen (complete, `@@DONE 03:27:28Z`, exit 0) and 5 of
+9 confirm blocks (6 of 9 at submission). **What is still running:** `research/frieren_r116_confirm_run.sh`
+(pid 34622, started ~03:34Z, 23/36 score files at 05:00Z, ETA ≈05:32Z). It only
+tightens a null on an axis the advisor declared optional at 04:37Z, so it is not
+worth holding the report for. One block failed a 40 C cool-down gate
+(`score-qmvsc0-b1.json`, `passed: false`, GPU stuck at 43.0 C); that is an
+environment failure, not a correctness failure, and no timing phase ran.
+
 **Terminal finding: `N-DEFAULTS-ALREADY-OPTIMAL`. The submitted-surface diff is
 empty and no landing was manufactured.** This is a deliberate outcome under the
 advisor's 03:50Z campaign law — *ship on a verified positive interval excluding
@@ -19,6 +46,7 @@ Everything below is committed evidence on branch
 
 | # | Claim | Strength | Where |
 |---|---|---|---|
+| **0** | **§0P.23 gating deliverable.** The build selects `prefill_router_tournament_ordinal_norm_active64_v2` (normalizing branch, `:9729`). It costs **186.263 ± 0.214 µs/step** (n=8), 4.775 µs/call × 39 calls, 2.1775 % of the SPLIT=1 busy sum, and **≈0.12 % of DRAM peak** — a pure latency kernel with no byte side. The guest is **71.2 %** of gate_sp's 261.6, so the gate_sp-scaled price is **≈55 µs/step ⇒ ≈+0.32 % score**: between the advisor's 48/77 brackets, **below Rule 105.12's 60 µs/step slot floor**, and only 1.28× the ship threshold. | measured, n=8, ~285σ over the atlas's own noise floor | [§0P.23 doc](frieren_r116_router_top8_number.md) |
 | 1 | No shipped compiled default in the NVFP4 / shared-expert / QMV families is beatable. 8 arms screened, 3 carried to confirmation, none clears the campaign's own +0.25 % threshold. | measured, 47 runs, all bit-exact | §2, §3 |
 | 2 | `SHARED_FIRST_DOWN=1` — the only default-OFF decode flag in the whole census — is **decisively slower**, +51.1 ± 3.9 µs/step, t = 13.10. Its default-OFF is correct and now measured, not assumed. | measured, t=13.10 | §3 |
 | 3 | `DARKBLOOM_NVFP4_NIBBLE_SPLIT` 0 and 2 are both slower than the shipped 1 on my instrument too. Independent corroboration of tanjiro's `N-NIBBLE-SPLIT-DEFAULT-IS-OPTIMAL` from a different host and a different statistic. | measured, 2 arms | §3 |
@@ -111,7 +139,43 @@ reach of that, in either direction, except a flag that is already correctly
 switched off.
 
 **Confirmation** carried the three best-looking arms (`sc0`, `qmvse0`,
-`qmvsc0`) to 9 further blocks. `RESULTS_PENDING`
+`qmvsc0`) to 9 further blocks. **6 of 9 complete at submission time** (`qmvsc0` has 5: block 1 lost its cool-down gate); pooled
+over screen + confirm, every contrast remains a null and the one
+candidate that looked best in the screen **flips sign** in confirmation:
+
+| arm | n | pooled Δ vs `ctl` (µs/step, + = slower) | t | ci95 | screen | confirm |
+|---|---|---|---|---|---|---|
+| `sc0` | 9 | **−1.7 ± 6.0** | −0.29 | [−12.4, +9.5] | −10.9 ± 15.3 | +2.9 ± 5.1 |
+| `qse0` | 3 | −0.1 ± 4.0 | −0.03 | [−7.5, +6.1] | — | — |
+| `sd0` | 3 | +1.4 ± 26.3 | 0.05 | [−34.5, +52.6] | — | — |
+| `qmvsc0` | 8 | +8.1 ± 10.4 | 0.77 | [−17.1, +40.9] | +26.5 ± 16.8 | −3.0 ± 11.7 |
+| `qmvse0` | 9 | +10.4 ± 5.3 | 1.94 | [−4.3, +19.3] | +7.1 ± 6.8 | +12.0 ± 7.6 |
+| `ns2` | 3 | +13.8 ± 13.5 | 1.02 | [−13.1, +28.3] | — | — |
+| `ns0` | 3 | +15.7 ± 16.5 | 0.95 | [−16.3, +38.5] | — | — |
+| `sfd1` | 3 | **+51.1 ± 3.9** | **13.10** | [+46.7, +58.9] | — | — |
+
+**Every 95 % interval except `sfd1`'s contains zero, and `sfd1`'s excludes zero
+on the *slow* side.** Under the advisor's own 03:50Z law this is a do-not-land,
+unambiguously.
+
+Two independent instrument checks confirm there is nothing here:
+
+- **Preregistration rule 1 fails on the one candidate that mattered.**
+  `qmvsc0` was +26.5 ± 16.8 in the screen and **−3.0 ± 11.7** in confirmation —
+  a sign flip. It was never a signal; it was the screen's argmax noise.
+- **Permutation argmax null.** Shuffling arm labels within block: screen
+  (8 arms × 3 blocks) p50 −10.8, p05 −23.2, min −29.9 vs observed argmax
+  **−10.9** — the null *median*. Confirm (3 arms × 5 blocks) p50 −2.1, p05 −7.8,
+  min −10.4 vs observed **−3.0** — again inside. The best-of-8 debias turns the
+  pooled argmax `sc0` from −1.7 µs/step into **+6.8 µs/step**, i.e. slower.
+
+Price of the pooled argmax if taken at face value: **0.014 % of score pre-τ,
+0.006 % at τ = 0.4**, against a +0.25 % = 29.9 µs/step shipping threshold —
+roughly 18× too small.
+
+The remaining 3 blocks cannot change this: they would have to move an arm by
+several σ in a direction it has now failed to move across two independent
+stages.
 
 ---
 
