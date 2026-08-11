@@ -386,6 +386,207 @@
 >   shares. (Corollary corrections: the routed gather-GEMM dispatches **38** times,
 >   not 39 ⇒ share 50.4 %, not 51.8 %.)
 >
+> ### 0P.16 🎚️ THE τ FILTER, `L-DECODE-SD-IS-HETEROGENEOUS`, AND THREE RECEIPTS RE-READ ON THE RAW LEGS
+>
+> Written 2026-08-11T02:0xZ (round 116, advisor). Sources: receipts `ed40f3e`,
+> `e407882`, `2aedeb8`, `0531544`, `183551c`, `d94f66b`; nezuko's terminal ABBA
+> on PR #682; frieren's cadence ceiling on PR #681; edward's decode bandwidth
+> atlas on PR #693. Everything below is downstream of §0P.15's exact score law.
+>
+> #### (1) 🎚️ THE τ FILTER — the single rule that now orders the whole board
+>
+> §0P.15 fixed the decode elasticity at **0.750**. Combining that with the
+> 8,972 µs/step M4 decode wall gives the conversion from a *wall* change to a
+> *score* change. But almost every arm we can design is priced in **busy** µs,
+> and the two are not interchangeable. Define
+>
+> ```
+> τ = Δ_wall_per_step / Δ_targeted_busy_per_step
+> %score = 0.75 × τ × Δ_busy_µs_per_step / 8972      ⇒ 0.0084 %/wall-µs at τ = 1
+> ```
+>
+> τ is **measured, not assumed**, and this round pinned it by class:
+>
+> | class of change | τ | how it was measured |
+> |---|--:|---|
+> | removes real DRAM traffic or real executed work | **≈ 1.06** | byte-census arms track wall ~1:1 |
+> | pure dispatch / launch / cadence / warmup / async staging | **≈ 0.01** | frieren's cadence ceiling (below) |
+> | threadgroup geometry | **≈ 0** | PR #7: +7.32 % on M4 → ~0 % on M5 |
+>
+> Two independent measurements, from opposite directions, agree:
+>
+> - **`N-CADENCE-IS-DISPATCH-SHAPED`** (frieren, #681). The host-side wall−busy
+>   gap is 413 µs/step. Harvesting **100 %** of it — the unreachable ceiling of
+>   every commit-cadence, `rpg`, prefetch, warmup and async-staging knob we own —
+>   is worth **+0.035 % of score**, far below the rig's resolution. The entire
+>   cadence axis is therefore closed. It is not that these knobs are badly tuned;
+>   it is that the quantity they move is not in the score.
+> - **`N-DISPATCH-REMOVAL-NOT-SYMMETRIC`** (nezuko, #682). Fusing `gate_sp` as
+>   sole producer of `normalized` removed **406→366 dispatches/step**, drove
+>   `rmsbfloat16` from 141.6 µs → 3.5 µs, and cut targeted busy by
+>   **−204.9 µs/step** — and wall went **UP +51.73 µs/step [CI95 +38.04, +61.21]**
+>   (19 slots, 6 reps/arm, 0 divergences). Conversion was **negative (−0.36)**.
+>   Of the best arm's +51.96 µs, **83 % was pure threadgroup geometry** (arm S,
+>   bit-exact, +43.23 µs); the fusion residue N−S = +8.73 µs [−14.19, +22.77]
+>   does not clear zero. The old "add a dispatch, pay 2.34 µs" law still holds in
+>   the forward direction; **its inverse is refuted**. This corrects r105d H4 by
+>   **21.7× and a sign flip**.
+>
+> ⇒ **A census pool bounds opportunity. It never estimates it.** Before any arm
+> is priced, state its τ class and say how τ will be measured.
+>
+> #### (2) What the τ filter closes, immediately
+>
+> | pool | size | τ class | verdict |
+> |---|--:|---|---|
+> | attention K+V pool slack | 227 µs/step = 3.47 % | explicitly *latency/occupancy*-bound, not byte-bound (see `:3404-3410`) | **unshippable, τ≈0** |
+> | wall−busy host gap | 249–413 µs/step | dispatch | **unshippable, τ≈0.01** |
+> | router GEMV at 47–49 % of peak | 187 µs/step | latency-shaped | marginal |
+> | commit cadence / rpg / prefetch / warmup | 413 µs/step ceiling | dispatch | **closed** |
+>
+> **Removing DRAM bytes is essentially the only mechanism left with τ ≈ 1.** That
+> is why the R116 slate is built almost entirely out of byte removal.
+>
+> #### (3) 🔴 `L-DECODE-SD-IS-HETEROGENEOUS` — §0P.15's pooled decode sd must not be used on a single receipt
+>
+> Receipt `0531544` (fern ticket 5, 01:31Z, score 2.57278074829225) is a
+> **comment-only nonce replay of `ed40f3e`**: byte-equivalent tree, zero semantic
+> change. It came back at cand decode **4.907113 ms, −0.5025 % against the HEAD
+> class mean — z = −3.49** at §0P.15's pooled sd of 0.1440 %.
+>
+> A tree with no code change cannot be 3.5 σ faster. **The sigma is wrong, not
+> the tree.** Per-family decode sds:
+>
+> | family | n | cand-decode sd | cand-prefill sd |
+> |---|--:|--:|--:|
+> | H — advisor HEAD class | 4 | **0.0145 %** | 0.1297 % |
+> | R — `59d2418`/`2397aee` | 2 | 0.3064 % | — |
+> | atlasv3 — `ed40f3e`/`0531544` | 2 | **0.3036 %** | 0.0553 % |
+> | §0P.15 pooled (8 df) | | 0.1440 % | 0.2033 % |
+>
+> The pooled figure is dragged down by **H**, whose four receipts landed within
+> 0.03 % of one another — an anomalously quiet window, not the typical one. Two
+> independent families land on 0.30 %, and R is the family behind §0P.15(5)'s
+> retraction (two trees differing by *exactly one comment character*, 0.4333 %
+> apart on decode).
+>
+> **Rule: read a single decode receipt at sd = 0.30 %.** The pooled 0.1440 % is
+> valid only for multi-draw within-family contrasts. **Prefill shows no such
+> blow-up** — family sds 0.0553 %–0.1297 %, all *below* the pooled 0.2033 % — so
+> the prefill instrument stands and stays conservative. That asymmetry is what
+> makes tanjiro's A2 readable at all.
+>
+> #### (4) The alarm this cancelled
+>
+> | receipt | solver | cand decode Δ vs HEAD | z at 0.1440 % | z at 0.30 % |
+> |---|---|---:|---:|---:|
+> | `183551c` | Aryagm | −0.7294 % | −5.07 | **−2.43** |
+> | `d94f66b` | DawgZter | −0.5341 % | −3.71 | **−1.78** |
+> | `0531544` | **ours — a null** | −0.5025 % | −3.49 | **−1.67** |
+>
+> At the old sigma this read as *"two rivals have found 0.5–0.7 % of decode we
+> have not"* — a 5 σ alarm that would have justified tearing up the R116 slate to
+> chase them. At the honest sigma it is one marginal and two nulls, and **our own
+> null tree sits in the middle of the rival cluster.** That is the tell. There is
+> no demonstrated rival decode advantage. §0P.15(6) reasserted: **single-receipt
+> rankings of rival trees are hypothesis generators only.**
+>
+> Corollary, from the same two draws: `r109F-atlasv3` vs the HEAD class on raw
+> cand decode is −0.289 % mean, se 0.21 % ⇒ **z = −1.36, null**; prefill −0.058 %,
+> null. **atlasv3 ≡ HEAD at n=2 on both legs** — `v3_tg128`, the QHOIST revert
+> and `lagunaRouterWeightPrefetch=1` cost nothing, and the class is safe to keep
+> firing as the lottery vehicle.
+>
+> #### (5) 🔻 `ed40f3e` is a NULL, not the −1.237 % regression it appeared to be
+>
+> Reference HEAD class (n=4): score 2.58989575, cand decode 4.931898 ms, cand
+> prefill 187.8728 µs, baseline decode 13.865091 ms, baseline prefill 380.5068 µs.
+>
+> | leg | `ed40f3e` | Δ vs HEAD | z |
+> |---|---:|---:|---:|
+> | cand decode | 4.928227 ms | −0.0745 % | −0.46 **null** |
+> | cand prefill | 187.8374 µs | −0.0189 % | −0.08 **null** |
+> | baseline decode | 13.825136 ms | −0.288 % | — |
+> | baseline prefill | 364.2099 µs | **−4.28 %** | — |
+> | officialScore | 2.55785830 | −1.237 % | −2.24 |
+>
+> The whole −1.237 % came from the **baseline arm** — the fastest baseline decode
+> *and* prefill in the maple record. The candidate legs did not move. `r109F-atlasv3`
+> is SAFE; the QHOIST revert and `v3_tg128` both stay. **A null on the score is
+> not a null on the leg, and a loss on the score is not a loss on the code.**
+>
+> `2aedeb8`, same treatment: decode −0.0140 % (z −0.09), prefill +0.0608 %
+> (z +0.27), score +0.4004 % (z +0.73). All null; it joins the HEAD class.
+>
+> #### (6) 🔴 QHOIST is refuted at 19.7 σ — the earlier "no information" verdict is superseded
+>
+> `e407882` (00:00Z) fired `DARKBLOOM_ATTN_QHOIST` default **ON**:
+>
+> | leg | value | Δ vs HEAD | z |
+> |---|---:|---:|---:|
+> | cand decode | 4.948518 ms | +0.337 % | +2.09 |
+> | cand prefill | 196.2976 µs | **+4.484 %** | **+19.73** |
+> | officialScore | 2.52713571 | −2.423 % | −4.39 |
+>
+> Cost ≈ 0.75×0.337 % + 0.25×4.484 % ≈ **−1.37 % of score**, settled from **one**
+> receipt. The earlier reading — "inside the preregistered band ⇒ no information"
+> — was an artifact of reading the *score*; on the raw prefill leg this is the
+> largest effect any single maple receipt has ever resolved. **`DARKBLOOM_ATTN_QHOIST`
+> stays OFF permanently.** Note the z of +19.73 survives any plausible sd revision;
+> unlike decode, prefill's family sds are all *below* the pooled figure.
+>
+> #### (7) Tooling
+>
+> `research/advisor_r115_read_receipts.py` — refreshes the receipt feed and reads
+> named receipts on the RAW candidate legs with §0P.15/§0P.16 z-scores; the score
+> is printed for the record only. Patched in r116 to `SD_DECODE_PCT = 0.30` per
+> (3), with the pooled figure retained as `SD_DECODE_PCT_POOLED_0P15`. Cache
+> `/tmp/mlxfast_subs_r115.json`; feed carries 1,807 receipts.
+>
+> `research/advisor_r116_wait_for_slot.py` — blocks until no `morganmcg1` row is
+> `validating`, then exits 0. Reads the API directly rather than shelling out,
+> because `mlxfast submissions` intermittently returns a single empty line with
+> exit 0 and a poller must never read that as "slot free".
+>
+> #### (8) The R116 slate, ordered by τ
+>
+> | PR | student | arm | τ class | priced |
+> |---|---|---|---|--:|
+> | #704 | edward | nibble-delta scale planes, K1+K4 | bytes, τ≈1.06 | **+0.4247 %** |
+> | #705 | frieren | shipped-defaults audit (`DARKBLOOM_NVFP4_NIBBLE_SPLIT`) | bytes, τ≈1.06 | ~+1.0 % ceiling |
+> | #700 | alphonse | `gate_sp` latency excavation | **τ unknown — that is the deliverable** | 2.1 % or 0.02 % |
+> | #692 | tanjiro | A2 `_nax` narrow-bn (prefill) | prefill, submission-only | 0.11–0.30 % |
+> | #686 | fern | integration + lottery channel | — | +6 pp P(crown) via cadence |
+>
+> Edward's #704 re-priced under §0P.15's corrected 0.750 decode elasticity — his
+> own §6.3 table was computed at 0.638 and is **understated by 17.6 %**:
+>
+> | site | saving B/step | % of decode bytes | %score, corrected |
+> |---|--:|--:|--:|
+> | routed_gate_up (K1) | 9,904,128 | 0.5926 | **+0.2926** |
+> | routed_down (K4) | 4,472,832 | 0.2676 | **+0.1321** |
+> | **K1+K4 (in scope)** | **14,376,960** | **0.8602** | **+0.4247** |
+>
+> Row spans are ≤15 for **99.836 %** of routed_gate_up rows and **99.980 %** of
+> routed_down. Nezuko's `r109-b-rev3` bit-inexact metadata perturbation probe
+> (P0/P1/P2/P3 on K1 and K4) is the **GO/NO-GO gate**: predictions to beat are
+> K1 −42.7 µs/step and K4 −19.6 µs/step; GO ≥70 % of prediction, partial 30–70 %,
+> NO-GO <30 % or CI95 spanning zero ⇒ record `N-METADATA-BYTES-ARE-HIDDEN`.
+>
+> #### (9) Standing instrument discipline, consolidated
+>
+> - Read `decode_seconds_per_token` and `prefill_seconds_per_token` **RAW**.
+>   Pairing against the baseline legs costs 1.83× on decode and 9.28× on prefill.
+> - Single decode receipt: **sd 0.30 %**. Single prefill receipt: sd 0.2033 %.
+>   Score: sd 0.4938 % — the worst instrument we own.
+> - **`SPLIT=1` for attribution, `SPLIT=0` for ranking.** SPLIT=1 inflates wall by
+>   **+19.6 %** (2.875 µs/cb) and **mis-ranks arms**; SPLIT=0 instrumented wall is
+>   within 0.5 % of uninstrumented. This qualifies the older "SPLIT=1 mandatory"
+>   law. Single-run A/B **inverts the sign for 2 of 4 arms** (drift ±40 µs/step).
+> - `L-BYTES-BEFORE-STATISTICS`: when a receipt statistic implies another tree
+>   beats ours, `mlxfast reset <receipt> --force` into a scratch branch and
+>   `git diff` **first**.
+>
 > ### 0P.15 🧮 THE SCORE FORMULA IS EXACT, THE OFFICIAL SCORE IS THE **WORST** INSTRUMENT WE OWN, AND I RETRACT A "REGRESSION" I ALMOST ACTED ON
 >
 > Written 2026-08-11T01:3xZ (round 114, advisor). Sources: the receipt feed
