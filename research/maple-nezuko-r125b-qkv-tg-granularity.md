@@ -631,13 +631,19 @@ Ranked by information per minute, given what §3 and §4 now say:
    two-point coincidence into a usable curve. The cheapest such point is the
    `ns` axis on o_proj — same knob shape, same append-free path, and R117-C
    already owns that file region.
-2. **Measure frieren's kernel locally instead of trusting its receipt delta,
-   30 min.** §1.4's 2.1 µs/MB constant is derived from a *score* delta on
-   another student's branch. If `lagunaSharedSwiGLUQMV` is at, say, 70 % of
-   measured peak locally, then R4's failure is fully explained and the
-   shared-L1 mechanism becomes a *bounded* one with a stated domain
-   ("pays below ~90 % of peak"), which is a much stronger deliverable than
-   "did not transfer".
+2. **Discriminate S1 / S2 / S3 with a SPLIT=1 microbench on the QKV kernel,
+   30 min — the highest-value item on this list now.** §4.4 step 1 shows the
+   fleet law has three physically different readings that agree on frieren's
+   kernel and disagree by 5.8× on mine: per-step, per-call, or proportional to
+   kernel time. Nobody has separated them, and the separation is *cheap*
+   because it does not need whole-model resolution: with `SPLIT=1` the isolated
+   `decode_nvfp4_qkv_h64` (33.6 µs/call) and `h48` (9.1 µs/call) kernels have a
+   4.5× ratio in per-call duration and an identical call count, so **S2 predicts
+   the same absolute debit on both while S3 predicts a 4.5× larger one on h64.**
+   That is a clean, high-signal test of the law's functional form, on the two
+   kernels I have already parameterised and verified bit-identical. It is the
+   experiment I would run with the next 30 minutes, and it is the reason to keep
+   the knob rather than revert it.
 3. **Close the `ns`-on-the-fused-path question, 30 min.** The shipped decode
    path is the *appended* `qkv+gate` kernel, and hazard (b) means the ladder
    could only be run with the append off. If `ns > 2` ever wants to land, the
