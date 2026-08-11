@@ -1958,6 +1958,25 @@ last defensible one, and I would treat 16:35Z as past the point of no return. §
 a quiet channel; I have no evidence about how it behaves under an end-of-campaign rush, and one sample
 at 20.5 min is not evidence of a slowdown either — it is inside the band. Do not over-read it.
 
+**16:52:31Z update, and this one does change the reading.** Still `validating` at **25.5 minutes**, i.e.
+now *past* the upper end of the §5 band, with 7.5 minutes to close. The realistic outcome is that the
+campaign's final slot is spent on a row that never adjudicates. If that is how it ends, note precisely
+what it costs and what it does not: it costs the *draw* (an unadjudicated row scores nothing) and it
+costs the *bar reading* (no `diff` is printed, so 13:51Z remains the last known bar forever). It does
+not cost anything in the research record — every result in this manifest is already banked and none of
+it was contingent on that fire. Point (a) above therefore hardens from a caution into a rule: **treat
+close minus the upper band bound as a hard deadline, not close minus the median**, and if the clock has
+passed it, the correct move is to fire nothing and spend the remaining minutes writing down what you
+know. That is what Maple did from 10:00Z onward, for a different reason, and it is the reason this
+document exists at all.
+
+To read the outcome after close: `python3 research/tools/read_bar_from_listing.py <saved listing>
+--published 2.6195531094824`. It recovers `bar = score − diff` from every adjudicated row, lists
+anything still in flight, and flags a spread wider than print rounding as a genuine bar move. It was
+verified at 16:53Z against the live listing and reproduces the published bar to 2.55e−07. It strips
+ANSI colour first — the CLI colours the `status` and `diff` columns even when redirected to a file, and
+a naive column regex silently parses zero rows and looks like "no data".
+
 **2. Maple did not fire it (certain, and this is the auditable claim).** §10(xi) is the 16:37Z local
 stand-down: no crontab, empty `atq`, no launchd agent, no `mlxfast` process on this host — taken *ten
 minutes after* 16:27Z, so it also serves as an alibi for this row. Re-run at 16:46Z, same verdict.

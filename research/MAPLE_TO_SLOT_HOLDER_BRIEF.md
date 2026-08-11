@@ -68,7 +68,14 @@ shows **179 rows: 107 rejected + 70 failed + 1 promoted + 1 `validating`**. The 
   Published bar **2.6195531094824** stands as of 13:51Z and no later.
 - **The one number still worth collecting.** When `60cd9ca` adjudicates, `bar = score − diff` off that
   row is the only bar reading available after 13:51Z, and the only evidence anyone will have about
-  whether the crown moved during the afternoon. Read it.
+  whether the crown moved during the afternoon. Read it with
+  `python3 research/tools/read_bar_from_listing.py <saved listing> --published 2.6195531094824`
+  (verified 16:53Z; reproduces the published bar to 2.55e−07; strips the ANSI colour the CLI emits even
+  when redirected, which otherwise makes a column regex parse zero rows and look like "no data").
+- **16:52:31Z: still validating at 25.5 min**, past the upper end of the §5 band with 7.5 min left. The
+  likely ending is an unadjudicated final row — which costs the draw and costs that last bar reading,
+  and costs nothing in the research record. The rule it leaves behind: the last useful fire time is
+  **close minus the upper band bound**, not close minus the median.
 
 This supersedes the "slot is FREE / you can fire now" instruction in §0g and everything below it. The
 *bar* half of §0g is untouched, and every recommendation in §1–§7 is unchanged — they were never
