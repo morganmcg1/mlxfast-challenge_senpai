@@ -106,26 +106,30 @@ METAL_FUNC IndexValPair<bfloat16_t> argmax_bfloat16_100352(
   constexpr uint32_t wave_size = 4096;
   constexpr uint32_t full_waves = 24;
   Op op;
-  IndexValPair<bfloat16_t> best{0, Op::init};
+  IndexValPair<bfloat16_t> best0{0, Op::init}, best1{0, Op::init};
+  IndexValPair<bfloat16_t> best2{0, Op::init}, best3{0, Op::init};
+#define REDUCE_WAVE(BEST, OFFSET)                                      \
+  {                                                                   \
+    const device bfloat16_t* current = in + in_idx + (OFFSET);         \
+    bfloat16_t vals[reads] = {                                         \
+        current[0], current[1], current[2], current[3]};               \
+    BEST = op.template reduce_many<reads>(BEST, vals, OFFSET);         \
+  }
 
-  // The fixed vocabulary is 24 complete 4,096-element waves followed by one
-  // 2,048-element half wave. Preserve the generic loop's per-lane read order,
-  // but remove its 100,352 dynamic bounds checks.
-  for (uint32_t r = 0; r < full_waves; r++) {
+  for (uint32_t r = 0; r < full_waves; r += 4) {
     uint32_t offset = r * wave_size + lid * reads;
-    const device bfloat16_t* current_in = in + in_idx + offset;
-    bfloat16_t vals[reads] = {
-        current_in[0], current_in[1], current_in[2], current_in[3]};
-    best = op.template reduce_many<reads>(best, vals, offset);
+    REDUCE_WAVE(best0, offset);
+    REDUCE_WAVE(best1, offset + wave_size);
+    REDUCE_WAVE(best2, offset + 2 * wave_size);
+    REDUCE_WAVE(best3, offset + 3 * wave_size);
   }
   if (lid < 512) {
-    uint32_t offset = 98304 + lid * 4;
-    const device bfloat16_t* current_in = in + in_idx + offset;
-    bfloat16_t vals[reads] = {
-        current_in[0], current_in[1], current_in[2], current_in[3]};
-    best = op.template reduce_many<reads>(best, vals, offset);
+    REDUCE_WAVE(best0, 98304 + lid * 4);
   }
-  return best;
+#undef REDUCE_WAVE
+  best0 = op.reduce(best0, best1);
+  best2 = op.reduce(best2, best3);
+  return op.reduce(best0, best2);
 }
 
 template <typename T, typename Op, int N_READS = 4>
