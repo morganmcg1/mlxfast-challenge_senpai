@@ -96,6 +96,34 @@ func lagunaTrace(_ site: @autoclosure () -> String) {
     lagunaTracedFusions.note(site())
 }
 
+private let lagunaRouteHistogramEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_ROUTE_HISTOGRAM"] == "1"
+private let lagunaRouteHistogramLog = LagunaRouteHistogramLog()
+
+final class LagunaRouteHistogramLog: @unchecked Sendable {
+    private var callCount = 0
+    private let lock = NSLock()
+
+    func note(_ indices: MLXArray) {
+        lock.lock()
+        guard callCount < 38 else {
+            lock.unlock()
+            return
+        }
+        callCount += 1
+        let call = callCount
+        lock.unlock()
+
+        eval(indices)
+        var counts = [Int](repeating: 0, count: 256)
+        for index in indices.asArray(UInt32.self) {
+            counts[Int(index)] += 1
+        }
+        let values = counts.map { String($0) }.joined(separator: ",")
+        FileHandle.standardError.write(Data("mlxfast: route-hist \(call) \(values)\n".utf8))
+    }
+}
+
 // MARK: - Runtime fusion feature flags
 
 // Each fusion below concatenates the OUTPUT ROWS of same-dtype projections
@@ -10680,6 +10708,9 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
         routerKeys: MLXArray? = nil
     ) -> MLXArray {
         let (inds, weights) = gate(x, logits: routerLogits)
+        if lagunaRouteHistogramEnabled, x.dim(1) == 512 {
+            lagunaRouteHistogramLog.note(inds)
+        }
         var y: MLXArray
         var routedAlreadyReduced = false
         var sortedTailInverseOrder: MLXArray?
