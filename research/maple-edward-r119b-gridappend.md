@@ -325,7 +325,70 @@ routed QMV had no bandwidth headroom to donate to the shared QMV.
 
 ### 3.8 Ranked end-to-end campaign
 
-*(campaign in flight; filled in when it lands)*
+This is the ranked axis: end-to-end per-step decode wall with `DARKBLOOM_GPU_PROFILE`
+unset (SPLIT=0), 256 steps per run, step 0 discarded, 255 measured cycles per run
+(the assignment asks for ≥64). Arm `C` is gate 0, arm `F` is gate 1. Blocks are
+`CFFC` for the `abba` order and `FCCF` for the mirrored `baab` order, so every
+block is balanced and the two orders are exact mirrors. Sign convention below is
+**baseline minus candidate, so a positive delta means the candidate is faster.**
+
+| order | n(C)/n(F) | raw samples/arm | estimator | Δ ms/step | 95 % CI | p | verdict |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `abba` | 18 / 18 | 4,590 | block (9) | −0.0073 | [−0.0173, +0.0026] | 0.126 | includes zero |
+| `abba` | 18 / 18 | 4,590 | adjacent-pair (18) | −0.0073 | [−0.0173, +0.0026] | 0.137 | includes zero |
+| `abba` | 18 / 18 | 4,590 | Welch (df 25.7) | −0.0073 | [−0.0162, +0.0015] | 0.101 | includes zero |
+| `baab` | 18 / 18 | 4,590 | block (9) | −0.0035 | [−0.0107, +0.0038] | 0.299 | includes zero |
+| `baab` | 18 / 18 | 4,590 | adjacent-pair (18) | −0.0035 | [−0.0089, +0.0019] | 0.191 | includes zero |
+| `baab` | 18 / 18 | 4,590 | Welch (df 24.0) | −0.0035 | [−0.0086, +0.0016] | 0.171 | includes zero |
+| pooled | 36 / 36 | 9,180 | block (18) | −0.0054 | [−0.0110, +0.0001] | 0.055 | includes zero |
+| pooled | 36 / 36 | 9,180 | adjacent-pair (36) | −0.0054 | [−0.0108, −0.0000] | 0.0495 | excludes zero |
+| pooled | 36 / 36 | 9,180 | Welch (df 52.1) | −0.0054 | [−0.0104, −0.0005] | 0.032 | excludes zero |
+
+Reference `mean(C)` = 8.2031 ms/step pooled (8.2023 `abba`, 8.2038 `baab`).
+
+Read of the ranked axis, stated in the strongest form the data supports:
+
+- **Neither mirrored order shows a win.** In both orders all three estimators
+  include zero, so on the assignment's own per-order reporting requirement there
+  is no shippable interval.
+- **Every point estimate has the same sign, and it is the wrong sign.** `abba`
+  −7.3 µs/step, `baab` −3.5 µs/step, pooled −5.4 µs/step: the candidate is
+  *slower*. Sign agreement across exact mirrors is the thing the mirrored design
+  exists to test, so this is not an order-drift artifact.
+- **Pooled, two of three estimators marginally exclude zero on the regression
+  side** (−0.066 % of decode wall, p = 0.032–0.0495). I do not claim this as a
+  confidently established regression — it is marginal, and the block estimator
+  disagrees — but it is decisively not the ≥0.283 % gain the fork required.
+- The best case consistent with any of these intervals is +0.0026 ms/step, i.e.
+  a saving of 2.6 µs/step, still 18× below the 48.3 µs/step refutation floor.
+
+Negative control, run as an extra phase with the same `CFFC`-style block
+structure (`CNNC` × 4) where arm `N` is byte-identical to arm `C` (both gate 0):
+
+| estimator | Δ ms/step | 95 % CI | p | verdict |
+| --- | --- | --- | --- | --- |
+| block (4) | −0.0012 | [−0.0126, +0.0102] | 0.762 | includes zero |
+| adjacent-pair (8) | −0.0012 | [−0.0096, +0.0073] | 0.749 | includes zero |
+| Welch (df 9.9) | −0.0012 | [−0.0090, +0.0066] | 0.740 | includes zero |
+
+The control's point estimate is 4.5× smaller than the pooled candidate effect and
+all three intervals contain zero, so the block structure does not manufacture a
+label-correlated shift. Honest limitation: with only 4 blocks the control's own
+resolution is ±0.009–0.011 ms, which is *wider* than the 0.0054 ms pooled effect.
+The control therefore rules out a large instrument artifact; it does not
+independently certify 5 µs discrimination. That is a further reason to treat the
+pooled marginal regression as suggestive rather than established, and it does not
+affect the refutation, which turns on a 48.3 µs threshold that every interval
+here excludes by an order of magnitude.
+
+**Instrument health.** No arm is bimodal. Smoothed-histogram peak counts are
+`modes=1` for every arm in every phase, and the Sarle coefficients that exceed
+0.555 in a few individual runs collapse to ≈0.45 on the central 98 % of samples,
+i.e. they are inflated by a one-sided right tail (occasional slow steps), not by
+a second mode. Per §6 of the assignment, bimodality would have meant instrument
+failure and a stop; that condition did not occur, so these intervals stand.
+
+All 88 timed runs produced byte-identical token dumps.
 
 ## 4. Verdict
 
@@ -341,8 +404,10 @@ underpowered null.** Both measured axes agree:
 
 - GPU busy time in the shipped batching regime fell by 20.9 µs/step, 95 % CI
   [10.6, 31.2] µs/step (§3.7). The entire interval is below 48.3 µs/step.
-- End-to-end per-step decode wall, the ranked quantity, moved by an amount whose
-  95 % interval contains zero and whose favourable end is still below the floor
+- End-to-end per-step decode wall, the ranked quantity, did not improve at all.
+  In both mirrored orders all three estimators contain zero; pooled over 72 runs
+  the point estimate is a 5.4 µs/step *regression* (−0.066 %), and the most
+  favourable end of any interval is a 2.6 µs/step saving — 18× below the floor
   (§3.8).
 
 The host-regression gate specified in the assignment did **not** fire: the fused
@@ -378,7 +443,14 @@ QMV dispatches that MLX already co-encodes into one unbarriered command buffer
 recovers dispatch-boundary overhead only, and that overhead is roughly a factor
 of two smaller than the calibrated per-dispatch price. It recovers no bandwidth,
 because the two kernels share almost no bytes and the host is near its DRAM
-roof.
+roof. Worse, on the ranked wall axis even that small GPU-time recovery does not
+survive: pooled over 72 runs the wall moves 5.4 µs/step in the *wrong* direction
+while GPU busy time falls 20.9 µs/step. The single instrumented pair is
+consistent with why — inter-command-buffer gap per step grew from 0.219 ms to
+0.256 ms while busy fell, so the decode step was not GPU-busy-bound at this
+margin and the freed GPU time was reabsorbed by scheduling. I have an interval on
+busy and on wall but only one measurement of the gap, so I offer the gap as the
+plausible mechanism rather than as an established one.
 
 The actionable rule: before pricing a dispatch-count reduction at the calibrated
 constant, check what kind of boundary is being removed. Reductions worth pricing
@@ -410,10 +482,12 @@ re-stream both operands' weights should be priced at zero bandwidth benefit.
 ### 4.5 Ship decision
 
 **Do not ship.** Section 7 of the assignment permits shipping only on a positive
-interval that excludes zero, and the ranked interval contains zero. The fused
-kernel therefore stays behind `DARKBLOOM_SHARED_ROUTED_QMV_FUSED`, default OFF,
-so the submitted surface is behaviourally identical to the base and the
-mechanism remains available and documented for a future M5 re-test.
+interval that excludes zero. Per mirrored order every interval contains zero, and
+pooled the two intervals that do exclude zero exclude it on the regression side.
+There is no reading of the ranked axis under which this ships. The fused kernel
+therefore stays behind `DARKBLOOM_SHARED_ROUTED_QMV_FUSED`, default OFF, so the
+submitted surface is behaviourally identical to the base while the mechanism
+remains available and documented for a future M5 re-test.
 
 ### 4.6 Honest deviations from the assignment text
 
