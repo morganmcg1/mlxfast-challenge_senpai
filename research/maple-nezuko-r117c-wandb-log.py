@@ -19,7 +19,15 @@ Every number is from the local M4 Pro host via ./benchmark.sh --local-submit
 
 Usage:  research/maple-nezuko-r117c-wandb-log.py ROWS.tsv [ROWS2.tsv ...]
 Env:    WANDB_NAME / WANDB_NOTES optional overrides
+        REF_ARM picks the reference arm (default: first arm seen in the file)
         B=20000 bootstrap resamples, SEED=117
+
+Blocks are keyed on (session, block), so passing two ladder files never pairs a
+block from one session against a same-numbered block from another.
+
+WANDB_DIR defaults to a path OUTSIDE the git checkout: `wandb/` is not in
+.gitignore in this tree, and a run that dirties the worktree would block the
+next `run_job` (which requires a clean tree).
 """
 import os
 import random
@@ -58,6 +66,8 @@ def main():
         return 2
     B = int(os.environ.get("B", "20000"))
     seed = int(os.environ.get("SEED", "117"))
+    wdir = os.environ.setdefault("WANDB_DIR", "/tmp/wandb-nezuko-r117c")
+    os.makedirs(wdir, exist_ok=True)
 
     rows = []
     for p in paths:
@@ -132,27 +142,36 @@ def main():
             summary[f"level/{a}_us_per_token_median"] = median(vals)
             summary[f"level/{a}_n"] = len(vals)
 
-    for a in arms:
-        if a == ref:
-            continue
-        blocks = sorted(b for b in tab if a in tab[b] and ref in tab[b])
-        D = [tab[b][a] - tab[b][ref] for b in blocks]
-        if not D:
-            continue
-        med = median(D)
-        lo, hi = boot_ci(D, B, seed)
-        key = f"{a}_minus_{ref}"
-        refmean = sum(tab[b][ref] for b in blocks) / len(blocks)
-        summary.update({
-            f"contrast/{key}/median_us": med,
-            f"contrast/{key}/mean_us": sum(D) / len(D),
-            f"contrast/{key}/ci95_lo_us": lo,
-            f"contrast/{key}/ci95_hi_us": hi,
-            f"contrast/{key}/covers_zero": bool(lo <= 0 <= hi),
-            f"contrast/{key}/n_blocks": len(D),
-            f"contrast/{key}/pct_decode_wall": 100.0 * med / refmean,
-            f"contrast/{key}/pct_cs_alpha": med * K_ALPHA * PCT_CS_PER_US,
-        })
+    # Every ordered pair, not just arm-minus-ref. The pre-registered primary and
+    # the headline contrast can have different references (here R2-G4 is the
+    # pre-registered one and R2-C is the ungated headline), and a reader should
+    # not have to trust that I picked the reference honestly -- all of them are
+    # published side by side.
+    for cand in arms:
+        for base in arms:
+            if cand == base:
+                continue
+            blocks = sorted(b for b in tab if cand in tab[b] and base in tab[b])
+            D = [tab[b][cand] - tab[b][base] for b in blocks]
+            if not D:
+                continue
+            med = median(D)
+            lo, hi = boot_ci(D, B, seed)
+            n_neg = sum(1 for d in D if d < 0)
+            key = f"{cand}_minus_{base}"
+            basemean = sum(tab[b][base] for b in blocks) / len(blocks)
+            summary.update({
+                f"contrast/{key}/median_us": med,
+                f"contrast/{key}/mean_us": sum(D) / len(D),
+                f"contrast/{key}/ci95_lo_us": lo,
+                f"contrast/{key}/ci95_hi_us": hi,
+                f"contrast/{key}/covers_zero": bool(lo <= 0 <= hi),
+                f"contrast/{key}/n_blocks": len(D),
+                f"contrast/{key}/blocks_negative": n_neg,
+                f"contrast/{key}/pct_decode_wall": 100.0 * med / basemean,
+                f"contrast/{key}/pct_cs_alpha": med * K_ALPHA * PCT_CS_PER_US,
+                f"contrast/{key}/is_reference_arm": bool(base == ref),
+            })
 
     run.summary.update(summary)
     for k in sorted(summary):

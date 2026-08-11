@@ -18,16 +18,16 @@ Host: Apple M4 Pro, 20 GPU cores, 48 GiB. All levels are `--local-submit`, 1023 
 
 ## 0. Findings index
 
-| # | ID | Type | Status |
-|---|---|---|---|
-| F1 | `N-ATTN-BYTE-FLOOR` | negative, closes the assigned mechanism | proven |
-| F2 | `N-ATTN-BYTE-DOSE-SUPERADDITIVE` | positive methodological, pricing correction | proven, CI excludes 0 |
-| F3 | `N-EMPTY-DISPATCH-SPEEDUP-IS-CONFOUND` + OFFSET CLASS | negative, non-reproduction | proven (R114) |
-| F4 | r94 decode-residue ledger byte overcount | correction to another student's artefact | proven, arithmetic |
-| F5 | order artefacts land in the **intercept**, not the slope, on a rotation design | methodological | proven by self-test |
-| F6 | byte→time transfer τ = **+0.780 [+0.727, +0.833]** (honest band [0.73, 1.08]) | reusable calibration | measured, 35 runs |
-| F7 | o_proj geometry `rps 4→2`: **−79.4 µs/token = −0.885 % decode** | **positive, LANDED**; byte model falsified *by sign* (occupancy-limited, not bandwidth-limited) | **M4-proven, M5-pending**: CI95 [−87.8, −71.1] excludes 0, 8/8 blocks, control covers 0, single golden across 24+1 runs — but every second of it is M4 Pro |
-| F8 | `sliding_fused_attn_ring_v1` dispatches **32 threadgroups on 20 cores** | hand-off, static + profile evidence | proven by dispatch dump, unmeasured |
+| # | ID | Type | Status | where |
+|---|---|---|---|---|
+| F1 | `N-ATTN-BYTE-FLOOR` | negative, closes the assigned mechanism | proven | §1 |
+| F2 | `N-ATTN-BYTE-DOSE-SUPERADDITIVE` | positive methodological, pricing correction | proven, CI excludes 0 | §2.4 |
+| F3 | `N-EMPTY-DISPATCH-SPEEDUP-IS-CONFOUND` + OFFSET CLASS | negative, non-reproduction | proven (R114) | §3 |
+| F4 | r94 decode-residue ledger byte overcount | correction to another student's artefact | proven, arithmetic | §4 |
+| F5 | order artefacts land in the **intercept**, not the slope, on a rotation design | methodological | proven by self-test | §2.6 |
+| F6 | byte→time transfer τ = **+0.780 [+0.727, +0.833]** (honest band [0.73, 1.08]) | reusable calibration | measured, 35 runs | §2.2 |
+| F7 | o_proj geometry `rps 4→2`: **−79.4 µs/token = −0.885 % decode** | **positive, LANDED**; byte model falsified *by sign* (occupancy-limited, not bandwidth-limited) | **M4-proven, M5-pending**: CI95 [−87.8, −71.1] excludes 0, 8/8 blocks, control covers 0, single golden across 24+1 runs — but every second of it is M4 Pro | §5 |
+| F8 | `sliding_fused_attn_ring_v1` dispatches **32 threadgroups on 20 cores** | hand-off, static + profile evidence | proven by dispatch dump, unmeasured | §6 |
 
 ### 0b. Corrections log — things I published and then had to take back
 
@@ -424,12 +424,31 @@ the gate rather than the geometry.
 
 A **single golden hash across all 24 runs** and 0 correctness failures.
 
-**Paired contrasts (marginal, reference `C`):**
+**Paired contrasts (marginal, reference `C`).** The point is the **mean** of the
+eight paired per-block differences and the interval is the **Student-t** CI on
+that mean — *not* the bootstrap:
 
-| contrast | point | CI95 | covers 0 | sign-flip p | t |
+| contrast | mean | Student-t CI95 | covers 0 | sign-flip p | t |
 |---|---|---|---|---|---|
 | **`R2` − `C`** | **−79.431 µs/token** | **[−87.811, −71.050]** | **NO** | **0.0078** | −22.4 |
 | `G4` − `C` (control) | −8.359 µs/token | [−33.267, +16.549] | **YES** | 0.727 | −0.79 |
+
+Because the advisor's standing requirement is a **bootstrap CI on the median**,
+and because a t-interval on n = 8 leans on a normality assumption I have not
+earned, here are the same two contrasts as median + percentile block bootstrap
+(B = 20000, seed 117), which is the estimand of record:
+
+| contrast | median | bootstrap CI95 on the median | covers 0 | blocks negative |
+|---|---|---|---|---|
+| **`R2` − `C`** | **−78.798 µs/token** | **[−89.244, −70.092]** | **NO** | **8/8** |
+| `C` − `G4` (control) | −0.886 µs/token | [−8.031, +11.036] | **YES** | 4/8 |
+| `R2` − `G4` (pre-registered primary) | −71.670 µs/token | [−93.179, −66.492] | **NO** | 8/8 |
+
+The mean and the median of `R2 − C` differ by 0.6 µs (−79.431 vs −78.798) and
+the two interval constructions overlap heavily, so nothing in this result turns
+on which estimator or which interval a reader prefers. I quote the mean in the
+headline only because it is the quantity the submitted `primary_metric` delta is
+computed from (arm level difference = difference of arm means, exactly).
 
 `R2 − C` is **−0.885 % decode** [−0.979, −0.792], and **8/8 blocks are negative**.
 `p = 0.0078` is the floor of the exact sign-flip test at n = 8 — the design cannot
