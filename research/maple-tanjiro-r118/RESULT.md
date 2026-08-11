@@ -395,7 +395,7 @@ A zero selected-test count is not a pass; the count above is non-zero.
 "Rule 105.15" for the non-zero-test-count gate. That is shorthand and it is not
 what 105.15 says. The gate is official and lives in `AGENTS.md:108-110` — the
 wrapper "refuses to call a zero-test invocation a pass". Rule 105.15
-(`CURRENT_RESEARCH_STATE.md:9223`) is the *narrower* and equally binding point
+(`research/CURRENT_RESEARCH_STATE.md:9223-9236`) is the *narrower* and equally binding point
 that `max_abs_diff` is a hard-coded schema constant and `golden_hash` is the input
 digest, so **neither is correctness evidence and neither is cited here**. I claim
 exact token-ID equality from the equivalence oracle and nothing else.

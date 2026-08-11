@@ -78,11 +78,41 @@ null.
 | **R118-A target, shared gate+up QMV** | **256** | **12.8** | **no** |
 | routed gate+up QMV (positive control) | 2048 | 102.4 | no |
 
-**It is fixed-cost-side.** 39 dispatches per step against the campaign's audited
-Rule 55 per-dispatch intercept of 3.97 µs on M4 is 155 µs/step of floor before a
-single byte moves — 2.3× the entire 68 µs excess. The excess does not need a
-bandwidth explanation; it fits inside the dispatch floor with room to spare, and
-the dose curve says the part that is *not* floor is small.
+**It is fixed-cost-side — but the arithmetic I first used for that is wrong, and
+here is the correction.** An earlier draft of this section read: *"39 dispatches
+per step against the campaign's audited Rule 55 per-dispatch intercept of 3.97 µs
+on M4 is 155 µs/step of floor before a single byte moves — 2.3× the entire 68 µs
+excess."* Three things are wrong with it and I am retracting all three rather than
+editing them out of sight.
+
+1. **Wrong quantity.** 3.97 µs is the intercept of a *DRAM cost model* fitted to
+   the three trio kernels, `t = 3.97 µs + bytes / 266.3 GB/s`
+   (`research/CURRENT_RESEARCH_STATE.md:5668-5672`). It is not an audited
+   per-dispatch launch tax, and multiplying it by 39 is an aggregation Rule 55
+   does not license. It is also a **SPLIT=1 (GPU-busy) quantity** — nezuko's R93-C
+   stall-structure census says so explicitly
+   (`research/maple-nezuko-r93-c-stall-structure-census.md:293-294`) — so even
+   taken at face value the 155 µs/step is *busy*, and at my measured τ band
+   [0.29, 0.79] it is 45–122 µs/step of wall: a bracket around 68, not a 2.3×
+   margin. Per-family intercepts also disagree with the pooled fit (qkv 2.29 µs,
+   oproj 8.39 µs), so the pooled 3.97 is not a precision instrument for one family.
+2. **Contradicted by the adjacent rule.** Rule 53
+   (`research/CURRENT_RESEARCH_STATE.md:5661-5663`) is
+   *"THERE IS NO DECODE DISPATCH RESIDUE. The 24-label ledger closes to +0.3 µs
+   over 406/406 dispatches."* A 155 µs/step harvestable dispatch floor cannot
+   coexist with that ledger, and I am not going to claim one.
+3. **Inverts Rule 55's own conclusion.** Rule 55's headline is that these kernels
+   are *bandwidth*-bound at 92.2 % of sequential-read peak and that
+   "memory-latency-bound is excluded". Citing it to argue that "the excess does not
+   need a bandwidth explanation" points the rule against its own finding.
+
+What survives is the number that was actually audited at SPLIT=0: alphonse's
+dispatch tax of **0.4478 µs/dispatch** (#700 §6.3), which over 39 calls is
+**17.5 µs/step** — about 4× *below* the 68.7 µs/step bar, not above it. So the
+honest statement is not "the excess fits inside a huge dispatch floor" but "the
+realisable dispatch-structure prize here is small, and the dose curve says the
+interior prize is smaller still." Both roads are under the bar; that is the
+terminal negative, and it does not need the retracted 155.
 
 ## 5. The τ paragraph, in the same paragraph as the profiled claim
 

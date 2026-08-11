@@ -73,6 +73,10 @@ realisation factor:
 > (2) router top-8 retiled onto that grid, similar. Together **~−60**, not −215:
 > run ONE assignment with a shared ABBA, not two noise-level arms."
 
+*(The bare `:10958` is alphonse's own citation, quoted verbatim [sic]. For a
+reader: it resolves to `Sources/MLXFastModel/LagunaRuntimeModel.swift:10958`,
+inside the `lagunaRoutedSwiGLUQMV(` call that begins at :10954.)*
+
 Follow-up (1) *is* my target. **25–30 µs/step against a 68.7 µs/step bar**, and
 even bundled with the router retile the pair reaches only ~60 µs/step — still
 short, and that bundle is no longer one kernel's excess.
