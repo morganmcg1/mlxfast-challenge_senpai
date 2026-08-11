@@ -96,6 +96,37 @@ func lagunaTrace(_ site: @autoclosure () -> String) {
     lagunaTracedFusions.note(site())
 }
 
+/// Reads the measurement-relevant environment with `getenv` from inside the
+/// running worker, after startup has applied the memory-profile overrides, and
+/// prints the resolved o_proj geometry alongside it, so a research cell can
+/// prove which configuration it actually measured.
+private let lagunaMeasurementEnvironmentReport: Void = {
+    func read(_ name: String) -> String {
+        guard let raw = getenv(name) else { return "\(name)=<unset>" }
+        return "\(name)=\(String(cString: raw))"
+    }
+    guard let flag = getenv("DARKBLOOM_REPORT_CB_ENV"), String(cString: flag) == "1" else {
+        return
+    }
+    let fields = [
+        read("DARKBLOOM_STARTUP_MEMORY_PROFILE"),
+        read("MLX_MAX_OPS_PER_BUFFER"),
+        read("MLX_MAX_MB_PER_BUFFER"),
+        read("MLX_BFS_MAX_WIDTH"),
+        read("DARKBLOOM_OPROJ_ROWS_PER_SIMDGROUP"),
+        read("DARKBLOOM_OPROJ_SIMDGROUPS"),
+        "resolved_rps=\(lagunaOProjRowsPerSimdgroup)",
+        "resolved_ns=\(lagunaOProjSimdgroups)",
+        "resolved_suffix=\(lagunaOProjRowsPerSimdgroupSuffix.isEmpty ? "<empty>" : lagunaOProjRowsPerSimdgroupSuffix)",
+    ]
+    FileHandle.standardError.write(Data("mlxfast: cb-env: \(fields.joined(separator: " "))\n".utf8))
+}()
+
+@inline(__always)
+func lagunaReportMeasurementEnvironment() {
+    _ = lagunaMeasurementEnvironmentReport
+}
+
 
 
 
@@ -11903,6 +11934,7 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
     }
 
     public func callAsFunction(_ inputs: MLXArray, cache: [KVCache]?) -> MLXArray {
+        lagunaReportMeasurementEnvironment()
         let fullHidden = model(inputs, cache: cache)
 
 
