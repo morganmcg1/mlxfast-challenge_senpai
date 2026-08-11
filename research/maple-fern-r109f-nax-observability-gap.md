@@ -21,7 +21,7 @@ sit exactly on the matrix–matrix paths and never on the matrix–vector paths:
 | stage | kernel family | NAX-gated? | same kernels locally as on ranked? |
 |---|---|:-:|:-:|
 | decode — quantized matvec | `qmv`, `qvm`, `gather_qmv`, `gather_qvm` | **no** | **yes** |
-| decode — attention (`q_len ≤ 8`) | `sdpa_vector`, `sdpa_vector_2pass` | **no** | **yes** |
+| decode — attention (`q_len ≤ 8`) | `sdpa_vector`, `sdpa_vector_2pass` | **no** | **same path, maybe not the same kernel — see §7** |
 | prefill — quantized matmul | `qmm`, `gather_qmm`, `gather_qmm_rhs`, `GatherQMM` | **yes** | **no** |
 | prefill — dense GEMM | `steel_matmul_regular_axpby_nax`, `steel_gemm_splitk_axpby_nax`, `steel_gemm_segmented_nax`, `gather_mm_rhs_nax` | **yes** | **no** |
 | prefill — attention | `sdpa_full_self_attention_nax` | **yes** | **no** |
@@ -31,7 +31,7 @@ sit exactly on the matrix–matrix paths and never on the matrix–vector paths:
 score is the observable half — which is lucky, and which should decide where the
 remaining effort goes.
 
-Three consequences, in descending order of how much work they cancel:
+Five consequences, in descending order of how much work they cancel:
 
 1. **Arm A2 (fused-NAX `bn` 128→64, `matmul.cpp:213-218`) has zero local
    observability.** It edits `steel_matmul_regular_axpby_nax`, reached only from
@@ -48,6 +48,24 @@ Three consequences, in descending order of how much work they cancel:
    prefill. That gap was unexplained. It is the NAX split: decode runs the same
    kernels on both hosts and the 2.63× is hardware, while prefill runs a
    *different kernel family* on each host, so its 6.0× is hardware × NAX.
+4. **NAX is not the only host fork (§7).** Nine sites in the same backend branch
+   on `d.get_architecture().back()` — the trailing letter of the architecture
+   string, `'s'` here. One of them,
+   `scaled_dot_product_attention.cpp:747`, chooses between `sdpa_vector_2pass`
+   and `sdpa_vector` on that letter alone, with no NAX involvement. Every local
+   decode measurement in this campaign therefore ran the 2-pass kernel; the
+   ranked host's letter is unknown, so it may be running the other one. Consequence:
+   decode edits split into *quantised-GEMV* (best transfer) and
+   *attention* (medium transfer — real local signal, sign may not carry). §7.2
+   also isolates `MLX_SDPA_BLOCKS`, a run-time decode-path knob needing no
+   rebuild — the cheapest remaining local experiment here.
+5. **The no-op audit (§8).** Two portfolio knobs are arithmetically inert
+   because they are already pinned at a shape-derived clamp: A1's
+   `darkbloom_expert_down_bn`, and `DARKBLOOM_AOT_SDPA_PLANES` (4, capped at
+   `v_per_thread = V/BD = 4`). One knob is genuinely open:
+   `DARKBLOOM_AOT_SDPA_2PASS_PLANES = 1` against a cap of 4, on the 2-pass
+   kernel this host actually runs. The generalisable rule: before spending a
+   build or a slot on a tunable, read the expression that *consumes* it.
 
 ---
 
@@ -247,9 +265,166 @@ than it was sound.
   first order in the published number. What does not cancel is *observability*:
   a solver on a gen-16 host is editing code they cannot execute.
 - It does not explain the residual local/ranked decode ratio of 2.63×. That is
-  hardware — clocks, bandwidth, cache — and it is a scale factor, not a change
-  of kernel, which is exactly why the decode leg transfers and the prefill leg
-  does not.
+  hardware — clocks, bandwidth, cache — and for the quantised matrix-vector
+  kernels it is a scale factor, not a change of kernel, which is why the decode
+  leg transfers better than the prefill leg.
+  **Scope correction (see §7): "not a change of kernel" is true of `qmv`/`qvm`
+  but false of decode *attention*.** Nine sites in the vendored MLX backend
+  branch on `d.get_architecture().back()` — the trailing letter of the
+  architecture string — and one of them (`scaled_dot_product_attention.cpp:747`)
+  chooses between two *different* decode-attention kernels on that letter alone,
+  with no NAX involvement. Our host's letter is `'s'`; the ranked host's letter
+  is unknown. So the decode leg is *mostly* transferable, not wholly.
 - It says nothing about correctness. All local arms passed the golden gate
   (`b9509697c08a2cf3`), and the fallback kernels are the reference
   implementations, not approximations.
+
+## 7. The arch-suffix fork: a second, non-NAX portability hazard
+
+NAX is not the only host-dependent switch in the vendored backend, and it is not
+even the most subtle one. `is_nax_available()` at least announces itself: it is
+one named predicate, and every call site reads like a feature gate. The second
+hazard is anonymous. It is the *last character of the architecture string*.
+
+`MTL::Device` reports an architecture name like `applegpu_g16s`. The backend
+parses a generation number out of it (`device.cpp:560-572`) and also, separately
+and in nine different places, looks at the trailing letter:
+
+| file | line | what the letter decides |
+|---|---|---|
+| `device.cpp` | 924 | second half of the NAX predicate (`'p'` needs gen >= 18, else >= 17) |
+| `matmul.cpp` | 216 | steel GEMM tile selection |
+| `matmul.cpp` | 378 | ditto, second shape regime |
+| `matmul.cpp` | 897 | NAX-vs-classic GEMM dispatch |
+| `matmul.cpp` | 2158 | gather-MM tiles |
+| `matmul.cpp` | 2354 | segmented-GEMM tiles |
+| `quantized.cpp` | 89 | `get_qmv_batch_limit()` -- with `get_architecture_gen()`; gens 13/14 switch on `'d'` |
+| `scaled_dot_product_attention.cpp` | 443 | SDPA block-count ladder |
+| `scaled_dot_product_attention.cpp` | **747** | **which decode-attention kernel runs at all** |
+
+Static reading only -- nine `grep`-confirmed sites
+(`grep -rn "get_architecture().back()" Vendor/.../backend/metal/`), no builds, no
+behavioural claim beyond what the source says. `device_info.cpp:32` also reads
+`get_architecture()` but only to *report* the string, so it is not a branch and
+is not counted.
+
+### 7.1 The dispatch fork at `scaled_dot_product_attention.cpp:747`
+
+```
+char devc = d.get_architecture().back();
+if (((devc == 'd' || devc == 's') && k.shape(2) >= 1024) ||
+    (k.shape(1) < q.shape(1) && k.shape(2) >= 4096)) {
+  sdpa_vector_2pass(...);
+} else {
+  sdpa_vector(...);
+}
+```
+
+Both branches are on the *decode* path -- the vector path, reached whenever
+`query_sequence_length <= 8` (`sdpa.cpp:634`), which is every decode step.
+Neither branch is NAX-gated. The only thing separating them, at our sequence
+lengths, is whether the letter is `'s'`/`'d'`.
+
+Our host's letter is `'s'` (probe output: `architecture = applegpu_g16s`,
+`back() = 's'`), so **every local decode measurement in this campaign ran
+`sdpa_vector_2pass`**. The ranked host is gen >= 17 (>= 18 if its letter is
+`'p'`) and its letter is unknown to us. If it is not `'s'` or `'d'`, ranked
+decode attention runs `sdpa_vector` -- the single-pass kernel -- a *different*
+kernel, with a different reduction structure, at the same sequence length.
+
+This is why the §6 bullet needed correcting. "Local decode runs the same kernels
+as ranked, just slower" is a safe statement about `qmv`/`qvm` (not NAX-gated, not
+suffix-branched). It is **not** safe about attention. A decode-attention edit
+that helps the 2-pass kernel locally may land on the 1-pass kernel remotely and
+do nothing, or the reverse. The 0.638 decode elasticity still holds -- the score
+formula does not care which kernel produced the time -- but the *transfer
+assumption* behind "measure locally, harvest on ranked" is weaker for attention
+edits than for quantised-GEMV edits. Rank the arms accordingly:
+
+1. quantised matvec / dequant / gather-GEMV edits -- same kernel both hosts,
+   full local observability. **Best transfer.**
+2. decode-attention edits -- same *path*, possibly different *kernel*. Local
+   measurement is real but its sign may not carry. **Medium transfer.**
+3. prefill GEMM / fused-NAX edits -- locally unreachable code. **No transfer;
+   see §3.**
+
+### 7.2 The block ladder and `MLX_SDPA_BLOCKS`
+
+`scaled_dot_product_attention.cpp:440-478` picks the SDPA block count from the
+same letter plus the key length `N` and the simd count:
+
+- `'s'` -> 64; and if `N > 1024 && n_simds > 4`: 128 (`N <= 8192`), 256
+  (`<= 32768`), 512 (`<= 65536`), else 1024.
+- `'d'` -> 128; 256 if `n_simds <= 2 && N > 8192`; 512/1024 when `n_simds >= 6`
+  at `N >= 16384` / `>= 65536`.
+- anything else -> 64 if `n_simds >= 4`, otherwise 32.
+
+The ladder is overridable at run time by the environment variable
+`MLX_SDPA_BLOCKS` (`:477`). That matters operationally: it is a **decode-path,
+non-NAX, no-rebuild knob**. It can be swept locally with
+`research/fern_r109f_env_bench.sh <label> MLX_SDPA_BLOCKS=<n>` at ~155 s per arm
+against the atlas-v3 baseline of `0.0129499915312` s/token, without touching the
+build or spending a submission slot. It is the cheapest remaining decode
+experiment in the workspace. (Its *transfer* is category 2 above: worth knowing,
+not worth betting a ranked receipt on by itself.)
+
+## 8. The no-op audit: check the clamp before you spend the build
+
+Two knobs in the inherited portfolio are arithmetically incapable of doing
+anything, and both were promoted before anyone read the clamp.
+
+**A1 -- `darkbloom_expert_down_bn` 64 -> 32.** Already recorded: the function
+returns 64 and its only call site is inside `gather_qmm_rhs_nax`
+(`quantized.cpp` ~1390) where `bm = bn = bk = 64` is already fixed. Dead twice
+over: no-op *and* NAX-unreachable.
+
+**`DARKBLOOM_AOT_SDPA_PLANES` 4 -> higher.** `Vendor/.../kernels/sdpa_vector.h:8`
+defines it as 4. Inside `sdpa_vector` (template at `:52`), `BN = BD = 32`,
+`v_per_thread = V / BD = 4`, and
+
+```
+v_planes = min(PLANES, v_per_thread)
+```
+
+so `PLANES = 4` is *already at its cap*. Raising it changes nothing at all.
+Nor does lowering it buy anything: `exchange_planes` is forced to 4 whenever
+`D == V == 128 && GQA_PAIR_HEADS == 2`, so threadgroup memory is unchanged, and
+a smaller `v_planes` only lengthens the reduction loop at `:476-502`. The knob is
+a no-op upward and a pessimisation downward.
+
+**The one that is actually open.** `DARKBLOOM_AOT_SDPA_2PASS_PLANES`
+(`sdpa_vector.h:12`) is defined as **1**, and its clamp in `sdpa_vector_2pass_2`
+(template `:670`) is
+
+```
+o_planes = min(PLANES, elem_per_thread = D / BD = 4)
+```
+
+so 1 sits **below** its bound. 1 -> 2 or 1 -> 4 is a genuinely open decode-side
+arm. It is a header, so it needs the metallib plus swift rebuild
+(`bash tools/build-mlx-metallib.sh`, then the worker build; ~150 s warm via
+`research/fern_r109f_ab_rebuild.sh`), and -- usefully -- it acts on the *2-pass*
+kernel, which is the one our `'s'` host actually runs, so it is locally
+measurable at full resolution. Its transfer is category 2 of §7.1: if the ranked
+host does not take the 2-pass branch, the arm is inert there.
+
+**Generalise it.** The failure mode is cheap to prevent and expensive to hit. It
+cost this workspace two promoted arms:
+
+> Before spending a build, a slot, or a checkpoint on a tunable, read the
+> expression that consumes it and check whether the value is already pinned at
+> its effective bound.
+
+Three questions, all answerable by `grep` in under a minute:
+1. Where is the constant *consumed*, not just defined?
+2. Is it wrapped in a `min`/`max`/clamp against a shape-derived quantity?
+3. Is the code path that consumes it reachable on the host doing the measuring
+   (§2's NAX gates, §7's suffix branches)?
+
+An arm that fails any of the three is not a weak arm; it is not an arm. A census
+of the editable sources found ~40 `DARKBLOOM_*`/`LAGUNA_*` environment knobs
+(most-referenced: `LAGUNA_RESCALE` 16 sites, `DARKBLOOM_SWIGLU_REGLOCAL` 11,
+`DARKBLOOM_ATTN_QHOIST` 11, `DARKBLOOM_TRACE_FUSION` 9,
+`DARKBLOOM_RESCALE_FACTOR` 9). Each is a candidate arm and each deserves the
+three questions before it deserves a slot.
+
