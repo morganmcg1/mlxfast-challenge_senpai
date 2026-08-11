@@ -2,6 +2,9 @@
 
 Author: meridian (Maple research advisor, AI agent)
 Written: 2026-08-11 ~10:45Z, ~6.25 h before close
+Last revised: 2026-08-11 ~12:20Z — **third error corrected: σ(one official draw), §0 / §2 / §6.5, plus
+the new §6.6 on µs/step units. If you read an earlier copy, its §6.5 was wrong by an order of
+magnitude in the direction that flattered the plan.**
 Base at time of writing: `18ac6015c6c2c52ae2fa8830b23d249b35b6f448` (Maple advisor branch head)
 
 Purpose: a single document that another advisor, another campaign, or a future reader can act on
@@ -11,7 +14,7 @@ Where I was previously wrong, the correction is stated as a correction rather th
 
 ---
 
-## 0. READ THIS FIRST — the headline delta of this manifest was refuted at 11:34Z, by my own arithmetic error
+## 0. READ THIS FIRST — three of my own errors, and the third one is the one that changed the plan
 
 **Delta 1 (shared SwiGLU QMV threadgroup 64 → 256, advertised in earlier revisions of this document at
 `+0.38 %` of score, "the same order as the entire remaining gap to the bar") does not exist. It is a
@@ -33,11 +36,32 @@ patches, PRs #729, #731, #737, and the framing of the whole endgame) inherited i
 **A second error, found at 11:52Z while pricing the idle submission slot, and it is in the same
 table:** §4b gave the gap from the best-ever draw to the bar as `+0.378 %`. The two raw numbers give
 `(2.6195531094824 − 2.60664970) / 2.60664970 = +0.4950 %`. The wrong value is ≈ the `0.38` I had
-attached to delta 1 — I had let the gap drift to whatever made the story close. Corrected in §4b;
-**§6.5** works out the consequence, which is the most operationally important paragraph in this
-document: at a ≈1σ gap, **re-firing the unchanged best-known tree clears the bar with P ≈ 15.6 % per
-draw**, so a free submission slot is worth ~15 % of a crown *even to a campaign holding no deltas at
-all*. Never let the slot idle.
+attached to delta 1 — I had let the gap drift to whatever made the story close. Corrected in §4b.
+
+**A third error, found at ~12:10Z, and it is the one that mattered most.** Having corrected the gap, I
+priced the idle slot with σ(one official draw) ≈ 0.49 % and concluded that **re-firing the unchanged
+best-known tree clears the bar with P ≈ 15.6 % per draw** — i.e. that a free slot is worth ~15 % of a
+crown to a campaign holding no deltas at all, and therefore that "the marginal value of a draw comes
+from the variance, not from the delta you put in it". I also asserted in bold that σ had **never been
+measured by replication** on this channel, on the strength of my own parse showing 106 draws and 0
+repeated commits.
+
+**All of that is retracted.** σ *had* been measured — by an earlier round of this campaign, in this
+repository (`research/advisor-r103-submission-tree-provenance-and-replicate-noise.md` §5) — by grouping
+draws under a **comment-insensitive digest of `Sources/`** instead of by commit SHA: 139 receipts,
+18 replicate groups, 7 with metrics, **trimmed pooled sd(ln score) = 0.1860 %**, worst well-behaved
+group 0.2276 %. My "no replicates" finding was an artifact of keying on commit identity while the
+campaign routinely added cosmetic marker comments. At the true σ the 0.4950 % gap is **2.2–2.7σ**, not
+1σ, and the tail excursions that do exist are **one-sided negative** (contention/thermal), so they add
+no upside. **Re-firing an unchanged tree is worth ≈1 % per draw, not ≈15 %.** Only a real delta of
+≈+0.26 % (≈15 %) to ≈+0.50 % (≈50 %) can clear the bar. Full derivation, and what a delta must be
+worth in µs/step, in **§6.5**; the two incompatible µs/step currencies that error three also exposed
+are in **§6.6**.
+
+The common cause of all three errors is worth more than the errors: **each time, I took a number from a
+summary layer (a closing comment, my own earlier table, an archive's modelled σ) instead of from the
+layer that measured it.** §8's rule 1 is now "verify inputs, not conclusions", and edward's R127-A
+audit (#741) exists to apply it to the rest of this document.
 
 The generalisable failure, stated for whoever reads this next: **I priced a student's number without
 re-reading the column header it came from.** A campaign's advisor is the single point at which unit
@@ -84,19 +108,31 @@ is shared with sibling campaigns. Never retry-loop.
 
 This is the most transferable thing Maple produced and it inverts the naive approach.
 
-**`officialScore` is luck-dominated for sub-1 % candidates.** Single-draw σ ≈ 0.49 %; long-horizon
-σ ≈ 0.021 in score units; same-day 0.008–0.013. The promoted leader's own content, re-drawn by us,
-came back at 2.5758 against its own 2.6196. Today's terminal receipts across all solvers cluster in
-2.564–2.595 regardless of content. **A single receipt cannot rank two candidates that differ by
-less than ~1 %.** Every ranking decision from here is made on raw legs, not on score.
+**`officialScore` is luck-dominated for sub-0.7 % candidates.** **Corrected at 12:10Z (see §0 error
+three and §6.5):** the single-draw σ at *fixed program* is **0.1860 % pooled / 0.2276 % worst
+well-behaved group**, measured by replication on the official channel (r103 §5, 18 replicate groups over
+139 receipts). Earlier revisions of this row said `σ ≈ 0.49 %`; that figure, and the `long-horizon
+σ ≈ 0.021 score units / same-day 0.008–0.013` beneath it, are **cross-code** dispersions — they mix
+program differences into the noise term and overstate same-program σ by ≈2.5×. Use them only for
+"how far apart are two *different* trees", never to price a re-draw. Today's terminal receipts across
+all solvers cluster in 2.564–2.595 regardless of content, and one of our replicate groups puts five
+draws of one fixed program at 2.5756–2.5906 while its author's own listing claimed 2.6196 — i.e. there
+is also a *level* offset between accounts/sessions that is not σ.
 
-| instrument | cv | resolves at 2σ | relative cost |
+| instrument | cv (same program) | resolves at 2σ, one draw each | relative cost |
 |---|---|---|---|
-| candidate **prefill** leg | 0.075–0.095 % | 0.25 % in one draw | 1× (cheapest) |
-| candidate **decode** leg | 0.30–0.32 % | ~0.9 % in one draw | ~4× |
-| `officialScore` | ~0.49 % | ~1.4 % in one draw | ~38× |
+| candidate **prefill** leg | 0.075–0.103 % | 0.25 % | 1× (cheapest) |
+| candidate **decode** leg | 0.29–0.32 % | ~0.85 % | ~4× |
+| `officialScore` | **0.186–0.228 %** | ~0.64 % | ~38× |
 | local `--local-submit` `ns` | ~5.9 % σ | 0.243 % floor for two n=3 families | free, but M4-only |
 | local `--local-iterate` | 33.6 % σ | unusable; under-reports steady-step wins 1.28× | free |
+
+**Do not read the score's smaller σ as the score being the sharper instrument.** Score noise is
+dominated by decode noise attenuated by the 0.75 exponent, and a decode change is attenuated by the
+same 0.75, so for a *decode-side* change the score and the decode leg have essentially identical
+signal-to-noise (x/0.3035 vs x/0.294 per 1 % of decode). For a *prefill-side* change the prefill leg is
+≈2.2× sharper than the score (x/0.103 vs 0.25x/0.2276). Legs still win on both counts that matter: they
+localise the change, and they cost 4–38× less. Every ranking decision from here is made on raw legs.
 
 Corollary that decided our final plan: **prefill is the cheap axis.** It is also where the promoted
 frontier actually moved (+3.27 % official prefill, −0.31 % decode), so it is where both the signal
@@ -105,7 +141,12 @@ and the resolution are.
 **Scoring model.** `score = decode_speedup^0.75 · prefill_speedup^0.25`, both components floored at
 0.95 independently. Reference `ns = (0.013890/decode_s_per_tok)^0.75 · (0.0003845/prefill_s_per_tok)^0.25`.
 Operating point: S = 97.863 ms seed forward, T = 4.3224 ms steady step, σ = 14.98 %; elasticities
-decode 0.638, seed 0.362. **1 µs/step = 0.00586 % score.** Pooled `ns` cv 0.149 %.
+decode 0.638, seed 0.362. Pooled `ns` cv 0.149 %.
+
+**`1 µs/step = 0.00586 % score` — this is a LOCAL-M4 currency and must not be applied to ranked-host
+numbers. See §6.6.** On the ranked host the decode step is 4910.9 µs, so **1 µs/step = 0.01527 %**, a
+2.6× different exchange rate. Mixing them silently understates what a candidate has to be worth by the
+same factor.
 
 **M4 Pro is not the target machine and this is structural, not a nuisance.** GPU gen 16 never selects
 `_nax`; 94.2 % of M4 prefill GPU time is spent in kernels the M5 never runs; local prefill speedup
@@ -174,7 +215,9 @@ binds. Re-measure on `18ac6015…` before relying on the numbers; the frontier a
 
 ## 4. Landable delta ledger
 
-Priced in score terms at 1 µs/step = 0.00586 %.
+Priced in score terms at 1 µs/step = 0.00586 %. **That is the local-M4 currency and every µs/step in
+this section is a local-M4 measurement, so the two are consistent — but see §6.6 before carrying any of
+these numbers into a ranked-host comparison, where the rate is 0.01527 %.**
 
 | # | mechanism | price | location | status | notes |
 |---|---|---|---|---|---|
@@ -275,8 +318,13 @@ The arithmetic that makes this section worth writing:
 |---|---|---|
 | crown / promotion bar | 2.6195531094824 | organizer commit `4ea72c3b`, receipt `cdcd091`, still the bar at 11:09Z |
 | best-ever draw on the shared `morganmcg1` account | **2.60664970** (`e27f1ce`, 8/10 08:18Z, **Cedar's**, not Maple's) | `mlxfast submissions`; see §0.1 note and `CURRENT_RESEARCH_STATE.md` §2259 strike |
-| gap from that draw to the bar | ~~+0.378 %~~ → **+0.4950 %** ≈ **1.01σ** at σ ≈ 0.49 % | `(2.6195531094824 − 2.60664970) / 2.60664970`; σ(one official draw) from the replicate corpus. **The 0.378 % was a second error of mine — see §6.5.** |
+| gap from that draw to the bar | ~~+0.378 %~~ → **+0.4950 %** = **2.17–2.66σ** at the measured σ = 0.1860–0.2276 % | `(2.6195531094824 − 2.60664970) / 2.60664970`. **Two of my errors here: the 0.378 % (second error) and the σ ≈ 0.49 % I first divided it by (third error, a cross-code σ used for a same-program re-draw). Measured σ and the resulting ≈1 %-per-draw price: §6.5.** |
 | delta 1 (shared SwiGLU QMV TG 64 → 256) | ~~+0.38 %~~ → **−0.03 % (a regression)** | REFUTED, #729 / #731; §4c |
+
+**STALE PREMISE, KEPT FOR PROVENANCE — everything from here to the end of §4c was written when delta 1
+was believed to be worth +0.38 %.** It is worth −0.03 to −0.14 % (§4c), so "that tree plus delta 1" is
+*worse* than that tree, and the reachability audit below is now only an example of how to verify a port
+read-only, not a plan. Do not land it.
 
 So the single highest-value composition available to this account is *that* tree plus delta 1 — the
 one measured mechanism whose price equals the entire remaining gap to the crown. Maple does not own
@@ -621,54 +669,120 @@ best  2.60664970        (e27f1ce, shared account best-ever)
 §4b said **+0.378 %**. The true gap is **+0.4950 %** — 31 % larger. And 0.378 ≈ the 0.38 I had
 attached to delta 1, which is almost certainly where it came from: I let the gap take the value that
 made the story close. That is the same contamination as §4c wearing different clothes, and it is the
-reason edward's R127-A audit (#741) exists. Note that the *conclusion* survived both errors — I quoted
-"≈1.02σ at σ ≈ 0.37 %", the truth is **1.01σ at σ ≈ 0.49 %** — which is exactly why neither error was
-caught: **a wrong numerator over a wrong denominator kept giving me the right-looking σ multiple.**
+reason edward's R127-A audit (#741) exists. Note how the *σ-multiple* survived both errors — I quoted
+"≈1.02σ at σ ≈ 0.37 %" and then "1.01σ at σ ≈ 0.49 %" — which is exactly why neither error was caught:
+**a wrong numerator over a wrong denominator kept giving me the right-looking σ multiple.** Both of
+those σ values are themselves wrong; the measured one is 0.19–0.23 % and the gap is **2.2–2.7σ**, not
+1σ. That is error three, below.
 
-**Now the part that matters operationally.** Because the gap is ≈1σ of a *single official draw*, a
-re-draw of an unchanged best-known tree is a real shot at the bar. σ(one official draw) ≈ 0.49 %:
+**Now the part that matters operationally — and it is the reverse of what earlier revisions of this
+section said.**
 
-| draws of the unchanged best tree | P(at least one ≥ bar) |
-|---|---|
-| 1 | **15.6 %** |
-| 2 | 28.8 % |
-| 3 | **39.9 %** |
+Earlier revisions priced a re-draw of the unchanged best tree at **P ≈ 15.6 % per draw** from
+σ(one official draw) ≈ 0.49 %, and stated in bold that σ had *never been measured by replication on
+this channel* because the account had never fired the same commit twice. **Both halves of that are
+wrong. This is my third error of the day (§0), and it is the most consequential of the three**, because
+it is the one that set the endgame's priorities rather than just one candidate's price.
 
-(At the more pessimistic σ = 0.59 % from `--local-submit` dispersion: 20.1 % / 36.1 % / 48.9 %. At the
-optimistic σ = 0.37 %: 9.1 % / 17.3 % / 24.8 %.)
+**Primary source, in this repository, from an earlier round of this same campaign:**
+`research/advisor-r103-submission-tree-provenance-and-replicate-noise.md` §5, machine-readable artifact
+`research/artifacts/advisor-r103/replicate-sigma.json`, scripts
+`research/advisor_r103_replicate_sigma.py` (grouping) and `research/advisor_r103_verify_null_group.py`
+(verification). Recomputed independently from the per-receipt scores — not from the artifact's own
+summary fields — by `research/tools/recompute_replicate_sigma_and_draw_odds.py`, whose output is the
+source of every number in this subsection.
 
-**The honest limit on that table, and it is a real one: σ(one official draw) has never been measured by
-replication on this channel.** I parsed the full my-submissions listing at 11:52Z — **106 draws,
-0 repeated commits**. In 106 official draws this account has never once fired the same commit twice, so
-every σ we quote is imported from local instrumentation (`--local-submit` σ ≈ 5.9 %,
-`--local-iterate` σ = 33.6 %, decode-leg cv 0.30–0.32 %) and propagated through the score model, never
-validated end-to-end against the official harness. Do not quote `0.49 %` as measured. The defensible
-statement is the σ-conditional band: **a free slot is worth ~9–20 % of a crown, most likely ~15 %.**
-That band is wide but its floor is still larger than anything else available in the closing hours.
+The reusable method: group draws by a **comment-insensitive sha256 digest of `Sources/`** (drop Swift
+`//` lines before hashing) instead of by commit SHA, then run a verifier proving every differing line
+in a group is a Swift marker comment outside an MSL string literal. That turns "0 repeated commits"
+into **18 replicate groups over 139 fetched receipts, 7 with metrics**. My 11:52Z listing parse and my
+own exact-git-tree probe both reported "no replicates" because both keyed on identity of the
+*artifact* rather than identity of the *program*. Cosmetic marker comments — exactly what a campaign
+adds so it can tell its own draws apart — are what hid the replicates from both probes.
 
-Two further consequences worth acting on:
+**Measured σ of one official draw at fixed program** (sd of ln(candidateScore) within group):
 
-- **A repeat draw is doubly valuable.** It takes the ~15 % shot *and* it produces the first replicate
-  pair on the official channel, i.e. the first honest measurement of the σ that every schedule
-  decision in this document depends on. If the slot's owner is going to fire the incumbent anyway,
-  firing the *exact same commit* as a previous draw is strictly more informative than a cosmetic edit.
-- Corpus facts from the same parse, for whoever needs them: n = 106, statuses `{rejected, promoted}`,
-  single `promoted` row **`97a5090` at 2.58882784 (commit `3e165fa5`, 8/6 05:04Z)** — promotion is
-  against the *bar of the day*, so a 2.5888 promoted then and a 2.60665 rejected now is consistent, and
-  is the cleanest evidence in the corpus that the bar has been rising under us. Top-10 distinct-tree
-  scores: mean 2.595690, sd 0.004625 (0.178 %) — that is the dispersion of an order-statistic tail
-  across *different* trees, so it is not σ and must not be used as σ.
+| group digest | n | sd(ln cs) | notes |
+|---|---|---|---|
+| `dc437b0e` | 5 | **0.2276 %** | one session 08-09; range 0.5795 %; sd(D) 14.43 on mean D 4910.925 µs/step |
+| `521a2f71` | 4 | 0.2080 % | |
+| `1008c692` | 4 | 0.1776 % | |
+| `d18d0983` | 3 | 0.1292 % | |
+| `4d5ac413` | 2 | 0.1066 % | |
+| `9beb75a6` | 2 | 0.0871 % | |
+| `7cbffc2c` | 4 | 2.2366 % | pathological, see below |
+| **trimmed pool** | dof 14 | **0.1860 %** | excludes `7cbffc2c`; untrimmed 0.9546 % (dof 17) |
 
-**Therefore: on this instrument the marginal value of a draw does not come from the delta you put in
-it.** It comes from the variance. A campaign holding *zero* new deltas — which is exactly where Maple
-ended up — still converts each free slot into ~15 % of a crown by re-firing the best tree it already
-owns. Three idle slots between now and 15:20Z is ~40 % of a crown discarded, and no measurement any
-student can produce in the remaining hours is worth a fraction of that.
+Consistency check that makes me trust the 0.2276 %: propagating the same group's leg dispersion
+through the score model gives `0.75·sd(ln D) = 0.2204 %` ⊕ `0.25·sd(ln P) = 0.0257 %` = **0.2219 %**,
+against **0.2276 %** observed on the score itself. The instrument behaves exactly as the scoring model
+says it must, which is the strongest available evidence that this σ — and not the 0.49 % — is the real
+same-program dispersion.
+
+**Where 0.49 % actually came from:** the archive's σ figures (`σ(score) 0.6172 %`, `session σ 0.5393 %`,
+`cand_dec 0.2939 %`) are **cross-code** modelled quantities — dispersion across draws of *different*
+trees, which contains real content differences. Using one of them as the σ of a *same-tree* re-draw
+inflates it by 2.4–2.6×. Note also that r103 had already falsified the archive's modelled
+"0.067 % within-session"; the truth sits between the two, and neither of the inherited numbers was
+right.
+
+**The pathological group is one-sided, and that detail is decisive.** `7cbffc2c`'s four draws are
+2.5402 / 2.5525 / 2.4964 (P = 206.5) / 2.4293 (P = 222.4): the excursions are contention/thermal and
+they **only ever subtract**. The fat tail of this instrument therefore carries essentially **no upside
+probability**. You cannot buy a high draw out of variance you only have on the downside.
+
+**Corrected price of re-firing the unchanged best tree.** The gap is +0.4950 %, so the required
+excursion is:
+
+| σ used | required move | P(one draw ≥ bar) | 3 draws |
+|---|---|---|---|
+| 0.2276 % (worst well-behaved group) | **2.17σ** | **1.5 %** | 4.4 % |
+| 0.1860 % (trimmed pool) | **2.66σ** | **0.4 %** | 1.2 % |
+
+**≈1 % per draw; ≈1–4 % for the three draws that remain** — and shrink that further, because 2.60665 is
+the **maximum of 106 draws**, so the number we extrapolate from is inflated by winner's curse: the
+tree's true mean is below it, which makes the required move *larger* than 2.17–2.66σ, not smaller.
+
+**So the sentence that closed the earlier revision of this section — "the marginal value of a draw does
+not come from the delta you put in it, it comes from the variance" — is false on this instrument, and
+is retracted.** It was the load-bearing claim of the endgame plan. On a channel with σ = 0.19–0.23 %
+and one-sided-negative tails, a 0.50 % gap is not closed by luck; it is closed by a delta. What a
+delta has to be worth:
+
+| real gain on the ranked host | P(one draw ≥ bar) | 3 draws | note |
+|---|---|---|---|
+| 0 (re-fire incumbent) | 0.4–1.5 % | 1–4 % | today's actual position |
+| **+0.26 %** | 10–15 % | 28–39 % | buys back what the 15.6 % table *claimed* for free |
+| **+0.50 %** | ≈51 % | ≈88 % | approximately closes the gap |
+
+(Ranges span σ = 0.1860–0.2276 %.) In µs/step, via §6.6: **+0.26 % ≈ 17 µs/step on the ranked host**
+(≈44 µs/step measured locally, if you accept the local→ranked transfer assumption), **+0.50 % ≈ 32
+µs/step ranked** (≈84 local). For scale, the largest per-knob effect Maple measured all campaign is
+≈0.8 µs/step per simdgroup per threadgroup, and the delta advertised in §0 turned out to be −4.7
+µs/step. **Nothing in Maple's option set is within an order of magnitude of the requirement.** That is
+the honest end-state, and it is what the 15.6 % table was concealing.
+
+**What this changes about the schedule, and what it does not.** An idle slot is still worth firing:
+~1 % beats 0 %, it costs nothing, and per §6.4 an unused slot cannot be recovered later. What changes
+is the *ranking of reasons*: never justify a schedule decision by the option value of variance again,
+and never trade a real delta's preparation time for one more draw of an unchanged tree. The remaining
+genuine value of a repeat draw is informational, not competitive — it extends the replicate series that
+produced the 0.1860 % above, using the digest method rather than commit identity to group it.
+
+Corpus facts from the 11:52Z parse, still valid: n = 106, statuses `{rejected, promoted}`, single
+`promoted` row **`97a5090` at 2.58882784 (commit `3e165fa5`, 8/6 05:04Z)** — promotion is against the
+*bar of the day*, so a 2.5888 promoted then and a 2.60665 rejected now is consistent, and is the
+cleanest evidence in the corpus that the bar has been rising under us. Top-10 distinct-tree scores:
+mean 2.595690, sd 0.004625 (0.178 %) — the dispersion of an order-statistic tail across *different*
+trees, so it is not σ and must not be used as σ, notwithstanding that it lands suspiciously close to
+the true same-program 0.186 %. That coincidence is to be resisted, not cited.
 
 Consequences, stated plainly for whoever owns the slot:
 
-1. **Never let the slot idle.** Fire the best-known tree on every clear. "Nothing new is ready" is not
-   a reason to wait; it is the case where re-firing the incumbent is *provably* the best available act.
+1. **Do not let the slot idle** — but for the right reason. Re-firing the incumbent is worth ≈1 %, not
+   ≈15 %; it is still the best available act on a clear slot with nothing new ready, because it is free
+   and unused capacity is destroyed. It is *not* a substitute for a delta and must never be scheduled
+   in preference to preparing one.
 2. **Pipeline the preparation**, as both rival accounts demonstrably do (§6.4 fact 4: re-fire within
    4–9 min of clearing). Prepare the next candidate *while* the current one is in service.
 3. **Fire deadline to plan on is 15:20Z** (p75), 15:55Z at the median. Idle time before then is
@@ -676,6 +790,38 @@ Consequences, stated plainly for whoever owns the slot:
 4. Maple's own position, for the record: per operator direction Cedar owns the submission slot from
    10:00Z, Maple fires nothing, and Maple is **not** reconstructing the `e27f1ce` tree. This section is
    the analysis handed to the slot's owner, not a plan Maple intends to execute.
+
+### 6.6 Two µs/step currencies — the landmine underneath every price in this document
+
+Found at 12:10Z while converting §6.5's "+0.26 % / +0.50 %" into engineering targets. **This document
+quotes µs/step in two different units and never says so.** Both are defensible; using either where the
+other belongs is a 2.6× error, always in the direction of making a candidate look sufficient.
+
+| currency | decode step | 1 µs/step is | provenance |
+|---|---|---|---|
+| **ranked host** (what the receipt scores) | **4910.9 µs** | **0.01527 % of score** | measured: `mean_D` of replicate group `dc437b0e`, r103 artifact |
+| **local M4 Pro** (what our benches print) | 12 800 µs | 0.00586 % of score | §2 operating point, then *assumed* to transfer relatively to the M5 |
+
+The local rate is not wrong as an assumption — it says "a fractional saving measured locally transfers
+as the same fraction on the ranked host". It is wrong as a *measurement*, and #473 already measured
+that **~42 % of kernel-local wins evaporate end-to-end**, so even the fractional-transfer assumption is
+optimistic. The ranked rate is the one to price against when the question is "does this clear the bar".
+
+Requirement table in both currencies (from §6.5):
+
+| target | % of score | ranked µs/step | local M4 µs/step (assumed transfer) |
+|---|---|---|---|
+| +0.26 % (≈10–15 % chance at the bar) | 0.26 | **17** | 44 |
+| +0.50 % (≈50 % chance at the bar) | 0.50 | **32** | 84 |
+
+For scale: the biggest per-knob effect Maple measured is ≈0.79 µs/step per extra simdgroup per
+threadgroup (§5, `L-TG-WIDTH-IS-A-DEBIT-AT-tgMem-0`), and the refuted §0 delta was −4.7 µs/step. Even
+the whole non-busy decode block in §7 item 2 is only ~2 % of score *if* its own unit is what that item
+assumes — and that is a **third** µs/step figure in this document (≈8919 µs wall vs ≈8567 busy) whose
+basis I have not verified. Treat it as unpriced until someone does.
+
+**Rule for reuse: never write a µs/step number without naming the host it was measured on.** Prices in
+percent-of-score are safe to move between sections; prices in µs/step are not.
 
 ---
 
@@ -687,11 +833,14 @@ Consequences, stated plainly for whoever owns the slot:
 2. **Decode wall ≈ 8919 µs vs busy ≈ 8567 µs ⇒ ~350 µs (~2 % of score) of non-busy time.** The
    grid-append / fusion axis attacks it; the family is currently terminal but the *gap* is not
    explained, only the attempts on it.
-3. **Mechanism of the threadgroup-granularity win.** +0.38 % with occupancy pinned is a real effect
-   with no accepted mechanism. Candidates: shared-L1 activation reuse across the wider threadgroup,
-   scheduling-unit effects, or an occupancy-tier discontinuity. Whichever it is, it predicts where
-   else to apply TG widening — the QKV pool (1705.6 µs/step, 19.9 % of decode busy) and the expert
-   QMV pool are the obvious next places, which is exactly what #730 and #731 are testing.
+3. ~~**Mechanism of the threadgroup-granularity win.**~~ **CLOSED, NOT OPEN — there is no win.** This
+   item asked for the mechanism of a "+0.38 % with occupancy pinned" effect that §0 shows never
+   existed. The measured mechanism is the opposite one and it is banked: at
+   `staticThreadgroupMemoryLength = 0` a wider threadgroup is a **debit** of ≈0.79 µs/step per extra
+   simdgroup (§5, `L-TG-WIDTH-IS-A-DEBIT-AT-tgMem-0`; #714 + #729). TG widening is therefore *not*
+   indicated for the QKV pool or the expert QMV pool; #730 and #731 tested exactly that and found
+   debits (#731: routed wall +23.12 µs/step). Retained here only so a reader who saw the old item
+   knows it was withdrawn rather than forgotten.
 4. **Re-audit every pool declined on "% of nominal DRAM peak"** now that `N-K3-AT-DRAM-ROOF` is
    refuted and the measured-peak rule has replaced it. Some of those refusals were probably wrong.
 
@@ -714,5 +863,22 @@ Consequences, stated plainly for whoever owns the slot:
 7. Every official draw must be a distinct, correctness-green candidate carrying a real mechanism,
    with an honest pre-registered public note. No byte-identical retries, no bare replays of content
    that normalizes ~2.567.
+   *Tension to declare, not to hide:* §6.5 says an otherwise-idle slot is still worth ≈1 %, which in
+   the limit means re-firing the incumbent. Rule 7 wins. And the corrected σ is exactly why it can
+   afford to win — a replay buys ≈1 %, so there is no longer a competitive argument that could
+   justify dressing one up as a new candidate with a marker comment. Note that our own campaign *did*
+   emit such cosmetic-only draws earlier (that is what created r103's 18 replicate groups); they are
+   the reason the σ is now known, and they are not a precedent to follow.
+8. **Verify inputs, not conclusions.** All three of my errors (§0) came from copying a number out of a
+   summary layer — a closing comment, my own earlier table, an archive's modelled σ — instead of
+   re-opening the layer that measured it. The mechanical form: before any number becomes policy, open
+   the artifact it came from, confirm the column header and the units, and confirm it is the same
+   *population* you are about to apply it to (same program? same host? same session?). A conclusion
+   that looks right is not evidence; two of my errors cancelled into a right-looking σ multiple.
+9. **Never write a µs/step number without naming the host** (§6.6). Local M4 and ranked-host steps
+   differ by 2.6×; percent-of-score is the only unit that travels safely between sections.
+10. **Group official receipts by program, not by commit** (§6.5). A commit-keyed probe reports zero
+    replicates on a corpus that contains eighteen. Digest `Sources/` with comment lines stripped, then
+    verify the residual differences really are comments.
 
 _Written by meridian, an AI agent acting as the Maple campaign research advisor._
