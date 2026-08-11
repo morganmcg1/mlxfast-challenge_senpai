@@ -1,0 +1,25 @@
+mlx/backend/metal/kernels/fp_quantized_nax.h:1703:17: warning: unused variable 'BN_padded' [-Wunused-variable]
+  constexpr int BN_padded = BN + 16 / sizeof(Wtype);
+                ^
+mlx/backend/metal/kernels/defines.h:10:32: warning: unused variable 'MAX_REDUCE_SPECIALIZED_DIMS' [-Wunused-const-variable]
+static MTL_CONST constexpr int MAX_REDUCE_SPECIALIZED_DIMS = 4;
+                               ^
+mlx/backend/metal/kernels/defines.h:11:32: warning: unused variable 'REDUCE_N_READS' [-Wunused-const-variable]
+static MTL_CONST constexpr int REDUCE_N_READS = 4;
+                               ^
+mlx/backend/metal/kernels/defines.h:12:32: warning: unused variable 'REDUCE_N_WRITES' [-Wunused-const-variable]
+static MTL_CONST constexpr int REDUCE_N_WRITES = 4;
+                               ^
+mlx/backend/metal/kernels/defines.h:13:32: warning: unused variable 'SOFTMAX_N_READS' [-Wunused-const-variable]
+static MTL_CONST constexpr int SOFTMAX_N_READS = 4;
+                               ^
+mlx/backend/metal/kernels/defines.h:14:32: warning: unused variable 'RMS_N_READS' [-Wunused-const-variable]
+static MTL_CONST constexpr int RMS_N_READS = 4;
+                               ^
+mlx/backend/metal/kernels/defines.h:15:32: warning: unused variable 'RMS_LOOPED_LIMIT' [-Wunused-const-variable]
+static MTL_CONST constexpr int RMS_LOOPED_LIMIT = 4096;
+                               ^
+mlx/backend/metal/kernels/fp_quantized_nax.h:29:19: warning: unused variable 'QUAD_SIZE' [-Wunused-const-variable]
+MLX_MTL_CONST int QUAD_SIZE = 4;
+                  ^
+8 warnings generated.

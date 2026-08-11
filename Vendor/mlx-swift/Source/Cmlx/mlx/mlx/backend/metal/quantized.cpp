@@ -1235,14 +1235,16 @@ int darkbloom_expert_gather_groups() {
 // projection (K=512, N=2048) only. That shape stores plain BN-wide Dtile
 // slices, so BN is free there; the fused gate/up shape pairs column c with
 // c + BN/2 and writes N/2 columns, so its BN is a correctness lock.
+// 128 halves the threadgroup count and the x re-read traffic per layer
+// against 64 while keeping the staged weight bytes per layer identical.
 int darkbloom_expert_down_bn() {
   static const int v = [] {
     auto s = env::get_var("DARKBLOOM_EXPERT_DOWN_BN", "");
     if (s.empty()) {
-      return 64;
+      return 128;
     }
     const int n = std::atoi(s.c_str());
-    return (n == 32 || n == 64) ? n : 64;
+    return (n == 32 || n == 64 || n == 128) ? n : 128;
   }();
   return v;
 }
