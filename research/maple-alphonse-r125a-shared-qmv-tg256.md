@@ -56,18 +56,50 @@ touch only `Sources/MLXFastModel/LagunaRuntimeModel.swift`.
 | `research/r125a-tg256-core-pre712.patch` | trees **without** #712 | `29a79361^` — 5/5 hunks, offset `0` | 109 |
 | `research/r125a-tg256-fused-guard.patch` | **only** trees with #712 | `18ac6015` — 1/1 hunk, offset `-35` | 12 |
 | `research/r125a-tg256-default-flip.patch` | on top of either core patch | `18ac6015` + core — 1/1 hunk | 10 |
+| `research/r125a-tg256-landing.patch` | **the advisor's landing artifact**, trees with #712 | `18ac6015` — applied for real, fuzz `0`, file 396 910 → 398 851 B | 103 |
 
 The fourth file is the advisor's requested compiled-default flip, kept **separate
 and unapplied** on this branch. It is a one-line change of `else { return 64 }`
 to `else { return 256 }` inside `lagunaSharedSwiGLUQMVThreadgroupWidth`, so the
 advisor can land TG=256 in seconds if they overrule my recommendation, and the
 `DARKBLOOM_SHARED_QMV_TG=64` escape hatch still restores the shipped geometry.
-All four patches were verified to apply in sequence on `18ac6015`
-(core → flip → guard, every hunk fuzz `0`). **I recommend against applying the
-flip**; the evidence is in §1 and §2.
+**I recommend against applying the flip**; the evidence is in §1, §2 and §7.
 
-`git apply --check` was run for each row above; the two core patches were also
-applied for real and the resulting file inspected. Every hunk lands with fuzz `0`.
+`research/r125a-tg256-landing.patch` is the fifth file: `core + flip`
+pre-composed into a single `patch -p1` / `git apply` against `18ac6015`, so the
+advisor needs one command rather than two. It is the exact artifact the plumbing
+check in §8 exercises.
+
+`git apply --check` was run for each row above; the two core patches, the flip
+and the composed landing patch were also applied for real and the resulting file
+inspected. Every hunk lands with fuzz `0`.
+
+### The fused guard must NOT ship with the flip
+
+The advisor's acceptance condition (2) is that with
+`DARKBLOOM_SHARED_ROUTED_QMV_FUSED=1` the generated source and dispatch stay
+byte-identical to today's tree. That condition is already satisfied
+*structurally* by the core patch, and the guard patch would **break** it:
+
+- The fused site calls the generator without the new parameter —
+  `lagunaSharedSwiGLUQMVRows1Source(halved:weightName:scalesName:outputName:)`
+  inside `lagunaSharedRoutedSwiGLUQMVKernel` (LRM:8238 on the branch tree) — so
+  it picks up the defaulted `simdgroupsPerThreadgroup: Int = 2` and emits
+  `uint row = tile * 2 + simd_group;` no matter what the selector returns. Its
+  dispatch is hardcoded (`constexpr uint laguna_shared_tiles = 256;`,
+  `threadGroup: (64,1,1)`). Byte-identity under FUSED=1 is therefore automatic.
+- `research/r125a-tg256-fused-guard.patch` adds
+  `lagunaSharedSwiGLUQMVThreadgroupWidth == 64` to the fused eligibility list in
+  `lagunaSharedRoutedSwiGLUQMV(...)`. It exists because the branch ships the
+  selector with default `64`, where it is a free safety belt. Once the default
+  is 256 it stops being a belt and becomes a **kill switch**: FUSED=1 would
+  silently fall back to the unfused path, which is exactly the behaviour change
+  condition (2) forbids.
+
+So the landing artifact is `core + flip` with the guard **removed**, which is
+what `research/r125a-tg256-landing.patch` contains
+(`grep -c 'ThreadgroupWidth == 64'` → `0`). Keep the guard only on trees that
+keep the default at `64`.
 
 ### Anchors (symbol + line on the delivery base `18ac6015`, file unpatched)
 
@@ -135,9 +167,17 @@ a loss (`+27.024 us/token`, verdict `N-GRIDAPPEND-SECOND-INSTANCE-BELOW-BAR`,
 
 Do not apply any of these patches as a default change. If a future student
 wants the arms on a different base, apply the core patch matching the tree
-shape, add the guard patch iff the tree has #712, and drive it with
-`DARKBLOOM_SHARED_QMV_TG`; the default stays `64` and the shipped dispatch is
+shape, add the guard patch iff the tree has #712 **and** the default stays
+`64`, and drive it with `DARKBLOOM_SHARED_QMV_TG`; the shipped dispatch is then
 unchanged.
+
+If the advisor overrules me and lands TG=256 anyway, the one command is
+
+```bash
+git apply research/r125a-tg256-landing.patch   # core + flip, no guard
+```
+
+and nothing else — not the guard patch, for the reason above.
 
 ## 1. Replication on the maple base
 
