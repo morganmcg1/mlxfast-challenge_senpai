@@ -5,7 +5,19 @@ startup profile. Apple GPU generation 16, `is_nax_available() == false`.
 
 Campaign submission base for the scope/budget scripts:
 `1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7`.
-Assignment base for the diff: `32665a6b66ce0d2d72b84772863575a6fdc35fb7`.
+Assignment base for the diff: `30904ecbf180aa05d7ddf5cc957e83155fbfc6f4`.
+
+> **rev3 note on base SHAs.** Transcripts below cite the earlier bases
+> `32665a6b`, `adfca1e5` and `9fe37190`. All four bases are **surface-identical**
+> — `git diff --numstat <a> <b> -- Sources Vendor benchmark.json Package.swift`
+> is empty for every pair — so each transcript measures the same submitted
+> surface. The old SHAs are left in place as historical record.
+
+> **rev3 note on which arm is the head.** At rev2 the branch head carried **A1**
+> and A2 was a patch. rev3 swaps them: the head now carries **A2 alone**, and A1
+> is `A1-expert-down-bn32.patch`. Transcripts written before the swap still say
+> "live on this branch" for A1; that is superseded by the head re-gate recorded
+> in the A2 section.
 
 ## A1 — `darkbloom_expert_down_bn()` 64 -> 32 (live on this branch)
 
@@ -146,6 +158,52 @@ Job `1deaab28-3176-4bb8-ac35-8c9d36ee3d47`, exit 0, 203 s,
 "peak_ram_gb" : 21
 prefill 0.001139 s/token   decode 0.013032 s/token
 ```
+
+### Branch-head re-gate after the rev3 promotion — GREEN
+
+The isolation gate above ran on a throwaway commit. rev3 promoted A2 to the
+**branch head**, so the exact tree fern will build was re-gated from scratch.
+
+```
+$ git --no-pager diff --numstat 30904ecb HEAD -- Sources Vendor benchmark.json Package.swift
+17	0	Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+
+$ git apply --check research/maple-tanjiro-r110/A1-expert-down-bn32.patch    # exit 0
+$ git apply --numstat research/maple-tanjiro-r110/A1-expert-down-bn32.patch
+1	1	Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+```
+
+Job `d7984b40-c214-400a-8637-5184864941a1`, exit 0, 230 s,
+`"timestamp": "2026-08-11T00:33:16Z"`, worker commit `6ef4c58c` (the branch head
+itself, not a throwaway).
+
+```
+"passed" : true
+"passed_correctness" : true
+"max_abs_diff" : 0
+"golden_hash" : "b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63"
+"harness_hash" : "141c159403ce1514499bfeed5fb7335c872aa959d501afd30dfd495110b9fda6"
+"weights_hash" : "aff994300573c5e8589563fc9ff57cdcfb1ef9b49e14898be290a75a6b294b3d"
+"num_layers" : 40
+"peak_ram_gb" : 21
+prefill 0.001121 s/token   decode 0.012974 s/token
+```
+
+The hash triple is identical to every other gate in this file.
+
+**`passed_prefill_speedup_floor` is `false` in the raw JSON on this host, and
+that is expected, not a failure.** The pinned calibration baseline is M5-derived,
+so an M4 Pro reports `prefill_speedup 0.328`; the harness still reports
+`"passed": true` because the local-iterate verdict is the correctness verdict.
+The stored unmodified-base run shows the same thing — `score.local-iterate.baseline.json`
+(commit `5319168`) carries `"prefill_speedup": 0.3235` and
+`"passed_prefill_speedup_floor": false`. Do not read the local speedup fields as
+a ranked verdict.
+
+**This run is also the cleanest available measurement of local noise.** It is the
+*same arm* as the isolation gate above, on a byte-identical submitted surface,
+and prefill moved 0.001139 → 0.001121, i.e. **1.6 %**. Both arms' entire
+predicted effect is roughly a tenth of that.
 
 ### Composed A1+A2 sanity run — also GREEN
 

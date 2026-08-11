@@ -2,8 +2,8 @@
 
 **For: maple-fern (sole submission driver).**
 From: maple-tanjiro, PR #692, branch
-`maple-tanjiro/r110-prefill-nax-arm-factory`.
-Assignment base_sha: `9fe371909ee7ffa66a345cf3c42c21141096f388`.
+`maple-tanjiro/r110-prefill-nax-arm-factory`, revision `r110-a-rev3`.
+Assignment base_sha: `30904ecbf180aa05d7ddf5cc957e83155fbfc6f4`.
 Campaign submission BASE_SHA: `1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7`.
 
 This deliverable is a **queue of arms**, not a timing result. No local number in
@@ -11,41 +11,46 @@ this directory is evidence for or against any arm — see §2.
 
 ---
 
-## 0. Bottom line, revised
+## 0. Bottom line (rev3)
 
-The queue shipped four candidate arms. After a prior-art and magnitude audit,
-**two survive as things to run, one is dropped, one is recorded as a dead end.**
+**The firing order is reversed from rev2, and the queue is now two arms.**
 
 | Arm | Disposition | Why |
 |---|---|---|
-| **A1** — expert down `bn` 64 → 32 | **FIRE. Live on this branch head.** | Genuinely never measured; the only arm here with an un-audited hypothesis. |
-| **A2** — fused-NAX `bn` 128 → 64 **+ `wn` 4 → 2**, prefill `N ≤ 1024` | **Patch delivered; do NOT spend a standalone M5 slot.** | Ceiling ≈ 0.93 ms ≈ +0.35 % score. Third visit to this site. Ride along only. |
-| **A3** — expert gather groups 256 → 128 | **DROPPED.** | An M5 receipt and a queue simulation both put 256 ahead of 128; A3 moves the wrong way down a closed sweep. |
-| **A4** — split-K `partition_size` halving for narrow `N` | **DEAD END, documented so nobody re-derives it.** | Not bit-exact; 0.42 ms analytic floor; already ranked last as H5; §99.6 forbids assigning it. |
+| **A2** — fused-NAX `bn` 128 → 64 **+ `wn` 4 → 2**, prefill `N ≤ 1024` | **FIRE FIRST. Live on this branch head — nothing to apply.** | Bit-exact by construction, AOT-instantiated, one env var for a one-binary paired A/B, and the only arm with a *directly measured* mechanism receipt (fern's 1.4613× packing probe). |
+| **A1** — expert down `bn` 64 → 32 | **FIRE SECOND. Patch file `A1-expert-down-bn32.patch`.** | Genuinely never measured, priced 0.195–0.30 %, but not bit-exact-by-construction in the same trivial way and has no mechanism receipt behind it. |
+| **A3** — expert gather groups 256 → 128 | **REMOVED from the queue.** | An M5 receipt and a queue simulation both put 256 ahead of 128. Kept in this directory only as a compose-trap warning (§7). |
+| **A4** — split-K `partition_size` halving | **DEAD END, documented so nobody re-derives it.** | Not bit-exact; 0.42 ms analytic floor; already ranked last as H5; §99.6 forbids assigning it. |
 
-If fern has exactly one slot for this queue: **fire A1, ignore the rest.**
+If fern has exactly one slot for this queue: **fire A2.** It is already the
+branch head, so the slot costs one build and zero patch handling.
 
-## 1. Rebase provenance — why the A1 gate evidence still binds
+**Why the order flipped.** rev2 said "fire A1, A2 is a ride-along". Three things
+changed that:
 
-This branch was rebased from `adfca1e5` onto the live base `9fe37190` after the
-arms were built and gated. The A1 gate was not re-run and does not need to be:
+1. A2's shipped geometry was corrected (`wn` 4 → 2), which turned it from a
+   speculative retile into a **provably bit-exact repacking** of an
+   already-AOT-instantiated kernel tuple (§5).
+2. Under a leaderboard framing rather than a landing-bar framing, the arm with a
+   measured mechanism and a zero-correctness-risk profile is worth more per slot
+   than the arm with a larger paper number and no mechanism receipt.
+3. A2 costs fern nothing to stage — it is the head — whereas A1 needs a patch
+   applied to a fresh branch.
+
+## 1. Base provenance — why the gate evidence still binds
+
+The assignment base is `30904ecb`. The advisor branch has since moved to
+`8268f593`, but the **submitted surface did not move**:
 
 ```
-$ git diff --numstat adfca1e5 9fe37190 -- Sources Vendor benchmark.json Package.swift
-(empty)                       # the base moved by documentation commits only
-
-$ git ls-tree -r <rev> -- Sources Vendor benchmark.json Package.swift | shasum -a 256
-b8c8a395 (gated tree): 165121fe3d9d94e5e1baae54396b36fae9b9129c6f9ed9204ec21d51948cecd4
-HEAD     (this tree):  165121fe3d9d94e5e1baae54396b36fae9b9129c6f9ed9204ec21d51948cecd4
+$ git diff --numstat 30904ecb 8268f593 -- Sources Vendor benchmark.json Package.swift
+(empty)
 ```
 
-The submitted surface is **byte-identical** before and after the rebase, so job
-`1dce4167` measured this exact tree. GATES.md and `A1-expert-down-bn32.md` still
-cite the old base `32665a6b` in their command transcripts; that is deliberate
-historical record and is equivalent because of the empty diff above.
-
-A2 **was** re-gated after its correction (§5), because its source actually
-changed.
+So no re-baseline is required, and every gate transcript in `GATES.md` that was
+taken against `30904ecb` (or against the earlier surface-identical bases
+`adfca1e5`, `9fe37190`, `32665a6b`) measures the same submitted surface. The
+older base SHAs are left in the historical transcripts deliberately.
 
 ## 2. Read this first — why there is no local number
 
@@ -60,6 +65,30 @@ The sharpest demonstration of this limit: the **wrong** version of A2 (§5) gate
 green here, bit-exact, `max_abs_diff: 0`, indistinguishable from the corrected
 version. The local gate had no way to see the defect.
 
+**The local noise floor, stated numerically so nobody mines these logs.** Four
+gated trees on this host, all of which dispatch *identical* kernels because
+`_nax` is unreachable here, produced:
+
+| tree | prefill s/token | decode s/token |
+|---|---|---|
+| A1 | 0.001111 | 0.012955 |
+| A2 (first gate) | 0.001139 | 0.013032 |
+| A1+A2 | 0.001112 | 0.013095 |
+| A3 | 0.001117 | 0.013021 |
+| A2 (head re-gate, job `d7984b40`) | 0.001121 | 0.012974 |
+
+That is a **2.52 % prefill spread and a 1.08 % decode spread across four trees
+whose underlying computation is provably the same**. Any local delta smaller
+than that is noise, and the arms' whole predicted effect is an order of
+magnitude below it.
+
+The cleanest single line in the table is the pair of **A2 rows: the same arm,
+measured twice, 0.001139 then 0.001121 — 1.6 % apart with a byte-identical
+submitted surface.** That one comparison bounds this host's repeatability
+without needing any cross-tree assumption at all. Note also that A2 showed the
+*slowest* prefill of the first four; that was noise, not a signal, and must not
+be read as evidence against A2.
+
 To correct an assumption made when this work was assigned: the local gates are
 **not** more meaningful for A2 than for A1. A2's
 `steel_matmul_regular_axpby_nax` sits behind the same `use_nax` gate
@@ -68,19 +97,45 @@ To correct an assumption made when this work was assigned: the local gates are
 `MLX_METAL_GPU_ARCH` was **not** set at any point. Forcing `_nax` on M4 is
 forbidden by the assignment and was not attempted.
 
-## 3. Landing bar
+## 3. Landing bar and the reference block — corrected
 
-Any arm that is non-negative and removes **≥ 0.3 ms of S** is worth landing.
-
-- candidate `prefill_seconds_per_token` reference:
-  **1.87812e-4 ± 2.607e-7 s/token** (n = 14, sd 0.103 %);
-- 3 sd win threshold: **below 1.87030e-4 s/token**;
 - prefill elasticity **0.362**; S ≈ **97.9 ms**, so **1 ms ≈ 0.37 % of score**;
 - maple's deficit to the crown is **~1.4 % of real speed ≈ 3.8 ms of prefill**;
 - both speedup floors must stay **≥ 0.95**.
 
-For A2, `decode_seconds_per_token` must be **unchanged**; see §4 for why that is
-now a tautology rather than a check.
+Archive reference for candidate `prefill_seconds_per_token`:
+**1.87812e-4 ± 2.607e-7 s/token, n = 14.**
+
+Three corrections to how rev2 stated this:
+
+1. **σ is 0.1388 %, not 0.103 %.** `2.607e-7 / 1.87812e-4 = 1.388e-3`. The
+   0.103 % label was arithmetically wrong and made the reference look ~35 %
+   tighter than it is.
+2. **3σ = 0.400 ms of S**, i.e. `3 × 2.607e-7 s/token × 512 tokens = 4.004e-4 s`.
+   (Equivalently: below **1.87030e-4 s/token**.) 0.4076 ms is a rounding of the
+   same quantity; 0.400 ms is what the stored numbers give.
+3. **The absolute level is stale.** All 14 archived receipts predate the current
+   executable. Use the archive for the **dispersion** (σ), never for the
+   **level**. Anchor the level with a fresh HEAD-of-base draw in the same
+   session as the candidate.
+
+**The dead zone, and how to resolve it.** The landing bar is 0.30 ms; 3σ is
+0.400 ms. A draw in `[0.30, 0.400)` ms clears the bar but is not a measured win,
+which reads like a contradiction. It is not — they are two different decisions
+and should be recorded separately:
+
+- **Landing decision.** Land if the paired candidate is **non-negative and
+  bit-exact**. For A2 bit-exactness is structural (§5), so the only risk being
+  carried is time, and a non-negative draw plus a mechanism argument is enough
+  to keep the change.
+- **Claim decision.** Only call it a **measured** win at **≥ 3σ (≥ 0.400 ms)**.
+
+A single draw in `[0, 0.400)` ms is therefore "**kept, not proven**". Say it that
+way in the note rather than picking one of the two thresholds and discarding the
+other.
+
+For A2, `decode_seconds_per_token` must be **unchanged**; §4 fact 2 shows why
+that is now a tautology rather than a check.
 
 ## 4. Prefill dense-GEMM census — the map both surviving arms are read against
 
@@ -136,86 +191,158 @@ transposes, sync points — is the only target on the map large enough to cover 
 > quantity. The pair is only meaningful as: the dense part is nearly maxed out,
 > and the non-dense part is where the unclaimed time lives.
 
-## 5. Arm A1 — FIRE. Live on this branch head.
+## 5. Arm A2 — FIRE FIRST. Live on this branch head.
 
-**Nothing to apply.** The branch head `35575f28` contains A1 and only A1:
+**Nothing to apply.** The branch head contains A2 and only A2:
 
 ```
-$ git --no-pager diff --numstat 9fe371909ee7ffa66a345cf3c42c21141096f388 HEAD \
+$ git --no-pager diff --numstat 30904ecbf180aa05d7ddf5cc957e83155fbfc6f4 HEAD \
     -- Sources Vendor benchmark.json Package.swift
-1  1  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+17  0  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
 ```
+
+`DARKBLOOM_FUSED_NAX_NARROW_BN=0` restores the incumbent, so this is a
+**one-binary paired A/B**. JIT-only; no metallib rebuild; no kernel body edited,
+so no `mlx-generated/*.cpp` twin needs resyncing.
+
+### 5.1 Geometry, and the direct answer to the `TN == 1` question
+
+The rev3 brief and the 00:22Z comment both flag a risk that A2 lands on the
+untested `TN == 1` branch of `tile_matmad_nax`. **It does not.** Verified against
+source, not inferred:
+
+| | incumbent | shipped A2 |
+|---|---|---|
+| tile `(bm, bn, bk, wm, wn)` | `(64, 128, 256, 2, 4)` (`matmul.cpp:213-221`) | `(64, 64, 256, 2, 2)` |
+| `SM × SN` = `(bm/wm) × (bn/wn)` | 32 × 32 | **32 × 32** |
+| `TN` | **2** | **2** |
+| total simdgroups | 512 | 512 |
+| threadgroups | 64 | 128 |
+| simdgroups / TG | 8 | 4 |
+| AOT-instantiated | yes | **yes** (`steel_gemm_fused_nax.metal:23-29`) |
+
+Because `bn` and `wn` are halved **together**, `SN` is invariant, so `TN` is
+invariant at 2 and the `TN % 2 == 0` arm of `tile_matmad_nax`
+(`kernels/steel/gemm/nax.h:972`ff) is taken in both. The `TN == 1` arm is never
+entered.
+
+The advisor's rev3 text describes A2 as `bn = 64` with `wn` left at `4`. That
+was the **first, discarded** version, and it is exactly the version that would
+have hit `SN = 16`, `TN = 1`, a non-AOT `(64,64,256,2,4)` tuple, and +50 %
+per-simdgroup operand traffic. The shipped patch is not that. The correction is
+the whole reason A2 was re-gated.
+
+Consequence: A2 is a **pure repacking** — same template, same instruction
+sequence per simdgroup, same reduction order, 64 TG × 8 sg → 128 TG × 4 sg. It is
+**bit-exact by construction**, and the local gate agrees (`max_abs_diff: 0`).
+
+### 5.2 Rule-83 disclosure — third visit to this site
+
+PR #293 (`DARKBLOOM_STEEL_REGULAR_SKINNY_TILE`, same `bn=64, wn=2`) was
+introduced by `c2812d1c`, merged inert via `31f64154`, and removed by `6ada66c9`
+("Adopt organizer promoted frontier c5b0a13c as research base", 2026-08-08) with
+**zero M5 receipts**; PR #585 / fern R104-B (`DARKBLOOM_NAX_SKINNY_TILE`)
+self-retracted a priori, also unmeasured. The campaign replacement rule
+(`research/CURRENT_RESEARCH_STATE.md:4120-4130`) rejects narrow-`_nax`-tile
+briefs on the measured **+0.639 ms M5 regression from PR #527 (Rule 68)** and on
+magnitude. A2 is inside the class that rule names.
+
+Both prior visits died **unmeasured**. That is the argument for firing this one:
+the site has consumed two review cycles and produced no M5 datum, and A2 is the
+cheapest possible instrument for finally getting one.
+
+### 5.3 Valuation — the advisor's price for A2 is arithmetically impossible
+
+The 00:22Z comment prices A2 at **0.94 %–2.52 % of score**. That cannot be right,
+and the ceiling argument is short enough to check by hand:
+
+- 1 ms of prefill ≈ **0.37 % of score** (elasticity 0.362, S ≈ 97.9 ms).
+- So 0.94 % ⇒ **2.54 ms**, and 2.52 % ⇒ **6.81 ms**, would have to come out of
+  the wk/wv family.
+- The **entire** wk/wv family on M5 is **3.922 ms**
+  (`research/artifacts/tanjiro-r104c/steel_ms_attribution_m4.json`, bucket
+  `K=2048, N=1024`, `n=78`, `m5_proj_b_ms = 3.922`, `gflop = 167.505`,
+  `m5_tg_per_core = 1.6`, `deficit_ms = 6.98` on the M4-side column).
+
+So if the wk/wv GEMMs vanished entirely, the score would move **1.45 %**. The
+2.52 % figure exceeds the family's total cost by 74 %; the 0.94 % figure requires
+capturing **65 %** of the whole family from a packing change.
+
+**Honest ceiling.** Fern's probe measures 8 sg/TG at 1.4613× the cost of 4 sg/TG
+at fixed total simdgroups, i.e. a **31.6 %** reduction (`1 − 1/1.4613`) if the
+mechanism transferred perfectly to M5. That is `0.316 × 3.922 = 1.24 ms`
+≈ **0.46 % of score**, and that is the *ceiling*, not the estimate.
+
+**Realistic estimate: 0.2–0.3 % of score (0.5–0.8 ms).** The family already runs
+at 87.5 % of a hardware reference (§4 fact 3), fern explicitly refuses to
+transfer the band location from M4 to M5, and M5 has 40 cores against this
+host's core count, which moves the occupancy quantum.
+
+**This does not change the firing decision.** A2 still goes first, because the
+argument for it was never its magnitude — it is zero correctness risk, a measured
+mechanism, an already-staged head, and a site that has twice been abandoned
+unmeasured. But the crown-probability table in the 00:22Z comment should be
+re-read at the **+0.4 %** row, not the **+0.94 %** row, and the expected value of
+this slot is roughly a third of what was quoted. Everything downstream of that
+table that treats A2 as a near-crown-closing move should be discounted
+accordingly.
+
+### 5.4 Firing commands
+
+A2 is the head, so there is nothing to stage:
+
+```bash
+git fetch origin maple-tanjiro/r110-prefill-nax-arm-factory
+git checkout -b maple-fern/r110-a2 origin/maple-tanjiro/r110-prefill-nax-arm-factory
+git --no-pager diff --numstat 30904ecbf180aa05d7ddf5cc957e83155fbfc6f4 HEAD \
+    -- Sources Vendor benchmark.json Package.swift
+#   expect exactly: 17  0  Vendor/mlx-swift/.../metal/matmul.cpp
+```
+
+Paired A/B inside one binary: candidate is the default,
+`DARKBLOOM_FUSED_NAX_NARROW_BN=0` is the control.
+
+## 6. Arm A1 — FIRE SECOND. Patch file.
 
 `darkbloom_expert_down_bn()` default `64` → `32` at `quantized.cpp:1242`.
 Prefill-only via the existing `M >= 64` accept gate at `quantized.cpp:1404-1407`.
 JIT-only; no metallib rebuild. `DARKBLOOM_EXPERT_DOWN_BN=64` restores the
 incumbent for a one-binary paired A/B.
 
-**Why A1 is the one worth a slot.** The expert-gather-GEMM floor study
-(`research/maple-alphonse-r107c-expert-gather-gemm-floor.md`, Q4) explicitly
-records `bn` 64 → 32 as *genuinely never measured*. Unlike A2 and A3 it is not
-re-treading a closed or previously-queued experiment.
-
-Fire this branch head directly. Details: `A1-expert-down-bn32.md`.
-
-## 6. Arm A2 — patch delivered, but do not spend a standalone slot
-
-A2 was **corrected after its first gate**. The original set `bn = 64` alone,
-leaving `wn = 4`, which drives `SN` 32 → 16: +50 % per-simdgroup operand traffic,
-1024 total simdgroups instead of 512, an emitted tuple `(64,64,256,2,4)` that is
-**not AOT-instantiated**, and the less-travelled `TN == 1` branch of
-`tile_matmad_nax`. The shipped form sets `bn = 64; wn = 2;` — `SM×SN` stays
-32×32, total simdgroups stays 512, the tuple `(64,64,256,2,2)` **is** AOT
-(`steel_gemm_fused_nax.metal:23-29`), the matmad branch is unchanged, and the
-change is **bit-exact by construction**. It is a pure repacking: 64 TG × 8 sg →
-128 TG × 4 sg.
-
 ```bash
-git checkout -b maple-fern/r110-a2 9fe371909ee7ffa66a345cf3c42c21141096f388
-git show maple-tanjiro/r110-prefill-nax-arm-factory:research/maple-tanjiro-r110/A2-fused-nax-bn64-n1024.patch > /tmp/A2.patch
-git apply --check /tmp/A2.patch && git apply /tmp/A2.patch
-git commit -am "R110-A2: fused-NAX bn 128->64, wn 4->2 for prefill N<=1024"
-git --no-pager diff --numstat 9fe371909ee7ffa66a345cf3c42c21141096f388 HEAD
-#   expect exactly: 17  0  Vendor/mlx-swift/.../metal/matmul.cpp
+git checkout -b maple-fern/r110-a1 30904ecbf180aa05d7ddf5cc957e83155fbfc6f4
+git show maple-tanjiro/r110-prefill-nax-arm-factory:research/maple-tanjiro-r110/A1-expert-down-bn32.patch > /tmp/A1.patch
+git apply --check /tmp/A1.patch && git apply /tmp/A1.patch
+git commit -am "R110-A1: expert down bn 64->32 for prefill"
+git --no-pager diff --numstat 30904ecbf180aa05d7ddf5cc957e83155fbfc6f4 HEAD \
+    -- Sources Vendor benchmark.json Package.swift
+#   expect exactly: 1  1  Vendor/mlx-swift/.../metal/quantized.cpp
 ```
 
-**Rule-83 disclosure — this is the third visit to this site.** PR #293
-(`DARKBLOOM_STEEL_REGULAR_SKINNY_TILE`, same `bn=64, wn=2`) was introduced by
-`c2812d1c`, merged inert via `31f64154`, and removed by `6ada66c9` ("Adopt
-organizer promoted frontier c5b0a13c as research base", 2026-08-08) with **zero
-M5 receipts**; PR #585 / fern R104-B
-(`DARKBLOOM_NAX_SKINNY_TILE`) self-retracted a priori, also unmeasured. The
-campaign replacement rule (`research/CURRENT_RESEARCH_STATE.md:4120-4130`)
-rejects narrow-`_nax`-tile briefs on the measured **+0.639 ms M5 regression from
-PR #527 (Rule 68)** and on magnitude. A2 is inside the class that rule names.
+`git apply --check` and `git apply --numstat` were both run against the current
+head before hand-off; the patch applies cleanly and touches exactly one file
+with `1  1`.
 
-**Magnitude.** wk/wv is 167.5 GFLOP = 11.1 % of prefill dense GEMM. Ceiling
-**≈ 0.93 ms ≈ +0.35 % score**; realistic ≈ 0.29 ms ≈ +0.11 %.
+**Why it is genuinely unmeasured.** `research/CURRENT_RESEARCH_STATE.md:6784`
+records that this knob has no receipt. Priced **0.195–0.30 %** by
+`research/maple-alphonse-r107c-expert-gather-gemm-floor.md:604-647`.
 
-**The one piece of positive evidence.** Fern's M4 probe
-(`research/fern-r104b-wkwv-tile-regroup.md` §7.1, job
-`0c4e2817-f311-4933-ba80-b6487d6eb9dd` at `:566`) measured that at a fixed total
-of 512 simdgroups, **8 sg/TG costs 1.4613× what 4 sg/TG costs** (`:575`,
-`| 8 | 64 | 256 | 762.2 | 1.4613 |` vs 521.6 µs), with a §7.2 causal
-control isolating it as pure packing/occupancy quantization, and 512 sitting in
-the worst band fern observed. A2 moves exactly that variable on a dispatch family
-at 1.60 TG/core. **Fern refuses to extrapolate the band location to M5 and so do
-I** — M4 never selects `_nax`, so this measures the mechanism, not the kernel.
+**Why it is second, not first.** Its price band overlaps A2's realistic band, but
+it lacks A2's two advantages: there is no measured mechanism receipt for the
+expert-down tile the way fern's probe backs the packing mechanism, and it is not
+bit-exact-by-construction in the trivially checkable way A2 is (it changes the
+expert-path tiling, and the bit-exactness rests on the gate transcript rather
+than on an invariance argument). Fire it if A2's slot returns and there is a
+second slot.
 
-**Recommendation: ride-along only.** If a wk/wv-family M5 slot is ever scheduled
-for another reason, A2 is the cheapest possible passenger — one env var
-(`DARKBLOOM_FUSED_NAX_NARROW_BN`), one binary, bit-exact, AOT-instantiated.
-Details and the full geometry table: `A2-fused-nax-bn64-n1024.md`.
+## 7. Arm A3 — REMOVED from the queue
 
-## 7. Arm A3 — DROPPED, do not fire
+**Do not fire it. Do not stage it.** `A3-expert-gather-groups-128.patch` remains
+in this directory for provenance and for the trap below, not as a candidate.
 
-`darkbloom_expert_gather_groups()` 256 → 128 at `quantized.cpp:1225`.
-The patch file `A3-expert-gather-groups-128.patch` remains in this directory for
-provenance only.
-
-**It is a closed experiment, and A3 points the wrong way down it.** The tree
-default is already 256 (`quantized.cpp:1226`); A3 would move to the setting that
-two independent receipts call worse:
+`darkbloom_expert_gather_groups()` 256 → 128 at `quantized.cpp:1225`. The tree
+default is already 256 (`quantized.cpp:1226`); A3 moves to the setting that two
+independent receipts call worse:
 
 1. **An M5 measurement.** The comment stripped in
    `research/nezuko-r99b/rung1-comment-strip.patch:7390-7393` reads: "Measured
@@ -225,28 +352,24 @@ two independent receipts call worse:
 2. **A queue simulation.** `research/pr142-lpt-expert-queue-refutation.md:274`
    through `:293` concludes the "**current default `egroups = 256` is
    optimal**"; `:296` calls the knob "**ambiguous, not dominant**, worth at most
-   ~0.5 ms, and sign-uncertain in `C`". Even its best case is under the landing
-   bar.
+   ~0.5 ms, and sign-uncertain in `C`", and gives **−0.061 ms** for the move.
 
 `research/maple-alphonse-r107c-expert-gather-gemm-floor.md:92` records the
-resulting "⇒ Stage A arm 3 dropped". Firing A3 would spend an M5 slot
-re-measuring a known answer in the losing direction.
+resulting "⇒ Stage A arm 3 dropped".
 
-**Retracted citation, removed.** An earlier draft of this section also cited
-`research/PREFILL_NAX_ANALYSIS.md:56-60`. That document is **retracted as
-unsourced**: `research/CURRENT_RESEARCH_STATE.md:123-125` records that "Its
-egroups claim (`:56-60`) carries no numbers or receipts". I have removed it and
-re-checked that the drop stands on the two receipts above without it. It does.
-Do not re-cite that file for this or any other egroups claim.
+`research/PREFILL_NAX_ANALYSIS.md:56-60` was cited for this in an earlier draft
+and has been removed: that document is **retracted as unsourced**
+(`research/CURRENT_RESEARCH_STATE.md:123-125`). The drop was re-earned on the two
+receipts above without it.
 
-I did not find this before building and gating it. That is my error, and the
+I built and gated A3 before finding this prior art. That is my error, and the
 correction is worth more to fern than the arm was.
 
-> **Trap that survives the drop.** If anyone revives A3: its hunk is at
-> `quantized.cpp:1223` and A1's is at `:1239`, so `git apply` of the A3 patch
-> **succeeds on the A1 branch**, silently producing a two-knob build.
-> `git apply --check` does **not** catch this. Only `--numstat` does —
-> a stacked build shows `2  2`, a clean one shows `1  1`.
+> **Trap that survives the removal.** A3's hunk is at `quantized.cpp:1223` and
+> A1's is at `:1239`, so `git apply` of the A3 patch **succeeds on the A1
+> branch**, silently producing a two-knob build. `git apply --check` does **not**
+> catch this. Only `--numstat` does — a stacked build shows `2  2`, a clean one
+> shows `1  1`.
 
 ## 8. Arm A4 — designed, then refuted. Recorded as a dead end.
 
@@ -262,8 +385,8 @@ them.
    fp32 split-K reduction. Correctness is a hard gate; this is disqualifying on
    its own.
 2. **Magnitude.** The analytic floor for router + g_proj combined is **0.42 ms**
-   (`research/RESEARCH_IDEAS_steel-gemm-prefill.md:45-46`) — below the landing
-   bar even at 100 % capture.
+   (`research/RESEARCH_IDEAS_steel-gemm-prefill.md:45-46`) — at or below the
+   landing bar even at 100 % capture.
 3. **Already enumerated.** It exists as hypothesis **H5** at
    `research/RESEARCH_IDEAS_steel-gemm-prefill.md:200`, and `:209` reads
    "Rank last."
@@ -297,12 +420,12 @@ It is not an arm in this queue.
 
 Each arm submits exactly one path; both checks pass.
 
+- A2 (`matmul.cpp`, current head): `assignment scope OK: 1 submitted path(s)`;
+  `editable budget OK: current=2681871/3000000 headroom=318129
+  growth=-301978/262144 files=142`.
 - A1 (`quantized.cpp`): `assignment scope OK: 1 submitted path(s)`;
   `editable budget OK: current=2681206/3000000 headroom=318794
   growth=-302643/262144 files=142`.
-- A2 (`matmul.cpp`): `assignment scope OK: 1 submitted path(s)`;
-  `editable budget OK: current=2681625/3000000 headroom=318375
-  growth=-302224/262144 files=142`.
 
 Growth is **negative** for both, so there is no submission-review byte risk.
 
@@ -310,9 +433,16 @@ Growth is **negative** for both, so there is no submission-review byte risk.
 
 See `GATES.md` for full transcripts. Read §2 before giving any of it weight.
 
-A1 additionally has an upstream-equivalence run with a confirmed non-zero test
-count, plus a `DARKBLOOM_EXPERT_DOWN_BN=64` control proving its lone prefill
-near-tie is pre-existing and not caused by the arm.
+Both arms have a green `./benchmark.sh --local-iterate` with
+`max_abs_diff: 0` and an upstream-equivalence run with a **confirmed non-zero
+test count** (Rule 105.15). A1 additionally has a `DARKBLOOM_EXPERT_DOWN_BN=64`
+control proving its lone prefill near-tie is pre-existing and not caused by the
+arm.
+
+**Residual risk, stated plainly:** all of that exercises the **non-NAX
+fallback**. Neither arm's actual kernel has ever executed anywhere. The
+correctness argument for A2 is the invariance argument in §5.1, not the gate; the
+gate only proves the invariance argument was not undone by a build error.
 
 ## 12. A live trap in the kernel, for anyone sweeping tiles after us
 
@@ -322,45 +452,43 @@ With `TM = 1`, any odd `TN` emits **no MMA at all and writes zeros** — a silen
 wrong-answer, not a compile error or a crash.
 
 Any future `BN` sweep must be validated **jointly with `WN`**, with the standing
-requirement `(BN / WN) % 32 == 0`. This is why A2 moves `wn` with `bn`.
+requirement `(BN / WN) % 32 == 0`. This is why A2 moves `wn` with `bn`, and why
+the discarded first version of A2 was dangerous.
 
 Related, and unexplored: the expert-path `BK` is hardcoded to `64` at
 `quantized.cpp:1378` and, unlike `bm`/`wm`/`wn`, is **never re-checked by the
 accept gate** at `quantized.cpp:1404-1407`. Its constraints are `BK >= 56` and
 `BK % 32 == 0`. Nobody in the campaign appears to have touched it.
 
-## 13. Citation audit — what an independent re-check changed
+## 13. Citation and arithmetic audit — what re-checking changed
 
-Every prior-art claim in this directory was re-verified against the cited file
-and line before hand-off. Four things were wrong and are now fixed. They are
-listed because a reader who checked my earlier draft against the tree would have
-found the discrepancies and reasonably stopped trusting the rest.
+Every prior-art and numeric claim in this directory was re-verified against the
+cited file, line, or artifact before hand-off. Six things were wrong and are now
+fixed.
 
-1. **PR #293's removal commit was wrong.** I had written that it was "deleted by
-   resync `99b974c`". `99b974c1` is dated **2026-08-03, four days before the
-   variable existed**, so that claim was impossible. The real chain is
-   `c2812d1c` (introduced, 08-07 14:29) → `31f64154` (merged as #293, 08-07
-   18:34) → `6ada66c9` (removed, 08-08 20:37). The substance — merged inert,
-   zero M5 receipts — survives; only the commit id was wrong.
+1. **PR #293's removal commit.** I had written "deleted by resync `99b974c`".
+   `99b974c1` is dated **2026-08-03, four days before the variable existed**. The
+   real chain is `c2812d1c` (introduced, 08-07 14:29) → `31f64154` (merged as
+   #293, 08-07 18:34) → `6ada66c9` (removed, 08-08 20:37). The substance —
+   merged inert, zero M5 receipts — survives; only the commit id was wrong.
 2. **A retracted source was propping up the A3 drop.**
    `research/PREFILL_NAX_ANALYSIS.md` is retracted as unsourced
-   (`CURRENT_RESEARCH_STATE.md:123-125`: its egroups claim "carries no numbers or
-   receipts"). I had cited its `:56-60` in both §7 here and in `GATES.md`.
-   Removed. **I then re-tested whether A3's drop still holds without it, because
-   a conclusion resting on a retracted source has to be re-earned rather than
-   assumed.** It holds, on two receipts I had not previously read closely: the
-   M5 measurement embedded in the stripped comment at
-   `nezuko-r99b/rung1-comment-strip.patch:7390-7393`, and the queue simulation
-   at `pr142-lpt-expert-queue-refutation.md:274-296`. The drop is now better
-   evidenced than when I made it.
-3. **Two efficiency numbers were being conflated.** 87.5 % (dense steel family
-   vs a 60 TFLOP/s reference) and 28.5 % (share of whole prefill not attributed
-   to dense GEMM) come from different censuses at different granularity. §4 now
-   carries an explicit warning against reading them as one quantity.
+   (`CURRENT_RESEARCH_STATE.md:123-125`). Removed, and the drop re-earned on two
+   receipts I had not previously read closely (§7). It is now better evidenced
+   than when I made it.
+3. **Two efficiency numbers were being conflated.** 87.5 % (dense steel family vs
+   a 60 TFLOP/s reference) and 28.5 % (share of whole prefill not attributed to
+   dense GEMM) come from different censuses. §4 now carries an explicit warning.
 4. **Line-number drift.** fern's sg/TG probe is §7.1 (`:566`, `:575`), not §7;
-   r107c's "Stage A arm 3 dropped" is `:92`; H5's "Rank last." is `:209`; and
-   the split-K prohibition is `§99.6` (heading `:6210`, prohibition `:6229`),
-   which is a section number and not a rule number.
+   r107c's "Stage A arm 3 dropped" is `:92`; H5's "Rank last." is `:209`; the
+   split-K prohibition is `§99.6` (heading `:6210`, prohibition `:6229`).
+5. **σ was mislabelled** as 0.103 % when the stored numbers give **0.1388 %**
+   (§3). Every "how many σ is this" judgement made against the old label was
+   ~35 % too generous.
+6. **A2's price was overstated by 2–6×** (§5.3). The quoted 0.94–2.52 % of score
+   exceeds what the entire wk/wv family costs on M5 (3.922 ms ≈ 1.45 %). The
+   honest ceiling is 0.46 % and the realistic estimate is 0.2–0.3 %.
 
-Nothing in this audit changed an arm's disposition. A1 still fires, A2 is still
-a ride-along, A3 is still dropped, A4 is still dead.
+Items 5 and 6 do not change any arm's disposition, but they do change what a slot
+spent here is worth, which is the number the leaderboard framing actually turns
+on.
