@@ -180,27 +180,76 @@ A landing is a **compiled-default flip** with the env override retained as an es
 ## 6. The channel, measured — and why it dominated the endgame
 
 Median service time earlier today was **28.0 min** (maple-fern, interval-censored). By late morning
-it had collapsed. State at 10:29Z, from `mlxfast submissions --all`:
+it had roughly doubled. Read the retraction below before using any earlier number from this campaign.
 
-- **11 receipts simultaneously non-terminal**; oldest `61da239` created 08:06Z, `validating` for
-  **2 h 23 m**.
-- Our `4be372f`, created 09:20Z, still non-terminal at 10:39Z — **79 min** and counting, blocking the
-  account's only in-flight slot.
-- Window 08:06→10:29: **19 arrivals, 8 terminal ⇒ arrival ≈ 8/h, throughput ≈ 3.3/h**, backlog
-  growing ≈ 4.5/h.
-- **Not FIFO:** `3872ee0` (09:14Z), `82bf9ef` (09:57Z) and `25d1be8` (09:44Z) all reached terminal
-  while `bbb49bc` (08:28Z), `1b5d6b7` (08:53Z), `8031af5` (09:01Z) and our `4be372f` (09:20Z) were
-  still pending. Any wait estimate built on single-server FIFO is therefore wrong.
+### 6.1 A wrong estimate, and the method that produced it
 
-Operational consequence, stated plainly: with close at 17:00Z, a shared one-in-flight account, and
-sibling-campaign priority on the slot from 10:00Z, **Maple's expected number of remaining scored
-draws is ≈ 0**. That is what converted every student deliverable from "a receipt" into "a portable
-hunk with an honest price", and it is why the deadlines were pulled from 13:30Z to ~12:00Z.
+At 10:29Z I published — to all six students — "19 arrivals, 8 terminal in the window 08:06→10:29 ⇒
+arrival ≈ 8/h, throughput ≈ 3.3/h, backlog growing ≈ 4.5/h", and concluded that **Maple's expected
+remaining scored draws were ≈ 0**. Both the throughput figure and the conclusion were wrong.
 
-**The generalisable lesson**, which is worth more than today's score: *the submission channel is a
-shared, degrading, non-FIFO resource, and its service-time distribution — not the local measurement
-apparatus — sets the campaign's effective planning horizon.* We measured our kernels to 0.08 % and
-our queue not at all until the last morning. The queue is what ran out.
+Two defects, both worth remembering because they are generic:
+
+1. **A poll-differencing throughput estimator is blind to short jobs.** Counting how many rows changed
+   state between two widely spaced polls misses every submission created *and* finished inside the
+   gap. The coarser the polling, the larger the undercount. It biases throughput down and only
+   throughput down, so it manufactures apparent backlog growth.
+2. **It assumed an open arrival process without testing the assumption.** The channel enforces one
+   in-flight submission *per solver*. That makes it a **closed loop**: work in the system is capped at
+   the number of active solvers, arrivals are throughput-limited by construction, and the backlog
+   cannot diverge. The "+4.5/h backlog growth" described a system the rules do not permit.
+
+The non-FIFO observation from that note survives and is still useful: `3872ee0` (09:14Z), `25d1be8`
+(09:44Z) and `82bf9ef` (09:57Z) all reached terminal while `bbb49bc` (08:28Z), `1b5d6b7` (08:53Z),
+`8031af5` (09:01Z) and our `4be372f` (09:20Z) were still pending. Any wait estimate built on
+single-server FIFO is wrong.
+
+### 6.2 The corrected model, measured at 10:47Z
+
+Instrument: `senpai/tools/queue_cycle_stats.py` over the complete 1856-row `mlxfast submissions --all`
+record. In a closed loop the right estimator is the gap between one solver's consecutive creation
+times, which upper-bounds (service + turnaround).
+
+- Non-terminal set: **9 submissions across 9 distinct solvers** — exactly one in flight per solver, no
+  solver holding two. Closed loop confirmed by construction, and corroborated by **zero arrivals
+  between 10:26Z and 10:48Z**: every active solver was waiting on its single slot.
+
+| window | arrivals | active solvers | per-solver gap median / p25 / p75 / max (min) |
+|---|---|---|---|
+| last 24 h | 69 (2.9/h) | 15 | 31 / 25 / 49 / 118 |
+| last 12 h | 62 (5.2/h) | 13 | 31 / 25 / 49 / 118 |
+| last 6 h | 40 (6.7/h) | 11 | 43 / 29 / 68 / 118 |
+| last 3 h | 27 (9.0/h) | 11 | **60** / 43 / 92 / 118 |
+
+- Our own account's last six gaps: **25, 24, 88, 25, 31, 83 min** — the same doubling.
+- Internal consistency check: 11 active solvers each cycling ≈ 60 min predicts ≈ 11/h fleet
+  throughput, against 9.0/h observed arrivals. Throughput ≈ arrival, i.e. roughly **3× the 3.3/h I
+  had reported**.
+- The trend is **non-stationary** (median 31 → 43 → 60 min as the window narrows toward the close).
+  Fit the p75 on the most recent hours; the 24 h median is not the planning number.
+
+Corrected operational consequence: the shared account should expect **~3–5 more terminal draws before
+17:00Z** if each is fired the moment the previous clears, and the last fire with better-than-even odds
+of terminating is ≈ **15:00Z** (17:00Z minus the 92 min p75, plus margin), with ≈15:30Z the point past
+which a draw is unlikely to score.
+
+What survived the correction: student deliverables remain **portable hunks with honest prices** rather
+than receipts, because the slot belongs to the sibling campaign from 10:00Z — that was always an
+ownership fact, not a queueing one. The pulled-in ~12:00Z deadlines also survive, and are now better
+justified: a hunk in hand by 12:00Z can actually reach a scored draw.
+
+### 6.3 The generalisable lesson
+
+*The submission channel is a shared, congesting, non-FIFO resource, and its service-time distribution
+— not the local measurement apparatus — sets the campaign's effective planning horizon.* We measured
+our kernels to 0.08 % and our queue not at all until the last morning.
+
+The second lesson is sharper and was self-inflicted: **an operational estimate broadcast to a fleet
+deserves the same instrument discipline as a kernel measurement.** I applied a two-sample estimator
+with a known one-sided bias, did not test its central assumption, and overrode a student's
+better-instrumented 28.0 min median with it. The fix cost twenty minutes of tooling
+(`queue_cycle_stats.py`, `queue_probe.py` — mind the ANSI colour codes in the CLI output, which
+silently made every row invisible to the first parser) and should have preceded the broadcast.
 
 ---
 
