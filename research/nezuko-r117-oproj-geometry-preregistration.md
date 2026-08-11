@@ -537,3 +537,130 @@ finds an invocation intercept of magnitude *i*, the fit's implied primary contra
 `-66.8 - i`. With *i* ~ -40 that is **~ -27 us/step for `R2 - G4`** — above the landing bar,
 but not by much, and the CI will decide it rather than the point estimate.
 
+
+## Amendment 15 — Stage 2: the mechanism ladder (2026-08-11 06:52Z)
+
+**Provenance, stated exactly.** The ladder launched at 06:50Z; this text was
+written at 06:52Z and committed at ~06:58Z after a first attempt was mangled by
+a shell heredoc. Individual runs take ~198 s, so one or two rows had physically
+completed before the commit landed. I had not read the output TSV, the job log
+body, or any per-arm number when this text was fixed, and the analyser has not
+been run. The predictions and decision rules below are therefore blind to the
+data but not clock-provable as such; the honest claim is *analyst-blind*, not
+*wall-clock-prior*, and the reader should discount accordingly.
+
+Stage 1 certified `rps=2` at **-79.431 us/token, CI95 [-87.811, -71.050]**, 8/8
+blocks negative, against a byte-identical control whose interval covered zero.
+The default is landed. What Stage 1 did **not** settle is *why*, and "why" is
+the whole M5-transfer question: the campaign briefing (L228-230) warns that
+threadgroup geometry can change sign across core counts, and (L293-294,
+L503-504) that fixed-byte occupancy tuning on this QMV family has historically
+been neutral-or-negative. I am obliged to engage that, not route around it.
+
+### 15.1 Static facts established first, at zero GPU cost
+
+**(a) Blast radius is exactly the 40 decode `o_proj` calls, and nothing else.**
+Every consumer of the knob is inside `lagunaGatedAffineOProjNVFP4*`
+(`LagunaRuntimeModel.swift:4356,4357,4376,4427,4451,4556,4576,4615,4635,4636,4650,4651`);
+the only callers are `LagunaRuntimeModel.swift:6388` and `:6404`. The dispatch
+guard requires `attentionOutput.dims(1, 1, inVec)` — a **single token row** — so
+prefill (512 rows) cannot enter this function at all. Prefill neutrality is
+therefore structural, not a lucky diagnostic.
+
+**(b) The byte ledger reconciles exactly, and it corrects the advisory fit.**
+`outVec = hiddenSize = 2048` always; `inVec = heads x 128` with the pinned XS
+schedule of 30 sliding layers at 64 heads (inVec 8192) and 10 full-attention
+layers at 48 heads (inVec 6144). One simdgroup re-reads the whole bf16
+activation, so halving `rps` adds 512 simdgroups per call:
+
+```
+h64:  512 x 8192 x 2 B = 8.389 MB   x 30 layers = 251.7 MB
+h48:  512 x 6144 x 2 B = 6.291 MB   x 10 layers =  62.9 MB
+                                        total  = 314.6 MB   <- matches R2 exactly
+rps=1 adds 1536 sgs   = 3 x 314.6    = 943.7 MB <- matches R1 exactly
+rps=8 removes 256 sgs = -0.5 x 314.6 = 157.3 MB <- matches R8 exactly
+```
+
+This is correction **C5**, and it cuts against the advisory critique, which
+inferred "~150 affected calls/step". The true count is **40 calls/step at
+6.3-8.4 MB each**. The correction *strengthens* attribution — the blast radius
+is one kernel, not a diffuse family — while leaving the critique's qualitative
+conclusion intact: the re-read activation is 12-16 KiB touched 1024 times, i.e.
+cache-resident, so its marginal price is on-chip bandwidth, not DRAM.
+
+It also supplies the missing link to Stage 0. o_proj DRAM traffic is
+30x(8.389+1.049) + 10x(6.291+0.786) = **354 MB/step**, ~1.38 ms at this host's
+256.7 GB/s asymptote, against a measured 8.97 ms step. Stage 0 measured this
+family running **9.1 % (h64) and 16.6 % (h48) below** that asymptote. The
+79.4 us Stage-1 win is **5.8 pp of that measured shortfall** — i.e. the change
+is not "occupancy tuning of a saturated kernel" (the case the briefing says is
+neutral-or-negative); it is recovery of a *previously measured, quantified*
+bandwidth shortfall, and the remaining headroom is bounded by ~3-11 pp.
+
+**(c) The knob is architecture-independent.** `lagunaNAXAvailable`
+(`LagunaRuntimeModel.swift:242`) is consumed only by
+`lagunaExpertAlignedGatherEnabled` (MoE gather). No branch in the o_proj path
+reads `GPU.deviceInfo().architecture`. This is a runtime-compiled `MLXFast`
+kernel, not an AOT metallib variant, so there is no `_nax` sibling to diverge.
+The one scenario that would guarantee exactly 0.0 % on M5 — a knob on a code
+path the ranked machine does not take — is **statically excluded**.
+
+### 15.2 Design, fixed now
+
+Four arms, 6 blocks, 24 runs, one binary, env-gated, interleaved, rotating
+within-block order, `--local-submit` only. `C4` is the reference and is the
+*historical* geometry (empty function suffix), so it is the same compiled
+pipeline as Stage 1's `C`.
+
+| arm | gates | rows/sg | sgs/tg | threadgroups | simdgroups | dbytes/step |
+|---|---|---|---|---|---|---|
+| `C4` (ref) | `..ROWS_PER_SIMDGROUP=4` | 4 | 2 | 256 | 512 | 0 |
+| `R2` | `..ROWS_PER_SIMDGROUP=2` | 2 | 2 | **512** | 1024 | +314.6 MB |
+| `R1` | `..ROWS_PER_SIMDGROUP=1` | 1 | 2 | **1024** | 2048 | +943.7 MB |
+| `N42` | `..ROWS_PER_SIMDGROUP=2,..SIMDGROUPS=4` | 2 | 4 | **256** | 1024 | +314.6 MB |
+
+`N42` is the discriminator: it holds simdgroups (1024) and bytes (+314.6 MB)
+identical to the shipped `R2` while restoring the reference's threadgroup count
+(256). Per Alphonse's law, the threadgroup count is printed in the table above
+and will be printed next to any null this ladder produces.
+
+### 15.3 Out-of-sample predictions, recorded before the read
+
+Back-solved two-term fit from Stage 0/1: benefit **a = -135 us per doubling of
+simdgroups**, on-chip byte price **tau_on = 0.218 us/MB**.
+
+| contrast | A: simdgroups+bytes | B: + placement (+23 us per tg-count halving) | C: tg-count only |
+|---|---|---|---|
+| `R2 - C4` | -66.4 | -89.4 | -50 |
+| `R1 - C4` | -64.3 | -110.3 | -75 |
+| **`N42 - C4`** | **-66.4** | **-43.4** | **0 ... +69** |
+
+Stage 1 measured `R2 - C = -79.4`. `N42` is the single row that separates these
+three models, and it separates C from A and B by a wide margin.
+
+### 15.4 Decision rules, fixed now
+
+**Mechanism (from `N42 - C4`):**
+- `<= -55 us` -> simdgroup-parallelism / latency-hiding confirmed. The operative
+  variable is simdgroups-per-core, which on M5 moves 12.8 -> 25.6 for `rps=2`,
+  one doubling *below* the segment measured here. Transfer case strong.
+- `-55 ... -25 us` -> mixed parallelism + placement. Transfer case moderate.
+- `>= -25 us` -> threadgroup-count / dynamic-tail dominant. That is the
+  historical non-transferring failure mode; I will say so plainly in the result.
+
+**Ship decision — pre-committed so it cannot be chosen after the read:** the
+submitted configuration stays `rps=2, ns=2` regardless of what `R1` and `N42`
+do. The single exception is that **if the `R2 - C4` replication interval fails
+to exclude zero, the default reverts to `rps=4` and this is reported as a
+non-result** — campaign law requires a verified positive interval, and a failed
+replication withdraws it. `R1` will not be shipped even if it wins here: Stage 0
+put it behind `R2` locally, and shipping a locally-worse arm on cross-machine
+extrapolation is exactly what the briefing forbids.
+
+**What `R1` is for:** if the response is flat between 1024 and 2048 simdgroups,
+M4's optimum is a plateau and `rps=2` is safely inside it on both machines. If
+instead `R1` is clearly worse, M4's optimum is an interior point at **51.2
+simdgroups/core** — which is where **`rps=1` would land on a 40-core M5**. That
+is a concrete, testable M5-only follow-up for the advisor, and it is worth more
+than the arm I am shipping. It is recorded here as a hypothesis, not a claim.
+
