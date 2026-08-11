@@ -82,7 +82,29 @@ def main():
             flush=True,
         )
         return 2
-    print(f"note pre-flight OK: {note_bytes} bytes >= {MIN_NOTE_BYTES}", flush=True)
+    # Second pre-flight: an unfilled placeholder.  Notes for a pre-registered
+    # shot are drafted while the previous shot is still validating, so they carry
+    # "@@...@@" markers for the numbers that only exist once it lands.  Shipping
+    # one of those would publish a note that pre-registers nothing.
+    try:
+        with open(args.note_file, "r", encoding="utf-8") as fh:
+            note_text = fh.read()
+    except OSError as exc:
+        print(f"FATAL: cannot read --note-file {args.note_file}: {exc}", flush=True)
+        return 2
+    if "@@" in note_text:
+        bad = [
+            f"{i}: {ln.strip()[:60]}"
+            for i, ln in enumerate(note_text.splitlines(), 1)
+            if "@@" in ln
+        ]
+        print(
+            "FATAL: note still contains unfilled placeholders: %s. "
+            "Refusing to launch and waste a shared slot." % "; ".join(bad[:5]),
+            flush=True,
+        )
+        return 2
+    print(f"note pre-flight OK: {note_bytes} bytes >= {MIN_NOTE_BYTES}, no placeholders", flush=True)
 
     started = time.time()
     attempts = 0
