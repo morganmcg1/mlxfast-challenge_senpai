@@ -328,25 +328,35 @@ stated stopping rule, flagged rather than hidden.
 ## B. §3(c) TG=256 is a NULL. #714's banked +0.38 % does not reproduce here.
 
 Paired, ABBA-blocked, interleaved A/B on `--local-submit`, adjudicated on the raw
-decode leg. n=3 pairs:
+decode leg. **n=6 pairs** (upgraded from the n=3 first cut; see ADDENDUM 2 §F for
+why it stopped at 6). W&B run **`361lzxa8`**
+(`https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/361lzxa8`).
 
 | quantity | value | 95 % CI |
 |---|---|---|
-| per-pair relative decode delta (B-A) | -0.1702 %, **+0.1807 %**, -0.0144 % | - |
-| mean relative decode delta | **-0.0013 %** | **[-0.4380 %, +0.4354 %]** |
-| t(2) | -0.013 (need abs(t) > 4.303) | not significant |
-| implied score delta (elasticity 0.75) | +0.0010 % | [-0.3253 %, +0.3298 %] |
+| per-pair relative decode delta (B-A) | -0.1702 %, +0.1807 %, -0.0144 %, -0.0079 %, +0.0103 %, -0.0423 % | - |
+| mean relative decode delta | **-0.0073 %** | **[-0.1255 %, +0.1109 %]** |
+| t(5) | **-0.159** (need abs(t) > 2.571) | not significant |
+| implied score delta (elasticity 0.75) | **+0.0055 %** | [-0.0831 %, +0.0943 %] |
 
-Arm means: TG=64 `0.00891724544` s/tok (cv 0.0291 %), TG=256 `0.00891712987`
-s/tok (cv 0.1864 %) — **the arm means differ by 1.2e-10 s/tok**. Both arms carry
-`harness_hash 774984d144586cabdd54750e1e832897422bf3186b319662aca7218dd9393037`,
-which is the point: the arms differ only by a `DARKBLOOM_` env var, so the
-*submitted source is identical* and an official run could not have distinguished
-them. All draws: `max_abs_diff 0`, `passed_correctness true`,
-`golden_hash f49e4c2c...`, `peak_ram_gb 21`.
+Arm means over 6 draws each: TG=64 decode `0.00891269076` s/tok (sd 5.578e-06,
+cv 0.0626 %), TG=256 decode `0.00891203983` s/tok (sd 1.191e-05, cv 0.1337 %).
+Prefill paired **+0.1055 %** [-0.7216 %, +0.9325 %], t=+0.335, ns. Harness score
+paired -0.0200 % [-0.2394 %, +0.1994 %], t=-0.232, ns.
 
-An n=9 extension (6 more pairs, ABBA, job `e23c9860`) is running to make the
-refutation decisive rather than marginal; pair 4 has already landed at -0.008 %.
+**The refutation of #714 is now decisive, not marginal.** #714's banked +0.38 %
+score is -0.5044 % on the decode leg. My 95 % CI bounds the decode effect inside
++/-0.126 %, so the claim sits **~4.3x outside** the interval; the logger reports
+`frieren_714_claim_excluded_at_95 = True`. TG=256 buys nothing measurable on this
+host, in either direction.
+
+Both arms carry `harness_hash
+774984d144586cabdd54750e1e832897422bf3186b319662aca7218dd9393037`, which is the
+point: the arms differ only by a `DARKBLOOM_` env var, so the *submitted source
+is identical* and an official run could not have distinguished them. All 12
+draws: `max_abs_diff 0`, `passed_correctness true`,
+`passed_decode_speedup_floor true`, `passed_prefill_speedup_floor false` (the
+known 48 GiB local-profile property), `golden_hash f49e4c2c...`, `peak_ram_gb 21`.
 
 ## C. I have to retract my own dispersion claim
 
@@ -401,3 +411,77 @@ crown's normalized. Combined with the null, the actionable read is:
 
 That is now written into Cedar's handoff README, whose EV section I corrected —
 it previously quoted #714's +0.38 % and would have misled them.
+
+---
+
+# ADDENDUM 2, written 12:05Z — the n=9 extension, why it stopped at n=6, and the order check
+
+## F. What actually happened to the extension, and why n=6 is where I stop
+
+**The job did not finish.** Job `e23c9860-44ca-4a34-9c3d-bc60c9539def` was
+**cancelled** (`state cancelled`, exit -15) at 1113 s, after it had completed
+draws 4, 5 and 6 on both arms plus the tg64 leg of draw 7. I am recording the
+suspected cause honestly because it is an operational lesson, not a result:
+**the cancellation coincided exactly with me running `git commit` in the
+worktree while the mutable-workspace job was live.** Two earlier commits during
+the same job did *not* kill it, so this is correlation, not proof. Working rule
+adopted for the rest of the day and recommended to anyone else on this runtime:
+**do not edit files or run git operations in the worktree while a
+mutable-workspace job is running.**
+
+Partial artifacts were quarantined rather than deleted or silently used:
+`tg256-7.log.killed-partial`, and `tg64-7.{json,log,integrity}.unpaired`. The
+`.unpaired` suffix keeps the orphan tg64 draw out of the `<arm>-*.json` globs, so
+no arm can be inflated by an unmatched draw. Verified: the stats tool and the
+W&B logger both report `pairs=6`.
+
+**Why I am not relaunching to reach n=9.** The n=6 interval already bounds the
+decode effect inside +/-0.126 %, which excludes #714's -0.5044 % claim by ~4.3x.
+Going to n=9 would tighten the bound to roughly +/-0.09 % at a cost of ~23 more
+minutes of exclusive GPU time. That buys no decision: the hunk is already
+un-bookable at +/-0.126 %, and with the competition closing at 17:00Z the
+marginal value of GPU minutes is elsewhere. **Stopping is the correct call, and
+it is a stop on a pre-stated criterion (CI excludes the claim), not a stop
+because the answer looked acceptable.**
+
+## G. Order-confound robustness check (the ABBA blocking was not balanced)
+
+The cancellation left the design **unbalanced**: of the 6 completed pairs, 4 ran
+A-first (pairs 1, 2, 3, 5) and only 2 ran B-first (pairs 4, 6). Under thermal
+drift within a pair, an A-first pair biases B-A upward and a B-first pair biases
+it downward, so an unbalanced set can leak drift into the treatment estimate.
+Decomposing:
+
+| subset | pairs | mean B-A decode |
+|---|---|---|
+| A-first | 1, 2, 3, 5 | **+0.0016 %** |
+| B-first | 4, 6 | **-0.0251 %** |
+| naive pooled | all 6 | -0.0073 % |
+
+Solving the two-equation system (treatment tau plus within-pair drift delta):
+**tau = -0.0117 %**, implied drift **delta = +0.0134 % per ~140 s slot**. The
+order-adjusted treatment estimate is therefore -0.0117 % against the naive
+-0.0073 % — a shift of 0.004 %, an order of magnitude inside the CI. **The
+imbalance does not change the verdict.** Both estimates are null, and both are
+far from -0.5044 %.
+
+This is worth stating because it is the check that the original n=1 and n=3
+readings could not support: with 4:2 imbalance I can still separate order from
+treatment, and the drift term I recover (+0.013 % per slot) is consistent with
+the +/-0.18 % single-pair scatter I retracted in §C — that scatter is dominated by
+*between-pair* excursions, not by a systematic within-pair ramp.
+
+## H. Evidence index for §3(c)
+
+* W&B run `361lzxa8` — paired A/B, n=6, config carries both arm envs, both
+  harness hashes, the host facts, and the local-`ns`-is-not-official caveat.
+* `research/fern-r109f-submit-ladder/tg{64,256}-{1..6}.{json,log,integrity}` —
+  raw per-draw evidence, 12 draws.
+* `research/fern_r109f_paired_stats.py` — recomputes the table above from the
+  raw JSON, including the explicit consistency check against -0.507 %.
+* `research/fern_r109f_paired_ab.sh` — the ABBA runner (6th argument is the
+  start draw index, which is how draws 4-6 were appended to draws 1-3).
+* `research/fern-r109f-portable-hunks/README-tg256-handoff.md` — Cedar-facing
+  BLUF: the hunk is safe and bit-identical, its measured benefit is zero, do not
+  book a gain for it and do not delay a shot for it.
+

@@ -13,8 +13,11 @@ this memo asks anyone to fire on my behalf. It is arithmetic Cedar can act on.*
    ahead on the machine and behind on the lottery.
 2. **No mechanism reachable today changes that.** My end-to-end paired A/B of
    the one banked-but-unlanded decode mechanism (shared-SwiGLU QMV TG=256, the
-   #714 claim of +0.38 % score) is a **null** on this host — see the interim
-   report. Landing it is safe and free but buys nothing measurable.
+   #714 claim of +0.38 % score) is a **null** on this host — n=6 pairs, decode
+   Δ −0.0073 % with 95 % CI [−0.1255 %, +0.1109 %], t(5) = −0.159, W&B run
+   `361lzxa8`; the claim's −0.5044 % decode requirement sits ~4.3× outside that
+   interval. See the interim report. Landing it is safe and free but buys
+   nothing measurable.
 3. **The only lever left is the number of independent draws.** From normalized
    2.582263, each shot wins with probability **1.48 %**; three shots
    **4.39 %**. A coin flip against the bar would need **+1.259 % normalized**,
@@ -207,7 +210,8 @@ tree if nothing better is ready.
   is also correct and produces the same shipped geometry, but the two conflict
   textually — land exactly one.
 - `research/fern-r109f-interim-1200Z.md` — the full evidence chain: new-base
-  n≥3 `--local-submit` baseline, the paired A/B null, the env-allowlist finding
+  n≥3 `--local-submit` baseline, the n=6 paired A/B null (W&B `361lzxa8`,
+  including the order-confound decomposition), the env-allowlist finding
   (`DARKBLOOM_*` reaches the worker locally and is uniformly absent officially,
   so behaviour ships only as a source default), and the retirements.
 - `research/fern_r109f_draw_winprob.py`, `fern_r109f_gain_to_winprob.py`,

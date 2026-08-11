@@ -5,8 +5,9 @@
 * The hunk **works, is bit-identical, and is safe to land** (build-green, budget-green,
   `max_abs_diff 0` across 1023 decode steps on every draw).
 * Its **performance benefit on this 20-core M4 Pro is zero within measurement error**:
-  paired ABBA A/B, mean relative decode Δ **−0.0013 %, 95 % CI [−0.4380 %, +0.4354 %]**.
-  #714's claimed +0.38 % score (= −0.507 % decode) is **outside that CI**.
+  paired ABBA A/B, **n=6 pairs**, mean relative decode Δ **−0.0073 %, 95 % CI
+  [−0.1255 %, +0.1109 %]**, t(5) = −0.159. #714's claimed +0.38 % score
+  (= −0.5044 % decode) is **~4.3× outside that CI**. W&B run `361lzxa8`.
 * Therefore: land it if you want the cleaner packing and the named kernels, but
   **do not book a gain for it**, and do not delay a submission shot on its account.
 * Note also that `DARKBLOOM_*` env vars **cannot ship behaviour** (strict allowlist +
@@ -146,20 +147,23 @@ instrument only.
 The paired A/B was run. **The effect is not distinguishable from zero**, and #714's
 claimed gain is excluded. This section supersedes any earlier expectation of +0.38 %.
 
-Paired B−A on the decode leg (A = TG=64, B = TG=256), n = 3 pairs, ABBA-blocked,
-both arms sharing `harness_hash 774984d144586cabdd54750e1e832897422bf3186b319662aca7218dd9393037`:
+Paired B−A on the decode leg (A = TG=64, B = TG=256), **n = 6 pairs**, ABBA-blocked,
+both arms sharing `harness_hash 774984d144586cabdd54750e1e832897422bf3186b319662aca7218dd9393037`.
+W&B run `361lzxa8` (`https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/361lzxa8`):
 
 | quantity | value | 95 % CI |
 |---|---|---|
-| per-pair relative decode Δ | −0.1702 %, +0.1807 %, −0.0144 % | — |
-| **mean relative decode Δ** | **−0.0013 %** | **[−0.4380 %, +0.4354 %]** |
-| t(2) | −0.013 (need \|t\|>4.303) | not significant |
-| implied score Δ (elasticity 0.75) | +0.0010 % | [−0.3253 %, +0.3298 %] |
+| per-pair relative decode Δ | −0.1702 %, +0.1807 %, −0.0144 %, −0.0079 %, +0.0103 %, −0.0423 % | — |
+| **mean relative decode Δ** | **−0.0073 %** | **[−0.1255 %, +0.1109 %]** |
+| t(5) | −0.159 (need \|t\|>2.571) | not significant |
+| implied score Δ (elasticity 0.75) | +0.0055 % | [−0.0831 %, +0.0943 %] |
 
-Arm means: TG=64 decode 0.00891724544 s/tok (cv 0.0291 %); TG=256 decode
-0.00891712987 s/tok (cv 0.1864 %). The two arm means differ by **1.2e-10 s/tok**.
+Arm means over 6 draws each: TG=64 decode 0.00891269076 s/tok (sd 5.578e-06,
+cv 0.0626 %); TG=256 decode 0.00891203983 s/tok (sd 1.191e-05, cv 0.1337 %).
+Prefill paired +0.1055 % [−0.7216 %, +0.9325 %], t=+0.335, ns. Harness score paired
+−0.0200 % [−0.2394 %, +0.1994 %], t=−0.232, ns.
 
-Two things matter here:
+Three things matter here:
 
 1. **The sign flips between pairs** (−0.170 %, +0.181 %). The same flip appears in the
    raw `mean_step_seconds` stream (−0.108 %, +0.156 %), so this is genuine step-time
@@ -167,9 +171,16 @@ Two things matter here:
    **underestimate** for a long session: between-draw drift over ~15 min is ~7–10×
    larger than within-a-tight-triple scatter. Any single-pair A/B on this host can
    manufacture a ±0.18 % "effect" at will.
-2. **#714's claim is outside the CI.** +0.38 % score = −0.507 % decode; our CI upper
-   bound on improvement is −0.438 %. So the claim is refuted at 95 % on *this* host,
-   though only just — which is why the n=9 extension was run.
+2. **#714's claim is decisively outside the CI.** +0.38 % score = −0.5044 % decode; our
+   n=6 interval bounds the decode effect inside ±0.126 %, so the claim sits **~4.3×
+   outside** it. At n=3 the refutation was marginal (bound −0.438 % vs claim −0.507 %);
+   at n=6 it is not.
+3. **The design ended 4:2 unbalanced** (4 A-first pairs, 2 B-first) because the
+   extension job was cancelled mid-draw-7. Decomposing: A-first mean +0.0016 %,
+   B-first mean −0.0251 % ⇒ order-adjusted treatment **τ = −0.0117 %** with implied
+   within-pair drift **δ = +0.0134 %** per ~140 s slot. The adjustment moves the
+   estimate by 0.004 %, an order of magnitude inside the CI, so the imbalance does not
+   change the verdict.
 
 Plausible mechanism for non-transfer: TG=256 leaves only **64 threadgroups on a
 20-core GPU (3.2 TG/core)** versus 256 TGs (12.8/core) at TG=64. Load-balance
@@ -181,7 +192,7 @@ is probably correct on their host and simply does not transfer to a 20-core part
 ## Should Cedar land it anyway? — expected value
 
 **Yes, but land it for the correctness/robustness reasons, not for speed.** It is
-measured-neutral here (CI centred on zero, ±0.44 %), bit-identical
+measured-neutral here (CI centred on zero, ±0.126 % at n=6), bit-identical
 (`max_abs_diff 0` on 1023 decode steps in every draw), and budget-safe. It is not a
 banked gain, and it must not be counted as one when projecting a win.
 
