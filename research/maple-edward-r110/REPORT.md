@@ -289,14 +289,54 @@ scores archived as `logs/score-<tag>.json`. The base arms ran from a temporary
 commit that restored the six touched files to `30904ecb`; that commit was
 dropped before submission.
 
-<!-- ARM-TABLE -->
+| arm | order | commit | decode s/tok | prefill s/tok | normalised score | correct |
+|---|---|---|---|---|---|---|
+| C1 | 1 | `8518b0d4` (cand) | 0.012774765625 | 0.00110791495703125 | 0.817259 | true |
+| B1 | 2 | `1bfc8dac` (base) | 0.0129010074921875 | 0.001125251220703125 | 0.808110 | true |
+| B2 | 3 | `1bfc8dac` (base) | 0.0129719609375 | 0.0011232759609375 | 0.805147 | true |
+| C2 | 4 | `d2e25393` (cand) | 0.0128501959609375 | 0.001108788330078125 | 0.813498 | true |
 
-**Read this weakly.** The expected prefill effect is ≈ 0.43 % (~2.4 ms on a
-~575 ms prefill), which is at or below this harness's arm-to-arm spread, and
-`--local-iterate` re-derives its own baseline per invocation. The four arms
-are *consistent with* the rig result and rule out an end-to-end regression;
-they do not resolve a 0.4 % prefill move, and I am not claiming they do. Every
-arm reported `passed_correctness = true`.
+ABBA means (which cancel a linear drift term):
+
+| axis | candidate mean | base mean | candidate faster by |
+|---|---|---|---|
+| decode s/tok | 0.0128124808 | 0.0129364842 | **+0.959 %** |
+| prefill s/tok | 0.0011083516 | 0.0011242636 | **+1.415 %** |
+| normalised score | 0.815379 | 0.806628 | +1.085 % |
+
+**This is not evidence of a +1.4 % prefill win, and I am not claiming one.**
+The decisive check is which arm the mechanism can possibly move:
+
+- `gather_qmm_rhs` is only reached when
+  `sorted_rhs = M == 1 && B >= 16 && right_sorted_ && B / E >= 4`
+  (`Vendor/mlx-swift/.../backend/metal/quantized.cpp:1902-1903`), and the
+  runtime only passes `sortedIndices: true` when `indices.size >= 64`
+  (`Sources/MLXFastModel/LagunaRuntimeModel.swift:10544`). A one-token decode
+  step has `top_k` indices, never ≥ 64, and cannot supply ≥ 4 rows per expert.
+  So **decode cannot touch either rewired call site** — the mechanism predicts
+  exactly 0.000 % there.
+- Decode nonetheless moved **+0.959 %**. That number is the honest
+  arm-to-arm noise floor of `--local-iterate` on this host, and it is
+  corroborated by the within-condition spreads: 0.548 pp between the two base
+  arms and 0.589 pp between the two candidate arms on decode.
+- The prefill mechanism prediction is `0.853 % × 50.4 % ≈ +0.43 %` (D6 share).
+  Measured +1.415 %. Subtracting the decode channel as a drift proxy leaves
+  ≈ +0.46 pp, which lands on the prediction — but that subtraction is a
+  heuristic I invented after seeing the data, not a pre-registered estimator,
+  so I record it as consistency, not as measurement.
+
+The defensible conclusions from this ABBA are therefore only: (a) the change is
+not end-to-end negative, (b) all four arms pass correctness, and (c) the
+harness-level noise floor on this host (~1 pp) is larger than the effect the
+mechanism can produce (~0.43 pp), which is exactly why the kernel rig — where
+two independent runs agree to 0.02–0.05 pp — is the primary evidence and this
+section is a sanity check.
+
+One further caveat: `--local-iterate` re-derives its own baseline per
+invocation, so its published `speedup` fields are not comparable across the
+four arms. The table above uses the raw `decode_seconds_per_token` and
+`prefill_seconds_per_token` from `logs/score-{C1,B1,B2,C2}.json` and my own
+normalisation, which is the only cross-arm-comparable reading available here.
 
 ## D5 — score-reach arithmetic, one column per host, never mixed
 
@@ -448,6 +488,15 @@ assignment.
    calibration only with a factor I could not derive; the plain 0.25 exponent
    gives exactly half. Every M4 prefill projection in this campaign inherits
    whichever one is right, so it is worth pinning down once in a tracked file.
+6. **Publish the `--local-iterate` noise floor as a campaign constant.** My
+   four-arm ABBA (D4) gives a clean read on it, because decode is a channel the
+   mechanism provably cannot touch: decode still moved **+0.959 %** between
+   conditions, with 0.55 pp spread inside each condition. So on this host a
+   2-vs-2 `--local-iterate` ABBA cannot resolve anything below roughly 1 pp.
+   Several campaign decisions are being made on single-arm or 1-vs-1
+   `--local-iterate` deltas smaller than that. A cheap 4-arm null experiment
+   (base vs base, four arms) would pin the number down for everyone and is
+   worth one student-hour.
 
 ---
 
