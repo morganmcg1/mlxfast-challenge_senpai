@@ -22,7 +22,10 @@ behind) — but the stream then **caught up asymmetrically**, delivering live he
 while bases stayed 49 commits back, so the `expected_pr_head_sha` lease that had been making staleness
 harmless would have *passed*. That reversal is **error fifteen** and rule 29: a safety property that
 holds only because your inbox is behind is not a safety property — check whether the PR is open, not
-whether the message is fresh. Also: the two cited artifacts that error 11 could only point at are now
+whether the message is fresh. At 17:59Z the catch-up then **reversed** (four stale heads and one live
+head in one batch, bases crawling 49→46 behind), so freshness is per-field, per-object and
+non-monotone: there is no point at which this stream becomes reliable, and only the object's own state
+held still all day. Also: the two cited artifacts that error 11 could only point at are now
 **vendored byte-for-byte** into `research/imported/` with checksums, so every citation in this file is
 openable (rule 28).**
 Previously revised: 2026-08-11 ~16:44Z — **§10 added: the closing addendum. Its last subsection (xiii) is the
@@ -77,7 +80,11 @@ Where I was previously wrong, the correction is stated as a correction rather th
 > as `review_ready`; the lease would have passed. Nothing bad happened, because I check PR state rather
 > than message freshness — all three are closed — but the reassurance I published was worthless the
 > moment the queue drained. Same failure shape as error fourteen (sample dressed as census), now on the
-> time axis instead of the population axis. Rule 29 and §10(xvii), 17:54Z.
+> time axis instead of the population axis. **And do not replace it with the next comfortable story
+> either — "the queue is draining, so the stream is becoming reliable" died at 17:59Z, when the head
+> axis went backwards** (four stale heads and one exactly-live head in a single batch, bases crawling
+> 49→46 behind). Freshness is per-field, per-object, non-monotone. Rule 29 and §10(xvii), 17:54Z and
+> 17:59Z.
 
 > **Error fourteen, added 17:33Z — read error thirteen below first.** My
 > 17:16Z sealing note said "all seven Maple-facing PRs (#686, #707, #711, #712, #714, #716, #718) are
@@ -1509,7 +1516,12 @@ producing a bound that appeared to get **worse** after a clean observation. Rule
     the traffic looks most like real work. Check the **object's** state (is this PR open? is the
     challenge running?), never the freshness of the message describing it; and note that a stream can
     converge **asymmetrically** — heads reached the present while bases were still 49 commits back, so
-    "one field looks current" says nothing about the rest of the payload. §10(xvii), 17:54Z.
+    "one field looks current" says nothing about the rest of the payload. **And do not read this as
+    "wait for the queue to drain, then trust it": five minutes later the head axis went backwards**,
+    one batch carrying four stale heads and one exactly-live head while the base field crawled through
+    four SHAs 49→46 commits behind. Freshness is per-field, per-object and non-monotone; there is no
+    moment at which the stream becomes reliable. Only the object's own state held still all day.
+    §10(xvii), 17:54Z and 17:59Z.
 
 ---
 
@@ -2498,6 +2510,22 @@ the freshness of the message describing it. Sharpest illustration available: had
 three arms measured at **+4.73 µs/step**, **+23.12 µs/step** and an unresolved prefill BN — every one
 refuted, every one a regression. The batch that looked most actionable all day was the one that would
 have done the most damage.]*
+
+*[**17:59Z — and the catch-up is not a trend. It reversed.** One more batch, and the head axis went
+**backwards**: #686 arrived at `30ccc623` (live `bd475704`), #730 at `1065bb3b` (live `530dcf36`),
+#733 at `2c6988ee` (live `a36b96ae`), #741 at `c1d62ca5` (live `b8411a39`) — all stale again — while
+#737 arrived at `72a19c5c`, *exactly* live. Same batch, both conditions, different PRs. The base axis
+meanwhile replayed a four-step monotone crawl, `369866d5` → `37cf45be` → `095499f4` → `7a0b8d24`,
+timestamped 11:34Z through 11:54Z and measured at **49, 48, 47 and 46** commits behind the published
+head — walking forward one commit at a time, hours in arrears, in a single delivery. So freshness here
+is **per-field, per-object, and non-monotone**. This kills the one comfortable reading rule 29 still
+allowed: *"the queue is draining, so at some point the stream becomes trustworthy."* There is no such
+point. A field that was live in the previous batch can be stale in the next, and a lease that would
+have failed a minute ago can pass now — the ordering carries no information you may lean on. The only
+durable check is the one that does not consult the message at all: I re-read all five PRs live and
+every one is `State: closed`, so this batch, like the last, is inert for the same reason the last one
+was — the objects are closed and the challenge is over. That reason has not changed once today, while
+the stream's story about it has changed in four different directions.]*
 
 **2. The two off-branch artifacts of §10(vii) (error 11) are now vendored, byte-for-byte.** The
 closed-unmerged student branches are still on the remote, and this clone's narrow default refspec is

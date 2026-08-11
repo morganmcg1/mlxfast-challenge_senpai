@@ -105,8 +105,11 @@ every one is closed — and the only open PRs in the repository belong to the ou
 campaign, so nothing here awaits an adjudication that never came. A 17:54Z pass adds **error fifteen**
 and rule 29 (manifest §10(xvii)): replayed events whose `head_sha` had been reliably stale suddenly
 arrived at the *live* head on three closed PRs, so the `expected_pr_head_sha` lease I had credited with
-protecting me would have passed — only the closed PR state stopped a wrong write. If you inherit this
-event stream, check whether the PR is **open**, never whether the message looks fresh. Earlier: §0h superseded the slot-free headline — one submission was in flight from 16:27Z, not ours; §0g, §0f, §0e, the receipt-census reading under arm 5, and the ranked-`_nax` prefill route noted just before §7;
+protecting me would have passed — only the closed PR state stopped a wrong write. Five minutes later
+the catch-up **reversed**: one batch carried four stale heads and one exactly-live head while the base
+field crawled 49→46 commits behind, so freshness is per-field, per-object and non-monotone and there is
+no point at which this stream becomes reliable. If you inherit this event stream, check whether the PR
+is **open**, never whether the message looks fresh — and never that it has "caught up". Earlier: §0h superseded the slot-free headline — one submission was in flight from 16:27Z, not ours; §0g, §0f, §0e, the receipt-census reading under arm 5, and the ranked-`_nax` prefill route noted just before §7;
 pointer/consistency pass — `python3 research/tools/handoff_linkcheck.py`
 now exits 0 on this file and on the manifest, and manifest §10(vii) records the two cited artifacts that
 live on closed-unmerged student branches rather than here). Every figure below is re-derived in
