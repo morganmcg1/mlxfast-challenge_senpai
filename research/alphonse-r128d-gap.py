@@ -91,6 +91,7 @@ def main():
         run_meds, run_meds_win, seeds, rtts = [], [], [], []
         lead_all, intern_all, trail_all, busy_sum_all, busy_u_all = [], [], [], [], []
         cbs_all, disp_all, wall_prof = [], [], []
+        gap_all, overlap_all, ident_all, leadtrail_all = [], [], [], []
         slopes = []
         for r in blob["runs"]:
             spans = [(a, b) for a, b in r["spans"]]
@@ -126,14 +127,20 @@ def main():
                 bu = union_len(iv)
                 lead = iv[0][0] - t0
                 trail = t1 - max(e for _, e in iv)
+                intern = internal_idle(iv)
                 lead_all.append(lead)
                 trail_all.append(trail)
-                intern_all.append(internal_idle(iv))
+                intern_all.append(intern)
                 busy_sum_all.append(bs)
                 busy_u_all.append(bu)
                 cbs_all.append(len(iv))
                 disp_all.append(nops)
                 wall_prof.append(t1 - t0)
+                # Pair per step: never difference two medians (see D3).
+                gap_all.append((t1 - t0) - bu)
+                overlap_all.append(bs - bu)
+                ident_all.append(lead + intern + trail - ((t1 - t0) - bu))
+                leadtrail_all.append(lead + trail)
 
         print(f"runs={len(blob['runs'])} steps/run={blob['steps']}")
         describe("seed forward (ms)", seeds, 1e3)
@@ -143,25 +150,38 @@ def main():
         print(f"{'KV-growth slope':<26} "
               f"median={statistics.median(slopes)*1e6*1000:9.3f} us per 1000 steps")
         if busy_u_all:
-            print("--- profiled steps ---")
-            w = describe("wall (profiled steps)", wall_prof)
-            bs = describe("gpu_busy_sum", busy_sum_all)
-            bu = describe("gpu_busy_union", busy_u_all)
-            le = describe("lead (t0->first GPU)", lead_all)
-            it = describe("internal idle", intern_all)
-            tr = describe("trail (last GPU->t1)", trail_all)
+            print("--- profiled steps (paired per step) ---")
+            describe("wall (profiled steps)", wall_prof)
+            describe("gpu_busy_sum", busy_sum_all)
+            describe("gpu_busy_union", busy_u_all)
+            describe("gap = wall - busy_union", gap_all)
+            describe("lead (t0->first GPU)", lead_all)
+            describe("internal idle", intern_all)
+            describe("trail (last GPU->t1)", trail_all)
             print(f"{'cbs/step':<26} median={statistics.median(cbs_all):.1f}  "
                   f"dispatches/step median={statistics.median(disp_all):.1f}")
-            print(f"check: wall-busy_union={(w-bu)*1e6:.1f} us vs "
-                  f"lead+internal+trail={(le+it+tr)*1e6:.1f} us "
-                  f"(medians are not additive; means below)")
-            mw = statistics.mean(wall_prof)
-            print(f"means: wall={mw*1e6:.1f} busy_union={statistics.mean(busy_u_all)*1e6:.1f} "
-                  f"busy_sum={statistics.mean(busy_sum_all)*1e6:.1f} "
-                  f"lead={statistics.mean(lead_all)*1e6:.1f} "
-                  f"internal={statistics.mean(intern_all)*1e6:.1f} "
-                  f"trail={statistics.mean(trail_all)*1e6:.1f} "
-                  f"residual={(mw-statistics.mean(busy_u_all))*1e6:.1f}")
+
+            print("--- consistency gates ---")
+            worst = max(abs(v) for v in ident_all)
+            print(f"G1 identity  max|lead+internal+trail-gap| = {worst*1e6:.3f} us "
+                  f"[pass if <1]")
+            ov = statistics.median(overlap_all)
+            n_ov = sum(1 for v in overlap_all if v > 1e-6)
+            print(f"G2 overlap   median(busy_sum-busy_union) = {ov*1e6:.1f} us; "
+                  f"steps with >1us overlap = {n_ov}/{len(overlap_all)} "
+                  f"[nonzero => concurrent command buffers, single-timeline "
+                  f"attribution invalid]")
+            floor = statistics.median(rtts)
+            n_below = sum(1 for v in leadtrail_all if v < floor)
+            print(f"G3 rtt floor lead+trail below null-RTT median "
+                  f"({floor*1e6:.1f} us) in {n_below}/{len(leadtrail_all)} steps "
+                  f"[expect 0: the protocol leg cannot be cheaper than a no-op]")
+            xs = list(range(len(gap_all)))
+            mx, my = statistics.mean(xs), statistics.mean(gap_all)
+            den = sum((x - mx) ** 2 for x in xs)
+            sl = sum((x - mx) * (y - my) for x, y in zip(xs, gap_all)) / den
+            print(f"G4 gap trend slope = {sl*1e6*1000:.3f} us per 1000 steps "
+                  f"[large => the gap median hides a trend]")
     return 0
 
 
