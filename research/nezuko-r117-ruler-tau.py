@@ -50,8 +50,18 @@ this full-model ruler even though the instrument differs):
 
 Usage:  python3 research/nezuko-r117-ruler-tau.py ROWS.tsv [--csv OUT.csv]
 Env:    BW=256.7   assumed peak GB/s used to convert bytes to us at tau=1.
-                   (The family's own achieved rate is 235.6 GB/s; tau scales
-                   inversely, so tau_at_235.6 = tau_at_256.7 * 256.7/235.6.)
+                   (The family's own achieved rate is 235.6 GB/s.  A LOWER
+                   assumed rate makes the SAME bytes cost MORE predicted us,
+                   so the measured/predicted ratio tau gets SMALLER:
+                       tau_at_235.6 = tau_at_256.7 * 235.6/256.7 .
+                   CORRECTED 2026-08-11 05:03Z: this line and the print at the
+                   bottom of fit_tau() previously had the ratio upside down
+                   (*256.7/235.6, reporting 0.850 instead of 0.716).  The
+                   headline tau itself was NEVER affected -- it is defined on
+                   the 256.7 peak scale throughout -- but the restatement, and
+                   any ceiling computed by multiplying tau onto an
+                   achieved-rate us figure, were wrong.  See
+                   research/nezuko-r117-c-final-report.md section 2.2.
         BOOT=20000 bootstrap resamples.
 """
 import csv
@@ -424,8 +434,21 @@ def main():
         print(f"    (excludes 0.3? {'YES' if lo > 0.3 or hi < 0.3 else 'NO'};"
               f"  excludes 1.0? {'YES' if lo > 1.0 or hi < 1.0 else 'NO'};"
               f"  excludes 0? {'YES' if lo > 0 or hi < 0 else 'NO'})")
+        # A lower assumed rate => larger predicted us for the same bytes
+        # => smaller measured/predicted ratio.  tau_235.6 = tau_BW * 235.6/BW.
         print(f"\n  tau restated against the family's achieved 235.6 GB/s:"
-              f" {st[0]*BW/235.6:+.3f}")
+              f" {st[0]*235.6/BW:+.3f}")
+        print( "    (a lower assumed rate makes the same bytes cost MORE"
+               " predicted us, so tau falls;")
+        print(f"     check: observed us/MB = {st[0]*1e3/BW:.4f};"
+              f"  pred us/MB at 235.6 = {1e3/235.6:.4f};"
+              f"  ratio = {(st[0]*1e3/BW)/(1e3/235.6):+.3f})")
+        print( "    NOTE: tau is defined on the 256.7 peak scale everywhere"
+               " else in this script and in")
+        print( "    every headline number.  Do NOT multiply the peak-scale tau"
+               " onto a us figure that was")
+        print( "    already computed at the achieved 235.6 GB/s rate -- that"
+               " double-counts the shortfall.")
 
     # naive no-intercept slope, for contrast only
     num = sum(sum(x * D[a][i] for x, a in zip(xs, rungs)) for i in range(len(blocks)))

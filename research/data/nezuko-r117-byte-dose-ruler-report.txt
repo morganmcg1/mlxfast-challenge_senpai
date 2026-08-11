@@ -35,7 +35,12 @@ PRIMARY ENDPOINT -- tau from the free-intercept OLS slope
     tau CI95 lower +0.727 > 0.6  ==> BYTE CLASS CONFIRMED at ~unity.
     (excludes 0.3? YES;  excludes 1.0? YES;  excludes 0? YES)
 
-  tau restated against the family's achieved 235.6 GB/s: +0.850
+  tau restated against the family's achieved 235.6 GB/s: +0.716
+    (a lower assumed rate makes the same bytes cost MORE predicted us, so tau falls;
+     check: observed us/MB = 3.0388;  pred us/MB at 235.6 = 4.2445;  ratio = +0.716)
+    NOTE: tau is defined on the 256.7 peak scale everywhere else in this script and in
+    every headline number.  Do NOT multiply the peak-scale tau onto a us figure that was
+    already computed at the achieved 235.6 GB/s rate -- that double-counts the shortfall.
 
   [contrast] no-intercept slope = +0.723  <- the estimator the amendment REJECTS (absorbs the offset into tau)
 

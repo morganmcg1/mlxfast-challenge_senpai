@@ -59,7 +59,7 @@ Target family = `decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1` (1342.1 µs/step, 3
 | surviving scale plane | **24.02 MB/step = 3.26 %** |
 | payload (irreducible) | **96.74 %** |
 | already banked by shipped encoders | **66.38 MB/step = +2.37 %** |
-| whole-plane-vanishes ceiling at τ=1 | **101.8 µs/step = +0.855 %** |
+| whole-plane-vanishes ceiling at τ=1 | **93.6 µs/step = +0.782 %** |
 
 The family runs at **91.9 % of peak bandwidth**. There is no compute slack to trade against.
 
@@ -81,8 +81,17 @@ encoder already spends 4 bits/group and the escape tail is far below break-even.
 ### 1.4 The arithmetic that closes it
 
 Even under the *maximally generous* counterfactual — the entire surviving plane vanishing, no
-escape list, no addressing cost — the ceiling is **+0.855 % at τ=1** and **+0.667 % at the
-measured τ=0.780**.
+escape list, no addressing cost — the ceiling is **+0.782 % at τ=1** and **+0.610 % at the
+measured τ=0.780** (24.02 MB/step × 1000/256.7 = 93.57 µs/step at τ=1).
+
+> **Self-correction, 05:03Z.** These two figures were first published as **+0.855 %** and
+> **+0.667 %**, from a whole-plane bound of 101.8 µs/step. 101.8 is the plane converted at the
+> family's *achieved* 235.6 GB/s; τ is measured against the *peak* 256.7 GB/s. Multiplying them
+> double-counts the bandwidth shortfall and inflates every ceiling by 1.090. Corrected values are
+> above; full derivation in `research/nezuko-r117-stage0b-byte-dose-ruler.md` §5.2. The error was
+> in the conservative-for-me direction — the true ceiling is *lower*, so `N-ATTN-BYTE-FLOOR` is
+> **stronger** than published — and the backwards numbers in the next table were computed on the
+> peak scale throughout and **do not change**.
 
 Backing out what a real encoder would have to deliver:
 
@@ -123,7 +132,7 @@ Four dose rungs, produced by *disabling* shipped encoders so bytes go **up** by 
 | **τ (primary, free-intercept OLS)** | **+0.780** | **[+0.727, +0.833]** (sd 0.057, n=7) |
 | intercept c | −10.58 µs/step | [−24.16, +3.00] |
 | bootstrap median τ (20 000 reps) | +0.776 | [+0.714, +0.826] |
-| τ restated at achieved 235.6 GB/s | +0.850 | — |
+| τ restated at achieved 235.6 GB/s | +0.716 | — (self-corrected 05:03Z, was +0.850) |
 | *(rejected)* through-origin slope | +0.723 | — |
 
 Per-block τ: 0.826, 0.804, 0.864, 0.709, 0.714, 0.768, 0.776.

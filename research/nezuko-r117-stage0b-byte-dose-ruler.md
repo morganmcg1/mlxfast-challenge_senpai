@@ -17,7 +17,11 @@ Every run passed with the same golden hash `f49e4c2cbc0d3ceee9…`.
 The advisor's encoder gate — *τ ≥ 0.6 with CI95 excluding 0.3* — **passes**, and passes with
 room: the interval excludes 0.3, excludes 0, and also excludes 1.0. So a scale-plane byte on
 the decode attention family costs **78 % of what a perfectly-streaming DRAM byte costs** at the
-256.7 GB/s asymptote, or **85 %** restated against the 235.6 GB/s this family actually achieves.
+256.7 GB/s asymptote, or **72 %** restated against the 235.6 GB/s this family actually achieves.
+*(Corrected 05:03Z — this restatement was published as 85 % with the rate ratio upside down; a
+lower assumed rate makes the same bytes cost more predicted µs, so τ must FALL, not rise. The
+headline τ = 0.780 is on the 256.7 peak scale and is unaffected. See §5.2 for the one place the
+inverted restatement propagated into a number that mattered.)*
 Cedar's routed-class band [0.27, 0.43] does **not** transfer to attention: attention bytes are
 roughly **2.3× more expensive** than the routed-expert bytes cedar priced.
 
@@ -205,7 +209,7 @@ free.
 | **τ (free-intercept OLS slope)** | **+0.780** | **[+0.727, +0.833]** (sd 0.057, n = 7) |
 | intercept c | −10.58 µs/step | [−24.16, +3.00] (sd 14.68) |
 | bootstrap median τ (20 000 reps) | +0.776 | [+0.714, +0.826] |
-| τ restated at the family's achieved 235.6 GB/s | +0.850 | — |
+| τ restated at the family's achieved 235.6 GB/s | +0.716 | — (was published +0.850; ratio was inverted, corrected 05:03Z) |
 | *(rejected)* through-origin slope | +0.723 | — |
 
 Per-block τ: 0.826, 0.804, 0.864, 0.709, 0.714, 0.768, 0.776 — a 0.155 spread across seven
@@ -360,15 +364,37 @@ and from an escape-corrected byte census that reproduces edward's atlas bandwidt
 ### 5.2 The ceiling, priced at the measured τ
 
 Conversion: `%score = 100 × 0.75 × τ × pred_µs / 8972`, where `pred_µs` is the byte delta at the
-256.7 GB/s asymptote. The whole-plane-vanishes bound is 24.02 MB/step = **101.8 µs/step** at
-τ = 1.
+256.7 GB/s asymptote. The whole-plane-vanishes bound is 24.02 MB/step, and at the 256.7 GB/s
+asymptote that is `24.02 × 1000/256.7` = **93.57 µs/step** at τ = 1.
 
-| τ used | source | ceiling if the entire scale plane vanished |
-|---|---|--:|
-| 1.000 | physical | +0.855 % |
-| **0.780** | **primary, this campaign** | **+0.667 %** |
-| 0.727 / 0.833 | primary CI95 | +0.622 % / +0.712 % |
-| 0.968 | `OP`-dropped sensitivity | +0.828 % |
+> **CORRECTION, 05:03Z — this section was wrong when first published, and the error made my own
+> headline finding look weaker than it is.** The earlier text put the whole-plane bound at
+> **101.8 µs/step "at τ = 1"**. 101.8 is `24.02 × 1000/235.6` — the bound computed at the
+> family's *achieved* 235.6 GB/s rate, not at the 256.7 peak. But τ is defined throughout this
+> campaign as measured-µs ÷ predicted-µs-at-**peak**. Multiplying a peak-scale τ onto an
+> achieved-scale µs figure **double-counts the bandwidth shortfall** (once inside τ, once inside
+> the 235.6 conversion), inflating every ceiling by 256.7/235.6 = 1.090. The same inverted ratio
+> is what produced the bogus "τ = 0.850 at 235.6 GB/s" restatement above (correct: 0.716).
+> Corrected ceilings are below. **The backwards numbers in the next table are unaffected** —
+> they were computed on the peak scale from the start.
+
+| τ used | source | ceiling if the entire scale plane vanished | (as published, wrong) |
+|---|---|--:|--:|
+| 1.000 | physical, peak scale | **+0.782 %** | +0.855 % |
+| **0.780** | **primary, this campaign** | **+0.610 %** | +0.667 % |
+| 0.727 / 0.833 | primary CI95 | +0.569 % / +0.652 % | +0.622 % / +0.712 % |
+| 0.968 | `OP`-dropped sensitivity | +0.757 % | +0.828 % |
+
+For completeness: a model in which the plane streams at the family's own *average* achieved rate
+rather than at peak — i.e. τ_peak = 256.7/235.6 = 1.090, the plane costing exactly what the
+family's mean byte costs — gives 101.95 µs/step = +0.852 %. That is the only reading under which
+the old "101.8 µs" number is meaningful, and it assumes the scale plane is *harder* to stream
+than a peak byte, which is the opposite of the direction the ladder measured (τ < 1).
+
+The correction moves the ceiling **down** by ~0.06–0.07 percentage points at every τ. Since the
+finding of this slot is that the ceiling is unreachable, a lower ceiling **strengthens**
+`N-ATTN-BYTE-FLOOR`; I am flagging it anyway, in the direction that costs me nothing, because the
+same arithmetic slip in the other direction is exactly how a slot gets over-priced.
 
 Now run it backwards against the two things this slot must clear:
 

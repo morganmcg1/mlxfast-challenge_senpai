@@ -409,3 +409,31 @@ no two arms can collide in MLX's name-keyed pipeline cache.
 under `if (lid < gate_heads)`; a 32-thread threadgroup would leave the upper gate entries
 uninitialised and corrupt output silently rather than fail a hash check.
 
+
+---
+
+## Amendment 13 — unit-scale correction to the quoted Stage-0 ceiling (2026-08-11 05:03Z)
+
+**Filed after the Stage-1 ladder was already running; it changes no arm, no gate and no
+decision rule in this pre-registration.** It corrects a number quoted from Stage 0 in the
+motivation above.
+
+The motivation reads *"Even a scale plane that vanished entirely returns 101.8 µs/step =
+0.855 %"*. **Both figures are wrong.** 101.8 µs/step is the 24.02 MB/step plane converted at
+the family's *achieved* 235.6 GB/s, but τ throughout this campaign is defined against the
+**peak** 256.7 GB/s (`research/nezuko-r117-ruler-tau.py`, `BW=256.7`). Pricing the plane at the
+achieved rate and *then* multiplying by a peak-scale τ counts the bandwidth shortfall twice and
+inflates the ceiling by 256.7/235.6 = 1.090.
+
+Correct on the peak scale: 24.02 × 1000/256.7 = **93.57 µs/step at τ = 1 = +0.782 %**; at the
+measured τ = 0.780, **72.99 µs/step = +0.610 %**.
+
+**The correction moves the ceiling down, so it strengthens the premise of this
+pre-registration rather than weakening it** — the byte envelope this document declares closed
+is *smaller* than the document claimed. At the measured τ, the whole plane vanishing now buys
+73.0 µs/step against the **68.7 µs/step** Rule 105.12 slot floor — it clears the floor by
+4.3 µs rather than by 33 µs, which makes the "byte envelope is closed" reading *more* forceful,
+not less.
+
+Original text above is left verbatim, as pre-registered.
+

@@ -399,6 +399,18 @@ vs atlas 242.1 GB/s) and **−0.003 %** (`oproj_h64`, 233.39 vs 233.4) — again
 236.0 GB/s = 91.9 % of the 256.7 GB/s peak**, scale plane **24.02 MB/step = 3.26 %**.
 
 `N-ATTN-BYTE-FLOOR` is unchanged in substance — the payload share moves from 96.91 % to
-**96.74 %**, and the whole-plane-vanishes bound from 96.6 to **101.8 µs/step = 0.855 %** —
-and every conclusion in §0d survives, because the escapes make the *shipped* plane slightly
-larger while making every proposed *replacement* worse by more.
+**96.74 %**, and the whole-plane-vanishes bound from 88.7 to **93.6 µs/step = 0.782 %** at
+τ = 1 — and every conclusion in §0d survives, because the escapes make the *shipped* plane
+slightly larger while making every proposed *replacement* worse by more.
+
+> **Self-correction, 05:03Z (unit scale).** Both bounds in the sentence above were first
+> published on the family's *achieved* 235.6 GB/s scale (96.6 → 101.8 µs/step, "= 0.855 %").
+> That is wrong to combine with τ, which this campaign measures against the **peak** 256.7 GB/s
+> (`research/nezuko-r117-ruler-tau.py`, `BW=256.7`). Converting the plane at the achieved rate
+> *and then* multiplying by a peak-scale τ counts the bandwidth shortfall twice and inflates
+> every ceiling by 256.7/235.6 = 1.090. Restated on the peak scale: 24.02 MB/step ×
+> 1000/256.7 = **93.57 µs/step at τ=1 (+0.782 %)**, **72.99 µs/step at the measured τ=0.780
+> (+0.610 %)**, 90.58 µs/step at the `OP`-dropped τ=0.968 (+0.757 %). The correction lowers the
+> ceiling, i.e. it makes this finding **stronger**, not weaker. The "run it backwards" figures
+> (16.0 MB / 66.6 % of the plane to clear +0.406 %; 22.6 MB / 94.1 % to clear the 68.7 µs slot
+> floor) were computed on the peak scale from the start and are **unaffected**.
