@@ -6,9 +6,49 @@ Branch `maple-nezuko/r125-b-qkv-tg-granularity-ladder`, base
 `a9de9e8f21188715f6d80ada4b581bcd50d4ec81`.
 Host: Apple M4 Pro, 20 GPU cores, 48 GiB, `applegpu_g16s`, macOS 26.5.2.
 
-> **§0 verdict** — pending. This file is committed first as a
-> **pre-registration** (§1) and is filled in afterwards. The pre-registration
-> commit deliberately contains no measurement and no code.
+## §0 Verdict
+
+**REFUTED, and nothing lands. Landing branch: none — deliberately.**
+
+The `ns` (simdgroups-per-threadgroup) axis on decode QKV at `rps = 1` does not
+pay. Both candidate rungs came back on the **slow** side of the shipped `ns = 2`
+control, bit-identical throughout, so the assignment's landing rule
+(bit-identical **and** a paired interval excluding zero *in the improving
+direction*) fails on its second conjunct and I land nothing. **The winning rung
+is N2 — which is already the compiled default — so the correct landing hunk is
+the empty hunk** (§7).
+
+PLACEHOLDER_VERDICT_TABLE
+
+Four things this episode produced that are worth more than the null:
+
+1. **A third independent confirmation of `L-TG-WIDTH-IS-A-DEBIT-AT-tgMem-0`**,
+   on a *different* kernel (decode NVFP4 QKV, 19.9 % of decode busy) from
+   frieren's #714 and alphonse's #729. My sign agrees with theirs; my magnitude
+   is consistent with all three candidate scalings (§4.4 step 1).
+2. **An achieved detection floor, stated as arithmetic** (§4.4 step 2): this
+   instrument's CI95 half-width at B = 4 is **≈ ±47 µs/step**, so it is
+   **1.7×–10× too coarse** to price the predicted debit. That is the number my
+   §1.6 should have carried and did not; I am publishing it as the deliverable
+   rather than pretending the ladder resolved something.
+3. **A bound that closes the axis regardless of the debit's exact size**
+   (§4.4 step 3): the most generous corner of my own interval is a win of
+   ≈ 47 µs/step = **0.44 % of the step**, below σ(officialScore) = **0.49 %**.
+   So no `ns` setting on this kernel can produce a receipt-visible change, and
+   the axis needs no further blocks from anyone.
+4. **A byte-level pre-screen that beat the ladder to the answer.** §1.8 —
+   committed **before any timing and before the advisor's retraction** — killed
+   the shared-L1 upside from `staticThreadgroupMemoryLength = 0 B` alone. §4.4
+   step 4 generalises it into a power ratio the fleet can apply before building
+   a ladder at all.
+
+The prior that motivated the assignment (a "+0.38 % win from TG = 256") was
+sign-inverted at the source; §4.0 documents the correction with units and
+direction on every number and `PREDICTED` tags on every counterfactual.
+
+*(§1 below was committed as its own earlier commit, before any code and any
+measurement, exactly as required; `git log --reverse` on this branch shows the
+order.)*
 
 ---
 
@@ -329,6 +369,26 @@ Three things this table settles:
    needs (§1.7). The N2-vs-S gap is a property of the append/fusion axis that
    #719 and #700 already own, and it is **not** measured here; §1.7
    pre-registered that beating N2 is not by itself a licence to land.
+
+### 3.2 The timed ladder
+
+**Instrument.** `./benchmark.sh --local-submit` (1023 scored decode steps),
+driven by `research/maple-nezuko-r107j-certify.sh` (the R117-C/R122-B script,
+unchanged) through `research/maple-nezuko-r125b-campaign.sh`. **4 mirrored
+blocks × 3 arms = 12 runs**, ~160 s/run, within-block order rotated by
+`(block − 1) mod 3` so each arm occupies each slot. Thermal cool-down gate at
+40 °C left **enabled** for every timed run. All three arms carry
+`DARKBLOOM_DECODE_QKV_GATE_FUSED=0` so the append state is identical across the
+ladder (§1.7). Raw rows: `research/r125b-runs/r125b-certify.tsv`.
+**All numbers below are µs/step (minimize)** — one "step" is one decoded token,
+so µs/step and µs/token are the same quantity on this instrument, and this is
+the same unit frieren and alphonse report in.
+
+PLACEHOLDER_LEVELS
+
+PLACEHOLDER_CONTRASTS
+
+PLACEHOLDER_NOTES
 
 ---
 
