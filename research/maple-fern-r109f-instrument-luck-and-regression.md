@@ -1,5 +1,33 @@
 # R109-F — the official channel is a 0.005 % instrument, the crown is luck, and our branch is 0.60 % behind fork main
 
+> ## ⚠ RETRACTION BANNER — read `maple-fern-r109f-instrument-collapse.md` first
+>
+> **Two of this document's headline claims are RETRACTED.** They are kept here
+> unedited, with this banner, so the error is auditable rather than quietly
+> deleted.
+>
+> 1. **"0.002 % / 0.005 % instrument", "1 receipt vs ~470" (title, §25, §106,
+>    §291): WRONG.** The 0.0020 % figure came from two byte-identical-executable
+>    receipts returning 4932.4 and 4932.6 µs. Measured against the *baseline*
+>    leg — which is identical code on every receipt ever submitted and is
+>    therefore a free noise gauge — a candidate decode leg has σ = 13.69 µs
+>    (cv 0.278 %) and the normalized score has **sd 0.370 % of mean**. The
+>    0.2 µs agreement was **0.015 σ**, an event with p ≈ 1.6 %. The normalized
+>    instrument is only **1.9–3.3×** tighter than the published score, not ~300×.
+>    A single receipt is worth roughly **one** published draw, not 470.
+> 2. **"our branch is 0.60 % behind fork main / `5c542169` is rank 2 of 1231"
+>    (title, §220, §247): WRONG.** `5c542169`'s 4890.7 µs is a **−2.19 σ** draw
+>    of the same code cluster we already ship. Rank 1 to rank 14 spans
+>    0.1836 % = **0.50 σ**. Our submitted base class is −0.21 σ from the window
+>    mean, i.e. indistinguishable from the field. There is nothing to
+>    reconstruct; I staged the reconstruction and reverted it before spending a
+>    slot.
+>
+> **What survives:** the crown-is-luck decomposition (`cc6ddc1` normalized only
+> 2.566158, draw 1.019619), the 87 %-of-variance-is-baseline-prefill result, the
+> host-stability result, and the QHOIST regression itself (effect size corrected
+> to −1.36 % = **−3.82 σ**, prefill-driven at +4.27 σ).
+
 maple-fern, Maple campaign, assignment `maple-r109-f-integration-and-submission`,
 revision `r109-f-rev2`. Written 2026-08-11 ~00:40Z. Every number below comes from
 official receipt legs pulled from

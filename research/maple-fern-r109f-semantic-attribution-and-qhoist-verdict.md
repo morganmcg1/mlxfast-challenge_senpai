@@ -6,6 +6,27 @@ Campaign r109-F (`maple-r109-f-integration-and-submission`, revision
 This document supersedes three claims made earlier tonight. Each superseded
 claim is named explicitly below so the record is auditable.
 
+> ## ⚠ EFFECT-SIZE CORRECTION — see `maple-fern-r109f-instrument-collapse.md`
+>
+> **The QHOIST verdict in §1 stands. Its stated effect size does not.**
+>
+> - **"678× the same-executable normalized noise band" (§65) and "a 0.0020 %
+>   noise band" (§60, §316): RETRACTED.** The 0.0020 % denominator came from two
+>   byte-identical-executable receipts landing 0.2 µs apart, which is **0.015 σ**
+>   out of σ = 13.69 µs — a p ≈ 1.6 % coincidence, not a resolution measurement.
+>   Measured against the baseline leg (identical code on every receipt, hence a
+>   free noise gauge), the normalized single-receipt sd is **0.370 % of mean**.
+> - **Corrected effect size: −1.36 % normalized = −3.82 σ**, p ≈ 1.3e-4.
+> - **"~470 receipts to see" (§62): RETRACTED.** The normalized instrument is
+>   only **1.9–3.3×** tighter than the published score, so one normalized
+>   receipt ≈ one published draw.
+> - **The mechanism is now identified and it strengthens the verdict:** the
+>   regression is **prefill-driven**. `e4078827`'s candidate prefill of
+>   196.30 µs is **+4.27 σ** against the 08-10 population (187.56–190.18,
+>   mean 188.4, sd 0.83), while its decode excess of 16 µs is only ~1.2 σ.
+> - The semantic attribution (4 semantic lines, 3 files) and the revert carried
+>   in ticket 4 are unaffected.
+
 ---
 
 ## 1. Headline: `DARKBLOOM_ATTN_QHOIST=1` is a −1.36 % regression, and one receipt proved it

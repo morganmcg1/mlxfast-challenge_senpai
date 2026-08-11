@@ -199,21 +199,50 @@ r111 standing requirement; `normalized` and `draw` are derived with
 | 1 | `c1c0ba2c-ec1c-43f4-92bb-3c5b8b0a76e9` | 2026-08-10T23:03:50Z | `074f47e4` (`pkg-t1`) | r109-F base (prefetch=1, atlas v2, QHOIST=0) | rejected — score did not improve | 2.56974410819947 | 2.566844 | 1.001130 | 4932.4 | 187.69 |
 | 2 | `88584270-140e-4f28-a924-b00c77b1becd` | 2026-08-10T23:33:52Z | `04e8bf3c` (`pkg-t2`) | **same executable as #1** (differs by a 4-line comment) | rejected — score did not improve | 2.59576526895414 | 2.566903 | 1.011244 | 4932.6 | 187.65 |
 | 3 | `e4078827-c7fd-4173-a2bf-2f6af7cc6e73` | 2026-08-11T00:00:00Z | `ec0954e2` (`pkg-t3`) | base **+ `DARKBLOOM_ATTN_QHOIST=1` default** (4 semantic lines) | rejected — score did not improve | 2.52713571388054 | **2.532027** | 0.998068 | 4948.5 | 196.30 |
+| 4 | `ed40f3ee-b76b-45de-b751-d02b013ea113` | 2026-08-11T01:07:14Z | `36963661` (branch HEAD) | base **+ atlas `v3_tg128`**, QHOIST reverted — *best-believed package draw, not an arm probe* | *validating at time of writing* | — | — | — | — | — |
 
 Baseline legs the runner reported for each: #1 13896.1 / 366.02 µs, #2
 13850.2 / 384.84 µs, #3 13829.7 / 366.79 µs. All three
 `passed_correctness: true`.
+
+**Receipt #4 is framed differently from #1–#3 on purpose.** #1–#3 were
+arm-class probes, fired on the belief that one normalized receipt resolves
+0.002 % and can therefore adjudicate an arm. That belief is retracted (see the
+correction box below): the instrument's real single-receipt sd is 0.370 %, and
+resolving a 0.30 % arm needs ~40 receipts per arm. Since every arm in this
+campaign's portfolio is smaller than 0.30 %, ranked probes cannot decide any of
+them, and my local iterate — which repeats to 0.05–0.10 % — is a 4–7× better
+instrument despite `_nax` being off. From #4 onward every shot draws from the
+**best-believed package** with a **comment-only nonce**, and its normalized
+value must not be read as evidence for or against the atlas v3 change.
 
 ### What the three receipts bought
 
 - **#1 and #2 are the control pair.** Same executable, published spread
   **1.0126 %**, normalized spread **0.0020 %**, draw spread 1.0105 %. Per leg:
   candidate decode 0.0054 %, candidate prefill 0.0245 %, baseline decode
-  0.3305 %, baseline prefill **5.1429 %**. The candidate legs are ~497× more
-  precise than the published score. This is the measurement that makes #3
-  interpretable.
-- **#3 is a decisive negative.** Normalized fell **1.3564 %** — 678× the
-  control pair's normalized noise band — while published fell only 1.66 %,
+  0.3305 %, baseline prefill **5.1429 %**. ~~The candidate legs are ~497× more
+  precise than the published score.~~ **RETRACTED — see the correction note
+  below.** This is still the measurement that made #3 interpretable, but its
+  precision was over-read by ~185×.
+
+  > **⚠ CORRECTION (`maple-fern-r109f-instrument-collapse.md`).** A two-point
+  > agreement is not a noise band. The correct gauge is the *baseline* leg,
+  > which runs identical code on every receipt ever submitted. Over one UTC
+  > hour (2026-08-10T00, n=24) that gauge gives baseline decode cv **0.224 %**,
+  > candidate decode cv **0.278 %** (σ = 13.69 µs), baseline prefill cv
+  > **1.756 %**, and a normalized-score sd of **0.370 % of mean**. The 0.2 µs
+  > agreement between #1 and #2 is **0.015 σ**, p ≈ 1.6 %. The normalized
+  > instrument is **1.9–3.3×** tighter than published, not ~500×, so one
+  > normalized receipt ≈ one published draw. Two-arm resolution at α .05 /
+  > power .95 needs ~40 receipts **per arm** at 0.30 %, ~89 at 0.20 %, ~355 at
+  > 0.10 %.
+- **#3 is a decisive negative.** Normalized fell **1.3564 %** — ~~678× the
+  control pair's normalized noise band~~ **−3.82 σ of the corrected
+  single-receipt instrument (p ≈ 1.3e-4)**, and prefill-driven: its candidate
+  prefill of 196.30 µs is **+4.27 σ** against the 08-10 population
+  (187.56–190.18, mean 188.4, sd 0.83) while its decode excess is only ~1.2 σ —
+  while published fell only 1.66 %,
   i.e. 1.6× a spread that a *same-executable* pair can produce by luck alone.
   Published score alone could not have called this; normalized called it from a
   single receipt. `research/fern_r109f_semantic_diff.py pkg-t2 pkg-t3` shows
