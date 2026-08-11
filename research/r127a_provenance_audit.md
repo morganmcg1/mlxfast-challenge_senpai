@@ -7,8 +7,10 @@ line in that revision.
 **Addenda:** §8 re-targets every finding to branch head `6778867d` (manifest 1198 lines) against the
 advisor's 11:53Z feedback; §9 answers the 12:29Z and 12:44Z feedback and adds F16-F18; **§10 takes the
 widening in the assignment's own stopping rule** and audits `research/CURRENT_RESEARCH_STATE.md` and the
-two live tools that feed it, adding F19 and F20 plus corrections to my own F18 and §9.5. Line
-references inside §8, §9 and §10 are
+two live tools that feed it, adding F19 and F20 plus corrections to my own F18 and §9.5; **§11 takes
+the other half of that same widening** — the three round archives — adding F21, which strengthens F19
+from an independent 12-program corpus. Line
+references inside §8-§11 are
 head lines (`CRS:####` = `research/CURRENT_RESEARCH_STATE.md` at that head); §1-§7 line references are
 `67396bb6` lines, with the head equivalents tabulated in §8.1.
 
@@ -1242,7 +1244,173 @@ my contribution reduces to the 0-ppm identity `L = (base_D^0.75 base_P^0.25)/K` 
 96.04 % from five receipts — and that identity is what proves F19. **Clean bill**: none of the §6.6
 currency constants reached `CURRENT_RESEARCH_STATE.md`, so F16's blast radius is two documents.
 
-Running total for the whole audit: **20 findings, F1-F20**, of which **three** are
+Running total as of §10: **20 findings, F1-F20**, of which **three** are
 decision-grade for the successor — F1 (the `UNSOURCED` label is inverted), F19 (per-draw price has no
 zero rail), F20 (the crown moved and the state file's EV table did not). No finding in §1-§9 is
-withdrawn.
+withdrawn. (§11 adds F21 and carries the final total.)
+
+---
+
+## §11 Fourth addendum, 14:40Z — the round archives, and the draw factor nobody used (F21)
+
+### §11.0 Authority and sources
+
+Same clause of the assignment's stopping rule quoted verbatim in §10.0: *"If you exhaust the scope
+early, do **not** invent GPU work. Extend the audit to `CURRENT_RESEARCH_STATE.md` and the round
+archives instead, same four checks."* §10 took the state file; this section takes the round archives.
+Still reading only: no GPU, no build, no benchmark, no `run_job`, no W&B run.
+
+| tag | file | lines | md5 |
+|---|---|---|---|
+| `arc21:####` | `research/RESEARCH_STATE_ARCHIVE_through-round-21.md` | 6874 | `915230e2f54592a9bd27afbf7b19803d` |
+| `arc28:####` | `research/RESEARCH_STATE_ARCHIVE_rounds-22-28.md` | 896 | `fccb7ec9f6ee136d6e735aa40aa3d875` |
+| `arc91:####` | `research/RESEARCH_ARCHIVE_through-round-91.md` | 7601 | `8f65c7275dc30bece6508bccb0b94e9c` |
+
+All three read at advisor head `6778867dc8579eff3302d49d064c2bc0cf60ead2`
+(`git show 6778867d:research/<file>`), 15,371 lines in total. Recompute script for everything
+numeric below: `research/tools/r127a_f21_draw_factor_from_r21_ledger.py` (committed on this branch), inputs transcribed from `arc21:5684-5695` only.
+
+### §11.1 Clean bill: no §6.6 currency constant, and no retired-crown constant, reached the archives
+
+Census over all 15,371 archive lines (counts are `grep -c` per file, `arc91`/`arc28`/`arc21`):
+
+| string | hits | verdict |
+|---|---|---|
+| `0.00586` | 0 / 0 / 0 | absent |
+| `12798`, `12,798` | 0 / 0 / 0 | absent |
+| `4910.9` | 0 / 0 / 0 | absent |
+| `8213`, `8,213` | 0 / 0 / 0 | absent |
+| `8882` | 5 / 1 / 5 | **all coincidental** — substrings of `officialScore 2.58882784082067` |
+| `2.60664970` | 0 / 0 / 0 | absent |
+| `2.6195` | 0 / 0 / 0 | absent |
+| `0.378` | 0 / 0 / 2 | **coincidental** — substrings of `score2.500378` (`arc21:2618`, `arc21:5694`) |
+| `15.6` | 8 / 3 / 7 | none is a per-draw probability (t-statistic `arc91:1363`; a `T0b_qkv` share `arc28:621`; a section heading `R15.6` at `arc21:1324`) |
+
+The `8882` pattern is the same boundary-hit artefact F16 documented in the live tree — e.g.
+`arc91:1134` verbatim:
+
+```
+| **97a5090** | **morganmcg1 (us)** | **2.58882784082067** | **3e165fa** |
+```
+
+That is a score, not a µs/step. So **F16's blast radius remains two documents** (manifest +
+slot-holder brief) and **F20's orphan `+0.378 %` never entered the archives** either.
+
+`2.6165` does appear seven times in `arc91`, and every one of them is correct, because the archives
+timestamp their claims. `arc91:20` verbatim:
+
+```
+Leaderboard re-checked round 88: current best still **2.61650354381456 @
+```
+
+and `arc91:1140` marks it `← **live frontier**` — true of round 88. This is the honest form of the
+constant F20 flags: the defect in `CRS:3412` is not that it holds `2.61650354381456` but that it
+holds it in the present tense ("Record still …") in the file a successor reads as current state. The
+archives need no edit.
+
+### §11.2 F21 — the draw factor has been measured twelve times, across twelve different programs, and both rails of §6.5c ignored it
+
+`arc21:5681` heads a ledger of our own account's receipts:
+
+```
+### Full `morganmcg1` receipt ledger (18 receipts: 13 on 2026-08-04, 5 since)
+```
+
+Twelve of those rows carry full metrics. Verbatim, `arc21:5684-5695`:
+
+```
+07:53 27b9c7c6 T4.3530 S 98.153 ns2.51567 draw0.992674 score2.497243
+09:30 f8502e12 T4.3704 S 97.622 ns2.51417 draw0.988626 score2.485577  } pre-harvest trio
+10:02 71586bcf T4.3828 S 97.513 ns2.51065 draw1.002111 score2.515950  } (our best SCORE)
+10:26 f3cda678 T4.3621 S 97.998 ns2.51374 draw0.998094 score2.508953  }
+10:49 5d522d6a T4.3475 S 97.841 ns2.52060 draw0.988443 score2.491470  } C0 control, n=4
+11:15 5e0e9cd1 T4.3637 S 98.011 ns2.51302 draw0.994854 score2.500092  } pooled mean
+11:38 c210d200 T4.3428 S 97.973 ns2.52110 draw0.997477 score2.514743  } ns 2.519365
+14:16 0c21dc18 T4.3181 S 98.029 ns2.52973 draw0.985211 score2.492321  } Y = FRONTIER
+14:48 2dce5912 T4.3267 S 97.696 ns2.52967 draw0.985388 score2.492708  } mean ns 2.529702
+15:10 7a5a1e08 T4.3612 S 98.347 ns2.51083 draw0.998492 score2.507043  fern #24 (closed)
+15:34 1feeabc8 T4.3394 S 97.932 ns2.52274 draw0.991135 score2.500378  4th CONTROL (see §E)
+16:06 ff29f5c2 T4.8324 S103.568 ns2.30788 draw0.989388 score2.283393  tanjiro instrument A
+```
+
+**Column identity first (check 1).** `ns` is the candidate score `cs`, `score` is the official score,
+and `draw` is their ratio: `score/ns` reproduces every printed `draw` to **≤ 1.9 ppm** on all twelve
+rows (worst `+1.85 ppm`, `ff29f5c2`; the residual is rounding of the 6-digit printed inputs). So this
+column *is* the code-free factor `L = official/cs` of my §10.2 identity, measured twelve times, on
+twelve different programs, on one day, on the ranked host. Neither rail of §6.5c cites it.
+
+**What it says.** Over all twelve programs, `sd(ln L) = 0.5568 %`, 11 dof, χ² 95 % interval
+**[0.3944 %, 0.9453 %]**. Dropping the one deliberately-slowed instrument tree (`ff29f5c2`, `ns`
+2.30788): `0.5738 %`, 10 dof, [0.4009 %, 1.0069 %]. Set beside the three values already in
+circulation:
+
+| quantity | value | dof |
+|---|---|---|
+| fern's draw sd (§6.5b, `CRS:3509` prints 0.5359 %) | 0.538 % | — |
+| my conditional `sd(ln L)`, five ranked nulls (§10.2) | 0.5263 % | 4 |
+| **this ledger, 12 distinct programs** | **0.5568 %** | **11** |
+| this ledger, 11 programs (instrument dropped) | 0.5738 % | 10 |
+| r103 replicate `sd(ln cs)` — the §6.5c lower rail | 0.2276 % | 4 |
+
+**Consequence for F19, and it is the load-bearing sentence of this section.** §6.5c's stated ground
+for discounting fern's 0.538 % is *"between-program leakage that program-hashing removes"*. §10.3
+refuted that algebraically — `L` contains no candidate term, so it cannot carry program leakage. This
+ledger refutes it *empirically*: it is the most "leaky" corpus available — twelve genuinely different
+programs whose `cs` spans 2.30788 to 2.52973, an 8.8 % range, one of them a deliberately slowed
+instrument — and its draw-factor dispersion is **0.5568 %**, i.e. the same 0.53-0.57 % band, with the
+0.2276 % lower rail nowhere near its 95 % interval. Program identity contributes nothing measurable:
+`corr(ln cs, ln L) = +0.106`, `t = 0.34` on 10 dof.
+
+Two honest caveats on that correlation, because it is fragile. It is leverage-dominated by
+`ff29f5c2`; over the eleven comparable programs it is **−0.777**. Both signs are hostile to the
+§6.5c argument, which needs a *positive* program-linked term in `L` to justify shrinking fern's
+number — but the fragility means the algebraic identity, not this correlation, is what carries F19.
+The second caveat is the more interesting one: −0.777 on eleven programs independently reproduces the
+**−0.79** I measured on the five ranked nulls (F18, §10.3). That is the correlated-quadrature
+mechanism — official is a within-session candidate/baseline ratio, so common-mode host slowdown
+cancels — showing up in a second corpus, seven rounds older, with no receipt in common.
+
+**What does not change.** The predictive σ for re-firing a *fixed* program is still the directly
+measured `sd(ln official) = 0.3728 %` (n=5, §10.3), not 0.5568 %: this ledger corroborates the `L`
+rail, not the total. F19's price is therefore unchanged — required move `+1.2588 %` from the program's
+own mean official score, `z = 3.38`, `P ≈ 0.037 %` per draw, honest 95 % interval `[≈0 %, 12 %]`. What
+changes is the strength of the evidence under it: the rail that F19 argues *is* the right order of
+magnitude now has 11 dof of independent support instead of 4.
+
+### §11.3 Caveat with teeth — the draw factor's centre is era-specific, and no per-draw table says so
+
+Mean draw in this ledger (twelve receipts, all on 2026-08-04) is **0.992644**. The median-draw
+constant that `CRS`'s P(record) table divides by — and that F20's arithmetic uses to reproduce the
+printed `2.6202` — is **0.998597**. The centre has moved
+
+```
+0.998597 / 0.992644 = 1.005997  ->  +0.5997 %
+```
+
+between the two eras: **1.6× the predictive σ of 0.3728 %**. This is not an arithmetic error in
+anyone's table; it is a missing uncertainty. Any per-draw probability computed against a fixed median
+draw inherits an era-drift term larger than the dispersion it quotes, and every such table in the
+corpus prints the constant undated. Check 3 in spirit: a constant measured in one era is being used
+as a property of the instrument.
+
+### §11.4 Recommended edits (I applied none — read-only branch)
+
+1. **`research/maple_endgame_handoff_manifest.md` §6.5c**, the sentence discounting fern's 0.538 % as
+   between-program leakage. Replace with: *"fern's 0.538 % is confirmed, not shrunk: the draw factor
+   `official/cs` was measured on 12 distinct programs in the 2026-08-04 ledger
+   (`RESEARCH_STATE_ARCHIVE_through-round-21.md:5684-5695`) at sd 0.5568 %, 11 dof, 95 % CI
+   [0.394 %, 0.945 %]; `cs` spans 8.8 % across those programs and `corr(ln cs, ln L)` is not
+   distinguishable from zero. The 0.1860-0.2276 % replicate sd of `cs` is not a rail on the draw
+   factor at all."*
+2. **Every per-draw table** (manifest §6.5/§6.6, `CRS:3520-3540`): date-stamp the median-draw
+   constant — `0.998597 (measured <date>; the 2026-08-04 ledger gives 0.992644, +0.60 % apart)`.
+3. **The archives themselves: no edit.** They timestamp their constants correctly (§11.1).
+
+### §11.5 Net effect of §11
+
+One finding (**F21**), one clean bill (currency and orphan-constant propagation into 15,371 archive
+lines: none), one dated caveat. Running total for the whole audit: **21 findings, F1-F21**, of which
+three remain decision-grade for the successor — F1 (the `UNSOURCED` label is inverted), F19 (the
+per-draw price has no zero rail and is centred on the wrong point), F20 (the crown moved and the state
+file's EV table did not). **No earlier finding is withdrawn, and F19 is strengthened**: the rail it
+depends on is now measured on 12 programs and 11 dof rather than 5 receipts and 4.
