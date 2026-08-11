@@ -4,10 +4,45 @@ Student: maple-nezuko. Assignment `maple-r122-b-qkv-residency-ladder`, revision
 `r122-b-rev1`, PR #719. BASE `fa2a81b7624f6afa807830eb9ad7eb6d38c3d11d`.
 Host: Apple M4 Pro, 20 GPU cores, 48 GiB, Apple GPU generation 16.
 
-> **This commit contains §1 only — the pre-registration — and is committed
-> before any data exists.** Everything below §1 is a placeholder at this commit.
-> §1 is not edited after the first data commit; corrections to it are appended
-> to §7 with a timestamp instead.
+---
+
+## §0. Headline
+
+**The hypothesis is refuted. No rung of the `results_per_simdgroup` ladder
+beats the shipped `rps = 1` QKV kernel, and the far rung loses decisively.**
+
+| arm | `rps` | µs/token (mean of 3 blocks) | Δ vs Q1 | CI95 on Δ | verdict |
+| --- | --- | --- | --- | --- | --- |
+| **Q1** (shipped) | 1 | **8918.96** | — | — | reference |
+| Q2 | 2 | 8950.29 | **+31.33** | [−36.06, +98.72] | no win; interval covers 0 |
+| Q4 | 4 | 8975.75 | **+56.79** | [−13.93, +127.51] | no win; interval covers 0 |
+| Q8 | 8 | 9124.84 | **+205.88** | [+151.67, +260.08] | **significant regression**, +2.31 % decode wall |
+
+- **All 12 runs `passed=true` with one identical golden hash**, so the
+  parameterization is bit-identical at every rung: the mechanism was
+  implemented correctly and simply does not pay (§4.2).
+- **No landing branch is prepared**, per the assignment's rule: an arm must be
+  bit-identical *and* beat Q1 on an interval excluding zero. None does.
+- **The null was predictable from a number in my own earlier report.**
+  `decode_nvfp4_qkv_h64` already runs at **94.3 % of this host's measured
+  streaming peak** (§5.2). The most valuable output of R122-B is therefore a
+  *selection* rule for the campaign: gate geometry experiments on achieved
+  bandwidth, and never assign a bandwidth-shaped change to a kernel above
+  ~90 % of peak (§8 item 3).
+- W&B run: `3x2cwlll` —
+  <https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/3x2cwlll>.
+  Raw per-run TSVs for both campaigns are committed under
+  `research/r122b-runs/`.
+
+Prefill speedup fails its 0.95 floor on **every arm including untouched
+controls** on this host: an M4 Pro reports Apple GPU generation 16 and does
+not select the `_nax` prefill kernels the ranked M5 uses, so
+`prefill_speedup ≈ 0.33` here is structural and is not an effect of this
+change (§4.3, §7.3).
+
+§1 below is the pre-registration, committed at `8355c24a` before any data
+existed. It is not edited after the first data commit; corrections to it are
+appended to §7 with a timestamp instead.
 
 ---
 
@@ -454,13 +489,31 @@ did not win, by a wide margin, so the bracket had done its job after one
 block and the remaining wall clock was worth more spent on the shape
 between `Q1` and `Q8`. That decision and its reasoning were committed as
 §1.8 at 09:23Z, before campaign 2 produced any data. `Q16` was declined;
-§8 item 5 re-argues why.
+§8 item 6 re-argues why.
+
+Two bookkeeping reconciliations, both mine to own:
+
+- §1.8 logged the pivot as a **3-arm, 9-run** plan (`Q1`, `Q2`, `Q4`).
+  What actually launched was **4-arm, 12-run**: I kept `Q8` in campaign 2
+  rather than trusting campaign 1's single block for the one rung that had
+  already moved, because a one-block effect is not an effect. So the
+  executed design is a superset of the logged one, and `Q8` ends with 4
+  blocks total (1 from campaign 1, 3 from campaign 2) while `Q2` and `Q4`
+  have 3. Every interval in §4.4 is computed **within campaign 2 only**, on
+  3 blocks per arm, so the arms are compared on equal footing; the pooled
+  4-block `Q8` level appears only in the W&B log.
+- Campaign 1's cancel (09:23:40Z) and campaign 2's session stamp
+  (09:23:38Z) are 2 s apart because I staged the second launch while the
+  first was still draining its final run; the two sessions share no run.
 
 Raw TSVs for both campaigns are committed under `research/r122b-runs/`.
 The `head` column changes between blocks of campaign 2 because
-documentation commits landed while it ran; no `Sources/` file changed after
-`a5746c6f`, and the byte-identical golden hash across all blocks (§4.2) is
-the check that this is true.
+documentation commits landed while it ran. The check that no *code* moved
+under the campaign is `git diff a5746c6f..HEAD -- Sources/` being empty,
+which it is. The constant golden hash of §4.2 is **not** that check: it
+shows every arm computed the same tokens, which is exactly what a
+successful residency change is supposed to do, so it cannot distinguish a
+frozen `Sources/` from a changed-but-still-bit-identical one.
 
 ### 4.2 Bit-identity: measured, not argued
 
@@ -603,7 +656,7 @@ out of it — but it was never going to be a win.
 The faithful port of R117-C to QKV would have to go **below** `rps = 1`,
 i.e. split one output row across more than one simdgroup. That is not
 expressible in this parameterization at all; it is the `ns`/split-K axis
-that §3.1 deliberately designed out (D1) and that §8 item 5 proposes.
+that §3.1 deliberately designed out (D1) and that §8 item 4 proposes.
 
 ### 5.2 The null was predictable from a number in my own file
 
@@ -614,10 +667,13 @@ this host's 256.7 GB/s measured streaming peak**
 
 Two consequences, both available pre-registration:
 
-1. The entire remaining inefficiency in this kernel is ≤ 5.7 % of its own
-   time, i.e. ≤ 77 µs/token even if a change captured *all* of it. The
-   brief's `-60 … -200 µs` predicted band had its upper half outside what
-   the byte floor permits, and I signed that band in §1.2 anyway.
+1. The entire remaining inefficiency is ≤ 5.7 % of `qkv_h64`'s own time
+   (≤ 76.5 µs/token) plus ≤ 7.2 % of `qkv_h48`'s (≤ 26.2 µs/token) — a
+   **family cap of ≈ 103 µs/token** even if a change captured *all* of the
+   gap to measured peak on both halves. The earlier "≤ 77 µs" figure in my
+   notes was the `h64` half only and understated the ceiling by a quarter;
+   the honest number is 103, and the brief's `-60 … -200 µs` band still has
+   half its range outside it. I signed that band in §1.2 anyway.
 2. `rps` cannot reduce weight bytes — the weight stream is read exactly
    once per row regardless of rung (§1.5). It can only reduce **activation
    re-reads**, and §1.5 argues those are ~77 % cache-served. So the
@@ -641,10 +697,21 @@ Sustaining ~230 GB/s per part against a 400–600 ns loaded LPDDR latency
 requires roughly **4.6–7 KB in flight per core** (Little's law on the
 measured rate and latency). At `rps = 4` the o_proj QMV offered about
 25.6 simdgroups/core, which at ~0.86 load duty and 256 B per outstanding
-request is ≈ 5.6 KB/core — around 80 % of the low end of that band.
-Halving rows per simdgroup doubled the offered simdgroups and cleared it.
-Predicted recovery from that account is ≈ 65 µs/token; measured was
-−82.4 µs/token. Same order, right sign.
+request is ≈ 5.6 KB/core.
+
+I have to be honest about what that arithmetic does and does not say. 5.6 KB
+is **122 % of the low end** of the 4.6–7 KB band, not "80 % of it" as an
+earlier draft of this section claimed — it sits *inside* the band, in its
+lower third. So the strongest available statement is that o_proj at
+`rps = 4` was **marginal** on in-flight bytes and that doubling the offered
+simdgroups moved it comfortably clear, not that it was starved. Predicted
+recovery on that reading is ≈ 65 µs/token against a measured
+−82.4 µs/token: same order, right sign, but a marginal-to-clear transition
+is a weaker premise than a starved-to-fed one. **R117-C's −82 µs is
+therefore not fully explained by this model**, and I am recording that as an
+open item rather than papering over it. The prediction the model does make
+cleanly — that a kernel already at 94 % of peak has nothing for `rps` to
+recover — is the one R122-B tested, and it held.
 
 So the "optimum at 51.2 simdgroups/core" I reported in R117-C was a
 **floor, not an optimum**: 51.2/core was the first rung that cleared the
@@ -676,36 +743,99 @@ Q8. My §1.7 single-wave model is exactly such a model, and it is worse
 than that: its constant was 51.2/core, which Q8's 64/core still clears, so
 it predicted **no regression anywhere on the ladder**.
 
-The data:
+The data (mean Δ vs Q1, µs/token): **Q2 +31.3, Q4 +56.8, Q8 +205.9**.
 
-- Q8 regresses hard, ~+190 µs/token. The 51.2/core model is refuted; the
-  96/core ceiling correctly locates *where* the cliff falls — Q8 is the
-  first rung whose offered simdgroups drop below the ceiling.
-- Q2 and Q4 are **not flat**. Both lose ~+50 µs/token, and they lose by
-  nearly the same amount as each other. A residency-only account cannot
-  produce that step, because nothing about residency changes between Q1,
-  Q2 and Q4.
+The shape is **monotone and super-linear in `rps`** — every rung is slower
+than the last, and the last step is 3.6× the sum of the first two. It is not
+the "flat then cliff" a residency-only account predicts, and it is not the
+"step then plateau then cliff" an earlier draft of this section called it. I
+have to be careful about how much of that shape is real:
 
-So the shape is a **step then a cliff**, and it needs two mechanisms, not
-one:
+- **Q8 is real.** +205.9 µs/token, CI95 [+151.7, +260.1], t = 16.3, all four
+  blocks positive. The 51.2/core model is refuted; the 96/core ceiling
+  correctly locates *where* the cliff falls — Q8 is the first rung whose
+  offered simdgroups drop below the ceiling.
+- **Q2 and Q4 are point-estimate positive with intervals covering zero**
+  (+31.3 [−36.1, +98.7]; +56.8 [−13.9, +127.5]). All six per-block
+  differences are positive, which is suggestive, but at three blocks the
+  paired interval is wide and I will not upgrade "monotone in the point
+  estimates" to "significantly non-flat". The one thing these two rungs
+  establish at ranked strength is that **neither is a win**, which is all
+  the ladder needed to decide.
 
-1. A small, rung-insensitive penalty (~+50 µs/token, ~+2.9 % of the
-   family's 1705 µs/step) that appears as soon as `rps > 1` and does not
-   grow from 2 to 4. Candidates: the extra `ws += block_size/2` stride
-   arithmetic and `sb[rps][4]` scale/bias staging in the inner loop, and
-   the loss of whatever the compiler was doing with the single-accumulator
-   form. This is a *code-shape* penalty, not a machine-occupancy one.
-2. A large penalty at Q8 (~+140 µs/token beyond the step) that coincides
-   exactly with residency dropping below the ceiling — but which is
-   **not separable by these data** from register pressure. At `rps = 8`
-   the per-thread state is `result[8]` plus `sb[8][4]`, an estimated
-   55–75 registers against 25–35 at `rps = 1`. Spill traffic on the order
-   of 2.6 MB/call against a 10.5 MB weight stream predicts +10–15 % kernel
-   time; the observed family regression is +11 %. Both accounts fit.
+#### The request-count account of the Q8 cliff is refuted by my own arithmetic
 
-I did not run the ISA dump that would separate them, and I am not going to
-claim one over the other from a monotone curve. §8 item 1 is the
-experiment that does separate them, and it costs no timing runs to start.
+The tempting story is that Q8 starves the memory system: 64 simdgroups/core
+instead of 96, so fewer outstanding loads, so less latency hiding. Run the
+same Little's-law arithmetic §5.3 used and it collapses. At Q8, 64
+simdgroups/core × ~0.86 load duty × 256 B per outstanding request is
+≈ **14.1 KB/core in flight** — two to three times the 4.6–7 KB the measured
+230 GB/s actually requires. Q8 is not request-starved on this model. Nor
+should it be: the kernel measures 94.3 % of peak at Q1, and dropping to 64/core
+leaves it with more than double the in-flight bytes needed to hold that rate.
+
+So an in-flight-bytes shortfall cannot be the mechanism, and I am stating the
+objection rather than leaving the two sections quietly inconsistent.
+
+What survives is not a request-count argument but a **duty-cycle one**. The
+0.86 figure is not a constant of nature; it is what a core achieves when
+several independent waves of work are resident and one can issue while
+another stalls. At Q1–Q4 the core holds 96 grantable simdgroups, i.e. 2–6
+waves of concurrently-schedulable work, and any stall is backfilled. At Q8
+the core holds exactly **one** wave of 64: when it stalls on a scale/bias
+load or a dependent FMA chain, **there is nothing else to run**. The
+in-flight bytes at the instant of issue are ample; the fraction of time
+spent issuing is not. Oversubscription, not request count, is what Q1 buys.
+
+#### My §1.7 model got the ordering right and every sign wrong
+
+§1.7 predicted, before any data, that `Q4 → Q8` would be the **largest**
+step and `Q1 → Q2 → Q4` the smaller ones. That ordering is exactly what
+happened (+31.3, +56.8, +205.9). What inverted is the **sign of every
+step**: I predicted the ladder climbed toward an optimum at Q8, and it
+descends from an optimum at Q1. Calling §1.7 simply "refuted" in §1.8 was
+too coarse; the structure it identified is right and its direction is
+backwards.
+
+The repair is to read the wave count as a proxy for oversubscription rather
+than for coalescing. Waves of 96 grantable simdgroups per core:
+`W = 6, 3, 2, 1` for Q1, Q2, Q4, Q8. A latency-hiding tail of the form
+
+```
+Δ(rps) = c · (1/W(rps) − 1/6)
+```
+
+fits each rung with `c = 144, 171, 247 µs/token` for Q2, Q4, Q8. The shape
+is right — a `1/W` tail is monotone and super-linear in `rps`, which is what
+the data are — and the drift in `c` is informative: the model
+**under-predicts the Q8 cliff by ~1.7×** relative to a constant fitted on
+Q2. That residual is the part of the cliff that oversubscription does not
+explain, and it is the room left for a second, rung-specific mechanism at
+`rps = 8`.
+
+#### The leading candidate for the residual, with its arithmetic corrected
+
+At `rps = 8` per-thread state is `result[8]` plus `sb[8][4]`, an estimated
+55–75 registers against 25–35 at `rps = 1`. That is the range in which an
+Apple GPU crosses an occupancy tier or begins spilling.
+
+The spill arithmetic in my earlier draft did not add up, so here it is
+correctly. Spill traffic on the order of 2.6 MB/call against a 10.5 MB
+weight stream is up to **+25 %** of kernel time if every spilled byte
+reaches DRAM — not the "+10–15 %" I wrote. And the observed cliff beyond the
+Q4 step is ≈ +149 µs on the family's 1705 µs/step, i.e. **8.7 %**, not the
+11 % I wrote. The comparison therefore runs the other way from how I first
+framed it: **the observed cliff is well under what full spill-to-DRAM would
+cost**, which is consistent with either a partial spill that mostly hits
+cache, or with a single occupancy-tier drop and no spill at all. Both remain
+open; the arithmetic no longer pretends to choose between them.
+
+My best current reading, offered as a hypothesis and not a finding: the Q8
+cliff is a **register-file occupancy-tier crossing** between `rps = 4` and
+`rps = 8`, compounding the `1/W` oversubscription tail, with i-cache
+pressure from the ×8 unroll as the runner-up. I did not run the ISA dump
+that would separate these, and I am not going to claim one from a monotone
+curve. §8 item 1 is that experiment and it costs **zero timing runs**.
 
 ### 5.5 What this hands the campaign
 
@@ -743,7 +873,7 @@ Offered simdgroups per core scale as `512 / (rps · C/20)`. Holding the
 | Q8 | 64 | 32 | **32** |
 
 The cliff **moves one rung earlier**, from Q8 to Q4. Combined with the
-code-shape step of §5.4 item 1, which is core-count independent, the
+rung-insensitive `rps > 1` step of §5.4, which is core-count independent, the
 falsifiable prediction for a 40-core part is:
 
 1. Every rung still loses. There is no `rps > 1` rung that wins on a wider
@@ -771,15 +901,42 @@ host, and both surviving mechanisms predict the ranked host is no kinder.
 
 | # | Deviation | Reason |
 | --- | --- | --- |
-| D1 | The `num_simdgroups` (`ns`) axis, offered by the brief as D44, is **not** in this experiment. `ns` is a pinned `constexpr 2`. | It is the sole source of hazard (b). Designing the hazard out beat guarding it under a 10:30Z deadline. §3.1, §8 item 5. |
+| D1 | The `num_simdgroups` (`ns`) axis, offered by the brief as D44, is **not** in this experiment. `ns` is a pinned `constexpr 2`. | It is the sole source of hazard (b). Designing the hazard out beat guarding it under a 10:30Z deadline. §3.1, §8 item 4. |
 | D2 | The ladder was **not** run as a single 5-arm campaign. | Arm count multiplies wall clock directly at ~183 s/run and the deadline admits roughly 12 runs. §4.1 records the arms actually run and why that subset. |
 | D3 | Added a pre-data addendum (§1.7) that the brief did not ask for. | It reconciles my own R117-C constant with tanjiro's independently measured grantable ceiling and turns a loose "interior optimum" prior into a rung-level prediction. Committed before any run finished (`b02f7965`) so it is falsifiable rather than retrofitted. |
-| D4 | Added the shape test and the null-work discriminator proposal (§1.3, §8 item 4), which the brief did not request. | The brief's ladder cannot distinguish residency from activation re-read volume. Saying so explicitly is worth more than reporting a ladder as if it were clean. |
-| D5 | The arm set changed **mid-campaign**, at 09:23Z after block 1 of campaign 1, from `Q1/Q8` bracket-first to the full `Q1/Q2/Q4/Q8` ladder; `Q16` was dropped. | Block 1 showed Q8 losing by +186 µs, which refuted my own §1.4 refuter #2 and made the bracket's purpose (find the interior optimum between Q1 and Q8) moot. The interesting question became the *shape* between Q1 and Q8, so the runs went there. Logged in §1.8 before any further data. Q16's decline is re-argued in §8 item 5. |
+| D4 | Added the shape test and the null-work discriminator proposal (§1.3, §8 item 5), which the brief did not request. | The brief's ladder cannot distinguish residency from activation re-read volume. Saying so explicitly is worth more than reporting a ladder as if it were clean. |
+| D5 | The arm set changed **mid-campaign**, at 09:23Z after block 1 of campaign 1, from `Q1/Q8` bracket-first to the full `Q1/Q2/Q4/Q8` ladder; `Q16` was dropped. | Block 1 showed Q8 losing by +186 µs, which refuted my own §1.4 refuter #2 and made the bracket's purpose (find the interior optimum between Q1 and Q8) moot. The interesting question became the *shape* between Q1 and Q8, so the runs went there. Logged in §1.8 before any further data. Q16's decline is re-argued in §8 item 6. |
 | D6 | §8's pre-registration item 1 — "settle C=40 with one paired ranked draw" — was **withdrawn**, and §8 now opens with an explicit instruction not to spend a ranked draw on this ladder. | A ranked draw is worth spending to choose between rungs that might win. Once every rung lost locally, and once both surviving mechanisms predicted the ranked host is no kinder (§6), the draw buys nothing. Recording the withdrawal rather than quietly deleting the item. |
 
 ### 7.2 Corrections to my own earlier claims
 
+Five corrections were made to *this document* after a critical re-read of my
+own arithmetic, all after the data were final and none of them changing a
+measured number:
+
+- **"≤ 77 µs/token" understated the family cap.** That was `qkv_h64`'s 5.7 %
+  gap alone; adding `qkv_h48`'s 7.2 % gives ≈ **103 µs/token** for the QKV
+  family. §5.2 now carries the corrected figure, and §8 item 4 inherits it as
+  the bound on split-K.
+- **"≈ 80 % of the low end" was a mislabel of my own division.** o_proj at
+  `rps = 4` had ≈ 5.6 KB/core in flight, which is **122 %** of the 4.6 KB low
+  end — inside the required band, not below it. §5.3 is downgraded from
+  "starved" to "marginal", and R117-C's −82 µs is now explicitly recorded as
+  *not fully explained* by the in-flight-bytes model.
+- **A request-count account of the Q8 cliff is refuted by that same
+  arithmetic**, and I nearly shipped it. 64 simdgroups/core × 0.86 duty ×
+  256 B ≈ 14.1 KB/core, 2–3× the requirement. §5.4 now states the objection
+  and replaces the account with a duty-cycle/oversubscription one.
+- **The spill arithmetic did not add up.** 2.6 MB spill against a 10.5 MB
+  weight stream is up to **+25 %**, not +10–15 %; the cliff beyond the Q4
+  step is +149 µs on 1705 µs = **8.7 %**, not 11 %. Corrected, and the
+  conclusion inverts: the cliff is *smaller* than full spill would cost, so
+  partial spill or a single occupancy-tier drop both remain live.
+- **Calling §1.7 "refuted" in §1.8 was too coarse.** §1.7 predicted `Q4→Q8`
+  as the largest step and `Q1→Q2→Q4` as smaller ones, which is exactly the
+  observed ordering; what it got wrong is the **sign of every step**. §5.4
+  now reports the salvaged `Δ = c·(1/W − 1/6)` form, its fitted `c` values,
+  and the ~1.7× residual it leaves at Q8.
 - **The "optimum at 51.2 simdgroups/core" framing from R117-C was wrong,
   or at least badly under-determined.** I reported a constant where the
   data supported a *threshold*. §1.7 reframes it as "the largest residency
@@ -819,7 +976,7 @@ host, and both surviving mechanisms predict the ranked host is no kinder.
   attributable to either underfill or spill (§5.4), and those two accounts
   disagree about the ranked host (§6). §8 item 1 is the fix.
 - No row-sequential control at `rps = 8` geometry, which is the cheap
-  experiment that would have separated them (§8 item 1). It was identified
+  experiment that would have partly separated them (§8 item 2). It was identified
   too late in the window to build and time.
 - No null-work arm, so the residency/re-read collinearity of §1.3 stands
   as conceded rather than broken.
@@ -830,7 +987,9 @@ host, and both surviving mechanisms predict the ranked host is no kinder.
 ## §8. What I would do with two more hours
 
 Ordered by expected value per hour, and written so the advisor can hand any
-one of them to another student without reading the rest of this report.
+one of them to another student without reading the rest of this report. The
+ordering rule I applied: **anything that costs zero timing runs goes first**,
+because the campaign's scarce resource is quiet-host wall clock, not ideas.
 
 Item 0, stated first because it is a *don't*: **do not spend a ranked draw
 on any rung of this ladder.** §6 gives the reasoning. An earlier draft of
@@ -838,27 +997,43 @@ this section proposed exactly that draw; the completed ladder makes it a
 waste, since every rung loses locally and both surviving mechanisms predict
 the ranked host is no kinder.
 
-1. **Separate underfill from register spill with a row-sequential control
-   at `rps = 8` geometry.** This is the one experiment that resolves the
-   §5.4 ambiguity, and it is cheap. Keep the `rps = 8` dispatch exactly —
-   640 threadgroups, 64 threads, 8 consecutive rows per simdgroup — but
-   process those 8 rows *one at a time* with the verbatim `rps = 1` inner
-   loop: reload the activation tile per row, one accumulator, one
-   `simd_sum` per row. Register pressure returns to the `rps = 1` level
-   while occupancy stays at the `rps = 8` level. It is structurally
-   bit-identical for the reason §2.4 gives.
-   - If `t(seq-8) ≈ t(rps = 1)`, the geometry is innocent and the fused
-     inner loop is guilty: the Q8 cliff is register pressure, §6's
-     interesting prediction is wrong, and the campaign learns that
-     `rps > 1` costs registers rather than occupancy.
-   - If `t(seq-8) ≈ t(rps = 8)`, the underfill account survives and §6's
-     Q4-crossing prediction becomes worth a ranked test after all.
+1. **Read the register and occupancy facts straight off the toolchain —
+   zero timing runs.** Two static measurements settle most of §5.4's
+   ambiguity without a single benchmark:
+   - Dump the generated ISA per rung with
+     `research/maple-nezuko-r100c-dump-msl.sh` and read off spill/reload
+     ops, load batching, and code size at `rps = 1, 2, 4, 8`. A spill at
+     `rps = 8` and none at `rps = 4` is the cliff, found in minutes.
+   - Query `MTLComputePipelineState.maxTotalThreadsPerThreadgroup` for each
+     rung's compiled pipeline. That number is the driver telling you the
+     occupancy tier it assigned given the kernel's register footprint. If it
+     drops between `rps = 4` and `rps = 8`, the occupancy-tier account of
+     §5.4 is confirmed directly, and the `1/W` residual has its explanation.
 
-   Corroborate for free with the ISA dump
-   (`research/maple-nezuko-r100c-dump-msl.sh`), reading off spill/reload
-   ops, load batching and code size per rung. The dump costs a build and no
-   timing runs, so it should be started first.
-2. **Replace residency with achieved bandwidth as the campaign's
+   I did not do this inside the window and it is the omission I most regret,
+   because it is the cheapest evidence in the whole report.
+2. **Then, if item 1 is ambiguous, run a row-sequential control at `rps = 8`
+   geometry.** Keep the `rps = 8` dispatch exactly — 640 threadgroups, 64
+   threads, 8 consecutive rows per simdgroup — but process those 8 rows *one
+   at a time* with the verbatim `rps = 1` inner loop: reload the activation
+   tile per row, one accumulator, one `simd_sum` per row. It is structurally
+   bit-identical for the reason §2.4 gives.
+
+   Be precise about what it holds fixed: it fixes **dispatch geometry**
+   (threadgroup count, wave count, and hence the `1/W` oversubscription
+   term), while *lowering* register pressure back toward `rps = 1`. It does
+   **not** hold achieved occupancy fixed — if the driver re-tiers the
+   pipeline because the register footprint fell, occupancy moves too, which
+   is exactly why item 1's `maxTotalThreadsPerThreadgroup` query should be
+   read first for the same variant. With that caveat:
+   - `t(seq-8) ≈ t(rps = 1)` points at the fused inner loop's register
+     footprint rather than the dispatch shape.
+   - `t(seq-8) ≈ t(rps = 8)` points at the dispatch shape — the `1/W` tail —
+     rather than registers.
+   - Anything in between is the more likely outcome given §5.4's two-term
+     fit, and should be read as an apportionment between the two terms, not
+     as a verdict for either.
+3. **Replace residency with achieved bandwidth as the campaign's
    kernel-selection filter, and publish the table.** §5.2 is a
    selection-process failure, not a measurement failure: the number that
    predicted this null was already written down in my own earlier report.
@@ -872,7 +1047,11 @@ the ranked host is no kinder.
    draw budget. Note the ledger hazard while doing it: a superseded,
    roughly 9 %-high variant of these numbers exists at
    `research/maple-frieren-r94-decode-residue-ledger.md:177-180`.
-3. **Take the QKV kernel down the axis instead of up it — split-K.** §5.1:
+
+   This is the highest-value item in the report for the campaign as a whole,
+   and it is the one I would hand out first if the goal is score rather than
+   understanding this kernel.
+4. **Take the QKV kernel down the axis instead of up it — split-K.** §5.1:
    `rps = 1` is already the most-simdgroups end, so the only direction
    R117-C's result endorses is splitting one output row across several
    simdgroups. That is the `ns` axis this experiment designed out (D1,
@@ -882,22 +1061,41 @@ the ranked host is no kinder.
    Whether that trade is net-positive is measurable, and the R122-A
    busy-vs-gap decomposition alphonse is running is precisely the
    instrument that prices the extra command — so this item is worth much
-   more *after* R122-A reports than before. Temper the expectation with
-   §5.2: with 94.3 % of peak already achieved, even a perfect split-K
-   result is bounded at a few tens of µs/token.
-4. **Break the simdgroup/re-read collinearity with a null-work arm.** §1.3
+   more *after* R122-A reports than before.
+
+   Two temperings, and they are severe. First, split-K is bounded by the
+   **same ≈ 103 µs/token family cap** as everything else in §5.2: at 94.3 %
+   of measured peak there is no more bandwidth to find, and a perfect
+   split-K result cannot exceed a few tens of µs/token. Second, split-K
+   requires a **cross-simdgroup reduction** — threadgroup-memory partials
+   plus a barrier — which is new work on the critical path, and the `1/W`
+   model of §5.4 says Q1 already has ample oversubscription, so there is no
+   latency-hiding win waiting to pay for that barrier. Both of this report's
+   surviving models therefore predict little from split-K. I list it because
+   it is the only direction the R117-C evidence actually endorses, not
+   because I expect it to win.
+5. **Break the simdgroup/re-read collinearity with a null-work arm.** §1.3
    concedes that every rung changes residency and activation re-read volume
    together. The clean discriminator keeps the shipped geometry but reads
    the activation tile `rps` times into a discarded accumulator — same
    bytes, same residency, no useful work removed. Demoted from its
-   pre-registration priority because item 1 is strictly more informative
-   about the cliff and cheaper; keep this one only if item 1 comes back
-   ambiguous.
-5. **Re-examine whether a Q16 rung would have added anything.** I declined
+   pre-registration priority because items 1 and 2 are more informative
+   about the cliff and cheaper.
+
+   **Implementation hazard, and it would silently void the arm:** a
+   *discarded* accumulator is dead code, and the Metal compiler will delete
+   the loads that feed it. The arm must consume the dummy result in a way
+   the compiler cannot fold away — e.g. accumulate it and add
+   `0.0f * dummy` into the real output, or gate a store on a runtime-uniform
+   comparison that is always false but not provably so — and the ISA dump of
+   item 1 must then confirm the loads actually survived. An arm that
+   measures "no difference" because the compiler removed the extra reads
+   looks exactly like an arm that measures "re-reads are free".
+6. **Re-examine whether a Q16 rung would have added anything.** I declined
    it in §1.8 on clock, and I still think that was right: with Q2, Q4 and
    Q8 all losing, a fourth losing rung buys one more point on a curve whose
    sign is already settled, and its interpretation is confounded between
-   "further past the ceiling" and "spilling harder". If item 1 resolves the
-   cliff's mechanism, Q16 becomes a clean test of that mechanism's
+   "further past the ceiling" and "spilling harder". If items 1–2 resolve
+   the cliff's mechanism, Q16 becomes a clean test of that mechanism's
    extrapolation and is worth 3 runs then — not now.
 
