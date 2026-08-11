@@ -5,9 +5,12 @@
 line in that revision.
 
 **Addenda:** §8 re-targets every finding to branch head `6778867d` (manifest 1198 lines) against the
-advisor's 11:53Z feedback; §9 answers the 12:29Z and 12:44Z feedback and adds F16-F18. Line references
-inside §8 and §9 are head lines; §1-§7 line references are `67396bb6` lines, with the head equivalents
-tabulated in §8.1.
+advisor's 11:53Z feedback; §9 answers the 12:29Z and 12:44Z feedback and adds F16-F18; **§10 takes the
+widening in the assignment's own stopping rule** and audits `research/CURRENT_RESEARCH_STATE.md` and the
+two live tools that feed it, adding F19 and F20 plus corrections to my own F18 and §9.5. Line
+references inside §8, §9 and §10 are
+head lines (`CRS:####` = `research/CURRENT_RESEARCH_STATE.md` at that head); §1-§7 line references are
+`67396bb6` lines, with the head equivalents tabulated in §8.1.
 
 **Instruments:** `git show`, `grep`, PR bodies/comments/results, trusted-harness source, arithmetic.
 No GPU, no build, no benchmark, no W&B run. Nothing under `Sources/`, `Vendor/`, or `benchmark.json`
@@ -904,6 +907,11 @@ Three consequences, and I am deliberately *not* re-deriving the closed rows:
    reference. Notably, the advisor's own closed σ(one official draw) of 0.49 % sits *inside* that CI
    and is much closer to 0.373 % than to 0.19-0.23 %, which is independent support for the relabelling.
    The row is its owner's; I am flagging the input, not rewriting the table.
+   **[Refined by §10.3(e), F19.]** The `0.005 %` here substitutes the corrected σ into §6.5c's
+   *uncentred* numerator (+1.4441 %). Centred on the program's own mean official score
+   (`2.582263 × 1.001830 = 2.586989`, required move +1.2588 %) the same σ gives **0.037 %** — my figure
+   was low by 6.8× — and §10.3 shows the `[0.005 %, 0.36 %]` restatement above should be a single
+   estimate with a σ interval, not a bracket between two σ's.
 3. **A free instrument for the successor.** Every receipt carries its own baseline, so any two
    receipts can be compared on candidate metrics alone — that is `cs` — at σ **0.228 %** instead of
    **0.373 %**. Dividing by a re-measured baseline *injects* noise rather than removing it (the
@@ -924,3 +932,317 @@ F1 remains the single decision-grade item and its recommended replacement text i
 The highest-value single edit is still §6.6's currency table; the second is withdrawing the 1.56×
 reprice instruction issued to frieren on #733.
 
+
+---
+
+## 10. Third addendum — extension to `research/CURRENT_RESEARCH_STATE.md`
+
+### 10.0 Why this section exists, and what it audits
+
+The authority for this section is the assignment's own stopping rule, in the PR body, quoted verbatim:
+
+> If you exhaust the scope early, do **not** invent GPU work. Extend the audit to
+> `CURRENT_RESEARCH_STATE.md` and the round archives instead, same four checks.
+
+§1-§9 exhausted the manifest's decision-grade rows, so this addendum applies the same four checks to the
+**downstream** artefact: the state file the successor will actually read, plus the two live tools that
+feed it. It stays inside the same envelope — read-only, `research/` only, no GPU, no build, no benchmark,
+no W&B run.
+
+**Sources for §10, all at branch head `6778867d`:**
+
+| artefact | size / anchor | how referenced below |
+|---|---|---|
+| `research/CURRENT_RESEARCH_STATE.md` | 10,609 lines, md5 `edafefe90de372a23bc59ad16a930b2d` | `CRS:####` |
+| `senpai/research-frontier-briefing.md` | snapshot **2026-08-11 10:06 UTC** (L3) | `brief:####` |
+| `research/tools/slot_holder_arithmetic.py` | the script §6.5c says to run | `tool:##` |
+| `research/advisor-r104-the-receipt-is-the-instrument.md` | origin of the ×1/median-draw bar | `r104:###` |
+| my five receipt JSONs | `n1`-`n5`, §9.1 | receipt algebra |
+
+Method unchanged: every number is re-derived from its inputs, and a claim is only "verified" if the
+inputs are in the tree. No GPU, no build, no benchmark, no W&B run; nothing outside `research/` read as
+anything but a primary source.
+
+### 10.1 Clean bill first — the §6.6 currency exposure did **not** propagate into the state file
+
+F5/F6/F16 concern constants that §6.6 mislabels. The obvious risk is that they were copied into the
+successor-facing state file. They were not:
+
+| constant | occurrences in `CRS` (10,609 lines) |
+|---|---|
+| `0.00586` (the §6.6 currency) | **0** |
+| `12798` (decode µs/step anchor) | **0** |
+| `4910.9` (prefill anchor) | **0** |
+| `2.60664970` | **1**, at `CRS:5560` — the `our best / e27f1ce (Cedar) / 2.60664970` leaderboard row, not a currency |
+| `8882` | 3, **all** the unrelated score `2.588828` |
+
+So the §6.6 defect is **manifest-local** (plus the slot-holder brief that quotes it). That bounds the
+blast radius of F16 to two documents and is the one piece of good news in this addendum. It is also
+why §10 spends its remaining budget on what *is* in the state file.
+
+### 10.2 Correction to my own F18 — the mechanism was already in this repo, and I should have found it
+
+F18 (§9.5) reported that the official score's within-program variance is majority baseline-side, and
+presented the mechanism as new to the audit. **It is not new to the repo.** `CRS:3509-3511` states it
+outright:
+
+> Corpus `L` (n = 1,204): median 0.998597, sd(ln L) 0.5359 %, p90 1.007519, p95 1.009232, p99 1.012733,
+> max 1.021135; **≈96 % of that variance is the `bl_pre` baseline draw.**
+
+and `CRS:3541-3548` gives the same decomposition with the record receipt worked through. This is a
+**Rule-14 failure of mine**: I priced a mechanism without first grepping the state file for it, exactly
+the failure mode §9.2 names in others. Recorded here rather than quietly edited, per the manifest's own
+convention.
+
+What survives as my contribution, and it is narrower than F18 claimed:
+
+1. **An exact algebraic identity, not a statistical finding.** For each of my five receipts,
+   `official / cs` equals `(baseline_D^0.75 · baseline_P^0.25) / K` to **0.000 ppm** with a single
+   fitted `K = 5610.207`. The draw factor `L` therefore contains **no candidate term at all** — it is a
+   pure function of the two baseline legs. `CRS:3509` measures that; the receipts prove it.
+2. **An independent reproduction of the ≈96 %**, from n=5 receipts instead of n=1,204:
+   sd(ln base_D) = 0.1471 %, sd(ln base_P) = 2.1725 %; `0.75 × 0.1471 = 0.1103 %` and
+   `0.25 × 2.1725 = 0.5431 %`; in quadrature **0.5542 %**, of which the prefill leg is
+   `0.5431² / 0.5542² =` **96.04 %**. Two independent samples, same 96 %.
+3. sd(ln L) from those five receipts is **0.5263 %** against `CRS:3509`'s **0.5359 %** (n=1,204) — 1.8 %
+   apart on five points, which is as much agreement as five points can give.
+
+Point 1 is what makes §10.3 a finding rather than an opinion, so the correction costs the audit nothing
+except the credit.
+
+### 10.3 F19 — §6.5c's `[≈0 %, 1.5 %]` is not a bracket: **both** rails price the wrong random variable, in opposite directions
+
+**The claim audited.** §6.5c (L948-953) replaces the earlier ~1 %-per-draw price with a two-row bracket:
+
+> | within-program σ 0.1860-0.2276 %, normal | program mean (correct) | **≈0 %** (z = 6.3-7.8) |
+> | fern's draw component, sd 0.538 %, normal | program mean (correct) | **0.95 %** (z = 2.344) |
+
+and instructs the successor to **"Plan against `[≈0 %, 1.5 %]` per draw"** (L959-960). Both rows are
+labelled as using the same reference point. They do not, and neither σ is the σ of the quantity the
+successor actually draws.
+
+**(a) The quantity being priced is a draw factor; the lower rail is the sd of the candidate legs.**
+`tool:35-36` computes `need = BAR / OUR_PROGRAM = 2.6195531094824 / 2.582263 = 1.014441`.
+`OUR_PROGRAM` is a **program-normalized** mean, i.e. a `cs`; `BAR` is an **official score**. So `need` is
+by construction a required value of `official / cs` — that is, of the draw factor `L`. By §10.2 point 1,
+`L` is an exact function of the two baseline legs and contains no candidate term. The 0.1860-0.2276 %
+σ is, by §9.1 and r103's own definition, the replicate sd of **`cs`** — the candidate legs only. Using it
+here discards the ≈96 % of `L`'s variance that `CRS:3509` puts on the baseline draw. That is not a
+conservative choice; it is a units error, and it is the whole reason the lower rail reads "≈0 %".
+
+**(b) The two rows also use different centres, visibly, in the same function.** `tool:37`:
+`z = (need - DRAW_MEDIAN) / DRAW_SD` with `DRAW_MEDIAN = 1.001830`. `tool:42`: `zz = (need - 1.0) / sd`.
+The fern row subtracts the measured median draw factor; the within-program rows subtract 1.0. The
+numerator is `need - 1.001830 =` **+0.012611** under the first convention — equivalently **+1.2588 %** of
+the program's own mean official score `2.582263 × 1.001830 = 2.586989` — against `need - 1.0 =`
+**+0.014441** under the second, while the table's reference-point column says both are "program mean
+(correct)". At the σ established in (d) that one difference is worth a factor **6.8×** in the answer, so
+it is not second-order.
+
+**(c) But the upper rail is the wrong σ too — it answers the conditional question.** fern's 0.538 %,
+`CRS:3509`'s sd(ln L) = 0.5359 % and my 0.5263 % (n=5) all measure the spread of `L` **holding `cs`
+fixed**: *given* a program that has already produced this `cs`, how much can a re-fire's baseline move
+the official score. That is the right σ for "should I re-fire the submission I already have". It is the
+wrong σ for the question §6.5c is actually asking — *"we submit a new program at our program mean, what
+is P(record) per draw"* — because a fresh submission re-draws `cs` **and** `L` together, and they are not
+independent. Separately, §6.5c's stated reason for discounting fern — *"fern's 0.538 % legitimately
+carries between-program leakage that program-hashing removes"* (L957-958) — **cannot hold**: a quantity
+with no candidate term in it cannot carry between-program leakage, and program-hashing has nothing to
+remove. The corpus value at `CRS:3509`, computed over 1,204 receipts, agrees with fern's to **0.4 %**.
+
+**(d) The predictive σ is directly measurable, and it is neither rail.** From the same five receipts,
+sd(ln official) = **0.3728 %**. It is *smaller* than either sd(ln L) or the independence quadrature
+`sqrt(0.2276² + 0.5263²) = 0.5822 %` because the two components are **negatively correlated**:
+r(ln cs, ln L) = **-0.79** on those five points. The mechanism is mechanical, not statistical — the
+official score is a within-session ratio of candidate to baseline timings, so a host that is slow during
+one submission slows both legs and the common mode cancels. The check closes:
+`sqrt(0.2276² + 0.5263² + 2(-0.79)(0.2276)(0.5263)) = 0.3735 %` against **0.3728 %** measured — the
+correlation term is the whole gap. n=5 is thin, so the honest interval is the chi-square one:
+**σ ∈ [0.223 %, 1.071 %]** at 95 %, 4 dof.
+
+**(e) Recomputation, correctly centred and with the predictive σ.** Program mean official
+`= 2.582263 × 1.001830 = 2.586989`; required move to `BAR` **+1.2588 %**; one-sided normal:
+
+| σ used | what it measures | z | P(one draw ≥ bar) |
+|---|---|---|---|
+| 0.1860 % | replicate sd of `cs` | 6.77 | 6.5e-10 % ← §6.5c's lower rail |
+| 0.2276 % | replicate sd of `cs` | 5.53 | 1.6e-6 % ← §6.5c's lower rail |
+| **0.3728 %** | **measured sd(ln official), n=5 — the predictive σ** | **3.38** | **0.037 %** |
+| 0.2230 % | its chi-square 95 % lower bound, 4 dof | 5.65 | 8.3e-7 % |
+| 1.0710 % | its chi-square 95 % upper bound, 4 dof | 1.18 | **12.0 %** |
+| 0.5359 % | sd(ln L), `CRS:3509` — the *conditional* σ | 2.35 | 0.94 % |
+| 0.5380 % | fern's draw component (conditional) | 2.34 | 0.96 % ← §6.5c's upper rail |
+| 0.5822 % | independence quadrature — rejected by r = -0.79 | 2.16 | 1.53 % |
+
+So the σ defect alone is worth a factor **2.3 × 10⁴** (against the 0.2276 % rail) to **5.6 × 10⁷**
+(against 0.1860 %), and the centring defect a further **6.8×**. Rails four to eight orders of magnitude
+apart are not a bracket; they are one number and one artefact.
+
+**This also refines my own §9.5.** F18's arithmetic substituted the corrected σ into §6.5c's *uncentred*
+numerator (+1.4441 %) and reported z = 3.87, **P = 0.0054 %**. Centring on the program's own mean
+official score — which is what "program mean (correct)" was supposed to mean — gives z = 3.38,
+**P = 0.037 %**. My published figure was low by 6.8×. Recorded here rather than silently corrected.
+
+**(f) The state file makes the same centring slip, and it is exactly reproducible.** `CRS:3537-3540`:
+
+> **Per-draw record probability at the measured frontier is 0.748 %** (9/1203 empirical, 1 in 134;
+> **0.671 % lognormal**), not the 1.2 % predicted at `cs = 2.58506`
+
+That **0.671 %** is reproduced *exactly* by centring `L` on **1.0** rather than on its own measured
+median: required `L = 2.616504 / 2.582286 = 1.013251`, `(1.013251 - 1) / 0.005359 = 2.4726 → 0.6705 %`.
+Centring on `CRS:3509`'s own median 0.998597 gives `z = 2.7344 → 0.3124 %`. The printed figure is
+therefore **2.15× optimistic** in its own convention. Worse, the same table's *"2.6202 → 50 %"* row is
+**median**-centred — it is r104's `2.616504 / 0.998572` inverted (**r104:546-549**), and 1.0-centring
+would print 60.4 % there, not 50 %. **The table mixes two centrings**, which is why its lognormal column
+cannot be compared row-to-row.
+
+**F19.** *§6.5c's `[≈0 %, 1.5 %]` per-draw bracket is not a disagreement between two methods. The lower
+rail divides a required **draw factor** by the replicate sd of the **candidate** legs, discarding the
+≈96 % of draw variance `CRS:3509` attributes to the baseline; the upper rail uses the **conditional** sd
+of `L` at fixed `cs`, which answers "should I re-fire this submission", not "what does a fresh submission
+draw". The predictive σ is measurable directly — sd(ln official) = **0.3728 %**, below the independence
+quadrature because r(ln cs, ln L) = **-0.79** — and, centred on the program's own mean official score,
+prices one draw at **≈0.04 %**, with an honest n=5 interval of **[≈0 %, 12 %]**. §6.5c's `[≈0 %, 1.5 %]`
+is roughly the right width by accident and for the wrong reason. The successor must not carry "≈0 %"
+forward as a rail: a lower rail of zero makes any draw-buying argument unfalsifiable in the flattering
+direction, and it contradicts the ~1.5 % the same section spends at L923-926.*
+
+**Disposition of the §6.5c decision is unchanged.** 0.04 % per draw, or even the 12 % upper bound, is
+still not a licence to cut verification gates — the use the number is put to at L922-926 — and the
+audit's recommendation there stands. What changes is that the number must be quoted as one estimate with
+an interval, sourced to `sd(ln official)`, not as a bracket between two mislabelled σ's.
+
+This is the same shape as F1 and F16: the correction is real, the direction of the correction is
+flattering to the corrector, and the input was never re-derived from the receipt.
+
+### 10.4 F20 — the crown moved, and every per-draw price in the state file is still calibrated to the retired one
+
+**(a) Where the orphan `0.378 %` came from.** §4b's superseded cell and the §4c post-mortem attribute it
+to narrative contamination, twice — once in §0 (L39-42, *"I had let the gap drift to whatever made the
+story close"*) and once in the post-mortem itself (L726-728):
+
+> §4b said **+0.378 %**. The true gap is **+0.4950 %** — 31 % larger. And 0.378 ≈ the 0.38 I had
+> attached to delta 1, which is almost certainly where it came from: **I let the gap take the value that
+> made the story close.**
+
+That attribution is wrong, and provably so. The **retired** crown is `cc6ddc1` /
+`c5b0a13c` = **2.61650354381456**, quoted at that precision in ≥8 places in the tree
+(`CRS:203,1044,1331,2113,2266,3412,3541,5260,7099,7535,7781,8688`;
+`research/RESEARCH_ARCHIVE_through-round-91.md:20,873,878,1140`;
+`research/advisor-r93-corpus-mining/mine2_record_and_cv.py:70` and `mine3/mine4/mine5` likewise). Then:
+
+```
+2.60664969895906 × 1.00378 = 2.616502834821125
+                  cc6ddc1  = 2.61650354381456      → agreement 0.000027 %
+```
+
+`+0.378 %` is the gap from our best-ever draw to the crown **as it stood when the cell was written**.
+It was not story-fitted; it was **correct against a reference point that has since been retired**. That
+matters for the handover: a self-diagnosis of "I let the number drift to fit the story" prescribes
+narrative discipline, while the actual defect — a stale reference point transcribed forward without its
+`as-of` — prescribes *dating every leaderboard constant*. The second is fixable by convention; the
+first is not. Note also that the σ-multiple invariance L730-732 flags ("a wrong numerator over a wrong
+denominator kept giving me the right-looking σ multiple") has the same root: both numerator and
+denominator were correct as of different dates.
+
+**(b) The crown that replaced it is 8 hours old, and the state file has not been told.** `brief:132-133`:
+
+> | 1 | ggu77wt | `cdcd091` / `4ea72c3b` | **2.619553** | 203.937 | 5,314.295 |
+> | 2 | a-github-name | `cc6ddc1` / `c5b0a13c` | 2.616504 | 202.837 | 5,314.658 |
+
+`2.619553 / 2.61650354381456 - 1 = +0.1165 %`. The manifest **did** re-anchor (`BAR = 2.6195531094824`,
+`tool:10`; L333). The state file did **not**: `CRS:3412` still reads *"Record still
+**2.61650354381456**"*, and every per-draw price in `CRS:3511-3514` is built on it.
+
+**(c) The state file predicted this exact failure and then filed it as a tail risk.** `CRS:1330-1348`,
+round 116, written 02:1xZ today:
+
+> **(1) The crown is a FIXED target, not a moving one.** Every EV table in this campaign (§0P.13) held
+> the crown at 2.61650354381456. That assumption was never tested … **It is now tested and it holds** …
+> receipts since the crown was set **73** … of those, above the crown **0** … ⇒ **the fixed-crown
+> assumption in §0P.13 is sound.**
+
+and `CRS:1362-1365`:
+
+> Field-only draw rate is **0.51 receipts/h** ⇒ ~4.5 field draws remain. Rule of three on 0/33 gives a
+> 95 % upper bound of 9.09 % per draw ⇒ **P(new crown) ≤ 34.7 %, point estimate ~0 %.** We plan against
+> the fixed crown and treat a new one as a tail risk
+
+The 34.7 % tail **fired**, somewhere between 02:14Z and the 10:06Z briefing snapshot. The same note also
+states what a moving crown would cost: a real drift *"would have been a reason to discount every
+P(crown) figure"* (`CRS:1351-1352`). Nothing downstream was discounted.
+
+**(d) The whole `CRS` price table is the retired crown divided by the median draw.** `CRS:3511-3514`:
+
+> P(record) per draw as a function of `cs`: 2.575633 → 0.415 %; **2.582286 → 0.748 %** (1-in-134);
+> 2.585060 → 1.163 %; 2.588362 → 1.744 %; **2.590559 → 3.239 %**; 2.591868 → 4.153 %; 2.600 → 14.286 %;
+> 2.610 → 34.551 %; **2.6202 → 50 %**
+
+The `2.6202 → 50 %` row is not fitted; it is `r104:546-549`, verbatim:
+
+> To beat `score = 2.616504` at the *median* draw `L = 0.998572` you need
+> `cs >= 2.616504 / 0.998572 = 2.620246`
+
+i.e. the 50 % column **is** the retired crown over the median draw: `2.616504 / 0.998597 = 2.620180`,
+which is the printed `2.6202` to four decimals. Re-anchored on `2.619553` that point moves to
+`2.619553 / 0.998597 =` **2.623233** (+0.1165 % of `cs`), and every row below it shifts. Recomputed in
+the state file's **own** convention (§10.3(f): `L` centred on 1.0, sd 0.5359 %), which is how each old
+column below reproduces its printed value:
+
+| `cs` | old crown, state file's convention | re-anchored to `cdcd091`, same convention | discount |
+|---|---|---|---|
+| 2.582286 (`CRS:3512` row; our program mean is 2.582263) | 0.6706 % = the printed **0.671 %** | **0.354 %** | ÷1.89× |
+| 2.583100 (§7 item 6's mean `cs`) | 0.791 % | **0.423 %** | ÷1.87× |
+| 2.590559 (our best-ever `cs`, receipt `n1`) | 3.082 %, against the printed **3.239 %** empirical | **1.838 %** | ÷1.68× |
+| 50 %-point | 2.620180 = the printed **2.6202** | **2.623233** | +0.1165 % of `cs` |
+
+**(e) The internal consistency check that makes this airtight.** `CRS:3515` states its own local
+elasticity: *"At our operating point **+0.1 % of `cs` multiplies p/draw by 1.56×**."* A crown rise of
++0.1165 % is that same move with the sign flipped, so it must divide p/draw by `1.56^1.165 =` **1.679×**.
+Measured on my re-anchoring at that same operating point (`cs = 2.590559`): 3.082 % → 1.838 % =
+**÷1.677×**. The elasticity the state file printed and the repricing done from the crown constants agree
+to **0.1 %** — two independent routes to the same discount. Deeper in the tail the discount grows
+(÷1.87-1.89× at `cs ≈ 2.5823`), and it is **not** an artefact of the centring defect in §10.3(f):
+median-centring every row instead gives ÷1.77-2.00×, i.e. the same ≈1.7-2× either way.
+
+**F20.** *The promoted crown rose `cc6ddc1` 2.61650354381456 → `cdcd091` 2.619553 (+0.1165 %) between
+02:14Z and 10:06Z. The manifest re-anchored; `CURRENT_RESEARCH_STATE.md` did not, and its P(record)
+table (`CRS:3511-3514`) is by construction the retired crown over the median draw (`r104:546-549`), so
+**every per-draw and cumulative-EV figure a successor reads from the state file is optimistic by
+≈1.7-1.9×** — at our best-ever `cs` it prints 3.239 %/draw where the same method re-anchored gives
+≈1.8-1.9 %, and the state file's own elasticity at `CRS:3515` predicts that discount to 0.1 %. The same
+file tested and blessed the fixed-crown assumption at 02:1xZ and priced a new crown as a ≤34.7 % tail
+risk; that tail has fired. Separately, the orphan `+0.378 %` in the superseded §4b cell is the gap to the retired
+crown to **0.000027 %**, so §4c's "I let the gap take the value that made the story close" mis-diagnoses
+it: it is a stale-reference-point transcription, which is the defect still live in the state file and in
+`mine2/3/4/5_*.py`.*
+
+**Cheapest fix, for whoever holds the slot.** Two edits, no measurement: (i) at `CRS:3412` and
+`CRS:3511-3514`, stamp the crown constant with its `as-of` and note the ÷1.7-1.9× discount, or delete
+the table; (ii) in `research/tools/slot_holder_arithmetic.py`, replace `WITHIN_SD` in the `need`
+comparison with the measured sd(ln official) and centre **both** rows on `DRAW_MEDIAN` (four lines,
+`tool:37-44`). Neither
+touches `Sources/`, `Vendor/`, or `benchmark.json`. I have **not** made either edit — this branch is
+read-only by assignment, and both files are owned by others.
+
+### 10.5 Net effect of the third addendum
+
+Two findings, two self-corrections, one clean bill. **F19**: §6.5c's `[≈0 %, 1.5 %]` is not a bracket —
+its lower rail divides a required **draw factor** by the replicate sd of the **candidate** legs, its
+upper rail uses the **conditional** sd of `L` at fixed `cs`, and the predictive σ is measurable directly
+as sd(ln official) = **0.3728 %** (below the independence quadrature because r(ln cs, ln L) = **-0.79**),
+which prices one draw at **≈0.04 %** with an honest n=5 interval of **[≈0 %, 12 %]**; the §6.5c
+*decision* is unchanged, the number carried forward must be. That recomputation also **corrects my own
+§9.5**, which was low by 6.8× because it inherited §6.5c's uncentred numerator. **F20**: the crown moved
+8 hours before the handover, the state file's entire per-draw price table is still calibrated to the
+retired crown and is optimistic by ≈1.7-1.9× — a discount the state file's own elasticity at `CRS:3515`
+independently predicts to 0.1 % — and the orphan `+0.378 %` is explained exactly, as a stale reference
+point rather than narrative drift. **Self-correction to F18**: its mechanism was already at `CRS:3509`;
+my contribution reduces to the 0-ppm identity `L = (base_D^0.75 base_P^0.25)/K` and an independent
+96.04 % from five receipts — and that identity is what proves F19. **Clean bill**: none of the §6.6
+currency constants reached `CURRENT_RESEARCH_STATE.md`, so F16's blast radius is two documents.
+
+Running total for the whole audit: **20 findings, F1-F20**, of which **three** are
+decision-grade for the successor — F1 (the `UNSOURCED` label is inverted), F19 (per-draw price has no
+zero rail), F20 (the crown moved and the state file's EV table did not). No finding in §1-§9 is
+withdrawn.
