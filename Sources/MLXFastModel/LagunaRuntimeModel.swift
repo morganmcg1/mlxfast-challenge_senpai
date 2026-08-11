@@ -771,6 +771,11 @@ private let lagunaDecodeAsyncStage: LagunaDecodeAsyncStage = {
 private let lagunaAttentionProjectionAsyncEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ATTN_PROJECTION_ASYNC"] != "0"
 
+/// Enqueue exact fused decode embedding and RoPE atlas outputs before layer
+/// construction.
+private let lagunaDecodeEmbeddingAsyncEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_EMBED_ASYNC"] != "0"
+
 /// `DARKBLOOM_PREFILL_ASYNC_LADDER` (default `1`; `0`/`off` disables;
 /// `8` restores the prior default): a ranked measurement on the
 /// 1.87782 base scored stride 1 at 1.88526 (+0.40% vs that base, rejected
@@ -11477,6 +11482,12 @@ final class LagunaRuntimeModelInner: Module {
             h = atlasOutputs.hidden
             fullRoPEAngles = atlasOutputs.fullAngles
             slidingRoPEAngles = atlasOutputs.slidingAngles
+            if lagunaDecodeEmbeddingAsyncEnabled {
+                asyncEval(
+                    atlasOutputs.hidden,
+                    atlasOutputs.fullAngles,
+                    atlasOutputs.slidingAngles)
+            }
         } else if lagunaRoPEAtlasViewsEnabled,
             let position = decodeAtlasPosition,
             let fullAtlas = _fullRoPEAngleAtlas,
