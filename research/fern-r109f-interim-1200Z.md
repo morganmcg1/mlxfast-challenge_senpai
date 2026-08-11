@@ -65,8 +65,28 @@ The dispatch signature refutes the PR #333 / note `7e267f3` "grid
 over-dispatch" claim outright: `grid:` in `MLXFast.metalKernel` takes **total
 threads**, not threadgroups. `grid: (tiles * 64, 1, 1)` with
 `threadGroup: (64,1,1)` is 16384 threads in 256 threadgroups, which is exactly
-one thread per lane of work, not a 64x over-dispatch. That family is terminal,
-including the R119 grid-append variants built on the same misreading.
+one thread per lane of work, not a 64x over-dispatch. That family is terminal.
+
+**Correction to my own first draft of this section.** I originally wrote that
+the retirement extended to "the R119 grid-append variants built on the same
+misreading". That was wrong and I withdraw it. *Grid-append fusion* — encoding
+two independent kernels' work into one dispatch grid so the boundary is not
+paid — is a separate idea that does not depend on the threads-vs-threadgroups
+question at all, and it is not refuted by the `grid:` reading. The three
+grid-append items have to be retired one at a time, on their own evidence:
+
+| item | evidence | status |
+|---|---|---|
+| PR #333 / `7e267f3` grid over-dispatch | `grid:` = total threads (source) | **terminal, refuted** |
+| R114 `gate_sp` / `DARKBLOOM_DECODE_QKV_GATE_FUSED` | −76.8 µs/step, 9/9 blocks negative, 3 estimators exclude 0 (`maple-alphonse-r114-gatesp.md:448`) | **already shipped as the default** — `LagunaRuntimeModel.swift:5119` reads the env with `!= "0"`, and the doc comment at :5121-5124 says the grids "are appended into one dispatch". Nothing left to compose. |
+| R119-B `DARKBLOOM_SHARED_ROUTED_QMV_FUSED` | +55.2 µs/step, −0.323 % score (W&B `6r8i5rcg`) | **terminal, measured loss.** Stays `0`. |
+
+So item (e) closes as: one refutation from source, one ingredient that is not an
+ingredient because it is already banked, and one measured loss. The residual
+lesson is that the *family* is not uniformly good or bad — `gate_sp` won because
+the two fused grids read the same normalized row and neither consumes the other,
+while the shared+routed QMV fusion lost. Fusion legitimacy is a per-site
+dataflow property, not a technique-level one.
 
 ## 3. Env cannot ship behaviour (Cedar must know this)
 
@@ -76,6 +96,30 @@ override can influence an official run. Anything we want measured officially has
 to be the **default in source**. Env flags are an A/B instrument locally and
 nothing more. My TG=256 hunk therefore defaults **on**, with the kill-switch for
 local A/B only.
+
+**The decisive evidence is in Swift, not in the shell comment, and it has a
+subtlety worth stating exactly.** `Sources/MLXFastTrustedHarness/LagunaRuntimeWorker.swift:1966-2010`
+implements `sanitizedRuntimeWorkerEnvironment` as a **strict allowlist that
+starts from an empty environment**. Exact keys allowed:
+`HF_HUB_OFFLINE, HOME, LANG, LOGNAME, PATH, SHELL, TERM, TMPDIR,
+TRANSFORMERS_OFFLINE, USER, __CF_USER_TEXT_ENCODING`. Allowed *prefixes*
+include `DYLD_`, `LC_`, `MTL_`, `METAL_`, `MLX_` and — line 2009 —
+**`DARKBLOOM_`**. So `DARKBLOOM_*` is *not* filtered by the worker: it does
+reach the kernel-selection code, which is exactly why it works as a local A/B
+instrument and why my paired runs below are real.
+
+What makes it unable to ship behaviour is the layer above: the docstring at
+:1972 states the purpose is **phase isolation** — a variable that differed
+between the gates pass and the timed pass would be a phase oracle — and that the
+ranked workflow therefore **never sets `DARKBLOOM_*` in either ranked phase**.
+`Tests/MLXFastTests/BenchmarkSupportTests.swift:502
+runtimeWorkerEnvironmentIsIdenticalAcrossPipelinePhases` pins that property.
+
+The two facts compose to a rule Cedar can rely on: **`DARKBLOOM_*` is
+faithfully delivered locally and uniformly absent officially.** A local A/B
+through the flag measures the real kernel, and the officially observed
+behaviour is always the `!= "0"` / `== "1"` *default* branch. There is no
+configuration in which an official run sees anything else.
 
 ## 4. New-base `--local-submit` baseline, n=3, on `18ac6015`
 
