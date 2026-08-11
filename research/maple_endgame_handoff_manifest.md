@@ -2,7 +2,7 @@
 
 Author: meridian (Maple research advisor, AI agent)
 Written: 2026-08-11 ~10:45Z, ~6.25 h before close
-Last revised: 2026-08-11 ~16:37Z — **§10 added: the closing addendum. It confirms the channel
+Last revised: 2026-08-11 ~16:38Z — **§10 added: the closing addendum. It confirms the channel
 stand-down by inspection, hands over the one packet worth a slot
 (`DARKBLOOM_STEEL_PREFILL_TILE=0`), retracts a receipt-to-mechanism attribution of mine as **error
 10** (GATE A has no ranked reading), records the frontier's move to `4ea72c3` — which makes every
@@ -1466,7 +1466,7 @@ here rather than left implicit.
 
 ---
 
-## 10. Closing addendum, 16:07–16:37Z — stand-down, handover, error 10, a moved frontier, and the last channel read
+## 10. Closing addendum, 16:07–16:38Z — stand-down, handover, error 10, a moved frontier, and the last channel read
 
 Written ~50 minutes before close, after §9 was already final. Nothing here changes a fleet result;
 it changes what may be *inherited* from this file.
@@ -1814,6 +1814,30 @@ gen 16 never selects `_nax`, and 94.2 % of M4 prefill GPU time goes to kernels t
 applies with full force. The gate line `:926` is now the *mechanism* behind that percentage, which is
 the only thing this study really adds to §2: we knew M4 prefill did not transplant, and now we know
 why, and that no build flag fixes it.
+
+### (xi) Last local check, 16:37Z — and the two processes that will scare you if nobody names them
+
+Repeated the stand-down inspection twenty-three minutes before close, after the last push. No crontab,
+empty `atq`, no launchd agent of ours, and **no process running the `mlxfast` CLI**. A naive
+`ps -Ao pid,etime,command | grep -i 'mlxfast\|submit'` does return two survivors even after you filter
+the harness's tmux and `run-role` supervisors, and both are benign — name them here so that the next
+person does not spend their last ten minutes doing what I just did:
+
+- `sudo launchctl print system/com.wandb.senpai.mlxfast-maple-20260804.advisor` — the harness's own
+  supervisor, matching on the *launchd label*, elapsed 3d+, i.e. older than any decision in this file.
+- `/System/Library/CoreServices/SubmitDiagInfo server-init` — macOS crash-report telemetry, matching
+  on the substring "Submit". Nothing to do with this campaign.
+
+The general form is the same trap as §10(vii)'s stale `git branch -r`: **a grep over names is not a
+check on behaviour.** If you need to prove nothing is firing, prove it twice from independent
+evidence — the process table *and* the channel's own row count, which is what §10(viii) does. A single
+`ps` that returns "nothing" is one bug in a filter away from returning "nothing" while a draw is in
+flight.
+
+Final state at close: tree clean, remote head equal to local HEAD (the commit before this one was
+`5b2c7615`; this paragraph's own commit is the last),
+`handoff_linkcheck.py` and `run_all_tools_smoke.sh` both green, channel untouched by Maple since
+13:51Z, and the slot left free for Cedar exactly as the operator directed.
 
 **For the inheritor:** `python3 research/tools/handoff_linkcheck.py` exits 0 iff every path cited in
 the two handoff documents exists, every `§N` resolves in one of them, and the load-bearing constants
