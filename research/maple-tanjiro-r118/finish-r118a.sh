@@ -11,10 +11,29 @@
 # Step 1 runs first and on the clean tree, so the correctness evidence is taken
 # from exactly the source that is committed, with no research patch anywhere
 # near it.
+#
+# Step 0 blocks until the ABBA campaign's worker processes are gone.  Only one
+# model-holding process may run at a time on this host (~21 GB RSS each) and a
+# second one would corrupt the campaign's timings, which are the primary result.
 set -u
 cd "$(dirname "$0")/../.."
 OUT="research/maple-tanjiro-r118/evidence"
 mkdir -p "${OUT}"
+
+echo "############ 0. waiting for the ABBA campaign to release the GPU  t=$(date -u +%H:%M:%S)"
+waited=0
+while pgrep -f 'run-r118a.sh|mlxfast-runtime-worker' > /dev/null 2>&1; do
+  sleep 20
+  waited=$((waited + 20))
+  if [ $((waited % 300)) -eq 0 ]; then
+    echo "    still waiting, ${waited}s  t=$(date -u +%H:%M:%S)"
+  fi
+  if [ "${waited}" -gt 5400 ]; then
+    echo "    gave up waiting after ${waited}s"; break
+  fi
+done
+echo "############ campaign quiet after ${waited}s  t=$(date -u +%H:%M:%S)"
+sleep 15
 
 echo "############ 1. equivalence oracle, default arm  t=$(date -u +%H:%M:%S)"
 env -u DARKBLOOM_SHARED_QMV_ARM bash research/run_upstream_equivalence.sh \
