@@ -16,11 +16,15 @@ clean and executes zero MMA. Both subsections also record the final PR state (**
 out-of-bounds Cedar campaign) and that every late base-change event names a strict *ancestor* of the
 published head, while every late job signal is another conversation's. That PR correction is itself
 **error fourteen**: at 17:16Z I wrote "all seven Maple-facing PRs" about the seven that had emitted
-events into my inbox, which is a sample and not a census. §10(xvii) adds the last two verified facts:
-a replayed event's `head_sha` is stale too (five of six were 6–21 commits behind the live head, all
-strict ancestors — the `expected_pr_head_sha` lease is what makes that harmless), and the two cited
-artifacts that error 11 could only point at are now **vendored byte-for-byte** into
-`research/imported/` with checksums, so every citation in this file is openable (rule 28).**
+events into my inbox, which is a sample and not a census. §10(xvii) adds the last verified facts:
+a replayed event's `head_sha` is stale too (5 of 6 were 6–21 commits behind live, one #686 event 252
+behind) — but the stream then **caught up asymmetrically**, delivering live heads on #729/#731/#732
+while bases stayed 49 commits back, so the `expected_pr_head_sha` lease that had been making staleness
+harmless would have *passed*. That reversal is **error fifteen** and rule 29: a safety property that
+holds only because your inbox is behind is not a safety property — check whether the PR is open, not
+whether the message is fresh. Also: the two cited artifacts that error 11 could only point at are now
+**vendored byte-for-byte** into `research/imported/` with checksums, so every citation in this file is
+openable (rule 28).**
 Previously revised: 2026-08-11 ~16:44Z — **§10 added: the closing addendum. Its last subsection (xiii) is the
 final channel read: the slot is no longer free, one submission `60cd9ca` is in flight from 16:27Z, it is
 not Maple's, and its `diff` will be the only bar reading available after 13:51Z. The rest confirms the channel
@@ -63,9 +67,19 @@ Where I was previously wrong, the correction is stated as a correction rather th
 
 ---
 
-## 0. READ THIS FIRST — fourteen of my own errors (1–5 below, 6–8 in §0a, 9 in rule 20, 10 in §10(ii), 11 in §10(vii), 12 in §10(xiv), **13 in §10(xv)**, 14 in §10(xvi)), and the third one changed the plan
+## 0. READ THIS FIRST — fifteen of my own errors (1–5 below, 6–8 in §0a, 9 in rule 20, 10 in §10(ii), 11 in §10(vii), 12 in §10(xiv), **13 in §10(xv)**, 14 in §10(xvi), 15 in §10(xvii)), and the third one changed the plan
 
-> **Error fourteen, added 17:33Z, and it is the smallest — read error thirteen below first.** My
+> **Error fifteen, added 17:54Z, and it has the shortest lifetime of any of them — three minutes.** In
+> §10(xvii) I observed that every replayed event's `head_sha` was stale, and concluded that the
+> `expected_*` leases "are the only thing that needs to be right" — i.e. that the harness would refuse
+> a wrong write. That is a *contingent observation about one hour's traffic* stated as a *property of
+> the system*. The very next batch caught the head axis up to live on #729, #731 and #732, two of them
+> as `review_ready`; the lease would have passed. Nothing bad happened, because I check PR state rather
+> than message freshness — all three are closed — but the reassurance I published was worthless the
+> moment the queue drained. Same failure shape as error fourteen (sample dressed as census), now on the
+> time axis instead of the population axis. Rule 29 and §10(xvii), 17:54Z.
+
+> **Error fourteen, added 17:33Z — read error thirteen below first.** My
 > 17:16Z sealing note said "all seven Maple-facing PRs (#686, #707, #711, #712, #714, #716, #718) are
 > closed", framing seven as the population. Seven was the set that had emitted *events into my inbox*
 > in the closing minutes. Querying the index (`is:pr base:codex/mlxfast-maple-20260804-advisor`)
@@ -1487,6 +1501,16 @@ producing a bound that appeared to get **worse** after a clean observation. Rule
     reaches anything the server still has. Documenting a gap (error 11) is not closing it — §10(xvii),
     `research/imported/README.md`.
 
+29. **A safety property that holds only because your inbox is behind is not a safety property.** For
+    an hour the stale `head_sha` in every replayed event meant an `expected_pr_head_sha` lease would
+    have refused a wrong write, and I wrote that down as reassurance. One batch later the head axis
+    caught up to live on three PRs (#729, #731, #732) — two of them as `review_ready` — and the lease
+    would have *passed*. The protection evaporated exactly when the queue drained, which is the moment
+    the traffic looks most like real work. Check the **object's** state (is this PR open? is the
+    challenge running?), never the freshness of the message describing it; and note that a stream can
+    converge **asymmetrically** — heads reached the present while bases were still 49 commits back, so
+    "one field looks current" says nothing about the rest of the payload. §10(xvii), 17:54Z.
+
 ---
 
 ## 9. Final fleet ledger — what each Maple student banked, and where it lives
@@ -2156,7 +2180,11 @@ The pattern is now unmistakable and it is the single most useful thing in §0: *
 flattered me, and four came from not searching a corpus I had personally commissioned.**
 [*Superseded 17:16Z: **thirteen** errors, **eleven** flattering — §10(xv). Superseded again 17:33Z:
 **fourteen** errors; the fourteenth (§10(xvi)) flattered my audit rather than my result, so the
-flattering-of-the-result count stays at **eleven**.*] The corpus
+flattering-of-the-result count stays at **eleven**. And again 17:54Z: **fifteen** errors; the
+fifteenth (§10(xvii)) flattered my sense of **safety** — it told me the harness would refuse a wrong
+write when in fact only the closed PRs were stopping one — so the flattering-of-the-result count still
+stays at **eleven**, and the three non-result errors are all of one kind: comfort taken from a pattern
+I had not tested.*] The corpus
 was large enough that I stopped treating it as searchable and started treating my memory of it as
 authoritative. §8 rule 24, added now: **before writing "never tested" or "untried" about any
 mechanism, grep the corpus for the mechanism's name and for its two nearest synonyms, and cite the
@@ -2332,7 +2360,9 @@ own handover as exempt because it involved no diff. **"No diff" was the defect, 
 and this one flattered by manufacturing a free option out of a rule I had already published against
 it. The count sentence in §10(xiv) ("of twelve errors, ten flattered me") was true when written at
 17:06Z and is superseded here. [*A fourteenth is added below in §10(xvi) at 17:33Z; it flattered the
-completeness of my own audit rather than the result, so "eleven flattering" still stands.*]
+completeness of my own audit rather than the result, so "eleven flattering" still stands. A fifteenth
+follows in §10(xvii) at 17:54Z; it flattered my sense of safety rather than the result, so "eleven
+flattering" stands there too — the final tally is **eleven of fifteen flattered the result**.*]
 
 ### (xvi) Banked from tanjiro's third terminal result — the bit-identity classification I never recorded
 
@@ -2399,7 +2429,8 @@ inferred a population from the messages that reached me instead of querying the 
 fourteen changed a number or a claim that mattered to a decision; this one changed only the
 *denominator of my own closing audit*, and the corrected fact (zero open, not seven closed out of
 seven) is better for the campaign than the fact I published. So I am not counting it in the
-"flattering" column: the tally stays **eleven of fourteen flattered the result**, and this one
+"flattering" column: the tally stays **eleven of fourteen flattered the result** [*and **eleven of
+fifteen** once §10(xvii) adds error fifteen at 17:54Z*], and this one
 flattered only my sense that I had surveyed my own campaign. I record it anyway because the mechanism
 is the expensive one — an event stream is a *sample* of a population, and every count I took from my
 inbox in six hours of this campaign inherited that bias. **§8 rule 27, added now: never state a
@@ -2450,6 +2481,23 @@ the vendoring picked the right revision. Same verification method throughout
 (`merge-base --is-ancestor` + `rev-list --count`); same conclusion, now on a wider sample: every field
 of a replayed event is a historical value, and the `expected_*` leases are the only thing that needs to
 be right.]*
+
+*[**17:54Z — I have to retract the last clause of (b) above, three minutes after writing it.** The next
+batch caught the head axis **up to live**: #731 arrived at `38e17ea5`, #732 at `df6c9bfb`, #729 at
+`556a95e0` — each the exact live head I had verified by `git ls-remote`. Two of those came as
+`review_ready`. So a mutation keyed to `expected_pr_head_sha` from these events would have **passed**
+the lease, not been refused by it. The base axis had *not* converged in the same batch (new
+`current_base_sha` `231595a7`, an 11:23Z commit, still 49 behind), so the stream is catching up
+**asymmetrically** — heads first. I checked the only thing that still mattered: all three PRs are
+`State: closed`, re-read live, with no reopening. That is what made the batch inert, **not** the lease.
+The lesson, and rule 29 with it: **a safety property that holds only because your inbox is behind is
+not a safety property.** It evaporates precisely when the queue drains, which is the moment it looks
+most like real work. Verify the *object's* state — is this PR open, is this challenge running — never
+the freshness of the message describing it. Sharpest illustration available: had I treated
+`review_ready` + matching head as sufficient, I would have moved to merge #729, #731 and #732, the
+three arms measured at **+4.73 µs/step**, **+23.12 µs/step** and an unresolved prefill BN — every one
+refuted, every one a regression. The batch that looked most actionable all day was the one that would
+have done the most damage.]*
 
 **2. The two off-branch artifacts of §10(vii) (error 11) are now vendored, byte-for-byte.** The
 closed-unmerged student branches are still on the remote, and this clone's narrow default refspec is
