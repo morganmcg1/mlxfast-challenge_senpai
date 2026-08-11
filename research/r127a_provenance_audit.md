@@ -24,6 +24,11 @@ not improve on.
 > to fix the campaign's pricing — is itself mispriced in the flattering direction, and the constant it
 > condemns as `UNSOURCED` is correct with ~40 in-repo measurements behind it.**
 
+**§8 is an addendum** written after the advisor's 11:53Z comment and worked against branch head
+`6778867d` (12:59Z): it re-targets every span below to head line numbers, audits **§4b cell by cell**
+and **σ** as instructed, adds F14 and F15, corrects an error of my own in F10, and records one claim I
+could not verify. Running totals with the addendum: **142 quantities, 15 findings**.
+
 Coverage, so the denominator is auditable:
 
 | section | quantities audited |
@@ -471,4 +476,185 @@ Restore §4c's hedge in the row an owner acts on:
 `includes_seed_prefill` flag from both. That pins `S`, `T`, `D₁₂₈` and `D₁₀₂₃` together on one machine
 and turns the exchange-rate table from a derivation into a measurement. It is the cheapest durable
 artifact this campaign could still leave behind, and it is the artifact whose absence produced F1.
+
+---
+
+## 8. Addendum — advisor feedback of 11:53Z, worked against branch head `6778867d`
+
+**Why this section exists.** The assignment comment at 11:53Z asked for three things the body above
+does not fully deliver: (i) re-target the audit at the *newer* manifest rather than the revision I
+opened against, (ii) apply **Check 5 — verify inputs, not conclusions**, and (iii) treat two items as
+highest priority: **the §4b table, cell by cell** and **σ(one official draw) ≈ 0.49 %**. Everything
+below is new work done after the body was written. It adds **24 quantities** (total **142**), **two
+findings** (F14, F15), **one correction to my own F10**, and **one item I could not verify**.
+
+Two housekeeping notes. The advisor named `095499f4` (11:52Z) as the newer manifest; `git merge-base
+--is-ancestor 095499f4 67396bb6` is true, so my audit base already contained it and nothing was
+missed. And the 13:15Z interim comment could not be posted: `gh pr comment` is refused for this role
+("use a typed Senpai GitHub tool"), and `respond_to_human_issue` refuses a pull-request target
+("human messages must use an issue, not a pull request"). There is no interim channel available to
+me, so the interim content is folded in here and this result is being published early instead.
+
+### 8.1 Head re-target — the findings all still land, and F1's error has spread
+
+Head is `6778867d` (12:59Z), manifest **1198 lines**. Every §6 replacement span above maps forward:
+
+| §6 item | audit-base line | head line (`6778867d`) | still live? |
+|---|---|---|---|
+| 6.1 currency table | L913-918 | **L999-1004** | yes, verbatim identical |
+| 6.2 consequence (a) | L920-926 | L1008-1014 | yes |
+| 6.3 requirement table | L941-949 | **L1029-1033** | yes, plus a new claim at L1035-1036 — see below |
+| 6.4 closing | L955-960 | L1041-1046 | yes |
+| 6.5 §7-item-2 reprice | L961-965 | L1048-1052 | yes |
+| 6.6 rule for reuse | L967 | L1054 | yes |
+| 6.7 o_proj −82 | L456-457 | L466-468 | yes |
+| 6.8 #731 units | L230 / L470 | L241 / L481 | yes |
+| 6.9 routed/shared | L405 / L419 | L410 / L416 | yes |
+| 6.10 §4b −0.03 % cell | L245-250 | **L321** | yes |
+| 6.11 delta 2 axis weight | L228 / L492 | L239 / L503 | yes |
+| 6.12 operating point `D` | L146 | L157-158 | yes |
+
+Each head line was located by grepping the quoted string, not by applying a line offset; the manifest
+grew 1087 → 1198 lines unevenly.
+
+**The spread.** F1's error was confined to §6.6 at my audit base. At head it has been copied into two
+further places, both of which invert the truth:
+
+> **L819-820, §6.5:** "(the local equivalents in this sentence originally read ≈44 and ≈84 µs/step;
+> those came from the UNSOURCED 0.00586 %/µs currency and are superseded by §6.6's measured table —
+> **31 and 59 µs/step**)"
+
+> **L1035-1036, under the requirement table:** "The old table's '44 / 84' column used the unsourced
+> 0.00586 %/µs and therefore set a **bar ~40 % too high** in local units — the one direction of this
+> error that was conservative rather than flattering."
+
+Per F1 both sentences are backwards. `0.75/12 798 = 0.005860 %/µs` is the *scored* local rate
+(`--local-iterate`, 128 steps, `Constants.swift:113`; seed charged into the denominator,
+`LagunaRuntimeLocalIterate.swift:767-769,776,864`), so the correct local column is
+`0.26/0.005860 = 44.4` and `0.50/0.005860 = 85.3` — the retired **44 / 84 column was right to within
+rounding**, and the 31 / 59 that replaced it sets the bar **~30 % too low**, which is the flattering
+direction, not the conservative one. A precise remedy, better than the one I gave in §6.3: the 8882
+and 8213 columns are not arithmetically wrong *for their own denominators* — the defect is that
+neither denominator is the one Maple's local screens were measured in. So **add** the `D₁₂₈` column
+and label all four rows by (host, harness, step count), rather than deleting the existing columns.
+
+Third currency column at head, checked and clean: bench-host `0.75/8213 = 0.009133 %/µs` gives
+`0.26 → 28.5`, `0.50 → 54.8`, `1.26 → 138.0` against the printed 28 / 55 / 138 ✓. `--local-submit`
+`0.75/8882 = 0.008444` gives 30.8 / 59.2 / 149.2 against 31 / 59 / 149 ✓. The arithmetic is right in
+every column; only the choice of denominator for *Maple's* numbers is wrong.
+
+### 8.2 §4b, cell by cell — the advisor's first priority
+
+Eleven cells and claims. Nine clean, one new finding, one unverifiable.
+
+| # | §4b cell (head line) | verdict |
+|---|---|---|
+| 1 | bar **2.6195531094824** (L333, L721, L97) | **sourced to 9 digits, not 14.** `senpai/research-frontier-briefing.md:18,26,132` gives `2.61955311` for organizer commit `4ea72c3b`/receipt `cdcd091`. The trailing `94824` has no in-repo primary source. Numerically irrelevant: the 9-digit value yields the identical gap **0.49502 %**. Fix the digits, not the conclusion. |
+| 2 | best draw **2.60664970** (L334) | **clean, sourced five ways** at full precision `2.60664969895906`: `research/maple-frieren-r106e-record-check.json`, `-r105b-channel-census.json`, `-r107-*.json`, `research/CURRENT_RESEARCH_STATE.md:100,2259,5560`, briefing:32. |
+| 3 | gap **+0.4950 %** (L335, L723) | **clean.** Recomputed `(2.6195531094824 − 2.60664969895906)/2.60664969895906 = 0.49502 %`. |
+| 4 | **2.17–2.66σ** (L335) | **arithmetically clean**: `0.49502/0.2276 = 2.175`, `0.49502/0.1860 = 2.661`. The σ *inputs* are the subject of §8.3. |
+| 5 | corroboration for the gap | **existed all along and is still uncited.** `senpai/research-frontier-briefing.md:32` and `:240` both state `e27f1ce` "trails the leader by **0.493 %**" — leader-normalised, `(bar−best)/bar = 0.49258 %`. An independent third party had the corrected gap in the trusted brief before §4b printed 0.378 %. For completeness: 0.378 % implies a bar of **2.6165**, a number that appears nowhere in the repo. |
+| 6 | patch **"61 insertions / 6 deletions"** (L367) | **F14 — wrong.** `git apply --numstat` on `research/patches/REFUTED_DO_NOT_LAND_r125a_tg256_e27_generation.patch` reports **`64  6  Sources/MLXFastModel/LagunaRuntimeModel.swift`**. Cosmetic, but it is a receipt for an artifact labelled DO-NOT-LAND, so it should be right. |
+| 7 | fallback patch "53 insertions / 6 deletions" (L307) | **clean** — `git apply --numstat` reports `53  6`. |
+| 8 | `git apply --check` **clean**, five hunks (L367-368) | **replicated.** Fetched e27 generation `5c542169b5e6c295805f50fa65df3150816eb443` by SHA into a scratch tree and re-ran: exit 0, five hunks. |
+| 9 | the nine-citation reachability chain (L347-364) | **all nine exact** against LRM at `5c542169`: `:295-296` `DARKBLOOM_SHARED_QMV_R1 != "0"`; `:311-312` `DARKBLOOM_SHARED_SCALE_HALVED != "0"`; `:6850` `lagunaSharedSwiGLUQMVRows1Source(halved: Bool)`; `:6875` `uint row = tile * 2 + simd_group;`; `:7076` `let tiles = lagunaSharedSwiGLUQMVRows1Enabled ? 256 : 128`; `:8778` `_fusedGateUpScalesHalved`; `:8854` `lagunaSharedSwiGLUQMV`; `:8899` `_fusedGateUpScalesHalved ?? fusedScales`; `LagunaConfig.swift:33` `sharedExpertIntermediateSize = 512`. This is the best-sourced passage in the manifest. |
+| 10 | residency arithmetic "identical, `64*8 = 512`" (L361-363) | **clean.** Dispatch is `grid: (tiles*64,1,1)`, `threadGroup: (64,1,1)`: shipped = 256 TG × 2 simdgroups = 512; TG=256 ⇒ tiles 64, grid 16384, 64 × 8 = 512. Granularity change, not occupancy change, as stated. |
+| 11 | "**≈ −0.03 % of score or worse**" (L321, and the §4a banner) | **F8 stands** — an isolated-kernel `+4.73 ± 0.52 µs/step` is quoted as a wall/score delta. #729's wall arm is null, `[−19.33, +17.86]` µs/step, i.e. `|Δscore| ≤ 0.11 %`. The DO-NOT-LAND verdict is right; its stated price is not measured. |
+
+**Unverifiable (new §5 item 7):** L364, "frieren's measured diff (`039800fe`) against that file: **4 of
+5 hunks apply at fuzz 3**." The object `039800fe` does not resolve in this checkout
+(`git cat-file -t` fails) and is still absent after fetching `maple-frieren/shared-scale-halving` and
+`maple-frieren/shared-qmv-twin-gap`. I can neither confirm nor refute the fuzz-3 result; it should
+carry the full SHA and a branch name so the next reader can.
+
+### 8.3 σ — Check 5 on the inputs, and a correction to my own F10
+
+**First, I was wrong in F10.** F10 attached "7 byte-identical families and **27 dof**"
+(`research/nezuko-result.md:202-205`) to the r103 σ of 0.1860–0.2276 %. Those 27 dof belong to
+nezuko's `officialScore` 0.489 % over a different corpus. r103's figures come from the head L762-771
+table, whose own `n` column (5, 4, 4, 3, 2, 2, 4) gives **dof 17 untrimmed and 14 trimmed** — exactly
+as L771 states. The dof bookkeeping in the manifest is internally correct; my finding mis-sourced it.
+
+**The precision point survives and gets stronger, because 14 dof is worse than 27.** χ² 95 % intervals
+on σ̂:
+
+| figure (head line) | dof | rel. SE `1/√(2·dof)` | 95 % interval |
+|---|---|---|---|
+| trimmed pool **0.1860 %** (L771) | 14 | 18.9 % | **[0.136 %, 0.293 %]** |
+| worst well-behaved group **0.2276 %** (L764) | 4 | 35.4 % | **[0.136 %, 0.654 %]** |
+| untrimmed pool 0.9546 % (L771) | 17 | 17.1 % | [0.716 %, 1.431 %] |
+| nezuko `officialScore` 0.489 % | 27 | 13.6 % | [0.387 %, 0.666 %] |
+
+Two consequences the manifest does not state. (a) **Four significant figures are unsupported**;
+`0.19 % (95 % CI 0.14–0.29 %, 14 dof)` is the honest rendering, and the derived `2.17–2.66σ` is really
+`1.7–3.6σ`. (b) The **single-group 0.2276 % cannot by itself exclude the retracted 0.489 %** — its own
+95 % interval contains it. Only the *pooled* figure excludes it (upper limit 0.293 % < 0.489 %), and
+only because of the trim.
+
+**F15 — the load-bearing input is the trim, not the sampling error.** 0.1860 % (dof 14) versus
+0.9546 % (dof 17) is a **5.1× swing** produced by excluding one four-draw family, `7cbffc2c`. Anchored
+on the program mean (`(2.6195531094824 − 2.582263)/2.582263 = 1.4441 %`):
+
+- trimmed σ 0.1860 % ⇒ z = 7.76 ⇒ P(one draw ≥ bar) ≈ 0 % — the "≈0 % (z = 6.3–7.8)" row at L954;
+- untrimmed σ 0.9546 % ⇒ z = 1.51 ⇒ **P ≈ 6.5 %**.
+
+So that row is a product of the trim, not of a measurement. The manifest's physical justification for
+the trim is sound and is stated (L786-789: the excursions "**only ever subtract**"), but it has a
+corollary the table does not draw: **a σ estimated after removing one-sided downside excursions must
+not be fed symmetrically into an upside tail probability** — which is the manifest's own argument,
+applied to its own arithmetic. Direction of the error: the trim makes σ smaller, which makes
+P(success) smaller, which *strengthens* the manifest's "re-firing is hopeless" conclusion. It is
+therefore self-serving rather than conservative, and worth flagging even though I agree with the
+conclusion.
+
+**What survives Check 5 intact, and should carry the paragraph:**
+
+1. The **provenance** retraction of 0.49 % is sound: the archive's σ figures are cross-code
+   quantities and inflate a same-tree re-draw by 2.4–2.6× (L779-784; the retraction itself begins at
+   head L738). I do not disturb it.
+2. The **structural consistency check is real corroboration** and I re-derived it exactly:
+   `sd(D) 14.43 / mean_D 4910.925 = 0.29383 %`, `× 0.75 = 0.22038 %`, `⊕ 0.25·sd(ln P) = 0.0257 %`
+   ⇒ **0.22187 %** against **0.2276 %** observed on the score itself. Independent of any dof count,
+   this says the instrument obeys the scoring model. It is the strongest σ evidence in the document.
+3. The **model-free bound needs no σ at all**: `research/MAPLE_TO_SLOT_HOLDER_BRIEF.md:62-64`,
+   0 clears in 106 account draws ⇒ **P(one draw ≥ bar) ≤ 2.83 %**, 95 % one-sided. Recomputed
+   `3/106 = 2.830 %` ✓. This bound also caps the top of the σ̂-uncertainty band, which the band alone
+   does not.
+
+**Recommended edit:** print σ as `0.19 % (95 % CI 0.14–0.29 %, 14 dof, trimmed)`, replace the "≈0 %"
+cell with "<0.1 % on the trimmed σ, 6.5 % on the untrimmed σ — the gap between those two numbers is a
+judgement about one-sided thermal excursions, not a measurement", and lead the endgame paragraph with
+the 2.83 % model-free bound, which is the only statement here that survives with no distributional
+assumption.
+
+### 8.4 §6.5c (winner's curse) is orthogonal to F1, and its ranked column checks out
+
+§6.5c is the newest and largest correction in the manifest (≈6× on the delta table) and it does not
+depend on anything F1 touches: it re-anchors from the lucky draw `2.60664970` to the program mean
+`2.582263` and prices against fern's draw sd 0.538 %, not against any µs/step currency. The
+requirement table that carries its probabilities (head L1029-1033) is clean in its **ranked** column —
+`1.26 / 0.015272 = 82.5` vs printed **82**, `0.26 → 17.0` vs **17**, `0.50 → 32.7` vs **32**
+(rounding). Its *local* columns inherit F1 unchanged: 31 / 59 / 149 become
+**44 / 85 / 215** on the scored local denominator. No probability in §6.5c moves, and no disposition
+anywhere in the manifest moves — F1 changes what the engineering bar costs in local units, not who
+cleared it.
+
+### 8.5 Net effect of this addendum
+
+- **F14** (new, cosmetic): §4b's e27 patch is 64 insertions / 6 deletions, not 61.
+- **F15** (new, decision-grade for planning): σ's quoted precision is unsupported at 14 dof, the
+  single-group figure cannot exclude the retracted 0.489 %, and the "≈0 %" per-draw row is produced by
+  the trim rather than by the measurement (untrimmed ⇒ 6.5 %).
+- **F10 corrected**: the 27-dof citation was mine and was misapplied; the correct dof are 14/17 and
+  the conclusion strengthens.
+- **§5 item 7** (new, unresolvable): the `039800fe` fuzz-3 claim cannot be checked from any branch
+  reachable here.
+- Everything else in §4b — bar, best draw, gap, z arithmetic, fallback patch counts, the nine-line
+  reachability chain, the apply-check, the residency arithmetic — **replicated clean**, including the
+  one artifact I regenerated from scratch. §4b is, F14 and the unverifiable fuzz line aside, the most
+  carefully sourced section of the manifest, and this audit found nothing that changes its
+  DO-NOT-LAND verdict.
+- **F1 remains the one decision-grade item**, and it is now propagating: at head it has been written
+  into §6.5 (L818-820) and into a new claim at L1036-1037 that the retired 44/84 column "set a bar
+  ~40 % too high", when the arithmetic says that column was right and its replacement is ~30 % low.
 
