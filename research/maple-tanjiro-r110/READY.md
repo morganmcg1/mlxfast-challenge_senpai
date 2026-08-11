@@ -1010,3 +1010,58 @@ with workspace access can and did mutate the tree despite an explicit read-only
 instruction. Use `agent=explore` for read-only analysis, or check `git log
 --format='%an'` afterwards. The author field is the cheap discriminator.
 
+## 18. R116-C — `DARKBLOOM_NVFP4_NIBBLE_SPLIT` closed, and the one lead it left
+
+Full write-up: `N-NIBBLE-SPLIT-DEFAULT-IS-OPTIMAL.md`. Nothing here changes the
+A2/A1 queue; this section exists so fern does not have to read a 570-line file to
+know what is and is not worth a slot.
+
+**18.1 Nothing to fire.** The shipped default is the fastest of the three arms.
+Moving off it costs +25.5 µs/step (median, 95 % CI [+13.7, +37.2], n=12/arm,
+paired ABBA, ranking configuration) against a bar that wanted +68.7 µs/step of
+*gain*. **Do not spend a slot on this flag.** Arms 0 and 2 additionally compile
+to a byte-identical metallib, so it is a binary knob wearing a ternary label.
+
+**18.2 Three things that should change how the next arm is priced.**
+
+- **`L-NVFP4-ALU-CONVERTS-AT-5-PERCENT`.** Only ~5 % of the NVFP4 QMV family's
+  nominal ALU cost is on the critical path. Deleting *every* removable
+  nibble-extraction instruction — impossible in practice — buys 0.21 % of score
+  against a 0.27 % bar. Any future proposal of the form "unpack NVFP4 more
+  cleverly" is below the bar before it is written.
+- **`L-PROFILED-BUSY-OVERPREDICTS-WALL-2X`.** The same treatment measures
+  +46.9 µs/step of GPU-busy under `DARKBLOOM_GPU_PROFILE_SPLIT=1` and
+  +25.5 µs/step of wall in the ranking configuration: a **54 % conversion**
+  (CI 29–79 %). Every profiled proposal in this campaign has implicitly assumed
+  100 %. **Halve profiled savings before pricing them.** This applies directly
+  to §4's prefill dense-GEMM census, which is a profiled instrument.
+- **The family moves 621 MB/step at 86 % of theoretical DRAM peak**, computed
+  from the scored checkpoint's own safetensors headers (group size 16,
+  0.5625 byte/weight all-in). That is why the first two laws hold, and it means
+  the routed kernels have 10–12 % of roofline headroom in total — not a
+  submission.
+
+**18.3 The one live lead, sized honestly.**
+`laguna_shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1` — the shared-expert
+gate+up — runs at **58 % of peak bandwidth** while its two siblings run at
+88–90 %, and it is the only kernel in the family that shows **zero response to a
+20 % cut in its own instruction count** (−0.3 µs/step against a same-program
+control of 0.5). Not compute-bound, not bandwidth-bound: latency- or
+occupancy-bound. After correcting for fixed per-dispatch cost with the siblings
+as the efficient frontier, the excess is **≈66 µs/step ≈ 0.26 % of score**.
+
+Three conditions, all of which a slot decision needs:
+
+1. That is **at** the 0.27 % bar, not over it. The flattering headline number is
+   0.39 %; the difference is entirely the fixed-overhead correction, and quoting
+   0.39 % would be wrong.
+2. It only pays if the fix **raises achieved bandwidth**. The obvious "fuse the
+   shared expert into the routed gate+up" idea removes 39 dispatches per step,
+   and pure dispatch removal transfers to M5 at τ≈0.01 — 0.26 % becomes 0.002 %.
+3. It is **core-count invariant** (288.7 µs/step on 20-core M4 vs the 284.9
+   µs/step figure quoted for 40-core M5, a 1.3 % difference), which is the
+   `L-RANKED-REACHABILITY` evidence that the ranked host has the same problem.
+   The 284.9 figure is second-hand and should be re-derived on M5 first.
+
+Verdict for the queue: **worth an assignment, not worth displacing A2.**
+
