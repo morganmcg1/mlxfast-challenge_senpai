@@ -28,6 +28,8 @@ def load(paths):
                 if len(f) < 10 or f[0] == "tag":
                     continue
                 tag, run, arm = f[0], int(f[1]), f[2]
+                if run == 0:
+                    continue  # unscored warm-up (cold caches, thermal ramp)
                 med, mean, div, rc = f[4], f[5], f[6], f[9]
                 if med == "NA" or rc != "0":
                     print(f"skip bad run {tag}/{run}/{arm} rc={rc} med={med}", file=sys.stderr)
