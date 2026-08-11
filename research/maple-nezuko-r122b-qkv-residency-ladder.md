@@ -499,11 +499,82 @@ hazard more directly than a trace would:
   a fallback signature, because both are still clearly separated from
   `Q1`.)
 
-That argument is stronger than the planned trace, because it uses the
-scored measurement rather than a side channel. It does depend on the
-differences being real, which §4.4 establishes; had the ladder come back
-flat, the trace would have been mandatory. Recording that dependency
-because it is the kind of conditional a reader should be able to check.
+This argument only reaches as far as the resolved arm. `Q8`'s regression is
+resolved at 3 blocks (§4.4) and cannot come from a code path that ignored
+the parameter. `Q2` and `Q4` are **not** individually resolved, so for those
+two rungs the timing does not exclude a fallback and the exclusion rests
+entirely on §2.5's divisibility argument — `2·rps` divides both 10240 and
+8192 exactly for every rung run, so the guard cannot fire. I did not run
+the trace, and the honest statement is that hazard (a) is excluded by
+construction for all rungs and additionally by measurement for `Q8` only.
+
+### 4.4 The measured ladder
+
+Levels are whole-model end-to-end decode rates over 1023 scored steps
+(CENSUS, host M4 Pro). Deltas are paired on the block (MARGINAL). `n = 3`
+blocks for every arm in campaign 2.
+
+| arm | rps | level µs/token | sd | cv% | Δ vs `Q1` (mean) | t-CI95 on the mean | covers 0? |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `Q1` | 1 | 8918.96 | 21.45 | 0.24 | — (reference) | — | — |
+| `Q2` | 2 | 8950.29 | 7.58 | 0.09 | **+31.33** | [−36.06, +98.72] | yes |
+| `Q4` | 4 | 8975.75 | 15.73 | 0.18 | **+56.79** | [−13.93, +127.51] | yes |
+| `Q8` | 8 | 9124.84 | 8.32 | 0.09 | **+205.88** | [+151.67, +260.08] | **no** |
+
+Campaign 1's independent `Q8` block agrees: +186.3 µs/token, inside the
+`Q8` interval above.
+
+Every one of the nine paired block differences is positive:
+
+| arm | block 1 | block 2 | block 3 |
+| --- | --- | --- | --- |
+| `Q2` − `Q1` | +48.09 | +0.04 | +45.87 |
+| `Q4` − `Q1` | +49.58 | +32.62 | +88.17 |
+| `Q8` − `Q1` | +205.12 | +184.45 | +228.06 |
+
+**What is and is not resolved.**
+
+- **`Q8` is resolved and large**: +205.9 µs/token, +2.31 % of decode wall,
+  interval excluding zero by a wide margin, and reproduced in a second
+  independent session.
+- **`Q2` and `Q4` are directionally positive but not individually
+  resolved.** Their t-intervals cover zero, because `n = 3` blocks gives
+  `t(0.975, 2) = 4.303` and a paired sd of ~27–28 µs/token, i.e. a
+  ±68–71 µs half-width against effects of +31 and +57 µs. This
+  instrument needs roughly 8–10 blocks to resolve a +30 µs effect, and the
+  deadline bought 3.
+- The **joint** claim is much better supported than any single small rung:
+  6 of 6 `Q2`/`Q4` block differences are positive, exact two-sided sign
+  test `p = 0.031` on the null that neither rung is slower. Caveat: those
+  six differences share their `Q1` term within a block, so they are not
+  fully independent and 0.031 is optimistic. With `Q8` included, 9 of 9 are
+  positive.
+- **The ladder is monotone in the point estimate** — +31.3, +56.8, +205.9
+  — but `Q4 − Q2` is +25.5 µs against a spread that cannot resolve it, so
+  "monotone" is a property of the point estimates, not an established
+  ordering between the two small rungs.
+
+**One honest note about the two interval methods.** The pre-registered
+decision rule uses a percentile block bootstrap on the median, and that
+method reports "excludes zero" for `Q2` and `Q4` as well. At `n = 3` its
+95 % percentile interval is exactly `[min, max]` of the three observed
+differences, so it **cannot** cover zero whenever all three share a sign.
+That is an artifact of the resample size, not evidence. The t-interval is
+the honest one at this block count and the table above reports it. The
+disagreement is recorded rather than resolved by picking the friendlier
+method.
+
+**Diagnostics.** No correctness failures in 12 runs. Prefill differences
+are neutral for every arm (all intervals cover zero) and are in any case
+not interpretable on this host (§7.2). The position OLS flags an ordering
+confound for `Q2` only (slope +11.7 µs/slot, CI [+5.6, +17.9]); the
+position-adjusted `Q2` intercept is +35.2 µs/token, slightly *worse* than
+the unadjusted +31.3, so the confound is not hiding a `Q2` win. `Q4` and
+`Q8` show no ordering confound.
+
+**Verdict.** No rung of the ladder is faster than the shipped `rps = 1`
+default. `Q8` is decisively slower. Nothing here is a candidate to land,
+and per the assignment's landing rule no branch was prepared.
 
 ## §5. Mechanism
 
