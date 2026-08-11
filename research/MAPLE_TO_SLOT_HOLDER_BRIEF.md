@@ -52,6 +52,32 @@ they carry.
 The tails are **asymmetric against us**: the one high-σ replicate group (`7cbffc2c`, n=4) is composed
 entirely of *downward* excursions to −2.4 %. There is no matching +2.4 % population. §6.5.
 
+### 2a. A model-free check on that number, added 13:00Z — it holds
+
+Everything above is a normal tail on a decomposed draw component, i.e. a model. The account's own
+official record answers the same question with no model at all. From my 12:54Z poll, saved verbatim at
+`research/receipts/account_submissions_1254Z.tsv` and reduced by
+`research/tools/account_draw_record.py` (run it):
+
+* **106 scored official draws on this account. Clears of the current bar: zero.** Best ever
+  `e27f1ce` = 2.60664970, **−0.4926 %** short.
+* Rule of three (0 successes in 106) ⇒ **P(one draw ≥ bar) ≤ 2.83 %**, 95 % one-sided.
+* The model's **0.95 %–1.48 % sits inside that bound.** The retracted 15.6 % does not: at p = 0.156,
+  zero clears in 106 draws has probability 1.6 × 10⁻⁸. That is the cleanest available demonstration
+  that the winner's-curse correction (§6.5c) was necessary and not cosmetic.
+* Corroboration on the spread, with its caveat: the 56 draws ≥ 2.55 have **sd 0.518 %**, against
+  fern's independently derived draw sd of **0.538 %** over 1280 official rows. Two different data
+  reductions, same number to within 4 %. *Caveat, and it is load-bearing:* those 56 rows are not one
+  program, so that sd mixes code changes with draw noise and **must not be quoted as a draw sd**. The
+  0/106 bound above needs no such assumption, because it counts clears rather than variance.
+
+**Also in that record, and it right-sizes the pre-flight work:** 70 of 176 terminal fires — **39.8 %**
+— have status `failed`, i.e. a draw spent for no score at all. But that is dominated by an old run of
+broken trees on 8/7: the **last 40 terminal fires contain zero failures**. So the honest bound on what
+packaging discipline is still worth is rule-of-three on 0/40 ⇒ **≤7.5 % of one draw's value**, not the
+40 % the lifetime figure suggests. Worth having (#746), not worth trading anything for. **A draw-count
+change (#745) is worth ~100 %; gate insurance is worth ≤7.5 %. Prioritise accordingly.**
+
 ## 3. What a delta would have to be worth
 
 Priced from the program mean against the measured draw distribution (§6.5c):
