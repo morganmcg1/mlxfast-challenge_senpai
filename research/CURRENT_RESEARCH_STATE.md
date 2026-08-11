@@ -386,6 +386,102 @@
 >   shares. (Corollary corrections: the routed gather-GEMM dispatches **38** times,
 >   not 39 ⇒ share 50.4 %, not 51.8 %.)
 >
+> ### 0P.23 🔵 THE THIRD-CELL SWEEP IS ALREADY COMPLETE: A STATIC THREADGROUP CENSUS OF THE WHOLE DECODE STEP, AND THE BIGGEST HEADROOM NUMBER ON THE BOARD FAILS IT
+>
+> Written 2026-08-11T04:35Z (advisor; clock verified `date -u` at 04:25:04Z, per
+> `L-RECHECK-THE-CLOCK-BEFORE-YOU-PRICE-A-LOTTERY`). Source: advisor static read
+> of all 43 `grid:`/`threadGroup:` sites in
+> `Sources/MLXFastModel/LagunaRuntimeModel.swift` at merged head `206cf037`.
+> This section costs no GPU time and was produced while the channel daemon ran.
+>
+> **(1) The arithmetic, and why it is trustworthy.** MLX's `MLXFast.metalKernel`
+> takes `grid` as a **total thread count**, so `TGs = grid.x / threadGroup.x`.
+> Validated against an independently measured case: alphonse's `gate_sp_h64` is
+> `grid ((heads/8)*64) / TG 64` with `heads=64` = 512/64 = **8 TGs**, exactly the
+> 8 he measured in R114-E, and `h48` gives 6, exactly his 6. The identity holds.
+>
+> **(2) Every decode kernel that fires fewer threadgroups than the machine has
+> cores (M4 Pro = 20).** This is the complete list; the third-cell search space
+> is closed, not open.
+>
+> | kernel | site | grid / TG | TGs | owner |
+> |---|---|---|---|---|
+> | `laguna_decode_router_top8_v3` / `_norm_v2` / `_ordinal_*` | `:9672` `:9693` `:9715` | `(256,1,1)` / `(256,1,1)` | **1** | alphonse R119-A (ii) |
+> | `laguna_residual_rms_bf16_2048_v1` | `:1249` | `rows*512` / `512`, `rows=1` at decode | **1** | **UNCLAIMED** |
+> | `laguna_decode_embedding_rope_atlas_bf16_2048_v2` | `:11410` | `(512,1,1)` / `(512,1,1)` | **1** | fern (v3_tg128 is `(128,1,1)/(128,1,1)`, still 1 TG) |
+> | `laguna_gate_sp_h64` / `_h48` | `:4547` | `((heads/8)*64)` / `64` | **8 / 6** | SPENT — alphonse R114-E |
+>
+> **(3) Everything else is at or above 20 TGs and is therefore NOT a third-cell
+> candidate.** `full_fused_attn_grow_v1` 24 (`:2455`) · `sliding_fused_attn_ring_v1`
+> **32** (`:1970`) · `residual_rms_router` 32 (`:1226`, `rowsPerGroup` default 8 at
+> `:676-684`) · `gate_product_softplus` 48/64 (`:3946`) · `full_qk_norm_yarn` 56
+> (`:1353`) · `sliding_qk_norm_rope` 72 (`:1472`) · `gated_output_projection` 128
+> (`:3861`) · `dense_gate_up_swiglu` 128 (`:8879`) · `dense_down_residual` 128
+> (`:8957`) · `shared_nvfp4_swiglu_qmv_rows1` **256** (`:7350`, `tiles=256`) ·
+> `shared_nvfp4_down_residual` 256 (`:7484`) · `oproj_act` 256 (`:4646`) ·
+> `routed_nvfp4_down_reduce_v2` 512 (`:8321`) · `routed_..._top8keys_r1_v2`
+> 1024–2048 (`:8184`).
+>
+> **(4) 🔴 This reverses the priority order inside R119-A, and I withdraw the
+> pricing I put in that brief.** Instance (ii), the router top-8, is a **1-TG,
+> ~39-calls/step** kernel — 5 % occupancy, a *more* extreme absorption profile
+> than `gate_sp`'s 8/20 — so it is the real third-cell instance and goes first.
+> Instance (i), the shared-expert SwiGLU, is **256 TGs**: it already saturates
+> the machine, has no serialized busy time to hide, and **must not be priced
+> with the 93.8 % absorption factor I gave it**. Its honest band is the
+> dispatch-removal rate alone: 39 removals/step × 1.2382 µs (Rule 57) = 48 µs/step
+> at the floor, 39 × 1.92 µs (alphonse's measured 76.8/40) = 75 µs/step at the
+> ceiling, with the ceiling unreachable by construction because it was absorption
+> that produced the over-delivery. **Generalisation: `N-GRIDAPPEND-ABSORBS-LATENCY`
+> has two separable payments — dispatch removal, available to any guest, and
+> latency absorption, available only to a guest with TGs < cores. Price them
+> separately or you will double-count.**
+>
+> **(5) 🔴 The largest headroom number on the board is not purchasable, and the
+> third cell is the most likely way to talk yourself into it.**
+> `sliding_fused_attn_ring_v1` is 610.0 µs/step at 38.8 % of DRAM peak, i.e.
+> **~373 µs/step above its bandwidth floor — the biggest single number in the
+> kernel pool table.** It fires **32 TGs > 20 cores, so it fails the third cell.**
+> Its byte side is closed twice, independently: fern #30 killed the `h × s = 64`
+> de-amplification family (an 8× sweep in issued bytes moved time <8 % and
+> non-monotonically; `kv_head=0`, 8× fewer unique bytes, gave 30.5 vs 31.4), and
+> tanjiro #27's cache-resident probe put the kernel at **34 % of the
+> cache-resident ceiling at its own working set**; §100.5 prices the inherent 4×
+> GQA broadcast at **0.023 %**. Split-K / flash-decode / KV-splitting is closed
+> separately, and threadgroup *geometry* is τ≈0.
+>
+> I re-derived the 4× GQA re-read from source before finding the archive
+> entries — `head0 = pair_tg * 2` at `:1529` with `gqa = 8` means four
+> threadgroups read each KV head, ~252 MB/step issued against ~63 MB/step unique
+> — and had built a plausible "L2-bound, halve the amplification, ~305 µs/step"
+> story before the archive killed it. **Operational lesson, and it is the point
+> of this subsection: the archive grep costs 30 seconds and the arm costs a
+> student six hours. `grep -rniE "amplific|de-amplif|<kernel name>" research/`
+> BEFORE writing a brief, not after.**
+>
+> **(6) What is actually still open after the sweep.** Exactly one unclaimed
+> row: `laguna_residual_rms_bf16_2048_v1`, 1 TG at `:1249`. It is likely to fail
+> the dependency-edge test — it produces the normed hidden state that both the
+> router and QKV consume — but the verdict is worth one paragraph from alphonse
+> and its µs/step is worth one row from frieren's census. **The remaining value
+> of that census is now entirely in the timing columns (`calls/step`, `µs/step`,
+> `% of DRAM peak`), because the geometry column is done and published to her.**
+>
+> **(7) Receipt banked while writing this.** Submission `53c8acac`, commit
+> `5949b5c6` over fern's ticket-4 base `666a80bb` (atlas `v3_tg128`, **pre**-alphonse),
+> created 03:55:01Z, terminal 04:17:53Z, **rejected** ("score did not improve
+> current best"). Raw legs: decode **0.0049052083359375**, prefill
+> **0.00018798836328125**, baseline decode 0.013838216796875, baseline prefill
+> 0.000366796794921875, **officialScore 2.57270888151077**. Normalized against
+> the r117b receipt (`354c40c7`, published 2.56779644583209) by the ratio identity
+> `(d_j/d_i)^0.75 × (p_j/p_i)^0.25` = 1.0011165 ⇒ **normalized ≈ 2.571663**, the
+> best normalized value the campaign has recorded — but the candidate decode leg
+> is the second-lowest of eight in the pooled series, so this is within-class
+> noise on the candidate side, not evidence for ticket 4 over HEAD. **One receipt
+> is one draw** (§ fern's instrument collapse). Submission `47fa4d85`, commit
+> `9073a5d2` over alphonse's `9e97cc7d`, fired 04:20:08Z, is the **first official
+> draw carrying the merged fused gate**.
+>
 > ### 0P.22 🏆 GRID-APPEND ABSORBS LATENCY: THE CAMPAIGN'S LARGEST VERIFIED POSITIVE (−0.591 % DECODE WALL), AND THE FOUR ADVISOR POSITIONS IT KILLED
 >
 > Written 2026-08-11T04:10Z (advisor; clock verified `date -u` at 04:03:20Z, per
