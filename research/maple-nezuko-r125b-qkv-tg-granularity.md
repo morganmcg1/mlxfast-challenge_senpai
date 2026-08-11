@@ -212,3 +212,55 @@ becomes *what* is L1-resident that I think is.
 This also predicts where frieren's win must come from: not from the shared
 activation row (which is equally L1-resident at 64 and 256 threads/TG on that
 kernel too), but from something `ns`-sensitive that is *not* cache reuse.
+
+---
+
+## §2 The code change
+
+All five hunks are in `Sources/MLXFastModel/LagunaRuntimeModel.swift`, on this
+branch at commit `eabdc5c2` (wiring) on top of `9ef00fcb` (inert declaration).
+Symbol + line anchors as of that commit:
+
+| # | symbol | line | change |
+|---|---|---|---|
+| 1 | `lagunaDecodeQKVSimdgroups` | 4839 | new `private let`, reads `DARKBLOOM_QKV_SIMDGROUPS`, restricted to `{1,2,4,8,16}`, default `2` |
+| 2 | `lagunaDecodeNVFP4QKVLaneMajorSource(pairwise:tileOffset:simdgroups:)` | 4959, 4967 | new `simdgroups: Int = 2` parameter; `constexpr uint num_simdgroups = \(simdgroups);` |
+| 3 | `lagunaDecodeNVFP4QKVLaneMajorKernels` | 5034–5035, 5043 | kernel name gains `_sg\(ns)` when `ns != 2`; source built with `simdgroups: lagunaDecodeQKVSimdgroups` |
+| 4 | `lagunaDecodeNVFP4QKVR1`, lane-major branch | 5074, 5079–5087 | `rows % ns == 0` guard; `threadGroup = (32 * ns, 1, 1)`; `grid = ((rows / ns) * 32 * ns, 1, 1)`; trace line carries `sg`/`tg`/`tiles` |
+| 5 | `lagunaDecodeNVFP4QKVGate` | 5180 | **hazard guard**: `lagunaDecodeQKVSimdgroups == 2` added to the entry `guard`, so `ns != 2` cannot reach the appended dispatch |
+
+### 2.1 Why the default is byte-identical
+
+* Hunk 2 defaults `simdgroups` to `2`, and the appended gate source at
+  `lagunaDecodeNVFP4QKVGateSource` (line 5107 region) calls it without the new
+  argument, so the *appended* MSL string is character-for-character unchanged.
+* Hunk 3 appends `_sg…` only when `ns != 2`, so at the default the kernel name —
+  and therefore MLX's Metal library cache key and the compiled MSL — are the
+  shipped ones.
+* Hunk 4 evaluates to `threadGroup = (64,1,1)` and
+  `grid = ((rows/2) * 64, 1, 1)` at `ns = 2`, i.e. the previous literals.
+* Hunk 5 is a no-op at `ns = 2`.
+
+So `DARKBLOOM_QKV_SIMDGROUPS` unset ⇒ the shipped binary behaviour, which is
+what makes the control arm a true A/A.
+
+### 2.2 Why the non-default arms are bit-identical *in output*
+
+The kernel writes `projected[out_row]` where
+`out_row = tile * num_simdgroups + simd_gid`. Over the dispatch, `tile` ranges
+over `[0, rows/ns)` and `simd_gid` over `[0, ns)`, so `out_row` ranges over
+`[0, rows)` exactly once for every `ns` — the map is a bijection onto the same
+row set. Each simdgroup then performs *the same* reduction over *the same* 2048
+inputs with *the same* `simd_sum` tree (32 lanes, `execWidth = 32`, invariant),
+so every output element is produced by an identical instruction sequence on
+identical data. There is no cross-simdgroup communication to perturb (no
+`threadgroup` storage, no barrier), and no atomics. Bit-identity is therefore
+structural, not empirical — but it is also checked empirically in §3.
+
+### 2.3 Append-state evidence
+
+`ns != 2` must not reach alphonse's `heads / 8` grid-append. The observable is
+the fusion trace: the appended path emits
+`decode nvfp4 qkv+gate h<H> lane-major` and the non-appended path emits
+`decode nvfp4 qkv r1 h<H> lane-major sg=<ns> tg=<32·ns> tiles=<rows/ns>`.
+Evidence is in §3.1.
