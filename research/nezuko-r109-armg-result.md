@@ -78,7 +78,7 @@ bootstrap draws over slots):
 - **Rung 1b/1c (b1–b3)** — the fused `gate_sp` at successive geometries:
   −344.75, −700.40, −48.04 µs/step. All slower.
 - **b4** (19 slots, 6 replicates): A 8257.79, C 8309.52, W 8213.06 µs/step →
-  **A−W = +44.73 [+37.08, +49.85]**, **A−C = −51.73**, **C−W = +96.46 µs =
+  **A−W = +44.73 [+37.08, +49.85]**, **A−C = −51.73 [−61.21, −38.04]**, **C−W = +96.46 µs [+81.21, +105.54] =
   2.35 µs/layer**.
 - **b5** (25 slots, 6 replicates per arm, full four-arm attribution) — see
   `research/nezuko-r109-armg-b5-attribution.md`. A 8256.19, S 8212.96,
@@ -115,7 +115,7 @@ dispatch count, decides.
 ~2.55 µs/layer (+102 µs/step). This arm produced both a confirmation and a
 bound:
 
-- **Confirmation, different kernel pair.** b4's `C−W = +96.46 µs/step =
+- **Confirmation, different kernel pair.** b4's `C−W = +96.46 µs/step [+81.21, +105.54] =
   2.35 µs/layer`. C and W run identical gate arithmetic; they differ only in
   whether the QKV matvec waits on `gate_sp`. That independently reproduces the
   2.55 µs/layer price to within 8%.
@@ -304,7 +304,7 @@ Four things fall out, and the second, third and fourth are worth more than the a
    slower** in the shipped harness. C differs from W only by the deletion, so
    the deletion alone is worth
    **W − C = 46.33 − (−51.73) = 98.06 µs/step = 2.45 µs/layer of loss**,
-   confirming b4's direct `C − W = +96.46 µs = 2.35 µs/layer` and landing within
+   confirming b4's direct `C − W = +96.46 µs [+81.21, +105.54] = 2.35 µs/layer` and landing within
    4% of the barrier law's 2.55 µs/layer.
 
 4. **The `n=1` SPLIT=0 walls demonstrate the drift floor by getting two arms

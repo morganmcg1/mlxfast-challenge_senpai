@@ -170,7 +170,7 @@ measurement; the shipped-wall column is the b5/b4 harness, not the profile.
    encoder, which costs more than the dispatch saves.
 3. **`N-INDS-DEPENDENCY-BARRIER` refinement** — the ~2.55 µs/layer edge price
    applies only when the edge's **downstream kernel is itself on the critical
-   path**. Confirmation on a new kernel pair: b4's `C−W = +96.46 µs/step =
+   path**. Confirmation on a new kernel pair: b4's `C−W = +96.46 µs/step [+81.21, +105.54] =
    2.35 µs/layer` (within 8% of 2.55). Bound for a nested consumer: `S−N` removes
    the `rmsbfloat16 → gate_sp` edge, whose consumer is 96.4% nested inside a
    larger co-resident record, and is worth ≤ 0.35 µs/layer — **7–10× cheaper**.
@@ -284,11 +284,13 @@ measurement; the shipped-wall column is the b5/b4 harness, not the profile.
   **Same-host paired estimate for the actual hypothesis** comes from the A/B
   blocks, not from this table. Mode C — the only arm that deletes the 41
   dispatches — is *slower* than the shipped control on three independent blocks:
-  **b3 `A−C` = −48.04 µs/step [−60.02, −37.87]**, **b4 `A−C` = −51.73 µs/step**
-  (19 slots), and the earlier coarser b1/b2 rungs at −344.75 and −700.40 before
-  the kernel was tuned. `−51.73` is the value carried in the typed result as the
-  primary metric (the b4 point estimate, the best-tuned version of the arm that
-  actually tests the hypothesis). The best *alternative* mode is +51.96 µs/step
+  **b4 `A−C` = −51.73 µs/step [−61.21, −38.04]** (19 slots, 6 replicates/arm),
+  **b3 `A−C` = −48.04 µs/step [−60.02, −37.87]** (9 slots), and the earlier
+  coarser b1/b2 rungs at −344.75 and −700.40 before the kernel was tuned. The two
+  independent CIs overlap almost exactly and neither comes within 38 µs of zero.
+  `−51.73` is the value carried in the typed result as the primary metric (the b4
+  point estimate, the best-tuned version of the arm that actually tests the
+  hypothesis). The best *alternative* mode is +51.96 µs/step
   faster, but +43.23 of that is threadgroup geometry: at τ=1 the best case is
   +0.475% of M4 score and the non-geometry residue is +0.080% with a CI
   straddling zero.
