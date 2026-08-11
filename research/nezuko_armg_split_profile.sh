@@ -50,8 +50,10 @@ if [ ! -d "${SCRATCH}" ]; then
   cp -Rc .build-worker "${SCRATCH}" || cp -R .build-worker "${SCRATCH}"
   # Precompiled clang modules record the absolute module-cache path they were
   # built under, so a cloned cache is rejected ("was compiled with module cache
-  # path .../.build-worker/..."). Drop it; only the .pcm files rebuild.
+  # path .../.build-worker/..."). Drop every cache dir; only .pcm files rebuild.
   rm -rf "${SCRATCH}/clang-module-cache"
+  find "${SCRATCH}" -type d -name ModuleCache -prune -exec rm -rf {} + 2>/dev/null
+  find "${SCRATCH}" -type d -name 'clang-module-cache' -prune -exec rm -rf {} + 2>/dev/null
 fi
 
 echo "=== applying ${PATCH}"
