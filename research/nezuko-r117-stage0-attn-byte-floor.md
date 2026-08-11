@@ -331,3 +331,74 @@ its `routed_nvfp4_swiglu_qmv` (368.1 MB/step, "93 % of peak") and
 `routed_shared_down_residual` (207.0, "94 %") rows are worth re-deriving before they are
 used to declare the routed family bytes-bound and closed. I did not re-derive them myself
 because the routed geometry is his region, not mine.
+
+---
+
+## ADDENDUM, 03:40Z — §0c the advisor actually asked for: the per-row span histogram
+
+The advisor's headline ask was a per-row scale-exponent span histogram for Q, K, V and O
+separately, with the fraction of rows at span ≤15 / ≤31 / ≤63, to decide whether a 4-bit
+nibble-delta plane is *representable* on attention. Above I answered the prior question —
+the mechanism is already shipped — but the histogram is still decisive, because on a
+shipped 4-bit bank the span distribution **is** the escape-rate distribution. I have now
+run it.
+
+Instrument: `research/nezuko-r117-attn-scale-span.py`, output
+`research/data/nezuko-r117-attn-scale-span.json`. Pure numpy, no GPU, no build.
+It reads the shipped checkpoint directly. One thing worth stating because it surprised me:
+despite the repo name (`Laguna-XS-2.1-NVFP4-mlx`) the attention tensors **ship as plain
+BF16 with no `.scales` companion** — only `shared_expert.*` / `switch_mlp.*` are
+pre-quantized. The attention plane is therefore *derived at load* by MLX `fp_quantize`
+(`Vendor/.../kernels/fp_quantized.h`): `scale = simd_max(|w|)/6` over each group of
+`group_size = 16`, encoded E4M3. E4M3 is monotone on non-negative values, so a row's code
+span is exactly `code(max_g) − code(min_g)` and the histogram needs two reductions per row,
+not an encode of every group. All 40 layers of both families, 139,264 rows.
+
+| projection | rows | ≤7 | **≤15** | ≤31 | ≤63 | max | median |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| `q_proj` h64 | 65536 | 65.27 % | **98.892 %** | 99.9954 % | 100 % | 32 | 7 |
+| `k_proj` h64 | 8192 | 63.45 % | **97.498 %** | 100 % | 100 % | 26 | 7 |
+| `v_proj` h64 | 8192 | 50.67 % | **98.877 %** | 100 % | 100 % | 22 | 7 |
+| `o_proj` h64 | 16384 | 0.079 % | **97.437 %** | 99.957 % | 100 % | **35** | 11 |
+| `q_proj` h48 | 24576 | 65.71 % | **99.194 %** | 100 % | 100 % | 29 | 7 |
+| `k_proj` h48 | 4096 | 54.71 % | **98.169 %** | 100 % | 100 % | 25 | 7 |
+| `v_proj` h48 | 4096 | 42.94 % | **98.730 %** | 100 % | 100 % | 21 | 8 |
+| `o_proj` h48 | 8192 | 0.354 % | **96.045 %** | 100 % | 100 % | 29 | 11 |
+
+Row-weighted: QKV h64 **98.751 %**, QKV h48 **99.008 %**, o_proj h64 **97.437 %**,
+o_proj h48 **96.045 %** at span ≤15.
+
+**Finding 1 — attention is materially wider than the MoE planes, and the advisor's
+scientific worry was correct.** Edward measured 99.836 % / 99.980 % eligibility on
+`routed_gate_up` / `routed_down`. Attention runs **96.0–99.2 %**, i.e. the escape rate is
+**1.0–4.0 %**, which is **6× to 200×** his. Nibble-delta *is* representable on attention,
+but the "50 % of the plane saved" line in the assignment's pricing table is not achievable
+at face value; escapes claw part of it back (see Finding 3). Had the mechanism not already
+been shipped, the correct pricing would have been below the assignment's own table.
+
+**Finding 2 — `o_proj` is the wide one, and it is wide for a structural reason.** Its rows
+carry 512 (h64) / 384 (h48) groups against QKV's 128, so a row's span is a maximum over 4×
+as many groups; the ≤7 column collapses from ~60 % to ~0.1 % for exactly that reason, and
+`o_proj` h64 holds the global maximum span of **35**. This is a property of the row length,
+not of attention outlier structure per se — and it is the same axis that makes `o_proj` the
+geometric outlier in §0e.
+
+**Finding 3 — the histogram *validates* the shipped operating point, quantitatively.**
+§0d derived a break-even escape rate of **7.8 % (QKV) / 7.7 % (o_proj)**: above it, escaped
+rows reading the stock plane cost more than the compressed rows save. Measured escapes are
+1.0–4.0 %, comfortably inside, so 4-bit is the right width — and 5-bit, which the assignment
+offered as a fallback at +0.560 %, would be *worse* than what is already shipped, not
+better. A 5-bit plane is escape-free (≤31 is ~100 %) but costs 2× the delta bits per group.
+
+**Finding 4 — escape-corrected bytes reconcile the census an order of magnitude better.**
+§0b modelled the plane at its escape-free minimum. Charging escaped rows at the stock plane
+gives effective per-row plane bytes of 34.19 / 138.82 / 33.86 / 108.35 B, and the census
+then reproduces edward's measured atlas bandwidths to **+0.040 %** (`qkv_h64`, model 242.20
+vs atlas 242.1 GB/s) and **−0.003 %** (`oproj_h64`, 233.39 vs 233.4) — against +0.08 % /
++0.21 % before the correction. Family totals move to **737.1 MB/step, 3123.5 µs/step,
+236.0 GB/s = 91.9 % of the 256.7 GB/s peak**, scale plane **24.02 MB/step = 3.26 %**.
+
+`N-ATTN-BYTE-FLOOR` is unchanged in substance — the payload share moves from 96.91 % to
+**96.74 %**, and the whole-plane-vanishes bound from 96.6 to **101.8 µs/step = 0.855 %** —
+and every conclusion in §0d survives, because the escapes make the *shipped* plane slightly
+larger while making every proposed *replacement* worse by more.
