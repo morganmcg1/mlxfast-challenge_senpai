@@ -340,6 +340,271 @@ METAL_FUNC void gemm_loop_aligned(
 
 """
 
+// MARK: - zero-tgmem register prefetch
+//
+// The db* arms buy overlap with a doubled threadgroup footprint and pay for it
+// in residency. The register route buys the same overlap for ~7 registers per
+// thread and leaves the staging arrays -- and therefore resident-threadgroup
+// count -- exactly as shipped. Both loaders get a `RegTile` holding one
+// thread's share of one k-tile, a `prefetch()` that performs only the device
+// reads, and a `stage_regs()` that performs only the threadgroup stores.
+//
+// Bit-exactness: prefetch captures the same uint32 codes `fp4nv_pack4` would
+// have produced and the same scale byte, and stage_regs feeds them to the same
+// `fp4nv_decode8`; the steel loader holds the identical 16-byte ReadVector.
+
+let steelLoaderAnchor = """
+  /* Load from device memory into threadgroup memory - without bound checking */
+  METAL_FUNC void load_unsafe() const {
+    STEEL_PRAGMA_UNROLL
+    for (short i = 0; i < BROWS; i += TROWS) {
+      *((threadgroup ReadVector*)(&dst[i * dst_ld])) =
+          *((const device ReadVector*)(&src[i * src_ld]));
+    }
+  }
+"""
+
+let steelLoaderRegs = """
+
+  struct RegTile {
+    ReadVector v[(BROWS + TROWS - 1) / TROWS];
+  };
+
+  METAL_FUNC void prefetch(thread RegTile& r) const {
+    STEEL_PRAGMA_UNROLL
+    for (short i = 0; i < BROWS; i += TROWS) {
+      r.v[i / TROWS] = *((const device ReadVector*)(&src[i * src_ld]));
+    }
+  }
+
+  METAL_FUNC void stage_regs(const thread RegTile& r) const {
+    STEEL_PRAGMA_UNROLL
+    for (short i = 0; i < BROWS; i += TROWS) {
+      *((threadgroup ReadVector*)(&dst[i * dst_ld])) = r.v[i / TROWS];
+    }
+  }
+"""
+
+let quantLoaderAnchor = """
+  void load_unsafe() const {
+    if (BCOLS_PACKED * BROWS < tgp_size && bi >= BROWS) {
+      return;
+    }
+
+    stage();
+  }
+"""
+
+let quantLoaderRegs = """
+
+  struct RegTile {
+    uint32_t c[fp4nv_fast ? (n_reads / 4) : 1];
+    uint8_t b[fp4nv_fast ? 1 : (n_reads * bytes_per_pack)];
+    uint8_t s;
+  };
+
+  void prefetch(thread RegTile& r) const {
+    if (BCOLS_PACKED * BROWS < tgp_size && bi >= BROWS) {
+      return;
+    }
+    if constexpr (fp4nv_fast) {
+      for (int i = 0; i < n_reads / 4; i++) {
+        r.c[i] = fp4nv_pack4(src + i * 4);
+      }
+    } else {
+      for (int i = 0; i < n_reads * bytes_per_pack; i++) {
+        r.b[i] = src[i * bytes_per_pack];
+      }
+    }
+    r.s = *scales;
+  }
+
+  void stage_regs(const thread RegTile& r) const {
+    if (BCOLS_PACKED * BROWS < tgp_size && bi >= BROWS) {
+      return;
+    }
+    if constexpr (fp4nv_fast) {
+      const float scale = fp4nv_scale_x16384(r.s);
+      for (int i = 0; i < n_reads / 4; i++) {
+        T vals[8];
+        fp4nv_decode8<T>(r.c[i], scale, vals);
+        for (int j = 0; j < 8; j++) {
+          dst[i * 8 + j] = vals[j];
+        }
+      }
+    } else {
+      T scale = dequantize_scale<T, group_size>(r.s);
+      for (int i = 0; i < n_reads; i++) {
+        dequantize<T, bits>(r.b[i], scale, dst + i * pack_factor);
+      }
+    }
+  }
+"""
+
+func injectRegisterPrefetchLoaders(_ src: String) -> String {
+    var s = src
+    for (anchor, addition) in [
+        (steelLoaderAnchor, steelLoaderRegs),
+        (quantLoaderAnchor, quantLoaderRegs),
+    ] {
+        guard s.components(separatedBy: anchor).count == 2 else {
+            die("register-prefetch loader anchor not unique")
+        }
+        s = s.replacingOccurrences(of: anchor, with: anchor + addition)
+    }
+    return s
+}
+
+func makeRegisterPrefetchSource(_ body: String) -> String {
+    replaceGemmLoopAligned(injectRegisterPrefetchLoaders(baseSource), with: body)
+}
+
+// One register set. The device reads for tile k are issued before the RAW
+// barrier and the mma for tile k-1, so their latency overlaps that mma.
+// Staging arrays and barrier count are exactly as shipped.
+let pfBody = """
+METAL_FUNC void gemm_loop_aligned(
+    threadgroup T* As,
+    threadgroup T* Bs,
+    thread mma_t& mma_op,
+    thread loader_a_t& loader_a,
+    thread loader_b_t& loader_b,
+    const int k_iterations) {
+  if (k_iterations <= 0) {
+    return;
+  }
+
+  typename loader_a_t::RegTile ra;
+  typename loader_b_t::RegTile rb;
+
+  loader_a.prefetch(ra);
+  loader_b.prefetch(rb);
+  loader_a.next();
+  loader_b.next();
+
+  for (int k = 1; k < k_iterations; k++) {
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    loader_a.stage_regs(ra);
+    loader_b.stage_regs(rb);
+    loader_a.prefetch(ra);
+    loader_b.prefetch(rb);
+    loader_a.next();
+    loader_b.next();
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    mma_op.mma(As, Bs);
+  }
+
+  threadgroup_barrier(mem_flags::mem_threadgroup);
+  loader_a.stage_regs(ra);
+  loader_b.stage_regs(rb);
+  threadgroup_barrier(mem_flags::mem_threadgroup);
+  mma_op.mma(As, Bs);
+}
+
+"""
+
+// Two register sets unrolled over parity, so no prefetch has a WAR dependence
+// on the stage it follows. Discriminates a real scheduling limit from a
+// register-reuse artifact, exactly as db2 does for db.
+let pf2Body = """
+METAL_FUNC void gemm_loop_aligned(
+    threadgroup T* As,
+    threadgroup T* Bs,
+    thread mma_t& mma_op,
+    thread loader_a_t& loader_a,
+    thread loader_b_t& loader_b,
+    const int k_iterations) {
+  if (k_iterations <= 0) {
+    return;
+  }
+
+  typename loader_a_t::RegTile ra0, ra1;
+  typename loader_b_t::RegTile rb0, rb1;
+
+  loader_a.prefetch(ra0);
+  loader_b.prefetch(rb0);
+  loader_a.next();
+  loader_b.next();
+
+  int k = 1;
+  for (; k + 1 < k_iterations; k += 2) {
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    loader_a.stage_regs(ra0);
+    loader_b.stage_regs(rb0);
+    loader_a.prefetch(ra1);
+    loader_b.prefetch(rb1);
+    loader_a.next();
+    loader_b.next();
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    mma_op.mma(As, Bs);
+
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    loader_a.stage_regs(ra1);
+    loader_b.stage_regs(rb1);
+    loader_a.prefetch(ra0);
+    loader_b.prefetch(rb0);
+    loader_a.next();
+    loader_b.next();
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    mma_op.mma(As, Bs);
+  }
+
+  if (k < k_iterations) {
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    loader_a.stage_regs(ra0);
+    loader_b.stage_regs(rb0);
+    loader_a.prefetch(ra1);
+    loader_b.prefetch(rb1);
+    loader_a.next();
+    loader_b.next();
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    mma_op.mma(As, Bs);
+
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    loader_a.stage_regs(ra1);
+    loader_b.stage_regs(rb1);
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    mma_op.mma(As, Bs);
+  } else {
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    loader_a.stage_regs(ra0);
+    loader_b.stage_regs(rb0);
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    mma_op.mma(As, Bs);
+  }
+}
+
+"""
+
+// Control: the same register routing with zero overlap -- prefetch and stage
+// stay inside the same barrier pair the shipped loop uses. Numerically
+// identical to base, so (pf - regstage) is the pure overlap term and
+// (regstage - base) is the price of the register detour.
+let regstageBody = """
+METAL_FUNC void gemm_loop_aligned(
+    threadgroup T* As,
+    threadgroup T* Bs,
+    thread mma_t& mma_op,
+    thread loader_a_t& loader_a,
+    thread loader_b_t& loader_b,
+    const int k_iterations) {
+  typename loader_a_t::RegTile ra;
+  typename loader_b_t::RegTile rb;
+  for (int k = 0; k < k_iterations; k++) {
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    loader_a.prefetch(ra);
+    loader_b.prefetch(rb);
+    loader_a.stage_regs(ra);
+    loader_b.stage_regs(rb);
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    mma_op.mma(As, Bs);
+    loader_a.next();
+    loader_b.next();
+  }
+}
+
+"""
+
 func makeDoubleBufferedSource(_ body: String) -> String {
     var s = replaceGemmLoopAligned(baseSource, with: body)
     let stageOld = """
@@ -372,6 +637,9 @@ let variantSource: [String: String] = [
     "dbmem": makeDoubleBufferedSource(dbmemBody),
     "noload": replaceGemmLoopAligned(baseSource, with: noloadBody),
     "nomma": replaceGemmLoopAligned(baseSource, with: nommaBody),
+    "pf": makeRegisterPrefetchSource(pfBody),
+    "pf2": makeRegisterPrefetchSource(pf2Body),
+    "regstage": makeRegisterPrefetchSource(regstageBody),
 ]
 
 // MARK: - device setup
