@@ -21,9 +21,23 @@ import sys
 import wandb
 
 BAR_US_STEP = 68.7        # rule 105.12 landing bar, M4 us/step
-PRICE = 0.015228          # % of campaign score per M4 us/step
+
+# Percent of campaign score bought by 1 us/step of M4 decode WALL, at tau = 1.
+# score = (base_dec/cand_dec)^0.75 (TASK.md:30-34) and the M4 decode-wall
+# denominator is 8972 us/step (CURRENT_RESEARCH_STATE.md:2127-2128), so the
+# derivative is 0.75 * 100 / 8972 = 0.008360 %/us.  An earlier version of this
+# file carried 0.015228, which is not derivable from either constant and is
+# retracted; see PRICING-NOTE.md, which prices the whole 68 us excess at
+# 0.75 * 68 / 8972 = 0.57 %, i.e. 0.00836 %/us.
+PRICE = 0.75 * 100.0 / 8972.0
+
 EXCESS_US_STEP = 68.0     # in-situ 7.39 us/call vs standalone-cold 5.637, x39
-K_ROUTED = 2.61           # us of decode wall per MB/step removed, routed family
+
+# Retracted prior, kept only so the run records what it replaced: 2.61 us/MB
+# came from the two n=1 shakedown runs in SMOKE.md, which SMOKE.md itself says
+# are "not the campaign".  The routed k reported by this run is the measured
+# one, from the campaign control block.
+K_ROUTED_SMOKE_PRIOR = 2.61
 
 
 def main() -> int:
@@ -59,7 +73,7 @@ def main() -> int:
             "os": "macOS 26.5.2",
             "metal_toolchain": "17.6.109.0",
             "is_nax_available": False,
-            "design": "paired block-randomised ABBA, one binary, env-var arms",
+            "design": "mirrored randomised-block; order B is the exact time-reversal of order A; one binary, env-var arms",
             "env_var": "DARKBLOOM_SHARED_QMV_ARM",
             "split": 0,
             "bar_us_step": BAR_US_STEP,
@@ -75,7 +89,7 @@ def main() -> int:
             "paired_median_us", "paired_mean_us", "ci_lo_us", "ci_hi_us",
             "excludes_zero", "pooled_dmedian_us", "pooled_dmean_us",
             "sd_ratio_vs_ship", "bimodal", "mb_removed_per_step",
-            "k_us_per_mb", "pct_of_score_at_tau1", "pct_of_score_at_tau040"]
+            "k_us_per_mb", "pct_of_score"]
     tbl = wandb.Table(columns=cols)
 
     for d in sums:
@@ -96,7 +110,7 @@ def main() -> int:
                 med, mean, lo, hi, bool(lo > 0 or hi < 0),
                 st.get("pooled_dmedian_us"), st.get("pooled_dmean_us"), sdr,
                 bool(st.get("bimodal")), mb, (med / mb) if mb else None,
-                med * PRICE, med * PRICE * 0.40,
+                med * PRICE,
             )
             p = f"{lab}/{arm}"
             run.summary[f"{p}/paired_median_us"] = med
@@ -123,21 +137,28 @@ def main() -> int:
     # positive control in the sibling family, measured the same way.
     shared = [d for d in sums if d["family"] == "shared"]
     routed = [d for d in sums if d["family"] == "routed"]
+    k_shared = k_routed = None
     if shared:
         ks = [d["k_ls_us_per_mb"] for d in shared
               if d.get("k_ls_us_per_mb") is not None]
         if ks:
-            k = sum(ks) / len(ks)
-            run.summary["headline/k_shared_us_per_mb"] = k
-            run.summary["headline/k_routed_us_per_mb"] = K_ROUTED
-            run.summary["headline/shared_over_routed_conversion"] = k / K_ROUTED
-            run.summary["headline/marginal_gbps_shared"] = 1e3 / k if k else None
+            k_shared = sum(ks) / len(ks)
+            run.summary["headline/k_shared_us_per_mb"] = k_shared
+            run.summary["headline/marginal_gbps_shared"] = \
+                1e3 / k_shared if k_shared else None
     if routed:
         kr = [d["k_ls_us_per_mb"] for d in routed
               if d.get("k_ls_us_per_mb") is not None]
         if kr:
-            run.summary["headline/k_routed_measured_us_per_mb"] = \
-                sum(kr) / len(kr)
+            k_routed = sum(kr) / len(kr)
+            run.summary["headline/k_routed_measured_us_per_mb"] = k_routed
+            run.summary["headline/marginal_gbps_routed"] = \
+                1e3 / k_routed if k_routed else None
+    run.summary["headline/k_routed_smoke_prior_retracted"] = \
+        K_ROUTED_SMOKE_PRIOR
+    if k_shared and k_routed:
+        run.summary["headline/shared_over_routed_conversion"] = \
+            k_shared / k_routed
 
     run.summary["headline/excess_us_step"] = EXCESS_US_STEP
     run.summary["headline/bar_us_step"] = BAR_US_STEP
