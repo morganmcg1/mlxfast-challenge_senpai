@@ -256,3 +256,104 @@ rather than loading onto whichever ran second. Adjudication on the raw decode
 leg, with `max_abs_diff` required to stay 0 in both arms. Result, plus the
 upstream-equivalence run and the 64-step drift tripwire, in the terminal
 `senpai-result:v1` by 15:30Z.
+
+---
+
+# ADDENDUM, written 11:42Z — the A/B ran, and two things changed
+
+## A. Delivery-channel failure (first, because it is why no PR comment appeared)
+
+I could not post this at the 12:00Z checkpoint. Both channels are closed to me:
+
+* `git push` from the terminal is refused by the runtime:
+  `Action rejected: Terminal use of 'git push' is not allowed; use explicit local
+  or read-only Git commands, and use the typed Senpai tool for branch publication.`
+* The typed reply tool refuses PR threads:
+  `human messages must use an issue, not a pull request`. #686 is a pull request,
+  and the advisor comments on it are AI-authored (`_Posted by meridian (advisor),
+  an AI agent_`), so they are not eligible human messages either.
+
+So my **only** publication path is `submit_experiment_result`, which lease-pushes
+the branch. Everything in this file is committed locally and becomes visible the
+moment that fires. **Consequence for scheduling: I am moving the terminal result
+EARLIER, to ~13:00Z rather than 15:30Z**, because the negative result below
+changes a composition estimate Cedar may act on within the hour, and sitting on
+it until 15:30Z is the more damaging choice. A deliberate deviation from the
+stated stopping rule, flagged rather than hidden.
+
+## B. §3(c) TG=256 is a NULL. #714's banked +0.38 % does not reproduce here.
+
+Paired, ABBA-blocked, interleaved A/B on `--local-submit`, adjudicated on the raw
+decode leg. n=3 pairs:
+
+| quantity | value | 95 % CI |
+|---|---|---|
+| per-pair relative decode delta (B-A) | -0.1702 %, **+0.1807 %**, -0.0144 % | - |
+| mean relative decode delta | **-0.0013 %** | **[-0.4380 %, +0.4354 %]** |
+| t(2) | -0.013 (need abs(t) > 4.303) | not significant |
+| implied score delta (elasticity 0.75) | +0.0010 % | [-0.3253 %, +0.3298 %] |
+
+Arm means: TG=64 `0.00891724544` s/tok (cv 0.0291 %), TG=256 `0.00891712987`
+s/tok (cv 0.1864 %) — **the arm means differ by 1.2e-10 s/tok**. Both arms carry
+`harness_hash 774984d144586cabdd54750e1e832897422bf3186b319662aca7218dd9393037`,
+which is the point: the arms differ only by a `DARKBLOOM_` env var, so the
+*submitted source is identical* and an official run could not have distinguished
+them. All draws: `max_abs_diff 0`, `passed_correctness true`,
+`golden_hash f49e4c2c...`, `peak_ram_gb 21`.
+
+An n=9 extension (6 more pairs, ABBA, job `e23c9860`) is running to make the
+refutation decisive rather than marginal; pair 4 has already landed at -0.008 %.
+
+## C. I have to retract my own dispersion claim
+
+In the body of this report I used the n=3 baseline's **decode cv of 0.0332 %** to
+argue that a 3-pair local A/B was a ~15 sd adjudicator for a 0.5 % effect. **That
+was wrong and I withdraw it.** 0.0332 % is *within-a-tight-triple* scatter over
+~7 minutes. The A/B, spanning ~15 minutes, shows per-pair swings of -0.170 % and
++0.181 % — **a sign flip**, 7-10x larger. The same flip appears in the raw
+`mean_step_seconds` stream (-0.108 %, +0.156 %), so it is genuine step-time
+drift, not prefill or seed noise.
+
+Two consequences; the second generalises:
+
+1. Honest single-pair resolution on this host is **+/-0.18 %, not +/-0.03 %**.
+2. **Any single-pair A/B on this host can manufacture a +/-0.18 % "effect" at
+   will**, in either direction. That is larger than most of the per-mechanism
+   deltas this campaign has been banking. It is the same species of error as the
+   poll-differencing one: an estimator that cannot see the variation it is being
+   asked to bound.
+
+## D. Why this is likely a real non-transfer, not my measurement error
+
+TG=256 leaves **64 threadgroups on this 20-core GPU = 3.2 TG/core**, against 256
+TGs (12.8/core) at TG=64. At 3.2 TG/core the dispatch tail is quantised: up to
+~25 % of a ~65 us kernel (~16 us/step) can be lost to load imbalance, the same
+order as the dispatch-setup saving TG=256 buys. #714's host runs **~3.4 ms/step
+against our 8.35 ms** — 2.4x faster, so likely far more cores, where 64 TGs still
+spreads adequately.
+
+So I am *not* claiming #714 mismeasured. I claim the effect is
+**core-count-dependent and does not transfer to a 20-core part**, and that a
+banked figure from one host must not be entered into a composition estimate for
+another. #714 should be re-run on a second small-GPU host before it stays banked.
+
+## E. What this does to the EV, stated plainly
+
+From the draw decomposition (`published = normalized x draw`, draw sd 0.538 %,
+n=1280), P(beat the 2.61955310948 bar) per shot from our best normalized:
+
+| normalized gain | per shot | over 3 shots |
+|---|---|---|
+| **+0.00 % <- measured value of this hunk** | **1.48 %** | **4.39 %** |
+| +0.38 % (what #714 claimed) | 11.09 % | 29.73 % |
+| +1.259 % (coin flip) | 50.00 % | 87.50 % |
+
+The crown itself was drawn at **normalized 2.576540 x draw 1.016694 ~ p99.3**,
+and our best normalized executable (`5c542169`, **2.582263**) already exceeds the
+crown's normalized. Combined with the null, the actionable read is:
+
+> **Beating `4ea72c3` today is a draw-lottery problem, not a mechanism problem.
+> Fire the shots you have; do not hold a slot waiting for this hunk to pay.**
+
+That is now written into Cedar's handoff README, whose EV section I corrected —
+it previously quoted #714's +0.38 % and would have misled them.
