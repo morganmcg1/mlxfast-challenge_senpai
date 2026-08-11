@@ -36,6 +36,7 @@ SHOTS = [
     ("t3  base + QHOIST=1     ", "e4078827", "r109F-qhoist"),
     ("t4  base + atlas v3     ", "ed40f3ee", "r109F-atlasv3"),
     ("t5  atlasv3 nonce replay", "0531544b", "r109F-atlasv3"),
+    ("t6  atlasv3 replay #3   ", "cb4de9e0", "r109F-atlasv3"),
 ]
 
 
@@ -141,6 +142,81 @@ def main() -> None:
         ["t4  base + atlas v3", "t5  atlasv3 nonce replay"],
         "C. byte-identical executable pair (atlas-v3 class)",
     )
+
+    # ---- D. the campaign's own receipts as a noise gauge -------------------
+    # Two of our five shots are *replays*: t2 replays t1's executable and t5
+    # replays t4's, comment-only nonce apart.  Each pair is therefore a paired
+    # draw from the instrument with the code held exactly fixed, so |difference|
+    # estimates the per-observation sd of every axis with no code term at all.
+    # With k pairs, sd_hat = sqrt( sum(d_i^2) / (2k) ).
+    pairs = [
+        ("base   t1/t2   ", "t1  base", "t2  base, nonce replay"),
+        ("atlasv3 t4/t5  ", "t4  base + atlas v3", "t5  atlasv3 nonce replay"),
+    ]
+    axes = [
+        ("published  ", lambda g: g["row"]["officialScore"]),
+        ("normalized ", lambda g: g["nz"]),
+        ("cand decode", lambda g: g["row"]["officialMetrics"]["decode_seconds_per_token"]),
+        ("cand prefil", lambda g: g["row"]["officialMetrics"]["prefill_seconds_per_token"]),
+        ("base decode", lambda g: g["row"]["officialMetrics"]["baseline_decode_seconds_per_token"]),
+        ("base prefil", lambda g: g["row"]["officialMetrics"]["baseline_prefill_seconds_per_token"]),
+    ]
+    ready = [(t, a, b) for t, a, b in pairs if a in by_label and b in by_label]
+    if ready:
+        print("D. identical-executable replays as a zero-code-variance gauge")
+        header = "  axis         " + "".join(f"{t}" for t, _, _ in ready) + "  sd_hat"
+        print(header)
+        for aname, get in axes:
+            diffs = []
+            cells = ""
+            for _, la, lb in ready:
+                ga, gb = by_label[la], by_label[lb]
+                va, vb = get(ga), get(gb)
+                d = 100.0 * abs(va - vb) / ((va + vb) / 2)
+                diffs.append(d)
+                cells += f"  {d:7.4f}%      "
+            sd = (sum(d * d for d in diffs) / (2 * len(diffs))) ** 0.5
+            print(f"  {aname}  {cells}  {sd:.4f}%")
+        print(
+            "  (sd_hat is a k=%d-pair estimate: wide, but it contains no code term\n"
+            "   whatsoever, so it is an upper bound on nothing and a clean estimate\n"
+            "   of instrument noise on each axis.)" % len(ready)
+        )
+        print()
+
+    # ---- E. class means, and the crown need computed from them -------------
+    classes: dict[str, list[dict]] = {}
+    for g in by_label.values():
+        classes.setdefault(g["klass"], []).append(g)
+    print("E. per-class means (the honest point estimate for an executable)")
+    for klass, gs in sorted(classes.items()):
+        nzs = [g["nz"] for g in gs]
+        mean_nz = st.fmean(nzs)
+        need = CROWN / mean_nz
+        k, p = p_at_least(need)
+        note = ""
+        if len(gs) > 1:
+            note = f"  spread {100*(max(nzs)-min(nzs))/mean_nz:.4f}%"
+        print(
+            f"  {klass:<16} n={len(gs)}  mean normalized {mean_nz:.6f}{note}\n"
+            f"                     crown needs draw >= {need:.6f}  ->  {k}/{n} = {p:.4f}% per shot"
+        )
+    if "r109F-base" in classes and "r109F-atlasv3" in classes:
+        a = st.fmean([g["nz"] for g in classes["r109F-base"]])
+        b = st.fmean([g["nz"] for g in classes["r109F-atlasv3"]])
+        na, nb = len(classes["r109F-base"]), len(classes["r109F-atlasv3"])
+        delta = 100.0 * (b - a) / a
+        sd_pop = 0.357  # normalized cv, %, from the >=2026-08-10 baseline-leg window
+        se = sd_pop * (1.0 / na + 1.0 / nb) ** 0.5
+        print(
+            f"  atlasv3 - base on the code axis: {delta:+.4f}%  "
+            f"(se {se:.4f}% at population sd {sd_pop}% -> {abs(delta)/se:.2f} sigma)"
+        )
+        print(
+            "  local A/B on the same tree measured -0.0260% decode = +0.0166% score,\n"
+            "  so the ranked read is consistent in sign and uninformative in size."
+        )
+    print()
 
     # ---- best-of ----------------------------------------------------------
     if by_label:

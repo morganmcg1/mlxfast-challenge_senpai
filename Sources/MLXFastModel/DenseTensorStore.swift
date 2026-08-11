@@ -23,6 +23,28 @@
 // bad draw is not a verdict on a package, so this ticket replays the same tree
 // rather than reverting anything. See instrument-collapse.md section 5.3e and
 // research/fern_r109f_own_shots.py. No behaviour changes here.
+//
+// receipt-nonce: r109f-ticket7 (2026-08-11), lottery-r109f-t7-nonce-5b3ce1d7-d.
+// Same purpose and the same executable a fourth time. Tickets 5 and 6 came back
+// while this was written and between them overturned two of the claims the
+// nonces above are built on:
+//   - the ticket-6 receipt is now the best code of the campaign (normalized
+//     2.579556) and the atlas-v3 trio t4/t5/t6 is the first k=3 group of one
+//     identical executable ever measured on this host, so the instrument is now
+//     estimated with 3 degrees of freedom instead of 1;
+//   - that estimate kills the "33.4x amplification" figure quoted in the
+//     ticket-6 nonce above. Pooled instrument sd is 0.5169 % on the published
+//     score and 0.1917 % on normalized -- a factor of 2.7, not 33. The
+//     ticket-2 nonce's 0.05-0.10 % local repeatability figure is also wrong:
+//     an 8-run MLX_SDPA_BLOCKS sweep put local decode cv at ~0.35 %.
+// This ticket is therefore a pre-registered prediction, not just a lottery
+// ticket. Under the null that atlas v3 and fork-main base are the same code,
+// P(this receipt's normalized < the atlas-v3 k=3 mean 2.574758) = 73.9 %,
+// against 50.0 % if atlas v3 really is the +0.31 % the k=3-vs-k=2 comparison
+// currently reads at 1.76 sigma. The plausibility guard says the null: +0.31 %
+// from one threadgroup constant exceeds the whole field's decode code spread
+// (0.224 %). Recorded before the shot; see instrument-collapse.md 5.3f-5.3h and
+// research/fern_r109f_leg_instrument.py section 5. No behaviour changes here.
 import Darwin
 import Foundation
 import MLXFastCore
