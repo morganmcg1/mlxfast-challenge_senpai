@@ -1953,8 +1953,12 @@ template <
     // broadcasts it locally. This removes both binary searches, the
     // threadgroup bounds allocation, and its synchronization while ensuring
     // every simdgroup begins with identical endpoints.
-    int run_start = simd_lane_id == 0 ? int(indices[expert]) : 0;
-    int run_end = simd_lane_id == 0 ? int(indices[expert + 1]) : 0;
+    const packed_uint2 run_bounds =
+        simd_lane_id == 0
+        ? *(const device packed_uint2*)(indices + expert)
+        : packed_uint2(0u);
+    int run_start = int(run_bounds.x);
+    int run_end = int(run_bounds.y);
     run_start = simd_broadcast(run_start, 0);
     run_end = simd_broadcast(run_end, 0);
 #elif defined(DARKBLOOM_BSEARCH_HOIST)
