@@ -324,6 +324,17 @@ let lagunaSharedScaleHalvedEnabled =
 let lagunaSharedQMVWideCodesEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_QMV_WIDE_CODES"] == "1"
 
+/// Threads per threadgroup for the shared-expert SwiGLU QMV. The work is
+/// byte-identical in every setting: 512 output rows, one row per simdgroup;
+/// only the partition of those simdgroups into threadgroups changes.
+let lagunaSharedSwiGLUQMVThreadgroupWidth: Int = {
+    guard
+        let raw = ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_QMV_TG"],
+        let width = Int(raw), width == 64 || width == 128 || width == 256
+    else { return 64 }
+    return width
+}()
+
 
 
 
@@ -7132,7 +7143,8 @@ private func lagunaSharedSwiGLUQMVRows1Source(
     halved: Bool,
     weightName: String = "fused_weight",
     scalesName: String = "fused_scales",
-    outputName: String = "activated"
+    outputName: String = "activated",
+    simdgroupsPerThreadgroup: Int = 2
 ) -> String {
     let scaleRowBytes = halved ? 64 : 128
     let patch =
@@ -7158,7 +7170,7 @@ constexpr uint values_per_lane = 16;
 uint tile = threadgroup_position_in_grid.x;
 uint simd_group = simdgroup_index_in_threadgroup;
 uint lane = thread_index_in_simdgroup;
-uint row = tile * 2 + simd_group;
+uint row = tile * \(simdgroupsPerThreadgroup) + simd_group;
 
 const device uint8_t* gate_row_weight =
     (const device uint8_t*)\(weightName) +
@@ -7226,6 +7238,28 @@ private let lagunaSharedSwiGLUQMVRows1HalvedKernel = MLXFast.metalKernel(
     inputNames: ["input", "fused_weight", "fused_scales"],
     outputNames: ["activated"],
     source: lagunaSharedSwiGLUQMVRows1Source(halved: true),
+    header: lagunaSharedSwiGLUQMVHeader,
+    ensureRowContiguous: true
+)
+
+// MLX caches compiled libraries by kernel name, so each threadgroup width needs
+// a distinct name; reusing one name silently returns the first-compiled body.
+private let lagunaSharedSwiGLUQMVRows1HalvedTG128Kernel = MLXFast.metalKernel(
+    name: "laguna_shared_nvfp4_swiglu_qmv_rows1_halved_tg128_bf16_v1",
+    inputNames: ["input", "fused_weight", "fused_scales"],
+    outputNames: ["activated"],
+    source: lagunaSharedSwiGLUQMVRows1Source(
+        halved: true, simdgroupsPerThreadgroup: 4),
+    header: lagunaSharedSwiGLUQMVHeader,
+    ensureRowContiguous: true
+)
+
+private let lagunaSharedSwiGLUQMVRows1HalvedTG256Kernel = MLXFast.metalKernel(
+    name: "laguna_shared_nvfp4_swiglu_qmv_rows1_halved_tg256_bf16_v1",
+    inputNames: ["input", "fused_weight", "fused_scales"],
+    outputNames: ["activated"],
+    source: lagunaSharedSwiGLUQMVRows1Source(
+        halved: true, simdgroupsPerThreadgroup: 8),
     header: lagunaSharedSwiGLUQMVHeader,
     ensureRowContiguous: true
 )
@@ -7351,19 +7385,28 @@ func lagunaSharedSwiGLUQMV(
                 LagunaConstants.hiddenSize / 16))
     }
 
+    let threads =
+        halved && !lagunaSharedQMVWideCodesEnabled
+        ? lagunaSharedSwiGLUQMVThreadgroupWidth : 64
     let kernel =
         halved
         ? (lagunaSharedQMVWideCodesEnabled
             ? lagunaSharedSwiGLUQMVRows1WideKernel
-            : lagunaSharedSwiGLUQMVRows1HalvedKernel)
+            : (threads == 256
+                ? lagunaSharedSwiGLUQMVRows1HalvedTG256Kernel
+                : threads == 128
+                    ? lagunaSharedSwiGLUQMVRows1HalvedTG128Kernel
+                    : lagunaSharedSwiGLUQMVRows1HalvedKernel))
         : (lagunaSharedSwiGLUQMVRows1Enabled
             ? lagunaSharedSwiGLUQMVRows1Kernel
             : lagunaSharedSwiGLUQMVKernel)
-    let tiles = lagunaSharedSwiGLUQMVRows1Enabled ? 256 : 128
+    let tiles =
+        lagunaSharedSwiGLUQMVRows1Enabled
+        ? LagunaConstants.sharedExpertIntermediateSize / (threads / 32) : 128
     return kernel(
         [input, fusedWeight, fusedScales],
-        grid: (tiles * 64, 1, 1),
-        threadGroup: (64, 1, 1),
+        grid: (tiles * threads, 1, 1),
+        threadGroup: (threads, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.sharedExpertIntermediateSize]],
         outputDTypes: [.bfloat16]
     )[0]
@@ -8219,6 +8262,7 @@ func lagunaSharedRoutedSwiGLUQMV(
         lagunaSharedSwiGLUQMVRows1Enabled,
         lagunaRoutedGateUpR1Enabled,
         !lagunaSharedQMVWideCodesEnabled,
+        lagunaSharedSwiGLUQMVThreadgroupWidth == 64,
         input.dtype == .bfloat16,
         input.dims(1, 1, LagunaConstants.hiddenSize),
         sharedWeight.dtype == .uint32,
