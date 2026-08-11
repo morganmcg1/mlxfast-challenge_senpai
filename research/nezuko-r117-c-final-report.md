@@ -31,7 +31,7 @@ Host: Apple M4 Pro, 20 GPU cores, 48 GiB. All levels are `--local-submit`, 1023 
 
 ### 0b. Corrections log — things I published and then had to take back
 
-Four of them. I am listing them together, in one place, because a campaign that only ever
+Six of them. I am listing them together, in one place, because a campaign that only ever
 publishes numbers that survive is a campaign that is not checking its own numbers.
 
 | # | what was wrong | direction of the error | where |
@@ -40,6 +40,8 @@ publishes numbers that survive is a campaign that is not checking its own number
 | C2 | **τ restatement ratio inverted** (`×256.7/235.6` instead of `×235.6/256.7`), printing 0.850 for what is 0.716. | cosmetic in the report, but it seeded C3 | `nezuko-r117-ruler-tau.py`, fixed 05:03Z |
 | C3 | **Peak-vs-achieved double-count in every ceiling.** The 24.02 MB/step plane was converted at the *achieved* 235.6 GB/s (101.8 µs/step) and then multiplied by a *peak*-scale τ. | inflated every ceiling by 1.090; **+0.855 %→+0.782 %** at τ=1, **+0.667 %→+0.610 %** at τ=0.780 | §1.4, §5.2 of the ruler doc, Amendment 13 |
 | C4 | **"o_proj runs at 90.9 % of peak bandwidth, so there is headroom in its bytes."** The Stage-1 pre-flight falsified this *by sign*: removing 157 MB/step made o_proj **slower**, adding 944 MB/step made it **faster**. | this one was in the flattering direction — it was the premise of my own Stage-1 arm, and the data killed it | §5.2 |
+| C5 | **"~150 affected o_proj calls per step"** — taken from an advisory critique I commissioned and repeated without checking. The true blast radius is **40 calls/step** (30 sliding @ 64 heads + 10 full @ 48 heads) at 6.3–8.4 MB each. | neutral for the headline number (the 314.6 MB ledger was always computed per-layer and is unchanged) but **strengthens** attribution: one kernel, not a diffuse family | §5.5 |
+| C6 | **"the shipped geometry leaves 128 threadgroups and `rps=2` refills it to 256."** Off by exactly 2×. `tiles = outVec / (simdgroups × rowsPerSimdgroup)` = 2048/8 = **256** for the reference, **512** for `rps=2`. | against me in the sense that the reference is *less* starved than I claimed, so the occupancy story had to be re-argued on simdgroups-per-core rather than a bare threadgroup count | §5.4, §5.5 |
 
 They do not all point the same way, which is the point. **C1 and C4 cut against me**: C1 made
 the surviving plane bigger than I first claimed (more nominal headroom, so a weaker floor
@@ -438,10 +440,12 @@ pre-registered prediction survives.
 
 **The byte model is falsified by sign.** `R2` *adds* +314.6 MB/step of activation
 re-reads and still wins. At 20 cores this kernel is occupancy-limited, not
-bandwidth-limited; the shipped `rps=4` geometry leaves 128 threadgroups on a
-20-core GPU and `rps=2` refills it to 256. This is the same lesson as F8 stated
-from the other direction, and it is why the assigned byte-floor mechanism (F1)
-could not have paid even if the bytes had been there.
+bandwidth-limited; the shipped `rps=4` geometry dispatches **256 threadgroups /
+512 simdgroups** per call and `rps=2` doubles that to **512 / 1024** (see the
+corrected ledger in §5.5 — an earlier draft of this paragraph said 128→256 and
+was wrong by 2×, correction **C6**). This is the same lesson as F8 stated from
+the other direction, and it is why the assigned byte-floor mechanism (F1) could
+not have paid even if the bytes had been there.
 
 **Landed.** `Sources/MLXFastModel/LagunaOProjGeometry.swift` default `4 → 2`
 (one character). The suffix predicate is deliberately left pinned to `rps==4`, so
@@ -462,13 +466,102 @@ regression, and prefill is not adjudicable on this machine at all.)*
 **Transfer caveat, stated plainly.** This is a threadgroup-geometry change —
 precisely the class `program.md` flags as M4→M5 fragile, with a prior case that
 went +7.32 % on M4 and ~0.0 % on M5 through core-count quantisation. The
-mechanism argues the win should survive or grow (256 TGs × 64 threads = 16,384
-threads is *more* starved on a ~40-core M5, not less), but `R2` also adds
+mechanism argues the win should survive or grow (the *shipped* `rps=4` reference
+issues 512 simdgroups, i.e. 12.8 per core on a 40-core M5 against 25.6 here, so
+the M5 default is *more* starved, not less), but `R2` also adds
 +314.6 MB/step of activation traffic, which is a real cost that a wider machine
 could price differently. **This must be settled by an official M5 run.** I could
 not dispatch one: `senpai/submit-official.sh` refuses because my recorded
 `BASE_SHA` differs from current `origin/main` across 27 submitted files (see
 §7).
+
+### 5.5 Static verification of the mechanism, at zero GPU cost
+
+Before spending another GPU hour I established four things from the source alone.
+Three of them narrow the risk; one is a correction against myself.
+
+**(a) Blast radius is exactly the 40 decode `o_proj` calls.** Every consumer of
+the knob is inside `lagunaGatedAffineOProjNVFP4*`; the only callers are
+`LagunaRuntimeModel.swift:6388` and `:6404`. The dispatch guard requires
+`attentionOutput.dims(1, 1, inVec)` — a **single token row** — so prefill (512
+rows) structurally cannot enter. The neutral prefill diagnostic in §5.4
+(+7.2 µs, CI covers zero) is therefore not evidence of a lucky wash; it is the
+only result the code permits.
+
+**(b) The dispatch geometry, from `LagunaOProjGeometry.swift:87,112` and the
+grid call at `:4615`.** `tiles = outVec / (simdgroups × rowsPerSimdgroup)`,
+`threads = 32 × simdgroups`, `grid = tiles × threads`, so threadgroups = tiles.
+With `outVec = hiddenSize = 2048`:
+
+| arm | rows/sg | sgs/tg | threadgroups | simdgroups | sgs/core @20 | sgs/core @40 |
+|---|---|---|---|---|---|---|
+| shipped-before (`rps=4`) | 4 | 2 | 256 | 512 | 25.6 | 12.8 |
+| **landed (`rps=2`)** | 2 | 2 | **512** | **1024** | **51.2** | **25.6** |
+| `rps=1` | 1 | 2 | 1024 | 2048 | 102.4 | 51.2 |
+| `rps=2, ns=4` | 2 | 4 | 256 | 1024 | 51.2 | 25.6 |
+
+This is correction **C6**: I had previously written 128→256. The right-hand
+columns are the reason the transfer argument survives the correction — a 40-core
+M5 running the *old* default sits at 12.8 simdgroups/core, i.e. one doubling
+*below* the point where this ladder measured a gain.
+
+**(c) The byte ledger reconciles exactly.** `inVec = heads × 128`; the pinned XS
+schedule is 30 sliding layers @ 64 heads (inVec 8192) and 10 full-attention
+layers @ 48 heads (inVec 6144). Each simdgroup re-reads the whole bf16
+activation, so halving `rps` adds 512 simdgroups per call:
+30 × 512 × 8192 × 2 B = 251.7 MB, plus 10 × 512 × 6144 × 2 B = 62.9 MB,
+**= 314.6 MB/step**, matching `R2` exactly; `rps=1` gives 3× and `rps=8` gives
+−0.5×, both matching. The re-read block is 12–16 KiB touched 1024 times, i.e.
+cache-resident, so its marginal price is on-chip bandwidth, not DRAM — which is
+why adding 314.6 MB of it costs less than the occupancy it buys.
+
+**(d) The knob is architecture-independent.** `lagunaNAXAvailable`
+(`LagunaRuntimeModel.swift:242`) is read *only* by
+`lagunaExpertAlignedGatherEnabled` (MoE gather). No branch in the o_proj path
+consults `GPU.deviceInfo().architecture`, and this is a runtime-compiled
+`MLXFast` kernel rather than an AOT metallib variant, so there is no `_nax`
+sibling that an M5 could select instead. The one failure mode that would
+guarantee exactly 0.0 % on M5 — the F1/M4-as-M5 trap of tuning a path the ranked
+machine never takes — is **statically excluded**. That is a bound on the
+downside, not a prediction of the upside.
+
+### 5.6 Why this is not the occupancy-tuning class the briefing warns about
+
+The briefing is explicit (L293–294) that this QMV family is "predominantly
+unique-byte bandwidth-bound" and that "fixed-byte instruction and occupancy
+tuning has usually been neutral or negative", and (L503–504) to prefer exact
+work removal over "cosmetic launch-count or occupancy changes". I take that
+seriously; here is why I still think this one is different, and what would show
+me wrong.
+
+*The premise is measurable, and I measured it.* o_proj DRAM traffic is
+30 × (8.389 + 1.049) + 10 × (6.291 + 0.786) = **354 MB/step**, which at this
+host's 256.7 GB/s asymptote is ~1.38 ms of an 8.97 ms step. Stage 0 measured
+this family running **9.1 % (h64) and 16.6 % (h48) below** that asymptote. So
+the kernel is *not* saturated — the briefing's "bandwidth-bound, nothing left to
+win" case is the case where that shortfall is ~0, and here it demonstrably is
+not. The 79.4 µs Stage-1 win is **5.8 pp of that already-measured shortfall**,
+leaving ~3–11 pp unclaimed. This is recovery of a quantified deficit, not a
+cosmetic launch-count change.
+
+*It is also not a repeat of the two prior o_proj negatives.* PR #607 staged 512
+BF16 pre-activated gate products in threadgroup memory and **explicitly
+preserved the geometry** (1.187 % slower). PR #643 replaced two scalar `uint32`
+loads with one aligned `uint2` — a **load-width** change, geometry again
+untouched (0.9967×). Neither moved rows-per-simdgroup or the threadgroup count,
+and the briefing's "do not repeat unchanged" list (L415–432) contains attention
+threadgroup *doubling*, split-K, KV splitting and generic depth sweeps, none of
+which is this. I searched the briefing for a prior rows-per-simdgroup result and
+there is none.
+
+*The honest counterweight.* L228–230 says threadgroup geometry can change sign
+across core counts, and that is exactly the risk I cannot retire on this host.
+My defence is not that the briefing is wrong — it is that (i) the downside is
+bounded by 5.5(d) away from the guaranteed-zero case, (ii) the direction of the
+core-count change moves the M5 default *further into* the starved regime rather
+than out of it, and (iii) L409–411 explicitly says a correctness-green candidate
+need not be proven to exceed the whole gap on M4 before one official experiment.
+This is a candidate for one M5 run, not a claim of a ranked win.
 
 ---
 
