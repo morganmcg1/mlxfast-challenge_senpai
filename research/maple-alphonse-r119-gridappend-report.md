@@ -13,7 +13,44 @@ M4-directional; prefill is M4-directional only and cannot be evidence for an
 
 ## 0. Verdict (up front)
 
-<!-- FILL: one-line win/loss, and whether the joint interval excludes zero -->
+**`N-GRIDAPPEND-SECOND-INSTANCE-BELOW-BAR`. Loss, and not a near miss: the
+joint arm is a `+13.6 µs/step` *regression* with a 95 % CI of
+`[+9.5, +17.7]` that excludes zero on all four estimators and in both
+mirrored orders. Nothing is shipped; the submitted surface is behaviourally
+identical to `BASE_SHA`.**
+
+The predicted payment was **−48.3 to −74.9 µs/step** (advisor's re-pricing of
+2026-08-11 04:53Z, sharpened to **−65.5 µs/step** at 05:23Z on frieren's
+measured guest). The measured instance-3 delta is **+7.3 µs/step**. The
+discrepancy is ≈ **73 µs/step**, and it is not a power problem: the same rig,
+in the same sessions, resolved the R114-E positive control at **+44.2
+[+34.1, +54.3] µs/step**.
+
+Three results are worth more than the negative itself:
+
+1. **The advisor's comment-5 §5 fallback has already been measured, and it
+   does not pay.** That fallback — "narrow the guest to 64 lanes and append to
+   the untouched host, still collecting −39 dispatches = 48.3 µs/step floor" —
+   is structurally my **arm H** (32-lane guest, untouched TG-64/256-tile host,
+   no widening). At full n it measures **+7.3 µs/step**, not −48.3. The
+   48.3 µs/step "fixed floor" from removing 39 dispatches is **not a floor**.
+2. **Grid-append cannot collect Rule 57 dispatch cost on a host that already
+   saturates the machine.** The MLX Metal encoder is created with
+   `MTL::DispatchTypeConcurrent`
+   (`Vendor/mlx-swift/.../backend/metal/device.cpp:548`), with barriers only on
+   tracked hazards (`:315–375`). The router tournament and the two SwiGLU
+   kernels are true siblings with `dep_scope = NONE`, so **they already overlap
+   in hardware**. Grid-append therefore removes a *dispatch record*, not a
+   *serialization point*. §10b develops this into the proposed law
+   `L-ABSORPTION-NEEDS-AN-IDLE-HOST` and predicts the sign of the residual.
+3. **Archive row C3 was right and its constant was right.** C3
+   (`RESEARCH_ARCHIVE_through-round-91.md:4686`) de-staffed this exact fusion
+   at 4.8 µs/step / 0.1231 µs per removed dispatch. The advisor's comment 4
+   called that "under-priced by 16×" against R114-E's 1.92 µs/dispatch. The
+   measurement says the opposite: on a saturated host the recoverable value per
+   removed dispatch is at or below C3's constant, and R114-E's 1.92 µs/dispatch
+   is **not transferable** to a sibling-append on a busy host. Naming a refuted
+   constant is a result; here the refuted constant is the re-priced one.
 
 ## 1. What was built, and how it diverges from the advisor's plan of record
 
@@ -152,21 +189,38 @@ verify.
 Per the assignment, each instance must name the branch that runs when the
 append path declines.
 
+All lines are in `Sources/MLXFastModel/LagunaRuntimeModel.swift` and are quoted
+**at branch HEAD `7f5a7867`**. The four R114-E rows are unchanged from
+`BASE_SHA`; the R119-A rows shifted by ~+28 lines when the pass-2 arms were
+added, so earlier drafts citing `:11163` / `:11238` / `:8357` refer to the same
+code at an earlier commit.
+
 | instance | fallback branch | file:line |
 | --- | --- | --- |
-| **2 and 3 (common)** | `} else {` → `lagunaRoutedSwiGLUQMVPackedTop8` | `Sources/MLXFastModel/LagunaRuntimeModel.swift:11238` → `:11241` |
-| wrapper early returns | guard failures return nil | `:8357–8366`, `:8379` |
-| **2** (shared) | `?? lagunaSharedSwiGLUQMV(...)` inside `fusedSharedDownInputs` | `:9355–9361` |
-| **3** (router) | standalone tournament gate call stays in force | `:11163` |
+| **2 and 3 (common)** | `} else {` → `lagunaRoutedSwiGLUQMVPackedTop8(` | `:11268` → `:11271` |
+| wrapper: shape/dtype guards | `guard … else { return nil }` | `:8385–8395` |
+| wrapper: nothing appendable | `guard shared != nil \|\| logits != nil else { return nil }` | `:8408` |
+| **2** (shared) | `?? lagunaSharedSwiGLUQMV(` inside `fusedSharedDownInputs` | `:9383–9389` |
+| **2** (shared bank guard) | `guard let banks = fusedSharedBankGuard(x) else { return nil }` | `:9382` |
+| **3** (router) | standalone tournament `var (inds, weights) = gate(x, logits: routerLogits)` stays in force; the append result only *overwrites* it at `:11263–11267` | `:11191` |
 | **retroactive, R114-E** | QKV: `fusedQKVGate?.qkv ?? lagunaDecodeNVFP4QKVR1(...)` | `:6073–6077` |
 | **retroactive, R114-E** | gate: `if let fusedGate = fusedQKVGate?.gate { … } else if … lagunaGateSoftplus(…)` | `:6110–6121` |
 
 R114-E's flag `lagunaDecodeNVFP4QKVGateFusedEnabled` is declared at
-`:5077–5078`, guarded at `:5129`, called at `:6069`.
+`:5077–5078` (`!= "0"`, i.e. **default ON**), guarded at `:5129`, called at
+`:6069`. These four lines are identical at `BASE_SHA` and at HEAD.
 
-`lagunaRoutedGridAppendSwiGLU(...)` (`:8349`) returns `nil` on any guard
-failure, so every decline lands on `:11238`'s else-branch — there is no silent
-degraded path.
+`lagunaRoutedGridAppendSwiGLU(...)` (`:8377`) returns `nil` on any guard
+failure, so every decline lands on `:11268`'s else-branch — there is no silent
+degraded path and no partially-appended state.
+
+**Structural note that turned into an experiment.** Row "**3** (router)" is
+worth reading twice: the standalone `gate()` call at `:11191` is
+**unconditional**. On the append path its result is discarded and replaced at
+`:11263–11267`. So instance 3 only actually *removes* the 39 router dispatches
+if MLX's lazy graph elides the now-unreferenced ops. That is the premise of the
+whole arm, and it is not self-evident, so §7.3's **arm R** measures it directly
+instead of assuming it.
 
 ## 5. Closing `laguna_residual_rms_bf16_2048_v1` (comment 2)
 
@@ -402,30 +456,54 @@ A simple model fits both R114-E and R119-A:
 > **ΔT_layer = p · N_host − S**, where `S` is the serialization actually
 > removed and `p` is the per-threadgroup fusion tax.
 
-| arm | host TGs | measured | implied |
-| --- | --- | --- | --- |
-| R114-E (QKV host) | **8** | −76.8 µs/step = −1.97 µs/layer | S ≈ 2.0 µs/layer, cost ≈ 8p ≈ 0.07 µs |
-| R119-A (routed SwiGLU host) | **256** | <!-- FILL --> µs/step | S ≈ 0, cost ≈ 256p |
+| arm | host TGs | fused TGs | measured | implied |
+| --- | --- | --- | --- | --- |
+| R114-E (QKV host) | **8** | 12 | −76.8 µs/step = **−1.970 µs/layer** | S ≈ 1.97 µs/layer |
+| R119-A **H** (instance 3, routed SwiGLU host) | **256** | 257 | +7.3 µs/step = **+0.187 µs/layer** | S ≈ 0 ⇒ p ≈ **0.73 ns/TG** |
+| R119-A **F** (instance 2, same host) | **256** | 512 | +10.0 µs/step = **+0.256 µs/layer** | S ≈ 0 ⇒ p ≈ 0.50 ns/TG |
+| R119-A **G** (joint) | **256** | 513 | +13.6 µs/step = **+0.349 µs/layer** | S ≈ 0 ⇒ p ≈ 0.68 ns/TG |
 
-Joint fit gives **p ≈ 9 ns/TG** and break-even **N\* ≈ 230 threadgroups** *if a
-real bubble exists*. When `S ≈ 0` — the sibling case — there is no break-even
-at all and fusion is a strict loss of `p · N_host`.
+The three R119-A arms agree on a per-threadgroup fusion tax of roughly
+**0.5–0.7 ns/TG**, which is reassuringly consistent across three different
+fused grid sizes and is *small*. That consistency is the important part,
+because it isolates which term actually killed the arm.
 
-**Why R114-E won and R119-A lost, in one sentence:** dispatch overhead is
-*exposed* when the host leaves the machine idle (8 TGs on 20 cores) and
-*hidden* when the host saturates it (256 TGs), so on a saturated host the
-saving vanishes at exactly the point where the per-threadgroup tax is largest.
-Both terms move against you together.
+**It is not the tax. It is `S`.** If the tax were the story, break-even
+against a real R114-E-sized bubble (`S ≈ 1.97 µs/layer`) would be
+`N* = S/p ≈ 2 700` threadgroups, far above any host in this model — every
+append would pay. The arms lose because for a `dep_scope = NONE` sibling under
+a `DispatchTypeConcurrent` encoder, **`S` is genuinely zero**: nothing was
+serialized, so nothing can be recovered, and all that remains is the tax plus
+the guest tile's own load-balance tail.
+
+(I previously fitted `p ≈ 9 ns/TG`, `N* ≈ 230` on interim half-n numbers.
+**That fit is withdrawn**; the full-n data above supersedes it, and it moves
+the conclusion in an honest direction — the mechanism is "no bubble to
+recover", not "prohibitive fusion overhead".)
+
+**Why R114-E won and R119-A lost, in one sentence:** R114-E absorbed a guest
+across a *real* barrier-delimited stage boundary on an 8-threadgroup host that
+left 20 cores nearly idle, whereas R119-A absorbed a *sibling that was already
+running concurrently* into a host that already saturates the machine — so the
+numerator `S` went to zero while the denominator's tax stayed positive.
 
 Proposed law, offered for the archive:
 
-> **`L-ABSORPTION-NEEDS-AN-IDLE-HOST`** — grid-append absorption pays only when
-> the host is under-occupied (`N_host` well below ~200 TGs on a 20-core part)
-> **and** the guest occupies a genuinely serialized stage. Under MLX's
-> `DispatchTypeConcurrent` encoder, a `dep_scope = NONE` sibling is already
-> overlapped, so absorbing it recovers nothing while taxing every host
-> threadgroup. Screen on host threadgroup count *and* barrier adjacency, not on
-> the guest's occupancy.
+> **`L-ABSORPTION-NEEDS-A-REAL-BARRIER`** (renamed from the working title
+> `L-ABSORPTION-NEEDS-AN-IDLE-HOST` once the full-n fit showed `S`, not the
+> per-TG tax, is the decisive term) — grid-append absorption pays only when the
+> guest sits across a **genuine barrier-delimited stage boundary**. Under MLX's
+> `DispatchTypeConcurrent` encoder a `dep_scope = NONE` sibling is *already*
+> overlapped in hardware, so absorbing it recovers `S = 0` while still charging
+> a per-host-threadgroup tax (~0.5–0.7 ns/TG measured here) and the guest
+> tile's load-balance tail. Screen on **barrier adjacency first**, host
+> threadgroup count second, and the guest's own µs/step not at all: a guest can
+> be large, hot, and frequently called and still be worth exactly zero to
+> absorb.
+>
+> Corollary, and the practical trap: the sibling-only safety rule that makes an
+> append *legal* (`dep_scope = NONE`) is the same property that makes it
+> *worthless*. Legality and payoff are anti-correlated for this technique.
 
 This subsumes and sharpens `L-THIRD-CELL-NEEDS-CALL-COUNT`: the guest's TG
 count and call count identify a *candidate*, but the **host's** TG count and
