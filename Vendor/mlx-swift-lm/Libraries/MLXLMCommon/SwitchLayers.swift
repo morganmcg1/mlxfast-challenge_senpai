@@ -408,6 +408,13 @@ public func gatherSort(
     expertBoundsSidecar: Bool = false
 ) -> (MLXArray, MLXArray, MLXArray) {
     let m = indices.dim(-1)
+    if expertBoundsSidecar, indices.size == 4096,
+        let path = ProcessInfo.processInfo.environment["F322_ROUTE_KEYS_PATH"],
+        !FileManager.default.fileExists(atPath: path)
+    {
+        let keys = indices.asArray(UInt32.self).map(String.init).joined(separator: ",")
+        try? keys.write(toFile: path, atomically: true, encoding: .utf8)
+    }
     let indices = indices.flattened()
     if let fused = routeCountingSortFused(
         indices, m: m, expertBoundsSidecar: expertBoundsSidecar
