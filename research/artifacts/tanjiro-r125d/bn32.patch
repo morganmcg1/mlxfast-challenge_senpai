@@ -1,0 +1,13 @@
+diff --git a/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp b/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+index 50d19b66..f4001fa6 100644
+--- a/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
++++ b/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+@@ -1241,7 +1241,7 @@ int darkbloom_expert_down_bn() {
+   static const int v = [] {
+     auto s = env::get_var("DARKBLOOM_EXPERT_DOWN_BN", "");
+     if (s.empty()) {
+-      return 128;
++      return 32;
+     }
+     const int n = std::atoi(s.c_str());
+     return (n == 32 || n == 64 || n == 128) ? n : 128;
