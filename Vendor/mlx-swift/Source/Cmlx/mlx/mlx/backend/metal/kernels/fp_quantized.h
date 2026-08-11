@@ -421,52 +421,6 @@ struct QuantizedBlockLoader {
     stage();
   }
 
-  // Register staging for gemm_loop_aligned_pf. prefetch() captures the same
-  // packed codes and scale byte stage() would have read; stage_regs() feeds
-  // them to the same decode. Split, the values and destinations are identical.
-  struct RegTile {
-    uint32_t c[fp4nv_fast ? (n_reads / 4) : 1];
-    uint8_t b[fp4nv_fast ? 1 : n_reads];
-    uint8_t s;
-  };
-
-  void prefetch(thread RegTile& r) const {
-    if (BCOLS_PACKED * BROWS < tgp_size && bi >= BROWS) {
-      return;
-    }
-    if constexpr (fp4nv_fast) {
-      for (int i = 0; i < n_reads / 4; i++) {
-        r.c[i] = fp4nv_pack4(src + i * 4);
-      }
-    } else {
-      for (int i = 0; i < n_reads; i++) {
-        r.b[i] = src[i * bytes_per_pack];
-      }
-    }
-    r.s = *scales;
-  }
-
-  void stage_regs(const thread RegTile& r) const {
-    if (BCOLS_PACKED * BROWS < tgp_size && bi >= BROWS) {
-      return;
-    }
-    if constexpr (fp4nv_fast) {
-      const float scale = fp4nv_scale_x16384(r.s);
-      for (int i = 0; i < n_reads / 4; i++) {
-        T vals[8];
-        fp4nv_decode8<T>(r.c[i], scale, vals);
-        for (int j = 0; j < 8; j++) {
-          dst[i * 8 + j] = vals[j];
-        }
-      }
-    } else {
-      T scale = dequantize_scale<T, group_size>(r.s);
-      for (int i = 0; i < n_reads; i++) {
-        dequantize<T, bits>(r.b[i], scale, dst + i * pack_factor);
-      }
-    }
-  }
-
   void load_safe(short2 src_tile_dim) const {
     if (BCOLS_PACKED * BROWS < tgp_size && bi >= BROWS) {
       return;
@@ -2146,7 +2100,7 @@ template <
 
     // Matrices are all aligned check nothing
     if (align_M && align_N) {
-      gemm_loop_aligned_pf(Xs, Ws, mma_op, loader_x, loader_w, K_it);
+      gemm_loop_aligned(Xs, Ws, mma_op, loader_x, loader_w, K_it);
       if (!align_K) {
         threadgroup_barrier(mem_flags::mem_threadgroup);
         gemm_loop_finalize(Xs, Ws, mma_op, loader_x, loader_w, tile_x, tile_w);
@@ -2162,7 +2116,7 @@ template <
     } else {
       // Tile aligned so check outside of the hot loop
       if ((align_M || tgp_bm == BM) && (align_N || tgp_bn == BN)) {
-        gemm_loop_aligned_pf(Xs, Ws, mma_op, loader_x, loader_w, K_it);
+        gemm_loop_aligned(Xs, Ws, mma_op, loader_x, loader_w, K_it);
         if (!align_K) {
           threadgroup_barrier(mem_flags::mem_threadgroup);
           gemm_loop_finalize(

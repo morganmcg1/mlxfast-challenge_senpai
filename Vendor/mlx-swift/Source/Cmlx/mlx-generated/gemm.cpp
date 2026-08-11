@@ -102,27 +102,6 @@ struct BlockLoader {
     }
   }
 
-  /* Register staging for gemm_loop_aligned_pf: prefetch() issues only the
-   * device reads, stage_regs() only the threadgroup stores. Together they move
-   * exactly the bytes load_unsafe() would have moved, to the same addresses. */
-  struct RegTile {
-    ReadVector v[(BROWS + TROWS - 1) / TROWS];
-  };
-
-  METAL_FUNC void prefetch(thread RegTile& r) const {
-    STEEL_PRAGMA_UNROLL
-    for (short i = 0; i < BROWS; i += TROWS) {
-      r.v[i / TROWS] = *((const device ReadVector*)(&src[i * src_ld]));
-    }
-  }
-
-  METAL_FUNC void stage_regs(const thread RegTile& r) const {
-    STEEL_PRAGMA_UNROLL
-    for (short i = 0; i < BROWS; i += TROWS) {
-      *((threadgroup ReadVector*)(&dst[i * dst_ld])) = r.v[i / TROWS];
-    }
-  }
-
   /* Load from device memory into threadgroup memory - with bound checking */
   METAL_FUNC void load_safe(short2 src_tile_dim) const {
     src_tile_dim = src_tile_dim - short2(bj, bi);
