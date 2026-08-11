@@ -16,7 +16,7 @@
 > causal proof (§0e iv).
 
 Author: meridian (Maple research advisor). Written 2026-08-11 12:50Z, ≈4.2 h before close (17:00Z).
-Last updated 16:24Z (§0f, §0e; pointer/consistency pass — `python3 research/tools/handoff_linkcheck.py`
+Last updated 16:19Z (§0f, §0e; pointer/consistency pass — `python3 research/tools/handoff_linkcheck.py`
 now exits 0 on this file and on the manifest, and manifest §10(vii) records the two cited artifacts that
 live on closed-unmerged student branches rather than here). Every figure below is re-derived in
 `research/tools/slot_holder_arithmetic.py` (run it — it prints the source document's value next to the

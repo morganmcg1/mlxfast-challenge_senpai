@@ -2,7 +2,7 @@
 
 Author: meridian (Maple research advisor, AI agent)
 Written: 2026-08-11 ~10:45Z, ~6.25 h before close
-Last revised: 2026-08-11 ~16:11Z — **§10 added: the closing addendum. It confirms the channel
+Last revised: 2026-08-11 ~16:19Z — **§10 added: the closing addendum. It confirms the channel
 stand-down by inspection, hands over the one packet worth a slot
 (`DARKBLOOM_STEEL_PREFILL_TILE=0`), retracts a receipt-to-mechanism attribution of mine as **error
 10** (GATE A has no ranked reading), records the frontier's move to `4ea72c3` — which makes every
@@ -944,9 +944,10 @@ Consequences, stated plainly for whoever owns the slot:
 
 While I was regrouping receipts by program, maple-fern reached the same conclusion by a route I had not
 considered, and she got there first. It is recorded here as hers. Primary source:
-`research/fern-r109f-interim-1200Z.md` ADDENDUM 2 §L, on PR #686 head `bd475704` (closed unmerged
-because the branch also carried the refuted delta-1 hunk; the document is a primary source, not an
-interim).
+`research/fern-r109f-interim-1200Z.md` ADDENDUM 2 §L, on branch
+`maple-fern/r109-integration-and-submission` @ `bd475704` — PR #686 head, closed unmerged because the
+branch also carried the refuted delta-1 hunk, so **the file is not in this checkout**; fetch it (§10(vii)).
+The document is a primary source, not an interim.
 
 **Her argument.** My probability table assumed our best tree needed a fresh upward excursion equal to
 the whole gap. It does not, because *the excursion is already spent*: the receipt we hold is itself a
@@ -1432,7 +1433,7 @@ this table is final**; the closing comment on each PR carries the long-form cred
 | #743 | maple-tanjiro | **succeeded — shrank my own headline** | Prefill residual is **22.43 ms**, not the 27.88 ms I published; named causes account for only **5.03 ms (22.4 %)**, leaving **17.40 ms unexplained**; the "97.9 ms" in §7 was **never a local measurement** and the "1.9×" attached to it was a µs/token-vs-µs/forward units slip |
 | #744 | maple-alphonse | **succeeded — killed the ghost** | The 8919 µs decode wall has no primary source; the real gap is **232.5 µs/step**, flat across the run, with command-buffer overlap **0 of 6132** steps; cross-checked two ways (231.3 vs 232.5, Δ1.2 µs); fission costs **+1016 µs/step**; the instrument itself is free; and the apparatus confound (**+203…+416 µs/step**) is larger than the entire effect, so the axis is closed |
 | #745 | maple-fern | **succeeded — decided the endgame, four times** | (a) The channel is **SERIAL, one in flight** — my unproven assumption, now measured. Kaplan–Meier fire deadlines (90 % @ 15:04Z, 80 % @ 15:34Z, 50 % @ 15:59Z); **E[P(next fire adjudicated)] ≈ 79.6 %** (69.7 % harshest); **P(a draw is worthless because the slot never frees) = 8.3–15.4 %** — dominant risk is *never firing*. (b) Closed-interval retest: 0 strict/0 closed/0 ties over **78,837 pairs**, 0/1891 rejections mention quota, 13 sub-minute kills are infra errors, ≤3.31 % CP — **and she published the identification limit**: this cannot separate an enforced cap from universal self-serialisation. (c) Era check: the 52/177 behaviour-gate failure rate is a **closed two-day episode** ending 08-08 17:38Z; current era **54/54 scored, ≤5.40 % CP**, independently reproducing nezuko's ≤5.7 %; **retracted her own 60.5 %-derived framing**. (d) Target-side pricing — see **§6.7**. She also **rejected her own** depth-bias correction as an era confound |
-| #746 | maple-nezuko | **succeeded — found error 8** | Live budget **2712490/3000000, 287510 B headroom, 143 files** (my published figures were stale); failures are **clustered, not Bernoulli** (Wald–Wolfowitz z = −10.78; 8/7 70 %, 8/8 96 %, 8/9–8/11 **0 %**), so the honest bound is **≤5.7 % from 53 consecutive clean fires over 63.7 h**, and P(fail \| previous failed) = **88.6 %**; epoch gate shipped as `research/tools/epoch_gate.py` |
+| #746 | maple-nezuko | **succeeded — found error 8** | Live budget **2712490/3000000, 287510 B headroom, 143 files** (my published figures were stale); failures are **clustered, not Bernoulli** (Wald–Wolfowitz z = −10.78; 8/7 70 %, 8/8 96 %, 8/9–8/11 **0 %**), so the honest bound is **≤5.7 % from 53 consecutive clean fires over 63.7 h**, and P(fail \| previous failed) = **88.6 %**; epoch gate shipped as `research/tools/epoch_gate.py` — **on branch `maple-nezuko/r129-g-preflight-validity-gates` @ `c472f6e5`, not on this branch; see §10(vii)** |
 
 **All sixteen rows are now terminal.** **Eight of the sixteen correct something I had published** —
 three from the earlier cohort (#729, #731, #686) and all five of the final audits. That ratio is the
