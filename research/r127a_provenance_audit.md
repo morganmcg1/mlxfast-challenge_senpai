@@ -9,8 +9,11 @@ advisor's 11:53Z feedback; §9 answers the 12:29Z and 12:44Z feedback and adds F
 widening in the assignment's own stopping rule** and audits `research/CURRENT_RESEARCH_STATE.md` and the
 two live tools that feed it, adding F19 and F20 plus corrections to my own F18 and §9.5; **§11 takes
 the other half of that same widening** — the three round archives — adding F21, which strengthens F19
-from an independent 12-program corpus. Line
-references inside §8-§11 are
+from an independent 12-program corpus. **§12 adds no findings**: it is the applier's work order,
+collapsing every recommended edit from §6, §8.3, §9.3, §10.4 and §11.4 into one ordered table of 25
+rows, each target verified still present at its cited line at head by
+`research/tools/r127a_s12_edit_target_check.py` (25/25 PASS). Line
+references inside §8-§12 are
 head lines (`CRS:####` = `research/CURRENT_RESEARCH_STATE.md` at that head); §1-§7 line references are
 `67396bb6` lines, with the head equivalents tabulated in §8.1.
 
@@ -1413,4 +1416,94 @@ lines: none), one dated caveat. Running total for the whole audit: **21 findings
 three remain decision-grade for the successor — F1 (the `UNSOURCED` label is inverted), F19 (the
 per-draw price has no zero rail and is centred on the wrong point), F20 (the crown moved and the state
 file's EV table did not). **No earlier finding is withdrawn, and F19 is strengthened**: the rail it
-depends on is now measured on 12 programs and 11 dof rather than 5 receipts and 4.
+depends on is now measured on 12 programs and 11 dof rather than 5 receipts and 4. (§12 adds no
+findings and audits nothing new — it is the work order for applying everything above, with all 25 edit
+targets re-verified at head.)
+
+---
+
+## 12. Applier's work order — every recommended edit in one place, each target verified present at head
+
+### §12.0 What this section is, and what it deliberately is not
+
+The assignment's deliverable item 5 is "**Recommended manifest edits** — exact section, exact
+replacement text. I will apply them." Four sittings later those edits are spread over 1,400 lines:
+twelve in §6, one in §8.3, one in §9.3, two in §10.4, two in §11.4. Whoever applies them should not
+have to reconstruct that list from the prose, and should not have to trust that the line numbers still
+resolve. So §12 is a **work order**: one row per edit, in apply order, with the file and the line at
+the advisor head this audit read, the finding it comes from, and the section that holds the exact
+replacement text.
+
+**No new claims are made here.** Every number, quote and disposition below is already published in
+§1-§11; §12 adds only collation, apply order, and one mechanical guarantee:
+
+> Every edit target listed below **still exists, at the line cited, in
+> `6778867dc8579eff3302d49d064c2bc0cf60ead2`** — the advisor-branch head at 12:59Z, which is
+> still the head at 14:40Z (`git ls-remote origin refs/heads/codex/mlxfast-maple-20260804-advisor`).
+> Checked mechanically, not by eye: `research/tools/r127a_s12_edit_target_check.py` reads each file
+> with `git show <sha>:<path>` and asserts a verbatim substring on the cited line. Output at 14:41Z:
+> **25/25 PASS**, exit 0. If a later head moves a target, that script says which one, in one second,
+> and it needs no network beyond the local object store.
+
+I have applied **none** of these edits. This branch is read-only by assignment, and `CURRENT_RESEARCH_STATE.md`
+and `research/tools/slot_holder_arithmetic.py` are owned by others.
+
+### §12.1 The work order
+
+Tiers: **D** = decision-grade (a successor who reads the unedited text will price a decision wrongly);
+**C** = correctness of a banked number, no disposition change; **P** = provenance label or citation.
+
+| # | target at `6778867d` | tier | edit | replacement text | finding |
+|---|---|---|---|---|---|
+| A1 | `manifest:999-1004` (§6.6 currency table) | **D** | Replace the four rows; add the two-hosts-×-two-quantities paragraph above them. Per §8.1, prefer **adding** the `D₁₂₈` row and labelling every row `(host, harness, step count)` over deleting the 8882/8213 rows — their arithmetic is right for their own denominators | §6.1 | F1 |
+| A2 | `manifest:1008-1014` (§6.6 consequence (a)) | **D** | Replace the paragraph: the `0.00586 %/µs` constant is **sourced and correct** for the scored 128-step local harness; drop `UNSOURCED`/"Do not reuse" | §6.2 | F1 |
+| A3 | `manifest:1029-1033` (§6.6 requirement table) | **D** | Restore `44 / 85` as the local column (`0.26/0.005860 = 44.4`, `0.50/0.005860 = 85.3`); keep the ranked column 17/32/82; label the 8882/8213 columns by harness | §6.3 | F1 |
+| A4 | `manifest:1035-1036` | **D** | Apply **with A3 or not at all**. The sentence is backwards: the retired 44/84 column was right to within rounding, and the 31/59 that replaced it sets the bar **≈30 % low — the flattering direction** | §8.1 | F1 |
+| A5 | `manifest:1041-1046` (§6.6 closing) | C | Replace the last clause: the +0.50 % target needs **85** local µs/step against a phantom band topping out at ≈64 | §6.4 | F1 |
+| A6 | `manifest:1048-1052` (§7-item-2 reprice) | C | `0.75 × 350/12798 =` **2.05 %**, not 2.94 % | §6.5 | F1 |
+| A7 | `manifest:1054` ("Rule for reuse") | P | Name the **harness and step count**, not only the host: one host carries two step lengths (`T`, `D`) and two denominators (128, 1023) | §6.6 | F1 |
+| A8 | `manifest:819-820` (§6.5) | **D** | Same inversion as A4, second copy. Delete the clause superseding 44/84 with 31/59 | §8.1 | F1 |
+| A9 | `manifest:466-468` (§5, o_proj) | C | **−35 µs/step** (#718 corrected); the −82/−80/−79.4 renderings are superseded | §6.7 | F5 |
+| A10 | `manifest:241` (§4 row 4) | C | `−0.282 % of the decode step = −0.135 % of score` | §6.8 | F6 |
+| A11 | `manifest:481` (§5) | C | Same string, second copy — apply both or neither | §6.8 | F6 |
+| A12 | `manifest:416` (§4c) | P | "routed-wall replication" → "routed-**expert** measurement": #731 is a different kernel and a disjoint dispatch site from delta 1 | §6.9 | F7 |
+| A13 | `manifest:258` (§4a/§4b banner) | P | Delete "as much as −0.14 % on edward's routed-wall measurement (#731)" — that bound belongs to the routed kernel, not to delta 1 | §6.9 | F7 |
+| A14 | `manifest:321` (§4b DO-NOT-LAND cell) | C | Restore §4c's hedge in the row an owner acts on: isolated leg **+4.73 ± 0.52 µs/step**, wall arm null `[−19.33, +17.86]` ⇒ `|Δscore| ≤ 0.11 %` | §6.10 | F8 |
+| A15 | `manifest:239` (§4 row 2) | C | delta 2 is **+0.062 % of score** (seed elasticity 0.362, not the bare 0.25 prefill weight); still excluded | §6.11 | F9 |
+| A16 | `manifest:503` (§5) | C | Same, second copy | §6.11 | F9 |
+| A17 | `manifest:157-158` (§1 operating point) | C | Lead with the measured `mean_D = 4910.9 µs`; note the `S`/`T` pair implies 5087 µs and r-ideas gives 4908.372 (3.6 % spread); σ from the stated `S`/`T` is **15.03 %**, not 14.98 % | §6.12 | F10 |
+| A18 | `manifest:954` (§6.5c bracket, "≈0 %" row) | **D** | Print σ with its interval and **stop using the replicate sd of `cs` as a rail on a draw factor**; the lower rail is not a rail (F19). Re-price the row from the directly measured `sd(ln official) = 0.3728 %` centred on the program mean: **P ≈ 0.037 %, honest 95 % interval [≈0 %, 12 %]** | §8.3 + §10.3 | F15, **F19** |
+| A19 | `manifest:908` (§6.5c, fern discount) | **D** | Replace the between-program-leakage sentence with the 12-program ledger result (`sd(ln L) = 0.5568 %`, 11 dof, CI `[0.394 %, 0.945 %]`; `cs` spans 8.8 %; `corr(ln cs, ln L)` indistinguishable from zero) | §11.4 item 1 | **F21** |
+| A20 | `CRS:3412` | **D** | "Record still **2.61650354381456**" is the **retired** crown (superseded by `cdcd091` 2.619553 at ≈02:14Z, `brief:132-133`). Stamp it `as-of`, or delete | §10.4 | **F20** |
+| A21 | `CRS:3511-3514` (P(record) table) | **D** | The table is the retired crown over the median draw (`2.616504/0.998597 = 2.620180`), so every per-draw figure is optimistic by **≈1.7-1.9×**. Re-anchor on `BAR = 2.6195531094824` or delete the table | §10.4 | **F20** |
+| A22 | `CRS:3509` | C | Date-stamp the median draw: `0.998597 (measured <date>; the 2026-08-04 ledger gives 0.992644, +0.60 % apart — 1.6× the predictive σ)` | §11.4 item 2 | F21 |
+| A23 | `tool:35-36` | **D** | Comment that `need = BAR / OUR_PROGRAM` is a **draw factor** (`OUR_PROGRAM` is a `cs`, `BAR` an official score) — that is why a `cs` replicate sd cannot be its σ | §10.4 | **F19** |
+| A24 | `tool:37-44` | **D** | Replace `WITHIN_SD` in the `need` comparison with the measured `sd(ln official)`, and centre **both** rows on the program mean. Four lines | §10.4 | **F19** |
+| A25 | `manifest:872-874` (§6.5b heading) | P | Mark "primary source not in tree (PR #686, closed unmerged; `research/fern-r109f-interim-1200Z.md` absent at head)" and point at §9.5, whose route to the same conclusion is entirely in-tree. **The conclusion survives; the citation does not** | §9.3 | F17 |
+
+### §12.2 Apply order and the three couplings that matter
+
+1. **A3 with A4, and A10 with A11, and A15 with A16.** Each pair is the same quantity written twice.
+   Applying one of a pair leaves the document self-contradicting, which is worse than leaving both.
+2. **A1-A8 are one edit in seven places.** They are all F1. If only one thing is applied from this
+   whole work order, apply A2 + A3 + A4: they are what stops the next campaign from screening against
+   a bar set ≈30 % too low in the flattering direction.
+3. **A18, A19, A23, A24 are one edit in four places** — F19 plus F21. Order matters: A19 removes the
+   stated reason for discarding fern's number, A23 names the random variable, then A18 and A24 re-price
+   with the right σ and the right centre. Doing A18 first leaves the tool disagreeing with the
+   document it is supposed to reproduce.
+4. **A20 and A21 travel together**, and both belong to a file this branch does not own.
+
+Not in this work order, deliberately: everything the advisor closed before 12:45Z (σ = 0.49 %, the
+0.378 % gap, the per-draw success table, delta 1 itself, §6.5/§6.5b/§6.6 probability rows), the
+`8919/8567` pair (maple-alphonse, #744), and the archives — §11.1 gives them a clean bill and they
+need no edit because they timestamp their constants.
+
+### §12.3 What is left unresolvable, restated in one place
+
+The `UNSOURCED` list a successor should not spend time re-hunting: `research/fern-r109f-interim-1200Z.md`
+(named source of §6.5b, absent at head, F17); `N-K3-AT-DRAM-ROOF` (§7 item 4, zero hits outside the
+manifest, names no PR, F17); the `1.012550 / 1.024492` pair (appear nowhere, F17); the two `dc437b0e`
+tree digests (not local git objects — the tree needs the r106e rebuild, §9.5); and `8882`'s attribution
+to a *scored* denominator (the figure is real and nezuko's, the 1023-step denominator is not a scored
+one, F16).
