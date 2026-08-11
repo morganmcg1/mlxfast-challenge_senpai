@@ -8053,10 +8053,41 @@ private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
 let lagunaRoutedGateUpR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTED_GATEUP_R1"] != "0"
 
+/// Threads per threadgroup for the routed gate/up QMV. The total simdgroup
+/// count, the row each simdgroup owns, its K order, and its reduction are all
+/// pinned; only the number of simdgroups that share one L1 changes.
+let lagunaRoutedQMVThreadsPerThreadgroup: Int = {
+    guard
+        let raw = ProcessInfo.processInfo.environment["DARKBLOOM_ROUTED_QMV_TG"],
+        let value = Int(raw), value == 128 || value == 256
+    else { return 64 }
+    return value
+}()
+
 private func lagunaRoutedSwiGLUQMVPackedTop8R1Source(
-    groupExpression: String = "threadgroup_position_in_grid.x"
+    groupExpression: String = "threadgroup_position_in_grid.x",
+    simdgroupsPerThreadgroup: Int = 2
 ) -> String {
-    """
+    // Each output row is still accumulated by exactly one simdgroup: the
+    // shipped global simdgroup ordinal `group * 2 + simd_group` is recovered
+    // from the wider threadgroup before any addressing is derived.
+    let rowBinding =
+        simdgroupsPerThreadgroup == 2
+        ? """
+uint group = \(groupExpression);
+uint expert_slot = group % routed_experts;
+uint tile = group / routed_experts;
+uint simd_group = simdgroup_index_in_threadgroup;
+"""
+        : """
+uint laguna_simd_ordinal = (\(groupExpression)) * \(simdgroupsPerThreadgroup)
+    + simdgroup_index_in_threadgroup;
+uint group = laguna_simd_ordinal / 2;
+uint expert_slot = group % routed_experts;
+uint tile = group / routed_experts;
+uint simd_group = laguna_simd_ordinal % 2;
+"""
+    return """
 constexpr uint input_width = 2048;
 constexpr uint output_width = 512;
 constexpr uint block_width = 512;
@@ -8071,10 +8102,7 @@ constexpr uint scale_kblock_bytes = scale_sub_bytes;
 constexpr uint scale_tile_bytes = 4 * scale_kblock_bytes;
 constexpr uint packed_expert_bytes = 128 * scale_tile_bytes;
 
-uint group = \(groupExpression);
-uint expert_slot = group % routed_experts;
-uint tile = group / routed_experts;
-uint simd_group = simdgroup_index_in_threadgroup;
+\(rowBinding)
 uint lane = thread_index_in_simdgroup;
 uint logical_row = tile * 2 + simd_group;
 \(lagunaRouterTop8PrecomputedPrelude)
@@ -8174,6 +8202,31 @@ private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
     ensureRowContiguous: true
 )
 
+/// MLX memoizes a Metal library and pipeline by kernel name, so each
+/// threadgroup geometry needs its own name.
+private func lagunaRoutedSwiGLUQMVPackedTop8R1Kernel(
+    threadsPerThreadgroup: Int
+) -> MLXFast.MLXFastKernel {
+    MLXFast.metalKernel(
+        name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2_tg"
+            + String(threadsPerThreadgroup),
+        inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
+        outputNames: ["activated"],
+        source: lagunaRoutedSwiGLUQMVPackedTop8R1Source(
+            simdgroupsPerThreadgroup: threadsPerThreadgroup / 32),
+        header: lagunaSharedSwiGLUQMVHeader + "\n"
+            + lagunaDecodeRouterOrdinalHeader + "\n"
+            + lagunaRouterTop8PrologueHeader,
+        ensureRowContiguous: true
+    )
+}
+
+private let lagunaRoutedSwiGLUQMVPackedTop8R1WideKernel:
+    MLXFast.MLXFastKernel? = lagunaRoutedQMVThreadsPerThreadgroup == 64
+        ? nil
+        : lagunaRoutedSwiGLUQMVPackedTop8R1Kernel(
+            threadsPerThreadgroup: lagunaRoutedQMVThreadsPerThreadgroup)
+
 let lagunaFusedSharedRoutedQMVEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_ROUTED_QMV_FUSED"] == "1"
 
@@ -8215,7 +8268,10 @@ func lagunaSharedRoutedSwiGLUQMV(
     packedScales: MLXArray,
     routerKeys: MLXArray
 ) -> (shared: MLXArray, routed: MLXArray)? {
+    // The appended grid needs one uniform threadgroup size and the shared body
+    // is written for 64 threads, so a wider routed geometry wins the conflict.
     guard lagunaFusedSharedRoutedQMVEnabled,
+        lagunaRoutedQMVThreadsPerThreadgroup == 64,
         lagunaSharedSwiGLUQMVRows1Enabled,
         lagunaRoutedGateUpR1Enabled,
         !lagunaSharedQMVWideCodesEnabled,
@@ -8271,10 +8327,13 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
     precondition(routerKeys.size == LagunaConstants.numExperts)
 
     if lagunaRoutedGateUpR1Enabled {
-        return lagunaRoutedSwiGLUQMVPackedTop8R1Kernel(
+        let threads = lagunaRoutedQMVThreadsPerThreadgroup
+        lagunaTrace("routed gate/up QMV r1 tg\(threads)")
+        return (lagunaRoutedSwiGLUQMVPackedTop8R1WideKernel
+            ?? lagunaRoutedSwiGLUQMVPackedTop8R1Kernel)(
             [input, fusedWeight, packedScales, routerKeys],
             grid: (LagunaConstants.numExpertsPerTok * 256 * 64, 1, 1),
-            threadGroup: (64, 1, 1),
+            threadGroup: (threads, 1, 1),
             outputShapes: [[
                 1, 1, LagunaConstants.numExpertsPerTok, 1,
                 LagunaConstants.moeIntermediateSize,
