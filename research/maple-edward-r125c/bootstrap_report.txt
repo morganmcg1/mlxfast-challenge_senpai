@@ -1,0 +1,69 @@
+==============================================================================
+R125-C block bootstrap -- CI95 on the MEDIAN paired per-block delta
+files    : /tmp/r125c-ladder/ladder_raw.csv
+reference: A   arms: A, B, D
+B=20000  seed=125  trim=16 leading steps  unit=BLOCK
+==============================================================================
+
+per-block arm level (us/token, median of steady per-step wall):
+  block              A             B             D
+  1            8209.42       8197.52       8225.67
+  2            8201.92       8191.29       8225.67
+  3            8171.33       8219.15       8223.67
+  4            8206.54       8200.33       8221.83
+  5            8205.21       8204.19       8227.71
+  6            8203.65       8202.31       8227.94
+
+------------------------------------------------------------------------------
+PAIRED CONTRAST  B - A   (negative = B FASTER)
+------------------------------------------------------------------------------
+  block 1   B=  8197.52  A=  8209.42  D=  -11.90 us  (runs=4)
+  block 2   B=  8191.29  A=  8201.92  D=  -10.62 us  (runs=4)
+  block 3   B=  8219.15  A=  8171.33  D=  +47.81 us  (runs=4)
+  block 4   B=  8200.33  A=  8206.54  D=   -6.21 us  (runs=4)
+  block 5   B=  8204.19  A=  8205.21  D=   -1.02 us  (runs=4)
+  block 6   B=  8202.31  A=  8203.65  D=   -1.33 us  (runs=4)
+
+  n_blocks       = 6
+  median D       =    -3.77 us/token   <-- POINT ESTIMATE
+  mean   D       =    +2.79 us/token
+  bootstrap CI95 = [  -11.26,   +23.40] us/token
+  covers zero    : YES
+  wrong-sign blk : 1 of 6
+  sign test      : 5 neg / 1 pos, exact two-sided p=0.2188
+  relative       : +0.0460 % decode speedup
+  implied phi    : 1.000345 (decode-only, prefill held at 1.0)
+
+------------------------------------------------------------------------------
+PAIRED CONTRAST  D - A   (negative = D FASTER)
+------------------------------------------------------------------------------
+  block 1   D=  8225.67  A=  8209.42  D=  +16.25 us  (runs=4)
+  block 2   D=  8225.67  A=  8201.92  D=  +23.75 us  (runs=4)
+  block 3   D=  8223.67  A=  8171.33  D=  +52.33 us  (runs=4)
+  block 4   D=  8221.83  A=  8206.54  D=  +15.29 us  (runs=4)
+  block 5   D=  8227.71  A=  8205.21  D=  +22.50 us  (runs=4)
+  block 6   D=  8227.94  A=  8203.65  D=  +24.29 us  (runs=4)
+
+  n_blocks       = 6
+  median D       =   +23.12 us/token   <-- POINT ESTIMATE
+  mean   D       =   +25.74 us/token
+  bootstrap CI95 = [  +15.77,   +38.31] us/token
+  covers zero    : NO
+  wrong-sign blk : 0 of 6
+  sign test      : 0 neg / 6 pos, exact two-sided p=0.0312
+  relative       : -0.2820 % decode speedup
+  implied phi    : 0.997890 (decode-only, prefill held at 1.0)
+
+------------------------------------------------------------------------------
+SAME-ARM NULL  A late-run - A early-run (byte-identical work)
+------------------------------------------------------------------------------
+  block 1   run1=  8219.46  run6=  8200.58  D=  -18.87 us
+  block 2   run9=  8203.75  run10=  8200.12  D=   -3.62 us
+  block 3   run14=  8202.83  run17=  8135.71  D=  -67.13 us
+  block 4   run19=  8205.83  run24=  8207.17  D=   +1.33 us
+  block 5   run27=  8203.00  run28=  8208.67  D=   +5.67 us
+  block 6   run32=  8205.58  run35=  8202.79  D=   -2.79 us
+
+  median null D  =    -3.21 us/token
+  null CI95      = [  -43.00,    +3.50] us/token
+  max |null D|   =    67.13 us/token
