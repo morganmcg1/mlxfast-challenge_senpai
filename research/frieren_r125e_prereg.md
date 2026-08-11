@@ -69,3 +69,25 @@ If no arm clears the confirm bar, the reported conclusion is that the shipped
 defaults of the current composition are already at or within ~10 µs/step of the
 best available setting for every knob screened, and the table of losers is the
 deliverable.
+
+## Addendum, written 11:10Z with 15/32 screen runs visible, before pass 2
+
+Pass 1 (runs 1-15) is on disk; the counterbalanced reverse pass is still
+running. The confirm-family selection rule is fixed now, so the choice cannot be
+tuned on the replicate:
+
+1. **Slot 1 (mandatory):** `NVFP4_NIBBLE_SPLIT` at whichever of `NS0`/`NS2`
+   ranks better in the drift-corrected 32-run screen. Confirmed regardless of
+   screen sign — the advisor asked for this number explicitly, so it is measured
+   even if the screen ranks it a loser. A deliberate deviation toward *more*
+   measurement than screen-then-confirm would buy.
+2. **Slot 2:** the best drift-corrected arm among
+   `{RP0, RP5, ASDEN, ASSPA, ASLAD, OPSG4}`. `OPR1`/`OPR4` are excluded from
+   selection: the advisor closed that axis (#718 interior optimum at `rps=2`,
+   #719) after this screen was already launched, so those two arms are reported
+   as free replication only and are never promoted to a confirm slot.
+3. **Slot 3:** the best drift-corrected `DECODE_ASYNC_STAGE` arm
+   (`ASOFF/ASDEN/ASSPA/ASLAD/ASNRM`), if slot 2 did not already take one.
+
+Family size stays 3, so the Bonferroni level stays 98.3% and the win bar is
+unchanged: 98.3% CI upper bound < 0 **and** point estimate ≤ −10 µs/step.
