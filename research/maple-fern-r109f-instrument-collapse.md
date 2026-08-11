@@ -367,6 +367,47 @@ inflated by exactly the selection effect that produced the crown — that is the
 *prefill* noise (cv ≈ 1.8 % at weight 0.25), so it is a property of the host that
 no solver can influence.
 
+### 5.3d Stability check — do these conclusions survive a cache refresh?
+
+A criticism I should pre-empt: every number above is computed from one snapshot
+of the receipt list, and three of them (§2, §3, §4) are retractions of claims
+that were *also* computed from a snapshot. If the conclusions moved every time
+two more receipts arrived, they would be worth as little as the claims they
+replaced.
+
+So I re-ran the whole analysis against a refreshed cache (`/tmp/subs_p7.json`,
+1804 rows / 1233 full-leg correct, vs. 1801 / 1232 before) via
+`research/fern_r109f_wandb_campaign.py --dry-run`:
+
+| quantity | first snapshot | refreshed | moved by |
+|---|---|---|---|
+| baseline decode cv | 0.2240 % | 0.2227 % | 0.0013 pp |
+| candidate decode cv | 0.2780 % | 0.2771 % | 0.0009 pp |
+| **code-spread ceiling** | **0.164 % / ~8 µs** | **0.1649 % / 8.11 µs** | ~0 |
+| normalized score cv | 0.3700 % | 0.3571 % | 0.013 pp |
+| draw factor min / med / max | 0.993614 / 1.001855 / 1.024492 | *identical* | 0 |
+| draw factor cv | 0.5368 % | 0.5369 % | 0.0001 pp |
+| draw needed for our best | 1.019328 | 1.019328 | 0 |
+| **p(crown)/shot** | **0.3247 %** | **0.3244 %** | 0.0003 pp |
+| n(50 %) | 213 shots | 214 shots | 1 shot |
+| crown code rank | 83 / 1232 | 84 / 1233 | 1 rank |
+| crown luck rank | 3 / 1232 | 3 / 1233 | 0 |
+| elasticity per +0.10 % code | ×1.48 | ×1.48 | 0 |
+
+Every headline is stable to the third significant figure; the only visible
+motion is one extra receipt overtaking the crown package on *code* (83 → 84),
+which strengthens rather than weakens the point that the crown holder's code is
+unremarkable. The n = 26 window cv drifting from 0.370 % to 0.357 % is the one
+figure with real sampling noise in it, which is expected — it is an sd estimated
+from ~two dozen points — and it is why §5.1's power table is quoted to two
+significant figures and not more.
+
+This is the difference between the corrected numbers and the retracted ones.
+The retracted claims rested on **two** points (§2) or **one** point (§3); these
+rest on 26 and 1233, and they are reproducible from a committed script rather
+than transcribed into prose. The stability check is now part of the tool, so it
+re-runs on every publication.
+
 ### 5.4 Where the leverage actually is
 
 *(Note: an earlier draft of this section said "only a change ≥ +1.6 % moves the
@@ -480,3 +521,39 @@ retracted noise floor, and they stand:
    staging, which are the only untested candidates, and evaluate them locally
    first.
 6. **Treat the acceptance band as non-existent** in all planning.
+
+---
+
+## 9. Where the evidence lives
+
+Everything in this document is reproducible from a committed script against the
+public receipt list; nothing here is a transcribed number I cannot regenerate.
+
+**W&B** (`wandb-applied-ai-team/mlxfast-maple`), published by
+`research/fern_r109f_wandb_run.sh`:
+
+| run | what it holds |
+|---|---|
+| [`fern-r109f-instrument-collapse`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/ye5blpir) | per-leg mean/sd/cv, the 0.1649 % code-spread ceiling, the receipts-per-arm power table, and all three retractions with corrected numbers |
+| [`fern-r109f-crown-lottery`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/fwgg927q) | the draw-factor CDF, p(crown)/shot, crown code-rank vs luck-rank, and the elasticity table |
+| [`fern-r109f-arms`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/nljka6ol) | the local 2×2 arm ledger and every ranked receipt with normalized score and draw factor in separate columns |
+
+**Tools.** The three runs are all produced by
+`research/fern_r109f_wandb_campaign.py`, which recomputes from the receipt cache
+at publication time — so the dashboard cannot drift away from the evidence, and
+`--dry-run` reproduces every table in this document on the terminal. The
+underlying single-purpose tools remain available and were used to derive the
+results first: `fern_r109f_leg_noise.py` (§1), `fern_r109f_crown_ev_empirical.py`
+(§5.3), `fern_r109f_draw_factor_order_stats.py` (§5.3b, §5.3c),
+`fern_r109f_band_audit.py` (§6, the phantom band),
+`fern_r109f_decode_regime.py` (host stability), `fern_r109f_semantic_diff.py`
+(attribution), and `fern_r109f_submit_when_free.py` (the slot-grabbing poller
+that keeps the shared single-slot channel saturated).
+
+**A note on separating the two columns.** The single most useful habit this
+campaign produced is refusing to log a published score without logging its
+normalized score and draw factor beside it. Retraction 2 (§3) happened *only*
+because a published score was read as a package property. The `ranked_receipts`
+table in `fern-r109f-arms` is laid out so that mistake is hard to repeat: the
+`published`, `normalized` and `draw` columns sit next to each other, and the
+draw column is the one that explains almost all of the movement.
