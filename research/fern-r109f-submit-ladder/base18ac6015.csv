@@ -1,1 +1,4 @@
 label,draw,started_utc,exit,git_head,commit,score_local,ns_official,decode_s_per_tok,prefill_s_per_tok,max_abs_diff,golden_hash,passed,passed_correctness,wall_s
+base18ac6015,1,2026-08-11T11:01:06Z,0,7a21a6c5bfea854a33b3612658137d1cf5421922,,,,,,,,,ERR:[Errno 2] No such file or directory: 'research/fern-r109f-submit-ladder/base18ac6015-1.json',188
+base18ac6015,2,2026-08-11T11:04:14Z,0,7a21a6c5bfea854a33b3612658137d1cf5421922,,,,,,,,,ERR:[Errno 2] No such file or directory: 'research/fern-r109f-submit-ladder/base18ac6015-2.json',136
+base18ac6015,3,2026-08-11T11:06:30Z,0,7a21a6c5bfea854a33b3612658137d1cf5421922,,,,,,,,,ERR:[Errno 2] No such file or directory: 'research/fern-r109f-submit-ladder/base18ac6015-3.json',133
