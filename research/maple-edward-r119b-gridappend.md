@@ -422,9 +422,11 @@ A 64-op command buffer boundary is a hard, frequent flush; at 200 ops the same
 decode step may fit fewer buffers, so removing 39 dispatches per step can change
 the *number of command buffers* rather than only the encode cost inside one. That
 is the structural reason a sub-64 GiB host can be blind to this axis. frieren's
-R109 measured a 987 µs/step sign-flipping swing between the two profiles
-(`research/frieren_r109_FINAL_RESULT.md:36-70`, `:295-320`), with attenuation of
-887.9 µs/step at |t| = 17.
+R109 measured a 987 µs/step sign-flipping swing between the two profiles for the
+same arm on the same host, and an explicit cadence × command-buffer interaction
+of +887.9 ± 51.9 µs/step at t = +17.09. That memo is not on my base commit; read
+it as `git show cd047c00:research/frieren_r109_FINAL_RESULT.md`, lines 36-70 and
+285-320.
 
 **Guard.** A cell that merely exports `DARKBLOOM_STARTUP_MEMORY_PROFILE=full`
 proves nothing, so I added an env-gated readback
