@@ -17,7 +17,11 @@ executable, guard-checked applier and found three more copies of the F19 bracket
 **§14 adds F22**: `research/MAPLE_TO_SLOT_HOLDER_BRIEF.md` — the one-page handover, outside every
 earlier section's scope — carries F1 as a *prescription* ("never price a delta with 0.00586 %/µs",
 `:181-183`), which sets local screening bars ≈30 % too low; rows B1–B6 take the applier to 34 rows.
-Line references inside §8-§14 are
+**§15 adds F23**, found by following the brief's own reading list: `brief:60` says of
+`research/tools/account_draw_record.py` "(run it)", and that fifth artefact — also outside every
+earlier section's scope — still prints the superseded 0.95 %/1.48 % pair as the per-fire price and
+reads a rule-of-three *ceiling* as corroboration of it; rows C1–C2 take the applier to 36 rows over
+five files. Line references inside §8-§15 are
 head lines (`CRS:####` = `research/CURRENT_RESEARCH_STATE.md` at that head); §1-§7 line references are
 `67396bb6` lines, with the head equivalents tabulated in §8.1.
 
@@ -1429,6 +1433,17 @@ an instruction ("never price a delta with 0.00586 %/µs") on the one page a succ
 `research/MAPLE_TO_SLOT_HOLDER_BRIEF.md`, which was outside every earlier section's scope. The work
 order is 34 rows after §14 (28 A-rows + B1–B6).
 
+**Updated after §15: 23 findings, F1–F23**, and **five** are decision-grade. F23 is the same shape as
+F22 one step further out: the brief tells the reader to *run*
+`research/tools/account_draw_record.py` (`brief:60`), and that program prints
+`model, normal tail 0.95 %` / `model, empirical tail 1.48 %` as the per-fire price of a draw with no
+mention of the measured 0.04 %, while asserting that a ≤2.83 % ceiling corroborates it. The work order
+is **36 rows** after §15 (28 A-rows + B1–B6 + C1–C2) over **five** files. §15 also closes the scope
+question the earlier sections had assumed: the brief's reading list names exactly four artefacts, the
+manifest names a fifth tool, all six are now read, and the census of every other file carrying a
+retracted constant is archival. One near-miss is recorded there rather than fixed: two independent
+tools print `1.48 %` for a bare re-fire from unrelated inputs, which reads as replication and is not.
+
 ---
 
 ## 12. Applier's work order — every recommended edit in one place, each target verified present at head
@@ -1525,8 +1540,9 @@ one, F16).
 documents plus a script, at line numbers that move the first time anybody edits above them. So §12 is
 also shipped as a **data-driven applier** with baked-in content guards.
 
-`research/tools/r127a_s13_apply_work_order.py` — **34 rows**: 28 A-rows, one per §12 edit, plus six
-B-rows (B1–B6) added by §14 for `research/MAPLE_TO_SLOT_HOLDER_BRIEF.md`. Each row carries the tier
+`research/tools/r127a_s13_apply_work_order.py` — **36 rows**: 28 A-rows, one per §12 edit, six
+B-rows (B1–B6) added by §14 for `research/MAPLE_TO_SLOT_HOLDER_BRIEF.md`, and two C-rows (C1–C2) added
+by §15 for `research/tools/account_draw_record.py`. Each row carries the tier
 (D/C/P), the finding it discharges, the target `file:line`, the exact replacement text, and an **md5 of
 the text it expects to find** at advisor head `6778867dc8579eff3302d49d064c2bc0cf60ead2`. Two edit
 kinds: `span` (replace whole lines) and `subs` (exact substring replacements on one named line). It is
@@ -1534,7 +1550,7 @@ idempotent — a row whose target already reads as the replacement reports `alre
 `DRIFT` — and it applies per file in descending line order, so line drift between rows cannot happen.
 
 ```
-python3 research/tools/r127a_s13_apply_work_order.py            # --check: verify all 34 guards
+python3 research/tools/r127a_s13_apply_work_order.py            # --check: verify all 36 guards
 python3 research/tools/r127a_s13_apply_work_order.py --emit-patch > wo.patch
 python3 research/tools/r127a_s13_apply_work_order.py --emit-patch --tiers D          # decision-grade only
 python3 research/tools/r127a_s13_apply_work_order.py --emit-patch --only A2,A3,A4    # minimum useful set
@@ -1544,22 +1560,24 @@ python3 research/tools/r127a_s13_apply_work_order.py --print-guards             
 ```
 
 `--apply` refuses to run without an explicit `--root`, because this branch does not own
-`maple_endgame_handoff_manifest.md`, `CURRENT_RESEARCH_STATE.md`, `slot_holder_arithmetic.py` or
-`MAPLE_TO_SLOT_HOLDER_BRIEF.md`. The four pre-emitted patches are committed instead:
+`maple_endgame_handoff_manifest.md`, `CURRENT_RESEARCH_STATE.md`, `slot_holder_arithmetic.py`,
+`MAPLE_TO_SLOT_HOLDER_BRIEF.md` or `account_draw_record.py`. The five pre-emitted patches are committed
+instead:
 
 | artifact | rows | lines | what it is |
 |---|---|---|---|
-| `research/artifacts/r127a/work_order_all.patch` | 34 (16 D, 12 C, 6 P) | 477 | the whole work order |
-| `research/artifacts/r127a/work_order_D_tier.patch` | 16 | 310 | decision-grade only (F1, F19, F20, F21, F17) |
+| `research/artifacts/r127a/work_order_all.patch` | 36 (17 D, 12 C, 7 P) | 510 | the whole work order |
+| `research/artifacts/r127a/work_order_D_tier.patch` | 17 | 321 | decision-grade only (F1, F19, F20, F21, F17) |
 | `research/artifacts/r127a/work_order_A2_A3_A4.patch` | 3 | 54 | the minimum useful set: stop screening against a bar ≈30 % too low |
 | `research/artifacts/r127a/work_order_B1_brief_trap.patch` | 1 | 22 | if you fix one thing: the brief's trap 4, which is F1 as an instruction (§14) |
+| `research/artifacts/r127a/work_order_refire_price_coupled.patch` | 3 (B2, C1, C2) | 58 | the re-fire price in both places that quote it: the brief's §2 table and the program its §2a says to run (§15) |
 
-**Verification performed** (worktree `git worktree add --detach /tmp/r127a_head 6778867d…`, i.e. a
-pristine advisor head, then removed; re-run in full after the B-rows landed):
+**Verification performed** (worktree `git worktree add --detach /tmp/r127a_head3 6778867d…`, i.e. a
+pristine advisor head, then removed; re-run in full after the B-rows and again after the C-rows):
 
-1. `--check` → **34/34 targets verified** against the baked guards.
-2. `git apply --check -p1` → **CLEAN** for all four patches independently.
-3. Full patch applied; `git status` showed exactly the four intended files modified.
+1. `--check` → **36/36 targets verified** against the baked guards.
+2. `git apply --check -p1` → **CLEAN** for all five patches independently.
+3. Full patch applied; `git status` showed exactly the five intended files modified.
 4. The patched `research/tools/slot_holder_arithmetic.py` **runs** and prints the corrected block:
    `z (measured official sd) 3.383 -> normal p = 0.036 %` beside fern's `z = 2.344 -> 0.95 %` and the
    12-programme `z = 2.265 -> 1.18 %`. Section E's `ratio of odds ours/theirs: 3.3x` still means what
@@ -1594,7 +1612,7 @@ prose work order silently gets wrong:
   the moment the patch lands** (it moves to 3521). Replaced with a content-based reference.
 
 **What this does not do.** It does not touch `Sources/`, `Vendor/` or `benchmark.json`; it runs no
-build, no benchmark and no GPU; and it does not write to the four target files from this branch. If
+build, no benchmark and no GPU; and it does not write to the five target files from this branch. If
 the advisor branch has moved past `6778867d`, `--check` will name every drifted row rather than apply a
 stale edit, and `--print-guards` re-bakes the guards in one pass.
 
@@ -1677,4 +1695,155 @@ so it was easy to treat as derived from the manifest and therefore already cover
 it is *edited*, independently, and the editing is what converted F1 from a mispriced constant into a
 "never do this" rule. The general lesson for the next audit, and it is cheap: **audit the shortest
 document first**, because errors are compressed there, stated imperatively, and read by everyone.
+
+## §15 Sixth addendum, 15:45Z — F23: the brief tells a successor to run a program, and the program still quotes the retracted price
+
+§14 ended by saying the shortest document should be audited first. Doing that raised the obvious next
+question, which the 34-row work order had assumed rather than checked: **is "four target files" the
+whole surface?** The work order's scope was assembled by walking the document tree Maple happens to
+have written. A successor does not walk a tree; a successor reads the one page they were handed and
+does what it says. So the completeness test is not "which files mention these numbers" but **"which
+files does the handover instruct the reader to open"** — and that list is written down, in the brief,
+in two passages. Verbatim at head, `MAPLE_TO_SLOT_HOLDER_BRIEF.md:4-6` and `:59-60`:
+
+```
+Every figure below is re-derived in `research/tools/slot_holder_arithmetic.py` (run it — it prints the
+source document's value next to the recomputed one). Depth, provenance and the five errors I made
+getting here are in `research/maple_endgame_handoff_manifest.md`; section pointers are given per line.
+```
+
+```
+`research/receipts/account_submissions_1254Z.tsv` and reduced by
+`research/tools/account_draw_record.py` (run it):
+```
+
+Those are the only four artefacts the brief points at (`git grep -nE 'research/|\.py|\.tsv'` over the
+brief returns exactly lines 4, 6, 59, 60), and **§1–§14 had read three of them**: the manifest
+(§1–§10), `slot_holder_arithmetic.py` (§9, rows A23/A24) and the brief itself (§14). The TSV is data,
+not claims, and was read in §9 to recompute the record. The fourth —
+`research/tools/account_draw_record.py`, flagged **"(run it)"**, i.e. presented as live guidance and
+not as an archive — was in nobody's read set: not in §1–§14, not in the A/B work order, not in the
+advisor's own pre-12:45Z closures. It is 130 lines and it carries the retracted price.
+
+**Defect 1 (row C1, D-tier, F19), `research/tools/account_draw_record.py:108` at `6778867d`:**
+
+```
+    for p, name in ((0.0095, "model, normal tail"), (0.0148, "model, empirical tail")):
+```
+
+The two lines under it multiply each `p` by `(1 − failure rate)` and print the result as "the real
+per-fire value". So the program a successor is told to run prints **0.95 % and 1.48 %** as *the* price
+of one draw, with no mention of the measured figure at all — F19's `sd(ln official) = 0.3728 %` over
+the n = 5 replicate group `dc437b0e` puts a bare re-fire at **0.0367 %**, 26–40× lower. This is the same
+defect as B2 (§14) in the brief's §2 table, one hop further out, and it is worse here in one respect:
+a table on a page can be read sceptically, whereas a program's output is normally trusted as *computed*.
+Nothing in this program computes 0.0095 or 0.0148; they are typed-in constants imported from fern's
+pooled draw sd.
+
+C1 is non-destructive, the pattern B4 established: it adds the measured point estimate as the first
+row and keeps fern's two as explicitly-labelled rails.
+
+A `subs` row on line 108, guard `48ee6f014a488320b02404eff3970f90`:
+
+```
+((0.0095, "model, normal tail"), (0.0148, "model, empirical tail"))
+  ->  ((0.000367, "measured sd, F19"), (0.0095, "fern sd, normal tail"), (0.0148, "fern sd, empirical"))
+```
+
+Every name is ≤ 24 chars, so the `{name:<24}` column alignment in the line below survives untouched.
+
+**Defect 2 (row C2, P-tier, F19), `:118-119`:**
+
+```
+    print("  Brief sec.2's model-based 0.95%-1.48% sits inside that bound, so the model")
+    print("  survives a check that assumes no distribution at all. Anything like the")
+```
+
+Two problems in one sentence. (a) It cites "Brief sec.2" for figures that **B2 replaces**, so the
+moment the work order lands the citation dangles — the coupling between C1/C2 and B2 is exactly the
+A18↔A19 coupling, and is now written into `APPLY_ORDER_NOTES` so a partial application cannot leave
+the page and the program disagreeing. (b) The inference is invalid in a way worth naming, because it
+is the most seductive error on this whole page: **a ceiling cannot corroborate a point estimate.** The
+rule-of-three bound is `P(one draw ≥ bar) ≤ 2.83 %`; 0.95 % is inside it, 1.48 % is inside it, and
+F19's 0.0367 % is inside it too. A test that every candidate passes discriminates among none of them,
+so "the model survives" is true and empty. What the bound *does* do is refute anything above it, which
+is precisely the retracted 15.6 % — and that arithmetic (`p = 0.156` ⇒ `1.56e-08`) is genuine, so C2
+keeps it verbatim. The advisor's own commit message for this file makes the stronger claim the code
+implies — `brief 2a: model-free rule-of-three bound from 106 account draws (<=2.83%) corroborates
+0.95-1.48%` — which is why fixing the printed line matters more than it looks: the printed line is
+where the reasoning is taught.
+
+**A collision found while checking C2, and now printed as a warning.** The manifest cites a sixth
+artefact for its per-draw odds table — `research/tools/recompute_replicate_sigma_and_draw_odds.py`
+(`manifest:749`) — so it was read and run too. It is **clean** (its only retracted constant is the
+0.49 % σ named *as* retracted in its docstring, correct usage), and it reproduces its artifact exactly
+(`recomputed sd(ln cs)% == artifact%` for all seven groups). But its odds table prints
+
+```
+  sigma%   gain%       z  P(1 draw)  P(3 draws)
+  0.2276    0.00   2.174      1.48%       4.38%
+```
+
+i.e. **P(one draw) = 1.48 %** for a bare re-fire. That is the same number as fern's "empirical tail",
+from entirely unrelated inputs: this tool uses `sd(ln cs) = 0.2276 %` (worst well-behaved group) with
+the `0.4950 %` gap of a *different* program — the account's best-ever draw `e27f1ce = 2.6066497` — and
+a **normal** tail at `z = 2.174`; fern's 1.48 % is an **empirical** tail at `z = 2.344` on a pooled
+`sd = 0.538 %`. `1 − Φ(2.174) = 1.48 %` is a coincidence, not a replication. A successor who runs both
+programs, as the handover tells them to, sees 1.48 % twice and reasonably concludes the price has been
+independently confirmed. C2's replacement now says so in the output, naming both derivations. (Note
+also that the two tools are answering different questions: re-firing `e27f1ce` from 0.4950 % below the
+bar is not the same bet as re-firing the replicate group's program from 1.4441 % below it, which is
+what F19 prices. Neither is wrong; they are labelled identically and read as the same row.)
+
+**What is clean in this program** (so a successor does not re-litigate it): the 106-draw count, the
+zero clears, the `≤ 2.83 %` rule-of-three bound and the `−0.4926 %` best-ever gap all reproduce from
+the TSV at head; the failure-rate machinery is sound; and the program is careful about its *own* σ in a
+way it is not careful about fern's imported one — `:124-125`:
+
+```
+    print("What this does NOT show: these rows are not one program, so the sd printed")
+    print("above mixes code changes with draw noise and must not be quoted as a draw sd.")
+```
+
+which is the right caveat, stated by the same file that then quotes somebody else's draw sd without
+one.
+
+**Completeness census, stated so the next auditor can stop.** A repo-wide `git grep -lEI` at
+`6778867d` for the retracted constants and their neighbours (`0.00586`, `0.0095`, `0.0148`, `0.95 %`,
+`1.48 %`, `15.6 %`, `12798`) matches **166 tracked files**: 163 under `research/`, 2 under `senpai/`,
+1 under `Vendor/`. The residue is not 161 open findings:
+
+- `Vendor/mlx-swift/Tests/MLXTests/IntegrationTests.swift` is a numeric-tolerance substring, unrelated.
+- The two `senpai/competition_notes/*` files are dated (2026-07-29, 2026-08-02) and are campaign
+  infrastructure, out of scope; `senpai/research-frontier-briefing.md`'s `0.493 %` was checked
+  separately and is the gap expressed against the **leader's** score rather than the bar — a different
+  legitimate denominator, not a stale copy.
+- Everything else under `research/` is either a dated per-PR or per-round note (the §11.1 clean bill:
+  archival records of what was believed at the time, which must not be rewritten) or a substring
+  artefact in a JSON/txt receipt.
+- The claim-bearing, undated, *instructed-reading* set is exactly the five files the work order now
+  covers, plus the sixth tool above, which is clean. **The reading list is exhausted.**
+
+**Rows and verification.** The applier is now **36 rows (17 D / 12 C / 7 P) over five files** —
+manifest 23, brief 6, `CURRENT_RESEARCH_STATE.md` 3, `slot_holder_arithmetic.py` 2,
+`account_draw_record.py` 2 — and in a pristine worktree at `6778867d`:
+
+1. `--check` → **36/36 targets verified** (both C guards bake against head).
+2. All **five** patches `git apply --check -p1` → **CLEAN**.
+3. `work_order_all.patch` applies and modifies exactly the five intended files, nothing else.
+4. The patched `account_draw_record.py` **runs**, printing `measured sd, F19  0.04%`,
+   `fern sd, normal tail  0.95%`, `fern sd, empirical  1.48%`, and the corrected interpretation block
+   including the collision warning.
+5. The patched brief and the patched program now agree: `:33-34` labels fern's rows "a *pooled* sd, not
+   this program's" and B4's line notes the measured ≈0.04 % also clears the model-free bound.
+
+**Lesson, and it is a different one from §14's.** §14 said audit the shortest document first. §15 says
+**audit the reading list, not the document tree** — enumerate every artefact the handover tells a
+successor to open or run, and treat that closure as the definition of scope. Four rows of this work
+order exist only because a number was copied *out* of a document into a place a reader trusts more —
+an instruction or a program's stdout: **B1** (F1 as a prescription in the brief), **B2** (F19's price
+in the brief's table), **A24** (F19's σ in `slot_holder_arithmetic.py`) and **C1** (F19's price in
+`account_draw_record.py`). Two corollaries worth carrying:
+**a bound is not a measurement** (a ceiling refutes from above and corroborates nothing), and **the
+same number arriving twice is not two witnesses** until you have checked that its inputs differ.
 

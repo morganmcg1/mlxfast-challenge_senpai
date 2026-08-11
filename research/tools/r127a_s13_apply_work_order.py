@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""R127-A §13 — executable form of the §12 applier's work order (A1–A25 + B1–B4).
+"""R127-A §13 — executable form of the §12 applier's work order (A1–A25 + B1–B6 + C1–C2).
 
 Why this exists: #741 is read-only by assignment, so the 25 corrections in §12 of
 `research/r127a_provenance_audit.md` were shipped as prose. Prose does not survive a
@@ -8,14 +8,21 @@ Why this exists: #741 is read-only by assignment, so the 25 corrections in §12 
 at the audited advisor head) and can either emit a `git apply`-able patch or write the
 files in a checkout that the operator owns.
 
-The four B rows were added after §13: §14/F22 found that
+The six B rows were added after §13: §14/F22 found that
 `research/MAPLE_TO_SLOT_HOLDER_BRIEF.md` — the one page a successor is most likely to
 read *first* — carries F1 in prescriptive form ("never price a delta with
 0.00586 %/µs", trap #4), which instructs the reader to set local bars ≈30 % too low.
 
-It edits four files this branch does **not** own — the manifest, the state file,
-`slot_holder_arithmetic.py` and the slot-holder brief — which is why the default mode
-is `--check` and why `--apply` refuses to run without an explicit `--root`.
+The two C rows were added after §14: §15/F23 followed the brief's own reading list
+(`brief:4`, `:6`, `:60`) and found a fifth artefact on it — `account_draw_record.py`,
+which the brief tells the reader to *run* — still hard-coding the superseded
+0.95 %/1.48 % per-draw pair and citing it as "Brief sec.2's", a citation that B2 makes
+false the moment it lands.
+
+It edits five files this branch does **not** own — the manifest, the state file,
+`slot_holder_arithmetic.py`, the slot-holder brief and `account_draw_record.py` — which
+is why the default mode is `--check` and why `--apply` refuses to run without an
+explicit `--root`.
 
 No GPU, no build, no benchmark, no network. Pure text.
 
@@ -53,6 +60,7 @@ MAN = "research/maple_endgame_handoff_manifest.md"
 CRS = "research/CURRENT_RESEARCH_STATE.md"
 TOOL = "research/tools/slot_holder_arithmetic.py"
 BRIEF = "research/MAPLE_TO_SLOT_HOLDER_BRIEF.md"  # the one-page handover; B-rows, #741 §14/F22
+TOOL2 = "research/tools/account_draw_record.py"   # 5th artefact on the brief's reading list; C-rows, §15/F23
 
 # ---------------------------------------------------------------------------
 # The work order. Two edit kinds:
@@ -306,6 +314,33 @@ B5_NEW = [
     "flip; on the measured σ it is **2 %**.",
 ]
 
+# C2: `account_draw_record.py` lines 118-122. Two defects in one sentence. (a) It cites
+# "Brief sec.2's model-based 0.95%-1.48%" — B2 replaces those figures, so the citation
+# dangles. (b) It reads a *ceiling* as corroboration of a point estimate: 0/106 ⇒
+# ≤2.83 % is compatible with 0.95 %, with 1.48 % and equally with F19's 0.04 %, so it
+# discriminates among none of them. The 15.6 % refutation is genuine and is kept verbatim
+# in arithmetic (p=0.156 ⇒ 1.56e-08), because that value *is* above the ceiling.
+# The replacement also names one collision a successor will otherwise read as replication:
+# `research/tools/recompute_replicate_sigma_and_draw_odds.py` (the manifest's cited source
+# for the per-draw odds table, `manifest:749`) prints P(1 draw) = 1.48 % as well, but from
+# sd 0.2276 % and the 0.4950 % gap of a *different* program (e27f1ce) at z = 2.174 normal,
+# where fern's 1.48 % is an *empirical* tail at z = 2.344 on sd 0.538 %. Same digits, no
+# shared input. That tool is otherwise clean at REF (checked, §15).
+C2_NEW = [
+    '    print("  Every candidate for sec.2 sits inside that bound: the measured 0.04%")',
+    '    print("  (#741 F19: sd(ln official) = 0.3728%, n=5, this program) and fern\'s")',
+    '    print("  0.95%-1.48% (pooled draw sd 0.538%) alike. A ceiling cannot corroborate a")',
+    '    print("  point estimate - it only refutes what lies above it - so read this line as")',
+    '    print("  \'not refuted\', and take the per-draw price from the measured sigma above.")',
+    '    print("  One trap: research/tools/recompute_replicate_sigma_and_draw_odds.py also")',
+    '    print("  prints 1.48%, from sd 0.2276% and a 0.4950% gap for a different program")',
+    '    print("  (e27f1ce, normal tail z=2.174); fern\'s 1.48% is an empirical tail at")',
+    '    print("  z=2.344 on sd 0.538%. Same number, unrelated inputs - not a replication.")',
+    '    print("  What the ceiling does refute is the retracted 15.6%: at p=0.156, seeing 0")',
+    '    print("  clears in", len(allv), "draws has")',
+    '    print("  probability", f"{(1-0.156)**len(allv):.3g}", "- which is why that number was wrong.")',
+]
+
 EDITS = [
     # id, tier, finding, path, kind, payload, guard
     dict(id="A1", tier="D", finding="F1", path=MAN, kind="span", start=999, end=1004,
@@ -406,6 +441,16 @@ EDITS = [
          subs=[("that draw is worth ≤1.5 %",
                 "that draw is worth ≈0.04 % on the measured σ (model-free ceiling ≤2.83 %, rule of three on 0/106)")],
          guard="a44fc7c109503789054b04db8fe27e15", note="brief §5 — same conclusion, price the last draw honestly"),
+    # --- C rows: the fifth artefact on the brief's own reading list (#741 §15 / F23).
+    #     `brief:60` says "(run it)", so this file is read as *live guidance*, not as an
+    #     archive; it was outside the read set of §1–§14 and outside the A/B work order.
+    dict(id="C1", tier="D", finding="F19", path=TOOL2, kind="subs", line=108,
+         subs=[('((0.0095, "model, normal tail"), (0.0148, "model, empirical tail"))',
+                '((0.000367, "measured sd, F19"), (0.0095, "fern sd, normal tail"), '
+                '(0.0148, "fern sd, empirical"))')],
+         guard="48ee6f014a488320b02404eff3970f90", note="per-fire table — print the measured F19 point estimate first, keep fern's rails"),
+    dict(id="C2", tier="P", finding="F19", path=TOOL2, kind="span", start=118, end=122,
+         new=C2_NEW, guard="7875947610a8c9c6f1e0c2292a5b5baf", note="interpretation — dangling 'Brief sec.2's' citation; ceiling ≠ corroboration"),
 ]
 
 APPLY_ORDER_NOTES = """
@@ -415,9 +460,13 @@ A18, A19, A19b, A19c, A19d, A23, A24 are one edit in seven places (F19 + F21); A
 are the second, third and fourth copies of the [~0 %, 1.5 %] bracket and of the
 'between-program leakage' discount, found while checking that the patched document did not
 contradict itself four lines below A18's table. Apply the whole F19/F21 group or none of it.
-B1 is F1 in the slot-holder brief and B2/B3/B4 are F19/F21 there (§14). B1 is the single
-highest-value row in the table: it is the only place where a wrong currency is written as an
-instruction ("never price a delta with 0.00586 %/µs") on the page a successor reads first.
+B1 is F1 in the slot-holder brief and B2/B3/B4/B5/B6 are F19/F21 there (§14). B1 is the
+single highest-value row in the table: it is the only place where a wrong currency is written
+as an instruction ("never price a delta with 0.00586 %/µs") on the page a successor reads first.
+C1 and C2 belong to the F19/F21 group as well (§15): C1 is coupled to B2 in the same way A18
+is coupled to A19 — B2 re-prices the brief's sec.2 figures and C1/C2 re-price the tool that
+sec.2 tells the reader to run, so applying B2 without C1+C2 leaves the page and the program it
+cites disagreeing, which is the failure mode that produced F19 in the first place.
 This tool applies per file in descending line order, so ordering is handled for you.
 """
 
@@ -526,7 +575,7 @@ def main() -> int:
     args = ap.parse_args()
 
     if args.apply and not args.root:
-        sys.exit("--apply needs an explicit --root: these four files are owned by others (usage error)")
+        sys.exit("--apply needs an explicit --root: these five files are owned by others (usage error)")
     edits = select(args)
     paths = sorted({e["path"] for e in edits})
     source = (lambda p: read_root(args.root, p)) if args.root else read_ref

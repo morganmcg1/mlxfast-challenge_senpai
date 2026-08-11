@@ -265,6 +265,17 @@
  
  For scale, and this is the whole story of Maple's endgame: the biggest per-knob effect the campaign
  measured is ≈0.79 µs/step per extra simdgroup per threadgroup (§5,
+--- a/research/tools/account_draw_record.py
++++ b/research/tools/account_draw_record.py
+@@ -105,7 +105,7 @@
+     print("  P(clear the bar) by (1 - failure rate) to get the real per-fire value:")
+     recent = terminal[-40:]
+     fr = sum(1 for r in recent if r[2] == "failed") / len(recent)
+-    for p, name in ((0.0095, "model, normal tail"), (0.0148, "model, empirical tail")):
++    for p, name in ((0.000367, "measured sd, F19"), (0.0095, "fern sd, normal tail"), (0.0148, "fern sd, empirical")):
+         print(f"    {name:<24} {p * 100:.2f}%  ->  {p * (1 - fr) * 100:.2f}% "
+               f"after the {fr * 100:.0f}% recent failure rate")
+     print()
 --- a/research/tools/slot_holder_arithmetic.py
 +++ b/research/tools/slot_holder_arithmetic.py
 @@ -32,16 +32,33 @@

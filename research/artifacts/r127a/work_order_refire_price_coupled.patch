@@ -1,0 +1,58 @@
+--- a/research/MAPLE_TO_SLOT_HOLDER_BRIEF.md
++++ b/research/MAPLE_TO_SLOT_HOLDER_BRIEF.md
+@@ -29,11 +29,17 @@
+ 
+ | method | P(one draw ≥ bar) |
+ |---|---|
+-| within-program replicate σ = 0.186–0.228 %, normal (z = 6.3–7.8) | **≈0 %** |
+-| draw component over 1280 official rows, sd 0.538 %, normal (z = 2.344) | **0.95 %** |
+-| same decomposition, empirical tail | **1.48 %** ← upper bound, carries between-program leakage |
+-
+-**Plan against `[≈0 %, 1.5 %]` per draw.** (§6.5c; the earlier claims of 15.6 % and of "~1–1.5 %
++| **measured `sd(ln official) = 0.3728 %`** over the 5 official draws of *this* program (group `dc437b0e`), centred on `DRAW_MEDIAN = 1.001830` ⇒ z = 3.383 | **≈0.04 %** ← the predictive σ; use this row |
++| draw component over 1280 official rows, sd 0.538 %, normal (z = 2.344) | 0.95 % — a *pooled* sd, not this program's |
++| same decomposition, empirical tail | 1.48 % |
++| ~~within-program replicate σ = 0.186–0.228 %~~ | **not a rail at all**: that is a replicate sd of `cs`, and `need = BAR/cs` is a *draw factor* |
++
++**Plan against ≈0.04 % per draw, and quote the honest interval as `[≈0 %, 12 %]`** — the σ behind it
++has 4 dof, so one more draw is a lottery ticket either way (#741 F19). The 1.48 % row is **not**
++inflated by "between-program leakage": the between-program sd is separately `sd(ln L) = 0.5568 %`,
++11 dof, 95 % CI [0.394 %, 0.945 %] over 12 programs
++(`RESEARCH_STATE_ARCHIVE_through-round-21.md:5684-5695`), and `corr(ln cs, ln L)` is indistinguishable
++from zero, so fern's 0.538 % is confirmed rather than discounted (#741 F21). (§6.5c; the earlier claims of 15.6 % and of "~1–1.5 %
+ confirmed by two independent methods" are both retracted — the second was a spurious agreement
+ produced by applying the winner's-curse correction to one method and not the other.)
+ 
+--- a/research/tools/account_draw_record.py
++++ b/research/tools/account_draw_record.py
+@@ -105,7 +105,7 @@
+     print("  P(clear the bar) by (1 - failure rate) to get the real per-fire value:")
+     recent = terminal[-40:]
+     fr = sum(1 for r in recent if r[2] == "failed") / len(recent)
+-    for p, name in ((0.0095, "model, normal tail"), (0.0148, "model, empirical tail")):
++    for p, name in ((0.000367, "measured sd, F19"), (0.0095, "fern sd, normal tail"), (0.0148, "fern sd, empirical")):
+         print(f"    {name:<24} {p * 100:.2f}%  ->  {p * (1 - fr) * 100:.2f}% "
+               f"after the {fr * 100:.0f}% recent failure rate")
+     print()
+@@ -115,10 +115,17 @@
+     print("  the best was", f"{max(allv):.8f}", f"({(max(allv)/BAR - 1)*100:+.4f}% vs bar).")
+     print("  Rule of three on the full record bounds P(one draw >= bar) at",
+           f"<= {3.0/len(allv)*100:.2f}%.")
+-    print("  Brief sec.2's model-based 0.95%-1.48% sits inside that bound, so the model")
+-    print("  survives a check that assumes no distribution at all. Anything like the")
+-    print("  retracted 15.6% does not: at p=0.156, seeing 0 clears in", len(allv),
+-          "draws has")
++    print("  Every candidate for sec.2 sits inside that bound: the measured 0.04%")
++    print("  (#741 F19: sd(ln official) = 0.3728%, n=5, this program) and fern's")
++    print("  0.95%-1.48% (pooled draw sd 0.538%) alike. A ceiling cannot corroborate a")
++    print("  point estimate - it only refutes what lies above it - so read this line as")
++    print("  'not refuted', and take the per-draw price from the measured sigma above.")
++    print("  One trap: research/tools/recompute_replicate_sigma_and_draw_odds.py also")
++    print("  prints 1.48%, from sd 0.2276% and a 0.4950% gap for a different program")
++    print("  (e27f1ce, normal tail z=2.174); fern's 1.48% is an empirical tail at")
++    print("  z=2.344 on sd 0.538%. Same number, unrelated inputs - not a replication.")
++    print("  What the ceiling does refute is the retracted 15.6%: at p=0.156, seeing 0")
++    print("  clears in", len(allv), "draws has")
+     print("  probability", f"{(1-0.156)**len(allv):.3g}", "- which is why that number was wrong.")
+     print()
+     print("What this does NOT show: these rows are not one program, so the sd printed")
