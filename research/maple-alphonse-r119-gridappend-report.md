@@ -382,6 +382,39 @@ tail is not confounding the comparison.
 
 ### 7.3 Pass 2 — decomposition (arm R) and the host-widening gate (arm W)
 
+**Source-level prediction, registered before reading the numbers.** MLX is
+eager-record / lazy-execute: an op returns an `array` holding a
+`shared_ptr<Primitive>` at `status = unscheduled` and dispatches nothing
+(`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/array.cpp:270-275`). `eval_impl` wraps
+only the *requested* outputs in a `Synchronizer` and walks `a.inputs()`
+(`transforms.cpp:73-74,112-224`); there is no live-array registry and no global
+flush. Destruction never schedules — `array::ArrayDesc::~ArrayDesc` releases
+input descs and breaks sibling cycles with no eval
+(`array.cpp:277-336`), and the memory-pressure branch only finalizes
+already-scheduled streams (`transforms.cpp:268-284`). So an overwritten result
+is a graph **leaf** and its producing chain is genuinely elided.
+
+Two conditions could defeat that, and both are checkable in this file:
+
+1. *the value still reaches an eval* — in mode 3 `inds`/`weights` are read only
+   by the shape guard `inds.size < 64` at `:11198`, which is a static shape
+   query, and are then both replaced at `:11263–11267`; nothing downstream
+   references the originals;
+2. *a surviving sibling of a multi-output primitive* — MLX retains siblings
+   (`array.h:298-315`) and marks them evaluated with the parent
+   (`transforms.cpp:296-302`), so if `gate()` returned one primitive with two
+   outputs and only one were dropped, the dispatch would still run. Here
+   **both** outputs are overwritten, so this escape is closed too.
+
+Prediction, therefore: **elision is real, and `R − H` should be large and
+positive** (the advisor's 71.7–125.6 µs/step router-dispatch chain). The
+uncomfortable corollary is that if this holds, arm H's measured **+7.3 µs/step
+already has the entire −39-dispatch saving netted into it**, and the 48.3
+µs/step floor is not merely unreached but empirically contradicted. The
+alternative outcome, `R − H ≈ 0`, would mean the dispatches were never removed
+and H's +7.3 is pure fusion tax with the floor still untested. Arm R is
+designed so those two worlds cannot be confused.
+
 <!-- FILL: R-C, R-H, H-C identity check, W-C with the pre-registered +25 rule -->
 
 ## 8. Results — layer 2 (ranked shape) and the prefill gate
