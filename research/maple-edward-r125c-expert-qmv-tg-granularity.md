@@ -71,6 +71,21 @@ head `18ac6015c6c2c52ae2fa8830b23d249b35b6f448` reports "Applied patch to
 "land nothing", the rebase is moot in practice — but it was verified anyway so
 the negative result is portable to the new base without re-measurement.**
 
+Corroborating audit, cited with attribution as the advisor permitted: frieren's
+static audit of the shipped decode path found that the only `_nax` gate in the
+model sources — `lagunaNAXAvailable` (LRM `:242-247`) via
+`lagunaExpertAlignedGatherEnabled` (`:253-265`) — is read only at `:10807`,
+`:10982`, `:10995`, all **prefill** sorted-gather sites, none on the decode MoE
+gate or up. The narrower claim that remains mine is (a) above: the specific
+generator and dispatch lines this hunk changes read no 257-entry prefix/bounds
+sidecar and make no EG256 selection.
+
+Base-drift note: the advisor branch has since moved to
+`9ef3bfcbcd81fc7fd41db7608c8c8adba0a98123`, but
+`git diff --name-only 18ac6015 9ef3bfcb -- Sources Vendor benchmark.json` is
+empty (manifest and tools only), so every source anchor above holds unchanged on
+that head too.
+
 ### 0.2 Collision flag vs alphonse PR #729 — **NO COLLISION**
 
 Explicitly flagged as the advisor required. alphonse's TG=256 landing (+0.38 %,
@@ -247,10 +262,24 @@ steps trimmed per run. Arms:
 | D | `256` | 256 | 8 |
 | N | *unset* (negative control, identical to A) | 64 | 2 |
 
-Raw: `/tmp/r125c-ladder/ladder_raw.csv` (5,111 steady steps),
-`/tmp/r125c-ladder/ladder_runs.tsv` (36 rows). Analysis:
+`DARKBLOOM_SHARED_ROUTED_QMV_FUSED` was held at `0` for every run, so all arms
+share one append state. That is now evidence-backed rather than merely prudent:
+frieren's #733 measured the fused path as a **loss** (+55.2 µs/step, 95 %
+[+18.9, +85.9], score −0.323 %, W&B `6r8i5rcg`). No part of this work is
+designed to pay off only under the fused path.
+
+Raw: `research/maple-edward-r125c/ladder_raw.csv` (18,396 per-step samples,
+36 runs × steps 1–511), `research/maple-edward-r125c/ladder_runs.tsv` (36 rows),
+`research/maple-edward-r125c/bootstrap_report.txt`. Analysis:
 `research/edward_r125c_bootstrap.py` (percentile block bootstrap, B=20000,
 seed=125, statistic = **median** paired per-block delta).
+
+W&B: run `lv9kmuzw`,
+<https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/lv9kmuzw> — every
+per-step sample, per-run/per-block/contrast tables, the same-arm null, and the
+raw artifacts. Publication script: `research/edward_r125c_wandb.py`, which
+re-derives all statistics from the raw CSV so the run and this memo cannot
+drift.
 
 ### 3.2 Correctness
 
@@ -267,8 +296,11 @@ in one threadgroup.
 
 ### 3.3 Arm levels
 
-Mean of per-run medians: **A 8.1982 ms/step, B 8.2005 ms/step, D 8.2246
-ms/step**. Per-block medians (µs/token):
+Mean of per-run medians: **A 8.1982, B 8.2005, D 8.2246 ms/step**. Mean of
+per-block medians (the aggregation logged to W&B, which weights blocks rather
+than runs): **A 8199.68, B 8202.47, D 8225.41 µs/token**. Both orderings agree;
+neither is the inferential statistic, which is the paired per-block median delta
+below. Per-block medians (µs/token):
 
 | block | A | B | D |
 |---|---|---|---|
