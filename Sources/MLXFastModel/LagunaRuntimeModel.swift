@@ -4957,14 +4957,14 @@ private let lagunaDecodeNVFP4QKVR1NarrowKernels: [Int: MLXFast.MLXFastKernel] = 
 
 
 private func lagunaDecodeNVFP4QKVLaneMajorSource(
-    pairwise: Bool, tileOffset: String? = nil
+    pairwise: Bool, tileOffset: String? = nil, simdgroups: Int = 2
 ) -> String {
     let tileExpr =
         tileOffset.map { "threadgroup_position_in_grid.x - \($0)" }
         ?? "threadgroup_position_in_grid.x"
     return """
 constexpr uint axis_size = 2048;
-constexpr uint num_simdgroups = 2;
+constexpr uint num_simdgroups = \(simdgroups);
 constexpr uint values_per_thread = 16;
 constexpr uint block_size = 512;
 constexpr uint in_vec_size_w = axis_size / 2;
@@ -5027,14 +5027,20 @@ private let lagunaDecodeNVFP4QKVLaneMajorKernels: [Int: MLXFast.MLXFastKernel] =
             name: "laguna_decode_nvfp4_qkv_h\(heads)_r1_v1_lm1"
                 + (lagunaAttnScalePairwiseQKVEnabled ? "_pw1" : "")
                 + (lagunaTailNVFP4QKVSeedElisionEnabled ? "_se1" : "")
-                + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : ""),
+                + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : "")
+                // Rule 33: MLX caches Metal libraries by kernel name, so every
+                // threadgroup geometry needs its own name. `2` keeps the shipped
+                // name (and therefore the shipped MSL) byte-identical.
+                + (lagunaDecodeQKVSimdgroups == 2
+                    ? "" : "_sg\(lagunaDecodeQKVSimdgroups)"),
             inputNames: [
                 "normalized", "weight_codes", "scale_nibbles", "scale_bases",
                 "weight_scales",
             ],
             outputNames: ["projected"],
             source: lagunaDecodeNVFP4QKVLaneMajorSource(
-                pairwise: lagunaAttnScalePairwiseQKVEnabled),
+                pairwise: lagunaAttnScalePairwiseQKVEnabled,
+                simdgroups: lagunaDecodeQKVSimdgroups),
             header: lagunaTailNVFP4QMVHeader,
             ensureRowContiguous: true)
     }
@@ -5065,14 +5071,21 @@ private func lagunaDecodeNVFP4QKVR1(
         lane.nibbles.dtype == .uint8,
         lane.nibbles.dims(rows, hidden / (lane.pairwise ? 64 : 32)),
         lane.bases.dtype == .uint8, lane.bases.dims(rows),
+        rows % lagunaDecodeQKVSimdgroups == 0,
         let kernel = lagunaDecodeNVFP4QKVLaneMajorKernels[heads]
     {
-        lagunaTrace("decode nvfp4 qkv r1 h\(heads) lane-major")
+        // R125-B: threads/threadgroup = 32 * ns, threadgroups = rows / ns, so
+        // the total thread count `rows * 32` is invariant across the ladder.
+        let threadsPerGroup = 32 * lagunaDecodeQKVSimdgroups
+        lagunaTrace(
+            "decode nvfp4 qkv r1 h\(heads) lane-major"
+                + " sg=\(lagunaDecodeQKVSimdgroups) tg=\(threadsPerGroup)"
+                + " tiles=\(rows / lagunaDecodeQKVSimdgroups)")
         lagunaNarrowScaleLog.noteDispatch("lane-major", "qkv h\(heads)")
         return kernel(
             [normalized, bank.packedCodes, lane.nibbles, lane.bases, bank.scales],
-            grid: ((rows / 2) * 64, 1, 1),
-            threadGroup: (64, 1, 1),
+            grid: ((rows / lagunaDecodeQKVSimdgroups) * threadsPerGroup, 1, 1),
+            threadGroup: (threadsPerGroup, 1, 1),
             outputShapes: [[1, 1, rows]],
             outputDTypes: [.bfloat16]
         )[0]
@@ -5159,7 +5172,12 @@ private func lagunaDecodeNVFP4QKVGate(
 ) -> (qkv: MLXArray, gate: MLXArray)? {
     guard lagunaDecodeNVFP4QKVGateFusedEnabled,
         lagunaDecodeNVFP4QKVR1Enabled,
-        lagunaGateSoftplusEnabled
+        lagunaGateSoftplusEnabled,
+        // R125-B hazard guard: the appended `heads / 8` gate tiles are written
+        // for 64-thread threadgroups (2 simdgroups). Any other QKV threadgroup
+        // granularity must fall back to the non-appended dispatch pair rather
+        // than silently reinterpreting the gate tiles.
+        lagunaDecodeQKVSimdgroups == 2
     else { return nil }
     let rows = (heads + 2 * LagunaConstants.numKeyValueHeads) * LagunaConstants.headDim
     let hidden = LagunaConstants.hiddenSize
