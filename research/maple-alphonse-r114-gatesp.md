@@ -426,3 +426,55 @@ reasoned. If that pushes the QKV path over an occupancy cliff and spills
 `x_thread[16]`, the fusion loses more than the 111.5 µs it can win. This is the
 main way the arm can come back **correct but slower**, and it is exactly what
 the paired ABBA measures.
+
+## Stage 5 — where grid-append goes next (not implemented here)
+
+Grid-append is a *family*, and `gate_sp` is its smallest member. I asked for an
+independent survey of the decode path for other dispatches with the same
+`dep_scope = NONE` shape — small output, input already read by a larger sibling
+in the same layer — and the two strongest candidates are both an order of
+magnitude bigger than the one measured here.
+
+1. **Shared-expert SwiGLU into the routed SwiGLU grid.** The plumbing already
+   exists: `mergedSharedActivated` at `LagunaRuntimeModel.swift:10958` is the
+   half-built version of exactly this merge. Ceiling ≈ 80–108 µs/step.
+2. **Router top-8 retiled to 64 threads and appended to that same grid.**
+   Ceiling ≈ 80–108 µs/step; combined with (1) the family ceiling is roughly
+   −215 µs/step. Critically it must *not* be appended into the down-projection
+   or residual dispatch, which would create a real producer→consumer edge and
+   pay the +2.55 µs/layer = +102 µs/step penalty.
+3. **`inputNorm` folded into the QKV+gate kernel.** Same ceiling, but it needs
+   an 8-rows-per-threadgroup retile and it *is* a producer of `normalized`, so
+   it is the risky one and should be attempted last.
+
+The offline alternative — folding the gate weight matrix onto the QKV weight
+matrix in `Sources/MLXFastTransform/` so the gate is just extra output rows of
+the QKV matmul — was checked and **rejected on three independent grounds**:
+
+- the two banks use different quantisation schemes (per-head affine INT8 for
+  `g_proj` vs NVFP4 group-16 for QKV), so a single bank cannot represent both
+  without a re-quantisation that is neither bit-exact nor inside the accepted
+  attention envelope in `TASK.md`;
+- `Transform.swift:57-85` fixes a byte-for-byte artifact contract; and
+- the runtime *already* has this folding for the affine world (`foldGateIntoBank`,
+  ~`LagunaRuntimeModel.swift:5813`) and it costs 2× the QKV bytes, which on a
+  bandwidth-bound decode step is a worse trade than the dispatch it removes.
+
+The dispatch-level grid append measured here is the bit-exact realisation of
+the same idea, and the softplus is already fused in-kernel, so there is nothing
+left for an offline pass to win.
+
+### The diagnostic this round did not buy
+
+To tell "the appended tiles were hidden" from "the appended tiles serialised"
+the sharpest cheap probes are (a) append-**last** vs append-**first** as a
+paired arm, and (b) inflating the gate body's K loop 4× and watching whether
+step wall time is insensitive (hidden) or grows ~1:1 (serialised). Both are
+single-flag variants of the kernel already in the tree. I did not run them
+because they only matter once the family is worth scaling, and the assignment
+asked for one clean causal arm rather than a stack of unmeasured mechanisms.
+
+Two caveats on all of the above: threadgroup **launch order is not guaranteed**
+by Metal, so "gate tiles lead" is a scheduling expectation and not a contract,
+and it must be re-verified on the M5 Max; and every µs/step projection in this
+section rests on the M4 Pro per-dispatch fixed-cost decomposition of §1.4.
