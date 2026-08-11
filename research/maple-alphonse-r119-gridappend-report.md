@@ -191,6 +191,25 @@ One binary, env-switched via `DARKBLOOM_GRID_APPEND`, five states (≥3 required
 | **H** | mode 3 | instance 3 alone (router tournament appended) |
 | **G** | mode 23 | **joint** — both appended |
 | **E** | mode 0 + `DARKBLOOM_DECODE_QKV_GATE_FUSED=0` | R114-E reproduction probe (advisor's status ask) |
+| **R** | mode 5 | guest tile appended **and its result dropped**, so the standalone tournament dispatch stays live (attribution arm, added after pass 1) |
+| **W** | mode 0 + `DARKBLOOM_SHARED_QMV_WIDE8=1` | shared-expert SwiGLU host widened to TG (256,1,1) / 64 tiles, nothing appended (comment 5 gate) |
+
+Arm **E** is a **positive control** as well as a status probe: it is a known
+≈46 µs/step effect on this same instrument, so it certifies that the rig can
+resolve an effect the size of the advisor's predicted 48.3–74.9 µs/step payment.
+
+Arms **R** and **W** were added in a second pass. **R** exists because the whole
+48.3 µs/step floor rests on an unproven premise — that dropping the guest's
+result on the floor actually causes MLX to elide the standalone router
+dispatch. In mode 3 the `gate()` call at `LagunaRuntimeModel.swift:11163` still
+executes eagerly in Swift; only lazy-graph dead-code elimination removes the
+39 tournament dispatches. Mode 5 runs the **identical** fused kernel but keeps
+the standalone dispatch alive, so:
+
+- `R − H` = wall cost of the 39 separate router dispatch chains (the quantity
+  the advisor priced at 71.7–125.6 µs/step, and the source of the 48.3 floor);
+- `R − C` = fusion tax alone (host penalty from carrying the guest body);
+- identity check: `H − C ≡ (R − C) − (R − H)`.
 
 Order: 3 replicates of the palindromic reference-interleaved pair
 `CHCFCGCNCE` (forward) + `ECNCGCFCHC` (mirror) = **60 runs**. Even pass index =
@@ -226,6 +245,10 @@ realization warning.
 ### 7.2 Bimodality screen
 
 <!-- FILL -->
+
+### 7.3 Pass 2 — decomposition (arm R) and the host-widening gate (arm W)
+
+<!-- FILL: R-C, R-H, H-C identity check, W-C with the pre-registered +25 rule -->
 
 ## 8. Results — layer 2 (ranked shape) and the prefill gate
 
