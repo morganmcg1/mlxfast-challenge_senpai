@@ -437,12 +437,93 @@ applied, so this branch ships zero source changes to the scored surface.
 | `DECODE_ASYNC_STAGE` | `ASOFF ASNRM ASSPA ASDEN ASLAD` | sparse +11.1 [+2.1, +21.3]; all others worse | **shipped 7-point mask is the optimum** |
 | `ROUTER_WEIGHT_PREFETCH` | `RP0`, `RP5` | 0: +5.6 [-17.3, +29.0]; 5: +25.4 | **default 1 is best**, reachable and bit-exact |
 | `OPROJ_ROWS_PER_SIMDGROUP` | `OPR1`, `OPR4` | -64.2 and +1.7 at n=2, floor ~78 | replication only; axis closed by #718/#719 |
-| `OPROJ_SIMDGROUPS` | `OPSG4` | -40.9 at n=2, floor ~78 | **unresolved**, below floor; see follow-ups |
+| `OPROJ_SIMDGROUPS` | `OPSG4` | -5.4, 95 % [-12.6, +1.6], n=12 (`cf4`) | **no effect**, keep default 2 |
 | `DECODE_QKV_GATE_FUSED`, `NORM_AFFINE_QKV_*` | `PF*`, `STG*` | static audit | **inert on this composition**, dead branch |
 | `L5_UNROLL` | `U1 U4 U8` | static audit + n=2 | **inert**, no reachable dispatch difference |
 
 Nine shipped defaults were probed on the live composition and every one of them
-is already at or better than its neighbours. The two seemingly promising screen
-hits both evaporated under a properly powered paired confirm, and the mechanism
-for the mirage is now identified and documented.
+is already at or better than its neighbours. All three seemingly promising
+screen hits evaporated under a properly powered paired confirm, and the
+mechanism for the mirage is now identified and documented.
 
+### `cf4`: `OPROJ_SIMDGROUPS=4`, the last unresolved knob
+
+Same design as `cf3`: `C` vs `OPSG4`, 24 runs in six ABBA blocks, n = 12 each,
+0 divergences, exit 0. The host was quieter still, control sd 17.9 us/step, so
+the achieved floor was **10.3 us/step** (0.061 % score) - the tightest
+measurement of the campaign.
+
+- point **-5.4 us/step**, 95 % CI **[-12.6, +1.6]** (+0.032 % score,
+  [-0.009, +0.074])
+- per-pair deltas `[4.7, -2.7, -7.3, 19.3, -16.0, -10.0, -5.7, 2.7, -19.7,
+  -31.3, 1.0, 0.0]`
+
+The interval straddles zero and the point is half the prereg bar, so this is a
+**null result**, not a small win. More usefully, the interval **excludes the
+screen's -40.9 us/step** outright: whatever `OPSG4` does on this host is
+smaller than 13 us/step in either direction, i.e. at most 0.07 % of score.
+
+This does not speak to the M5 case. `OPROJ_SIMDGROUPS` changes how many
+simdgroups cooperate per o_proj tile, so its sign depends on the
+simdgroups-per-core ratio, and a 14-core M4 Pro cannot reproduce a 40-core
+ratio. What `cf4` does establish is that the knob is not a *local* win worth
+carrying, and that the screen's apparent -40.9 was the same fast-mode control
+artifact documented above. A real answer needs a paired M5 run.
+
+## 7. Method note for the campaign: the n=2 screen tier cannot promote
+
+Three arms produced screen point estimates in the -33 to -64 us/step range and
+all three collapsed to null or worse under n>=7 paired confirms:
+
+| arm | screen (n=2) | confirm | n | verdict |
+|---|---|---|---|---|
+| `RP0` | -55.3 | +5.6, 95 % [-17.3, +29.0] | 7 | null |
+| `ASSPA` | -33.0 | +11.1, 95 % [+2.1, +21.3] | 12 | small loss |
+| `OPSG4` | -40.9 | -5.4, 95 % [-12.6, +1.6] | 12 | null |
+
+The cause is a bimodal control distribution: this host intermittently produces
+control runs 50-70 us/step faster than its own median (8.148-8.152 ms against a
+median of 8.213-8.217 ms), and no arm run in 24 paired observations ever reached
+that mode. One fast-mode control adjacent to an arm run creates a phantom
+40-60 us/step win. Because the screen tier has n=2 and an achieved floor near
+78 us/step, it cannot distinguish that artifact from a real effect.
+
+Practical rule for later rounds on this host: treat any screen point estimate
+below ~80 us/step as *unresolved*, never as a candidate, and budget n>=10
+paired runs in ABBA blocks (achieved floor 10-15 us/step) before spending a
+build-and-gate cycle on a flip. Ordering matters as much as n: the ABBA blocks
+in `cf3`/`cf4` cut the control sd from 41.5 to 17.9 us/step relative to the
+rotating order used in `cf2`.
+
+## 8. Evidence index and reproduction
+
+W&B project `wandb-applied-ai-team/mlxfast-maple`:
+
+| pass | runs | W&B run id | URL |
+|---|---|---|---|
+| `cf_fus` FUSED confirm | 6 | `6r8i5rcg` | https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/6r8i5rcg |
+| `scr` 13-arm screen | 32 | `cokldr4x` | https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/cokldr4x |
+| `cf2` + `cf3` confirms | 25 + 24 | `ilfrmjpb` | https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/ilfrmjpb |
+| `cf4` confirm | 24 | `4hnxxsb7` | https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/4hnxxsb7 |
+
+Every pass reported 0 token divergences and exit code 0; no arm ever changed a
+generated token.
+
+Reproduction (one arm pass, then its paired analysis):
+
+```bash
+env OUT=/tmp/r125e TAG=cf4 STEPS=224 PROFILE=full WARMUP=0 \
+    ORDER="C OPSG4 OPSG4 C C OPSG4 OPSG4 C C OPSG4 OPSG4 C \
+           C OPSG4 OPSG4 C C OPSG4 OPSG4 C C OPSG4 OPSG4 C" \
+    bash research/frieren_r125e_arms.sh
+python3 research/frieren_r125e_analyze.py /tmp/r125e/cf4_runs.tsv --confirm OPSG4
+python3 research/frieren_r125e_wandb.py /tmp/r125e/cf4_runs.tsv \
+    --name r125e-confirm-cf4-opsg4 --stage confirm
+```
+
+`research/frieren_r125e_arms.sh` maps each short arm name to its DARKBLOOM env
+assignment and calls the prebuilt worker through `research/decode_probe.py`, so
+no arm requires a rebuild. `--confirm ARM` prints the paired point estimate, the
+95 % interval, the Bonferroni-corrected 98.3 % interval, and the achieved
+resolution floor (2 sd / sqrt(n)) so a null can be separated from an
+underpowered pass.
