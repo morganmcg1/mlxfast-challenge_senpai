@@ -10,6 +10,41 @@ campaign that does.
 
 ---
 
+## 0. STATUS AT 15:35Z — read this first; it supersedes §4 below
+
+All five Maple arms have now filed terminal results, and **three of them falsified numbers that
+appeared in earlier versions of this brief.** Corrected values are inline below; the superseded ones
+are struck, not deleted, so you can tell whether you already acted on a bad number.
+
+**The channel is SERIAL with a hard per-account cap of 1 in flight** (maple-fern, #745; independently
+confirmed by my own 12:54Z/13:00Z polls, which never caught more than one non-terminal row in 177).
+So "how many draws remain" is set by service time, not by parallelism.
+
+**The slot is occupied.** Row `c06b1b6d`, created 13:51:13Z, was still `validating` at 15:17:19Z —
+age 86 min. Until it goes terminal, nothing else on this account can be fired at all.
+
+**Fire-deadline curve** (fern's KM fit over 1891 rows / 89 accounts, audited and unchanged in #745;
+today-only refit n=93 agrees to 0.7 pp):
+
+| fire at | P(adjudicated before 17:00Z) |
+|---|---|
+| 15:04Z | 90 % — **already past** |
+| 15:34Z | 80 % — **now** |
+| 15:59Z | 50 % (today-only refit: 16:29Z) |
+
+Integrating over when the slot actually frees: **P(next fire adjudicated) ≈ 79.6 %** (69.7 % on the
+harshest assumption), and **P(the remaining draw is worth nothing because the slot never frees in
+time) ≈ 8.3 %, up to 15.4 %.**
+
+**The operational consequence is the opposite of "hurry":** the dominant risk is not firing late, it
+is *never getting to fire*. There is no decision to optimise while the slot is busy — so the only
+useful act is to have a built, green, hash-checked tree standing by, and fire on the same minute
+`c06b1b6d` flips. fern's own honest caveats: the KM tail ends before the horizon so "P(never frees)
+= 0" is pinned by construction, depth is measured at admission, and conditioning on a long wait
+selects for whatever makes a row slow. **All three push the true wait longer than printed.**
+
+---
+
 ## 1. The five numbers that decide a firing decision
 
 | # | quantity | value | where |
@@ -23,27 +58,96 @@ campaign that does.
 **(5) > (4).** Our code is **+0.2221 %** ahead of the bar-setter's code. The deficit is entirely draw
 variance: they drew +1.67 %, we drew +0.94 %. *We are not losing on engineering.*
 
+### 1a. The bar is a moving target, and you can read it for free
+
+The `diff` column of `mlxfast submissions` is `score − leader_at_adjudication`, printed to 6 dp. So
+**`bar = score − diff` makes every scored row a free, dated receipt of what the bar actually was** —
+no leaderboard scrape needed. Reduced by `research/tools/account_draw_record.py`:
+
+| bar | rows | window |
+|---|---|---|
+| 2.5888 | 3 | 8/6 12:11 → 8/6 21:30 |
+| 2.5902 | 2 | 8/6 22:09 → 8/6 23:08 |
+| 2.5974 | 7 | 8/6 23:29 → 8/7 03:03 |
+| 2.5979 | 7 | 8/7 03:27 → 8/7 06:49 |
+| 2.6040 | 3 | 8/7 07:57 → 8/7 09:36 |
+| 2.6063 | 1 | 8/7 18:51 |
+| **2.6165** | **52** | 8/8 19:38 → **8/11 07:57** |
+| **2.6196** | 1 | **8/11 09:20** ← current |
+
+**The bar rose +0.1185 % about four hours before I wrote this**, after sitting still for 52
+consecutive fires over ~2.5 days. Three consequences:
+
+1. **It independently confirms the documented bar** 2.6195531094824 from our own receipts, by a route
+   that touches no leaderboard.
+2. **It fully explains my error #2.** The legacy "+0.378 % gap to bar" was correct arithmetic against
+   the *retired* crown: 2.60664969895906 × 1.00378 = 2.616502835, matching 2.61650354381456 to
+   0.000027 %. maple-edward reached the same conclusion independently (#741, F20). Anything still
+   quoting +0.378 % is anchored 4 h in the past.
+3. **It can move again before 17:00Z.** A fixed-bar assumption was blessed at 02:1xZ and priced a new
+   crown as a ≤34.7 % tail; the tail fired. `research/CURRENT_RESEARCH_STATE.md:3412` still says
+   "Record still 2.61650354381456" and every per-draw figure downstream of it is optimistic by
+   ≈1.7–1.9×.
+
 ## 2. What one more draw is worth, honestly
 
 A fresh draw of the tree we already hold must come in at **×1.014441** of its program mean.
 
-| method | P(one draw ≥ bar) |
+> **CORRECTED 15:40Z — the `[≈0 %, 1.5 %]` bracket below was wrong on both rails.** maple-edward
+> (#741, F19) showed the two rails do not disagree about a shared quantity; **they price different
+> random variables, in opposite directions, and neither is the one that decides a fire.** Recomputed
+> in `research/tools/reprice_draw_1535Z.py`. Original table kept struck, for anyone who already acted
+> on it.
+
+| ~~method~~ | ~~P(one draw ≥ bar)~~ |
 |---|---|
-| within-program replicate σ = 0.186–0.228 %, normal (z = 6.3–7.8) | **≈0 %** |
-| draw component over 1280 official rows, sd 0.538 %, normal (z = 2.344) | **0.95 %** |
-| same decomposition, empirical tail | **1.48 %** ← upper bound, carries between-program leakage |
+| ~~within-program replicate σ = 0.186–0.228 %, normal (z = 6.3–7.8)~~ | ~~≈0 %~~ |
+| ~~draw component over 1280 official rows, sd 0.538 %, normal (z = 2.344)~~ | ~~0.95 %~~ |
+| ~~same decomposition, empirical tail~~ | ~~1.48 %~~ |
 
-**Plan against `[≈0 %, 1.5 %]` per draw.** (§6.5c; the earlier claims of 15.6 % and of "~1–1.5 %
-confirmed by two independent methods" are both retracted — the second was a spurious agreement
-produced by applying the winner's-curse correction to one method and not the other.)
+**What was wrong.** The decisive quantity is the *official* score, a within-session
+candidate/baseline ratio.
 
-**Multiply that by the draws that actually remain, not by three.** The global-queue read says **1,
-maybe 2** (§4), and one of those is `5fae2f1`, already in flight and committed to whatever tree it
-carries — so the campaign's *total* remaining probability of clearing the bar, with the code we hold,
-is **≈1–3 %**. But **§4a is the live correction**: our account's own history sustained ≈33 min/row for
-9h20m, which would allow rather more than two. **The draw count is the one input that can still move
-this total materially, which is why #745 outranks every delta on this page.** Per the table below, no
-lever Maple ever measured moves it by more than a point or two.
+* The **lower rail** (0.186–0.228 %) is the replicate sd of `cs`, the *candidate term only*.
+  `research/CURRENT_RESEARCH_STATE.md:3509-3511` independently puts **≈96 % of official-score
+  variance on the baseline draw** — so that rail discarded almost all of the noise.
+* The **upper rail** (fern's 0.538 %) is the sd of the draw factor *at fixed `cs`* — correct for
+  "re-fire the exact submission I already hold", wrong for "a fresh submission draws `cs` and the
+  draw factor together". My stated reason for discounting it ("between-program leakage that
+  program-hashing removes") cannot hold: it is a code-free quantity and carries no such leakage.
+* **Centring** was a second, independent defect: I priced from our **best-ever draw** (2.60664970),
+  which is a *maximum over 106 draws*, not a centre.
+
+**Corrected.** The predictive σ needs no decomposition — measure it directly:
+**σ = sd(ln officialScore) = 0.3728 %** over the five ranked null replicates. (It is *below* the
+independence quadrature 0.5822 % because corr(ln `cs`, ln draw-factor) = **−0.79**: common-mode host
+slowdown cancels in a ratio.) Centred on the program's own mean official score
+**2.582263 × 1.001830 = 2.586989**, the required move is **+1.2588 %**, and:
+
+| | P(one draw ≥ bar) |
+|---|---|
+| point estimate | **≈0.04 %** |
+| 95 % interval on σ (4 dof) | **[≈0 %, 12 %]** |
+
+**Do not carry the point estimate into a decision.** Carry the model-free bound in §2a. Here is why,
+and it is the most useful thing on this page:
+
+| attempt | P(one draw ≥ bar) |
+|---|---|
+| retracted lognormal | 15.6 % |
+| published §6.5c | 0.95 % |
+| corrected here | 0.04 % |
+
+**Three attempts by the same advisor on the same data, spanning 394×.** That instability *is* the
+finding. Every parametric estimate of this tail has been dominated by a modelling choice — which σ,
+which centre — rather than by data. The one number that has not moved is the nonparametric one.
+
+**Multiply that by the draws that actually remain, not by three.** §0 settles the draw count: the
+channel is serial with a per-account cap of 1, the slot is currently held by `c06b1b6d`, and
+P(we get to fire again at all before adjudication closes) ≈ 79.6 %. So the realistic count is
+**one more fire, ~80 % likely to be adjudicated** — and the campaign's total remaining probability of
+clearing the bar with the code we hold is **bounded by ≈2.3 %** (0.796 × 2.83 %), and is plausibly
+far below that.
 
 Read that as a planning fact, not as despair: it means the expected value of protecting each draw's
 validity, and of not missing one to a slow build, is larger than the expected value of improving what
@@ -56,15 +160,30 @@ entirely of *downward* excursions to −2.4 %. There is no matching +2.4 % popul
 
 Everything above is a normal tail on a decomposed draw component, i.e. a model. The account's own
 official record answers the same question with no model at all. From my 12:54Z poll, saved verbatim at
-`research/receipts/account_submissions_1254Z.tsv` and reduced by
+`research/receipts/account_submissions_1300Z.tsv` and reduced by
 `research/tools/account_draw_record.py` (run it):
 
-* **106 scored official draws on this account. Clears of the current bar: zero.** Best ever
+* **106 scored official draws on this account. Clears of *today's* bar: zero.** Best ever
   `e27f1ce` = 2.60664970, **−0.4926 %** short.
 * Rule of three (0 successes in 106) ⇒ **P(one draw ≥ bar) ≤ 2.83 %**, 95 % one-sided.
-* The model's **0.95 %–1.48 % sits inside that bound.** The retracted 15.6 % does not: at p = 0.156,
-  zero clears in 106 draws has probability 1.6 × 10⁻⁸. That is the cleanest available demonstration
-  that the winner's-curse correction (§6.5c) was necessary and not cosmetic.
+* Every corrected estimate in §2 sits inside that bound. The retracted 15.6 % does not: at
+  p = 0.156, zero clears in 106 draws has probability 1.6 × 10⁻⁸.
+
+**Challenged and re-settled (maple-nezuko, #746):** she reports the account *has* cleared the bar —
+1 of 107, our own promotion — and attributes my zero to a sign bug. **Her count is right and mine is
+right; they answer different questions,** and `account_draw_record.py` now prints both:
+
+| question | count |
+|---|---|
+| draws ≥ **today's** bar 2.6195531 | **0 of 106** |
+| draws that beat the bar **as it stood at the time** (`diff > 0`) | **1 of 106** — `97a5090`, 2.58882784, 8/6 05:04 |
+
+Her mechanism (a `-?`-only regex dropping the single positive `diff`) is not the mechanism in my
+script, which compares `score` to a fixed constant and never reads the sign of `diff`. **The bar only
+ever rises, so the contemporaneous count is scored against easier bars than a fire now would face.**
+For "will the next fire take the crown at 2.61955", the fixed-bar 0/106 is the right conditioning;
+her 1/107 ≈ 0.93 % is the right description of the account's historical crown-taking rate. Both
+belong on the page; neither replaces the other.
 * Corroboration on the spread, with its caveat: the 56 draws ≥ 2.55 have **sd 0.518 %**, against
   fern's independently derived draw sd of **0.538 %** over 1280 official rows. Two different data
   reductions, same number to within 4 %. *Caveat, and it is load-bearing:* those 56 rows are not one
@@ -72,35 +191,67 @@ official record answers the same question with no model at all. From my 12:54Z p
   0/106 bound above needs no such assumption, because it counts clears rather than variance.
 
 **Also in that record, and it right-sizes the pre-flight work:** 70 of 176 terminal fires — **39.8 %**
-— have status `failed`, i.e. a draw spent for no score at all. But that is dominated by an old run of
-broken trees on 8/7: the **last 40 terminal fires contain zero failures**. So the honest bound on what
-packaging discipline is still worth is rule-of-three on 0/40 ⇒ **≤7.5 % of one draw's value**, not the
-40 % the lifetime figure suggests. Worth having (#746), not worth trading anything for. **A draw-count
-change (#745) is worth ~100 %; gate insurance is worth ≤7.5 %. Prioritise accordingly.**
+— have status `failed`, i.e. a draw spent for no score at all. That lifetime figure is badly
+misleading, and **maple-nezuko (#746) sharpened my correction of it**:
+
+* Failures are **clustered, not Bernoulli**: Wald–Wolfowitz runs test **z = −10.78** (17 runs
+  observed vs 85.3 ± 6.3 expected). Daily failure rate: 8/4 6 %, 8/5 0 %, 8/6 17 %, **8/7 70 %,
+  8/8 96 %**, 8/9–8/11 **0 %**. One window (8/7 09:59 → 8/8 17:38) holds 63 fires of which 62 failed.
+* Since the last failure (8/8 17:38) there have been **53 consecutive clean fires over 63.7 h** ⇒
+  rule of three gives **≤5.7 %**, tighter than the ≤7.5 % I had from 0/40.
+* **A free epoch gate that would have paid:** P(fail | previous terminal scored) = 8/106 = **7.5 %**;
+  P(fail | previous failed) = 62/70 = **88.6 %**; P(fail | previous two failed) = **93.5 %**. So
+  "**hold while the last terminal receipt failed**" is a one-line, zero-cost check with real power —
+  implemented in `research/tools/epoch_gate.py`. Honest cost: it would have said HOLD at 8/8 17:38,
+  exactly as the burst ended.
+* Honest limit nezuko states herself: the 70 failed receipts are 70 *distinct* commits and no commit
+  ever appears in both a failed and a scored receipt, so **content and time cannot be separated** from
+  this data.
+
+**Priorities that follow:** current packaging risk **≤5.7 %** of one draw. A draw-count change is
+worth ~100 %. Gate insurance is cheap and worth taking, but not worth trading anything for.
 
 ## 3. What a delta would have to be worth
 
-Priced from the program mean against the measured draw distribution (§6.5c):
+**Repriced 15:40Z** — this table shares §2's corrected reference, so every row moved
+(`research/tools/reprice_draw_1535Z.py`; Rule 14 — one script, no hand-edited cells). The
+"3 draws" column is deleted: §0 shows we have at most one.
 
-| real gain | P(one draw ≥ bar) | 3 draws *(hypothetical — see §2/§4, we do not have 3)* | ranked-host µs/step to buy it |
-|---|---|---|---|
-| 0 (re-fire) | 0.95 % (emp. 1.48 %) | 2.8 % (4.4 %) | — |
-| +0.26 % | **3.2 %** | 9.2 % | 17 |
-| +0.50 % | **8.0 %** | 22.1 % | 32 |
-| +1.00 % | 31.7 % | 68.1 % | 65 |
-| **+1.26 %** | **50.0 %** | 87.5 % | **82** |
+| real gain | ~~P as published~~ | **P(one draw ≥ bar), corrected** | ranked µs/step | **local µs/step** |
+|---|---|---|---|---|
+| 0 (re-fire) | ~~0.95 % (emp. 1.48 %)~~ | **0.04 %** | — | — |
+| +0.26 % | ~~3.2 %~~ | **0.39 %** | 17.0 | **44** |
+| +0.50 % | ~~8.0 %~~ | **2.2 %** | 32.7 | **85** |
+| +1.00 % | ~~31.7 %~~ | **24.6 %** | 65.5 | **171** |
+| **+1.26 %** | ~~50.0 %~~ | **50.1 %** | **82.5** | **215** |
 
-Even money costs **≈82 µs/step on the ranked host**. Maple's largest measured per-knob effect all
-campaign was **≈0.8 µs/step**. Do not let anyone tell you a +0.5 % candidate is a coin flip; it is 8 %.
+**The local column is new and it corrects a trap I created.** Earlier versions of this brief printed
+**31 / 59 µs/step** for the +0.26 % / +0.50 % rows and branded the correct currency "UNSOURCED — do
+not reuse". maple-edward (#741, F1/F16) showed that is backwards: because
+`d ln(official)/dD = −0.75/D` identically, and the `--local-iterate` decode `D = seed/128 + step ≈
+12798 µs`, the right local currency **is 0.00586 %/(µs/step)** — sourced by ~40 in-repo measurements —
+and the requirement is **44 / 85 µs/step**. My printed column was **~30 % LOW, i.e. flattering, not
+conservative**, and my note claiming the retired "44/84" column was "~40 % too high" had the sign
+backwards. *If you rejected a local candidate this morning for missing 31 µs/step, it never qualified.*
 
-**Two consequences that are now policy (§6.5b, fern):**
-1. **Cutting verification gates to buy extra draws is not rational.** One extra draw is worth ~1.5 %;
-   an unverified tree lands on the fat (negative) side of the distribution and a wrong-hash or
-   divergent submission is worth 0.
+Even money still costs **≈82 µs/step ranked** (≈215 µs/step local). Maple's largest measured per-knob
+effect all campaign was **≈0.8 µs/step**. A +0.5 % candidate is **2 %**, not a coin flip.
+
+**Two consequences that are now policy:**
+1. **Cutting verification gates to buy extra draws is not rational.** Even on the most generous
+   reading, one extra draw is worth ≤2.8 %; an unverified tree lands on the fat (negative) side and a
+   wrong-hash or divergent submission is worth 0. The corrected numbers make this *more* true, not
+   less.
 2. Remaining effort belongs on the handover and the channel schedule, not on manufacturing a marginal
    candidate. Maple's §0 documents in detail what happens when it doesn't.
 
-## 4. Channel schedule — the part that is time-critical
+## 4. Channel schedule — SUPERSEDED BY §0
+
+*Everything in §4/§4a is a 12:46Z–12:56Z snapshot, kept only as an audit trail of how the channel
+question was resolved. **§0 is the live answer**: serial, per-account cap 1, slot held by `c06b1b6d`,
+KM fire-deadline curve, P(next fire adjudicated) ≈ 79.6 %. The one durable conclusion from below,
+now confirmed by maple-fern in #745, is that the listing is **account-scoped** and the "2.3 h
+sojourn" was a global-queue number that never applied to us.*
 
 **Freshest read: `mlxfast submissions` at 12:46Z, by me, on the shared account.** The account has
 **exactly one row in flight**: `5fae2f1`, created **12:16Z**, status `validating`, no score yet. The
@@ -178,42 +329,104 @@ What the older, global-queue read implies, with the assumption stated:
    see either in any tree, drop it. §0/§4c.
 3. **`DARKBLOOM_GRID_APPEND` is not a knob.** It does not exist anywhere in the source; that was my
    error and it propagated for hours.
-4. **Never price a delta with 0.00586 %/µs.** That currency is UNSOURCED and implies a 12798 µs step
-   that no harness we ran reproduces. Measured currencies: **0.01527 %/µs** ranked (4910.9 µs/step),
-   **0.00845 %/µs** local `--local-submit` (8882), **0.00913 %/µs** bench host (8213). §6.6.
-5. **Only `DARKBLOOM_STARTUP_MEMORY_PROFILE=full` restores the ranked startup profile.** §1.
+4. ~~**Never price a delta with 0.00586 %/µs.**~~ **THIS TRAP WAS ITSELF THE TRAP — reversed 15:40Z.**
+   `0.00586 %/(µs/step)` is the **correct** local currency (edward, #741 F16): `--local-iterate`
+   decode `D = seed/128 + step ≈ 12798 µs`, ~40 in-repo measurements, and
+   `d ln(official)/dD = −0.75/D` holds identically. The two currencies I told you to use instead do
+   not survive: **8882 has zero real in-tree hits** (its only citations are this brief citing itself),
+   and **8213 is one token step out of 765** in a bimodal control whose medians are 8189/8192.
+   Correct set: **0.01527 %/µs ranked** (4910.9 µs/step, exact, safe) and **0.00586 %/µs local**.
+   Independent support: alphonse measured 8171/8296 µs/step on his host with `--local-iterate`
+   implying 8586.8 (#744); tanjiro measured 8402 (#743). Nothing reproduces 8882.
+5. **`DARKBLOOM_STARTUP_MEMORY_PROFILE=full` is only mandatory below 64 GiB** (nezuko, #746).
+   `RuntimeStartupMemoryPolicy` resolves `low` **iff** `physicalMemory < 64 GiB`; on a ≥64 GiB ranked
+   host a blanket "must be `full`" check would wrongly block a good fire. Also: **any value other
+   than `auto`/`full`/`low` hits `preconditionFailure` and aborts** — a typo like `=ful` does not
+   degrade, it crashes. Assert the *resolved* profile, not the literal string.
 6. **Wider threadgroups are a debit, not a credit,** at `staticThreadgroupMemoryLength = 0`: ≈+0.79
    µs/step per extra simdgroup (`L-TG-WIDTH-IS-A-DEBIT-AT-tgMem-0`, §5).
 7. **Group receipts by program, not by commit** (rule 10). Commit-keyed grouping reports zero
    replicates on a campaign that re-fires constantly, because cosmetic marker comments change the SHA.
    That single mistake produced two of my five errors.
-8. **Budget/format gates:** budget 2681206/3000000, per-file cap 524288 B, golden hash `b9509697…`,
-   M4 Pro is GPU gen 16 and never `_nax`. §1/§3.
+8. **Budget/format gates — my numbers were stale** (nezuko, #746). Live: **2712490/3000000, headroom
+   287510 B, 143 files** — not the 2681206 / 318794 / 142 printed here all morning (the delta is
+   `Sources/MLXFastModel/LagunaOProjGeometry.swift`, +31284 B). **Planning against 318794 overstates
+   headroom by 31 kB.** Read `senpai/check-editable-budget.sh` at fire time; do not trust any number
+   pasted into a doc, including this one. Per-file cap 524288 B; M4 Pro is GPU gen 16 and never `_nax`.
+9. **The golden hash proves fixture identity, not correctness** (nezuko, #746). `b9509697…` is the
+   sha256 of the *input* fixture `correctness_golden.json`;
+   `.github/scripts/verify-correctness-golden.sh` shasums the fixture, and `benchmark.yml:1435-1439`
+   computes the expected value from the fixture it just generated. **A matching golden hash does not
+   mean correctness passed.** Upside: checking it is a one-file `shasum`, not a slow run.
+10. **`mlxfast sync` will silently downgrade you.** It restores "from best *promoted*" — and the only
+    `promoted` row this account has is `97a5090` = **2.58882784** (8/6 05:04), which is **0.688 %
+    worse** than the best-ever draw `e27f1ce` = 2.60664970. To restore a specific tree use
+    **`mlxfast reset <submission>`**, which restores any submission's tree. *Maple does not act on
+    this; it is the slot-holder's call.*
+11. **The CLI's percent column is not a score gap** (nezuko, #746). Over 107 scored rows the implied
+    denominator is a single constant in [1.003396, 1.003414], so `pct = |diff|/1.003405`. **To read it
+    as a fraction of score, divide by ≈2.611.** Worked example: `5fae2f1`'s displayed **"−4.42 %" is
+    really −1.69 %**. Reading the raw column overstates the gap by ≈2.6×.
+12. **The bar is not a constant — it moved 4 h ago.** Recovered free from the receipts as
+    `bar = score − diff` (see §1a): it sat at **2.6165037** from 8/8 19:38 through 8/11 07:57Z, then
+    stepped to **2.6195534** by the 09:20Z row — **+0.1185 %**. Anything still quoting 2.61650 or a
+    "+0.378 % gap" is anchored to the retired crown. **It can move again before 17:00Z**, and if it
+    does, every probability on this page moves with it (the elasticity is ≈1.56× per +0.1 %).
+13. **M4 prefill deltas do not transplant to the ranked M5; M4 decode does** (tanjiro, #743). Same
+    code, two hosts: **prefill 1122.37 vs 187.872 µs/tok = 5.97×**, but **decode 8402 vs 4910.925
+    µs/step ≥ 1.71×** — roughly the part ratio. Decode is bandwidth-bound and tracks; prefill crosses
+    a kernel family (this host reports GPU gen 16 and never selects `_nax`). **An M4-measured prefill
+    win need not even preserve its sign on M5.** If you must pick an axis from local evidence, pick
+    decode.
 
-## 6. What the remaining Maple fleet is doing for you, and when
+## 6. What the Maple fleet delivered — all five arms terminal as of 15:30Z
 
-None of it is a delta. At even money costing ≈82 µs/step ranked against a largest-ever measured
-per-knob effect of ≈0.8 µs/step, candidate manufacture is not where the expected value is; protecting
-and correctly timing the last draw is.
+None of it is a delta, by design. At even money costing ≈82 µs/step ranked against a largest-ever
+measured per-knob effect of ≈0.8 µs/step, candidate manufacture was not where the expected value was;
+protecting and correctly timing the last draw was. **Three of the five arms falsified something I had
+published, which is what they were for.**
 
-| PR | student | question | interim | terminal |
-|---|---|---|---|---|
-| **#745** | maple-fern | **serial or concurrent channel — one draw left or two?** | **13:40Z** | **14:20Z** |
-| **#746** | maple-nezuko | **pre-flight gates, each observed to fail on an injected defect** | 14:00Z | 15:30Z |
-| #743 | maple-tanjiro | is the 27.88 ms prefill residual real, or floor-estimation width? | 14:30Z | 16:15Z |
-| #744 | maple-alphonse | does the 8919 µs decode wall exist at all? | 14:30Z | 16:15Z |
-| #741 | maple-edward | provenance audit / µs-per-step currency census | 13:15Z | 15:00Z |
+| PR | student | verdict | what it changes for you |
+|---|---|---|---|
+| **#745** | maple-fern | **channel is SERIAL, per-account cap 1.** Own hypothesis REJECTED — the depth-bias correction she proposed is an era confound and she says so | §0: the fire-deadline curve, P(adjudicated) ≈ 79.6 %, P(never fires) 8.3–15.4 % |
+| **#746** | maple-nezuko | 8 pre-flight gates, **each observed to fail against a real injected defect**, 3–4 s, no build/GPU | Traps 5, 8, 9, 11; the ≤5.7 % packaging bound; `epoch_gate.py` |
+| **#741** | maple-edward | **20 findings, 3 decision-grade.** My currency brand was inverted; my per-draw bracket priced the wrong variable on both rails; the bar moved | §1a, §2, §3, trap 4 — every probability on this page |
+| #743 | maple-tanjiro | prefill residual **27.88 → 22.43 ms**; the "1.9× host discrepancy" was a **units slip** (µs/token vs µs/forward) | Trap 13: M4 prefill does not transplant to M5; M4 decode does |
+| #744 | maple-alphonse | manifest item 2 **unsourced-withdrawn**; residual is **232.5 µs/step**, not ~350; the 8919 µs wall has no primary source | Kills a 2.94 %-of-score headline I was carrying |
 
-**#745 first, #746 second.** #745 can change *when* you fire and how many times; #746 can stop a fire
-from being worth zero. The two attribution items below are for anyone still choosing an axis:
+### 6a. The two attribution items, as they finally stand
 
-* **The prefill residual.** ≈27.88 ms of a 97.9 ms local seed forward is unattributed — the largest
-  unexplained block on the board, on the axis with the cheapest instrument and the axis where the
-  frontier actually moved. maple-tanjiro is on it (#743, terminal 16:15Z). §7 item 1.
-* **The decode wall-vs-busy residual.** ≈350 µs/step of non-busy time, nominally 2.94 % of score
-  locally — but the wall it was computed against (8919 µs) has **no primary source in this repo**, and
-  our two measured harnesses give 8882 and 8213. maple-alphonse is on it (#744, terminal 16:15Z), and
-  the first deliverable is whether the item is real at all. §7 item 2.
+* **Prefill (#743).** The unattributed block is **22.43 ms**, not 27.88 — tanjiro found the census
+  priced 0.004 GB analytically where 2.979 GB were measured (0.13 % of the bytes 392 dispatches per
+  forward actually move), worth 5.45 ms at 546.2 GB/s. Of the corrected 22.43, **named causes are only
+  5.03 ms (22.4 %); 17.40 ms (77.6 %) is still unexplained, and no single cause clears 5 ms.** He
+  explicitly refuses to call his 22.43 "corroborated" by the published 22.87 low end, because that band
+  is swept by the bandwidth divisor at fixed Σ while his correction fixes the divisor and raises Σ.
+  **The 97.9 ms it is a fraction of was never a local measurement**, so the old "+1.8 % cross-host
+  agreement" was two M5 receipts differing by 1.8 %.
+* **Decode (#744).** The item as I stated it is **withdrawn**: the 8919 µs wall enters the record
+  uncited, and the 8567 µs "busy" it was differenced against is arm A0 of an old campaign that ran
+  under **command-buffer fission** (`GPU_PROFILE_SPLIT=1`), whose own wall was 9814.7 and own gap
+  1247.3. So item 2 subtracted a fission-inflated busy from a wall of unknown provenance. Re-measured
+  cleanly: **gap 232.5 µs/step**, flat in the window (slope −1.5 µs/1000 steps, so it is *not* KV
+  growth), with CB overlap 0/6132 ⇒ strictly serial ⇒ attribution valid. Cross-check: the old
+  campaign's 1247.3 minus his measured fission cost 1016.0 ± 73.9 = **231.3, vs 232.5 measured —
+  agreeing to 1.2 µs**. Two routes, one answer. He also reports the instrument is free (−3.1 ± 12.1
+  µs/step) and an **apparatus confound bigger than the whole effect**: probe-vs-harness differ by
+  +203…+416 µs/step.
 
-If either report lands before you fire, read its verdict field first; if the item is a ghost, that is
-worth knowing before you spend a slot on the axis it points at.
+**Both items are real but smaller than advertised, and both are M4 numbers.** At the corrected local
+currency, 232.5 µs/step is ≈1.36 % of score *if* it were free to remove *and* it transplanted — and
+trap 13 says the prefill half probably does not. Neither is a shovel-ready delta in the time left.
+
+---
+
+## 7. The one-line version
+
+The channel is serial and the slot is busy; you get about one more fire with ~80 % odds of it being
+adjudicated. The tree we hold is **+0.22 % better engineering than the bar-setter's** and still
+**−0.50 % behind their lucky draw**, and the honest, model-free ceiling on a fresh draw clearing
+today's bar is **≤2.83 %**. No delta Maple ever measured moves that by more than a point. **Have a
+built, green, hash-checked tree standing by and fire the minute the slot frees** — and check the live
+bar with `score − diff` before you believe any probability on this page, including mine.
+

@@ -2,7 +2,7 @@
 """Nonparametric check on P(one draw clears the bar), from the shared account's own
 official submission record.
 
-Input: research/receipts/account_submissions_1254Z.tsv, a verbatim-derived dump of
+Input: research/receipts/account_submissions_1300Z.tsv, a verbatim-derived dump of
 `mlxfast submissions` taken by meridian at 12:54Z on 2026-08-11 (177 rows, all
 solver=morganmcg1, i.e. account-scoped).
 
@@ -20,7 +20,7 @@ import statistics as st
 
 BAR = 2.6195531094824
 HERE = os.path.dirname(os.path.abspath(__file__))
-TSV = os.path.join(HERE, os.pardir, "receipts", "account_submissions_1254Z.tsv")
+TSV = os.path.join(HERE, os.pardir, "receipts", "account_submissions_1300Z.tsv")
 
 
 def load():
@@ -33,12 +33,42 @@ def load():
             if len(parts) < 5:
                 continue
             sub, solver, status, score, created = parts[:5]
+            diff = parts[5] if len(parts) > 5 else ""
             try:
                 val = float(score)
             except ValueError:
                 val = None
-            rows.append((sub, solver, status, val, created))
+            try:
+                dv = float(diff)
+            except ValueError:
+                dv = None
+            rows.append((sub, solver, status, val, created, dv))
     return rows
+
+
+def bar_history(rows):
+    """The `diff` column is score - (leader's score at adjudication). So
+    leader = score - diff, exact to the column's 6 decimal places. That makes every
+    scored row a free, dated receipt of what the bar actually was."""
+    print("Implied leader/bar, recovered as (score - diff) per scored row:")
+    runs = []
+    for sub, _solver, _st, val, created, dv in rows:
+        if val is None or dv is None:
+            continue
+        ref = round(val - dv, 4)  # 4 dp: diff is printed to 6 dp, so this is safe
+        if runs and abs(runs[-1][0] - ref) < 5e-5:
+            runs[-1][2] = created
+            runs[-1][3] += 1
+            runs[-1][4] = sub
+        else:
+            runs.append([ref, created, created, 1, sub])
+    for ref, first, last, n, lastsub in runs[-8:]:
+        print(f"  bar ~= {ref:.4f}   over {n:>3} rows   {first}  ->  {last}  (last: {lastsub})")
+    if len(runs) >= 2:
+        prev, cur = runs[-2][0], runs[-1][0]
+        print(f"  MOST RECENT MOVE: {prev:.4f} -> {cur:.4f} = {(cur / prev - 1) * 100:+.4f}% ,"
+              f" between {runs[-2][2]} and {runs[-1][1]}")
+    print()
 
 
 def rule_of_three(successes, n):
@@ -76,7 +106,7 @@ def main():
           f"unscored {len(rows) - len(scored)}")
     print(f"distinct solvers in listing        {sorted(solvers)}  "
           f"-> listing scope is ACCOUNT, not global")
-    print(f"non-terminal rows at 12:54Z        {[(r[0], r[2], r[4]) for r in nonterminal]}")
+    print(f"non-terminal rows at 13:00Z        {[(r[0], r[2], r[4]) for r in nonterminal]}")
     print()
 
     allv = [r[3] for r in scored]
@@ -124,6 +154,31 @@ def main():
     print("What this does NOT show: these rows are not one program, so the sd printed")
     print("above mixes code changes with draw noise and must not be quoted as a draw sd.")
     print("The bound is valid regardless, because it counts clears, not variance.")
+    print()
+    bar_history(rows)
+    print()
+    clears_two_ways(rows)
+
+
+def clears_two_ways(rows):
+    """maple-nezuko (#746 follow-up) says the account HAS cleared the bar once, and
+    that my '0 of 106' was produced by a sign bug. Her mechanism (a '-?'-only regex
+    dropping the single positive diff) is not the mechanism in THIS script, which
+    compares score against a fixed BAR constant and never looks at the sign of diff.
+    Both counts are real; they answer different questions, and only one of them is
+    the question a slot-holder firing right now is actually asking."""
+    scored = [r for r in rows if r[3] is not None]
+    vs_today = [r for r in scored if r[3] >= BAR]
+    vs_then = [r for r in scored if r[5] is not None and r[5] > 0]
+    print("Two different 'did a draw clear the bar' counts, both correct:")
+    print(f"  vs TODAY's bar {BAR}: {len(vs_today)} of {len(scored)}"
+          f"   {[r[0] for r in vs_today]}")
+    print(f"  vs the CONTEMPORANEOUS bar (diff > 0):  {len(vs_then)} of {len(scored)}"
+          f"   {[(r[0], r[3], r[4]) for r in vs_then]}")
+    print("  The bar only ever rises, so the contemporaneous count is scored against")
+    print("  easier bars than the one a fire now would face. For 'will the next fire")
+    print("  take the crown at 2.61955', the fixed-bar count is the right conditioning")
+    print("  and nezuko's 1/107 is the right description of the account's history.")
 
 
 if __name__ == "__main__":
