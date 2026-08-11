@@ -814,8 +814,6 @@ private let lagunaLmHeadRefinedExactKernel = MLXFast.metalKernel(
 /// `lagunaLmHeadPruneEnabled` (DARKBLOOM_LM_HEAD_PRUNE, default ON; set "0"
 /// to disable); ~135 MB additional resident memory.
 final class LagunaLmHeadPruner {
-    private var capturedDecodeHiddenRows = 0
-
     /// Planar int5 coarse copy: nibble plane [V, 1024] holding u >> 1, 1-bit
     /// plane [V, 256] holding u & 1 (element j of each 32-element group at bit
     /// j of the group's uint32 word), power-of-two group scale bytes [V, 64]
@@ -932,15 +930,6 @@ final class LagunaLmHeadPruner {
         let vocab = lagunaLmHeadPruneVocab
         let x = hidden.reshaped([lagunaLmHeadPruneHidden])
         let refine = useFusedRefinement && lagunaLmHeadFusedRefinementEnabled
-        if refine, capturedDecodeHiddenRows < 2,
-            let path = ProcessInfo.processInfo.environment["DARKBLOOM_LMHEAD_CAPTURE_PATH"]
-        {
-            let data = x.asData(access: .copy).data
-            try? data.write(
-                to: URL(fileURLWithPath: "\(path).\(capturedDecodeHiddenRows).bf16"),
-                options: .atomic)
-            capturedDecodeHiddenRows += 1
-        }
         // Four dispatches: the int5 coarse pass, argmax stage one over
         // `coarse` alone (no `delta` read), the exact-winner threshold that
         // absorbs the winning row's 4 KB GEMV, and the inline-mask exact pass.
