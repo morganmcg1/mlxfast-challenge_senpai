@@ -64,3 +64,6 @@ local-docs/
 .env
 __pycache__/
 **/__pycache__/
+
+# fern: 20+ MB read-only channel snapshots, analysed in place, never committed
+research/artifacts/fern-r109f/receipts/
