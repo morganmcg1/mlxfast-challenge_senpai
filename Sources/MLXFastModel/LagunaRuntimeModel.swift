@@ -80,15 +80,11 @@ final class LagunaFusionTraceLog: @unchecked Sendable {
     private var seen: Set<String> = []
     private let lock = NSLock()
 
-    func claim(_ site: String) -> Bool {
+    func note(_ site: String) {
         lock.lock()
         let isNew = seen.insert(site).inserted
         lock.unlock()
-        return isNew
-    }
-
-    func note(_ site: String) {
-        if claim(site) {
+        if isNew {
             FileHandle.standardError.write(Data("mlxfast: fusion active: \(site)\n".utf8))
         }
     }
@@ -4943,109 +4939,6 @@ private let lagunaDecodeNVFP4QKVGProjLaneMajorKernels: [Int: MLXFast.MLXFastKern
     return kernels
 }()
 
-private let lagunaQKVGProjDiagnosticEnabled = ProcessInfo.processInfo.environment[
-    "DARKBLOOM_DECODE_NVFP4_QKV_GPROJ_DIAGNOSTIC"] == "1"
-private let lagunaQKVGProjDiagnosticLog = LagunaQKVGProjDiagnosticLog()
-
-final class LagunaQKVGProjDiagnosticLog: @unchecked Sendable {
-    private var calls = 0
-    private let lock = NSLock()
-
-    func noteReach(heads: Int) {
-        guard lagunaQKVGProjDiagnosticEnabled else { return }
-        lock.lock()
-        guard calls < LagunaConstants.numHiddenLayers else {
-            lock.unlock()
-            return
-        }
-        calls += 1
-        let ordinal = calls
-        lock.unlock()
-        FileHandle.standardError.write(
-            Data("mlxfast: qkv-gproj-diag reach ordinal=\(ordinal) h=\(heads)\n".utf8))
-    }
-}
-
-private func lagunaRunQKVGProjDiagnostic(
-    normalized: MLXArray, qkvInputs: [MLXArray], fusedInputs: [MLXArray],
-    fusedOutputs: [MLXArray], rows: Int, heads: Int
-) {
-    guard lagunaQKVGProjDiagnosticEnabled,
-        lagunaTracedFusions.claim("qkv-gproj-diagnostic-h\(heads)"),
-        let qkvKernel = lagunaDecodeNVFP4QKVLaneMajorKernels[heads],
-        let gateKernel = lagunaGateSoftplusKernels[heads],
-        let fusedKernel = lagunaDecodeNVFP4QKVGProjLaneMajorKernels[heads]
-    else { return }
-
-    let qkvTail = Array(qkvInputs.dropFirst())
-    let gateTail = Array(fusedInputs.dropFirst(5))
-    let fusedTail = Array(fusedInputs.dropFirst())
-    func separate(_ input: MLXArray) -> [MLXArray] {
-        let qkv = qkvKernel(
-            [input] + qkvTail, grid: ((rows / 2) * 64, 1, 1), threadGroup: (64, 1, 1),
-            outputShapes: [[1, 1, rows]], outputDTypes: [.bfloat16])[0]
-        let gate = gateKernel(
-            [input] + gateTail, grid: ((heads / 8) * 64, 1, 1), threadGroup: (64, 1, 1),
-            outputShapes: [[1, 1, heads]], outputDTypes: [.bfloat16])[0]
-        return [qkv, gate]
-    }
-    func fused(_ input: MLXArray) -> [MLXArray] {
-        fusedKernel(
-            [input] + fusedTail, grid: ((rows / 2) * 64, 1, 1), threadGroup: (64, 1, 1),
-            outputShapes: [[1, 1, rows], [1, 1, heads]],
-            outputDTypes: [.bfloat16, .bfloat16])
-    }
-    func bitExact(_ lhs: [MLXArray], _ rhs: [MLXArray]) -> Bool {
-        guard lhs.count == rhs.count else { return false }
-        for (left, right) in zip(lhs, rhs) {
-            if left.asData(access: .copy).data != right.asData(access: .copy).data {
-                return false
-            }
-        }
-        return true
-    }
-    func emit(_ message: String) {
-        FileHandle.standardError.write(Data("mlxfast: qkv-gproj-diag \(message)\n".utf8))
-    }
-
-    let realBaseline = separate(normalized)
-    precondition(bitExact(realBaseline, fusedOutputs), "fused QKV/g_proj real-input mismatch")
-    var randomValues: [Float] = []
-    randomValues.reserveCapacity(LagunaConstants.hiddenSize)
-    for index in 0..<LagunaConstants.hiddenSize {
-        let integerValue = (index * 37 + 17) % 257 - 128
-        randomValues.append(Float(integerValue) / 64.0)
-    }
-    let randomInput = MLXArray(randomValues, [1, 1, LagunaConstants.hiddenSize]).asType(.bfloat16)
-    precondition(bitExact(separate(randomInput), fused(randomInput)),
-        "fused QKV/g_proj deterministic-input mismatch")
-    emit("exact h=\(heads) real=true deterministic=true qkv_grid=\((rows / 2) * 64) gate_grid=\((heads / 8) * 64) fused_dispatches=1 baseline_dispatches=2")
-
-    for _ in 0..<4 {
-        eval(separate(normalized))
-        eval(fused(normalized))
-    }
-    func elapsed(_ arm: Character) -> Double {
-        let start = DispatchTime.now().uptimeNanoseconds
-        eval(arm == "A" ? separate(normalized) : fused(normalized))
-        return Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000
-    }
-    var baselineMicros: [Double] = []
-    var fusedMicros: [Double] = []
-    let cycles = heads == LagunaConstants.fullAttentionHeads ? 10 : 30
-    for cycle in 0..<cycles {
-        let pattern = cycle.isMultiple(of: 2) ? "ABBA" : "BAAB"
-        for arm in pattern {
-            let duration = elapsed(arm)
-            if arm == "A" { baselineMicros.append(duration) } else { fusedMicros.append(duration) }
-        }
-    }
-    let format: ([Double]) -> String = { values in
-        values.map { String(format: "%.3f", $0) }.joined(separator: ",")
-    }
-    emit("timing h=\(heads) cycles=\(cycles) scheme=ABBA/BAAB baseline_us=[\(format(baselineMicros))] fused_us=[\(format(fusedMicros))]")
-}
-
 private func lagunaDecodeNVFP4QKVR1(
     normalized: MLXArray,
     bank: LagunaNativeAffineWeight,
@@ -5085,18 +4978,15 @@ private func lagunaDecodeNVFP4QKVR1(
                 "decode nvfp4 qkv+gproj r1 h\(heads) lane-major qkv_groups=\(rows / 2)"
                     + " gate_groups=\(heads / 8) dispatches=1 tg=64")
             lagunaNarrowScaleLog.noteDispatch("lane-major+gproj", "qkv h\(heads)")
-            let qkvInputs = [normalized, bank.packedCodes, lane.nibbles, lane.bases, bank.scales]
-            let fusedInputs = qkvInputs + [gateBank.packedCodes, gateBank.scales, gateBiases]
             let outputs = kernel(
-                fusedInputs,
+                [
+                    normalized, bank.packedCodes, lane.nibbles, lane.bases, bank.scales,
+                    gateBank.packedCodes, gateBank.scales, gateBiases,
+                ],
                 grid: ((rows / 2) * 64, 1, 1),
                 threadGroup: (64, 1, 1),
                 outputShapes: [[1, 1, rows], [1, 1, heads]],
                 outputDTypes: [.bfloat16, .bfloat16])
-            lagunaQKVGProjDiagnosticLog.noteReach(heads: heads)
-            lagunaRunQKVGProjDiagnostic(
-                normalized: normalized, qkvInputs: qkvInputs, fusedInputs: fusedInputs,
-                fusedOutputs: outputs, rows: rows, heads: heads)
             return (outputs[0], outputs[1])
         }
         if let kernel = lagunaDecodeNVFP4QKVLaneMajorKernels[heads] {
