@@ -112,6 +112,15 @@ def main() -> int:
                     help="UTC HH:MM boundary; report two regimes around it")
     ap.add_argument("--exclusion-check", action="store_true",
                     help="test the run-time floor against the excluded rows' upper bounds")
+    ap.add_argument("--max-width", type=float, default=None,
+                    help="drop brackets wider than this many minutes before "
+                         "computing statistics.  The midpoint of a very wide "
+                         "bracket carries almost no information (a 287-minute "
+                         "snapshot gap yields a midpoint that is nearly "
+                         "arbitrary), and such rows dominate the MEAN while "
+                         "leaving the median alone.  Use this when the mean is "
+                         "the quantity of interest, e.g. comparing against a "
+                         "Little's-Law estimate.")
     ap.add_argument("--floor", type=float, default=22.9,
                     help="run-time floor in minutes to falsify (default 22.9, from poller brackets)")
     args = ap.parse_args()
@@ -216,12 +225,27 @@ def main() -> int:
     print("  almost any gap.  The exclusion is driven by SNAPSHOT SPARSITY, not row speed.")
     print("  Run with --exclusion-check to test that claim against the excluded rows.")
 
+    narrow = bracketed
+    if args.max_width is not None:
+        narrow = [b for b in bracketed if (b[4] - b[3]) <= args.max_width]
+        dropped = len(bracketed) - len(narrow)
+        print(f"\n=== informative brackets only (width <= {args.max_width:.0f} min) ===")
+        print(f"  dropped {dropped} of {len(bracketed)} brackets as too wide to inform a mean")
+        for rid, sv, c, lo, hi in sorted(bracketed, key=lambda t: t[4] - t[3], reverse=True):
+            if (hi - lo) > args.max_width:
+                print(f"    dropped {rid[:8]} {sv[:12]:12s} width {hi - lo:7.1f} min "
+                      f"(midpoint {(lo + hi) / 2:.1f} carries ~no information)")
+        describe("midpoints (narrow only)", [(lo + hi) / 2 for _, _, _, lo, hi in narrow])
+
     if args.split:
         boundary = cut(args.split)
         print(f"\n=== two regimes around {boundary:%H:%M}Z ===")
         for label, sel in (("before", lambda c: c < boundary), ("after", lambda c: c >= boundary)):
             sub = [(lo + hi) / 2 for _, _, c, lo, hi in bracketed if sel(c)]
             describe(f"{label} midpoints", sub)
+            if args.max_width is not None:
+                describe(f"{label} narrow midpoints",
+                         [(lo + hi) / 2 for _, _, c, lo, hi in narrow if sel(c)])
             cens = [lo for _, _, c, lo in onesided if sel(c)]
             if cens:
                 describe(f"{label} censored >=", cens)
