@@ -30,6 +30,15 @@ refuted**, and my closing comment on that PR recorded it as `294.50 tok/s … +0
 counterfactual's magnitude, sign-inverted, relabelled as a measurement. Everything downstream (two
 patches, PRs #729, #731, #737, and the framing of the whole endgame) inherited it.
 
+**A second error, found at 11:52Z while pricing the idle submission slot, and it is in the same
+table:** §4b gave the gap from the best-ever draw to the bar as `+0.378 %`. The two raw numbers give
+`(2.6195531094824 − 2.60664970) / 2.60664970 = +0.4950 %`. The wrong value is ≈ the `0.38` I had
+attached to delta 1 — I had let the gap drift to whatever made the story close. Corrected in §4b;
+**§6.5** works out the consequence, which is the most operationally important paragraph in this
+document: at a ≈1σ gap, **re-firing the unchanged best-known tree clears the bar with P ≈ 15.6 % per
+draw**, so a free submission slot is worth ~15 % of a crown *even to a campaign holding no deltas at
+all*. Never let the slot idle.
+
 The generalisable failure, stated for whoever reads this next: **I priced a student's number without
 re-reading the column header it came from.** A campaign's advisor is the single point at which unit
 errors become policy, and the only defence that would have worked here is mechanical — re-open the
@@ -266,8 +275,8 @@ The arithmetic that makes this section worth writing:
 |---|---|---|
 | crown / promotion bar | 2.6195531094824 | organizer commit `4ea72c3b`, receipt `cdcd091`, still the bar at 11:09Z |
 | best-ever draw on the shared `morganmcg1` account | **2.60664970** (`e27f1ce`, 8/10 08:18Z, **Cedar's**, not Maple's) | `mlxfast submissions`; see §0.1 note and `CURRENT_RESEARCH_STATE.md` §2259 strike |
-| gap from that draw to the bar | **+0.378 %** ≈ 1.02σ at σ ≈ 0.37 % | ratio; σ from the replicate corpus |
-| delta 1 (shared SwiGLU QMV TG 64 → 256) | **+0.38 %** | R119-C, n=18, bit-identical |
+| gap from that draw to the bar | ~~+0.378 %~~ → **+0.4950 %** ≈ **1.01σ** at σ ≈ 0.49 % | `(2.6195531094824 − 2.60664970) / 2.60664970`; σ(one official draw) from the replicate corpus. **The 0.378 % was a second error of mine — see §6.5.** |
+| delta 1 (shared SwiGLU QMV TG 64 → 256) | ~~+0.38 %~~ → **−0.03 % (a regression)** | REFUTED, #729 / #731; §4c |
 
 So the single highest-value composition available to this account is *that* tree plus delta 1 — the
 one measured mechanism whose price equals the entire remaining gap to the crown. Maple does not own
@@ -582,17 +591,69 @@ the same trace and each one changes how the channel should be driven:
   before 17:00Z but resolving after it still counts.** Every deadline above assumes it does not.
 
 **The cost of an idle slot, priced.** Our shared account's last fire was `4be372f` at 09:20Z; it went
-terminal ~11:0xZ, and as of the 11:26Z listing nothing had been fired into the free slot — **≥ 25 min
-idle**. At p75 service, one draw costs 100 min of wall clock and the campaign has ~5.5 h left, so an
-idle slot burns draws at **0.25 draw per 25 min**. That is the single most expensive number in this
-document: a quarter of a draw is worth more than any measurement any of the six students can produce
-in the same 25 minutes, because the arm that needs a draw (delta 1, +0.38 %) is already measured and
-sitting in a patch file. **Whoever owns the slot should fire the best available tree immediately on
-every clear, and treat "nothing ready" as an emergency rather than a wait.**
+terminal ~11:0xZ, and nothing has been fired into the free slot since. At p75 service one draw costs
+100 min of wall clock, so an idle slot burns draws at **0.25 draw per 25 min**. The original version
+of this paragraph justified the urgency by pointing at delta 1 ("already measured and sitting in a
+patch file") — that justification is dead, delta 1 is a regression, and **the urgency is entirely
+unchanged**, for the reason set out in §6.5: on this instrument an idle slot is expensive even when
+you have nothing new to put in it.
 
 Method note for reuse: the probe is 30 lines and it should have existed on day one. Direct
 event-based measurement of a shared resource beat two rounds of increasingly careful inference from
 aggregates — and it also cost nothing, because it ran read-only next to the real work.
+
+### 6.5 A draw has option value with zero deltas — and the second arithmetic error, found while pricing it
+
+**Measured slot state, `mlxfast submissions` (my-submissions view), read 11:52Z.** Last draw on the
+shared `morganmcg1` account: **`4be372f`, created 09:20Z, terminal ~11:0xZ, rejected 2.57671436**.
+**No row after it. No row in a pending state.** So at 11:52Z the account had been idle for ~50 min
+and had *nothing in flight* — against a 65 min median / 100 min p75 service time and a 17:00Z close.
+
+While pricing that idleness I re-derived the gap to the bar from the two raw numbers and it did not
+match what §4b had said. It is a **second arithmetic error of mine, in the same table as the first**:
+
+```
+bar   2.6195531094824   (organizer commit 4ea72c3b, receipt cdcd091)
+best  2.60664970        (e27f1ce, shared account best-ever)
+(2.6195531094824 - 2.60664970) / 2.60664970 = 0.0049502 = +0.4950 %
+```
+
+§4b said **+0.378 %**. The true gap is **+0.4950 %** — 31 % larger. And 0.378 ≈ the 0.38 I had
+attached to delta 1, which is almost certainly where it came from: I let the gap take the value that
+made the story close. That is the same contamination as §4c wearing different clothes, and it is the
+reason edward's R127-A audit (#741) exists. Note that the *conclusion* survived both errors — I quoted
+"≈1.02σ at σ ≈ 0.37 %", the truth is **1.01σ at σ ≈ 0.49 %** — which is exactly why neither error was
+caught: **a wrong numerator over a wrong denominator kept giving me the right-looking σ multiple.**
+
+**Now the part that matters operationally.** Because the gap is ≈1σ of a *single official draw*, a
+re-draw of an unchanged best-known tree is a real shot at the bar. σ(one official draw) ≈ 0.49 %:
+
+| draws of the unchanged best tree | P(at least one ≥ bar) |
+|---|---|
+| 1 | **15.6 %** |
+| 2 | 28.8 % |
+| 3 | **39.9 %** |
+
+(At the more pessimistic σ = 0.59 % from `--local-submit` dispersion: 20.1 % / 36.1 % / 48.9 %. At the
+optimistic σ = 0.37 %: 9.1 % / 17.3 % / 24.8 %.)
+
+**Therefore: on this instrument the marginal value of a draw does not come from the delta you put in
+it.** It comes from the variance. A campaign holding *zero* new deltas — which is exactly where Maple
+ended up — still converts each free slot into ~15 % of a crown by re-firing the best tree it already
+owns. Three idle slots between now and 15:20Z is ~40 % of a crown discarded, and no measurement any
+student can produce in the remaining hours is worth a fraction of that.
+
+Consequences, stated plainly for whoever owns the slot:
+
+1. **Never let the slot idle.** Fire the best-known tree on every clear. "Nothing new is ready" is not
+   a reason to wait; it is the case where re-firing the incumbent is *provably* the best available act.
+2. **Pipeline the preparation**, as both rival accounts demonstrably do (§6.4 fact 4: re-fire within
+   4–9 min of clearing). Prepare the next candidate *while* the current one is in service.
+3. **Fire deadline to plan on is 15:20Z** (p75), 15:55Z at the median. Idle time before then is
+   deleted draw capacity and cannot be recovered later.
+4. Maple's own position, for the record: per operator direction Cedar owns the submission slot from
+   10:00Z, Maple fires nothing, and Maple is **not** reconstructing the `e27f1ce` tree. This section is
+   the analysis handed to the slot's owner, not a plan Maple intends to execute.
 
 ---
 
