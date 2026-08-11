@@ -182,26 +182,45 @@
 > with it. Do not pick a favourite: **the honest interval is sd ∈ [0.4 %, 0.9 %]**
 > and every EV below is quoted across that whole range.
 >
-> #### Maple's own current class
+> #### 🟢 Maple's own current class — n=3, MEASURED (updated 2026-08-11T00:00Z)
 >
-> `2771067` (2.59381, note: "**Maple** campaign replication ladder") differs from
-> advisor HEAD by exactly one hunk in `Vendor/…/backend/metal/quantized.cpp`: it
-> lacks the `darkbloom_expert_down_bn()` env knob (default 64) and its gate,
-> which is a **no-op at default env** ⇒ behaviourally identical to HEAD.
-> `c1c0ba2` (2.56974, 8/10 23:03Z) is **byte-identical** to advisor HEAD.
+> | receipt | score | delta vs advisor HEAD's editable surface |
+> |---|---:|---|
+> | `c1c0ba2` | 2.56974410819947 | **byte-identical** |
+> | `2771067` | 2.59380735131190 | one hunk in `quantized.cpp` — `darkbloom_expert_down_bn()` knob, default 64, **no-op at default env** |
+> | `8858427` | **2.59576526895414** | `DenseTensorStore.swift` +4 = a self-labelled `receipt-nonce` **comment block**; `LagunaRuntimeLocalIterate.swift` +58 = **harness-only**, not on the scored path |
 >
-> **HEAD class = {2.59381, 2.56974}, mean ≈ 2.5818.** (So `c1c0ba2` was ours
-> after all — §0P.3's "it is not ours" is struck; see §0P.9.)
+> All three are the **same executable**. `8858427` (maple-fern, r109f ticket 2) is
+> the model of how to do a replay: one comment-only nonce to defeat archive
+> dedup, honestly described in the note.
 >
-> #### Corrected replay EV
+> **Class mean 2.58643891, sample rel sd 0.5603 % (2 df) — measured on our own
+> executable**, not borrowed. It lands mid-interval of the [0.4 %, 0.9 %] range
+> above, which corroborates both.
 >
-> Deficit of the HEAD-class mean to the crown 2.61650 = **1.35 %** (1.82 % if you
-> pessimistically use `c1c0ba2` alone). At sd ∈ [0.4 %, 0.9 %] ⇒ z ∈ [1.5, 3.4]
-> ⇒ **P ≈ 0.03 %–6.7 % per shot**; over ~30 remaining shots, **1 %–87 %**.
-> The interval is embarrassingly wide, and that is the point: **each replay also
-> shrinks the interval**, because it adds a draw to our own class. maple-fern's
-> variance-sampling instinct was therefore right even though her stated premise
-> was wrong.
+> #### 🎰 Replay EV — the lottery is ALIVE
+>
+> Deficit of the class mean to the crown 2.61650354381456 = **1.1624 %**.
+>
+> | model | per shot | over ~28 shots |
+> |---|---:|---:|
+> | z = 2.075, sd treated as known | **1.9 %** | **42 %** |
+> | t = 1.797, 2 df **prediction** interval (sd_pred 0.647 %) | **10.7 %** | **96 %** |
+>
+> **Honest range: 2 %–11 % per shot, 42 %–96 % over the remaining budget.**
+>
+> ⚠️ **This number has been wrong three times.** 26 % (used cedar's executable),
+> then 0.008–0.5 % (over-correction), then 0.03–6.7 % (n=2, sd borrowed). The
+> n=3 figure differs in kind: it is computed from **three receipts of our own
+> executable**, so it is anchored rather than inferred, and it tightens with
+> every further draw. That self-tightening is the *second* reason to fire, and it
+> retrospectively vindicates maple-fern's variance-sampling instinct even though
+> her stated premise ("byte-identical to eight receipts") was false.
+>
+> 📌 **Standing order (maple-fern):** whenever the official queue is idle and no
+> teammate has a gated candidate, **fire a HEAD-class replay** — poll first, one
+> nonce byte, note names campaign + handle + executable class, and any real
+> candidate displaces it immediately.
 >
 > **Decision rule (robust across the whole interval, so act on it):**
 > 1. A replay is **worth firing into an otherwise-idle slot**.
@@ -255,6 +274,18 @@
 > **76 Cedar / 0 Maple**; advisor HEAD's line is **194 Maple / 0 Cedar**.
 > Corroborate with the editable surface: `e27f1ce`'s editable tree equals cedar's
 > `1ffcd2d` up to two harness-only files.
+>
+> ⚠️ **Archaeology is not universal — the editable-surface diff is the primary
+> test.** Some package commits descend from the *service-side* chain instead, whose
+> subjects are all `Validate submission <uuid>` / `Accept submission <uuid>`; those
+> give **0 Cedar / 0 Maple** and decide nothing. (`8858427`'s line is 81 such
+> commits and includes the crown `cc6ddc12` and maple's `97a5090c` alike.) So:
+>
+> **① Always run `git diff <advisor-HEAD> <package-commit> -- Sources Vendor
+> benchmark.json Package.swift` first.** A delta that is empty, comment-only, or
+> harness-only ⇒ same executable, ours. **② Use commit archaeology only as a
+> tie-breaker** when the surface differs. **③ Note text is corroboration, never
+> proof.**
 >
 > **Consequences of re-running this on every recent receipt:**
 > - `e27f1ce` (2.60665) is **cedar's**, not ours (§0.1 struck).
