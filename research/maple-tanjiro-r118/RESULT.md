@@ -117,9 +117,38 @@ The pre-registered decision rule therefore fires: **`d1`'s 95 % upper bound
 quarters of this kernel's reads does not reach the bar, so nothing that preserves
 correctness can.
 
-Both of Rule 105.12's floors are cleared *against* the candidate: the bytes-bound
-bar is 68.7 M4 us/step and the latency-bound floor is 60.0 M4 us/step, and d1's
-upper bound is below both.
+### The verdict does not depend on the disputed core-scaling constant
+
+The bar is the arm-sizing rule (`CURRENT_RESEARCH_STATE.md:3850-3854`): an arm
+whose best case is under **+30 M5 us/step (0.46 %)** does not justify a slot.
+Rule 105.12 (`:3856-3859`) is the *units* clause on top of it: in locally measured
+M4 units the threshold is **68.7 us/step bytes-bound** or **60.0 us/step
+latency-bound**, because applying the M5 number to an M4 estimate is too
+permissive by 2.29x (bytes) / 2.00x (latency).
+
+That 2.29 is `1/alpha` with `alpha = 0.4369`, and the campaign's own Rule 105.19
+(`:9439-9446`) marks alpha **not identified** — "the defensible statement is
+alpha < 0.4454" — while the direct whole-decode measurement gives
+`k_steady = 4141.5/8448 = 0.4902`, i.e. a divisor of 2.04. So the bar is not a
+single agreed number. It does not matter here:
+
+| divisor used | source | resulting M4 bar | d1 95 % UB | clears? |
+|---|---|---:|---:|---|
+| 2.29 | alpha = 0.4369, bytes-bound | 68.7 | +41.7 | no |
+| 2.245 | alpha = 0.4454, the 105.19 upper bound | 67.4 | +41.7 | no |
+| 2.04 | k_steady whole-decode, most permissive | 61.2 | +41.7 | no |
+| 2.00 | beta = 0.5, latency-bound floor | 60.0 | +41.7 | no |
+
+**The candidate fails against every published conversion**, including the most
+permissive one, with ~19 us/step of margin at the loosest. I therefore do not need
+to take a side in the alpha dispute, and I am not taking one.
+
+*(Units note, since I got this wrong once already: 8972 is an **M4** decode-wall
+denominator (`:2127-2128`), not an M5 one, and the campaign price
+0.75 x tau x delta_M4_wall_us / 8972 = 0.0084 %/wall-us at tau=1 is built on it.
+Its own provenance is contested — the rival M4 controls are 8448 and 8984.5 — but
+nothing in this result rests on it, because I adjudicate in us/step against the
+M4-unit bar rather than in percent.)*
 
 Per the landing rule I ship only on a verified positive interval excluding zero.
 There is none here that clears the bar. **Do not land.**
@@ -224,13 +253,22 @@ it is recorded in the document that made the error.
 
 ---
 
-## 6. Correctness gate (Rule 105.15)
+## 6. Correctness gate
 
 `research/run_upstream_equivalence.sh` at the default arm, on the clean tree:
 
 TBD-EQUIVALENCE-LINE
 
 A zero selected-test count is not a pass; the count above is non-zero.
+
+*Citation correction.* The campaign (and an earlier draft of this document) says
+"Rule 105.15" for the non-zero-test-count gate. That is shorthand and it is not
+what 105.15 says. The gate is official and lives in `AGENTS.md:108-110` — the
+wrapper "refuses to call a zero-test invocation a pass". Rule 105.15
+(`CURRENT_RESEARCH_STATE.md:9223`) is the *narrower* and equally binding point
+that `max_abs_diff` is a hard-coded schema constant and `golden_hash` is the input
+digest, so **neither is correctness evidence and neither is cited here**. I claim
+exact token-ID equality from the equivalence oracle and nothing else.
 
 The research profiling patch to `device.cpp`/`device.h` is applied and reverted
 inside `qmv-dose-profile.sh`; `git status` on both files is empty at the end of
