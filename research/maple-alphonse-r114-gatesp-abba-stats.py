@@ -1,82 +1,148 @@
 #!/usr/bin/env python3
-"""Paired block statistics for the R114-E gate_sp fusion ABBA.
+"""Paired statistics for the R114-E gate_sp grid-append fusion ABBA.
 
-The driver emits a palindromic CFFC-block order, so each consecutive CFFC
-block is a self-contained pair whose mean cancels any monotone drift in host
-state.  We report the per-block delta (F mean - C mean), its mean, and a
-Student-t interval over the blocks, plus the pooled two-sample view as a
-sanity check.  Research instrumentation only; not part of the runtime.
+Reads one or more TSVs written by
+`research/maple-alphonse-r114-gatesp-fusion-abba.sh` and reports the two
+interval estimators that the balanced CFFC design admits.  Both estimators
+share the SAME point estimate; they differ only in the variance model and
+the degrees of freedom, so reporting both is the honest framing rather than
+a choice between them.
+
+  block     one delta per CFFC quadruple, mean(F) - mean(C).  Cancels a
+            linear host drift exactly inside each block.  Few df.
+  adjacent  one delta per disjoint neighbouring C/F pair, always signed
+            F - C.  The design supplies equal numbers of C-first and
+            F-first pairs, so a linear drift cancels across the pair set
+            while giving 2x the residual df of the block estimator.
+
+Usage: research/maple-alphonse-r114-gatesp-abba-stats.py TSV [TSV ...]
 """
+
 import statistics
 import sys
 
-BAR_US = 36.0  # 0.25 % of a 14.4 ms M4 decode step, per the assignment
+# Verified win bar for this assignment: +0.25 % of M4 decode wall.
+BAR_US = 36.0
 
-
-def read(path):
-    rows = []
-    with open(path) as fh:
-        next(fh)
-        for line in fh:
-            f = line.rstrip("\n").split("\t")
-            if len(f) < 5 or f[2] == "NA":
-                continue
-            rows.append((f[1], float(f[2]), float(f[3]), f[4]))
-    return rows
+# two-sided 95 % Student-t critical values, indexed by degrees of freedom
+T_CRIT = {
+    1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447, 7: 2.365,
+    8: 2.306, 9: 2.262, 10: 2.228, 11: 2.201, 12: 2.179, 13: 2.160,
+    14: 2.145, 15: 2.131, 16: 2.120, 17: 2.110, 18: 2.101, 19: 2.093,
+    20: 2.086, 21: 2.080, 22: 2.074, 23: 2.069, 24: 2.064, 25: 2.060,
+    26: 2.056, 27: 2.052, 28: 2.048, 29: 2.045, 30: 2.042,
+}
 
 
 def t_crit(df):
-    return {1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571,
-            6: 2.447, 7: 2.365, 8: 2.306, 9: 2.262, 10: 2.228}.get(df, 1.96)
+    if df < 1:
+        return None
+    if df in T_CRIT:
+        return T_CRIT[df]
+    return 1.960 if df > 30 else None
 
 
-def main(path):
-    rows = read(path)
-    bad = [r for r in rows if r[3] != "true"]
-    if bad:
-        print(f"!! {len(bad)} run(s) failed correctness -- results are void")
-    print(f"n = {len(rows)} runs\n")
+def load(paths):
+    """Return [(arm, decode_s, prefill_s)] in acquisition order."""
+    rows = []
+    for path in paths:
+        with open(path) as handle:
+            for line in handle:
+                parts = line.rstrip("\n").split("\t")
+                if len(parts) < 5 or parts[0] == "idx":
+                    continue
+                arm, dec, pre, passed = parts[1], parts[2], parts[3], parts[4]
+                if passed != "true":
+                    sys.exit(f"{path}: run {parts[0]} did not pass: {parts[5:]}")
+                rows.append((arm, float(dec), float(pre)))
+    return rows
 
-    blocks, cur = [], []
-    for r in rows:
-        cur.append(r)
-        if len(cur) == 4:
-            blocks.append(cur)
-            cur = []
-    if cur:
-        print(f"(dropping {len(cur)} trailing runs outside a complete block)\n")
 
-    deltas = []
-    print("block   C mean (s/tok)   F mean (s/tok)   delta us/step   delta %")
-    for i, b in enumerate(blocks, 1):
-        c = statistics.mean(x[1] for x in b if x[0] == "C")
-        f = statistics.mean(x[1] for x in b if x[0] == "F")
-        d = (f - c) * 1e6
-        deltas.append(d)
-        print(f"  {i}     {c:.9f}      {f:.9f}     {d:+8.1f}      {100*(f-c)/c:+.3f}")
+def summarize(rows, index, label, unit_us):
+    """Per-arm run-to-run spread on one metric."""
+    print(f"  {label}")
+    for arm in ("C", "F"):
+        vals = [r[index] for r in rows if r[0] == arm]
+        mean = statistics.fmean(vals)
+        sd = statistics.stdev(vals) if len(vals) > 1 else float("nan")
+        print(
+            f"    {arm}  n={len(vals):2d}  mean={mean:.10f}  "
+            f"sd={sd * unit_us:7.1f} us  ({100 * sd / mean:.2f} %)"
+        )
+    c = statistics.fmean([r[index] for r in rows if r[0] == "C"])
+    f = statistics.fmean([r[index] for r in rows if r[0] == "F"])
+    print(
+        f"    point estimate  F-C = {(f - c) * unit_us:+8.1f} us "
+        f"({100 * (f - c) / c:+.3f} %)"
+    )
+    return (f - c) * unit_us
 
-    if len(deltas) < 2:
+
+def block_deltas(rows):
+    """mean(F) - mean(C) inside each complete CFFC-style quadruple."""
+    out = []
+    for start in range(0, len(rows) - 3, 4):
+        quad = rows[start:start + 4]
+        c = [r[1] for r in quad if r[0] == "C"]
+        f = [r[1] for r in quad if r[0] == "F"]
+        if len(c) == 2 and len(f) == 2:
+            out.append(statistics.fmean(f) - statistics.fmean(c))
+    return out
+
+
+def adjacent_deltas(rows):
+    """F - C over disjoint neighbouring opposite-arm pairs, left to right."""
+    out = []
+    i = 0
+    while i < len(rows) - 1:
+        a, b = rows[i], rows[i + 1]
+        if a[0] != b[0]:
+            f = a[1] if a[0] == "F" else b[1]
+            c = a[1] if a[0] == "C" else b[1]
+            out.append(f - c)
+            i += 2
+        else:
+            i += 1
+    return out
+
+
+def interval(name, deltas, unit_us):
+    n = len(deltas)
+    if n < 2:
+        print(f"  {name:9s} n={n} -- too few for an interval")
         return
-    m = statistics.mean(deltas)
-    sd = statistics.stdev(deltas)
-    se = sd / len(deltas) ** 0.5
-    h = t_crit(len(deltas) - 1) * se
-    print(f"\npaired block delta  {m:+.1f} us/step   95% CI [{m-h:+.1f}, {m+h:+.1f}]")
-    print(f"excludes zero: {'YES' if abs(m) > h else 'NO'}")
-    print(f"clears the {BAR_US:.0f} us bar: "
-          f"{'YES' if (m + h) < -BAR_US else 'NO'}  (needs the whole CI below -{BAR_US:.0f})")
+    mean = statistics.fmean(deltas) * unit_us
+    sd = statistics.stdev(deltas) * unit_us
+    se = sd / n ** 0.5
+    crit = t_crit(n - 1)
+    lo, hi = mean - crit * se, mean + crit * se
+    neg = sum(1 for d in deltas if d < 0)
+    verdict = "excludes zero" if hi < 0 or lo > 0 else "INCLUDES ZERO"
+    bar = "clears bar" if hi < -BAR_US else "does not clear bar"
+    print(
+        f"  {name:9s} n={n:2d}  mean={mean:+8.1f} us  sd={sd:6.1f}  "
+        f"se={se:5.1f}  95% CI [{lo:+8.1f}, {hi:+8.1f}]  "
+        f"({neg}/{n} negative, {verdict}, {bar})"
+    )
 
-    allc = [x[1] for x in rows if x[0] == "C"]
-    allf = [x[1] for x in rows if x[0] == "F"]
-    print(f"\npooled  C {statistics.mean(allc):.9f} (sd {statistics.stdev(allc)*1e6:.1f} us)"
-          f"  F {statistics.mean(allf):.9f} (sd {statistics.stdev(allf)*1e6:.1f} us)"
-          f"  delta {(statistics.mean(allf)-statistics.mean(allc))*1e6:+.1f} us")
 
-    pc = [x[2] for x in rows if x[0] == "C"]
-    pf = [x[2] for x in rows if x[0] == "F"]
-    print(f"prefill C {statistics.mean(pc):.9f}  F {statistics.mean(pf):.9f}"
-          f"  delta {(statistics.mean(pf)-statistics.mean(pc))*1e6:+.1f} us/token")
+def main():
+    paths = sys.argv[1:]
+    if not paths:
+        sys.exit(__doc__)
+    rows = load(paths)
+    print(f"runs: {len(rows)}  order: {''.join(r[0] for r in rows)}")
+    print(f"bar : {BAR_US:.1f} us/step of decode wall (win must beat this)")
+
+    print("\ndecode seconds/token")
+    summarize(rows, 1, "per-arm spread", 1e6)
+    print("\nprefill seconds/token")
+    summarize(rows, 2, "per-arm spread", 1e6)
+
+    print("\npaired interval estimators on decode us/step")
+    interval("block", block_deltas(rows), 1e6)
+    interval("adjacent", adjacent_deltas(rows), 1e6)
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else "/tmp/r114-gatesp-fusion.tsv")
+    main()
