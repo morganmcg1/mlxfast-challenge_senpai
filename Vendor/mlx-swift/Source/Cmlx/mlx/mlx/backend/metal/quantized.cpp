@@ -1235,16 +1235,22 @@ int darkbloom_expert_gather_groups() {
 // projection (K=512, N=2048) only. That shape stores plain BN-wide Dtile
 // slices, so BN is free there; the fused gate/up shape pairs column c with
 // c + BN/2 and writes N/2 columns, so its BN is a correctness lock.
-// 128 halves the threadgroup count and the x re-read traffic per layer
-// against 64 while keeping the staged weight bytes per layer identical.
+// 128 halves the threadgroup count and the x re-read traffic per layer against
+// 64, but it is not a free rung: QuantizedBlockLoader derives
+// kSrcBytes = n_reads = 32 * BN / tgp_size, and its vectorized weight loads
+// exist only for kSrcBytes 16 and 8 (fp_quantized_nax.h:438-444). At BN=128
+// kSrcBytes is 32, so both branches compile out and the 151 MB/layer weight
+// stream degrades to per-byte device loads while the kernel name still claims
+// `_wl_1`. 128 therefore stays off the default until the loader gains a chunked
+// 2x16B path.
 int darkbloom_expert_down_bn() {
   static const int v = [] {
     auto s = env::get_var("DARKBLOOM_EXPERT_DOWN_BN", "");
     if (s.empty()) {
-      return 128;
+      return 64;
     }
     const int n = std::atoi(s.c_str());
-    return (n == 32 || n == 64 || n == 128) ? n : 128;
+    return (n == 32 || n == 64 || n == 128) ? n : 64;
   }();
   return v;
 }

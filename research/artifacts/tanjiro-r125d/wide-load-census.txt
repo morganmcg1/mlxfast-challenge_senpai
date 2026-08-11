@@ -1,0 +1,75 @@
+R125-D weight-staging load-width census
+host: M4 Pro (Apple GPU generation 16) - static AIR only, no execution
+kernel: fp_gather_qmm_rhs_expert_nax<bfloat16_t, gs 16, b 4, bm 64, bn {32,64,128},
+        bk 64, wm 4, wn 1, k 512, n 2048, eg 256, ws 1, wl 1, ps 2>   (the down shape)
+repro:  bash research/maple-alphonse-r107c-jit-air.sh 32 64 128
+        xcrun air-objdump --disassemble down-bn$B.air > down-bn$B.ir
+
+QUESTION
+  Does the QuantizedBlockLoader *widened* weight staging survive at BN=128?
+  All three rungs ask for it: every instantiation's host_name ends in `_ws_1_wl_1`
+  (tail of down-bn$B.metal), i.e. wide_store=1 and wide_load=1 are requested, and
+  the host predicate darkbloom_stage_wide_load_ok holds at all three rungs
+  (col_step = bn * K/2 = bn * 256, a multiple of 16 for 32/64/128 alike).
+
+STATIC CONSTRAINT  (Vendor/mlx-swift/.../kernels/fp_quantized_nax.h)
+  loader params for this shape: BROWS=BN, BCOLS=BK=64, bits=4
+    => pack_factor=2, BCOLS_PACKED=32, tgp_size=WM*WN*32=128, bytes_per_pack=1
+  n_reads   = (BCOLS_PACKED * BROWS) / tgp_size = BN/4              (line 215-216)
+  kSrcBytes = n_reads * bytes_per_pack                              (line 428)
+  kWideLoadShapeOk  = kWidenShapeOk && (kSrcBytes == 16)            (line 438)
+  kWideLoad8ShapeOk = kWidenShapeOk && (kSrcBytes ==  8)            (line 444)
+  Both wide-load bodies sit behind `if constexpr` (lines 502 and 512), so on a
+  rung whose kSrcBytes is neither 16 nor 8 neither body is emitted at all and the
+  loader falls into the scalar run
+      for (short b = 0; b < kSrcBytes; b++) sb[b] = src[b * bytes_per_pack];
+  (lines 522-527).
+
+  BN=32  -> n_reads  8 -> kSrcBytes  8 -> 8B  wide device load (kWideLoad8ShapeOk)
+  BN=64  -> n_reads 16 -> kSrcBytes 16 -> 16B wide device load (kWideLoadShapeOk)
+  BN=128 -> n_reads 32 -> kSrcBytes 32 -> NO wide device load: 32 scalar byte loads
+  (n_steps_per_read = n_reads / n_reads_per_scale = 1 / 2 / 4, so BN=128 also runs
+   4 scale decodes per read instead of 2.)
+
+MEASURED IN THE EMITTED AIR
+  rung   Wide* syms   dev->priv 16B memcpy   priv->tg 16B memcpy   8B (i64) dev load   32B sb[] alloca
+  32     21           0                      1                     1                   no
+  64     27           1                      1                     0                   no
+  128     0           0                      0                     0                   yes
+
+KEY LINES
+  down-bn64.ir:63   %"struct.QuantizedBlockLoader<bfloat, 64, 64, 72, 1, 128, 16, 4, 2>::WideSrc" = type { [16 x i8] }
+  down-bn64.ir:715  call void @llvm.memcpy.p0i8.p1i8.i64(i8* align 16 dereferenceable(16) %29,
+                        i8 addrspace(1)* align 16 dereferenceable(16) %31, i64 16, i1 false)
+                    <- the single 16B device weight load
+  down-bn64.ir:935  call void @llvm.memcpy.p3i8.p0i8.i64(i8 addrspace(3)* align 16
+                        dereferenceable(16) %192, i8* align 16 dereferenceable(16) %58, i64 16, i1 false)
+                    <- the single 16B threadgroup tile store
+  down-bn32.ir      one `load i64, i64 addrspace(1)*` instead (the 8B form), same 16B tg store
+
+  down-bn128.ir:693 call void @llvm.lifetime.start.p0i8(i64 32, ...)      <- sb[32]
+  down-bn128.ir:695 %17 = load i8, i8 addrspace(1)* %16, align 1          <- per-BYTE weight load
+  down-bn128.ir:697 store i8 %17, i8* %18, align 1
+  down-bn128.ir:880-894  8 x `store bfloat ... bfloat addrspace(3)*` with align
+                    16,2,4,2,8,2,4,2                                      <- tg tile written scalar
+  down-bn128.ir     zero occurrences of `Wide`, `memcpy.p0i8.p1i8`, `memcpy.p3i8.p0i8`
+
+  Note the store side is not statically disabled (kWidenShapeOk still holds at
+  BN=128 and dst_byte_off() is 144*bi, always 16B aligned), yet the 16B store also
+  does not survive in the emitted AIR at that rung. Only the load-side disable is
+  proved from the source; the store-side loss is an observation about this
+  compiler's output.
+
+CONSEQUENCE
+  The 151 MB/layer (5.74 GB/forward) routed + shared down weight stream is the exact
+  traffic the BN experiment set out to accelerate. At BN=128 that stream is staged
+  with scalar byte accesses while the kernel name still advertises `_ws_1_wl_1`, so
+  any bytes-in-flight gain from the wider N tile is netted against an unmeasured
+  first-order loss on the same stream. BN=128 therefore does not ship as the
+  default; the follow-up is to give QuantizedBlockLoader a chunked 2 x 16B
+  (kSrcBytes == 32) wide-load path and re-run the rung with the load width held
+  fixed.
+
+  The same arithmetic also explains why the BN=32 falsifier arm is confounded:
+  32 -> 8B and 64 -> 16B are different load widths, so an A/B between them moves
+  two things, not one.

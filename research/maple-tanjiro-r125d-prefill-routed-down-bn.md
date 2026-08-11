@@ -6,51 +6,64 @@ Student: `maple-tanjiro` · PR #732 · assignment `maple-r125-d-prefill-routed-d
 
 ---
 
-## §0 Verdict, branches, SHAs, preference order
+## §0 Verdict
 
-**Verdict.** Ship **one** single-lever change: the down-shape N-tile width of the
-NAX routed/shared gather GEMM moves `BN = 64 → 128`. The change is legal
-(non-empty MMA at `TN=8`), bit-identical by construction (BN partitions output
-columns only; the K-loop order and per-fragment arithmetic are unchanged — proven
-by identical AIR `mma_run`/`fmul` counts across BN), and fits the M4-measured
-threadgroup-memory envelope (18 448 B of 32 768 B). It is **unmeasurable on this
-host**: the code path is `nax`-only and this M4 Pro reports Apple GPU
-generation 16, so `metal::is_nax_available()` is false and the edited function is
-never called locally (§3). The candidate is therefore submitted as a *derived*
-prediction with an explicit interval, not as a locally timed win.
+**Verdict: do not ship `BN = 128`. The default stays 64.** This is a negative /
+inconclusive result, and the reason is a static finding this experiment produced,
+not a timing measurement.
+
+The occupancy case for a wider N tile is real and reproduces (§1). What the
+census missed on the first pass is that **`BN` is not a single lever**: it also
+selects the *width of the device weight load* inside `QuantizedBlockLoader`.
+`n_reads = (BCOLS_PACKED · BROWS)/tgp_size = BN/4` and
+`kSrcBytes = n_reads · bytes_per_pack`, and the loader's vectorized load bodies
+exist only for `kSrcBytes == 16` and `kSrcBytes == 8`
+(`fp_quantized_nax.h:438,444`), both behind `if constexpr`. At BN=128
+`kSrcBytes = 32`, so **neither body is emitted** and the 5.74 GB/forward routed
++shared down weight stream is staged with per-byte device loads while the kernel
+name still advertises `_ws_1_wl_1`. The emitted AIR confirms it: BN=64 has one
+16 B `memcpy` from `addrspace(1)`, BN=32 an 8 B `i64` load, BN=128 **none**, plus
+a 32-byte `sb[]` scratch array and 8 scalar threadgroup stores where 64 has one
+16 B store (§2b, `research/artifacts/tanjiro-r125d/wide-load-census.txt`).
+
+That is a first-order, unmeasured loss on *exactly the stream the hypothesis
+targets*. The predicted gain was **+0.53 %**, only ≈0.3 σ above the +0.378 %
+that a crown-beating draw needs and about 1.1 σ of receipt noise; netting an
+unquantified narrowing of the weight-load width against it makes the sign of the
+draw unknown. Spending an official draw on that would be spending it on a
+confound, so the code change is reverted to `64` and the lever is handed back as
+a **two-part follow-up** (§7): fix the loader to do a chunked 2 × 16 B load at
+`kSrcBytes == 32`, *then* re-run the rung with load width held fixed.
 
 | item | value |
 | --- | --- |
 | branch | `maple-tanjiro/r125-d-prefill-routed-down-bn` |
 | base SHA | `a9de9e8f21188715f6d80ada4b581bcd50d4ec81` |
 | assignment commit | `ff51ac2c705e830ae9bb2871939f6fe65be147b9` |
-| code commit (arm A1, shipped) | `965f2f4b` |
 | submitted path (1) | `Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp` |
-| research-only paths | `research/maple-tanjiro-r125d-*.{py,swift,md}`, `research/artifacts/tanjiro-r125d/**` |
+| behavioural diff vs base | **none** — `darkbloom_expert_down_bn()` still defaults to 64; only the env ladder gained `128` as a reachable rung, plus the comment recording why it is off |
+| research-only paths | `research/maple-tanjiro-r125d-*.{py,sh,swift,md}`, `research/artifacts/tanjiro-r125d/**` |
 | scope gate | `assignment scope OK: 1 submitted path(s)` |
-| editable budget | `current=2699804/3000000 headroom=300196 growth=-284045/262144` |
+| editable budget | `current=2700206/3000000 headroom=299794 growth=561/262144 files=143 (base=143)` |
 | W&B run | [`1nd4yw9s`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/1nd4yw9s) (census tables, occupancy ladder, score prediction, paired A/B) |
 
-**Predicted effect (single transfer constant, applied once).**
+**What is worth keeping from this experiment**
 
-| arm | lever | ΔS (ms, prefill+decode window) | Δscore | note |
-| --- | --- | --- | --- | --- |
-| **A1 (shipped)** | `BN 64 → 128` | central **−1.44**, interval **[−3.91, +2.00]** | central **+0.53 %**, interval **[−0.74 %, +1.45 %]** | 1.09 σ of receipt noise |
-| A2 (patch artifact only) | `BN 64 → 32` | central **+2.40** | central **−0.89 %** | falsifier, not a candidate |
+1. The AIR/occupancy census of the three rungs, and the arithmetic that shows the
+   down shape runs at ≈398 GB/s against a 546 GB/s ceiling — a **3.91 ms**
+   addressable pool on weights alone, or **≈2.4 ms** once the kernel's own `y`
+   stores and unique `x` reads are added to the floor (§2, §8 item 5). All of it
+   is prefill.
+2. The `kSrcBytes` finding itself, which retires the "BN is a free knob"
+   assumption for **every** rung of this loader and also explains why the
+   `BN = 32` falsifier arm was never clean (32 → 8 B, 64 → 16 B: two levers).
+3. The redirect: `SM = 16` row fragments against ≈16 real rows per expert puts
+   ≈31.3 % of this shape's MMA work on padding, ≈**11 ms** — ≈3× the 3.91 ms BN
+   pool, ≈4.5× the corrected one. That is a BM/WM experiment (R107-C §8), and it
+   is the better next draw.
 
-**Preference order for official draws.**
-
-1. **A1 (`BN=128`)** — this branch, as shipped. Central prediction (+0.53 %)
-   exceeds the +0.378 % needed for the best receipt `e27f1ce` (2.606 649 70) to
-   pass the crown `c5b0a13` (2.616 503 54); predicted receipt 2.620 46.
-2. **A2 (`BN=32`)** — only worth one draw **if** A1's receipt is ambiguous
-   (|Δ| < 1 σ = 0.489 %). A2 is a pure sign test of the bytes-in-flight model:
-   if 32 ≥ 64 the model is falsified and the programme should stop spending
-   draws on BN and redirect to the `SM=16` row-padding waste (see §6).
-
-A2 is not committed as code — it exists as `bn32.patch` under
-`research/artifacts/tanjiro-r125d/` so the advisor can raise it in one command
-without another census.
+`bn32.patch` under `research/artifacts/tanjiro-r125d/` is retained only as a
+reproduction aid for the census; it is **not** a candidate arm.
 
 ---
 
@@ -142,19 +155,42 @@ by the pipeline probe (`research/artifacts/tanjiro-r125d/pipeline-probe.txt`).
 ## §2 Code change and tile derivation
 
 Single hunk, `Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp`
-(`darkbloom_expert_down_bn`, lines 1234-1250): default `64 → 128`; the
-env ladder becomes `(n == 32 || n == 64 || n == 128) ? n : 128`. No other
-line in the tree changes.
+(`darkbloom_expert_down_bn`, lines 1234-1250). The arm that was built and
+censused set the default `64 → 128`; **what is committed keeps the default at
+64** and only widens the env ladder to `(n == 32 || n == 64 || n == 128) ? n : 64`
+so the 128 rung stays reachable for reproduction (§8 item 0). The derivation
+below describes the 128 arm as measured statically; §2b is why it is not the
+default. No other line in the tree changes.
 
-**Single-lever proof.** `bn` feeds exactly three things, and only the first is
-BN-shaped:
+**What the host-side `bn` argument moves.** `bn` feeds exactly three host-side
+things, and only the first is BN-shaped:
 
 1. `grid_dims((N + bn - 1)/bn, egroups, 1)` (dispatch, ~line 1628-1650) —
    4 096 TGs/layer instead of 8 192.
 2. `darkbloom_stage_wide_load_ok(..., bn)` → `col_step = bn * (K/2) = bn * 256`,
    a multiple of 16 for 32/64/128 alike, so `expert_wideld` is unchanged and the
-   kernel name keeps `_ws_1_wl_1` for all three rungs. **No second lever moves.**
-3. `align_N = (N % bn) == 0` — true for all three rungs.
+   kernel name keeps `_ws_1_wl_1` for all three rungs.
+3. `align_N = (N % bn) == 0` — true for all three rungs, so `expert_aligned`
+   (and with it the whole `fp_gather_qmm_rhs_expert_nax` fast path) still holds.
+   A non-divisor rung such as 192 would silently drop the branch; 128 does not.
+
+I first wrote this list as a "single-lever proof". **That claim was wrong**, and
+§2b below is the correction: item 2 only shows that the host still *requests*
+the widened staging path (`_ws_1_wl_1`); it does not show that the device
+template still *emits* it. It does not, and that is the finding of this
+experiment.
+
+The one remaining bn-sensitive dispatch term is the x-major split:
+`grid.x = xmajor_ct > 1 ? (N/bn)/xmajor_ct : ceil(N/bn)`. Here
+`darkbloom_gather_xmajor_ct()` returns a hard-coded `0` (line 1308-1310), so the
+`ceil` branch is taken and 2048/128 = 16 divides exactly — no tail tile and no
+divisibility hazard. If a future experiment turns x-major on, its `ct` must
+divide 16 rather than 32.
+
+`bn` also enters the kernel *name* via `get_template_definition(...)`, so BN=128
+is a new instantiation compiled from the same embedded source at runtime; the AIR
+census compiled that exact instantiation cleanly (§1), so this is not an
+AOT-metallib dependency.
 
 `group_dims(32, wn, wm)` is BN-independent; the default geometry variant is 5
 (`bm=64, wm=4, wn=1, bk=64`) and is untouched.
@@ -169,10 +205,13 @@ cross-column reduction anywhere in the down epilogue, so no reassociation is
 possible.
 
 **Time budget it acts on.** PR170's ledger on control `3e165fa` (S = 97.895 ms)
-attributes **W = 43.26 ± 0.40 ms** (~44 % of prefill) to the routed gather-GEMM
+attributes **W = 43.26 ± 0.40 ms** (~44 % of the whole scored window
+S ≈ 97.9 ms, not 44 % of the prefill axis alone) to the routed gather-GEMM
 family. The down shape is one of three shapes and exactly one third of the
-family's weight bytes (17.2 GB over 38 layers), so its share is
-**≈ 14.42 ms**, an effective 5.74 GB / 14.42 ms = **398 GB/s**. At the
+family's weight bytes (17.2 GB over 38 layers), so I *assume* its time share is
+byte-proportional at **≈ 14.42 ms** — that split is arithmetic on the weight
+bytes, not a measured per-shape timing, and it is the weakest number in the
+chain. It implies an effective 5.74 GB / 14.42 ms = **398 GB/s**. At the
 M5 DRAM ceiling of 546.2 GB/s the same bytes take **10.51 ms**, so the
 addressable pool is **3.91 ms** — that is the hard cap on any BN win.
 
@@ -184,6 +223,13 @@ addressable pool is **3.91 ms** — that is the hard cap on any BN win.
 | 0.50 | −2.61 ms |
 | 0.75 | −3.57 ms |
 | 1.00 | −3.91 ms (capped by the DRAM floor) |
+
+The η = 1.00 rung is **unreachable in principle**, not merely optimistic: the
+10.51 ms floor it assumes counts only the 5.74 GB of down weights. The same
+kernel also stores ≈ 0.64 GB of `y` and reads ≈ 0.16 GB of unique `x` per
+window, so a true DRAM floor is ≈ 11.98 ms and the honest cap on the pool is
+≈ 2.4 ms rather than 3.91 ms. I left the table as originally computed and note
+the correction here rather than silently improving my own prediction.
 
 The pessimistic-cache view is an independent sanity check and lands in the same
 band: if every `x` re-read were a DRAM miss, total down traffic falls
@@ -199,6 +245,71 @@ pipelines, which R107-C §6.3 already showed is uninformative — and `alloca`
 materialise and only the TG-count and `x` terms survive (≈ −0.3 ms); if spilling
 costs traffic, up to **+2.0 ms** is possible. Hence the reported interval
 **ΔS ∈ [−3.91, +2.00] ms**.
+
+---
+
+## §2b The blocker: BN=128 statically disables the widened weight staging
+
+This section is the reason the experiment lands negative, and it invalidates the
+prediction above rather than merely widening its error bar.
+
+`QuantizedBlockLoader` in
+`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/fp_quantized_nax.h`
+does not take a vector width as a parameter. It *derives* one from the tile
+shape:
+
+```
+:215-216   static constexpr short n_reads = (BCOLS_PACKED * BROWS) / tgp_size;   // = BN/4 here
+:428       static constexpr int kSrcBytes = n_reads * bytes_per_pack;
+:438       static constexpr bool kWideLoadShapeOk  = ... && kSrcBytes == 16;
+:444       static constexpr bool kWideLoad8ShapeOk = ... && kSrcBytes == 8;
+:502       if constexpr (kWideLoadShapeOk)  { /* 16-byte vector load */ }
+:512       else if constexpr (kWideLoad8ShapeOk) { /* 8-byte load */ }
+:522-527   else { for (b) sb[b] = src[b * bytes_per_pack]; }   // scalar byte loop
+```
+
+So the emitted load width is a *function of BN*, and only two widths have a
+vectorised body:
+
+| BN | `n_reads` | `kSrcBytes` | vectorised body emitted? |
+| --- | --- | --- | --- |
+| 32 | 8 | 8 | yes (8-byte) |
+| 64 | 16 | 16 | yes (16-byte) |
+| **128** | **32** | **32** | **no — scalar byte loop** |
+
+The AIR/IR for the three instantiations confirms this mechanically
+(`research/artifacts/tanjiro-r125d/wide-load-census.txt`; occurrence counts):
+
+| rung | `Wide*` symbols | dev→priv 16 B `memcpy` | priv→tg 16 B `memcpy` | 8 B (`i64`) device load | 32 B `sb[]` `alloca` |
+| --- | --- | --- | --- | --- | --- |
+| 32 | 21 | 0 | 1 | 1 | no |
+| 64 | 27 | 1 | 1 | 0 | no |
+| **128** | **0** | **0** | **0** | 0 | **yes** |
+
+Key lines: `down-bn64.ir:63` types `WideSrc` as `[16 x i8]`; `:715` is a 16-byte
+`llvm.memcpy.p0i8.p1i8` straight out of `addrspace(1)`; `:935` is the matching
+16-byte `memcpy.p3i8.p0i8` into threadgroup memory. At BN=128,
+`down-bn128.ir:693` is `llvm.lifetime.start(i64 32)` — the 32-byte `sb[]`
+staging buffer — followed at `:695/:697` by per-byte `load i8 addrspace(1)` /
+`store i8`, and `:880-894` by eight scalar `store bfloat ... addrspace(3)` with
+alignments 16,2,4,2,8,2,4,2. All three `.metal` instantiations request
+`_ws_1_wl_1`, i.e. the host asked for the wide path in every case.
+
+Two honest caveats on this evidence:
+
+- The **store** side is not statically disabled. `kWidenShapeOk` still holds at
+  BN=128, and `dst_byte_off() = 144 * bi` is 16-byte aligned because `bj == 0`
+  at that shape. The loss of the widened threadgroup stores is therefore an
+  observation about what this compiler actually emitted, not a proof from the
+  `if constexpr` conditions.
+- I did not measure the cost of the scalar loop on an M5. What is proven is
+  that BN=128 changes a second, independent mechanism (staging load width), so
+  the +0.53 % prediction from §2 is no longer a single-lever prediction and
+  cannot be shipped as one.
+
+**Consequence for the ladder.** "BN is a free knob" is retired. It also
+retroactively explains the BN=32 rung: 32 is not simply "smaller tiles", it is
+also an 8-byte staging load, so any BN=32 counter-arm is confounded the same way.
 
 ---
 
@@ -289,12 +400,12 @@ just timed:
 
 A paired local `--local-iterate` A/B was then run anyway, as a **regression
 check, not as the neutrality evidence**. The base already exposed
-`DARKBLOOM_EXPERT_DOWN_BN` (rungs 32/64; this change adds 128 and moves the
-default), so both arms run the *same* candidate binary with the env var pinned,
+`DARKBLOOM_EXPERT_DOWN_BN` (rungs 32/64; this change adds 128 to the ladder), so
+both arms run the *same* candidate binary with the env var pinned,
 alternating `128, 64, 128, 64` behind the same thermal gate
 (`research/maple-tanjiro-r125d-paired-ab.sh`, 612 s, 2 reps per arm):
 
-| metric | `BN=128` (shipped default) | `BN=64` (base default) | cand/base |
+| metric | `BN=128` (env-pinned arm) | `BN=64` (default, = base) | cand/base |
 | --- | --- | --- | --- |
 | decode s/token (mean of 2) | 0.012 843 459 | 0.012 869 360 | **0.997 99** |
 | prefill s/token (mean of 2) | 0.001 123 482 | 0.001 116 801 | 1.005 98 |
@@ -329,6 +440,13 @@ window composition, so a millisecond estimate is multiplied by it exactly once �
 no second deflation for "prefill is only 25 % of the score", which is the double
 count this campaign has made before.
 
+> **This prediction is void.** It is kept verbatim because it was written before
+> §2b was known and because the arithmetic (not the premise) is reusable. §2b
+> shows BN=128 also replaces a 16-byte vector staging load with a scalar byte
+> loop, so the bytes-in-flight model no longer describes the candidate. Nothing
+> below should be quoted as a live estimate for BN=128, and no submission was
+> made on it.
+
 * central **−1.44 ms × 0.3699 = +0.53 %**;
 * interval **−3.91 ms → +1.45 %**, **+2.00 ms → −0.74 %**;
 * receipt noise **σ(officialScore) = 0.489 %**, so the central prediction is
@@ -337,41 +455,56 @@ count this campaign has made before.
   `e27f1ce` = 2.606 649 70; central A1 predicts **2.620 46**, i.e. it clears the
   crown by ≈0.15 % if the central case holds.
 
-**If A1 comes back flat or negative**, the correct read is that BN is not the
-binding constraint on this shape, and the census already names the bigger prize:
+The transfer constant itself is unaffected by §2b and remains the right way to
+price any *future* millisecond estimate on this shape.
+
+**Where the value actually is.** Independent of BN, the census already names the
+bigger prize:
 `SM = 16` row fragments against ≈16 rows per expert means the row dimension is
 padded, ≈31.3 % of the MMA work on this shape is on padding, worth ≈11 ms —
-seven times A1's whole addressable pool. That is a BM/WM experiment (R107-C §8),
-not a BN one.
+roughly 4.5× the corrected addressable pool of this whole BN lever. That is a
+BM/WM experiment (R107-C §8), not a BN one.
 
 ---
 
-## §7 Abort criteria
+## §7 Follow-up gating (replaces the pre-draw abort criteria)
 
-Stated before the draw so the receipt cannot be reinterpreted afterwards:
+The original §7 listed abort criteria for an official BN=128 draw. That draw was
+never taken, because §2b removed its premise before submission. What replaces it
+is the order in which a follow-up should be attempted — **one lever at a time**:
 
-1. **Hard error or correctness failure on the M5** (not a slow score) ⇒ the
-   cause is almost certainly the TG-memory or register envelope: 18 448 B is
-   56 % of the M4-measured 32 768 B limit, and gen 17+ may reserve additional
-   threadgroup memory for tensorops. **Action: revert to BN=64 immediately**; do
-   not attempt BN=192 (not a divisor rung) or BN=256 (over the M4 limit).
-2. **Receipt Δ ≤ −1 σ (≤ −0.489 %)** ⇒ the register-pressure branch of §2 won.
-   **Action: revert to BN=64**, and record that TN=8 spills on gen 17 so no
-   future experiment re-tries a wider N tile on this shape.
-3. **Receipt |Δ| < 1 σ** ⇒ ambiguous. **Action: at most one A2 (`BN=32`) draw**
-   as a sign test. If A2 ≥ A1, the bytes-in-flight model is falsified; abandon
-   BN entirely and move to the `SM=16` row-padding lever (§6).
-4. **Receipt Δ ≥ +0.378 %** ⇒ promote and rebase the frontier; the next BN
-   question is closed (128 is the top rung that fits) and the follow-up is
-   whether the *gate/up* shape can be unlocked from its `BN == 64` correctness
-   lock by rewriting the SwiGLU pairing — a much larger change, not a knob.
-5. **Any interpretation from a non-M5 host** is out of bounds for this lever:
-   gen-16 cannot execute it at all.
+1. **Fix the loader first, with BN unchanged at 64.** Add a chunked branch to
+   `QuantizedBlockLoader::load_unsafe` for `kSrcBytes == 32`: two 16-byte
+   `WideSrc` copies instead of one, keeping the existing 16-byte device→private
+   and private→threadgroup `memcpy` pair. This is a device-side change with no
+   host-side dispatch effect, so it is verifiable by the same AIR/IR census:
+   the acceptance test is `Wide*` symbol count > 0 and two 16-byte
+   `memcpy.p0i8.p1i8` in `down-bn128.ir`, with `mma_run`/`fmul` unchanged.
+2. **Only then re-run the BN rung.** With the loader emitting the same load
+   width at 64 and 128, BN=128 becomes the single-lever experiment this
+   assignment intended, and the §2 harvest model applies again (with the
+   corrected ≈2.4 ms pool, not 3.91 ms).
+3. **Do not raise a BN=32 counter-arm as a sign test.** §2b shows 32 also
+   changes the staging width (8-byte body), so it cannot isolate tile width.
+   `bn32.patch` remains in the artifacts only as a reproduction aid.
+4. **Preferred use of the next allocation is not BN at all.** The `SM=16`
+   row-padding lever (§6, ≈11 ms) is a BM/WM experiment worth roughly 4.5×
+   the corrected addressable pool of this whole BN lever.
+5. **Any interpretation from a non-M5 host stays out of bounds for this lever**:
+   gen-16 cannot execute `_nax` at all (§3).
 
 ---
 
 ## §8 Deviations from the assignment
 
+0. **The assigned change is not shipped.** The assignment asked for BN=128 as the
+   default for the routed/shared down gather GEMM. `darkbloom_expert_down_bn()`
+   is committed with the default back at **64**; only the env ladder is widened
+   to accept 128 for reproduction, and an 8-line comment records the
+   `fp_quantized_nax.h:438-444` constraint. With the env var unset the submitted
+   surface is **behaviourally identical to base `a9de9e8`**. The reason is §2b:
+   BN=128 silently changes a second mechanism, and shipping it would be exactly
+   the "combining several unmeasured mechanisms" failure AGENTS.md warns about.
 1. **The local timing arm is a regression check, not neutrality evidence.** The
    assignment anticipated a paired `--local-iterate` A/B for decode neutrality.
    I ran it (§5: 2 reps per arm, alternating, env-pinned rungs on one binary) and
@@ -380,10 +513,10 @@ Stated before the draw so the receipt cannot be reinterpreted afterwards:
    scored path, so the neutrality claim rests on the structural argument (§5
    (1)-(4)). Recording the local numbers as a *speed* result would be the
    "evidence-shaped noise" failure this campaign has hit before.
-2. **A2 (`BN=32`) shipped as a patch artifact, not a second commit.** The
-   assignment allows 1-2 single-lever arms; A2 is only useful *conditionally*
-   (§0 preference order, §7 criterion 3), so committing it as a second arm would
-   spend review surface on an arm that is predicted negative.
+2. **A2 (`BN=32`) shipped as a patch artifact, not a second commit** — and it is
+   now known to be *not* a valid counter-arm at all: §2b shows BN=32 changes the
+   staging load width too (8-byte body), so it could not have isolated tile
+   width. The patch stays as a reproduction aid only.
 3. **64-step drift tripwire not run**: the fixture is absent from this checkout,
    as previously recorded for R121-A. The gate remains available on the official
    stack.
@@ -391,6 +524,12 @@ Stated before the draw so the receipt cannot be reinterpreted afterwards:
    18 448 B; 173.2 vs 160.2 at 4 624 B). The instrument is noisy at small
    footprints and uses a trivial kernel, so it does not model register pressure.
    Only the **monotone, sub-linear** ordering is claimed, and that reproduces.
+5. **Two soft spots in the §2 arithmetic, flagged rather than buried.** The
+   14.42 ms down-shape budget is a byte-proportional *assumption* off PR170's
+   43.26 ms family total, not a measured per-shape time; and the η = 1.0 row of
+   the harvest table is unreachable because its DRAM floor omits the ≈0.64 GB of
+   `y` stores and ≈0.16 GB of unique `x` reads, which lifts the floor to
+   ≈11.98 ms and shrinks the honest pool to ≈2.4 ms.
 
 ### Reproduction
 
@@ -404,6 +543,18 @@ for b in 32 64 128; do
     > research/artifacts/tanjiro-r125d/down-bn$b.ir
 done
 python3 research/maple-tanjiro-r125d-air-census.py 32 64 128
+
+# 1b. the §2b blocker: wide-load presence per rung.
+#     (grep -c counts matching *lines*; the §2b table quotes occurrence counts,
+#      hence Wide_lines 12/16/0 here vs Wide 21/27/0 there. Same conclusion.)
+D=research/artifacts/tanjiro-r125d
+for b in 32 64 128; do
+  printf 'bn%s Wide_lines=%s mc16_dev=%s mc16_tg=%s sb32_alloca=%s\n' "$b" \
+    "$(grep -c Wide $D/down-bn$b.ir)" \
+    "$(grep -c 'memcpy.p0i8.p1i8.*i64 16, i1' $D/down-bn$b.ir)" \
+    "$(grep -c 'memcpy.p3i8.p0i8.*i64 16, i1' $D/down-bn$b.ir)" \
+    "$(grep -c 'lifetime.start.*i64 32,' $D/down-bn$b.ir)"
+done   # -> bn32 0/1, bn64 1/1, bn128 0/0 + sb32_alloca=1; see wide-load-census.txt
 
 # 2. real Metal pipeline TG-memory probe
 swiftc -O research/maple-alphonse-r107c-pipeline-probe.swift -o /tmp/pipeprobe && /tmp/pipeprobe
