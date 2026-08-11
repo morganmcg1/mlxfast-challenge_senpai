@@ -64,8 +64,18 @@ def main() -> int:
         return 1
 
     arms = sorted(per_arm)
-    print(f"{'arm':>6} {'n':>3} {'qmv us/step':>22} {'calls':>7} "
-          f"{'wall ms':>16} {'busy ms':>16}")
+
+    # Selection proof: each arm dispatches a distinctly-named pipeline, so the
+    # bucket name in the atlas is direct evidence of which variant ran.
+    print("dispatched pipeline per arm (bit-identical output cannot show this):")
+    for tg in arms:
+        names = set()
+        for _, rows, _, _, _ in per_arm[tg]:
+            names |= {k for k in rows if ARM_ROW in k}
+        print(f"  TG={tg:<4} {sorted(names)}")
+
+    print(f"\n{'arm':>6} {'n':>3} {'qmv us/step':>22} {'calls':>7} "
+          f"{'us/call':>8} {'wall ms':>16} {'busy ms':>16}")
     arm_qmv = {}
     for tg in arms:
         qmv, walls, busies, ncalls = [], [], [], []
@@ -80,9 +90,22 @@ def main() -> int:
         wm, wsd, _, _ = summarize(walls)
         bm, bsd, _, _ = summarize(busies)
         arm_qmv[tg] = (m, sd, sem, n, qmv)
+        calls_mean = statistics.mean(ncalls)
         print(f"{tg:>6} {n:>3} {m:>10.2f} +- {sd:5.2f} (sem {sem:4.2f}) "
-              f"{statistics.mean(ncalls):>7.1f} "
+              f"{calls_mean:>7.1f} {m / calls_mean:>8.3f} "
               f"{wm:>9.3f} +- {wsd:4.3f} {bm:>9.3f} +- {bsd:4.3f}")
+
+    # Contamination check: block 1 (first mirrored ABC|CBA sextet) vs the rest.
+    print("\nper-block arm means (drift/contamination check):")
+    for tg in arms:
+        blocks = {}
+        for name, rows, _, _, _ in per_arm[tg]:
+            blk = int(re.search(r"p(\d+)-", name).group(1)) // 6
+            blocks.setdefault(blk, []).append(
+                sum(x for k, x in rows.items() if ARM_ROW in k))
+        cells = [f"b{b + 1}={statistics.mean(v):8.2f}"
+                 for b, v in sorted(blocks.items())]
+        print(f"  TG={tg:<4} " + "  ".join(cells))
 
     base = arm_qmv[64][0]
     print("\nper-arm delta vs TG=64 (raw SPLIT=1 us/step):")
