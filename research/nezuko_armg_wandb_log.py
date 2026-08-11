@@ -7,6 +7,8 @@ Every number is parsed from committed artifacts so the run and
 Usage: nezuko_armg_wandb_log.py NAME AB_STATS_JSON [KEY=VALUE ...]
 """
 import json
+import os
+import pathlib
 import sys
 
 import wandb
@@ -55,7 +57,7 @@ def main(name, ab_path, extra):
         "campaign": "maple",
         "student": "maple-nezuko",
         "assignment_id": "maple-r109-b-router-hybrid-selector",
-        "revision_id": "r109-b-rev1",
+        "revision_id": "r109-b-rev2",
         "pr": 682,
         "base_sha": BASE_SHA,
         "preflight_base_sha": PREFLIGHT_BASE_SHA,
@@ -84,7 +86,58 @@ def main(name, ab_path, extra):
     config.update({f"rung1a_{k}": v for k, v in RUNG1A.items()})
     config.update(extra)
 
+    # SPLIT=1 attribution + SPLIT=0 barrier census, reduced from the committed
+    # .prof/.err.gz artifacts by research/nezuko_r109_profile_summary.py.
+    prof_path = pathlib.Path(
+        os.environ.get("ARMG_PROFILE_JSON", "research/armg-runs/p1/summary.json")
+    )
+    profile = json.load(open(prof_path)) if prof_path.exists() else None
+    if profile:
+        config["profile_run_dir"] = profile["run_dir"]
+        config["profile_split1_note"] = (
+            "every per-kernel decode profile taken at "
+            "DARKBLOOM_GPU_PROFILE_SPLIT=1; the barrier census must be SPLIT=0 "
+            "because SPLIT=1 makes the barrier count identically zero"
+        )
+
+    # Shipped-default correctness tripwire (./benchmark.sh --local-iterate).
+    score_path = pathlib.Path(
+        os.environ.get("ARMG_SCORE_JSON", "score.local-iterate.json")
+    )
+    score = json.load(open(score_path))["metrics"] if score_path.exists() else None
+
     summary = {"teacher_forced_divergences": 0}
+    if profile:
+        for arm, rec in profile["arms"].items():
+            s1 = rec.get("split1", {})
+            s0 = rec.get("split0", {})
+            summary[f"prof_{arm}_dispatches_per_step"] = s1.get("dispatches_per_step")
+            summary[f"prof_{arm}_split1_wall_us"] = s1.get("wall_us")
+            summary[f"prof_{arm}_split1_busy_sum_us"] = s1.get("busy_sum_us")
+            summary[f"prof_{arm}_split1_busy_union_us"] = s1.get("busy_union_us")
+            summary[f"prof_{arm}_split1_sum_over_union"] = s1.get("sum_over_union")
+            summary[f"prof_{arm}_split0_wall_us"] = s0.get("wall_us")
+            summary[f"prof_{arm}_barriers_per_step"] = rec.get("barriers_per_step")
+            for fam, frec in s1.get("families", {}).items():
+                summary[f"prof_{arm}_{fam}_us_per_step"] = frec["us_per_step"]
+                summary[f"prof_{arm}_{fam}_n_per_step"] = frec["n_per_step"]
+            for k, v in (rec.get("vs_A") or {}).items():
+                summary[f"prof_{arm}_vsA_{k}"] = v
+    if score:
+        for key in (
+            "passed_correctness",
+            "max_abs_diff",
+            "case_count",
+            "checked_steps",
+            "decode_seconds_per_token",
+            "prefill_seconds_per_token",
+            "decode_speedup",
+            "peak_ram_gb",
+            "weights_byte_count",
+            "golden_hash",
+            "num_layers",
+        ):
+            summary[f"local_iterate_{key}"] = score.get(key)
     for arm, rec in arms.items():
         summary[f"arm_{arm}_median_ms"] = rec["median_of_medians_ms"]
         summary[f"arm_{arm}_runs"] = rec["n_runs"]

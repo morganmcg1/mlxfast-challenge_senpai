@@ -32,8 +32,8 @@ and wall side by side, and the barrier count next to both:
 |---|---|---|---|---|---|
 | A shipped | 406 | — | 247 | ref | — |
 | S geometry only | 406 | +136.9 µs | 247 | **+43.23 µs** | **0.32** |
-| W fused, pre-norm kept | 406 | **−6.0 µs** | 247 | **+46.33 µs** | sign flips |
-| N fused, no emit | 406 | +18.1 µs | 247 | +51.96 µs | 2.87 |
+| W fused, pre-norm kept | 406 | **−6.8 µs** | 247 | **+46.33 µs** | sign flips |
+| N fused, no emit | 406 | +17.4 µs | 247 | +51.96 µs | 2.99 |
 | **C fused, pre-norm deleted** | **366** | **+204.9 µs** | **243** | **−51.73 µs** | **−0.25** |
 
 Read the last row against the first: arm C removes the entire 41-dispatch
@@ -268,11 +268,22 @@ Positive = candidate faster.
 | arm | isolated busy saved µs/step | shipped wall recovered µs/step | conversion |
 |---|---|---|---|
 | S | **+136.9** | **+43.23** [+37.06, +58.00] | **0.32** |
-| W | **−6.0** | **+46.33** [+40.15, +55.08] | **negative → positive** |
-| N | +18.1 | +51.96 [+22.13, +59.94] | 2.87 |
+| W | **−6.8** | **+46.33** [+40.15, +55.08] | **negative → positive** |
+| N | +17.4 | +51.96 [+22.13, +59.94] | 2.99 |
 | C | **+204.9** | **−51.73** | **−0.25** |
 
-Three things fall out, and the second and third are worth more than the arm:
+Every figure in this table is regenerated from the committed `.prof` and
+`.err.gz` artifacts by `research/nezuko_r109_profile_summary.py research/armg-runs/p1
+--barriers A=247 --barriers S=247 --barriers W=247 --barriers N=247 --barriers C=243
+-o research/armg-runs/p1/summary.json`, so the prose cannot drift from the
+measurement. That reducer is also what caught two hand-arithmetic slips in an
+earlier draft of this table (W was written as −6.0 and N as +18.1; the artifacts
+say **−6.8** and **+17.4**, conversion 2.99 not 2.87). The whole-step `busy_sum`
+deltas are deliberately *not* used here — they are +62 / +9 / +25 / +160 µs for
+S/W/N/C and would credit each arm with savings in the dozen kernels it never
+touched, which is the drift documented in §7.7.
+
+Four things fall out, and the second, third and fourth are worth more than the arm:
 
 1. **The best-case conversion is ~0.31, not 1.0.** S removes 138.0 µs/step of
    isolated `gate_sp` busy and the shipped harness returns 43.23 µs/step of
@@ -282,7 +293,7 @@ Three things fall out, and the second and third are worth more than the arm:
 2. **Isolated busy has no predictive sign for these kernels.** S, W and N have
    shipped wall gains that agree inside their CIs (+43.2, +46.3, +52.0 — a
    spread of 8.7 µs) while their isolated `gate_sp` busy spans **144 µs**
-   (180.2 → 324.2). W is *worse* than shipped A on isolated busy (+6.0) and
+   (180.2 → 324.2). W is *worse* than shipped A on isolated busy (−6.8, i.e. 6.8 µs more busy) and
    *better* by 46 µs on shipped wall. Whatever S/W/N recover, it is not their
    own kernel time; it is the ns8r1 threadgroup geometry they share, and
    geometry is exactly the axis PR #7 showed does not transfer to M5 (τ≈0).
@@ -295,6 +306,18 @@ Three things fall out, and the second and third are worth more than the arm:
    **W − C = 46.33 − (−51.73) = 98.06 µs/step = 2.45 µs/layer of loss**,
    confirming b4's direct `C − W = +96.46 µs = 2.35 µs/layer` and landing within
    4% of the barrier law's 2.55 µs/layer.
+
+4. **The `n=1` SPLIT=0 walls demonstrate the drift floor by getting two arms
+   wrong.** Pass 2 also produces one instrumented shipped-shape wall per arm:
+   A 8211, W 8183, N 8226, S 8254, C 8267 µs/step. Read as an A/B, those would
+   report A−W = +28, A−N = **−15**, A−S = **−43**, A−C = −56 µs/step: correct in
+   sign for W and C, **inverted** for S and N, disagreeing with the 25-slot b5
+   block by ~86 and ~67 µs/step. The arm-to-arm spread of those single runs is
+   84 µs = 1.0% — larger than every effect in the study. This is why no verdict
+   here rests on a single-run wall, and why the headline column comes from b5/b4
+   rather than from the profile block. It is also a cheap, reusable warning: on
+   this host a decode arm below ~1% must be run as an interleaved multi-slot
+   block or it will produce confident nonsense.
 
 The naive census prediction for arm C was "+95.9 µs/step of launch tax
 recovered". The measured shipped result is −51.7 µs/step. The error is not 21.7×
