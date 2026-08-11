@@ -390,6 +390,114 @@ failure and a stop; that condition did not occur, so these intervals stand.
 
 All 88 timed runs produced byte-identical token dumps.
 
+### 3.9 Correctness gates (`--local-iterate`, both gate states)
+
+`research/edward_r119b_correctness.sh` ran the scored harness twice on this host
+with `MLXFAST_LOCAL_FAN_PROMPT=0`, once per gate state, with
+`DARKBLOOM_TRACE_FUSION=1` so the selected fusion site is recorded from inside
+the harness worker rather than inferred.
+
+| | gate 0 (shipped baseline) | gate 1 (grid-append) |
+| --- | --- | --- |
+| `passed` | `true` | `true` |
+| `passed_correctness` | `true` | `true` |
+| `max_abs_diff` | 0 | 0 |
+| checked greedy steps | 130 | 130 |
+| golden hash | `b9509697…a58d7a63` | `b9509697…a58d7a63` |
+| harness hash | `e63c2179…7d9834c` | `e63c2179…7d9834c` |
+| decode s/token | 0.01299535 | 0.01288054 |
+| prefill s/token | 0.00112424 | 0.00111080 |
+| decode_speedup | 1.06624 | 1.07575 |
+| prefill_speedup | 0.32691 | 0.33086 |
+| score | 0.79341 | 0.80111 |
+| peak RAM (GB) | 20.715 | 20.714 |
+
+Both states pass every checked token with `max_abs_diff = 0` against the same
+golden and harness hashes, so the grid-append kernel is output-identical on the
+scored path as well as on the smoke probe.
+
+**The trace proves the env gate reaches the scored worker and swaps exactly one
+site.** Gate 0's trace contains `routed gate/up QMV + SwiGLU (packed, producer
+keys)` and does *not* contain the grid-append site; gate 1's trace contains
+`shared+routed gate/up QMV (grid-append, packed, producer keys)` and does *not*
+contain the standalone routed site. This closes the reachability question in
+§1.3 empirically: `sanitizedRuntimeWorkerEnvironment` really does forward the
+`DARKBLOOM_` prefix into the harness worker.
+
+**Prefill.** Gate 1's prefill is 1.2 % *faster* than gate 0's, so there is no
+prefill regression and the §7 0.15 % no-ship trigger does not fire. This is
+expected: the fused kernel is selected only inside the decode packed-keys
+branch, so prefill executes byte-identical code in both states and the 1.2 %
+difference is pure run-to-run noise. Symmetrically, a single-shot pair cannot
+*resolve* 0.15 % — the honest statement is "no mechanism touches prefill, and
+the measurement is consistent with that", not "prefill was shown to regress by
+less than 0.15 %".
+
+**A trap worth recording.** Taken at face value this pair says the candidate is
+0.88 % *faster* in decode, which contradicts the 72-run mirrored campaign's
+−0.066 %. It is not a real contradiction; it is why §6 pre-registered a blocked,
+mirrored design. Removing the first-step transient, the harness decode walls are
+8.258 ms (gate 0) versus 8.214 ms (gate 1), a 0.044 ms gap that is *smaller*
+than the run-to-run spread of per-run medians within a single arm in §3.8
+(0.037 ms for C, 0.069 ms for F). Gate 0 alone also differs by 1.05 % from an
+earlier baseline harness run on the same host. One unmirrored A/B pair on this
+host has roughly ±1 % resolution, i.e. ±80 µs/step — an order of magnitude
+coarser than the effect under test and larger than the 48.3 µs fork threshold.
+Any conclusion drawn from a single `--local-iterate` pair at this effect size
+would be noise.
+
+### 3.10 Rule 105.15 — upstream equivalence
+
+`research/run_upstream_equivalence.sh` was run with the gate ON, then again with
+the gate OFF on the identical checkout, so the outcome could be attributed
+rather than guessed.
+
+| | gate 1 (grid-append) | gate 0 (unchanged base) |
+| --- | --- | --- |
+| tests executed (non-zero required) | 1 | 1 |
+| `EQUIVALENCE_EXACT_STEPS` | 8 | 8 |
+| `EQUIVALENCE_EXIT` | 1 | 1 |
+| `promptTokenCount` / `decodeTokenCount` | 512 / 8 | 512 / 8 |
+| prefill `maximumAbsoluteLogitError` | 0.125 | 0.125 |
+| prefill `meanAbsoluteLogitError` | 0.011933609 | 0.011933609 |
+| `decode-0`…`decode-7` max abs logit error | 0.0 (all 8) | 0.0 (all 8) |
+| token divergences | 0 / 9 | 0 / 9 |
+
+`EQUIVALENCE_EXACT_STEPS=8` and the required non-zero test count are both
+satisfied — the wrapper selected and ran exactly one test, not zero — but
+`EQUIVALENCE_EXIT=1`: the assertion at `LagunaCorrectnessTests.swift:249:5`
+compares against a `0` tolerance and the **prefill** step reports
+`maximumAbsoluteLogitError = 0.125`.
+
+**This failure is a property of the unchanged base on this host, not of the
+grid-append kernel.** The two runs are identical in every field, including the
+mean absolute error to eight significant figures and the emitted token sequence
+(5991, 509, 902, 5991, 509, 902, 5991, 509, 902 — every `runtimeToken` equals its
+`upstreamToken`, so no token diverged in either state). `AGENTS.md` prescribes
+exactly this procedure: when a non-M5 host disagrees with a public golden, test
+the unchanged base. The base disagrees identically, so the divergence is an
+M4-host artifact of the prefill path.
+
+Two independent facts corroborate that reading:
+
+1. The grid-append kernel is selected only inside the decode packed-keys branch
+   (§3.9's trace evidence), so prefill runs byte-identical code in both gate
+   states. A change that cannot execute during prefill cannot produce a prefill
+   logit difference.
+2. All eight decode steps — the only steps my change can touch — are exactly
+   `0.0` in both states, which is the strongest available statement that the
+   fused kernel is bit-exact on the path it actually modifies.
+
+I did **not** set `MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT=1`. That override is
+permitted once the unchanged base is shown to share the divergence, but it
+records a failure and never relaxes an official gate, so it would add nothing
+here. The honest status is: **Rule 105.15 is satisfied for the decode path this
+experiment modifies (8/8 exact steps, non-zero test count), and the wrapper's
+overall exit is 1 because of a pre-existing prefill discrepancy on this M4 host
+that reproduces byte-for-byte with the gate off.** The M5 remains authoritative
+for this near-tie; the result does not weaken the §4 verdict because that
+verdict is a *negative* — nothing is being shipped.
+
 ## 4. Verdict
 
 ### 4.1 Which branch of the pre-registered fork fired
@@ -512,3 +620,10 @@ remains available and documented for a future M5 re-test.
    pushed it above 0.555 with a single mode. I added a direct smoothed-histogram
    peak count and report both; the instrument-failure condition is treated as
    elevated coefficient *and* two or more modes (§3.8).
+6. **`run_upstream_equivalence.sh` exits 1 on this host in both gate states.**
+   Rule 105.15 asks for a non-zero test count and `EQUIVALENCE_EXACT_STEPS=8`;
+   both hold. The non-zero exit comes from a prefill `maximumAbsoluteLogitError`
+   of 0.125 that reproduces byte-for-byte with the gate off, on a path my change
+   cannot execute (§3.10). I ran the unchanged-base comparison rather than
+   asserting the cause, and I did not use
+   `MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT=1`.

@@ -366,6 +366,36 @@ def main() -> None:
     if isinstance(off, float) and isinstance(on, float) and off > 0:
         summary["local_iterate/decode_delta_pct"] = 100.0 * (on - off) / off
 
+    for gate, fname in ((1, "equiv_on.log"), (0, "equiv_off.log")):
+        path = os.path.join(args.correct, fname)
+        if not os.path.exists(path):
+            continue
+        text = open(path, errors="replace").read()
+        for key, pat in (("exact_steps", r"EQUIVALENCE_EXACT_STEPS=(\d+)"),
+                         ("exit", r"EQUIVALENCE_EXIT=(\d+)")):
+            mm = re.search(pat, text)
+            if mm:
+                summary[f"equivalence/gate{gate}/{key}"] = int(mm.group(1))
+        summary[f"equivalence/gate{gate}/tests_executed"] = len(
+            re.findall(r"Test lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled\(\) started", text))
+        steps = re.findall(
+            r'"label" : "([^"]+)",\s*\n\s*"maximumAbsoluteLogitError" : ([0-9.e-]+),'
+            r'\s*\n\s*"meanAbsoluteLogitError" : ([0-9.e-]+),'
+            r'\s*\n\s*"runtimeToken" : (\d+),\s*\n\s*"upstreamToken" : (\d+)', text)
+        exact_decode = sum(1 for s in steps if s[0].startswith("decode") and float(s[1]) == 0.0)
+        summary[f"equivalence/gate{gate}/decode_steps_exact"] = exact_decode
+        summary[f"equivalence/gate{gate}/token_divergences"] = sum(
+            1 for s in steps if s[3] != s[4])
+        for s in steps:
+            if s[0] == "prefill":
+                summary[f"equivalence/gate{gate}/prefill_max_abs_logit_error"] = float(s[1])
+                summary[f"equivalence/gate{gate}/prefill_mean_abs_logit_error"] = float(s[2])
+    if ("equivalence/gate0/prefill_max_abs_logit_error" in summary
+            and "equivalence/gate1/prefill_max_abs_logit_error" in summary):
+        summary["equivalence/prefill_error_reproduces_on_base"] = (
+            summary["equivalence/gate0/prefill_max_abs_logit_error"]
+            == summary["equivalence/gate1/prefill_max_abs_logit_error"])
+
     run.summary.update(summary)
     for k in sorted(summary):
         print(f"{k}\t{summary[k]}")
