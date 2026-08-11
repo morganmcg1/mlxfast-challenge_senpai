@@ -1,0 +1,28 @@
+Submission-poller logs archived from the runtime job-log directory.
+These are the raw input to section 7.4 of
+research/maple-fern-r109f-instrument-collapse.md (exact service
+brackets, slot occupancy, and the 7.4(h) queue-ownership split).
+
+Reproduce section 7.4 offline:
+  python3 research/fern_r109f_poller_occupancy.py \
+      --glob 'research/artifacts/fern-r109f/pollerlogs/*.log'
+
+Names encode the job id prefix and the outcome:
+  submitted = the poller won a free slot and fired a submission
+  expired   = --max-wait elapsed with the slot still busy
+  watching  = the poller was still running, or was terminated,
+              while the slot was occupied
+
+dest                                        bytes  lines   busy  free  sub  source job log
+poller-1298f7a9-watching.log                19831    235    232     0    0  1298f7a9-e1be-4464-8a58-9bd7f00a3bbe.log
+poller-cb202346-watching.log                10172    121    119     0    0  cb202346-f91b-46f8-bd0e-d8d5f905ffeb.log
+poller-c309d8c1-watching.log                 6499     78     76     0    0  c309d8c1-4fff-4b31-a89c-7cb333319602.log
+poller-57c75849-submitted.log                4531     59     48     1    1  57c75849-6612-4490-80bf-54e5448c6bd9.log
+poller-c909dae9-watching.log                 1484     19     17     0    0  c909dae9-817e-486e-a03f-7922892abc0f.log
+poller-b432f40f-submitted.log                1413     22     12     1    1  b432f40f-4aac-4ccc-ae5e-c46ec35e9070.log
+poller-0a47a297-submitted.log                1328     21     11     1    1  0a47a297-34ee-479a-9f50-402ac0251d3c.log
+poller-7c6160d9-submitted.log                 898      9      4     1    1  7c6160d9-4770-4b97-acf3-3013c76e65b2.log
+poller-adae32a3-watching.log                  850     11     10     0    0  adae32a3-b281-41f2-8301-1f4162a78d6d.log
+poller-8b318590-submitted.log                 394     10      0     1    1  8b318590-017b-427e-a793-387390eaea5b.log
+
+total 47400 bytes across 10 files

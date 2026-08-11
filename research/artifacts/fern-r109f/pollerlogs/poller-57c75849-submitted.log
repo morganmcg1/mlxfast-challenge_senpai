@@ -1,0 +1,58 @@
+note pre-flight OK: 11874 bytes >= 5120, no placeholders
+2026-08-11T09:06:49Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:07:04Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:07:21Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:07:37Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:07:55Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:08:12Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:08:29Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:08:45Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:09:01Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:09:17Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:09:34Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:09:49Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:10:05Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:10:23Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:10:39Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:10:58Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:11:13Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:11:34Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:11:50Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:12:06Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:12:24Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:12:40Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:12:56Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:13:12Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:13:29Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:13:48Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:14:04Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:14:20Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:14:38Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:14:54Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:15:10Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:15:30Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:15:46Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:16:02Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:16:19Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:16:35Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:16:51Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:17:10Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:17:26Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:17:43Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:17:59Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:18:15Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:18:35Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:18:51Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:19:07Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:19:23Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:19:39Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:19:55Z slot BUSY: 7eca997d validating created=2026-08-11T07:57:16.158Z
+2026-08-11T09:20:12Z slot FREE -> submitting (attempt 1)
+Pushing traces before submission (up to 60 seconds)...
+[1mSubmission queued[22m
+[2mbenchmark[22m   eigenlabs/mlxfast-challenge
+[2msubmission[22m  4be372f9-bb17-4857-9252-b84c71bc3c1a
+[2mstatus[22m      [36mvalidating[39m
+[2mnote[22m        11.6 KiB
+
+SUBMITTED ok; candidate ids seen: ['4be372f9-bb17-4857-9252-b84c71bc3c1a']

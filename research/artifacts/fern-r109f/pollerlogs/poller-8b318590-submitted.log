@@ -1,0 +1,9 @@
+2026-08-11T01:07:14Z slot FREE -> submitting (attempt 1)
+Pushing traces before submission (up to 60 seconds)...
+[1mSubmission queued[22m
+[2mbenchmark[22m   eigenlabs/mlxfast-challenge
+[2msubmission[22m  ed40f3ee-b76b-45de-b751-d02b013ea113
+[2mstatus[22m      [36mvalidating[39m
+[2mnote[22m        14.4 KiB
+
+SUBMITTED ok; candidate ids seen: ['ed40f3ee-b76b-45de-b751-d02b013ea113']

@@ -1604,7 +1604,7 @@ conclusion safe.
 | `0531544b` | ≤ 7 s | 23.085 |
 | `f2b23450` | ≤ 68 s | ≥ 29.444 |
 | `7eca997d` | ≤ 100 s | 82.789 |
-| `4be372f9` (t7) | ≤ 9 s | ≥ 57.4 (open) |
+| `4be372f9` (t7) | ≤ 9 s | ≥ 69.3 (open, 10:30Z) |
 | `3275a9bd` | slot idle ≥ 307 min — **unknown** | 22.743 |
 
 **Five of six** observed submissions took the slot within 120 s of it freeing,
@@ -1877,7 +1877,8 @@ by-product of infrastructure written for another purpose):
 | `research/fern_r109f_slot_occupancy_share.py` | §7.4(e): that `account_share: 3` was a guess and the measurable quantity is occupancy — 98.3 % of the contested 139.0 min window held by one contender, 1.7 % idle, 0 of 3 slots won by me — plus the 1-in-flight rule as a *free* exact upper bound (`f2b23450` ≤31.113 min) that independently brackets a poller lower bound of ≥29.444 |
 | `research/fern_r109f_service_latency.py --exclusion-check` | retraction 9's three attempts, including the two numbers that killed attempt 1 (`min(ub)` = 24.89 min > the 22.9 floor ⇒ power 0; median excluded `ub` = 13850 min ⇒ vacuous for 100 %) and the graded power of attempt 3 (24 observations, 0 counter-examples, 11 proving >10 min, 2 proving >20 min) |
 | `research/fern_r109f_check_wandb_tables.py` | that the §7.4 W&B wiring actually works, which `--dry-run` **cannot** show because a dry run never reaches `run.log()`. It builds the real `wandb.Table` objects offline and asserts column count, row count, and first-row typing — the exact failure mode that killed run `f9wyuoxq` |
-| the ten poller logs under the job-log directory | the raw evidence. They were written as 15-second liveness monitors for a submission poller; §7.4 is entirely a re-read of logs that already existed, which is why the section cost zero builds and zero submission slots |
+| `research/artifacts/fern-r109f/pollerlogs/` (10 logs, 47 KiB, + `MANIFEST.txt`) | the raw evidence, **committed**. These are the poller logs themselves, copied out of the runtime job-log directory — which is *outside* the checkout, so until they were archived §7.4 was a section whose conclusions a reviewer could read and whose inputs a reviewer could not. `python3 research/fern_r109f_poller_occupancy.py --glob 'research/artifacts/fern-r109f/pollerlogs/*.log'` reproduces all four exact brackets (22.743 / 22.986 / 23.085 / 82.789), the 4/4 mtime cross-check, and the §7.4(h) queue table from committed files alone |
+| `research/fern_r109f_archive_poller_logs.py` | the archiver, which selects logs by the presence of a `slot BUSY`/`slot FREE` line (10 of 202 job logs), names each copy by outcome (`submitted`/`expired`/`watching`), records byte/line/event counts in the manifest, and refuses to copy a log whose text matches a credential shape — a bearer header or a bare 40-hex key. It has to distinguish that last shape from a git sha, because poller logs legitimately print package shas |
 
 
 **Local-only git objects, and what should happen to them.** Three things exist

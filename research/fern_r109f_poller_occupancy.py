@@ -198,12 +198,23 @@ def main() -> int:
     )
     ap.add_argument("--log", action="append", default=[],
                     help="poller log path (repeatable); default globs job logs")
+    ap.add_argument("--glob", action="append", default=[],
+                    help="glob of poller logs (repeatable). Use this to rerun "
+                         "against the committed archive: --glob "
+                         "'research/artifacts/fern-r109f/pollerlogs/*.log'")
     ap.add_argument("--cache", action="append", default=[],
                     help="submissions cache for the mtime cross-check")
     ap.add_argument("--deadline", default=DEFAULT_DEADLINE)
     args = ap.parse_args()
 
-    log_paths = args.log or sorted(glob.glob(DEFAULT_LOG_GLOB))
+    # Explicit --log / --glob win over the runtime job-log directory, so the
+    # section is reproducible from the archive committed under
+    # research/artifacts/fern-r109f/pollerlogs/ by anyone who clones the branch.
+    log_paths = list(args.log)
+    for pat in args.glob:
+        log_paths.extend(sorted(glob.glob(pat)))
+    if not log_paths:
+        log_paths = sorted(glob.glob(DEFAULT_LOG_GLOB))
     pollers = []
     for path in log_paths:
         try:
