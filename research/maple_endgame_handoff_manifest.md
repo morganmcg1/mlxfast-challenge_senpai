@@ -55,15 +55,26 @@ draws under a **comment-insensitive digest of `Sources/`** instead of by commit 
 18 replicate groups, 7 with metrics, **trimmed pooled sd(ln score) = 0.1860 %**, worst well-behaved
 group 0.2276 %. My "no replicates" finding was an artifact of keying on commit identity while the
 campaign routinely added cosmetic marker comments. At the true σ the 0.4950 % gap is **2.2–2.7σ**, not
-1σ, and the tail excursions that do exist are **one-sided negative** (contention/thermal), so they add
-no upside. **Re-firing an unchanged tree is worth ≈1 % per draw, not ≈15 %.** Only a real delta of
-≈+0.26 % (≈15 %) to ≈+0.50 % (≈50 %) can clear the bar. Full derivation, and what a delta must be
+1σ (**and §6.5c shows even that understates it: measured from the program mean rather than from the
+lucky draw the required move is 6.3–7.8σ**), and the tail excursions that do exist are **one-sided
+negative** (contention/thermal), so they add
+no upside. **Re-firing an unchanged tree is worth ≈1 % per draw, not ≈15 %** — and §6.5c, a fifth
+error found at 12:45Z, brackets it lower still at **[≈0 %, 1.5 %]**. ~~Only a real delta of ≈+0.26 %
+(≈15 %) to ≈+0.50 % (≈50 %) can clear the bar.~~ **Those two probabilities were also computed from the
+lucky draw rather than from its program mean and are wrong by ≈6×: the true figures are +0.26 % ⇒
+3.2 % and +0.50 % ⇒ 8.0 %, and an even-money draw needs ≈+1.26 % of score ≈ 82 µs/step ranked
+(§6.5c).** Full derivation, and what a delta must be
 worth in µs/step, in **§6.5**; the two incompatible µs/step currencies that error three also exposed
 are in **§6.6**.
 
-The common cause of all three errors is worth more than the errors: **each time, I took a number from a
-summary layer (a closing comment, my own earlier table, an archive's modelled σ) instead of from the
-layer that measured it.** §8's rule 1 is now "verify inputs, not conclusions", and edward's R127-A
+There are five errors in this document's history, not three. Error 4 is the µs/step currency confusion
+(§6.6, found 12:10Z, four currencies quoted as one). Error 5 is §6.5c (found 12:45Z): the table that
+priced *how big a delta has to be* was still computed from the lucky draw after the winner's curse had
+been established, and is wrong by ≈6× in the flattering direction.
+
+The common cause of all five is worth more than the errors: **each time, I took a number from a
+summary layer (a closing comment, my own earlier table, an archive's modelled σ, my own corrected
+paragraph) instead of from the layer that measured it.** §8's rule 1 is now "verify inputs, not conclusions", and edward's R127-A
 audit (#741) exists to apply it to the rest of this document.
 
 The generalisable failure, stated for whoever reads this next: **I priced a student's number without
@@ -798,12 +809,16 @@ delta has to be worth:
 | real gain on the ranked host | P(one draw ≥ bar) | 3 draws | note |
 |---|---|---|---|
 | 0 (re-fire incumbent) | 0.4–1.5 % | 1–4 % | today's actual position |
-| **+0.26 %** | 10–15 % | 28–39 % | buys back what the 15.6 % table *claimed* for free |
-| **+0.50 %** | ≈51 % | ≈88 % | approximately closes the gap |
+| ~~**+0.26 %**~~ | ~~10–15 %~~ | ~~28–39 %~~ | **SUPERSEDED — see §6.5c. Correct value ≈3.2 %.** |
+| ~~**+0.50 %**~~ | ~~≈51 %~~ | ~~≈88 %~~ | **SUPERSEDED — see §6.5c. Correct value ≈8.0 %.** |
 
-(Ranges span σ = 0.1860–0.2276 %.) In µs/step, via §6.6: **+0.26 % ≈ 17 µs/step on the ranked host**
-(≈44 µs/step measured locally, if you accept the local→ranked transfer assumption), **+0.50 % ≈ 32
-µs/step ranked** (≈84 local). For scale, the largest per-knob effect Maple measured all campaign is
+(Ranges span σ = 0.1860–0.2276 %.) **This delta table is wrong by ≈6× and the error is the winner's
+curse it acknowledges two paragraphs above but does not apply: it measures the required move from the
+lucky draw `2.60664970` instead of from that program's mean `2.582263`. Corrected in §6.5c. The
+re-fire row survives as an upper bound only.** In µs/step, via §6.6: **+0.26 % ≈ 17 µs/step on the ranked host**
+(the local equivalents in this sentence originally read ≈44 and ≈84 µs/step; those came from the
+UNSOURCED 0.00586 %/µs currency and are superseded by §6.6's measured table — **31 and 59 µs/step**),
+**+0.50 % ≈ 32 µs/step ranked**. For scale, the largest per-knob effect Maple measured all campaign is
 ≈0.8 µs/step per simdgroup per threadgroup, and the delta advertised in §0 turned out to be −4.7
 µs/step. **Nothing in Maple's option set is within an order of magnitude of the requirement.** That is
 the honest end-state, and it is what the 15.6 % table was concealing.
@@ -867,9 +882,13 @@ lucky draw.
   2.94 % over two draws, 4.37 % over three.
 
 **My table was optimistic by ≈10.5×, and she found it unprompted.** My own within-program route gives
-`z = 0.4950 / 0.1860…0.2276 = 2.17…2.66` ⇒ ~1.5 % per draw. Two independent methods, one answer:
+`z = 0.4950 / 0.1860…0.2276 = 2.17…2.66` ⇒ ~1.5 % per draw. ~~Two independent methods, one answer:
 **~1–1.5 % per draw.** That agreement is worth more than either point estimate, and it is the number
-any successor should plan against.
+any successor should plan against.~~ **The agreement is spurious and the retraction is §6.5c: my route
+took the *lucky draw* as its reference point, which is the very error hers corrects. Applied
+consistently from the program mean, my within-program σ gives z = 6.3–7.8 ⇒ P ≈ 0, so the two methods
+bracket rather than confirm: plan against `[≈0 %, 1.5 %]` per draw with the point estimate read off her
+empirical tail. Her arithmetic reproduces to six digits; mine did not survive.**
 
 **Two populations — say which one you mean.** Her 0.538 % and my 0.186–0.228 % are not in conflict;
 they measure different things, and the difference is operational:
@@ -899,6 +918,66 @@ not rational**: the expected gain from one more draw is ~1.5 % while the downsid
 sits on the fat side of the distribution. Second, the campaign's remaining effort belongs on the
 handover and the channel schedule, not on manufacturing a marginal candidate — which is what §0's
 failure mode actually was.
+
+### 6.5c Error 5 — the delta-pricing table inherited the winner's curse, and it is wrong by ≈6×
+
+Found at 12:45Z, by re-deriving every figure in §6.5/§6.5b from its inputs instead of transcribing
+them (rule 8), in `research/tools/slot_holder_arithmetic.py`. Run it; it prints the manifest's own
+values next to the recomputed ones so any disagreement is visible.
+
+**What reproduced exactly.** Gap +0.4950 %; bar draw factor ×1.016694 (p99.3); our best draw factor
+1.009444; multiplier still needed 1.014441; z = 2.344 ⇒ 0.95 % normal / 1.48 % empirical. fern's §6.5b
+arithmetic is confirmed to six digits.
+
+**What did not.** Two claims in §6.5, and both are mine.
+
+**(a) The "two independent methods, one answer" agreement in §6.5b is spurious.** My within-program
+route divided the gap by σ *measured around a program mean* while taking the **lucky draw** as the
+reference point: `0.4950 / 0.1860…0.2276 ⇒ z = 2.17…2.66`. But if `2.60664970` is itself +0.9444 %
+above its program's mean, the required move from that mean is +1.4441 %, and against within-program
+σ = 0.1860–0.2276 % that is **z = 6.3–7.8, i.e. P ≈ 0 under any normal model**. So my σ route does not
+agree with fern's 0.95 %; correctly applied it says re-firing an unchanged tree is *hopeless*, not
+"~1 %". The agreement I celebrated came from applying the winner's-curse correction in fern's method
+and not in mine.
+
+**The honest statement, which is a bracket and not a point estimate:**
+
+| method | reference point | P(one more draw of the tree we hold ≥ bar) |
+|---|---|---|
+| within-program σ 0.1860–0.2276 %, normal | program mean (correct) | **≈0 %** (z = 6.3–7.8) |
+| fern's draw component, sd 0.538 %, normal | program mean (correct) | **0.95 %** (z = 2.344) |
+| fern's draw component, **empirical tail** | program mean (correct) | **1.48 %** (her figure; 1.48 % of 1280 rows ⇒ ≈19 rows at or above 1.014441, which is what a tail count of her decomposition would give — attributed to her, not re-derived here) |
+
+The empirical 1.48 % is the **upper** bound: fern's 0.538 % legitimately carries between-program
+leakage that program-hashing removes, so the tail it counts is inflated by code differences that a
+re-fire of one fixed tree does not get. **Plan against `[≈0 %, 1.5 %]` per draw, and read the point
+estimate off the empirical tail, not off any normal model.** Nothing about the endgame conclusion
+changes except its strength: re-firing is worth even less than the previous revision said.
+
+**(b) The delta table — the one that decides whether building a delta is worth the hours — was
+computed from the lucky draw and is wrong by ≈6× in the flattering direction.** Repriced from the
+program mean `2.582263` against fern's draw distribution (median 1.001830, sd 0.538 %):
+
+| real gain on the ranked host | required draw factor | z | P(one draw ≥ bar) | 3 draws |
+|---|---|---|---|---|
+| 0 (re-fire incumbent) | 1.014441 | 2.344 | **0.95 %** (empirical 1.48 %) | 2.8 % (4.4 %) |
+| **+0.26 %** | 1.011806 | 1.855 | **3.2 %** ~~10–15 %~~ | 9.2 % |
+| **+0.50 %** | 1.009394 | 1.406 | **8.0 %** ~~≈51 %~~ | 22.1 % |
+| **+1.00 %** | 1.004397 | 0.477 | **31.7 %** | 68.1 % |
+| **+1.26 %** | 1.001830 | 0.000 | **50.0 %** | 87.5 % |
+
+So the delta that makes a draw an even-money bet is **≈+1.26 % of score ≈ 82 µs/step on the ranked
+host** (§6.6 currency 0.01527 %/µs) — not the +0.50 % this document has been quoting all day.
+Against a campaign whose largest measured per-knob effect is ≈0.8 µs/step, the conclusion in §0 does
+not merely survive the correction, it hardens by a factor of six: **there was no reachable delta, and
+the correct end-state was always the handover.**
+
+**Why this error survived three passes.** Each pass fixed the input the previous pass had misread
+(0.378 → 0.4950; σ 0.49 → 0.186; then fern's curse), and each time I re-derived only the row I was
+looking at. The delta table sat two paragraphs below a sentence that *states* the winner's curse in
+words — "the tree's true mean is below it, which makes the required move larger" — and I still did not
+propagate it into the numbers. **Rule 14, earned here: when you correct a reference point, recompute
+every row that shares it, in a script, in one pass.**
 
 ### 6.6 Four µs/step currencies — the landmine underneath every price in this document
 
@@ -942,8 +1021,9 @@ Requirement table in all three *measured* currencies (from §6.5):
 
 | target | % of score | ranked µs/step (4910.9) | local-submit µs/step (8882, assumed transfer) | bench-host µs/step (8213) |
 |---|---|---|---|---|
-| +0.26 % (≈10–15 % chance at the bar) | 0.26 | **17** | 31 | 28 |
-| +0.50 % (≈50 % chance at the bar) | 0.50 | **32** | 59 | 55 |
+| +0.26 % (**3.2 %** chance at the bar, §6.5c; the "≈10–15 %" printed here earlier was error 5) | 0.26 | **17** | 31 | 28 |
+| +0.50 % (**8.0 %** chance at the bar, §6.5c; the "≈50 %" printed here earlier was error 5) | 0.50 | **32** | 59 | 55 |
+| +1.26 % (**50 %** chance at the bar — the real even-money delta, §6.5c) | 1.26 | **82** | 149 | 138 |
 
 The old table's "44 / 84" column used the unsourced 0.00586 %/µs and therefore set a **bar ~40 % too
 high** in local units — the one direction of this error that was conservative rather than flattering.
@@ -1055,6 +1135,17 @@ percent-of-score are safe to move between sections; prices in µs/step are not.
     built from *completed* services is survivorship-biased against the slow tail that is currently
     resident. My 15:20Z deadline was 40 min optimistic against fern's read of the actual jobs sitting
     in the queue.
+
+14. **When you correct a reference point, recompute every row that shares it — in a script, in one
+    pass** (§6.5c). Error 5 lived two paragraphs below a sentence that stated its own correction in
+    words. Prose acknowledgement of a bias does not propagate into the table; only re-derivation does.
+    `research/tools/slot_holder_arithmetic.py` is the pattern: it prints the document's own value beside
+    the recomputed one so disagreement is impossible to miss.
+
+15. **A campaign that is feeding another campaign owes it a decision sheet, not an archive.** This
+    document is 1100 lines; a slot holder with twenty minutes will not read it and should not have to.
+    `research/MAPLE_TO_SLOT_HOLDER_BRIEF.md` is the one-page extract containing only the numbers that
+    change a firing decision, each pointing back here.
 
 ---
 
